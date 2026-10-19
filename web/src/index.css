@@ -132,6 +132,26 @@ body {
 }
 
 /* ---------- 表格工具栏小屏换行（避免横向溢出裁切） ---------- */
+/* 侧栏折叠按钮贴合深色底（默认白底圆突兀）；保留以维持移动端抽屉触发器 */
+.wm-sider-collapse {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #1e293b;
+  color: #cbd5e1;
+  font-size: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+.wm-sider-collapse:hover {
+  color: #fff;
+  border-color: rgba(5, 150, 105, 0.6);
+}
+
 /* pro-components v2 把 toolBarRender 全部项包进一个匿名 nowrap DIV（实测 904px），
    双类选择器压过其 css-hash 单类规则 */
 .ant-pro-table-list-toolbar .ant-pro-table-list-toolbar-right {
