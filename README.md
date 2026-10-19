@@ -56,17 +56,17 @@ data/         SQLite 数据文件（git 忽略）
 
 ## 开发验证器
 
-基于 ygl-trees verify 管线（M13 spec validator）的闭集判定器 v5：**54 条判据**五维覆盖——数据域完整性（9：types/workbenches 全部数值与枚举列域）、种子与配置（6：类型数 ≥8、内置 web、ollama/streamlit 探测路径钉、巡检三键、工作台非空）、提交物结构（20：清单/源码/构建产物/脚本/自举档案/设计规范/证据资产）、**颜色可见性**（16：经对比度审计的色值钉位，如次级文字 #5A6577=5.9:1、焦点环 rgba(5,150,105,.6)、Dashboard 统计卡用色）、**E2E 行为证据**（3：用例规模 ≥14、全绿、时间戳在位，源自 e2e_test.py 落盘的 evidence/e2e-summary.json）。内容与 JSON 在 CLI 闭集不可直接判定，经两张提取表桥接：`verifier_text_facts`（色值钉位事实）与 `verifier_e2e_summary`（E2E 摘要），由 make-submission.mjs 打包时从当前源码/证据重新提取写入快照，验证器以 sql/count/exists 断言。typecheck/lint/build 不在闭集内，由开发流程自行执行。
+基于 ygl-trees verify 管线（M13 spec validator）的闭集判定器 v6：**58 条判据**六维覆盖——数据域完整性（9：types/workbenches 全部数值与枚举列域）、种子与配置（6：类型数 ≥8、内置 web、ollama/streamlit 探测路径钉、巡检三键、工作台非空）、提交物结构（20：清单/源码/构建产物/脚本/自举档案/设计规范/证据资产）、**颜色可见性**（18：经对比度审计的色值钉位，如次级文字 #5A6577=5.9:1、焦点环 rgba(5,150,105,.6)、深底状态文字 rgba(255,255,255,.85)）、**E2E 行为证据**（3：用例规模、全绿、时间戳，源自 e2e_test.py 落盘的 evidence/e2e-summary.json）、**渲染层对比度探针**（2：E2E 内置 Playwright 实测 DOM 前景/背景配对——深底状态文字曾实测 1.18:1 不可见，此维度在行为层抓住同类回归，7 处目标全 ≥4.5:1 且 fail-closed）。内容与 JSON 在 CLI 闭集不可直接判定，经三张提取表桥接：`verifier_text_facts`（色值钉位事实）、`verifier_e2e_summary`（E2E 摘要）、`verifier_contrast_checks`（渲染对比度实测），由 make-submission.mjs 打包时从当前源码/证据重新提取写入快照。typecheck/lint/build 不在闭集内，由开发流程自行执行。
 
 ```bash
-# 0) 再生成三件套（单一事实源 54 单元表 → verify/material.md + candidates.json + reviews.json）
+# 0) 再生成三件套（单一事实源 58 单元表 → verify/material.md + candidates.json + reviews.json）
 node scripts/gen-verifier.mjs
 
-# 1) 生成判定面：活库快照（含色值+E2E 提取表）+ 封装提交物（幂等；E2E 判据依赖 evidence/e2e-summary.json，未跑 E2E 则 fail-closed）
+# 1) 生成判定面：活库快照（含色值/E2E/对比度提取表）+ 封装提交物（幂等；E2E 判据依赖 evidence/e2e-summary.json，未跑 E2E 则 fail-closed）
 node scripts/make-submission.mjs
 
 # 2) 构造期（材料 → 候选 → 盲审 → 三重门 → 冻结 spec；材料/候选/盲审改动后需重新 submit）
-ygl-trees verify submit --title "workbench-market 开发验证器 v5" --text verify/material.md
+ygl-trees verify submit --title "workbench-market 开发验证器 v6" --text verify/material.md
 ygl-trees verify prepare <material-id> --candidates verify/candidates.json --reviews verify/reviews.json --db tmp/verify-snap.sqlite
 
 # 3) 执行期（可重复跑；--submission 指向封装提交物而非仓库根——file 型全仓扫描在 pnpm 联接点上不可行）
@@ -76,4 +76,4 @@ ygl-trees verify run <spec-id> --db tmp/verify-snap.sqlite --submission tmp/subm
 node scripts/verify-report.mjs <run1.json> [run2.json ...]
 ```
 
-基线：`run_f2e9c1708ae48f89` 54/54 PASS（spec_35eeeb30f830 v2，2026-10-20）。红测三条：`run_8b5fa9dcc555773c`（删 ollama+README）V10/V12/V16 精确 FAIL；`run_45ce9306eb05a210`（源码改 #5A6577）V37 精确 FAIL；`run_79cacaa31cd69a45`（E2E 13/14 + 轴色漂移双注入）V49/V53 精确 FAIL——提取表桥真实跟踪源码与行为证据。判据源文件在 [verify/](verify/)：material.md（冻结材料原文）、candidates.json（VU 候选 + checker）、reviews.json（三问盲审结论）；54 单元表由 [scripts/gen-verifier.mjs](scripts/gen-verifier.mjs) 单一事实源生成。
+基线：`run_766e0c923b514232` 58/58 PASS（spec_24a0b30d47d1，2026-10-20）。红测四条：`run_8b5fa9dcc555773c`（删 ollama+README）V10/V12/V16 精确 FAIL；`run_45ce9306eb05a210`（源码改 #5A6577）V37 精确 FAIL；`run_79cacaa31cd69a45`（E2E 13/14 + 轴色漂移）V49/V53 精确 FAIL；`run_aa92adf654b5964a`（篡改对比度记录为 1.18:1）V56 精确 FAIL——DOM 探针 → 摘要 → 提取表 → 判据的 fail-closed 链路实证。判据源文件在 [verify/](verify/)：material.md（冻结材料原文）、candidates.json（VU 候选 + checker）、reviews.json（三问盲审结论）；58 单元表由 [scripts/gen-verifier.mjs](scripts/gen-verifier.mjs) 单一事实源生成。

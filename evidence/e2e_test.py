@@ -268,6 +268,54 @@ with sync_playwright() as p:
     except Exception as e:
         record('设置/导出', False, str(e)); shot('settings')
 
+    # ---------- 12. 渲染层对比度探针（深底文字可见性——静态色值钉位测不到的 fg/bg 配对） ----------
+    CONTRAST_JS = '''
+    ([sel, min]) => {
+      const el = document.querySelector(sel);
+      if (!el) return null;
+      const cs = getComputedStyle(el);
+      let bg = 'rgba(0, 0, 0, 0)', node = el;
+      while (node) {
+        const c = getComputedStyle(node).backgroundColor;
+        if (c && c !== 'rgba(0, 0, 0, 0)') { bg = c; break; }
+        node = node.parentElement;
+      }
+      if (bg === 'rgba(0, 0, 0, 0)') bg = 'rgb(255, 255, 255)';
+      const lum = (css) => {
+        const m = css.match(/[\\d.]+/g).map(Number);
+        const f = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+        return 0.2126 * f(m[0]) + 0.7152 * f(m[1]) + 0.0722 * f(m[2]);
+      };
+      const l1 = lum(cs.color), l2 = lum(bg);
+      const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+      return { text: el.textContent.trim().slice(0, 16), color: cs.color, bg, ratio: Math.round(ratio * 100) / 100, min };
+    }'''
+    CONTRAST_TARGETS = [
+        ('/ 使用页·状态文字（用户报告的 XPath）', '/use/1', '.wm-use-bar .ant-badge-status-text', 4.5),
+        ('/ 使用页·标题', '/use/1', '.wm-use-bar .wm-use-title', 4.5),
+        ('/ 使用页·地址文字', '/use/1', '.wm-use-bar .wm-mono', 4.5),
+        ('/ 使用页·顶栏按钮', '/use/1', '.wm-use-bar .ant-btn', 4.5),
+        ('/ 总览·统计标签', '/', '.wm-stat-card .wm-stat-label', 4.5),
+        ('/ 总览·侧栏菜单项', '/', '.ant-pro-sider .ant-menu-item', 4.5),
+        ('/market 表格·状态文字', '/market', '.ant-table-tbody .ant-badge-status-text', 4.5),
+    ]
+    contrast_rows = []
+    try:
+        for label, path, sel, min_r in CONTRAST_TARGETS:
+            page.goto(BASE + path)
+            page.wait_for_load_state('networkidle')
+            page.wait_for_timeout(500)
+            r = page.evaluate(CONTRAST_JS, [sel, min_r])
+            assert r, f'{label}: 选择器 {sel} 未命中'
+            r['passed'] = 1 if r['ratio'] >= r['min'] else 0
+            r['label'] = label
+            contrast_rows.append(r)
+        bad = [r for r in contrast_rows if not r['passed']]
+        record(f'渲染层对比度（{len(contrast_rows)} 处 ≥4.5）', not bad,
+               '; '.join(f"{r['label']}={r['ratio']}" for r in bad))
+    except Exception as e:
+        record('渲染层对比度', False, str(e)); shot('contrast')
+
     cleanup(page)
     browser.close()
 
@@ -279,6 +327,8 @@ summary = {
     'failed': len(fails),
     'all_passed': 1 if not fails else 0,
     'finished_at': datetime.now(timezone.utc).isoformat(),
+    'contrast_checks': contrast_rows,
+    'contrast_all_passed': 1 if contrast_rows and all(r['passed'] for r in contrast_rows) else 0,
 }
 with open(__file__.replace('e2e_test.py', 'e2e-summary.json'), 'w', encoding='utf-8') as f:
     json.dump(summary, f, ensure_ascii=False, indent=2)

@@ -153,7 +153,7 @@ export default function Dashboard() {
               size={88}
               percent={rate}
               strokeColor="#059669"
-              trailColor="#E5E7EB"
+              railColor="#E5E7EB"
               format={() => (
                 <span className="wm-num" style={{ fontSize: 16, fontWeight: 600 }}>
                   {rate}%

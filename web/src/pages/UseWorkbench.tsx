@@ -59,6 +59,7 @@ export default function UseWorkbench() {
         </Typography.Text>
         <Space style={{ marginLeft: 'auto' }}>
           <Button
+            type="text"
             size="small"
             loading={checking}
             onClick={async () => {
@@ -78,6 +79,7 @@ export default function UseWorkbench() {
           </Button>
           <Tooltip title="重新载入内嵌页面；若页面空白，说明该工作台禁止被嵌入，请用新窗口打开">
             <Button
+              type="text"
               size="small"
               icon={<ReloadOutlined style={{ color: '#CBD5E1' }} />}
               onClick={() => setFrameKey((k) => k + 1)}
@@ -85,7 +87,7 @@ export default function UseWorkbench() {
             />
           </Tooltip>
           <a href={w.url} target="_blank" rel="noreferrer">
-            <Button size="small" icon={<ExportOutlined style={{ color: '#CBD5E1' }} />}>
+            <Button type="text" size="small" icon={<ExportOutlined style={{ color: '#CBD5E1' }} />}>
               新窗口
             </Button>
           </a>

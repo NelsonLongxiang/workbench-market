@@ -93,23 +93,33 @@ const U = [
   { c: "判据52：E2E 摘要记录的用例总数不得少于 14。", t: "E2E 规模下限", s: "S2", ck: count("verifier_e2e_summary", "==", 1, and({ col: "total", op: ">=", value: 14 })), rv: ["判据原文逐字取自冻结材料，行为面至少覆盖既有 14 组用例。", "count 条件计数 ==1 精确判定。", "删用例或未跑 E2E 即计数 0 FAIL。"] },
   { c: "判据53：E2E 摘要必须标记全部用例通过。", t: "E2E 全绿", s: "S1", ck: { type: "exists", predicate: { from: "verifier_e2e_summary", select: ["id"], where: and({ col: "all_passed", op: "=", value: 1 }) }, expect: true }, rv: ["判据原文逐字取自冻结材料，行为面必须全绿才可交付。", "all_passed=1 exists 精确判定。", "任一用例失败即 0 行 FAIL。"] },
   { c: "判据54：E2E 摘要必须带有完成时间戳。", t: "E2E 时间戳在位", s: "S3", ck: { type: "exists", predicate: { from: "verifier_e2e_summary", select: ["id"], where: { col: "finished_at", op: "is not null" } }, expect: true }, rv: ["判据原文逐字取自冻结材料，摘要须可追溯运行时间。", "is not null exists 精确判定。", "空时间戳即 FAIL。"] },
+  // ── 渲染层对比度探针（E2E 内置 Playwright 实测 DOM 的 fg/bg 配对，经 verifier_contrast_checks 提取表） ──
+  { c: "判据55：渲染层对比度探针覆盖的文字目标不得少于 7 处。", t: "对比度探针覆盖面", s: "S1", ck: count("verifier_contrast_checks", ">=", 7), rv: ["判据原文逐字取自冻结材料，探针须覆盖深底与浅底两类表面。", "count>=7 纯数值判定。", "删探针目标或未跑 E2E 即计数不足 FAIL。"] },
+  { c: "判据56：渲染层对比度探针不得存在未通过的目标。", t: "渲染对比度全达标", s: "S1", ck: count("verifier_contrast_checks", "==", 0, { col: "passed", op: "=", value: 0 }), rv: ["判据原文逐字取自冻结材料，任何一处实测对比度低于下限即违规。", "violation count==0 精确判定。", "任一目标 ratio<min 即 FAIL（如深底徽标文字 1.18:1）。"] },
+  { c: "判据57：index.css 必须包含深底状态文字规则选择器「.wm-use-bar .ant-badge-status-text」。", t: "深底状态文字规则钉位", s: "S1", ck: existsFact("web/src/index.css", ".wm-use-bar .ant-badge-status-text"), rv: ["判据原文逐字取自冻结材料，深色顶栏上的徽标文字必须有专用覆盖规则。", "提取表三条件 exists 精确判定。", "删规则提取为 0 即 FAIL。"] },
+  { c: "判据58：index.css 必须包含深底浅色文字色值「rgba(255, 255, 255, 0.85)」。", t: "深底浅色值钉位", s: "S1", ck: existsFact("web/src/index.css", "rgba(255, 255, 255, 0.85)"), rv: ["判据原文逐字取自冻结材料，深底文字用 85% 白（对 #0f172a 约 11:1）。", "提取表三条件 exists 精确判定。", "改色值提取为 0 即 FAIL。"] },
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
-const header = `workbench-market 开发验证器 v5（全面覆盖矩阵）
+const header = `workbench-market 开发验证器 v6（全面覆盖矩阵 + 渲染层对比度）
 
 判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
 快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
 verifier_text_facts(path, needle, present)——打包时对源码逐一检查钉位事实；
 E2E 行为证据提取表 verifier_e2e_summary(total, passed, failed, all_passed,
-finished_at)——源自 e2e_test.py 每次运行落盘的 evidence/e2e-summary.json。
+finished_at)——源自 e2e_test.py 每次运行落盘的 evidence/e2e-summary.json；
+渲染层对比度提取表 verifier_contrast_checks(label, ratio, min_required,
+passed)——源自 E2E 内置的 Playwright 对比度探针（实测 DOM 前景/背景配对，
+静态色值钉位无法覆盖的深底文字可见性）。
 提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
 脚本、验证器自举档案、设计规范与证据。
 命令执行型检查（typecheck、lint、build）不属于 CLI 闭集，由开发流程自行执行
-（E2E 结果经摘要表断言）；覆盖五个维度共 54 条判据：数据域完整性（判据1-9）、
-种子与配置（判据10-15）、提交物结构（判据16-35）、颜色可见性（判据36-51：经对比度
-审计的色值在源码与规范中的钉位，漂移即破坏已审计的可读性）、E2E 行为证据
-（判据52-54：规模下限、全绿、时间戳在位）。
+（E2E 与渲染层对比度结果经摘要表断言）；覆盖六个维度共 58 条判据：数据域完整性
+（判据1-9）、种子与配置（判据10-15）、提交物结构（判据16-35）、颜色可见性
+（判据36-51 与 57-58：经对比度审计的色值在源码与规范中的钉位，漂移即破坏已审计
+的可读性）、E2E 行为证据（判据52-54：规模下限、全绿、时间戳在位）、渲染层对比度
+探针（判据55-56：覆盖面下限与全达标——深底上的状态文字曾实测 1.18:1 不可见，
+此维度保证同类回归被行为层抓住）。
 以下判据全部可机械判定：
 `;
 
