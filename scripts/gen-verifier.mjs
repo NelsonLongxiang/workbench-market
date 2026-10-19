@@ -14,7 +14,8 @@ const or = (...conditions) => ({ op: "or", conditions });
 const sql = (from, select, where) => ({ type: "sql", predicate: { from, select, where }, expect: "none", fail_when: "rows>0" });
 const count = (from, op, value, where) => ({ type: "count", predicate: { from, select: [], ...(where ? { where } : {}) }, op, value });
 const exists = (from, where) => ({ type: "exists", predicate: { from, select: ["key"], where }, expect: true });
-const file = (glob, min) => ({ type: "file", glob, min });
+const existsFact = (path, needle) => ({ type: "exists", predicate: { from: "verifier_text_facts", select: ["path"], where: and({ col: "path", op: "=", value: path }, { col: "needle", op: "=", value: needle }, { col: "present", op: "=", value: 1 }) }, expect: true });
+const file = (glob, min, require) => ({ type: "file", glob, min, ...(require ? { require } : {}) });
 
 const U = [
   // ── 数据域完整性：types 表 ──
@@ -71,17 +72,32 @@ const U = [
   { c: "判据33：封装提交物必须包含 design-system/workbench-market/MASTER.md。", t: "设计规范存在", s: "S2", ck: file("design-system/workbench-market/MASTER.md", 1), rv: ["判据原文逐字取自冻结材料，设计单一事实源。", "精确路径 glob。", "删除即 FAIL。"] },
   { c: "判据34：封装提交物必须包含 evidence/e2e_test.py。", t: "E2E 脚本存在", s: "S1", ck: file("evidence/e2e_test.py", 1), rv: ["判据原文逐字取自冻结材料，端到端测试脚本在位。", "精确路径 glob。", "删除即 FAIL。"] },
   { c: "判据35：封装提交物 evidence 目录下的 PNG 截图证据不少于 10 张。", t: "UI 证据下限", s: "S3", ck: file("evidence/*.png", 10), rv: ["判据原文逐字取自冻结材料，UI 证据资产下限。", "目录 glob 计数 >=10。", "清理截图即 FAIL。"] },
+  // ── 颜色可见性（经对比度审计的色值钉位；内容由 make-submission 提取进快照 verifier_text_facts 表，sql/exists 断言） ──
+  { c: "判据36：main.tsx 主题必须包含主色值「#1E3A5F」。", t: "主色 token 钉位", s: "S2", ck: existsFact("web/src/main.tsx","#1E3A5F"), rv: ["判据原文逐字取自冻结材料，主色为设计系统脊柱。", "提取表三条件 exists 精确判定。", "改主题色提取为 0 即 FAIL。"] },
+  { c: "判据37：main.tsx 主题必须包含次级文字色值「#5A6577」。", t: "次级文字对比达标色", s: "S1", ck: existsFact("web/src/main.tsx","#5A6577"), rv: ["判据原文逐字取自冻结材料，该值经浅底 5.9:1 审计修复。", "提取表三条件 exists 精确判定。", "回退旧色提取为 0 即 FAIL。"] },
+  { c: "判据38：main.tsx 主题必须包含成功色值「#059669」。", t: "成功色 token 钉位", s: "S3", ck: existsFact("web/src/main.tsx","#059669"), rv: ["判据原文逐字取自冻结材料，在线绿图形用色 3.77:1 达图形标准。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
+  { c: "判据39：main.tsx 主题必须包含错误色值「#DC2626」。", t: "错误色 token 钉位", s: "S2", ck: existsFact("web/src/main.tsx","#DC2626"), rv: ["判据原文逐字取自冻结材料，错误红文字级 4.83:1 达标。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
+  { c: "判据40：App.tsx 侧栏 token 必须包含深底色值「#0F172A」。", t: "侧栏深底钉位", s: "S2", ck: existsFact("web/src/App.tsx","#0F172A"), rv: ["判据原文逐字取自冻结材料，深色导航背景与白字标题配对。", "提取表三条件 exists 精确判定。", "改底色提取为 0 即 FAIL。"] },
+  { c: "判据41：index.css 必须包含焦点环色值「rgba(5, 150, 105, 0.6)」。", t: "焦点环可见", s: "S1", ck: existsFact("web/src/index.css","rgba(5, 150, 105, 0.6)"), rv: ["判据原文逐字取自冻结材料，focus-visible 焦点环是键盘可访问性必需。", "提取表三条件 exists 精确判定。", "删焦点环提取为 0 即 FAIL。"] },
+  { c: "判据42：index.css 必须包含选中边框色值「rgba(5, 150, 105, 0.45)」。", t: "选中边框钉位", s: "S3", ck: existsFact("web/src/index.css","rgba(5, 150, 105, 0.45)"), rv: ["判据原文逐字取自冻结材料，卡片选中态边框色。", "提取表三条件 exists 精确判定。", "改边框提取为 0 即 FAIL。"] },
+  { c: "判据43：App.tsx 标题区必须包含强调色值「#059669」。", t: "标题强调色钉位", s: "S3", ck: existsFact("web/src/App.tsx","#059669"), rv: ["判据原文逐字取自冻结材料，深底上的 emerald 标题图标。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
+  { c: "判据44：设计规范 MASTER.md 必须包含主色值「#1E3A5F」。", t: "规范主色钉位", s: "S3", ck: existsFact("design-system/workbench-market/MASTER.md","#1E3A5F"), rv: ["判据原文逐字取自冻结材料，规范单一事实源钉主色。", "提取表三条件 exists 精确判定。", "删 token 提取为 0 即 FAIL。"] },
+  { c: "判据45：设计规范 MASTER.md 必须包含次级文字审计色值「#5A6577」。", t: "规范审计色钉位", s: "S3", ck: existsFact("design-system/workbench-market/MASTER.md","#5A6577"), rv: ["判据原文逐字取自冻结材料，对比度实测表记录修复色。", "提取表三条件 exists 精确判定。", "删记录提取为 0 即 FAIL。"] },
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
-const header = `workbench-market 开发验证器 v4（全面覆盖矩阵）
+const header = `workbench-market 开发验证器 v4.2（全面覆盖矩阵）
 
 判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
-快照 tmp/verify-snap.sqlite 来自活库的一致性副本；提交物目录 tmp/submission 从仓库根
-抽取根清单、server 与 web 源码树、构建产物、脚本、验证器自举档案、设计规范与证据。
+快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
+verifier_text_facts(path, needle, present)——打包时对源码逐一检查钉位事实；
+提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
+脚本、验证器自举档案、设计规范与证据。
 命令执行型检查（typecheck、lint、build、e2e）不属于 CLI 闭集，由开发流程自行执行；
-覆盖三个维度共 35 条判据：数据域完整性（判据1-9）、种子与配置（判据10-15）、
-提交物结构（判据16-35）。以下判据全部可机械判定：
+覆盖四个维度共 45 条判据：数据域完整性（判据1-9）、种子与配置（判据10-15）、
+提交物结构（判据16-35）、颜色可见性（判据36-45：经对比度审计的色值在源码与规范中的
+钉位，经 verifier_text_facts 提取表断言，漂移即破坏已审计的可读性）。
+以下判据全部可机械判定：
 `;
 
 const material = header + "\n" + U.map((u) => u.c).join("\n") + "\n";
