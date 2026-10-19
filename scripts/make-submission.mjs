@@ -4,11 +4,12 @@
  *
  * 产出两个判定面（幂等，可重复执行）：
  *   1. tmp/verify-snap.sqlite   —— 活库一致性快照（VACUUM INTO，WAL 安全）
- *   2. tmp/submission/          —— 封装提交物目录，从仓库根抽取 file 型判据所需：
- *        README.md
- *        design-system/         （全量，小目录）
- *        evidence/e2e_test.py
- *        evidence/*.png
+ *   2. tmp/submission/          —— 封装提交物目录，从仓库根抽取：
+ *        README.md · package.json · pnpm-workspace.yaml
+ *        server/package.json · server/src/
+ *        web/package.json · web/src/ · web/dist/
+ *        scripts/ · verify/ · design-system/
+ *        evidence/e2e_test.py · evidence/*.png
  *
  * 用法：node scripts/make-submission.mjs
  * 之后：ygl-trees verify run <spec-id> --db tmp/verify-snap.sqlite --submission tmp/submission
@@ -28,13 +29,18 @@ const db = new DatabaseSync(join(root, "server", "data", "workbench-market.db"),
 db.exec(`VACUUM INTO '${snap.replaceAll("\\", "/")}'`);
 db.close();
 
-// 2) 封装提交物
+// 2) 封装提交物（file 型判据的 glob 目标全集）
 rmSync(sub, { recursive: true, force: true });
 mkdirSync(sub, { recursive: true });
-cpSync(join(root, "README.md"), join(sub, "README.md"));
-cpSync(join(root, "design-system"), join(sub, "design-system"), { recursive: true });
+const files = ["README.md", "package.json", "pnpm-workspace.yaml"];
+for (const f of files) cpSync(join(root, f), join(sub, f));
+const dirs = ["server/src", "web/src", "web/dist", "scripts", "verify", "design-system"];
+for (const d of dirs) cpSync(join(root, d), join(sub, d), { recursive: true });
+
 mkdirSync(join(sub, "evidence"), { recursive: true });
 cpSync(join(root, "evidence", "e2e_test.py"), join(sub, "evidence", "e2e_test.py"));
+cpSync(join(root, "server", "package.json"), join(sub, "server", "package.json"));
+cpSync(join(root, "web", "package.json"), join(sub, "web", "package.json"));
 const pngs = readdirSync(join(root, "evidence")).filter((f) => f.endsWith(".png"));
 for (const f of pngs) cpSync(join(root, "evidence", f), join(sub, "evidence", f));
 
@@ -43,8 +49,10 @@ const manifest = {
   generated_at: new Date().toISOString(),
   snapshot: "tmp/verify-snap.sqlite",
   submission_dir: "tmp/submission",
-  files: ["README.md", "design-system/ (recursive)", "evidence/e2e_test.py", `evidence/*.png ×${pngs.length}`],
+  files,
+  dirs,
+  extra: ["server/package.json", "web/package.json", "evidence/e2e_test.py", `evidence/*.png ×${pngs.length}`],
 };
 writeFileSync(join(sub, "MANIFEST.json"), JSON.stringify(manifest, null, 2) + "\n");
 console.log(`✓ snapshot: tmp/verify-snap.sqlite`);
-console.log(`✓ submission: tmp/submission (README.md + design-system/ + e2e_test.py + ${pngs.length} png)`);
+console.log(`✓ submission: tmp/submission (${files.length} root files + ${dirs.length} dirs + ${pngs.length} png)`);
