@@ -4,6 +4,8 @@ import {
   AppstoreOutlined,
   ClusterOutlined,
   DashboardOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
 import Dashboard from './pages/Dashboard';
@@ -44,6 +46,19 @@ export default function App() {
       route={menuRoutes}
       location={{ pathname: location.pathname }}
       menuItemRender={(item, dom) => (item.path ? <Link to={item.path}>{dom}</Link> : dom)}
+      menuHeaderRender={() => (
+        // ProLayout 默认把 logo 标题染成 colorPrimary（#1E3A5F  Navy），
+        // 在深色侧栏上几乎不可见；接管渲染：白字 600 + 字距
+        <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 4px' }}>
+          <AppstoreOutlined style={{ fontSize: 22, color: '#059669' }} />
+          <span style={{ color: '#FFFFFF', fontSize: 16, fontWeight: 600, letterSpacing: '0.02em', whiteSpace: 'nowrap' }}>
+            工作台市场
+          </span>
+        </Link>
+      )}
+      collapsedButtonRender={(collapsed) => (
+        <span className="wm-sider-collapse">{collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}</span>
+      )}
       token={{
         sider: {
           colorMenuBackground: '#0F172A',
