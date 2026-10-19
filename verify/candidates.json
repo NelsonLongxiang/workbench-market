@@ -1506,6 +1506,125 @@
         },
         "expect": true
       }
+    },
+    {
+      "source_clause": "判据55：渲染层对比度探针覆盖的文字目标不得少于 7 处。",
+      "anchor": {
+        "quote": "判据55：渲染层对比度探针覆盖的文字目标不得少于 7 处。",
+        "locator": "dev-verifier-v4.md 判据5"
+      },
+      "title": "对比度探针覆盖面",
+      "severity": "S1",
+      "checker": {
+        "type": "count",
+        "predicate": {
+          "from": "verifier_contrast_checks",
+          "select": []
+        },
+        "op": ">=",
+        "value": 7
+      }
+    },
+    {
+      "source_clause": "判据56：渲染层对比度探针不得存在未通过的目标。",
+      "anchor": {
+        "quote": "判据56：渲染层对比度探针不得存在未通过的目标。",
+        "locator": "dev-verifier-v4.md 判据5"
+      },
+      "title": "渲染对比度全达标",
+      "severity": "S1",
+      "checker": {
+        "type": "count",
+        "predicate": {
+          "from": "verifier_contrast_checks",
+          "select": [],
+          "where": {
+            "col": "passed",
+            "op": "=",
+            "value": 0
+          }
+        },
+        "op": "==",
+        "value": 0
+      }
+    },
+    {
+      "source_clause": "判据57：index.css 必须包含深底状态文字规则选择器「.wm-use-bar .ant-badge-status-text」。",
+      "anchor": {
+        "quote": "判据57：index.css 必须包含深底状态文字规则选择器「.wm-use-bar .ant-badge-status-text」。",
+        "locator": "dev-verifier-v4.md 判据5"
+      },
+      "title": "深底状态文字规则钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/index.css"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": ".wm-use-bar .ant-badge-status-text"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据58：index.css 必须包含深底浅色文字色值「rgba(255, 255, 255, 0.85)」。",
+      "anchor": {
+        "quote": "判据58：index.css 必须包含深底浅色文字色值「rgba(255, 255, 255, 0.85)」。",
+        "locator": "dev-verifier-v4.md 判据5"
+      },
+      "title": "深底浅色值钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/index.css"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "rgba(255, 255, 255, 0.85)"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
     }
   ]
 }

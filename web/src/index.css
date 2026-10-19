@@ -124,6 +124,17 @@ body {
   margin: 0 !important;
 }
 
+/* 深底上的状态文字必须用浅色（默认 antd 文字色在 #0f172a 上仅 1.18:1，不可见）。
+   antd v5 cssinjs 运行时注入的 <style> 排在静态 <link> 之后，同特异度按文档序后者胜，
+   平级选择器压不住——必须 !important 抬过级联 */
+.wm-use-bar .ant-badge-status-text {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+.wm-use-bar .ant-btn {
+  color: #CBD5E1 !important;
+}
+
 .wm-use-frame {
   flex: 1;
   width: 100%;

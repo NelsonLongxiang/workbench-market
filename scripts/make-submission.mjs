@@ -77,6 +77,8 @@ const TEXT_FACTS = [
   ["web/src/pages/Dashboard.tsx", "#94A3B8"],
   ["web/src/index.css", "rgba(30, 58, 95, 0.1)"],
   ["web/src/index.css", "#0f172a"],
+  ["web/src/index.css", ".wm-use-bar .ant-badge-status-text"],
+  ["web/src/index.css", "rgba(255, 255, 255, 0.85)"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);
@@ -115,6 +117,23 @@ if (e2eRow && Number.isFinite(e2eRow.total)) {
     .prepare("INSERT INTO verifier_e2e_summary (total, passed, failed, all_passed, finished_at) VALUES (?, ?, ?, ?, ?)")
     .run(e2eRow.total, e2eRow.passed, e2eRow.failed, e2eRow.all_passed ? 1 : 0, e2eRow.finished_at ?? "");
   console.log(`✓ verifier_e2e_summary: ${e2eRow.passed}/${e2eRow.total} (${e2eRow.finished_at})`);
+}
+// 6) 渲染层对比度提取表：e2e-summary.json 的 contrast_checks 数组逐行入库；
+//    未跑 E2E 或探针缺失则无行 —— 对比度判据 fail-closed
+snapDb.exec(`CREATE TABLE verifier_contrast_checks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  label TEXT NOT NULL,
+  ratio REAL NOT NULL,
+  min_required REAL NOT NULL,
+  passed INTEGER NOT NULL
+)`);
+if (e2eRow && Array.isArray(e2eRow.contrast_checks) && e2eRow.contrast_checks.length) {
+  const insC = snapDb.prepare("INSERT INTO verifier_contrast_checks (label, ratio, min_required, passed) VALUES (?, ?, ?, ?)");
+  for (const c of e2eRow.contrast_checks) insC.run(c.label, Number(c.ratio), Number(c.min), c.passed ? 1 : 0);
+  const okN = e2eRow.contrast_checks.filter((c) => c.passed).length;
+  console.log(`✓ verifier_contrast_checks: ${okN}/${e2eRow.contrast_checks.length} 处达标`);
+} else {
+  console.log("⚠ contrast_checks 缺失 —— 渲染层对比度判据将 fail-closed");
 }
 snapDb.close();
 console.log(`✓ verifier_text_facts: ${hit}/${TEXT_FACTS.length} 色值在源码中钉位`);
