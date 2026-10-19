@@ -4,6 +4,7 @@ import {
   AppstoreOutlined,
   ClusterOutlined,
   DashboardOutlined,
+  LayoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   SettingOutlined,
@@ -13,11 +14,13 @@ import Market from './pages/Market';
 import Types from './pages/Types';
 import Settings from './pages/Settings';
 import UseWorkbench from './pages/UseWorkbench';
+import Cockpit from './pages/Cockpit';
 
 const menuRoutes = {
   path: '/',
   routes: [
     { path: '/', name: '总览', icon: <DashboardOutlined /> },
+    { path: '/cockpit', name: '驾驶舱', icon: <LayoutOutlined /> },
     { path: '/market', name: '工作台', icon: <AppstoreOutlined /> },
     { path: '/types', name: '类型管理', icon: <ClusterOutlined /> },
     { path: '/settings', name: '设置', icon: <SettingOutlined /> },
@@ -73,6 +76,8 @@ export default function App() {
     >
       <Routes>
         <Route path="/" element={<Dashboard />} />
+        <Route path="/cockpit" element={<Cockpit />} />
+        <Route path="/cockpit/:id" element={<Cockpit />} />
         <Route path="/market" element={<Market />} />
         <Route path="/types" element={<Types />} />
         <Route path="/settings" element={<Settings />} />

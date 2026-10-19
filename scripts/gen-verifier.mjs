@@ -60,7 +60,7 @@ const U = [
   { c: "判据21：封装提交物必须包含 server/src/index.ts。", t: "server 入口存在", s: "S1", ck: file("server/src/index.ts", 1), rv: ["判据原文逐字取自冻结材料，检查服务入口源码。", "精确路径 glob。", "删除即 FAIL。"] },
   { c: "判据22：封装提交物必须包含 server/src/db.ts。", t: "db 模块存在", s: "S1", ck: file("server/src/db.ts", 1), rv: ["判据原文逐字取自冻结材料，检查建库模块。", "精确路径 glob。", "删除即 FAIL。"] },
   { c: "判据23：封装提交物必须包含 server/src/health.ts。", t: "探测模块存在", s: "S1", ck: file("server/src/health.ts", 1), rv: ["判据原文逐字取自冻结材料，检查健康探测模块。", "精确路径 glob。", "删除即 FAIL。"] },
-  { c: "判据24：封装提交物 web/src/pages 目录下的页面组件不少于 5 个。", t: "页面组件下限", s: "S2", ck: file("web/src/pages/*.tsx", 5), rv: ["判据原文逐字取自冻结材料，五个功能页各一文件。", "目录 glob 计数 >=5。", "删页即 FAIL。"] },
+  { c: "判据24：封装提交物 web/src/pages 目录下的页面组件不少于 6 个。", t: "页面组件下限", s: "S2", ck: file("web/src/pages/*.tsx", 6), rv: ["判据原文逐字取自冻结材料，六个功能页各一文件。", "目录 glob 计数 >=6。", "删页即 FAIL。"] },
   { c: "判据25：封装提交物 web/src/components 目录下的组件不少于 2 个。", t: "组件下限", s: "S3", ck: file("web/src/components/*.tsx", 2), rv: ["判据原文逐字取自冻结材料，状态徽章与表单两组件。", "目录 glob 计数 >=2。", "删组件即 FAIL。"] },
   { c: "判据26：封装提交物必须包含 web/dist/index.html。", t: "构建入口存在", s: "S1", ck: file("web/dist/index.html", 1), rv: ["判据原文逐字取自冻结材料，构建落盘证据。", "精确路径 glob。", "未构建即 FAIL。"] },
   { c: "判据27：封装提交物 web/dist/assets 目录下的 JS 产物不少于 5 个。", t: "分桶产物下限", s: "S2", ck: file("web/dist/assets/*.js", 5), rv: ["判据原文逐字取自冻结材料，供应商分桶后的产物数量下限。", "目录 glob 计数 >=5。", "桶缺失即 FAIL。"] },
@@ -90,7 +90,7 @@ const U = [
   { c: "判据50：index.css 必须包含主色淡底色值「rgba(30, 58, 95, 0.1)」。", t: "主色淡底钉位", s: "S3", ck: existsFact("web/src/index.css","rgba(30, 58, 95, 0.1)"), rv: ["判据原文逐字取自冻结材料，navy 主色 10% 淡底。", "提取表三条件 exists 精确判定。", "改值提取为 0 即 FAIL。"] },
   { c: "判据51：index.css 必须包含深底色值「#0f172a」。", t: "css 深底钉位", s: "S3", ck: existsFact("web/src/index.css","#0f172a"), rv: ["判据原文逐字取自冻结材料，样式侧深底 token。", "提取表三条件 exists 精确判定。", "改值提取为 0 即 FAIL。"] },
   // ── E2E 行为证据（经 verifier_e2e_summary 提取表，源自 e2e_test.py 落盘的 evidence/e2e-summary.json） ──
-  { c: "判据52：E2E 摘要记录的用例总数不得少于 14。", t: "E2E 规模下限", s: "S2", ck: count("verifier_e2e_summary", "==", 1, and({ col: "total", op: ">=", value: 14 })), rv: ["判据原文逐字取自冻结材料，行为面至少覆盖既有 14 组用例。", "count 条件计数 ==1 精确判定。", "删用例或未跑 E2E 即计数 0 FAIL。"] },
+  { c: "判据52：E2E 摘要记录的用例总数不得少于 16。", t: "E2E 规模下限", s: "S2", ck: count("verifier_e2e_summary", "==", 1, and({ col: "total", op: ">=", value: 16 })), rv: ["判据原文逐字取自冻结材料，行为面至少覆盖既有 16 组用例（含任务驾驶舱）。", "count 条件计数 ==1 精确判定。", "删用例或未跑 E2E 即计数 0 FAIL。"] },
   { c: "判据53：E2E 摘要必须标记全部用例通过。", t: "E2E 全绿", s: "S1", ck: { type: "exists", predicate: { from: "verifier_e2e_summary", select: ["id"], where: and({ col: "all_passed", op: "=", value: 1 }) }, expect: true }, rv: ["判据原文逐字取自冻结材料，行为面必须全绿才可交付。", "all_passed=1 exists 精确判定。", "任一用例失败即 0 行 FAIL。"] },
   { c: "判据54：E2E 摘要必须带有完成时间戳。", t: "E2E 时间戳在位", s: "S3", ck: { type: "exists", predicate: { from: "verifier_e2e_summary", select: ["id"], where: { col: "finished_at", op: "is not null" } }, expect: true }, rv: ["判据原文逐字取自冻结材料，摘要须可追溯运行时间。", "is not null exists 精确判定。", "空时间戳即 FAIL。"] },
   // ── 渲染层对比度探针（E2E 内置 Playwright 实测 DOM 的 fg/bg 配对，经 verifier_contrast_checks 提取表） ──
@@ -98,10 +98,14 @@ const U = [
   { c: "判据56：渲染层对比度探针不得存在未通过的目标。", t: "渲染对比度全达标", s: "S1", ck: count("verifier_contrast_checks", "==", 0, { col: "passed", op: "=", value: 0 }), rv: ["判据原文逐字取自冻结材料，任何一处实测对比度低于下限即违规。", "violation count==0 精确判定。", "任一目标 ratio<min 即 FAIL（如深底徽标文字 1.18:1）。"] },
   { c: "判据57：index.css 必须包含深底状态文字规则选择器「.wm-use-bar .ant-badge-status-text」。", t: "深底状态文字规则钉位", s: "S1", ck: existsFact("web/src/index.css", ".wm-use-bar .ant-badge-status-text"), rv: ["判据原文逐字取自冻结材料，深色顶栏上的徽标文字必须有专用覆盖规则。", "提取表三条件 exists 精确判定。", "删规则提取为 0 即 FAIL。"] },
   { c: "判据58：index.css 必须包含深底浅色文字色值「rgba(255, 255, 255, 0.85)」。", t: "深底浅色值钉位", s: "S1", ck: existsFact("web/src/index.css", "rgba(255, 255, 255, 0.85)"), rv: ["判据原文逐字取自冻结材料，深底文字用 85% 白（对 #0f172a 约 11:1）。", "提取表三条件 exists 精确判定。", "改色值提取为 0 即 FAIL。"] },
+  // ── 任务驾驶舱（多工作台分屏组合视图——收藏夹到驾驶舱的质变） ──
+  { c: "判据59：驾驶舱的 name 字段不得为空。", t: "驾驶舱名称非空", s: "S1", ck: sql("cockpits", ["id", "name"], or({ col: "name", op: "is null" }, { col: "name", op: "=", value: "" })), rv: ["判据原文逐字取自冻结材料，驾驶舱必须有可辨识名称。", "is null 或空串的 violation 谓词精确判定。", "写入空名驾驶舱即 FAIL。"] },
+  { c: "判据60：封装提交物必须包含 web/src/pages/Cockpit.tsx。", t: "驾驶舱页面存在", s: "S1", ck: file("web/src/pages/Cockpit.tsx", 1), rv: ["判据原文逐字取自冻结材料，任务驾驶舱功能页在位。", "精确路径 glob。", "删除即 FAIL。"] },
+  { c: "判据61：server/src/index.ts 必须包含驾驶舱路由「/api/cockpits」。", t: "驾驶舱路由钉位", s: "S1", ck: existsFact("server/src/index.ts", "/api/cockpits"), rv: ["判据原文逐字取自冻结材料，驾驶舱 CRUD 路由组在位。", "提取表三条件 exists 精确判定。", "删路由提取为 0 即 FAIL。"] },
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
-const header = `workbench-market 开发验证器 v6（全面覆盖矩阵 + 渲染层对比度）
+const header = `workbench-market 开发验证器 v7（全面覆盖矩阵 + 渲染层对比度 + 任务驾驶舱）
 
 判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
 快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
@@ -114,12 +118,13 @@ passed)——源自 E2E 内置的 Playwright 对比度探针（实测 DOM 前景
 提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
 脚本、验证器自举档案、设计规范与证据。
 命令执行型检查（typecheck、lint、build）不属于 CLI 闭集，由开发流程自行执行
-（E2E 与渲染层对比度结果经摘要表断言）；覆盖六个维度共 58 条判据：数据域完整性
+（E2E 与渲染层对比度结果经摘要表断言）；覆盖七个维度共 61 条判据：数据域完整性
 （判据1-9）、种子与配置（判据10-15）、提交物结构（判据16-35）、颜色可见性
 （判据36-51 与 57-58：经对比度审计的色值在源码与规范中的钉位，漂移即破坏已审计
 的可读性）、E2E 行为证据（判据52-54：规模下限、全绿、时间戳在位）、渲染层对比度
 探针（判据55-56：覆盖面下限与全达标——深底上的状态文字曾实测 1.18:1 不可见，
-此维度保证同类回归被行为层抓住）。
+此维度保证同类回归被行为层抓住）、任务驾驶舱（判据59-61：名称域完整性、驾驶舱
+页面在位、CRUD 路由钉位——工作台从收藏夹到分屏组合视图的功能面锚定）。
 以下判据全部可机械判定：
 `;
 

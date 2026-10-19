@@ -1,4 +1,4 @@
-import type { ExportPayload, Summary, Workbench, WorkbenchDraft, WorkbenchType } from './types';
+import type { Cockpit, ExportPayload, PanelConfig, Summary, Workbench, WorkbenchDraft, WorkbenchType } from './types';
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -32,6 +32,13 @@ export const api = {
   putSettings: (data: Record<string, string>) =>
     req<Record<string, string>>('/api/settings', { method: 'PUT', body: JSON.stringify(data) }),
   exportAll: () => req<ExportPayload>('/api/export'),
+  listCockpits: () => req<Cockpit[]>('/api/cockpits'),
+  getCockpit: (id: number) => req<Cockpit>(`/api/cockpits/${id}`),
+  createCockpit: (data: { name: string; description?: string; panels?: PanelConfig[] }) =>
+    req<Cockpit>('/api/cockpits', { method: 'POST', body: JSON.stringify(data) }),
+  updateCockpit: (id: number, data: Partial<{ name: string; description: string; panels: PanelConfig[] }>) =>
+    req<Cockpit>(`/api/cockpits/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteCockpit: (id: number) => req<{ ok: boolean }>(`/api/cockpits/${id}`, { method: 'DELETE' }),
   getHealth: () => req<{ version: string; uptime_s: number; workbenches: number }>('/api/health'),
   importAll: (payload: ExportPayload, mode: 'merge' | 'replace') =>
     req<{ ok: boolean; imported: number; skipped: number }>('/api/import', {

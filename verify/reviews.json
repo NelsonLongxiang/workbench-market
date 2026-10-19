@@ -553,21 +553,21 @@
       ]
     },
     {
-      "source_clause": "判据24：封装提交物 web/src/pages 目录下的页面组件不少于 5 个。",
+      "source_clause": "判据24：封装提交物 web/src/pages 目录下的页面组件不少于 6 个。",
       "findings": [
         {
           "question": "faithful",
           "verdict": "ok",
-          "reason": "判据原文逐字取自冻结材料，五个功能页各一文件。",
+          "reason": "判据原文逐字取自冻结材料，六个功能页各一文件。",
           "anchor": {
-            "quote": "判据24：封装提交物 web/src/pages 目录下的页面组件不少于 5 个。",
+            "quote": "判据24：封装提交物 web/src/pages 目录下的页面组件不少于 6 个。",
             "locator": "dev-verifier-v4.md 判据2"
           }
         },
         {
           "question": "decidable",
           "verdict": "ok",
-          "reason": "目录 glob 计数 >=5。"
+          "reason": "目录 glob 计数 >=6。"
         },
         {
           "question": "not-vacuous",
@@ -1225,14 +1225,14 @@
       ]
     },
     {
-      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 14。",
+      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 16。",
       "findings": [
         {
           "question": "faithful",
           "verdict": "ok",
-          "reason": "判据原文逐字取自冻结材料，行为面至少覆盖既有 14 组用例。",
+          "reason": "判据原文逐字取自冻结材料，行为面至少覆盖既有 16 组用例（含任务驾驶舱）。",
           "anchor": {
-            "quote": "判据52：E2E 摘要记录的用例总数不得少于 14。",
+            "quote": "判据52：E2E 摘要记录的用例总数不得少于 16。",
             "locator": "dev-verifier-v4.md 判据5"
           }
         },
@@ -1389,6 +1389,78 @@
           "question": "not-vacuous",
           "verdict": "ok",
           "reason": "改色值提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据59：驾驶舱的 name 字段不得为空。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，驾驶舱必须有可辨识名称。",
+          "anchor": {
+            "quote": "判据59：驾驶舱的 name 字段不得为空。",
+            "locator": "dev-verifier-v4.md 判据5"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "is null 或空串的 violation 谓词精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "写入空名驾驶舱即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据60：封装提交物必须包含 web/src/pages/Cockpit.tsx。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，任务驾驶舱功能页在位。",
+          "anchor": {
+            "quote": "判据60：封装提交物必须包含 web/src/pages/Cockpit.tsx。",
+            "locator": "dev-verifier-v4.md 判据6"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "精确路径 glob。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删除即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据61：server/src/index.ts 必须包含驾驶舱路由「/api/cockpits」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，驾驶舱 CRUD 路由组在位。",
+          "anchor": {
+            "quote": "判据61：server/src/index.ts 必须包含驾驶舱路由「/api/cockpits」。",
+            "locator": "dev-verifier-v4.md 判据6"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删路由提取为 0 即 FAIL。"
         }
       ]
     }

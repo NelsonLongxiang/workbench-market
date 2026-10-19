@@ -1,9 +1,9 @@
 {
-  "total": 15,
-  "passed": 15,
+  "total": 16,
+  "passed": 16,
   "failed": 0,
   "all_passed": 1,
-  "finished_at": "2026-10-19T19:42:09.604914+00:00",
+  "finished_at": "2026-10-19T20:31:34.474669+00:00",
   "contrast_checks": [
     {
       "text": "在线",
@@ -63,7 +63,7 @@
       "text": "在线",
       "color": "rgba(0, 0, 0, 0.88)",
       "bg": "rgb(255, 255, 255)",
-      "ratio": 17.85,
+      "ratio": 21,
       "min": 4.5,
       "passed": 1,
       "label": "/market 表格·状态文字"

@@ -636,9 +636,9 @@
       }
     },
     {
-      "source_clause": "判据24：封装提交物 web/src/pages 目录下的页面组件不少于 5 个。",
+      "source_clause": "判据24：封装提交物 web/src/pages 目录下的页面组件不少于 6 个。",
       "anchor": {
-        "quote": "判据24：封装提交物 web/src/pages 目录下的页面组件不少于 5 个。",
+        "quote": "判据24：封装提交物 web/src/pages 目录下的页面组件不少于 6 个。",
         "locator": "dev-verifier-v4.md 判据2"
       },
       "title": "页面组件下限",
@@ -646,7 +646,7 @@
       "checker": {
         "type": "file",
         "glob": "web/src/pages/*.tsx",
-        "min": 5
+        "min": 6
       }
     },
     {
@@ -1428,9 +1428,9 @@
       }
     },
     {
-      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 14。",
+      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 16。",
       "anchor": {
-        "quote": "判据52：E2E 摘要记录的用例总数不得少于 14。",
+        "quote": "判据52：E2E 摘要记录的用例总数不得少于 16。",
         "locator": "dev-verifier-v4.md 判据5"
       },
       "title": "E2E 规模下限",
@@ -1446,7 +1446,7 @@
               {
                 "col": "total",
                 "op": ">=",
-                "value": 14
+                "value": 16
               }
             ]
           }
@@ -1614,6 +1614,94 @@
                 "col": "needle",
                 "op": "=",
                 "value": "rgba(255, 255, 255, 0.85)"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据59：驾驶舱的 name 字段不得为空。",
+      "anchor": {
+        "quote": "判据59：驾驶舱的 name 字段不得为空。",
+        "locator": "dev-verifier-v4.md 判据5"
+      },
+      "title": "驾驶舱名称非空",
+      "severity": "S1",
+      "checker": {
+        "type": "sql",
+        "predicate": {
+          "from": "cockpits",
+          "select": [
+            "id",
+            "name"
+          ],
+          "where": {
+            "op": "or",
+            "conditions": [
+              {
+                "col": "name",
+                "op": "is null"
+              },
+              {
+                "col": "name",
+                "op": "=",
+                "value": ""
+              }
+            ]
+          }
+        },
+        "expect": "none",
+        "fail_when": "rows>0"
+      }
+    },
+    {
+      "source_clause": "判据60：封装提交物必须包含 web/src/pages/Cockpit.tsx。",
+      "anchor": {
+        "quote": "判据60：封装提交物必须包含 web/src/pages/Cockpit.tsx。",
+        "locator": "dev-verifier-v4.md 判据6"
+      },
+      "title": "驾驶舱页面存在",
+      "severity": "S1",
+      "checker": {
+        "type": "file",
+        "glob": "web/src/pages/Cockpit.tsx",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据61：server/src/index.ts 必须包含驾驶舱路由「/api/cockpits」。",
+      "anchor": {
+        "quote": "判据61：server/src/index.ts 必须包含驾驶舱路由「/api/cockpits」。",
+        "locator": "dev-verifier-v4.md 判据6"
+      },
+      "title": "驾驶舱路由钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "/api/cockpits"
               },
               {
                 "col": "present",

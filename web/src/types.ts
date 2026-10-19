@@ -53,3 +53,20 @@ export interface ExportPayload {
   types: WorkbenchType[];
   settings: Record<string, string>;
 }
+
+/** 驾驶舱面板：网格布局项 + 指向的工作台 */
+export interface PanelConfig {
+  i: string;
+  workbenchId: number;
+  x: number; y: number; w: number; h: number;
+}
+
+export interface Cockpit {
+  id: number;
+  name: string;
+  description: string;
+  layout_config: string;
+  panels: PanelConfig[];
+  created_at: string;
+  updated_at: string;
+}
