@@ -839,6 +839,246 @@
           "reason": "清理截图即 FAIL。"
         }
       ]
+    },
+    {
+      "source_clause": "判据36：main.tsx 主题必须包含主色值「#1E3A5F」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，主色为设计系统脊柱。",
+          "anchor": {
+            "quote": "判据36：main.tsx 主题必须包含主色值「#1E3A5F」。",
+            "locator": "dev-verifier-v4.md 判据3"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改主题色提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据37：main.tsx 主题必须包含次级文字色值「#5A6577」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，该值经浅底 5.9:1 审计修复。",
+          "anchor": {
+            "quote": "判据37：main.tsx 主题必须包含次级文字色值「#5A6577」。",
+            "locator": "dev-verifier-v4.md 判据3"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "回退旧色提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据38：main.tsx 主题必须包含成功色值「#059669」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，在线绿图形用色 3.77:1 达图形标准。",
+          "anchor": {
+            "quote": "判据38：main.tsx 主题必须包含成功色值「#059669」。",
+            "locator": "dev-verifier-v4.md 判据3"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改色提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据39：main.tsx 主题必须包含错误色值「#DC2626」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，错误红文字级 4.83:1 达标。",
+          "anchor": {
+            "quote": "判据39：main.tsx 主题必须包含错误色值「#DC2626」。",
+            "locator": "dev-verifier-v4.md 判据3"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改色提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据40：App.tsx 侧栏 token 必须包含深底色值「#0F172A」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，深色导航背景与白字标题配对。",
+          "anchor": {
+            "quote": "判据40：App.tsx 侧栏 token 必须包含深底色值「#0F172A」。",
+            "locator": "dev-verifier-v4.md 判据4"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改底色提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据41：index.css 必须包含焦点环色值「rgba(5, 150, 105, 0.6)」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，focus-visible 焦点环是键盘可访问性必需。",
+          "anchor": {
+            "quote": "判据41：index.css 必须包含焦点环色值「rgba(5, 150, 105, 0.6)」。",
+            "locator": "dev-verifier-v4.md 判据4"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删焦点环提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据42：index.css 必须包含选中边框色值「rgba(5, 150, 105, 0.45)」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，卡片选中态边框色。",
+          "anchor": {
+            "quote": "判据42：index.css 必须包含选中边框色值「rgba(5, 150, 105, 0.45)」。",
+            "locator": "dev-verifier-v4.md 判据4"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改边框提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据43：App.tsx 标题区必须包含强调色值「#059669」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，深底上的 emerald 标题图标。",
+          "anchor": {
+            "quote": "判据43：App.tsx 标题区必须包含强调色值「#059669」。",
+            "locator": "dev-verifier-v4.md 判据4"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改色提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据44：设计规范 MASTER.md 必须包含主色值「#1E3A5F」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，规范单一事实源钉主色。",
+          "anchor": {
+            "quote": "判据44：设计规范 MASTER.md 必须包含主色值「#1E3A5F」。",
+            "locator": "dev-verifier-v4.md 判据4"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删 token 提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据45：设计规范 MASTER.md 必须包含次级文字审计色值「#5A6577」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，对比度实测表记录修复色。",
+          "anchor": {
+            "quote": "判据45：设计规范 MASTER.md 必须包含次级文字审计色值「#5A6577」。",
+            "locator": "dev-verifier-v4.md 判据4"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删记录提取为 0 即 FAIL。"
+        }
+      ]
     }
   ]
 }

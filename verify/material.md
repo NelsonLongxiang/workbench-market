@@ -1,11 +1,15 @@
-workbench-market 开发验证器 v4（全面覆盖矩阵）
+workbench-market 开发验证器 v4.2（全面覆盖矩阵）
 
 判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
-快照 tmp/verify-snap.sqlite 来自活库的一致性副本；提交物目录 tmp/submission 从仓库根
-抽取根清单、server 与 web 源码树、构建产物、脚本、验证器自举档案、设计规范与证据。
+快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
+verifier_text_facts(path, needle, present)——打包时对源码逐一检查钉位事实；
+提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
+脚本、验证器自举档案、设计规范与证据。
 命令执行型检查（typecheck、lint、build、e2e）不属于 CLI 闭集，由开发流程自行执行；
-覆盖三个维度共 35 条判据：数据域完整性（判据1-9）、种子与配置（判据10-15）、
-提交物结构（判据16-35）。以下判据全部可机械判定：
+覆盖四个维度共 45 条判据：数据域完整性（判据1-9）、种子与配置（判据10-15）、
+提交物结构（判据16-35）、颜色可见性（判据36-45：经对比度审计的色值在源码与规范中的
+钉位，经 verifier_text_facts 提取表断言，漂移即破坏已审计的可读性）。
+以下判据全部可机械判定：
 
 判据1：类型的 key 字段不得为空。
 判据2：类型的 health_method 字段必须等于 GET 或 HEAD。
@@ -42,3 +46,13 @@ workbench-market 开发验证器 v4（全面覆盖矩阵）
 判据33：封装提交物必须包含 design-system/workbench-market/MASTER.md。
 判据34：封装提交物必须包含 evidence/e2e_test.py。
 判据35：封装提交物 evidence 目录下的 PNG 截图证据不少于 10 张。
+判据36：main.tsx 主题必须包含主色值「#1E3A5F」。
+判据37：main.tsx 主题必须包含次级文字色值「#5A6577」。
+判据38：main.tsx 主题必须包含成功色值「#059669」。
+判据39：main.tsx 主题必须包含错误色值「#DC2626」。
+判据40：App.tsx 侧栏 token 必须包含深底色值「#0F172A」。
+判据41：index.css 必须包含焦点环色值「rgba(5, 150, 105, 0.6)」。
+判据42：index.css 必须包含选中边框色值「rgba(5, 150, 105, 0.45)」。
+判据43：App.tsx 标题区必须包含强调色值「#059669」。
+判据44：设计规范 MASTER.md 必须包含主色值「#1E3A5F」。
+判据45：设计规范 MASTER.md 必须包含次级文字审计色值「#5A6577」。
