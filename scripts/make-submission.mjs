@@ -43,6 +43,7 @@ cpSync(join(root, "server", "package.json"), join(sub, "server", "package.json")
 cpSync(join(root, "web", "package.json"), join(sub, "web", "package.json"));
 const pngs = readdirSync(join(root, "evidence")).filter((f) => f.endsWith(".png"));
 for (const f of pngs) cpSync(join(root, "evidence", f), join(sub, "evidence", f));
+try { cpSync(join(root, "evidence", "e2e-summary.json"), join(sub, "evidence", "e2e-summary.json")); } catch {}
 
 // 3) 打包清单（审计面：提交物内容一目了然）
 const manifest = {
@@ -70,6 +71,12 @@ const TEXT_FACTS = [
   ["web/src/App.tsx", "#059669"],
   ["design-system/workbench-market/MASTER.md", "#1E3A5F"],
   ["design-system/workbench-market/MASTER.md", "#5A6577"],
+  ["web/src/pages/Dashboard.tsx", "#5A6577"],
+  ["web/src/pages/Dashboard.tsx", "#059669"],
+  ["web/src/pages/Dashboard.tsx", "#DC2626"],
+  ["web/src/pages/Dashboard.tsx", "#94A3B8"],
+  ["web/src/index.css", "rgba(30, 58, 95, 0.1)"],
+  ["web/src/index.css", "#0f172a"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);
@@ -86,6 +93,28 @@ for (const [p, needle] of TEXT_FACTS) {
   const present = src.includes(needle) ? 1 : 0;
   hit += present;
   ins.run(p, needle, present);
+}
+// 5) E2E 行为证据提取表：读 evidence/e2e-summary.json（e2e_test.py 每次运行落盘）；
+//    无文件则不插入——E2E 判据 fail-closed（count==1 与 exists 均失败），诚实暴露 E2E 未跑
+snapDb.exec(`CREATE TABLE verifier_e2e_summary (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  total INTEGER NOT NULL,
+  passed INTEGER NOT NULL,
+  failed INTEGER NOT NULL,
+  all_passed INTEGER NOT NULL,
+  finished_at TEXT NOT NULL
+)`);
+let e2eRow = null;
+try {
+  e2eRow = JSON.parse(readFileSync(join(root, "evidence", "e2e-summary.json"), "utf8"));
+} catch {
+  console.log("⚠ evidence/e2e-summary.json 缺失 —— E2E 判据将 fail-closed");
+}
+if (e2eRow && Number.isFinite(e2eRow.total)) {
+  snapDb
+    .prepare("INSERT INTO verifier_e2e_summary (total, passed, failed, all_passed, finished_at) VALUES (?, ?, ?, ?, ?)")
+    .run(e2eRow.total, e2eRow.passed, e2eRow.failed, e2eRow.all_passed ? 1 : 0, e2eRow.finished_at ?? "");
+  console.log(`✓ verifier_e2e_summary: ${e2eRow.passed}/${e2eRow.total} (${e2eRow.finished_at})`);
 }
 snapDb.close();
 console.log(`✓ verifier_text_facts: ${hit}/${TEXT_FACTS.length} 色值在源码中钉位`);

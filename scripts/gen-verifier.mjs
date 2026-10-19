@@ -83,20 +83,33 @@ const U = [
   { c: "判据43：App.tsx 标题区必须包含强调色值「#059669」。", t: "标题强调色钉位", s: "S3", ck: existsFact("web/src/App.tsx","#059669"), rv: ["判据原文逐字取自冻结材料，深底上的 emerald 标题图标。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
   { c: "判据44：设计规范 MASTER.md 必须包含主色值「#1E3A5F」。", t: "规范主色钉位", s: "S3", ck: existsFact("design-system/workbench-market/MASTER.md","#1E3A5F"), rv: ["判据原文逐字取自冻结材料，规范单一事实源钉主色。", "提取表三条件 exists 精确判定。", "删 token 提取为 0 即 FAIL。"] },
   { c: "判据45：设计规范 MASTER.md 必须包含次级文字审计色值「#5A6577」。", t: "规范审计色钉位", s: "S3", ck: existsFact("design-system/workbench-market/MASTER.md","#5A6577"), rv: ["判据原文逐字取自冻结材料，对比度实测表记录修复色。", "提取表三条件 exists 精确判定。", "删记录提取为 0 即 FAIL。"] },
+  { c: "判据46：Dashboard.tsx 统计标签必须包含次级色值「#5A6577」。", t: "统计标签次级色钉位", s: "S2", ck: existsFact("web/src/pages/Dashboard.tsx","#5A6577"), rv: ["判据原文逐字取自冻结材料，统计标签用次级审计色。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
+  { c: "判据47：Dashboard.tsx 在线环必须包含成功色值「#059669」。", t: "在线环色钉位", s: "S2", ck: existsFact("web/src/pages/Dashboard.tsx","#059669"), rv: ["判据原文逐字取自冻结材料，在线率环用 emerald。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
+  { c: "判据48：Dashboard.tsx 离线卡必须包含错误色值「#DC2626」。", t: "离线卡色钉位", s: "S2", ck: existsFact("web/src/pages/Dashboard.tsx","#DC2626"), rv: ["判据原文逐字取自冻结材料，离线数字用错误红。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
+  { c: "判据49：Dashboard.tsx 辅助文字必须包含轴色值「#94A3B8」。", t: "辅助轴色钉位", s: "S3", ck: existsFact("web/src/pages/Dashboard.tsx","#94A3B8"), rv: ["判据原文逐字取自冻结材料，辅助轴文字用 slate。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
+  { c: "判据50：index.css 必须包含主色淡底色值「rgba(30, 58, 95, 0.1)」。", t: "主色淡底钉位", s: "S3", ck: existsFact("web/src/index.css","rgba(30, 58, 95, 0.1)"), rv: ["判据原文逐字取自冻结材料，navy 主色 10% 淡底。", "提取表三条件 exists 精确判定。", "改值提取为 0 即 FAIL。"] },
+  { c: "判据51：index.css 必须包含深底色值「#0f172a」。", t: "css 深底钉位", s: "S3", ck: existsFact("web/src/index.css","#0f172a"), rv: ["判据原文逐字取自冻结材料，样式侧深底 token。", "提取表三条件 exists 精确判定。", "改值提取为 0 即 FAIL。"] },
+  // ── E2E 行为证据（经 verifier_e2e_summary 提取表，源自 e2e_test.py 落盘的 evidence/e2e-summary.json） ──
+  { c: "判据52：E2E 摘要记录的用例总数不得少于 14。", t: "E2E 规模下限", s: "S2", ck: count("verifier_e2e_summary", "==", 1, and({ col: "total", op: ">=", value: 14 })), rv: ["判据原文逐字取自冻结材料，行为面至少覆盖既有 14 组用例。", "count 条件计数 ==1 精确判定。", "删用例或未跑 E2E 即计数 0 FAIL。"] },
+  { c: "判据53：E2E 摘要必须标记全部用例通过。", t: "E2E 全绿", s: "S1", ck: { type: "exists", predicate: { from: "verifier_e2e_summary", select: ["id"], where: and({ col: "all_passed", op: "=", value: 1 }) }, expect: true }, rv: ["判据原文逐字取自冻结材料，行为面必须全绿才可交付。", "all_passed=1 exists 精确判定。", "任一用例失败即 0 行 FAIL。"] },
+  { c: "判据54：E2E 摘要必须带有完成时间戳。", t: "E2E 时间戳在位", s: "S3", ck: { type: "exists", predicate: { from: "verifier_e2e_summary", select: ["id"], where: { col: "finished_at", op: "is not null" } }, expect: true }, rv: ["判据原文逐字取自冻结材料，摘要须可追溯运行时间。", "is not null exists 精确判定。", "空时间戳即 FAIL。"] },
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
-const header = `workbench-market 开发验证器 v4.2（全面覆盖矩阵）
+const header = `workbench-market 开发验证器 v5（全面覆盖矩阵）
 
 判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
 快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
 verifier_text_facts(path, needle, present)——打包时对源码逐一检查钉位事实；
+E2E 行为证据提取表 verifier_e2e_summary(total, passed, failed, all_passed,
+finished_at)——源自 e2e_test.py 每次运行落盘的 evidence/e2e-summary.json。
 提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
 脚本、验证器自举档案、设计规范与证据。
-命令执行型检查（typecheck、lint、build、e2e）不属于 CLI 闭集，由开发流程自行执行；
-覆盖四个维度共 45 条判据：数据域完整性（判据1-9）、种子与配置（判据10-15）、
-提交物结构（判据16-35）、颜色可见性（判据36-45：经对比度审计的色值在源码与规范中的
-钉位，经 verifier_text_facts 提取表断言，漂移即破坏已审计的可读性）。
+命令执行型检查（typecheck、lint、build）不属于 CLI 闭集，由开发流程自行执行
+（E2E 结果经摘要表断言）；覆盖五个维度共 54 条判据：数据域完整性（判据1-9）、
+种子与配置（判据10-15）、提交物结构（判据16-35）、颜色可见性（判据36-51：经对比度
+审计的色值在源码与规范中的钉位，漂移即破坏已审计的可读性）、E2E 行为证据
+（判据52-54：规模下限、全绿、时间戳在位）。
 以下判据全部可机械判定：
 `;
 
