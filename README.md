@@ -53,3 +53,21 @@ data/         SQLite 数据文件（git 忽略）
 ```
 
 设计系统见 `design-system/workbench-market/MASTER.md`（Minimalism & Swiss，主色 #1E3A5F）。
+
+## 开发验证器
+
+基于 ygl-trees verify 管线（M13 spec validator）的闭集判定器：9 条判据锁定**数据态**（类型库规模 ≥8、内置 web 类型存在、巡检三键齐备、工作台非空、enabled 域完整性）与**提交物形态**（README、设计规范、E2E 脚本、截图证据 ≥10）。命令执行型检查（typecheck/lint/build/e2e）不在闭集内，由开发流程自行执行。
+
+```bash
+# 1) 生成判定面：活库快照 + 封装提交物（幂等）
+node scripts/make-submission.mjs
+
+# 2) 构造期（材料 → 候选 → 盲审 → 三重门 → 冻结 spec；材料/候选/盲审改动后需重新 submit）
+ygl-trees verify submit --title "workbench-market 开发验证器 v3" --text verify/material.md
+ygl-trees verify prepare <material-id> --candidates verify/candidates.json --reviews verify/reviews.json --db tmp/verify-snap.sqlite
+
+# 3) 执行期（可重复跑；--submission 指向封装提交物而非仓库根——file 型全仓扫描在 pnpm 联接点上不可行）
+ygl-trees verify run <spec-id> --db tmp/verify-snap.sqlite --submission tmp/submission
+```
+
+基线：`run_4e8442c34ab45277` 9/9 PASS（2026-10-20）；红测 `run_2ba86c10136c02db`（快照删 1 类型）V1 精确 FAIL，判定器有分辨力。判据源文件在 [verify/](verify/)：material.md（冻结材料原文）、candidates.json（VU 候选 + checker）、reviews.json（三问盲审结论）。

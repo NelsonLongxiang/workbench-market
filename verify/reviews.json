@@ -1,0 +1,76 @@
+{
+  "reviews": [
+    {
+      "source_clause": "判据一：类型库中的工作台类型不少于 8 个。",
+      "findings": [
+        { "question": "faithful", "verdict": "ok", "reason": "判据原文逐字取自冻结材料，语义为类型表行数下限，无增删。", "anchor": { "quote": "判据一：类型库中的工作台类型不少于 8 个。", "locator": "dev-verifier-v3.md 判据一" } },
+        { "question": "decidable", "verdict": "ok", "reason": "count 对 types 表全量计数并与 8 比较，纯数值判定，无模糊词。" },
+        { "question": "not-vacuous", "verdict": "ok", "reason": "计数扫全表，阈值 8 与真实种子规模相当，失败路径存在（删类型即 FAIL）。" }
+      ]
+    },
+    {
+      "source_clause": "判据二：内置类型 web 必须存在于类型库。",
+      "findings": [
+        { "question": "faithful", "verdict": "ok", "reason": "判据原文逐字取自冻结材料，检查的是内置 web 类型的存在性。", "anchor": { "quote": "判据二：内置类型 web 必须存在于类型库。", "locator": "dev-verifier-v3.md 判据二" } },
+        { "question": "decidable", "verdict": "ok", "reason": "exists 谓词 key='web' 精确匹配，可机械判定。" },
+        { "question": "not-vacuous", "verdict": "ok", "reason": "目标键明确，删掉 web 行即 FAIL，非恒真。" }
+      ]
+    },
+    {
+      "source_clause": "判据三：巡检设置必须包含 health_interval_seconds、health_timeout_ms、health_concurrency 三个键。",
+      "findings": [
+        { "question": "faithful", "verdict": "ok", "reason": "判据原文逐字取自冻结材料，三键名与谓词 in 列表一致。", "anchor": { "quote": "判据三：巡检设置必须包含 health_interval_seconds、health_timeout_ms、health_concurrency 三个键。", "locator": "dev-verifier-v3.md 判据三" } },
+        { "question": "decidable", "verdict": "ok", "reason": "count 对键名集合精确计数并 ==3，纯数值判定。" },
+        { "question": "not-vacuous", "verdict": "ok", "reason": "缺任一键计数即 2，FAIL 路径存在。" }
+      ]
+    },
+    {
+      "source_clause": "判据四：工作台表中至少注册了 1 个工作台。",
+      "findings": [
+        { "question": "faithful", "verdict": "ok", "reason": "判据原文逐字取自冻结材料，语义为工作台表非空。", "anchor": { "quote": "判据四：工作台表中至少注册了 1 个工作台。", "locator": "dev-verifier-v3.md 判据四" } },
+        { "question": "decidable", "verdict": "ok", "reason": "count>=1 数值判定。" },
+        { "question": "not-vacuous", "verdict": "ok", "reason": "空表即 FAIL，非恒真。" }
+      ]
+    },
+    {
+      "source_clause": "判据五：每个已注册工作台的 enabled 字段必须等于 0 或 1。",
+      "findings": [
+        { "question": "faithful", "verdict": "ok", "reason": "判据原文逐字取自冻结材料，违规形式=enabled 不在 {0,1}。", "anchor": { "quote": "判据五：每个已注册工作台的 enabled 字段必须等于 0 或 1。", "locator": "dev-verifier-v3.md 判据五" } },
+        { "question": "decidable", "verdict": "ok", "reason": "违规行集查询，rows>0 即 FAIL，SQLite 数值域判定无歧义。" },
+        { "question": "not-vacuous", "verdict": "ok", "reason": "写入 enabled=2 即出现违规行 FAIL；扫描域为全表，非恒真。" }
+      ]
+    },
+    {
+      "source_clause": "判据六：封装提交物必须包含 README.md。",
+      "findings": [
+        { "question": "faithful", "verdict": "ok", "reason": "判据原文逐字取自冻结材料，检查封装提交物内 README 存在性。", "anchor": { "quote": "判据六：封装提交物必须包含 README.md。", "locator": "dev-verifier-v3.md 判据六" } },
+        { "question": "decidable", "verdict": "ok", "reason": "glob 精确文件名匹配，存在性判定。" },
+        { "question": "not-vacuous", "verdict": "ok", "reason": "删除文件即 FAIL。" }
+      ]
+    },
+    {
+      "source_clause": "判据七：封装提交物必须包含 design-system/workbench-market/MASTER.md。",
+      "findings": [
+        { "question": "faithful", "verdict": "ok", "reason": "判据原文逐字取自冻结材料，路径与 glob 一致。", "anchor": { "quote": "判据七：封装提交物必须包含 design-system/workbench-market/MASTER.md。", "locator": "dev-verifier-v3.md 判据七" } },
+        { "question": "decidable", "verdict": "ok", "reason": "精确路径 glob 存在性判定。" },
+        { "question": "not-vacuous", "verdict": "ok", "reason": "删除文件即 FAIL。" }
+      ]
+    },
+    {
+      "source_clause": "判据八：封装提交物必须包含 evidence/e2e_test.py。",
+      "findings": [
+        { "question": "faithful", "verdict": "ok", "reason": "判据原文逐字取自冻结材料，路径与 glob 一致。", "anchor": { "quote": "判据八：封装提交物必须包含 evidence/e2e_test.py。", "locator": "dev-verifier-v3.md 判据八" } },
+        { "question": "decidable", "verdict": "ok", "reason": "精确路径 glob 存在性判定。" },
+        { "question": "not-vacuous", "verdict": "ok", "reason": "删除脚本即 FAIL。" }
+      ]
+    },
+    {
+      "source_clause": "判据九：封装提交物 evidence 目录下的 PNG 截图证据不少于 10 张。",
+      "findings": [
+        { "question": "faithful", "verdict": "ok", "reason": "判据原文逐字取自冻结材料，glob 与阈值 10 一致。", "anchor": { "quote": "判据九：封装提交物 evidence 目录下的 PNG 截图证据不少于 10 张。", "locator": "dev-verifier-v3.md 判据九" } },
+        { "question": "decidable", "verdict": "ok", "reason": "glob 计数 >=10 数值判定。" },
+        { "question": "not-vacuous", "verdict": "ok", "reason": "清理截图至 10 张以下即 FAIL，非恒真。" }
+      ]
+    }
+  ]
+}
