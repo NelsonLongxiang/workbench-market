@@ -54,7 +54,7 @@ export default function UseWorkbench() {
         </Typography.Title>
         <StatusBadge status={w.last_status} latency={w.last_latency_ms} error={w.last_error} checkedAt={w.last_checked_at} />
         <Tag color="geekblue">{w.type}</Tag>
-        <Typography.Text className="wm-num" style={{ color: '#94A3B8', fontSize: 12 }}>
+        <Typography.Text className="wm-num wm-mono" style={{ color: '#94A3B8', fontSize: 12 }}>
           {w.url}
         </Typography.Text>
         <Space style={{ marginLeft: 'auto' }}>

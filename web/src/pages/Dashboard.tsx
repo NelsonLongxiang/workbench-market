@@ -118,9 +118,7 @@ export default function Dashboard() {
           <Col key={it.title} xs={12} md={8} lg={4} xl={4} xxl={4}>
             <Card size="small" styles={{ body: { padding: '12px 16px' } }}>
               <div style={{ padding: '2px 0' }}>
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  {it.title}
-                </Typography.Text>
+                <span className="wm-stat-label">{it.title}</span>
                 <div className="wm-num" style={{ color: it.color, fontSize: 24, fontWeight: 600, lineHeight: 1.4 }}>
                   {it.value}
                   {it.suffix ? <span style={{ fontSize: 13, fontWeight: 400, marginLeft: 4 }}>{it.suffix}</span> : null}

@@ -160,7 +160,7 @@ export default function Settings() {
             { key: 'name', label: '产品', children: 'workbench-market · 工作台市场' },
             { key: 'ver', label: '版本', children: <span className="wm-num">{String((healthReq.data as { version?: string })?.version ?? '0.1.0')}</span> },
             { key: 'arch', label: '架构', children: 'Express + node:sqlite（单文件 SQLite，零原生依赖）· React + antd + pro-components' },
-            { key: 'db', label: '数据位置', children: 'server/data/workbench-market.db（可用 DATA_DIR 环境变量重定向）' },
+            { key: 'db', label: '数据位置', children: <span className="wm-mono" style={{ fontSize: 12 }}>server/data/workbench-market.db（可用 DATA_DIR 环境变量重定向）</span> },
             { key: 'up', label: '服务运行时长', children: <span className="wm-num">{healthReq.data ? `${(healthReq.data as { uptime_s?: number }).uptime_s}s` : '-'}</span> },
           ]}
         />
