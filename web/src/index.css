@@ -1,0 +1,115 @@
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wm-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 仪表盘卡片（react-grid-layout 内） ---------- */
+.wm-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #fff;
+  border: 1px solid rgba(30, 58, 95, 0.1);
+  border-radius: 8px;
+  padding: 12px;
+  gap: 8px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  overflow: hidden;
+}
+
+.wm-card:hover {
+  border-color: rgba(5, 150, 105, 0.45);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.1);
+}
+
+.wm-card.draggable .wm-card-head {
+  cursor: grab;
+}
+
+.wm-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.wm-card-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.wm-card-title {
+  font-weight: 600;
+  font-size: 14px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wm-card-url {
+  font-size: 12px;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wm-card-foot {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-top: auto;
+}
+
+.react-grid-item.react-grid-placeholder {
+  background: #1e3a5f;
+  opacity: 0.15;
+  border-radius: 8px;
+}
+
+/* ---------- 嵌入使用页 ---------- */
+.wm-use-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #f5f5f5;
+}
+
+.wm-use-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  height: 52px;
+  background: #0f172a;
+  color: #e2e8f0;
+  flex: none;
+}
+
+.wm-use-bar .wm-use-title {
+  color: #fff;
+  font-weight: 600;
+  margin: 0 !important;
+}
+
+.wm-use-frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #fff;
+}

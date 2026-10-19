@@ -1,0 +1,15 @@
+{
+  "name": "workbench-market",
+  "private": true,
+  "version": "0.1.0",
+  "description": "管理 web 工作台的框架——聚合连接各端口服务开放的多类型 AI 工作台（SQLite + React antd）",
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,green \"pnpm --filter server dev\" \"pnpm --filter web dev\"",
+    "build": "pnpm --filter web build",
+    "start": "pnpm --filter server start",
+    "check": "pnpm --filter web typecheck"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
