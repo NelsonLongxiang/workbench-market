@@ -1,0 +1,124 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>workbench-market · 验证报告 acb8497b</title>
+<style>
+  :root{--navy:#1E3A5F;--ok:#059669;--bad:#DC2626;--ink:#0F172A;--sub:#5A6577;--line:#E2E8F0;--bg:#F8FAFC}
+  *{box-sizing:border-box;margin:0}
+  body{font:14px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;color:var(--ink);background:var(--bg);padding:32px}
+  .wrap{max-width:960px;margin:0 auto}
+  header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+  h1{font-size:20px;font-weight:600}
+  .meta{color:var(--sub);font-size:12.5px}
+  .overall{display:inline-block;padding:3px 14px;border-radius:999px;font-weight:700;font-size:15px;color:#fff;background:#059669}
+  .chips{display:flex;gap:10px;margin:18px 0 22px;flex-wrap:wrap}
+  .chip{background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px 18px;min-width:86px}
+  .chip b{display:block;font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+  .chip span{font-size:12px;color:var(--sub)}
+  table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:13.5px}
+  th{text-align:left;font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--sub);padding:9px 12px;border-bottom:2px solid var(--line);background:#fff}
+  td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  tr:last-child td{border-bottom:0}
+  .clause{color:var(--sub);font-size:12px;margin-top:2px}
+  .mono{font-family:"Cascadia Mono",Consolas,monospace;font-size:12.5px;font-variant-numeric:tabular-nums}
+  .pill{display:inline-block;padding:1px 9px;border-radius:999px;font-size:11.5px;font-weight:700;color:#fff;background:var(--sub)}
+  .pill.pass{background:var(--ok)}.pill.fail{background:var(--bad)}.pill.error{background:#D97706}.pill.needs-material{background:#64748B}
+  .sev{color:var(--sub);font-size:11px;margin-left:4px}
+  .num{text-align:right;white-space:nowrap}
+  .dim{color:var(--sub)}
+  .bar{display:inline-block;width:64px;height:8px;border-radius:4px;background:#EDF2F7;vertical-align:middle;margin-right:6px;overflow:hidden}
+  .bar i{display:block;height:100%}
+  h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);margin:26px 0 10px}
+  footer{margin-top:26px;color:var(--sub);font-size:12px;line-height:1.8}
+</style></head><body><div class="wrap">
+  <header><span class="overall">PASS</span><h1>验证报告</h1>
+    <span class="meta mono">spec_8947f6379002 v1 · run run_acb8497b27990f9b · 2026/10/20 01:55:42（快照口径 as-of 2026/10/20 01:37:13）</span>
+  </header>
+  <div class="chips">
+    <div class="chip"><b style="color:var(--ok)">9</b><span>通过</span></div>
+    <div class="chip"><b style="color:var(--bad)">0</b><span>失败</span></div>
+    <div class="chip"><b>0</b><span>缺材料</span></div>
+    <div class="chip"><b>0</b><span>错误</span></div>
+    <div class="chip"><b>9</b><span>验证单元</span></div>
+  </div>
+  <table><thead><tr><th>单元</th><th>判定</th><th>判据</th><th>检查器</th><th style="text-align:right">命中/扫描</th></tr></thead>
+  <tbody><tr>
+    <td class="mono">V1</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
+    <td>类型库规模下限<div class="clause">判据一：类型库中的工作台类型不少于 8 个。</div></td>
+    <td class="mono">count</td>
+    <td class="num"><span class="mono">8/8</span></td>
+  </tr><tr>
+    <td class="mono">V2</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
+    <td>内置 web 类型存在<div class="clause">判据二：内置类型 web 必须存在于类型库。</div></td>
+    <td class="mono">exists</td>
+    <td class="num"><span class="mono">1/8</span></td>
+  </tr><tr>
+    <td class="mono">V3</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
+    <td>巡检三键齐备<div class="clause">判据三：巡检设置必须包含 health_interval_seconds、health_timeout_ms、healt</div></td>
+    <td class="mono">count</td>
+    <td class="num"><span class="mono">3/4</span></td>
+  </tr><tr>
+    <td class="mono">V4</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
+    <td>工作台非空<div class="clause">判据四：工作台表中至少注册了 1 个工作台。</div></td>
+    <td class="mono">count</td>
+    <td class="num"><span class="mono">1/1</span></td>
+  </tr><tr>
+    <td class="mono">V5</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
+    <td>enabled 字段域完整性<div class="clause">判据五：每个已注册工作台的 enabled 字段必须等于 0 或 1。</div></td>
+    <td class="mono">sql</td>
+    <td class="num"><span class="mono">0/1</span></td>
+  </tr><tr>
+    <td class="mono">V6</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
+    <td>README 存在<div class="clause">判据六：封装提交物必须包含 README.md。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:3.7037037037037033%;background:#059669"></i></div><span class="mono">1/27</span></td>
+  </tr><tr>
+    <td class="mono">V7</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
+    <td>设计规范存在<div class="clause">判据七：封装提交物必须包含 design-system/workbench-market/MASTER.md。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:3.7037037037037033%;background:#059669"></i></div><span class="mono">1/27</span></td>
+  </tr><tr>
+    <td class="mono">V8</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
+    <td>E2E 脚本存在<div class="clause">判据八：封装提交物必须包含 evidence/e2e_test.py。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:3.7037037037037033%;background:#059669"></i></div><span class="mono">1/27</span></td>
+  </tr><tr>
+    <td class="mono">V9</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S3</span></td>
+    <td>UI 证据截图下限<div class="clause">判据九：封装提交物 evidence 目录下的 PNG 截图证据不少于 10 张。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:85.18518518518519%;background:#059669"></i></div><span class="mono">23/27</span></td>
+  </tr></tbody></table>
+  <h2>运行历史（3 次）</h2>
+  <table><thead><tr><th>Run</th><th>时间</th><th>Overall</th><th>Spec</th><th style="text-align:right">通过数</th></tr></thead>
+  <tbody><tr>
+  <td class="mono">run_acb8497b27990f</td>
+  <td>2026/10/20 01:55:42</td>
+  <td><span class="pill pass">PASS</span></td>
+  <td class="mono">spec_8947f6379002</td>
+  <td class="num">9<span class="dim">/9</span></td>
+</tr><tr>
+  <td class="mono">run_4e8442c34ab452</td>
+  <td>2026/10/20 01:37:19</td>
+  <td><span class="pill pass">PASS</span></td>
+  <td class="mono">spec_8947f6379002</td>
+  <td class="num">9<span class="dim">/9</span></td>
+</tr><tr>
+  <td class="mono">run_2ba86c10136c02</td>
+  <td>2026/10/20 01:37:36</td>
+  <td><span class="pill fail">FAIL</span></td>
+  <td class="mono">spec_8947f6379002</td>
+  <td class="num">8<span class="dim">/9</span></td>
+</tr></tbody></table>
+  <footer>
+    判定面：SQLite 快照 + 封装提交物（node scripts/make-submission.mjs 生成）· 引擎 0.1.0 · 模式 open
+    <br>payload_sha256 <span class="mono">sha256:6f533fc48…</span> · 本页由 scripts/verify-report.mjs 从报告 JSON 静态生成（无外部依赖）
+  </footer>
+</div></body></html>
