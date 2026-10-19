@@ -1079,6 +1079,222 @@
           "reason": "删记录提取为 0 即 FAIL。"
         }
       ]
+    },
+    {
+      "source_clause": "判据46：Dashboard.tsx 统计标签必须包含次级色值「#5A6577」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，统计标签用次级审计色。",
+          "anchor": {
+            "quote": "判据46：Dashboard.tsx 统计标签必须包含次级色值「#5A6577」。",
+            "locator": "dev-verifier-v4.md 判据4"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改色提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据47：Dashboard.tsx 在线环必须包含成功色值「#059669」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，在线率环用 emerald。",
+          "anchor": {
+            "quote": "判据47：Dashboard.tsx 在线环必须包含成功色值「#059669」。",
+            "locator": "dev-verifier-v4.md 判据4"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改色提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据48：Dashboard.tsx 离线卡必须包含错误色值「#DC2626」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，离线数字用错误红。",
+          "anchor": {
+            "quote": "判据48：Dashboard.tsx 离线卡必须包含错误色值「#DC2626」。",
+            "locator": "dev-verifier-v4.md 判据4"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改色提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据49：Dashboard.tsx 辅助文字必须包含轴色值「#94A3B8」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，辅助轴文字用 slate。",
+          "anchor": {
+            "quote": "判据49：Dashboard.tsx 辅助文字必须包含轴色值「#94A3B8」。",
+            "locator": "dev-verifier-v4.md 判据4"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改色提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据50：index.css 必须包含主色淡底色值「rgba(30, 58, 95, 0.1)」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，navy 主色 10% 淡底。",
+          "anchor": {
+            "quote": "判据50：index.css 必须包含主色淡底色值「rgba(30, 58, 95, 0.1)」。",
+            "locator": "dev-verifier-v4.md 判据5"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改值提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据51：index.css 必须包含深底色值「#0f172a」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，样式侧深底 token。",
+          "anchor": {
+            "quote": "判据51：index.css 必须包含深底色值「#0f172a」。",
+            "locator": "dev-verifier-v4.md 判据5"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改值提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 14。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，行为面至少覆盖既有 14 组用例。",
+          "anchor": {
+            "quote": "判据52：E2E 摘要记录的用例总数不得少于 14。",
+            "locator": "dev-verifier-v4.md 判据5"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "count 条件计数 ==1 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删用例或未跑 E2E 即计数 0 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据53：E2E 摘要必须标记全部用例通过。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，行为面必须全绿才可交付。",
+          "anchor": {
+            "quote": "判据53：E2E 摘要必须标记全部用例通过。",
+            "locator": "dev-verifier-v4.md 判据5"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "all_passed=1 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "任一用例失败即 0 行 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据54：E2E 摘要必须带有完成时间戳。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，摘要须可追溯运行时间。",
+          "anchor": {
+            "quote": "判据54：E2E 摘要必须带有完成时间戳。",
+            "locator": "dev-verifier-v4.md 判据5"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "is not null exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "空时间戳即 FAIL。"
+        }
+      ]
     }
   ]
 }

@@ -5,7 +5,9 @@
      antd Select(tags) 不用 placeholder.fill，改为点击后键盘输入+Enter。
 失败自动截图 evidence/fail-*.png；exit code 非 0 表示有失败。
 """
+import json
 import sys
+from datetime import datetime, timezone
 from playwright.sync_api import sync_playwright, expect
 
 BASE = 'http://127.0.0.1:9800'
@@ -270,5 +272,15 @@ with sync_playwright() as p:
     browser.close()
 
 fails = [r for r in RESULTS if not r[1]]
-print(f'\n===== E2E 汇总：{len(RESULTS) - len(fails)}/{len(RESULTS)} PASS =====')
+total, passed = len(RESULTS), len(RESULTS) - len(fails)
+summary = {
+    'total': total,
+    'passed': passed,
+    'failed': len(fails),
+    'all_passed': 1 if not fails else 0,
+    'finished_at': datetime.now(timezone.utc).isoformat(),
+}
+with open(__file__.replace('e2e_test.py', 'e2e-summary.json'), 'w', encoding='utf-8') as f:
+    json.dump(summary, f, ensure_ascii=False, indent=2)
+print(f'\n===== E2E 汇总：{passed}/{total} PASS =====')
 sys.exit(1 if fails else 0)
