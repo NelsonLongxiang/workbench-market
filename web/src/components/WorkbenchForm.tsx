@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import { App } from 'antd';
 import { ModalForm, ProFormDigit, ProFormSelect, ProFormSwitch, ProFormText, ProFormTextArea } from '@ant-design/pro-components';
 import { api } from '../api';
 import type { Workbench, WorkbenchType } from '../types';
@@ -7,28 +8,49 @@ export default function WorkbenchForm({
   open,
   types,
   initial,
+  copySource,
   onClose,
   onSaved,
 }: {
   open: boolean;
   types: WorkbenchType[];
+  /** 编辑目标（有 id） */
   initial?: Workbench | null;
+  /** 复制来源：预填其全部字段，名称加 (副本)，按新增提交 */
+  copySource?: Workbench | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const formRef = useRef<any>();
+  const { message } = App.useApp();
+
+  const copyInitial = copySource
+    ? {
+        name: `${copySource.name} (副本)`,
+        url: copySource.url,
+        type: copySource.type,
+        icon: copySource.icon || '',
+        category: copySource.category || '',
+        tags: copySource.tags ?? [],
+        health_path: copySource.health_path || '',
+        enabled: copySource.enabled,
+        sort: copySource.sort ?? 0,
+        description: copySource.description || '',
+      }
+    : null;
 
   return (
     <ModalForm
-      key={initial ? `edit-${initial.id}` : 'create'}
-      title={initial ? `编辑工作台：${initial.name}` : '新增工作台'}
+      key={initial ? `edit-${initial.id}` : copySource ? `copy-${copySource.id}-${copySource.name}` : 'create'}
+      title={initial ? `编辑工作台：${initial.name}` : copySource ? `复制工作台：${copySource.name}` : '新增工作台'}
       width={560}
       open={open}
       onOpenChange={(v) => !v && onClose()}
       formRef={formRef}
       modalProps={{ destroyOnClose: true, maskClosable: false }}
       initialValues={
-        initial ?? {
+        initial ??
+        copyInitial ?? {
           name: '',
           url: '',
           type: 'web',
@@ -48,6 +70,7 @@ export default function WorkbenchForm({
           onSaved();
           return true;
         } catch (e) {
+          message.error(`保存失败：${(e as Error).message}`);
           return false;
         }
       }}

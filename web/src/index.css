@@ -113,3 +113,19 @@ body {
   border: none;
   background: #fff;
 }
+
+/* ---------- 表格工具栏小屏换行（避免横向溢出裁切） ---------- */
+/* pro-components v2 把 toolBarRender 全部项包进一个匿名 nowrap DIV（实测 904px），
+   双类选择器压过其 css-hash 单类规则 */
+.ant-pro-table-list-toolbar .ant-pro-table-list-toolbar-right {
+  flex-wrap: wrap;
+  width: 100%;
+  justify-content: flex-start;
+  row-gap: 8px;
+}
+.ant-pro-table-list-toolbar-right > div:not(.ant-pro-table-list-toolbar-setting-items) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 100%;
+}

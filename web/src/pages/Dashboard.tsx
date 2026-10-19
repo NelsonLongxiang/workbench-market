@@ -12,7 +12,7 @@ import type { Workbench } from '../types';
 import StatusBadge from '../components/StatusBadge';
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
-const LAYOUT_KEY = 'wm.dashboard.layouts.v1';
+const LAYOUT_KEY = 'wm.dashboard.layouts.v2';
 const COLS = { lg: 6, md: 4, sm: 2, xs: 1, xxs: 1 };
 
 function defaultLayout(items: Workbench[]): Layouts {
@@ -22,9 +22,9 @@ function defaultLayout(items: Workbench[]): Layouts {
       x: idx % perRow,
       y: Math.floor(idx / perRow),
       w: 1,
-      h: 2,
+      h: 3,
       minW: 1,
-      minH: 2,
+      minH: 3,
     }));
   return { lg: mk(6), md: mk(4), sm: mk(2), xs: mk(1), xxs: mk(1) };
 }
