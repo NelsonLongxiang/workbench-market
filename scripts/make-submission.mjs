@@ -79,6 +79,7 @@ const TEXT_FACTS = [
   ["web/src/index.css", "#0f172a"],
   ["web/src/index.css", ".wm-use-bar .ant-badge-status-text"],
   ["web/src/index.css", "rgba(255, 255, 255, 0.85)"],
+  ["server/src/index.ts", "/api/cockpits"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);

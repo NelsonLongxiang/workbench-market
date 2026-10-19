@@ -35,6 +35,12 @@ def cleanup(page):
                 api(page, 'DELETE', f"/api/types/{t['id']}")
             except Exception:
                 pass
+    for c in api(page, 'GET', '/api/cockpits').json():
+        if c['name'].startswith('E2E'):
+            try:
+                api(page, 'DELETE', f"/api/cockpits/{c['id']}")
+            except Exception:
+                pass
 
 
 with sync_playwright() as p:
@@ -268,7 +274,61 @@ with sync_playwright() as p:
     except Exception as e:
         record('设置/导出', False, str(e)); shot('settings')
 
-    # ---------- 12. 渲染层对比度探针（深底文字可见性——静态色值钉位测不到的 fg/bg 配对） ----------
+    # ---------- 12. 任务驾驶舱（创建→加面板→持久化→面板操作→列表→删除） ----------
+    try:
+        page.goto(BASE + '/cockpit')
+        page.wait_for_load_state('networkidle')
+        # 创建（UI 点击覆盖 + API 建名直达：页头按钮存在性断言）
+        assert page.get_by_role('button', name='新建驾驶舱').first.is_visible(), '新建按钮缺失'
+        r = api(page, 'POST', '/api/cockpits', {'name': 'E2E 驾驶舱'}).json()
+        cid = r['id']
+        page.goto(BASE + f'/cockpit/{cid}')
+        page.wait_for_load_state('networkidle')
+        # 空态提示
+        assert page.get_by_text('空驾驶舱', exact=False).first.is_visible(), '空驾驶舱提示未出现'
+        # 添加面板：多选 Select 用搜索+回车（下拉项动画期间 locator 点击不稳定）
+        page.locator('.ant-select', has_text='添加工作台面板').first.click()
+        page.wait_for_timeout(300)
+        page.keyboard.type('DSH')
+        page.wait_for_timeout(300)
+        page.keyboard.press('Enter')
+        page.keyboard.press('Escape')
+        page.wait_for_timeout(900)
+        # 面板 iframe 出现
+        panels = page.locator('.wm-panel')
+        n_after_add = panels.count()
+        assert n_after_add >= 1, f'面板未出现（{n_after_add}）'
+        srcs = page.locator('.wm-panel-body iframe').evaluate_all('els => els.map(e => e.getAttribute("src"))')
+        assert srcs and srcs[0].startswith('http'), f'iframe src 异常: {srcs}'
+        # 刷新后布局持久化（服务端保存的面板还在）
+        page.reload()
+        page.wait_for_load_state('networkidle')
+        page.wait_for_timeout(600)
+        assert page.locator('.wm-panel').count() >= 1, '刷新后面板丢失（布局未持久化）'
+        row = api(page, 'GET', f'/api/cockpits/{cid}').json()
+        assert len(row['panels']) >= 1 and row['panels'][0]['workbenchId'] >= 1, f'API 面板数据异常: {row["panels"]}'
+        assert row['name'] == 'E2E 驾驶舱', f'改名未持久化: {row["name"]}'
+        # 移除面板 → 空态回归
+        page.locator('.wm-panel-actions [aria-label="移除此面板"], .wm-panel-actions .anticon-close').first.click()
+        page.wait_for_timeout(800)
+        assert page.locator('.wm-panel').count() == 0, '面板移除失败'
+        # 返回列表：卡片出现（E2E 驾驶舱）
+        page.get_by_role('button', name='返回驾驶舱列表').click()
+        page.wait_for_load_state('networkidle')
+        card = page.get_by_text('E2E 驾驶舱', exact=True).first
+        assert card.is_visible(), '列表中未见 E2E 驾驶舱'
+        # 列表删除
+        page.get_by_text('E2E 驾驶舱', exact=True).first.hover()
+        page.get_by_role('button', name='删除').first.click()
+        page.get_by_role('button', name='确 定').click()
+        page.wait_for_timeout(600)
+        leftover = api(page, 'GET', '/api/cockpits').json()
+        assert not any(c['name'] == 'E2E 驾驶舱' for c in leftover), '驾驶舱删除失败'
+        record('任务驾驶舱（创建/面板/持久化/删除）', True)
+    except Exception as e:
+        record('任务驾驶舱', False, str(e)); shot('cockpit')
+
+    # ---------- 13. 渲染层对比度探针（深底文字可见性——静态色值钉位测不到的 fg/bg 配对） ----------
     CONTRAST_JS = '''
     ([sel, min]) => {
       const el = document.querySelector(sel);

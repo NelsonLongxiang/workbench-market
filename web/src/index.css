@@ -99,6 +99,87 @@ body {
   border-radius: 8px;
 }
 
+/* ---------- 任务驾驶舱 ---------- */
+.wm-cockpit-grid {
+  width: 100%;
+}
+
+.wm-panel {
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.wm-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 10px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  cursor: move;
+  user-select: none;
+  flex: none;
+}
+
+.wm-panel-grip {
+  color: #94a3b8;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.wm-panel-head .ant-badge-text {
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wm-panel-actions {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 10px;
+  color: #64748b;
+  cursor: default;
+}
+
+.wm-panel-actions .anticon,
+.wm-panel-actions a {
+  color: #64748b;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.wm-panel-actions .anticon:hover,
+.wm-panel-actions a:hover {
+  color: #1e3a5f;
+}
+
+.wm-panel-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  background: #ffffff;
+}
+
+.wm-panel-body iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.wm-panel-body .ant-empty {
+  margin-top: 32px;
+}
+
+
 /* ---------- 嵌入使用页 ---------- */
 .wm-use-wrap {
   display: flex;

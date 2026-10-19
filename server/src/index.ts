@@ -3,7 +3,7 @@ import cors from 'cors';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { db, getSettings, rowToWorkbench, type WorkbenchRow, type TypeRow } from './db.ts';
+import { db, getSettings, rowToWorkbench, rowToCockpit, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig } from './db.ts';
 import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -151,6 +151,71 @@ app.post('/api/check-all', wrap(async (_req, res) => {
   await Promise.all(workers);
   res.json({ checked: results.length, up: results.filter((r) => r.last_status === 'up').length, down: results.filter((r) => r.last_status === 'down').length });
 }));
+
+// ---------- 驾驶舱 CRUD（任务驾驶舱：多工作台分屏组合视图） ----------
+function getCockpit(id: number): CockpitRow {
+  const row = db.prepare('SELECT * FROM cockpits WHERE id = ?').get(id) as unknown as CockpitRow | undefined;
+  if (!row) throw new HttpError(404, `cockpit not found: ${id}`);
+  return row;
+}
+
+function validatePanels(raw: unknown): PanelConfig[] {
+  if (!Array.isArray(raw)) bad('layout_config 必须是面板数组');
+  const seen = new Set<number>();
+  return raw.map((p: any) => {
+    const workbenchId = Number(p?.workbenchId ?? Number(String(p?.i ?? '').replace('wb-', '')));
+    if (!Number.isInteger(workbenchId) || workbenchId < 1) bad(`面板 workbenchId 非法: ${JSON.stringify(p)}`);
+    if (seen.has(workbenchId)) bad(`面板重复引用工作台 ${workbenchId}`);
+    seen.add(workbenchId);
+    if (!db.prepare('SELECT id FROM workbenches WHERE id = ?').get(workbenchId)) bad(`面板引用的工作台不存在: ${workbenchId}`);
+    const w = Math.min(12, Math.max(1, Number(p?.w) || 6));
+    const h = Math.min(40, Math.max(4, Number(p?.h) || 10));
+    return {
+      i: `wb-${workbenchId}`,
+      workbenchId,
+      x: Math.min(12 - w, Math.max(0, Number(p?.x) || 0)),
+      y: Math.max(0, Number(p?.y) || 0),
+      w, h,
+    };
+  });
+}
+
+app.get('/api/cockpits', (_req, res) => {
+  const rows = db.prepare('SELECT * FROM cockpits ORDER BY updated_at DESC, id DESC').all() as unknown as CockpitRow[];
+  res.json(rows.map(rowToCockpit));
+});
+
+app.post('/api/cockpits', (req, res) => {
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+  if (!name) bad('name 不能为空');
+  const description = String(req.body?.description ?? '');
+  const panels = validatePanels(req.body?.panels ?? []);
+  const r = db
+    .prepare(`INSERT INTO cockpits (name, description, layout_config) VALUES (?, ?, ?)`)
+    .run(name, description, JSON.stringify(panels)) as unknown as { lastInsertRowid: number | bigint };
+  res.status(201).json(rowToCockpit(getCockpit(Number(r.lastInsertRowid))));
+});
+
+app.get('/api/cockpits/:id', (req, res) => {
+  res.json(rowToCockpit(getCockpit(Number(req.params.id))));
+});
+
+app.put('/api/cockpits/:id', (req, res) => {
+  const cur = getCockpit(Number(req.params.id));
+  const name = req.body?.name !== undefined ? String(req.body.name).trim() : cur.name;
+  if (!name) bad('name 不能为空');
+  const description = req.body?.description !== undefined ? String(req.body.description) : cur.description;
+  const panels = req.body?.panels !== undefined ? validatePanels(req.body.panels) : JSON.parse(cur.layout_config || '[]');
+  db.prepare(`UPDATE cockpits SET name = ?, description = ?, layout_config = ?, updated_at = datetime('now') WHERE id = ?`)
+    .run(name, description, JSON.stringify(panels), cur.id);
+  res.json(rowToCockpit(getCockpit(cur.id)));
+});
+
+app.delete('/api/cockpits/:id', (req, res) => {
+  const cur = getCockpit(Number(req.params.id));
+  db.prepare('DELETE FROM cockpits WHERE id = ?').run(cur.id);
+  res.json({ ok: true });
+});
 
 app.get('/api/summary', (_req, res) => {
   const rows = listWorkbenches();

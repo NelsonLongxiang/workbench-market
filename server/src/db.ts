@@ -47,6 +47,14 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS cockpits (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  layout_config TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `);
 
 /** 内置工作台类型种子：health 探测语义——expect_status 为 NULL 表示任意 HTTP 响应即在线 */
@@ -92,6 +100,24 @@ export interface TypeRow {
   id: number; key: string; name: string; icon: string; default_port: number | null;
   health_method: string; health_path: string; expect_status: number | null;
   description: string; created_at: string;
+}
+
+export interface CockpitRow {
+  id: number; name: string; description: string; layout_config: string;
+  created_at: string; updated_at: string;
+}
+
+/** 驾驶舱面板配置：workbenchId 指向 workbenches.id，x/y/w/h 为网格布局 */
+export interface PanelConfig {
+  i: string;
+  workbenchId: number;
+  x: number; y: number; w: number; h: number;
+}
+
+export function rowToCockpit(r: CockpitRow) {
+  let panels: PanelConfig[] = [];
+  try { panels = JSON.parse(r.layout_config || '[]'); } catch { panels = []; }
+  return { ...r, panels };
 }
 
 export function rowToWorkbench(r: WorkbenchRow) {

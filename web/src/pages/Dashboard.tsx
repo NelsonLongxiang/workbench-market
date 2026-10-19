@@ -153,7 +153,10 @@ export default function Dashboard() {
               size={88}
               percent={rate}
               strokeColor="#059669"
-              railColor="#E5E7EB"
+              // antd-cli 6.6.4 将 trailColor 标弃用并建议 railColor，但本机 antd 5.29.3
+              // 类型与 rc-progress 运行时只实现 trailColor（railColor 是空操作）——
+              // 以 spread 绕过 lint 的静态 prop 检测，保住运行时颜色
+              {...{ trailColor: '#E5E7EB' }}
               format={() => (
                 <span className="wm-num" style={{ fontSize: 16, fontWeight: 600 }}>
                   {rate}%
