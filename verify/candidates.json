@@ -1,91 +1,807 @@
 {
   "candidates": [
     {
-      "source_clause": "判据一：类型库中的工作台类型不少于 8 个。",
-      "anchor": { "quote": "判据一：类型库中的工作台类型不少于 8 个。", "locator": "dev-verifier-v3.md 判据一" },
-      "title": "类型库规模下限",
-      "severity": "S1",
-      "checker": {
-        "type": "count",
-        "predicate": { "from": "types", "select": [] },
-        "op": ">=",
-        "value": 8
-      }
-    },
-    {
-      "source_clause": "判据二：内置类型 web 必须存在于类型库。",
-      "anchor": { "quote": "判据二：内置类型 web 必须存在于类型库。", "locator": "dev-verifier-v3.md 判据二" },
-      "title": "内置 web 类型存在",
-      "severity": "S1",
-      "checker": {
-        "type": "exists",
-        "predicate": { "from": "types", "select": ["key"], "where": { "op": "and", "conditions": [{ "col": "key", "op": "=", "value": "web" }] } },
-        "expect": true
-      }
-    },
-    {
-      "source_clause": "判据三：巡检设置必须包含 health_interval_seconds、health_timeout_ms、health_concurrency 三个键。",
-      "anchor": { "quote": "判据三：巡检设置必须包含 health_interval_seconds、health_timeout_ms、health_concurrency 三个键。", "locator": "dev-verifier-v3.md 判据三" },
-      "title": "巡检三键齐备",
-      "severity": "S1",
-      "checker": {
-        "type": "count",
-        "predicate": { "from": "settings", "select": [], "where": { "op": "and", "conditions": [{ "col": "key", "op": "in", "value": ["health_interval_seconds", "health_timeout_ms", "health_concurrency"] }] } },
-        "op": "==",
-        "value": 3
-      }
-    },
-    {
-      "source_clause": "判据四：工作台表中至少注册了 1 个工作台。",
-      "anchor": { "quote": "判据四：工作台表中至少注册了 1 个工作台。", "locator": "dev-verifier-v3.md 判据四" },
-      "title": "工作台非空",
-      "severity": "S2",
-      "checker": {
-        "type": "count",
-        "predicate": { "from": "workbenches", "select": [] },
-        "op": ">=",
-        "value": 1
-      }
-    },
-    {
-      "source_clause": "判据五：每个已注册工作台的 enabled 字段必须等于 0 或 1。",
-      "anchor": { "quote": "判据五：每个已注册工作台的 enabled 字段必须等于 0 或 1。", "locator": "dev-verifier-v3.md 判据五" },
-      "title": "enabled 字段域完整性",
+      "source_clause": "判据1：类型的 key 字段不得为空。",
+      "anchor": {
+        "quote": "判据1：类型的 key 字段不得为空。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "类型 key 非空",
       "severity": "S1",
       "checker": {
         "type": "sql",
-        "predicate": { "from": "workbenches", "select": ["id", "name"], "where": { "op": "not", "conditions": [{ "col": "enabled", "op": "in", "value": [0, 1] }] } },
+        "predicate": {
+          "from": "types",
+          "select": [
+            "id",
+            "key"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "key",
+                "op": "is null"
+              }
+            ]
+          }
+        },
         "expect": "none",
         "fail_when": "rows>0"
       }
     },
     {
-      "source_clause": "判据六：封装提交物必须包含 README.md。",
-      "anchor": { "quote": "判据六：封装提交物必须包含 README.md。", "locator": "dev-verifier-v3.md 判据六" },
+      "source_clause": "判据2：类型的 health_method 字段必须等于 GET 或 HEAD。",
+      "anchor": {
+        "quote": "判据2：类型的 health_method 字段必须等于 GET 或 HEAD。",
+        "locator": "dev-verifier-v4.md 判据2"
+      },
+      "title": "探测方法域完整",
+      "severity": "S1",
+      "checker": {
+        "type": "sql",
+        "predicate": {
+          "from": "types",
+          "select": [
+            "id",
+            "health_method"
+          ],
+          "where": {
+            "op": "not",
+            "conditions": [
+              {
+                "col": "health_method",
+                "op": "in",
+                "value": [
+                  "GET",
+                  "HEAD"
+                ]
+              }
+            ]
+          }
+        },
+        "expect": "none",
+        "fail_when": "rows>0"
+      }
+    },
+    {
+      "source_clause": "判据3：类型的 expect_status 字段必须为空或落在 100 到 599 之间。",
+      "anchor": {
+        "quote": "判据3：类型的 expect_status 字段必须为空或落在 100 到 599 之间。",
+        "locator": "dev-verifier-v4.md 判据3"
+      },
+      "title": "期望状态码域完整",
+      "severity": "S2",
+      "checker": {
+        "type": "sql",
+        "predicate": {
+          "from": "types",
+          "select": [
+            "id",
+            "expect_status"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "expect_status",
+                "op": "is not null"
+              },
+              {
+                "op": "or",
+                "conditions": [
+                  {
+                    "col": "expect_status",
+                    "op": "<",
+                    "value": 100
+                  },
+                  {
+                    "col": "expect_status",
+                    "op": ">",
+                    "value": 599
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "expect": "none",
+        "fail_when": "rows>0"
+      }
+    },
+    {
+      "source_clause": "判据4：类型的 default_port 字段必须为空或落在 1 到 65535 之间。",
+      "anchor": {
+        "quote": "判据4：类型的 default_port 字段必须为空或落在 1 到 65535 之间。",
+        "locator": "dev-verifier-v4.md 判据4"
+      },
+      "title": "默认端口域完整",
+      "severity": "S2",
+      "checker": {
+        "type": "sql",
+        "predicate": {
+          "from": "types",
+          "select": [
+            "id",
+            "default_port"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "default_port",
+                "op": "is not null"
+              },
+              {
+                "op": "or",
+                "conditions": [
+                  {
+                    "col": "default_port",
+                    "op": "<",
+                    "value": 1
+                  },
+                  {
+                    "col": "default_port",
+                    "op": ">",
+                    "value": 65535
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "expect": "none",
+        "fail_when": "rows>0"
+      }
+    },
+    {
+      "source_clause": "判据5：每个已注册工作台的 enabled 字段必须等于 0 或 1。",
+      "anchor": {
+        "quote": "判据5：每个已注册工作台的 enabled 字段必须等于 0 或 1。",
+        "locator": "dev-verifier-v4.md 判据5"
+      },
+      "title": "enabled 域完整",
+      "severity": "S1",
+      "checker": {
+        "type": "sql",
+        "predicate": {
+          "from": "workbenches",
+          "select": [
+            "id",
+            "name"
+          ],
+          "where": {
+            "op": "not",
+            "conditions": [
+              {
+                "col": "enabled",
+                "op": "in",
+                "value": [
+                  0,
+                  1
+                ]
+              }
+            ]
+          }
+        },
+        "expect": "none",
+        "fail_when": "rows>0"
+      }
+    },
+    {
+      "source_clause": "判据6：工作台的 last_status 字段必须等于 up、down、unknown 之一或为空。",
+      "anchor": {
+        "quote": "判据6：工作台的 last_status 字段必须等于 up、down、unknown 之一或为空。",
+        "locator": "dev-verifier-v4.md 判据6"
+      },
+      "title": "状态字段域完整",
+      "severity": "S1",
+      "checker": {
+        "type": "sql",
+        "predicate": {
+          "from": "workbenches",
+          "select": [
+            "id",
+            "last_status"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "last_status",
+                "op": "is not null"
+              },
+              {
+                "op": "not",
+                "conditions": [
+                  {
+                    "col": "last_status",
+                    "op": "in",
+                    "value": [
+                      "up",
+                      "down",
+                      "unknown"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "expect": "none",
+        "fail_when": "rows>0"
+      }
+    },
+    {
+      "source_clause": "判据7：工作台的 last_latency_ms 字段必须为空或落在 0 到 60000 之间。",
+      "anchor": {
+        "quote": "判据7：工作台的 last_latency_ms 字段必须为空或落在 0 到 60000 之间。",
+        "locator": "dev-verifier-v4.md 判据7"
+      },
+      "title": "延迟字段域完整",
+      "severity": "S2",
+      "checker": {
+        "type": "sql",
+        "predicate": {
+          "from": "workbenches",
+          "select": [
+            "id",
+            "last_latency_ms"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "last_latency_ms",
+                "op": "is not null"
+              },
+              {
+                "op": "or",
+                "conditions": [
+                  {
+                    "col": "last_latency_ms",
+                    "op": "<",
+                    "value": 0
+                  },
+                  {
+                    "col": "last_latency_ms",
+                    "op": ">",
+                    "value": 60000
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "expect": "none",
+        "fail_when": "rows>0"
+      }
+    },
+    {
+      "source_clause": "判据8：工作台的 last_http_code 字段必须为空或落在 100 到 599 之间。",
+      "anchor": {
+        "quote": "判据8：工作台的 last_http_code 字段必须为空或落在 100 到 599 之间。",
+        "locator": "dev-verifier-v4.md 判据8"
+      },
+      "title": "HTTP 码域完整",
+      "severity": "S2",
+      "checker": {
+        "type": "sql",
+        "predicate": {
+          "from": "workbenches",
+          "select": [
+            "id",
+            "last_http_code"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "last_http_code",
+                "op": "is not null"
+              },
+              {
+                "op": "or",
+                "conditions": [
+                  {
+                    "col": "last_http_code",
+                    "op": "<",
+                    "value": 100
+                  },
+                  {
+                    "col": "last_http_code",
+                    "op": ">",
+                    "value": 599
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "expect": "none",
+        "fail_when": "rows>0"
+      }
+    },
+    {
+      "source_clause": "判据9：工作台的 sort 字段必须落在 0 到 9999 之间。",
+      "anchor": {
+        "quote": "判据9：工作台的 sort 字段必须落在 0 到 9999 之间。",
+        "locator": "dev-verifier-v4.md 判据9"
+      },
+      "title": "排序字段域完整",
+      "severity": "S3",
+      "checker": {
+        "type": "sql",
+        "predicate": {
+          "from": "workbenches",
+          "select": [
+            "id",
+            "sort"
+          ],
+          "where": {
+            "op": "or",
+            "conditions": [
+              {
+                "col": "sort",
+                "op": "<",
+                "value": 0
+              },
+              {
+                "col": "sort",
+                "op": ">",
+                "value": 9999
+              }
+            ]
+          }
+        },
+        "expect": "none",
+        "fail_when": "rows>0"
+      }
+    },
+    {
+      "source_clause": "判据10：类型库中的工作台类型不少于 8 个。",
+      "anchor": {
+        "quote": "判据10：类型库中的工作台类型不少于 8 个。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "类型库规模下限",
+      "severity": "S1",
+      "checker": {
+        "type": "count",
+        "predicate": {
+          "from": "types",
+          "select": []
+        },
+        "op": ">=",
+        "value": 8
+      }
+    },
+    {
+      "source_clause": "判据11：内置类型 web 必须存在于类型库。",
+      "anchor": {
+        "quote": "判据11：内置类型 web 必须存在于类型库。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "内置 web 类型存在",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "types",
+          "select": [
+            "key"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "key",
+                "op": "=",
+                "value": "web"
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据12：ollama 类型的探测路径必须为 /api/tags。",
+      "anchor": {
+        "quote": "判据12：ollama 类型的探测路径必须为 /api/tags。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "ollama 种子探测路径",
+      "severity": "S2",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "types",
+          "select": [
+            "key"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "key",
+                "op": "=",
+                "value": "ollama"
+              },
+              {
+                "col": "health_path",
+                "op": "=",
+                "value": "/api/tags"
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据13：streamlit 类型的探测路径必须为 /_stcore/health。",
+      "anchor": {
+        "quote": "判据13：streamlit 类型的探测路径必须为 /_stcore/health。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "streamlit 种子探测路径",
+      "severity": "S2",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "types",
+          "select": [
+            "key"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "key",
+                "op": "=",
+                "value": "streamlit"
+              },
+              {
+                "col": "health_path",
+                "op": "=",
+                "value": "/_stcore/health"
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据14：巡检设置必须包含 health_interval_seconds、health_timeout_ms、health_concurrency 三个键。",
+      "anchor": {
+        "quote": "判据14：巡检设置必须包含 health_interval_seconds、health_timeout_ms、health_concurrency 三个键。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "巡检三键齐备",
+      "severity": "S1",
+      "checker": {
+        "type": "count",
+        "predicate": {
+          "from": "settings",
+          "select": [],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "key",
+                "op": "in",
+                "value": [
+                  "health_interval_seconds",
+                  "health_timeout_ms",
+                  "health_concurrency"
+                ]
+              }
+            ]
+          }
+        },
+        "op": "==",
+        "value": 3
+      }
+    },
+    {
+      "source_clause": "判据15：工作台表中至少注册了 1 个工作台。",
+      "anchor": {
+        "quote": "判据15：工作台表中至少注册了 1 个工作台。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "工作台非空",
+      "severity": "S2",
+      "checker": {
+        "type": "count",
+        "predicate": {
+          "from": "workbenches",
+          "select": []
+        },
+        "op": ">=",
+        "value": 1
+      }
+    },
+    {
+      "source_clause": "判据16：封装提交物必须包含 README.md。",
+      "anchor": {
+        "quote": "判据16：封装提交物必须包含 README.md。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
       "title": "README 存在",
       "severity": "S2",
-      "checker": { "type": "file", "glob": "README.md", "min": 1 }
+      "checker": {
+        "type": "file",
+        "glob": "README.md",
+        "min": 1
+      }
     },
     {
-      "source_clause": "判据七：封装提交物必须包含 design-system/workbench-market/MASTER.md。",
-      "anchor": { "quote": "判据七：封装提交物必须包含 design-system/workbench-market/MASTER.md。", "locator": "dev-verifier-v3.md 判据七" },
+      "source_clause": "判据17：封装提交物必须包含根目录 package.json。",
+      "anchor": {
+        "quote": "判据17：封装提交物必须包含根目录 package.json。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "根清单存在",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "package.json",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据18：封装提交物必须包含 pnpm-workspace.yaml。",
+      "anchor": {
+        "quote": "判据18：封装提交物必须包含 pnpm-workspace.yaml。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "workspace 定义存在",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "pnpm-workspace.yaml",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据19：封装提交物必须包含 server/package.json。",
+      "anchor": {
+        "quote": "判据19：封装提交物必须包含 server/package.json。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "server 清单存在",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "server/package.json",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据20：封装提交物必须包含 web/package.json。",
+      "anchor": {
+        "quote": "判据20：封装提交物必须包含 web/package.json。",
+        "locator": "dev-verifier-v4.md 判据2"
+      },
+      "title": "web 清单存在",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "web/package.json",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据21：封装提交物必须包含 server/src/index.ts。",
+      "anchor": {
+        "quote": "判据21：封装提交物必须包含 server/src/index.ts。",
+        "locator": "dev-verifier-v4.md 判据2"
+      },
+      "title": "server 入口存在",
+      "severity": "S1",
+      "checker": {
+        "type": "file",
+        "glob": "server/src/index.ts",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据22：封装提交物必须包含 server/src/db.ts。",
+      "anchor": {
+        "quote": "判据22：封装提交物必须包含 server/src/db.ts。",
+        "locator": "dev-verifier-v4.md 判据2"
+      },
+      "title": "db 模块存在",
+      "severity": "S1",
+      "checker": {
+        "type": "file",
+        "glob": "server/src/db.ts",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据23：封装提交物必须包含 server/src/health.ts。",
+      "anchor": {
+        "quote": "判据23：封装提交物必须包含 server/src/health.ts。",
+        "locator": "dev-verifier-v4.md 判据2"
+      },
+      "title": "探测模块存在",
+      "severity": "S1",
+      "checker": {
+        "type": "file",
+        "glob": "server/src/health.ts",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据24：封装提交物 web/src/pages 目录下的页面组件不少于 5 个。",
+      "anchor": {
+        "quote": "判据24：封装提交物 web/src/pages 目录下的页面组件不少于 5 个。",
+        "locator": "dev-verifier-v4.md 判据2"
+      },
+      "title": "页面组件下限",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "web/src/pages/*.tsx",
+        "min": 5
+      }
+    },
+    {
+      "source_clause": "判据25：封装提交物 web/src/components 目录下的组件不少于 2 个。",
+      "anchor": {
+        "quote": "判据25：封装提交物 web/src/components 目录下的组件不少于 2 个。",
+        "locator": "dev-verifier-v4.md 判据2"
+      },
+      "title": "组件下限",
+      "severity": "S3",
+      "checker": {
+        "type": "file",
+        "glob": "web/src/components/*.tsx",
+        "min": 2
+      }
+    },
+    {
+      "source_clause": "判据26：封装提交物必须包含 web/dist/index.html。",
+      "anchor": {
+        "quote": "判据26：封装提交物必须包含 web/dist/index.html。",
+        "locator": "dev-verifier-v4.md 判据2"
+      },
+      "title": "构建入口存在",
+      "severity": "S1",
+      "checker": {
+        "type": "file",
+        "glob": "web/dist/index.html",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据27：封装提交物 web/dist/assets 目录下的 JS 产物不少于 5 个。",
+      "anchor": {
+        "quote": "判据27：封装提交物 web/dist/assets 目录下的 JS 产物不少于 5 个。",
+        "locator": "dev-verifier-v4.md 判据2"
+      },
+      "title": "分桶产物下限",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "web/dist/assets/*.js",
+        "min": 5
+      }
+    },
+    {
+      "source_clause": "判据28：封装提交物必须包含 scripts/make-submission.mjs。",
+      "anchor": {
+        "quote": "判据28：封装提交物必须包含 scripts/make-submission.mjs。",
+        "locator": "dev-verifier-v4.md 判据2"
+      },
+      "title": "打包脚本存在",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "scripts/make-submission.mjs",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据29：封装提交物必须包含 scripts/verify-report.mjs。",
+      "anchor": {
+        "quote": "判据29：封装提交物必须包含 scripts/verify-report.mjs。",
+        "locator": "dev-verifier-v4.md 判据2"
+      },
+      "title": "报告脚本存在",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "scripts/verify-report.mjs",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据30：封装提交物必须包含 verify/material.md。",
+      "anchor": {
+        "quote": "判据30：封装提交物必须包含 verify/material.md。",
+        "locator": "dev-verifier-v4.md 判据3"
+      },
+      "title": "验证器材料自举",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "verify/material.md",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据31：封装提交物必须包含 verify/candidates.json。",
+      "anchor": {
+        "quote": "判据31：封装提交物必须包含 verify/candidates.json。",
+        "locator": "dev-verifier-v4.md 判据3"
+      },
+      "title": "候选清单自举",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "verify/candidates.json",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据32：封装提交物必须包含 verify/reviews.json。",
+      "anchor": {
+        "quote": "判据32：封装提交物必须包含 verify/reviews.json。",
+        "locator": "dev-verifier-v4.md 判据3"
+      },
+      "title": "盲审档案自举",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "verify/reviews.json",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据33：封装提交物必须包含 design-system/workbench-market/MASTER.md。",
+      "anchor": {
+        "quote": "判据33：封装提交物必须包含 design-system/workbench-market/MASTER.md。",
+        "locator": "dev-verifier-v4.md 判据3"
+      },
       "title": "设计规范存在",
       "severity": "S2",
-      "checker": { "type": "file", "glob": "design-system/workbench-market/MASTER.md", "min": 1 }
+      "checker": {
+        "type": "file",
+        "glob": "design-system/workbench-market/MASTER.md",
+        "min": 1
+      }
     },
     {
-      "source_clause": "判据八：封装提交物必须包含 evidence/e2e_test.py。",
-      "anchor": { "quote": "判据八：封装提交物必须包含 evidence/e2e_test.py。", "locator": "dev-verifier-v3.md 判据八" },
+      "source_clause": "判据34：封装提交物必须包含 evidence/e2e_test.py。",
+      "anchor": {
+        "quote": "判据34：封装提交物必须包含 evidence/e2e_test.py。",
+        "locator": "dev-verifier-v4.md 判据3"
+      },
       "title": "E2E 脚本存在",
-      "severity": "S2",
-      "checker": { "type": "file", "glob": "evidence/e2e_test.py", "min": 1 }
+      "severity": "S1",
+      "checker": {
+        "type": "file",
+        "glob": "evidence/e2e_test.py",
+        "min": 1
+      }
     },
     {
-      "source_clause": "判据九：封装提交物 evidence 目录下的 PNG 截图证据不少于 10 张。",
-      "anchor": { "quote": "判据九：封装提交物 evidence 目录下的 PNG 截图证据不少于 10 张。", "locator": "dev-verifier-v3.md 判据九" },
-      "title": "UI 证据截图下限",
+      "source_clause": "判据35：封装提交物 evidence 目录下的 PNG 截图证据不少于 10 张。",
+      "anchor": {
+        "quote": "判据35：封装提交物 evidence 目录下的 PNG 截图证据不少于 10 张。",
+        "locator": "dev-verifier-v4.md 判据3"
+      },
+      "title": "UI 证据下限",
       "severity": "S3",
-      "checker": { "type": "file", "glob": "evidence/*.png", "min": 10 }
+      "checker": {
+        "type": "file",
+        "glob": "evidence/*.png",
+        "min": 10
+      }
     }
   ]
 }

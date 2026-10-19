@@ -1,6 +1,6 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>workbench-market · 验证报告 acb8497b</title>
+<title>workbench-market · 验证报告 02f0de67</title>
 <style>
   :root{--navy:#1E3A5F;--ok:#059669;--bad:#DC2626;--ink:#0F172A;--sub:#5A6577;--line:#E2E8F0;--bg:#F8FAFC}
   *{box-sizing:border-box;margin:0}
@@ -31,94 +31,244 @@
   footer{margin-top:26px;color:var(--sub);font-size:12px;line-height:1.8}
 </style></head><body><div class="wrap">
   <header><span class="overall">PASS</span><h1>验证报告</h1>
-    <span class="meta mono">spec_8947f6379002 v1 · run run_acb8497b27990f9b · 2026/10/20 01:55:42（快照口径 as-of 2026/10/20 01:37:13）</span>
+    <span class="meta mono">spec_702066625fe6 v1 · run run_02f0de67f15f22ad · 2026/10/20 02:06:31（快照口径 as-of 2026/10/20 02:06:23）</span>
   </header>
   <div class="chips">
-    <div class="chip"><b style="color:var(--ok)">9</b><span>通过</span></div>
+    <div class="chip"><b style="color:var(--ok)">35</b><span>通过</span></div>
     <div class="chip"><b style="color:var(--bad)">0</b><span>失败</span></div>
     <div class="chip"><b>0</b><span>缺材料</span></div>
     <div class="chip"><b>0</b><span>错误</span></div>
-    <div class="chip"><b>9</b><span>验证单元</span></div>
+    <div class="chip"><b>35</b><span>验证单元</span></div>
   </div>
   <table><thead><tr><th>单元</th><th>判定</th><th>判据</th><th>检查器</th><th style="text-align:right">命中/扫描</th></tr></thead>
   <tbody><tr>
     <td class="mono">V1</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
-    <td>类型库规模下限<div class="clause">判据一：类型库中的工作台类型不少于 8 个。</div></td>
+    <td>类型 key 非空<div class="clause">判据1：类型的 key 字段不得为空。</div></td>
+    <td class="mono">sql</td>
+    <td class="num"><span class="mono">0/8</span></td>
+  </tr><tr>
+    <td class="mono">V10</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
+    <td>类型库规模下限<div class="clause">判据10：类型库中的工作台类型不少于 8 个。</div></td>
     <td class="mono">count</td>
     <td class="num"><span class="mono">8/8</span></td>
   </tr><tr>
-    <td class="mono">V2</td>
+    <td class="mono">V11</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
-    <td>内置 web 类型存在<div class="clause">判据二：内置类型 web 必须存在于类型库。</div></td>
+    <td>内置 web 类型存在<div class="clause">判据11：内置类型 web 必须存在于类型库。</div></td>
     <td class="mono">exists</td>
     <td class="num"><span class="mono">1/8</span></td>
   </tr><tr>
-    <td class="mono">V3</td>
+    <td class="mono">V12</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
+    <td>ollama 种子探测路径<div class="clause">判据12：ollama 类型的探测路径必须为 /api/tags。</div></td>
+    <td class="mono">exists</td>
+    <td class="num"><span class="mono">1/8</span></td>
+  </tr><tr>
+    <td class="mono">V13</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
+    <td>streamlit 种子探测路径<div class="clause">判据13：streamlit 类型的探测路径必须为 /_stcore/health。</div></td>
+    <td class="mono">exists</td>
+    <td class="num"><span class="mono">1/8</span></td>
+  </tr><tr>
+    <td class="mono">V14</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
-    <td>巡检三键齐备<div class="clause">判据三：巡检设置必须包含 health_interval_seconds、health_timeout_ms、healt</div></td>
+    <td>巡检三键齐备<div class="clause">判据14：巡检设置必须包含 health_interval_seconds、health_timeout_ms、heal</div></td>
     <td class="mono">count</td>
     <td class="num"><span class="mono">3/4</span></td>
   </tr><tr>
-    <td class="mono">V4</td>
+    <td class="mono">V15</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
-    <td>工作台非空<div class="clause">判据四：工作台表中至少注册了 1 个工作台。</div></td>
+    <td>工作台非空<div class="clause">判据15：工作台表中至少注册了 1 个工作台。</div></td>
     <td class="mono">count</td>
     <td class="num"><span class="mono">1/1</span></td>
   </tr><tr>
+    <td class="mono">V16</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
+    <td>README 存在<div class="clause">判据16：封装提交物必须包含 README.md。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:1.639344262295082%;background:#059669"></i></div><span class="mono">1/61</span></td>
+  </tr><tr>
+    <td class="mono">V17</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
+    <td>根清单存在<div class="clause">判据17：封装提交物必须包含根目录 package.json。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:1.639344262295082%;background:#059669"></i></div><span class="mono">1/61</span></td>
+  </tr><tr>
+    <td class="mono">V18</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
+    <td>workspace 定义存在<div class="clause">判据18：封装提交物必须包含 pnpm-workspace.yaml。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:1.639344262295082%;background:#059669"></i></div><span class="mono">1/61</span></td>
+  </tr><tr>
+    <td class="mono">V19</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
+    <td>server 清单存在<div class="clause">判据19：封装提交物必须包含 server/package.json。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:1.639344262295082%;background:#059669"></i></div><span class="mono">1/61</span></td>
+  </tr><tr>
+    <td class="mono">V2</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
+    <td>探测方法域完整<div class="clause">判据2：类型的 health_method 字段必须等于 GET 或 HEAD。</div></td>
+    <td class="mono">sql</td>
+    <td class="num"><span class="mono">0/8</span></td>
+  </tr><tr>
+    <td class="mono">V20</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
+    <td>web 清单存在<div class="clause">判据20：封装提交物必须包含 web/package.json。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:1.639344262295082%;background:#059669"></i></div><span class="mono">1/61</span></td>
+  </tr><tr>
+    <td class="mono">V21</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
+    <td>server 入口存在<div class="clause">判据21：封装提交物必须包含 server/src/index.ts。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:1.639344262295082%;background:#059669"></i></div><span class="mono">1/61</span></td>
+  </tr><tr>
+    <td class="mono">V22</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
+    <td>db 模块存在<div class="clause">判据22：封装提交物必须包含 server/src/db.ts。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:1.639344262295082%;background:#059669"></i></div><span class="mono">1/61</span></td>
+  </tr><tr>
+    <td class="mono">V23</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
+    <td>探测模块存在<div class="clause">判据23：封装提交物必须包含 server/src/health.ts。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:1.639344262295082%;background:#059669"></i></div><span class="mono">1/61</span></td>
+  </tr><tr>
+    <td class="mono">V24</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
+    <td>页面组件下限<div class="clause">判据24：封装提交物 web/src/pages 目录下的页面组件不少于 5 个。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:8.19672131147541%;background:#059669"></i></div><span class="mono">5/61</span></td>
+  </tr><tr>
+    <td class="mono">V25</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S3</span></td>
+    <td>组件下限<div class="clause">判据25：封装提交物 web/src/components 目录下的组件不少于 2 个。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:3.278688524590164%;background:#059669"></i></div><span class="mono">2/61</span></td>
+  </tr><tr>
+    <td class="mono">V26</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
+    <td>构建入口存在<div class="clause">判据26：封装提交物必须包含 web/dist/index.html。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:1.639344262295082%;background:#059669"></i></div><span class="mono">1/61</span></td>
+  </tr><tr>
+    <td class="mono">V27</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
+    <td>分桶产物下限<div class="clause">判据27：封装提交物 web/dist/assets 目录下的 JS 产物不少于 5 个。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:9.836065573770492%;background:#059669"></i></div><span class="mono">6/61</span></td>
+  </tr><tr>
+    <td class="mono">V28</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
+    <td>打包脚本存在<div class="clause">判据28：封装提交物必须包含 scripts/make-submission.mjs。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:1.639344262295082%;background:#059669"></i></div><span class="mono">1/61</span></td>
+  </tr><tr>
+    <td class="mono">V29</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
+    <td>报告脚本存在<div class="clause">判据29：封装提交物必须包含 scripts/verify-report.mjs。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:1.639344262295082%;background:#059669"></i></div><span class="mono">1/61</span></td>
+  </tr><tr>
+    <td class="mono">V3</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
+    <td>期望状态码域完整<div class="clause">判据3：类型的 expect_status 字段必须为空或落在 100 到 599 之间。</div></td>
+    <td class="mono">sql</td>
+    <td class="num"><span class="mono">0/8</span></td>
+  </tr><tr>
+    <td class="mono">V30</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
+    <td>验证器材料自举<div class="clause">判据30：封装提交物必须包含 verify/material.md。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:1.639344262295082%;background:#059669"></i></div><span class="mono">1/61</span></td>
+  </tr><tr>
+    <td class="mono">V31</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
+    <td>候选清单自举<div class="clause">判据31：封装提交物必须包含 verify/candidates.json。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:1.639344262295082%;background:#059669"></i></div><span class="mono">1/61</span></td>
+  </tr><tr>
+    <td class="mono">V32</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
+    <td>盲审档案自举<div class="clause">判据32：封装提交物必须包含 verify/reviews.json。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:1.639344262295082%;background:#059669"></i></div><span class="mono">1/61</span></td>
+  </tr><tr>
+    <td class="mono">V33</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
+    <td>设计规范存在<div class="clause">判据33：封装提交物必须包含 design-system/workbench-market/MASTER.md。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:1.639344262295082%;background:#059669"></i></div><span class="mono">1/61</span></td>
+  </tr><tr>
+    <td class="mono">V34</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
+    <td>E2E 脚本存在<div class="clause">判据34：封装提交物必须包含 evidence/e2e_test.py。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:1.639344262295082%;background:#059669"></i></div><span class="mono">1/61</span></td>
+  </tr><tr>
+    <td class="mono">V35</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S3</span></td>
+    <td>UI 证据下限<div class="clause">判据35：封装提交物 evidence 目录下的 PNG 截图证据不少于 10 张。</div></td>
+    <td class="mono">file</td>
+    <td class="num"><div class="bar"><i style="width:39.34426229508197%;background:#059669"></i></div><span class="mono">24/61</span></td>
+  </tr><tr>
+    <td class="mono">V4</td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
+    <td>默认端口域完整<div class="clause">判据4：类型的 default_port 字段必须为空或落在 1 到 65535 之间。</div></td>
+    <td class="mono">sql</td>
+    <td class="num"><span class="mono">0/8</span></td>
+  </tr><tr>
     <td class="mono">V5</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
-    <td>enabled 字段域完整性<div class="clause">判据五：每个已注册工作台的 enabled 字段必须等于 0 或 1。</div></td>
+    <td>enabled 域完整<div class="clause">判据5：每个已注册工作台的 enabled 字段必须等于 0 或 1。</div></td>
     <td class="mono">sql</td>
     <td class="num"><span class="mono">0/1</span></td>
   </tr><tr>
     <td class="mono">V6</td>
-    <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
-    <td>README 存在<div class="clause">判据六：封装提交物必须包含 README.md。</div></td>
-    <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:3.7037037037037033%;background:#059669"></i></div><span class="mono">1/27</span></td>
+    <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
+    <td>状态字段域完整<div class="clause">判据6：工作台的 last_status 字段必须等于 up、down、unknown 之一或为空。</div></td>
+    <td class="mono">sql</td>
+    <td class="num"><span class="mono">0/1</span></td>
   </tr><tr>
     <td class="mono">V7</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
-    <td>设计规范存在<div class="clause">判据七：封装提交物必须包含 design-system/workbench-market/MASTER.md。</div></td>
-    <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:3.7037037037037033%;background:#059669"></i></div><span class="mono">1/27</span></td>
+    <td>延迟字段域完整<div class="clause">判据7：工作台的 last_latency_ms 字段必须为空或落在 0 到 60000 之间。</div></td>
+    <td class="mono">sql</td>
+    <td class="num"><span class="mono">0/1</span></td>
   </tr><tr>
     <td class="mono">V8</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
-    <td>E2E 脚本存在<div class="clause">判据八：封装提交物必须包含 evidence/e2e_test.py。</div></td>
-    <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:3.7037037037037033%;background:#059669"></i></div><span class="mono">1/27</span></td>
+    <td>HTTP 码域完整<div class="clause">判据8：工作台的 last_http_code 字段必须为空或落在 100 到 599 之间。</div></td>
+    <td class="mono">sql</td>
+    <td class="num"><span class="mono">0/1</span></td>
   </tr><tr>
     <td class="mono">V9</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S3</span></td>
-    <td>UI 证据截图下限<div class="clause">判据九：封装提交物 evidence 目录下的 PNG 截图证据不少于 10 张。</div></td>
-    <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:85.18518518518519%;background:#059669"></i></div><span class="mono">23/27</span></td>
+    <td>排序字段域完整<div class="clause">判据9：工作台的 sort 字段必须落在 0 到 9999 之间。</div></td>
+    <td class="mono">sql</td>
+    <td class="num"><span class="mono">0/1</span></td>
   </tr></tbody></table>
-  <h2>运行历史（3 次）</h2>
+  <h2>运行历史（2 次）</h2>
   <table><thead><tr><th>Run</th><th>时间</th><th>Overall</th><th>Spec</th><th style="text-align:right">通过数</th></tr></thead>
   <tbody><tr>
+  <td class="mono">run_02f0de67f15f22</td>
+  <td>2026/10/20 02:06:31</td>
+  <td><span class="pill pass">PASS</span></td>
+  <td class="mono">spec_702066625fe6</td>
+  <td class="num">35<span class="dim">/35</span></td>
+</tr><tr>
   <td class="mono">run_acb8497b27990f</td>
   <td>2026/10/20 01:55:42</td>
   <td><span class="pill pass">PASS</span></td>
   <td class="mono">spec_8947f6379002</td>
   <td class="num">9<span class="dim">/9</span></td>
-</tr><tr>
-  <td class="mono">run_4e8442c34ab452</td>
-  <td>2026/10/20 01:37:19</td>
-  <td><span class="pill pass">PASS</span></td>
-  <td class="mono">spec_8947f6379002</td>
-  <td class="num">9<span class="dim">/9</span></td>
-</tr><tr>
-  <td class="mono">run_2ba86c10136c02</td>
-  <td>2026/10/20 01:37:36</td>
-  <td><span class="pill fail">FAIL</span></td>
-  <td class="mono">spec_8947f6379002</td>
-  <td class="num">8<span class="dim">/9</span></td>
 </tr></tbody></table>
   <footer>
     判定面：SQLite 快照 + 封装提交物（node scripts/make-submission.mjs 生成）· 引擎 0.1.0 · 模式 open
-    <br>payload_sha256 <span class="mono">sha256:6f533fc48…</span> · 本页由 scripts/verify-report.mjs 从报告 JSON 静态生成（无外部依赖）
+    <br>payload_sha256 <span class="mono">sha256:fa3c6d6b6…</span> · 本页由 scripts/verify-report.mjs 从报告 JSON 静态生成（无外部依赖）
   </footer>
 </div></body></html>

@@ -56,18 +56,24 @@ data/         SQLite 数据文件（git 忽略）
 
 ## 开发验证器
 
-基于 ygl-trees verify 管线（M13 spec validator）的闭集判定器：9 条判据锁定**数据态**（类型库规模 ≥8、内置 web 类型存在、巡检三键齐备、工作台非空、enabled 域完整性）与**提交物形态**（README、设计规范、E2E 脚本、截图证据 ≥10）。命令执行型检查（typecheck/lint/build/e2e）不在闭集内，由开发流程自行执行。
+基于 ygl-trees verify 管线（M13 spec validator）的闭集判定器 v4：**35 条判据**三维覆盖——数据域完整性（9 条：types 的 key/方法/状态码/端口域，workbenches 的 enabled/状态/延迟/HTTP 码/排序域）、种子与配置（6 条：类型数 ≥8、内置 web、ollama/streamlit 探测路径钉、巡检三键、工作台非空）、提交物结构（20 条：清单/源码/构建产物/脚本/验证器自举档案/设计规范/证据资产）。命令执行型检查（typecheck/lint/build/e2e）不在闭集内，由开发流程自行执行。
 
 ```bash
+# 0) 再生成三件套（单一事实源 35 单元表 → verify/material.md + candidates.json + reviews.json）
+node scripts/gen-verifier.mjs
+
 # 1) 生成判定面：活库快照 + 封装提交物（幂等）
 node scripts/make-submission.mjs
 
 # 2) 构造期（材料 → 候选 → 盲审 → 三重门 → 冻结 spec；材料/候选/盲审改动后需重新 submit）
-ygl-trees verify submit --title "workbench-market 开发验证器 v3" --text verify/material.md
+ygl-trees verify submit --title "workbench-market 开发验证器 v4" --text verify/material.md
 ygl-trees verify prepare <material-id> --candidates verify/candidates.json --reviews verify/reviews.json --db tmp/verify-snap.sqlite
 
 # 3) 执行期（可重复跑；--submission 指向封装提交物而非仓库根——file 型全仓扫描在 pnpm 联接点上不可行）
 ygl-trees verify run <spec-id> --db tmp/verify-snap.sqlite --submission tmp/submission
+
+# 4) 判定报告可视化（多 run 对照，单文件 HTML）
+node scripts/verify-report.mjs <run1.json> [run2.json ...]
 ```
 
-基线：`run_4e8442c34ab45277` 9/9 PASS（2026-10-20）；红测 `run_2ba86c10136c02db`（快照删 1 类型）V1 精确 FAIL，判定器有分辨力。判据源文件在 [verify/](verify/)：material.md（冻结材料原文）、candidates.json（VU 候选 + checker）、reviews.json（三问盲审结论）。
+基线：`run_02f0de67f15f22ad` 35/35 PASS（spec_702066625fe6 v1，2026-10-20）；红测 `run_8b5fa9dcc555773c`（快照删 ollama + 提交物删 README）V10/V12/V16 三单元精确 FAIL，判定器有分辨力。判据源文件在 [verify/](verify/)：material.md（冻结材料原文）、candidates.json（VU 候选 + checker）、reviews.json（三问盲审结论）；35 单元表由 [scripts/gen-verifier.mjs](scripts/gen-verifier.mjs) 单一事实源生成。
