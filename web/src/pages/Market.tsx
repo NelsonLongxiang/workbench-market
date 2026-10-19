@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { App, Button, Drawer, Descriptions, Empty, Flex, Input, Popconfirm, Select, Space, Switch, Tag, Tooltip, Typography } from 'antd';
-import { ExportOutlined, PlusOutlined, RightOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { CopyOutlined, ExportOutlined, PlusOutlined, RightOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
 import Markdown from 'react-markdown';
@@ -23,6 +23,7 @@ export default function Market() {
   const [types, setTypes] = useState<WorkbenchType[]>([]);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Workbench | null>(null);
+  const [copySource, setCopySource] = useState<Workbench | null>(null);
   const [detail, setDetail] = useState<Workbench | null>(null);
   const [checkingAll, setCheckingAll] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -71,6 +72,7 @@ export default function Market() {
     {
       title: '名称',
       dataIndex: 'name',
+      width: 200,
       render: (_, w) => (
         <Space size={6}>
           <span style={{ fontSize: 16 }}>{w.icon || '▢'}</span>
@@ -80,10 +82,11 @@ export default function Market() {
         </Space>
       ),
     },
-    { title: '类型', dataIndex: 'type', render: (_, w) => typeTag(w.type) },
+    { title: '类型', dataIndex: 'type', width: 130, render: (_, w) => typeTag(w.type) },
     {
       title: '服务地址',
       dataIndex: 'url',
+      width: 260,
       ellipsis: true,
       render: (_, w) => (
         <Typography.Text copyable={{ text: w.url }} style={{ maxWidth: 300 }} ellipsis={{ tooltip: w.url }}>
@@ -159,7 +162,7 @@ export default function Market() {
     {
       title: '操作',
       valueType: 'option',
-      width: 250,
+      width: 300,
       render: (_, w) => (
         <Space size={0}>
           <Link to={`/use/${w.id}`}>
@@ -175,10 +178,24 @@ export default function Market() {
           <Button size="small" type="link" loading={busyId === w.id} onClick={() => checkOne(w.id)}>
             检测
           </Button>
+          <Tooltip title="复制为新的工作台，可改后创建">
+            <Button
+              size="small"
+              type="link"
+              icon={<CopyOutlined />}
+              aria-label="复制工作台"
+              onClick={() => {
+                setEditing(null);
+                setCopySource(w);
+                setFormOpen(true);
+              }}
+            />
+          </Tooltip>
           <Button
             size="small"
             type="link"
             onClick={() => {
+              setCopySource(null);
               setEditing(w);
               setFormOpen(true);
             }}
@@ -232,6 +249,7 @@ export default function Market() {
           return { data, success: true };
         }}
         pagination={{ pageSize: 20, showSizeChanger: true }}
+        scroll={{ x: 'max-content' }}
         toolBarRender={() => [
           <Input.Search
             key="q"
@@ -297,6 +315,7 @@ export default function Market() {
             icon={<PlusOutlined />}
             onClick={() => {
               setEditing(null);
+              setCopySource(null);
               setFormOpen(true);
             }}
           >
@@ -311,6 +330,7 @@ export default function Market() {
         open={formOpen}
         types={types}
         initial={editing}
+        copySource={copySource}
         onClose={() => setFormOpen(false)}
         onSaved={() => {
           setFormOpen(false);

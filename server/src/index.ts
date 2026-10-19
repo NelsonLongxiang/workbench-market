@@ -96,7 +96,11 @@ app.put('/api/workbenches/:id', (req, res) => {
     `UPDATE workbenches SET name=@name, url=@url, type=@type, icon=@icon, description=@description,
      category=@category, tags=@tags, enabled=@enabled, health_path=@health_path, sort=@sort,
      updated_at=datetime('now') WHERE id=@id`
-  ).run({ ...merged, id });
+  ).run({
+    name: merged.name, url: merged.url, type: merged.type, icon: merged.icon,
+    description: merged.description, category: merged.category, tags: merged.tags,
+    enabled: merged.enabled, health_path: merged.health_path, sort: merged.sort, id,
+  });
   const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(id) as unknown as WorkbenchRow;
   res.json(rowToWorkbench(row));
 });
