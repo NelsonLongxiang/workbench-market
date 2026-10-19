@@ -89,7 +89,7 @@ export default function Market() {
       width: 260,
       ellipsis: true,
       render: (_, w) => (
-        <Typography.Text copyable={{ text: w.url }} style={{ maxWidth: 300 }} ellipsis={{ tooltip: w.url }}>
+        <Typography.Text className="wm-mono" copyable={{ text: w.url }} style={{ maxWidth: 300, fontSize: 12 }} ellipsis={{ tooltip: w.url }}>
           {w.url}
         </Typography.Text>
       ),

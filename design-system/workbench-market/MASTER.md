@@ -40,15 +40,17 @@
 
 ### Typography
 
-- **Heading Font:** Inter
-- **Body Font:** Inter
-- **Mood:** dark, cinematic, technical, precision, clean, premium, developer, professional, high-end utility
-- **Google Fonts:** [Inter + Inter](https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap)
+> **实现校正（2026-10-19）**：本工具为内网离线环境，**不使用 Google Fonts / 任何 webfont**（原生成稿的 `@import url(...)` 作废，禁止恢复）。字体一律走本地系统栈，零网络请求、零渲染阻塞。
 
-**CSS Import:**
-```css
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-```
+- **UI / Body Font（实际栈）：**
+  `"Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif"`
+  —— Windows 落 Segoe UI（已装全套字重 300–700），macOS 落 PingFang SC，若机器装有 Inter 自动优先。
+- **Mono Font（机器值：URL / 端口 / 路径 / 标识符）：**
+  `'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace`（Windows 内置 Cascadia，零 webfont）
+- **数字：** `font-variant-numeric: tabular-nums`（`.wm-num`，表格/统计/延迟一律等宽数字防跳动）
+- **统计标签（瑞士风）：** `.wm-stat-label` = 12px / 600 / `letter-spacing: 0.05em` / `text-transform: uppercase` / 次级色
+- **CJK 注意：** 不加汉字 tracking（0.05em 仅作用于拉丁标签的空气感）；标题字重 600。
+- **可读性基线：** body 14px（密度 8/10 的仪表台准则；移动端指引 16px 为内容站标准，本工具记为已接受的偏差）；次级文字 token `#5A6577`（白底 5.9:1，WCAG AA ≥4.5:1，替代 antd 默认 3.36:1 不达标的 rgba(0,0,0,.45)）。
 
 ### Spacing Variables
 
@@ -198,6 +200,18 @@ gsap.from(el, { opacity: 0, y: 12, duration: 0.35, ease: 'power1.out', scrollTri
 - ✅ Keep the y offset small (8-16px) so it reads as a fade, not a slide
 - ❌ Don't reveal below-the-fold content needed for SEO/crawlers as invisible-by-default without a no-JS fallback
 - ⚡ toggleActions 'play none none reverse' avoids re-triggering on every scroll direction change
+
+---
+
+## 实现校正记录（Implementation Truth）
+
+> 本节优先级高于上文生成稿中与实现冲突的部分。
+
+- **主题形态：** 亮色主题 + 深色侧栏（`#0F172A`）与深色嵌入顶栏；上表 Palette 中 Background/Card 等深色值仅用于侧栏/顶栏/使用页，主内容区背景 `#F6F7F9`、卡片 `#FFFFFF`。
+- **色板补充：** 选中/悬停强调边 `rgba(5,150,105,.45)`（emerald 微光）；统计色 在线 `#059669` / 离线 `#DC2626` / 未探测灰。
+- **字体：** 见 Typography 节实现校正——系统栈 + Cascadia Mono，无 webfont。
+- **对比度实测（2026-10-19 校对）：** 主文字 ~15:1 ✅；次级 `#5A6577` 5.9:1 ✅；错误红 `#DC2626` 4.83:1 ✅；成功绿 `#059669` 3.77:1 仅限图形点/开关（非文字）✅；卡片 URL `#64748b` 4.75:1 ✅。
+- **移动端：** 表格 `scroll.x` 横向滚动；工具栏双层 flex-wrap；详见 `evidence/ux-audit.md`。
 
 ---
 
