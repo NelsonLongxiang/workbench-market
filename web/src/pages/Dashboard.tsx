@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useRequest } from 'ahooks';
-import { App, Button, Card, Col, Empty, Row, Space, Tag, Tooltip, Typography } from 'antd';
+import { App, Button, Card, Col, Empty, Flex, Progress, Row, Space, Tag, Tooltip, Typography } from 'antd';
 import { ApiOutlined, AppstoreOutlined, ExportOutlined, ReloadOutlined, RightOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { Responsive, WidthProvider } from 'react-grid-layout';
 import type { Layout, Layouts } from 'react-grid-layout';
@@ -9,7 +9,7 @@ import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 import { api } from '../api';
 import type { Workbench } from '../types';
-import StatusBadge from '../components/StatusBadge';
+import StatusBadge, { fmtCheckedAt } from '../components/StatusBadge';
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 const LAYOUT_KEY = 'wm.dashboard.layouts.v2';
@@ -55,15 +55,13 @@ function reconcile(items: Workbench[], saved: Layouts | null): Layouts {
 
 export default function Dashboard() {
   const { message } = App.useApp();
+  const navigate = useNavigate();
   const [checking, setChecking] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [savedLayouts, setSavedLayouts] = useState<Layouts | null>(() => loadSaved());
 
   const summary = useRequest(api.summary, { pollingInterval: 15000 });
-  const list = useRequest(() => api.listWorkbenches(), {
-    pollingInterval: 15000,
-    onSuccess: () => undefined,
-  });
+  const list = useRequest(() => api.listWorkbenches(), { pollingInterval: 15000 });
   const items = list.data ?? [];
 
   const layouts = useMemo(() => reconcile(items, savedLayouts), [items, savedLayouts]);
@@ -99,24 +97,42 @@ export default function Dashboard() {
   };
 
   const s = summary.data;
+  const total = s?.total ?? 0;
+  const rate = total ? Math.round(((s?.up ?? 0) / total) * 100) : 0;
+  const lastChecked = items.reduce<string>(
+    (max, w) => (w.last_checked_at && w.last_checked_at > max ? w.last_checked_at : max),
+    '',
+  );
+  const cats = Object.entries(s?.categories ?? {}).sort((a, b) => b[1].total - a[1].total);
+
+  const go = (to: string) => () => navigate(to);
+  const onStatKey = (to: string) => (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      navigate(to);
+    }
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <Row gutter={12}>
         {[
-          { title: '工作台总数', value: s?.total ?? 0, suffix: '个', color: '#1F1F1F' },
-          { title: '在线', value: s?.up ?? 0, suffix: '个', color: '#059669' },
-          { title: '离线', value: s?.down ?? 0, suffix: '个', color: '#DC2626' },
-          { title: '未探测', value: s?.unknown ?? 0, suffix: '个', color: '#8C8C8C' },
-          {
-            title: '平均延迟',
-            value: s?.avg_latency_ms ?? '-',
-            suffix: s?.avg_latency_ms != null ? 'ms' : '',
-            color: '#1E3A5F',
-          },
+          { title: '工作台总数', value: s?.total ?? 0, suffix: '个', color: '#1F1F1F', to: '/market' },
+          { title: '在线', value: s?.up ?? 0, suffix: '个', color: '#059669', to: '/market?status=up' },
+          { title: '离线', value: s?.down ?? 0, suffix: '个', color: '#DC2626', to: '/market?status=down' },
+          { title: '未探测', value: s?.unknown ?? 0, suffix: '个', color: '#8C8C8C', to: '/market?status=unknown' },
         ].map((it) => (
-          <Col key={it.title} xs={12} md={8} lg={4} xl={4} xxl={4}>
-            <Card size="small" styles={{ body: { padding: '12px 16px' } }}>
+          <Col key={it.title} xs={12} md={6}>
+            <Card
+              size="small"
+              className="wm-stat-card"
+              role="button"
+              tabIndex={0}
+              aria-label={`${it.title}：点击跳转列表`}
+              onClick={go(it.to)}
+              onKeyDown={onStatKey(it.to)}
+              styles={{ body: { padding: '12px 16px' } }}
+            >
               <div style={{ padding: '2px 0' }}>
                 <span className="wm-stat-label">{it.title}</span>
                 <div className="wm-num" style={{ color: it.color, fontSize: 24, fontWeight: 600, lineHeight: 1.4 }}>
@@ -128,6 +144,69 @@ export default function Dashboard() {
           </Col>
         ))}
       </Row>
+
+      <Card size="small" styles={{ body: { padding: '14px 20px' } }}>
+        <Flex justify="space-between" align="center" gap={24} wrap>
+          <Flex align="center" gap={20}>
+            <Progress
+              type="circle"
+              size={88}
+              percent={rate}
+              strokeColor="#059669"
+              trailColor="#E5E7EB"
+              format={() => (
+                <span className="wm-num" style={{ fontSize: 16, fontWeight: 600 }}>
+                  {rate}%
+                </span>
+              )}
+            />
+            <Flex vertical gap={4}>
+              <span className="wm-stat-label">在线率</span>
+              <span className="wm-num" style={{ fontSize: 20, fontWeight: 600 }}>
+                {s?.up ?? 0}
+                <span style={{ fontSize: 13, fontWeight: 400, color: '#5A6577' }}> / {total} 在线</span>
+              </span>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                平均延迟{' '}
+                <span className="wm-num">{s?.avg_latency_ms != null ? `${s.avg_latency_ms} ms` : '—'}</span>
+              </Typography.Text>
+            </Flex>
+          </Flex>
+
+          <Flex vertical gap={8} style={{ flex: 1, minWidth: 240 }}>
+            <span className="wm-stat-label">分类巡检</span>
+            <Flex wrap gap="8px 24px">
+              {cats.map(([name, c]) => (
+                <Flex key={name || '未分类'} align="center" gap={8}>
+                  <Typography.Text type="secondary" style={{ width: 72, fontSize: 12 }} ellipsis={{ tooltip: name || '未分类' }}>
+                    {name || '未分类'}
+                  </Typography.Text>
+                  <Progress
+                    percent={c.total ? Math.round((c.up / c.total) * 100) : 0}
+                    size={{ width: 96 }}
+                    strokeColor="#059669"
+                    showInfo={false}
+                  />
+                  <span className="wm-num" style={{ fontSize: 12, color: '#5A6577' }}>
+                    {c.up}/{c.total}
+                  </span>
+                </Flex>
+              ))}
+              {cats.length === 0 ? <Typography.Text type="secondary" style={{ fontSize: 12 }}>暂无分类数据</Typography.Text> : null}
+            </Flex>
+          </Flex>
+
+          <Flex vertical gap={4} style={{ minWidth: 150 }}>
+            <span className="wm-stat-label">上次巡检</span>
+            <span className="wm-num" style={{ fontSize: 14, fontWeight: 600 }}>
+              {lastChecked ? fmtCheckedAt(lastChecked) : '尚未巡检'}
+            </span>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              巡检间隔可在「设置」页配置
+            </Typography.Text>
+          </Flex>
+        </Flex>
+      </Card>
 
       <Space style={{ justifyContent: 'space-between', width: '100%' }}>
         <Space>

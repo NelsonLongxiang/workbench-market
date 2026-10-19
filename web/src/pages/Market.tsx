@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { App, Button, Drawer, Descriptions, Empty, Flex, Input, Popconfirm, Select, Space, Switch, Tag, Tooltip, Typography } from 'antd';
 import { CopyOutlined, ExportOutlined, PlusOutlined, RightOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
@@ -27,7 +27,16 @@ export default function Market() {
   const [detail, setDetail] = useState<Workbench | null>(null);
   const [checkingAll, setCheckingAll] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
-  const [filters, setFilters] = useState({ q: '', type: 'all', category: 'all', status: 'all' });
+  const [searchParams] = useSearchParams();
+  const [filters, setFilters] = useState(() => {
+    const sp = searchParams.get('status');
+    return {
+      q: '',
+      type: 'all',
+      category: 'all',
+      status: sp === 'up' || sp === 'down' || sp === 'unknown' ? sp : 'all',
+    };
+  });
 
   useEffect(() => {
     api.listTypes().then(setTypes).catch(() => undefined);
