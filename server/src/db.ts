@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS workbenches (
   last_http_code INTEGER,
   last_error TEXT DEFAULT '',
   sort INTEGER NOT NULL DEFAULT 0,
+  auth_config TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -78,6 +79,14 @@ CREATE TABLE IF NOT EXISTS app_versions (
 );
 `);
 
+// 轻量列迁移：已存库补 auth_config（凭据注入：JSON {type:'bearer'|'basic', value}，空串=无）
+{
+  const cols = db.prepare('PRAGMA table_info(workbenches)').all() as { name: string }[];
+  if (!cols.some((c) => c.name === 'auth_config')) {
+    db.exec("ALTER TABLE workbenches ADD COLUMN auth_config TEXT NOT NULL DEFAULT ''");
+  }
+}
+
 /** 内置工作台类型种子：health 探测语义——expect_status 为 NULL 表示任意 HTTP 响应即在线 */
 const seedTypes = [
   { key: 'web', name: '通用 Web 工作台', icon: '🌐', port: null, method: 'GET', path: '/', expect: null, desc: '任意 HTTP 响应即视为在线' },
@@ -114,8 +123,14 @@ export interface WorkbenchRow {
   id: number; name: string; url: string; type: string; icon: string; description: string;
   category: string; tags: string; enabled: number; health_path: string;
   last_status: string; last_checked_at: string; last_latency_ms: number | null;
-  last_http_code: number | null; last_error: string; sort: number;
+  last_http_code: number | null; last_error: string; sort: number; auth_config: string;
   created_at: string; updated_at: string;
+}
+
+/** 凭据注入配置：bearer → Authorization: Bearer <value>；basic → value 为 user:pass，注入时编码 */
+export interface AuthConfig {
+  type: 'bearer' | 'basic';
+  value: string;
 }
 
 export interface TypeRow {
@@ -157,5 +172,8 @@ export function rowToCockpit(r: CockpitRow) {
 export function rowToWorkbench(r: WorkbenchRow) {
   let tags: string[] = [];
   try { tags = JSON.parse(r.tags || '[]'); } catch { tags = []; }
-  return { ...r, enabled: !!r.enabled, tags };
+  let auth: AuthConfig | null = null;
+  try { const a = JSON.parse(r.auth_config || 'null'); if (a && (a.type === 'bearer' || a.type === 'basic') && typeof a.value === 'string') auth = a; } catch { auth = null; }
+  const { auth_config: _ac, ...rest } = r;
+  return { ...rest, enabled: !!r.enabled, tags, auth };
 }

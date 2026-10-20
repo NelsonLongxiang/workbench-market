@@ -68,6 +68,19 @@ function validateWorkbenchBody(b: any, partial = false) {
   }
   if (b.enabled !== undefined) out.enabled = b.enabled ? 1 : 0;
   if (b.sort !== undefined) out.sort = Number(b.sort) || 0;
+  // 凭据注入（可选）：{type:'bearer'|'basic', value} 经统一门户 /go/ 代理时注入 Authorization 头；
+  // null / 空对象 / 空串 = 清除。明文入库是已知信任假设（内网全员模型，README「信任模型」）。
+  if (b.auth !== undefined) {
+    if (b.auth === null || b.auth === '' || (typeof b.auth === 'object' && b.auth !== null && !('type' in b.auth) && !('value' in b.auth))) {
+      out.auth_config = '';
+    } else if (typeof b.auth === 'object' && (b.auth.type === 'bearer' || b.auth.type === 'basic')) {
+      if (typeof b.auth.value !== 'string' || !b.auth.value) bad('auth.value 不能为空');
+      if (b.auth.value.length > 4096) bad('auth.value 过长（>4096）');
+      out.auth_config = JSON.stringify({ type: b.auth.type, value: b.auth.value });
+    } else {
+      bad('auth 形态：{type:"bearer"|"basic", value:string} 或 null');
+    }
+  }
   return out;
 }
 
@@ -75,10 +88,10 @@ app.post('/api/workbenches', (req, res) => {
   const f = validateWorkbenchBody(req.body);
   const r = db
     .prepare(
-      `INSERT INTO workbenches (name, url, type, icon, description, category, tags, enabled, health_path, sort)
-       VALUES (@name, @url, @type, @icon, @description, @category, @tags, @enabled, @health_path, @sort)`
+      `INSERT INTO workbenches (name, url, type, icon, description, category, tags, enabled, health_path, sort, auth_config)
+       VALUES (@name, @url, @type, @icon, @description, @category, @tags, @enabled, @health_path, @sort, @auth_config)`
     )
-    .run({ type: 'web', icon: '', description: '', category: '', tags: '[]', enabled: 1, health_path: '', sort: 0, ...f });
+    .run({ type: 'web', icon: '', description: '', category: '', tags: '[]', enabled: 1, health_path: '', sort: 0, auth_config: '', ...f });
   const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(Number(r.lastInsertRowid)) as unknown as WorkbenchRow;
   res.status(201).json(rowToWorkbench(row));
 });
@@ -98,11 +111,12 @@ app.put('/api/workbenches/:id', (req, res) => {
   db.prepare(
     `UPDATE workbenches SET name=@name, url=@url, type=@type, icon=@icon, description=@description,
      category=@category, tags=@tags, enabled=@enabled, health_path=@health_path, sort=@sort,
-     updated_at=datetime('now') WHERE id=@id`
+     auth_config=@auth_config, updated_at=datetime('now') WHERE id=@id`
   ).run({
     name: merged.name, url: merged.url, type: merged.type, icon: merged.icon,
     description: merged.description, category: merged.category, tags: merged.tags,
-    enabled: merged.enabled, health_path: merged.health_path, sort: merged.sort, id,
+    enabled: merged.enabled, health_path: merged.health_path, sort: merged.sort,
+    auth_config: merged.auth_config ?? '', id,
   });
   const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(id) as unknown as WorkbenchRow;
   res.json(rowToWorkbench(row));
@@ -517,17 +531,21 @@ app.post('/api/import', (req, res) => {
     for (const t of b.types) insType.run(t.key, t.name, String(t.icon ?? ''), t.default_port ?? null, t.health_method ?? 'GET', String(t.health_path ?? '/'), t.expect_status ?? null, String(t.description ?? ''));
   }
   const ins = db.prepare(
-    `INSERT INTO workbenches (name, url, type, icon, description, category, tags, enabled, health_path, sort, last_status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unknown')`
+    `INSERT INTO workbenches (name, url, type, icon, description, category, tags, enabled, health_path, sort, auth_config, last_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unknown')`
   );
   let imported = 0;
   for (const w of b.workbenches) {
     try { assertHttpUrl(String(w.url)); } catch { continue; }
+    let authCfg = '';
+    if (w.auth && (w.auth.type === 'bearer' || w.auth.type === 'basic') && typeof w.auth.value === 'string' && w.auth.value) {
+      authCfg = JSON.stringify({ type: w.auth.type, value: w.auth.value });
+    }
     ins.run(
       String(w.name ?? '未命名'), String(w.url), String(w.type ?? 'web'), String(w.icon ?? ''),
       String(w.description ?? ''), String(w.category ?? ''),
       JSON.stringify(Array.isArray(w.tags) ? w.tags : []), w.enabled === false ? 0 : 1,
-      String(w.health_path ?? ''), Number(w.sort) || 0
+      String(w.health_path ?? ''), Number(w.sort) || 0, authCfg
     );
     imported += 1;
   }
@@ -553,7 +571,7 @@ const goPrefix = /^\/go\/(\d+)(.*)$/;
 app.use((req, res, next) => {
   if (!goPrefix.test(req.url ?? '')) return next();
   const m = goPrefix.exec(req.url ?? '')!;
-  let origin = '', basePath = '';
+  let origin = '', basePath = '', goQuery = '', goAuth = '';
   try {
     const w = wbById(Number(m[1]));
     if (!w) return res.status(404).json({ error: `工作台不存在: ${m[1]}` });
@@ -567,16 +585,31 @@ app.use((req, res, next) => {
     const u = new URL(w.url);
     origin = u.origin;
     basePath = u.pathname.replace(/\/+$/, ''); // base 自带路径（如 /preview）时保留
+    // base 自带 query（如 dsh web 启动 token ?token=…）：请求自身无 query 时补上，
+    // 否则 token 换 cookie 的一次性认证过不了门户代理（实测 /go/84/ 401 踩坑）
+    goQuery = u.search;
+    // 凭据注入：在此解析（此处还知道工作台 id）；proxyReq 钩子里 req.url 已被
+    // pathRewrite 改写成上游路径，无法再从 URL 反查 id（实测注入不达的根因）
+    if (w.auth?.type === 'bearer') goAuth = `Bearer ${w.auth.value}`;
+    else if (w.auth?.type === 'basic') goAuth = `Basic ${Buffer.from(w.auth.value, 'utf8').toString('base64')}`;
   } catch {
     return res.status(502).json({ error: `工作台地址非法: ${m[1]}` });
   }
-  (req as express.Request & { goOrigin?: string; goBase?: string }).goOrigin = origin;
-  (req as express.Request & { goOrigin?: string; goBase?: string }).goBase = basePath;
+  (req as express.Request & { goOrigin?: string }).goOrigin = origin;
+  (req as express.Request & { goBase?: string }).goBase = basePath;
+  (req as express.Request & { goQuery?: string }).goQuery = goQuery;
+  (req as express.Request & { goAuth?: string }).goAuth = goAuth;
   next();
 });
 
 const goProxy = createProxyMiddleware({
-  pathFilter: goPrefix,
+  // HPM 4.x 默认 logger 是 noopLogger（options.logger || noop）——pathFilter/配置错误零输出，
+  // 静默漏到 SPA fallback 返回 200 假绿（实测踩坑：RegExp pathFilter 坏了整整一天没人发现）。
+  // 显式传 console，让配置类错误至少可见。
+  logger: console,
+  // HPM 4.x 的 pathFilter 不支持 RegExp（matchPathFilter 抛 Invalid pathFilter，被 shouldProxy
+  // 吞成 next() → 静默漏到 SPA fallback）；函数形式走 custom-matching 分支（实测透传 3080 的 401）
+  pathFilter: (pathname: string) => goPrefix.test(pathname),
   target: 'http://127.0.0.1', // 占位：router 按请求覆盖
   changeOrigin: true,
   xfwd: true,
@@ -587,12 +620,23 @@ const goProxy = createProxyMiddleware({
   pathRewrite: (path, req) => {
     const m = goPrefix.exec(path);
     if (!m) return path;
-    const base = (req as express.Request & { goBase?: string }).goBase ?? '';
+    const base = (req as express.Request & { goBase?: string; goQuery?: string }).goBase ?? '';
     const rest = m[2] || '/';
+    if (!rest.startsWith('/')) return path;
     // /go/N/xyz → base + /xyz（base 是工作台地址自带的路径前缀，可空）
-    return rest.startsWith('/') ? base + rest : path;
+    // 请求自身无 query 时补 base 自带 query（启动 token 等）；请求显式带 query 则原样透传。
+    // 已带 dsh-auth-* cookie（token 换票完成）后不再补，否则根路径每次被强制重签 → 303 死循环（实测踩坑）
+    const goQuery = (req as express.Request & { goBase?: string; goQuery?: string }).goQuery ?? '';
+    const hasAuth = /(?:^|;\s*)dsh-auth-/.test(String(req.headers.cookie ?? ''));
+    return base + rest + (goQuery && !rest.includes('?') && !hasAuth ? goQuery : '');
   },
   on: {
+    // 凭据注入：前置中间件已解析好 req.goAuth（此处 req.url 已被 pathRewrite 改写，
+    // 不能再从 URL 反查工作台——实测注入不达的根因）
+    proxyReq: (proxyReq, req) => {
+      const authHeader = (req as express.Request & { goAuth?: string }).goAuth;
+      if (authHeader) proxyReq.setHeader('authorization', authHeader);
+    },
     proxyRes: (proxyRes, req, res) => {
       // 剥禁嵌头：代理后与市场同源，这两个头只会误伤 iframe 嵌入（使用页/驾驶舱）
       delete proxyRes.headers['x-frame-options'];

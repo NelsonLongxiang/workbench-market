@@ -1,5 +1,11 @@
 export type HealthStatus = 'up' | 'down' | 'unknown';
 
+/** 凭据注入：经统一门户 /go/ 代理时注入 Authorization 头 */
+export interface AuthConfig {
+  type: 'bearer' | 'basic';
+  value: string;
+}
+
 export interface Workbench {
   id: number;
   name: string;
@@ -11,6 +17,7 @@ export interface Workbench {
   tags: string[];
   enabled: boolean;
   health_path: string;
+  auth: AuthConfig | null;
   last_status: HealthStatus;
   last_checked_at: string;
   last_latency_ms: number | null;

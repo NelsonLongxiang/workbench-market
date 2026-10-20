@@ -43,13 +43,15 @@ node scripts/verify-report.mjs <run_id...>   # 多代对照 HTML → evidence/ve
 6. **验证器谓词与 schema**：TEXT 列禁数值谓词（SQLite 类型把戏）；`select` 禁裸 `*`；exists 助手 select 硬编码 `["key"]` 在无 key 列的提取表上会被 P2 **静默拒**——判据数对不上时 diff spec.json 的 vu[].source_clause 与 candidates。
 7. **未提交工作区上的红测禁 `git checkout --`**：会连未提交功能一起回滚。用反向 patch（把篡改改回去）恢复。
 8. **E2E 僵尸进程**：超时被杀的 playwright 会留 chrome 僵尸，累积后新 launch 挂死——`taskkill //F //IM chrome.exe`（确认无他人浏览器作业后）。
+9. **http-proxy-middleware 4.x 三连坑**：① pathFilter 只认 string/glob/array/function，传 RegExp 直接抛错；② 默认 logger 是 noopLogger，配置错误**零输出**（配 `logger: console`），静默漏到 SPA fallback 返回 200 假绿；③ pathRewrite 会把结果**写回 req.url**，proxyReq 钩子里无法从 URL 反查工作台 id——需要按台注入的头（如凭据 authorization）必须在**前置中间件**（还知道 id 时）解析好挂到 req 上（先例：goAuth）。
+10. **Playwright request.fetch 的自定义 Cookie 头会被 cookie store 接管忽略**：测 cookie 透传必须先 `page.context().add_cookies([...])` 再 fetch（先例：e2e_test.py 组 15）。
 
 ## 验证标准链（改 server/ 或 web/ 后必须全绿）
 
 1. `pnpm --filter web typecheck` + `npx antd-cli lint web/src`（0 issues）
 2. 9800 存活（`curl 127.0.0.1:9800/api/health`；死了按上面分离式重启）→ 重启才加载新 server 代码
 3. `pnpm --filter web build`（改了 web 时；express.static 按请求读盘，重建后无需重启）
-4. `python evidence/e2e_test.py` 全 PASS（当前 17 组；新增功能必须加用例）
+4. `python evidence/e2e_test.py` 全 PASS（当前 19 组；新增功能必须加用例）
 5. 验证器：gen-verifier → make-submission → submit/prepare/run → 判据数符合预期 + 基线全 PASS；涉及新事实（端点/色值/文件）同步扩 gen-verifier.mjs 与 make-submission.mjs TEXT_FACTS
 6. UI 改动跑 `tmp/ux_shot.py` 截图留证；新表面必须进 e2e_test.py 的 CONTRAST_TARGETS（对比度≥4.5，深底浅字配对）
 

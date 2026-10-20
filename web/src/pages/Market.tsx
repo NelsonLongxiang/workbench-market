@@ -368,6 +368,19 @@ export default function Market() {
               bordered
               items={[
                 { key: 'url', label: '服务地址', children: <Typography.Text copyable>{detail.url}</Typography.Text> },
+                {
+                  key: 'auth',
+                  label: '凭据',
+                  children: detail.auth ? (
+                    <Tooltip title={`类型 ${detail.auth.type}；值仅脱敏展示，经 /go/ 门户访问时自动注入 Authorization 头`}>
+                      <Tag color="gold">
+                        含凭据（{detail.auth.type}：{detail.auth.value.length <= 4 ? '****' : `${detail.auth.value.slice(0, 2)}…${detail.auth.value.slice(-2)}`}）
+                      </Tag>
+                    </Tooltip>
+                  ) : (
+                    <Typography.Text type="secondary">无</Typography.Text>
+                  ),
+                },
                 { key: 'status', label: '状态', children: <StatusBadge status={detail.last_status} latency={detail.last_latency_ms} error={detail.last_error} checkedAt={detail.last_checked_at} /> },
                 { key: 'category', label: '分类', children: detail.category || '-' },
                 { key: 'tags', label: '标签', children: detail.tags.length ? detail.tags.join('、') : '-' },

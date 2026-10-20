@@ -90,7 +90,7 @@ const U = [
   { c: "判据50：index.css 必须包含主色淡底色值「rgba(30, 58, 95, 0.1)」。", t: "主色淡底钉位", s: "S3", ck: existsFact("web/src/index.css","rgba(30, 58, 95, 0.1)"), rv: ["判据原文逐字取自冻结材料，navy 主色 10% 淡底。", "提取表三条件 exists 精确判定。", "改值提取为 0 即 FAIL。"] },
   { c: "判据51：index.css 必须包含深底色值「#0f172a」。", t: "css 深底钉位", s: "S3", ck: existsFact("web/src/index.css","#0f172a"), rv: ["判据原文逐字取自冻结材料，样式侧深底 token。", "提取表三条件 exists 精确判定。", "改值提取为 0 即 FAIL。"] },
   // ── E2E 行为证据（经 verifier_e2e_summary 提取表，源自 e2e_test.py 落盘的 evidence/e2e-summary.json） ──
-  { c: "判据52：E2E 摘要记录的用例总数不得少于 18。", t: "E2E 规模下限", s: "S2", ck: count("verifier_e2e_summary", "==", 1, and({ col: "total", op: ">=", value: 18 })), rv: ["判据原文逐字取自冻结材料，行为面至少覆盖既有 18 组用例（含驾驶舱、统一门户与自产台）。", "count 条件计数 ==1 精确判定。", "删用例或未跑 E2E 即计数 0 FAIL。"] },
+  { c: "判据52：E2E 摘要记录的用例总数不得少于 19。", t: "E2E 规模下限", s: "S2", ck: count("verifier_e2e_summary", "==", 1, and({ col: "total", op: ">=", value: 19 })), rv: ["判据原文逐字取自冻结材料，行为面至少覆盖既有 19 组用例（含驾驶舱、统一门户、自产台与凭据注入）。", "count 条件计数 ==1 精确判定。", "删用例或未跑 E2E 即计数 0 FAIL。"] },
   { c: "判据53：E2E 摘要必须标记全部用例通过。", t: "E2E 全绿", s: "S1", ck: { type: "exists", predicate: { from: "verifier_e2e_summary", select: ["id"], where: and({ col: "all_passed", op: "=", value: 1 }) }, expect: true }, rv: ["判据原文逐字取自冻结材料，行为面必须全绿才可交付。", "all_passed=1 exists 精确判定。", "任一用例失败即 0 行 FAIL。"] },
   { c: "判据54：E2E 摘要必须带有完成时间戳。", t: "E2E 时间戳在位", s: "S3", ck: { type: "exists", predicate: { from: "verifier_e2e_summary", select: ["id"], where: { col: "finished_at", op: "is not null" } }, expect: true }, rv: ["判据原文逐字取自冻结材料，摘要须可追溯运行时间。", "is not null exists 精确判定。", "空时间戳即 FAIL。"] },
   // ── 渲染层对比度探针（E2E 内置 Playwright 实测 DOM 的 fg/bg 配对，经 verifier_contrast_checks 提取表） ──
@@ -113,10 +113,14 @@ const U = [
   { c: "判据68：server/src/index.ts 必须包含发布路由「/api/apps」。", t: "发布 API 钉位", s: "S1", ck: existsFact("server/src/index.ts", "/api/apps"), rv: ["判据原文逐字取自冻结材料，AI 会话直发的发布通道在位。", "提取表三条件 exists 精确判定。", "删发布路由提取为 0 即 FAIL。"] },
   { c: "判据69：server/src/db.ts 必须包含版本快照表「app_versions」。", t: "版本链表钉位", s: "S1", ck: existsFact("server/src/db.ts", "app_versions"), rv: ["判据原文逐字取自冻结材料，全版本快照依赖版本链表。", "提取表三条件 exists 精确判定。", "删表提取为 0 即 FAIL。"] },
   { c: "判据70：自产台表中至少发布了 1 个应用。", t: "自产台非空", s: "S2", ck: count("apps", ">=", 1), rv: ["判据原文逐字取自冻结材料，演示自产台常驻库中作为活样例。", "count>=1 数值判定。", "清空 apps 表即 FAIL。"] },
+  // ── 凭据注入（auth bearer/basic 经 /go/ 门户注入 Authorization——认证类工作台的凭据盲区） ──
+  { c: "判据71：server/src/index.ts 必须包含注入头名「authorization」。", t: "凭据注入钉位", s: "S1", ck: existsFact("server/src/index.ts", "authorization"), rv: ["判据原文逐字取自冻结材料，代理凭据注入 Authorization 头的逻辑在位。", "提取表三条件 exists 精确判定。", "删注入逻辑提取为 0 即 FAIL。"] },
+  { c: "判据72：web/src/components/WorkbenchForm.tsx 必须包含凭据表单字段「authValue」。", t: "凭据表单钉位", s: "S1", ck: existsFact("web/src/components/WorkbenchForm.tsx", "authValue"), rv: ["判据原文逐字取自冻结材料，凭据值经表单录入而非拼进 url。", "提取表三条件 exists 精确判定。", "删表单字段提取为 0 即 FAIL。"] },
+  { c: "判据73：evidence/e2e_test.py 必须包含凭据注入断言字面量「e2e-bear-tok」。", t: "注入行为断言钉位", s: "S1", ck: existsFact("evidence/e2e_test.py", "e2e-bear-tok"), rv: ["判据原文逐字取自冻结材料，E2E 用 echo fixture 实测注入行为（防 SPA 假绿）。", "提取表三条件 exists 精确判定。", "删透传断言提取为 0 即 FAIL。"] },
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
-const header = `workbench-market 开发验证器 v9（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器）
+const header = `workbench-market 开发验证器 v10（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入）
 
 判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
 快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
@@ -129,7 +133,7 @@ passed)——源自 E2E 内置的 Playwright 对比度探针（实测 DOM 前景
 提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
 脚本、验证器自举档案、设计规范与证据。
 命令执行型检查（typecheck、lint、build）不属于 CLI 闭集，由开发流程自行执行
-（E2E 与渲染层对比度结果经摘要表断言）；覆盖九个维度共 70 条判据：数据域完整性
+（E2E 与渲染层对比度结果经摘要表断言）；覆盖十个维度共 73 条判据：数据域完整性
 （判据1-9）、种子与配置（判据10-15）、提交物结构（判据16-35）、颜色可见性
 （判据36-51 与 57-58：经对比度审计的色值在源码与规范中的钉位，漂移即破坏已审计
 的可读性）、E2E 行为证据（判据52-54：规模下限、全绿、时间戳在位）、渲染层对比度
@@ -139,7 +143,8 @@ passed)——源自 E2E 内置的 Playwright 对比度探针（实测 DOM 前景
 （判据62-65：反向代理中间件与禁嵌头剥离逻辑在位、代理依赖声明、使用页 iframe 走
 /go/ 同源代理——从登记簿到统一入口的形态锚定）、台生成器（判据66-70：自产台
 slug 域完整、market-app 内置类型在位、发布路由与版本链表钉位、演示台常驻——
-从台的管理者到台的生产者的供给面锚定）。
+从台的管理者到台的生产者的供给面锚定）、凭据注入（判据71-73：服务端注入头钉位、
+表单凭据字段钉位、E2E 注入行为断言钉位——认证类工作台的凭据不再明文拼进 url）。
 以下判据全部可机械判定：
 `;
 
