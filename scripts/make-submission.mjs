@@ -91,6 +91,11 @@ const TEXT_FACTS = [
   ["evidence/e2e_test.py", "e2e-bear-tok"],
   ["server/src/index.ts", "goServer.on('upgrade'"],
   ["server/src/index.ts", "req.headers.origin = u.origin"],
+  ["server/src/db.ts", "sop_runs"],
+  ["server/src/redis.ts", "runStateSave"],
+  ["server/src/index.ts", "renderSopRunner"],
+  ["server/src/index.ts", "/api/sop/runs"],
+  ["evidence/e2e_test.py", "e2e-sop"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);

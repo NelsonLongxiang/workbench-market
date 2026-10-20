@@ -74,16 +74,44 @@ CREATE TABLE IF NOT EXISTS app_versions (
   file_count INTEGER NOT NULL DEFAULT 0,
   total_bytes INTEGER NOT NULL DEFAULT 0,
   created_by TEXT NOT NULL DEFAULT '',
+  changelog TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(app_id, version)
 );
+CREATE TABLE IF NOT EXISTS sop_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sop_slug TEXT NOT NULL,
+  sop_version INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'running',
+  started_by TEXT NOT NULL DEFAULT '',
+  data TEXT NOT NULL DEFAULT '{}',
+  started_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  finished_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_sop_runs_slug ON sop_runs (sop_slug, status);
 `);
 
-// 轻量列迁移：已存库补 auth_config（凭据注入：JSON {type:'bearer'|'basic', value}，空串=无）
+// 轻量列迁移：已存库补列（凭据注入 / SOP 台生成器扩展）
 {
   const cols = db.prepare('PRAGMA table_info(workbenches)').all() as { name: string }[];
   if (!cols.some((c) => c.name === 'auth_config')) {
     db.exec("ALTER TABLE workbenches ADD COLUMN auth_config TEXT NOT NULL DEFAULT ''");
+  }
+}
+{
+  const cols = db.prepare('PRAGMA table_info(apps)').all() as { name: string }[];
+  if (!cols.some((c) => c.name === 'kind')) {
+    db.exec("ALTER TABLE apps ADD COLUMN kind TEXT NOT NULL DEFAULT 'app'");
+  }
+  if (!cols.some((c) => c.name === 'code')) {
+    db.exec("ALTER TABLE apps ADD COLUMN code TEXT NOT NULL DEFAULT ''");
+  }
+}
+{
+  const cols = db.prepare('PRAGMA table_info(app_versions)').all() as { name: string }[];
+  if (!cols.some((c) => c.name === 'changelog')) {
+    db.exec("ALTER TABLE app_versions ADD COLUMN changelog TEXT NOT NULL DEFAULT ''");
   }
 }
 
@@ -139,16 +167,23 @@ export interface TypeRow {
   description: string; created_at: string;
 }
 
-/** 自产台（台生成器）：slug 唯一标识，active_version 指向当前生效快照 */
+/** 自产台（台生成器）：slug 唯一标识，active_version 指向当前生效快照；kind=app|sop，code=SOP 编号 */
 export interface AppRow {
   id: number; slug: string; title: string; description: string; created_by: string;
-  active_version: number; status: string; created_at: string; updated_at: string;
+  active_version: number; status: string; kind: string; code: string;
+  created_at: string; updated_at: string;
 }
 
-/** 自产台版本快照：文件树落在 DATA_DIR/apps/<slug>/v<version>/ */
+/** 自产台版本快照：文件树落在 DATA_DIR/apps/<slug>/v<version>/；changelog=SOP 每版必填变更记录 */
 export interface AppVersionRow {
   id: number; app_id: number; version: number; file_count: number; total_bytes: number;
-  created_by: string; created_at: string;
+  created_by: string; changelog: string; created_at: string;
+}
+
+/** SOP 执行实例（分层治理·持久层真源）：data=stepKey→value JSON；热态在 Redis（redis.ts） */
+export interface SopRunRow {
+  id: number; sop_slug: string; sop_version: number; status: string; started_by: string;
+  data: string; started_at: string; updated_at: string; finished_at: string;
 }
 
 export interface CockpitRow {
