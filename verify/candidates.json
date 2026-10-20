@@ -1428,9 +1428,9 @@
       }
     },
     {
-      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 17。",
+      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 18。",
       "anchor": {
-        "quote": "判据52：E2E 摘要记录的用例总数不得少于 17。",
+        "quote": "判据52：E2E 摘要记录的用例总数不得少于 18。",
         "locator": "dev-verifier-v4.md 判据5"
       },
       "title": "E2E 规模下限",
@@ -1446,7 +1446,7 @@
               {
                 "col": "total",
                 "op": ">=",
-                "value": 17
+                "value": 18
               }
             ]
           }
@@ -1868,6 +1868,166 @@
           }
         },
         "expect": true
+      }
+    },
+    {
+      "source_clause": "判据66：自产台的 slug 字段不得为空。",
+      "anchor": {
+        "quote": "判据66：自产台的 slug 字段不得为空。",
+        "locator": "dev-verifier-v4.md 判据6"
+      },
+      "title": "自产台标识非空",
+      "severity": "S1",
+      "checker": {
+        "type": "sql",
+        "predicate": {
+          "from": "apps",
+          "select": [
+            "id",
+            "slug"
+          ],
+          "where": {
+            "op": "or",
+            "conditions": [
+              {
+                "col": "slug",
+                "op": "is null"
+              },
+              {
+                "col": "slug",
+                "op": "=",
+                "value": ""
+              }
+            ]
+          }
+        },
+        "expect": "none",
+        "fail_when": "rows>0"
+      }
+    },
+    {
+      "source_clause": "判据67：内置类型 market-app 必须存在于类型库。",
+      "anchor": {
+        "quote": "判据67：内置类型 market-app 必须存在于类型库。",
+        "locator": "dev-verifier-v4.md 判据6"
+      },
+      "title": "自产台类型存在",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "types",
+          "select": [
+            "key"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "key",
+                "op": "=",
+                "value": "market-app"
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据68：server/src/index.ts 必须包含发布路由「/api/apps」。",
+      "anchor": {
+        "quote": "判据68：server/src/index.ts 必须包含发布路由「/api/apps」。",
+        "locator": "dev-verifier-v4.md 判据6"
+      },
+      "title": "发布 API 钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "/api/apps"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据69：server/src/db.ts 必须包含版本快照表「app_versions」。",
+      "anchor": {
+        "quote": "判据69：server/src/db.ts 必须包含版本快照表「app_versions」。",
+        "locator": "dev-verifier-v4.md 判据6"
+      },
+      "title": "版本链表钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/db.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "app_versions"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据70：自产台表中至少发布了 1 个应用。",
+      "anchor": {
+        "quote": "判据70：自产台表中至少发布了 1 个应用。",
+        "locator": "dev-verifier-v4.md 判据7"
+      },
+      "title": "自产台非空",
+      "severity": "S2",
+      "checker": {
+        "type": "count",
+        "predicate": {
+          "from": "apps",
+          "select": []
+        },
+        "op": ">=",
+        "value": 1
       }
     }
   ]

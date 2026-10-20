@@ -1225,14 +1225,14 @@
       ]
     },
     {
-      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 17。",
+      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 18。",
       "findings": [
         {
           "question": "faithful",
           "verdict": "ok",
-          "reason": "判据原文逐字取自冻结材料，行为面至少覆盖既有 17 组用例（含驾驶舱与统一门户）。",
+          "reason": "判据原文逐字取自冻结材料，行为面至少覆盖既有 18 组用例（含驾驶舱、统一门户与自产台）。",
           "anchor": {
-            "quote": "判据52：E2E 摘要记录的用例总数不得少于 17。",
+            "quote": "判据52：E2E 摘要记录的用例总数不得少于 18。",
             "locator": "dev-verifier-v4.md 判据5"
           }
         },
@@ -1557,6 +1557,126 @@
           "question": "not-vacuous",
           "verdict": "ok",
           "reason": "改回原始地址提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据66：自产台的 slug 字段不得为空。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，自产台必须有可寻址标识。",
+          "anchor": {
+            "quote": "判据66：自产台的 slug 字段不得为空。",
+            "locator": "dev-verifier-v4.md 判据6"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "is null 或空串的 violation 谓词精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "写入空 slug 行即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据67：内置类型 market-app 必须存在于类型库。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，发布即入册依赖内置类型。",
+          "anchor": {
+            "quote": "判据67：内置类型 market-app 必须存在于类型库。",
+            "locator": "dev-verifier-v4.md 判据6"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "键精确匹配。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删 market-app 行即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据68：server/src/index.ts 必须包含发布路由「/api/apps」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，AI 会话直发的发布通道在位。",
+          "anchor": {
+            "quote": "判据68：server/src/index.ts 必须包含发布路由「/api/apps」。",
+            "locator": "dev-verifier-v4.md 判据6"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删发布路由提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据69：server/src/db.ts 必须包含版本快照表「app_versions」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，全版本快照依赖版本链表。",
+          "anchor": {
+            "quote": "判据69：server/src/db.ts 必须包含版本快照表「app_versions」。",
+            "locator": "dev-verifier-v4.md 判据6"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删表提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据70：自产台表中至少发布了 1 个应用。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，演示自产台常驻库中作为活样例。",
+          "anchor": {
+            "quote": "判据70：自产台表中至少发布了 1 个应用。",
+            "locator": "dev-verifier-v4.md 判据7"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "count>=1 数值判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "清空 apps 表即 FAIL。"
         }
       ]
     }

@@ -41,6 +41,12 @@ def cleanup(page):
                 api(page, 'DELETE', f"/api/cockpits/{c['id']}")
             except Exception:
                 pass
+    for a in api(page, 'GET', '/api/apps').json():
+        if a['slug'].startswith('e2e-'):
+            try:
+                api(page, 'DELETE', f"/api/apps/{a['slug']}")
+            except Exception:
+                pass
 
 
 with sync_playwright() as p:
@@ -394,6 +400,59 @@ with sync_playwright() as p:
                '; '.join(f"{r['label']}={r['ratio']}" for r in bad))
     except Exception as e:
         record('渲染层对比度', False, str(e)); shot('contrast')
+
+    # ---------- 14. 自产台（台生成器：AI 发布 API → 入册 → 门户嵌入 → 版本回滚） ----------
+    try:
+        # 发布 v1（模拟 AI 会话直发通道）
+        r = api(page, 'POST', '/api/apps', {
+            'slug': 'e2e-app',
+            'title': 'E2E 自产台',
+            'description': 'E2E 发布的版本化小工具',
+            'created_by': 'e2e',
+            'files': [
+                {'path': 'index.html', 'content': '<!doctype html><meta charset="utf-8"><title>E2E 自产台</title><h1>E2E-APP-V1</h1>'},
+            ],
+        }).json()
+        assert r['version'] == 1 and r['workbench_id'] > 0, f'发布响应异常: {r}'
+        wid = r['workbench_id']
+        # 静态可访问
+        resp = page.request.fetch(BASE + '/apps/e2e-app/')
+        assert resp.status == 200 and 'E2E-APP-V1' in resp.text(), '自产台静态服务失败'
+        # 发布即入册：市场页出现行 + 类型 Tag
+        page.goto(BASE + '/market')
+        page.wait_for_load_state('networkidle')
+        page.wait_for_timeout(600)
+        row = page.locator('.ant-table-row').filter(has_text='E2E 自产台')
+        assert row.count() == 1, f'市场页未见自产台行（{row.count()}）'
+        # 检测短路 up
+        api(page, 'POST', f'/api/workbenches/{wid}/check')
+        wb = api(page, 'GET', f'/api/workbenches/{wid}').json()
+        assert wb['last_status'] == 'up', f"自产台探测未短路: {wb['last_status']}"
+        # 使用页 iframe 经门户 /go/ 嵌入且内容可达（同源可读）
+        page.goto(BASE + f'/use/{wid}')
+        page.wait_for_load_state('networkidle')
+        page.wait_for_timeout(800)
+        frame = page.locator('.wm-use-frame')
+        assert frame.count() >= 1, '使用页 iframe 未出现'
+        src = frame.get_attribute('src') or ''
+        assert src.startswith(f'/go/{wid}'), f'iframe src 应为门户 /go/: {src}'
+        body_txt = frame.evaluate('el => el.contentDocument && el.contentDocument.body ? el.contentDocument.body.innerText : ""')
+        assert 'E2E-APP-V1' in body_txt, '门户重写后 iframe 内容不可达'
+        # 重发 v2 → 静态切换；activate 回 v1 → 回滚
+        api(page, 'POST', '/api/apps', {'slug': 'e2e-app', 'title': 'E2E 自产台',
+            'files': [{'path': 'index.html', 'content': '<!doctype html><meta charset="utf-8"><h1>E2E-APP-V2</h1>'}]})
+        assert 'E2E-APP-V2' in page.request.fetch(BASE + '/apps/e2e-app/').text(), 'v2 未生效'
+        api(page, 'POST', '/api/apps/e2e-app/activate', {'version': 1})
+        assert 'E2E-APP-V1' in page.request.fetch(BASE + '/apps/e2e-app/').text(), '回滚 v1 未生效'
+        detail = api(page, 'GET', '/api/apps/e2e-app').json()
+        assert len(detail['versions']) == 2 and detail['active_version'] == 1, f'版本链异常: {detail["versions"]}'
+        # 非法输入防御
+        r400 = api(page, 'POST', '/api/apps', {'slug': 'Bad!', 'title': 'x',
+            'files': [{'path': 'index.html', 'content': 'x'}]})
+        assert r400.status == 400, '非法 slug 未拒绝'
+        record('自产台（发布/入册/门户嵌入/版本回滚/防御）', True)
+    except Exception as e:
+        record('自产台', False, str(e)); shot('apps')
 
     cleanup(page)
     browser.close()
