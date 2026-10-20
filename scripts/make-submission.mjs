@@ -86,6 +86,9 @@ const TEXT_FACTS = [
   ["web/src/pages/UseWorkbench.tsx", "/go/${w.id}/"],
   ["server/src/index.ts", "/api/apps"],
   ["server/src/db.ts", "app_versions"],
+  ["server/src/index.ts", "authorization"],
+  ["web/src/components/WorkbenchForm.tsx", "authValue"],
+  ["evidence/e2e_test.py", "e2e-bear-tok"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);

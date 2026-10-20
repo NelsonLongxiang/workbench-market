@@ -454,6 +454,49 @@ with sync_playwright() as p:
     except Exception as e:
         record('自产台', False, str(e)); shot('apps')
 
+    # ---------- 15. 统一门户透传 + 凭据注入（echo fixture 内容源断言，防 SPA 假绿） ----------
+    try:
+        # 建认证类工作台：url 带 base query token，凭据 bearer
+        r = api(page, 'POST', '/api/workbenches', {
+            'name': 'E2E EchoAuth', 'url': 'http://127.0.0.1:9901/xfo?token=startup-tok',
+            'type': 'web', 'category': 'E2E', 'enabled': True,
+            'auth': {'type': 'bearer', 'value': 'e2e-bear-tok'},
+        }).json()
+        ewid = r['id']
+        assert ewid > 0, f'建台失败: {r}'
+        # ① 真实透传 + ② base query 补全 + ③ 凭据注入 + ④ 禁嵌头剥除
+        resp = page.request.fetch(BASE + f'/go/{ewid}/sec')
+        body = resp.json()
+        assert body.get('fixture') == 'echo', f'未透传到上游（疑似 SPA 假绿）: {body}'
+        assert body.get('url') == '/xfo/sec?token=startup-tok', f"base query 未补全: {body.get('url')}"
+        assert body.get('authorization') == 'Bearer e2e-bear-tok', f"凭据未注入: {body.get('authorization')}"
+        assert resp.headers.get('x-frame-options') is None, '禁嵌头未剥除'
+        # ⑤ 请求自带 query 时不覆盖；带 dsh-auth cookie 时不补 token（防一次性 token 重签死循环）
+        # 注意：Playwright request.fetch 的自定义 Cookie 头会被 cookie store 接管忽略，
+        # 必须先 add_cookies 进 browser context 再 fetch（Python API 里 page.context 是属性）
+        page.context.add_cookies([{'name': 'dsh-auth-abc', 'value': '1', 'url': BASE}])
+        resp2 = page.request.fetch(BASE + f'/go/{ewid}/sec?a=1')
+        b2 = resp2.json()
+        assert b2.get('url') == '/xfo/sec?a=1', f"query 覆盖或 cookie 场景补了 token: {b2.get('url')}"
+        assert b2.get('cookie') == 'has-dsh-auth', f'cookie 未透传: {b2.get("cookie")}'
+        page.context.clear_cookies()
+        # ⑥ 清除凭据 → 不再注入
+        api(page, 'PUT', f'/api/workbenches/{ewid}', {'auth': None})
+        b3 = page.request.fetch(BASE + f'/go/{ewid}/sec').json()
+        assert b3.get('authorization') is None, f'清除后仍注入: {b3.get("authorization")}'
+        # ⑦ 市场详情抽屉展示凭据状态（脱敏 Tag）
+        api(page, 'PUT', f'/api/workbenches/{ewid}', {'auth': {'type': 'bearer', 'value': 'e2e-bear-tok'}})
+        page.goto(BASE + '/market')
+        page.wait_for_load_state('networkidle')
+        # 详情抽屉由点击工作台名称打开
+        page.locator('.ant-table-row').filter(has_text='E2E EchoAuth').first.locator('td a').first.click()
+        page.wait_for_timeout(600)
+        drawer = page.locator('.ant-drawer-content')
+        assert '含凭据（bearer' in drawer.inner_text(), '详情抽屉未见凭据 Tag'
+        record('统一门户透传+凭据注入（echo fixture 七断言）', True)
+    except Exception as e:
+        record('统一门户透传+凭据注入', False, str(e)); shot('portal-auth')
+
     cleanup(page)
     browser.close()
 

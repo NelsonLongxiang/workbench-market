@@ -1428,9 +1428,9 @@
       }
     },
     {
-      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 18。",
+      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 19。",
       "anchor": {
-        "quote": "判据52：E2E 摘要记录的用例总数不得少于 18。",
+        "quote": "判据52：E2E 摘要记录的用例总数不得少于 19。",
         "locator": "dev-verifier-v4.md 判据5"
       },
       "title": "E2E 规模下限",
@@ -1446,7 +1446,7 @@
               {
                 "col": "total",
                 "op": ">=",
-                "value": 18
+                "value": 19
               }
             ]
           }
@@ -2028,6 +2028,123 @@
         },
         "op": ">=",
         "value": 1
+      }
+    },
+    {
+      "source_clause": "判据71：server/src/index.ts 必须包含注入头名「authorization」。",
+      "anchor": {
+        "quote": "判据71：server/src/index.ts 必须包含注入头名「authorization」。",
+        "locator": "dev-verifier-v4.md 判据7"
+      },
+      "title": "凭据注入钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "authorization"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据72：web/src/components/WorkbenchForm.tsx 必须包含凭据表单字段「authValue」。",
+      "anchor": {
+        "quote": "判据72：web/src/components/WorkbenchForm.tsx 必须包含凭据表单字段「authValue」。",
+        "locator": "dev-verifier-v4.md 判据7"
+      },
+      "title": "凭据表单钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/components/WorkbenchForm.tsx"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "authValue"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据73：evidence/e2e_test.py 必须包含凭据注入断言字面量「e2e-bear-tok」。",
+      "anchor": {
+        "quote": "判据73：evidence/e2e_test.py 必须包含凭据注入断言字面量「e2e-bear-tok」。",
+        "locator": "dev-verifier-v4.md 判据7"
+      },
+      "title": "注入行为断言钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "evidence/e2e_test.py"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "e2e-bear-tok"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
       }
     }
   ]

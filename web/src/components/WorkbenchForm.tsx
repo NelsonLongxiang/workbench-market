@@ -36,6 +36,8 @@ export default function WorkbenchForm({
         enabled: copySource.enabled,
         sort: copySource.sort ?? 0,
         description: copySource.description || '',
+        authType: copySource.auth?.type ?? 'none',
+        authValue: copySource.auth?.value ?? '',
       }
     : null;
 
@@ -49,24 +51,35 @@ export default function WorkbenchForm({
       formRef={formRef}
       modalProps={{ destroyOnClose: true, maskClosable: false }}
       initialValues={
-        initial ??
-        copyInitial ?? {
-          name: '',
-          url: '',
-          type: 'web',
-          icon: '',
-          category: '',
-          tags: [],
-          health_path: '',
-          enabled: true,
-          sort: 0,
-          description: '',
-        }
+        initial
+          ? {
+              ...initial,
+              authType: initial.auth?.type ?? 'none',
+              authValue: initial.auth?.value ?? '',
+            }
+          : copyInitial ?? {
+              name: '',
+              url: '',
+              type: 'web',
+              icon: '',
+              category: '',
+              tags: [],
+              health_path: '',
+              enabled: true,
+              sort: 0,
+              description: '',
+              authType: 'none',
+              authValue: '',
+            }
       }
       onFinish={async (values) => {
         try {
-          if (initial) await api.updateWorkbench(initial.id, values);
-          else await api.createWorkbench(values);
+          const { authType, authValue, ...payload } = values;
+          // 凭据注入：none → 清除；bearer/basic → 组装 auth（服务端经 /go/ 门户注入 Authorization 头）
+          (payload as Record<string, unknown>).auth =
+            authType === 'bearer' || authType === 'basic' ? { type: authType, value: authValue } : null;
+          if (initial) await api.updateWorkbench(initial.id, payload);
+          else await api.createWorkbench(payload);
           onSaved();
           return true;
         } catch (e) {
@@ -121,6 +134,23 @@ export default function WorkbenchForm({
       />
       <ProFormSwitch name="enabled" label="启用" />
       <ProFormDigit name="sort" label="排序" width="xs" min={0} extra="小的靠前" />
+      <ProFormSelect
+        name="authType"
+        label="凭据注入"
+        options={[
+          { value: 'none', label: '无' },
+          { value: 'bearer', label: 'Bearer Token' },
+          { value: 'basic', label: 'Basic（用户名:密码）' },
+        ]}
+        extra="经统一门户 /go/ 访问时自动携带 Authorization 头，token 不必再拼进地址（token-in-url 会泄漏进上游日志）"
+      />
+      <ProFormText
+        name="authValue"
+        label="凭据值"
+        width="md"
+        placeholder="Bearer 填 token；Basic 填 用户名:密码"
+        fieldProps={{ autoComplete: 'off' }}
+      />
       <ProFormTextArea name="description" label="描述" placeholder="支持 Markdown；在工作台详情中渲染（可空）" />
     </ModalForm>
   );
