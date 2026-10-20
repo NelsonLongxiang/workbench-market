@@ -25,7 +25,7 @@ pnpm workspace（根 package.json + pnpm-workspace.yaml）
 pnpm --filter web typecheck          # tsc --noEmit
 pnpm --filter web build              # vite build（六桶 manualChunks）
 pnpm --filter server dev             # --watch 开发
-(pnpm --filter server start > tmp/server.log 2>&1 &)   # 生产形态，分离式后台
+(pnpm --filter server start > tmp/server.log 2>&1 &)   # 生产形态·仅限当前工具调用存续期（见运维要点「跨会话存活」）
 npx antd-cli lint web/src            # antd 规范检查，必须 0 issues
 python evidence/e2e_test.py          # E2E，要求 9800 存活；摘要落 evidence/e2e-summary.json
 node scripts/make-submission.mjs     # 快照 DB + 封装提交物 tmp/submission + tmp/verify-snap.sqlite
@@ -50,7 +50,7 @@ node scripts/verify-report.mjs <run_id...>   # 多代对照 HTML → evidence/ve
 ## 验证标准链（改 server/ 或 web/ 后必须全绿）
 
 1. `pnpm --filter web typecheck` + `npx antd-cli lint web/src`（0 issues）
-2. 9800 存活（`curl 127.0.0.1:9800/api/health`；死了按上面分离式重启）→ 重启才加载新 server 代码
+2. 9800 存活（`curl 127.0.0.1:9800/api/health`；死了按运维要点「跨会话存活」的 schtasks 式拉起）→ 重启才加载新 server 代码
 3. `pnpm --filter web build`（改了 web 时；express.static 按请求读盘，重建后无需重启）
 4. `python evidence/e2e_test.py` 全 PASS（当前 22 组；新增功能必须加用例）
 5. 验证器：gen-verifier → make-submission → submit/prepare/run → 判据数符合预期 + 基线全 PASS；涉及新事实（端点/色值/文件）同步扩 gen-verifier.mjs 与 make-submission.mjs TEXT_FACTS
@@ -58,7 +58,13 @@ node scripts/verify-report.mjs <run_id...>   # 多代对照 HTML → evidence/ve
 
 ## 运维要点
 
-- **服务重启**：先 `netstat -ano | findstr :9800` 找 pid（注意 pnpm 包装父子进程，杀父 cmd 不够要杀 node 子进程），再分离式重启。
+- **服务重启**：先 `netstat -ano | findstr :9800` 找 pid（注意 pnpm 包装父子进程，杀父 cmd 不够要杀 node 子进程），再重启。
+- **跨会话存活（9800 三死教训，监督席 2026-10-21 定性）**：`(pnpm … &)` 分离式后台**活不过工具调用边界**——gitbash 调用返回时进程树被收割，会话结束/长间隔后 9800 必死。该式仅限「本调用内临时用完即弃」。要跨调用/跨会话存活，用 schtasks 脱离会话（Session 1，不随调用树死）：
+  ```cmd
+  schtasks /Create /TN workbench-market-9800 /SC ONCE /ST 00:00 /TR "cmd /c cd /d D:\workspace\workbench-market && pnpm --filter server start >> tmp\server.log 2>&1" /F
+  schtasks /Run /TN workbench-market-9800
+  ```
+  （/SC ONCE + /Run 即「手动点火一次」；ONLOGON 常驻可再议。当前 9800 若由监督席 managed job 持有，勿重复拉起。）
 - **同机邻居进程勿误杀**：ygl webui :8642、DSH web :3080 是他人/别线进程；只动 9800。
 - **备份**：`GET /api/export`（JSON 全量：工作台/类型/设置）或停服后文件级拷贝（WAL 模式拷 .db 需含 -wal/-shm；在线快照用 `VACUUM INTO`）。
 - **导入**：merge 追加 / replace 清空（web 设置页有二次确认）。
