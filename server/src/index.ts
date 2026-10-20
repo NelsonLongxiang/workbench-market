@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import { createProxyMiddleware } from 'http-proxy-middleware';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -360,6 +361,84 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()) });
 });
 
+// ---------- 统一门户：/go/:id/* 反向代理到对应工作台 ----------
+// 所有注册工作台挂到 9800 同域路径下：一个端口号 + 同源（CORS 消失）+
+// 代理剥掉 X-Frame-Options / CSP（禁嵌防线失效）→ 使用页/驾驶舱全量可嵌。
+const wbById = (id: number): ReturnType<typeof rowToWorkbench> | null => {
+  const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(id) as unknown as WorkbenchRow | undefined;
+  return row ? rowToWorkbench(row) : null;
+};
+const goPrefix = /^\/go\/(\d+)(.*)$/;
+
+// id 校验 + 404（在代理前拦截，避免 router 内抛错变 500）
+// 注意：必须全局挂载（不能用 app.use('/go', ...) 前缀挂载——Express 会剥掉
+// req.url 的挂载前缀，goPrefix 与 http-proxy-middleware 的 pathFilter 都会失配）
+app.use((req, res, next) => {
+  if (!goPrefix.test(req.url ?? '')) return next();
+  const m = goPrefix.exec(req.url ?? '')!;
+  let origin = '', basePath = '';
+  try {
+    const w = wbById(Number(m[1]));
+    if (!w) return res.status(404).json({ error: `工作台不存在: ${m[1]}` });
+    const u = new URL(w.url);
+    origin = u.origin;
+    basePath = u.pathname.replace(/\/+$/, ''); // base 自带路径（如 /preview）时保留
+  } catch {
+    return res.status(502).json({ error: `工作台地址非法: ${m[1]}` });
+  }
+  (req as express.Request & { goOrigin?: string; goBase?: string }).goOrigin = origin;
+  (req as express.Request & { goOrigin?: string; goBase?: string }).goBase = basePath;
+  next();
+});
+
+const goProxy = createProxyMiddleware({
+  pathFilter: goPrefix,
+  target: 'http://127.0.0.1', // 占位：router 按请求覆盖
+  changeOrigin: true,
+  xfwd: true,
+  ws: true,
+  cookieDomainRewrite: '', // 上游 Cookie 去掉 Domain 属性，落到 9800 同域
+  cookiePathRewrite: '/',
+  router: (req) => (req as express.Request & { goOrigin?: string }).goOrigin ?? 'http://127.0.0.1',
+  pathRewrite: (path, req) => {
+    const m = goPrefix.exec(path);
+    if (!m) return path;
+    const base = (req as express.Request & { goBase?: string }).goBase ?? '';
+    const rest = m[2] || '/';
+    // /go/N/xyz → base + /xyz（base 是工作台地址自带的路径前缀，可空）
+    return rest.startsWith('/') ? base + rest : path;
+  },
+  on: {
+    proxyRes: (proxyRes, req, res) => {
+      // 剥禁嵌头：代理后与市场同源，这两个头只会误伤 iframe 嵌入（使用页/驾驶舱）
+      delete proxyRes.headers['x-frame-options'];
+      delete proxyRes.headers['content-security-policy'];
+      // 3xx Location 改写回 /go/N/ 前缀，防跳回原域丢前缀
+      const loc = proxyRes.headers.location;
+      if (typeof loc === 'string') {
+        const m = goPrefix.exec(req.url ?? '');
+        if (m) {
+          const base = (req as express.Request & { goBase?: string }).goBase ?? '';
+          if (loc.startsWith('/')) {
+            proxyRes.headers.location = `/go/${m[1]}${loc.startsWith(base + '/') ? loc.slice(base.length) : loc}`;
+          } else if (/^https?:\/\//i.test(loc)) {
+            try {
+              const lu = new URL(loc);
+              if (lu.origin === (req as express.Request & { goOrigin?: string }).goOrigin) {
+                let p = lu.pathname;
+                if (base && p.startsWith(base)) p = p.slice(base.length);
+                proxyRes.headers.location = `/go/${m[1]}${p}${lu.search}${lu.hash}`;
+              }
+            } catch { /* 异常 URL 透传 */ }
+          }
+        }
+      }
+      void res;
+    },
+  },
+});
+app.use(goProxy);
+
 // ---------- 静态托管前端（生产形态：单端口） ----------
 const webDist = join(here, '..', '..', 'web', 'dist');
 if (existsSync(webDist)) {
@@ -399,7 +478,12 @@ const dbWriteSettings = db.prepare('INSERT INTO settings (key, value) VALUES (?,
 dbWriteSettings.run('patrol_armed_at', new Date().toISOString());
 
 const PORT = Number(process.env.PORT) || 9800;
-app.listen(PORT, () => {
+const goServer = app.listen(PORT, () => {
   const counts = db.prepare('SELECT COUNT(*) AS n FROM workbenches').get() as { n: number };
-  console.log(`[workbench-market] server  http://127.0.0.1:${PORT}  (workbenches: ${counts.n}, web-dist: ${existsSync(webDist) ? 'served' : 'none'})`);
+  console.log(`[workbench-market] server  http://127.0.0.1:${PORT}  (workbenches: ${counts.n}, web-dist: ${existsSync(webDist) ? 'served' : 'none'}, portal: /go/<id>/)`);
+});
+
+// WebSocket 升级（Jupyter kernel / MCP 等长连接走 /go/ 代理）
+goServer.on('upgrade', (req, socket, head) => {
+  if (goPrefix.test(req.url ?? '')) (goProxy as unknown as { upgrade: (rq: any, sk: any, hd: any) => void }).upgrade(req, socket, head);
 });

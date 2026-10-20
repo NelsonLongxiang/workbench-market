@@ -80,6 +80,10 @@ const TEXT_FACTS = [
   ["web/src/index.css", ".wm-use-bar .ant-badge-status-text"],
   ["web/src/index.css", "rgba(255, 255, 255, 0.85)"],
   ["server/src/index.ts", "/api/cockpits"],
+  ["server/src/index.ts", "createProxyMiddleware"],
+  ["server/src/index.ts", "x-frame-options"],
+  ["server/package.json", "http-proxy-middleware"],
+  ["web/src/pages/UseWorkbench.tsx", "/go/${w.id}/"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);

@@ -96,7 +96,7 @@ export default function UseWorkbench() {
       <iframe
         key={frameKey}
         className="wm-use-frame"
-        src={w.url}
+        src={`/go/${w.id}/`}
         title={w.name}
         allow="clipboard-read; clipboard-write; fullscreen"
       />
@@ -104,7 +104,7 @@ export default function UseWorkbench() {
         type="secondary"
         style={{ textAlign: 'center', fontSize: 12, margin: '6px 0', flex: 'none' }}
       >
-        部分工作台通过 X-Frame-Options / CSP 禁止内嵌，页面空白时请点右上角「新窗口」打开 ·{' '}
+        经统一门户 /go/{w.id}/ 同源代理嵌入（自动剥除上游禁嵌响应头）；个别页面主动跳出到外域时请点右上角「新窗口」 ·{' '}
         <Link to="/market">返回市场管理</Link>
       </Typography.Paragraph>
     </div>

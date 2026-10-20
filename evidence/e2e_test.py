@@ -209,10 +209,29 @@ with sync_playwright() as p:
         assert 'E2E 改名后' in page.inner_text('body'), '顶栏名称缺失'
         frame = page.locator('iframe.wm-use-frame')
         expect(frame).to_be_visible()
-        assert BASE in frame.get_attribute('src'), 'iframe src 不对'
-        record('使用页（顶栏 + iframe src）', True)
+        assert frame.get_attribute('src') == f'/go/{wid}/', f'iframe src 应为统一门户: {frame.get_attribute("src")}'
+        # 统一门户同源代理：contentDocument 可读（跨源时此访问抛异常/为 null）
+        try:
+            same_origin = frame.evaluate('el => !!el.contentDocument')
+        except Exception:
+            same_origin = False
+        assert same_origin, 'iframe 应经 /go/ 同源代理可读'
+        record('使用页（顶栏 + 统一门户 /go/ iframe 同源可读）', True)
     except Exception as e:
         record('使用页', False, str(e)); shot('use-page')
+
+    # ---------- 9b. 统一门户 /go/：代理可达 + 禁嵌头剥离 ----------
+    try:
+        r = page.request.get(f'{BASE}/go/{wid}/')
+        assert r.ok, f'/go/{wid}/ 代理请求失败: {r.status}'
+        h = {k.lower(): v for k, v in r.headers.items()}
+        assert 'x-frame-options' not in h, f'代理响应应剥 x-frame-options: {h.get("x-frame-options")}'
+        assert 'content-security-policy' not in h, f'代理响应应剥 content-security-policy'
+        r404 = page.request.get(f'{BASE}/go/999999/')
+        assert r404.status == 404, f'不存在的工作台应 404: {r404.status}'
+        record('统一门户（/go/ 代理 + 剥禁嵌头 + 404）', True)
+    except Exception as e:
+        record('统一门户', False, str(e)); shot('go-portal')
 
     # ---------- 10. 类型管理：新增 + 引用保护 + 删除 ----------
     try:
@@ -299,7 +318,7 @@ with sync_playwright() as p:
         n_after_add = panels.count()
         assert n_after_add >= 1, f'面板未出现（{n_after_add}）'
         srcs = page.locator('.wm-panel-body iframe').evaluate_all('els => els.map(e => e.getAttribute("src"))')
-        assert srcs and srcs[0].startswith('http'), f'iframe src 异常: {srcs}'
+        assert srcs and srcs[0].startswith('/go/'), f'iframe src 应为统一门户 /go/: {srcs}'
         # 刷新后布局持久化（服务端保存的面板还在）
         page.reload()
         page.wait_for_load_state('networkidle')
