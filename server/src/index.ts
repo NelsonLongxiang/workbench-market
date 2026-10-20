@@ -1,11 +1,13 @@
 import express from 'express';
 import cors from 'cors';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { db, getSettings, dataDir, rowToWorkbench, rowToCockpit, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow } from './db.ts';
+import { db, getSettings, dataDir, rowToWorkbench, rowToCockpit, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow, type SopRunRow } from './db.ts';
 import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
+import { parse as parseYaml } from 'yaml';
+import { startRedis, redisHealthy, runStateSave, runStateRestore, runStateLoad, runStateRetire, runActiveIds } from './redis.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -258,13 +260,14 @@ function appDetail(a: AppRow) {
   const versions = db
     .prepare('SELECT * FROM app_versions WHERE app_id = ? ORDER BY version DESC')
     .all(a.id) as unknown as AppVersionRow[];
+  const url = a.kind === 'sop' ? `/sop/${a.slug}/` : `/apps/${a.slug}/`;
   const wb = db
     .prepare(`SELECT id FROM workbenches WHERE url = ? AND type = 'market-app'`)
-    .get(`/apps/${a.slug}/`) as { id: number } | undefined;
+    .get(url) as { id: number } | undefined;
   return { ...a, versions, workbench_id: wb?.id ?? null };
 }
 
-function validateAppFiles(raw: unknown): { path: string; content: string }[] {
+function validateAppFiles(raw: unknown, kind: 'app' | 'sop' = 'app'): { path: string; content: string }[] {
   if (!Array.isArray(raw) || raw.length === 0) bad('files 必须是非空数组 [{path, content}]');
   if (raw.length > MAX_APP_FILES) bad(`文件数超过上限 ${MAX_APP_FILES}`);
   let total = 0;
@@ -279,7 +282,12 @@ function validateAppFiles(raw: unknown): { path: string; content: string }[] {
     if (total > MAX_APP_TOTAL_BYTES) bad(`文件总量超过 ${MAX_APP_TOTAL_BYTES} 字节上限`);
     return { path: p, content: f.content };
   });
-  if (!seen.has('index.html')) bad('files 必须包含根目录 index.html（入口）');
+  // 入口检查按 kind 分流：app 类要 index.html（静态台入口）；sop 类要 sop.yaml（混合源，稍后校验）
+  if (kind === 'sop') {
+    if (!seen.has('sop.yaml')) bad('SOP 发布必须包含 sop.yaml（混合源）');
+  } else if (!seen.has('index.html')) {
+    bad('files 必须包含根目录 index.html（入口）');
+  }
   return files;
 }
 
@@ -298,7 +306,9 @@ function writeAppFiles(slug: string, version: number, files: { path: string; con
 
 /** 发布即入册：自产台自动注册进 workbenches（type=market-app），门户/驾驶舱/市场全链立即可用 */
 function syncWorkbenchRegistration(a: AppRow): number {
-  const url = `/apps/${a.slug}/`;
+  const url = a.kind === 'sop' ? `/sop/${a.slug}/` : `/apps/${a.slug}/`;
+  const icon = a.kind === 'sop' ? '📋' : '🧩';
+  const category = a.kind === 'sop' ? 'SOP 台' : '自产台';
   const cur = db.prepare('SELECT id FROM workbenches WHERE url = ?').get(url) as { id: number } | undefined;
   if (cur) {
     db.prepare(`UPDATE workbenches SET name = ?, description = ?, updated_at = datetime('now') WHERE id = ?`).run(a.title, a.description, cur.id);
@@ -307,9 +317,9 @@ function syncWorkbenchRegistration(a: AppRow): number {
   const r = db
     .prepare(
       `INSERT INTO workbenches (name, url, type, icon, description, category, tags, enabled, health_path, sort)
-       VALUES (?, ?, 'market-app', '🧩', ?, '自产台', '[]', 1, '/', 0)`
+       VALUES (?, ?, 'market-app', ?, ?, ?, '[]', 1, '/', 0)`
     )
-    .run(a.title, url, a.description) as unknown as { lastInsertRowid: number | bigint };
+    .run(a.title, url, icon, a.description, category) as unknown as { lastInsertRowid: number | bigint };
   return Number(r.lastInsertRowid);
 }
 
@@ -318,42 +328,103 @@ app.get('/api/apps', (_req, res) => {
   res.json(rows.map(appDetail));
 });
 
+// ---------- SOP 台：混合源（sop.yaml）解析与校验 ----------
+interface SopStep { key: string; title: string; body?: string }
+interface SopManifest { title: string; code?: string; description?: string; steps: SopStep[] }
+
+/** 校验并解析 sop.yaml（混合源：结构化字段 + 步骤内嵌 HTML 块）；抛 HttpError 说明缺什么 */
+function parseSopManifest(yamlText: string): SopManifest {
+  let doc: Record<string, unknown>;
+  try {
+    doc = parseYaml(yamlText) as Record<string, unknown>;
+  } catch (e) {
+    throw new HttpError(400, `sop.yaml 解析失败: ${(e as Error).message}`);
+  }
+  if (!doc || typeof doc !== 'object') throw new HttpError(400, 'sop.yaml 必须是对象');
+  const title = typeof doc.title === 'string' ? doc.title.trim() : '';
+  if (!title) throw new HttpError(400, 'sop.yaml 缺少 title');
+  const rawSteps = Array.isArray(doc.steps) ? doc.steps : [];
+  if (rawSteps.length === 0) throw new HttpError(400, 'sop.yaml 缺少 steps（至少一步）');
+  const steps: SopStep[] = [];
+  const seen = new Set<string>();
+  for (const s of rawSteps) {
+    const o = s as Record<string, unknown>;
+    const key = typeof o.key === 'string' ? o.key.trim() : '';
+    const st = typeof o.title === 'string' ? o.title.trim() : '';
+    if (!/^[a-z0-9][a-z0-9_-]*$/i.test(key)) throw new HttpError(400, `步骤 key 非法（字母数字开头，允许 _ -）: ${JSON.stringify(o.key)}`);
+    if (!st) throw new HttpError(400, `步骤 ${key} 缺少 title`);
+    if (seen.has(key)) throw new HttpError(400, `步骤 key 重复: ${key}`);
+    seen.add(key);
+    steps.push({ key, title: st, body: typeof o.body === 'string' ? o.body : undefined });
+  }
+  return {
+    title, steps,
+    code: typeof doc.code === 'string' ? doc.code.trim() : undefined,
+    description: typeof doc.description === 'string' ? doc.description.trim() : undefined,
+  };
+}
+
+function readActiveManifest(slug: string): { manifest: SopManifest; app: AppRow } | null {
+  const a = db.prepare("SELECT * FROM apps WHERE slug = ? AND kind = 'sop'").get(slug) as unknown as AppRow | undefined;
+  if (!a) return null;
+  const yamlPath = join(appsRoot, slug, `v${a.active_version}`, 'sop.yaml');
+  if (!existsSync(yamlPath)) return null;
+  return { manifest: parseSopManifest(readFileSync(yamlPath, 'utf8')), app: a };
+}
+
 app.post('/api/apps', (req, res) => {
   const b = req.body ?? {};
   const slug = typeof b.slug === 'string' ? b.slug.trim().toLowerCase() : '';
   if (!SLUG_RE.test(slug)) bad('slug 必须是小写字母/数字/连字符（≤64 字符，字母或数字开头）');
-  const files = validateAppFiles(b.files);
+  const kind = b.kind === 'sop' ? 'sop' : 'app';
+  const files = validateAppFiles(b.files, kind);
   const existing = db.prepare('SELECT * FROM apps WHERE slug = ?').get(slug) as unknown as AppRow | undefined;
+  if (existing && existing.kind !== kind) bad(`slug 已被 ${existing.kind} 类台占用，kind 不可切换`);
+
+  // SOP 类发布面：sop.yaml 必在且可解析、changelog 必填（版本化治理）
+  let changelog = '';
+  if (kind === 'sop') {
+    const yf = files.find((f) => f.path === 'sop.yaml');
+    if (!yf) throw new HttpError(400, 'SOP 发布必须包含 sop.yaml（混合源：结构化字段 + 步骤内嵌 HTML）');
+    parseSopManifest(yf.content);
+    changelog = typeof b.changelog === 'string' ? b.changelog.trim() : '';
+    if (!changelog) throw new HttpError(400, 'SOP 发布必须携带 changelog（本版改了什么）');
+  } else if (typeof b.changelog === 'string' && b.changelog.trim()) {
+    changelog = b.changelog.trim();
+  }
 
   let appRow: AppRow;
   let version: number;
   if (existing) {
-    // 重新发布 = 新版本快照（title/description/created_by 缺省保留原值）
+    // 重新发布 = 新版本快照（title/description/created_by/code 缺省保留原值）
     const title = typeof b.title === 'string' && b.title.trim() ? b.title.trim() : existing.title;
     const description = b.description !== undefined ? String(b.description) : existing.description;
     const created_by = typeof b.created_by === 'string' && b.created_by.trim() ? b.created_by.trim() : existing.created_by;
+    const code = typeof b.code === 'string' && b.code.trim() ? b.code.trim() : existing.code;
     const maxV = db.prepare('SELECT MAX(version) AS v FROM app_versions WHERE app_id = ?').get(existing.id) as { v: number | null };
     version = (maxV.v ?? 0) + 1;
     const st = writeAppFiles(slug, version, files);
-    db.prepare(`UPDATE apps SET title = ?, description = ?, created_by = ?, active_version = ?, updated_at = datetime('now') WHERE id = ?`)
-      .run(title, description, created_by, version, existing.id);
-    db.prepare(`INSERT INTO app_versions (app_id, version, file_count, total_bytes, created_by) VALUES (?, ?, ?, ?, ?)`)
-      .run(existing.id, version, st.file_count, st.total_bytes, created_by);
+    db.prepare(`UPDATE apps SET title = ?, description = ?, created_by = ?, code = ?, active_version = ?, updated_at = datetime('now') WHERE id = ?`)
+      .run(title, description, created_by, code, version, existing.id);
+    db.prepare(`INSERT INTO app_versions (app_id, version, file_count, total_bytes, created_by, changelog) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(existing.id, version, st.file_count, st.total_bytes, created_by, changelog);
     appRow = getApp(slug);
   } else {
     if (typeof b.title !== 'string' || !b.title.trim()) bad('首次发布必须提供 title');
     const created_by = String(b.created_by ?? '');
+    const code = typeof b.code === 'string' ? b.code.trim() : '';
     const st = writeAppFiles(slug, 1, files);
     const r = db
-      .prepare(`INSERT INTO apps (slug, title, description, created_by, active_version) VALUES (?, ?, ?, ?, 1)`)
-      .run(slug, b.title.trim(), String(b.description ?? ''), created_by) as unknown as { lastInsertRowid: number | bigint };
-    db.prepare(`INSERT INTO app_versions (app_id, version, file_count, total_bytes, created_by) VALUES (?, 1, ?, ?, ?)`)
-      .run(Number(r.lastInsertRowid), st.file_count, st.total_bytes, created_by);
+      .prepare(`INSERT INTO apps (slug, title, description, created_by, active_version, kind, code, status) VALUES (?, ?, ?, ?, 1, ?, ?, ?)`)
+      .run(slug, b.title.trim(), String(b.description ?? ''), created_by, kind, code, kind === 'sop' ? 'draft' : 'active') as unknown as { lastInsertRowid: number | bigint };
+    db.prepare(`INSERT INTO app_versions (app_id, version, file_count, total_bytes, created_by, changelog) VALUES (?, 1, ?, ?, ?, ?)`)
+      .run(Number(r.lastInsertRowid), st.file_count, st.total_bytes, created_by, changelog);
     version = 1;
     appRow = getApp(slug);
   }
-  const workbench_id = syncWorkbenchRegistration(appRow);
-  res.status(existing ? 200 : 201).json({ ok: true, slug: appRow.slug, version, workbench_id, app: appDetail(appRow) });
+  // app 类发布即入册；sop 类走状态机——draft 不入册，publish 时入册
+  const workbench_id = appRow.kind === 'app' ? syncWorkbenchRegistration(appRow) : 0;
+  res.status(existing ? 200 : 201).json({ ok: true, slug: appRow.slug, version, workbench_id, kind: appRow.kind, status: appRow.status, app: appDetail(appRow) });
 });
 
 app.get('/api/apps/:slug', (req, res) => {
@@ -378,6 +449,343 @@ app.delete('/api/apps/:slug', (req, res) => {
   db.prepare('DELETE FROM apps WHERE id = ?').run(a.id);
   db.prepare(`DELETE FROM workbenches WHERE url = ? AND type = 'market-app'`).run(`/apps/${a.slug}/`);
   res.json({ ok: true, deleted: a.slug });
+});
+
+// ---------- SOP 台：状态机（draft → published → deprecated）+ 执行 Runner + 分层持久化 ----------
+app.get('/api/sops', (_req, res) => {
+  const rows = db.prepare("SELECT * FROM apps WHERE kind = 'sop' ORDER BY updated_at DESC, id DESC").all() as unknown as AppRow[];
+  res.json(rows.map(appDetail));
+});
+
+function sopTransition(slug: string, from: string[], to: string, label: string): AppRow {
+  const a = getApp(slug);
+  if (a.kind !== 'sop') throw new HttpError(400, `${slug} 不是 SOP 台`);
+  if (!from.includes(a.status)) throw new HttpError(409, `状态机拒绝：当前 ${a.status}，${label} 仅允许 ${from.join('/')}`);
+  db.prepare(`UPDATE apps SET status = ?, updated_at = datetime('now') WHERE id = ?`).run(to, a.id);
+  const updated = getApp(slug);
+  if (to === 'published') syncWorkbenchRegistration(updated); // 发布即入册（门户/市场/驾驶舱全链可见）
+  return updated;
+}
+
+app.post('/api/sops/:slug/publish', (req, res) => {
+  const a = sopTransition(req.params.slug, ['draft', 'deprecated'], 'published', '发布');
+  // publish 附带发布说明（可选）记入当前版本 changelog 末尾
+  if (typeof req.body?.note === 'string' && req.body.note.trim()) {
+    db.prepare(`UPDATE app_versions SET changelog = changelog || ? WHERE app_id = ? AND version = ?`)
+      .run(`\n[publish] ${req.body.note.trim()}`, a.id, a.active_version);
+  }
+  res.json(appDetail(getApp(a.slug)));
+});
+
+app.post('/api/sops/:slug/deprecate', (req, res) => {
+  const a = sopTransition(req.params.slug, ['published'], 'deprecated', '废弃');
+  // 废弃不入册删除：历史 run 仍可回放；市场行禁用（enabled=0）
+  db.prepare(`UPDATE workbenches SET enabled = 0, updated_at = datetime('now') WHERE url = ? AND type = 'market-app'`).run(`/sop/${a.slug}/`);
+  res.json(appDetail(getApp(a.slug)));
+});
+
+// ---------- SOP Runner：GET /sop/:slug/ → 内置执行页（读活跃版本 sop.yaml 服务端渲染）----------
+function renderSopRunner(manifest: SopManifest, app: AppRow): string {
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const stepsHtml = manifest.steps
+    .map(
+      (s, i) => `
+      <section class="step" data-step="${esc(s.key)}">
+        <header><span class="no">${i + 1}</span><h2>${esc(s.title)}</h2><span class="dot" data-dot="${esc(s.key)}" title="未保存"></span></header>
+        <div class="body">${s.body ?? '<p class="muted">（本步骤无说明）</p>'}</div>
+      </section>`
+    )
+    .join('\n');
+  const boot = JSON.stringify({ slug: app.slug, version: app.active_version, code: app.code || manifest.code || '', title: manifest.title, steps: manifest.steps.map((s) => s.key) })
+    .replace(/</g, '\\u003c');
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(manifest.title)} · SOP Runner</title>
+<style>
+  :root { --navy:#1E3A5F; --emerald:#059669; --ink:#0F172A; --line:#E2E8F0; --mut:#5A6577; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:Inter,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; color:var(--ink); background:#F6F8FB; }
+  .bar { position:sticky; top:0; z-index:5; background:var(--ink); color:#fff; padding:10px 20px; display:flex; align-items:center; gap:12px; }
+  .bar .code { font-family:"Cascadia Mono",Consolas,monospace; font-size:12px; color:#94A3B8; }
+  .bar h1 { font-size:16px; margin:0; font-weight:600; letter-spacing:.02em; }
+  .badge { font-size:12px; padding:2px 10px; border-radius:999px; background:rgba(5,150,105,.25); color:#6EE7B7; }
+  .runmeta { margin-left:auto; font-family:"Cascadia Mono",Consolas,monospace; font-size:12px; color:#94A3B8; }
+  main { max-width:860px; margin:24px auto; padding:0 16px; }
+  .step { background:#fff; border:1px solid var(--line); border-radius:8px; padding:16px 20px; margin-bottom:14px; }
+  .step header { display:flex; align-items:center; gap:10px; }
+  .step .no { width:24px; height:24px; border-radius:50%; background:var(--navy); color:#fff; font-size:12px; display:flex; align-items:center; justify-content:center; font-family:"Cascadia Mono",Consolas,monospace; }
+  .step h2 { font-size:15px; margin:0; font-weight:600; }
+  .dot { margin-left:auto; width:8px; height:8px; border-radius:50%; background:#CBD5E1; }
+  .dot.saved { background:var(--emerald); }
+  .dot.dirty { background:#F59E0B; }
+  .body { margin-top:10px; font-size:14px; line-height:1.7; }
+  .body:empty { display:none; }
+  .muted { color:var(--mut); }
+  input[data-field], select[data-field], textarea[data-field] { width:100%; max-width:420px; padding:7px 10px; border:1px solid var(--line); border-radius:6px; font:inherit; font-family:"Cascadia Mono",Consolas,monospace; font-size:13px; }
+  input[data-field]:focus-visible, textarea[data-field]:focus-visible, select[data-field]:focus-visible { outline:2px solid rgba(5,150,105,.6); outline-offset:1px; }
+  .foot { display:flex; align-items:center; gap:14px; margin:20px 0 40px; }
+  .btn { border:none; border-radius:6px; padding:9px 22px; font:inherit; font-weight:600; cursor:pointer; }
+  .btn.primary { background:var(--emerald); color:#fff; }
+  .btn:disabled { opacity:.5; cursor:default; }
+  .state { font-size:13px; color:var(--mut); font-family:"Cascadia Mono",Consolas,monospace; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <span class="code">${esc(app.code || manifest.code || 'SOP')}</span>
+  <h1>${esc(manifest.title)}</h1>
+  <span class="badge">v${app.active_version}</span>
+  <span class="runmeta" id="runmeta">未开始</span>
+</div>
+<main>
+${stepsHtml}
+<div class="foot">
+  <button class="btn primary" id="finish" disabled>完成执行</button>
+  <span class="state" id="state"></span>
+</div>
+</main>
+<script>
+window.__SOP__ = ${boot};
+(function () {
+  var BOOT = window.__SOP__;
+  var runId = null;
+  var timers = {};
+  var LS = 'wm.sop.run.' + BOOT.slug;
+  function $(s, el) { return (el || document).querySelector(s); }
+  function $$(s, el) { return Array.from((el || document).querySelectorAll(s)); }
+  function setState(t) { $('#state').textContent = t; }
+  function setRunMeta(t) { $('#runmeta').textContent = t; }
+  function dot(key, cls) { var d = $('[data-dot="' + key + '"]'); if (d) d.className = 'dot ' + cls; }
+
+  function collect(stepKey) {
+    var sec = $('[data-step="' + stepKey + '"]');
+    var out = {};
+    $$('[data-field]', sec).forEach(function (el) {
+      var f = el.getAttribute('data-field');
+      out[f] = el.type === 'checkbox' ? el.checked : el.value;
+    });
+    return out;
+  }
+  function fill(stepKey, value) {
+    var sec = $('[data-step="' + stepKey + '"]');
+    if (!value) return;
+    Object.keys(value).forEach(function (f) {
+      var el = $('[data-field="' + f + '"]', sec);
+      if (!el) return;
+      if (el.type === 'checkbox') el.checked = !!value[f]; else el.value = value[f];
+    });
+  }
+
+  function queueSave(stepKey) {
+    dot(stepKey, 'dirty');
+    clearTimeout(timers[stepKey]);
+    timers[stepKey] = setTimeout(function () { save(stepKey); }, 800);
+  }
+  function save(stepKey) {
+    if (!runId) return;
+    var value = collect(stepKey);
+    try { localStorage.setItem(LS + '.' + stepKey, JSON.stringify(value)); } catch (e) {}
+    fetch('/api/sop/runs/' + runId, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stepKey: stepKey, value: value })
+    }).then(function (r) {
+      dot(stepKey, r.ok ? 'saved' : 'dirty');
+      if (!r.ok) setState('保存失败（HTTP ' + r.status + '）——已缓冲本地，将随下次输入重试');
+    }).catch(function () {
+      dot(stepKey, 'dirty'); setState('离线——已缓冲本地，恢复网络后继续填写即可');
+    });
+  }
+
+  function startRun() {
+    var saved = null;
+    try { saved = JSON.parse(localStorage.getItem(LS) || 'null'); } catch (e) {}
+    var resume = saved && saved.id && saved.status === 'running' ? saved.id : null;
+    var p = resume
+      ? fetch('/api/sop/runs/' + resume).then(function (r) { return r.ok ? r.json() : null; })
+      : fetch('/api/sop/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: BOOT.slug }) }).then(function (r) { return r.json(); });
+    p.then(function (run) {
+      if (!run || !run.id) { setState('开启执行记录失败'); return; }
+      runId = run.id;
+      localStorage.setItem(LS, JSON.stringify({ id: run.id, status: 'running' }));
+      setRunMeta('run #' + run.id + ' · v' + (run.version || BOOT.version));
+      // 回填已有数据（恢复现场）：远端优先，本地缓冲兜底
+      BOOT.steps.forEach(function (k) {
+        var remote = run.data && run.data[k];
+        var local = null;
+        try { local = JSON.parse(localStorage.getItem(LS + '.' + k) || 'null'); } catch (e) {}
+        fill(k, remote || local);
+        if (remote || local) dot(k, 'saved');
+      });
+      $('#finish').disabled = false;
+      setState('执行中——数据自动保存');
+    }).catch(function () { setState('无法连接市场服务——填写仍会缓冲本地'); });
+  }
+
+  document.addEventListener('input', function (ev) {
+    var el = ev.target;
+    if (!el || !el.hasAttribute || !el.hasAttribute('data-field')) return;
+    var sec = el.closest('[data-step]');
+    if (sec) queueSave(sec.getAttribute('data-step'));
+  });
+  document.addEventListener('change', function (ev) {
+    var el = ev.target;
+    if (!el || !el.hasAttribute || !el.hasAttribute('data-field')) return;
+    var sec = el.closest('[data-step]');
+    if (sec) queueSave(sec.getAttribute('data-step'));
+  });
+
+  $('#finish').addEventListener('click', function () {
+    if (!runId) return;
+    // 收尾前把所有未落盘的缓冲步骤推上去
+    Promise.all(BOOT.steps.filter(function (k) { return timers[k]; }).map(function (k) {
+      clearTimeout(timers[k]); return save(k), Promise.resolve();
+    })).then(function () {
+      return fetch('/api/sop/runs/' + runId + '/finish', { method: 'POST' });
+    }).then(function (r) { return r.json(); }).then(function (out) {
+      localStorage.setItem(LS, JSON.stringify({ id: runId, status: 'finished' }));
+      setRunMeta('run #' + out.id + ' · 已完成');
+      setState('执行完成，记录已归档（' + out.steps + ' 个步骤数据）');
+      $('#finish').disabled = true;
+    }).catch(function () { setState('完成失败——数据仍在，稍后重试'); });
+  });
+
+  startRun();
+})();
+</script>
+</body>
+</html>`;
+}
+
+// /sop/:slug/ 根 → Runner；/sop/:slug/<path> → 版本目录静态文件（附件）
+app.get(/^\/sop\/[a-z0-9][a-z0-9-]*(\/.*)?$/, (req, res) => {
+  const m = /^\/sop\/([a-z0-9][a-z0-9-]*)\/?(.*)$/.exec(req.path ?? '');
+  if (!m) return res.status(404).json({ error: 'not found' });
+  const rest = m[2] || '';
+  const hit = readActiveManifest(m[1]);
+  if (!hit) return res.status(404).json({ error: `SOP not found: ${m[1]}` });
+  res.setHeader('X-App-Version', `v${hit.app.active_version}`);
+  if (rest === '' || rest === '/' || rest === 'index.html') {
+    return res.status(hit.app.status === 'published' ? 200 : 403).type('html').send(renderSopRunner(hit.manifest, hit.app));
+  }
+  // 附件：从活跃版本目录读（与 serveApp 同款防穿越）
+  const root = join(appsRoot, m[1], `v${hit.app.active_version}`);
+  let rel = posix.normalize(rest);
+  if (rel === '.' || rel.startsWith('/') || rel.startsWith('..')) return res.status(400).json({ error: '路径非法' });
+  const abs = join(root, rel);
+  if (!abs.startsWith(root)) return res.status(400).json({ error: '路径非法' });
+  if (!existsSync(abs)) return res.status(404).json({ error: `file not found: ${rel}` });
+  return res.sendFile(abs);
+});
+
+// ---------- SOP run API：分层治理（Redis 热态 + SQLite 真源）----------
+const checkpointAt = new Map<number, number>(); // runId → last checkpoint ms（进程内）
+const CHECKPOINT_MS = 30_000;
+
+function sopRunRow(id: number): SopRunRow {
+  const r = db.prepare('SELECT * FROM sop_runs WHERE id = ?').get(id) as unknown as SopRunRow | undefined;
+  if (!r) throw new HttpError(404, `run not found: ${id}`);
+  return r;
+}
+
+function mergeRunData(row: SopRunRow, stepKey: string, value: unknown): string {
+  let data: Record<string, unknown> = {};
+  try { data = JSON.parse(row.data || '{}'); } catch { data = {}; }
+  data[stepKey] = value;
+  return JSON.stringify(data);
+}
+
+app.post('/api/sop/runs', (req, res) => {
+  const slug = typeof req.body?.slug === 'string' ? req.body.slug.trim().toLowerCase() : '';
+  if (!slug) bad('slug 必填');
+  const hit = readActiveManifest(slug);
+  if (!hit) throw new HttpError(404, `SOP not found: ${slug}`);
+  if (hit.app.status !== 'published') throw new HttpError(409, `SOP 状态为 ${hit.app.status}，仅 published 可执行`);
+  const started_by = typeof req.body?.started_by === 'string' ? req.body.started_by.trim() : '';
+  const r = db
+    .prepare(`INSERT INTO sop_runs (sop_slug, sop_version, started_by) VALUES (?, ?, ?)`)
+    .run(slug, hit.app.active_version, started_by) as unknown as { lastInsertRowid: number | bigint };
+  const id = Number(r.lastInsertRowid);
+  const meta = { slug, version: hit.app.active_version, status: 'running', started_by, updated_at: Date.now() };
+  void runStateRestore(id, meta, {}); // Redis 初始化热态（降级态静默跳过）
+  res.status(201).json({ id, slug, version: hit.app.active_version, status: 'running', data: {} });
+});
+
+app.get('/api/sop/runs/active', async (_req, res) => {
+  // 快路径：Redis 活跃索引；降级态回落 SQLite
+  const ids = await runActiveIds();
+  if (ids.length > 0) {
+    const rows = ids.map((id) => db.prepare('SELECT * FROM sop_runs WHERE id = ? AND status = ?').get(id, 'running') as unknown as SopRunRow | undefined).filter(Boolean) as SopRunRow[];
+    return res.json(rows);
+  }
+  const rows = db.prepare("SELECT * FROM sop_runs WHERE status = 'running' ORDER BY updated_at DESC").all() as unknown as SopRunRow[];
+  res.json(rows);
+});
+
+app.get('/api/sop/runs', (req, res) => {
+  const slug = typeof req.query.slug === 'string' ? req.query.slug : '';
+  const status = typeof req.query.status === 'string' ? req.query.status : '';
+  const where: string[] = [];
+  const args: unknown[] = [];
+  if (slug) { where.push('sop_slug = ?'); args.push(slug); }
+  if (status) { where.push('status = ?'); args.push(status); }
+  const sql = `SELECT * FROM sop_runs ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY updated_at DESC LIMIT 200`;
+  res.json(db.prepare(sql).all(...(args as never[])) as unknown as SopRunRow[]);
+});
+
+app.get('/api/sop/runs/:id(\\d+)', async (req, res) => {
+  const id = Number(req.params.id);
+  const hot = await runStateLoad(id); // Redis 优先（恢复现场快路径）
+  if (hot) return res.json({ id, sop_slug: hot.meta.slug, sop_version: hot.meta.version, status: hot.meta.status, started_by: hot.meta.started_by, data: hot.data });
+  const row = sopRunRow(id);
+  let data: Record<string, unknown> = {};
+  try { data = JSON.parse(row.data || '{}'); } catch { data = {}; }
+  if (row.status === 'running' && redisHealthy()) {
+    void runStateRestore(id, { slug: row.sop_slug, version: row.sop_version, status: row.status, started_by: row.started_by, updated_at: Date.now() }, data); // 回填热态
+  }
+  res.json({ id: row.id, sop_slug: row.sop_slug, sop_version: row.sop_version, status: row.status, started_by: row.started_by, data });
+});
+
+app.put('/api/sop/runs/:id(\\d+)', async (req, res) => {
+  const id = Number(req.params.id);
+  const stepKey = typeof req.body?.stepKey === 'string' ? req.body.stepKey.trim() : '';
+  if (!stepKey) bad('stepKey 必填');
+  if (!/^[\w-]+$/.test(stepKey)) bad('stepKey 仅允许字母/数字/_/-');
+  const row = sopRunRow(id);
+  if (row.status !== 'running') throw new HttpError(409, `run ${id} 已 ${row.status}，不可再写`);
+
+  const hotOk = await runStateSave(id, { slug: row.sop_slug, version: row.sop_version, status: 'running', started_by: row.started_by, updated_at: Date.now() }, stepKey, req.body?.value ?? null);
+  const now = Date.now();
+  const last = checkpointAt.get(id) ?? 0;
+  if (!hotOk || now - last >= CHECKPOINT_MS) {
+    // 降级直写 / 30s checkpoint：热数据整体沉淀 SQLite（真源）
+    let source = mergeRunData(row, stepKey, req.body?.value ?? null);
+    if (hotOk) {
+      const hot = await runStateLoad(id);
+      if (hot) source = JSON.stringify(hot.data);
+    }
+    db.prepare(`UPDATE sop_runs SET data = ?, updated_at = datetime('now') WHERE id = ?`).run(source, id);
+    checkpointAt.set(id, now);
+  }
+  res.json({ ok: true, id, stepKey, persisted: hotOk ? 'redis+checkpoint' : 'sqlite' });
+});
+
+app.post('/api/sop/runs/:id(\\d+)/finish', async (req, res) => {
+  const id = Number(req.params.id);
+  const row = sopRunRow(id);
+  if (row.status !== 'running') throw new HttpError(409, `run ${id} 已 ${row.status}`);
+  // 热态全量沉淀（Redis 是最新），回落 SQLite 行
+  let data = row.data || '{}';
+  const hot = await runStateLoad(id);
+  if (hot && Object.keys(hot.data).length > 0) data = JSON.stringify(hot.data);
+  db.prepare(`UPDATE sop_runs SET status = 'finished', data = ?, finished_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(data, id);
+  await runStateRetire(id); // 退出活跃索引 + Redis 条目 1h 平滑淘汰
+  checkpointAt.delete(id);
+  let parsed: Record<string, unknown> = {};
+  try { parsed = JSON.parse(data); } catch { parsed = {}; }
+  res.json({ ok: true, id, status: 'finished', steps: Object.keys(parsed).length });
 });
 
 // ---------- 自产台静态托管：GET /apps/:slug/* → DATA_DIR/apps/<slug>/v<active>/* ----------
@@ -575,6 +983,25 @@ app.use((req, res, next) => {
   try {
     const w = wbById(Number(m[1]));
     if (!w) return res.status(404).json({ error: `工作台不存在: ${m[1]}` });
+    if (w.url.startsWith('/sop/')) {
+      // SOP 台：重写为 /sop/<slug>/… 后直接交给 SOP Runner 路由（同自产台坑：next() 不回流已注册路由）
+      req.url = w.url.replace(/\/+$/, '') + (m[2] || '/');
+      const mm = /^\/sop\/([a-z0-9][a-z0-9-]*)\/?(.*)$/.exec(req.path ?? req.url ?? '');
+      const rest = mm ? mm[2] || '' : '';
+      const hit = readActiveManifest(mm ? mm[1] : '');
+      if (!hit) return res.status(404).json({ error: `SOP not found` });
+      res.setHeader('X-App-Version', `v${hit.app.active_version}`);
+      if (rest === '' || rest === '/' || rest === 'index.html') {
+        return res.status(hit.app.status === 'published' ? 200 : 403).type('html').send(renderSopRunner(hit.manifest, hit.app));
+      }
+      const root = join(appsRoot, mm![1], `v${hit.app.active_version}`);
+      let rel = posix.normalize(rest);
+      if (rel === '.' || rel.startsWith('/') || rel.startsWith('..')) return res.status(400).json({ error: '路径非法' });
+      const abs = join(root, rel);
+      if (!abs.startsWith(root)) return res.status(400).json({ error: '路径非法' });
+      if (!existsSync(abs)) return res.status(404).json({ error: `file not found: ${rel}` });
+      return res.sendFile(abs);
+    }
     if (w.url.startsWith('/')) {
       // 自产台：本服务静态路径，重写后直接交给静态托管（/go/N/xyz → /apps/<slug>/xyz）。
       // 不能只 next()：serveApp 路由注册在本中间件之前，重写后的 URL 不会再流经它，
@@ -713,6 +1140,7 @@ const PORT = Number(process.env.PORT) || 9800;
 const goServer = app.listen(PORT, () => {
   const counts = db.prepare('SELECT COUNT(*) AS n FROM workbenches').get() as { n: number };
   console.log(`[workbench-market] server  http://127.0.0.1:${PORT}  (workbenches: ${counts.n}, web-dist: ${existsSync(webDist) ? 'served' : 'none'}, portal: /go/<id>/)`);
+  startRedis(); // SOP 状态层（生产 Redis；不可达自动降级直写 SQLite，不阻塞启动）
 });
 
 // WebSocket 升级（Jupyter kernel / MCP / DSH web 实时通道等长连接走 /go/ 代理）。

@@ -90,7 +90,7 @@ const U = [
   { c: "判据50：index.css 必须包含主色淡底色值「rgba(30, 58, 95, 0.1)」。", t: "主色淡底钉位", s: "S3", ck: existsFact("web/src/index.css","rgba(30, 58, 95, 0.1)"), rv: ["判据原文逐字取自冻结材料，navy 主色 10% 淡底。", "提取表三条件 exists 精确判定。", "改值提取为 0 即 FAIL。"] },
   { c: "判据51：index.css 必须包含深底色值「#0f172a」。", t: "css 深底钉位", s: "S3", ck: existsFact("web/src/index.css","#0f172a"), rv: ["判据原文逐字取自冻结材料，样式侧深底 token。", "提取表三条件 exists 精确判定。", "改值提取为 0 即 FAIL。"] },
   // ── E2E 行为证据（经 verifier_e2e_summary 提取表，源自 e2e_test.py 落盘的 evidence/e2e-summary.json） ──
-  { c: "判据52：E2E 摘要记录的用例总数不得少于 19。", t: "E2E 规模下限", s: "S2", ck: count("verifier_e2e_summary", "==", 1, and({ col: "total", op: ">=", value: 19 })), rv: ["判据原文逐字取自冻结材料，行为面至少覆盖既有 19 组用例（含驾驶舱、统一门户、自产台与凭据注入）。", "count 条件计数 ==1 精确判定。", "删用例或未跑 E2E 即计数 0 FAIL。"] },
+  { c: "判据52：E2E 摘要记录的用例总数不得少于 20。", t: "E2E 规模下限", s: "S2", ck: count("verifier_e2e_summary", "==", 1, and({ col: "total", op: ">=", value: 20 })), rv: ["判据原文逐字取自冻结材料，行为面至少覆盖既有 20 组用例（含驾驶舱、统一门户、自产台、凭据注入与 SOP 台）。", "count 条件计数 ==1 精确判定。", "删用例或未跑 E2E 即计数 0 FAIL。"] },
   { c: "判据53：E2E 摘要必须标记全部用例通过。", t: "E2E 全绿", s: "S1", ck: { type: "exists", predicate: { from: "verifier_e2e_summary", select: ["id"], where: and({ col: "all_passed", op: "=", value: 1 }) }, expect: true }, rv: ["判据原文逐字取自冻结材料，行为面必须全绿才可交付。", "all_passed=1 exists 精确判定。", "任一用例失败即 0 行 FAIL。"] },
   { c: "判据54：E2E 摘要必须带有完成时间戳。", t: "E2E 时间戳在位", s: "S3", ck: { type: "exists", predicate: { from: "verifier_e2e_summary", select: ["id"], where: { col: "finished_at", op: "is not null" } }, expect: true }, rv: ["判据原文逐字取自冻结材料，摘要须可追溯运行时间。", "is not null exists 精确判定。", "空时间戳即 FAIL。"] },
   // ── 渲染层对比度探针（E2E 内置 Playwright 实测 DOM 的 fg/bg 配对，经 verifier_contrast_checks 提取表） ──
@@ -119,10 +119,16 @@ const U = [
   { c: "判据73：evidence/e2e_test.py 必须包含凭据注入断言字面量「e2e-bear-tok」。", t: "注入行为断言钉位", s: "S1", ck: existsFact("evidence/e2e_test.py", "e2e-bear-tok"), rv: ["判据原文逐字取自冻结材料，E2E 用 echo fixture 实测注入行为（防 SPA 假绿）。", "提取表三条件 exists 精确判定。", "删透传断言提取为 0 即 FAIL。"] },
   { c: "判据74：server/src/index.ts 必须包含 WS 升级挂载「goServer.on('upgrade'」。", t: "WS 升级代理钉位", s: "S1", ck: existsFact("server/src/index.ts", "goServer.on('upgrade'"), rv: ["判据原文逐字取自冻结材料，upgrade 事件不流经中间件链，必须有独立的准备逻辑（实测缺位时 WS 被路由到死端口）。", "提取表三条件 exists 精确判定。", "删挂载提取为 0 即 FAIL。"] },
   { c: "判据75：server/src/index.ts 必须包含握手 Origin 改写「req.headers.origin = u.origin」。", t: "WS 握手 Origin 改写钉位", s: "S1", ck: existsFact("server/src/index.ts", "req.headers.origin = u.origin"), rv: ["判据原文逐字取自冻结材料，浏览器 WS 握手必带门户源 Origin，上游 Origin fence 会 403（实测 DSH 台「重新连接中」根因之一）。", "提取表三条件 exists 精确判定。", "删改写提取为 0 即 FAIL。"] },
+  // ── SOP 台（结构化流程即台：状态层 Redis 热态 + 持久层 SQLite 真源——分层治理） ──
+  { c: "判据76：server/src/db.ts 必须包含运行真源表「sop_runs」。", t: "SOP 运行表钉位", s: "S1", ck: existsFact("server/src/db.ts", "sop_runs"), rv: ["判据原文逐字取自冻结材料，SOP 运行记录以 SQLite 为真源（Redis 只做热态）。", "提取表三条件 exists 精确判定。", "删表提取为 0 即 FAIL。"] },
+  { c: "判据77：server/src/redis.ts 必须包含状态层写入函数「runStateSave」。", t: "Redis 状态层钉位", s: "S1", ck: existsFact("server/src/redis.ts", "runStateSave"), rv: ["判据原文逐字取自冻结材料，热态写入经独立状态层模块（连不上自动降级直写 SQLite）。", "提取表三条件 exists 精确判定。", "删状态层提取为 0 即 FAIL。"] },
+  { c: "判据78：server/src/index.ts 必须包含 Runner 服务端渲染「renderSopRunner」。", t: "SOP Runner 钉位", s: "S1", ck: existsFact("server/src/index.ts", "renderSopRunner"), rv: ["判据原文逐字取自冻结材料，SOP 台零构建服务端渲染执行页（步骤卡+防抖保存+run 恢复）。", "提取表三条件 exists 精确判定。", "删渲染提取为 0 即 FAIL。"] },
+  { c: "判据79：server/src/index.ts 必须包含运行 API 前缀「/api/sop/runs」。", t: "SOP 运行 API 钉位", s: "S1", ck: existsFact("server/src/index.ts", "/api/sop/runs"), rv: ["判据原文逐字取自冻结材料，分层持久化的运行 CRUD（开 run 钉版本、热读、checkpoint、finish）。", "提取表三条件 exists 精确判定。", "删 API 提取为 0 即 FAIL。"] },
+  { c: "判据80：evidence/e2e_test.py 必须包含 SOP 台用例字面量「e2e-sop」。", t: "SOP 行为断言钉位", s: "S1", ck: existsFact("evidence/e2e_test.py", "e2e-sop"), rv: ["判据原文逐字取自冻结材料，E2E 实测 SOP 全链（发布面校验/状态机/Runner/分层读写/版本治理）。", "提取表三条件 exists 精确判定。", "删用例提取为 0 即 FAIL。"] },
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
-const header = `workbench-market 开发验证器 v11（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级）
+const header = `workbench-market 开发验证器 v12（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台）
 
 判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
 快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
@@ -135,7 +141,7 @@ passed)——源自 E2E 内置的 Playwright 对比度探针（实测 DOM 前景
 提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
 脚本、验证器自举档案、设计规范与证据。
 命令执行型检查（typecheck、lint、build）不属于 CLI 闭集，由开发流程自行执行
-（E2E 与渲染层对比度结果经摘要表断言）；覆盖十个维度共 75 条判据：数据域完整性
+（E2E 与渲染层对比度结果经摘要表断言）；覆盖十一个维度共 80 条判据：数据域完整性
 （判据1-9）、种子与配置（判据10-15）、提交物结构（判据16-35）、颜色可见性
 （判据36-51 与 57-58：经对比度审计的色值在源码与规范中的钉位，漂移即破坏已审计
 的可读性）、E2E 行为证据（判据52-54：规模下限、全绿、时间戳在位）、渲染层对比度
@@ -148,7 +154,10 @@ slug 域完整、market-app 内置类型在位、发布路由与版本链表钉�
 从台的管理者到台的生产者的供给面锚定）、凭据注入（判据71-73：服务端注入头钉位、
 表单凭据字段钉位、E2E 注入行为断言钉位——认证类工作台的凭据不再明文拼进 url）、
 WS 升级（判据74-75：upgrade 挂载与握手 Origin 改写钉位——实时应用经门户可用的
-最后一公里；缺位时 HTTP 通而 WS 死，页面永远「重新连接中」）。
+最后一公里；缺位时 HTTP 通而 WS 死，页面永远「重新连接中」）、SOP 台（判据76-80：
+运行真源表与 Redis 状态层模块钉位、Runner 服务端渲染与运行 API 钉位、E2E 行为
+断言钉位——结构化流程即台：状态层 Redis 热态 + 持久层 SQLite 真源的分层治理，
+发布即版本化，draft→published→deprecated 状态机防半成品入册）。
 以下判据全部可机械判定：
 `;
 

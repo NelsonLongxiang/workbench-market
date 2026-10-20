@@ -1225,14 +1225,14 @@
       ]
     },
     {
-      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 19。",
+      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 20。",
       "findings": [
         {
           "question": "faithful",
           "verdict": "ok",
-          "reason": "判据原文逐字取自冻结材料，行为面至少覆盖既有 19 组用例（含驾驶舱、统一门户、自产台与凭据注入）。",
+          "reason": "判据原文逐字取自冻结材料，行为面至少覆盖既有 20 组用例（含驾驶舱、统一门户、自产台、凭据注入与 SOP 台）。",
           "anchor": {
-            "quote": "判据52：E2E 摘要记录的用例总数不得少于 19。",
+            "quote": "判据52：E2E 摘要记录的用例总数不得少于 20。",
             "locator": "dev-verifier-v4.md 判据5"
           }
         },
@@ -1797,6 +1797,126 @@
           "question": "not-vacuous",
           "verdict": "ok",
           "reason": "删改写提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据76：server/src/db.ts 必须包含运行真源表「sop_runs」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，SOP 运行记录以 SQLite 为真源（Redis 只做热态）。",
+          "anchor": {
+            "quote": "判据76：server/src/db.ts 必须包含运行真源表「sop_runs」。",
+            "locator": "dev-verifier-v4.md 判据7"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删表提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据77：server/src/redis.ts 必须包含状态层写入函数「runStateSave」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，热态写入经独立状态层模块（连不上自动降级直写 SQLite）。",
+          "anchor": {
+            "quote": "判据77：server/src/redis.ts 必须包含状态层写入函数「runStateSave」。",
+            "locator": "dev-verifier-v4.md 判据7"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删状态层提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据78：server/src/index.ts 必须包含 Runner 服务端渲染「renderSopRunner」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，SOP 台零构建服务端渲染执行页（步骤卡+防抖保存+run 恢复）。",
+          "anchor": {
+            "quote": "判据78：server/src/index.ts 必须包含 Runner 服务端渲染「renderSopRunner」。",
+            "locator": "dev-verifier-v4.md 判据7"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删渲染提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据79：server/src/index.ts 必须包含运行 API 前缀「/api/sop/runs」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，分层持久化的运行 CRUD（开 run 钉版本、热读、checkpoint、finish）。",
+          "anchor": {
+            "quote": "判据79：server/src/index.ts 必须包含运行 API 前缀「/api/sop/runs」。",
+            "locator": "dev-verifier-v4.md 判据7"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删 API 提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据80：evidence/e2e_test.py 必须包含 SOP 台用例字面量「e2e-sop」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，E2E 实测 SOP 全链（发布面校验/状态机/Runner/分层读写/版本治理）。",
+          "anchor": {
+            "quote": "判据80：evidence/e2e_test.py 必须包含 SOP 台用例字面量「e2e-sop」。",
+            "locator": "dev-verifier-v4.md 判据8"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删用例提取为 0 即 FAIL。"
         }
       ]
     }

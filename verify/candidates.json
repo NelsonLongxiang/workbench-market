@@ -1428,9 +1428,9 @@
       }
     },
     {
-      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 19。",
+      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 20。",
       "anchor": {
-        "quote": "判据52：E2E 摘要记录的用例总数不得少于 19。",
+        "quote": "判据52：E2E 摘要记录的用例总数不得少于 20。",
         "locator": "dev-verifier-v4.md 判据5"
       },
       "title": "E2E 规模下限",
@@ -1446,7 +1446,7 @@
               {
                 "col": "total",
                 "op": ">=",
-                "value": 19
+                "value": 20
               }
             ]
           }
@@ -2213,6 +2213,201 @@
                 "col": "needle",
                 "op": "=",
                 "value": "req.headers.origin = u.origin"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据76：server/src/db.ts 必须包含运行真源表「sop_runs」。",
+      "anchor": {
+        "quote": "判据76：server/src/db.ts 必须包含运行真源表「sop_runs」。",
+        "locator": "dev-verifier-v4.md 判据7"
+      },
+      "title": "SOP 运行表钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/db.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "sop_runs"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据77：server/src/redis.ts 必须包含状态层写入函数「runStateSave」。",
+      "anchor": {
+        "quote": "判据77：server/src/redis.ts 必须包含状态层写入函数「runStateSave」。",
+        "locator": "dev-verifier-v4.md 判据7"
+      },
+      "title": "Redis 状态层钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/redis.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "runStateSave"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据78：server/src/index.ts 必须包含 Runner 服务端渲染「renderSopRunner」。",
+      "anchor": {
+        "quote": "判据78：server/src/index.ts 必须包含 Runner 服务端渲染「renderSopRunner」。",
+        "locator": "dev-verifier-v4.md 判据7"
+      },
+      "title": "SOP Runner 钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "renderSopRunner"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据79：server/src/index.ts 必须包含运行 API 前缀「/api/sop/runs」。",
+      "anchor": {
+        "quote": "判据79：server/src/index.ts 必须包含运行 API 前缀「/api/sop/runs」。",
+        "locator": "dev-verifier-v4.md 判据7"
+      },
+      "title": "SOP 运行 API 钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "/api/sop/runs"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据80：evidence/e2e_test.py 必须包含 SOP 台用例字面量「e2e-sop」。",
+      "anchor": {
+        "quote": "判据80：evidence/e2e_test.py 必须包含 SOP 台用例字面量「e2e-sop」。",
+        "locator": "dev-verifier-v4.md 判据8"
+      },
+      "title": "SOP 行为断言钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "evidence/e2e_test.py"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "e2e-sop"
               },
               {
                 "col": "present",

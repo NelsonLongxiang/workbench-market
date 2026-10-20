@@ -510,6 +510,66 @@ with sync_playwright() as p:
     except Exception as e:
         record('统一门户透传+凭据注入', False, str(e)); shot('portal-auth')
 
+    # ---------- 16. SOP 台：状态机 + Runner + 分层持久化（Redis 热态 + SQLite 真源） ----------
+    try:
+        sop_yaml = (
+            'title: E2E 服务器上架 SOP\n'
+            'code: SOP-E2E-001\n'
+            'steps:\n'
+            '  - key: prepare\n'
+            '    title: 开箱检查\n'
+            "    body: '<p>配件数：<input data-field=\"配件数\"></p>'\n"
+            '  - key: rack\n'
+            '    title: 上架固定\n'
+            "    body: '<p>机位：<input data-field=\"机位\"></p>'\n"
+        )
+        # ① 发布面：缺 changelog 拒；缺 sop.yaml 拒
+        r400 = api(page, 'POST', '/api/apps', {'slug': 'e2e-sop', 'kind': 'sop', 'title': 'E2E SOP',
+            'files': [{'path': 'sop.yaml', 'content': sop_yaml}]})
+        assert r400.status == 400, 'SOP 缺 changelog 未拒'
+        r400 = api(page, 'POST', '/api/apps', {'slug': 'e2e-sop', 'kind': 'sop', 'title': 'E2E SOP', 'changelog': 'x',
+            'files': [{'path': 'index.html', 'content': 'x'}]})
+        assert r400.status == 400, 'SOP 缺 sop.yaml 未拒'
+        # ② 发布 → draft 不入册 → publish 入册
+        r = api(page, 'POST', '/api/apps', {'slug': 'e2e-sop', 'kind': 'sop', 'title': 'E2E SOP',
+            'code': 'SOP-E2E-001', 'changelog': '初版',
+            'files': [{'path': 'sop.yaml', 'content': sop_yaml}]}).json()
+        assert r['status'] == 'draft' and r['workbench_id'] == 0, f'draft 语义异常: {r}'
+        runner = page.request.fetch(BASE + '/sop/e2e-sop/')
+        assert runner.status == 403, f'draft Runner 应 403: {runner.status}'
+        r = api(page, 'POST', '/api/sops/e2e-sop/publish', {'note': '首发'}).json()
+        swid = r['workbench_id']
+        assert swid and swid > 0, f'publish 入册失败: {r}'
+        # ③ Runner 页面渲染（直连 + 门户）
+        html = page.request.fetch(BASE + '/sop/e2e-sop/').text()
+        assert '开箱检查' in html and '__SOP__' in html and 'data-field' in html, 'Runner 渲染缺要素'
+        phtml = page.request.fetch(BASE + f'/go/{swid}/').text()
+        assert '开箱检查' in phtml, '门户未渲染 SOP Runner'
+        # ④ run 分层：开 run → PUT 两步 → 热读回 → finish 归档
+        r = api(page, 'POST', '/api/sop/runs', {'slug': 'e2e-sop'}).json()
+        rid = r['id']
+        assert rid > 0 and r['version'] == 1, f'开 run 异常: {r}'
+        p1 = api(page, 'PUT', f'/api/sop/runs/{rid}', {'stepKey': 'prepare', 'value': {'配件数': '42'}}).json()
+        assert p1['persisted'] in ('redis+checkpoint', 'sqlite'), f'PUT 异常: {p1}'
+        api(page, 'PUT', f'/api/sop/runs/{rid}', {'stepKey': 'rack', 'value': {'机位': 'A-12'}})
+        got = api(page, 'GET', f'/api/sop/runs/{rid}').json()
+        assert got['data'].get('prepare', {}).get('配件数') == '42', f"热读缺失: {got['data']}"
+        fin = api(page, 'POST', f'/api/sop/runs/{rid}/finish').json()
+        assert fin['status'] == 'finished' and fin['steps'] == 2, f'finish 异常: {fin}'
+        got = api(page, 'GET', f'/api/sop/runs/{rid}').json()
+        assert got['status'] == 'finished' and got['data'].get('rack', {}).get('机位') == 'A-12', f'归档读异常: {got}'
+        # ⑤ draft 状态机拒直跳 deprecate；重发=新版本带 changelog
+        r409 = api(page, 'POST', '/api/sops/e2e-sop2-missing/publish')
+        assert r409.status == 404
+        r = api(page, 'POST', '/api/apps', {'slug': 'e2e-sop', 'kind': 'sop', 'changelog': 'v2 增加自检',
+            'files': [{'path': 'sop.yaml', 'content': sop_yaml + '  - key: check\n    title: 通电自检\n'}]}).json()
+        assert r['version'] == 2, f'重发版本异常: {r}'
+        vs = api(page, 'GET', '/api/apps/e2e-sop').json()['versions']
+        assert any('自检' in (v.get('changelog') or '') for v in vs), 'changelog 未入版本链'
+        record('SOP 台（状态机/Runner/分层持久化/版本治理）', True)
+    except Exception as e:
+        record('SOP 台', False, str(e)); shot('sop')
+
     cleanup(page)
     browser.close()
 

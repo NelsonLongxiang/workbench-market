@@ -1,4 +1,4 @@
-workbench-market 开发验证器 v11（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级）
+workbench-market 开发验证器 v12（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台）
 
 判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
 快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
@@ -11,7 +11,7 @@ passed)——源自 E2E 内置的 Playwright 对比度探针（实测 DOM 前景
 提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
 脚本、验证器自举档案、设计规范与证据。
 命令执行型检查（typecheck、lint、build）不属于 CLI 闭集，由开发流程自行执行
-（E2E 与渲染层对比度结果经摘要表断言）；覆盖十个维度共 75 条判据：数据域完整性
+（E2E 与渲染层对比度结果经摘要表断言）；覆盖十一个维度共 80 条判据：数据域完整性
 （判据1-9）、种子与配置（判据10-15）、提交物结构（判据16-35）、颜色可见性
 （判据36-51 与 57-58：经对比度审计的色值在源码与规范中的钉位，漂移即破坏已审计
 的可读性）、E2E 行为证据（判据52-54：规模下限、全绿、时间戳在位）、渲染层对比度
@@ -24,7 +24,10 @@ slug 域完整、market-app 内置类型在位、发布路由与版本链表钉�
 从台的管理者到台的生产者的供给面锚定）、凭据注入（判据71-73：服务端注入头钉位、
 表单凭据字段钉位、E2E 注入行为断言钉位——认证类工作台的凭据不再明文拼进 url）、
 WS 升级（判据74-75：upgrade 挂载与握手 Origin 改写钉位——实时应用经门户可用的
-最后一公里；缺位时 HTTP 通而 WS 死，页面永远「重新连接中」）。
+最后一公里；缺位时 HTTP 通而 WS 死，页面永远「重新连接中」）、SOP 台（判据76-80：
+运行真源表与 Redis 状态层模块钉位、Runner 服务端渲染与运行 API 钉位、E2E 行为
+断言钉位——结构化流程即台：状态层 Redis 热态 + 持久层 SQLite 真源的分层治理，
+发布即版本化，draft→published→deprecated 状态机防半成品入册）。
 以下判据全部可机械判定：
 
 判据1：类型的 key 字段不得为空。
@@ -78,7 +81,7 @@ WS 升级（判据74-75：upgrade 挂载与握手 Origin 改写钉位——实�
 判据49：Dashboard.tsx 辅助文字必须包含轴色值「#94A3B8」。
 判据50：index.css 必须包含主色淡底色值「rgba(30, 58, 95, 0.1)」。
 判据51：index.css 必须包含深底色值「#0f172a」。
-判据52：E2E 摘要记录的用例总数不得少于 19。
+判据52：E2E 摘要记录的用例总数不得少于 20。
 判据53：E2E 摘要必须标记全部用例通过。
 判据54：E2E 摘要必须带有完成时间戳。
 判据55：渲染层对比度探针覆盖的文字目标不得少于 7 处。
@@ -102,3 +105,8 @@ WS 升级（判据74-75：upgrade 挂载与握手 Origin 改写钉位——实�
 判据73：evidence/e2e_test.py 必须包含凭据注入断言字面量「e2e-bear-tok」。
 判据74：server/src/index.ts 必须包含 WS 升级挂载「goServer.on('upgrade'」。
 判据75：server/src/index.ts 必须包含握手 Origin 改写「req.headers.origin = u.origin」。
+判据76：server/src/db.ts 必须包含运行真源表「sop_runs」。
+判据77：server/src/redis.ts 必须包含状态层写入函数「runStateSave」。
+判据78：server/src/index.ts 必须包含 Runner 服务端渲染「renderSopRunner」。
+判据79：server/src/index.ts 必须包含运行 API 前缀「/api/sop/runs」。
+判据80：evidence/e2e_test.py 必须包含 SOP 台用例字面量「e2e-sop」。
