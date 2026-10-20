@@ -1428,9 +1428,9 @@
       }
     },
     {
-      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 20。",
+      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 21。",
       "anchor": {
-        "quote": "判据52：E2E 摘要记录的用例总数不得少于 20。",
+        "quote": "判据52：E2E 摘要记录的用例总数不得少于 21。",
         "locator": "dev-verifier-v4.md 判据5"
       },
       "title": "E2E 规模下限",
@@ -1446,7 +1446,7 @@
               {
                 "col": "total",
                 "op": ">=",
-                "value": 20
+                "value": 21
               }
             ]
           }
@@ -2408,6 +2408,162 @@
                 "col": "needle",
                 "op": "=",
                 "value": "e2e-sop"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据81：server/src/index.ts 必须包含 MCP 端点挂载「app.post('/mcp'」。",
+      "anchor": {
+        "quote": "判据81：server/src/index.ts 必须包含 MCP 端点挂载「app.post('/mcp'」。",
+        "locator": "dev-verifier-v4.md 判据8"
+      },
+      "title": "MCP 端点钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "app.post('/mcp'"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据82：server/src/index.ts 必须包含工具注册表「MCP_TOOLS」。",
+      "anchor": {
+        "quote": "判据82：server/src/index.ts 必须包含工具注册表「MCP_TOOLS」。",
+        "locator": "dev-verifier-v4.md 判据8"
+      },
+      "title": "MCP 工具注册钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "MCP_TOOLS"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据83：server/src/index.ts 必须包含 JSON-RPC 错误码「-32601」。",
+      "anchor": {
+        "quote": "判据83：server/src/index.ts 必须包含 JSON-RPC 错误码「-32601」。",
+        "locator": "dev-verifier-v4.md 判据8"
+      },
+      "title": "JSON-RPC 合规钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "-32601"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据84：evidence/e2e_test.py 必须包含 MCP 用例字面量「e2e-mcp-app」。",
+      "anchor": {
+        "quote": "判据84：evidence/e2e_test.py 必须包含 MCP 用例字面量「e2e-mcp-app」。",
+        "locator": "dev-verifier-v4.md 判据8"
+      },
+      "title": "MCP 行为断言钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "evidence/e2e_test.py"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "e2e-mcp-app"
               },
               {
                 "col": "present",
