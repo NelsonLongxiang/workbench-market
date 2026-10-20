@@ -274,7 +274,7 @@ export default function Cockpit() {
                 </div>
                 <div className="wm-panel-body">
                   {w ? (
-                    <iframe key={fk} src={w.url} title={w.name} allow="clipboard-read; clipboard-write; fullscreen" />
+                    <iframe key={fk} src={`/go/${w.id}/`} title={w.name} allow="clipboard-read; clipboard-write; fullscreen" />
                   ) : (
                     <Empty description={`工作台 #${p.workbenchId} 已不存在`} style={{ marginTop: 32 }} />
                   )}

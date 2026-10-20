@@ -1428,9 +1428,9 @@
       }
     },
     {
-      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 16。",
+      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 17。",
       "anchor": {
-        "quote": "判据52：E2E 摘要记录的用例总数不得少于 16。",
+        "quote": "判据52：E2E 摘要记录的用例总数不得少于 17。",
         "locator": "dev-verifier-v4.md 判据5"
       },
       "title": "E2E 规模下限",
@@ -1446,7 +1446,7 @@
               {
                 "col": "total",
                 "op": ">=",
-                "value": 16
+                "value": 17
               }
             ]
           }
@@ -1702,6 +1702,162 @@
                 "col": "needle",
                 "op": "=",
                 "value": "/api/cockpits"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据62：server/src/index.ts 必须包含「createProxyMiddleware」。",
+      "anchor": {
+        "quote": "判据62：server/src/index.ts 必须包含「createProxyMiddleware」。",
+        "locator": "dev-verifier-v4.md 判据6"
+      },
+      "title": "代理中间件在位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "createProxyMiddleware"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据63：server/src/index.ts 必须包含剥禁嵌头的「x-frame-options」。",
+      "anchor": {
+        "quote": "判据63：server/src/index.ts 必须包含剥禁嵌头的「x-frame-options」。",
+        "locator": "dev-verifier-v4.md 判据6"
+      },
+      "title": "禁嵌剥离钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "x-frame-options"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据64：封装提交物 server/package.json 必须声明依赖「http-proxy-middleware」。",
+      "anchor": {
+        "quote": "判据64：封装提交物 server/package.json 必须声明依赖「http-proxy-middleware」。",
+        "locator": "dev-verifier-v4.md 判据6"
+      },
+      "title": "代理依赖在位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/package.json"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "http-proxy-middleware"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据65：web/src/pages/UseWorkbench.tsx 必须包含「/go/${w.id}/」。",
+      "anchor": {
+        "quote": "判据65：web/src/pages/UseWorkbench.tsx 必须包含「/go/${w.id}/」。",
+        "locator": "dev-verifier-v4.md 判据6"
+      },
+      "title": "使用页走门户",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/pages/UseWorkbench.tsx"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "/go/${w.id}/"
               },
               {
                 "col": "present",
