@@ -1428,9 +1428,9 @@
       }
     },
     {
-      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 21。",
+      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 22。",
       "anchor": {
-        "quote": "判据52：E2E 摘要记录的用例总数不得少于 21。",
+        "quote": "判据52：E2E 摘要记录的用例总数不得少于 22。",
         "locator": "dev-verifier-v4.md 判据5"
       },
       "title": "E2E 规模下限",
@@ -1446,7 +1446,7 @@
               {
                 "col": "total",
                 "op": ">=",
-                "value": 21
+                "value": 22
               }
             ]
           }
@@ -1508,9 +1508,9 @@
       }
     },
     {
-      "source_clause": "判据55：渲染层对比度探针覆盖的文字目标不得少于 7 处。",
+      "source_clause": "判据55：渲染层对比度探针覆盖的文字目标不得少于 9 处。",
       "anchor": {
-        "quote": "判据55：渲染层对比度探针覆盖的文字目标不得少于 7 处。",
+        "quote": "判据55：渲染层对比度探针覆盖的文字目标不得少于 9 处。",
         "locator": "dev-verifier-v4.md 判据5"
       },
       "title": "对比度探针覆盖面",
@@ -1522,7 +1522,7 @@
           "select": []
         },
         "op": ">=",
-        "value": 7
+        "value": 9
       }
     },
     {
@@ -2564,6 +2564,137 @@
                 "col": "needle",
                 "op": "=",
                 "value": "e2e-mcp-app"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据85：封装提交物必须包含 web/src/pages/Sops.tsx。",
+      "anchor": {
+        "quote": "判据85：封装提交物必须包含 web/src/pages/Sops.tsx。",
+        "locator": "dev-verifier-v4.md 判据8"
+      },
+      "title": "SOP 管理页存在",
+      "severity": "S1",
+      "checker": {
+        "type": "file",
+        "glob": "web/src/pages/Sops.tsx",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据86：web/src/pages/Sops.tsx 必须包含状态语义表「SOP_STATUS」。",
+      "anchor": {
+        "quote": "判据86：web/src/pages/Sops.tsx 必须包含状态语义表「SOP_STATUS」。",
+        "locator": "dev-verifier-v4.md 判据8"
+      },
+      "title": "SOP 状态徽章钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/pages/Sops.tsx"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "SOP_STATUS"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据87：web/src/App.tsx 必须包含 SOP 路由「path: '/sops'」。",
+      "anchor": {
+        "quote": "判据87：web/src/App.tsx 必须包含 SOP 路由「path: '/sops'」。",
+        "locator": "dev-verifier-v4.md 判据8"
+      },
+      "title": "SOP 路由钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/App.tsx"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "path: '/sops'"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据88：evidence/e2e_test.py 必须包含演示 SOP 字面量「demo-rack-sop」。",
+      "anchor": {
+        "quote": "判据88：evidence/e2e_test.py 必须包含演示 SOP 字面量「demo-rack-sop」。",
+        "locator": "dev-verifier-v4.md 判据8"
+      },
+      "title": "演示 SOP 常驻钉位",
+      "severity": "S2",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "evidence/e2e_test.py"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "demo-rack-sop"
               },
               {
                 "col": "present",

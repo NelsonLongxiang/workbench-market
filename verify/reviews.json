@@ -1225,14 +1225,14 @@
       ]
     },
     {
-      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 21。",
+      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 22。",
       "findings": [
         {
           "question": "faithful",
           "verdict": "ok",
-          "reason": "判据原文逐字取自冻结材料，行为面至少覆盖既有 21 组用例（含驾驶舱、统一门户、自产台、凭据注入、SOP 台与 MCP 生产通道）。",
+          "reason": "判据原文逐字取自冻结材料，行为面至少覆盖既有 22 组用例（含驾驶舱、统一门户、自产台、凭据注入、SOP 台、MCP 生产通道与 SOP 管理页）。",
           "anchor": {
-            "quote": "判据52：E2E 摘要记录的用例总数不得少于 21。",
+            "quote": "判据52：E2E 摘要记录的用例总数不得少于 22。",
             "locator": "dev-verifier-v4.md 判据5"
           }
         },
@@ -1297,21 +1297,21 @@
       ]
     },
     {
-      "source_clause": "判据55：渲染层对比度探针覆盖的文字目标不得少于 7 处。",
+      "source_clause": "判据55：渲染层对比度探针覆盖的文字目标不得少于 9 处。",
       "findings": [
         {
           "question": "faithful",
           "verdict": "ok",
-          "reason": "判据原文逐字取自冻结材料，探针须覆盖深底与浅底两类表面。",
+          "reason": "判据原文逐字取自冻结材料，探针须覆盖深底与浅底两类表面（含 SOP 管理页新表面）。",
           "anchor": {
-            "quote": "判据55：渲染层对比度探针覆盖的文字目标不得少于 7 处。",
+            "quote": "判据55：渲染层对比度探针覆盖的文字目标不得少于 9 处。",
             "locator": "dev-verifier-v4.md 判据5"
           }
         },
         {
           "question": "decidable",
           "verdict": "ok",
-          "reason": "count>=7 纯数值判定。"
+          "reason": "count>=9 纯数值判定。"
         },
         {
           "question": "not-vacuous",
@@ -2013,6 +2013,102 @@
           "question": "not-vacuous",
           "verdict": "ok",
           "reason": "删用例提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据85：封装提交物必须包含 web/src/pages/Sops.tsx。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，SOP 管理页（状态机操作/记录查看）在位。",
+          "anchor": {
+            "quote": "判据85：封装提交物必须包含 web/src/pages/Sops.tsx。",
+            "locator": "dev-verifier-v4.md 判据8"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "精确路径 glob。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删除即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据86：web/src/pages/Sops.tsx 必须包含状态语义表「SOP_STATUS」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，draft/published/deprecated 徽章（色值经对比度审计）由单一语义表驱动。",
+          "anchor": {
+            "quote": "判据86：web/src/pages/Sops.tsx 必须包含状态语义表「SOP_STATUS」。",
+            "locator": "dev-verifier-v4.md 判据8"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删语义表提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据87：web/src/App.tsx 必须包含 SOP 路由「path: '/sops'」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，侧栏菜单与路由表挂载 SOP 管理页。",
+          "anchor": {
+            "quote": "判据87：web/src/App.tsx 必须包含 SOP 路由「path: '/sops'」。",
+            "locator": "dev-verifier-v4.md 判据8"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删路由提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据88：evidence/e2e_test.py 必须包含演示 SOP 字面量「demo-rack-sop」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，E2E 实测 /sops 页并要求演示 SOP（demo-rack-sop）常驻可见。",
+          "anchor": {
+            "quote": "判据88：evidence/e2e_test.py 必须包含演示 SOP 字面量「demo-rack-sop」。",
+            "locator": "dev-verifier-v4.md 判据8"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删演示或用例提取为 0 即 FAIL。"
         }
       ]
     }

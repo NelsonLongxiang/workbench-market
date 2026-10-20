@@ -1,9 +1,9 @@
 {
-  "total": 21,
-  "passed": 21,
+  "total": 22,
+  "passed": 22,
   "failed": 0,
   "all_passed": 1,
-  "finished_at": "2026-10-20T08:10:52.674956+00:00",
+  "finished_at": "2026-10-20T15:10:12.656903+00:00",
   "contrast_checks": [
     {
       "text": "在线",
@@ -67,6 +67,24 @@
       "min": 4.5,
       "passed": 1,
       "label": "/market 表格·状态文字"
+    },
+    {
+      "text": "published",
+      "color": "rgb(21, 128, 61)",
+      "bg": "rgb(246, 255, 237)",
+      "ratio": 4.88,
+      "min": 4.5,
+      "passed": 1,
+      "label": "/sops 表格·SOP 状态 Tag"
+    },
+    {
+      "text": "SOP-DEMO-001",
+      "color": "rgba(0, 0, 0, 0.88)",
+      "bg": "rgb(255, 255, 255)",
+      "ratio": 21,
+      "min": 4.5,
+      "passed": 1,
+      "label": "/sops 表格·标题文字"
     }
   ],
   "contrast_all_passed": 1
