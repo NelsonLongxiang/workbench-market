@@ -7,6 +7,7 @@ import {
   LayoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  OrderedListOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
 import Dashboard from './pages/Dashboard';
@@ -15,6 +16,7 @@ import Types from './pages/Types';
 import Settings from './pages/Settings';
 import UseWorkbench from './pages/UseWorkbench';
 import Cockpit from './pages/Cockpit';
+import Sops from './pages/Sops';
 
 const menuRoutes = {
   path: '/',
@@ -22,6 +24,7 @@ const menuRoutes = {
     { path: '/', name: '总览', icon: <DashboardOutlined /> },
     { path: '/cockpit', name: '驾驶舱', icon: <LayoutOutlined /> },
     { path: '/market', name: '工作台', icon: <AppstoreOutlined /> },
+    { path: '/sops', name: 'SOP 台', icon: <OrderedListOutlined /> },
     { path: '/types', name: '类型管理', icon: <ClusterOutlined /> },
     { path: '/settings', name: '设置', icon: <SettingOutlined /> },
   ],
@@ -79,6 +82,7 @@ export default function App() {
         <Route path="/cockpit" element={<Cockpit />} />
         <Route path="/cockpit/:id" element={<Cockpit />} />
         <Route path="/market" element={<Market />} />
+        <Route path="/sops" element={<Sops />} />
         <Route path="/types" element={<Types />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -100,6 +100,9 @@ const TEXT_FACTS = [
   ["server/src/index.ts", "MCP_TOOLS"],
   ["server/src/index.ts", "-32601"],
   ["evidence/e2e_test.py", "e2e-mcp-app"],
+  ["web/src/pages/Sops.tsx", "SOP_STATUS"],
+  ["web/src/App.tsx", "path: '/sops'"],
+  ["evidence/e2e_test.py", "demo-rack-sop"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);

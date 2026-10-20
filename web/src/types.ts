@@ -77,3 +77,44 @@ export interface Cockpit {
   created_at: string;
   updated_at: string;
 }
+
+/** SOP 台（apps kind='sop'）：状态机 draft→published→deprecated，版本链带 changelog */
+export interface SopVersion {
+  id: number;
+  app_id: number;
+  version: number;
+  file_count: number;
+  total_bytes: number;
+  created_by: string;
+  changelog: string;
+  created_at: string;
+}
+
+export interface SopApp {
+  id: number;
+  slug: string;
+  title: string;
+  description: string;
+  created_by: string;
+  active_version: number;
+  status: 'draft' | 'published' | 'deprecated';
+  kind: string;
+  code: string;
+  created_at: string;
+  updated_at: string;
+  versions: SopVersion[];
+  workbench_id: number | null;
+}
+
+/** SOP 执行实例（run）：data 为 stepKey→value JSON 字符串 */
+export interface SopRun {
+  id: number;
+  sop_slug: string;
+  sop_version: number;
+  status: 'running' | 'finished';
+  started_by: string;
+  data: string;
+  started_at: string;
+  updated_at: string;
+  finished_at: string;
+}

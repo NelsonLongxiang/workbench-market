@@ -383,6 +383,8 @@ with sync_playwright() as p:
         ('/ 总览·统计标签', '/', '.wm-stat-card .wm-stat-label', 4.5),
         ('/ 总览·侧栏菜单项', '/', '.ant-pro-sider .ant-menu-item', 4.5),
         ('/market 表格·状态文字', '/market', '.ant-table-tbody .ant-badge-status-text', 4.5),
+        ('/sops 表格·SOP 状态 Tag', '/sops', '.ant-table-tbody .ant-tag', 4.5),
+        ('/sops 表格·标题文字', '/sops', '.ant-table-tbody .ant-typography', 4.5),
     ]
     contrast_rows = []
     try:
@@ -608,11 +610,77 @@ with sync_playwright() as p:
         j = mcp('tools/call', {'name': 'sop_publish', 'arguments': {'slug': 'e2e-mcp-sop', 'note': 'E2E 上架'}}).json()
         up = json.loads(j['result']['content'][0]['text'])
         assert up['status'] == 'published' and up['workbench_id'] > 0, f'MCP sop_publish 异常: {up}'
+        # C3: use_url 返回的门户入口实际可达（MCP 消费端拿到的链接就是给浏览器/agent 用的）
+        j = mcp('tools/call', {'name': 'use_url', 'arguments': {'id': up['workbench_id']}}).json()
+        u = json.loads(j['result']['content'][0]['text'])
+        assert u['portal'].startswith(f"/go/{up['workbench_id']}/"), f'use_url 门户路径异常: {u}'
+        pr = page.request.fetch(BASE + u['portal'])
+        assert pr.status == 200 and '步骤A' in pr.text(), f"use_url 门户链不可达: {pr.status}"
         # 清理（走 REST）
         api(page, 'DELETE', '/api/apps/e2e-mcp-app'); api(page, 'DELETE', '/api/apps/e2e-mcp-sop')
         record('MCP 生产通道（协议面 + 7 tools 生产链）', True)
     except Exception as e:
         record('MCP 生产通道', False, str(e)); shot('mcp')
+
+    # ---------- 18. SOP 管理页（/sops：状态徽章 + 版本链 + run 记录 Drawer） ----------
+    try:
+        sop_yaml_ui = (
+            'title: E2E SOP UI 验证\n'
+            'steps:\n'
+            '  - key: a\n'
+            '    title: 步骤A\n'
+        )
+        # ① draft 行：徽章 + 执行按钮禁用
+        api(page, 'POST', '/api/apps', {'slug': 'e2e-sop-ui', 'kind': 'sop', 'title': 'E2E SOP UI 验证',
+            'changelog': 'ui 验证', 'files': [{'path': 'sop.yaml', 'content': sop_yaml_ui}]})
+        page.goto(BASE + '/sops')
+        page.wait_for_load_state('networkidle')
+        page.wait_for_timeout(800)
+        row = page.locator('.ant-table-row').filter(has_text='e2e-sop-ui')
+        assert row.count() == 1, f'/sops 未见 draft 行（{row.count()}）'
+        assert row.locator('.ant-tag').filter(has_text='draft').count() >= 1, 'draft 徽章缺失'
+        # 执行入口是 href Button（渲染为 a.ant-btn），disabled 体现为 aria-disabled
+        exec_link = row.locator('a.ant-btn').filter(has_text='执行').first
+        assert exec_link.count() >= 1, 'draft 行未见执行入口'
+        assert exec_link.get_attribute('aria-disabled') == 'true', 'draft 执行入口应禁用'
+        # antd 两字中文无 icon 按钮自动插空格（「上 架」），用正则容错
+        import re as _re
+        assert row.locator('button').filter(has_text=_re.compile(r'上\s*架')).count() >= 1, 'draft 应有上架按钮'
+        # ② 演示 SOP 常驻行：published 徽章 + 执行锚点
+        demo = page.locator('.ant-table-row').filter(has_text='demo-rack-sop')
+        assert demo.count() == 1, '演示 SOP 未出现在 /sops'
+        assert demo.locator('.ant-tag').filter(has_text='published').count() >= 1, 'published 徽章缺失'
+        href = demo.locator('a.ant-btn').first.get_attribute('href') or ''
+        assert '/sop/demo-rack-sop/' in href, f'执行入口应指 Runner: {href}'
+        # ③ 记录 Drawer：演示 run（#8 风格，3 步数据）可见 + 展开数据
+        demo.locator('button').filter(has_text='记录').first.click()
+        page.wait_for_timeout(900)
+        drawer = page.locator('.ant-drawer-content')
+        drawer.wait_for(state='visible', timeout=5000)
+        assert '已完成' in drawer.inner_text(), '记录 Drawer 未见已完成 run'
+        runrow = drawer.locator('.ant-table-row').filter(has_text='演示·张工').first
+        runrow.locator('.ant-table-row-expand-icon').click()
+        page.wait_for_timeout(500)
+        assert 'A-12' in drawer.inner_text() or '机位' in drawer.inner_text(), 'run 展开未见步骤数据'
+        page.keyboard.press('Escape')
+        page.wait_for_timeout(400)
+        # ④ 上架状态机经页面：draft → published（Popconfirm「确 定」→ note 弹窗「上 架」两段）
+        import re as _re2
+        row.locator('button').filter(has_text=_re2.compile(r'上\s*架')).first.click()
+        page.wait_for_timeout(600)
+        page.locator('.ant-popover .ant-btn-primary').filter(has_text=_re2.compile(r'确\s*定')).first.click()
+        page.wait_for_timeout(900)
+        try:
+            page.locator('.ant-modal .ant-btn-primary').filter(has_text=_re2.compile(r'上\s*架')).first.click(timeout=4000)
+            page.wait_for_timeout(900)
+        except Exception:
+            pass
+        page.wait_for_timeout(1200)
+        row2 = page.locator('.ant-table-row').filter(has_text='e2e-sop-ui')
+        assert row2.locator('.ant-tag').filter(has_text='published').count() >= 1, '页面上架后徽章未切换'
+        record('SOP 管理页（状态徽章/Runner 入口/记录 Drawer/页面上架）', True)
+    except Exception as e:
+        record('SOP 管理页', False, str(e)); shot('sops-ui')
 
     cleanup(page)
     browser.close()

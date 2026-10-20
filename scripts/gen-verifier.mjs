@@ -90,11 +90,11 @@ const U = [
   { c: "判据50：index.css 必须包含主色淡底色值「rgba(30, 58, 95, 0.1)」。", t: "主色淡底钉位", s: "S3", ck: existsFact("web/src/index.css","rgba(30, 58, 95, 0.1)"), rv: ["判据原文逐字取自冻结材料，navy 主色 10% 淡底。", "提取表三条件 exists 精确判定。", "改值提取为 0 即 FAIL。"] },
   { c: "判据51：index.css 必须包含深底色值「#0f172a」。", t: "css 深底钉位", s: "S3", ck: existsFact("web/src/index.css","#0f172a"), rv: ["判据原文逐字取自冻结材料，样式侧深底 token。", "提取表三条件 exists 精确判定。", "改值提取为 0 即 FAIL。"] },
   // ── E2E 行为证据（经 verifier_e2e_summary 提取表，源自 e2e_test.py 落盘的 evidence/e2e-summary.json） ──
-  { c: "判据52：E2E 摘要记录的用例总数不得少于 21。", t: "E2E 规模下限", s: "S2", ck: count("verifier_e2e_summary", "==", 1, and({ col: "total", op: ">=", value: 21 })), rv: ["判据原文逐字取自冻结材料，行为面至少覆盖既有 21 组用例（含驾驶舱、统一门户、自产台、凭据注入、SOP 台与 MCP 生产通道）。", "count 条件计数 ==1 精确判定。", "删用例或未跑 E2E 即计数 0 FAIL。"] },
+  { c: "判据52：E2E 摘要记录的用例总数不得少于 22。", t: "E2E 规模下限", s: "S2", ck: count("verifier_e2e_summary", "==", 1, and({ col: "total", op: ">=", value: 22 })), rv: ["判据原文逐字取自冻结材料，行为面至少覆盖既有 22 组用例（含驾驶舱、统一门户、自产台、凭据注入、SOP 台、MCP 生产通道与 SOP 管理页）。", "count 条件计数 ==1 精确判定。", "删用例或未跑 E2E 即计数 0 FAIL。"] },
   { c: "判据53：E2E 摘要必须标记全部用例通过。", t: "E2E 全绿", s: "S1", ck: { type: "exists", predicate: { from: "verifier_e2e_summary", select: ["id"], where: and({ col: "all_passed", op: "=", value: 1 }) }, expect: true }, rv: ["判据原文逐字取自冻结材料，行为面必须全绿才可交付。", "all_passed=1 exists 精确判定。", "任一用例失败即 0 行 FAIL。"] },
   { c: "判据54：E2E 摘要必须带有完成时间戳。", t: "E2E 时间戳在位", s: "S3", ck: { type: "exists", predicate: { from: "verifier_e2e_summary", select: ["id"], where: { col: "finished_at", op: "is not null" } }, expect: true }, rv: ["判据原文逐字取自冻结材料，摘要须可追溯运行时间。", "is not null exists 精确判定。", "空时间戳即 FAIL。"] },
   // ── 渲染层对比度探针（E2E 内置 Playwright 实测 DOM 的 fg/bg 配对，经 verifier_contrast_checks 提取表） ──
-  { c: "判据55：渲染层对比度探针覆盖的文字目标不得少于 7 处。", t: "对比度探针覆盖面", s: "S1", ck: count("verifier_contrast_checks", ">=", 7), rv: ["判据原文逐字取自冻结材料，探针须覆盖深底与浅底两类表面。", "count>=7 纯数值判定。", "删探针目标或未跑 E2E 即计数不足 FAIL。"] },
+  { c: "判据55：渲染层对比度探针覆盖的文字目标不得少于 9 处。", t: "对比度探针覆盖面", s: "S1", ck: count("verifier_contrast_checks", ">=", 9), rv: ["判据原文逐字取自冻结材料，探针须覆盖深底与浅底两类表面（含 SOP 管理页新表面）。", "count>=9 纯数值判定。", "删探针目标或未跑 E2E 即计数不足 FAIL。"] },
   { c: "判据56：渲染层对比度探针不得存在未通过的目标。", t: "渲染对比度全达标", s: "S1", ck: count("verifier_contrast_checks", "==", 0, { col: "passed", op: "=", value: 0 }), rv: ["判据原文逐字取自冻结材料，任何一处实测对比度低于下限即违规。", "violation count==0 精确判定。", "任一目标 ratio<min 即 FAIL（如深底徽标文字 1.18:1）。"] },
   { c: "判据57：index.css 必须包含深底状态文字规则选择器「.wm-use-bar .ant-badge-status-text」。", t: "深底状态文字规则钉位", s: "S1", ck: existsFact("web/src/index.css", ".wm-use-bar .ant-badge-status-text"), rv: ["判据原文逐字取自冻结材料，深色顶栏上的徽标文字必须有专用覆盖规则。", "提取表三条件 exists 精确判定。", "删规则提取为 0 即 FAIL。"] },
   { c: "判据58：index.css 必须包含深底浅色文字色值「rgba(255, 255, 255, 0.85)」。", t: "深底浅色值钉位", s: "S1", ck: existsFact("web/src/index.css", "rgba(255, 255, 255, 0.85)"), rv: ["判据原文逐字取自冻结材料，深底文字用 85% 白（对 #0f172a 约 11:1）。", "提取表三条件 exists 精确判定。", "改色值提取为 0 即 FAIL。"] },
@@ -130,10 +130,15 @@ const U = [
   { c: "判据82：server/src/index.ts 必须包含工具注册表「MCP_TOOLS」。", t: "MCP 工具注册钉位", s: "S1", ck: existsFact("server/src/index.ts", "MCP_TOOLS"), rv: ["判据原文逐字取自冻结材料，7 个生产工具（list/summary/check/use_url/app_publish/app_activate/sop_publish）经注册表暴露。", "提取表三条件 exists 精确判定。", "删注册表提取为 0 即 FAIL。"] },
   { c: "判据83：server/src/index.ts 必须包含 JSON-RPC 错误码「-32601」。", t: "JSON-RPC 合规钉位", s: "S1", ck: existsFact("server/src/index.ts", "-32601"), rv: ["判据原文逐字取自冻结材料，未知 method 按 JSON-RPC 2.0 规范回 -32601（协议合规性锚点）。", "提取表三条件 exists 精确判定。", "删错误处理提取为 0 即 FAIL。"] },
   { c: "判据84：evidence/e2e_test.py 必须包含 MCP 用例字面量「e2e-mcp-app」。", t: "MCP 行为断言钉位", s: "S1", ck: existsFact("evidence/e2e_test.py", "e2e-mcp-app"), rv: ["判据原文逐字取自冻结材料，E2E 实测 MCP 协议面与生产工具链（initialize/tools/list/app_publish/sop_publish）。", "提取表三条件 exists 精确判定。", "删用例提取为 0 即 FAIL。"] },
+  // ── SOP 管理页（/sops：状态徽章 + 版本链 + run 记录——SOP 台的消费与管理面） ──
+  { c: "判据85：封装提交物必须包含 web/src/pages/Sops.tsx。", t: "SOP 管理页存在", s: "S1", ck: file("web/src/pages/Sops.tsx", 1), rv: ["判据原文逐字取自冻结材料，SOP 管理页（状态机操作/记录查看）在位。", "精确路径 glob。", "删除即 FAIL。"] },
+  { c: "判据86：web/src/pages/Sops.tsx 必须包含状态语义表「SOP_STATUS」。", t: "SOP 状态徽章钉位", s: "S1", ck: existsFact("web/src/pages/Sops.tsx", "SOP_STATUS"), rv: ["判据原文逐字取自冻结材料，draft/published/deprecated 徽章（色值经对比度审计）由单一语义表驱动。", "提取表三条件 exists 精确判定。", "删语义表提取为 0 即 FAIL。"] },
+  { c: "判据87：web/src/App.tsx 必须包含 SOP 路由「path: '/sops'」。", t: "SOP 路由钉位", s: "S1", ck: existsFact("web/src/App.tsx", "path: '/sops'"), rv: ["判据原文逐字取自冻结材料，侧栏菜单与路由表挂载 SOP 管理页。", "提取表三条件 exists 精确判定。", "删路由提取为 0 即 FAIL。"] },
+  { c: "判据88：evidence/e2e_test.py 必须包含演示 SOP 字面量「demo-rack-sop」。", t: "演示 SOP 常驻钉位", s: "S2", ck: existsFact("evidence/e2e_test.py", "demo-rack-sop"), rv: ["判据原文逐字取自冻结材料，E2E 实测 /sops 页并要求演示 SOP（demo-rack-sop）常驻可见。", "提取表三条件 exists 精确判定。", "删演示或用例提取为 0 即 FAIL。"] },
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
-const header = `workbench-market 开发验证器 v13（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道）
+const header = `workbench-market 开发验证器 v14（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页）
 
 判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
 快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
@@ -146,7 +151,7 @@ passed)——源自 E2E 内置的 Playwright 对比度探针（实测 DOM 前景
 提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
 脚本、验证器自举档案、设计规范与证据。
 命令执行型检查（typecheck、lint、build）不属于 CLI 闭集，由开发流程自行执行
-（E2E 与渲染层对比度结果经摘要表断言）；覆盖十三个维度共 84 条判据：数据域完整性
+（E2E 与渲染层对比度结果经摘要表断言）；覆盖十四个维度共 88 条判据：数据域完整性
 （判据1-9）、种子与配置（判据10-15）、提交物结构（判据16-35）、颜色可见性
 （判据36-51 与 57-58：经对比度审计的色值在源码与规范中的钉位，漂移即破坏已审计
 的可读性）、E2E 行为证据（判据52-54：规模下限、全绿、时间戳在位）、渲染层对比度
@@ -165,7 +170,10 @@ WS 升级（判据74-75：upgrade 挂载与握手 Origin 改写钉位——实�
 发布即版本化，draft→published→deprecated 状态机防半成品入册）、MCP 生产通道（判据81-84：
 /mcp StreamableHTTP 端点与工具注册表钉位、JSON-RPC -32601 协议合规锚点、E2E 行为断言
 钉位——AI 会话直连市场：列台/总览/探测/取入口/发布台/SOP 上架七个生产工具，市场的
-MCP 化把供给通道从 REST 页面操作升级为 agent 原生）。
+MCP 化把供给通道从 REST 页面操作升级为 agent 原生）、SOP 管理页（判据85-88：
+Sops.tsx 在位与状态语义表钉位、路由钉位、演示 SOP 常驻钉位——SOP 台的消费与管理面：
+状态徽章可视化状态机、run 记录 Drawer 直查分层持久化的执行数据；色值经对比度审计
+的 SOP_STATUS 语义表是徽章不漂移的单一事实源）。
 以下判据全部可机械判定：
 `;
 

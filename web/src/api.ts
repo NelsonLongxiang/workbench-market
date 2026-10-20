@@ -1,4 +1,4 @@
-import type { Cockpit, ExportPayload, PanelConfig, Summary, Workbench, WorkbenchDraft, WorkbenchType } from './types';
+import type { Cockpit, ExportPayload, PanelConfig, SopApp, SopRun, Summary, Workbench, WorkbenchDraft, WorkbenchType } from './types';
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -45,6 +45,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ ...payload, mode }),
     }),
+  // SOP 台管理面
+  listSops: () => req<SopApp[]>('/api/sops'),
+  publishSop: (slug: string, note?: string) =>
+    req<SopApp>(`/api/sops/${slug}/publish`, { method: 'POST', body: JSON.stringify(note ? { note } : {}) }),
+  deprecateSop: (slug: string) => req<SopApp>(`/api/sops/${slug}/deprecate`, { method: 'POST', body: '{}' }),
+  listSopRuns: (params: Record<string, string> = {}) =>
+    req<SopRun[]>(`/api/sop/runs?${new URLSearchParams(params)}`),
+  getSopRun: (id: number) => req<SopRun & { data: Record<string, unknown> }>(`/api/sop/runs/${id}`),
+  listActiveSopRuns: () => req<SopRun[]>('/api/sop/runs/active'),
 };
 
 export function typeLabel(types: WorkbenchType[], key: string): WorkbenchType | undefined {

@@ -52,7 +52,7 @@ node scripts/verify-report.mjs <run_id...>   # 多代对照 HTML → evidence/ve
 1. `pnpm --filter web typecheck` + `npx antd-cli lint web/src`（0 issues）
 2. 9800 存活（`curl 127.0.0.1:9800/api/health`；死了按上面分离式重启）→ 重启才加载新 server 代码
 3. `pnpm --filter web build`（改了 web 时；express.static 按请求读盘，重建后无需重启）
-4. `python evidence/e2e_test.py` 全 PASS（当前 21 组；新增功能必须加用例）
+4. `python evidence/e2e_test.py` 全 PASS（当前 22 组；新增功能必须加用例）
 5. 验证器：gen-verifier → make-submission → submit/prepare/run → 判据数符合预期 + 基线全 PASS；涉及新事实（端点/色值/文件）同步扩 gen-verifier.mjs 与 make-submission.mjs TEXT_FACTS
 6. UI 改动跑 `tmp/ux_shot.py` 截图留证；新表面必须进 e2e_test.py 的 CONTRAST_TARGETS（对比度≥4.5，深底浅字配对）
 
@@ -65,7 +65,8 @@ node scripts/verify-report.mjs <run_id...>   # 多代对照 HTML → evidence/ve
 - **统一门户**：`/go/<workbench-id>/` 反代任意注册台；代理剥 X-Frame-Options/CSP、改写 Location 与 Cookie；WS 升级已挂。自产台（url 以 / 开头）由门户中间件直接重写到 /apps/ 路径，不走代理。
 - **自产台发布**：`POST /api/apps`（AI 会话直发通道；文件内联 JSON，UTF-8 文本，单文件≤2MB 总计），全版本快照存 `server/data/apps/<slug>/v<N>/`，发布即自动入册（type=market-app，探测短路=up）；`POST /api/apps/:slug/activate` 回滚版本。
 - **SOP 台与分层持久化**：`POST /api/apps` 带 `kind:'sop'` + `changelog` 必填走 SOP 分流（首发 draft 不入册，publish 才入册，sop.yaml 见 parseSopManifest）；执行数据**Redis 热态 + SQLite 真源**：写路径 HSET `wm:sop:run:<id>:data/meta` + 活跃索引 SET，30s checkpoint 沉淀 SQLite（sop_runs 表），finish 全量沉淀 + Redis 条目 EXPIRE 3600 平滑淘汰。**Redis 接入**：环境变量 `REDIS_URL` 优先，其次 `server/data/redis.url` 文件（单行 URL，已 gitignore，现指向生产 `192.168.3.88:16379` jf-redis 容器），都没有则**自动降级全直写 SQLite**（redisHealthy()=false，所有状态层调用 no-op 回落，服务照常起）；启动日志 `[redis] 状态层已连接` 为准。**本机 6379 redis-server.exe（pid 会变）是他人服务，只进不用。**热态必须与真源同语义：retire 时同步最终 status（只清索引不改 status 会让 TTL 窗口内热读到过期 running——冒烟踩过）。
-- **MCP 生产通道**：`POST /mcp`（StreamableHTTP，stateless 无会话，GET/DELETE → 405）；initialize 会 echo 客户端协议版本（白名单 2024-11-05/2025-03-26/2025-06-18），notification → 202 无 body，工具执行异常回 `isError:true` 而非 JSON-RPC error（协议错误才用 -32601/-32600/-32603）。7 工具与 REST 共用底层（summaryPayload/publishAppBody/activateAppVersion 三函数抽取），**改发布/激活/汇总逻辑时 REST 与 MCP 两面同步测**（tmp/smoke-mcp.mjs 24 项 + e2e 组 17）。
+- **MCP 生产通道**：`POST /mcp`（StreamableHTTP，stateless 无会话，GET/DELETE → 405）；initialize 会 echo 客户端协议版本（白名单 2024-11-05/2025-03-26/2025-06-18），notification → 202 无 body，工具执行异常回 `isError:true` 而非 JSON-RPC error（协议错误才用 -32601/-32600/-32603）。7 工具与 REST 共用底层（summaryPayload/publishAppBody/activateAppVersion 三函数抽取），**改发布/激活/汇总逻辑时 REST 与 MCP 两面同步测**（tmp/smoke-mcp.mjs 24 项 + e2e 组 17）。DSH 消费端：dsh-mcp-connector 插件导入 `http://127.0.0.1:9800/mcp`（测试 3081 已接，7 工具以 `mcp__workbench-market__*` 注入）。
+- **演示资产常驻**：demo-timestamp（自产台，判据 70）、demo-rack-sop（SOP 台 published + 演示 run，判据 88）——重建库后跑 `python scripts/seed-demo-sop.py` 幂等恢复；E2E cleanup 只清 `e2e-*` 前缀，勿动演示资产。
 
 ## ygl-trees 同步惯例（每次交付收口）
 
