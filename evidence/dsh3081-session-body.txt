@@ -1,0 +1,47 @@
+新会话
+Ctrl
++
+Alt
++
+N
+插件
+MCP连接器
+工作区
+workspace
+dsh-plugin-manager-gui
+dsh-native-teams
+dsh-plugin-doctor
+deepseek-harness
+不要调用任何工具。只回答一
+刚刚
+不要调用任何工具。只回答一
+1分钟
+MANUAL-SEND-PROBE-9931
+4天
+别让我选，你掌握的信息更全
+4天
+E2E-TARGET-MARKER-7788
+4天
+展开其余 14 个会话
+team-main-pkg-root
+team-dsh
+未分组
+A2A 网络
+设置
+不要调用任何工具。只回答一
+标准模式
+对话
+轨迹
+不要调用任何工具。只回答一行：你的工具列表里所有以 mcp__workbench 开头的工具名，逗号分隔。没有就回答 NONE。
+20:55
+处理失败
+处理失败
+本轮运行失败llm-deepseek: no API key for provider route "deepseek-official"; store DEEPSEEK_API_KEY through the credentials service (the web Models page writes it), or export DEEPSEEK_API_KEY in the launching environment
+MISSING_CREDENTIAL
+发消息或创建任务, / 调用指令, @ 文件或对话
+工作区内修改
+▤
+DeepSeek-V41-Flash
+High
+1 轮 1 步
+4
