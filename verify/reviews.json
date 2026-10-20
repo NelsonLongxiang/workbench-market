@@ -1751,6 +1751,54 @@
           "reason": "删透传断言提取为 0 即 FAIL。"
         }
       ]
+    },
+    {
+      "source_clause": "判据74：server/src/index.ts 必须包含 WS 升级挂载「goServer.on('upgrade'」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，upgrade 事件不流经中间件链，必须有独立的准备逻辑（实测缺位时 WS 被路由到死端口）。",
+          "anchor": {
+            "quote": "判据74：server/src/index.ts 必须包含 WS 升级挂载「goServer.on('upgrade'」。",
+            "locator": "dev-verifier-v4.md 判据7"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删挂载提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据75：server/src/index.ts 必须包含握手 Origin 改写「req.headers.origin = u.origin」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，浏览器 WS 握手必带门户源 Origin，上游 Origin fence 会 403（实测 DSH 台「重新连接中」根因之一）。",
+          "anchor": {
+            "quote": "判据75：server/src/index.ts 必须包含握手 Origin 改写「req.headers.origin = u.origin」。",
+            "locator": "dev-verifier-v4.md 判据7"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删改写提取为 0 即 FAIL。"
+        }
+      ]
     }
   ]
 }

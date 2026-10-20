@@ -2146,6 +2146,84 @@
         },
         "expect": true
       }
+    },
+    {
+      "source_clause": "判据74：server/src/index.ts 必须包含 WS 升级挂载「goServer.on('upgrade'」。",
+      "anchor": {
+        "quote": "判据74：server/src/index.ts 必须包含 WS 升级挂载「goServer.on('upgrade'」。",
+        "locator": "dev-verifier-v4.md 判据7"
+      },
+      "title": "WS 升级代理钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "goServer.on('upgrade'"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据75：server/src/index.ts 必须包含握手 Origin 改写「req.headers.origin = u.origin」。",
+      "anchor": {
+        "quote": "判据75：server/src/index.ts 必须包含握手 Origin 改写「req.headers.origin = u.origin」。",
+        "locator": "dev-verifier-v4.md 判据7"
+      },
+      "title": "WS 握手 Origin 改写钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "req.headers.origin = u.origin"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
     }
   ]
 }

@@ -633,9 +633,13 @@ const goProxy = createProxyMiddleware({
   on: {
     // 凭据注入：前置中间件已解析好 req.goAuth（此处 req.url 已被 pathRewrite 改写，
     // 不能再从 URL 反查工作台——实测注入不达的根因）
+    // Origin 改写：上游若做 Origin 校验（如 DSH web 的 authority 防护），浏览器经门户
+    // 发出的 Origin=http://…:9800 与上游 authority 不符会被 403 拒（WS 握手同理，
+    // 实测握手 403→改写后通过）。代理作为可信客户端把 Origin 重写为上游自身 origin。
     proxyReq: (proxyReq, req) => {
-      const authHeader = (req as express.Request & { goAuth?: string }).goAuth;
-      if (authHeader) proxyReq.setHeader('authorization', authHeader);
+      const rq = req as typeof req & { goAuth?: string; goOrigin?: string };
+      if (rq.goAuth) proxyReq.setHeader('authorization', rq.goAuth);
+      if (rq.goOrigin) proxyReq.setHeader('origin', rq.goOrigin);
     },
     proxyRes: (proxyRes, req, res) => {
       // 剥禁嵌头：代理后与市场同源，这两个头只会误伤 iframe 嵌入（使用页/驾驶舱）
@@ -711,7 +715,33 @@ const goServer = app.listen(PORT, () => {
   console.log(`[workbench-market] server  http://127.0.0.1:${PORT}  (workbenches: ${counts.n}, web-dist: ${existsSync(webDist) ? 'served' : 'none'}, portal: /go/<id>/)`);
 });
 
-// WebSocket 升级（Jupyter kernel / MCP 等长连接走 /go/ 代理）
+// WebSocket 升级（Jupyter kernel / MCP / DSH web 实时通道等长连接走 /go/ 代理）。
+// 关键：upgrade 事件不流经 Express 中间件链——前置中间件设置的 goOrigin/goBase/goQuery/goAuth
+// 在这里全部不存在，必须对 upgrade 请求重做同样的准备，否则 router 兜底到 http://127.0.0.1（80 端口
+// 无服务）→ DSH 台经门户打开后 WS 永远连不上（页面「重新连接中…」，实测踩坑）。
 goServer.on('upgrade', (req, socket, head) => {
-  if (goPrefix.test(req.url ?? '')) (goProxy as unknown as { upgrade: (rq: any, sk: any, hd: any) => void }).upgrade(req, socket, head);
+  const m = goPrefix.exec(req.url ?? '');
+  if (!m) return socket.destroy(); // 非 /go/ 的升级请求：本服务自身不提供 WS
+  const w = wbById(Number(m[1]));
+  if (!w || w.url.startsWith('/')) return socket.destroy(); // 自产台纯静态无 WS
+  let u: URL;
+  try {
+    u = new URL(w.url);
+  } catch {
+    return socket.destroy();
+  }
+  const rq = req as typeof req & { goOrigin?: string; goBase?: string; goQuery?: string; goAuth?: string };
+  rq.goOrigin = u.origin;
+  rq.goBase = u.pathname.replace(/\/+$/, '');
+  rq.goQuery = u.search;
+  if (w.auth?.type === 'bearer') rq.goAuth = `Bearer ${w.auth.value}`;
+  else if (w.auth?.type === 'basic') rq.goAuth = `Basic ${Buffer.from(w.auth.value, 'utf8').toString('base64')}`;
+  // WS 握手不走 on.proxyReq 钩子（HPM v4 upgrade 路径不触发），头改写必须直接动 req.headers：
+  // ① 浏览器握手必带 Origin（=9800 门户源），上游 Origin fence 要求 Origin==Host authority → 403（实测）
+  // ② Host 改成上游 authority，与 changeOrigin 语义一致；cookie 名是 authority 的 sha256，
+  //    Host 不符则上游取不到签名 cookie → 401（实测）
+  const upstreamHost = u.host; // host:port（authority 形态）
+  if (req.headers.origin !== undefined) req.headers.origin = u.origin;
+  req.headers.host = upstreamHost;
+  (goProxy as unknown as { upgrade: (rq: typeof req, sk: typeof socket, hd: typeof head) => void }).upgrade(req, socket, head);
 });

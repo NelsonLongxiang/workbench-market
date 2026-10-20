@@ -45,6 +45,7 @@ node scripts/verify-report.mjs <run_id...>   # 多代对照 HTML → evidence/ve
 8. **E2E 僵尸进程**：超时被杀的 playwright 会留 chrome 僵尸，累积后新 launch 挂死——`taskkill //F //IM chrome.exe`（确认无他人浏览器作业后）。
 9. **http-proxy-middleware 4.x 三连坑**：① pathFilter 只认 string/glob/array/function，传 RegExp 直接抛错；② 默认 logger 是 noopLogger，配置错误**零输出**（配 `logger: console`），静默漏到 SPA fallback 返回 200 假绿；③ pathRewrite 会把结果**写回 req.url**，proxyReq 钩子里无法从 URL 反查工作台 id——需要按台注入的头（如凭据 authorization）必须在**前置中间件**（还知道 id 时）解析好挂到 req 上（先例：goAuth）。
 10. **Playwright request.fetch 的自定义 Cookie 头会被 cookie store 接管忽略**：测 cookie 透传必须先 `page.context().add_cookies([...])` 再 fetch（先例：e2e_test.py 组 15）。
+11. **WS upgrade 不流经 Express 中间件链、也不触发 HPM on.proxyReq 钩子**：`app.use` 挂的 goOrigin/goAuth 等准备全部缺席，upgrade 会被路由到默认 target 死端口；且浏览器 WS 握手必带门户源 Origin，上游 Origin-fence（如 DSH：Origin 必须等于 Host authority，cookie 名是 authority 的 sha256）会回 403/401。**upgrade handler 里必须重做全部准备并直接改 `req.headers`（origin=上游 origin、host=上游 host）再调 `goProxy.upgrade`**（先例：server/src/index.ts goServer.on('upgrade')；行为层由 e2e 组 15 的 socket 级 101 握手断言钉住）。
 
 ## 验证标准链（改 server/ 或 web/ 后必须全绿）
 
