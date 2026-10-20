@@ -1,10 +1,10 @@
 import express from 'express';
 import cors from 'cors';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { db, getSettings, rowToWorkbench, rowToCockpit, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig } from './db.ts';
+import { db, getSettings, dataDir, rowToWorkbench, rowToCockpit, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow } from './db.ts';
 import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -53,8 +53,10 @@ function validateWorkbenchBody(b: any, partial = false) {
   }
   if (!partial || b.url !== undefined) {
     if (typeof b.url !== 'string' || !b.url.trim()) bad('url 不能为空');
-    assertHttpUrl(b.url.trim());
-    out.url = b.url.trim();
+    const u = b.url.trim();
+    // 以 / 开头 = 市场自产台内部路径（本服务静态托管）；其余必须是 http(s)
+    if (!u.startsWith('/')) assertHttpUrl(u);
+    out.url = u;
   }
   if (b.type !== undefined) out.type = String(b.type || 'web');
   for (const k of ['icon', 'description', 'category', 'health_path'] as const) {
@@ -118,6 +120,14 @@ function typeOf(key: string): TypeRow | undefined {
 }
 
 async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkbench>> {
+  // 自产台（url 以 / 开头）由本服务静态托管：服务活着即在线，探测短路
+  if (w.url.startsWith('/')) {
+    db.prepare(
+      `UPDATE workbenches SET last_status='up', last_checked_at=datetime('now'), last_latency_ms=0, last_http_code=200, last_error='' WHERE id=?`
+    ).run(w.id);
+    const selfRow = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(w.id) as unknown as WorkbenchRow;
+    return rowToWorkbench(selfRow);
+  }
   const t = typeOf(w.type);
   const settings = getSettings();
   const target = composeProbeUrl(w.url, w.health_path || t?.health_path || '');
@@ -218,6 +228,173 @@ app.delete('/api/cockpits/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- 自产台（台生成器：AI 发布 API + 全版本快照，发布即入册） ----------
+const appsRoot = join(dataDir, 'apps');
+const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const MAX_APP_FILES = 64;
+const MAX_APP_TOTAL_BYTES = 2 * 1024 * 1024;
+
+function getApp(slug: string): AppRow {
+  const row = db.prepare('SELECT * FROM apps WHERE slug = ?').get(slug) as unknown as AppRow | undefined;
+  if (!row) throw new HttpError(404, `app not found: ${slug}`);
+  return row;
+}
+
+function appDetail(a: AppRow) {
+  const versions = db
+    .prepare('SELECT * FROM app_versions WHERE app_id = ? ORDER BY version DESC')
+    .all(a.id) as unknown as AppVersionRow[];
+  const wb = db
+    .prepare(`SELECT id FROM workbenches WHERE url = ? AND type = 'market-app'`)
+    .get(`/apps/${a.slug}/`) as { id: number } | undefined;
+  return { ...a, versions, workbench_id: wb?.id ?? null };
+}
+
+function validateAppFiles(raw: unknown): { path: string; content: string }[] {
+  if (!Array.isArray(raw) || raw.length === 0) bad('files 必须是非空数组 [{path, content}]');
+  if (raw.length > MAX_APP_FILES) bad(`文件数超过上限 ${MAX_APP_FILES}`);
+  let total = 0;
+  const seen = new Set<string>();
+  const files = raw.map((f: any) => {
+    if (typeof f?.path !== 'string' || typeof f?.content !== 'string') bad('每个文件必须是 {path: string, content: string}（v1 仅支持 UTF-8 文本）');
+    const p = posix.normalize(f.path.replace(/\\/g, '/'));
+    if (p.length > 200 || p === '.' || p.startsWith('/') || p.startsWith('..') || p.includes('../')) bad(`文件路径非法: ${f.path}`);
+    if (seen.has(p)) bad(`文件重复: ${p}`);
+    seen.add(p);
+    total += Buffer.byteLength(f.content, 'utf8');
+    if (total > MAX_APP_TOTAL_BYTES) bad(`文件总量超过 ${MAX_APP_TOTAL_BYTES} 字节上限`);
+    return { path: p, content: f.content };
+  });
+  if (!seen.has('index.html')) bad('files 必须包含根目录 index.html（入口）');
+  return files;
+}
+
+function writeAppFiles(slug: string, version: number, files: { path: string; content: string }[]) {
+  const dir = join(appsRoot, slug, `v${version}`);
+  rmSync(dir, { recursive: true, force: true });
+  let total = 0;
+  for (const f of files) {
+    const abs = join(dir, f.path);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, f.content, 'utf8');
+    total += Buffer.byteLength(f.content, 'utf8');
+  }
+  return { file_count: files.length, total_bytes: total };
+}
+
+/** 发布即入册：自产台自动注册进 workbenches（type=market-app），门户/驾驶舱/市场全链立即可用 */
+function syncWorkbenchRegistration(a: AppRow): number {
+  const url = `/apps/${a.slug}/`;
+  const cur = db.prepare('SELECT id FROM workbenches WHERE url = ?').get(url) as { id: number } | undefined;
+  if (cur) {
+    db.prepare(`UPDATE workbenches SET name = ?, description = ?, updated_at = datetime('now') WHERE id = ?`).run(a.title, a.description, cur.id);
+    return cur.id;
+  }
+  const r = db
+    .prepare(
+      `INSERT INTO workbenches (name, url, type, icon, description, category, tags, enabled, health_path, sort)
+       VALUES (?, ?, 'market-app', '🧩', ?, '自产台', '[]', 1, '/', 0)`
+    )
+    .run(a.title, url, a.description) as unknown as { lastInsertRowid: number | bigint };
+  return Number(r.lastInsertRowid);
+}
+
+app.get('/api/apps', (_req, res) => {
+  const rows = db.prepare('SELECT * FROM apps ORDER BY updated_at DESC, id DESC').all() as unknown as AppRow[];
+  res.json(rows.map(appDetail));
+});
+
+app.post('/api/apps', (req, res) => {
+  const b = req.body ?? {};
+  const slug = typeof b.slug === 'string' ? b.slug.trim().toLowerCase() : '';
+  if (!SLUG_RE.test(slug)) bad('slug 必须是小写字母/数字/连字符（≤64 字符，字母或数字开头）');
+  const files = validateAppFiles(b.files);
+  const existing = db.prepare('SELECT * FROM apps WHERE slug = ?').get(slug) as unknown as AppRow | undefined;
+
+  let appRow: AppRow;
+  let version: number;
+  if (existing) {
+    // 重新发布 = 新版本快照（title/description/created_by 缺省保留原值）
+    const title = typeof b.title === 'string' && b.title.trim() ? b.title.trim() : existing.title;
+    const description = b.description !== undefined ? String(b.description) : existing.description;
+    const created_by = typeof b.created_by === 'string' && b.created_by.trim() ? b.created_by.trim() : existing.created_by;
+    const maxV = db.prepare('SELECT MAX(version) AS v FROM app_versions WHERE app_id = ?').get(existing.id) as { v: number | null };
+    version = (maxV.v ?? 0) + 1;
+    const st = writeAppFiles(slug, version, files);
+    db.prepare(`UPDATE apps SET title = ?, description = ?, created_by = ?, active_version = ?, updated_at = datetime('now') WHERE id = ?`)
+      .run(title, description, created_by, version, existing.id);
+    db.prepare(`INSERT INTO app_versions (app_id, version, file_count, total_bytes, created_by) VALUES (?, ?, ?, ?, ?)`)
+      .run(existing.id, version, st.file_count, st.total_bytes, created_by);
+    appRow = getApp(slug);
+  } else {
+    if (typeof b.title !== 'string' || !b.title.trim()) bad('首次发布必须提供 title');
+    const created_by = String(b.created_by ?? '');
+    const st = writeAppFiles(slug, 1, files);
+    const r = db
+      .prepare(`INSERT INTO apps (slug, title, description, created_by, active_version) VALUES (?, ?, ?, ?, 1)`)
+      .run(slug, b.title.trim(), String(b.description ?? ''), created_by) as unknown as { lastInsertRowid: number | bigint };
+    db.prepare(`INSERT INTO app_versions (app_id, version, file_count, total_bytes, created_by) VALUES (?, 1, ?, ?, ?)`)
+      .run(Number(r.lastInsertRowid), st.file_count, st.total_bytes, created_by);
+    version = 1;
+    appRow = getApp(slug);
+  }
+  const workbench_id = syncWorkbenchRegistration(appRow);
+  res.status(existing ? 200 : 201).json({ ok: true, slug: appRow.slug, version, workbench_id, app: appDetail(appRow) });
+});
+
+app.get('/api/apps/:slug', (req, res) => {
+  res.json(appDetail(getApp(req.params.slug)));
+});
+
+// 版本回滚：activate 指定历史版本为当前生效快照（文件不动，只切换指针）
+app.post('/api/apps/:slug/activate', (req, res) => {
+  const a = getApp(req.params.slug);
+  const v = Number(req.body?.version);
+  if (!Number.isInteger(v) || v < 1) bad('version 必须是正整数');
+  const hit = db.prepare('SELECT version FROM app_versions WHERE app_id = ? AND version = ?').get(a.id, v) as { version: number } | undefined;
+  if (!hit) throw new HttpError(404, `版本不存在: ${v}`);
+  db.prepare(`UPDATE apps SET active_version = ?, updated_at = datetime('now') WHERE id = ?`).run(v, a.id);
+  res.json(appDetail(getApp(a.slug)));
+});
+
+app.delete('/api/apps/:slug', (req, res) => {
+  const a = getApp(req.params.slug);
+  rmSync(join(appsRoot, a.slug), { recursive: true, force: true });
+  db.prepare('DELETE FROM app_versions WHERE app_id = ?').run(a.id);
+  db.prepare('DELETE FROM apps WHERE id = ?').run(a.id);
+  db.prepare(`DELETE FROM workbenches WHERE url = ? AND type = 'market-app'`).run(`/apps/${a.slug}/`);
+  res.json({ ok: true, deleted: a.slug });
+});
+
+// ---------- 自产台静态托管：GET /apps/:slug/* → DATA_DIR/apps/<slug>/v<active>/* ----------
+function serveApp(req: express.Request, res: express.Response) {
+  const m = /^\/apps\/([a-z0-9][a-z0-9-]*)\/?(.*)$/.exec(req.path ?? '');
+  if (!m) return res.status(404).json({ error: 'not found' });
+  let rest = '';
+  try {
+    rest = decodeURIComponent(m[2] || '');
+  } catch {
+    return res.status(400).json({ error: '路径编码非法' });
+  }
+  const a = db.prepare('SELECT * FROM apps WHERE slug = ?').get(m[1]) as unknown as AppRow | undefined;
+  if (!a) return res.status(404).json({ error: `app not found: ${m[1]}` });
+  const root = join(appsRoot, m[1], `v${a.active_version}`);
+  let rel = posix.normalize(rest || 'index.html');
+  if (rel === '.' || rel.startsWith('/') || rel.startsWith('..')) return res.status(400).json({ error: '路径非法' });
+  if (rel.endsWith('/')) rel += 'index.html';
+  const abs = join(root, rel);
+  if (!abs.startsWith(root)) return res.status(400).json({ error: '路径非法' });
+  res.setHeader('X-App-Version', `v${a.active_version}`);
+  if (!existsSync(abs)) {
+    // 无扩展名的深链回退到 index.html（SPA 路由习惯）
+    if (!posix.extname(rel)) return res.sendFile(join(root, 'index.html'));
+    return res.status(404).json({ error: `file not found: ${rel}` });
+  }
+  res.sendFile(abs);
+}
+// 必须在 web/dist SPA fallback 之前注册
+app.get(/^\/apps\/[a-z0-9][a-z0-9-]*(\/.*)?$/, serveApp);
+
 app.get('/api/summary', (_req, res) => {
   const rows = listWorkbenches();
   const up = rows.filter((w) => w.enabled && w.last_status === 'up');
@@ -292,7 +469,7 @@ app.delete('/api/types/:id', (req, res) => {
   const id = Number(req.params.id);
   const cur = db.prepare('SELECT * FROM types WHERE id = ?').get(id) as unknown as TypeRow | undefined;
   if (!cur) throw new HttpError(404, `type not found: ${id}`);
-  if (cur.key === 'web') bad('内置类型 web 不允许删除');
+  if (cur.key === 'web' || cur.key === 'market-app') bad(`内置类型 ${cur.key} 不允许删除`);
   const used = db.prepare('SELECT COUNT(*) AS n FROM workbenches WHERE type = ?').get(cur.key) as { n: number };
   if (used.n > 0) throw new HttpError(409, `类型 ${cur.key} 仍被 ${used.n} 个工作台使用，先改挂其他类型`);
   db.prepare('DELETE FROM types WHERE id = ?').run(id);
@@ -380,6 +557,13 @@ app.use((req, res, next) => {
   try {
     const w = wbById(Number(m[1]));
     if (!w) return res.status(404).json({ error: `工作台不存在: ${m[1]}` });
+    if (w.url.startsWith('/')) {
+      // 自产台：本服务静态路径，重写后直接交给静态托管（/go/N/xyz → /apps/<slug>/xyz）。
+      // 不能只 next()：serveApp 路由注册在本中间件之前，重写后的 URL 不会再流经它，
+      // 会漏到 web/dist SPA fallback（实测踩坑）。
+      req.url = w.url.replace(/\/+$/, '') + (m[2] || '/');
+      return serveApp(req, res);
+    }
     const u = new URL(w.url);
     origin = u.origin;
     basePath = u.pathname.replace(/\/+$/, ''); // base 自带路径（如 /preview）时保留

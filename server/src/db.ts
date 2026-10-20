@@ -4,7 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const dataDir = process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : join(here, '..', 'data');
+export const dataDir = process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : join(here, '..', 'data');
 mkdirSync(dataDir, { recursive: true });
 
 export const db = new DatabaseSync(join(dataDir, 'workbench-market.db'));
@@ -55,6 +55,27 @@ CREATE TABLE IF NOT EXISTS cockpits (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS apps (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  slug TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL DEFAULT '',
+  active_version INTEGER NOT NULL DEFAULT 1,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS app_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  app_id INTEGER NOT NULL,
+  version INTEGER NOT NULL,
+  file_count INTEGER NOT NULL DEFAULT 0,
+  total_bytes INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(app_id, version)
+);
 `);
 
 /** 内置工作台类型种子：health 探测语义——expect_status 为 NULL 表示任意 HTTP 响应即在线 */
@@ -67,6 +88,7 @@ const seedTypes = [
   { key: 'jupyter', name: 'Jupyter 服务', icon: '📓', port: 8888, method: 'GET', path: '/api', expect: null, desc: 'Jupyter Notebook / Lab' },
   { key: 'mcp-sse', name: 'MCP SSE 端点', icon: '🔌', port: 3000, method: 'GET', path: '/sse', expect: null, desc: 'MCP Server-Sent Events 端点' },
   { key: 'docs', name: '文档站', icon: '📚', port: null, method: 'GET', path: '/', expect: null, desc: '静态文档 / 知识库站点' },
+  { key: 'market-app', name: '市场自产台', icon: '🧩', port: null, method: 'GET', path: '/', expect: null, desc: '市场内置静态托管（POST /api/apps 发布），服务存活即在线' },
 ];
 
 const insType = db.prepare(
@@ -100,6 +122,18 @@ export interface TypeRow {
   id: number; key: string; name: string; icon: string; default_port: number | null;
   health_method: string; health_path: string; expect_status: number | null;
   description: string; created_at: string;
+}
+
+/** 自产台（台生成器）：slug 唯一标识，active_version 指向当前生效快照 */
+export interface AppRow {
+  id: number; slug: string; title: string; description: string; created_by: string;
+  active_version: number; status: string; created_at: string; updated_at: string;
+}
+
+/** 自产台版本快照：文件树落在 DATA_DIR/apps/<slug>/v<version>/ */
+export interface AppVersionRow {
+  id: number; app_id: number; version: number; file_count: number; total_bytes: number;
+  created_by: string; created_at: string;
 }
 
 export interface CockpitRow {
