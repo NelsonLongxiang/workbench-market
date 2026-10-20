@@ -372,8 +372,8 @@ function readActiveManifest(slug: string): { manifest: SopManifest; app: AppRow 
   return { manifest: parseSopManifest(readFileSync(yamlPath, 'utf8')), app: a };
 }
 
-app.post('/api/apps', (req, res) => {
-  const b = req.body ?? {};
+/** 发布/重发逻辑（REST 与 MCP 工具共用）：返回响应体与状态码 */
+function publishAppBody(b: any): { status: number; body: object } {
   const slug = typeof b.slug === 'string' ? b.slug.trim().toLowerCase() : '';
   if (!SLUG_RE.test(slug)) bad('slug 必须是小写字母/数字/连字符（≤64 字符，字母或数字开头）');
   const kind = b.kind === 'sop' ? 'sop' : 'app';
@@ -424,22 +424,31 @@ app.post('/api/apps', (req, res) => {
   }
   // app 类发布即入册；sop 类走状态机——draft 不入册，publish 时入册
   const workbench_id = appRow.kind === 'app' ? syncWorkbenchRegistration(appRow) : 0;
-  res.status(existing ? 200 : 201).json({ ok: true, slug: appRow.slug, version, workbench_id, kind: appRow.kind, status: appRow.status, app: appDetail(appRow) });
+  return { status: existing ? 200 : 201, body: { ok: true, slug: appRow.slug, version, workbench_id, kind: appRow.kind, status: appRow.status, app: appDetail(appRow) } };
+}
+
+app.post('/api/apps', (req, res) => {
+  const r = publishAppBody(req.body ?? {});
+  res.status(r.status).json(r.body);
 });
 
 app.get('/api/apps/:slug', (req, res) => {
   res.json(appDetail(getApp(req.params.slug)));
 });
 
-// 版本回滚：activate 指定历史版本为当前生效快照（文件不动，只切换指针）
-app.post('/api/apps/:slug/activate', (req, res) => {
-  const a = getApp(req.params.slug);
-  const v = Number(req.body?.version);
+// 版本回滚：activate 指定历史版本为当前生效快照（文件不动，只切换指针）；REST 与 MCP 共用
+function activateAppVersion(slug: string, vRaw: unknown): object {
+  const a = getApp(slug);
+  const v = Number(vRaw);
   if (!Number.isInteger(v) || v < 1) bad('version 必须是正整数');
   const hit = db.prepare('SELECT version FROM app_versions WHERE app_id = ? AND version = ?').get(a.id, v) as { version: number } | undefined;
   if (!hit) throw new HttpError(404, `版本不存在: ${v}`);
   db.prepare(`UPDATE apps SET active_version = ?, updated_at = datetime('now') WHERE id = ?`).run(v, a.id);
-  res.json(appDetail(getApp(a.slug)));
+  return appDetail(getApp(a.slug));
+}
+
+app.post('/api/apps/:slug/activate', (req, res) => {
+  res.json(activateAppVersion(req.params.slug, req.body?.version));
 });
 
 app.delete('/api/apps/:slug', (req, res) => {
@@ -817,7 +826,7 @@ function serveApp(req: express.Request, res: express.Response) {
 // 必须在 web/dist SPA fallback 之前注册
 app.get(/^\/apps\/[a-z0-9][a-z0-9-]*(\/.*)?$/, serveApp);
 
-app.get('/api/summary', (_req, res) => {
+function summaryPayload() {
   const rows = listWorkbenches();
   const up = rows.filter((w) => w.enabled && w.last_status === 'up');
   const latencies = up.map((w) => w.last_latency_ms ?? 0).filter((n) => n > 0);
@@ -829,7 +838,7 @@ app.get('/api/summary', (_req, res) => {
     if (w.enabled && w.last_status === 'up') e.up += 1;
     byCategory.set(c, e);
   }
-  res.json({
+  return {
     total: rows.length,
     enabled: rows.filter((w) => w.enabled).length,
     up: up.length,
@@ -837,7 +846,11 @@ app.get('/api/summary', (_req, res) => {
     unknown: rows.filter((w) => w.enabled && w.last_status === 'unknown').length,
     avg_latency_ms: latencies.length ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : null,
     categories: Object.fromEntries([...byCategory].map(([k, v]) => [k, v])),
-  });
+  };
+}
+
+app.get('/api/summary', (_req, res) => {
+  res.json(summaryPayload());
 });
 
 // ---------- 类型管理 ----------
@@ -971,6 +984,168 @@ const wbById = (id: number): ReturnType<typeof rowToWorkbench> | null => {
   const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(id) as unknown as WorkbenchRow | undefined;
   return row ? rowToWorkbench(row) : null;
 };
+
+// ---------- MCP 生产通道（StreamableHTTP · stateless：AI 会话直连市场，零依赖手写 JSON-RPC） ----------
+const MCP_PROTOCOL = '2025-03-26';
+const MCP_KNOWN_PROTOCOLS = ['2024-11-05', '2025-03-26', '2025-06-18'];
+
+const MCP_TOOLS: { name: string; description: string; inputSchema: Record<string, unknown> }[] = [
+  {
+    name: 'workbench_list',
+    description: '列出市场中的工作台（可按关键词/类型/状态过滤），返回 id/名称/类型/状态/延迟/地址/分类/启用——找台的入口。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        q: { type: 'string', description: '关键词（名称/地址/描述子串，不区分大小写）' },
+        type: { type: 'string', description: '类型 key，如 web / ollama / market-app' },
+        status: { type: 'string', enum: ['up', 'down', 'unknown'] },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'workbench_summary',
+    description: '市场总览统计：总数/启用/在线/离线/未探测/平均延迟/分类聚合。',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'workbench_check',
+    description: '立即健康探测并回写状态：传 id 探测单个台；all=true 并发探测全部启用台。',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'integer', description: '工作台 id' }, all: { type: 'boolean', description: '探测全部启用台' } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'use_url',
+    description: '取某工作台的访问入口：portal（/go/<id>/ 同源代理，自动带凭据/剥禁嵌头）与 direct 直连地址。',
+    inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'], additionalProperties: false },
+  },
+  {
+    name: 'app_publish',
+    description:
+      '发布/更新自产台（市场自己长台）：files=[{path,content}] 发上来即静态托管 /apps/<slug>/ 并自动入册，门户/市场立即可用；同 slug 重发=新版本快照。kind="sop" 走 SOP 台（须含 sop.yaml + changelog，首发 draft，需再调 sop_publish 上架）。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slug: { type: 'string', description: '小写字母/数字/连字符，≤64 字符' },
+        title: { type: 'string', description: '显示名（首次发布必填）' },
+        description: { type: 'string' },
+        created_by: { type: 'string', description: '发布者标识（如 AI 会话名）' },
+        code: { type: 'string', description: 'SOP 编号（如 SOP-OPS-001，kind=sop 时用）' },
+        kind: { type: 'string', enum: ['app', 'sop'] },
+        changelog: { type: 'string', description: '本版改了什么（kind=sop 必填）' },
+        files: {
+          type: 'array',
+          description: '文件集（UTF-8 文本，单文件 ≤2MB；app 类须含根 index.html，sop 类须含 sop.yaml）',
+          items: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] },
+        },
+      },
+      required: ['slug', 'files'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'app_activate',
+    description: '版本回滚：把某自产台/SOP 台切回历史版本（版本链见 GET /api/apps/<slug>）。',
+    inputSchema: { type: 'object', properties: { slug: { type: 'string' }, version: { type: 'integer' } }, required: ['slug', 'version'], additionalProperties: false },
+  },
+  {
+    name: 'sop_publish',
+    description: 'SOP 台上架：draft/deprecated → published（首次入册市场；note 记入当前版本 changelog）。',
+    inputSchema: { type: 'object', properties: { slug: { type: 'string' }, note: { type: 'string', description: '发布说明（可选）' } }, required: ['slug'], additionalProperties: false },
+  },
+];
+
+async function callTool(name: string, args: any): Promise<unknown> {
+  switch (name) {
+    case 'workbench_list': {
+      let list = listWorkbenches();
+      if (args?.q) { const s = String(args.q).toLowerCase(); list = list.filter((w) => w.name.toLowerCase().includes(s) || w.url.toLowerCase().includes(s) || (w.description || '').toLowerCase().includes(s)); }
+      if (args?.type) list = list.filter((w) => w.type === args.type);
+      if (args?.status) list = list.filter((w) => w.last_status === args.status);
+      return list.map((w) => ({ id: w.id, name: w.name, type: w.type, status: w.last_status, latency_ms: w.last_latency_ms, url: w.url, category: w.category, enabled: w.enabled }));
+    }
+    case 'workbench_summary':
+      return summaryPayload();
+    case 'workbench_check': {
+      if (args?.all) {
+        const settings = getSettings();
+        const limit = Math.max(1, Number(settings.health_concurrency) || 8);
+        const rows = db.prepare('SELECT * FROM workbenches WHERE enabled = 1').all() as unknown as WorkbenchRow[];
+        const results: ReturnType<typeof rowToWorkbench>[] = [];
+        const queue = [...rows];
+        const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+          for (let w = queue.shift(); w; w = queue.shift()) results.push(await checkOne(w));
+        });
+        await Promise.all(workers);
+        return { checked: results.length, up: results.filter((w) => w.last_status === 'up').length, down: results.filter((w) => w.last_status === 'down').length };
+      }
+      const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(Number(args?.id)) as unknown as WorkbenchRow | undefined;
+      if (!row) throw new HttpError(404, `工作台不存在: ${args?.id}`);
+      const w = await checkOne(row);
+      return { id: w.id, name: w.name, status: w.last_status, latency_ms: w.last_latency_ms, error: w.last_error };
+    }
+    case 'use_url': {
+      const w = wbById(Number(args?.id));
+      if (!w) throw new HttpError(404, `工作台不存在: ${args?.id}`);
+      return { id: w.id, name: w.name, portal: `/go/${w.id}/`, use_page: `/use/${w.id}`, direct: w.url, note: 'portal 经统一门户同源代理（自动注入凭据/剥禁嵌头），推荐浏览器访问' };
+    }
+    case 'app_publish':
+      return publishAppBody({ ...args, created_by: args?.created_by || 'mcp' }).body;
+    case 'app_activate':
+      return activateAppVersion(String(args?.slug), args?.version);
+    case 'sop_publish': {
+      const a = sopTransition(String(args?.slug), ['draft', 'deprecated'], 'published', '发布');
+      if (typeof args?.note === 'string' && args.note.trim()) {
+        db.prepare(`UPDATE app_versions SET changelog = changelog || ? WHERE app_id = ? AND version = ?`)
+          .run(`\n[publish] ${args.note.trim()}`, a.id, a.active_version);
+      }
+      const d = appDetail(getApp(a.slug)) as { slug: string; status: string; workbench_id: number | null };
+      return { ok: true, slug: d.slug, status: d.status, runner_url: `/sop/${a.slug}/`, workbench_id: d.workbench_id };
+    }
+    default:
+      throw new HttpError(400, `未知工具: ${name}`);
+  }
+}
+
+app.post('/mcp', async (req, res) => {
+  const msg = req.body ?? {};
+  const fail = (code: number, message: string) => res.json({ jsonrpc: '2.0', id: msg.id ?? null, error: { code, message } });
+  if (typeof msg !== 'object' || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') return fail(-32600, 'Invalid Request');
+  if (msg.id === undefined || msg.id === null) return res.status(202).end(); // notification（含 notifications/initialized）——stateless 无会话态需要跟踪
+  try {
+    if (msg.method === 'initialize') {
+      const want = typeof msg.params?.protocolVersion === 'string' ? msg.params.protocolVersion : '';
+      return res.json({
+        jsonrpc: '2.0', id: msg.id,
+        result: {
+          protocolVersion: MCP_KNOWN_PROTOCOLS.includes(want) ? want : MCP_PROTOCOL,
+          capabilities: { tools: {} },
+          serverInfo: { name: 'workbench-market', version: '0.1.0', title: '工作台市场' },
+        },
+      });
+    }
+    if (msg.method === 'ping') return res.json({ jsonrpc: '2.0', id: msg.id, result: {} });
+    if (msg.method === 'tools/list') return res.json({ jsonrpc: '2.0', id: msg.id, result: { tools: MCP_TOOLS } });
+    if (msg.method === 'tools/call') {
+      if (typeof msg.params?.name !== 'string') return fail(-32602, 'params.name 必填');
+      try {
+        const out = await callTool(msg.params.name, msg.params.arguments ?? {});
+        return res.json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }] } });
+      } catch (e: any) {
+        // 工具执行失败按 MCP 规范走 isError（协议层错误才用 JSON-RPC error）
+        return res.json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: `执行失败：${e?.message || e}` }], isError: true } });
+      }
+    }
+    return fail(-32601, `Method not found: ${msg.method}`);
+  } catch (e: any) {
+    return fail(-32603, `Internal error: ${e?.message || e}`);
+  }
+});
+app.get('/mcp', (_req, res) => res.status(405).json({ error: 'stateless StreamableHTTP：仅支持 POST（无服务端会话流）' }));
+app.delete('/mcp', (_req, res) => res.status(405).json({ error: '无会话可终止（stateless）' }));
 const goPrefix = /^\/go\/(\d+)(.*)$/;
 
 // id 校验 + 404（在代理前拦截，避免 router 内抛错变 500）

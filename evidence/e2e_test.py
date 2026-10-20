@@ -570,6 +570,50 @@ with sync_playwright() as p:
     except Exception as e:
         record('SOP 台', False, str(e)); shot('sop')
 
+    # ---------- 17. MCP 生产通道（StreamableHTTP 协议面 + 生产工具链） ----------
+    try:
+        def mcp(method, params=None, msg_id=True):
+            body = {'jsonrpc': '2.0', 'method': method}
+            if msg_id: body['id'] = 900
+            if params is not None: body['params'] = params
+            r = page.request.fetch(BASE + '/mcp', method='POST',
+                headers={'Content-Type': 'application/json'},
+                data=json.dumps(body))
+            return r
+        # 协议面
+        r = mcp('initialize', {'protocolVersion': '2025-03-26'})
+        j = r.json()
+        assert j['result']['serverInfo']['name'] == 'workbench-market', 'initialize serverInfo 异常'
+        assert j['result']['protocolVersion'] == '2025-03-26', 'protocolVersion echo 异常'
+        r = mcp('notifications/initialized', msg_id=False)
+        assert r.status == 202, f'notification 应 202: {r.status}'
+        j = mcp('tools/list').json()
+        tool_names = [t['name'] for t in j['result']['tools']]
+        assert len(tool_names) == 7 and 'app_publish' in tool_names and 'sop_publish' in tool_names, f'tools/list 异常: {tool_names}'
+        j = mcp('wat').json()
+        assert j['error']['code'] == -32601, '未知 method 应 -32601'
+        assert page.request.fetch(BASE + '/mcp', method='GET').status == 405, 'GET /mcp 应 405'
+        # 工具链：summary + 发布 app + SOP 上架
+        j = mcp('tools/call', {'name': 'workbench_summary', 'arguments': {}}).json()
+        assert json.loads(j['result']['content'][0]['text'])['total'] > 0, 'summary 工具异常'
+        mcp_files = [{'path': 'index.html', 'content': '<h1>E2E-MCP-APP</h1>'}]
+        j = mcp('tools/call', {'name': 'app_publish', 'arguments': {'slug': 'e2e-mcp-app', 'title': 'E2E MCP 台', 'created_by': 'e2e', 'files': mcp_files}}).json()
+        pub = json.loads(j['result']['content'][0]['text'])
+        assert pub['ok'] and pub['workbench_id'] > 0, f'MCP app_publish 异常: {pub}'
+        r = page.request.fetch(BASE + '/apps/e2e-mcp-app/')
+        assert r.status == 200 and 'E2E-MCP-APP' in r.text(), 'MCP 发布的台不可访问'
+        sop_yaml = 'title: E2E MCP SOP\nsteps:\n  - key: a\n    title: 步骤A\n'
+        j = mcp('tools/call', {'name': 'app_publish', 'arguments': {'slug': 'e2e-mcp-sop', 'kind': 'sop', 'title': 'E2E MCP SOP', 'changelog': '初版', 'files': [{'path': 'sop.yaml', 'content': sop_yaml}]}}).json()
+        assert json.loads(j['result']['content'][0]['text'])['status'] == 'draft', 'MCP SOP 发布应 draft'
+        j = mcp('tools/call', {'name': 'sop_publish', 'arguments': {'slug': 'e2e-mcp-sop', 'note': 'E2E 上架'}}).json()
+        up = json.loads(j['result']['content'][0]['text'])
+        assert up['status'] == 'published' and up['workbench_id'] > 0, f'MCP sop_publish 异常: {up}'
+        # 清理（走 REST）
+        api(page, 'DELETE', '/api/apps/e2e-mcp-app'); api(page, 'DELETE', '/api/apps/e2e-mcp-sop')
+        record('MCP 生产通道（协议面 + 7 tools 生产链）', True)
+    except Exception as e:
+        record('MCP 生产通道', False, str(e)); shot('mcp')
+
     cleanup(page)
     browser.close()
 
