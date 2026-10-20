@@ -484,7 +484,20 @@ with sync_playwright() as p:
         api(page, 'PUT', f'/api/workbenches/{ewid}', {'auth': None})
         b3 = page.request.fetch(BASE + f'/go/{ewid}/sec').json()
         assert b3.get('authorization') is None, f'清除后仍注入: {b3.get("authorization")}'
-        # ⑦ 市场详情抽屉展示凭据状态（脱敏 Tag）
+        # ⑦ WS 升级链路：门户 upgrade 代理必须路由到正确上游并完成 101 握手
+        #    （回归锚：upgrade 不流经中间件链时 WS 被路由到死端口；握手 Origin/Host
+        #    触发上游防护时回 403——DSH 台「重新连接中」的两处根因）
+        import socket as sk
+        s = sk.create_connection(('127.0.0.1', 9800), timeout=5)
+        s.sendall((f'GET /go/{ewid}/ws HTTP/1.1\r\nHost: 127.0.0.1:9800\r\n'
+                   'Upgrade: websocket\r\nConnection: Upgrade\r\n'
+                   'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n'
+                   'Sec-WebSocket-Version: 13\r\n'
+                   'Origin: http://127.0.0.1:9800\r\n\r\n').encode())
+        first = s.recv(128).decode('latin1')
+        s.close()
+        assert '101' in first.split('\r\n')[0], f'WS 握手未达 101: {first.split(chr(13))[0]}'
+        # ⑧ 市场详情抽屉展示凭据状态（脱敏 Tag）
         api(page, 'PUT', f'/api/workbenches/{ewid}', {'auth': {'type': 'bearer', 'value': 'e2e-bear-tok'}})
         page.goto(BASE + '/market')
         page.wait_for_load_state('networkidle')
@@ -493,7 +506,7 @@ with sync_playwright() as p:
         page.wait_for_timeout(600)
         drawer = page.locator('.ant-drawer-content')
         assert '含凭据（bearer' in drawer.inner_text(), '详情抽屉未见凭据 Tag'
-        record('统一门户透传+凭据注入（echo fixture 七断言）', True)
+        record('统一门户透传+凭据注入+WS 升级（echo fixture 八断言）', True)
     except Exception as e:
         record('统一门户透传+凭据注入', False, str(e)); shot('portal-auth')
 

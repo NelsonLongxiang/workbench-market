@@ -3,6 +3,7 @@
 // 请求真的透传到了上游（状态码/响应头都可能来自 SPA fallback 的假绿）。
 // 用法：node scripts/echo-fixture.mjs [port]   （默认 9901）
 import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
 
 const port = Number(process.argv[2] ?? 9901);
 const server = createServer((req, res) => {
@@ -24,4 +25,17 @@ const server = createServer((req, res) => {
 
 server.listen(port, '127.0.0.1', () => {
   console.log(`echo fixture listening on http://127.0.0.1:${port}`);
+});
+
+// WS 握手回执（不处理帧，只完成 101 握手）——验证门户 /go/ 的 upgrade 代理链路
+// （路由到正确上游 + Origin/Host 改写）。上游若因 Origin fence 拒绝会回 403，
+// 握手级断言即可分辨。
+server.on('upgrade', (req, socket) => {
+  const key = req.headers['sec-websocket-key'];
+  const accept = createHash('sha1').update(String(key) + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
+  socket.write(
+    'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n' +
+      `Sec-WebSocket-Accept: ${accept}\r\n\r\n`
+  );
+  socket.end();
 });
