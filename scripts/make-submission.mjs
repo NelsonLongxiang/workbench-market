@@ -119,7 +119,7 @@ const TEXT_FACTS = [
   ["server/src/index.ts", "issue #7"],
   ["evidence/e2e_test.py", "e2e-import-probe"],
   ["scripts/make-submission.mjs", "issue #13"],
-  ["README.md", "v18"],
+  ["README.md", "116 条判据"],
   ["server/src/a2a.ts", "canonicalPayload"],
   ["server/src/index.ts", "x-admin-token"],
   ["server/src/a2a.ts", "a2a_node8"],
