@@ -826,29 +826,16 @@ with sync_playwright() as p:
         st = api(page, 'GET', '/api/settings').json()
         assert st['health_timeout_ms'] == '4000', f'设置未生效: {st}'
         api(page, 'PUT', '/api/settings', {'health_timeout_ms': '5000'})
-        # ⑥ #7 导入 replace：query 语法生效 + 内部路径注册行不再被静默丢弃
-        exp = api(page, 'GET', '/api/export').json()
-        probe_app = api(page, 'POST', '/api/workbenches', {'name': 'E2E ImportProbe', 'url': '/apps/e2e-import-probe/', 'type': 'market-app', 'category': 'E2E'}).json()
-        probe_http = api(page, 'POST', '/api/workbenches', {'name': 'E2E ImportHttp', 'url': 'http://127.0.0.1:9901/', 'type': 'web', 'category': 'E2E'}).json()
-        exp2 = api(page, 'GET', '/api/export').json()
-        api(page, 'DELETE', f"/api/workbenches/{probe_app['id']}")  # 模拟丢注册
-        rrep = api(page, 'POST', '/api/import?mode=replace', {'workbenches': exp2['workbenches'], 'types': exp2['types'], 'settings': exp2['settings']})
-        assert rrep.status == 200, f'query replace 失败: {rrep.status}'
-        urls = [w['url'] for w in api(page, 'GET', '/api/workbenches').json()]
-        assert '/apps/e2e-import-probe/' in urls, 'replace 后内部路径注册行仍丢失'
-        assert 'http://127.0.0.1:9901/' in urls
-        assert any('/sop/demo-rack-sop/' in u for u in urls), '演示 SOP 注册在 replace 后丢失'
-        # 恢复：replace 重排了自增 id——按 url 映射把驾驶舱面板引用修回新 id
-        exp3 = api(page, 'GET', '/api/export').json()
-        new_id_by_url = {w['url']: w['id'] for w in exp3['workbenches']}
-        old_id_by_url = {w['url']: w['id'] for w in exp['workbenches']}
-        for c in api(page, 'GET', '/api/cockpits').json():
-            fixed = [dict(p, workbenchId=new_id_by_url.get(next((u for u, oid in old_id_by_url.items() if oid == p['workbenchId']), ''), p['workbenchId'])) for p in c['panels']]
-            api(page, 'PUT', f"/api/cockpits/{c['id']}", {'panels': fixed})
-        for u in ('/apps/e2e-import-probe/', 'http://127.0.0.1:9901/'):
-            nid = new_id_by_url.get(u)
-            if nid: api(page, 'DELETE', f'/api/workbenches/{nid}')
-        record('运行时批六项（#5-#10：巡检重挂/删台清注册/导入 replace/校验400/面板清理/enabled 恢复）', True)
+        # ⑥ #7 导入 replace：**独立实例跑**（scripts/import-smoke.mjs，独立 DATA_DIR+PORT）——
+        # replace 是全表清写，在活库跑会重排自增 id 并吃掉真实台（84 事故 ×3 的根因，
+        # 监督席 direct-2102fc1b 升级后落地）；断言覆盖 query 语义/内部路径行不丢/
+        # 悬空面板 prune/掩码行跳过/body mode 等价，共 7 项
+        import subprocess as _sp, os as _os3
+        smoke = _sp.run(['node', 'scripts/import-smoke.mjs'], capture_output=True, text=True, timeout=180,
+                        cwd=_os3.path.join(_os3.path.dirname(_os3.path.abspath(__file__)), '..'))
+        assert smoke.returncode == 0, f'import-smoke 失败:\n{smoke.stdout[-500:]}\n{smoke.stderr[-300:]}'
+        assert '7 通过' in smoke.stdout, f'import-smoke 计数异常: {smoke.stdout[-200:]}'
+        record('运行时批六项（#5-#10：巡检重挂/删台清注册/导入 replace[独立实例]/校验400/面板清理/enabled 恢复）', True)
     except Exception as e:
         record('运行时批六项', False, str(e)); shot('runtime-batch')
 

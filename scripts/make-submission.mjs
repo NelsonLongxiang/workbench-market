@@ -133,6 +133,8 @@ const TEXT_FACTS = [
   ["server/src/index.ts", "workbenchCreateCore"],
   ["server/src/index.ts", "凭据不接受 MCP 写入"],
   ["evidence/e2e_test.py", "E2E MCP 台"],
+  ["scripts/import-smoke.mjs", "e2e-import-probe"],
+  ["evidence/e2e_test.py", "import-smoke"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);
