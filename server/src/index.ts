@@ -8,6 +8,7 @@ import { db, getSettings, dataDir, rowToWorkbench, rowToCockpit, type WorkbenchR
 import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
 import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, runStateSave, runStateRestore, runStateLoad, runStateRetire, runActiveIds } from './redis.ts';
+import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8 } from './a2a.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -1007,7 +1008,7 @@ app.get('/api/settings', (_req, res) => { res.json(getSettings()); });
 app.put('/api/settings', (req, res) => {
   const b = req.body ?? {};
   if (typeof b !== 'object' || b === null) bad('body 必须是 {key: value} 对象');
-  const allowed = ['health_interval_seconds', 'health_timeout_ms', 'health_concurrency'];
+  const allowed = ['health_interval_seconds', 'health_timeout_ms', 'health_concurrency', 'a2a_peers'];
   const upd = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
   for (const [k, v] of Object.entries(b)) {
     if (!allowed.includes(k)) continue;
@@ -1085,6 +1086,86 @@ app.post('/api/import', (req, res) => {
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()) });
+});
+
+// ---------- A2A 网络接入（GH #17 P1：签名卡片 + 人工绑定，只读暴露） ----------
+// 卡片：canonical/签名与上游 card.ts（裁判钉 75a3ebd）逐字节一致；sessionTeams 只列
+// published 且 ≥1 有效绑定的 SOP；不发布 teamMemberships（修订 3：绑定图不出门）。
+app.get('/.well-known/agent-card.json', (_req, res) => {
+  res.json(buildAgentCard(a2aKeyPath()));
+});
+
+// 人工绑定 API（读写都要 ADMIN_TOKEN + Origin 空或同源——服务端校验跨源，CORS 白名单管不住执行）
+function adminGuard(req: express.Request, res: express.Response): boolean {
+  if (!adminTokenOk(req.headers['x-admin-token'])) {
+    res.status(403).json({ error: '需要有效的 X-Admin-Token（管理员口令未设置时一律拒绝）' });
+    return false;
+  }
+  const origin = req.headers.origin;
+  if (origin) {
+    // 同源判定：Origin 的 host 与请求 Host 一致（http/https 均可）
+    try {
+      const oh = new URL(String(origin)).host;
+      if (oh !== String(req.headers.host ?? '')) {
+        res.status(403).json({ error: '跨源写操作被拒绝' });
+        return false;
+      }
+    } catch {
+      res.status(403).json({ error: 'Origin 非法' });
+      return false;
+    }
+  }
+  return true;
+}
+
+function maskKey(v: string): string {
+  return v ? '****' : '';
+}
+
+app.get('/api/sops/:slug/bindings', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const a = getApp(req.params.slug);
+  if (a.kind !== 'sop') throw new HttpError(400, `${a.slug} 不是 SOP 台`);
+  const rows = db.prepare('SELECT * FROM sop_bindings WHERE sop_slug = ? ORDER BY id DESC').all(a.slug) as unknown as {
+    id: number; sop_slug: string; node: string; mode: string; remote_api_key: string; revoked_at: string; created_by: string; created_at: string;
+  }[];
+  // remote_api_key 与工作台凭据同规：列表/详情一律掩码，不进 MCP、不进导出
+  res.json(rows.map((r) => ({ ...r, remote_api_key: maskKey(r.remote_api_key) })));
+});
+
+app.post('/api/sops/:slug/bindings', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const a = getApp(req.params.slug);
+  if (a.kind !== 'sop') throw new HttpError(400, `${a.slug} 不是 SOP 台`);
+  const b = req.body ?? {};
+  const node = typeof b.node === 'string' ? b.node.trim() : '';
+  const mode = b.mode === 'run' ? 'run' : 'read';
+  // 绑定对象是具体会话节点（dsh/<id8> 形态）或队名（队名绑定时回执广播到队——设计取舍 2 以节点为准，队名允许但提示）
+  if (!/^[a-z][a-z0-9-]*\/[a-z0-9][a-z0-9_-]{0,63}$/i.test(node)) bad('node 形态：<zone>/<id8>，如 dsh/1a2b3c4d');
+  const remoteKey = typeof b.remote_api_key === 'string' ? b.remote_api_key.trim() : '';
+  const r = db.prepare('INSERT INTO sop_bindings (sop_slug, node, mode, remote_api_key, created_by) VALUES (?, ?, ?, ?, ?)')
+    .run(a.slug, node, mode, remoteKey, 'admin') as unknown as { lastInsertRowid: number | bigint };
+  sopNode8(a.slug); // 确保节点短 id 已生成（上卡用）
+  res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), node, mode, remote_api_key: maskKey(remoteKey) });
+});
+
+app.delete('/api/sops/:slug/bindings/:id', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const a = getApp(req.params.slug);
+  const id = Number(req.params.id);
+  const hit = db.prepare('SELECT id FROM sop_bindings WHERE id = ? AND sop_slug = ?').get(id, a.slug) as { id: number } | undefined;
+  if (!hit) throw new HttpError(404, `binding not found: ${id}`);
+  // 软撤销（留审计）：卡片即下线该 SOP（若无其他有效绑定）
+  db.prepare(`UPDATE sop_bindings SET revoked_at = datetime('now') WHERE id = ?`).run(id);
+  res.json({ ok: true, revoked: id });
+});
+
+// /a2a/direct（P1）：一律 not-found——不区分「存在但未绑定」与「不存在」，不泄露存在性（P2 再开放）
+app.post('/a2a/direct', (_req, res) => {
+  res.status(404).json({ error: 'not found' });
+});
+app.get('/a2a/direct', (_req, res) => {
+  res.status(404).json({ error: 'not found' });
 });
 
 // ---------- 统一门户：/go/:id/* 反向代理到对应工作台 ----------

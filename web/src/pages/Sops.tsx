@@ -26,7 +26,7 @@ function parseRunData(raw: string): Record<string, unknown> {
   }
 }
 
-/** SOP 台管理面：状态机（draft→published→deprecated）+ 版本链 + run 历史 */
+/** SOP 台管理面：状态机（draft→published→deprecated）+ 版本链 + run 历史 + 网络暴露（人工绑定） */
 export default function Sops() {
   const { message, modal } = App.useApp();
   const actionRef = useRef<ActionType>();
@@ -36,6 +36,59 @@ export default function Sops() {
   const [runs, setRuns] = useState<SopRun[]>([]);
   const [runsLoading, setRunsLoading] = useState(false);
   const [busySlug, setBusySlug] = useState<string | null>(null);
+  // 网络暴露（人工绑定，GH #17 P1）：口令只存会话态，绝不持久化
+  const [netOf, setNetOf] = useState<SopApp | null>(null);
+  const [netToken, setNetToken] = useState('');
+  const [bindings, setBindings] = useState<Array<{ id: number; node: string; mode: string; remote_api_key: string; revoked_at: string; created_at: string }>>([]);
+  const [netLoading, setNetLoading] = useState(false);
+  const [netNode, setNetNode] = useState('');
+  const [netMode, setNetMode] = useState<'read' | 'run'>('read');
+  const [netKey, setNetKey] = useState('');
+
+  const reloadNet = useCallback(() => {
+    if (!netOf || !netToken) return;
+    setNetLoading(true);
+    fetch(`/api/sops/${netOf.slug}/bindings`, { headers: { 'X-Admin-Token': netToken } })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(setBindings)
+      .catch(() => message.error('绑定列表加载失败（口令无效或未设置）'))
+      .finally(() => setNetLoading(false));
+  }, [netOf, netToken, message]);
+
+  const addBinding = async () => {
+    if (!netOf || !netToken) return;
+    setNetLoading(true);
+    try {
+      const r = await fetch(`/api/sops/${netOf.slug}/bindings`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': netToken },
+        body: JSON.stringify({ node: netNode, mode: netMode, ...(netKey ? { remote_api_key: netKey } : {}) }),
+      });
+      const b = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error((b as { error?: string }).error || `HTTP ${r.status}`);
+      message.success(`已绑定 ${netNode}——SOP 上卡（market/<id8> 可被绑定的 agent 发现）`);
+      setNetNode(''); setNetKey('');
+      reloadNet();
+    } catch (e) {
+      message.error(`绑定失败：${(e as Error).message}`);
+    } finally {
+      setNetLoading(false);
+    }
+  };
+
+  const revokeBinding = async (id: number) => {
+    if (!netOf || !netToken) return;
+    setNetLoading(true);
+    try {
+      const r = await fetch(`/api/sops/${netOf.slug}/bindings/${id}`, { method: 'DELETE', headers: { 'X-Admin-Token': netToken } });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      message.success('已软撤销（无其他有效绑定时 SOP 下卡）');
+      reloadNet();
+    } catch (e) {
+      message.error(`撤销失败：${(e as Error).message}`);
+    } finally {
+      setNetLoading(false);
+    }
+  };
 
   const reload = useCallback(() => {
     setLoading(true);
@@ -190,6 +243,11 @@ export default function Sops() {
             记录
           </Button>
         </Tooltip>,
+        <Tooltip key="net" title="网络暴露：把此 SOP 绑定给具体 agent（market/<id8> 上卡，人工操作）">
+          <Button size="small" onClick={() => { setNetOf(s); setBindings([]); }}>
+            网络
+          </Button>
+        </Tooltip>,
         s.status !== 'published' ? (
           <Popconfirm
             key="publish"
@@ -275,6 +333,86 @@ export default function Sops() {
               );
             },
           }}
+        />
+      </Drawer>
+
+      <Drawer
+        title={
+          <Space>
+            <span>网络暴露</span>
+            <Typography.Text type="secondary" style={{ fontSize: 13 }}>{netOf?.title}</Typography.Text>
+          </Space>
+        }
+        size="large"
+        open={!!netOf}
+        onClose={() => setNetOf(null)}
+      >
+        <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
+          暴露给哪个 agent 只由人绑定：绑定后该 SOP 以 <span className="wm-mono">market/&lt;id8&gt;</span> 上卡
+          （<span className="wm-mono">/.well-known/agent-card.json</span>），DSH 侧还需主人把该节点加进 canvas 队（两半绑定）。
+          卡片不发布绑定图；对端 API Key 仅用于回执投递（P3），存储掩码。
+        </Typography.Paragraph>
+        <Space.Compact style={{ width: '100%', marginBottom: 12 }}>
+          <input
+            className="wm-mono"
+            type="password"
+            placeholder="管理员口令（X-Admin-Token，服务端环境变量）"
+            style={{ flex: 1, padding: '6px 10px', border: '1px solid #E2E8F0', borderRadius: 6, fontSize: 13 }}
+            value={netToken}
+            onChange={(e) => setNetToken(e.target.value)}
+          />
+          <Button onClick={reloadNet} loading={netLoading} disabled={!netToken}>载入绑定</Button>
+        </Space.Compact>
+        <Space.Compact style={{ width: '100%', marginBottom: 12 }}>
+          <input
+            className="wm-mono"
+            placeholder="agent 节点，如 dsh/1a2b3c4d"
+            style={{ flex: 2, padding: '6px 10px', border: '1px solid #E2E8F0', borderRadius: 6, fontSize: 13 }}
+            value={netNode}
+            onChange={(e) => setNetNode(e.target.value)}
+          />
+          <select
+            className="wm-mono"
+            style={{ flex: 1, padding: '6px 10px', border: '1px solid #E2E8F0', borderRadius: 6, fontSize: 13 }}
+            value={netMode}
+            onChange={(e) => setNetMode(e.target.value as 'read' | 'run')}
+          >
+            <option value="read">read（只读）</option>
+            <option value="run">run（可执行）</option>
+          </select>
+          <Button type="primary" onClick={addBinding} loading={netLoading} disabled={!netToken || !netNode}>绑定</Button>
+        </Space.Compact>
+        <Space.Compact style={{ width: '100%', marginBottom: 12 }}>
+          <input
+            className="wm-mono"
+            type="password"
+            placeholder="对端 API Key（可选，回执投递用，存储脱敏）"
+            style={{ flex: 1, padding: '6px 10px', border: '1px solid #E2E8F0', borderRadius: 6, fontSize: 13 }}
+            value={netKey}
+            onChange={(e) => setNetKey(e.target.value)}
+          />
+        </Space.Compact>
+        <Table
+          rowKey="id"
+          size="small"
+          loading={netLoading}
+          dataSource={bindings}
+          pagination={false}
+          columns={[
+            { title: '节点', dataIndex: 'node', render: (v: string) => <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{v}</Typography.Text> },
+            { title: '模式', dataIndex: 'mode', width: 70 },
+            { title: 'Key', dataIndex: 'remote_api_key', width: 70, render: (v: string) => (v ? <Tag>已存（掩码）</Tag> : <Typography.Text type="secondary">-</Typography.Text>) },
+            { title: '状态', dataIndex: 'revoked_at', width: 80, render: (v: string) => (v ? <Tag color="red">已撤销</Tag> : <Tag color="green">有效</Tag>) },
+            {
+              title: '操作', width: 80,
+              render: (_: unknown, r: { id: number; revoked_at: string }) =>
+                r.revoked_at ? <Typography.Text type="secondary" style={{ fontSize: 12 }}>留审计</Typography.Text> : (
+                  <Popconfirm title={`撤销绑定 ${r.id}？`} onConfirm={() => revokeBinding(r.id)}>
+                    <Button size="small" danger>撤销</Button>
+                  </Popconfirm>
+                ),
+            },
+          ]}
         />
       </Drawer>
     </PageContainer>

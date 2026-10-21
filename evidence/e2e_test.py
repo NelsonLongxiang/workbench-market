@@ -6,6 +6,7 @@
 失败自动截图 evidence/fail-*.png；exit code 非 0 表示有失败。
 """
 import json
+import time
 import sys
 from datetime import datetime, timezone
 from playwright.sync_api import sync_playwright, expect
@@ -827,6 +828,30 @@ with sync_playwright() as p:
         record('卫生批（README v18 一致性/提交物脚本幂等）', True)
     except Exception as e:
         record('卫生批', False, str(e)); shot('hygiene')
+
+    # ---------- 21. A2A 网络接入 P1（GH #17：签名卡片 + 人工绑定，只读暴露） ----------
+    try:
+        # ① 主实例卡片：形状 + 签名面 + ≤48h + 不含绑定图
+        card = page.request.fetch(BASE + '/.well-known/agent-card.json').json()
+        for f in ('name', 'session', 'team', 'capabilities', 'expiresAt', 'publicKey', 'signature'):
+            assert f in card, f'卡片缺字段 {f}'
+        assert 0 < card['expiresAt'] - (time.time() * 1000) <= 48 * 3600 * 1000, 'expiresAt 超预算'
+        assert 'teamMemberships' not in card, '卡片不得发布绑定图'
+        assert isinstance(card.get('sessionTeams'), list), 'sessionTeams 缺失'
+        # ② /a2a/direct P1 一律 not-found（不泄露存在性）
+        r404 = page.request.fetch(BASE + '/a2a/direct', method='POST', headers={'Content-Type': 'application/json'}, data='{"jsonrpc":"2.0","method":"message/send"}')
+        assert r404.status == 404, f'/a2a/direct 应 404: {r404.status}'
+        # ③ 专用实例全链（独立 DATA_DIR + ADMIN_TOKEN；上游 verifyCard 裁判 + 绑定 CRUD + 上卡规则，21 项）
+        import subprocess, os as _os2
+        smoke = subprocess.run(
+            ['node', 'scripts/a2a-smoke.mjs'],
+            capture_output=True, text=True, timeout=180,
+            cwd=_os2.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
+        assert smoke.returncode == 0, f'a2a-smoke 失败:\n{smoke.stdout[-600:]}\n{smoke.stderr[-300:]}'
+        assert '21 通过' in smoke.stdout, f'a2a-smoke 计数异常: {smoke.stdout[-200:]}'
+        record('A2A 网络接入 P1（卡片签名/人工绑定/上卡规则/direct 不泄露）', True)
+    except Exception as e:
+        record('A2A 网络接入 P1', False, str(e)); shot('a2a-p1')
 
     cleanup(page)
     browser.close()

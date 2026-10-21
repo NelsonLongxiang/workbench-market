@@ -1225,14 +1225,14 @@
       ]
     },
     {
-      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 24。",
+      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 25。",
       "findings": [
         {
           "question": "faithful",
           "verdict": "ok",
-          "reason": "判据原文逐字取自冻结材料，行为面至少覆盖既有 24 组用例（含驾驶舱、统一门户、自产台、凭据注入、SOP 台、MCP 生产通道、SOP 管理页、运行时批与卫生批）。",
+          "reason": "判据原文逐字取自冻结材料，行为面至少覆盖既有 25 组用例（含驾驶舱、统一门户、自产台、凭据注入、SOP 台、MCP 生产通道、SOP 管理页、运行时批、卫生批与 A2A P1）。",
           "anchor": {
-            "quote": "判据52：E2E 摘要记录的用例总数不得少于 24。",
+            "quote": "判据52：E2E 摘要记录的用例总数不得少于 25。",
             "locator": "dev-verifier-v4.md 判据5"
           }
         },
@@ -2445,6 +2445,102 @@
           "question": "not-vacuous",
           "verdict": "ok",
           "reason": "版本漂移提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据103：server/src/a2a.ts 必须包含上游一致签名面「canonicalPayload」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，卡片 canonical 与上游 card.ts（裁判钉 75a3ebd）逐字节一致——Ed25519 pure + SPKI DER base64，expiresAt ≤ 48h，须过上游 verifyCard（GH #17 P1）。",
+          "anchor": {
+            "quote": "判据103：server/src/a2a.ts 必须包含上游一致签名面「canonicalPayload」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删签名面提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据104：server/src/index.ts 必须包含绑定管理口令头「x-admin-token」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，绑定读写要 X-Admin-Token 常量时间比较（未设置一律 403）+ Origin 空或同源服务端校验；MCP 无绑定写工具；卡片不发布 teamMemberships（绑定图不出门）。",
+          "anchor": {
+            "quote": "判据104：server/src/index.ts 必须包含绑定管理口令头「x-admin-token」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删口令校验提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据105：server/src/a2a.ts 必须包含节点短 id 持久化「a2a_node8」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，每 SOP 随机生成 8hex 持久化（apps.a2a_node8）——禁 slug 推导（修订 3 防抢注）；上卡规则：published 且 ≥1 有效绑定。",
+          "anchor": {
+            "quote": "判据105：server/src/a2a.ts 必须包含节点短 id 持久化「a2a_node8」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删持久化提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据106：scripts/a2a-smoke.mjs 必须包含上游裁判「verifyCard」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，专用实例 21 项冒烟以 dsh-open-a2a-net src/card.ts 的 verifyCard 为裁判验卡（+绑定 CRUD/上卡规则/软撤销/direct 不泄露），E2E 组 21 subprocess 调用。",
+          "anchor": {
+            "quote": "判据106：scripts/a2a-smoke.mjs 必须包含上游裁判「verifyCard」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删裁判调用提取为 0 即 FAIL。"
         }
       ]
     }

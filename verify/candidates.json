@@ -1428,9 +1428,9 @@
       }
     },
     {
-      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 24。",
+      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 25。",
       "anchor": {
-        "quote": "判据52：E2E 摘要记录的用例总数不得少于 24。",
+        "quote": "判据52：E2E 摘要记录的用例总数不得少于 25。",
         "locator": "dev-verifier-v4.md 判据5"
       },
       "title": "E2E 规模下限",
@@ -1446,7 +1446,7 @@
               {
                 "col": "total",
                 "op": ">=",
-                "value": 24
+                "value": 25
               }
             ]
           }
@@ -3241,6 +3241,162 @@
                 "col": "needle",
                 "op": "=",
                 "value": "v18"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据103：server/src/a2a.ts 必须包含上游一致签名面「canonicalPayload」。",
+      "anchor": {
+        "quote": "判据103：server/src/a2a.ts 必须包含上游一致签名面「canonicalPayload」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "A2A 卡片签名钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/a2a.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "canonicalPayload"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据104：server/src/index.ts 必须包含绑定管理口令头「x-admin-token」。",
+      "anchor": {
+        "quote": "判据104：server/src/index.ts 必须包含绑定管理口令头「x-admin-token」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "人工绑定口令钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "x-admin-token"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据105：server/src/a2a.ts 必须包含节点短 id 持久化「a2a_node8」。",
+      "anchor": {
+        "quote": "判据105：server/src/a2a.ts 必须包含节点短 id 持久化「a2a_node8」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "SOP 节点短 id 钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/a2a.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "a2a_node8"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据106：scripts/a2a-smoke.mjs 必须包含上游裁判「verifyCard」。",
+      "anchor": {
+        "quote": "判据106：scripts/a2a-smoke.mjs 必须包含上游裁判「verifyCard」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "上游裁判冒烟钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "scripts/a2a-smoke.mjs"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "verifyCard"
               },
               {
                 "col": "present",
