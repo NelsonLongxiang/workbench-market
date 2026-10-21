@@ -1260,6 +1260,9 @@ app.use((req, res, next) => {
   (req as express.Request & { goBase?: string }).goBase = basePath;
   (req as express.Request & { goQuery?: string }).goQuery = goQuery;
   (req as express.Request & { goAuth?: string }).goAuth = goAuth;
+  // issue #4：3xx Location 改写在 proxyRes 里也要 id——但那时 req.url 已被 pathRewrite
+  // 写回上游路径（goPrefix 失配，改写从不生效）；在此备份原始 id 供 proxyRes 使用。
+  (req as express.Request & { goWid?: string }).goWid = m[1];
   next();
 });
 
@@ -1306,21 +1309,22 @@ const goProxy = createProxyMiddleware({
       // 剥禁嵌头：代理后与市场同源，这两个头只会误伤 iframe 嵌入（使用页/驾驶舱）
       delete proxyRes.headers['x-frame-options'];
       delete proxyRes.headers['content-security-policy'];
-      // 3xx Location 改写回 /go/N/ 前缀，防跳回原域丢前缀
+      // 3xx Location 改写回 /go/N/ 前缀，防跳回原域丢前缀（issue #4：req.url 已被
+      // pathRewrite 写回上游路径，goPrefix 失配——改用前置中间件备份的 req.goWid）
       const loc = proxyRes.headers.location;
-      if (typeof loc === 'string') {
-        const m = goPrefix.exec(req.url ?? '');
-        if (m) {
+      const wid = (req as express.Request & { goWid?: string }).goWid;
+      if (typeof loc === 'string' && wid) {
+        {
           const base = (req as express.Request & { goBase?: string }).goBase ?? '';
           if (loc.startsWith('/')) {
-            proxyRes.headers.location = `/go/${m[1]}${loc.startsWith(base + '/') ? loc.slice(base.length) : loc}`;
+            proxyRes.headers.location = `/go/${wid}${loc.startsWith(base + '/') ? loc.slice(base.length) : loc}`;
           } else if (/^https?:\/\//i.test(loc)) {
             try {
               const lu = new URL(loc);
               if (lu.origin === (req as express.Request & { goOrigin?: string }).goOrigin) {
                 let p = lu.pathname;
                 if (base && p.startsWith(base)) p = p.slice(base.length);
-                proxyRes.headers.location = `/go/${m[1]}${p}${lu.search}${lu.hash}`;
+                proxyRes.headers.location = `/go/${wid}${p}${lu.search}${lu.hash}`;
               }
             } catch { /* 异常 URL 透传 */ }
           }

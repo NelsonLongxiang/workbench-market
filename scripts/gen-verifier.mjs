@@ -143,10 +143,13 @@ const U = [
   { c: "判据92：server/src/index.ts 必须包含 CORS 白名单「CORS_ALLOW」。", t: "CORS 白名单钉位", s: "S1", ck: existsFact("server/src/index.ts", "CORS_ALLOW"), rv: ["判据原文逐字取自冻结材料，CORS 从全开放收紧为本机 dev 源白名单（评审 #1）——生产同源托管无需跨源；外源不回 ACAO。", "提取表三条件 exists 精确判定。", "改回全开放提取为 0 即 FAIL。"] },
   { c: "判据93：server/src/index.ts 必须包含 draft 拒绝文案「未上架不可执行」。", t: "draft 403 瘦身钉位", s: "S1", ck: existsFact("server/src/index.ts", "未上架不可执行"), rv: ["判据原文逐字取自冻结材料，非 published 的 SOP 不再渲染下发完整 Runner 页面（评审 #11 信息泄漏面）——403 一行文案，直连与门户内联两处分流同款。", "提取表三条件 exists 精确判定。", "恢复整页渲染提取为 0 即 FAIL。"] },
   { c: "判据94：evidence/e2e_test.py 必须包含 MCP 泄漏探针字面量「token=8sKZ」。", t: "MCP 泄漏行为断言钉位", s: "S1", ck: existsFact("evidence/e2e_test.py", "token=8sKZ"), rv: ["判据原文逐字取自冻结材料，E2E 组 15 十四断言以真实票据前缀为探针：MCP 响应不得含明文 token（含 token=**** 掩码形态）、CORS 外源无 ACAO、draft 403 页面无步骤内容、auth.value 双端点掩码+回传不毁库。", "提取表三条件 exists 精确判定。", "删探针提取为 0 即 FAIL。"] },
+  // ── 门户 3xx Location 改写（外部评审 #4，监督席代码分析佐证同红线 9③ 根因） ──
+  { c: "判据95：server/src/index.ts 必须包含 Location 改写的 id 备份「goWid」。", t: "Location 改写 id 备份钉位", s: "S1", ck: existsFact("server/src/index.ts", "goWid"), rv: ["判据原文逐字取自冻结材料，proxyRes 里 req.url 已被 pathRewrite 写回上游路径（goPrefix 失配，改写从不生效）——前置中间件在还知道 id 时备份 req.goWid 供 proxyRes 使用。", "提取表三条件 exists 精确判定。", "删备份提取为 0 即 FAIL（改写失效回归）。"] },
+  { c: "判据96：evidence/e2e_test.py 必须包含 Location 改写断言字面量「redir-relative」。", t: "Location 改写行为断言钉位", s: "S1", ck: existsFact("evidence/e2e_test.py", "redir-relative"), rv: ["判据原文逐字取自冻结材料，E2E 组 15 以 http.client（不跟随重定向）断言：上游 302 的相对/绝对 Location 均改写为 /go/<id>/landed（跳转留在门户前缀内，不落 SPA fallback）。", "提取表三条件 exists 精确判定。", "删断言提取为 0 即 FAIL。"] },
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
-const header = `workbench-market 开发验证器 v16（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改）
+const header = `workbench-market 开发验证器 v17（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写）
 
 判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
 快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
@@ -159,7 +162,7 @@ passed)——源自 E2E 内置的 Playwright 对比度探针（实测 DOM 前景
 提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
 脚本、验证器自举档案、设计规范与证据。
 命令执行型检查（typecheck、lint、build）不属于 CLI 闭集，由开发流程自行执行
-（E2E 与渲染层对比度结果经摘要表断言）；覆盖十六个维度共 94 条判据：数据域完整性
+（E2E 与渲染层对比度结果经摘要表断言）；覆盖十七个维度共 96 条判据：数据域完整性
 （判据1-9）、种子与配置（判据10-15）、提交物结构（判据16-35）、颜色可见性
 （判据36-51 与 57-58：经对比度审计的色值在源码与规范中的钉位，漂移即破坏已审计
 的可读性）、E2E 行为证据（判据52-54：规模下限、全绿、时间戳在位）、渲染层对比度
@@ -185,7 +188,9 @@ Sops.tsx 在位与状态语义表钉位、路由钉位、演示 SOP 常驻钉位
 token 掩码函数与掩码回传保护钉位——无认证列表不再批量泄露 query 门凭据，详情
 同策略，PUT 掩码回传不毁库）、安全批整改（判据91-94：auth.value 与 MCP 通道
 统一脱敏函数钉位、CORS 白名单、draft 403 瘦身、MCP 泄漏行为断言探针——外部
-评审 16 issue 之 #1/#2/#3/#11，监督席复现定性的整改面）。
+评审 16 issue 之 #1/#2/#3/#11，监督席复现定性的整改面）、门户 Location 改写
+（判据95-96：proxyRes 的 id 备份钉位与行为断言钉位——3xx 跳转改写回 /go/ 前缀
+内，评审 #4；根因同红线 9③：proxyRes 时 req.url 已被 pathRewrite 写回）。
 以下判据全部可机械判定：
 `;
 

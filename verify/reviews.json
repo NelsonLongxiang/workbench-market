@@ -2255,6 +2255,54 @@
           "reason": "删探针提取为 0 即 FAIL。"
         }
       ]
+    },
+    {
+      "source_clause": "判据95：server/src/index.ts 必须包含 Location 改写的 id 备份「goWid」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，proxyRes 里 req.url 已被 pathRewrite 写回上游路径（goPrefix 失配，改写从不生效）——前置中间件在还知道 id 时备份 req.goWid 供 proxyRes 使用。",
+          "anchor": {
+            "quote": "判据95：server/src/index.ts 必须包含 Location 改写的 id 备份「goWid」。",
+            "locator": "dev-verifier-v4.md 判据9"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删备份提取为 0 即 FAIL（改写失效回归）。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据96：evidence/e2e_test.py 必须包含 Location 改写断言字面量「redir-relative」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，E2E 组 15 以 http.client（不跟随重定向）断言：上游 302 的相对/绝对 Location 均改写为 /go/<id>/landed（跳转留在门户前缀内，不落 SPA fallback）。",
+          "anchor": {
+            "quote": "判据96：evidence/e2e_test.py 必须包含 Location 改写断言字面量「redir-relative」。",
+            "locator": "dev-verifier-v4.md 判据9"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删断言提取为 0 即 FAIL。"
+        }
+      ]
     }
   ]
 }

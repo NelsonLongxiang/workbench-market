@@ -2940,6 +2940,84 @@
         },
         "expect": true
       }
+    },
+    {
+      "source_clause": "判据95：server/src/index.ts 必须包含 Location 改写的 id 备份「goWid」。",
+      "anchor": {
+        "quote": "判据95：server/src/index.ts 必须包含 Location 改写的 id 备份「goWid」。",
+        "locator": "dev-verifier-v4.md 判据9"
+      },
+      "title": "Location 改写 id 备份钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "goWid"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据96：evidence/e2e_test.py 必须包含 Location 改写断言字面量「redir-relative」。",
+      "anchor": {
+        "quote": "判据96：evidence/e2e_test.py 必须包含 Location 改写断言字面量「redir-relative」。",
+        "locator": "dev-verifier-v4.md 判据9"
+      },
+      "title": "Location 改写行为断言钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "evidence/e2e_test.py"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "redir-relative"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
     }
   ]
 }

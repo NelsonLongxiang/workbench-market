@@ -7,6 +7,19 @@ import { createHash } from 'node:crypto';
 
 const port = Number(process.argv[2] ?? 9901);
 const server = createServer((req, res) => {
+  // 3xx 重定向场景（issue #4：门户 Location 改写的内容源）——302 + 相对/绝对两种 Location。
+  // 匹配按 pathname：经 /go/ 代理来的路径带 base 前缀与补全的 query（如 /xfo/redir-relative?token=…）。
+  {
+    const pathname = new URL(req.url, `http://127.0.0.1:${port}`).pathname;
+    if (pathname.endsWith('/redir-relative')) {
+      res.writeHead(302, { location: '/landed' });
+      return res.end();
+    }
+    if (pathname.endsWith('/redir-absolute')) {
+      res.writeHead(302, { location: `http://127.0.0.1:${port}/landed` });
+      return res.end();
+    }
+  }
   const body = {
     fixture: 'echo',
     method: req.method,
