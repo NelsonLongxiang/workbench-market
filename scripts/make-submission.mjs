@@ -137,6 +137,9 @@ const TEXT_FACTS = [
   ["evidence/e2e_test.py", "import-smoke"],
   ["README.md", "sop_run_step_save"],
   ["README.md", "workbench_register"],
+  ["evidence/e2e_test.py", "access-control-allow-origin"],
+  ["evidence/e2e_test.py", "-32601"],
+  ["evidence/e2e_test.py", "SecretStep"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);
