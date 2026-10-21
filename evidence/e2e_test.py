@@ -554,7 +554,17 @@ with sync_playwright() as p:
         r403 = page.request.fetch(BASE + '/sop/e2e-draft-leak/')
         assert r403.status == 403 and 'SecretStep' not in r403.text(), 'draft 403 页面泄漏步骤内容'
         api(page, 'DELETE', '/api/apps/e2e-draft-leak')
-        record('统一门户透传+凭据注入+WS 升级（echo fixture 十四断言）', True)
+        # ⑪ 门户 3xx Location 改写（issue #4：proxyRes 用前置备份的 id，改写后跳转留在 /go/ 前缀内）
+        # 注意：Playwright request.fetch 会跟随重定向（max_redirects=0 也不免），用 http.client 拿原始 302
+        import http.client as _hc
+        for _path, _expect in (('redir-relative', f'/go/{ewid}/landed'), ('redir-absolute', f'/go/{ewid}/landed')):
+            _conn = _hc.HTTPConnection('127.0.0.1', 9800, timeout=5)
+            _conn.request('GET', f'/go/{ewid}/{_path}')
+            _resp = _conn.getresponse()
+            _loc = _resp.getheader('location')
+            _conn.close()
+            assert _resp.status == 302 and _loc == _expect, f'{_path} Location 未改写: status={_resp.status} loc={_loc}'
+        record('统一门户透传+凭据注入+WS 升级（echo fixture 十六断言）', True)
     except Exception as e:
         record('统一门户透传+凭据注入', False, str(e)); shot('portal-auth')
 

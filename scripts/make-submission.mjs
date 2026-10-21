@@ -109,6 +109,8 @@ const TEXT_FACTS = [
   ["server/src/index.ts", "CORS_ALLOW"],
   ["server/src/index.ts", "未上架不可执行"],
   ["evidence/e2e_test.py", "token=8sKZ"],
+  ["server/src/index.ts", "goWid"],
+  ["evidence/e2e_test.py", "redir-relative"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);
