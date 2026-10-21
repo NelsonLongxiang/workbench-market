@@ -781,6 +781,8 @@ app.get(/^\/sop\/[a-z0-9][a-z0-9-]*(\/.*)?$/, (req, res) => {
 });
 
 // ---------- SOP run API：分层治理（Redis 热态 + SQLite 真源）----------
+// core 函数为唯一持久化链：REST 与 MCP（sop_run_* 工具）共用——agent 更新持久化执行数据
+// 与人在 Runner 页填数据走同一条链（GH #17 P4 的执行数据面提前交付，不经版本发布）。
 const checkpointAt = new Map<number, number>(); // runId → last checkpoint ms（进程内）
 const CHECKPOINT_MS = 30_000;
 
@@ -797,20 +799,77 @@ function mergeRunData(row: SopRunRow, stepKey: string, value: unknown): string {
   return JSON.stringify(data);
 }
 
-app.post('/api/sop/runs', (req, res) => {
-  const slug = typeof req.body?.slug === 'string' ? req.body.slug.trim().toLowerCase() : '';
+/** 开 run（钉当前版本；仅 published） */
+function sopRunStartCore(slugRaw: string, startedByRaw: string): { id: number; slug: string; version: number; status: string; data: Record<string, unknown> } {
+  const slug = slugRaw.trim().toLowerCase();
   if (!slug) bad('slug 必填');
   const hit = readActiveManifest(slug);
   if (!hit) throw new HttpError(404, `SOP not found: ${slug}`);
   if (hit.app.status !== 'published') throw new HttpError(409, `SOP 状态为 ${hit.app.status}，仅 published 可执行`);
-  const started_by = typeof req.body?.started_by === 'string' ? req.body.started_by.trim() : '';
+  const started_by = startedByRaw.trim();
   const r = db
     .prepare(`INSERT INTO sop_runs (sop_slug, sop_version, started_by) VALUES (?, ?, ?)`)
     .run(slug, hit.app.active_version, started_by) as unknown as { lastInsertRowid: number | bigint };
   const id = Number(r.lastInsertRowid);
-  const meta = { slug, version: hit.app.active_version, status: 'running', started_by, updated_at: Date.now() };
-  void runStateRestore(id, meta, {}); // Redis 初始化热态（降级态静默跳过）
-  res.status(201).json({ id, slug, version: hit.app.active_version, status: 'running', data: {} });
+  void runStateRestore(id, { slug, version: hit.app.active_version, status: 'running', started_by, updated_at: Date.now() }, {}); // Redis 初始化热态（降级态静默跳过）
+  return { id, slug, version: hit.app.active_version, status: 'running', data: {} };
+}
+
+/** 更新持久化数据（任意步骤键值；Redis 热写 + 30s checkpoint / 降级直写 SQLite） */
+async function sopRunStepSaveCore(id: number, stepKeyRaw: string, value: unknown): Promise<{ ok: boolean; id: number; stepKey: string; persisted: string }> {
+  const stepKey = stepKeyRaw.trim();
+  if (!stepKey) bad('stepKey 必填');
+  if (!/^[\w-]+$/.test(stepKey)) bad('stepKey 仅允许字母/数字/_/-');
+  const row = sopRunRow(id);
+  if (row.status !== 'running') throw new HttpError(409, `run ${id} 已 ${row.status}，不可再写`);
+
+  const hotOk = await runStateSave(id, { slug: row.sop_slug, version: row.sop_version, status: 'running', started_by: row.started_by, updated_at: Date.now() }, stepKey, value ?? null);
+  const now = Date.now();
+  const last = checkpointAt.get(id) ?? 0;
+  if (!hotOk || now - last >= CHECKPOINT_MS) {
+    // 降级直写 / 30s checkpoint：热数据整体沉淀 SQLite（真源）
+    let source = mergeRunData(row, stepKey, value ?? null);
+    if (hotOk) {
+      const hot = await runStateLoad(id);
+      if (hot) source = JSON.stringify(hot.data);
+    }
+    db.prepare(`UPDATE sop_runs SET data = ?, updated_at = datetime('now') WHERE id = ?`).run(source, id);
+    checkpointAt.set(id, now);
+  }
+  return { ok: true, id, stepKey, persisted: hotOk ? 'redis+checkpoint' : 'sqlite' };
+}
+
+/** 读 run（热读优先，miss 回 SQLite 真源并回填热态） */
+async function sopRunGetCore(id: number): Promise<{ id: number; sop_slug: string; sop_version: number; status: string; started_by: string; data: Record<string, unknown> }> {
+  const hot = await runStateLoad(id);
+  if (hot) return { id, sop_slug: hot.meta.slug, sop_version: hot.meta.version, status: hot.meta.status, started_by: hot.meta.started_by, data: hot.data };
+  const row = sopRunRow(id);
+  let data: Record<string, unknown> = {};
+  try { data = JSON.parse(row.data || '{}'); } catch { data = {}; }
+  if (row.status === 'running' && redisHealthy()) {
+    void runStateRestore(id, { slug: row.sop_slug, version: row.sop_version, status: row.status, started_by: row.started_by, updated_at: Date.now() }, data); // 回填热态
+  }
+  return { id: row.id, sop_slug: row.sop_slug, sop_version: row.sop_version, status: row.status, started_by: row.started_by, data };
+}
+
+/** 归档（热态全量沉淀 SQLite；Redis 条目 1h 平滑淘汰） */
+async function sopRunFinishCore(id: number): Promise<{ ok: boolean; id: number; status: string; steps: number }> {
+  const row = sopRunRow(id);
+  if (row.status !== 'running') throw new HttpError(409, `run ${id} 已 ${row.status}`);
+  let data = row.data || '{}';
+  const hot = await runStateLoad(id);
+  if (hot && Object.keys(hot.data).length > 0) data = JSON.stringify(hot.data);
+  db.prepare(`UPDATE sop_runs SET status = 'finished', data = ?, finished_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(data, id);
+  await runStateRetire(id); // 退出活跃索引 + Redis 条目 1h 平滑淘汰
+  checkpointAt.delete(id);
+  let parsed: Record<string, unknown> = {};
+  try { parsed = JSON.parse(data); } catch { parsed = {}; }
+  return { ok: true, id, status: 'finished', steps: Object.keys(parsed).length };
+}
+
+app.post('/api/sop/runs', (req, res) => {
+  const out = sopRunStartCore(String(req.body?.slug ?? ''), String(req.body?.started_by ?? ''));
+  res.status(201).json(out);
 });
 
 app.get('/api/sop/runs/active', async (_req, res) => {
@@ -836,56 +895,15 @@ app.get('/api/sop/runs', (req, res) => {
 });
 
 app.get('/api/sop/runs/:id(\\d+)', async (req, res) => {
-  const id = Number(req.params.id);
-  const hot = await runStateLoad(id); // Redis 优先（恢复现场快路径）
-  if (hot) return res.json({ id, sop_slug: hot.meta.slug, sop_version: hot.meta.version, status: hot.meta.status, started_by: hot.meta.started_by, data: hot.data });
-  const row = sopRunRow(id);
-  let data: Record<string, unknown> = {};
-  try { data = JSON.parse(row.data || '{}'); } catch { data = {}; }
-  if (row.status === 'running' && redisHealthy()) {
-    void runStateRestore(id, { slug: row.sop_slug, version: row.sop_version, status: row.status, started_by: row.started_by, updated_at: Date.now() }, data); // 回填热态
-  }
-  res.json({ id: row.id, sop_slug: row.sop_slug, sop_version: row.sop_version, status: row.status, started_by: row.started_by, data });
+  res.json(await sopRunGetCore(Number(req.params.id)));
 });
 
 app.put('/api/sop/runs/:id(\\d+)', async (req, res) => {
-  const id = Number(req.params.id);
-  const stepKey = typeof req.body?.stepKey === 'string' ? req.body.stepKey.trim() : '';
-  if (!stepKey) bad('stepKey 必填');
-  if (!/^[\w-]+$/.test(stepKey)) bad('stepKey 仅允许字母/数字/_/-');
-  const row = sopRunRow(id);
-  if (row.status !== 'running') throw new HttpError(409, `run ${id} 已 ${row.status}，不可再写`);
-
-  const hotOk = await runStateSave(id, { slug: row.sop_slug, version: row.sop_version, status: 'running', started_by: row.started_by, updated_at: Date.now() }, stepKey, req.body?.value ?? null);
-  const now = Date.now();
-  const last = checkpointAt.get(id) ?? 0;
-  if (!hotOk || now - last >= CHECKPOINT_MS) {
-    // 降级直写 / 30s checkpoint：热数据整体沉淀 SQLite（真源）
-    let source = mergeRunData(row, stepKey, req.body?.value ?? null);
-    if (hotOk) {
-      const hot = await runStateLoad(id);
-      if (hot) source = JSON.stringify(hot.data);
-    }
-    db.prepare(`UPDATE sop_runs SET data = ?, updated_at = datetime('now') WHERE id = ?`).run(source, id);
-    checkpointAt.set(id, now);
-  }
-  res.json({ ok: true, id, stepKey, persisted: hotOk ? 'redis+checkpoint' : 'sqlite' });
+  res.json(await sopRunStepSaveCore(Number(req.params.id), String(req.body?.stepKey ?? ''), req.body?.value));
 });
 
 app.post('/api/sop/runs/:id(\\d+)/finish', async (req, res) => {
-  const id = Number(req.params.id);
-  const row = sopRunRow(id);
-  if (row.status !== 'running') throw new HttpError(409, `run ${id} 已 ${row.status}`);
-  // 热态全量沉淀（Redis 是最新），回落 SQLite 行
-  let data = row.data || '{}';
-  const hot = await runStateLoad(id);
-  if (hot && Object.keys(hot.data).length > 0) data = JSON.stringify(hot.data);
-  db.prepare(`UPDATE sop_runs SET status = 'finished', data = ?, finished_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(data, id);
-  await runStateRetire(id); // 退出活跃索引 + Redis 条目 1h 平滑淘汰
-  checkpointAt.delete(id);
-  let parsed: Record<string, unknown> = {};
-  try { parsed = JSON.parse(data); } catch { parsed = {}; }
-  res.json({ ok: true, id, status: 'finished', steps: Object.keys(parsed).length });
+  res.json(await sopRunFinishCore(Number(req.params.id)));
 });
 
 // ---------- 自产台静态托管：GET /apps/:slug/* → DATA_DIR/apps/<slug>/v<active>/* ----------
@@ -1247,6 +1265,31 @@ const MCP_TOOLS: { name: string; description: string; inputSchema: Record<string
     description: 'SOP 台上架：draft/deprecated → published（首次入册市场；note 记入当前版本 changelog）。',
     inputSchema: { type: 'object', properties: { slug: { type: 'string' }, note: { type: 'string', description: '发布说明（可选）' } }, required: ['slug'], additionalProperties: false },
   },
+  {
+    name: 'sop_run_start',
+    description: '开一次 SOP 执行 run（钉当前版本；仅 published）——agent 更新持久化执行数据的入口，不触发版本发布。',
+    inputSchema: { type: 'object', properties: { slug: { type: 'string' }, started_by: { type: 'string', description: '执行者标识（如 agent 会话名）' } }, required: ['slug'], additionalProperties: false },
+  },
+  {
+    name: 'sop_run_step_save',
+    description: '更新 run 的持久化数据（stepKey→value 任意键值；与人在 Runner 页填数据同一条链：Redis 热写+30s checkpoint 沉淀 SQLite）。',
+    inputSchema: { type: 'object', properties: { run_id: { type: 'integer' }, step_key: { type: 'string', description: '字母/数字/_/-（不必是 sop.yaml 里的步骤——数据面哑存储）' }, value: { description: '任意 JSON 值' } }, required: ['run_id', 'step_key'], additionalProperties: false },
+  },
+  {
+    name: 'sop_run_get',
+    description: '读 run 详情（热读优先，miss 回 SQLite 真源）——恢复执行现场。',
+    inputSchema: { type: 'object', properties: { run_id: { type: 'integer' } }, required: ['run_id'], additionalProperties: false },
+  },
+  {
+    name: 'sop_run_list',
+    description: '列 SOP 执行记录（可按 slug/status 过滤）。',
+    inputSchema: { type: 'object', properties: { slug: { type: 'string' }, status: { type: 'string', enum: ['running', 'finished'] } }, additionalProperties: false },
+  },
+  {
+    name: 'sop_run_finish',
+    description: '归档 run（热态全量沉淀 SQLite，Redis 条目平滑淘汰）。',
+    inputSchema: { type: 'object', properties: { run_id: { type: 'integer' } }, required: ['run_id'], additionalProperties: false },
+  },
 ];
 
 async function callTool(name: string, args: any): Promise<unknown> {
@@ -1298,6 +1341,25 @@ async function callTool(name: string, args: any): Promise<unknown> {
       const d = appDetail(getApp(a.slug)) as { slug: string; status: string; workbench_id: number | null };
       return { ok: true, slug: d.slug, status: d.status, runner_url: `/sop/${a.slug}/`, workbench_id: d.workbench_id };
     }
+    // SOP 执行数据面（agent 直接更新持久化数据——与 REST/Runner 同链，不经版本发布）
+    case 'sop_run_start':
+      return sopRunStartCore(String(args?.slug ?? ''), String(args?.started_by ?? ''));
+    case 'sop_run_step_save':
+      return sopRunStepSaveCore(Number(args?.run_id), String(args?.step_key ?? ''), args?.value);
+    case 'sop_run_get':
+      return sopRunGetCore(Number(args?.run_id));
+    case 'sop_run_list': {
+      const slug = typeof args?.slug === 'string' ? args.slug : '';
+      const status = typeof args?.status === 'string' ? args.status : '';
+      const where: string[] = [];
+      const sqlArgs: unknown[] = [];
+      if (slug) { where.push('sop_slug = ?'); sqlArgs.push(slug); }
+      if (status) { where.push('status = ?'); sqlArgs.push(status); }
+      const sql = `SELECT id, sop_slug, sop_version, status, started_by, started_at, updated_at, finished_at FROM sop_runs ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY updated_at DESC LIMIT 50`;
+      return db.prepare(sql).all(...(sqlArgs as never[]));
+    }
+    case 'sop_run_finish':
+      return sopRunFinishCore(Number(args?.run_id));
     default:
       throw new HttpError(400, `未知工具: ${name}`);
   }

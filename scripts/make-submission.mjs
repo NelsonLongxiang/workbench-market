@@ -124,6 +124,9 @@ const TEXT_FACTS = [
   ["server/src/index.ts", "x-admin-token"],
   ["server/src/a2a.ts", "a2a_node8"],
   ["scripts/a2a-smoke.mjs", "verifyCard"],
+  ["server/src/index.ts", "sopRunStepSaveCore"],
+  ["server/src/index.ts", "sop_run_step_save"],
+  ["evidence/e2e_test.py", "agent-填-1"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);
