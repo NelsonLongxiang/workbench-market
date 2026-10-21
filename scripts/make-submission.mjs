@@ -23,6 +23,9 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const snap = join(root, "tmp", "verify-snap.sqlite");
 const sub = join(root, "tmp", "submission");
 
+// issue #13：干净克隆没有 tmp/——VACUUM INTO 前先把目录建好（recursive 幂等）
+mkdirSync(join(root, "tmp"), { recursive: true });
+
 // 1) 快照（活库由 server 持有 WAL，VACUUM INTO 得到一致副本）
 rmSync(snap, { force: true });
 const db = new DatabaseSync(join(root, "server", "data", "workbench-market.db"), { readOnly: true });
@@ -115,6 +118,8 @@ const TEXT_FACTS = [
   ["server/src/index.ts", "issue #6"],
   ["server/src/index.ts", "issue #7"],
   ["evidence/e2e_test.py", "e2e-import-probe"],
+  ["scripts/make-submission.mjs", "issue #13"],
+  ["README.md", "v18"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);

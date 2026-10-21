@@ -375,11 +375,13 @@ with sync_playwright() as p:
       const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
       return { text: el.textContent.trim().slice(0, 16), color: cs.color, bg, ratio: Math.round(ratio * 100) / 100, min };
     }'''
+    # 使用页目标台动态化：导入 replace 等操作会重排自增 id，固定 /use/1 会在台不存在时假红
+    _use_wid = next((w['id'] for w in api(page, 'GET', '/api/workbenches').json() if w['enabled']), 1)
     CONTRAST_TARGETS = [
-        ('/ 使用页·状态文字（用户报告的 XPath）', '/use/1', '.wm-use-bar .ant-badge-status-text', 4.5),
-        ('/ 使用页·标题', '/use/1', '.wm-use-bar .wm-use-title', 4.5),
-        ('/ 使用页·地址文字', '/use/1', '.wm-use-bar .wm-mono', 4.5),
-        ('/ 使用页·顶栏按钮', '/use/1', '.wm-use-bar .ant-btn', 4.5),
+        ('/ 使用页·状态文字（用户报告的 XPath）', f'/use/{_use_wid}', '.wm-use-bar .ant-badge-status-text', 4.5),
+        ('/ 使用页·标题', f'/use/{_use_wid}', '.wm-use-bar .wm-use-title', 4.5),
+        ('/ 使用页·地址文字', f'/use/{_use_wid}', '.wm-use-bar .wm-mono', 4.5),
+        ('/ 使用页·顶栏按钮', f'/use/{_use_wid}', '.wm-use-bar .ant-btn', 4.5),
         ('/ 总览·统计标签', '/', '.wm-stat-card .wm-stat-label', 4.5),
         ('/ 总览·侧栏菜单项', '/', '.ant-pro-sider .ant-menu-item', 4.5),
         ('/market 表格·状态文字', '/market', '.ant-table-tbody .ant-badge-status-text', 4.5),
@@ -806,6 +808,25 @@ with sync_playwright() as p:
         record('运行时批六项（#5-#10：巡检重挂/删台清注册/导入 replace/校验400/面板清理/enabled 恢复）', True)
     except Exception as e:
         record('运行时批六项', False, str(e)); shot('runtime-batch')
+
+    # ---------- 20. 卫生批（评审 #12/#13：README 一致性 + 干净克隆自愈） ----------
+    try:
+        # ① #12 README 与代码一致（验证器版本/判据数/类型数/页面目录；README 在仓库根不经 9800 托管，直读文件）
+        import os as _os
+        with open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'README.md'), encoding='utf-8') as _f:
+            readme = _f.read()
+        assert 'v18' in readme and '100 条判据' in readme, 'README 验证器节未同步 v18/100'
+        assert '内置 9 种' in readme, 'README 类型数未同步 9'
+        assert 'Sops' in readme, 'README 目录缺 Sops 页'
+        assert '≥23' in readme or '23 组' in readme, 'README E2E 组数未同步'
+        # ② #13 make-submission 幂等（重跑成功，判定面产物在场）
+        import subprocess
+        rmk = subprocess.run(['node', 'scripts/make-submission.mjs'], capture_output=True, text=True, timeout=120)
+        assert rmk.returncode == 0, f'make-submission 重跑失败: {rmk.stderr[:200]}'
+        assert 'snapshot' in rmk.stdout, 'make-submission 未产出快照'
+        record('卫生批（README v18 一致性/提交物脚本幂等）', True)
+    except Exception as e:
+        record('卫生批', False, str(e)); shot('hygiene')
 
     cleanup(page)
     browser.close()

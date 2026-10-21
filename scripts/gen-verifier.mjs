@@ -90,7 +90,7 @@ const U = [
   { c: "判据50：index.css 必须包含主色淡底色值「rgba(30, 58, 95, 0.1)」。", t: "主色淡底钉位", s: "S3", ck: existsFact("web/src/index.css","rgba(30, 58, 95, 0.1)"), rv: ["判据原文逐字取自冻结材料，navy 主色 10% 淡底。", "提取表三条件 exists 精确判定。", "改值提取为 0 即 FAIL。"] },
   { c: "判据51：index.css 必须包含深底色值「#0f172a」。", t: "css 深底钉位", s: "S3", ck: existsFact("web/src/index.css","#0f172a"), rv: ["判据原文逐字取自冻结材料，样式侧深底 token。", "提取表三条件 exists 精确判定。", "改值提取为 0 即 FAIL。"] },
   // ── E2E 行为证据（经 verifier_e2e_summary 提取表，源自 e2e_test.py 落盘的 evidence/e2e-summary.json） ──
-  { c: "判据52：E2E 摘要记录的用例总数不得少于 23。", t: "E2E 规模下限", s: "S2", ck: count("verifier_e2e_summary", "==", 1, and({ col: "total", op: ">=", value: 23 })), rv: ["判据原文逐字取自冻结材料，行为面至少覆盖既有 23 组用例（含驾驶舱、统一门户、自产台、凭据注入、SOP 台、MCP 生产通道、SOP 管理页与运行时批）。", "count 条件计数 ==1 精确判定。", "删用例或未跑 E2E 即计数 0 FAIL。"] },
+  { c: "判据52：E2E 摘要记录的用例总数不得少于 24。", t: "E2E 规模下限", s: "S2", ck: count("verifier_e2e_summary", "==", 1, and({ col: "total", op: ">=", value: 24 })), rv: ["判据原文逐字取自冻结材料，行为面至少覆盖既有 24 组用例（含驾驶舱、统一门户、自产台、凭据注入、SOP 台、MCP 生产通道、SOP 管理页、运行时批与卫生批）。", "count 条件计数 ==1 精确判定。", "删用例或未跑 E2E 即计数 0 FAIL。"] },
   { c: "判据53：E2E 摘要必须标记全部用例通过。", t: "E2E 全绿", s: "S1", ck: { type: "exists", predicate: { from: "verifier_e2e_summary", select: ["id"], where: and({ col: "all_passed", op: "=", value: 1 }) }, expect: true }, rv: ["判据原文逐字取自冻结材料，行为面必须全绿才可交付。", "all_passed=1 exists 精确判定。", "任一用例失败即 0 行 FAIL。"] },
   { c: "判据54：E2E 摘要必须带有完成时间戳。", t: "E2E 时间戳在位", s: "S3", ck: { type: "exists", predicate: { from: "verifier_e2e_summary", select: ["id"], where: { col: "finished_at", op: "is not null" } }, expect: true }, rv: ["判据原文逐字取自冻结材料，摘要须可追溯运行时间。", "is not null exists 精确判定。", "空时间戳即 FAIL。"] },
   // ── 渲染层对比度探针（E2E 内置 Playwright 实测 DOM 的 fg/bg 配对，经 verifier_contrast_checks 提取表） ──
@@ -151,10 +151,13 @@ const U = [
   { c: "判据98：server/src/index.ts 必须包含删 SOP 清注册锚「issue #6」。", t: "删台清注册钉位", s: "S1", ck: existsFact("server/src/index.ts", "issue #6"), rv: ["判据原文逐字取自冻结材料，DELETE /api/apps 同时清理 /apps/ 与 /sop/ 两类注册行，不留孤儿工作台（评审 #6）。", "提取表三条件 exists 精确判定。", "删清理提取为 0 即 FAIL。"] },
   { c: "判据99：server/src/index.ts 必须包含导入 mode 锚「issue #7」。", t: "导入 replace 语义钉位", s: "S1", ck: existsFact("server/src/index.ts", "issue #7"), rv: ["判据原文逐字取自冻结材料，import mode 支持 query 优先（README 的 ?mode=replace 写法），且内部路径注册行（/ 开头）不再被 http 断言静默丢弃（评审 #7）。", "提取表三条件 exists 精确判定。", "删语义提取为 0 即 FAIL。"] },
   { c: "判据100：evidence/e2e_test.py 必须包含运行时批探针字面量「e2e-import-probe」。", t: "运行时批行为断言钉位", s: "S1", ck: existsFact("evidence/e2e_test.py", "e2e-import-probe"), rv: ["判据原文逐字取自冻结材料，E2E 组 19 六断言：删 SOP 清孤儿/enabled 恢复/坏 url 400/坏 health_path 记 down/删台清驾驶舱面板/replace 导入 query 生效+内部路径行不丢（含驾驶舱面板 id 映射恢复）。", "提取表三条件 exists 精确判定。", "删探针提取为 0 即 FAIL。"] },
+  // ── 卫生批（外部评审 #12/#13：README 一致性 + 干净克隆自愈） ──
+  { c: "判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。", t: "提交物脚本自愈钉位", s: "S1", ck: existsFact("scripts/make-submission.mjs", "issue #13"), rv: ["判据原文逐字取自冻结材料，VACUUM INTO 前 mkdirSync(tmp) 幂等创建——干净克隆无 tmp/ 不再必然失败（评审 #13）。", "提取表三条件 exists 精确判定。", "删自愈提取为 0 即 FAIL。"] },
+  { c: "判据102：README.md 必须包含验证器版本锚「v18」。", t: "README 版本一致钉位", s: "S2", ck: existsFact("README.md", "v18"), rv: ["判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12：类型数 9/判据 100/18 维/页面目录含 Sops）。", "提取表三条件 exists 精确判定。", "版本漂移提取为 0 即 FAIL。"] },
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
-const header = `workbench-market 开发验证器 v18（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写 + 运行时批整改）
+const header = `workbench-market 开发验证器 v19（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写 + 运行时批整改 + 卫生批整改）
 
 判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
 快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
@@ -167,7 +170,7 @@ passed)——源自 E2E 内置的 Playwright 对比度探针（实测 DOM 前景
 提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
 脚本、验证器自举档案、设计规范与证据。
 命令执行型检查（typecheck、lint、build）不属于 CLI 闭集，由开发流程自行执行
-（E2E 与渲染层对比度结果经摘要表断言）；覆盖十八个维度共 100 条判据：数据域完整性
+（E2E 与渲染层对比度结果经摘要表断言）；覆盖十九个维度共 102 条判据：数据域完整性
 （判据1-9）、种子与配置（判据10-15）、提交物结构（判据16-35）、颜色可见性
 （判据36-51 与 57-58：经对比度审计的色值在源码与规范中的钉位，漂移即破坏已审计
 的可读性）、E2E 行为证据（判据52-54：规模下限、全绿、时间戳在位）、渲染层对比度
@@ -197,7 +200,9 @@ token 掩码函数与掩码回传保护钉位——无认证列表不再批量�
 （判据95-96：proxyRes 的 id 备份钉位与行为断言钉位——3xx 跳转改写回 /go/ 前缀
 内，评审 #4；根因同红线 9③：proxyRes 时 req.url 已被 pathRewrite 写回）、运行时批
 整改（判据97-100：巡检重挂/删台清注册/导入 replace 语义钉位 + 组 19 六断言探针——
-评审 #5-10 一轮整改，replace 导入的驾驶舱面板 id 映射恢复在 E2E 内实测）。
+评审 #5-10 一轮整改，replace 导入的驾驶舱面板 id 映射恢复在 E2E 内实测）、卫生批
+整改（判据101-102：提交物脚本干净克隆自愈 + README 版本一致钉位——评审 #12/#13，
+文档漂移由提取表事实钉位抓住）。
 以下判据全部可机械判定：
 `;
 
