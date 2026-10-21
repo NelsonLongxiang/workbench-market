@@ -130,6 +130,9 @@ const TEXT_FACTS = [
   ["server/src/index.ts", "compliance 二期首项"],
   ["server/src/index.ts", "掩码行（url 含 =****）不落库"],
   ["evidence/e2e_test.py", "E2E MaskImport"],
+  ["server/src/index.ts", "workbenchCreateCore"],
+  ["server/src/index.ts", "凭据不接受 MCP 写入"],
+  ["evidence/e2e_test.py", "E2E MCP 台"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);
