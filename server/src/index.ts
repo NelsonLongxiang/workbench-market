@@ -131,8 +131,10 @@ function validateWorkbenchBody(b: any, partial = false) {
   return out;
 }
 
-app.post('/api/workbenches', (req, res) => {
-  const f = validateWorkbenchBody(req.body);
+// CRUD 共用核心（REST 与 MCP workbench_register/update/unregister 同链）：
+// MCP 面不接受 auth 字段（凭据只经人工 REST/表单——安全边界内置）
+function workbenchCreateCore(body: any): ReturnType<typeof rowToWorkbench> {
+  const f = validateWorkbenchBody(body);
   const r = db
     .prepare(
       `INSERT INTO workbenches (name, url, type, icon, description, category, tags, enabled, health_path, sort, auth_config)
@@ -140,24 +142,14 @@ app.post('/api/workbenches', (req, res) => {
     )
     .run({ type: 'web', icon: '', description: '', category: '', tags: '[]', enabled: 1, health_path: '', sort: 0, auth_config: '', ...f });
   const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(Number(r.lastInsertRowid)) as unknown as WorkbenchRow;
-  res.status(201).json(rowToWorkbench(row));
-});
+  return rowToWorkbench(row);
+}
 
-app.get('/api/workbenches/:id', (req, res) => {
-  const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(Number(req.params.id)) as unknown as WorkbenchRow | undefined;
-  if (!row) throw new HttpError(404, `workbench not found: ${req.params.id}`);
-  // 与列表同策略掩码（issue #2/#3：auth.value 同为无认证出口的明文凭据向量）；
-  // 编辑流由 PUT 掩码回传保护兜底（掩码回传=不变更，DB 原值不毁）
-  res.json(maskForApi(rowToWorkbench(row)));
-});
-
-app.put('/api/workbenches/:id', (req, res) => {
-  const id = Number(req.params.id);
+function workbenchUpdateCore(id: number, body: any): ReturnType<typeof rowToWorkbench> {
   const cur = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(id) as unknown as WorkbenchRow | undefined;
   if (!cur) throw new HttpError(404, `workbench not found: ${id}`);
-  const f = validateWorkbenchBody(req.body, true);
-  // 掩码回传保护（url 面，issue #2/#3 掩码后的编辑流兜底）：编辑表单从 API 取到的
-  // url 是掩码值，原样回传视为「未变更」保留 DB 原值（auth.value 面在 validate 内同语义处理）。
+  const f = validateWorkbenchBody(body, true);
+  // 掩码回传保护（url 面）：编辑表单从 API 取到的是掩码值，原样回传视为「未变更」
   if (f.url !== undefined && f.url.includes('=****') && f.url !== cur.url) delete f.url;
   const merged = { ...cur, ...f };
   db.prepare(
@@ -171,11 +163,10 @@ app.put('/api/workbenches/:id', (req, res) => {
     auth_config: merged.auth_config ?? '', id,
   });
   const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(id) as unknown as WorkbenchRow;
-  res.json(rowToWorkbench(row));
-});
+  return rowToWorkbench(row);
+}
 
-app.delete('/api/workbenches/:id', (req, res) => {
-  const id = Number(req.params.id);
+function workbenchDeleteCore(id: number): { ok: boolean; deleted: number } {
   const r = db.prepare('DELETE FROM workbenches WHERE id = ?').run(id);
   if (!r.changes) throw new HttpError(404, `workbench not found: ${id}`);
   // issue #9：删除工作台同步清掉各驾驶舱对它的面板引用——否则悬空面板会让之后每次保存布局 400
@@ -188,7 +179,27 @@ app.delete('/api/workbenches/:id', (req, res) => {
       db.prepare(`UPDATE cockpits SET layout_config = ?, updated_at = datetime('now') WHERE id = ?`).run(JSON.stringify(kept), c.id);
     }
   }
-  res.json({ ok: true, deleted: id });
+  return { ok: true, deleted: id };
+}
+
+app.post('/api/workbenches', (req, res) => {
+  res.status(201).json(workbenchCreateCore(req.body));
+});
+
+app.get('/api/workbenches/:id', (req, res) => {
+  const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(Number(req.params.id)) as unknown as WorkbenchRow | undefined;
+  if (!row) throw new HttpError(404, `workbench not found: ${req.params.id}`);
+  // 与列表同策略掩码（issue #2/#3：auth.value 同为无认证出口的明文凭据向量）；
+  // 编辑流由 PUT 掩码回传保护兜底（掩码回传=不变更，DB 原值不毁）
+  res.json(maskForApi(rowToWorkbench(row)));
+});
+
+app.put('/api/workbenches/:id', (req, res) => {
+  res.json(workbenchUpdateCore(Number(req.params.id), req.body));
+});
+
+app.delete('/api/workbenches/:id', (req, res) => {
+  res.json(workbenchDeleteCore(Number(req.params.id)));
 });
 
 // ---------- 健康检查 ----------
@@ -1299,6 +1310,37 @@ const MCP_TOOLS: { name: string; description: string; inputSchema: Record<string
     description: '归档 run（热态全量沉淀 SQLite，Redis 条目平滑淘汰）。',
     inputSchema: { type: 'object', properties: { run_id: { type: 'integer' } }, required: ['run_id'], additionalProperties: false },
   },
+  {
+    name: 'workbench_register',
+    description: '登记外部工作台入册（agent 发现内网新服务时自主登记；门户/市场即刻可用）。凭据不接受——需人工经市场页配置（安全边界）。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' }, url: { type: 'string', description: 'http(s) 地址（自产台内部路径请用 app_publish）' },
+        type: { type: 'string', description: '类型 key，默认 web' }, category: { type: 'string' }, description: { type: 'string' },
+        tags: { type: 'array', items: { type: 'string' } }, enabled: { type: 'boolean' }, health_path: { type: 'string' }, sort: { type: 'integer' },
+      },
+      required: ['name', 'url'], additionalProperties: false,
+    },
+  },
+  {
+    name: 'workbench_update',
+    description: '更新工作台配置（name/category/tags/description/enabled/health_path/sort/url）。不接受 auth——凭据变更人工操作；掩码 url 回传视为未变更。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer' }, name: { type: 'string' }, url: { type: 'string' }, category: { type: 'string' },
+        description: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } }, enabled: { type: 'boolean' },
+        health_path: { type: 'string' }, sort: { type: 'integer' },
+      },
+      required: ['id'], additionalProperties: false,
+    },
+  },
+  {
+    name: 'workbench_unregister',
+    description: '解除工作台注册（不删服务本体；驾驶舱面板引用联动清理）。',
+    inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'], additionalProperties: false },
+  },
 ];
 
 async function callTool(name: string, args: any): Promise<unknown> {
@@ -1369,6 +1411,20 @@ async function callTool(name: string, args: any): Promise<unknown> {
     }
     case 'sop_run_finish':
       return sopRunFinishCore(Number(args?.run_id));
+    // 工作台注册 CRUD（agent 登记外部台——与 REST 同链；凭据字段不接受：传入即拒）
+    case 'workbench_register': {
+      if (args?.auth !== undefined) throw new HttpError(400, '凭据不接受 MCP 写入——请人工经市场页配置');
+      const w = workbenchCreateCore(args);
+      return maskForApi(w);
+    }
+    case 'workbench_update': {
+      if (args?.auth !== undefined) throw new HttpError(400, '凭据不接受 MCP 写入——请人工经市场页配置');
+      const { id: _ignored, ...rest } = args ?? {};
+      const w = workbenchUpdateCore(Number(args?.id), rest);
+      return maskForApi(w);
+    }
+    case 'workbench_unregister':
+      return workbenchDeleteCore(Number(args?.id));
     default:
       throw new HttpError(400, `未知工具: ${name}`);
   }

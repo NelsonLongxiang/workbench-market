@@ -167,10 +167,14 @@ const U = [
   { c: "判据110：server/src/index.ts 必须包含导出脱敏锚「compliance 二期首项」。", t: "导出默认脱敏钉位", s: "S1", ck: existsFact("server/src/index.ts", "compliance 二期首项"), rv: ["判据原文逐字取自冻结材料，/api/export 默认经 maskForApi 脱敏（url query 敏感参数 + auth.value），masked:1 标记；?reveal=1 显式真值（备份迁移用）。", "提取表三条件 exists 精确判定。", "删脱敏提取为 0 即 FAIL。"] },
   { c: "判据111：server/src/index.ts 必须包含导入掩码跳过锚「掩码行（url 含 =****）不落库」。", t: "导入掩码跳过钉位", s: "S1", ck: existsFact("server/src/index.ts", "掩码行（url 含 =****）不落库"), rv: ["判据原文逐字取自冻结材料，导入侧对掩码 url 行跳过、auth.value=**** 剥除——掩码数据永不落库（完整恢复用 reveal 导出）。", "提取表三条件 exists 精确判定。", "删跳过提取为 0 即 FAIL。"] },
   { c: "判据112：evidence/e2e_test.py 必须包含导出脱敏断言字面量「E2E MaskImport」。", t: "导出脱敏行为断言钉位", s: "S1", ck: existsFact("evidence/e2e_test.py", "E2E MaskImport"), rv: ["判据原文逐字取自冻结材料，E2E 组 15 第⑫断言：默认导出无明文 token/auth（masked:1）、reveal 含真值、掩码导入行 skipped。", "提取表三条件 exists 精确判定。", "删断言提取为 0 即 FAIL。"] },
+  // ── 工作台注册 CRUD MCP 化（agent 登记外部台；凭据字段不接受——安全边界内置） ──
+  { c: "判据113：server/src/index.ts 必须包含注册 CRUD 共用核心「workbenchCreateCore」。", t: "注册 CRUD 同链钉位", s: "S1", ck: existsFact("server/src/index.ts", "workbenchCreateCore"), rv: ["判据原文逐字取自冻结材料，workbench_register/update/unregister 三 MCP 工具与 REST 走同一套 CRUD 核心（掩码回传保护/驾驶舱联动清理复用）。", "提取表三条件 exists 精确判定。", "删共用核心提取为 0 即 FAIL。"] },
+  { c: "判据114：server/src/index.ts 必须包含 MCP 凭据拒绝锚「凭据不接受 MCP 写入」。", t: "MCP 凭据边界钉位", s: "S1", ck: existsFact("server/src/index.ts", "凭据不接受 MCP 写入"), rv: ["判据原文逐字取自冻结材料，register/update 传入 auth 字段一律 400——凭据只经人工 REST/表单（安全边界内置而非文档约定）。", "提取表三条件 exists 精确判定。", "删拒绝提取为 0 即 FAIL。"] },
+  { c: "判据115：evidence/e2e_test.py 必须包含 CRUD 行为断言字面量「E2E MCP 台」。", t: "注册 CRUD 行为断言钉位", s: "S1", ck: existsFact("evidence/e2e_test.py", "E2E MCP 台"), rv: ["判据原文逐字取自冻结材料，E2E 组 17 C5 断言：MCP 登记→更新（enabled/category）→凭据字段拒绝→注销全链，工具面 15 个。", "提取表三条件 exists 精确判定。", "删断言提取为 0 即 FAIL。"] },
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
-const header = `workbench-market 开发验证器 v22（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写 + 运行时批整改 + 卫生批整改 + A2A 网络接入 P1 + Agent 执行数据面 + 导出脱敏）
+const header = `workbench-market 开发验证器 v23（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写 + 运行时批整改 + 卫生批整改 + A2A 网络接入 P1 + Agent 执行数据面 + 导出脱敏 + 注册 CRUD MCP 化）
 
 判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
 快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
@@ -183,7 +187,7 @@ passed)——源自 E2E 内置的 Playwright 对比度探针（实测 DOM 前景
 提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
 脚本、验证器自举档案、设计规范与证据。
 命令执行型检查（typecheck、lint、build）不属于 CLI 闭集，由开发流程自行执行
-（E2E 与渲染层对比度结果经摘要表断言）；覆盖二十二个维度共 112 条判据：数据域完整性
+（E2E 与渲染层对比度结果经摘要表断言）；覆盖二十三个维度共 115 条判据：数据域完整性
 （判据1-9）、种子与配置（判据10-15）、提交物结构（判据16-35）、颜色可见性
 （判据36-51 与 57-58：经对比度审计的色值在源码与规范中的钉位，漂移即破坏已审计
 的可读性）、E2E 行为证据（判据52-54：规模下限、全绿、时间戳在位）、渲染层对比度
@@ -222,7 +226,9 @@ Ed25519 签名卡片过上游 verifyCard、绑定只经 ADMIN_TOKEN+Origin 校�
 （判据107-109：run 持久化链共用核心与 MCP 五工具钉位 + 人机同链行为断言——agent 经
 sop_run_step_save 直接更新持久化执行数据，与 Runner/REST 同一条 Redis+SQLite 链，
 不经版本发布）、导出脱敏（判据110-112：导出默认经 maskForApi 脱敏 + 导入掩码行
-跳过/剥除 + 行为断言——compliance 二期首项，无认证导出曾是最大凭据泄漏向量）。
+跳过/剥除 + 行为断言——compliance 二期首项，无认证导出曾是最大凭据泄漏向量）、注册
+CRUD MCP 化（判据113-115：register/update/unregister 三工具与 REST 同链共用核心、
+MCP 凭据字段硬拒绝（安全边界内置）、行为断言——agent 发现内网服务可自主登记入册）。
 以下判据全部可机械判定：
 `;
 

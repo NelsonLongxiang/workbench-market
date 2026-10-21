@@ -663,7 +663,7 @@ with sync_playwright() as p:
         assert r.status == 202, f'notification 应 202: {r.status}'
         j = mcp('tools/list').json()
         tool_names = [t['name'] for t in j['result']['tools']]
-        assert len(tool_names) == 12 and 'app_publish' in tool_names and 'sop_publish' in tool_names and 'sop_run_step_save' in tool_names, f'tools/list 异常: {tool_names}'
+        assert len(tool_names) == 15 and 'app_publish' in tool_names and 'sop_publish' in tool_names and 'sop_run_step_save' in tool_names and 'workbench_register' in tool_names, f'tools/list 异常: {tool_names}'
         j = mcp('wat').json()
         assert j['error']['code'] == -32601, '未知 method 应 -32601'
         assert page.request.fetch(BASE + '/mcp', method='GET').status == 405, 'GET /mcp 应 405'
@@ -705,6 +705,18 @@ with sync_playwright() as p:
         # 人机同链验证：REST 读到 agent 写的同一份数据
         same = api(page, 'GET', f"/api/sop/runs/{mrun['id']}").json()
         assert same['data'].get('rack') == {'v': 'agent-填-2'}, f"REST/MCP 数据不同链: {same['data']}"
+        # C5: agent 登记外部台（CRUD 三工具；凭据字段拒绝）
+        j = mcp('tools/call', {'name': 'workbench_register', 'arguments': {'name': 'E2E MCP 台', 'url': 'http://127.0.0.1:9901/mcpreg', 'category': 'E2E', 'tags': ['agent']}}).json()
+        reg = json.loads(j['result']['content'][0]['text'])
+        assert reg['id'] > 0 and reg['url'] == 'http://127.0.0.1:9901/mcpreg', f'MCP 登记异常: {reg}'
+        j = mcp('tools/call', {'name': 'workbench_update', 'arguments': {'id': reg['id'], 'enabled': False, 'category': 'E2E2'}}).json()
+        upd = json.loads(j['result']['content'][0]['text'])
+        assert upd['enabled'] is False and upd['category'] == 'E2E2', f'MCP 更新异常: {upd}'
+        j = mcp('tools/call', {'name': 'workbench_register', 'arguments': {'name': 'X', 'url': 'http://127.0.0.1:9901/y', 'auth': {'type': 'bearer', 'value': 'sekret'}}}).json()
+        assert j['result'].get('isError') is True and '凭据' in j['result']['content'][0]['text'], 'MCP 凭据字段未被拒绝'
+        j = mcp('tools/call', {'name': 'workbench_unregister', 'arguments': {'id': reg['id']}}).json()
+        un = json.loads(j['result']['content'][0]['text'])
+        assert un['ok'] and un['deleted'] == reg['id'], f'MCP 注销异常: {un}'
         # 清理（走 REST）
         api(page, 'DELETE', '/api/apps/e2e-mcp-app'); api(page, 'DELETE', '/api/apps/e2e-mcp-sop')
         record('MCP 生产通道（协议面 + 7 tools 生产链）', True)
