@@ -508,7 +508,23 @@ with sync_playwright() as p:
         page.wait_for_timeout(600)
         drawer = page.locator('.ant-drawer-content')
         assert '含凭据（bearer' in drawer.inner_text(), '详情抽屉未见凭据 Tag'
-        record('统一门户透传+凭据注入+WS 升级（echo fixture 八断言）', True)
+        # ⑨ 凭据面防浏览泄露（监督席派单 direct-30b57179 + 320ed1a5）：列表与详情
+        #    同策略掩码 url 敏感 query；PUT 掩码回传不改库；POST 掩码指纹拒绝入新建
+        lst = page.request.fetch(BASE + '/api/workbenches').json()
+        leaked = [w['url'] for w in lst if 'token=' in w['url'] and 'token=****' not in w['url']]
+        assert not leaked, f'列表响应泄漏明文 token: {leaked[:2]}'
+        masked = next((w for w in lst if 'token=****' in w.get('url', '')), None)
+        if masked:  # 库里存在带 query 门的台（如 84 号真实数据）时深化断言
+            detail = api(page, 'GET', f"/api/workbenches/{masked['id']}").json()
+            assert 'token=****' in detail['url'], f"详情端点未掩码: {detail['url']}"
+        api(page, 'PUT', f'/api/workbenches/{ewid}', {'url': 'http://127.0.0.1:9901/xfo?token=****'})
+        # DB 原值已无法从 API 直读（两端点均掩码）——经代理行为验证：
+        # 无 query 无 cookie 的 /go/ 请求会补 DB 里 url 自带的 base query（token=startup-tok）
+        b4 = page.request.fetch(BASE + f'/go/{ewid}/probe-mask').json()
+        assert 'token=startup-tok' in b4.get('url', ''), f"掩码回传毁库: 代理补全 {b4.get('url')}"
+        r400 = api(page, 'POST', '/api/workbenches', {'name': 'E2E MaskProbe', 'url': 'http://127.0.0.1:9901/x?token=****', 'type': 'web', 'category': 'E2E'})
+        assert r400.status == 400, 'POST 掩码指纹未被拒绝'
+        record('统一门户透传+凭据注入+WS 升级（echo fixture 九断言）', True)
     except Exception as e:
         record('统一门户透传+凭据注入', False, str(e)); shot('portal-auth')
 
