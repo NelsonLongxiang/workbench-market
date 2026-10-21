@@ -11,7 +11,16 @@ import { startRedis, redisHealthy, runStateSave, runStateRestore, runStateLoad, 
 
 const here = dirname(fileURLToPath(import.meta.url));
 const app = express();
-app.use(cors());
+// issue #1：CORS 从全开放收紧为白名单——生产形态（web/dist 由本服务同源托管）不需要跨源；
+// 仅 web dev（vite 5173，其 /api 代理是同源转发、但直连调试场景保留）放行本机回环源。
+// /mcp 为 StreamableHTTP POST（非浏览器 fetch 场景不受 CORS 约束；浏览器 MCP 客户端经同源门户）。
+const CORS_ALLOW = new Set(['http://localhost:5173', 'http://127.0.0.1:5173']);
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || CORS_ALLOW.has(origin)) return callback(null, true);
+    return callback(null, false); // 不回 ACAO 头 = 浏览器侧拒绝读响应
+  },
+}));
 app.use(express.json({ limit: '4mb' }));
 
 const wrap =
@@ -37,10 +46,8 @@ function listWorkbenches(): ReturnType<typeof rowToWorkbench>[] {
   return rows.map(rowToWorkbench);
 }
 
-// 凭据面防浏览泄露（监督席派单 direct-30b57179）：列表响应对 url query 中的敏感参数值掩码。
-// 仅列表掩码——详情（GET /:id）、编辑表单回填与门户代理（goQuery）仍用 DB 原值；
-// 信任假设：内网信任模型下接受 DSH 式 ?token= query 门（auth_config 的 bearer/basic 无法替代），
-// 掩码防的是无认证列表浏览的批量泄露（kb：市场 DB 信任模型）。
+// 凭据面防浏览泄露（监督席派单 direct-30b57179/320ed1a5/74a7d418 安全批）：无认证 API 出口
+// （REST 列表/详情 + MCP 工具）对 url query 敏感参数与 auth.value 统一掩码；代理侧 DB 直读不受影响。
 const SENSITIVE_QUERY_KEYS = /^(token|password|passwd|secret|api[-_]?key|access[-_]?token|auth)$/i;
 function maskSensitiveQuery(url: string): string {
   const qi = url.indexOf('?');
@@ -61,6 +68,11 @@ function maskSensitiveQuery(url: string): string {
   return head + masked + hash;
 }
 
+/** API 出口统一脱敏（issue #2 auth.value + #3 MCP 通道）：REST 与 MCP 共用 */
+function maskForApi<T extends { url: string; auth: { type: string; value: string } | null }>(w: T): T {
+  return { ...w, url: maskSensitiveQuery(w.url), auth: w.auth ? { ...w.auth, value: '****' } : w.auth };
+}
+
 app.get('/api/workbenches', (req, res) => {
   const { q, category, type, status } = req.query;
   let list = listWorkbenches();
@@ -69,7 +81,7 @@ app.get('/api/workbenches', (req, res) => {
   if (type) list = list.filter((w) => w.type === type);
   if (status) list = list.filter((w) => w.last_status === status);
   // 列表出队即掩码（q 过滤仍用原值——搜索语义不变，明文不落响应）
-  res.json(list.map((w) => ({ ...w, url: maskSensitiveQuery(w.url) })));
+  res.json(list.map(maskForApi));
 });
 
 function validateWorkbenchBody(b: any, partial = false) {
@@ -105,7 +117,12 @@ function validateWorkbenchBody(b: any, partial = false) {
     } else if (typeof b.auth === 'object' && (b.auth.type === 'bearer' || b.auth.type === 'basic')) {
       if (typeof b.auth.value !== 'string' || !b.auth.value) bad('auth.value 不能为空');
       if (b.auth.value.length > 4096) bad('auth.value 过长（>4096）');
-      out.auth_config = JSON.stringify({ type: b.auth.type, value: b.auth.value });
+      // issue #2 掩码指纹：PUT（partial）视为「未变更」不写 out（保留 DB 原值）；POST 拒绝
+      if (b.auth.value === '****') {
+        if (!partial) bad('auth.value 含掩码占位（****）——请填写真实凭据（接口展示已脱敏）');
+      } else {
+        out.auth_config = JSON.stringify({ type: b.auth.type, value: b.auth.value });
+      }
     } else {
       bad('auth 形态：{type:"bearer"|"basic", value:string} 或 null');
     }
@@ -128,9 +145,9 @@ app.post('/api/workbenches', (req, res) => {
 app.get('/api/workbenches/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(Number(req.params.id)) as unknown as WorkbenchRow | undefined;
   if (!row) throw new HttpError(404, `workbench not found: ${req.params.id}`);
-  // 与列表同策略掩码（监督席 direct-320ed1a5：单台详情 curl 一次即得票的泄漏向量必须堵）；
+  // 与列表同策略掩码（issue #2/#3：auth.value 同为无认证出口的明文凭据向量）；
   // 编辑流由 PUT 掩码回传保护兜底（掩码回传=不变更，DB 原值不毁）
-  res.json({ ...rowToWorkbench(row), url: maskSensitiveQuery(row.url) });
+  res.json(maskForApi(rowToWorkbench(row)));
 });
 
 app.put('/api/workbenches/:id', (req, res) => {
@@ -138,8 +155,8 @@ app.put('/api/workbenches/:id', (req, res) => {
   const cur = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(id) as unknown as WorkbenchRow | undefined;
   if (!cur) throw new HttpError(404, `workbench not found: ${id}`);
   const f = validateWorkbenchBody(req.body, true);
-  // 掩码回传保护：列表响应的 url 已掩码（token=****），编辑表单原样回传时视为「url 未变更」
-  // 保留 DB 原值——否则一次不动 url 的保存会把 **** 写库毁掉真实 query 门。
+  // 掩码回传保护（url 面，issue #2/#3 掩码后的编辑流兜底）：编辑表单从 API 取到的
+  // url 是掩码值，原样回传视为「未变更」保留 DB 原值（auth.value 面在 validate 内同语义处理）。
   if (f.url !== undefined && f.url.includes('=****') && f.url !== cur.url) delete f.url;
   const merged = { ...cur, ...f };
   db.prepare(
@@ -709,7 +726,11 @@ app.get(/^\/sop\/[a-z0-9][a-z0-9-]*(\/.*)?$/, (req, res) => {
   if (!hit) return res.status(404).json({ error: `SOP not found: ${m[1]}` });
   res.setHeader('X-App-Version', `v${hit.app.active_version}`);
   if (rest === '' || rest === '/' || rest === 'index.html') {
-    return res.status(hit.app.status === 'published' ? 200 : 403).type('html').send(renderSopRunner(hit.manifest, hit.app));
+    // issue #11：非 published 不再渲染下发完整 Runner 页面（信息泄漏面）——403 瘦身为一行
+    if (hit.app.status !== 'published') {
+      return res.status(403).type('text').send(`SOP ${m[1]} 状态为 ${hit.app.status}，未上架不可执行\n`);
+    }
+    return res.status(200).type('html').send(renderSopRunner(hit.manifest, hit.app));
   }
   // 附件：从活跃版本目录读（与 serveApp 同款防穿越）
   const root = join(appsRoot, m[1], `v${hit.app.active_version}`);
@@ -1097,7 +1118,8 @@ async function callTool(name: string, args: any): Promise<unknown> {
       if (args?.q) { const s = String(args.q).toLowerCase(); list = list.filter((w) => w.name.toLowerCase().includes(s) || w.url.toLowerCase().includes(s) || (w.description || '').toLowerCase().includes(s)); }
       if (args?.type) list = list.filter((w) => w.type === args.type);
       if (args?.status) list = list.filter((w) => w.last_status === args.status);
-      return list.map((w) => ({ id: w.id, name: w.name, type: w.type, status: w.last_status, latency_ms: w.last_latency_ms, url: w.url, category: w.category, enabled: w.enabled }));
+      // issue #3：MCP 通道同样掩码（agent 可编程面不得绕过 REST 脱敏）
+      return list.map((w) => ({ id: w.id, name: w.name, type: w.type, status: w.last_status, latency_ms: w.last_latency_ms, url: maskSensitiveQuery(w.url), category: w.category, enabled: w.enabled }));
     }
     case 'workbench_summary':
       return summaryPayload();
@@ -1122,7 +1144,8 @@ async function callTool(name: string, args: any): Promise<unknown> {
     case 'use_url': {
       const w = wbById(Number(args?.id));
       if (!w) throw new HttpError(404, `工作台不存在: ${args?.id}`);
-      return { id: w.id, name: w.name, portal: `/go/${w.id}/`, use_page: `/use/${w.id}`, direct: w.url, note: 'portal 经统一门户同源代理（自动注入凭据/剥禁嵌头），推荐浏览器访问' };
+      // issue #3：direct 也掩码——带 token 的直连地址不再下发；浏览器访问请走 portal（代理自动带票）
+      return { id: w.id, name: w.name, portal: `/go/${w.id}/`, use_page: `/use/${w.id}`, direct: maskSensitiveQuery(w.url), note: 'portal 经统一门户同源代理（自动注入凭据/剥禁嵌头），推荐浏览器访问；direct 已脱敏' };
     }
     case 'app_publish':
       return publishAppBody({ ...args, created_by: args?.created_by || 'mcp' }).body;
@@ -1199,7 +1222,11 @@ app.use((req, res, next) => {
       if (!hit) return res.status(404).json({ error: `SOP not found` });
       res.setHeader('X-App-Version', `v${hit.app.active_version}`);
       if (rest === '' || rest === '/' || rest === 'index.html') {
-        return res.status(hit.app.status === 'published' ? 200 : 403).type('html').send(renderSopRunner(hit.manifest, hit.app));
+        // issue #11：门户内联分流同款——draft 403 瘦身，不渲染 Runner
+        if (hit.app.status !== 'published') {
+          return res.status(403).type('text').send(`SOP ${hit.app.slug} 状态为 ${hit.app.status}，未上架不可执行\n`);
+        }
+        return res.status(200).type('html').send(renderSopRunner(hit.manifest, hit.app));
       }
       const root = join(appsRoot, mm![1], `v${hit.app.active_version}`);
       let rel = posix.normalize(rest);
