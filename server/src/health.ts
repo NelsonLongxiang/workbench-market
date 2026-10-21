@@ -26,7 +26,11 @@ export async function probe(
   rawUrl: string,
   opts: { method?: string; timeoutMs?: number; expectStatus?: number | null } = {}
 ): Promise<ProbeResult> {
-  assertHttpUrl(rawUrl);
+  try {
+    assertHttpUrl(rawUrl);
+  } catch (e: any) {
+    return { status: 'down', latency_ms: 0, http_code: null, error: String(e?.message ?? e) };
+  }
   const started = performance.now();
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 5000);

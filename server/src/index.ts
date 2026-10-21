@@ -84,7 +84,9 @@ function validateWorkbenchBody(b: any, partial = false) {
     // 掩码指纹不得入新建（复制工作台从列表带回掩码 url 时在这里拦下，防 **** 落库成坏台）
     if (u.includes('=****')) bad('url 含掩码占位（****）——请填写真实地址（列表展示的 token 已脱敏）');
     // 以 / 开头 = 市场自产台内部路径（本服务静态托管）；其余必须是 http(s)
-    if (!u.startsWith('/')) assertHttpUrl(u);
+    if (!u.startsWith('/')) {
+      try { assertHttpUrl(u); } catch (e) { bad((e as Error).message); }
+    }
     out.url = u;
   }
   if (b.type !== undefined) out.type = String(b.type || 'web');
@@ -159,8 +161,22 @@ app.put('/api/workbenches/:id', (req, res) => {
 app.delete('/api/workbenches/:id', (req, res) => {
   const r = db.prepare('DELETE FROM workbenches WHERE id = ?').run(Number(req.params.id));
   if (!r.changes) throw new HttpError(404, `workbench not found: ${req.params.id}`);
+  pruneCockpitPanels();
   res.json({ ok: true, deleted: Number(req.params.id) });
 });
+
+// 工作台被删后，驾驶舱里引用它的面板一并剔除：否则前端回传整份面板时 validatePanels 恒 400，
+// 该驾驶舱从此无法保存任何布局改动
+function pruneCockpitPanels(): void {
+  const exists = db.prepare('SELECT 1 FROM workbenches WHERE id = ?');
+  const upd = db.prepare('UPDATE cockpits SET layout_config = ? WHERE id = ?');
+  for (const c of db.prepare('SELECT * FROM cockpits').all() as unknown as CockpitRow[]) {
+    let panels: PanelConfig[];
+    try { panels = JSON.parse(c.layout_config || '[]'); } catch { continue; }
+    const kept = panels.filter((p) => exists.get(p.workbenchId));
+    if (kept.length !== panels.length) upd.run(JSON.stringify(kept), c.id);
+  }
+}
 
 // ---------- 健康检查 ----------
 function typeOf(key: string): TypeRow | undefined {
@@ -178,7 +194,13 @@ async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkben
   }
   const t = typeOf(w.type);
   const settings = getSettings();
-  const target = composeProbeUrl(w.url, w.health_path || t?.health_path || '');
+  // 地址组装失败（如 health_path 只写了协议头）交给 probe 判离线并记 last_error，不让单测/全测整体 500
+  let target: string;
+  try {
+    target = composeProbeUrl(w.url, w.health_path || t?.health_path || '');
+  } catch {
+    target = w.health_path || w.url;
+  }
   const result = await probe(target, {
     method: t?.health_method || 'GET',
     timeoutMs: Number(settings.health_timeout_ms) || 5000,
@@ -488,7 +510,9 @@ app.delete('/api/apps/:slug', (req, res) => {
   rmSync(join(appsRoot, a.slug), { recursive: true, force: true });
   db.prepare('DELETE FROM app_versions WHERE app_id = ?').run(a.id);
   db.prepare('DELETE FROM apps WHERE id = ?').run(a.id);
-  db.prepare(`DELETE FROM workbenches WHERE url = ? AND type = 'market-app'`).run(`/apps/${a.slug}/`);
+  // SOP 台的注册 url 是 /sop/<slug>/（与 syncWorkbenchRegistration 同一规则）
+  db.prepare(`DELETE FROM workbenches WHERE url = ? AND type = 'market-app'`).run(a.kind === 'sop' ? `/sop/${a.slug}/` : `/apps/${a.slug}/`);
+  pruneCockpitPanels();
   res.json({ ok: true, deleted: a.slug });
 });
 
@@ -504,7 +528,11 @@ function sopTransition(slug: string, from: string[], to: string, label: string):
   if (!from.includes(a.status)) throw new HttpError(409, `状态机拒绝：当前 ${a.status}，${label} 仅允许 ${from.join('/')}`);
   db.prepare(`UPDATE apps SET status = ?, updated_at = datetime('now') WHERE id = ?`).run(to, a.id);
   const updated = getApp(slug);
-  if (to === 'published') syncWorkbenchRegistration(updated); // 发布即入册（门户/市场/驾驶舱全链可见）
+  if (to === 'published') {
+    syncWorkbenchRegistration(updated); // 发布即入册（门户/市场/驾驶舱全链可见）
+    // 废弃时把市场行停用了（enabled=0），重新上架要恢复，否则不巡检、市场里仍显示停用
+    db.prepare(`UPDATE workbenches SET enabled = 1, updated_at = datetime('now') WHERE url = ? AND type = 'market-app'`).run(`/sop/${slug}/`);
+  }
   return updated;
 }
 
@@ -955,6 +983,8 @@ app.put('/api/settings', (req, res) => {
     if (!allowed.includes(k)) continue;
     upd.run(k, String(v));
   }
+  // 间隔改动立即重排定时器（armPatrol 先 clearTimeout）：否则从 0（关闭）改成非 0 永远不会生效，要重启服务
+  if ('health_interval_seconds' in b) armPatrol();
   res.json(getSettings());
 });
 
@@ -1002,6 +1032,7 @@ app.post('/api/import', (req, res) => {
     );
     imported += 1;
   }
+  if (mode === 'replace') pruneCockpitPanels();
   res.json({ ok: true, mode, imported, skipped: b.workbenches.length - imported });
 });
 
@@ -1097,7 +1128,8 @@ async function callTool(name: string, args: any): Promise<unknown> {
       if (args?.q) { const s = String(args.q).toLowerCase(); list = list.filter((w) => w.name.toLowerCase().includes(s) || w.url.toLowerCase().includes(s) || (w.description || '').toLowerCase().includes(s)); }
       if (args?.type) list = list.filter((w) => w.type === args.type);
       if (args?.status) list = list.filter((w) => w.last_status === args.status);
-      return list.map((w) => ({ id: w.id, name: w.name, type: w.type, status: w.last_status, latency_ms: w.last_latency_ms, url: w.url, category: w.category, enabled: w.enabled }));
+      // 与 REST 列表同策略掩码 url 敏感 query（MCP 同样无认证）
+      return list.map((w) => ({ id: w.id, name: w.name, type: w.type, status: w.last_status, latency_ms: w.last_latency_ms, url: maskSensitiveQuery(w.url), category: w.category, enabled: w.enabled }));
     }
     case 'workbench_summary':
       return summaryPayload();
@@ -1122,7 +1154,7 @@ async function callTool(name: string, args: any): Promise<unknown> {
     case 'use_url': {
       const w = wbById(Number(args?.id));
       if (!w) throw new HttpError(404, `工作台不存在: ${args?.id}`);
-      return { id: w.id, name: w.name, portal: `/go/${w.id}/`, use_page: `/use/${w.id}`, direct: w.url, note: 'portal 经统一门户同源代理（自动注入凭据/剥禁嵌头），推荐浏览器访问' };
+      return { id: w.id, name: w.name, portal: `/go/${w.id}/`, use_page: `/use/${w.id}`, direct: maskSensitiveQuery(w.url), note: 'portal 经统一门户同源代理（自动注入凭据/剥禁嵌头），推荐浏览器访问' };
     }
     case 'app_publish':
       return publishAppBody({ ...args, created_by: args?.created_by || 'mcp' }).body;
@@ -1229,6 +1261,8 @@ app.use((req, res, next) => {
   } catch {
     return res.status(502).json({ error: `工作台地址非法: ${m[1]}` });
   }
+  // goId 供 proxyRes 改写 Location：那时 req.url 已被 pathRewrite 改成上游路径，无法再从 URL 反查 id
+  (req as express.Request & { goId?: string }).goId = m[1];
   (req as express.Request & { goOrigin?: string }).goOrigin = origin;
   (req as express.Request & { goBase?: string }).goBase = basePath;
   (req as express.Request & { goQuery?: string }).goQuery = goQuery;
@@ -1282,18 +1316,18 @@ const goProxy = createProxyMiddleware({
       // 3xx Location 改写回 /go/N/ 前缀，防跳回原域丢前缀
       const loc = proxyRes.headers.location;
       if (typeof loc === 'string') {
-        const m = goPrefix.exec(req.url ?? '');
-        if (m) {
+        const goId = (req as express.Request & { goId?: string }).goId;
+        if (goId) {
           const base = (req as express.Request & { goBase?: string }).goBase ?? '';
           if (loc.startsWith('/')) {
-            proxyRes.headers.location = `/go/${m[1]}${loc.startsWith(base + '/') ? loc.slice(base.length) : loc}`;
+            proxyRes.headers.location = `/go/${goId}${loc.startsWith(base + '/') ? loc.slice(base.length) : loc}`;
           } else if (/^https?:\/\//i.test(loc)) {
             try {
               const lu = new URL(loc);
               if (lu.origin === (req as express.Request & { goOrigin?: string }).goOrigin) {
                 let p = lu.pathname;
                 if (base && p.startsWith(base)) p = p.slice(base.length);
-                proxyRes.headers.location = `/go/${m[1]}${p}${lu.search}${lu.hash}`;
+                proxyRes.headers.location = `/go/${goId}${p}${lu.search}${lu.hash}`;
               }
             } catch { /* 异常 URL 透传 */ }
           }

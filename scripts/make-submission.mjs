@@ -25,6 +25,7 @@ const sub = join(root, "tmp", "submission");
 
 // 1) 快照（活库由 server 持有 WAL，VACUUM INTO 得到一致副本）
 rmSync(snap, { force: true });
+mkdirSync(dirname(snap), { recursive: true }); // tmp/ 被 gitignore，干净克隆里不存在，VACUUM INTO 不会替你建目录
 const db = new DatabaseSync(join(root, "server", "data", "workbench-market.db"), { readOnly: true });
 db.exec(`VACUUM INTO '${snap.replaceAll("\\", "/")}'`);
 db.close();
