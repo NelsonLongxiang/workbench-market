@@ -1428,9 +1428,9 @@
       }
     },
     {
-      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 23。",
+      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 24。",
       "anchor": {
-        "quote": "判据52：E2E 摘要记录的用例总数不得少于 23。",
+        "quote": "判据52：E2E 摘要记录的用例总数不得少于 24。",
         "locator": "dev-verifier-v4.md 判据5"
       },
       "title": "E2E 规模下限",
@@ -1446,7 +1446,7 @@
               {
                 "col": "total",
                 "op": ">=",
-                "value": 23
+                "value": 24
               }
             ]
           }
@@ -3163,6 +3163,84 @@
                 "col": "needle",
                 "op": "=",
                 "value": "e2e-import-probe"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。",
+      "anchor": {
+        "quote": "判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "提交物脚本自愈钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "scripts/make-submission.mjs"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "issue #13"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据102：README.md 必须包含验证器版本锚「v18」。",
+      "anchor": {
+        "quote": "判据102：README.md 必须包含验证器版本锚「v18」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "README 版本一致钉位",
+      "severity": "S2",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "README.md"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "v18"
               },
               {
                 "col": "present",

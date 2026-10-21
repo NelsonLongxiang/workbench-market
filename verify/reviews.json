@@ -1225,14 +1225,14 @@
       ]
     },
     {
-      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 23。",
+      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 24。",
       "findings": [
         {
           "question": "faithful",
           "verdict": "ok",
-          "reason": "判据原文逐字取自冻结材料，行为面至少覆盖既有 23 组用例（含驾驶舱、统一门户、自产台、凭据注入、SOP 台、MCP 生产通道、SOP 管理页与运行时批）。",
+          "reason": "判据原文逐字取自冻结材料，行为面至少覆盖既有 24 组用例（含驾驶舱、统一门户、自产台、凭据注入、SOP 台、MCP 生产通道、SOP 管理页、运行时批与卫生批）。",
           "anchor": {
-            "quote": "判据52：E2E 摘要记录的用例总数不得少于 23。",
+            "quote": "判据52：E2E 摘要记录的用例总数不得少于 24。",
             "locator": "dev-verifier-v4.md 判据5"
           }
         },
@@ -2397,6 +2397,54 @@
           "question": "not-vacuous",
           "verdict": "ok",
           "reason": "删探针提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，VACUUM INTO 前 mkdirSync(tmp) 幂等创建——干净克隆无 tmp/ 不再必然失败（评审 #13）。",
+          "anchor": {
+            "quote": "判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删自愈提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据102：README.md 必须包含验证器版本锚「v18」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12：类型数 9/判据 100/18 维/页面目录含 Sops）。",
+          "anchor": {
+            "quote": "判据102：README.md 必须包含验证器版本锚「v18」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "版本漂移提取为 0 即 FAIL。"
         }
       ]
     }

@@ -1,12 +1,12 @@
 {
-  "total": 23,
-  "passed": 23,
+  "total": 24,
+  "passed": 24,
   "failed": 0,
   "all_passed": 1,
-  "finished_at": "2026-10-21T08:13:24.791083+00:00",
+  "finished_at": "2026-10-21T08:26:43.256661+00:00",
   "contrast_checks": [
     {
-      "text": "在线",
+      "text": "未探测",
       "color": "rgba(255, 255, 255, 0.85)",
       "bg": "rgb(15, 23, 42)",
       "ratio": 17.85,
@@ -60,7 +60,7 @@
       "label": "/ 总览·侧栏菜单项"
     },
     {
-      "text": "在线",
+      "text": "未探测",
       "color": "rgba(0, 0, 0, 0.88)",
       "bg": "rgb(255, 255, 255)",
       "ratio": 21,
