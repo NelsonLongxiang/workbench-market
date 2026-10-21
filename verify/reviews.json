@@ -2615,6 +2615,78 @@
           "reason": "删断言提取为 0 即 FAIL。"
         }
       ]
+    },
+    {
+      "source_clause": "判据110：server/src/index.ts 必须包含导出脱敏锚「compliance 二期首项」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，/api/export 默认经 maskForApi 脱敏（url query 敏感参数 + auth.value），masked:1 标记；?reveal=1 显式真值（备份迁移用）。",
+          "anchor": {
+            "quote": "判据110：server/src/index.ts 必须包含导出脱敏锚「compliance 二期首项」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删脱敏提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据111：server/src/index.ts 必须包含导入掩码跳过锚「掩码行（url 含 =****）不落库」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，导入侧对掩码 url 行跳过、auth.value=**** 剥除——掩码数据永不落库（完整恢复用 reveal 导出）。",
+          "anchor": {
+            "quote": "判据111：server/src/index.ts 必须包含导入掩码跳过锚「掩码行（url 含 =****）不落库」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删跳过提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据112：evidence/e2e_test.py 必须包含导出脱敏断言字面量「E2E MaskImport」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，E2E 组 15 第⑫断言：默认导出无明文 token/auth（masked:1）、reveal 含真值、掩码导入行 skipped。",
+          "anchor": {
+            "quote": "判据112：evidence/e2e_test.py 必须包含导出脱敏断言字面量「E2E MaskImport」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删断言提取为 0 即 FAIL。"
+        }
+      ]
     }
   ]
 }

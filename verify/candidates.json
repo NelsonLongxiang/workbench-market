@@ -3525,6 +3525,123 @@
         },
         "expect": true
       }
+    },
+    {
+      "source_clause": "判据110：server/src/index.ts 必须包含导出脱敏锚「compliance 二期首项」。",
+      "anchor": {
+        "quote": "判据110：server/src/index.ts 必须包含导出脱敏锚「compliance 二期首项」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "导出默认脱敏钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "compliance 二期首项"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据111：server/src/index.ts 必须包含导入掩码跳过锚「掩码行（url 含 =****）不落库」。",
+      "anchor": {
+        "quote": "判据111：server/src/index.ts 必须包含导入掩码跳过锚「掩码行（url 含 =****）不落库」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "导入掩码跳过钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "掩码行（url 含 =****）不落库"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据112：evidence/e2e_test.py 必须包含导出脱敏断言字面量「E2E MaskImport」。",
+      "anchor": {
+        "quote": "判据112：evidence/e2e_test.py 必须包含导出脱敏断言字面量「E2E MaskImport」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "导出脱敏行为断言钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "evidence/e2e_test.py"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "E2E MaskImport"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
     }
   ]
 }

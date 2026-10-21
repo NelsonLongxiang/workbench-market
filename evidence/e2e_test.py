@@ -567,7 +567,20 @@ with sync_playwright() as p:
             _loc = _resp.getheader('location')
             _conn.close()
             assert _resp.status == 302 and _loc == _expect, f'{_path} Location 未改写: status={_resp.status} loc={_loc}'
-        record('统一门户透传+凭据注入+WS 升级（echo fixture 十六断言）', True)
+        # ⑫ 导出脱敏（compliance 二期首项）：默认掩码（url query + auth.value），?reveal=1 显式真值
+        exp = page.request.fetch(BASE + '/api/export').json()
+        assert exp.get('masked') == 1, '导出未标记 masked'
+        ex_leak = [w['url'] for w in exp['workbenches'] if 'token=' in w['url'] and 'token=****' not in w['url']]
+        assert not ex_leak, f'导出泄漏明文 token: {ex_leak[:2]}'
+        au_leak = [w['name'] for w in exp['workbenches'] if (w.get('auth') or {}).get('value') not in (None, '', '****')]
+        assert not au_leak, f'导出泄漏明文 auth: {au_leak[:2]}'
+        expr = page.request.fetch(BASE + '/api/export?reveal=1').json()
+        assert expr.get('masked') == 0 and any('token=startup-tok' in w['url'] for w in expr['workbenches']), 'reveal 导出未含真值'
+        # 导入掩码行跳过（掩码永不落库）
+        bad_payload = {'workbenches': [{'name': 'E2E MaskImport', 'url': 'http://127.0.0.1:9901/x?token=****', 'type': 'web'}], 'types': []}
+        rim = api(page, 'POST', '/api/import', bad_payload)
+        assert rim.status == 200 and rim.json()['imported'] == 0, f"掩码行未被跳过: {rim.json()}"
+        record('统一门户透传+凭据注入+WS 升级（echo fixture 十九断言）', True)
     except Exception as e:
         record('统一门户透传+凭据注入', False, str(e)); shot('portal-auth')
 

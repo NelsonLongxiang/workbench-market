@@ -1036,11 +1036,16 @@ app.put('/api/settings', (req, res) => {
   res.json(getSettings());
 });
 
-app.get('/api/export', (_req, res) => {
+app.get('/api/export', (req, res) => {
+  // compliance 二期首项：导出默认脱敏（compliance 范围 kb ab3279b84a 的「导出面」——
+  // 无认证导出曾是最大凭据泄漏向量）。?reveal=1 显式取真值（备份/迁移用途），
+  // 导入侧对掩码行跳过/剥除（见 import 循环）——掩码数据永不落库。
+  const reveal = req.query.reveal === '1';
   res.json({
     format: 'workbench-market/export@1',
     exported_at: new Date().toISOString(),
-    workbenches: listWorkbenches(),
+    masked: reveal ? 0 : 1,
+    workbenches: listWorkbenches().map((w) => (reveal ? w : maskForApi(w))),
     types: db.prepare('SELECT * FROM types ORDER BY id ASC').all(),
     settings: getSettings(),
   });
@@ -1074,9 +1079,13 @@ app.post('/api/import', (req, res) => {
     if (!String(w.url).startsWith('/')) {
       try { assertHttpUrl(String(w.url)); } catch { continue; }
     }
+    // 导出脱敏配套：掩码行（url 含 =****）不落库——掩码数据写库会毁真实 query 门；
+    // 需要完整恢复请用 ?reveal=1 的导出文件
+    if (String(w.url).includes('=****')) continue;
     let authCfg = '';
     if (w.auth && (w.auth.type === 'bearer' || w.auth.type === 'basic') && typeof w.auth.value === 'string' && w.auth.value) {
-      authCfg = JSON.stringify({ type: w.auth.type, value: w.auth.value });
+      // auth.value 掩码（****）同样剥除——凭据为空导入，由人重新配置
+      if (w.auth.value !== '****') authCfg = JSON.stringify({ type: w.auth.type, value: w.auth.value });
     }
     ins.run(
       String(w.name ?? '未命名'), String(w.url), String(w.type ?? 'web'), String(w.icon ?? ''),
