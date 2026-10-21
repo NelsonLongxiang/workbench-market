@@ -120,6 +120,10 @@ const TEXT_FACTS = [
   ["evidence/e2e_test.py", "e2e-import-probe"],
   ["scripts/make-submission.mjs", "issue #13"],
   ["README.md", "v18"],
+  ["server/src/a2a.ts", "canonicalPayload"],
+  ["server/src/index.ts", "x-admin-token"],
+  ["server/src/a2a.ts", "a2a_node8"],
+  ["scripts/a2a-smoke.mjs", "verifyCard"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);

@@ -90,9 +90,20 @@ CREATE TABLE IF NOT EXISTS sop_runs (
   finished_at TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_sop_runs_slug ON sop_runs (sop_slug, status);
+CREATE TABLE IF NOT EXISTS sop_bindings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sop_slug TEXT NOT NULL,
+  node TEXT NOT NULL,
+  mode TEXT NOT NULL DEFAULT 'read',
+  remote_api_key TEXT NOT NULL DEFAULT '',
+  revoked_at TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_sop_bindings_slug ON sop_bindings (sop_slug, revoked_at);
 `);
 
-// 轻量列迁移：已存库补列（凭据注入 / SOP 台生成器扩展）
+// 轻量列迁移：已存库补列（凭据注入 / SOP 台生成器 / A2A 节点短 id）
 {
   const cols = db.prepare('PRAGMA table_info(workbenches)').all() as { name: string }[];
   if (!cols.some((c) => c.name === 'auth_config')) {
@@ -106,6 +117,10 @@ CREATE INDEX IF NOT EXISTS idx_sop_runs_slug ON sop_runs (sop_slug, status);
   }
   if (!cols.some((c) => c.name === 'code')) {
     db.exec("ALTER TABLE apps ADD COLUMN code TEXT NOT NULL DEFAULT ''");
+  }
+  // A2A 节点短 id（GH #17：随机生成持久化，禁 slug 推导——修订 3 防抢注）
+  if (!cols.some((c) => c.name === 'a2a_node8')) {
+    db.exec("ALTER TABLE apps ADD COLUMN a2a_node8 TEXT NOT NULL DEFAULT ''");
   }
 }
 {
