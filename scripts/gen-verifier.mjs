@@ -173,10 +173,13 @@ const U = [
   { c: "判据115：evidence/e2e_test.py 必须包含 CRUD 行为断言字面量「E2E MCP 台」。", t: "注册 CRUD 行为断言钉位", s: "S1", ck: existsFact("evidence/e2e_test.py", "E2E MCP 台"), rv: ["判据原文逐字取自冻结材料，E2E 组 17 C5 断言：MCP 登记→更新（enabled/category）→凭据字段拒绝→注销全链，工具面 15 个。", "提取表三条件 exists 精确判定。", "删断言提取为 0 即 FAIL。"] },
   // ── 破坏性测试隔离（84 事故 ×3 根治：replace 全表清写永不碰活库） ──
   { c: "判据116：evidence/e2e_test.py 必须包含导入隔离锚「import-smoke」。", t: "破坏性测试隔离钉位", s: "S1", ck: existsFact("evidence/e2e_test.py", "import-smoke"), rv: ["判据原文逐字取自冻结材料，E2E 组 19 第⑥段改为 subprocess 调 scripts/import-smoke.mjs（独立 DATA_DIR+PORT）——活库 E2E 不再有全表清写路径（监督席 direct-2102fc1b 升级项）。", "提取表三条件 exists 精确判定。", "回退到活库跑 replace 提取为 0 即 FAIL。"] },
+  // ── 工具清单一致（评审 #18：README 写 7 工具实际 15——验证器盲区，工具名锚钉住漂移） ──
+  { c: "判据117：README.md 必须包含执行数据工具名「sop_run_step_save」。", t: "README 工具清单锚（执行数据）", s: "S2", ck: existsFact("README.md", "sop_run_step_save"), rv: ["判据原文逐字取自冻结材料，README 的 MCP 工具清单须包含执行数据工具（评审 #18：曾写 7 工具实际 15——文档漂移漏网，以工具名锚钉住）。", "提取表三条件 exists 精确判定。", "删工具名提取为 0 即 FAIL。"] },
+  { c: "判据118：README.md 必须包含注册工具名「workbench_register」。", t: "README 工具清单锚（注册 CRUD）", s: "S2", ck: existsFact("README.md", "workbench_register"), rv: ["判据原文逐字取自冻结材料，README 的 MCP 工具清单须包含注册 CRUD 工具（同 #18 盲区修补——工具面扩张必须同步文档）。", "提取表三条件 exists 精确判定。", "删工具名提取为 0 即 FAIL。"] },
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
-const header = `workbench-market 开发验证器 v24（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写 + 运行时批整改 + 卫生批整改 + A2A 网络接入 P1 + Agent 执行数据面 + 导出脱敏 + 注册 CRUD MCP 化 + 破坏性测试隔离）
+const header = `workbench-market 开发验证器 v25（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写 + 运行时批整改 + 卫生批整改 + A2A 网络接入 P1 + Agent 执行数据面 + 导出脱敏 + 注册 CRUD MCP 化 + 破坏性测试隔离 + 工具清单一致）
 
 判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
 快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
@@ -189,7 +192,7 @@ passed)——源自 E2E 内置的 Playwright 对比度探针（实测 DOM 前景
 提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
 脚本、验证器自举档案、设计规范与证据。
 命令执行型检查（typecheck、lint、build）不属于 CLI 闭集，由开发流程自行执行
-（E2E 与渲染层对比度结果经摘要表断言）；覆盖二十四个维度共 116 条判据：数据域完整性
+（E2E 与渲染层对比度结果经摘要表断言）；覆盖二十五个维度共 118 条判据：数据域完整性
 （判据1-9）、种子与配置（判据10-15）、提交物结构（判据16-35）、颜色可见性
 （判据36-51 与 57-58：经对比度审计的色值在源码与规范中的钉位，漂移即破坏已审计
 的可读性）、E2E 行为证据（判据52-54：规模下限、全绿、时间戳在位）、渲染层对比度
@@ -230,7 +233,9 @@ sop_run_step_save 直接更新持久化执行数据，与 Runner/REST 同一条 
 不经版本发布）、导出脱敏（判据110-112：导出默认经 maskForApi 脱敏 + 导入掩码行
 跳过/剥除 + 行为断言——compliance 二期首项，无认证导出曾是最大凭据泄漏向量）、注册
 CRUD MCP 化（判据113-115：register/update/unregister 三工具与 REST 同链共用核心、
-MCP 凭据字段硬拒绝（安全边界内置）、行为断言——agent 发现内网服务可自主登记入册）。
+MCP 凭据字段硬拒绝（安全边界内置）、行为断言——agent 发现内网服务可自主登记入册）、
+破坏性测试隔离（判据116：导入 replace 永不碰活库）、工具清单一致（判据117-118：
+README 工具名锚钉住 MCP 工具面扩张的文档同步——评审 #18 盲区修补）。
 以下判据全部可机械判定：
 `;
 

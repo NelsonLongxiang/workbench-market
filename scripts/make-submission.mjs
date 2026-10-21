@@ -135,6 +135,8 @@ const TEXT_FACTS = [
   ["evidence/e2e_test.py", "E2E MCP 台"],
   ["scripts/import-smoke.mjs", "e2e-import-probe"],
   ["evidence/e2e_test.py", "import-smoke"],
+  ["README.md", "sop_run_step_save"],
+  ["README.md", "workbench_register"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);

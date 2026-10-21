@@ -3798,6 +3798,84 @@
         },
         "expect": true
       }
+    },
+    {
+      "source_clause": "判据117：README.md 必须包含执行数据工具名「sop_run_step_save」。",
+      "anchor": {
+        "quote": "判据117：README.md 必须包含执行数据工具名「sop_run_step_save」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "README 工具清单锚（执行数据）",
+      "severity": "S2",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "README.md"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "sop_run_step_save"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据118：README.md 必须包含注册工具名「workbench_register」。",
+      "anchor": {
+        "quote": "判据118：README.md 必须包含注册工具名「workbench_register」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "README 工具清单锚（注册 CRUD）",
+      "severity": "S2",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "README.md"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "workbench_register"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
     }
   ]
 }
