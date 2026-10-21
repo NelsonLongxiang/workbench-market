@@ -3408,6 +3408,123 @@
         },
         "expect": true
       }
+    },
+    {
+      "source_clause": "判据107：server/src/index.ts 必须包含 run 持久化链共用核心「sopRunStepSaveCore」。",
+      "anchor": {
+        "quote": "判据107：server/src/index.ts 必须包含 run 持久化链共用核心「sopRunStepSaveCore」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "执行数据同链钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "sopRunStepSaveCore"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据108：server/src/index.ts 必须包含 MCP 执行数据工具注册「sop_run_step_save」。",
+      "anchor": {
+        "quote": "判据108：server/src/index.ts 必须包含 MCP 执行数据工具注册「sop_run_step_save」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "MCP 执行数据工具钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "sop_run_step_save"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据109：evidence/e2e_test.py 必须包含人机同链断言字面量「agent-填-1」。",
+      "anchor": {
+        "quote": "判据109：evidence/e2e_test.py 必须包含人机同链断言字面量「agent-填-1」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "人机同链行为断言钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "evidence/e2e_test.py"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "agent-填-1"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
     }
   ]
 }

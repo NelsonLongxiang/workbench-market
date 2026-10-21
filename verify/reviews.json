@@ -2543,6 +2543,78 @@
           "reason": "删裁判调用提取为 0 即 FAIL。"
         }
       ]
+    },
+    {
+      "source_clause": "判据107：server/src/index.ts 必须包含 run 持久化链共用核心「sopRunStepSaveCore」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，agent 经 MCP sop_run_step_save 更新持久化执行数据与人在 Runner 页/REST 走同一条链（sopRun*Core 唯一持久化链：Redis 热写+30s checkpoint 沉淀 SQLite 真源）。",
+          "anchor": {
+            "quote": "判据107：server/src/index.ts 必须包含 run 持久化链共用核心「sopRunStepSaveCore」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删共用核心提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据108：server/src/index.ts 必须包含 MCP 执行数据工具注册「sop_run_step_save」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，MCP 注册 sop_run_start/step_save/get/list/finish 五工具（共 12 个）——agent 更新 run 数据不触发版本发布，run 钉开跑时版本。",
+          "anchor": {
+            "quote": "判据108：server/src/index.ts 必须包含 MCP 执行数据工具注册「sop_run_step_save」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删注册提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据109：evidence/e2e_test.py 必须包含人机同链断言字面量「agent-填-1」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，E2E 组 17 C4 断言：MCP 写入的步骤数据经 REST 读回同一份（人机同链），MCP 开 run→写→读回→归档全链。",
+          "anchor": {
+            "quote": "判据109：evidence/e2e_test.py 必须包含人机同链断言字面量「agent-填-1」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删断言提取为 0 即 FAIL。"
+        }
+      ]
     }
   ]
 }

@@ -650,7 +650,7 @@ with sync_playwright() as p:
         assert r.status == 202, f'notification 应 202: {r.status}'
         j = mcp('tools/list').json()
         tool_names = [t['name'] for t in j['result']['tools']]
-        assert len(tool_names) == 7 and 'app_publish' in tool_names and 'sop_publish' in tool_names, f'tools/list 异常: {tool_names}'
+        assert len(tool_names) == 12 and 'app_publish' in tool_names and 'sop_publish' in tool_names and 'sop_run_step_save' in tool_names, f'tools/list 异常: {tool_names}'
         j = mcp('wat').json()
         assert j['error']['code'] == -32601, '未知 method 应 -32601'
         assert page.request.fetch(BASE + '/mcp', method='GET').status == 405, 'GET /mcp 应 405'
@@ -675,6 +675,23 @@ with sync_playwright() as p:
         assert u['portal'].startswith(f"/go/{up['workbench_id']}/"), f'use_url 门户路径异常: {u}'
         pr = page.request.fetch(BASE + u['portal'])
         assert pr.status == 200 and '步骤A' in pr.text(), f"use_url 门户链不可达: {pr.status}"
+        # C4: agent 直接更新持久化执行数据（sop_run_* 四工具——与 REST/Runner 同链，不经版本发布）
+        j = mcp('tools/call', {'name': 'sop_run_start', 'arguments': {'slug': 'e2e-mcp-sop', 'started_by': 'agent-e2e'}}).json()
+        mrun = json.loads(j['result']['content'][0]['text'])
+        assert mrun['status'] == 'running' and mrun['id'] > 0, f'MCP 开 run 异常: {mrun}'
+        for k, v in (('prepare', 'agent-填-1'), ('rack', 'agent-填-2')):
+            j = mcp('tools/call', {'name': 'sop_run_step_save', 'arguments': {'run_id': mrun['id'], 'step_key': k, 'value': {'v': v}}}).json()
+            sv = json.loads(j['result']['content'][0]['text'])
+            assert sv['ok'] and sv['persisted'] in ('redis+checkpoint', 'sqlite'), f'MCP 写步骤异常: {sv}'
+        j = mcp('tools/call', {'name': 'sop_run_get', 'arguments': {'run_id': mrun['id']}}).json()
+        got = json.loads(j['result']['content'][0]['text'])
+        assert got['data'].get('prepare') == {'v': 'agent-填-1'}, f"MCP 读回异常: {got['data']}"
+        j = mcp('tools/call', {'name': 'sop_run_finish', 'arguments': {'run_id': mrun['id']}}).json()
+        fin = json.loads(j['result']['content'][0]['text'])
+        assert fin['status'] == 'finished' and fin['steps'] == 2, f'MCP 归档异常: {fin}'
+        # 人机同链验证：REST 读到 agent 写的同一份数据
+        same = api(page, 'GET', f"/api/sop/runs/{mrun['id']}").json()
+        assert same['data'].get('rack') == {'v': 'agent-填-2'}, f"REST/MCP 数据不同链: {same['data']}"
         # 清理（走 REST）
         api(page, 'DELETE', '/api/apps/e2e-mcp-app'); api(page, 'DELETE', '/api/apps/e2e-mcp-sop')
         record('MCP 生产通道（协议面 + 7 tools 生产链）', True)
