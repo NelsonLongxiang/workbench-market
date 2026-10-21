@@ -103,6 +103,8 @@ const TEXT_FACTS = [
   ["web/src/pages/Sops.tsx", "SOP_STATUS"],
   ["web/src/App.tsx", "path: '/sops'"],
   ["evidence/e2e_test.py", "demo-rack-sop"],
+  ["server/src/index.ts", "maskSensitiveQuery"],
+  ["server/src/index.ts", "=****"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);

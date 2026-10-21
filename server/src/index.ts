@@ -37,6 +37,30 @@ function listWorkbenches(): ReturnType<typeof rowToWorkbench>[] {
   return rows.map(rowToWorkbench);
 }
 
+// 凭据面防浏览泄露（监督席派单 direct-30b57179）：列表响应对 url query 中的敏感参数值掩码。
+// 仅列表掩码——详情（GET /:id）、编辑表单回填与门户代理（goQuery）仍用 DB 原值；
+// 信任假设：内网信任模型下接受 DSH 式 ?token= query 门（auth_config 的 bearer/basic 无法替代），
+// 掩码防的是无认证列表浏览的批量泄露（kb：市场 DB 信任模型）。
+const SENSITIVE_QUERY_KEYS = /^(token|password|passwd|secret|api[-_]?key|access[-_]?token|auth)$/i;
+function maskSensitiveQuery(url: string): string {
+  const qi = url.indexOf('?');
+  if (qi < 0) return url;
+  const head = url.slice(0, qi + 1);
+  const search = url.slice(qi + 1);
+  const hashIdx = search.indexOf('#');
+  const hash = hashIdx >= 0 ? search.slice(hashIdx) : '';
+  const qs = hashIdx >= 0 ? search.slice(0, hashIdx) : search;
+  if (!qs) return url;
+  const masked = qs.split('&').map((kv) => {
+    const eq = kv.indexOf('=');
+    if (eq < 0) return kv;
+    const k = kv.slice(0, eq);
+    const v = kv.slice(eq + 1);
+    return SENSITIVE_QUERY_KEYS.test(k) ? `${k}=****` : kv;
+  }).join('&');
+  return head + masked + hash;
+}
+
 app.get('/api/workbenches', (req, res) => {
   const { q, category, type, status } = req.query;
   let list = listWorkbenches();
@@ -44,7 +68,8 @@ app.get('/api/workbenches', (req, res) => {
   if (category) list = list.filter((w) => w.category === category);
   if (type) list = list.filter((w) => w.type === type);
   if (status) list = list.filter((w) => w.last_status === status);
-  res.json(list);
+  // 列表出队即掩码（q 过滤仍用原值——搜索语义不变，明文不落响应）
+  res.json(list.map((w) => ({ ...w, url: maskSensitiveQuery(w.url) })));
 });
 
 function validateWorkbenchBody(b: any, partial = false) {
@@ -56,6 +81,8 @@ function validateWorkbenchBody(b: any, partial = false) {
   if (!partial || b.url !== undefined) {
     if (typeof b.url !== 'string' || !b.url.trim()) bad('url 不能为空');
     const u = b.url.trim();
+    // 掩码指纹不得入新建（复制工作台从列表带回掩码 url 时在这里拦下，防 **** 落库成坏台）
+    if (u.includes('=****')) bad('url 含掩码占位（****）——请填写真实地址（列表展示的 token 已脱敏）');
     // 以 / 开头 = 市场自产台内部路径（本服务静态托管）；其余必须是 http(s)
     if (!u.startsWith('/')) assertHttpUrl(u);
     out.url = u;
@@ -101,7 +128,9 @@ app.post('/api/workbenches', (req, res) => {
 app.get('/api/workbenches/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(Number(req.params.id)) as unknown as WorkbenchRow | undefined;
   if (!row) throw new HttpError(404, `workbench not found: ${req.params.id}`);
-  res.json(rowToWorkbench(row));
+  // 与列表同策略掩码（监督席 direct-320ed1a5：单台详情 curl 一次即得票的泄漏向量必须堵）；
+  // 编辑流由 PUT 掩码回传保护兜底（掩码回传=不变更，DB 原值不毁）
+  res.json({ ...rowToWorkbench(row), url: maskSensitiveQuery(row.url) });
 });
 
 app.put('/api/workbenches/:id', (req, res) => {
@@ -109,6 +138,9 @@ app.put('/api/workbenches/:id', (req, res) => {
   const cur = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(id) as unknown as WorkbenchRow | undefined;
   if (!cur) throw new HttpError(404, `workbench not found: ${id}`);
   const f = validateWorkbenchBody(req.body, true);
+  // 掩码回传保护：列表响应的 url 已掩码（token=****），编辑表单原样回传时视为「url 未变更」
+  // 保留 DB 原值——否则一次不动 url 的保存会把 **** 写库毁掉真实 query 门。
+  if (f.url !== undefined && f.url.includes('=****') && f.url !== cur.url) delete f.url;
   const merged = { ...cur, ...f };
   db.prepare(
     `UPDATE workbenches SET name=@name, url=@url, type=@type, icon=@icon, description=@description,

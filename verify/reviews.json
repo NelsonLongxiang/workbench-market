@@ -2111,6 +2111,54 @@
           "reason": "删演示或用例提取为 0 即 FAIL。"
         }
       ]
+    },
+    {
+      "source_clause": "判据89：server/src/index.ts 必须包含列表掩码函数「maskSensitiveQuery」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，无认证 API 响应（列表与详情同策略）对 url query 敏感参数（token/password/secret/api_key 等）掩码防浏览泄露；代理侧 DB 直读不受影响。",
+          "anchor": {
+            "quote": "判据89：server/src/index.ts 必须包含列表掩码函数「maskSensitiveQuery」。",
+            "locator": "dev-verifier-v4.md 判据8"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删掩码函数提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据90：server/src/index.ts 必须包含掩码回传保护字面量「=****」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，PUT 收到含掩码指纹的 url 视为未变更保留 DB 原值、POST 拒绝掩码指纹入新建——否则编辑保存/复制工作台会把 **** 写库毁掉 query 门（E2E 组 15 第⑨断言实测）。",
+          "anchor": {
+            "quote": "判据90：server/src/index.ts 必须包含掩码回传保护字面量「=****」。",
+            "locator": "dev-verifier-v4.md 判据9"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删保护提取为 0 即 FAIL。"
+        }
+      ]
     }
   ]
 }

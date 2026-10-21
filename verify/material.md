@@ -1,4 +1,4 @@
-workbench-market 开发验证器 v14（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页）
+workbench-market 开发验证器 v15（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露）
 
 判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
 快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
@@ -11,7 +11,7 @@ passed)——源自 E2E 内置的 Playwright 对比度探针（实测 DOM 前景
 提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
 脚本、验证器自举档案、设计规范与证据。
 命令执行型检查（typecheck、lint、build）不属于 CLI 闭集，由开发流程自行执行
-（E2E 与渲染层对比度结果经摘要表断言）；覆盖十四个维度共 88 条判据：数据域完整性
+（E2E 与渲染层对比度结果经摘要表断言）；覆盖十五个维度共 90 条判据：数据域完整性
 （判据1-9）、种子与配置（判据10-15）、提交物结构（判据16-35）、颜色可见性
 （判据36-51 与 57-58：经对比度审计的色值在源码与规范中的钉位，漂移即破坏已审计
 的可读性）、E2E 行为证据（判据52-54：规模下限、全绿、时间戳在位）、渲染层对比度
@@ -33,7 +33,9 @@ WS 升级（判据74-75：upgrade 挂载与握手 Origin 改写钉位——实�
 MCP 化把供给通道从 REST 页面操作升级为 agent 原生）、SOP 管理页（判据85-88：
 Sops.tsx 在位与状态语义表钉位、路由钉位、演示 SOP 常驻钉位——SOP 台的消费与管理面：
 状态徽章可视化状态机、run 记录 Drawer 直查分层持久化的执行数据；色值经对比度审计
-的 SOP_STATUS 语义表是徽章不漂移的单一事实源）。
+的 SOP_STATUS 语义表是徽章不漂移的单一事实源）、凭据面防泄露（判据89-90：列表
+token 掩码函数与掩码回传保护钉位——无认证列表不再批量泄露 query 门凭据，详情
+保留原值，PUT 掩码回传不毁库；监督席 gate-cred 首评 FAIL 的整改面）。
 以下判据全部可机械判定：
 
 判据1：类型的 key 字段不得为空。
@@ -124,3 +126,5 @@ Sops.tsx 在位与状态语义表钉位、路由钉位、演示 SOP 常驻钉位
 判据86：web/src/pages/Sops.tsx 必须包含状态语义表「SOP_STATUS」。
 判据87：web/src/App.tsx 必须包含 SOP 路由「path: '/sops'」。
 判据88：evidence/e2e_test.py 必须包含演示 SOP 字面量「demo-rack-sop」。
+判据89：server/src/index.ts 必须包含列表掩码函数「maskSensitiveQuery」。
+判据90：server/src/index.ts 必须包含掩码回传保护字面量「=****」。
