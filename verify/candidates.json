@@ -1428,9 +1428,9 @@
       }
     },
     {
-      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 22。",
+      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 23。",
       "anchor": {
-        "quote": "判据52：E2E 摘要记录的用例总数不得少于 22。",
+        "quote": "判据52：E2E 摘要记录的用例总数不得少于 23。",
         "locator": "dev-verifier-v4.md 判据5"
       },
       "title": "E2E 规模下限",
@@ -1446,7 +1446,7 @@
               {
                 "col": "total",
                 "op": ">=",
-                "value": 22
+                "value": 23
               }
             ]
           }
@@ -3007,6 +3007,162 @@
                 "col": "needle",
                 "op": "=",
                 "value": "redir-relative"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据97：server/src/index.ts 必须包含巡检重挂锚「issue #5」。",
+      "anchor": {
+        "quote": "判据97：server/src/index.ts 必须包含巡检重挂锚「issue #5」。",
+        "locator": "dev-verifier-v4.md 判据9"
+      },
+      "title": "巡检设置即时生效钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "issue #5"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据98：server/src/index.ts 必须包含删 SOP 清注册锚「issue #6」。",
+      "anchor": {
+        "quote": "判据98：server/src/index.ts 必须包含删 SOP 清注册锚「issue #6」。",
+        "locator": "dev-verifier-v4.md 判据9"
+      },
+      "title": "删台清注册钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "issue #6"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据99：server/src/index.ts 必须包含导入 mode 锚「issue #7」。",
+      "anchor": {
+        "quote": "判据99：server/src/index.ts 必须包含导入 mode 锚「issue #7」。",
+        "locator": "dev-verifier-v4.md 判据9"
+      },
+      "title": "导入 replace 语义钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "issue #7"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据100：evidence/e2e_test.py 必须包含运行时批探针字面量「e2e-import-probe」。",
+      "anchor": {
+        "quote": "判据100：evidence/e2e_test.py 必须包含运行时批探针字面量「e2e-import-probe」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "运行时批行为断言钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "evidence/e2e_test.py"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "e2e-import-probe"
               },
               {
                 "col": "present",

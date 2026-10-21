@@ -1225,14 +1225,14 @@
       ]
     },
     {
-      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 22。",
+      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 23。",
       "findings": [
         {
           "question": "faithful",
           "verdict": "ok",
-          "reason": "判据原文逐字取自冻结材料，行为面至少覆盖既有 22 组用例（含驾驶舱、统一门户、自产台、凭据注入、SOP 台、MCP 生产通道与 SOP 管理页）。",
+          "reason": "判据原文逐字取自冻结材料，行为面至少覆盖既有 23 组用例（含驾驶舱、统一门户、自产台、凭据注入、SOP 台、MCP 生产通道、SOP 管理页与运行时批）。",
           "anchor": {
-            "quote": "判据52：E2E 摘要记录的用例总数不得少于 22。",
+            "quote": "判据52：E2E 摘要记录的用例总数不得少于 23。",
             "locator": "dev-verifier-v4.md 判据5"
           }
         },
@@ -2301,6 +2301,102 @@
           "question": "not-vacuous",
           "verdict": "ok",
           "reason": "删断言提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据97：server/src/index.ts 必须包含巡检重挂锚「issue #5」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，PUT /api/settings 即幂等重挂巡检定时器（armPatrol clearTimeout 开头），不必重启服务（评审 #5）。",
+          "anchor": {
+            "quote": "判据97：server/src/index.ts 必须包含巡检重挂锚「issue #5」。",
+            "locator": "dev-verifier-v4.md 判据9"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删重挂提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据98：server/src/index.ts 必须包含删 SOP 清注册锚「issue #6」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，DELETE /api/apps 同时清理 /apps/ 与 /sop/ 两类注册行，不留孤儿工作台（评审 #6）。",
+          "anchor": {
+            "quote": "判据98：server/src/index.ts 必须包含删 SOP 清注册锚「issue #6」。",
+            "locator": "dev-verifier-v4.md 判据9"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删清理提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据99：server/src/index.ts 必须包含导入 mode 锚「issue #7」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，import mode 支持 query 优先（README 的 ?mode=replace 写法），且内部路径注册行（/ 开头）不再被 http 断言静默丢弃（评审 #7）。",
+          "anchor": {
+            "quote": "判据99：server/src/index.ts 必须包含导入 mode 锚「issue #7」。",
+            "locator": "dev-verifier-v4.md 判据9"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删语义提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据100：evidence/e2e_test.py 必须包含运行时批探针字面量「e2e-import-probe」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，E2E 组 19 六断言：删 SOP 清孤儿/enabled 恢复/坏 url 400/坏 health_path 记 down/删台清驾驶舱面板/replace 导入 query 生效+内部路径行不丢（含驾驶舱面板 id 映射恢复）。",
+          "anchor": {
+            "quote": "判据100：evidence/e2e_test.py 必须包含运行时批探针字面量「e2e-import-probe」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删探针提取为 0 即 FAIL。"
         }
       ]
     }
