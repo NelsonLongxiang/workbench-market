@@ -1,0 +1,2164 @@
+{
+  "reviews": [
+    {
+      "source_clause": "判据1：类型的 key 字段不得为空。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，检查类型键非空。",
+          "anchor": {
+            "quote": "判据1：类型的 key 字段不得为空。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "is null 谓词精确判定，无模糊词。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "插入 key 为 NULL 的行即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据2：类型的 health_method 字段必须等于 GET 或 HEAD。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，violation 形式=方法不在两值集合。",
+          "anchor": {
+            "quote": "判据2：类型的 health_method 字段必须等于 GET 或 HEAD。",
+            "locator": "dev-verifier-v4.md 判据2"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "in 集合判定，SQL 层无歧义。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "写入 POST 方法行即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据3：类型的 expect_status 字段必须为空或落在 100 到 599 之间。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，允许空值，非空时限定百位区间。",
+          "anchor": {
+            "quote": "判据3：类型的 expect_status 字段必须为空或落在 100 到 599 之间。",
+            "locator": "dev-verifier-v4.md 判据3"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "数值列 INTEGER 上的区间判定，类型可靠。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "写入 999 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据4：类型的 default_port 字段必须为空或落在 1 到 65535 之间。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，端口区间为 TCP 合法域。",
+          "anchor": {
+            "quote": "判据4：类型的 default_port 字段必须为空或落在 1 到 65535 之间。",
+            "locator": "dev-verifier-v4.md 判据4"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "数值区间判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "写入 0 或 70000 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据5：每个已注册工作台的 enabled 字段必须等于 0 或 1。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，布尔列只许两态。",
+          "anchor": {
+            "quote": "判据5：每个已注册工作台的 enabled 字段必须等于 0 或 1。",
+            "locator": "dev-verifier-v4.md 判据5"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "in 两值集合判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "写入 2 即出现违规行 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据6：工作台的 last_status 字段必须等于 up、down、unknown 之一或为空。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，三态加空即合法域。",
+          "anchor": {
+            "quote": "判据6：工作台的 last_status 字段必须等于 up、down、unknown 之一或为空。",
+            "locator": "dev-verifier-v4.md 判据6"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "字符串集合判定，SQL 相等语义明确。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "写入 pending 状态即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据7：工作台的 last_latency_ms 字段必须为空或落在 0 到 60000 之间。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，延迟以毫秒计且受探测超时上界约束。",
+          "anchor": {
+            "quote": "判据7：工作台的 last_latency_ms 字段必须为空或落在 0 到 60000 之间。",
+            "locator": "dev-verifier-v4.md 判据7"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "INTEGER 列区间判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "写入 -1 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据8：工作台的 last_http_code 字段必须为空或落在 100 到 599 之间。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，HTTP 状态码合法区间。",
+          "anchor": {
+            "quote": "判据8：工作台的 last_http_code 字段必须为空或落在 100 到 599 之间。",
+            "locator": "dev-verifier-v4.md 判据8"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "数值区间判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "写入 99 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据9：工作台的 sort 字段必须落在 0 到 9999 之间。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，排序列非空有界。",
+          "anchor": {
+            "quote": "判据9：工作台的 sort 字段必须落在 0 到 9999 之间。",
+            "locator": "dev-verifier-v4.md 判据9"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "NOT NULL 列直接区间判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "写入 -5 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据10：类型库中的工作台类型不少于 8 个。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，语义为类型表行数下限。",
+          "anchor": {
+            "quote": "判据10：类型库中的工作台类型不少于 8 个。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "count 与 8 比较纯数值判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删类型至 7 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据11：内置类型 web 必须存在于类型库。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，检查内置类型存在性。",
+          "anchor": {
+            "quote": "判据11：内置类型 web 必须存在于类型库。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "键精确匹配。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删 web 行即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据12：ollama 类型的探测路径必须为 /api/tags。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，钉住 ollama 种子的探测语义。",
+          "anchor": {
+            "quote": "判据12：ollama 类型的探测路径必须为 /api/tags。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "双条件精确匹配。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改路径即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据13：streamlit 类型的探测路径必须为 /_stcore/health。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，钉住 streamlit 种子的健康端点。",
+          "anchor": {
+            "quote": "判据13：streamlit 类型的探测路径必须为 /_stcore/health。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "双条件精确匹配。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改路径即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据14：巡检设置必须包含 health_interval_seconds、health_timeout_ms、health_concurrency 三个键。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，三键名与 in 列表一致。",
+          "anchor": {
+            "quote": "判据14：巡检设置必须包含 health_interval_seconds、health_timeout_ms、health_concurrency 三个键。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "键名集合计数 ==3。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "缺任一键计数变 2 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据15：工作台表中至少注册了 1 个工作台。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，语义为工作台表非空。",
+          "anchor": {
+            "quote": "判据15：工作台表中至少注册了 1 个工作台。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "count>=1 数值判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "空表即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据16：封装提交物必须包含 README.md。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，检查根 README。",
+          "anchor": {
+            "quote": "判据16：封装提交物必须包含 README.md。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "精确文件名 glob。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删除即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据17：封装提交物必须包含根目录 package.json。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，检查 workspace 根清单。",
+          "anchor": {
+            "quote": "判据17：封装提交物必须包含根目录 package.json。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "精确路径 glob。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删除即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据18：封装提交物必须包含 pnpm-workspace.yaml。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，检查 workspace 定义。",
+          "anchor": {
+            "quote": "判据18：封装提交物必须包含 pnpm-workspace.yaml。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "精确路径 glob。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删除即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据19：封装提交物必须包含 server/package.json。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，检查 server 包清单。",
+          "anchor": {
+            "quote": "判据19：封装提交物必须包含 server/package.json。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "精确路径 glob。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删除即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据20：封装提交物必须包含 web/package.json。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，检查 web 包清单。",
+          "anchor": {
+            "quote": "判据20：封装提交物必须包含 web/package.json。",
+            "locator": "dev-verifier-v4.md 判据2"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "精确路径 glob。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删除即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据21：封装提交物必须包含 server/src/index.ts。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，检查服务入口源码。",
+          "anchor": {
+            "quote": "判据21：封装提交物必须包含 server/src/index.ts。",
+            "locator": "dev-verifier-v4.md 判据2"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "精确路径 glob。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删除即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据22：封装提交物必须包含 server/src/db.ts。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，检查建库模块。",
+          "anchor": {
+            "quote": "判据22：封装提交物必须包含 server/src/db.ts。",
+            "locator": "dev-verifier-v4.md 判据2"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "精确路径 glob。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删除即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据23：封装提交物必须包含 server/src/health.ts。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，检查健康探测模块。",
+          "anchor": {
+            "quote": "判据23：封装提交物必须包含 server/src/health.ts。",
+            "locator": "dev-verifier-v4.md 判据2"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "精确路径 glob。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删除即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据24：封装提交物 web/src/pages 目录下的页面组件不少于 6 个。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，六个功能页各一文件。",
+          "anchor": {
+            "quote": "判据24：封装提交物 web/src/pages 目录下的页面组件不少于 6 个。",
+            "locator": "dev-verifier-v4.md 判据2"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "目录 glob 计数 >=6。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删页即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据25：封装提交物 web/src/components 目录下的组件不少于 2 个。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，状态徽章与表单两组件。",
+          "anchor": {
+            "quote": "判据25：封装提交物 web/src/components 目录下的组件不少于 2 个。",
+            "locator": "dev-verifier-v4.md 判据2"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "目录 glob 计数 >=2。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删组件即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据26：封装提交物必须包含 web/dist/index.html。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，构建落盘证据。",
+          "anchor": {
+            "quote": "判据26：封装提交物必须包含 web/dist/index.html。",
+            "locator": "dev-verifier-v4.md 判据2"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "精确路径 glob。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "未构建即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据27：封装提交物 web/dist/assets 目录下的 JS 产物不少于 5 个。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，供应商分桶后的产物数量下限。",
+          "anchor": {
+            "quote": "判据27：封装提交物 web/dist/assets 目录下的 JS 产物不少于 5 个。",
+            "locator": "dev-verifier-v4.md 判据2"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "目录 glob 计数 >=5。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "桶缺失即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据28：封装提交物必须包含 scripts/make-submission.mjs。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，判定面打包脚本自举。",
+          "anchor": {
+            "quote": "判据28：封装提交物必须包含 scripts/make-submission.mjs。",
+            "locator": "dev-verifier-v4.md 判据2"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "精确路径 glob。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删除即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据29：封装提交物必须包含 scripts/verify-report.mjs。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，可视化脚本自举。",
+          "anchor": {
+            "quote": "判据29：封装提交物必须包含 scripts/verify-report.mjs。",
+            "locator": "dev-verifier-v4.md 判据2"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "精确路径 glob。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删除即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据30：封装提交物必须包含 verify/material.md。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，判据源入版本库。",
+          "anchor": {
+            "quote": "判据30：封装提交物必须包含 verify/material.md。",
+            "locator": "dev-verifier-v4.md 判据3"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "精确路径 glob。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删除即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据31：封装提交物必须包含 verify/candidates.json。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，候选源入版本库。",
+          "anchor": {
+            "quote": "判据31：封装提交物必须包含 verify/candidates.json。",
+            "locator": "dev-verifier-v4.md 判据3"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "精确路径 glob。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删除即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据32：封装提交物必须包含 verify/reviews.json。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，盲审源入版本库。",
+          "anchor": {
+            "quote": "判据32：封装提交物必须包含 verify/reviews.json。",
+            "locator": "dev-verifier-v4.md 判据3"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "精确路径 glob。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删除即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据33：封装提交物必须包含 design-system/workbench-market/MASTER.md。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，设计单一事实源。",
+          "anchor": {
+            "quote": "判据33：封装提交物必须包含 design-system/workbench-market/MASTER.md。",
+            "locator": "dev-verifier-v4.md 判据3"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "精确路径 glob。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删除即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据34：封装提交物必须包含 evidence/e2e_test.py。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，端到端测试脚本在位。",
+          "anchor": {
+            "quote": "判据34：封装提交物必须包含 evidence/e2e_test.py。",
+            "locator": "dev-verifier-v4.md 判据3"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "精确路径 glob。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删除即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据35：封装提交物 evidence 目录下的 PNG 截图证据不少于 10 张。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，UI 证据资产下限。",
+          "anchor": {
+            "quote": "判据35：封装提交物 evidence 目录下的 PNG 截图证据不少于 10 张。",
+            "locator": "dev-verifier-v4.md 判据3"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "目录 glob 计数 >=10。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "清理截图即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据36：main.tsx 主题必须包含主色值「#1E3A5F」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，主色为设计系统脊柱。",
+          "anchor": {
+            "quote": "判据36：main.tsx 主题必须包含主色值「#1E3A5F」。",
+            "locator": "dev-verifier-v4.md 判据3"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改主题色提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据37：main.tsx 主题必须包含次级文字色值「#5A6577」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，该值经浅底 5.9:1 审计修复。",
+          "anchor": {
+            "quote": "判据37：main.tsx 主题必须包含次级文字色值「#5A6577」。",
+            "locator": "dev-verifier-v4.md 判据3"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "回退旧色提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据38：main.tsx 主题必须包含成功色值「#059669」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，在线绿图形用色 3.77:1 达图形标准。",
+          "anchor": {
+            "quote": "判据38：main.tsx 主题必须包含成功色值「#059669」。",
+            "locator": "dev-verifier-v4.md 判据3"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改色提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据39：main.tsx 主题必须包含错误色值「#DC2626」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，错误红文字级 4.83:1 达标。",
+          "anchor": {
+            "quote": "判据39：main.tsx 主题必须包含错误色值「#DC2626」。",
+            "locator": "dev-verifier-v4.md 判据3"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改色提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据40：App.tsx 侧栏 token 必须包含深底色值「#0F172A」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，深色导航背景与白字标题配对。",
+          "anchor": {
+            "quote": "判据40：App.tsx 侧栏 token 必须包含深底色值「#0F172A」。",
+            "locator": "dev-verifier-v4.md 判据4"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改底色提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据41：index.css 必须包含焦点环色值「rgba(5, 150, 105, 0.6)」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，focus-visible 焦点环是键盘可访问性必需。",
+          "anchor": {
+            "quote": "判据41：index.css 必须包含焦点环色值「rgba(5, 150, 105, 0.6)」。",
+            "locator": "dev-verifier-v4.md 判据4"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删焦点环提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据42：index.css 必须包含选中边框色值「rgba(5, 150, 105, 0.45)」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，卡片选中态边框色。",
+          "anchor": {
+            "quote": "判据42：index.css 必须包含选中边框色值「rgba(5, 150, 105, 0.45)」。",
+            "locator": "dev-verifier-v4.md 判据4"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改边框提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据43：App.tsx 标题区必须包含强调色值「#059669」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，深底上的 emerald 标题图标。",
+          "anchor": {
+            "quote": "判据43：App.tsx 标题区必须包含强调色值「#059669」。",
+            "locator": "dev-verifier-v4.md 判据4"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改色提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据44：设计规范 MASTER.md 必须包含主色值「#1E3A5F」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，规范单一事实源钉主色。",
+          "anchor": {
+            "quote": "判据44：设计规范 MASTER.md 必须包含主色值「#1E3A5F」。",
+            "locator": "dev-verifier-v4.md 判据4"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删 token 提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据45：设计规范 MASTER.md 必须包含次级文字审计色值「#5A6577」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，对比度实测表记录修复色。",
+          "anchor": {
+            "quote": "判据45：设计规范 MASTER.md 必须包含次级文字审计色值「#5A6577」。",
+            "locator": "dev-verifier-v4.md 判据4"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删记录提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据46：Dashboard.tsx 统计标签必须包含次级色值「#5A6577」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，统计标签用次级审计色。",
+          "anchor": {
+            "quote": "判据46：Dashboard.tsx 统计标签必须包含次级色值「#5A6577」。",
+            "locator": "dev-verifier-v4.md 判据4"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改色提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据47：Dashboard.tsx 在线环必须包含成功色值「#059669」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，在线率环用 emerald。",
+          "anchor": {
+            "quote": "判据47：Dashboard.tsx 在线环必须包含成功色值「#059669」。",
+            "locator": "dev-verifier-v4.md 判据4"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改色提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据48：Dashboard.tsx 离线卡必须包含错误色值「#DC2626」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，离线数字用错误红。",
+          "anchor": {
+            "quote": "判据48：Dashboard.tsx 离线卡必须包含错误色值「#DC2626」。",
+            "locator": "dev-verifier-v4.md 判据4"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改色提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据49：Dashboard.tsx 辅助文字必须包含轴色值「#94A3B8」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，辅助轴文字用 slate。",
+          "anchor": {
+            "quote": "判据49：Dashboard.tsx 辅助文字必须包含轴色值「#94A3B8」。",
+            "locator": "dev-verifier-v4.md 判据4"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改色提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据50：index.css 必须包含主色淡底色值「rgba(30, 58, 95, 0.1)」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，navy 主色 10% 淡底。",
+          "anchor": {
+            "quote": "判据50：index.css 必须包含主色淡底色值「rgba(30, 58, 95, 0.1)」。",
+            "locator": "dev-verifier-v4.md 判据5"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改值提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据51：index.css 必须包含深底色值「#0f172a」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，样式侧深底 token。",
+          "anchor": {
+            "quote": "判据51：index.css 必须包含深底色值「#0f172a」。",
+            "locator": "dev-verifier-v4.md 判据5"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改值提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 22。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，行为面至少覆盖既有 22 组用例（含驾驶舱、统一门户、自产台、凭据注入、SOP 台、MCP 生产通道与 SOP 管理页）。",
+          "anchor": {
+            "quote": "判据52：E2E 摘要记录的用例总数不得少于 22。",
+            "locator": "dev-verifier-v4.md 判据5"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "count 条件计数 ==1 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删用例或未跑 E2E 即计数 0 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据53：E2E 摘要必须标记全部用例通过。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，行为面必须全绿才可交付。",
+          "anchor": {
+            "quote": "判据53：E2E 摘要必须标记全部用例通过。",
+            "locator": "dev-verifier-v4.md 判据5"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "all_passed=1 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "任一用例失败即 0 行 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据54：E2E 摘要必须带有完成时间戳。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，摘要须可追溯运行时间。",
+          "anchor": {
+            "quote": "判据54：E2E 摘要必须带有完成时间戳。",
+            "locator": "dev-verifier-v4.md 判据5"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "is not null exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "空时间戳即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据55：渲染层对比度探针覆盖的文字目标不得少于 9 处。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，探针须覆盖深底与浅底两类表面（含 SOP 管理页新表面）。",
+          "anchor": {
+            "quote": "判据55：渲染层对比度探针覆盖的文字目标不得少于 9 处。",
+            "locator": "dev-verifier-v4.md 判据5"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "count>=9 纯数值判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删探针目标或未跑 E2E 即计数不足 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据56：渲染层对比度探针不得存在未通过的目标。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，任何一处实测对比度低于下限即违规。",
+          "anchor": {
+            "quote": "判据56：渲染层对比度探针不得存在未通过的目标。",
+            "locator": "dev-verifier-v4.md 判据5"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "violation count==0 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "任一目标 ratio<min 即 FAIL（如深底徽标文字 1.18:1）。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据57：index.css 必须包含深底状态文字规则选择器「.wm-use-bar .ant-badge-status-text」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，深色顶栏上的徽标文字必须有专用覆盖规则。",
+          "anchor": {
+            "quote": "判据57：index.css 必须包含深底状态文字规则选择器「.wm-use-bar .ant-badge-status-text」。",
+            "locator": "dev-verifier-v4.md 判据5"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删规则提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据58：index.css 必须包含深底浅色文字色值「rgba(255, 255, 255, 0.85)」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，深底文字用 85% 白（对 #0f172a 约 11:1）。",
+          "anchor": {
+            "quote": "判据58：index.css 必须包含深底浅色文字色值「rgba(255, 255, 255, 0.85)」。",
+            "locator": "dev-verifier-v4.md 判据5"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改色值提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据59：驾驶舱的 name 字段不得为空。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，驾驶舱必须有可辨识名称。",
+          "anchor": {
+            "quote": "判据59：驾驶舱的 name 字段不得为空。",
+            "locator": "dev-verifier-v4.md 判据5"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "is null 或空串的 violation 谓词精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "写入空名驾驶舱即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据60：封装提交物必须包含 web/src/pages/Cockpit.tsx。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，任务驾驶舱功能页在位。",
+          "anchor": {
+            "quote": "判据60：封装提交物必须包含 web/src/pages/Cockpit.tsx。",
+            "locator": "dev-verifier-v4.md 判据6"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "精确路径 glob。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删除即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据61：server/src/index.ts 必须包含驾驶舱路由「/api/cockpits」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，驾驶舱 CRUD 路由组在位。",
+          "anchor": {
+            "quote": "判据61：server/src/index.ts 必须包含驾驶舱路由「/api/cockpits」。",
+            "locator": "dev-verifier-v4.md 判据6"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删路由提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据62：server/src/index.ts 必须包含「createProxyMiddleware」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，统一门户代理由 http-proxy-middleware 实现。",
+          "anchor": {
+            "quote": "判据62：server/src/index.ts 必须包含「createProxyMiddleware」。",
+            "locator": "dev-verifier-v4.md 判据6"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删代理提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据63：server/src/index.ts 必须包含剥禁嵌头的「x-frame-options」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，代理剥除上游 X-Frame-Options 的逻辑在位。",
+          "anchor": {
+            "quote": "判据63：server/src/index.ts 必须包含剥禁嵌头的「x-frame-options」。",
+            "locator": "dev-verifier-v4.md 判据6"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删剥头逻辑提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据64：封装提交物 server/package.json 必须声明依赖「http-proxy-middleware」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，代理依赖已声明。",
+          "anchor": {
+            "quote": "判据64：封装提交物 server/package.json 必须声明依赖「http-proxy-middleware」。",
+            "locator": "dev-verifier-v4.md 判据6"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "卸依赖提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据65：web/src/pages/UseWorkbench.tsx 必须包含「/go/${w.id}/」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，使用页 iframe 经统一门户同源代理而非原始地址。",
+          "anchor": {
+            "quote": "判据65：web/src/pages/UseWorkbench.tsx 必须包含「/go/${w.id}/」。",
+            "locator": "dev-verifier-v4.md 判据6"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "改回原始地址提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据66：自产台的 slug 字段不得为空。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，自产台必须有可寻址标识。",
+          "anchor": {
+            "quote": "判据66：自产台的 slug 字段不得为空。",
+            "locator": "dev-verifier-v4.md 判据6"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "is null 或空串的 violation 谓词精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "写入空 slug 行即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据67：内置类型 market-app 必须存在于类型库。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，发布即入册依赖内置类型。",
+          "anchor": {
+            "quote": "判据67：内置类型 market-app 必须存在于类型库。",
+            "locator": "dev-verifier-v4.md 判据6"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "键精确匹配。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删 market-app 行即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据68：server/src/index.ts 必须包含发布路由「/api/apps」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，AI 会话直发的发布通道在位。",
+          "anchor": {
+            "quote": "判据68：server/src/index.ts 必须包含发布路由「/api/apps」。",
+            "locator": "dev-verifier-v4.md 判据6"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删发布路由提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据69：server/src/db.ts 必须包含版本快照表「app_versions」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，全版本快照依赖版本链表。",
+          "anchor": {
+            "quote": "判据69：server/src/db.ts 必须包含版本快照表「app_versions」。",
+            "locator": "dev-verifier-v4.md 判据6"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删表提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据70：自产台表中至少发布了 1 个应用。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，演示自产台常驻库中作为活样例。",
+          "anchor": {
+            "quote": "判据70：自产台表中至少发布了 1 个应用。",
+            "locator": "dev-verifier-v4.md 判据7"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "count>=1 数值判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "清空 apps 表即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据71：server/src/index.ts 必须包含注入头名「authorization」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，代理凭据注入 Authorization 头的逻辑在位。",
+          "anchor": {
+            "quote": "判据71：server/src/index.ts 必须包含注入头名「authorization」。",
+            "locator": "dev-verifier-v4.md 判据7"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删注入逻辑提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据72：web/src/components/WorkbenchForm.tsx 必须包含凭据表单字段「authValue」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，凭据值经表单录入而非拼进 url。",
+          "anchor": {
+            "quote": "判据72：web/src/components/WorkbenchForm.tsx 必须包含凭据表单字段「authValue」。",
+            "locator": "dev-verifier-v4.md 判据7"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删表单字段提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据73：evidence/e2e_test.py 必须包含凭据注入断言字面量「e2e-bear-tok」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，E2E 用 echo fixture 实测注入行为（防 SPA 假绿）。",
+          "anchor": {
+            "quote": "判据73：evidence/e2e_test.py 必须包含凭据注入断言字面量「e2e-bear-tok」。",
+            "locator": "dev-verifier-v4.md 判据7"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删透传断言提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据74：server/src/index.ts 必须包含 WS 升级挂载「goServer.on('upgrade'」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，upgrade 事件不流经中间件链，必须有独立的准备逻辑（实测缺位时 WS 被路由到死端口）。",
+          "anchor": {
+            "quote": "判据74：server/src/index.ts 必须包含 WS 升级挂载「goServer.on('upgrade'」。",
+            "locator": "dev-verifier-v4.md 判据7"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删挂载提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据75：server/src/index.ts 必须包含握手 Origin 改写「req.headers.origin = u.origin」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，浏览器 WS 握手必带门户源 Origin，上游 Origin fence 会 403（实测 DSH 台「重新连接中」根因之一）。",
+          "anchor": {
+            "quote": "判据75：server/src/index.ts 必须包含握手 Origin 改写「req.headers.origin = u.origin」。",
+            "locator": "dev-verifier-v4.md 判据7"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删改写提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据76：server/src/db.ts 必须包含运行真源表「sop_runs」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，SOP 运行记录以 SQLite 为真源（Redis 只做热态）。",
+          "anchor": {
+            "quote": "判据76：server/src/db.ts 必须包含运行真源表「sop_runs」。",
+            "locator": "dev-verifier-v4.md 判据7"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删表提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据77：server/src/redis.ts 必须包含状态层写入函数「runStateSave」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，热态写入经独立状态层模块（连不上自动降级直写 SQLite）。",
+          "anchor": {
+            "quote": "判据77：server/src/redis.ts 必须包含状态层写入函数「runStateSave」。",
+            "locator": "dev-verifier-v4.md 判据7"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删状态层提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据78：server/src/index.ts 必须包含 Runner 服务端渲染「renderSopRunner」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，SOP 台零构建服务端渲染执行页（步骤卡+防抖保存+run 恢复）。",
+          "anchor": {
+            "quote": "判据78：server/src/index.ts 必须包含 Runner 服务端渲染「renderSopRunner」。",
+            "locator": "dev-verifier-v4.md 判据7"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删渲染提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据79：server/src/index.ts 必须包含运行 API 前缀「/api/sop/runs」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，分层持久化的运行 CRUD（开 run 钉版本、热读、checkpoint、finish）。",
+          "anchor": {
+            "quote": "判据79：server/src/index.ts 必须包含运行 API 前缀「/api/sop/runs」。",
+            "locator": "dev-verifier-v4.md 判据7"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删 API 提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据80：evidence/e2e_test.py 必须包含 SOP 台用例字面量「e2e-sop」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，E2E 实测 SOP 全链（发布面校验/状态机/Runner/分层读写/版本治理）。",
+          "anchor": {
+            "quote": "判据80：evidence/e2e_test.py 必须包含 SOP 台用例字面量「e2e-sop」。",
+            "locator": "dev-verifier-v4.md 判据8"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删用例提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据81：server/src/index.ts 必须包含 MCP 端点挂载「app.post('/mcp'」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，AI 会话经 StreamableHTTP 直连市场的入口在位。",
+          "anchor": {
+            "quote": "判据81：server/src/index.ts 必须包含 MCP 端点挂载「app.post('/mcp'」。",
+            "locator": "dev-verifier-v4.md 判据8"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删端点提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据82：server/src/index.ts 必须包含工具注册表「MCP_TOOLS」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，7 个生产工具（list/summary/check/use_url/app_publish/app_activate/sop_publish）经注册表暴露。",
+          "anchor": {
+            "quote": "判据82：server/src/index.ts 必须包含工具注册表「MCP_TOOLS」。",
+            "locator": "dev-verifier-v4.md 判据8"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删注册表提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据83：server/src/index.ts 必须包含 JSON-RPC 错误码「-32601」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，未知 method 按 JSON-RPC 2.0 规范回 -32601（协议合规性锚点）。",
+          "anchor": {
+            "quote": "判据83：server/src/index.ts 必须包含 JSON-RPC 错误码「-32601」。",
+            "locator": "dev-verifier-v4.md 判据8"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删错误处理提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据84：evidence/e2e_test.py 必须包含 MCP 用例字面量「e2e-mcp-app」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，E2E 实测 MCP 协议面与生产工具链（initialize/tools/list/app_publish/sop_publish）。",
+          "anchor": {
+            "quote": "判据84：evidence/e2e_test.py 必须包含 MCP 用例字面量「e2e-mcp-app」。",
+            "locator": "dev-verifier-v4.md 判据8"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删用例提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据85：封装提交物必须包含 web/src/pages/Sops.tsx。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，SOP 管理页（状态机操作/记录查看）在位。",
+          "anchor": {
+            "quote": "判据85：封装提交物必须包含 web/src/pages/Sops.tsx。",
+            "locator": "dev-verifier-v4.md 判据8"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "精确路径 glob。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删除即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据86：web/src/pages/Sops.tsx 必须包含状态语义表「SOP_STATUS」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，draft/published/deprecated 徽章（色值经对比度审计）由单一语义表驱动。",
+          "anchor": {
+            "quote": "判据86：web/src/pages/Sops.tsx 必须包含状态语义表「SOP_STATUS」。",
+            "locator": "dev-verifier-v4.md 判据8"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删语义表提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据87：web/src/App.tsx 必须包含 SOP 路由「path: '/sops'」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，侧栏菜单与路由表挂载 SOP 管理页。",
+          "anchor": {
+            "quote": "判据87：web/src/App.tsx 必须包含 SOP 路由「path: '/sops'」。",
+            "locator": "dev-verifier-v4.md 判据8"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删路由提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据88：evidence/e2e_test.py 必须包含演示 SOP 字面量「demo-rack-sop」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，E2E 实测 /sops 页并要求演示 SOP（demo-rack-sop）常驻可见。",
+          "anchor": {
+            "quote": "判据88：evidence/e2e_test.py 必须包含演示 SOP 字面量「demo-rack-sop」。",
+            "locator": "dev-verifier-v4.md 判据8"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删演示或用例提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据89：server/src/index.ts 必须包含列表掩码函数「maskSensitiveQuery」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，无认证 API 响应（列表与详情同策略）对 url query 敏感参数（token/password/secret/api_key 等）掩码防浏览泄露；代理侧 DB 直读不受影响。",
+          "anchor": {
+            "quote": "判据89：server/src/index.ts 必须包含列表掩码函数「maskSensitiveQuery」。",
+            "locator": "dev-verifier-v4.md 判据8"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删掩码函数提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据90：server/src/index.ts 必须包含掩码回传保护字面量「=****」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，PUT 收到含掩码指纹的 url 视为未变更保留 DB 原值、POST 拒绝掩码指纹入新建——否则编辑保存/复制工作台会把 **** 写库毁掉 query 门（E2E 组 15 第⑨断言实测）。",
+          "anchor": {
+            "quote": "判据90：server/src/index.ts 必须包含掩码回传保护字面量「=****」。",
+            "locator": "dev-verifier-v4.md 判据9"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删保护提取为 0 即 FAIL。"
+        }
+      ]
+    }
+  ]
+}

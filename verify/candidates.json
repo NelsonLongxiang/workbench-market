@@ -1,0 +1,2789 @@
+{
+  "candidates": [
+    {
+      "source_clause": "判据1：类型的 key 字段不得为空。",
+      "anchor": {
+        "quote": "判据1：类型的 key 字段不得为空。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "类型 key 非空",
+      "severity": "S1",
+      "checker": {
+        "type": "sql",
+        "predicate": {
+          "from": "types",
+          "select": [
+            "id",
+            "key"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "key",
+                "op": "is null"
+              }
+            ]
+          }
+        },
+        "expect": "none",
+        "fail_when": "rows>0"
+      }
+    },
+    {
+      "source_clause": "判据2：类型的 health_method 字段必须等于 GET 或 HEAD。",
+      "anchor": {
+        "quote": "判据2：类型的 health_method 字段必须等于 GET 或 HEAD。",
+        "locator": "dev-verifier-v4.md 判据2"
+      },
+      "title": "探测方法域完整",
+      "severity": "S1",
+      "checker": {
+        "type": "sql",
+        "predicate": {
+          "from": "types",
+          "select": [
+            "id",
+            "health_method"
+          ],
+          "where": {
+            "op": "not",
+            "conditions": [
+              {
+                "col": "health_method",
+                "op": "in",
+                "value": [
+                  "GET",
+                  "HEAD"
+                ]
+              }
+            ]
+          }
+        },
+        "expect": "none",
+        "fail_when": "rows>0"
+      }
+    },
+    {
+      "source_clause": "判据3：类型的 expect_status 字段必须为空或落在 100 到 599 之间。",
+      "anchor": {
+        "quote": "判据3：类型的 expect_status 字段必须为空或落在 100 到 599 之间。",
+        "locator": "dev-verifier-v4.md 判据3"
+      },
+      "title": "期望状态码域完整",
+      "severity": "S2",
+      "checker": {
+        "type": "sql",
+        "predicate": {
+          "from": "types",
+          "select": [
+            "id",
+            "expect_status"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "expect_status",
+                "op": "is not null"
+              },
+              {
+                "op": "or",
+                "conditions": [
+                  {
+                    "col": "expect_status",
+                    "op": "<",
+                    "value": 100
+                  },
+                  {
+                    "col": "expect_status",
+                    "op": ">",
+                    "value": 599
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "expect": "none",
+        "fail_when": "rows>0"
+      }
+    },
+    {
+      "source_clause": "判据4：类型的 default_port 字段必须为空或落在 1 到 65535 之间。",
+      "anchor": {
+        "quote": "判据4：类型的 default_port 字段必须为空或落在 1 到 65535 之间。",
+        "locator": "dev-verifier-v4.md 判据4"
+      },
+      "title": "默认端口域完整",
+      "severity": "S2",
+      "checker": {
+        "type": "sql",
+        "predicate": {
+          "from": "types",
+          "select": [
+            "id",
+            "default_port"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "default_port",
+                "op": "is not null"
+              },
+              {
+                "op": "or",
+                "conditions": [
+                  {
+                    "col": "default_port",
+                    "op": "<",
+                    "value": 1
+                  },
+                  {
+                    "col": "default_port",
+                    "op": ">",
+                    "value": 65535
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "expect": "none",
+        "fail_when": "rows>0"
+      }
+    },
+    {
+      "source_clause": "判据5：每个已注册工作台的 enabled 字段必须等于 0 或 1。",
+      "anchor": {
+        "quote": "判据5：每个已注册工作台的 enabled 字段必须等于 0 或 1。",
+        "locator": "dev-verifier-v4.md 判据5"
+      },
+      "title": "enabled 域完整",
+      "severity": "S1",
+      "checker": {
+        "type": "sql",
+        "predicate": {
+          "from": "workbenches",
+          "select": [
+            "id",
+            "name"
+          ],
+          "where": {
+            "op": "not",
+            "conditions": [
+              {
+                "col": "enabled",
+                "op": "in",
+                "value": [
+                  0,
+                  1
+                ]
+              }
+            ]
+          }
+        },
+        "expect": "none",
+        "fail_when": "rows>0"
+      }
+    },
+    {
+      "source_clause": "判据6：工作台的 last_status 字段必须等于 up、down、unknown 之一或为空。",
+      "anchor": {
+        "quote": "判据6：工作台的 last_status 字段必须等于 up、down、unknown 之一或为空。",
+        "locator": "dev-verifier-v4.md 判据6"
+      },
+      "title": "状态字段域完整",
+      "severity": "S1",
+      "checker": {
+        "type": "sql",
+        "predicate": {
+          "from": "workbenches",
+          "select": [
+            "id",
+            "last_status"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "last_status",
+                "op": "is not null"
+              },
+              {
+                "op": "not",
+                "conditions": [
+                  {
+                    "col": "last_status",
+                    "op": "in",
+                    "value": [
+                      "up",
+                      "down",
+                      "unknown"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "expect": "none",
+        "fail_when": "rows>0"
+      }
+    },
+    {
+      "source_clause": "判据7：工作台的 last_latency_ms 字段必须为空或落在 0 到 60000 之间。",
+      "anchor": {
+        "quote": "判据7：工作台的 last_latency_ms 字段必须为空或落在 0 到 60000 之间。",
+        "locator": "dev-verifier-v4.md 判据7"
+      },
+      "title": "延迟字段域完整",
+      "severity": "S2",
+      "checker": {
+        "type": "sql",
+        "predicate": {
+          "from": "workbenches",
+          "select": [
+            "id",
+            "last_latency_ms"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "last_latency_ms",
+                "op": "is not null"
+              },
+              {
+                "op": "or",
+                "conditions": [
+                  {
+                    "col": "last_latency_ms",
+                    "op": "<",
+                    "value": 0
+                  },
+                  {
+                    "col": "last_latency_ms",
+                    "op": ">",
+                    "value": 60000
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "expect": "none",
+        "fail_when": "rows>0"
+      }
+    },
+    {
+      "source_clause": "判据8：工作台的 last_http_code 字段必须为空或落在 100 到 599 之间。",
+      "anchor": {
+        "quote": "判据8：工作台的 last_http_code 字段必须为空或落在 100 到 599 之间。",
+        "locator": "dev-verifier-v4.md 判据8"
+      },
+      "title": "HTTP 码域完整",
+      "severity": "S2",
+      "checker": {
+        "type": "sql",
+        "predicate": {
+          "from": "workbenches",
+          "select": [
+            "id",
+            "last_http_code"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "last_http_code",
+                "op": "is not null"
+              },
+              {
+                "op": "or",
+                "conditions": [
+                  {
+                    "col": "last_http_code",
+                    "op": "<",
+                    "value": 100
+                  },
+                  {
+                    "col": "last_http_code",
+                    "op": ">",
+                    "value": 599
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "expect": "none",
+        "fail_when": "rows>0"
+      }
+    },
+    {
+      "source_clause": "判据9：工作台的 sort 字段必须落在 0 到 9999 之间。",
+      "anchor": {
+        "quote": "判据9：工作台的 sort 字段必须落在 0 到 9999 之间。",
+        "locator": "dev-verifier-v4.md 判据9"
+      },
+      "title": "排序字段域完整",
+      "severity": "S3",
+      "checker": {
+        "type": "sql",
+        "predicate": {
+          "from": "workbenches",
+          "select": [
+            "id",
+            "sort"
+          ],
+          "where": {
+            "op": "or",
+            "conditions": [
+              {
+                "col": "sort",
+                "op": "<",
+                "value": 0
+              },
+              {
+                "col": "sort",
+                "op": ">",
+                "value": 9999
+              }
+            ]
+          }
+        },
+        "expect": "none",
+        "fail_when": "rows>0"
+      }
+    },
+    {
+      "source_clause": "判据10：类型库中的工作台类型不少于 8 个。",
+      "anchor": {
+        "quote": "判据10：类型库中的工作台类型不少于 8 个。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "类型库规模下限",
+      "severity": "S1",
+      "checker": {
+        "type": "count",
+        "predicate": {
+          "from": "types",
+          "select": []
+        },
+        "op": ">=",
+        "value": 8
+      }
+    },
+    {
+      "source_clause": "判据11：内置类型 web 必须存在于类型库。",
+      "anchor": {
+        "quote": "判据11：内置类型 web 必须存在于类型库。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "内置 web 类型存在",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "types",
+          "select": [
+            "key"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "key",
+                "op": "=",
+                "value": "web"
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据12：ollama 类型的探测路径必须为 /api/tags。",
+      "anchor": {
+        "quote": "判据12：ollama 类型的探测路径必须为 /api/tags。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "ollama 种子探测路径",
+      "severity": "S2",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "types",
+          "select": [
+            "key"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "key",
+                "op": "=",
+                "value": "ollama"
+              },
+              {
+                "col": "health_path",
+                "op": "=",
+                "value": "/api/tags"
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据13：streamlit 类型的探测路径必须为 /_stcore/health。",
+      "anchor": {
+        "quote": "判据13：streamlit 类型的探测路径必须为 /_stcore/health。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "streamlit 种子探测路径",
+      "severity": "S2",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "types",
+          "select": [
+            "key"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "key",
+                "op": "=",
+                "value": "streamlit"
+              },
+              {
+                "col": "health_path",
+                "op": "=",
+                "value": "/_stcore/health"
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据14：巡检设置必须包含 health_interval_seconds、health_timeout_ms、health_concurrency 三个键。",
+      "anchor": {
+        "quote": "判据14：巡检设置必须包含 health_interval_seconds、health_timeout_ms、health_concurrency 三个键。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "巡检三键齐备",
+      "severity": "S1",
+      "checker": {
+        "type": "count",
+        "predicate": {
+          "from": "settings",
+          "select": [],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "key",
+                "op": "in",
+                "value": [
+                  "health_interval_seconds",
+                  "health_timeout_ms",
+                  "health_concurrency"
+                ]
+              }
+            ]
+          }
+        },
+        "op": "==",
+        "value": 3
+      }
+    },
+    {
+      "source_clause": "判据15：工作台表中至少注册了 1 个工作台。",
+      "anchor": {
+        "quote": "判据15：工作台表中至少注册了 1 个工作台。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "工作台非空",
+      "severity": "S2",
+      "checker": {
+        "type": "count",
+        "predicate": {
+          "from": "workbenches",
+          "select": []
+        },
+        "op": ">=",
+        "value": 1
+      }
+    },
+    {
+      "source_clause": "判据16：封装提交物必须包含 README.md。",
+      "anchor": {
+        "quote": "判据16：封装提交物必须包含 README.md。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "README 存在",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "README.md",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据17：封装提交物必须包含根目录 package.json。",
+      "anchor": {
+        "quote": "判据17：封装提交物必须包含根目录 package.json。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "根清单存在",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "package.json",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据18：封装提交物必须包含 pnpm-workspace.yaml。",
+      "anchor": {
+        "quote": "判据18：封装提交物必须包含 pnpm-workspace.yaml。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "workspace 定义存在",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "pnpm-workspace.yaml",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据19：封装提交物必须包含 server/package.json。",
+      "anchor": {
+        "quote": "判据19：封装提交物必须包含 server/package.json。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "server 清单存在",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "server/package.json",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据20：封装提交物必须包含 web/package.json。",
+      "anchor": {
+        "quote": "判据20：封装提交物必须包含 web/package.json。",
+        "locator": "dev-verifier-v4.md 判据2"
+      },
+      "title": "web 清单存在",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "web/package.json",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据21：封装提交物必须包含 server/src/index.ts。",
+      "anchor": {
+        "quote": "判据21：封装提交物必须包含 server/src/index.ts。",
+        "locator": "dev-verifier-v4.md 判据2"
+      },
+      "title": "server 入口存在",
+      "severity": "S1",
+      "checker": {
+        "type": "file",
+        "glob": "server/src/index.ts",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据22：封装提交物必须包含 server/src/db.ts。",
+      "anchor": {
+        "quote": "判据22：封装提交物必须包含 server/src/db.ts。",
+        "locator": "dev-verifier-v4.md 判据2"
+      },
+      "title": "db 模块存在",
+      "severity": "S1",
+      "checker": {
+        "type": "file",
+        "glob": "server/src/db.ts",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据23：封装提交物必须包含 server/src/health.ts。",
+      "anchor": {
+        "quote": "判据23：封装提交物必须包含 server/src/health.ts。",
+        "locator": "dev-verifier-v4.md 判据2"
+      },
+      "title": "探测模块存在",
+      "severity": "S1",
+      "checker": {
+        "type": "file",
+        "glob": "server/src/health.ts",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据24：封装提交物 web/src/pages 目录下的页面组件不少于 6 个。",
+      "anchor": {
+        "quote": "判据24：封装提交物 web/src/pages 目录下的页面组件不少于 6 个。",
+        "locator": "dev-verifier-v4.md 判据2"
+      },
+      "title": "页面组件下限",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "web/src/pages/*.tsx",
+        "min": 6
+      }
+    },
+    {
+      "source_clause": "判据25：封装提交物 web/src/components 目录下的组件不少于 2 个。",
+      "anchor": {
+        "quote": "判据25：封装提交物 web/src/components 目录下的组件不少于 2 个。",
+        "locator": "dev-verifier-v4.md 判据2"
+      },
+      "title": "组件下限",
+      "severity": "S3",
+      "checker": {
+        "type": "file",
+        "glob": "web/src/components/*.tsx",
+        "min": 2
+      }
+    },
+    {
+      "source_clause": "判据26：封装提交物必须包含 web/dist/index.html。",
+      "anchor": {
+        "quote": "判据26：封装提交物必须包含 web/dist/index.html。",
+        "locator": "dev-verifier-v4.md 判据2"
+      },
+      "title": "构建入口存在",
+      "severity": "S1",
+      "checker": {
+        "type": "file",
+        "glob": "web/dist/index.html",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据27：封装提交物 web/dist/assets 目录下的 JS 产物不少于 5 个。",
+      "anchor": {
+        "quote": "判据27：封装提交物 web/dist/assets 目录下的 JS 产物不少于 5 个。",
+        "locator": "dev-verifier-v4.md 判据2"
+      },
+      "title": "分桶产物下限",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "web/dist/assets/*.js",
+        "min": 5
+      }
+    },
+    {
+      "source_clause": "判据28：封装提交物必须包含 scripts/make-submission.mjs。",
+      "anchor": {
+        "quote": "判据28：封装提交物必须包含 scripts/make-submission.mjs。",
+        "locator": "dev-verifier-v4.md 判据2"
+      },
+      "title": "打包脚本存在",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "scripts/make-submission.mjs",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据29：封装提交物必须包含 scripts/verify-report.mjs。",
+      "anchor": {
+        "quote": "判据29：封装提交物必须包含 scripts/verify-report.mjs。",
+        "locator": "dev-verifier-v4.md 判据2"
+      },
+      "title": "报告脚本存在",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "scripts/verify-report.mjs",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据30：封装提交物必须包含 verify/material.md。",
+      "anchor": {
+        "quote": "判据30：封装提交物必须包含 verify/material.md。",
+        "locator": "dev-verifier-v4.md 判据3"
+      },
+      "title": "验证器材料自举",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "verify/material.md",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据31：封装提交物必须包含 verify/candidates.json。",
+      "anchor": {
+        "quote": "判据31：封装提交物必须包含 verify/candidates.json。",
+        "locator": "dev-verifier-v4.md 判据3"
+      },
+      "title": "候选清单自举",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "verify/candidates.json",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据32：封装提交物必须包含 verify/reviews.json。",
+      "anchor": {
+        "quote": "判据32：封装提交物必须包含 verify/reviews.json。",
+        "locator": "dev-verifier-v4.md 判据3"
+      },
+      "title": "盲审档案自举",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "verify/reviews.json",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据33：封装提交物必须包含 design-system/workbench-market/MASTER.md。",
+      "anchor": {
+        "quote": "判据33：封装提交物必须包含 design-system/workbench-market/MASTER.md。",
+        "locator": "dev-verifier-v4.md 判据3"
+      },
+      "title": "设计规范存在",
+      "severity": "S2",
+      "checker": {
+        "type": "file",
+        "glob": "design-system/workbench-market/MASTER.md",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据34：封装提交物必须包含 evidence/e2e_test.py。",
+      "anchor": {
+        "quote": "判据34：封装提交物必须包含 evidence/e2e_test.py。",
+        "locator": "dev-verifier-v4.md 判据3"
+      },
+      "title": "E2E 脚本存在",
+      "severity": "S1",
+      "checker": {
+        "type": "file",
+        "glob": "evidence/e2e_test.py",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据35：封装提交物 evidence 目录下的 PNG 截图证据不少于 10 张。",
+      "anchor": {
+        "quote": "判据35：封装提交物 evidence 目录下的 PNG 截图证据不少于 10 张。",
+        "locator": "dev-verifier-v4.md 判据3"
+      },
+      "title": "UI 证据下限",
+      "severity": "S3",
+      "checker": {
+        "type": "file",
+        "glob": "evidence/*.png",
+        "min": 10
+      }
+    },
+    {
+      "source_clause": "判据36：main.tsx 主题必须包含主色值「#1E3A5F」。",
+      "anchor": {
+        "quote": "判据36：main.tsx 主题必须包含主色值「#1E3A5F」。",
+        "locator": "dev-verifier-v4.md 判据3"
+      },
+      "title": "主色 token 钉位",
+      "severity": "S2",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/main.tsx"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "#1E3A5F"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据37：main.tsx 主题必须包含次级文字色值「#5A6577」。",
+      "anchor": {
+        "quote": "判据37：main.tsx 主题必须包含次级文字色值「#5A6577」。",
+        "locator": "dev-verifier-v4.md 判据3"
+      },
+      "title": "次级文字对比达标色",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/main.tsx"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "#5A6577"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据38：main.tsx 主题必须包含成功色值「#059669」。",
+      "anchor": {
+        "quote": "判据38：main.tsx 主题必须包含成功色值「#059669」。",
+        "locator": "dev-verifier-v4.md 判据3"
+      },
+      "title": "成功色 token 钉位",
+      "severity": "S3",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/main.tsx"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "#059669"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据39：main.tsx 主题必须包含错误色值「#DC2626」。",
+      "anchor": {
+        "quote": "判据39：main.tsx 主题必须包含错误色值「#DC2626」。",
+        "locator": "dev-verifier-v4.md 判据3"
+      },
+      "title": "错误色 token 钉位",
+      "severity": "S2",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/main.tsx"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "#DC2626"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据40：App.tsx 侧栏 token 必须包含深底色值「#0F172A」。",
+      "anchor": {
+        "quote": "判据40：App.tsx 侧栏 token 必须包含深底色值「#0F172A」。",
+        "locator": "dev-verifier-v4.md 判据4"
+      },
+      "title": "侧栏深底钉位",
+      "severity": "S2",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/App.tsx"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "#0F172A"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据41：index.css 必须包含焦点环色值「rgba(5, 150, 105, 0.6)」。",
+      "anchor": {
+        "quote": "判据41：index.css 必须包含焦点环色值「rgba(5, 150, 105, 0.6)」。",
+        "locator": "dev-verifier-v4.md 判据4"
+      },
+      "title": "焦点环可见",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/index.css"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "rgba(5, 150, 105, 0.6)"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据42：index.css 必须包含选中边框色值「rgba(5, 150, 105, 0.45)」。",
+      "anchor": {
+        "quote": "判据42：index.css 必须包含选中边框色值「rgba(5, 150, 105, 0.45)」。",
+        "locator": "dev-verifier-v4.md 判据4"
+      },
+      "title": "选中边框钉位",
+      "severity": "S3",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/index.css"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "rgba(5, 150, 105, 0.45)"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据43：App.tsx 标题区必须包含强调色值「#059669」。",
+      "anchor": {
+        "quote": "判据43：App.tsx 标题区必须包含强调色值「#059669」。",
+        "locator": "dev-verifier-v4.md 判据4"
+      },
+      "title": "标题强调色钉位",
+      "severity": "S3",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/App.tsx"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "#059669"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据44：设计规范 MASTER.md 必须包含主色值「#1E3A5F」。",
+      "anchor": {
+        "quote": "判据44：设计规范 MASTER.md 必须包含主色值「#1E3A5F」。",
+        "locator": "dev-verifier-v4.md 判据4"
+      },
+      "title": "规范主色钉位",
+      "severity": "S3",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "design-system/workbench-market/MASTER.md"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "#1E3A5F"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据45：设计规范 MASTER.md 必须包含次级文字审计色值「#5A6577」。",
+      "anchor": {
+        "quote": "判据45：设计规范 MASTER.md 必须包含次级文字审计色值「#5A6577」。",
+        "locator": "dev-verifier-v4.md 判据4"
+      },
+      "title": "规范审计色钉位",
+      "severity": "S3",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "design-system/workbench-market/MASTER.md"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "#5A6577"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据46：Dashboard.tsx 统计标签必须包含次级色值「#5A6577」。",
+      "anchor": {
+        "quote": "判据46：Dashboard.tsx 统计标签必须包含次级色值「#5A6577」。",
+        "locator": "dev-verifier-v4.md 判据4"
+      },
+      "title": "统计标签次级色钉位",
+      "severity": "S2",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/pages/Dashboard.tsx"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "#5A6577"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据47：Dashboard.tsx 在线环必须包含成功色值「#059669」。",
+      "anchor": {
+        "quote": "判据47：Dashboard.tsx 在线环必须包含成功色值「#059669」。",
+        "locator": "dev-verifier-v4.md 判据4"
+      },
+      "title": "在线环色钉位",
+      "severity": "S2",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/pages/Dashboard.tsx"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "#059669"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据48：Dashboard.tsx 离线卡必须包含错误色值「#DC2626」。",
+      "anchor": {
+        "quote": "判据48：Dashboard.tsx 离线卡必须包含错误色值「#DC2626」。",
+        "locator": "dev-verifier-v4.md 判据4"
+      },
+      "title": "离线卡色钉位",
+      "severity": "S2",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/pages/Dashboard.tsx"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "#DC2626"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据49：Dashboard.tsx 辅助文字必须包含轴色值「#94A3B8」。",
+      "anchor": {
+        "quote": "判据49：Dashboard.tsx 辅助文字必须包含轴色值「#94A3B8」。",
+        "locator": "dev-verifier-v4.md 判据4"
+      },
+      "title": "辅助轴色钉位",
+      "severity": "S3",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/pages/Dashboard.tsx"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "#94A3B8"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据50：index.css 必须包含主色淡底色值「rgba(30, 58, 95, 0.1)」。",
+      "anchor": {
+        "quote": "判据50：index.css 必须包含主色淡底色值「rgba(30, 58, 95, 0.1)」。",
+        "locator": "dev-verifier-v4.md 判据5"
+      },
+      "title": "主色淡底钉位",
+      "severity": "S3",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/index.css"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "rgba(30, 58, 95, 0.1)"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据51：index.css 必须包含深底色值「#0f172a」。",
+      "anchor": {
+        "quote": "判据51：index.css 必须包含深底色值「#0f172a」。",
+        "locator": "dev-verifier-v4.md 判据5"
+      },
+      "title": "css 深底钉位",
+      "severity": "S3",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/index.css"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "#0f172a"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 22。",
+      "anchor": {
+        "quote": "判据52：E2E 摘要记录的用例总数不得少于 22。",
+        "locator": "dev-verifier-v4.md 判据5"
+      },
+      "title": "E2E 规模下限",
+      "severity": "S2",
+      "checker": {
+        "type": "count",
+        "predicate": {
+          "from": "verifier_e2e_summary",
+          "select": [],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "total",
+                "op": ">=",
+                "value": 22
+              }
+            ]
+          }
+        },
+        "op": "==",
+        "value": 1
+      }
+    },
+    {
+      "source_clause": "判据53：E2E 摘要必须标记全部用例通过。",
+      "anchor": {
+        "quote": "判据53：E2E 摘要必须标记全部用例通过。",
+        "locator": "dev-verifier-v4.md 判据5"
+      },
+      "title": "E2E 全绿",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_e2e_summary",
+          "select": [
+            "id"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "all_passed",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据54：E2E 摘要必须带有完成时间戳。",
+      "anchor": {
+        "quote": "判据54：E2E 摘要必须带有完成时间戳。",
+        "locator": "dev-verifier-v4.md 判据5"
+      },
+      "title": "E2E 时间戳在位",
+      "severity": "S3",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_e2e_summary",
+          "select": [
+            "id"
+          ],
+          "where": {
+            "col": "finished_at",
+            "op": "is not null"
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据55：渲染层对比度探针覆盖的文字目标不得少于 9 处。",
+      "anchor": {
+        "quote": "判据55：渲染层对比度探针覆盖的文字目标不得少于 9 处。",
+        "locator": "dev-verifier-v4.md 判据5"
+      },
+      "title": "对比度探针覆盖面",
+      "severity": "S1",
+      "checker": {
+        "type": "count",
+        "predicate": {
+          "from": "verifier_contrast_checks",
+          "select": []
+        },
+        "op": ">=",
+        "value": 9
+      }
+    },
+    {
+      "source_clause": "判据56：渲染层对比度探针不得存在未通过的目标。",
+      "anchor": {
+        "quote": "判据56：渲染层对比度探针不得存在未通过的目标。",
+        "locator": "dev-verifier-v4.md 判据5"
+      },
+      "title": "渲染对比度全达标",
+      "severity": "S1",
+      "checker": {
+        "type": "count",
+        "predicate": {
+          "from": "verifier_contrast_checks",
+          "select": [],
+          "where": {
+            "col": "passed",
+            "op": "=",
+            "value": 0
+          }
+        },
+        "op": "==",
+        "value": 0
+      }
+    },
+    {
+      "source_clause": "判据57：index.css 必须包含深底状态文字规则选择器「.wm-use-bar .ant-badge-status-text」。",
+      "anchor": {
+        "quote": "判据57：index.css 必须包含深底状态文字规则选择器「.wm-use-bar .ant-badge-status-text」。",
+        "locator": "dev-verifier-v4.md 判据5"
+      },
+      "title": "深底状态文字规则钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/index.css"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": ".wm-use-bar .ant-badge-status-text"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据58：index.css 必须包含深底浅色文字色值「rgba(255, 255, 255, 0.85)」。",
+      "anchor": {
+        "quote": "判据58：index.css 必须包含深底浅色文字色值「rgba(255, 255, 255, 0.85)」。",
+        "locator": "dev-verifier-v4.md 判据5"
+      },
+      "title": "深底浅色值钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/index.css"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "rgba(255, 255, 255, 0.85)"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据59：驾驶舱的 name 字段不得为空。",
+      "anchor": {
+        "quote": "判据59：驾驶舱的 name 字段不得为空。",
+        "locator": "dev-verifier-v4.md 判据5"
+      },
+      "title": "驾驶舱名称非空",
+      "severity": "S1",
+      "checker": {
+        "type": "sql",
+        "predicate": {
+          "from": "cockpits",
+          "select": [
+            "id",
+            "name"
+          ],
+          "where": {
+            "op": "or",
+            "conditions": [
+              {
+                "col": "name",
+                "op": "is null"
+              },
+              {
+                "col": "name",
+                "op": "=",
+                "value": ""
+              }
+            ]
+          }
+        },
+        "expect": "none",
+        "fail_when": "rows>0"
+      }
+    },
+    {
+      "source_clause": "判据60：封装提交物必须包含 web/src/pages/Cockpit.tsx。",
+      "anchor": {
+        "quote": "判据60：封装提交物必须包含 web/src/pages/Cockpit.tsx。",
+        "locator": "dev-verifier-v4.md 判据6"
+      },
+      "title": "驾驶舱页面存在",
+      "severity": "S1",
+      "checker": {
+        "type": "file",
+        "glob": "web/src/pages/Cockpit.tsx",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据61：server/src/index.ts 必须包含驾驶舱路由「/api/cockpits」。",
+      "anchor": {
+        "quote": "判据61：server/src/index.ts 必须包含驾驶舱路由「/api/cockpits」。",
+        "locator": "dev-verifier-v4.md 判据6"
+      },
+      "title": "驾驶舱路由钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "/api/cockpits"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据62：server/src/index.ts 必须包含「createProxyMiddleware」。",
+      "anchor": {
+        "quote": "判据62：server/src/index.ts 必须包含「createProxyMiddleware」。",
+        "locator": "dev-verifier-v4.md 判据6"
+      },
+      "title": "代理中间件在位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "createProxyMiddleware"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据63：server/src/index.ts 必须包含剥禁嵌头的「x-frame-options」。",
+      "anchor": {
+        "quote": "判据63：server/src/index.ts 必须包含剥禁嵌头的「x-frame-options」。",
+        "locator": "dev-verifier-v4.md 判据6"
+      },
+      "title": "禁嵌剥离钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "x-frame-options"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据64：封装提交物 server/package.json 必须声明依赖「http-proxy-middleware」。",
+      "anchor": {
+        "quote": "判据64：封装提交物 server/package.json 必须声明依赖「http-proxy-middleware」。",
+        "locator": "dev-verifier-v4.md 判据6"
+      },
+      "title": "代理依赖在位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/package.json"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "http-proxy-middleware"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据65：web/src/pages/UseWorkbench.tsx 必须包含「/go/${w.id}/」。",
+      "anchor": {
+        "quote": "判据65：web/src/pages/UseWorkbench.tsx 必须包含「/go/${w.id}/」。",
+        "locator": "dev-verifier-v4.md 判据6"
+      },
+      "title": "使用页走门户",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/pages/UseWorkbench.tsx"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "/go/${w.id}/"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据66：自产台的 slug 字段不得为空。",
+      "anchor": {
+        "quote": "判据66：自产台的 slug 字段不得为空。",
+        "locator": "dev-verifier-v4.md 判据6"
+      },
+      "title": "自产台标识非空",
+      "severity": "S1",
+      "checker": {
+        "type": "sql",
+        "predicate": {
+          "from": "apps",
+          "select": [
+            "id",
+            "slug"
+          ],
+          "where": {
+            "op": "or",
+            "conditions": [
+              {
+                "col": "slug",
+                "op": "is null"
+              },
+              {
+                "col": "slug",
+                "op": "=",
+                "value": ""
+              }
+            ]
+          }
+        },
+        "expect": "none",
+        "fail_when": "rows>0"
+      }
+    },
+    {
+      "source_clause": "判据67：内置类型 market-app 必须存在于类型库。",
+      "anchor": {
+        "quote": "判据67：内置类型 market-app 必须存在于类型库。",
+        "locator": "dev-verifier-v4.md 判据6"
+      },
+      "title": "自产台类型存在",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "types",
+          "select": [
+            "key"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "key",
+                "op": "=",
+                "value": "market-app"
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据68：server/src/index.ts 必须包含发布路由「/api/apps」。",
+      "anchor": {
+        "quote": "判据68：server/src/index.ts 必须包含发布路由「/api/apps」。",
+        "locator": "dev-verifier-v4.md 判据6"
+      },
+      "title": "发布 API 钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "/api/apps"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据69：server/src/db.ts 必须包含版本快照表「app_versions」。",
+      "anchor": {
+        "quote": "判据69：server/src/db.ts 必须包含版本快照表「app_versions」。",
+        "locator": "dev-verifier-v4.md 判据6"
+      },
+      "title": "版本链表钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/db.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "app_versions"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据70：自产台表中至少发布了 1 个应用。",
+      "anchor": {
+        "quote": "判据70：自产台表中至少发布了 1 个应用。",
+        "locator": "dev-verifier-v4.md 判据7"
+      },
+      "title": "自产台非空",
+      "severity": "S2",
+      "checker": {
+        "type": "count",
+        "predicate": {
+          "from": "apps",
+          "select": []
+        },
+        "op": ">=",
+        "value": 1
+      }
+    },
+    {
+      "source_clause": "判据71：server/src/index.ts 必须包含注入头名「authorization」。",
+      "anchor": {
+        "quote": "判据71：server/src/index.ts 必须包含注入头名「authorization」。",
+        "locator": "dev-verifier-v4.md 判据7"
+      },
+      "title": "凭据注入钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "authorization"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据72：web/src/components/WorkbenchForm.tsx 必须包含凭据表单字段「authValue」。",
+      "anchor": {
+        "quote": "判据72：web/src/components/WorkbenchForm.tsx 必须包含凭据表单字段「authValue」。",
+        "locator": "dev-verifier-v4.md 判据7"
+      },
+      "title": "凭据表单钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/components/WorkbenchForm.tsx"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "authValue"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据73：evidence/e2e_test.py 必须包含凭据注入断言字面量「e2e-bear-tok」。",
+      "anchor": {
+        "quote": "判据73：evidence/e2e_test.py 必须包含凭据注入断言字面量「e2e-bear-tok」。",
+        "locator": "dev-verifier-v4.md 判据7"
+      },
+      "title": "注入行为断言钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "evidence/e2e_test.py"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "e2e-bear-tok"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据74：server/src/index.ts 必须包含 WS 升级挂载「goServer.on('upgrade'」。",
+      "anchor": {
+        "quote": "判据74：server/src/index.ts 必须包含 WS 升级挂载「goServer.on('upgrade'」。",
+        "locator": "dev-verifier-v4.md 判据7"
+      },
+      "title": "WS 升级代理钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "goServer.on('upgrade'"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据75：server/src/index.ts 必须包含握手 Origin 改写「req.headers.origin = u.origin」。",
+      "anchor": {
+        "quote": "判据75：server/src/index.ts 必须包含握手 Origin 改写「req.headers.origin = u.origin」。",
+        "locator": "dev-verifier-v4.md 判据7"
+      },
+      "title": "WS 握手 Origin 改写钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "req.headers.origin = u.origin"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据76：server/src/db.ts 必须包含运行真源表「sop_runs」。",
+      "anchor": {
+        "quote": "判据76：server/src/db.ts 必须包含运行真源表「sop_runs」。",
+        "locator": "dev-verifier-v4.md 判据7"
+      },
+      "title": "SOP 运行表钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/db.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "sop_runs"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据77：server/src/redis.ts 必须包含状态层写入函数「runStateSave」。",
+      "anchor": {
+        "quote": "判据77：server/src/redis.ts 必须包含状态层写入函数「runStateSave」。",
+        "locator": "dev-verifier-v4.md 判据7"
+      },
+      "title": "Redis 状态层钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/redis.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "runStateSave"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据78：server/src/index.ts 必须包含 Runner 服务端渲染「renderSopRunner」。",
+      "anchor": {
+        "quote": "判据78：server/src/index.ts 必须包含 Runner 服务端渲染「renderSopRunner」。",
+        "locator": "dev-verifier-v4.md 判据7"
+      },
+      "title": "SOP Runner 钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "renderSopRunner"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据79：server/src/index.ts 必须包含运行 API 前缀「/api/sop/runs」。",
+      "anchor": {
+        "quote": "判据79：server/src/index.ts 必须包含运行 API 前缀「/api/sop/runs」。",
+        "locator": "dev-verifier-v4.md 判据7"
+      },
+      "title": "SOP 运行 API 钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "/api/sop/runs"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据80：evidence/e2e_test.py 必须包含 SOP 台用例字面量「e2e-sop」。",
+      "anchor": {
+        "quote": "判据80：evidence/e2e_test.py 必须包含 SOP 台用例字面量「e2e-sop」。",
+        "locator": "dev-verifier-v4.md 判据8"
+      },
+      "title": "SOP 行为断言钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "evidence/e2e_test.py"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "e2e-sop"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据81：server/src/index.ts 必须包含 MCP 端点挂载「app.post('/mcp'」。",
+      "anchor": {
+        "quote": "判据81：server/src/index.ts 必须包含 MCP 端点挂载「app.post('/mcp'」。",
+        "locator": "dev-verifier-v4.md 判据8"
+      },
+      "title": "MCP 端点钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "app.post('/mcp'"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据82：server/src/index.ts 必须包含工具注册表「MCP_TOOLS」。",
+      "anchor": {
+        "quote": "判据82：server/src/index.ts 必须包含工具注册表「MCP_TOOLS」。",
+        "locator": "dev-verifier-v4.md 判据8"
+      },
+      "title": "MCP 工具注册钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "MCP_TOOLS"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据83：server/src/index.ts 必须包含 JSON-RPC 错误码「-32601」。",
+      "anchor": {
+        "quote": "判据83：server/src/index.ts 必须包含 JSON-RPC 错误码「-32601」。",
+        "locator": "dev-verifier-v4.md 判据8"
+      },
+      "title": "JSON-RPC 合规钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "-32601"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据84：evidence/e2e_test.py 必须包含 MCP 用例字面量「e2e-mcp-app」。",
+      "anchor": {
+        "quote": "判据84：evidence/e2e_test.py 必须包含 MCP 用例字面量「e2e-mcp-app」。",
+        "locator": "dev-verifier-v4.md 判据8"
+      },
+      "title": "MCP 行为断言钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "evidence/e2e_test.py"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "e2e-mcp-app"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据85：封装提交物必须包含 web/src/pages/Sops.tsx。",
+      "anchor": {
+        "quote": "判据85：封装提交物必须包含 web/src/pages/Sops.tsx。",
+        "locator": "dev-verifier-v4.md 判据8"
+      },
+      "title": "SOP 管理页存在",
+      "severity": "S1",
+      "checker": {
+        "type": "file",
+        "glob": "web/src/pages/Sops.tsx",
+        "min": 1
+      }
+    },
+    {
+      "source_clause": "判据86：web/src/pages/Sops.tsx 必须包含状态语义表「SOP_STATUS」。",
+      "anchor": {
+        "quote": "判据86：web/src/pages/Sops.tsx 必须包含状态语义表「SOP_STATUS」。",
+        "locator": "dev-verifier-v4.md 判据8"
+      },
+      "title": "SOP 状态徽章钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/pages/Sops.tsx"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "SOP_STATUS"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据87：web/src/App.tsx 必须包含 SOP 路由「path: '/sops'」。",
+      "anchor": {
+        "quote": "判据87：web/src/App.tsx 必须包含 SOP 路由「path: '/sops'」。",
+        "locator": "dev-verifier-v4.md 判据8"
+      },
+      "title": "SOP 路由钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/App.tsx"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "path: '/sops'"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据88：evidence/e2e_test.py 必须包含演示 SOP 字面量「demo-rack-sop」。",
+      "anchor": {
+        "quote": "判据88：evidence/e2e_test.py 必须包含演示 SOP 字面量「demo-rack-sop」。",
+        "locator": "dev-verifier-v4.md 判据8"
+      },
+      "title": "演示 SOP 常驻钉位",
+      "severity": "S2",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "evidence/e2e_test.py"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "demo-rack-sop"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据89：server/src/index.ts 必须包含列表掩码函数「maskSensitiveQuery」。",
+      "anchor": {
+        "quote": "判据89：server/src/index.ts 必须包含列表掩码函数「maskSensitiveQuery」。",
+        "locator": "dev-verifier-v4.md 判据8"
+      },
+      "title": "API token 掩码钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "maskSensitiveQuery"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据90：server/src/index.ts 必须包含掩码回传保护字面量「=****」。",
+      "anchor": {
+        "quote": "判据90：server/src/index.ts 必须包含掩码回传保护字面量「=****」。",
+        "locator": "dev-verifier-v4.md 判据9"
+      },
+      "title": "掩码回传保护钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "=****"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    }
+  ]
+}
