@@ -1067,6 +1067,19 @@ app.post('/api/import', (req, res) => {
     );
     imported += 1;
   }
+  // PR#15 评审吸收的增量思路：replace 重排自增 id 后，驾驶舱面板里指向旧 id 的引用已成悬空
+  // （保存布局恒 400）——导入完成后全量剔除不存在引用（比按 id 精确清理更通用，也清历史遗留）
+  {
+    const exists = db.prepare('SELECT 1 AS x FROM workbenches WHERE id = ?');
+    for (const c of db.prepare('SELECT * FROM cockpits').all() as unknown as CockpitRow[]) {
+      let panels: PanelConfig[];
+      try { panels = JSON.parse(c.layout_config || '[]'); } catch { continue; }
+      const kept = panels.filter((p) => exists.get(p.workbenchId));
+      if (kept.length !== panels.length) {
+        db.prepare(`UPDATE cockpits SET layout_config = ?, updated_at = datetime('now') WHERE id = ?`).run(JSON.stringify(kept), c.id);
+      }
+    }
+  }
   res.json({ ok: true, mode, imported, skipped: b.workbenches.length - imported });
 });
 
