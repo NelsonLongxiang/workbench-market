@@ -174,9 +174,20 @@ app.put('/api/workbenches/:id', (req, res) => {
 });
 
 app.delete('/api/workbenches/:id', (req, res) => {
-  const r = db.prepare('DELETE FROM workbenches WHERE id = ?').run(Number(req.params.id));
-  if (!r.changes) throw new HttpError(404, `workbench not found: ${req.params.id}`);
-  res.json({ ok: true, deleted: Number(req.params.id) });
+  const id = Number(req.params.id);
+  const r = db.prepare('DELETE FROM workbenches WHERE id = ?').run(id);
+  if (!r.changes) throw new HttpError(404, `workbench not found: ${id}`);
+  // issue #9：删除工作台同步清掉各驾驶舱对它的面板引用——否则悬空面板会让之后每次保存布局 400
+  const cocks = db.prepare('SELECT * FROM cockpits').all() as unknown as CockpitRow[];
+  for (const c of cocks) {
+    let panels: PanelConfig[];
+    try { panels = JSON.parse(c.layout_config || '[]'); } catch { continue; }
+    const kept = panels.filter((p) => p.workbenchId !== id);
+    if (kept.length !== panels.length) {
+      db.prepare(`UPDATE cockpits SET layout_config = ?, updated_at = datetime('now') WHERE id = ?`).run(JSON.stringify(kept), c.id);
+    }
+  }
+  res.json({ ok: true, deleted: id });
 });
 
 // ---------- 健康检查 ----------
@@ -195,12 +206,33 @@ async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkben
   }
   const t = typeOf(w.type);
   const settings = getSettings();
-  const target = composeProbeUrl(w.url, w.health_path || t?.health_path || '');
-  const result = await probe(target, {
-    method: t?.health_method || 'GET',
-    timeoutMs: Number(settings.health_timeout_ms) || 5000,
-    expectStatus: t?.expect_status ?? null,
-  });
+  // issue #8：坏 health_path / 非法组合不得让单测整体 500——探测目标构造失败时该台记 down
+  let target: string;
+  try {
+    target = composeProbeUrl(w.url, w.health_path || t?.health_path || '');
+  } catch (e: any) {
+    const reason = String(e?.message ?? e);
+    db.prepare(`UPDATE workbenches SET last_status='down', last_checked_at=datetime('now'),
+      last_latency_ms=NULL, last_http_code=NULL, last_error=? WHERE id=?`).run(reason, w.id);
+    const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(w.id) as unknown as WorkbenchRow;
+    return rowToWorkbench(row);
+  }
+  // probe 内部 assertHttpUrl 在 try 外（残缺 URL 如 http:// 会在断言处抛）——再兜一层，
+  // 目标不可探测一律记 down 不炸单测/全测
+  let result: Awaited<ReturnType<typeof probe>>;
+  try {
+    result = await probe(target, {
+      method: t?.health_method || 'GET',
+      timeoutMs: Number(settings.health_timeout_ms) || 5000,
+      expectStatus: t?.expect_status ?? null,
+    });
+  } catch (e: any) {
+    const reason = String(e?.message ?? e);
+    db.prepare(`UPDATE workbenches SET last_status='down', last_checked_at=datetime('now'),
+      last_latency_ms=NULL, last_http_code=NULL, last_error=? WHERE id=?`).run(`探测失败：${reason}`, w.id);
+    const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(w.id) as unknown as WorkbenchRow;
+    return rowToWorkbench(row);
+  }
   db.prepare(
     `UPDATE workbenches SET last_status=@status, last_checked_at=datetime('now'),
      last_latency_ms=@latency, last_http_code=@code, last_error=@error WHERE id=@id`
@@ -505,7 +537,8 @@ app.delete('/api/apps/:slug', (req, res) => {
   rmSync(join(appsRoot, a.slug), { recursive: true, force: true });
   db.prepare('DELETE FROM app_versions WHERE app_id = ?').run(a.id);
   db.prepare('DELETE FROM apps WHERE id = ?').run(a.id);
-  db.prepare(`DELETE FROM workbenches WHERE url = ? AND type = 'market-app'`).run(`/apps/${a.slug}/`);
+  // issue #6：SOP 台的注册 url 是 /sop/<slug>/（非 /apps/），删除时必须一并清理，否则留孤儿工作台（门户 404）
+  db.prepare(`DELETE FROM workbenches WHERE (url = ? OR url = ?) AND type = 'market-app'`).run(`/apps/${a.slug}/`, `/sop/${a.slug}/`);
   res.json({ ok: true, deleted: a.slug });
 });
 
@@ -521,7 +554,11 @@ function sopTransition(slug: string, from: string[], to: string, label: string):
   if (!from.includes(a.status)) throw new HttpError(409, `状态机拒绝：当前 ${a.status}，${label} 仅允许 ${from.join('/')}`);
   db.prepare(`UPDATE apps SET status = ?, updated_at = datetime('now') WHERE id = ?`).run(to, a.id);
   const updated = getApp(slug);
-  if (to === 'published') syncWorkbenchRegistration(updated); // 发布即入册（门户/市场/驾驶舱全链可见）
+  if (to === 'published') {
+    syncWorkbenchRegistration(updated); // 发布即入册（门户/市场/驾驶舱全链可见）
+    // issue #10：废弃→重新上架时市场行仍是停用态（enabled=0），上架必须恢复启用
+    db.prepare(`UPDATE workbenches SET enabled = 1, updated_at = datetime('now') WHERE url = ? AND type = 'market-app'`).run(`/sop/${updated.slug}/`);
+  }
   return updated;
 }
 
@@ -976,6 +1013,7 @@ app.put('/api/settings', (req, res) => {
     if (!allowed.includes(k)) continue;
     upd.run(k, String(v));
   }
+  armPatrol(); // issue #5：改巡检设置即重挂定时器（幂等 clearTimeout 开头），不必重启服务
   res.json(getSettings());
 });
 
@@ -992,7 +1030,9 @@ app.get('/api/export', (_req, res) => {
 app.post('/api/import', (req, res) => {
   const b = req.body ?? {};
   if (!Array.isArray(b.workbenches)) bad('导入文件缺少 workbenches 数组');
-  const mode = b.mode === 'replace' ? 'replace' : 'merge';
+  // issue #7：mode 支持 query 优先（README 的 ?mode=replace 写法），body.mode 次之
+  const modeRaw = (typeof req.query.mode === 'string' ? req.query.mode : b.mode) ?? 'merge';
+  const mode = modeRaw === 'replace' ? 'replace' : 'merge';
   if (mode === 'replace') {
     db.prepare('DELETE FROM workbenches').run();
     db.prepare('DELETE FROM types WHERE key != ?').run('web');
@@ -1010,7 +1050,11 @@ app.post('/api/import', (req, res) => {
   );
   let imported = 0;
   for (const w of b.workbenches) {
-    try { assertHttpUrl(String(w.url)); } catch { continue; }
+    // issue #7：自产台/SOP 注册行的 url 是市场内部路径（/ 开头）——断言 http URL 会把它们
+    // 静默丢掉（replace 清库后导回再丢 = 注册永久消失）；内部路径直接放行
+    if (!String(w.url).startsWith('/')) {
+      try { assertHttpUrl(String(w.url)); } catch { continue; }
+    }
     let authCfg = '';
     if (w.auth && (w.auth.type === 'bearer' || w.auth.type === 'basic') && typeof w.auth.value === 'string' && w.auth.value) {
       authCfg = JSON.stringify({ type: w.auth.type, value: w.auth.value });
@@ -1344,10 +1388,15 @@ if (existsSync(webDist)) {
 }
 
 // ---------- 统一错误出口 ----------
+// issue #8：校验类普通 Error（assertHttpUrl 的「非法 URL/仅支持 http」）统一映射 400——
+// 输入校验错误不得 500 泄内部细节。
+const VALIDATION_ERR_PREFIX = ['非法 URL', '仅支持 http'];
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  const status = err instanceof HttpError ? err.status : 500;
+  const msg = String(err?.message ?? err);
+  let status = err instanceof HttpError ? err.status : 500;
+  if (status === 500 && VALIDATION_ERR_PREFIX.some((p) => msg.startsWith(p))) status = 400;
   if (status === 500) console.error('[server] unhandled:', err);
-  res.status(status).json({ error: String(err.message ?? err) });
+  res.status(status).json({ error: msg });
 });
 
 // ---------- 定期巡检 ----------

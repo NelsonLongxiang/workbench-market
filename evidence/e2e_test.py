@@ -738,6 +738,75 @@ with sync_playwright() as p:
     except Exception as e:
         record('SOP 管理页', False, str(e)); shot('sops-ui')
 
+    # ---------- 19. 运行时批六项（评审 #5/#6/#7/#8/#9/#10） ----------
+    try:
+        # ① #6 删除 SOP 台同时清市场注册（不留孤儿）
+        api(page, 'POST', '/api/apps', {'slug': 'e2e-del-sop', 'kind': 'sop', 'title': 'T', 'changelog': 'x',
+            'files': [{'path': 'sop.yaml', 'content': 'title: T\nsteps:\n  - key: a\n    title: A\n'}]})
+        pub = api(page, 'POST', '/api/sops/e2e-del-sop/publish', {}).json()
+        swid = pub['workbench_id']
+        api(page, 'DELETE', '/api/apps/e2e-del-sop')
+        orphan = [w for w in api(page, 'GET', '/api/workbenches').json() if w['id'] == swid]
+        assert not orphan, f'删除 SOP 后孤儿工作台仍在: {orphan[:1]}'
+        # ② #10 deprecate→publish 恢复 enabled
+        api(page, 'POST', '/api/apps', {'slug': 'e2e-rearm', 'kind': 'sop', 'title': 'T', 'changelog': 'x',
+            'files': [{'path': 'sop.yaml', 'content': 'title: T\nsteps:\n  - key: a\n    title: A\n'}]})
+        api(page, 'POST', '/api/sops/e2e-rearm/publish', {})
+        api(page, 'POST', '/api/sops/e2e-rearm/deprecate', {})
+        api(page, 'POST', '/api/sops/e2e-rearm/publish', {})
+        wb = api(page, 'GET', f'/api/workbenches/{api(page, "GET", "/api/apps/e2e-rearm").json()["workbench_id"]}').json()
+        assert wb['enabled'] is True, f'重新上架后 enabled 未恢复: {wb["enabled"]}'
+        api(page, 'DELETE', '/api/apps/e2e-rearm')
+        # ③ #8 输入校验 400 非 500 + 坏 health_path 单台 down 不炸巡检
+        r500 = api(page, 'POST', '/api/workbenches', {'name': 'E2E BadUrl', 'url': 'notaurl', 'type': 'web', 'category': 'E2E'})
+        assert r500.status == 400, f'坏 url 未 400: {r500.status}'
+        # 注：Node WHATWG URL 对相对路径极宽容（自动编码），构造失败难经相对路径触发；
+        # 用完整但残缺的 URL（http:// 无 host）走 probe 既有兜底——行为面：单测 200 + 记 down
+        badhp = api(page, 'POST', '/api/workbenches', {'name': 'E2E BadHp', 'url': 'http://127.0.0.1:9901/', 'type': 'web', 'category': 'E2E', 'health_path': 'http://'}).json()
+        chk = api(page, 'POST', f"/api/workbenches/{badhp['id']}/check")
+        assert chk.status == 200, f'坏 health_path 单测 500: {chk.status}'
+        assert chk.json()['last_status'] == 'down', '坏 health_path 未记 down'
+        # ④ #9 删台同步清驾驶舱面板引用（保存布局不再 400）
+        pw = api(page, 'POST', '/api/workbenches', {'name': 'E2E CockpitPanel', 'url': 'http://127.0.0.1:9901/', 'type': 'web', 'category': 'E2E'}).json()
+        cp = api(page, 'POST', '/api/cockpits', {'name': 'E2E 面板清理舱', 'description': '', 'panels': [{'i': 'p1', 'workbenchId': pw['id'], 'x': 0, 'y': 0, 'w': 4, 'h': 3}]}).json()
+        api(page, 'DELETE', f"/api/workbenches/{pw['id']}")
+        cp2 = api(page, 'GET', f"/api/cockpits/{cp['id']}").json()
+        assert all(p['workbenchId'] != pw['id'] for p in cp2['panels']), '驾驶舱面板未同步清理'
+        rsave = api(page, 'PUT', f"/api/cockpits/{cp['id']}", {'panels': cp2['panels']})
+        assert rsave.status == 200, f'清理后保存布局仍 400: {rsave.status}'
+        api(page, 'DELETE', f"/api/cockpits/{cp['id']}")
+        api(page, 'DELETE', f"/api/workbenches/{badhp['id']}")
+        # ⑤ #5 改巡检设置不重启生效（幂等重挂——行为面：设置回读 + 服务继续健康）
+        api(page, 'PUT', '/api/settings', {'health_timeout_ms': '4000'})
+        st = api(page, 'GET', '/api/settings').json()
+        assert st['health_timeout_ms'] == '4000', f'设置未生效: {st}'
+        api(page, 'PUT', '/api/settings', {'health_timeout_ms': '5000'})
+        # ⑥ #7 导入 replace：query 语法生效 + 内部路径注册行不再被静默丢弃
+        exp = api(page, 'GET', '/api/export').json()
+        probe_app = api(page, 'POST', '/api/workbenches', {'name': 'E2E ImportProbe', 'url': '/apps/e2e-import-probe/', 'type': 'market-app', 'category': 'E2E'}).json()
+        probe_http = api(page, 'POST', '/api/workbenches', {'name': 'E2E ImportHttp', 'url': 'http://127.0.0.1:9901/', 'type': 'web', 'category': 'E2E'}).json()
+        exp2 = api(page, 'GET', '/api/export').json()
+        api(page, 'DELETE', f"/api/workbenches/{probe_app['id']}")  # 模拟丢注册
+        rrep = api(page, 'POST', '/api/import?mode=replace', {'workbenches': exp2['workbenches'], 'types': exp2['types'], 'settings': exp2['settings']})
+        assert rrep.status == 200, f'query replace 失败: {rrep.status}'
+        urls = [w['url'] for w in api(page, 'GET', '/api/workbenches').json()]
+        assert '/apps/e2e-import-probe/' in urls, 'replace 后内部路径注册行仍丢失'
+        assert 'http://127.0.0.1:9901/' in urls
+        assert any('/sop/demo-rack-sop/' in u for u in urls), '演示 SOP 注册在 replace 后丢失'
+        # 恢复：replace 重排了自增 id——按 url 映射把驾驶舱面板引用修回新 id
+        exp3 = api(page, 'GET', '/api/export').json()
+        new_id_by_url = {w['url']: w['id'] for w in exp3['workbenches']}
+        old_id_by_url = {w['url']: w['id'] for w in exp['workbenches']}
+        for c in api(page, 'GET', '/api/cockpits').json():
+            fixed = [dict(p, workbenchId=new_id_by_url.get(next((u for u, oid in old_id_by_url.items() if oid == p['workbenchId']), ''), p['workbenchId'])) for p in c['panels']]
+            api(page, 'PUT', f"/api/cockpits/{c['id']}", {'panels': fixed})
+        for u in ('/apps/e2e-import-probe/', 'http://127.0.0.1:9901/'):
+            nid = new_id_by_url.get(u)
+            if nid: api(page, 'DELETE', f'/api/workbenches/{nid}')
+        record('运行时批六项（#5-#10：巡检重挂/删台清注册/导入 replace/校验400/面板清理/enabled 恢复）', True)
+    except Exception as e:
+        record('运行时批六项', False, str(e)); shot('runtime-batch')
+
     cleanup(page)
     browser.close()
 

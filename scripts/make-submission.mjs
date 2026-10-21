@@ -111,6 +111,10 @@ const TEXT_FACTS = [
   ["evidence/e2e_test.py", "token=8sKZ"],
   ["server/src/index.ts", "goWid"],
   ["evidence/e2e_test.py", "redir-relative"],
+  ["server/src/index.ts", "issue #5"],
+  ["server/src/index.ts", "issue #6"],
+  ["server/src/index.ts", "issue #7"],
+  ["evidence/e2e_test.py", "e2e-import-probe"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);
