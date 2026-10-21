@@ -3876,6 +3876,123 @@
         },
         "expect": true
       }
+    },
+    {
+      "source_clause": "判据119：evidence/e2e_test.py 必须包含 CORS 行为断言锚「access-control-allow-origin」。",
+      "anchor": {
+        "quote": "判据119：evidence/e2e_test.py 必须包含 CORS 行为断言锚「access-control-allow-origin」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "CORS 行为双锚",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "evidence/e2e_test.py"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "access-control-allow-origin"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据120：evidence/e2e_test.py 必须包含协议错误断言锚「-32601」。",
+      "anchor": {
+        "quote": "判据120：evidence/e2e_test.py 必须包含协议错误断言锚「-32601」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "MCP 协议双锚",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "evidence/e2e_test.py"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "-32601"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据121：evidence/e2e_test.py 必须包含 draft 泄漏探针锚「SecretStep」。",
+      "anchor": {
+        "quote": "判据121：evidence/e2e_test.py 必须包含 draft 泄漏探针锚「SecretStep」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "draft 403 双锚",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "evidence/e2e_test.py"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "SecretStep"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
     }
   ]
 }
