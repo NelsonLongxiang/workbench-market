@@ -2784,6 +2784,162 @@
         },
         "expect": true
       }
+    },
+    {
+      "source_clause": "判据91：server/src/index.ts 必须包含 API 出口统一脱敏函数「maskForApi」。",
+      "anchor": {
+        "quote": "判据91：server/src/index.ts 必须包含 API 出口统一脱敏函数「maskForApi」。",
+        "locator": "dev-verifier-v4.md 判据9"
+      },
+      "title": "auth.value+MCP 脱敏钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "maskForApi"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据92：server/src/index.ts 必须包含 CORS 白名单「CORS_ALLOW」。",
+      "anchor": {
+        "quote": "判据92：server/src/index.ts 必须包含 CORS 白名单「CORS_ALLOW」。",
+        "locator": "dev-verifier-v4.md 判据9"
+      },
+      "title": "CORS 白名单钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "CORS_ALLOW"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据93：server/src/index.ts 必须包含 draft 拒绝文案「未上架不可执行」。",
+      "anchor": {
+        "quote": "判据93：server/src/index.ts 必须包含 draft 拒绝文案「未上架不可执行」。",
+        "locator": "dev-verifier-v4.md 判据9"
+      },
+      "title": "draft 403 瘦身钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "未上架不可执行"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据94：evidence/e2e_test.py 必须包含 MCP 泄漏探针字面量「token=8sKZ」。",
+      "anchor": {
+        "quote": "判据94：evidence/e2e_test.py 必须包含 MCP 泄漏探针字面量「token=8sKZ」。",
+        "locator": "dev-verifier-v4.md 判据9"
+      },
+      "title": "MCP 泄漏行为断言钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "evidence/e2e_test.py"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "token=8sKZ"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
     }
   ]
 }

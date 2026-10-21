@@ -524,7 +524,37 @@ with sync_playwright() as p:
         assert 'token=startup-tok' in b4.get('url', ''), f"掩码回传毁库: 代理补全 {b4.get('url')}"
         r400 = api(page, 'POST', '/api/workbenches', {'name': 'E2E MaskProbe', 'url': 'http://127.0.0.1:9901/x?token=****', 'type': 'web', 'category': 'E2E'})
         assert r400.status == 400, 'POST 掩码指纹未被拒绝'
-        record('统一门户透传+凭据注入+WS 升级（echo fixture 九断言）', True)
+        # ⑩ 安全批四项（外部评审 #1/#2/#3/#11，监督席派单 direct-74a7d418）
+        # #2 auth.value 双端点掩码（S3CRET 探针不复现）
+        authleak = [w['name'] for w in lst if (w.get('auth') or {}).get('value') not in (None, '****')]
+        assert not authleak, f'列表泄漏明文 auth.value: {authleak}'
+        d2 = api(page, 'GET', f'/api/workbenches/{ewid}').json()
+        assert d2['auth'] and d2['auth']['value'] == '****', f"详情 auth 未掩码: {d2['auth']}"
+        # 掩码回传不改凭据（PUT 掩码 auth + 代理注入仍带真票）
+        api(page, 'PUT', f'/api/workbenches/{ewid}', {'auth': {'type': 'bearer', 'value': '****'}})
+        b5 = page.request.fetch(BASE + f'/go/{ewid}/probe-mask2').json()
+        assert b5.get('authorization') == 'Bearer e2e-bear-tok', f"auth 掩码回传毁库: {b5.get('authorization')}"
+        r401b = api(page, 'POST', '/api/workbenches', {'name': 'E2E AuthMask', 'url': 'http://127.0.0.1:9901/x', 'type': 'web', 'category': 'E2E', 'auth': {'type': 'bearer', 'value': '****'}})
+        assert r401b.status == 400, 'POST auth 掩码指纹未被拒绝'
+        # #3 MCP 通道掩码
+        mc_lst = page.request.fetch(BASE + '/mcp', method='POST', headers={'Content-Type': 'application/json'},
+            data=json.dumps({'jsonrpc': '2.0', 'id': 910, 'method': 'tools/call', 'params': {'name': 'workbench_list', 'arguments': {}}})).json()
+        mc_txt = mc_lst['result']['content'][0]['text']
+        assert 'token=8sKZ' not in mc_txt and 'token=****' in mc_txt, 'MCP workbench_list 泄漏明文 token'
+        assert 'e2e-bear-tok' not in mc_txt, 'MCP workbench_list 泄漏 auth 明文'
+        # #1 CORS 白名单：外源 Origin 不回 ACAO，本机 dev 源放行
+        r_o = page.request.fetch(BASE + '/api/health', headers={'Origin': 'http://evil.example'})
+        assert r_o.headers.get('access-control-allow-origin') is None, 'CORS 对外源仍开放'
+        r_d = page.request.fetch(BASE + '/api/health', headers={'Origin': 'http://localhost:5173'})
+        assert r_d.headers.get('access-control-allow-origin') == 'http://localhost:5173', 'dev 源未放行'
+        # #11 draft 403 不再下发完整 Runner 页面
+        draft_yaml = 'title: T\nsteps:\n  - key: a\n    title: SecretStep\n'
+        api(page, 'POST', '/api/apps', {'slug': 'e2e-draft-leak', 'kind': 'sop', 'title': 'L', 'changelog': 'x',
+            'files': [{'path': 'sop.yaml', 'content': draft_yaml}]})
+        r403 = page.request.fetch(BASE + '/sop/e2e-draft-leak/')
+        assert r403.status == 403 and 'SecretStep' not in r403.text(), 'draft 403 页面泄漏步骤内容'
+        api(page, 'DELETE', '/api/apps/e2e-draft-leak')
+        record('统一门户透传+凭据注入+WS 升级（echo fixture 十四断言）', True)
     except Exception as e:
         record('统一门户透传+凭据注入', False, str(e)); shot('portal-auth')
 

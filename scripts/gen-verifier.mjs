@@ -137,11 +137,16 @@ const U = [
   { c: "判据88：evidence/e2e_test.py 必须包含演示 SOP 字面量「demo-rack-sop」。", t: "演示 SOP 常驻钉位", s: "S2", ck: existsFact("evidence/e2e_test.py", "demo-rack-sop"), rv: ["判据原文逐字取自冻结材料，E2E 实测 /sops 页并要求演示 SOP（demo-rack-sop）常驻可见。", "提取表三条件 exists 精确判定。", "删演示或用例提取为 0 即 FAIL。"] },
   // ── 凭据面防泄露（监督席派单 direct-30b57179：列表掩码 + 掩码回传保护） ──
   { c: "判据89：server/src/index.ts 必须包含列表掩码函数「maskSensitiveQuery」。", t: "API token 掩码钉位", s: "S1", ck: existsFact("server/src/index.ts", "maskSensitiveQuery"), rv: ["判据原文逐字取自冻结材料，无认证 API 响应（列表与详情同策略）对 url query 敏感参数（token/password/secret/api_key 等）掩码防浏览泄露；代理侧 DB 直读不受影响。", "提取表三条件 exists 精确判定。", "删掩码函数提取为 0 即 FAIL。"] },
-  { c: "判据90：server/src/index.ts 必须包含掩码回传保护字面量「=****」。", t: "掩码回传保护钉位", s: "S1", ck: existsFact("server/src/index.ts", "=****"), rv: ["判据原文逐字取自冻结材料，PUT 收到含掩码指纹的 url 视为未变更保留 DB 原值、POST 拒绝掩码指纹入新建——否则编辑保存/复制工作台会把 **** 写库毁掉 query 门（E2E 组 15 第⑨断言实测）。", "提取表三条件 exists 精确判定。", "删保护提取为 0 即 FAIL。"] },
+  { c: "判据90：server/src/index.ts 必须包含掩码回传保护字面量「=****」。", t: "掩码回传保护钉位", s: "S1", ck: existsFact("server/src/index.ts", "=****"), rv: ["判据原文逐字取自冻结材料，PUT 收到含掩码指纹的 url/auth.value 视为未变更保留 DB 原值、POST 拒绝掩码指纹入新建——否则编辑保存/复制工作台会把 **** 写库毁掉 query 门/凭据（E2E 组 15 第⑨-⑩断言实测）。", "提取表三条件 exists 精确判定。", "删保护提取为 0 即 FAIL。"] },
+  // ── 安全批（外部评审 16 issue 之 #1/#2/#3/#11，监督席派单 direct-74a7d418 已复现定性） ──
+  { c: "判据91：server/src/index.ts 必须包含 API 出口统一脱敏函数「maskForApi」。", t: "auth.value+MCP 脱敏钉位", s: "S1", ck: existsFact("server/src/index.ts", "maskForApi"), rv: ["判据原文逐字取自冻结材料，REST 列表/详情的 auth.value 与 MCP workbench_list/use_url 的 url 经同一脱敏函数——agent 可编程面不得绕过 REST 脱敏（评审 #2/#3）。", "提取表三条件 exists 精确判定。", "删函数提取为 0 即 FAIL。"] },
+  { c: "判据92：server/src/index.ts 必须包含 CORS 白名单「CORS_ALLOW」。", t: "CORS 白名单钉位", s: "S1", ck: existsFact("server/src/index.ts", "CORS_ALLOW"), rv: ["判据原文逐字取自冻结材料，CORS 从全开放收紧为本机 dev 源白名单（评审 #1）——生产同源托管无需跨源；外源不回 ACAO。", "提取表三条件 exists 精确判定。", "改回全开放提取为 0 即 FAIL。"] },
+  { c: "判据93：server/src/index.ts 必须包含 draft 拒绝文案「未上架不可执行」。", t: "draft 403 瘦身钉位", s: "S1", ck: existsFact("server/src/index.ts", "未上架不可执行"), rv: ["判据原文逐字取自冻结材料，非 published 的 SOP 不再渲染下发完整 Runner 页面（评审 #11 信息泄漏面）——403 一行文案，直连与门户内联两处分流同款。", "提取表三条件 exists 精确判定。", "恢复整页渲染提取为 0 即 FAIL。"] },
+  { c: "判据94：evidence/e2e_test.py 必须包含 MCP 泄漏探针字面量「token=8sKZ」。", t: "MCP 泄漏行为断言钉位", s: "S1", ck: existsFact("evidence/e2e_test.py", "token=8sKZ"), rv: ["判据原文逐字取自冻结材料，E2E 组 15 十四断言以真实票据前缀为探针：MCP 响应不得含明文 token（含 token=**** 掩码形态）、CORS 外源无 ACAO、draft 403 页面无步骤内容、auth.value 双端点掩码+回传不毁库。", "提取表三条件 exists 精确判定。", "删探针提取为 0 即 FAIL。"] },
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
-const header = `workbench-market 开发验证器 v15（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露）
+const header = `workbench-market 开发验证器 v16（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改）
 
 判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
 快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
@@ -154,7 +159,7 @@ passed)——源自 E2E 内置的 Playwright 对比度探针（实测 DOM 前景
 提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
 脚本、验证器自举档案、设计规范与证据。
 命令执行型检查（typecheck、lint、build）不属于 CLI 闭集，由开发流程自行执行
-（E2E 与渲染层对比度结果经摘要表断言）；覆盖十五个维度共 90 条判据：数据域完整性
+（E2E 与渲染层对比度结果经摘要表断言）；覆盖十六个维度共 94 条判据：数据域完整性
 （判据1-9）、种子与配置（判据10-15）、提交物结构（判据16-35）、颜色可见性
 （判据36-51 与 57-58：经对比度审计的色值在源码与规范中的钉位，漂移即破坏已审计
 的可读性）、E2E 行为证据（判据52-54：规模下限、全绿、时间戳在位）、渲染层对比度
@@ -178,7 +183,9 @@ Sops.tsx 在位与状态语义表钉位、路由钉位、演示 SOP 常驻钉位
 状态徽章可视化状态机、run 记录 Drawer 直查分层持久化的执行数据；色值经对比度审计
 的 SOP_STATUS 语义表是徽章不漂移的单一事实源）、凭据面防泄露（判据89-90：列表
 token 掩码函数与掩码回传保护钉位——无认证列表不再批量泄露 query 门凭据，详情
-保留原值，PUT 掩码回传不毁库；监督席 gate-cred 首评 FAIL 的整改面）。
+同策略，PUT 掩码回传不毁库）、安全批整改（判据91-94：auth.value 与 MCP 通道
+统一脱敏函数钉位、CORS 白名单、draft 403 瘦身、MCP 泄漏行为断言探针——外部
+评审 16 issue 之 #1/#2/#3/#11，监督席复现定性的整改面）。
 以下判据全部可机械判定：
 `;
 

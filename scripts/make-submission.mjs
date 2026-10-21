@@ -105,6 +105,10 @@ const TEXT_FACTS = [
   ["evidence/e2e_test.py", "demo-rack-sop"],
   ["server/src/index.ts", "maskSensitiveQuery"],
   ["server/src/index.ts", "=****"],
+  ["server/src/index.ts", "maskForApi"],
+  ["server/src/index.ts", "CORS_ALLOW"],
+  ["server/src/index.ts", "未上架不可执行"],
+  ["evidence/e2e_test.py", "token=8sKZ"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);
