@@ -2425,14 +2425,14 @@
       ]
     },
     {
-      "source_clause": "判据102：README.md 必须包含验证器版本锚「v18」。",
+      "source_clause": "判据102：README.md 必须包含验证器判据数锚「116 条判据」。",
       "findings": [
         {
           "question": "faithful",
           "verdict": "ok",
-          "reason": "判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12：类型数 9/判据 100/18 维/页面目录含 Sops）。",
+          "reason": "判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12：类型数 9/判据 116/24 维/页面目录含 Sops）——锚用判据数（比版本号锚少一次升版漂移）。",
           "anchor": {
-            "quote": "判据102：README.md 必须包含验证器版本锚「v18」。",
+            "quote": "判据102：README.md 必须包含验证器判据数锚「116 条判据」。",
             "locator": "dev-verifier-v4.md 判据1"
           }
         },

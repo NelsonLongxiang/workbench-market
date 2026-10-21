@@ -3215,9 +3215,9 @@
       }
     },
     {
-      "source_clause": "判据102：README.md 必须包含验证器版本锚「v18」。",
+      "source_clause": "判据102：README.md 必须包含验证器判据数锚「116 条判据」。",
       "anchor": {
-        "quote": "判据102：README.md 必须包含验证器版本锚「v18」。",
+        "quote": "判据102：README.md 必须包含验证器判据数锚「116 条判据」。",
         "locator": "dev-verifier-v4.md 判据1"
       },
       "title": "README 版本一致钉位",
@@ -3240,7 +3240,7 @@
               {
                 "col": "needle",
                 "op": "=",
-                "value": "v18"
+                "value": "116 条判据"
               },
               {
                 "col": "present",

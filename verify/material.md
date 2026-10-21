@@ -156,7 +156,7 @@ MCP 凭据字段硬拒绝（安全边界内置）、行为断言——agent 发�
 判据99：server/src/index.ts 必须包含导入 mode 锚「issue #7」。
 判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-probe」。
 判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。
-判据102：README.md 必须包含验证器版本锚「v18」。
+判据102：README.md 必须包含验证器判据数锚「116 条判据」。
 判据103：server/src/a2a.ts 必须包含上游一致签名面「canonicalPayload」。
 判据104：server/src/index.ts 必须包含绑定管理口令头「x-admin-token」。
 判据105：server/src/a2a.ts 必须包含节点短 id 持久化「a2a_node8」。
