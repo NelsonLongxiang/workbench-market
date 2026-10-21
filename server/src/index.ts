@@ -812,7 +812,7 @@ function sopRunStartCore(slugRaw: string, startedByRaw: string): { id: number; s
     .run(slug, hit.app.active_version, started_by) as unknown as { lastInsertRowid: number | bigint };
   const id = Number(r.lastInsertRowid);
   void runStateRestore(id, { slug, version: hit.app.active_version, status: 'running', started_by, updated_at: Date.now() }, {}); // Redis 初始化热态（降级态静默跳过）
-  return { id, slug, version: hit.app.active_version, status: 'running', data: {} };
+  return { id, slug, version: hit.app.active_version, status: 'running', started_by, data: {} };
 }
 
 /** 更新持久化数据（任意步骤键值；Redis 热写 + 30s checkpoint / 降级直写 SQLite） */
@@ -1584,6 +1584,10 @@ const goServer = app.listen(PORT, () => {
   const counts = db.prepare('SELECT COUNT(*) AS n FROM workbenches').get() as { n: number };
   console.log(`[workbench-market] server  http://127.0.0.1:${PORT}  (workbenches: ${counts.n}, web-dist: ${existsSync(webDist) ? 'served' : 'none'}, portal: /go/<id>/)`);
   startRedis(); // SOP 状态层（生产 Redis；不可达自动降级直写 SQLite，不阻塞启动）
+  // 启动自探测（监督席观察项：重载后状态悬空靠人 check-all 兜底已第 3 次）——
+  // 延迟 8s 让依赖（上游台）就绪，跑一轮全测归真状态；单台失败不阻断
+  const boot = setTimeout(() => { void patrol(); }, 8_000);
+  boot.unref?.();
 });
 
 // WebSocket 升级（Jupyter kernel / MCP / DSH web 实时通道等长连接走 /go/ 代理）。
