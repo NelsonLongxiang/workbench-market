@@ -127,6 +127,9 @@ const TEXT_FACTS = [
   ["server/src/index.ts", "sopRunStepSaveCore"],
   ["server/src/index.ts", "sop_run_step_save"],
   ["evidence/e2e_test.py", "agent-填-1"],
+  ["server/src/index.ts", "compliance 二期首项"],
+  ["server/src/index.ts", "掩码行（url 含 =****）不落库"],
+  ["evidence/e2e_test.py", "E2E MaskImport"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);
