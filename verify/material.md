@@ -1,4 +1,4 @@
-workbench-market 开发验证器 v23（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写 + 运行时批整改 + 卫生批整改 + A2A 网络接入 P1 + Agent 执行数据面 + 导出脱敏 + 注册 CRUD MCP 化）
+workbench-market 开发验证器 v24（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写 + 运行时批整改 + 卫生批整改 + A2A 网络接入 P1 + Agent 执行数据面 + 导出脱敏 + 注册 CRUD MCP 化 + 破坏性测试隔离）
 
 判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
 快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
@@ -11,7 +11,7 @@ passed)——源自 E2E 内置的 Playwright 对比度探针（实测 DOM 前景
 提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
 脚本、验证器自举档案、设计规范与证据。
 命令执行型检查（typecheck、lint、build）不属于 CLI 闭集，由开发流程自行执行
-（E2E 与渲染层对比度结果经摘要表断言）；覆盖二十三个维度共 115 条判据：数据域完整性
+（E2E 与渲染层对比度结果经摘要表断言）；覆盖二十四个维度共 116 条判据：数据域完整性
 （判据1-9）、种子与配置（判据10-15）、提交物结构（判据16-35）、颜色可见性
 （判据36-51 与 57-58：经对比度审计的色值在源码与规范中的钉位，漂移即破坏已审计
 的可读性）、E2E 行为证据（判据52-54：规模下限、全绿、时间戳在位）、渲染层对比度
@@ -154,7 +154,7 @@ MCP 凭据字段硬拒绝（安全边界内置）、行为断言——agent 发�
 判据97：server/src/index.ts 必须包含巡检重挂锚「issue #5」。
 判据98：server/src/index.ts 必须包含删 SOP 清注册锚「issue #6」。
 判据99：server/src/index.ts 必须包含导入 mode 锚「issue #7」。
-判据100：evidence/e2e_test.py 必须包含运行时批探针字面量「e2e-import-probe」。
+判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-probe」。
 判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。
 判据102：README.md 必须包含验证器版本锚「v18」。
 判据103：server/src/a2a.ts 必须包含上游一致签名面「canonicalPayload」。
@@ -170,3 +170,4 @@ MCP 凭据字段硬拒绝（安全边界内置）、行为断言——agent 发�
 判据113：server/src/index.ts 必须包含注册 CRUD 共用核心「workbenchCreateCore」。
 判据114：server/src/index.ts 必须包含 MCP 凭据拒绝锚「凭据不接受 MCP 写入」。
 判据115：evidence/e2e_test.py 必须包含 CRUD 行为断言字面量「E2E MCP 台」。
+判据116：evidence/e2e_test.py 必须包含导入隔离锚「import-smoke」。

@@ -150,7 +150,7 @@ const U = [
   { c: "判据97：server/src/index.ts 必须包含巡检重挂锚「issue #5」。", t: "巡检设置即时生效钉位", s: "S1", ck: existsFact("server/src/index.ts", "issue #5"), rv: ["判据原文逐字取自冻结材料，PUT /api/settings 即幂等重挂巡检定时器（armPatrol clearTimeout 开头），不必重启服务（评审 #5）。", "提取表三条件 exists 精确判定。", "删重挂提取为 0 即 FAIL。"] },
   { c: "判据98：server/src/index.ts 必须包含删 SOP 清注册锚「issue #6」。", t: "删台清注册钉位", s: "S1", ck: existsFact("server/src/index.ts", "issue #6"), rv: ["判据原文逐字取自冻结材料，DELETE /api/apps 同时清理 /apps/ 与 /sop/ 两类注册行，不留孤儿工作台（评审 #6）。", "提取表三条件 exists 精确判定。", "删清理提取为 0 即 FAIL。"] },
   { c: "判据99：server/src/index.ts 必须包含导入 mode 锚「issue #7」。", t: "导入 replace 语义钉位", s: "S1", ck: existsFact("server/src/index.ts", "issue #7"), rv: ["判据原文逐字取自冻结材料，import mode 支持 query 优先（README 的 ?mode=replace 写法），且内部路径注册行（/ 开头）不再被 http 断言静默丢弃（评审 #7）。", "提取表三条件 exists 精确判定。", "删语义提取为 0 即 FAIL。"] },
-  { c: "判据100：evidence/e2e_test.py 必须包含运行时批探针字面量「e2e-import-probe」。", t: "运行时批行为断言钉位", s: "S1", ck: existsFact("evidence/e2e_test.py", "e2e-import-probe"), rv: ["判据原文逐字取自冻结材料，E2E 组 19 六断言：删 SOP 清孤儿/enabled 恢复/坏 url 400/坏 health_path 记 down/删台清驾驶舱面板/replace 导入 query 生效+内部路径行不丢（含驾驶舱面板 id 映射恢复）。", "提取表三条件 exists 精确判定。", "删探针提取为 0 即 FAIL。"] },
+  { c: "判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-probe」。", t: "运行时批行为断言钉位", s: "S1", ck: existsFact("scripts/import-smoke.mjs", "e2e-import-probe"), rv: ["判据原文逐字取自冻结材料，导入冒烟（独立实例，7 项）覆盖 query replace 语义/内部路径行不丢/悬空面板 prune/掩码行跳过/body mode 等价；E2E 组 19 subprocess 调用——replace 全表清写不再碰活库（84 事故 ×3 根治）。", "提取表三条件 exists 精确判定。", "删探针提取为 0 即 FAIL。"] },
   // ── 卫生批（外部评审 #12/#13：README 一致性 + 干净克隆自愈） ──
   { c: "判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。", t: "提交物脚本自愈钉位", s: "S1", ck: existsFact("scripts/make-submission.mjs", "issue #13"), rv: ["判据原文逐字取自冻结材料，VACUUM INTO 前 mkdirSync(tmp) 幂等创建——干净克隆无 tmp/ 不再必然失败（评审 #13）。", "提取表三条件 exists 精确判定。", "删自愈提取为 0 即 FAIL。"] },
   { c: "判据102：README.md 必须包含验证器版本锚「v18」。", t: "README 版本一致钉位", s: "S2", ck: existsFact("README.md", "v18"), rv: ["判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12：类型数 9/判据 100/18 维/页面目录含 Sops）。", "提取表三条件 exists 精确判定。", "版本漂移提取为 0 即 FAIL。"] },
@@ -171,10 +171,12 @@ const U = [
   { c: "判据113：server/src/index.ts 必须包含注册 CRUD 共用核心「workbenchCreateCore」。", t: "注册 CRUD 同链钉位", s: "S1", ck: existsFact("server/src/index.ts", "workbenchCreateCore"), rv: ["判据原文逐字取自冻结材料，workbench_register/update/unregister 三 MCP 工具与 REST 走同一套 CRUD 核心（掩码回传保护/驾驶舱联动清理复用）。", "提取表三条件 exists 精确判定。", "删共用核心提取为 0 即 FAIL。"] },
   { c: "判据114：server/src/index.ts 必须包含 MCP 凭据拒绝锚「凭据不接受 MCP 写入」。", t: "MCP 凭据边界钉位", s: "S1", ck: existsFact("server/src/index.ts", "凭据不接受 MCP 写入"), rv: ["判据原文逐字取自冻结材料，register/update 传入 auth 字段一律 400——凭据只经人工 REST/表单（安全边界内置而非文档约定）。", "提取表三条件 exists 精确判定。", "删拒绝提取为 0 即 FAIL。"] },
   { c: "判据115：evidence/e2e_test.py 必须包含 CRUD 行为断言字面量「E2E MCP 台」。", t: "注册 CRUD 行为断言钉位", s: "S1", ck: existsFact("evidence/e2e_test.py", "E2E MCP 台"), rv: ["判据原文逐字取自冻结材料，E2E 组 17 C5 断言：MCP 登记→更新（enabled/category）→凭据字段拒绝→注销全链，工具面 15 个。", "提取表三条件 exists 精确判定。", "删断言提取为 0 即 FAIL。"] },
+  // ── 破坏性测试隔离（84 事故 ×3 根治：replace 全表清写永不碰活库） ──
+  { c: "判据116：evidence/e2e_test.py 必须包含导入隔离锚「import-smoke」。", t: "破坏性测试隔离钉位", s: "S1", ck: existsFact("evidence/e2e_test.py", "import-smoke"), rv: ["判据原文逐字取自冻结材料，E2E 组 19 第⑥段改为 subprocess 调 scripts/import-smoke.mjs（独立 DATA_DIR+PORT）——活库 E2E 不再有全表清写路径（监督席 direct-2102fc1b 升级项）。", "提取表三条件 exists 精确判定。", "回退到活库跑 replace 提取为 0 即 FAIL。"] },
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
-const header = `workbench-market 开发验证器 v23（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写 + 运行时批整改 + 卫生批整改 + A2A 网络接入 P1 + Agent 执行数据面 + 导出脱敏 + 注册 CRUD MCP 化）
+const header = `workbench-market 开发验证器 v24（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写 + 运行时批整改 + 卫生批整改 + A2A 网络接入 P1 + Agent 执行数据面 + 导出脱敏 + 注册 CRUD MCP 化 + 破坏性测试隔离）
 
 判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
 快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
@@ -187,7 +189,7 @@ passed)——源自 E2E 内置的 Playwright 对比度探针（实测 DOM 前景
 提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
 脚本、验证器自举档案、设计规范与证据。
 命令执行型检查（typecheck、lint、build）不属于 CLI 闭集，由开发流程自行执行
-（E2E 与渲染层对比度结果经摘要表断言）；覆盖二十三个维度共 115 条判据：数据域完整性
+（E2E 与渲染层对比度结果经摘要表断言）；覆盖二十四个维度共 116 条判据：数据域完整性
 （判据1-9）、种子与配置（判据10-15）、提交物结构（判据16-35）、颜色可见性
 （判据36-51 与 57-58：经对比度审计的色值在源码与规范中的钉位，漂移即破坏已审计
 的可读性）、E2E 行为证据（判据52-54：规模下限、全绿、时间戳在位）、渲染层对比度

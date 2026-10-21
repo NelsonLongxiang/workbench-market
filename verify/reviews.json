@@ -2377,14 +2377,14 @@
       ]
     },
     {
-      "source_clause": "判据100：evidence/e2e_test.py 必须包含运行时批探针字面量「e2e-import-probe」。",
+      "source_clause": "判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-probe」。",
       "findings": [
         {
           "question": "faithful",
           "verdict": "ok",
-          "reason": "判据原文逐字取自冻结材料，E2E 组 19 六断言：删 SOP 清孤儿/enabled 恢复/坏 url 400/坏 health_path 记 down/删台清驾驶舱面板/replace 导入 query 生效+内部路径行不丢（含驾驶舱面板 id 映射恢复）。",
+          "reason": "判据原文逐字取自冻结材料，导入冒烟（独立实例，7 项）覆盖 query replace 语义/内部路径行不丢/悬空面板 prune/掩码行跳过/body mode 等价；E2E 组 19 subprocess 调用——replace 全表清写不再碰活库（84 事故 ×3 根治）。",
           "anchor": {
-            "quote": "判据100：evidence/e2e_test.py 必须包含运行时批探针字面量「e2e-import-probe」。",
+            "quote": "判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-probe」。",
             "locator": "dev-verifier-v4.md 判据1"
           }
         },
@@ -2757,6 +2757,30 @@
           "question": "not-vacuous",
           "verdict": "ok",
           "reason": "删断言提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据116：evidence/e2e_test.py 必须包含导入隔离锚「import-smoke」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，E2E 组 19 第⑥段改为 subprocess 调 scripts/import-smoke.mjs（独立 DATA_DIR+PORT）——活库 E2E 不再有全表清写路径（监督席 direct-2102fc1b 升级项）。",
+          "anchor": {
+            "quote": "判据116：evidence/e2e_test.py 必须包含导入隔离锚「import-smoke」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "回退到活库跑 replace 提取为 0 即 FAIL。"
         }
       ]
     }

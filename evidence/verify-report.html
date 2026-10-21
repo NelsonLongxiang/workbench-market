@@ -1,6 +1,6 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>workbench-market · 验证报告 47d4f9d7</title>
+<title>workbench-market · 验证报告 28de3696</title>
 <style>
   :root{--navy:#1E3A5F;--ok:#059669;--bad:#DC2626;--ink:#0F172A;--sub:#5A6577;--line:#E2E8F0;--bg:#F8FAFC}
   *{box-sizing:border-box;margin:0}
@@ -9,7 +9,7 @@
   header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:6px}
   h1{font-size:20px;font-weight:600}
   .meta{color:var(--sub);font-size:12.5px}
-  .overall{display:inline-block;padding:3px 14px;border-radius:999px;font-weight:700;font-size:15px;color:#fff;background:#059669}
+  .overall{display:inline-block;padding:3px 14px;border-radius:999px;font-weight:700;font-size:15px;color:#fff;background:#DC2626}
   .chips{display:flex;gap:10px;margin:18px 0 22px;flex-wrap:wrap}
   .chip{background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px 18px;min-width:86px}
   .chip b{display:block;font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
@@ -30,15 +30,15 @@
   h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);margin:26px 0 10px}
   footer{margin-top:26px;color:var(--sub);font-size:12px;line-height:1.8}
 </style></head><body><div class="wrap">
-  <header><span class="overall">PASS</span><h1>验证报告</h1>
-    <span class="meta mono">spec_4b749239c445 v1 · run run_47d4f9d791d4152a · 2026/10/21 22:28:14（快照口径 as-of 2026/10/21 22:28:13）</span>
+  <header><span class="overall">FAIL</span><h1>验证报告</h1>
+    <span class="meta mono">spec_22fd0e76510e v1 · run run_28de3696838a514e · 2026/10/21 22:40:10（快照口径 as-of 2026/10/21 22:40:08）</span>
   </header>
   <div class="chips">
     <div class="chip"><b style="color:var(--ok)">115</b><span>通过</span></div>
-    <div class="chip"><b style="color:var(--bad)">0</b><span>失败</span></div>
+    <div class="chip"><b style="color:var(--bad)">1</b><span>失败</span></div>
     <div class="chip"><b>0</b><span>缺材料</span></div>
     <div class="chip"><b>0</b><span>错误</span></div>
-    <div class="chip"><b>115</b><span>验证单元</span></div>
+    <div class="chip"><b>116</b><span>验证单元</span></div>
   </div>
   <table><thead><tr><th>单元</th><th>判定</th><th>判据</th><th>检查器</th><th style="text-align:right">命中/扫描</th></tr></thead>
   <tbody><tr>
@@ -56,63 +56,63 @@
   </tr><tr>
     <td class="mono">V100</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
-    <td>运行时批行为断言钉位<div class="clause">判据100：evidence/e2e_test.py 必须包含运行时批探针字面量「e2e-import-probe」。</div></td>
+    <td>运行时批行为断言钉位<div class="clause">判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-prob</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V101</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>提交物脚本自愈钉位<div class="clause">判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V102</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>README 版本一致钉位<div class="clause">判据102：README.md 必须包含验证器版本锚「v18」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V103</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>A2A 卡片签名钉位<div class="clause">判据103：server/src/a2a.ts 必须包含上游一致签名面「canonicalPayload」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V104</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>人工绑定口令钉位<div class="clause">判据104：server/src/index.ts 必须包含绑定管理口令头「x-admin-token」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V105</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>SOP 节点短 id 钉位<div class="clause">判据105：server/src/a2a.ts 必须包含节点短 id 持久化「a2a_node8」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V106</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>上游裁判冒烟钉位<div class="clause">判据106：scripts/a2a-smoke.mjs 必须包含上游裁判「verifyCard」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V107</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>执行数据同链钉位<div class="clause">判据107：server/src/index.ts 必须包含 run 持久化链共用核心「sopRunStepSaveCo</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V108</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>MCP 执行数据工具钉位<div class="clause">判据108：server/src/index.ts 必须包含 MCP 执行数据工具注册「sop_run_step_sav</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V109</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>人机同链行为断言钉位<div class="clause">判据109：evidence/e2e_test.py 必须包含人机同链断言字面量「agent-填-1」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V11</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
@@ -124,37 +124,43 @@
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>导出默认脱敏钉位<div class="clause">判据110：server/src/index.ts 必须包含导出脱敏锚「compliance 二期首项」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V111</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>导入掩码跳过钉位<div class="clause">判据111：server/src/index.ts 必须包含导入掩码跳过锚「掩码行（url 含 =****）不落库」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V112</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>导出脱敏行为断言钉位<div class="clause">判据112：evidence/e2e_test.py 必须包含导出脱敏断言字面量「E2E MaskImport」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V113</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>注册 CRUD 同链钉位<div class="clause">判据113：server/src/index.ts 必须包含注册 CRUD 共用核心「workbenchCreateCo</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V114</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>MCP 凭据边界钉位<div class="clause">判据114：server/src/index.ts 必须包含 MCP 凭据拒绝锚「凭据不接受 MCP 写入」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V115</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>注册 CRUD 行为断言钉位<div class="clause">判据115：evidence/e2e_test.py 必须包含 CRUD 行为断言字面量「E2E MCP 台」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
+  </tr><tr>
+    <td class="mono">V116</td>
+    <td><span class="pill fail">FAIL</span> <span class="sev">S1</span></td>
+    <td>破坏性测试隔离钉位<div class="clause">判据116：evidence/e2e_test.py 必须包含导入隔离锚「import-smoke」。</div></td>
+    <td class="mono">exists</td>
+    <td class="num"><span class="mono">0/71</span></td>
   </tr><tr>
     <td class="mono">V12</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
@@ -178,31 +184,31 @@
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>工作台非空<div class="clause">判据15：工作台表中至少注册了 1 个工作台。</div></td>
     <td class="mono">count</td>
-    <td class="num"><span class="mono">6/6</span></td>
+    <td class="num"><span class="mono">7/7</span></td>
   </tr><tr>
     <td class="mono">V16</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>README 存在<div class="clause">判据16：封装提交物必须包含 README.md。</div></td>
     <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:1.1235955056179776%;background:#059669"></i></div><span class="mono">1/89</span></td>
+    <td class="num"><div class="bar"><i style="width:1.1111111111111112%;background:#059669"></i></div><span class="mono">1/90</span></td>
   </tr><tr>
     <td class="mono">V17</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>根清单存在<div class="clause">判据17：封装提交物必须包含根目录 package.json。</div></td>
     <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:1.1235955056179776%;background:#059669"></i></div><span class="mono">1/89</span></td>
+    <td class="num"><div class="bar"><i style="width:1.1111111111111112%;background:#059669"></i></div><span class="mono">1/90</span></td>
   </tr><tr>
     <td class="mono">V18</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>workspace 定义存在<div class="clause">判据18：封装提交物必须包含 pnpm-workspace.yaml。</div></td>
     <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:1.1235955056179776%;background:#059669"></i></div><span class="mono">1/89</span></td>
+    <td class="num"><div class="bar"><i style="width:1.1111111111111112%;background:#059669"></i></div><span class="mono">1/90</span></td>
   </tr><tr>
     <td class="mono">V19</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>server 清单存在<div class="clause">判据19：封装提交物必须包含 server/package.json。</div></td>
     <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:1.1235955056179776%;background:#059669"></i></div><span class="mono">1/89</span></td>
+    <td class="num"><div class="bar"><i style="width:1.1111111111111112%;background:#059669"></i></div><span class="mono">1/90</span></td>
   </tr><tr>
     <td class="mono">V2</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
@@ -214,61 +220,61 @@
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>web 清单存在<div class="clause">判据20：封装提交物必须包含 web/package.json。</div></td>
     <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:1.1235955056179776%;background:#059669"></i></div><span class="mono">1/89</span></td>
+    <td class="num"><div class="bar"><i style="width:1.1111111111111112%;background:#059669"></i></div><span class="mono">1/90</span></td>
   </tr><tr>
     <td class="mono">V21</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>server 入口存在<div class="clause">判据21：封装提交物必须包含 server/src/index.ts。</div></td>
     <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:1.1235955056179776%;background:#059669"></i></div><span class="mono">1/89</span></td>
+    <td class="num"><div class="bar"><i style="width:1.1111111111111112%;background:#059669"></i></div><span class="mono">1/90</span></td>
   </tr><tr>
     <td class="mono">V22</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>db 模块存在<div class="clause">判据22：封装提交物必须包含 server/src/db.ts。</div></td>
     <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:1.1235955056179776%;background:#059669"></i></div><span class="mono">1/89</span></td>
+    <td class="num"><div class="bar"><i style="width:1.1111111111111112%;background:#059669"></i></div><span class="mono">1/90</span></td>
   </tr><tr>
     <td class="mono">V23</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>探测模块存在<div class="clause">判据23：封装提交物必须包含 server/src/health.ts。</div></td>
     <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:1.1235955056179776%;background:#059669"></i></div><span class="mono">1/89</span></td>
+    <td class="num"><div class="bar"><i style="width:1.1111111111111112%;background:#059669"></i></div><span class="mono">1/90</span></td>
   </tr><tr>
     <td class="mono">V24</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>页面组件下限<div class="clause">判据24：封装提交物 web/src/pages 目录下的页面组件不少于 6 个。</div></td>
     <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:7.865168539325842%;background:#059669"></i></div><span class="mono">7/89</span></td>
+    <td class="num"><div class="bar"><i style="width:7.777777777777778%;background:#059669"></i></div><span class="mono">7/90</span></td>
   </tr><tr>
     <td class="mono">V25</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S3</span></td>
     <td>组件下限<div class="clause">判据25：封装提交物 web/src/components 目录下的组件不少于 2 个。</div></td>
     <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:2.247191011235955%;background:#059669"></i></div><span class="mono">2/89</span></td>
+    <td class="num"><div class="bar"><i style="width:2.2222222222222223%;background:#059669"></i></div><span class="mono">2/90</span></td>
   </tr><tr>
     <td class="mono">V26</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>构建入口存在<div class="clause">判据26：封装提交物必须包含 web/dist/index.html。</div></td>
     <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:1.1235955056179776%;background:#059669"></i></div><span class="mono">1/89</span></td>
+    <td class="num"><div class="bar"><i style="width:1.1111111111111112%;background:#059669"></i></div><span class="mono">1/90</span></td>
   </tr><tr>
     <td class="mono">V27</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>分桶产物下限<div class="clause">判据27：封装提交物 web/dist/assets 目录下的 JS 产物不少于 5 个。</div></td>
     <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:6.741573033707865%;background:#059669"></i></div><span class="mono">6/89</span></td>
+    <td class="num"><div class="bar"><i style="width:6.666666666666667%;background:#059669"></i></div><span class="mono">6/90</span></td>
   </tr><tr>
     <td class="mono">V28</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>打包脚本存在<div class="clause">判据28：封装提交物必须包含 scripts/make-submission.mjs。</div></td>
     <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:1.1235955056179776%;background:#059669"></i></div><span class="mono">1/89</span></td>
+    <td class="num"><div class="bar"><i style="width:1.1111111111111112%;background:#059669"></i></div><span class="mono">1/90</span></td>
   </tr><tr>
     <td class="mono">V29</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>报告脚本存在<div class="clause">判据29：封装提交物必须包含 scripts/verify-report.mjs。</div></td>
     <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:1.1235955056179776%;background:#059669"></i></div><span class="mono">1/89</span></td>
+    <td class="num"><div class="bar"><i style="width:1.1111111111111112%;background:#059669"></i></div><span class="mono">1/90</span></td>
   </tr><tr>
     <td class="mono">V3</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
@@ -280,61 +286,61 @@
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>验证器材料自举<div class="clause">判据30：封装提交物必须包含 verify/material.md。</div></td>
     <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:1.1235955056179776%;background:#059669"></i></div><span class="mono">1/89</span></td>
+    <td class="num"><div class="bar"><i style="width:1.1111111111111112%;background:#059669"></i></div><span class="mono">1/90</span></td>
   </tr><tr>
     <td class="mono">V31</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>候选清单自举<div class="clause">判据31：封装提交物必须包含 verify/candidates.json。</div></td>
     <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:1.1235955056179776%;background:#059669"></i></div><span class="mono">1/89</span></td>
+    <td class="num"><div class="bar"><i style="width:1.1111111111111112%;background:#059669"></i></div><span class="mono">1/90</span></td>
   </tr><tr>
     <td class="mono">V32</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>盲审档案自举<div class="clause">判据32：封装提交物必须包含 verify/reviews.json。</div></td>
     <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:1.1235955056179776%;background:#059669"></i></div><span class="mono">1/89</span></td>
+    <td class="num"><div class="bar"><i style="width:1.1111111111111112%;background:#059669"></i></div><span class="mono">1/90</span></td>
   </tr><tr>
     <td class="mono">V33</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>设计规范存在<div class="clause">判据33：封装提交物必须包含 design-system/workbench-market/MASTER.md。</div></td>
     <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:1.1235955056179776%;background:#059669"></i></div><span class="mono">1/89</span></td>
+    <td class="num"><div class="bar"><i style="width:1.1111111111111112%;background:#059669"></i></div><span class="mono">1/90</span></td>
   </tr><tr>
     <td class="mono">V34</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>E2E 脚本存在<div class="clause">判据34：封装提交物必须包含 evidence/e2e_test.py。</div></td>
     <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:1.1235955056179776%;background:#059669"></i></div><span class="mono">1/89</span></td>
+    <td class="num"><div class="bar"><i style="width:1.1111111111111112%;background:#059669"></i></div><span class="mono">1/90</span></td>
   </tr><tr>
     <td class="mono">V35</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S3</span></td>
     <td>UI 证据下限<div class="clause">判据35：封装提交物 evidence 目录下的 PNG 截图证据不少于 10 张。</div></td>
     <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:46.06741573033708%;background:#059669"></i></div><span class="mono">41/89</span></td>
+    <td class="num"><div class="bar"><i style="width:45.55555555555556%;background:#059669"></i></div><span class="mono">41/90</span></td>
   </tr><tr>
     <td class="mono">V36</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>主色 token 钉位<div class="clause">判据36：main.tsx 主题必须包含主色值「#1E3A5F」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V37</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>次级文字对比达标色<div class="clause">判据37：main.tsx 主题必须包含次级文字色值「#5A6577」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V38</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S3</span></td>
     <td>成功色 token 钉位<div class="clause">判据38：main.tsx 主题必须包含成功色值「#059669」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V39</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>错误色 token 钉位<div class="clause">判据39：main.tsx 主题必须包含错误色值「#DC2626」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V4</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
@@ -346,79 +352,79 @@
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>侧栏深底钉位<div class="clause">判据40：App.tsx 侧栏 token 必须包含深底色值「#0F172A」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V41</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>焦点环可见<div class="clause">判据41：index.css 必须包含焦点环色值「rgba(5, 150, 105, 0.6)」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V42</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S3</span></td>
     <td>选中边框钉位<div class="clause">判据42：index.css 必须包含选中边框色值「rgba(5, 150, 105, 0.45)」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V43</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S3</span></td>
     <td>标题强调色钉位<div class="clause">判据43：App.tsx 标题区必须包含强调色值「#059669」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V44</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S3</span></td>
     <td>规范主色钉位<div class="clause">判据44：设计规范 MASTER.md 必须包含主色值「#1E3A5F」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V45</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S3</span></td>
     <td>规范审计色钉位<div class="clause">判据45：设计规范 MASTER.md 必须包含次级文字审计色值「#5A6577」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V46</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>统计标签次级色钉位<div class="clause">判据46：Dashboard.tsx 统计标签必须包含次级色值「#5A6577」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V47</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>在线环色钉位<div class="clause">判据47：Dashboard.tsx 在线环必须包含成功色值「#059669」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V48</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>离线卡色钉位<div class="clause">判据48：Dashboard.tsx 离线卡必须包含错误色值「#DC2626」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V49</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S3</span></td>
     <td>辅助轴色钉位<div class="clause">判据49：Dashboard.tsx 辅助文字必须包含轴色值「#94A3B8」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V5</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>enabled 域完整<div class="clause">判据5：每个已注册工作台的 enabled 字段必须等于 0 或 1。</div></td>
     <td class="mono">sql</td>
-    <td class="num"><span class="mono">0/6</span></td>
+    <td class="num"><span class="mono">0/7</span></td>
   </tr><tr>
     <td class="mono">V50</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S3</span></td>
     <td>主色淡底钉位<div class="clause">判据50：index.css 必须包含主色淡底色值「rgba(30, 58, 95, 0.1)」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V51</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S3</span></td>
     <td>css 深底钉位<div class="clause">判据51：index.css 必须包含深底色值「#0f172a」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V52</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
@@ -454,13 +460,13 @@
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>深底状态文字规则钉位<div class="clause">判据57：index.css 必须包含深底状态文字规则选择器「.wm-use-bar .ant-badge-status</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V58</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>深底浅色值钉位<div class="clause">判据58：index.css 必须包含深底浅色文字色值「rgba(255, 255, 255, 0.85)」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V59</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
@@ -472,43 +478,43 @@
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>状态字段域完整<div class="clause">判据6：工作台的 last_status 字段必须等于 up、down、unknown 之一或为空。</div></td>
     <td class="mono">sql</td>
-    <td class="num"><span class="mono">0/6</span></td>
+    <td class="num"><span class="mono">0/7</span></td>
   </tr><tr>
     <td class="mono">V60</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>驾驶舱页面存在<div class="clause">判据60：封装提交物必须包含 web/src/pages/Cockpit.tsx。</div></td>
     <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:1.1235955056179776%;background:#059669"></i></div><span class="mono">1/89</span></td>
+    <td class="num"><div class="bar"><i style="width:1.1111111111111112%;background:#059669"></i></div><span class="mono">1/90</span></td>
   </tr><tr>
     <td class="mono">V61</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>驾驶舱路由钉位<div class="clause">判据61：server/src/index.ts 必须包含驾驶舱路由「/api/cockpits」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V62</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>代理中间件在位<div class="clause">判据62：server/src/index.ts 必须包含「createProxyMiddleware」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V63</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>禁嵌剥离钉位<div class="clause">判据63：server/src/index.ts 必须包含剥禁嵌头的「x-frame-options」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V64</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>代理依赖在位<div class="clause">判据64：封装提交物 server/package.json 必须声明依赖「http-proxy-middleware」</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V65</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>使用页走门户<div class="clause">判据65：web/src/pages/UseWorkbench.tsx 必须包含「/go/${w.id}/」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V66</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
@@ -526,19 +532,19 @@
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>发布 API 钉位<div class="clause">判据68：server/src/index.ts 必须包含发布路由「/api/apps」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V69</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>版本链表钉位<div class="clause">判据69：server/src/db.ts 必须包含版本快照表「app_versions」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V7</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>延迟字段域完整<div class="clause">判据7：工作台的 last_latency_ms 字段必须为空或落在 0 到 60000 之间。</div></td>
     <td class="mono">sql</td>
-    <td class="num"><span class="mono">0/6</span></td>
+    <td class="num"><span class="mono">0/7</span></td>
   </tr><tr>
     <td class="mono">V70</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
@@ -550,205 +556,205 @@
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>凭据注入钉位<div class="clause">判据71：server/src/index.ts 必须包含注入头名「authorization」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V72</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>凭据表单钉位<div class="clause">判据72：web/src/components/WorkbenchForm.tsx 必须包含凭据表单字段「authVal</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V73</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>注入行为断言钉位<div class="clause">判据73：evidence/e2e_test.py 必须包含凭据注入断言字面量「e2e-bear-tok」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V74</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>WS 升级代理钉位<div class="clause">判据74：server/src/index.ts 必须包含 WS 升级挂载「goServer.on('upgrade'」</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V75</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>WS 握手 Origin 改写钉位<div class="clause">判据75：server/src/index.ts 必须包含握手 Origin 改写「req.headers.origin</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V76</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>SOP 运行表钉位<div class="clause">判据76：server/src/db.ts 必须包含运行真源表「sop_runs」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V77</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>Redis 状态层钉位<div class="clause">判据77：server/src/redis.ts 必须包含状态层写入函数「runStateSave」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V78</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>SOP Runner 钉位<div class="clause">判据78：server/src/index.ts 必须包含 Runner 服务端渲染「renderSopRunner」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V79</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>SOP 运行 API 钉位<div class="clause">判据79：server/src/index.ts 必须包含运行 API 前缀「/api/sop/runs」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V8</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>HTTP 码域完整<div class="clause">判据8：工作台的 last_http_code 字段必须为空或落在 100 到 599 之间。</div></td>
     <td class="mono">sql</td>
-    <td class="num"><span class="mono">0/6</span></td>
+    <td class="num"><span class="mono">0/7</span></td>
   </tr><tr>
     <td class="mono">V80</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>SOP 行为断言钉位<div class="clause">判据80：evidence/e2e_test.py 必须包含 SOP 台用例字面量「e2e-sop」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V81</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>MCP 端点钉位<div class="clause">判据81：server/src/index.ts 必须包含 MCP 端点挂载「app.post('/mcp'」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V82</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>MCP 工具注册钉位<div class="clause">判据82：server/src/index.ts 必须包含工具注册表「MCP_TOOLS」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V83</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>JSON-RPC 合规钉位<div class="clause">判据83：server/src/index.ts 必须包含 JSON-RPC 错误码「-32601」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V84</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>MCP 行为断言钉位<div class="clause">判据84：evidence/e2e_test.py 必须包含 MCP 用例字面量「e2e-mcp-app」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V85</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>SOP 管理页存在<div class="clause">判据85：封装提交物必须包含 web/src/pages/Sops.tsx。</div></td>
     <td class="mono">file</td>
-    <td class="num"><div class="bar"><i style="width:1.1235955056179776%;background:#059669"></i></div><span class="mono">1/89</span></td>
+    <td class="num"><div class="bar"><i style="width:1.1111111111111112%;background:#059669"></i></div><span class="mono">1/90</span></td>
   </tr><tr>
     <td class="mono">V86</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>SOP 状态徽章钉位<div class="clause">判据86：web/src/pages/Sops.tsx 必须包含状态语义表「SOP_STATUS」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V87</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>SOP 路由钉位<div class="clause">判据87：web/src/App.tsx 必须包含 SOP 路由「path: '/sops'」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V88</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S2</span></td>
     <td>演示 SOP 常驻钉位<div class="clause">判据88：evidence/e2e_test.py 必须包含演示 SOP 字面量「demo-rack-sop」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V89</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>API token 掩码钉位<div class="clause">判据89：server/src/index.ts 必须包含列表掩码函数「maskSensitiveQuery」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V9</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S3</span></td>
     <td>排序字段域完整<div class="clause">判据9：工作台的 sort 字段必须落在 0 到 9999 之间。</div></td>
     <td class="mono">sql</td>
-    <td class="num"><span class="mono">0/6</span></td>
+    <td class="num"><span class="mono">0/7</span></td>
   </tr><tr>
     <td class="mono">V90</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>掩码回传保护钉位<div class="clause">判据90：server/src/index.ts 必须包含掩码回传保护字面量「=****」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V91</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>auth.value+MCP 脱敏钉位<div class="clause">判据91：server/src/index.ts 必须包含 API 出口统一脱敏函数「maskForApi」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V92</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>CORS 白名单钉位<div class="clause">判据92：server/src/index.ts 必须包含 CORS 白名单「CORS_ALLOW」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V93</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>draft 403 瘦身钉位<div class="clause">判据93：server/src/index.ts 必须包含 draft 拒绝文案「未上架不可执行」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V94</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>MCP 泄漏行为断言钉位<div class="clause">判据94：evidence/e2e_test.py 必须包含 MCP 泄漏探针字面量「token=8sKZ」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V95</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>Location 改写 id 备份钉位<div class="clause">判据95：server/src/index.ts 必须包含 Location 改写的 id 备份「goWid」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V96</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>Location 改写行为断言钉位<div class="clause">判据96：evidence/e2e_test.py 必须包含 Location 改写断言字面量「redir-relati</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V97</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>巡检设置即时生效钉位<div class="clause">判据97：server/src/index.ts 必须包含巡检重挂锚「issue #5」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V98</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>删台清注册钉位<div class="clause">判据98：server/src/index.ts 必须包含删 SOP 清注册锚「issue #6」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr><tr>
     <td class="mono">V99</td>
     <td><span class="pill pass">PASS</span> <span class="sev">S1</span></td>
     <td>导入 replace 语义钉位<div class="clause">判据99：server/src/index.ts 必须包含导入 mode 锚「issue #7」。</div></td>
     <td class="mono">exists</td>
-    <td class="num"><span class="mono">1/69</span></td>
+    <td class="num"><span class="mono">1/71</span></td>
   </tr></tbody></table>
   <h2>运行历史（2 次）</h2>
   <table><thead><tr><th>Run</th><th>时间</th><th>Overall</th><th>Spec</th><th style="text-align:right">通过数</th></tr></thead>
   <tbody><tr>
-  <td class="mono">run_47d4f9d791d415</td>
-  <td>2026/10/21 22:28:14</td>
-  <td><span class="pill pass">PASS</span></td>
-  <td class="mono">spec_4b749239c445</td>
-  <td class="num">115<span class="dim">/115</span></td>
-</tr><tr>
-  <td class="mono">run_2435e4b4309619</td>
-  <td>2026/10/21 22:28:48</td>
+  <td class="mono">run_28de3696838a51</td>
+  <td>2026/10/21 22:40:10</td>
   <td><span class="pill fail">FAIL</span></td>
-  <td class="mono">spec_4b749239c445</td>
-  <td class="num">114<span class="dim">/115</span></td>
+  <td class="mono">spec_22fd0e76510e</td>
+  <td class="num">115<span class="dim">/116</span></td>
+</tr><tr>
+  <td class="mono">run_335613374431a3</td>
+  <td>2026/10/21 22:40:08</td>
+  <td><span class="pill pass">PASS</span></td>
+  <td class="mono">spec_22fd0e76510e</td>
+  <td class="num">116<span class="dim">/116</span></td>
 </tr></tbody></table>
   <footer>
     判定面：SQLite 快照 + 封装提交物（node scripts/make-submission.mjs 生成）· 引擎 0.1.0 · 模式 open
-    <br>payload_sha256 <span class="mono">sha256:de1968fe7…</span> · 本页由 scripts/verify-report.mjs 从报告 JSON 静态生成（无外部依赖）
+    <br>payload_sha256 <span class="mono">sha256:cb1486dd9…</span> · 本页由 scripts/verify-report.mjs 从报告 JSON 静态生成（无外部依赖）
   </footer>
 </div></body></html>

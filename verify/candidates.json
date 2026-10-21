@@ -3137,9 +3137,9 @@
       }
     },
     {
-      "source_clause": "判据100：evidence/e2e_test.py 必须包含运行时批探针字面量「e2e-import-probe」。",
+      "source_clause": "判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-probe」。",
       "anchor": {
-        "quote": "判据100：evidence/e2e_test.py 必须包含运行时批探针字面量「e2e-import-probe」。",
+        "quote": "判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-probe」。",
         "locator": "dev-verifier-v4.md 判据1"
       },
       "title": "运行时批行为断言钉位",
@@ -3157,7 +3157,7 @@
               {
                 "col": "path",
                 "op": "=",
-                "value": "evidence/e2e_test.py"
+                "value": "scripts/import-smoke.mjs"
               },
               {
                 "col": "needle",
@@ -3748,6 +3748,45 @@
                 "col": "needle",
                 "op": "=",
                 "value": "E2E MCP 台"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据116：evidence/e2e_test.py 必须包含导入隔离锚「import-smoke」。",
+      "anchor": {
+        "quote": "判据116：evidence/e2e_test.py 必须包含导入隔离锚「import-smoke」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "破坏性测试隔离钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "evidence/e2e_test.py"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "import-smoke"
               },
               {
                 "col": "present",
