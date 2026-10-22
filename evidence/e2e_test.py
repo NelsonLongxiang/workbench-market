@@ -50,6 +50,35 @@ def cleanup(page):
                 pass
 
 
+# ---- echo fixture 自管（监督席检出根治：fixture 是外部依赖，此前靠调用方带起——
+# 跨会话/独立跑必断粮 → /go/ 透传断言 json() 崩「Expecting value line 1 column 1」。
+# 脚本自起自收：在跑前探测 9901，死则 spawn，结束时只杀自己起的那个）
+import atexit as _atexit
+import socket as _sock
+import subprocess as _sp
+import os as _os
+
+def _port_live(port):
+    with _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM) as s:
+        s.settimeout(0.5)
+        return s.connect_ex(('127.0.0.1', port)) == 0
+
+_fixture_proc = None
+if not _port_live(9901):
+    _fixture_proc = _sp.Popen(
+        ['node', 'scripts/echo-fixture.mjs'],
+        stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+        cwd=_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
+    for _ in range(40):
+        if _port_live(9901):
+            break
+        time.sleep(0.25)
+
+@_atexit.register
+def _kill_fixture():
+    if _fixture_proc is not None:
+        _fixture_proc.terminate()
+
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True)
     page = browser.new_page(viewport={'width': 1440, 'height': 900})
