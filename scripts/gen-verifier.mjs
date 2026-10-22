@@ -153,7 +153,7 @@ const U = [
   { c: "判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-probe」。", t: "运行时批行为断言钉位", s: "S1", ck: existsFact("scripts/import-smoke.mjs", "e2e-import-probe"), rv: ["判据原文逐字取自冻结材料，导入冒烟（独立实例，7 项）覆盖 query replace 语义/内部路径行不丢/悬空面板 prune/掩码行跳过/body mode 等价；E2E 组 19 subprocess 调用——replace 全表清写不再碰活库（84 事故 ×3 根治）。", "提取表三条件 exists 精确判定。", "删探针提取为 0 即 FAIL。"] },
   // ── 卫生批（外部评审 #12/#13：README 一致性 + 干净克隆自愈） ──
   { c: "判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。", t: "提交物脚本自愈钉位", s: "S1", ck: existsFact("scripts/make-submission.mjs", "issue #13"), rv: ["判据原文逐字取自冻结材料，VACUUM INTO 前 mkdirSync(tmp) 幂等创建——干净克隆无 tmp/ 不再必然失败（评审 #13）。", "提取表三条件 exists 精确判定。", "删自愈提取为 0 即 FAIL。"] },
-  { c: "判据102：README.md 必须包含验证器判据数锚「116 条判据」。", t: "README 版本一致钉位", s: "S2", ck: existsFact("README.md", "116 条判据"), rv: ["判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12：类型数 9/判据 116/24 维/页面目录含 Sops）——锚用判据数（比版本号锚少一次升版漂移）。", "提取表三条件 exists 精确判定。", "版本漂移提取为 0 即 FAIL。"] },
+  { c: "判据102：README.md 必须包含验证器判据数锚「121 条判据」。", t: "README 版本一致钉位", s: "S2", ck: existsFact("README.md", "121 条判据"), rv: ["判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12——锚用判据数，比版本号锚少一次升版漂移）。", "提取表三条件 exists 精确判定。", "版本漂移提取为 0 即 FAIL。"] },
   // ── A2A 网络接入 P1（GH #17：签名卡片 + 人工绑定，只读暴露） ──
   { c: "判据103：server/src/a2a.ts 必须包含上游一致签名面「canonicalPayload」。", t: "A2A 卡片签名钉位", s: "S1", ck: existsFact("server/src/a2a.ts", "canonicalPayload"), rv: ["判据原文逐字取自冻结材料，卡片 canonical 与上游 card.ts（裁判钉 75a3ebd）逐字节一致——Ed25519 pure + SPKI DER base64，expiresAt ≤ 48h，须过上游 verifyCard（GH #17 P1）。", "提取表三条件 exists 精确判定。", "删签名面提取为 0 即 FAIL。"] },
   { c: "判据104：server/src/index.ts 必须包含绑定管理口令头「x-admin-token」。", t: "人工绑定口令钉位", s: "S1", ck: existsFact("server/src/index.ts", "x-admin-token"), rv: ["判据原文逐字取自冻结材料，绑定读写要 X-Admin-Token 常量时间比较（未设置一律 403）+ Origin 空或同源服务端校验；MCP 无绑定写工具；卡片不发布 teamMemberships（绑定图不出门）。", "提取表三条件 exists 精确判定。", "删口令校验提取为 0 即 FAIL。"] },
@@ -180,10 +180,15 @@ const U = [
   { c: "判据119：evidence/e2e_test.py 必须包含 CORS 行为断言锚「access-control-allow-origin」。", t: "CORS 行为双锚", s: "S1", ck: existsFact("evidence/e2e_test.py", "access-control-allow-origin"), rv: ["判据原文逐字取自冻结材料，判据 92 锚源码 CORS_ALLOW，本判据锚 E2E 实测响应头（外源无 ACAO/白名单放行）——双锚防代码在而行为回归。", "提取表三条件 exists 精确判定。", "删行为断言提取为 0 即 FAIL。"] },
   { c: "判据120：evidence/e2e_test.py 必须包含协议错误断言锚「-32601」。", t: "MCP 协议双锚", s: "S1", ck: existsFact("evidence/e2e_test.py", "-32601"), rv: ["判据原文逐字取自冻结材料，判据 83 锚源码错误码，本判据锚 E2E 实测（未知 method 回 -32601 JSON-RPC error）——协议合规行为面双锚。", "提取表三条件 exists 精确判定。", "删行为断言提取为 0 即 FAIL。"] },
   { c: "判据121：evidence/e2e_test.py 必须包含 draft 泄漏探针锚「SecretStep」。", t: "draft 403 双锚", s: "S1", ck: existsFact("evidence/e2e_test.py", "SecretStep"), rv: ["判据原文逐字取自冻结材料，判据 93 锚源码瘦身文案，本判据锚 E2E 探针（draft 403 页面不含步骤内容 SecretStep）——信息泄漏行为面双锚。", "提取表三条件 exists 精确判定。", "删探针提取为 0 即 FAIL。"] },
+  // ── A2A P2：/a2a/direct 准入开放（GH #17 阶段表 P2——幂等族/512KiB/run↔context_id） ──
+  { c: "判据122：server/src/a2a.ts 必须包含 direct 准入核心「a2aDirectHandle」。", t: "direct 准入核心钉位", s: "S1", ck: existsFact("server/src/a2a.ts", "a2aDirectHandle"), rv: ["判据原文逐字取自冻结材料，准入链（team→SOP 解析 404 不泄露/匿名拒/精确绑定匹配/mode 判定）+ 幂等族（-32003 replay/-32002 conflict，指纹={team,caller,message}）+ 512KiB→413 + start/note/status 语义 + run↔context_id（a2a_run_ctx 表）。", "提取表三条件 exists 精确判定。", "删核心提取为 0 即 FAIL。"] },
+  { c: "判据123：server/src/index.ts 必须包含 DELIVERED 路由桥「a2aDirectHandle」。", t: "direct 路由桥钉位", s: "S1", ck: existsFact("server/src/index.ts", "a2aDirectHandle"), rv: ["判据原文逐字取自冻结材料，POST /a2a/direct 挂 a2aDirectHandle（note 写 sop_runs 的 a2a-notes 追加、context 注册、错误兜底 TASK_STATE_FAILED 形状）——生产无 ADMIN_TOKEN 时绑定面休眠=准入自然全拒（主人裁定口径）。", "提取表三条件 exists 精确判定。", "删桥提取为 0 即 FAIL。"] },
+  { c: "判据124：server/src/a2a.ts 必须包含幂等族锚「-32003」。", t: "direct 幂等族钉位", s: "S1", ck: existsFact("server/src/a2a.ts", "-32003"), rv: ["判据原文逐字取自冻结材料，上游幂等族：同 key 同 payload→409 -32003 replay:true（先前权威）、同 key 异 payload→409 -32002 conflict（caller bug 不自动重试）——指纹不含 context_id（上游 peerPayloadFingerprint 口径）。", "提取表三条件 exists 精确判定。", "删幂等提取为 0 即 FAIL。"] },
+  { c: "判据125：scripts/a2a-smoke.mjs 必须包含 P2 行为锚「TASK_STATE_DELIVERED」。", t: "P2 行为断言钉位", s: "S1", ck: existsFact("scripts/a2a-smoke.mjs", "TASK_STATE_DELIVERED"), rv: ["判据原文逐字取自冻结材料，P1+P2 冒烟 35 项（独立实例）：准入拒×3/404 不泄露/start→DELIVERED+task_id 回显/run↔context/note 续同 run+a2a-notes 落库/status/幂等 replay+conflict/512KiB 413。", "提取表三条件 exists 精确判定。", "删断言提取为 0 即 FAIL。"] },
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
-const header = `workbench-market 开发验证器 v26（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写 + 运行时批整改 + 卫生批整改 + A2A 网络接入 P1 + Agent 执行数据面 + 导出脱敏 + 注册 CRUD MCP 化 + 破坏性测试隔离 + 工具清单一致 + 安全批双锚）
+const header = `workbench-market 开发验证器 v27（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写 + 运行时批整改 + 卫生批整改 + A2A 网络接入 P1+P2 + Agent 执行数据面 + 导出脱敏 + 注册 CRUD MCP 化 + 破坏性测试隔离 + 工具清单一致 + 安全批双锚）
 
 判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
 快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
@@ -196,7 +201,7 @@ passed)——源自 E2E 内置的 Playwright 对比度探针（实测 DOM 前景
 提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
 脚本、验证器自举档案、设计规范与证据。
 命令执行型检查（typecheck、lint、build）不属于 CLI 闭集，由开发流程自行执行
-（E2E 与渲染层对比度结果经摘要表断言）；覆盖二十六个维度共 121 条判据：数据域完整性
+（E2E 与渲染层对比度结果经摘要表断言）；覆盖二十七个维度共 125 条判据：数据域完整性
 （判据1-9）、种子与配置（判据10-15）、提交物结构（判据16-35）、颜色可见性
 （判据36-51 与 57-58：经对比度审计的色值在源码与规范中的钉位，漂移即破坏已审计
 的可读性）、E2E 行为证据（判据52-54：规模下限、全绿、时间戳在位）、渲染层对比度
@@ -241,11 +246,15 @@ MCP 凭据字段硬拒绝（安全边界内置）、行为断言——agent 发�
 破坏性测试隔离（判据116：导入 replace 永不碰活库）、工具清单一致（判据117-118：
 README 工具名锚钉住 MCP 工具面扩张的文档同步——评审 #18 盲区修补）、安全批双锚
 （判据119-121：CORS/MCP 协议/draft 403 三面从源码单锚升格为源码+行为双锚——
-防「代码在而行为回归」的静态钉位盲区）。
+防「代码在而行为回归」的静态钉位盲区）、A2A P2 准入（判据122-125：direct 准入
+核心与路由桥/上游幂等族 -32003/-32002/512KiB 413/run↔context_id 绑定/DELIVERED
+形状——GH #17 阶段表 P2；生产无 ADMIN_TOKEN 时绑定面休眠，准入自然全拒）。
 以下判据全部可机械判定：
 `;
 
-const material = header + "\n" + U.map((u) => u.c).join("\n") + "\n";
+// 0.114.4 P1c：材料每一行都必须被候选覆盖（header 行无候选会被拒）——材料只含判据行，
+// 维度总览挪进 title（submit 元数据，不参与 clause 分句）。
+const material = U.map((u) => u.c).join("\n") + "\n";
 const candidates = {
   candidates: U.map((u) => ({
     source_clause: u.c,

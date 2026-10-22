@@ -845,10 +845,10 @@ with sync_playwright() as p:
         import os as _os
         with open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'README.md'), encoding='utf-8') as _f:
             readme = _f.read()
-        assert 'v18' in readme and '100 条判据' in readme, 'README 验证器节未同步 v18/100'
+        assert 'v26' in readme and '121 条判据' in readme, 'README 验证器节未同步 v26/121'
         assert '内置 9 种' in readme, 'README 类型数未同步 9'
         assert 'Sops' in readme, 'README 目录缺 Sops 页'
-        assert '≥23' in readme or '23 组' in readme, 'README E2E 组数未同步'
+        assert '≥25' in readme or '25 组' in readme, 'README E2E 组数未同步'
         # ② #13 make-submission 幂等（重跑成功，判定面产物在场）
         import subprocess
         rmk = subprocess.run(['node', 'scripts/make-submission.mjs'], capture_output=True, text=True, timeout=120)
@@ -867,9 +867,11 @@ with sync_playwright() as p:
         assert 0 < card['expiresAt'] - (time.time() * 1000) <= 48 * 3600 * 1000, 'expiresAt 超预算'
         assert 'teamMemberships' not in card, '卡片不得发布绑定图'
         assert isinstance(card.get('sessionTeams'), list), 'sessionTeams 缺失'
-        # ② /a2a/direct P1 一律 not-found（不泄露存在性）
-        r404 = page.request.fetch(BASE + '/a2a/direct', method='POST', headers={'Content-Type': 'application/json'}, data='{"jsonrpc":"2.0","method":"message/send"}')
-        assert r404.status == 404, f'/a2a/direct 应 404: {r404.status}'
+        # ② /a2a/direct P2 开放：生产实例无 ADMIN_TOKEN → 绑定面休眠 → 派单一律 admission 拒
+        r404 = page.request.fetch(BASE + '/a2a/direct', method='POST', headers={'Content-Type': 'application/json'}, data='{"team":"market/00000000","message":"x","caller_session":"dsh/00000000"}')
+        assert r404.status == 404, f'未知 id8 应 404 不泄露: {r404.status}'
+        rmis = page.request.fetch(BASE + '/a2a/direct', method='POST', headers={'Content-Type': 'application/json'}, data='{"caller_session":"dsh/00000000"}')
+        assert rmis.status == 200 and rmis.json().get('code') == -32000, '缺 team/message 应 -32000'
         # ③ 专用实例全链（独立 DATA_DIR + ADMIN_TOKEN；上游 verifyCard 裁判 + 绑定 CRUD + 上卡规则，21 项）
         import subprocess, os as _os2
         smoke = subprocess.run(
@@ -877,7 +879,7 @@ with sync_playwright() as p:
             capture_output=True, text=True, timeout=180,
             cwd=_os2.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
         assert smoke.returncode == 0, f'a2a-smoke 失败:\n{smoke.stdout[-600:]}\n{smoke.stderr[-300:]}'
-        assert '21 通过' in smoke.stdout, f'a2a-smoke 计数异常: {smoke.stdout[-200:]}'
+        assert '35 通过' in smoke.stdout, f'a2a-smoke 计数异常: {smoke.stdout[-200:]}'
         record('A2A 网络接入 P1（卡片签名/人工绑定/上卡规则/direct 不泄露）', True)
     except Exception as e:
         record('A2A 网络接入 P1', False, str(e)); shot('a2a-p1')

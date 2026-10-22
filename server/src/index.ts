@@ -8,7 +8,7 @@ import { db, getSettings, dataDir, rowToWorkbench, rowToCockpit, type WorkbenchR
 import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
 import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, runStateSave, runStateRestore, runStateLoad, runStateRetire, runActiveIds } from './redis.ts';
-import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8 } from './a2a.ts';
+import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle } from './a2a.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -1198,9 +1198,45 @@ app.delete('/api/sops/:slug/bindings/:id', (req, res) => {
   res.json({ ok: true, revoked: id });
 });
 
-// /a2a/direct（P1）：一律 not-found——不区分「存在但未绑定」与「不存在」，不泄露存在性（P2 再开放）
-app.post('/a2a/direct', (_req, res) => {
-  res.status(404).json({ error: 'not found' });
+// /a2a/direct（P2）：准入开放——有效绑定 + 同 context 续 run + 上游幂等族 + 512KiB + DELIVERED 形状。
+// 查无 SOP 仍 404 不泄露；无绑定/draft/mode 不足 → 200 TASK_STATE_FAILED -32000（对齐上游 admission 形状）。
+// ADMIN_TOKEN 未设置时绑定面休眠（主人裁定：内网信任模型）——direct 对无绑定的 SOP 自然全拒。
+app.post('/a2a/direct', express.json({ limit: '600kb' }), (req, res) => {
+  const rawBytes = Number(req.headers['content-length'] ?? 0) || JSON.stringify(req.body ?? {}).length;
+  // run 操作桥（P2 note 写入走 sop_runs 的哑数据面：step_key=note-<ts> 追加不覆盖）
+  const runOps = {
+    start: (slug: string, startedBy: string): number => sopRunStartCore(slug, startedBy).id,
+    saveNote: (runId: number, text: string): void => {
+      const row = sopRunRow(runId);
+      if (row.status !== 'running') throw new HttpError(409, `run ${runId} 已 ${row.status}，不可再写`);
+      let data: Record<string, unknown> = {};
+      try { data = JSON.parse(row.data || '{}'); } catch { data = {}; }
+      const notes = Array.isArray(data['a2a-notes']) ? (data['a2a-notes'] as unknown[]) : [];
+      notes.push({ at: new Date().toISOString(), text });
+      data['a2a-notes'] = notes;
+      db.prepare(`UPDATE sop_runs SET data = ?, updated_at = datetime('now') WHERE id = ?`).run(JSON.stringify(data), runId);
+    },
+    statusOf: (runId: number): { status: string; steps: number } | null => {
+      const row = db.prepare('SELECT status, data FROM sop_runs WHERE id = ?').get(runId) as { status: string; data: string } | undefined;
+      if (!row) return null;
+      let n = 0;
+      try { n = Object.keys(JSON.parse(row.data || '{}')).length; } catch { n = 0; }
+      return { status: row.status, steps: n };
+    },
+    ctxBind: (contextId: string): number | null => {
+      const hit = db.prepare('SELECT run_id FROM a2a_run_ctx WHERE context_id = ? ORDER BY id DESC').get(contextId) as { run_id: number } | undefined;
+      return hit ? hit.run_id : null;
+    },
+    ctxRegister: (contextId: string, runId: number): void => {
+      db.prepare('INSERT INTO a2a_run_ctx (context_id, run_id) VALUES (?, ?)').run(contextId, runId);
+    },
+  };
+  try {
+    const out = a2aDirectHandle(req.body, rawBytes, runOps);
+    res.status(out.httpStatus).json(out.body);
+  } catch (e: any) {
+    res.status(200).json({ error: `direct handler failed: ${String(e?.message ?? e)}`, code: -32000, task_status: 'TASK_STATE_FAILED' });
+  }
 });
 app.get('/a2a/direct', (_req, res) => {
   res.status(404).json({ error: 'not found' });

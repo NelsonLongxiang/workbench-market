@@ -119,7 +119,7 @@ const TEXT_FACTS = [
   ["server/src/index.ts", "issue #7"],
   ["evidence/e2e_test.py", "e2e-import-probe"],
   ["scripts/make-submission.mjs", "issue #13"],
-  ["README.md", "116 条判据"],
+  ["README.md", "121 条判据"],
   ["server/src/a2a.ts", "canonicalPayload"],
   ["server/src/index.ts", "x-admin-token"],
   ["server/src/a2a.ts", "a2a_node8"],
@@ -140,6 +140,10 @@ const TEXT_FACTS = [
   ["evidence/e2e_test.py", "access-control-allow-origin"],
   ["evidence/e2e_test.py", "-32601"],
   ["evidence/e2e_test.py", "SecretStep"],
+  ["server/src/a2a.ts", "a2aDirectHandle"],
+  ["server/src/index.ts", "a2aDirectHandle"],
+  ["server/src/a2a.ts", "-32003"],
+  ["scripts/a2a-smoke.mjs", "TASK_STATE_DELIVERED"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);
