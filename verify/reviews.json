@@ -2425,14 +2425,14 @@
       ]
     },
     {
-      "source_clause": "判据102：README.md 必须包含验证器判据数锚「116 条判据」。",
+      "source_clause": "判据102：README.md 必须包含验证器判据数锚「121 条判据」。",
       "findings": [
         {
           "question": "faithful",
           "verdict": "ok",
-          "reason": "判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12：类型数 9/判据 116/24 维/页面目录含 Sops）——锚用判据数（比版本号锚少一次升版漂移）。",
+          "reason": "判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12——锚用判据数，比版本号锚少一次升版漂移）。",
           "anchor": {
-            "quote": "判据102：README.md 必须包含验证器判据数锚「116 条判据」。",
+            "quote": "判据102：README.md 必须包含验证器判据数锚「121 条判据」。",
             "locator": "dev-verifier-v4.md 判据1"
           }
         },
@@ -2901,6 +2901,102 @@
           "question": "not-vacuous",
           "verdict": "ok",
           "reason": "删探针提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据122：server/src/a2a.ts 必须包含 direct 准入核心「a2aDirectHandle」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，准入链（team→SOP 解析 404 不泄露/匿名拒/精确绑定匹配/mode 判定）+ 幂等族（-32003 replay/-32002 conflict，指纹={team,caller,message}）+ 512KiB→413 + start/note/status 语义 + run↔context_id（a2a_run_ctx 表）。",
+          "anchor": {
+            "quote": "判据122：server/src/a2a.ts 必须包含 direct 准入核心「a2aDirectHandle」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删核心提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据123：server/src/index.ts 必须包含 DELIVERED 路由桥「a2aDirectHandle」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，POST /a2a/direct 挂 a2aDirectHandle（note 写 sop_runs 的 a2a-notes 追加、context 注册、错误兜底 TASK_STATE_FAILED 形状）——生产无 ADMIN_TOKEN 时绑定面休眠=准入自然全拒（主人裁定口径）。",
+          "anchor": {
+            "quote": "判据123：server/src/index.ts 必须包含 DELIVERED 路由桥「a2aDirectHandle」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删桥提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据124：server/src/a2a.ts 必须包含幂等族锚「-32003」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，上游幂等族：同 key 同 payload→409 -32003 replay:true（先前权威）、同 key 异 payload→409 -32002 conflict（caller bug 不自动重试）——指纹不含 context_id（上游 peerPayloadFingerprint 口径）。",
+          "anchor": {
+            "quote": "判据124：server/src/a2a.ts 必须包含幂等族锚「-32003」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删幂等提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据125：scripts/a2a-smoke.mjs 必须包含 P2 行为锚「TASK_STATE_DELIVERED」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，P1+P2 冒烟 35 项（独立实例）：准入拒×3/404 不泄露/start→DELIVERED+task_id 回显/run↔context/note 续同 run+a2a-notes 落库/status/幂等 replay+conflict/512KiB 413。",
+          "anchor": {
+            "quote": "判据125：scripts/a2a-smoke.mjs 必须包含 P2 行为锚「TASK_STATE_DELIVERED」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删断言提取为 0 即 FAIL。"
         }
       ]
     }

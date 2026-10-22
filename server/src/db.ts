@@ -101,6 +101,13 @@ CREATE TABLE IF NOT EXISTS sop_bindings (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_sop_bindings_slug ON sop_bindings (sop_slug, revoked_at);
+CREATE TABLE IF NOT EXISTS a2a_run_ctx (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  context_id TEXT NOT NULL,
+  run_id INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_a2a_run_ctx ON a2a_run_ctx (context_id);
 `);
 
 // 轻量列迁移：已存库补列（凭据注入 / SOP 台生成器 / A2A 节点短 id）

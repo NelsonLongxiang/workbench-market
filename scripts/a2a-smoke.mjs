@@ -78,10 +78,56 @@ try {
 
   // ⑤ /a2a/direct not-found（不泄露存在性）
   r = await call('POST', '/a2a/direct', { jsonrpc: '2.0', method: 'message/send', params: {} });
-  ok('/a2a/direct 一律 404', r.status === 404);
+  ok('/a2a/direct 无 team 字段 → 200 -32000（非 P1 404——P2 开放）', r.status === 200 && r.body?.code === -32000);
+
+  // ============ P2：准入 / 幂等 / 512KiB / context_id（GH #17 阶段表） ============
+  // 恢复一条有效绑定（P1 流程已软撤销 bid——重绑拿 mode=run；node8 从重绑后的卡片取）
+  r = await call('POST', '/api/sops/a2a-smoke-sop/bindings', { node: 'dsh/1a2b3c4d', mode: 'run' }, { 'X-Admin-Token': 'e2e-admin-tok' });
+  ok('P2 重绑 run 模式', r.status === 201, JSON.stringify(r.body));
+  const card3 = (await call('GET', '/.well-known/agent-card.json')).body;
+  const node8 = card3.sessionTeams[0]?.team?.split('/')[1] ?? '';
+  const teamName = `market/${node8}`;
+  // ① 匿名拒（上游 anonymous hole 同款）
+  r = await call('POST', '/a2a/direct', { team: teamName, message: 'x' });
+  ok('匿名派单拒 -32000', r.status === 200 && r.body?.code === -32000 && r.body?.task_status === 'TASK_STATE_FAILED');
+  // ② 无绑定 caller 拒
+  r = await call('POST', '/a2a/direct', { team: teamName, message: 'x', caller_session: 'dsh/ffffffff' });
+  ok('未绑定 caller 拒', r.status === 200 && r.body?.code === -32000 && /no valid binding/.test(r.body?.error ?? ''));
+  // ③ 查无 SOP → 404 不泄露
+  r = await call('POST', '/a2a/direct', { team: 'market/deadbeef', message: 'x', caller_session: 'dsh/1a2b3c4d' });
+  ok('未知 id8 → 404', r.status === 404);
+  // ④ start（结构化）→ DELIVERED + run↔context
+  r = await call('POST', '/a2a/direct', { team: teamName, message: JSON.stringify({ sop: { action: 'start' } }), caller_session: 'dsh/1a2b3c4d', task_id: 'p2-task-1', context_id: 'ctx-p2-a' });
+  ok('start → TASK_STATE_DELIVERED', r.status === 200 && r.body?.task_status === 'TASK_STATE_DELIVERED' && r.body?.delivered === true, JSON.stringify(r.body).slice(0, 160));
+  ok('task_id 回显', r.body?.task_id === 'p2-task-1');
+  ok('sop.run_id 在场', Number.isInteger(r.body?.sop?.run_id));
+  const p2run = r.body.sop.run_id;
+  // ⑤ 幂等 replay（同 key 同 payload）
+  r = await call('POST', '/a2a/direct', { team: teamName, message: JSON.stringify({ sop: { action: 'start' } }), caller_session: 'dsh/1a2b3c4d', task_id: 'p2-task-1', context_id: 'ctx-p2-a' });
+  ok('同 key 同 payload → 409 -32003 replay', r.status === 409 && r.body?.code === -32003 && r.body?.replay === true);
+  // ⑥ 幂等 conflict（同 key 不同 payload——指纹={team,caller,message}，变 message 才算异）
+  r = await call('POST', '/a2a/direct', { team: teamName, message: JSON.stringify({ sop: { action: 'start', text: 'variant' } }), caller_session: 'dsh/1a2b3c4d', task_id: 'p2-task-1', context_id: 'ctx-p2-b' });
+  ok('同 key 异 payload → 409 -32002 conflict', r.status === 409 && r.body?.code === -32002 && r.body?.replay === false, JSON.stringify(r.body).slice(0, 120));
+  // ⑦ note（同 context 续 run）
+  r = await call('POST', '/a2a/direct', { team: teamName, message: JSON.stringify({ sop: { action: 'note', text: 'P2 备注测试' } }), caller_session: 'dsh/1a2b3c4d', task_id: 'p2-task-2', context_id: 'ctx-p2-a' });
+  ok('note → DELIVERED 续同 run', r.status === 200 && r.body?.task_status === 'TASK_STATE_DELIVERED' && r.body?.sop?.run_id === p2run);
+  // ⑧ status（同 context）
+  r = await call('POST', '/a2a/direct', { team: teamName, message: JSON.stringify({ sop: { action: 'status' } }), caller_session: 'dsh/1a2b3c4d', task_id: 'p2-task-3', context_id: 'ctx-p2-a' });
+  ok('status → DELIVERED + steps≥1', r.status === 200 && r.body?.sop?.steps >= 1);
+  // ⑨ note 数据落 sop_runs（a2a-notes）
+  const runDetail = await call('GET', `/api/sop/runs/${p2run}`);
+  const notes = runDetail.body?.data?.['a2a-notes'];
+  ok('note 写入 a2a-notes', Array.isArray(notes) && notes.some((n) => n.text === 'P2 备注测试'), JSON.stringify(notes).slice(0, 120));
+  // ⑩ 512KiB → 413
+  const bigMsg = 'x'.repeat(600 * 1024);
+  const bigR = await fetch(BASE + '/a2a/direct', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ team: teamName, message: bigMsg, caller_session: 'dsh/1a2b3c4d' }) });
+  ok('512KiB 上限 → 413', bigR.status === 413, `status=${bigR.status}`);
+  // ⑪ read 模式只读（P1 绑过 read 的场景用新 SOP 验证——此处以 mode 断言覆盖）
+  r = await call('POST', '/a2a/direct', { team: teamName, message: JSON.stringify({ sop: { action: 'note', text: 'x' } }), caller_session: 'dsh/1a2b3c4d', task_id: 'p2-task-4', context_id: 'ctx-p2-a' });
+  ok('run 模式 note 放行', r.status === 200 && r.body?.task_status === 'TASK_STATE_DELIVERED');
 } finally {
   child.kill();
   await new Promise((r) => setTimeout(r, 500));
 }
-console.log(`\n===== A2A P1 冒烟 ${pass + fail} 项：${pass} 通过 / ${fail} 失败 =====`);
+console.log(`\n===== A2A P1+P2 冒烟 ${pass + fail} 项：${pass} 通过 / ${fail} 失败 =====`);
 process.exit(fail ? 1 : 0);

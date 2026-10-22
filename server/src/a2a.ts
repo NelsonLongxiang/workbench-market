@@ -118,3 +118,130 @@ export function buildAgentCard(keyPath: string): Record<string, unknown> {
 export function a2aKeyPath(): string {
   return join(dataDir, 'a2a-key.pem');
 }
+
+// ---------- P2：/a2a/direct 准入与执行（协议对齐上游 src/index.ts @1efd613） ----------
+
+/** 派单消息上限（512 KiB）——超限 413（P2 验收③） */
+export const A2A_DIRECT_MAX_BYTES = 512 * 1024;
+
+export interface A2aDirectResult {
+  httpStatus: number;
+  body: Record<string, unknown>;
+}
+
+/** 进程内幂等窗：task_id → payload 指纹（上游 idempotencyStore 同语义：replay=-32003 / conflict=-32002） */
+const idemStore = new Map<string, string>();
+const IDEM_TTL_MS = 30 * 60 * 1000;
+const idemAt = new Map<string, number>();
+
+export function a2aDirectFingerprint(team: string, caller: string, message: string): string {
+  return `${team}\u0000${caller}\u0000${message}`;
+}
+
+function idemClaim(taskId: string, fp: string): 'fresh' | 'replay' | 'conflict' {
+  const now = Date.now();
+  for (const [k, t] of idemAt) if (now - t > IDEM_TTL_MS) { idemStore.delete(k); idemAt.delete(k); }
+  const prev = idemStore.get(taskId);
+  if (prev === undefined) {
+    idemStore.set(taskId, fp);
+    idemAt.set(taskId, now);
+    return 'fresh';
+  }
+  return prev === fp ? 'replay' : 'conflict';
+}
+
+/**
+ * 市场版 /a2a/direct 准入链（P2）：
+ * ① team → SOP 解析（查无 → 404 不泄露）② caller 准入（匿名拒/精确绑定匹配/mode 判定）
+ * ③ 幂等（-32003 replay / -32002 conflict）④ 结构化消息（start/note/status）→ run ↔ context_id
+ * ⑤ 响应 TASK_STATE_DELIVERED 形状（对齐上游 wait:false 异步语义）
+ * DSH 侧那半绑定（canvas 远端成员）是主人操作前置——修订 1 如实口径。
+ */
+export function a2aDirectHandle(body: any, rawBytes: number, runOps: {
+  start: (slug: string, startedBy: string) => number;
+  saveNote: (runId: number, text: string) => void;
+  statusOf: (runId: number) => { status: string; steps: number } | null;
+  ctxBind: (contextId: string) => number | null; // context → runId（已绑定）
+  ctxRegister: (contextId: string, runId: number) => void;
+}): A2aDirectResult {
+  const team = typeof body?.team === 'string' ? body.team : '';
+  const message = typeof body?.message === 'string' ? body.message : '';
+  const caller = typeof body?.caller_session === 'string' ? body.caller_session : '';
+  const contextId = typeof body?.context_id === 'string' && body.context_id !== '' ? body.context_id : `ctx-${Math.random().toString(16).slice(2, 10)}`;
+  const taskId = typeof body?.task_id === 'string' && body.task_id !== '' ? body.task_id : `direct-${Math.random().toString(16).slice(2, 10)}`;
+  if (rawBytes > A2A_DIRECT_MAX_BYTES) return { httpStatus: 413, body: { error: 'payload exceeds 512 KiB limit', code: -32000, task_id: taskId } };
+  if (team === '' || message === '') return { httpStatus: 200, body: { error: 'team and message are required', code: -32000 } };
+
+  // SOP 解析：team = market/<id8> → apps.a2a_node8
+  const tm = /^([a-z][a-z0-9-]*)\/([0-9a-f]{8})$/i.exec(team);
+  if (!tm) return { httpStatus: 404, body: { error: 'not found' } };
+  const sop = db.prepare('SELECT slug, status FROM apps WHERE kind = ? AND a2a_node8 = ?').get('sop', tm[2]) as { slug: string; status: string } | undefined;
+  if (!sop) return { httpStatus: 404, body: { error: 'not found' } };
+
+  // 准入（市场侧）：caller 必须精确匹配一条有效绑定（修订 1：DSH 侧 canvas 那半是前置）
+  if (caller === '') {
+    return { httpStatus: 200, body: { error: 'caller_session is required (anonymous delivery refused)', code: -32000, team, task_status: 'TASK_STATE_FAILED' } };
+  }
+  const binding = db.prepare("SELECT mode FROM sop_bindings WHERE sop_slug = ? AND node = ? AND revoked_at = ''").get(sop.slug, caller) as { mode: string } | undefined;
+  if (!binding) {
+    return { httpStatus: 200, body: { error: `no valid binding for ${caller} on this SOP (human binding required)`, code: -32000, team, task_status: 'TASK_STATE_FAILED' } };
+  }
+
+  // 幂等（上游族：replay -32003 / conflict -32002；在准入后、执行前）
+  const verdict = idemClaim(taskId, a2aDirectFingerprint(team, caller, message));
+  if (verdict !== 'fresh') {
+    const replay = verdict === 'replay';
+    return {
+      httpStatus: 409,
+      body: { error: replay ? 'duplicate task id within the idempotency window' : 'task id reused with a different payload', code: replay ? -32003 : -32002, task_id: taskId, replay },
+    };
+  }
+
+  // 消息语义（设计取舍 1）：结构化 {"sop":{"action":"start|note|status",...}}；自由文本=开 run + 原文记备注
+  let action = 'start';
+  let noteText = '';
+  let parsed: any = null;
+  try {
+    parsed = JSON.parse(message);
+    if (parsed && typeof parsed === 'object' && parsed.sop && typeof parsed.sop.action === 'string') {
+      action = parsed.sop.action === 'note' || parsed.sop.action === 'status' ? parsed.sop.action : 'start';
+      noteText = typeof parsed.sop.text === 'string' ? parsed.sop.text : '';
+    } else { parsed = null; }
+  } catch { parsed = null; }
+  if (!parsed) noteText = message; // 自由文本 → start + 备注
+
+  if (sop.status !== 'published') {
+    return { httpStatus: 200, body: { error: `SOP status is ${sop.status}, not published`, code: -32000, team, task_status: 'TASK_STATE_FAILED' } };
+  }
+  if (binding.mode !== 'run' && action !== 'status') {
+    return { httpStatus: 200, body: { error: 'binding mode is read — only status queries allowed', code: -32000, team, task_status: 'TASK_STATE_FAILED' } };
+  }
+
+  // run ↔ context_id：start 续沿同一 context 开新 run；note/status 按 context 找 run
+  let runId = runOps.ctxBind(contextId);
+  if (action === 'start') {
+    runId = runOps.start(sop.slug, caller);
+    runOps.ctxRegister(contextId, runId);
+  } else if (runId === null) {
+    return { httpStatus: 200, body: { error: 'no run bound to this context_id (send a start first)', code: -32000, team, task_id: taskId, task_status: 'TASK_STATE_FAILED' } };
+  } else if (action === 'note') {
+    runOps.saveNote(runId, noteText || '(empty note)');
+  }
+  const st = runOps.statusOf(runId);
+  return {
+    httpStatus: 200,
+    body: {
+      routed: true,
+      delivered: true,
+      team,
+      session: team, // 市场 SOP 节点即会话面
+      task_id: taskId,
+      context_id: contextId,
+      task_status: 'TASK_STATE_DELIVERED',
+      artifacts: [],
+      consumed: false,
+      receipt: 'routed',
+      sop: { slug: sop.slug, run_id: runId, run_status: st?.status ?? 'unknown', steps: st?.steps ?? 0 },
+    },
+  };
+}

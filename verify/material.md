@@ -1,64 +1,3 @@
-workbench-market 开发验证器 v26（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写 + 运行时批整改 + 卫生批整改 + A2A 网络接入 P1 + Agent 执行数据面 + 导出脱敏 + 注册 CRUD MCP 化 + 破坏性测试隔离 + 工具清单一致 + 安全批双锚）
-
-判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
-快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
-verifier_text_facts(path, needle, present)——打包时对源码逐一检查钉位事实；
-E2E 行为证据提取表 verifier_e2e_summary(total, passed, failed, all_passed,
-finished_at)——源自 e2e_test.py 每次运行落盘的 evidence/e2e-summary.json；
-渲染层对比度提取表 verifier_contrast_checks(label, ratio, min_required,
-passed)——源自 E2E 内置的 Playwright 对比度探针（实测 DOM 前景/背景配对，
-静态色值钉位无法覆盖的深底文字可见性）。
-提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
-脚本、验证器自举档案、设计规范与证据。
-命令执行型检查（typecheck、lint、build）不属于 CLI 闭集，由开发流程自行执行
-（E2E 与渲染层对比度结果经摘要表断言）；覆盖二十六个维度共 121 条判据：数据域完整性
-（判据1-9）、种子与配置（判据10-15）、提交物结构（判据16-35）、颜色可见性
-（判据36-51 与 57-58：经对比度审计的色值在源码与规范中的钉位，漂移即破坏已审计
-的可读性）、E2E 行为证据（判据52-54：规模下限、全绿、时间戳在位）、渲染层对比度
-探针（判据55-56：覆盖面下限与全达标——深底上的状态文字曾实测 1.18:1 不可见，
-此维度保证同类回归被行为层抓住）、任务驾驶舱（判据59-61：名称域完整性、驾驶舱
-页面在位、CRUD 路由钉位——工作台从收藏夹到分屏组合视图的功能面锚定）、统一门户
-（判据62-65：反向代理中间件与禁嵌头剥离逻辑在位、代理依赖声明、使用页 iframe 走
-/go/ 同源代理——从登记簿到统一入口的形态锚定）、台生成器（判据66-70：自产台
-slug 域完整、market-app 内置类型在位、发布路由与版本链表钉位、演示台常驻——
-从台的管理者到台的生产者的供给面锚定）、凭据注入（判据71-73：服务端注入头钉位、
-表单凭据字段钉位、E2E 注入行为断言钉位——认证类工作台的凭据不再明文拼进 url）、
-WS 升级（判据74-75：upgrade 挂载与握手 Origin 改写钉位——实时应用经门户可用的
-最后一公里；缺位时 HTTP 通而 WS 死，页面永远「重新连接中」）、SOP 台（判据76-80：
-运行真源表与 Redis 状态层模块钉位、Runner 服务端渲染与运行 API 钉位、E2E 行为
-断言钉位——结构化流程即台：状态层 Redis 热态 + 持久层 SQLite 真源的分层治理，
-发布即版本化，draft→published→deprecated 状态机防半成品入册）、MCP 生产通道（判据81-84：
-/mcp StreamableHTTP 端点与工具注册表钉位、JSON-RPC -32601 协议合规锚点、E2E 行为断言
-钉位——AI 会话直连市场：列台/总览/探测/取入口/发布台/SOP 上架七个生产工具，市场的
-MCP 化把供给通道从 REST 页面操作升级为 agent 原生）、SOP 管理页（判据85-88：
-Sops.tsx 在位与状态语义表钉位、路由钉位、演示 SOP 常驻钉位——SOP 台的消费与管理面：
-状态徽章可视化状态机、run 记录 Drawer 直查分层持久化的执行数据；色值经对比度审计
-的 SOP_STATUS 语义表是徽章不漂移的单一事实源）、凭据面防泄露（判据89-90：列表
-token 掩码函数与掩码回传保护钉位——无认证列表不再批量泄露 query 门凭据，详情
-同策略，PUT 掩码回传不毁库）、安全批整改（判据91-94：auth.value 与 MCP 通道
-统一脱敏函数钉位、CORS 白名单、draft 403 瘦身、MCP 泄漏行为断言探针——外部
-评审 16 issue 之 #1/#2/#3/#11，监督席复现定性的整改面）、门户 Location 改写
-（判据95-96：proxyRes 的 id 备份钉位与行为断言钉位——3xx 跳转改写回 /go/ 前缀
-内，评审 #4；根因同红线 9③：proxyRes 时 req.url 已被 pathRewrite 写回）、运行时批
-整改（判据97-100：巡检重挂/删台清注册/导入 replace 语义钉位 + 组 19 六断言探针——
-评审 #5-10 一轮整改，replace 导入的驾驶舱面板 id 映射恢复在 E2E 内实测）、卫生批
-整改（判据101-102：提交物脚本干净克隆自愈 + README 版本一致钉位——评审 #12/#13，
-文档漂移由提取表事实钉位抓住）、A2A 网络接入 P1（判据103-106：上游一致卡片签名面、
-人工绑定口令校验、SOP 节点短 id 随机持久化、上游裁判冒烟钉位——GH #17 P1 只读暴露：
-Ed25519 签名卡片过上游 verifyCard、绑定只经 ADMIN_TOKEN+Origin 校验的人工通道、
-上卡规则 published+有效绑定、/a2a/direct 一律 not-found 不泄露存在性）、Agent 执行数据面
-（判据107-109：run 持久化链共用核心与 MCP 五工具钉位 + 人机同链行为断言——agent 经
-sop_run_step_save 直接更新持久化执行数据，与 Runner/REST 同一条 Redis+SQLite 链，
-不经版本发布）、导出脱敏（判据110-112：导出默认经 maskForApi 脱敏 + 导入掩码行
-跳过/剥除 + 行为断言——compliance 二期首项，无认证导出曾是最大凭据泄漏向量）、注册
-CRUD MCP 化（判据113-115：register/update/unregister 三工具与 REST 同链共用核心、
-MCP 凭据字段硬拒绝（安全边界内置）、行为断言——agent 发现内网服务可自主登记入册）、
-破坏性测试隔离（判据116：导入 replace 永不碰活库）、工具清单一致（判据117-118：
-README 工具名锚钉住 MCP 工具面扩张的文档同步——评审 #18 盲区修补）、安全批双锚
-（判据119-121：CORS/MCP 协议/draft 403 三面从源码单锚升格为源码+行为双锚——
-防「代码在而行为回归」的静态钉位盲区）。
-以下判据全部可机械判定：
-
 判据1：类型的 key 字段不得为空。
 判据2：类型的 health_method 字段必须等于 GET 或 HEAD。
 判据3：类型的 expect_status 字段必须为空或落在 100 到 599 之间。
@@ -160,7 +99,7 @@ README 工具名锚钉住 MCP 工具面扩张的文档同步——评审 #18 盲
 判据99：server/src/index.ts 必须包含导入 mode 锚「issue #7」。
 判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-probe」。
 判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。
-判据102：README.md 必须包含验证器判据数锚「116 条判据」。
+判据102：README.md 必须包含验证器判据数锚「121 条判据」。
 判据103：server/src/a2a.ts 必须包含上游一致签名面「canonicalPayload」。
 判据104：server/src/index.ts 必须包含绑定管理口令头「x-admin-token」。
 判据105：server/src/a2a.ts 必须包含节点短 id 持久化「a2a_node8」。
@@ -180,3 +119,7 @@ README 工具名锚钉住 MCP 工具面扩张的文档同步——评审 #18 盲
 判据119：evidence/e2e_test.py 必须包含 CORS 行为断言锚「access-control-allow-origin」。
 判据120：evidence/e2e_test.py 必须包含协议错误断言锚「-32601」。
 判据121：evidence/e2e_test.py 必须包含 draft 泄漏探针锚「SecretStep」。
+判据122：server/src/a2a.ts 必须包含 direct 准入核心「a2aDirectHandle」。
+判据123：server/src/index.ts 必须包含 DELIVERED 路由桥「a2aDirectHandle」。
+判据124：server/src/a2a.ts 必须包含幂等族锚「-32003」。
+判据125：scripts/a2a-smoke.mjs 必须包含 P2 行为锚「TASK_STATE_DELIVERED」。

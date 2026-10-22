@@ -3215,9 +3215,9 @@
       }
     },
     {
-      "source_clause": "判据102：README.md 必须包含验证器判据数锚「116 条判据」。",
+      "source_clause": "判据102：README.md 必须包含验证器判据数锚「121 条判据」。",
       "anchor": {
-        "quote": "判据102：README.md 必须包含验证器判据数锚「116 条判据」。",
+        "quote": "判据102：README.md 必须包含验证器判据数锚「121 条判据」。",
         "locator": "dev-verifier-v4.md 判据1"
       },
       "title": "README 版本一致钉位",
@@ -3240,7 +3240,7 @@
               {
                 "col": "needle",
                 "op": "=",
-                "value": "116 条判据"
+                "value": "121 条判据"
               },
               {
                 "col": "present",
@@ -3982,6 +3982,162 @@
                 "col": "needle",
                 "op": "=",
                 "value": "SecretStep"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据122：server/src/a2a.ts 必须包含 direct 准入核心「a2aDirectHandle」。",
+      "anchor": {
+        "quote": "判据122：server/src/a2a.ts 必须包含 direct 准入核心「a2aDirectHandle」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "direct 准入核心钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/a2a.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "a2aDirectHandle"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据123：server/src/index.ts 必须包含 DELIVERED 路由桥「a2aDirectHandle」。",
+      "anchor": {
+        "quote": "判据123：server/src/index.ts 必须包含 DELIVERED 路由桥「a2aDirectHandle」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "direct 路由桥钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "a2aDirectHandle"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据124：server/src/a2a.ts 必须包含幂等族锚「-32003」。",
+      "anchor": {
+        "quote": "判据124：server/src/a2a.ts 必须包含幂等族锚「-32003」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "direct 幂等族钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/a2a.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "-32003"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据125：scripts/a2a-smoke.mjs 必须包含 P2 行为锚「TASK_STATE_DELIVERED」。",
+      "anchor": {
+        "quote": "判据125：scripts/a2a-smoke.mjs 必须包含 P2 行为锚「TASK_STATE_DELIVERED」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "P2 行为断言钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "scripts/a2a-smoke.mjs"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "TASK_STATE_DELIVERED"
               },
               {
                 "col": "present",
