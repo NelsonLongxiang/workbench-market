@@ -153,7 +153,7 @@ const U = [
   { c: "判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-probe」。", t: "运行时批行为断言钉位", s: "S1", ck: existsFact("scripts/import-smoke.mjs", "e2e-import-probe"), rv: ["判据原文逐字取自冻结材料，导入冒烟（独立实例，7 项）覆盖 query replace 语义/内部路径行不丢/悬空面板 prune/掩码行跳过/body mode 等价；E2E 组 19 subprocess 调用——replace 全表清写不再碰活库（84 事故 ×3 根治）。", "提取表三条件 exists 精确判定。", "删探针提取为 0 即 FAIL。"] },
   // ── 卫生批（外部评审 #12/#13：README 一致性 + 干净克隆自愈） ──
   { c: "判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。", t: "提交物脚本自愈钉位", s: "S1", ck: existsFact("scripts/make-submission.mjs", "issue #13"), rv: ["判据原文逐字取自冻结材料，VACUUM INTO 前 mkdirSync(tmp) 幂等创建——干净克隆无 tmp/ 不再必然失败（评审 #13）。", "提取表三条件 exists 精确判定。", "删自愈提取为 0 即 FAIL。"] },
-  { c: "判据102：README.md 必须包含验证器判据数锚「121 条判据」。", t: "README 版本一致钉位", s: "S2", ck: existsFact("README.md", "121 条判据"), rv: ["判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12——锚用判据数，比版本号锚少一次升版漂移）。", "提取表三条件 exists 精确判定。", "版本漂移提取为 0 即 FAIL。"] },
+  { c: "判据102：README.md 必须包含验证器判据数锚「130 条判据」。", t: "README 版本一致钉位", s: "S2", ck: existsFact("README.md", "130 条判据"), rv: ["判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12——锚用判据数，比版本号锚少一次升版漂移）。", "提取表三条件 exists 精确判定。", "版本漂移提取为 0 即 FAIL。"] },
   // ── A2A 网络接入 P1（GH #17：签名卡片 + 人工绑定，只读暴露） ──
   { c: "判据103：server/src/a2a.ts 必须包含上游一致签名面「canonicalPayload」。", t: "A2A 卡片签名钉位", s: "S1", ck: existsFact("server/src/a2a.ts", "canonicalPayload"), rv: ["判据原文逐字取自冻结材料，卡片 canonical 与上游 card.ts（裁判钉 75a3ebd）逐字节一致——Ed25519 pure + SPKI DER base64，expiresAt ≤ 48h，须过上游 verifyCard（GH #17 P1）。", "提取表三条件 exists 精确判定。", "删签名面提取为 0 即 FAIL。"] },
   { c: "判据104：server/src/index.ts 必须包含绑定管理口令头「x-admin-token」。", t: "人工绑定口令钉位", s: "S1", ck: existsFact("server/src/index.ts", "x-admin-token"), rv: ["判据原文逐字取自冻结材料，绑定读写要 X-Admin-Token 常量时间比较（未设置一律 403）+ Origin 空或同源服务端校验；MCP 无绑定写工具；卡片不发布 teamMemberships（绑定图不出门）。", "提取表三条件 exists 精确判定。", "删口令校验提取为 0 即 FAIL。"] },
@@ -185,10 +185,16 @@ const U = [
   { c: "判据123：server/src/index.ts 必须包含 DELIVERED 路由桥「a2aDirectHandle」。", t: "direct 路由桥钉位", s: "S1", ck: existsFact("server/src/index.ts", "a2aDirectHandle"), rv: ["判据原文逐字取自冻结材料，POST /a2a/direct 挂 a2aDirectHandle（note 写 sop_runs 的 a2a-notes 追加、context 注册、错误兜底 TASK_STATE_FAILED 形状）——生产无 ADMIN_TOKEN 时绑定面休眠=准入自然全拒（主人裁定口径）。", "提取表三条件 exists 精确判定。", "删桥提取为 0 即 FAIL。"] },
   { c: "判据124：server/src/a2a.ts 必须包含幂等族锚「-32003」。", t: "direct 幂等族钉位", s: "S1", ck: existsFact("server/src/a2a.ts", "-32003"), rv: ["判据原文逐字取自冻结材料，上游幂等族：同 key 同 payload→409 -32003 replay:true（先前权威）、同 key 异 payload→409 -32002 conflict（caller bug 不自动重试）——指纹不含 context_id（上游 peerPayloadFingerprint 口径）。", "提取表三条件 exists 精确判定。", "删幂等提取为 0 即 FAIL。"] },
   { c: "判据125：scripts/a2a-smoke.mjs 必须包含 P2 行为锚「TASK_STATE_DELIVERED」。", t: "P2 行为断言钉位", s: "S1", ck: existsFact("scripts/a2a-smoke.mjs", "TASK_STATE_DELIVERED"), rv: ["判据原文逐字取自冻结材料，P1+P2 冒烟 35 项（独立实例）：准入拒×3/404 不泄露/start→DELIVERED+task_id 回显/run↔context/note 续同 run+a2a-notes 落库/status/幂等 replay+conflict/512KiB 413。", "提取表三条件 exists 精确判定。", "删断言提取为 0 即 FAIL。"] },
+  // ── MCP 网关 P1（GH #20：会话/令牌/授权/审计——env MCP_GATEWAY=on 激活） ──
+  { c: "判据126：server/src/index.ts 必须包含网关开关「MCP_GATEWAY」。", t: "网关开关钉位", s: "S1", ck: existsFact("server/src/index.ts", "MCP_GATEWAY"), rv: ["判据原文逐字取自冻结材料，env 开关合并与激活解耦（默认 off=现状行为；激活=主人同设 ADMIN_TOKEN+MCP_GATEWAY=on 重启——守护误拉新代码不断消费端）。", "提取表三条件 exists 精确判定。", "删开关提取为 0 即 FAIL。"] },
+  { c: "判据127：server/src/index.ts 必须包含会话表「mcp_sessions」。", t: "网关会话面钉位", s: "S1", ck: existsFact("server/src/index.ts", "mcp_sessions"), rv: ["判据原文逐字取自冻结材料，控制面五端点（建会话 token 仅一次/列表无 token 值/软吊销即时生效/grants 整体替换坏名 400/工具面要口令）+ Bearer 网关（401+WWW-Authenticate 含 initialize 无兼容期）。", "提取表三条件 exists 精确判定。", "删会话面提取为 0 即 FAIL。"] },
+  { c: "判据128：server/src/index.ts 必须包含审计表「mcp_calls」。", t: "网关审计钉位", s: "S1", ck: existsFact("server/src/index.ts", "mcp_calls"), rv: ["判据原文逐字取自冻结材料，审计行 at/identity/method/tool/ok/error/duration_ms/args_sha256（不存参数原文）；401 只计数不进审计；last_used_at 更新。", "提取表三条件 exists 精确判定。", "删审计提取为 0 即 FAIL。"] },
+  { c: "判据129：server/src/index.ts 必须包含远程收口锚「REMOTE_ALLOW_EXACT」。", t: "远程面收口钉位", s: "S1", ck: existsFact("server/src/index.ts", "REMOTE_ALLOW_EXACT"), rv: ["判据原文逐字取自冻结材料，非本机只放 /mcp、/.well-known/agent-card.json、/a2a/direct——其余 /api/* 写操作要 X-Admin-Token；本机 REST 面内网信任模型不变。", "提取表三条件 exists 精确判定。", "删收口提取为 0 即 FAIL。"] },
+  { c: "判据130：scripts/gateway-smoke.mjs 必须包含网关行为锚「WWW-Authenticate」。", t: "网关行为断言钉位", s: "S1", ck: existsFact("scripts/gateway-smoke.mjs", "WWW-Authenticate"), rv: ["判据原文逐字取自冻结材料，独立实例 24 项：控制面 403/token 一次性/重名坏名 400/列表无 token/grants 校验过滤/401+WWW-Authenticate/未授权=不存在同应答/审计 args_sha256 无原文/401 不入审计/last_used_at/软吊销即时失效。", "提取表三条件 exists 精确判定。", "删断言提取为 0 即 FAIL。"] },
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
-const header = `workbench-market 开发验证器 v27（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写 + 运行时批整改 + 卫生批整改 + A2A 网络接入 P1+P2 + Agent 执行数据面 + 导出脱敏 + 注册 CRUD MCP 化 + 破坏性测试隔离 + 工具清单一致 + 安全批双锚）
+const header = `workbench-market 开发验证器 v28（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写 + 运行时批整改 + 卫生批整改 + A2A 网络接入 P1+P2 + Agent 执行数据面 + 导出脱敏 + 注册 CRUD MCP 化 + 破坏性测试隔离 + 工具清单一致 + 安全批双锚 + MCP 网关 P1）
 
 判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
 快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
@@ -201,7 +207,7 @@ passed)——源自 E2E 内置的 Playwright 对比度探针（实测 DOM 前景
 提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
 脚本、验证器自举档案、设计规范与证据。
 命令执行型检查（typecheck、lint、build）不属于 CLI 闭集，由开发流程自行执行
-（E2E 与渲染层对比度结果经摘要表断言）；覆盖二十七个维度共 125 条判据：数据域完整性
+（E2E 与渲染层对比度结果经摘要表断言）；覆盖二十八个维度共 130 条判据：数据域完整性
 （判据1-9）、种子与配置（判据10-15）、提交物结构（判据16-35）、颜色可见性
 （判据36-51 与 57-58：经对比度审计的色值在源码与规范中的钉位，漂移即破坏已审计
 的可读性）、E2E 行为证据（判据52-54：规模下限、全绿、时间戳在位）、渲染层对比度
@@ -248,7 +254,11 @@ README 工具名锚钉住 MCP 工具面扩张的文档同步——评审 #18 盲
 （判据119-121：CORS/MCP 协议/draft 403 三面从源码单锚升格为源码+行为双锚——
 防「代码在而行为回归」的静态钉位盲区）、A2A P2 准入（判据122-125：direct 准入
 核心与路由桥/上游幂等族 -32003/-32002/512KiB 413/run↔context_id 绑定/DELIVERED
-形状——GH #17 阶段表 P2；生产无 ADMIN_TOKEN 时绑定面休眠，准入自然全拒）。
+形状——GH #17 阶段表 P2；生产无 ADMIN_TOKEN 时绑定面休眠，准入自然全拒）、MCP
+网关 P1（判据126-130：env 开关合并激活解耦/会话面（token 一次性·sha256 库存·
+软吊销即时）/审计面（args_sha256 不存原文·401 只计数）/远程面收口（三白名单面）/
+行为断言——GH #20 P1：市场 /mcp 从「任何客户端调全部工具」升级为认人按会话
+授权的网关，15 内置工具默认拒绝）。
 以下判据全部可机械判定：
 `;
 

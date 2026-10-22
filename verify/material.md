@@ -99,7 +99,7 @@
 判据99：server/src/index.ts 必须包含导入 mode 锚「issue #7」。
 判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-probe」。
 判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。
-判据102：README.md 必须包含验证器判据数锚「121 条判据」。
+判据102：README.md 必须包含验证器判据数锚「130 条判据」。
 判据103：server/src/a2a.ts 必须包含上游一致签名面「canonicalPayload」。
 判据104：server/src/index.ts 必须包含绑定管理口令头「x-admin-token」。
 判据105：server/src/a2a.ts 必须包含节点短 id 持久化「a2a_node8」。
@@ -123,3 +123,8 @@
 判据123：server/src/index.ts 必须包含 DELIVERED 路由桥「a2aDirectHandle」。
 判据124：server/src/a2a.ts 必须包含幂等族锚「-32003」。
 判据125：scripts/a2a-smoke.mjs 必须包含 P2 行为锚「TASK_STATE_DELIVERED」。
+判据126：server/src/index.ts 必须包含网关开关「MCP_GATEWAY」。
+判据127：server/src/index.ts 必须包含会话表「mcp_sessions」。
+判据128：server/src/index.ts 必须包含审计表「mcp_calls」。
+判据129：server/src/index.ts 必须包含远程收口锚「REMOTE_ALLOW_EXACT」。
+判据130：scripts/gateway-smoke.mjs 必须包含网关行为锚「WWW-Authenticate」。

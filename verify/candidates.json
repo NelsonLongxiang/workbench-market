@@ -3215,9 +3215,9 @@
       }
     },
     {
-      "source_clause": "判据102：README.md 必须包含验证器判据数锚「121 条判据」。",
+      "source_clause": "判据102：README.md 必须包含验证器判据数锚「130 条判据」。",
       "anchor": {
-        "quote": "判据102：README.md 必须包含验证器判据数锚「121 条判据」。",
+        "quote": "判据102：README.md 必须包含验证器判据数锚「130 条判据」。",
         "locator": "dev-verifier-v4.md 判据1"
       },
       "title": "README 版本一致钉位",
@@ -3240,7 +3240,7 @@
               {
                 "col": "needle",
                 "op": "=",
-                "value": "121 条判据"
+                "value": "130 条判据"
               },
               {
                 "col": "present",
@@ -4138,6 +4138,201 @@
                 "col": "needle",
                 "op": "=",
                 "value": "TASK_STATE_DELIVERED"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据126：server/src/index.ts 必须包含网关开关「MCP_GATEWAY」。",
+      "anchor": {
+        "quote": "判据126：server/src/index.ts 必须包含网关开关「MCP_GATEWAY」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "网关开关钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "MCP_GATEWAY"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据127：server/src/index.ts 必须包含会话表「mcp_sessions」。",
+      "anchor": {
+        "quote": "判据127：server/src/index.ts 必须包含会话表「mcp_sessions」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "网关会话面钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "mcp_sessions"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据128：server/src/index.ts 必须包含审计表「mcp_calls」。",
+      "anchor": {
+        "quote": "判据128：server/src/index.ts 必须包含审计表「mcp_calls」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "网关审计钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "mcp_calls"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据129：server/src/index.ts 必须包含远程收口锚「REMOTE_ALLOW_EXACT」。",
+      "anchor": {
+        "quote": "判据129：server/src/index.ts 必须包含远程收口锚「REMOTE_ALLOW_EXACT」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "远程面收口钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "REMOTE_ALLOW_EXACT"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据130：scripts/gateway-smoke.mjs 必须包含网关行为锚「WWW-Authenticate」。",
+      "anchor": {
+        "quote": "判据130：scripts/gateway-smoke.mjs 必须包含网关行为锚「WWW-Authenticate」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "网关行为断言钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "scripts/gateway-smoke.mjs"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "WWW-Authenticate"
               },
               {
                 "col": "present",

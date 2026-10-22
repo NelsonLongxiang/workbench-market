@@ -3,7 +3,7 @@
   "passed": 25,
   "failed": 0,
   "all_passed": 1,
-  "finished_at": "2026-10-22T05:29:57.005245+00:00",
+  "finished_at": "2026-10-22T20:19:36.399014+00:00",
   "contrast_checks": [
     {
       "text": "在线",
@@ -78,8 +78,8 @@
       "label": "/sops 表格·SOP 状态 Tag"
     },
     {
-      "text": "SOP-DEMO-001",
-      "color": "rgba(0, 0, 0, 0.88)",
+      "text": "-",
+      "color": "rgba(0, 0, 0, 0.45)",
       "bg": "rgb(255, 255, 255)",
       "ratio": 21,
       "min": 4.5,

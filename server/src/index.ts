@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { dirname, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db, getSettings, dataDir, rowToWorkbench, rowToCockpit, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow, type SopRunRow } from './db.ts';
@@ -23,6 +24,23 @@ app.use(cors({
   },
 }));
 app.use(express.json({ limit: '4mb' }));
+
+// GH #20 P1 ④远程面收口：非本机请求只放 /mcp、/.well-known/agent-card.json、/a2a/direct——
+// 其余 /api/* 写操作要 X-Admin-Token（本机 REST 面维持内网信任模型不变；此中间件只拦远程写）。
+const REMOTE_ALLOW_EXACT = new Set(['/mcp', '/.well-known/agent-card.json', '/a2a/direct']);
+app.use((req, res, next) => {
+  const ip = String(req.socket.remoteAddress ?? '');
+  const isLoopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+  if (isLoopback || req.method === 'GET' || req.method === 'HEAD') return next(); // 读面不拦（掩码已有）；本机全放
+  const p = (req.url ?? '').split('?')[0];
+  if (REMOTE_ALLOW_EXACT.has(p)) return next();
+  if (p.startsWith('/api/')) {
+    // 远程 /api/* 写：走 adminGuard（函数声明有提升，请求期已定义）
+    if (adminGuard(req, res)) return next();
+    return; // adminGuard 已回 403
+  }
+  return next(); // 其余远程非 /api 面（如 /go/ 门户读型代理）不在本判据范围
+});
 
 const wrap =
   (fn: (req: express.Request, res: express.Response) => Promise<unknown>) =>
@@ -1466,14 +1484,115 @@ async function callTool(name: string, args: any): Promise<unknown> {
   }
 }
 
+// ---------- MCP 网关 P1（GH #20：会话/令牌/授权/审计——env MCP_GATEWAY=on 激活，默认 off=现状行为） ----------
+// 合并与激活解耦：代码进 main 可评审；激活=主人同设 ADMIN_TOKEN+MCP_GATEWAY=on 重启
+// （单设 MCP_GATEWAY 而无 ADMIN_TOKEN 时控制面全 403，无法建会话 → /mcp 全 401，拒绝半激活）。
+const MCP_GATEWAY_ON = process.env.MCP_GATEWAY === 'on';
+const MCP_SESSION_NAME_RE = /^[a-z][a-z0-9-]{0,63}$/;
+let mcp401Count = 0;
+
+function sha256Hex(s: string): string {
+  return createHash('sha256').update(s, 'utf8').digest('hex');
+}
+
+function mcpSessionByToken(token: string): { id: number; name: string; grants: string[] } | null {
+  const row = db.prepare('SELECT id, name, grants FROM mcp_sessions WHERE token_sha256 = ? AND revoked_at = ?').get(sha256Hex(token), '') as { id: number; name: string; grants: string } | undefined;
+  if (!row) return null;
+  let grants: string[] = [];
+  try { grants = JSON.parse(row.grants || '[]'); } catch { grants = []; }
+  return { id: row.id, name: row.name, grants };
+}
+
+// 控制面（全部 X-Admin-Token 常量时间 + Origin 空或同源；MCP 零会话/令牌/授权写工具——人工锁）
+app.post('/api/mcp/sessions', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim().toLowerCase() : '';
+  if (!MCP_SESSION_NAME_RE.test(name)) bad('name 规范：小写字母开头，小写字母/数字/连字符，≤64 字符');
+  const dup = db.prepare('SELECT id FROM mcp_sessions WHERE name = ?').get(name);
+  if (dup) bad(`会话名已存在: ${name}`);
+  // mcp/ 命名空间独立于 dsh/<id8>（A2A 自报身份不混用；关联靠人登记 a2a_node 字段，仅关联不授权）
+  const token = randomBytes(32).toString('hex');
+  const r = db.prepare('INSERT INTO mcp_sessions (name, token_sha256, grants) VALUES (?, ?, ?)')
+    .run(name, sha256Hex(token), '[]') as unknown as { lastInsertRowid: number | bigint }; // 新会话授权空=默认拒绝
+  res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), name, token, grants: [], note: 'token 仅此一次出现——库存 sha256 无取回接口，请立即分发保管' });
+});
+
+app.get('/api/mcp/sessions', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const rows = db.prepare('SELECT id, name, grants, revoked_at, last_used_at, created_at FROM mcp_sessions ORDER BY id DESC').all();
+  res.json(rows.map((r: any) => ({ ...r, grants: JSON.parse(r.grants || '[]') })));
+});
+
+app.delete('/api/mcp/sessions/:id', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const id = Number(req.params.id);
+  const hit = db.prepare('SELECT id FROM mcp_sessions WHERE id = ?').get(id);
+  if (!hit) throw new HttpError(404, `session not found: ${id}`);
+  db.prepare(`UPDATE mcp_sessions SET revoked_at = datetime('now') WHERE id = ?`).run(id); // 软吊销立即生效留审计
+  res.json({ ok: true, revoked: id });
+});
+
+app.put('/api/mcp/sessions/:id/grants', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const id = Number(req.params.id);
+  const sess = db.prepare('SELECT id FROM mcp_sessions WHERE id = ?').get(id);
+  if (!sess) throw new HttpError(404, `session not found: ${id}`);
+  const raw = req.body?.grants;
+  if (!Array.isArray(raw)) bad('grants 必须是工具名数组（整体替换语义）');
+  const registered = new Set(MCP_TOOLS.map((t) => t.name));
+  for (const g of raw) {
+    if (typeof g !== 'string' || !registered.has(g)) bad(`未知工具名: ${JSON.stringify(g)}（合法面见 GET /api/mcp/tools）`);
+  }
+  db.prepare('UPDATE mcp_sessions SET grants = ? WHERE id = ?').run(JSON.stringify(raw), id);
+  res.json({ ok: true, id, grants: raw });
+});
+
+app.get('/api/mcp/tools', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  res.json(MCP_TOOLS.map((t) => ({ name: t.name, description: t.description })));
+});
+
+app.get('/api/mcp/calls', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const limit = Math.min(Number(req.query.limit) || 200, 1000);
+  const rows = db.prepare('SELECT * FROM mcp_calls ORDER BY id DESC LIMIT ?').all(limit);
+  res.json(rows);
+});
+
+// /mcp 网关化（MCP_GATEWAY=on）：Bearer 有效→会话；无效/缺失/吊销→401+WWW-Authenticate（含 initialize，无兼容期）
 app.post('/mcp', async (req, res) => {
   const msg = req.body ?? {};
   const fail = (code: number, message: string) => res.json({ jsonrpc: '2.0', id: msg.id ?? null, error: { code, message } });
-  if (typeof msg !== 'object' || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') return fail(-32600, 'Invalid Request');
+
+  // 网关会话判定 + 审计
+  let sess: { id: number; name: string; grants: string[] } | null = null;
+  if (MCP_GATEWAY_ON) {
+    const auth = String(req.headers.authorization ?? '');
+    const m = /^Bearer ([0-9a-f]{64})$/i.exec(auth);
+    if (m) sess = mcpSessionByToken(m[1]);
+    if (!sess) {
+      mcp401Count += 1; // 401 不进审计只计数
+      res.setHeader('WWW-Authenticate', 'Bearer realm="workbench-market mcp"');
+      return res.status(401).json({ error: 'unauthorized: valid session token required', hint: '会话与令牌由管理员经 /api/mcp/sessions 创建分发' });
+    }
+    db.prepare(`UPDATE mcp_sessions SET last_used_at = datetime('now') WHERE id = ?`).run(sess.id);
+  }
+  const audit = (method: string, tool: string, ok: boolean, error: string, durationMs: number, args: unknown) => {
+    if (!MCP_GATEWAY_ON || !sess) return;
+    db.prepare('INSERT INTO mcp_calls (session_name, method, tool, ok, error, duration_ms, args_sha256) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(sess.name, method, tool, ok ? 1 : 0, error, durationMs, sha256Hex(JSON.stringify(args ?? {}))); // 不存参数原文
+  };
+  const t0 = Date.now();
+
+  if (typeof msg !== 'object' || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') {
+    audit('invalid', '', false, 'Invalid Request', 0, msg);
+    return fail(-32600, 'Invalid Request');
+  }
   if (msg.id === undefined || msg.id === null) return res.status(202).end(); // notification（含 notifications/initialized）——stateless 无会话态需要跟踪
   try {
     if (msg.method === 'initialize') {
       const want = typeof msg.params?.protocolVersion === 'string' ? msg.params.protocolVersion : '';
+      audit('initialize', '', true, '', Date.now() - t0, msg.params);
       return res.json({
         jsonrpc: '2.0', id: msg.id,
         result: {
@@ -1483,20 +1602,40 @@ app.post('/mcp', async (req, res) => {
         },
       });
     }
-    if (msg.method === 'ping') return res.json({ jsonrpc: '2.0', id: msg.id, result: {} });
-    if (msg.method === 'tools/list') return res.json({ jsonrpc: '2.0', id: msg.id, result: { tools: MCP_TOOLS } });
+    if (msg.method === 'ping') {
+      audit('ping', '', true, '', Date.now() - t0, null);
+      return res.json({ jsonrpc: '2.0', id: msg.id, result: {} });
+    }
+    if (msg.method === 'tools/list') {
+      const tools = sess ? MCP_TOOLS.filter((t) => sess!.grants.includes(t.name)) : MCP_TOOLS; // 按授权过滤
+      audit('tools/list', '', true, '', Date.now() - t0, null);
+      return res.json({ jsonrpc: '2.0', id: msg.id, result: { tools } });
+    }
     if (msg.method === 'tools/call') {
-      if (typeof msg.params?.name !== 'string') return fail(-32602, 'params.name 必填');
+      if (typeof msg.params?.name !== 'string') {
+        audit('tools/call', '', false, 'params.name 必填', Date.now() - t0, msg.params);
+        return fail(-32602, 'params.name 必填');
+      }
+      // 未授权与不存在同应答——不泄露存在性
+      const toolName = msg.params.name;
+      if (sess && !sess.grants.includes(toolName)) {
+        audit('tools/call', toolName, false, 'not found', Date.now() - t0, msg.params?.arguments);
+        return fail(-32601, `Method not found: ${msg.method}`); // 与未知工具同文案族
+      }
       try {
-        const out = await callTool(msg.params.name, msg.params.arguments ?? {});
+        const out = await callTool(toolName, msg.params.arguments ?? {});
+        audit('tools/call', toolName, true, '', Date.now() - t0, msg.params?.arguments);
         return res.json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }] } });
       } catch (e: any) {
         // 工具执行失败按 MCP 规范走 isError（协议层错误才用 JSON-RPC error）
+        audit('tools/call', toolName, false, String(e?.message ?? e).slice(0, 200), Date.now() - t0, msg.params?.arguments);
         return res.json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: `执行失败：${e?.message || e}` }], isError: true } });
       }
     }
+    audit(msg.method, '', false, 'Method not found', Date.now() - t0, msg.params);
     return fail(-32601, `Method not found: ${msg.method}`);
   } catch (e: any) {
+    audit(msg.method, '', false, 'Internal error', Date.now() - t0, msg.params);
     return fail(-32603, `Internal error: ${e?.message || e}`);
   }
 });

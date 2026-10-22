@@ -2425,14 +2425,14 @@
       ]
     },
     {
-      "source_clause": "判据102：README.md 必须包含验证器判据数锚「121 条判据」。",
+      "source_clause": "判据102：README.md 必须包含验证器判据数锚「130 条判据」。",
       "findings": [
         {
           "question": "faithful",
           "verdict": "ok",
           "reason": "判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12——锚用判据数，比版本号锚少一次升版漂移）。",
           "anchor": {
-            "quote": "判据102：README.md 必须包含验证器判据数锚「121 条判据」。",
+            "quote": "判据102：README.md 必须包含验证器判据数锚「130 条判据」。",
             "locator": "dev-verifier-v4.md 判据1"
           }
         },
@@ -2985,6 +2985,126 @@
           "reason": "判据原文逐字取自冻结材料，P1+P2 冒烟 35 项（独立实例）：准入拒×3/404 不泄露/start→DELIVERED+task_id 回显/run↔context/note 续同 run+a2a-notes 落库/status/幂等 replay+conflict/512KiB 413。",
           "anchor": {
             "quote": "判据125：scripts/a2a-smoke.mjs 必须包含 P2 行为锚「TASK_STATE_DELIVERED」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删断言提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据126：server/src/index.ts 必须包含网关开关「MCP_GATEWAY」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，env 开关合并与激活解耦（默认 off=现状行为；激活=主人同设 ADMIN_TOKEN+MCP_GATEWAY=on 重启——守护误拉新代码不断消费端）。",
+          "anchor": {
+            "quote": "判据126：server/src/index.ts 必须包含网关开关「MCP_GATEWAY」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删开关提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据127：server/src/index.ts 必须包含会话表「mcp_sessions」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，控制面五端点（建会话 token 仅一次/列表无 token 值/软吊销即时生效/grants 整体替换坏名 400/工具面要口令）+ Bearer 网关（401+WWW-Authenticate 含 initialize 无兼容期）。",
+          "anchor": {
+            "quote": "判据127：server/src/index.ts 必须包含会话表「mcp_sessions」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删会话面提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据128：server/src/index.ts 必须包含审计表「mcp_calls」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，审计行 at/identity/method/tool/ok/error/duration_ms/args_sha256（不存参数原文）；401 只计数不进审计；last_used_at 更新。",
+          "anchor": {
+            "quote": "判据128：server/src/index.ts 必须包含审计表「mcp_calls」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删审计提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据129：server/src/index.ts 必须包含远程收口锚「REMOTE_ALLOW_EXACT」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，非本机只放 /mcp、/.well-known/agent-card.json、/a2a/direct——其余 /api/* 写操作要 X-Admin-Token；本机 REST 面内网信任模型不变。",
+          "anchor": {
+            "quote": "判据129：server/src/index.ts 必须包含远程收口锚「REMOTE_ALLOW_EXACT」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删收口提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据130：scripts/gateway-smoke.mjs 必须包含网关行为锚「WWW-Authenticate」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，独立实例 24 项：控制面 403/token 一次性/重名坏名 400/列表无 token/grants 校验过滤/401+WWW-Authenticate/未授权=不存在同应答/审计 args_sha256 无原文/401 不入审计/last_used_at/软吊销即时失效。",
+          "anchor": {
+            "quote": "判据130：scripts/gateway-smoke.mjs 必须包含网关行为锚「WWW-Authenticate」。",
             "locator": "dev-verifier-v4.md 判据1"
           }
         },
