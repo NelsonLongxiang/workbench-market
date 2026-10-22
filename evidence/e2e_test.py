@@ -748,7 +748,15 @@ with sync_playwright() as p:
         assert un['ok'] and un['deleted'] == reg['id'], f'MCP 注销异常: {un}'
         # 清理（走 REST）
         api(page, 'DELETE', '/api/apps/e2e-mcp-app'); api(page, 'DELETE', '/api/apps/e2e-mcp-sop')
-        record('MCP 生产通道（协议面 + 7 tools 生产链）', True)
+        # C6: MCP 网关 P1（GH #20）——主实例 MCP_GATEWAY 未设（off=现状行为），网关语义走独立实例冒烟
+        j = mcp('tools/list').json()
+        assert len(j['result']['tools']) == 15, 'off 模式 tools/list 应全量 15（网关默认关）'
+        import subprocess as _sp2, os as _os4
+        gw = _sp2.run(['node', 'scripts/gateway-smoke.mjs'], capture_output=True, text=True, timeout=180,
+                      cwd=_os4.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
+        assert gw.returncode == 0, f'gateway-smoke 失败:\n{gw.stdout[-500:]}\n{gw.stderr[-300:]}'
+        assert '24 通过' in gw.stdout, f'gateway-smoke 计数异常: {gw.stdout[-200:]}'
+        record('MCP 生产通道（协议面 + 15 tools + 网关 P1 冒烟）', True)
     except Exception as e:
         record('MCP 生产通道', False, str(e)); shot('mcp')
 
