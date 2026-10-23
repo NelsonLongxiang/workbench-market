@@ -63,9 +63,13 @@ try {
   ok('content-type 正确', (dl.headers.get('content-type') ?? '').includes('image/png'));
   ok('content-disposition inline（图片白名单）', (dl.headers.get('content-disposition') ?? '').startsWith('inline'));
   ok('nosniff', dl.headers.get('x-content-type-options') === 'nosniff');
-  // ⑥ 未知 slug / 未知文件 id 404
+  // ⑥ 未知 slug / 未知文件 id 404——且不得留孤儿文件（评审 #25：先校验后落盘）
+  const { readdirSync } = await import('node:fs');
+  const countUploads = () => { try { const root = `${DATA}/uploads`; const out = []; for (const d of readdirSync(root)) for (const f of readdirSync(`${root}/${d}`)) out.push(f); return out.length; } catch { return 0; } };
+  const beforeUp = countUploads();
   r = await uploadFile('no-such', 'x.txt', 'text/plain', Buffer.from('x'));
   ok('未知 slug 404', r.status === 404);
+  ok('404 不落盘（无孤儿文件）', countUploads() === beforeUp, `${beforeUp} → ${countUploads()}`);
   const dl404 = await fetch(`${BASE}/api/apps/fileprobe/files/99999`);
   ok('未知文件 id 404', dl404.status === 404);
   // ⑦ 50MB 上限 → 413
