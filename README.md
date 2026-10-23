@@ -15,7 +15,7 @@ pnpm build            # 构建前端 → web/dist，由 server 同端口托管
 pnpm start            # 生产模式（只跑 server，访问 http://127.0.0.1:9800）
 ```
 
-环境变量：`PORT`（默认 9800）、`DATA_DIR`（SQLite 数据目录，默认 `server/data`）。
+环境变量：`PORT`（默认 9800）、`DATA_DIR`（SQLite 数据目录，默认 `server/data`）、`ADMIN_TOKEN`（管理员口令，控制面写操作用）、`REDIS_URL`（SOP 状态层 Redis，缺省读 `DATA_DIR/redis.url`，都没有则降级直写 SQLite）、`MARKET_TEAM`（A2A 节点 team，默认 `market`）、`MCP_GATEWAY`（`on` 时 `/mcp` 启用会话令牌网关）。
 
 ## 功能
 
@@ -71,8 +71,8 @@ GET              /api/health                    版本与运行时长
 ## 目录
 
 ```
-server/src/   db.ts（schema+种子） health.ts（探测） index.ts（REST+静态+巡检）
-web/src/      pages/（Dashboard/Market/Sops/Types/Settings/UseWorkbench/Cockpit） components/（StatusBadge/WorkbenchForm）
+server/src/   db.ts（schema+种子） health.ts（探测） index.ts（REST+静态+巡检） a2a.ts（A2A 卡片与绑定） redis.ts（SOP 状态层）
+web/src/      pages/（Dashboard/Market/Sops/Types/Settings/UseWorkbench/Cockpit/McpGateways） components/（StatusBadge/WorkbenchForm）
 data/         SQLite 数据文件（git 忽略）
 ```
 
@@ -100,4 +100,4 @@ ygl-trees verify run <spec-id> --db tmp/verify-snap.sqlite --submission tmp/subm
 node scripts/verify-report.mjs <run1.json> [run2.json ...]
 ```
 
-基线：`run_766e0c923b514232` 58/58 PASS（spec_24a0b30d47d1，2026-10-20）。红测四条：`run_8b5fa9dcc555773c`（删 ollama+README）V10/V12/V16 精确 FAIL；`run_45ce9306eb05a210`（源码改 #5A6577）V37 精确 FAIL；`run_79cacaa31cd69a45`（E2E 13/14 + 轴色漂移）V49/V53 精确 FAIL；`run_aa92adf654b5964a`（篡改对比度记录为 1.18:1）V56 精确 FAIL——DOM 探针 → 摘要 → 提取表 → 判据的 fail-closed 链路实证。判据源文件在 [verify/](verify/)：material.md（冻结材料原文）、candidates.json（VU 候选 + checker）、reviews.json（三问盲审结论）；58 单元表由 [scripts/gen-verifier.mjs](scripts/gen-verifier.mjs) 单一事实源生成。
+基线：`run_bc4e13db38a83c45` 136/136 PASS（spec_1eb66e234f82，2026-10-23，报告见 [evidence/verify-reports/](evidence/verify-reports/run_bc4e13db38a83c45.json)）。红测四条：`run_8b5fa9dcc555773c`（删 ollama+README）V10/V12/V16 精确 FAIL；`run_45ce9306eb05a210`（源码改 #5A6577）V37 精确 FAIL；`run_79cacaa31cd69a45`（E2E 13/14 + 轴色漂移）V49/V53 精确 FAIL；`run_aa92adf654b5964a`（篡改对比度记录为 1.18:1）V56 精确 FAIL——DOM 探针 → 摘要 → 提取表 → 判据的 fail-closed 链路实证。判据源文件在 [verify/](verify/)：material.md（冻结材料原文）、candidates.json（VU 候选 + checker）、reviews.json（三问盲审结论）；136 单元表由 [scripts/gen-verifier.mjs](scripts/gen-verifier.mjs) 单一事实源生成。
