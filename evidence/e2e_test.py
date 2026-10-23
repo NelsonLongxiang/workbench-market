@@ -692,7 +692,10 @@ with sync_playwright() as p:
         assert r.status == 202, f'notification 应 202: {r.status}'
         j = mcp('tools/list').json()
         tool_names = [t['name'] for t in j['result']['tools']]
-        assert len(tool_names) == 17 and 'app_publish' in tool_names and 'sop_publish' in tool_names and 'sop_run_step_save' in tool_names and 'workbench_register' in tool_names and 'app_data_list' in tool_names and 'app_files_list' in tool_names, f'tools/list 异常: {tool_names}'
+        LOCAL_TOOLS = ['workbench_list','workbench_summary','workbench_check','use_url','app_publish','app_activate','sop_publish','sop_run_start','sop_run_step_save','sop_run_get','sop_run_list','sop_run_finish','app_data_list','app_files_list','workbench_register','workbench_update','workbench_unregister']
+        missing = [t for t in LOCAL_TOOLS if t not in tool_names]
+        assert not missing, f'tools/list 缺本地工具: {missing}'
+        assert len(tool_names) >= 17, f'tools/list 异常: {tool_names}'
         j = mcp('wat').json()
         assert j['error']['code'] == -32601, '未知 method 应 -32601'
         assert page.request.fetch(BASE + '/mcp', method='GET').status == 405, 'GET /mcp 应 405'
@@ -759,7 +762,7 @@ with sync_playwright() as p:
         api(page, 'DELETE', '/api/apps/e2e-mcp-app'); api(page, 'DELETE', '/api/apps/e2e-mcp-sop')
         # C6: MCP 网关 P1（GH #20）——主实例 MCP_GATEWAY 未设（off=现状行为），网关语义走独立实例冒烟
         j = mcp('tools/list').json()
-        assert len(j['result']['tools']) == 17, 'off 模式 tools/list 应全量 17（网关默认关）'
+        assert len(j['result']['tools']) >= 17, 'off 模式 tools/list 应含全量本地 17（网关默认关）'
         import subprocess as _sp2, os as _os4
         gw = _sp2.run(['node', 'scripts/gateway-smoke.mjs'], capture_output=True, text=True, timeout=180,
                       cwd=_os4.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
@@ -794,7 +797,7 @@ with sync_playwright() as p:
         up = _sp3.run(['node', 'scripts/upstream-smoke.mjs'], capture_output=True, text=True, timeout=180,
                       cwd=_os4.path.join(_os4.path.dirname(_os4.path.abspath(__file__)), '..'))
         assert up.returncode == 0, f'upstream-smoke 失败:\n{up.stdout[-500:]}\n{up.stderr[-300:]}'
-        assert '14 通过' in up.stdout, f'upstream-smoke 计数异常: {up.stdout[-200:]}'
+        assert '19 通过' in up.stdout, f'upstream-smoke 计数异常: {up.stdout[-200:]}'
         record('MCP 生产通道（协议面 + 17 tools + 网关 P1 + 管理页 + Cookie 池 + 数据面 + 文件面 + 上游聚合 P2）', True)
     except Exception as e:
         record('MCP 生产通道', False, str(e)); shot('mcp')
@@ -921,7 +924,7 @@ with sync_playwright() as p:
         import os as _os
         with open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'README.md'), encoding='utf-8') as _f:
             readme = _f.read()
-        assert 'v30' in readme and '147 条判据' in readme, 'README 验证器节未同步 v29/133'
+        assert 'v30' in readme and '148 条判据' in readme, 'README 验证器节未同步 v29/133'
         assert '内置 9 种' in readme, 'README 类型数未同步 9'
         assert 'Sops' in readme, 'README 目录缺 Sops 页'
         assert '≥25' in readme or '25 组' in readme, 'README E2E 组数未同步'

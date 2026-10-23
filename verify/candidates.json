@@ -3240,7 +3240,7 @@
               {
                 "col": "needle",
                 "op": "=",
-                "value": "147 条判据"
+                "value": "148 条判据"
               },
               {
                 "col": "present",
@@ -4996,6 +4996,45 @@
                 "col": "needle",
                 "op": "=",
                 "value": "taste__rules 转发成功"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据148：server/src/index.ts 必须包含上游身份透传锚「X-Market-Client」。",
+      "anchor": {
+        "quote": "判据148：server/src/index.ts 必须包含上游身份透传锚「X-Market-Client」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "上游身份透传钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "X-Market-Client"
               },
               {
                 "col": "present",

@@ -3510,7 +3510,7 @@
         {
           "question": "faithful",
           "verdict": "ok",
-          "reason": "判据原文逐字取自冻结材料，独立实例 + 假上游 14 项：配置 CRUD/坏 prefix 400/聚合 19 工具/前缀工具在场/转发与参数透传/本地工具照常/上游名可授权/不可达回落 17。",
+          "reason": "判据原文逐字取自冻结材料，独立实例 + 假上游 19 项：配置 CRUD/坏 prefix 400/聚合 19 工具/前缀工具在场/转发与参数传透/本地工具照常/上游名可授权/不可达回落 17/网关会话身份透传 mcp/<name>/授权面覆盖聚合工具。",
           "anchor": {
             "quote": "判据147：scripts/upstream-smoke.mjs 必须包含行为锚「taste__rules 转发成功」。",
             "locator": "dev-verifier-v4.md 判据1"
@@ -3525,6 +3525,30 @@
           "question": "not-vacuous",
           "verdict": "ok",
           "reason": "删断言提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据148：server/src/index.ts 必须包含上游身份透传锚「X-Market-Client」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，网关会话存在时以 mcp/<会话名> 覆盖上游静态头——上游（taste-mcp）据此判 judge 身份 agent:<client>@<model>；网关 off 时用配置的静态头。",
+          "anchor": {
+            "quote": "判据148：server/src/index.ts 必须包含上游身份透传锚「X-Market-Client」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删透传提取为 0 即 FAIL。"
         }
       ]
     }

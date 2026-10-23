@@ -145,3 +145,4 @@
 判据145：server/src/index.ts 必须包含分页校验「pageLimit」。
 判据146：server/src/index.ts 必须包含上游聚合核心「mcpAggregatedTools」。
 判据147：scripts/upstream-smoke.mjs 必须包含行为锚「taste__rules 转发成功」。
+判据148：server/src/index.ts 必须包含上游身份透传锚「X-Market-Client」。

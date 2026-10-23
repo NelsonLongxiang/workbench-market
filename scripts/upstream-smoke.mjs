@@ -27,7 +27,7 @@ const upstream = createServer((req, res) => {
       ] });
     }
     if (msg.method === 'tools/call') {
-      if (msg.params?.name === 'rules') return send({ content: [{ type: 'text', text: JSON.stringify({ rules: ['r1', 'r2'], upstream: 'taste' }) }] });
+      if (msg.params?.name === 'rules') return send({ content: [{ type: 'text', text: JSON.stringify({ rules: ['r1', 'r2'], upstream: 'taste', client: req.headers['x-market-client'] ?? null }) }] });
       if (msg.params?.name === 'record') return send({ content: [{ type: 'text', text: JSON.stringify({ ok: true, recorded: msg.params?.arguments?.text ?? '' }) }] });
       return send({ content: [{ type: 'text', text: 'unknown tool' }], isError: true });
     }
@@ -111,6 +111,7 @@ try {
   r = await rpc2('tools/call', { name: 'taste__rules', arguments: {} });
   const out = JSON.parse(r.body?.result?.content?.[0]?.text ?? '{}');  // 上游原样透传
   ok('taste__rules 转发成功', out.upstream === 'taste' && out.rules?.length === 2, JSON.stringify(out).slice(0, 100));
+  ok('静态身份头透传（网关 off）', out.client === 'agg-smoke', String(out.client));
   r = await rpc2('tools/call', { name: 'taste__record', arguments: { text: '聚合测试' } });
   const rec = JSON.parse(r.body?.result?.content?.[0]?.text ?? '{}');
   ok('taste__record 参数透传', rec.ok === true && rec.recorded === '聚合测试', JSON.stringify(rec).slice(0, 100));
@@ -129,6 +130,42 @@ try {
   ok('上游不可达 → 工具面回落 17 不崩', (r.body?.result?.tools ?? []).length === 17, String(r.body?.result?.tools?.length));
 } finally {
   child2.kill();
+  await new Promise((r) => setTimeout(r, 400));
+}
+
+// ===== 第三实例：网关开（MCP_GATEWAY=on）+ 会话令牌 → 上游收到 mcp/<会话名> =====
+const DATA3 = 'tmp/e2e-upstr-data3';
+rmSync(DATA3, { recursive: true, force: true });
+mkdirSync(DATA3, { recursive: true });
+const child3 = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
+  cwd: 'server', env: { ...process.env, PORT: '9822', DATA_DIR: `../${DATA3}`, ADMIN_TOKEN: 'gw-tok', MCP_GATEWAY: 'on', REDIS_URL: '' }, stdio: ['ignore', 'pipe', 'pipe'],
+});
+await new Promise((r) => setTimeout(r, 3500));
+const B3 = 'http://127.0.0.1:9822';
+try {
+  let r = await fetch(B3 + '/api/mcp/upstreams', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': 'gw-tok' }, body: JSON.stringify({ upstreams: [{ prefix: 'taste', url: `http://127.0.0.1:${UP_PORT}/`, headers: { 'X-Market-Client': 'static-fallback' } }] }) });
+  ok('网关模式配上游', r.status === 200);
+  r = await fetch(B3 + '/api/mcp/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': 'gw-tok' }, body: JSON.stringify({ name: 'agg-agent' }) });
+  const sj = await r.json();
+  const tok = sj.token;
+  const sid = sj.id;
+  await fetch(`${B3}/api/mcp/sessions/${sid}/grants`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': 'gw-tok' }, body: JSON.stringify({ grants: ['taste__rules'] }) });
+  const callUp = async (name) => {
+    const resp = await fetch(B3 + '/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: {} } }) });
+    return { status: resp.status, body: await resp.json() };
+  };
+  let g = await callUp('taste__rules');
+  const gout = JSON.parse(g.body?.result?.content?.[0]?.text ?? '{}');
+  ok('网关会话身份透传 → mcp/agg-agent', gout.client === 'mcp/agg-agent', String(gout.client));
+  // 未授权工具（本地 app_publish 不在 grants）→ 与不存在同应答
+  g = await callUp('app_publish');
+  ok('网关授权面覆盖聚合工具（未授权=not found）', g.body?.error?.code === -32601, JSON.stringify(g.body).slice(0, 100));
+  // tools/list 只列已授权
+  const listR = await fetch(B3 + '/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
+  const lj = await listR.json();
+  ok('网关 tools/list 仅授权面（1 个）', (lj.result?.tools ?? []).length === 1 && lj.result?.tools?.[0]?.name === 'taste__rules', JSON.stringify((lj.result?.tools ?? []).map((t) => t.name)));
+} finally {
+  child3.kill();
   upstream.close();
   await new Promise((r) => setTimeout(r, 500));
 }
