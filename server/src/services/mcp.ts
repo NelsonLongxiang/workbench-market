@@ -13,6 +13,12 @@ export class McpService extends Service {
   sessionByName(name: string) {
     return db.prepare('SELECT id FROM mcp_sessions WHERE name = ?').get(name);
   }
+  sessionCreateStmt() {
+    return db.prepare('INSERT INTO mcp_sessions (name, token_sha256, grants) VALUES (?, ?, ?)');
+  }
+  callInsertStmt() {
+    return db.prepare('INSERT INTO mcp_calls (session_name, method, tool, ok, error, duration_ms, args_sha256) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  }
   sessionCreate(name: string, sha: string, grants: string) {
     return db.prepare('INSERT INTO mcp_sessions (name, token_sha256, grants) VALUES (?, ?, ?)').run(name, sha, grants);
   }

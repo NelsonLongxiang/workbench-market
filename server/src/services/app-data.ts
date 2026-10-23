@@ -7,6 +7,12 @@ export class AppDataService extends Service {
     super(ctx, 'appData');
   }
 
+  dataInsertStmt() {
+    return db.prepare('INSERT INTO app_data (app_slug, data, created_by) VALUES (?, ?, ?)');
+  }
+  fileInsertStmt() {
+    return db.prepare('INSERT INTO app_files (app_slug, original_name, mime, size, storage_path, created_by) VALUES (?, ?, ?, ?, ?, ?)');
+  }
   dataInsert(slug: string, data: string, createdBy: string) {
     return db.prepare('INSERT INTO app_data (app_slug, data, created_by) VALUES (?, ?, ?)').run(slug, data, createdBy);
   }
