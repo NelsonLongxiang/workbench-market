@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { App, Button, Drawer, Empty, Popconfirm, Space, Table, Tag, Tooltip, Typography } from 'antd';
+import { App, Button, Card, Drawer, Empty, Popconfirm, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import { ExportOutlined, PlayCircleOutlined, RiseOutlined, StopOutlined } from '@ant-design/icons';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
@@ -36,6 +36,14 @@ export default function Sops() {
   const [runs, setRuns] = useState<SopRun[]>([]);
   const [runsLoading, setRunsLoading] = useState(false);
   const [busySlug, setBusySlug] = useState<string | null>(null);
+  // P4（F7）：待验收任务 = running 且有派单来源
+  const loadPending = useCallback(() => {
+    return fetch('/api/sop/runs?dispatched=1')
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows) => setPendingRuns(Array.isArray(rows) ? rows : []))
+      .catch(() => setPendingRuns([]));
+  }, []);
+  const [pendingRuns, setPendingRuns] = useState<Array<{ id: number; sop_slug: string; started_by: string; updated_at: string }>>([]);
   // 网络暴露（人工绑定，GH #17 P1）：口令只存会话态，绝不持久化
   const [netOf, setNetOf] = useState<SopApp | null>(null);
   const [netToken, setNetToken] = useState('');
@@ -99,6 +107,7 @@ export default function Sops() {
   }, [message]);
 
   useEffect(() => reload(), [reload]);
+  useEffect(() => { void loadPending(); }, [loadPending]);
 
   const openRuns = (s: SopApp) => {
     setRunsOf(s);
@@ -287,6 +296,22 @@ export default function Sops() {
 
   return (
     <PageContainer title="SOP 台" subTitle="结构化流程即台：状态机 · 版本链 · 执行记录" className="wm-page">
+      <Card size="small" title={`待验收任务（${pendingRuns.length}）`} style={{ marginBottom: 12 }}
+        extra={<Button size="small" onClick={() => { void loadPending(); }}>刷新</Button>}>
+        {pendingRuns.length === 0 ? <Typography.Text type="secondary">没有待验收的派单任务</Typography.Text> : (
+          <Space orientation="vertical" style={{ width: '100%' }}>
+            {pendingRuns.map((r) => (
+              <Space key={r.id} wrap>
+                <Tag color="blue">run #{r.id}</Tag>
+                <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{r.sop_slug}</Typography.Text>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>{r.started_by || 'agent'}</Typography.Text>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>{r.updated_at}</Typography.Text>
+                <Button size="small" type="link" href={`/sop/${r.sop_slug}/`} target="_blank">去验收</Button>
+              </Space>
+            ))}
+          </Space>
+        )}
+      </Card>
       <ProTable<SopApp>
         rowKey="slug"
         actionRef={actionRef}

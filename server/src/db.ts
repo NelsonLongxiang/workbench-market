@@ -144,6 +144,17 @@ CREATE TABLE IF NOT EXISTS a2a_outbox (
   sent_at TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_a2a_outbox_due ON a2a_outbox(status, next_at);
+CREATE TABLE IF NOT EXISTS sop_run_files (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id INTEGER NOT NULL,
+  original_name TEXT NOT NULL DEFAULT '',
+  mime TEXT NOT NULL DEFAULT 'application/octet-stream',
+  size INTEGER NOT NULL DEFAULT 0,
+  storage_path TEXT NOT NULL,
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_sop_run_files_run ON sop_run_files(run_id, id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_outbox_run ON a2a_outbox(run_id);
 CREATE TABLE IF NOT EXISTS cookie_sets (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

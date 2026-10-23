@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { createReadStream } from 'node:fs';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { dirname, join, posix, extname } from 'node:path';
+import { dirname, join, posix, extname, sep as pathSep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import multer from 'multer';
 import { svc } from './context.ts';
@@ -932,6 +932,66 @@ async function outboxWorkerTick(): Promise<void> {
 const outboxTimer = setInterval(() => { void outboxWorkerTick(); }, 5_000);
 outboxTimer.unref?.();
 
+// ---------- P4 run 交付物（product/run-delivery F1-F4） ----------
+// 上传：先校验 run 存在且 running（404/409 先于落盘——与 #25 同口径），再交给 multer 写盘。
+const runFilesRoot = join(dataDir, 'run-files');
+const runUpload = multer({
+  storage: multer.diskStorage({
+    destination(req, _file, cb) {
+      const dir = join(runFilesRoot, String((req.params as any).id ?? '0'));
+      mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename(_req, file, cb) {
+      const ext = extname(fixFileName(file.originalname)).slice(0, 16).replace(/[^.\w-]/g, '');
+      cb(null, `${Date.now()}-${randomBytes(6).toString('hex')}${ext}`);
+    },
+  }),
+  limits: { fileSize: 50 * 1024 * 1024, files: 1 },
+});
+app.post('/api/sop/runs/:id/files', (req, res, next) => {
+  try {
+    if (!/^\d+$/.test(String(req.params.id))) throw new HttpError(404, `run not found: ${req.params.id}`);
+    const row = sopRunRow(Number(req.params.id));
+    if (row.status !== 'running') throw new HttpError(409, `run ${req.params.id} 已 ${row.status}，不可再上传`);
+  } catch (e) { return next(e); }
+  runUpload.single('file')(req, res, (err: any) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: '文件超 50MB 上限' });
+      return res.status(400).json({ error: `上传失败：${err.message}` });
+    }
+    try {
+      const runId = Number(req.params.id);
+      if (!req.file) bad('缺少 file 字段（multipart/form-data）');
+      const createdBy = typeof req.body?.created_by === 'string' ? req.body.created_by.trim().slice(0, 128) : '';
+      const rel = req.file.path.replace(dataDir, '').split(pathSep).join('/').replace(/^\/+/, '');
+      const originalName = fixFileName(req.file.originalname);
+      const r = svc<SopService>('sop').runFileInsert({ runId, name: originalName, mime: req.file.mimetype || 'application/octet-stream', size: req.file.size, storagePath: rel, createdBy }) as unknown as { lastInsertRowid: number | bigint };
+      res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), run_id: runId, name: originalName, mime: req.file.mimetype, size: req.file.size, url: `/api/sop/runs/${runId}/files/${Number(r.lastInsertRowid)}` });
+    } catch (e) { next(e); }
+  });
+});
+app.get('/api/sop/runs/:id/files', (req, res) => {
+  if (!/^\d+$/.test(String(req.params.id))) throw new HttpError(404, `run not found: ${req.params.id}`);
+  const runId = Number(req.params.id);
+  sopRunRow(runId); // 404 语义与 run 一致
+  const items = (svc<SopService>('sop').runFiles(runId) as any[]).map((f) => ({ ...f, url: `/api/sop/runs/${runId}/files/${f.id}` }));
+  res.json({ run_id: runId, items, count: items.length });
+});
+app.get('/api/sop/runs/:id/files/:fileId', (req, res) => {
+  if (!/^\d+$/.test(String(req.params.id)) || !/^\d+$/.test(String(req.params.fileId))) throw new HttpError(404, 'file not found');
+  const runId = Number(req.params.id);
+  const row = svc<SopService>('sop').runFileById(runId, Number(req.params.fileId)) as any;
+  if (!row) throw new HttpError(404, `file not found: ${req.params.fileId}`);
+  const abs = join(dataDir, row.storage_path);
+  if (!existsSync(abs)) throw new HttpError(404, 'stored file missing on disk');
+  res.setHeader('content-type', row.mime || 'application/octet-stream');
+  res.setHeader('content-length', String(row.size));
+  res.setHeader('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(row.original_name || 'file')}`);
+  res.setHeader('x-content-type-options', 'nosniff');
+  createReadStream(abs).pipe(res);
+});
+
 // ---------- Cookie 池（监督席派单 direct-5fbb2176：web 型外部台 cookie 认证） ----------
 interface CookieExport { name: string; value: string; domain?: string; path?: string; expirationDate?: number; httpOnly?: boolean; sameSite?: string }
 interface CookieRow { id: number; label: string; cookies_json: string; created_at: string }
@@ -1017,6 +1077,11 @@ app.get('/api/sop/runs/active', wrap(async (_req, res) => {
 }));
 
 app.get('/api/sop/runs', (req, res) => {
+  // P4（F7）：待验收列表 = running 且有派单来源（a2a_run_ctx 有 callback/task_id），不含人自己开的
+  if (req.query.dispatched === '1') {
+    const rows = svc<SopService>('sop').runsDispatched() as unknown as SopRunRow[];
+    return res.json(rows);
+  }
   const slug = typeof req.query.slug === 'string' ? req.query.slug : '';
   const status = typeof req.query.status === 'string' ? req.query.status : '';
   const where: string[] = [];
