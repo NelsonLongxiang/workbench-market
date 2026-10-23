@@ -1297,8 +1297,7 @@ app.put('/api/admin-token', (req, res) => {
   if (hasExisting && !dbAdminTokenOk(req.headers['x-admin-token'])) {
     return res.status(403).json({ error: '修改口令需先在请求头带上当前口令（X-Admin-Token）' });
   }
-  const sha = createHash('sha256').update(token, 'utf8').digest('hex');
-  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(ADMIN_TOKEN_KEY, sha);
+  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(ADMIN_TOKEN_KEY, hashAdminToken(token));
   res.json({ ok: true, source: 'db', note: '口令已设置并立即生效（库存 sha256，不可取回）' });
 });
 
@@ -1443,13 +1442,21 @@ const ADMIN_TOKEN_KEY = 'admin_token_sha256';
 function dbAdminTokenSet(): boolean {
   return !!db.prepare('SELECT 1 FROM settings WHERE key = ?').get(ADMIN_TOKEN_KEY);
 }
+// 口令哈希（评审 #27）：新值一律**加盐**——`<salt32hex>$<sha256(salt+token)64hex>`。
+// 旧值（无 `$`，单轮无盐 sha256）保持可验证，下次设置口令时自动升级为加盐格式。
+function hashAdminToken(token: string, salt?: string): string {
+  const s = salt ?? randomBytes(16).toString('hex');
+  return `${s}$${createHash('sha256').update(s + token, 'utf8').digest('hex')}`;
+}
 function dbAdminTokenOk(provided: string | undefined): boolean {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(ADMIN_TOKEN_KEY) as { value: string } | undefined;
   if (!row) return false;
-  // 库存的是 sha256(明文) 的 hex——直接与 sha256(传入值) 的 hex 做常量时间比较
-  const got = createHash('sha256').update(String(provided ?? ''), 'utf8').digest('hex');
-  const a = Buffer.from(got, 'hex');
-  const b = Buffer.from(row.value, 'hex');
+  const stored = String(row.value);
+  const got = stored.includes('$')
+    ? hashAdminToken(String(provided ?? ''), stored.split('$')[0])
+    : createHash('sha256').update(String(provided ?? ''), 'utf8').digest('hex'); // 兼容旧无盐格式
+  const a = Buffer.from(got.split('$').pop() ?? '', 'hex');
+  const b = Buffer.from(stored.split('$').pop() ?? '', 'hex');
   return a.length === b.length && timingSafeEqual(a, b);
 }
 /** 口令校验：env 优先（启动环境注入），否则库内 sha256 */

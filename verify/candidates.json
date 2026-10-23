@@ -3240,7 +3240,7 @@
               {
                 "col": "needle",
                 "op": "=",
-                "value": "154 条判据"
+                "value": "156 条判据"
               },
               {
                 "col": "present",
@@ -5269,6 +5269,84 @@
                 "col": "needle",
                 "op": "=",
                 "value": "404 不落盘"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据155：server/src/index.ts 必须包含口令加盐哈希「hashAdminToken」。",
+      "anchor": {
+        "quote": "判据155：server/src/index.ts 必须包含口令加盐哈希「hashAdminToken」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "口令加盐存储钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "hashAdminToken"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据156：scripts/token-smoke.mjs 必须包含出口剔除断言「无 admin_token_sha256」。",
+      "anchor": {
+        "quote": "判据156：scripts/token-smoke.mjs 必须包含出口剔除断言「无 admin_token_sha256」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "口令安全行为断言钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "scripts/token-smoke.mjs"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "无 admin_token_sha256"
               },
               {
                 "col": "present",

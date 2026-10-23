@@ -152,3 +152,5 @@
 判据152：web/src/pages/Settings.tsx 必须包含口令设置 UI 锚「/api/admin-token」。
 判据153：server/src/index.ts 必须包含上游凭据出口掩码「maskUpstreamsSetting」。
 判据154：scripts/appfiles-smoke.mjs 必须包含孤儿文件断言「404 不落盘」。
+判据155：server/src/index.ts 必须包含口令加盐哈希「hashAdminToken」。
+判据156：scripts/token-smoke.mjs 必须包含出口剔除断言「无 admin_token_sha256」。

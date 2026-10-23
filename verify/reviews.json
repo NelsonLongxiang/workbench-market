@@ -3695,6 +3695,54 @@
           "reason": "删断言提取为 0 即 FAIL。"
         }
       ]
+    },
+    {
+      "source_clause": "判据155：server/src/index.ts 必须包含口令加盐哈希「hashAdminToken」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，口令哈希为 <salt32hex>$<sha256(salt+token)64hex> 加盐格式（旧无盐格式兼容验证）；settings 与 export 出口剔除 admin_token_sha256——评审 #27 远程可读哈希+短口令离线爆破。",
+          "anchor": {
+            "quote": "判据155：server/src/index.ts 必须包含口令加盐哈希「hashAdminToken」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删加盐提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据156：scripts/token-smoke.mjs 必须包含出口剔除断言「无 admin_token_sha256」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，独立实例 16 项：加盐格式/库内无明文/settings+export 剔除/正负口令/改口令需当前口令/旧格式兼容/清除需当前口令。",
+          "anchor": {
+            "quote": "判据156：scripts/token-smoke.mjs 必须包含出口剔除断言「无 admin_token_sha256」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删断言提取为 0 即 FAIL。"
+        }
+      ]
     }
   ]
 }
