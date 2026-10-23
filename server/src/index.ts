@@ -175,16 +175,25 @@ function workbenchUpdateCore(id: number, body: any): ReturnType<typeof rowToWork
   const f = validateWorkbenchBody(body, true);
   // 掩码回传保护（url 面）：编辑表单从 API 取到的是掩码值，原样回传视为「未变更」
   if (f.url !== undefined && f.url.includes('=****') && f.url !== cur.url) delete f.url;
+  // cookie_set_id 挂接（派单 direct-5fbb2176：nullable=0 取消挂接，正数须为池条目）
+  if (body.cookie_set_id !== undefined) {
+    const cid = Number(body.cookie_set_id) || 0;
+    if (cid > 0) {
+      const hit = db.prepare('SELECT id FROM cookie_sets WHERE id = ?').get(cid);
+      if (!hit) bad(`cookie_set_id 不存在: ${cid}`);
+    }
+    (f as any).cookie_set_id = cid;
+  }
   const merged = { ...cur, ...f };
   db.prepare(
     `UPDATE workbenches SET name=@name, url=@url, type=@type, icon=@icon, description=@description,
      category=@category, tags=@tags, enabled=@enabled, health_path=@health_path, sort=@sort,
-     auth_config=@auth_config, updated_at=datetime('now') WHERE id=@id`
+     auth_config=@auth_config, cookie_set_id=@cookie_set_id, updated_at=datetime('now') WHERE id=@id`
   ).run({
     name: merged.name, url: merged.url, type: merged.type, icon: merged.icon,
     description: merged.description, category: merged.category, tags: merged.tags,
     enabled: merged.enabled, health_path: merged.health_path, sort: merged.sort,
-    auth_config: merged.auth_config ?? '', id,
+    auth_config: merged.auth_config ?? '', cookie_set_id: (merged as any).cookie_set_id ?? 0, id,
   });
   const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(id) as unknown as WorkbenchRow;
   return rowToWorkbench(row);
@@ -901,6 +910,74 @@ async function sopRunFinishCore(id: number): Promise<{ ok: boolean; id: number; 
   try { parsed = JSON.parse(data); } catch { parsed = {}; }
   return { ok: true, id, status: 'finished', steps: Object.keys(parsed).length };
 }
+
+// ---------- Cookie 池（监督席派单 direct-5fbb2176：web 型外部台 cookie 认证） ----------
+interface CookieExport { name: string; value: string; domain?: string; path?: string; expirationDate?: number; httpOnly?: boolean; sameSite?: string }
+interface CookieRow { id: number; label: string; cookies_json: string; created_at: string }
+
+function cookieExpiryInfo(cookies: CookieExport[]): { total: number; active: number; soonestExpMs: number | null; allExpired: boolean } {
+  const now = Date.now();
+  let active = 0;
+  let soonest: number | null = null;
+  for (const c of cookies) {
+    if (!c.expirationDate || c.expirationDate * 1000 > now) {
+      active++;
+      if (c.expirationDate) {
+        const ms = c.expirationDate * 1000 - now;
+        if (soonest === null || ms < soonest) soonest = ms;
+      }
+    }
+  }
+  return { total: cookies.length, active, soonestExpMs: soonest, allExpired: cookies.length > 0 && active === 0 };
+}
+
+function maskCookies(cookies: CookieExport[]): CookieExport[] {
+  return cookies.map((c) => ({ ...c, value: '****' }));
+}
+
+app.post('/api/cookies', (req, res) => {
+  const b = req.body ?? {};
+  const label = typeof b.label === 'string' ? b.label.trim() : '';
+  if (!label) bad('label 必填（如「DSH-3080 生产」）');
+  const arr = b.cookies;
+  if (!Array.isArray(arr) || arr.length === 0) bad('cookies 必须是非空数组（Cookie-Editor/EditThisCookie 导出格式）');
+  // 校验每条 name+value 必填（浏览器扩展标准导出全对象 verbatim 存储）
+  const clean: CookieExport[] = [];
+  for (const c of arr) {
+    if (typeof c?.name !== 'string' || !c.name) bad('每条 cookie 的 name 必填');
+    if (typeof c?.value !== 'string') bad(`cookie "${c.name}" 缺 value`);
+    clean.push({ name: c.name, value: c.value, domain: String(c.domain ?? ''), path: String(c.path ?? '/'), expirationDate: typeof c.expirationDate === 'number' ? c.expirationDate : undefined, httpOnly: !!c.httpOnly, sameSite: String(c.sameSite ?? '') });
+  }
+  const r = db.prepare('INSERT INTO cookie_sets (label, cookies_json) VALUES (?, ?)').run(label, JSON.stringify(clean)) as unknown as { lastInsertRowid: number | bigint };
+  const info = cookieExpiryInfo(clean);
+  res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), label, cookie_count: clean.length, active: info.active, cookies: maskCookies(clean) });
+});
+
+app.get('/api/cookies', (_req, res) => {
+  const rows = db.prepare('SELECT * FROM cookie_sets ORDER BY id DESC').all() as unknown as CookieRow[];
+  res.json(rows.map((r) => {
+    let cookies: CookieExport[] = [];
+    try { cookies = JSON.parse(r.cookies_json || '[]'); } catch { cookies = []; }
+    const info = cookieExpiryInfo(cookies);
+    return {
+      id: r.id, label: r.label, cookie_count: info.total, active: info.active,
+      all_expired: info.allExpired, soonest_exp_days: info.soonestExpMs !== null ? Math.floor(info.soonestExpMs / 86400000) : null,
+      created_at: r.created_at,
+      cookies: maskCookies(cookies), // value 全掩码——明文不回任何 API
+    };
+  }));
+});
+
+app.delete('/api/cookies/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const r = db.prepare('DELETE FROM cookie_sets WHERE id = ?').run(id);
+  if (!r.changes) throw new HttpError(404, `cookie set not found: ${id}`);
+  // 挂接了该池的台自动取消引用
+  db.prepare('UPDATE workbenches SET cookie_set_id = 0 WHERE cookie_set_id = ?').run(id);
+  res.json({ ok: true, deleted: id });
+});
+
+// PUT /api/workbenches/:id 已扩展支持 cookie_set_id（在 validateWorkbenchBody 后 merged）
 
 app.post('/api/sop/runs', (req, res) => {
   const out = sopRunStartCore(String(req.body?.slug ?? ''), String(req.body?.started_by ?? ''));
@@ -1699,6 +1776,31 @@ app.use((req, res, next) => {
     // pathRewrite 改写成上游路径，无法再从 URL 反查 id（实测注入不达的根因）
     if (w.auth?.type === 'bearer') goAuth = `Bearer ${w.auth.value}`;
     else if (w.auth?.type === 'basic') goAuth = `Basic ${Buffer.from(w.auth.value, 'utf8').toString('base64')}`;
+    // Cookie 池注入（派单 direct-5fbb2176）：台挂了 cookie_set 时按目标 host 匹配
+    // cookie.domain + 未过期过滤 → 拼 Cookie 头（proxyReq 里替换而非追加）
+    const rawWb = db.prepare('SELECT cookie_set_id FROM workbenches WHERE id = ?').get(Number(m[1])) as { cookie_set_id?: number } | undefined;
+    const csid = rawWb?.cookie_set_id ?? 0;
+    if (csid > 0) {
+      const cs = db.prepare('SELECT cookies_json FROM cookie_sets WHERE id = ?').get(csid) as { cookies_json: string } | undefined;
+      if (cs) {
+        try {
+          const cookies: CookieExport[] = JSON.parse(cs.cookies_json || '[]');
+          const targetHost = u.hostname;
+          const now = Date.now();
+          const matched = cookies.filter((c) => {
+            if (c.expirationDate && c.expirationDate * 1000 <= now) return false; // 过期过滤
+            if (!c.domain) return true; // 无 domain 视为全域
+            // 域匹配：上游 host 等于 domain（去前导点）或以其结尾
+            const d = c.domain.replace(/^\./, '').toLowerCase();
+            const h = targetHost.toLowerCase();
+            return h === d || h.endsWith('.' + d);
+          });
+          if (matched.length > 0) {
+            (req as express.Request & { goCookies?: string }).goCookies = matched.map((c) => `${c.name}=${c.value}`).join('; ');
+          }
+        } catch { /* cookies_json 坏值跳过注入 */ }
+      }
+    }
   } catch {
     return res.status(502).json({ error: `工作台地址非法: ${m[1]}` });
   }
@@ -1747,9 +1849,12 @@ const goProxy = createProxyMiddleware({
     // 发出的 Origin=http://…:9800 与上游 authority 不符会被 403 拒（WS 握手同理，
     // 实测握手 403→改写后通过）。代理作为可信客户端把 Origin 重写为上游自身 origin。
     proxyReq: (proxyReq, req) => {
-      const rq = req as typeof req & { goAuth?: string; goOrigin?: string };
+      const rq = req as typeof req & { goAuth?: string; goOrigin?: string; goCookies?: string; goHost?: string };
       if (rq.goAuth) proxyReq.setHeader('authorization', rq.goAuth);
       if (rq.goOrigin) proxyReq.setHeader('origin', rq.goOrigin);
+      // Cookie 池注入（派单 direct-5fbb2176）：前置中间件解析好的 goCookies（按目标 host
+      // 匹配 + 未过期过滤后的 Cookie 头值），**替换**而非追加（确定性语义）
+      if (rq.goCookies) proxyReq.setHeader('cookie', rq.goCookies);
     },
     proxyRes: (proxyRes, req, res) => {
       // 剥禁嵌头：代理后与市场同源，这两个头只会误伤 iframe 嵌入（使用页/驾驶舱）

@@ -129,13 +129,22 @@ CREATE TABLE IF NOT EXISTS mcp_calls (
   args_sha256 TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_mcp_calls_session ON mcp_calls (session_name, at);
+CREATE TABLE IF NOT EXISTS cookie_sets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  label TEXT NOT NULL,
+  cookies_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `);
 
-// 轻量列迁移：已存库补列（凭据注入 / SOP 台生成器 / A2A 节点短 id）
+// 轻量列迁移：已存库补列（凭据注入 / SOP 台生成器 / A2A 节点短 id / cookie 池挂接）
 {
   const cols = db.prepare('PRAGMA table_info(workbenches)').all() as { name: string }[];
   if (!cols.some((c) => c.name === 'auth_config')) {
     db.exec("ALTER TABLE workbenches ADD COLUMN auth_config TEXT NOT NULL DEFAULT ''");
+  }
+  if (!cols.some((c) => c.name === 'cookie_set_id')) {
+    db.exec("ALTER TABLE workbenches ADD COLUMN cookie_set_id INTEGER NOT NULL DEFAULT 0");
   }
 }
 {
