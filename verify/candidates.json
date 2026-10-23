@@ -3254,9 +3254,9 @@
       }
     },
     {
-      "source_clause": "判据103：server/src/a2a.ts 必须包含上游一致签名面「canonicalPayload」。",
+      "source_clause": "判据103：server/src/a2a.ts 必须直接依赖官方卡片库「@nelsonlongxiang/dsh-open-a2a-net/card」。",
       "anchor": {
-        "quote": "判据103：server/src/a2a.ts 必须包含上游一致签名面「canonicalPayload」。",
+        "quote": "判据103：server/src/a2a.ts 必须直接依赖官方卡片库「@nelsonlongxiang/dsh-open-a2a-net/card」。",
         "locator": "dev-verifier-v4.md 判据1"
       },
       "title": "A2A 卡片签名钉位",
@@ -3279,7 +3279,7 @@
               {
                 "col": "needle",
                 "op": "=",
-                "value": "canonicalPayload"
+                "value": "@nelsonlongxiang/dsh-open-a2a-net/card"
               },
               {
                 "col": "present",
@@ -5360,12 +5360,12 @@
       }
     },
     {
-      "source_clause": "判据157：scripts/a2a-peer.mjs 必须包含桥接锚「extractSopRequest」。",
+      "source_clause": "判据157：server/src/a2a.ts 必须包含官方出站客户端「a2aSendOutbound」。",
       "anchor": {
-        "quote": "判据157：scripts/a2a-peer.mjs 必须包含桥接锚「extractSopRequest」。",
+        "quote": "判据157：server/src/a2a.ts 必须包含官方出站客户端「a2aSendOutbound」。",
         "locator": "dev-verifier-v4.md 判据1"
       },
-      "title": "peer 桥接钉位",
+      "title": "A2A 出站客户端钉位",
       "severity": "S1",
       "checker": {
         "type": "exists",
@@ -5380,12 +5380,12 @@
               {
                 "col": "path",
                 "op": "=",
-                "value": "scripts/a2a-peer.mjs"
+                "value": "server/src/a2a.ts"
               },
               {
                 "col": "needle",
                 "op": "=",
-                "value": "extractSopRequest"
+                "value": "a2aSendOutbound"
               },
               {
                 "col": "present",
@@ -5399,12 +5399,12 @@
       }
     },
     {
-      "source_clause": "判据158：server/src/index.ts 必须包含 peer 生命周期锚「startPeer」。",
+      "source_clause": "判据158：server/src/index.ts 必须包含 A2A 出站路由「/api/a2a/send」。",
       "anchor": {
-        "quote": "判据158：server/src/index.ts 必须包含 peer 生命周期锚「startPeer」。",
+        "quote": "判据158：server/src/index.ts 必须包含 A2A 出站路由「/api/a2a/send」。",
         "locator": "dev-verifier-v4.md 判据1"
       },
-      "title": "peer 生命周期钉位",
+      "title": "A2A 出站路由钉位",
       "severity": "S1",
       "checker": {
         "type": "exists",
@@ -5424,7 +5424,7 @@
               {
                 "col": "needle",
                 "op": "=",
-                "value": "startPeer"
+                "value": "/api/a2a/send"
               },
               {
                 "col": "present",

@@ -2449,14 +2449,14 @@
       ]
     },
     {
-      "source_clause": "判据103：server/src/a2a.ts 必须包含上游一致签名面「canonicalPayload」。",
+      "source_clause": "判据103：server/src/a2a.ts 必须直接依赖官方卡片库「@nelsonlongxiang/dsh-open-a2a-net/card」。",
       "findings": [
         {
           "question": "faithful",
           "verdict": "ok",
-          "reason": "判据原文逐字取自冻结材料，卡片 canonical 与上游 card.ts（裁判钉 75a3ebd）逐字节一致——Ed25519 pure + SPKI DER base64，expiresAt ≤ 48h，须过上游 verifyCard（GH #17 P1）。",
+          "reason": "判据原文逐字取自冻结材料，卡片签名/验签直接调用官方 card 子路径（#17 P5：镜像代码删除，协议 wire 由上游库保证）；Ed25519 + SPKI DER base64，expiresAt ≤ 48h，须过上游 verifyCard。",
           "anchor": {
-            "quote": "判据103：server/src/a2a.ts 必须包含上游一致签名面「canonicalPayload」。",
+            "quote": "判据103：server/src/a2a.ts 必须直接依赖官方卡片库「@nelsonlongxiang/dsh-open-a2a-net/card」。",
             "locator": "dev-verifier-v4.md 判据1"
           }
         },
@@ -3745,14 +3745,14 @@
       ]
     },
     {
-      "source_clause": "判据157：scripts/a2a-peer.mjs 必须包含桥接锚「extractSopRequest」。",
+      "source_clause": "判据157：server/src/a2a.ts 必须包含官方出站客户端「a2aSendOutbound」。",
       "findings": [
         {
           "question": "faithful",
           "verdict": "ok",
-          "reason": "判据原文逐字取自冻结材料，peer 宿主用上游插件 apply（卡片/入站/幂等/回执/账本由上游承担），桥接 agent 把派单转市场 REST 开 run；控制面 /__bridge/send 走出站发件。",
+          "reason": "判据原文逐字取自冻结材料，出站用官方 A2aClient（fetchCardDetail 带 OriginClaim 信封 + routeDirect 投递），三件自实现按官方 external-node 示例：身份密钥/信封签名/fetch+schedule 适配——市场作为 peer 具备发件能力（#17 P4 最小面）。",
           "anchor": {
-            "quote": "判据157：scripts/a2a-peer.mjs 必须包含桥接锚「extractSopRequest」。",
+            "quote": "判据157：server/src/a2a.ts 必须包含官方出站客户端「a2aSendOutbound」。",
             "locator": "dev-verifier-v4.md 判据1"
           }
         },
@@ -3764,19 +3764,19 @@
         {
           "question": "not-vacuous",
           "verdict": "ok",
-          "reason": "删桥接提取为 0 即 FAIL。"
+          "reason": "删客户端提取为 0 即 FAIL。"
         }
       ]
     },
     {
-      "source_clause": "判据158：server/src/index.ts 必须包含 peer 生命周期锚「startPeer」。",
+      "source_clause": "判据158：server/src/index.ts 必须包含 A2A 出站路由「/api/a2a/send」。",
       "findings": [
         {
           "question": "faithful",
           "verdict": "ok",
-          "reason": "判据原文逐字取自冻结材料，PEER=on 时市场进程拉起上游宿主（--import 解析垫片）、退出 5s 重启、GET /api/a2a/peer 状态与 POST /api/a2a/peer/send 出站代理。",
+          "reason": "判据原文逐字取自冻结材料，单进程单端口（9800）：POST /api/a2a/send 校验 target_url/team/message 后走向官方客户端；GET /api/a2a/state 暴露 team/密钥/卡片/有效绑定数。",
           "anchor": {
-            "quote": "判据158：server/src/index.ts 必须包含 peer 生命周期锚「startPeer」。",
+            "quote": "判据158：server/src/index.ts 必须包含 A2A 出站路由「/api/a2a/send」。",
             "locator": "dev-verifier-v4.md 判据1"
           }
         },
@@ -3788,7 +3788,7 @@
         {
           "question": "not-vacuous",
           "verdict": "ok",
-          "reason": "删生命周期提取为 0 即 FAIL。"
+          "reason": "删路由提取为 0 即 FAIL。"
         }
       ]
     }

@@ -100,7 +100,7 @@
 判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-probe」。
 判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。
 判据102：README.md 必须包含验证器判据数锚「144 条判据」。
-判据103：server/src/a2a.ts 必须包含上游一致签名面「canonicalPayload」。
+判据103：server/src/a2a.ts 必须直接依赖官方卡片库「@nelsonlongxiang/dsh-open-a2a-net/card」。
 判据104：server/src/index.ts 必须包含绑定管理口令头「x-admin-token」。
 判据105：server/src/a2a.ts 必须包含节点短 id 持久化「a2a_node8」。
 判据106：scripts/a2a-smoke.mjs 必须包含上游裁判「verifyCard」。
@@ -154,5 +154,5 @@
 判据154：scripts/appfiles-smoke.mjs 必须包含孤儿文件断言「404 不落盘」。
 判据155：server/src/index.ts 必须包含口令加盐哈希「hashAdminToken」。
 判据156：scripts/token-smoke.mjs 必须包含出口剔除断言「无 admin_token_sha256」。
-判据157：scripts/a2a-peer.mjs 必须包含桥接锚「extractSopRequest」。
-判据158：server/src/index.ts 必须包含 peer 生命周期锚「startPeer」。
+判据157：server/src/a2a.ts 必须包含官方出站客户端「a2aSendOutbound」。
+判据158：server/src/index.ts 必须包含 A2A 出站路由「/api/a2a/send」。
