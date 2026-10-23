@@ -1312,7 +1312,10 @@ app.delete('/api/admin-token', (req, res) => {
 
 // 评审 #24：settings 出口把 mcp_upstreams.headers 的值掩成 ****（键名保留）——
 // 内部读取走 mcpUpstreams() 直读 DB，不受影响；导出同样脱敏（与 auth.value 口径一致）。
-function maskUpstreamsSetting(all: Record<string, string>): Record<string, string> {
+// 评审 #27：管理员口令哈希（admin_token_sha256）同表存放，出口一律剔除——远程 GET 无口令可读，
+// 无盐 sha256 + 短口令可离线爆破；口令只经 /api/admin-token 设置与校验，不随设置/导出外流。
+function maskUpstreamsSetting(settings: Record<string, string>): Record<string, string> {
+  const { [ADMIN_TOKEN_KEY]: _adminHash, ...all } = settings;
   const raw = all.mcp_upstreams;
   if (!raw) return all;
   try {
@@ -1342,7 +1345,7 @@ app.put('/api/settings', (req, res) => {
     upd.run(k, String(v));
   }
   armPatrol(); // issue #5：改巡检设置即重挂定时器（幂等 clearTimeout 开头），不必重启服务
-  res.json(getSettings());
+  res.json(maskUpstreamsSetting(getSettings()));
 });
 
 app.get('/api/export', (req, res) => {
