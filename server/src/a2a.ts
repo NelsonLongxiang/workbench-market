@@ -163,6 +163,12 @@ export function a2aDirectHandle(body: any, rawBytes: number, runOps: {
   statusOf: (runId: number) => { status: string; steps: number } | null;
   ctxBind: (contextId: string) => number | null; // context → runId（已绑定）
   ctxRegister: (contextId: string, runId: number) => void;
+  /** P3：登记派单来源（task_id/caller/team）与回执地址校验结果 */
+  ctxRegisterSource?: (r: { contextId: string; runId: number; taskId: string; caller: string; team: string; receiptStatus: string }) => void;
+  /** P3：绑定上的 callback_url（人填；空=不可回执） */
+  bindingCallback?: (slug: string, caller: string) => string;
+  /** P3：把绑定上的 callback_url 落到 ctx（供 finish 时构造 outbox） */
+  ctxAttachCallback?: (runId: number, callbackUrl: string) => void;
 }): A2aDirectResult {
   const team = typeof body?.team === 'string' ? body.team : '';
   const message = typeof body?.message === 'string' ? body.message : '';
@@ -222,6 +228,14 @@ export function a2aDirectHandle(body: any, rawBytes: number, runOps: {
   if (action === 'start') {
     runId = runOps.start(sop.slug, caller);
     runOps.ctxRegister(contextId, runId);
+    // P3（评审席裁定）：回执只投人建绑定时填的 callback_url；自报 callback 不一致 → rejected 且不写 outbox
+    const bindingCb = runOps.bindingCallback?.(sop.slug, caller) ?? '';
+    const selfCb = typeof body?.callback === 'string' ? body.callback.trim() : '';
+    let receiptStatus = '';
+    if (selfCb !== '' && selfCb !== bindingCb) receiptStatus = 'rejected:callback-mismatch';
+    else if (bindingCb === '') receiptStatus = '';
+    runOps.ctxRegisterSource?.({ contextId, runId, taskId, caller, team, receiptStatus });
+    if (receiptStatus === '' && bindingCb !== '') runOps.ctxAttachCallback?.(runId, bindingCb);
   } else if (runId === null) {
     return { httpStatus: 200, body: { error: 'no run bound to this context_id (send a start first)', code: -32000, team, task_id: taskId, task_status: 'TASK_STATE_FAILED' } };
   } else if (action === 'note') {
