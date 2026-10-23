@@ -1860,6 +1860,34 @@ const goProxy = createProxyMiddleware({
       // 剥禁嵌头：代理后与市场同源，这两个头只会误伤 iframe 嵌入（使用页/驾驶舱）
       delete proxyRes.headers['x-frame-options'];
       delete proxyRes.headers['content-security-policy'];
+      // Pocket meta-refresh 改写（.157 DSH 台实测根因）：DSH Pocket（如 13080 端口）在
+      // token→cookie 交换后返回 <meta refresh url=/>，在门户上下文 / 会跳回市场 SPA 根。
+      // 仅对 HTML 响应包装 res.write/end 做字符串替换（JSON/二进制零开销透传）。
+      const pWid = (req as express.Request & { goWid?: string }).goWid;
+      const pCt = String(proxyRes.headers['content-type'] ?? '');
+      if (pWid && pCt.includes('text/html')) {
+        const origEnd = res.end.bind(res);
+        const chunks: Uint8Array[] = [];
+        (res as any)._wmIntercepting = true;
+        // 拦截 write 收集 HTML 块，end 时统一改写后写出
+        const origWrite = res.write.bind(res);
+        (res as any).write = (chunk: any, ...rest: any[]) => {
+          chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+          return true;
+        };
+        (res as any).end = (chunk: any, ...rest: any[]) => {
+          if (chunk) chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+          let body = Buffer.concat(chunks).toString('utf8');
+          // 改写 meta refresh url=/ → /go/<wid>/
+          body = body.replace(/content="0;\s*url=\/"/gi, `content="0; url=/go/${pWid}/"`);
+          res.write = origWrite;
+          res.end = origEnd;
+          const buf = Buffer.from(body, 'utf8');
+          delete (proxyRes.headers as any)['transfer-encoding']; // 防冲突
+          res.setHeader('content-length', String(buf.length));
+          return origEnd(buf);
+        };
+      }
       // 3xx Location 改写回 /go/N/ 前缀，防跳回原域丢前缀（issue #4：req.url 已被
       // pathRewrite 写回上游路径，goPrefix 失配——改用前置中间件备份的 req.goWid）
       const loc = proxyRes.headers.location;
