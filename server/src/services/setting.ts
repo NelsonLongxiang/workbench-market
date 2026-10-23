@@ -13,6 +13,9 @@ export class SettingService extends Service {
   has(key: string) {
     return db.prepare('SELECT 1 FROM settings WHERE key = ?').get(key);
   }
+  upsertStmt() {
+    return db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
+  }
   put(key: string, value: string) {
     return db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
   }

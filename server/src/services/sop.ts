@@ -25,6 +25,15 @@ export class SopService extends Service {
   runsRecent(limit: number) {
     return db.prepare('SELECT * FROM sop_runs ORDER BY id DESC LIMIT ?').all(limit);
   }
+  runUpdateData(id: number, data: string) {
+    return db.prepare(`UPDATE sop_runs SET data = ?, updated_at = datetime('now') WHERE id = ?`).run(data, id);
+  }
+  runFinish(id: number, data: string) {
+    return db.prepare(`UPDATE sop_runs SET status = 'finished', data = ?, finished_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(data, id);
+  }
+  runsRunning() {
+    return db.prepare("SELECT * FROM sop_runs WHERE status = 'running' ORDER BY updated_at DESC").all();
+  }
   bindings(slug: string) {
     return db.prepare('SELECT * FROM sop_bindings WHERE sop_slug = ? ORDER BY id DESC').all(slug);
   }
