@@ -606,6 +606,7 @@ packages:
 
   '@nelsonlongxiang/dsh-open-a2a-net@0.6.25':
     resolution: {integrity: sha512-uOfU/LBb75G0dTbASWsrpo7nQjXuUL/08YQMMiF/a0K4qGBYV+oLnvHJBvVz7HOH44AA1EhWG+cXzjjlXEZGrg==, tarball: http://192.168.3.88:3000/api/packages/jf-tech/npm/%40nelsonlongxiang%2Fdsh-open-a2a-net/-/0.6.25/dsh-open-a2a-net-0.6.25.tgz}
+    engines: {pnpm: '>=11.24 <12'}
     peerDependencies:
       '@deepseek-ai/cordis': '>=4.0.1'
       '@deepseek-ai/cordis-plugin-loader': '>=1.0.2'
