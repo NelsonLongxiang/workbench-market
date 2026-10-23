@@ -11,7 +11,9 @@ import sys
 from datetime import datetime, timezone
 from playwright.sync_api import sync_playwright, expect
 
-BASE = 'http://127.0.0.1:9800'
+import os as _os
+_port = _os.environ.get('E2E_PORT', '9800')
+BASE = f'http://127.0.0.1:{_port}'
 RESULTS = []
 
 
@@ -527,7 +529,7 @@ with sync_playwright() as p:
         #    （回归锚：upgrade 不流经中间件链时 WS 被路由到死端口；握手 Origin/Host
         #    触发上游防护时回 403——DSH 台「重新连接中」的两处根因）
         import socket as sk
-        s = sk.create_connection(('127.0.0.1', 9800), timeout=5)
+        s = sk.create_connection(('127.0.0.1', int(_port)), timeout=5)
         s.sendall((f'GET /go/{ewid}/ws HTTP/1.1\r\nHost: 127.0.0.1:9800\r\n'
                    'Upgrade: websocket\r\nConnection: Upgrade\r\n'
                    'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n'
@@ -595,7 +597,7 @@ with sync_playwright() as p:
         # 注意：Playwright request.fetch 会跟随重定向（max_redirects=0 也不免），用 http.client 拿原始 302
         import http.client as _hc
         for _path, _expect in (('redir-relative', f'/go/{ewid}/landed'), ('redir-absolute', f'/go/{ewid}/landed')):
-            _conn = _hc.HTTPConnection('127.0.0.1', 9800, timeout=5)
+            _conn = _hc.HTTPConnection('127.0.0.1', int(_port), timeout=5)
             _conn.request('GET', f'/go/{ewid}/{_path}')
             _resp = _conn.getresponse()
             _loc = _resp.getheader('location')
