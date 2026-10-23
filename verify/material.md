@@ -99,7 +99,7 @@
 判据99：server/src/index.ts 必须包含导入 mode 锚「issue #7」。
 判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-probe」。
 判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。
-判据102：README.md 必须包含验证器判据数锚「133 条判据」。
+判据102：README.md 必须包含验证器判据数锚「136 条判据」。
 判据103：server/src/a2a.ts 必须包含上游一致签名面「canonicalPayload」。
 判据104：server/src/index.ts 必须包含绑定管理口令头「x-admin-token」。
 判据105：server/src/a2a.ts 必须包含节点短 id 持久化「a2a_node8」。
@@ -131,3 +131,6 @@
 判据131：web/src/pages/McpGateways.tsx 必须包含管理页语义锚「默认拒绝」。
 判据132：web/src/App.tsx 必须包含管理页路由「'/mcp-gateways'」。
 判据133：ADMIN-TOKEN-SETUP.md 必须包含主人操作锚「setx ADMIN_TOKEN」。
+判据134：server/src/index.ts 必须包含 cookie 池表「cookie_sets」。
+判据135：server/src/index.ts 必须包含 Cookie 注入锚「goCookies」。
+判据136：scripts/cookie-smoke.mjs 必须包含行为锚「过期 cookie 被过滤」。

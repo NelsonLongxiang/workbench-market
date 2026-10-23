@@ -3215,9 +3215,9 @@
       }
     },
     {
-      "source_clause": "判据102：README.md 必须包含验证器判据数锚「133 条判据」。",
+      "source_clause": "判据102：README.md 必须包含验证器判据数锚「136 条判据」。",
       "anchor": {
-        "quote": "判据102：README.md 必须包含验证器判据数锚「133 条判据」。",
+        "quote": "判据102：README.md 必须包含验证器判据数锚「136 条判据」。",
         "locator": "dev-verifier-v4.md 判据1"
       },
       "title": "README 版本一致钉位",
@@ -3240,7 +3240,7 @@
               {
                 "col": "needle",
                 "op": "=",
-                "value": "133 条判据"
+                "value": "136 条判据"
               },
               {
                 "col": "present",
@@ -4450,6 +4450,123 @@
                 "col": "needle",
                 "op": "=",
                 "value": "setx ADMIN_TOKEN"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据134：server/src/index.ts 必须包含 cookie 池表「cookie_sets」。",
+      "anchor": {
+        "quote": "判据134：server/src/index.ts 必须包含 cookie 池表「cookie_sets」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "Cookie 池表钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "cookie_sets"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据135：server/src/index.ts 必须包含 Cookie 注入锚「goCookies」。",
+      "anchor": {
+        "quote": "判据135：server/src/index.ts 必须包含 Cookie 注入锚「goCookies」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "Cookie 注入钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "goCookies"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据136：scripts/cookie-smoke.mjs 必须包含行为锚「过期 cookie 被过滤」。",
+      "anchor": {
+        "quote": "判据136：scripts/cookie-smoke.mjs 必须包含行为锚「过期 cookie 被过滤」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "Cookie 行为断言钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "scripts/cookie-smoke.mjs"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "过期 cookie 被过滤"
               },
               {
                 "col": "present",

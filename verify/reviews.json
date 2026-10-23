@@ -2425,14 +2425,14 @@
       ]
     },
     {
-      "source_clause": "判据102：README.md 必须包含验证器判据数锚「133 条判据」。",
+      "source_clause": "判据102：README.md 必须包含验证器判据数锚「136 条判据」。",
       "findings": [
         {
           "question": "faithful",
           "verdict": "ok",
           "reason": "判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12——锚用判据数，比版本号锚少一次升版漂移）。",
           "anchor": {
-            "quote": "判据102：README.md 必须包含验证器判据数锚「133 条判据」。",
+            "quote": "判据102：README.md 必须包含验证器判据数锚「136 条判据」。",
             "locator": "dev-verifier-v4.md 判据1"
           }
         },
@@ -3189,6 +3189,78 @@
           "question": "not-vacuous",
           "verdict": "ok",
           "reason": "删指南提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据134：server/src/index.ts 必须包含 cookie 池表「cookie_sets」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，Cookie 池（浏览器扩展标准导出导入）+ 工作台挂接 cookie_set_id + /go/ 代理 proxyReq 按目标 host 域匹配+未过期过滤→Cookie 头替换注入；value 明文不回任何 API（逐条掩码）。",
+          "anchor": {
+            "quote": "判据134：server/src/index.ts 必须包含 cookie 池表「cookie_sets」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删池表提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据135：server/src/index.ts 必须包含 Cookie 注入锚「goCookies」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，前置中间件解析 goCookies（域匹配+过期过滤后），proxyReq 替换 Cookie 头（确定性语义）——未挂接台维持浏览器透传。",
+          "anchor": {
+            "quote": "判据135：server/src/index.ts 必须包含 Cookie 注入锚「goCookies」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删注入提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据136：scripts/cookie-smoke.mjs 必须包含行为锚「过期 cookie 被过滤」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，独立实例 11 项：导入（name 校验）/掩码/过期信息/挂接/注入到达上游/过期过滤/取消挂接无注入/删池/全过期。",
+          "anchor": {
+            "quote": "判据136：scripts/cookie-smoke.mjs 必须包含行为锚「过期 cookie 被过滤」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删断言提取为 0 即 FAIL。"
         }
       ]
     }
