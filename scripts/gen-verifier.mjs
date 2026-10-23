@@ -153,7 +153,7 @@ const U = [
   { c: "判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-probe」。", t: "运行时批行为断言钉位", s: "S1", ck: existsFact("scripts/import-smoke.mjs", "e2e-import-probe"), rv: ["判据原文逐字取自冻结材料，导入冒烟（独立实例，7 项）覆盖 query replace 语义/内部路径行不丢/悬空面板 prune/掩码行跳过/body mode 等价；E2E 组 19 subprocess 调用——replace 全表清写不再碰活库（84 事故 ×3 根治）。", "提取表三条件 exists 精确判定。", "删探针提取为 0 即 FAIL。"] },
   // ── 卫生批（外部评审 #12/#13：README 一致性 + 干净克隆自愈） ──
   { c: "判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。", t: "提交物脚本自愈钉位", s: "S1", ck: existsFact("scripts/make-submission.mjs", "issue #13"), rv: ["判据原文逐字取自冻结材料，VACUUM INTO 前 mkdirSync(tmp) 幂等创建——干净克隆无 tmp/ 不再必然失败（评审 #13）。", "提取表三条件 exists 精确判定。", "删自愈提取为 0 即 FAIL。"] },
-  { c: "判据102：README.md 必须包含验证器判据数锚「138 条判据」。", t: "README 版本一致钉位", s: "S2", ck: existsFact("README.md", "138 条判据"), rv: ["判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12——锚用判据数，比版本号锚少一次升版漂移）。", "提取表三条件 exists 精确判定。", "版本漂移提取为 0 即 FAIL。"] },
+  { c: "判据102：README.md 必须包含验证器判据数锚「141 条判据」。", t: "README 版本一致钉位", s: "S2", ck: existsFact("README.md", "141 条判据"), rv: ["判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12——锚用判据数，比版本号锚少一次升版漂移）。", "提取表三条件 exists 精确判定。", "版本漂移提取为 0 即 FAIL。"] },
   // ── A2A 网络接入 P1（GH #17：签名卡片 + 人工绑定，只读暴露） ──
   { c: "判据103：server/src/a2a.ts 必须包含上游一致签名面「canonicalPayload」。", t: "A2A 卡片签名钉位", s: "S1", ck: existsFact("server/src/a2a.ts", "canonicalPayload"), rv: ["判据原文逐字取自冻结材料，卡片 canonical 与上游 card.ts（裁判钉 75a3ebd）逐字节一致——Ed25519 pure + SPKI DER base64，expiresAt ≤ 48h，须过上游 verifyCard（GH #17 P1）。", "提取表三条件 exists 精确判定。", "删签名面提取为 0 即 FAIL。"] },
   { c: "判据104：server/src/index.ts 必须包含绑定管理口令头「x-admin-token」。", t: "人工绑定口令钉位", s: "S1", ck: existsFact("server/src/index.ts", "x-admin-token"), rv: ["判据原文逐字取自冻结材料，绑定读写要 X-Admin-Token 常量时间比较（未设置一律 403）+ Origin 空或同源服务端校验；MCP 无绑定写工具；卡片不发布 teamMemberships（绑定图不出门）。", "提取表三条件 exists 精确判定。", "删口令校验提取为 0 即 FAIL。"] },
@@ -202,6 +202,10 @@ const U = [
   // ── 自产台数据提交面（派单 direct-22838fab：台不仅是看板，有交互提交数据） ──
   { c: "判据137：server/src/index.ts 必须包含数据面表「app_data」。", t: "自产台数据面钉位", s: "S1", ck: existsFact("server/src/index.ts", "app_data"), rv: ["判据原文逐字取自冻结材料，POST /api/apps/:slug/data（JSON ≤1MB，兼容 {data:...} 与直接对象两种形态）+ GET 游标分页（倒序 before_id）；无 DELETE 留审计。", "提取表三条件 exists 精确判定。", "删数据面提取为 0 即 FAIL。"] },
   { c: "判据138：scripts/appdata-smoke.mjs 必须包含行为锚「游标翻页」。", t: "数据面行为断言钉位", s: "S1", ck: existsFact("scripts/appdata-smoke.mjs", "游标翻页"), rv: ["判据原文逐字取自冻结材料，独立实例 8 项：写入双形态/倒序读回/has_more/limit 分页/游标翻页/未知 slug 404/1MB 拒。", "提取表三条件 exists 精确判定。", "删断言提取为 0 即 FAIL。"] },
+  // ── 自产台文件提交面（所有资源类型 · 50MB 上限） ──
+  { c: "判据139：server/src/index.ts 必须包含文件面表「app_files」。", t: "文件面钉位", s: "S1", ck: existsFact("server/src/index.ts", "app_files"), rv: ["判据原文逐字取自冻结材料，multipart 单文件 ≤50MB（超限 413）/落盘 DATA_DIR/uploads/<YYYYMM>/ + 元数据入表/下载 content-type+nosniff+非白名单强制 attachment/删台级联清盘。", "提取表三条件 exists 精确判定。", "删文件面提取为 0 即 FAIL。"] },
+  { c: "判据140：server/src/index.ts 必须包含文件名编码修复「fixFileName」。", t: "中文文件名钉位", s: "S1", ck: existsFact("server/src/index.ts", "fixFileName"), rv: ["判据原文逐字取自冻结材料，busboy 默认 latin1 解码导致中文名 mojibake——latin1→utf8 往返修复（实测「截图.png」变「æªå¾.png」的坑）。", "提取表三条件 exists 精确判定。", "删修复提取为 0 即 FAIL。"] },
+  { c: "判据141：scripts/appfiles-smoke.mjs 必须包含行为锚「50MB 上限 → 413」。", t: "文件面行为断言钉位", s: "S1", ck: existsFact("scripts/appfiles-smoke.mjs", "50MB 上限 → 413"), rv: ["判据原文逐字取自冻结材料，独立实例 13 项：PNG/PDF/未知类型上传/元数据含中文名/列表倒序/下载字节一致/content-type/inline 白名单/nosniff/未知 slug 与文件 id 404/413/删台级联。", "提取表三条件 exists 精确判定。", "删断言提取为 0 即 FAIL。"] },
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
@@ -218,7 +222,7 @@ passed)——源自 E2E 内置的 Playwright 对比度探针（实测 DOM 前景
 提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
 脚本、验证器自举档案、设计规范与证据。
 命令执行型检查（typecheck、lint、build）不属于 CLI 闭集，由开发流程自行执行
-（E2E 与渲染层对比度结果经摘要表断言）；覆盖三十一个维度共 138 条判据：数据域完整性
+（E2E 与渲染层对比度结果经摘要表断言）；覆盖三十二个维度共 141 条判据：数据域完整性
 （判据1-9）、种子与配置（判据10-15）、提交物结构（判据16-35）、颜色可见性
 （判据36-51 与 57-58：经对比度审计的色值在源码与规范中的钉位，漂移即破坏已审计
 的可读性）、E2E 行为证据（判据52-54：规模下限、全绿、时间戳在位）、渲染层对比度

@@ -2425,14 +2425,14 @@
       ]
     },
     {
-      "source_clause": "判据102：README.md 必须包含验证器判据数锚「138 条判据」。",
+      "source_clause": "判据102：README.md 必须包含验证器判据数锚「141 条判据」。",
       "findings": [
         {
           "question": "faithful",
           "verdict": "ok",
           "reason": "判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12——锚用判据数，比版本号锚少一次升版漂移）。",
           "anchor": {
-            "quote": "判据102：README.md 必须包含验证器判据数锚「138 条判据」。",
+            "quote": "判据102：README.md 必须包含验证器判据数锚「141 条判据」。",
             "locator": "dev-verifier-v4.md 判据1"
           }
         },
@@ -3297,6 +3297,78 @@
           "reason": "判据原文逐字取自冻结材料，独立实例 8 项：写入双形态/倒序读回/has_more/limit 分页/游标翻页/未知 slug 404/1MB 拒。",
           "anchor": {
             "quote": "判据138：scripts/appdata-smoke.mjs 必须包含行为锚「游标翻页」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删断言提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据139：server/src/index.ts 必须包含文件面表「app_files」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，multipart 单文件 ≤50MB（超限 413）/落盘 DATA_DIR/uploads/<YYYYMM>/ + 元数据入表/下载 content-type+nosniff+非白名单强制 attachment/删台级联清盘。",
+          "anchor": {
+            "quote": "判据139：server/src/index.ts 必须包含文件面表「app_files」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删文件面提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据140：server/src/index.ts 必须包含文件名编码修复「fixFileName」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，busboy 默认 latin1 解码导致中文名 mojibake——latin1→utf8 往返修复（实测「截图.png」变「æªå¾.png」的坑）。",
+          "anchor": {
+            "quote": "判据140：server/src/index.ts 必须包含文件名编码修复「fixFileName」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删修复提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据141：scripts/appfiles-smoke.mjs 必须包含行为锚「50MB 上限 → 413」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，独立实例 13 项：PNG/PDF/未知类型上传/元数据含中文名/列表倒序/下载字节一致/content-type/inline 白名单/nosniff/未知 slug 与文件 id 404/413/删台级联。",
+          "anchor": {
+            "quote": "判据141：scripts/appfiles-smoke.mjs 必须包含行为锚「50MB 上限 → 413」。",
             "locator": "dev-verifier-v4.md 判据1"
           }
         },

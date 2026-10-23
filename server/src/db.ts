@@ -143,6 +143,17 @@ CREATE TABLE IF NOT EXISTS app_data (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_app_data_slug ON app_data(app_slug, created_at);
+CREATE TABLE IF NOT EXISTS app_files (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  app_slug TEXT NOT NULL,
+  original_name TEXT NOT NULL DEFAULT '',
+  mime TEXT NOT NULL DEFAULT 'application/octet-stream',
+  size INTEGER NOT NULL DEFAULT 0,
+  storage_path TEXT NOT NULL,
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_app_files_slug ON app_files(app_slug, created_at);
 `);
 
 // 轻量列迁移：已存库补列（凭据注入 / SOP 台生成器 / A2A 节点短 id / cookie 池挂接）
