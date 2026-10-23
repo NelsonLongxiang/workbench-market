@@ -8,6 +8,8 @@ import { spawn } from 'node:child_process';
 import { dirname, join, posix, extname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import multer from 'multer';
+import { svc } from './context.ts';
+import type { WorkbenchService } from './services/workbench.ts';
 import { db, getSettings, dataDir, rowToWorkbench, rowToCockpit, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow, type SopRunRow } from './db.ts';
 import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
 import { parse as parseYaml } from 'yaml';
@@ -172,12 +174,12 @@ function workbenchCreateCore(body: any): ReturnType<typeof rowToWorkbench> {
        VALUES (@name, @url, @type, @icon, @description, @category, @tags, @enabled, @health_path, @sort, @auth_config)`
     )
     .run({ type: 'web', icon: '', description: '', category: '', tags: '[]', enabled: 1, health_path: '', sort: 0, auth_config: '', ...f });
-  const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(Number(r.lastInsertRowid)) as unknown as WorkbenchRow;
+  const row = svc<WorkbenchService>('workbench').byId(Number(r.lastInsertRowid)) as unknown as WorkbenchRow;
   return rowToWorkbench(row);
 }
 
 function workbenchUpdateCore(id: number, body: any): ReturnType<typeof rowToWorkbench> {
-  const cur = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(id) as unknown as WorkbenchRow | undefined;
+  const cur = svc<WorkbenchService>('workbench').byId(id) as unknown as WorkbenchRow | undefined;
   if (!cur) throw new HttpError(404, `workbench not found: ${id}`);
   const f = validateWorkbenchBody(body, true);
   // 掩码回传保护（url 面）：编辑表单从 API 取到的是掩码值，原样回传视为「未变更」
@@ -227,7 +229,7 @@ app.post('/api/workbenches', (req, res) => {
 });
 
 app.get('/api/workbenches/:id', (req, res) => {
-  const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(Number(req.params.id)) as unknown as WorkbenchRow | undefined;
+  const row = svc<WorkbenchService>('workbench').byId(Number(req.params.id)) as unknown as WorkbenchRow | undefined;
   if (!row) throw new HttpError(404, `workbench not found: ${req.params.id}`);
   // 与列表同策略掩码（issue #2/#3：auth.value 同为无认证出口的明文凭据向量）；
   // 编辑流由 PUT 掩码回传保护兜底（掩码回传=不变更，DB 原值不毁）
@@ -244,7 +246,7 @@ app.delete('/api/workbenches/:id', (req, res) => {
 
 // ---------- 健康检查 ----------
 function typeOf(key: string): TypeRow | undefined {
-  return db.prepare('SELECT * FROM types WHERE key = ?').get(key) as unknown as TypeRow | undefined;
+  return svc<WorkbenchService>('workbench').typeByKey(key) as unknown as TypeRow | undefined;
 }
 
 async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkbench>> {
@@ -294,7 +296,7 @@ async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkben
 }
 
 app.post('/api/workbenches/:id/check', wrap(async (req, res) => {
-  const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(Number(req.params.id)) as unknown as WorkbenchRow | undefined;
+  const row = svc<WorkbenchService>('workbench').byId(Number(req.params.id)) as unknown as WorkbenchRow | undefined;
   if (!row) throw new HttpError(404, `workbench not found: ${req.params.id}`);
   res.json(await checkOne(row));
 }));
@@ -302,7 +304,7 @@ app.post('/api/workbenches/:id/check', wrap(async (req, res) => {
 app.post('/api/check-all', wrap(async (_req, res) => {
   const settings = getSettings();
   const limit = Math.max(1, Number(settings.health_concurrency) || 8);
-  const rows = db.prepare('SELECT * FROM workbenches WHERE enabled = 1').all() as unknown as WorkbenchRow[];
+  const rows = svc<WorkbenchService>('workbench').enabled() as unknown as WorkbenchRow[];
   const results: ReturnType<typeof rowToWorkbench>[] = [];
   const queue = [...rows];
   const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
@@ -1754,7 +1756,7 @@ async function callTool(name: string, args: any): Promise<unknown> {
       if (args?.all) {
         const settings = getSettings();
         const limit = Math.max(1, Number(settings.health_concurrency) || 8);
-        const rows = db.prepare('SELECT * FROM workbenches WHERE enabled = 1').all() as unknown as WorkbenchRow[];
+        const rows = svc<WorkbenchService>('workbench').enabled() as unknown as WorkbenchRow[];
         const results: ReturnType<typeof rowToWorkbench>[] = [];
         const queue = [...rows];
         const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
@@ -2342,7 +2344,7 @@ async function patrol(): Promise<void> {
   if (checking) return;
   checking = true;
   try {
-    const rows = db.prepare('SELECT * FROM workbenches WHERE enabled = 1').all() as unknown as WorkbenchRow[];
+    const rows = svc<WorkbenchService>('workbench').enabled() as unknown as WorkbenchRow[];
     for (const w of rows) { try { await checkOne(w); } catch { /* 单个失败不阻断巡检 */ } }
   } finally {
     checking = false;
