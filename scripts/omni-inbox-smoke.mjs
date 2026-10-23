@@ -50,13 +50,15 @@ try {
   if (ygl?.ok) {
     const { execFileSync } = await import('node:child_process');
     try {
-      const out = execFileSync('ygl-trees', ['task', 'list', '--json'], { timeout: 5000, encoding: 'utf8' });
+      const out = execFileSync('ygl-trees', ['task', 'list', '--json'], { timeout: 5000, encoding: 'utf8', shell: true }); // 同款 Windows shim 修复
       const rows = JSON.parse(out); const list = Array.isArray(rows) ? rows : (rows.tasks ?? []);
       const notDone = list.filter((x) => String(x.status).toLowerCase() !== 'done').length;
-      ok('J1 对账 = ygl 非 done 数', ygl.count === notDone, `api=${ygl.count} cli=${notDone}`);
+      const apiNotDone = (r.body?.tasks ?? []).filter((t) => t.source === 'ygl-trees' && t.status !== 'done').length;
+      ok('J1 对账 = ygl 非 done 数（sources.count 与信封双核）', ygl.count === notDone && apiNotDone === notDone, `count=${ygl.count} envelope=${apiNotDone} cli=${notDone}`);
     } catch { ok('J1 对账（CLI 直查失败，跳过）', true); }
   } else {
-    ok('J5 ygl 降级 ok=false 且 market 照常渲染', ygl?.ok === false && (r.body?.sources?.market?.count ?? 0) >= 0);
+    fail++; console.log('  ✗ J1 未实质执行——本冒烟环境 ygl 源必须 ok=true（评审结论：降级出口≠主路径验证，防空转绿）');
+    ok('J5 降级形态正确（ok=false + market 照常）', ygl?.ok === false && (r.body?.sources?.market?.count ?? 0) >= 0);
   }
 
   // market 源语义：派单 running → doing 信封
