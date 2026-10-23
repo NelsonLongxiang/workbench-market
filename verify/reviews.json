@@ -2425,14 +2425,14 @@
       ]
     },
     {
-      "source_clause": "判据102：README.md 必须包含验证器判据数锚「130 条判据」。",
+      "source_clause": "判据102：README.md 必须包含验证器判据数锚「133 条判据」。",
       "findings": [
         {
           "question": "faithful",
           "verdict": "ok",
           "reason": "判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12——锚用判据数，比版本号锚少一次升版漂移）。",
           "anchor": {
-            "quote": "判据102：README.md 必须包含验证器判据数锚「130 条判据」。",
+            "quote": "判据102：README.md 必须包含验证器判据数锚「133 条判据」。",
             "locator": "dev-verifier-v4.md 判据1"
           }
         },
@@ -3117,6 +3117,78 @@
           "question": "not-vacuous",
           "verdict": "ok",
           "reason": "删断言提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据131：web/src/pages/McpGateways.tsx 必须包含管理页语义锚「默认拒绝」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，管理页五区（口令输入/新建会话/会话表/grants 编辑器/审计查看器）全走既有五端点无新后端；token 一次性 Modal 提示。",
+          "anchor": {
+            "quote": "判据131：web/src/pages/McpGateways.tsx 必须包含管理页语义锚「默认拒绝」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删管理页提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据132：web/src/App.tsx 必须包含管理页路由「'/mcp-gateways'」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，侧栏菜单与路由表挂载网关管理页。",
+          "anchor": {
+            "quote": "判据132：web/src/App.tsx 必须包含管理页路由「'/mcp-gateways'」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删路由提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据133：ADMIN-TOKEN-SETUP.md 必须包含主人操作锚「setx ADMIN_TOKEN」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，主人操作指南（生成/设入/重启/验证 + DSH 连接器升级 + 三启动路径插槽状态）——值不进任何 agent 可读文件（#17 修订 3 诚实约束）。",
+          "anchor": {
+            "quote": "判据133：ADMIN-TOKEN-SETUP.md 必须包含主人操作锚「setx ADMIN_TOKEN」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删指南提取为 0 即 FAIL。"
         }
       ]
     }

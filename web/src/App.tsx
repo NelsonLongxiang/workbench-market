@@ -8,6 +8,7 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   OrderedListOutlined,
+  SafetyCertificateOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
 import Dashboard from './pages/Dashboard';
@@ -17,6 +18,7 @@ import Settings from './pages/Settings';
 import UseWorkbench from './pages/UseWorkbench';
 import Cockpit from './pages/Cockpit';
 import Sops from './pages/Sops';
+import McpGateways from './pages/McpGateways';
 
 const menuRoutes = {
   path: '/',
@@ -25,6 +27,7 @@ const menuRoutes = {
     { path: '/cockpit', name: '驾驶舱', icon: <LayoutOutlined /> },
     { path: '/market', name: '工作台', icon: <AppstoreOutlined /> },
     { path: '/sops', name: 'SOP 台', icon: <OrderedListOutlined /> },
+    { path: '/mcp-gateways', name: 'MCP 网关', icon: <SafetyCertificateOutlined /> },
     { path: '/types', name: '类型管理', icon: <ClusterOutlined /> },
     { path: '/settings', name: '设置', icon: <SettingOutlined /> },
   ],
@@ -83,6 +86,7 @@ export default function App() {
         <Route path="/cockpit/:id" element={<Cockpit />} />
         <Route path="/market" element={<Market />} />
         <Route path="/sops" element={<Sops />} />
+        <Route path="/mcp-gateways" element={<McpGateways />} />
         <Route path="/types" element={<Types />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
