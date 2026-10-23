@@ -1273,6 +1273,41 @@ app.delete('/api/types/:id', (req, res) => {
 });
 
 // ---------- 设置 / 导入导出 ----------
+// ---------- 管理员口令手动设置（本机引导：首次无口令时允许从 loopback 设置） ----------
+function isLoopbackReq(req: express.Request): boolean {
+  const ip = String(req.socket.remoteAddress ?? '');
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+}
+
+app.get('/api/admin-token/state', (req, res) => {
+  res.json({
+    source: process.env.ADMIN_TOKEN ? 'env' : (dbAdminTokenSet() ? 'db' : 'none'),
+    settable: !process.env.ADMIN_TOKEN && isLoopbackReq(req), // env 未设时可由本机页面设置
+  });
+});
+
+app.put('/api/admin-token', (req, res) => {
+  if (!isLoopbackReq(req)) return res.status(403).json({ error: '仅本机可设置管理员口令' });
+  if (process.env.ADMIN_TOKEN) return res.status(400).json({ error: '口令由启动环境 ADMIN_TOKEN 提供，页面不可改（改环境变量并重启）' });
+  const token = typeof req.body?.token === 'string' ? req.body.token : '';
+  if (token.length < 4 || token.length > 128) return res.status(400).json({ error: '口令长度 4–128' });
+  const hasExisting = dbAdminTokenSet();
+  if (hasExisting && !dbAdminTokenOk(req.headers['x-admin-token'])) {
+    return res.status(403).json({ error: '修改口令需先在请求头带上当前口令（X-Admin-Token）' });
+  }
+  const sha = createHash('sha256').update(token, 'utf8').digest('hex');
+  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(ADMIN_TOKEN_KEY, sha);
+  res.json({ ok: true, source: 'db', note: '口令已设置并立即生效（库存 sha256，不可取回）' });
+});
+
+app.delete('/api/admin-token', (req, res) => {
+  if (!isLoopbackReq(req)) return res.status(403).json({ error: '仅本机可清除管理员口令' });
+  if (process.env.ADMIN_TOKEN) return res.status(400).json({ error: '口令来自启动环境，需清环境变量并重启' });
+  if (!dbAdminTokenOk(req.headers['x-admin-token'])) return res.status(403).json({ error: '需当前口令' });
+  db.prepare('DELETE FROM settings WHERE key = ?').run(ADMIN_TOKEN_KEY);
+  res.json({ ok: true, source: 'none' });
+});
+
 app.get('/api/settings', (_req, res) => { res.json(getSettings()); });
 
 app.put('/api/settings', (req, res) => {
@@ -1375,9 +1410,29 @@ app.get('/.well-known/agent-card.json', (_req, res) => {
 });
 
 // 人工绑定 API（读写都要 ADMIN_TOKEN + Origin 空或同源——服务端校验跨源，CORS 白名单管不住执行）
+// 管理员口令存储（主人要求「页面手动设置」）：settings.admin_token_sha256（不可逆），
+// 优先级 env ADMIN_TOKEN > 库内值 > 无（未设一律 403）。DB 仅存 sha256，明文不落库。
+const ADMIN_TOKEN_KEY = 'admin_token_sha256';
+function dbAdminTokenSet(): boolean {
+  return !!db.prepare('SELECT 1 FROM settings WHERE key = ?').get(ADMIN_TOKEN_KEY);
+}
+function dbAdminTokenOk(provided: string | undefined): boolean {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(ADMIN_TOKEN_KEY) as { value: string } | undefined;
+  if (!row) return false;
+  // 库存的是 sha256(明文) 的 hex——直接与 sha256(传入值) 的 hex 做常量时间比较
+  const got = createHash('sha256').update(String(provided ?? ''), 'utf8').digest('hex');
+  const a = Buffer.from(got, 'hex');
+  const b = Buffer.from(row.value, 'hex');
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+/** 口令校验：env 优先（启动环境注入），否则库内 sha256 */
+function adminTokenCheck(provided: string | undefined): boolean {
+  return process.env.ADMIN_TOKEN ? adminTokenOk(provided) : dbAdminTokenOk(provided);
+}
+
 function adminGuard(req: express.Request, res: express.Response): boolean {
-  if (!adminTokenOk(req.headers['x-admin-token'])) {
-    res.status(403).json({ error: '需要有效的 X-Admin-Token（管理员口令未设置时一律拒绝）' });
+  if (!adminTokenCheck(req.headers['x-admin-token'])) {
+    res.status(403).json({ error: '需要有效的 X-Admin-Token（管理员口令未设置时一律拒绝；可在设置页手动设置）' });
     return false;
   }
   const origin = req.headers.origin;

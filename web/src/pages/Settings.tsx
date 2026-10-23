@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { App, Button, Card, Descriptions, Flex, Form, InputNumber, Modal, Radio, Space, Typography, Upload } from 'antd';
-import { DownloadOutlined, SaveOutlined, UploadOutlined } from '@ant-design/icons';
+import { App, Button, Card, Descriptions, Flex, Form, Input, InputNumber, Modal, Popconfirm, Radio, Space, Tag, Typography, Upload } from 'antd';
+import { DownloadOutlined, KeyOutlined, SaveOutlined, UploadOutlined } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
 import { api } from '../api';
 import type { ExportPayload } from '../types';
@@ -10,6 +10,9 @@ export default function Settings() {
   const [form] = Form.useForm();
   const [importMode, setImportMode] = useState<'merge' | 'replace'>('merge');
   const [saving, setSaving] = useState(false);
+  // 管理员口令（控制面：SOP 绑定 / MCP 会话 / 上游配置）
+  const [tokenState, setTokenState] = useState<{ source: 'env' | 'db' | 'none'; settable: boolean } | null>(null);
+  const [newToken, setNewToken] = useState('');
 
   const settingsReq = useRequest(api.getSettings, {
     onSuccess: (s) => {
@@ -22,7 +25,34 @@ export default function Settings() {
   });
   const healthReq = useRequest(api.getHealth);
 
+  const loadTokenState = () => {
+    fetch('/api/admin-token/state').then((r) => r.json()).then(setTokenState).catch(() => setTokenState(null));
+  };
+  const saveToken = async () => {
+    try {
+      const r = await fetch('/api/admin-token', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: newToken }) });
+      const b = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error((b as { error?: string }).error || `HTTP ${r.status}`);
+      message.success('管理员口令已设置并立即生效');
+      setNewToken('');
+      loadTokenState();
+    } catch (e) {
+      message.error(`设置失败：${(e as Error).message}`);
+    }
+  };
+  const clearToken = async () => {
+    try {
+      const r = await fetch('/api/admin-token', { method: 'DELETE' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      message.success('口令已清除（控制面回到休眠）');
+      loadTokenState();
+    } catch (e) {
+      message.error(`清除失败：${(e as Error).message}`);
+    }
+  };
+
   useEffect(() => {
+    loadTokenState();
     healthReq.run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -150,6 +180,41 @@ export default function Settings() {
             </Upload>
           </Flex>
         </Flex>
+      </Card>
+
+      <Card
+        title={<Space><KeyOutlined /><span>管理员口令</span></Space>}
+        style={{ width: '100%', maxWidth: 640 }}
+        styles={{ body: { paddingTop: 12 } }}
+        extra={tokenState ? (
+          tokenState.source === 'env' ? <Tag color="blue">启动环境提供</Tag>
+            : tokenState.source === 'db' ? <Tag color="green">已在页面设置</Tag>
+            : <Tag color="orange">未设置 · 控制面休眠</Tag>
+        ) : null}
+      >
+        <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
+          用于 SOP 绑定、MCP 会话管理、上游聚合配置这些<b>控制面</b>（远程面收口不依赖它）。
+          {tokenState?.source === 'env'
+            ? ' 口令来自启动环境变量 ADMIN_TOKEN，页面不可改（改环境变量并重启）。'
+            : ' 设置后立即生效，库存仅 sha256 不可取回；清除后控制面回到休眠。'}
+        </Typography.Paragraph>
+        {tokenState?.settable ? (
+          <Space.Compact style={{ width: '100%', maxWidth: 480 }}>
+            <Input.Password
+              placeholder="新口令（4–128 字符）"
+              value={newToken}
+              onChange={(e) => setNewToken(e.target.value)}
+              style={{ fontSize: 13 }}
+              autoComplete="new-password"
+            />
+            <Button type="primary" onClick={saveToken} disabled={newToken.length < 4}>设置口令</Button>
+            {tokenState.source === 'db' ? (
+              <Popconfirm title="清除口令？控制面将回到休眠（需重新设置才能用绑定/MCP 会话）" onConfirm={clearToken}>
+                <Button danger>清除</Button>
+              </Popconfirm>
+            ) : null}
+          </Space.Compact>
+        ) : null}
       </Card>
 
       <Card title="关于" style={{ width: '100%', maxWidth: 640 }} styles={{ body: { paddingTop: 8 } }}>
