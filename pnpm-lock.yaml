@@ -9,7 +9,7 @@ importers:
   .:
     dependencies:
       '@nelsonlongxiang/dsh-open-a2a-net':
-        specifier: ^0.6.25
+        specifier: 0.6.25
         version: 0.6.25(@deepseek-ai/cordis-plugin-timer@1.1.7(@deepseek-ai/cordis@4.0.5))(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-host-webserver@0.0.1-rc.1(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-invariants@0.0.1-rc.1(@deepseek-ai/cordis@4.0.5)))(@deepseek-ai/dsh-invariants@0.0.1-rc.1(@deepseek-ai/cordis@4.0.5))(@deepseek-ai/dsh-llm@0.0.1-rc.1(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-attachment@0.0.1-rc.1(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-brand@0.0.1-rc.1(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-invariants@0.0.1-rc.1(@deepseek-ai/cordis@4.0.5)))(@deepseek-ai/dsh-invariants@0.0.1-rc.1(@deepseek-ai/cordis@4.0.5)))(@deepseek-ai/dsh-brand@0.0.1-rc.1(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-invariants@0.0.1-rc.1(@deepseek-ai/cordis@4.0.5)))(@deepseek-ai/dsh-invariants@0.0.1-rc.1(@deepseek-ai/cordis@4.0.5))(@deepseek-ai/dsh-timeout@0.0.1-rc.1(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-invariants@0.0.1-rc.1(@deepseek-ai/cordis@4.0.5))))(@deepseek-ai/schemastery@3.18.5)(react@18.3.1)
     devDependencies:
       '@deepseek-ai/cordis':
@@ -605,7 +605,7 @@ packages:
     libc: [glibc]
 
   '@nelsonlongxiang/dsh-open-a2a-net@0.6.25':
-    resolution: {integrity: sha512-uOfU/LBb75G0dTbASWsrpo7nQjXuUL/08YQMMiF/a0K4qGBYV+oLnvHJBvVz7HOH44AA1EhWG+cXzjjlXEZGrg==, tarball: http://192.168.3.88:3000/api/packages/jf-tech/npm/%40nelsonlongxiang%2Fdsh-open-a2a-net/-/0.6.25/dsh-open-a2a-net-0.6.25.tgz}
+    resolution: {integrity: sha512-pAsBHltueIVFvgJu3xpjbj3tMITs0xY03N1yW30PAIFaZ9kaeYBXSAIZJipppPppdsI4Pli1IY8bVKaBAkgJng==}
     engines: {pnpm: '>=11.24 <12'}
     peerDependencies:
       '@deepseek-ai/cordis': '>=4.0.1'
