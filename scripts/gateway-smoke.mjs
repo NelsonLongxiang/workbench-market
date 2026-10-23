@@ -3,6 +3,15 @@
  *  覆盖：会话 CRUD/令牌一次性/grants 校验、401+WWW-Authenticate、tools/list 过滤、
  *  未授权=不存在同应答、审计行（args_sha256 无原文）、last_used_at、软吊销即时生效。 */
 import { spawn } from 'node:child_process';
+
+async function waitReady(url, ms = 20000) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    try { const r = await fetch(url); if (r.status < 500) return true; } catch { /* 未起 */ }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return false;
+}
 import { rmSync, mkdirSync } from 'node:fs';
 
 const PORT = 9813;
@@ -18,7 +27,7 @@ const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 
   env: { ...process.env, PORT: String(PORT), DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'gw-admin-tok', MCP_GATEWAY: 'on', REDIS_URL: '' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
-await new Promise((r) => setTimeout(r, 3500));
+if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪（20s 超时）'); process.exit(1); }
 
 const AT = { 'X-Admin-Token': 'gw-admin-tok' };
 async function call(method, path, body, headers = {}) {
