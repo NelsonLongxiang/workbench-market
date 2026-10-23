@@ -1000,7 +1000,7 @@ summary = {
     'contrast_checks': contrast_rows,
     'contrast_all_passed': 1 if contrast_rows and all(r['passed'] for r in contrast_rows) else 0,
 }
-with open(__file__.replace('e2e_test.py', 'e2e-summary.json'), 'w', encoding='utf-8') as f:
+with open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'e2e-summary.json'), 'w', encoding='utf-8') as f:
     json.dump(summary, f, ensure_ascii=False, indent=2)
 print(f'\n===== E2E 汇总：{passed}/{total} PASS =====')
 sys.exit(1 if fails else 0)
