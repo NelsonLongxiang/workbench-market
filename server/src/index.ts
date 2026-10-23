@@ -2,9 +2,11 @@ import express from 'express';
 import cors from 'cors';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createReadStream } from 'node:fs';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { dirname, join, posix } from 'node:path';
+import { dirname, join, posix, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import multer from 'multer';
 import { db, getSettings, dataDir, rowToWorkbench, rowToCockpit, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow, type SopRunRow } from './db.ts';
 import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
 import { parse as parseYaml } from 'yaml';
@@ -582,6 +584,11 @@ app.delete('/api/apps/:slug', (req, res) => {
   rmSync(join(appsRoot, a.slug), { recursive: true, force: true });
   db.prepare('DELETE FROM app_versions WHERE app_id = ?').run(a.id);
   db.prepare('DELETE FROM apps WHERE id = ?').run(a.id);
+  // 数据面/文件面一并清理（派单 direct-22838fab 与文件提交面）
+  db.prepare('DELETE FROM app_data WHERE app_slug = ?').run(a.slug);
+  const files = db.prepare('SELECT storage_path FROM app_files WHERE app_slug = ?').all(a.slug) as { storage_path: string }[];
+  for (const f of files) { try { rmSync(join(dataDir, f.storage_path), { force: true }); } catch { /* 已删 */ } }
+  db.prepare('DELETE FROM app_files WHERE app_slug = ?').run(a.slug);
   // issue #6：SOP 台的注册 url 是 /sop/<slug>/（非 /apps/），删除时必须一并清理，否则留孤儿工作台（门户 404）
   db.prepare(`DELETE FROM workbenches WHERE (url = ? OR url = ?) AND type = 'market-app'`).run(`/apps/${a.slug}/`, `/sop/${a.slug}/`);
   res.json({ ok: true, deleted: a.slug });
@@ -615,6 +622,91 @@ app.get('/api/apps/:slug/data', (req, res) => {
   }));
   const has_more = rows.length === limit;
   res.json({ slug: a.slug, items, count: items.length, has_more, next_before_id: has_more ? items[items.length - 1].id : null });
+});
+
+// ---------- 自产台文件提交面（所有资源类型文件，50MB 上限） ----------
+// multipart/form-data：字段 file（单文件）+ 可选 note/created_by。
+// 落盘 DATA_DIR/uploads/<slug>/<YYYYMM>/<id>-<safeName>；元数据入 app_files；GET 列表 + 下载。
+const UPLOAD_MAX = 50 * 1024 * 1024;
+const uploadRoot = join(dataDir, 'uploads');
+// multipart 文件名编码修复：busboy 默认把 UTF-8 字节按 latin1 解码（中文名变 mojibake）
+const fixFileName = (s: string): string => {
+  try {
+    const buf = Buffer.from(s, 'latin1');
+    const utf8 = buf.toString('utf8');
+    // 若 latin1→utf8 往返合法且含多字节字符，采用修复值
+    return /�/.test(utf8) ? s : utf8;
+  } catch {
+    return s;
+  }
+};
+const upload = multer({
+  storage: multer.diskStorage({
+    destination(_req, _file, cb) {
+      const now = new Date();
+      const sub = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const dir = join(uploadRoot, sub);
+      mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename(_req, file, cb) {
+      // 保留原扩展名、抹掉路径与控制字符
+      const ext = extname(fixFileName(file.originalname)).slice(0, 16).replace(/[^.\w-]/g, '');
+      cb(null, `${Date.now()}-${randomBytes(6).toString('hex')}${ext}`);
+    },
+  }),
+  limits: { fileSize: UPLOAD_MAX, files: 1 },
+});
+
+app.post('/api/apps/:slug/files', (req, res, next) => {
+  upload.single('file')(req, res, (err: any) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: '文件超 50MB 上限' });
+      return res.status(400).json({ error: `上传失败：${err.message}` });
+    }
+    try {
+      const a = getApp(req.params.slug);
+      if (!req.file) bad('缺少 file 字段（multipart/form-data）');
+      const created_by = typeof req.body?.created_by === 'string' ? req.body.created_by.trim().slice(0, 128) : '';
+      const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 500) : '';
+      // 存储相对路径（dataDir 内，随数据目录迁移）
+      const rel = req.file.path.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
+      const originalName = fixFileName(req.file.originalname);
+      const r = db.prepare('INSERT INTO app_files (app_slug, original_name, mime, size, storage_path, created_by) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(a.slug, originalName, req.file.mimetype || 'application/octet-stream', req.file.size, rel, created_by) as unknown as { lastInsertRowid: number | bigint };
+      const id = Number(r.lastInsertRowid);
+      res.status(201).json({ ok: true, id, slug: a.slug, name: originalName, mime: req.file.mimetype, size: req.file.size, note, url: `/api/apps/${a.slug}/files/${id}` });
+    } catch (e) {
+      next(e);
+    }
+  });
+});
+
+app.get('/api/apps/:slug/files', (req, res) => {
+  const a = getApp(req.params.slug);
+  const limit = Math.min(Number(req.query.limit) || 50, 200);
+  const beforeId = Number(req.query.before_id) || 0;
+  const rows = beforeId > 0
+    ? db.prepare('SELECT id, original_name, mime, size, created_by, created_at FROM app_files WHERE app_slug = ? AND id < ? ORDER BY id DESC LIMIT ?').all(a.slug, beforeId, limit)
+    : db.prepare('SELECT id, original_name, mime, size, created_by, created_at FROM app_files WHERE app_slug = ? ORDER BY id DESC LIMIT ?').all(a.slug, limit);
+  const items = (rows as any[]).map((r) => ({ ...r, url: `/api/apps/${a.slug}/files/${r.id}` }));
+  res.json({ slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null });
+});
+
+app.get('/api/apps/:slug/files/:id', (req, res) => {
+  const a = getApp(req.params.slug);
+  const row = db.prepare('SELECT * FROM app_files WHERE id = ? AND app_slug = ?').get(Number(req.params.id), a.slug) as any;
+  if (!row) throw new HttpError(404, `file not found: ${req.params.id}`);
+  const abs = join(dataDir, row.storage_path);
+  if (!existsSync(abs)) throw new HttpError(404, 'stored file missing on disk');
+  res.setHeader('content-type', row.mime || 'application/octet-stream');
+  res.setHeader('content-length', String(row.size));
+  // 附件下载语义（原始文件名）——inline 由 mime 决定，避免 XSS：非白名单 mime 强制 attachment
+  const inlineOk = /^(image\/(png|jpeg|webp|gif)|application\/pdf|text\/(plain|csv))$/.test(row.mime);
+  const disp = inlineOk ? 'inline' : 'attachment';
+  res.setHeader('content-disposition', `${disp}; filename*=UTF-8''${encodeURIComponent(row.original_name || 'file')}`);
+  res.setHeader('x-content-type-options', 'nosniff');
+  createReadStream(abs).pipe(res);
 });
 
 // ---------- SOP 台：状态机（draft → published → deprecated）+ 执行 Runner + 分层持久化 ----------
