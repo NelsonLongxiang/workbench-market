@@ -40,7 +40,9 @@ function execYglTasks(): Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs
   const t0 = Date.now();
   return new Promise((resolve) => {
     try {
-      execFile('ygl-trees', ['task', 'list', '--json'], { timeout: 5_000, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
+      // Windows：ygl-trees 是无扩展名 bash shim，execFile 无 shell 会 ENOENT（评审席 direct-a989374f S1）
+      // 参数为固定字面量数组，shell:true 无注入面
+      execFile('ygl-trees', ['task', 'list', '--json'], { timeout: 5_000, windowsHide: true, maxBuffer: 4 * 1024 * 1024, shell: true }, (err, stdout) => {
         const latencyMs = Date.now() - t0;
         if (err) return resolve({ ok: false, tasks: [], latencyMs });
         try {
@@ -93,7 +95,7 @@ export async function collectTasks(sop: SopServiceLike): Promise<TasksPayload> {
   const payload: TasksPayload = {
     tasks: [...ygl.tasks, ...mktRows],
     sources: {
-      'ygl-trees': { ok: ygl.ok, count: ygl.tasks.length, latency_ms: ygl.latencyMs },
+      'ygl-trees': { ok: ygl.ok, count: ygl.tasks.filter((t) => t.status !== 'done').length, latency_ms: ygl.latencyMs },
       market: { ok: true, count: mktRows.length, latency_ms: 0 },
     },
     generated_at: new Date(now).toISOString(),
