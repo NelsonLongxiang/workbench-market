@@ -1574,6 +1574,34 @@ const MCP_TOOLS: { name: string; description: string; inputSchema: Record<string
     inputSchema: { type: 'object', properties: { run_id: { type: 'integer' } }, required: ['run_id'], additionalProperties: false },
   },
   {
+    name: 'app_data_list',
+    description: '读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读，与 GET 同权。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slug: { type: 'string', description: '自产台 slug' },
+        limit: { type: 'integer', description: '条数（默认 50，上限 200）' },
+        before_id: { type: 'integer', description: '游标：只取 id 小于它的记录（翻页用上一页的 next_before_id）' },
+      },
+      required: ['slug'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'app_files_list',
+    description: '读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤50MB/个）。只读，与 GET 同权。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slug: { type: 'string' },
+        limit: { type: 'integer', description: '条数（默认 50，上限 200）' },
+        before_id: { type: 'integer' },
+      },
+      required: ['slug'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'workbench_register',
     description: '登记外部工作台入册（agent 发现内网新服务时自主登记；门户/市场即刻可用）。凭据不接受——需人工经市场页配置（安全边界）。',
     inputSchema: {
@@ -1688,6 +1716,26 @@ async function callTool(name: string, args: any): Promise<unknown> {
     }
     case 'workbench_unregister':
       return workbenchDeleteCore(Number(args?.id));
+    case 'app_data_list': {
+      const a = getApp(String(args?.slug ?? ''));
+      const limit = Math.min(Number(args?.limit) || 50, 200);
+      const beforeId = Number(args?.before_id) || 0;
+      const rows = beforeId > 0
+        ? db.prepare('SELECT id, data, created_by, created_at FROM app_data WHERE app_slug = ? AND id < ? ORDER BY id DESC LIMIT ?').all(a.slug, beforeId, limit)
+        : db.prepare('SELECT id, data, created_by, created_at FROM app_data WHERE app_slug = ? ORDER BY id DESC LIMIT ?').all(a.slug, limit);
+      const items = (rows as any[]).map((r) => ({ id: r.id, data: JSON.parse(r.data || '{}'), created_by: r.created_by, created_at: r.created_at }));
+      return { slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null };
+    }
+    case 'app_files_list': {
+      const a = getApp(String(args?.slug ?? ''));
+      const limit = Math.min(Number(args?.limit) || 50, 200);
+      const beforeId = Number(args?.before_id) || 0;
+      const rows = beforeId > 0
+        ? db.prepare('SELECT id, original_name, mime, size, created_by, created_at FROM app_files WHERE app_slug = ? AND id < ? ORDER BY id DESC LIMIT ?').all(a.slug, beforeId, limit)
+        : db.prepare('SELECT id, original_name, mime, size, created_by, created_at FROM app_files WHERE app_slug = ? ORDER BY id DESC LIMIT ?').all(a.slug, limit);
+      const items = (rows as any[]).map((r) => ({ ...r, url: `/api/apps/${a.slug}/files/${r.id}` }));
+      return { slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null };
+    }
     default:
       throw new HttpError(400, `未知工具: ${name}`);
   }

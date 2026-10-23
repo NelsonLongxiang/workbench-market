@@ -13,6 +13,7 @@ const TOOLS = [
   'app_publish', 'app_activate', 'sop_publish',
   'sop_run_start', 'sop_run_step_save', 'sop_run_get', 'sop_run_list', 'sop_run_finish',
   'workbench_register', 'workbench_update', 'workbench_unregister',
+  'app_data_list', 'app_files_list',
 ];
 
 /** MCP 网关管理页（GH #20 P1）：会话/令牌/授权/审计——全部走既有五端点（无新后端）。
