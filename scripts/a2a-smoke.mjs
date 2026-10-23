@@ -12,7 +12,7 @@ async function waitReady(url, ms = 20000) {
 }
 import { rmSync, mkdirSync } from 'node:fs';
 
-const PORT = 9811;
+const PORT = 9840;
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-a2a-data';
 let pass = 0, fail = 0;
