@@ -23,7 +23,13 @@ app.use(cors({
     return callback(null, false); // 不回 ACAO 头 = 浏览器侧拒绝读响应
   },
 }));
-app.use(express.json({ limit: '4mb' }));
+// body 解析：/go/ 路径跳过（品味席 direct-2999b07d 实测——express.json 在 HPM 之前
+// 消费了 body 流，上游需要读 body 的 POST（如 taste-mcp 的 tools/call）永远等不到
+// end 事件挂起；401 路径不读 body 所以「看起来通」）。/go/ 的 body 由 HPM 原样 pipe。
+app.use((req, res, next) => {
+  if ((req.url ?? '').startsWith('/go/')) return next();
+  return express.json({ limit: '4mb' })(req, res, next);
+});
 
 // GH #20 P1 ④远程面收口：非本机请求只放 /mcp、/.well-known/agent-card.json、/a2a/direct——
 // 其余 /api/* 写操作要 X-Admin-Token（本机 REST 面维持内网信任模型不变；此中间件只拦远程写）。
