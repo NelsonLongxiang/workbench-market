@@ -2425,14 +2425,14 @@
       ]
     },
     {
-      "source_clause": "判据102：README.md 必须包含验证器判据数锚「142 条判据」。",
+      "source_clause": "判据102：README.md 必须包含验证器判据数锚「144 条判据」。",
       "findings": [
         {
           "question": "faithful",
           "verdict": "ok",
           "reason": "判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12——锚用判据数，比版本号锚少一次升版漂移）。",
           "anchor": {
-            "quote": "判据102：README.md 必须包含验证器判据数锚「142 条判据」。",
+            "quote": "判据102：README.md 必须包含验证器判据数锚「144 条判据」。",
             "locator": "dev-verifier-v4.md 判据1"
           }
         },
@@ -3405,6 +3405,54 @@
           "question": "not-vacuous",
           "verdict": "ok",
           "reason": "删白名单提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据143：server/src/index.ts 必须包含读工具「app_data_list」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，MCP 只读工具（15→17）：app_data_list 读自产台表单提交数据、app_files_list 读文件列表（含下载 url）——倒序游标分页与 GET 同语义；只走 MCP 的 agent 也能消费台数据。",
+          "anchor": {
+            "quote": "判据143：server/src/index.ts 必须包含读工具「app_data_list」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删读工具提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据144：evidence/e2e_test.py 必须包含 MCP 读工具行为锚「app_files_list」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，E2E 组17 断言 tools/list 17 个含两读工具 + REST 写数据后 MCP app_data_list 读回内容与 created_by 一致 + app_files_list 结构。",
+          "anchor": {
+            "quote": "判据144：evidence/e2e_test.py 必须包含 MCP 读工具行为锚「app_files_list」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删断言提取为 0 即 FAIL。"
         }
       ]
     }

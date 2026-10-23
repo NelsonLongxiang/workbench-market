@@ -99,7 +99,7 @@
 判据99：server/src/index.ts 必须包含导入 mode 锚「issue #7」。
 判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-probe」。
 判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。
-判据102：README.md 必须包含验证器判据数锚「142 条判据」。
+判据102：README.md 必须包含验证器判据数锚「144 条判据」。
 判据103：server/src/a2a.ts 必须包含上游一致签名面「canonicalPayload」。
 判据104：server/src/index.ts 必须包含绑定管理口令头「x-admin-token」。
 判据105：server/src/a2a.ts 必须包含节点短 id 持久化「a2a_node8」。
@@ -140,3 +140,5 @@
 判据140：server/src/index.ts 必须包含文件名编码修复「fixFileName」。
 判据141：scripts/appfiles-smoke.mjs 必须包含行为锚「50MB 上限 → 413」。
 判据142：server/src/index.ts 必须包含远程白名单前缀「REMOTE_ALLOW_PREFIX」。
+判据143：server/src/index.ts 必须包含读工具「app_data_list」。
+判据144：evidence/e2e_test.py 必须包含 MCP 读工具行为锚「app_files_list」。
