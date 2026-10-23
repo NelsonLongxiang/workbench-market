@@ -153,7 +153,7 @@ const U = [
   { c: "判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-probe」。", t: "运行时批行为断言钉位", s: "S1", ck: existsFact("scripts/import-smoke.mjs", "e2e-import-probe"), rv: ["判据原文逐字取自冻结材料，导入冒烟（独立实例，7 项）覆盖 query replace 语义/内部路径行不丢/悬空面板 prune/掩码行跳过/body mode 等价；E2E 组 19 subprocess 调用——replace 全表清写不再碰活库（84 事故 ×3 根治）。", "提取表三条件 exists 精确判定。", "删探针提取为 0 即 FAIL。"] },
   // ── 卫生批（外部评审 #12/#13：README 一致性 + 干净克隆自愈） ──
   { c: "判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。", t: "提交物脚本自愈钉位", s: "S1", ck: existsFact("scripts/make-submission.mjs", "issue #13"), rv: ["判据原文逐字取自冻结材料，VACUUM INTO 前 mkdirSync(tmp) 幂等创建——干净克隆无 tmp/ 不再必然失败（评审 #13）。", "提取表三条件 exists 精确判定。", "删自愈提取为 0 即 FAIL。"] },
-  { c: "判据102：README.md 必须包含验证器判据数锚「144 条判据」。", t: "README 版本一致钉位", s: "S2", ck: existsFact("README.md", "150 条判据"), rv: ["判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12——锚用判据数，比版本号锚少一次升版漂移）。", "提取表三条件 exists 精确判定。", "版本漂移提取为 0 即 FAIL。"] },
+  { c: "判据102：README.md 必须包含验证器判据数锚「144 条判据」。", t: "README 版本一致钉位", s: "S2", ck: existsFact("README.md", "152 条判据"), rv: ["判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12——锚用判据数，比版本号锚少一次升版漂移）。", "提取表三条件 exists 精确判定。", "版本漂移提取为 0 即 FAIL。"] },
   // ── A2A 网络接入 P1（GH #17：签名卡片 + 人工绑定，只读暴露） ──
   { c: "判据103：server/src/a2a.ts 必须包含上游一致签名面「canonicalPayload」。", t: "A2A 卡片签名钉位", s: "S1", ck: existsFact("server/src/a2a.ts", "canonicalPayload"), rv: ["判据原文逐字取自冻结材料，卡片 canonical 与上游 card.ts（裁判钉 75a3ebd）逐字节一致——Ed25519 pure + SPKI DER base64，expiresAt ≤ 48h，须过上游 verifyCard（GH #17 P1）。", "提取表三条件 exists 精确判定。", "删签名面提取为 0 即 FAIL。"] },
   { c: "判据104：server/src/index.ts 必须包含绑定管理口令头「x-admin-token」。", t: "人工绑定口令钉位", s: "S1", ck: existsFact("server/src/index.ts", "x-admin-token"), rv: ["判据原文逐字取自冻结材料，绑定读写要 X-Admin-Token 常量时间比较（未设置一律 403）+ Origin 空或同源服务端校验；MCP 无绑定写工具；卡片不发布 teamMemberships（绑定图不出门）。", "提取表三条件 exists 精确判定。", "删口令校验提取为 0 即 FAIL。"] },
@@ -220,6 +220,9 @@ const U = [
   // ── UI 补齐（台数据查看器 + 上游配置 Tab）与冒烟就绪探测 ──
   { c: "判据149：web/src/components/AppDataDrawer.tsx 必须存在且包含数据/文件双面锚「提交数据」。", t: "台数据查看器钉位", s: "S1", ck: existsFact("web/src/components/AppDataDrawer.tsx", "提交数据"), rv: ["判据原文逐字取自冻结材料，市场 UI 里的台提交数据查看器（数据行 JSON + 文件下载 + 游标加载更多）——数据落库后业务方在本机 UI 可查（补齐「提交后看不见」的闭环缺口）。", "提取表三条件 exists 精确判定。", "删查看器提取为 0 即 FAIL。"] },
   { c: "判据150：scripts/a2a-smoke.mjs 必须包含就绪探测「waitReady」。", t: "冒烟就绪探测钉位", s: "S1", ck: existsFact("scripts/a2a-smoke.mjs", "waitReady"), rv: ["判据原文逐字取自冻结材料，六个冒烟实例统一改「/api/health 轮询等待（20s）」替代固定 3.5s 睡眠——批量跑时的偶发假红（实例未就绪即断言）根因治理。", "提取表三条件 exists 精确判定。", "删探测提取为 0 即 FAIL。"] },
+  // ── 管理员口令页面手动设置（主人要求：不必改环境变量+重启） ──
+  { c: "判据151：server/src/index.ts 必须包含口令库存储「admin_token_sha256」。", t: "口令手动设置钉位", s: "S1", ck: existsFact("server/src/index.ts", "admin_token_sha256"), rv: ["判据原文逐字取自冻结材料，口令可由本机页面设置（PUT /api/admin-token，仅验 sha256 不可逆）、删除（需当前口令）、状态查询；优先级 env ADMIN_TOKEN > 库内值 > 无（未设一律 403）；env 已设时页面不可改。", "提取表三条件 exists 精确判定。", "删存储锚提取为 0 即 FAIL。"] },
+  { c: "判据152：web/src/pages/Settings.tsx 必须包含口令设置 UI 锚「/api/admin-token」。", t: "口令设置界面钉位", s: "S1", ck: existsFact("web/src/pages/Settings.tsx", "/api/admin-token"), rv: ["判据原文逐字取自冻结材料，设置页「管理员口令」卡片：状态徽章（启动环境/已设置/未设置·休眠）+ 输入设置 + 清除（带确认）；设置即生效无需重启。", "提取表三条件 exists 精确判定。", "删界面提取为 0 即 FAIL。"] },
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
@@ -236,7 +239,7 @@ passed)——源自 E2E 内置的 Playwright 对比度探针（实测 DOM 前景
 提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
 脚本、验证器自举档案、设计规范与证据。
 命令执行型检查（typecheck、lint、build）不属于 CLI 闭集，由开发流程自行执行
-（E2E 与渲染层对比度结果经摘要表断言）；覆盖三十八个维度共 150 条判据：数据域完整性
+（E2E 与渲染层对比度结果经摘要表断言）；覆盖三十九个维度共 152 条判据：数据域完整性
 （判据1-9）、种子与配置（判据10-15）、提交物结构（判据16-35）、颜色可见性
 （判据36-51 与 57-58：经对比度审计的色值在源码与规范中的钉位，漂移即破坏已审计
 的可读性）、E2E 行为证据（判据52-54：规模下限、全绿、时间戳在位）、渲染层对比度

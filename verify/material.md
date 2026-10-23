@@ -148,3 +148,5 @@
 判据148：server/src/index.ts 必须包含上游身份透传锚「X-Market-Client」。
 判据149：web/src/components/AppDataDrawer.tsx 必须存在且包含数据/文件双面锚「提交数据」。
 判据150：scripts/a2a-smoke.mjs 必须包含就绪探测「waitReady」。
+判据151：server/src/index.ts 必须包含口令库存储「admin_token_sha256」。
+判据152：web/src/pages/Settings.tsx 必须包含口令设置 UI 锚「/api/admin-token」。

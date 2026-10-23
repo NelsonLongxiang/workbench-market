@@ -3599,6 +3599,54 @@
           "reason": "删探测提取为 0 即 FAIL。"
         }
       ]
+    },
+    {
+      "source_clause": "判据151：server/src/index.ts 必须包含口令库存储「admin_token_sha256」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，口令可由本机页面设置（PUT /api/admin-token，仅验 sha256 不可逆）、删除（需当前口令）、状态查询；优先级 env ADMIN_TOKEN > 库内值 > 无（未设一律 403）；env 已设时页面不可改。",
+          "anchor": {
+            "quote": "判据151：server/src/index.ts 必须包含口令库存储「admin_token_sha256」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删存储锚提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据152：web/src/pages/Settings.tsx 必须包含口令设置 UI 锚「/api/admin-token」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，设置页「管理员口令」卡片：状态徽章（启动环境/已设置/未设置·休眠）+ 输入设置 + 清除（带确认）；设置即生效无需重启。",
+          "anchor": {
+            "quote": "判据152：web/src/pages/Settings.tsx 必须包含口令设置 UI 锚「/api/admin-token」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删界面提取为 0 即 FAIL。"
+        }
+      ]
     }
   ]
 }

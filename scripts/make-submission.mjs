@@ -119,7 +119,7 @@ const TEXT_FACTS = [
   ["server/src/index.ts", "issue #7"],
   ["evidence/e2e_test.py", "e2e-import-probe"],
   ["scripts/make-submission.mjs", "issue #13"],
-  ["README.md", "150 条判据"],
+  ["README.md", "152 条判据"],
   ["server/src/a2a.ts", "canonicalPayload"],
   ["server/src/index.ts", "x-admin-token"],
   ["server/src/a2a.ts", "a2a_node8"],
@@ -169,6 +169,8 @@ const TEXT_FACTS = [
   ["server/src/index.ts", "X-Market-Client"],
   ["web/src/components/AppDataDrawer.tsx", "提交数据"],
   ["scripts/a2a-smoke.mjs", "waitReady"],
+  ["server/src/index.ts", "admin_token_sha256"],
+  ["web/src/pages/Settings.tsx", "/api/admin-token"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);
