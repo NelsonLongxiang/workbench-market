@@ -10,6 +10,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import multer from 'multer';
 import { svc } from './context.ts';
 import type { WorkbenchService } from './services/workbench.ts';
+import type { SopService } from './services/sop.ts';
+import type { AppService } from './services/app.ts';
+import type { AppDataService } from './services/app-data.ts';
+import type { CookieService } from './services/cookie.ts';
+import type { CockpitService } from './services/cockpit.ts';
+import type { SettingService } from './services/setting.ts';
 import { db, getSettings, dataDir, rowToWorkbench, rowToCockpit, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow, type SopRunRow } from './db.ts';
 import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
 import { parse as parseYaml } from 'yaml';
@@ -188,7 +194,7 @@ function workbenchUpdateCore(id: number, body: any): ReturnType<typeof rowToWork
   if (body.cookie_set_id !== undefined) {
     const cid = Number(body.cookie_set_id) || 0;
     if (cid > 0) {
-      const hit = db.prepare('SELECT id FROM cookie_sets WHERE id = ?').get(cid);
+      const hit = svc<CookieService>('cookie').byId(cid);
       if (!hit) bad(`cookie_set_id 不存在: ${cid}`);
     }
     (f as any).cookie_set_id = cid;
@@ -212,7 +218,7 @@ function workbenchDeleteCore(id: number): { ok: boolean; deleted: number } {
   const r = db.prepare('DELETE FROM workbenches WHERE id = ?').run(id);
   if (!r.changes) throw new HttpError(404, `workbench not found: ${id}`);
   // issue #9：删除工作台同步清掉各驾驶舱对它的面板引用——否则悬空面板会让之后每次保存布局 400
-  const cocks = db.prepare('SELECT * FROM cockpits').all() as unknown as CockpitRow[];
+  const cocks = svc<CockpitService>('cockpit').all() as unknown as CockpitRow[];
   for (const c of cocks) {
     let panels: PanelConfig[];
     try { panels = JSON.parse(c.layout_config || '[]'); } catch { continue; }
@@ -316,7 +322,7 @@ app.post('/api/check-all', wrap(async (_req, res) => {
 
 // ---------- 驾驶舱 CRUD（任务驾驶舱：多工作台分屏组合视图） ----------
 function getCockpit(id: number): CockpitRow {
-  const row = db.prepare('SELECT * FROM cockpits WHERE id = ?').get(id) as unknown as CockpitRow | undefined;
+  const row = svc<CockpitService>('cockpit').byId(id) as unknown as CockpitRow | undefined;
   if (!row) throw new HttpError(404, `cockpit not found: ${id}`);
   return row;
 }
@@ -343,7 +349,7 @@ function validatePanels(raw: unknown): PanelConfig[] {
 }
 
 app.get('/api/cockpits', (_req, res) => {
-  const rows = db.prepare('SELECT * FROM cockpits ORDER BY updated_at DESC, id DESC').all() as unknown as CockpitRow[];
+  const rows = svc<CockpitService>('cockpit').list() as unknown as CockpitRow[];
   res.json(rows.map(rowToCockpit));
 });
 
@@ -375,7 +381,7 @@ app.put('/api/cockpits/:id', (req, res) => {
 
 app.delete('/api/cockpits/:id', (req, res) => {
   const cur = getCockpit(Number(req.params.id));
-  db.prepare('DELETE FROM cockpits WHERE id = ?').run(cur.id);
+  svc<CockpitService>('cockpit').delete(cur.id);
   res.json({ ok: true });
 });
 
@@ -386,7 +392,7 @@ const MAX_APP_FILES = 64;
 const MAX_APP_TOTAL_BYTES = 2 * 1024 * 1024;
 
 function getApp(slug: string): AppRow {
-  const row = db.prepare('SELECT * FROM apps WHERE slug = ?').get(slug) as unknown as AppRow | undefined;
+  const row = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
   if (!row) throw new HttpError(404, `app not found: ${slug}`);
   return row;
 }
@@ -459,7 +465,7 @@ function syncWorkbenchRegistration(a: AppRow): number {
 }
 
 app.get('/api/apps', (_req, res) => {
-  const rows = db.prepare('SELECT * FROM apps ORDER BY updated_at DESC, id DESC').all() as unknown as AppRow[];
+  const rows = svc<AppService>('app').sops() as unknown as AppRow[];
   res.json(rows.map(appDetail));
 });
 
@@ -500,7 +506,7 @@ function parseSopManifest(yamlText: string): SopManifest {
 }
 
 function readActiveManifest(slug: string): { manifest: SopManifest; app: AppRow } | null {
-  const a = db.prepare("SELECT * FROM apps WHERE slug = ? AND kind = 'sop'").get(slug) as unknown as AppRow | undefined;
+  const a = svc<AppService>('app').sopBySlug(slug) as unknown as AppRow | undefined;
   if (!a) return null;
   const yamlPath = join(appsRoot, slug, `v${a.active_version}`, 'sop.yaml');
   if (!existsSync(yamlPath)) return null;
@@ -513,7 +519,7 @@ function publishAppBody(b: any): { status: number; body: object } {
   if (!SLUG_RE.test(slug)) bad('slug 必须是小写字母/数字/连字符（≤64 字符，字母或数字开头）');
   const kind = b.kind === 'sop' ? 'sop' : 'app';
   const files = validateAppFiles(b.files, kind);
-  const existing = db.prepare('SELECT * FROM apps WHERE slug = ?').get(slug) as unknown as AppRow | undefined;
+  const existing = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
   if (existing && existing.kind !== kind) bad(`slug 已被 ${existing.kind} 类台占用，kind 不可切换`);
 
   // SOP 类发布面：sop.yaml 必在且可解析、changelog 必填（版本化治理）
@@ -536,7 +542,7 @@ function publishAppBody(b: any): { status: number; body: object } {
     const description = b.description !== undefined ? String(b.description) : existing.description;
     const created_by = typeof b.created_by === 'string' && b.created_by.trim() ? b.created_by.trim() : existing.created_by;
     const code = typeof b.code === 'string' && b.code.trim() ? b.code.trim() : existing.code;
-    const maxV = db.prepare('SELECT MAX(version) AS v FROM app_versions WHERE app_id = ?').get(existing.id) as { v: number | null };
+    const maxV = svc<AppService>('app').versionsMax(existing.id) as { v: number | null };
     version = (maxV.v ?? 0) + 1;
     const st = writeAppFiles(slug, version, files);
     db.prepare(`UPDATE apps SET title = ?, description = ?, created_by = ?, code = ?, active_version = ?, updated_at = datetime('now') WHERE id = ?`)
@@ -576,7 +582,7 @@ function activateAppVersion(slug: string, vRaw: unknown): object {
   const a = getApp(slug);
   const v = Number(vRaw);
   if (!Number.isInteger(v) || v < 1) bad('version 必须是正整数');
-  const hit = db.prepare('SELECT version FROM app_versions WHERE app_id = ? AND version = ?').get(a.id, v) as { version: number } | undefined;
+  const hit = svc<AppService>('app').versionExists(a.id, v) as { version: number } | undefined;
   if (!hit) throw new HttpError(404, `版本不存在: ${v}`);
   db.prepare(`UPDATE apps SET active_version = ?, updated_at = datetime('now') WHERE id = ?`).run(v, a.id);
   return appDetail(getApp(a.slug));
@@ -589,13 +595,13 @@ app.post('/api/apps/:slug/activate', (req, res) => {
 app.delete('/api/apps/:slug', (req, res) => {
   const a = getApp(req.params.slug);
   rmSync(join(appsRoot, a.slug), { recursive: true, force: true });
-  db.prepare('DELETE FROM app_versions WHERE app_id = ?').run(a.id);
-  db.prepare('DELETE FROM apps WHERE id = ?').run(a.id);
+  svc<AppService>('app').versionsDelete(a.id);
+  svc<AppService>('app').delete(a.id);
   // 数据面/文件面一并清理（派单 direct-22838fab 与文件提交面）
-  db.prepare('DELETE FROM app_data WHERE app_slug = ?').run(a.slug);
-  const files = db.prepare('SELECT storage_path FROM app_files WHERE app_slug = ?').all(a.slug) as { storage_path: string }[];
+  svc<AppDataService>('appData').dataDelete(a.slug);
+  const files = svc<AppDataService>('appData').filePaths(a.slug) as { storage_path: string }[];
   for (const f of files) { try { rmSync(join(dataDir, f.storage_path), { force: true }); } catch { /* 已删 */ } }
-  db.prepare('DELETE FROM app_files WHERE app_slug = ?').run(a.slug);
+  svc<AppDataService>('appData').filesDelete(a.slug);
   // issue #6：SOP 台的注册 url 是 /sop/<slug>/（非 /apps/），删除时必须一并清理，否则留孤儿工作台（门户 404）
   db.prepare(`DELETE FROM workbenches WHERE (url = ? OR url = ?) AND type = 'market-app'`).run(`/apps/${a.slug}/`, `/sop/${a.slug}/`);
   res.json({ ok: true, deleted: a.slug });
@@ -718,7 +724,7 @@ app.get('/api/apps/:slug/files', (req, res) => {
 
 app.get('/api/apps/:slug/files/:id', (req, res) => {
   const a = getApp(req.params.slug);
-  const row = db.prepare('SELECT * FROM app_files WHERE id = ? AND app_slug = ?').get(Number(req.params.id), a.slug) as any;
+  const row = svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug) as any;
   if (!row) throw new HttpError(404, `file not found: ${req.params.id}`);
   const abs = join(dataDir, row.storage_path);
   if (!existsSync(abs)) throw new HttpError(404, 'stored file missing on disk');
@@ -734,7 +740,7 @@ app.get('/api/apps/:slug/files/:id', (req, res) => {
 
 // ---------- SOP 台：状态机（draft → published → deprecated）+ 执行 Runner + 分层持久化 ----------
 app.get('/api/sops', (_req, res) => {
-  const rows = db.prepare("SELECT * FROM apps WHERE kind = 'sop' ORDER BY updated_at DESC, id DESC").all() as unknown as AppRow[];
+  const rows = svc<AppService>('app').sops() as unknown as AppRow[];
   res.json(rows.map(appDetail));
 });
 
@@ -976,7 +982,7 @@ const checkpointAt = new Map<number, number>(); // runId → last checkpoint ms�
 const CHECKPOINT_MS = 30_000;
 
 function sopRunRow(id: number): SopRunRow {
-  const r = db.prepare('SELECT * FROM sop_runs WHERE id = ?').get(id) as unknown as SopRunRow | undefined;
+  const r = svc<SopService>('sop').runById(id) as unknown as SopRunRow | undefined;
   if (!r) throw new HttpError(404, `run not found: ${id}`);
   return r;
 }
@@ -1093,13 +1099,13 @@ app.post('/api/cookies', (req, res) => {
     if (typeof c?.value !== 'string') bad(`cookie "${c.name}" 缺 value`);
     clean.push({ name: c.name, value: c.value, domain: String(c.domain ?? ''), path: String(c.path ?? '/'), expirationDate: typeof c.expirationDate === 'number' ? c.expirationDate : undefined, httpOnly: !!c.httpOnly, sameSite: String(c.sameSite ?? '') });
   }
-  const r = db.prepare('INSERT INTO cookie_sets (label, cookies_json) VALUES (?, ?)').run(label, JSON.stringify(clean)) as unknown as { lastInsertRowid: number | bigint };
+  const r = svc<CookieService>('cookie').create(label, JSON.stringify(clean)) as unknown as { lastInsertRowid: number | bigint };
   const info = cookieExpiryInfo(clean);
   res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), label, cookie_count: clean.length, active: info.active, cookies: maskCookies(clean) });
 });
 
 app.get('/api/cookies', (_req, res) => {
-  const rows = db.prepare('SELECT * FROM cookie_sets ORDER BY id DESC').all() as unknown as CookieRow[];
+  const rows = svc<CookieService>('cookie').all() as unknown as CookieRow[];
   res.json(rows.map((r) => {
     let cookies: CookieExport[] = [];
     try { cookies = JSON.parse(r.cookies_json || '[]'); } catch { cookies = []; }
@@ -1115,7 +1121,7 @@ app.get('/api/cookies', (_req, res) => {
 
 app.delete('/api/cookies/:id', (req, res) => {
   const id = Number(req.params.id);
-  const r = db.prepare('DELETE FROM cookie_sets WHERE id = ?').run(id);
+  const r = svc<CookieService>('cookie').delete(id);
   if (!r.changes) throw new HttpError(404, `cookie set not found: ${id}`);
   // 挂接了该池的台自动取消引用
   db.prepare('UPDATE workbenches SET cookie_set_id = 0 WHERE cookie_set_id = ?').run(id);
@@ -1133,7 +1139,7 @@ app.get('/api/sop/runs/active', async (_req, res) => {
   // 快路径：Redis 活跃索引；降级态回落 SQLite
   const ids = await runActiveIds();
   if (ids.length > 0) {
-    const rows = ids.map((id) => db.prepare('SELECT * FROM sop_runs WHERE id = ? AND status = ?').get(id, 'running') as unknown as SopRunRow | undefined).filter(Boolean) as SopRunRow[];
+    const rows = ids.map((id) => svc<SopService>('sop').runByIdRunning(id) as unknown as SopRunRow | undefined).filter(Boolean) as SopRunRow[];
     return res.json(rows);
   }
   const rows = db.prepare("SELECT * FROM sop_runs WHERE status = 'running' ORDER BY updated_at DESC").all() as unknown as SopRunRow[];
@@ -1300,7 +1306,7 @@ app.put('/api/admin-token', (req, res) => {
   if (hasExisting && !dbAdminTokenOk(req.headers['x-admin-token'])) {
     return res.status(403).json({ error: '修改口令需先在请求头带上当前口令（X-Admin-Token）' });
   }
-  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(ADMIN_TOKEN_KEY, hashAdminToken(token));
+  svc<SettingService>('setting').put(ADMIN_TOKEN_KEY, hashAdminToken(token));
   res.json({ ok: true, source: 'db', note: '口令已设置并立即生效（库存 sha256，不可取回）' });
 });
 
@@ -1308,7 +1314,7 @@ app.delete('/api/admin-token', (req, res) => {
   if (!isLoopbackReq(req)) return res.status(403).json({ error: '仅本机可清除管理员口令' });
   if (process.env.ADMIN_TOKEN) return res.status(400).json({ error: '口令来自启动环境，需清环境变量并重启' });
   if (!dbAdminTokenOk(req.headers['x-admin-token'])) return res.status(403).json({ error: '需当前口令' });
-  db.prepare('DELETE FROM settings WHERE key = ?').run(ADMIN_TOKEN_KEY);
+  svc<SettingService>('setting').delete(ADMIN_TOKEN_KEY);
   res.json({ ok: true, source: 'none' });
 });
 
@@ -1415,7 +1421,7 @@ app.post('/api/import', (req, res) => {
   // （保存布局恒 400）——导入完成后全量剔除不存在引用（比按 id 精确清理更通用，也清历史遗留）
   {
     const exists = db.prepare('SELECT 1 AS x FROM workbenches WHERE id = ?');
-    for (const c of db.prepare('SELECT * FROM cockpits').all() as unknown as CockpitRow[]) {
+    for (const c of svc<CockpitService>('cockpit').all() as unknown as CockpitRow[]) {
       let panels: PanelConfig[];
       try { panels = JSON.parse(c.layout_config || '[]'); } catch { continue; }
       const kept = panels.filter((p) => exists.get(p.workbenchId));
@@ -2184,7 +2190,7 @@ app.use((req, res, next) => {
     const rawWb = db.prepare('SELECT cookie_set_id FROM workbenches WHERE id = ?').get(Number(m[1])) as { cookie_set_id?: number } | undefined;
     const csid = rawWb?.cookie_set_id ?? 0;
     if (csid > 0) {
-      const cs = db.prepare('SELECT cookies_json FROM cookie_sets WHERE id = ?').get(csid) as { cookies_json: string } | undefined;
+      const cs = svc<CookieService>('cookie').cookiesJsonById(csid) as { cookies_json: string } | undefined;
       if (cs) {
         try {
           const cookies: CookieExport[] = JSON.parse(cs.cookies_json || '[]');

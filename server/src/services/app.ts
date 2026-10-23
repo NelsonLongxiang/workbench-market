@@ -13,6 +13,12 @@ export class AppService extends Service {
   all() {
     return db.prepare('SELECT * FROM apps ORDER BY updated_at DESC, id DESC').all();
   }
+  sops() {
+    return db.prepare("SELECT * FROM apps WHERE kind = 'sop' ORDER BY updated_at DESC, id DESC").all();
+  }
+  sopBySlug(slug: string) {
+    return db.prepare("SELECT * FROM apps WHERE slug = ? AND kind = 'sop'").get(slug);
+  }
   delete(id: number) {
     return db.prepare('DELETE FROM apps WHERE id = ?').run(id);
   }

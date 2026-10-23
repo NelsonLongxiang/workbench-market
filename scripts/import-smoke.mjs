@@ -17,7 +17,9 @@ const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 
   env: { ...process.env, PORT: String(PORT), DATA_DIR: `../${DATA}`, REDIS_URL: '' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
-await new Promise((r) => setTimeout(r, 3500));
+child.stderr.on('data', (d) => process.stderr.write(String(d)));
+child.on('exit', (c) => { if (c !== null && c !== 0) console.error('[import-smoke] 子进程异常退出', c); });
+await new Promise((r) => setTimeout(r, 5000));
 
 async function call(method, path, body) {
   const r = await fetch(BASE + path, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
