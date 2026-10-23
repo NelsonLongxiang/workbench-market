@@ -1360,7 +1360,8 @@ app.post('/api/import', (req, res) => {
     for (const c of svc<CockpitService>('cockpit').all() as unknown as CockpitRow[]) {
       let panels: PanelConfig[];
       try { panels = JSON.parse(c.layout_config || '[]'); } catch { continue; }
-      const kept = panels.filter((p) => wbExists(p.workbenchId));
+      // 待办卡 kind='tasks' 以 workbenchId=0 占位、不引用工作台，不参与悬空剔除
+      const kept = panels.filter((p) => p.kind === 'tasks' || wbExists(p.workbenchId));
       if (kept.length !== panels.length) {
         svc<CockpitService>('cockpit').setLayout(c.id, JSON.stringify(kept));
       }
