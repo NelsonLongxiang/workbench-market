@@ -1278,7 +1278,7 @@ app.get('/api/settings', (_req, res) => { res.json(getSettings()); });
 app.put('/api/settings', (req, res) => {
   const b = req.body ?? {};
   if (typeof b !== 'object' || b === null) bad('body 必须是 {key: value} 对象');
-  const allowed = ['health_interval_seconds', 'health_timeout_ms', 'health_concurrency', 'a2a_peers'];
+  const allowed = ['health_interval_seconds', 'health_timeout_ms', 'health_concurrency', 'a2a_peers', 'mcp_upstreams'];
   const upd = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
   for (const [k, v] of Object.entries(b)) {
     if (!allowed.includes(k)) continue;
@@ -1755,7 +1755,107 @@ async function callTool(name: string, args: any): Promise<unknown> {
   }
 }
 
-// ---------- MCP 网关 P1（GH #20：会话/令牌/授权/审计——env MCP_GATEWAY=on 激活，默认 off=现状行为） ----------
+// ---------- MCP 上游聚合（GH #20 P2：外部 MCP 服务以 <prefix>__<tool> 并入市场 /mcp） ----------
+// 配置：settings.mcp_upstreams = JSON 数组 [{prefix,url,headers?,enabled?,toolCallTimeoutMs?}]
+// prefix 规范 [a-z][a-z0-9]{0,15}（与本地工具名不冲突——本地工具无 __ 分隔）。
+// 工具列表 30s 缓存（每请求不直打上游）；上游不可达时跳过其工具、不影响本地工具面。
+interface McpUpstream { prefix: string; url: string; headers?: Record<string, string>; enabled?: boolean; toolCallTimeoutMs?: number }
+const MCP_UPSTREAM_PREFIX_RE = /^[a-z][a-z0-9]{0,15}$/;
+const upstreamToolCache = new Map<string, { at: number; tools: { name: string; description: string; inputSchema: Record<string, unknown> }[] }>();
+const UPSTREAM_CACHE_MS = 30_000;
+
+function mcpUpstreams(): McpUpstream[] {
+  try {
+    const raw = getSettings()['mcp_upstreams'] ?? '';
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr.filter((u: any) => u && typeof u.prefix === 'string' && MCP_UPSTREAM_PREFIX_RE.test(u.prefix) && typeof u.url === 'string' && /^https?:\/\//.test(u.url) && u.enabled !== false);
+  } catch {
+    return [];
+  }
+}
+
+async function upstreamRpc(u: McpUpstream, method: string, params: unknown, id = 1): Promise<any> {
+  const timeout = u.toolCallTimeoutMs && u.toolCallTimeoutMs > 0 ? u.toolCallTimeoutMs : 15_000;
+  const r = await fetch(u.url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...(u.headers ?? {}) },
+    body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
+    signal: AbortSignal.timeout(timeout),
+  });
+  if (!r.ok) throw new Error(`upstream ${u.prefix} HTTP ${r.status}`);
+  const text = await r.text();
+  // 兼容 SSE 形态（data: {...}）与纯 JSON
+  const payload = text.trim().startsWith('data:') ? text.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim()).join('') : text;
+  const j = JSON.parse(payload);
+  if (j.error) throw new Error(`upstream ${u.prefix}: ${j.error.message ?? 'error'}`);
+  return j.result;
+}
+
+/** 聚合工具面：本地 17 + 各上游（<prefix>__<name>）；上游失败静默跳过 */
+async function mcpAggregatedTools(): Promise<{ name: string; description: string; inputSchema: Record<string, unknown> }[]> {
+  const out = [...MCP_TOOLS];
+  const ups = mcpUpstreams();
+  for (const u of ups) {
+    const cached = upstreamToolCache.get(u.prefix);
+    if (cached && Date.now() - cached.at < UPSTREAM_CACHE_MS) {
+      out.push(...cached.tools.map((t) => ({ ...t, name: `${u.prefix}__${t.name}`, description: `[${u.prefix}] ${t.description}` })));
+      continue;
+    }
+    try {
+      const res = await upstreamRpc(u, 'tools/list', {}, 1);
+      const tools = (res?.tools ?? []) as { name: string; description?: string; inputSchema?: Record<string, unknown> }[];
+      upstreamToolCache.set(u.prefix, {
+        at: Date.now(),
+        tools: tools.filter((t) => typeof t.name === 'string').map((t) => ({ name: t.name, description: t.description ?? '', inputSchema: t.inputSchema ?? { type: 'object', properties: {} } })),
+      });
+      out.push(...tools.filter((t) => typeof t.name === 'string').map((t) => ({ name: `${u.prefix}__${t.name}`, description: `[${u.prefix}] ${t.description ?? ''}`, inputSchema: t.inputSchema ?? { type: 'object', properties: {} } })));
+    } catch {
+      /* 上游不可达：跳过，不影响本地工具面 */
+    }
+  }
+  return out;
+}
+
+/** 上游工具路由：taste__rules → (upstream taste, tool rules) */
+function routeUpstream(toolName: string): { upstream: McpUpstream; remoteTool: string } | null {
+  const i = toolName.indexOf('__');
+  if (i <= 0) return null;
+  const prefix = toolName.slice(0, i);
+  const remoteTool = toolName.slice(i + 2);
+  if (!remoteTool) return null;
+  const u = mcpUpstreams().find((x) => x.prefix === prefix);
+  return u ? { upstream: u, remoteTool } : null;
+}
+
+/** 当前注册表（本地 + 上游可用工具名；grants 校验用） */
+async function mcpRegisteredNames(): Promise<Set<string>> {
+  return new Set((await mcpAggregatedTools()).map((t) => t.name));
+}
+
+app.get('/api/mcp/upstreams', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  res.json(mcpUpstreams().map((u) => ({ prefix: u.prefix, url: u.url, enabled: u.enabled !== false, headers: Object.keys(u.headers ?? {}), toolCallTimeoutMs: u.toolCallTimeoutMs ?? 15000 })));
+});
+
+app.put('/api/mcp/upstreams', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const arr = req.body?.upstreams;
+  if (!Array.isArray(arr)) bad('upstreams 必须是数组（整体替换语义）');
+  const clean: McpUpstream[] = [];
+  for (const u of arr) {
+    if (!u || typeof u.prefix !== 'string' || !MCP_UPSTREAM_PREFIX_RE.test(u.prefix)) bad(`prefix 规范：[a-z][a-z0-9]{0,15}——${JSON.stringify(u?.prefix)}`);
+    if (typeof u.url !== 'string' || !/^https?:\/\//.test(u.url)) bad(`上游 ${u.prefix} 的 url 必须是 http(s)://`);
+    if (u.headers !== undefined && (typeof u.headers !== 'object' || u.headers === null || Object.values(u.headers).some((v) => typeof v !== 'string'))) bad(`上游 ${u.prefix} 的 headers 必须是字符串映射`);
+    clean.push({ prefix: u.prefix, url: u.url, headers: u.headers ?? {}, enabled: u.enabled !== false, toolCallTimeoutMs: Number(u.toolCallTimeoutMs) || 15000 });
+  }
+  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('mcp_upstreams', JSON.stringify(clean));
+  upstreamToolCache.clear();
+  res.json({ ok: true, upstreams: clean.map((u) => ({ prefix: u.prefix, url: u.url, enabled: u.enabled !== false })) });
+});
+
+
 // 合并与激活解耦：代码进 main 可评审；激活=主人同设 ADMIN_TOKEN+MCP_GATEWAY=on 重启
 // （单设 MCP_GATEWAY 而无 ADMIN_TOKEN 时控制面全 403，无法建会话 → /mcp 全 401，拒绝半激活）。
 const MCP_GATEWAY_ON = process.env.MCP_GATEWAY === 'on';
@@ -1803,24 +1903,33 @@ app.delete('/api/mcp/sessions/:id', (req, res) => {
   res.json({ ok: true, revoked: id });
 });
 
-app.put('/api/mcp/sessions/:id/grants', (req, res) => {
+app.put('/api/mcp/sessions/:id/grants', (req, res, next) => {
   if (!adminGuard(req, res)) return;
   const id = Number(req.params.id);
   const sess = db.prepare('SELECT id FROM mcp_sessions WHERE id = ?').get(id);
   if (!sess) throw new HttpError(404, `session not found: ${id}`);
   const raw = req.body?.grants;
   if (!Array.isArray(raw)) bad('grants 必须是工具名数组（整体替换语义）');
-  const registered = new Set(MCP_TOOLS.map((t) => t.name));
-  for (const g of raw) {
-    if (typeof g !== 'string' || !registered.has(g)) bad(`未知工具名: ${JSON.stringify(g)}（合法面见 GET /api/mcp/tools）`);
-  }
-  db.prepare('UPDATE mcp_sessions SET grants = ? WHERE id = ?').run(JSON.stringify(raw), id);
-  res.json({ ok: true, id, grants: raw });
+  // 注册表 = 本地工具 + 上游聚合工具（P2：taste__rules 等也可授权）
+  void mcpRegisteredNames().then((registered) => {
+    try {
+      for (const g of raw) {
+        if (typeof g !== 'string' || !registered.has(g)) bad(`未知工具名: ${JSON.stringify(g)}（合法面见 GET /api/mcp/tools）`);
+      }
+      db.prepare('UPDATE mcp_sessions SET grants = ? WHERE id = ?').run(JSON.stringify(raw), id);
+      res.json({ ok: true, id, grants: raw });
+    } catch (e) {
+      next(e);
+    }
+  }).catch(next);
 });
 
-app.get('/api/mcp/tools', (req, res) => {
+app.get('/api/mcp/tools', (req, res, next) => {
   if (!adminGuard(req, res)) return;
-  res.json(MCP_TOOLS.map((t) => ({ name: t.name, description: t.description })));
+  // 本地 + 上游聚合面（上游不可达时只列本地，不报错）
+  void mcpAggregatedTools()
+    .then((tools) => res.json(tools.map((t) => ({ name: t.name, description: t.description }))))
+    .catch(next);
 });
 
 app.get('/api/mcp/calls', (req, res) => {
@@ -1878,7 +1987,8 @@ app.post('/mcp', async (req, res) => {
       return res.json({ jsonrpc: '2.0', id: msg.id, result: {} });
     }
     if (msg.method === 'tools/list') {
-      const tools = sess ? MCP_TOOLS.filter((t) => sess!.grants.includes(t.name)) : MCP_TOOLS; // 按授权过滤
+      const all = await mcpAggregatedTools(); // 本地 17 + 上游（P2 聚合）
+      const tools = sess ? all.filter((t) => sess!.grants.includes(t.name)) : all; // 按授权过滤
       audit('tools/list', '', true, '', Date.now() - t0, null);
       return res.json({ jsonrpc: '2.0', id: msg.id, result: { tools } });
     }
@@ -1894,8 +2004,17 @@ app.post('/mcp', async (req, res) => {
         return fail(-32601, `Method not found: ${msg.method}`); // 与未知工具同文案族
       }
       try {
-        const out = await callTool(toolName, msg.params.arguments ?? {});
+        // 上游路由（P2）：<prefix>__<tool> → 转发到对应上游 MCP
+        const up = routeUpstream(toolName);
+        const out = up
+          ? await upstreamRpc(up.upstream, 'tools/call', { name: up.remoteTool, arguments: msg.params.arguments ?? {} }, 2)
+          : await callTool(toolName, msg.params.arguments ?? {});
         audit('tools/call', toolName, true, '', Date.now() - t0, msg.params?.arguments);
+        // 上游结果已是 MCP 形状（{content,isError?}）→ 原样透传（下游客户端语义无损）；
+        // 本地工具结果是业务对象 → 序列化为 text content。
+        if (up && out && typeof out === 'object' && Array.isArray((out as any).content)) {
+          return res.json({ jsonrpc: '2.0', id: msg.id, result: out });
+        }
         return res.json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }] } });
       } catch (e: any) {
         // 工具执行失败按 MCP 规范走 isError（协议层错误才用 JSON-RPC error）
