@@ -1,9 +1,9 @@
 {
   "total": 25,
-  "passed": 25,
-  "failed": 0,
-  "all_passed": 1,
-  "finished_at": "2026-10-23T19:20:24.035920+00:00",
+  "passed": 13,
+  "failed": 12,
+  "all_passed": 0,
+  "finished_at": "2026-10-23T21:26:59.027528+00:00",
   "contrast_checks": [
     {
       "text": "在线",
