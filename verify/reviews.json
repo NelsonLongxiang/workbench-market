@@ -3479,6 +3479,54 @@
           "reason": "删校验提取为 0 即 FAIL。"
         }
       ]
+    },
+    {
+      "source_clause": "判据146：server/src/index.ts 必须包含上游聚合核心「mcpAggregatedTools」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，settings.mcp_upstreams 配置外部上游；tools/list 聚合为本地+<prefix>__<tool>（30s 缓存）；tools/call 按前缀路由转发且上游结果原样透传；上游不可达静默降级（工具面回落本地，不崩）；grants 校验用动态注册表（上游工具名可授权）。",
+          "anchor": {
+            "quote": "判据146：server/src/index.ts 必须包含上游聚合核心「mcpAggregatedTools」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删聚合提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据147：scripts/upstream-smoke.mjs 必须包含行为锚「taste__rules 转发成功」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，独立实例 + 假上游 14 项：配置 CRUD/坏 prefix 400/聚合 19 工具/前缀工具在场/转发与参数透传/本地工具照常/上游名可授权/不可达回落 17。",
+          "anchor": {
+            "quote": "判据147：scripts/upstream-smoke.mjs 必须包含行为锚「taste__rules 转发成功」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删断言提取为 0 即 FAIL。"
+        }
+      ]
     }
   ]
 }

@@ -3240,7 +3240,7 @@
               {
                 "col": "needle",
                 "op": "=",
-                "value": "145 条判据"
+                "value": "147 条判据"
               },
               {
                 "col": "present",
@@ -4918,6 +4918,84 @@
                 "col": "needle",
                 "op": "=",
                 "value": "pageLimit"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据146：server/src/index.ts 必须包含上游聚合核心「mcpAggregatedTools」。",
+      "anchor": {
+        "quote": "判据146：server/src/index.ts 必须包含上游聚合核心「mcpAggregatedTools」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "上游聚合钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "mcpAggregatedTools"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据147：scripts/upstream-smoke.mjs 必须包含行为锚「taste__rules 转发成功」。",
+      "anchor": {
+        "quote": "判据147：scripts/upstream-smoke.mjs 必须包含行为锚「taste__rules 转发成功」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "聚合行为断言钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "scripts/upstream-smoke.mjs"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "taste__rules 转发成功"
               },
               {
                 "col": "present",

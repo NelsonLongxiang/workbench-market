@@ -1,0 +1,4425 @@
+{
+  "contract_version": "1.2",
+  "run_id": "run_01e6c1ad5b092d65",
+  "spec_id": "spec_2a2053296216",
+  "started": "2026-10-23T09:07:23.597Z",
+  "finished": "2026-10-23T09:07:23.848Z",
+  "verifier": {
+    "mode": "open",
+    "engine_version": "0.1.0",
+    "spec_version": 1,
+    "corpus_version": "1.2",
+    "sealed_review": false
+  },
+  "as_of": {
+    "kind": "snapshot",
+    "value": "2026-10-23T09:07:22.652Z"
+  },
+  "summary": {
+    "pass": 147,
+    "fail": 0,
+    "needs_material": 0,
+    "error": 0
+  },
+  "overall": "PASS",
+  "reason": "all 147 assert units passed",
+  "vu": [
+    {
+      "id": "V1",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据1：类型的 key 字段不得为空。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 9,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "types",
+            "rows": 9
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT id, key FROM types WHERE (key IS NULL)",
+          "scopeSql": "SELECT count(*) AS n FROM types"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V10",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据10：类型库中的工作台类型不少于 8 个。",
+      "checker_type": "count",
+      "witness": {
+        "rows_scanned": 9,
+        "rows_matched": 9,
+        "sources": [
+          {
+            "table": "types",
+            "rows": 9
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "count": 9,
+        "op": ">=",
+        "expected": 8
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V100",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-probe」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V101",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V102",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据102：README.md 必须包含验证器判据数锚「144 条判据」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V103",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据103：server/src/a2a.ts 必须包含上游一致签名面「canonicalPayload」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V104",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据104：server/src/index.ts 必须包含绑定管理口令头「x-admin-token」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V105",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据105：server/src/a2a.ts 必须包含节点短 id 持久化「a2a_node8」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V106",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据106：scripts/a2a-smoke.mjs 必须包含上游裁判「verifyCard」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V107",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据107：server/src/index.ts 必须包含 run 持久化链共用核心「sopRunStepSaveCore」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V108",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据108：server/src/index.ts 必须包含 MCP 执行数据工具注册「sop_run_step_save」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V109",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据109：evidence/e2e_test.py 必须包含人机同链断言字面量「agent-填-1」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V11",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据11：内置类型 web 必须存在于类型库。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 9,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "types",
+            "rows": 9
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V110",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据110：server/src/index.ts 必须包含导出脱敏锚「compliance 二期首项」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V111",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据111：server/src/index.ts 必须包含导入掩码跳过锚「掩码行（url 含 =****）不落库」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V112",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据112：evidence/e2e_test.py 必须包含导出脱敏断言字面量「E2E MaskImport」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V113",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据113：server/src/index.ts 必须包含注册 CRUD 共用核心「workbenchCreateCore」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V114",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据114：server/src/index.ts 必须包含 MCP 凭据拒绝锚「凭据不接受 MCP 写入」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V115",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据115：evidence/e2e_test.py 必须包含 CRUD 行为断言字面量「E2E MCP 台」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V116",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据116：evidence/e2e_test.py 必须包含导入隔离锚「import-smoke」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V117",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据117：README.md 必须包含执行数据工具名「sop_run_step_save」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V118",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据118：README.md 必须包含注册工具名「workbench_register」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V119",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据119：evidence/e2e_test.py 必须包含 CORS 行为断言锚「access-control-allow-origin」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V12",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据12：ollama 类型的探测路径必须为 /api/tags。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 9,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "types",
+            "rows": 9
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V120",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据120：evidence/e2e_test.py 必须包含协议错误断言锚「-32601」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V121",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据121：evidence/e2e_test.py 必须包含 draft 泄漏探针锚「SecretStep」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V122",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据122：server/src/a2a.ts 必须包含 direct 准入核心「a2aDirectHandle」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V123",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据123：server/src/index.ts 必须包含 DELIVERED 路由桥「a2aDirectHandle」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V124",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据124：server/src/a2a.ts 必须包含幂等族锚「-32003」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V125",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据125：scripts/a2a-smoke.mjs 必须包含 P2 行为锚「TASK_STATE_DELIVERED」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V126",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据126：server/src/index.ts 必须包含网关开关「MCP_GATEWAY」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V127",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据127：server/src/index.ts 必须包含会话表「mcp_sessions」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V128",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据128：server/src/index.ts 必须包含审计表「mcp_calls」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V129",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据129：server/src/index.ts 必须包含远程收口锚「REMOTE_ALLOW_EXACT」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V13",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据13：streamlit 类型的探测路径必须为 /_stcore/health。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 9,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "types",
+            "rows": 9
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V130",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据130：scripts/gateway-smoke.mjs 必须包含网关行为锚「WWW-Authenticate」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V131",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据131：web/src/pages/McpGateways.tsx 必须包含管理页语义锚「默认拒绝」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V132",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据132：web/src/App.tsx 必须包含管理页路由「'/mcp-gateways'」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V133",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据133：ADMIN-TOKEN-SETUP.md 必须包含主人操作锚「setx ADMIN_TOKEN」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V134",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据134：server/src/index.ts 必须包含 cookie 池表「cookie_sets」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V135",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据135：server/src/index.ts 必须包含 Cookie 注入锚「goCookies」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V136",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据136：scripts/cookie-smoke.mjs 必须包含行为锚「过期 cookie 被过滤」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V137",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据137：server/src/index.ts 必须包含数据面表「app_data」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V138",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据138：scripts/appdata-smoke.mjs 必须包含行为锚「游标翻页」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V139",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据139：server/src/index.ts 必须包含文件面表「app_files」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V14",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据14：巡检设置必须包含 health_interval_seconds、health_timeout_ms、health_concurrency 三个键。",
+      "checker_type": "count",
+      "witness": {
+        "rows_scanned": 4,
+        "rows_matched": 3,
+        "sources": [
+          {
+            "table": "settings",
+            "rows": 4
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "count": 3,
+        "op": "==",
+        "expected": 3
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V140",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据140：server/src/index.ts 必须包含文件名编码修复「fixFileName」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V141",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据141：scripts/appfiles-smoke.mjs 必须包含行为锚「50MB 上限 → 413」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V142",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据142：server/src/index.ts 必须包含远程白名单前缀「REMOTE_ALLOW_PREFIX」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V143",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据143：server/src/index.ts 必须包含读工具「app_data_list」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V144",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据144：evidence/e2e_test.py 必须包含 MCP 读工具行为锚「app_files_list」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V145",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据145：server/src/index.ts 必须包含分页校验「pageLimit」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V146",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据146：server/src/index.ts 必须包含上游聚合核心「mcpAggregatedTools」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V147",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据147：scripts/upstream-smoke.mjs 必须包含行为锚「taste__rules 转发成功」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V15",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据15：工作台表中至少注册了 1 个工作台。",
+      "checker_type": "count",
+      "witness": {
+        "rows_scanned": 16,
+        "rows_matched": 16,
+        "sources": [
+          {
+            "table": "workbenches",
+            "rows": 16
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "count": 16,
+        "op": ">=",
+        "expected": 1
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V16",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据16：封装提交物必须包含 README.md。",
+      "checker_type": "file",
+      "witness": {
+        "rows_scanned": 100,
+        "rows_matched": 1,
+        "sources": [],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "files": 100,
+        "matched": 1,
+        "ignored": 0,
+        "problems": []
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V17",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据17：封装提交物必须包含根目录 package.json。",
+      "checker_type": "file",
+      "witness": {
+        "rows_scanned": 100,
+        "rows_matched": 1,
+        "sources": [],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "files": 100,
+        "matched": 1,
+        "ignored": 0,
+        "problems": []
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V18",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据18：封装提交物必须包含 pnpm-workspace.yaml。",
+      "checker_type": "file",
+      "witness": {
+        "rows_scanned": 100,
+        "rows_matched": 1,
+        "sources": [],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "files": 100,
+        "matched": 1,
+        "ignored": 0,
+        "problems": []
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V19",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据19：封装提交物必须包含 server/package.json。",
+      "checker_type": "file",
+      "witness": {
+        "rows_scanned": 100,
+        "rows_matched": 1,
+        "sources": [],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "files": 100,
+        "matched": 1,
+        "ignored": 0,
+        "problems": []
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V2",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据2：类型的 health_method 字段必须等于 GET 或 HEAD。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 9,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "types",
+            "rows": 9
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT id, health_method FROM types WHERE NOT (health_method IN ('GET', 'HEAD'))",
+          "scopeSql": "SELECT count(*) AS n FROM types"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V20",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据20：封装提交物必须包含 web/package.json。",
+      "checker_type": "file",
+      "witness": {
+        "rows_scanned": 100,
+        "rows_matched": 1,
+        "sources": [],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "files": 100,
+        "matched": 1,
+        "ignored": 0,
+        "problems": []
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V21",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据21：封装提交物必须包含 server/src/index.ts。",
+      "checker_type": "file",
+      "witness": {
+        "rows_scanned": 100,
+        "rows_matched": 1,
+        "sources": [],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "files": 100,
+        "matched": 1,
+        "ignored": 0,
+        "problems": []
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V22",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据22：封装提交物必须包含 server/src/db.ts。",
+      "checker_type": "file",
+      "witness": {
+        "rows_scanned": 100,
+        "rows_matched": 1,
+        "sources": [],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "files": 100,
+        "matched": 1,
+        "ignored": 0,
+        "problems": []
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V23",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据23：封装提交物必须包含 server/src/health.ts。",
+      "checker_type": "file",
+      "witness": {
+        "rows_scanned": 100,
+        "rows_matched": 1,
+        "sources": [],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "files": 100,
+        "matched": 1,
+        "ignored": 0,
+        "problems": []
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V24",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据24：封装提交物 web/src/pages 目录下的页面组件不少于 6 个。",
+      "checker_type": "file",
+      "witness": {
+        "rows_scanned": 100,
+        "rows_matched": 8,
+        "sources": [],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "files": 100,
+        "matched": 8,
+        "ignored": 0,
+        "problems": []
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V25",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S3",
+      "source_clause": "判据25：封装提交物 web/src/components 目录下的组件不少于 2 个。",
+      "checker_type": "file",
+      "witness": {
+        "rows_scanned": 100,
+        "rows_matched": 2,
+        "sources": [],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "files": 100,
+        "matched": 2,
+        "ignored": 0,
+        "problems": []
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V26",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据26：封装提交物必须包含 web/dist/index.html。",
+      "checker_type": "file",
+      "witness": {
+        "rows_scanned": 100,
+        "rows_matched": 1,
+        "sources": [],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "files": 100,
+        "matched": 1,
+        "ignored": 0,
+        "problems": []
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V27",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据27：封装提交物 web/dist/assets 目录下的 JS 产物不少于 5 个。",
+      "checker_type": "file",
+      "witness": {
+        "rows_scanned": 100,
+        "rows_matched": 6,
+        "sources": [],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "files": 100,
+        "matched": 6,
+        "ignored": 0,
+        "problems": []
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V28",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据28：封装提交物必须包含 scripts/make-submission.mjs。",
+      "checker_type": "file",
+      "witness": {
+        "rows_scanned": 100,
+        "rows_matched": 1,
+        "sources": [],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "files": 100,
+        "matched": 1,
+        "ignored": 0,
+        "problems": []
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V29",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据29：封装提交物必须包含 scripts/verify-report.mjs。",
+      "checker_type": "file",
+      "witness": {
+        "rows_scanned": 100,
+        "rows_matched": 1,
+        "sources": [],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "files": 100,
+        "matched": 1,
+        "ignored": 0,
+        "problems": []
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V3",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据3：类型的 expect_status 字段必须为空或落在 100 到 599 之间。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 9,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "types",
+            "rows": 9
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT id, expect_status FROM types WHERE (expect_status IS NOT NULL AND (expect_status < 100 OR expect_status > 599))",
+          "scopeSql": "SELECT count(*) AS n FROM types"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V30",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据30：封装提交物必须包含 verify/material.md。",
+      "checker_type": "file",
+      "witness": {
+        "rows_scanned": 100,
+        "rows_matched": 1,
+        "sources": [],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "files": 100,
+        "matched": 1,
+        "ignored": 0,
+        "problems": []
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V31",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据31：封装提交物必须包含 verify/candidates.json。",
+      "checker_type": "file",
+      "witness": {
+        "rows_scanned": 100,
+        "rows_matched": 1,
+        "sources": [],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "files": 100,
+        "matched": 1,
+        "ignored": 0,
+        "problems": []
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V32",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据32：封装提交物必须包含 verify/reviews.json。",
+      "checker_type": "file",
+      "witness": {
+        "rows_scanned": 100,
+        "rows_matched": 1,
+        "sources": [],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "files": 100,
+        "matched": 1,
+        "ignored": 0,
+        "problems": []
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V33",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据33：封装提交物必须包含 design-system/workbench-market/MASTER.md。",
+      "checker_type": "file",
+      "witness": {
+        "rows_scanned": 100,
+        "rows_matched": 1,
+        "sources": [],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "files": 100,
+        "matched": 1,
+        "ignored": 0,
+        "problems": []
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V34",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据34：封装提交物必须包含 evidence/e2e_test.py。",
+      "checker_type": "file",
+      "witness": {
+        "rows_scanned": 100,
+        "rows_matched": 1,
+        "sources": [],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "files": 100,
+        "matched": 1,
+        "ignored": 0,
+        "problems": []
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V35",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S3",
+      "source_clause": "判据35：封装提交物 evidence 目录下的 PNG 截图证据不少于 10 张。",
+      "checker_type": "file",
+      "witness": {
+        "rows_scanned": 100,
+        "rows_matched": 45,
+        "sources": [],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "files": 100,
+        "matched": 45,
+        "ignored": 0,
+        "problems": []
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V36",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据36：main.tsx 主题必须包含主色值「#1E3A5F」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V37",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据37：main.tsx 主题必须包含次级文字色值「#5A6577」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V38",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S3",
+      "source_clause": "判据38：main.tsx 主题必须包含成功色值「#059669」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V39",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据39：main.tsx 主题必须包含错误色值「#DC2626」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V4",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据4：类型的 default_port 字段必须为空或落在 1 到 65535 之间。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 9,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "types",
+            "rows": 9
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT id, default_port FROM types WHERE (default_port IS NOT NULL AND (default_port < 1 OR default_port > 65535))",
+          "scopeSql": "SELECT count(*) AS n FROM types"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V40",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据40：App.tsx 侧栏 token 必须包含深底色值「#0F172A」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V41",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据41：index.css 必须包含焦点环色值「rgba(5, 150, 105, 0.6)」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V42",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S3",
+      "source_clause": "判据42：index.css 必须包含选中边框色值「rgba(5, 150, 105, 0.45)」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V43",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S3",
+      "source_clause": "判据43：App.tsx 标题区必须包含强调色值「#059669」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V44",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S3",
+      "source_clause": "判据44：设计规范 MASTER.md 必须包含主色值「#1E3A5F」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V45",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S3",
+      "source_clause": "判据45：设计规范 MASTER.md 必须包含次级文字审计色值「#5A6577」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V46",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据46：Dashboard.tsx 统计标签必须包含次级色值「#5A6577」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V47",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据47：Dashboard.tsx 在线环必须包含成功色值「#059669」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V48",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据48：Dashboard.tsx 离线卡必须包含错误色值「#DC2626」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V49",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S3",
+      "source_clause": "判据49：Dashboard.tsx 辅助文字必须包含轴色值「#94A3B8」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V5",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据5：每个已注册工作台的 enabled 字段必须等于 0 或 1。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 16,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "workbenches",
+            "rows": 16
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT id, name FROM workbenches WHERE NOT (enabled IN (0, 1))",
+          "scopeSql": "SELECT count(*) AS n FROM workbenches"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V50",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S3",
+      "source_clause": "判据50：index.css 必须包含主色淡底色值「rgba(30, 58, 95, 0.1)」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V51",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S3",
+      "source_clause": "判据51：index.css 必须包含深底色值「#0f172a」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V52",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据52：E2E 摘要记录的用例总数不得少于 25。",
+      "checker_type": "count",
+      "witness": {
+        "rows_scanned": 1,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_e2e_summary",
+            "rows": 1
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "count": 1,
+        "op": "==",
+        "expected": 1
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V53",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据53：E2E 摘要必须标记全部用例通过。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 1,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_e2e_summary",
+            "rows": 1
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V54",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S3",
+      "source_clause": "判据54：E2E 摘要必须带有完成时间戳。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 1,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_e2e_summary",
+            "rows": 1
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V55",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据55：渲染层对比度探针覆盖的文字目标不得少于 9 处。",
+      "checker_type": "count",
+      "witness": {
+        "rows_scanned": 9,
+        "rows_matched": 9,
+        "sources": [
+          {
+            "table": "verifier_contrast_checks",
+            "rows": 9
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "count": 9,
+        "op": ">=",
+        "expected": 9
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V56",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据56：渲染层对比度探针不得存在未通过的目标。",
+      "checker_type": "count",
+      "witness": {
+        "rows_scanned": 9,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "verifier_contrast_checks",
+            "rows": 9
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "count": 0,
+        "op": "==",
+        "expected": 0
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V57",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据57：index.css 必须包含深底状态文字规则选择器「.wm-use-bar .ant-badge-status-text」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V58",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据58：index.css 必须包含深底浅色文字色值「rgba(255, 255, 255, 0.85)」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V59",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据59：驾驶舱的 name 字段不得为空。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 3,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "cockpits",
+            "rows": 3
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT id, name FROM cockpits WHERE (name IS NULL OR name = '')",
+          "scopeSql": "SELECT count(*) AS n FROM cockpits"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V6",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据6：工作台的 last_status 字段必须等于 up、down、unknown 之一或为空。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 16,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "workbenches",
+            "rows": 16
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT id, last_status FROM workbenches WHERE (last_status IS NOT NULL AND NOT (last_status IN ('up', 'down', 'unknown')))",
+          "scopeSql": "SELECT count(*) AS n FROM workbenches"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V60",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据60：封装提交物必须包含 web/src/pages/Cockpit.tsx。",
+      "checker_type": "file",
+      "witness": {
+        "rows_scanned": 100,
+        "rows_matched": 1,
+        "sources": [],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "files": 100,
+        "matched": 1,
+        "ignored": 0,
+        "problems": []
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V61",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据61：server/src/index.ts 必须包含驾驶舱路由「/api/cockpits」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V62",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据62：server/src/index.ts 必须包含「createProxyMiddleware」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V63",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据63：server/src/index.ts 必须包含剥禁嵌头的「x-frame-options」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V64",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据64：封装提交物 server/package.json 必须声明依赖「http-proxy-middleware」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V65",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据65：web/src/pages/UseWorkbench.tsx 必须包含「/go/${w.id}/」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V66",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据66：自产台的 slug 字段不得为空。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 7,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "apps",
+            "rows": 7
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT id, slug FROM apps WHERE (slug IS NULL OR slug = '')",
+          "scopeSql": "SELECT count(*) AS n FROM apps"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V67",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据67：内置类型 market-app 必须存在于类型库。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 9,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "types",
+            "rows": 9
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V68",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据68：server/src/index.ts 必须包含发布路由「/api/apps」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V69",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据69：server/src/db.ts 必须包含版本快照表「app_versions」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V7",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据7：工作台的 last_latency_ms 字段必须为空或落在 0 到 60000 之间。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 16,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "workbenches",
+            "rows": 16
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT id, last_latency_ms FROM workbenches WHERE (last_latency_ms IS NOT NULL AND (last_latency_ms < 0 OR last_latency_ms > 60000))",
+          "scopeSql": "SELECT count(*) AS n FROM workbenches"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V70",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据70：自产台表中至少发布了 1 个应用。",
+      "checker_type": "count",
+      "witness": {
+        "rows_scanned": 7,
+        "rows_matched": 7,
+        "sources": [
+          {
+            "table": "apps",
+            "rows": 7
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "count": 7,
+        "op": ">=",
+        "expected": 1
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V71",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据71：server/src/index.ts 必须包含注入头名「authorization」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V72",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据72：web/src/components/WorkbenchForm.tsx 必须包含凭据表单字段「authValue」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V73",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据73：evidence/e2e_test.py 必须包含凭据注入断言字面量「e2e-bear-tok」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V74",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据74：server/src/index.ts 必须包含 WS 升级挂载「goServer.on('upgrade'」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V75",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据75：server/src/index.ts 必须包含握手 Origin 改写「req.headers.origin = u.origin」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V76",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据76：server/src/db.ts 必须包含运行真源表「sop_runs」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V77",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据77：server/src/redis.ts 必须包含状态层写入函数「runStateSave」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V78",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据78：server/src/index.ts 必须包含 Runner 服务端渲染「renderSopRunner」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V79",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据79：server/src/index.ts 必须包含运行 API 前缀「/api/sop/runs」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V8",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据8：工作台的 last_http_code 字段必须为空或落在 100 到 599 之间。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 16,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "workbenches",
+            "rows": 16
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT id, last_http_code FROM workbenches WHERE (last_http_code IS NOT NULL AND (last_http_code < 100 OR last_http_code > 599))",
+          "scopeSql": "SELECT count(*) AS n FROM workbenches"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V80",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据80：evidence/e2e_test.py 必须包含 SOP 台用例字面量「e2e-sop」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V81",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据81：server/src/index.ts 必须包含 MCP 端点挂载「app.post('/mcp'」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V82",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据82：server/src/index.ts 必须包含工具注册表「MCP_TOOLS」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V83",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据83：server/src/index.ts 必须包含 JSON-RPC 错误码「-32601」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V84",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据84：evidence/e2e_test.py 必须包含 MCP 用例字面量「e2e-mcp-app」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V85",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据85：封装提交物必须包含 web/src/pages/Sops.tsx。",
+      "checker_type": "file",
+      "witness": {
+        "rows_scanned": 100,
+        "rows_matched": 1,
+        "sources": [],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "files": 100,
+        "matched": 1,
+        "ignored": 0,
+        "problems": []
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V86",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据86：web/src/pages/Sops.tsx 必须包含状态语义表「SOP_STATUS」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V87",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据87：web/src/App.tsx 必须包含 SOP 路由「path: '/sops'」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V88",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "判据88：evidence/e2e_test.py 必须包含演示 SOP 字面量「demo-rack-sop」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V89",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据89：server/src/index.ts 必须包含列表掩码函数「maskSensitiveQuery」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V9",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S3",
+      "source_clause": "判据9：工作台的 sort 字段必须落在 0 到 9999 之间。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 16,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "workbenches",
+            "rows": 16
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT id, sort FROM workbenches WHERE (sort < 0 OR sort > 9999)",
+          "scopeSql": "SELECT count(*) AS n FROM workbenches"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V90",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据90：server/src/index.ts 必须包含掩码回传保护字面量「=****」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V91",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据91：server/src/index.ts 必须包含 API 出口统一脱敏函数「maskForApi」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V92",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据92：server/src/index.ts 必须包含 CORS 白名单「CORS_ALLOW」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V93",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据93：server/src/index.ts 必须包含 draft 拒绝文案「未上架不可执行」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V94",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据94：evidence/e2e_test.py 必须包含 MCP 泄漏探针字面量「token=8sKZ」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V95",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据95：server/src/index.ts 必须包含 Location 改写的 id 备份「goWid」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V96",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据96：evidence/e2e_test.py 必须包含 Location 改写断言字面量「redir-relative」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V97",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据97：server/src/index.ts 必须包含巡检重挂锚「issue #5」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V98",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据98：server/src/index.ts 必须包含删 SOP 清注册锚「issue #6」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V99",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "判据99：server/src/index.ts 必须包含导入 mode 锚「issue #7」。",
+      "checker_type": "exists",
+      "witness": {
+        "rows_scanned": 102,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "verifier_text_facts",
+            "rows": 102
+          }
+        ],
+        "schema_fingerprint": "sha256:0417ee3312e2037e8a2deff8b455147a0ab4dcde7494f68961484eb202cc826c"
+      },
+      "evidence": {
+        "present": true,
+        "expect": true
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    }
+  ],
+  "exceptions": [],
+  "artifacts": {
+    "attachment_sha256": [
+      "f7506c8948f5ce878b3d6ad621a8afee1c3c4a6f3767bd1f63376828c5930a72"
+    ]
+  },
+  "payload_sha256": "sha256:0c32c3abbe57acc23e552129d534894a88639605976afb65cd00ed19a2b94480",
+  "data_source": {
+    "kind": "sqlite-snapshot",
+    "sha256": "sha256:66f8425419b93fb5e219fa7476029f4c9416de5735b7c8d9e3bb4cdde72ef5e7",
+    "source": "verify-snap.sqlite",
+    "captured_at": "2026-10-23T09:07:23.851Z"
+  }
+}
