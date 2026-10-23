@@ -1774,7 +1774,7 @@
               {
                 "col": "path",
                 "op": "=",
-                "value": "server/src/index.ts"
+                "value": "server/src/portal.ts"
               },
               {
                 "col": "needle",
@@ -2962,7 +2962,7 @@
               {
                 "col": "path",
                 "op": "=",
-                "value": "server/src/index.ts"
+                "value": "server/src/portal.ts"
               },
               {
                 "col": "needle",
@@ -4210,7 +4210,7 @@
               {
                 "col": "path",
                 "op": "=",
-                "value": "server/src/index.ts"
+                "value": "server/src/services/mcp.ts"
               },
               {
                 "col": "needle",
@@ -4249,7 +4249,7 @@
               {
                 "col": "path",
                 "op": "=",
-                "value": "server/src/index.ts"
+                "value": "server/src/services/mcp.ts"
               },
               {
                 "col": "needle",
@@ -4483,7 +4483,7 @@
               {
                 "col": "path",
                 "op": "=",
-                "value": "server/src/index.ts"
+                "value": "server/src/services/cookie.ts"
               },
               {
                 "col": "needle",
@@ -4522,7 +4522,7 @@
               {
                 "col": "path",
                 "op": "=",
-                "value": "server/src/index.ts"
+                "value": "server/src/portal.ts"
               },
               {
                 "col": "needle",

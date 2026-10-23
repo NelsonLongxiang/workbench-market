@@ -1,0 +1,449 @@
+{
+  "contract_version": "1.2",
+  "run_id": "run_9c370655ac544260",
+  "spec_id": "spec_ff950afac705",
+  "started": "2026-10-23T15:39:45.161Z",
+  "finished": "2026-10-23T15:39:45.169Z",
+  "verifier": {
+    "mode": "open",
+    "engine_version": "0.1.0",
+    "spec_version": 2,
+    "corpus_version": "1.2",
+    "sealed_review": false
+  },
+  "as_of": {
+    "kind": "snapshot",
+    "value": "2026-10-23T15:38:16.362Z"
+  },
+  "summary": {
+    "pass": 11,
+    "fail": 1,
+    "needs_material": 0,
+    "error": 0
+  },
+  "overall": "FAIL",
+  "reason": "V6(S2) FAIL",
+  "vu": [
+    {
+      "id": "V1",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "S1 docs/validator.md 声称的每个 PASS run 报告必须存在（tmp/ygl-verify/verify/reports/）且 overall 必须为 PASS。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 6,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "validator_reports",
+            "rows": 6
+          }
+        ],
+        "schema_fingerprint": "sha256:97a99b7a67766303cf3d4feb10f888e0aba5ee026b7342861c213a9330bb7f59"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT name, ok, detail FROM validator_reports WHERE (ok = 0)",
+          "scopeSql": "SELECT count(*) AS n FROM validator_reports"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V10",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "S10 OriginClaim 三面验签必须复用 verifyOriginClaim 入口；信封 shape 必须收窄 bare zone（originClaimCallerShape）；M1 窗口配置 originClaimWindow 必须在位；验签失败必须 fail-closed 归最小卡（untrusted-origin 同码）。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 4,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "originclaim_anchors",
+            "rows": 4
+          }
+        ],
+        "schema_fingerprint": "sha256:97a99b7a67766303cf3d4feb10f888e0aba5ee026b7342861c213a9330bb7f59"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT name, ok, detail FROM originclaim_anchors WHERE (ok = 0)",
+          "scopeSql": "SELECT count(*) AS n FROM originclaim_anchors"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V11",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "S11 控制面钥规范必须落地：钥注入分支必须带 controlTrustedWithoutKey loopback 门；controlFaceLeniencyWarning boot 告警必须在场（loopback 信任=减速带非门）。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 2,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "controlface_gate",
+            "rows": 2
+          }
+        ],
+        "schema_fingerprint": "sha256:97a99b7a67766303cf3d4feb10f888e0aba5ee026b7342861c213a9330bb7f59"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT name, ok, detail FROM controlface_gate WHERE (ok = 0)",
+          "scopeSql": "SELECT count(*) AS n FROM controlface_gate"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V12",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "S12 属主信号 UI 锚必须在场：异常驱动标红类 wb-row-alert、订单卡 brief 主文案、对话默认展开（2026-10-23 属主裁定 PR#28 推翻 b324460 折叠，取证开关随折叠退役）三锚齐备。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 3,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "owner_signal_ui",
+            "rows": 3
+          }
+        ],
+        "schema_fingerprint": "sha256:97a99b7a67766303cf3d4feb10f888e0aba5ee026b7342861c213a9330bb7f59"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT name, ok, detail FROM owner_signal_ui WHERE (ok = 0)",
+          "scopeSql": "SELECT count(*) AS n FROM owner_signal_ui"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V2",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "S2 战役提交（f124eee、c65416d、8b8efeb）必须是 master 血统的祖先；package.json 版本必须为 0.6.x；工作树必须为净（无 tracked 改动）。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 5,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "repo_facts",
+            "rows": 5
+          }
+        ],
+        "schema_fingerprint": "sha256:97a99b7a67766303cf3d4feb10f888e0aba5ee026b7342861c213a9330bb7f59"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT name, ok, detail FROM repo_facts WHERE (ok = 0)",
+          "scopeSql": "SELECT count(*) AS n FROM repo_facts"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V3",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S2",
+      "source_clause": "S3 ygl-trees doctor 必须 0 fail；监督域树（v2-roadmap、time-capsule）node validate 必须无 issues。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 3,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "ygl_health",
+            "rows": 3
+          }
+        ],
+        "schema_fingerprint": "sha256:97a99b7a67766303cf3d4feb10f888e0aba5ee026b7342861c213a9330bb7f59"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT name, ok, detail FROM ygl_health WHERE (ok = 0)",
+          "scopeSql": "SELECT count(*) AS n FROM ygl_health"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V4",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S3",
+      "source_clause": "S4 docs/validator.md 逐周期声明的 head 必须在 git 历史可追；spec_c8b6350c5034 必须在案。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 2,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "docs_crosscheck",
+            "rows": 2
+          }
+        ],
+        "schema_fingerprint": "sha256:97a99b7a67766303cf3d4feb10f888e0aba5ee026b7342861c213a9330bb7f59"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT name, ok, detail FROM docs_crosscheck WHERE (ok = 0)",
+          "scopeSql": "SELECT count(*) AS n FROM docs_crosscheck"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V5",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S3",
+      "source_clause": "S5 上一轮监督运行记录的静态事实（战役提交血统）本轮必须仍成立（递归持久性，血统断言）。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 1,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "recursion",
+            "rows": 1
+          }
+        ],
+        "schema_fingerprint": "sha256:97a99b7a67766303cf3d4feb10f888e0aba5ee026b7342861c213a9330bb7f59"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT name, ok, detail FROM recursion WHERE (ok = 0)",
+          "scopeSql": "SELECT count(*) AS n FROM recursion"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V6",
+      "role": "assert",
+      "verdict": "FAIL",
+      "severity": "S2",
+      "source_clause": "S6 GitHub 公开仓与 gitee 镜像的开放 issue/PR 计数必须为 0（公共面零开放项）。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 2,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "public_triage",
+            "rows": 2
+          }
+        ],
+        "schema_fingerprint": "sha256:97a99b7a67766303cf3d4feb10f888e0aba5ee026b7342861c213a9330bb7f59"
+      },
+      "evidence": {
+        "violations": 1,
+        "rows": [
+          {
+            "name": "github-open",
+            "ok": 0,
+            "detail": "open=1"
+          }
+        ],
+        "rows_total": 1,
+        "rendered": {
+          "findSql": "SELECT name, ok, detail FROM public_triage WHERE (ok = 0)",
+          "scopeSql": "SELECT count(*) AS n FROM public_triage"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V7",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "S7 pnpm overrides 双镜像（package.json#pnpm 与 pnpm-workspace.yaml）值必须一致；packageManager 必须钉 pnpm@11.28.5；engines.pnpm 必须含 >=11.24 范围。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 3,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "deps_mirror",
+            "rows": 3
+          }
+        ],
+        "schema_fingerprint": "sha256:97a99b7a67766303cf3d4feb10f888e0aba5ee026b7342861c213a9330bb7f59"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT name, ok, detail FROM deps_mirror WHERE (ok = 0)",
+          "scopeSql": "SELECT count(*) AS n FROM deps_mirror"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V8",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "S8 src/index.ts 必须保留三修复锚（visibleTeams.add(config.team) 无条件 / visibleTeams.add('log') / joinedTeamScope 含 canvasTeamOf）；M2 反形状（if (joined.size > 0) visibleTeams.add(config.team)）必须不存在。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 4,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "scope_anchors",
+            "rows": 4
+          }
+        ],
+        "schema_fingerprint": "sha256:97a99b7a67766303cf3d4feb10f888e0aba5ee026b7342861c213a9330bb7f59"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT name, ok, detail FROM scope_anchors WHERE (ok = 0)",
+          "scopeSql": "SELECT count(*) AS n FROM scope_anchors"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    },
+    {
+      "id": "V9",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S3",
+      "source_clause": "S9 docs/testing-layers.md 的五层目录名、package.json 的五个分层脚本、磁盘 tests/{unit,wire,mesh,gates,live} 三方必须一致。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 3,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "layer_contract",
+            "rows": 3
+          }
+        ],
+        "schema_fingerprint": "sha256:97a99b7a67766303cf3d4feb10f888e0aba5ee026b7342861c213a9330bb7f59"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT name, ok, detail FROM layer_contract WHERE (ok = 0)",
+          "scopeSql": "SELECT count(*) AS n FROM layer_contract"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    }
+  ],
+  "exceptions": [
+    {
+      "vu": "V6",
+      "severity": "S2",
+      "row_count": 1
+    }
+  ],
+  "artifacts": {
+    "attachment_sha256": []
+  },
+  "payload_sha256": "sha256:dd9fac88aa4b487908986cada82cc27593d84b1d7ded4b99769ca3eaa4fce406",
+  "data_source": {
+    "kind": "sqlite-snapshot",
+    "sha256": "sha256:3599c6cfe747b298b394f78db2d21fd9720cc249d91d671d6667100847074c26",
+    "source": "snapshot.sqlite",
+    "captured_at": "2026-10-23T15:39:45.169Z"
+  }
+}
