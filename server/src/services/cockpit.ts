@@ -19,6 +19,9 @@ export class CockpitService extends Service {
   update(id: number, name: string, description: string, layoutJson: string) {
     return db.prepare(`UPDATE cockpits SET name = ?, description = ?, layout_config = ?, updated_at = datetime('now') WHERE id = ?`).run(name, description, layoutJson, id);
   }
+  create(name: string, description: string, layoutJson: string) {
+    return db.prepare(`INSERT INTO cockpits (name, description, layout_config) VALUES (?, ?, ?)`).run(name, description, layoutJson);
+  }
   list() {
     return db.prepare('SELECT * FROM cockpits ORDER BY updated_at DESC, id DESC').all();
   }

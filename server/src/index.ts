@@ -80,9 +80,7 @@ const bad = (msg: string): never => { throw new HttpError(400, msg); };
 
 // ---------- 工作台 CRUD ----------
 function listWorkbenches(): ReturnType<typeof rowToWorkbench>[] {
-  const rows = db
-    .prepare('SELECT * FROM workbenches ORDER BY sort ASC, id ASC')
-    .all() as unknown as WorkbenchRow[];
+  const rows = svc<WorkbenchService>('workbench').listSorted() as unknown as WorkbenchRow[];
   return rows.map(rowToWorkbench);
 }
 
@@ -174,12 +172,7 @@ function validateWorkbenchBody(b: any, partial = false) {
 // MCP 面不接受 auth 字段（凭据只经人工 REST/表单——安全边界内置）
 function workbenchCreateCore(body: any): ReturnType<typeof rowToWorkbench> {
   const f = validateWorkbenchBody(body);
-  const r = db
-    .prepare(
-      `INSERT INTO workbenches (name, url, type, icon, description, category, tags, enabled, health_path, sort, auth_config)
-       VALUES (@name, @url, @type, @icon, @description, @category, @tags, @enabled, @health_path, @sort, @auth_config)`
-    )
-    .run({ type: 'web', icon: '', description: '', category: '', tags: '[]', enabled: 1, health_path: '', sort: 0, auth_config: '', ...f });
+  const r = svc<WorkbenchService>('workbench').createByNamed({ type: 'web', icon: '', description: '', category: '', tags: '[]', enabled: 1, health_path: '', sort: 0, auth_config: '', ...f }) as unknown as { lastInsertRowid: number | bigint };
   const row = svc<WorkbenchService>('workbench').byId(Number(r.lastInsertRowid)) as unknown as WorkbenchRow;
   return rowToWorkbench(row);
 }
@@ -347,9 +340,7 @@ app.post('/api/cockpits', (req, res) => {
   if (!name) bad('name 不能为空');
   const description = String(req.body?.description ?? '');
   const panels = validatePanels(req.body?.panels ?? []);
-  const r = db
-    .prepare(`INSERT INTO cockpits (name, description, layout_config) VALUES (?, ?, ?)`)
-    .run(name, description, JSON.stringify(panels)) as unknown as { lastInsertRowid: number | bigint };
+  const r = svc<CockpitService>('cockpit').create(name, description, JSON.stringify(panels)) as unknown as { lastInsertRowid: number | bigint };
   res.status(201).json(rowToCockpit(getCockpit(Number(r.lastInsertRowid))));
 });
 
@@ -386,13 +377,9 @@ function getApp(slug: string): AppRow {
 }
 
 function appDetail(a: AppRow) {
-  const versions = db
-    .prepare('SELECT * FROM app_versions WHERE app_id = ? ORDER BY version DESC')
-    .all(a.id) as unknown as AppVersionRow[];
+  const versions = svc<AppService>('app').versions(a.id) as unknown as AppVersionRow[];
   const url = a.kind === 'sop' ? `/sop/${a.slug}/` : `/apps/${a.slug}/`;
-  const wb = db
-    .prepare(`SELECT id FROM workbenches WHERE url = ? AND type = 'market-app'`)
-    .get(url) as { id: number } | undefined;
+  const wb = svc<WorkbenchService>('workbench').marketAppIdByUrl(url) as { id: number } | undefined;
   return { ...a, versions, workbench_id: wb?.id ?? null };
 }
 
@@ -443,12 +430,7 @@ function syncWorkbenchRegistration(a: AppRow): number {
     svc<WorkbenchService>('workbench').renameDescByUrl(a.title, a.description, cur.id);
     return cur.id;
   }
-  const r = db
-    .prepare(
-      `INSERT INTO workbenches (name, url, type, icon, description, category, tags, enabled, health_path, sort)
-       VALUES (?, ?, 'market-app', ?, ?, ?, '[]', 1, '/', 0)`
-    )
-    .run(a.title, url, icon, a.description, category) as unknown as { lastInsertRowid: number | bigint };
+  const r = svc<WorkbenchService>('workbench').registerMarketApp(a.title, url, icon, a.description, category) as unknown as { lastInsertRowid: number | bigint };
   return Number(r.lastInsertRowid);
 }
 
@@ -541,9 +523,7 @@ function publishAppBody(b: any): { status: number; body: object } {
     const created_by = String(b.created_by ?? '');
     const code = typeof b.code === 'string' ? b.code.trim() : '';
     const st = writeAppFiles(slug, 1, files);
-    const r = db
-      .prepare(`INSERT INTO apps (slug, title, description, created_by, active_version, kind, code, status) VALUES (?, ?, ?, ?, 1, ?, ?, ?)`)
-      .run(slug, b.title.trim(), String(b.description ?? ''), created_by, kind, code, kind === 'sop' ? 'draft' : 'active') as unknown as { lastInsertRowid: number | bigint };
+    const r = svc<AppService>('app').createFirst({ slug, title: b.title.trim(), description: String(b.description ?? ''), createdBy: created_by, kind, code, status: kind === 'sop' ? 'draft' : 'active' }) as unknown as { lastInsertRowid: number | bigint };
     svc<AppService>('app').versionInsertFirst(Number(r.lastInsertRowid), st.file_count, st.total_bytes, created_by, changelog);
     version = 1;
     appRow = getApp(slug);
@@ -814,9 +794,7 @@ function sopRunStartCore(slugRaw: string, startedByRaw: string): { id: number; s
   if (!hit) throw new HttpError(404, `SOP not found: ${slug}`);
   if (hit.app.status !== 'published') throw new HttpError(409, `SOP 状态为 ${hit.app.status}，仅 published 可执行`);
   const started_by = startedByRaw.trim();
-  const r = db
-    .prepare(`INSERT INTO sop_runs (sop_slug, sop_version, started_by) VALUES (?, ?, ?)`)
-    .run(slug, hit.app.active_version, started_by) as unknown as { lastInsertRowid: number | bigint };
+  const r = svc<SopService>('sop').runCreate(slug, hit.app.active_version, started_by) as unknown as { lastInsertRowid: number | bigint };
   const id = Number(r.lastInsertRowid);
   void runStateRestore(id, { slug, version: hit.app.active_version, status: 'running', started_by, updated_at: Date.now() }, {}); // Redis 初始化热态（降级态静默跳过）
   return { id, slug, version: hit.app.active_version, status: 'running', started_by, data: {} };

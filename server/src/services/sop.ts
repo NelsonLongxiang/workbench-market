@@ -7,6 +7,9 @@ export class SopService extends Service {
     super(ctx, 'sop');
   }
 
+  runCreate(slug: string, version: number, startedBy: string) {
+    return db.prepare(`INSERT INTO sop_runs (sop_slug, sop_version, started_by) VALUES (?, ?, ?)`).run(slug, version, startedBy);
+  }
   runById(id: number) {
     return db.prepare('SELECT * FROM sop_runs WHERE id = ?').get(id);
   }

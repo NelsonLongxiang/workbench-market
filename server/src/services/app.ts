@@ -10,6 +10,13 @@ export class AppService extends Service {
   bySlug(slug: string) {
     return db.prepare('SELECT * FROM apps WHERE slug = ?').get(slug);
   }
+  versions(appId: number) {
+    return db.prepare('SELECT * FROM app_versions WHERE app_id = ? ORDER BY version DESC').all(appId);
+  }
+  createFirst(b: { slug: string; title: string; description: string; createdBy: string; kind: string; code: string; status: string }) {
+    return db.prepare(`INSERT INTO apps (slug, title, description, created_by, active_version, kind, code, status) VALUES (?, ?, ?, ?, 1, ?, ?, ?)`)
+      .run(b.slug, b.title, b.description, b.createdBy, b.kind, b.code, b.status);
+  }
   all() {
     return db.prepare('SELECT * FROM apps ORDER BY updated_at DESC, id DESC').all();
   }

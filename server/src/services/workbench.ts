@@ -13,6 +13,24 @@ export class WorkbenchService extends Service {
   enabled() {
     return db.prepare('SELECT * FROM workbenches WHERE enabled = 1').all();
   }
+  listSorted() {
+    return db.prepare('SELECT * FROM workbenches ORDER BY sort ASC, id ASC').all();
+  }
+  createByNamed(r: Record<string, unknown>) {
+    return db.prepare(
+      `INSERT INTO workbenches (name, url, type, icon, description, category, tags, enabled, health_path, sort, auth_config)
+       VALUES (@name, @url, @type, @icon, @description, @category, @tags, @enabled, @health_path, @sort, @auth_config)`
+    ).run(r);
+  }
+  registerMarketApp(title: string, url: string, icon: string, description: string, category: string) {
+    return db.prepare(
+      `INSERT INTO workbenches (name, url, type, icon, description, category, tags, enabled, health_path, sort)
+       VALUES (?, ?, 'market-app', ?, ?, ?, '[]', 1, '/', 0)`
+    ).run(title, url, icon, description, category);
+  }
+  marketAppIdByUrl(url: string) {
+    return db.prepare(`SELECT id FROM workbenches WHERE url = ? AND type = 'market-app'`).get(url);
+  }
   all() {
     return db.prepare('SELECT * FROM workbenches ORDER BY sort ASC, id ASC').all();
   }
