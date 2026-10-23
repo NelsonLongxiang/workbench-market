@@ -7,9 +7,13 @@
  * 修订 3 落实：卡片不发布 teamMemberships（绑定图不出门）；id8 每 SOP 随机生成持久化
  * （禁 slug 推导防抢注）；ADMIN_TOKEN 只经启动环境。
  */
-import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign as edSign, timingSafeEqual, verify as edVerify, type KeyObject } from 'node:crypto';
+import { createHash, createPrivateKey, generateKeyPairSync, randomBytes, sign as edSign, timingSafeEqual, type KeyObject } from 'node:crypto';
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { signCard, verifyCard } from '@nelsonlongxiang/dsh-open-a2a-net/card';
+import { formatReceipt, parseReceipt } from '@nelsonlongxiang/dsh-open-a2a-net/receipt';
+import { MAX_ROUTE_BODY_BYTES } from '@nelsonlongxiang/dsh-open-a2a-net/transport-caps';
+import { A2aClient } from '@nelsonlongxiang/dsh-open-a2a-net/a2a-client';
 import { dataDir, db } from './db.ts';
 
 export const MARKET_TEAM = process.env.MARKET_TEAM || 'market';
@@ -31,36 +35,35 @@ export function loadOrCreateKey(keyPath: string): KeyObject {
   return cachedKey;
 }
 
-/** 与上游 canonicalPayload 逐字节一致（键序固定：字母序，records 可选插入）。 */
-export function canonicalPayload(core: { capabilities: unknown; expiresAt: number; name: string; records?: unknown; session: string; team: string }): string {
-  return JSON.stringify({
-    capabilities: core.capabilities,
-    expiresAt: core.expiresAt,
-    name: core.name,
-    ...(core.records !== undefined ? { records: core.records } : {}),
-    session: core.session,
-    team: core.team,
-  });
+/**
+ * 卡片签名 / 验签 / 回执编解码 / 512KiB 上限——全部走官方子路径
+ * `@nelsonlongxiang/dsh-open-a2a-net/{card,receipt,transport-caps}`（#17 P5：
+ * 删掉市场里的镜像代码，协议 wire 由上游库保证）。
+ */
+export function signMarketCard(
+  core: { capabilities: unknown; expiresAt: number; name: string; session: string; team: string },
+  privateKey: KeyObject,
+): Record<string, unknown> & { publicKey: string; signature: string } {
+  return signCard(core as never, privateKey) as never;
 }
 
-/** 签名卡片核心（镜像上游 signCard：Ed25519 pure + SPKI DER base64 公钥）。 */
-export function signCardCore(core: { capabilities: unknown; expiresAt: number; name: string; session: string; team: string }, privateKey: KeyObject): { publicKey: string; signature: string } {
-  const signature = edSign(undefined, Buffer.from(canonicalPayload(core), 'utf8'), privateKey).toString('base64');
-  return { publicKey: createPublicKey(privateKey).export({ format: 'der', type: 'spki' }).toString('base64'), signature };
+/** 验签（官方 verifyCard；E2E 与自检用） */
+export function verifyMarketCard(wire: unknown, now: number): { ok: boolean } {
+  return verifyCard(wire as never, now) as never;
 }
 
-/** 镜像验签（E2E 与自检用；裁判仍是上游 verifyCard）。 */
-export function mirrorVerifyCard(wire: any, now: number): boolean {
-  try {
-    if (typeof wire?.name !== 'string' || typeof wire?.session !== 'string' || typeof wire?.team !== 'string') return false;
-    if (typeof wire.expiresAt !== 'number' || typeof wire.publicKey !== 'string' || typeof wire.signature !== 'string') return false;
-    if (wire.expiresAt <= now) return false;
-    const pub = createPublicKey({ key: Buffer.from(wire.publicKey, 'base64'), format: 'der', type: 'spki' });
-    return edVerify(undefined, Buffer.from(canonicalPayload(wire), 'utf8'), pub, Buffer.from(wire.signature, 'base64'));
-  } catch {
-    return false;
-  }
+/** 回执文本（P3 完成回执用）：第一行固定模板 + 第二行单个 JSON 信封 */
+export function formatA2aReceipt(taskId: string, summary: string, fields?: { outcome?: string; idempotencyKey?: string; sessionKey?: string; elapsedMs?: number }): string {
+  return formatReceipt(taskId, summary, fields as never);
 }
+
+/** 回执解析（收到对端回执时核销账本用） */
+export function parseA2aReceipt(message: string): ReturnType<typeof parseReceipt> {
+  return parseReceipt(message);
+}
+
+/** 512 KiB 消息上限（官方 transport-caps 常量） */
+export const A2A_DIRECT_MAX_BYTES = MAX_ROUTE_BODY_BYTES;
 
 /** SOP 的 a2a 节点短 id：随机 8 hex，一次生成持久化（apps.a2a_node8）——禁 slug 推导（修订 3 防抢注）。 */
 export function sopNode8(slug: string): string {
@@ -111,8 +114,8 @@ export function buildAgentCard(keyPath: string): Record<string, unknown> {
     session: MARKET_TEAM,
     team: MARKET_TEAM,
   };
-  const { publicKey, signature } = signCardCore(core, priv);
-  return { ...core, sessionTeams, ...(peers.length ? { peers } : {}), version: 'p1', publicKey, signature };
+  const signed = signMarketCard(core, priv);
+  return { ...signed, sessionTeams, ...(peers.length ? { peers } : {}), version: 'p1' };
 }
 
 export function a2aKeyPath(): string {
@@ -120,9 +123,6 @@ export function a2aKeyPath(): string {
 }
 
 // ---------- P2：/a2a/direct 准入与执行（协议对齐上游 src/index.ts @1efd613） ----------
-
-/** 派单消息上限（512 KiB）——超限 413（P2 验收③） */
-export const A2A_DIRECT_MAX_BYTES = 512 * 1024;
 
 export interface A2aDirectResult {
   httpStatus: number;
@@ -244,4 +244,30 @@ export function a2aDirectHandle(body: any, rawBytes: number, runOps: {
       sop: { slug: sop.slug, run_id: runId, run_status: st?.status ?? 'unknown', steps: st?.steps ?? 0 },
     },
   };
+}
+
+// ---------- 出站（#17 P4 的最小面：市场作为客户端向对端派单/发消息） ----------
+// 用官方 A2aClient：fetchCardDetail（带 OriginClaim 信封取全卡）+ routeDirect（投递）。
+// 三件自实现按官方示例：身份密钥（DATA_DIR/a2a-key.pem）、OriginClaim 签名、fetch/schedule 适配。
+export interface OutboundTarget { baseUrl: string; team: string }
+
+function originClaimHeaders(privateKey: KeyObject, zone: string, baseUrl: string): Record<string, string> {
+  const ts = Date.now();
+  const signature = edSign(undefined, Buffer.from(JSON.stringify([zone, baseUrl, ts]), 'utf8'), privateKey).toString('base64');
+  return { 'X-A2A-Caller': zone, 'X-A2A-Caller-Url': baseUrl, 'X-A2A-Caller-Ts': String(ts), 'X-A2A-Caller-Sig': signature };
+}
+
+export async function a2aSendOutbound(keyPath: string, target: OutboundTarget, message: string, contextId?: string): Promise<unknown> {
+  const priv = loadOrCreateKey(keyPath);
+  const base = process.env.MARKET_PUBLIC_URL || `http://127.0.0.1:${process.env.PORT || 9800}`;
+  const client = new A2aClient({
+    apiKey: '',
+    sessionId: MARKET_TEAM,
+    cardCaller: MARKET_TEAM,
+    originClaim: () => originClaimHeaders(priv, MARKET_TEAM, base),
+    schedule: (cb: () => void, ms: number) => { const t = setTimeout(cb, ms); return () => clearTimeout(t); },
+    fetch: (url: string, init?: RequestInit) => fetch(url, init).then(async (r) => ({ ok: r.ok, status: r.status, text: () => r.text() })),
+  } as never);
+  const taskId = `market-${randomBytes(4).toString('hex')}`;
+  return client.routeDirect(target.baseUrl, target.team, message, contextId, undefined, MARKET_TEAM, false, taskId);
 }
