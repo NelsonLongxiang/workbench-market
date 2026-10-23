@@ -47,6 +47,10 @@ app.use((req, res, next) => {
 // 主人裁定 A（2026-10-23）：自产台数据/文件面对远程浏览器开放——应用层写，与发布面同口径；
 // 控制面（/api/mcp/*、/api/sops/*/bindings 等）照旧收口。没有这条，远程节点浏览器提交表单会 403。
 const REMOTE_ALLOW_EXACT = new Set(['/mcp', '/.well-known/agent-card.json', '/a2a/direct']);
+// ---------- 端点命中计数（总工程师 B 类单：采纳监测 instrumentation）----------
+// 必须挂在所有业务路由之前（Express 按注册序匹配，路由先响应则后续 use 不再执行）
+app.use(endpointStatsMiddleware());
+
 const REMOTE_ALLOW_PREFIX = [/^\/api\/apps\/[a-z0-9-]{1,64}\/(data|files)(\/|$)/];
 app.use((req, res, next) => {
   const ip = String(req.socket.remoteAddress ?? '');
@@ -1082,6 +1086,8 @@ app.get('/api/sop/runs/active', wrap(async (_req, res) => {
   res.json(rows);
 }));
 
+app.get('/api/stats', (_req, res) => { res.json(statsPayload()); });
+
 // ---------- 统一待办（omni-inbox · 总工程师设计 9c5557c1c0）：只读聚合 ----------
 app.get('/api/tasks', wrap(async (_req, res) => {
   const payload = await collectTasks(svc<SopService>('sop') as never);
@@ -1543,6 +1549,7 @@ import { MCP_TOOLS } from './mcp-tools.ts';
 
 import { renderSopRunner } from './sop-runner.ts';
 import { collectTasks } from './tasks.ts';
+import { endpointStatsMiddleware, statsPayload } from './endpoint-stats.ts';
 
 // ---------- MCP 生产通道（StreamableHTTP · stateless：AI 会话直连市场，零依赖手写 JSON-RPC） ----------
 const MCP_PROTOCOL = '2025-03-26';
