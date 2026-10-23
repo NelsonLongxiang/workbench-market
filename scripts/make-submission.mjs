@@ -119,7 +119,7 @@ const TEXT_FACTS = [
   ["server/src/index.ts", "issue #7"],
   ["scripts/import-smoke.mjs", "e2e-import-probe"],
   ["scripts/make-submission.mjs", "issue #13"],
-  ["README.md", "158 条判据"],
+  ["README.md", "160 条判据"],
   ["server/src/a2a.ts", "@nelsonlongxiang/dsh-open-a2a-net/card"],
   ["server/src/index.ts", "x-admin-token"],
   ["server/src/a2a.ts", "a2a_node8"],
@@ -177,6 +177,8 @@ const TEXT_FACTS = [
   ["scripts/token-smoke.mjs", "无 admin_token_sha256"],
   ["server/src/a2a.ts", "a2aSendOutbound"],
   ["server/src/index.ts", "/api/a2a/send"],
+  ["server/src/db.ts", "a2a_outbox"],
+  ["scripts/receipt-smoke.mjs", "E1 上游 parseReceipt 可解析"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);

@@ -3791,6 +3791,54 @@
           "reason": "删路由提取为 0 即 FAIL。"
         }
       ]
+    },
+    {
+      "source_clause": "判据159：server/src/db.ts 必须包含回执队列表「a2a_outbox」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，outbox 表（run_id 唯一幂等 / status pending|sent|dead / attempts+next_at 退避 / 行永不删）+ a2a_run_ctx 扩列（task_id/caller/team/receipt_status/callback_url）+ sop_bindings.callback_url——回执只投人绑定上写的地址（评审席裁定）。",
+          "anchor": {
+            "quote": "判据159：server/src/db.ts 必须包含回执队列表「a2a_outbox」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删表提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据160：scripts/receipt-smoke.mjs 必须包含回执行为锚「E1 上游 parseReceipt 可解析」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，独立实例 14 项：派单完成→回执到达且上游 parseReceipt 可解析（outcome=completed/幂等键 run-<id>-finished/context 回流）/重复完成不重复/人开 run 无回执/自报 callback 被拒/不可达留 pending/outbox 每 run 一行。",
+          "anchor": {
+            "quote": "判据160：scripts/receipt-smoke.mjs 必须包含回执行为锚「E1 上游 parseReceipt 可解析」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删断言提取为 0 即 FAIL。"
+        }
+      ]
     }
   ]
 }

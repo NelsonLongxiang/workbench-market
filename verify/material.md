@@ -156,3 +156,5 @@
 判据156：scripts/token-smoke.mjs 必须包含出口剔除断言「无 admin_token_sha256」。
 判据157：server/src/a2a.ts 必须包含官方出站客户端「a2aSendOutbound」。
 判据158：server/src/index.ts 必须包含 A2A 出站路由「/api/a2a/send」。
+判据159：server/src/db.ts 必须包含回执队列表「a2a_outbox」。
+判据160：scripts/receipt-smoke.mjs 必须包含回执行为锚「E1 上游 parseReceipt 可解析」。

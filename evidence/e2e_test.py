@@ -808,6 +808,11 @@ with sync_playwright() as p:
                       cwd=_os4.path.join(_os4.path.dirname(_os4.path.abspath(__file__)), '..'))
         assert tk.returncode == 0, f'token-smoke 失败:\n{tk.stdout[-500:]}\n{tk.stderr[-300:]}'
         assert '16 通过' in tk.stdout, f'token-smoke 计数异常: {tk.stdout[-200:]}'
+        # C14: A2A P3 回执（评审席 network/a2a-receipt E1-E6 自查版，独立实例）
+        rc = _sp3.run(['node', 'scripts/receipt-smoke.mjs'], capture_output=True, text=True, timeout=240,
+                      cwd=_os4.path.join(_os4.path.dirname(_os4.path.abspath(__file__)), '..'))
+        assert rc.returncode == 0, f'receipt-smoke 失败:\n{rc.stdout[-600:]}\n{rc.stderr[-300:]}'
+        assert '14 通过' in rc.stdout, f'receipt-smoke 计数异常: {rc.stdout[-200:]}'
         record('MCP 生产通道（协议面 + 17 tools + 网关 P1 + 管理页 + Cookie 池 + 数据面 + 文件面 + 上游聚合 P2）', True)
     except Exception as e:
         record('MCP 生产通道', False, str(e)); shot('mcp')
@@ -935,7 +940,7 @@ with sync_playwright() as p:
         import os as _os
         with open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'README.md'), encoding='utf-8') as _f:
             readme = _f.read()
-        assert 'v30' in readme and '158 条判据' in readme, 'README 验证器节未同步 v29/133'
+        assert 'v30' in readme and '160 条判据' in readme, 'README 验证器节未同步 v29/133'
         assert '内置 9 种' in readme, 'README 类型数未同步 9'
         assert 'Sops' in readme, 'README 目录缺 Sops 页'
         assert '≥25' in readme or '25 组' in readme, 'README E2E 组数未同步'

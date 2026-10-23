@@ -129,6 +129,22 @@ CREATE TABLE IF NOT EXISTS mcp_calls (
   args_sha256 TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_mcp_calls_session ON mcp_calls (session_name, at);
+CREATE TABLE IF NOT EXISTS a2a_outbox (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id INTEGER NOT NULL,
+  task_id TEXT NOT NULL DEFAULT '',
+  context_id TEXT NOT NULL DEFAULT '',
+  target_url TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT NOT NULL DEFAULT '',
+  next_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  sent_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_a2a_outbox_due ON a2a_outbox(status, next_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_outbox_run ON a2a_outbox(run_id);
 CREATE TABLE IF NOT EXISTS cookie_sets (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   label TEXT NOT NULL,
@@ -155,6 +171,30 @@ CREATE TABLE IF NOT EXISTS app_files (
 );
 CREATE INDEX IF NOT EXISTS idx_app_files_slug ON app_files(app_slug, created_at);
 `);
+
+// A2A P3 回执（评审席判据 network/a2a-receipt E1-E7）
+{
+  const ctxCols = db.prepare('PRAGMA table_info(a2a_run_ctx)').all() as { name: string }[];
+  if (!ctxCols.some((c) => c.name === 'task_id')) {
+    db.exec("ALTER TABLE a2a_run_ctx ADD COLUMN task_id TEXT NOT NULL DEFAULT ''");
+  }
+  if (!ctxCols.some((c) => c.name === 'caller')) {
+    db.exec("ALTER TABLE a2a_run_ctx ADD COLUMN caller TEXT NOT NULL DEFAULT ''");
+  }
+  if (!ctxCols.some((c) => c.name === 'team')) {
+    db.exec("ALTER TABLE a2a_run_ctx ADD COLUMN team TEXT NOT NULL DEFAULT ''");
+  }
+  if (!ctxCols.some((c) => c.name === 'receipt_status')) {
+    db.exec("ALTER TABLE a2a_run_ctx ADD COLUMN receipt_status TEXT NOT NULL DEFAULT ''");
+  }
+  if (!ctxCols.some((c) => c.name === 'callback_url')) {
+    db.exec("ALTER TABLE a2a_run_ctx ADD COLUMN callback_url TEXT NOT NULL DEFAULT ''");
+  }
+  const bindCols = db.prepare('PRAGMA table_info(sop_bindings)').all() as { name: string }[];
+  if (!bindCols.some((c) => c.name === 'callback_url')) {
+    db.exec("ALTER TABLE sop_bindings ADD COLUMN callback_url TEXT NOT NULL DEFAULT ''");
+  }
+}
 
 // 轻量列迁移：已存库补列（凭据注入 / SOP 台生成器 / A2A 节点短 id / cookie 池挂接）
 {

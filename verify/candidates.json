@@ -3240,7 +3240,7 @@
               {
                 "col": "needle",
                 "op": "=",
-                "value": "158 条判据"
+                "value": "160 条判据"
               },
               {
                 "col": "present",
@@ -5425,6 +5425,84 @@
                 "col": "needle",
                 "op": "=",
                 "value": "/api/a2a/send"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据159：server/src/db.ts 必须包含回执队列表「a2a_outbox」。",
+      "anchor": {
+        "quote": "判据159：server/src/db.ts 必须包含回执队列表「a2a_outbox」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "回执 outbox 钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/db.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "a2a_outbox"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据160：scripts/receipt-smoke.mjs 必须包含回执行为锚「E1 上游 parseReceipt 可解析」。",
+      "anchor": {
+        "quote": "判据160：scripts/receipt-smoke.mjs 必须包含回执行为锚「E1 上游 parseReceipt 可解析」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "回执行为断言钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "scripts/receipt-smoke.mjs"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "E1 上游 parseReceipt 可解析"
               },
               {
                 "col": "present",
