@@ -677,13 +677,14 @@ const upload = multer({
 });
 
 app.post('/api/apps/:slug/files', (req, res, next) => {
+  // 评审 #25：先校验台存在再收文件——否则 404 时文件已落盘成无主文件
+  const a = getApp(req.params.slug);
   upload.single('file')(req, res, (err: any) => {
     if (err) {
       if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: '文件超 50MB 上限' });
       return res.status(400).json({ error: `上传失败：${err.message}` });
     }
     try {
-      const a = getApp(req.params.slug);
       if (!req.file) bad('缺少 file 字段（multipart/form-data）');
       const created_by = typeof req.body?.created_by === 'string' ? req.body.created_by.trim().slice(0, 128) : '';
       const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 500) : '';
@@ -695,6 +696,7 @@ app.post('/api/apps/:slug/files', (req, res, next) => {
       const id = Number(r.lastInsertRowid);
       res.status(201).json({ ok: true, id, slug: a.slug, name: originalName, mime: req.file.mimetype, size: req.file.size, note, url: `/api/apps/${a.slug}/files/${id}` });
     } catch (e) {
+      if (req.file) rmSync(req.file.path, { force: true }); // 入库失败不留落盘文件
       next(e);
     }
   });
