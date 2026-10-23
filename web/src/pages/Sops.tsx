@@ -299,7 +299,7 @@ export default function Sops() {
       <Card size="small" title={`待验收任务（${pendingRuns.length}）`} style={{ marginBottom: 12 }}
         extra={<Button size="small" onClick={() => { void loadPending(); }}>刷新</Button>}>
         {pendingRuns.length === 0 ? <Typography.Text type="secondary">没有待验收的派单任务</Typography.Text> : (
-          <Space orientation="vertical" style={{ width: '100%' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
             {pendingRuns.map((r) => (
               <Space key={r.id} wrap>
                 <Tag color="blue">run #{r.id}</Tag>
@@ -309,7 +309,7 @@ export default function Sops() {
                 <Button size="small" type="link" href={`/sop/${r.sop_slug}/`} target="_blank">去验收</Button>
               </Space>
             ))}
-          </Space>
+          </div>
         )}
       </Card>
       <ProTable<SopApp>
