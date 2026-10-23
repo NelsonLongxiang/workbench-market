@@ -119,7 +119,7 @@ const TEXT_FACTS = [
   ["server/src/index.ts", "issue #7"],
   ["evidence/e2e_test.py", "e2e-import-probe"],
   ["scripts/make-submission.mjs", "issue #13"],
-  ["README.md", "156 条判据"],
+  ["README.md", "158 条判据"],
   ["server/src/a2a.ts", "canonicalPayload"],
   ["server/src/index.ts", "x-admin-token"],
   ["server/src/a2a.ts", "a2a_node8"],
@@ -175,6 +175,8 @@ const TEXT_FACTS = [
   ["scripts/appfiles-smoke.mjs", "404 不落盘"],
   ["server/src/index.ts", "hashAdminToken"],
   ["scripts/token-smoke.mjs", "无 admin_token_sha256"],
+  ["scripts/a2a-peer.mjs", "extractSopRequest"],
+  ["server/src/index.ts", "startPeer"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);

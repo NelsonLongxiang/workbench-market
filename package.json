@@ -10,6 +10,10 @@
     "check": "pnpm --filter web typecheck"
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/cordis-plugin-timer": "^1.1.7",
+    "@deepseek-ai/dsh-host-webserver": "0.0.1-rc.1",
+    "@deepseek-ai/dsh-system-prompt": "0.0.1-rc.1",
     "concurrently": "^9.1.2"
   }
 }

@@ -153,7 +153,7 @@ const U = [
   { c: "判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-probe」。", t: "运行时批行为断言钉位", s: "S1", ck: existsFact("scripts/import-smoke.mjs", "e2e-import-probe"), rv: ["判据原文逐字取自冻结材料，导入冒烟（独立实例，7 项）覆盖 query replace 语义/内部路径行不丢/悬空面板 prune/掩码行跳过/body mode 等价；E2E 组 19 subprocess 调用——replace 全表清写不再碰活库（84 事故 ×3 根治）。", "提取表三条件 exists 精确判定。", "删探针提取为 0 即 FAIL。"] },
   // ── 卫生批（外部评审 #12/#13：README 一致性 + 干净克隆自愈） ──
   { c: "判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。", t: "提交物脚本自愈钉位", s: "S1", ck: existsFact("scripts/make-submission.mjs", "issue #13"), rv: ["判据原文逐字取自冻结材料，VACUUM INTO 前 mkdirSync(tmp) 幂等创建——干净克隆无 tmp/ 不再必然失败（评审 #13）。", "提取表三条件 exists 精确判定。", "删自愈提取为 0 即 FAIL。"] },
-  { c: "判据102：README.md 必须包含验证器判据数锚「144 条判据」。", t: "README 版本一致钉位", s: "S2", ck: existsFact("README.md", "156 条判据"), rv: ["判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12——锚用判据数，比版本号锚少一次升版漂移）。", "提取表三条件 exists 精确判定。", "版本漂移提取为 0 即 FAIL。"] },
+  { c: "判据102：README.md 必须包含验证器判据数锚「144 条判据」。", t: "README 版本一致钉位", s: "S2", ck: existsFact("README.md", "158 条判据"), rv: ["判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12——锚用判据数，比版本号锚少一次升版漂移）。", "提取表三条件 exists 精确判定。", "版本漂移提取为 0 即 FAIL。"] },
   // ── A2A 网络接入 P1（GH #17：签名卡片 + 人工绑定，只读暴露） ──
   { c: "判据103：server/src/a2a.ts 必须包含上游一致签名面「canonicalPayload」。", t: "A2A 卡片签名钉位", s: "S1", ck: existsFact("server/src/a2a.ts", "canonicalPayload"), rv: ["判据原文逐字取自冻结材料，卡片 canonical 与上游 card.ts（裁判钉 75a3ebd）逐字节一致——Ed25519 pure + SPKI DER base64，expiresAt ≤ 48h，须过上游 verifyCard（GH #17 P1）。", "提取表三条件 exists 精确判定。", "删签名面提取为 0 即 FAIL。"] },
   { c: "判据104：server/src/index.ts 必须包含绑定管理口令头「x-admin-token」。", t: "人工绑定口令钉位", s: "S1", ck: existsFact("server/src/index.ts", "x-admin-token"), rv: ["判据原文逐字取自冻结材料，绑定读写要 X-Admin-Token 常量时间比较（未设置一律 403）+ Origin 空或同源服务端校验；MCP 无绑定写工具；卡片不发布 teamMemberships（绑定图不出门）。", "提取表三条件 exists 精确判定。", "删口令校验提取为 0 即 FAIL。"] },
@@ -229,6 +229,9 @@ const U = [
   // ── 评审 #27：管理员口令哈希出口剔除 + 加盐存储 ──
   { c: "判据155：server/src/index.ts 必须包含口令加盐哈希「hashAdminToken」。", t: "口令加盐存储钉位", s: "S1", ck: existsFact("server/src/index.ts", "hashAdminToken"), rv: ["判据原文逐字取自冻结材料，口令哈希为 <salt32hex>$<sha256(salt+token)64hex> 加盐格式（旧无盐格式兼容验证）；settings 与 export 出口剔除 admin_token_sha256——评审 #27 远程可读哈希+短口令离线爆破。", "提取表三条件 exists 精确判定。", "删加盐提取为 0 即 FAIL。"] },
   { c: "判据156：scripts/token-smoke.mjs 必须包含出口剔除断言「无 admin_token_sha256」。", t: "口令安全行为断言钉位", s: "S1", ck: existsFact("scripts/token-smoke.mjs", "无 admin_token_sha256"), rv: ["判据原文逐字取自冻结材料，独立实例 16 项：加盐格式/库内无明文/settings+export 剔除/正负口令/改口令需当前口令/旧格式兼容/清除需当前口令。", "提取表三条件 exists 精确判定。", "删断言提取为 0 即 FAIL。"] },
+  // ── A2A peer 宿主（主人裁定：挂上游实现，我们就是一个 peer） ──
+  { c: "判据157：scripts/a2a-peer.mjs 必须包含桥接锚「extractSopRequest」。", t: "peer 桥接钉位", s: "S1", ck: existsFact("scripts/a2a-peer.mjs", "extractSopRequest"), rv: ["判据原文逐字取自冻结材料，peer 宿主用上游插件 apply（卡片/入站/幂等/回执/账本由上游承担），桥接 agent 把派单转市场 REST 开 run；控制面 /__bridge/send 走出站发件。", "提取表三条件 exists 精确判定。", "删桥接提取为 0 即 FAIL。"] },
+  { c: "判据158：server/src/index.ts 必须包含 peer 生命周期锚「startPeer」。", t: "peer 生命周期钉位", s: "S1", ck: existsFact("server/src/index.ts", "startPeer"), rv: ["判据原文逐字取自冻结材料，PEER=on 时市场进程拉起上游宿主（--import 解析垫片）、退出 5s 重启、GET /api/a2a/peer 状态与 POST /api/a2a/peer/send 出站代理。", "提取表三条件 exists 精确判定。", "删生命周期提取为 0 即 FAIL。"] },
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
@@ -245,7 +248,7 @@ passed)——源自 E2E 内置的 Playwright 对比度探针（实测 DOM 前景
 提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
 脚本、验证器自举档案、设计规范与证据。
 命令执行型检查（typecheck、lint、build）不属于 CLI 闭集，由开发流程自行执行
-（E2E 与渲染层对比度结果经摘要表断言）；覆盖四十一个维度共 156 条判据：数据域完整性
+（E2E 与渲染层对比度结果经摘要表断言）；覆盖四十二个维度共 158 条判据：数据域完整性
 （判据1-9）、种子与配置（判据10-15）、提交物结构（判据16-35）、颜色可见性
 （判据36-51 与 57-58：经对比度审计的色值在源码与规范中的钉位，漂移即破坏已审计
 的可读性）、E2E 行为证据（判据52-54：规模下限、全绿、时间戳在位）、渲染层对比度
