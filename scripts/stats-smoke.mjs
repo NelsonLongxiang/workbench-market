@@ -5,7 +5,7 @@
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync } from 'node:fs';
 
-const PORT = 9854;
+const PORT = 9860;
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-stats-data';
 let pass = 0, fail = 0;
