@@ -27,10 +27,9 @@ export class DbService extends Service {
 
 export const ctx = new Context();
 
-// 八域 + db：全部注册（顺序不影响语义，Cordis 按名解析）
-for (const P of [DbService, WorkbenchService, SopService, AppService, AppDataService, McpService, CookieService, CockpitService, SettingService]) {
-  ctx.plugin(P as never);
-}
+// 八域 + db：全部注册（顺序不影响语义，Cordis 按名解析）。
+// ctx.plugin 异步装配，等全部就绪再交出模块——否则 index.ts 的 listen 回调里 svc() 取到 undefined（#32）
+await Promise.all([DbService, WorkbenchService, SopService, AppService, AppDataService, McpService, CookieService, CockpitService, SettingService].map((P) => ctx.plugin(P as never)));
 
 /** 便捷取用：`svc<WorkbenchService>('workbench')` */
 export function svc<T>(name: string): T {
