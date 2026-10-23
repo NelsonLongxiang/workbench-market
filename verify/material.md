@@ -142,3 +142,4 @@
 判据142：server/src/index.ts 必须包含远程白名单前缀「REMOTE_ALLOW_PREFIX」。
 判据143：server/src/index.ts 必须包含读工具「app_data_list」。
 判据144：evidence/e2e_test.py 必须包含 MCP 读工具行为锚「app_files_list」。
+判据145：server/src/index.ts 必须包含分页校验「pageLimit」。

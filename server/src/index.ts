@@ -602,6 +602,20 @@ app.delete('/api/apps/:slug', (req, res) => {
 // 通用通道：POST 写入 / GET 游标分页（倒序 before_id）。JSON blob 哑存储——含义在台自身。
 // 安全面：内网信任模型（同发布面口径）；台页 iframe 同源 fetch 直通。
 // 无 DELETE——提交数据留审计，误提交由应用层覆盖语义处理。
+
+/** 分页参数校验（评审 #22：limit=1.5 曾 500、limit=-1 绕过上限——输入错误一律 400） */
+function pageLimit(v: unknown, def = 50, max = 200): number {
+  if (v === undefined || v === null || v === '') return def;
+  const n = Number(v);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1) bad(`limit 必须是 1-${max} 的正整数`);
+  return Math.min(n, max);
+}
+function pageBeforeId(v: unknown): number {
+  if (v === undefined || v === null || v === '') return 0;
+  const n = Number(v);
+  if (!Number.isFinite(n) || !Number.isInteger(n)) bad('before_id 必须是整数');
+  return Math.max(0, n);
+}
 app.post('/api/apps/:slug/data', (req, res) => {
   const a = getApp(req.params.slug);
   const b = req.body ?? {};
@@ -616,8 +630,8 @@ app.post('/api/apps/:slug/data', (req, res) => {
 
 app.get('/api/apps/:slug/data', (req, res) => {
   const a = getApp(req.params.slug);
-  const limit = Math.min(Number(req.query.limit) || 50, 200);
-  const beforeId = Number(req.query.before_id) || 0;
+  const limit = pageLimit(req.query.limit);
+  const beforeId = pageBeforeId(req.query.before_id);
   const rows = beforeId > 0
     ? db.prepare('SELECT id, data, created_by, created_at FROM app_data WHERE app_slug = ? AND id < ? ORDER BY id DESC LIMIT ?').all(a.slug, beforeId, limit)
     : db.prepare('SELECT id, data, created_by, created_at FROM app_data WHERE app_slug = ? ORDER BY id DESC LIMIT ?').all(a.slug, limit);
@@ -688,8 +702,8 @@ app.post('/api/apps/:slug/files', (req, res, next) => {
 
 app.get('/api/apps/:slug/files', (req, res) => {
   const a = getApp(req.params.slug);
-  const limit = Math.min(Number(req.query.limit) || 50, 200);
-  const beforeId = Number(req.query.before_id) || 0;
+  const limit = pageLimit(req.query.limit);
+  const beforeId = pageBeforeId(req.query.before_id);
   const rows = beforeId > 0
     ? db.prepare('SELECT id, original_name, mime, size, created_by, created_at FROM app_files WHERE app_slug = ? AND id < ? ORDER BY id DESC LIMIT ?').all(a.slug, beforeId, limit)
     : db.prepare('SELECT id, original_name, mime, size, created_by, created_at FROM app_files WHERE app_slug = ? ORDER BY id DESC LIMIT ?').all(a.slug, limit);
@@ -1718,8 +1732,8 @@ async function callTool(name: string, args: any): Promise<unknown> {
       return workbenchDeleteCore(Number(args?.id));
     case 'app_data_list': {
       const a = getApp(String(args?.slug ?? ''));
-      const limit = Math.min(Number(args?.limit) || 50, 200);
-      const beforeId = Number(args?.before_id) || 0;
+      const limit = pageLimit(args?.limit);
+      const beforeId = pageBeforeId(args?.before_id);
       const rows = beforeId > 0
         ? db.prepare('SELECT id, data, created_by, created_at FROM app_data WHERE app_slug = ? AND id < ? ORDER BY id DESC LIMIT ?').all(a.slug, beforeId, limit)
         : db.prepare('SELECT id, data, created_by, created_at FROM app_data WHERE app_slug = ? ORDER BY id DESC LIMIT ?').all(a.slug, limit);
@@ -1728,8 +1742,8 @@ async function callTool(name: string, args: any): Promise<unknown> {
     }
     case 'app_files_list': {
       const a = getApp(String(args?.slug ?? ''));
-      const limit = Math.min(Number(args?.limit) || 50, 200);
-      const beforeId = Number(args?.before_id) || 0;
+      const limit = pageLimit(args?.limit);
+      const beforeId = pageBeforeId(args?.before_id);
       const rows = beforeId > 0
         ? db.prepare('SELECT id, original_name, mime, size, created_by, created_at FROM app_files WHERE app_slug = ? AND id < ? ORDER BY id DESC LIMIT ?').all(a.slug, beforeId, limit)
         : db.prepare('SELECT id, original_name, mime, size, created_by, created_at FROM app_files WHERE app_slug = ? ORDER BY id DESC LIMIT ?').all(a.slug, limit);

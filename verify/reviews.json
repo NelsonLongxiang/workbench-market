@@ -3455,6 +3455,30 @@
           "reason": "删断言提取为 0 即 FAIL。"
         }
       ]
+    },
+    {
+      "source_clause": "判据145：server/src/index.ts 必须包含分页校验「pageLimit」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，limit 非正整数一律 400（1.5/0/-1 拒绝）、超上限夹 200、before_id 非整数 400——REST 与 MCP 两通道共用同一校验（评审 #22 输入错误不得 500、负 limit 不得绕过上限）。",
+          "anchor": {
+            "quote": "判据145：server/src/index.ts 必须包含分页校验「pageLimit」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删校验提取为 0 即 FAIL。"
+        }
+      ]
     }
   ]
 }
