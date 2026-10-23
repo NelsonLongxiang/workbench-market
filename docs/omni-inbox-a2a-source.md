@@ -43,12 +43,12 @@
 "sources": {
   "ygl-trees": { "ok": true,  "count": 7,   "latency_ms": 559 },
   "market":    { "ok": true,  "count": 0,   "latency_ms": 0 },
-  "a2a":       { "ok": true,  "count": 3,   "latency_ms": 120, "error": null }  // count=在途；error 可选
+  "a2a":       { "ok": true,  "count": 3,   "latency_ms": 120 }   // count=在途（对账口径）
 }
 ```
 
-- 类型：`SourceMeta` 增可选 `error: string | null`（三源同构，ygl/market 亦可带）。
-- `/tasks` 页源过滤 Segmented 增「a2a」；驾驶舱 TasksView 无需改（信封驱动）。
+- **冻结为 `{ok, count, latency_ms}` 三字段**（总工程师裁决 direct-43cc0749 ③）：`error` **不入冻结契约**——降级原因走服务端日志面；契约纪律：有消费者才加字段。
+- `/tasks` 页源过滤 Segmented 增「a2a」。
 
 ## 五、实现挂点（合并 #32 后的最小实现清单，供排期）
 
@@ -56,8 +56,8 @@
 2. 冒烟 `omni-inbox-smoke` 增 A2A 分支：起替身 /state（回放 #32 形状夹具）断言映射/降级两出口（**显式区分，防空转绿**——遥测单教训规约）。
 3. 判据：信封字段/在途优先/降级 ok=false 三条钉进 gen-verifier（待实现时随 PR 提）。
 
-## 六、开放问题（请总工程师/评审席裁）
+## 六、总工程师三裁（direct-43cc0749，已并入本稿）
 
-- `A2A_STATE_URL` 指向哪台宿主（多 peer 取主用还是聚合多台）？
-- 归档 done 流水是否需要独立视图页（当前设计混排在 /tasks done 过滤下）？
-- `error` 字段是否入冻结契约（一旦入即向后兼容义务）。
+1. **`A2A_STATE_URL`：v2 必填环境变量，无静默默认值**——独立部署 = 每栈指向自己配对的 DSH 节点；默认值会造跨租户泄漏面。文档给示例值即可（如 `http://127.0.0.1:3080`）。未配置 → A2A 源整体不启用（`sources` 不含 a2a 键），而非 ok=false 降级——「没配」≠「坏了」。
+2. **归档 done 流水：v2 进 `/tasks` 页折叠「已归档」节**（廉价可见，默认折叠）；**驾驶舱卡不含**（保 J3 语义：卡=待办驱动）。独立视图页待真实需求再议。
+3. **`error` 不入冻结契约**：`sources.a2a` 冻结为 `{ok, count, latency_ms}`；降级原因走服务端日志面。
