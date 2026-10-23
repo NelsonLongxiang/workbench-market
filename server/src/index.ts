@@ -605,7 +605,7 @@ app.post('/api/apps/:slug/data', (req, res) => {
 
 app.get('/api/apps/:slug/data', (req, res) => {
   const a = getApp(req.params.slug);
-  const limit = Math.min(Number(req.query.limit) || 50, 200);
+  const limit = Math.max(1, Math.min(Math.trunc(Number(req.query.limit)) || 50, 200));
   const beforeId = Number(req.query.before_id) || 0;
   const rows = beforeId > 0
     ? db.prepare('SELECT id, data, created_by, created_at FROM app_data WHERE app_slug = ? AND id < ? ORDER BY id DESC LIMIT ?').all(a.slug, beforeId, limit)
@@ -1667,7 +1667,7 @@ app.get('/api/mcp/tools', (req, res) => {
 
 app.get('/api/mcp/calls', (req, res) => {
   if (!adminGuard(req, res)) return;
-  const limit = Math.min(Number(req.query.limit) || 200, 1000);
+  const limit = Math.max(1, Math.min(Math.trunc(Number(req.query.limit)) || 200, 1000));
   const rows = db.prepare('SELECT * FROM mcp_calls ORDER BY id DESC LIMIT ?').all(limit);
   res.json(rows);
 });
