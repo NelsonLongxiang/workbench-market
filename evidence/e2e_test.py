@@ -756,7 +756,16 @@ with sync_playwright() as p:
                       cwd=_os4.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
         assert gw.returncode == 0, f'gateway-smoke 失败:\n{gw.stdout[-500:]}\n{gw.stderr[-300:]}'
         assert '24 通过' in gw.stdout, f'gateway-smoke 计数异常: {gw.stdout[-200:]}'
-        record('MCP 生产通道（协议面 + 15 tools + 网关 P1 冒烟）', True)
+        # C7: 网关管理页 UI（GH #20 P1 派单①——主实例无 ADMIN_TOKEN，控制面 403 但页面可渲染）
+        page.goto(BASE + '/mcp-gateways')
+        page.wait_for_load_state('networkidle')
+        page.wait_for_timeout(600)
+        body_txt = page.locator('body').inner_text()
+        assert 'MCP 网关' in body_txt, '管理页标题未渲染'
+        assert page.locator('input[type="password"]').count() >= 1, '口令输入未渲染'
+        assert '默认拒绝' in body_txt, '默认拒绝提示未渲染'
+        assert '审计' in body_txt, '审计区未渲染'
+        record('MCP 生产通道（协议面 + 15 tools + 网关 P1 冒烟 + 管理页）', True)
     except Exception as e:
         record('MCP 生产通道', False, str(e)); shot('mcp')
 
@@ -882,7 +891,7 @@ with sync_playwright() as p:
         import os as _os
         with open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'README.md'), encoding='utf-8') as _f:
             readme = _f.read()
-        assert 'v26' in readme and '121 条判据' in readme, 'README 验证器节未同步 v26/121'
+        assert 'v29' in readme and '133 条判据' in readme, 'README 验证器节未同步 v29/133'
         assert '内置 9 种' in readme, 'README 类型数未同步 9'
         assert 'Sops' in readme, 'README 目录缺 Sops 页'
         assert '≥25' in readme or '25 组' in readme, 'README E2E 组数未同步'
