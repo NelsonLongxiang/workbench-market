@@ -1776,11 +1776,15 @@ function mcpUpstreams(): McpUpstream[] {
   }
 }
 
-async function upstreamRpc(u: McpUpstream, method: string, params: unknown, id = 1): Promise<any> {
+async function upstreamRpc(u: McpUpstream, method: string, params: unknown, id = 1, clientIdent?: string): Promise<any> {
   const timeout = u.toolCallTimeoutMs && u.toolCallTimeoutMs > 0 ? u.toolCallTimeoutMs : 15_000;
+  // 身份透传（#20 P2）：网关会话存在时以 mcp/<会话名> 覆盖静态头——
+  // 上游（如 taste-mcp）以此判 judge 身份：agent:<X-Market-Client>@<model>。
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...(u.headers ?? {}) };
+  if (clientIdent) headers['X-Market-Client'] = clientIdent;
   const r = await fetch(u.url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...(u.headers ?? {}) },
+    headers,
     body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
     signal: AbortSignal.timeout(timeout),
   });
@@ -2007,7 +2011,7 @@ app.post('/mcp', async (req, res) => {
         // 上游路由（P2）：<prefix>__<tool> → 转发到对应上游 MCP
         const up = routeUpstream(toolName);
         const out = up
-          ? await upstreamRpc(up.upstream, 'tools/call', { name: up.remoteTool, arguments: msg.params.arguments ?? {} }, 2)
+          ? await upstreamRpc(up.upstream, 'tools/call', { name: up.remoteTool, arguments: msg.params.arguments ?? {} }, 2, sess ? `mcp/${sess.name}` : undefined)
           : await callTool(toolName, msg.params.arguments ?? {});
         audit('tools/call', toolName, true, '', Date.now() - t0, msg.params?.arguments);
         // 上游结果已是 MCP 形状（{content,isError?}）→ 原样透传（下游客户端语义无损）；
