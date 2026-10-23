@@ -1,8 +1,13 @@
-import { useRef } from 'react';
-import { App } from 'antd';
+import { useRef, useState } from 'react';
+import { App, Button, Space, Typography } from 'antd';
 import { ModalForm, ProFormDigit, ProFormSelect, ProFormSwitch, ProFormText, ProFormTextArea } from '@ant-design/pro-components';
 import { api } from '../api';
 import type { Workbench, WorkbenchType } from '../types';
+
+interface CookieSetInfo {
+  id: number; label: string; cookie_count: number; active: number;
+  all_expired: boolean; soonest_exp_days: number | null; created_at: string;
+}
 
 export default function WorkbenchForm({
   open,
@@ -23,6 +28,36 @@ export default function WorkbenchForm({
 }) {
   const formRef = useRef<any>();
   const { message } = App.useApp();
+  const [cookieSets, setCookieSets] = useState<CookieSetInfo[]>([]);
+  const [cookieJson, setCookieJson] = useState('');
+
+  // 表单打开时拉 cookie 池列表（轻量）
+  const loadCookieSets = () => {
+    fetch('/api/cookies')
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setCookieSets)
+      .catch(() => setCookieSets([]));
+  };
+
+  const importCookies = async () => {
+    if (!cookieJson.trim()) return;
+    try {
+      const arr = JSON.parse(cookieJson);
+      if (!Array.isArray(arr)) throw new Error('不是 JSON 数组');
+      const label = `导入 ${new Date().toLocaleTimeString()}`;
+      const r = await fetch('/api/cookies', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label, cookies: arr }),
+      });
+      const b = await r.json();
+      if (!r.ok) throw new Error(b.error || `HTTP ${r.status}`);
+      message.success(`已导入 ${b.cookie_count} 条 cookie（${b.active} 条有效）`);
+      setCookieJson('');
+      loadCookieSets();
+    } catch (e) {
+      message.error(`导入失败：请粘贴 Cookie-Editor 导出的 JSON 数组——${(e as Error).message}`);
+    }
+  };
 
   const copyInitial = copySource
     ? {
@@ -47,7 +82,7 @@ export default function WorkbenchForm({
       title={initial ? `编辑工作台：${initial.name}` : copySource ? `复制工作台：${copySource.name}` : '新增工作台'}
       width={560}
       open={open}
-      onOpenChange={(v) => !v && onClose()}
+      onOpenChange={(v) => { if (!v) onClose(); else loadCookieSets(); }}
       formRef={formRef}
       modalProps={{ destroyOnClose: true, maskClosable: false }}
       initialValues={
@@ -74,10 +109,12 @@ export default function WorkbenchForm({
       }
       onFinish={async (values) => {
         try {
-          const { authType, authValue, ...payload } = values;
+          const { authType, authValue, _cookieImport, ...payload } = values;
           // 凭据注入：none → 清除；bearer/basic → 组装 auth（服务端经 /go/ 门户注入 Authorization 头）
           (payload as Record<string, unknown>).auth =
             authType === 'bearer' || authType === 'basic' ? { type: authType, value: authValue } : null;
+          // cookie_set_id：undefined/'' → 0 取消挂接；数字 → 挂接
+          (payload as Record<string, unknown>).cookie_set_id = Number(values.cookie_set_id) || 0;
           if (initial) await api.updateWorkbench(initial.id, payload);
           else await api.createWorkbench(payload);
           onSaved();
@@ -151,6 +188,35 @@ export default function WorkbenchForm({
         placeholder="Bearer 填 token；Basic 填 用户名:密码"
         fieldProps={{ autoComplete: 'off' }}
       />
+      <ProFormSelect
+        name="cookie_set_id"
+        label="Cookie 集"
+        allowClear
+        options={cookieSets.map((c) => ({
+          value: c.id,
+          label: c.all_expired ? `${c.label}（${c.cookie_count} 条·已全过期）` :
+            c.soonest_exp_days !== null && c.soonest_exp_days <= 7 ? `${c.label}（${c.active}/${c.cookie_count} 条·剩 ${c.soonest_exp_days} 天）` :
+            `${c.label}（${c.active}/${c.cookie_count} 条有效）`,
+        }))}
+        extra="选择后经 /go/ 门户访问时自动注入该 cookie 集（按目标域匹配+未过期过滤）；不选 = 浏览器透传"
+        fieldProps={{ placeholder: '不挂接 cookie（浏览器透传）' }}
+      />
+      <div style={{ marginBottom: 4 }}>
+        <Typography.Text style={{ fontSize: 13 }}>快速导入 Cookie</Typography.Text>
+        <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 4 }}>
+          粘贴 Cookie-Editor / EditThisCookie 导出的 JSON 数组，点导入即可建池
+        </Typography.Paragraph>
+        <textarea
+          className="wm-mono"
+          style={{ width: '100%', padding: '6px 10px', border: '1px solid #E2E8F0', borderRadius: 6, fontSize: 12, minHeight: 44, resize: 'vertical' }}
+          placeholder='[{"name":"session","value":"...","domain":"..."}]'
+          value={cookieJson}
+          onChange={(e) => setCookieJson(e.target.value)}
+        />
+      </div>
+      <Button size="small" onClick={importCookies} disabled={!cookieJson.trim()} style={{ marginBottom: 16 }}>
+        导入为 Cookie 集
+      </Button>
       <ProFormTextArea name="description" label="描述" placeholder="支持 Markdown；在工作台详情中渲染（可空）" />
     </ModalForm>
   );
