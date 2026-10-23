@@ -3240,7 +3240,7 @@
               {
                 "col": "needle",
                 "op": "=",
-                "value": "148 条判据"
+                "value": "150 条判据"
               },
               {
                 "col": "present",
@@ -5035,6 +5035,84 @@
                 "col": "needle",
                 "op": "=",
                 "value": "X-Market-Client"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据149：web/src/components/AppDataDrawer.tsx 必须存在且包含数据/文件双面锚「提交数据」。",
+      "anchor": {
+        "quote": "判据149：web/src/components/AppDataDrawer.tsx 必须存在且包含数据/文件双面锚「提交数据」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "台数据查看器钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/components/AppDataDrawer.tsx"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "提交数据"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据150：scripts/a2a-smoke.mjs 必须包含就绪探测「waitReady」。",
+      "anchor": {
+        "quote": "判据150：scripts/a2a-smoke.mjs 必须包含就绪探测「waitReady」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "冒烟就绪探测钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "scripts/a2a-smoke.mjs"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "waitReady"
               },
               {
                 "col": "present",

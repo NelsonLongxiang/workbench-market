@@ -827,7 +827,8 @@ with sync_playwright() as p:
         import re as _re
         assert row.locator('button').filter(has_text=_re.compile(r'上\s*架')).count() >= 1, 'draft 应有上架按钮'
         # ② 演示 SOP 常驻行：published 徽章 + 执行锚点
-        demo = page.locator('.ant-table-row').filter(has_text='demo-rack-sop')
+        # 行键精确定位（文本过滤会命中 changelog 里提到 demo-rack-sop 的其他 SOP 行）
+        demo = page.locator('.ant-table-row[data-row-key="demo-rack-sop"]')
         assert demo.count() == 1, '演示 SOP 未出现在 /sops'
         assert demo.locator('.ant-tag').filter(has_text='published').count() >= 1, 'published 徽章缺失'
         href = demo.locator('a.ant-btn').first.get_attribute('href') or ''
@@ -924,7 +925,7 @@ with sync_playwright() as p:
         import os as _os
         with open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'README.md'), encoding='utf-8') as _f:
             readme = _f.read()
-        assert 'v30' in readme and '148 条判据' in readme, 'README 验证器节未同步 v29/133'
+        assert 'v30' in readme and '150 条判据' in readme, 'README 验证器节未同步 v29/133'
         assert '内置 9 种' in readme, 'README 类型数未同步 9'
         assert 'Sops' in readme, 'README 目录缺 Sops 页'
         assert '≥25' in readme or '25 组' in readme, 'README E2E 组数未同步'

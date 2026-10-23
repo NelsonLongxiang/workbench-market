@@ -9,6 +9,7 @@ import { api } from '../api';
 import type { Workbench, WorkbenchType } from '../types';
 import StatusBadge, { fmtCheckedAt } from '../components/StatusBadge';
 import WorkbenchForm from '../components/WorkbenchForm';
+import AppDataDrawer from '../components/AppDataDrawer';
 
 const TYPE_COLORS = ['geekblue', 'green', 'gold', 'cyan', 'purple', 'volcano', 'magenta', 'orange'];
 function typeColor(key: string): string {
@@ -25,6 +26,7 @@ export default function Market() {
   const [editing, setEditing] = useState<Workbench | null>(null);
   const [copySource, setCopySource] = useState<Workbench | null>(null);
   const [detail, setDetail] = useState<Workbench | null>(null);
+  const [dataSlug, setDataSlug] = useState<string | null>(null);
   const [checkingAll, setCheckingAll] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [searchParams] = useSearchParams();
@@ -388,6 +390,11 @@ export default function Market() {
                 { key: 'created', label: '注册时间', children: fmtCheckedAt(detail.created_at) || detail.created_at },
               ]}
             />
+            {detail.type === 'market-app' && /^\/(apps|sop)\/([a-z0-9-]+)\//.test(detail.url) ? (
+              <Button icon={<ThunderboltOutlined />} onClick={() => setDataSlug((/^\/(apps|sop)\/([a-z0-9-]+)\//.exec(detail.url) as RegExpExecArray)[2])}>
+                查看提交数据
+              </Button>
+            ) : null}
             <Typography.Title level={5}>描述</Typography.Title>
             {detail.description ? (
               <div className="wm-md">
@@ -399,6 +406,7 @@ export default function Market() {
           </Flex>
         ) : null}
       </Drawer>
+      <AppDataDrawer slug={dataSlug ?? ''} open={!!dataSlug} onClose={() => setDataSlug(null)} />
     </>
   );
 }

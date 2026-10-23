@@ -1,6 +1,15 @@
 #!/usr/bin/env node
 /** A2A P1 冒烟：专用实例（独立 DATA_DIR + ADMIN_TOKEN）上卡片签名（上游 verifyCard 裁判）+ 绑定 CRUD + 上卡规则。 */
 import { spawn } from 'node:child_process';
+
+async function waitReady(url, ms = 20000) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    try { const r = await fetch(url); if (r.status < 500) return true; } catch { /* 未起 */ }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return false;
+}
 import { rmSync, mkdirSync } from 'node:fs';
 
 const PORT = 9811;
@@ -18,7 +27,7 @@ const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 
   env: { ...process.env, PORT: String(PORT), DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'e2e-admin-tok' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
-await new Promise((r) => setTimeout(r, 3500));
+if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪（20s 超时）'); process.exit(1); }
 
 async function call(method, path, body, headers = {}) {
   const r = await fetch(BASE + path, { method, headers: { 'Content-Type': 'application/json', ...headers }, body: body ? JSON.stringify(body) : undefined });

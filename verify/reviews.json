@@ -3551,6 +3551,54 @@
           "reason": "删透传提取为 0 即 FAIL。"
         }
       ]
+    },
+    {
+      "source_clause": "判据149：web/src/components/AppDataDrawer.tsx 必须存在且包含数据/文件双面锚「提交数据」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，市场 UI 里的台提交数据查看器（数据行 JSON + 文件下载 + 游标加载更多）——数据落库后业务方在本机 UI 可查（补齐「提交后看不见」的闭环缺口）。",
+          "anchor": {
+            "quote": "判据149：web/src/components/AppDataDrawer.tsx 必须存在且包含数据/文件双面锚「提交数据」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删查看器提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据150：scripts/a2a-smoke.mjs 必须包含就绪探测「waitReady」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，六个冒烟实例统一改「/api/health 轮询等待（20s）」替代固定 3.5s 睡眠——批量跑时的偶发假红（实例未就绪即断言）根因治理。",
+          "anchor": {
+            "quote": "判据150：scripts/a2a-smoke.mjs 必须包含就绪探测「waitReady」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删探测提取为 0 即 FAIL。"
+        }
+      ]
     }
   ]
 }

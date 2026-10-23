@@ -1,6 +1,15 @@
 #!/usr/bin/env node
 /** Cookie 池冒烟（独立实例）：导入→挂接→注入→过期过滤→掩码→删除全链。 */
 import { spawn } from 'node:child_process';
+
+async function waitReady(url, ms = 20000) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    try { const r = await fetch(url); if (r.status < 500) return true; } catch { /* 未起 */ }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return false;
+}
 import { rmSync, mkdirSync } from 'node:fs';
 import { createServer } from 'node:http';
 
@@ -22,7 +31,7 @@ mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server', env: { ...process.env, PORT: String(PORT), DATA_DIR: `../${DATA}`, REDIS_URL: '' }, stdio: ['ignore', 'pipe', 'pipe'],
 });
-await new Promise((r) => setTimeout(r, 3500));
+if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪（20s 超时）'); process.exit(1); }
 
 async function call(method, path, body) {
   const r = await fetch(BASE + path, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });

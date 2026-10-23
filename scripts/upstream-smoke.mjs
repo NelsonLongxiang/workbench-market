@@ -2,6 +2,15 @@
 /** MCP 上游聚合冒烟（GH #20 P2）：假上游 MCP 服务以 <prefix>__<tool> 并入市场 /mcp。
  *  覆盖：上游配置 CRUD、tools/list 聚合、tools/call 转发、上游不可达降级、本地面不受影响。 */
 import { spawn } from 'node:child_process';
+
+async function waitReady(url, ms = 20000) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    try { const r = await fetch(url); if (r.status < 500) return true; } catch { /* 未起 */ }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return false;
+}
 import { rmSync, mkdirSync } from 'node:fs';
 import { createServer } from 'node:http';
 
@@ -41,7 +50,7 @@ mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server', env: { ...process.env, PORT: String(PORT), DATA_DIR: `../${DATA}`, REDIS_URL: '' }, stdio: ['ignore', 'pipe', 'pipe'],
 });
-await new Promise((r) => setTimeout(r, 3500));
+if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪（20s 超时）'); process.exit(1); }
 
 const AT = { 'X-Admin-Token': 'up-admin-tok' };
 async function call(method, path, body, headers = {}) {
@@ -78,8 +87,8 @@ mkdirSync(DATA2, { recursive: true });
 const child2 = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server', env: { ...process.env, PORT: String(PORT2), DATA_DIR: `../${DATA2}`, ADMIN_TOKEN: 'up-admin-tok', REDIS_URL: '' }, stdio: ['ignore', 'pipe', 'pipe'],
 });
-await new Promise((r) => setTimeout(r, 3500));
 const B2 = `http://127.0.0.1:${PORT2}`;
+await waitReady(B2 + '/api/health');
 async function call2(method, path, body, headers = {}) {
   const r = await fetch(B2 + path, { method, headers: { 'Content-Type': 'application/json', ...headers }, body: body ? JSON.stringify(body) : undefined });
   let j = null; try { j = await r.json(); } catch {}
@@ -140,8 +149,8 @@ mkdirSync(DATA3, { recursive: true });
 const child3 = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server', env: { ...process.env, PORT: '9822', DATA_DIR: `../${DATA3}`, ADMIN_TOKEN: 'gw-tok', MCP_GATEWAY: 'on', REDIS_URL: '' }, stdio: ['ignore', 'pipe', 'pipe'],
 });
-await new Promise((r) => setTimeout(r, 3500));
 const B3 = 'http://127.0.0.1:9822';
+await waitReady(B3 + '/api/health');
 try {
   let r = await fetch(B3 + '/api/mcp/upstreams', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': 'gw-tok' }, body: JSON.stringify({ upstreams: [{ prefix: 'taste', url: `http://127.0.0.1:${UP_PORT}/`, headers: { 'X-Market-Client': 'static-fallback' } }] }) });
   ok('网关模式配上游', r.status === 200);

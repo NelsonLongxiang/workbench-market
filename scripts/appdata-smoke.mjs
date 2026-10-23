@@ -1,6 +1,15 @@
 #!/usr/bin/env node
 /** 自产台数据提交面冒烟（独立实例）：写入→读回→游标分页→掩码边界→大小限制。 */
 import { spawn } from 'node:child_process';
+
+async function waitReady(url, ms = 20000) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    try { const r = await fetch(url); if (r.status < 500) return true; } catch { /* 未起 */ }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return false;
+}
 import { rmSync, mkdirSync } from 'node:fs';
 
 const PORT = 9816;
@@ -14,7 +23,7 @@ mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server', env: { ...process.env, PORT: String(PORT), DATA_DIR: `../${DATA}`, REDIS_URL: '' }, stdio: ['ignore', 'pipe', 'pipe'],
 });
-await new Promise((r) => setTimeout(r, 3500));
+if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪（20s 超时）'); process.exit(1); }
 
 async function call(method, path, body) {
   const r = await fetch(BASE + path, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });

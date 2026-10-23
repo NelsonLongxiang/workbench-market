@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { App, Button, Empty, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography } from 'antd';
+import { App, Button, Empty, Input, Modal, Popconfirm, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
 import { KeyOutlined, PlusOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 
@@ -28,6 +28,11 @@ export default function McpGateways() {
   const [newName, setNewName] = useState('');
   const [grantsOf, setGrantsOf] = useState<McpSession | null>(null);
   const [grantSel, setGrantSel] = useState<string[]>([]);
+  // 上游聚合（#20 P2）配置面
+  const [upstreams, setUpstreams] = useState<{ prefix: string; url: string; enabled: boolean }[]>([]);
+  const [upPrefix, setUpPrefix] = useState('');
+  const [upUrl, setUpUrl] = useState('');
+  const [upHeaders, setUpHeaders] = useState('{"X-Market-Client":"mcp/market-gateway"}');
 
   const H = { 'X-Admin-Token': token };
 
@@ -39,6 +44,10 @@ export default function McpGateways() {
       .then(setSessions)
       .catch(() => message.error('会话列表加载失败（口令无效或 ADMIN_TOKEN 未设）'))
       .finally(() => setLoading(false));
+    fetch('/api/mcp/upstreams', { headers: H })
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setUpstreams)
+      .catch(() => setUpstreams([]));
     setCallsLoading(true);
     fetch('/api/mcp/calls?limit=100', { headers: H })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -113,6 +122,30 @@ export default function McpGateways() {
     }
   };
 
+  const saveUpstreams = async (next: { prefix: string; url: string; enabled: boolean }[]) => {
+    setLoading(true);
+    try {
+      const r = await fetch('/api/mcp/upstreams', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json', ...H },
+        body: JSON.stringify({ upstreams: next.map((u) => ({ ...u, headers: JSON.parse(upHeaders || '{}') })) }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      message.success('上游已保存（工具面 30s 内刷新）');
+      reload();
+    } catch (e) {
+      message.error(`保存失败：${(e as Error).message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const addUpstream = () => {
+    if (!/^[a-z][a-z0-9]{0,15}$/.test(upPrefix)) { message.error('prefix 规范：小写字母开头，小写字母/数字，≤16 字符'); return; }
+    if (!/^https?:\/\//.test(upUrl)) { message.error('url 必须 http(s)://'); return; }
+    void saveUpstreams([...upstreams.filter((u) => u.prefix !== upPrefix), { prefix: upPrefix, url: upUrl, enabled: true }]);
+    setUpPrefix(''); setUpUrl('');
+  };
+
   const sessCols = [
     { title: '会话', dataIndex: 'name', render: (v: string) => <Typography.Text className="wm-mono" strong>{v}</Typography.Text> },
     { title: '授权工具', dataIndex: 'grants', render: (g: string[]) => (g.length ? <Tag color="green">{g.length} 个</Tag> : <Tag color="red">默认拒绝</Tag>) },
@@ -169,11 +202,55 @@ export default function McpGateways() {
         <Button type="primary" onClick={createSession} loading={loading} disabled={!token || !newName}>创建会话</Button>
       </Space.Compact>
 
-      <Table<McpSession> rowKey="id" size="small" columns={sessCols} dataSource={sessions} loading={loading} pagination={false}
-        locale={{ emptyText: <Empty description="无会话——输入口令载入，或创建首个会话" /> }} />
-
-      <Typography.Title level={5} style={{ marginTop: 24 }}>审计（最近 100 条）</Typography.Title>
-      <Table<McpCall> rowKey="id" size="small" columns={callCols} dataSource={calls} loading={callsLoading} pagination={{ pageSize: 20 }} />
+      <Tabs
+        items={[
+          {
+            key: 'sessions', label: '会话与审计',
+            children: (
+              <>
+                <Table<McpSession> rowKey="id" size="small" columns={sessCols} dataSource={sessions} loading={loading} pagination={false}
+                  locale={{ emptyText: <Empty description="无会话——输入口令载入，或创建首个会话" /> }} />
+                <Typography.Title level={5} style={{ marginTop: 24 }}>审计（最近 100 条）</Typography.Title>
+                <Table<McpCall> rowKey="id" size="small" columns={callCols} dataSource={calls} loading={callsLoading} pagination={{ pageSize: 20 }} />
+              </>
+            ),
+          },
+          {
+            key: 'upstreams', label: `上游聚合（${upstreams.length}）`,
+            children: (
+              <>
+                <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
+                  外部 MCP 服务的工具以 <Typography.Text code>&lt;prefix&gt;__&lt;tool&gt;</Typography.Text> 并入 /mcp（如 taste-mcp → <Typography.Text code>taste__rules</Typography.Text>）。
+                  上游不可达时自动降级、不影响本地 17 工具。配置整体替换。
+                </Typography.Paragraph>
+                <Space.Compact style={{ width: '100%', maxWidth: 720, marginBottom: 12 }}>
+                  <Input placeholder="prefix（如 taste）" value={upPrefix} onChange={(e) => setUpPrefix(e.target.value)} style={{ width: 180, fontSize: 13 }} className="wm-mono" />
+                  <Input placeholder="MCP 端点 URL（如 http://127.0.0.1:9810/mcp）" value={upUrl} onChange={(e) => setUpUrl(e.target.value)} style={{ fontSize: 13 }} />
+                  <Button type="primary" onClick={addUpstream} disabled={!token}>添加/更新</Button>
+                </Space.Compact>
+                <Input.TextArea rows={2} value={upHeaders} onChange={(e) => setUpHeaders(e.target.value)}
+                  style={{ maxWidth: 720, fontSize: 12, marginBottom: 12 }} className="wm-mono"
+                  placeholder='上游请求头 JSON（如 {"X-Market-Client":"mcp/market-gateway"}）' />
+                <Table rowKey="prefix" size="small" dataSource={upstreams} loading={loading} pagination={false}
+                  columns={[
+                    { title: 'prefix', dataIndex: 'prefix', render: (v: string) => <Typography.Text className="wm-mono" strong>{v}</Typography.Text> },
+                    { title: '端点', dataIndex: 'url', render: (v: string) => <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{v}</Typography.Text> },
+                    { title: '状态', dataIndex: 'enabled', width: 80, render: (v: boolean) => (v ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>) },
+                    {
+                      title: '操作', width: 90,
+                      render: (_: unknown, u: { prefix: string; url: string; enabled: boolean }) => (
+                        <Popconfirm title={`移除上游 ${u.prefix}？`} onConfirm={() => void saveUpstreams(upstreams.filter((x) => x.prefix !== u.prefix))}>
+                          <Button size="small" danger>移除</Button>
+                        </Popconfirm>
+                      ),
+                    },
+                  ]}
+                  locale={{ emptyText: <Empty description="还没有配置上游 —— 输入 prefix 与端点后点「添加/更新」" /> }} />
+              </>
+            ),
+          },
+        ]}
+      />
 
       <Modal
         title={`授权编辑：${grantsOf?.name ?? ''}`}
