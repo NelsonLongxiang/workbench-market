@@ -35,13 +35,17 @@ app.use((req, res, next) => {
 
 // GH #20 P1 ④远程面收口：非本机请求只放 /mcp、/.well-known/agent-card.json、/a2a/direct——
 // 其余 /api/* 写操作要 X-Admin-Token（本机 REST 面维持内网信任模型不变；此中间件只拦远程写）。
+// 主人裁定 A（2026-10-23）：自产台数据/文件面对远程浏览器开放——应用层写，与发布面同口径；
+// 控制面（/api/mcp/*、/api/sops/*/bindings 等）照旧收口。没有这条，远程节点浏览器提交表单会 403。
 const REMOTE_ALLOW_EXACT = new Set(['/mcp', '/.well-known/agent-card.json', '/a2a/direct']);
+const REMOTE_ALLOW_PREFIX = [/^\/api\/apps\/[a-z0-9-]{1,64}\/(data|files)(\/|$)/];
 app.use((req, res, next) => {
   const ip = String(req.socket.remoteAddress ?? '');
   const isLoopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
   if (isLoopback || req.method === 'GET' || req.method === 'HEAD') return next(); // 读面不拦（掩码已有）；本机全放
   const p = (req.url ?? '').split('?')[0];
   if (REMOTE_ALLOW_EXACT.has(p)) return next();
+  if (REMOTE_ALLOW_PREFIX.some((re) => re.test(p))) return next(); // 自产台数据/文件面（主人裁定 A）
   if (p.startsWith('/api/')) {
     // 远程 /api/* 写：走 adminGuard（函数声明有提升，请求期已定义）
     if (adminGuard(req, res)) return next();

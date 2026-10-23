@@ -48,6 +48,28 @@ try {
   // ⑥ 1MB 上限
   r = await call('POST', '/api/apps/appdata-smoke/data', { big: 'x'.repeat(1024 * 1024 + 100) });
   ok('1MB 拒 400', r.status === 400);
+  // ⑦ 远程收口白名单（主人裁定 A）：经局域网 IP 访问（remoteAddress 非 loopback）——
+  //    数据/文件面放行、控制面照旧 403。无局域网 IP 时跳过（fail-open 不阻断本地测试）。
+  const lanIp = process.env.LAN_IP || '192.168.3.156';
+  let lanReachable = false;
+  try {
+    const probe = await fetch(`http://${lanIp}:${PORT}/api/health`, { signal: AbortSignal.timeout(2000) });
+    lanReachable = probe.ok;
+  } catch { lanReachable = false; }
+  if (lanReachable) {
+    const rr = await fetch(`http://${lanIp}:${PORT}/api/apps/appdata-smoke/data`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ remote: true }),
+    });
+    ok('远程 IP 提交数据放行 201', rr.status === 201, `status=${rr.status}`);
+    const rw = await fetch(`http://${lanIp}:${PORT}/api/workbenches`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'x', url: 'http://127.0.0.1:1/' }),
+    });
+    ok('远程 IP 控制面写仍 403', rw.status === 403, `status=${rw.status}`);
+    const rg = await fetch(`http://${lanIp}:${PORT}/api/apps/appdata-smoke/data?limit=1`);
+    ok('远程 IP 读数据放行 200', rg.status === 200, `status=${rg.status}`);
+  } else {
+    console.log(`  · 跳过远程面三项（LAN ${lanIp}:${PORT} 不可达）`);
+  }
   // 清理
   await call('DELETE', '/api/apps/appdata-smoke');
 } finally {
