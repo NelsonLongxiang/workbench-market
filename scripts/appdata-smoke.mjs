@@ -45,6 +45,17 @@ try {
   // ⑤ 未知 slug 404
   r = await call('POST', '/api/apps/no-such/data', { x: 1 });
   ok('未知 slug 404', r.status === 404);
+  // ⑤b 分页参数校验（评审 #22：limit=1.5 曾 500、limit=-1 曾绕过上限）
+  r = await call('GET', '/api/apps/appdata-smoke/data?limit=1.5');
+  ok('limit=1.5 → 400', r.status === 400, `status=${r.status}`);
+  r = await call('GET', '/api/apps/appdata-smoke/data?limit=-1');
+  ok('limit=-1 → 400（不再绕过上限）', r.status === 400, `status=${r.status}`);
+  r = await call('GET', '/api/apps/appdata-smoke/data?limit=0');
+  ok('limit=0 → 400', r.status === 400, `status=${r.status}`);
+  r = await call('GET', '/api/apps/appdata-smoke/data?limit=999');
+  ok('limit=999 夹到 200', r.status === 200 && r.body.items.length <= 200, `status=${r.status}`);
+  r = await call('GET', '/api/apps/appdata-smoke/data?before_id=1.5');
+  ok('before_id=1.5 → 400', r.status === 400, `status=${r.status}`);
   // ⑥ 1MB 上限
   r = await call('POST', '/api/apps/appdata-smoke/data', { big: 'x'.repeat(1024 * 1024 + 100) });
   ok('1MB 拒 400', r.status === 400);
