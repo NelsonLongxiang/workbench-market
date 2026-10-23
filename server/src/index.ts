@@ -200,11 +200,7 @@ function workbenchUpdateCore(id: number, body: any): ReturnType<typeof rowToWork
     (f as any).cookie_set_id = cid;
   }
   const merged = { ...cur, ...f };
-  db.prepare(
-    `UPDATE workbenches SET name=@name, url=@url, type=@type, icon=@icon, description=@description,
-     category=@category, tags=@tags, enabled=@enabled, health_path=@health_path, sort=@sort,
-     auth_config=@auth_config, cookie_set_id=@cookie_set_id, updated_at=datetime('now') WHERE id=@id`
-  ).run({
+  svc<WorkbenchService>('workbench').updateAll({
     name: merged.name, url: merged.url, type: merged.type, icon: merged.icon,
     description: merged.description, category: merged.category, tags: merged.tags,
     enabled: merged.enabled, health_path: merged.health_path, sort: merged.sort,
@@ -258,9 +254,7 @@ function typeOf(key: string): TypeRow | undefined {
 async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkbench>> {
   // 自产台（url 以 / 开头）由本服务静态托管：服务活着即在线，探测短路
   if (w.url.startsWith('/')) {
-    db.prepare(
-      `UPDATE workbenches SET last_status='up', last_checked_at=datetime('now'), last_latency_ms=0, last_http_code=200, last_error='' WHERE id=?`
-    ).run(w.id);
+    svc<WorkbenchService>('workbench').markSelfUp(w.id);
     const selfRow = svc<WorkbenchService>('workbench').byId(w.id) as unknown as WorkbenchRow;
     return rowToWorkbench(selfRow);
   }
@@ -272,8 +266,7 @@ async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkben
     target = composeProbeUrl(w.url, w.health_path || t?.health_path || '');
   } catch (e: any) {
     const reason = String(e?.message ?? e);
-    db.prepare(`UPDATE workbenches SET last_status='down', last_checked_at=datetime('now'),
-      last_latency_ms=NULL, last_http_code=NULL, last_error=? WHERE id=?`).run(reason, w.id);
+    svc<WorkbenchService>('workbench').markDownWithError(w.id, reason);
     const row = svc<WorkbenchService>('workbench').byId(w.id) as unknown as WorkbenchRow;
     return rowToWorkbench(row);
   }
@@ -288,15 +281,11 @@ async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkben
     });
   } catch (e: any) {
     const reason = String(e?.message ?? e);
-    db.prepare(`UPDATE workbenches SET last_status='down', last_checked_at=datetime('now'),
-      last_latency_ms=NULL, last_http_code=NULL, last_error=? WHERE id=?`).run(`探测失败：${reason}`, w.id);
+    svc<WorkbenchService>('workbench').markDownWithError(w.id, `探测失败：${reason}`);
     const row = svc<WorkbenchService>('workbench').byId(w.id) as unknown as WorkbenchRow;
     return rowToWorkbench(row);
   }
-  db.prepare(
-    `UPDATE workbenches SET last_status=@status, last_checked_at=datetime('now'),
-     last_latency_ms=@latency, last_http_code=@code, last_error=@error WHERE id=@id`
-  ).run({ status: result.status, latency: result.latency_ms, code: result.http_code, error: result.error, id: w.id });
+  svc<WorkbenchService>('workbench').applyProbeResult({ status: result.status, latency: result.latency_ms, code: result.http_code, error: result.error, id: w.id });
   const row = svc<WorkbenchService>('workbench').byId(w.id) as unknown as WorkbenchRow;
   return rowToWorkbench(row);
 }
@@ -374,8 +363,7 @@ app.put('/api/cockpits/:id', (req, res) => {
   if (!name) bad('name 不能为空');
   const description = req.body?.description !== undefined ? String(req.body.description) : cur.description;
   const panels = req.body?.panels !== undefined ? validatePanels(req.body.panels) : JSON.parse(cur.layout_config || '[]');
-  db.prepare(`UPDATE cockpits SET name = ?, description = ?, layout_config = ?, updated_at = datetime('now') WHERE id = ?`)
-    .run(name, description, JSON.stringify(panels), cur.id);
+  svc<CockpitService>('cockpit').update(cur.id, name, description, JSON.stringify(panels));
   res.json(rowToCockpit(getCockpit(cur.id)));
 });
 
@@ -452,7 +440,7 @@ function syncWorkbenchRegistration(a: AppRow): number {
   const category = a.kind === 'sop' ? 'SOP 台' : '自产台';
   const cur = svc<WorkbenchService>('workbench').idByUrl(url) as { id: number } | undefined;
   if (cur) {
-    db.prepare(`UPDATE workbenches SET name = ?, description = ?, updated_at = datetime('now') WHERE id = ?`).run(a.title, a.description, cur.id);
+    svc<WorkbenchService>('workbench').renameDescByUrl(a.title, a.description, cur.id);
     return cur.id;
   }
   const r = db
@@ -629,7 +617,7 @@ app.post('/api/apps/:slug/data', (req, res) => {
   const json = JSON.stringify(data);
   if (Buffer.byteLength(json, 'utf8') > 1024 * 1024) bad('data 超 1MB 上限');
   const created_by = typeof b.created_by === 'string' ? b.created_by.trim().slice(0, 128) : '';
-  const r = db.prepare('INSERT INTO app_data (app_slug, data, created_by) VALUES (?, ?, ?)')
+  const r = svc<AppDataService>('appData').dataInsertStmt()
     .run(a.slug, json, created_by) as unknown as { lastInsertRowid: number | bigint };
   res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), slug: a.slug, created_at: new Date().toISOString() });
 });
@@ -639,8 +627,8 @@ app.get('/api/apps/:slug/data', (req, res) => {
   const limit = pageLimit(req.query.limit);
   const beforeId = pageBeforeId(req.query.before_id);
   const rows = beforeId > 0
-    ? db.prepare('SELECT id, data, created_by, created_at FROM app_data WHERE app_slug = ? AND id < ? ORDER BY id DESC LIMIT ?').all(a.slug, beforeId, limit)
-    : db.prepare('SELECT id, data, created_by, created_at FROM app_data WHERE app_slug = ? ORDER BY id DESC LIMIT ?').all(a.slug, limit);
+    ? svc<AppDataService>('appData').dataPage(a.slug, beforeId, limit)
+    : svc<AppDataService>('appData').dataPage(a.slug, 0, limit);
   const items = (rows as { id: number; data: string; created_by: string; created_at: string }[]).map((r) => ({
     id: r.id, data: JSON.parse(r.data || '{}'), created_by: r.created_by, created_at: r.created_at,
   }));
@@ -698,7 +686,7 @@ app.post('/api/apps/:slug/files', (req, res, next) => {
       // 存储相对路径（dataDir 内，随数据目录迁移）
       const rel = req.file.path.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
       const originalName = fixFileName(req.file.originalname);
-      const r = db.prepare('INSERT INTO app_files (app_slug, original_name, mime, size, storage_path, created_by) VALUES (?, ?, ?, ?, ?, ?)')
+      const r = svc<AppDataService>('appData').fileInsertStmt()
         .run(a.slug, originalName, req.file.mimetype || 'application/octet-stream', req.file.size, rel, created_by) as unknown as { lastInsertRowid: number | bigint };
       const id = Number(r.lastInsertRowid);
       res.status(201).json({ ok: true, id, slug: a.slug, name: originalName, mime: req.file.mimetype, size: req.file.size, note, url: `/api/apps/${a.slug}/files/${id}` });
@@ -713,8 +701,8 @@ app.get('/api/apps/:slug/files', (req, res) => {
   const limit = pageLimit(req.query.limit);
   const beforeId = pageBeforeId(req.query.before_id);
   const rows = beforeId > 0
-    ? db.prepare('SELECT id, original_name, mime, size, created_by, created_at FROM app_files WHERE app_slug = ? AND id < ? ORDER BY id DESC LIMIT ?').all(a.slug, beforeId, limit)
-    : db.prepare('SELECT id, original_name, mime, size, created_by, created_at FROM app_files WHERE app_slug = ? ORDER BY id DESC LIMIT ?').all(a.slug, limit);
+    ? svc<AppDataService>('appData').filePage(a.slug, beforeId, limit)
+    : svc<AppDataService>('appData').filePage(a.slug, 0, limit);
   const items = (rows as any[]).map((r) => ({ ...r, url: `/api/apps/${a.slug}/files/${r.id}` }));
   res.json({ slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null });
 });
@@ -1150,7 +1138,7 @@ app.get('/api/sop/runs', (req, res) => {
   if (slug) { where.push('sop_slug = ?'); args.push(slug); }
   if (status) { where.push('status = ?'); args.push(status); }
   const sql = `SELECT * FROM sop_runs ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY updated_at DESC LIMIT 200`;
-  res.json(db.prepare(sql).all(...(args as never[])) as unknown as SopRunRow[]);
+  res.json(svc<SopService>('sop').runsQuery(sql, args) as unknown as SopRunRow[]);
 });
 
 app.get('/api/sop/runs/:id(\\d+)', async (req, res) => {
@@ -1175,7 +1163,7 @@ function serveApp(req: express.Request, res: express.Response) {
   } catch {
     return res.status(400).json({ error: '路径编码非法' });
   }
-  const a = db.prepare('SELECT * FROM apps WHERE slug = ?').get(m[1]) as unknown as AppRow | undefined;
+  const a = svc<AppService>('app').bySlug(m[1]) as unknown as AppRow | undefined;
   if (!a) return res.status(404).json({ error: `app not found: ${m[1]}` });
   const root = join(appsRoot, m[1], `v${a.active_version}`);
   let rel = posix.normalize(rest || 'index.html');
@@ -1233,10 +1221,7 @@ app.post('/api/types', (req, res) => {
   if (b.key === 'web') bad('内置类型 web 不允许覆盖');
   const exists = svc<WorkbenchService>('workbench').typeIdByKey(b.key);
   if (exists) bad(`类型已存在: ${b.key}`);
-  const r = db.prepare(
-    `INSERT INTO types (key, name, icon, default_port, health_method, health_path, expect_status, description)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
+  const r = svc<WorkbenchService>('workbench').typeInsertStmt().run(
     b.key, b.name.trim(), String(b.icon ?? ''), b.default_port ?? null,
     b.health_method === 'HEAD' ? 'HEAD' : 'GET',
     String(b.health_path ?? '/'), b.expect_status == null ? null : Number(b.expect_status), String(b.description ?? '')
@@ -1261,10 +1246,7 @@ app.put('/api/types/:id', (req, res) => {
   if (cur.key === 'web' && (next.health_path !== cur.health_path || next.expect_status !== cur.expect_status)) {
     bad('内置类型 web 不允许修改探测语义');
   }
-  db.prepare(
-    `UPDATE types SET name=@name, icon=@icon, default_port=@default_port, health_method=@health_method,
-     health_path=@health_path, expect_status=@expect_status, description=@description WHERE id=@id`
-  ).run({ ...next, id });
+  svc<WorkbenchService>('workbench').typeUpdate({ ...next, id });
   res.json(svc<WorkbenchService>('workbench').typeById(id));
 });
 
@@ -1377,19 +1359,13 @@ app.post('/api/import', (req, res) => {
   const mode = modeRaw === 'replace' ? 'replace' : 'merge';
   if (mode === 'replace') {
     svc<WorkbenchService>('workbench').deleteAll();
-    db.prepare('DELETE FROM types WHERE key != ?').run('web');
+    svc<WorkbenchService>('workbench').typeDeleteAllExcept('web');
   }
-  const insType = db.prepare(
-    `INSERT OR IGNORE INTO types (key, name, icon, default_port, health_method, health_path, expect_status, description)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  );
+  const insType = svc<WorkbenchService>('workbench').typeInsertIgnoreStmt();
   if (Array.isArray(b.types)) {
     for (const t of b.types) insType.run(t.key, t.name, String(t.icon ?? ''), t.default_port ?? null, t.health_method ?? 'GET', String(t.health_path ?? '/'), t.expect_status ?? null, String(t.description ?? ''));
   }
-  const ins = db.prepare(
-    `INSERT INTO workbenches (name, url, type, icon, description, category, tags, enabled, health_path, sort, auth_config, last_status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unknown')`
-  );
+  const ins = svc<WorkbenchService>('workbench').importInsertStmt();
   let imported = 0;
   for (const w of b.workbenches) {
     // issue #7：自产台/SOP 注册行的 url 是市场内部路径（/ 开头）——断言 http URL 会把它们
@@ -1416,11 +1392,11 @@ app.post('/api/import', (req, res) => {
   // PR#15 评审吸收的增量思路：replace 重排自增 id 后，驾驶舱面板里指向旧 id 的引用已成悬空
   // （保存布局恒 400）——导入完成后全量剔除不存在引用（比按 id 精确清理更通用，也清历史遗留）
   {
-    const exists = db.prepare('SELECT 1 AS x FROM workbenches WHERE id = ?');
+    const wbExists = (id: number) => !!svc<WorkbenchService>('workbench').exists(id);
     for (const c of svc<CockpitService>('cockpit').all() as unknown as CockpitRow[]) {
       let panels: PanelConfig[];
       try { panels = JSON.parse(c.layout_config || '[]'); } catch { continue; }
-      const kept = panels.filter((p) => exists.get(p.workbenchId));
+      const kept = panels.filter((p) => wbExists(p.workbenchId));
       if (kept.length !== panels.length) {
         svc<CockpitService>('cockpit').setLayout(c.id, JSON.stringify(kept));
       }
@@ -1558,11 +1534,11 @@ app.post('/a2a/direct', express.json({ limit: '600kb' }), (req, res) => {
       return { status: row.status, steps: n };
     },
     ctxBind: (contextId: string): number | null => {
-      const hit = db.prepare('SELECT run_id FROM a2a_run_ctx WHERE context_id = ? ORDER BY id DESC').get(contextId) as { run_id: number } | undefined;
+      const hit = svc<SopService>('sop').ctxRunId(contextId) as { run_id: number } | undefined;
       return hit ? hit.run_id : null;
     },
     ctxRegister: (contextId: string, runId: number): void => {
-      db.prepare('INSERT INTO a2a_run_ctx (context_id, run_id) VALUES (?, ?)').run(contextId, runId);
+      svc<SopService>('sop').ctxRegister(contextId, runId);
     },
   };
   try {
@@ -1580,7 +1556,7 @@ app.get('/a2a/direct', (_req, res) => {
 // 所有注册工作台挂到 9800 同域路径下：一个端口号 + 同源（CORS 消失）+
 // 代理剥掉 X-Frame-Options / CSP（禁嵌防线失效）→ 使用页/驾驶舱全量可嵌。
 const wbById = (id: number): ReturnType<typeof rowToWorkbench> | null => {
-  const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(id) as unknown as WorkbenchRow | undefined;
+  const row = svc<WorkbenchService>('workbench').byId(id) as unknown as WorkbenchRow | undefined;
   return row ? rowToWorkbench(row) : null;
 };
 
@@ -1766,7 +1742,7 @@ async function callTool(name: string, args: any): Promise<unknown> {
         await Promise.all(workers);
         return { checked: results.length, up: results.filter((w) => w.last_status === 'up').length, down: results.filter((w) => w.last_status === 'down').length };
       }
-      const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(Number(args?.id)) as unknown as WorkbenchRow | undefined;
+      const row = svc<WorkbenchService>('workbench').byId(Number(args?.id)) as unknown as WorkbenchRow | undefined;
       if (!row) throw new HttpError(404, `工作台不存在: ${args?.id}`);
       const w = await checkOne(row);
       return { id: w.id, name: w.name, status: w.last_status, latency_ms: w.last_latency_ms, error: w.last_error };
@@ -1804,7 +1780,7 @@ async function callTool(name: string, args: any): Promise<unknown> {
       if (slug) { where.push('sop_slug = ?'); sqlArgs.push(slug); }
       if (status) { where.push('status = ?'); sqlArgs.push(status); }
       const sql = `SELECT id, sop_slug, sop_version, status, started_by, started_at, updated_at, finished_at FROM sop_runs ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY updated_at DESC LIMIT 50`;
-      return db.prepare(sql).all(...(sqlArgs as never[]));
+      return svc<SopService>('sop').runsQuery(sql, sqlArgs);
     }
     case 'sop_run_finish':
       return sopRunFinishCore(Number(args?.run_id));
@@ -1827,8 +1803,8 @@ async function callTool(name: string, args: any): Promise<unknown> {
       const limit = pageLimit(args?.limit);
       const beforeId = pageBeforeId(args?.before_id);
       const rows = beforeId > 0
-        ? db.prepare('SELECT id, data, created_by, created_at FROM app_data WHERE app_slug = ? AND id < ? ORDER BY id DESC LIMIT ?').all(a.slug, beforeId, limit)
-        : db.prepare('SELECT id, data, created_by, created_at FROM app_data WHERE app_slug = ? ORDER BY id DESC LIMIT ?').all(a.slug, limit);
+        ? svc<AppDataService>('appData').dataPage(a.slug, beforeId, limit)
+        : svc<AppDataService>('appData').dataPage(a.slug, 0, limit);
       const items = (rows as any[]).map((r) => ({ id: r.id, data: JSON.parse(r.data || '{}'), created_by: r.created_by, created_at: r.created_at }));
       return { slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null };
     }
@@ -1837,8 +1813,8 @@ async function callTool(name: string, args: any): Promise<unknown> {
       const limit = pageLimit(args?.limit);
       const beforeId = pageBeforeId(args?.before_id);
       const rows = beforeId > 0
-        ? db.prepare('SELECT id, original_name, mime, size, created_by, created_at FROM app_files WHERE app_slug = ? AND id < ? ORDER BY id DESC LIMIT ?').all(a.slug, beforeId, limit)
-        : db.prepare('SELECT id, original_name, mime, size, created_by, created_at FROM app_files WHERE app_slug = ? ORDER BY id DESC LIMIT ?').all(a.slug, limit);
+        ? svc<AppDataService>('appData').filePage(a.slug, beforeId, limit)
+        : svc<AppDataService>('appData').filePage(a.slug, 0, limit);
       const items = (rows as any[]).map((r) => ({ ...r, url: `/api/apps/${a.slug}/files/${r.id}` }));
       return { slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null };
     }
@@ -1963,7 +1939,7 @@ function sha256Hex(s: string): string {
 }
 
 function mcpSessionByToken(token: string): { id: number; name: string; grants: string[] } | null {
-  const row = db.prepare('SELECT id, name, grants FROM mcp_sessions WHERE token_sha256 = ? AND revoked_at = ?').get(sha256Hex(token), '') as { id: number; name: string; grants: string } | undefined;
+  const row = svc<McpService>('mcp').sessionByToken(sha256Hex(token)) as { id: number; name: string; grants: string } | undefined;
   if (!row) return null;
   let grants: string[] = [];
   try { grants = JSON.parse(row.grants || '[]'); } catch { grants = []; }
@@ -1975,34 +1951,34 @@ app.post('/api/mcp/sessions', (req, res) => {
   if (!adminGuard(req, res)) return;
   const name = typeof req.body?.name === 'string' ? req.body.name.trim().toLowerCase() : '';
   if (!MCP_SESSION_NAME_RE.test(name)) bad('name 规范：小写字母开头，小写字母/数字/连字符，≤64 字符');
-  const dup = db.prepare('SELECT id FROM mcp_sessions WHERE name = ?').get(name);
+  const dup = svc<McpService>('mcp').sessionByName(name);
   if (dup) bad(`会话名已存在: ${name}`);
   // mcp/ 命名空间独立于 dsh/<id8>（A2A 自报身份不混用；关联靠人登记 a2a_node 字段，仅关联不授权）
   const token = randomBytes(32).toString('hex');
-  const r = db.prepare('INSERT INTO mcp_sessions (name, token_sha256, grants) VALUES (?, ?, ?)')
+  const r = svc<McpService>('mcp').sessionCreateStmt()
     .run(name, sha256Hex(token), '[]') as unknown as { lastInsertRowid: number | bigint }; // 新会话授权空=默认拒绝
   res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), name, token, grants: [], note: 'token 仅此一次出现——库存 sha256 无取回接口，请立即分发保管' });
 });
 
 app.get('/api/mcp/sessions', (req, res) => {
   if (!adminGuard(req, res)) return;
-  const rows = db.prepare('SELECT id, name, grants, revoked_at, last_used_at, created_at FROM mcp_sessions ORDER BY id DESC').all();
+  const rows = svc<McpService>('mcp').sessions();
   res.json(rows.map((r: any) => ({ ...r, grants: JSON.parse(r.grants || '[]') })));
 });
 
 app.delete('/api/mcp/sessions/:id', (req, res) => {
   if (!adminGuard(req, res)) return;
   const id = Number(req.params.id);
-  const hit = db.prepare('SELECT id FROM mcp_sessions WHERE id = ?').get(id);
+  const hit = svc<McpService>('mcp').sessionById(id);
   if (!hit) throw new HttpError(404, `session not found: ${id}`);
-  db.prepare(`UPDATE mcp_sessions SET revoked_at = datetime('now') WHERE id = ?`).run(id); // 软吊销立即生效留审计
+  svc<McpService>('mcp').sessionRevoke(id); // 软吊销立即生效留审计
   res.json({ ok: true, revoked: id });
 });
 
 app.put('/api/mcp/sessions/:id/grants', (req, res, next) => {
   if (!adminGuard(req, res)) return;
   const id = Number(req.params.id);
-  const sess = db.prepare('SELECT id FROM mcp_sessions WHERE id = ?').get(id);
+  const sess = svc<McpService>('mcp').sessionById(id);
   if (!sess) throw new HttpError(404, `session not found: ${id}`);
   const raw = req.body?.grants;
   if (!Array.isArray(raw)) bad('grants 必须是工具名数组（整体替换语义）');
@@ -2012,7 +1988,7 @@ app.put('/api/mcp/sessions/:id/grants', (req, res, next) => {
       for (const g of raw) {
         if (typeof g !== 'string' || !registered.has(g)) bad(`未知工具名: ${JSON.stringify(g)}（合法面见 GET /api/mcp/tools）`);
       }
-      db.prepare('UPDATE mcp_sessions SET grants = ? WHERE id = ?').run(JSON.stringify(raw), id);
+      svc<McpService>('mcp').sessionGrants(id, JSON.stringify(raw));
       res.json({ ok: true, id, grants: raw });
     } catch (e) {
       next(e);
@@ -2031,7 +2007,7 @@ app.get('/api/mcp/tools', (req, res, next) => {
 app.get('/api/mcp/calls', (req, res) => {
   if (!adminGuard(req, res)) return;
   const limit = Math.min(Number(req.query.limit) || 200, 1000);
-  const rows = db.prepare('SELECT * FROM mcp_calls ORDER BY id DESC LIMIT ?').all(limit);
+  const rows = svc<McpService>('mcp').calls(limit);
   res.json(rows);
 });
 
@@ -2051,11 +2027,11 @@ app.post('/mcp', async (req, res) => {
       res.setHeader('WWW-Authenticate', 'Bearer realm="workbench-market mcp"');
       return res.status(401).json({ error: 'unauthorized: valid session token required', hint: '会话与令牌由管理员经 /api/mcp/sessions 创建分发' });
     }
-    db.prepare(`UPDATE mcp_sessions SET last_used_at = datetime('now') WHERE id = ?`).run(sess.id);
+    svc<McpService>('mcp').sessionTouched(sess.id);
   }
   const audit = (method: string, tool: string, ok: boolean, error: string, durationMs: number, args: unknown) => {
     if (!MCP_GATEWAY_ON || !sess) return;
-    db.prepare('INSERT INTO mcp_calls (session_name, method, tool, ok, error, duration_ms, args_sha256) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    svc<McpService>('mcp').callInsertStmt()
       .run(sess.name, method, tool, ok ? 1 : 0, error, durationMs, sha256Hex(JSON.stringify(args ?? {}))); // 不存参数原文
   };
   const t0 = Date.now();
@@ -2181,7 +2157,7 @@ app.use((req, res, next) => {
     else if (w.auth?.type === 'basic') goAuth = `Basic ${Buffer.from(w.auth.value, 'utf8').toString('base64')}`;
     // Cookie 池注入（派单 direct-5fbb2176）：台挂了 cookie_set 时按目标 host 匹配
     // cookie.domain + 未过期过滤 → 拼 Cookie 头（proxyReq 里替换而非追加）
-    const rawWb = db.prepare('SELECT cookie_set_id FROM workbenches WHERE id = ?').get(Number(m[1])) as { cookie_set_id?: number } | undefined;
+    const rawWb = svc<WorkbenchService>('workbench').cookieSetId(Number(m[1])) as { cookie_set_id?: number } | undefined;
     const csid = rawWb?.cookie_set_id ?? 0;
     if (csid > 0) {
       const cs = svc<CookieService>('cookie').cookiesJsonById(csid) as { cookies_json: string } | undefined;
@@ -2358,8 +2334,10 @@ function armPatrol(): void {
   timer.unref?.();
 }
 armPatrol();
-// 模块级只做 DB 直写（服务容器异步挂载，不能在模块初始化期取服务）
-db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('patrol_armed_at', new Date().toISOString());
+// 模块级不能取服务（容器异步挂载）：巡检启动标记延到首次 armPatrol 后的下一拍写（行为等价）
+setTimeout(() => {
+  try { svc<SettingService>('setting').put('patrol_armed_at', new Date().toISOString()); } catch { /* 服务未就绪则跳过 */ }
+}, 100).unref?.();
 
 const PORT = Number(process.env.PORT) || 9800;
 // ---------- A2A 出站（#17 P4 最小面）：市场作为客户端向对端派单/发消息 ----------
@@ -2371,7 +2349,7 @@ app.get('/api/a2a/state', (_req, res) => {
     team: MARKET_TEAM,
     key: existsSync(a2aKeyPath()) ? 'present' : 'missing',
     card: { name: card.name, session: card.session, team: card.team, expiresAt: card.expiresAt, sessionTeams: (card as any).sessionTeams ?? [] },
-    binding: db.prepare("SELECT COUNT(*) AS n FROM sop_bindings WHERE revoked_at = ''").get(),
+    binding: svc<SopService>('sop').activeBindingCount(),
   });
 });
 
@@ -2391,7 +2369,7 @@ app.post('/api/a2a/send', async (req, res) => {
 });
 
 const goServer = app.listen(PORT, () => {
-  const counts = db.prepare('SELECT COUNT(*) AS n FROM workbenches').get() as { n: number };
+  const counts = svc<WorkbenchService>('workbench').count() as { n: number };
   console.log(`[workbench-market] server  http://127.0.0.1:${PORT}  (workbenches: ${counts.n}, web-dist: ${existsSync(webDist) ? 'served' : 'none'}, portal: /go/<id>/)`);
   startRedis(); // SOP 状态层（生产 Redis；不可达自动降级直写 SQLite，不阻塞启动）
   // 启动自探测（监督席观察项：重载后状态悬空靠人 check-all 兜底已第 3 次）——

@@ -34,6 +34,9 @@ export class SopService extends Service {
   runsRunning() {
     return db.prepare("SELECT * FROM sop_runs WHERE status = 'running' ORDER BY updated_at DESC").all();
   }
+  activeBindingCount() {
+    return db.prepare("SELECT COUNT(*) AS n FROM sop_bindings WHERE revoked_at = ''").get();
+  }
   bindings(slug: string) {
     return db.prepare('SELECT * FROM sop_bindings WHERE sop_slug = ? ORDER BY id DESC').all(slug);
   }
@@ -48,6 +51,9 @@ export class SopService extends Service {
   }
   bindingByNode(slug: string, node: string) {
     return db.prepare("SELECT mode FROM sop_bindings WHERE sop_slug = ? AND node = ? AND revoked_at = ''").get(slug, node);
+  }
+  runsQuery(sql: string, args: unknown[]) {
+    return db.prepare(sql).all(...(args as never[]));
   }
   ctxRunId(contextId: string) {
     return db.prepare('SELECT run_id FROM a2a_run_ctx WHERE context_id = ? ORDER BY id DESC').get(contextId);
