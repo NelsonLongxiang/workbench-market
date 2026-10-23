@@ -34,6 +34,9 @@ export class SopService extends Service {
   runFinish(id: number, data: string) {
     return db.prepare(`UPDATE sop_runs SET status = 'finished', data = ?, finished_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(data, id);
   }
+  runsDispatchedAll() {
+    return db.prepare('SELECT r.id, r.sop_slug, r.started_by, r.status, r.updated_at FROM sop_runs r JOIN a2a_run_ctx c ON c.run_id = r.id GROUP BY r.id ORDER BY r.updated_at DESC').all();
+  }
   runsDispatched() {
     return db.prepare("SELECT r.* FROM sop_runs r JOIN a2a_run_ctx c ON c.run_id = r.id WHERE r.status = 'running' GROUP BY r.id ORDER BY r.updated_at DESC").all();
   }

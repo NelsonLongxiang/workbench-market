@@ -137,3 +137,11 @@ node scripts/verify-report.mjs <run1.json> [run2.json ...]
 ```
 
 基线：`run_766e0c923b514232` 58/58 PASS（spec_24a0b30d47d1，2026-10-20）。红测四条：`run_8b5fa9dcc555773c`（删 ollama+README）V10/V12/V16 精确 FAIL；`run_45ce9306eb05a210`（源码改 #5A6577）V37 精确 FAIL；`run_79cacaa31cd69a45`（E2E 13/14 + 轴色漂移）V49/V53 精确 FAIL；`run_aa92adf654b5964a`（篡改对比度记录为 1.18:1）V56 精确 FAIL——DOM 探针 → 摘要 → 提取表 → 判据的 fail-closed 链路实证。判据源文件在 [verify/](verify/)：material.md（冻结材料原文）、candidates.json（VU 候选 + checker）、reviews.json（三问盲审结论）；58 单元表由 [scripts/gen-verifier.mjs](scripts/gen-verifier.mjs) 单一事实源生成。
+
+## 统一待办（omni-inbox）
+
+三源任务聚合（只读，勾销回原系统）：`GET /api/tasks`（30s 缓存）返回任务信封 `{id,source,title,status,due,link,project}` 与源元数据；
+- **ygl-trees 源**：server 侧 `ygl-trees task list --json`（5s 超时；CLI 不可用 → `ok=false` 降级，不阻塞其它源）
+- **market 源**：派单 running 的 SOP run（待验收语义，深链 `/sop/<slug>/`）
+- A2A 源为 v2 预留
+UI：`/tasks` 页（源/状态过滤）· 总览待办聚合卡 · 驾驶舱「加待办卡」（kind=tasks 面板，布局服务端保存）。
