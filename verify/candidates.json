@@ -3240,7 +3240,7 @@
               {
                 "col": "needle",
                 "op": "=",
-                "value": "160 条判据"
+                "value": "163 条判据"
               },
               {
                 "col": "present",
@@ -5503,6 +5503,123 @@
                 "col": "needle",
                 "op": "=",
                 "value": "E1 上游 parseReceipt 可解析"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据161：server/src/db.ts 必须包含 run 交付物表「sop_run_files」。",
+      "anchor": {
+        "quote": "判据161：server/src/db.ts 必须包含 run 交付物表「sop_run_files」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "run 交付物钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/db.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "sop_run_files"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据162：server/src/sop-runner.ts 必须包含交付区渲染锚「agent-extras」。",
+      "anchor": {
+        "quote": "判据162：server/src/sop-runner.ts 必须包含交付区渲染锚「agent-extras」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "Runner 交付区钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/sop-runner.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "agent-extras"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据163：web/src/pages/Sops.tsx 必须包含待验收视图锚「待验收任务」。",
+      "anchor": {
+        "quote": "判据163：web/src/pages/Sops.tsx 必须包含待验收视图锚「待验收任务」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "待验收视图钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "web/src/pages/Sops.tsx"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "待验收任务"
               },
               {
                 "col": "present",

@@ -60,6 +60,11 @@ export function renderSopRunner(manifest: SopManifest, app: AppRow): string {
 </div>
 <main>
 ${stepsHtml}
+<section class="step" id="agent-extras" style="display:none">
+  <header><h2>agent 交付区</h2><span class="muted" id="extras-note"></span></header>
+  <div class="body" id="extras-data"></div>
+  <ul id="extras-files" style="margin:8px 0 0;padding-left:18px"></ul>
+</section>
 <div class="foot">
   <button class="btn primary" id="finish" disabled>完成执行</button>
   <span class="state" id="state"></span>
@@ -117,6 +122,45 @@ window.__SOP__ = ${boot};
     });
   }
 
+  // P4（F5/F6）：把 run.data 里非 data-field 的键只读渲染 + 交付文件列表
+  function renderAgentExtras(run) {
+    var sec = document.getElementById('agent-extras');
+    var dataBox = document.getElementById('extras-data');
+    var fileBox = document.getElementById('extras-files');
+    var note = document.getElementById('extras-note');
+    try {
+      var bound = {};
+      $$('[data-field]').forEach(function (el) { bound[el.getAttribute('data-field')] = true; });
+      var extra = {};
+      Object.keys(run.data || {}).forEach(function (k) { if (!bound[k]) extra[k] = run.data[k]; });
+      dataBox.textContent = '';
+      Object.keys(extra).length && Object.keys(extra).forEach(function (k) {
+        var row = document.createElement('div');
+        row.style.cssText = 'margin:6px 0;padding:6px 10px;background:#F8FAFC;border:1px solid var(--line);border-radius:6px';
+        var t = document.createElement('div');
+        t.className = 'muted'; t.style.fontSize = '12px'; t.textContent = k;
+        var v = document.createElement('pre');
+        v.style.cssText = 'margin:4px 0 0;white-space:pre-wrap;word-break:break-all;font-size:12px';
+        v.textContent = typeof extra[k] === 'string' ? extra[k] : JSON.stringify(extra[k], null, 2);
+        row.appendChild(t); row.appendChild(v); dataBox.appendChild(row);
+      });
+      fetch('/api/sop/runs/' + run.id + '/files').then(function (r) { return r.ok ? r.json() : { items: [] }; }).then(function (j) {
+        fileBox.textContent = '';
+        (j.items || []).forEach(function (f) {
+          var li = document.createElement('li');
+          var a = document.createElement('a');
+          a.href = f.url; a.textContent = f.original_name + ' (' + Math.round(f.size / 1024) + ' KB)';
+          li.appendChild(a); fileBox.appendChild(li);
+        });
+        var hasData = Object.keys(extra).length > 0;
+        var hasFiles = (j.items || []).length > 0;
+        sec.style.display = (hasData || hasFiles) ? '' : 'none';
+        note.textContent = hasData || hasFiles ? '由执行 agent 提供（只读）' : '';
+      });
+      if (Object.keys(extra).length) sec.style.display = '';
+    } catch (e) { /* 交付区渲染失败不阻断执行 */ }
+  }
+
   function startRun() {
     var saved = null;
     try { saved = JSON.parse(localStorage.getItem(LS) || 'null'); } catch (e) {}
@@ -139,6 +183,7 @@ window.__SOP__ = ${boot};
       });
       $('#finish').disabled = false;
       setState('执行中——数据自动保存');
+      void renderAgentExtras(run);
     }).catch(function () { setState('无法连接市场服务——填写仍会缓冲本地'); });
   }
 

@@ -34,6 +34,9 @@ export class SopService extends Service {
   runFinish(id: number, data: string) {
     return db.prepare(`UPDATE sop_runs SET status = 'finished', data = ?, finished_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(data, id);
   }
+  runsDispatched() {
+    return db.prepare("SELECT r.* FROM sop_runs r JOIN a2a_run_ctx c ON c.run_id = r.id WHERE r.status = 'running' GROUP BY r.id ORDER BY r.updated_at DESC").all();
+  }
   runsRunning() {
     return db.prepare("SELECT * FROM sop_runs WHERE status = 'running' ORDER BY updated_at DESC").all();
   }
@@ -57,6 +60,17 @@ export class SopService extends Service {
   }
   runsQuery(sql: string, args: unknown[]) {
     return db.prepare(sql).all(...(args as never[]));
+  }
+  // ---- P4 交付物（product/run-delivery F1-F4） ----
+  runFileInsert(r: { runId: number; name: string; mime: string; size: number; storagePath: string; createdBy: string }) {
+    return db.prepare('INSERT INTO sop_run_files (run_id, original_name, mime, size, storage_path, created_by) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(r.runId, r.name, r.mime, r.size, r.storagePath, r.createdBy);
+  }
+  runFiles(runId: number) {
+    return db.prepare('SELECT id, original_name, mime, size, created_by, created_at FROM sop_run_files WHERE run_id = ? ORDER BY id ASC').all(runId);
+  }
+  runFileById(runId: number, id: number) {
+    return db.prepare('SELECT * FROM sop_run_files WHERE run_id = ? AND id = ?').get(runId, id);
   }
   // ---- A2A P3 回执（network/a2a-receipt） ----
   ctxRegisterFull(r: { contextId: string; runId: number; taskId: string; caller: string; team: string; receiptStatus: string }) {

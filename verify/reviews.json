@@ -3839,6 +3839,78 @@
           "reason": "删断言提取为 0 即 FAIL。"
         }
       ]
+    },
+    {
+      "source_clause": "判据161：server/src/db.ts 必须包含 run 交付物表「sop_run_files」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，sop_run_files(run_id/original_name/mime/size/storage_path) + POST/GET /api/sop/runs/:id/files + 下载（上传前校验 run 存在且 running；≤50MB）——F1-F4。",
+          "anchor": {
+            "quote": "判据161：server/src/db.ts 必须包含 run 交付物表「sop_run_files」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删表提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据162：server/src/sop-runner.ts 必须包含交付区渲染锚「agent-extras」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，Runner 把 run.data 中非 data-field 的键只读渲染 + 交付文件下载链接（F5/F6）——agent 交付物在看板可见。",
+          "anchor": {
+            "quote": "判据162：server/src/sop-runner.ts 必须包含交付区渲染锚「agent-extras」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删渲染提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据163：web/src/pages/Sops.tsx 必须包含待验收视图锚「待验收任务」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，/sops 页「待验收任务」卡片消费 GET /api/sop/runs?dispatched=1（running 且有派单来源，不含人开 run）——F7。",
+          "anchor": {
+            "quote": "判据163：web/src/pages/Sops.tsx 必须包含待验收视图锚「待验收任务」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删视图提取为 0 即 FAIL。"
+        }
+      ]
     }
   ]
 }

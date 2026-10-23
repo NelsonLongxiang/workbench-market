@@ -158,3 +158,6 @@
 判据158：server/src/index.ts 必须包含 A2A 出站路由「/api/a2a/send」。
 判据159：server/src/db.ts 必须包含回执队列表「a2a_outbox」。
 判据160：scripts/receipt-smoke.mjs 必须包含回执行为锚「E1 上游 parseReceipt 可解析」。
+判据161：server/src/db.ts 必须包含 run 交付物表「sop_run_files」。
+判据162：server/src/sop-runner.ts 必须包含交付区渲染锚「agent-extras」。
+判据163：web/src/pages/Sops.tsx 必须包含待验收视图锚「待验收任务」。
