@@ -438,6 +438,11 @@ with sync_playwright() as p:
     # ---------- 14. 自产台（台生成器：AI 发布 API → 入册 → 门户嵌入 → 版本回滚） ----------
     try:
         # 发布 v1（模拟 AI 会话直发通道）
+        # 组内自清理：残留 e2e-app 会让 version 断言假红（跨轮残留）
+        try:
+            api(page, 'DELETE', '/api/apps/e2e-app')
+        except Exception:
+            pass
         r = api(page, 'POST', '/api/apps', {
             'slug': 'e2e-app',
             'title': 'E2E 自产台',
