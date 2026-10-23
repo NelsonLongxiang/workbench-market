@@ -3240,7 +3240,7 @@
               {
                 "col": "needle",
                 "op": "=",
-                "value": "152 条判据"
+                "value": "154 条判据"
               },
               {
                 "col": "present",
@@ -5191,6 +5191,84 @@
                 "col": "needle",
                 "op": "=",
                 "value": "/api/admin-token"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据153：server/src/index.ts 必须包含上游凭据出口掩码「maskUpstreamsSetting」。",
+      "anchor": {
+        "quote": "判据153：server/src/index.ts 必须包含上游凭据出口掩码「maskUpstreamsSetting」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "上游凭据出口钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "maskUpstreamsSetting"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据154：scripts/appfiles-smoke.mjs 必须包含孤儿文件断言「404 不落盘」。",
+      "anchor": {
+        "quote": "判据154：scripts/appfiles-smoke.mjs 必须包含孤儿文件断言「404 不落盘」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "上传先校验后落盘钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "scripts/appfiles-smoke.mjs"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "404 不落盘"
               },
               {
                 "col": "present",

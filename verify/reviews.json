@@ -3647,6 +3647,54 @@
           "reason": "删界面提取为 0 即 FAIL。"
         }
       ]
+    },
+    {
+      "source_clause": "判据153：server/src/index.ts 必须包含上游凭据出口掩码「maskUpstreamsSetting」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，/api/settings 与 /api/export 返回的 mcp_upstreams.headers 值一律 `****`（键名保留）——与 auth.value 同口径；内部读取走 mcpUpstreams() 直读 DB 不受影响（评审 #24）。",
+          "anchor": {
+            "quote": "判据153：server/src/index.ts 必须包含上游凭据出口掩码「maskUpstreamsSetting」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删掩码提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据154：scripts/appfiles-smoke.mjs 必须包含孤儿文件断言「404 不落盘」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，上传路由前置 getApp 校验——不存在台返回 404 且 uploads 目录无新增文件（评审 #25：multer 先落盘会留无主文件，远程可灌盘）。",
+          "anchor": {
+            "quote": "判据154：scripts/appfiles-smoke.mjs 必须包含孤儿文件断言「404 不落盘」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删断言提取为 0 即 FAIL。"
+        }
+      ]
     }
   ]
 }

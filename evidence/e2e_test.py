@@ -792,7 +792,7 @@ with sync_playwright() as p:
         af = _sp3.run(['node', 'scripts/appfiles-smoke.mjs'], capture_output=True, text=True, timeout=240,
                       cwd=_os4.path.join(_os4.path.dirname(_os4.path.abspath(__file__)), '..'))
         assert af.returncode == 0, f'appfiles-smoke 失败:\n{af.stdout[-500:]}\n{af.stderr[-300:]}'
-        assert '13 通过' in af.stdout, f'appfiles-smoke 计数异常: {af.stdout[-200:]}'
+        assert '14 通过' in af.stdout, f'appfiles-smoke 计数异常: {af.stdout[-200:]}'
         # C12: MCP 上游聚合（GH #20 P2：taste__* 并入 /mcp）——独立实例 + 假上游冒烟
         up = _sp3.run(['node', 'scripts/upstream-smoke.mjs'], capture_output=True, text=True, timeout=180,
                       cwd=_os4.path.join(_os4.path.dirname(_os4.path.abspath(__file__)), '..'))
@@ -925,7 +925,7 @@ with sync_playwright() as p:
         import os as _os
         with open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'README.md'), encoding='utf-8') as _f:
             readme = _f.read()
-        assert 'v30' in readme and '152 条判据' in readme, 'README 验证器节未同步 v29/133'
+        assert 'v30' in readme and '154 条判据' in readme, 'README 验证器节未同步 v29/133'
         assert '内置 9 种' in readme, 'README 类型数未同步 9'
         assert 'Sops' in readme, 'README 目录缺 Sops 页'
         assert '≥25' in readme or '25 组' in readme, 'README E2E 组数未同步'

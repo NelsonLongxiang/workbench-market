@@ -677,6 +677,8 @@ const upload = multer({
 });
 
 app.post('/api/apps/:slug/files', (req, res, next) => {
+  // 评审 #25：必须先校验台存在再让 multer 落盘（否则 404 后留孤儿文件，远程可无限灌盘）
+  try { getApp(req.params.slug); } catch (e) { return next(e); }
   upload.single('file')(req, res, (err: any) => {
     if (err) {
       if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: '文件超 50MB 上限' });
@@ -1308,7 +1310,27 @@ app.delete('/api/admin-token', (req, res) => {
   res.json({ ok: true, source: 'none' });
 });
 
-app.get('/api/settings', (_req, res) => { res.json(getSettings()); });
+// 评审 #24：settings 出口把 mcp_upstreams.headers 的值掩成 ****（键名保留）——
+// 内部读取走 mcpUpstreams() 直读 DB，不受影响；导出同样脱敏（与 auth.value 口径一致）。
+function maskUpstreamsSetting(all: Record<string, string>): Record<string, string> {
+  const raw = all.mcp_upstreams;
+  if (!raw) return all;
+  try {
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return { ...all, mcp_upstreams: '' };
+    const masked = arr.map((u: any) => ({
+      ...u,
+      headers: u?.headers && typeof u.headers === 'object'
+        ? Object.fromEntries(Object.keys(u.headers).map((k) => [k, '****']))
+        : {},
+    }));
+    return { ...all, mcp_upstreams: JSON.stringify(masked) };
+  } catch {
+    return { ...all, mcp_upstreams: '' };
+  }
+}
+
+app.get('/api/settings', (_req, res) => { res.json(maskUpstreamsSetting(getSettings())); });
 
 app.put('/api/settings', (req, res) => {
   const b = req.body ?? {};
@@ -1334,7 +1356,9 @@ app.get('/api/export', (req, res) => {
     masked: reveal ? 0 : 1,
     workbenches: listWorkbenches().map((w) => (reveal ? w : maskForApi(w))),
     types: db.prepare('SELECT * FROM types ORDER BY id ASC').all(),
-    settings: getSettings(),
+    // 评审 #24：上游 MCP 凭据（headers）与 auth.value 同口径——掩码导出不会带真凭据，
+    // 导入侧亦不覆盖 mcp_upstreams（掩码值跳过），凭据需在页面重填。
+    settings: maskUpstreamsSetting(getSettings()),
   });
 });
 

@@ -150,3 +150,5 @@
 判据150：scripts/a2a-smoke.mjs 必须包含就绪探测「waitReady」。
 判据151：server/src/index.ts 必须包含口令库存储「admin_token_sha256」。
 判据152：web/src/pages/Settings.tsx 必须包含口令设置 UI 锚「/api/admin-token」。
+判据153：server/src/index.ts 必须包含上游凭据出口掩码「maskUpstreamsSetting」。
+判据154：scripts/appfiles-smoke.mjs 必须包含孤儿文件断言「404 不落盘」。
