@@ -3743,6 +3743,54 @@
           "reason": "删断言提取为 0 即 FAIL。"
         }
       ]
+    },
+    {
+      "source_clause": "判据157：scripts/a2a-peer.mjs 必须包含桥接锚「extractSopRequest」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，peer 宿主用上游插件 apply（卡片/入站/幂等/回执/账本由上游承担），桥接 agent 把派单转市场 REST 开 run；控制面 /__bridge/send 走出站发件。",
+          "anchor": {
+            "quote": "判据157：scripts/a2a-peer.mjs 必须包含桥接锚「extractSopRequest」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删桥接提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据158：server/src/index.ts 必须包含 peer 生命周期锚「startPeer」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，PEER=on 时市场进程拉起上游宿主（--import 解析垫片）、退出 5s 重启、GET /api/a2a/peer 状态与 POST /api/a2a/peer/send 出站代理。",
+          "anchor": {
+            "quote": "判据158：server/src/index.ts 必须包含 peer 生命周期锚「startPeer」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删生命周期提取为 0 即 FAIL。"
+        }
+      ]
     }
   ]
 }

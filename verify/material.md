@@ -154,3 +154,5 @@
 判据154：scripts/appfiles-smoke.mjs 必须包含孤儿文件断言「404 不落盘」。
 判据155：server/src/index.ts 必须包含口令加盐哈希「hashAdminToken」。
 判据156：scripts/token-smoke.mjs 必须包含出口剔除断言「无 admin_token_sha256」。
+判据157：scripts/a2a-peer.mjs 必须包含桥接锚「extractSopRequest」。
+判据158：server/src/index.ts 必须包含 peer 生命周期锚「startPeer」。

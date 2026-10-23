@@ -4,8 +4,9 @@ import { createProxyMiddleware } from 'http-proxy-middleware';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createReadStream } from 'node:fs';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { dirname, join, posix, extname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import multer from 'multer';
 import { db, getSettings, dataDir, rowToWorkbench, rowToCockpit, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow, type SopRunRow } from './db.ts';
 import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
@@ -2359,10 +2360,60 @@ const dbWriteSettings = db.prepare('INSERT INTO settings (key, value) VALUES (?,
 dbWriteSettings.run('patrol_armed_at', new Date().toISOString());
 
 const PORT = Number(process.env.PORT) || 9800;
+// ---------- A2A peer 宿主（主人裁定 2026-10-23：不自己实现协议——挂上游服务，我们就是一个 peer） ----------
+// 市场进程启动上游 dsh-open-a2a-net 插件宿主（scripts/a2a-peer.mjs），收发/签名/幂等/回执由上游实现承担；
+// 本进程只做：① 生命周期（PEER=on 时拉起、退出时收）② 状态代理 ③ 业务桥接（peer 侧 steer → 市场 REST）。
+const PEER_ON = process.env.PEER === 'on';
+let peerProc: ReturnType<typeof spawn> | null = null;
+const PEER_PORT = Number(process.env.PEER_PORT || 9950);
+const PEER_CTL_PORT = Number(process.env.PEER_CTL_PORT || PEER_PORT + 1);
+function startPeer(): void {
+  if (!PEER_ON || peerProc) return;
+  const script = join(here, '../../scripts/a2a-peer.mjs');
+  const loader = join(here, '../../scripts/a2a-peer-loader.mjs');
+  peerProc = spawn(process.execPath, ['--import', pathToFileURL(loader).href, script], {
+    env: { ...process.env, PEER_PORT: String(PEER_PORT), PEER_CTL_PORT: String(PEER_CTL_PORT), MARKET_BASE: `http://127.0.0.1:${PORT}` },
+    stdio: ['ignore', 'inherit', 'inherit'],
+  });
+  peerProc.on('exit', (code) => {
+    console.log(`[a2a-peer] 退出 code=${code}（5s 后重启）`);
+    peerProc = null;
+    if (PEER_ON) setTimeout(startPeer, 5_000).unref?.();
+  });
+}
+
+app.get('/api/a2a/peer', async (_req, res) => {
+  if (!PEER_ON) return res.json({ enabled: false, note: 'PEER=on 时由市场进程启动上游 A2A 宿主' });
+  try {
+    const r = await fetch(`http://127.0.0.1:${PEER_CTL_PORT}/__bridge/state`, { signal: AbortSignal.timeout(2_000) });
+    res.json({ enabled: true, alive: r.ok, state: await r.json() });
+  } catch {
+    res.json({ enabled: true, alive: false });
+  }
+});
+
+app.post('/api/a2a/peer/send', async (req, res) => {
+  if (!PEER_ON) throw new HttpError(400, 'A2A peer 未启用（PEER=on）');
+  const team = String(req.body?.team ?? '');
+  const message = String(req.body?.message ?? '');
+  if (!team || !message) bad('team 与 message 必填');
+  try {
+    const r = await fetch(`http://127.0.0.1:${PEER_CTL_PORT}/__bridge/send`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ team, message, context_id: req.body?.context_id, async: req.body?.async }),
+      signal: AbortSignal.timeout(120_000),
+    });
+    res.status(r.status).json(await r.json());
+  } catch (e: any) {
+    throw new HttpError(502, `peer 不可达：${String(e?.message ?? e)}`);
+  }
+});
+
 const goServer = app.listen(PORT, () => {
   const counts = db.prepare('SELECT COUNT(*) AS n FROM workbenches').get() as { n: number };
   console.log(`[workbench-market] server  http://127.0.0.1:${PORT}  (workbenches: ${counts.n}, web-dist: ${existsSync(webDist) ? 'served' : 'none'}, portal: /go/<id>/)`);
   startRedis(); // SOP 状态层（生产 Redis；不可达自动降级直写 SQLite，不阻塞启动）
+  if (PEER_ON) startPeer(); // A2A peer 宿主（由本进程启动，上游实现承载）
   // 启动自探测（监督席观察项：重载后状态悬空靠人 check-all 兜底已第 3 次）——
   // 延迟 8s 让依赖（上游台）就绪，跑一轮全测归真状态；单台失败不阻断
   const boot = setTimeout(() => { void patrol(); }, 8_000);
