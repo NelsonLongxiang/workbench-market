@@ -6,6 +6,7 @@ import { ApiOutlined, AppstoreOutlined, ExportOutlined, ReloadOutlined, RightOut
 import { Responsive, WidthProvider } from 'react-grid-layout';
 import type { Layout, Layouts } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
+import { useTasksPoll } from './Tasks';
 import 'react-resizable/css/styles.css';
 import { api } from '../api';
 import type { Workbench } from '../types';
@@ -113,6 +114,11 @@ export default function Dashboard() {
     }
   };
 
+  const { payload: tasksPayload } = useTasksPoll();
+  const tTodo = (tasksPayload?.tasks ?? []).filter((t) => t.status === 'todo').length;
+  const tDoing = (tasksPayload?.tasks ?? []).filter((t) => t.status === 'doing').length;
+  const yglOk = tasksPayload?.sources?.['ygl-trees']?.ok !== false;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <Row gutter={12}>
@@ -121,6 +127,8 @@ export default function Dashboard() {
           { title: '在线', value: s?.up ?? 0, suffix: '个', color: '#059669', to: '/market?status=up' },
           { title: '离线', value: s?.down ?? 0, suffix: '个', color: '#DC2626', to: '/market?status=down' },
           { title: '未探测', value: s?.unknown ?? 0, suffix: '个', color: '#8C8C8C', to: '/market?status=unknown' },
+          { title: yglOk ? '待办' : '待办(源降级)', value: tTodo, suffix: '项', color: '#B45309', to: '/tasks' },
+          { title: '进行中', value: tDoing, suffix: '项', color: '#2563EB', to: '/tasks' },
         ].map((it) => (
           <Col key={it.title} xs={12} md={6}>
             <Card
