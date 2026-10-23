@@ -1119,7 +1119,7 @@ app.post('/api/sop/runs', (req, res) => {
   res.status(201).json(out);
 });
 
-app.get('/api/sop/runs/active', async (_req, res) => {
+app.get('/api/sop/runs/active', wrap(async (_req, res) => {
   // 快路径：Redis 活跃索引；降级态回落 SQLite
   const ids = await runActiveIds();
   if (ids.length > 0) {
@@ -1128,7 +1128,7 @@ app.get('/api/sop/runs/active', async (_req, res) => {
   }
   const rows = svc<SopService>('sop').runsRunning() as unknown as SopRunRow[];
   res.json(rows);
-});
+}));
 
 app.get('/api/sop/runs', (req, res) => {
   const slug = typeof req.query.slug === 'string' ? req.query.slug : '';
@@ -1141,17 +1141,18 @@ app.get('/api/sop/runs', (req, res) => {
   res.json(svc<SopService>('sop').runsQuery(sql, args) as unknown as SopRunRow[]);
 });
 
-app.get('/api/sop/runs/:id(\\d+)', async (req, res) => {
+// 异步路由一律经 wrap：Express 4 不接 async 抛出的错，404/409 会变成未处理的 Promise 拒绝让进程退出
+app.get('/api/sop/runs/:id(\\d+)', wrap(async (req, res) => {
   res.json(await sopRunGetCore(Number(req.params.id)));
-});
+}));
 
-app.put('/api/sop/runs/:id(\\d+)', async (req, res) => {
+app.put('/api/sop/runs/:id(\\d+)', wrap(async (req, res) => {
   res.json(await sopRunStepSaveCore(Number(req.params.id), String(req.body?.stepKey ?? ''), req.body?.value));
-});
+}));
 
-app.post('/api/sop/runs/:id(\\d+)/finish', async (req, res) => {
+app.post('/api/sop/runs/:id(\\d+)/finish', wrap(async (req, res) => {
   res.json(await sopRunFinishCore(Number(req.params.id)));
-});
+}));
 
 // ---------- 自产台静态托管：GET /apps/:slug/* → DATA_DIR/apps/<slug>/v<active>/* ----------
 function serveApp(req: express.Request, res: express.Response) {
@@ -2202,7 +2203,7 @@ app.get('/api/a2a/state', (_req, res) => {
   });
 });
 
-app.post('/api/a2a/send', async (req, res) => {
+app.post('/api/a2a/send', wrap(async (req, res) => {
   const target = String(req.body?.target_url ?? '').trim();
   const team = String(req.body?.team ?? '').trim();
   const message = String(req.body?.message ?? '');
@@ -2215,7 +2216,7 @@ app.post('/api/a2a/send', async (req, res) => {
   } catch (e: any) {
     throw new HttpError(502, `出站失败：${String(e?.message ?? e)}`);
   }
-});
+}));
 
 const goServer = app.listen(PORT, () => {
   const counts = svc<WorkbenchService>('workbench').count() as { n: number };
