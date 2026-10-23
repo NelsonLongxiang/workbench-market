@@ -317,6 +317,8 @@ export interface CockpitRow {
 export interface PanelConfig {
   i: string;
   workbenchId: number;
+  /** 面板种类：默认工作台面板；'tasks' = 统一待办卡（omni-inbox，workbenchId=0 占位） */
+  kind?: 'tasks';
   x: number; y: number; w: number; h: number;
 }
 

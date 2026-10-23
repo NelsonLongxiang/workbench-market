@@ -65,6 +65,8 @@ export interface ExportPayload {
 export interface PanelConfig {
   i: string;
   workbenchId: number;
+  /** 面板种类：'tasks' = 统一待办卡（workbenchId=0 占位） */
+  kind?: 'tasks';
   x: number; y: number; w: number; h: number;
 }
 

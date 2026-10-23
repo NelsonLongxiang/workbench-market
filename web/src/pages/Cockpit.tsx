@@ -35,6 +35,8 @@ function PanelHeadActions(props: { wid: number; url?: string; onRefresh: () => v
   );
 }
 
+import { TasksView } from './Tasks';
+
 export default function Cockpit() {
   const { id } = useParams();
   const nav = useNavigate();
@@ -235,6 +237,15 @@ export default function Cockpit() {
               label: `${w.icon || '▢'} ${w.name}（${w.last_status === 'up' ? '在线' : w.last_status === 'down' ? '离线' : '未探测'}）`,
             }))}
         />
+        <Button
+          disabled={panels.some((p) => p.kind === 'tasks')}
+          onClick={() => {
+            const maxY = panels.reduce((m, p) => Math.max(m, p.y + p.h), 0);
+            persist([...panels, { i: 'tasks', workbenchId: 0, kind: 'tasks' as const, x: 0, y: maxY, w: 6, h: 12 }], true);
+          }}
+        >
+          加待办卡
+        </Button>
       </Flex>
 
       {panels.length === 0 ? (
@@ -251,6 +262,23 @@ export default function Cockpit() {
           onLayoutChange={onLayoutChange}
         >
           {panels.map((p) => {
+            if (p.kind === 'tasks') {
+              return (
+                <div key={p.i} className="wm-panel">
+                  <div className="wm-panel-head">
+                    <span className="wm-panel-grip" aria-hidden>⠿</span>
+                    <Badge status="processing" text={<Typography.Text strong style={{ fontSize: 13 }}>统一待办</Typography.Text>} />
+                    <span className="wm-panel-actions">
+                      <Link to="/tasks" style={{ fontSize: 12, marginRight: 8 }}>全部</Link>
+                      <Button size="small" type="text" onClick={() => persist(panels.filter((q) => q.i !== 'tasks'), true)}>移除</Button>
+                    </span>
+                  </div>
+                  <div className="wm-panel-body" style={{ overflow: 'auto' }}>
+                    <TasksView compact />
+                  </div>
+                </div>
+              );
+            }
             const w = wbById.get(p.workbenchId);
             const fk = frameKeys[p.workbenchId] ?? 0;
             return (
