@@ -119,7 +119,7 @@ const TEXT_FACTS = [
   ["server/src/index.ts", "issue #7"],
   ["evidence/e2e_test.py", "e2e-import-probe"],
   ["scripts/make-submission.mjs", "issue #13"],
-  ["README.md", "136 条判据"],
+  ["README.md", "148 条判据"],
   ["server/src/a2a.ts", "canonicalPayload"],
   ["server/src/index.ts", "x-admin-token"],
   ["server/src/a2a.ts", "a2a_node8"],
@@ -155,6 +155,18 @@ const TEXT_FACTS = [
   ["server/src/index.ts", "cookie_sets"],
   ["server/src/index.ts", "goCookies"],
   ["scripts/cookie-smoke.mjs", "过期 cookie 被过滤"],
+  ["server/src/index.ts", "app_data"],
+  ["scripts/appdata-smoke.mjs", "游标翻页"],
+  ["server/src/index.ts", "app_files"],
+  ["server/src/index.ts", "fixFileName"],
+  ["scripts/appfiles-smoke.mjs", "50MB 上限 → 413"],
+  ["server/src/index.ts", "REMOTE_ALLOW_PREFIX"],
+  ["server/src/index.ts", "app_data_list"],
+  ["evidence/e2e_test.py", "app_files_list"],
+  ["server/src/index.ts", "pageLimit"],
+  ["server/src/index.ts", "mcpAggregatedTools"],
+  ["scripts/upstream-smoke.mjs", "taste__rules 转发成功"],
+  ["server/src/index.ts", "X-Market-Client"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);

@@ -153,7 +153,7 @@ const U = [
   { c: "判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-probe」。", t: "运行时批行为断言钉位", s: "S1", ck: existsFact("scripts/import-smoke.mjs", "e2e-import-probe"), rv: ["判据原文逐字取自冻结材料，导入冒烟（独立实例，7 项）覆盖 query replace 语义/内部路径行不丢/悬空面板 prune/掩码行跳过/body mode 等价；E2E 组 19 subprocess 调用——replace 全表清写不再碰活库（84 事故 ×3 根治）。", "提取表三条件 exists 精确判定。", "删探针提取为 0 即 FAIL。"] },
   // ── 卫生批（外部评审 #12/#13：README 一致性 + 干净克隆自愈） ──
   { c: "判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。", t: "提交物脚本自愈钉位", s: "S1", ck: existsFact("scripts/make-submission.mjs", "issue #13"), rv: ["判据原文逐字取自冻结材料，VACUUM INTO 前 mkdirSync(tmp) 幂等创建——干净克隆无 tmp/ 不再必然失败（评审 #13）。", "提取表三条件 exists 精确判定。", "删自愈提取为 0 即 FAIL。"] },
-  { c: "判据102：README.md 必须包含验证器判据数锚「136 条判据」。", t: "README 版本一致钉位", s: "S2", ck: existsFact("README.md", "136 条判据"), rv: ["判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12——锚用判据数，比版本号锚少一次升版漂移）。", "提取表三条件 exists 精确判定。", "版本漂移提取为 0 即 FAIL。"] },
+  { c: "判据102：README.md 必须包含验证器判据数锚「144 条判据」。", t: "README 版本一致钉位", s: "S2", ck: existsFact("README.md", "148 条判据"), rv: ["判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12——锚用判据数，比版本号锚少一次升版漂移）。", "提取表三条件 exists 精确判定。", "版本漂移提取为 0 即 FAIL。"] },
   // ── A2A 网络接入 P1（GH #17：签名卡片 + 人工绑定，只读暴露） ──
   { c: "判据103：server/src/a2a.ts 必须包含上游一致签名面「canonicalPayload」。", t: "A2A 卡片签名钉位", s: "S1", ck: existsFact("server/src/a2a.ts", "canonicalPayload"), rv: ["判据原文逐字取自冻结材料，卡片 canonical 与上游 card.ts（裁判钉 75a3ebd）逐字节一致——Ed25519 pure + SPKI DER base64，expiresAt ≤ 48h，须过上游 verifyCard（GH #17 P1）。", "提取表三条件 exists 精确判定。", "删签名面提取为 0 即 FAIL。"] },
   { c: "判据104：server/src/index.ts 必须包含绑定管理口令头「x-admin-token」。", t: "人工绑定口令钉位", s: "S1", ck: existsFact("server/src/index.ts", "x-admin-token"), rv: ["判据原文逐字取自冻结材料，绑定读写要 X-Admin-Token 常量时间比较（未设置一律 403）+ Origin 空或同源服务端校验；MCP 无绑定写工具；卡片不发布 teamMemberships（绑定图不出门）。", "提取表三条件 exists 精确判定。", "删口令校验提取为 0 即 FAIL。"] },
@@ -199,6 +199,24 @@ const U = [
   { c: "判据134：server/src/index.ts 必须包含 cookie 池表「cookie_sets」。", t: "Cookie 池表钉位", s: "S1", ck: existsFact("server/src/index.ts", "cookie_sets"), rv: ["判据原文逐字取自冻结材料，Cookie 池（浏览器扩展标准导出导入）+ 工作台挂接 cookie_set_id + /go/ 代理 proxyReq 按目标 host 域匹配+未过期过滤→Cookie 头替换注入；value 明文不回任何 API（逐条掩码）。", "提取表三条件 exists 精确判定。", "删池表提取为 0 即 FAIL。"] },
   { c: "判据135：server/src/index.ts 必须包含 Cookie 注入锚「goCookies」。", t: "Cookie 注入钉位", s: "S1", ck: existsFact("server/src/index.ts", "goCookies"), rv: ["判据原文逐字取自冻结材料，前置中间件解析 goCookies（域匹配+过期过滤后），proxyReq 替换 Cookie 头（确定性语义）——未挂接台维持浏览器透传。", "提取表三条件 exists 精确判定。", "删注入提取为 0 即 FAIL。"] },
   { c: "判据136：scripts/cookie-smoke.mjs 必须包含行为锚「过期 cookie 被过滤」。", t: "Cookie 行为断言钉位", s: "S1", ck: existsFact("scripts/cookie-smoke.mjs", "过期 cookie 被过滤"), rv: ["判据原文逐字取自冻结材料，独立实例 11 项：导入（name 校验）/掩码/过期信息/挂接/注入到达上游/过期过滤/取消挂接无注入/删池/全过期。", "提取表三条件 exists 精确判定。", "删断言提取为 0 即 FAIL。"] },
+  // ── 自产台数据提交面（派单 direct-22838fab：台不仅是看板，有交互提交数据） ──
+  { c: "判据137：server/src/index.ts 必须包含数据面表「app_data」。", t: "自产台数据面钉位", s: "S1", ck: existsFact("server/src/index.ts", "app_data"), rv: ["判据原文逐字取自冻结材料，POST /api/apps/:slug/data（JSON ≤1MB，兼容 {data:...} 与直接对象两种形态）+ GET 游标分页（倒序 before_id）；无 DELETE 留审计。", "提取表三条件 exists 精确判定。", "删数据面提取为 0 即 FAIL。"] },
+  { c: "判据138：scripts/appdata-smoke.mjs 必须包含行为锚「游标翻页」。", t: "数据面行为断言钉位", s: "S1", ck: existsFact("scripts/appdata-smoke.mjs", "游标翻页"), rv: ["判据原文逐字取自冻结材料，独立实例 8 项：写入双形态/倒序读回/has_more/limit 分页/游标翻页/未知 slug 404/1MB 拒。", "提取表三条件 exists 精确判定。", "删断言提取为 0 即 FAIL。"] },
+  // ── 自产台文件提交面（所有资源类型 · 50MB 上限） ──
+  { c: "判据139：server/src/index.ts 必须包含文件面表「app_files」。", t: "文件面钉位", s: "S1", ck: existsFact("server/src/index.ts", "app_files"), rv: ["判据原文逐字取自冻结材料，multipart 单文件 ≤50MB（超限 413）/落盘 DATA_DIR/uploads/<YYYYMM>/ + 元数据入表/下载 content-type+nosniff+非白名单强制 attachment/删台级联清盘。", "提取表三条件 exists 精确判定。", "删文件面提取为 0 即 FAIL。"] },
+  { c: "判据140：server/src/index.ts 必须包含文件名编码修复「fixFileName」。", t: "中文文件名钉位", s: "S1", ck: existsFact("server/src/index.ts", "fixFileName"), rv: ["判据原文逐字取自冻结材料，busboy 默认 latin1 解码导致中文名 mojibake——latin1→utf8 往返修复（实测「截图.png」变「æªå¾.png」的坑）。", "提取表三条件 exists 精确判定。", "删修复提取为 0 即 FAIL。"] },
+  { c: "判据141：scripts/appfiles-smoke.mjs 必须包含行为锚「50MB 上限 → 413」。", t: "文件面行为断言钉位", s: "S1", ck: existsFact("scripts/appfiles-smoke.mjs", "50MB 上限 → 413"), rv: ["判据原文逐字取自冻结材料，独立实例 13 项：PNG/PDF/未知类型上传/元数据含中文名/列表倒序/下载字节一致/content-type/inline 白名单/nosniff/未知 slug 与文件 id 404/413/删台级联。", "提取表三条件 exists 精确判定。", "删断言提取为 0 即 FAIL。"] },
+  // ── 远程数据面白名单（主人裁定 A：远程浏览器可提交表单，控制面照旧收口） ──
+  { c: "判据142：server/src/index.ts 必须包含远程白名单前缀「REMOTE_ALLOW_PREFIX」。", t: "远程数据面白名单钉位", s: "S1", ck: existsFact("server/src/index.ts", "REMOTE_ALLOW_PREFIX"), rv: ["判据原文逐字取自冻结材料，远程（非 loopback）请求只放自产台数据/文件面（/api/apps/<slug>/(data|files)）——应用层写与发布面同口径；控制面 /api/* 写仍要 X-Admin-Token（未设则 403）。", "提取表三条件 exists 精确判定。", "删白名单提取为 0 即 FAIL。"] },
+  // ── 台数据读取 MCP 工具（监督席 direct-68a08a66 裁定：只读与 GET 同权，零新增暴露面） ──
+  { c: "判据143：server/src/index.ts 必须包含读工具「app_data_list」。", t: "台数据读工具钉位", s: "S1", ck: existsFact("server/src/index.ts", "app_data_list"), rv: ["判据原文逐字取自冻结材料，MCP 只读工具（15→17）：app_data_list 读自产台表单提交数据、app_files_list 读文件列表（含下载 url）——倒序游标分页与 GET 同语义；只走 MCP 的 agent 也能消费台数据。", "提取表三条件 exists 精确判定。", "删读工具提取为 0 即 FAIL。"] },
+  { c: "判据144：evidence/e2e_test.py 必须包含 MCP 读工具行为锚「app_files_list」。", t: "读工具行为断言钉位", s: "S1", ck: existsFact("evidence/e2e_test.py", "app_files_list"), rv: ["判据原文逐字取自冻结材料，E2E 组17 断言 tools/list 17 个含两读工具 + REST 写数据后 MCP app_data_list 读回内容与 created_by 一致 + app_files_list 结构。", "提取表三条件 exists 精确判定。", "删断言提取为 0 即 FAIL。"] },
+  // ── 分页参数校验（评审 #22：limit=1.5 曾 500、limit=-1 曾绕过上限） ──
+  { c: "判据145：server/src/index.ts 必须包含分页校验「pageLimit」。", t: "分页参数校验钉位", s: "S1", ck: existsFact("server/src/index.ts", "pageLimit"), rv: ["判据原文逐字取自冻结材料，limit 非正整数一律 400（1.5/0/-1 拒绝）、超上限夹 200、before_id 非整数 400——REST 与 MCP 两通道共用同一校验（评审 #22 输入错误不得 500、负 limit 不得绕过上限）。", "提取表三条件 exists 精确判定。", "删校验提取为 0 即 FAIL。"] },
+  // ── MCP 上游聚合（GH #20 P2：外部 MCP 以 <prefix>__<tool> 并入市场 /mcp） ──
+  { c: "判据146：server/src/index.ts 必须包含上游聚合核心「mcpAggregatedTools」。", t: "上游聚合钉位", s: "S1", ck: existsFact("server/src/index.ts", "mcpAggregatedTools"), rv: ["判据原文逐字取自冻结材料，settings.mcp_upstreams 配置外部上游；tools/list 聚合为本地+<prefix>__<tool>（30s 缓存）；tools/call 按前缀路由转发且上游结果原样透传；上游不可达静默降级（工具面回落本地，不崩）；grants 校验用动态注册表（上游工具名可授权）。", "提取表三条件 exists 精确判定。", "删聚合提取为 0 即 FAIL。"] },
+  { c: "判据147：scripts/upstream-smoke.mjs 必须包含行为锚「taste__rules 转发成功」。", t: "聚合行为断言钉位", s: "S1", ck: existsFact("scripts/upstream-smoke.mjs", "taste__rules 转发成功"), rv: ["判据原文逐字取自冻结材料，独立实例 + 假上游 19 项：配置 CRUD/坏 prefix 400/聚合 19 工具/前缀工具在场/转发与参数传透/本地工具照常/上游名可授权/不可达回落 17/网关会话身份透传 mcp/<name>/授权面覆盖聚合工具。", "提取表三条件 exists 精确判定。", "删断言提取为 0 即 FAIL。"] },
+  { c: "判据148：server/src/index.ts 必须包含上游身份透传锚「X-Market-Client」。", t: "上游身份透传钉位", s: "S1", ck: existsFact("server/src/index.ts", "X-Market-Client"), rv: ["判据原文逐字取自冻结材料，网关会话存在时以 mcp/<会话名> 覆盖上游静态头——上游（taste-mcp）据此判 judge 身份 agent:<client>@<model>；网关 off 时用配置的静态头。", "提取表三条件 exists 精确判定。", "删透传提取为 0 即 FAIL。"] },
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
@@ -215,7 +233,7 @@ passed)——源自 E2E 内置的 Playwright 对比度探针（实测 DOM 前景
 提交物目录 tmp/submission 从仓库根抽取根清单、server 与 web 源码树、构建产物、
 脚本、验证器自举档案、设计规范与证据。
 命令执行型检查（typecheck、lint、build）不属于 CLI 闭集，由开发流程自行执行
-（E2E 与渲染层对比度结果经摘要表断言）；覆盖三十个维度共 136 条判据：数据域完整性
+（E2E 与渲染层对比度结果经摘要表断言）；覆盖三十七个维度共 148 条判据：数据域完整性
 （判据1-9）、种子与配置（判据10-15）、提交物结构（判据16-35）、颜色可见性
 （判据36-51 与 57-58：经对比度审计的色值在源码与规范中的钉位，漂移即破坏已审计
 的可读性）、E2E 行为证据（判据52-54：规模下限、全绿、时间戳在位）、渲染层对比度

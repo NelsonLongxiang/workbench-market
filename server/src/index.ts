@@ -2,9 +2,11 @@ import express from 'express';
 import cors from 'cors';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createReadStream } from 'node:fs';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { dirname, join, posix } from 'node:path';
+import { dirname, join, posix, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import multer from 'multer';
 import { db, getSettings, dataDir, rowToWorkbench, rowToCockpit, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow, type SopRunRow } from './db.ts';
 import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
 import { parse as parseYaml } from 'yaml';
@@ -33,13 +35,17 @@ app.use((req, res, next) => {
 
 // GH #20 P1 ④远程面收口：非本机请求只放 /mcp、/.well-known/agent-card.json、/a2a/direct——
 // 其余 /api/* 写操作要 X-Admin-Token（本机 REST 面维持内网信任模型不变；此中间件只拦远程写）。
+// 主人裁定 A（2026-10-23）：自产台数据/文件面对远程浏览器开放——应用层写，与发布面同口径；
+// 控制面（/api/mcp/*、/api/sops/*/bindings 等）照旧收口。没有这条，远程节点浏览器提交表单会 403。
 const REMOTE_ALLOW_EXACT = new Set(['/mcp', '/.well-known/agent-card.json', '/a2a/direct']);
+const REMOTE_ALLOW_PREFIX = [/^\/api\/apps\/[a-z0-9-]{1,64}\/(data|files)(\/|$)/];
 app.use((req, res, next) => {
   const ip = String(req.socket.remoteAddress ?? '');
   const isLoopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
   if (isLoopback || req.method === 'GET' || req.method === 'HEAD') return next(); // 读面不拦（掩码已有）；本机全放
   const p = (req.url ?? '').split('?')[0];
   if (REMOTE_ALLOW_EXACT.has(p)) return next();
+  if (REMOTE_ALLOW_PREFIX.some((re) => re.test(p))) return next(); // 自产台数据/文件面（主人裁定 A）
   if (p.startsWith('/api/')) {
     // 远程 /api/* 写：走 adminGuard（函数声明有提升，请求期已定义）
     if (adminGuard(req, res)) return next();
@@ -582,9 +588,143 @@ app.delete('/api/apps/:slug', (req, res) => {
   rmSync(join(appsRoot, a.slug), { recursive: true, force: true });
   db.prepare('DELETE FROM app_versions WHERE app_id = ?').run(a.id);
   db.prepare('DELETE FROM apps WHERE id = ?').run(a.id);
+  // 数据面/文件面一并清理（派单 direct-22838fab 与文件提交面）
+  db.prepare('DELETE FROM app_data WHERE app_slug = ?').run(a.slug);
+  const files = db.prepare('SELECT storage_path FROM app_files WHERE app_slug = ?').all(a.slug) as { storage_path: string }[];
+  for (const f of files) { try { rmSync(join(dataDir, f.storage_path), { force: true }); } catch { /* 已删 */ } }
+  db.prepare('DELETE FROM app_files WHERE app_slug = ?').run(a.slug);
   // issue #6：SOP 台的注册 url 是 /sop/<slug>/（非 /apps/），删除时必须一并清理，否则留孤儿工作台（门户 404）
   db.prepare(`DELETE FROM workbenches WHERE (url = ? OR url = ?) AND type = 'market-app'`).run(`/apps/${a.slug}/`, `/sop/${a.slug}/`);
   res.json({ ok: true, deleted: a.slug });
+});
+
+// ---------- 自产台数据提交面（监督席派单 direct-22838fab：台不仅是看板，有交互提交数据） ----------
+// 通用通道：POST 写入 / GET 游标分页（倒序 before_id）。JSON blob 哑存储——含义在台自身。
+// 安全面：内网信任模型（同发布面口径）；台页 iframe 同源 fetch 直通。
+// 无 DELETE——提交数据留审计，误提交由应用层覆盖语义处理。
+
+/** 分页参数校验（评审 #22：limit=1.5 曾 500、limit=-1 绕过上限——输入错误一律 400） */
+function pageLimit(v: unknown, def = 50, max = 200): number {
+  if (v === undefined || v === null || v === '') return def;
+  const n = Number(v);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1) bad(`limit 必须是 1-${max} 的正整数`);
+  return Math.min(n, max);
+}
+function pageBeforeId(v: unknown): number {
+  if (v === undefined || v === null || v === '') return 0;
+  const n = Number(v);
+  if (!Number.isFinite(n) || !Number.isInteger(n)) bad('before_id 必须是整数');
+  return Math.max(0, n);
+}
+app.post('/api/apps/:slug/data', (req, res) => {
+  const a = getApp(req.params.slug);
+  const b = req.body ?? {};
+  const data = b.data ?? b; // 兼容 {data: {...}} 或直接 {...} 两种形态
+  const json = JSON.stringify(data);
+  if (Buffer.byteLength(json, 'utf8') > 1024 * 1024) bad('data 超 1MB 上限');
+  const created_by = typeof b.created_by === 'string' ? b.created_by.trim().slice(0, 128) : '';
+  const r = db.prepare('INSERT INTO app_data (app_slug, data, created_by) VALUES (?, ?, ?)')
+    .run(a.slug, json, created_by) as unknown as { lastInsertRowid: number | bigint };
+  res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), slug: a.slug, created_at: new Date().toISOString() });
+});
+
+app.get('/api/apps/:slug/data', (req, res) => {
+  const a = getApp(req.params.slug);
+  const limit = pageLimit(req.query.limit);
+  const beforeId = pageBeforeId(req.query.before_id);
+  const rows = beforeId > 0
+    ? db.prepare('SELECT id, data, created_by, created_at FROM app_data WHERE app_slug = ? AND id < ? ORDER BY id DESC LIMIT ?').all(a.slug, beforeId, limit)
+    : db.prepare('SELECT id, data, created_by, created_at FROM app_data WHERE app_slug = ? ORDER BY id DESC LIMIT ?').all(a.slug, limit);
+  const items = (rows as { id: number; data: string; created_by: string; created_at: string }[]).map((r) => ({
+    id: r.id, data: JSON.parse(r.data || '{}'), created_by: r.created_by, created_at: r.created_at,
+  }));
+  const has_more = rows.length === limit;
+  res.json({ slug: a.slug, items, count: items.length, has_more, next_before_id: has_more ? items[items.length - 1].id : null });
+});
+
+// ---------- 自产台文件提交面（所有资源类型文件，50MB 上限） ----------
+// multipart/form-data：字段 file（单文件）+ 可选 note/created_by。
+// 落盘 DATA_DIR/uploads/<slug>/<YYYYMM>/<id>-<safeName>；元数据入 app_files；GET 列表 + 下载。
+const UPLOAD_MAX = 50 * 1024 * 1024;
+const uploadRoot = join(dataDir, 'uploads');
+// multipart 文件名编码修复：busboy 默认把 UTF-8 字节按 latin1 解码（中文名变 mojibake）
+const fixFileName = (s: string): string => {
+  try {
+    const buf = Buffer.from(s, 'latin1');
+    const utf8 = buf.toString('utf8');
+    // 若 latin1→utf8 往返合法且含多字节字符，采用修复值
+    return /�/.test(utf8) ? s : utf8;
+  } catch {
+    return s;
+  }
+};
+const upload = multer({
+  storage: multer.diskStorage({
+    destination(_req, _file, cb) {
+      const now = new Date();
+      const sub = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const dir = join(uploadRoot, sub);
+      mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename(_req, file, cb) {
+      // 保留原扩展名、抹掉路径与控制字符
+      const ext = extname(fixFileName(file.originalname)).slice(0, 16).replace(/[^.\w-]/g, '');
+      cb(null, `${Date.now()}-${randomBytes(6).toString('hex')}${ext}`);
+    },
+  }),
+  limits: { fileSize: UPLOAD_MAX, files: 1 },
+});
+
+app.post('/api/apps/:slug/files', (req, res, next) => {
+  upload.single('file')(req, res, (err: any) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: '文件超 50MB 上限' });
+      return res.status(400).json({ error: `上传失败：${err.message}` });
+    }
+    try {
+      const a = getApp(req.params.slug);
+      if (!req.file) bad('缺少 file 字段（multipart/form-data）');
+      const created_by = typeof req.body?.created_by === 'string' ? req.body.created_by.trim().slice(0, 128) : '';
+      const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 500) : '';
+      // 存储相对路径（dataDir 内，随数据目录迁移）
+      const rel = req.file.path.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
+      const originalName = fixFileName(req.file.originalname);
+      const r = db.prepare('INSERT INTO app_files (app_slug, original_name, mime, size, storage_path, created_by) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(a.slug, originalName, req.file.mimetype || 'application/octet-stream', req.file.size, rel, created_by) as unknown as { lastInsertRowid: number | bigint };
+      const id = Number(r.lastInsertRowid);
+      res.status(201).json({ ok: true, id, slug: a.slug, name: originalName, mime: req.file.mimetype, size: req.file.size, note, url: `/api/apps/${a.slug}/files/${id}` });
+    } catch (e) {
+      next(e);
+    }
+  });
+});
+
+app.get('/api/apps/:slug/files', (req, res) => {
+  const a = getApp(req.params.slug);
+  const limit = pageLimit(req.query.limit);
+  const beforeId = pageBeforeId(req.query.before_id);
+  const rows = beforeId > 0
+    ? db.prepare('SELECT id, original_name, mime, size, created_by, created_at FROM app_files WHERE app_slug = ? AND id < ? ORDER BY id DESC LIMIT ?').all(a.slug, beforeId, limit)
+    : db.prepare('SELECT id, original_name, mime, size, created_by, created_at FROM app_files WHERE app_slug = ? ORDER BY id DESC LIMIT ?').all(a.slug, limit);
+  const items = (rows as any[]).map((r) => ({ ...r, url: `/api/apps/${a.slug}/files/${r.id}` }));
+  res.json({ slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null });
+});
+
+app.get('/api/apps/:slug/files/:id', (req, res) => {
+  const a = getApp(req.params.slug);
+  const row = db.prepare('SELECT * FROM app_files WHERE id = ? AND app_slug = ?').get(Number(req.params.id), a.slug) as any;
+  if (!row) throw new HttpError(404, `file not found: ${req.params.id}`);
+  const abs = join(dataDir, row.storage_path);
+  if (!existsSync(abs)) throw new HttpError(404, 'stored file missing on disk');
+  res.setHeader('content-type', row.mime || 'application/octet-stream');
+  res.setHeader('content-length', String(row.size));
+  // 附件下载语义（原始文件名）——inline 由 mime 决定，避免 XSS：非白名单 mime 强制 attachment
+  const inlineOk = /^(image\/(png|jpeg|webp|gif)|application\/pdf|text\/(plain|csv))$/.test(row.mime);
+  const disp = inlineOk ? 'inline' : 'attachment';
+  res.setHeader('content-disposition', `${disp}; filename*=UTF-8''${encodeURIComponent(row.original_name || 'file')}`);
+  res.setHeader('x-content-type-options', 'nosniff');
+  createReadStream(abs).pipe(res);
 });
 
 // ---------- SOP 台：状态机（draft → published → deprecated）+ 执行 Runner + 分层持久化 ----------
@@ -1138,7 +1278,7 @@ app.get('/api/settings', (_req, res) => { res.json(getSettings()); });
 app.put('/api/settings', (req, res) => {
   const b = req.body ?? {};
   if (typeof b !== 'object' || b === null) bad('body 必须是 {key: value} 对象');
-  const allowed = ['health_interval_seconds', 'health_timeout_ms', 'health_concurrency', 'a2a_peers'];
+  const allowed = ['health_interval_seconds', 'health_timeout_ms', 'health_concurrency', 'a2a_peers', 'mcp_upstreams'];
   const upd = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
   for (const [k, v] of Object.entries(b)) {
     if (!allowed.includes(k)) continue;
@@ -1448,6 +1588,34 @@ const MCP_TOOLS: { name: string; description: string; inputSchema: Record<string
     inputSchema: { type: 'object', properties: { run_id: { type: 'integer' } }, required: ['run_id'], additionalProperties: false },
   },
   {
+    name: 'app_data_list',
+    description: '读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读，与 GET 同权。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slug: { type: 'string', description: '自产台 slug' },
+        limit: { type: 'integer', description: '条数（默认 50，上限 200）' },
+        before_id: { type: 'integer', description: '游标：只取 id 小于它的记录（翻页用上一页的 next_before_id）' },
+      },
+      required: ['slug'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'app_files_list',
+    description: '读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤50MB/个）。只读，与 GET 同权。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slug: { type: 'string' },
+        limit: { type: 'integer', description: '条数（默认 50，上限 200）' },
+        before_id: { type: 'integer' },
+      },
+      required: ['slug'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'workbench_register',
     description: '登记外部工作台入册（agent 发现内网新服务时自主登记；门户/市场即刻可用）。凭据不接受——需人工经市场页配置（安全边界）。',
     inputSchema: {
@@ -1562,12 +1730,136 @@ async function callTool(name: string, args: any): Promise<unknown> {
     }
     case 'workbench_unregister':
       return workbenchDeleteCore(Number(args?.id));
+    case 'app_data_list': {
+      const a = getApp(String(args?.slug ?? ''));
+      const limit = pageLimit(args?.limit);
+      const beforeId = pageBeforeId(args?.before_id);
+      const rows = beforeId > 0
+        ? db.prepare('SELECT id, data, created_by, created_at FROM app_data WHERE app_slug = ? AND id < ? ORDER BY id DESC LIMIT ?').all(a.slug, beforeId, limit)
+        : db.prepare('SELECT id, data, created_by, created_at FROM app_data WHERE app_slug = ? ORDER BY id DESC LIMIT ?').all(a.slug, limit);
+      const items = (rows as any[]).map((r) => ({ id: r.id, data: JSON.parse(r.data || '{}'), created_by: r.created_by, created_at: r.created_at }));
+      return { slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null };
+    }
+    case 'app_files_list': {
+      const a = getApp(String(args?.slug ?? ''));
+      const limit = pageLimit(args?.limit);
+      const beforeId = pageBeforeId(args?.before_id);
+      const rows = beforeId > 0
+        ? db.prepare('SELECT id, original_name, mime, size, created_by, created_at FROM app_files WHERE app_slug = ? AND id < ? ORDER BY id DESC LIMIT ?').all(a.slug, beforeId, limit)
+        : db.prepare('SELECT id, original_name, mime, size, created_by, created_at FROM app_files WHERE app_slug = ? ORDER BY id DESC LIMIT ?').all(a.slug, limit);
+      const items = (rows as any[]).map((r) => ({ ...r, url: `/api/apps/${a.slug}/files/${r.id}` }));
+      return { slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null };
+    }
     default:
       throw new HttpError(400, `未知工具: ${name}`);
   }
 }
 
-// ---------- MCP 网关 P1（GH #20：会话/令牌/授权/审计——env MCP_GATEWAY=on 激活，默认 off=现状行为） ----------
+// ---------- MCP 上游聚合（GH #20 P2：外部 MCP 服务以 <prefix>__<tool> 并入市场 /mcp） ----------
+// 配置：settings.mcp_upstreams = JSON 数组 [{prefix,url,headers?,enabled?,toolCallTimeoutMs?}]
+// prefix 规范 [a-z][a-z0-9]{0,15}（与本地工具名不冲突——本地工具无 __ 分隔）。
+// 工具列表 30s 缓存（每请求不直打上游）；上游不可达时跳过其工具、不影响本地工具面。
+interface McpUpstream { prefix: string; url: string; headers?: Record<string, string>; enabled?: boolean; toolCallTimeoutMs?: number }
+const MCP_UPSTREAM_PREFIX_RE = /^[a-z][a-z0-9]{0,15}$/;
+const upstreamToolCache = new Map<string, { at: number; tools: { name: string; description: string; inputSchema: Record<string, unknown> }[] }>();
+const UPSTREAM_CACHE_MS = 30_000;
+
+function mcpUpstreams(): McpUpstream[] {
+  try {
+    const raw = getSettings()['mcp_upstreams'] ?? '';
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr.filter((u: any) => u && typeof u.prefix === 'string' && MCP_UPSTREAM_PREFIX_RE.test(u.prefix) && typeof u.url === 'string' && /^https?:\/\//.test(u.url) && u.enabled !== false);
+  } catch {
+    return [];
+  }
+}
+
+async function upstreamRpc(u: McpUpstream, method: string, params: unknown, id = 1, clientIdent?: string): Promise<any> {
+  const timeout = u.toolCallTimeoutMs && u.toolCallTimeoutMs > 0 ? u.toolCallTimeoutMs : 15_000;
+  // 身份透传（#20 P2）：网关会话存在时以 mcp/<会话名> 覆盖静态头——
+  // 上游（如 taste-mcp）以此判 judge 身份：agent:<X-Market-Client>@<model>。
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...(u.headers ?? {}) };
+  if (clientIdent) headers['X-Market-Client'] = clientIdent;
+  const r = await fetch(u.url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
+    signal: AbortSignal.timeout(timeout),
+  });
+  if (!r.ok) throw new Error(`upstream ${u.prefix} HTTP ${r.status}`);
+  const text = await r.text();
+  // 兼容 SSE 形态（data: {...}）与纯 JSON
+  const payload = text.trim().startsWith('data:') ? text.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim()).join('') : text;
+  const j = JSON.parse(payload);
+  if (j.error) throw new Error(`upstream ${u.prefix}: ${j.error.message ?? 'error'}`);
+  return j.result;
+}
+
+/** 聚合工具面：本地 17 + 各上游（<prefix>__<name>）；上游失败静默跳过 */
+async function mcpAggregatedTools(): Promise<{ name: string; description: string; inputSchema: Record<string, unknown> }[]> {
+  const out = [...MCP_TOOLS];
+  const ups = mcpUpstreams();
+  for (const u of ups) {
+    const cached = upstreamToolCache.get(u.prefix);
+    if (cached && Date.now() - cached.at < UPSTREAM_CACHE_MS) {
+      out.push(...cached.tools.map((t) => ({ ...t, name: `${u.prefix}__${t.name}`, description: `[${u.prefix}] ${t.description}` })));
+      continue;
+    }
+    try {
+      const res = await upstreamRpc(u, 'tools/list', {}, 1);
+      const tools = (res?.tools ?? []) as { name: string; description?: string; inputSchema?: Record<string, unknown> }[];
+      upstreamToolCache.set(u.prefix, {
+        at: Date.now(),
+        tools: tools.filter((t) => typeof t.name === 'string').map((t) => ({ name: t.name, description: t.description ?? '', inputSchema: t.inputSchema ?? { type: 'object', properties: {} } })),
+      });
+      out.push(...tools.filter((t) => typeof t.name === 'string').map((t) => ({ name: `${u.prefix}__${t.name}`, description: `[${u.prefix}] ${t.description ?? ''}`, inputSchema: t.inputSchema ?? { type: 'object', properties: {} } })));
+    } catch {
+      /* 上游不可达：跳过，不影响本地工具面 */
+    }
+  }
+  return out;
+}
+
+/** 上游工具路由：taste__rules → (upstream taste, tool rules) */
+function routeUpstream(toolName: string): { upstream: McpUpstream; remoteTool: string } | null {
+  const i = toolName.indexOf('__');
+  if (i <= 0) return null;
+  const prefix = toolName.slice(0, i);
+  const remoteTool = toolName.slice(i + 2);
+  if (!remoteTool) return null;
+  const u = mcpUpstreams().find((x) => x.prefix === prefix);
+  return u ? { upstream: u, remoteTool } : null;
+}
+
+/** 当前注册表（本地 + 上游可用工具名；grants 校验用） */
+async function mcpRegisteredNames(): Promise<Set<string>> {
+  return new Set((await mcpAggregatedTools()).map((t) => t.name));
+}
+
+app.get('/api/mcp/upstreams', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  res.json(mcpUpstreams().map((u) => ({ prefix: u.prefix, url: u.url, enabled: u.enabled !== false, headers: Object.keys(u.headers ?? {}), toolCallTimeoutMs: u.toolCallTimeoutMs ?? 15000 })));
+});
+
+app.put('/api/mcp/upstreams', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const arr = req.body?.upstreams;
+  if (!Array.isArray(arr)) bad('upstreams 必须是数组（整体替换语义）');
+  const clean: McpUpstream[] = [];
+  for (const u of arr) {
+    if (!u || typeof u.prefix !== 'string' || !MCP_UPSTREAM_PREFIX_RE.test(u.prefix)) bad(`prefix 规范：[a-z][a-z0-9]{0,15}——${JSON.stringify(u?.prefix)}`);
+    if (typeof u.url !== 'string' || !/^https?:\/\//.test(u.url)) bad(`上游 ${u.prefix} 的 url 必须是 http(s)://`);
+    if (u.headers !== undefined && (typeof u.headers !== 'object' || u.headers === null || Object.values(u.headers).some((v) => typeof v !== 'string'))) bad(`上游 ${u.prefix} 的 headers 必须是字符串映射`);
+    clean.push({ prefix: u.prefix, url: u.url, headers: u.headers ?? {}, enabled: u.enabled !== false, toolCallTimeoutMs: Number(u.toolCallTimeoutMs) || 15000 });
+  }
+  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('mcp_upstreams', JSON.stringify(clean));
+  upstreamToolCache.clear();
+  res.json({ ok: true, upstreams: clean.map((u) => ({ prefix: u.prefix, url: u.url, enabled: u.enabled !== false })) });
+});
+
+
 // 合并与激活解耦：代码进 main 可评审；激活=主人同设 ADMIN_TOKEN+MCP_GATEWAY=on 重启
 // （单设 MCP_GATEWAY 而无 ADMIN_TOKEN 时控制面全 403，无法建会话 → /mcp 全 401，拒绝半激活）。
 const MCP_GATEWAY_ON = process.env.MCP_GATEWAY === 'on';
@@ -1615,24 +1907,33 @@ app.delete('/api/mcp/sessions/:id', (req, res) => {
   res.json({ ok: true, revoked: id });
 });
 
-app.put('/api/mcp/sessions/:id/grants', (req, res) => {
+app.put('/api/mcp/sessions/:id/grants', (req, res, next) => {
   if (!adminGuard(req, res)) return;
   const id = Number(req.params.id);
   const sess = db.prepare('SELECT id FROM mcp_sessions WHERE id = ?').get(id);
   if (!sess) throw new HttpError(404, `session not found: ${id}`);
   const raw = req.body?.grants;
   if (!Array.isArray(raw)) bad('grants 必须是工具名数组（整体替换语义）');
-  const registered = new Set(MCP_TOOLS.map((t) => t.name));
-  for (const g of raw) {
-    if (typeof g !== 'string' || !registered.has(g)) bad(`未知工具名: ${JSON.stringify(g)}（合法面见 GET /api/mcp/tools）`);
-  }
-  db.prepare('UPDATE mcp_sessions SET grants = ? WHERE id = ?').run(JSON.stringify(raw), id);
-  res.json({ ok: true, id, grants: raw });
+  // 注册表 = 本地工具 + 上游聚合工具（P2：taste__rules 等也可授权）
+  void mcpRegisteredNames().then((registered) => {
+    try {
+      for (const g of raw) {
+        if (typeof g !== 'string' || !registered.has(g)) bad(`未知工具名: ${JSON.stringify(g)}（合法面见 GET /api/mcp/tools）`);
+      }
+      db.prepare('UPDATE mcp_sessions SET grants = ? WHERE id = ?').run(JSON.stringify(raw), id);
+      res.json({ ok: true, id, grants: raw });
+    } catch (e) {
+      next(e);
+    }
+  }).catch(next);
 });
 
-app.get('/api/mcp/tools', (req, res) => {
+app.get('/api/mcp/tools', (req, res, next) => {
   if (!adminGuard(req, res)) return;
-  res.json(MCP_TOOLS.map((t) => ({ name: t.name, description: t.description })));
+  // 本地 + 上游聚合面（上游不可达时只列本地，不报错）
+  void mcpAggregatedTools()
+    .then((tools) => res.json(tools.map((t) => ({ name: t.name, description: t.description }))))
+    .catch(next);
 });
 
 app.get('/api/mcp/calls', (req, res) => {
@@ -1690,7 +1991,8 @@ app.post('/mcp', async (req, res) => {
       return res.json({ jsonrpc: '2.0', id: msg.id, result: {} });
     }
     if (msg.method === 'tools/list') {
-      const tools = sess ? MCP_TOOLS.filter((t) => sess!.grants.includes(t.name)) : MCP_TOOLS; // 按授权过滤
+      const all = await mcpAggregatedTools(); // 本地 17 + 上游（P2 聚合）
+      const tools = sess ? all.filter((t) => sess!.grants.includes(t.name)) : all; // 按授权过滤
       audit('tools/list', '', true, '', Date.now() - t0, null);
       return res.json({ jsonrpc: '2.0', id: msg.id, result: { tools } });
     }
@@ -1706,8 +2008,17 @@ app.post('/mcp', async (req, res) => {
         return fail(-32601, `Method not found: ${msg.method}`); // 与未知工具同文案族
       }
       try {
-        const out = await callTool(toolName, msg.params.arguments ?? {});
+        // 上游路由（P2）：<prefix>__<tool> → 转发到对应上游 MCP
+        const up = routeUpstream(toolName);
+        const out = up
+          ? await upstreamRpc(up.upstream, 'tools/call', { name: up.remoteTool, arguments: msg.params.arguments ?? {} }, 2, sess ? `mcp/${sess.name}` : undefined)
+          : await callTool(toolName, msg.params.arguments ?? {});
         audit('tools/call', toolName, true, '', Date.now() - t0, msg.params?.arguments);
+        // 上游结果已是 MCP 形状（{content,isError?}）→ 原样透传（下游客户端语义无损）；
+        // 本地工具结果是业务对象 → 序列化为 text content。
+        if (up && out && typeof out === 'object' && Array.isArray((out as any).content)) {
+          return res.json({ jsonrpc: '2.0', id: msg.id, result: out });
+        }
         return res.json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }] } });
       } catch (e: any) {
         // 工具执行失败按 MCP 规范走 isError（协议层错误才用 JSON-RPC error）

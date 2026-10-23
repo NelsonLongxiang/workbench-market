@@ -3215,9 +3215,9 @@
       }
     },
     {
-      "source_clause": "判据102：README.md 必须包含验证器判据数锚「136 条判据」。",
+      "source_clause": "判据102：README.md 必须包含验证器判据数锚「144 条判据」。",
       "anchor": {
-        "quote": "判据102：README.md 必须包含验证器判据数锚「136 条判据」。",
+        "quote": "判据102：README.md 必须包含验证器判据数锚「144 条判据」。",
         "locator": "dev-verifier-v4.md 判据1"
       },
       "title": "README 版本一致钉位",
@@ -3240,7 +3240,7 @@
               {
                 "col": "needle",
                 "op": "=",
-                "value": "136 条判据"
+                "value": "148 条判据"
               },
               {
                 "col": "present",
@@ -4567,6 +4567,474 @@
                 "col": "needle",
                 "op": "=",
                 "value": "过期 cookie 被过滤"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据137：server/src/index.ts 必须包含数据面表「app_data」。",
+      "anchor": {
+        "quote": "判据137：server/src/index.ts 必须包含数据面表「app_data」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "自产台数据面钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "app_data"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据138：scripts/appdata-smoke.mjs 必须包含行为锚「游标翻页」。",
+      "anchor": {
+        "quote": "判据138：scripts/appdata-smoke.mjs 必须包含行为锚「游标翻页」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "数据面行为断言钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "scripts/appdata-smoke.mjs"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "游标翻页"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据139：server/src/index.ts 必须包含文件面表「app_files」。",
+      "anchor": {
+        "quote": "判据139：server/src/index.ts 必须包含文件面表「app_files」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "文件面钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "app_files"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据140：server/src/index.ts 必须包含文件名编码修复「fixFileName」。",
+      "anchor": {
+        "quote": "判据140：server/src/index.ts 必须包含文件名编码修复「fixFileName」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "中文文件名钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "fixFileName"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据141：scripts/appfiles-smoke.mjs 必须包含行为锚「50MB 上限 → 413」。",
+      "anchor": {
+        "quote": "判据141：scripts/appfiles-smoke.mjs 必须包含行为锚「50MB 上限 → 413」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "文件面行为断言钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "scripts/appfiles-smoke.mjs"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "50MB 上限 → 413"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据142：server/src/index.ts 必须包含远程白名单前缀「REMOTE_ALLOW_PREFIX」。",
+      "anchor": {
+        "quote": "判据142：server/src/index.ts 必须包含远程白名单前缀「REMOTE_ALLOW_PREFIX」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "远程数据面白名单钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "REMOTE_ALLOW_PREFIX"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据143：server/src/index.ts 必须包含读工具「app_data_list」。",
+      "anchor": {
+        "quote": "判据143：server/src/index.ts 必须包含读工具「app_data_list」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "台数据读工具钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "app_data_list"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据144：evidence/e2e_test.py 必须包含 MCP 读工具行为锚「app_files_list」。",
+      "anchor": {
+        "quote": "判据144：evidence/e2e_test.py 必须包含 MCP 读工具行为锚「app_files_list」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "读工具行为断言钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "evidence/e2e_test.py"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "app_files_list"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据145：server/src/index.ts 必须包含分页校验「pageLimit」。",
+      "anchor": {
+        "quote": "判据145：server/src/index.ts 必须包含分页校验「pageLimit」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "分页参数校验钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "pageLimit"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据146：server/src/index.ts 必须包含上游聚合核心「mcpAggregatedTools」。",
+      "anchor": {
+        "quote": "判据146：server/src/index.ts 必须包含上游聚合核心「mcpAggregatedTools」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "上游聚合钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "mcpAggregatedTools"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据147：scripts/upstream-smoke.mjs 必须包含行为锚「taste__rules 转发成功」。",
+      "anchor": {
+        "quote": "判据147：scripts/upstream-smoke.mjs 必须包含行为锚「taste__rules 转发成功」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "聚合行为断言钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "scripts/upstream-smoke.mjs"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "taste__rules 转发成功"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据148：server/src/index.ts 必须包含上游身份透传锚「X-Market-Client」。",
+      "anchor": {
+        "quote": "判据148：server/src/index.ts 必须包含上游身份透传锚「X-Market-Client」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "上游身份透传钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "X-Market-Client"
               },
               {
                 "col": "present",
