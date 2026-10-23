@@ -17,7 +17,24 @@ db.exec(`CREATE TABLE IF NOT EXISTS endpoint_stats (
   PRIMARY KEY (endpoint, day)
 )`);
 
-const INSERT = db.prepare('INSERT INTO endpoint_stats (endpoint, day, hits) VALUES (?, ?, 1) ON CONFLICT(endpoint, day) DO UPDATE SET hits = hits + 1');
+const UPSERT = db.prepare('INSERT INTO endpoint_stats (endpoint, day, hits) VALUES (?, ?, ?) ON CONFLICT(endpoint, day) DO UPDATE SET hits = hits + excluded.hits');
+function flushRows(rows: [string, string, number][]) {
+  for (const [endpoint, day, hits] of rows) UPSERT.run(endpoint, day, hits);
+}
+
+/** 内存累计 + 5s 批量落库：避免每命中同步写放大（token-smoke 直连读库曾撞 database is locked） */
+const pending = new Map<string, number>();
+let flushTimer: ReturnType<typeof setInterval> | null = setInterval(() => {
+  if (pending.size === 0) return;
+  const rows: [string, string, number][] = [];
+  for (const [key, hits] of pending) {
+    const i = key.lastIndexOf('|');
+    rows.push([key.slice(0, i), key.slice(i + 1), hits]);
+  }
+  pending.clear();
+  try { flushRows(rows); } catch { /* 落库失败丢本批，不阻塞业务 */ }
+}, 5_000);
+flushTimer.unref?.();
 
 /** 路径规范化：数字段折叠为 :id（/api/sop/runs/42 → /api/sop/runs/:id） */
 export function normalizeEndpoint(pathname: string): string {
@@ -36,13 +53,20 @@ export function endpointStatsMiddleware(): express.RequestHandler {
         const url = String(req.url ?? '').split('?')[0];
         if (!url.startsWith('/api/') && url !== '/tasks') return;
         if (url === '/api/stats') return; // 自身不计
-        INSERT.run(normalizeEndpoint(url), new Date().toISOString().slice(0, 10));
+        const key = `${normalizeEndpoint(url)}|${new Date().toISOString().slice(0, 10)}`;
+        pending.set(key, (pending.get(key) ?? 0) + 1);
       } catch { /* 计数失败不影响业务 */ }
     });
   };
 }
 
 export function statsPayload(): { endpoints: { endpoint: string; total: number; by_day: Record<string, number> }[]; generated_at: string } {
+  if (pending.size > 0) { // 读前冲刷，视图不滞后于在途计数
+    const rows2: [string, string, number][] = [];
+    for (const [key, hits] of pending) { const i = key.lastIndexOf('|'); rows2.push([key.slice(0, i), key.slice(i + 1), hits]); }
+    pending.clear();
+    try { flushRows(rows2); } catch { /* 忽略 */ }
+  }
   const rows = db.prepare('SELECT endpoint, day, hits FROM endpoint_stats ORDER BY endpoint, day').all() as { endpoint: string; day: string; hits: number }[];
   const map = new Map<string, { endpoint: string; total: number; by_day: Record<string, number> }>();
   for (const r of rows) {
