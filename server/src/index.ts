@@ -20,7 +20,7 @@ import { db, getSettings, dataDir, rowToWorkbench, rowToCockpit, type WorkbenchR
 import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
 import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, runStateSave, runStateRestore, runStateLoad, runStateRetire, runActiveIds } from './redis.ts';
-import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, a2aSendOutbound, MARKET_TEAM } from './a2a.ts';
+import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, a2aSendOutbound, formatA2aReceipt, MARKET_TEAM } from './a2a.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -825,16 +825,28 @@ async function sopRunStepSaveCore(id: number, stepKeyRaw: string, value: unknown
 }
 
 /** 读 run（热读优先，miss 回 SQLite 真源并回填热态） */
-async function sopRunGetCore(id: number): Promise<{ id: number; sop_slug: string; sop_version: number; status: string; started_by: string; data: Record<string, unknown> }> {
+/** P3 回执可见性：none / pending / sent / dead / rejected:<原因>（评审席判据 E1-E6 观测面） */
+function receiptStatusOf(runId: number): string {
+  const src = svc<SopService>('sop').ctxSourceByRun(runId) as { receipt_status?: string } | undefined;
+  if (src && typeof src.receipt_status === 'string' && src.receipt_status.startsWith('rejected:')) return src.receipt_status;
+  const ob = svc<SopService>('sop').outboxByRun(runId) as { status?: string } | undefined;
+  if (ob?.status === 'sent') return 'sent';
+  if (ob?.status === 'dead') return 'dead';
+  if (ob?.status === 'pending') return 'pending';
+  return 'none';
+}
+
+async function sopRunGetCore(id: number): Promise<{ id: number; sop_slug: string; sop_version: number; status: string; started_by: string; data: Record<string, unknown>; receipt: string }> {
+  const receipt = receiptStatusOf(id);
   const hot = await runStateLoad(id);
-  if (hot) return { id, sop_slug: hot.meta.slug, sop_version: hot.meta.version, status: hot.meta.status, started_by: hot.meta.started_by, data: hot.data };
+  if (hot) return { id, sop_slug: hot.meta.slug, sop_version: hot.meta.version, status: hot.meta.status, started_by: hot.meta.started_by, data: hot.data, receipt };
   const row = sopRunRow(id);
   let data: Record<string, unknown> = {};
   try { data = JSON.parse(row.data || '{}'); } catch { data = {}; }
   if (row.status === 'running' && redisHealthy()) {
     void runStateRestore(id, { slug: row.sop_slug, version: row.sop_version, status: row.status, started_by: row.started_by, updated_at: Date.now() }, data); // 回填热态
   }
-  return { id: row.id, sop_slug: row.sop_slug, sop_version: row.sop_version, status: row.status, started_by: row.started_by, data };
+  return { id: row.id, sop_slug: row.sop_slug, sop_version: row.sop_version, status: row.status, started_by: row.started_by, data, receipt };
 }
 
 /** 归档（热态全量沉淀 SQLite；Redis 条目 1h 平滑淘汰） */
@@ -849,8 +861,76 @@ async function sopRunFinishCore(id: number): Promise<{ ok: boolean; id: number; 
   checkpointAt.delete(id);
   let parsed: Record<string, unknown> = {};
   try { parsed = JSON.parse(data); } catch { parsed = {}; }
+  // P3 回执（network/a2a-receipt）：派单来源 + 有效 callback_url → 入 outbox（run_id 唯一幂等）
+  try {
+    const src = svc<SopService>('sop').ctxSourceByRun(id) as { task_id?: string; context_id?: string; callback_url?: string; receipt_status?: string } | undefined;
+    if (src && src.receipt_status !== 'rejected:callback-mismatch' && (src.callback_url ?? '') !== '') {
+      const payload = formatA2aReceipt(String(src.task_id ?? ''), '业务专家已完成验收', {
+        outcome: 'completed',
+        idempotencyKey: `run-${id}-finished`,
+      });
+      svc<SopService>('sop').outboxInsert({ runId: id, taskId: String(src.task_id ?? ''), contextId: String(src.context_id ?? ''), targetUrl: String(src.callback_url ?? ''), payload });
+      void deliverOutboxOnce(id);
+    }
+  } catch (e: any) { console.error('[receipt] enqueue failed:', e?.message ?? e); /* 回执失败不影响完成主流程 */ }
   return { ok: true, id, status: 'finished', steps: Object.keys(parsed).length };
 }
+
+// ---------- P3 回执 outbox worker（退避 1m/5m/15m/1h，5 次后 dead；行永不删） ----------
+const OUTBOX_BACKOFF_MS = [60_000, 300_000, 900_000, 3_600_000];
+function outboxBackoffScale(): number {
+  const v = Number(process.env.A2A_OUTBOX_BACKOFF_SCALE);
+  return Number.isFinite(v) && v > 0 ? v : 1;
+}
+async function postReceipt(targetUrl: string, row: { run_id: number; task_id: string; context_id: string; payload: string }): Promise<void> {
+  const body = {
+    team: MARKET_TEAM,
+    caller_session: MARKET_TEAM,
+    task_id: `receipt-${row.run_id}`,
+    context_id: row.context_id,
+    message: row.payload,
+  };
+  const r = await fetch(`${targetUrl.replace(/\/+$/, '')}/a2a/direct`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+}
+/** 立即试投一次（finish 触发）；失败留给 worker */
+async function deliverOutboxOnce(runId: number): Promise<void> {
+  try {
+    const row = svc<SopService>('sop').outboxByRun(runId) as { id: number; run_id: number; task_id: string; context_id: string; target_url: string; payload: string; attempts: number; status: string } | undefined;
+    if (!row || row.status !== 'pending') return;
+    await postReceipt(row.target_url, row);
+    svc<SopService>('sop').outboxMarkSent(row.id);
+  } catch (e: any) {
+    try {
+      const row = svc<SopService>('sop').outboxByRun(runId) as { id: number; attempts: number } | undefined;
+      if (row) svc<SopService>('sop').outboxMarkRetry(row.id, row.attempts + 1, new Date(Date.now() + 30_000 * outboxBackoffScale()).toISOString(), String(e?.message ?? e));
+    } catch { /* 忽略 */ }
+  }
+}
+async function outboxWorkerTick(): Promise<void> {
+  try {
+    const due = svc<SopService>('sop').outboxDue(20) as { id: number; run_id: number; task_id: string; context_id: string; target_url: string; payload: string; attempts: number }[];
+    for (const row of due) {
+      try {
+        await postReceipt(row.target_url, row);
+        svc<SopService>('sop').outboxMarkSent(row.id);
+      } catch (e: any) {
+        const attempts = row.attempts + 1;
+        if (attempts >= 5) {
+          svc<SopService>('sop').outboxMarkDead(row.id, String(e?.message ?? e));
+        } else {
+          const delay = (OUTBOX_BACKOFF_MS[Math.min(attempts - 1, OUTBOX_BACKOFF_MS.length - 1)] ?? 3_600_000) * outboxBackoffScale();
+          svc<SopService>('sop').outboxMarkRetry(row.id, attempts, new Date(Date.now() + delay).toISOString(), String(e?.message ?? e));
+        }
+      }
+    }
+  } catch { /* worker 单轮失败不致命 */ }
+}
+const outboxTimer = setInterval(() => { void outboxWorkerTick(); }, 5_000);
+outboxTimer.unref?.();
 
 // ---------- Cookie 池（监督席派单 direct-5fbb2176：web 型外部台 cookie 认证） ----------
 interface CookieExport { name: string; value: string; domain?: string; path?: string; expirationDate?: number; httpOnly?: boolean; sameSite?: string }
@@ -1299,7 +1379,11 @@ app.post('/api/sops/:slug/bindings', (req, res) => {
   // 绑定对象是具体会话节点（dsh/<id8> 形态）或队名（队名绑定时回执广播到队——设计取舍 2 以节点为准，队名允许但提示）
   if (!/^[a-z][a-z0-9-]*\/[a-z0-9][a-z0-9_-]{0,63}$/i.test(node)) bad('node 形态：<zone>/<id8>，如 dsh/1a2b3c4d');
   const remoteKey = typeof b.remote_api_key === 'string' ? b.remote_api_key.trim() : '';
-  const r = svc<SopService>('sop').bindingCreate(a.slug, node, mode, remoteKey, 'admin') as unknown as { lastInsertRowid: number | bigint };
+  // P3：回执地址由人写在绑定上（评审席裁定：派单请求体自报的 callback 一律不用于投递）
+  const callbackUrlRaw = typeof b.callback_url === 'string' ? b.callback_url.trim() : '';
+  if (callbackUrlRaw !== '' && !/^https?:\/\/[^\s]+$/.test(callbackUrlRaw)) bad('callback_url 必须是 http(s):// 根地址');
+  const callbackUrl = mode === 'read' ? '' : callbackUrlRaw.replace(/\/+$/, '');
+  const r = svc<SopService>('sop').bindingCreateFull(a.slug, node, mode, remoteKey, callbackUrl, 'admin') as unknown as { lastInsertRowid: number | bigint };
   sopNode8(a.slug); // 确保节点短 id 已生成（上卡用）
   res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), node, mode, remote_api_key: maskKey(remoteKey) });
 });
@@ -1346,6 +1430,16 @@ app.post('/a2a/direct', express.json({ limit: '600kb' }), (req, res) => {
     },
     ctxRegister: (contextId: string, runId: number): void => {
       svc<SopService>('sop').ctxRegister(contextId, runId);
+    },
+    ctxRegisterSource: (r: { contextId: string; runId: number; taskId: string; caller: string; team: string; receiptStatus: string }): void => {
+      svc<SopService>('sop').ctxRegisterSource(r);
+    },
+    bindingCallback: (slug: string, caller: string): string => {
+      const b = svc<SopService>('sop').bindingByNodeFull(slug, caller) as { callback_url?: string } | undefined;
+      return b?.callback_url ?? '';
+    },
+    ctxAttachCallback: (runId: number, callbackUrl: string): void => {
+      svc<SopService>('sop').ctxSetCallback(runId, callbackUrl);
     },
   };
   try {
