@@ -771,7 +771,12 @@ with sync_playwright() as p:
                       cwd=_os4.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
         assert ck.returncode == 0, f'cookie-smoke 失败:\n{ck.stdout[-500:]}\n{ck.stderr[-300:]}'
         assert '11 通过' in ck.stdout, f'cookie-smoke 计数异常: {ck.stdout[-200:]}'
-        record('MCP 生产通道（协议面 + 15 tools + 网关 P1 冒烟 + 管理页 + Cookie 池）', True)
+        # C9: 自产台数据提交面（派单 direct-22838fab）——独立实例冒烟
+        ad = _sp3.run(['node', 'scripts/appdata-smoke.mjs'], capture_output=True, text=True, timeout=120,
+                      cwd=_os4.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
+        assert ad.returncode == 0, f'appdata-smoke 失败:\n{ad.stdout[-500:]}\n{ad.stderr[-300:]}'
+        assert '8 通过' in ad.stdout, f'appdata-smoke 计数异常: {ad.stdout[-200:]}'
+        record('MCP 生产通道（协议面 + 15 tools + 网关 P1 + 管理页 + Cookie 池 + 数据面）', True)
     except Exception as e:
         record('MCP 生产通道', False, str(e)); shot('mcp')
 
@@ -897,7 +902,7 @@ with sync_playwright() as p:
         import os as _os
         with open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'README.md'), encoding='utf-8') as _f:
             readme = _f.read()
-        assert 'v30' in readme and '136 条判据' in readme, 'README 验证器节未同步 v29/133'
+        assert 'v30' in readme and '138 条判据' in readme, 'README 验证器节未同步 v29/133'
         assert '内置 9 种' in readme, 'README 类型数未同步 9'
         assert 'Sops' in readme, 'README 目录缺 Sops 页'
         assert '≥25' in readme or '25 组' in readme, 'README E2E 组数未同步'
