@@ -3215,9 +3215,9 @@
       }
     },
     {
-      "source_clause": "判据102：README.md 必须包含验证器判据数锚「141 条判据」。",
+      "source_clause": "判据102：README.md 必须包含验证器判据数锚「142 条判据」。",
       "anchor": {
-        "quote": "判据102：README.md 必须包含验证器判据数锚「141 条判据」。",
+        "quote": "判据102：README.md 必须包含验证器判据数锚「142 条判据」。",
         "locator": "dev-verifier-v4.md 判据1"
       },
       "title": "README 版本一致钉位",
@@ -3240,7 +3240,7 @@
               {
                 "col": "needle",
                 "op": "=",
-                "value": "141 条判据"
+                "value": "142 条判据"
               },
               {
                 "col": "present",
@@ -4762,6 +4762,45 @@
                 "col": "needle",
                 "op": "=",
                 "value": "50MB 上限 → 413"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据142：server/src/index.ts 必须包含远程白名单前缀「REMOTE_ALLOW_PREFIX」。",
+      "anchor": {
+        "quote": "判据142：server/src/index.ts 必须包含远程白名单前缀「REMOTE_ALLOW_PREFIX」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "远程数据面白名单钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/index.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "REMOTE_ALLOW_PREFIX"
               },
               {
                 "col": "present",
