@@ -210,12 +210,12 @@ function workbenchUpdateCore(id: number, body: any): ReturnType<typeof rowToWork
     enabled: merged.enabled, health_path: merged.health_path, sort: merged.sort,
     auth_config: merged.auth_config ?? '', cookie_set_id: (merged as any).cookie_set_id ?? 0, id,
   });
-  const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(id) as unknown as WorkbenchRow;
+  const row = svc<WorkbenchService>('workbench').byId(id) as unknown as WorkbenchRow;
   return rowToWorkbench(row);
 }
 
 function workbenchDeleteCore(id: number): { ok: boolean; deleted: number } {
-  const r = db.prepare('DELETE FROM workbenches WHERE id = ?').run(id);
+  const r = svc<WorkbenchService>('workbench').delete(id);
   if (!r.changes) throw new HttpError(404, `workbench not found: ${id}`);
   // issue #9：删除工作台同步清掉各驾驶舱对它的面板引用——否则悬空面板会让之后每次保存布局 400
   const cocks = svc<CockpitService>('cockpit').all() as unknown as CockpitRow[];
@@ -224,7 +224,7 @@ function workbenchDeleteCore(id: number): { ok: boolean; deleted: number } {
     try { panels = JSON.parse(c.layout_config || '[]'); } catch { continue; }
     const kept = panels.filter((p) => p.workbenchId !== id);
     if (kept.length !== panels.length) {
-      db.prepare(`UPDATE cockpits SET layout_config = ?, updated_at = datetime('now') WHERE id = ?`).run(JSON.stringify(kept), c.id);
+      svc<CockpitService>('cockpit').setLayout(c.id, JSON.stringify(kept));
     }
   }
   return { ok: true, deleted: id };
@@ -261,7 +261,7 @@ async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkben
     db.prepare(
       `UPDATE workbenches SET last_status='up', last_checked_at=datetime('now'), last_latency_ms=0, last_http_code=200, last_error='' WHERE id=?`
     ).run(w.id);
-    const selfRow = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(w.id) as unknown as WorkbenchRow;
+    const selfRow = svc<WorkbenchService>('workbench').byId(w.id) as unknown as WorkbenchRow;
     return rowToWorkbench(selfRow);
   }
   const t = typeOf(w.type);
@@ -274,7 +274,7 @@ async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkben
     const reason = String(e?.message ?? e);
     db.prepare(`UPDATE workbenches SET last_status='down', last_checked_at=datetime('now'),
       last_latency_ms=NULL, last_http_code=NULL, last_error=? WHERE id=?`).run(reason, w.id);
-    const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(w.id) as unknown as WorkbenchRow;
+    const row = svc<WorkbenchService>('workbench').byId(w.id) as unknown as WorkbenchRow;
     return rowToWorkbench(row);
   }
   // probe 内部 assertHttpUrl 在 try 外（残缺 URL 如 http:// 会在断言处抛）——再兜一层，
@@ -290,14 +290,14 @@ async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkben
     const reason = String(e?.message ?? e);
     db.prepare(`UPDATE workbenches SET last_status='down', last_checked_at=datetime('now'),
       last_latency_ms=NULL, last_http_code=NULL, last_error=? WHERE id=?`).run(`探测失败：${reason}`, w.id);
-    const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(w.id) as unknown as WorkbenchRow;
+    const row = svc<WorkbenchService>('workbench').byId(w.id) as unknown as WorkbenchRow;
     return rowToWorkbench(row);
   }
   db.prepare(
     `UPDATE workbenches SET last_status=@status, last_checked_at=datetime('now'),
      last_latency_ms=@latency, last_http_code=@code, last_error=@error WHERE id=@id`
   ).run({ status: result.status, latency: result.latency_ms, code: result.http_code, error: result.error, id: w.id });
-  const row = db.prepare('SELECT * FROM workbenches WHERE id = ?').get(w.id) as unknown as WorkbenchRow;
+  const row = svc<WorkbenchService>('workbench').byId(w.id) as unknown as WorkbenchRow;
   return rowToWorkbench(row);
 }
 
@@ -335,7 +335,7 @@ function validatePanels(raw: unknown): PanelConfig[] {
     if (!Number.isInteger(workbenchId) || workbenchId < 1) bad(`面板 workbenchId 非法: ${JSON.stringify(p)}`);
     if (seen.has(workbenchId)) bad(`面板重复引用工作台 ${workbenchId}`);
     seen.add(workbenchId);
-    if (!db.prepare('SELECT id FROM workbenches WHERE id = ?').get(workbenchId)) bad(`面板引用的工作台不存在: ${workbenchId}`);
+    if (!svc<WorkbenchService>('workbench').idById(workbenchId)) bad(`面板引用的工作台不存在: ${workbenchId}`);
     const w = Math.min(12, Math.max(1, Number(p?.w) || 6));
     const h = Math.min(40, Math.max(4, Number(p?.h) || 10));
     return {
@@ -450,7 +450,7 @@ function syncWorkbenchRegistration(a: AppRow): number {
   const url = a.kind === 'sop' ? `/sop/${a.slug}/` : `/apps/${a.slug}/`;
   const icon = a.kind === 'sop' ? '📋' : '🧩';
   const category = a.kind === 'sop' ? 'SOP 台' : '自产台';
-  const cur = db.prepare('SELECT id FROM workbenches WHERE url = ?').get(url) as { id: number } | undefined;
+  const cur = svc<WorkbenchService>('workbench').idByUrl(url) as { id: number } | undefined;
   if (cur) {
     db.prepare(`UPDATE workbenches SET name = ?, description = ?, updated_at = datetime('now') WHERE id = ?`).run(a.title, a.description, cur.id);
     return cur.id;
@@ -545,10 +545,8 @@ function publishAppBody(b: any): { status: number; body: object } {
     const maxV = svc<AppService>('app').versionsMax(existing.id) as { v: number | null };
     version = (maxV.v ?? 0) + 1;
     const st = writeAppFiles(slug, version, files);
-    db.prepare(`UPDATE apps SET title = ?, description = ?, created_by = ?, code = ?, active_version = ?, updated_at = datetime('now') WHERE id = ?`)
-      .run(title, description, created_by, code, version, existing.id);
-    db.prepare(`INSERT INTO app_versions (app_id, version, file_count, total_bytes, created_by, changelog) VALUES (?, ?, ?, ?, ?, ?)`)
-      .run(existing.id, version, st.file_count, st.total_bytes, created_by, changelog);
+    svc<AppService>('app').updatePublish(existing.id, title, description, created_by, code, version);
+    svc<AppService>('app').versionInsert(existing.id, version, st.file_count, st.total_bytes, created_by, changelog);
     appRow = getApp(slug);
   } else {
     if (typeof b.title !== 'string' || !b.title.trim()) bad('首次发布必须提供 title');
@@ -558,8 +556,7 @@ function publishAppBody(b: any): { status: number; body: object } {
     const r = db
       .prepare(`INSERT INTO apps (slug, title, description, created_by, active_version, kind, code, status) VALUES (?, ?, ?, ?, 1, ?, ?, ?)`)
       .run(slug, b.title.trim(), String(b.description ?? ''), created_by, kind, code, kind === 'sop' ? 'draft' : 'active') as unknown as { lastInsertRowid: number | bigint };
-    db.prepare(`INSERT INTO app_versions (app_id, version, file_count, total_bytes, created_by, changelog) VALUES (?, 1, ?, ?, ?, ?)`)
-      .run(Number(r.lastInsertRowid), st.file_count, st.total_bytes, created_by, changelog);
+    svc<AppService>('app').versionInsertFirst(Number(r.lastInsertRowid), st.file_count, st.total_bytes, created_by, changelog);
     version = 1;
     appRow = getApp(slug);
   }
@@ -584,7 +581,7 @@ function activateAppVersion(slug: string, vRaw: unknown): object {
   if (!Number.isInteger(v) || v < 1) bad('version 必须是正整数');
   const hit = svc<AppService>('app').versionExists(a.id, v) as { version: number } | undefined;
   if (!hit) throw new HttpError(404, `版本不存在: ${v}`);
-  db.prepare(`UPDATE apps SET active_version = ?, updated_at = datetime('now') WHERE id = ?`).run(v, a.id);
+  svc<AppService>('app').setActiveVersion(a.id, v);
   return appDetail(getApp(a.slug));
 }
 
@@ -603,7 +600,7 @@ app.delete('/api/apps/:slug', (req, res) => {
   for (const f of files) { try { rmSync(join(dataDir, f.storage_path), { force: true }); } catch { /* 已删 */ } }
   svc<AppDataService>('appData').filesDelete(a.slug);
   // issue #6：SOP 台的注册 url 是 /sop/<slug>/（非 /apps/），删除时必须一并清理，否则留孤儿工作台（门户 404）
-  db.prepare(`DELETE FROM workbenches WHERE (url = ? OR url = ?) AND type = 'market-app'`).run(`/apps/${a.slug}/`, `/sop/${a.slug}/`);
+  svc<WorkbenchService>('workbench').deleteByAppUrls(`/apps/${a.slug}/`, `/sop/${a.slug}/`);
   res.json({ ok: true, deleted: a.slug });
 });
 
@@ -748,12 +745,12 @@ function sopTransition(slug: string, from: string[], to: string, label: string):
   const a = getApp(slug);
   if (a.kind !== 'sop') throw new HttpError(400, `${slug} 不是 SOP 台`);
   if (!from.includes(a.status)) throw new HttpError(409, `状态机拒绝：当前 ${a.status}，${label} 仅允许 ${from.join('/')}`);
-  db.prepare(`UPDATE apps SET status = ?, updated_at = datetime('now') WHERE id = ?`).run(to, a.id);
+  svc<AppService>('app').setStatus(a.id, to);
   const updated = getApp(slug);
   if (to === 'published') {
     syncWorkbenchRegistration(updated); // 发布即入册（门户/市场/驾驶舱全链可见）
     // issue #10：废弃→重新上架时市场行仍是停用态（enabled=0），上架必须恢复启用
-    db.prepare(`UPDATE workbenches SET enabled = 1, updated_at = datetime('now') WHERE url = ? AND type = 'market-app'`).run(`/sop/${updated.slug}/`);
+    svc<WorkbenchService>('workbench').setEnabledByUrl(1, `/sop/${updated.slug}/`);
   }
   return updated;
 }
@@ -762,8 +759,7 @@ app.post('/api/sops/:slug/publish', (req, res) => {
   const a = sopTransition(req.params.slug, ['draft', 'deprecated'], 'published', '发布');
   // publish 附带发布说明（可选）记入当前版本 changelog 末尾
   if (typeof req.body?.note === 'string' && req.body.note.trim()) {
-    db.prepare(`UPDATE app_versions SET changelog = changelog || ? WHERE app_id = ? AND version = ?`)
-      .run(`\n[publish] ${req.body.note.trim()}`, a.id, a.active_version);
+    svc<AppService>('app').appendChangelog(a.id, a.active_version, `\n[publish] ${req.body.note.trim()}`);
   }
   res.json(appDetail(getApp(a.slug)));
 });
@@ -771,7 +767,7 @@ app.post('/api/sops/:slug/publish', (req, res) => {
 app.post('/api/sops/:slug/deprecate', (req, res) => {
   const a = sopTransition(req.params.slug, ['published'], 'deprecated', '废弃');
   // 废弃不入册删除：历史 run 仍可回放；市场行禁用（enabled=0）
-  db.prepare(`UPDATE workbenches SET enabled = 0, updated_at = datetime('now') WHERE url = ? AND type = 'market-app'`).run(`/sop/${a.slug}/`);
+  svc<WorkbenchService>('workbench').setEnabledByUrl(0, `/sop/${a.slug}/`);
   res.json(appDetail(getApp(a.slug)));
 });
 
@@ -1028,7 +1024,7 @@ async function sopRunStepSaveCore(id: number, stepKeyRaw: string, value: unknown
       const hot = await runStateLoad(id);
       if (hot) source = JSON.stringify(hot.data);
     }
-    db.prepare(`UPDATE sop_runs SET data = ?, updated_at = datetime('now') WHERE id = ?`).run(source, id);
+    svc<SopService>('sop').runUpdateData(id, source);
     checkpointAt.set(id, now);
   }
   return { ok: true, id, stepKey, persisted: hotOk ? 'redis+checkpoint' : 'sqlite' };
@@ -1054,7 +1050,7 @@ async function sopRunFinishCore(id: number): Promise<{ ok: boolean; id: number; 
   let data = row.data || '{}';
   const hot = await runStateLoad(id);
   if (hot && Object.keys(hot.data).length > 0) data = JSON.stringify(hot.data);
-  db.prepare(`UPDATE sop_runs SET status = 'finished', data = ?, finished_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(data, id);
+  svc<SopService>('sop').runFinish(id, data);
   await runStateRetire(id); // 退出活跃索引 + Redis 条目 1h 平滑淘汰
   checkpointAt.delete(id);
   let parsed: Record<string, unknown> = {};
@@ -1124,7 +1120,7 @@ app.delete('/api/cookies/:id', (req, res) => {
   const r = svc<CookieService>('cookie').delete(id);
   if (!r.changes) throw new HttpError(404, `cookie set not found: ${id}`);
   // 挂接了该池的台自动取消引用
-  db.prepare('UPDATE workbenches SET cookie_set_id = 0 WHERE cookie_set_id = ?').run(id);
+  svc<WorkbenchService>('workbench').clearCookieSet(id);
   res.json({ ok: true, deleted: id });
 });
 
@@ -1142,7 +1138,7 @@ app.get('/api/sop/runs/active', async (_req, res) => {
     const rows = ids.map((id) => svc<SopService>('sop').runByIdRunning(id) as unknown as SopRunRow | undefined).filter(Boolean) as SopRunRow[];
     return res.json(rows);
   }
-  const rows = db.prepare("SELECT * FROM sop_runs WHERE status = 'running' ORDER BY updated_at DESC").all() as unknown as SopRunRow[];
+  const rows = svc<SopService>('sop').runsRunning() as unknown as SopRunRow[];
   res.json(rows);
 });
 
@@ -1227,7 +1223,7 @@ app.get('/api/summary', (_req, res) => {
 
 // ---------- 类型管理 ----------
 app.get('/api/types', (_req, res) => {
-  res.json(db.prepare('SELECT * FROM types ORDER BY id ASC').all());
+  res.json(svc<WorkbenchService>('workbench').types());
 });
 
 app.post('/api/types', (req, res) => {
@@ -1235,7 +1231,7 @@ app.post('/api/types', (req, res) => {
   if (typeof b.key !== 'string' || !/^[a-z0-9][a-z0-9-]*$/.test(b.key)) bad('key 必须是小写字母/数字/连字符');
   if (typeof b.name !== 'string' || !b.name.trim()) bad('name 不能为空');
   if (b.key === 'web') bad('内置类型 web 不允许覆盖');
-  const exists = db.prepare('SELECT id FROM types WHERE key = ?').get(b.key);
+  const exists = svc<WorkbenchService>('workbench').typeIdByKey(b.key);
   if (exists) bad(`类型已存在: ${b.key}`);
   const r = db.prepare(
     `INSERT INTO types (key, name, icon, default_port, health_method, health_path, expect_status, description)
@@ -1245,12 +1241,12 @@ app.post('/api/types', (req, res) => {
     b.health_method === 'HEAD' ? 'HEAD' : 'GET',
     String(b.health_path ?? '/'), b.expect_status == null ? null : Number(b.expect_status), String(b.description ?? '')
   );
-  res.status(201).json(db.prepare('SELECT * FROM types WHERE id = ?').get(Number(r.lastInsertRowid)));
+  res.status(201).json(svc<WorkbenchService>('workbench').typeById(Number(r.lastInsertRowid)));
 });
 
 app.put('/api/types/:id', (req, res) => {
   const id = Number(req.params.id);
-  const cur = db.prepare('SELECT * FROM types WHERE id = ?').get(id) as unknown as TypeRow | undefined;
+  const cur = svc<WorkbenchService>('workbench').typeById(id) as unknown as TypeRow | undefined;
   if (!cur) throw new HttpError(404, `type not found: ${id}`);
   const b = req.body ?? {};
   const next = {
@@ -1269,17 +1265,17 @@ app.put('/api/types/:id', (req, res) => {
     `UPDATE types SET name=@name, icon=@icon, default_port=@default_port, health_method=@health_method,
      health_path=@health_path, expect_status=@expect_status, description=@description WHERE id=@id`
   ).run({ ...next, id });
-  res.json(db.prepare('SELECT * FROM types WHERE id = ?').get(id));
+  res.json(svc<WorkbenchService>('workbench').typeById(id));
 });
 
 app.delete('/api/types/:id', (req, res) => {
   const id = Number(req.params.id);
-  const cur = db.prepare('SELECT * FROM types WHERE id = ?').get(id) as unknown as TypeRow | undefined;
+  const cur = svc<WorkbenchService>('workbench').typeById(id) as unknown as TypeRow | undefined;
   if (!cur) throw new HttpError(404, `type not found: ${id}`);
   if (cur.key === 'web' || cur.key === 'market-app') bad(`内置类型 ${cur.key} 不允许删除`);
-  const used = db.prepare('SELECT COUNT(*) AS n FROM workbenches WHERE type = ?').get(cur.key) as { n: number };
+  const used = svc<WorkbenchService>('workbench').typeUsageCount(cur.key) as { n: number };
   if (used.n > 0) throw new HttpError(409, `类型 ${cur.key} 仍被 ${used.n} 个工作台使用，先改挂其他类型`);
-  db.prepare('DELETE FROM types WHERE id = ?').run(id);
+  svc<WorkbenchService>('workbench').typeDelete(id);
   res.json({ ok: true, deleted: id });
 });
 
@@ -1347,7 +1343,7 @@ app.put('/api/settings', (req, res) => {
   const b = req.body ?? {};
   if (typeof b !== 'object' || b === null) bad('body 必须是 {key: value} 对象');
   const allowed = ['health_interval_seconds', 'health_timeout_ms', 'health_concurrency', 'a2a_peers', 'mcp_upstreams'];
-  const upd = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
+  const upd = svc<SettingService>('setting').upsertStmt();
   for (const [k, v] of Object.entries(b)) {
     if (!allowed.includes(k)) continue;
     upd.run(k, String(v));
@@ -1366,7 +1362,7 @@ app.get('/api/export', (req, res) => {
     exported_at: new Date().toISOString(),
     masked: reveal ? 0 : 1,
     workbenches: listWorkbenches().map((w) => (reveal ? w : maskForApi(w))),
-    types: db.prepare('SELECT * FROM types ORDER BY id ASC').all(),
+    types: svc<WorkbenchService>('workbench').types(),
     // 评审 #24：上游 MCP 凭据（headers）与 auth.value 同口径——掩码导出不会带真凭据，
     // 导入侧亦不覆盖 mcp_upstreams（掩码值跳过），凭据需在页面重填。
     settings: maskUpstreamsSetting(getSettings()),
@@ -1380,7 +1376,7 @@ app.post('/api/import', (req, res) => {
   const modeRaw = (typeof req.query.mode === 'string' ? req.query.mode : b.mode) ?? 'merge';
   const mode = modeRaw === 'replace' ? 'replace' : 'merge';
   if (mode === 'replace') {
-    db.prepare('DELETE FROM workbenches').run();
+    svc<WorkbenchService>('workbench').deleteAll();
     db.prepare('DELETE FROM types WHERE key != ?').run('web');
   }
   const insType = db.prepare(
@@ -1426,7 +1422,7 @@ app.post('/api/import', (req, res) => {
       try { panels = JSON.parse(c.layout_config || '[]'); } catch { continue; }
       const kept = panels.filter((p) => exists.get(p.workbenchId));
       if (kept.length !== panels.length) {
-        db.prepare(`UPDATE cockpits SET layout_config = ?, updated_at = datetime('now') WHERE id = ?`).run(JSON.stringify(kept), c.id);
+        svc<CockpitService>('cockpit').setLayout(c.id, JSON.stringify(kept));
       }
     }
   }
@@ -1449,7 +1445,7 @@ app.get('/.well-known/agent-card.json', (_req, res) => {
 // 优先级 env ADMIN_TOKEN > 库内值 > 无（未设一律 403）。DB 仅存 sha256，明文不落库。
 const ADMIN_TOKEN_KEY = 'admin_token_sha256';
 function dbAdminTokenSet(): boolean {
-  return !!db.prepare('SELECT 1 FROM settings WHERE key = ?').get(ADMIN_TOKEN_KEY);
+  return !!svc<SettingService>('setting').has(ADMIN_TOKEN_KEY);
 }
 // 口令哈希（评审 #27）：新值一律**加盐**——`<salt32hex>$<sha256(salt+token)64hex>`。
 // 旧值（无 `$`，单轮无盐 sha256）保持可验证，下次设置口令时自动升级为加盐格式。
@@ -1458,7 +1454,7 @@ function hashAdminToken(token: string, salt?: string): string {
   return `${s}$${createHash('sha256').update(s + token, 'utf8').digest('hex')}`;
 }
 function dbAdminTokenOk(provided: string | undefined): boolean {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(ADMIN_TOKEN_KEY) as { value: string } | undefined;
+  const row = svc<SettingService>('setting').get(ADMIN_TOKEN_KEY) as { value: string } | undefined;
   if (!row) return false;
   const stored = String(row.value);
   const got = stored.includes('$')
@@ -1503,7 +1499,7 @@ app.get('/api/sops/:slug/bindings', (req, res) => {
   if (!adminGuard(req, res)) return;
   const a = getApp(req.params.slug);
   if (a.kind !== 'sop') throw new HttpError(400, `${a.slug} 不是 SOP 台`);
-  const rows = db.prepare('SELECT * FROM sop_bindings WHERE sop_slug = ? ORDER BY id DESC').all(a.slug) as unknown as {
+  const rows = svc<SopService>('sop').bindings(a.slug) as unknown as {
     id: number; sop_slug: string; node: string; mode: string; remote_api_key: string; revoked_at: string; created_by: string; created_at: string;
   }[];
   // remote_api_key 与工作台凭据同规：列表/详情一律掩码，不进 MCP、不进导出
@@ -1520,8 +1516,7 @@ app.post('/api/sops/:slug/bindings', (req, res) => {
   // 绑定对象是具体会话节点（dsh/<id8> 形态）或队名（队名绑定时回执广播到队——设计取舍 2 以节点为准，队名允许但提示）
   if (!/^[a-z][a-z0-9-]*\/[a-z0-9][a-z0-9_-]{0,63}$/i.test(node)) bad('node 形态：<zone>/<id8>，如 dsh/1a2b3c4d');
   const remoteKey = typeof b.remote_api_key === 'string' ? b.remote_api_key.trim() : '';
-  const r = db.prepare('INSERT INTO sop_bindings (sop_slug, node, mode, remote_api_key, created_by) VALUES (?, ?, ?, ?, ?)')
-    .run(a.slug, node, mode, remoteKey, 'admin') as unknown as { lastInsertRowid: number | bigint };
+  const r = svc<SopService>('sop').bindingCreate(a.slug, node, mode, remoteKey, 'admin') as unknown as { lastInsertRowid: number | bigint };
   sopNode8(a.slug); // 确保节点短 id 已生成（上卡用）
   res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), node, mode, remote_api_key: maskKey(remoteKey) });
 });
@@ -1530,10 +1525,10 @@ app.delete('/api/sops/:slug/bindings/:id', (req, res) => {
   if (!adminGuard(req, res)) return;
   const a = getApp(req.params.slug);
   const id = Number(req.params.id);
-  const hit = db.prepare('SELECT id FROM sop_bindings WHERE id = ? AND sop_slug = ?').get(id, a.slug) as { id: number } | undefined;
+  const hit = svc<SopService>('sop').bindingExists(id, a.slug) as { id: number } | undefined;
   if (!hit) throw new HttpError(404, `binding not found: ${id}`);
   // 软撤销（留审计）：卡片即下线该 SOP（若无其他有效绑定）
-  db.prepare(`UPDATE sop_bindings SET revoked_at = datetime('now') WHERE id = ?`).run(id);
+  svc<SopService>('sop').bindingRevoke(id);
   res.json({ ok: true, revoked: id });
 });
 
@@ -1553,10 +1548,10 @@ app.post('/a2a/direct', express.json({ limit: '600kb' }), (req, res) => {
       const notes = Array.isArray(data['a2a-notes']) ? (data['a2a-notes'] as unknown[]) : [];
       notes.push({ at: new Date().toISOString(), text });
       data['a2a-notes'] = notes;
-      db.prepare(`UPDATE sop_runs SET data = ?, updated_at = datetime('now') WHERE id = ?`).run(JSON.stringify(data), runId);
+      svc<SopService>('sop').runUpdateData(runId, JSON.stringify(data));
     },
     statusOf: (runId: number): { status: string; steps: number } | null => {
-      const row = db.prepare('SELECT status, data FROM sop_runs WHERE id = ?').get(runId) as { status: string; data: string } | undefined;
+      const row = svc<SopService>('sop').runStatusData(runId) as { status: string; data: string } | undefined;
       if (!row) return null;
       let n = 0;
       try { n = Object.keys(JSON.parse(row.data || '{}')).length; } catch { n = 0; }
@@ -1789,8 +1784,7 @@ async function callTool(name: string, args: any): Promise<unknown> {
     case 'sop_publish': {
       const a = sopTransition(String(args?.slug), ['draft', 'deprecated'], 'published', '发布');
       if (typeof args?.note === 'string' && args.note.trim()) {
-        db.prepare(`UPDATE app_versions SET changelog = changelog || ? WHERE app_id = ? AND version = ?`)
-          .run(`\n[publish] ${args.note.trim()}`, a.id, a.active_version);
+        svc<AppService>('app').appendChangelog(a.id, a.active_version, `\n[publish] ${args.note.trim()}`);
       }
       const d = appDetail(getApp(a.slug)) as { slug: string; status: string; workbench_id: number | null };
       return { ok: true, slug: d.slug, status: d.status, runner_url: `/sop/${a.slug}/`, workbench_id: d.workbench_id };
@@ -1952,7 +1946,7 @@ app.put('/api/mcp/upstreams', (req, res) => {
     if (u.headers !== undefined && (typeof u.headers !== 'object' || u.headers === null || Object.values(u.headers).some((v) => typeof v !== 'string'))) bad(`上游 ${u.prefix} 的 headers 必须是字符串映射`);
     clean.push({ prefix: u.prefix, url: u.url, headers: u.headers ?? {}, enabled: u.enabled !== false, toolCallTimeoutMs: Number(u.toolCallTimeoutMs) || 15000 });
   }
-  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('mcp_upstreams', JSON.stringify(clean));
+  svc<SettingService>('setting').upsertStmt().run('mcp_upstreams', JSON.stringify(clean));
   upstreamToolCache.clear();
   res.json({ ok: true, upstreams: clean.map((u) => ({ prefix: u.prefix, url: u.url, enabled: u.enabled !== false })) });
 });
@@ -2364,8 +2358,8 @@ function armPatrol(): void {
   timer.unref?.();
 }
 armPatrol();
-const dbWriteSettings = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
-dbWriteSettings.run('patrol_armed_at', new Date().toISOString());
+// 模块级只做 DB 直写（服务容器异步挂载，不能在模块初始化期取服务）
+db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('patrol_armed_at', new Date().toISOString());
 
 const PORT = Number(process.env.PORT) || 9800;
 // ---------- A2A 出站（#17 P4 最小面）：市场作为客户端向对端派单/发消息 ----------

@@ -13,6 +13,12 @@ export class CockpitService extends Service {
   byId(id: number) {
     return db.prepare('SELECT * FROM cockpits WHERE id = ?').get(id);
   }
+  setLayout(id: number, layoutJson: string) {
+    return db.prepare(`UPDATE cockpits SET layout_config = ?, updated_at = datetime('now') WHERE id = ?`).run(layoutJson, id);
+  }
+  update(id: number, name: string, description: string, layoutJson: string) {
+    return db.prepare(`UPDATE cockpits SET name = ?, description = ?, layout_config = ?, updated_at = datetime('now') WHERE id = ?`).run(name, description, layoutJson, id);
+  }
   list() {
     return db.prepare('SELECT * FROM cockpits ORDER BY updated_at DESC, id DESC').all();
   }
