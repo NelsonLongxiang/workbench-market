@@ -313,6 +313,12 @@ function validatePanels(raw: unknown): PanelConfig[] {
   if (!Array.isArray(raw)) bad('layout_config 必须是面板数组');
   const seen = new Set<number>();
   return raw.map((p: any) => {
+    // 统一待办卡（omni-inbox）：kind='tasks'，workbenchId=0 占位，不引用工作台
+    if (p?.kind === 'tasks' && String(p?.i ?? '') === 'tasks') {
+      const tw = Math.min(12, Math.max(3, Number(p?.w) || 6));
+      const th = Math.min(40, Math.max(6, Number(p?.h) || 12));
+      return { i: 'tasks', workbenchId: 0, kind: 'tasks' as const, x: Math.min(12 - tw, Math.max(0, Number(p?.x) || 0)), y: Math.max(0, Number(p?.y) || 0), w: tw, h: th };
+    }
     const workbenchId = Number(p?.workbenchId ?? Number(String(p?.i ?? '').replace('wb-', '')));
     if (!Number.isInteger(workbenchId) || workbenchId < 1) bad(`面板 workbenchId 非法: ${JSON.stringify(p)}`);
     if (seen.has(workbenchId)) bad(`面板重复引用工作台 ${workbenchId}`);
@@ -1076,6 +1082,12 @@ app.get('/api/sop/runs/active', wrap(async (_req, res) => {
   res.json(rows);
 }));
 
+// ---------- 统一待办（omni-inbox · 总工程师设计 9c5557c1c0）：只读聚合 ----------
+app.get('/api/tasks', wrap(async (_req, res) => {
+  const payload = await collectTasks(svc<SopService>('sop') as never);
+  res.json(payload);
+}));
+
 app.get('/api/sop/runs', (req, res) => {
   // P4（F7）：待验收列表 = running 且有派单来源（a2a_run_ctx 有 callback/task_id），不含人自己开的
   if (req.query.dispatched === '1') {
@@ -1529,6 +1541,7 @@ const wbById = (id: number): ReturnType<typeof rowToWorkbench> | null => {
 import { MCP_TOOLS } from './mcp-tools.ts';
 
 import { renderSopRunner } from './sop-runner.ts';
+import { collectTasks } from './tasks.ts';
 
 // ---------- MCP 生产通道（StreamableHTTP · stateless：AI 会话直连市场，零依赖手写 JSON-RPC） ----------
 const MCP_PROTOCOL = '2025-03-26';
