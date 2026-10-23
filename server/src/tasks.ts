@@ -14,7 +14,7 @@ import { execFile } from 'node:child_process';
 
 export interface TaskEnvelope {
   id: string;
-  source: 'ygl-trees' | 'market';
+  source: 'ygl-trees' | 'market' | 'a2a';
   title: string;
   status: 'todo' | 'doing' | 'done';
   due: string | null;
@@ -25,7 +25,8 @@ export interface TaskEnvelope {
 export interface SourceMeta { ok: boolean; count: number; latency_ms: number }
 export interface TasksPayload {
   tasks: TaskEnvelope[];
-  sources: { 'ygl-trees': SourceMeta; market: SourceMeta };
+  /** a2a 键仅在 A2A_STATE_URL 已配置（源启用）时出现——未配置=源缺席≠降级（总工程师三裁①） */
+  sources: { 'ygl-trees': SourceMeta; market: SourceMeta; a2a?: SourceMeta };
   generated_at: string;
 }
 
@@ -87,16 +88,82 @@ function marketTasks(sop: SopServiceLike): TaskEnvelope[] {
   }
 }
 
+/** A2A 源（omni-inbox v2 · 设计稿 docs/omni-inbox-a2a-source.md，依赖 dsh-open-a2a-net PR#32）。
+ *  鉴权：X-API-Key（不是 X-Market-Client 头族）；字段校准点集中在下方 FIELD 注释，#32 合并后核对。 */
+function a2aEnabled(): boolean {
+  return String(process.env.A2A_STATE_URL ?? '').trim() !== '';
+}
+
+interface A2aStateRow {
+  taskId?: string; team?: string; peer?: string; direction?: string;
+  startedAt?: string; resolvedAt?: string; endedBy?: string; outcome?: string;
+  brief?: string;
+}
+
+async function fetchA2aTasks(): Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs: number }> {
+  const base = String(process.env.A2A_STATE_URL ?? '').trim().replace(/\/+$/, '');
+  const key = String(process.env.A2A_API_KEY ?? '').trim();
+  const t0 = Date.now();
+  try {
+    const r = await fetch(`${base}/__dsh_a2a/state`, {
+      headers: key ? { 'X-API-Key': key } : {},
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!r.ok) return { ok: false, tasks: [], latencyMs: Date.now() - t0 };
+    const j: any = await r.json();
+    // FIELD 校准点（PR#32 形状）：tasks[] 在途 / tasksRecent[] ≤20 归档（endedBy/outcome/late/brief）
+    const inFlight: A2aStateRow[] = Array.isArray(j?.tasks) ? j.tasks : [];
+    const recent: A2aStateRow[] = Array.isArray(j?.tasksRecent) ? j.tasksRecent : [];
+    const seen = new Set<string>();
+    const tasks: TaskEnvelope[] = [];
+    for (const row of inFlight) { // 在途 → doing（在途优先：竞态窗口内同 taskId 不重复）
+      const id = String(row.taskId ?? '');
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      tasks.push({
+        id: `a2a:${id}`, source: 'a2a',
+        title: row.brief ? String(row.brief) : `${String(row.team ?? '')} · ${String(row.peer ?? '')} ${id}`,
+        status: 'doing', due: null, link: null,
+        project: row.team ? String(row.team) : null,
+      });
+    }
+    for (const row of recent) { // 归档 → done（title 带 endedBy）
+      const id = String(row.taskId ?? '');
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      tasks.push({
+        id: `a2a:${id}`, source: 'a2a',
+        title: `${row.brief ?? id}${row.endedBy ? `（${row.endedBy}）` : ''}`,
+        status: 'done', due: null, link: null,
+        project: row.team ? String(row.team) : null,
+      });
+    }
+    return { ok: true, tasks, latencyMs: Date.now() - t0 };
+  } catch {
+    return { ok: false, tasks: [], latencyMs: Date.now() - t0 };
+  }
+}
+
 /** 聚合入口（30s 缓存；ygl 源 5s 超时降级 ok=false 不阻塞 market 源）。 */
 export async function collectTasks(sop: SopServiceLike): Promise<TasksPayload> {
   const now = Date.now();
   if (cache && now - cache.at < CACHE_TTL_MS) return cache.payload;
-  const [ygl, mktRows] = await Promise.all([execYglTasks(), Promise.resolve(marketTasks(sop))]);
+  const jobs: [Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs: number }>, Promise<TaskEnvelope[]>] =
+    [execYglTasks(), Promise.resolve(marketTasks(sop))];
+  const [yglSettled, mktSettled, a2aSettled] = await Promise.all([
+    jobs[0].then((v) => ({ status: 'fulfilled', value: v }), (e) => ({ status: 'rejected' as const, reason: e })),
+    jobs[1].then((v) => ({ status: 'fulfilled', value: v }), (e) => ({ status: 'rejected' as const, reason: e })),
+    a2aEnabled() ? fetchA2aTasks().then((v) => ({ status: 'fulfilled', value: v }), (e) => ({ status: 'rejected' as const, reason: e })) : Promise.resolve(null),
+  ]);
+  const ygl = yglSettled.status === 'fulfilled' ? yglSettled.value : { ok: false, tasks: [], latencyMs: 0 };
+  const mktRows = mktSettled.status === 'fulfilled' ? mktSettled.value : [];
   const payload: TasksPayload = {
-    tasks: [...ygl.tasks, ...mktRows],
+    tasks: [...ygl.tasks, ...mktRows, ...(a2aSettled?.status === 'fulfilled' ? a2aSettled.value.tasks : [])],
     sources: {
       'ygl-trees': { ok: ygl.ok, count: ygl.tasks.filter((t) => t.status !== 'done').length, latency_ms: ygl.latencyMs },
       market: { ok: true, count: mktRows.length, latency_ms: 0 },
+      // count=在途数（对账口径）；源缺席（未配置 env）时无 a2a 键——降级只发生在已启用但失败时
+      ...(a2aSettled ? { a2a: { ok: a2aSettled.status === 'fulfilled' && a2aSettled.value.ok, count: a2aSettled.status === 'fulfilled' ? a2aSettled.value.tasks.filter((t) => t.status !== 'done').length : 0, latency_ms: a2aSettled.status === 'fulfilled' ? a2aSettled.value.latencyMs : 0 } } : {}),
     },
     generated_at: new Date(now).toISOString(),
   };
