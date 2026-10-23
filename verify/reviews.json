@@ -2425,14 +2425,14 @@
       ]
     },
     {
-      "source_clause": "判据102：README.md 必须包含验证器判据数锚「136 条判据」。",
+      "source_clause": "判据102：README.md 必须包含验证器判据数锚「138 条判据」。",
       "findings": [
         {
           "question": "faithful",
           "verdict": "ok",
           "reason": "判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12——锚用判据数，比版本号锚少一次升版漂移）。",
           "anchor": {
-            "quote": "判据102：README.md 必须包含验证器判据数锚「136 条判据」。",
+            "quote": "判据102：README.md 必须包含验证器判据数锚「138 条判据」。",
             "locator": "dev-verifier-v4.md 判据1"
           }
         },
@@ -3249,6 +3249,54 @@
           "reason": "判据原文逐字取自冻结材料，独立实例 11 项：导入（name 校验）/掩码/过期信息/挂接/注入到达上游/过期过滤/取消挂接无注入/删池/全过期。",
           "anchor": {
             "quote": "判据136：scripts/cookie-smoke.mjs 必须包含行为锚「过期 cookie 被过滤」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删断言提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据137：server/src/index.ts 必须包含数据面表「app_data」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，POST /api/apps/:slug/data（JSON ≤1MB，兼容 {data:...} 与直接对象两种形态）+ GET 游标分页（倒序 before_id）；无 DELETE 留审计。",
+          "anchor": {
+            "quote": "判据137：server/src/index.ts 必须包含数据面表「app_data」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删数据面提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据138：scripts/appdata-smoke.mjs 必须包含行为锚「游标翻页」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，独立实例 8 项：写入双形态/倒序读回/has_more/limit 分页/游标翻页/未知 slug 404/1MB 拒。",
+          "anchor": {
+            "quote": "判据138：scripts/appdata-smoke.mjs 必须包含行为锚「游标翻页」。",
             "locator": "dev-verifier-v4.md 判据1"
           }
         },

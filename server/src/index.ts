@@ -587,6 +587,36 @@ app.delete('/api/apps/:slug', (req, res) => {
   res.json({ ok: true, deleted: a.slug });
 });
 
+// ---------- 自产台数据提交面（监督席派单 direct-22838fab：台不仅是看板，有交互提交数据） ----------
+// 通用通道：POST 写入 / GET 游标分页（倒序 before_id）。JSON blob 哑存储——含义在台自身。
+// 安全面：内网信任模型（同发布面口径）；台页 iframe 同源 fetch 直通。
+// 无 DELETE——提交数据留审计，误提交由应用层覆盖语义处理。
+app.post('/api/apps/:slug/data', (req, res) => {
+  const a = getApp(req.params.slug);
+  const b = req.body ?? {};
+  const data = b.data ?? b; // 兼容 {data: {...}} 或直接 {...} 两种形态
+  const json = JSON.stringify(data);
+  if (Buffer.byteLength(json, 'utf8') > 1024 * 1024) bad('data 超 1MB 上限');
+  const created_by = typeof b.created_by === 'string' ? b.created_by.trim().slice(0, 128) : '';
+  const r = db.prepare('INSERT INTO app_data (app_slug, data, created_by) VALUES (?, ?, ?)')
+    .run(a.slug, json, created_by) as unknown as { lastInsertRowid: number | bigint };
+  res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), slug: a.slug, created_at: new Date().toISOString() });
+});
+
+app.get('/api/apps/:slug/data', (req, res) => {
+  const a = getApp(req.params.slug);
+  const limit = Math.min(Number(req.query.limit) || 50, 200);
+  const beforeId = Number(req.query.before_id) || 0;
+  const rows = beforeId > 0
+    ? db.prepare('SELECT id, data, created_by, created_at FROM app_data WHERE app_slug = ? AND id < ? ORDER BY id DESC LIMIT ?').all(a.slug, beforeId, limit)
+    : db.prepare('SELECT id, data, created_by, created_at FROM app_data WHERE app_slug = ? ORDER BY id DESC LIMIT ?').all(a.slug, limit);
+  const items = (rows as { id: number; data: string; created_by: string; created_at: string }[]).map((r) => ({
+    id: r.id, data: JSON.parse(r.data || '{}'), created_by: r.created_by, created_at: r.created_at,
+  }));
+  const has_more = rows.length === limit;
+  res.json({ slug: a.slug, items, count: items.length, has_more, next_before_id: has_more ? items[items.length - 1].id : null });
+});
+
 // ---------- SOP 台：状态机（draft → published → deprecated）+ 执行 Runner + 分层持久化 ----------
 app.get('/api/sops', (_req, res) => {
   const rows = db.prepare("SELECT * FROM apps WHERE kind = 'sop' ORDER BY updated_at DESC, id DESC").all() as unknown as AppRow[];

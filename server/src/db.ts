@@ -135,6 +135,14 @@ CREATE TABLE IF NOT EXISTS cookie_sets (
   cookies_json TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS app_data (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  app_slug TEXT NOT NULL,
+  data TEXT NOT NULL DEFAULT '{}',
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_app_data_slug ON app_data(app_slug, created_at);
 `);
 
 // 轻量列迁移：已存库补列（凭据注入 / SOP 台生成器 / A2A 节点短 id / cookie 池挂接）
