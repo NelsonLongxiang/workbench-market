@@ -819,7 +819,7 @@ with sync_playwright() as p:
         rc = _sp3.run(['node', 'scripts/receipt-smoke.mjs'], capture_output=True, text=True, timeout=240,
                       cwd=_os4.path.join(_os4.path.dirname(_os4.path.abspath(__file__)), '..'))
         assert rc.returncode == 0, f'receipt-smoke 失败:\n{rc.stdout[-600:]}\n{rc.stderr[-300:]}'
-        assert '14 通过' in rc.stdout, f'receipt-smoke 计数异常: {rc.stdout[-200:]}'
+        assert '16 通过' in rc.stdout, f'receipt-smoke 计数异常: {rc.stdout[-200:]}'
         # C15: P4 run 交付物（product/run-delivery F1-F7 自查版，独立实例）
         dv = _sp3.run(['node', 'scripts/run-delivery-smoke.mjs'], capture_output=True, text=True, timeout=300,
                       cwd=_os4.path.join(_os4.path.dirname(_os4.path.abspath(__file__)), '..'))
