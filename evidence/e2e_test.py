@@ -96,6 +96,11 @@ with sync_playwright() as p:
     def submit_modal(modal):
         modal.locator('.ant-modal-footer .ant-btn-primary').click()
 
+    # 摘要门自锁修复（PR#46 门 × 卫生批顺序缺陷）：起跑重置为空占位（total=0），
+    # 卫生批跑 make-submission 时门放行，E2E 末尾写真摘要——否则上一轮残次摘要自锁卫生批
+    with open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'e2e-summary.json'), 'w', encoding='utf-8') as _f:
+        json.dump({'passed': 0, 'total': 0, 'failed': 0, 'all_passed': 0, 'fails': [], 'finished_at': '', 'contrast_rows': [], 'contrast_all_passed': 0}, _f)
+
     cleanup(page)
 
     # ---------- 1. 仪表盘 ----------
