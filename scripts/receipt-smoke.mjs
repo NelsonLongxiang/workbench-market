@@ -13,7 +13,7 @@ const DATA = 'tmp/e2e-rcpt-data';
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
 
-async function waitReady(url, ms = 20000) {
+async function waitReady(url, ms = 30000) {
   const end = Date.now() + ms;
   while (Date.now() < end) {
     try { const r = await fetch(url); if (r.status < 500) return true; } catch { }
