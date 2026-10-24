@@ -161,3 +161,5 @@
 判据161：server/src/db.ts 必须包含 run 交付物表「sop_run_files」。
 判据162：server/src/sop-runner.ts 必须包含交付区渲染锚「agent-extras」。
 判据163：web/src/pages/Sops.tsx 必须包含待验收视图锚「待验收任务」。
+判据164：server/src/index.ts 必须包含指派端点「/api/sop/runs/:id/assign」。
+判据165：web/src/pages/Tasks.tsx 必须包含发布表单锚「发布任务」。

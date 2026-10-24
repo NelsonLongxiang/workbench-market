@@ -48,7 +48,7 @@ await new Promise((r) => upstream.listen(UP_PORT, '127.0.0.1', r));
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server', env: { ...process.env, PORT: String(PORT), DATA_DIR: `../${DATA}`, REDIS_URL: '' }, stdio: ['ignore', 'pipe', 'pipe'],
+  cwd: 'server', env: { ...process.env, PORT: String(PORT), DATA_DIR: `../${DATA}` }, stdio: ['ignore', 'pipe', 'pipe'],
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪（20s 超时）'); process.exit(1); }
 
@@ -85,7 +85,7 @@ const DATA2 = 'tmp/e2e-upstr-data2';
 rmSync(DATA2, { recursive: true, force: true });
 mkdirSync(DATA2, { recursive: true });
 const child2 = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server', env: { ...process.env, PORT: String(PORT2), DATA_DIR: `../${DATA2}`, ADMIN_TOKEN: 'up-admin-tok', REDIS_URL: '' }, stdio: ['ignore', 'pipe', 'pipe'],
+  cwd: 'server', env: { ...process.env, PORT: String(PORT2), DATA_DIR: `../${DATA2}`, ADMIN_TOKEN: 'up-admin-tok' }, stdio: ['ignore', 'pipe', 'pipe'],
 });
 const B2 = `http://127.0.0.1:${PORT2}`;
 await waitReady(B2 + '/api/health');
@@ -147,7 +147,7 @@ const DATA3 = 'tmp/e2e-upstr-data3';
 rmSync(DATA3, { recursive: true, force: true });
 mkdirSync(DATA3, { recursive: true });
 const child3 = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server', env: { ...process.env, PORT: '9822', DATA_DIR: `../${DATA3}`, ADMIN_TOKEN: 'gw-tok', MCP_GATEWAY: 'on', REDIS_URL: '' }, stdio: ['ignore', 'pipe', 'pipe'],
+  cwd: 'server', env: { ...process.env, PORT: '9822', DATA_DIR: `../${DATA3}`, ADMIN_TOKEN: 'gw-tok', MCP_GATEWAY: 'on' }, stdio: ['ignore', 'pipe', 'pipe'],
 });
 const B3 = 'http://127.0.0.1:9822';
 await waitReady(B3 + '/api/health');
