@@ -97,7 +97,7 @@ function a2aEnabled(): boolean {
 interface A2aStateRow {
   taskId?: string; team?: string; peer?: string; direction?: string;
   startedAt?: string; resolvedAt?: string; endedBy?: string; outcome?: string;
-  brief?: string;
+  brief?: string; summary?: string; // summary≤160（d7573ca 新增）
 }
 
 async function fetchA2aTasks(): Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs: number }> {
@@ -111,9 +111,11 @@ async function fetchA2aTasks(): Promise<{ ok: boolean; tasks: TaskEnvelope[]; la
     });
     if (!r.ok) return { ok: false, tasks: [], latencyMs: Date.now() - t0 };
     const j: any = await r.json();
-    // FIELD 校准点（PR#32 形状）：tasks[] 在途 / tasksRecent[] ≤20 归档（endedBy/outcome/late/brief）
+    // FIELD 校准点（已对 d7573ca）：tasks[] 在途（含 settleable/receiptExpected，信封不消费）
+    // / archived[] ≤64 归档 newest-first（endedBy/outcome/late/brief/summary≤160）
+    // ——PR#32 时代的 tasksRecent 在合并版改名 archived（ARCHIVE_CAP 64）
     const inFlight: A2aStateRow[] = Array.isArray(j?.tasks) ? j.tasks : [];
-    const recent: A2aStateRow[] = Array.isArray(j?.tasksRecent) ? j.tasksRecent : [];
+    const recent: A2aStateRow[] = Array.isArray(j?.archived) ? j.archived : (Array.isArray(j?.tasksRecent) ? j.tasksRecent : []);
     const seen = new Set<string>();
     const tasks: TaskEnvelope[] = [];
     for (const row of inFlight) { // 在途 → doing（在途优先：竞态窗口内同 taskId 不重复）
@@ -122,7 +124,7 @@ async function fetchA2aTasks(): Promise<{ ok: boolean; tasks: TaskEnvelope[]; la
       seen.add(id);
       tasks.push({
         id: `a2a:${id}`, source: 'a2a',
-        title: row.brief ? String(row.brief) : `${String(row.team ?? '')} · ${String(row.peer ?? '')} ${id}`,
+        title: row.brief ? String(row.brief) : (row.summary ? String(row.summary) : `${String(row.team ?? '')} · ${String(row.peer ?? '')} ${id}`),
         status: 'doing', due: null, link: null,
         project: row.team ? String(row.team) : null,
       });
@@ -133,7 +135,7 @@ async function fetchA2aTasks(): Promise<{ ok: boolean; tasks: TaskEnvelope[]; la
       seen.add(id);
       tasks.push({
         id: `a2a:${id}`, source: 'a2a',
-        title: `${row.brief ?? id}${row.endedBy ? `（${row.endedBy}）` : ''}`,
+        title: `${row.brief ?? row.summary ?? id}${row.endedBy ? `（${row.endedBy}）` : ''}`,
         status: 'done', due: null, link: null,
         project: row.team ? String(row.team) : null,
       });
