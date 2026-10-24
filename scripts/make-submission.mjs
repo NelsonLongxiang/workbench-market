@@ -27,6 +27,15 @@ const sub = join(root, "tmp", "submission");
 mkdirSync(join(root, "tmp"), { recursive: true });
 
 // 1) 快照（活库由 server 持有 WAL，VACUUM INTO 得到一致副本）
+// 摘要门（#44/#46 两犯机械化）：残次 e2e-summary 物理进不了提交物——passed!==total 即中止
+{
+  const sum = JSON.parse(readFileSync(join(root, "evidence", "e2e-summary.json"), "utf8"));
+  if (sum.total > 0 && sum.passed !== sum.total) {
+    console.error(`[summary-gate] e2e-summary 残次（${sum.passed}/${sum.total}）——先归真再提交`);
+    process.exit(2);
+  }
+}
+
 rmSync(snap, { force: true });
 const db = new DatabaseSync(join(root, "server", "data", "workbench-market.db"), { readOnly: true });
 db.exec(`VACUUM INTO '${snap.replaceAll("\\", "/")}'`);
