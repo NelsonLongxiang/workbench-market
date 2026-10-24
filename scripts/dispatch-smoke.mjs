@@ -27,7 +27,10 @@ const json = async (url, method = 'GET', body, headers = {}) => {
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server', env: { ...process.env, PORT: String(PORT), DATA_DIR: `../${DATA}`, REDIS_URL: '', ADMIN_TOKEN: 't19a' }, stdio: ['ignore', 'pipe', 'pipe'],
+  cwd: 'server',
+  // REDIS_URL 空串在无 Redis 的干净环境会挂死启动（PR#45 TEST 章）——不传该键，让服务端归一为未设
+  env: (() => { const e = { ...process.env, PORT: String(PORT), DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 't19a' }; delete e.REDIS_URL; return e; })(),
+  stdio: ['ignore', 'pipe', 'pipe'],
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪'); process.exit(1); }
 const AT = { 'X-Admin-Token': 't19a' };
