@@ -888,6 +888,11 @@ async function sopRunFinishCore(id: number): Promise<{ ok: boolean; id: number; 
 
 // ---------- P3 回执 outbox worker（退避 1m/5m/15m/1h，5 次后 dead；行永不删） ----------
 const OUTBOX_BACKOFF_MS = [60_000, 300_000, 900_000, 3_600_000];
+/** #50：next_at 必须用与 datetime('now') 同构的 'YYYY-MM-DD HH:MM:SS.sss'（UTC 空格式）——
+ *  ISO 串的 'T' > 空格，字符串比较同天内永不到期（E8/E9 红） */
+function sqliteUtcIn(ms: number): string {
+  return new Date(Date.now() + ms + 1_000).toISOString().slice(0, 19).replace('T', ' '); // 秒精度+1s 防同秒边界
+}
 function outboxBackoffScale(): number {
   const v = Number(process.env.A2A_OUTBOX_BACKOFF_SCALE);
   return Number.isFinite(v) && v > 0 ? v : 1;
@@ -916,7 +921,7 @@ async function deliverOutboxOnce(runId: number): Promise<void> {
   } catch (e: any) {
     try {
       const row = svc<SopService>('sop').outboxByRun(runId) as { id: number; attempts: number } | undefined;
-      if (row) svc<SopService>('sop').outboxMarkRetry(row.id, row.attempts + 1, new Date(Date.now() + 30_000 * outboxBackoffScale()).toISOString(), String(e?.message ?? e));
+      if (row) svc<SopService>('sop').outboxMarkRetry(row.id, row.attempts + 1, sqliteUtcIn(30_000 * outboxBackoffScale()), String(e?.message ?? e));
     } catch { /* 忽略 */ }
   }
 }
@@ -933,7 +938,7 @@ async function outboxWorkerTick(): Promise<void> {
           svc<SopService>('sop').outboxMarkDead(row.id, String(e?.message ?? e));
         } else {
           const delay = (OUTBOX_BACKOFF_MS[Math.min(attempts - 1, OUTBOX_BACKOFF_MS.length - 1)] ?? 3_600_000) * outboxBackoffScale();
-          svc<SopService>('sop').outboxMarkRetry(row.id, attempts, new Date(Date.now() + delay).toISOString(), String(e?.message ?? e));
+          svc<SopService>('sop').outboxMarkRetry(row.id, attempts, sqliteUtcIn(delay), String(e?.message ?? e));
         }
       }
     }
