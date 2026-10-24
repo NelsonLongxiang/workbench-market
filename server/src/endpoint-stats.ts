@@ -47,10 +47,13 @@ export function normalizeEndpoint(pathname: string): string {
 /** 计数中间件：只记 GET/POST 等业务请求，跳过静态资源与 stats 自身（防自增噪声） */
 export function endpointStatsMiddleware(): express.RequestHandler {
   return (req, res, next) => {
+    // 入口即取路径：门户 /go/:id/* 的 pathRewrite 会把 req.url 改成上游路径（#39）
+    const url = String(req.originalUrl ?? req.url ?? '').split('?')[0];
     next();
     res.on('finish', () => {
       try {
-        const url = String(req.url ?? '').split('?')[0];
+        // 只计命中业务路由且非 404 的请求：任意路径的 404 与远程收口 403 不入库，键空间不随外部输入无界增长（#39）
+        if (!req.route || res.statusCode === 404) return;
         if (!url.startsWith('/api/') && url !== '/tasks') return;
         if (url === '/api/stats') return; // 自身不计
         const key = `${normalizeEndpoint(url)}|${new Date().toISOString().slice(0, 10)}`;

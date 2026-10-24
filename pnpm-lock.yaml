@@ -30,6 +30,9 @@ importers:
 
   server:
     dependencies:
+      '@deepseek-ai/cordis':
+        specifier: 4.0.5
+        version: 4.0.5
       '@types/multer':
         specifier: ^2.3.0
         version: 2.3.0
@@ -605,7 +608,7 @@ packages:
     libc: [glibc]
 
   '@nelsonlongxiang/dsh-open-a2a-net@0.6.25':
-    resolution: {integrity: sha512-pAsBHltueIVFvgJu3xpjbj3tMITs0xY03N1yW30PAIFaZ9kaeYBXSAIZJipppPppdsI4Pli1IY8bVKaBAkgJng==}
+    resolution: {integrity: sha512-pAsBHltueIVFvgJu3xpjbj3tMITs0xY03N1yW30PAIFaZ9kaeYBXSAIZJipppPppdsI4Pli1IY8bVKaBAkgJng==, tarball: https://registry.npmjs.org/@nelsonlongxiang/dsh-open-a2a-net/-/dsh-open-a2a-net-0.6.25.tgz}
     engines: {pnpm: '>=11.24 <12'}
     peerDependencies:
       '@deepseek-ai/cordis': '>=4.0.1'

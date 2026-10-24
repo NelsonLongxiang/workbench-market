@@ -5,7 +5,7 @@
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync } from 'node:fs';
 
-const PORT = 9854;
+const PORT = 9860;
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-stats-data';
 let pass = 0, fail = 0;
@@ -20,7 +20,7 @@ async function waitReady(url, ms = 20000) {
   return false;
 }
 const start = () => spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server', env: { ...process.env, PORT: String(PORT), DATA_DIR: `../${DATA}`, REDIS_URL: '' }, stdio: ['ignore', 'pipe', 'pipe'],
+  cwd: 'server', env: { ...process.env, PORT: String(PORT), DATA_DIR: `../${DATA}` }, stdio: ['ignore', 'pipe', 'pipe'],
 });
 const stats = async () => (await fetch(`${BASE}/api/stats`)).json();
 

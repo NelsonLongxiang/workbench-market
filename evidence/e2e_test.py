@@ -11,7 +11,9 @@ import sys
 from datetime import datetime, timezone
 from playwright.sync_api import sync_playwright, expect
 
-BASE = 'http://127.0.0.1:9800'
+import os as _os
+_port = _os.environ.get('E2E_PORT', '9800')
+BASE = f'http://127.0.0.1:{_port}'
 RESULTS = []
 
 
@@ -527,7 +529,7 @@ with sync_playwright() as p:
         #    （回归锚：upgrade 不流经中间件链时 WS 被路由到死端口；握手 Origin/Host
         #    触发上游防护时回 403——DSH 台「重新连接中」的两处根因）
         import socket as sk
-        s = sk.create_connection(('127.0.0.1', 9800), timeout=5)
+        s = sk.create_connection(('127.0.0.1', int(_port)), timeout=5)
         s.sendall((f'GET /go/{ewid}/ws HTTP/1.1\r\nHost: 127.0.0.1:9800\r\n'
                    'Upgrade: websocket\r\nConnection: Upgrade\r\n'
                    'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n'
@@ -595,7 +597,7 @@ with sync_playwright() as p:
         # 注意：Playwright request.fetch 会跟随重定向（max_redirects=0 也不免），用 http.client 拿原始 302
         import http.client as _hc
         for _path, _expect in (('redir-relative', f'/go/{ewid}/landed'), ('redir-absolute', f'/go/{ewid}/landed')):
-            _conn = _hc.HTTPConnection('127.0.0.1', 9800, timeout=5)
+            _conn = _hc.HTTPConnection('127.0.0.1', int(_port), timeout=5)
             _conn.request('GET', f'/go/{ewid}/{_path}')
             _resp = _conn.getresponse()
             _loc = _resp.getheader('location')
@@ -818,6 +820,11 @@ with sync_playwright() as p:
                       cwd=_os4.path.join(_os4.path.dirname(_os4.path.abspath(__file__)), '..'))
         assert dv.returncode == 0, f'run-delivery-smoke 失败:\n{dv.stdout[-600:]}\n{dv.stderr[-300:]}'
         assert '10 通过' in dv.stdout, f'run-delivery-smoke 计数异常: {dv.stdout[-200:]}'
+        # C16: 19a 任务发布面（监督席 direct-58d60ed6）
+        dp = _sp3.run(['node', 'scripts/dispatch-smoke.mjs'], capture_output=True, text=True, timeout=300,
+                      cwd=_os4.path.join(_os4.path.dirname(_os4.path.abspath(__file__)), '..'))
+        assert dp.returncode == 0, f'dispatch-smoke 失败:\n{dp.stdout[-600:]}\n{dp.stderr[-300:]}'
+        assert '11 通过' in dp.stdout, f'dispatch-smoke 计数异常: {dp.stdout[-200:]}'
         record('MCP 生产通道（协议面 + 17 tools + 网关 P1 + 管理页 + Cookie 池 + 数据面 + 文件面 + 上游聚合 P2）', True)
     except Exception as e:
         record('MCP 生产通道', False, str(e)); shot('mcp')
@@ -945,7 +952,7 @@ with sync_playwright() as p:
         import os as _os
         with open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'README.md'), encoding='utf-8') as _f:
             readme = _f.read()
-        assert 'v30' in readme and '163 条判据' in readme, 'README 验证器节未同步 v29/133'
+        assert 'v30' in readme and '165 条判据' in readme, 'README 验证器节未同步 v29/133'
         assert '内置 9 种' in readme, 'README 类型数未同步 9'
         assert 'Sops' in readme, 'README 目录缺 Sops 页'
         assert '≥25' in readme or '25 组' in readme, 'README E2E 组数未同步'
@@ -998,7 +1005,7 @@ summary = {
     'contrast_checks': contrast_rows,
     'contrast_all_passed': 1 if contrast_rows and all(r['passed'] for r in contrast_rows) else 0,
 }
-with open(__file__.replace('e2e_test.py', 'e2e-summary.json'), 'w', encoding='utf-8') as f:
+with open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'e2e-summary.json'), 'w', encoding='utf-8') as f:
     json.dump(summary, f, ensure_ascii=False, indent=2)
 print(f'\n===== E2E 汇总：{passed}/{total} PASS =====')
 sys.exit(1 if fails else 0)
