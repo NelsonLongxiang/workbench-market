@@ -34,6 +34,7 @@ const mk = (sink) => createServer((req, res) => {
   req.on('end', () => { sink.push({ path: req.url, body: b }); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"ok":true}'); });
 });
 const srvA = mk(gotA), srvB = mk(gotB);
+let srvC = null;
 await new Promise((r) => srvA.listen(9842, '127.0.0.1', r));
 await new Promise((r) => srvB.listen(9843, '127.0.0.1', r));
 
@@ -109,7 +110,7 @@ try {
   const d5 = await json(`${BASE}/api/sop/runs/${run5}`);
   ok('E5 乙未收到 + receipt=rejected', gotB.length === beforeB && d5.body?.receipt === 'rejected:callback-mismatch', `receipt=${d5.body?.receipt} gotB=${gotB.length}`);
 
-  // E6：回调不可达 → pending
+  // E6：回调不可达 → pending（首投失败即 pending；dead 转移见 E9）
   d = await dispatch('dsh/0123dead', 'rv-c-6', 'rv-cctx-6');
   const run6 = d.body?.sop?.run_id;
   await json(`${BASE}/api/sop/runs/${run6}/finish`, 'POST', {});
@@ -117,12 +118,33 @@ try {
   const d6 = await json(`${BASE}/api/sop/runs/${run6}`);
   ok('E6 不可达回执留 pending', d6.body?.receipt === 'pending', String(d6.body?.receipt));
 
+  // E8：重试到期补投（#50 修复自查）——丙替身前 2 次 503，之后 200
+  let hitsC = 0;
+  srvC = createServer((req, res) => {
+    hitsC++;
+    if (hitsC <= 2) { res.writeHead(503, { 'content-type': 'application/json' }); return res.end('{}'); }
+    res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"ok":true}');
+  });
+  await new Promise((r2) => srvC.listen(9844, '127.0.0.1', r2));
+  r = await json(`${BASE}/api/sops/rv-rcpt/bindings`, 'POST', { node: 'dsh/0123rc8', mode: 'run', callback_url: `http://127.0.0.1:9844` }, AT);
+  d = await dispatch('dsh/0123rc8', 'rv-c-8', 'rv-cctx-8');
+  const run8 = d.body?.sop?.run_id;
+  await json(`${BASE}/api/sop/runs/${run8}/finish`, 'POST', {});
+  await new Promise((r2) => setTimeout(r2, 30_000));
+  const d8 = await json(`${BASE}/api/sop/runs/${run8}`);
+  ok('E8 重试补投 → sent（≥3 次 POST）', d8.body?.receipt === 'sent' && hitsC >= 3, `receipt=${d8.body?.receipt} hitsC=${hitsC}`);
+
+  // E9：重试耗尽 → dead（scale 0.001 下退避毫秒级，5 次即 dead）
+  await new Promise((r2) => setTimeout(r2, 25_000));
+  const d9 = await json(`${BASE}/api/sop/runs/${run6}`);
+  ok('E9 耗尽转 dead', d9.body?.receipt === 'dead', String(d9.body?.receipt));
+
   // DB 校验：outbox 行数与幂等唯一
   const db = new DatabaseSync(`${DATA}/workbench-market.db`, { readOnly: true });
   const rows = db.prepare('SELECT run_id, status FROM a2a_outbox').all();
   ok('outbox 每 run 至多一行', new Set(rows.map((x) => x.run_id)).size === rows.length, JSON.stringify(rows));
 } finally {
-  child.kill(); srvA.close(); srvB.close();
+  child.kill(); srvA.close(); srvB.close(); srvC?.close();
   await new Promise((r) => setTimeout(r, 600));
 }
 console.log(`\n===== P3 回执冒烟 ${pass + fail} 项：${pass} 通过 / ${fail} 失败 =====`);
