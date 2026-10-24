@@ -34,6 +34,20 @@ async function call(method, path, body) {
 try {
   // 发布一个台（数据面挂接对象）
   await call('POST', '/api/apps', { slug: 'appdata-smoke', title: 'T', files: [{ path: 'index.html', content: '<h1>x</h1>' }] });
+  // 双口径对照物理闸（PR#52 教训·direct-2a7684ec）：/api/apps ≥ /api/sops 且 app 类必现
+  // ——S2 类批量替换若再装反两口径，此断言先红
+  {
+    const apps = (await call('GET', '/api/apps')).body ?? [];
+    const sops = (await call('GET', '/api/sops')).body ?? [];
+    if (!(Array.isArray(apps) && Array.isArray(sops) && apps.length >= sops.length && apps.length >= 1)) {
+      console.log(`  ✗ 双口径闸：apps(${apps.length}) < sops(${sops.length})——口径装反`); process.exit(1);
+    }
+    if (!apps.some((a) => a.kind === 'app')) {
+      console.log('  ✗ 双口径闸：apps 列表无 app 类台——apps 误用 sops 过滤'); process.exit(1);
+    }
+    console.log(`  ✓ 双口径闸：apps=${apps.length} ≥ sops=${sops.length}，app 类在场`);
+  }
+
   // ① 写入（{data:...} 形态）
   let r = await call('POST', '/api/apps/appdata-smoke/data', { data: { form: 'owba', manifest: { version: 1 } }, created_by: 'user-a' });
   ok('写入 201', r.status === 201 && r.body.ok && r.body.id > 0);
