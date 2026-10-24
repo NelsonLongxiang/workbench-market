@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Card, Empty, Segmented, Space, Tag, Typography } from 'antd';
+import { Button, Card, Drawer, Empty, Form, Input, Radio, Segmented, Select, Space, Tag, Typography, Upload, App as AntApp } from 'antd';
+import { PlusOutlined } from '@ant-design/icons';
+import type { UploadFile } from 'antd';
 import { PageContainer } from '@ant-design/pro-components';
 import { ReloadOutlined } from '@ant-design/icons';
 
@@ -89,12 +91,104 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
   );
 }
 
-export default function Tasks() {
+/** 19a 任务发布面（direct-58d60ed6）：业务专家发布任务——零新后端概念，纯既有通道组合：
+ *  POST /api/sop/runs（开 run）→ PUT stepSave(_brief/_desc) → [指派] POST assign → 附件 POST files */
+function DispatchDrawer({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
+  const { message } = AntApp.useApp();
+  const [form] = Form.useForm();
+  const [sops, setSops] = useState<{ slug: string; title: string }[]>([]);
+  const [assignee, setAssignee] = useState<'agent' | 'self' | 'none'>('agent');
+  const [files, setFiles] = useState<UploadFile[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    fetch('/api/sops').then((r) => (r.ok ? r.json() : [])).then((rows) => setSops((rows ?? []).map((x: never) => x))).catch(() => setSops([]));
+  }, [open]);
+  const submit = async () => {
+    const v = await form.validateFields();
+    setSubmitting(true);
+    try {
+      const r1 = await fetch('/api/sop/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: v.slug, started_by: assignee === 'agent' ? v.node : `expert:${v.expert || 'me'}` }) });
+      const run = await r1.json();
+      if (!r1.ok) throw new Error(run?.error ?? '创建失败');
+      await fetch(`/api/sop/runs/${run.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stepKey: '_brief', value: v.title }) });
+      if (v.desc) await fetch(`/api/sop/runs/${run.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stepKey: '_desc', value: v.desc }) });
+      if (assignee === 'agent') {
+        const ra = await fetch(`/api/sop/runs/${run.id}/assign`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ node: v.node }) });
+        if (!ra.ok) { const j = await ra.json().catch(() => ({})); throw new Error(j?.error ?? '指派失败'); }
+      }
+      for (const f of files) {
+        if (!f.originFileObj) continue;
+        const fd = new FormData();
+        fd.append('file', f.originFileObj);
+        fd.append('created_by', v.expert || 'expert');
+        const rf = await fetch(`/api/sop/runs/${run.id}/files`, { method: 'POST', body: fd });
+        if (!rf.ok) { const j = await rf.json().catch(() => ({})); throw new Error(j?.error ?? `附件 ${f.name} 上传失败`); }
+      }
+      message.success(`任务已发布（run #${run.id}）${assignee === 'agent' ? '，已指派并进入待验收' : ''}`);
+      form.resetFields(); setFiles([]);
+      onDone(); onClose();
+    } catch (e) {
+      message.error(`发布失败：${(e as Error).message}`);
+    } finally {
+      setSubmitting(false);
+    }
+  };
   return (
-    <PageContainer title="统一待办" subTitle="三源任务聚合（只读）—— 勾销请回原系统" className="wm-page">
+    <Drawer title="发布任务" open={open} onClose={onClose} size="large" destroyOnHidden styles={{ wrapper: { width: 520 } }}>
+      <Form form={form} layout="vertical">
+        <Form.Item name="slug" label="挂靠 SOP 台（执行面）" rules={[{ required: true, message: '选择一个已上架 SOP' }]}>
+          <Select placeholder="选择已上架 SOP" options={sops.map((x) => ({ value: x.slug, label: `${x.title} (${x.slug})` }))} showSearch />
+        </Form.Item>
+        <Form.Item name="title" label="任务标题" rules={[{ required: true, message: '填写标题' }]}>
+          <Input placeholder="如：核对十月物流对账差异" maxLength={80} />
+        </Form.Item>
+        <Form.Item name="desc" label="业务描述（一段话）">
+          <Input.TextArea rows={3} placeholder="要做什么、验收标准、注意事项" maxLength={2000} />
+        </Form.Item>
+        <Form.Item label="指派">
+          <Radio.Group value={assignee} onChange={(e) => setAssignee(e.target.value)}>
+            <Radio value="agent">指派绑定 agent</Radio>
+            <Radio value="self">我自己做</Radio>
+            <Radio value="none">暂不指派</Radio>
+          </Radio.Group>
+        </Form.Item>
+        {assignee === 'agent' && (
+          <Form.Item name="node" label="agent 节点（dsh/<id8>，须已绑定该 SOP）" rules={[{ required: true, message: '填写节点' }]}>
+            <Input placeholder="dsh/6de4035c" />
+          </Form.Item>
+        )}
+        <Form.Item name="expert" label="发布人（可选）">
+          <Input placeholder="业务专家姓名/工号" maxLength={40} />
+        </Form.Item>
+        <Form.Item label="附件（≤50MB/个，走交付物通道）">
+          <Upload.Dragger multiple beforeUpload={() => false} fileList={files} onChange={({ fileList }) => setFiles(fileList)}>
+            <Typography.Text type="secondary">点击或拖入附件</Typography.Text>
+          </Upload.Dragger>
+        </Form.Item>
+        <Space>
+          <Button type="primary" loading={submitting} onClick={submit}>发布</Button>
+          <Button onClick={onClose}>取消</Button>
+        </Space>
+      </Form>
+    </Drawer>
+  );
+}
+
+export default function Tasks() {
+  const [open, setOpen] = useState(false);
+  const [bump, setBump] = useState(0);
+  return (
+    <PageContainer
+      title="统一待办"
+      subTitle="三源任务聚合（只读）—— 勾销请回原系统"
+      className="wm-page"
+      extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>发布任务</Button>}
+    >
       <Card>
-        <TasksView />
+        <TasksView key={bump} />
       </Card>
+      <DispatchDrawer open={open} onClose={() => setOpen(false)} onDone={() => setBump((n) => n + 1)} />
     </PageContainer>
   );
 }

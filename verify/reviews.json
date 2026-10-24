@@ -3911,6 +3911,54 @@
           "reason": "删视图提取为 0 即 FAIL。"
         }
       ]
+    },
+    {
+      "source_clause": "判据164：server/src/index.ts 必须包含指派端点「/api/sop/runs/:id/assign」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，assign 薄端点：给 running run 写派单来源（复用 a2a_run_ctx，task-<id> 语义），入待验收列表；重复指派 409；零新表零新概念。",
+          "anchor": {
+            "quote": "判据164：server/src/index.ts 必须包含指派端点「/api/sop/runs/:id/assign」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删端点提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据165：web/src/pages/Tasks.tsx 必须包含发布表单锚「发布任务」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，业务专家发布面：SOP 选择+标题(_brief)+描述(_desc)+指派三选（agent/self/none）+附件（交付物通道），纯既有通道组合。",
+          "anchor": {
+            "quote": "判据165：web/src/pages/Tasks.tsx 必须包含发布表单锚「发布任务」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删表单提取为 0 即 FAIL。"
+        }
+      ]
     }
   ]
 }
