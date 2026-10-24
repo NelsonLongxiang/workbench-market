@@ -101,7 +101,7 @@ try {
   ok('匿名派单拒 -32000', r.status === 200 && r.body?.code === -32000 && r.body?.task_status === 'TASK_STATE_FAILED');
   // ② 无绑定 caller 拒
   r = await call('POST', '/a2a/direct', { team: teamName, message: 'x', caller_session: 'dsh/ffffffff' });
-  ok('未绑定 caller 拒', r.status === 200 && r.body?.code === -32000 && /no valid binding/.test(r.body?.error ?? ''));
+  ok('未绑定 caller 拒（A10：404 与查无 SOP 同答，不泄露存在性）', r.status === 404);
   // ③ 查无 SOP → 404 不泄露
   r = await call('POST', '/a2a/direct', { team: 'market/deadbeef', message: 'x', caller_session: 'dsh/1a2b3c4d' });
   ok('未知 id8 → 404', r.status === 404);

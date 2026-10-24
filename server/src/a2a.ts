@@ -190,7 +190,9 @@ export function a2aDirectHandle(body: any, rawBytes: number, runOps: {
   }
   const binding = db.prepare("SELECT mode FROM sop_bindings WHERE sop_slug = ? AND node = ? AND revoked_at = ''").get(sop.slug, caller) as { mode: string } | undefined;
   if (!binding) {
-    return { httpStatus: 200, body: { error: `no valid binding for ${caller} on this SOP (human binding required)`, code: -32000, team, task_status: 'TASK_STATE_FAILED' } };
+    // A10（评审席选项 A，存在性不泄露）：无有效绑定与查无 SOP 同答 404——
+    // 200 no-valid-binding 会区分「SOP 存在但未绑定」与「SOP 不存在」
+    return { httpStatus: 404, body: { error: 'not found' } };
   }
 
   // 幂等（上游族：replay -32003 / conflict -32002；在准入后、执行前）
