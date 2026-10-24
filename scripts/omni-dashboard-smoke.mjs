@@ -20,7 +20,7 @@ async function waitReady(url, ms = 20000) {
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server', env: { ...process.env, PORT: String(PORT), DATA_DIR: `../${DATA}`, REDIS_URL: '' }, stdio: ['ignore', 'pipe', 'pipe'],
+  cwd: 'server', env: { ...process.env, PORT: String(PORT), DATA_DIR: `../${DATA}` }, stdio: ['ignore', 'pipe', 'pipe'],
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪'); process.exit(1); }
 try {
