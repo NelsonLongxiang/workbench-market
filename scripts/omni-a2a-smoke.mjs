@@ -16,9 +16,9 @@ const FIXTURE = {
     { taskId: 'om-t1', team: 'market/26812e74', peer: 'dsh/11111111', direction: 'outbound', startedAt: '2026-10-23T10:00:00Z', brief: '回执链路联测' },
     { taskId: 'om-t2', team: 'dsh/414d2b90', peer: 'dsh/22222222', direction: 'inbound', startedAt: '2026-10-23T11:00:00Z' },
   ],
-  tasksRecent: [
+  archived: [
     { taskId: 'om-r1', team: 'market/26812e74', peer: 'dsh/33333333', direction: 'outbound', startedAt: '2026-10-23T08:00:00Z', resolvedAt: '2026-10-23T08:05:00Z', endedBy: 'receipt', outcome: 'completed', brief: 'P3 回执验收' },
-    { taskId: 'om-r2', team: 'market/26812e74', peer: 'dsh/44444444', direction: 'inbound', startedAt: '2026-10-23T07:00:00Z', resolvedAt: '2026-10-23T07:02:00Z', endedBy: 'cancelled', outcome: 'abandoned' },
+    { taskId: 'om-r2', team: 'market/26812e74', peer: 'dsh/44444444', direction: 'inbound', startedAt: '2026-10-23T07:00:00Z', resolvedAt: '2026-10-23T07:02:00Z', endedBy: 'cancelled', outcome: 'abandoned', summary: '取消联测-摘要可见' },
   ],
 };
 let requireKey = 'test-key';
@@ -60,10 +60,11 @@ try {
   if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪'); process.exit(1); }
   let r = await json(`${BASE}/api/tasks`);
   const a2a = (r.body?.tasks ?? []).filter((t) => t.source === 'a2a');
-  ok('出口一 a2a 信封 4 条（在途2+归档2）', a2a.length === 4, JSON.stringify(a2a.map((t) => [t.id, t.status])));
+  ok('出口一 a2a 信封 4 条（在途2+归档2·archived 容器）', a2a.length === 4, JSON.stringify(a2a.map((t) => [t.id, t.status])));
   ok('在途→doing（含 brief 作 title）', a2a.some((t) => t.id === 'a2a:om-t1' && t.status === 'doing' && t.title === '回执链路联测'));
   ok('无 brief 回退 title（team·peer id）', a2a.some((t) => t.id === 'a2a:om-t2' && t.status === 'doing' && t.title.includes('dsh/414d2b90')));
   ok('归档→done（title 带 endedBy）', a2a.some((t) => t.id === 'a2a:om-r1' && t.status === 'done' && t.title.includes('（receipt）')));
+  ok('summary 回退链（无 brief 用 summary 作 title）', a2a.some((t) => t.id === 'a2a:om-r2' && t.title.includes('取消联测-摘要可见')));
   ok('project=team', a2a.every((t) => t.project === null || t.project.startsWith('market/') || t.project.startsWith('dsh/')));
   ok('X-API-Key 已传递（替身校验头）', hits.length > 0 && hits.every((h) => h.key === 'test-key'));
   ok('sources.a2a 冻结三字段 + count=在途2', r.body?.sources?.a2a?.ok === true && r.body.sources.a2a.count === 2 && typeof r.body.sources.a2a.latency_ms === 'number' && !('error' in r.body.sources.a2a), JSON.stringify(r.body?.sources?.a2a));
