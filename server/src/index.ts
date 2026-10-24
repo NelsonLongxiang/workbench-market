@@ -1070,6 +1070,21 @@ app.delete('/api/cookies/:id', (req, res) => {
 
 // PUT /api/workbenches/:id 已扩展支持 cookie_set_id（在 validateWorkbenchBody 后 merged）
 
+// ---------- 19a 任务发布面（监督席 direct-58d60ed6，主人已批）----------
+// 零新概念：给已有 run 写派单来源（复用 a2a_run_ctx），使其入待验收列表（dispatched=1）
+app.post('/api/sop/runs/:id/assign', wrap(async (req, res) => {
+  if (!/^\d+$/.test(String(req.params.id))) throw new HttpError(404, `run not found: ${req.params.id}`);
+  const runId = Number(req.params.id);
+  const row = sopRunRow(runId);
+  if (row.status !== 'running') throw new HttpError(409, `run ${runId} 已 ${row.status}，不可指派`);
+  const node = String(req.body?.node ?? '').trim();
+  if (!/^[a-z][a-z0-9-]*\/[a-z0-9][a-z0-9_-]{0,63}$/i.test(node)) bad('node 形态：<zone>/<id8>，如 dsh/1a2b3c4d');
+  const existed = svc<SopService>('sop').ctxSourceByRun(runId);
+  if (existed) throw new HttpError(409, `run ${runId} 已有派单来源，不可重复指派`);
+  svc<SopService>('sop').ctxRegisterFull({ contextId: `task-${runId}`, runId, taskId: `task-${runId}`, caller: node, team: '', receiptStatus: '' });
+  res.status(201).json({ ok: true, run_id: runId, node, task_id: `task-${runId}` });
+}));
+
 app.post('/api/sop/runs', (req, res) => {
   const out = sopRunStartCore(String(req.body?.slug ?? ''), String(req.body?.started_by ?? ''));
   res.status(201).json(out);
