@@ -16,7 +16,9 @@ import { join } from 'node:path';
 import { dataDir } from './db.ts';
 
 function resolveUrl(): string | null {
-  if (process.env.REDIS_URL) return process.env.REDIS_URL;
+  // PR#45 TEST 红修复：空串/纯空白一律归入「未设」（评审席干净环境 '' 挂死；本机 6379 兜底掩盖）
+  const env = (process.env.REDIS_URL ?? '').trim();
+  if (env) return env;
   try {
     const line = readFileSync(join(dataDir, 'redis.url'), 'utf8').trim();
     return line || null;

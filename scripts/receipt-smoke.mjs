@@ -41,7 +41,7 @@ rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server',
-  env: { ...process.env, PORT: String(PORT), DATA_DIR: `../${DATA}`, REDIS_URL: '', ADMIN_TOKEN: 'rcpt-tok', A2A_OUTBOX_BACKOFF_SCALE: '0.001' },
+  env: { ...process.env, PORT: String(PORT), DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'rcpt-tok', A2A_OUTBOX_BACKOFF_SCALE: '0.001' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪'); process.exit(1); }
