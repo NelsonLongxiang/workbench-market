@@ -445,7 +445,8 @@ function syncWorkbenchRegistration(a: AppRow): number {
 }
 
 app.get('/api/apps', (_req, res) => {
-  const rows = svc<AppService>('app').sops() as unknown as AppRow[];
+  // /api/apps = 全部台（app+sop）；/api/sops 才是 kind='sop' 过滤——S2 批量替换期间两口径装反过一次
+  const rows = svc<AppService>('app').all() as unknown as AppRow[];
   res.json(rows.map(appDetail));
 });
 
