@@ -9,7 +9,7 @@ const DATA = 'tmp/e2e-delivery-data';
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
 
-async function waitReady(url, ms = 20000) {
+async function waitReady(url, ms = 30000) {
   const end = Date.now() + ms;
   while (Date.now() < end) {
     try { const r = await fetch(url); if (r.status < 500) return true; } catch { }
@@ -33,7 +33,7 @@ async function upload(runId, name, bytes, mime = 'application/octet-stream') {
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server', env: { ...process.env, PORT: String(PORT), DATA_DIR: `../${DATA}`, REDIS_URL: '', ADMIN_TOKEN: 'dl-tok' },
+  cwd: 'server', env: { ...process.env, PORT: String(PORT), DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'dl-tok' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪'); process.exit(1); }

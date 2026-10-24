@@ -8,6 +8,7 @@
     "start": "node --disable-warning=ExperimentalWarning src/index.ts"
   },
   "dependencies": {
+    "@deepseek-ai/cordis": "4.0.5",
     "@types/multer": "^2.3.0",
     "cors": "^2.8.5",
     "express": "^4.21.2",
