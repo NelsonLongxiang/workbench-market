@@ -153,7 +153,7 @@ const U = [
   { c: "判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-probe」。", t: "运行时批行为断言钉位", s: "S1", ck: existsFact("scripts/import-smoke.mjs", "e2e-import-probe"), rv: ["判据原文逐字取自冻结材料，导入冒烟（独立实例，7 项）覆盖 query replace 语义/内部路径行不丢/悬空面板 prune/掩码行跳过/body mode 等价；E2E 组 19 subprocess 调用——replace 全表清写不再碰活库（84 事故 ×3 根治）。", "提取表三条件 exists 精确判定。", "删探针提取为 0 即 FAIL。"] },
   // ── 卫生批（外部评审 #12/#13：README 一致性 + 干净克隆自愈） ──
   { c: "判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。", t: "提交物脚本自愈钉位", s: "S1", ck: existsFact("scripts/make-submission.mjs", "issue #13"), rv: ["判据原文逐字取自冻结材料，VACUUM INTO 前 mkdirSync(tmp) 幂等创建——干净克隆无 tmp/ 不再必然失败（评审 #13）。", "提取表三条件 exists 精确判定。", "删自愈提取为 0 即 FAIL。"] },
-  { c: "判据102：README.md 必须包含验证器判据数锚「144 条判据」。", t: "README 版本一致钉位", s: "S2", ck: existsFact("README.md", "167 条判据"), rv: ["判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12——锚用判据数，比版本号锚少一次升版漂移）。", "提取表三条件 exists 精确判定。", "版本漂移提取为 0 即 FAIL。"] },
+  { c: "判据102：README.md 必须包含验证器判据数锚「144 条判据」。", t: "README 版本一致钉位", s: "S2", ck: existsFact("README.md", "168 条判据"), rv: ["判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12——锚用判据数，比版本号锚少一次升版漂移）。", "提取表三条件 exists 精确判定。", "版本漂移提取为 0 即 FAIL。"] },
   // ── A2A 网络接入 P1（GH #17：签名卡片 + 人工绑定，只读暴露） ──
   { c: "判据103：server/src/a2a.ts 必须直接依赖官方卡片库「@nelsonlongxiang/dsh-open-a2a-net/card」。", t: "A2A 卡片签名钉位", s: "S1", ck: existsFact("server/src/a2a.ts", "@nelsonlongxiang/dsh-open-a2a-net/card"), rv: ["判据原文逐字取自冻结材料，卡片签名/验签直接调用官方 card 子路径（#17 P5：镜像代码删除，协议 wire 由上游库保证）；Ed25519 + SPKI DER base64，expiresAt ≤ 48h，须过上游 verifyCard。", "提取表三条件 exists 精确判定。", "删签名面提取为 0 即 FAIL。"] },
   { c: "判据104：server/src/index.ts 必须包含绑定管理口令头「x-admin-token」。", t: "人工绑定口令钉位", s: "S1", ck: existsFact("server/src/index.ts", "x-admin-token"), rv: ["判据原文逐字取自冻结材料，绑定读写要 X-Admin-Token 常量时间比较（未设置一律 403）+ Origin 空或同源服务端校验；MCP 无绑定写工具；卡片不发布 teamMemberships（绑定图不出门）。", "提取表三条件 exists 精确判定。", "删口令校验提取为 0 即 FAIL。"] },
@@ -246,6 +246,8 @@ const U = [
   // ── 技能市场 P0-a-1（总工 direct-85d3c5ab 开工令·方案 PR#57） ──
   { c: "判据166：server/src/db.ts 必须包含技能市场四表锚「CREATE TABLE IF NOT EXISTS skills」。", t: "技能四表 DDL 钉位", s: "S1", ck: existsFact("server/src/db.ts", "CREATE TABLE IF NOT EXISTS skills"), rv: ["判据原文逐字取自冻结材料，四表=skills/skill_versions/role_bundles/install_ledger（方案 v1 §2 DDL 全文）。", "提取表三条件 exists 精确判定。", "删表提取为 0 即 FAIL。"] },
   { c: "判据167：scripts/skill-smoke.mjs 必须包含判据锚「digest 身份锚」。", t: "四表判据冒烟钉位", s: "S1", ck: existsFact("scripts/skill-smoke.mjs", "digest 身份锚"), rv: ["判据原文逐字取自冻结材料，10 项结构判据：四表存在/层族索引/版本不可变 UNIQUE/digest 唯一索引/三元唯一/ledger 锚四件——判据先红后绿（红版 9 失败在案）。", "提取表三条件 exists 精确判定。", "删断言提取为 0 即 FAIL。"] },
+
+  { c: "判据168：server/src/context.ts 必须包含「SkillService」。", t: "SkillService 容器注册钉位", s: "S1", ck: existsFact("server/src/context.ts", "SkillService"), rv: ["判据原文逐字取自冻结材料，P0-a-2 服务面：skill 域（六方法族+容器注册+聚合导出），运行时四验在案（upsert/bySlug/版本不可变拒/digest 锚拒）。", "提取表三条件 exists 精确判定。", "删注册提取为 0 即 FAIL。"] },
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
