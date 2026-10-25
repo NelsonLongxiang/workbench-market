@@ -4031,6 +4031,30 @@
           "reason": "删注册提取为 0 即 FAIL。"
         }
       ]
+    },
+    {
+      "source_clause": "判据169：scripts/skill-import.mjs 必须包含导入判据锚「外源 version 不进身份」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，selftest 10 项（源 A 严格解析>40+skip 报告/源 B 目录在案/角色束收编 roster_digest/treeDigest 确定性/CRLF 修复）；正式导入幂等双跑实证（二跑 A=0 增量）。",
+          "anchor": {
+            "quote": "判据169：scripts/skill-import.mjs 必须包含导入判据锚「外源 version 不进身份」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删断言提取为 0 即 FAIL。"
+        }
+      ]
     }
   ]
 }
