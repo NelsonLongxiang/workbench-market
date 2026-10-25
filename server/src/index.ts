@@ -1979,7 +1979,13 @@ installPortal(app, wbById, { serveApp, readActiveManifest, renderSopRunner, apps
 const webDist = join(here, '..', '..', 'web', 'dist');
 if (existsSync(webDist)) {
   app.use(express.static(webDist));
-  app.get(/^(?!\/api\/).*/, (_req, res) => { res.sendFile(join(webDist, 'index.html')); });
+  // SPA fallback 只兜「路由路径」：静态资源（/assets/*、带扩展名文件）不存在的直接 404——
+  // 否则旧缓存 index.html 引用的已删 hash 会被回成 200 text/html，前端炸 MIME 错且难定位（实盘踩坑）
+  app.get(/^(?!\/api\/|\/assets\/).*/, (_req, res, next) => {
+    if (/\.[A-Za-z0-9]+$/.test(_req.path)) return next(); // 带扩展名的文件请求不兜底
+    res.sendFile(join(webDist, 'index.html'));
+  });
+  app.use((_req, res) => res.status(404).json({ error: 'not found' }));
 }
 
 // ---------- 统一错误出口 ----------
