@@ -3959,6 +3959,54 @@
           "reason": "删表单提取为 0 即 FAIL。"
         }
       ]
+    },
+    {
+      "source_clause": "判据166：server/src/db.ts 必须包含技能市场四表锚「CREATE TABLE IF NOT EXISTS skills」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，四表=skills/skill_versions/role_bundles/install_ledger（方案 v1 §2 DDL 全文）。",
+          "anchor": {
+            "quote": "判据166：server/src/db.ts 必须包含技能市场四表锚「CREATE TABLE IF NOT EXISTS skills」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删表提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据167：scripts/skill-smoke.mjs 必须包含判据锚「digest 身份锚」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，10 项结构判据：四表存在/层族索引/版本不可变 UNIQUE/digest 唯一索引/三元唯一/ledger 锚四件——判据先红后绿（红版 9 失败在案）。",
+          "anchor": {
+            "quote": "判据167：scripts/skill-smoke.mjs 必须包含判据锚「digest 身份锚」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删断言提取为 0 即 FAIL。"
+        }
+      ]
     }
   ]
 }

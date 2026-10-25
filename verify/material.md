@@ -163,3 +163,5 @@
 判据163：web/src/pages/Sops.tsx 必须包含待验收视图锚「待验收任务」。
 判据164：server/src/index.ts 必须包含指派端点「/api/sop/runs/:id/assign」。
 判据165：web/src/pages/Tasks.tsx 必须包含发布表单锚「发布任务」。
+判据166：server/src/db.ts 必须包含技能市场四表锚「CREATE TABLE IF NOT EXISTS skills」。
+判据167：scripts/skill-smoke.mjs 必须包含判据锚「digest 身份锚」。
