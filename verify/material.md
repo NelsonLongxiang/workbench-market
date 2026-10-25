@@ -165,3 +165,4 @@
 判据165：web/src/pages/Tasks.tsx 必须包含发布表单锚「发布任务」。
 判据166：server/src/db.ts 必须包含技能市场四表锚「CREATE TABLE IF NOT EXISTS skills」。
 判据167：scripts/skill-smoke.mjs 必须包含判据锚「digest 身份锚」。
+判据168：server/src/context.ts 必须包含「SkillService」。

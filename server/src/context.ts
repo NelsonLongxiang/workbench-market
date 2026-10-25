@@ -16,6 +16,7 @@ import { McpService } from './services/mcp.ts';
 import { CookieService } from './services/cookie.ts';
 import { CockpitService } from './services/cockpit.ts';
 import { SettingService } from './services/setting.ts';
+import { SkillService } from './services/skill.ts';
 
 /** 数据库连接服务：唯一持有 db 的地方（其余服务经注入取用）。 */
 export class DbService extends Service {
@@ -29,7 +30,7 @@ export const ctx = new Context();
 
 // 八域 + db：全部注册（顺序不影响语义，Cordis 按名解析）。
 // ctx.plugin 异步装配，等全部就绪再交出模块——否则 index.ts 的 listen 回调里 svc() 取到 undefined（#32）
-await Promise.all([DbService, WorkbenchService, SopService, AppService, AppDataService, McpService, CookieService, CockpitService, SettingService].map((P) => ctx.plugin(P as never)));
+await Promise.all([DbService, WorkbenchService, SopService, AppService, AppDataService, McpService, CookieService, CockpitService, SettingService, SkillService].map((P) => ctx.plugin(P as never)));
 
 /** 便捷取用：`svc<WorkbenchService>('workbench')` */
 export function svc<T>(name: string): T {
