@@ -3240,7 +3240,7 @@
               {
                 "col": "needle",
                 "op": "=",
-                "value": "170 条判据"
+                "value": "171 条判据"
               },
               {
                 "col": "present",
@@ -5893,6 +5893,45 @@
                 "col": "needle",
                 "op": "=",
                 "value": "生产种子在库"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据171：scripts/skill-publish-smoke.mjs 必须包含发布面锚「digest 锚（同内容拒 409）」。",
+      "anchor": {
+        "quote": "判据171：scripts/skill-publish-smoke.mjs 必须包含发布面锚「digest 锚（同内容拒 409）」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "P0-b 发布面钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "scripts/skill-publish-smoke.mjs"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "digest 锚（同内容拒 409）"
               },
               {
                 "col": "present",
