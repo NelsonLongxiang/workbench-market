@@ -1,6 +1,6 @@
-/** 技能市场服务域（P0-a-2 · 方案 PR#57 §2）：skills/skill_versions/role_bundles/install_ledger
- *  数据访问收口——与八域同纪律：SQL 原文自方案 DDL 语义直出，服务方法不做业务裁决。 */
+/** 技能市场服务域（P0-a-2 建立 · P0-b 扩发布面）：数据访问收口，方法不做业务裁决。 */
 import { Service } from '@deepseek-ai/cordis';
+import { createHash } from 'node:crypto';
 import { db } from '../db.ts';
 
 export class SkillService extends Service {
@@ -46,6 +46,19 @@ export class SkillService extends Service {
   }
   versionsMax(skillId: number) {
     return db.prepare('SELECT MAX(version) AS v FROM skill_versions WHERE skill_id = ?').get(skillId);
+  }
+
+  /** P0-b 发布面：文件树摘要（排序相对路径+内容，/ 归一）——与导入器 treeDigest 同构 */
+  static filesDigest(files: { path: string; content: string }[]): { digest: string; fileCount: number; totalBytes: number } {
+    const sorted = [...files].sort((a, b) => a.path.localeCompare(b.path));
+    const h = createHash('sha256');
+    let bytes = 0;
+    for (const f of sorted) {
+      h.update(f.path.split('\\').join('/')); h.update('\0');
+      h.update(createHash('sha256').update(f.content, 'utf8').digest('hex')); h.update('\0');
+      bytes += Buffer.byteLength(f.content, 'utf8');
+    }
+    return { digest: h.digest('hex'), fileCount: sorted.length, totalBytes: bytes };
   }
 
   // ---- role_bundles ----
