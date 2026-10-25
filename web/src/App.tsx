@@ -1,6 +1,7 @@
+import React from 'react';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { ProLayout } from '@ant-design/pro-components';
-import {
+import { KeyOutlined,
   AppstoreOutlined,
   ClusterOutlined,
   DashboardOutlined,
@@ -20,6 +21,8 @@ import UseWorkbench from './pages/UseWorkbench';
 import Cockpit from './pages/Cockpit';
 import Sops from './pages/Sops';
 import McpGateways from './pages/McpGateways';
+import { getAdminToken, setAdminToken } from './admin-token';
+import { Badge, Button as AButton, Input as AInput, Popover } from 'antd';
 import Tasks from './pages/Tasks';
 import SkillsPage from './pages/Skills';
 
@@ -38,6 +41,37 @@ const menuRoutes = {
   ],
 };
 
+function AdminTokenBadge() {
+  const [open, setOpen] = React.useState(false);
+  const [val, setVal] = React.useState(getAdminToken());
+  const saved = getAdminToken() !== '';
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      trigger="click"
+      title="管理员口令（远程写操作需要）"
+      content={(
+        <div style={{ width: 260 }}>
+          <AInput.Password
+            defaultValue={val}
+            placeholder="ADMIN_TOKEN（会话级存储，关闭浏览器即失效）"
+            onChange={(e) => setVal(e.target.value)}
+          />
+          <div style={{ marginTop: 8, textAlign: 'right' }}>
+            <AButton size="small" type="primary" onClick={() => { setAdminToken(val.trim()); setOpen(false); }}>保存</AButton>
+          </div>
+          <div style={{ marginTop: 4, fontSize: 12, color: '#999' }}>本机 127.0.0.1 访问通常无需口令</div>
+        </div>
+      )}
+    >
+      <AButton size="small" icon={<KeyOutlined />} type={saved ? 'primary' : 'default'} ghost={saved}>
+        {saved ? '口令已设' : '口令'}
+      </AButton>
+    </Popover>
+  );
+}
+
 export default function App() {
   const location = useLocation();
 
@@ -52,6 +86,7 @@ export default function App() {
 
   return (
     <ProLayout
+      headerRender={() => <AdminTokenBadge />}
       title="工作台市场"
       logo={<AppstoreOutlined style={{ fontSize: 26, color: '#059669' }} />}
       layout="side"
