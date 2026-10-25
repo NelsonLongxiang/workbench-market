@@ -105,6 +105,7 @@ export default function App() {
           </span>
         </Link>
       )}
+      menuFooterRender={() => <AdminTokenBadge />}
       collapsedButtonRender={(collapsed) => (
         <span className="wm-sider-collapse">{collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}</span>
       )}
