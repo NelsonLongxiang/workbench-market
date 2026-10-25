@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Card, Input, Segmented, Space, Table, Tag, Typography } from 'antd';
+import { Card, Input, Progress, Segmented, Space, Table, Tag, Timeline, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { PageContainer } from '@ant-design/pro-components';
 
@@ -71,6 +71,21 @@ export default function SkillsPage() {
   return (
     <PageContainer title="技能市场" subTitle="五层治理 · 版本不可变 · digest 身份锚（只读浏览，发布走 CLI/口令）" className="wm-page">
       <Card>
+        {/* 分层统计卡（五层治理：每层数量 + legacy 占比条，点击过滤） */}
+        <Space wrap size={8} style={{ marginBottom: 10 }}>
+          {LAYERS.filter((l) => l.value > 0).map((l) => {
+            const items = rows.filter((r) => r.layer === l.value);
+            const legacy = items.filter((r) => r.legacy).length;
+            const pct = items.length ? Math.round((legacy / items.length) * 100) : 0;
+            return (
+              <Card key={l.value} size="small" style={{ width: 150, cursor: 'pointer' }} onClick={() => setLayer(l.value)}>
+                <Typography.Text type="secondary" style={{ fontSize: 11 }}>{l.label}</Typography.Text>
+                <div style={{ fontSize: 22, fontWeight: 600, lineHeight: 1.3 }}>{items.length}</div>
+                {legacy > 0 && <Progress percent={pct} size="small" format={() => `legacy ${legacy}`} />}
+              </Card>
+            );
+          })}
+        </Space>
         <Space wrap style={{ marginBottom: 12 }}>
           <Segmented options={LAYERS} value={layer} onChange={(v) => setLayer(v as number)} />
           <Input.Search placeholder="搜索名称/描述" allowClear style={{ width: 240 }} onSearch={setQ} />
@@ -79,8 +94,27 @@ export default function SkillsPage() {
         <Table rowKey="slug" size="small" columns={cols} dataSource={shown} loading={loading} pagination={{ pageSize: 20 }} />
       </Card>
       {versionsOf && (
-        <Card size="small" title={`版本链：${versionsOf}（newest-first）`} style={{ marginTop: 12 }} extra={<a onClick={() => setVersionsOf(null)}>关闭</a>}>
-          <Table rowKey="id" size="small" columns={vcols} dataSource={versions} pagination={false} />
+        <Card size="small" title={`版本链：${versionsOf}`} style={{ marginTop: 12 }} extra={<a onClick={() => setVersionsOf(null)}>关闭</a>}>
+          <Timeline
+            items={versions.map((v) => ({
+              color: v.breaking ? 'red' : 'green',
+              children: (
+                <div>
+                  <Space size={8} wrap>
+                    <Tag color={v.breaking ? 'red' : 'green'}>v{v.version}{v.breaking ? ' ⚠breaking' : ''}</Tag>
+                    <Typography.Text style={{ fontSize: 13 }}>{v.changelog || '(no changelog)'}</Typography.Text>
+                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>{v.created_at?.slice(0, 16)}</Typography.Text>
+                  </Space>
+                  <div style={{ marginTop: 4 }}>
+                    <Typography.Text code style={{ fontSize: 11 }}>{v.tree_digest?.slice(0, 20)}…</Typography.Text>
+                    <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
+                      {v.file_count} 文件 · {(v.total_bytes / 1024).toFixed(1)}KB{v.reviewed_by ? ` · 人审 ${v.reviewed_by}` : ''}
+                    </Typography.Text>
+                  </div>
+                </div>
+              ),
+            }))}
+          />
         </Card>
       )}
     </PageContainer>
