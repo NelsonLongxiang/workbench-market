@@ -151,4 +151,21 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
     description: '解除工作台注册（不删服务本体；驾驶舱面板引用联动清理）。',
     inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'], additionalProperties: false },
   },
+  // ── 技能市场（P1-a · 方案 PR#57 §1：只读+计划生成，分发薄做） ──
+  {
+    name: 'skills_list',
+    description: '列出市场技能（可按 layer 1-5 过滤：1业务角色/2开发运维/3工作流/4架构设计/5AI原生运营），返回 slug/name/layer/族/版本数——市场技能目录入口。',
+    inputSchema: { type: 'object', properties: { layer: { type: 'number', description: '分层过滤 1-5（缺省全量）' }, q: { type: 'string', description: '名称/描述关键词' } } },
+  },
+  {
+    name: 'skill_versions',
+    description: '查某技能版本链（newest-first）：version/changelog/breaking/tree_digest/snapshot_path/reviewed_by——版本不可变审计面。',
+    inputSchema: { type: 'object', properties: { slug: { type: 'string', description: '技能 slug（如 agents:brand）' } }, required: ['slug'] },
+  },
+  {
+    name: 'skill_install_plan',
+    description: '生成安装计划（薄分发：不自动落盘）——返回目标版本 digest（expected sha256 钉装锚）+ 快照路径 + 手工安装指引。',
+    inputSchema: { type: 'object', properties: { slug: { type: 'string' }, version: { type: 'number', description: '缺省最新' } }, required: ['slug'] },
+  },
+
 ];
