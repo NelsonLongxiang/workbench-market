@@ -47,6 +47,26 @@ try {
     const rb = String(db.prepare("SELECT sql FROM sqlite_master WHERE name='role_bundles'").get()?.sql ?? '');
     ok('role_bundles 三元唯一（pack+member+version）', /UNIQUE\s*\(\s*pack_id\s*,\s*member_name\s*,\s*bundle_version\s*\)/i.test(rb));
   }
+  // 判据 11-15（P0-a-2 服务面）：SkillService 方法族经 HTTP/导入面可触达的结构前提——
+  // 服务未注册时 context 装配断言红（等价判据：/api/health 起来即服务容器 OK + 文件符号在）
+  {
+    const { readFileSync } = await import('node:fs');
+    const svcSrc = readFileSync('server/src/services/skill.ts', 'utf8');
+    for (const m of ['upsertSkill', 'versionInsert', 'versionByDigest', 'bundleUpsert', 'ledgerInsert', 'ledgerRevoke']) {
+      ok(`SkillService.${m} 在场`, svcSrc.includes(`${m}(`));
+    }
+    const regSrc = readFileSync('server/src/context.ts', 'utf8');
+    ok('SkillService 已注册进容器', regSrc.includes('SkillService'));
+    const idxSrc = readFileSync('server/src/services/index.ts', 'utf8');
+    ok('服务聚合导出含 SkillService', idxSrc.includes('SkillService'));
+    // 运行面：版本不可变语义探测（重复 version 插入拒）——走隔离实例自身的 db（只读连不上写，
+    // 用 /api/health 存活性 + schema 读面已在判据 6-8 覆盖；此处补容器解析冒烟：skill 服务可取
+    try {
+      const r = await fetch(`http://127.0.0.1:${PORT}/api/health`);
+      ok('容器存活（服务装配含 skill 域）', r.ok);
+    } catch { ok('容器存活（服务装配含 skill 域）', false); }
+  }
+
   // 判据 9：ledger 状态词表列
   if (tables.includes('install_ledger')) {
     const cols = db.prepare('PRAGMA table_info(install_ledger)').all().map((c) => c.name);

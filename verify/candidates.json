@@ -3240,7 +3240,7 @@
               {
                 "col": "needle",
                 "op": "=",
-                "value": "167 条判据"
+                "value": "168 条判据"
               },
               {
                 "col": "present",
@@ -5776,6 +5776,45 @@
                 "col": "needle",
                 "op": "=",
                 "value": "digest 身份锚"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据168：server/src/context.ts 必须包含「SkillService」。",
+      "anchor": {
+        "quote": "判据168：server/src/context.ts 必须包含「SkillService」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "SkillService 容器注册钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/context.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "SkillService"
               },
               {
                 "col": "present",
