@@ -3240,7 +3240,7 @@
               {
                 "col": "needle",
                 "op": "=",
-                "value": "168 条判据"
+                "value": "169 条判据"
               },
               {
                 "col": "present",
@@ -5815,6 +5815,45 @@
                 "col": "needle",
                 "op": "=",
                 "value": "SkillService"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据169：scripts/skill-import.mjs 必须包含导入判据锚「外源 version 不进身份」。",
+      "anchor": {
+        "quote": "判据169：scripts/skill-import.mjs 必须包含导入判据锚「外源 version 不进身份」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "双源导入器钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "scripts/skill-import.mjs"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "外源 version 不进身份"
               },
               {
                 "col": "present",
