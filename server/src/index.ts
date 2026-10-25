@@ -1125,6 +1125,56 @@ app.get('/api/tasks', wrap(async (_req, res) => {
   res.json(payload);
 }));
 
+// ---------- 技能市场钉装与审计（P1-b · 方案 §1：市场侧 manifest+校验 API+巡检，不动 DSH catalog）----------
+app.post('/api/skills/:slug/install', wrap(async (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const S = svc<SkillService>('skill');
+  const row = S.skillBySlug(String(req.params.slug ?? ''));
+  if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
+  const vs = S.versionsBySkill(row.id) as any[];
+  const target = typeof req.body?.version === 'number' ? vs.find((v) => v.version === req.body.version) : vs[0];
+  if (!target) throw new HttpError(404, `无版本`);
+  S.ledgerInsert({ skillId: row.id, versionId: target.id, expectedDigest: target.tree_digest, installedPath: String(req.body?.installed_path ?? target.snapshot_path), installedBy: String(req.body?.installed_by ?? '') });
+  const ledger = S.ledgerActive() as any[];
+  const mine = ledger.find((l) => l.skill_id === row.id && l.version_id === target.id && l.status === 'installed');
+  res.status(201).json({ ok: true, slug: row.slug, version: target.version, ledger_id: mine?.id, expected_digest: target.tree_digest, installed_path: mine?.installed_path });
+}));
+
+// 装载校验（方案 P1-b 边界：市场侧 API+巡检，不动 DSH catalog）
+app.get('/api/skills/:slug/verify', wrap(async (req, res) => {
+  const S = svc<SkillService>('skill');
+  const row = S.skillBySlug(String(req.params.slug ?? ''));
+  if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
+  const ledger = (S.ledgerActive() as any[]).find((l) => l.skill_id === row.id);
+  if (!ledger) return res.json({ ok: null, note: '无钉装记录（未安装）' });
+  const [{ readdirSync, readFileSync }, { join }, { createHash }] = await Promise.all([import('node:fs'), import('node:path'), import('node:crypto')]);
+  const root = ledger.installed_path;
+  const files: string[] = [];
+  (function walk(d: string) { for (const e of readdirSync(d, { withFileTypes: true })) { const p = join(d, e.name); if (e.isDirectory()) walk(p); else files.push(p); } })(root);
+  files.sort();
+  const h = createHash('sha256');
+  for (const p of files) {
+    h.update(p.slice(root.length + 1).split('\\').join('/')); h.update('\0');
+    h.update(createHash('sha256').update(readFileSync(p)).digest('hex')); h.update('\0');
+  }
+  const actual = h.digest('hex');
+  res.json({ ok: actual === ledger.expected_digest, expected: ledger.expected_digest, actual, checked_files: files.length });
+}));
+
+app.post('/api/skills/:slug/install/:ledgerId/revoke', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const S = svc<SkillService>('skill');
+  S.ledgerRevoke(Number(req.params.ledgerId));
+  res.json({ ok: true, ledger_id: Number(req.params.ledgerId), status: 'revoked' });
+});
+
+// role-pack 展开清单（bundle→技能清单，上岗即装）
+app.get('/api/skills/role-packs', (_req, res) => {
+  const S = svc<SkillService>('skill');
+  const rows = S.bundlesAll() as any[];
+  res.json(rows.map((b) => ({ pack_id: b.pack_id, member_name: b.member_name, bundle_version: b.bundle_version, skill_slugs: JSON.parse(b.skill_slugs || '[]'), roster_digest: b.roster_digest })));
+});
+
 // ---------- 技能市场浏览面（P1-a：/api/skills 只读列表，供管理页） ----------
 app.get('/api/skills', (_req, res) => {
   const S = svc<SkillService>('skill');
@@ -1161,7 +1211,7 @@ app.post('/api/skills/:slug/versions', wrap(async (req, res) => {
   mkdirSync(snapDir, { recursive: true });
   for (const f of files) writeFileSync(join(snapDir, f.path), f.content, 'utf8');
   S.versionInsert({ skillId: row.id, version: nextVer, changelog, treeDigest: t.digest, fileCount: t.fileCount, totalBytes: t.totalBytes, snapshotPath: snapDir, reviewedBy });
-  res.status(201).json({ ok: true, slug, version: nextVer, tree_digest: t.digest, file_count: t.fileCount, total_bytes: t.totalBytes });
+  res.status(201).json({ ok: true, slug, version: nextVer, tree_digest: t.digest, file_count: t.fileCount, total_bytes: t.totalBytes, snapshot_path: snapDir });
 }));
 
 app.get('/api/skills/:slug/versions', (req, res) => {
