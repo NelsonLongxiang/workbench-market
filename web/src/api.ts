@@ -1,12 +1,20 @@
 import type { Cockpit, ExportPayload, PanelConfig, SopApp, SopRun, Summary, Workbench, WorkbenchDraft, WorkbenchType } from './types';
+import { getAdminToken } from './admin-token';
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
+  const token = getAdminToken();
+  const baseHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) baseHeaders['X-Admin-Token'] = token; // 全局口令（direct-92be192a）：一处输入全页面写请求自动携带
   const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
     ...init,
+    headers: { ...baseHeaders, ...(init?.headers as Record<string, string> | undefined) },
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((body as { error?: string }).error || `HTTP ${res.status}`);
+  if (!res.ok) {
+    const err = new Error((body as { error?: string }).error || `HTTP ${res.status}`) as Error & { needAdminToken?: boolean };
+    if (res.status === 401 || res.status === 403) err.needAdminToken = true; // 前端可捕获弹口令输入
+    throw err;
+  }
   return body as T;
 }
 
