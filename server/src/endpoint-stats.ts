@@ -52,9 +52,16 @@ export function endpointStatsMiddleware(): express.RequestHandler {
     next();
     res.on('finish', () => {
       try {
+        // R1 关缝（direct-e9059b62）：内部活性探测（评审席 sup-live.mjs 带 X-Internal-Probe: 1）不计入采纳
+        if (String(req.headers['x-internal-probe'] ?? '') === '1') return;
         // 只计命中业务路由且非 404 的请求：任意路径的 404 与远程收口 403 不入库，键空间不随外部输入无界增长（#39）
-        if (!req.route || res.statusCode === 404) return;
-        if (!url.startsWith('/api/') && url !== '/tasks') return;
+        if (!req.route && !/^\/go\/\d+/.test(url)) return; // 门户路径无路由对象，单独放行
+        if (res.statusCode === 404) return;
+        // 门户面计数（direct-53caaed3 关缝）：/go/<id>/* 归一为 /go/:id——台维度天然可聚合。
+        // 注：/go/ 非业务路由（无 req.route），放行条件单列
+        const isPortal = /^\/go\/\d+/.test(url);
+        if (!url.startsWith('/api/') && url !== '/tasks' && !isPortal) return;
+        if (isPortal && res.statusCode >= 400) return; // 门户 4xx/5xx 不计入活跃
         if (url === '/api/stats') return; // 自身不计
         const key = `${normalizeEndpoint(url)}|${new Date().toISOString().slice(0, 10)}`;
         pending.set(key, (pending.get(key) ?? 0) + 1);
