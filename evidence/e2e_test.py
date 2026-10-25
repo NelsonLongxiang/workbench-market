@@ -115,9 +115,16 @@ with sync_playwright() as p:
         record('仪表盘渲染（统计卡/操作）', False, str(e)); shot('dashboard')
 
     # ---------- 2. 市场页：新增（含校验失败分支） ----------
-    page.goto(BASE + '/market')
-    page.wait_for_load_state('networkidle')
-    page.wait_for_timeout(800)
+    # goto 入 try + 失败 dump HTML：主区空（chunk 加载中断）时现场可诊断（E2E 劣化调查增强）
+    try:
+        page.goto(BASE + '/market', wait_until='domcontentloaded', timeout=30000)
+        page.wait_for_load_state('networkidle', timeout=15000)
+        page.wait_for_timeout(800)
+    except Exception as e:
+        record('新增工作台流程', False, f'goto/idle 失败: {e}'); shot('market-goto')
+        with open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'fail-market-goto.html'), 'w', encoding='utf-8') as _hf:
+            _hf.write(page.content())
+        raise
 
     try:
         page.get_by_role('button', name='新增工作台').click()
