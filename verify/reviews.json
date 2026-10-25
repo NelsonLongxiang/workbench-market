@@ -4103,6 +4103,54 @@
           "reason": "删断言提取为 0 即 FAIL。"
         }
       ]
+    },
+    {
+      "source_clause": "判据172：server/src/mcp-tools.ts 必须包含三工具锚「skill_install_plan」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，skills_list/skill_versions/skill_install_plan 三工具（只读+计划生成，薄分发裁定）——冒烟 8 项先红 6 失败→8/8（种子发布→列表/版本链/计划含 digest）。",
+          "anchor": {
+            "quote": "判据172：server/src/mcp-tools.ts 必须包含三工具锚「skill_install_plan」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删工具提取为 0 即 FAIL。"
+        }
+      ]
+    },
+    {
+      "source_clause": "判据173：web/src/pages/Skills.tsx 必须存在且包含锚「技能市场」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，/skills 页：五层 Segmented 过滤+搜索+版本链展开（digest 展示）——只读浏览，发布走 CLI/口令（薄分发）。REST /api/skills 51 行种子实证。",
+          "anchor": {
+            "quote": "判据173：web/src/pages/Skills.tsx 必须存在且包含锚「技能市场」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删页面提取为 0 即 FAIL。"
+        }
+      ]
     }
   ]
 }
