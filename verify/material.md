@@ -171,3 +171,4 @@
 判据171：scripts/skill-publish-smoke.mjs 必须包含发布面锚「digest 锚（同内容拒 409）」。
 判据172：server/src/mcp-tools.ts 必须包含三工具锚「skill_install_plan」。
 判据173：web/src/pages/Skills.tsx 必须存在且包含锚「技能市场」。
+判据174：scripts/skill-install-smoke.mjs 必须包含钉装锚「篡改后校验红」。

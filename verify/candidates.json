@@ -3240,7 +3240,7 @@
               {
                 "col": "needle",
                 "op": "=",
-                "value": "173 条判据"
+                "value": "174 条判据"
               },
               {
                 "col": "present",
@@ -6010,6 +6010,45 @@
                 "col": "needle",
                 "op": "=",
                 "value": "技能市场"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据174：scripts/skill-install-smoke.mjs 必须包含钉装锚「篡改后校验红」。",
+      "anchor": {
+        "quote": "判据174：scripts/skill-install-smoke.mjs 必须包含钉装锚「篡改后校验红」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "P1-b 钉装审计钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "scripts/skill-install-smoke.mjs"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "篡改后校验红"
               },
               {
                 "col": "present",
