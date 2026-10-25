@@ -153,7 +153,7 @@ const U = [
   { c: "判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-probe」。", t: "运行时批行为断言钉位", s: "S1", ck: existsFact("scripts/import-smoke.mjs", "e2e-import-probe"), rv: ["判据原文逐字取自冻结材料，导入冒烟（独立实例，7 项）覆盖 query replace 语义/内部路径行不丢/悬空面板 prune/掩码行跳过/body mode 等价；E2E 组 19 subprocess 调用——replace 全表清写不再碰活库（84 事故 ×3 根治）。", "提取表三条件 exists 精确判定。", "删探针提取为 0 即 FAIL。"] },
   // ── 卫生批（外部评审 #12/#13：README 一致性 + 干净克隆自愈） ──
   { c: "判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。", t: "提交物脚本自愈钉位", s: "S1", ck: existsFact("scripts/make-submission.mjs", "issue #13"), rv: ["判据原文逐字取自冻结材料，VACUUM INTO 前 mkdirSync(tmp) 幂等创建——干净克隆无 tmp/ 不再必然失败（评审 #13）。", "提取表三条件 exists 精确判定。", "删自愈提取为 0 即 FAIL。"] },
-  { c: "判据102：README.md 必须包含验证器判据数锚「144 条判据」。", t: "README 版本一致钉位", s: "S2", ck: existsFact("README.md", "171 条判据"), rv: ["判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12——锚用判据数，比版本号锚少一次升版漂移）。", "提取表三条件 exists 精确判定。", "版本漂移提取为 0 即 FAIL。"] },
+  { c: "判据102：README.md 必须包含验证器判据数锚「144 条判据」。", t: "README 版本一致钉位", s: "S2", ck: existsFact("README.md", "173 条判据"), rv: ["判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12——锚用判据数，比版本号锚少一次升版漂移）。", "提取表三条件 exists 精确判定。", "版本漂移提取为 0 即 FAIL。"] },
   // ── A2A 网络接入 P1（GH #17：签名卡片 + 人工绑定，只读暴露） ──
   { c: "判据103：server/src/a2a.ts 必须直接依赖官方卡片库「@nelsonlongxiang/dsh-open-a2a-net/card」。", t: "A2A 卡片签名钉位", s: "S1", ck: existsFact("server/src/a2a.ts", "@nelsonlongxiang/dsh-open-a2a-net/card"), rv: ["判据原文逐字取自冻结材料，卡片签名/验签直接调用官方 card 子路径（#17 P5：镜像代码删除，协议 wire 由上游库保证）；Ed25519 + SPKI DER base64，expiresAt ≤ 48h，须过上游 verifyCard。", "提取表三条件 exists 精确判定。", "删签名面提取为 0 即 FAIL。"] },
   { c: "判据104：server/src/index.ts 必须包含绑定管理口令头「x-admin-token」。", t: "人工绑定口令钉位", s: "S1", ck: existsFact("server/src/index.ts", "x-admin-token"), rv: ["判据原文逐字取自冻结材料，绑定读写要 X-Admin-Token 常量时间比较（未设置一律 403）+ Origin 空或同源服务端校验；MCP 无绑定写工具；卡片不发布 teamMemberships（绑定图不出门）。", "提取表三条件 exists 精确判定。", "删口令校验提取为 0 即 FAIL。"] },
@@ -254,6 +254,9 @@ const U = [
   { c: "判据170：scripts/skill-smoke.mjs 必须包含种子收尾锚「生产种子在库」。", t: "种子收尾钉位", s: "S1", ck: existsFact("scripts/skill-smoke.mjs", "生产种子在库"), rv: ["判据原文逐字取自冻结材料，P0-a-4 收尾：种子判据 4 项先红（单层+快照缺）→生产正式导入（分层 1:9+5:42·快照 42·bundles 1）→23/23。", "提取表三条件 exists 精确判定。", "删断言提取为 0 即 FAIL。"] },
 
   { c: "判据171：scripts/skill-publish-smoke.mjs 必须包含发布面锚「digest 锚（同内容拒 409）」。", t: "P0-b 发布面钉位", s: "S1", ck: existsFact("scripts/skill-publish-smoke.mjs", "digest 锚（同内容拒 409）"), rv: ["判据原文逐字取自冻结材料，五断言（人审门/口令门/N+1 递增/digest 409/版本链不可变）先红 6 失败→端点实现 7/7。", "提取表三条件 exists 精确判定。", "删断言提取为 0 即 FAIL。"] },
+
+  { c: "判据172：server/src/mcp-tools.ts 必须包含三工具锚「skill_install_plan」。", t: "P1-a MCP 三工具钉位", s: "S1", ck: existsFact("server/src/mcp-tools.ts", "skill_install_plan"), rv: ["判据原文逐字取自冻结材料，skills_list/skill_versions/skill_install_plan 三工具（只读+计划生成，薄分发裁定）——冒烟 8 项先红 6 失败→8/8（种子发布→列表/版本链/计划含 digest）。", "提取表三条件 exists 精确判定。", "删工具提取为 0 即 FAIL。"] },
+  { c: "判据173：web/src/pages/Skills.tsx 必须存在且包含锚「技能市场」。", t: "P1-a 管理页钉位", s: "S1", ck: existsFact("web/src/pages/Skills.tsx", "技能市场"), rv: ["判据原文逐字取自冻结材料，/skills 页：五层 Segmented 过滤+搜索+版本链展开（digest 展示）——只读浏览，发布走 CLI/口令（薄分发）。REST /api/skills 51 行种子实证。", "提取表三条件 exists 精确判定。", "删页面提取为 0 即 FAIL。"] },
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
