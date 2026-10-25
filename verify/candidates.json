@@ -3240,7 +3240,7 @@
               {
                 "col": "needle",
                 "op": "=",
-                "value": "165 条判据"
+                "value": "167 条判据"
               },
               {
                 "col": "present",
@@ -5698,6 +5698,84 @@
                 "col": "needle",
                 "op": "=",
                 "value": "发布任务"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据166：server/src/db.ts 必须包含技能市场四表锚「CREATE TABLE IF NOT EXISTS skills」。",
+      "anchor": {
+        "quote": "判据166：server/src/db.ts 必须包含技能市场四表锚「CREATE TABLE IF NOT EXISTS skills」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "技能四表 DDL 钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/db.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "CREATE TABLE IF NOT EXISTS skills"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据167：scripts/skill-smoke.mjs 必须包含判据锚「digest 身份锚」。",
+      "anchor": {
+        "quote": "判据167：scripts/skill-smoke.mjs 必须包含判据锚「digest 身份锚」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "四表判据冒烟钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "scripts/skill-smoke.mjs"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "digest 身份锚"
               },
               {
                 "col": "present",

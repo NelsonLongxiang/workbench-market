@@ -181,6 +181,62 @@ CREATE TABLE IF NOT EXISTS app_files (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_app_files_slug ON app_files(app_slug, created_at);
+-- 技能市场四表（方案 v1 PR#57 · P0-a-1）
+CREATE TABLE IF NOT EXISTS skills (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  slug TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  layer INTEGER NOT NULL CHECK (layer BETWEEN 1 AND 5),
+  layer_name TEXT NOT NULL,
+  family_parent TEXT NOT NULL DEFAULT '',
+  description TEXT NOT NULL DEFAULT '',
+  argument_hint TEXT NOT NULL DEFAULT '',
+  author TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL,
+  legacy INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_skills_layer ON skills(layer);
+CREATE INDEX IF NOT EXISTS idx_skills_family ON skills(family_parent);
+CREATE TABLE IF NOT EXISTS skill_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  skill_id INTEGER NOT NULL REFERENCES skills(id),
+  version INTEGER NOT NULL,
+  changelog TEXT NOT NULL DEFAULT '',
+  breaking INTEGER NOT NULL DEFAULT 0,
+  tree_digest TEXT NOT NULL,
+  file_count INTEGER NOT NULL DEFAULT 0,
+  total_bytes INTEGER NOT NULL DEFAULT 0,
+  snapshot_path TEXT NOT NULL DEFAULT '',
+  reviewed_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(skill_id, version)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_skill_versions_digest ON skill_versions(tree_digest);
+CREATE TABLE IF NOT EXISTS role_bundles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pack_id TEXT NOT NULL,
+  member_name TEXT NOT NULL,
+  bundle_version INTEGER NOT NULL,
+  roster_digest TEXT NOT NULL,
+  prompt_soul TEXT NOT NULL DEFAULT '',
+  skill_slugs TEXT NOT NULL DEFAULT '[]',
+  snapshot_json TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(pack_id, member_name, bundle_version)
+);
+CREATE TABLE IF NOT EXISTS install_ledger (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  skill_id INTEGER NOT NULL REFERENCES skills(id),
+  version_id INTEGER NOT NULL REFERENCES skill_versions(id),
+  installed_at TEXT NOT NULL DEFAULT (datetime('now')),
+  expected_digest TEXT NOT NULL,
+  installed_path TEXT NOT NULL,
+  installed_by TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'installed' CHECK (status IN ('installed','revoked'))
+);
+
 `);
 
 // A2A P3 回执（评审席判据 network/a2a-receipt E1-E7）
