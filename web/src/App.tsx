@@ -21,6 +21,7 @@ import Cockpit from './pages/Cockpit';
 import Sops from './pages/Sops';
 import McpGateways from './pages/McpGateways';
 import Tasks from './pages/Tasks';
+import SkillsPage from './pages/Skills';
 
 const menuRoutes = {
   path: '/',
@@ -32,6 +33,7 @@ const menuRoutes = {
     { path: '/tasks', name: '统一待办', icon: <CarryOutOutlined /> },
     { path: '/mcp-gateways', name: 'MCP 网关', icon: <SafetyCertificateOutlined /> },
     { path: '/types', name: '类型管理', icon: <ClusterOutlined /> },
+    { path: '/skills', name: '技能市场', icon: <CarryOutOutlined /> },
     { path: '/settings', name: '设置', icon: <SettingOutlined /> },
   ],
 };
@@ -92,6 +94,7 @@ export default function App() {
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/mcp-gateways" element={<McpGateways />} />
         <Route path="/types" element={<Types />} />
+        <Route path="/skills" element={<SkillsPage />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

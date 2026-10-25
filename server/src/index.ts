@@ -1125,6 +1125,13 @@ app.get('/api/tasks', wrap(async (_req, res) => {
   res.json(payload);
 }));
 
+// ---------- 技能市场浏览面（P1-a：/api/skills 只读列表，供管理页） ----------
+app.get('/api/skills', (_req, res) => {
+  const S = svc<SkillService>('skill');
+  const rows = S.skillsAll() as any[];
+  res.json(rows.map((r) => ({ slug: r.slug, name: r.name, layer: r.layer, layer_name: r.layer_name, family_parent: r.family_parent, description: r.description, legacy: r.legacy === 1, versions: (S.versionsBySkill(r.id) as any[]).length })));
+});
+
 // ---------- 技能市场发布面（P0-b · 方案 PR#57 §1：口令门+首版人审+N+1 快照+digest 锚）----------
 app.post('/api/skills/:slug/versions', wrap(async (req, res) => {
   if (!adminGuard(req, res)) return; // 口令门（方案裁定：复用 X-Admin-Token）
@@ -1627,6 +1634,33 @@ const MCP_KNOWN_PROTOCOLS = ['2024-11-05', '2025-03-26', '2025-06-18'];
 
 async function callTool(name: string, args: any): Promise<unknown> {
   switch (name) {
+    case 'skills_list': {
+      const S = svc<SkillService>('skill');
+      let rows = S.skillsAll() as any[];
+      if (typeof args?.layer === 'number' && args.layer >= 1 && args.layer <= 5) rows = rows.filter((r) => r.layer === args.layer);
+      if (typeof args?.q === 'string' && args.q) { const k = args.q.toLowerCase(); rows = rows.filter((r) => `${r.name} ${r.description}`.toLowerCase().includes(k)); }
+      return rows.slice(0, 200).map((r) => ({ slug: r.slug, name: r.name, layer: r.layer, layer_name: r.layer_name, family_parent: r.family_parent, legacy: r.legacy === 1, versions: (S.versionsBySkill(r.id) as any[]).length }));
+    }
+    case 'skill_versions': {
+      const S = svc<SkillService>('skill');
+      const row = S.skillBySlug(String(args?.slug ?? ''));
+      if (!row) return { error: `skill not found: ${args?.slug}` };
+      return S.versionsBySkill(row.id);
+    }
+    case 'skill_install_plan': {
+      const S = svc<SkillService>('skill');
+      const row = S.skillBySlug(String(args?.slug ?? ''));
+      if (!row) return { error: `skill not found: ${args?.slug}` };
+      const vs = S.versionsBySkill(row.id) as any[];
+      if (vs.length === 0) return { error: `无版本：${args?.slug}` };
+      const target = typeof args?.version === 'number' ? vs.find((v) => v.version === args.version) : vs[0];
+      if (!target) return { error: `版本不存在：v${args?.version}` };
+      return {
+        slug: row.slug, version: target.version, tree_digest: target.tree_digest, snapshot_path: target.snapshot_path,
+        expected_sha256: target.tree_digest,
+        install_hint: `薄分发（手工落盘）：复制 ${target.snapshot_path} → 目标技能目录；以 expected_sha256 钉装校验`,
+      };
+    }
     case 'workbench_list': {
       let list = listWorkbenches();
       if (args?.q) { const s = String(args.q).toLowerCase(); list = list.filter((w) => w.name.toLowerCase().includes(s) || w.url.toLowerCase().includes(s) || (w.description || '').toLowerCase().includes(s)); }

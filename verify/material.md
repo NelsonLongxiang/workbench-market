@@ -169,3 +169,5 @@
 判据169：scripts/skill-import.mjs 必须包含导入判据锚「外源 version 不进身份」。
 判据170：scripts/skill-smoke.mjs 必须包含种子收尾锚「生产种子在库」。
 判据171：scripts/skill-publish-smoke.mjs 必须包含发布面锚「digest 锚（同内容拒 409）」。
+判据172：server/src/mcp-tools.ts 必须包含三工具锚「skill_install_plan」。
+判据173：web/src/pages/Skills.tsx 必须存在且包含锚「技能市场」。
