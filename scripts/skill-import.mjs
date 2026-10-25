@@ -131,11 +131,21 @@ if (!DRY) {
     const row = S.skillBySlug(`agents:${r.name}`);
     const exist = S.versionsBySkill(row.id)[0];
     if (exist?.tree_digest === t.digest) continue;
-    S.versionInsert({ skillId: row.id, version: (S.versionsMax(row.id)?.v ?? 0) + 1, changelog: `import ${new Date().toISOString().slice(0, 10)}`, treeDigest: t.digest, fileCount: t.fileCount, totalBytes: t.totalBytes, reviewedBy: 'importer' });
+    const ver = (S.versionsMax(row.id)?.v ?? 0) + 1;
+    // 快照落盘（方案 §1 P0-b 语义前置到种子导入：首版即快照）
+    const { cpSync, mkdirSync } = await import('node:fs');
+    const snapDir = `server/data/skill-snapshots/${encodeURIComponent(r.name)}/v${ver}`;
+    mkdirSync(snapDir, { recursive: true });
+    cpSync(join(AGENTS_SKILLS, r.dir), snapDir, { recursive: true });
+    S.versionInsert({ skillId: row.id, version: ver, changelog: `import ${new Date().toISOString().slice(0, 10)}`, treeDigest: t.digest, fileCount: t.fileCount, totalBytes: t.totalBytes, snapshotPath: snapDir, reviewedBy: 'importer' });
     report.a.imported++;
   }
   for (const r of scanJfSkills()) {
-    if (!r.name) { report.b.skipped.push(r.dir); continue; }
+    if (!r.name) { // markdown 标题式变体：legacy 元数据登记（方案「遗产只登记不快照」）
+      S.upsertSkill({ slug: `jf:${r.dir}`, name: r.dir, layer: LAYER.B, layerName: '业务角色层', source: 'jf-tech', legacy: 1 });
+      report.b.imported++;
+      continue;
+    }
     S.upsertSkill({ slug: `jf:${r.name}`, name: r.name, layer: LAYER.B, layerName: '业务角色层', description: r.description, argumentHint: r.argumentHint, author: r.author, source: 'jf-tech' });
     const row = S.skillBySlug(`jf:${r.name}`);
     if ((S.versionsMax(row.id)?.v ?? 0) === 0) {

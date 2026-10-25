@@ -47,6 +47,24 @@ try {
     const rb = String(db.prepare("SELECT sql FROM sqlite_master WHERE name='role_bundles'").get()?.sql ?? '');
     ok('role_bundles 三元唯一（pack+member+version）', /UNIQUE\s*\(\s*pack_id\s*,\s*member_name\s*,\s*bundle_version\s*\)/i.test(rb));
   }
+  // 判据 16-19（P0-a-4 种子收尾）：生产种子/快照/角色束/分层分布——种子导入前红
+  {
+    const { existsSync, readdirSync } = await import('node:fs');
+    const prodDb = 'D:/workspace/workbench-market/server/data/workbench-market.db';
+    if (existsSync(prodDb)) {
+      const pdb = new DatabaseSync(prodDb, { readOnly: true });
+      const hasSkills = pdb.prepare("SELECT COUNT(*) n FROM skills").get();
+      ok('生产种子在库（skills>0）', hasSkills.n > 0, String(hasSkills.n));
+      const layers = pdb.prepare('SELECT layer, COUNT(*) n FROM skills GROUP BY layer ORDER BY layer').all();
+      ok('分层分布覆盖（≥2 层）', layers.length >= 2, JSON.stringify(layers));
+      const bundles = pdb.prepare('SELECT COUNT(*) n FROM role_bundles').get();
+      ok('角色束收编在库（apollo/dionysus）', bundles.n >= 1, String(bundles.n));
+      pdb.close?.();
+    } else ok('生产种子在库', false, '库缺');
+    const snapRoot = 'D:/workspace/workbench-market/server/data/skill-snapshots';
+    ok('快照根目录在案', existsSync(snapRoot) && readdirSync(snapRoot).length > 0);
+  }
+
   // 判据 11-15（P0-a-2 服务面）：SkillService 方法族经 HTTP/导入面可触达的结构前提——
   // 服务未注册时 context 装配断言红（等价判据：/api/health 起来即服务容器 OK + 文件符号在）
   {

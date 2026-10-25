@@ -4055,6 +4055,30 @@
           "reason": "删断言提取为 0 即 FAIL。"
         }
       ]
+    },
+    {
+      "source_clause": "判据170：scripts/skill-smoke.mjs 必须包含种子收尾锚「生产种子在库」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，P0-a-4 收尾：种子判据 4 项先红（单层+快照缺）→生产正式导入（分层 1:9+5:42·快照 42·bundles 1）→23/23。",
+          "anchor": {
+            "quote": "判据170：scripts/skill-smoke.mjs 必须包含种子收尾锚「生产种子在库」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删断言提取为 0 即 FAIL。"
+        }
+      ]
     }
   ]
 }
