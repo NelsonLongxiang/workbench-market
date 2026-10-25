@@ -11,6 +11,7 @@ import multer from 'multer';
 import { svc } from './context.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
+import { SkillService } from './services/skill.ts';
 import type { AppService } from './services/app.ts';
 import type { AppDataService } from './services/app-data.ts';
 import type { CookieService } from './services/cookie.ts';
@@ -1123,6 +1124,45 @@ app.get('/api/tasks', wrap(async (_req, res) => {
   const payload = await collectTasks(svc<SopService>('sop') as never);
   res.json(payload);
 }));
+
+// ---------- 技能市场发布面（P0-b · 方案 PR#57 §1：口令门+首版人审+N+1 快照+digest 锚）----------
+app.post('/api/skills/:slug/versions', wrap(async (req, res) => {
+  if (!adminGuard(req, res)) return; // 口令门（方案裁定：复用 X-Admin-Token）
+  const slug = String(req.params.slug ?? '').trim();
+  const files = req.body?.files;
+  if (!Array.isArray(files) || files.length === 0) bad('files 必须为非空 [{path, content}]');
+  for (const f of files) {
+    if (typeof f?.path !== 'string' || !f.path || typeof f?.content !== 'string') bad('files 项须 {path, content}');
+    if (f.path.includes('..') || f.path.startsWith('/')) bad(`path 非法: ${f.path}`);
+  }
+  const changelog = String(req.body?.changelog ?? '').slice(0, 2000);
+  const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
+  const S = svc<SkillService>('skill');
+  const t = SkillService.filesDigest(files);
+  const existed = S.versionByDigest(t.digest);
+  if (existed) throw new HttpError(409, `内容 digest 已存在（skill_version #${existed.id}）——不可变锚拒重复发布`);
+  let row = S.skillBySlug(slug);
+  const nextVer = row ? (S.versionsMax(row.id)?.v ?? 0) + 1 : 1;
+  if (!row) {
+    if (!reviewedBy) bad('首版发布必须 reviewed_by（人审门）');
+    S.upsertSkill({ slug, name: slug.split(':').pop() ?? slug, layer: 5, layerName: 'AI 原生运营', source: 'publish' });
+    row = S.skillBySlug(slug);
+  }
+  // 快照落盘
+  const { mkdirSync, writeFileSync } = await import('node:fs');
+  const snapDir = join(dataDir, 'skill-snapshots', encodeURIComponent(slug), `v${nextVer}`);
+  mkdirSync(snapDir, { recursive: true });
+  for (const f of files) writeFileSync(join(snapDir, f.path), f.content, 'utf8');
+  S.versionInsert({ skillId: row.id, version: nextVer, changelog, treeDigest: t.digest, fileCount: t.fileCount, totalBytes: t.totalBytes, snapshotPath: snapDir, reviewedBy });
+  res.status(201).json({ ok: true, slug, version: nextVer, tree_digest: t.digest, file_count: t.fileCount, total_bytes: t.totalBytes });
+}));
+
+app.get('/api/skills/:slug/versions', (req, res) => {
+  const S = svc<SkillService>('skill');
+  const row = S.skillBySlug(String(req.params.slug ?? ''));
+  if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
+  res.json({ slug: row.slug, versions: S.versionsBySkill(row.id) });
+});
 
 app.get('/api/sop/runs', (req, res) => {
   // P4（F7）：待验收列表 = running 且有派单来源（a2a_run_ctx 有 callback/task_id），不含人自己开的

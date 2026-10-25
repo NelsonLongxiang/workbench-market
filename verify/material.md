@@ -168,3 +168,4 @@
 判据168：server/src/context.ts 必须包含「SkillService」。
 判据169：scripts/skill-import.mjs 必须包含导入判据锚「外源 version 不进身份」。
 判据170：scripts/skill-smoke.mjs 必须包含种子收尾锚「生产种子在库」。
+判据171：scripts/skill-publish-smoke.mjs 必须包含发布面锚「digest 锚（同内容拒 409）」。
