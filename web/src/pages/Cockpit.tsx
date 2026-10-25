@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useRequest } from 'ahooks';
-import { App, Badge, Button, Card, Col, Empty, Flex, Popconfirm, Select, Spin, Tooltip, Typography } from 'antd';
-import { ArrowLeftOutlined, ExportOutlined, PlusOutlined, ReloadOutlined, CloseOutlined } from '@ant-design/icons';
+import { Space, Input, App, Badge, Button, Card, Col, Empty, Flex, Popconfirm, Select, Spin, Tooltip, Typography } from 'antd';
+import { EditOutlined, ArrowLeftOutlined, ExportOutlined, PlusOutlined, ReloadOutlined, CloseOutlined } from '@ant-design/icons';
 import GridLayout from 'react-grid-layout';
 import { WidthProvider } from 'react-grid-layout';
 import type { Layout } from 'react-grid-layout';
@@ -43,6 +43,22 @@ export default function Cockpit() {
   const { message } = App.useApp();
 
   const [panels, setPanels] = useState<PanelConfig[] | null>(null);
+  // 驾驶舱改名（监督席 direct-3b98f8c2 用户报障：后端 PUT name 一直在，前端无入口）
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+  const submitRename = async () => {
+    if (!active) return;
+    const name = renameValue.trim();
+    if (!name) { message.warning('名称不能为空'); return; }
+    try {
+      await api.updateCockpit(active.id, { name });
+      message.success('已重命名');
+      setRenaming(false);
+      listReq.refresh();
+    } catch (e) {
+      message.error(`重命名失败：${(e as Error).message}`);
+    }
+  };
   const [saving, setSaving] = useState(false);
   const [frameKeys, setFrameKeys] = useState<Record<number, number>>({});
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -216,6 +232,24 @@ export default function Cockpit() {
             onChange={(v) => nav(`/cockpit/${v}`)}
             options={(listReq.data ?? []).map((c) => ({ value: c.id, label: c.name }))}
           />
+          {renaming ? (
+            <Input
+              size="small"
+              style={{ width: 180 }}
+              defaultValue={active.name}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onPressEnter={submitRename}
+              autoFocus
+              suffix={(
+                <Space size={2}>
+                  <Button type="link" size="small" onClick={submitRename}>确定</Button>
+                  <Button type="link" size="small" onClick={() => setRenaming(false)}>取消</Button>
+                </Space>
+              )}
+            />
+          ) : (
+            <Button size="small" icon={<EditOutlined />} onClick={() => { setRenameValue(active.name); setRenaming(true); }}>改名</Button>
+          )}
           <Typography.Text type="secondary">{saving ? '保存中…' : '布局已自动保存'}</Typography.Text>
         </Flex>
         <Select
