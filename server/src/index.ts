@@ -298,11 +298,20 @@ app.post('/api/check-all', wrap(async (_req, res) => {
   const limit = Math.max(1, Number(settings.health_concurrency) || 8);
   const rows = svc<WorkbenchService>('workbench').enabled() as unknown as WorkbenchRow[];
   const results: ReturnType<typeof rowToWorkbench>[] = [];
-  const queue = [...rows];
+  // 台驱逐冷却两入口一致（patrol/check-all 共享）：down 台窗内跳过，每窗一探
+  const queue = [...rows].filter((w) => {
+    if (!downSince.has(w.id)) return true;
+    if (Date.now() - (lastProbeAt.get(w.id) ?? 0) >= EVICT_COOLDOWN_MS) { lastProbeAt.set(w.id, Date.now()); return true; }
+    return false;
+  });
   const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
     for (let w = queue.shift(); w; w = queue.shift()) results.push(await checkOne(w));
   });
   await Promise.all(workers);
+  for (const r of results) {
+    if (r.last_status === 'down') { if (!downSince.has(r.id)) { downSince.set(r.id, Date.now()); lastProbeAt.set(r.id, Date.now()); } }
+    else { downSince.delete(r.id); lastProbeAt.delete(r.id); }
+  }
   res.json({ checked: results.length, up: results.filter((r) => r.last_status === 'up').length, down: results.filter((r) => r.last_status === 'down').length });
 }));
 
@@ -1988,12 +1997,27 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 // ---------- 定期巡检 ----------
 let timer: ReturnType<typeof setTimeout> | null = null;
 let checking = false;
+// 台驱逐冷却（与 a2a-net peer 驱逐冷却同名不同物·命名区分，direct-53caaed3）：
+// 连续 down 的台进入 24h 冷却窗，窗内每窗只探一次（防 flapping）。up 即清零；内存态（重启清零，保守）。
+const EVICT_COOLDOWN_MS = Number(process.env.A2A_EVICT_COOLDOWN_MS) > 0 ? Number(process.env.A2A_EVICT_COOLDOWN_MS) : 24 * 3_600_000; // 测试可加速
+const downSince = new Map<number, number>();
+const lastProbeAt = new Map<number, number>();
 async function patrol(): Promise<void> {
   if (checking) return;
   checking = true;
   try {
     const rows = svc<WorkbenchService>('workbench').enabled() as unknown as WorkbenchRow[];
-    for (const w of rows) { try { await checkOne(w); } catch { /* 单个失败不阻断巡检 */ } }
+    for (const w of rows) {
+      try {
+        // down 即入冷却窗：窗内（距上次探测不足一个窗）跳过，每窗只探一次
+        if (downSince.has(w.id) && Date.now() - (lastProbeAt.get(w.id) ?? 0) < EVICT_COOLDOWN_MS) continue;
+        if (downSince.has(w.id)) lastProbeAt.set(w.id, Date.now());
+        await checkOne(w);
+        const after = svc<WorkbenchService>('workbench').byId(w.id) as unknown as WorkbenchRow | undefined;
+        if (after?.last_status === 'down') { if (!downSince.has(w.id)) { downSince.set(w.id, Date.now()); lastProbeAt.set(w.id, Date.now()); } }
+        else { downSince.delete(w.id); lastProbeAt.delete(w.id); }
+      } catch { /* 单个失败不阻断巡检 */ }
+    }
   } finally {
     checking = false;
   }

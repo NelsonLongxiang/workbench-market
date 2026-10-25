@@ -3,6 +3,7 @@
  *  替身 /__dsh_a2a/state 回放 dsh-open-a2a-net PR#32 形状（tasks 在途 + tasksRecent 归档）。 */
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync } from 'node:fs';
+import { createServer as createServerCap } from 'node:http';
 import { createServer } from 'node:http';
 
 const PORT = 9856;
@@ -61,6 +62,41 @@ try {
   let r = await json(`${BASE}/api/tasks`);
   const a2a = (r.body?.tasks ?? []).filter((t) => t.source === 'a2a');
   ok('出口一 a2a 信封 4 条（在途2+归档2·archived 容器）', a2a.length === 4, JSON.stringify(a2a.map((t) => [t.id, t.status])));
+
+  // ARCHIVE_CAP 边界（direct-65206a7e ②，替身声明口径修正）：cap=64 截断是**上游投影**责任
+  // （真实 /__dsh_a2a/state 的 archived 永远 ≤RECENT_FACE_CAP）——替身忠实模拟 64 行投影，
+  // 市场侧责任=忠实消费全量 + newest-first 顺序保持。真实端到端 count=64 已实测（docs/stub-declaration-template.md）
+  {
+    const big = { ...FIXTURE, tasks: [], archived: Array.from({ length: 64 }, (_, i) => ({
+      taskId: `cap-r${String(66 - i).padStart(2, '0')}`, team: 'cap/team', peer: 'dsh/99990000',
+      direction: 'outbound', startedAt: `2026-10-${String(20 + (65 - i) % 9).padStart(2, '0')}T0${i % 9}:00:00Z`,
+      resolvedAt: `2026-10-${String(20 + (65 - i) % 9).padStart(2, '0')}T0${(i + 1) % 9}:00:00Z`,
+      endedBy: 'receipt', outcome: 'completed', brief: `cap-${66 - i}`,
+    })) };
+    let hitsCap = 0;
+    const stubCap = createServerCap((req, res) => {
+      hitsCap++;
+      if (req.headers['x-api-key'] !== 'test-key') { res.writeHead(401); return res.end('{}'); }
+      res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(big));
+    });
+    await new Promise((r2) => stubCap.listen(9855, '127.0.0.1', r2));
+    // 起新隔离实例指替身（端口 9855）——过 31s 缓存窗用独立端口 9856 实例
+    const childCap = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
+      cwd: 'server',
+      env: (() => { const e = { ...process.env, PORT: '9860', DATA_DIR: '../tmp/e2e-a2acap', ADMIN_TOKEN: 'cap', A2A_STATE_URL: 'http://127.0.0.1:9855', A2A_API_KEY: 'test-key' }; delete e.REDIS_URL; return e; })(),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    if (!(await waitReady('http://127.0.0.1:9860/api/health'))) { ok('cap 实例就绪', false); }
+    else {
+      const rc = await fetch('http://127.0.0.1:9860/api/tasks', { headers: { } }).then((r) => r.json()).catch(() => null);
+      const done = (rc?.tasks ?? []).filter((t) => t.source === 'a2a' && t.status === 'done');
+      ok('ARCHIVE_CAP 投影忠实消费（替身 64 行→信封 64）', done.length === 64, `done=${done.length}`);
+      ok('newest-first 顺序保持（r66 在列、r03 在列）',
+        done.some((t) => t.id === 'a2a:cap-r66') && done.some((t) => t.id === 'a2a:cap-r03'));
+    }
+    childCap.kill(); stubCap.close();
+    try { rmSync('tmp/e2e-a2acap', { recursive: true, force: true }); } catch { }
+  }
   ok('在途→doing（含 brief 作 title）', a2a.some((t) => t.id === 'a2a:om-t1' && t.status === 'doing' && t.title === '回执链路联测'));
   ok('无 brief 回退 title（team·peer id）', a2a.some((t) => t.id === 'a2a:om-t2' && t.status === 'doing' && t.title.includes('dsh/414d2b90')));
   ok('归档→done（title 带 endedBy）', a2a.some((t) => t.id === 'a2a:om-r1' && t.status === 'done' && t.title.includes('（receipt）')));
