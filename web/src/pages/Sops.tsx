@@ -47,16 +47,17 @@ export default function Sops() {
   // 网络暴露（人工绑定，GH #17 P1）：口令只存会话态，绝不持久化
   const [netOf, setNetOf] = useState<SopApp | null>(null);
   const [netToken, setNetToken] = useState('');
-  const [bindings, setBindings] = useState<Array<{ id: number; node: string; mode: string; remote_api_key: string; revoked_at: string; created_at: string }>>([]);
+  const [bindings, setBindings] = useState<Array<{ id: number; agent_node: string; direction: string; mode: string; notify_url?: string; remote_api_key: string; revoked_at: string; created_at: string }>>([]);
   const [netLoading, setNetLoading] = useState(false);
   const [netNode, setNetNode] = useState('');
   const [netMode, setNetMode] = useState<'read' | 'run'>('read');
+  const [netDirection, setNetDirection] = useState<'admits' | 'notify' | 'both'>('admits');
   const [netKey, setNetKey] = useState('');
 
   const reloadNet = useCallback(() => {
     if (!netOf || !netToken) return;
     setNetLoading(true);
-    fetch(`/api/sops/${netOf.slug}/bindings`, { headers: { 'X-Admin-Token': netToken } })
+    fetch(`/api/bindings?type=sop&slug=${netOf.slug}`, { headers: { 'X-Admin-Token': netToken } })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(setBindings)
       .catch(() => message.error('绑定列表加载失败（口令无效或未设置）'))
@@ -67,13 +68,16 @@ export default function Sops() {
     if (!netOf || !netToken) return;
     setNetLoading(true);
     try {
-      const r = await fetch(`/api/sops/${netOf.slug}/bindings`, {
+      const r = await fetch('/api/bindings', {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': netToken },
-        body: JSON.stringify({ node: netNode, mode: netMode, ...(netKey ? { remote_api_key: netKey } : {}) }),
+        body: JSON.stringify({
+          target_type: 'sop', target_slug: netOf.slug, agent_node: netNode, mode: netMode, direction: netDirection,
+          ...(netKey ? { remote_api_key: netKey } : {}),
+        }),
       });
       const b = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error((b as { error?: string }).error || `HTTP ${r.status}`);
-      message.success(`已绑定 ${netNode}——SOP 上卡（market/<id8> 可被绑定的 agent 发现）`);
+      message.success(`已绑定 ${netNode}（${netDirection}）——admits 方向使台可被发现/直投；notify 方向使提交回执可达`);
       setNetNode(''); setNetKey('');
       reloadNet();
     } catch (e) {
@@ -87,7 +91,7 @@ export default function Sops() {
     if (!netOf || !netToken) return;
     setNetLoading(true);
     try {
-      const r = await fetch(`/api/sops/${netOf.slug}/bindings/${id}`, { method: 'DELETE', headers: { 'X-Admin-Token': netToken } });
+      const r = await fetch(`/api/bindings/${id}`, { method: 'DELETE', headers: { 'X-Admin-Token': netToken } });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       message.success('已软撤销（无其他有效绑定时 SOP 下卡）');
       reloadNet();
@@ -405,6 +409,16 @@ export default function Sops() {
             <option value="read">read（只读）</option>
             <option value="run">run（可执行）</option>
           </select>
+          <select
+            className="wm-mono"
+            style={{ flex: 1, padding: '6px 10px', border: '1px solid #E2E8F0', borderRadius: 6, fontSize: 13 }}
+            value={netDirection}
+            onChange={(e) => setNetDirection(e.target.value as 'admits' | 'notify' | 'both')}
+          >
+            <option value="admits">admits（入站准入·可直投/上卡）</option>
+            <option value="notify">notify（出站推送·提交回执）</option>
+            <option value="both">both（显式双授）</option>
+          </select>
           <Button type="primary" onClick={addBinding} loading={netLoading} disabled={!netToken || !netNode}>绑定</Button>
         </Space.Compact>
         <Space.Compact style={{ width: '100%', marginBottom: 12 }}>
@@ -424,8 +438,9 @@ export default function Sops() {
           dataSource={bindings}
           pagination={false}
           columns={[
-            { title: '节点', dataIndex: 'node', render: (v: string) => <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{v}</Typography.Text> },
-            { title: '模式', dataIndex: 'mode', width: 70 },
+            { title: '节点', dataIndex: 'agent_node', render: (v: string) => <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{v}</Typography.Text> },
+            { title: '方向', dataIndex: 'direction', width: 80, render: (v: string) => v === 'admits' ? '入站准入' : v === 'notify' ? '出站推送' : '双向' },
+          { title: '模式', dataIndex: 'mode', width: 70 },
             { title: 'Key', dataIndex: 'remote_api_key', width: 70, render: (v: string) => (v ? <Tag>已存（掩码）</Tag> : <Typography.Text type="secondary">-</Typography.Text>) },
             { title: '状态', dataIndex: 'revoked_at', width: 80, render: (v: string) => (v ? <Tag color="red">已撤销</Tag> : <Tag color="green">有效</Tag>) },
             {

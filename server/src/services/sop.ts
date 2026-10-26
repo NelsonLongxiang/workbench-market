@@ -44,7 +44,7 @@ export class SopService extends Service {
     return db.prepare("SELECT * FROM sop_runs WHERE status = 'running' ORDER BY updated_at DESC").all();
   }
   activeBindingCount() {
-    return db.prepare("SELECT COUNT(*) AS n FROM sop_bindings WHERE revoked_at = ''").get();
+    return db.prepare("SELECT COUNT(*) AS n FROM bindings WHERE target_type = 'sop' AND revoked_at = ''").get();
   }
   bindings(slug: string) {
     return db.prepare('SELECT * FROM sop_bindings WHERE sop_slug = ? ORDER BY id DESC').all(slug);
@@ -93,7 +93,8 @@ export class SopService extends Service {
     return db.prepare('UPDATE a2a_run_ctx SET receipt_status = ? WHERE run_id = ?').run(status, runId);
   }
   bindingByNodeFull(slug: string, node: string) {
-    return db.prepare("SELECT * FROM sop_bindings WHERE sop_slug = ? AND node = ? AND revoked_at = ''").get(slug, node);
+    // 联合评审① C：回执 callback 读统一表 admits 行的 notify_url（direction 独立性：notify-only 行不参与回执）
+    return db.prepare("SELECT notify_url AS callback_url FROM bindings WHERE target_type = 'sop' AND target_slug = ? AND agent_node = ? AND direction IN ('admits','both') AND revoked_at = ''").get(slug, node);
   }
   bindingCreateFull(slug: string, node: string, mode: string, remoteApiKey: string, callbackUrl: string, createdBy: string) {
     return db.prepare('INSERT INTO sop_bindings (sop_slug, node, mode, remote_api_key, callback_url, created_by) VALUES (?, ?, ?, ?, ?, ?)')
