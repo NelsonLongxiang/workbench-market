@@ -1216,7 +1216,8 @@ app.post('/api/skills/:slug/install', wrap(async (req, res) => {
   S.ledgerInsert({ skillId: row.id, versionId: target.id, expectedDigest: target.tree_digest, installedPath: String(req.body?.installed_path ?? target.snapshot_path), installedBy: String(req.body?.installed_by ?? '') });
   const ledger = S.ledgerActive() as any[];
   const mine = ledger.find((l) => l.skill_id === row.id && l.version_id === target.id && l.status === 'installed');
-  res.status(201).json({ ok: true, slug: row.slug, version: target.version, ledger_id: mine?.id, expected_digest: target.tree_digest, installed_path: mine?.installed_path });
+  // #94 S0⑤（K8）：钉装响应不回绝对路径（相对化——DB 存真值·响应给安装者自己的输入或相对形态）
+  res.status(201).json({ ok: true, slug: row.slug, version: target.version, ledger_id: mine?.id, expected_digest: target.tree_digest, installed_path: `skill-snapshots/${encodeURIComponent(row.slug)}/v${target.version}` }); // 恒相对（不回显绝对）
 }));
 
 // 装载校验（方案 P1-b 边界：市场侧 API+巡检，不动 DSH catalog）
@@ -1243,7 +1244,7 @@ app.post('/api/skills/:slug/install/:ledgerId/revoke', (req, res) => {
   const id = Number(req.params.ledgerId);
   const led = (S.ledgerActive() as any[]).find((l) => l.id === id);
   if (!led) throw new HttpError(404, `ledger not found: ${id}`); // #94 S0④：撤销校验（不存在→404）
-  if (led.skill_id !== row.id) throw new HttpError(400, `ledger #${id} 不属于 ${row.slug}`); // #94 S0④：错 slug→400
+  if (led.skill_id !== row.id) throw new HttpError(404, `ledger not found: ${id}`); // #94 S0④（K7）：跨技能撤销 404（不泄露他技能 ledger 存在性）
   S.ledgerRevoke(id);
   res.json({ ok: true, ledger_id: id, status: 'revoked' });
 });
@@ -1278,16 +1279,25 @@ app.post('/api/skills/:slug/versions', wrap(async (req, res) => {
     if (f.path.startsWith('/') || /^[A-Za-z]:/.test(f.path)) bad(`path 非法（禁绝对路径）: ${f.path}`);
     for (const seg of f.path.split('/')) if (seg === '' || seg === '.' || seg === '..') bad(`path 非法（空/. / .. 段）: ${f.path}`);
   }
+  // #94 S0③（K6）：同名重复路径拒收（同 path 两义——内容静默覆盖防）
+  {
+    const seen = new Set<string>();
+    for (const f of files) {
+      if (seen.has(f.path)) bad(`path 重复: ${f.path}（同名两义拒收）`);
+      seen.add(f.path);
+    }
+  }
   const changelog = String(req.body?.changelog ?? '').slice(0, 2000);
   const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
   const S = svc<SkillService>('skill');
   const t = SkillService.filesDigest(files);
-  const existed = S.versionByDigest(t.digest);
-  if (existed) throw new HttpError(409, `内容 digest 已存在（skill_version #${existed.id}）——不可变锚拒重复发布`);
   let row = S.skillBySlug(slug);
+  // #94 S0⑥（K9）：digest 按 skill 域查重（不同技能同内容各自可发布——全局唯一是误拒）
+  const existed = row ? S.versionByDigest(t.digest, row.id) : undefined; // #94 S0⑥：仅同技能域查重（新技能无域可撞）
+  if (existed) throw new HttpError(409, `内容 digest 已存在（skill_version #${existed.id}）——不可变锚拒重复发布`);
   const nextVer = row ? (S.versionsMax(row.id)?.v ?? 0) + 1 : 1;
   if (!row) {
-    if (!reviewedBy) bad('首版发布必须 reviewed_by（人审门）');
+    // #94 S0②（K4）：首版不再强制 reviewed_by（人审门取消——发布/导入同权）
     S.upsertSkill({ slug, name: slug.split(':').pop() ?? slug, layer: 5, layerName: 'AI 原生运营', source: 'publish' });
     row = S.skillBySlug(slug);
   }
@@ -1309,7 +1319,8 @@ app.get('/api/skills/:slug/versions', (req, res) => {
   const S = svc<SkillService>('skill');
   const row = S.skillBySlug(String(req.params.slug ?? ''));
   if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
-  res.json({ slug: row.slug, versions: S.versionsBySkill(row.id) });
+  // #94 S0⑤（K8）：版本列表 snapshot_path 相对化（不暴露 DATA_DIR）
+  res.json({ slug: row.slug, versions: (S.versionsBySkill(row.id) as any[]).map((v) => ({ ...v, snapshot_path: v.snapshot_path ? `skill-snapshots/${encodeURIComponent(row.slug)}/v${v.version}` : v.snapshot_path })) });
 });
 
 app.get('/api/sop/runs', (req, res) => {
@@ -1858,7 +1869,8 @@ async function callTool(name: string, args: any): Promise<unknown> {
       const S = svc<SkillService>('skill');
       const row = S.skillBySlug(String(args?.slug ?? ''));
       if (!row) return { error: `skill not found: ${args?.slug}` };
-      return S.versionsBySkill(row.id);
+      // #94 S0⑤（K8）：MCP 面同规则——snapshot_path 相对化
+      return (S.versionsBySkill(row.id) as any[]).map((v) => ({ ...v, snapshot_path: v.snapshot_path ? `skill-snapshots/${encodeURIComponent(row.slug)}/v${v.version}` : v.snapshot_path }));
     }
     case 'skill_install_plan': {
       const S = svc<SkillService>('skill');
@@ -1869,7 +1881,7 @@ async function callTool(name: string, args: any): Promise<unknown> {
       const target = typeof args?.version === 'number' ? vs.find((v) => v.version === args.version) : vs[0];
       if (!target) return { error: `版本不存在：v${args?.version}` };
       return {
-        slug: row.slug, version: target.version, tree_digest: target.tree_digest, snapshot_path: target.snapshot_path,
+        slug: row.slug, version: target.version, tree_digest: target.tree_digest, snapshot_path: `skill-snapshots/${encodeURIComponent(row.slug)}/v${target.version}`, // K8 相对化
         expected_sha256: target.tree_digest,
         install_hint: `薄分发（手工落盘）：复制 ${target.snapshot_path} → 目标技能目录；以 expected_sha256 钉装校验`,
       };

@@ -41,8 +41,11 @@ export class SkillService extends Service {
   versionsBySkill(skillId: number) {
     return db.prepare('SELECT * FROM skill_versions WHERE skill_id = ? ORDER BY version DESC').all(skillId);
   }
-  versionByDigest(digest: string) {
-    return db.prepare('SELECT * FROM skill_versions WHERE tree_digest = ?').get(digest);
+  versionByDigest(digest: string, skillId?: number) {
+    // #94 S0⑥（K9）：digest 唯一性按 skill 域（不同技能同内容各自可发布——全局唯一是误拒）
+    return skillId
+      ? db.prepare('SELECT * FROM skill_versions WHERE tree_digest = ? AND skill_id = ?').get(digest, skillId)
+      : db.prepare('SELECT * FROM skill_versions WHERE tree_digest = ?').get(digest);
   }
   versionsMax(skillId: number) {
     return db.prepare('SELECT MAX(version) AS v FROM skill_versions WHERE skill_id = ?').get(skillId);
@@ -50,7 +53,8 @@ export class SkillService extends Service {
 
   /** P0-b 发布面：文件树摘要（排序相对路径+内容，/ 归一）——与导入器 treeDigest 同构 */
   static filesDigest(files: { path: string; content: string }[]): { digest: string; fileCount: number; totalBytes: number } {
-    const sorted = [...files].sort((a, b) => a.path.localeCompare(b.path));
+    // #94 S0①根治：全市场单一**字节序**摘要（codepoint——与导入器 files.sort() 同构；localeCompare 大小写/音标分歧即误判）
+    const sorted = [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const h = createHash('sha256');
     let bytes = 0;
     for (const f of sorted) {
