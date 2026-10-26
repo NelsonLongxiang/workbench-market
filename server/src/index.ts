@@ -1657,6 +1657,7 @@ app.delete('/api/sops/:slug/bindings/:id', (req, res) => {
   if (!hit) throw new HttpError(404, `binding not found: ${id}`);
   // 软撤销（留审计）：卡片即下线该 SOP（若无其他有效绑定）
   svc<SopService>('sop').bindingRevoke(id);
+  res.json({ ok: true, revoked: id });
 });
 
 // ---------- 自产台推送绑定（属主裁 C · 2026-10-26）：提交触发 A2A 推送 ----------

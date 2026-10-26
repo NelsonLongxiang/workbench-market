@@ -107,6 +107,20 @@ try {
   await sleep(800);
   ok('④ 无绑定提交 201 不推不炸', s4.status === 201 && pushes.length === 0, `status=${s4.status} pushes=${pushes.length}`);
 
+  // ⑥ 回归 #76：SOP 绑定删除路由必须响应（PR#74 曾把 res.json 挪丢→永不响应挂起）
+  {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 4000);
+    try {
+      const d = await fetch(`${BASE}/api/sops/procurement-task-submit/bindings/999999`, { method: 'DELETE', headers: ADMIN, signal: ctrl.signal });
+      clearTimeout(timer);
+      ok('⑥ SOP 绑定删除路由有响应（404=正常拒绝·不再挂起）', d.status === 404 || d.status === 200, `status=${d.status}`);
+    } catch (err) {
+      clearTimeout(timer);
+      ok('⑥ SOP 绑定删除路由有响应（404=正常拒绝·不再挂起）', false, `挂起/超时: ${String(err).slice(0, 60)}`);
+    }
+  }
+
   // ⑤ 远程 LAN 面提交同样触发（裁定 A 面 × 推送）
   let lanReachable = false;
   try { const p = await fetch(`http://${LAN_IP}:${PORT}/api/health`, { signal: AbortSignal.timeout(2000) }); lanReachable = p.ok; } catch {}
