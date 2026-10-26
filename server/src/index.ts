@@ -59,6 +59,30 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/apps\/[a-z0-9-]{1,64}\/(data|files)(\/|$)/,
   /^\/api\/sop\/runs(\/\d+(\/(finish|files))?)?$/,
 ];
+
+// S3 豁免面可观测（评审席裁下批·PR#72 真事故锚）：启动时快照+diff——安全清单变更不再无声
+const remoteAllowSnapshot = () => [
+  ...[...REMOTE_ALLOW_EXACT],
+  ...REMOTE_ALLOW_PREFIX.map((re) => String(re)),
+];
+function computeAllowDiff() {
+  const cur = remoteAllowSnapshot();
+  let prev: string[] | null = null;
+  try {
+    const row = db.prepare('SELECT snapshot FROM remote_allow_state ORDER BY id DESC LIMIT 1').get() as { snapshot: string } | undefined;
+    if (row) prev = JSON.parse(row.snapshot);
+  } catch { prev = null; }
+  const added = prev === null ? [] : cur.filter((p) => !prev!.includes(p));
+  const removed = prev === null ? [] : prev!.filter((p) => !cur.includes(p));
+  if (prev === null || added.length > 0 || removed.length > 0) {
+    db.prepare('INSERT INTO remote_allow_state (snapshot) VALUES (?)').run(JSON.stringify(cur));
+  }
+  return { added, removed, current: cur };
+}
+let lastAllowDiff = computeAllowDiff();
+if (lastAllowDiff.added.length > 0 || lastAllowDiff.removed.length > 0) {
+  console.warn(`[S3 豁免面变更] added=${JSON.stringify(lastAllowDiff.added)} removed=${JSON.stringify(lastAllowDiff.removed)}`);
+}
 app.use((req, res, next) => {
   const ip = String(req.socket.remoteAddress ?? '');
   const isLoopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
@@ -1624,6 +1648,12 @@ function maskKey(v: string): string {
 // 一张 bindings 表：direction(admits=入站准入|notify=出站推送|both=显式双授永非默认)。
 // 授权独立铁律：admits 消费点只认 admits|both；notify 消费点只认 notify|both——授一边不隐含另一边。
 // 跨型 CHECK（DDL）：app 行 remote_api_key 恒空、mode 恒 read（sop 专属语义不漂移）。
+// S3 豁免面可观测（评审席裁下批）：GET /api/remote-allow/diff——安全清单变更管理面可查
+app.get('/api/remote-allow/diff', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  res.json({ ...lastAllowDiff, snapshot_count: (db.prepare('SELECT COUNT(*) AS n FROM remote_allow_state').get() as { n: number }).n });
+});
+
 app.get('/api/bindings', (req, res) => {
   if (!adminGuard(req, res)) return;
   const type = req.query.type === 'app' ? 'app' : 'sop';
