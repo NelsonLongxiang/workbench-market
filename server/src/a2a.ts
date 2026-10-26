@@ -276,7 +276,7 @@ function originClaimHeaders(privateKey: KeyObject, zone: string, baseUrl: string
   return { 'X-A2A-Caller': zone, 'X-A2A-Caller-Url': baseUrl, 'X-A2A-Caller-Ts': String(ts), 'X-A2A-Caller-Sig': signature };
 }
 
-export async function a2aSendOutbound(keyPath: string, target: OutboundTarget, message: string, contextId?: string): Promise<unknown> {
+export async function a2aSendOutbound(keyPath: string, target: OutboundTarget, message: string, contextId?: string, callerSession?: string): Promise<unknown> {
   const priv = loadOrCreateKey(keyPath);
   const base = process.env.MARKET_PUBLIC_URL || `http://127.0.0.1:${process.env.PORT || 9800}`;
   const client = new A2aClient({
@@ -288,5 +288,7 @@ export async function a2aSendOutbound(keyPath: string, target: OutboundTarget, m
     fetch: (url: string, init?: RequestInit) => fetch(url, init).then(async (r) => ({ ok: r.ok, status: r.status, text: () => r.text() })),
   } as never);
   const taskId = `market-${randomBytes(4).toString('hex')}`;
-  return client.routeDirect(target.baseUrl, target.team, message, contextId, undefined, MARKET_TEAM, false, taskId);
+  // 联合评审①后补：推送 caller 必须是区限定句柄（market/<node8>）——裸 zone 标签在对端
+  // free-form 准入分支无画布路径永不可入（.157 实测发现·判据②c2）
+  return client.routeDirect(target.baseUrl, target.team, message, contextId, undefined, callerSession ?? MARKET_TEAM, false, taskId);
 }
