@@ -687,7 +687,7 @@ app.post('/api/apps/:slug/migrate-layerfs', wrap(async (req, res) => {
     const { base, token } = layerfsServiceBase();
     let shaMatch = false;
     try {
-      const fr = await fetch(base.replace(/\/+$/, '') + '/v0/projects/' + encodeURIComponent(a.slug) + '/commits/' + encodeURIComponent(out.commit_id) + '/files', { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      const fr = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(a.slug) + '/branches/release/commits/' + encodeURIComponent(out.commit_id) + '/files', { headers: token ? { Authorization: `Bearer ${token}` } : {} });
       const fj = await fr.json() as { files: { path: string; content: string }[] };
       const { createHash: ch } = await import('node:crypto');
       const h1 = ch('sha256').update(JSON.stringify(files.map((f) => [f.path, ch('sha256').update(f.content, 'utf8').digest('hex')]))).digest('hex');
@@ -720,7 +720,7 @@ async function activateAppVersion(slug: string, vRaw: unknown): Promise<object> 
       const { base, token } = layerfsServiceBase();
       if (base) {
         try {
-          const fr = await fetch(base.replace(/\/+$/, '') + '/v0/projects/' + encodeURIComponent(slug) + '/commits/' + encodeURIComponent(vrow.commit_id) + '/files', { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(10000) });
+          const fr = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(slug) + '/branches/release/commits/' + encodeURIComponent(vrow.commit_id) + '/files', { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(10000) });
           if (fr.ok) {
             const fj = await fr.json() as { files: { path: string; content: string }[] };
             for (const f of fj.files) { const abs = join(dir2, f.path); mkdirSync(join(abs, '..'), { recursive: true }); writeFileSync(abs, f.content, 'utf8'); }
@@ -829,11 +829,12 @@ function layerfsServiceBase(): { base: string; token: string } {
   const token = String(s['layerfs_service_token'] ?? process.env.LAYERFS_SERVICE_TOKEN ?? '').trim();
   return { base, token };
 }
-async function layerfsPublish(project: string, files: { path: string; content: string }[], message: string): Promise<{ commit_id: string; changed: boolean } | null> {
+async function layerfsPublish(project: string, files: { path: string; content: string }[], message: string, branch = 'release'): Promise<{ commit_id: string; changed: boolean } | null> {
   const { base, token } = layerfsServiceBase();
   if (!base) return null; // 未配置=不启用（契约 §1）
   try {
-    const res = await fetch(base.replace(/\/+$/, '') + '/v0/projects/' + encodeURIComponent(project) + '/publish', {
+    // #94 契约 v1（监督席 direct-440fb53c）：项目+分支两级路由
+    const res = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(project) + '/branches/' + encodeURIComponent(branch) + '/publish', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify({ files, message }),
@@ -1516,6 +1517,10 @@ app.post('/api/skills/:slug/versions', wrap(async (req, res) => {
     writeFileSync(abs, f.content, 'utf8');
   }
   S.versionInsert({ skillId: row.id, version: nextVer, changelog, treeDigest: t.digest, fileCount: t.fileCount, totalBytes: t.totalBytes, snapshotPath: snapDir, reviewedBy });
+  // #94 S2 技能影子：wm-skills 项目·skill/<slug> 分支（契约 v1·fire-and-forget 同 P1 语义）
+  void layerfsPublish('wm-skills', files, `[skill-publish] ${slug} v${nextVer}`, `skill/${slug}`).then((out) => {
+    if (out) { try { db.prepare('UPDATE skill_versions SET commit_id = ? WHERE skill_id = ? AND version = ?').run(out.commit_id, row.id, nextVer); } catch { /* 影子失败不阻 */ } }
+  });
   res.status(201).json({ ok: true, slug, version: nextVer, tree_digest: t.digest, file_count: t.fileCount, total_bytes: t.totalBytes, snapshot_path: `skill-snapshots/${encodeURIComponent(slug)}/v${nextVer}` }); // #94 S0⑤：不暴露 DATA_DIR 绝对路径);
 }));
 
@@ -1533,6 +1538,30 @@ app.delete('/api/skills/:slug', wrap(async (req, res) => {
   if (!reviewedBy) bad('技能删除需 reviewed_by（人审门）');
   executeSkillDelete(String(req.params.slug ?? ''));
   res.json({ ok: true, deleted: req.params.slug, reviewed_by: reviewedBy });
+}));
+
+// #94 S2 全量重导：技能各版依次入 wm-skills 项目 skill/<slug> 分支（幂等 skip+摘要对账）
+app.post('/api/skills/:slug/migrate-layerfs', wrap(async (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const S = svc<SkillService>('skill');
+  const row = S.skillBySlug(String(req.params.slug ?? ''));
+  if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
+  const vs = S.versionsBySkill(row.id) as any[];
+  const results: any[] = [];
+  for (const v of vs.sort((a, b) => a.version - b.version)) {
+    if (v.commit_id) { results.push({ version: v.version, result: 'skip', commit_id: v.commit_id }); continue; } // 幂等
+    if (!v.snapshot_path || !existsSync(v.snapshot_path)) { results.push({ version: v.version, result: 'anomaly', reason: '快照目录缺失' }); continue; }
+    const files: { path: string; content: string }[] = [];
+    (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp, 'utf8') }); } })(v.snapshot_path);
+    if (files.length === 0 || files.some((f) => f.content === '')) { results.push({ version: v.version, result: 'anomaly', reason: '空快照/空 content（留档不迁）' }); continue; }
+    const out = await layerfsPublish('wm-skills', files, `[skill-migrate] ${row.slug} v${v.version}`, `skill/${row.slug}`);
+    if (!out) { results.push({ version: v.version, result: 'error', reason: 'layerfs 服务不可达（可重跑）' }); continue; }
+    db.prepare('UPDATE skill_versions SET commit_id = ? WHERE id = ?').run(out.commit_id, v.id);
+    // K13 摘要对账（发布摘要==重导后文件集重算）
+    const re = SkillService.filesDigest(files).digest;
+    results.push({ version: v.version, result: 'migrated', commit_id: out.commit_id, digest_match: re === v.tree_digest });
+  }
+  res.json({ slug: row.slug, project: 'wm-skills', branch: `skill/${row.slug}`, results });
 }));
 
 app.get('/api/skills/:slug/versions', (req, res) => {
@@ -1614,7 +1643,7 @@ function serveApp(req: express.Request, res: express.Response) {
         }
         const { base, token } = layerfsServiceBase();
         if (!base) return res.status(502).json({ error: '冷版本需 layerfs 服务（未配置）' });
-        const fr = await fetch(base.replace(/\/+$/, '') + '/v0/projects/' + encodeURIComponent(m[1]) + '/commits/' + encodeURIComponent(vrow.commit_id) + '/files', { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(10000) });
+        const fr = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(m[1]) + '/branches/release/commits/' + encodeURIComponent(vrow.commit_id) + '/files', { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(10000) });
         if (!fr.ok) return res.status(502).json({ error: `冷回读服务 HTTP ${fr.status}` });
         const fj = await fr.json() as { files: { path: string; content: string }[] };
         const hitFile = fj.files.find((f) => f.path === rel) ?? (!posix.extname(rel) ? fj.files.find((f) => f.path === 'index.html') : undefined);
