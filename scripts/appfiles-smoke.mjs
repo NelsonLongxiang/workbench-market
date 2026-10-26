@@ -77,7 +77,7 @@ try {
   r = await uploadFile('fileprobe', 'big.bin', 'application/octet-stream', big);
   ok('50MB 上限 → 413', r.status === 413, `status=${r.status}`);
   // ⑧ 删台级联清文件
-  await call('DELETE', '/api/apps/fileprobe');
+  await call('DELETE', '/api/apps/fileprobe', { reviewed_by: 'appfiles-smoke' }); // S1 人审门
   const dlAfter = await fetch(`${BASE}/api/apps/fileprobe/files/${fileId}`);
   ok('删台后文件 404（级联清理）', dlAfter.status === 404);
 } finally {
