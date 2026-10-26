@@ -655,10 +655,11 @@ app.post('/api/apps/:slug/data', (req, res) => {
   res.status(201).json({ ok: true, id: itemId, slug: a.slug, created_at: createdAt });
   // 属主裁 C（2026-10-26）：提交即推送——绑定 agent 异步收通知（尽力而为不阻塞 201；
   // 失败仅日志，下次提交再推——数据真源始终在 app_data，拉模式兜底）。
-  const targets = db.prepare("SELECT node, base_url FROM app_bindings WHERE app_slug = ? AND revoked_at = ''").all(a.slug) as { node: string; base_url: string }[];
+  // 联合评审① C：统一绑定表——notify 方向行（授 admits 不触发推送·方向独立性铁律）
+  const targets = db.prepare("SELECT agent_node, notify_url FROM bindings WHERE target_type = 'app' AND target_slug = ? AND direction IN ('notify','both') AND revoked_at = ''").all(a.slug) as { agent_node: string; notify_url: string }[];
   for (const t of targets) {
-    if (t.base_url === '') continue;
-    a2aSendOutbound(a2aKeyPath(), { baseUrl: t.base_url, team: t.node }, JSON.stringify({
+    if (t.notify_url === '') continue;
+    a2aSendOutbound(a2aKeyPath(), { baseUrl: t.notify_url, team: t.agent_node }, JSON.stringify({
       type: 'app-data-submitted', slug: a.slug, id: itemId, data, created_at: createdAt,
       hint: '经 MCP app_data_list（slug + before_id 增量）读取；本通知尽力而为，真源在 app_data',
     })).catch(err => console.error(`[app-notify] push failed ${a.slug}→${t.node}: ${String(err).slice(0, 120)}`));
@@ -1619,80 +1620,78 @@ function maskKey(v: string): string {
   return v ? '****' : '';
 }
 
-app.get('/api/sops/:slug/bindings', (req, res) => {
+// ---------- 统一绑定面（联合评审①裁定 C · 2026-10-26）：表层统一+语义分离 ----------
+// 一张 bindings 表：direction(admits=入站准入|notify=出站推送|both=显式双授永非默认)。
+// 授权独立铁律：admits 消费点只认 admits|both；notify 消费点只认 notify|both——授一边不隐含另一边。
+// 跨型 CHECK（DDL）：app 行 remote_api_key 恒空、mode 恒 read（sop 专属语义不漂移）。
+app.get('/api/bindings', (req, res) => {
   if (!adminGuard(req, res)) return;
-  const a = getApp(req.params.slug);
-  if (a.kind !== 'sop') throw new HttpError(400, `${a.slug} 不是 SOP 台`);
-  const rows = svc<SopService>('sop').bindings(a.slug) as unknown as {
-    id: number; sop_slug: string; node: string; mode: string; remote_api_key: string; revoked_at: string; created_by: string; created_at: string;
-  }[];
-  // remote_api_key 与工作台凭据同规：列表/详情一律掩码，不进 MCP、不进导出
-  res.json(rows.map((r) => ({ ...r, remote_api_key: maskKey(r.remote_api_key) })));
+  const type = req.query.type === 'app' ? 'app' : 'sop';
+  const slug = String(req.query.slug ?? '').trim();
+  if (!slug) bad('slug 必填：/api/bindings?type=(sop|app)&slug=x');
+  const rows = db.prepare("SELECT id, target_type, target_slug, agent_node, direction, mode, notify_url, remote_api_key, revoked_at, created_by, created_at FROM bindings WHERE target_type = ? AND target_slug = ? ORDER BY id DESC").all(type, slug);
+  res.json(rows.map((r: { remote_api_key: string }) => ({ ...r, remote_api_key: maskKey(r.remote_api_key) })));
 });
 
-app.post('/api/sops/:slug/bindings', (req, res) => {
+app.post('/api/bindings', (req, res) => {
   if (!adminGuard(req, res)) return;
-  const a = getApp(req.params.slug);
-  if (a.kind !== 'sop') throw new HttpError(400, `${a.slug} 不是 SOP 台`);
   const b = req.body ?? {};
-  const node = typeof b.node === 'string' ? b.node.trim() : '';
-  const mode = b.mode === 'run' ? 'run' : 'read';
-  // 绑定对象是具体会话节点（dsh/<id8> 形态）或队名（队名绑定时回执广播到队——设计取舍 2 以节点为准，队名允许但提示）
-  if (!/^[a-z][a-z0-9-]*\/[a-z0-9][a-z0-9_-]{0,63}$/i.test(node)) bad('node 形态：<zone>/<id8>，如 dsh/1a2b3c4d');
-  const remoteKey = typeof b.remote_api_key === 'string' ? b.remote_api_key.trim() : '';
-  // P3：回执地址由人写在绑定上（评审席裁定：派单请求体自报的 callback 一律不用于投递）
-  const callbackUrlRaw = typeof b.callback_url === 'string' ? b.callback_url.trim() : '';
-  if (callbackUrlRaw !== '' && !/^https?:\/\/[^\s]+$/.test(callbackUrlRaw)) bad('callback_url 必须是 http(s):// 根地址');
-  const callbackUrl = mode === 'read' ? '' : callbackUrlRaw.replace(/\/+$/, '');
-  const r = svc<SopService>('sop').bindingCreateFull(a.slug, node, mode, remoteKey, callbackUrl, 'admin') as unknown as { lastInsertRowid: number | bigint };
-  sopNode8(a.slug); // 确保节点短 id 已生成（上卡用）
-  res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), node, mode, remote_api_key: maskKey(remoteKey) });
+  const targetType = b.target_type === 'app' ? 'app' : 'sop';
+  const slug = typeof b.target_slug === 'string' ? b.target_slug.trim() : '';
+  const node = typeof b.agent_node === 'string' ? b.agent_node.trim() : '';
+  // 评审注 A（direction 显式铁律）：缺 direction 一律 400——不许静默默认任何方向
+  const direction = b.direction;
+  if (direction !== 'admits' && direction !== 'notify' && direction !== 'both') bad('direction 必填且只许 admits|notify|both（显式选择·无默认）');
+  if (!slug) bad('target_slug 必填');
+  if (!/^[a-z][a-z0-9-]*\/[a-z0-9][a-z0-9_-]{0,63}$/i.test(node)) bad('agent_node 形态：<zone>/<id8>，如 dsh/1a2b3c4d');
+  const a = getApp(slug);
+  if (a.kind !== targetType) bad(`target_type=${targetType} 与台型不符（${slug} 是 ${a.kind}）`);
+  const mode = targetType === 'sop' && b.mode === 'run' ? 'run' : 'read'; // app 行 mode 恒 read（跨型 CHECK）
+  const remoteKey = targetType === 'sop' && typeof b.remote_api_key === 'string' ? b.remote_api_key.trim() : '';
+  const notifyRaw = typeof b.notify_url === 'string' ? b.notify_url.trim().replace(/\/+$/, '') : '';
+  if (notifyRaw !== '' && !/^https?:\/\/[^\s]+$/.test(notifyRaw)) bad('notify_url 必须是 http(s):// 根地址（达对端：回执投递/推送基址）');
+  // 语义对齐旧面：admits+read 不消费 notify_url（P3 口径）；notify 向必须带 notify_url
+  const notifyUrl = direction === 'admits' && mode === 'read' ? '' : notifyRaw;
+  if ((direction === 'notify' || direction === 'both') && notifyUrl === '') bad('notify 向绑定必须携带 notify_url');
+  if (targetType === 'sop') sopNode8(slug); // 确保节点短 id 已生成（上卡用）
+  // natural key 命中 → upsert（重绑=刷新字段并复活撤销态·绑定管理语义），首绑/重绑皆 201
+  const existing = db.prepare("SELECT id FROM bindings WHERE target_type = ? AND target_slug = ? AND agent_node = ? AND direction = ?").get(targetType, slug, node, direction) as { id: number } | undefined;
+  if (existing) {
+    db.prepare("UPDATE bindings SET mode = ?, notify_url = ?, remote_api_key = ?, revoked_at = '', created_by = 'admin', created_at = datetime('now') WHERE id = ?").run(mode, notifyUrl, remoteKey, existing.id);
+    res.status(201).json({ ok: true, id: existing.id, upserted: true, target_type: targetType, target_slug: slug, agent_node: node, direction, mode, notify_url: notifyUrl, remote_api_key: maskKey(remoteKey) });
+    return;
+  }
+  const r = db.prepare('INSERT INTO bindings (target_type, target_slug, agent_node, direction, mode, notify_url, remote_api_key, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(targetType, slug, node, direction, mode, notifyUrl, remoteKey, 'admin') as unknown as { lastInsertRowid: number | bigint };
+  res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), target_type: targetType, target_slug: slug, agent_node: node, direction, mode, notify_url: notifyUrl, remote_api_key: maskKey(remoteKey) });
 });
 
-app.delete('/api/sops/:slug/bindings/:id', (req, res) => {
+app.delete('/api/bindings/:id', (req, res) => {
   if (!adminGuard(req, res)) return;
-  const a = getApp(req.params.slug);
   const id = Number(req.params.id);
-  const hit = svc<SopService>('sop').bindingExists(id, a.slug) as { id: number } | undefined;
+  const hit = db.prepare("SELECT id FROM bindings WHERE id = ? AND revoked_at = ''").get(id) as { id: number } | undefined;
   if (!hit) throw new HttpError(404, `binding not found: ${id}`);
-  // 软撤销（留审计）：卡片即下线该 SOP（若无其他有效绑定）
-  svc<SopService>('sop').bindingRevoke(id);
+  db.prepare("UPDATE bindings SET revoked_at = datetime('now') WHERE id = ?").run(id);
   res.json({ ok: true, revoked: id });
 });
 
-// ---------- 自产台推送绑定（属主裁 C · 2026-10-26）：提交触发 A2A 推送 ----------
-// 页面承诺「agent 将出件」此前无机制承载（数据面哑存储纯拉模式）——本面补上：
-// 绑定（app×对端节点×对端基址）由管理口令创建，数据提交 201 后异步推送通知。
-app.get('/api/apps/:slug/bindings', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const a = getApp(req.params.slug);
-  if (a.kind !== 'app') throw new HttpError(400, `${a.slug} 不是自产台`);
-  const rows = db.prepare("SELECT id, app_slug, node, base_url, revoked_at, created_by, created_at FROM app_bindings WHERE app_slug = ? ORDER BY id").all(a.slug);
-  res.json(rows);
+// 旧面 410 过渡（评审注 B：一版 Location 指新面，下一版 404）——UI/脚本切换缓冲
+app.all('/api/sops/:slug/bindings', (req, res) => {
+  const loc = `/api/bindings?type=sop&slug=${encodeURIComponent(String(req.params.slug ?? ''))}`;
+  res.set('Location', loc).status(410).json({ error: '绑定面已统一：GET/POST /api/bindings（direction 显式必填）', location: loc });
+});
+app.all('/api/sops/:slug/bindings/:id', (req, res) => {
+  res.set('Location', '/api/bindings').status(410).json({ error: '绑定面已统一：DELETE /api/bindings/:id', location: '/api/bindings' });
+});
+app.all('/api/apps/:slug/bindings', (req, res) => {
+  const loc = `/api/bindings?type=app&slug=${encodeURIComponent(String(req.params.slug ?? ''))}`;
+  res.set('Location', loc).status(410).json({ error: '绑定面已统一：GET/POST /api/bindings（direction 显式必填）', location: loc });
+});
+app.all('/api/apps/:slug/bindings/:id', (req, res) => {
+  res.set('Location', '/api/bindings').status(410).json({ error: '绑定面已统一：DELETE /api/bindings/:id', location: '/api/bindings' });
 });
 
-app.post('/api/apps/:slug/bindings', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const a = getApp(req.params.slug);
-  if (a.kind !== 'app') throw new HttpError(400, `${a.slug} 不是自产台`);
-  const b = req.body ?? {};
-  const node = typeof b.node === 'string' ? b.node.trim() : '';
-  if (!/^[a-z][a-z0-9-]*\/[a-z0-9][a-z0-9_-]{0,63}$/i.test(node)) bad('node 形态：<zone>/<id8>，如 dsh/1a2b3c4d');
-  const baseUrl = typeof b.base_url === 'string' ? b.base_url.trim().replace(/\/+$/, '') : '';
-  if (!/^https?:\/\/[^\s]+$/.test(baseUrl)) bad('base_url 必须是 http(s):// 根地址（对端 A2A 基址）');
-  const r = db.prepare('INSERT INTO app_bindings (app_slug, node, base_url, created_by) VALUES (?, ?, ?, ?)').run(a.slug, node, baseUrl, 'admin') as unknown as { lastInsertRowid: number | bigint };
-  res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), node, base_url: baseUrl });
-});
-
-app.delete('/api/apps/:slug/bindings/:id', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const a = getApp(req.params.slug);
-  const id = Number(req.params.id);
-  const hit = db.prepare('SELECT id FROM app_bindings WHERE id = ? AND app_slug = ?').get(id, a.slug) as { id: number } | undefined;
-  if (!hit) throw new HttpError(404, `binding not found: ${id}`);
-  db.prepare("UPDATE app_bindings SET revoked_at = datetime('now') WHERE id = ?").run(id);
-  res.json({ ok: true, revoked: id });
-});
+// （旧双面绑定 CRUD 已删——统一面 /api/bindings 承接，410 过渡件在上）
 
 // /a2a/direct（P2）：准入开放——有效绑定 + 同 context 续 run + 上游幂等族 + 512KiB + DELIVERED 形状。
 // 查无 SOP 仍 404 不泄露；无绑定/draft/mode 不足 → 200 TASK_STATE_FAILED -32000（对齐上游 admission 形状）。
