@@ -667,7 +667,6 @@ function executeSkillDelete(slug: string): void {
   const S = svc<SkillService>('skill');
   const row = S.skillBySlug(slug);
   if (!row) throw new HttpError(404, `skill not found: ${slug}`);
-  const { rmSync } = require('node:fs') as typeof import('node:fs');
   for (const v of S.versionsBySkill(row.id) as any[]) { try { rmSync(v.snapshot_path, { recursive: true, force: true }); } catch { /* 已不在 */ } }
   db.prepare('DELETE FROM install_ledger WHERE skill_id = ?').run(row.id);
   db.prepare('DELETE FROM skill_versions WHERE skill_id = ?').run(row.id);
