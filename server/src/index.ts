@@ -52,7 +52,13 @@ const REMOTE_ALLOW_EXACT = new Set(['/mcp', '/.well-known/agent-card.json', '/a2
 // 必须挂在所有业务路由之前（Express 按注册序匹配，路由先响应则后续 use 不再执行）
 app.use(endpointStatsMiddleware());
 
-const REMOTE_ALLOW_PREFIX = [/^\/api\/apps\/[a-z0-9-]{1,64}\/(data|files)(\/|$)/];
+// #T1（评审裁定 direct-7d8eaa75，与裁定 A 同语义）：SOP Runner 业务写面——建单/存步/完成/附件
+// 对远程浏览器开放（.157 业务同事裸开 Runner 页提交 403 即本缺口）；精确到业务子路径：
+// assign（派单指派）是控制面不豁免；/api/sops/* 控制面照旧收口（smoke 判据④⑤护栏钉死）。
+const REMOTE_ALLOW_PREFIX = [
+  /^\/api\/apps\/[a-z0-9-]{1,64}\/(data|files)(\/|$)/,
+  /^\/api\/sop\/runs(\/\d+(\/(finish|files))?)?$/,
+];
 app.use((req, res, next) => {
   const ip = String(req.socket.remoteAddress ?? '');
   const isLoopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
