@@ -116,10 +116,10 @@ CREATE INDEX IF NOT EXISTS idx_app_bindings_slug ON app_bindings (app_slug, revo
 -- #94 v3 S1 统一人审门：破坏性操作（台回滚/删除）经请求-批准两段——agent 经 MCP 只能提请求，人带口令批准才执行
 CREATE TABLE IF NOT EXISTS change_requests (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  kind TEXT NOT NULL CHECK (kind IN ('app_rollback','app_delete')),
-  target_type TEXT NOT NULL DEFAULT 'app',
-  target_slug TEXT NOT NULL,
-  payload TEXT NOT NULL DEFAULT '{}',
+  kind TEXT NOT NULL CHECK (kind IN ('app','skill')),
+  slug TEXT NOT NULL,
+  op TEXT NOT NULL CHECK (op IN ('rollback','delete')),
+  target_version INTEGER,
   reason TEXT NOT NULL DEFAULT '',
   source TEXT NOT NULL DEFAULT 'mcp',
   requested_by TEXT NOT NULL DEFAULT '',
@@ -294,6 +294,8 @@ CREATE TABLE IF NOT EXISTS install_ledger (
 
 // A2A P3 回执（评审席判据 network/a2a-receipt E1-E7）
 {
+// S1 表形状迁移（PR#103 旧形状 kind=app_rollback… → v3 契约 kind×op·表新落地零产数据直接重建）
+try { const crCols = db.prepare("PRAGMA table_info(change_requests)").all() as any[]; if (crCols.length > 0 && !crCols.some((c) => c.name === 'op')) { db.exec('DROP TABLE change_requests'); db.exec("CREATE TABLE change_requests (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  kind TEXT NOT NULL CHECK (kind IN ('app','skill')),\n  slug TEXT NOT NULL,\n  op TEXT NOT NULL CHECK (op IN ('rollback','delete')),\n  target_version INTEGER,\n  reason TEXT NOT NULL DEFAULT '',\n  source TEXT NOT NULL DEFAULT 'mcp',\n  requested_by TEXT NOT NULL DEFAULT '',\n  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),\n  reviewed_by TEXT NOT NULL DEFAULT '',\n  reviewed_at TEXT NOT NULL DEFAULT '',\n  created_at TEXT NOT NULL DEFAULT (datetime('now'))\n)"); } } catch { /* 无表 */ }
 // #94 S0⑥（K9）幂等迁移：拆全局 digest 唯一索引（域级复合索引由 DDL 建）
 try { db.exec('DROP INDEX IF EXISTS idx_skill_versions_digest'); } catch { /* 旧库无此索引 */ }
 
