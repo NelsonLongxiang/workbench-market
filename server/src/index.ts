@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createReadStream } from 'node:fs';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -616,6 +616,16 @@ function publishAppBody(b: any): { status: number; body: object } {
     version = 1;
     appRow = getApp(slug);
   }
+  // #94 P1 影子双写：发布同时写 Commit（读路径不变·失败不阻·commit_id 留空可后补迁移）
+  void layerfsPublish(slug, files, String(changelog ?? `[publish] v${version}`)).then((out) => {
+    if (out) {
+      try {
+        db.prepare("UPDATE app_versions SET commit_id = ? WHERE app_id = (SELECT id FROM apps WHERE slug = ?) AND version = ?").run(out.commit_id, slug, version);
+        db.prepare("UPDATE apps SET layerfs_project = ? WHERE slug = ?").run(slug, slug);
+      } catch { /* 影子失败不阻 */ }
+    }
+  }); // 异步影子——响应不等（fire-and-forget·不阻发布路径）
+
   // app 类发布即入册；sop 类走状态机——draft 不入册，publish 时入册
   const workbench_id = appRow.kind === 'app' ? syncWorkbenchRegistration(appRow) : 0;
   return { status: existing ? 200 : 201, body: { ok: true, slug: appRow.slug, version, workbench_id, kind: appRow.kind, status: appRow.status, app: appDetail(appRow) } };
@@ -625,6 +635,51 @@ app.post('/api/apps', (req, res) => {
   const r = publishAppBody(req.body ?? {});
   res.status(r.status).json(r.body);
 });
+
+// #94 P1 迁移端点：现有版本依次导成该台项目的 Commit（三门禁复验·异常留档·幂等·sha256 对账）
+app.post('/api/apps/:slug/migrate-layerfs', wrap(async (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const a = getApp(req.params.slug);
+  const vs = svc<AppService>('app').versions(a.id) as any[];
+  const results: any[] = [];
+  let prevBytes = 0;
+  for (const v of vs.sort((x: any, y: any) => x.version - y.version)) {
+    const dir = join(appsRoot, a.slug, `v${v.version}`);
+    if (!existsSync(dir)) { results.push({ version: v.version, result: 'anomaly', reason: '物化目录缺失' }); continue; }
+    // 读物化文件
+    const files: { path: string; content: string }[] = [];
+    (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp, 'utf8') }); } })(dir);
+    // 三门禁复验（评审席复查裁定）
+    if (files.some((f) => f.content === '')) { results.push({ version: v.version, result: 'anomaly', reason: '空 content（门禁复验拒迁·留档）' }); prevBytes = v.total_bytes; continue; }
+    if (prevBytes > 0 && v.total_bytes < prevBytes * 0.5) { results.push({ version: v.version, result: 'anomaly', reason: `体积骤降（${prevBytes}→${v.total_bytes}·>50%·门禁拒迁）` }); prevBytes = v.total_bytes; continue; }
+    const html = files.filter((f) => /\.html?$/.test(f.path));
+    for (const h of html) {
+      const open = (h.content.match(/<div/g) ?? []).length; const close = (h.content.match(/<\/div>/g) ?? []).length;
+      if (open !== close) { results.push({ version: v.version, result: 'anomaly', reason: `div 配对失败（${open}开/${close}闭）` }); break; }
+    }
+    if (results.at(-1)?.version === v.version && results.at(-1)?.result === 'anomaly') { prevBytes = v.total_bytes; continue; }
+    // 幂等：已有 commit_id 跳过
+    if (v.commit_id) { results.push({ version: v.version, result: 'skip', commit_id: v.commit_id }); prevBytes = v.total_bytes; continue; }
+    const out = await layerfsPublish(a.slug, files, `[migrate] v${v.version}`);
+    if (!out) { results.push({ version: v.version, result: 'error', reason: 'layerfs 服务不可达（影子失败语义·可重跑）' }); prevBytes = v.total_bytes; continue; }
+    db.prepare('UPDATE app_versions SET commit_id = ? WHERE id = ?').run(out.commit_id, v.id);
+    db.prepare("UPDATE apps SET layerfs_project = ? WHERE slug = ?").run(a.slug, a.slug);
+    // sha256 对账（物化 vs 服务 commit——经服务回读）
+    const { base, token } = layerfsServiceBase();
+    let shaMatch = false;
+    try {
+      const fr = await fetch(base.replace(/\/+$/, '') + '/v0/projects/' + encodeURIComponent(a.slug) + '/commits/' + encodeURIComponent(out.commit_id) + '/files', { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      const fj = await fr.json() as { files: { path: string; content: string }[] };
+      const { createHash: ch } = await import('node:crypto');
+      const h1 = ch('sha256').update(JSON.stringify(files.map((f) => [f.path, ch('sha256').update(f.content, 'utf8').digest('hex')]))).digest('hex');
+      const h2 = ch('sha256').update(JSON.stringify(fj.files.map((f) => [f.path, ch('sha256').update(f.content, 'utf8').digest('hex')]))).digest('hex');
+      shaMatch = h1 === h2;
+    } catch { shaMatch = false; }
+    results.push({ version: v.version, result: 'migrated', commit_id: out.commit_id, changed: out.changed, sha256_match: shaMatch });
+    prevBytes = v.total_bytes;
+  }
+  res.json({ slug: a.slug, layerfs_project: a.slug, results });
+}));
 
 app.get('/api/apps/:slug', (req, res) => {
   res.json(appDetail(getApp(req.params.slug)));
@@ -730,6 +785,33 @@ app.delete('/api/apps/:slug', (req, res) => {
 });
 
 /** #94 v3 S1：台删除级联体（一步式 REST 与人审批准共用一个执行体——单一事实源） */
+/** #94 P1 影子双写：经 layerfs 服务发布 Commit（契约 v0 §2.1·Bearer）——失败不阻（warn·commit_id 留空） */
+function layerfsServiceBase(): { base: string; token: string } {
+  const s = getSettings() as Record<string, unknown>;
+  const base = String(s['layerfs_service_url'] ?? process.env.LAYERFS_SERVICE_URL ?? '').trim();
+  const token = String(s['layerfs_service_token'] ?? process.env.LAYERFS_SERVICE_TOKEN ?? '').trim();
+  return { base, token };
+}
+async function layerfsPublish(project: string, files: { path: string; content: string }[], message: string): Promise<{ commit_id: string; changed: boolean } | null> {
+  const { base, token } = layerfsServiceBase();
+  if (!base) return null; // 未配置=不启用（契约 §1）
+  try {
+    const res = await fetch(base.replace(/\/+$/, '') + '/v0/projects/' + encodeURIComponent(project) + '/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ files, message }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`layerfs service HTTP ${res.status}`);
+    const j = await res.json() as { commit_id?: string; changed?: boolean };
+    if (!j.commit_id) throw new Error('layerfs service 无 commit_id');
+    return { commit_id: j.commit_id, changed: j.changed === true };
+  } catch (e) {
+    console.warn(`[P1-shadow] 影子写失败（不阻发布·commit_id 留空）: ${project}: ${String((e as Error).message).slice(0, 100)}`);
+    return null;
+  }
+}
+
 function deleteAppCascade(slug: string): void {
   const a = getApp(slug);
   rmSync(join(appsRoot, slug), { recursive: true, force: true });
