@@ -160,7 +160,7 @@ export async function collectTasks(sop: SopServiceLike): Promise<TasksPayload> {
   const ygl = yglSettled.status === 'fulfilled' ? yglSettled.value : { ok: false, tasks: [], latencyMs: 0 };
   const mktRows = mktSettled.status === 'fulfilled' ? mktSettled.value : [];
   const payload: TasksPayload = {
-    tasks: [...ygl.tasks, ...mktRows, ...(a2aSettled?.status === 'fulfilled' ? a2aSettled.value.tasks : [])],
+    tasks: [...ygl.tasks, ...mktRows, ...changeRequestTasks(), ...(a2aSettled?.status === 'fulfilled' ? a2aSettled.value.tasks : [])], // S1 人审门入待办
     sources: {
       'ygl-trees': { ok: ygl.ok, count: ygl.tasks.filter((t) => t.status !== 'done').length, latency_ms: ygl.latencyMs },
       market: { ok: true, count: mktRows.length, latency_ms: 0 },
@@ -171,4 +171,16 @@ export async function collectTasks(sop: SopServiceLike): Promise<TasksPayload> {
   };
   cache = { at: now, payload };
   return payload;
+}
+
+/** #94 v3 S1 人审门：pending change_requests 入统一待办（批准/拒绝回 REST 原系统） */
+function changeRequestTasks(): TaskEnvelope[] {
+  try {
+    const rows = (globalThis as any).__wmDb?.prepare?.("SELECT id, kind, target_slug, reason, requested_by, created_at FROM change_requests WHERE status='pending' ORDER BY id DESC LIMIT 50")?.all?.() ?? [];
+    return rows.map((r: any) => ({
+      id: `change-request:${r.id}`, source: 'market' as const,
+      title: `人审·${r.kind === 'app_delete' ? '删台' : '回滚'} ${r.target_slug}${r.reason ? '（' + String(r.reason).slice(0, 60) + '）' : ''}`,
+      status: 'todo' as const, due: '', link: '/api/change-requests', project: 'review-gate',
+    }));
+  } catch { return []; }
 }

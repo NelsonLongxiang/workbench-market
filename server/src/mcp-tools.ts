@@ -58,9 +58,14 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
     },
   },
   {
-    name: 'app_activate',
-    description: '版本回滚：把某自产台/SOP 台切回历史版本（版本链见 GET /api/apps/<slug>）。',
-    inputSchema: { type: 'object', properties: { slug: { type: 'string' }, version: { type: 'integer' } }, required: ['slug', 'version'], additionalProperties: false },
+    name: 'change_request_create',
+    description: '#94 v3 S1 人审门：创建台回滚/删除请求（K10——批准前状态不变·批准经 REST 口令面）',
+    inputSchema: { type: 'object', properties: { kind: { type: 'string', enum: ['app_rollback', 'app_delete'] }, target_type: { type: 'string' }, target_slug: { type: 'string' }, payload: { type: 'object' }, reason: { type: 'string' }, requested_by: { type: 'string' } }, required: ['kind', 'target_slug'] },
+  },
+  {
+    name: 'change_requests',
+    description: '#94 v3 S1：列人审请求（默认 pending）',
+    inputSchema: { type: 'object', properties: { status: { type: 'string', enum: ['pending', 'approved', 'rejected'] } } },
   },
   {
     name: 'sop_publish',
