@@ -10,6 +10,9 @@ import { join, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 
 const args = process.argv.slice(2);
+// #94 S0⑦：cwd 相对路径→脚本目录锚定（任意 cwd 运行都落在仓库真位）
+const SCRIPT_DIR = fileURLToPath(new URL('.', import.meta.url));
+const REPO_ROOT = join(SCRIPT_DIR, '..');
 const SELFTEST = args.includes('--selftest');
 const DRY = args.includes('--dry-run') || SELFTEST;
 const AGENTS_SKILLS = process.env.SKILL_SRC_A ?? 'C:/Users/Administrator/.agents/skills';
@@ -136,7 +139,7 @@ if (!DRY) {
     const ver = (S.versionsMax(row.id)?.v ?? 0) + 1;
     // 快照落盘（方案 §1 P0-b 语义前置到种子导入：首版即快照）
     const { cpSync, mkdirSync } = await import('node:fs');
-    const snapDir = `server/data/skill-snapshots/${encodeURIComponent(r.name)}/v${ver}`;
+    const snapDir = join(REPO_ROOT, 'server/data/skill-snapshots', encodeURIComponent(r.name), `v${ver}`); // S0⑦ 锚定
     mkdirSync(snapDir, { recursive: true });
     cpSync(join(AGENTS_SKILLS, r.dir), snapDir, { recursive: true });
     S.versionInsert({ skillId: row.id, version: ver, changelog: `import ${new Date().toISOString().slice(0, 10)}`, treeDigest: t.digest, fileCount: t.fileCount, totalBytes: t.totalBytes, snapshotPath: snapDir, reviewedBy: 'importer' });
@@ -160,5 +163,5 @@ if (!DRY) {
     S.bundleUpsert(b); report.bundles++;
   }
 }
-writeFileSync('tmp/skill-import-report.json', JSON.stringify(report, null, 2));
+writeFileSync(join(REPO_ROOT, 'tmp/skill-import-report.json'), JSON.stringify(report, null, 2)); // S0⑦ 锚定
 console.log(`导入完成（dry=${DRY}）：A=${report.a.imported} B=${report.b.imported} bundles=${report.bundles} 跳过=${report.a.skipped.length + report.b.skipped.length}`);
