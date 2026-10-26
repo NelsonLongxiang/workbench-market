@@ -84,6 +84,7 @@ try {
   if (pushes.length > 0) {
     const p = pushes[0];
     ok('②c 推送 team=绑定 node', p.body?.team === 'dsh/6de4035c', JSON.stringify(p.body?.team));
+    ok('②c2 推送 caller=区限定句柄 market/<8hex>（裸 zone 对端永不可准入）', /^market\/[0-9a-f]{8}$/.test(String(p.body?.caller_session ?? '')), String(p.body?.caller_session));
     const msg = typeof p.body?.message === 'string' ? p.body.message : '';
     ok('②d 推送含 slug/id/字段', msg.includes('procurement-workbench') && msg.includes(String(item?.id)) && msg.includes('PO-NOTIFY-1'), msg.slice(0, 80));
   }
