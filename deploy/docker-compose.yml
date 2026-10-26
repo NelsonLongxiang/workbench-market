@@ -1,0 +1,32 @@
+# #94 P0 部署接入（L12 判据面）：市场主容器无宿主权限；layerfs 服务容器挂 Docker 面。
+services:
+  market:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.market
+    ports:
+      - "9800:9800"
+    environment:
+      LAYERFS_SERVICE_URL: http://layerfs:8067
+      LAYERFS_SERVICE_TOKEN: ${LAYERFS_SERVICE_TOKEN:-change-me}
+      DATA_DIR: /data
+    volumes:
+      - market-data:/data
+    depends_on:
+      - layerfs
+
+  layerfs:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.layerfs-p0
+    environment:
+      LAYERFS_SERVICE_TOKEN: ${LAYERFS_SERVICE_TOKEN:-change-me}
+      LAYERFS_STORE_ROOT: /var/lib/layerfs
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/volumes:/var/lib/docker/volumes:rw
+      - layerfs-store:/var/lib/layerfs
+
+volumes:
+  market-data:
+  layerfs-store:
