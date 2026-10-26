@@ -6,7 +6,8 @@ import { randomBytes } from 'node:crypto';
 
 export function startSubstitute(opts = {}) {
   const token = opts.token ?? 'lfs-test-token';
-  const state = new Map(); // project → { commits:[{id, files}], head }
+  const state = new Map(); // project → { commits:[{id, files}], head }（v0）
+  const state2 = new Map(); // project → Map(branch → { commits, head })（v1）
   const hits = []; // 全请求记录（判据用）
   let failNextPublish = false; // 测 L4/L7 用（可外部置位）
 
@@ -93,7 +94,59 @@ export function startSubstitute(opts = {}) {
       const body = await readBody(req);
       return json(res, 200, { ok: true, commit_hash: 'c0ffee' + randomBytes(3).toString('hex'), exit_code: 0, stdout_tail: 'ok', stderr_tail: '', duration_ms: 5, run_id: body.run_id });
     }
-    return json(res, 404, { error: 'not found', url });
+    // ── 契约 v1（#94 S2·项目+分支两级）──
+    const v1pb = /^\/v1\/projects\/([^/]+)\/branches\/([^/]+)\/publish$/.exec(req.url ?? ''); // raw（%2F 分支一段）
+    if (req.method === 'POST' && v1pb) {
+      const proj = decodeURIComponent(v1pb[1]); const br = decodeURIComponent(v1pb[2]);
+      if (failNextPublish) { failNextPublish = false; return json(res, 500, { error: 'boom' }); }
+      const body = await readBody(req);
+      const files = Array.isArray(body.files) ? body.files : [];
+      const projs = state2.get(proj) ?? new Map(); state2.set(proj, projs);
+      const bst = projs.get(br) ?? { commits: [], head: null }; projs.set(br, bst);
+      const last = bst.head ? bst.commits.find((c) => c.id === bst.head) : null;
+      if (last && JSON.stringify(last.files) === JSON.stringify(files)) return json(res, 200, { commit_id: bst.head, changed: false });
+      const id = 'c' + randomBytes(6).toString('hex');
+      bst.commits.push({ id, files, message: String(body.message ?? '') }); bst.head = id;
+      return json(res, 200, { commit_id: id, changed: true });
+    }
+    const v1cf = /^\/v1\/projects\/([^/]+)\/branches\/([^/]+)\/commits\/([^/]+)\/files$/.exec(url);
+    if (req.method === 'GET' && v1cf) {
+      const bst = state2.get(decodeURIComponent(v1cf[1]))?.get(decodeURIComponent(v1cf[2]));
+      const c = bst?.commits.find((x) => x.id === v1cf[3]);
+      if (!c) return json(res, 404, { error: 'no such commit' });
+      return json(res, 200, { files: c.files });
+    }
+    const v1ren = /^\/v1\/projects\/([^/]+)\/branches\/([^/]+)\/rename$/.exec(url);
+    if (req.method === 'POST' && v1ren) {
+      const body = await readBody(req);
+      const projs = state2.get(decodeURIComponent(v1ren[1]));
+      const from = decodeURIComponent(v1ren[2]); const to = String(body.to ?? '');
+      if (!projs?.has(from) || !to) return json(res, 404, { error: 'no such branch / to 必填' });
+      projs.set(to, projs.get(from)); projs.delete(from);
+      return json(res, 200, { renamed: true, from, to });
+    }
+    const v1mg = /^\/v1\/projects\/([^/]+)\/branches\/([^/]+)\/merge$/.exec(url);
+    if (req.method === 'POST' && v1mg) {
+      const body = await readBody(req);
+      const projs = state2.get(decodeURIComponent(v1mg[1]));
+      const src = decodeURIComponent(v1mg[2]); const into = String(body.into ?? 'release');
+      const s = projs?.get(src); const d = projs?.get(into);
+      if (!s?.head || !d?.head) return json(res, 404, { error: 'src/into 分支缺头' });
+      const sc = s.commits.find((c) => c.id === s.head); const dc = d.commits.find((c) => c.id === d.head);
+      const sPaths = new Set(sc.files.map((f) => f.path));
+      if (sc.files.some((f) => dc.files.some((g) => g.path === f.path))) return json(res, 409, { kind: 'Conflict', conflicts: sc.files.filter((f) => dc.files.some((g) => g.path === f.path)).map((f) => f.path) });
+      const id = 'c' + randomBytes(6).toString('hex');
+      d.commits.push({ id, files: [...dc.files, ...sc.files.filter((f) => !sPaths.has('') && !dc.files.some((g) => g.path === f.path))], message: 'merge' }); d.head = id;
+      return json(res, 200, { commit_id: id });
+    }
+    const v1ex = /^\/v1\/projects\/([^/]+)\/branches\/([^/]+)\/commits\/([^/]+)\/export$/.exec(url);
+    if (req.method === 'GET' && v1ex) {
+      const bst = state2.get(decodeURIComponent(v1ex[1]))?.get(decodeURIComponent(v1ex[2]));
+      const c = bst?.commits.find((x) => x.id === v1ex[3]);
+      if (!c) return json(res, 404, { error: 'no such commit' });
+      return json(res, 200, { export: 'tarball-placeholder', files: c.files.map((f) => f.path), note: 'S3 预留：真导出包面' });
+    }
+        return json(res, 404, { error: 'not found', url });
   });
 
   return {

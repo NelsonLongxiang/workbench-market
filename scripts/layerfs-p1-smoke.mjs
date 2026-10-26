@@ -35,7 +35,7 @@ const lfs = createServer(async (req, res) => {
   hits.push({ m: req.method, url, auth: req.headers.authorization ?? '' });
   const json = (code, b) => { const s = JSON.stringify(b); res.writeHead(code, { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(s)) }); res.end(s); };
   if (req.headers.authorization !== `Bearer ${TOKEN}`) return json(401, { error: 'unauthorized' });
-  const pm = /^\/v0\/projects\/([^/]+)\/publish$/.exec(url);
+  const pm = /^\/v1\/projects\/([^/]+)\/branches\/([^/]+)\/publish$/.exec(url);
   if (req.method === 'POST' && pm) {
     const p = decodeURIComponent(pm[1]);
     const b = JSON.parse(body || '{}');
@@ -47,10 +47,10 @@ const lfs = createServer(async (req, res) => {
     st.commits.push({ id, files }); st.head = id; store.set(p, st);
     return json(200, { commit_id: id, changed: true });
   }
-  const cm = /^\/v0\/projects\/([^/]+)\/commits\/([^/]+)\/files$/.exec(url);
+  const cm = /^\/v1\/projects\/([^/]+)\/branches\/([^/]+)\/commits\/([^/]+)\/files$/.exec(url);
   if (req.method === 'GET' && cm) {
     const st = store.get(decodeURIComponent(cm[1]));
-    const c = st?.commits.find((x) => x.id === cm[2]);
+    const c = st?.commits.find((x) => x.id === cm[3]);
     if (!c) return json(404, { error: 'no such commit' });
     return json(200, { files: c.files });
   }
