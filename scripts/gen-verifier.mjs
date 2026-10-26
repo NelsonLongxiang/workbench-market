@@ -4,7 +4,9 @@
  * 保证 source_clause / anchor.quote / review source_clause 三者逐字一致（P1/P3 的硬要求）。
  * 用法：node tmp/gen-v4.mjs   （产物落在 verify/，随后 submit/prepare）
  */
-import { writeFileSync } from "node:fs";
+import { writeFileSync, mkdirSync } from "node:fs";
+// #95（净克隆自举·总工 direct-6afe4658）：verify/ 不再入库——写前三件套前先建目录（与 #13 同类自愈）
+mkdirSync("verify", { recursive: true });
 
 // ── 35 单元事实源 ────────────────────────────────────────────────────────────
 // ck: checker；rv: [faithful 理由, decidable 理由, not-vacuous 理由]
