@@ -1,0 +1,12 @@
+# layerfs 服务镜像 P0（契约 v0 参考实现·无原生构建——Rust 原生构建属 P1）
+FROM node:24-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY deploy/layerfs-svc.mjs /app/layerfs-svc.mjs
+COPY scripts/layerfs-substitute.mjs /app/layerfs-substitute.mjs
+COPY deploy/testbench.sh /app/testbench.sh
+# layerfs-svc.mjs 以 '../scripts/layerfs-substitute.mjs' 导入——镜像内路径对齐：
+RUN mkdir -p /scripts && cp /app/layerfs-substitute.mjs /scripts/layerfs-substitute.mjs
+ENV LAYERFS_SERVICE_PORT=8067
+EXPOSE 8067
+CMD ["node", "/app/layerfs-svc.mjs"]
