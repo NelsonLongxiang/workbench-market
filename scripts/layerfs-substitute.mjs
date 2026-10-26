@@ -100,7 +100,7 @@ export function startSubstitute(opts = {}) {
     state, hits,
     setFailNextPublish(v) { failNextPublish = v; },
     listen(port = 0) { return new Promise((r) => server.listen(port, '127.0.0.1', () => r(server.address().port))); },
-    close() { return new Promise((r) => server.close(() => r())); },
+    close() { server.closeAllConnections?.(); return new Promise((r) => server.close(() => r())); }, // 关闭竞态：keep-alive 连接先断（评审定性在案）
     url() { return `http://127.0.0.1:${server.address().port}`; },
   };
 }
