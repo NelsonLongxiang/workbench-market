@@ -52,14 +52,14 @@ export class SkillService extends Service {
   }
 
   /** P0-b 发布面：文件树摘要（排序相对路径+内容，/ 归一）——与导入器 treeDigest 同构 */
-  static filesDigest(files: { path: string; content: string }[]): { digest: string; fileCount: number; totalBytes: number } {
+  static filesDigest(files: { path: string; content: string | Buffer }[]): { digest: string; fileCount: number; totalBytes: number } {
     // #94 S0①根治：全市场单一**字节序**摘要（codepoint——与导入器 files.sort() 同构；localeCompare 大小写/音标分歧即误判）
     const sorted = [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const h = createHash('sha256');
     let bytes = 0;
     for (const f of sorted) {
       h.update(f.path.split('\\').join('/')); h.update('\0');
-      h.update(createHash('sha256').update(f.content, 'utf8').digest('hex')); h.update('\0');
+      h.update(createHash('sha256').update(typeof f.content === 'string' ? Buffer.from(f.content, 'utf8') : f.content).digest('hex')); h.update('\0');
       bytes += Buffer.byteLength(f.content, 'utf8');
     }
     return { digest: h.digest('hex'), fileCount: sorted.length, totalBytes: bytes };
