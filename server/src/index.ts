@@ -531,6 +531,30 @@ function publishAppBody(b: any): { status: number; body: object } {
     changelog = b.changelog.trim();
   }
 
+  // ── 发布内容门禁（S1·采购席反馈 P1/v16 事故锚·判据先红 publish-gate-smoke）──
+  // 三闸全放发布入口服务端：①空 content 拒（v16 实证：空串照发上线 0 字节 2 分钟）
+  // ②对前版体积骤降>50% 拒（显式 force:true 可越——合法瘦身通道）③HTML div 开闭配对失衡拒。
+  const force = b.force === true;
+  for (const f of files) {
+    if (f.content.trim() === '') throw new HttpError(400, `发布门禁：${f.path} 内容为空（v16 事故锚——空文件照发曾致生产页 0 字节）`);
+    if (/\.html?$/i.test(f.path)) {
+      const opens = (f.content.match(/<div\b/gi) ?? []).length;
+      const closes = (f.content.match(/<\/div\s*>/gi) ?? []).length;
+      if (opens !== closes) throw new HttpError(400, `发布门禁：${f.path} div 开闭不配对（开 ${opens} / 闭 ${closes}）`);
+    }
+  }
+  if (existing && !force) {
+    const prev = svc<AppService>('app').versionsMax(existing.id) as { v: number | null };
+    if (prev.v !== null && prev.v > 0) {
+      const prevRow = db.prepare('SELECT total_bytes FROM app_versions WHERE app_id = ? AND version = ?').get(existing.id, prev.v) as { total_bytes?: number } | undefined;
+      const prevBytes = prevRow?.total_bytes ?? 0;
+      const newBytes = files.reduce((s, f) => s + Buffer.byteLength(f.content, 'utf8'), 0);
+      if (prevBytes > 0 && newBytes < prevBytes * 0.5) {
+        throw new HttpError(400, `发布门禁：体积骤降（前版 ${prevBytes}B → 本版 ${newBytes}B，降幅>${Math.round((1 - newBytes / prevBytes) * 100)}%）——若为有意精简请携带 force:true`);
+      }
+    }
+  }
+
   let appRow: AppRow;
   let version: number;
   if (existing) {
@@ -1280,13 +1304,21 @@ function serveApp(req: express.Request, res: express.Response) {
   }
   const a = svc<AppService>('app').bySlug(m[1]) as unknown as AppRow | undefined;
   if (!a) return res.status(404).json({ error: `app not found: ${m[1]}` });
-  const root = join(appsRoot, m[1], `v${a.active_version}`);
+  // S2 预览槽（采购席反馈 P2）：?version=N 服务历史版本（版本链已有，预览成本极低）——
+  // 发布前对照/回滚核查用；非数字或不存在的版本回落活跃版。
+  let ver = a.active_version;
+  const qv = String(req.query.version ?? '');
+  if (qv !== '' && /^\d+$/.test(qv)) {
+    const hit = svc<AppService>('app').versionExists(a.id, Number(qv)) as { version: number } | undefined;
+    if (hit) ver = hit.version;
+  }
+  const root = join(appsRoot, m[1], `v${ver}`);
   let rel = posix.normalize(rest || 'index.html');
   if (rel === '.' || rel.startsWith('/') || rel.startsWith('..')) return res.status(400).json({ error: '路径非法' });
   if (rel.endsWith('/')) rel += 'index.html';
   const abs = join(root, rel);
   if (!abs.startsWith(root)) return res.status(400).json({ error: '路径非法' });
-  res.setHeader('X-App-Version', `v${a.active_version}`);
+  res.setHeader('X-App-Version', `v${ver}`);
   if (!existsSync(abs)) {
     // 无扩展名的深链回退到 index.html（SPA 路由习惯）
     if (!posix.extname(rel)) return res.sendFile(join(root, 'index.html'));

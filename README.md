@@ -22,6 +22,8 @@ pnpm start            # 生产模式（只跑 server，访问 http://127.0.0.1:9
 | 功能 | 说明 |
 | --- | --- |
 | 工作台 CRUD | 名称/URL/类型/图标/分类/标签/排序/Markdown 描述；一键复制为副本（全字段预填）快速创建变体；删除仅解除注册不影响服务 |
+| 发布门禁·预览·元数据（S1/S2/S6） | 发布三闸：空 content 拒（v16 事故锚）/对前版体积骤降>50% 拒（`force:true` 显式越门=合法瘦身通道）/HTML div 开闭配对失衡拒；`?version=N` 历史版本预览槽（`X-App-Version` 头明示所服务版本）；republish 缺省元数据继承现值（title/description/created_by/code），`enabled=false` 仅下架市场列表——API/数据面不受影响（如需彻底下线走台 deprecate） |
+| 发布门禁·预览·元数据（S1/S2/S6） | 发布三闸：空 content 拒（v16 事故锚）/对前版体积骤降>50% 拒（`force:true` 显式越门=合法瘦身通道）/HTML div 开闭配对失衡拒；`?version=N` 历史版本预览槽（`X-App-Version` 头明示所服务版本）；republish 缺省元数据继承现值（title/description/created_by/code），`enabled=false` 仅下架市场列表——API/数据面不受影响（如需彻底下线走台 deprecate） |
 | 类型系统 | 每类型定义探测语义（方法/路径/期望状态码，留空=任意响应即在线）+ 默认端口；内置 9 种（web/openai-api/ollama/gradio/streamlit/jupyter/mcp-sse/docs/market-app），可自定义 |
 | 健康检测 | 单测/全部检测（并发限流、超时控制）、后台定时巡检（间隔可配，0=关闭） |
 | 总览仪表盘 | 统计卡（点击深链 `/market?status=up\|down\|unknown` 直达过滤）+ 数据卡（在线率环/平均延迟/分类巡检/上次巡检）+ 可拖拽缩放卡片墙（布局存 localStorage，15s 自动刷新） |
