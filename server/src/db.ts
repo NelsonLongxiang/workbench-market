@@ -249,7 +249,8 @@ CREATE TABLE IF NOT EXISTS skill_versions (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(skill_id, version)
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_skill_versions_digest ON skill_versions(tree_digest);
+-- #94 S0⑥（K9）：digest 唯一性按 skill 域（不同技能同内容各自可发布——全局唯一是误拒）
+CREATE UNIQUE INDEX IF NOT EXISTS idx_skill_versions_domain_digest ON skill_versions(skill_id, tree_digest);
 CREATE TABLE IF NOT EXISTS role_bundles (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   pack_id TEXT NOT NULL,
@@ -277,6 +278,9 @@ CREATE TABLE IF NOT EXISTS install_ledger (
 
 // A2A P3 回执（评审席判据 network/a2a-receipt E1-E7）
 {
+// #94 S0⑥（K9）幂等迁移：拆全局 digest 唯一索引（域级复合索引由 DDL 建）
+try { db.exec('DROP INDEX IF EXISTS idx_skill_versions_digest'); } catch { /* 旧库无此索引 */ }
+
   const ctxCols = db.prepare('PRAGMA table_info(a2a_run_ctx)').all() as { name: string }[];
   if (!ctxCols.some((c) => c.name === 'task_id')) {
     db.exec("ALTER TABLE a2a_run_ctx ADD COLUMN task_id TEXT NOT NULL DEFAULT ''");
