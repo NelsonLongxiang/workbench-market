@@ -84,7 +84,7 @@ try {
   ok('1MB 拒 400', r.status === 400);
   // ⑦ 远程收口白名单（主人裁定 A）：经局域网 IP 访问（remoteAddress 非 loopback）——
   //    数据/文件面放行、控制面照旧 403。无局域网 IP 时跳过（fail-open 不阻断本地测试）。
-  const lanIp = process.env.LAN_IP || '192.168.3.156';
+  const lanIp = process.env.LAN_IP || ''; // 隐私门红线：内网地址只经 env（unset 则跳过远程判据）
   let lanReachable = false;
   try {
     const probe = await fetch(`http://${lanIp}:${PORT}/api/health`, { signal: AbortSignal.timeout(2000) });

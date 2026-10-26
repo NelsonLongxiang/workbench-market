@@ -16,6 +16,7 @@
  */
 import { DatabaseSync } from "node:sqlite";
 import { cpSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -29,7 +30,11 @@ mkdirSync(join(root, "tmp"), { recursive: true });
 // 1) 快照（活库由 server 持有 WAL，VACUUM INTO 得到一致副本）
 // 摘要门（#44/#46 两犯机械化）：残次 e2e-summary 物理进不了提交物——passed!==total 即中止
 {
-  const sum = JSON.parse(readFileSync(join(root, "evidence", "e2e-summary.json"), "utf8"));
+  // 隐私门 preflight：暂存区隐私模式扫描（知规约必机械化）
+try {
+  execFileSync(process.execPath, [join(root, 'scripts', 'privacy-gate.mjs')], { cwd: root, stdio: 'inherit' });
+} catch { console.error('[make-submission] 隐私门未过——提交中止'); process.exit(2); }
+const sum = JSON.parse(readFileSync(join(root, "evidence", "e2e-summary.json"), "utf8"));
   if (sum.total > 0 && sum.passed !== sum.total) {
     console.error(`[summary-gate] e2e-summary 残次（${sum.passed}/${sum.total}）——先归真再提交`);
     process.exit(2);

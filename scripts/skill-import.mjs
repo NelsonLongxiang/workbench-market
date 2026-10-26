@@ -4,6 +4,7 @@
  *  源 B jf-tech：.agents/skills 主 + .agents/role-*.json 角色束收编（遗产只登记不快照）
  *  幂等：by (source,name) 已存在→比树 digest，同 skip / 异报 diff 待发布门（不自动升版）
  *  判据先红：--selftest 跑导入判据族（导入器未实现时红）。 */
+import { fileURLToPath } from 'node:url';
 import { readdirSync, readFileSync, statSync, existsSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -12,7 +13,8 @@ const args = process.argv.slice(2);
 const SELFTEST = args.includes('--selftest');
 const DRY = args.includes('--dry-run') || SELFTEST;
 const AGENTS_SKILLS = process.env.SKILL_SRC_A ?? 'C:/Users/Administrator/.agents/skills';
-const JF_ROOT = process.env.SKILL_SRC_B ?? 'D:/workspace/jf-tech-expert-agents';
+// (relocated) { fileURLToPath as _fu2 } from 'node:url';
+const JF_ROOT = process.env.SKILL_SRC_B ?? fileURLToPath(new URL('../../jf-tech-expert-agents', import.meta.url)); // 相对化（隐私门红线）
 
 // ---- 工具 ----
 function parseFrontmatter(text) {

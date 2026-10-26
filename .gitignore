@@ -6,3 +6,7 @@ server/data/
 tmp/
 AGENTS.md 
 %SystemDrive%
+# 隐私治理（监督席处置单·属主令 evidence/verify 不上传）
+evidence/
+verify/
+tmp/
