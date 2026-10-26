@@ -35,4 +35,12 @@ X-API-Key·tasks/archived" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8
         <mxCell id="token-carry" value="全局口令携带 api.ts 统一注入 X-Admin-Token 顶栏钥匙+403 引导" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="940" y="900" width="190" height="70" as="geometry"/></mxCell>
         <mxCell id="edge-sbx-lfs" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="sandbox-svc" target="lfs-bridge"><mxGeometry relative="1" as="geometry"/></mxCell>
         <mxCell id="edge-lfs-commit" value="layerfs:// URI" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;" edge="1" parent="1" source="lfs-bridge" target="bindings-tbl"><mxGeometry relative="1" as="geometry"/></mxCell>
+    
+        <!-- 2026-10-26 晚增补层：SSO v1 + S3 可观测（PR#84/85+插件 eae38fb） -->
+        <mxCell id="sso-gateway" value="SSO v1 market 侧 portal.ts /go/ 代理 Odoo 台免登：白名单 session_id 单键透传 + 302 state 防开放重定向" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="40" y="1000" width="230" height="70" as="geometry"/></mxCell>
+        <mxCell id="odoo-sso-handshake" value="dsh-odoo-sso 插件 handshake /odoo_sso/handshake→uid/groups/session_valid·config 注入（eae38fb）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="310" y="1000" width="230" height="70" as="geometry"/></mxCell>
+        <mxCell id="remote-allow-diff" value="S3 豁免面可观测 remote_allow_state 表+启动 diff+GET /api/remote-allow/diff+变更 warn（PR#72 事故锚）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1"><mxGeometry x="580" y="1000" width="230" height="70" as="geometry"/></mxCell>
+        <mxCell id="odoo-88" value="Odoo 19（.88:8069）身份源：odoo_sso 模块装毕" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1"><mxGeometry x="850" y="1000" width="200" height="50" as="geometry"/></mxCell>
+        <mxCell id="edge-sso-odoo" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="sso-gateway" target="odoo-88"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="edge-handshake-odoo" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="odoo-sso-handshake" target="odoo-88"><mxGeometry relative="1" as="geometry"/></mxCell>
     </root></mxGraphModel></diagram></mxfile>
