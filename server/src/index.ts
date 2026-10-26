@@ -1664,6 +1664,19 @@ function maskKey(v: string): string {
 // 授权独立铁律：admits 消费点只认 admits|both；notify 消费点只认 notify|both——授一边不隐含另一边。
 // 跨型 CHECK（DDL）：app 行 remote_api_key 恒空、mode 恒 read（sop 专属语义不漂移）。
 // S3 豁免面可观测（评审席裁下批）：GET /api/remote-allow/diff——安全清单变更管理面可查
+// SSO 回调路由（属主令「都需要」·A 面）：Odoo 登录完 302 回市场统一入口——
+// /sso/callback?redirect=/go/N/&state=xxx → 内域校验 → 302 目标台（会话 cookie 由浏览器自持 Odoo 域·此处只管回跳安全）
+app.get('/sso/callback', (req, res) => {
+  const redirect = String(req.query.redirect ?? '');
+  const state = String(req.query.state ?? '');
+  if (!redirect || !state) return res.status(400).json({ error: 'redirect 和 state 必填（Odoo 登录回跳统一入口）' });
+  // open-redirect 护栏：只许内域路径（/ 开头且非 //）
+  if (!redirect.startsWith('/') || redirect.startsWith('//')) {
+    return res.status(400).json({ error: 'redirect 只许本站路径（/go/... 形态·外域拒）' });
+  }
+  return res.redirect(302, redirect);
+});
+
 app.get('/api/remote-allow/diff', (req, res) => {
   if (!adminGuard(req, res)) return;
   res.json({ ...lastAllowDiff, snapshot_count: (db.prepare('SELECT COUNT(*) AS n FROM remote_allow_state').get() as { n: number }).n });
