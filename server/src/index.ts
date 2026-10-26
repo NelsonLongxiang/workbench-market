@@ -1291,6 +1291,9 @@ app.get('/api/skills/:slug/versions', (req, res) => {
 app.get('/api/sop/runs', (req, res) => {
   // P4（F7）：待验收列表 = running 且有派单来源（a2a_run_ctx 有 callback/task_id），不含人自己开的
   if (req.query.dispatched === '1') {
+    // #19 ②a：agent 分拣投递「默认关闭」——settings 开关 dispatch_sorting_enabled（'1'=开·缺省关）
+    const ds = getSettings() as Record<string, unknown>;
+    if (ds['dispatch_sorting_enabled'] !== '1' && ds['dispatch_sorting_enabled'] !== 1) return res.json([]);
     const rows = svc<SopService>('sop').runsDispatched() as unknown as SopRunRow[];
     return res.json(rows);
   }
@@ -1496,7 +1499,7 @@ app.get('/api/settings', (_req, res) => { res.json(maskUpstreamsSetting(getSetti
 app.put('/api/settings', (req, res) => {
   const b = req.body ?? {};
   if (typeof b !== 'object' || b === null) bad('body 必须是 {key: value} 对象');
-  const allowed = ['health_interval_seconds', 'health_timeout_ms', 'health_concurrency', 'a2a_peers', 'mcp_upstreams'];
+  const allowed = ['health_interval_seconds', 'health_timeout_ms', 'health_concurrency', 'a2a_peers', 'mcp_upstreams', 'dispatch_sorting_enabled']; // #19 ②a 分拣开关
   const upd = svc<SettingService>('setting').upsertStmt();
   for (const [k, v] of Object.entries(b)) {
     if (!allowed.includes(k)) continue;
