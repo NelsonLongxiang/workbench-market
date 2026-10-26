@@ -470,6 +470,24 @@ function validateAppFiles(raw: unknown, kind: 'app' | 'sop' = 'app'): { path: st
   return files;
 }
 
+/** #94 P2（L5）：物化目录保留策略——最新 3 版 ∪ 活跃版（回滚后活跃版不丢）；其余删除（Commit 在服务端=真源） */
+function pruneAppDirs(slug: string): void {
+  try {
+    const a = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
+    if (!a) return;
+    const vs = (svc<AppService>('app').versions(a.id) as { version: number }[]).map((v) => v.version).sort((x, y) => y - x);
+    // #94 P2（L5）：活跃版优先 + 其余最新补足至 3——恒 ≤3 且含活跃（回滚后弃次新而非溢出）
+    const keep = new Set<number>([a.active_version]);
+    for (const v of vs) { if (keep.size >= 3) break; keep.add(v); }
+    const root = join(appsRoot, slug);
+    if (!existsSync(root)) return;
+    for (const d of readdirSync(root)) {
+      const m = /^v(\d+)$/.exec(d);
+      if (m && !keep.has(Number(m[1]))) { try { rmSync(join(root, d), { recursive: true, force: true }); } catch { /* 下轮再试 */ } }
+    }
+  } catch { /* prune 失败不阻发布 */ }
+}
+
 function writeAppFiles(slug: string, version: number, files: { path: string; content: string }[]) {
   const dir = join(appsRoot, slug, `v${version}`);
   rmSync(dir, { recursive: true, force: true });
@@ -625,6 +643,7 @@ function publishAppBody(b: any): { status: number; body: object } {
       } catch { /* 影子失败不阻 */ }
     }
   }); // 异步影子——响应不等（fire-and-forget·不阻发布路径）
+  pruneAppDirs(slug); // #94 P2（L5）：发布后留 3 版 ∪ 活跃
 
   // app 类发布即入册；sop 类走状态机——draft 不入册，publish 时入册
   const workbench_id = appRow.kind === 'app' ? syncWorkbenchRegistration(appRow) : 0;
@@ -686,13 +705,31 @@ app.get('/api/apps/:slug', (req, res) => {
 });
 
 // 版本回滚：activate 指定历史版本为当前生效快照（文件不动，只切换指针）；REST 与 MCP 共用
-function activateAppVersion(slug: string, vRaw: unknown): object {
+async function activateAppVersion(slug: string, vRaw: unknown): Promise<object> {
   const a = getApp(slug);
   const v = Number(vRaw);
   if (!Number.isInteger(v) || v < 1) bad('version 必须是正整数');
   const hit = svc<AppService>('app').versionExists(a.id, v) as { version: number } | undefined;
   if (!hit) throw new HttpError(404, `版本不存在: ${v}`);
   svc<AppService>('app').setActiveVersion(a.id, v);
+  // #94 P2（L5）：激活版物化目录若已被 prune 删——冷重建（Commit 为真源·R-B 自愈同款）
+  const dir2 = join(appsRoot, slug, `v${v}`);
+  if (!existsSync(dir2)) {
+    const vrow = (svc<AppService>('app').versions(a.id) as any[]).find((x) => x.version === v);
+    if (vrow?.commit_id) {
+      const { base, token } = layerfsServiceBase();
+      if (base) {
+        try {
+          const fr = await fetch(base.replace(/\/+$/, '') + '/v0/projects/' + encodeURIComponent(slug) + '/commits/' + encodeURIComponent(vrow.commit_id) + '/files', { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(10000) });
+          if (fr.ok) {
+            const fj = await fr.json() as { files: { path: string; content: string }[] };
+            for (const f of fj.files) { const abs = join(dir2, f.path); mkdirSync(join(abs, '..'), { recursive: true }); writeFileSync(abs, f.content, 'utf8'); }
+          }
+        } catch { /* 重建失败不阻回滚（冷回读兜底） */ }
+      }
+    }
+  }
+  pruneAppDirs(a.slug); // #94 P2（L5）：回滚后活跃版恒留（≤3 语义保持）
   return appDetail(getApp(a.slug));
 }
 
@@ -745,7 +782,7 @@ app.post('/api/change-requests/:id/approve', wrap(async (req, res) => {
   if (r.status !== 'pending') bad(`请求已处理（status=${r.status}）——不可重复批准`); // 幂等
   // 执行体（v3 契约形状：kind×op 四象限·与一步式 REST 同构）
   if (r.kind === 'app' && r.op === 'rollback') {
-    activateAppVersion(r.slug, r.target_version);
+    await activateAppVersion(r.slug, r.target_version);
   } else if (r.kind === 'app' && r.op === 'delete') {
     deleteAppCascade(r.slug);
   } else if (r.kind === 'skill' && r.op === 'rollback') {
@@ -768,13 +805,13 @@ app.post('/api/change-requests/:id/reject', wrap(async (req, res) => {
   res.json({ ok: true, id, status: 'rejected', reviewed_by: reviewedBy });
 }));
 
-app.post('/api/apps/:slug/activate', (req, res) => {
+app.post('/api/apps/:slug/activate', wrap(async (req, res) => {
   // #94 v3 S1（L14）：回滚经人审——一步式=口令+reviewed_by（缺 reviewed_by 不执行）
   const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
   if (!reviewedBy) bad('回滚需 reviewed_by（人审门——一步式直调必填；或经 MCP change_request_create 提请求）');
-  const out = activateAppVersion(req.params.slug, req.body?.version);
+  const out = await activateAppVersion(req.params.slug, req.body?.version);
   res.json({ ...out, reviewed_by: reviewedBy });
-});
+}));
 
 app.delete('/api/apps/:slug', (req, res) => {
   // #94 v3 S1（L14）：删除经人审——一步式=口令+reviewed_by
@@ -1566,9 +1603,29 @@ function serveApp(req: express.Request, res: express.Response) {
   if (!abs.startsWith(root)) return res.status(400).json({ error: '路径非法' });
   res.setHeader('X-App-Version', `v${ver}`);
   if (!existsSync(abs)) {
-    // 无扩展名的深链回退到 index.html（SPA 路由习惯）
-    if (!posix.extname(rel)) return res.sendFile(join(root, 'index.html'));
-    return res.status(404).json({ error: `file not found: ${rel}` });
+    // #94 P2（L6）：冷版本回读——物化已 prune·版本链在——经 layerfs 服务取该版 Commit 文件集
+    void (async () => {
+      try {
+        const a2 = svc<AppService>('app').bySlug(m[1]) as unknown as AppRow | undefined;
+        const vrow = a2 ? (svc<AppService>('app').versions(a2.id) as any[]).find((x) => x.version === ver) : undefined;
+        if (!vrow?.commit_id) {
+          if (!posix.extname(rel) && existsSync(join(root, 'index.html'))) return res.sendFile(join(root, 'index.html'));
+          return res.status(404).json({ error: `file not found (cold, no commit): ${rel}` });
+        }
+        const { base, token } = layerfsServiceBase();
+        if (!base) return res.status(502).json({ error: '冷版本需 layerfs 服务（未配置）' });
+        const fr = await fetch(base.replace(/\/+$/, '') + '/v0/projects/' + encodeURIComponent(m[1]) + '/commits/' + encodeURIComponent(vrow.commit_id) + '/files', { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(10000) });
+        if (!fr.ok) return res.status(502).json({ error: `冷回读服务 HTTP ${fr.status}` });
+        const fj = await fr.json() as { files: { path: string; content: string }[] };
+        const hitFile = fj.files.find((f) => f.path === rel) ?? (!posix.extname(rel) ? fj.files.find((f) => f.path === 'index.html') : undefined);
+        if (!hitFile) return res.status(404).json({ error: `file not found in commit: ${rel}` });
+        res.setHeader('Content-Length', String(Buffer.byteLength(hitFile.content, 'utf8')));
+        return res.end(hitFile.content);
+      } catch (e) {
+        return res.status(502).json({ error: `冷回读失败: ${String((e as Error).message).slice(0, 80)}` });
+      }
+    })();
+    return; // 异步冷回读接管
   }
   res.sendFile(abs);
 }
