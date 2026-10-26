@@ -13,3 +13,4 @@ export { CookieService } from './cookie.ts';
 export { CockpitService } from './cockpit.ts';
 export { SettingService } from './setting.ts';
 export { SkillService } from './skill.ts';
+export { SandboxService } from './sandbox.ts';
