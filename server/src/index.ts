@@ -1564,6 +1564,69 @@ app.post('/api/skills/:slug/migrate-layerfs', wrap(async (req, res) => {
   res.json({ slug: row.slug, project: 'wm-skills', branch: `skill/${row.slug}`, results });
 }));
 
+/** #94 S3：最小 ustar 打包（薄分发导出——D5·无外部依赖） */
+function ustarTar(files: { path: string; content: string }[]): Buffer {
+  const chunks: Buffer[] = [];
+  const header = (name: string, size: number, type: string) => {
+    const h = Buffer.alloc(512, 0);
+    h.write(name.slice(0, 99), 0, 'utf8');
+    h.write('0000644\0', 100); h.write('0000000\0', 108); h.write('0000000\0', 116);
+    h.write(size.toString(8).padStart(11, '0') + '\0', 124);
+    h.write(Math.floor(Date.now() / 1000).toString(8).padStart(11, '0') + '\0', 136);
+    h.write(' '.repeat(8), 148);
+    h.write(type, 156);
+    h.write('ustar\0', 257); h.write('00', 263);
+    let sum = 0; for (const b of h) sum += b;
+    h.write(sum.toString(8).padStart(6, '0') + '\0 ', 148);
+    return h;
+  };
+  for (const f of files) {
+    const body = Buffer.from(f.content, 'utf8');
+    chunks.push(header(f.path, body.length, '0'));
+    chunks.push(body, Buffer.alloc((512 - (body.length % 512)) % 512, 0));
+  }
+  chunks.push(Buffer.alloc(1024, 0));
+  return Buffer.concat(chunks);
+}
+
+// #94 S3①：导出面（薄分发——快照文件集打包 ustar·台与技能共契约面）
+app.get('/api/skills/:slug/export', (req, res) => {
+  const S = svc<SkillService>('skill');
+  const row = S.skillBySlug(String(req.params.slug ?? ''));
+  if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
+  const vs = S.versionsBySkill(row.id) as any[];
+  const v = req.query.version !== undefined ? Number(req.query.version) : vs[0]?.version;
+  const target = vs.find((x) => x.version === v);
+  if (!target) throw new HttpError(404, `version not found: ${v}`);
+  const dir = target.snapshot_path;
+  if (!dir || !existsSync(dir)) throw new HttpError(404, `snapshot missing: v${v}`);
+  const files: { path: string; content: string }[] = [];
+  (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp, 'utf8') }); } })(dir);
+  const tar = ustarTar(files);
+  res.setHeader('Content-Type', 'application/x-tar');
+  res.setHeader('Content-Disposition', 'attachment; filename="' + row.slug.replace(/[^a-z0-9._-]/gi, '_') + '-v' + v + '.tar"');
+  res.setHeader('X-Expected-Digest', target.tree_digest);
+  res.end(tar);
+});
+
+// #94 S3③：agent 端摘要上报（K14 漂移记——match/drift 双态入档）
+app.post('/api/skills/:slug/report-digest', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const S = svc<SkillService>('skill');
+  const row = S.skillBySlug(String(req.params.slug ?? ''));
+  if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
+  const v = Number(req.body?.version);
+  const digest = String(req.body?.digest ?? '');
+  if (!Number.isInteger(v) || !/^[0-9a-f]{64}$/.test(digest)) bad('version 正整数 + digest 64 位十六进制');
+  const target = (S.versionsBySkill(row.id) as any[]).find((x) => x.version === v);
+  if (!target) throw new HttpError(404, `version not found: ${v}`);
+  const match = digest === target.tree_digest;
+  db.prepare('INSERT INTO skill_digest_reports (skill_id, version, digest, expected, match_result, reported_by) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(row.id, v, digest, target.tree_digest, match ? 1 : 0, String(req.body?.reported_by ?? '').slice(0, 100));
+  res.json({ ok: true, slug: row.slug, version: v, match, drift: !match, expected: target.tree_digest });
+});
+
+
 app.get('/api/skills/:slug/versions', (req, res) => {
   const S = svc<SkillService>('skill');
   const row = S.skillBySlug(String(req.params.slug ?? ''));
@@ -2153,6 +2216,7 @@ async function callTool(name: string, args: any): Promise<unknown> {
         slug: row.slug, version: target.version, tree_digest: target.tree_digest, snapshot_path: `skill-snapshots/${encodeURIComponent(row.slug)}/v${target.version}`, // K8 相对化
         expected_sha256: target.tree_digest,
         install_hint: `薄分发（手工落盘）：复制 skill-snapshots/${encodeURIComponent(row.slug)}/v${target.version} → 目标技能目录；以 expected_sha256 钉装校验`,
+        export_url: `/api/skills/${encodeURIComponent(row.slug)}/export?version=${target.version}`, // #94 S3②：导出包面（薄分发）
       };
     }
     case 'workbench_list': {
