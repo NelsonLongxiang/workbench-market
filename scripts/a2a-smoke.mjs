@@ -55,19 +55,19 @@ try {
   ok('published 无绑定不上卡', card2.sessionTeams.length === 0);
 
   // ② 绑定 CRUD
-  let r = await call('POST', '/api/sops/a2a-smoke-sop/bindings', { node: 'dsh/1a2b3c4d' });
+  let r = await call('POST', '/api/bindings', { target_type: 'sop', target_slug: 'a2a-smoke-sop', agent_node: 'dsh/1a2b3c4d', direction: 'admits' });
   ok('无 token 403', r.status === 403);
-  r = await call('POST', '/api/sops/a2a-smoke-sop/bindings', { node: 'dsh/1a2b3c4d' }, { 'X-Admin-Token': 'wrong' });
+  r = await call('POST', '/api/bindings', { target_type: 'sop', target_slug: 'a2a-smoke-sop', agent_node: 'dsh/1a2b3c4d', direction: 'admits' }, { 'X-Admin-Token': 'wrong' });
   ok('错 token 403', r.status === 403);
-  r = await call('POST', '/api/sops/a2a-smoke-sop/bindings', { node: 'dsh/1a2b3c4d', mode: 'run', remote_api_key: 'sk-remote-1' }, { 'X-Admin-Token': 'e2e-admin-tok' });
+  r = await call('POST', '/api/bindings', { target_type: 'sop', target_slug: 'a2a-smoke-sop', agent_node: 'dsh/1a2b3c4d', mode: 'run', direction: 'admits', remote_api_key: 'sk-remote-1' }, { 'X-Admin-Token': 'e2e-admin-tok' });
   ok('绑定 201', r.status === 201 && r.body.ok, JSON.stringify(r.body));
   const bid = r.body.id;
-  r = await call('POST', '/api/sops/a2a-smoke-sop/bindings', { node: 'bad node!' }, { 'X-Admin-Token': 'e2e-admin-tok' });
+  r = await call('POST', '/api/bindings', { target_type: 'sop', target_slug: 'a2a-smoke-sop', agent_node: 'bad node!', direction: 'admits' }, { 'X-Admin-Token': 'e2e-admin-tok' });
   ok('坏 node 400', r.status === 400);
-  r = await call('GET', '/api/sops/a2a-smoke-sop/bindings', null, { 'X-Admin-Token': 'e2e-admin-tok' });
-  ok('绑定列表（含掩码 key）', Array.isArray(r.body) && r.body.length === 1 && r.body[0].remote_api_key === '****' && r.body[0].node === 'dsh/1a2b3c4d');
+  r = await call('GET', '/api/bindings?type=sop&slug=a2a-smoke-sop', null, { 'X-Admin-Token': 'e2e-admin-tok' });
+  ok('绑定列表（含掩码 key）', Array.isArray(r.body) && r.body.length === 1 && r.body[0].remote_api_key === '****' && r.body[0].agent_node === 'dsh/1a2b3c4d');
   // Origin 跨源 403
-  r = await call('POST', '/api/sops/a2a-smoke-sop/bindings', { node: 'dsh/ffffffff' }, { 'X-Admin-Token': 'e2e-admin-tok', Origin: 'http://evil.example' });
+  r = await call('POST', '/api/bindings', { target_type: 'sop', target_slug: 'a2a-smoke-sop', agent_node: 'dsh/ffffffff', direction: 'admits' }, { 'X-Admin-Token': 'e2e-admin-tok', Origin: 'http://evil.example' });
   ok('跨源写 403', r.status === 403);
 
   // ③ 上卡规则：有效绑定 → 上卡；卡片不含绑定图（node 句柄不出现）
@@ -78,11 +78,11 @@ try {
   ok('上卡后 verifyCard 仍 PASS', verifyCard(card2, Date.now()).ok === true);
 
   // ④ 软撤销 → 下卡
-  r = await call('DELETE', `/api/sops/a2a-smoke-sop/bindings/${bid}`, null, { 'X-Admin-Token': 'e2e-admin-tok' });
+  r = await call('DELETE', `/api/bindings/${bid}`, null, { 'X-Admin-Token': 'e2e-admin-tok' });
   ok('软撤销 200', r.status === 200);
   card2 = (await call('GET', '/.well-known/agent-card.json')).body;
   ok('撤销后下卡', card2.sessionTeams.length === 0);
-  r = await call('GET', '/api/sops/a2a-smoke-sop/bindings', null, { 'X-Admin-Token': 'e2e-admin-tok' });
+  r = await call('GET', '/api/bindings?type=sop&slug=a2a-smoke-sop', null, { 'X-Admin-Token': 'e2e-admin-tok' });
   ok('撤销留审计行', r.body.length === 1 && r.body[0].revoked_at !== '');
 
   // ⑤ /a2a/direct not-found（不泄露存在性）
@@ -91,7 +91,7 @@ try {
 
   // ============ P2：准入 / 幂等 / 512KiB / context_id（GH #17 阶段表） ============
   // 恢复一条有效绑定（P1 流程已软撤销 bid——重绑拿 mode=run；node8 从重绑后的卡片取）
-  r = await call('POST', '/api/sops/a2a-smoke-sop/bindings', { node: 'dsh/1a2b3c4d', mode: 'run' }, { 'X-Admin-Token': 'e2e-admin-tok' });
+  r = await call('POST', '/api/bindings', { target_type: 'sop', target_slug: 'a2a-smoke-sop', agent_node: 'dsh/1a2b3c4d', mode: 'run', direction: 'admits' }, { 'X-Admin-Token': 'e2e-admin-tok' });
   ok('P2 重绑 run 模式', r.status === 201, JSON.stringify(r.body));
   const card3 = (await call('GET', '/.well-known/agent-card.json')).body;
   const node8 = card3.sessionTeams[0]?.team?.split('/')[1] ?? '';
