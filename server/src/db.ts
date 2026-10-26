@@ -129,6 +129,18 @@ CREATE TABLE IF NOT EXISTS change_requests (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_change_requests_status ON change_requests (status, created_at);
+-- #94 S3：agent 端摘要上报（K14 漂移记——D5 薄分发·agent 本机算摘要回传）
+CREATE TABLE IF NOT EXISTS skill_digest_reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  skill_id INTEGER NOT NULL REFERENCES skills(id),
+  version INTEGER NOT NULL,
+  digest TEXT NOT NULL,
+  expected TEXT NOT NULL,
+  match_result INTEGER NOT NULL,
+  reported_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_sdr_skill ON skill_digest_reports (skill_id, version);
 -- 旧两表保留一版作回滚锚与迁移源（下版删除）。
 CREATE TABLE IF NOT EXISTS bindings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
