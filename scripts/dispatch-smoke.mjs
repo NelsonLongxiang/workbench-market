@@ -52,7 +52,8 @@ try {
   await json(`${BASE}/api/sop/runs/${runId}`, 'PUT', { stepKey: '_desc', value: '差异清单见附件；按台账口径核' });
   const detail = await json(`${BASE}/api/sop/runs/${runId}`);
   ok('② 读回含 _brief/_desc', detail.body?.data?._brief === '核对十月物流对账差异' && !!detail.body?.data?._desc);
-  // ③ 指派（assign 薄端点）→ 待验收
+  // ③ 指派（assign 薄端点）→ 待验收——先开分拣开关（PR#87 默认关·dispatched=1 需开关开）
+  r = await json(`${BASE}/api/settings`, 'PUT', { dispatch_sorting_enabled: '1' }, AT);
   r = await json(`${BASE}/api/sop/runs/${runId}/assign`, 'POST', { node: 'dsh/6de4035c' });
   ok('③ assign 201', r.status === 201 && r.body?.task_id === `task-${runId}`, JSON.stringify(r.body));
   r = await json(`${BASE}/api/sop/runs/${runId}/assign`, 'POST', { node: 'dsh/6de4035c' });
