@@ -82,6 +82,20 @@ export function installPortal(
       // pathRewrite 改写成上游路径，无法再从 URL 反查 id（实测注入不达的根因）
       if (w.auth?.type === 'bearer') goAuth = `Bearer ${w.auth.value}`;
       else if (w.auth?.type === 'basic') goAuth = `Basic ${Buffer.from(w.auth.value, 'utf8').toString('base64')}`;
+      // SSO v1（监督席 direct-d2330efc 技术审 PASS·两注全收）：Odoo 类台免登——
+      // ①浏览器无 session_id → 302 Odoo 登录（redirect 回跳+state 防 open-redirect·评审注②）
+      // ②有 session_id → 白名单单键透传（只透 session_id·不透全 Cookie 头·评审注①）
+      const isOdooLike = /odoo/i.test(String(w.type ?? '')) || /:8069/.test(w.url);
+      if (isOdooLike) {
+        const browserCookies = String(req.headers.cookie ?? '');
+        const sidMatch = /(?:^|;\s*)session_id=([^;\s]+)/.exec(browserCookies);
+        if (!sidMatch) {
+          const state = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+          const redirectUri = encodeURIComponent(`/go/${m[1]}/`);
+          return res.redirect(302, `${u.origin}/web/login?redirect=${redirectUri}&state=${state}`);
+        }
+        (req as express.Request & { goSsoSid?: string }).goSsoSid = sidMatch[1];
+      }
       // Cookie 池注入（派单 direct-5fbb2176）：台挂了 cookie_set 时按目标 host 匹配
       // cookie.domain + 未过期过滤 → 拼 Cookie 头（proxyReq 里替换而非追加）
       const rawWb = svc<WorkbenchService>('workbench').cookieSetId(Number(m[1])) as { cookie_set_id?: number } | undefined;
@@ -155,7 +169,9 @@ export function installPortal(
       // 发出的 Origin=http://…:9800 与上游 authority 不符会被 403 拒（WS 握手同理，
       // 实测握手 403→改写后通过）。代理作为可信客户端把 Origin 重写为上游自身 origin。
       proxyReq: (proxyReq, req) => {
-        const rq = req as typeof req & { goAuth?: string; goOrigin?: string; goCookies?: string; goHost?: string };
+        const rq = req as typeof req & { goAuth?: string; goOrigin?: string; goCookies?: string; goHost?: string; goSsoSid?: string };
+        // SSO v1 白名单单键：Odoo 台只透 session_id（覆写 Cookie 头·评审注①——其他站 cookie 不泄入）
+        if (rq.goSsoSid) proxyReq.setHeader('cookie', `session_id=${rq.goSsoSid}`);
         if (rq.goAuth) proxyReq.setHeader('authorization', rq.goAuth);
         if (rq.goOrigin) proxyReq.setHeader('origin', rq.goOrigin);
         // Cookie 池注入（派单 direct-5fbb2176）：前置中间件解析好的 goCookies（按目标 host
