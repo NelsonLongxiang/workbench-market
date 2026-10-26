@@ -82,6 +82,18 @@ function computeAllowDiff() {
 let lastAllowDiff = computeAllowDiff();
 if (lastAllowDiff.added.length > 0 || lastAllowDiff.removed.length > 0) {
   console.warn(`[S3 豁免面变更] added=${JSON.stringify(lastAllowDiff.added)} removed=${JSON.stringify(lastAllowDiff.removed)}`);
+  // S3 联动（direct-6a39fc57 ③）：变更通知绑定台面——延迟投（等所有 svc 就绪·尽力而为）
+  setTimeout(() => {
+    try {
+      const nts = db.prepare("SELECT target_slug, agent_node, notify_url FROM bindings WHERE direction IN ('notify','both') AND revoked_at = '' AND notify_url != ''").all() as { target_slug: string; agent_node: string; notify_url: string }[];
+      for (const nt of nts) {
+        a2aSendOutbound(a2aKeyPath(), { baseUrl: nt.notify_url, team: nt.agent_node }, JSON.stringify({
+          type: 'remote-allow-changed', added: lastAllowDiff.added, removed: lastAllowDiff.removed,
+          hint: '安全豁免清单已变更——如你的台面行为突变（403/201 变化），此处即根因',
+        })).catch(e2 => console.error(`[S3-notify] ${nt.target_slug}→${nt.agent_node}: ${String(e2).slice(0, 80)}`));
+      }
+    } catch { /* 不阻启动 */ }
+  }, 3000);
 }
 app.use((req, res, next) => {
   const ip = String(req.socket.remoteAddress ?? '');
