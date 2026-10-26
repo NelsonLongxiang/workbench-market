@@ -1669,6 +1669,16 @@ app.get('/api/remote-allow/diff', (req, res) => {
   res.json({ ...lastAllowDiff, snapshot_count: (db.prepare('SELECT COUNT(*) AS n FROM remote_allow_state').get() as { n: number }).n });
 });
 
+// #19②b 裁 A（direct-2ff2ed21）：治理时间线——版本链+run 历史+验收链三合一面（轻内嵌）
+app.get('/api/sops/:slug/timeline', (req, res) => {
+  const a = getApp(req.params.slug);
+  if (a.kind !== 'sop') throw new HttpError(404, `SOP not found: ${req.params.slug}`);
+  const versions = (db.prepare('SELECT version, changelog, created_by, created_at FROM app_versions WHERE app_id = ? ORDER BY version DESC').all(a.id) as Array<{ version: number; changelog: string; created_by: string; created_at: string }>).map(v => ({ ...v, changelog: (v.changelog || '').slice(0, 200) }));
+  const runs = (svc<SopService>('sop').runsBySlug(a.slug) as unknown as Array<{ id: number; status: string; started_by: string; started_at: string; finished_at: string }>).slice(0, 50).map(r => ({ id: r.id, status: r.status, started_by: r.started_by, started_at: r.started_at, finished_at: r.finished_at }));
+  const receipts = (db.prepare("SELECT r.task_id, r.caller, r.receipt_status, r.run_id FROM a2a_run_ctx r WHERE r.task_id != '' AND r.run_id IN (SELECT id FROM sop_runs WHERE sop_slug = ?)").all(a.slug) as Array<{ task_id: string; caller: string; receipt_status: string; run_id: number }>).map(r => ({ task_id: r.task_id, caller: r.caller, receipt_status: r.receipt_status || 'pending', run_id: r.run_id }));
+  res.json({ slug: a.slug, versions, runs, receipts });
+});
+
 app.get('/api/bindings', (req, res) => {
   if (!adminGuard(req, res)) return;
   const type = req.query.type === 'app' ? 'app' : 'sop';
