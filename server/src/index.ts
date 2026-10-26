@@ -470,6 +470,13 @@ function validateAppFiles(raw: unknown, kind: 'app' | 'sop' = 'app'): { path: st
   return files;
 }
 
+/** #94 S4 根修：快照路径统一解析——dataDir 相对形（'skill-snapshots/…'）为准；legacy 'server/data/…' 剥前缀；绝对路径直用（隔离实例自此真隔离——绝不因相对形落产库） */
+function resolveSnap(p: string): string {
+  if (/^[A-Za-z]:[\\/]/.test(p) || p.startsWith('/') || p.startsWith('\\\\')) return p;
+  const rel = p.replace(/^server[\\/]data[\\/]/, '');
+  return join(dataDir, rel);
+}
+
 /** #94 P2（L5）：物化目录保留策略——最新 3 版 ∪ 活跃版（回滚后活跃版不丢）；其余删除（Commit 在服务端=真源） */
 function pruneAppDirs(slug: string): void {
   try {
@@ -746,12 +753,12 @@ async function executeSkillRollback(slug: string, targetVersion: number, reviewe
   const { readdirSync, readFileSync, mkdirSync, writeFileSync } = await import('node:fs');
   const { join: j } = await import('node:path');
   const files: { path: string; content: string }[] = [];
-  (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = j(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp, 'utf8') }); } })(src.snapshot_path);
+  (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = j(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp, 'utf8') }); } })(resolveSnap(src.snapshot_path));
   const dg = SkillService.filesDigest(files);
   const snapDir = j(dataDir, 'skill-snapshots', encodeURIComponent(slug), `v${nextVer}`);
   mkdirSync(snapDir, { recursive: true });
   for (const f of files) { const abs = j(snapDir, f.path); mkdirSync(j(abs, '..'), { recursive: true }); writeFileSync(abs, f.content, 'utf8'); }
-  S.versionInsert({ skillId: row.id, version: nextVer, changelog: `[rollback] 回滚自 v${targetVersion}`, treeDigest: dg.digest, fileCount: dg.fileCount, totalBytes: dg.totalBytes, snapshotPath: snapDir, reviewedBy });
+  S.versionInsert({ skillId: row.id, version: nextVer, changelog: `[rollback] 回滚自 v${targetVersion}`, treeDigest: dg.digest, fileCount: dg.fileCount, totalBytes: dg.totalBytes, snapshotPath: `skill-snapshots/${encodeURIComponent(slug)}/v${nextVer}`, reviewedBy }); // S4：存 dataDir 相对形
   return { ok: true, slug, new_version: nextVer, rolled_back_from: targetVersion, reviewed_by: reviewedBy };
 }
 /** #94 v3 S1：技能删除执行体（版本快照+台账+技能行级联） */
@@ -759,7 +766,7 @@ function executeSkillDelete(slug: string): void {
   const S = svc<SkillService>('skill');
   const row = S.skillBySlug(slug);
   if (!row) throw new HttpError(404, `skill not found: ${slug}`);
-  for (const v of S.versionsBySkill(row.id) as any[]) { try { rmSync(v.snapshot_path, { recursive: true, force: true }); } catch { /* 已不在 */ } }
+  for (const v of S.versionsBySkill(row.id) as any[]) { try { rmSync(resolveSnap(v.snapshot_path), { recursive: true, force: true }); } catch { /* 已不在 */ } }
   db.prepare('DELETE FROM install_ledger WHERE skill_id = ?').run(row.id);
   db.prepare('DELETE FROM skill_versions WHERE skill_id = ?').run(row.id);
   db.prepare('DELETE FROM skills WHERE id = ?').run(row.id);
@@ -861,6 +868,16 @@ function deleteAppCascade(slug: string): void {
   for (const f of files) { try { rmSync(join(dataDir, f.storage_path), { force: true }); } catch { /* 已删 */ } }
   svc<AppDataService>('appData').filesDelete(slug);
   // issue #6：SOP 台的注册 url 是 /sop/<slug>/（非 /apps/），删除时必须一并清理，否则留孤儿工作台（门户 404）
+  // #94 S4（§4.5 五步②③）：服务 project.remove+volume.remove（契约 §2.4——服务删项目·Store 卷·备份）
+  // 任一步失败即停·记录残留·不重试（§4.5 铁则）
+  void (async () => {
+    try {
+      const { base, token } = layerfsServiceBase();
+      if (!base) return; // 服务未配=跳过（市场面已清·残留记）
+      const r = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(slug), { method: 'DELETE', headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(10000) });
+      if (!r.ok) console.warn(`[S4-residue] 服务删除失败 HTTP ${r.status}（项目 ${slug} 残留·不重试·月度重建兜底）`);
+    } catch (e) { console.warn(`[S4-residue] 服务删除异常: ${String((e as Error).message).slice(0, 80)}（不重试）`); }
+  })();
   svc<WorkbenchService>('workbench').deleteByAppUrls(`/apps/${slug}/`, `/sop/${a.slug}/`);
 }
 
@@ -1516,7 +1533,7 @@ app.post('/api/skills/:slug/versions', wrap(async (req, res) => {
     mkdirSync(dirname(abs), { recursive: true }); // #94 S0②：子目录路径建父目录（docs/a.md 不再 500）
     writeFileSync(abs, f.content, 'utf8');
   }
-  S.versionInsert({ skillId: row.id, version: nextVer, changelog, treeDigest: t.digest, fileCount: t.fileCount, totalBytes: t.totalBytes, snapshotPath: snapDir, reviewedBy });
+  S.versionInsert({ skillId: row.id, version: nextVer, changelog, treeDigest: t.digest, fileCount: t.fileCount, totalBytes: t.totalBytes, snapshotPath: `skill-snapshots/${encodeURIComponent(slug)}/v${nextVer}`, reviewedBy }); // S4：存 dataDir 相对形
   // #94 S2 技能影子：wm-skills 项目·skill/<slug> 分支（契约 v1·fire-and-forget 同 P1 语义）
   void layerfsPublish('wm-skills', files, `[skill-publish] ${slug} v${nextVer}`, `skill/${slug}`).then((out) => {
     if (out) { try { db.prepare('UPDATE skill_versions SET commit_id = ? WHERE skill_id = ? AND version = ?').run(out.commit_id, row.id, nextVer); } catch { /* 影子失败不阻 */ } }
@@ -1550,9 +1567,9 @@ app.post('/api/skills/:slug/migrate-layerfs', wrap(async (req, res) => {
   const results: any[] = [];
   for (const v of vs.sort((a, b) => a.version - b.version)) {
     if (v.commit_id) { results.push({ version: v.version, result: 'skip', commit_id: v.commit_id }); continue; } // 幂等
-    if (!v.snapshot_path || !existsSync(v.snapshot_path)) { results.push({ version: v.version, result: 'anomaly', reason: '快照目录缺失' }); continue; }
+    if (!v.snapshot_path || !existsSync(resolveSnap(v.snapshot_path))) { results.push({ version: v.version, result: 'anomaly', reason: '快照目录缺失' }); continue; }
     const files: { path: string; content: string }[] = [];
-    (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp, 'utf8') }); } })(v.snapshot_path);
+    (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp, 'utf8') }); } })(resolveSnap(v.snapshot_path));
     if (files.length === 0 || files.some((f) => f.content === '')) { results.push({ version: v.version, result: 'anomaly', reason: '空快照/空 content（留档不迁）' }); continue; }
     const out = await layerfsPublish('wm-skills', files, `[skill-migrate] ${row.slug} v${v.version}`, `skill/${row.slug}`);
     if (!out) { results.push({ version: v.version, result: 'error', reason: 'layerfs 服务不可达（可重跑）' }); continue; }
@@ -1563,6 +1580,53 @@ app.post('/api/skills/:slug/migrate-layerfs', wrap(async (req, res) => {
   }
   res.json({ slug: row.slug, project: 'wm-skills', branch: `skill/${row.slug}`, results });
 }));
+
+// ---------- #94 S4 D4：技能内容月度整库重建（layerfs#411 不能退役分支——定期重建清除已删技能残留） ----------
+async function rebuildWmSkills(trigger: string): Promise<{ ok: boolean; deleted_project: boolean; republished: number; cleared_stale: number }> {
+  const { base, token } = layerfsServiceBase();
+  if (!base) throw new HttpError(502, 'layerfs 服务未配置——重建不可用');
+  // ① 整库删（服务删项目·卷·备份——已删技能分支随之灭）
+  let deleted = false;
+  try {
+    const r = await fetch(base.replace(/\/+$/, '') + '/v1/projects/wm-skills', { method: 'DELETE', headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(15000) });
+    deleted = r.ok;
+  } catch { deleted = false; }
+  // ② 活技能最新版重发布（旧 commit_id 清——重建后历史 commit 失效）
+  let republished = 0; let cleared = 0;
+  const S = svc<SkillService>('skill');
+  for (const sk of S.skillsAll() as any[]) {
+    const vs = S.versionsBySkill(sk.id) as any[];
+    const latest = vs[0];
+    if (!latest?.snapshot_path || !existsSync(resolveSnap(latest.snapshot_path))) continue;
+    db.prepare("UPDATE skill_versions SET commit_id = '' WHERE skill_id = ?").run(sk.id); cleared++;
+    const files: { path: string; content: string }[] = [];
+    try { (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp, 'utf8') }); } })(resolveSnap(latest.snapshot_path)); } catch { continue; }
+    if (files.length === 0 || files.some((f) => f.content === '')) continue; // 异常快照不迁
+    const out = await layerfsPublish('wm-skills', files, `[rebuild] ${sk.slug} v${latest.version}`, `skill/${sk.slug}`);
+    if (out) { db.prepare('UPDATE skill_versions SET commit_id = ? WHERE id = ?').run(out.commit_id, latest.id); republished++; }
+  }
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_wm_skills_rebuild', datetime('now'))").run();
+  console.log(`[S4-rebuild] ${trigger}: deleted=${deleted} republished=${republished} cleared=${cleared}`);
+  return { ok: true, deleted_project: deleted, republished, cleared_stale: cleared };
+}
+app.post('/api/admin/rebuild-wm-skills', wrap(async (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const out = await rebuildWmSkills('manual');
+  res.json(out);
+}));
+// 月度调度：启动+每 24h 查——距上次重建 ≥30 天即自动触发
+void (async function scheduleMonthlyRebuild() {
+  const check = async () => {
+    try {
+      const row = db.prepare("SELECT value FROM settings WHERE key = 'last_wm_skills_rebuild'").get() as { value?: string } | undefined;
+      const last = row?.value ? Date.parse(row.value.replace(' ', 'T') + 'Z') : 0;
+      if (Date.now() - last >= 30 * 24 * 3600 * 1000) await rebuildWmSkills('monthly-auto');
+    } catch { /* 调度失败不阻运行 */ }
+  };
+  setTimeout(check, 60_000).unref?.();
+  setInterval(check, 24 * 3600 * 1000).unref?.();
+})();
+
 
 /** #94 S3：最小 ustar 打包（薄分发导出——D5·无外部依赖） */
 function ustarTar(files: { path: string; content: string }[]): Buffer {
@@ -1598,7 +1662,7 @@ app.get('/api/skills/:slug/export', (req, res) => {
   const v = req.query.version !== undefined ? Number(req.query.version) : vs[0]?.version;
   const target = vs.find((x) => x.version === v);
   if (!target) throw new HttpError(404, `version not found: ${v}`);
-  const dir = target.snapshot_path;
+  const dir = resolveSnap(target.snapshot_path);
   if (!dir || !existsSync(dir)) throw new HttpError(404, `snapshot missing: v${v}`);
   const files: { path: string; content: string }[] = [];
   (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp, 'utf8') }); } })(dir);
