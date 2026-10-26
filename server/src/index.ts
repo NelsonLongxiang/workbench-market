@@ -18,6 +18,7 @@ import type { CookieService } from './services/cookie.ts';
 import type { CockpitService } from './services/cockpit.ts';
 import type { SettingService } from './services/setting.ts';
 import { db, getSettings, dataDir, rowToWorkbench, rowToCockpit, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow, type SopRunRow } from './db.ts';
+(globalThis as any).__wmDb = db; // #94 v3 S1：tasks.ts 直读 change_requests 桥
 import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
 import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, runStateSave, runStateRestore, runStateLoad, runStateRetire, runActiveIds } from './redis.ts';
@@ -640,24 +641,75 @@ function activateAppVersion(slug: string, vRaw: unknown): object {
   return appDetail(getApp(a.slug));
 }
 
+// ---------- #94 v3 S1 统一人审门：请求-批准两段（agent 提请求·人批准执行）----------
+app.get('/api/change-requests', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const status = typeof req.query.status === 'string' ? req.query.status : '';
+  const rows = status
+    ? db.prepare('SELECT * FROM change_requests WHERE status = ? ORDER BY id DESC LIMIT 100').all(status)
+    : db.prepare('SELECT * FROM change_requests ORDER BY id DESC LIMIT 100').all();
+  res.json(rows.map((r: any) => ({ ...r, payload: JSON.parse(r.payload || '{}') })));
+});
+app.post('/api/change-requests/:id/approve', (req, res) => {
+  if (!adminGuard(req, res)) return; // K11：口令无效→401（adminGuard 已回）
+  const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
+  if (!reviewedBy) bad('批准必填 reviewed_by（K11——人审语义）'); // K11
+  const id = Number(req.params.id);
+  const r = db.prepare('SELECT * FROM change_requests WHERE id = ?').get(id) as any;
+  if (!r) throw new HttpError(404, `change_request not found: ${id}`);
+  if (r.status !== 'pending') bad(`请求已处理（status=${r.status}）——不可重复批准`); // 幂等
+  // 执行体（与一步式 REST 同一函数——单一事实源）
+  if (r.kind === 'app_rollback') {
+    const payload = JSON.parse(r.payload || '{}');
+    activateAppVersion(r.target_slug, payload.version);
+  } else if (r.kind === 'app_delete') {
+    deleteAppCascade(r.target_slug);
+  } else { bad(`未知 kind: ${r.kind}`); }
+  db.prepare("UPDATE change_requests SET status='approved', reviewed_by=?, reviewed_at=datetime('now') WHERE id=?").run(reviewedBy, id);
+  res.json({ ok: true, id, status: 'approved', executed: r.kind, reviewed_by: reviewedBy });
+});
+app.post('/api/change-requests/:id/reject', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
+  if (!reviewedBy) bad('拒绝必填 reviewed_by（K11）');
+  const id = Number(req.params.id);
+  const r = db.prepare('SELECT * FROM change_requests WHERE id = ?').get(id) as any;
+  if (!r) throw new HttpError(404, `change_request not found: ${id}`);
+  if (r.status !== 'pending') bad(`请求已处理（status=${r.status}）`);
+  db.prepare("UPDATE change_requests SET status='rejected', reviewed_by=?, reviewed_at=datetime('now') WHERE id=?").run(reviewedBy, id);
+  res.json({ ok: true, id, status: 'rejected', reviewed_by: reviewedBy });
+});
+
 app.post('/api/apps/:slug/activate', (req, res) => {
-  res.json(activateAppVersion(req.params.slug, req.body?.version));
+  // #94 v3 S1（L14）：回滚经人审——一步式=口令+reviewed_by（缺 reviewed_by 不执行）
+  const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
+  if (!reviewedBy) bad('回滚需 reviewed_by（人审门——一步式直调必填；或经 MCP change_request_create 提请求）');
+  const out = activateAppVersion(req.params.slug, req.body?.version);
+  res.json({ ...out, reviewed_by: reviewedBy });
 });
 
 app.delete('/api/apps/:slug', (req, res) => {
-  const a = getApp(req.params.slug);
-  rmSync(join(appsRoot, a.slug), { recursive: true, force: true });
+  // #94 v3 S1（L14）：删除经人审——一步式=口令+reviewed_by
+  const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
+  if (!reviewedBy) bad('删除需 reviewed_by（人审门——一步式直调必填；或经 MCP change_request_create 提请求）');
+  deleteAppCascade(req.params.slug);
+  res.json({ ok: true, deleted: req.params.slug, reviewed_by: reviewedBy });
+});
+
+/** #94 v3 S1：台删除级联体（一步式 REST 与人审批准共用一个执行体——单一事实源） */
+function deleteAppCascade(slug: string): void {
+  const a = getApp(slug);
+  rmSync(join(appsRoot, slug), { recursive: true, force: true });
   svc<AppService>('app').versionsDelete(a.id);
   svc<AppService>('app').delete(a.id);
   // 数据面/文件面一并清理（派单 direct-22838fab 与文件提交面）
-  svc<AppDataService>('appData').dataDelete(a.slug);
-  const files = svc<AppDataService>('appData').filePaths(a.slug) as { storage_path: string }[];
+  svc<AppDataService>('appData').dataDelete(slug);
+  const files = svc<AppDataService>('appData').filePaths(slug) as { storage_path: string }[];
   for (const f of files) { try { rmSync(join(dataDir, f.storage_path), { force: true }); } catch { /* 已删 */ } }
-  svc<AppDataService>('appData').filesDelete(a.slug);
+  svc<AppDataService>('appData').filesDelete(slug);
   // issue #6：SOP 台的注册 url 是 /sop/<slug>/（非 /apps/），删除时必须一并清理，否则留孤儿工作台（门户 404）
-  svc<WorkbenchService>('workbench').deleteByAppUrls(`/apps/${a.slug}/`, `/sop/${a.slug}/`);
-  res.json({ ok: true, deleted: a.slug });
-});
+  svc<WorkbenchService>('workbench').deleteByAppUrls(`/apps/${slug}/`, `/sop/${a.slug}/`);
+}
 
 // ---------- 自产台数据提交面（监督席派单 direct-22838fab：台不仅是看板，有交互提交数据） ----------
 // 通用通道：POST 写入 / GET 游标分页（倒序 before_id）。JSON blob 哑存储——含义在台自身。
@@ -1922,8 +1974,25 @@ async function callTool(name: string, args: any): Promise<unknown> {
     }
     case 'app_publish':
       return publishAppBody({ ...args, created_by: args?.created_by || 'mcp' }).body;
-    case 'app_activate':
-      return activateAppVersion(String(args?.slug), args?.version);
+    // #94 v3 S1（K12）：app_activate 直回滚工具**移除**（破坏性操作 MCP 不可直执）——改经 change_request_create 提请求
+    case 'change_request_create': {
+      // K10：MCP 只能提请求——批准前不执行任何状态变更
+      const kind = String(args?.kind ?? '');
+      if (!['app_rollback', 'app_delete'].includes(kind)) throw new HttpError(400, `kind 须 app_rollback|app_delete（得: ${kind}）`);
+      const targetType = String(args?.target_type ?? 'app');
+      const targetSlug = String(args?.target_slug ?? '').trim();
+      if (!targetSlug) bad('target_slug 必填');
+      if (kind === 'app_rollback' && typeof args?.payload?.version !== 'number') bad('app_rollback 需 payload.version（数字）');
+      const a = getApp(targetSlug); // 目标须存在（提请求时校验·批准时再验）
+      void a;
+      const info = db.prepare("INSERT INTO change_requests (kind, target_type, target_slug, payload, reason, source, requested_by) VALUES (?, ?, ?, ?, ?, 'mcp', ?)")
+        .run(kind, targetType, targetSlug, JSON.stringify(args?.payload ?? {}), String(args?.reason ?? '').slice(0, 500), String(args?.requested_by ?? 'mcp-agent'));
+      return { id: Number(info.lastInsertRowid), kind, target_slug: targetSlug, status: 'pending', note: '请求已建——批准前状态不变（人经 /api/change-requests/:id/approve 口令+reviewed_by 批准执行）' };
+    }
+    case 'change_requests': {
+      const status = typeof args?.status === 'string' ? args.status : 'pending';
+      return db.prepare('SELECT id, kind, target_slug, payload, reason, status, requested_by, created_at FROM change_requests WHERE status = ? ORDER BY id DESC LIMIT 50').all(status);
+    }
     case 'sop_publish': {
       const a = sopTransition(String(args?.slug), ['draft', 'deprecated'], 'published', '发布');
       if (typeof args?.note === 'string' && args.note.trim()) {

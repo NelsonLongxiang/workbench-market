@@ -113,6 +113,22 @@ CREATE TABLE IF NOT EXISTS app_bindings (
 CREATE INDEX IF NOT EXISTS idx_app_bindings_slug ON app_bindings (app_slug, revoked_at);
 -- 联合评审①裁定 C（2026-10-26）：统一绑定表——表层统一+语义分离（admits=入站准入/notify=出站推送，
 -- both=显式双授永非默认）；跨型 CHECK 锁 app 行的 sop 专属字段（remote_api_key 恒空/mode 恒 read）。
+-- #94 v3 S1 统一人审门：破坏性操作（台回滚/删除）经请求-批准两段——agent 经 MCP 只能提请求，人带口令批准才执行
+CREATE TABLE IF NOT EXISTS change_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL CHECK (kind IN ('app_rollback','app_delete')),
+  target_type TEXT NOT NULL DEFAULT 'app',
+  target_slug TEXT NOT NULL,
+  payload TEXT NOT NULL DEFAULT '{}',
+  reason TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT 'mcp',
+  requested_by TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  reviewed_by TEXT NOT NULL DEFAULT '',
+  reviewed_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_change_requests_status ON change_requests (status, created_at);
 -- 旧两表保留一版作回滚锚与迁移源（下版删除）。
 CREATE TABLE IF NOT EXISTS bindings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
