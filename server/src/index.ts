@@ -1230,21 +1230,22 @@ app.get('/api/skills/:slug/verify', wrap(async (req, res) => {
   const root = ledger.installed_path;
   const files: string[] = [];
   (function walk(d: string) { for (const e of readdirSync(d, { withFileTypes: true })) { const p = join(d, e.name); if (e.isDirectory()) walk(p); else files.push(p); } })(root);
-  files.sort();
-  const h = createHash('sha256');
-  for (const p of files) {
-    h.update(p.slice(root.length + 1).split('\\').join('/')); h.update('\0');
-    h.update(createHash('sha256').update(readFileSync(p)).digest('hex')); h.update('\0');
-  }
-  const actual = h.digest('hex');
+  // #94 S0①：与发布面同构 digest（同一 filesDigest——排序/分隔符/utf8 归一消灭「多文件误判篡改」类）
+  const actual = SkillService.filesDigest(files.map((p) => ({ path: p.slice(root.length + 1).split('\\').join('/'), content: readFileSync(p, 'utf8') }))).digest;
   res.json({ ok: actual === ledger.expected_digest, expected: ledger.expected_digest, actual, checked_files: files.length });
 }));
 
 app.post('/api/skills/:slug/install/:ledgerId/revoke', (req, res) => {
   if (!adminGuard(req, res)) return;
   const S = svc<SkillService>('skill');
-  S.ledgerRevoke(Number(req.params.ledgerId));
-  res.json({ ok: true, ledger_id: Number(req.params.ledgerId), status: 'revoked' });
+  const row = S.skillBySlug(String(req.params.slug ?? ''));
+  if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
+  const id = Number(req.params.ledgerId);
+  const led = (S.ledgerActive() as any[]).find((l) => l.id === id);
+  if (!led) throw new HttpError(404, `ledger not found: ${id}`); // #94 S0④：撤销校验（不存在→404）
+  if (led.skill_id !== row.id) throw new HttpError(400, `ledger #${id} 不属于 ${row.slug}`); // #94 S0④：错 slug→400
+  S.ledgerRevoke(id);
+  res.json({ ok: true, ledger_id: id, status: 'revoked' });
 });
 
 // role-pack 展开清单（bundle→技能清单，上岗即装）
@@ -1265,11 +1266,17 @@ app.get('/api/skills', (_req, res) => {
 app.post('/api/skills/:slug/versions', wrap(async (req, res) => {
   if (!adminGuard(req, res)) return; // 口令门（方案裁定：复用 X-Admin-Token）
   const slug = String(req.params.slug ?? '').trim();
+  // #94 S0③：slug 校验（小写字母数字开头·[a-z0-9:_-]·≤64）
+  if (!/^[a-z0-9][a-z0-9:_-]{0,63}$/.test(slug)) bad('slug 非法（小写字母数字开头·仅 [a-z0-9:_-]·≤64 字符）');
   const files = req.body?.files;
   if (!Array.isArray(files) || files.length === 0) bad('files 必须为非空 [{path, content}]');
   for (const f of files) {
     if (typeof f?.path !== 'string' || !f.path || typeof f?.content !== 'string') bad('files 项须 {path, content}');
-    if (f.path.includes('..') || f.path.startsWith('/')) bad(`path 非法: ${f.path}`);
+    // #94 S0③：path 严校验（反斜杠/绝对路径/空·.·..段全拒）
+    if (f.path.length > 200) bad('path 过长（>200）');
+    if (f.path.includes('\\')) bad(`path 非法（禁反斜杠）: ${f.path}`);
+    if (f.path.startsWith('/') || /^[A-Za-z]:/.test(f.path)) bad(`path 非法（禁绝对路径）: ${f.path}`);
+    for (const seg of f.path.split('/')) if (seg === '' || seg === '.' || seg === '..') bad(`path 非法（空/. / .. 段）: ${f.path}`);
   }
   const changelog = String(req.body?.changelog ?? '').slice(0, 2000);
   const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
@@ -1288,9 +1295,14 @@ app.post('/api/skills/:slug/versions', wrap(async (req, res) => {
   const { mkdirSync, writeFileSync } = await import('node:fs');
   const snapDir = join(dataDir, 'skill-snapshots', encodeURIComponent(slug), `v${nextVer}`);
   mkdirSync(snapDir, { recursive: true });
-  for (const f of files) writeFileSync(join(snapDir, f.path), f.content, 'utf8');
+  const { dirname } = await import('node:path');
+  for (const f of files) {
+    const abs = join(snapDir, f.path);
+    mkdirSync(dirname(abs), { recursive: true }); // #94 S0②：子目录路径建父目录（docs/a.md 不再 500）
+    writeFileSync(abs, f.content, 'utf8');
+  }
   S.versionInsert({ skillId: row.id, version: nextVer, changelog, treeDigest: t.digest, fileCount: t.fileCount, totalBytes: t.totalBytes, snapshotPath: snapDir, reviewedBy });
-  res.status(201).json({ ok: true, slug, version: nextVer, tree_digest: t.digest, file_count: t.fileCount, total_bytes: t.totalBytes, snapshot_path: snapDir });
+  res.status(201).json({ ok: true, slug, version: nextVer, tree_digest: t.digest, file_count: t.fileCount, total_bytes: t.totalBytes, snapshot_path: `skill-snapshots/${encodeURIComponent(slug)}/v${nextVer}` }); // #94 S0⑤：不暴露 DATA_DIR 绝对路径);
 }));
 
 app.get('/api/skills/:slug/versions', (req, res) => {

@@ -18,9 +18,12 @@ export class SandboxService extends Service {
   async dispatch(r: { runId: number; script: string; imageTag?: string; timeoutMs?: number }): Promise<Record<string, unknown>> {
     const base = this.bridgeUrl();
     if (!base) throw new Error('sandbox bridge 未配置（settings.sandbox_bridge_url 或 env SANDBOX_BRIDGE_URL）');
+    // #94 S0⑥：bridge 请求带 Bearer（settings.sandbox_bridge_token ?? env SANDBOX_BRIDGE_TOKEN——契约 §1 鉴权）
+    const tokenRow = db.prepare("SELECT value FROM settings WHERE key = 'sandbox_bridge_token'").get() as { value?: string } | undefined;
+    const token = (tokenRow?.value ?? process.env.SANDBOX_BRIDGE_TOKEN ?? '').trim();
     const res = await fetch(base.replace(/\/+$/, '') + '/dispatch', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: token ? { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } : { 'Content-Type': 'application/json' },
       body: JSON.stringify({ run_id: r.runId, script: r.script, image_tag: r.imageTag ?? 'node:22-slim', timeout_ms: r.timeoutMs ?? 300000 }),
       signal: AbortSignal.timeout((r.timeoutMs ?? 300000) + 10000),
     });
