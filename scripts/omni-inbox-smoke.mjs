@@ -67,7 +67,7 @@ try {
     files: [{ path: 'sop.yaml', content: 'title: t\ncode: C\nsteps:\n  - key: s1\n    title: a\n    body: "<p>x</p>"\n' }], changelog: 'x',
   });
   await json(`${BASE}/api/sops/rv-omni/publish`, 'POST', {}, AT);
-  await json(`${BASE}/api/sops/rv-omni/bindings`, 'POST', { node: 'dsh/0123omni', mode: 'run' }, AT);
+  await json(`${BASE}/api/bindings`, 'POST', { target_type: 'sop', target_slug: 'rv-omni', agent_node: 'dsh/0123omni', mode: 'run', direction: 'admits' }, AT);
   const card = await json(`${BASE}/.well-known/agent-card.json`);
   const team = card.body?.sessionTeams?.find((x) => x.name === 'rv-omni')?.team;
   const d = await json(`${BASE}/a2a/direct`, 'POST', { team, caller_session: 'dsh/0123omni', task_id: 'om-1', context_id: 'omctx', message: JSON.stringify({ sop: { slug: 'rv-omni', action: 'start' } }) });
