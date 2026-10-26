@@ -111,6 +111,26 @@ CREATE TABLE IF NOT EXISTS app_bindings (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_app_bindings_slug ON app_bindings (app_slug, revoked_at);
+-- 联合评审①裁定 C（2026-10-26）：统一绑定表——表层统一+语义分离（admits=入站准入/notify=出站推送，
+-- both=显式双授永非默认）；跨型 CHECK 锁 app 行的 sop 专属字段（remote_api_key 恒空/mode 恒 read）。
+-- 旧两表保留一版作回滚锚与迁移源（下版删除）。
+CREATE TABLE IF NOT EXISTS bindings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  target_type TEXT NOT NULL CHECK (target_type IN ('sop','app')),
+  target_slug TEXT NOT NULL,
+  agent_node TEXT NOT NULL,
+  direction TEXT NOT NULL CHECK (direction IN ('admits','notify','both')),
+  mode TEXT NOT NULL DEFAULT 'read',
+  notify_url TEXT NOT NULL DEFAULT '',
+  remote_api_key TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  revoked_at TEXT NOT NULL DEFAULT '',
+  CHECK ((target_type = 'sop') OR (target_type = 'app' AND remote_api_key = '' AND mode = 'read'))
+);
+CREATE INDEX IF NOT EXISTS idx_bindings_target ON bindings (target_type, target_slug, revoked_at);
+CREATE INDEX IF NOT EXISTS idx_bindings_node ON bindings (agent_node, revoked_at);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bindings_natural ON bindings (target_type, target_slug, agent_node, direction);
 CREATE TABLE IF NOT EXISTS a2a_run_ctx (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   context_id TEXT NOT NULL,
@@ -267,7 +287,14 @@ CREATE TABLE IF NOT EXISTS install_ledger (
   if (!ctxCols.some((c) => c.name === 'callback_url')) {
     db.exec("ALTER TABLE a2a_run_ctx ADD COLUMN callback_url TEXT NOT NULL DEFAULT ''");
   }
-  const bindCols = db.prepare('PRAGMA table_info(sop_bindings)').all() as { name: string }[];
+  // 联合评审① C：旧两表幂等平移入统一表（natural key 唯一索引承载 OR REPLACE 语义；重复启动安全）
+try {
+  db.exec(`INSERT OR REPLACE INTO bindings (target_type,target_slug,agent_node,direction,mode,notify_url,remote_api_key,created_by,created_at,revoked_at)
+    SELECT 'sop', sop_slug, node, 'admits', mode, callback_url, remote_api_key, created_by, created_at, revoked_at FROM sop_bindings`);
+  db.exec(`INSERT OR REPLACE INTO bindings (target_type,target_slug,agent_node,direction,mode,notify_url,created_by,created_at,revoked_at)
+    SELECT 'app', app_slug, node, 'notify', 'read', base_url, created_by, created_at, revoked_at FROM app_bindings`);
+} catch { /* 首启表未建等情形由外层建表先行——此处静默重试下次启动 */ }
+const bindCols = db.prepare('PRAGMA table_info(sop_bindings)').all() as { name: string }[];
   if (!bindCols.some((c) => c.name === 'callback_url')) {
     db.exec("ALTER TABLE sop_bindings ADD COLUMN callback_url TEXT NOT NULL DEFAULT ''");
   }

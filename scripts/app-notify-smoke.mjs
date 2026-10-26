@@ -60,14 +60,16 @@ try {
   if (!(await waitReady(`${BASE}/api/health`))) throw new Error('隔离实例未就绪');
   console.log('隔离实例就绪', BASE, '| cap@', CAP_PORT);
 
-  // ① 绑定创建（红版：路由不存在 404）
-  const b1 = await fetch(`${BASE}/api/apps/procurement-workbench/bindings`, {
+  // ① 绑定创建（统一面）：先撤销同 node 旧行（现网迁移行已在·UNIQUE natural key 撞）——测试隔离性
+  const old = await (await fetch(`${BASE}/api/bindings?type=app&slug=procurement-workbench`, { headers: ADMIN })).json().catch(() => []);
+  for (const row of Array.isArray(old) ? old : []) if (row.agent_node === 'dsh/6de4035c' && !row.revoked_at) await fetch(`${BASE}/api/bindings/${row.id}`, { method: 'DELETE', headers: ADMIN });
+  const b1 = await fetch(`${BASE}/api/bindings`, {
     method: 'POST', headers: ADMIN,
-    body: JSON.stringify({ node: 'dsh/6de4035c', base_url: `http://127.0.0.1:${CAP_PORT}` }),
+    body: JSON.stringify({ target_type: 'app', target_slug: 'procurement-workbench', agent_node: 'dsh/6de4035c', direction: 'notify', notify_url: `http://127.0.0.1:${CAP_PORT}` }),
   });
   ok('① 绑定创建 201', b1.status === 201, `status=${b1.status}`);
   const binding = await b1.json().catch(() => null);
-  ok('①b 返回 id/node', typeof binding?.id === 'number' && binding?.node === 'dsh/6de4035c');
+  ok('①b 返回 id/node', typeof binding?.id === 'number' && binding?.agent_node === 'dsh/6de4035c');
 
   // ② 提交 → 推送
   pushes.length = 0;
@@ -88,7 +90,7 @@ try {
 
   // ③ 撤销 → 不再推
   if (binding?.id) {
-    await fetch(`${BASE}/api/apps/procurement-workbench/bindings/${binding.id}`, { method: 'DELETE', headers: ADMIN });
+    await fetch(`${BASE}/api/bindings/${binding.id}`, { method: 'DELETE', headers: ADMIN });
     pushes.length = 0;
     await fetch(`${BASE}/api/apps/procurement-workbench/data`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -112,7 +114,7 @@ try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 4000);
     try {
-      const d = await fetch(`${BASE}/api/sops/procurement-task-submit/bindings/999999`, { method: 'DELETE', headers: ADMIN, signal: ctrl.signal });
+      const d = await fetch(`${BASE}/api/bindings/999999`, { method: 'DELETE', headers: ADMIN, signal: ctrl.signal });
       clearTimeout(timer);
       ok('⑥ SOP 绑定删除路由有响应（404=正常拒绝·不再挂起）', d.status === 404 || d.status === 200, `status=${d.status}`);
     } catch (err) {
@@ -128,9 +130,9 @@ try {
     console.log('  · LAN 不可达，⑤ 跳过');
   } else {
     // 重挂绑定（③ 已撤销）
-    const b5 = await fetch(`${BASE}/api/apps/procurement-workbench/bindings`, {
+    const b5 = await fetch(`${BASE}/api/bindings`, {
       method: 'POST', headers: ADMIN,
-      body: JSON.stringify({ node: 'dsh/6de4035c', base_url: `http://127.0.0.1:${CAP_PORT}` }),
+      body: JSON.stringify({ target_type: 'app', target_slug: 'procurement-workbench', agent_node: 'dsh/6de4035c', direction: 'notify', notify_url: `http://127.0.0.1:${CAP_PORT}` }),
     });
     pushes.length = 0;
     await fetch(`http://${LAN_IP}:${PORT}/api/apps/procurement-workbench/data`, {

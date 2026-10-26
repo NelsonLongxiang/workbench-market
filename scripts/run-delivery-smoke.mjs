@@ -46,7 +46,7 @@ try {
     changelog: '冒烟',
   });
   await json(`${BASE}/api/sops/rv-deliv/publish`, 'POST', {}, AT);
-  await json(`${BASE}/api/sops/rv-deliv/bindings`, 'POST', { node: 'dsh/0123dlv', mode: 'run' }, AT);
+  await json(`${BASE}/api/bindings`, 'POST', { target_type: 'sop', target_slug: 'rv-deliv', agent_node: 'dsh/0123dlv', mode: 'run', direction: 'admits' }, AT);
   const card = await json(`${BASE}/.well-known/agent-card.json`);
   const team = card.body?.sessionTeams?.find((t) => t.name === 'rv-deliv')?.team;
   const d = await json(`${BASE}/a2a/direct`, 'POST', {

@@ -89,10 +89,12 @@ export function adminTokenOk(provided: string | undefined): boolean {
 export function buildAgentCard(keyPath: string): Record<string, unknown> {
   const priv = loadOrCreateKey(keyPath);
   const now = Date.now();
+  // 联合评审① C：统一绑定表——admits 方向行才上卡（notify-only 行不上）
   const rows = db.prepare(
     `SELECT DISTINCT a.slug, a.title, a.description, a.a2a_node8
        FROM apps a
-       JOIN sop_bindings b ON b.sop_slug = a.slug AND b.revoked_at = ''
+       JOIN bindings b ON b.target_type = 'sop' AND b.target_slug = a.slug AND b.revoked_at = ''
+        AND b.direction IN ('admits','both')
       WHERE a.kind = 'sop' AND a.status = 'published'
       ORDER BY a.slug`
   ).all() as { slug: string; title: string; description: string; a2a_node8: string }[];
@@ -188,7 +190,8 @@ export function a2aDirectHandle(body: any, rawBytes: number, runOps: {
   if (caller === '') {
     return { httpStatus: 200, body: { error: 'caller_session is required (anonymous delivery refused)', code: -32000, team, task_status: 'TASK_STATE_FAILED' } };
   }
-  const binding = db.prepare("SELECT mode FROM sop_bindings WHERE sop_slug = ? AND node = ? AND revoked_at = ''").get(sop.slug, caller) as { mode: string } | undefined;
+  // 联合评审① C：统一绑定表——admits 方向行（授 notify 不过此门·方向独立性铁律）
+  const binding = db.prepare("SELECT mode FROM bindings WHERE target_type = 'sop' AND target_slug = ? AND agent_node = ? AND direction IN ('admits','both') AND revoked_at = ''").get(sop.slug, caller) as { mode: string } | undefined;
   if (!binding) {
     // A10（评审席选项 A，存在性不泄露）：无有效绑定与查无 SOP 同答 404——
     // 200 no-valid-binding 会区分「SOP 存在但未绑定」与「SOP 不存在」

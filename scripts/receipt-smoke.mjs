@@ -57,9 +57,9 @@ try {
   });
   await json(`${BASE}/api/sops/rv-rcpt/publish`, 'POST', {}, AT);
   // 绑定先行（上卡规则：published ∧ ≥1 有效绑定）→ 再取卡片句柄
-  let r = await json(`${BASE}/api/sops/rv-rcpt/bindings`, 'POST', { node: 'dsh/0123rcpt', mode: 'run', callback_url: `http://127.0.0.1:9842` }, AT);
+  let r = await json(`${BASE}/api/bindings`, 'POST', { target_type: 'sop', target_slug: 'rv-rcpt', agent_node: 'dsh/0123rcpt', mode: 'run', direction: 'admits', notify_url: `http://127.0.0.1:9842` }, AT);
   ok('绑定(带 callback_url) 201', r.status === 201, JSON.stringify(r.body));
-  r = await json(`${BASE}/api/sops/rv-rcpt/bindings`, 'POST', { node: 'dsh/0123dead', mode: 'run', callback_url: `http://127.0.0.1:9849` }, AT);
+  r = await json(`${BASE}/api/bindings`, 'POST', { target_type: 'sop', target_slug: 'rv-rcpt', agent_node: 'dsh/0123dead', mode: 'run', direction: 'admits', notify_url: `http://127.0.0.1:9849` }, AT);
   ok('绑定(死端口) 201', r.status === 201);
   const card = await json(`${BASE}/.well-known/agent-card.json`);
   const team = card.body?.sessionTeams?.find((t) => t.name === 'rv-rcpt')?.team;
@@ -126,7 +126,7 @@ try {
     res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"ok":true}');
   });
   await new Promise((r2) => srvC.listen(9844, '127.0.0.1', r2));
-  r = await json(`${BASE}/api/sops/rv-rcpt/bindings`, 'POST', { node: 'dsh/0123rc8', mode: 'run', callback_url: `http://127.0.0.1:9844` }, AT);
+  r = await json(`${BASE}/api/bindings`, 'POST', { target_type: 'sop', target_slug: 'rv-rcpt', agent_node: 'dsh/0123rc8', mode: 'run', direction: 'admits', notify_url: `http://127.0.0.1:9844` }, AT);
   d = await dispatch('dsh/0123rc8', 'rv-c-8', 'rv-cctx-8');
   const run8 = d.body?.sop?.run_id;
   await json(`${BASE}/api/sop/runs/${run8}/finish`, 'POST', {});
