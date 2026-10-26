@@ -103,6 +103,16 @@ with sync_playwright() as p:
 
     cleanup(page)
 
+    # 分页裁剪（E2E 长期劣化根因修复 2026-10-26）：市场表 pageSize=20（客户端分页），
+    # 快照行数涨过首页容量后新建行落第 2 页 → 全部行定位断言灭灯级联（新增/过滤/检测/
+    # 抽屉/开关/改名/复制/使用页/自产台/透传十连红）。裁掉非 E2E 行至 ≤15，行定位回首页。
+    _wbs = api(page, 'GET', '/api/workbenches').json()
+    for _w in sorted(_wbs, key=lambda x: x['id'], reverse=True):
+        _rest = [x for x in api(page, 'GET', '/api/workbenches').json()
+                 if not str(x['name']).startswith('E2E')]
+        if len(_rest) > 15:
+            api(page, 'DELETE', f"/api/workbenches/{_w['id']}")
+
     # ---------- 1. 仪表盘 ----------
     try:
         page.goto(BASE + '/')
@@ -964,7 +974,7 @@ with sync_playwright() as p:
         import os as _os
         with open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'README.md'), encoding='utf-8') as _f:
             readme = _f.read()
-        assert 'v30' in readme and '165 条判据' in readme, 'README 验证器节未同步 v29/133'
+        assert 'v53' in readme and '175 条判据' in readme, 'README 验证器节未同步（现行 v53/175）'
         assert '内置 9 种' in readme, 'README 类型数未同步 9'
         assert 'Sops' in readme, 'README 目录缺 Sops 页'
         assert '≥25' in readme or '25 组' in readme, 'README E2E 组数未同步'
