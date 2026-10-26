@@ -50,7 +50,8 @@ try {
   // 判据 16-19（P0-a-4 种子收尾）：生产种子/快照/角色束/分层分布——种子导入前红
   {
     const { existsSync, readdirSync } = await import('node:fs');
-    const prodDb = 'D:/workspace/workbench-market/server/data/workbench-market.db';
+    const { fileURLToPath: _fu3 } = await import('node:url');
+    const prodDb = _fu3(new URL('../server/data/workbench-market.db', import.meta.url)); // 相对化（隐私门红线）
     if (existsSync(prodDb)) {
       const pdb = new DatabaseSync(prodDb, { readOnly: true });
       const hasSkills = pdb.prepare("SELECT COUNT(*) n FROM skills").get();
@@ -61,7 +62,7 @@ try {
       ok('角色束收编在库（apollo/dionysus）', bundles.n >= 1, String(bundles.n));
       pdb.close?.();
     } else ok('生产种子在库', false, '库缺');
-    const snapRoot = 'D:/workspace/workbench-market/server/data/skill-snapshots';
+        const snapRoot = _fu3(new URL('../server/data/skill-snapshots', import.meta.url)); // 相对化（隐私门红线）
     ok('快照根目录在案', existsSync(snapRoot) && readdirSync(snapRoot).length > 0);
   }
 

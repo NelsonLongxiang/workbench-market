@@ -13,7 +13,7 @@ import { createServer } from 'node:http';
 const PORT = 9853;
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-appnotify-data';
-const LAN_IP = process.env.LAN_IP || '192.168.3.156';
+const LAN_IP = process.env.LAN_IP || ''; // 隐私门红线：内网地址只经 env（unset 则跳过远程判据）
 const ADMIN = { 'Content-Type': 'application/json', 'X-Admin-Token': 'appnotify-test-token' };
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
