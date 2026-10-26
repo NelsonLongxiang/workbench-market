@@ -131,6 +131,12 @@ CREATE TABLE IF NOT EXISTS bindings (
 CREATE INDEX IF NOT EXISTS idx_bindings_target ON bindings (target_type, target_slug, revoked_at);
 CREATE INDEX IF NOT EXISTS idx_bindings_node ON bindings (agent_node, revoked_at);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_bindings_natural ON bindings (target_type, target_slug, agent_node, direction);
+-- S3 豁免面可观测（评审席裁下批）：REMOTE_ALLOW 快照逐次落库·启动 diff 变更面
+CREATE TABLE IF NOT EXISTS remote_allow_state (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  snapshot TEXT NOT NULL,
+  captured_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 CREATE TABLE IF NOT EXISTS a2a_run_ctx (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   context_id TEXT NOT NULL,
