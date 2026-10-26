@@ -1284,7 +1284,7 @@ app.get('/api/skills/:slug/verify', wrap(async (req, res) => {
   const files: string[] = [];
   (function walk(d: string) { for (const e of readdirSync(d, { withFileTypes: true })) { const p = join(d, e.name); if (e.isDirectory()) walk(p); else files.push(p); } })(root);
   // #94 S0①：与发布面同构 digest（同一 filesDigest——排序/分隔符/utf8 归一消灭「多文件误判篡改」类）
-  const actual = SkillService.filesDigest(files.map((p) => ({ path: p.slice(root.length + 1).split('\\').join('/'), content: readFileSync(p, 'utf8') }))).digest;
+  const actual = SkillService.filesDigest(files.map((p) => ({ path: p.slice(root.length + 1).split('\\').join('/'), content: readFileSync(p) }))).digest; // #105：按原始字节（与导入器 treeDigest 同构，非 UTF-8 文件不误判）
   res.json({ ok: actual === ledger.expected_digest, expected: ledger.expected_digest, actual, checked_files: files.length });
 }));
 
