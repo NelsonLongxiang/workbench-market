@@ -87,6 +87,12 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
     description: '列 SOP 执行记录（可按 slug/status 过滤）。',
     inputSchema: { type: 'object', properties: { slug: { type: 'string' }, status: { type: 'string', enum: ['running', 'finished'] } }, additionalProperties: false },
   },
+  // ── LayerFS 沙箱（第十域 · 步骤 4）──
+  {
+    name: 'sop_run_sandbox',
+    description: '派发 SOP 步骤到 VM sandbox 容器执行（LayerFS）——返回 commit_hash（交付物=LayerFS Commit 引用）+ exit_code/stdout_tail/stderr_tail/duration_ms。bridge 不可达时 retryable。',
+    inputSchema: { type: 'object', properties: { run_id: { type: 'number', description: 'SOP run id' }, script: { type: 'string', description: '执行的 JS 脚本' }, image_tag: { type: 'string', description: '容器镜像（缺省 node:22-slim）' }, timeout_ms: { type: 'number', description: '超时毫秒（缺省 300000）' } }, required: ['run_id'] },
+  },
   {
     name: 'sop_run_finish',
     description: '归档 run（热态全量沉淀 SQLite，Redis 条目平滑淘汰）。',

@@ -3240,7 +3240,7 @@
               {
                 "col": "needle",
                 "op": "=",
-                "value": "174 条判据"
+                "value": "175 条判据"
               },
               {
                 "col": "present",
@@ -6049,6 +6049,45 @@
                 "col": "needle",
                 "op": "=",
                 "value": "篡改后校验红"
+              },
+              {
+                "col": "present",
+                "op": "=",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "expect": true
+      }
+    },
+    {
+      "source_clause": "判据175：server/src/services/sandbox.ts 必须包含第十域锚「dispatch」。",
+      "anchor": {
+        "quote": "判据175：server/src/services/sandbox.ts 必须包含第十域锚「dispatch」。",
+        "locator": "dev-verifier-v4.md 判据1"
+      },
+      "title": "SandboxService 钉位",
+      "severity": "S1",
+      "checker": {
+        "type": "exists",
+        "predicate": {
+          "from": "verifier_text_facts",
+          "select": [
+            "path"
+          ],
+          "where": {
+            "op": "and",
+            "conditions": [
+              {
+                "col": "path",
+                "op": "=",
+                "value": "server/src/services/sandbox.ts"
+              },
+              {
+                "col": "needle",
+                "op": "=",
+                "value": "dispatch"
               },
               {
                 "col": "present",

@@ -4175,6 +4175,30 @@
           "reason": "删断言提取为 0 即 FAIL。"
         }
       ]
+    },
+    {
+      "source_clause": "判据175：server/src/services/sandbox.ts 必须包含第十域锚「dispatch」。",
+      "findings": [
+        {
+          "question": "faithful",
+          "verdict": "ok",
+          "reason": "判据原文逐字取自冻结材料，第十域 SandboxService（bridge 唯一通道/settings.sandbox_bridge_url/三态错误面 retryable）+ sop_run_sandbox MCP 工具 + layerfs:// URI 并存——sandbox-smoke 7 项先红 4 失败→7/7。",
+          "anchor": {
+            "quote": "判据175：server/src/services/sandbox.ts 必须包含第十域锚「dispatch」。",
+            "locator": "dev-verifier-v4.md 判据1"
+          }
+        },
+        {
+          "question": "decidable",
+          "verdict": "ok",
+          "reason": "提取表三条件 exists 精确判定。"
+        },
+        {
+          "question": "not-vacuous",
+          "verdict": "ok",
+          "reason": "删服务提取为 0 即 FAIL。"
+        }
+      ]
     }
   ]
 }
