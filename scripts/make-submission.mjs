@@ -128,7 +128,7 @@ const TEXT_FACTS = [
   ["server/src/index.ts", "issue #7"],
   ["scripts/import-smoke.mjs", "e2e-import-probe"],
   ["scripts/make-submission.mjs", "issue #13"],
-  ["README.md", "174 条判据"],
+  ["README.md", "175 条判据"],
   ["server/src/a2a.ts", "@nelsonlongxiang/dsh-open-a2a-net/card"],
   ["server/src/index.ts", "x-admin-token"],
   ["server/src/a2a.ts", "a2a_node8"],
@@ -202,6 +202,7 @@ const TEXT_FACTS = [
   ["server/src/mcp-tools.ts", "skill_install_plan"],
   ["web/src/pages/Skills.tsx", "技能市场"],
   ["scripts/skill-install-smoke.mjs", "篡改后校验红"],
+  ["server/src/services/sandbox.ts", "dispatch"],
 ];
 import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);
