@@ -3,7 +3,7 @@
   "passed": 25,
   "failed": 0,
   "all_passed": 1,
-  "finished_at": "2026-10-24T07:01:42.395975+00:00",
+  "finished_at": "2026-10-26T04:01:59.496952+00:00",
   "contrast_checks": [
     {
       "text": "在线",
@@ -78,8 +78,8 @@
       "label": "/sops 表格·SOP 状态 Tag"
     },
     {
-      "text": "-",
-      "color": "rgba(0, 0, 0, 0.45)",
+      "text": "SOP-FAC-REPORT",
+      "color": "rgba(0, 0, 0, 0.88)",
       "bg": "rgb(255, 255, 255)",
       "ratio": 21,
       "min": 4.5,
