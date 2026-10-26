@@ -58,9 +58,9 @@ try {
   ok('K12b 无直删除工具（app_delete）', !tools.includes('app_delete'));
 
   // K10：MCP 建回滚请求 → 状态不变；批准 → 执行
-  const req1 = await mcp(2, 'tools/call', { name: 'change_request_create', arguments: { kind: 'app_rollback', target_type: 'app', target_slug: slug, payload: { version: 1 }, reason: 's1-smoke' } });
+  const req1 = await mcp(2, 'tools/call', { name: 'change_request_create', arguments: { kind: 'app', slug, op: 'rollback', target_version: 1, reason: 's1-smoke' } });
   const req1t = req1?.result?.content?.[0]?.text ?? JSON.stringify(req1);
-  ok('K10a MCP 可建请求', !/未知工具|isError/.test(String(req1t)), String(req1t).slice(0, 100));
+  ok('K10a MCP 可建请求', /"status": "pending"|'pending'|status.{0,4}pending/.test(String(req1t)) && !/执行失败/.test(String(req1t)), String(req1t).slice(0, 100));
   const detail = await (await fetch(`${BASE}/api/apps/${slug}`)).json();
   ok('K10b 批准前状态不变（active_version 未动）', Number(detail.active_version ?? detail.app?.active_version ?? -1) !== 1 || detail.active_version === undefined ? true : true, '(以批准后对比为准)');
   // K11：批准缺 reviewed_by → 拒
@@ -79,8 +79,20 @@ try {
     ok('K10d 批准后执行（active_version→1）', Number(after.active_version ?? after.app?.active_version ?? -1) === 1, `after=${JSON.stringify(after.active_version ?? after.app?.active_version)}`);
   } else { ok('K11/K10cd 批准链', false, '无请求 id'); }
 
+  // K10/K16 skill 面：MCP 建 skill 回滚请求 + 一步式 REST 拒（缺 reviewed_by）
+  const skillList = await (await fetch(`${BASE}/api/skills`)).json();
+  const sk = (Array.isArray(skillList) ? skillList : []).find((s) => s.versions >= 1);
+  if (sk) {
+    const sr = await mcp(10, 'tools/call', { name: 'change_request_create', arguments: { kind: 'skill', slug: sk.slug, op: 'rollback', target_version: 1, reason: 's1-skill' } });
+    const srt = sr?.result?.content?.[0]?.text ?? JSON.stringify(sr);
+    ok('K10e skill 回滚请求可建（契约形状）', !/未知|isError|错误/.test(String(srt)), String(srt).slice(0, 90));
+    const sact = await fetch(`${BASE}/api/skills/${encodeURIComponent(sk.slug)}/activate`, { method: 'POST', headers: ADMIN, body: JSON.stringify({ version: 1 }) });
+    ok('K16a skill 一步式回滚缺 reviewed_by → 400', sact.status === 400, `status=${sact.status}`);
+    const sdel = await fetch(`${BASE}/api/skills/${encodeURIComponent(sk.slug)}`, { method: 'DELETE', headers: ADMIN });
+    ok('K16b skill 一步式删除缺 reviewed_by → 400', sdel.status === 400, `status=${sdel.status}`);
+  }
   // 待办接入：先造一条 pending 再查（刚批的那条已 approved 不在 pending）
-  await mcp(9, 'tools/call', { name: 'change_request_create', arguments: { kind: 'app_rollback', target_type: 'app', target_slug: slug, payload: { version: 1 }, reason: 's1-pending-probe' } });
+  await mcp(9, 'tools/call', { name: 'change_request_create', arguments: { kind: 'app', slug, op: 'rollback', target_version: 1, reason: 's1-pending-probe' } });
   const tasks = await (await fetch(`${BASE}/api/tasks?refresh=1`)).json();
   const tstr = JSON.stringify(tasks);
   ok('待办接入（tasks 含 change_requests 面）', /change_request|人审/.test(tstr), tstr.slice(0, 80));

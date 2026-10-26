@@ -176,10 +176,10 @@ export async function collectTasks(sop: SopServiceLike): Promise<TasksPayload> {
 /** #94 v3 S1 人审门：pending change_requests 入统一待办（批准/拒绝回 REST 原系统） */
 function changeRequestTasks(): TaskEnvelope[] {
   try {
-    const rows = (globalThis as any).__wmDb?.prepare?.("SELECT id, kind, target_slug, reason, requested_by, created_at FROM change_requests WHERE status='pending' ORDER BY id DESC LIMIT 50")?.all?.() ?? [];
+    const rows = (globalThis as any).__wmDb?.prepare?.("SELECT id, kind, slug, op, reason, requested_by, created_at FROM change_requests WHERE status='pending' ORDER BY id DESC LIMIT 50")?.all?.() ?? [];
     return rows.map((r: any) => ({
       id: `change-request:${r.id}`, source: 'market' as const,
-      title: `人审·${r.kind === 'app_delete' ? '删台' : '回滚'} ${r.target_slug}${r.reason ? '（' + String(r.reason).slice(0, 60) + '）' : ''}`,
+      title: `人审·${r.kind === 'skill' ? '技能' : '台'}${r.op === 'delete' ? '删除' : '回滚'} ${r.slug}${r.reason ? '（' + String(r.reason).slice(0, 60) + '）' : ''}`,
       status: 'todo' as const, due: '', link: '/api/change-requests', project: 'review-gate',
     }));
   } catch { return []; }
