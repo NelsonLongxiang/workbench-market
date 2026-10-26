@@ -47,7 +47,7 @@ def cleanup(page):
     for a in api(page, 'GET', '/api/apps').json():
         if a['slug'].startswith('e2e-'):
             try:
-                api(page, 'DELETE', f"/api/apps/{a['slug']}")
+                api(page, 'DELETE', f"/api/apps/{a['slug']}", {'reviewed_by': 'e2e-cleanup'})
             except Exception:
                 pass
 
@@ -464,7 +464,7 @@ with sync_playwright() as p:
         # 发布 v1（模拟 AI 会话直发通道）
         # 组内自清理：残留 e2e-app 会让 version 断言假红（跨轮残留）
         try:
-            api(page, 'DELETE', '/api/apps/e2e-app')
+            api(page, 'DELETE', '/api/apps/e2e-app', {'reviewed_by': 'e2e-cleanup'})
         except Exception:
             pass
         r = api(page, 'POST', '/api/apps', {
@@ -505,7 +505,7 @@ with sync_playwright() as p:
         api(page, 'POST', '/api/apps', {'slug': 'e2e-app', 'title': 'E2E 自产台',
             'files': [{'path': 'index.html', 'content': '<!doctype html><meta charset="utf-8"><h1>E2E-APP-V2</h1>'}]})
         assert 'E2E-APP-V2' in page.request.fetch(BASE + '/apps/e2e-app/').text(), 'v2 未生效'
-        api(page, 'POST', '/api/apps/e2e-app/activate', {'version': 1})
+        api(page, 'POST', '/api/apps/e2e-app/activate', {'version': 1, 'reviewed_by': 'e2e-selftest'})  # S1 人审门（L14）
         assert 'E2E-APP-V1' in page.request.fetch(BASE + '/apps/e2e-app/').text(), '回滚 v1 未生效'
         detail = api(page, 'GET', '/api/apps/e2e-app').json()
         assert len(detail['versions']) == 2 and detail['active_version'] == 1, f'版本链异常: {detail["versions"]}'
@@ -614,7 +614,7 @@ with sync_playwright() as p:
             'files': [{'path': 'sop.yaml', 'content': draft_yaml}]})
         r403 = page.request.fetch(BASE + '/sop/e2e-draft-leak/')
         assert r403.status == 403 and 'SecretStep' not in r403.text(), 'draft 403 页面泄漏步骤内容'
-        api(page, 'DELETE', '/api/apps/e2e-draft-leak')
+        api(page, 'DELETE', '/api/apps/e2e-draft-leak', {'reviewed_by': 'e2e-cleanup'})
         # ⑪ 门户 3xx Location 改写（issue #4：proxyRes 用前置备份的 id，改写后跳转留在 /go/ 前缀内）
         # 注意：Playwright request.fetch 会跟随重定向（max_redirects=0 也不免），用 http.client 拿原始 302
         import http.client as _hc
@@ -721,7 +721,7 @@ with sync_playwright() as p:
         assert r.status == 202, f'notification 应 202: {r.status}'
         j = mcp('tools/list').json()
         tool_names = [t['name'] for t in j['result']['tools']]
-        LOCAL_TOOLS = ['workbench_list','workbench_summary','workbench_check','use_url','app_publish','app_activate','sop_publish','sop_run_start','sop_run_step_save','sop_run_get','sop_run_list','sop_run_finish','app_data_list','app_files_list','workbench_register','workbench_update','workbench_unregister']
+        LOCAL_TOOLS = ['workbench_list','workbench_summary','workbench_check','use_url','app_publish','change_request_create','change_requests','sop_publish','sop_run_start','sop_run_step_save','sop_run_get','sop_run_list','sop_run_finish','app_data_list','app_files_list','workbench_register','workbench_update','workbench_unregister']
         missing = [t for t in LOCAL_TOOLS if t not in tool_names]
         assert not missing, f'tools/list 缺本地工具: {missing}'
         assert len(tool_names) >= 17, f'tools/list 异常: {tool_names}'
@@ -788,7 +788,7 @@ with sync_playwright() as p:
         fl = json.loads(j['result']['content'][0]['text'])
         assert fl['count'] == 0 and fl['slug'] == 'e2e-mcp-app', f'app_files_list 异常: {fl}'
         # 清理（走 REST）
-        api(page, 'DELETE', '/api/apps/e2e-mcp-app'); api(page, 'DELETE', '/api/apps/e2e-mcp-sop')
+        api(page, 'DELETE', '/api/apps/e2e-mcp-app', {'reviewed_by': 'e2e-cleanup'}); api(page, 'DELETE', '/api/apps/e2e-mcp-sop', {'reviewed_by': 'e2e-cleanup'})
         # C6: MCP 网关 P1（GH #20）——主实例 MCP_GATEWAY 未设（off=现状行为），网关语义走独立实例冒烟
         j = mcp('tools/list').json()
         assert len(j['result']['tools']) >= 17, 'off 模式 tools/list 应含全量本地 17（网关默认关）'
@@ -920,7 +920,7 @@ with sync_playwright() as p:
             'files': [{'path': 'sop.yaml', 'content': 'title: T\nsteps:\n  - key: a\n    title: A\n'}]})
         pub = api(page, 'POST', '/api/sops/e2e-del-sop/publish', {}).json()
         swid = pub['workbench_id']
-        api(page, 'DELETE', '/api/apps/e2e-del-sop')
+        api(page, 'DELETE', '/api/apps/e2e-del-sop', {'reviewed_by': 'e2e-cleanup'})
         orphan = [w for w in api(page, 'GET', '/api/workbenches').json() if w['id'] == swid]
         assert not orphan, f'删除 SOP 后孤儿工作台仍在: {orphan[:1]}'
         # ② #10 deprecate→publish 恢复 enabled
@@ -975,7 +975,7 @@ with sync_playwright() as p:
         import os as _os
         with open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'README.md'), encoding='utf-8') as _f:
             readme = _f.read()
-        assert 'v61' in readme and '175 条判据' in readme, 'README 验证器节未同步（现行 v61/175）'
+        assert 'v62' in readme and '175 条判据' in readme, 'README 验证器节未同步（现行 v62/175）'
         assert '内置 9 种' in readme, 'README 类型数未同步 9'
         assert 'Sops' in readme, 'README 目录缺 Sops 页'
         assert '≥25' in readme or '25 组' in readme, 'README E2E 组数未同步'
