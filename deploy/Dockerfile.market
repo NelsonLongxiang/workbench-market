@@ -1,0 +1,8 @@
+# market 主容器镜像（#94 P0·Node 24 显式路径）
+FROM node:24-bookworm
+WORKDIR /app
+COPY . .
+RUN corepack enable && corepack prepare pnpm@latest --activate && pnpm install --frozen-lockfile --prod=false && node scripts/gen-verifier.mjs
+ENV DATA_DIR=/data
+EXPOSE 9800
+CMD ["node", "--disable-warning=ExperimentalWarning", "server/src/index.ts"]
