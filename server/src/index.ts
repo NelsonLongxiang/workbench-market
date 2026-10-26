@@ -1927,6 +1927,14 @@ async function callTool(name: string, args: any): Promise<unknown> {
     }
     case 'sop_run_finish':
       return sopRunFinishCore(Number(args?.run_id));
+    // #94 P0 阻断①（总工 direct-d822d457）：沙箱真调用——工具声明此后必须有分发分支（真 tools/call 闸）
+    case 'sop_run_sandbox':
+      return svc<SandboxService>('sandbox').dispatch({
+        runId: Number(args?.run_id),
+        script: String(args?.script ?? ''),
+        imageTag: typeof args?.image_tag === 'string' ? args.image_tag : undefined,
+        timeoutMs: typeof args?.timeout_ms === 'number' ? args.timeout_ms : undefined,
+      });
     // 工作台注册 CRUD（agent 登记外部台——与 REST 同链；凭据字段不接受：传入即拒）
     case 'workbench_register': {
       if (args?.auth !== undefined) throw new HttpError(400, '凭据不接受 MCP 写入——请人工经市场页配置');
