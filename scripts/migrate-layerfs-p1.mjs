@@ -15,7 +15,8 @@ console.log(`迁移对象：${apps.length} 台${SLUG ? '（指定 ' + SLUG + '�
 let migrated = 0, anomalies = 0, skips = 0, errors = 0;
 for (const slug of apps) {
   if (DRY) { console.log(`[dry] ${slug}`); continue; }
-  const r = await fetch(API + '/api/apps/' + encodeURIComponent(slug) + '/migrate-layerfs', { method: 'POST', headers: H });
+    const isSkill = slug.includes(':'); // S2：技能 slug 形 ns:name——走技能迁移面
+  const r = await fetch(API + (isSkill ? '/api/skills/' : '/api/apps/') + encodeURIComponent(slug) + '/migrate-layerfs', { method: 'POST', headers: H });
   if (!r.ok) { console.log(`${slug}: HTTP ${r.status}`); errors++; continue; }
   const j = await r.json();
   for (const v of j.results ?? []) {
