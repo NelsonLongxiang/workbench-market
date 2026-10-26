@@ -1670,8 +1670,8 @@ app.get('/sso/callback', (req, res) => {
   const redirect = String(req.query.redirect ?? '');
   const state = String(req.query.state ?? '');
   if (!redirect || !state) return res.status(400).json({ error: 'redirect 和 state 必填（Odoo 登录回跳统一入口）' });
-  // open-redirect 护栏：只许内域路径（/ 开头且非 //）
-  if (!redirect.startsWith('/') || redirect.startsWith('//')) {
+  // open-redirect 护栏：只许内域路径（/ 开头且非 //）；再按浏览器 URL 解析复核——WHATWG 把 \ 当 /，/\evil.com 会被解析成外域（#92）
+  if (!redirect.startsWith('/') || redirect.startsWith('//') || new URL(redirect, 'http://sso.internal/').host !== 'sso.internal') {
     return res.status(400).json({ error: 'redirect 只许本站路径（/go/... 形态·外域拒）' });
   }
   return res.redirect(302, redirect);
