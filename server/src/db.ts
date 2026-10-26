@@ -101,6 +101,16 @@ CREATE TABLE IF NOT EXISTS sop_bindings (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_sop_bindings_slug ON sop_bindings (sop_slug, revoked_at);
+CREATE TABLE IF NOT EXISTS app_bindings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  app_slug TEXT NOT NULL,
+  node TEXT NOT NULL,
+  base_url TEXT NOT NULL DEFAULT '',
+  revoked_at TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_app_bindings_slug ON app_bindings (app_slug, revoked_at);
 CREATE TABLE IF NOT EXISTS a2a_run_ctx (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   context_id TEXT NOT NULL,

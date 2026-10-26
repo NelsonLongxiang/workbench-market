@@ -626,7 +626,19 @@ app.post('/api/apps/:slug/data', (req, res) => {
   const created_by = typeof b.created_by === 'string' ? b.created_by.trim().slice(0, 128) : '';
   const r = svc<AppDataService>('appData').dataInsertStmt()
     .run(a.slug, json, created_by) as unknown as { lastInsertRowid: number | bigint };
-  res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), slug: a.slug, created_at: new Date().toISOString() });
+  const itemId = Number(r.lastInsertRowid);
+  const createdAt = new Date().toISOString();
+  res.status(201).json({ ok: true, id: itemId, slug: a.slug, created_at: createdAt });
+  // 属主裁 C（2026-10-26）：提交即推送——绑定 agent 异步收通知（尽力而为不阻塞 201；
+  // 失败仅日志，下次提交再推——数据真源始终在 app_data，拉模式兜底）。
+  const targets = db.prepare("SELECT node, base_url FROM app_bindings WHERE app_slug = ? AND revoked_at = ''").all(a.slug) as { node: string; base_url: string }[];
+  for (const t of targets) {
+    if (t.base_url === '') continue;
+    a2aSendOutbound(a2aKeyPath(), { baseUrl: t.base_url, team: t.node }, JSON.stringify({
+      type: 'app-data-submitted', slug: a.slug, id: itemId, data, created_at: createdAt,
+      hint: '经 MCP app_data_list（slug + before_id 增量）读取；本通知尽力而为，真源在 app_data',
+    })).catch(err => console.error(`[app-notify] push failed ${a.slug}→${t.node}: ${String(err).slice(0, 120)}`));
+  }
 });
 
 app.get('/api/apps/:slug/data', (req, res) => {
@@ -1613,6 +1625,39 @@ app.delete('/api/sops/:slug/bindings/:id', (req, res) => {
   if (!hit) throw new HttpError(404, `binding not found: ${id}`);
   // 软撤销（留审计）：卡片即下线该 SOP（若无其他有效绑定）
   svc<SopService>('sop').bindingRevoke(id);
+});
+
+// ---------- 自产台推送绑定（属主裁 C · 2026-10-26）：提交触发 A2A 推送 ----------
+// 页面承诺「agent 将出件」此前无机制承载（数据面哑存储纯拉模式）——本面补上：
+// 绑定（app×对端节点×对端基址）由管理口令创建，数据提交 201 后异步推送通知。
+app.get('/api/apps/:slug/bindings', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const a = getApp(req.params.slug);
+  if (a.kind !== 'app') throw new HttpError(400, `${a.slug} 不是自产台`);
+  const rows = db.prepare("SELECT id, app_slug, node, base_url, revoked_at, created_by, created_at FROM app_bindings WHERE app_slug = ? ORDER BY id").all(a.slug);
+  res.json(rows);
+});
+
+app.post('/api/apps/:slug/bindings', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const a = getApp(req.params.slug);
+  if (a.kind !== 'app') throw new HttpError(400, `${a.slug} 不是自产台`);
+  const b = req.body ?? {};
+  const node = typeof b.node === 'string' ? b.node.trim() : '';
+  if (!/^[a-z][a-z0-9-]*\/[a-z0-9][a-z0-9_-]{0,63}$/i.test(node)) bad('node 形态：<zone>/<id8>，如 dsh/1a2b3c4d');
+  const baseUrl = typeof b.base_url === 'string' ? b.base_url.trim().replace(/\/+$/, '') : '';
+  if (!/^https?:\/\/[^\s]+$/.test(baseUrl)) bad('base_url 必须是 http(s):// 根地址（对端 A2A 基址）');
+  const r = db.prepare('INSERT INTO app_bindings (app_slug, node, base_url, created_by) VALUES (?, ?, ?, ?)').run(a.slug, node, baseUrl, 'admin') as unknown as { lastInsertRowid: number | bigint };
+  res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), node, base_url: baseUrl });
+});
+
+app.delete('/api/apps/:slug/bindings/:id', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const a = getApp(req.params.slug);
+  const id = Number(req.params.id);
+  const hit = db.prepare('SELECT id FROM app_bindings WHERE id = ? AND app_slug = ?').get(id, a.slug) as { id: number } | undefined;
+  if (!hit) throw new HttpError(404, `binding not found: ${id}`);
+  db.prepare("UPDATE app_bindings SET revoked_at = datetime('now') WHERE id = ?").run(id);
   res.json({ ok: true, revoked: id });
 });
 
