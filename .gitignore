@@ -7,6 +7,8 @@ tmp/
 AGENTS.md 
 %SystemDrive%
 # 隐私治理（监督席处置单·属主令 evidence/verify 不上传）
-evidence/
+evidence/*
+# 例外：E2E 跑器是源件非生成物（同 verify/ 判据输入例外语义）
+!evidence/e2e_test.py
 verify/
 tmp/
