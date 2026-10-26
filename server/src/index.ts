@@ -642,6 +642,37 @@ function activateAppVersion(slug: string, vRaw: unknown): object {
 }
 
 // ---------- #94 v3 S1 统一人审门：请求-批准两段（agent 提请求·人批准执行）----------
+/** #94 v3 S1：技能回滚执行体（以旧版内容产新版·与批准执行体同源） */
+async function executeSkillRollback(slug: string, targetVersion: number, reviewedBy: string): Promise<Record<string, unknown>> {
+  const S = svc<SkillService>('skill');
+  const row = S.skillBySlug(slug);
+  if (!row) throw new HttpError(404, `skill not found: ${slug}`);
+  const vs = S.versionsBySkill(row.id) as any[];
+  const src = vs.find((v) => v.version === targetVersion);
+  if (!src) throw new HttpError(404, `version not found: ${targetVersion}`);
+  const nextVer = (S.versionsMax(row.id)?.v ?? 0) + 1;
+  const { readdirSync, readFileSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const { join: j } = await import('node:path');
+  const files: { path: string; content: string }[] = [];
+  (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = j(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp, 'utf8') }); } })(src.snapshot_path);
+  const dg = SkillService.filesDigest(files);
+  const snapDir = j(dataDir, 'skill-snapshots', encodeURIComponent(slug), `v${nextVer}`);
+  mkdirSync(snapDir, { recursive: true });
+  for (const f of files) { const abs = j(snapDir, f.path); mkdirSync(j(abs, '..'), { recursive: true }); writeFileSync(abs, f.content, 'utf8'); }
+  S.versionInsert({ skillId: row.id, version: nextVer, changelog: `[rollback] 回滚自 v${targetVersion}`, treeDigest: dg.digest, fileCount: dg.fileCount, totalBytes: dg.totalBytes, snapshotPath: snapDir, reviewedBy });
+  return { ok: true, slug, new_version: nextVer, rolled_back_from: targetVersion, reviewed_by: reviewedBy };
+}
+/** #94 v3 S1：技能删除执行体（版本快照+台账+技能行级联） */
+function executeSkillDelete(slug: string): void {
+  const S = svc<SkillService>('skill');
+  const row = S.skillBySlug(slug);
+  if (!row) throw new HttpError(404, `skill not found: ${slug}`);
+  const { rmSync } = require('node:fs') as typeof import('node:fs');
+  for (const v of S.versionsBySkill(row.id) as any[]) { try { rmSync(v.snapshot_path, { recursive: true, force: true }); } catch { /* 已不在 */ } }
+  db.prepare('DELETE FROM install_ledger WHERE skill_id = ?').run(row.id);
+  db.prepare('DELETE FROM skill_versions WHERE skill_id = ?').run(row.id);
+  db.prepare('DELETE FROM skills WHERE id = ?').run(row.id);
+}
 app.get('/api/change-requests', (req, res) => {
   if (!adminGuard(req, res)) return;
   const status = typeof req.query.status === 'string' ? req.query.status : '';
@@ -650,7 +681,7 @@ app.get('/api/change-requests', (req, res) => {
     : db.prepare('SELECT * FROM change_requests ORDER BY id DESC LIMIT 100').all();
   res.json(rows.map((r: any) => ({ ...r, payload: JSON.parse(r.payload || '{}') })));
 });
-app.post('/api/change-requests/:id/approve', (req, res) => {
+app.post('/api/change-requests/:id/approve', wrap(async (req, res) => {
   if (!adminGuard(req, res)) return; // K11：口令无效→401（adminGuard 已回）
   const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
   if (!reviewedBy) bad('批准必填 reviewed_by（K11——人审语义）'); // K11
@@ -658,17 +689,20 @@ app.post('/api/change-requests/:id/approve', (req, res) => {
   const r = db.prepare('SELECT * FROM change_requests WHERE id = ?').get(id) as any;
   if (!r) throw new HttpError(404, `change_request not found: ${id}`);
   if (r.status !== 'pending') bad(`请求已处理（status=${r.status}）——不可重复批准`); // 幂等
-  // 执行体（与一步式 REST 同一函数——单一事实源）
-  if (r.kind === 'app_rollback') {
-    const payload = JSON.parse(r.payload || '{}');
-    activateAppVersion(r.target_slug, payload.version);
-  } else if (r.kind === 'app_delete') {
-    deleteAppCascade(r.target_slug);
-  } else { bad(`未知 kind: ${r.kind}`); }
+  // 执行体（v3 契约形状：kind×op 四象限·与一步式 REST 同构）
+  if (r.kind === 'app' && r.op === 'rollback') {
+    activateAppVersion(r.slug, r.target_version);
+  } else if (r.kind === 'app' && r.op === 'delete') {
+    deleteAppCascade(r.slug);
+  } else if (r.kind === 'skill' && r.op === 'rollback') {
+    await executeSkillRollback(r.slug, Number(r.target_version), reviewedBy);
+  } else if (r.kind === 'skill' && r.op === 'delete') {
+    executeSkillDelete(r.slug);
+  } else { bad(`未知 kind×op: ${r.kind}/${r.op}`); }
   db.prepare("UPDATE change_requests SET status='approved', reviewed_by=?, reviewed_at=datetime('now') WHERE id=?").run(reviewedBy, id);
-  res.json({ ok: true, id, status: 'approved', executed: r.kind, reviewed_by: reviewedBy });
-});
-app.post('/api/change-requests/:id/reject', (req, res) => {
+  res.json({ ok: true, id, status: 'approved', executed: `${r.kind}/${r.op}`, reviewed_by: reviewedBy });
+}));
+app.post('/api/change-requests/:id/reject', wrap(async (req, res) => {
   if (!adminGuard(req, res)) return;
   const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
   if (!reviewedBy) bad('拒绝必填 reviewed_by（K11）');
@@ -678,7 +712,7 @@ app.post('/api/change-requests/:id/reject', (req, res) => {
   if (r.status !== 'pending') bad(`请求已处理（status=${r.status}）`);
   db.prepare("UPDATE change_requests SET status='rejected', reviewed_by=?, reviewed_at=datetime('now') WHERE id=?").run(reviewedBy, id);
   res.json({ ok: true, id, status: 'rejected', reviewed_by: reviewedBy });
-});
+}));
 
 app.post('/api/apps/:slug/activate', (req, res) => {
   // #94 v3 S1（L14）：回滚经人审——一步式=口令+reviewed_by（缺 reviewed_by 不执行）
@@ -1367,6 +1401,22 @@ app.post('/api/skills/:slug/versions', wrap(async (req, res) => {
   res.status(201).json({ ok: true, slug, version: nextVer, tree_digest: t.digest, file_count: t.fileCount, total_bytes: t.totalBytes, snapshot_path: `skill-snapshots/${encodeURIComponent(slug)}/v${nextVer}` }); // #94 S0⑤：不暴露 DATA_DIR 绝对路径);
 }));
 
+// #94 v3 S1/K16：技能一步式回滚/删除（口令+reviewed_by·与 app 同语义）
+app.post('/api/skills/:slug/activate', wrap(async (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
+  if (!reviewedBy) bad('技能回滚需 reviewed_by（人审门——一步式直调必填；或经 MCP change_request_create 提请求）');
+  const out = await executeSkillRollback(String(req.params.slug ?? ''), Number(req.body?.version), reviewedBy);
+  res.json(out);
+}));
+app.delete('/api/skills/:slug', wrap(async (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
+  if (!reviewedBy) bad('技能删除需 reviewed_by（人审门）');
+  executeSkillDelete(String(req.params.slug ?? ''));
+  res.json({ ok: true, deleted: req.params.slug, reviewed_by: reviewedBy });
+}));
+
 app.get('/api/skills/:slug/versions', (req, res) => {
   const S = svc<SkillService>('skill');
   const row = S.skillBySlug(String(req.params.slug ?? ''));
@@ -1935,7 +1985,7 @@ async function callTool(name: string, args: any): Promise<unknown> {
       return {
         slug: row.slug, version: target.version, tree_digest: target.tree_digest, snapshot_path: `skill-snapshots/${encodeURIComponent(row.slug)}/v${target.version}`, // K8 相对化
         expected_sha256: target.tree_digest,
-        install_hint: `薄分发（手工落盘）：复制 ${target.snapshot_path} → 目标技能目录；以 expected_sha256 钉装校验`,
+        install_hint: `薄分发（手工落盘）：复制 skill-snapshots/${encodeURIComponent(row.slug)}/v${target.version} → 目标技能目录；以 expected_sha256 钉装校验`,
       };
     }
     case 'workbench_list': {
@@ -1975,23 +2025,24 @@ async function callTool(name: string, args: any): Promise<unknown> {
     case 'app_publish':
       return publishAppBody({ ...args, created_by: args?.created_by || 'mcp' }).body;
     // #94 v3 S1（K12）：app_activate 直回滚工具**移除**（破坏性操作 MCP 不可直执）——改经 change_request_create 提请求
+    // #94 v3 S1（契约形状·#94 评论 6424247402）：{kind: 'app'|'skill', slug, op: 'rollback'|'delete', target_version?, reason}
     case 'change_request_create': {
-      // K10：MCP 只能提请求——批准前不执行任何状态变更
       const kind = String(args?.kind ?? '');
-      if (!['app_rollback', 'app_delete'].includes(kind)) throw new HttpError(400, `kind 须 app_rollback|app_delete（得: ${kind}）`);
-      const targetType = String(args?.target_type ?? 'app');
-      const targetSlug = String(args?.target_slug ?? '').trim();
-      if (!targetSlug) bad('target_slug 必填');
-      if (kind === 'app_rollback' && typeof args?.payload?.version !== 'number') bad('app_rollback 需 payload.version（数字）');
-      const a = getApp(targetSlug); // 目标须存在（提请求时校验·批准时再验）
-      void a;
-      const info = db.prepare("INSERT INTO change_requests (kind, target_type, target_slug, payload, reason, source, requested_by) VALUES (?, ?, ?, ?, ?, 'mcp', ?)")
-        .run(kind, targetType, targetSlug, JSON.stringify(args?.payload ?? {}), String(args?.reason ?? '').slice(0, 500), String(args?.requested_by ?? 'mcp-agent'));
-      return { id: Number(info.lastInsertRowid), kind, target_slug: targetSlug, status: 'pending', note: '请求已建——批准前状态不变（人经 /api/change-requests/:id/approve 口令+reviewed_by 批准执行）' };
+      if (!['app', 'skill'].includes(kind)) throw new HttpError(400, `kind 须 app|skill（得: ${kind}）`);
+      const op = String(args?.op ?? '');
+      if (!['rollback', 'delete'].includes(op)) throw new HttpError(400, `op 须 rollback|delete（得: ${op}）`);
+      const slug = String(args?.slug ?? '').trim();
+      if (!slug) bad('slug 必填');
+      if (op === 'rollback' && typeof args?.target_version !== 'number') bad('rollback 需 target_version（数字）');
+      if (kind === 'app') getApp(slug);
+      else if (!svc<SkillService>('skill').skillBySlug(slug)) throw new HttpError(404, `skill not found: ${slug}`);
+      const info = db.prepare("INSERT INTO change_requests (kind, slug, op, target_version, reason, source, requested_by) VALUES (?, ?, ?, ?, ?, 'mcp', ?)")
+        .run(kind, slug, op, op === 'rollback' ? Number(args?.target_version) : null, String(args?.reason ?? '').slice(0, 500), String(args?.requested_by ?? 'mcp-agent'));
+      return { id: Number(info.lastInsertRowid), kind, slug, op, target_version: args?.target_version ?? null, status: 'pending', note: '请求已建——批准前状态不变（人经 /api/change-requests/:id/approve 口令+reviewed_by 批准执行）' };
     }
     case 'change_requests': {
       const status = typeof args?.status === 'string' ? args.status : 'pending';
-      return db.prepare('SELECT id, kind, target_slug, payload, reason, status, requested_by, created_at FROM change_requests WHERE status = ? ORDER BY id DESC LIMIT 50').all(status);
+      return db.prepare('SELECT id, kind, slug, op, target_version, reason, status, requested_by, created_at FROM change_requests WHERE status = ? ORDER BY id DESC LIMIT 50').all(status);
     }
     case 'sop_publish': {
       const a = sopTransition(String(args?.slug), ['draft', 'deprecated'], 'published', '发布');
