@@ -662,7 +662,7 @@ app.post('/api/apps/:slug/data', (req, res) => {
     a2aSendOutbound(a2aKeyPath(), { baseUrl: t.notify_url, team: t.agent_node }, JSON.stringify({
       type: 'app-data-submitted', slug: a.slug, id: itemId, data, created_at: createdAt,
       hint: '经 MCP app_data_list（slug + before_id 增量）读取；本通知尽力而为，真源在 app_data',
-    })).catch(err => console.error(`[app-notify] push failed ${a.slug}→${t.node}: ${String(err).slice(0, 120)}`));
+    }), undefined, `market/${sopNode8(a.slug)}`).catch(err => console.error(`[app-notify] push failed ${a.slug}→${t.node}: ${String(err).slice(0, 120)}`));
   }
 });
 
