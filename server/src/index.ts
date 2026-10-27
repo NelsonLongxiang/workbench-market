@@ -471,6 +471,12 @@ function validateAppFiles(raw: unknown, kind: 'app' | 'sop' = 'app'): { path: st
 }
 
 /** #94 S4 根修：快照路径统一解析——dataDir 相对形（'skill-snapshots/…'）为准；legacy 'server/data/…' 剥前缀；绝对路径直用（隔离实例自此真隔离——绝不因相对形落产库） */
+/** #183（P0·单一事实源）：技能快照磁盘相对路径——写与读同用此函数。
+ *  唯一形=encodeURIComponent(全 slug)（agents:brand 与 jf:brand 互不覆盖）；导出包内顶层仍用 name。 */
+function skillSnapRel(slug: string, version: number): string {
+  return 'skill-snapshots/' + encodeURIComponent(String(slug)) + '/v' + version;
+}
+
 function resolveSnap(p: string): string {
   // #601 P0：绝对路径若落在 dataDir/skill-snapshots 内＝合法（历史导入器存过绝对）→ 归一相对；域外仍封禁（K14）
   const _snapRoot = join(dataDir, "skill-snapshots");
@@ -832,10 +838,10 @@ async function executeSkillRollback(slug: string, targetVersion: number, reviewe
   const files: { path: string; content: string }[] = [];
   (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = j(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp, 'utf8') }); } })(resolveSnap(src.snapshot_path));
   const dg = SkillService.filesDigest(files);
-  const snapDir = j(dataDir, 'skill-snapshots', encodeURIComponent(slug), `v${nextVer}`);
+  const snapDir = j(dataDir, skillSnapRel(slug, nextVer));
   mkdirSync(snapDir, { recursive: true });
   for (const f of files) { const abs = j(snapDir, f.path); mkdirSync(j(abs, '..'), { recursive: true }); writeFileSync(abs, f.content, 'utf8'); }
-  S.versionInsert({ skillId: row.id, version: nextVer, changelog: `[rollback] 回滚自 v${targetVersion}`, treeDigest: dg.digest, fileCount: dg.fileCount, totalBytes: dg.totalBytes, snapshotPath: `skill-snapshots/${encodeURIComponent(slug)}/v${nextVer}`, reviewedBy }); // S4：存 dataDir 相对形
+  S.versionInsert({ skillId: row.id, version: nextVer, changelog: `[rollback] 回滚自 v${targetVersion}`, treeDigest: dg.digest, fileCount: dg.fileCount, totalBytes: dg.totalBytes, snapshotPath: skillSnapRel(slug, nextVer), reviewedBy }); // S4/#183
   return { ok: true, slug, new_version: nextVer, rolled_back_from: targetVersion, reviewed_by: reviewedBy };
 }
 /** #94 v3 S1：技能删除执行体（版本快照+台账+技能行级联） */
@@ -1579,9 +1585,15 @@ app.get('/api/skills/:slug/verify', wrap(async (req, res) => {
   const ledger = (S.ledgerActive() as any[]).find((l) => l.skill_id === row.id);
   if (!ledger) return res.json({ ok: null, note: '无钉装记录（未安装）' });
   const [{ readdirSync, readFileSync }, { join }, { createHash }] = await Promise.all([import('node:fs'), import('node:path'), import('node:crypto')]);
-  const root = resolveSnap(ledger.installed_path); // #117：S4 起快照路径存 DATA_DIR 相对形
+  let root = '';
   const files: string[] = [];
-  (function walk(d: string) { for (const e of readdirSync(d, { withFileTypes: true })) { const p = join(d, e.name); if (e.isDirectory()) walk(p); else files.push(p); } })(root);
+  try {
+    root = resolveSnap(ledger.installed_path); // #117：S4 起快照路径存 DATA_DIR 相对形
+    (function walk(d: string) { for (const e of readdirSync(d, { withFileTypes: true })) { const p = join(d, e.name); if (e.isDirectory()) walk(p); else files.push(p); } })(root);
+  } catch {
+    // #183 P0②：校验失败不回显服务器绝对路径（DATA_DIR 泄露面）
+    throw new HttpError(500, '钉装快照不可读（路径已隐藏·请重新安装后再校验）');
+  }
   // #94 S0①：与发布面同构 digest（同一 filesDigest——排序/分隔符/utf8 归一消灭「多文件误判篡改」类）
   const actual = SkillService.filesDigest(files.map((p) => ({ path: p.slice(root.length + 1).split('\\').join('/'), content: readFileSync(p) }))).digest; // #105：按原始字节（与导入器 treeDigest 同构，非 UTF-8 文件不误判）
   res.json({ ok: actual === ledger.expected_digest, expected: ledger.expected_digest, actual, checked_files: files.length });
@@ -1684,7 +1696,7 @@ app.post('/api/skills/:slug/versions', wrap(async (req, res) => {
   }
   // 快照落盘
   const { mkdirSync, writeFileSync } = await import('node:fs');
-  const snapDir = join(dataDir, 'skill-snapshots', encodeURIComponent(String(slug).split(':').pop() ?? slug), `v${nextVer}`); // #178/#601：目录名用 name 段（与导入器一致）
+  const snapDir = join(dataDir, skillSnapRel(slug, nextVer)); // #183：磁盘与 DB 同一函数（slug 唯一形）
   mkdirSync(snapDir, { recursive: true });
   const { dirname } = await import('node:path');
   for (const f of files) {
