@@ -472,9 +472,16 @@ function validateAppFiles(raw: unknown, kind: 'app' | 'sop' = 'app'): { path: st
 
 /** #94 S4 根修：快照路径统一解析——dataDir 相对形（'skill-snapshots/…'）为准；legacy 'server/data/…' 剥前缀；绝对路径直用（隔离实例自此真隔离——绝不因相对形落产库） */
 function resolveSnap(p: string): string {
-  // K14（越权读修）：绝对/越界形**不放行**——封禁到 dataDir 内不存在路径（中性化·读点 existsSync=false）
-  if (/^[A-Za-z]:[\/]/.test(p) || p.startsWith('/') || p.includes('..')) return join(dataDir, 'skill-snapshots', '_blocked_');
-  const rel = p.replace(/^server[\\/]data[\\/]/, '');
+  // #601 P0：绝对路径若落在 dataDir/skill-snapshots 内＝合法（历史导入器存过绝对）→ 归一相对；域外仍封禁（K14）
+  const _snapRoot = join(dataDir, "skill-snapshots");
+  if (/^[A-Za-z]:[\\/]/.test(p) || p.startsWith("/")) {
+    const abs = p.replace(/[\\/]+/g, "/");
+    const root = _snapRoot.replace(/[\\/]+/g, "/");
+    if (abs.startsWith(root + "/")) return join(_snapRoot, abs.slice(root.length + 1));
+    return join(dataDir, "skill-snapshots", "_blocked_");
+  }
+  if (p.includes("..")) return join(dataDir, "skill-snapshots", "_blocked_");
+  const rel = p.replace(/^server[\\/]data[\\/]/, "");
   return join(dataDir, rel);
 }
 
@@ -1790,7 +1797,7 @@ app.get('/api/skills/:slug/export', (req, res) => {
   if (!dir || !existsSync(dir)) throw new HttpError(404, `snapshot missing: v${v}`);
   const files: { path: string; content: string }[] = [];
   (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp, 'utf8') }); } })(dir);
-  const tar = ustarTar(files, { prefix: row.slug + '/' });
+  const tar = ustarTar(files, { prefix: String(row.slug).split(':').pop() + '/' }); // #601
   res.setHeader('Content-Type', 'application/x-tar');
   res.setHeader('Content-Disposition', 'attachment; filename="' + row.slug.replace(/[^a-z0-9._-]/gi, '_') + '-v' + v + '.tar"');
   res.setHeader('X-Expected-Digest', target.tree_digest);

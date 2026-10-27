@@ -358,6 +358,21 @@ const bindCols = db.prepare('PRAGMA table_info(sop_bindings)').all() as { name: 
   }
 }
 
+// #601（P0·属主实测装不下）：skill_versions 绝对快照路径归一到相对形
+try {
+  const _sv = db.prepare("SELECT id, snapshot_path FROM skill_versions").all() as any[];
+  let _n = 0;
+  for (const _r of _sv) {
+    const _p = String(_r.snapshot_path ?? "").replace(/\\/g, "/");
+    const _i = _p.indexOf("/skill-snapshots/");
+    if (/^[A-Za-z]:\//.test(_p) && _i >= 0) {
+      db.prepare("UPDATE skill_versions SET snapshot_path = ? WHERE id = ?").run("skill-snapshots/" + _p.slice(_i + 17), _r.id);
+      _n++;
+    }
+  }
+  if (_n) console.log("[migrate] skill_versions 快照路径归一", _n, "行");
+} catch { /* 表未建 */ }
+
 // 轻量列迁移：已存库补列（凭据注入 / SOP 台生成器 / A2A 节点短 id / cookie 池挂接）
 // #132 P0：app_files.note+deleted_at·app_data.deleted_at（幂等 ALTER·软删原行留审计）
 try { const afCols = db.prepare('PRAGMA table_info(app_files)').all() as any[]; if (!afCols.some((c) => c.name === 'note')) db.exec("ALTER TABLE app_files ADD COLUMN note TEXT NOT NULL DEFAULT ''"); if (!afCols.some((c) => c.name === 'deleted_at')) db.exec("ALTER TABLE app_files ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
