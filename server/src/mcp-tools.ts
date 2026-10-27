@@ -163,7 +163,6 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
       additionalProperties: false,
     },
   },
-,
   {
     name: 'workbench_register',
     description: '登记外部工作台入册（agent 发现内网新服务时自主登记；门户/市场即刻可用）。凭据不接受——需人工经市场页配置（安全边界）。',
