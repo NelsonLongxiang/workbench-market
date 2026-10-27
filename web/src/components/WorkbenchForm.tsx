@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { App, Button, Space, Typography } from 'antd';
 import { ModalForm, ProFormDigit, ProFormSelect, ProFormSwitch, ProFormText, ProFormTextArea } from '@ant-design/pro-components';
 import { api } from '../api';
+import { apiFetch } from '../admin-token';
 import type { Workbench, WorkbenchType } from '../types';
 
 interface CookieSetInfo {
@@ -45,17 +46,19 @@ export default function WorkbenchForm({
       const arr = JSON.parse(cookieJson);
       if (!Array.isArray(arr)) throw new Error('不是 JSON 数组');
       const label = `导入 ${new Date().toLocaleTimeString()}`;
-      const r = await fetch('/api/cookies', {
+      const r = await apiFetch('/api/cookies', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ label, cookies: arr }),
-      });
+      }); // 属主报障：原裸 fetch 未带 X-Admin-Token→403
       const b = await r.json();
       if (!r.ok) throw new Error(b.error || `HTTP ${r.status}`);
       message.success(`已导入 ${b.cookie_count} 条 cookie（${b.active} 条有效）`);
       setCookieJson('');
       loadCookieSets();
     } catch (e) {
-      message.error(`导入失败：请粘贴 Cookie-Editor 导出的 JSON 数组——${(e as Error).message}`);
+      const err = e as Error & { needAdminToken?: boolean };
+      if (err.needAdminToken) message.error('导入失败：需要管理员口令——请点页面顶栏的钥匙图标输入 ADMIN_TOKEN 后重试');
+      else message.error(`导入失败：请粘贴 Cookie-Editor 导出的 JSON 数组——${err.message}`);
     }
   };
 
