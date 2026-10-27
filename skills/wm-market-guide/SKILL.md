@@ -1,6 +1,6 @@
 ---
 name: wm-market-guide
-description: 工作台市场（workbench-market）使用指南——agent 经 MCP 面板操作市场（25 工具）与可视化界面（驾驶舱/门户/交付空间/技能市场）的完整实践：工具选型、UI/UX token 规范、可视化组件模式、常见坑。当需要通过 MCP 操作工作台、发布自产台、跑 SOP、管技能、搭驾驶舱或排查门户 iframe/代理问题时加载。
+description: 工作台市场（workbench-market）使用指南——agent 经 MCP 面板操作市场（27 工具）与可视化界面（驾驶舱/门户/交付空间/技能市场）的完整实践：工具选型、UI/UX token 规范、可视化组件模式、常见坑。当需要通过 MCP 操作工作台、发布自产台、跑 SOP、管技能、搭驾驶舱或排查门户 iframe/代理问题时加载。
 ---
 
 # 工作台市场使用指南（MCP 面板 × 可视化）
@@ -11,7 +11,7 @@ description: 工作台市场（workbench-market）使用指南——agent 经 MC
 
 | 面 | 入口 | 适用 |
 |---|---|---|
-| MCP 面板（推荐给 agent）| /mcp（StreamableHTTP·Bearer 可选）| 全部 25 工具·幂等·结构化回执 |
+| MCP 面板（推荐给 agent）| /mcp（StreamableHTTP·Bearer 可选）| 全部 27 工具·幂等·结构化回执 |
 | REST | /api/* | 浏览器/脚本直调·部分需要 admin 口令 |
 
 鉴权边界（踩坑过）：远程（非回环）写面走 adminGuard（X-Admin-Token）；loopback 免。本地开发用 127.0.0.1 即免口令；远程调用需带令牌。MCP 工具没有能直接删除/回滚的——那两类走 change_requests 人审门（见 §四）。
