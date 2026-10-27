@@ -1450,7 +1450,7 @@ app.get('/api/skills/:slug/verify', wrap(async (req, res) => {
   const ledger = (S.ledgerActive() as any[]).find((l) => l.skill_id === row.id);
   if (!ledger) return res.json({ ok: null, note: '无钉装记录（未安装）' });
   const [{ readdirSync, readFileSync }, { join }, { createHash }] = await Promise.all([import('node:fs'), import('node:path'), import('node:crypto')]);
-  const root = ledger.installed_path;
+  const root = resolveSnap(ledger.installed_path); // #117：S4 起快照路径存 DATA_DIR 相对形
   const files: string[] = [];
   (function walk(d: string) { for (const e of readdirSync(d, { withFileTypes: true })) { const p = join(d, e.name); if (e.isDirectory()) walk(p); else files.push(p); } })(root);
   // #94 S0①：与发布面同构 digest（同一 filesDigest——排序/分隔符/utf8 归一消灭「多文件误判篡改」类）
