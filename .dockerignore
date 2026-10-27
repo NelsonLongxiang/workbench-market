@@ -1,0 +1,12 @@
+# #147 P0-1：构建 context 收窄（node_modules/.git/tmp 等不入 context）
+node_modules
+**/node_modules
+web/dist
+tmp
+evidence
+verify
+.git
+.gitignore
+*.log
+worktree-ledger.jsonl
+server/data

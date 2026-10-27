@@ -1,8 +1,28 @@
-# market 主容器镜像（#94 P0·Node 24 显式路径）
+# market 主容器镜像（#147 P0/P1 批·Node 24）
+FROM node:24-bookworm AS build
+WORKDIR /app
+# P0-2：构建期 registry 可换（离线/内网镜像站）
+ARG NPM_REGISTRY=https://registry.npmjs.org/
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY web/package.json web/
+COPY server/package.json server/
+RUN corepack enable && corepack prepare pnpm@11.28.5 --activate \
+ && pnpm config set registry "$NPM_REGISTRY" \
+ && pnpm install --frozen-lockfile --prod=false
+COPY . .
+# P0-1：前端构建产物入镜像（web/dist 不入库·必须 build）
+RUN pnpm --filter web build && node scripts/gen-verifier.mjs
+
 FROM node:24-bookworm
 WORKDIR /app
-COPY . .
-RUN corepack enable && corepack prepare pnpm@latest --activate && pnpm install --frozen-lockfile --prod=false && node scripts/gen-verifier.mjs
+COPY --from=build /app /app
+# P1-5：非 root 运行（数据目录属主 node）
+RUN mkdir -p /data && chown -R node:node /app /data
 ENV DATA_DIR=/data
+ENV NODE_ENV=production
 EXPOSE 9800
+# P1-4：容器探活走 /api/health（非 SPA fallback）
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:9800/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+USER node
 CMD ["node", "--disable-warning=ExperimentalWarning", "server/src/index.ts"]

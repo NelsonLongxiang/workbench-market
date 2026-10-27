@@ -172,3 +172,53 @@ UI：`/tasks` 页（源/状态过滤）· 总览待办聚合卡 · 驾驶舱「�
 - 推荐：脚本/api 调用用**相对路径**（`api/x` 而非 `/api/x`）或显式拼 `location.pathname` 基；
 - 或注入 `<base href="/go/<id>/">`（市场门户不做注入·台自持）；
 - **禁止**在 bundle 里硬编码根绝对路径（`/assets/...`）——门户代理只改写 HTML 属性与 Vite assetsURL helper，任意自拼的根绝对路径会逃逸前缀（白屏三层修的直接教训，见 PR#128-#130）。
+
+## Docker 部署（#147）
+
+### 快速起
+
+```bash
+docker compose -f deploy/docker-compose.yml up -d --build
+# 打开 http://127.0.0.1:9800（基文件默认仅回环绑定——安全默认）
+```
+
+构建要求：Node 镜像内需要有网（npm registry）。内网/离线请换镜像站：
+```bash
+docker build -f deploy/Dockerfile.market --build-arg NPM_REGISTRY=https://registry.npmmirror.com/ -t market .
+```
+
+### 网络模式（重要）
+
+| 模式 | 容器内如何探本机服务 | 说明 |
+|---|---|---|
+| **host（推荐）** | `http://127.0.0.1:PORT` 直连 | 基文件已用 `network_mode: host`（Linux）——市场探测本机台零配置 |
+| bridge | `http://host.docker.internal:PORT` | 需 `extra_hosts: ["host.docker.internal:host-gateway"]`；WSL 下 ufw FORWARD 可能仍阻（建议 host） |
+| 注册表单 | Windows 可达性 | 容器内 127.0.0.1 ≠ 宿主；注册本机台用宿主内网 IP 或 host 模式 |
+
+### 对外暴露端口（覆盖层 `!override`）
+
+基文件端口是 `127.0.0.1:9800:9800`（仅本机）。要对外：
+```yaml
+# docker-compose.override.yml
+services:
+  market:
+    ports: !override
+      - "0.0.0.0:9800:9800"
+```
+> 直接写 `ports:` 会与基文件**合并**（追加两条→address already in use），必须 `!override`。
+
+### 探活与数据
+
+- **探活端点 `/api/health`**（镜像已带 HEALTHCHECK；`/health` 不再被 SPA 兜底成 HTML）
+- 数据卷：`market-data` → `/data`（SQLite WAL·停容器前 SIGTERM 自动 checkpoint）
+- 备份：`docker compose exec market node -e "require('node:sqlite').DatabaseSync" 2>/dev/null || true`——推荐宿主侧 `sqlite3 /var/lib/docker/volumes/.../_data/workbench-market.db ".backup /tmp/bak.db"` 或经 API `GET /api/export`
+- 升级：`git pull && docker compose up -d --build`（数据卷不受影响）
+- 恢复：停容器→替换卷内 db 文件→起（WAL 残留自动回放）
+
+### layerfs 服务（可选·profiles）
+
+```bash
+LAYERFS_SERVICE_TOKEN=<强随机> docker compose --profile layerfs up -d --build
+```
+- 不设 token 或设 `change-me` → **拒启**（fail-fast）
+- 该服务挂 `/var/run/docker.sock` = 等同宿主 root 权限——仅可信环境启用
