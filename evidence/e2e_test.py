@@ -293,6 +293,52 @@ with sync_playwright() as p:
     except Exception as e:
         record('统一门户', False, str(e)); shot('go-portal')
 
+    # ---------- 9c. /go/ 代理四探针（G10·总工/监督席 direct-9aa84e01） ----------
+    try:
+        import http.server, socketserver, threading, gzip as _gzip
+        _probe_html = '<html><body><img src="/assets/p.png"><h1>g10</h1></body></html>'
+        _probe_gz = _gzip.compress(_probe_html.encode())
+        class _G10(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a): pass
+            def do_GET(self):
+                if self.path == '/assets/p.png':
+                    self.send_response(200); self.send_header('Content-Type', 'image/png'); self.end_headers(); self.wfile.write(b'PNG'); return
+                if self.path == '/api/probe':
+                    self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers(); self.wfile.write(b'{"upstream":true}'); return
+                if self.path == '/gz':
+                    self.send_response(200); self.send_header('Content-Type', 'text/html'); self.send_header('Content-Encoding', 'gzip'); self.send_header('Content-Length', str(len(_probe_gz))); self.end_headers(); self.wfile.write(_probe_gz); return
+                self.send_response(200); self.send_header('Content-Type', 'text/html'); self.end_headers(); self.wfile.write(_probe_html.encode())
+        _srv = socketserver.TCPServer(('127.0.0.1', 0), _G10); _pport = _srv.server_address[1]
+        threading.Thread(target=_srv.serve_forever, daemon=True).start()
+        _wb = page.request.post(f'{BASE}/api/workbenches',
+            headers={'Content-Type': 'application/json'},
+            data={'name': 'g10-probe', 'url': f'http://127.0.0.1:{_pport}/', 'type': 'web'}).json()
+        _gid = _wb['id']
+        r = page.request.get(f'{BASE}/go/{_gid}/')
+        assert r.ok and 'text/html' in r.headers.get('content-type', ''), f'①页面加载: {r.status}'
+        html = r.text()
+        assert f'/go/{_gid}/assets/p.png' in html, f'②资产未加前缀: {html[:80]}'
+        r2 = page.request.get(f'{BASE}/go/{_gid}/assets/p.png')
+        assert r2.ok, f'②资产真取失败: {r2.status}'
+        r3 = page.request.get(f'{BASE}/go/{_gid}/api/probe')
+        _txt = r3.text() if r3.ok else ''
+        assert 'upstream' in _txt, f'③API 未透传: {r3.status} {_txt[:60]}'
+        r4 = page.request.get(f'{BASE}/go/{_gid}/gz')
+        _raw = r4.body()
+        _dec = _raw
+        try:
+            _dec = _gzip.decompress(_raw)
+        except Exception:
+            _dec = _raw
+        assert _probe_html.encode() in _dec, f'④gzip 字节损坏: {len(_raw)}B'
+        page.request.delete(f'{BASE}/api/workbenches/{_gid}')
+        _srv.shutdown()
+        record('/go/ 代理四探针（G10：页面/资产/API 透传/gzip 字节）', True)
+    except Exception as e:
+        try: _srv.shutdown()
+        except Exception: pass
+        record('/go/ 代理四探针（G10）', False, str(e)); shot('go-g10')
+
     # ---------- 10. 类型管理：新增 + 引用保护 + 删除 ----------
     try:
         page.goto(BASE + '/types')
