@@ -472,7 +472,8 @@ function validateAppFiles(raw: unknown, kind: 'app' | 'sop' = 'app'): { path: st
 
 /** #94 S4 根修：快照路径统一解析——dataDir 相对形（'skill-snapshots/…'）为准；legacy 'server/data/…' 剥前缀；绝对路径直用（隔离实例自此真隔离——绝不因相对形落产库） */
 function resolveSnap(p: string): string {
-  if (/^[A-Za-z]:[\\/]/.test(p) || p.startsWith('/') || p.startsWith('\\\\')) return p;
+  // K14（越权读修）：绝对/越界形**不放行**——封禁到 dataDir 内不存在路径（中性化·读点 existsSync=false）
+  if (/^[A-Za-z]:[\/]/.test(p) || p.startsWith('/') || p.includes('..')) return join(dataDir, 'skill-snapshots', '_blocked_');
   const rel = p.replace(/^server[\\/]data[\\/]/, '');
   return join(dataDir, rel);
 }
@@ -488,9 +489,12 @@ function pruneAppDirs(slug: string): void {
     for (const v of vs) { if (keep.size >= 3) break; keep.add(v); }
     const root = join(appsRoot, slug);
     if (!existsSync(root)) return;
+    // L15（加急）：只删**已落 Commit** 的版本目录——无 commit_id 一律保留（默认部署无服务=永不 prune·数据丢失灭类）
+    const commitMap = new Map<number, string>();
+    for (const v of svc<AppService>('app').versions(a.id) as any[]) commitMap.set(v.version, String(v.commit_id ?? ''));
     for (const d of readdirSync(root)) {
       const m = /^v(\d+)$/.exec(d);
-      if (m && !keep.has(Number(m[1]))) { try { rmSync(join(root, d), { recursive: true, force: true }); } catch { /* 下轮再试 */ } }
+      if (m && !keep.has(Number(m[1])) && commitMap.get(Number(m[1])) !== '') { try { rmSync(join(root, d), { recursive: true, force: true }); } catch { /* 下轮再试 */ } }
     }
   } catch { /* prune 失败不阻发布 */ }
 }
@@ -718,25 +722,27 @@ async function activateAppVersion(slug: string, vRaw: unknown): Promise<object> 
   if (!Number.isInteger(v) || v < 1) bad('version 必须是正整数');
   const hit = svc<AppService>('app').versionExists(a.id, v) as { version: number } | undefined;
   if (!hit) throw new HttpError(404, `版本不存在: ${v}`);
-  svc<AppService>('app').setActiveVersion(a.id, v);
-  // #94 P2（L5）：激活版物化目录若已被 prune 删——冷重建（Commit 为真源·R-B 自愈同款）
+  // L15c（加急）：冷重建**先验成再切指针**——失败/无 Commit 锚=拒回滚（线上版本不动）
   const dir2 = join(appsRoot, slug, `v${v}`);
   if (!existsSync(dir2)) {
     const vrow = (svc<AppService>('app').versions(a.id) as any[]).find((x) => x.version === v);
-    if (vrow?.commit_id) {
-      const { base, token } = layerfsServiceBase();
-      if (base) {
-        try {
-          const fr = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(slug) + '/branches/release/commits/' + encodeURIComponent(vrow.commit_id) + '/files', { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(10000) });
-          if (fr.ok) {
-            const fj = await fr.json() as { files: { path: string; content: string }[] };
-            for (const f of fj.files) { const abs = join(dir2, f.path); mkdirSync(join(abs, '..'), { recursive: true }); writeFileSync(abs, f.content, 'utf8'); }
-          }
-        } catch { /* 重建失败不阻回滚（冷回读兜底） */ }
+    if (!vrow?.commit_id) throw new HttpError(409, `v${v} 物化已清且无 Commit 锚——不可回滚（L15：未落 Commit 的版本不删·此态不应存在）`);
+    const { base, token } = layerfsServiceBase();
+    if (!base) throw new HttpError(502, `v${v} 为冷版本且 layerfs 服务未配置——拒回滚（不切指针）`);
+    let rebuilt = false;
+    try {
+      const fr = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(slug) + '/branches/release/commits/' + encodeURIComponent(vrow.commit_id) + '/files', { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(10000) });
+      if (fr.ok) {
+        const fj = await fr.json() as { files: { path: string; content: string }[] };
+        for (const f of fj.files) { const abs = join(dir2, f.path); mkdirSync(join(abs, '..'), { recursive: true }); writeFileSync(abs, f.content, 'utf8'); }
+        rebuilt = existsSync(dir2);
       }
-    }
+    } catch { rebuilt = false; }
+    if (!rebuilt) throw new HttpError(502, `v${v} 冷重建失败——拒回滚（不切指针·线上版本不动）`);
   }
-  pruneAppDirs(a.slug); // #94 P2（L5）：回滚后活跃版恒留（≤3 语义保持）
+  svc<AppService>('app').setActiveVersion(a.id, v); // 指针最后切（重建验成后）
+  pruneAppDirs(a.slug); // 回滚后 ≤3 ∪ 活跃
+  return appDetail(getApp(a.slug));
   return appDetail(getApp(a.slug));
 }
 
