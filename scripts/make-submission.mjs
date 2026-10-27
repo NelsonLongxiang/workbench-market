@@ -45,9 +45,17 @@ try {
 }
 
 rmSync(snap, { force: true });
-const db = new DatabaseSync(join(root, "server", "data", "workbench-market.db"), { readOnly: true });
-db.exec(`VACUUM INTO '${snap.replaceAll("\\", "/")}'`);
-db.close();
+// #161 干净树（git archive 净态）：无本地数据库时明确提示并跳过快照（不崩·rc0）
+{
+  const dbPath = join(root, "server", "data", "workbench-market.db");
+  if (existsSync(dbPath)) {
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    db.exec(`VACUUM INTO '${snap.replaceAll("\\", "/")}'`);
+    db.close();
+  } else {
+    console.warn("[make-submission] 未发现 server/data/workbench-market.db（干净树无本地库）——跳过快照；如需数据面判据请先启动服务并跑一轮 E2E");
+  }
+}
 
 // 2) 封装提交物（file 型判据的 glob 目标全集）
 rmSync(sub, { recursive: true, force: true });
