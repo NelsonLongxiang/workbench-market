@@ -19,7 +19,7 @@ async function waitReady(url, ms = 15000) {
   return false;
 }
 const mkInst = (port, data, env = {}) => spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
-  cwd: process.cwd(), env: { ...process.env, PORT: String(port), DATA_DIR: data, ADMIN_TOKEN: 'l15-tok', ...env }, stdio: 'ignore',
+  cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: '', PORT: String(port), DATA_DIR: data, ADMIN_TOKEN: 'l15-tok', ...env }, stdio: 'ignore',
 });
 const snapInst = async (data) => {
   rmSync(data, { recursive: true, force: true }); mkdirSync(data, { recursive: true });

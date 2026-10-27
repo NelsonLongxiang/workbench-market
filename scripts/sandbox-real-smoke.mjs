@@ -55,7 +55,7 @@ mkdirSync(DATA, { recursive: true });
 for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`server/data/${d}`, `${DATA}/${d}`, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
   cwd: process.cwd(),
-  env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, SANDBOX_BRIDGE_URL: `http://127.0.0.1:${BP}` },
+  env: { ...process.env, MCP_GATEWAY: '', PORT: String(PORT), DATA_DIR: DATA, SANDBOX_BRIDGE_URL: `http://127.0.0.1:${BP}` },
   stdio: 'ignore',
 });
 

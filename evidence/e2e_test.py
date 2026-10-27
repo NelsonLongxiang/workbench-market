@@ -12,11 +12,13 @@ from datetime import datetime, timezone
 from playwright.sync_api import sync_playwright, expect
 
 import os as _os
-_port = _os.environ.get('E2E_PORT', '').strip() or '9800'
-_e2e_port = str(_port)
-# 生产守卫（监督席 direct-964b9fb4·堵绕过）：用**实际生效端口**判定——未设 E2E_PORT 落到 9800 也拒跑
-if _e2e_port == '9800' and _os.environ.get('E2E_ALLOW_PROD') != '1':
-    print('[E2E] 拒跑：目标端口是生产 9800（默认拒跑；确需生产演练请显式 E2E_ALLOW_PROD=1）')
+# !!! 生产守卫（监督席 direct-ba8a2980·P0 事故 2026-10-28）：E2E 只允许打测试端口
+_port = _os.environ.get('E2E_PORT', '')
+if not _port:
+    print('[E2E] ✗ 拒跑：必须显式给测试端口（E2E_PORT=<测试端口>；生产 9800 默认拒绝）')
+    sys.exit(2)
+if _port.strip() == '9800' and _os.environ.get('E2E_ALLOW_PROD') != '1':
+    print('[E2E] ✗ 拒跑：E2E_PORT=9800 是生产实例（默认拒跑；确需生产演练请显式 E2E_ALLOW_PROD=1）')
     sys.exit(2)
 BASE = f'http://127.0.0.1:{_port}'
 RESULTS = []
@@ -108,14 +110,10 @@ with sync_playwright() as p:
 
     cleanup(page)
 
-    # !!! 生产守卫（监督席 direct-ba8a2980·P0 事故）：E2E 只允许打测试端口 —— 9800 生产默认拒跑
-    _e2e_port = str(_os.environ.get('E2E_PORT', '')).strip()
-    if _e2e_port == '9800' and _os.environ.get('E2E_ALLOW_PROD') != '1':
-        print('[E2E] ✗ 拒跑：E2E_PORT=9800 是生产实例（默认只跑测试端口；确需生产演练请显式 E2E_ALLOW_PROD=1）')
-        sys.exit(2)
-    # 分页/行定位策略（2026-10-28 修正·替换 10-26 的破坏性裁剪）：
-    # 历史错误做法=按数量 DELETE 真工作台（曾删 16 台真台）——现改为**只清理 E2E 前缀行**，
-    # 行定位一律用搜索/过滤（page.get_by_placeholder('搜索') 或 ?q=）而不做数据裁剪。
+    # 分页裁剪（E2E 长期劣化根因修复 2026-10-26）：市场表 pageSize=20（客户端分页），
+    # 快照行数涨过首页容量后新建行落第 2 页 → 全部行定位断言灭灯级联（新增/过滤/检测/
+    # 抽屉/开关/改名/复制/使用页/自产台/透传十连红）。裁掉非 E2E 行至 ≤15，行定位回首页。
+    # 2026-10-28 修正（P0 事故）：只清理 E2E 前缀行，**绝不按数量删真台**；行定位用搜索/过滤
     _wbs = api(page, 'GET', '/api/workbenches').json()
     for _w in _wbs:
         if str(_w.get('name', '')).startswith('E2E'):
