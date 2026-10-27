@@ -2500,9 +2500,9 @@ async function callTool(name: string, args: any): Promise<unknown> {
         return { s, sc };
       });
       scored.sort((a, b) => b.sc - a.sc);
-      // #178 Q2（wm-review 回归 17/20 归因：中文需求 vs 英文描述词法分 0 → 30 截断砍掉该中的候选）
-      // 纪律：≤45 全量交模型（3 批×15 预算内）；词法全 0/全并列=无从排序 → 不臆砍；超 45 且能排序才取前 45
-      const SCORE_CAP = 45;
+      // #178 Q2 + S10 回归裁（监督席 direct-25d8fdcd）：**守属主 30 上限** 同时保留「不臆截」精神——
+      // ≤30 全量不截断；>30 且可排序取前 30；词法全 0/全并列=无从排序 → 不砍（全量分批交模型）
+      const SCORE_CAP = 30;
       const maxScore = scored.length ? scored[0].sc : 0;
       const allTied = scored.every((x) => x.sc === maxScore);
       const prescreen = (scored.length <= SCORE_CAP || allTied ? scored : scored.slice(0, SCORE_CAP)).map((x) => x.s);
