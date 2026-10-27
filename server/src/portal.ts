@@ -187,7 +187,9 @@ export function installPortal(
         // 仅对 HTML 响应包装 res.write/end 做字符串替换（JSON/二进制零开销透传）。
         const pWid = (req as express.Request & { goWid?: string }).goWid;
         const pCt = String(proxyRes.headers['content-type'] ?? '');
-        if (pWid && pCt.includes('text/html')) {
+        const pIsJs = /text\/javascript|application\/javascript/.test(pCt);
+        const pIsCss = pCt.includes('text/css');
+        if (pWid && (pCt.includes('text/html') || pIsJs || pIsCss)) {
           const origEnd = res.end.bind(res);
           const chunks: Uint8Array[] = [];
           (res as any)._wmIntercepting = true;
@@ -210,7 +212,9 @@ export function installPortal(
               if (/^\/go\/\d+\//.test(url)) return m; // 已是任意 /go/N/ 形
               return `${name}=${q}${goBase}${url}${q}`;
             };
-            body = body.replace(/(src|href)=(["'])(\/[^"']*)\2/gi, (m, n, q, u) => fixAttr(m, n, q, u));
+            if (pCt.includes('text/html')) body = body.replace(/(src|href)=(["'])(\/[^"']*)\2/gi, (m, n, q, u) => fixAttr(m, n, q, u));
+            // 白屏第二层（监督席 direct-aa94cbd4）：Vite 动态 chunk——JS/CSS 内绝对 /assets/ 前缀改写（仅此单前缀·避免误伤）
+            if (pIsJs || pIsCss) body = body.split('/assets/').join(`${goBase}/assets/`).split(`${goBase}${goBase}/assets/`).join(`${goBase}/assets/`);
             res.write = origWrite;
             res.end = origEnd;
             const buf = Buffer.from(body, 'utf8');
