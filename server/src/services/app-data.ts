@@ -50,7 +50,8 @@ export class AppDataService extends Service {
     return db.prepare("UPDATE app_data SET deleted_at = datetime('now') WHERE id = ? AND app_slug = ? AND deleted_at = ''").run(id, slug);
   }
   filePaths(slug: string) {
-    return db.prepare("SELECT storage_path FROM app_files WHERE app_slug = ? AND deleted_at = ''").all(slug);
+    // 删台级联用：含软删行（行随台硬删，磁盘字节也必须一并删，否则成无主孤儿）
+    return db.prepare('SELECT storage_path FROM app_files WHERE app_slug = ?').all(slug);
   }
   filesDelete(slug: string) {
     return db.prepare('DELETE FROM app_files WHERE app_slug = ?').run(slug);
