@@ -114,6 +114,10 @@ export function installPortal(
         const okCookie = `wm_sso_ok_${m[1]}`;
         const ssoOk = new RegExp('(?:^|;\\s*)' + okCookie + '=1').test(browserCookies);
         if (ssoOk) (req as express.Request & { goSsoSid?: string }).goSsoSid = sidMatch[1]; // #170 P10：仅 state 过检后转发
+        else { // P10b：未过检时从转发 Cookie 中剥除 session_id（否则 HPM 原样带上去=固定旁路）
+          const cleaned = browserCookies.split(';').map((c) => c.trim()).filter((c) => c && !/^session_id=/.test(c)).join('; ');
+          req.headers.cookie = cleaned;
+        }
       }
       // Cookie 池注入（派单 direct-5fbb2176）：台挂了 cookie_set 时按目标 host 匹配
       // cookie.domain + 未过期过滤 → 拼 Cookie 头（proxyReq 里替换而非追加）
