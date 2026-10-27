@@ -1904,6 +1904,8 @@ app.post('/api/sop/runs/:id(\\d+)/finish', wrap(async (req, res) => {
 
 // ---------- 自产台静态托管：GET /apps/:slug/* → DATA_DIR/apps/<slug>/v<active>/* ----------
 function serveApp(req: express.Request, res: express.Response) {
+  // #170 P11 sandbox：自产台与市场同源——CSP sandbox（不助 allow-same-origin）=不透明源，摸不到市场 API/存储
+  try { res.setHeader('content-security-policy', 'sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads'); } catch { /* 已发头 */ }
   const m = /^\/apps\/([a-z0-9][a-z0-9-]*)\/?(.*)$/.exec(req.path ?? '');
   if (!m) return res.status(404).json({ error: 'not found' });
   let rest = '';
