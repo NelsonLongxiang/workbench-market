@@ -5,7 +5,7 @@ import { rmSync, mkdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 
-const PORT = 9823;
+const PORT = Number(process.env.TK_PORT) > 0 ? Number(process.env.TK_PORT) : 20000 + Math.floor(Math.random() * 20000); // E2E 内并发避端口撞
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-token-data';
 let pass = 0, fail = 0;
@@ -23,7 +23,7 @@ async function waitReady(url, ms = 20000) {
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server', env: { ...process.env, PORT: String(PORT), DATA_DIR: `../${DATA}` }, stdio: ['ignore', 'pipe', 'pipe'],
+  cwd: 'server', env: { ...process.env, ADMIN_TOKEN: '', MCP_GATEWAY: '', PORT: String(PORT), DATA_DIR: `../${DATA}` }, stdio: ['ignore', 'pipe', 'pipe'], // 清 ADMIN_TOKEN（外层 E2E 环境继承会致「设置口令」403 假红）
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪'); process.exit(1); }
 

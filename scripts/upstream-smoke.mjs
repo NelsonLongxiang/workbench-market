@@ -113,7 +113,7 @@ try {
   // ③ 聚合工具面（网关 off，无令牌也全量）——本地 17 + 上游 2 = 19
   r = await rpc2('tools/list');
   const names = (r.body?.result?.tools ?? []).map((t) => t.name);
-  ok('聚合 27 工具（22 本地[S1 净+1]+草稿 3 + 2 上游）', names.length === 27, String(names.length));
+  ok('聚合 28 工具（23 本地+#164 P1② 1+草稿 3 + 2 上游）', names.length === 28, String(names.length));
   ok('taste__rules 在场', names.includes('taste__rules'));
   ok('taste__record 在场', names.includes('taste__record'));
   // ④ 上游工具调用转发
