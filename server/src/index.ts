@@ -576,12 +576,57 @@ function readActiveManifest(slug: string): { manifest: SopManifest; app: AppRow 
   return { manifest: parseSopManifest(readFileSync(yamlPath, 'utf8')), app: a };
 }
 
+/** #164 P1①（批派令尾件）：patch 合并——活跃版本文件树 + {set,delete} 片段 → 合并后全文件集 + diff 摘要 */
+function mergePatchFiles(slug: string, activeVersion: number, patch: any): { files: { path: string; content: string }[]; diff: { added: string[]; modified: string[]; removed: string[] } } {
+  const setList = Array.isArray(patch?.set) ? patch.set : [];
+  const delList = Array.isArray(patch?.delete) ? patch.delete.map((x: unknown) => String(x)) : [];
+  if (!setList.length && !delList.length) bad('patch 必须含 set 或 delete 非空数组');
+  const baseDir = join(appsRoot, slug, `v${activeVersion}`);
+  const base = new Map<string, string>();
+  if (existsSync(baseDir)) {
+    (function walk(d: string, rel: string) {
+      for (const e of readdirSync(d, { withFileTypes: true })) {
+        const abs = join(d, e.name);
+        const r = rel ? `${rel}/${e.name}` : e.name;
+        if (e.isDirectory()) walk(abs, r);
+        else base.set(r, readFileSync(abs, 'utf8'));
+      }
+    })(baseDir, '');
+  }
+  const added: string[] = [], modified: string[] = [], removed: string[] = [];
+  for (const f of setList) {
+    const path = String(f?.path ?? '').replace(/^\/+/, '');
+    const content = String(f?.content ?? '');
+    if (!path) bad('patch.set 项缺 path');
+    if (base.has(path)) { if (base.get(path) !== content) modified.push(path); }
+    else added.push(path);
+    base.set(path, content);
+  }
+  for (const path of delList) {
+    if (base.has(path)) { base.delete(path); removed.push(path); }
+  }
+  return { files: [...base.entries()].map(([path, content]) => ({ path, content })), diff: { added, modified, removed } };
+}
+
 /** 发布/重发逻辑（REST 与 MCP 工具共用）：返回响应体与状态码 */
 function publishAppBody(b: any): { status: number; body: object } {
   const slug = typeof b.slug === 'string' ? b.slug.trim().toLowerCase() : '';
   if (!SLUG_RE.test(slug)) bad('slug 必须是小写字母/数字/连字符（≤64 字符，字母或数字开头）');
   const kind = b.kind === 'sop' ? 'sop' : 'app';
-  const files = validateAppFiles(b.files, kind);
+  // #164 P1①：三种发布形态——全量 files / patch{set,delete}+base_version（合并活跃版）/ 两者皆无＝错
+  let files: { path: string; content: string }[];
+  let patchDiff: { added: string[]; modified: string[]; removed: string[] } | null = null;
+  const hasFull = Array.isArray(b.files);
+  const hasPatch = b.patch && (Array.isArray(b.patch.set) || Array.isArray(b.patch.delete));
+  if (hasPatch && !hasFull) {
+    const baseVersion = Number(b.base_version ?? svc<AppService>('app').bySlug(String(b.slug ?? '').trim().toLowerCase())?.active_version ?? 0);
+    if (!Number.isInteger(baseVersion) || baseVersion <= 0) bad('patch 发布需 base_version（或缺省取当前活跃版本）且该台已存在版本');
+    const merged = mergePatchFiles(String(b.slug ?? '').trim().toLowerCase(), baseVersion, b.patch);
+    files = validateAppFiles(merged.files, kind);
+    patchDiff = merged.diff;
+  } else {
+    files = validateAppFiles(b.files, kind);
+  }
   const existing = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
   if (existing && existing.kind !== kind) bad(`slug 已被 ${existing.kind} 类台占用，kind 不可切换`);
 
@@ -659,7 +704,7 @@ function publishAppBody(b: any): { status: number; body: object } {
   // app 类发布即入册；sop 类走状态机——draft 不入册，publish 时入册
   const workbench_id = appRow.kind === 'app' ? syncWorkbenchRegistration(appRow) : 0;
   // #132 R1 软防护（监督席直裁）：发布响应带 served_version 基线（发布者可见供 diff 自查·不做跨域强制校验）
-  return { status: existing ? 200 : 201, body: { ok: true, slug: appRow.slug, version, served_version: existing ? (version - 1) : 0, workbench_id, kind: appRow.kind, status: appRow.status, app: appDetail(appRow) } };
+  return { status: existing ? 200 : 201, body: { ok: true, slug: appRow.slug, version, served_version: existing ? (version - 1) : 0, diff: patchDiff, patch_base_version: patchDiff ? Number(b.base_version ?? 0) : undefined, workbench_id, kind: appRow.kind, status: appRow.status, app: appDetail(appRow) } };
 }
 
 // #164 P1③（监督席 direct-848bcf34）：60s 同 slug 发布锁——异会话窗口内重发 409（双发互踩第二例防线）；同会话续发放行；force:true 显式越锁
