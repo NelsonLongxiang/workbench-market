@@ -14,7 +14,7 @@ async function waitReady(url, ms = 20000) {
 }
 import { rmSync, mkdirSync } from 'node:fs';
 
-const PORT = 9813;
+const PORT = Number(process.env.GW_PORT) > 0 ? Number(process.env.GW_PORT) : 20000 + Math.floor(Math.random() * 20000); // #164 随机端口根治并发撞
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-gw-data';
 let pass = 0, fail = 0;
