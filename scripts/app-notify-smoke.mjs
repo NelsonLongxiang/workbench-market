@@ -52,7 +52,7 @@ for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`server/data/${d}
 
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
   cwd: process.cwd(),
-  env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'appnotify-test-token' },
+  env: { ...process.env, MCP_GATEWAY: '', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'appnotify-test-token' },
   stdio: 'ignore',
 });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
