@@ -160,6 +160,7 @@ function idemClaim(taskId: string, fp: string): 'fresh' | 'replay' | 'conflict' 
  * DSH 侧那半绑定（canvas 远端成员）是主人操作前置——修订 1 如实口径。
  */
 export function a2aDirectHandle(body: any, rawBytes: number, runOps: {
+  uploadToken?: (id: number) => string;
   start: (slug: string, startedBy: string) => number;
   saveNote: (runId: number, text: string) => void;
   statusOf: (runId: number) => { status: string; steps: number } | null;
@@ -260,7 +261,7 @@ export function a2aDirectHandle(body: any, rawBytes: number, runOps: {
       artifacts: [],
       consumed: false,
       receipt: 'routed',
-      sop: { slug: sop.slug, run_id: runId, run_status: st?.status ?? 'unknown', steps: st?.steps ?? 0 },
+      sop: { slug: sop.slug, run_id: runId, run_status: st?.status ?? 'unknown', steps: st?.steps ?? 0, upload_token: runOps.uploadToken?.(runId) ?? '' }, // P0：run-scoped 上传令牌（创建者即得）
     },
   };
 }
