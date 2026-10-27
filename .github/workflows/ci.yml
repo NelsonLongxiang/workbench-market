@@ -1,0 +1,29 @@
+name: CI
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  tsc-and-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: tsc (web)
+        run: pnpm --filter web typecheck
+      - name: server 语法核（esbuild）
+        run: node scripts/check-server-syntax.mjs
+      - name: server 冷启动探针（防重启即死）
+        run: |
+          PORT=19999 DATA_DIR=${{ runner.temp }}/ci-data ADMIN_TOKEN=ci timeout 20 node --disable-warning=ExperimentalWarning server/src/index.ts &
+          for i in $(seq 1 15); do
+            curl -sf http://127.0.0.1:19999/api/health >/dev/null && echo "health ok" && exit 0
+            sleep 1
+          done
+          echo "server failed to boot" >&2; exit 1
