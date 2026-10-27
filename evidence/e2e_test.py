@@ -1057,7 +1057,7 @@ with sync_playwright() as p:
         assert '≥25' in readme or '25 组' in readme, 'README E2E 组数未同步'
         # ② #13 make-submission 幂等（重跑成功，判定面产物在场）
         import subprocess
-        rmk = subprocess.run(['node', 'scripts/make-submission.mjs'], capture_output=True, text=True, timeout=120)
+        rmk = subprocess.run(['node', 'scripts/make-submission.mjs'], capture_output=True, text=True, timeout=120, env={**_os.environ, 'WM_ALLOW_EMPTY_SUMMARY': '1'})  # #202 门豁免口：E2E 自检时摘要未落（末尾才写）·生产提交禁用
         assert rmk.returncode == 0, f'make-submission 重跑失败: {rmk.stderr[:200]}'
         assert 'snapshot' in rmk.stdout, 'make-submission 未产出快照'
         record('卫生批（README v18 一致性/提交物脚本幂等）', True)
