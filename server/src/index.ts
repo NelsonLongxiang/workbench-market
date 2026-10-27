@@ -729,7 +729,8 @@ function publishLockGuard(slug: string, who: string, force: boolean): { ok: true
 
 app.post('/api/apps', (req, res) => {
   const b = (req.body ?? {}) as Record<string, unknown>;
-  const who = String(b.created_by ?? '').trim() || String(req.headers['x-market-client'] ?? '').trim() || 'anon';
+  // #165 回归修（E2E 红）：锁身份=客户端会话（X-Market-Client/admin 摘要），**不用 created_by**（元数据·同操作者带/不带误判两会话→合法发布 409）
+  const who = String(req.headers['x-market-client'] ?? '').trim() || (adminTokenCheck(req.headers['x-admin-token']) ? 'admin-session' : 'loopback-anon');
   const gate = publishLockGuard(String(b.slug ?? '').trim().toLowerCase(), who, b.force === true || b.force === 'true');
   if (!gate.ok) return res.status(409).json({ error: gate.hint });
   const r = publishAppBody(b);
