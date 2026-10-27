@@ -1325,8 +1325,10 @@ app.post('/api/sop/runs/:id/files', (req, res, next) => {
     if (!/^\d+$/.test(String(req.params.id))) throw new HttpError(404, `run not found: ${req.params.id}`);
     const row = sopRunRow(Number(req.params.id));
     if (row.status !== 'running') throw new HttpError(409, `run ${req.params.id} 已 ${row.status}，不可再上传`);
+    // #150 开关（属主反馈·业务直传恢复）：settings run_upload_require_token='1' 才要令牌；缺省关闭=旧 T1 直传语义
+    const strict = (() => { try { const r = db.prepare("SELECT value FROM settings WHERE key = 'run_upload_require_token'").get() as { value?: string } | undefined; return String(r?.value ?? '') === '1'; } catch { return false; } })();
     const adminOk = adminHeaderOk(req);
-    if (!adminOk) {
+    if (strict && !adminOk) { // #150 开关：严格模式才要令牌（缺省=旧 T1 直传）
       const presented = String(req.headers['x-run-upload-token'] ?? '').trim();
       const expected = String((row as any).upload_token ?? '');
       if (!expected) throw new HttpError(403, '该 run 无上传令牌（旧 run 上传面已关闭）');
@@ -1990,7 +1992,7 @@ app.get('/api/settings', (_req, res) => { res.json(maskUpstreamsSetting(getSetti
 app.put('/api/settings', (req, res) => {
   const b = req.body ?? {};
   if (typeof b !== 'object' || b === null) bad('body 必须是 {key: value} 对象');
-  const allowed = ['health_interval_seconds', 'health_timeout_ms', 'health_concurrency', 'a2a_peers', 'mcp_upstreams', 'dispatch_sorting_enabled']; // #19 ②a 分拣开关
+  const allowed = ['health_interval_seconds', 'health_timeout_ms', 'health_concurrency', 'a2a_peers', 'mcp_upstreams', 'dispatch_sorting_enabled', 'run_upload_require_token']; // #19 ②a 分拣开关+#150 上传令牌开关
   const upd = svc<SettingService>('setting').upsertStmt();
   for (const [k, v] of Object.entries(b)) {
     if (!allowed.includes(k)) continue;
