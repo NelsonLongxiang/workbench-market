@@ -215,6 +215,8 @@ export function installPortal(
             if (pCt.includes('text/html')) body = body.replace(/(src|href)=(["'])(\/[^"']*)\2/gi, (m, n, q, u) => fixAttr(m, n, q, u));
             // 白屏第二层（监督席 direct-aa94cbd4）：Vite 动态 chunk——JS/CSS 内绝对 /assets/ 前缀改写（仅此单前缀·避免误伤）
             if (pIsJs || pIsCss) body = body.split('/assets/').join(`${goBase}/assets/`).split(`${goBase}${goBase}/assets/`).join(`${goBase}/assets/`);
+            // 白屏第三层（监督席 direct-a85fd99c·丢失补回）：Vite assetsURL 根绝对化 helper——return "/"+e → return "/go/<id>/"+e（base='/' 应用经子路径反代的通用坑·仅 JS 段·窄正则）
+            if (pIsJs) body = body.replace(/return\s*"\/"\s*\+\s*([A-Za-z_$][\w$]*)/g, (m, v) => 'return "' + goBase + '/"+' + v);
             res.write = origWrite;
             res.end = origEnd;
             const buf = Buffer.from(body, 'utf8');
