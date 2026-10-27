@@ -20,7 +20,13 @@ const AGENTS_SKILLS = process.env.SKILL_SRC_A ?? 'C:/Users/Administrator/.agents
 const JF_ROOT = process.env.SKILL_SRC_B ?? fileURLToPath(new URL('../../jf-tech-expert-agents', import.meta.url)); // 相对化（隐私门红线）
 
 // ---- 工具 ----
-function parseFrontmatter(text) {
+/** 目录或指向目录的 junction/符号链接（readdirSync dirent.isDirectory 对链接返 false） */
+function isDirLike(p) {
+  try { return statSync(p).isDirectory(); } catch { return false; }
+}
+function parseFrontmatter(textRaw) {
+  // #drawio 上架（属主批准）：CRLF 归一——Windows 源 frontmatter 以 \r\n 结尾时原解析器整块失配（A=0 根因）
+  const text = String(textRaw).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   if (!text.startsWith('---')) return null;
   const end = text.indexOf('\n---', 3);
   if (end < 0) return null;
@@ -41,6 +47,9 @@ function treeDigest(dir) {
   const files = [];
   (function walk(d) {
     for (const e of readdirSync(d, { withFileTypes: true })) {
+      // 上架剔除：__pycache__ 目录与 *.pyc 编译缓存（属主令·不上架）
+      if (e.isDirectory() && (e.name === '__pycache__' || e.name === '.git')) continue;
+      if (!e.isDirectory() && /\.pyc$/i.test(e.name)) continue;
       const p = join(d, e.name);
       if (e.isDirectory()) walk(p); else files.push(p);
     }
@@ -58,7 +67,7 @@ function treeDigest(dir) {
 function scanAgentsSkills() {
   const rows = [];
   for (const d of readdirSync(AGENTS_SKILLS, { withFileTypes: true })) {
-    if (!d.isDirectory()) continue;
+    if (!d.isDirectory() && !isDirLike(join(AGENTS_SKILLS, d.name))) continue; // junction/符号链接目录也算（drawio-skill 实测）
     const sk = join(AGENTS_SKILLS, d.name, 'SKILL.md');
     if (!existsSync(sk)) continue;
     const fm = parseFrontmatter(readFileSync(sk, 'utf8'));
@@ -73,7 +82,7 @@ function scanJfSkills() {
   const rows = [];
   if (!existsSync(root)) return rows;
   for (const d of readdirSync(root, { withFileTypes: true })) {
-    if (!d.isDirectory()) continue;
+    if (!d.isDirectory() && !isDirLike(join(root, d.name))) continue; // junction/符号链接目录也算（drawio-skill 实测）
     const sk = join(root, d.name, 'SKILL.md');
     if (!existsSync(sk)) continue;
     const fm = parseFrontmatter(readFileSync(sk, 'utf8'));
@@ -140,8 +149,8 @@ if (!DRY) {
     // 快照落盘（方案 §1 P0-b 语义前置到种子导入：首版即快照）
     const { cpSync, mkdirSync } = await import('node:fs');
     const snapDir = join(REPO_ROOT, 'server/data/skill-snapshots', encodeURIComponent(r.name), `v${ver}`); // S0⑦ 锚定
-    mkdirSync(snapDir, { recursive: true });
-    cpSync(join(AGENTS_SKILLS, r.dir), snapDir, { recursive: true });
+    // cpSync(dereference) 自带建目录（junction 源复制内容非链接）
+    cpSync(join(AGENTS_SKILLS, r.dir), snapDir, { recursive: true, dereference: true }); // junction 源复制内容（drawio-skill 实测）
     S.versionInsert({ skillId: row.id, version: ver, changelog: `import ${new Date().toISOString().slice(0, 10)}`, treeDigest: t.digest, fileCount: t.fileCount, totalBytes: t.totalBytes, snapshotPath: snapDir, reviewedBy: 'importer' });
     report.a.imported++;
   }
@@ -154,7 +163,7 @@ if (!DRY) {
     S.upsertSkill({ slug: `jf:${r.name}`, name: r.name, layer: LAYER.B, layerName: '业务角色层', description: r.description, argumentHint: r.argumentHint, author: r.author, source: 'jf-tech' });
     const row = S.skillBySlug(`jf:${r.name}`);
     if ((S.versionsMax(row.id)?.v ?? 0) === 0) {
-      S.versionInsert({ skillId: row.id, version: 1, changelog: 'jf 首版登记（遗产不快照）', reviewedBy: 'importer' });
+      S.versionInsert({ skillId: row.id, version: 1, changelog: 'jf 首版登记（遗产不快照）', treeDigest: '', reviewedBy: 'importer' }); // legacy 无快照·digest 空
       report.b.imported++;
     }
   }
