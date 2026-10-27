@@ -129,6 +129,19 @@ CREATE TABLE IF NOT EXISTS change_requests (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_change_requests_status ON change_requests (status, created_at);
+-- P0 安全（总工 direct-c2b55f91）：SOP run 交付文件写面审计（run/文件/sha/来源/时间）
+CREATE TABLE IF NOT EXISTS sop_run_file_audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  sha256 TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT '',
+  ok INTEGER NOT NULL DEFAULT 1,
+  reason TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_srfa_run ON sop_run_file_audit (run_id, created_at);
 -- #94 S3：agent 端摘要上报（K14 漂移记——D5 薄分发·agent 本机算摘要回传）
 CREATE TABLE IF NOT EXISTS skill_digest_reports (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -346,6 +359,8 @@ const bindCols = db.prepare('PRAGMA table_info(sop_bindings)').all() as { name: 
 }
 
 // 轻量列迁移：已存库补列（凭据注入 / SOP 台生成器 / A2A 节点短 id / cookie 池挂接）
+// P0：sop_runs.upload_token（run-scoped 上传令牌·启动签发——总工 direct-c2b55f91）
+try { const srtCols = db.prepare('PRAGMA table_info(sop_runs)').all() as any[]; if (!srtCols.some((c) => c.name === 'upload_token')) db.exec("ALTER TABLE sop_runs ADD COLUMN upload_token TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 {
   const cols = db.prepare('PRAGMA table_info(workbenches)').all() as { name: string }[];
   if (!cols.some((c) => c.name === 'auth_config')) {
