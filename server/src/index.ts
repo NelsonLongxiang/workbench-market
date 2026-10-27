@@ -986,44 +986,9 @@ const upload = multer({
   limits: { fileSize: UPLOAD_MAX, files: 1 },
 });
 
-// ── T023 P0 补丁（制备件·属主令后落盘）：apps/run 文件面上传鉴权+MIME 白名单+配额 ──
-// 背景：apps/files POST 远程开放（REMOTE_ALLOW_PREFIX）无令牌/配额/MIME 嗅探；run 面 token/配额已在（PR#131），
-// 但 MIME 仍取客户端声明（恒 octet-stream 现象）。下载侧历史行 mime 兜底按扩展名重映射。
-const APPS_UPLOAD_MIME = new Map<string, string>([
-  ['.pdf', 'application/pdf'],
-  ['.png', 'image/png'], ['.jpg', 'image/jpeg'], ['.jpeg', 'image/jpeg'], ['.webp', 'image/webp'], ['.gif', 'image/gif'],
-  ['.csv', 'text/csv'], ['.md', 'text/markdown'], ['.txt', 'text/plain'],
-  ['.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
-  ['.xls', 'application/vnd.ms-excel'], ['.zip', 'application/zip'],
-  ['.json', 'application/json'], ['.yaml', 'application/yaml'], ['.yml', 'application/yaml'],
-]);
-const APPS_UPLOAD_DENY_EXT = new Set(['.html', '.htm', '.js', '.mjs', '.svg', '.xml', '.hta', '.swf', '.exe', '.dll', '.sh', '.bat', '.cmd', '.ps1', '.php']);
-function sniffUploadMime(originalName: string): { ok: true; mime: string } | { ok: false; error: string } {
-  const ext = extname(String(originalName || '')).toLowerCase();
-  if (APPS_UPLOAD_DENY_EXT.has(ext)) return { ok: false, error: `扩展名 ${ext} 不接受上传（XSS/可执行面）` };
-  const mime = APPS_UPLOAD_MIME.get(ext);
-  if (!mime) return { ok: false, error: `扩展名 ${ext || '(无)'} 不在白名单` };
-  return { ok: true, mime };
-}
-const APPS_FILES_MAX_COUNT = 200;
-const APPS_FILES_MAX_TOTAL = 2 * 1024 * 1024 * 1024;
-function appsFilesQuotaCheck(slug: string): { ok: true } | { ok: false; code: number; error: string } {
-  const rows = svc<AppDataService>('appData').filePage(slug, 0, 1000) as any[];
-  if (rows.length >= APPS_FILES_MAX_COUNT) return { ok: false, code: 413, error: `该台文件数已达上限（${APPS_FILES_MAX_COUNT}）` };
-  const total = rows.reduce((n: number, r: any) => n + Number(r.size || 0), 0);
-  if (total >= APPS_FILES_MAX_TOTAL) return { ok: false, code: 413, error: '该台文件总量已达上限（2GB）' };
-  return { ok: true };
-}
 
 app.post('/api/apps/:slug/files', (req, res, next) => {
-  // 评审 #25：必须先校验台存在再让 multer 落盘（否则 404 后留孤儿文件，远程可无限灌盘）
-  try {
-    getApp(req.params.slug);
-    // T023 P0：POST/DELETE 同权（倒挂纠正）——远程写需 X-Admin-Token；loopback 维持信任模型（adminGuard 同语义）
-    if (!isLoopbackReq(req) && !adminGuard(req, res)) return;   // adminGuard 已回 403
-    const q = appsFilesQuotaCheck(req.params.slug);
-    if (!q.ok) throw new HttpError(q.code, q.error);
-  } catch (e) { return next(e); }
+  try { getApp(req.params.slug); } catch (e) { return next(e); }
   upload.single('file')(req, res, (err: any) => {
     if (err) {
       if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: '文件超 50MB 上限' });
