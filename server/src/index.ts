@@ -1100,6 +1100,8 @@ app.get('/api/apps/:slug/files', (req, res) => {
 
 // #132 P0①：note 更新面（PATCH）
 app.patch('/api/apps/:slug/files/:id', (req, res) => {
+  if (!adminGuard(req, res)) return; // #193 F3：写面人审（读开放·写删人审）
+  if (!adminGuard(req, res)) return; // #193 F3：写面人审（读开放·写删人审）
   const a = getApp(req.params.slug);
   const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 500) : undefined;
   if (note === undefined) bad('note 必填（字符串）');
@@ -1111,15 +1113,21 @@ app.patch('/api/apps/:slug/files/:id', (req, res) => {
 
 // #132 P0③：软删面（deleted_at 置位·原行保审计·列表过滤）
 app.delete('/api/apps/:slug/files/:id', (req, res) => {
+  if (!adminGuard(req, res)) return; // #193 F3
+  if (!adminGuard(req, res)) return; // #193 F3
   const a = getApp(req.params.slug);
   const hit = svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug) as any;
   if (!hit) throw new HttpError(404, `file not found: ${req.params.id}`);
-  svc<AppDataService>('appData').fileSoftDelete(Number(req.params.id), a.slug);
+  const _fd = svc<AppDataService>('appData').fileSoftDelete(Number(req.params.id), a.slug) as { changes?: number };
+  if (Number(_fd?.changes ?? 0) === 0) throw new HttpError(404, `file not found: ${req.params.id}`); // #193 F5：幂等假绿修（不存在→404）
   res.json({ ok: true, id: Number(req.params.id), deleted: 'soft' });
 });
 app.delete('/api/apps/:slug/data/:id', (req, res) => {
+  if (!adminGuard(req, res)) return; // #193 F3
+  if (!adminGuard(req, res)) return; // #193 F3
   const a = getApp(req.params.slug);
-  svc<AppDataService>('appData').dataSoftDelete(Number(req.params.id), a.slug);
+  const _dd = svc<AppDataService>('appData').dataSoftDelete(Number(req.params.id), a.slug) as { changes?: number };
+  if (Number(_dd?.changes ?? 0) === 0) throw new HttpError(404, `data not found: ${req.params.id}`); // #193 F5
   res.json({ ok: true, id: Number(req.params.id), deleted: 'soft' });
 });
 
@@ -2539,8 +2547,14 @@ async function callTool(name: string, args: any): Promise<unknown> {
       // issue #3：direct 也掩码——带 token 的直连地址不再下发；浏览器访问请走 portal（代理自动带票）
       return { id: w.id, name: w.name, portal: `/go/${w.id}/`, use_page: `/use/${w.id}`, direct: maskSensitiveQuery(w.url), note: 'portal 经统一门户同源代理（自动注入凭据/剥禁嵌头），推荐浏览器访问；direct 已脱敏' };
     }
-    case 'app_publish':
-      return publishAppBody({ ...args, created_by: args?.created_by || 'mcp' }).body;
+    case 'app_publish': {
+      // #193 F11：MCP 发布与 REST 同过发布锁（60s 同 slug 异会话 409）
+      const _slug = String(args?.slug ?? '').trim().toLowerCase();
+      const _who = String(args?.created_by ?? '').trim() || 'mcp';
+      const _gate = publishLockGuard(_slug, _who, args?.force === true || args?.force === 'true');
+      if (!_gate.ok) throw new HttpError(409, _gate.hint);
+      return publishAppBody({ ...args, created_by: _who }).body;
+    }
     // #94 v3 S1（K12）：app_activate 直回滚工具**移除**（破坏性操作 MCP 不可直执）——改经 change_request_create 提请求
     // #94 v3 S1（契约形状·#94 评论 6424247402）：{kind: 'app'|'skill', slug, op: 'rollback'|'delete', target_version?, reason}
     // #94 P3 agent 工作区（草稿三分支·契约 v1 drafts 面）
@@ -2675,8 +2689,7 @@ async function callTool(name: string, args: any): Promise<unknown> {
       const buf = Buffer.from(b64, 'base64');
       if (!buf.length) throw new HttpError(400, 'content_base64 解码为空');
       if (buf.length > UPLOAD_MAX) throw new HttpError(413, `文件超 50MB 上限（${buf.length}B）`);
-      const row = svc<AppDataService>('appData').filePage(a.slug, 0, 1) as any[];
-      if (row.length >= 200) throw new HttpError(413, '该台文件数已达上限（200）');
+      if (svc<AppDataService>('appData').fileCount(a.slug) >= 200) throw new HttpError(413, '该台文件数已达上限（200）'); // #193 F8：全量计数（原 filePage(0,1) 恒 1 永不触发）
       const dir = join(dataDir, 'uploads');
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
       const safe = name.replace(/[^\w.\u4e00-\u9fa5-]+/g, '_').slice(0, 80);
