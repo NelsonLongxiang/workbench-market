@@ -28,6 +28,7 @@ export default function McpGateways() {
   const [newName, setNewName] = useState('');
   const [grantsOf, setGrantsOf] = useState<McpSession | null>(null);
   const [grantSel, setGrantSel] = useState<string[]>([]);
+  const [regTools, setRegTools] = useState<string[]>([]); // #grant-ux：活注册表（修硬编码 15 时代旧清单→未知名 400 根因）
   // 上游聚合（#20 P2）配置面
   const [upstreams, setUpstreams] = useState<{ prefix: string; url: string; enabled: boolean }[]>([]);
   const [upPrefix, setUpPrefix] = useState('');
@@ -38,6 +39,10 @@ export default function McpGateways() {
 
   const reload = useCallback(() => {
     if (!token) return;
+    fetch('/api/mcp/tools', { headers: H })
+      .then((r) => (r.ok ? r.json() : { tools: [] }))
+      .then((j) => setRegTools((j.tools || []).map((x: { name?: string } | string) => (typeof x === 'string' ? x : String(x?.name ?? ''))).filter(Boolean)))
+      .catch(() => setRegTools([]));
     setLoading(true);
     fetch('/api/mcp/sessions', { headers: H })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -269,7 +274,7 @@ export default function McpGateways() {
           placeholder="选择授权工具"
           value={grantSel}
           onChange={setGrantSel}
-          options={TOOLS.map((t) => ({ value: t, label: t }))}
+          options={regTools.map((t) => ({ value: t, label: t }))}
         />
       </Modal>
     </PageContainer>
