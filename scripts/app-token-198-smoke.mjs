@@ -38,6 +38,15 @@ try {
   // ⑤ 预检 OPTIONS
   const r5 = await fetch(B + '/api/apps/a198/data', { method: 'OPTIONS', headers: { Origin: 'null', 'X-App-Token': tokA, 'Access-Control-Request-Method': 'POST' } });
   ok('⑤ 预检 OPTIONS 204 + ACAO null', r5.status === 204 && r5.headers.get('access-control-allow-origin') === 'null', r5.status + '|' + r5.headers.get('access-control-allow-origin'));
+  // ⑥ 预检免令牌（规范形态：不带 X-App-Token 值）
+  const r6 = await fetch(B + '/api/apps/a198/data', { method: 'OPTIONS', headers: { Origin: 'null', 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'content-type,x-app-token' } });
+  ok('⑥ 预检免令牌（不带 X-App-Token 也 204+ACAO）', r6.status === 204 && r6.headers.get('access-control-allow-origin') === 'null', r6.status + '|' + r6.headers.get('access-control-allow-origin'));
+  // ⑦ 查询串形态（GET …/data?limit=1 带回 ACAO）
+  const r7 = await fetch(B + '/api/apps/a198/data?limit=1', { headers: { Origin: 'null', 'X-App-Token': tokA } });
+  ok('⑦ 查询串形态 GET 带 ACAO', r7.headers.get('access-control-allow-origin') === 'null', String(r7.headers.get('access-control-allow-origin')));
+  // ⑧ 负对照：查询串 + 无令牌 → 无 ACAO
+  const r8 = await fetch(B + '/api/apps/a198/data?limit=1', { headers: { Origin: 'null' } });
+  ok('⑧ 查询串+无令牌 → 无 ACAO（负对照）', r8.headers.get('access-control-allow-origin') !== 'null', String(r8.headers.get('access-control-allow-origin')));
 } finally { child.kill(); await new Promise((x) => setTimeout(x, 400)); }
 console.log('\n===== #198 冒烟 ' + (pass + fail) + ' 项：' + pass + ' 通过 / ' + fail + ' 失败 =====');
 process.exit(fail ? 1 : 0);
