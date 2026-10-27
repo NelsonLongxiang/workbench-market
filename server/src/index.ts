@@ -3,7 +3,7 @@ import cors from 'cors';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createReadStream } from 'node:fs';
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { dirname, join, posix, extname, sep as pathSep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -33,9 +33,29 @@ const CORS_ALLOW = new Set(['http://localhost:5173', 'http://127.0.0.1:5173']);
 app.use(cors({
   origin(origin, callback) {
     if (!origin || CORS_ALLOW.has(origin)) return callback(null, true);
-    return callback(null, false); // 不回 ACAO 头 = 浏览器侧拒绝读响应
+    return callback(null, false);
   },
+  credentials: false,
 }));
+// #198（裁 A）：自产台数据/文件面的按台令牌 CORS——sandbox 页面（Origin: null）凭 X-App-Token 匹配 slug 才放行
+app.use((req, res, next) => {
+  const m = /^\/api\/apps\/([a-z0-9][a-z0-9-]*)\/(data|files)(?:\/|$)/.exec(String(req.url ?? ''));
+  if (!m) return next();
+  const origin = String(req.headers.origin ?? '');
+  const isNullOrigin = origin === 'null';
+  if (!isNullOrigin) return next(); // 常规同源/白名单走 cors 中间件
+  const slug = m[1];
+  const presented = String(req.headers['x-app-token'] ?? '').trim();
+  const expected = wmAppToken(slug);
+  const okTok = presented.length > 0 && presented.length === expected.length && timingSafeEqual(Buffer.from(presented), Buffer.from(expected));
+  if (!okTok) return next(); // 无/错令牌：不发 ACAO（浏览器侧拒绝读）
+  res.setHeader('access-control-allow-origin', 'null');
+  res.setHeader('access-control-allow-methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+  res.setHeader('access-control-allow-headers', 'content-type,x-app-token');
+  res.setHeader('access-control-max-age', '600');
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  return next();
+});
 // body 解析：/go/ 路径跳过（品味席 direct-2999b07d 实测——express.json 在 HPM 之前
 // 消费了 body 流，上游需要读 body 的 POST（如 taste-mcp 的 tools/call）永远等不到
 // end 事件挂起；401 路径不读 body 所以「看起来通」）。/go/ 的 body 由 HPM 原样 pipe。
@@ -429,6 +449,25 @@ app.delete('/api/cockpits/:id', (req, res) => {
 
 // ---------- 自产台（台生成器：AI 发布 API + 全版本快照，发布即入册） ----------
 const appsRoot = join(dataDir, 'apps');
+// #198（监督席裁 A·P11 回归修复）：自产台按台令牌——CSP sandbox 下页面源为 null，
+// 交付空间模式（页面调本台 data/files）靠「Origin: null + X-App-Token 匹配 slug」放行 CORS。
+const APP_TOKEN_KEY_FILE = join(dataDir, '.wm-app-token.key');
+let _appTokenKey = '';
+function appTokenKey(): string {
+  if (_appTokenKey) return _appTokenKey;
+  try {
+    _appTokenKey = String(readFileSync(APP_TOKEN_KEY_FILE, 'utf8')).trim();
+  } catch { /* 首次 */ }
+  if (!_appTokenKey) {
+    _appTokenKey = randomBytes(32).toString('hex');
+    try { writeFileSync(APP_TOKEN_KEY_FILE, _appTokenKey, { mode: 0o600 }); } catch { /* 只读卷降级：进程内随机（重启失效·可接受） */ }
+  }
+  return _appTokenKey;
+}
+/** 台令牌（HMAC-SHA256(slug, key)·不可跨台复用） */
+function wmAppToken(slug: string): string {
+  return createHmac('sha256', appTokenKey()).update(String(slug)).digest('hex');
+}
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const MAX_APP_FILES = 64;
 const MAX_APP_TOTAL_BYTES = 2 * 1024 * 1024;
@@ -1208,6 +1247,16 @@ app.get(/^\/sop\/[a-z0-9][a-z0-9-]*(\/.*)?$/, (req, res) => {
   const abs = join(root, rel);
   if (!abs.startsWith(root)) return res.status(400).json({ error: '路径非法' });
   if (!existsSync(abs)) return res.status(404).json({ error: `file not found: ${rel}` });
+  // #198（裁 A）：自产台入口/子页面注入按台令牌——sandbox 页面凭它调本台 data/files
+  if (/\.html?$/i.test(rel)) {
+    try {
+      const tok = wmAppToken(m[1]);
+      const raw = readFileSync(abs, 'utf8');
+      const inject = `<meta name="wm-app-token" content="${tok}"><script>window.WM_APP_TOKEN="${tok}";window.WM_APP_SLUG="${m[1]}";</script>`;
+      const out = /<head[^>]*>/i.test(raw) ? raw.replace(/<head([^>]*)>/i, (mm) => mm + inject) : inject + raw;
+      return res.type('html').send(out);
+    } catch { /* 读取失败回落原样 */ }
+  }
   return res.sendFile(abs);
 });
 
@@ -1963,6 +2012,16 @@ function serveApp(req: express.Request, res: express.Response) {
       }
     })();
     return; // 异步冷回读接管
+  }
+  // #198（裁 A）：自产台 HTML 注入按台令牌——sandbox 页面凭它调本台 data/files（P11 回归修复）
+  if (/\.html?$/i.test(rel)) {
+    try {
+      const tok = wmAppToken(m[1]);
+      const raw = readFileSync(abs, 'utf8');
+      const inject = `<meta name="wm-app-token" content="${tok}"><script>window.WM_APP_TOKEN="${tok}";window.WM_APP_SLUG="${m[1]}";</script>`;
+      const out = /<head[^>]*>/i.test(raw) ? raw.replace(/<head([^>]*)>/i, (mm) => mm + inject) : inject + raw;
+      return res.type('html').send(out);
+    } catch { /* 读取失败回落原样 */ }
   }
   res.sendFile(abs);
 }
