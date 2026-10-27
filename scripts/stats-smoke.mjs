@@ -20,7 +20,7 @@ async function waitReady(url, ms = 20000) {
   return false;
 }
 const start = () => spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server', env: { ...process.env, PORT: String(PORT), DATA_DIR: `../${DATA}` }, stdio: ['ignore', 'pipe', 'pipe'],
+  cwd: 'server', env: { ...process.env, MCP_GATEWAY: '', PORT: String(PORT), DATA_DIR: `../${DATA}` }, stdio: ['ignore', 'pipe', 'pipe'],
 });
 const stats = async () => (await fetch(`${BASE}/api/stats`)).json();
 
