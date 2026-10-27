@@ -652,7 +652,7 @@ with sync_playwright() as p:
         r401b = api(page, 'POST', '/api/workbenches', {'name': 'E2E AuthMask', 'url': 'http://127.0.0.1:9901/x', 'type': 'web', 'category': 'E2E', 'auth': {'type': 'bearer', 'value': '****'}})
         assert r401b.status == 400, 'POST auth 掩码指纹未被拒绝'
         # #3 MCP 通道掩码
-        mc_lst = page.request.fetch(BASE + '/mcp', method='POST', headers={'Content-Type': 'application/json'},
+        mc_lst = page.request.fetch(BASE + '/mcp', method='POST', headers=_mcp_h,
             data=json.dumps({'jsonrpc': '2.0', 'id': 910, 'method': 'tools/call', 'params': {'name': 'workbench_list', 'arguments': {}}})).json()
         mc_txt = mc_lst['result']['content'][0]['text']
         assert 'token=8sKZ' not in mc_txt and 'token=****' in mc_txt, 'MCP workbench_list 泄漏明文 token'
@@ -757,6 +757,25 @@ with sync_playwright() as p:
         record('SOP 台', False, str(e)); shot('sop')
 
     # ---------- 17. MCP 生产通道（StreamableHTTP 协议面 + 生产工具链） ----------
+    # 生产形态（MCP_GATEWAY=on）：/mcp 需会话令牌——用 E2E_ADMIN_TOKEN 建会话+授权（无 401 则空头）
+    _mcp_h = {'Content-Type': 'application/json'}
+    try:
+        _probe = page.request.post(BASE + '/mcp', headers={'Content-Type': 'application/json'},
+            data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}))
+        if _probe.status == 401:
+            _at = os.environ.get('E2E_ADMIN_TOKEN', '')
+            assert _at, '网关模式需要 E2E_ADMIN_TOKEN（生产形态基线）'
+            _sess = page.request.post(BASE + '/api/mcp/sessions',
+                headers={'Content-Type': 'application/json', 'X-Admin-Token': _at},
+                data=json.dumps({'name': 'e2e-runner'})).json()
+            _tools = page.request.get(BASE + '/api/mcp/tools', headers={'X-Admin-Token': _at}).json()
+            _names = [x.get('name') if isinstance(x, dict) else x for x in (_tools.get('tools') or _tools)]
+            page.request.put(BASE + f"/api/mcp/sessions/{_sess['id']}/grants",
+                headers={'Content-Type': 'application/json', 'X-Admin-Token': _at},
+                data=json.dumps({'grants': _names}))
+            _mcp_h['Authorization'] = 'Bearer ' + str(_sess.get('token', ''))
+    except Exception as _e:
+        print('[E2E] MCP 会话引导失败:', _e)
     try:
         def mcp(method, params=None, msg_id=True):
             body = {'jsonrpc': '2.0', 'method': method}
