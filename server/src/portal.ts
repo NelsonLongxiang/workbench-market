@@ -98,17 +98,26 @@ export function installPortal(
         if (backState) {
           if (!stMatch || stMatch[1] !== backState) return res.status(400).type('text').send('SSO state 校验失败（请从市场门户重新进入）');
           res.clearCookie(stateCookie, { path: `/go/${m[1]}/` });
+          res.cookie(`wm_sso_ok_${m[1]}`, '1', { httpOnly: true, sameSite: 'lax', path: `/go/${m[1]}/`, maxAge: 12 * 3600 * 1000 }); // #170 P10
           const u2 = new URL(String(req.originalUrl ?? req.url ?? ''), 'http://x');
           u2.searchParams.delete('state');
           req.url = (u2.pathname || '/') + (u2.search ? u2.search : '');
         }
         if (!sidMatch) {
           const state = randomUUID();
-          const redirectUri = encodeURIComponent(`/go/${m[1]}/?state=${state}`); // 回跳经市场（带 state·不裸跳目标域）
+          const _mkHost = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').trim();
+          const _mkProto = (String(req.headers['x-forwarded-proto'] ?? '').includes('https') || req.secure) ? 'https' : 'http';
+          const redirectUri = encodeURIComponent(`${_mkProto}://${_mkHost}/go/${m[1]}/?state=${state}`); // #170 P8 绝对回跳 // 回跳经市场（带 state·不裸跳目标域）
           res.cookie(stateCookie, state, { httpOnly: true, sameSite: 'lax', path: `/go/${m[1]}/`, maxAge: 10 * 60 * 1000 });
           return res.redirect(302, `${u.origin}/web/login?redirect=${redirectUri}&state=${state}`);
         }
-        (req as express.Request & { goSsoSid?: string }).goSsoSid = sidMatch[1];
+        const okCookie = `wm_sso_ok_${m[1]}`;
+        const ssoOk = new RegExp('(?:^|;\\s*)' + okCookie + '=1').test(browserCookies);
+        if (ssoOk) (req as express.Request & { goSsoSid?: string }).goSsoSid = sidMatch[1]; // #170 P10：仅 state 过检后转发
+        else { // P10b：未过检时从转发 Cookie 中剥除 session_id（否则 HPM 原样带上去=固定旁路）
+          const cleaned = browserCookies.split(';').map((c) => c.trim()).filter((c) => c && !/^session_id=/.test(c)).join('; ');
+          req.headers.cookie = cleaned;
+        }
       }
       // Cookie 池注入（派单 direct-5fbb2176）：台挂了 cookie_set 时按目标 host 匹配
       // cookie.domain + 未过期过滤 → 拼 Cookie 头（proxyReq 里替换而非追加）
