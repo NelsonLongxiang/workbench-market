@@ -26,6 +26,7 @@ const spa = createServer((req, res) => {
   if (req.url === '/assets/index-abc.js') { res.writeHead(200, { 'Content-Type': 'application/javascript' }); return res.end('import("/assets/LoginView-chunk.js"); const u="/assets/vendor-x.css"; console.log("spa-loaded");'); }
   if (req.url === '/assets/LoginView-chunk.js') { res.writeHead(200, { 'Content-Type': 'application/javascript' }); return res.end('export const login=true;'); }
   if (req.url === '/assets/vendor-x.css') { res.writeHead(200, { 'Content-Type': 'text/css' }); return res.end('.v{color:red}'); }
+  if (req.url === '/assets/vite-entry.js') { res.writeHead(200, { 'Content-Type': 'application/javascript' }); return res.end('const Qa=function(e){return"/"+e}; import(Qa("assets/LoginView-chunk.js"));'); }
   if (req.url === '/assets/style-def.css') { res.writeHead(200, { 'Content-Type': 'text/css' }); return res.end('body{}'); }
   res.writeHead(404, { 'Content-Type': 'application/json' }); res.end('{}');
 });
@@ -60,6 +61,11 @@ try {
   ok('⑥ 真取 LoginView chunk 200（非 404）', chunk.status === 200 && (await chunk.text()).includes('login'), `status=${chunk.status}`);
   const css2 = await (await fetch(`http://127.0.0.1:${PORT}/go/${id}/assets/vendor-x.css`)).text();
   ok('⑦ CSS 同（/go/ 前缀内引用）', css2.includes('/go/') || true, css2.slice(0, 40));
+  // 第三层（direct-a85fd99c）：Vite assetsURL helper 改写
+  const viteJs = await (await fetch(`http://127.0.0.1:${PORT}/go/${id}/assets/vite-entry.js`)).text();
+  ok('⑧ Vite helper 改写（return \"/go/<id>/\"+e）', viteJs.includes('/go/' + id + '/') && viteJs.includes('return'), viteJs.slice(0, 100));
+  const chunk3 = await fetch(`http://127.0.0.1:${PORT}/go/${id}/assets/LoginView-chunk.js`);
+  ok('⑨ helper 拼出的 chunk 真取 200', chunk3.status === 200, `status=${chunk3.status}`);
 } finally { child.kill(); await new Promise((r) => spa.close(r)); await new Promise((r) => setTimeout(r, 400)); }
 console.log(`\n===== 白屏修冒烟 ${pass + fail} 项：${pass} 通过 / ${fail} 失败 =====`);
 process.exit(fail ? 1 : 0);
