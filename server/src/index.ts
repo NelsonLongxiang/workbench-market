@@ -2124,7 +2124,7 @@ function adminHeaderOk(req: express.Request): boolean {
 
 function adminGuard(req: express.Request, res: express.Response): boolean {
   if (!adminTokenCheck(req.headers['x-admin-token'])) {
-    res.status(403).json({ error: '需要有效的 X-Admin-Token（管理员口令未设置时一律拒绝；可在设置页手动设置）' });
+    res.status(403).json({ error: '需要有效的 X-Admin-Token（口令缺失或无效一律拒绝；设置页/顶栏钥匙图标可设置）' }); // 属主报障文案修正：不再把「未带/无效」说成「未设置」
     return false;
   }
   const origin = req.headers.origin;
