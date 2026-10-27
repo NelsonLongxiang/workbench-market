@@ -36,6 +36,10 @@ export class AppDataService extends Service {
       : db.prepare("SELECT id, original_name, mime, size, note, created_by, created_at FROM app_files WHERE app_slug = ? AND deleted_at = '' ORDER BY id DESC LIMIT ?").all(slug, limit);
   }
   fileById(id: number, slug: string) {
+    // #193 F4：软删行不可见（下载/改 note/PATCH 全 404）；级联用 fileByIdAny
+    return db.prepare("SELECT * FROM app_files WHERE id = ? AND app_slug = ? AND deleted_at = ''").get(id, slug);
+  }
+  fileByIdAny(id: number, slug: string) {
     return db.prepare('SELECT * FROM app_files WHERE id = ? AND app_slug = ?').get(id, slug);
   }
   /** #132 P0①：note 更新 */
@@ -43,11 +47,14 @@ export class AppDataService extends Service {
     return db.prepare('UPDATE app_files SET note = ? WHERE id = ? AND app_slug = ?').run(note, id, slug);
   }
   /** #132 P0③：软删（deleted_at 置位·原行留审计） */
-  fileSoftDelete(id: number, slug: string) {
+  fileSoftDelete(id: number, slug: string) { // #193 F5：changes=0 → 路由 404
     return db.prepare("UPDATE app_files SET deleted_at = datetime('now') WHERE id = ? AND app_slug = ? AND deleted_at = ''").run(id, slug);
   }
-  dataSoftDelete(id: number, slug: string) {
+  dataSoftDelete(id: number, slug: string) { // #193 F5
     return db.prepare("UPDATE app_data SET deleted_at = datetime('now') WHERE id = ? AND app_slug = ? AND deleted_at = ''").run(id, slug);
+  }
+  fileCount(slug: string) {
+    return (db.prepare("SELECT COUNT(*) AS n FROM app_files WHERE app_slug = ? AND deleted_at = ''").get(slug) as { n: number }).n; // #193 F8 全量计数
   }
   filePaths(slug: string) {
     // 删台级联用：含软删行（行随台硬删，磁盘字节也必须一并删，否则成无主孤儿）
