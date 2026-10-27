@@ -45,9 +45,17 @@ try {
 }
 
 rmSync(snap, { force: true });
-const db = new DatabaseSync(join(root, "server", "data", "workbench-market.db"), { readOnly: true });
-db.exec(`VACUUM INTO '${snap.replaceAll("\\", "/")}'`);
-db.close();
+// #161 干净树（git archive 净态）：无本地数据库时明确提示并跳过快照（不崩·rc0）
+{
+  const dbPath = join(root, "server", "data", "workbench-market.db");
+  if (existsSync(dbPath)) {
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    db.exec(`VACUUM INTO '${snap.replaceAll("\\", "/")}'`);
+    db.close();
+  } else {
+    console.warn("[make-submission] 未发现 server/data/workbench-market.db（干净树无本地库）——跳过快照；如需数据面判据请先启动服务并跑一轮 E2E");
+  }
+}
 
 // 2) 封装提交物（file 型判据的 glob 目标全集）
 rmSync(sub, { recursive: true, force: true });
@@ -55,10 +63,15 @@ mkdirSync(sub, { recursive: true });
 const files = ["README.md", "package.json", "pnpm-workspace.yaml"];
 for (const f of files) cpSync(join(root, f), join(sub, f));
 const dirs = ["server/src", "web/src", "web/dist", "scripts", "verify", "design-system"];
-for (const d of dirs) cpSync(join(root, d), join(sub, d), { recursive: true });
+// #161 干净树：缺失目录（如 web/dist 构建产物·gitignored）跳过并提示，不 ENOENT 崩
+for (const d of dirs) {
+  const src = join(root, d);
+  if (!existsSync(src)) { console.warn(`[make-submission] 跳过缺失目录 ${d}（干净树未构建）`); continue; }
+  cpSync(src, join(sub, d), { recursive: true });
+}
 
 mkdirSync(join(sub, "evidence"), { recursive: true });
-cpSync(join(root, "evidence", "e2e_test.py"), join(sub, "evidence", "e2e_test.py"));
+if (existsSync(join(root, "evidence", "e2e_test.py"))) cpSync(join(root, "evidence", "e2e_test.py"), join(sub, "evidence", "e2e_test.py"));
 cpSync(join(root, "server", "package.json"), join(sub, "server", "package.json"));
 cpSync(join(root, "web", "package.json"), join(sub, "web", "package.json"));
 const pngs = readdirSync(join(root, "evidence")).filter((f) => f.endsWith(".png"));
