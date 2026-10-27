@@ -64,6 +64,11 @@ ${stepsHtml}
   <header><h2>agent 交付区</h2><span class="muted" id="extras-note"></span></header>
   <div class="body" id="extras-data"></div>
   <ul id="extras-files" style="margin:8px 0 0;padding-left:18px"></ul>
+  <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+    <input type="file" id="upload-input" style="font-size:12px">
+    <button class="btn" id="upload-btn" disabled>上传交付文件</button>
+    <span class="muted" id="upload-note"></span>
+  </div>
 </section>
 <div class="foot">
   <button class="btn primary" id="finish" disabled>完成执行</button>
@@ -75,6 +80,7 @@ window.__SOP__ = ${boot};
 (function () {
   var BOOT = window.__SOP__;
   var runId = null;
+  var runUploadToken = ''; // #page-wire：run 级上传令牌（创建响应/本机存档）
   var timers = {};
   var LS = 'wm.sop.run.' + BOOT.slug;
   function $(s, el) { return (el || document).querySelector(s); }
@@ -171,6 +177,12 @@ window.__SOP__ = ${boot};
     p.then(function (run) {
       if (!run || !run.id) { setState('开启执行记录失败'); return; }
       runId = run.id;
+      // #page-wire（监督席 direct-c869d6db）：令牌接线——创建响应即得；恢复场景读本机存档（同浏览器同 run）
+      runUploadToken = String(run.upload_token || '');
+      if (!runUploadToken) { try { var prevTok = JSON.parse(localStorage.getItem(LS + '.tok') || 'null'); if (prevTok && prevTok.id === run.id) runUploadToken = String(prevTok.t || ''); } catch (e) {} }
+      if (runUploadToken) { try { localStorage.setItem(LS + '.tok', JSON.stringify({ id: run.id, t: runUploadToken })); } catch (e) {} }
+      var ub = document.getElementById('upload-btn'); if (ub) ub.disabled = false;
+      var un2 = document.getElementById('upload-note'); if (un2) un2.textContent = runUploadToken ? '' : '（无令牌：严格模式下需管理员口令或重开执行）';
       localStorage.setItem(LS, JSON.stringify({ id: run.id, status: 'running' }));
       setRunMeta('run #' + run.id + ' · v' + (run.version || BOOT.version));
       // 回填已有数据（恢复现场）：远端优先，本地缓冲兜底
@@ -193,6 +205,35 @@ window.__SOP__ = ${boot};
     var sec = el.closest('[data-step]');
     if (sec) queueSave(sec.getAttribute('data-step'));
   });
+  // #page-wire（监督席 direct-c869d6db）：交付上传——严格模式自动带 X-Run-Upload-Token
+  (function () {
+    var btn = document.getElementById('upload-btn');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      var inp = document.getElementById('upload-input');
+      var note = document.getElementById('upload-note');
+      if (!inp || !inp.files || !inp.files.length) { if (note) note.textContent = '请选择文件'; return; }
+      if (!runId) { if (note) note.textContent = '执行未开始'; return; }
+      var fd = new FormData();
+      fd.append('file', inp.files[0]);
+      var hdr = runUploadToken ? { 'X-Run-Upload-Token': runUploadToken } : {};
+      btn.disabled = true;
+      fetch('/api/sop/runs/' + runId + '/files', { method: 'POST', body: fd, headers: hdr })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, j: j }; }); })
+        .then(function (res) {
+          if (note) note.textContent = res.ok ? ('已上传：' + (res.j.name || '')) : ('上传失败(' + res.status + ')：' + (res.j.error || ''));
+          btn.disabled = false; inp.value = '';
+          if (res.ok) { // 刷新交付文件列表（就地把新行加进 extras-files）
+            var fileBox = document.getElementById('extras-files');
+            if (fileBox && res.j && res.j.name) {
+              var li = document.createElement('li');
+              li.textContent = res.j.name + '（' + Math.round((res.j.size || 0) / 1024) + ' KB）';
+              fileBox.appendChild(li);
+            }
+          }
+        }).catch(function (e) { if (note) note.textContent = '上传异常：' + e; btn.disabled = false; });
+    });
+  })();
   document.addEventListener('change', function (ev) {
     var el = ev.target;
     if (!el || !el.hasAttribute || !el.hasAttribute('data-field')) return;
