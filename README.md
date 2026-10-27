@@ -15,7 +15,7 @@ pnpm build            # 构建前端 → web/dist，由 server 同端口托管
 pnpm start            # 生产模式（只跑 server，访问 http://127.0.0.1:9800）
 ```
 
-环境变量：`PORT`（默认 9800）、`DATA_DIR`（SQLite 数据目录，默认 `server/data`）、`ADMIN_TOKEN`（管理员口令，控制面写操作用；也可在设置页手动设置）、`REDIS_URL`（SOP 状态层 Redis，缺省读 `DATA_DIR/redis.url`，都没有则降级直写 SQLite）、`MARKET_TEAM`（A2A 节点 team，默认 `market`）、`MCP_GATEWAY`（`on` 时 `/mcp` 启用会话令牌网关）。
+环境变量：`PORT`（默认 9800）、`DATA_DIR`（SQLite 数据目录，默认 `server/data`）、`ADMIN_TOKEN`（管理员口令，控制面写操作用；也可在设置页手动设置）、`REDIS_URL`（SOP 状态层 Redis，缺省读 `DATA_DIR/redis.url`，都没有则降级直写 SQLite）、`MARKET_TEAM`（A2A 节点 team，默认 `market`）、`MCP_GATEWAY`（`on` 时 `/mcp` 启用会话令牌网关——**生产已开：所有 /mcp 调用须 `Authorization: Bearer <会话令牌>`**·会话经 `POST /api/mcp/sessions` 创建+`PUT …/grants` 授权）、`LAYERFS_SERVICE_URL`/`LAYERFS_SERVICE_TOKEN`（LayerFS 服务面·两者任一缺失则 LayerFS 集成整个禁用=降级直写）。设置键：`run_upload_require_token`（`1`=SOP run 文件上传要令牌·缺省关=旧直传语义）。
 
 ## 功能
 
@@ -33,7 +33,7 @@ pnpm start            # 生产模式（只跑 server，访问 http://127.0.0.1:9
 | 凭据注入 | 工作台可配置 Bearer/Basic 凭据，经 `/go/` 门户访问时代理自动注入 `Authorization` 头：token 不必再明文拼进 url（token-in-url 会泄漏进上游访问日志/Referer）；url 自带一次性 token query 而请求未带时自动补全，已持认证 cookie 则不补（防重签死循环）；凭据值在详情抽屉脱敏展示 |
 | 台生成器 | `POST /api/apps` 一发即得一个市场自产台：AI 会话（或任何脚本）把 `[{path, content}]` 文件集发上来，市场静态托管在 `/apps/<slug>/`，**发布即自动入册**（类型 market-app、探测短路=服务活着即在线），门户/驾驶舱/市场全链立即可用；**全版本快照**——同 slug 重发 = 新版本，`activate` 一键回滚任意历史版本——从「台的管理者」到「台的生产者」 |
 | SOP 台 | 台生成器的 `kind:'sop'` 分流：`sop.yaml`（标题/编号/步骤，步骤 body 内嵌 HTML）发布为 SOP 台，`/sop/:slug/` 服务端渲染零构建执行页（步骤卡 + data-field 自动收集 + 800ms 防抖保存 + localStorage 缓冲 + 刷新恢复 run）；**状态机 draft→published→deprecated**（changelog 必填，draft 不入册防半成品上架）；执行数据**分层持久化**——状态层 Redis（HSET 热态 + 活跃索引，写路径 ~ms 级；不可达自动降级直写 SQLite）+ 持久层 SQLite（sop_runs 表为真源：开 run 钉版本、30s checkpoint、finish 全量沉淀；Redis 条目 1h 平滑淘汰） |
-| MCP 生产通道 | `/mcp` StreamableHTTP（stateless，零依赖手写 JSON-RPC 2.0）：AI 会话/任意 MCP 客户端直连市场，**17 个工具**——生产 7：`workbench_list`（找台）/`workbench_summary`（总览）/`workbench_check`（探测）/`use_url`（取 `/go/<id>/` 门户入口）/`app_publish`（**发布自产台与 SOP 台**，agent 原生供给通道）/`app_activate`（版本回滚）/`sop_publish`（SOP 上架）；执行数据 5：`sop_run_start` / `sop_run_step_save`（直接更新持久化执行数据，与 Runner/REST 同链）/ `sop_run_get` / `sop_run_list` / `sop_run_finish`；注册 CRUD 3：`workbench_register`（agent 自主登记外部台）/ `workbench_update` / `workbench_unregister`（凭据字段一律拒绝，人工配置）；台数据读取 2：`app_data_list`（读自产台表单提交数据）/ `app_files_list`（读文件提交列表，含下载 url）——**只走 MCP 的 agent 也能消费台提交的数据**；**上游聚合**（#20 P2）：`settings.mcp_upstreams` 配外部 MCP（如 taste-mcp），其工具以 `<prefix>__<tool>`（如 `taste__rules`）并入同一 /mcp 面，上游不可达自动降级不影响本地 17 工具；网关会话存在时以 `X-Market-Client: mcp/<会话名>` 透传调用方身份（上游据此判 judge 身份）——市场从 REST 页面操作升级为 agent 可编程；已实测接入 DSH（dsh-mcp-connector，工具以 `mcp__workbench-market__*` 注入会话） |
+| MCP 生产通道 | `/mcp` StreamableHTTP（stateless，零依赖手写 JSON-RPC 2.0）：AI 会话/任意 MCP 客户端直连市场，**25 个本地工具**（+ 上游聚合）——生产 6：`workbench_list`（找台）/`workbench_summary`（总览）/`workbench_check`（探测）/`use_url`（取 `/go/<id>/` 门户入口）/`app_publish`（**发布自产台与 SOP 台**，agent 原生供给通道）/`sop_publish`（SOP 上架·`app_activate` 已移出 MCP·回滚走变更申请）；草稿工作区 3：`app_draft_open` / `app_draft_edit` / `app_draft_submit`（LayerFS 草稿→合并→发布，同路径冲突 409）；变更申请 2：`change_request_create` / `change_requests`（回滚/删除统一评审门·REST approve 需 managed 口令+reviewed_by）；执行数据 6：`sop_run_start` / `sop_run_step_save`（直接更新持久化执行数据，与 Runner/REST 同链）/ `sop_run_get` / `sop_run_list` / `sop_run_finish` / `sop_run_sandbox`（VM sandbox 派发·LayerFS commit 交付）；技能 3：`skills_list` / `skill_versions`（版本链） / `skill_install_plan`（钉装计划+expected digest）；注册 CRUD 3：`workbench_register`（agent 自主登记外部台）/ `workbench_update` / `workbench_unregister`（凭据字段一律拒绝，人工配置）；台数据读取 2：`app_data_list`（读自产台表单提交数据）/ `app_files_list`（读文件提交列表，含下载 url）——**只走 MCP 的 agent 也能消费台提交的数据**；**上游聚合**（#20 P2）：`settings.mcp_upstreams` 配外部 MCP（如 taste-mcp），其工具以 `<prefix>__<tool>`（如 `taste__rules`）并入同一 /mcp 面（注册面实测 29 = 25 本地 + 4 上游），上游不可达自动降级不影响本地 25 工具；网关会话存在时以 `X-Market-Client: mcp/<会话名>` 透传调用方身份（上游据此判 judge 身份）——市场从 REST 页面操作升级为 agent 可编程；已实测接入 DSH（dsh-mcp-connector，工具以 `mcp__workbench-market__*` 注入会话） |
 | 台数据查看 | 工作台详情（market-app）→「查看提交数据」Drawer：表单数据行（JSON 折叠/提交者/时间）+ 文件（类型/大小/下载）+ 游标加载更多——数据落库后在 UI 直接可查 |
 | SOP 管理页 | `/sops`：SOP 台的消费与管理面——状态徽章可视化状态机（draft/published/deprecated，色值经对比度审计）、版本链与 changelog、**run 记录 Drawer**（直查分层持久化的执行数据：运行中/已完成、步骤数、逐步骤填报数据展开）、页面上架/废弃操作、执行入口直达 Runner；演示 SOP（demo-rack-sop）常驻可点击体验 |
 | 备份迁移 | 全量 JSON 导出 / 导入（合并或替换模式） |
@@ -109,9 +109,12 @@ GET              /api/health                    版本与运行时长
 ## 目录
 
 ```
-server/src/   db.ts（schema+种子） health.ts（探测） index.ts（REST+静态+巡检） a2a.ts（卡片/绑定/direct 准入） redis.ts（SOP 状态层）
-web/src/      pages/（Dashboard/Market/Sops/Types/Settings/UseWorkbench/Cockpit/McpGateways） components/（StatusBadge/WorkbenchForm/AppDataDrawer）
-data/         SQLite 数据文件（git 忽略）
+server/src/     db.ts（schema+种子+迁移） health.ts（探测） index.ts（REST+静态+巡检） portal.ts（/go/ 反代·白屏五层+登录态 cookie 改写） a2a.ts（卡片/绑定/direct 准入） redis.ts（SOP 状态层）
+server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·cookie·setting·mcp（域服务）· sop-runner.ts（执行页）
+web/src/        pages/（Dashboard/Market/Sops/Types/Settings/UseWorkbench/Cockpit/McpGateways/Tasks/Skills） components/ admin-token.ts（统一口令注入）
+deploy/         Dockerfile.market（多阶段·非 root·HEALTHCHECK） docker-compose.yml（回环默认·profiles 隔离） layerfs-svc.mjs
+docs/           layerfs-service-contract-v0/v1.md（LayerFS 服务契约）
+data/           SQLite 数据文件（git 忽略）
 ```
 
 设计系统见 `design-system/workbench-market/MASTER.md`（Minimalism & Swiss，主色 #1E3A5F）。
