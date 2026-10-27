@@ -646,11 +646,11 @@ function publishAppBody(b: any): { status: number; body: object } {
     appRow = getApp(slug);
   }
   // #94 P1 影子双写：发布同时写 Commit（读路径不变·失败不阻·commit_id 留空可后补迁移）
-  void layerfsPublish(slug, files, String(changelog ?? `[publish] v${version}`)).then((out) => {
+  void layerfsPublish(layerfsProjectName(slug), files, String(changelog ?? `[publish] v${version}`)).then((out) => {
     if (out) {
       try {
         db.prepare("UPDATE app_versions SET commit_id = ? WHERE app_id = (SELECT id FROM apps WHERE slug = ?) AND version = ?").run(out.commit_id, slug, version);
-        db.prepare("UPDATE apps SET layerfs_project = ? WHERE slug = ?").run(slug, slug);
+        db.prepare("UPDATE apps SET layerfs_project = ? WHERE slug = ?").run(layerfsProjectName(slug), slug);
       } catch { /* 影子失败不阻 */ }
     }
   }); // 异步影子——响应不等（fire-and-forget·不阻发布路径）
@@ -690,7 +690,7 @@ app.post('/api/apps/:slug/migrate-layerfs', wrap(async (req, res) => {
     if (results.at(-1)?.version === v.version && results.at(-1)?.result === 'anomaly') { prevBytes = v.total_bytes; continue; }
     // 幂等：已有 commit_id 跳过
     if (v.commit_id) { results.push({ version: v.version, result: 'skip', commit_id: v.commit_id }); prevBytes = v.total_bytes; continue; }
-    const out = await layerfsPublish(a.slug, files, `[migrate] v${v.version}`);
+    const out = await layerfsPublish(layerfsProjectName(a.slug), files, `[migrate] v${v.version}`);
     if (!out) { results.push({ version: v.version, result: 'error', reason: 'layerfs 服务不可达（影子失败语义·可重跑）' }); prevBytes = v.total_bytes; continue; }
     db.prepare('UPDATE app_versions SET commit_id = ? WHERE id = ?').run(out.commit_id, v.id);
     db.prepare("UPDATE apps SET layerfs_project = ? WHERE slug = ?").run(a.slug, a.slug);
@@ -698,7 +698,7 @@ app.post('/api/apps/:slug/migrate-layerfs', wrap(async (req, res) => {
     const { base, token } = layerfsServiceBase();
     let shaMatch = false;
     try {
-      const fr = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(a.slug) + '/branches/release/commits/' + encodeURIComponent(out.commit_id) + '/files', { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      const fr = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(layerfsProjectName(a.slug)) + '/branches/release/commits/' + encodeURIComponent(out.commit_id) + '/files', { headers: token ? { Authorization: `Bearer ${token}` } : {} });
       const fj = await fr.json() as { files: { path: string; content: string }[] };
       const { createHash: ch } = await import('node:crypto');
       const h1 = ch('sha256').update(JSON.stringify(files.map((f) => [f.path, ch('sha256').update(f.content, 'utf8').digest('hex')]))).digest('hex');
@@ -731,7 +731,7 @@ async function activateAppVersion(slug: string, vRaw: unknown): Promise<object> 
     if (!base) throw new HttpError(502, `v${v} 为冷版本且 layerfs 服务未配置——拒回滚（不切指针）`);
     let rebuilt = false;
     try {
-      const fr = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(slug) + '/branches/release/commits/' + encodeURIComponent(vrow.commit_id) + '/files', { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(10000) });
+      const fr = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(layerfsProjectName(slug)) + '/branches/release/commits/' + encodeURIComponent(vrow.commit_id) + '/files', { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(10000) });
       if (fr.ok) {
         const fj = await fr.json() as { files: { path: string; content: string }[] };
         for (const f of fj.files) { const abs = join(dir2, f.path); mkdirSync(join(abs, '..'), { recursive: true }); writeFileSync(abs, f.content, 'utf8'); }
@@ -836,6 +836,13 @@ app.delete('/api/apps/:slug', (req, res) => {
 
 /** #94 v3 S1：台删除级联体（一步式 REST 与人审批准共用一个执行体——单一事实源） */
 /** #94 P1 影子双写：经 layerfs 服务发布 Commit（契约 v0 §2.1·Bearer）——失败不阻（warn·commit_id 留空） */
+/** #94 ②（R9）：LayerFS 项目名——[a-z0-9_.-]{1,63}·超限 slug 折叠 wm-<前52>-<sha8> */
+function layerfsProjectName(slug: string): string {
+  if (/^[a-z0-9][a-z0-9._-]{0,62}$/.test(slug)) return slug;
+  const h = createHash('sha256').update(slug).digest('hex').slice(0, 8);
+  return ('wm-' + slug.slice(0, 52).replace(/[^a-z0-9._-]/g, '-') + '-' + h).slice(0, 63);
+}
+
 function layerfsServiceBase(): { base: string; token: string } {
   const s = getSettings() as Record<string, unknown>;
   const base = String(s['layerfs_service_url'] ?? process.env.LAYERFS_SERVICE_URL ?? '').trim();
@@ -880,7 +887,7 @@ function deleteAppCascade(slug: string): void {
     try {
       const { base, token } = layerfsServiceBase();
       if (!base) return; // 服务未配=跳过（市场面已清·残留记）
-      const r = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(slug), { method: 'DELETE', headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(10000) });
+      const r = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(layerfsProjectName(slug)), { method: 'DELETE', headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(10000) });
       if (!r.ok) console.warn(`[S4-residue] 服务删除失败 HTTP ${r.status}（项目 ${slug} 残留·不重试·月度重建兜底）`);
     } catch (e) { console.warn(`[S4-residue] 服务删除异常: ${String((e as Error).message).slice(0, 80)}（不重试）`); }
   })();
@@ -1776,7 +1783,7 @@ function serveApp(req: express.Request, res: express.Response) {
         }
         const { base, token } = layerfsServiceBase();
         if (!base) return res.status(502).json({ error: '冷版本需 layerfs 服务（未配置）' });
-        const fr = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(m[1]) + '/branches/release/commits/' + encodeURIComponent(vrow.commit_id) + '/files', { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(10000) });
+        const fr = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(layerfsProjectName(m[1])) + '/branches/release/commits/' + encodeURIComponent(vrow.commit_id) + '/files', { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(10000) });
         if (!fr.ok) return res.status(502).json({ error: `冷回读服务 HTTP ${fr.status}` });
         const fj = await fr.json() as { files: { path: string; content: string }[] };
         const hitFile = fj.files.find((f) => f.path === rel) ?? (!posix.extname(rel) ? fj.files.find((f) => f.path === 'index.html') : undefined);
