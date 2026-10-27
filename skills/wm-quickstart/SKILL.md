@@ -37,3 +37,34 @@ MCP app_publish({
 ## 快查
 - 工具全景/鉴权/坑：`wm-market-guide`（深度参考）
 - 判据：写读全链见 references/write-read.md
+
+
+## sandbox 运行约束（#170 P11 / #198）
+
+自产台页面在 `/apps/<slug>/` 下带 `CSP: sandbox`（**不助 allow-same-origin**）= 不透明源。后果：
+
+- `localStorage/sessionStorage/IndexedDB` 抛 `SecurityError`——**不要用浏览器存储承载状态**（try/catch 降级）
+- `self.origin === "null"`；跨源请求带 `Origin: null`、**无 Referer**
+- `window.open` 弹窗继承 sandbox；`postMessage` 目标源只能 `'*'`，接收方用 `e.source === opener` 防冒充
+- 下载（`allow-downloads`）正常
+
+**交付空间模式（#198 恢复）**：页面调本台数据/文件接口需带注入的按台令牌——
+
+```html
+<meta name="wm-app-token" content="…">   <!-- 平台自动注入 -->
+<script>window.WM_APP_TOKEN</script>     <!-- 也可读 -->
+```
+
+```js
+fetch('/api/apps/<slug>/data', { headers: { 'X-App-Token': window.WM_APP_TOKEN } })
+```
+
+令牌与 slug 绑定、不可跨台复用；不带令牌的 `Origin: null` 请求会被浏览器侧拒绝。
+
+## 单文件打包三步（推荐）
+
+1. **环境注入不分叉源码**：页面读可选 `window.XX_ENV`（根路径/外链/内联资产），仓库内直开用默认值
+2. **内联打包**：样式与脚本按原加载顺序内联进 `index.html`；校验脚本无 `</script`、样式无 `</style`；独立页（弹窗报告）作第二个文件
+3. **本地预跑门禁 → 发布后冒烟**：空文件/div 配对/≤64 文件/≤2MB/路径合法，不通过不发；发布后 CDP 冒烟（数据量/样式/图片/弹窗 postMessage/无脚本异常·`/apps/<slug>/`、`/go/<id>/`、`file://` 各一遍）
+
+> 发布门禁细节：div 配对按**正则计数整个 .html**（内联 JS 模板串里的 `<div` 也算）；v1 只收 UTF-8 文本——图片用 base64 `data:` URI 内联（体积 ×1.33，计入 2MB）。
