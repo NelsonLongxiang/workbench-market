@@ -658,7 +658,8 @@ function publishAppBody(b: any): { status: number; body: object } {
 
   // app 类发布即入册；sop 类走状态机——draft 不入册，publish 时入册
   const workbench_id = appRow.kind === 'app' ? syncWorkbenchRegistration(appRow) : 0;
-  return { status: existing ? 200 : 201, body: { ok: true, slug: appRow.slug, version, workbench_id, kind: appRow.kind, status: appRow.status, app: appDetail(appRow) } };
+  // #132 R1 软防护（监督席直裁）：发布响应带 served_version 基线（发布者可见供 diff 自查·不做跨域强制校验）
+  return { status: existing ? 200 : 201, body: { ok: true, slug: appRow.slug, version, served_version: existing ? (version - 1) : 0, workbench_id, kind: appRow.kind, status: appRow.status, app: appDetail(appRow) } };
 }
 
 app.post('/api/apps', (req, res) => {
