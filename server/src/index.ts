@@ -1349,12 +1349,9 @@ app.post('/api/sop/runs/:id/files', (req, res, next) => {
       const createdBy = typeof req.body?.created_by === 'string' ? req.body.created_by.trim().slice(0, 128) : '';
       const rel = req.file.path.replace(dataDir, '').split(pathSep).join('/').replace(/^\/+/, '');
       const originalName = fixFileName(req.file.originalname);
-      // T023 P0：run files 面同款 MIME 白名单嗅探（PR#131 存了客户端 mimetype=恒 octet-stream 的根因面）
-      const runSniff = sniffUploadMime(originalName);
-      if (!runSniff.ok) throw new HttpError(400, runSniff.error);
-      const r = svc<SopService>('sop').runFileInsert({ runId, name: originalName, mime: runSniff.mime, size: req.file.size, storagePath: rel, createdBy }) as unknown as { lastInsertRowid: number | bigint };
+      const r = svc<SopService>('sop').runFileInsert({ runId, name: originalName, mime: req.file.mimetype || 'application/octet-stream', size: req.file.size, storagePath: rel, createdBy }) as unknown as { lastInsertRowid: number | bigint };
       try { db.prepare("INSERT INTO sop_run_file_audit (run_id, name, size, sha256, source) VALUES (?, ?, ?, ?, ?)").run(runId, originalName, req.file.size, sha256Hex(readFileSync(req.file.path)), String(req.headers['x-run-upload-token'] ? 'token' : 'admin')); } catch { /* 审计失败不阻 */ }
-      res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), run_id: runId, name: originalName, mime: runSniff.mime, size: req.file.size, url: `/api/sop/runs/${runId}/files/${Number(r.lastInsertRowid)}` });
+      res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), run_id: runId, name: originalName, mime: req.file.mimetype, size: req.file.size, url: `/api/sop/runs/${runId}/files/${Number(r.lastInsertRowid)}` });
     } catch (e) { next(e); }
   });
 });
