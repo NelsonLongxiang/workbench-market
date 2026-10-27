@@ -1650,14 +1650,41 @@ app.post('/api/skills/:slug/versions', wrap(async (req, res) => {
   const existed = row ? S.versionByDigest(t.digest, row.id) : undefined; // #94 S0⑥：仅同技能域查重（新技能无域可撞）
   if (existed) throw new HttpError(409, `内容 digest 已存在（skill_version #${existed.id}）——不可变锚拒重复发布`);
   const nextVer = row ? (S.versionsMax(row.id)?.v ?? 0) + 1 : 1;
+  // #178 S14：发布吸收 SKILL.md frontmatter（name/description/argument-hint）——导入器同构
+  let fmName = '';
+  let fmDesc = '';
+  let fmHint = '';
+  {
+    const sk = (files as any[]).find((f) => /(^|\/)SKILL\.md$/i.test(String(f?.path ?? '')));
+    if (sk && typeof sk.content === 'string') {
+      const txt = String(sk.content).replace(/\r\n?/g, '\n');
+      if (txt.startsWith('---')) {
+        const end = txt.indexOf('\n---', 3);
+        if (end > 0) {
+          for (const ln of txt.slice(4, end).split('\n')) {
+            const m = /^([\w-]+):\s*(.*)$/.exec(ln);
+            if (!m) continue;
+            const k = m[1].toLowerCase();
+            const v = m[2].replace(/^["']|["']$/g, '').trim();
+            if (k === 'name') fmName = v;
+            else if (k === 'description') fmDesc = v;
+            else if (k === 'argument-hint') fmHint = v;
+          }
+        }
+      }
+    }
+  }
+
   if (!row) {
     // #94 S0②（K4）：首版不再强制 reviewed_by（人审门取消——发布/导入同权）
-    S.upsertSkill({ slug, name: slug.split(':').pop() ?? slug, layer: 5, layerName: 'AI 原生运营', source: 'publish' });
+    S.upsertSkill({ slug, name: fmName || (slug.split(':').pop() ?? slug), layer: 5, layerName: 'AI 原生运营', description: fmDesc, argumentHint: fmHint, source: 'publish' }); // #178 S14
     row = S.skillBySlug(slug);
+  } else if (fmDesc || fmHint || fmName) {
+    S.upsertSkill({ slug, name: fmName || row.name, layer: row.layer, layerName: row.layer_name, description: fmDesc || row.description, argumentHint: fmHint || row.argument_hint, source: 'publish' }); // #178 S14：已存技能同步吸收
   }
   // 快照落盘
   const { mkdirSync, writeFileSync } = await import('node:fs');
-  const snapDir = join(dataDir, 'skill-snapshots', encodeURIComponent(slug), `v${nextVer}`);
+  const snapDir = join(dataDir, 'skill-snapshots', encodeURIComponent(String(slug).split(':').pop() ?? slug), `v${nextVer}`); // #178/#601：目录名用 name 段（与导入器一致）
   mkdirSync(snapDir, { recursive: true });
   const { dirname } = await import('node:path');
   for (const f of files) {
@@ -2384,6 +2411,7 @@ const wbById = (id: number): ReturnType<typeof rowToWorkbench> | null => {
 };
 
 import { MCP_TOOLS } from './mcp-tools.ts';
+import { evalCandidates } from './eval.ts'; // #178 评估模型客户端
 
 import { renderSopRunner } from './sop-runner.ts';
 import { collectTasks } from './tasks.ts';
@@ -2427,6 +2455,37 @@ async function callTool(name: string, args: any): Promise<unknown> {
         export_url: `/api/skills/${encodeURIComponent(row.slug)}/export?version=${target.version}`, // #94 S3②：导出包面（薄分发）
       };
     }
+    case 'skill_search': {
+      // #178（评审席 design v2·S1-S14）：语义搜——预筛 30 → jev 打分（批≤15）→ P>0.7 严格·≤3·降序；不可用报错不降级
+      const need = String(args?.need ?? '').trim();
+      if (!need || need.length > 2000) throw new HttpError(400, 'need 必填且 ≤2000 字');
+      const layerFilter = Number(args?.layer);
+      const SS = svc<SkillService>('skill');
+      const all = (layerFilter >= 1 && layerFilter <= 5 ? SS.skillsByLayer(layerFilter) : SS.skillsAll()) as any[];
+      const alive = all.filter((s) => !(s.legacy === 1 && (SS.versionsBySkill(s.id) as any[]).length === 0));
+      const tokens = need.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 2);
+      const scored = alive.map((s) => {
+        const hay = (String(s.name ?? '') + ' ' + String(s.description ?? '') + ' ' + String(s.argument_hint ?? '')).toLowerCase();
+        let sc = 0;
+        for (const t of tokens) { if (!t) continue; if (hay.includes(t)) sc += 1; if (String(s.name ?? '').toLowerCase().includes(t)) sc += 2; }
+        return { s, sc };
+      });
+      scored.sort((a, b) => b.sc - a.sc);
+      const prescreen = scored.slice(0, 30).map((x) => x.s);
+      const qidOf = new Map<string, any>();
+      const cands = prescreen.map((s) => { const qid = 'q' + s.id; qidOf.set(qid, s); return { qid, slug: s.slug, name: s.name, description: String(s.description ?? ''), argumentHint: String(s.argument_hint ?? '') }; });
+      const probs = await evalCandidates(need, cands);
+      const need_digest = createHash('sha256').update(need, 'utf8').digest('hex').slice(0, 12);
+      const entries = Object.entries(probs).filter(([, pv]) => pv > 0.7).sort((a, b) => b[1] - a[1]).slice(0, 3);
+      const items = entries.map(([qid, pv]) => {
+        const s = qidOf.get(qid);
+        const vs = SS.versionsBySkill(s.id) as any[];
+        return { slug: s.slug, name: s.name, layer: s.layer, description: String(s.description ?? ''), confidence: pv, version: vs[0]?.version ?? null, install_plan: { slug: s.slug, version: vs[0]?.version ?? null } };
+      });
+      try { db.prepare("INSERT INTO mcp_calls (at, session_name, method, tool, ok, error, duration_ms, args_sha256) VALUES (datetime('now'), ?, 'tools/call', 'skill_search', 1, '', 0, ?)").run('skill_search', need_digest); } catch { /* 审计失败不阻 */ }
+      return items.length ? { need_digest, items } : { need_digest, items: [], note: '无置信度大于 0.7 的技能' };
+    }
+
     case 'workbench_list': {
       let list = listWorkbenches();
       if (args?.q) { const s = String(args.q).toLowerCase(); list = list.filter((w) => w.name.toLowerCase().includes(s) || w.url.toLowerCase().includes(s) || (w.description || '').toLowerCase().includes(s)); }

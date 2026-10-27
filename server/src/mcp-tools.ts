@@ -210,5 +210,18 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
     description: '生成安装计划（薄分发：不自动落盘）——返回目标版本 digest（expected sha256 钉装锚）+ 快照路径 + 手工安装指引。',
     inputSchema: { type: 'object', properties: { slug: { type: 'string' }, version: { type: 'number', description: '缺省最新' } }, required: ['slug'] },
   },
+  {
+    name: 'skill_search',
+    description: '语义搜技能：只描述需求（自然语言），评估模型按 P(true) 打分返回 ≤3 个置信度严格 >0.7 的技能（降序）。只读；不可用时**报错不降级**。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        need: { type: 'string', description: '需求描述（1–2000 字·自然语言）' },
+        layer: { type: 'integer', description: '可选层过滤 1..5（缺省全层）' },
+      },
+      required: ['need'],
+      additionalProperties: false,
+    },
+  },
 
 ];
