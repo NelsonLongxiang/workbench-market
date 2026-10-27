@@ -6,6 +6,7 @@
  * - upgrade 事件不流经 Express 中间件链，必须重做同一套准备（见 handlePortalUpgrade）
  */
 import express from 'express';
+import { randomUUID } from 'node:crypto';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { existsSync } from 'node:fs';
 import { join, posix } from 'node:path';
@@ -89,9 +90,22 @@ export function installPortal(
       if (isOdooLike) {
         const browserCookies = String(req.headers.cookie ?? '');
         const sidMatch = /(?:^|;\s*)session_id=([^;\s]+)/.exec(browserCookies);
+        const stateCookie = `wm_sso_${m[1]}`;
+        const stMatch = new RegExp('(?:^|;\\s*)' + stateCookie + '=([^;\\s]+)').exec(browserCookies);
+        const _qs = new URLSearchParams(String(req.originalUrl ?? req.url ?? '').split('?')[1] ?? '');
+        const backState = _qs.get('state') ?? '';
+        // #170 P1④（安全项）：回跳经市场且 state 校验——不匹配 400 拒（CSRF/open-redirect 防线）；匹配即消费
+        if (backState) {
+          if (!stMatch || stMatch[1] !== backState) return res.status(400).type('text').send('SSO state 校验失败（请从市场门户重新进入）');
+          res.clearCookie(stateCookie, { path: `/go/${m[1]}/` });
+          const u2 = new URL(String(req.originalUrl ?? req.url ?? ''), 'http://x');
+          u2.searchParams.delete('state');
+          req.url = (u2.pathname || '/') + (u2.search ? u2.search : '');
+        }
         if (!sidMatch) {
-          const state = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-          const redirectUri = encodeURIComponent(`/go/${m[1]}/`);
+          const state = randomUUID();
+          const redirectUri = encodeURIComponent(`/go/${m[1]}/?state=${state}`); // 回跳经市场（带 state·不裸跳目标域）
+          res.cookie(stateCookie, state, { httpOnly: true, sameSite: 'lax', path: `/go/${m[1]}/`, maxAge: 10 * 60 * 1000 });
           return res.redirect(302, `${u.origin}/web/login?redirect=${redirectUri}&state=${state}`);
         }
         (req as express.Request & { goSsoSid?: string }).goSsoSid = sidMatch[1];
@@ -204,6 +218,8 @@ export function installPortal(
               else out += '; Path=/go/' + _wid + '/';
               // 非 HTTPS 下剥 Secure（否则浏览器静默丢弃该 cookie=登录态丢的隐性根因）
               if (!_https) out = out.replace(/;\s*secure\b/ig, '');
+              // #170 P1⑤：缺省补 SameSite=Lax（跨站携带收窄·不改目标显式声明）
+              if (!/;\s*samesite=/i.test(out)) out += '; SameSite=Lax';
             }
             return out;
           });
