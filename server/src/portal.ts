@@ -199,6 +199,7 @@ export function installPortal(
         if (rq.goSsoSid) proxyReq.setHeader('cookie', `session_id=${rq.goSsoSid}`);
         if (rq.goAuth) proxyReq.setHeader('authorization', rq.goAuth);
         if (rq.goOrigin) proxyReq.setHeader('origin', rq.goOrigin);
+        if (rq.goOrigin) proxyReq.setHeader('referer', rq.goOrigin + '/'); // #170 P7 不泄：Referer 只到目标源，不携带 /go/<id>/ 市场路径
         // Cookie 池注入（派单 direct-5fbb2176）：前置中间件解析好的 goCookies（按目标 host
         // 匹配 + 未过期过滤后的 Cookie 头值），**替换**而非追加（确定性语义）
         if (rq.goCookies) proxyReq.setHeader('cookie', rq.goCookies);
@@ -269,7 +270,16 @@ export function installPortal(
               if (/^\/go\/\d+\//.test(url)) return m; // 已是任意 /go/N/ 形
               return `${name}=${q}${goBase}${url}${q}`;
             };
-            if (pCt.includes('text/html')) body = body.replace(/(src|href)=(["'])(\/[^"']*)\2/gi, (m, n, q, u) => fixAttr(m, n, q, u));
+            if (pCt.includes('text/html')) {
+              body = body.replace(/(src|href)=(["'])(\/[^"']*)\2/gi, (m, n, q, u) => fixAttr(m, n, q, u));
+              // #170 P6 绝对链接：指向目标源自身的完整地址 → /go/<id>/ 前缀（跨源外链不动）
+              const _tgtOrigin = String((req as express.Request & { goOrigin?: string }).goOrigin ?? '');
+              if (_tgtOrigin) body = body.replace(/(src|href)=(["'])(https?:\/\/[^"']+)\2/gi, (m, n, q, u) => {
+                if (!u.startsWith(_tgtOrigin)) return m;
+                const rest = u.slice(_tgtOrigin.length) || '/';
+                return n + '=' + q + goBase + rest + q;
+              });
+            }
             // 白屏第二层（监督席 direct-aa94cbd4）：Vite 动态 chunk——JS/CSS 内绝对 /assets/ 前缀改写（仅此单前缀·避免误伤）
             // 外链护栏（监督席 direct-ef4d0f97·丢失补回）：跨源绝对 URL 内 /assets/ 不动——交替匹配保护（airwallex 支付脚本实证）
             if (pIsJs || pIsCss) body = body.replace(/(https?:\/\/[^\s"'`()]+)|(\/assets\/)|(\/api\/)/g, (m, url, ast, api) => (url ? url : goBase + (ast || api))); // 第四层：JS/CSS 字面 /api/ 同加前缀（Sub2API fetch('/api/v1') 打错后端根因）
