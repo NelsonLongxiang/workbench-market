@@ -2334,6 +2334,41 @@ async function callTool(name: string, args: any): Promise<unknown> {
       return publishAppBody({ ...args, created_by: args?.created_by || 'mcp' }).body;
     // #94 v3 S1（K12）：app_activate 直回滚工具**移除**（破坏性操作 MCP 不可直执）——改经 change_request_create 提请求
     // #94 v3 S1（契约形状·#94 评论 6424247402）：{kind: 'app'|'skill', slug, op: 'rollback'|'delete', target_version?, reason}
+    // #94 P3 agent 工作区（草稿三分支·契约 v1 drafts 面）
+    case 'app_draft_open': {
+      const a0 = getApp(String(args?.slug ?? ''));
+      const v0 = (svc<AppService>('app').versions(a0.id) as any[]).find((x) => x.version === a0.active_version);
+      if (!v0?.commit_id) throw new HttpError(409, `激活版无 Commit 锚——不可开草稿（影子未达）`);
+      const { base, token } = layerfsServiceBase();
+      if (!base) throw new HttpError(502, 'layerfs 服务未配置——草稿不可用');
+      const fr = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(layerfsProjectName(a0.slug)) + '/branches/release/drafts', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ from: v0.commit_id }), signal: AbortSignal.timeout(10000) });
+      if (!fr.ok) throw new HttpError(502, `draft open HTTP ${fr.status}`);
+      return await fr.json();
+    }
+    case 'app_draft_edit': {
+      const aE = getApp(String(args?.slug ?? ''));
+      const { base: bE, token: tE } = layerfsServiceBase();
+      if (!bE) throw new HttpError(502, 'layerfs 服务未配置');
+      const fr = await fetch(bE.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(layerfsProjectName(aE.slug)) + '/branches/release/drafts/' + encodeURIComponent(String(args?.draft ?? '')) + '/apply', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tE ? { Authorization: `Bearer ${tE}` } : {}) }, body: JSON.stringify({ changes: [{ op: 'edit', path: String(args?.path ?? ''), old_text: String(args?.old_text ?? ''), new_text: String(args?.new_text ?? '') }], message: 'draft edit' }), signal: AbortSignal.timeout(10000) });
+      if (!fr.ok) throw new HttpError(502, `draft apply HTTP ${fr.status}`);
+      return await fr.json();
+    }
+    case 'app_draft_submit': {
+      const aS = getApp(String(args?.slug ?? ''));
+      const { base: bS, token: tS } = layerfsServiceBase();
+      if (!bS) throw new HttpError(502, 'layerfs 服务未配置');
+      const proj = layerfsProjectName(aS.slug);
+      const mr = await fetch(bS.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(proj) + '/branches/release/drafts/' + encodeURIComponent(String(args?.draft ?? '')) + '/merge', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tS ? { Authorization: `Bearer ${tS}` } : {}) }, body: JSON.stringify({ into: 'release' }), signal: AbortSignal.timeout(10000) });
+      if (mr.status === 409) throw new HttpError(409, 'Conflict: 同路径已被并行草稿修改——本草稿不合并（后提者拒）'); // L8
+      if (!mr.ok) throw new HttpError(502, `draft merge HTTP ${mr.status}`);
+      const mj = await mr.json() as { commit_id?: string };
+      if (!mj.commit_id) throw new HttpError(502, 'merge 无 commit_id');
+      // 合并产物回读→走发布门禁生成新版本并激活（契约 §3）
+      const cr = await fetch(bS.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(proj) + '/branches/release/commits/' + encodeURIComponent(mj.commit_id) + '/files', { headers: tS ? { Authorization: `Bearer ${tS}` } : {}, signal: AbortSignal.timeout(10000) });
+      const cj = await cr.json() as { files: { path: string; content: string }[] };
+      const out = publishAppBody({ slug: aS.slug, files: cj.files, changelog: String(args?.changelog ?? '[draft-merge]'), created_by: 'draft-submit' });
+      return { ok: true, merged_commit: mj.commit_id, version: (out.body as any).version, note: '草稿已合并回发布线并激活' };
+    }
     case 'change_request_create': {
       const kind = String(args?.kind ?? '');
       if (!['app', 'skill'].includes(kind)) throw new HttpError(400, `kind 须 app|skill（得: ${kind}）`);
