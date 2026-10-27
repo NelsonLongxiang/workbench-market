@@ -2500,7 +2500,12 @@ async function callTool(name: string, args: any): Promise<unknown> {
         return { s, sc };
       });
       scored.sort((a, b) => b.sc - a.sc);
-      const prescreen = scored.slice(0, 30).map((x) => x.s);
+      // #178 Q2（wm-review 回归 17/20 归因：中文需求 vs 英文描述词法分 0 → 30 截断砍掉该中的候选）
+      // 纪律：≤45 全量交模型（3 批×15 预算内）；词法全 0/全并列=无从排序 → 不臆砍；超 45 且能排序才取前 45
+      const SCORE_CAP = 45;
+      const maxScore = scored.length ? scored[0].sc : 0;
+      const allTied = scored.every((x) => x.sc === maxScore);
+      const prescreen = (scored.length <= SCORE_CAP || allTied ? scored : scored.slice(0, SCORE_CAP)).map((x) => x.s);
       const qidOf = new Map<string, any>();
       const cands = prescreen.map((s) => { const qid = 'q' + s.id; qidOf.set(qid, s); return { qid, slug: s.slug, name: s.name, description: String(s.description ?? ''), argumentHint: String(s.argument_hint ?? '') }; });
       const probs = await evalCandidates(need, cands);
