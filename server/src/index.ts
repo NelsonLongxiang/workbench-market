@@ -2829,6 +2829,10 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   res.status(status).json({ error: msg });
 });
 
+// 进程兜底日志（监督席顺查件 direct-db6fc70c③）：不吞异常只记栈——multer 等中间件内部 throw 不经 Express 链时留证
+process.on('uncaughtException', (e) => { console.error('[fatal] uncaughtException:', e); });
+process.on('unhandledRejection', (r) => { console.error('[fatal] unhandledRejection:', r); });
+
 // ---------- 定期巡检 ----------
 let timer: ReturnType<typeof setTimeout> | null = null;
 let checking = false;
