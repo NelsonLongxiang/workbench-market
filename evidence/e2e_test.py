@@ -103,15 +103,19 @@ with sync_playwright() as p:
 
     cleanup(page)
 
-    # 分页裁剪（E2E 长期劣化根因修复 2026-10-26）：市场表 pageSize=20（客户端分页），
-    # 快照行数涨过首页容量后新建行落第 2 页 → 全部行定位断言灭灯级联（新增/过滤/检测/
-    # 抽屉/开关/改名/复制/使用页/自产台/透传十连红）。裁掉非 E2E 行至 ≤15，行定位回首页。
+    # !!! 生产守卫（监督席 direct-ba8a2980·P0 事故）：E2E 只允许打测试端口 —— 9800 生产默认拒跑
+    _e2e_port = str(os.environ.get('E2E_PORT', '')).strip()
+    if _e2e_port == '9800' and os.environ.get('E2E_ALLOW_PROD') != '1':
+        print('[E2E] ✗ 拒跑：E2E_PORT=9800 是生产实例（默认只跑测试端口；确需生产演练请显式 E2E_ALLOW_PROD=1）')
+        sys.exit(2)
+    # 分页/行定位策略（2026-10-28 修正·替换 10-26 的破坏性裁剪）：
+    # 历史错误做法=按数量 DELETE 真工作台（曾删 16 台真台）——现改为**只清理 E2E 前缀行**，
+    # 行定位一律用搜索/过滤（page.get_by_placeholder('搜索') 或 ?q=）而不做数据裁剪。
     _wbs = api(page, 'GET', '/api/workbenches').json()
-    for _w in sorted(_wbs, key=lambda x: x['id'], reverse=True):
-        _rest = [x for x in api(page, 'GET', '/api/workbenches').json()
-                 if not str(x['name']).startswith('E2E')]
-        if len(_rest) > 15:
-            api(page, 'DELETE', f"/api/workbenches/{_w['id']}")
+    for _w in _wbs:
+        if str(_w.get('name', '')).startswith('E2E'):
+            try: api(page, 'DELETE', f"/api/workbenches/{_w['id']}")
+            except Exception: pass
 
     # ---------- 1. 仪表盘 ----------
     try:
