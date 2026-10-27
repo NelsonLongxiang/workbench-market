@@ -58,6 +58,21 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
     },
   },
   {
+    name: 'app_draft_open',
+    description: '#94 P3 agent 工作区：从台当前头开草稿（LayerFS draft）',
+    inputSchema: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
+  },
+  {
+    description: '#94 P3：编辑草稿（old_text→new_text·apply 到草稿）',
+    name: 'app_draft_edit',
+    inputSchema: { type: 'object', properties: { slug: { type: 'string' }, draft: { type: 'string' }, path: { type: 'string' }, old_text: { type: 'string' }, new_text: { type: 'string' } }, required: ['slug', 'draft', 'path', 'old_text', 'new_text'] },
+  },
+  {
+    name: 'app_draft_submit',
+    description: '#94 P3：草稿合并回发布线→走发布门禁生成新版本并激活（同路径冲突 409 Conflict）',
+    inputSchema: { type: 'object', properties: { slug: { type: 'string' }, draft: { type: 'string' }, changelog: { type: 'string' } }, required: ['slug', 'draft'] },
+  },
+  {
     name: 'change_request_create',
     description: '#94 v3 S1 人审门：创建台回滚/删除请求（K10——批准前状态不变·批准经 REST 口令面）',
     inputSchema: { type: 'object', properties: { kind: { type: 'string', enum: ['app_rollback', 'app_delete'] }, target_type: { type: 'string' }, target_slug: { type: 'string' }, payload: { type: 'object' }, reason: { type: 'string' }, requested_by: { type: 'string' } }, required: ['kind', 'target_slug'] },
