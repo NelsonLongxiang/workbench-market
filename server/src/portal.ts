@@ -147,7 +147,7 @@ export function installPortal(
     xfwd: true,
     ws: true,
     cookieDomainRewrite: '', // 上游 Cookie 去掉 Domain 属性，落到 9800 同域
-    cookiePathRewrite: '/',
+    // cookiePathRewrite 交给 proxyRes 钩子（需按 /go/<id>/ 精确改写）；HPM 内建 '/' 会在钩子后覆盖回去（实测）
     router: (req) => (req as express.Request & { goOrigin?: string }).goOrigin ?? 'http://127.0.0.1',
     pathRewrite: (path, req) => {
       const m = goPrefix.exec(path);
@@ -179,6 +179,20 @@ export function installPortal(
         if (rq.goCookies) proxyReq.setHeader('cookie', rq.goCookies);
       },
       proxyRes: (proxyRes, req, res) => {
+        console.log('[proxres-entry]', req.url, '| wid:', (req as any).goWid, '| sc:', JSON.stringify(proxyRes.headers['set-cookie']));
+        // 登录态保持（属主报障 /use/1861 Sub2API）：目标台 Set-Cookie 改写——去 Domain（存市场域）+ Path 加 /go/<id>/（各台隔离）
+        if (proxyRes.headers['set-cookie']) {
+          const _wid = (req as express.Request & { goWid?: string }).goWid ?? '';
+          const _base = (req as express.Request & { goBase?: string }).goBase ?? '';
+          const _strip = (p0: string) => (_base && (p0 === _base || p0.startsWith(_base + '/'))) ? (p0 === _base ? '/' : p0.slice(_base.length)) : p0;
+          proxyRes.headers['set-cookie'] = (proxyRes.headers['set-cookie'] as string[]).map((c) => {
+            let out = c.replace(/;\s*domain=[^;]*/i, '');
+            const pm = /;\s*path=([^;]*)/i.exec(out);
+            if (pm) { const np = '/go/' + _wid + (_strip(pm[1]) === '/' ? '/' : _strip(pm[1])); out = out.replace(/;\s*path=[^;]*/i, '; Path=' + np); }
+            else out += '; Path=/go/' + _wid + '/';
+            return out;
+          });
+        }
         // 剥禁嵌头：代理后与市场同源，这两个头只会误伤 iframe 嵌入（使用页/驾驶舱）
         delete proxyRes.headers['x-frame-options'];
         delete proxyRes.headers['content-security-policy'];
