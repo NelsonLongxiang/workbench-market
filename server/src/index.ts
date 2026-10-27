@@ -2810,7 +2810,7 @@ if (existsSync(webDist)) {
   app.use(express.static(webDist));
   // SPA fallback 只兜「路由路径」：静态资源（/assets/*、带扩展名文件）不存在的直接 404——
   // 否则旧缓存 index.html 引用的已删 hash 会被回成 200 text/html，前端炸 MIME 错且难定位（实盘踩坑）
-  app.get(/^(?!\/api\/|\/assets\/).*/, (_req, res, next) => {
+  app.get(/^(?!\/api\/|\/assets\/|\/health).*/, (_req, res, next) => { // P1-4：/health* 不被 SPA 兜底（探活可区分）
     if (/\.[A-Za-z0-9]+$/.test(_req.path)) return next(); // 带扩展名的文件请求不兜底
     res.sendFile(join(webDist, 'index.html'));
   });
@@ -2912,6 +2912,19 @@ const goServer = app.listen(PORT, () => {
   const boot = setTimeout(() => { void patrol(); }, 8_000);
   boot.unref?.();
 });
+
+// P1-3（#147）：优雅关闭——停巡检→WAL checkpoint(db.close)→server.close（容器 stop 不丢写）
+function shutdown(sig: string): void {
+  console.log(`[shutdown] ${sig} received——停止接受新请求`);
+  try { if (timer) clearTimeout(timer); } catch { /* 未启动 */ }
+  goServer.close(() => {
+    try { db.close(); } catch { /* 已关 */ }
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(0), 8000).unref?.(); // 兜底强退
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 // WebSocket 升级（Jupyter kernel / MCP / DSH web 实时通道等长连接走 /go/ 代理）。
 // 关键：upgrade 事件不流经 Express 中间件链——前置中间件设置的 goOrigin/goBase/goQuery/goAuth
