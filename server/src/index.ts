@@ -1001,8 +1001,7 @@ app.post('/api/apps/:slug/files', (req, res, next) => {
       // 存储相对路径（dataDir 内，随数据目录迁移）
       const rel = req.file.path.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
       const originalName = fixFileName(req.file.originalname);
-      const r = svc<AppDataService>('appData').fileInsertStmt()
-        .run(a.slug, originalName, req.file.mimetype || 'application/octet-stream', req.file.size, rel, created_by) as unknown as { lastInsertRowid: number | bigint };
+      const r = svc<AppDataService>('appData').fileInsert(a.slug, originalName, req.file.mimetype || 'application/octet-stream', req.file.size, rel, created_by, note) as unknown as { lastInsertRowid: number | bigint }; // #132 P0①：note 落库
       const id = Number(r.lastInsertRowid);
       res.status(201).json({ ok: true, id, slug: a.slug, name: originalName, mime: req.file.mimetype, size: req.file.size, note, url: `/api/apps/${a.slug}/files/${id}` });
     } catch (e) {
@@ -1020,6 +1019,31 @@ app.get('/api/apps/:slug/files', (req, res) => {
     : svc<AppDataService>('appData').filePage(a.slug, 0, limit);
   const items = (rows as any[]).map((r) => ({ ...r, url: `/api/apps/${a.slug}/files/${r.id}` }));
   res.json({ slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null });
+});
+
+// #132 P0①：note 更新面（PATCH）
+app.patch('/api/apps/:slug/files/:id', (req, res) => {
+  const a = getApp(req.params.slug);
+  const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 500) : undefined;
+  if (note === undefined) bad('note 必填（字符串）');
+  const hit = svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug) as any;
+  if (!hit) throw new HttpError(404, `file not found: ${req.params.id}`);
+  svc<AppDataService>('appData').fileUpdateNote(Number(req.params.id), a.slug, note);
+  res.json({ ok: true, id: Number(req.params.id), note });
+});
+
+// #132 P0③：软删面（deleted_at 置位·原行保审计·列表过滤）
+app.delete('/api/apps/:slug/files/:id', (req, res) => {
+  const a = getApp(req.params.slug);
+  const hit = svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug) as any;
+  if (!hit) throw new HttpError(404, `file not found: ${req.params.id}`);
+  svc<AppDataService>('appData').fileSoftDelete(Number(req.params.id), a.slug);
+  res.json({ ok: true, id: Number(req.params.id), deleted: 'soft' });
+});
+app.delete('/api/apps/:slug/data/:id', (req, res) => {
+  const a = getApp(req.params.slug);
+  svc<AppDataService>('appData').dataSoftDelete(Number(req.params.id), a.slug);
+  res.json({ ok: true, id: Number(req.params.id), deleted: 'soft' });
 });
 
 app.get('/api/apps/:slug/files/:id', (req, res) => {
@@ -1514,7 +1538,10 @@ app.get('/api/skills/role-packs', (_req, res) => {
 app.get('/api/skills', (_req, res) => {
   const S = svc<SkillService>('skill');
   const rows = S.skillsAll() as any[];
-  res.json(rows.map((r) => ({ slug: r.slug, name: r.name, layer: r.layer, layer_name: r.layer_name, family_parent: r.family_parent, description: r.description, legacy: r.legacy === 1, versions: (S.versionsBySkill(r.id) as any[]).length })));
+  res.json(rows.map((r) => {
+    const led = (S.ledgerActive() as any[]).find((l) => l.skill_id === r.id && l.status === 'installed');
+    return { slug: r.slug, name: r.name, layer: r.layer, layer_name: r.layer_name, family_parent: r.family_parent, description: r.description, legacy: r.legacy === 1, versions: (S.versionsBySkill(r.id) as any[]).length, is_installed: !!led, current_version: led ? (S.versionsBySkill(r.id) as any[]).find((v) => v.id === led.version_id)?.version ?? null : null }; // #132 P1⑤
+  }));
 });
 
 // ---------- 技能市场发布面（P0-b · 方案 PR#57 §1：口令门+首版人审+N+1 快照+digest 锚）----------
@@ -1661,7 +1688,7 @@ void (async function scheduleMonthlyRebuild() {
 
 
 /** #94 S3：最小 ustar 打包（薄分发导出——D5·无外部依赖） */
-function ustarTar(files: { path: string; content: string }[]): Buffer {
+function ustarTar(files: { path: string; content: string }[], opts: { prefix?: string } = {}): Buffer {
   const chunks: Buffer[] = [];
   const header = (name: string, size: number, type: string) => {
     const h = Buffer.alloc(512, 0);
@@ -1678,7 +1705,7 @@ function ustarTar(files: { path: string; content: string }[]): Buffer {
   };
   for (const f of files) {
     const body = Buffer.from(f.content, 'utf8');
-    chunks.push(header(f.path, body.length, '0'));
+    chunks.push(header((opts.prefix ?? '') + f.path, body.length, '0')); // #132 P1④：包内 <slug>/ 顶层
     chunks.push(body, Buffer.alloc((512 - (body.length % 512)) % 512, 0));
   }
   chunks.push(Buffer.alloc(1024, 0));
@@ -1698,7 +1725,7 @@ app.get('/api/skills/:slug/export', (req, res) => {
   if (!dir || !existsSync(dir)) throw new HttpError(404, `snapshot missing: v${v}`);
   const files: { path: string; content: string }[] = [];
   (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp, 'utf8') }); } })(dir);
-  const tar = ustarTar(files);
+  const tar = ustarTar(files, { prefix: row.slug + '/' });
   res.setHeader('Content-Type', 'application/x-tar');
   res.setHeader('Content-Disposition', 'attachment; filename="' + row.slug.replace(/[^a-z0-9._-]/gi, '_') + '-v' + v + '.tar"');
   res.setHeader('X-Expected-Digest', target.tree_digest);
@@ -2300,7 +2327,10 @@ async function callTool(name: string, args: any): Promise<unknown> {
       let rows = S.skillsAll() as any[];
       if (typeof args?.layer === 'number' && args.layer >= 1 && args.layer <= 5) rows = rows.filter((r) => r.layer === args.layer);
       if (typeof args?.q === 'string' && args.q) { const k = args.q.toLowerCase(); rows = rows.filter((r) => `${r.name} ${r.description}`.toLowerCase().includes(k)); }
-      return rows.slice(0, 200).map((r) => ({ slug: r.slug, name: r.name, layer: r.layer, layer_name: r.layer_name, family_parent: r.family_parent, legacy: r.legacy === 1, versions: (S.versionsBySkill(r.id) as any[]).length }));
+      return rows.slice(0, 200).map((r) => {
+      const led = (S.ledgerActive() as any[]).find((l: any) => l.skill_id === r.id && l.status === 'installed');
+      return { slug: r.slug, name: r.name, layer: r.layer, layer_name: r.layer_name, family_parent: r.family_parent, legacy: r.legacy === 1, versions: (S.versionsBySkill(r.id) as any[]).length, is_installed: !!led, current_version: led ? (S.versionsBySkill(r.id) as any[]).find((v) => v.id === led.version_id)?.version ?? null : null }; // #132 P1⑤ MCP
+    });
     }
     case 'skill_versions': {
       const S = svc<SkillService>('skill');
