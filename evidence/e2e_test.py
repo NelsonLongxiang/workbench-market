@@ -12,7 +12,12 @@ from datetime import datetime, timezone
 from playwright.sync_api import sync_playwright, expect
 
 import os as _os
-_port = _os.environ.get('E2E_PORT', '9800')
+_port = _os.environ.get('E2E_PORT', '').strip() or '9800'
+_e2e_port = str(_port)
+# 生产守卫（监督席 direct-964b9fb4·堵绕过）：用**实际生效端口**判定——未设 E2E_PORT 落到 9800 也拒跑
+if _e2e_port == '9800' and _os.environ.get('E2E_ALLOW_PROD') != '1':
+    print('[E2E] 拒跑：目标端口是生产 9800（默认拒跑；确需生产演练请显式 E2E_ALLOW_PROD=1）')
+    sys.exit(2)
 BASE = f'http://127.0.0.1:{_port}'
 RESULTS = []
 
