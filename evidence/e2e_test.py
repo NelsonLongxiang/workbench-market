@@ -545,8 +545,12 @@ with sync_playwright() as p:
         assert frame.count() >= 1, '使用页 iframe 未出现'
         src = frame.get_attribute('src') or ''
         assert src.startswith(f'/go/{wid}'), f'iframe src 应为门户 /go/: {src}'
-        body_txt = frame.evaluate('el => el.contentDocument && el.contentDocument.body ? el.contentDocument.body.innerText : ""')
-        assert 'E2E-APP-V1' in body_txt, '门户重写后 iframe 内容不可达'
+        # #170 P11：自产台响应带 CSP sandbox（不透明源）——contentDocument 不可读是**设计**（隔离），
+        # 改为服务端面校验内容可达 + 响应头断言 sandbox 在位
+        _go_html = page.request.fetch(f'{BASE}/go/{wid}/')
+        assert _go_html.ok and 'E2E-APP-V1' in _go_html.text(), '门户重写后 iframe 内容不可达'
+        _csp = (_go_html.headers.get('content-security-policy') or '')
+        assert 'sandbox' in _csp and 'allow-same-origin' not in _csp, f'自产台应带 CSP sandbox 隔离: {_csp}'
         # 重发 v2 → 静态切换；activate 回 v1 → 回滚
         api(page, 'POST', '/api/apps', {'slug': 'e2e-app', 'title': 'E2E 自产台',
             'files': [{'path': 'index.html', 'content': '<!doctype html><meta charset="utf-8"><h1>E2E-APP-V2</h1>'}]})
@@ -1021,7 +1025,7 @@ with sync_playwright() as p:
         import os as _os
         with open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'README.md'), encoding='utf-8') as _f:
             readme = _f.read()
-        assert 'v69' in readme and '175 条判据' in readme, 'README 验证器节未同步（现行 v69/175）'
+        assert 'v70' in readme and '175 条判据' in readme, 'README 验证器节未同步（现行 v70/175）'
         assert '内置 9 种' in readme, 'README 类型数未同步 9'
         assert 'Sops' in readme, 'README 目录缺 Sops 页'
         assert '≥25' in readme or '25 组' in readme, 'README E2E 组数未同步'
