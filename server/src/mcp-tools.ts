@@ -67,6 +67,22 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
     description: '#94 v3 S1：列人审请求（默认 pending）',
     inputSchema: { type: 'object', properties: { status: { type: 'string', enum: ['pending', 'approved', 'rejected'] } } },
   },
+  // #94 P3 agent 工作区（草稿三分支·L8）——须登记于此，网关会话才可授权
+  {
+    name: 'app_draft_open',
+    description: '#94 P3：从台的激活版 Commit 开一个草稿分支，返回 {draft}（layerfs 服务未配置时不可用）。',
+    inputSchema: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'], additionalProperties: false },
+  },
+  {
+    name: 'app_draft_edit',
+    description: '#94 P3：在草稿里把 path 文件中唯一一处 old_text 改成 new_text。',
+    inputSchema: { type: 'object', properties: { slug: { type: 'string' }, draft: { type: 'string' }, path: { type: 'string' }, old_text: { type: 'string' }, new_text: { type: 'string' } }, required: ['slug', 'draft', 'path', 'old_text', 'new_text'], additionalProperties: false },
+  },
+  {
+    name: 'app_draft_submit',
+    description: '#94 P3：草稿合并回 release 并走发布门禁生成新版本、激活；与并行草稿同路径冲突时拒绝（Conflict）。',
+    inputSchema: { type: 'object', properties: { slug: { type: 'string' }, draft: { type: 'string' }, changelog: { type: 'string', description: '本版改了什么' } }, required: ['slug', 'draft'], additionalProperties: false },
+  },
   {
     name: 'sop_publish',
     description: 'SOP 台上架：draft/deprecated → published（首次入册市场；note 记入当前版本 changelog）。',
