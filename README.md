@@ -15,7 +15,7 @@ pnpm build            # 构建前端 → web/dist，由 server 同端口托管
 pnpm start            # 生产模式（只跑 server，访问 http://127.0.0.1:9800）
 ```
 
-环境变量：`PORT`（默认 9800）、`DATA_DIR`（SQLite 数据目录，默认 `server/data`）、`ADMIN_TOKEN`（管理员口令，控制面写操作用；也可在设置页手动设置）、`REDIS_URL`（SOP 状态层 Redis，缺省读 `DATA_DIR/redis.url`，都没有则降级直写 SQLite）、`MARKET_TEAM`（A2A 节点 team，默认 `market`）、`MCP_GATEWAY`（`on` 时 `/mcp` 启用会话令牌网关——**生产已开：所有 /mcp 调用须 `Authorization: Bearer <会话令牌>`**·会话经 `POST /api/mcp/sessions` 创建+`PUT …/grants` 授权）、`LAYERFS_SERVICE_URL`/`LAYERFS_SERVICE_TOKEN`（LayerFS 服务面·两者任一缺失则 LayerFS 集成整个禁用=降级直写）。设置键：`run_upload_require_token`（`1`=SOP run 文件上传要令牌·缺省关=旧直传语义）。
+环境变量（13 面）：`PORT`（默认 9800）、`DATA_DIR`（SQLite 数据目录·默认 `server/data`）、`ADMIN_TOKEN`（控制面口令·可设置页改）、`MCP_GATEWAY`（`on`=会话令牌网关）、`REDIS_URL`（SOP 状态层·缺省读 `DATA_DIR/redis.url`·无则降级 SQLite）、`MARKET_TEAM`（A2A team 默认 `market`）、`MARKET_PUBLIC_URL`（对外基址·A2A 卡片用）、`LAN_IP`（节点通告 IP）、`A2A_API_KEY`/`A2A_STATE_URL`（A2A 外部面）、`LAYERFS_SERVICE_URL`/`LAYERFS_SERVICE_TOKEN`（LayerFS·缺一即禁用）、`AI_GATEWAY_API_KEY`（`skill_search` 评估模型令牌·缺=工具报错不降级）、`EVAL_GATEWAY_URL`（评估网关覆盖·验证器/代理用）、`SANDBOX_BRIDGE_URL`/`SANDBOX_BRIDGE_TOKEN`（sandbox 派发）、`PUBLISH_LOCK_MS`（发布锁窗口·测试可调）（`on` 时 `/mcp` 启用会话令牌网关——**生产已开：所有 /mcp 调用须 `Authorization: Bearer <会话令牌>`**·会话经 `POST /api/mcp/sessions` 创建+`PUT …/grants` 授权）、`LAYERFS_SERVICE_URL`/`LAYERFS_SERVICE_TOKEN`（LayerFS 服务面·两者任一缺失则 LayerFS 集成整个禁用=降级直写）。设置键：`run_upload_require_token`（`1`=SOP run 文件上传要令牌·缺省关=旧直传语义）。
 
 ## 功能
 
@@ -109,7 +109,7 @@ GET              /api/health                    版本与运行时长
 ## 目录
 
 ```
-server/src/     db.ts（schema+种子+迁移） health.ts（探测） index.ts（REST+静态+巡检） portal.ts（/go/ 反代·白屏五层+登录态 cookie 改写） a2a.ts（卡片/绑定/direct 准入） redis.ts（SOP 状态层）
+server/src/     index.ts（REST+静态+巡检装配） db.ts（schema+迁移） portal.ts（/go/ 反代·白屏五层+登录态） a2a.ts（卡片/绑定/direct 准入） eval.ts（#178 jev 评估客户端） mcp-tools.ts（MCP 工具注册表） sop-runner.ts（SOP 执行页） redis.ts（SOP 状态层） health.ts（探测） tasks.ts（定时任务） endpoint-stats.ts（端点数） errors.ts（错误类型） context.ts（服务容器） sop-types.ts（SOP 类型）
 server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·cookie·setting·mcp（域服务）· sop-runner.ts（执行页）
 web/src/        pages/（Dashboard/Market/Sops/Types/Settings/UseWorkbench/Cockpit/McpGateways/Tasks/Skills） components/ admin-token.ts（统一口令注入）
 deploy/         Dockerfile.market（多阶段·非 root·HEALTHCHECK） docker-compose.yml（回环默认·profiles 隔离） layerfs-svc.mjs
