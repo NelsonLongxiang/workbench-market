@@ -22,10 +22,11 @@ const json = async (url, method = 'GET', body, headers = {}) => {
   let j = null; try { j = await r.json(); } catch { }
   return { status: r.status, body: j };
 };
+let UPLOAD_TOKEN = ''; // P0：run-scoped 上传令牌（派单回执取）
 async function upload(runId, name, bytes, mime = 'application/octet-stream') {
   const fd = new FormData();
   fd.append('file', new Blob([bytes], { type: mime }), name);
-  const r = await fetch(`${BASE}/api/sop/runs/${runId}/files`, { method: 'POST', body: fd });
+  const r = await fetch(`${BASE}/api/sop/runs/${runId}/files`, { method: 'POST', body: fd, headers: UPLOAD_TOKEN ? { 'X-Run-Upload-Token': UPLOAD_TOKEN } : {} }); // P0 令牌
   let j = null; try { j = await r.json(); } catch { }
   return { status: r.status, body: j };
 }
@@ -53,7 +54,9 @@ try {
     team, caller_session: 'dsh/0123dlv', task_id: 'dlv-1', context_id: 'dlvctx-1',
     message: JSON.stringify({ sop: { slug: 'rv-deliv', action: 'start' } }),
   });
+  console.log('    [dbg] dispatch sop env:', JSON.stringify(d.body?.sop ?? d.body).slice(0, 160));
   const runId = d.body?.sop?.run_id;
+  UPLOAD_TOKEN = String(d.body?.sop?.upload_token ?? '');
   ok('派单 run 就绪', Number.isInteger(runId));
 
   // F1 上传 + 列表 + 下载字节一致
