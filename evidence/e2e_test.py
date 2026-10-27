@@ -104,8 +104,8 @@ with sync_playwright() as p:
     cleanup(page)
 
     # !!! 生产守卫（监督席 direct-ba8a2980·P0 事故）：E2E 只允许打测试端口 —— 9800 生产默认拒跑
-    _e2e_port = str(os.environ.get('E2E_PORT', '')).strip()
-    if _e2e_port == '9800' and os.environ.get('E2E_ALLOW_PROD') != '1':
+    _e2e_port = str(_os.environ.get('E2E_PORT', '')).strip()
+    if _e2e_port == '9800' and _os.environ.get('E2E_ALLOW_PROD') != '1':
         print('[E2E] ✗ 拒跑：E2E_PORT=9800 是生产实例（默认只跑测试端口；确需生产演练请显式 E2E_ALLOW_PROD=1）')
         sys.exit(2)
     # 分页/行定位策略（2026-10-28 修正·替换 10-26 的破坏性裁剪）：
@@ -116,6 +116,27 @@ with sync_playwright() as p:
         if str(_w.get('name', '')).startswith('E2E'):
             try: api(page, 'DELETE', f"/api/workbenches/{_w['id']}")
             except Exception: pass
+
+    # 生产形态（MCP_GATEWAY=on）：/mcp 需会话令牌——用 E2E_ADMIN_TOKEN 建会话+授权（无 401 则空头）
+    _mcp_h = {'Content-Type': 'application/json'}
+    try:
+        _probe = page.request.post(BASE + '/mcp', headers={'Content-Type': 'application/json'},
+            data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}))
+        if _probe.status == 401:
+            _at = _os.environ.get('E2E_ADMIN_TOKEN', '')
+            assert _at, '网关模式需要 E2E_ADMIN_TOKEN（生产形态基线）'
+            _sess = page.request.post(BASE + '/api/mcp/sessions',
+                headers={'Content-Type': 'application/json', 'X-Admin-Token': _at},
+                data=json.dumps({'name': 'e2e-runner-' + str(int(__import__('time').time()))})).json()
+            _tools = page.request.get(BASE + '/api/mcp/tools', headers={'X-Admin-Token': _at}).json()
+            _tl = _tools if isinstance(_tools, list) else (_tools.get('tools') or [])
+            _names = [x.get('name') if isinstance(x, dict) else x for x in _tl]
+            page.request.put(BASE + f"/api/mcp/sessions/{_sess['id']}/grants",
+                headers={'Content-Type': 'application/json', 'X-Admin-Token': _at},
+                data=json.dumps({'grants': _names}))
+            _mcp_h['Authorization'] = 'Bearer ' + str(_sess.get('token', ''))
+    except Exception as _e:
+        print('[E2E] MCP 会话引导失败:', _e)
 
     # ---------- 1. 仪表盘 ----------
     try:
@@ -757,33 +778,12 @@ with sync_playwright() as p:
         record('SOP 台', False, str(e)); shot('sop')
 
     # ---------- 17. MCP 生产通道（StreamableHTTP 协议面 + 生产工具链） ----------
-    # 生产形态（MCP_GATEWAY=on）：/mcp 需会话令牌——用 E2E_ADMIN_TOKEN 建会话+授权（无 401 则空头）
-    _mcp_h = {'Content-Type': 'application/json'}
-    try:
-        _probe = page.request.post(BASE + '/mcp', headers={'Content-Type': 'application/json'},
-            data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}))
-        if _probe.status == 401:
-            _at = os.environ.get('E2E_ADMIN_TOKEN', '')
-            assert _at, '网关模式需要 E2E_ADMIN_TOKEN（生产形态基线）'
-            _sess = page.request.post(BASE + '/api/mcp/sessions',
-                headers={'Content-Type': 'application/json', 'X-Admin-Token': _at},
-                data=json.dumps({'name': 'e2e-runner'})).json()
-            _tools = page.request.get(BASE + '/api/mcp/tools', headers={'X-Admin-Token': _at}).json()
-            _names = [x.get('name') if isinstance(x, dict) else x for x in (_tools.get('tools') or _tools)]
-            page.request.put(BASE + f"/api/mcp/sessions/{_sess['id']}/grants",
-                headers={'Content-Type': 'application/json', 'X-Admin-Token': _at},
-                data=json.dumps({'grants': _names}))
-            _mcp_h['Authorization'] = 'Bearer ' + str(_sess.get('token', ''))
-    except Exception as _e:
-        print('[E2E] MCP 会话引导失败:', _e)
     try:
         def mcp(method, params=None, msg_id=True):
             body = {'jsonrpc': '2.0', 'method': method}
             if msg_id: body['id'] = 900
             if params is not None: body['params'] = params
-            r = page.request.fetch(BASE + '/mcp', method='POST',
-                headers={'Content-Type': 'application/json'},
-                data=json.dumps(body))
+            r = page.request.fetch(BASE + '/mcp', method='POST', headers=_mcp_h, data=json.dumps(body))
             return r
         # 协议面
         r = mcp('initialize', {'protocolVersion': '2025-03-26'})
