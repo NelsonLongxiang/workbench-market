@@ -45,6 +45,7 @@ try {
   // 发布序列①：开 run（指派语义 started_by）
   let r = await json(`${BASE}/api/sop/runs`, 'POST', { slug: 'rv-19a', started_by: 'expert:zhang' });
   const runId = r.body?.id;
+  let RUN_TOKEN = String(r.body?.upload_token ?? ''); // P0：run-scoped 上传令牌（启动响应）
   ok('① 开 run 201', r.status === 201 && Number.isInteger(runId));
   // ② 标题/描述进保留键（Runner 交付区只读渲染面）
   r = await json(`${BASE}/api/sop/runs/${runId}`, 'PUT', { stepKey: '_brief', value: '核对十月物流对账差异' });
@@ -64,7 +65,7 @@ try {
   const fd = new FormData();
   fd.append('file', new Blob([Buffer.from('diff,order,amount\n1,SO-1024,358.00')], { type: 'text/csv' }), '差异清单.csv');
   fd.append('created_by', 'expert:zhang');
-  const rf = await fetch(`${BASE}/api/sop/runs/${runId}/files`, { method: 'POST', body: fd });
+  const rf = await fetch(`${BASE}/api/sop/runs/${runId}/files`, { method: 'POST', body: fd, headers: RUN_TOKEN ? { 'X-Run-Upload-Token': RUN_TOKEN } : {} }); // P0 令牌
   const rj = await rf.json();
   ok('④ 附件 201（交付物通道）', rf.status === 201, JSON.stringify(rj).slice(0, 80));
   const fl = await json(`${BASE}/api/sop/runs/${runId}/files`);
