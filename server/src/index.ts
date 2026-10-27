@@ -662,8 +662,25 @@ function publishAppBody(b: any): { status: number; body: object } {
   return { status: existing ? 200 : 201, body: { ok: true, slug: appRow.slug, version, served_version: existing ? (version - 1) : 0, workbench_id, kind: appRow.kind, status: appRow.status, app: appDetail(appRow) } };
 }
 
+// #164 P1③（监督席 direct-848bcf34）：60s 同 slug 发布锁——异会话窗口内重发 409（双发互踩第二例防线）；同会话续发放行；force:true 显式越锁
+const PUBLISH_LOCK_MS = Number(process.env.PUBLISH_LOCK_MS) > 0 ? Number(process.env.PUBLISH_LOCK_MS) : 60_000; // 测试可加速
+const lastPublishBySlug = new Map<string, { at: number; who: string }>();
+function publishLockGuard(slug: string, who: string, force: boolean): { ok: true } | { ok: false; hint: string } {
+  const prev = lastPublishBySlug.get(slug);
+  const now = Date.now();
+  if (prev && !force && prev.who !== who && now - prev.at < PUBLISH_LOCK_MS) {
+    return { ok: false, hint: `同 slug 60s 内已被另一会话发布（${prev.who}·${Math.ceil((PUBLISH_LOCK_MS - (now - prev.at)) / 1000)}s 后解锁）——发布前请先 GET served 基线做 diff；确需覆盖带 force:true` };
+  }
+  lastPublishBySlug.set(slug, { at: now, who });
+  return { ok: true };
+}
+
 app.post('/api/apps', (req, res) => {
-  const r = publishAppBody(req.body ?? {});
+  const b = (req.body ?? {}) as Record<string, unknown>;
+  const who = String(b.created_by ?? '').trim() || String(req.headers['x-market-client'] ?? '').trim() || 'anon';
+  const gate = publishLockGuard(String(b.slug ?? '').trim().toLowerCase(), who, b.force === true || b.force === 'true');
+  if (!gate.ok) return res.status(409).json({ error: gate.hint });
+  const r = publishAppBody(b);
   res.status(r.status).json(r.body);
 });
 
