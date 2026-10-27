@@ -38,8 +38,10 @@ try {
   const sumPath = join(root, "evidence", "e2e-summary.json");
   const sum = existsSync(sumPath) ? JSON.parse(readFileSync(sumPath, "utf8")) : null;
   if (!sum) console.warn("[summary-gate] 未发现 evidence/e2e-summary.json（干净克隆无本地证据）——跳过摘要门；如需证据先跑 evidence/e2e_test.py");
-  if (sum && sum.total > 0 && sum.passed !== sum.total) {
-    console.error(`[summary-gate] e2e-summary 残次（${sum.passed}/${sum.total}）——先归真再提交`);
+  // #202（监督席验证器轮发现·门洞）：total=0 空摘要也属残次
+  if (sum && (sum.total === 0 || sum.passed !== sum.total)) {
+    const why = sum.total === 0 ? '空摘要=未跑 E2E' : `残次（${sum.passed}/${sum.total}）`;
+    console.error(`[summary-gate] e2e-summary ${why}——先归真再提交`);
     process.exit(2);
   }
 }
