@@ -39,21 +39,26 @@ app.use(cors({
 }));
 // #198（裁 A）：自产台数据/文件面的按台令牌 CORS——sandbox 页面（Origin: null）凭 X-App-Token 匹配 slug 才放行
 app.use((req, res, next) => {
-  const m = /^\/api\/apps\/([a-z0-9][a-z0-9-]*)\/(data|files)(?:\/|$)/.exec(String(req.url ?? ''));
+  // #198 复修②：路径匹配前剥查询串（GET …/data?limit= 形态此前漏放 ACAO）
+  const _pathOnly = String(req.url ?? '').split('?')[0];
+  const m = /^\/api\/apps\/([a-z0-9][a-z0-9-]*)\/(data|files)(?:\/|$)/.exec(_pathOnly);
   if (!m) return next();
   const origin = String(req.headers.origin ?? '');
-  const isNullOrigin = origin === 'null';
-  if (!isNullOrigin) return next(); // 常规同源/白名单走 cors 中间件
+  if (origin !== 'null') return next(); // 常规同源/白名单走 cors 中间件
   const slug = m[1];
+  const _setAcao = () => {
+    res.setHeader('access-control-allow-origin', 'null');
+    res.setHeader('access-control-allow-methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+    res.setHeader('access-control-allow-headers', 'content-type,x-app-token');
+    res.setHeader('access-control-max-age', '600');
+  };
+  // #198 复修①：预检（OPTIONS）按 CORS 规范**不带自定义头值**——只回 ACAO/允许头，不校验令牌；实际请求才校验
+  if (req.method === 'OPTIONS') { _setAcao(); return res.status(204).end(); }
   const presented = String(req.headers['x-app-token'] ?? '').trim();
   const expected = wmAppToken(slug);
   const okTok = presented.length > 0 && presented.length === expected.length && timingSafeEqual(Buffer.from(presented), Buffer.from(expected));
   if (!okTok) return next(); // 无/错令牌：不发 ACAO（浏览器侧拒绝读）
-  res.setHeader('access-control-allow-origin', 'null');
-  res.setHeader('access-control-allow-methods', 'GET,POST,PATCH,DELETE,OPTIONS');
-  res.setHeader('access-control-allow-headers', 'content-type,x-app-token');
-  res.setHeader('access-control-max-age', '600');
-  if (req.method === 'OPTIONS') return res.status(204).end();
+  _setAcao();
   return next();
 });
 // body 解析：/go/ 路径跳过（品味席 direct-2999b07d 实测——express.json 在 HPM 之前
