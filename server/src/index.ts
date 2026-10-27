@@ -1091,7 +1091,7 @@ app.get('/api/apps/:slug/files/:id', (req, res) => {
   res.setHeader('content-type', row.mime || 'application/octet-stream');
   res.setHeader('content-length', String(row.size));
   // 附件下载语义（原始文件名）——inline 由 mime 决定，避免 XSS：非白名单 mime 强制 attachment
-  const inlineOk = /^(image\/(png|jpeg|webp|gif)|application\/pdf|text\/(plain|csv|markdown))$/.test(effMime);
+  const inlineOk = /^(image\/(png|jpeg|webp|gif)|application\/pdf|text\/(plain|csv|markdown))$/.test(row.mime); // hotfix：effMime 未定义（#134 stash 舞连带残留）
   const disp = inlineOk ? 'inline' : 'attachment';
   res.setHeader('content-disposition', `${disp}; filename*=UTF-8''${encodeURIComponent(row.original_name || 'file')}`);
   res.setHeader('x-content-type-options', 'nosniff');
