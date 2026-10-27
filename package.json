@@ -8,7 +8,7 @@
     "dev": "concurrently -n server,web -c blue,green \"pnpm --filter server dev\" \"pnpm --filter web dev\"",
     "build": "pnpm --filter web build",
     "start": "pnpm --filter server start",
-    "check": "pnpm --filter web typecheck"
+    "check": "pnpm --filter web typecheck && node scripts/check-server-syntax.mjs"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",

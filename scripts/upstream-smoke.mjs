@@ -14,9 +14,9 @@ async function waitReady(url, ms = 20000) {
 import { rmSync, mkdirSync } from 'node:fs';
 import { createServer } from 'node:http';
 
-const PORT = 9819;
-const PORT2 = 9821;
-const UP_PORT = 9820;
+const PORT = Number(process.env.UP_PORT) > 0 ? Number(process.env.UP_PORT) : 20000 + Math.floor(Math.random() * 20000);
+const PORT2 = PORT + 2;
+const UP_PORT = PORT + 1;
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-upstr-data';
 let pass = 0, fail = 0;
