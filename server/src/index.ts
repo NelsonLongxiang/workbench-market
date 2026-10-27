@@ -1131,8 +1131,11 @@ function sopRunStartCore(slugRaw: string, startedByRaw: string): { id: number; s
   const started_by = startedByRaw.trim();
   const r = svc<SopService>('sop').runCreate(slug, hit.app.active_version, started_by) as unknown as { lastInsertRowid: number | bigint };
   const id = Number(r.lastInsertRowid);
+  // P0：run-scoped 上传令牌（启动签发·Runner 页内嵌·files POST 必带）
+  const uploadToken = createHash('sha256').update(createHash('sha256').update(String(id) + ':' + Date.now() + ':' + Math.random()).digest('hex') + ':' + String(Math.random())).digest('hex');
+  try { db.prepare('UPDATE sop_runs SET upload_token = ? WHERE id = ?').run(uploadToken, id); } catch { /* 列缺=降级 */ }
   void runStateRestore(id, { slug, version: hit.app.active_version, status: 'running', started_by, updated_at: Date.now() }, {}); // Redis 初始化热态（降级态静默跳过）
-  return { id, slug, version: hit.app.active_version, status: 'running', started_by, data: {} };
+  return { id, slug, version: hit.app.active_version, status: 'running', started_by, data: {}, upload_token: uploadToken }; // P0：创建者即得令牌（Runner 页内嵌用）
 }
 
 /** 更新持久化数据（任意步骤键值；Redis 热写 + 30s checkpoint / 降级直写 SQLite） */
@@ -1290,10 +1293,25 @@ const runUpload = multer({
   limits: { fileSize: 50 * 1024 * 1024, files: 1 },
 });
 app.post('/api/sop/runs/:id/files', (req, res, next) => {
+  // ── P0 安全（总工 direct-c2b55f91）：上传面鉴权三件 ──
+  // ①run-scoped upload token（header X-Run-Upload-Token；admin 口令=人工作业一步式）
+  // ②配额（数≤20·单≤50MB[multer]·总量≤200MB→413）③写审计（sop_run_file_audit 同链）
   try {
     if (!/^\d+$/.test(String(req.params.id))) throw new HttpError(404, `run not found: ${req.params.id}`);
     const row = sopRunRow(Number(req.params.id));
     if (row.status !== 'running') throw new HttpError(409, `run ${req.params.id} 已 ${row.status}，不可再上传`);
+    const adminOk = adminHeaderOk(req);
+    if (!adminOk) {
+      const presented = String(req.headers['x-run-upload-token'] ?? '').trim();
+      const expected = String((row as any).upload_token ?? '');
+      if (!expected) throw new HttpError(403, '该 run 无上传令牌（旧 run 上传面已关闭）');
+      if (!presented) throw new HttpError(401, '缺少 X-Run-Upload-Token（Runner 页内嵌令牌·人工作业用 admin 口令）');
+      if (presented !== expected) throw new HttpError(403, '上传令牌不符（run 不匹配或已过期）');
+    }
+    const existing = (svc<SopService>('sop').runFiles(Number(req.params.id)) as any[]);
+    if (existing.length >= 20) throw new HttpError(413, '该 run 文件数已达上限（20）');
+    const totalBytes = existing.reduce((n, f) => n + Number(f.size || 0), 0);
+    if (totalBytes >= 200 * 1024 * 1024) throw new HttpError(413, '该 run 文件总量已达上限（200MB）');
   } catch (e) { return next(e); }
   runUpload.single('file')(req, res, (err: any) => {
     if (err) {
@@ -1307,6 +1325,7 @@ app.post('/api/sop/runs/:id/files', (req, res, next) => {
       const rel = req.file.path.replace(dataDir, '').split(pathSep).join('/').replace(/^\/+/, '');
       const originalName = fixFileName(req.file.originalname);
       const r = svc<SopService>('sop').runFileInsert({ runId, name: originalName, mime: req.file.mimetype || 'application/octet-stream', size: req.file.size, storagePath: rel, createdBy }) as unknown as { lastInsertRowid: number | bigint };
+      try { db.prepare("INSERT INTO sop_run_file_audit (run_id, name, size, sha256, source) VALUES (?, ?, ?, ?, ?)").run(runId, originalName, req.file.size, sha256Hex(readFileSync(req.file.path)), String(req.headers['x-run-upload-token'] ? 'token' : 'admin')); } catch { /* 审计失败不阻 */ }
       res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), run_id: runId, name: originalName, mime: req.file.mimetype, size: req.file.size, url: `/api/sop/runs/${runId}/files/${Number(r.lastInsertRowid)}` });
     } catch (e) { next(e); }
   });
@@ -2065,6 +2084,14 @@ function adminTokenCheck(provided: string | undefined): boolean {
   return process.env.ADMIN_TOKEN ? adminTokenOk(provided) : dbAdminTokenOk(provided);
 }
 
+/** P0：静默口令判定（不写响应——供上传面与 token 二选一逻辑用） */
+function adminHeaderOk(req: express.Request): boolean {
+  if (!adminTokenCheck(req.headers['x-admin-token'])) return false;
+  const origin = req.headers.origin;
+  if (origin) { try { if (new URL(String(origin)).host !== String(req.headers.host ?? '')) return false; } catch { return false; } }
+  return true;
+}
+
 function adminGuard(req: express.Request, res: express.Response): boolean {
   if (!adminTokenCheck(req.headers['x-admin-token'])) {
     res.status(403).json({ error: '需要有效的 X-Admin-Token（管理员口令未设置时一律拒绝；可在设置页手动设置）' });
@@ -2201,6 +2228,7 @@ app.post('/a2a/direct', express.json({ limit: '600kb' }), (req, res) => {
   // run 操作桥（P2 note 写入走 sop_runs 的哑数据面：step_key=note-<ts> 追加不覆盖）
   const runOps = {
     start: (slug: string, startedBy: string): number => sopRunStartCore(slug, startedBy).id,
+    uploadToken: (id: number): string => String((db.prepare('SELECT upload_token FROM sop_runs WHERE id = ?').get(id) as { upload_token?: string } | undefined)?.upload_token ?? ''), // P0：派单回执带令牌（创建者即得）
     saveNote: (runId: number, text: string): void => {
       const row = sopRunRow(runId);
       if (row.status !== 'running') throw new HttpError(409, `run ${runId} 已 ${row.status}，不可再写`);
