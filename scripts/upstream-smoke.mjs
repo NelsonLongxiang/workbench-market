@@ -70,7 +70,7 @@ try {
   // 结论：控制面需要 ADMIN_TOKEN，故本冒烟以 gateway-smoke 的 ADMIN_TOKEN 实例为宿主不可行。
   // 改为：本实例先验「无上游配置 → 工具面 17」与「控制面 403」；聚合验证放在带 ADMIN_TOKEN 的独立实例段。
   let r = await rpc('tools/list');
-  ok('无上游配置工具面 25（22 本地+草稿 3）', r.body?.result?.tools?.length === 25, JSON.stringify(r.body).slice(0, 120));
+  ok('无上游配置工具面 26（23 本地+草稿 3·#164 P1② +1）', r.body?.result?.tools?.length === 26, JSON.stringify(r.body).slice(0, 120));
   r = await call('GET', '/api/mcp/upstreams');
   ok('控制面无口令 403', r.status === 403);
   // 上游不可达时列表不崩（用不存在的端口配置——需口令，跳过）
@@ -136,7 +136,7 @@ try {
   r = await call2('PUT', '/api/mcp/upstreams', { upstreams: [{ prefix: 'dead', url: 'http://127.0.0.1:1/', toolCallTimeoutMs: 800 }] }, AT);
   ok('配死上游 200', r.status === 200);
   r = await rpc2('tools/list');
-  ok('上游不可达 → 工具面回落 25 不崩（22+草稿 3）', (r.body?.result?.tools ?? []).length === 25, String(r.body?.result?.tools?.length));
+  ok('上游不可达 → 工具面回落 26 不崩（23+草稿 3）', (r.body?.result?.tools ?? []).length === 26, String(r.body?.result?.tools?.length));
 } finally {
   child2.kill();
   await new Promise((r) => setTimeout(r, 400));

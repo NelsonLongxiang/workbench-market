@@ -2534,6 +2534,31 @@ async function callTool(name: string, args: any): Promise<unknown> {
       const items = (rows as any[]).map((r) => ({ ...r, url: `/api/apps/${a.slug}/files/${r.id}` }));
       return { slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null };
     }
+    case 'app_files_upload': {
+      // #164 P1②（批派令）：MCP 侧上传——base64 入 app_files（与 REST multipart 同表同链）
+      const slug = String(args?.slug ?? '').trim();
+      const name = fixFileName(String(args?.name ?? '').trim());
+      const b64 = String(args?.content_base64 ?? '');
+      if (!slug || !name || !b64) throw new HttpError(400, 'slug/name/content_base64 必填');
+      const a = getApp(slug);
+      const buf = Buffer.from(b64, 'base64');
+      if (!buf.length) throw new HttpError(400, 'content_base64 解码为空');
+      if (buf.length > UPLOAD_MAX) throw new HttpError(413, `文件超 50MB 上限（${buf.length}B）`);
+      const row = svc<AppDataService>('appData').filePage(a.slug, 0, 1) as any[];
+      if (row.length >= 200) throw new HttpError(413, '该台文件数已达上限（200）');
+      const dir = join(dataDir, 'uploads');
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      const safe = name.replace(/[^\w.\u4e00-\u9fa5-]+/g, '_').slice(0, 80);
+      const fname = `${Date.now().toString(36)}-${safe}`;
+      const abs = join(dir, fname);
+      writeFileSync(abs, buf);
+      const rel = abs.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
+      const createdBy = String(args?.created_by ?? '').trim().slice(0, 128);
+      const note = String(args?.note ?? '').trim().slice(0, 500);
+      const r = svc<AppDataService>('appData').fileInsert(a.slug, name, String(args?.mime ?? 'application/octet-stream'), buf.length, rel, createdBy, note) as unknown as { lastInsertRowid: number | bigint };
+      const id = Number(r.lastInsertRowid);
+      return { ok: true, id, slug: a.slug, name, mime: String(args?.mime ?? 'application/octet-stream'), size: buf.length, note, url: `/api/apps/${a.slug}/files/${id}` };
+    }
     default:
       throw new HttpError(400, `未知工具: ${name}`);
   }

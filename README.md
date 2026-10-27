@@ -33,7 +33,7 @@ pnpm start            # 生产模式（只跑 server，访问 http://127.0.0.1:9
 | 凭据注入 | 工作台可配置 Bearer/Basic 凭据，经 `/go/` 门户访问时代理自动注入 `Authorization` 头：token 不必再明文拼进 url（token-in-url 会泄漏进上游访问日志/Referer）；url 自带一次性 token query 而请求未带时自动补全，已持认证 cookie 则不补（防重签死循环）；凭据值在详情抽屉脱敏展示 |
 | 台生成器 | `POST /api/apps` 一发即得一个市场自产台：AI 会话（或任何脚本）把 `[{path, content}]` 文件集发上来，市场静态托管在 `/apps/<slug>/`，**发布即自动入册**（类型 market-app、探测短路=服务活着即在线），门户/驾驶舱/市场全链立即可用；**全版本快照**——同 slug 重发 = 新版本，`activate` 一键回滚任意历史版本——从「台的管理者」到「台的生产者」 |
 | SOP 台 | 台生成器的 `kind:'sop'` 分流：`sop.yaml`（标题/编号/步骤，步骤 body 内嵌 HTML）发布为 SOP 台，`/sop/:slug/` 服务端渲染零构建执行页（步骤卡 + data-field 自动收集 + 800ms 防抖保存 + localStorage 缓冲 + 刷新恢复 run）；**状态机 draft→published→deprecated**（changelog 必填，draft 不入册防半成品上架）；执行数据**分层持久化**——状态层 Redis（HSET 热态 + 活跃索引，写路径 ~ms 级；不可达自动降级直写 SQLite）+ 持久层 SQLite（sop_runs 表为真源：开 run 钉版本、30s checkpoint、finish 全量沉淀；Redis 条目 1h 平滑淘汰） |
-| MCP 生产通道 | `/mcp` StreamableHTTP（stateless，零依赖手写 JSON-RPC 2.0）：AI 会话/任意 MCP 客户端直连市场，**25 个本地工具**（+ 上游聚合）——生产 6：`workbench_list`（找台）/`workbench_summary`（总览）/`workbench_check`（探测）/`use_url`（取 `/go/<id>/` 门户入口）/`app_publish`（**发布自产台与 SOP 台**，agent 原生供给通道）/`sop_publish`（SOP 上架·`app_activate` 已移出 MCP·回滚走变更申请）；草稿工作区 3：`app_draft_open` / `app_draft_edit` / `app_draft_submit`（LayerFS 草稿→合并→发布，同路径冲突 409）；变更申请 2：`change_request_create` / `change_requests`（回滚/删除统一评审门·REST approve 需 managed 口令+reviewed_by）；执行数据 6：`sop_run_start` / `sop_run_step_save`（直接更新持久化执行数据，与 Runner/REST 同链）/ `sop_run_get` / `sop_run_list` / `sop_run_finish` / `sop_run_sandbox`（VM sandbox 派发·LayerFS commit 交付）；技能 3：`skills_list` / `skill_versions`（版本链） / `skill_install_plan`（钉装计划+expected digest）；注册 CRUD 3：`workbench_register`（agent 自主登记外部台）/ `workbench_update` / `workbench_unregister`（凭据字段一律拒绝，人工配置）；台数据读取 2：`app_data_list`（读自产台表单提交数据）/ `app_files_list`（读文件提交列表，含下载 url）——**只走 MCP 的 agent 也能消费台提交的数据**；**上游聚合**（#20 P2）：`settings.mcp_upstreams` 配外部 MCP（如 taste-mcp），其工具以 `<prefix>__<tool>`（如 `taste__rules`）并入同一 /mcp 面（注册面实测 29 = 25 本地 + 4 上游），上游不可达自动降级不影响本地 25 工具；网关会话存在时以 `X-Market-Client: mcp/<会话名>` 透传调用方身份（上游据此判 judge 身份）——市场从 REST 页面操作升级为 agent 可编程；已实测接入 DSH（dsh-mcp-connector，工具以 `mcp__workbench-market__*` 注入会话） |
+| MCP 生产通道 | `/mcp` StreamableHTTP（stateless，零依赖手写 JSON-RPC 2.0）：AI 会话/任意 MCP 客户端直连市场，**26 个本地工具**（+ 上游聚合）——生产 6：`workbench_list`（找台）/`workbench_summary`（总览）/`workbench_check`（探测）/`use_url`（取 `/go/<id>/` 门户入口）/`app_publish`（**发布自产台与 SOP 台**，agent 原生供给通道）/`sop_publish`（SOP 上架·`app_activate` 已移出 MCP·回滚走变更申请）；草稿工作区 3：`app_draft_open` / `app_draft_edit` / `app_draft_submit`（LayerFS 草稿→合并→发布，同路径冲突 409）；变更申请 2：`change_request_create` / `change_requests`（回滚/删除统一评审门·REST approve 需 managed 口令+reviewed_by）；执行数据 6：`sop_run_start` / `sop_run_step_save`（直接更新持久化执行数据，与 Runner/REST 同链）/ `sop_run_get` / `sop_run_list` / `sop_run_finish` / `sop_run_sandbox`（VM sandbox 派发·LayerFS commit 交付）；技能 3：`skills_list` / `skill_versions`（版本链） / `skill_install_plan`（钉装计划+expected digest）；注册 CRUD 3：`workbench_register`（agent 自主登记外部台）/ `workbench_update` / `workbench_unregister`（凭据字段一律拒绝，人工配置）；台数据读取 2：`app_data_list`（读自产台表单提交数据）/ `app_files_list`（读文件提交列表，含下载 url）——**只走 MCP 的 agent 也能消费台提交的数据**；**上游聚合**（#20 P2）：`settings.mcp_upstreams` 配外部 MCP（如 taste-mcp），其工具以 `<prefix>__<tool>`（如 `taste__rules`）并入同一 /mcp 面（注册面实测 30 = 26 本地 + 4 上游），上游不可达自动降级不影响本地 26 工具；网关会话存在时以 `X-Market-Client: mcp/<会话名>` 透传调用方身份（上游据此判 judge 身份）——市场从 REST 页面操作升级为 agent 可编程；已实测接入 DSH（dsh-mcp-connector，工具以 `mcp__workbench-market__*` 注入会话） |
 | 台数据查看 | 工作台详情（market-app）→「查看提交数据」Drawer：表单数据行（JSON 折叠/提交者/时间）+ 文件（类型/大小/下载）+ 游标加载更多——数据落库后在 UI 直接可查 |
 | SOP 管理页 | `/sops`：SOP 台的消费与管理面——状态徽章可视化状态机（draft/published/deprecated，色值经对比度审计）、版本链与 changelog、**run 记录 Drawer**（直查分层持久化的执行数据：运行中/已完成、步骤数、逐步骤填报数据展开）、页面上架/废弃操作、执行入口直达 Runner；演示 SOP（demo-rack-sop）常驻可点击体验 |
 | 备份迁移 | 全量 JSON 导出 / 导入（合并或替换模式） |
@@ -121,6 +121,18 @@ data/           SQLite 数据文件（git 忽略）
 
 
 > **验证资产为本地产物不入库**（隐私治理·监督席处置单）：`evidence/`、`verify/`、`tmp/` 已 gitignore——E2E 摘要/判据冻结包/运行截图属本机生成物，fresh clone 后先跑一轮 E2E 再 make-submission（摘要门 fail-closed 即本义）。冻结报告另存 `~/.ygl-trees/verify/archives/`（zip 可携带）。**既有克隆合并 untrack 批后须恢复本地验证资产**（untrack=索引删除语义·合并即删工作树文件·全机验证链静默断）：`git checkout <untrack 前 SHA> -- evidence verify && git restore --staged evidence verify`——文件回工作树·不回流索引·gitignore 罩住。**净克隆自举**（#95 修正）：`verify/material.md`/`candidates.json`/`reviews.json` 三件套由 `node scripts/gen-verifier.mjs` 从**单一事实源再生成**（生成器自建 `verify/` 目录·净克隆一条命令重建 175 判据）。干净克隆跑验证链步骤：`node scripts/gen-verifier.mjs` → 跑一轮 E2E 产 `evidence/e2e-summary.json`（摘要门 fail-closed 即本义）→ `node scripts/make-submission.mjs` → `ygl-trees verify submit/prepare/run`。
+
+
+### 文件面 URL 语义（#164 P1②）
+
+| 面 | 语义 |
+|---|---|
+| `POST /api/apps/:slug/files` | multipart 上传（`file` 字段·≤50MB）；可带 `note`/`created_by` 表单字段 |
+| `POST /mcp` `app_files_upload` | **MCP 侧上传**：`{slug,name,content_base64,mime?,note?,created_by?}`——同表同链（app_files+落盘） |
+| `GET /api/apps/:slug/files` | 列表（倒序游标）：`id/original_name/mime/size/note/created_by/created_at/url`·软删行不返 |
+| `GET /api/apps/:slug/files/:id` | 下载：`Content-Disposition` 白名单 mime inline（png/jpeg/webp/gif/pdf/plain/csv/markdown），其余 attachment·`nosniff` |
+| `PATCH /api/apps/:slug/files/:id` | 更新 `note`（≤500 字） |
+| `DELETE /api/apps/:slug/files/:id` | 软删（`deleted_at` 置位·原行留审计·列表隐藏） |
 
 ## 开发验证器
 

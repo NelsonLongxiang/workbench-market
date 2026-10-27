@@ -145,7 +145,24 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
       required: ['slug'],
       additionalProperties: false,
     },
+  }  {
+    name: 'app_files_upload',
+    description: '向自产台上传文件（base64 内容·≤50MB/个）——agent 侧交付物直接入台文件面（与 REST multipart 同表同链）。返回 id/url/mime/note。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slug: { type: 'string' },
+        name: { type: 'string', description: '原始文件名（含扩展名）' },
+        content_base64: { type: 'string', description: '文件内容 base64（≤50MB 原始）' },
+        mime: { type: 'string', description: 'MIME（缺省 application/octet-stream）' },
+        note: { type: 'string', description: '备注（≤500 字·可 PATCH 更新）' },
+        created_by: { type: 'string', description: '创建者标识（≤128 字符）' },
+      },
+      required: ['slug', 'name', 'content_base64'],
+      additionalProperties: false,
+    },
   },
+,
   {
     name: 'workbench_register',
     description: '登记外部工作台入册（agent 发现内网新服务时自主登记；门户/市场即刻可用）。凭据不接受——需人工经市场页配置（安全边界）。',
