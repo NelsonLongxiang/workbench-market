@@ -15,7 +15,7 @@
  * 之后：ygl-trees verify run <spec-id> --db tmp/verify-snap.sqlite --submission tmp/submission
  */
 import { DatabaseSync } from "node:sqlite";
-import { cpSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,8 +34,11 @@ mkdirSync(join(root, "tmp"), { recursive: true });
 try {
   execFileSync(process.execPath, [join(root, 'scripts', 'privacy-gate.mjs')], { cwd: root, stdio: 'inherit' });
 } catch { console.error('[make-submission] 隐私门未过——提交中止'); process.exit(2); }
-const sum = JSON.parse(readFileSync(join(root, "evidence", "e2e-summary.json"), "utf8"));
-  if (sum.total > 0 && sum.passed !== sum.total) {
+  // #161 V4：干净克隆无 evidence/（属主裁定 evidence 不上传）——缺证据明确提示+跳摘要门（不 ENOENT 崩）
+  const sumPath = join(root, "evidence", "e2e-summary.json");
+  const sum = existsSync(sumPath) ? JSON.parse(readFileSync(sumPath, "utf8")) : null;
+  if (!sum) console.warn("[summary-gate] 未发现 evidence/e2e-summary.json（干净克隆无本地证据）——跳过摘要门；如需证据先跑 evidence/e2e_test.py");
+  if (sum && sum.total > 0 && sum.passed !== sum.total) {
     console.error(`[summary-gate] e2e-summary 残次（${sum.passed}/${sum.total}）——先归真再提交`);
     process.exit(2);
   }
