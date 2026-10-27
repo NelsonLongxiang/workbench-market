@@ -145,7 +145,8 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
       required: ['slug'],
       additionalProperties: false,
     },
-  }  {
+  },
+  {
     name: 'app_files_upload',
     description: '向自产台上传文件（base64 内容·≤50MB/个）——agent 侧交付物直接入台文件面（与 REST multipart 同表同链）。返回 id/url/mime/note。',
     inputSchema: {
