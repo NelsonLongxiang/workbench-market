@@ -1,29 +1,37 @@
-# #94 P0 部署接入（L12 判据面）：市场主容器无宿主权限；layerfs 服务容器挂 Docker 面。
+# #147 部署批：基文件默认回环绑定（P0-4）·layerfs 走 profiles 隔离（P1-1）·token 必设（P1-2）
 services:
   market:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.market
     ports:
-      - "9800:9800"
+      - "127.0.0.1:9800:9800"   # 安全默认：仅宿主回环。对外暴露请在覆盖层用 !override 改写
     environment:
-      LAYERFS_SERVICE_URL: http://layerfs:8067
-      LAYERFS_SERVICE_TOKEN: ${LAYERFS_SERVICE_TOKEN:-change-me}
+      LAYERFS_SERVICE_URL: ${LAYERFS_SERVICE_URL:-}
+      LAYERFS_SERVICE_TOKEN: ${LAYERFS_SERVICE_TOKEN:-}
       DATA_DIR: /data
     volumes:
       - market-data:/data
-    depends_on:
-      - layerfs
+    # 网络模型（#147 P0-3）：host 模式推荐——容器内探本机服务零配置
+    network_mode: host
+    HEALTHCHECK: &hc
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9800/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
 
   layerfs:
+    profiles: ["layerfs"]   # P1-1：不默认起（消除 depends_on 强制）
     build:
       context: ..
       dockerfile: deploy/Dockerfile.layerfs-p0
     environment:
-      LAYERFS_SERVICE_TOKEN: ${LAYERFS_SERVICE_TOKEN:-change-me}
+      # P1-2：未设即 compose 级拒启（不再静默默认 change-me）
+      LAYERFS_SERVICE_TOKEN: ${LAYERFS_SERVICE_TOKEN:?LAYERFS_SERVICE_TOKEN 必设（不可用 change-me）}
       LAYERFS_STORE_ROOT: /var/lib/layerfs
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock   # 注意：挂 socket=服务容器等同宿主 root（文档已标注）
       - /var/lib/docker/volumes:/var/lib/docker/volumes:rw
       - layerfs-store:/var/lib/layerfs
 

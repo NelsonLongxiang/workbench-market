@@ -1,6 +1,7 @@
 {
   "name": "workbench-market",
   "private": true,
+  "packageManager": "pnpm@11.28.5",
   "version": "0.1.0",
   "description": "管理 web 工作台的框架——聚合连接各端口服务开放的多类型 AI 工作台（SQLite + React antd）",
   "scripts": {
