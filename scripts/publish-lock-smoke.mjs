@@ -23,7 +23,7 @@ rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: tru
 }
 for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`server/data/${d}`, `${DATA}/${d}`, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
-  cwd: process.cwd(), env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'lk', PUBLISH_LOCK_MS: '1500' }, stdio: 'ignore',
+  cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: '', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'lk', PUBLISH_LOCK_MS: '1500' }, stdio: 'ignore',
 });
 const B = `http://127.0.0.1:${PORT}`;
 const pub = async (body) => { const r = await fetch(`${B}/api/apps`, { method: 'POST', headers: H, body, signal: AbortSignal.timeout(5000) }); return { status: r.status, j: await r.json().catch(() => ({})) }; };

@@ -43,7 +43,7 @@ for (const dir of ['apps', 'skill-snapshots']) {
 
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
   cwd: process.cwd(),
-  env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'sopremote-test-token' },
+  env: { ...process.env, MCP_GATEWAY: '', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'sopremote-test-token' },
   stdio: 'ignore',
   detached: false,
 });
