@@ -202,10 +202,20 @@ export function installPortal(
             let body = Buffer.concat(chunks).toString('utf8');
             // 改写 meta refresh url=/ → /go/<wid>/
             body = body.replace(/content="0;\s*url=\/"/gi, `content="0; url=/go/${pWid}/"`);
+            // 白屏修（监督席 direct-9cd36827）：SPA 绝对路径资产引用改写——src="/…"·href="/…" → /go/<wid>/…
+            // 排除：//协议相对·data:/http(s): 等 scheme·已带 /go/ 前缀·单引号同款兼容
+            const goBase = `/go/${pWid}`;
+            const fixAttr = (m: string, name: string, q: string, url: string) => {
+              if (!url.startsWith('/') || url.startsWith('//') || url.startsWith(goBase + '/')) return m;
+              if (/^\/go\/\d+\//.test(url)) return m; // 已是任意 /go/N/ 形
+              return `${name}=${q}${goBase}${url}${q}`;
+            };
+            body = body.replace(/(src|href)=(["'])(\/[^"']*)\2/gi, (m, n, q, u) => fixAttr(m, n, q, u));
             res.write = origWrite;
             res.end = origEnd;
             const buf = Buffer.from(body, 'utf8');
             delete (proxyRes.headers as any)['transfer-encoding']; // 防冲突
+            try { res.removeHeader('transfer-encoding'); } catch { /* 未设 */ } // writeHead 已排队的 TE 也要摘（CL+TE 并存=协议错）
             res.setHeader('content-length', String(buf.length));
             return origEnd(buf);
           };
