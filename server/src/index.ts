@@ -1365,7 +1365,7 @@ app.post('/api/sop/runs/:id/files', (req, res, next) => {
       const presented = String(req.headers['x-run-upload-token'] ?? '').trim();
       const expected = String((row as any).upload_token ?? '');
       if (!expected) throw new HttpError(403, '该 run 无上传令牌（旧 run 上传面已关闭）');
-      if (!presented) throw new HttpError(403, '缺少 X-Run-Upload-Token（Runner 页内嵌令牌·人工作业用 admin 口令）');   // T023 签 A：缺/错令牌统一 403
+      if (!presented) throw new HttpError(401, '缺少 X-Run-Upload-Token（Runner 页内嵌令牌·人工作业用 admin 口令）');   // T023 修订签 A1：缺令牌=401（错令牌=403·白名单外=400）
       if (presented !== expected) throw new HttpError(403, '上传令牌不符（run 不匹配或已过期）');
     }
     const existing = (svc<SopService>('sop').runFiles(Number(req.params.id)) as any[]);
