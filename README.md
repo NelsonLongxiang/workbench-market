@@ -150,3 +150,25 @@ node scripts/verify-report.mjs <run1.json> [run2.json ...]
 - **market 源**：派单 running 的 SOP run（待验收语义，深链 `/sop/<slug>/`）
 - A2A 源为 v2 预留
 UI：`/tasks` 页（源/状态过滤）· 总览待办聚合卡 · 驾驶舱「加待办卡」（kind=tasks 面板，布局服务端保存）。
+
+## 鉴权边界与代理相对路径（#132 ⑨⑩）
+
+### REST vs MCP 鉴权差异表
+
+| 面 | 写操作 | 读操作 |
+|---|---|---|
+| REST `/api/apps`（发布） | `X-Admin-Token` 必带（远程写另经 T1 豁免面清单） | 开放（GET） |
+| REST `/api/apps/:slug/files` | 上传=管理员口令；列表/下载开放 | 开放 |
+| REST `/api/sop/runs/:id/files` | **run-scoped `X-Run-Upload-Token`**（启动响应/派单回执取）或管理员口令 | 开放 |
+| MCP `/mcp` | 无独立口令——网关模式下按会话 `grants` 工具白名单授权（`Authorization: Bearer <token>`） | 同左 |
+| 管理面（settings/mcp sessions） | `X-Admin-Token` 必带 | 部分开放（脱敏） |
+
+**推荐路径**：agent 侧一律走 MCP（授权白名单可审计）；人工作业走 REST+口令；远程台面发布用 T1 豁免清单内的业务写面。
+
+### 代理相对路径标准式（iframe / 统一门户 `/go/<id>/`）
+
+被测台在 iframe 内的**同源相对请求**要以**页面自身路径**为基准：
+
+- 推荐：脚本/api 调用用**相对路径**（`api/x` 而非 `/api/x`）或显式拼 `location.pathname` 基；
+- 或注入 `<base href="/go/<id>/">`（市场门户不做注入·台自持）；
+- **禁止**在 bundle 里硬编码根绝对路径（`/assets/...`）——门户代理只改写 HTML 属性与 Vite assetsURL helper，任意自拼的根绝对路径会逃逸前缀（白屏三层修的直接教训，见 PR#128-#130）。
