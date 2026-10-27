@@ -169,6 +169,8 @@ export function installPortal(
       // 发出的 Origin=http://…:9800 与上游 authority 不符会被 403 拒（WS 握手同理，
       // 实测握手 403→改写后通过）。代理作为可信客户端把 Origin 重写为上游自身 origin。
       proxyReq: (proxyReq, req) => {
+        // #P0（总工 direct-0bf10126）：上游请求强制 identity——不取压缩体（改写只对明文做·字节面天然完好）
+        proxyReq.setHeader('accept-encoding', 'identity');
         const rq = req as typeof req & { goAuth?: string; goOrigin?: string; goCookies?: string; goHost?: string; goSsoSid?: string };
         // SSO v1 白名单单键：Odoo 台只透 session_id（覆写 Cookie 头·评审注①——其他站 cookie 不泄入）
         if (rq.goSsoSid) proxyReq.setHeader('cookie', `session_id=${rq.goSsoSid}`);
@@ -203,7 +205,10 @@ export function installPortal(
         const pCt = String(proxyRes.headers['content-type'] ?? '');
         const pIsJs = /text\/javascript|application\/javascript/.test(pCt);
         const pIsCss = pCt.includes('text/css');
-        if (pWid && (pCt.includes('text/html') || pIsJs || pIsCss)) {
+        const pEnc = String(proxyRes.headers['content-encoding'] ?? '').toLowerCase();
+        // #P0（总工 direct-0bf10126）：压缩/二进面零字符串改写——gzip/br/deflate 编码体一律字节透传（文本改写只走 identity）
+        const rewritable = pWid && !pEnc && (pCt.includes('text/html') || pIsJs || pIsCss);
+        if (rewritable) {
           const origEnd = res.end.bind(res);
           const chunks: Uint8Array[] = [];
           (res as any)._wmIntercepting = true;
