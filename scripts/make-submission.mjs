@@ -63,10 +63,15 @@ mkdirSync(sub, { recursive: true });
 const files = ["README.md", "package.json", "pnpm-workspace.yaml"];
 for (const f of files) cpSync(join(root, f), join(sub, f));
 const dirs = ["server/src", "web/src", "web/dist", "scripts", "verify", "design-system"];
-for (const d of dirs) cpSync(join(root, d), join(sub, d), { recursive: true });
+// #161 干净树：缺失目录（如 web/dist 构建产物·gitignored）跳过并提示，不 ENOENT 崩
+for (const d of dirs) {
+  const src = join(root, d);
+  if (!existsSync(src)) { console.warn(`[make-submission] 跳过缺失目录 ${d}（干净树未构建）`); continue; }
+  cpSync(src, join(sub, d), { recursive: true });
+}
 
 mkdirSync(join(sub, "evidence"), { recursive: true });
-cpSync(join(root, "evidence", "e2e_test.py"), join(sub, "evidence", "e2e_test.py"));
+if (existsSync(join(root, "evidence", "e2e_test.py"))) cpSync(join(root, "evidence", "e2e_test.py"), join(sub, "evidence", "e2e_test.py"));
 cpSync(join(root, "server", "package.json"), join(sub, "server", "package.json"));
 cpSync(join(root, "web", "package.json"), join(sub, "web", "package.json"));
 const pngs = readdirSync(join(root, "evidence")).filter((f) => f.endsWith(".png"));
