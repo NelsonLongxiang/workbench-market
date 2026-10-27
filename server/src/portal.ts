@@ -183,15 +183,28 @@ export function installPortal(
       proxyRes: (proxyRes, req, res) => {
         console.log('[proxres-entry]', req.url, '| wid:', (req as any).goWid, '| sc:', JSON.stringify(proxyRes.headers['set-cookie']));
         // 登录态保持（属主报障 /use/1861 Sub2API）：目标台 Set-Cookie 改写——去 Domain（存市场域）+ Path 加 /go/<id>/（各台隔离）
+        // 登录态保持（#157）+ #170 P1②：Set-Cookie 属性透传——去 Domain/Path 加 /go/<id>/；非 HTTPS 入口剥 Secure（否则浏览器拒存）；__Host-/__Secure- 前缀保留 Path=/ 语义（前缀强制 Secure+Path=/）
         if (proxyRes.headers['set-cookie']) {
           const _wid = (req as express.Request & { goWid?: string }).goWid ?? '';
           const _base = (req as express.Request & { goBase?: string }).goBase ?? '';
+          const _https = req.secure || String(req.headers['x-forwarded-proto'] ?? '').includes('https');
           const _strip = (p0: string) => (_base && (p0 === _base || p0.startsWith(_base + '/'))) ? (p0 === _base ? '/' : p0.slice(_base.length)) : p0;
           proxyRes.headers['set-cookie'] = (proxyRes.headers['set-cookie'] as string[]).map((c) => {
             let out = c.replace(/;\s*domain=[^;]*/i, '');
-            const pm = /;\s*path=([^;]*)/i.exec(out);
-            if (pm) { const np = '/go/' + _wid + (_strip(pm[1]) === '/' ? '/' : _strip(pm[1])); out = out.replace(/;\s*path=[^;]*/i, '; Path=' + np); }
-            else out += '; Path=/go/' + _wid + '/';
+            const name = out.split('=')[0]?.trim() ?? '';
+            const isPrefix = /^__(Host|Secure)-/i.test(name);
+            if (isPrefix) {
+              // __Host-/__Secure- 语义：Secure+Path=/+无 Domain——Path 不做前缀改写（前缀规则会反噬）；HTTP 入口下浏览器本就拒收 → 保留 Secure 如实透出
+              out = out.replace(/;\s*path=[^;]*/i, '; Path=/');
+              if (!/path=/i.test(out)) out += '; Path=/';
+              if (!/;\s*secure\b/i.test(out)) out += '; Secure';
+            } else {
+              const pm = /;\s*path=([^;]*)/i.exec(out);
+              if (pm) { const np = '/go/' + _wid + (_strip(pm[1]) === '/' ? '/' : _strip(pm[1])); out = out.replace(/;\s*path=[^;]*/i, '; Path=' + np); }
+              else out += '; Path=/go/' + _wid + '/';
+              // 非 HTTPS 下剥 Secure（否则浏览器静默丢弃该 cookie=登录态丢的隐性根因）
+              if (!_https) out = out.replace(/;\s*secure\b/ig, '');
+            }
             return out;
           });
         }
@@ -235,6 +248,8 @@ export function installPortal(
             // 白屏第二层（监督席 direct-aa94cbd4）：Vite 动态 chunk——JS/CSS 内绝对 /assets/ 前缀改写（仅此单前缀·避免误伤）
             // 外链护栏（监督席 direct-ef4d0f97·丢失补回）：跨源绝对 URL 内 /assets/ 不动——交替匹配保护（airwallex 支付脚本实证）
             if (pIsJs || pIsCss) body = body.replace(/(https?:\/\/[^\s"'`()]+)|(\/assets\/)|(\/api\/)/g, (m, url, ast, api) => (url ? url : goBase + (ast || api))); // 第四层：JS/CSS 字面 /api/ 同加前缀（Sub2API fetch('/api/v1') 打错后端根因）
+            // #170 P1③：泛化根路径改写——字面量 "/xxx" 形态（排除 //、/go/、已带前缀；data:/javascript: 非根路径不命中）→ /go/<id>/xxx
+            if (pIsJs) body = body.replace(/(["'`])(\/(?!\/|go\/)[A-Za-z0-9_.~%-][^"'`\s]{0,120})\1/g, (m, q, path) => (path.includes(' =>') ? m : `${q}${goBase}${path}${q}`));
             // 白屏第三层（监督席 direct-a85fd99c·丢失补回）：Vite assetsURL 根绝对化 helper——return "/"+e → return "/go/<id>/"+e（base='/' 应用经子路径反代的通用坑·仅 JS 段·窄正则）
             if (pIsJs) body = body.replace(/return\s*"\/"\s*\+\s*([A-Za-z_$][\w$]*)/g, (m, v) => 'return "' + goBase + '/"+' + v);
             res.write = origWrite;
