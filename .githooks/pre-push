@@ -1,0 +1,16 @@
+#!/bin/sh
+# 机械化令（总工/监督席 direct-169ac6a5）：非 gavel 流推 main 一律拒；ALLOW_MAIN_PUSH=1 才放。
+# 直推三次=人治失效——此 hook 是第五条防线的机械形态。安装：git config core.hooksPath .githooks
+remote="$1"; url="$2"
+while read local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main|refs/heads/master)
+      if [ "$ALLOW_MAIN_PUSH" != "1" ]; then
+        echo "[pre-push] ✗ 拒推 main（ref=$remote_ref）——代码变更走 分支+PR；确需直推：ALLOW_MAIN_PUSH=1 git push" >&2
+        exit 1
+      fi
+      echo "[pre-push] ⚠ ALLOW_MAIN_PUSH=1——main 直推放行（审计留痕：$(date -u +%FT%TZ) $remote_ref）" >&2
+      ;;
+  esac
+done
+exit 0
