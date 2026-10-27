@@ -29,7 +29,7 @@ rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
   cwd: process.cwd(),
-  env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA },
+  env: { ...process.env, MCP_GATEWAY: '', PORT: String(PORT), DATA_DIR: DATA },
   stdio: 'ignore',
 });
 try {
