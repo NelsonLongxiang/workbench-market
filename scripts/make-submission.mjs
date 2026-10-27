@@ -212,7 +212,6 @@ const TEXT_FACTS = [
   ["scripts/skill-install-smoke.mjs", "篡改后校验红"],
   ["server/src/services/sandbox.ts", "dispatch"],
 ];
-import { readFileSync } from "node:fs";
 const snapDb = new DatabaseSync(snap);
 snapDb.exec(`CREATE TABLE verifier_text_facts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
