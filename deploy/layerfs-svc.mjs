@@ -24,7 +24,6 @@ sidecar.exec('CREATE TABLE IF NOT EXISTS branches (project TEXT NOT NULL, branch
 sidecar.exec('CREATE TABLE IF NOT EXISTS merged (project TEXT NOT NULL, n INTEGER DEFAULT 0, PRIMARY KEY (project))');
 
 const clients = new Map(); // R8：一个进程一份 agent·项目一个 client
-const clients = new Map(); // R8：一个进程一份 agent·项目一个 client
 async function clientOf(project) {
   if (clients.has(project)) return clients.get(project);
   // #215 X6 九障：open 需「项目已装配 Store」——storePath 每项目一份（storeRoot/<project>/store.sqlite·R4 一台一卷的面）
