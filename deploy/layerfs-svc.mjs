@@ -62,7 +62,9 @@ process.env.LAYERFS_STORE_PATH = process.env.LAYERFS_STORE_PATH ?? `${homeDir}/g
 const clients = new Map(); // R8：一进程一份 agent·一项目一 client（共享全局 store）
 async function clientOf(project) {
   if (clients.has(project)) return clients.get(project);
-    // 裁决 #021：每项目一卷·storePath 指卷内 global（SDK 创建时读 env·进程内多项目切换安全）
+    const srcDir = `${storeRoot}/sources/${project}`;
+  try { mkdirSync(srcDir, { recursive: true, mode: 0o755 }); } catch { /* 已在 */ }
+  // 裁决 #021：每项目一卷·storePath 指卷内 global（SDK 创建时读 env·进程内多项目切换安全）
   const dataDir = await ensureVolume(project);
   const storeDir = dataDir + '/global';
   try { mkdirSync(storeDir, { recursive: true, mode: 0o755 }); } catch { /* 已在 */ }
