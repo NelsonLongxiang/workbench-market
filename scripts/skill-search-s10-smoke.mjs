@@ -33,6 +33,10 @@ try {
   const total2 = batchSizes.reduce((a, b) => a + b, 0);
   ok('② 可排序 → 取前 30 内（≤30）', total2 <= 30 && total2 > 0, 'total=' + total2);
   ok('③ 每批≤15 恒真', batchSizes.every((n) => n <= 15), batchSizes.join(','));
+  const r9 = await fetch(B + '/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'skill_search', arguments: { need: 'drawio 架构图' } } }), signal: AbortSignal.timeout(30000) });
+  const j9 = await r9.json().catch(() => ({}));
+  let p9 = {}; try { p9 = JSON.parse(j9.result?.content?.[0]?.text ?? '{}'); } catch {}
+  ok('④ #007 总量披露（candidates_total+top_n 恒报）', typeof p9.candidates_total === 'number' && p9.top_n === 30, JSON.stringify({ t: p9.candidates_total, n: p9.top_n }));
 } finally { child.kill(); await new Promise((r) => gw.close(r)); await new Promise((x) => setTimeout(x, 400)); }
 console.log('\n===== S10 回归冒烟 ' + (pass + fail) + ' 项：' + pass + ' 通过 / ' + fail + ' 失败 =====');
 process.exit(fail ? 1 : 0);
