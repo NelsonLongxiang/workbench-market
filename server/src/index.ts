@@ -2350,7 +2350,7 @@ function applyTaskTransition(taskId: number, action: 'created' | 'toggled' | 'pu
 }
 
 // ---- 任务中心 8 端点（读开放·写删人审·C13 元台只能人工面） ----
-app.post('/api/tasks', (req, res) => {
+app.post('/api/task-center/tasks', (req, res) => {
   if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' }); // C10
   if (!adminGuard(req, res)) return; // C9 无口令 401/403
   const b = (req.body ?? {}) as { title?: string; kind?: string; payload?: unknown };
@@ -2359,13 +2359,13 @@ app.post('/api/tasks', (req, res) => {
   const actor = String((req as express.Request & { adminActor?: string }).adminActor ?? 'human');
   const r = db.prepare("INSERT INTO tasks (title, kind, payload_json, status, created_by) VALUES (?, ?, ?, 'draft', ?)").run(title, String(b.kind ?? '录入'), JSON.stringify(b.payload ?? {}), actor);
   const id = Number(r.lastInsertRowid);
-  applyTaskTransition(id, 'created', actor, { title });
+  applyTaskTransition(id, 'created', 'human:' + actor, { title });
   res.status(201).json({ ok: true, id, status: 'draft' }); // C1
 });
-app.get('/api/tasks', (req, res) => { // 读开放
-  res.json(db.prepare('SELECT id, title, kind, status, enabled, material_sha256, published_at, published_by, created_by, created_at, updated_at FROM tasks ORDER BY id DESC').all());
+app.get('/api/task-center/tasks', (req, res) => { // 读开放
+  res.json(db.prepare('SELECT id, title, kind, status, enabled, agent_dispatch_enabled, material_sha256, published_at, published_by, created_by, created_at, updated_at FROM tasks ORDER BY id DESC').all());
 });
-app.get('/api/tasks/:id', (req, res) => {
+app.get('/api/task-center/tasks/:id', (req, res) => {
   const hit = db.prepare('SELECT * FROM tasks WHERE id = ?').get(Number(req.params.id));
   if (!hit) throw new HttpError(404, 'task not found');
   res.json({ ...hit, events: db.prepare('SELECT id, type, actor, actor_kind, at, payload_json FROM task_events WHERE task_id = ? ORDER BY id').all(hit.id) });
@@ -2391,15 +2391,52 @@ app.put('/api/task-center/policy', (req, res) => {
   (db as any).prepare("UPDATE task_center_policy SET value = ? WHERE key = 'center_switch'").run(v);
   res.json({ ok: true, center_switch: v });
 });
-app.patch('/api/tasks/:id/switch', (req, res) => { // 任务级锁
+app.patch('/api/task-center/tasks/:id/switch', (req, res) => { // 任务级锁
   if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
   if (!adminGuard(req, res)) return;
   const hit = db.prepare('SELECT id, enabled FROM tasks WHERE id = ?').get(Number(req.params.id));
   if (!hit) throw new HttpError(404, 'task not found');
   const nv = hit.enabled ? 0 : 1;
-  applyTaskTransition(hit.id, 'toggled', String((req as express.Request & { adminActor?: string }).adminActor ?? 'human'), { enabled: nv });
+  applyTaskTransition(hit.id, 'toggled', 'human:' + String((req as express.Request & { adminActor?: string }).adminActor ?? 'human'), { enabled: nv });
   res.json({ ok: true, enabled: nv === 1 });
 });
+
+// #159 M3 B3（决策 #010）：发布冻结 + 撤回 + agent 派发开关（C2-C6/C8/C11/C18-C22·监督席两对齐）
+app.post('/api/task-center/tasks/:id/publish', (req, res) => {
+  if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
+  if (!adminGuard(req, res)) return;
+  const hit = db.prepare('SELECT * FROM tasks WHERE id = ?').get(Number(req.params.id)) as any;
+  if (!hit) throw new HttpError(404, 'task not found');
+  if (hit.status === 'published') throw new HttpError(409, '已发布不可再写（#159 C11）');
+  if (hit.status === 'withdrawn') throw new HttpError(409, '已撤回任务不可发布');
+  const material = createHash('sha256').update(String(hit.payload_json) + ':template-v1').digest('hex'); // 冻结（canonical payload+模板版本）
+  const dup = db.prepare('SELECT id FROM tasks WHERE material_sha256 = ?').get(material) as any;
+  if (dup) throw new HttpError(409, '同一录入只发一次（material_sha256 重复·#159 C2）');
+  const actor = 'human:' + String((req as express.Request & { adminActor?: string }).adminActor ?? 'admin'); // C21 actor human: 前缀
+  applyTaskTransition(hit.id, 'published', actor, { status: 'published', material_sha256: material, published_at: new Date().toISOString(), published_by: actor });
+  res.json({ ok: true, id: hit.id, material_sha256: material });
+});
+app.post('/api/task-center/tasks/:id/withdraw', (req, res) => {
+  if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
+  if (!adminGuard(req, res)) return;
+  const hit = db.prepare('SELECT * FROM tasks WHERE id = ?').get(Number(req.params.id)) as any;
+  if (!hit) throw new HttpError(404, 'task not found');
+  if (hit.status !== 'published') throw new HttpError(409, '仅已发布可撤回');
+  const actor = 'human:' + String((req as express.Request & { adminActor?: string }).adminActor ?? 'admin');
+  applyTaskTransition(hit.id, 'withdrawn', actor, { status: 'withdrawn' });
+  res.json({ ok: true, id: hit.id, status: 'withdrawn' });
+});
+app.patch('/api/task-center/tasks/:id/agent-dispatch', (req, res) => { // 监督席对齐②：任务级 agent 派发开关（默认关·与任务锁语义对齐）
+  if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
+  if (!adminGuard(req, res)) return;
+  const hit = db.prepare('SELECT id, agent_dispatch_enabled FROM tasks WHERE id = ?').get(Number(req.params.id)) as any;
+  if (!hit) throw new HttpError(404, 'task not found');
+  const nv = hit.agent_dispatch_enabled ? 0 : 1;
+  const actor = 'human:' + String((req as express.Request & { adminActor?: string }).adminActor ?? 'admin');
+  applyTaskTransition(hit.id, 'toggled', actor, { agent_dispatch_enabled: nv });
+  res.json({ ok: true, agent_dispatch_enabled: nv === 1 });
+});
+
 
 
 function maskKey(v: string): string {
