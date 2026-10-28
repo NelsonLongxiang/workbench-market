@@ -208,6 +208,14 @@ function validateWorkbenchBody(b: any, partial = false) {
     if (u.includes('=****')) bad('url 含掩码占位（****）——请填写真实地址（列表展示的 token 已脱敏）');
     // 以 / 开头 = 市场自产台内部路径（本服务静态托管）；其余必须是 http(s)
     if (!u.startsWith('/')) assertHttpUrl(u);
+    // R1 SSRF 白名单（监督席派单·外部评审跨域前置）：公网地址默认拒——ALLOW_PUBLIC_NET=1 豁免
+    if (process.env.ALLOW_PUBLIC_NET !== '1') {
+      try {
+        const _h = new URL(u).hostname;
+        const _p4 = (hn) => { try { return ['127','10','192','168','169','172'].includes(String(hn).split('.')[0]) || hn === 'localhost' || hn === '::1' || hn.includes('[') || !String(hn).includes('.'); } catch { return true; } };
+        if (!_p4(_h)) bad('公网地址默认拒绝（R1 白名单·跨域前收紧·显式 ALLOW_PUBLIC_NET=1 豁免）: ' + _h);
+      } catch { /* assertHttpUrl 已兜 */ }
+    } else { console.warn('[R1] ALLOW_PUBLIC_NET=1——公网注册已豁免（跨域部署前必须收紧）'); }
     out.url = u;
   }
   if (b.type !== undefined) out.type = String(b.type || 'web');
