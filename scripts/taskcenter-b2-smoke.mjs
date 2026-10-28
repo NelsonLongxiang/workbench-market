@@ -17,17 +17,17 @@ try {
   await waitReady(B + '/api/health');
   const H = { 'Content-Type': 'application/json', 'X-Admin-Token': 'b2' };
   // ① C9 无口令
-  const r1 = await fetch(B + '/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: 'x' }) });
+  const r1 = await fetch(B + '/api/task-center/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: 'x' }) });
   ok('① C9 无口令拒（401/403）', r1.status === 401 || r1.status === 403, String(r1.status));
   // ② C10 跨源
-  const r2 = await fetch(B + '/api/tasks', { method: 'POST', headers: { ...H, Origin: 'http://evil.example.com' }, body: JSON.stringify({ title: 'x' }) });
+  const r2 = await fetch(B + '/api/task-center/tasks', { method: 'POST', headers: { ...H, Origin: 'http://evil.example.com' }, body: JSON.stringify({ title: 'x' }) });
   ok('② C10 跨源拒 403', r2.status === 403, String(r2.status));
   // ③ C1 同源+口令 201（无 Origin 头=curl 同源）
-  const r3 = await fetch(B + '/api/tasks', { method: 'POST', headers: H, body: JSON.stringify({ title: '首个任务', payload: { k: 1 } }) });
+  const r3 = await fetch(B + '/api/task-center/tasks', { method: 'POST', headers: H, body: JSON.stringify({ title: '首个任务', payload: { k: 1 } }) });
   const j3 = await r3.json().catch(() => ({}));
   ok('③ C1 口令+同源 201 draft', r3.status === 201 && j3.status === 'draft', r3.status + '/' + String(j3.status));
   // ④ 读开放
-  const r4 = await fetch(B + '/api/tasks');
+  const r4 = await fetch(B + '/api/task-center/tasks');
   ok('④ GET /api/tasks 读开放 200', r4.status === 200, String(r4.status));
   // ⑤ C7 policy
   const r5 = await fetch(B + '/api/task-center/policy');
@@ -38,7 +38,7 @@ try {
   const j6 = await r6.json().catch(() => ({ steps: [] }));
   ok('⑥ C17 template 六固定步骤', Array.isArray(j6.steps) && j6.steps.length === 6, String(j6.steps?.length));
   // ⑦ 事件恰一条（created）
-  const r7 = await fetch(B + '/api/tasks/' + j3.id);
+  const r7 = await fetch(B + '/api/task-center/tasks/' + j3.id);
   const j7 = await r7.json().catch(() => ({ events: [] }));
   ok('⑦ created 事件恰一条（只增）', Array.isArray(j7.events) && j7.events.filter((e) => e.type === 'created').length === 1, JSON.stringify(j7.events?.length));
   // ⑧ C13 MCP 拒 slug
