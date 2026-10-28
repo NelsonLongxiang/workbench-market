@@ -1,0 +1,230 @@
+{
+  "version": "fixture-classification-v5",
+  "parent": "1fc3d91a26c04dab46b9511ee57f4afd66dc5b89",
+  "target": "d90f81abca809a48a893544d0bdd4c409be78526",
+  "state": "NOT_FREEZE_READY",
+  "created_at": "2026-10-28T22:33:28.322Z",
+  "mechanisms": {
+    "fixture_classifier": 13,
+    "old_classifier": 24,
+    "actual_engine_records": 426,
+    "product_runs": 0,
+    "independent_review": "PENDING",
+    "lint": {
+      "checked": 98,
+      "p1_skipped": false,
+      "schema_skipped": false,
+      "ok": true,
+      "issues": [],
+      "coverage": {
+        "pattern": "^([A-Z]+[0-9]+) ",
+        "enforced": true,
+        "clauses": 98,
+        "covered": 98,
+        "exempted": 0,
+        "uncovered": [],
+        "problems": []
+      },
+      "coverage_skipped": false
+    }
+  },
+  "approval_gate": "trusted A2A/confirmed source resolver not implemented; no real verified approvals; PENDING",
+  "files": [
+    {
+      "relative": "run-unit.mjs",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/run-unit.mjs",
+      "bytes": 3663,
+      "sha256": "364b12292bd8ea5e7f3075270f7ea7c0bc4ad43ccbbcb4be0e8b4650e5b9390e",
+      "git_blob": "8dd7979424a1ef36a551a23f3dcd1a63bfba6d70"
+    },
+    {
+      "relative": "fixture-classification-v5-selftest.mjs",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-classification-v5-selftest.mjs",
+      "bytes": 2698,
+      "sha256": "9559e19390fbbdf6c5078b7418fb0208f771a322587f2fca49529529e646c3fe",
+      "git_blob": "37cb115ef29065d79578de6eb754a201bdea33ef"
+    },
+    {
+      "relative": "fixture-classification-v5-report.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-classification-v5-report.json",
+      "bytes": 8145,
+      "sha256": "549b207e8e07cb509e85647483fd812dc93f813ea3e5c9769c976bfce2250559",
+      "git_blob": "944a1a33eb4e3ebffd89b62ad4c3fdd40af4da80"
+    },
+    {
+      "relative": "fixture-error-v5-engine-selftest.mjs",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-engine-selftest.mjs",
+      "bytes": 7417,
+      "sha256": "1c8d4b4eda410f058e78f8913e97fe81da5730387ddc5a324bbf50607b73a031",
+      "git_blob": "64449dc1c9e18c538c6bf6e7b1f0f8a354082b78"
+    },
+    {
+      "relative": "fixture-error-v5-engine-report.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-engine-report.json",
+      "bytes": 413808,
+      "sha256": "48253624890486c597a152b6cdd4bc77c1cb887790b6fa7e8a75755adcf64bc3",
+      "git_blob": "8adb1b157addc6c3c630f55fe1e51b9f12f9cad5"
+    },
+    {
+      "relative": "lint-v5.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/lint-v5.json",
+      "bytes": 230,
+      "sha256": "2007709ae3a7efd2c87e08eba8682910410950afff252d0ea1ff05cab64321b0",
+      "git_blob": "5896a3863f6ee01c28c580b010198655891bae44"
+    },
+    {
+      "relative": "CORRECTION-v5.md",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/CORRECTION-v5.md",
+      "bytes": 2252,
+      "sha256": "5b824ecce435d8501473d6cdb3800481b6558c681d8e1a04ea2c3462b8bc7d7a",
+      "git_blob": "426ac443f8ef2058f871e1a540bb35a717359c02"
+    },
+    {
+      "relative": "fixture-error-v5-tests/audit500-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-tests/audit500-engine.json",
+      "bytes": 160870,
+      "sha256": "ace0f82357f42cdbac592a1a2a38e445bc5bd9cf61a1e5cd3f048227ca857fef",
+      "git_blob": "e4c145acd318e3fec615ae4b1626976039ac269c"
+    },
+    {
+      "relative": "fixture-error-v5-tests/audit500-raw.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-tests/audit500-raw.json",
+      "bytes": 18414,
+      "sha256": "6375c04341db4ac547c3b4a48b3cdf75ead3d4efa1fb8042c9a2b6c192d3e6bc",
+      "git_blob": "78bbd8e3ad76d7faecba94d687674b9168d1fae0"
+    },
+    {
+      "relative": "fixture-error-v5-tests/create-workbench500-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-tests/create-workbench500-engine.json",
+      "bytes": 160881,
+      "sha256": "5fd28446f4f9abc6f4630505783ae84373b293c16a8d89ed3e0a7a3bb9948f9a",
+      "git_blob": "56cde0c0a68b8a5709e554b3eaf113bd37381cd5"
+    },
+    {
+      "relative": "fixture-error-v5-tests/create-workbench500-raw.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-tests/create-workbench500-raw.json",
+      "bytes": 18425,
+      "sha256": "edf0e13147ca6f37633a917b5bb83a3081edf0040de086eb9826c19bf0752107",
+      "git_blob": "7a4161675de5883e4ff5f833fa361bb62fb47269"
+    },
+    {
+      "relative": "fixture-error-v5-tests/explicit-missing-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-tests/explicit-missing-engine.json",
+      "bytes": 123651,
+      "sha256": "fb0b04e8ea275faf5e9bfdc9c3ba5789d78f811dda0cd2ef03d0f0963b293216",
+      "git_blob": "9cceeb2f7344e99f1b1939053be0ab87e9f2373e"
+    },
+    {
+      "relative": "fixture-error-v5-tests/explicit-missing-raw.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-tests/explicit-missing-raw.json",
+      "bytes": 11466,
+      "sha256": "3f45744e2dee3e4ace5c070d8d79527243e13838eb602180abd6facf4679cc70",
+      "git_blob": "1b4e372628a81ca85ffb88f8589b0a65495c1a4e"
+    },
+    {
+      "relative": "fixture-error-v5-tests/failed-then-crash-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-tests/failed-then-crash-engine.json",
+      "bytes": 160221,
+      "sha256": "2fbe7d13e9f25a5da120d0aee2a168aea473fc3f3f5442db78f38a41ffe167b9",
+      "git_blob": "438b97c8c1c3b5fc2887ea6b81575bb01a92753d"
+    },
+    {
+      "relative": "fixture-error-v5-tests/failed-then-crash-raw.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-tests/failed-then-crash-raw.json",
+      "bytes": 22888,
+      "sha256": "eda980f0f33c7af1115a8021273ebb5997c703fe8227fb9220508291a4f10610",
+      "git_blob": "1c37087521b77a81bd79c99a655d15f62ddee858"
+    },
+    {
+      "relative": "fixture-error-v5-tests/failed-then-return-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-tests/failed-then-return-engine.json",
+      "bytes": 128011,
+      "sha256": "2f3eb7c80e78b7f8bd7c50bf99e6aed0ba31e392ebe3fbbdb74ab0e1fc1f8fdd",
+      "git_blob": "f08000c22655ff7d3bd22cd83f860c9433cde0e9"
+    },
+    {
+      "relative": "fixture-error-v5-tests/failed-then-return-raw.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-tests/failed-then-return-raw.json",
+      "bytes": 17061,
+      "sha256": "52d81a4996b82960a06cc0315dfe2ab56d89d46dc1a7a4a94c161e53dfbf239a",
+      "git_blob": "acfcf9164b316a5526382793c0e56cb317902b61"
+    },
+    {
+      "relative": "fixture-error-v5-tests/listener-owner-mismatch-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-tests/listener-owner-mismatch-engine.json",
+      "bytes": 159287,
+      "sha256": "805772b5b1aa9d4e9bc8ecb4744ca693c954c52e1a4d5d179719bdf1122c1a33",
+      "git_blob": "2246dbdc92fa3f6390acae4fca7c44274f2fc264"
+    },
+    {
+      "relative": "fixture-error-v5-tests/listener-owner-mismatch-raw.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-tests/listener-owner-mismatch-raw.json",
+      "bytes": 16972,
+      "sha256": "1f5259a34c31cdabef1d024cd1ecb78e52fe941abb64fe4a9ffef3b092c12482",
+      "git_blob": "49b7ec572d243d3aa1bc619c8e6d8939fba6a627"
+    },
+    {
+      "relative": "fixture-error-v5-tests/network-rc-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-tests/network-rc-engine.json",
+      "bytes": 158052,
+      "sha256": "7fbc9a096704c2888a074d83360afbfe2a6ed44a545e33b19c4d5021d1bf7f8e",
+      "git_blob": "e240c58eb9999526a4953cf5813e374c018f92e5"
+    },
+    {
+      "relative": "fixture-error-v5-tests/network-rc-raw.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-tests/network-rc-raw.json",
+      "bytes": 16207,
+      "sha256": "6a6ad235cd7bdf623f5e37832ec759823d1b80015808b30fab3709cbd601b34a",
+      "git_blob": "25998ae6ddfea1ab98025c557bafbebbba227a5b"
+    },
+    {
+      "relative": "fixture-error-v5-tests/other-error-only-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-tests/other-error-only-engine.json",
+      "bytes": 2111,
+      "sha256": "02af013b6d7615e3370d08b61d18b81addd55faf31eb24d3cd23ab5e56f07199",
+      "git_blob": "bc14846d29ce9a23be69fc042458f611577efcc6"
+    },
+    {
+      "relative": "fixture-error-v5-tests/port-protection-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-tests/port-protection-engine.json",
+      "bytes": 160783,
+      "sha256": "86fdbc4bfd2bc50b99b381e558057e9ef22e1d4bfbc77c2e268039d7762d38e5",
+      "git_blob": "1ce6073cc680a4ce3bee106d18fe8bd8a293862c"
+    },
+    {
+      "relative": "fixture-error-v5-tests/port-protection-raw.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-tests/port-protection-raw.json",
+      "bytes": 18280,
+      "sha256": "1feabd149bf12213e4605b8a65cfb5c9e92e2e2b7cd0341d762d0696314eac43",
+      "git_blob": "12a4a5ba87066e92bb3d3149c67d94e53f56357f"
+    },
+    {
+      "relative": "fixture-error-v5-tests/target-error-other-ok-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-tests/target-error-other-ok-engine.json",
+      "bytes": 2355,
+      "sha256": "5307fef03ef0a70de16268b03d7929aa7a8556057f8e4047e9b197c2d61be867",
+      "git_blob": "4cbe6c5c1733ceafe31e80097bcc065ba79912e9"
+    },
+    {
+      "relative": "fixture-error-v5-tests/target-ok-other-error-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-tests/target-ok-other-error-engine.json",
+      "bytes": 1975,
+      "sha256": "925eaf6008118ff63106cf04dfaadc4c3315d3b8ab569c9bf7bceb035e7a68fb",
+      "git_blob": "6a6effe835c4ea1a90f62f010b4301b793c99c87"
+    },
+    {
+      "relative": "fixture-error-v5-tests/typeerror-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-tests/typeerror-engine.json",
+      "bytes": 157346,
+      "sha256": "ed4df3f170b095a16e0903269790a2118777ac2053aff2c5ef400c992ba5d51c",
+      "git_blob": "5d0c173fe5da26dcb027fc591d5addc93b142ccf"
+    },
+    {
+      "relative": "fixture-error-v5-tests/typeerror-raw.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-tests/typeerror-raw.json",
+      "bytes": 15971,
+      "sha256": "abc969eb4b25613691dfe21049d50cf4308f57d9a8ac402b2fe697e63162fafd",
+      "git_blob": "fe6b52c8f8e8a1359ec28cb5c49810ec906198a9"
+    }
+  ]
+}

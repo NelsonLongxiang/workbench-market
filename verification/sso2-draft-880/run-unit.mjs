@@ -5,12 +5,14 @@ import {MissingFixture} from './fixtures.mjs';
 export function controlDigest(controls){return createHash('sha256').update(JSON.stringify(controls)).digest('hex');}
 const identity=s=>typeof s==='string'?s.trim().toLowerCase():'';
 export async function evaluateUnit(id,handler,policy,context={}){
- const assertions=[],completed=new Set();let completionDeclared=false;
+ const assertions=[],completed=new Set(),productAssertionErrors=new WeakSet();let completionDeclared=false;
  const failed=()=>assertions.some(a=>!a.ok);
  const failure=error=>({id,value:0,status:'FAIL',assertions,error:error??'latched assertion failure (including swallowed assertion)',error_kind:'assertion'});
  const check=(condition,name)=>{
   if(typeof name!=='string'||!name.trim())throw new TypeError('named assertion required');
-  assertions.push({ok:Boolean(condition),name});assert.ok(condition,name);completed.add(name);
+  assertions.push({ok:Boolean(condition),name});
+  try{assert.ok(condition,name);}catch(error){productAssertionErrors.add(error);throw error;}
+  completed.add(name);
  };
  check.complete=()=>{completionDeclared=true;};
  try{
@@ -28,9 +30,9 @@ export async function evaluateUnit(id,handler,policy,context={}){
   if(missing.length||!completionDeclared)throw new MissingFixture('incomplete controls: '+missing.join(',')+'; completion marker='+completionDeclared);
   return {id,value:1,status:'PASS',assertions,completion:{declared:true,required_controls:policy.required_controls,approval:receipt}};
  }catch(error){
-  if(error?.code==='ERR_ASSERTION')return failure(error?.message);
+  if(error&&productAssertionErrors.has(error))return failure(error?.message); // only this unit's named product check; never arbitrary ERR_ASSERTION
   if(error instanceof MissingFixture&&failed())return {...failure(),dependency_error:{message:error.message,error_kind:'explicit-missing-prerequisite-fixture-or-completion'}};
   if(error instanceof MissingFixture)return {id,value:null,status:'NEEDS-MATERIAL',assertions,error:error.message,error_kind:'explicit-missing-prerequisite-fixture-or-completion'};
-  return {id,value:null,status:'ERROR',business_verdict:failed()?'FAIL':'NOT_EVALUATED',assertions,latched_failed_assertions:assertions.filter(a=>!a.ok),error:error?.message??String(error),error_code:error?.code??null,exit_code:error?.exitCode??null,error_kind:'probe-or-infrastructure-error'};
+  return {id,value:null,status:'ERROR',business_verdict:failed()?'FAIL':'NOT_EVALUATED',assertions,latched_failed_assertions:assertions.filter(a=>!a.ok),error:error?.message??String(error),error_code:error?.code??null,exit_code:error?.exitCode??null,error_kind:error?.code==='ERR_ASSERTION'?'fixture-or-untracked-assertion-error':'probe-or-infrastructure-error'};
  }
 }

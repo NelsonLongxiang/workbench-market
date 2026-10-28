@@ -1,0 +1,72 @@
+{
+  "contract_version": "1.1",
+  "run_id": "run_6a47b60dfdcce0e1",
+  "spec_id": "guard_scope_other-error-only",
+  "started": "2026-10-28T22:32:58.915Z",
+  "finished": "2026-10-28T22:32:58.916Z",
+  "verifier": {
+    "mode": "open",
+    "engine_version": "0.1.0",
+    "spec_version": 1,
+    "corpus_version": "mechanism-only",
+    "sealed_review": false
+  },
+  "as_of": {
+    "kind": "snapshot",
+    "value": "2026-10-29T00:00:00.000Z"
+  },
+  "summary": {
+    "pass": 0,
+    "fail": 0,
+    "needs_material": 1,
+    "error": 0
+  },
+  "overall": "NEEDS-MATERIAL",
+  "reason": "G00 need material",
+  "vu": [
+    {
+      "id": "G00",
+      "role": "assert",
+      "verdict": "NEEDS-MATERIAL",
+      "severity": "S1",
+      "source_clause": "G00 [integrity_boot] 执行完整性守卫：boot 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 0,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "sso2_execution_integrity",
+            "rows": 1
+          }
+        ],
+        "schema_fingerprint": "sha256:addfbd78f661bfe25c203aaecc4e9c94b6c3a00fd6b89d61e6524429b0abf00e"
+      },
+      "evidence": {
+        "reason": "zero rows scanned — wrong table or empty data",
+        "rendered": {
+          "findSql": "SELECT probe_id, status, error_kind, error_code, exit_code, business_verdict, evidence_json FROM sso2_execution_integrity WHERE ((probe_id = 'boot') AND status = 'ERROR')",
+          "scopeSql": "SELECT count(*) AS n FROM sso2_execution_integrity WHERE (probe_id = 'boot')"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    }
+  ],
+  "exceptions": [
+    {
+      "vu": "G00",
+      "severity": "S1",
+      "row_count": 0
+    }
+  ],
+  "artifacts": {
+    "attachment_sha256": []
+  },
+  "payload_sha256": "sha256:859585f1723230cca34ce5e79b735ef643a940397643eb69aa7187265d74ce37"
+}
