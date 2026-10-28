@@ -1,13 +1,13 @@
 # #215 base 段：context=layerfs 检出根（钉 9f97a7ec）——产物 bin+api 供 final COPY --from
-# 构建：core workspace（binding crate layerfs-node=cdylib→Linux 产物 liblayerfs_node.so·改名 layerfs.node）
+# 构建：仓库根 workspace manifest（members=core/crates/*）·-p 精选两包（探针实证 core/ 无 Cargo.toml）
 FROM rust:1.85.1-bookworm AS builder
 WORKDIR /src
 COPY . .
-RUN cargo build --release --locked --manifest-path core/Cargo.toml -p layerfs-node -p layerfs-store-service
-# cdylib 产物名修正（Linux 无 .node 后缀）
-RUN cp target/release/liblayerfs_node.so target/release/layerfs.node 2>/dev/null || cp core/target/release/liblayerfs_node.so core/target/release/layerfs.node
+RUN cargo build --release --locked -p layerfs-node -p layerfs-store-service
+# cdylib 产物名修正（Linux 无 .node 后缀·crate layerfs-node）
+RUN cp target/release/liblayerfs_node.so target/release/layerfs.node
 RUN cd api/agent/sdk && npm install --omit=dev || true
 FROM ubuntu:22.04
 COPY --from=builder /src/target/release/layerfs.node /usr/local/lib/layerfs.node
-COPY --from=builder /src/core/target/release/layerfs.node /usr/local/lib/layerfs.node.alternate 2>/dev/null || true
+COPY --from=builder /src/target/release/layerfs-store-service /usr/local/bin/layerfs-store-service 2>/dev/null || true
 COPY --from=builder /src/api /usr/local/lib/layerfs-api
