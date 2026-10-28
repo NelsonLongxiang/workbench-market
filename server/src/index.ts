@@ -214,7 +214,7 @@ function validateWorkbenchBody(b: any, partial = false) {
         const _h = new URL(u).hostname;
         const _p4 = (hn) => { try { return ['127','10','192','168','169','172'].includes(String(hn).split('.')[0]) || hn === 'localhost' || hn === '::1' || hn.includes('[') || !String(hn).includes('.'); } catch { return true; } };
         if (!_p4(_h)) bad('公网地址默认拒绝（R1 白名单·跨域前收紧·显式 ALLOW_PUBLIC_NET=1 豁免）: ' + _h);
-      } catch { /* assertHttpUrl 已兜 */ }
+      } catch (e) { if (e instanceof HttpError) throw e; /* 其余吞（assertHttpUrl 已兜） */ }
     } else { console.warn('[R1] ALLOW_PUBLIC_NET=1——公网注册已豁免（跨域部署前必须收紧）'); }
     out.url = u;
   }
