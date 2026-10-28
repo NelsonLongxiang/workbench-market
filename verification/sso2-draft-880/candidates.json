@@ -13,10 +13,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "boot"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -37,10 +56,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "switch_defaults"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -61,10 +99,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "http_gate"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -85,10 +142,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "ws_gate"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -109,10 +185,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "internal_target"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -133,10 +228,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "machine_no_ticket"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -157,10 +271,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "machine_unavailable"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -181,10 +314,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "legacy_machine_config"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -205,10 +357,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "register_guard"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -229,10 +400,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "register_schema"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -253,10 +443,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "register_ui"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -277,10 +486,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "login_session"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -301,10 +529,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "me_invalid"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -325,10 +572,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "absolute_ttl"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -349,10 +615,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "multi_device_logout"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -373,10 +658,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "password_storage"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -397,10 +701,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "failure_same_bytes"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -421,10 +744,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "lock_bucket"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -445,10 +787,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "proxy_direct"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -469,10 +830,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "proxy_chain"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -493,10 +873,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "proxy_invalid"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -517,10 +916,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "invalid_config"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -541,10 +959,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "canonical_origin"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -565,10 +1002,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "secure_cookie"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -589,10 +1045,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "next_validation"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -613,10 +1088,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "admin_disable"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -637,10 +1131,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "disable_replay"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -661,10 +1174,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "users_paging"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -685,10 +1217,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "audit_read"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -709,10 +1260,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "audit_append"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -733,10 +1303,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "audit_patch_invalid"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -757,10 +1346,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "audit_patch_valid"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -781,10 +1389,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "json_parser_boundary"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -805,10 +1432,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "audit_navigation"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -829,10 +1475,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "audit_upgrade"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -853,10 +1518,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "audit_upstream"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -877,10 +1561,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "mapping_modes"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -901,10 +1604,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "cookie_mapping"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -925,10 +1647,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "odoo_compat"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -949,10 +1690,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "scope_preserve"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -973,10 +1733,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "config_guard"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -997,10 +1776,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "audit_update_rejected"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -1021,10 +1819,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "audit_delete_rejected"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -1045,10 +1862,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "patch_missing_disabled"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -1069,10 +1905,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "proxy_P1_direct"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -1093,10 +1948,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "proxy_P2_trusted"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -1117,10 +1991,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "proxy_P3_forged"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -1141,10 +2034,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "deferred_validator"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",
@@ -1165,10 +2077,29 @@
           "probe_id",
           "value"
         ],
+        "scan": {
+          "op": "and",
+          "conditions": [
+            {
+              "col": "probe_id",
+              "op": "=",
+              "value": "deferred_internal"
+            }
+          ]
+        },
         "where": {
-          "col": "value",
-          "op": "!=",
-          "value": 1
+          "op": "or",
+          "conditions": [
+            {
+              "col": "value",
+              "op": "is null"
+            },
+            {
+              "col": "value",
+              "op": "!=",
+              "value": 1
+            }
+          ]
         }
       },
       "expect": "none",

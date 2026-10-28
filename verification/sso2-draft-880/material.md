@@ -3,7 +3,7 @@
 权威KB3aa49039e3+c3e0917349；contract.md为固定远端blob6eb65e85f7461bcb54f77e9d0fcdcb969627dac9完整字节。
 此草稿未submit/prepare/冻结；无作者自签reviews。每个复合探针的全部子断言均需成功才value=1，失败value=0，前置/fixture缺失不允许伪value=1。
 sso2_probes保存全部观测/状态；各候选仅读取独立sso2_eval_<probe_id>(probe_id,value)评价表；仅实际完成的0/1断言入评价表，未完成/延期表为空。
-不得把NULL观测过滤后当PASS：每候选scope是独立评价表，空scope须引擎守卫NEEDS-MATERIAL；冻结前由非作者在good/bad/empty三夹具实跑证明，当前只lint不宣称已通过空守卫。
+每候选scan必须精确probe_id=本单元，同时作用scope与find；混入其他单元行不构成本单元材料。目标value=NULL或非1是违例；无目标行才空scope。独审6479991735已证旧无scan混行假PASS，本稿49条全补scan；旧空/好/坏引擎结局见独审run，不冒称新候选已获核证。
 延期正向保留独立候选与空评价表，不删除范围，不计PASS。
 TEST三补充映射：S29 audit_append=UPDATE/DELETE分别拒且事件不变；S30 audit_patch_invalid必须含schema缺disabled子形恰一条；D5部署组P1=direct(S18)、P2=trusted-chain(S19)、P3=forged-XFF(S18/S20)。任何checker/期望变更需非作者核。
 
