@@ -23,8 +23,6 @@ const storeRoot = process.env.LAYERFS_STORE_ROOT ?? '/var/lib/layerfs';
 const homeDir = `${storeRoot}/home`;
 for (const d of [`${storeRoot}/projects`, `${storeRoot}/stores`, homeDir, `${homeDir}/global`]) { try { mkdirSync(d, { recursive: true }); } catch { /* 卷只读面降级 */ } } // #215 X6 十五障①：全绝对路径（相对落 CWD=/ 的 bug 修）
 try { chmodSync(homeDir, 0o700); } catch { /* 卷 ACL 面归部署 */ }
-const locator = `${homeDir}/global/store.sqlite`;
-try { if (!existsSync(locator)) writeFileSync(locator, ''); } catch { /* 预触失败留给 init 报真错 */ }
 process.env.LAYERFS_HOME = homeDir; // #215：强制本服务语义（容器陈值不承继）
 const sidecar = new DatabaseSync(`${storeRoot}/wm-adapter.sqlite`);
 sidecar.exec('CREATE TABLE IF NOT EXISTS commits (id TEXT PRIMARY KEY, project TEXT NOT NULL, branch TEXT NOT NULL, files TEXT NOT NULL, message TEXT DEFAULT \'\', at TEXT DEFAULT (datetime(\'now\')))');
@@ -36,7 +34,7 @@ async function clientOf(project) {
   if (clients.has(project)) return clients.get(project);
   // #215 X6 十二障：source 与 store 分离（LayerFS 拒 store-inside-source——BackingInsideSource）
   const srcDir = `${storeRoot}/projects/${project}`;
-  process.env.LAYERFS_STORE_PATH = `${storeRoot}/stores/${project}/store.sqlite`;
+  process.env.LAYERFS_STORE_PATH = `${storeRoot}/home/global/store.sqlite`; // #215 X6 十七障：全局唯一 store（钉点 agent.md 首例·init 自装配·勿 per-project）
   let c;
   try { c = await LayerFS.open(project); }
   catch { c = await LayerFS.init(project, srcDir); }
