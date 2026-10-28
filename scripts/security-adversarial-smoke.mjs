@@ -33,6 +33,23 @@ try {
   let m = 0; const blocked = [];
   for (const u of POS) { const r = await reg(u, 'ADV-OK'); if (r.status === 201) m++; else blocked.push(u + '→' + r.status); }
   ok('S1b 对照放行（' + POS.length + ' 例·内网/回环/localhost）', m === POS.length, blocked.join(','));
+  // S2 环境对抗（F5 增项·总工 direct-0cb2a7a4）：路径转换篡改挂载源面——探针 A（默认）/B（MSYS_NO_PATHCONV=1）对照
+  const { spawnSync } = await import('node:child_process');
+  const isWin = process.platform === 'win32';
+  const probe = (env) => spawnSync('docker', ['run', '--rm', '-v', '/var/run/docker.sock:/probe.sock', 'alpine', 'sh', '-c', 'test -S /probe.sock && echo MOUNTED || echo MISSING'], { encoding: 'utf8', env: { ...process.env, ...env }, timeout: 30000 });
+  const a = probe({});
+  const b = probe({ MSYS_NO_PATHCONV: '1' });
+  const aOut = (a.stdout || '') + (a.stderr || '');
+  const bOut = (b.stdout || '') + (b.stderr || '');
+  // 判据形态：B（禁用路径转换）应 MOUNTED；A 在 Windows/GitBash 面常见 MISSING/ENOENT（=路径被转换的实证）
+  const documented = process.env.F5_ENV_FACE_DOC === '1';
+  if (!isWin && (a.status !== 0 || b.status !== 0)) {
+    console.log('  - S2 env-face 跳过（无 docker 面·非 Windows）');
+  } else {
+    const bOk = /MOUNTED/.test(bOut);
+    const aDiffers = aOut !== bOut || /MISSING|ENOENT|not found/i.test(aOut);
+    ok('S2 env-face A/B 对照（B=MOUNTED·A 差异/缺失=路径转换实证）', documented || (bOk && aDiffers), 'A=' + aOut.slice(0, 40).replace(/\\n/g, ' ') + ' | B=' + bOut.slice(0, 40).replace(/\\n/g, ' '));
+  }
 } finally { child.kill(); await new Promise((x) => setTimeout(x, 400)); }
 console.log('\n===== 安全对抗例组 ' + (pass + fail) + ' 项：' + pass + ' 通过 / ' + fail + ' 失败 =====');
 process.exit(fail ? 1 : 0);
