@@ -2566,10 +2566,12 @@ async function callTool(name: string, args: any): Promise<unknown> {
       scored.sort((a, b) => b.sc - a.sc);
       // #178 Q2 + S10 回归裁（监督席 direct-25d8fdcd）：**守属主 30 上限** 同时保留「不臆截」精神——
       // ≤30 全量不截断；>30 且可排序取前 30；词法全 0/全并列=无从排序 → 不砍（全量分批交模型）
-      const SCORE_CAP = 30;
+      // 总工决策 #007（C 案·30/45 冲突裁）：无硬上限 + top-N 参数（缺省 30·沿现值）+ 候选总量披露
+      const topN = Math.max(1, Math.floor(Number((args as any)?.top_n ?? 30)) || 30);
       const maxScore = scored.length ? scored[0].sc : 0;
       const allTied = scored.every((x) => x.sc === maxScore);
-      const prescreen = (scored.length <= SCORE_CAP || allTied ? scored : scored.slice(0, SCORE_CAP)).map((x) => x.s);
+      const candidatesTotal = scored.length; // 总量披露
+      const prescreen = (allTied ? scored : scored.slice(0, topN)).map((x) => x.s); // 全并列=无从排序不砍；可排序取 top-N
       const qidOf = new Map<string, any>();
       const cands = prescreen.map((s) => { const qid = 'q' + s.id; qidOf.set(qid, s); return { qid, slug: s.slug, name: s.name, description: String(s.description ?? ''), argumentHint: String(s.argument_hint ?? '') }; });
       const probs = await evalCandidates(need, cands);
@@ -2581,7 +2583,8 @@ async function callTool(name: string, args: any): Promise<unknown> {
         return { slug: s.slug, name: s.name, layer: s.layer, description: String(s.description ?? ''), confidence: pv, version: vs[0]?.version ?? null, install_plan: { slug: s.slug, version: vs[0]?.version ?? null } };
       });
       try { db.prepare("INSERT INTO mcp_calls (at, session_name, method, tool, ok, error, duration_ms, args_sha256) VALUES (datetime('now'), ?, 'tools/call', 'skill_search', 1, '', 0, ?)").run('skill_search', need_digest); } catch { /* 审计失败不阻 */ }
-      return items.length ? { need_digest, items } : { need_digest, items: [], note: '无置信度大于 0.7 的技能' };
+      const _total = { candidates_total: candidatesTotal, top_n: topN }; // #007 总量披露（恒报·含未截断）
+      return items.length ? { need_digest, ..._total, items } : { need_digest, ..._total, items: [], note: '无置信度大于 0.7 的技能' };
     }
 
     case 'workbench_list': {
