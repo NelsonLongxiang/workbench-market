@@ -1,0 +1,1 @@
+{"run_id":"synthetic-v6-late-true-caught-pass","probe_id":"http_gate","operation":"check","name":"late control","error_kind":"late-unit-check","error_code":"ERR_UNIT_SETTLED","at":"2026-10-28T23:35:48.317Z","phase":"EXECUTING","invalidates_report":false}

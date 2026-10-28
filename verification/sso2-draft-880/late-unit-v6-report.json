@@ -1,0 +1,492 @@
+{
+  "mechanism_only": true,
+  "synthetic_receipts_not_approvals": true,
+  "product_runs": 0,
+  "engine_version": "0.117.0",
+  "engine_path": "D:/node-v24.12.0-win-x64/node_modules/ygl-trees",
+  "exit_code": 0,
+  "late_cases": 6,
+  "awaited_positive_control": true,
+  "records": [
+    {
+      "name": "late-false-caught-pass",
+      "initial": "PASS",
+      "operation": "check",
+      "after_final": false,
+      "caughtCode": "ERR_UNIT_SETTLED",
+      "result_snapshot_unchanged": true,
+      "other_unchanged": true,
+      "run_id": "synthetic-v6-late-false-caught-pass",
+      "late_event": {
+        "run_id": "synthetic-v6-late-false-caught-pass",
+        "probe_id": "http_gate",
+        "operation": "check",
+        "name": "late control",
+        "error_kind": "late-unit-check",
+        "error_code": "ERR_UNIT_SETTLED",
+        "at": "2026-10-28T23:35:47.317Z"
+      },
+      "integrity_state": {
+        "run_id": "synthetic-v6-late-false-caught-pass",
+        "phase": "INVALIDATED",
+        "report_sha256": "2d169ae11b47c655454492a774662ec284757cab23a181f949488db3cbd2b558",
+        "valid": false,
+        "event_count": 1,
+        "limitation": "only callbacks reaching this live runner are observed; detached work after process exit cannot be certified complete"
+      },
+      "engine_summary": {
+        "pass": 1,
+        "fail": 1,
+        "needs_material": 1,
+        "error": 0
+      },
+      "engine_vu": [
+        {
+          "id": "V0",
+          "verdict": "NEEDS-MATERIAL",
+          "witness": {
+            "rows_scanned": 0,
+            "rows_matched": 0,
+            "sources": [
+              {
+                "table": "sso2_eval_http_gate",
+                "rows": 0
+              }
+            ],
+            "schema_fingerprint": "sha256:6b92c2386fccc65b3ea4600c05a18f160cba7d56e9646eea25ffc1662d40234a"
+          }
+        },
+        {
+          "id": "V1",
+          "verdict": "FAIL",
+          "witness": {
+            "rows_scanned": 1,
+            "rows_matched": 1,
+            "sources": [
+              {
+                "table": "sso2_execution_integrity",
+                "rows": 2
+              }
+            ],
+            "schema_fingerprint": "sha256:6b92c2386fccc65b3ea4600c05a18f160cba7d56e9646eea25ffc1662d40234a"
+          }
+        },
+        {
+          "id": "V2",
+          "verdict": "PASS",
+          "witness": {
+            "rows_scanned": 1,
+            "rows_matched": 0,
+            "sources": [
+              {
+                "table": "sso2_execution_integrity",
+                "rows": 2
+              }
+            ],
+            "schema_fingerprint": "sha256:6b92c2386fccc65b3ea4600c05a18f160cba7d56e9646eea25ffc1662d40234a"
+          }
+        }
+      ]
+    },
+    {
+      "name": "late-false-caught-needs",
+      "initial": "NEEDS-MATERIAL",
+      "operation": "check",
+      "after_final": false,
+      "caughtCode": "ERR_UNIT_SETTLED",
+      "result_snapshot_unchanged": true,
+      "other_unchanged": true,
+      "run_id": "synthetic-v6-late-false-caught-needs",
+      "late_event": {
+        "run_id": "synthetic-v6-late-false-caught-needs",
+        "probe_id": "http_gate",
+        "operation": "check",
+        "name": "late control",
+        "error_kind": "late-unit-check",
+        "error_code": "ERR_UNIT_SETTLED",
+        "at": "2026-10-28T23:35:48.117Z"
+      },
+      "integrity_state": {
+        "run_id": "synthetic-v6-late-false-caught-needs",
+        "phase": "INVALIDATED",
+        "report_sha256": "e3f5cfecf3eee1c14d5d5564d0ca8a2f9c5789fa8e31332796b5e99b948fb37f",
+        "valid": false,
+        "event_count": 1,
+        "limitation": "only callbacks reaching this live runner are observed; detached work after process exit cannot be certified complete"
+      },
+      "engine_summary": {
+        "pass": 1,
+        "fail": 1,
+        "needs_material": 1,
+        "error": 0
+      },
+      "engine_vu": [
+        {
+          "id": "V0",
+          "verdict": "NEEDS-MATERIAL",
+          "witness": {
+            "rows_scanned": 0,
+            "rows_matched": 0,
+            "sources": [
+              {
+                "table": "sso2_eval_http_gate",
+                "rows": 0
+              }
+            ],
+            "schema_fingerprint": "sha256:6b92c2386fccc65b3ea4600c05a18f160cba7d56e9646eea25ffc1662d40234a"
+          }
+        },
+        {
+          "id": "V1",
+          "verdict": "FAIL",
+          "witness": {
+            "rows_scanned": 1,
+            "rows_matched": 1,
+            "sources": [
+              {
+                "table": "sso2_execution_integrity",
+                "rows": 2
+              }
+            ],
+            "schema_fingerprint": "sha256:6b92c2386fccc65b3ea4600c05a18f160cba7d56e9646eea25ffc1662d40234a"
+          }
+        },
+        {
+          "id": "V2",
+          "verdict": "PASS",
+          "witness": {
+            "rows_scanned": 1,
+            "rows_matched": 0,
+            "sources": [
+              {
+                "table": "sso2_execution_integrity",
+                "rows": 2
+              }
+            ],
+            "schema_fingerprint": "sha256:6b92c2386fccc65b3ea4600c05a18f160cba7d56e9646eea25ffc1662d40234a"
+          }
+        }
+      ]
+    },
+    {
+      "name": "late-true-caught-pass",
+      "initial": "PASS",
+      "operation": "check",
+      "after_final": false,
+      "caughtCode": "ERR_UNIT_SETTLED",
+      "result_snapshot_unchanged": true,
+      "other_unchanged": true,
+      "run_id": "synthetic-v6-late-true-caught-pass",
+      "late_event": {
+        "run_id": "synthetic-v6-late-true-caught-pass",
+        "probe_id": "http_gate",
+        "operation": "check",
+        "name": "late control",
+        "error_kind": "late-unit-check",
+        "error_code": "ERR_UNIT_SETTLED",
+        "at": "2026-10-28T23:35:48.317Z"
+      },
+      "integrity_state": {
+        "run_id": "synthetic-v6-late-true-caught-pass",
+        "phase": "INVALIDATED",
+        "report_sha256": "eb6c405716a0e29596f868e60cb0ab50773706f0113bc9348385130d2e560eac",
+        "valid": false,
+        "event_count": 1,
+        "limitation": "only callbacks reaching this live runner are observed; detached work after process exit cannot be certified complete"
+      },
+      "engine_summary": {
+        "pass": 1,
+        "fail": 1,
+        "needs_material": 1,
+        "error": 0
+      },
+      "engine_vu": [
+        {
+          "id": "V0",
+          "verdict": "NEEDS-MATERIAL",
+          "witness": {
+            "rows_scanned": 0,
+            "rows_matched": 0,
+            "sources": [
+              {
+                "table": "sso2_eval_http_gate",
+                "rows": 0
+              }
+            ],
+            "schema_fingerprint": "sha256:6b92c2386fccc65b3ea4600c05a18f160cba7d56e9646eea25ffc1662d40234a"
+          }
+        },
+        {
+          "id": "V1",
+          "verdict": "FAIL",
+          "witness": {
+            "rows_scanned": 1,
+            "rows_matched": 1,
+            "sources": [
+              {
+                "table": "sso2_execution_integrity",
+                "rows": 2
+              }
+            ],
+            "schema_fingerprint": "sha256:6b92c2386fccc65b3ea4600c05a18f160cba7d56e9646eea25ffc1662d40234a"
+          }
+        },
+        {
+          "id": "V2",
+          "verdict": "PASS",
+          "witness": {
+            "rows_scanned": 1,
+            "rows_matched": 0,
+            "sources": [
+              {
+                "table": "sso2_execution_integrity",
+                "rows": 2
+              }
+            ],
+            "schema_fingerprint": "sha256:6b92c2386fccc65b3ea4600c05a18f160cba7d56e9646eea25ffc1662d40234a"
+          }
+        }
+      ]
+    },
+    {
+      "name": "late-complete-caught-pass",
+      "initial": "PASS",
+      "operation": "complete",
+      "after_final": false,
+      "caughtCode": "ERR_UNIT_SETTLED",
+      "result_snapshot_unchanged": true,
+      "other_unchanged": true,
+      "run_id": "synthetic-v6-late-complete-caught-pass",
+      "late_event": {
+        "run_id": "synthetic-v6-late-complete-caught-pass",
+        "probe_id": "http_gate",
+        "operation": "complete",
+        "name": null,
+        "error_kind": "late-unit-check",
+        "error_code": "ERR_UNIT_SETTLED",
+        "at": "2026-10-28T23:35:48.475Z"
+      },
+      "integrity_state": {
+        "run_id": "synthetic-v6-late-complete-caught-pass",
+        "phase": "INVALIDATED",
+        "report_sha256": "e7caeed6950ae29474b4b193cec09bf5194def72c08de6be70252b392f52a427",
+        "valid": false,
+        "event_count": 1,
+        "limitation": "only callbacks reaching this live runner are observed; detached work after process exit cannot be certified complete"
+      },
+      "engine_summary": {
+        "pass": 1,
+        "fail": 1,
+        "needs_material": 1,
+        "error": 0
+      },
+      "engine_vu": [
+        {
+          "id": "V0",
+          "verdict": "NEEDS-MATERIAL",
+          "witness": {
+            "rows_scanned": 0,
+            "rows_matched": 0,
+            "sources": [
+              {
+                "table": "sso2_eval_http_gate",
+                "rows": 0
+              }
+            ],
+            "schema_fingerprint": "sha256:6b92c2386fccc65b3ea4600c05a18f160cba7d56e9646eea25ffc1662d40234a"
+          }
+        },
+        {
+          "id": "V1",
+          "verdict": "FAIL",
+          "witness": {
+            "rows_scanned": 1,
+            "rows_matched": 1,
+            "sources": [
+              {
+                "table": "sso2_execution_integrity",
+                "rows": 2
+              }
+            ],
+            "schema_fingerprint": "sha256:6b92c2386fccc65b3ea4600c05a18f160cba7d56e9646eea25ffc1662d40234a"
+          }
+        },
+        {
+          "id": "V2",
+          "verdict": "PASS",
+          "witness": {
+            "rows_scanned": 1,
+            "rows_matched": 0,
+            "sources": [
+              {
+                "table": "sso2_execution_integrity",
+                "rows": 2
+              }
+            ],
+            "schema_fingerprint": "sha256:6b92c2386fccc65b3ea4600c05a18f160cba7d56e9646eea25ffc1662d40234a"
+          }
+        }
+      ]
+    },
+    {
+      "name": "late-false-after-report",
+      "initial": "PASS",
+      "operation": "check",
+      "after_final": true,
+      "caughtCode": "ERR_UNIT_SETTLED",
+      "result_snapshot_unchanged": true,
+      "other_unchanged": true,
+      "run_id": "synthetic-v6-late-false-after-report",
+      "late_event": {
+        "run_id": "synthetic-v6-late-false-after-report",
+        "probe_id": "http_gate",
+        "operation": "check",
+        "name": "late control",
+        "error_kind": "late-unit-check",
+        "error_code": "ERR_UNIT_SETTLED",
+        "at": "2026-10-28T23:35:48.787Z"
+      },
+      "integrity_state": {
+        "run_id": "synthetic-v6-late-false-after-report",
+        "phase": "INVALIDATED",
+        "report_sha256": "2ab750faba598a28a0ad93f098cbbd0bbcad4aeaac41a4b2c758d10c05f1590d",
+        "valid": false,
+        "event_count": 1,
+        "limitation": "only callbacks reaching this live runner are observed; detached work after process exit cannot be certified complete"
+      },
+      "engine_summary": {
+        "pass": 1,
+        "fail": 1,
+        "needs_material": 1,
+        "error": 0
+      },
+      "engine_vu": [
+        {
+          "id": "V0",
+          "verdict": "NEEDS-MATERIAL",
+          "witness": {
+            "rows_scanned": 0,
+            "rows_matched": 0,
+            "sources": [
+              {
+                "table": "sso2_eval_http_gate",
+                "rows": 0
+              }
+            ],
+            "schema_fingerprint": "sha256:6b92c2386fccc65b3ea4600c05a18f160cba7d56e9646eea25ffc1662d40234a"
+          }
+        },
+        {
+          "id": "V1",
+          "verdict": "FAIL",
+          "witness": {
+            "rows_scanned": 1,
+            "rows_matched": 1,
+            "sources": [
+              {
+                "table": "sso2_execution_integrity",
+                "rows": 2
+              }
+            ],
+            "schema_fingerprint": "sha256:6b92c2386fccc65b3ea4600c05a18f160cba7d56e9646eea25ffc1662d40234a"
+          }
+        },
+        {
+          "id": "V2",
+          "verdict": "PASS",
+          "witness": {
+            "rows_scanned": 1,
+            "rows_matched": 0,
+            "sources": [
+              {
+                "table": "sso2_execution_integrity",
+                "rows": 2
+              }
+            ],
+            "schema_fingerprint": "sha256:6b92c2386fccc65b3ea4600c05a18f160cba7d56e9646eea25ffc1662d40234a"
+          }
+        }
+      ]
+    },
+    {
+      "name": "late-complete-after-report",
+      "initial": "NEEDS-MATERIAL",
+      "operation": "complete",
+      "after_final": true,
+      "caughtCode": "ERR_UNIT_SETTLED",
+      "result_snapshot_unchanged": true,
+      "other_unchanged": true,
+      "run_id": "synthetic-v6-late-complete-after-report",
+      "late_event": {
+        "run_id": "synthetic-v6-late-complete-after-report",
+        "probe_id": "http_gate",
+        "operation": "complete",
+        "name": null,
+        "error_kind": "late-unit-check",
+        "error_code": "ERR_UNIT_SETTLED",
+        "at": "2026-10-28T23:35:49.087Z"
+      },
+      "integrity_state": {
+        "run_id": "synthetic-v6-late-complete-after-report",
+        "phase": "INVALIDATED",
+        "report_sha256": "7609e1d7001fc89af8ad5e0104ac86b1a006cd163d2dfbdc6b0230f2c74c02dc",
+        "valid": false,
+        "event_count": 1,
+        "limitation": "only callbacks reaching this live runner are observed; detached work after process exit cannot be certified complete"
+      },
+      "engine_summary": {
+        "pass": 1,
+        "fail": 1,
+        "needs_material": 1,
+        "error": 0
+      },
+      "engine_vu": [
+        {
+          "id": "V0",
+          "verdict": "NEEDS-MATERIAL",
+          "witness": {
+            "rows_scanned": 0,
+            "rows_matched": 0,
+            "sources": [
+              {
+                "table": "sso2_eval_http_gate",
+                "rows": 0
+              }
+            ],
+            "schema_fingerprint": "sha256:6b92c2386fccc65b3ea4600c05a18f160cba7d56e9646eea25ffc1662d40234a"
+          }
+        },
+        {
+          "id": "V1",
+          "verdict": "FAIL",
+          "witness": {
+            "rows_scanned": 1,
+            "rows_matched": 1,
+            "sources": [
+              {
+                "table": "sso2_execution_integrity",
+                "rows": 2
+              }
+            ],
+            "schema_fingerprint": "sha256:6b92c2386fccc65b3ea4600c05a18f160cba7d56e9646eea25ffc1662d40234a"
+          }
+        },
+        {
+          "id": "V2",
+          "verdict": "PASS",
+          "witness": {
+            "rows_scanned": 1,
+            "rows_matched": 0,
+            "sources": [
+              {
+                "table": "sso2_execution_integrity",
+                "rows": 2
+              }
+            ],
+            "schema_fingerprint": "sha256:6b92c2386fccc65b3ea4600c05a18f160cba7d56e9646eea25ffc1662d40234a"
+          }
+        }
+      ]
+    }
+  ]
+}
