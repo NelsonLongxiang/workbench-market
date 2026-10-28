@@ -30,6 +30,7 @@ services:
       LAYERFS_SERVICE_TOKEN: ${LAYERFS_SERVICE_TOKEN:?LAYERFS_SERVICE_TOKEN 必设（不可用 change-me）}
       LAYERFS_NATIVE: /usr/local/lib/layerfs.node   # #215 X6 八障：SDK addonPath 走 env
       LAYERFS_HOME: /var/lib/layerfs/home   # #215 十五障②：locator 面（勿设 /layerfs-store 陈值）
+      LAYERFS_STORE_PATH: /var/lib/layerfs/home/global/store.sqlite   # #215 十八障：镜像级同值
       LAYERFS_STORE_ROOT: /var/lib/layerfs
     ports:
       - "8067:8067"
