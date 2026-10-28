@@ -1,0 +1,255 @@
+{
+  "target": "d90f81abca809a48a893544d0bdd4c409be78526",
+  "units": [
+    {
+      "id": "boot",
+      "ref": "§0",
+      "clause": "S00 [boot] (§0) 探针必须记录被验SHA、源码hash、进程PID、监听端口归属、独立DATA_DIR与启动配置并真实完成HTTP请求，不得误连旧进程。"
+    },
+    {
+      "id": "switch_defaults",
+      "ref": "D1/D4",
+      "clause": "S01 [switch_defaults] (D1/D4) WM_SSO未设为off，台sso.enabled默认false；四种双闸组合的HTTP与WS与预期一致，off不解除旧认证。"
+    },
+    {
+      "id": "http_gate",
+      "ref": "D1/D2",
+      "clause": "S02 [http_gate] (D1/D2) 双闸on的外部台全子路径：无有效会话的HTML GET/HEAD302到安全/login?next，HEAD无body；JSON GET/POST及静态子资源401，不转发上游secret。"
+    },
+    {
+      "id": "ws_gate",
+      "ref": "D1/D2",
+      "clause": "S03 [ws_gate] (D1/D2) 双闸on外部台WS无或错会话401断开，有有效会话才101；握手单列不依赖Express中间件。"
+    },
+    {
+      "id": "internal_target",
+      "ref": "D1",
+      "clause": "S04 [internal_target] (D1) 内部/apps或/sop台启用sso返回409 unsupported_target；关闭合法配置可200；直接内部入口与API不冒称被SSO保护。"
+    },
+    {
+      "id": "machine_no_ticket",
+      "ref": "D2",
+      "clause": "S05 [machine_no_ticket] (D2) 缺wm_session时Authorization/X-App-Token/X-Admin-Token无论存在或在原scope合法，都不替代/go会话；不把MCP工具grant变成台scope。"
+    },
+    {
+      "id": "machine_unavailable",
+      "ref": "D3",
+      "clause": "S06 [machine_unavailable] (D3) machine_auth除none外全部409 machine_auth_unavailable，拒绝无持久写；validator正向DEFERRED不计PASS。"
+    },
+    {
+      "id": "legacy_machine_config",
+      "ref": "D3",
+      "clause": "S07 [legacy_machine_config] (D3) 持久历史非none机器配置与内部enabled非法配置在启动/迁移显式配置错误，不静默归none/false后放行。"
+    },
+    {
+      "id": "register_guard",
+      "ref": "D4",
+      "clause": "S08 [register_guard] (D4) POST /api/auth/register须有效admin与canonical同源JSON；无/错admin403，错/空/null Origin403，普通会话无admin权。"
+    },
+    {
+      "id": "register_schema",
+      "ref": "D4",
+      "clause": "S09 [register_schema] (D4) 注册只建普通用户；username trim+lowercase后匹配[a-z0-9._-]{3,64}，password12..256不trim，未知role/admin字段400，重复名409。"
+    },
+    {
+      "id": "register_ui",
+      "ref": "D4",
+      "clause": "S10 [register_ui] (D4) /register只显示受控开通说明，不承诺匿名创建；/login是真登录表单，SPA fallback200不算实现，页面不含管理员票。"
+    },
+    {
+      "id": "login_session",
+      "ref": "A1",
+      "clause": "S11 [login_session] (A1) 登录200返回user/expires_at/redirect_to并设置32字节随机opaque wm_session；HttpOnly、Path=/、SameSite=Lax、无Domain、no-store，不回显票值。"
+    },
+    {
+      "id": "me_invalid",
+      "ref": "A6",
+      "clause": "S12 [me_invalid] (A6) 无/伪造/撤销/过期/禁用wm_session到/me统一401 unauthenticated，合法/me200返回脱敏user/expires_at。"
+    },
+    {
+      "id": "absolute_ttl",
+      "ref": "A4",
+      "clause": "S13 [absolute_ttl] (A4) WM_SESSION_TTL默认8h，s/m/h显式单位；活动不滑动续期、重启不延长；秒级TTL到期/me及HTTP/WS入口拒。"
+    },
+    {
+      "id": "multi_device_logout",
+      "ref": "A3/A5",
+      "clause": "S14 [multi_device_logout] (A3/A5) 多端独立；logout同源撤当前票并Max-Age=0，重放旧票401，另一端仍有效；无/旧票logout幂等200、重启不复活。"
+    },
+    {
+      "id": "password_storage",
+      "ref": "A1/A2",
+      "clause": "S15 [password_storage] (A1/A2) 同口令两账号持久salt/hash不同且无明文；每账号salt>=16字节+scrypt参数N16384/r8/p1/keylen64，接口日志无salt/hash/密码。"
+    },
+    {
+      "id": "failure_same_bytes",
+      "ref": "A2/D5",
+      "clause": "S16 [failure_same_bytes] (A2/D5) 未知用户/错密/锁定/禁用登录status及UTF8 body逐字节同401 invalid_credentials，不以Retry-After暴露差别。"
+    },
+    {
+      "id": "lock_bucket",
+      "ref": "D5",
+      "clause": "S17 [lock_bucket] (D5) 失败按规范username+有效IP独立5次/10m/锁10m；锁期不滑动，秒级配置可测解锁，不设置跨IP全局用户名硬锁。"
+    },
+    {
+      "id": "proxy_direct",
+      "ref": "D5",
+      "clause": "S18 [proxy_direct] (D5) 可信代理表空时仅socket IP；直连不同IP分桶，伪XFF/Forwarded/X-Real-IP不改身份或锁桶且限量告警。"
+    },
+    {
+      "id": "proxy_chain",
+      "ref": "D5",
+      "clause": "S19 [proxy_chain] (D5) 仅peer命中WM_TRUSTED_PROXIES CIDR才从XFF右向左剥可信链；首非可信处停、不信首项/hop=true，mapped IP归v4；两客户端桶隔离。"
+    },
+    {
+      "id": "proxy_invalid",
+      "ref": "D5",
+      "clause": "S20 [proxy_invalid] (D5) 可信peer非法XFF400 invalid_forwarded_chain且不改认证/失败锁；无链回socket并告警；反代未配可信表启动告警不假报独立保护。"
+    },
+    {
+      "id": "invalid_config",
+      "ref": "D4/D5/D6",
+      "clause": "S21 [invalid_config] (D4/D5/D6) WM_SSO非法、TTL和三WM_AUTH_*显式非法、代理CIDR非法均拒启动，未设才默认；MAX_FAILURES整数无单位、TTL/window/lock需单位。"
+    },
+    {
+      "id": "canonical_origin",
+      "ref": "D6",
+      "clause": "S22 [canonical_origin] (D6) MARKET_PUBLIC_URL仅http(s)绝对origin，无userinfo/query/fragment/非根path；on未配拒启动、off未配loopback，Host/XFH不改canonical。"
+    },
+    {
+      "id": "secure_cookie",
+      "ref": "补充1",
+      "clause": "S23 [secure_cookie] (补充1) 登录发票/登出清票Secure只依canonical scheme，https+伪XFP:http仍Secure，http+伪XFP:https仍不Secure。"
+    },
+    {
+      "id": "next_validation",
+      "ref": "补充4/B5",
+      "clause": "S24 [next_validation] (补充4/B5) next缺省或scheme//反斜杠/控制符/编码多解码歧义均redirect_to=/，合法站内/go路径保留，最终跳转同验且不传播secret/state。"
+    },
+    {
+      "id": "admin_disable",
+      "ref": "D7",
+      "clause": "S25 [admin_disable] (D7) admin+同源PATCH disabled:boolean成功200脱敏，未知字段400，无admin403，无用户404；普通会话不能禁用。"
+    },
+    {
+      "id": "disable_replay",
+      "ref": "D7",
+      "clause": "S26 [disable_replay] (D7) 禁用事务撤所有旧票；后续/me/HTTP/WS握手拒，重启后仍拒，重新启用旧票仍拒；不承诺已建WS立即强断。"
+    },
+    {
+      "id": "users_paging",
+      "ref": "D7",
+      "clause": "S27 [users_paging] (D7) GET users仅admin倒序游标分页limit默认50/1..200，字段仅id/username/disabled/created_at，无盐hash/session票，非法query400。"
+    },
+    {
+      "id": "audit_read",
+      "ref": "D8",
+      "clause": "S28 [audit_read] (D8) GET audit仅admin只读倒序游标分页；普通会话403，非法query400，事件字段完整脱敏，不提供写改删口。"
+    },
+    {
+      "id": "audit_append",
+      "ref": "D8",
+      "clause": "S29 [audit_append] (D8) 真实服务动作产生审计；数据库快照上的UPDATE/DELETE触发器拒绝，两操作后事件数据不变，不手造成功事件冒充。"
+    },
+    {
+      "id": "audit_patch_invalid",
+      "ref": "补充3",
+      "clause": "S30 [audit_patch_invalid] (补充3) 有效JSON的schema错误或准入失败PATCH恰1 user_state_update/deny，主体未知null、target独立；零用户/session写、不存原body/secret。"
+    },
+    {
+      "id": "audit_patch_valid",
+      "ref": "补充3",
+      "clause": "S31 [audit_patch_valid] (补充3) 合法schema布尔PATCH按目标user_disable/user_enable每请求1allow/deny，重复设同值也1事件，404目标null，错误后正确请求不污染。"
+    },
+    {
+      "id": "json_parser_boundary",
+      "ref": "补充3",
+      "clause": "S32 [json_parser_boundary] (补充3) malformed JSON/413在全局parser先拒者不虚报路由中性事件恰1覆盖，保留原全局日志并单列捕获边界。"
+    },
+    {
+      "id": "audit_navigation",
+      "ref": "D8",
+      "clause": "S33 [audit_navigation] (D8) 双闸有效时每HTML GET/HEAD入口决策恰1 portal_access，302也deny；普通CSS/JS无增，伪text/html仍按实际规则计1。"
+    },
+    {
+      "id": "audit_upgrade",
+      "ref": "D8",
+      "clause": "S34 [audit_upgrade] (D8) 每WS握手决策恰1 portal_upgrade，401deny亦记；101后的多帧不增入口或login事件。"
+    },
+    {
+      "id": "audit_upstream",
+      "ref": "D8",
+      "clause": "S35 [audit_upstream] (D8) 市场会话allow后上游401/403不抹市场allow；中心/台off不新增SSO通过事件，既有审计不删。"
+    },
+    {
+      "id": "mapping_modes",
+      "ref": "C1/C3",
+      "clause": "S36 [mapping_modes] (C1/C3) none只门控；header-bearer/basic沿既有受控凭据配置；缺映射409，读配置无secret；入站wm_session不转发上游。"
+    },
+    {
+      "id": "cookie_mapping",
+      "ref": "C1",
+      "clause": "S37 [cookie_mapping] (C1) cookie-map仅允许cookie_name单键，禁wm_session/wm_sso_*；唯一目标domain匹配未过期池值可注入，0/多匹配409，无新secret写通道。"
+    },
+    {
+      "id": "odoo_compat",
+      "ref": "C2/D6",
+      "clause": "S38 [odoo_compat] (C2/D6) v1 Odoo state/回跳回归不破；外部台SSO启用的回跳须可信canonical origin一致，不把302起点当完成上游登录。"
+    },
+    {
+      "id": "scope_preserve",
+      "ref": "D1/D2",
+      "clause": "S39 [scope_preserve] (D1/D2) 既有/apps、/sop、/api/apps数据文件CORS与/mcp授权合法/非法对照保持；不把SSO门off等同允许控制面或匿名加权。"
+    },
+    {
+      "id": "config_guard",
+      "ref": "D1/D3",
+      "clause": "S40 [config_guard] (D1/D3) GET/PUT workbench sso仅admin，PUT同源/schema/目标/machine/支持范围/映射依次校验，所有拒绝零持久写。"
+    },
+    {
+      "id": "audit_update_rejected",
+      "ref": "D8/TEST-a",
+      "clause": "S41 [audit_update_rejected] (D8/TEST-a) 快照数据库探针UPDATE审计行必须被触发器拒绝，错误后审计快照逐值不变；不是仅缺HTTP更新端点。"
+    },
+    {
+      "id": "audit_delete_rejected",
+      "ref": "D8/TEST-a",
+      "clause": "S42 [audit_delete_rejected] (D8/TEST-a) 快照数据库探针DELETE审计行必须被触发器拒绝，错误后审计快照逐值不变；不得构造伪事件冒充真实服务审计。"
+    },
+    {
+      "id": "patch_missing_disabled",
+      "ref": "补充3/TEST-b",
+      "clause": "S43 [patch_missing_disabled] (补充3/TEST-b) 有效admin且合法Origin发有效JSON {} 的PATCH，因缺disabled返回400，恰一条user_state_update/deny，零用户/会话状态写，不记录原body/secret。"
+    },
+    {
+      "id": "proxy_P1_direct",
+      "ref": "D5/P1",
+      "clause": "S44 [proxy_P1_direct] (D5/P1) P1直连组：独立客户端socket IP各自锁桶，mapped等价，未配置代理时伪XFF不改变clientIP。"
+    },
+    {
+      "id": "proxy_P2_trusted",
+      "ref": "D5/P2",
+      "clause": "S45 [proxy_P2_trusted] (D5/P2) P2可信反代组：实际peer命中CIDR，从右向左剥完整可信链，在首非可信处停，两客户端桶隔离，不取任意左首项。"
+    },
+    {
+      "id": "proxy_P3_forged",
+      "ref": "D5/P3",
+      "clause": "S46 [proxy_P3_forged] (D5/P3) P3非可信peer伪造XFF组：伪造XFF/Forwarded/X-Real-IP不能改变clientIP/失败锁桶；忽略并限量告警，不自动信头。"
+    },
+    {
+      "id": "deferred_validator",
+      "ref": "D3延期",
+      "clause": "S47 [deferred_validator] (D3延期) target-validator合法机器主体正向本期DEFERRED，材料不足必须NEEDS-MATERIAL，不以伪fixture或负向409计正向PASS。"
+    },
+    {
+      "id": "deferred_internal",
+      "ref": "D1延期",
+      "clause": "S48 [deferred_internal] (D1延期) 内部原生SSO、企微LDAP IdP与已建WS强断不属本期出口，不计已实现PASS，后续补独立材料判据。"
+    }
+  ],
+  "authority": [
+    "3aa49039e3",
+    "c3e0917349"
+  ],
+  "review_status": "NOT_REVIEWED"
+}
