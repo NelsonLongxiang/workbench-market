@@ -27,6 +27,12 @@ for (const d of [`${storeRoot}/sources`, `${storeRoot}/projects`, homeDir, `${ho
   try { mkdirSync(d, { recursive: true, mode: 0o755 }); } catch { /* 卷面降级 */ }
 }
 try { chmodSync(homeDir, 0o700); } catch { /* ACL 归部署 */ }
+// 侧车（契约形读面·同卷持久）
+const sidecar = new DatabaseSync(`${storeRoot}/wm-adapter.sqlite`);
+sidecar.exec('CREATE TABLE IF NOT EXISTS commits (id TEXT PRIMARY KEY, project TEXT NOT NULL, branch TEXT NOT NULL, files TEXT NOT NULL, message TEXT DEFAULT \'\', at TEXT DEFAULT (datetime(\'now\')))')
+sidecar.exec('CREATE TABLE IF NOT EXISTS branches (project TEXT NOT NULL, branch TEXT NOT NULL, head TEXT, PRIMARY KEY (project, branch))')
+sidecar.exec('CREATE TABLE IF NOT EXISTS merged (project TEXT NOT NULL, n INTEGER DEFAULT 0, PRIMARY KEY (project))')
+
 process.env.LAYERFS_STORE_PATH = process.env.LAYERFS_STORE_PATH ?? `${homeDir}/global/store.sqlite`; // 勿预触文件（init 自建·0B 毒）
 
 const clients = new Map(); // R8：一进程一份 agent·一项目一 client（共享全局 store）
