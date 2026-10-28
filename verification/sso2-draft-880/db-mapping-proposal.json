@@ -1,0 +1,62 @@
+{
+  "status": "PROPOSED_NOT_RATIFIED_NOT_IMPLEMENTED",
+  "target_sha": "d90f81abca809a48a893544d0bdd4c409be78526",
+  "logical_invariants": {
+    "users": {
+      "id": "stable integer",
+      "username": "canonical unique",
+      "disabled": "boolean persistent",
+      "password_salt": "per-user random >=16bytes",
+      "password_hash": "scrypt output64 bytes",
+      "password_parameters": {
+        "N": 16384,
+        "r": 8,
+        "p": 1
+      }
+    },
+    "sessions": {
+      "token_digest": "sha256(token), no raw opaque token",
+      "user_id": "users.id",
+      "issued_at": "absolute UTC",
+      "expires_at": "issued+TTL, does not slide",
+      "revoked_at": "persistent revocation"
+    },
+    "audit": {
+      "id": "monotonic",
+      "at": "UTC",
+      "action": "closed contract enum",
+      "subject_id": "verified administrator or null on state operations",
+      "target_user_id": "affected user or null",
+      "workbench_id": "external target or null",
+      "auth_kind": "admin/wm_session/anonymous",
+      "outcome": "allow/deny",
+      "client_ip": "trusted effective IP"
+    },
+    "target_sso": {
+      "workbench_id": "existing workbenches.id",
+      "enabled": "false by default",
+      "mode": "approved outbound mapping",
+      "machine_auth": "none only"
+    }
+  },
+  "proposed_storage_names": {
+    "users": "sso2_users",
+    "sessions": "sso2_sessions",
+    "audit": "sso2_audit_events",
+    "target_sso": "workbench_sso_policy"
+  },
+  "migration_plan": [
+    "new schema additive; no existing rows deleted or credential migration guessed",
+    "unique username, indexed token_digest/user_id and expiry, target FK/default off",
+    "audit triggers BEFORE UPDATE/DELETE RAISE(ABORT); verify errcode1811 and writable-copy control",
+    "existing supported outbound auth/cookie pools unchanged",
+    "legacy sso fixture ONLY from a pinned historical commit where corresponding schema exists; current target lacks it => NEEDS-MATERIAL, never fabricate a future legacy column"
+  ],
+  "freeze_requirements": [
+    "non-author reviews names/columns vs logical invariants",
+    "attach exact CREATE/ALTER schema and migration commit/hash before DB checker freezes",
+    "adapter must verify table/columns/types and nonempty service-generated records; mismatch/missing=>NEEDS-MATERIAL, not empty PASS",
+    "keyless test ticket only normal isolated controlled initialization; absent issuance=>prerequisite missing; never direct token INSERT"
+  ],
+  "production_change": false
+}

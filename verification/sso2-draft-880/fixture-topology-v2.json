@@ -1,0 +1,50 @@
+{
+  "version": "execution-v2",
+  "single_source": "draft/221-verifier-880 under verification/sso2-draft-880",
+  "not_business_implementation": true,
+  "nodes": [
+    {
+      "id": "runner",
+      "type": "test-only Node subprocess orchestrator",
+      "loads": [
+        "fixtures.mjs",
+        "execution.mjs",
+        "more-handlers.mjs",
+        "final-handlers.mjs"
+      ]
+    },
+    {
+      "id": "market-target",
+      "type": "actual pinned target archive",
+      "sha": "d90f81abca809a48a893544d0bdd4c409be78526",
+      "modified": false
+    },
+    {
+      "id": "network-fixture",
+      "type": "localhost echo/401/403/WS101 only, NO auth/session APIs"
+    },
+    {
+      "id": "sqlite-copy",
+      "type": "SQLite backup from isolated target DB, never source mutation"
+    },
+    {
+      "id": "checker-fixtures",
+      "type": "synthetic good/bad/empty tables, no product audit provenance"
+    }
+  ],
+  "effects": [
+    "writes only under tmp/sso2-draft-880 test directory",
+    "ephemeral non9800 listen sockets and owned Node children, closed in finally",
+    "dependency junctions reference existing node_modules without install/build",
+    "no production HTTP requests/env edits/source changes",
+    "no user session token created by test code; only legitimate product routes may issue it"
+  ],
+  "review_owner": "wm-review",
+  "fixture_auditor": "TEST",
+  "deferred": [
+    "no live SSO business schema",
+    "legacy persisted policy missing",
+    "keyless official positive issuance absent",
+    "unverified full subcontrol coverage and empty-scope engine guard"
+  ]
+}

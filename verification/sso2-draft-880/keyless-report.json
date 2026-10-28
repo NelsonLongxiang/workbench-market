@@ -1,0 +1,112 @@
+{
+  "fixture": "keyless-negative",
+  "target_sha": "d90f81abca809a48a893544d0bdd4c409be78526",
+  "env_admin_token_present": false,
+  "managed_keys_in_fresh_db": [],
+  "listener_pid": 105740,
+  "listener_owners": [
+    105740
+  ],
+  "port": 58594,
+  "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-AqpTGr",
+  "rows": [
+    {
+      "case": "no-ticket",
+      "expected": 403,
+      "actual": 404,
+      "ok": false
+    },
+    {
+      "case": "wrong-ticket",
+      "expected": 403,
+      "actual": 404,
+      "ok": false
+    }
+  ],
+  "positive_ticket_status": "NEEDS-MATERIAL until official isolated issuance exists; no token table insertion",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/health",
+      "request": {
+        "headers": {}
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "ok": true,
+          "service": "workbench-market-server",
+          "version": "0.1.0",
+          "uptime_s": 2
+        },
+        "headers": {
+          "connection": "keep-alive",
+          "content-length": "78",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 18:42:52 GMT",
+          "etag": "W/\"4e-zfZBZoxo7UafXRWtk/LaN9wOKlE\"",
+          "keep-alive": "timeout=5",
+          "vary": "Origin",
+          "x-powered-by": "Express"
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/register",
+      "request": {
+        "headers": {
+          "content-type": "application/json",
+          "origin": "http://127.0.0.1:58594"
+        },
+        "body": {
+          "username": "keyless-user",
+          "password": "<redacted>"
+        }
+      },
+      "response": {
+        "status": 404,
+        "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+        "headers": {
+          "connection": "keep-alive",
+          "content-length": "157",
+          "content-security-policy": "default-src 'none'",
+          "content-type": "text/html; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 18:42:55 GMT",
+          "keep-alive": "timeout=5",
+          "x-content-type-options": "nosniff",
+          "x-powered-by": "Express"
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/register",
+      "request": {
+        "headers": {
+          "content-type": "application/json",
+          "origin": "http://127.0.0.1:58594",
+          "x-admin-token": "<redacted>"
+        },
+        "body": {
+          "username": "keyless-user",
+          "password": "<redacted>"
+        }
+      },
+      "response": {
+        "status": 404,
+        "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+        "headers": {
+          "connection": "keep-alive",
+          "content-length": "157",
+          "content-security-policy": "default-src 'none'",
+          "content-type": "text/html; charset=utf-8",
+          "date": "Wed, 28 Oct 2026 18:42:55 GMT",
+          "keep-alive": "timeout=5",
+          "x-content-type-options": "nosniff",
+          "x-powered-by": "Express"
+        }
+      }
+    }
+  ]
+}

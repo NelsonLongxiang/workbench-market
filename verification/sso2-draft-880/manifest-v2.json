@@ -1,0 +1,263 @@
+{
+  "version": "execution-v2",
+  "target_sha": "d90f81abca809a48a893544d0bdd4c409be78526",
+  "parent_draft_commit": "a677aab0086f2909c93925ec14edcc94e5745c78",
+  "created_at": "2026-10-28T18:42:58.141Z",
+  "counts": {
+    "NEEDS-MATERIAL": 36,
+    "FAIL": 10,
+    "PASS": 1
+  },
+  "deferred": 2,
+  "code_coverage_notice": "47 group entry points executed is NOT 47 complete subcontrol groups; NEEDS and listed remaining controls retained",
+  "files": [
+    {
+      "relative": "contract.md",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\contract.md",
+      "bytes": 21651,
+      "sha256": "945d8c37e007e9066cde48d28eecd83f17f1012f51efa9cbb2833293447351fd",
+      "git_blob": "6eb65e85f7461bcb54f77e9d0fcdcb969627dac9"
+    },
+    {
+      "relative": "material.md",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\material.md",
+      "bytes": 31061,
+      "sha256": "2d4c1fddf7364e4f934e94b2a0e457763fa140b9e0b30730fe0341a87fe44542",
+      "git_blob": "30320a98627ddf28fef9c326ecc74136e4ad4c8e"
+    },
+    {
+      "relative": "candidates.json",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\candidates.json",
+      "bytes": 38379,
+      "sha256": "70825711a94b51dbb1974a95cfc570d29310417c976b277a8028efb215adf033",
+      "git_blob": "f4f5bb42da36fa479e86c9d85d7180c618034e00"
+    },
+    {
+      "relative": "coverage.json",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\coverage.json",
+      "bytes": 12423,
+      "sha256": "5855892f62ae4e6af9c4ddbdf61c0286505b9990e7d098e772a50bf17be1418e",
+      "git_blob": "1709bb298869f2c334551b998170e4fdbe2504f0"
+    },
+    {
+      "relative": "build-draft.mjs",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\build-draft.mjs",
+      "bytes": 10663,
+      "sha256": "2ad0119e978a2498c5b7176978b3048112e1d33e7d5e7484afbe0b0eb30be32f",
+      "git_blob": "6ea2a5934d7a8f78d4e8717abf3fb2e3b1150df2"
+    },
+    {
+      "relative": "probe.mjs",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\probe.mjs",
+      "bytes": 13819,
+      "sha256": "68f6a3123bb3c2884f81627fcbc95c23f4e8c20dd9e7796903e443fec80d81a9",
+      "git_blob": "16fa68c5e8eb2f071619218e27292224d6ccadbe"
+    },
+    {
+      "relative": "fixtures.mjs",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\fixtures.mjs",
+      "bytes": 10209,
+      "sha256": "705c9a1d9883a446a0c73031c05965650dd910ce49cf5e820680ba3c0ae39911",
+      "git_blob": "1f0249e47f1b89e5734c7e197e550a0392aaf7df"
+    },
+    {
+      "relative": "execution.mjs",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\execution.mjs",
+      "bytes": 19038,
+      "sha256": "f8e00a8f01fa5dd396921c186ef72de1892d7129df45733e4c489495cd37c487",
+      "git_blob": "17e1e52ce7832b0b70be351439ff9b0a7c865310"
+    },
+    {
+      "relative": "more-handlers.mjs",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\more-handlers.mjs",
+      "bytes": 14475,
+      "sha256": "89f4c8ac415ccba3011c8850a16bd5cb3854c590d7137ed225dfce08ade07bd6",
+      "git_blob": "2df1079ecd27e0260dfdae8cf70819d3c224de03"
+    },
+    {
+      "relative": "final-handlers.mjs",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\final-handlers.mjs",
+      "bytes": 5560,
+      "sha256": "1eae1a7d44abcb2e525310e1177393c5ace50774e0e010a28b010241c62ea167",
+      "git_blob": "fe4fcd99b1f905701677589b71bf5cc92ec99bc8"
+    },
+    {
+      "relative": "run-execution-versioned.mjs",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-execution-versioned.mjs",
+      "bytes": 1938,
+      "sha256": "39503a940b9d8a936e7c75ba2cc6ce20f5e46b89bc6bee24e48ba851eb205184",
+      "git_blob": "57a29b89c507cf783dbf1cec8e3c9881a1dbe6ce"
+    },
+    {
+      "relative": "fixture-selftest.mjs",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\fixture-selftest.mjs",
+      "bytes": 1951,
+      "sha256": "a989438657c4828ec668f475add08d57038933de55673d927ed8b36fb4960e48",
+      "git_blob": "09a33890883283eed11d3a8b69dd04f57f881a9f"
+    },
+    {
+      "relative": "checker-fixtures.mjs",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\checker-fixtures.mjs",
+      "bytes": 1582,
+      "sha256": "779a89b9ec7e326f0d8ae750a386ce284bf83dd13dbc52812714a2ce4061cedd",
+      "git_blob": "0b55c6cc812ad2c25f48892af03662ee05c366a8"
+    },
+    {
+      "relative": "checker-fixtures-proof.json",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\checker-fixtures-proof.json",
+      "bytes": 23597,
+      "sha256": "1a8fde39e8465f54ab5c598e909c1da149fb63a9c6683ac4d6a79e0c8aac1f70",
+      "git_blob": "6da3c27eb5f06c207149b249fda3bcb8dc4473e6"
+    },
+    {
+      "relative": "keyless-negative.mjs",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\keyless-negative.mjs",
+      "bytes": 1756,
+      "sha256": "f47239ac32a97d361cb113d9c0a20539ae23b209f625a408449fd9871562877a",
+      "git_blob": "31ee1b299d3a62f4714098944be91d3ade7ed19d"
+    },
+    {
+      "relative": "keyless-report.json",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\keyless-report.json",
+      "bytes": 3328,
+      "sha256": "ca501d5ce50f99ad9624bf793a4497d9020291d56cf91b8976ec9c8d18bd4001",
+      "git_blob": "88a23ac309c0e444aed7661e5792221765ed8d25"
+    },
+    {
+      "relative": "db-mapping-proposal.json",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\db-mapping-proposal.json",
+      "bytes": 2502,
+      "sha256": "41d6377cc5e82d5c9ebef6a0b0aa8c05d1e77e3a0cd81b1a8daa044c668b1d73",
+      "git_blob": "8ff1853d76dc211e60787ac5b7cc6c78e79eb2c9"
+    },
+    {
+      "relative": "DEPENDENCIES.md",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\DEPENDENCIES.md",
+      "bytes": 2033,
+      "sha256": "61a8714d0df9497435718c7bc94855a1167c906967bc0418208d7b589e38c88a",
+      "git_blob": "e950278b52377dd9b465e78094cfe2fbd005c745"
+    },
+    {
+      "relative": "execution-report.json",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\execution-report.json",
+      "bytes": 139807,
+      "sha256": "0c34b7aa753890a4b4072b01cc9109b3c2547f82d65fd36feac8d7f737c7f00c",
+      "git_blob": "afd9ef9a7c430800f2d48c8ec5aa007c2f881141"
+    },
+    {
+      "relative": "execution-provenance.json",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\execution-provenance.json",
+      "bytes": 2191,
+      "sha256": "6cd4fa9361696a75a1695f395fc7967e8c1e2348a636e9d37e9554833b7dd2a7",
+      "git_blob": "ff6874249aeddfbe107f90fea3280e156f0773fa"
+    },
+    {
+      "relative": "execution-launch.json",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\execution-launch.json",
+      "bytes": 1902,
+      "sha256": "47bbfbb67394c9d81859345eb1179db9dfd91c8ca5aa3ca2c5b51fa01b144cb3",
+      "git_blob": "00dc0f84c2ad91d6f05e2cf6d7eb19969bbb4cb5"
+    },
+    {
+      "relative": "execution-coverage.json",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\execution-coverage.json",
+      "bytes": 31162,
+      "sha256": "02eca092b04ff7c54c805bcc23a334eb40115439028e2a9c9db2c4bc788bdc6d",
+      "git_blob": "f72873d527e09993dc522f9b04ca7caa6bbb14f4"
+    },
+    {
+      "relative": "fixture-topology-v2.json",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\fixture-topology-v2.json",
+      "bytes": 1586,
+      "sha256": "ce04e3af64bd56435b44f5b88b9f32e3b433454e26166b3545a729b6411fbe34",
+      "git_blob": "555533f52403bcd3423e90193cf95dd9c63227fb"
+    },
+    {
+      "relative": "lint-good.json",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\lint-good.json",
+      "bytes": 230,
+      "sha256": "359118d9cab463ca1543e42b5eed1aac536d0955b7afe929142c0d671763b68a",
+      "git_blob": "0b60f5fe67186ed32f569ed96ec6f2f63dcfdd2b"
+    },
+    {
+      "relative": "lint-bad.json",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\lint-bad.json",
+      "bytes": 230,
+      "sha256": "359118d9cab463ca1543e42b5eed1aac536d0955b7afe929142c0d671763b68a",
+      "git_blob": "0b60f5fe67186ed32f569ed96ec6f2f63dcfdd2b"
+    },
+    {
+      "relative": "lint-empty.json",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\lint-empty.json",
+      "bytes": 230,
+      "sha256": "359118d9cab463ca1543e42b5eed1aac536d0955b7afe929142c0d671763b68a",
+      "git_blob": "0b60f5fe67186ed32f569ed96ec6f2f63dcfdd2b"
+    },
+    {
+      "relative": "mechanism-ledger.json",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\mechanism-ledger.json",
+      "bytes": 2778,
+      "sha256": "b9bb6a115260c0394fb1c977bc2695187f9ecddd3ada25c774b48ca3bd63b603",
+      "git_blob": "5fc86ec74455dc06d645fdeb507a94b7acf96bf1"
+    },
+    {
+      "relative": "RUNBOOK-v2.md",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\RUNBOOK-v2.md",
+      "bytes": 3125,
+      "sha256": "60e6795ccefca525fe610c68b83cb62dc071c2ccefe254074767566c0bf767f1",
+      "git_blob": "cd34cddd07cfdc124ef7a83baa4c36082919ce28"
+    },
+    {
+      "relative": "package-execution.mjs",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\package-execution.mjs",
+      "bytes": 5358,
+      "sha256": "40b1b56c306a324c3c736c406ac7f5b6a567a1f24757acfbdd446d19326ac133",
+      "git_blob": "2aa7e0b536d91600abd63aab9a46429a52ff2050"
+    },
+    {
+      "relative": "lint-execution-v2.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/lint-execution-v2.json",
+      "bytes": 230,
+      "sha256": "359118d9cab463ca1543e42b5eed1aac536d0955b7afe929142c0d671763b68a",
+      "git_blob": "0b60f5fe67186ed32f569ed96ec6f2f63dcfdd2b"
+    }
+  ],
+  "binary_fixtures": [
+    {
+      "relative": "checker-good.sqlite",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\checker-good.sqlite",
+      "sha256": "a5368b75f45c85ab57c69323c135ec0cc273a84680675e1b0ebc242086bc21e4",
+      "source": "synthetic checker tables or redacted target observations; not product success"
+    },
+    {
+      "relative": "checker-bad.sqlite",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\checker-bad.sqlite",
+      "sha256": "dda96d1ab78da00df9235c2bb03cd42caa8f805b29fc7b1573e072977c7b1365",
+      "source": "synthetic checker tables or redacted target observations; not product success"
+    },
+    {
+      "relative": "checker-empty.sqlite",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\checker-empty.sqlite",
+      "sha256": "eef429085a873dec8fd75fb6f618ff774a1a3670d87e62fd123b21ba78762ed2",
+      "source": "synthetic checker tables or redacted target observations; not product success"
+    },
+    {
+      "relative": "execution-observations.sqlite",
+      "path": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\execution-observations.sqlite",
+      "sha256": "298cc238ff509abfa4b57efe81117cbd5ac54dcdafd8beae43f37bcfac8b6cca",
+      "source": "synthetic checker tables or redacted target observations; not product success"
+    }
+  ],
+  "gates": {
+    "syntax": "PASS",
+    "fixture_selftest": "6/6 mechanisms only",
+    "lint": "49/49 structural anchors/schema only",
+    "reviews": "NOT_AUTHORED_NOT_SIGNED",
+    "prepare": "NOT_RUN",
+    "empty_scope_engine": "PENDING_NONAUTHOR_RUN",
+    "selfcheck": "NOT_RUN",
+    "meta": "NOT_RUN",
+    "frozen_spec": "NONE",
+    "business_implementation": "NONE"
+  }
+}
