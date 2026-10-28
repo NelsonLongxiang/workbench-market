@@ -21,7 +21,7 @@ const token = process.env.LAYERFS_SERVICE_TOKEN ?? 'lfs-token';
 const storeRoot = process.env.LAYERFS_STORE_ROOT ?? '/var/lib/layerfs';
 // #215 X6 十四障：目录装配（home/global=locator 父链）+ home 私有 700 + 陈 env 强制覆盖 + locator 预触（首 init 前空文件·init 装配真身）
 const homeDir = `${storeRoot}/home`;
-for (const d of ['projects', 'stores', homeDir, `${homeDir}/global`]) { try { mkdirSync(d, { recursive: true }); } catch { /* 卷只读面降级 */ } }
+for (const d of [`${storeRoot}/projects`, `${storeRoot}/stores`, homeDir, `${homeDir}/global`]) { try { mkdirSync(d, { recursive: true }); } catch { /* 卷只读面降级 */ } } // #215 X6 十五障①：全绝对路径（相对落 CWD=/ 的 bug 修）
 try { chmodSync(homeDir, 0o700); } catch { /* 卷 ACL 面归部署 */ }
 const locator = `${homeDir}/global/store.sqlite`;
 try { if (!existsSync(locator)) writeFileSync(locator, ''); } catch { /* 预触失败留给 init 报真错 */ }
