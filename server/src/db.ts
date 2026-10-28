@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_material ON tasks(material_sha256) WHERE material_sha256 IS NOT NULL;
+-- Uniqueness is per intake run; migrated by task-center.ts.
 CREATE TABLE IF NOT EXISTS task_events ( -- 只增不改（无 UPDATE/DELETE 端点·零触发器）
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   task_id INTEGER NOT NULL REFERENCES tasks(id),
