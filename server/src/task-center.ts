@@ -1,6 +1,6 @@
 // #159 task intake: one seed, one published task per completed run.
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { db } from './db.ts';
 
@@ -15,11 +15,14 @@ export function initializeTaskCenter(appsRoot: string) {
   if (!cols.some(c=>c.name==='template_version')) db.exec('ALTER TABLE tasks ADD COLUMN template_version INTEGER');
   db.exec('DROP INDEX IF EXISTS idx_tasks_material; CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_intake_run ON tasks(intake_run_id) WHERE intake_run_id IS NOT NULL');
   const existing = db.prepare("SELECT * FROM apps WHERE slug='task-center'").get() as any;
-  if (existing) return; // manual versions/status are authoritative; never overwrite on restart
+  if (existing) {
+    if (existing.kind !== 'sop') throw new Error('task-center seed slug is occupied by a non-SOP app');
+    return; // manual versions/status are authoritative; never overwrite on restart
+  }
   const manifest = JSON.stringify({ title: '任务中心', meta: 'task-center', steps: taskCenterSteps.map(s=>({...s,body:'<label>'+s.title+'<textarea data-field="value"></textarea></label>'})) }, null, 2);
   const dir = join(appsRoot,'task-center','v1');
   mkdirSync(dir,{recursive:true});
-  if (!existsSync(join(dir,'sop.yaml'))) writeFileSync(join(dir,'sop.yaml'),manifest);
+  writeFileSync(join(dir,'sop.yaml'),manifest); // no app record: repair an orphan initial seed file
   db.exec('BEGIN IMMEDIATE');
   try {
     const a=db.prepare("INSERT INTO apps(slug,title,description,created_by,kind,status,a2a_node8) VALUES('task-center','任务中心','人工发布录入任务','system:seed','sop','published',?)").run(randomBytes(4).toString('hex'));

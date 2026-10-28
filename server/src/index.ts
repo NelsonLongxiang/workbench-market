@@ -2453,12 +2453,8 @@ app.post('/api/task-center/tasks/:id/publish', (req, res) => {
   if (!hit) throw new HttpError(404, 'task not found');
   if (hit.status === 'published') throw new HttpError(409, '已发布不可再写（#159 C11）');
   if (hit.status === 'withdrawn') throw new HttpError(409, '已撤回任务不可发布');
-  const material = createHash('sha256').update(String(hit.payload_json) + ':template-v1').digest('hex'); // 冻结（canonical payload+模板版本）
-  const dup = db.prepare('SELECT id FROM tasks WHERE material_sha256 = ?').get(material) as any;
-  if (dup) throw new HttpError(409, '同一录入只发一次（material_sha256 重复·#159 C2）');
-  const actor = 'human:' + String((req as express.Request & { adminActor?: string }).adminActor ?? 'admin'); // C21 actor human: 前缀
-  applyTaskTransition(hit.id, 'published', actor, { status: 'published', material_sha256: material, published_at: new Date().toISOString(), published_by: actor });
-  res.json({ ok: true, id: hit.id, material_sha256: material });
+  throw new HttpError(409, '旧草稿不得绕过录入 run 发布；请完成 task-center 录入后统一发布');
+
 });
 app.post('/api/task-center/tasks/:id/withdraw', (req, res) => {
   if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });

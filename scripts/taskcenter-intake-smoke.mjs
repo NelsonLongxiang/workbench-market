@@ -43,7 +43,7 @@ try{
  const pub=await call('/api/task-center/tasks',{intake_run_id:id,published_by:'fixture'});
  check('C1 completed run published201',()=>assert.equal(pub.status,201,JSON.stringify(pub.j)));
  const task=await (await fetch(base+'/api/task-center/tasks/'+pub.j.id)).json();
- check('C18 pinned run/template',()=>{assert.equal(task.intake_run_id,id);assert.equal(task.template_version,template.version);});
+ check('C19 pinned run/template',()=>{assert.equal(task.intake_run_id,id);assert.equal(task.template_version,template.version);});
  check('C2 canonical run hash',()=>assert.equal(task.material_sha256,createHash('sha256').update(canonical(values)).digest('hex')));
  const dup=await call('/api/task-center/tasks',{intake_run_id:id,published_by:'fixture'});
  check('C4 same run conflicts409',()=>assert.equal(dup.status,409));
@@ -54,6 +54,32 @@ try{
  check('different runs with same material both publish',()=>assert.equal(same.status,201,JSON.stringify(same.j)));
  const mutate=await call('/api/sops/task-center/deprecate',{},'POST',{'X-Admin-Token':''});
  check('C14 seed deprecate without admin rejected',()=>assert.ok([400,401,403].includes(mutate.status)));
+ const seedYaml=JSON.stringify({title:'task-center',meta:'task-center',steps:template.steps});
+ const unauthorized=await call('/api/apps',{slug:'task-center',kind:'sop',files:[{path:'sop.yaml',content:seedYaml}],changelog:'not allowed'},'POST',{'X-Admin-Token':''});
+ check('C14 REST republish without admin rejected',()=>assert.ok([400,401,403].includes(unauthorized.status)));
+ const spoof=await call('/api/apps',{slug:'tc-spoof',title:'spoof',kind:'sop',files:[{path:'sop.yaml',content:seedYaml}],changelog:'spoof'},'POST',{'X-Admin-Token':''});
+ check('C15 non-seed meta rejected',()=>assert.equal(spoof.status,400));
+ for(const tool of ['app_publish','app_activate','sop_publish']){
+   const r=await call('/mcp',{jsonrpc:'2.0',id:1,method:'tools/call',params:{name:tool,arguments:{slug:' TASK-CENTER ',kind:'sop',version:1,files:[{path:'sop.yaml',content:seedYaml}],changelog:'mcp blocked'}}});
+   check('C14 MCP '+tool+' rejects normalized meta slug',()=>assert.ok(r.j.error||r.j.result?.isError,JSON.stringify(r.j)));
+ }
+ const missing=await call('/api/task-center/tasks',{intake_run_id:999999,published_by:'fixture'});
+ check('missing intake rejected400',()=>assert.equal(missing.status,400));
+ const empty=await call('/api/sop/runs',{slug:'task-center'});await call('/api/sop/runs/'+empty.j.id+'/finish',{});
+ const invalid=await call('/api/task-center/tasks',{intake_run_id:empty.j.id,published_by:'fixture'});
+ check('completed but empty intake rejected400',()=>assert.equal(invalid.status,400));
+ const raced=await intake();await call('/api/sop/runs/'+raced+'/finish',{});
+ const pair=await Promise.all([call('/api/task-center/tasks',{intake_run_id:raced,published_by:'fixture'}),call('/api/task-center/tasks',{intake_run_id:raced,published_by:'fixture'})]);
+ check('concurrent same run yields one publish one conflict',()=>assert.deepEqual(pair.map(r=>r.status).sort(),[201,409]));
+ const direct=await (await fetch(base+'/api/task-center/tasks/'+pub.j.id)).json();
+ check('publication appends exactly one human event',()=>{assert.equal(direct.events.length,1);assert.equal(direct.events[0].actor,'human:fixture');});
+ const shape=await call('/api/sop/runs',{slug:'task-center'});
+ for(const key of ['title','intent','deliverable'])await call('/api/sop/runs/'+shape.j.id,{stepKey:key,value:{value:key==='title'?'Runner title':key}},'PUT');
+ await call('/api/sop/runs/'+shape.j.id+'/finish',{});
+ const shaped=await call('/api/task-center/tasks',{intake_run_id:shape.j.id,published_by:'fixture'});
+ const shapedTask=await (await fetch(base+'/api/task-center/tasks/'+shaped.j.id)).json();
+ check('Runner field object produces actual title',()=>{assert.equal(shaped.status,201);assert.equal(shapedTask.title,'Runner title');});
+ check('C18 seed versions have changelog',()=>assert.ok(initial.versions.every(v=>v.changelog)));
  const after=await (await fetch(base+'/api/apps/task-center')).json();
  check('C16 rejected mutation preserves seed',()=>{assert.equal(after.active_version,initial.active_version);assert.equal(after.versions.length,initial.versions.length);assert.equal(after.status,initial.status);});
  await stop();await start();
