@@ -1193,7 +1193,9 @@ app.get('/api/apps/:slug/files/:id', (req, res) => {
   res.setHeader('content-length', String(row.size));
   // 附件下载语义（原始文件名）——inline 由 mime 决定，避免 XSS：非白名单 mime 强制 attachment
   const inlineOk = /^(image\/(png|jpeg|webp|gif)|application\/pdf|text\/(plain|csv|markdown))$/.test(row.mime); // hotfix：effMime 未定义（#134 stash 舞连带残留）
-  const disp = inlineOk ? 'inline' : 'attachment';
+  // #215 族修（属主实测「点下载变新标签页访问二进制」）：存储 mime 存错（xlsx 存 text/plain）时 inline 白名单误放——按扩展名强制 attachment
+  const BIN_EXT = /\.(xlsx|xls|docx|doc|zip|rar|7z|gz|tar|png|jpe?g|webp|gif|pdf|csv)$/i.test(row.original_name || '');
+  const disp = (inlineOk && !BIN_EXT) ? 'inline' : 'attachment';
   res.setHeader('content-disposition', `${disp}; filename*=UTF-8''${encodeURIComponent(row.original_name || 'file')}`);
   res.setHeader('x-content-type-options', 'nosniff');
   createReadStream(abs).pipe(res);
