@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 COPY --from=wm-x-layerfs:base /usr/local/lib/layerfs.node /usr/local/lib/layerfs.node
 COPY --from=wm-x-layerfs:base /usr/local/lib/layerfs-api /usr/local/lib/layerfs-api
 COPY deploy/layerfs-svc.mjs /usr/local/lib/layerfs-svc.mjs
+ENV LAYERFS_NATIVE=/usr/local/lib/layerfs.node
 ENV LAYERFS_STORE_ROOT=/var/lib/layerfs
 ENV LAYERFS_SERVICE_PORT=8067
 ENV LAYERFS_AGENT_PATH=/usr/local/lib/layerfs-api/agent/sdk/src/index.js

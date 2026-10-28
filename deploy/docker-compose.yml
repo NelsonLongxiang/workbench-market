@@ -28,6 +28,7 @@ services:
     environment:
       # P1-2：未设即 compose 级拒启（不再静默默认 change-me）
       LAYERFS_SERVICE_TOKEN: ${LAYERFS_SERVICE_TOKEN:?LAYERFS_SERVICE_TOKEN 必设（不可用 change-me）}
+      LAYERFS_NATIVE: /usr/local/lib/layerfs.node   # #215 X6 八障：SDK addonPath 走 env
       LAYERFS_STORE_ROOT: /var/lib/layerfs
     ports:
       - "8067:8067"
