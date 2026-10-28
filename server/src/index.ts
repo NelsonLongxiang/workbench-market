@@ -1,5 +1,5 @@
 import express from 'express';
-import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError } from './task-center.ts';
+import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskCenterPolicy } from './task-center.ts';
 import cors from 'cors';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -2413,15 +2413,16 @@ app.post('/api/task-center/tasks', (req, res) => {
   res.status(201).json(publishTaskIntake(req.body ?? {}));
 });
 app.get('/api/task-center/tasks', (req, res) => { // 读开放
-  res.json(db.prepare('SELECT id, title, kind, status, enabled, agent_dispatch_enabled, material_sha256, published_at, published_by, created_by, created_at, updated_at FROM tasks ORDER BY id DESC').all());
+  res.json(db.prepare('SELECT * FROM tasks ORDER BY id DESC').all().map(taskView));
 });
 app.get('/api/task-center/tasks/:id', (req, res) => {
   const hit = db.prepare('SELECT * FROM tasks WHERE id = ?').get(Number(req.params.id));
   if (!hit) throw new HttpError(404, 'task not found');
-  res.json({ ...hit, events: db.prepare('SELECT id, type, actor, actor_kind, at, payload_json FROM task_events WHERE task_id = ? ORDER BY id').all(hit.id) });
+  const events = db.prepare('SELECT id, type, actor, actor_kind, at, payload_json FROM task_events WHERE task_id = ? ORDER BY id').all(hit.id).map((e: any) => ({...e, action: e.type, detail: JSON.parse(e.payload_json)}));
+  res.json({ ...taskView(hit), events });
 });
 app.get('/api/task-center/policy', (req, res) => { // C7 读开放
-  res.json(db.prepare('SELECT key, value FROM task_center_policy').all());
+  res.json(taskCenterPolicy());
 });
 app.get('/api/task-center/template', (req, res) => { // C17 六固定步骤
   const current = readActiveManifest('task-center');
@@ -2430,10 +2431,17 @@ app.get('/api/task-center/template', (req, res) => { // C17 六固定步骤
 app.put('/api/task-center/policy', (req, res) => {
   if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
   if (!adminGuard(req, res)) return;
-  const b = (req.body ?? {}) as { center_switch?: string };
-  const v = b.center_switch === 'on' ? 'on' : 'off';
-  (db as any).prepare("UPDATE task_center_policy SET value = ? WHERE key = 'center_switch'").run(v);
-  res.json({ ok: true, center_switch: v });
+  const body = req.body ?? {};
+  if (typeof body.agent_dispatch_enabled !== 'boolean') throw new HttpError(400, 'agent_dispatch_enabled 必须是布尔值');
+  const enabled = body.agent_dispatch_enabled;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const changed = taskCenterPolicy().agent_dispatch_enabled !== enabled;
+    db.prepare("UPDATE task_center_policy SET value=? WHERE key='center_switch'").run(enabled ? 'on' : 'off');
+    if (changed) db.prepare("INSERT INTO task_center_events(actor,action,detail) VALUES('human:admin','policy_changed',?)").run(JSON.stringify({agent_dispatch_enabled:enabled}));
+    db.exec('COMMIT');
+  } catch(e) { db.exec('ROLLBACK'); throw e; }
+  res.json({ ok: true, ...taskCenterPolicy() });
 });
 app.patch('/api/task-center/tasks/:id/switch', (req, res) => { // 任务级锁
   if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
@@ -2469,12 +2477,14 @@ app.post('/api/task-center/tasks/:id/withdraw', (req, res) => {
 app.patch('/api/task-center/tasks/:id/agent-dispatch', (req, res) => { // 监督席对齐②：任务级 agent 派发开关（默认关·与任务锁语义对齐）
   if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
   if (!adminGuard(req, res)) return;
-  const hit = db.prepare('SELECT id, agent_dispatch_enabled FROM tasks WHERE id = ?').get(Number(req.params.id)) as any;
+  const hit = db.prepare('SELECT * FROM tasks WHERE id = ?').get(Number(req.params.id)) as any;
   if (!hit) throw new HttpError(404, 'task not found');
-  const nv = hit.agent_dispatch_enabled ? 0 : 1;
+  if (hit.status !== 'published') throw new HttpError(409, '仅已发布任务可变更开关');
+  if (req.body?.enabled !== undefined && typeof req.body.enabled !== 'boolean') throw new HttpError(400, 'enabled 必须是布尔值');
+  const enabled = req.body?.enabled ?? !Boolean(hit.agent_dispatch_enabled);
   const actor = 'human:' + String((req as express.Request & { adminActor?: string }).adminActor ?? 'admin');
-  applyTaskTransition(hit.id, 'toggled', actor, { agent_dispatch_enabled: nv });
-  res.json({ ok: true, agent_dispatch_enabled: nv === 1 });
+  if (enabled !== Boolean(hit.agent_dispatch_enabled)) applyTaskTransition(hit.id, 'toggled', actor, { agent_dispatch_enabled: enabled ? 1 : 0 });
+  res.json({ ok: true, ...taskView(db.prepare('SELECT * FROM tasks WHERE id=?').get(hit.id)) });
 });
 
 
