@@ -8,6 +8,8 @@ COPY deploy/layerfs-svc.mjs /usr/local/lib/layerfs-svc.mjs
 ENV LAYERFS_NATIVE=/usr/local/lib/layerfs.node
 # #215 十五障②：native 面启动即读（locator=<home>/global/store.sqlite）
 ENV LAYERFS_HOME=/var/lib/layerfs/home
+# #215 X6 十八障：镜像级固化（SDK 读点前必达·inspect 可见）
+ENV LAYERFS_STORE_PATH=/var/lib/layerfs/home/global/store.sqlite
 ENV LAYERFS_STORE_ROOT=/var/lib/layerfs
 ENV LAYERFS_SERVICE_PORT=8067
 ENV LAYERFS_AGENT_PATH=/usr/local/lib/layerfs-api/agent/sdk/src/index.js
