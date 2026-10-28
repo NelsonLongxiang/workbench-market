@@ -218,6 +218,7 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
       properties: {
         need: { type: 'string', description: '需求描述（1–2000 字·自然语言）' },
         layer: { type: 'integer', description: '可选层过滤 1..5（缺省全层）' },
+        top_n: { type: 'integer', description: '预筛 top-N（总工决策 #007 C 案·缺省 30·无硬上限·全并列不截断）' },
       },
       required: ['need'],
       additionalProperties: false,
