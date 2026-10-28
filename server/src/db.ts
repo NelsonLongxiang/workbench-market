@@ -78,6 +78,31 @@ CREATE TABLE IF NOT EXISTS app_versions (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(app_id, version)
 );
+-- #159 M3 B1（决策 #010）：任务中心三面——任务真源 / 事件只增 / 中心级策略（两把锁之一·任务级锁在 tasks.enabled）
+CREATE TABLE IF NOT EXISTS tasks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT '录入',
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'draft', -- draft|published|withdrawn
+  material_sha256 TEXT, -- 发布冻结（同录入只发一次）
+  published_at TEXT, published_by TEXT,
+  enabled INTEGER NOT NULL DEFAULT 0, -- 任务级锁（默认关）
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_material ON tasks(material_sha256) WHERE material_sha256 IS NOT NULL;
+CREATE TABLE IF NOT EXISTS task_events ( -- 只增不改（无 UPDATE/DELETE 端点·零触发器）
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id INTEGER NOT NULL REFERENCES tasks(id),
+  type TEXT NOT NULL, -- created|toggled|published|withdrawn
+  actor TEXT NOT NULL DEFAULT '', actor_kind TEXT NOT NULL DEFAULT 'human',
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  payload_json TEXT NOT NULL DEFAULT '{}'
+);
+CREATE TABLE IF NOT EXISTS task_center_policy (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+INSERT OR IGNORE INTO task_center_policy(key, value) VALUES ('center_switch', 'off'); -- 中心级锁默认关
 CREATE TABLE IF NOT EXISTS sop_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   sop_slug TEXT NOT NULL,
