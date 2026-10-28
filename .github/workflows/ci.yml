@@ -19,6 +19,8 @@ jobs:
         run: pnpm --filter web typecheck
       - name: server 语法核（esbuild）
         run: node scripts/check-server-syntax.mjs
+        - name: 安全对抗例组（F5 新规·安全旗标 PR 必跑）
+          run: node scripts/security-adversarial-smoke.mjs
       - name: server 冷启动探针（防重启即死）
         run: |
           PORT=19999 DATA_DIR=${{ runner.temp }}/ci-data ADMIN_TOKEN=ci timeout 20 node --disable-warning=ExperimentalWarning server/src/index.ts &
