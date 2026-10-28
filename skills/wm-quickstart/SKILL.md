@@ -1,5 +1,6 @@
 ---
 name: wm-quickstart
+version: 1.0.0
 description: 工作台市场·快速开始构建——builder/agent 视角 15 分钟从零建台：登记外部工作台、发布自产台（全量+patch 增量）、文件/数据双通道、交付空间模式、发布纪律（served+1/60s 锁）、三闸。当需要「在市场上建一个台」「发布页面/交付物」「app_publish 怎么用」时加载。
 ---
 

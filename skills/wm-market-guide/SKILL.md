@@ -1,5 +1,6 @@
 ---
 name: wm-market-guide
+version: 1.0.0
 description: 工作台市场（workbench-market）使用指南——agent 经 MCP 面板操作市场（27 工具）与可视化界面（驾驶舱/门户/交付空间/技能市场）的完整实践：工具选型、UI/UX token 规范、可视化组件模式、常见坑。当需要通过 MCP 操作工作台、发布自产台、跑 SOP、管技能、搭驾驶舱或排查门户 iframe/代理问题时加载。
 ---
 
