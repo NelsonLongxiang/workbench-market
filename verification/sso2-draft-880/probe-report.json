@@ -1,0 +1,1157 @@
+{
+  "target": "d90f81abca809a48a893544d0bdd4c409be78526",
+  "observations": [
+    {
+      "probe_id": "boot",
+      "value": 1,
+      "status": "PASS",
+      "evidence": {
+        "listener_owners": [
+          105116
+        ],
+        "target_sha": "d90f81abca809a48a893544d0bdd4c409be78526",
+        "archive_sha256": "5d810a548c768b1a5d274140b2298f231a007fc4fe558545cac137ff6be58165",
+        "hashes": [
+          {
+            "path": "server/src/index.ts",
+            "sha256": "2ffa49719f5de441826f48ef1c8782f5d1f41743c678cb790d832c5fd7d6e624"
+          },
+          {
+            "path": "server/src/task-center.ts",
+            "sha256": "8be6c3f44e1155c214466fddb1ba328b6983ce6f68e67dc41d24ebb9cc3cec61"
+          },
+          {
+            "path": "server/src/db.ts",
+            "sha256": "0fbcda11d1cccb08436cb9ece6ff359b487330822209deb313f789a66a09d4a1"
+          }
+        ],
+        "command": [
+          "D:\\node-v24.12.0-win-x64\\node.exe",
+          "--disable-warning=ExperimentalWarning",
+          "server/src/index.ts"
+        ],
+        "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+        "pid": 105116,
+        "port": 50483,
+        "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\data-RtkiA7",
+        "health": 200,
+        "source": "pinned archive; listener owner verified; dependencies shared read-only by test junction"
+      }
+    },
+    {
+      "probe_id": "switch_defaults",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "D1/D4"
+      }
+    },
+    {
+      "probe_id": "http_gate",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "D1/D2"
+      }
+    },
+    {
+      "probe_id": "ws_gate",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "D1/D2"
+      }
+    },
+    {
+      "probe_id": "internal_target",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "D1"
+      }
+    },
+    {
+      "probe_id": "machine_no_ticket",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "D2"
+      }
+    },
+    {
+      "probe_id": "machine_unavailable",
+      "value": 0,
+      "status": "FAIL",
+      "evidence": {
+        "assertions": [
+          {
+            "name": "non-none409",
+            "ok": false,
+            "observed": {
+              "status": 404,
+              "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot PUT /api/workbenches/2/sso</pre>\n</body>\n</html>\n",
+              "headers": {
+                "connection": "keep-alive",
+                "content-length": "160",
+                "content-security-policy": "default-src 'none'",
+                "content-type": "text/html; charset=utf-8",
+                "date": "Wed, 28 Oct 2026 18:17:22 GMT",
+                "keep-alive": "timeout=5",
+                "x-content-type-options": "nosniff",
+                "x-powered-by": "Express"
+              },
+              "cookie_present": false
+            }
+          },
+          {
+            "name": "non-none409",
+            "ok": false,
+            "observed": {
+              "status": 404,
+              "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot PUT /api/workbenches/2/sso</pre>\n</body>\n</html>\n",
+              "headers": {
+                "connection": "keep-alive",
+                "content-length": "160",
+                "content-security-policy": "default-src 'none'",
+                "content-type": "text/html; charset=utf-8",
+                "date": "Wed, 28 Oct 2026 18:17:22 GMT",
+                "keep-alive": "timeout=5",
+                "x-content-type-options": "nosniff",
+                "x-powered-by": "Express"
+              },
+              "cookie_present": false
+            }
+          },
+          {
+            "name": "non-none409",
+            "ok": false,
+            "observed": {
+              "status": 404,
+              "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot PUT /api/workbenches/2/sso</pre>\n</body>\n</html>\n",
+              "headers": {
+                "connection": "keep-alive",
+                "content-length": "160",
+                "content-security-policy": "default-src 'none'",
+                "content-type": "text/html; charset=utf-8",
+                "date": "Wed, 28 Oct 2026 18:17:22 GMT",
+                "keep-alive": "timeout=5",
+                "x-content-type-options": "nosniff",
+                "x-powered-by": "Express"
+              },
+              "cookie_present": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "probe_id": "legacy_machine_config",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "D3"
+      }
+    },
+    {
+      "probe_id": "register_guard",
+      "value": 0,
+      "status": "FAIL",
+      "evidence": {
+        "assertions": [
+          {
+            "name": "admin+origin guard",
+            "ok": false,
+            "observed": {
+              "status": 404,
+              "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+              "headers": {
+                "connection": "keep-alive",
+                "content-length": "157",
+                "content-security-policy": "default-src 'none'",
+                "content-type": "text/html; charset=utf-8",
+                "date": "Wed, 28 Oct 2026 18:17:22 GMT",
+                "keep-alive": "timeout=5",
+                "x-content-type-options": "nosniff",
+                "x-powered-by": "Express"
+              },
+              "cookie_present": false
+            }
+          },
+          {
+            "name": "admin+origin guard",
+            "ok": false,
+            "observed": {
+              "status": 404,
+              "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+              "headers": {
+                "connection": "keep-alive",
+                "content-length": "157",
+                "content-security-policy": "default-src 'none'",
+                "content-type": "text/html; charset=utf-8",
+                "date": "Wed, 28 Oct 2026 18:17:22 GMT",
+                "keep-alive": "timeout=5",
+                "vary": "Origin",
+                "x-content-type-options": "nosniff",
+                "x-powered-by": "Express"
+              },
+              "cookie_present": false
+            }
+          },
+          {
+            "name": "admin+origin guard",
+            "ok": false,
+            "observed": {
+              "status": 404,
+              "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+              "headers": {
+                "connection": "keep-alive",
+                "content-length": "157",
+                "content-security-policy": "default-src 'none'",
+                "content-type": "text/html; charset=utf-8",
+                "date": "Wed, 28 Oct 2026 18:17:22 GMT",
+                "keep-alive": "timeout=5",
+                "x-content-type-options": "nosniff",
+                "x-powered-by": "Express"
+              },
+              "cookie_present": false
+            }
+          },
+          {
+            "name": "admin+origin guard",
+            "ok": false,
+            "observed": {
+              "status": 404,
+              "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+              "headers": {
+                "connection": "keep-alive",
+                "content-length": "157",
+                "content-security-policy": "default-src 'none'",
+                "content-type": "text/html; charset=utf-8",
+                "date": "Wed, 28 Oct 2026 18:17:22 GMT",
+                "keep-alive": "timeout=5",
+                "x-content-type-options": "nosniff",
+                "x-powered-by": "Express"
+              },
+              "cookie_present": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "probe_id": "register_schema",
+      "value": 0,
+      "status": "FAIL",
+      "evidence": {
+        "assertions": [
+          {
+            "name": "role escalation rejected400",
+            "ok": false,
+            "observed": {
+              "status": 404,
+              "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+              "headers": {
+                "connection": "keep-alive",
+                "content-length": "157",
+                "content-security-policy": "default-src 'none'",
+                "content-type": "text/html; charset=utf-8",
+                "date": "Wed, 28 Oct 2026 18:17:22 GMT",
+                "keep-alive": "timeout=5",
+                "x-content-type-options": "nosniff",
+                "x-powered-by": "Express"
+              },
+              "cookie_present": false
+            }
+          },
+          {
+            "name": "ordinary account201 normalized",
+            "ok": false,
+            "observed": {
+              "status": 404,
+              "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+              "headers": {
+                "connection": "keep-alive",
+                "content-length": "157",
+                "content-security-policy": "default-src 'none'",
+                "content-type": "text/html; charset=utf-8",
+                "date": "Wed, 28 Oct 2026 18:17:22 GMT",
+                "keep-alive": "timeout=5",
+                "x-content-type-options": "nosniff",
+                "x-powered-by": "Express"
+              },
+              "cookie_present": false
+            }
+          },
+          {
+            "name": "duplicate409",
+            "ok": false,
+            "observed": {
+              "status": 404,
+              "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+              "headers": {
+                "connection": "keep-alive",
+                "content-length": "157",
+                "content-security-policy": "default-src 'none'",
+                "content-type": "text/html; charset=utf-8",
+                "date": "Wed, 28 Oct 2026 18:17:22 GMT",
+                "keep-alive": "timeout=5",
+                "x-content-type-options": "nosniff",
+                "x-powered-by": "Express"
+              },
+              "cookie_present": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "probe_id": "register_ui",
+      "value": 0,
+      "status": "FAIL",
+      "evidence": {
+        "assertions": [
+          {
+            "name": "real login form not SPA fallback",
+            "ok": false,
+            "observed": {
+              "status": 404,
+              "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot GET /login</pre>\n</body>\n</html>\n",
+              "headers": {
+                "connection": "keep-alive",
+                "content-length": "144",
+                "content-security-policy": "default-src 'none'",
+                "content-type": "text/html; charset=utf-8",
+                "date": "Wed, 28 Oct 2026 18:17:22 GMT",
+                "keep-alive": "timeout=5",
+                "x-content-type-options": "nosniff",
+                "x-powered-by": "Express"
+              },
+              "cookie_present": false
+            }
+          },
+          {
+            "name": "admin opening notice",
+            "ok": false,
+            "observed": {
+              "status": 404,
+              "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot GET /register</pre>\n</body>\n</html>\n",
+              "headers": {
+                "connection": "keep-alive",
+                "content-length": "147",
+                "content-security-policy": "default-src 'none'",
+                "content-type": "text/html; charset=utf-8",
+                "date": "Wed, 28 Oct 2026 18:17:22 GMT",
+                "keep-alive": "timeout=5",
+                "x-content-type-options": "nosniff",
+                "x-powered-by": "Express"
+              },
+              "cookie_present": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "probe_id": "login_session",
+      "value": 0,
+      "status": "FAIL",
+      "evidence": {
+        "assertions": [
+          {
+            "name": "login shape/cookie",
+            "ok": false,
+            "observed": {
+              "status": 404,
+              "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/login</pre>\n</body>\n</html>\n",
+              "headers": {
+                "connection": "keep-alive",
+                "content-length": "154",
+                "content-security-policy": "default-src 'none'",
+                "content-type": "text/html; charset=utf-8",
+                "date": "Wed, 28 Oct 2026 18:17:22 GMT",
+                "keep-alive": "timeout=5",
+                "x-content-type-options": "nosniff",
+                "x-powered-by": "Express"
+              },
+              "cookie_present": false
+            }
+          },
+          {
+            "name": "cookie attributes",
+            "ok": false,
+            "observed": {
+              "cookie_present": false
+            }
+          },
+          {
+            "name": "no-store",
+            "ok": false,
+            "observed": {}
+          }
+        ]
+      }
+    },
+    {
+      "probe_id": "me_invalid",
+      "value": 0,
+      "status": "FAIL",
+      "evidence": {
+        "assertions": [
+          {
+            "name": "missing/forged cookie401",
+            "ok": false,
+            "observed": {
+              "status": 404,
+              "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot GET /api/auth/me</pre>\n</body>\n</html>\n",
+              "headers": {
+                "connection": "keep-alive",
+                "content-length": "150",
+                "content-security-policy": "default-src 'none'",
+                "content-type": "text/html; charset=utf-8",
+                "date": "Wed, 28 Oct 2026 18:17:22 GMT",
+                "keep-alive": "timeout=5",
+                "x-content-type-options": "nosniff",
+                "x-powered-by": "Express"
+              },
+              "cookie_present": false
+            }
+          },
+          {
+            "name": "missing/forged cookie401",
+            "ok": false,
+            "observed": {
+              "status": 404,
+              "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot GET /api/auth/me</pre>\n</body>\n</html>\n",
+              "headers": {
+                "connection": "keep-alive",
+                "content-length": "150",
+                "content-security-policy": "default-src 'none'",
+                "content-type": "text/html; charset=utf-8",
+                "date": "Wed, 28 Oct 2026 18:17:22 GMT",
+                "keep-alive": "timeout=5",
+                "x-content-type-options": "nosniff",
+                "x-powered-by": "Express"
+              },
+              "cookie_present": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "probe_id": "absolute_ttl",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "A4"
+      }
+    },
+    {
+      "probe_id": "multi_device_logout",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "A3/A5"
+      }
+    },
+    {
+      "probe_id": "password_storage",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "A1/A2"
+      }
+    },
+    {
+      "probe_id": "failure_same_bytes",
+      "value": 0,
+      "status": "FAIL",
+      "evidence": {
+        "assertions": [
+          {
+            "name": "wrong/unknown401samebytes",
+            "ok": false,
+            "observed": [
+              {
+                "status": 404,
+                "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/login</pre>\n</body>\n</html>\n",
+                "headers": {
+                  "connection": "keep-alive",
+                  "content-length": "154",
+                  "content-security-policy": "default-src 'none'",
+                  "content-type": "text/html; charset=utf-8",
+                  "date": "Wed, 28 Oct 2026 18:17:22 GMT",
+                  "keep-alive": "timeout=5",
+                  "x-content-type-options": "nosniff",
+                  "x-powered-by": "Express"
+                },
+                "cookie_present": false
+              },
+              {
+                "status": 404,
+                "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/login</pre>\n</body>\n</html>\n",
+                "headers": {
+                  "connection": "keep-alive",
+                  "content-length": "154",
+                  "content-security-policy": "default-src 'none'",
+                  "content-type": "text/html; charset=utf-8",
+                  "date": "Wed, 28 Oct 2026 18:17:22 GMT",
+                  "keep-alive": "timeout=5",
+                  "x-content-type-options": "nosniff",
+                  "x-powered-by": "Express"
+                },
+                "cookie_present": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "probe_id": "lock_bucket",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "D5"
+      }
+    },
+    {
+      "probe_id": "proxy_direct",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "D5"
+      }
+    },
+    {
+      "probe_id": "proxy_chain",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "D5"
+      }
+    },
+    {
+      "probe_id": "proxy_invalid",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "D5"
+      }
+    },
+    {
+      "probe_id": "invalid_config",
+      "value": 0,
+      "status": "FAIL",
+      "evidence": {
+        "assertions": [
+          {
+            "name": "invalid config refuses startup",
+            "ok": false,
+            "observed": {
+              "config": {
+                "WM_SSO": "garbage"
+              },
+              "ready": true,
+              "exit": null
+            }
+          },
+          {
+            "name": "invalid config refuses startup",
+            "ok": false,
+            "observed": {
+              "config": {
+                "WM_AUTH_MAX_FAILURES": "0"
+              },
+              "ready": true,
+              "exit": null
+            }
+          },
+          {
+            "name": "invalid config refuses startup",
+            "ok": false,
+            "observed": {
+              "config": {
+                "WM_AUTH_FAILURE_WINDOW": "-1s"
+              },
+              "ready": true,
+              "exit": null
+            }
+          },
+          {
+            "name": "invalid config refuses startup",
+            "ok": false,
+            "observed": {
+              "config": {
+                "WM_AUTH_LOCK_TTL": ""
+              },
+              "ready": true,
+              "exit": null
+            }
+          },
+          {
+            "name": "invalid config refuses startup",
+            "ok": false,
+            "observed": {
+              "config": {
+                "WM_TRUSTED_PROXIES": "invalid/CIDR"
+              },
+              "ready": true,
+              "exit": null
+            }
+          }
+        ]
+      }
+    },
+    {
+      "probe_id": "canonical_origin",
+      "value": 0,
+      "status": "FAIL",
+      "evidence": {
+        "assertions": [
+          {
+            "name": "bad/missing canonical refuses startup",
+            "ok": false,
+            "observed": {
+              "config": {
+                "WM_SSO": "on",
+                "MARKET_PUBLIC_URL": null
+              },
+              "ready": true,
+              "exit": null
+            }
+          },
+          {
+            "name": "bad/missing canonical refuses startup",
+            "ok": false,
+            "observed": {
+              "config": {
+                "MARKET_PUBLIC_URL": "https://user:pass@example.test"
+              },
+              "ready": true,
+              "exit": null
+            }
+          },
+          {
+            "name": "bad/missing canonical refuses startup",
+            "ok": false,
+            "observed": {
+              "config": {
+                "MARKET_PUBLIC_URL": "https://example.test/path"
+              },
+              "ready": true,
+              "exit": null
+            }
+          },
+          {
+            "name": "bad/missing canonical refuses startup",
+            "ok": false,
+            "observed": {
+              "config": {
+                "MARKET_PUBLIC_URL": "https://example.test?x=1"
+              },
+              "ready": true,
+              "exit": null
+            }
+          }
+        ]
+      }
+    },
+    {
+      "probe_id": "secure_cookie",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "补充1"
+      }
+    },
+    {
+      "probe_id": "next_validation",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "补充4/B5"
+      }
+    },
+    {
+      "probe_id": "admin_disable",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "D7"
+      }
+    },
+    {
+      "probe_id": "disable_replay",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "D7"
+      }
+    },
+    {
+      "probe_id": "users_paging",
+      "value": 0,
+      "status": "FAIL",
+      "evidence": {
+        "assertions": [
+          {
+            "name": "anonymous users403",
+            "ok": false,
+            "observed": {
+              "status": 404,
+              "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot GET /api/auth/users</pre>\n</body>\n</html>\n",
+              "headers": {
+                "connection": "keep-alive",
+                "content-length": "153",
+                "content-security-policy": "default-src 'none'",
+                "content-type": "text/html; charset=utf-8",
+                "date": "Wed, 28 Oct 2026 18:17:22 GMT",
+                "keep-alive": "timeout=5",
+                "x-content-type-options": "nosniff",
+                "x-powered-by": "Express"
+              },
+              "cookie_present": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "probe_id": "audit_read",
+      "value": 0,
+      "status": "FAIL",
+      "evidence": {
+        "assertions": [
+          {
+            "name": "anonymous audit403",
+            "ok": false,
+            "observed": {
+              "status": 404,
+              "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot GET /api/auth/audit</pre>\n</body>\n</html>\n",
+              "headers": {
+                "connection": "keep-alive",
+                "content-length": "153",
+                "content-security-policy": "default-src 'none'",
+                "content-type": "text/html; charset=utf-8",
+                "date": "Wed, 28 Oct 2026 18:17:22 GMT",
+                "keep-alive": "timeout=5",
+                "x-content-type-options": "nosniff",
+                "x-powered-by": "Express"
+              },
+              "cookie_present": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "probe_id": "audit_append",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "D8"
+      }
+    },
+    {
+      "probe_id": "audit_patch_invalid",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "补充3"
+      }
+    },
+    {
+      "probe_id": "audit_patch_valid",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "补充3"
+      }
+    },
+    {
+      "probe_id": "json_parser_boundary",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "补充3"
+      }
+    },
+    {
+      "probe_id": "audit_navigation",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "D8"
+      }
+    },
+    {
+      "probe_id": "audit_upgrade",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "D8"
+      }
+    },
+    {
+      "probe_id": "audit_upstream",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "D8"
+      }
+    },
+    {
+      "probe_id": "mapping_modes",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "C1/C3"
+      }
+    },
+    {
+      "probe_id": "cookie_mapping",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "C1"
+      }
+    },
+    {
+      "probe_id": "odoo_compat",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "C2/D6"
+      }
+    },
+    {
+      "probe_id": "scope_preserve",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "D1/D2"
+      }
+    },
+    {
+      "probe_id": "config_guard",
+      "value": 0,
+      "status": "FAIL",
+      "evidence": {
+        "assertions": [
+          {
+            "name": "config read/write admin403",
+            "ok": false,
+            "observed": [
+              {
+                "status": 404,
+                "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot GET /api/workbenches/2/sso</pre>\n</body>\n</html>\n",
+                "headers": {
+                  "connection": "keep-alive",
+                  "content-length": "160",
+                  "content-security-policy": "default-src 'none'",
+                  "content-type": "text/html; charset=utf-8",
+                  "date": "Wed, 28 Oct 2026 18:17:22 GMT",
+                  "keep-alive": "timeout=5",
+                  "x-content-type-options": "nosniff",
+                  "x-powered-by": "Express"
+                },
+                "cookie_present": false
+              },
+              {
+                "status": 404,
+                "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot PUT /api/workbenches/2/sso</pre>\n</body>\n</html>\n",
+                "headers": {
+                  "connection": "keep-alive",
+                  "content-length": "160",
+                  "content-security-policy": "default-src 'none'",
+                  "content-type": "text/html; charset=utf-8",
+                  "date": "Wed, 28 Oct 2026 18:17:22 GMT",
+                  "keep-alive": "timeout=5",
+                  "x-content-type-options": "nosniff",
+                  "x-powered-by": "Express"
+                },
+                "cookie_present": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "probe_id": "audit_update_rejected",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "D8/TEST-a"
+      }
+    },
+    {
+      "probe_id": "audit_delete_rejected",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "D8/TEST-a"
+      }
+    },
+    {
+      "probe_id": "patch_missing_disabled",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "补充3/TEST-b"
+      }
+    },
+    {
+      "probe_id": "proxy_P1_direct",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "D5/P1"
+      }
+    },
+    {
+      "probe_id": "proxy_P2_trusted",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "D5/P2"
+      }
+    },
+    {
+      "probe_id": "proxy_P3_forged",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "evidence": {
+        "reason": "draft handler/fixture not yet implemented; scope retained",
+        "authority": "D5/P3"
+      }
+    }
+  ],
+  "metadata": [
+    {
+      "pid": 105116,
+      "port": 50483,
+      "dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\data-RtkiA7",
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "config": {
+        "ADMIN_TOKEN_configured": true
+      },
+      "ready": true,
+      "exit": null,
+      "signal": "SIGTERM",
+      "log": "[workbench-market] server  http://127.0.0.1:50483  (workbenches: 1, web-dist: none, portal: /go/<id>/)\n[redis] 未配置 REDIS_URL（且无 server/data/redis.url）——SOP 状态层降级：直写 SQLite\n"
+    },
+    {
+      "pid": 105068,
+      "port": 50700,
+      "dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\data-QpSc86",
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "config": {
+        "WM_SSO": "garbage",
+        "ADMIN_TOKEN_configured": true
+      },
+      "ready": true,
+      "exit": null,
+      "signal": "SIGTERM",
+      "log": "[workbench-market] server  http://127.0.0.1:50700  (workbenches: 1, web-dist: none, portal: /go/<id>/)\n[redis] 未配置 REDIS_URL（且无 server/data/redis.url）——SOP 状态层降级：直写 SQLite\n"
+    },
+    {
+      "pid": 106284,
+      "port": 61011,
+      "dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\data-7uGzaT",
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "config": {
+        "WM_AUTH_MAX_FAILURES": "0",
+        "ADMIN_TOKEN_configured": true
+      },
+      "ready": true,
+      "exit": null,
+      "signal": "SIGTERM",
+      "log": "[workbench-market] server  http://127.0.0.1:61011  (workbenches: 1, web-dist: none, portal: /go/<id>/)\n[redis] 未配置 REDIS_URL（且无 server/data/redis.url）——SOP 状态层降级：直写 SQLite\n"
+    },
+    {
+      "pid": 107832,
+      "port": 61025,
+      "dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\data-HxJZuL",
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "config": {
+        "WM_AUTH_FAILURE_WINDOW": "-1s",
+        "ADMIN_TOKEN_configured": true
+      },
+      "ready": true,
+      "exit": null,
+      "signal": "SIGTERM",
+      "log": "[workbench-market] server  http://127.0.0.1:61025  (workbenches: 1, web-dist: none, portal: /go/<id>/)\n[redis] 未配置 REDIS_URL（且无 server/data/redis.url）——SOP 状态层降级：直写 SQLite\n"
+    },
+    {
+      "pid": 108480,
+      "port": 61041,
+      "dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\data-AHSPDY",
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "config": {
+        "WM_AUTH_LOCK_TTL": "",
+        "ADMIN_TOKEN_configured": true
+      },
+      "ready": true,
+      "exit": null,
+      "signal": "SIGTERM",
+      "log": "[workbench-market] server  http://127.0.0.1:61041  (workbenches: 1, web-dist: none, portal: /go/<id>/)\n[redis] 未配置 REDIS_URL（且无 server/data/redis.url）——SOP 状态层降级：直写 SQLite\n"
+    },
+    {
+      "pid": 102384,
+      "port": 61095,
+      "dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\data-FuDZ16",
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "config": {
+        "WM_TRUSTED_PROXIES": "invalid/CIDR",
+        "ADMIN_TOKEN_configured": true
+      },
+      "ready": true,
+      "exit": null,
+      "signal": "SIGTERM",
+      "log": "[workbench-market] server  http://127.0.0.1:61095  (workbenches: 1, web-dist: none, portal: /go/<id>/)\n[redis] 未配置 REDIS_URL（且无 server/data/redis.url）——SOP 状态层降级：直写 SQLite\n"
+    },
+    {
+      "pid": 93764,
+      "port": 62338,
+      "dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\data-BUm4D0",
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "config": {
+        "WM_SSO": "on",
+        "MARKET_PUBLIC_URL": null,
+        "ADMIN_TOKEN_configured": true
+      },
+      "ready": true,
+      "exit": null,
+      "signal": "SIGTERM",
+      "log": "[workbench-market] server  http://127.0.0.1:62338  (workbenches: 1, web-dist: none, portal: /go/<id>/)\n[redis] 未配置 REDIS_URL（且无 server/data/redis.url）——SOP 状态层降级：直写 SQLite\n"
+    },
+    {
+      "pid": 104916,
+      "port": 62358,
+      "dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\data-dmYQsA",
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "config": {
+        "MARKET_PUBLIC_URL": "https://user:pass@example.test",
+        "ADMIN_TOKEN_configured": true
+      },
+      "ready": true,
+      "exit": null,
+      "signal": "SIGTERM",
+      "log": "[workbench-market] server  http://127.0.0.1:62358  (workbenches: 1, web-dist: none, portal: /go/<id>/)\n[redis] 未配置 REDIS_URL（且无 server/data/redis.url）——SOP 状态层降级：直写 SQLite\n"
+    },
+    {
+      "pid": 106044,
+      "port": 62373,
+      "dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\data-A6kLMR",
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "config": {
+        "MARKET_PUBLIC_URL": "https://example.test/path",
+        "ADMIN_TOKEN_configured": true
+      },
+      "ready": true,
+      "exit": null,
+      "signal": "SIGTERM",
+      "log": "[workbench-market] server  http://127.0.0.1:62373  (workbenches: 1, web-dist: none, portal: /go/<id>/)\n[redis] 未配置 REDIS_URL（且无 server/data/redis.url）——SOP 状态层降级：直写 SQLite\n"
+    },
+    {
+      "pid": 85504,
+      "port": 62388,
+      "dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\data-N2JSm9",
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "config": {
+        "MARKET_PUBLIC_URL": "https://example.test?x=1",
+        "ADMIN_TOKEN_configured": true
+      },
+      "ready": true,
+      "exit": null,
+      "signal": "SIGTERM",
+      "log": "[workbench-market] server  http://127.0.0.1:62388  (workbenches: 1, web-dist: none, portal: /go/<id>/)\n[redis] 未配置 REDIS_URL（且无 server/data/redis.url）——SOP 状态层降级：直写 SQLite\n"
+    }
+  ],
+  "coverage_state": "DRAFT; full handlers not complete; no independent review/spec freeze"
+}

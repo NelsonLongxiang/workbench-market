@@ -1,0 +1,82 @@
+{
+  "target_sha": "d90f81abca809a48a893544d0bdd4c409be78526",
+  "contract_blob": "6eb65e85f7461bcb54f77e9d0fcdcb969627dac9",
+  "authority": [
+    "3aa49039e3",
+    "c3e0917349"
+  ],
+  "created_at": "2026-10-28T18:18:18.676Z",
+  "files": [
+    {
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/contract.md",
+      "relative": "contract.md",
+      "bytes": 21651,
+      "sha256": "945d8c37e007e9066cde48d28eecd83f17f1012f51efa9cbb2833293447351fd",
+      "git_blob": "6eb65e85f7461bcb54f77e9d0fcdcb969627dac9"
+    },
+    {
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/material.md",
+      "relative": "material.md",
+      "bytes": 31061,
+      "sha256": "2d4c1fddf7364e4f934e94b2a0e457763fa140b9e0b30730fe0341a87fe44542",
+      "git_blob": "30320a98627ddf28fef9c326ecc74136e4ad4c8e"
+    },
+    {
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/candidates.json",
+      "relative": "candidates.json",
+      "bytes": 38379,
+      "sha256": "70825711a94b51dbb1974a95cfc570d29310417c976b277a8028efb215adf033",
+      "git_blob": "f4f5bb42da36fa479e86c9d85d7180c618034e00"
+    },
+    {
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/coverage.json",
+      "relative": "coverage.json",
+      "bytes": 12423,
+      "sha256": "5855892f62ae4e6af9c4ddbdf61c0286505b9990e7d098e772a50bf17be1418e",
+      "git_blob": "1709bb298869f2c334551b998170e4fdbe2504f0"
+    },
+    {
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/probe.mjs",
+      "relative": "probe.mjs",
+      "bytes": 13819,
+      "sha256": "68f6a3123bb3c2884f81627fcbc95c23f4e8c20dd9e7796903e443fec80d81a9",
+      "git_blob": "16fa68c5e8eb2f071619218e27292224d6ccadbe"
+    },
+    {
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/build-draft.mjs",
+      "relative": "build-draft.mjs",
+      "bytes": 10663,
+      "sha256": "2ad0119e978a2498c5b7176978b3048112e1d33e7d5e7484afbe0b0eb30be32f",
+      "git_blob": "6ea2a5934d7a8f78d4e8717abf3fb2e3b1150df2"
+    },
+    {
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-manifest.json",
+      "relative": "fixture-manifest.json",
+      "bytes": 10065,
+      "sha256": "b891a10e740261e16f8fb61aaed6ddb2a086afc77a120998279f67afbba3e5af",
+      "git_blob": "583f3b7b1bd995ffb4adf75b12bca86e8c63123b"
+    },
+    {
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/HANDOFF.md",
+      "relative": "HANDOFF.md",
+      "bytes": 2437,
+      "sha256": "a9aae92b2b4b71f4259541dfd3d29fa92ee65e0092d2d2837bf6611808a619d5",
+      "git_blob": "630719ef839c87ba8f5aa80ef469bec3e5a38a07"
+    },
+    {
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/lint.json",
+      "relative": "lint.json",
+      "bytes": 230,
+      "sha256": "359118d9cab463ca1543e42b5eed1aac536d0955b7afe929142c0d671763b68a",
+      "git_blob": "0b60f5fe67186ed32f569ed96ec6f2f63dcfdd2b"
+    },
+    {
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/probe-report.json",
+      "relative": "probe-report.json",
+      "bytes": 39941,
+      "sha256": "65835264679546d10156d85fd5a48687dd310496657401e597760a9afa4ad16b",
+      "git_blob": "61440fc5adc61bfbd57101e9c52f1ae97d6d8ebf"
+    }
+  ],
+  "gate": "DRAFT_NOT_FROZEN"
+}

@@ -1,0 +1,341 @@
+{
+  "source_owner": "dev draft owner dsh/cf31945f",
+  "independent_reviewer": "wm-review (not author)",
+  "fixture_auditor": "TEST (independent; no duplicate mutable copies)",
+  "units": [
+    {
+      "probe_id": "boot",
+      "authority": "§0",
+      "status": "PASS",
+      "implementation": "probe.mjs:boot"
+    },
+    {
+      "probe_id": "switch_defaults",
+      "authority": "D1/D4",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "http_gate",
+      "authority": "D1/D2",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "ws_gate",
+      "authority": "D1/D2",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "internal_target",
+      "authority": "D1",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "machine_no_ticket",
+      "authority": "D2",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "machine_unavailable",
+      "authority": "D3",
+      "status": "FAIL",
+      "implementation": "probe.mjs:partial-real-observation"
+    },
+    {
+      "probe_id": "legacy_machine_config",
+      "authority": "D3",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "register_guard",
+      "authority": "D4",
+      "status": "FAIL",
+      "implementation": "probe.mjs:partial-real-observation"
+    },
+    {
+      "probe_id": "register_schema",
+      "authority": "D4",
+      "status": "FAIL",
+      "implementation": "probe.mjs:partial-real-observation"
+    },
+    {
+      "probe_id": "register_ui",
+      "authority": "D4",
+      "status": "FAIL",
+      "implementation": "probe.mjs:partial-real-observation"
+    },
+    {
+      "probe_id": "login_session",
+      "authority": "A1",
+      "status": "FAIL",
+      "implementation": "probe.mjs:partial-real-observation"
+    },
+    {
+      "probe_id": "me_invalid",
+      "authority": "A6",
+      "status": "FAIL",
+      "implementation": "probe.mjs:partial-real-observation"
+    },
+    {
+      "probe_id": "absolute_ttl",
+      "authority": "A4",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "multi_device_logout",
+      "authority": "A3/A5",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "password_storage",
+      "authority": "A1/A2",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "failure_same_bytes",
+      "authority": "A2/D5",
+      "status": "FAIL",
+      "implementation": "probe.mjs:partial-real-observation"
+    },
+    {
+      "probe_id": "lock_bucket",
+      "authority": "D5",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "proxy_direct",
+      "authority": "D5",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "proxy_chain",
+      "authority": "D5",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "proxy_invalid",
+      "authority": "D5",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "invalid_config",
+      "authority": "D4/D5/D6",
+      "status": "FAIL",
+      "implementation": "probe.mjs:partial-real-observation"
+    },
+    {
+      "probe_id": "canonical_origin",
+      "authority": "D6",
+      "status": "FAIL",
+      "implementation": "probe.mjs:partial-real-observation"
+    },
+    {
+      "probe_id": "secure_cookie",
+      "authority": "补充1",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "next_validation",
+      "authority": "补充4/B5",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "admin_disable",
+      "authority": "D7",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "disable_replay",
+      "authority": "D7",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "users_paging",
+      "authority": "D7",
+      "status": "FAIL",
+      "implementation": "probe.mjs:partial-real-observation"
+    },
+    {
+      "probe_id": "audit_read",
+      "authority": "D8",
+      "status": "FAIL",
+      "implementation": "probe.mjs:partial-real-observation"
+    },
+    {
+      "probe_id": "audit_append",
+      "authority": "D8",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "audit_patch_invalid",
+      "authority": "补充3",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "audit_patch_valid",
+      "authority": "补充3",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "json_parser_boundary",
+      "authority": "补充3",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "audit_navigation",
+      "authority": "D8",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "audit_upgrade",
+      "authority": "D8",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "audit_upstream",
+      "authority": "D8",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "mapping_modes",
+      "authority": "C1/C3",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "cookie_mapping",
+      "authority": "C1",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "odoo_compat",
+      "authority": "C2/D6",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "scope_preserve",
+      "authority": "D1/D2",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "config_guard",
+      "authority": "D1/D3",
+      "status": "FAIL",
+      "implementation": "probe.mjs:partial-real-observation"
+    },
+    {
+      "probe_id": "audit_update_rejected",
+      "authority": "D8/TEST-a",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "audit_delete_rejected",
+      "authority": "D8/TEST-a",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "patch_missing_disabled",
+      "authority": "补充3/TEST-b",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "proxy_P1_direct",
+      "authority": "D5/P1",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "proxy_P2_trusted",
+      "authority": "D5/P2",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "proxy_P3_forged",
+      "authority": "D5/P3",
+      "status": "NEEDS-MATERIAL",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "deferred_validator",
+      "authority": "D3延期",
+      "status": "DEFERRED",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    },
+    {
+      "probe_id": "deferred_internal",
+      "authority": "D1延期",
+      "status": "DEFERRED",
+      "implementation": "probe.mjs:placeholder - must implement before freeze"
+    }
+  ],
+  "fixtures": [
+    {
+      "name": "pinned source archive",
+      "owner": "dev",
+      "file": "target.tar.gz",
+      "target": "d90f81abca809a48a893544d0bdd4c409be78526"
+    },
+    {
+      "name": "isolated process/DB/port",
+      "owner": "dev",
+      "file": "probe.mjs",
+      "ready": true
+    },
+    {
+      "name": "proxy P1/P2/P3",
+      "owner": "dev formal source",
+      "ready": false,
+      "consumer": "TEST audits; wm-review constructs/finalizes"
+    },
+    {
+      "name": "WS upstream+handshake/frames",
+      "owner": "dev formal source",
+      "ready": false
+    },
+    {
+      "name": "snapshot audit UPDATE/DELETE and missing-disabled PATCH",
+      "owner": "dev formal source",
+      "ready": false
+    },
+    {
+      "name": "cookie-map and Odoo upstream",
+      "owner": "dev formal source",
+      "ready": false
+    },
+    {
+      "name": "good/bad/empty checker snapshots",
+      "owner": "dev formal source",
+      "ready": false
+    }
+  ]
+}
