@@ -19,8 +19,19 @@ jobs:
         run: pnpm --filter web typecheck
       - name: server 语法核（esbuild）
         run: node scripts/check-server-syntax.mjs
-      - name: 安全对抗例组（F5 新规·安全旗标 PR 必跑）
+      - name: F5 env-face 判定回归（不启动 Docker）
+        run: node scripts/security-env-face-test.mjs
+      - name: 安全对抗例组（PASS / SKIP / NEEDS-MATERIAL 分列）
         run: node scripts/security-adversarial-smoke.mjs
+      - name: 留存 F5 原始证据与覆盖摘要
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f5-security-evidence
+          path: |
+            tmp/security-adversarial-summary.json
+            tmp/f5-env-face-*.json
+          if-no-files-found: warn
       - name: server 冷启动探针（防重启即死）
         run: |
           PORT=19999 DATA_DIR=${{ runner.temp }}/ci-data ADMIN_TOKEN=ci timeout 20 node --disable-warning=ExperimentalWarning server/src/index.ts &
