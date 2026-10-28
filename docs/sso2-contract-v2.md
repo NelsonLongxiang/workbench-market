@@ -63,12 +63,12 @@ cookie-map schema细化提案：SSO配置GET/PUT仅此mode增加cookie_name:stri
 
 ## 4. 会话生命周期、TTL、口令与next（继承可测部分，D1/D4/D5）
 
-- cookie为32字节密码学随机opaque票；只持久token摘要（SHA256是会话索引，不是口令算法）。Path=/、HttpOnly、SameSite=Lax、无Domain；HTTPS Secure、HTTP内网非Secure；每次登录新票，不接受调用方指定session id。
+- cookie为32字节密码学随机opaque票；只持久token摘要（SHA256是会话索引，不是口令算法）。Path=/、HttpOnly、SameSite=Lax、无Domain；**Secure仅按D6 canonical origin的scheme决定**：https→带Secure，http→不带Secure；永不读X-Forwarded-Proto/Host/XFH或未受信代理头来决定此属性。登录发票与logout清票同一依据；每次登录新票，不接受调用方指定session id。
 - WM_SESSION_TTL默认 **8h**；正整数后缀s/m/h（2s、10m、8h），拒裸数字/0/负数/非法值，启动配置错误。**绝对非滑动**：expires_at=issued_at+TTL，访问不续；重启保留原期限。
 - 多端独立：cookieA注销→重放/me401、有效门HTML302/数据401/WS401；cookieB仍可用。logout响应同Path清cookie Max-Age=0；撤销持久化，重启不复活，不以浏览器删cookie替代服务端撤销。
 - 每用户独立≥16字节salt + Node scrypt（N=16384,r=8,p=1,keylen=64），定长安全比较；同密码两账号存值不同；未知账号使用同成本dummy验证。数据库无明文密码，API/日志/导出不泄secret。ADMIN_TOKEN既有机制本期不换。
 - 认证失败未知/错密/锁定/禁用的status和UTF8 JSON字节完全同体401；不额外发不同Retry-After，不用粗略时延宣布无侧信道。
-- next只收单斜杠站内相对路径。scheme绝对URL、//、反斜杠、控制符、编码/重复解码后跨origin或有歧义形态统一回落/；不回显攻击URL。服务端生成redirect_to并在最终跳转再核，不让前端直接使用原next；口令/token/已消费state不拼入next。
+- next缺省/缺字段时redirect_to固定为/；恶意值同样回落/。next只收单斜杠站内相对路径。scheme绝对URL、//、反斜杠、控制符、编码/重复解码后跨origin或有歧义形态统一回落/；不回显攻击URL。服务端生成redirect_to并在最终跳转再核，不让前端直接使用原next；口令/token/已消费state不拼入next。
 
 ## 5. D5 锁桶与可信代理（精确配置schema）
 
@@ -78,6 +78,8 @@ cookie-map schema细化提案：SSO配置GET/PUT仅此mode增加cookie_name:stri
 | WM_AUTH_FAILURE_WINDOW | 10m | 正整数+s/m/h；失败计数时窗 |
 | WM_AUTH_LOCK_TTL | 10m | 同上；锁期不滑动，不被锁期请求延期 |
 | WM_TRUSTED_PROXIES | 空 | 逗号分隔IPv4/IPv6 CIDR字符串（trim各项）；空串=[]；非空坏CIDR/空项/主机名拒启动；不接受true、hop数或任意字符串 |
+
+WM_AUTH_MAX_FAILURES / WM_AUTH_FAILURE_WINDOW / WM_AUTH_LOCK_TTL 三项显式设置为非法值（空、0、负数、非整数或非法单位）均**拒启动并给配置错误**，不得静默回落默认或变成无限。未设置才用上表默认，行为与WM_SESSION_TTL一致。
 
 失败桶 = 规范化username + effectiveClientIP。未知用户名也计数；禁止退为单一全局用户名硬锁。IP正规化需把IPv4-mapped IPv6归同一IPv4（防两种拼写分桶绕过）。
 
@@ -99,11 +101,11 @@ clientIP算法：未配置代理或socket peer不在可信CIDR→只用socket地
 
 PATCH disabled:true在同事务内持久禁用并撤销该用户所有旧会话；后续/me、有效门HTTP、后续WS握手即拒。重新启用只是允许重新登录，旧cookie仍拒；禁用/启用+重启三组均要测。普通用户不能禁用他人或自己，不将普通wm_session当admin。
 
-审计每次合法PATCH控制请求恰追加一条user_disable/user_enable（action按请求disabled目标值；即使重复设同值也记录一次操作，结果仍幂等200）；失败请求亦追加deny一条。评审冻结用请求数与事件差量确认，不把状态未变化当作可省审计。不承诺对已建立WS即时强断，本期只核后续握手；若要强断另增连接生命周期判据，不能写“所有在途立即失效”。
+审计每次合法PATCH控制请求恰追加一条user_disable/user_enable（action按请求disabled目标值；即使重复设同值也记录一次操作，结果仍幂等200）。**schema错误PATCH选择：valid admin+合法Origin已通过、请求体schema不符而返回400时，恰追加一条action=validation_failed、outcome=deny**，不记user_disable/user_enable，不改用户disabled或会话撤销状态。缺disabled、disabled非boolean、未知字段均按此口径；不因目标值看似boolean就把schema失败误记为已执行控制动作。审计不存原始请求体/口令/票据。其他认证/同源拒绝仍按各自失败审计规则，不能给同一schema400再追加第二条控制事件。评审冻结用请求数与事件差量确认，不把状态未变化当作可省审计。不承诺对已建立WS即时强断，本期只核后续握手；若要强断另增连接生命周期判据，不能写“所有在途立即失效”。
 
 ## 8. D8 审计字段、触发点与恰一条
 
-AuditEvent={id:int,at:ISO,action:register/login/logout/user_disable/user_enable/portal_access/portal_upgrade,subject_id:int或null,workbench_id:int或null,auth_kind:wm_session/anonymous/admin,outcome:allow/deny,client_ip:IP字符串}。
+AuditEvent={id:int,at:ISO,action:register/login/logout/user_disable/user_enable/validation_failed/portal_access/portal_upgrade,subject_id:int或null,workbench_id:int或null,auth_kind:wm_session/anonymous/admin,outcome:allow/deny,client_ip:IP字符串}。
 仅admin只读GET游标分页；不提供审计写/改/删HTTP口，SQLite触发器拒UPDATE/DELETE（仅快照数据库探针）。无口令/盐/hash/cookie/Authorization/X-App-Token/带secret query；普通用户看审计403。
 
 - 有效外部门下GET/HEAD且Accept含text/html：在**市场门最终allow/deny**时每入口请求恰一条portal_access，302同样deny。相同Accept伪装按实际规则计事件，不猜是不是“真实浏览器”。同路径HEAD一请求也一条。
@@ -130,5 +132,16 @@ AuditEvent={id:int,at:ISO,action:register/login/logout/user_disable/user_enable/
 
 - 本期出口只列外部门户会话门与自建账号/审计，不算内部原生SSO、validator正向、IdP企微/LDAP已交付；出站共用凭据注入不证明目标已识别用户个人身份。
 - 评审独立检查本稿范围、schema、反例与实现路径一致性；无歧义后**新submit/new spec**，selfcheck/meta过，再以当前main真实FAIL/NEEDS-MATERIAL立红叶。不更改旧spec掩盖历史失败。
-- 细化请核：可信peer非法XFF=400策略、cookie-map单键配置schema、每次PATCH含幂等调用一审计、username规范化。上述已给精确提案（不是悬空“稍后再定”），供独立反例审阅；若与#029冲突，回needs-decision精确段落，不先代码自决。
+- 评审6467860215已接受：可信peer非法XFF=400策略、cookie-map单键配置schema、每次PATCH含幂等调用一审计、username规范化。本次写死四项冻结口径：Secure依canonical scheme、WM_AUTH_*非法值拒启动、schema400 PATCH独立validation_failed审计、缺next→/。新增action选择由dev按派单确定，交评审纳入新spec；若发现矛盾回needs-decision，不先代码自决。
 - 原B1 harness的“未配置台也应302”、无admin注册、12h、/login SPA200当绿均作废；必须按新双闸外部fixture重建真实先红（含WS）。现无SSO实现/验收证据，不报完成。
+
+## 11. 最后四口径冻结反例（评审6467860215）
+
+| 项 | 正/反对照 |
+|---|---|
+| Secure | canonical=https时即便X-Forwarded-Proto=http仍带Secure；canonical=http时即便X-Forwarded-Proto=https也不带Secure；logout清票同样属性 |
+| WM_AUTH_*非法配置 | 三项逐一探0、负数、乱码/非法单位、显式空值均拒启动；未设才取默认；合法秒级窗口/锁TTL可用于测试 |
+| schema400 PATCH审计 | 合法admin+同源；缺disabled、字符串disabled、额外字段：每请求400、validation_failed/deny恰1、user_disable/enable零增量、用户状态和所有会话不变；无原始body |
+| 缺next | login未给next→redirect_to=/；合法/go路径保留，恶意next回落/ |
+
+schema400 PATCH的选择不证明实现已存在。本轮依然只有材料更新；新spec/selfcheck/meta/先红均归独立评审执行。
