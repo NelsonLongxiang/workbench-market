@@ -1,7 +1,9 @@
-# #215 final 段：context=market 仓库——COPY 真适配器 svc（base 段产物经 --from）
-FROM wm-x-layerfs:base
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl nodejs \
+# #215 final 段：context=market 仓库——真适配器 svc（基底 node:22·SDK 需 ≥18·ubuntu 22.04 古 Node 炸 ?? 语法）
+FROM node:22-bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
+COPY --from=wm-x-layerfs:base /usr/local/lib/layerfs.node /usr/local/lib/layerfs.node
+COPY --from=wm-x-layerfs:base /usr/local/lib/layerfs-api /usr/local/lib/layerfs-api
 COPY deploy/layerfs-svc.mjs /usr/local/lib/layerfs-svc.mjs
 ENV LAYERFS_STORE_ROOT=/var/lib/layerfs
 ENV LAYERFS_SERVICE_PORT=8067
