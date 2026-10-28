@@ -1,0 +1,283 @@
+{
+  "version": "late-check-v6",
+  "parent": "bb3bb34b62e4d64433e522851947d2e3f2b147f7",
+  "target": "d90f81abca809a48a893544d0bdd4c409be78526",
+  "state": "NOT_FREEZE_READY",
+  "created_at": "2026-10-28T23:36:10.081Z",
+  "mechanisms": {
+    "late_cases": 6,
+    "awaited_positive": 1,
+    "classifier_regression": 24,
+    "fixture_classification_regression": 13,
+    "error_engine_regression": 426,
+    "product_runs": 0,
+    "independent_review": "PENDING"
+  },
+  "files": [
+    {
+      "relative": "run-unit.mjs",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/run-unit.mjs",
+      "bytes": 5005,
+      "sha256": "f1c827ab70cdec991b7ab3b320cffa6b7e0134a795bf3c9f9faef45d803aa29f",
+      "git_blob": "7399bc7f29e82c7ed771582109b2064dfeca68be"
+    },
+    {
+      "relative": "run-integrity.mjs",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/run-integrity.mjs",
+      "bytes": 2065,
+      "sha256": "0ce2df6f0d4881215764e049a94f704b97b97cec865fd7d0f0672d03799a8a88",
+      "git_blob": "698b8419b75724887d992cba1dd4f8c827fd549f"
+    },
+    {
+      "relative": "observation-pack.mjs",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/observation-pack.mjs",
+      "bytes": 1924,
+      "sha256": "4b2e380d9a8bee5c1a8880279c01410d3e0bc024bb071b36717d965fcf6643d8",
+      "git_blob": "cd9670666107e6aa00bf778434beea662ab366b4"
+    },
+    {
+      "relative": "execution.mjs",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/execution.mjs",
+      "bytes": 19677,
+      "sha256": "d370b03e2486cb4ff8521a4bb9ce7a28defd73be42145cf0b3f6dfca9dd86084",
+      "git_blob": "0c49f281384719c7af69d245c26c00e70ce70e51"
+    },
+    {
+      "relative": "more-handlers.mjs",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/more-handlers.mjs",
+      "bytes": 14434,
+      "sha256": "c87bc8e4d6d887ca817a7d74ad40ed49e1972f2c7d791aac2bfcc39ddaf2ec0f",
+      "git_blob": "1994bd3f249321e01c5e7b4dd188451d86e4e705"
+    },
+    {
+      "relative": "package-execution.mjs",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/package-execution.mjs",
+      "bytes": 5312,
+      "sha256": "4acb2e8b44389427f2af40a7d65ab0406f963bf5ad7a1947e19f32f10b698174",
+      "git_blob": "0e0f2854f0f3bbcedfcb1888e95218f6600fdf19"
+    },
+    {
+      "relative": "run-execution-versioned.mjs",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/run-execution-versioned.mjs",
+      "bytes": 2021,
+      "sha256": "4bfacab4a36bea00ad5d35bdecee35d7875c382547e58825a55df9794f89fef8",
+      "git_blob": "195b6b66f2743f8151ad21275bd8c6be59f22f8a"
+    },
+    {
+      "relative": "late-unit-v6-selftest.mjs",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-unit-v6-selftest.mjs",
+      "bytes": 8282,
+      "sha256": "b1815ad025ac2c112d52c575aa5a67c220e3ae8f903972c854e81d945e869e97",
+      "git_blob": "937a588addfbc1aa1f11c7c6601b04f1db307bd9"
+    },
+    {
+      "relative": "late-unit-v6-report.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-unit-v6-report.json",
+      "bytes": 15056,
+      "sha256": "df649224fe8af365e6d6b5718c1129b278add038246aef202d2a876c96da022f",
+      "git_blob": "3f631681a2307460817ea5634ff80de2759796e0"
+    },
+    {
+      "relative": "CORRECTION-v6.md",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/CORRECTION-v6.md",
+      "bytes": 2784,
+      "sha256": "1235b94418d02c0524948bcc9323986a731db7e179784d77b2951ff3203daca4",
+      "git_blob": "cdce974078e50a3d77a6b4bf5a1b25902b0dd84c"
+    },
+    {
+      "relative": "run-unit-v4-selftest.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/run-unit-v4-selftest.json",
+      "bytes": 13634,
+      "sha256": "94ba408e9b17b537ca5704c20be5cdfdc92d077137da0793b41a4f246f66e4f7",
+      "git_blob": "fa484f2f95814aedf4cb2dca4ab7741d4d93561a"
+    },
+    {
+      "relative": "fixture-classification-v5-report.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-classification-v5-report.json",
+      "bytes": 8145,
+      "sha256": "549b207e8e07cb509e85647483fd812dc93f813ea3e5c9769c976bfce2250559",
+      "git_blob": "944a1a33eb4e3ebffd89b62ad4c3fdd40af4da80"
+    },
+    {
+      "relative": "fixture-error-v5-engine-report.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/fixture-error-v5-engine-report.json",
+      "bytes": 413808,
+      "sha256": "48253624890486c597a152b6cdd4bc77c1cb887790b6fa7e8a75755adcf64bc3",
+      "git_blob": "8adb1b157addc6c3c630f55fe1e51b9f12f9cad5"
+    },
+    {
+      "relative": "late-v6-tests/late-complete-after-report-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-complete-after-report-engine.json",
+      "bytes": 5490,
+      "sha256": "296db59a021c21b2896a4965f31f23a9ba218e438ffbcf6657c806a535a20f68",
+      "git_blob": "14fd0e1f0c6517b572def25b11f33446b7fc72e9"
+    },
+    {
+      "relative": "late-v6-tests/late-complete-after-report-events.jsonl",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-complete-after-report-events.jsonl",
+      "bytes": 252,
+      "sha256": "5cebf7299cfa0b270df61a226d7f31cbda11939e1e81dab571020263e70e7d2c",
+      "git_blob": "11c9817bd8ce5d534c729c3fb40afd62e36734d5"
+    },
+    {
+      "relative": "late-v6-tests/late-complete-after-report-settled-report.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-complete-after-report-settled-report.json",
+      "bytes": 574,
+      "sha256": "7609e1d7001fc89af8ad5e0104ac86b1a006cd163d2dfbdc6b0230f2c74c02dc",
+      "git_blob": "4d966948163bcf78c707b2530cb2f72e9b074cba"
+    },
+    {
+      "relative": "late-v6-tests/late-complete-after-report-state.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-complete-after-report-state.json",
+      "bytes": 344,
+      "sha256": "727f7dce2f3ef73d9233ed7d58c4a138cead14b55fe060d42b7de7e2d2fd82e6",
+      "git_blob": "5ed450782f3a2e911484d9deedb6702d7293638a"
+    },
+    {
+      "relative": "late-v6-tests/late-complete-caught-pass-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-complete-caught-pass-engine.json",
+      "bytes": 6167,
+      "sha256": "2e31476e8d70ff3ab95b7aef5a46c9d3fcf4646eb987ccbec16a0566f631aecf",
+      "git_blob": "89b1871de05f93a1c23e1baba7548e7c9bdb18d7"
+    },
+    {
+      "relative": "late-v6-tests/late-complete-caught-pass-events.jsonl",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-complete-caught-pass-events.jsonl",
+      "bytes": 252,
+      "sha256": "e9ba41b66d1611f78c1e1f2045500f7598e29b939dcd03464773dbbc4b5c5de4",
+      "git_blob": "a61dfa806bf9603cb6f69dee40b3a4146b0a6c99"
+    },
+    {
+      "relative": "late-v6-tests/late-complete-caught-pass-settled-report.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-complete-caught-pass-settled-report.json",
+      "bytes": 815,
+      "sha256": "b11c02e81db284f6a359dcc1e500fd7596dfabdc391d0fdc185f065c91fca456",
+      "git_blob": "7a60add4cc3dfb8426d253364bf1626ef346cb70"
+    },
+    {
+      "relative": "late-v6-tests/late-complete-caught-pass-state.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-complete-caught-pass-state.json",
+      "bytes": 343,
+      "sha256": "31641c59659d7ca0d9b4c04bd37aed3e4ef643b96afea46701c3905794af7e45",
+      "git_blob": "ef1d74b08fd5941de9545342e003525a7c69bdb3"
+    },
+    {
+      "relative": "late-v6-tests/late-false-after-report-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-false-after-report-engine.json",
+      "bytes": 5887,
+      "sha256": "803d49e9aa8d6e95cdb3aa837a2be4afce516db10a17bb3c5926a57e70ed4789",
+      "git_blob": "4510c5bb2d495924a16e87e21ff6e12449589591"
+    },
+    {
+      "relative": "late-v6-tests/late-false-after-report-events.jsonl",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-false-after-report-events.jsonl",
+      "bytes": 256,
+      "sha256": "efcaf534e308e1d6c9d58efc8ceff9126b83746e86db6141cc52a9b33c69479c",
+      "git_blob": "51f16f6a42f3a35d236b8fbc3501a2aa96193bdb"
+    },
+    {
+      "relative": "late-v6-tests/late-false-after-report-settled-report.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-false-after-report-settled-report.json",
+      "bytes": 813,
+      "sha256": "2ab750faba598a28a0ad93f098cbbd0bbcad4aeaac41a4b2c758d10c05f1590d",
+      "git_blob": "b9518549ee989dea44782d3050a0c60b50908e73"
+    },
+    {
+      "relative": "late-v6-tests/late-false-after-report-state.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-false-after-report-state.json",
+      "bytes": 341,
+      "sha256": "9d7c1d4798d5e133f31f169473733d618997f1f7b856ffccc2e479ea1833ee35",
+      "git_blob": "f46d4f2366366c936d8f7fe6cca9a64c1b948e91"
+    },
+    {
+      "relative": "late-v6-tests/late-false-caught-needs-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-false-caught-needs-engine.json",
+      "bytes": 5785,
+      "sha256": "36160e39daf0dc06b9391e822a03c48c069a69845fcdb9a60197dc6848bed941",
+      "git_blob": "57ec6660f9432691ff294ea3cb945eab30a086aa"
+    },
+    {
+      "relative": "late-v6-tests/late-false-caught-needs-events.jsonl",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-false-caught-needs-events.jsonl",
+      "bytes": 257,
+      "sha256": "af10909a94b17cc46c23829fcddb64aded6af08b704d3e724387f27b5ac33e48",
+      "git_blob": "881d8abc0201c90d8ec99e53b107d27a71757a7b"
+    },
+    {
+      "relative": "late-v6-tests/late-false-caught-needs-settled-report.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-false-caught-needs-settled-report.json",
+      "bytes": 571,
+      "sha256": "9921d69ed02824948a935d1e259be4e04e8e2036da8ac701973ef5b599c1785e",
+      "git_blob": "5dbbfce94e51f876d7f66192f46628ab2d92bdbb"
+    },
+    {
+      "relative": "late-v6-tests/late-false-caught-needs-state.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-false-caught-needs-state.json",
+      "bytes": 341,
+      "sha256": "9e3f0983799ab72ae8bdf6f572d6dbe91a70369b9150c97462cab4f493431135",
+      "git_blob": "4b274da98c9f5a5c0ccb5c1d78c950969a88d7ad"
+    },
+    {
+      "relative": "late-v6-tests/late-false-caught-pass-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-false-caught-pass-engine.json",
+      "bytes": 6176,
+      "sha256": "3db979e3e0b3d0fa385ab1e989b69e63da0437f83cc13627d60edf7974b8c08f",
+      "git_blob": "16192bc09df763257d3daf7aa7678075b27281e5"
+    },
+    {
+      "relative": "late-v6-tests/late-false-caught-pass-events.jsonl",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-false-caught-pass-events.jsonl",
+      "bytes": 256,
+      "sha256": "1413d29685bb3ec5c060814797e71c42358e29d43ffe3c5499a266ec345ce3a1",
+      "git_blob": "e2e0eef3f9a3edcb6b874a6bc927d7810dfd675b"
+    },
+    {
+      "relative": "late-v6-tests/late-false-caught-pass-settled-report.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-false-caught-pass-settled-report.json",
+      "bytes": 812,
+      "sha256": "75d79ec8f58786d7a8940fee321715bc79a4b23d683de0049126fce71ad5355d",
+      "git_blob": "8d46df62005214e3dcfcae2f66f3faa0954ae26b"
+    },
+    {
+      "relative": "late-v6-tests/late-false-caught-pass-state.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-false-caught-pass-state.json",
+      "bytes": 340,
+      "sha256": "f6da5e6bbd4ad51feeabf994ebc963b5b0c87ee4d575dd6a41d75a0232659dc2",
+      "git_blob": "c2a3b520a76c7850bbf522e188a673150c1d3b4f"
+    },
+    {
+      "relative": "late-v6-tests/late-true-caught-pass-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-true-caught-pass-engine.json",
+      "bytes": 6173,
+      "sha256": "068a8cbf4b359d08614ee4f59a363db691e6fd3f2b46f2357d8bcc9cb456ef1b",
+      "git_blob": "b40f1799b1bcc6c071e80f04591b7c67948eaf09"
+    },
+    {
+      "relative": "late-v6-tests/late-true-caught-pass-events.jsonl",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-true-caught-pass-events.jsonl",
+      "bytes": 255,
+      "sha256": "45a65d056f803315aed406ae2445cfe36cd68081074f28c6375f563b1215bd21",
+      "git_blob": "adaef9c668af071092473f77e696a91e1eea6451"
+    },
+    {
+      "relative": "late-v6-tests/late-true-caught-pass-settled-report.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-true-caught-pass-settled-report.json",
+      "bytes": 811,
+      "sha256": "a72953c164e660e56e351a7a31c71bcb9118b3379d59da1bbaff933c85c64ebf",
+      "git_blob": "d9fd699b8dbb9a7ca745636661b9fb6278b3a0a2"
+    },
+    {
+      "relative": "late-v6-tests/late-true-caught-pass-state.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/late-v6-tests/late-true-caught-pass-state.json",
+      "bytes": 339,
+      "sha256": "38f99814536c14c78e77a6be8f6dcc8d9592ac047a82f913616e8aaae92034c5",
+      "git_blob": "40303eb40a27fee77fdd46e947c808390d1f6e1c"
+    }
+  ],
+  "limits": [
+    "only runner-observed late callbacks are recorded; no guarantee for detached work after process termination",
+    "final report immutable but separate sidecar may invalidate it; consumers must inspect same-run state/events",
+    "trusted approval loader and full control manifest still pending",
+    "no old business group rerun or new business verdict"
+  ]
+}

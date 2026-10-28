@@ -1,5 +1,4 @@
 // Contract probes, not an authentication implementation. Every positive uses real product routes.
-import assert from 'node:assert/strict';
 import {join} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
 import {MissingFixture,createUser,signIn,createWorkbench,setSso,audit,pause,wsHandshake} from './fixtures.mjs';

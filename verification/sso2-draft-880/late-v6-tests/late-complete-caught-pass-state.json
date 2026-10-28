@@ -1,0 +1,8 @@
+{
+  "run_id": "synthetic-v6-late-complete-caught-pass",
+  "phase": "INVALIDATED",
+  "report_sha256": "e7caeed6950ae29474b4b193cec09bf5194def72c08de6be70252b392f52a427",
+  "valid": false,
+  "event_count": 1,
+  "limitation": "only callbacks reaching this live runner are observed; detached work after process exit cannot be certified complete"
+}

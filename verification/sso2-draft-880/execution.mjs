@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
 import {dirname,join} from 'node:path';
 import {readFileSync,writeFileSync} from 'node:fs';
+import {createRunIntegrity} from './run-integrity.mjs';
 import {DatabaseSync} from 'node:sqlite';
 import {startInstance,createUser,signIn,createWorkbench,setSso,audit,auditSnapshot,snapshot,upstream,wsHandshake,pause,redact,MissingFixture,digest} from './fixtures.mjs';
 const root=dirname(fileURLToPath(import.meta.url));
@@ -13,13 +14,14 @@ import {finalHandlers} from './final-handlers.mjs';
 import {evaluateUnit} from './run-unit.mjs';
 const results=new Map();
 const instances=[],targets=[];
-function check(v,msg){assert.ok(v,msg);}
 async function instance(extra={},options={}){const i=await startInstance(root,extra,options);instances.push(i);if(!i.ready&&!options.acceptExit)throw new MissingFixture('server did not start for functional probe; exit='+i.child.exitCode);return i;}
 async function upstreamFixture(){const t=await upstream();targets.push(t);return t;}
 async function authenticated(i){const u=await createUser(i);const s=await signIn(i,u);return {u,s};}
 async function setup(){const i=await instance();const {u,s}=await authenticated(i);const t=await upstreamFixture();const w=await createWorkbench(i,t.base);const c=await setSso(i,w.id);if(c.status!==200)throw new MissingFixture('SSO target configure prerequisite unavailable: HTTP '+c.status);return {i,u,s,t,w,path:'/go/'+w.id+'/'};}
 const completionPolicies=JSON.parse(readFileSync(join(root,'completion-policy.json'),'utf8'));
-const approvalContext={author:'dsh/cf31945f',target_sha:coverage.target,source_sha256:digest(readFileSync(fileURLToPath(import.meta.url))),verifiedApprovals:[]}; // no independently verified receipts delivered; fail closed
+const integrityFiles={events:join(root,'integrity-'+runId+'.jsonl'),state:join(root,'integrity-'+runId+'.json')};
+const integrityLedger=createRunIntegrity(runId,integrityFiles);
+const approvalContext={run_id:runId,onIntegrityError:event=>integrityLedger.record(event),author:'dsh/cf31945f',target_sha:coverage.target,source_sha256:digest(readFileSync(fileURLToPath(import.meta.url))),verifiedApprovals:[]}; // no independently verified receipts delivered; fail closed
 async function run(id,fn){results.set(id,await evaluateUnit(id,fn,completionPolicies.units.find(x=>x.probe_id===id),approvalContext));}
 const handlers={
  async patch_missing_disabled(test){const {i,u,s}=await setup();const before=await audit(i);const beforeUsers=await i.request('/api/auth/users',{token:true});const response=await i.request('/api/auth/users/'+u.id,{method:'PATCH',token:true,body:{}});test(response.status===400,'valid admin+origin missing disabled400');const after=await audit(i);const delta=after.filter(x=>!before.some(b=>b.id===x.id));test(delta.length===1&&delta[0].action==='user_state_update'&&delta[0].outcome==='deny','exactly one neutral deny');const afterUsers=await i.request('/api/auth/users',{token:true});test(beforeUsers.text===afterUsers.text,'no user state mutation');test((await i.request('/api/auth/me',{cookie:s.cookie})).status===200,'session remains valid');test(!JSON.stringify(delta).includes(u.password),'no request secrets');},
@@ -49,7 +51,9 @@ handlers.proxy_P1_direct=test=>proxyGroup('P1',test);handlers.proxy_P2_trusted=t
 Object.assign(handlers,additional({instance,setup,upstreamFixture,root}),finalHandlers({instance,setup,upstreamFixture,root}));
 const selected=process.argv.slice(2);const ids=selected.length?selected:Object.keys(handlers);
 try{for(const id of ids){if(!handlers[id])throw new Error('unknown handler '+id);const before=instances.length,upBefore=targets.length;console.log('START '+id);await run(id,handlers[id]);for(const i of instances.slice(before))await i.close();for(const t of targets.slice(upBefore))await t.close();writeFileSync(join(root,'execution-progress.json'),JSON.stringify(redact({target_sha:coverage.target,finished:[...results.values()],last:id}),null,2));console.log('DONE '+id+' '+results.get(id).status);}}finally{for(const i of instances)await i.close();for(const t of targets)await t.close();}
-const report={target_sha:coverage.target,draft_only:true,error_results:[...results.values()].filter(r=>r.status==='ERROR'),needs_dependencies:[...results.values()].filter(r=>r.status==='NEEDS-MATERIAL').map(r=>({probe_id:r.id,error_kind:r.error_kind,reason:r.error})),results:[...results.values()],instances:instances.map(i=>({pid:i.child.pid,port:i.port,cwd:i.target,data_dir:i.dir,command:i.cmd,ready:i.ready,listener_owners:i.listenerOwners,requests:i.requests,exit:i.child.exitCode,signal:i.child.signalCode})),unimplemented:coverage.units.filter(u=>!results.has(u.id)&&!u.id.startsWith('deferred_')).map(u=>u.id)};
+const report={target_sha:coverage.target,draft_only:true,integrity_files:integrityFiles,integrity_events:integrityLedger.snapshot().integrity_events,async_boundary:'handler awaited; owned instance/fixture cleanup awaited; no arbitrary detached callback completion guarantee',error_results:[...results.values()].filter(r=>r.status==='ERROR'),needs_dependencies:[...results.values()].filter(r=>r.status==='NEEDS-MATERIAL').map(r=>({probe_id:r.id,error_kind:r.error_kind,reason:r.error})),results:[...results.values()],instances:instances.map(i=>({pid:i.child.pid,port:i.port,cwd:i.target,data_dir:i.dir,command:i.cmd,ready:i.ready,listener_owners:i.listenerOwners,requests:i.requests,exit:i.child.exitCode,signal:i.child.signalCode})),unimplemented:coverage.units.filter(u=>!results.has(u.id)&&!u.id.startsWith('deferred_')).map(u=>u.id)};
 writeFileSync(join(root,'execution-report-'+runId+'.json'),JSON.stringify(redact({...report,run_id:runId}),null,2));
-writeFileSync(join(root,'execution-report.json'),JSON.stringify(redact({...report,run_id:runId}),null,2));
+const finalBytes=JSON.stringify(redact({...report,run_id:runId}),null,2);
+writeFileSync(join(root,'execution-report.json'),finalBytes);
+integrityLedger.finalize(finalBytes); // later reachable callbacks invalidate sidecar, never mutate report bytes
 console.log(JSON.stringify({handlers:ids.length,counts:[...results.values()].reduce((a,r)=>(a[r.status]=(a[r.status]??0)+1,a),{}),unimplemented:report.unimplemented.length,report:join(root,'execution-report.json')}));
