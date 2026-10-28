@@ -18,6 +18,7 @@ console.log('[layerfs-svc] agent entry:', usedEntry);
 
 const token = process.env.LAYERFS_SERVICE_TOKEN ?? 'lfs-token';
 const storeRoot = process.env.LAYERFS_STORE_ROOT ?? '/var/lib/layerfs';
+process.env.LAYERFS_HOME = process.env.LAYERFS_HOME ?? `${storeRoot}/home`; // #215：实证必设（私有性 chmod 700 归部署面）
 const sidecar = new DatabaseSync(`${storeRoot}/wm-adapter.sqlite`);
 sidecar.exec('CREATE TABLE IF NOT EXISTS commits (id TEXT PRIMARY KEY, project TEXT NOT NULL, branch TEXT NOT NULL, files TEXT NOT NULL, message TEXT DEFAULT \'\', at TEXT DEFAULT (datetime(\'now\')))');
 sidecar.exec('CREATE TABLE IF NOT EXISTS branches (project TEXT NOT NULL, branch TEXT NOT NULL, head TEXT, PRIMARY KEY (project, branch))');
@@ -26,13 +27,14 @@ sidecar.exec('CREATE TABLE IF NOT EXISTS merged (project TEXT NOT NULL, n INTEGE
 const clients = new Map(); // R8：一个进程一份 agent·项目一个 client
 async function clientOf(project) {
   if (clients.has(project)) return clients.get(project);
-  // #215 X6 九障：open 需「项目已装配 Store」——storePath 每项目一份（storeRoot/<project>/store.sqlite·R4 一台一卷的面）
-  // env 在 client 创建时读一次（SDK 契约）——多项目进程内按项目切换是安全的
-  const projDir = `${storeRoot}/${project}`;
-  process.env.LAYERFS_STORE_PATH = `${projDir}/store.sqlite`;
+  // #215 X6 十二障：source 与 store 分离（LayerFS 拒 store-inside-source——BackingInsideSource）
+  const srcDir = `${storeRoot}/projects/${project}`;
+  process.env.LAYERFS_STORE_PATH = `${storeRoot}/stores/${project}/store.sqlite`;
   let c;
   try { c = await LayerFS.open(project); }
-  catch { c = await LayerFS.init(project, projDir); } // NoSuchProject → Init 装配 Store
+  catch { c = await LayerFS.init(project, srcDir); }
+  clients.set(project, c);
+  return c;
   clients.set(project, c);
   return c;
 }
