@@ -3305,6 +3305,7 @@ app.post('/api/a2a/send', wrap(async (req, res) => {
 }));
 
 const goServer = app.listen(PORT, () => {
+  if (process.env.ALLOW_PUBLIC_NET === '1') console.warn('[SSRF_GUARD_DISABLED] ALLOW_PUBLIC_NET=1: public registration guard is bypassed; explicitly review this deployment exception.');
   const counts = svc<WorkbenchService>('workbench').count() as { n: number };
   console.log(`[workbench-market] server  http://127.0.0.1:${PORT}  (workbenches: ${counts.n}, web-dist: ${existsSync(webDist) ? 'served' : 'none'}, portal: /go/<id>/)`);
   startRedis(); // SOP 状态层（生产 Redis；不可达自动降级直写 SQLite，不阻塞启动）
