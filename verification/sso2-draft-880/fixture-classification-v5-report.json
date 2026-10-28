@@ -1,0 +1,290 @@
+{
+  "mechanism_only": true,
+  "replacement_market_service": false,
+  "product_runs": 0,
+  "exit_code": 0,
+  "records": [
+    {
+      "name": "actual createWorkbench helper500",
+      "expected": {
+        "status": "ERROR",
+        "value": null,
+        "failed_named_assertions": 0
+      },
+      "actual": {
+        "id": "synthetic_fixture_classification",
+        "value": null,
+        "status": "ERROR",
+        "business_verdict": "NOT_EVALUATED",
+        "assertions": [],
+        "latched_failed_assertions": [],
+        "error": "Expected values to be strictly equal:\n\n500 !== 201\n",
+        "error_code": "ERR_ASSERTION",
+        "exit_code": null,
+        "error_kind": "fixture-or-untracked-assertion-error"
+      }
+    },
+    {
+      "name": "actual audit helper500",
+      "expected": {
+        "status": "ERROR",
+        "value": null,
+        "failed_named_assertions": 0
+      },
+      "actual": {
+        "id": "synthetic_fixture_classification",
+        "value": null,
+        "status": "ERROR",
+        "business_verdict": "NOT_EVALUATED",
+        "assertions": [],
+        "latched_failed_assertions": [],
+        "error": "Expected values to be strictly equal:\n\n500 !== 200\n",
+        "error_code": "ERR_ASSERTION",
+        "exit_code": null,
+        "error_kind": "fixture-or-untracked-assertion-error"
+      }
+    },
+    {
+      "name": "actual audit bad shape",
+      "expected": {
+        "status": "ERROR",
+        "value": null,
+        "failed_named_assertions": 0
+      },
+      "actual": {
+        "id": "synthetic_fixture_classification",
+        "value": null,
+        "status": "ERROR",
+        "business_verdict": "NOT_EVALUATED",
+        "assertions": [],
+        "latched_failed_assertions": [],
+        "error": "The expression evaluated to a falsy value:\n\n  assert.ok(Array.isArray(r.json?.items))\n",
+        "error_code": "ERR_ASSERTION",
+        "exit_code": null,
+        "error_kind": "fixture-or-untracked-assertion-error"
+      }
+    },
+    {
+      "name": "port safety raw assertion",
+      "expected": {
+        "status": "ERROR",
+        "value": null,
+        "failed_named_assertions": 0
+      },
+      "actual": {
+        "id": "synthetic_fixture_classification",
+        "value": null,
+        "status": "ERROR",
+        "business_verdict": "NOT_EVALUATED",
+        "assertions": [],
+        "latched_failed_assertions": [],
+        "error": "Expected \"actual\" to be strictly unequal to: 9800",
+        "error_code": "ERR_ASSERTION",
+        "exit_code": null,
+        "error_kind": "fixture-or-untracked-assertion-error"
+      }
+    },
+    {
+      "name": "listener wrong process",
+      "expected": {
+        "status": "ERROR",
+        "value": null,
+        "failed_named_assertions": 0
+      },
+      "actual": {
+        "id": "synthetic_fixture_classification",
+        "value": null,
+        "status": "ERROR",
+        "business_verdict": "NOT_EVALUATED",
+        "assertions": [],
+        "latched_failed_assertions": [],
+        "error": "listener belongs to wrong process",
+        "error_code": "ERR_ASSERTION",
+        "exit_code": null,
+        "error_kind": "fixture-or-untracked-assertion-error"
+      }
+    },
+    {
+      "name": "raw assertion handler",
+      "expected": {
+        "status": "ERROR",
+        "value": null,
+        "failed_named_assertions": 0
+      },
+      "actual": {
+        "id": "synthetic_fixture_classification",
+        "value": null,
+        "status": "ERROR",
+        "business_verdict": "NOT_EVALUATED",
+        "assertions": [],
+        "latched_failed_assertions": [],
+        "error": "Expected values to be strictly equal:\n\n500 !== 201\n",
+        "error_code": "ERR_ASSERTION",
+        "exit_code": null,
+        "error_kind": "fixture-or-untracked-assertion-error"
+      }
+    },
+    {
+      "name": "forged ERR_ASSERTION code",
+      "expected": {
+        "status": "ERROR",
+        "value": null,
+        "failed_named_assertions": 0
+      },
+      "actual": {
+        "id": "synthetic_fixture_classification",
+        "value": null,
+        "status": "ERROR",
+        "business_verdict": "NOT_EVALUATED",
+        "assertions": [],
+        "latched_failed_assertions": [],
+        "error": "not from check",
+        "error_code": "ERR_ASSERTION",
+        "exit_code": null,
+        "error_kind": "fixture-or-untracked-assertion-error"
+      }
+    },
+    {
+      "name": "named product mismatch",
+      "expected": {
+        "status": "FAIL",
+        "value": 0,
+        "failed_named_assertions": 1
+      },
+      "actual": {
+        "id": "synthetic_fixture_classification",
+        "value": 0,
+        "status": "FAIL",
+        "assertions": [
+          {
+            "ok": false,
+            "name": "expected policy403"
+          }
+        ],
+        "error": "expected policy403",
+        "error_kind": "assertion"
+      }
+    },
+    {
+      "name": "swallowed product mismatch",
+      "expected": {
+        "status": "FAIL",
+        "value": 0,
+        "failed_named_assertions": 1
+      },
+      "actual": {
+        "id": "synthetic_fixture_classification",
+        "value": 0,
+        "status": "FAIL",
+        "assertions": [
+          {
+            "ok": false,
+            "name": "policy"
+          },
+          {
+            "ok": true,
+            "name": "policy"
+          }
+        ],
+        "error": "latched assertion failure (including swallowed assertion)",
+        "error_kind": "assertion"
+      }
+    },
+    {
+      "name": "fixture error after product mismatch",
+      "expected": {
+        "status": "ERROR",
+        "value": null,
+        "failed_named_assertions": 1
+      },
+      "actual": {
+        "id": "synthetic_fixture_classification",
+        "value": null,
+        "status": "ERROR",
+        "business_verdict": "FAIL",
+        "assertions": [
+          {
+            "ok": false,
+            "name": "product mismatch"
+          }
+        ],
+        "latched_failed_assertions": [
+          {
+            "ok": false,
+            "name": "product mismatch"
+          }
+        ],
+        "error": "Expected values to be strictly equal:\n\n500 !== 201\n",
+        "error_code": "ERR_ASSERTION",
+        "exit_code": null,
+        "error_kind": "fixture-or-untracked-assertion-error"
+      }
+    },
+    {
+      "name": "fixture error after successful named check",
+      "expected": {
+        "status": "ERROR",
+        "value": null,
+        "failed_named_assertions": 0
+      },
+      "actual": {
+        "id": "synthetic_fixture_classification",
+        "value": null,
+        "status": "ERROR",
+        "business_verdict": "NOT_EVALUATED",
+        "assertions": [
+          {
+            "ok": true,
+            "name": "positive prerequisite"
+          }
+        ],
+        "latched_failed_assertions": [],
+        "error": "Expected values to be strictly equal:\n\n500 !== 200\n",
+        "error_code": "ERR_ASSERTION",
+        "exit_code": null,
+        "error_kind": "fixture-or-untracked-assertion-error"
+      }
+    },
+    {
+      "name": "explicit missing fixture",
+      "expected": {
+        "status": "NEEDS-MATERIAL",
+        "value": null,
+        "failed_named_assertions": 0
+      },
+      "actual": {
+        "id": "synthetic_fixture_classification",
+        "value": null,
+        "status": "NEEDS-MATERIAL",
+        "assertions": [],
+        "error": "controlled issuance absent",
+        "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+      }
+    },
+    {
+      "name": "missing after product mismatch",
+      "expected": {
+        "status": "FAIL",
+        "value": 0,
+        "failed_named_assertions": 1
+      },
+      "actual": {
+        "id": "synthetic_fixture_classification",
+        "value": 0,
+        "status": "FAIL",
+        "assertions": [
+          {
+            "ok": false,
+            "name": "product mismatch"
+          }
+        ],
+        "error": "latched assertion failure (including swallowed assertion)",
+        "error_kind": "assertion",
+        "dependency_error": {
+          "message": "later dependency",
+          "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+        }
+      }
+    }
+  ]
+}

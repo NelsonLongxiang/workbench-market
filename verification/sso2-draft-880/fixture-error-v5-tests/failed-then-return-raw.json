@@ -1,0 +1,805 @@
+{
+  "target_sha": "d90f81abca809a48a893544d0bdd4c409be78526",
+  "run_id": "SYNTHETIC_failed-then-return",
+  "results": [
+    {
+      "id": "boot",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "switch_defaults",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "http_gate",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "ws_gate",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "internal_target",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "machine_no_ticket",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "machine_unavailable",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "legacy_machine_config",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "register_guard",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "register_schema",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "register_ui",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "login_session",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "me_invalid",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "absolute_ttl",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "multi_device_logout",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "password_storage",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "failure_same_bytes",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "lock_bucket",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "proxy_direct",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "proxy_chain",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "proxy_invalid",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "invalid_config",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "canonical_origin",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "secure_cookie",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "next_validation",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "admin_disable",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "disable_replay",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "users_paging",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "audit_read",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "audit_append",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "audit_patch_invalid",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "audit_patch_valid",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "json_parser_boundary",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "audit_navigation",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "audit_upgrade",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "audit_upstream",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "mapping_modes",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "cookie_mapping",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "odoo_compat",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "scope_preserve",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "config_guard",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "audit_update_rejected",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "audit_delete_rejected",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "patch_missing_disabled",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "proxy_P1_direct",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "proxy_P2_trusted",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "proxy_P3_forged",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "same"
+        },
+        {
+          "ok": true,
+          "name": "same"
+        }
+      ],
+      "error": "latched assertion failure (including swallowed assertion)",
+      "error_kind": "assertion"
+    }
+  ]
+}
