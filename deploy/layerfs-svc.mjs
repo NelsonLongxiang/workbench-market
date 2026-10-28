@@ -62,7 +62,7 @@ const auth = (req) => String(req.headers.authorization ?? '') === `Bearer ${toke
 async function publishTo(project, branch, files, message) {
   const c = await clientOf(project);
   try { await c.branch.fork(branch); } catch { /* 已在 */ }
-  for (const f of files) await c.fs.write(branch, f.path, String(f.content ?? ''), message ?? 'publish'); // 真写 LayerFS（每文件一提交·持久）
+  for (const f of files) { const fp = String(f.path ?? '').startsWith('/') ? String(f.path) : '/' + String(f.path); await c.fs.write(branch, fp, String(f.content ?? ''), message ?? 'publish'); } // 路径=项目内绝对形（agent.md 原文·#215 X6 二十三障）
   const id = 'c' + randomBytes(6).toString('hex');
   sidecar.prepare('INSERT INTO commits (id, project, branch, files, message) VALUES (?, ?, ?, ?, ?)').run(id, project, branch, JSON.stringify(files), String(message ?? ''));
   sidecar.prepare('INSERT INTO branches (project, branch, head) VALUES (?, ?, ?) ON CONFLICT(project, branch) DO UPDATE SET head = excluded.head').run(project, branch, id);
