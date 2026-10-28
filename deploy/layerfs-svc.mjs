@@ -49,6 +49,8 @@ async function clientOf(project) {
   return c;
 }
 
+const json = (res, code, body) => { const s = JSON.stringify(body); res.writeHead(code, { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(s)) }); res.end(s); };
+const readBody = (req) => new Promise((r) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => { try { r(JSON.parse(b || '{}')); } catch { r({}); } }); });
 const auth = (req) => String(req.headers.authorization ?? '') === `Bearer ${token}`;
 
 async function publishTo(project, branch, files, message) {
