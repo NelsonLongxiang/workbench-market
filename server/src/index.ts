@@ -2327,6 +2327,81 @@ function adminGuard(req: express.Request, res: express.Response): boolean {
   return true;
 }
 
+// #159 M3 B2（决策 #010）：任务中心——同源门（C1/C9/C10 三态）+ 状态迁移（恰一条事件）+ 8 端点
+/** 同源门：Origin 存在时必须与 Host 同源（跨站 → 403）；无 Origin（curl/同源）放行给 adminGuard 判口令 */
+function sameOriginGuard(req: express.Request, res: express.Response): boolean {
+  const origin = String(req.headers.origin ?? '');
+  if (!origin) return true;
+  const host = String(req.headers.host ?? '');
+  try { return new URL(origin).host === host; } catch { return false; }
+}
+
+/** 任务状态迁移：每次变化恰一条事件（BEGIN IMMEDIATE 串行段·#159 C23 只增不改） */
+function applyTaskTransition(taskId: number, action: 'created' | 'toggled' | 'published' | 'withdrawn', actor: string, patch: Record<string, unknown> = {}): void {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    if (Object.keys(patch).length) {
+      const sets = Object.keys(patch).map((k) => k + ' = @' + k).join(', ');
+      db.prepare('UPDATE tasks SET ' + sets + ", updated_at = datetime('now') WHERE id = @___id").run({ ...patch, ___id: taskId });
+    }
+    db.prepare("INSERT INTO task_events (task_id, type, actor, actor_kind, payload_json) VALUES (?, ?, ?, 'human', ?)").run(taskId, action, actor, JSON.stringify(patch));
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+}
+
+// ---- 任务中心 8 端点（读开放·写删人审·C13 元台只能人工面） ----
+app.post('/api/tasks', (req, res) => {
+  if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' }); // C10
+  if (!adminGuard(req, res)) return; // C9 无口令 401/403
+  const b = (req.body ?? {}) as { title?: string; kind?: string; payload?: unknown };
+  const title = String(b.title ?? '').trim();
+  if (!title) throw new HttpError(400, 'title 必填');
+  const actor = String((req as express.Request & { adminActor?: string }).adminActor ?? 'human');
+  const r = db.prepare("INSERT INTO tasks (title, kind, payload_json, status, created_by) VALUES (?, ?, ?, 'draft', ?)").run(title, String(b.kind ?? '录入'), JSON.stringify(b.payload ?? {}), actor);
+  const id = Number(r.lastInsertRowid);
+  applyTaskTransition(id, 'created', actor, { title });
+  res.status(201).json({ ok: true, id, status: 'draft' }); // C1
+});
+app.get('/api/tasks', (req, res) => { // 读开放
+  res.json(db.prepare('SELECT id, title, kind, status, enabled, material_sha256, published_at, published_by, created_by, created_at, updated_at FROM tasks ORDER BY id DESC').all());
+});
+app.get('/api/tasks/:id', (req, res) => {
+  const hit = db.prepare('SELECT * FROM tasks WHERE id = ?').get(Number(req.params.id));
+  if (!hit) throw new HttpError(404, 'task not found');
+  res.json({ ...hit, events: db.prepare('SELECT id, type, actor, actor_kind, at, payload_json FROM task_events WHERE task_id = ? ORDER BY id').all(hit.id) });
+});
+app.get('/api/task-center/policy', (req, res) => { // C7 读开放
+  res.json(db.prepare('SELECT key, value FROM task_center_policy').all());
+});
+app.get('/api/task-center/template', (req, res) => { // C17 六固定步骤
+  res.json({ steps: [
+    { key: 's1', title: '标题', type: 'text' },
+    { key: 's2', title: '类型', type: 'select' },
+    { key: 's3', title: '描述', type: 'textarea' },
+    { key: 's4', title: '来源', type: 'text' },
+    { key: 's5', title: '金额或数量', type: 'number' },
+    { key: 's6', title: '附件', type: 'file' },
+  ] });
+});
+app.put('/api/task-center/policy', (req, res) => {
+  if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
+  if (!adminGuard(req, res)) return;
+  const b = (req.body ?? {}) as { center_switch?: string };
+  const v = b.center_switch === 'on' ? 'on' : 'off';
+  (db as any).prepare("UPDATE task_center_policy SET value = ? WHERE key = 'center_switch'").run(v);
+  res.json({ ok: true, center_switch: v });
+});
+app.patch('/api/tasks/:id/switch', (req, res) => { // 任务级锁
+  if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
+  if (!adminGuard(req, res)) return;
+  const hit = db.prepare('SELECT id, enabled FROM tasks WHERE id = ?').get(Number(req.params.id));
+  if (!hit) throw new HttpError(404, 'task not found');
+  const nv = hit.enabled ? 0 : 1;
+  applyTaskTransition(hit.id, 'toggled', String((req as express.Request & { adminActor?: string }).adminActor ?? 'human'), { enabled: nv });
+  res.json({ ok: true, enabled: nv === 1 });
+});
+
+
 function maskKey(v: string): string {
   return v ? '****' : '';
 }
@@ -2622,6 +2697,7 @@ async function callTool(name: string, args: any): Promise<unknown> {
       return { id: w.id, name: w.name, portal: `/go/${w.id}/`, use_page: `/use/${w.id}`, direct: maskSensitiveQuery(w.url), note: 'portal 经统一门户同源代理（自动注入凭据/剥禁嵌头），推荐浏览器访问；direct 已脱敏' };
     }
     case 'app_publish': {
+      if (String(args?.slug ?? '') === 'task-center') throw new HttpError(403, 'task-center 元台只能经人工面修改（#159 C13）');
       // #193 F11：MCP 发布与 REST 同过发布锁（60s 同 slug 异会话 409）
       const _slug = String(args?.slug ?? '').trim().toLowerCase();
       const _who = String(args?.created_by ?? '').trim() || 'mcp';
