@@ -49,6 +49,8 @@ async function clientOf(project) {
   return c;
 }
 
+const auth = (req) => String(req.headers.authorization ?? '') === `Bearer ${token}`;
+
 async function publishTo(project, branch, files, message) {
   const c = await clientOf(project);
   try { await c.branch.fork(branch); } catch { /* 已在 */ }
