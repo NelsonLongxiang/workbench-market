@@ -18,8 +18,11 @@ async function runWith(extraEnv) {
 try {
   let { child, B } = await runWith({});
   const reg = (url) => fetch(B + '/api/workbenches', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'R1', url }) });
-  const r1 = await reg('http://8.8.8.8:80/');
-  ok('① 公网 8.8.8.8 默认拒', r1.status === 400, String(r1.status));
+  // wm-review 全表 7 例负数（#242 P0）
+  const NEGS = ['http://8.8.8.8:80/', 'http://192.30.255.112/', 'http://172.217.0.1/', 'http://10.attacker.example/', 'http://127.0.0.1.nip.io/', 'http://[2001:4860:4860::8888]/', 'http://169.254.169.254/latest/meta-data/'];
+  let negPass = 0; const holes = [];
+  for (const u of NEGS) { const r = await reg(u); if (r.status === 400) negPass++; else holes.push(u); }
+  ok('① 7 例公网/元数据全拒', negPass === 7, negPass + '/7 洞=' + holes.join(','));
   const r2 = await reg('http://192.168.3.100:8080/');
   ok('② 内网放行', r2.status === 201, String(r2.status));
   const r3 = await reg('http://127.0.0.1:4000/');
