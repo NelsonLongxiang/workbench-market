@@ -1,0 +1,1035 @@
+{
+  "engine_run": false,
+  "fixture_only": true,
+  "proof": [
+    {
+      "fixture": "good",
+      "probe_id": "boot",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "switch_defaults",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "http_gate",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "ws_gate",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "internal_target",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "machine_no_ticket",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "machine_unavailable",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "legacy_machine_config",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "register_guard",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "register_schema",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "register_ui",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "login_session",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "me_invalid",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "absolute_ttl",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "multi_device_logout",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "password_storage",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "failure_same_bytes",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "lock_bucket",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "proxy_direct",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "proxy_chain",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "proxy_invalid",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "invalid_config",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "canonical_origin",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "secure_cookie",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "next_validation",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "admin_disable",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "disable_replay",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "users_paging",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "audit_read",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "audit_append",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "audit_patch_invalid",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "audit_patch_valid",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "json_parser_boundary",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "audit_navigation",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "audit_upgrade",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "audit_upstream",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "mapping_modes",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "cookie_mapping",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "odoo_compat",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "scope_preserve",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "config_guard",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "audit_update_rejected",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "audit_delete_rejected",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "patch_missing_disabled",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "proxy_P1_direct",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "proxy_P2_trusted",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "proxy_P3_forged",
+      "scope_rows": 1,
+      "violation_rows": 0,
+      "expected_engine": "PASS"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "deferred_validator",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "good",
+      "probe_id": "deferred_internal",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "boot",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "switch_defaults",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "http_gate",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "ws_gate",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "internal_target",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "machine_no_ticket",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "machine_unavailable",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "legacy_machine_config",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "register_guard",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "register_schema",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "register_ui",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "login_session",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "me_invalid",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "absolute_ttl",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "multi_device_logout",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "password_storage",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "failure_same_bytes",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "lock_bucket",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "proxy_direct",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "proxy_chain",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "proxy_invalid",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "invalid_config",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "canonical_origin",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "secure_cookie",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "next_validation",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "admin_disable",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "disable_replay",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "users_paging",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "audit_read",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "audit_append",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "audit_patch_invalid",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "audit_patch_valid",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "json_parser_boundary",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "audit_navigation",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "audit_upgrade",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "audit_upstream",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "mapping_modes",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "cookie_mapping",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "odoo_compat",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "scope_preserve",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "config_guard",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "audit_update_rejected",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "audit_delete_rejected",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "patch_missing_disabled",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "proxy_P1_direct",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "proxy_P2_trusted",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "proxy_P3_forged",
+      "scope_rows": 1,
+      "violation_rows": 1,
+      "expected_engine": "FAIL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "deferred_validator",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "bad",
+      "probe_id": "deferred_internal",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "boot",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "switch_defaults",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "http_gate",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "ws_gate",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "internal_target",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "machine_no_ticket",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "machine_unavailable",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "legacy_machine_config",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "register_guard",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "register_schema",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "register_ui",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "login_session",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "me_invalid",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "absolute_ttl",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "multi_device_logout",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "password_storage",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "failure_same_bytes",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "lock_bucket",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "proxy_direct",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "proxy_chain",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "proxy_invalid",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "invalid_config",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "canonical_origin",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "secure_cookie",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "next_validation",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "admin_disable",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "disable_replay",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "users_paging",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "audit_read",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "audit_append",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "audit_patch_invalid",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "audit_patch_valid",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "json_parser_boundary",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "audit_navigation",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "audit_upgrade",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "audit_upstream",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "mapping_modes",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "cookie_mapping",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "odoo_compat",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "scope_preserve",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "config_guard",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "audit_update_rejected",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "audit_delete_rejected",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "patch_missing_disabled",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "proxy_P1_direct",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "proxy_P2_trusted",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "proxy_P3_forged",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "deferred_validator",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    },
+    {
+      "fixture": "empty",
+      "probe_id": "deferred_internal",
+      "scope_rows": 0,
+      "violation_rows": 0,
+      "expected_engine": "NEEDS-MATERIAL"
+    }
+  ]
+}

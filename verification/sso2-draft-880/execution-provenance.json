@@ -1,0 +1,68 @@
+{
+  "started_at": "2026-10-28T18:38:31.599Z",
+  "target_sha": "d90f81abca809a48a893544d0bdd4c409be78526",
+  "archive_sha256": "5d810a548c768b1a5d274140b2298f231a007fc4fe558545cac137ff6be58165",
+  "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880",
+  "cmd": [
+    "D:\\node-v24.12.0-win-x64\\node.exe",
+    "--disable-warning=ExperimentalWarning",
+    "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\execution.mjs"
+  ],
+  "files": [
+    {
+      "path": "execution.mjs",
+      "sha256": "f8e00a8f01fa5dd396921c186ef72de1892d7129df45733e4c489495cd37c487"
+    },
+    {
+      "path": "fixtures.mjs",
+      "sha256": "705c9a1d9883a446a0c73031c05965650dd910ce49cf5e820680ba3c0ae39911"
+    },
+    {
+      "path": "more-handlers.mjs",
+      "sha256": "89f4c8ac415ccba3011c8850a16bd5cb3854c590d7137ed225dfce08ade07bd6"
+    },
+    {
+      "path": "final-handlers.mjs",
+      "sha256": "1eae1a7d44abcb2e525310e1177393c5ace50774e0e010a28b010241c62ea167"
+    },
+    {
+      "path": "coverage.json",
+      "sha256": "5855892f62ae4e6af9c4ddbdf61c0286505b9990e7d098e772a50bf17be1418e"
+    },
+    {
+      "path": "candidates.json",
+      "sha256": "70825711a94b51dbb1974a95cfc570d29310417c976b277a8028efb215adf033"
+    },
+    {
+      "path": "material.md",
+      "sha256": "2d4c1fddf7364e4f934e94b2a0e457763fa140b9e0b30730fe0341a87fe44542"
+    }
+  ],
+  "targetFiles": [
+    {
+      "path": "server/src/index.ts",
+      "sha256": "2ffa49719f5de441826f48ef1c8782f5d1f41743c678cb790d832c5fd7d6e624"
+    },
+    {
+      "path": "server/src/a2a.ts",
+      "sha256": "c728e786e5dc71660a3e224a6adfd4bf0ce5fb0c7ec784461731eb8f49f012ea"
+    },
+    {
+      "path": "server/src/db.ts",
+      "sha256": "0fbcda11d1cccb08436cb9ece6ff359b487330822209deb313f789a66a09d4a1"
+    },
+    {
+      "path": "server/src/portal.ts",
+      "sha256": "bc98fda37738c8d501b9826e24a68225c029c407af46a234130c4e52bbdbc5f9"
+    }
+  ],
+  "finished_at": "2026-10-28T18:41:35.780Z",
+  "runner_pid": 105912,
+  "runner_exit": {
+    "code": 0,
+    "signal": null
+  },
+  "report_run_id": "20261028183831665-105912",
+  "report_sha256": "0c34b7aa753890a4b4072b01cc9109b3c2547f82d65fd36feac8d7f737c7f00c",
+  "source_unchanged": true
+}

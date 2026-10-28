@@ -1,0 +1,4369 @@
+{
+  "target_sha": "d90f81abca809a48a893544d0bdd4c409be78526",
+  "draft_only": true,
+  "results": [
+    {
+      "id": "patch_missing_disabled",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "audit_update_rejected",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "audit_delete_rejected",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "http_gate",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "ws_gate",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "switch_defaults",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "target default off"
+        }
+      ],
+      "error": "target default off",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "internal_target",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "internal enabled409"
+        }
+      ],
+      "error": "internal enabled409",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "machine_no_ticket",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "multi_device_logout",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "absolute_ttl",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "admin_disable",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "disable_replay",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "next_validation",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "audit_navigation",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "audit_upgrade",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "audit_upstream",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "server did not start for functional probe; exit=null",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "users_paging",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "audit_read",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "proxy_P1_direct",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "proxy_P2_trusted",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "proxy_P3_forged",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "register_guard",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "register admin/canonical gate403"
+        }
+      ],
+      "error": "register admin/canonical gate403",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "register_schema",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "register schema400"
+        }
+      ],
+      "error": "register schema400",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "login_session",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "me_invalid",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "invalid me401samebody"
+        }
+      ],
+      "error": "invalid me401samebody",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "invalid_config",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "invalid setting refuses listen WM_SSO"
+        }
+      ],
+      "error": "invalid setting refuses listen WM_SSO",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "canonical_origin",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "invalid/missing origin refuses"
+        }
+      ],
+      "error": "invalid/missing origin refuses",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "secure_cookie",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "failure_same_bytes",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "lock_bucket",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "proxy_invalid",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "audit_patch_invalid",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "audit_patch_valid",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "json_parser_boundary",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "config_guard",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "config requires admin"
+        }
+      ],
+      "error": "config requires admin",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "mapping_modes",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "cookie_mapping",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "password_storage",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "boot",
+      "value": 1,
+      "status": "PASS",
+      "assertions": [
+        {
+          "ok": true,
+          "name": "real process starts"
+        },
+        {
+          "ok": true,
+          "name": "listener owner identity"
+        },
+        {
+          "ok": true,
+          "name": "health actual200"
+        }
+      ]
+    },
+    {
+      "id": "register_ui",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "real form, not SPA200"
+        }
+      ],
+      "error": "real form, not SPA200",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "machine_unavailable",
+      "value": 0,
+      "status": "FAIL",
+      "assertions": [
+        {
+          "ok": false,
+          "name": "non-none mode rejected409"
+        }
+      ],
+      "error": "non-none mode rejected409",
+      "error_kind": "assertion"
+    },
+    {
+      "id": "audit_append",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "proxy_direct",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "proxy_chain",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "business prerequisite register unavailable: HTTP 404",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "legacy_machine_config",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "valid persisted SSO config prerequisite unavailable",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "odoo_compat",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [
+        {
+          "ok": true,
+          "name": "Odoo type fixture"
+        },
+        {
+          "ok": true,
+          "name": "Odoo register fixture"
+        },
+        {
+          "ok": true,
+          "name": "legacy forged state400"
+        },
+        {
+          "ok": true,
+          "name": "upstream never gets untrusted Odoo session"
+        },
+        {
+          "ok": true,
+          "name": "legacy path responds"
+        }
+      ],
+      "error": "complete v1 state roundtrip plus enabled SSO canonical-origin callback fixture still required; no302-only full login claim",
+      "error_kind": "missing-prerequisite-or-fixture"
+    },
+    {
+      "id": "scope_preserve",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [
+        {
+          "ok": true,
+          "name": "app fixture published"
+        },
+        {
+          "ok": true,
+          "name": "direct app outside SSO gate"
+        },
+        {
+          "ok": true,
+          "name": "MCP old auth remains"
+        },
+        {
+          "ok": true,
+          "name": "existing valid app token CORS"
+        },
+        {
+          "ok": true,
+          "name": "invalid app token CORS denied"
+        }
+      ],
+      "error": "separate SOP direct and API read/write/auth legal+illegal baseline plus valid MCP tool scope controls pending",
+      "error_kind": "missing-prerequisite-or-fixture"
+    }
+  ],
+  "instances": [
+    {
+      "pid": 96668,
+      "port": 60906,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-QFUgtW",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        96668
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:38:32 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:60906"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:38:35 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 107536,
+      "port": 53145,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-X9z4Ai",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        107536
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:38:36 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:53145"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:38:38 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 91472,
+      "port": 53169,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-egvd6M",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        91472
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 2
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:38:40 GMT",
+              "etag": "W/\"4e-zfZBZoxo7UafXRWtk/LaN9wOKlE\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:53169"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:38:43 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 105504,
+      "port": 50467,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-Ullntb",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        105504
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:38:44 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:50467"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:38:47 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 92244,
+      "port": 60553,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-8eutu9",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        92244
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:38:48 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:60553"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:38:51 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 99944,
+      "port": 60583,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-tQzOsJ",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        99944
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:38:52 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/workbenches",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:60583"
+            },
+            "body": {
+              "name": "fixture-external",
+              "url": "http://127.0.0.1:51482"
+            }
+          },
+          "response": {
+            "status": 201,
+            "body": {
+              "id": 2,
+              "name": "fixture-external",
+              "url": "http://127.0.0.1:51482",
+              "type": "web",
+              "icon": "",
+              "description": "",
+              "category": "",
+              "tags": [],
+              "enabled": true,
+              "health_path": "",
+              "last_status": "unknown",
+              "last_checked_at": "",
+              "last_latency_ms": null,
+              "last_http_code": null,
+              "last_error": "",
+              "sort": 0,
+              "created_at": "2026-10-28 18:38:55",
+              "updated_at": "2026-10-28 18:38:55",
+              "cookie_set_id": "<redacted>",
+              "auth": null
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "376",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:38:55 GMT",
+              "etag": "W/\"178-vYyDAIP+4K5xGxCLcHVj4BKoRsI\"",
+              "keep-alive": "timeout=5",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/workbenches/2/sso",
+          "request": {
+            "headers": {
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:60583"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot GET /api/workbenches/2/sso</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "160",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:38:55 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 71124,
+      "port": 51484,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-EBvL6Z",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        71124
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:38:56 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/workbenches",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:51484"
+            },
+            "body": {
+              "name": "fixture-external",
+              "url": "/apps/fixture-internal/"
+            }
+          },
+          "response": {
+            "status": 201,
+            "body": {
+              "id": 2,
+              "name": "fixture-external",
+              "url": "/apps/fixture-internal/",
+              "type": "web",
+              "icon": "",
+              "description": "",
+              "category": "",
+              "tags": [],
+              "enabled": true,
+              "health_path": "",
+              "last_status": "unknown",
+              "last_checked_at": "",
+              "last_latency_ms": null,
+              "last_http_code": null,
+              "last_error": "",
+              "sort": 0,
+              "created_at": "2026-10-28 18:38:59",
+              "updated_at": "2026-10-28 18:38:59",
+              "cookie_set_id": "<redacted>",
+              "auth": null
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "377",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:38:59 GMT",
+              "etag": "W/\"179-kwUHaEynuZrpM7K5chCJK6S+lP0\"",
+              "keep-alive": "timeout=5",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "PUT",
+          "path": "/api/workbenches/2/sso",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:51484"
+            },
+            "body": {
+              "enabled": true,
+              "mode": "none",
+              "machine_auth": "none"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot PUT /api/workbenches/2/sso</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "160",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:38:59 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 93764,
+      "port": 51513,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-rVDh7m",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        93764
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:00 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:51513"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:03 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 105712,
+      "port": 56066,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-BhBHuL",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        105712
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:04 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:56066"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:07 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 102664,
+      "port": 60466,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-ATGCwz",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        102664
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:08 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:60466"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:10 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 51600,
+      "port": 58698,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-P94cYM",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        51600
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:12 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:58698"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:14 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 108376,
+      "port": 58728,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-2A3aMh",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        108376
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:15 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:58728"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:18 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 105536,
+      "port": 58756,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-bdnl9H",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        105536
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:19 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:58756"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:22 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 56344,
+      "port": 55224,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-ShNOYY",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        56344
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:23 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:55224"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:25 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 10728,
+      "port": 53329,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-npAeBg",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        10728
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:27 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:53329"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:29 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 106856,
+      "port": 55162,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-3H6YAE",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": false,
+      "listener_owners": [],
+      "requests": [],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 90404,
+      "port": 59778,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-EurzmB",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        90404
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 2
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:36 GMT",
+              "etag": "W/\"4e-zfZBZoxo7UafXRWtk/LaN9wOKlE\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:59778"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:39 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 107128,
+      "port": 54690,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-HRT9UZ",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        107128
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 2
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:41 GMT",
+              "etag": "W/\"4e-zfZBZoxo7UafXRWtk/LaN9wOKlE\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:54690"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:44 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 95828,
+      "port": 61906,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-QZzy4c",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        95828
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:45 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:61906"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:47 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 86120,
+      "port": 61933,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-BtlGjT",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        86120
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:49 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:61933"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:51 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 101188,
+      "port": 61959,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-Ule0Yu",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        101188
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:53 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:61959"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:55 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 107912,
+      "port": 62621,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-UOEnfJ",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        107912
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:56 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "origin": "http://127.0.0.1:62621"
+            },
+            "body": {
+              "username": "guard-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:39:58 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 93832,
+      "port": 62655,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-xEiAYu",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        93832
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:00 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:62655"
+            },
+            "body": {
+              "username": "valid-user",
+              "password": "<redacted>",
+              "role": "admin"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:03 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 107568,
+      "port": 50530,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-C6SaB8",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        107568
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:04 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:50530"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:07 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 13492,
+      "port": 60351,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-4DLxAk",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        13492
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:08 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/auth/me",
+          "request": {
+            "headers": {
+              "origin": "http://127.0.0.1:60351"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot GET /api/auth/me</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "150",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:11 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 82032,
+      "port": 57440,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-HM2TZi",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        82032
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:12 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 100368,
+      "port": 63247,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-P42pxX",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        100368
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:15 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 2548,
+      "port": 63272,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-j940RI",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        2548
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:19 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://market.fixture"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:22 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 106004,
+      "port": 61396,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-QPaldj",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        106004
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:24 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:61396"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:28 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 107964,
+      "port": 56696,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-pa6HT0",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        107964
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:29 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:56696"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:31 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 107712,
+      "port": 56739,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-zGLgUW",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        107712
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:32 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:56739"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:35 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 90108,
+      "port": 63974,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-A1WbI5",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        90108
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:36 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:63974"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:39 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 107012,
+      "port": 63999,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-4znbHy",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        107012
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:40 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:63999"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:43 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 106560,
+      "port": 52203,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-3suy13",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        106560
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:44 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:52203"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:46 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 91556,
+      "port": 52230,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-VA6R9F",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        91556
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:48 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/workbenches",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:52230"
+            },
+            "body": {
+              "name": "fixture-external",
+              "url": "http://127.0.0.1:54818"
+            }
+          },
+          "response": {
+            "status": 201,
+            "body": {
+              "id": 2,
+              "name": "fixture-external",
+              "url": "http://127.0.0.1:54818",
+              "type": "web",
+              "icon": "",
+              "description": "",
+              "category": "",
+              "tags": [],
+              "enabled": true,
+              "health_path": "",
+              "last_status": "unknown",
+              "last_checked_at": "",
+              "last_latency_ms": null,
+              "last_http_code": null,
+              "last_error": "",
+              "sort": 0,
+              "created_at": "2026-10-28 18:40:50",
+              "updated_at": "2026-10-28 18:40:50",
+              "cookie_set_id": "<redacted>",
+              "auth": null
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "376",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:50 GMT",
+              "etag": "W/\"178-TCAn9ERQ8IvmtUkQCEtEXNbhkOI\"",
+              "keep-alive": "timeout=5",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/workbenches/2/sso",
+          "request": {
+            "headers": {
+              "origin": "http://127.0.0.1:52230"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot GET /api/workbenches/2/sso</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "160",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:50 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 67148,
+      "port": 54820,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-YxR8xz",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        67148
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:52 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:54820"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:54 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 46528,
+      "port": 57042,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-SoMDw7",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        46528
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:55 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:57042"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:58 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 99080,
+      "port": 57076,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-XIF7Re",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        99080
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:40:59 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:57076"
+            },
+            "body": {
+              "username": "same-pass-a",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:01 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 101176,
+      "port": 57100,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-gafgLv",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        101176
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:02 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {
+              "origin": "http://127.0.0.1:57100"
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 3
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:05 GMT",
+              "etag": "W/\"4e-5D1VaznBiWojZYj3Dh1mMVZCWSE\"",
+              "keep-alive": "timeout=5",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 105732,
+      "port": 63710,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-Eg4tfR",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        105732
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:06 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/login",
+          "request": {
+            "headers": {
+              "origin": "http://127.0.0.1:63710"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot GET /login</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "144",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:09 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 6184,
+      "port": 63735,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-Tkh1U9",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        6184
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:10 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/workbenches",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:63735"
+            },
+            "body": {
+              "name": "fixture-external",
+              "url": "http://127.0.0.1:62551"
+            }
+          },
+          "response": {
+            "status": 201,
+            "body": {
+              "id": 2,
+              "name": "fixture-external",
+              "url": "http://127.0.0.1:62551",
+              "type": "web",
+              "icon": "",
+              "description": "",
+              "category": "",
+              "tags": [],
+              "enabled": true,
+              "health_path": "",
+              "last_status": "unknown",
+              "last_checked_at": "",
+              "last_latency_ms": null,
+              "last_http_code": null,
+              "last_error": "",
+              "sort": 0,
+              "created_at": "2026-10-28 18:41:13",
+              "updated_at": "2026-10-28 18:41:13",
+              "cookie_set_id": "<redacted>",
+              "auth": null
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "376",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:13 GMT",
+              "etag": "W/\"178-D7Z+9rw/3mlzzYtfpe2qiCB/fDo\"",
+              "keep-alive": "timeout=5",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/workbenches/2/sso",
+          "request": {
+            "headers": {
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:63735"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot GET /api/workbenches/2/sso</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "160",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:13 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "PUT",
+          "path": "/api/workbenches/2/sso",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:63735"
+            },
+            "body": {
+              "enabled": true,
+              "mode": "none",
+              "machine_auth": "app-token"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot PUT /api/workbenches/2/sso</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "160",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:13 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 105880,
+      "port": 62553,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-lJgXEB",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        105880
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:14 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:62553"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:16 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 28028,
+      "port": 62577,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-iZ2Ydx",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        28028
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:18 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:62577"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:20 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 11576,
+      "port": 62334,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-d3isAH",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        11576
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:21 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:62334"
+            },
+            "body": {
+              "username": "fixture-user",
+              "password": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot POST /api/auth/register</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "157",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:24 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 102448,
+      "port": 59018,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-0yRmmj",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        102448
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:25 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/workbenches",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:59018"
+            },
+            "body": {
+              "name": "fixture-external",
+              "url": "http://127.0.0.1:55814"
+            }
+          },
+          "response": {
+            "status": 201,
+            "body": {
+              "id": 2,
+              "name": "fixture-external",
+              "url": "http://127.0.0.1:55814",
+              "type": "web",
+              "icon": "",
+              "description": "",
+              "category": "",
+              "tags": [],
+              "enabled": true,
+              "health_path": "",
+              "last_status": "unknown",
+              "last_checked_at": "",
+              "last_latency_ms": null,
+              "last_http_code": null,
+              "last_error": "",
+              "sort": 0,
+              "created_at": "2026-10-28 18:41:28",
+              "updated_at": "2026-10-28 18:41:28",
+              "cookie_set_id": "<redacted>",
+              "auth": null
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "376",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:28 GMT",
+              "etag": "W/\"178-hpvKF+aey+bz5HQnGXdDbQplJq8\"",
+              "keep-alive": "timeout=5",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "PUT",
+          "path": "/api/workbenches/2/sso",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:59018"
+            },
+            "body": {
+              "enabled": true,
+              "mode": "none",
+              "machine_auth": "none"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot PUT /api/workbenches/2/sso</pre>\n</body>\n</html>\n",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "160",
+              "content-security-policy": "default-src 'none'",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:28 GMT",
+              "keep-alive": "timeout=5",
+              "x-content-type-options": "nosniff",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 106232,
+      "port": 55816,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-0orFaE",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        106232
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:29 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/types",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:55816"
+            },
+            "body": {
+              "key": "odoo",
+              "name": "fixture Odoo",
+              "default_port": 8069
+            }
+          },
+          "response": {
+            "status": 201,
+            "body": {
+              "id": 10,
+              "key": "odoo",
+              "name": "fixture Odoo",
+              "icon": "",
+              "default_port": 8069,
+              "health_method": "GET",
+              "health_path": "/",
+              "expect_status": null,
+              "description": "",
+              "created_at": "2026-10-28 18:41:31"
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "187",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:32 GMT",
+              "etag": "W/\"bb-+tNJiqHcYbTT982eLTMYR5Wmv2Y\"",
+              "keep-alive": "timeout=5",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/workbenches",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:55816"
+            },
+            "body": {
+              "name": "fixture Odoo",
+              "url": "http://127.0.0.1:64509/",
+              "type": "odoo"
+            }
+          },
+          "response": {
+            "status": 201,
+            "body": {
+              "id": 2,
+              "name": "fixture Odoo",
+              "url": "http://127.0.0.1:64509/",
+              "type": "odoo",
+              "icon": "",
+              "description": "",
+              "category": "",
+              "tags": [],
+              "enabled": true,
+              "health_path": "",
+              "last_status": "unknown",
+              "last_checked_at": "",
+              "last_latency_ms": null,
+              "last_http_code": null,
+              "last_error": "",
+              "sort": 0,
+              "created_at": "2026-10-28 18:41:32",
+              "updated_at": "2026-10-28 18:41:32",
+              "cookie_set_id": "<redacted>",
+              "auth": null
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "374",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:32 GMT",
+              "etag": "W/\"176-Rp0QG7e6wggzakDnn/TqMJTTilg\"",
+              "keep-alive": "timeout=5",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/sso/callback?redirect=%2Fgo%2F2%2F&state=forged",
+          "request": {
+            "headers": {
+              "origin": "http://127.0.0.1:55816"
+            }
+          },
+          "response": {
+            "status": 400,
+            "body": {
+              "error": "SSO state 校验失败（请从市场门户重新进入）"
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "70",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:32 GMT",
+              "etag": "W/\"46-eZZBCzD6aJKTm762vxzcFLgmWc4\"",
+              "keep-alive": "timeout=5",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/go/2/",
+          "request": {
+            "headers": {
+              "origin": "http://127.0.0.1:55816",
+              "cookie": "<redacted>",
+              "accept": "text/html"
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": "<html><h1>fixture target</h1></html>",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "36",
+              "content-type": "text/html",
+              "date": "Wed, 28 Oct 2026 18:41:32 GMT",
+              "keep-alive": "timeout=5",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    },
+    {
+      "pid": 107868,
+      "port": 64512,
+      "cwd": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\target",
+      "data_dir": "D:\\workspace\\workbench-market\\tmp\\sso2-draft-880\\run-MRshLk",
+      "command": [
+        "D:\\node-v24.12.0-win-x64\\node.exe",
+        "--disable-warning=ExperimentalWarning",
+        "server/src/index.ts"
+      ],
+      "ready": true,
+      "listener_owners": [
+        107868
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/health",
+          "request": {
+            "headers": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 1
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "78",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:33 GMT",
+              "etag": "W/\"4e-W23TSLSn6tA3Lb6t+kyjTLvtg7c\"",
+              "keep-alive": "timeout=5",
+              "vary": "Origin",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/apps",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "x-admin-token": "<redacted>",
+              "origin": "http://127.0.0.1:64512"
+            },
+            "body": {
+              "slug": "scope-fixture",
+              "title": "scope fixture",
+              "kind": "app",
+              "files": [
+                {
+                  "path": "index.html",
+                  "content": "<html><h1>scope</h1></html>"
+                }
+              ]
+            }
+          },
+          "response": {
+            "status": 201,
+            "body": {
+              "ok": true,
+              "slug": "scope-fixture",
+              "version": 1,
+              "served_version": 0,
+              "diff": null,
+              "workbench_id": 2,
+              "kind": "app",
+              "status": "active",
+              "app": {
+                "id": 2,
+                "slug": "scope-fixture",
+                "title": "scope fixture",
+                "description": "",
+                "created_by": "",
+                "active_version": 1,
+                "status": "active",
+                "created_at": "2026-10-28 18:41:35",
+                "updated_at": "2026-10-28 18:41:35",
+                "layerfs_project": "",
+                "kind": "app",
+                "code": "",
+                "a2a_node8": "",
+                "versions": [
+                  {
+                    "id": 2,
+                    "app_id": 2,
+                    "version": 1,
+                    "file_count": 1,
+                    "total_bytes": 27,
+                    "created_by": "",
+                    "changelog": "",
+                    "created_at": "2026-10-28 18:41:35",
+                    "commit_id": ""
+                  }
+                ],
+                "workbench_id": 2
+              }
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "561",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:35 GMT",
+              "etag": "W/\"231-/Z0FAmNmO5jU0aarPUsn4jL1+Fc\"",
+              "keep-alive": "timeout=5",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/apps/scope-fixture/",
+          "request": {
+            "headers": {
+              "origin": "http://127.0.0.1:64512"
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": "<meta name=\"wm-app-token\" content=<redacted>><script>window.WM_APP_TOKEN=<redacted>;window.WM_APP_SLUG=\"scope-fixture\";</script><html><h1>scope</h1></html>",
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "267",
+              "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads",
+              "content-type": "text/html; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:35 GMT",
+              "etag": "W/\"10b-EqCLKYRbHGURusf/BZsBuvmHhZc\"",
+              "keep-alive": "timeout=5",
+              "x-app-version": "v1",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/mcp",
+          "request": {
+            "headers": {
+              "content-type": "application/json",
+              "origin": "http://127.0.0.1:64512"
+            },
+            "body": {
+              "jsonrpc": "2.0",
+              "id": 1,
+              "method": "tools/list",
+              "params": {}
+            }
+          },
+          "response": {
+            "status": 401,
+            "body": {
+              "error": "unauthorized: valid session token required",
+              "hint": "会话与令牌由管理员经 /api/mcp/sessions 创建分发"
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "125",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:35 GMT",
+              "etag": "W/\"7d-uarXmDm1LVGr3xHchi3iejL9+64\"",
+              "keep-alive": "timeout=5",
+              "www-authenticate": "Bearer realm=\"workbench-market mcp\"",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/apps/scope-fixture/data",
+          "request": {
+            "headers": {
+              "origin": "null",
+              "x-app-token": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "slug": "scope-fixture",
+              "items": [],
+              "count": 0,
+              "has_more": false,
+              "next_before_id": null
+            },
+            "headers": {
+              "access-control-allow-headers": "content-type,x-app-token",
+              "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
+              "access-control-allow-origin": "null",
+              "access-control-max-age": "600",
+              "connection": "keep-alive",
+              "content-length": "84",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:35 GMT",
+              "etag": "W/\"54-F+ovzjdC/Lx43QJWB9ZUAPziav8\"",
+              "keep-alive": "timeout=5",
+              "x-powered-by": "Express"
+            }
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/apps/scope-fixture/data",
+          "request": {
+            "headers": {
+              "origin": "null",
+              "x-app-token": "<redacted>"
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "slug": "scope-fixture",
+              "items": [],
+              "count": 0,
+              "has_more": false,
+              "next_before_id": null
+            },
+            "headers": {
+              "connection": "keep-alive",
+              "content-length": "84",
+              "content-type": "application/json; charset=utf-8",
+              "date": "Wed, 28 Oct 2026 18:41:35 GMT",
+              "etag": "W/\"54-F+ovzjdC/Lx43QJWB9ZUAPziav8\"",
+              "keep-alive": "timeout=5",
+              "x-powered-by": "Express"
+            }
+          }
+        }
+      ],
+      "exit": null,
+      "signal": "SIGTERM"
+    }
+  ],
+  "unimplemented": [],
+  "run_id": "20261028183831665-105912"
+}
