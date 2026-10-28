@@ -1,18 +1,23 @@
-# layerfs 服务镜像（#94 P0·多阶段·钉提交 9f97a7ec·Ubuntu 22.04 amd64）
+# layerfs 服务镜像（#215 真适配器·多阶段·钉提交 9f97a7ec·Ubuntu 22.04 amd64）
 FROM rust:1.85.1-bookworm AS builder
 ARG LAYERFS_COMMIT=9f97a7ec
 WORKDIR /src
 RUN git clone https://github.com/layerfs/layerfs.git . && git checkout ${LAYERFS_COMMIT}
 RUN cargo build --release --locked
+RUN cd api/agent/sdk && npm install --omit=dev || true
 
 FROM ubuntu:22.04
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl nodejs \\
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl nodejs \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /src/target/release/layerfs /usr/local/bin/layerfs
 COPY --from=builder /src/target/release/layerfs.node /usr/local/lib/layerfs.node
+# #215 X1：真适配器 + @layerfs/agent 三包全量进镜像（不再只拷 12 行替身入口）
+COPY --from=builder /src/api /usr/local/lib/layerfs-api
 COPY deploy/layerfs-svc.mjs /usr/local/lib/layerfs-svc.mjs
 ENV LAYERFS_STORE_ROOT=/var/lib/layerfs
 ENV LAYERFS_SERVICE_PORT=8067
+ENV LAYERFS_AGENT_PATH=/usr/local/lib/layerfs-api/agent/sdk/src/index.js
+ENV NODE_PATH=/usr/local/lib/layerfs-api/agent/sdk/node_modules
 VOLUME /var/lib/layerfs
 EXPOSE 8067
 ENTRYPOINT ["node", "/usr/local/lib/layerfs-svc.mjs"]
