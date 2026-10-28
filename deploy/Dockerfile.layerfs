@@ -6,6 +6,7 @@ COPY --from=wm-x-layerfs:base /usr/local/lib/layerfs.node /usr/local/lib/layerfs
 COPY --from=wm-x-layerfs:base /usr/local/lib/layerfs-api /usr/local/lib/layerfs-api
 COPY deploy/layerfs-svc.mjs /usr/local/lib/layerfs-svc.mjs
 ENV LAYERFS_NATIVE=/usr/local/lib/layerfs.node
+ENV LAYERFS_HOME=/var/lib/layerfs/home   # #215 十五障②：native 面启动即读（locator=<home>/global/store.sqlite）
 ENV LAYERFS_STORE_ROOT=/var/lib/layerfs
 ENV LAYERFS_SERVICE_PORT=8067
 ENV LAYERFS_AGENT_PATH=/usr/local/lib/layerfs-api/agent/sdk/src/index.js
