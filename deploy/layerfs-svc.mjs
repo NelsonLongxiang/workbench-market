@@ -19,34 +19,35 @@ console.log('[layerfs-svc] agent entry:', usedEntry);
 
 const token = process.env.LAYERFS_SERVICE_TOKEN ?? 'lfs-token';
 const storeRoot = process.env.LAYERFS_STORE_ROOT ?? '/var/lib/layerfs';
-// #215 X6 十四障：目录装配（home/global=locator 父链）+ home 私有 700 + 陈 env 强制覆盖 + locator 预触（首 init 前空文件·init 装配真身）
-const homeDir = `${storeRoot}/home`;
-for (const d of [`${storeRoot}/projects`, `${storeRoot}/stores`, homeDir, `${homeDir}/global`]) { try { mkdirSync(d, { recursive: true }); } catch { /* 卷只读面降级 */ } } // #215 X6 十五障①：全绝对路径（相对落 CWD=/ 的 bug 修）
-try { chmodSync(homeDir, 0o700); } catch { /* 卷 ACL 面归部署 */ }
-process.env.LAYERFS_HOME = homeDir; // #215：强制本服务语义（容器陈值不承继）
-const sidecar = new DatabaseSync(`${storeRoot}/wm-adapter.sqlite`);
-sidecar.exec('CREATE TABLE IF NOT EXISTS commits (id TEXT PRIMARY KEY, project TEXT NOT NULL, branch TEXT NOT NULL, files TEXT NOT NULL, message TEXT DEFAULT \'\', at TEXT DEFAULT (datetime(\'now\')))');
-sidecar.exec('CREATE TABLE IF NOT EXISTS branches (project TEXT NOT NULL, branch TEXT NOT NULL, head TEXT, PRIMARY KEY (project, branch))');
-sidecar.exec('CREATE TABLE IF NOT EXISTS merged (project TEXT NOT NULL, n INTEGER DEFAULT 0, PRIMARY KEY (project))');
+// #215 X6 十九障·一次性重写（钉点 api/how-to-use/agent.md 全配方·停逐障接力）
+// 环境契约（镜像 ENV 已固化·SDK 于客户端创建时读）：
+//   LAYERFS_HOME=/var/lib/layerfs/home（项目条目+sealed）·LAYERFS_STORE_PATH=<home>/global/store.sqlite（全局唯一·init 自装配）
+const homeDir = process.env.LAYERFS_HOME ?? `${storeRoot}/home`;
+for (const d of [`${storeRoot}/sources`, `${storeRoot}/projects`, homeDir, `${homeDir}/global`]) {
+  try { mkdirSync(d, { recursive: true, mode: 0o755 }); } catch { /* 卷面降级 */ }
+}
+try { chmodSync(homeDir, 0o700); } catch { /* ACL 归部署 */ }
+process.env.LAYERFS_STORE_PATH = process.env.LAYERFS_STORE_PATH ?? `${homeDir}/global/store.sqlite`; // 勿预触文件（init 自建·0B 毒）
 
-const clients = new Map(); // R8：一个进程一份 agent·项目一个 client
+const clients = new Map(); // R8：一进程一份 agent·一项目一 client（共享全局 store）
 async function clientOf(project) {
   if (clients.has(project)) return clients.get(project);
-  // #215 X6 十二障：source 与 store 分离（LayerFS 拒 store-inside-source——BackingInsideSource）
-  const srcDir = `${storeRoot}/projects/${project}`;
-  process.env.LAYERFS_STORE_PATH = `${storeRoot}/home/global/store.sqlite`; // #215 X6 十七障：全局唯一 store（钉点 agent.md 首例·init 自装配·勿 per-project）
+  // init 的 source=纯空目录（agent.md：绝对路径·无 dot 组件·无 symlink/setuid·读取期不变——空目录全满足）
+  const srcDir = `${storeRoot}/sources/${project}`;
+  try { mkdirSync(srcDir, { recursive: true, mode: 0o755 }); } catch { /* 已在 */ }
   let c;
   try { c = await LayerFS.open(project); }
-  catch { c = await LayerFS.init(project, srcDir); }
-  clients.set(project, c);
-  return c;
+  catch {
+    try { c = await LayerFS.init(project, srcDir); } // 首建：sealed→install→条目
+    catch (initErr) {
+      const m2 = String(initErr?.message ?? initErr);
+      if (/already initialized|Exists/i.test(m2)) c = await LayerFS.open(project); // 竞态/复启后再开
+      else throw initErr;
+    }
+  }
   clients.set(project, c);
   return c;
 }
-
-const json = (res, code, body) => { const s = JSON.stringify(body); res.writeHead(code, { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(s)) }); res.end(s); };
-const readBody = (req) => new Promise((r) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => { try { r(JSON.parse(b || '{}')); } catch { r({}); } }); });
-const auth = (req) => String(req.headers.authorization ?? '') === `Bearer ${token}`;
 
 async function publishTo(project, branch, files, message) {
   const c = await clientOf(project);
