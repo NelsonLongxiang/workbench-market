@@ -57,6 +57,57 @@ S46 [proxy_P3_forged] (D5/P3) P3非可信peer伪造XFF组：伪造XFF/Forwarded/
 S47 [deferred_validator] (D3延期) target-validator合法机器主体正向本期DEFERRED，材料不足必须NEEDS-MATERIAL，不以伪fixture或负向409计正向PASS。
 S48 [deferred_internal] (D1延期) 内部原生SSO、企微LDAP IdP与已建WS强断不属本期出口，不计已实现PASS，后续补独立材料判据。
 
+## 执行完整性守卫（非业务谓词）
+G00 [integrity_boot] 执行完整性守卫：boot 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G01 [integrity_switch_defaults] 执行完整性守卫：switch_defaults 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G02 [integrity_http_gate] 执行完整性守卫：http_gate 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G03 [integrity_ws_gate] 执行完整性守卫：ws_gate 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G04 [integrity_internal_target] 执行完整性守卫：internal_target 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G05 [integrity_machine_no_ticket] 执行完整性守卫：machine_no_ticket 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G06 [integrity_machine_unavailable] 执行完整性守卫：machine_unavailable 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G07 [integrity_legacy_machine_config] 执行完整性守卫：legacy_machine_config 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G08 [integrity_register_guard] 执行完整性守卫：register_guard 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G09 [integrity_register_schema] 执行完整性守卫：register_schema 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G10 [integrity_register_ui] 执行完整性守卫：register_ui 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G11 [integrity_login_session] 执行完整性守卫：login_session 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G12 [integrity_me_invalid] 执行完整性守卫：me_invalid 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G13 [integrity_absolute_ttl] 执行完整性守卫：absolute_ttl 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G14 [integrity_multi_device_logout] 执行完整性守卫：multi_device_logout 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G15 [integrity_password_storage] 执行完整性守卫：password_storage 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G16 [integrity_failure_same_bytes] 执行完整性守卫：failure_same_bytes 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G17 [integrity_lock_bucket] 执行完整性守卫：lock_bucket 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G18 [integrity_proxy_direct] 执行完整性守卫：proxy_direct 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G19 [integrity_proxy_chain] 执行完整性守卫：proxy_chain 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G20 [integrity_proxy_invalid] 执行完整性守卫：proxy_invalid 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G21 [integrity_invalid_config] 执行完整性守卫：invalid_config 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G22 [integrity_canonical_origin] 执行完整性守卫：canonical_origin 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G23 [integrity_secure_cookie] 执行完整性守卫：secure_cookie 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G24 [integrity_next_validation] 执行完整性守卫：next_validation 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G25 [integrity_admin_disable] 执行完整性守卫：admin_disable 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G26 [integrity_disable_replay] 执行完整性守卫：disable_replay 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G27 [integrity_users_paging] 执行完整性守卫：users_paging 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G28 [integrity_audit_read] 执行完整性守卫：audit_read 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G29 [integrity_audit_append] 执行完整性守卫：audit_append 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G30 [integrity_audit_patch_invalid] 执行完整性守卫：audit_patch_invalid 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G31 [integrity_audit_patch_valid] 执行完整性守卫：audit_patch_valid 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G32 [integrity_json_parser_boundary] 执行完整性守卫：json_parser_boundary 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G33 [integrity_audit_navigation] 执行完整性守卫：audit_navigation 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G34 [integrity_audit_upgrade] 执行完整性守卫：audit_upgrade 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G35 [integrity_audit_upstream] 执行完整性守卫：audit_upstream 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G36 [integrity_mapping_modes] 执行完整性守卫：mapping_modes 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G37 [integrity_cookie_mapping] 执行完整性守卫：cookie_mapping 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G38 [integrity_odoo_compat] 执行完整性守卫：odoo_compat 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G39 [integrity_scope_preserve] 执行完整性守卫：scope_preserve 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G40 [integrity_config_guard] 执行完整性守卫：config_guard 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G41 [integrity_audit_update_rejected] 执行完整性守卫：audit_update_rejected 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G42 [integrity_audit_delete_rejected] 执行完整性守卫：audit_delete_rejected 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G43 [integrity_patch_missing_disabled] 执行完整性守卫：patch_missing_disabled 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G44 [integrity_proxy_P1_direct] 执行完整性守卫：proxy_P1_direct 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G45 [integrity_proxy_P2_trusted] 执行完整性守卫：proxy_P2_trusted 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G46 [integrity_proxy_P3_forged] 执行完整性守卫：proxy_P3_forged 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G47 [integrity_deferred_validator] 执行完整性守卫：deferred_validator 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+G48 [integrity_deferred_internal] 执行完整性守卫：deferred_internal 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。
+
 ## 权威契约原文（完整）
 # product/sso2 契约 v2：仅外部工作台门户 HTTP 全子路径与 WS 会话门
 

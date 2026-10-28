@@ -1,0 +1,66 @@
+{
+  "contract_version": "1.1",
+  "run_id": "run_341d9adcc484580c",
+  "spec_id": "guard_scope_target-ok-other-error",
+  "started": "2026-10-28T21:35:19.868Z",
+  "finished": "2026-10-28T21:35:19.869Z",
+  "verifier": {
+    "mode": "open",
+    "engine_version": "0.1.0",
+    "spec_version": 1,
+    "corpus_version": "mechanism-only",
+    "sealed_review": false
+  },
+  "as_of": {
+    "kind": "snapshot",
+    "value": "2026-10-29T00:00:00.000Z"
+  },
+  "summary": {
+    "pass": 1,
+    "fail": 0,
+    "needs_material": 0,
+    "error": 0
+  },
+  "overall": "PASS",
+  "reason": "all 1 assert units passed",
+  "vu": [
+    {
+      "id": "G00",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "G00 [integrity_boot] 执行完整性守卫：boot 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 1,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "sso2_execution_integrity",
+            "rows": 2
+          }
+        ],
+        "schema_fingerprint": "sha256:addfbd78f661bfe25c203aaecc4e9c94b6c3a00fd6b89d61e6524429b0abf00e"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT probe_id, status, error_kind, error_code, exit_code, business_verdict, evidence_json FROM sso2_execution_integrity WHERE ((probe_id = 'boot') AND status = 'ERROR')",
+          "scopeSql": "SELECT count(*) AS n FROM sso2_execution_integrity WHERE (probe_id = 'boot')"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    }
+  ],
+  "exceptions": [],
+  "artifacts": {
+    "attachment_sha256": []
+  },
+  "payload_sha256": "sha256:11072e77f9df899b362dedb9c40591ef452f6cfbca49172f3e27c0952dfafc1b"
+}

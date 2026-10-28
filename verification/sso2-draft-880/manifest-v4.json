@@ -1,0 +1,245 @@
+{
+  "version": "integrity-v4",
+  "parent": "9dcec766a5485fb75fb56ec3724b020a6da6bf73",
+  "target": "d90f81abca809a48a893544d0bdd4c409be78526",
+  "state": "NOT_FREEZE_READY",
+  "created_at": "2026-10-28T21:36:15.985Z",
+  "scope": {
+    "business_and_deferred": 49,
+    "execution_integrity_guards": 49,
+    "total_candidates": 98
+  },
+  "mechanisms": {
+    "classifier": 24,
+    "actual_engine_error_records": 238,
+    "product_runs": 0,
+    "lint": {
+      "checked": 98,
+      "p1_skipped": false,
+      "schema_skipped": false,
+      "ok": true,
+      "issues": [],
+      "coverage": {
+        "pattern": "^([A-Z]+[0-9]+) ",
+        "enforced": true,
+        "clauses": 98,
+        "covered": 98,
+        "exempted": 0,
+        "uncovered": [],
+        "problems": []
+      },
+      "coverage_skipped": false
+    }
+  },
+  "remaining": [
+    "trusted non-author receipt resolver not implemented; actual context receipts empty",
+    "47 unit complete control lists pending independent approval",
+    "registration prerequisite absent; no business evidence rerun",
+    "construct/selfcheck/meta/new frozen spec absent"
+  ],
+  "files": [
+    {
+      "relative": "build-draft.mjs",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/build-draft.mjs",
+      "bytes": 11733,
+      "sha256": "79b7a7c6e2d9637616666b01efe3deb5bb59b55c4c79a64940395c97b059085e",
+      "git_blob": "9f269ad3cec052794e3401848ee24883d6db4b38"
+    },
+    {
+      "relative": "material.md",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/material.md",
+      "bytes": 42583,
+      "sha256": "e6bd82906c75e6a2d01fb185ba61685d0e6b17ebe43944bee018157e5f8d4158",
+      "git_blob": "117d998963e7de77b5df6ea6ec9f7b11b0472ceb"
+    },
+    {
+      "relative": "candidates.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/candidates.json",
+      "bytes": 121229,
+      "sha256": "5e7bccf58feff8ba15f6818d8e9473866242d2b7e59fd11f1adc86fa9936400b",
+      "git_blob": "871d4e1b35139a58f70758089272ac3f8c5521e5"
+    },
+    {
+      "relative": "coverage.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/coverage.json",
+      "bytes": 26828,
+      "sha256": "0697ff9a7a03ab9da478705767200cb9326bb101d630bd5e4b553b141c555fd9",
+      "git_blob": "4da136e693134aa6e014d56b29da0f9952dab22d"
+    },
+    {
+      "relative": "run-unit.mjs",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/run-unit.mjs",
+      "bytes": 3404,
+      "sha256": "68cca3502c0f0d65feb6750cb2cd30989ef3d84a0ce1f82b4295e20aa75725db",
+      "git_blob": "7f74675307884ef9b5abe5b47222b927654bf057"
+    },
+    {
+      "relative": "execution.mjs",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/execution.mjs",
+      "bytes": 19057,
+      "sha256": "8107999c6780be4035f7a69f9f9a12e28f76ee07a5821cd264c2441dc7f62bd2",
+      "git_blob": "f337c0bd20a35b22556f84dcbe496a4d8af01d0a"
+    },
+    {
+      "relative": "completion-policy.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/completion-policy.json",
+      "bytes": 28443,
+      "sha256": "20b2e738c97cc843782980affa32f50c4f16e8a188d6bbd99740c18996fbb883",
+      "git_blob": "c0141dfef6c8f15223095bb9a8a02a7620ccb68e"
+    },
+    {
+      "relative": "observation-pack.mjs",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/observation-pack.mjs",
+      "bytes": 1675,
+      "sha256": "c1e4608892c7f775ecb22974769c79870a770a9b8f97474783cb545bbc30f5df",
+      "git_blob": "ed43615ce98c36debc29ea04d1880d23ce4a7b14"
+    },
+    {
+      "relative": "package-execution.mjs",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/package-execution.mjs",
+      "bytes": 4966,
+      "sha256": "c9f52b018e057e4ee8bad00542f51fad101476b7e76bf7ab53751612c71da5ee",
+      "git_blob": "f573440b1a05d2c34f480228dcdf56c085e2ecb6"
+    },
+    {
+      "relative": "run-unit-v4-selftest.mjs",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/run-unit-v4-selftest.mjs",
+      "bytes": 4179,
+      "sha256": "3f7908bff1b81b55cf3548a7416c829538da0d6f56283dcf05b318971d38c65d",
+      "git_blob": "84858d72dfdbd6a59bab446f0483a1439b7fa6d1"
+    },
+    {
+      "relative": "run-unit-v4-selftest.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/run-unit-v4-selftest.json",
+      "bytes": 13634,
+      "sha256": "94ba408e9b17b537ca5704c20be5cdfdc92d077137da0793b41a4f246f66e4f7",
+      "git_blob": "fa484f2f95814aedf4cb2dca4ab7741d4d93561a"
+    },
+    {
+      "relative": "error-guard-selftest.mjs",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/error-guard-selftest.mjs",
+      "bytes": 6769,
+      "sha256": "68984e21915df3980ad95a445229d07961b2342449c5d34d7c1f86bb3ea1e2c0",
+      "git_blob": "decc9c0a33c8a3a15e5a7afefa87bcc31496204e"
+    },
+    {
+      "relative": "error-guard-report.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/error-guard-report.json",
+      "bytes": 222249,
+      "sha256": "020ab477017c98f577ec25833cfbdda9f99ccadcdc06e8a85f17cba23f1c3c9b",
+      "git_blob": "5c708ce3ee465c5ed7c129441c51fc9c0b61f446"
+    },
+    {
+      "relative": "lint-v4.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/lint-v4.json",
+      "bytes": 230,
+      "sha256": "2007709ae3a7efd2c87e08eba8682910410950afff252d0ea1ff05cab64321b0",
+      "git_blob": "5896a3863f6ee01c28c580b010198655891bae44"
+    },
+    {
+      "relative": "CORRECTION-v4.md",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/CORRECTION-v4.md",
+      "bytes": 2542,
+      "sha256": "5bffceb938806bc1b2fc28b5c4d2b9b942da71b24a9927acf21c673bd120342b",
+      "git_blob": "332909631b43abe5ba7a11d505d286dd8c2c063b"
+    },
+    {
+      "relative": "scan-engine-selftest.mjs",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/scan-engine-selftest.mjs",
+      "bytes": 5325,
+      "sha256": "8b1506d5bde088dde3a9761dc1ecb16a3baad1cf02c3e184709fdfaa171266f4",
+      "git_blob": "e434dd73cb745c1ace3391c1c490b44171e73fe6"
+    },
+    {
+      "relative": "error-guard-tests/explicit-missing-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/error-guard-tests/explicit-missing-engine.json",
+      "bytes": 123651,
+      "sha256": "87def919eeadf12821cfee87d816f8bcad5c9d028bc4e6bb11c14e7b4b2943e4",
+      "git_blob": "83658109886cf06e76caa0bb344e3fee53d45d2a"
+    },
+    {
+      "relative": "error-guard-tests/explicit-missing-raw.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/error-guard-tests/explicit-missing-raw.json",
+      "bytes": 11466,
+      "sha256": "3f45744e2dee3e4ace5c070d8d79527243e13838eb602180abd6facf4679cc70",
+      "git_blob": "1b4e372628a81ca85ffb88f8589b0a65495c1a4e"
+    },
+    {
+      "relative": "error-guard-tests/failed-then-crash-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/error-guard-tests/failed-then-crash-engine.json",
+      "bytes": 160221,
+      "sha256": "c969cf847b190c220dbea24a474198f6f04abfc14193ab8276bd3367b92a5156",
+      "git_blob": "e0beed66e9f0a737255fbf37fd7434063cd1d014"
+    },
+    {
+      "relative": "error-guard-tests/failed-then-crash-raw.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/error-guard-tests/failed-then-crash-raw.json",
+      "bytes": 22888,
+      "sha256": "eda980f0f33c7af1115a8021273ebb5997c703fe8227fb9220508291a4f10610",
+      "git_blob": "1c37087521b77a81bd79c99a655d15f62ddee858"
+    },
+    {
+      "relative": "error-guard-tests/failed-then-return-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/error-guard-tests/failed-then-return-engine.json",
+      "bytes": 128011,
+      "sha256": "f57f22b06f9b4f73daebda05c6d32f02c4b0ecb72d2f1c2539111b2984f9fff6",
+      "git_blob": "b41965cda2d8dcb768c9eb89783e76960bcdf15d"
+    },
+    {
+      "relative": "error-guard-tests/failed-then-return-raw.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/error-guard-tests/failed-then-return-raw.json",
+      "bytes": 17061,
+      "sha256": "52d81a4996b82960a06cc0315dfe2ab56d89d46dc1a7a4a94c161e53dfbf239a",
+      "git_blob": "acfcf9164b316a5526382793c0e56cb317902b61"
+    },
+    {
+      "relative": "error-guard-tests/network-rc-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/error-guard-tests/network-rc-engine.json",
+      "bytes": 158052,
+      "sha256": "e12441bf178ef82d897f365b353ad6c91b6d2269cb4a3dbfa8f6116645e5a04d",
+      "git_blob": "1d3ea7d52a7dcd18f7f23ecf4c637ddbdd877d41"
+    },
+    {
+      "relative": "error-guard-tests/network-rc-raw.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/error-guard-tests/network-rc-raw.json",
+      "bytes": 16207,
+      "sha256": "6a6ad235cd7bdf623f5e37832ec759823d1b80015808b30fab3709cbd601b34a",
+      "git_blob": "25998ae6ddfea1ab98025c557bafbebbba227a5b"
+    },
+    {
+      "relative": "error-guard-tests/other-error-only-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/error-guard-tests/other-error-only-engine.json",
+      "bytes": 2111,
+      "sha256": "dfa93b87f00e3aa4777488e257cf52f5d9c404effd894a350cb5f634c0f5cf82",
+      "git_blob": "d4aeb0ef9f000b42a5f8849c2363a0bf4dd76812"
+    },
+    {
+      "relative": "error-guard-tests/target-error-other-ok-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/error-guard-tests/target-error-other-ok-engine.json",
+      "bytes": 2355,
+      "sha256": "28f6d7b52af5cef99687c307793ffa082c9dca79b43ee88caab08bf7a5dc79cc",
+      "git_blob": "3efaeb9bdd43e53b749054f89393d8af51c88d50"
+    },
+    {
+      "relative": "error-guard-tests/target-ok-other-error-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/error-guard-tests/target-ok-other-error-engine.json",
+      "bytes": 1975,
+      "sha256": "09eb1769d4e4cb27a5dc46a13502fccdb9171c83f9bc69f52815de21ead53a38",
+      "git_blob": "3f871f73087f41b6f04d7f5c1c1c2f7d6927cbc5"
+    },
+    {
+      "relative": "error-guard-tests/typeerror-engine.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/error-guard-tests/typeerror-engine.json",
+      "bytes": 157346,
+      "sha256": "c8a03176ad4cc9087d8ca253b766934be683f21cd5155e555309bd2dc0d88bbc",
+      "git_blob": "d7a5667ef824d40ed81ac74ba4a393e8776b6116"
+    },
+    {
+      "relative": "error-guard-tests/typeerror-raw.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-draft-880/error-guard-tests/typeerror-raw.json",
+      "bytes": 15971,
+      "sha256": "abc969eb4b25613691dfe21049d50cf4308f57d9a8ac402b2fe697e63162fafd",
+      "git_blob": "fe6b52c8f8e8a1359ec28cb5c49810ec906198a9"
+    }
+  ]
+}

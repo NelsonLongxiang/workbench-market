@@ -1,0 +1,564 @@
+{
+  "mechanism_only": true,
+  "synthetic_approval_receipts": true,
+  "real_review_approvals": 0,
+  "exit_code": 0,
+  "records": [
+    {
+      "name": "valid synthetic nonauthor receipt",
+      "expected": {
+        "status": "PASS",
+        "value": 1
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": 1,
+        "status": "PASS",
+        "assertions": [
+          {
+            "ok": true,
+            "name": "a"
+          },
+          {
+            "ok": true,
+            "name": "b"
+          }
+        ],
+        "completion": {
+          "declared": true,
+          "required_controls": [
+            "a",
+            "b"
+          ],
+          "approval": {
+            "probe_id": "synthetic",
+            "author": "author-role",
+            "approver": "review-role",
+            "evidence": "synthetic:receipt",
+            "verification": "VERIFIED_NONAUTHOR",
+            "controls_sha256": "0473ef2dc0d324ab659d3580c1134e9d812035905c4781fdd6d529b0c6860e13",
+            "target_sha": "synthetic-target",
+            "source_sha256": "synthetic-source"
+          }
+        }
+      }
+    },
+    {
+      "name": "swallowed failure same name",
+      "expected": {
+        "status": "FAIL",
+        "value": 0
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": 0,
+        "status": "FAIL",
+        "assertions": [
+          {
+            "ok": false,
+            "name": "a"
+          },
+          {
+            "ok": true,
+            "name": "a"
+          },
+          {
+            "ok": true,
+            "name": "b"
+          }
+        ],
+        "error": "latched assertion failure (including swallowed assertion)",
+        "error_kind": "assertion"
+      }
+    },
+    {
+      "name": "swallowed failure then MissingFixture",
+      "expected": {
+        "status": "FAIL",
+        "value": 0
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": 0,
+        "status": "FAIL",
+        "assertions": [
+          {
+            "ok": false,
+            "name": "a"
+          }
+        ],
+        "error": "latched assertion failure (including swallowed assertion)",
+        "error_kind": "assertion",
+        "dependency_error": {
+          "message": "later missing",
+          "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+        }
+      }
+    },
+    {
+      "name": "swallowed failure then TypeError",
+      "expected": {
+        "status": "ERROR",
+        "value": null
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": null,
+        "status": "ERROR",
+        "business_verdict": "FAIL",
+        "assertions": [
+          {
+            "ok": false,
+            "name": "a"
+          }
+        ],
+        "latched_failed_assertions": [
+          {
+            "ok": false,
+            "name": "a"
+          }
+        ],
+        "error": "later bug",
+        "error_code": null,
+        "exit_code": null,
+        "error_kind": "probe-or-infrastructure-error"
+      }
+    },
+    {
+      "name": "swallowed failure no policy",
+      "expected": {
+        "status": "FAIL",
+        "value": 0
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": 0,
+        "status": "FAIL",
+        "assertions": [
+          {
+            "ok": false,
+            "name": "a"
+          }
+        ],
+        "error": "latched assertion failure (including swallowed assertion)",
+        "error_kind": "assertion"
+      }
+    },
+    {
+      "name": "swallowed failure no completion",
+      "expected": {
+        "status": "FAIL",
+        "value": 0
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": 0,
+        "status": "FAIL",
+        "assertions": [
+          {
+            "ok": false,
+            "name": "a"
+          }
+        ],
+        "error": "latched assertion failure (including swallowed assertion)",
+        "error_kind": "assertion"
+      }
+    },
+    {
+      "name": "author self approval",
+      "expected": {
+        "status": "NEEDS-MATERIAL",
+        "value": null
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": null,
+        "status": "NEEDS-MATERIAL",
+        "assertions": [
+          {
+            "ok": true,
+            "name": "a"
+          },
+          {
+            "ok": true,
+            "name": "b"
+          }
+        ],
+        "error": "self approval or inconsistent author identity rejected",
+        "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+      }
+    },
+    {
+      "name": "author case whitespace bypass",
+      "expected": {
+        "status": "NEEDS-MATERIAL",
+        "value": null
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": null,
+        "status": "NEEDS-MATERIAL",
+        "assertions": [
+          {
+            "ok": true,
+            "name": "a"
+          },
+          {
+            "ok": true,
+            "name": "b"
+          }
+        ],
+        "error": "self approval or inconsistent author identity rejected",
+        "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+      }
+    },
+    {
+      "name": "missing approver",
+      "expected": {
+        "status": "NEEDS-MATERIAL",
+        "value": null
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": null,
+        "status": "NEEDS-MATERIAL",
+        "assertions": [
+          {
+            "ok": true,
+            "name": "a"
+          },
+          {
+            "ok": true,
+            "name": "b"
+          }
+        ],
+        "error": "self approval or inconsistent author identity rejected",
+        "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+      }
+    },
+    {
+      "name": "policy-only evidence not trusted",
+      "expected": {
+        "status": "NEEDS-MATERIAL",
+        "value": null
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": null,
+        "status": "NEEDS-MATERIAL",
+        "assertions": [
+          {
+            "ok": true,
+            "name": "a"
+          },
+          {
+            "ok": true,
+            "name": "b"
+          }
+        ],
+        "error": "approval reference unverified or not bound to current source/target/controls",
+        "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+      }
+    },
+    {
+      "name": "missing author",
+      "expected": {
+        "status": "NEEDS-MATERIAL",
+        "value": null
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": null,
+        "status": "NEEDS-MATERIAL",
+        "assertions": [
+          {
+            "ok": true,
+            "name": "a"
+          },
+          {
+            "ok": true,
+            "name": "b"
+          }
+        ],
+        "error": "self approval or inconsistent author identity rejected",
+        "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+      }
+    },
+    {
+      "name": "missing evidence",
+      "expected": {
+        "status": "NEEDS-MATERIAL",
+        "value": null
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": null,
+        "status": "NEEDS-MATERIAL",
+        "assertions": [
+          {
+            "ok": true,
+            "name": "a"
+          },
+          {
+            "ok": true,
+            "name": "b"
+          }
+        ],
+        "error": "approval reference unverified or not bound to current source/target/controls",
+        "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+      }
+    },
+    {
+      "name": "fake evidence",
+      "expected": {
+        "status": "NEEDS-MATERIAL",
+        "value": null
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": null,
+        "status": "NEEDS-MATERIAL",
+        "assertions": [
+          {
+            "ok": true,
+            "name": "a"
+          },
+          {
+            "ok": true,
+            "name": "b"
+          }
+        ],
+        "error": "approval reference unverified or not bound to current source/target/controls",
+        "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+      }
+    },
+    {
+      "name": "wrong probe binding",
+      "expected": {
+        "status": "NEEDS-MATERIAL",
+        "value": null
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": null,
+        "status": "NEEDS-MATERIAL",
+        "assertions": [
+          {
+            "ok": true,
+            "name": "a"
+          },
+          {
+            "ok": true,
+            "name": "b"
+          }
+        ],
+        "error": "non-author approved subcontrol manifest missing",
+        "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+      }
+    },
+    {
+      "name": "source hash changed",
+      "expected": {
+        "status": "NEEDS-MATERIAL",
+        "value": null
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": null,
+        "status": "NEEDS-MATERIAL",
+        "assertions": [
+          {
+            "ok": true,
+            "name": "a"
+          },
+          {
+            "ok": true,
+            "name": "b"
+          }
+        ],
+        "error": "approval reference unverified or not bound to current source/target/controls",
+        "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+      }
+    },
+    {
+      "name": "target hash changed",
+      "expected": {
+        "status": "NEEDS-MATERIAL",
+        "value": null
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": null,
+        "status": "NEEDS-MATERIAL",
+        "assertions": [
+          {
+            "ok": true,
+            "name": "a"
+          },
+          {
+            "ok": true,
+            "name": "b"
+          }
+        ],
+        "error": "approval reference unverified or not bound to current source/target/controls",
+        "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+      }
+    },
+    {
+      "name": "controls changed",
+      "expected": {
+        "status": "NEEDS-MATERIAL",
+        "value": null
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": null,
+        "status": "NEEDS-MATERIAL",
+        "assertions": [
+          {
+            "ok": true,
+            "name": "a"
+          },
+          {
+            "ok": true,
+            "name": "b"
+          }
+        ],
+        "error": "approval reference unverified or not bound to current source/target/controls",
+        "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+      }
+    },
+    {
+      "name": "ordinary partial controls",
+      "expected": {
+        "status": "NEEDS-MATERIAL",
+        "value": null
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": null,
+        "status": "NEEDS-MATERIAL",
+        "assertions": [
+          {
+            "ok": true,
+            "name": "a"
+          }
+        ],
+        "error": "incomplete controls: b; completion marker=true",
+        "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+      }
+    },
+    {
+      "name": "missing completion",
+      "expected": {
+        "status": "NEEDS-MATERIAL",
+        "value": null
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": null,
+        "status": "NEEDS-MATERIAL",
+        "assertions": [
+          {
+            "ok": true,
+            "name": "a"
+          },
+          {
+            "ok": true,
+            "name": "b"
+          }
+        ],
+        "error": "incomplete controls: ; completion marker=false",
+        "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+      }
+    },
+    {
+      "name": "zero assertions",
+      "expected": {
+        "status": "NEEDS-MATERIAL",
+        "value": null
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": null,
+        "status": "NEEDS-MATERIAL",
+        "assertions": [],
+        "error": "zero assertions; no observed controls",
+        "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+      }
+    },
+    {
+      "name": "plain assertion",
+      "expected": {
+        "status": "FAIL",
+        "value": 0
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": 0,
+        "status": "FAIL",
+        "assertions": [
+          {
+            "ok": false,
+            "name": "a"
+          }
+        ],
+        "error": "a",
+        "error_kind": "assertion"
+      }
+    },
+    {
+      "name": "explicit missing",
+      "expected": {
+        "status": "NEEDS-MATERIAL",
+        "value": null
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": null,
+        "status": "NEEDS-MATERIAL",
+        "assertions": [],
+        "error": "register404",
+        "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+      }
+    },
+    {
+      "name": "TypeError classified ERROR",
+      "expected": {
+        "status": "ERROR",
+        "value": null
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": null,
+        "status": "ERROR",
+        "business_verdict": "NOT_EVALUATED",
+        "assertions": [],
+        "latched_failed_assertions": [],
+        "error": "probe bug",
+        "error_code": null,
+        "exit_code": null,
+        "error_kind": "probe-or-infrastructure-error"
+      }
+    },
+    {
+      "name": "network and rc retained",
+      "expected": {
+        "status": "ERROR",
+        "value": null
+      },
+      "actual": {
+        "id": "synthetic",
+        "value": null,
+        "status": "ERROR",
+        "business_verdict": "NOT_EVALUATED",
+        "assertions": [],
+        "latched_failed_assertions": [],
+        "error": "refused",
+        "error_code": "ECONNREFUSED",
+        "exit_code": 17,
+        "error_kind": "probe-or-infrastructure-error"
+      }
+    }
+  ]
+}
