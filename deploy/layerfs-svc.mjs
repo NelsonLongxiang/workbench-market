@@ -185,12 +185,14 @@ const server = createServer(async (req, res) => {
     if (req.method === 'DELETE' && m) {
       const proj = decodeURIComponent(m[1]);
       const c = clients.get(proj); if (c) { await c.close(); clients.delete(proj); }
+      for (const d of [homeDir + '/' + proj, storeRoot + '/sources/' + proj]) { try { rmSync(d, { recursive: true, force: true }); } catch { } } // 裁决 #021·X9
       sidecar.prepare('BEGIN').run();
       sidecar.prepare("DELETE FROM commits WHERE project = ?").run(proj);
       sidecar.prepare("DELETE FROM branches WHERE project = ?").run(proj);
       sidecar.prepare("DELETE FROM merged WHERE project = ?").run(proj);
       sidecar.prepare('COMMIT').run();
-      return json(res, 200, { removed: true }); // 真删项目=runtime.remove 归宿主面（X9 由 compose 卷联动验）
+      const volGone = await dropVolume(proj); // 裁决 #021：卷随台走
+      return json(res, 200, { removed: true, volume_removed: volGone });
     }
     m = /^\/v1\/projects\/([^/]+)\/branches\/([^/]+)\/commits\/([^/]+)\/export$/.exec(url);
     if (req.method === 'GET' && m) return json(res, 501, { error: 'export=S3 预留（契约 v1 §2）' });
