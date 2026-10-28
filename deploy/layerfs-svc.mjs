@@ -3,6 +3,7 @@
  *  与替身的区别：内容真写进 LayerFS 分支（Store 卷持久·重启内容在）+ 契约形读面由
  *  适配器侧车（wm-adapter.sqlite·同卷）承载 commit→文件集映射；不 import 替身。 */
 import { createServer } from 'node:http';
+import { mkdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { randomBytes } from 'node:crypto';
 
@@ -18,6 +19,7 @@ console.log('[layerfs-svc] agent entry:', usedEntry);
 
 const token = process.env.LAYERFS_SERVICE_TOKEN ?? 'lfs-token';
 const storeRoot = process.env.LAYERFS_STORE_ROOT ?? '/var/lib/layerfs';
+for (const d of ['projects', 'stores', 'home', 'global']) { try { mkdirSync(`${storeRoot}/${d}`, { recursive: true }); } catch { /* 卷只读面降级 */ } } // #215：目录装配实证必设（私有性 chmod 700 归部署卷面）
 process.env.LAYERFS_HOME = process.env.LAYERFS_HOME ?? `${storeRoot}/home`; // #215：实证必设（私有性 chmod 700 归部署面）
 const sidecar = new DatabaseSync(`${storeRoot}/wm-adapter.sqlite`);
 sidecar.exec('CREATE TABLE IF NOT EXISTS commits (id TEXT PRIMARY KEY, project TEXT NOT NULL, branch TEXT NOT NULL, files TEXT NOT NULL, message TEXT DEFAULT \'\', at TEXT DEFAULT (datetime(\'now\')))');
