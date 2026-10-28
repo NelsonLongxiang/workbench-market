@@ -3,7 +3,7 @@
  *  与替身的区别：内容真写进 LayerFS 分支（Store 卷持久·重启内容在）+ 契约形读面由
  *  适配器侧车（wm-adapter.sqlite·同卷）承载 commit→文件集映射；不 import 替身。 */
 import { createServer } from 'node:http';
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { randomBytes } from 'node:crypto';
 
@@ -27,6 +27,30 @@ for (const d of [`${storeRoot}/sources`, `${storeRoot}/projects`, homeDir, `${ho
   try { mkdirSync(d, { recursive: true, mode: 0o755 }); } catch { /* 卷面降级 */ }
 }
 try { chmodSync(homeDir, 0o700); } catch { /* ACL 归部署 */ }
+// 裁决 #021：每台一 docker 卷（label layerfs.role=store·删台卷随走）——经 /var/run/docker.sock HTTP API
+const DOCKER_SOCK = '/var/run/docker.sock';
+const VOLUMES_DIR = process.env.LAYERFS_VOLUMES_DIR ?? '/var/lib/docker/volumes'; // compose 已 rw 挂
+function dockerCall(method, path, body) {
+  
+  return new Promise((resolve) => {
+    const data = body ? JSON.stringify(body) : null;
+    const req = http.request({ socketPath: DOCKER_SOCK, method, path, headers: data ? { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(data)) } : {}, timeout: 4000 }, (res) => { let b = ''; res.on('data', (c) => (b += c)); res.on('end', () => { let j = null; try { j = JSON.parse(b); } catch {} resolve({ status: res.statusCode, body: j }); }); });
+    req.on('error', () => resolve({ status: 0, body: null }));
+    if (data) req.write(data);
+    req.end();
+  });
+}
+const volName = (project) => 'wm-' + project + '-store';
+async function ensureVolume(project) {
+  const r = await dockerCall('POST', '/v1.41/volumes/create', { Name: volName(project), Labels: { 'layerfs.role': 'store', 'layerfs.project': project } });
+  if (r.status === 0) return VOLUMES_DIR + '/' + volName(project) + '/_data'; // 无 socket 面：目录模式（X7 形差告警）
+  return VOLUMES_DIR + '/' + volName(project) + '/_data';
+}
+async function dropVolume(project) {
+  const r = await dockerCall('DELETE', '/v1.41/volumes/' + volName(project));
+  return r.status === 204 || r.status === 404;
+}
+
 // 侧车（契约形读面·同卷持久）
 const sidecar = new DatabaseSync(`${storeRoot}/wm-adapter.sqlite`);
 sidecar.exec('CREATE TABLE IF NOT EXISTS commits (id TEXT PRIMARY KEY, project TEXT NOT NULL, branch TEXT NOT NULL, files TEXT NOT NULL, message TEXT DEFAULT \'\', at TEXT DEFAULT (datetime(\'now\')))')
@@ -38,22 +62,25 @@ process.env.LAYERFS_STORE_PATH = process.env.LAYERFS_STORE_PATH ?? `${homeDir}/g
 const clients = new Map(); // R8：一进程一份 agent·一项目一 client（共享全局 store）
 async function clientOf(project) {
   if (clients.has(project)) return clients.get(project);
-  // init 的 source=纯空目录（agent.md：绝对路径·无 dot 组件·无 symlink/setuid·读取期不变——空目录全满足）
-  const srcDir = `${storeRoot}/sources/${project}`;
-  try { mkdirSync(srcDir, { recursive: true, mode: 0o755 }); } catch { /* 已在 */ }
+    // 裁决 #021：每项目一卷·storePath 指卷内 global（SDK 创建时读 env·进程内多项目切换安全）
+  const dataDir = await ensureVolume(project);
+  const storeDir = dataDir + '/global';
+  try { mkdirSync(storeDir, { recursive: true, mode: 0o755 }); } catch { /* 已在 */ }
+  process.env.LAYERFS_STORE_PATH = storeDir + '/store.sqlite';
   let c;
   try { c = await LayerFS.open(project); }
   catch {
-    try { c = await LayerFS.init(project, srcDir); } // 首建：sealed→install→条目
+    try { c = await LayerFS.init(project, srcDir); }
     catch (initErr) {
       const m2 = String(initErr?.message ?? initErr);
-      if (/already initialized|Exists/i.test(m2)) c = await LayerFS.open(project); // 竞态/复启后再开
+      if (/already initialized|Exists/i.test(m2)) c = await LayerFS.open(project);
       else throw initErr;
     }
   }
   clients.set(project, c);
   return c;
 }
+
 
 const json = (res, code, body) => { const s = JSON.stringify(body); res.writeHead(code, { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(s)) }); res.end(s); };
 const readBody = (req) => new Promise((r) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => { try { r(JSON.parse(b || '{}')); } catch { r({}); } }); });
