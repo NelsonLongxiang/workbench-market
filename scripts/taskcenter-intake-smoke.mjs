@@ -6,6 +6,7 @@ import { once } from 'node:events';
 import { mkdirSync, mkdtempSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
 mkdirSync('tmp', {recursive:true});
 const data=mkdtempSync(resolve('tmp','tc-intake-'));
 const port=21000+Math.floor(Math.random()*20000);
@@ -45,6 +46,9 @@ try{
  const task=await (await fetch(base+'/api/task-center/tasks/'+pub.j.id)).json();
  check('C19 pinned run/template',()=>{assert.equal(task.intake_run_id,id);assert.equal(task.template_version,template.version);});
  check('C2 canonical run hash',()=>assert.equal(task.material_sha256,createHash('sha256').update(canonical(values)).digest('hex')));
+ check('C6 task switch defaults off',()=>{assert.equal(task.agent_dispatch,false);assert.equal(task.agent_dispatch_effective,false);});
+ const policy=await (await fetch(base+'/api/task-center/policy')).json();
+ check('C7 center policy defaults off',()=>assert.equal(policy.agent_dispatch_enabled,false));
  const dup=await call('/api/task-center/tasks',{intake_run_id:id,published_by:'fixture'});
  check('C4 same run conflicts409',()=>assert.equal(dup.status,409));
  const frozen=await call('/api/sop/runs/'+id,{stepKey:'title',value:'changed'},'PUT');
@@ -80,9 +84,55 @@ try{
  const shapedTask=await (await fetch(base+'/api/task-center/tasks/'+shaped.j.id)).json();
  check('Runner field object produces actual title',()=>{assert.equal(shaped.status,201);assert.equal(shapedTask.title,'Runner title');});
  check('C18 seed versions have changelog',()=>assert.ok(initial.versions.every(v=>v.changelog)));
+ for(const [path,body,method] of [
+   ['/api/task-center/tasks/'+pub.j.id+'/agent-dispatch',{enabled:true},'PATCH'],
+   ['/api/task-center/policy',{agent_dispatch_enabled:true},'PUT'],
+   ['/api/task-center/tasks/'+pub.j.id+'/withdraw',{},'POST'],
+ ]) {
+   const denied=await call(path,body,method,{'X-Admin-Token':''});
+   check('C11 human-only '+path.split('/').at(-1),()=>assert.ok([401,403].includes(denied.status)));
+ }
+ const on=await call('/api/task-center/tasks/'+pub.j.id+'/agent-dispatch',{enabled:true},'PATCH');
+ check('C8 task on center off is ineffective',()=>{assert.equal(on.status,200);assert.equal(on.j.agent_dispatch,true);assert.equal(on.j.agent_dispatch_effective,false);});
+ const both=await call('/api/task-center/policy',{agent_dispatch_enabled:true},'PUT');
+ const bothTask=await (await fetch(base+'/api/task-center/tasks/'+pub.j.id)).json();
+ check('both locks on effective',()=>{assert.equal(both.status,200);assert.equal(bothTask.agent_dispatch_effective,true);assert.equal(bothTask.events.length,2);});
+ await call('/api/task-center/tasks/'+pub.j.id+'/agent-dispatch',{enabled:true},'PATCH');
+ const unchanged=await (await fetch(base+'/api/task-center/tasks/'+pub.j.id)).json();
+ check('idempotent same switch does not create event',()=>assert.equal(unchanged.events.length,2));
+ await call('/api/task-center/policy',{agent_dispatch_enabled:false},'PUT');
+ const centerOff=await (await fetch(base+'/api/task-center/tasks/'+pub.j.id)).json();
+ check('center off kills effective without task event',()=>{assert.equal(centerOff.agent_dispatch_effective,false);assert.equal(centerOff.events.length,2);});
+ const invalidPolicy=await call('/api/task-center/policy',{agent_dispatch_enabled:'true'},'PUT');
+ check('invalid policy boolean rejected400',()=>assert.equal(invalidPolicy.status,400));
+ await call('/api/task-center/tasks/'+pub.j.id+'/withdraw',{});
+ const withdrawn=await (await fetch(base+'/api/task-center/tasks/'+pub.j.id)).json();
+ check('C20 publish/toggle/withdraw exactly one event each',()=>{assert.equal(withdrawn.status,'withdrawn');assert.equal(withdrawn.events.length,3);assert.deepEqual(withdrawn.events.map(e=>e.action),['published','toggled','withdrawn']);});
+ check('C21 all human actors',()=>assert.ok(withdrawn.events.every(e=>e.actor.startsWith('human:'))));
+ const eid=withdrawn.events[0].id;
+ await call('/api/task-center/tasks/'+pub.j.id+'/events/'+eid,{actor:'tamper'},'PUT');
+ await call('/api/task-center/tasks/'+pub.j.id+'/events/'+eid,{},'DELETE');
+ const afterTamper=await (await fetch(base+'/api/task-center/tasks/'+pub.j.id)).json();
+ check('C22 event mutation routes do not alter log',()=>assert.deepEqual(afterTamper.events,withdrawn.events));
+ const blockedToggle=await call('/api/task-center/tasks/'+pub.j.id+'/agent-dispatch',{enabled:false},'PATCH');
+ check('withdrawn switch rejected',()=>assert.equal(blockedToggle.status,409));
+ await call('/api/task-center/policy',{agent_dispatch_enabled:true},'PUT');
+ const withdrawnEffective=await (await fetch(base+'/api/task-center/tasks/'+pub.j.id)).json();
+ check('withdrawn task never effective even with both flags',()=>assert.equal(withdrawnEffective.agent_dispatch_effective,false));
+ const explicit=await intake();await call('/api/sop/runs/'+explicit+'/finish',{});
+ const explicitTask=await call('/api/task-center/tasks',{intake_run_id:explicit,published_by:'fixture',agent_dispatch:true});
+ const optIn=await (await fetch(base+'/api/task-center/tasks/'+explicitTask.j.id)).json();
+ check('explicit human publication opt-in retained',()=>{assert.equal(optIn.agent_dispatch,true);assert.equal(optIn.agent_dispatch_effective,true);});
+ const dbConn=new DatabaseSync(resolve(data,'workbench-market.db'));
+ try {
+   check('DB event UPDATE trigger blocks',()=>assert.throws(()=>dbConn.prepare('UPDATE task_events SET actor=? WHERE id=?').run('tamper',eid),/append only/));
+   check('DB event DELETE trigger blocks',()=>assert.throws(()=>dbConn.prepare('DELETE FROM task_events WHERE id=?').run(eid),/append only/));
+ }finally {dbConn.close();}
  const after=await (await fetch(base+'/api/apps/task-center')).json();
  check('C16 rejected mutation preserves seed',()=>{assert.equal(after.active_version,initial.active_version);assert.equal(after.versions.length,initial.versions.length);assert.equal(after.status,initial.status);});
  await stop();await start();
+ const persistedPolicy=await (await fetch(base+'/api/task-center/policy')).json();
+ check('center policy survives restart',()=>assert.equal(persistedPolicy.agent_dispatch_enabled,true));
  const reboot=await (await fetch(base+'/api/apps/task-center')).json();
  check('restart seed idempotent/persistent',()=>{assert.equal(reboot.versions.length,initial.versions.length);assert.equal(reboot.active_version,initial.active_version);});
  console.log('Taskcenter B1 '+pass+'/'+pass+'; independent frozen-spec verification still required; DATA_DIR='+data);
