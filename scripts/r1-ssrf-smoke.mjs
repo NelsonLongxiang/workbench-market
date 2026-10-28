@@ -1,37 +1,55 @@
 #!/usr/bin/env node
-/** R1 冒烟：①公网 8.8.8.8 默认拒 ②豁免模式可过+警告日志 ③内网/回环/无点主机放行。 */
+// R2: default policy and enabled-policy startup observability, all on fresh test instances.
 import { spawn } from 'node:child_process';
-import { rmSync, mkdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync } from 'node:fs';
+import { once } from 'node:events';
+import { join } from 'node:path';
 
-const PORT = 20000 + Math.floor(Math.random() * 20000);
-const DATA = 'tmp/e2e-r1-' + Date.now().toString(36);
+mkdirSync('tmp', { recursive: true });
 let pass = 0, fail = 0;
-const ok = (n, c, x = '') => { if (c) { pass++; console.log('  \u2713 ' + n); } else { fail++; console.log('  \u2717 ' + n + ' ' + x); } };
-async function waitReady(url, ms = 40000) { const end = Date.now() + ms; while (Date.now() < end) { try { const r = await fetch(url, { signal: AbortSignal.timeout(1500) }); if (r.status < 500) return true; } catch {} await new Promise((r) => setTimeout(r, 250)); } return false; }
-async function runWith(extraEnv) {
-  rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: true });
-  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: '', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'r1', ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
-  const B = 'http://127.0.0.1:' + PORT;
-  await waitReady(B + '/api/health');
-  return { child, B };
+const ok = (name, condition, detail = '') => { if (condition) { pass++; console.log('PASS ' + name); } else { fail++; console.log('FAIL ' + name + ' ' + detail); } };
+async function waitReady(url, child) {
+  const end = Date.now() + 40000;
+  while (Date.now() < end && child.exitCode === null) {
+    try { if ((await fetch(url, { signal: AbortSignal.timeout(1000) })).ok) return; } catch {}
+    await new Promise(r => setTimeout(r, 200));
+  }
+  throw new Error('isolated server not ready: ' + url);
 }
-try {
-  let { child, B } = await runWith({});
-  const reg = (url) => fetch(B + '/api/workbenches', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'R1', url }) });
-  // wm-review 全表 7 例负数（#242 P0）
-  const NEGS = ['http://8.8.8.8:80/', 'http://192.30.255.112/', 'http://172.217.0.1/', 'http://10.attacker.example/', 'http://127.0.0.1.nip.io/', 'http://[2001:4860:4860::8888]/', 'http://169.254.169.254/latest/meta-data/'];
-  let negPass = 0; const holes = [];
-  for (const u of NEGS) { const r = await reg(u); if (r.status === 400) negPass++; else holes.push(u); }
-  ok('① 7 例公网/元数据全拒', negPass === 7, negPass + '/7 洞=' + holes.join(','));
-  const r2 = await reg('http://192.168.3.100:8080/');
-  ok('② 内网放行', r2.status === 201, String(r2.status));
-  const r3 = await reg('http://127.0.0.1:4000/');
-  ok('③ 回环放行', r3.status === 201, String(r3.status));
-  child.kill(); await new Promise((x) => setTimeout(x, 1800));
-  ({ child, B } = await runWith({ ALLOW_PUBLIC_NET: '1' }));
-  const r4 = await reg('http://8.8.8.8:80/');
-  ok('④ 豁免模式公网可过', r4.status === 201, String(r4.status));
-  child.kill(); await new Promise((x) => setTimeout(x, 400));
-} finally {}
-console.log('\n===== R1 冒烟 ' + (pass + fail) + ' 项：' + pass + ' 通过 / ' + fail + ' 失败 =====');
-process.exit(fail ? 1 : 0);
+for (const enabled of [false, true]) {
+  const port = 20000 + Math.floor(Math.random() * 20000);
+  const data = mkdtempSync(join('tmp', 'r2-ssrf-'));
+  const env = { ...process.env, PORT: String(port), DATA_DIR: data, MCP_GATEWAY: '', ADMIN_TOKEN: 'r2-test' };
+  delete env.ALLOW_PUBLIC_NET; // default means absent, not inherited from the invoking shell
+  if (enabled) env.ALLOW_PUBLIC_NET = '1';
+  let logs = '';
+  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  child.stdout.on('data', c => logs += c);
+  child.stderr.on('data', c => logs += c);
+  const base = 'http://127.0.0.1:' + port;
+  try {
+    await waitReady(base + '/api/health', child);
+    // Before ANY register request: this distinguishes startup warning from request-time warning.
+    const warning = logs.includes('[SSRF_GUARD_DISABLED] ALLOW_PUBLIC_NET=1');
+    ok(enabled ? 'enabled startup warns before registration' : 'default does not announce enabled policy', warning === enabled, logs.slice(-300));
+    const reg = url => fetch(base + '/api/workbenches', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'R2-test', url }) });
+    if (enabled) {
+      const r = await reg('http://8.8.8.8/');
+      ok('explicit override permits public registration', r.status === 201, String(r.status));
+    } else {
+      const neg = ['http://8.8.8.8/', 'http://192.30.255.112/', 'http://172.217.0.1/', 'http://10.attacker.example/', 'http://127.0.0.1.nip.io/', 'http://[2001:4860:4860::8888]/', 'http://169.254.169.254/latest/meta-data/'];
+      for (const url of neg) {
+        const r = await reg(url);
+        ok('default ALLOW_PUBLIC_NET absent rejects ' + url, r.status === 400, String(r.status));
+      }
+      for (const url of ['http://192.168.3.100:8080/', 'http://127.0.0.1:4000/']) {
+        const r = await reg(url);
+        ok('default permits internal control ' + url, r.status === 201, String(r.status));
+      }
+    }
+  } finally {
+    if (child.exitCode === null) { const closed = once(child, 'close'); child.kill(); await closed; }
+  }
+}
+console.log('R2 SSRF startup/default checks: ' + pass + ' passed / ' + fail + ' failed');
+process.exitCode = fail ? 1 : 0;
