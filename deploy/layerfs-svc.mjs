@@ -7,9 +7,14 @@ import { DatabaseSync } from 'node:sqlite';
 import { randomBytes } from 'node:crypto';
 
 const AGENT_SPEC = process.env.LAYERFS_AGENT_PATH ?? ''; // 镜像内置 @layerfs/agent 入口（构建期 COPY）
-if (!AGENT_SPEC) { console.error('[layerfs-svc] 缺 LAYERFS_AGENT_PATH（镜像应 COPY api/agent 并指到其入口）'); process.exit(2); }
-let LayerFS; try { ({ LayerFS } = await import(AGENT_SPEC)); }
-catch (e) { console.error('[layerfs-svc] @layerfs/agent 加载失败:', e.message); process.exit(3); }
+// 入口多候选（检出布局随版本：agent/src/index.js（package main）·agent/sdk/src/index.js（钉点 9f97a7ec 布局））
+const CANDIDATES = [AGENT_SPEC, '/usr/local/lib/layerfs-api/agent/src/index.js', '/usr/local/lib/layerfs-api/agent/sdk/src/index.js'].filter(Boolean);
+let LayerFS = null; let usedEntry = '';
+for (const c of CANDIDATES) {
+  try { ({ LayerFS } = await import(c)); if (LayerFS) { usedEntry = c; break; } } catch { /* 下一候选 */ }
+}
+if (!LayerFS) { console.error('[layerfs-svc] @layerfs/agent 加载失败（候选全试）:', CANDIDATES.join(', ')); process.exit(3); }
+console.log('[layerfs-svc] agent entry:', usedEntry);
 
 const token = process.env.LAYERFS_SERVICE_TOKEN ?? 'lfs-token';
 const storeRoot = process.env.LAYERFS_STORE_ROOT ?? '/var/lib/layerfs';
