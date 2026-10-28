@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   material_sha256 TEXT, -- 发布冻结（同录入只发一次）
   published_at TEXT, published_by TEXT,
   enabled INTEGER NOT NULL DEFAULT 0, -- 任务级锁（默认关）
+  agent_dispatch_enabled INTEGER NOT NULL DEFAULT 0, -- 任务级 agent 派发开关（默认关·监督席对齐②）
   created_by TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT
