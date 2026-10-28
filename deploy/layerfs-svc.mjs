@@ -2,7 +2,7 @@
 /** #215 真 LayerFS 适配器（契约 v0/v1·钉 9f97a7ec 的 @layerfs/agent + runtime）。
  *  与替身的区别：内容真写进 LayerFS 分支（Store 卷持久·重启内容在）+ 契约形读面由
  *  适配器侧车（wm-adapter.sqlite·同卷）承载 commit→文件集映射；不 import 替身。 */
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { chmodSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { randomBytes } from 'node:crypto';
@@ -34,7 +34,7 @@ function dockerCall(method, path, body) {
   
   return new Promise((resolve) => {
     const data = body ? JSON.stringify(body) : null;
-    const req = http.request({ socketPath: DOCKER_SOCK, method, path, headers: data ? { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(data)) } : {}, timeout: 4000 }, (res) => { let b = ''; res.on('data', (c) => (b += c)); res.on('end', () => { let j = null; try { j = JSON.parse(b); } catch {} resolve({ status: res.statusCode, body: j }); }); });
+    const req = httpRequest({ socketPath: DOCKER_SOCK, method, path, headers: data ? { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(data)) } : {}, timeout: 4000 }, (res) => { let b = ''; res.on('data', (c) => (b += c)); res.on('end', () => { let j = null; try { j = JSON.parse(b); } catch {} resolve({ status: res.statusCode, body: j }); }); });
     req.on('error', () => resolve({ status: 0, body: null }));
     if (data) req.write(data);
     req.end();
