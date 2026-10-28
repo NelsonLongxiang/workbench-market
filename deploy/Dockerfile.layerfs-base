@@ -1,0 +1,10 @@
+# #215 base 段：context=layerfs 检出根（钉 9f97a7ec）——产物 bin+api 供 final COPY --from
+FROM rust:1.85.1-bookworm AS builder
+WORKDIR /src
+COPY . .
+RUN cargo build --release --locked
+RUN cd api/agent/sdk && npm install --omit=dev || true
+FROM ubuntu:22.04
+COPY --from=builder /src/target/release/layerfs /usr/local/bin/layerfs
+COPY --from=builder /src/target/release/layerfs.node /usr/local/lib/layerfs.node
+COPY --from=builder /src/api /usr/local/lib/layerfs-api
