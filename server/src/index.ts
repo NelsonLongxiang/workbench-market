@@ -1,4 +1,5 @@
 import express from 'express';
+import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError } from './task-center.ts';
 import cors from 'cors';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -478,6 +479,7 @@ app.delete('/api/cockpits/:id', (req, res) => {
 
 // ---------- 自产台（台生成器：AI 发布 API + 全版本快照，发布即入册） ----------
 const appsRoot = join(dataDir, 'apps');
+initializeTaskCenter(appsRoot);
 // #198（监督席裁 A·P11 回归修复）：自产台按台令牌——CSP sandbox 下页面源为 null，
 // 交付空间模式（页面调本台 data/files）靠「Origin: null + X-App-Token 匹配 slug」放行 CORS。
 const APP_TOKEN_KEY_FILE = join(dataDir, '.wm-app-token.key');
@@ -716,7 +718,10 @@ function publishAppBody(b: any): { status: number; body: object } {
   if (kind === 'sop') {
     const yf = files.find((f) => f.path === 'sop.yaml');
     if (!yf) throw new HttpError(400, 'SOP 发布必须包含 sop.yaml（混合源：结构化字段 + 步骤内嵌 HTML）');
-    parseSopManifest(yf.content);
+    const parsedManifest = parseSopManifest(yf.content);
+    const meta = (parseYaml(yf.content) as any).meta;
+    if (slug !== 'task-center' && meta !== undefined) bad('meta 仅允许 task-center 内置元台');
+    if (slug === 'task-center' && (meta !== 'task-center' || taskCenterSteps.some(s => !parsedManifest.steps.some(v => v.key === s.key)))) bad('task-center 必须保留 meta 与六个固定步骤');
     changelog = typeof b.changelog === 'string' ? b.changelog.trim() : '';
     if (!changelog) throw new HttpError(400, 'SOP 发布必须携带 changelog（本版改了什么）');
   } else if (typeof b.changelog === 'string' && b.changelog.trim()) {
@@ -803,6 +808,10 @@ function publishLockGuard(slug: string, who: string, force: boolean): { ok: true
 
 app.post('/api/apps', (req, res) => {
   const b = (req.body ?? {}) as Record<string, unknown>;
+  if (String(b.slug ?? '').trim().toLowerCase() === 'task-center') {
+    if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
+    if (!adminGuard(req,res)) return;
+  }
   // #165 回归修（E2E 红）：锁身份=客户端会话（X-Market-Client/admin 摘要），**不用 created_by**（元数据·同操作者带/不带误判两会话→合法发布 409）
   const who = String(req.headers['x-market-client'] ?? '').trim() || (adminTokenCheck(req.headers['x-admin-token']) ? 'admin-session' : 'loopback-anon');
   const gate = publishLockGuard(String(b.slug ?? '').trim().toLowerCase(), who, b.force === true || b.force === 'true');
@@ -964,6 +973,10 @@ app.post('/api/change-requests/:id/reject', wrap(async (req, res) => {
 }));
 
 app.post('/api/apps/:slug/activate', wrap(async (req, res) => {
+  if (req.params.slug === 'task-center') {
+    if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
+    if (!adminGuard(req,res)) return;
+  }
   // #94 v3 S1（L14）：回滚经人审——一步式=口令+reviewed_by（缺 reviewed_by 不执行）
   const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
   if (!reviewedBy) bad('回滚需 reviewed_by（人审门——一步式直调必填；或经 MCP change_request_create 提请求）');
@@ -972,6 +985,10 @@ app.post('/api/apps/:slug/activate', wrap(async (req, res) => {
 }));
 
 app.delete('/api/apps/:slug', (req, res) => {
+  if (req.params.slug === 'task-center') {
+    if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
+    if (!adminGuard(req,res)) return;
+  }
   // #94 v3 S1（L14）：删除经人审——一步式=口令+reviewed_by
   const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
   if (!reviewedBy) bad('删除需 reviewed_by（人审门——一步式直调必填；或经 MCP change_request_create 提请求）');
@@ -1238,6 +1255,10 @@ function sopTransition(slug: string, from: string[], to: string, label: string):
 }
 
 app.post('/api/sops/:slug/publish', (req, res) => {
+  if (req.params.slug === 'task-center') {
+    if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
+    if (!adminGuard(req,res)) return;
+  }
   const a = sopTransition(req.params.slug, ['draft', 'deprecated'], 'published', '发布');
   // publish 附带发布说明（可选）记入当前版本 changelog 末尾
   if (typeof req.body?.note === 'string' && req.body.note.trim()) {
@@ -1247,6 +1268,10 @@ app.post('/api/sops/:slug/publish', (req, res) => {
 });
 
 app.post('/api/sops/:slug/deprecate', (req, res) => {
+  if (req.params.slug === 'task-center') {
+    if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
+    if (!adminGuard(req,res)) return;
+  }
   const a = sopTransition(req.params.slug, ['published'], 'deprecated', '废弃');
   // 废弃不入册删除：历史 run 仍可回放；市场行禁用（enabled=0）
   svc<WorkbenchService>('workbench').setEnabledByUrl(0, `/sop/${a.slug}/`);
@@ -1323,7 +1348,7 @@ function sopRunStartCore(slugRaw: string, startedByRaw: string): { id: number; s
   // P0：run-scoped 上传令牌（启动签发·Runner 页内嵌·files POST 必带）
   const uploadToken = createHash('sha256').update(createHash('sha256').update(String(id) + ':' + Date.now() + ':' + Math.random()).digest('hex') + ':' + String(Math.random())).digest('hex');
   try { db.prepare('UPDATE sop_runs SET upload_token = ? WHERE id = ?').run(uploadToken, id); } catch { /* 列缺=降级 */ }
-  void runStateRestore(id, { slug, version: hit.app.active_version, status: 'running', started_by, updated_at: Date.now() }, {}); // Redis 初始化热态（降级态静默跳过）
+  if (slug !== 'task-center') void runStateRestore(id, { slug, version: hit.app.active_version, status: 'running', started_by, updated_at: Date.now() }, {}); // Redis 初始化热态（降级态静默跳过）
   return { id, slug, version: hit.app.active_version, status: 'running', started_by, data: {}, upload_token: uploadToken }; // P0：创建者即得令牌（Runner 页内嵌用）
 }
 
@@ -1335,6 +1360,10 @@ async function sopRunStepSaveCore(id: number, stepKeyRaw: string, value: unknown
   const row = sopRunRow(id);
   if (row.status !== 'running') throw new HttpError(409, `run ${id} 已 ${row.status}，不可再写`);
 
+  if (row.sop_slug === 'task-center') {
+    svc<SopService>('sop').runUpdateData(id, mergeRunData(row, stepKey, value ?? null));
+    return { ok: true, id, stepKey, persisted: 'sqlite' }; // synchronous intake freeze truth source
+  }
   const hotOk = await runStateSave(id, { slug: row.sop_slug, version: row.sop_version, status: 'running', started_by: row.started_by, updated_at: Date.now() }, stepKey, value ?? null);
   const now = Date.now();
   const last = checkpointAt.get(id) ?? 0;
@@ -1365,6 +1394,8 @@ function receiptStatusOf(runId: number): string {
 
 async function sopRunGetCore(id: number): Promise<{ id: number; sop_slug: string; sop_version: number; status: string; started_by: string; data: Record<string, unknown>; receipt: string }> {
   const receipt = receiptStatusOf(id);
+  const intake = sopRunRow(id);
+  if (intake.sop_slug === 'task-center') return { id, sop_slug: intake.sop_slug, sop_version: intake.sop_version, status: intake.status, started_by: intake.started_by, data: JSON.parse(intake.data), receipt };
   const hot = await runStateLoad(id);
   if (hot) return { id, sop_slug: hot.meta.slug, sop_version: hot.meta.version, status: hot.meta.status, started_by: hot.meta.started_by, data: hot.data, receipt };
   const row = sopRunRow(id);
@@ -1381,7 +1412,7 @@ async function sopRunFinishCore(id: number): Promise<{ ok: boolean; id: number; 
   const row = sopRunRow(id);
   if (row.status !== 'running') throw new HttpError(409, `run ${id} 已 ${row.status}`);
   let data = row.data || '{}';
-  const hot = await runStateLoad(id);
+  const hot = row.sop_slug === 'task-center' ? null : await runStateLoad(id);
   if (hot && Object.keys(hot.data).length > 0) data = JSON.stringify(hot.data);
   svc<SopService>('sop').runFinish(id, data);
   await runStateRetire(id); // 退出活跃索引 + Redis 条目 1h 平滑淘汰
@@ -2379,14 +2410,7 @@ function applyTaskTransition(taskId: number, action: 'created' | 'toggled' | 'pu
 app.post('/api/task-center/tasks', (req, res) => {
   if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' }); // C10
   if (!adminGuard(req, res)) return; // C9 无口令 401/403
-  const b = (req.body ?? {}) as { title?: string; kind?: string; payload?: unknown };
-  const title = String(b.title ?? '').trim();
-  if (!title) throw new HttpError(400, 'title 必填');
-  const actor = String((req as express.Request & { adminActor?: string }).adminActor ?? 'human');
-  const r = db.prepare("INSERT INTO tasks (title, kind, payload_json, status, created_by) VALUES (?, ?, ?, 'draft', ?)").run(title, String(b.kind ?? '录入'), JSON.stringify(b.payload ?? {}), actor);
-  const id = Number(r.lastInsertRowid);
-  applyTaskTransition(id, 'created', 'human:' + actor, { title });
-  res.status(201).json({ ok: true, id, status: 'draft' }); // C1
+  res.status(201).json(publishTaskIntake(req.body ?? {}));
 });
 app.get('/api/task-center/tasks', (req, res) => { // 读开放
   res.json(db.prepare('SELECT id, title, kind, status, enabled, agent_dispatch_enabled, material_sha256, published_at, published_by, created_by, created_at, updated_at FROM tasks ORDER BY id DESC').all());
@@ -2400,14 +2424,8 @@ app.get('/api/task-center/policy', (req, res) => { // C7 读开放
   res.json(db.prepare('SELECT key, value FROM task_center_policy').all());
 });
 app.get('/api/task-center/template', (req, res) => { // C17 六固定步骤
-  res.json({ steps: [
-    { key: 's1', title: '标题', type: 'text' },
-    { key: 's2', title: '类型', type: 'select' },
-    { key: 's3', title: '描述', type: 'textarea' },
-    { key: 's4', title: '来源', type: 'text' },
-    { key: 's5', title: '金额或数量', type: 'number' },
-    { key: 's6', title: '附件', type: 'file' },
-  ] });
+  const current = readActiveManifest('task-center');
+  res.json({ version: current?.app.active_version, steps: current?.manifest.steps ?? taskCenterSteps });
 });
 app.put('/api/task-center/policy', (req, res) => {
   if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
@@ -2435,12 +2453,8 @@ app.post('/api/task-center/tasks/:id/publish', (req, res) => {
   if (!hit) throw new HttpError(404, 'task not found');
   if (hit.status === 'published') throw new HttpError(409, '已发布不可再写（#159 C11）');
   if (hit.status === 'withdrawn') throw new HttpError(409, '已撤回任务不可发布');
-  const material = createHash('sha256').update(String(hit.payload_json) + ':template-v1').digest('hex'); // 冻结（canonical payload+模板版本）
-  const dup = db.prepare('SELECT id FROM tasks WHERE material_sha256 = ?').get(material) as any;
-  if (dup) throw new HttpError(409, '同一录入只发一次（material_sha256 重复·#159 C2）');
-  const actor = 'human:' + String((req as express.Request & { adminActor?: string }).adminActor ?? 'admin'); // C21 actor human: 前缀
-  applyTaskTransition(hit.id, 'published', actor, { status: 'published', material_sha256: material, published_at: new Date().toISOString(), published_by: actor });
-  res.json({ ok: true, id: hit.id, material_sha256: material });
+  throw new HttpError(409, '旧草稿不得绕过录入 run 发布；请完成 task-center 录入后统一发布');
+
 });
 app.post('/api/task-center/tasks/:id/withdraw', (req, res) => {
   if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
@@ -2653,6 +2667,8 @@ const MCP_PROTOCOL = '2025-03-26';
 const MCP_KNOWN_PROTOCOLS = ['2024-11-05', '2025-03-26', '2025-06-18'];
 
 async function callTool(name: string, args: any): Promise<unknown> {
+  const metaSlug = String(args?.slug ?? '').trim().toLowerCase();
+  if (metaSlug === 'task-center' && ['app_publish','app_activate','sop_publish','sop_deprecate','app_draft_open','app_draft_edit','app_draft_submit'].includes(name)) throw new HttpError(403, 'task-center 元台仅人工面可修改');
   switch (name) {
     case 'skills_list': {
       const S = svc<SkillService>('skill');
@@ -3224,7 +3240,7 @@ if (existsSync(webDist)) {
 const VALIDATION_ERR_PREFIX = ['非法 URL', '仅支持 http'];
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const msg = String(err?.message ?? err);
-  let status = err instanceof HttpError ? err.status : 500;
+  let status = err instanceof HttpError || err instanceof TaskIntakeError ? err.status : 500;
   if (status === 500 && VALIDATION_ERR_PREFIX.some((p) => msg.startsWith(p))) status = 400;
   if (status === 500) console.error('[server] unhandled:', err);
   res.status(status).json({ error: msg });
@@ -3304,6 +3320,7 @@ app.post('/api/a2a/send', wrap(async (req, res) => {
   }
 }));
 
+if (getApp('task-center').status === 'published') syncWorkbenchRegistration(getApp('task-center'));
 const goServer = app.listen(PORT, () => {
   if (process.env.ALLOW_PUBLIC_NET === '1') console.warn('[SSRF_GUARD_DISABLED] ALLOW_PUBLIC_NET=1: public registration guard is bypassed; explicitly review this deployment exception.');
   const counts = svc<WorkbenchService>('workbench').count() as { n: number };
