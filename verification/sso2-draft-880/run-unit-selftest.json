@@ -1,0 +1,137 @@
+{
+  "mechanism_only": true,
+  "synthetic_approval_only": true,
+  "real_independent_approvals": 0,
+  "exit_code": 0,
+  "records": [
+    {
+      "name": "complete reviewed manifest",
+      "expected": {
+        "status": "PASS",
+        "value": 1
+      },
+      "actual": {
+        "status": "PASS",
+        "value": 1
+      },
+      "ok": true
+    },
+    {
+      "name": "no approval",
+      "expected": {
+        "status": "NEEDS-MATERIAL",
+        "value": null
+      },
+      "actual": {
+        "status": "NEEDS-MATERIAL",
+        "value": null,
+        "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+      },
+      "ok": true
+    },
+    {
+      "name": "partial control",
+      "expected": {
+        "status": "NEEDS-MATERIAL",
+        "value": null
+      },
+      "actual": {
+        "status": "NEEDS-MATERIAL",
+        "value": null,
+        "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+      },
+      "ok": true
+    },
+    {
+      "name": "missing completion marker",
+      "expected": {
+        "status": "NEEDS-MATERIAL",
+        "value": null
+      },
+      "actual": {
+        "status": "NEEDS-MATERIAL",
+        "value": null,
+        "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+      },
+      "ok": true
+    },
+    {
+      "name": "zero assertions",
+      "expected": {
+        "status": "NEEDS-MATERIAL",
+        "value": null
+      },
+      "actual": {
+        "status": "NEEDS-MATERIAL",
+        "value": null,
+        "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+      },
+      "ok": true
+    },
+    {
+      "name": "assertion mismatch",
+      "expected": {
+        "status": "FAIL",
+        "value": 0
+      },
+      "actual": {
+        "status": "FAIL",
+        "value": 0,
+        "error_kind": "assertion"
+      },
+      "ok": true
+    },
+    {
+      "name": "explicit MissingFixture",
+      "expected": {
+        "status": "NEEDS-MATERIAL",
+        "value": null
+      },
+      "actual": {
+        "status": "NEEDS-MATERIAL",
+        "value": null,
+        "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+      },
+      "ok": true
+    },
+    {
+      "name": "TypeError",
+      "expected": {
+        "status": "ERROR",
+        "value": null
+      },
+      "actual": {
+        "status": "ERROR",
+        "value": null,
+        "error_kind": "probe-or-infrastructure-error"
+      },
+      "ok": true
+    },
+    {
+      "name": "network exception",
+      "expected": {
+        "status": "ERROR",
+        "value": null
+      },
+      "actual": {
+        "status": "ERROR",
+        "value": null,
+        "error_kind": "probe-or-infrastructure-error"
+      },
+      "ok": true
+    },
+    {
+      "name": "bad assertion API",
+      "expected": {
+        "status": "ERROR",
+        "value": null
+      },
+      "actual": {
+        "status": "ERROR",
+        "value": null,
+        "error_kind": "probe-or-infrastructure-error"
+      },
+      "ok": true
+    }
+  ]
+}

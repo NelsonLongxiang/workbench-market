@@ -1,0 +1,66 @@
+{
+  "contract_version": "1.1",
+  "run_id": "run_7363800b469de2a1",
+  "spec_id": "mechanism_old_no_scan",
+  "started": "2026-10-28T20:36:54.188Z",
+  "finished": "2026-10-28T20:36:54.190Z",
+  "verifier": {
+    "mode": "open",
+    "engine_version": "0.1.0",
+    "spec_version": 1,
+    "corpus_version": "mechanism-only",
+    "sealed_review": false
+  },
+  "as_of": {
+    "kind": "snapshot",
+    "value": "2026-10-29T00:00:00.000Z"
+  },
+  "summary": {
+    "pass": 1,
+    "fail": 0,
+    "needs_material": 0,
+    "error": 0
+  },
+  "overall": "PASS",
+  "reason": "all 1 assert units passed",
+  "vu": [
+    {
+      "id": "old",
+      "role": "assert",
+      "verdict": "PASS",
+      "severity": "S1",
+      "source_clause": "S00 [boot] (§0) 探针必须记录被验SHA、源码hash、进程PID、监听端口归属、独立DATA_DIR与启动配置并真实完成HTTP请求，不得误连旧进程。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 1,
+        "rows_matched": 0,
+        "sources": [
+          {
+            "table": "sso2_eval_boot",
+            "rows": 1
+          }
+        ],
+        "schema_fingerprint": "sha256:6b4d9f4512e7808481f321c1209a3c673b30856402d500e2f90dce224a02b84d"
+      },
+      "evidence": {
+        "rows": 0,
+        "rendered": {
+          "findSql": "SELECT probe_id, value FROM sso2_eval_boot WHERE (value IS NULL OR value != 1)",
+          "scopeSql": "SELECT count(*) AS n FROM sso2_eval_boot"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    }
+  ],
+  "exceptions": [],
+  "artifacts": {
+    "attachment_sha256": []
+  },
+  "payload_sha256": "sha256:e02db6f73048e0775a8aa50d4c95fdb422408dc79ca6eca98dd681002f361e64"
+}

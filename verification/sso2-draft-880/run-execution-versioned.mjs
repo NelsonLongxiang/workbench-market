@@ -6,7 +6,7 @@ import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import assert from 'node:assert/strict';
 const root=dirname(fileURLToPath(import.meta.url));
-const names=['execution.mjs','fixtures.mjs','more-handlers.mjs','final-handlers.mjs','coverage.json','candidates.json','material.md'];
+const names=['execution.mjs','fixtures.mjs','more-handlers.mjs','final-handlers.mjs','run-unit.mjs','completion-policy.json','coverage.json','candidates.json','material.md'];
 const hash=name=>createHash('sha256').update(readFileSync(join(root,name))).digest('hex');
 const files=names.map(path=>({path,sha256:hash(path)}));
 const targetFiles=['server/src/index.ts','server/src/a2a.ts','server/src/db.ts','server/src/portal.ts'].map(path=>({path,sha256:createHash('sha256').update(readFileSync(join(root,'target',path))).digest('hex')}));
