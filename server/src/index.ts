@@ -211,9 +211,25 @@ function validateWorkbenchBody(b: any, partial = false) {
     // R1 SSRF 白名单（监督席派单·外部评审跨域前置）：公网地址默认拒——ALLOW_PUBLIC_NET=1 豁免
     if (process.env.ALLOW_PUBLIC_NET !== '1') {
       try {
-        const _h = new URL(u).hostname;
-        const _p4 = (hn) => { try { return ['127','10','192','168','169','172'].includes(String(hn).split('.')[0]) || hn === 'localhost' || hn === '::1' || hn.includes('[') || !String(hn).includes('.'); } catch { return true; } };
-        if (!_p4(_h)) bad('公网地址默认拒绝（R1 白名单·跨域前收紧·显式 ALLOW_PUBLIC_NET=1 豁免）: ' + _h);
+                const _h = new URL(u).hostname.toLowerCase();
+        const _m4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(_h);
+        let _priv = false;
+        if (_m4) {
+          const [_a, _b] = _m4.slice(1).map(Number);
+          const _ok = _m4.slice(1).every((x) => Number(x) <= 255);
+          _priv = _ok && (_a === 10 || (_a === 172 && _b >= 16 && _b <= 31) || (_a === 192 && _b === 168) || _a === 127 || _a === 0); // 10/8·172.16/12·192.168/16·127/8·0/8（169.254 链路本地=云元数据红线·不并入·见下拒）
+        } else if (_h.startsWith('[') || _h.includes(':')) {
+          const _v6 = _h.replace(/^\[|\]$/g, '');
+          _priv = _v6 === '::1' || _v6 === '::' || /^f[cd][0-9a-f]{2}:/i.test(_v6) || /^fe[89ab][0-9a-f]:/i.test(_v6); // ::1·fc00::/7·fe80::/10；其余 v6=公网拒
+        } else {
+          const _labels = _h.split('.');
+          if (_labels.some((l) => /^\d+$/.test(l))) _priv = false; // 数值 label 拒（10.attacker.example·127.0.0.1.nip.io 型）
+          else if (_h === 'localhost') _priv = true;
+          else if (!_h.includes('.')) _priv = true; // 内网短名
+          else _priv = false; // 公网域名拒
+        }
+        if (_m4 && _m4[1] === '169' && _m4[2] === '254') _priv = false; // 云元数据红线（#242 ④）
+        if (!_priv) bad('公网地址默认拒绝（R1 白名单·跨域前收紧·显式 ALLOW_PUBLIC_NET=1 豁免）: ' + _h);
       } catch (e) { if (e instanceof HttpError) throw e; /* 其余吞（assertHttpUrl 已兜） */ }
     } else { console.warn('[R1] ALLOW_PUBLIC_NET=1——公网注册已豁免（跨域部署前必须收紧）'); }
     out.url = u;
