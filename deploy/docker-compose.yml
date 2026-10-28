@@ -1,4 +1,5 @@
 # #147 部署批：基文件默认回环绑定（P0-4）·layerfs 走 profiles 隔离（P1-1）·token 必设（P1-2）
+# #215：真镜像经 deploy/build-layerfs.sh 构建（本地检出 context·免 clone 凭证）·compose 引 image
 services:
   market:
     build:
@@ -22,8 +23,20 @@ services:
       retries: 3
 
   layerfs:
-    profiles: ["layerfs"]   # P1-1 保留：显式 --profile layerfs 起（默认构建目标已换真镜像）
-  layerfs-p0:              # #215：替身参考镜像转测试专用 profile
+    profiles: ["layerfs"]   # #215：真镜像（Rust+@layerfs/agent）·build 走 deploy/build-layerfs.sh（本地检出 context）
+    image: ${LAYERFS_IMAGE:-wm-x-layerfs:test}
+    environment:
+      # P1-2：未设即 compose 级拒启（不再静默默认 change-me）
+      LAYERFS_SERVICE_TOKEN: ${LAYERFS_SERVICE_TOKEN:?LAYERFS_SERVICE_TOKEN 必设（不可用 change-me）}
+      LAYERFS_STORE_ROOT: /var/lib/layerfs
+    ports:
+      - "8067:8067"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock   # 注意：挂 socket=服务容器等同宿主 root（文档已标注）
+      - /var/lib/docker/volumes:/var/lib/docker/volumes:rw
+      - layerfs-store:/var/lib/layerfs
+
+  layerfs-p0:              # #215：替身参考镜像转测试专用 profile（契约面对照）
     profiles: ["layerfs-p0"]
     build:
       context: ..
@@ -32,17 +45,6 @@ services:
       LAYERFS_SERVICE_PORT: 8067
     ports:
       - "8067:8067"
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile.layerfs  # #215 X2：默认真镜像（Rust+@layerfs/agent）
-    environment:
-      # P1-2：未设即 compose 级拒启（不再静默默认 change-me）
-      LAYERFS_SERVICE_TOKEN: ${LAYERFS_SERVICE_TOKEN:?LAYERFS_SERVICE_TOKEN 必设（不可用 change-me）}
-      LAYERFS_STORE_ROOT: /var/lib/layerfs
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock   # 注意：挂 socket=服务容器等同宿主 root（文档已标注）
-      - /var/lib/docker/volumes:/var/lib/docker/volumes:rw
-      - layerfs-store:/var/lib/layerfs
 
 volumes:
   market-data:
