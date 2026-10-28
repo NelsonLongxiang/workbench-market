@@ -7,9 +7,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "switch_defaults",
@@ -17,9 +20,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "http_gate",
@@ -27,9 +33,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "ws_gate",
@@ -37,9 +46,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "internal_target",
@@ -47,9 +59,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "machine_no_ticket",
@@ -57,9 +72,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "machine_unavailable",
@@ -67,9 +85,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "legacy_machine_config",
@@ -77,9 +98,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "register_guard",
@@ -87,9 +111,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "register_schema",
@@ -97,9 +124,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "register_ui",
@@ -107,9 +137,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "login_session",
@@ -117,9 +150,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "me_invalid",
@@ -127,9 +163,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "absolute_ttl",
@@ -137,9 +176,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "multi_device_logout",
@@ -147,9 +189,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "password_storage",
@@ -157,9 +202,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "failure_same_bytes",
@@ -167,9 +215,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "lock_bucket",
@@ -177,9 +228,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "proxy_direct",
@@ -187,9 +241,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "proxy_chain",
@@ -197,9 +254,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "proxy_invalid",
@@ -207,9 +267,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "invalid_config",
@@ -217,9 +280,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "canonical_origin",
@@ -227,9 +293,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "secure_cookie",
@@ -237,9 +306,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "next_validation",
@@ -247,9 +319,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "admin_disable",
@@ -257,9 +332,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "disable_replay",
@@ -267,9 +345,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "users_paging",
@@ -277,9 +358,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "audit_read",
@@ -287,9 +371,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "audit_append",
@@ -297,9 +384,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "audit_patch_invalid",
@@ -307,9 +397,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "audit_patch_valid",
@@ -317,9 +410,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "json_parser_boundary",
@@ -327,9 +423,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "audit_navigation",
@@ -337,9 +436,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "audit_upgrade",
@@ -347,9 +449,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "audit_upstream",
@@ -357,9 +462,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "mapping_modes",
@@ -367,9 +475,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "cookie_mapping",
@@ -377,9 +488,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "odoo_compat",
@@ -387,9 +501,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "scope_preserve",
@@ -397,9 +514,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "config_guard",
@@ -407,9 +527,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "audit_update_rejected",
@@ -422,9 +545,12 @@
       ],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "audit_delete_rejected",
@@ -437,9 +563,12 @@
       ],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "patch_missing_disabled",
@@ -453,9 +582,12 @@
       ],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "proxy_P1_direct",
@@ -463,9 +595,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "proxy_P2_trusted",
@@ -473,9 +608,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "proxy_P3_forged",
@@ -483,9 +621,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "deferred_validator",
@@ -493,9 +634,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     },
     {
       "probe_id": "deferred_internal",
@@ -503,9 +647,12 @@
       "required_controls": [],
       "approval": {
         "status": "PENDING_INDEPENDENT_REVIEW",
-        "evidence": null
+        "evidence": null,
+        "author": "dsh/cf31945f",
+        "approver": null
       },
-      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation"
+      "remaining": "exact full subcontrols+completion markers must be reviewed before PASS; no truncation",
+      "author": "dsh/cf31945f"
     }
   ]
 }

@@ -1,0 +1,382 @@
+{
+  "target_sha": "d90f81abca809a48a893544d0bdd4c409be78526",
+  "run_id": "SYNTHETIC_explicit-missing",
+  "results": [
+    {
+      "id": "boot",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "switch_defaults",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "http_gate",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "ws_gate",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "internal_target",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "machine_no_ticket",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "machine_unavailable",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "legacy_machine_config",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "register_guard",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "register_schema",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "register_ui",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "login_session",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "me_invalid",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "absolute_ttl",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "multi_device_logout",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "password_storage",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "failure_same_bytes",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "lock_bucket",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "proxy_direct",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "proxy_chain",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "proxy_invalid",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "invalid_config",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "canonical_origin",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "secure_cookie",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "next_validation",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "admin_disable",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "disable_replay",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "users_paging",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "audit_read",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "audit_append",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "audit_patch_invalid",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "audit_patch_valid",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "json_parser_boundary",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "audit_navigation",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "audit_upgrade",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "audit_upstream",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "mapping_modes",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "cookie_mapping",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "odoo_compat",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "scope_preserve",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "config_guard",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "audit_update_rejected",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "audit_delete_rejected",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "patch_missing_disabled",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "proxy_P1_direct",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "proxy_P2_trusted",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    },
+    {
+      "id": "proxy_P3_forged",
+      "value": null,
+      "status": "NEEDS-MATERIAL",
+      "assertions": [],
+      "error": "synthetic register missing",
+      "error_kind": "explicit-missing-prerequisite-fixture-or-completion"
+    }
+  ]
+}

@@ -1,0 +1,84 @@
+{
+  "contract_version": "1.1",
+  "run_id": "run_9849e9aa086c1035",
+  "spec_id": "guard_scope_target-error-other-ok",
+  "started": "2026-10-28T21:35:19.918Z",
+  "finished": "2026-10-28T21:35:19.920Z",
+  "verifier": {
+    "mode": "open",
+    "engine_version": "0.1.0",
+    "spec_version": 1,
+    "corpus_version": "mechanism-only",
+    "sealed_review": false
+  },
+  "as_of": {
+    "kind": "snapshot",
+    "value": "2026-10-29T00:00:00.000Z"
+  },
+  "summary": {
+    "pass": 0,
+    "fail": 1,
+    "needs_material": 0,
+    "error": 0
+  },
+  "overall": "FAIL",
+  "reason": "G00(S1) FAIL",
+  "vu": [
+    {
+      "id": "G00",
+      "role": "assert",
+      "verdict": "FAIL",
+      "severity": "S1",
+      "source_clause": "G00 [integrity_boot] 执行完整性守卫：boot 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。",
+      "checker_type": "sql",
+      "witness": {
+        "rows_scanned": 1,
+        "rows_matched": 1,
+        "sources": [
+          {
+            "table": "sso2_execution_integrity",
+            "rows": 2
+          }
+        ],
+        "schema_fingerprint": "sha256:addfbd78f661bfe25c203aaecc4e9c94b6c3a00fd6b89d61e6524429b0abf00e"
+      },
+      "evidence": {
+        "violations": 1,
+        "rows": [
+          {
+            "probe_id": "boot",
+            "status": "ERROR",
+            "error_kind": null,
+            "error_code": null,
+            "exit_code": null,
+            "business_verdict": null,
+            "evidence_json": null
+          }
+        ],
+        "rows_total": 1,
+        "rendered": {
+          "findSql": "SELECT probe_id, status, error_kind, error_code, exit_code, business_verdict, evidence_json FROM sso2_execution_integrity WHERE ((probe_id = 'boot') AND status = 'ERROR')",
+          "scopeSql": "SELECT count(*) AS n FROM sso2_execution_integrity WHERE (probe_id = 'boot')"
+        }
+      },
+      "guard": {
+        "leniency_checks": [
+          "not-same-source",
+          "has-where",
+          "falsifiable"
+        ]
+      }
+    }
+  ],
+  "exceptions": [
+    {
+      "vu": "G00",
+      "severity": "S1",
+      "row_count": 1
+    }
+  ],
+  "artifacts": {
+    "attachment_sha256": []
+  },
+  "payload_sha256": "sha256:082ad2f020e369ebf4bca88708577a1b616616f4968bc4d4b35552f4c4cc70d4"
+}

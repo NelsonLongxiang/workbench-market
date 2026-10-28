@@ -251,5 +251,203 @@
     "3aa49039e3",
     "c3e0917349"
   ],
-  "review_status": "NOT_REVIEWED"
+  "review_status": "NOT_REVIEWED",
+  "integrity_guards": [
+    {
+      "id": "boot",
+      "clause": "G00 [integrity_boot] 执行完整性守卫：boot 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "switch_defaults",
+      "clause": "G01 [integrity_switch_defaults] 执行完整性守卫：switch_defaults 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "http_gate",
+      "clause": "G02 [integrity_http_gate] 执行完整性守卫：http_gate 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "ws_gate",
+      "clause": "G03 [integrity_ws_gate] 执行完整性守卫：ws_gate 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "internal_target",
+      "clause": "G04 [integrity_internal_target] 执行完整性守卫：internal_target 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "machine_no_ticket",
+      "clause": "G05 [integrity_machine_no_ticket] 执行完整性守卫：machine_no_ticket 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "machine_unavailable",
+      "clause": "G06 [integrity_machine_unavailable] 执行完整性守卫：machine_unavailable 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "legacy_machine_config",
+      "clause": "G07 [integrity_legacy_machine_config] 执行完整性守卫：legacy_machine_config 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "register_guard",
+      "clause": "G08 [integrity_register_guard] 执行完整性守卫：register_guard 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "register_schema",
+      "clause": "G09 [integrity_register_schema] 执行完整性守卫：register_schema 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "register_ui",
+      "clause": "G10 [integrity_register_ui] 执行完整性守卫：register_ui 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "login_session",
+      "clause": "G11 [integrity_login_session] 执行完整性守卫：login_session 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "me_invalid",
+      "clause": "G12 [integrity_me_invalid] 执行完整性守卫：me_invalid 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "absolute_ttl",
+      "clause": "G13 [integrity_absolute_ttl] 执行完整性守卫：absolute_ttl 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "multi_device_logout",
+      "clause": "G14 [integrity_multi_device_logout] 执行完整性守卫：multi_device_logout 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "password_storage",
+      "clause": "G15 [integrity_password_storage] 执行完整性守卫：password_storage 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "failure_same_bytes",
+      "clause": "G16 [integrity_failure_same_bytes] 执行完整性守卫：failure_same_bytes 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "lock_bucket",
+      "clause": "G17 [integrity_lock_bucket] 执行完整性守卫：lock_bucket 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "proxy_direct",
+      "clause": "G18 [integrity_proxy_direct] 执行完整性守卫：proxy_direct 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "proxy_chain",
+      "clause": "G19 [integrity_proxy_chain] 执行完整性守卫：proxy_chain 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "proxy_invalid",
+      "clause": "G20 [integrity_proxy_invalid] 执行完整性守卫：proxy_invalid 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "invalid_config",
+      "clause": "G21 [integrity_invalid_config] 执行完整性守卫：invalid_config 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "canonical_origin",
+      "clause": "G22 [integrity_canonical_origin] 执行完整性守卫：canonical_origin 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "secure_cookie",
+      "clause": "G23 [integrity_secure_cookie] 执行完整性守卫：secure_cookie 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "next_validation",
+      "clause": "G24 [integrity_next_validation] 执行完整性守卫：next_validation 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "admin_disable",
+      "clause": "G25 [integrity_admin_disable] 执行完整性守卫：admin_disable 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "disable_replay",
+      "clause": "G26 [integrity_disable_replay] 执行完整性守卫：disable_replay 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "users_paging",
+      "clause": "G27 [integrity_users_paging] 执行完整性守卫：users_paging 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "audit_read",
+      "clause": "G28 [integrity_audit_read] 执行完整性守卫：audit_read 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "audit_append",
+      "clause": "G29 [integrity_audit_append] 执行完整性守卫：audit_append 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "audit_patch_invalid",
+      "clause": "G30 [integrity_audit_patch_invalid] 执行完整性守卫：audit_patch_invalid 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "audit_patch_valid",
+      "clause": "G31 [integrity_audit_patch_valid] 执行完整性守卫：audit_patch_valid 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "json_parser_boundary",
+      "clause": "G32 [integrity_json_parser_boundary] 执行完整性守卫：json_parser_boundary 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "audit_navigation",
+      "clause": "G33 [integrity_audit_navigation] 执行完整性守卫：audit_navigation 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "audit_upgrade",
+      "clause": "G34 [integrity_audit_upgrade] 执行完整性守卫：audit_upgrade 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "audit_upstream",
+      "clause": "G35 [integrity_audit_upstream] 执行完整性守卫：audit_upstream 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "mapping_modes",
+      "clause": "G36 [integrity_mapping_modes] 执行完整性守卫：mapping_modes 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "cookie_mapping",
+      "clause": "G37 [integrity_cookie_mapping] 执行完整性守卫：cookie_mapping 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "odoo_compat",
+      "clause": "G38 [integrity_odoo_compat] 执行完整性守卫：odoo_compat 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "scope_preserve",
+      "clause": "G39 [integrity_scope_preserve] 执行完整性守卫：scope_preserve 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "config_guard",
+      "clause": "G40 [integrity_config_guard] 执行完整性守卫：config_guard 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "audit_update_rejected",
+      "clause": "G41 [integrity_audit_update_rejected] 执行完整性守卫：audit_update_rejected 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "audit_delete_rejected",
+      "clause": "G42 [integrity_audit_delete_rejected] 执行完整性守卫：audit_delete_rejected 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "patch_missing_disabled",
+      "clause": "G43 [integrity_patch_missing_disabled] 执行完整性守卫：patch_missing_disabled 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "proxy_P1_direct",
+      "clause": "G44 [integrity_proxy_P1_direct] 执行完整性守卫：proxy_P1_direct 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "proxy_P2_trusted",
+      "clause": "G45 [integrity_proxy_P2_trusted] 执行完整性守卫：proxy_P2_trusted 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "proxy_P3_forged",
+      "clause": "G46 [integrity_proxy_P3_forged] 执行完整性守卫：proxy_P3_forged 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "deferred_validator",
+      "clause": "G47 [integrity_deferred_validator] 执行完整性守卫：deferred_validator 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    },
+    {
+      "id": "deferred_internal",
+      "clause": "G48 [integrity_deferred_internal] 执行完整性守卫：deferred_internal 的ERROR必须显式阻断总判定；保留原error_kind/code/rc与独立business_verdict，不把探针故障冒充SSO业务FAIL，不把NEEDS普遍降FAIL。"
+    }
+  ]
 }
