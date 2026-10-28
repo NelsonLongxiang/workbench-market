@@ -24,9 +24,16 @@ sidecar.exec('CREATE TABLE IF NOT EXISTS branches (project TEXT NOT NULL, branch
 sidecar.exec('CREATE TABLE IF NOT EXISTS merged (project TEXT NOT NULL, n INTEGER DEFAULT 0, PRIMARY KEY (project))');
 
 const clients = new Map(); // R8：一个进程一份 agent·项目一个 client
+const clients = new Map(); // R8：一个进程一份 agent·项目一个 client
 async function clientOf(project) {
   if (clients.has(project)) return clients.get(project);
-  const c = await LayerFS.open(project);
+  // #215 X6 九障：open 需「项目已装配 Store」——storePath 每项目一份（storeRoot/<project>/store.sqlite·R4 一台一卷的面）
+  // env 在 client 创建时读一次（SDK 契约）——多项目进程内按项目切换是安全的
+  const projDir = `${storeRoot}/${project}`;
+  process.env.LAYERFS_STORE_PATH = `${projDir}/store.sqlite`;
+  let c;
+  try { c = await LayerFS.open(project); }
+  catch { c = await LayerFS.init(project, projDir); } // NoSuchProject → Init 装配 Store
   clients.set(project, c);
   return c;
 }
