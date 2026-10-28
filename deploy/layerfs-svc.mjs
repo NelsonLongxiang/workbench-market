@@ -65,11 +65,11 @@ async function clientOf(project) {
     const srcDir = `${storeRoot}/sources/${project}`;
   try { mkdirSync(srcDir, { recursive: true, mode: 0o755 }); } catch { /* 已在 */ }
   // 裁决 #021：每项目一卷·storePath 指卷内 global（SDK 创建时读 env·进程内多项目切换安全）
-  const dataDir = await ensureVolume(project);
-  const storeDir = dataDir + '/global';
+  // 裁决 #022 A 混合：卷=生命周期账本（建/删已实证）·store=共享具名卷 storeRoot 下 per-project 子目录（X6 绿路径·fs 卫兵过）
+  await ensureVolume(project); // 生命周期账本（label layerfs.role=store）
+  const storeDir = `${storeRoot}/stores/${project}/global`;
   try { mkdirSync(storeDir, { recursive: true, mode: 0o755 }); } catch { /* 已在 */ }
-  process.env.LAYERFS_STORE_PATH = storeDir + '/store.sqlite';
-  let c;
+  process.env.LAYERFS_STORE_PATH = `${storeDir}/store.sqlite`;  let c;
   try { c = await LayerFS.open(project); }
   catch {
     try { c = await LayerFS.init(project, srcDir); }
@@ -193,8 +193,10 @@ const server = createServer(async (req, res) => {
       sidecar.prepare("DELETE FROM branches WHERE project = ?").run(proj);
       sidecar.prepare("DELETE FROM merged WHERE project = ?").run(proj);
       sidecar.prepare('COMMIT').run();
-      const volGone = await dropVolume(proj); // 裁决 #021：卷随台走
-      return json(res, 200, { removed: true, volume_removed: volGone });
+      const volGone = await dropVolume(proj); // 裁决 #022：卷=账本消
+      let dirRemoved = true;
+      try { rmSync(`${storeRoot}/stores/${proj}`, { recursive: true, force: true }); } catch { dirRemoved = false; } // store 子目录清
+      return json(res, 200, { removed: true, volume_removed: volGone, dir_removed: dirRemoved });
     }
     m = /^\/v1\/projects\/([^/]+)\/branches\/([^/]+)\/commits\/([^/]+)\/export$/.exec(url);
     if (req.method === 'GET' && m) return json(res, 501, { error: 'export=S3 预留（契约 v1 §2）' });
