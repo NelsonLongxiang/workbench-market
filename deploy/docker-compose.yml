@@ -22,10 +22,19 @@ services:
       retries: 3
 
   layerfs:
-    profiles: ["layerfs"]   # P1-1：不默认起（消除 depends_on 强制）
+    profiles: ["layerfs"]   # P1-1 保留：显式 --profile layerfs 起（默认构建目标已换真镜像）
+  layerfs-p0:              # #215：替身参考镜像转测试专用 profile
+    profiles: ["layerfs-p0"]
     build:
       context: ..
       dockerfile: deploy/Dockerfile.layerfs-p0
+    environment:
+      LAYERFS_SERVICE_PORT: 8067
+    ports:
+      - "8067:8067"
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.layerfs  # #215 X2：默认真镜像（Rust+@layerfs/agent）
     environment:
       # P1-2：未设即 compose 级拒启（不再静默默认 change-me）
       LAYERFS_SERVICE_TOKEN: ${LAYERFS_SERVICE_TOKEN:?LAYERFS_SERVICE_TOKEN 必设（不可用 change-me）}
