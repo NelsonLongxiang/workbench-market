@@ -97,13 +97,13 @@ function marketTasks(sop: SopServiceLike): TaskEnvelope[] {
         title: dispatched.has(Number(r.id)) ? `SOP ${r.sop_slug} run#${r.id} 待验收` : `SOP ${r.sop_slug} run#${r.id} 进行中（未指派）`,
         status: 'doing' as const,
         due: null,
-        link: `/sop/${r.sop_slug}/`,
+        link: `/sop/${r.sop_slug}/?run=${r.id}`,
         project: r.sop_slug,
       });
     }
     // 任务中心已发布任务（人工录入→发布链）：标题/截止日期入待办，链接回录入 run 溯源
     try {
-      const tcRows = ((globalThis as any).__wmDb?.prepare?.("SELECT t.id, t.title, t.intake_run_id, t.published_at FROM tasks t WHERE t.status = 'published' ORDER BY t.id DESC LIMIT 100")?.all?.() ?? []) as Array<{ id: number; title: string; intake_run_id: number | null; published_at: string }>;
+      const tcRows = ((globalThis as any).__wmDb?.prepare?.("SELECT t.id, t.title, t.intake_run_id, t.published_at, t.payload_json FROM tasks t WHERE t.status = 'published' ORDER BY t.id DESC LIMIT 100")?.all?.() ?? []) as Array<{ id: number; title: string; intake_run_id: number | null; published_at: string; payload_json: string }>;
       for (const t of tcRows) {
         const key = `market:task-${t.id}`;
         if (seen.has(key)) continue;
@@ -114,7 +114,7 @@ function marketTasks(sop: SopServiceLike): TaskEnvelope[] {
           title: String(t.title ?? '(untitled)'),
           status: 'todo' as const,
           due: null,
-          link: t.intake_run_id ? `/sop/task-center/` : null,
+          link: t.intake_run_id ? `/sop/task-center/?run=${t.intake_run_id}` : null,
           project: 'task-center',
         });
       }

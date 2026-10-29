@@ -14,7 +14,8 @@ export function renderSopRunner(manifest: SopManifest, app: AppRow): string {
       </section>`
     )
     .join('\n');
-  const boot = JSON.stringify({ slug: app.slug, version: app.active_version, code: app.code || manifest.code || '', title: manifest.title, steps: manifest.steps.map((s) => s.key) })
+  const pinRun = typeof (globalThis as any).__wmSopPinRun === 'number' ? (globalThis as any).__wmSopPinRun : null;
+  const boot = JSON.stringify({ slug: app.slug, version: app.active_version, code: app.code || manifest.code || '', title: manifest.title, steps: manifest.steps.map((s) => s.key), pinRun })
     .replace(/</g, '\\u003c');
   return `<!doctype html>
 <html lang="zh-CN">
@@ -171,6 +172,7 @@ window.__SOP__ = ${boot};
     var saved = null;
     try { saved = JSON.parse(localStorage.getItem(LS) || 'null'); } catch (e) {}
     var resume = saved && saved.id && saved.status === 'running' ? saved.id : null;
+    if (BOOT.pinRun) resume = BOOT.pinRun; // #263：统一待办 ?run=<id> 精确定位该记录，优先于 localStorage
     var p = resume
       ? fetch('/api/sop/runs/' + resume).then(function (r) { return r.ok ? r.json() : null; })
       : fetch('/api/sop/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: BOOT.slug }) }).then(function (r) { return r.json(); });
