@@ -4,11 +4,17 @@ $ErrorActionPreference = 'Stop'
 . $ScriptPath -LibraryOnly
 $passed = 0
 $failed = 0
-function Check([string]$Name, [scriptblock]$Body) {
-  try { & $Body; Write-Host "PASS $Name"; $script:passed++ }
-  catch { Write-Host "FAIL $Name : $($_.Exception.Message)"; $script:failed++; }
+function Check([string]$TestLabel, [scriptblock]$Body) {
+  try { & $Body; Write-Host "PASS $TestLabel"; $script:passed++ }
+  catch { Write-Host "FAIL $TestLabel : $($_.Exception.Message)"; $script:failed++; }
 }
 function Equal($Actual, $Expected) { if ($Actual -cne $Expected) { throw 'Mismatch' } }
+foreach ($name in @('', ' ', '.', '..', '../escape.xml', ('..' + [char]92 + 'escape.xml'), 'C:store.xml', 'CON.xml', 'nul', 'store.')) {
+  Check ('reject_store_name_' + $name) { Equal (Test-OdooCredentialStoreName $name) $false }
+}
+foreach ($name in @('odoo-sync.credential.xml', 'synthetic.credential.xml')) {
+  Check ('accept_store_name_' + $name) { Equal (Test-OdooCredentialStoreName $name) $true }
+}
 $fields = @{ x_kind = @{ string='账号类型'; type='selection'; selection=@(@('human','人'),@('agent','agent'),@('system','系统')) } }
 $readOnly = @{ read=$true; create=$false; write=$false; unlink=$false }
 Check 'field_found_no_auto_bind' { Equal (Get-OdooMetadataVerdict $fields $readOnly '').field_state 'ONE_CANDIDATE_NOT_YET_BOUND' }

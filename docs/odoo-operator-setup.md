@@ -38,11 +38,11 @@ PR approval must use an authorized login different from the author, after review
 
 ~~~sh
 gh auth status
-gh pr view 267 -R NelsonLongxiang/workbench-market --json headRefOid,author,statusCheckRollup
-gh pr review 267 -R NelsonLongxiang/workbench-market --approve
+gh pr view <PR_NUMBER> -R <OWNER/REPOSITORY> --json headRefOid,author,statusCheckRollup
+gh pr review <PR_NUMBER> -R <OWNER/REPOSITORY> --approve
 ~~~
 
-For PR268, do not approve until the known same-origin SOP approval boundary is resolved and independent final-SHA adversarial tests/CI pass. No self-approval, admin bypass, automatic merge or deployment is performed by these helpers.
+For identity or authorization changes, approve only the independently verified final SHA and explicitly documented delivery scope. Same-origin scripts are not blocked by CSRF-style request headers alone. An approval-disabled delivery is not proof that source isolation is implemented. No self-approval, admin bypass, automatic merge or deployment is performed by these helpers.
 
 ## Verification
 
