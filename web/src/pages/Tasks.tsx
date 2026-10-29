@@ -84,6 +84,7 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
               <Typography.Text ellipsis style={{ maxWidth: 420, fontSize: compact ? 12 : 14 }}>{t.title}</Typography.Text>
               <Tag color={STATUS_COLOR[t.status]}>{STATUS_TEXT[t.status]}</Tag>
               <Typography.Text type="secondary" style={{ fontSize: 12, flex: 1, minWidth: 120 }}>{[t.project, t.due].filter(Boolean).join(' · ')}</Typography.Text>
+              {t.source === 'market' && t.id.startsWith('market:task-') && <Tag color="blue">任务中心</Tag>}
               {t.link && <Button type="link" size="small" href={t.link} target="_blank">去处理</Button>}
               {t.lc && <span role="note">仅查看：同源门户/SOP隔离未完成，工作台审批已停用。</span>}
             </div>

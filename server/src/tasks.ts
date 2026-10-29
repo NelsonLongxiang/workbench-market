@@ -6,8 +6,8 @@
  *
  * 适配器：
  *   - ygl-trees：exec `ygl-trees task list --json`（超时 5s，跨项目全量）；CLI 缺失/超时 → ok=false 降级不阻塞（J5）
- *   - market：站内 SOP 派单 run 的待办语义（running=doing，finished=done 不聚合）——
- *              复用现有 sop_runs/a2a_run_ctx schema，零侵入（J4）
+ *   - market：站内 SOP run（含未指派，running=doing）+ 任务中心已发布任务（#263 页面整链）——
+ *              复用现有 sop_runs/a2a_run_ctx/tasks schema，零侵入（J4）
  *   - A2A：v2 预留，不实现
  *   - lifecycle：按查看人列 lc inbox（server/src/lifecycle.ts·不进本模块 30s 共享缓存，由 /api/tasks 路由合并）
  */
@@ -41,6 +41,7 @@ export interface TasksPayload {
 
 type SopServiceLike = {
   runsDispatchedAll(): { id: number; sop_slug: string; started_by: string; status: string; updated_at: string }[];
+  runsRunning(): { id: number; sop_slug: string; started_by: string; status: string; updated_at: string }[];
 };
 
 const CACHE_TTL_MS = 30_000;
@@ -80,18 +81,45 @@ function execYglTasks(): Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs
 
 function marketTasks(sop: SopServiceLike): TaskEnvelope[] {
   try {
-    const rows = sop.runsDispatchedAll();
-    return rows
-      .filter((r) => r.status === 'running')
-      .map((r) => ({
-        id: `market:run-${r.id}`,
+    // #263 页面整链：统一待办呈现人开的任务与指派 run，未指派任务不静默消失
+    const dispatched = new Set(sop.runsDispatchedAll().map((r) => Number(r.id)));
+    const rows = sop.runsRunning() as Array<{ id: number; sop_slug: string; started_by: string; status: string; updated_at: string }>;
+    const seen = new Set<string>();
+    const out: TaskEnvelope[] = [];
+    for (const r of rows) {
+      if (r.sop_slug === 'task-center') continue; // 录入模板 run 不入待办，发布后的 tasks 表条目才入
+      const key = `market:run-${r.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        id: key,
         source: 'market' as const,
-        title: `SOP ${r.sop_slug} run#${r.id} 待验收`,
+        title: dispatched.has(Number(r.id)) ? `SOP ${r.sop_slug} run#${r.id} 待验收` : `SOP ${r.sop_slug} run#${r.id} 进行中（未指派）`,
         status: 'doing' as const,
         due: null,
         link: `/sop/${r.sop_slug}/`,
         project: r.sop_slug,
-      }));
+      });
+    }
+    // 任务中心已发布任务（人工录入→发布链）：标题/截止日期入待办，链接回录入 run 溯源
+    try {
+      const tcRows = ((globalThis as any).__wmDb?.prepare?.("SELECT t.id, t.title, t.intake_run_id, t.published_at FROM tasks t WHERE t.status = 'published' ORDER BY t.id DESC LIMIT 100")?.all?.() ?? []) as Array<{ id: number; title: string; intake_run_id: number | null; published_at: string }>;
+      for (const t of tcRows) {
+        const key = `market:task-${t.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({
+          id: key,
+          source: 'market' as const,
+          title: String(t.title ?? '(untitled)'),
+          status: 'todo' as const,
+          due: null,
+          link: t.intake_run_id ? `/sop/task-center/` : null,
+          project: 'task-center',
+        });
+      }
+    } catch { /* tasks 表不可读时降级：不阻塞其余 market 条目 */ }
+    return out;
   } catch {
     return [];
   }
