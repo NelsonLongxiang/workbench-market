@@ -34,6 +34,8 @@ jobs:
         run: node scripts/security-env-face-test.mjs
       - name: 生命周期签发入口单测（req 哈希金向量·断言结构·私钥门）
         run: node scripts/lc-issuer-unit.mjs
+      - name: 生命周期全景接口冒烟（替身引擎+替身 Odoo：401·降级·缓存合并·no-store）
+        run: node scripts/lifecycle-board-smoke.mjs
       - name: 安全对抗例组（PASS / SKIP / NEEDS-MATERIAL 分列）
         run: node scripts/security-adversarial-smoke.mjs
       - name: 留存 F5 原始证据与覆盖摘要

@@ -128,8 +128,8 @@ function childEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   for (const k of ['PATH', 'HOME', 'USERPROFILE', 'SystemRoot', 'TEMP', 'TMP', 'APPDATA', 'LOCALAPPDATA']) if (process.env[k]) env[k] = process.env[k];
   return env;
 }
-function lcEnv(home: string, assertion: string): NodeJS.ProcessEnv {
-  const env = childEnv({ YGL_HOME: home, YGL_SESSION: LC_SESSION, LC_ASSERTION: assertion });
+function lcEnv(home: string, assertion: string | null): NodeJS.ProcessEnv {
+  const env = childEnv({ YGL_HOME: home, YGL_SESSION: LC_SESSION, ...(assertion ? { LC_ASSERTION: assertion } : {}) });
   if (process.env.LC_TEST === '1') {
     env.LC_TEST = '1';
     if (process.env.LC_IDENTITY_FILE) env.LC_IDENTITY_FILE = process.env.LC_IDENTITY_FILE;
@@ -152,8 +152,8 @@ function engineVersion(bin: string): Promise<string> {
   });
 }
 
-/** 跑一次 lc：返回退出码与最后一行 JSON 信封（rc 2 用法错误也带信封） */
-export function runLc(cfg: { bin: string; home: string }, action: string, flags: LcFlags, assertion: string): Promise<{ rc: number | null; envelope: LcEnvelope | null; ms: number }> {
+/** 跑一次 lc：返回退出码与最后一行 JSON 信封（rc 2 用法错误也带信封）；assertion 为 null = 只读动作，不给 LC_ASSERTION */
+export function runLc(cfg: { bin: string; home: string }, action: string, flags: LcFlags, assertion: string | null): Promise<{ rc: number | null; envelope: LcEnvelope | null; ms: number }> {
   const argv = lcArgv(action, flags);
   const t0 = Date.now();
   return new Promise((done) => {
@@ -248,6 +248,87 @@ export async function lifecycleSourceFor(cookieHeader: string): Promise<{ meta: 
   const meta: LcSourceMeta = { ok: true, count: tasks.length, latency_ms: Date.now() - t0, viewer: who.viewer.sub };
   inboxCache.set(who.viewer.sub, { at: Date.now(), tasks, meta });
   return { meta, tasks };
+}
+
+// ---------- 生命周期全景（lc board · 只读） ----------
+// 读动作不要身份：不签断言、子进程不给 LC_ASSERTION。看板不按 lc 授权域过滤（属主 2026-10-29：访问跟工作台授权走），
+// 所以缓存按 (as_of, pd) 共享，不按查看人分；登录门照统一待办生命周期源（resolveOdooViewer）。
+// 事实由内核算好，这里只透传 data/next，不重算状态、归属、超时或过期。
+
+const BOARD_TTL_MS = 30_000;
+const BOARD_ENV_KEYS = ['LC_YGL_BIN', 'LC_YGL_HOME', 'LC_ODOO_URL'] as const;
+const DEFAULT_ANCHOR_DIR = '/opt/lifecycle-os/anchors'; // 运行检出卷，容器内只读挂载（lifecycle-os 5efa9cd 起）
+const boardCache = new Map<string, { at: number; body: Record<string, unknown> }>();
+const boardInflight = new Map<string, Promise<Record<string, unknown>>>();
+
+function boardConfigProblem(cfg: ReturnType<typeof lcConfig>): string | null {
+  const missing = BOARD_ENV_KEYS.filter((k) => cfg.missing.includes(k));
+  if (missing.length) return `生命周期源未配置：缺 ${missing.join('、')}`;
+  // 只缺签发私钥不影响只读看板；工作区路径的两道检查与 lcConfig 同口径
+  if (!isAbsolute(cfg.home)) return 'LC_YGL_HOME 须为绝对路径';
+  if (process.env.LC_TEST === '1' && inside(resolve(cfg.home), RUNTIME_HOME)) return 'LC_TEST=1 不能指向运行工作区 ~/.ygl-trees-lc（测试模式只用于全新测试工作区）';
+  return null;
+}
+
+/** 锚点文件：LC_LEDGER = 账本名 → <LC_ANCHOR_DIR 缺省 /opt/lifecycle-os/anchors>/<账本名>.jsonl；文件不在就不带 --anchor 并告警 */
+function boardAnchor(): { file: string | null; warning: string | null } {
+  const ledger = String(process.env.LC_LEDGER ?? '').trim();
+  if (!ledger) return { file: null, warning: null };
+  if (!/^[A-Za-z0-9_.-]{1,64}$/.test(ledger) || ledger.startsWith('.')) return { file: null, warning: `LC_LEDGER 账本名非法：${ledger.slice(0, 64)}` };
+  const dir = String(process.env.LC_ANCHOR_DIR ?? '').trim() || DEFAULT_ANCHOR_DIR;
+  const file = resolve(dir, `${ledger}.jsonl`);
+  try { if (statSync(file).isFile()) return { file, warning: null }; } catch { /* 不存在 */ }
+  return { file: null, warning: `锚点文件不存在：${ledger}.jsonl（未带 --anchor，防篡改徽标按未锚定显示）` };
+}
+
+/** 严格 ISO（纯日期或带显式时区），与引擎 as_of 口径一致；不合格返回 null */
+function boardAsOf(v: unknown): string | null | false {
+  if (v === undefined || v === '') return null;
+  const s = String(v);
+  if (!/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:?\d{2}))?$/.test(s) || Number.isNaN(Date.parse(s))) return false;
+  return s;
+}
+
+async function loadBoard(cfg: { bin: string; home: string }, flags: LcFlags, warnings: string[]): Promise<Record<string, unknown>> {
+  const t0 = Date.now();
+  const version = await engineVersion(cfg.bin);
+  if (version !== LC_ENGINE_PIN) return { ok: false, error: `ygl-trees 引擎版本 ${version} ≠ 钉版 ${LC_ENGINE_PIN}` };
+  const r = await runLc(cfg, 'board', flags, null);
+  const env = r.envelope;
+  if (env?.status !== 'applied') {
+    const why = env ? `${env.status}：${env.error?.code ?? ''} ${env.error?.message ?? ''}`.trim() : r.rc === null ? '超时或被终止' : `无信封（rc ${r.rc}）`;
+    return { ok: false, error: `lc board ${why}`, next: env?.next ?? [], latency_ms: Date.now() - t0 };
+  }
+  return { ok: true, data: env.data ?? null, next: Array.isArray(env.next) ? env.next : [], warnings, latency_ms: Date.now() - t0, generated_at: new Date().toISOString() };
+}
+
+/** GET /api/lifecycle/board[?pd=&as_of=]：未配置 → 200 ok:false 降级；未登录 → 401；引擎失败/超时 → 200 ok:false */
+export async function lifecycleBoard(cookieHeader: string, query: { pd?: unknown; as_of?: unknown }): Promise<Result> {
+  const cfg = lcConfig();
+  const problem = boardConfigProblem(cfg);
+  if (problem) return { http: 200, body: { ok: false, configured: lifecycleConfigured(), error: problem } };
+  const who = await resolveOdooViewer(cookieHeader, cfg.odooUrl);
+  if (!who.ok) return { http: who.http, body: { ok: false, error: who.error } };
+  const pd = query.pd === undefined || query.pd === '' ? null : String(query.pd);
+  if (pd !== null && !/^[A-Za-z0-9][A-Za-z0-9:_.-]{0,127}$/.test(pd)) return { http: 400, body: { ok: false, error: 'pd 非法' } };
+  const asOf = boardAsOf(query.as_of);
+  if (asOf === false) return { http: 400, body: { ok: false, error: 'as_of 须为严格 ISO（纯日期或带时区）' } };
+  const anchor = boardAnchor();
+  const flags: LcFlags = {};
+  if (asOf) flags['as-of'] = asOf;
+  if (pd) flags.pd = pd;
+  if (anchor.file) flags.anchor = anchor.file;
+  const key = JSON.stringify([asOf, pd, anchor.file]);
+  const hit = boardCache.get(key);
+  if (hit && Date.now() - hit.at < BOARD_TTL_MS) return { http: 200, body: { ...hit.body, viewer: who.viewer.sub, cached: true } };
+  let job = boardInflight.get(key);
+  if (!job) {
+    job = loadBoard(cfg, flags, anchor.warning ? [anchor.warning] : []).finally(() => boardInflight.delete(key));
+    boardInflight.set(key, job);
+  }
+  const body = await job;
+  if (body.ok) boardCache.set(key, { at: Date.now(), body }); // 失败不缓存：下一次请求重试
+  return { http: 200, body: { ...body, viewer: who.viewer.sub, cached: false } };
 }
 
 // ---------- 审批 ----------

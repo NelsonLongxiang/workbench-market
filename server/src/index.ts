@@ -1698,6 +1698,12 @@ app.post('/api/lifecycle/approve', wrap(async (req, res) => {
   const r = await lifecycleApprove(req.headers, req.body);
   res.status(r.http).json(r.body);
 }));
+// 生命周期全景（只读）：登录门同统一待办生命周期源；响应随 Cookie 变，不许中间缓存
+app.get('/api/lifecycle/board', wrap(async (req, res) => {
+  const r = await lifecycleBoard(String(req.headers.cookie ?? ''), { pd: req.query.pd, as_of: req.query.as_of });
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.status(r.http).json(r.body);
+}));
 app.get('/api/lifecycle/status', wrap(async (req, res) => {
   if (!adminGuard(req, res)) return; // 配置清单不对远程匿名读开放（评审：只写面有远程门）
   res.json(await lifecycleStatus());
@@ -2694,7 +2700,7 @@ import { evalCandidates } from './eval.ts'; // #178 评估模型客户端
 import { renderSopRunner } from './sop-runner.ts';
 import { isOdooLikeTarget, isOdooSessionTarget, stripOdooSession, trustedOdooOrigins } from './odoo-session.ts';
 import { collectTasks } from './tasks.ts';
-import { lifecycleApprove, lifecycleConfigProblem, lifecycleConfigured, lifecycleSourceFor, lifecycleStatus } from './lifecycle.ts';
+import { lifecycleApprove, lifecycleBoard, lifecycleConfigProblem, lifecycleConfigured, lifecycleSourceFor, lifecycleStatus } from './lifecycle.ts';
 import { endpointStatsMiddleware, statsPayload } from './endpoint-stats.ts';
 
 // ---------- MCP 生产通道（StreamableHTTP · stateless：AI 会话直连市场，零依赖手写 JSON-RPC） ----------
