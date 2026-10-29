@@ -14,7 +14,8 @@ export function renderSopRunner(manifest: SopManifest, app: AppRow): string {
       </section>`
     )
     .join('\n');
-  const boot = JSON.stringify({ slug: app.slug, version: app.active_version, code: app.code || manifest.code || '', title: manifest.title, steps: manifest.steps.map((s) => s.key) })
+  const pinRun = typeof (globalThis as any).__wmSopPinRun === 'number' ? (globalThis as any).__wmSopPinRun : null;
+  const boot = JSON.stringify({ slug: app.slug, version: app.active_version, code: app.code || manifest.code || '', title: manifest.title, steps: manifest.steps.map((s) => s.key), pinRun })
     .replace(/</g, '\\u003c');
   return `<!doctype html>
 <html lang="zh-CN">
@@ -171,6 +172,8 @@ window.__SOP__ = ${boot};
     var saved = null;
     try { saved = JSON.parse(localStorage.getItem(LS) || 'null'); } catch (e) {}
     var resume = saved && saved.id && saved.status === 'running' ? saved.id : null;
+    if (BOOT.pinRun) resume = BOOT.pinRun; // #263：统一待办 ?run=<id> 精确定位该记录，优先于 localStorage
+    window.__wmPinnedRun = resume; // 供状态呈现判断（只读定位不改写入权限）
     var p = resume
       ? fetch('/api/sop/runs/' + resume).then(function (r) { return r.ok ? r.json() : null; })
       : fetch('/api/sop/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: BOOT.slug }) }).then(function (r) { return r.json(); });
@@ -193,8 +196,9 @@ window.__SOP__ = ${boot};
         fill(k, remote || local);
         if (remote || local) dot(k, 'saved');
       });
-      $('#finish').disabled = false;
-      setState('执行中——数据自动保存');
+      $('#finish').disabled = run.status !== 'running';
+      if (run.status === 'finished') { setState('已完成——冻结录入（只读）'); document.querySelectorAll('[data-field]').forEach(function (el) { el.disabled = true; }); }
+      else { setState('执行中——数据自动保存'); }
       void renderAgentExtras(run);
     }).catch(function () { setState('无法连接市场服务——填写仍会缓冲本地'); });
   }
