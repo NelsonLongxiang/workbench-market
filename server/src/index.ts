@@ -2669,6 +2669,7 @@ import { MCP_TOOLS } from './mcp-tools.ts';
 import { evalCandidates } from './eval.ts'; // #178 评估模型客户端
 
 import { renderSopRunner } from './sop-runner.ts';
+import { isOdooLikeTarget, isOdooSessionTarget, stripOdooSession, trustedOdooOrigins } from './odoo-session.ts';
 import { collectTasks } from './tasks.ts';
 import { endpointStatsMiddleware, statsPayload } from './endpoint-stats.ts';
 
@@ -3333,6 +3334,9 @@ app.post('/api/a2a/send', wrap(async (req, res) => {
 if (getApp('task-center').status === 'published') syncWorkbenchRegistration(getApp('task-center'));
 const goServer = app.listen(PORT, () => {
   if (process.env.ALLOW_PUBLIC_NET === '1') console.warn('[SSRF_GUARD_DISABLED] ALLOW_PUBLIC_NET=1: public registration guard is bypassed; explicitly review this deployment exception.');
+  const odooTrust = trustedOdooOrigins();
+  if (odooTrust.invalid.length) console.warn(`[SSO v1] WM_ODOO_ORIGINS/LC_ODOO_URL 有非法项（已忽略）：${odooTrust.invalid.join(', ')}`);
+  if (odooTrust.origins.size === 0 && listWorkbenches().some((w) => isOdooLikeTarget(w.type, w.url))) console.warn('[SSO v1] 未设 WM_ODOO_ORIGINS / LC_ODOO_URL：门户不转发 Odoo 会话，Odoo 台免登不生效（台内会显示 Odoo 自己的登录页）——要免登请把 Odoo 台的源写进 WM_ODOO_ORIGINS');
   const counts = svc<WorkbenchService>('workbench').count() as { n: number };
   console.log(`[workbench-market] server  http://127.0.0.1:${PORT}  (workbenches: ${counts.n}, web-dist: ${existsSync(webDist) ? 'served' : 'none'}, portal: /go/<id>/)`);
   startRedis(); // SOP 状态层（生产 Redis；不可达自动降级直写 SQLite，不阻塞启动）
@@ -3380,6 +3384,7 @@ goServer.on('upgrade', (req, socket, head) => {
   // ① 浏览器握手必带 Origin（=9800 门户源），上游 Origin fence 要求 Origin==Host authority → 403（实测）
   // ② Host 改成上游 authority，与 changeOrigin 语义一致；cookie 名是 authority 的 sha256，
   //    Host 不符则上游取不到签名 cookie → 401（实测）
+  if (!isOdooSessionTarget(w.url)) stripOdooSession(req.headers); // 同 HTTP 门户：Odoo 会话只转给可信 Odoo 源
   const upstreamHost = u.host; // host:port（authority 形态）
   if (req.headers.origin !== undefined) req.headers.origin = u.origin;
   req.headers.host = upstreamHost;
