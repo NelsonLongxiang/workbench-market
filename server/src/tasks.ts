@@ -9,24 +9,33 @@
  *   - market：站内 SOP 派单 run 的待办语义（running=doing，finished=done 不聚合）——
  *              复用现有 sop_runs/a2a_run_ctx schema，零侵入（J4）
  *   - A2A：v2 预留，不实现
+ *   - lifecycle：按查看人列 lc inbox（server/src/lifecycle.ts·不进本模块 30s 共享缓存，由 /api/tasks 路由合并）
  */
 import { execFile } from 'node:child_process';
 
 export interface TaskEnvelope {
   id: string;
-  source: 'ygl-trees' | 'market' | 'a2a';
+  source: 'ygl-trees' | 'market' | 'a2a' | 'lifecycle';
   title: string;
   status: 'todo' | 'doing' | 'done';
   due: string | null;
   link: string | null;
   project: string | null;
+  /** 仅 lifecycle 源：批准动作所需的提议与授权（POST /api/lifecycle/approve） */
+  lc?: LcTaskRef;
+}
+
+export interface LcTaskRef {
+  proposal_id: string; grant: string; object: string; machine: string; from: string; to: string;
+  effective_at: string | null; proposed_by: string; approvals: number; levels: number;
 }
 
 export interface SourceMeta { ok: boolean; count: number; latency_ms: number }
 export interface TasksPayload {
   tasks: TaskEnvelope[];
-  /** a2a 键仅在 A2A_STATE_URL 已配置（源启用）时出现——未配置=源缺席≠降级（总工程师三裁①） */
-  sources: { 'ygl-trees': SourceMeta; market: SourceMeta; a2a?: SourceMeta };
+  /** a2a 键仅在 A2A_STATE_URL 已配置（源启用）时出现——未配置=源缺席≠降级（总工程师三裁①）；
+   *  lifecycle 键同理，仅在 LC_* 已配置时出现，按查看人计 */
+  sources: { 'ygl-trees': SourceMeta; market: SourceMeta; a2a?: SourceMeta; lifecycle?: SourceMeta & { viewer: string | null; error?: string } };
   generated_at: string;
 }
 
