@@ -10,6 +10,12 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function Test-OdooCredentialStoreName {
+  param([string]$Name)
+  $valid = (-not [string]::IsNullOrWhiteSpace($Name)) -and ($Name -notin @('.', '..')) -and ($Name -match '^[A-Za-z0-9][A-Za-z0-9._-]*$') -and ($Name -notmatch '[. ]$') -and ($Name -notmatch '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])([.]|$)')
+  return [bool]$valid
+}
+
 function Get-OdooMetadataVerdict {
   param([System.Collections.IDictionary]$Fields, [System.Collections.IDictionary]$Rights, [string]$RequestedField)
   $candidates = @()
@@ -65,7 +71,7 @@ function Invoke-OdooReadonlyPreflight {
   if ($http -and -not $OnlyStore) { Write-Warning 'Explicit operator override: this connection transmits a password over plain HTTP. Prefer HTTPS or an encrypted tunnel.' }
   if (-not $cfg.database -or -not $cfg.username) { throw 'Missing non-secret database or username.' }
   $dir = Split-Path -Parent $ConnectionPath
-  if ([IO.Path]::GetFileName([string]$cfg.credential_store) -ne $cfg.credential_store) { throw 'Credential store must be a filename in the protected configuration directory.' }
+  if (-not (Test-OdooCredentialStoreName ([string]$cfg.credential_store))) { throw 'Credential store must be a non-empty safe filename, not a path, reserved device or dot directory.' }
   $store = Join-Path $dir $cfg.credential_store
   if ($OnlyStore -and -not $ConfigureCredential) { throw '-StoreOnly requires -Configure.' }
   if ((Get-Item -Force -LiteralPath $ConnectionPath).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Reparse configuration refused.' }
