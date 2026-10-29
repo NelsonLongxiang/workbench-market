@@ -181,8 +181,8 @@ node scripts/verify-report.mjs <run1.json> [run2.json ...]
 - **ygl-trees 源**：server 侧 `ygl-trees task list --json`（5s 超时；CLI 不可用 → `ok=false` 降级，不阻塞其它源）
 - **market 源**：派单 running 的 SOP run（待验收语义，深链 `/sop/<slug>/`）
 - A2A 源为 v2 预留
-- **生命周期源**（lifecycle-os 的 ygl-trees `lc` 插件·设计 v1.1 第九节）：仅在配置 `LC_*` 时出现（`sources.lifecycle`），**按查看人**列 `lc inbox`，不进 30s 共享缓存（同一查看人 30s 内复用结果，批准后即失效）。工作台是 lc 断言签发入口 `workbench`：服务端用浏览器的 Odoo `session_id` 调 `LC_ODOO_URL` 的 `/web/session/get_session_info` 确认登录名，只为人签（`sub=user:<Odoo 登录名>`），每次调 lc 都为这一次请求现签一张（插件首次出示即作废）。每条待办带 `lc{proposal_id,grant,…}`，「批准」= `POST /api/lifecycle/approve {proposal_id,grant}` → `lc approve --proposal <P> --grant <G>`（须 `Content-Type: application/json` + `X-WM-Lifecycle: 1`，跨源/跨站/`Origin: null` 一律 403；此路径在远程写豁免面里，身份靠 Odoo 会话不靠管理员口令）。`GET /api/lifecycle/status`（`X-Admin-Token`）回签发公钥供属主登记，不回私钥路径。门户 `/go/<id>/` 只把 Odoo `session_id` 转给可信 Odoo 源（`LC_ODOO_URL` 与 `WM_ODOO_ORIGINS` 的源；台的类型、端口可由 agent 登记，不作数），其余台 HTTP 与 WS 升级都剥（`server/src/odoo-session.ts`）——它既是用户的 Odoo 会话也是审批身份。**审批的安全上限**：市场同源下未 sandbox 的页面（`/go/` 代理台、SOP Runner 步骤 HTML）里的脚本能以当前登录人身份调审批接口，详见交付说明。私钥只从 `LC_WORKBENCH_KEY_FILE` 读：绝对路径、仓库外、权限 600、ed25519。引擎钉 ygl-trees 0.116.1。测试：`node scripts/lc-issuer-unit.mjs`（req 哈希金向量与参考实现对拍·CI）、`node scripts/security-lc-approve.mjs`（对抗组 S3·CI 经安全对抗脚本）、`node scripts/portal-odoo-session-smoke.mjs`（门户会话转发 S4·CI 同上）、`node scripts/lc-issuer-e2e.mjs`（真引擎测试模式全新工作区·需 lifecycle-os 与 0.116.1 引擎）。部署与属主待办见 [docs/lifecycle-workbench-issuer.md](docs/lifecycle-workbench-issuer.md)。
-UI：`/tasks` 页（源/状态过滤·生命周期条目带「批准」确认按钮）· 总览待办聚合卡 · 驾驶舱「加待办卡」（kind=tasks 面板，布局服务端保存）。
+- **生命周期源（只读降级）**：配置经另批准的 `LC_*` 后按查看人读取 `lc inbox`。当前 `POST /api/lifecycle/approve` 无条件503 `LC_APPROVAL_READ_ONLY`，不读Odoo会话、不加载签发私钥、不调用引擎；`/go/`及SOP源隔离未完成，故页面不提供批准按钮。没有环境开关重启HTTP批准。签名/请求绑定原语供独立测试保留，不等生产审批可用；生产配置与真实审批另批。详见 [交付说明](docs/lifecycle-workbench-issuer.md)。
+UI：`/tasks` 页（源/状态过滤·生命周期条目标明「只读，审批停用」）· 总览待办聚合卡 · 驾驶舱「加待办卡」（kind=tasks 面板，布局服务端保存）。
 
 ## 鉴权边界与代理相对路径（#132 ⑨⑩）
 

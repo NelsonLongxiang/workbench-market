@@ -120,22 +120,16 @@ try {
   r = await tasksAs('sidG');
   ok('Odoo 有、主体镜像没有的 ghost：lc 拒（未登记）', r.body?.sources?.lifecycle?.ok === false && /未登记/.test(r.body.sources.lifecycle.error ?? ''), JSON.stringify(r.body?.sources?.lifecycle));
 
-  console.log('批准（HTTP，为这一条 approve 现签断言）');
+  console.log('HTTP审批只读遏制（不出示断言、不写审批账本）');
   const n0 = nonces().length;
-  r = await approveAs('sidA', P[0]);
-  ok('pm-a 批准 P1：applied', r.status === 200 && r.body?.status === 'applied' && r.body?.viewer === 'user:pm-a', JSON.stringify(r.body));
-  ok('这次批准恰好出示一张新断言（lc_nonce +1）', nonces().length === n0 + 1);
-  const row = JSON.parse(lc(['ledger']).data.ledger.filter((x) => x.kind === 'approve').pop().detail);
-  const ledgerRow = lc(['ledger']).data.ledger.filter((x) => x.kind === 'approve').pop();
-  ok('账本审批行：actor=user:pm-a，签发入口 workbench，记下身份声明哈希', ledgerRow.actor === 'user:pm-a' && ledgerRow.proposal_id === P[0] && row.caller?.iss === 'workbench' && row.caller?.decl === blobSha(idFile), JSON.stringify({ actor: ledgerRow.actor, caller: row.caller }));
+  for (const [who, proposal] of [['sidA', P[0]], ['sidB', P[1]], ['sidG', P[1]], ['sidA', 'p-000000000000']]) {
+    r = await approveAs(who, proposal);
+    ok(who + ' HTTP批准被硬拒', r.status === 503 && r.body?.error?.code === 'LC_APPROVAL_READ_ONLY');
+  }
+  ok('HTTP拒绝不新增nonce', nonces().length === n0);
+  ok('HTTP拒绝不写审批账本', !lc(['ledger']).data.ledger.some(x => x.kind === 'approve'));
   r = await tasksAs('sidA');
-  ok('批准后 pm-a 待办剩三条（不吃 30s 旧缓存）', lcItems(r).length === 3 && !lcItems(r).some((t) => t.lc?.proposal_id === P[0]), String(lcItems(r).length));
-  r = await approveAs('sidB', P[1]);
-  ok('pm-b 批 P2：内核门禁拒（GATE_DENIED）→ 403', r.status === 403 && r.body?.status === 'denied' && r.body?.error?.code === 'GATE_DENIED', JSON.stringify(r.body));
-  r = await approveAs('sidG', P[1]);
-  ok('ghost 批 P2：身份被拒 → 403 IDENTITY_REJECTED', r.status === 403 && r.body?.error?.code === 'IDENTITY_REJECTED', JSON.stringify(r.body));
-  r = await approveAs('sidA', 'p-000000000000');
-  ok('不存在的提议：lc 用法错误 → 400 USAGE', r.status === 400 && r.body?.error?.code === 'USAGE', JSON.stringify(r.body));
+  ok('只读待办仍四条', lcItems(r).length === 4);
 
   console.log('断言一次性与请求绑定（直接对插件出示 lifecycle.ts 签的断言）');
   process.env.LC_TEST = '1'; process.env.LC_IDENTITY_FILE = idFile; // runLc 只在本进程 LC_TEST=1 时透传测试模式
@@ -169,9 +163,9 @@ try {
 
   console.log('收尾');
   r = await approveAs('sidA', P[3]);
-  ok('HTTP 批 P4：工作台每次现签，之前烧掉的断言不影响', r.status === 200 && r.body?.status === 'applied', JSON.stringify(r.body));
+  ok('HTTP批P4仍只读拒绝', r.status === 503 && r.body?.error?.code === 'LC_APPROVAL_READ_ONLY');
   r = await tasksAs('sidA');
-  ok('pm-a 待办只剩 P2（只有 pm-b 试过且被拒），批过的 P1/P3/P4 都不在', r.body?.sources?.lifecycle?.ok === true && lcItems(r).length === 1 && lcItems(r)[0].lc?.proposal_id === P[1], JSON.stringify(lcItems(r).map((t) => t.lc?.proposal_id)));
+  ok('HTTP只读拒绝不使收件箱缓存失效（直接插件写入另算）', r.body?.sources?.lifecycle?.ok === true && lcItems(r).some(t => t.lc?.proposal_id === P[0]) && lcItems(r).some(t => t.lc?.proposal_id === P[3]));
   const all = nonces();
   ok('lc_nonce 无重复（每张断言 nonce 独一）', new Set(all).size === all.length && all.length > 0, `${all.length}`);
 } catch (e) {
