@@ -10,6 +10,7 @@ import { KeyOutlined,
   MenuUnfoldOutlined,
   OrderedListOutlined,
   CarryOutOutlined,
+  NodeIndexOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
@@ -24,6 +25,7 @@ import McpGateways from './pages/McpGateways';
 import { getAdminToken, setAdminToken } from './admin-token';
 import { Badge, Button as AButton, Input as AInput, Popover } from 'antd';
 import Tasks from './pages/Tasks';
+import Lifecycle from './pages/Lifecycle';
 import SkillsPage from './pages/Skills';
 
 const menuRoutes = {
@@ -34,6 +36,7 @@ const menuRoutes = {
     { path: '/market', name: '工作台', icon: <AppstoreOutlined /> },
     { path: '/sops', name: 'SOP 台', icon: <OrderedListOutlined /> },
     { path: '/tasks', name: '统一待办', icon: <CarryOutOutlined /> },
+    { path: '/lifecycle', name: '生命周期全景', icon: <NodeIndexOutlined /> },
     { path: '/mcp-gateways', name: 'MCP 网关', icon: <SafetyCertificateOutlined /> },
     { path: '/types', name: '类型管理', icon: <ClusterOutlined /> },
     { path: '/skills', name: '技能市场', icon: <CarryOutOutlined /> },
@@ -128,6 +131,7 @@ export default function App() {
         <Route path="/market" element={<Market />} />
         <Route path="/sops" element={<Sops />} />
         <Route path="/tasks" element={<Tasks />} />
+        <Route path="/lifecycle" element={<Lifecycle />} />
         <Route path="/mcp-gateways" element={<McpGateways />} />
         <Route path="/types" element={<Types />} />
         <Route path="/skills" element={<SkillsPage />} />
