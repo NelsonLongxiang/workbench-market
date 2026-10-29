@@ -173,6 +173,7 @@ window.__SOP__ = ${boot};
     try { saved = JSON.parse(localStorage.getItem(LS) || 'null'); } catch (e) {}
     var resume = saved && saved.id && saved.status === 'running' ? saved.id : null;
     if (BOOT.pinRun) resume = BOOT.pinRun; // #263：统一待办 ?run=<id> 精确定位该记录，优先于 localStorage
+    window.__wmPinnedRun = resume; // 供状态呈现判断（只读定位不改写入权限）
     var p = resume
       ? fetch('/api/sop/runs/' + resume).then(function (r) { return r.ok ? r.json() : null; })
       : fetch('/api/sop/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: BOOT.slug }) }).then(function (r) { return r.json(); });
@@ -195,8 +196,9 @@ window.__SOP__ = ${boot};
         fill(k, remote || local);
         if (remote || local) dot(k, 'saved');
       });
-      $('#finish').disabled = false;
-      setState('执行中——数据自动保存');
+      $('#finish').disabled = run.status !== 'running';
+      if (run.status === 'finished') { setState('已完成——冻结录入（只读）'); document.querySelectorAll('[data-field]').forEach(function (el) { el.disabled = true; }); }
+      else { setState('执行中——数据自动保存'); }
       void renderAgentExtras(run);
     }).catch(function () { setState('无法连接市场服务——填写仍会缓冲本地'); });
   }
