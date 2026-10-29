@@ -1,0 +1,3622 @@
+{
+  "version": "receipt-control-material-r1",
+  "base": "7e64e98fd24d1e5b5c0a7fcbb28c9a1af13c97dc",
+  "product_target": "d90f81abca809a48a893544d0bdd4c409be78526",
+  "total_units": 49,
+  "in_scope": 47,
+  "deferred": 2,
+  "total_proposed_controls": 334,
+  "approval_status": "ALL_PENDING",
+  "executable_policy_modified": false,
+  "units": [
+    {
+      "probe_id": "boot",
+      "authority": "§0",
+      "source_clause": "S00 [boot] (§0) 探针必须记录被验SHA、源码hash、进程PID、监听端口归属、独立DATA_DIR与启动配置并真实完成HTTP请求，不得误连旧进程。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "boot.C01",
+          "expected": "真实进程源SHA/源文件hash与声明一致",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "boot.C02",
+          "expected": "监听owner等于本次子进程而非旧PID",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "boot.C03",
+          "expected": "非9800端口且独立DATA_DIR",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "boot.C04",
+          "expected": "实际health请求成功并留请求目的地",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "boot.C05",
+          "expected": "命令/cwd/配置来源无secret留档",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "boot.C06",
+          "expected": "结束owned子进程/fixture且无残留",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "354d9ed870f6886ea8c21d4811350826f646e312261708ff6f994f2b29751ef9",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "PASS",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "source/process/port proof"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "switch_defaults",
+      "authority": "D1/D4",
+      "source_clause": "S01 [switch_defaults] (D1/D4) WM_SSO未设为off，台sso.enabled默认false；四种双闸组合的HTTP与WS与预期一致，off不解除旧认证。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "switch_defaults.C01",
+          "expected": "WM_SSO未设置默认off",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "switch_defaults.C02",
+          "expected": "新台enabled默认false",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "switch_defaults.C03",
+          "expected": "四组合off/off off/on on/off on/on的HTML门逐项",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "switch_defaults.C04",
+          "expected": "四组合WS门逐项",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "switch_defaults.C05",
+          "expected": "off组合不改变既有控制票/MCP/app-token门",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "switch_defaults.C06",
+          "expected": "中心开不隐式启用所有台",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "dffdb65785c308248d5a4d5788c6201fe9accc85a0820dc1f7e076174c240f1d",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "FAIL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "http_gate",
+      "authority": "D1/D2",
+      "source_clause": "S02 [http_gate] (D1/D2) 双闸on的外部台全子路径：无有效会话的HTML GET/HEAD302到安全/login?next，HEAD无body；JSON GET/POST及静态子资源401，不转发上游secret。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "http_gate.C01",
+          "expected": "on/on外部根与全子路径HTML GET无身份302安全next",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "http_gate.C02",
+          "expected": "HTML HEAD无身份302且无body",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "http_gate.C03",
+          "expected": "非HTML GET和静态资源无身份401",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "http_gate.C04",
+          "expected": "数据POST无身份401无上游请求",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "http_gate.C05",
+          "expected": "合法session可访问各方法/嵌套路径",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "http_gate.C06",
+          "expected": "合法POST原body到上游不提前被解析消费",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "http_gate.C07",
+          "expected": "入站身份缺失不注入上游共享secret",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "http_gate.C08",
+          "expected": "wm_session从出站cookie剥除",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "fdb33df56a914ebcea040b62626fe78016d2e50a1b1e3b6f626e7b16f3c18203",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "ws_gate",
+      "authority": "D1/D2",
+      "source_clause": "S03 [ws_gate] (D1/D2) 双闸on外部台WS无或错会话401断开，有有效会话才101；握手单列不依赖Express中间件。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "ws_gate.C01",
+          "expected": "缺cookie握手401并断开",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "ws_gate.C02",
+          "expected": "伪造cookie握手401",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "ws_gate.C03",
+          "expected": "有效session握手101",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "ws_gate.C04",
+          "expected": "过期/撤销/禁用票后续握手401",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "ws_gate.C05",
+          "expected": "HTTP中间件门不能代WS检查",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "ws_gate.C06",
+          "expected": "合法upgrade不破上游Host/Origin路由",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "ws_gate.C07",
+          "expected": "已建WS强断不属本批且不计PASS",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "72d4fde5ccd3ba83f4bc833abbb3384120220f4a8d1731e2b0905991b9c62eef",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "internal_target",
+      "authority": "D1",
+      "source_clause": "S04 [internal_target] (D1) 内部/apps或/sop台启用sso返回409 unsupported_target；关闭合法配置可200；直接内部入口与API不冒称被SSO保护。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "internal_target.C01",
+          "expected": "apps内部台启用409 unsupported_target",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "internal_target.C02",
+          "expected": "sop内部台启用409 unsupported_target",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "internal_target.C03",
+          "expected": "合法关闭配置200",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "internal_target.C04",
+          "expected": "错误配置零持久写",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "internal_target.C05",
+          "expected": "已有非法内部enabled迁移明确拒绝",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "internal_target.C06",
+          "expected": "直连/apps /sop和API范围说明不夸全保护",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "227b15d16ca20d19d80f5d2056c9fffdb7fef2725c0a46314f9518f1de5c15b7",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "FAIL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "machine_no_ticket",
+      "authority": "D2",
+      "source_clause": "S05 [machine_no_ticket] (D2) 缺wm_session时Authorization/X-App-Token/X-Admin-Token无论存在或在原scope合法，都不替代/go会话；不把MCP工具grant变成台scope。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "machine_no_ticket.C01",
+          "expected": "无session且伪Bearer不替票",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "machine_no_ticket.C02",
+          "expected": "无session且本市场合法admin票不替票",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "machine_no_ticket.C03",
+          "expected": "无session且原scope合法app-token不替票",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "machine_no_ticket.C04",
+          "expected": "无session且原scope合法MCP票不替票",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "machine_no_ticket.C05",
+          "expected": "MCP工具grant不映射workbench路径",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "machine_no_ticket.C06",
+          "expected": "所有拒绝不触上游共享secret注入",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "machine_no_ticket.C07",
+          "expected": "合法session不被无关头升级为管理身份",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "713151ca1e757693cae321e5edbb8b134b1c18ecba990b443ba6c9221206a6bd",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "machine_unavailable",
+      "authority": "D3",
+      "source_clause": "S06 [machine_unavailable] (D3) machine_auth除none外全部409 machine_auth_unavailable，拒绝无持久写；validator正向DEFERRED不计PASS。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "machine_unavailable.C01",
+          "expected": "配置none合法对照",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "machine_unavailable.C02",
+          "expected": "app-token mcp-session target-validator每个非none409",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "machine_unavailable.C03",
+          "expected": "任意未知非none明确409 machine_auth_unavailable",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "machine_unavailable.C04",
+          "expected": "失败配置前后持久值相同",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "machine_unavailable.C05",
+          "expected": "不默默归none后放行",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "machine_unavailable.C06",
+          "expected": "validator正向分延期不由负向409证明",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "fe0763fa6356f6f6b7fc7e7e00df4794f50740635f7e8fbf44ae04396727fb8d",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "FAIL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "legacy_machine_config",
+      "authority": "D3",
+      "source_clause": "S07 [legacy_machine_config] (D3) 持久历史非none机器配置与内部enabled非法配置在启动/迁移显式配置错误，不静默归none/false后放行。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "legacy_machine_config.C01",
+          "expected": "固定历史commit实际schema原件",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "legacy_machine_config.C02",
+          "expected": "旧数据仅独立库备份/真实旧版本建立",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "legacy_machine_config.C03",
+          "expected": "历史非none明确迁移/启动配置错误",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "legacy_machine_config.C04",
+          "expected": "内部enabled非法配置明确拒绝",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "legacy_machine_config.C05",
+          "expected": "不造未来列来伪旧库",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "legacy_machine_config.C06",
+          "expected": "无合格历史来源记NEEDS不空PASS",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "c33c48fdb5fc1466040ecfd911386cdf210e5c9b4024449a2f6679488fb41719",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "register_guard",
+      "authority": "D4",
+      "source_clause": "S08 [register_guard] (D4) POST /api/auth/register须有效admin与canonical同源JSON；无/错admin403，错/空/null Origin403，普通会话无admin权。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "register_guard.C01",
+          "expected": "无admin与错admin403",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "register_guard.C02",
+          "expected": "缺Origin/null/外站Origin403",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "register_guard.C03",
+          "expected": "合法admin+合法canonical origin可到注册",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "register_guard.C04",
+          "expected": "普通wm_session不授admin开通权",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "register_guard.C05",
+          "expected": "keyless拒绝组可直接测",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "register_guard.C06",
+          "expected": "keyless正向仅受控正式发行假票",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "register_guard.C07",
+          "expected": "不传admin票到URL/静态页/日志",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "01daf3710f864b6a3915d9a80a4a5192f709ba426799bf542d26c5f0e67ef678",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "FAIL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "register_schema",
+      "authority": "D4",
+      "source_clause": "S09 [register_schema] (D4) 注册只建普通用户；username trim+lowercase后匹配[a-z0-9._-]{3,64}，password12..256不trim，未知role/admin字段400，重复名409。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "register_schema.C01",
+          "expected": "username trim再小写后regex校验",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "register_schema.C02",
+          "expected": "username长度3至64边界",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "register_schema.C03",
+          "expected": "password12至256且不trim",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "register_schema.C04",
+          "expected": "角色提升和未知字段400",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "register_schema.C05",
+          "expected": "重复规范化username409",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "register_schema.C06",
+          "expected": "普通角色成功201且不自动session",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "register_schema.C07",
+          "expected": "schema错误不得产生账号/secret输出",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "442c86dd2fdd4bacd713905ec7b44526f19d1a6e136a8cf9d72060c6fad1fa66",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "FAIL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "register_ui",
+      "authority": "D4",
+      "source_clause": "S10 [register_ui] (D4) /register只显示受控开通说明，不承诺匿名创建；/login是真登录表单，SPA fallback200不算实现，页面不含管理员票。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "register_ui.C01",
+          "expected": "login真实表单不是SPA200",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "register_ui.C02",
+          "expected": "真实浏览器可提交合法账号登录",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "register_ui.C03",
+          "expected": "register仅管理员开通说明无匿名成功承诺",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "register_ui.C04",
+          "expected": "表单错误可见且不回显密码",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "register_ui.C05",
+          "expected": "页面/URL/静态产物无admin票",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "register_ui.C06",
+          "expected": "本批不宣称企业IdP已接入",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "4da98d4f4226c721542972805728910ad7d51e42364fbd36c0eb309eb6ee25c2",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "FAIL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "source/process/port proof"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "login_session",
+      "authority": "A1",
+      "source_clause": "S11 [login_session] (A1) 登录200返回user/expires_at/redirect_to并设置32字节随机opaque wm_session；HttpOnly、Path=/、SameSite=Lax、无Domain、no-store，不回显票值。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "login_session.C01",
+          "expected": "登录200 user/expires_at/redirect_to完整",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "login_session.C02",
+          "expected": "每登录独立随机票且不能指定session id",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "login_session.C03",
+          "expected": "票32字节随机需求有存储/生成证据不以不同字符串代熵",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "login_session.C04",
+          "expected": "HttpOnly Path=/ SameSite=Lax 无Domain",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "login_session.C05",
+          "expected": "cookie Secure依据canonical scheme另组交叉",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "login_session.C06",
+          "expected": "Cache-Control no-store且JSON不回票",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "login_session.C07",
+          "expected": "服务端仅摘要持久索引",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "login_session.C08",
+          "expected": "合法/me与受保护入口实际接受票",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "f1f5b13ea923b5fa4c5c5b7e14a97259d0624bd440c23f9625e133157a813d7d",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "me_invalid",
+      "authority": "A6",
+      "source_clause": "S12 [me_invalid] (A6) 无/伪造/撤销/过期/禁用wm_session到/me统一401 unauthenticated，合法/me200返回脱敏user/expires_at。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "me_invalid.C01",
+          "expected": "无票和伪票401同unauthenticated",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "me_invalid.C02",
+          "expected": "到期票401",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "me_invalid.C03",
+          "expected": "注销撤销票401",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "me_invalid.C04",
+          "expected": "禁用用户旧票401",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "me_invalid.C05",
+          "expected": "合法/me返回脱敏user/expires_at",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "me_invalid.C06",
+          "expected": "me不泄salt/hash/token",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "me_invalid.C07",
+          "expected": "所有生命状态由真实服务动作构造",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "59ab14db3152363747a87670fe479f2752aa37bad1f5e1c5d531b04de61f9ee4",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "FAIL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "absolute_ttl",
+      "authority": "A4",
+      "source_clause": "S13 [absolute_ttl] (A4) WM_SESSION_TTL默认8h，s/m/h显式单位；活动不滑动续期、重启不延长；秒级TTL到期/me及HTTP/WS入口拒。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "absolute_ttl.C01",
+          "expected": "默认未设8h以expires-issued测",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "absolute_ttl.C02",
+          "expected": "s/m/h合法单位对照",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "absolute_ttl.C03",
+          "expected": "秒级活动访问不滑动expires_at",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "absolute_ttl.C04",
+          "expected": "重启保持绝对期限不重置",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "absolute_ttl.C05",
+          "expected": "期限后/me401",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "absolute_ttl.C06",
+          "expected": "期限后HTML重登录/数据401",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "absolute_ttl.C07",
+          "expected": "期限后WS握手401",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "absolute_ttl.C08",
+          "expected": "非法配置另组不漏",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "146012324eb137fb9811d7e784c9e8de87388a5302ddc61a714e61aad46db703",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "multi_device_logout",
+      "authority": "A3/A5",
+      "source_clause": "S14 [multi_device_logout] (A3/A5) 多端独立；logout同源撤当前票并Max-Age=0，重放旧票401，另一端仍有效；无/旧票logout幂等200、重启不复活。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "multi_device_logout.C01",
+          "expected": "同账号A/B两票各自独立",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "multi_device_logout.C02",
+          "expected": "A logout同源200且清票Max-Age=0同属性",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "multi_device_logout.C03",
+          "expected": "重放A/me401",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "multi_device_logout.C04",
+          "expected": "B/me仍200",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "multi_device_logout.C05",
+          "expected": "A受保护HTTP/WS重放拒",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "multi_device_logout.C06",
+          "expected": "无票/旧票logout幂等200",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "multi_device_logout.C07",
+          "expected": "撤销持久化重启不复活",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "multi_device_logout.C08",
+          "expected": "注销不宣称全端退出",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "d7c5942d3c1198fdcef4977ba1c2bddc961abc9b77b5a320952e956c508a85f0",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "password_storage",
+      "authority": "A1/A2",
+      "source_clause": "S15 [password_storage] (A1/A2) 同口令两账号持久salt/hash不同且无明文；每账号salt>=16字节+scrypt参数N16384/r8/p1/keylen64，接口日志无salt/hash/密码。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "password_storage.C01",
+          "expected": "两同密码真实账号salt/hash各不同",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "password_storage.C02",
+          "expected": "salt至少16字节和scrypt参数/64字节结果有核定映射",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "password_storage.C03",
+          "expected": "数据库无明文口令",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "password_storage.C04",
+          "expected": "服务端token摘要与密码算法不混淆",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "password_storage.C05",
+          "expected": "接口/日志/导出无salt/hash/密码/sessiontoken",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "password_storage.C06",
+          "expected": "未知用户dummy同成本与定长比较有明确证据",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "password_storage.C07",
+          "expected": "物理schema未知或空表NEEDS",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "71937232a24b82a3463177bd98d004bb184305c161ef973b885266d2e9252aa1",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "failure_same_bytes",
+      "authority": "A2/D5",
+      "source_clause": "S16 [failure_same_bytes] (A2/D5) 未知用户/错密/锁定/禁用登录status及UTF8 body逐字节同401 invalid_credentials，不以Retry-After暴露差别。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "failure_same_bytes.C01",
+          "expected": "未知账号401原UTF8 body记录",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "failure_same_bytes.C02",
+          "expected": "错密码401字节相同",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "failure_same_bytes.C03",
+          "expected": "锁定状态401字节相同",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "failure_same_bytes.C04",
+          "expected": "禁用状态401字节相同",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "failure_same_bytes.C05",
+          "expected": "无不同Retry-After暴露原因",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "failure_same_bytes.C06",
+          "expected": "错误body严格invalid_credentials",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "failure_same_bytes.C07",
+          "expected": "不能仅未知和错密两例称全覆盖",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "78802cb80597c2f2d0fc202d316419edc7ef3679a98a59303afe3865b5c0fb95",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "lock_bucket",
+      "authority": "D5",
+      "source_clause": "S17 [lock_bucket] (D5) 失败按规范username+有效IP独立5次/10m/锁10m；锁期不滑动，秒级配置可测解锁，不设置跨IP全局用户名硬锁。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "lock_bucket.C01",
+          "expected": "默认5次/10m/锁10m有可测证据",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "lock_bucket.C02",
+          "expected": "username规范化一致",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "lock_bucket.C03",
+          "expected": "失败计数window与lock TTL区分",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "lock_bucket.C04",
+          "expected": "锁期请求不滑动锁到期",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "lock_bucket.C05",
+          "expected": "解锁秒级可复现",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "lock_bucket.C06",
+          "expected": "不同有效IP不全局锁整账号",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "lock_bucket.C07",
+          "expected": "未知账号同样计数",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "lock_bucket.C08",
+          "expected": "mapped等价不分桶绕过",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "be26b02a20d0a3a234e337737c0cb22a773e904ee73a180be23e35bd40d1afe9",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "proxy_direct",
+      "authority": "D5",
+      "source_clause": "S18 [proxy_direct] (D5) 可信代理表空时仅socket IP；直连不同IP分桶，伪XFF/Forwarded/X-Real-IP不改身份或锁桶且限量告警。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "proxy_direct.C01",
+          "expected": "可信表默认空",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_direct.C02",
+          "expected": "直连不同socketIP分桶",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_direct.C03",
+          "expected": "伪XFF不改clientIP",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_direct.C04",
+          "expected": "Forwarded/X-Real-IP同样不信",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_direct.C05",
+          "expected": "未配代理风险告警且不夸独立客户端保护",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_direct.C06",
+          "expected": "告警限量具名",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_direct.C07",
+          "expected": "mapped IPv4等价",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "6a4a82549140043b9071ae3e69e16406c300a9297693bc10d1ba9c34145bfd36",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "proxy_chain",
+      "authority": "D5",
+      "source_clause": "S19 [proxy_chain] (D5) 仅peer命中WM_TRUSTED_PROXIES CIDR才从XFF右向左剥可信链；首非可信处停、不信首项/hop=true，mapped IP归v4；两客户端桶隔离。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "proxy_chain.C01",
+          "expected": "实际peer命中CIDR才看XFF",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_chain.C02",
+          "expected": "从右向左剥完整可信链",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_chain.C03",
+          "expected": "首非可信处停止",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_chain.C04",
+          "expected": "不得越过未信代理读左声称IP",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_chain.C05",
+          "expected": "两客户端有效IP桶独立",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_chain.C06",
+          "expected": "mapped地址统一",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_chain.C07",
+          "expected": "不使用trust proxy true/固定hop数",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_chain.C08",
+          "expected": "合法链正向",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "b887cd17c253e08c542b8e3635d8d1a9d0535067c2470cf4d57fb38bb44bf56e",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "proxy_invalid",
+      "authority": "D5",
+      "source_clause": "S20 [proxy_invalid] (D5) 可信peer非法XFF400 invalid_forwarded_chain且不改认证/失败锁；无链回socket并告警；反代未配可信表启动告警不假报独立保护。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "proxy_invalid.C01",
+          "expected": "可信peer非法非IP/空元素400 invalid_forwarded_chain",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_invalid.C02",
+          "expected": "非法链零认证/session/失败桶状态写",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_invalid.C03",
+          "expected": "无XFF时回socket地址",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_invalid.C04",
+          "expected": "缺链告警可见",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_invalid.C05",
+          "expected": "反代未配可信表启动告警",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_invalid.C06",
+          "expected": "不信未知配置自动读头",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "8c0a95fed446f98012d55572eeb91c2ed01990d28e97abcb0c563f328bfb1e13",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "invalid_config",
+      "authority": "D4/D5/D6",
+      "source_clause": "S21 [invalid_config] (D4/D5/D6) WM_SSO非法、TTL和三WM_AUTH_*显式非法、代理CIDR非法均拒启动，未设才默认；MAX_FAILURES整数无单位、TTL/window/lock需单位。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "invalid_config.C01",
+          "expected": "WM_SSO未设off/严格on off",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "invalid_config.C02",
+          "expected": "WM_SSO非法拒listen",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "invalid_config.C03",
+          "expected": "TTL/window/lock的空0负裸数字非整数非法单位逐项",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "invalid_config.C04",
+          "expected": "MAX_FAILURES空0负非整数/带单位非法逐项",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "invalid_config.C05",
+          "expected": "WM_TRUSTED_PROXIES非法CIDR/空项/域名/true/hop拒",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "invalid_config.C06",
+          "expected": "合法配置正向启动",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "invalid_config.C07",
+          "expected": "启动退出码与非监听原件",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "invalid_config.C08",
+          "expected": "不把被强kill或起服依赖错当配置拒绝",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "243184fcf9523bbdce9230fe6d0f3f4a7fb636b4e44ce257b1acf40cec2ffab3",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "FAIL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "source/process/port proof"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "canonical_origin",
+      "authority": "D6",
+      "source_clause": "S22 [canonical_origin] (D6) MARKET_PUBLIC_URL仅http(s)绝对origin，无userinfo/query/fragment/非根path；on未配拒启动、off未配loopback，Host/XFH不改canonical。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "canonical_origin.C01",
+          "expected": "http(s)origin合法根path",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "canonical_origin.C02",
+          "expected": "userinfo/query/fragment/非根path非法拒启动",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "canonical_origin.C03",
+          "expected": "on缺origin拒启动",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "canonical_origin.C04",
+          "expected": "off缺origin精确loopback:PORT",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "canonical_origin.C05",
+          "expected": "Host/XFH不能改变canonical",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "canonical_origin.C06",
+          "expected": "同源检查/绝对回跳引用一致",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "canonical_origin.C07",
+          "expected": "本批触及a2a advertised base一致",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "canonical_origin.C08",
+          "expected": "Odoo旧forwarded风险不冒修复",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "e32fb6e8c074addc625ad0fd7db28e1ab292daefbb0f1680f8baf3684e6bc17b",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "FAIL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "source/process/port proof"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "secure_cookie",
+      "authority": "补充1",
+      "source_clause": "S23 [secure_cookie] (补充1) 登录发票/登出清票Secure只依canonical scheme，https+伪XFP:http仍Secure，http+伪XFP:https仍不Secure。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "secure_cookie.C01",
+          "expected": "https canonical+XFP http仍Secure",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "secure_cookie.C02",
+          "expected": "http canonical+XFP https不Secure",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "secure_cookie.C03",
+          "expected": "登录与登出清票同基础属性",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "secure_cookie.C04",
+          "expected": "不取Host/XFH/req secure来替canonical",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "secure_cookie.C05",
+          "expected": "请求合法origin与scheme配置单列",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "25c744b987d59c570334423a27fb783e3b475f7ddddf74a948537e19e2707a79",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "next_validation",
+      "authority": "补充4/B5",
+      "source_clause": "S24 [next_validation] (补充4/B5) next缺省或scheme//反斜杠/控制符/编码多解码歧义均redirect_to=/，合法站内/go路径保留，最终跳转同验且不传播secret/state。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "next_validation.C01",
+          "expected": "缺next落/",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "next_validation.C02",
+          "expected": "正常/go站内路径保留",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "next_validation.C03",
+          "expected": "绝对scheme与//拒回/",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "next_validation.C04",
+          "expected": "反斜杠与控制符回/",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "next_validation.C05",
+          "expected": "单/多解码编码歧义回/",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "next_validation.C06",
+          "expected": "服务端redirect_to不回恶意输入",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "next_validation.C07",
+          "expected": "最终浏览器跳转再核",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "next_validation.C08",
+          "expected": "敏感token/state不放next或回跳URL",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "fcb2af1f02089fadca91d191f188b1f7d0b68923162fea69e2cc13758a85903d",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "admin_disable",
+      "authority": "D7",
+      "source_clause": "S25 [admin_disable] (D7) admin+同源PATCH disabled:boolean成功200脱敏，未知字段400，无admin403，无用户404；普通会话不能禁用。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "admin_disable.C01",
+          "expected": "有效admin+同源boolean200脱敏",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "admin_disable.C02",
+          "expected": "无/错admin403",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "admin_disable.C03",
+          "expected": "普通session403",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "admin_disable.C04",
+          "expected": "未知用户404",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "admin_disable.C05",
+          "expected": "缺/非boolean/额外字段400",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "admin_disable.C06",
+          "expected": "错Origin403",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "admin_disable.C07",
+          "expected": "失败零用户/session写",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "admin_disable.C08",
+          "expected": "状态动作恰当审计另组",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "92ffb0112a471ed702a5f26dbdfade06c96e2b75fc9f38ec0ce0eb8990202556",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "disable_replay",
+      "authority": "D7",
+      "source_clause": "S26 [disable_replay] (D7) 禁用事务撤所有旧票；后续/me/HTTP/WS握手拒，重启后仍拒，重新启用旧票仍拒；不承诺已建WS立即强断。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "disable_replay.C01",
+          "expected": "真实禁用持久状态",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "disable_replay.C02",
+          "expected": "A/B所有旧票撤销",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "disable_replay.C03",
+          "expected": "后续/me及HTTP拒",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "disable_replay.C04",
+          "expected": "后续WS握手401",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "disable_replay.C05",
+          "expected": "重启仍拒",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "disable_replay.C06",
+          "expected": "重新启用不复活旧票",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "disable_replay.C07",
+          "expected": "启用后新登录可用",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "disable_replay.C08",
+          "expected": "已建连接即时强断分非目标",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "2f612c150f86cd865e67d64140bbcb88a04f1b6af00f799a29ea479fb6b98391",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "users_paging",
+      "authority": "D7",
+      "source_clause": "S27 [users_paging] (D7) GET users仅admin倒序游标分页limit默认50/1..200，字段仅id/username/disabled/created_at，无盐hash/session票，非法query400。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "users_paging.C01",
+          "expected": "匿名/普通session403",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "users_paging.C02",
+          "expected": "admin合法读200",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "users_paging.C03",
+          "expected": "字段仅id username disabled created_at",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "users_paging.C04",
+          "expected": "默认50和limit1/200边界",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "users_paging.C05",
+          "expected": "id倒序before_id游标下一页不重叠",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "users_paging.C06",
+          "expected": "非法limit/游标400",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "users_paging.C07",
+          "expected": "无salt/hash/票",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "users_paging.C08",
+          "expected": "空结果不代分页合法性",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "55bac4a69d332d1b25f6ace8cec35afc5653ce662cd9e5ed0d318421e1c39466",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "audit_read",
+      "authority": "D8",
+      "source_clause": "S28 [audit_read] (D8) GET audit仅admin只读倒序游标分页；普通会话403，非法query400，事件字段完整脱敏，不提供写改删口。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "audit_read.C01",
+          "expected": "匿名/普通session403",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_read.C02",
+          "expected": "admin只读GET成功",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_read.C03",
+          "expected": "完整事件字段与target_user_id语义",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_read.C04",
+          "expected": "默认50及1/200分页",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_read.C05",
+          "expected": "倒序游标下一页不重叠",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_read.C06",
+          "expected": "非法query400",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_read.C07",
+          "expected": "无写改删公开口",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_read.C08",
+          "expected": "secret/raw请求体未进读出",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "af6497583b3e39452e622d239bad5ad021ae7b572dd857fc994faab5a56c7b39",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "audit_append",
+      "authority": "D8",
+      "source_clause": "S29 [audit_append] (D8) 真实服务动作产生审计；数据库快照上的UPDATE/DELETE触发器拒绝，两操作后事件数据不变，不手造成功事件冒充。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "audit_append.C01",
+          "expected": "实际服务事件非手工INSERT",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_append.C02",
+          "expected": "独立一致性快照",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_append.C03",
+          "expected": "唯一确定审计表/列映射",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_append.C04",
+          "expected": "副本可写反控",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_append.C05",
+          "expected": "UPDATE精确触发器拒且数据不变",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_append.C06",
+          "expected": "DELETE精确触发器拒且数据不变",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_append.C07",
+          "expected": "只缺HTTP路由不算DB追加证明",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "f235d7a7e709c2f1aadc8cce0a320fb4ae819fd91d3069b390a8f9d4db7c7467",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "audit_patch_invalid",
+      "authority": "补充3",
+      "source_clause": "S30 [audit_patch_invalid] (补充3) 有效JSON的schema错误或准入失败PATCH恰1 user_state_update/deny，主体未知null、target独立；零用户/session写、不存原body/secret。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "audit_patch_invalid.C01",
+          "expected": "有效admin+合法Origin缺disabled子形400",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_patch_invalid.C02",
+          "expected": "非boolean/额外字段schema400",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_patch_invalid.C03",
+          "expected": "无效admin/Origin准入403",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_patch_invalid.C04",
+          "expected": "每请求user_state_update deny恰1",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_patch_invalid.C05",
+          "expected": "主体未知null/target独立",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_patch_invalid.C06",
+          "expected": "零用户/session写",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_patch_invalid.C07",
+          "expected": "无原body/secret",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_patch_invalid.C08",
+          "expected": "parser前错误边界不虚计",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "f2f8777ea7e18afc5b63d70a5915f8818113b32f7d9e995e0e89d64d0125160d",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "audit_patch_valid",
+      "authority": "补充3",
+      "source_clause": "S31 [audit_patch_valid] (补充3) 合法schema布尔PATCH按目标user_disable/user_enable每请求1allow/deny，重复设同值也1事件，404目标null，错误后正确请求不污染。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "audit_patch_valid.C01",
+          "expected": "合法true/false按目标disable/enable",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_patch_valid.C02",
+          "expected": "重复同值每次仍恰1",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_patch_valid.C03",
+          "expected": "业务拒绝仍对应action deny",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_patch_valid.C04",
+          "expected": "未知用户404且target null",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_patch_valid.C05",
+          "expected": "先错后正确请求不污染",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_patch_valid.C06",
+          "expected": "状态/会话撤销动作同事务",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_patch_valid.C07",
+          "expected": "审计secret脱敏",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "9c9d5e5b6154626711515c20c81f24ef46e0b983963b306e78c9a0f444dc10b7",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "json_parser_boundary",
+      "authority": "补充3",
+      "source_clause": "S32 [json_parser_boundary] (补充3) malformed JSON/413在全局parser先拒者不虚报路由中性事件恰1覆盖，保留原全局日志并单列捕获边界。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "json_parser_boundary.C01",
+          "expected": "malformedJSON400",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "json_parser_boundary.C02",
+          "expected": "超限413",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "json_parser_boundary.C03",
+          "expected": "明确parser先拒未进route",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "json_parser_boundary.C04",
+          "expected": "不虚诺中性事件恰1",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "json_parser_boundary.C05",
+          "expected": "既有全局安全日志保留",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "json_parser_boundary.C06",
+          "expected": "如另加捕获须新判据与去重",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "json_parser_boundary.C07",
+          "expected": "不改全局生产parser做测试",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "75ef11725dff41a73b1fff92db884f5ddd8e8ae7a3f51aff3377465d51f504de",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "audit_navigation",
+      "authority": "D8",
+      "source_clause": "S33 [audit_navigation] (D8) 双闸有效时每HTML GET/HEAD入口决策恰1 portal_access，302也deny；普通CSS/JS无增，伪text/html仍按实际规则计1。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "audit_navigation.C01",
+          "expected": "on/on HTML GET allow恰1",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_navigation.C02",
+          "expected": "未身份302 deny恰1",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_navigation.C03",
+          "expected": "HEAD每请求1",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_navigation.C04",
+          "expected": "正常CSS/JS/文件不复制导航事件",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_navigation.C05",
+          "expected": "Accept伪textHTML仍实际按规则计1",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_navigation.C06",
+          "expected": "非HTML401不记portal_access",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_navigation.C07",
+          "expected": "浏览器请求计数按实际方法Accept",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "42a3fc61185a7d531de6e672a5aebe11cafc3bb354fb89b8ed1db623a47f31f3",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "audit_upgrade",
+      "authority": "D8",
+      "source_clause": "S34 [audit_upgrade] (D8) 每WS握手决策恰1 portal_upgrade，401deny亦记；101后的多帧不增入口或login事件。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "audit_upgrade.C01",
+          "expected": "缺身份握手401 deny事件1",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_upgrade.C02",
+          "expected": "合法握手101 allow事件1",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_upgrade.C03",
+          "expected": "多帧不增upgrade/login",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_upgrade.C04",
+          "expected": "事件绑定target与主体",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_upgrade.C05",
+          "expected": "不把HTTP导航事件混作WS",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_upgrade.C06",
+          "expected": "连接已建后强断非本批",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "d66d7e74616e70a9e97ed7f27a5f9d5fd8ef64654ec755fd70815f5cf2889484",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "audit_upstream",
+      "authority": "D8",
+      "source_clause": "S35 [audit_upstream] (D8) 市场会话allow后上游401/403不抹市场allow；中心/台off不新增SSO通过事件，既有审计不删。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "audit_upstream.C01",
+          "expected": "上游401/403真实stub",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_upstream.C02",
+          "expected": "市场门allow事件不被上游改deny",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_upstream.C03",
+          "expected": "HTTP原status保留",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_upstream.C04",
+          "expected": "中心或台off不新增SSO通过入口事件",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_upstream.C05",
+          "expected": "既有审计语义不删",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_upstream.C06",
+          "expected": "无身份请求不触上游secret",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "e69346c786fc89a418557db164b6055fdd36eabc3dc86f636db83ad6b5b1ce09",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "mapping_modes",
+      "authority": "C1/C3",
+      "source_clause": "S36 [mapping_modes] (C1/C3) none只门控；header-bearer/basic沿既有受控凭据配置；缺映射409，读配置无secret；入站wm_session不转发上游。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "mapping_modes.C01",
+          "expected": "none只门控不承诺目标免登",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "mapping_modes.C02",
+          "expected": "header-bearer既有admin凭据正向",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "mapping_modes.C03",
+          "expected": "basic既有admin凭据正向",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "mapping_modes.C04",
+          "expected": "缺映射409",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "mapping_modes.C05",
+          "expected": "读配置不回secret",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "mapping_modes.C06",
+          "expected": "wm_session不转上游",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "mapping_modes.C07",
+          "expected": "入站头不替session",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "mapping_modes.C08",
+          "expected": "映射前需合法session",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "59c6141dd2fa8333e06a69e48f19a5851dd00a6d31b394360e523cc0de88dab9",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "cookie_mapping",
+      "authority": "C1",
+      "source_clause": "S37 [cookie_mapping] (C1) cookie-map仅允许cookie_name单键，禁wm_session/wm_sso_*；唯一目标domain匹配未过期池值可注入，0/多匹配409，无新secret写通道。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "cookie_mapping.C01",
+          "expected": "仅cookie-map可带cookie_name且长度语法正确",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "cookie_mapping.C02",
+          "expected": "禁wm_session和wm_sso_*键",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "cookie_mapping.C03",
+          "expected": "只从该台cookie_set_id既有池取值",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "cookie_mapping.C04",
+          "expected": "目标domain/未过期唯一匹配注入",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "cookie_mapping.C05",
+          "expected": "零匹配/多匹配409",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "cookie_mapping.C06",
+          "expected": "其他mode携cookie_name拒",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "cookie_mapping.C07",
+          "expected": "不新增value secret通道",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "cookie_mapping.C08",
+          "expected": "不把市场session生成上游cookie",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "d39eec5ce1503f6925c538a140e70399d80737a51a2fe3e135726f5f2a67745a",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "odoo_compat",
+      "authority": "C2/D6",
+      "source_clause": "S38 [odoo_compat] (C2/D6) v1 Odoo state/回跳回归不破；外部台SSO启用的回跳须可信canonical origin一致，不把302起点当完成上游登录。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "odoo_compat.C01",
+          "expected": "固定v1已有3探针原scope",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "odoo_compat.C02",
+          "expected": "state伪造/重放拒",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "odoo_compat.C03",
+          "expected": "无wm_sso_ok不转session_id",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "odoo_compat.C04",
+          "expected": "外部SSO有效session后才走Odoo映射",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "odoo_compat.C05",
+          "expected": "callback可信canonical origin一致",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "odoo_compat.C06",
+          "expected": "不据302起点宣称真人登录闭环",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "odoo_compat.C07",
+          "expected": "旧forwarded风险单列不谎称已修",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "5e890a8628128d453043620b4b9c440f2e6528bd24fc657865575f5c7fe70260",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "scope_preserve",
+      "authority": "D1/D2",
+      "source_clause": "S39 [scope_preserve] (D1/D2) 既有/apps、/sop、/api/apps数据文件CORS与/mcp授权合法/非法对照保持；不把SSO门off等同允许控制面或匿名加权。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "scope_preserve.C01",
+          "expected": "直接/apps与/sop合法读未被SSO误拦",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "scope_preserve.C02",
+          "expected": "数据文件原method/slug/CORS正负",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "scope_preserve.C03",
+          "expected": "合法app-token仅原scope",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "scope_preserve.C04",
+          "expected": "MCP合法会话grant与错误票旧门",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "scope_preserve.C05",
+          "expected": "普通SSO账号不提升控制权限",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "scope_preserve.C06",
+          "expected": "off不等解除原鉴权",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "scope_preserve.C07",
+          "expected": "既有匿名读写策略不放宽不擅紧",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "e496e9e78c68cc0b681c09f449d4377edf7ee91740426999185d3f9f7ee6282a",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "config_guard",
+      "authority": "D1/D3",
+      "source_clause": "S40 [config_guard] (D1/D3) GET/PUT workbench sso仅admin，PUT同源/schema/目标/machine/支持范围/映射依次校验，所有拒绝零持久写。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "config_guard.C01",
+          "expected": "GET admin门",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "config_guard.C02",
+          "expected": "PUT admin+同源",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "config_guard.C03",
+          "expected": "拒未知字段/错类型400",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "config_guard.C04",
+          "expected": "目标缺404",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "config_guard.C05",
+          "expected": "machine非none409优先级",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "config_guard.C06",
+          "expected": "内部enabled409",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "config_guard.C07",
+          "expected": "缺映射409",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "config_guard.C08",
+          "expected": "全部拒绝零持久写",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "config_guard.C09",
+          "expected": "读secret掩码/不回明文",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "5e6f6ce4d947f3c56adee23169540ba5e4f099f760bf4568fac4f4673d78bb6d",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "FAIL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "audit_update_rejected",
+      "authority": "D8/TEST-a",
+      "source_clause": "S41 [audit_update_rejected] (D8/TEST-a) 快照数据库探针UPDATE审计行必须被触发器拒绝，错误后审计快照逐值不变；不是仅缺HTTP更新端点。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "audit_update_rejected.C01",
+          "expected": "服务真实产生审计行",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_update_rejected.C02",
+          "expected": "快照库身份核定",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_update_rejected.C03",
+          "expected": "副本可写反控",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_update_rejected.C04",
+          "expected": "UPDATE拒错误1811非readonly/lock",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_update_rejected.C05",
+          "expected": "全审计快照不变",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "389eabca3fb3205ca774a405697c36490fce606bf0f73f200de73bfc6d9a87db",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 4,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "audit_delete_rejected",
+      "authority": "D8/TEST-a",
+      "source_clause": "S42 [audit_delete_rejected] (D8/TEST-a) 快照数据库探针DELETE审计行必须被触发器拒绝，错误后审计快照逐值不变；不得构造伪事件冒充真实服务审计。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "audit_delete_rejected.C01",
+          "expected": "服务真实产生审计行",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_delete_rejected.C02",
+          "expected": "快照库身份核定",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_delete_rejected.C03",
+          "expected": "副本可写反控",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_delete_rejected.C04",
+          "expected": "DELETE拒错误1811非readonly/lock",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "audit_delete_rejected.C05",
+          "expected": "全审计快照不变",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "7c06863a2d7e764eeb5b19322f2406088ed20282ed2b6ac1a26de4fda3103ecc",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 4,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "patch_missing_disabled",
+      "authority": "补充3/TEST-b",
+      "source_clause": "S43 [patch_missing_disabled] (补充3/TEST-b) 有效admin且合法Origin发有效JSON {} 的PATCH，因缺disabled返回400，恰一条user_state_update/deny，零用户/会话状态写，不记录原body/secret。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "patch_missing_disabled.C01",
+          "expected": "有效admin+canonical Origin",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "patch_missing_disabled.C02",
+          "expected": "真实PATCH有效JSON {} 缺disabled400",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "patch_missing_disabled.C03",
+          "expected": "恰1 user_state_update deny",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "patch_missing_disabled.C04",
+          "expected": "未知主体/目标语义按契约",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "patch_missing_disabled.C05",
+          "expected": "零用户/session写且原票状态不变",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "patch_missing_disabled.C06",
+          "expected": "无body/secret事件泄漏",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "c646d7289917f07e7a4f6a41d17d4a409bbd78bee1bd6868dc8c423323c4f042",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 5,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "proxy_P1_direct",
+      "authority": "D5/P1",
+      "source_clause": "S44 [proxy_P1_direct] (D5/P1) P1直连组：独立客户端socket IP各自锁桶，mapped等价，未配置代理时伪XFF不改变clientIP。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "proxy_P1_direct.C01",
+          "expected": "P1直连socket地址实证",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_P1_direct.C02",
+          "expected": "不同客户端IP桶隔离",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_P1_direct.C03",
+          "expected": "默认代理空不取伪头",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_P1_direct.C04",
+          "expected": "IPv4mapped等价",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_P1_direct.C05",
+          "expected": "失败/合法对照同username",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "9638e13374554f3c08f1a2b38c5b0dfe8de4c472c4c34f1ed23cd7bb389e123c",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "proxy_P2_trusted",
+      "authority": "D5/P2",
+      "source_clause": "S45 [proxy_P2_trusted] (D5/P2) P2可信反代组：实际peer命中CIDR，从右向左剥完整可信链，在首非可信处停，两客户端桶隔离，不取任意左首项。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "proxy_P2_trusted.C01",
+          "expected": "P2可信peerCIDR正向",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_P2_trusted.C02",
+          "expected": "右剥可信链首非信停止",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_P2_trusted.C03",
+          "expected": "不能越过未信中间代理",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_P2_trusted.C04",
+          "expected": "两clientIP独立桶",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_P2_trusted.C05",
+          "expected": "mapped等价",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_P2_trusted.C06",
+          "expected": "非法链无锁写交叉",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "7e5b36f9393be136872cb09ae7d284a5bd19fea4e5ce0b26787d77767421d8ff",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "proxy_P3_forged",
+      "authority": "D5/P3",
+      "source_clause": "S46 [proxy_P3_forged] (D5/P3) P3非可信peer伪造XFF组：伪造XFF/Forwarded/X-Real-IP不能改变clientIP/失败锁桶；忽略并限量告警，不自动信头。",
+      "disposition": "IN_SCOPE",
+      "proposed_controls": [
+        {
+          "control_id": "proxy_P3_forged.C01",
+          "expected": "P3非可信peer伪XFF不逃桶",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_P3_forged.C02",
+          "expected": "Forwarded与XRealIP同拒信",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_P3_forged.C03",
+          "expected": "实际socket地址原件",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_P3_forged.C04",
+          "expected": "限量告警",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "proxy_P3_forged.C05",
+          "expected": "合法直连/不同有效IP对照",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "5de7204849e1418fb4d025208228e9251a7138b3625cc5da802d1847713c7f21",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "NEEDS-MATERIAL",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "controlled registration201",
+        "valid login/session",
+        "target configuration or actual API as relevant"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "deferred_validator",
+      "authority": "D3延期",
+      "source_clause": "S47 [deferred_validator] (D3延期) target-validator合法机器主体正向本期DEFERRED，材料不足必须NEEDS-MATERIAL，不以伪fixture或负向409计正向PASS。",
+      "disposition": "DEFERRED_NOT_PASS",
+      "proposed_controls": [
+        {
+          "control_id": "deferred_validator.C01",
+          "expected": "合法机器validator正向本批延期",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "deferred_validator.C02",
+          "expected": "不由非none409负控推正向PASS",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "deferred_validator.C03",
+          "expected": "材料/空scope显式NEEDS",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "deferred_validator.C04",
+          "expected": "未来scope/签名/SSRF/重放另裁",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "7a4d7d0d34a396e6ef749d7bb14b2909f043ab964b7c0f268e6adfc96dba60a6",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "DEFERRED",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "future separately approved scope"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    },
+    {
+      "probe_id": "deferred_internal",
+      "authority": "D1延期",
+      "source_clause": "S48 [deferred_internal] (D1延期) 内部原生SSO、企微LDAP IdP与已建WS强断不属本期出口，不计已实现PASS，后续补独立材料判据。",
+      "disposition": "DEFERRED_NOT_PASS",
+      "proposed_controls": [
+        {
+          "control_id": "deferred_internal.C01",
+          "expected": "内部原生SSO本批延期",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "deferred_internal.C02",
+          "expected": "企业IdP适配未实现不算PASS",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "deferred_internal.C03",
+          "expected": "已建WS立即强断非出口",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        },
+        {
+          "control_id": "deferred_internal.C04",
+          "expected": "不删范围或把关门409当内部全保护",
+          "approval": "PENDING",
+          "execution": "NOT_CLAIMED_AS_COMPLETED_BY_THIS_DOCUMENT"
+        }
+      ],
+      "proposed_controls_sha256": "f4ff6382889bb34828478dbcaac0b14f6aae3fc3e340843f5536de76fe5d0f85",
+      "current_completion_policy": {
+        "status": "PENDING_INDEPENDENT_REVIEW",
+        "existing_named_control_count": 0,
+        "complete_marker": "not universally integrated"
+      },
+      "historic_execution": {
+        "source_commit": "d6ba8b0daf6ae124f55b18c694e8339ad13ab1b2",
+        "status": "DEFERRED",
+        "not_current_evidence": true
+      },
+      "dependencies": [
+        "future separately approved scope"
+      ],
+      "gaps": [
+        "full proposed control list needs nonauthor scope review",
+        "existing handler named test labels not stable control IDs; code mapping/integration still pending",
+        "real source receipt approval absent; verifiedApprovals remains empty",
+        "all controls executed/completion not proven by historical partial group result"
+      ],
+      "primary_owner": "dev draft author",
+      "independent_scope_review": "wm-review",
+      "fixture_counterexamples": "TEST"
+    }
+  ]
+}

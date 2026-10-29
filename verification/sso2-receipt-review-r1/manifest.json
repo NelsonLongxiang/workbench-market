@@ -1,0 +1,74 @@
+{
+  "package": "sso2-receipt-control-review-r1",
+  "base_draft": "7e64e98fd24d1e5b5c0a7fcbb28c9a1af13c97dc",
+  "product_target": "d90f81abca809a48a893544d0bdd4c409be78526",
+  "state": "MATERIAL_FOR_REVIEW_NOT_IMPLEMENTED_NOT_FREEZE_READY",
+  "created_at": "2026-10-29T00:39:46.801Z",
+  "files": [
+    {
+      "relative": "RECEIPT-LOADER-PROPOSAL.md",
+      "path": "D:/workspace/workbench-market/tmp/sso2-receipt-review-907/RECEIPT-LOADER-PROPOSAL.md",
+      "bytes": 10387,
+      "sha256": "f597a321b515ed831528a5fa9011d2c00ff9e87d350636103b12250207464dfb",
+      "git_blob": "1a4a714f12c6f0ab3bf2d99b383b401851fccb83"
+    },
+    {
+      "relative": "CONTROL-GAPS.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-receipt-review-907/CONTROL-GAPS.json",
+      "bytes": 146948,
+      "sha256": "5b78b6cafd5e8d63ddeb5513bf59c888d0a01fe79b2404c48a98cad4aa367f50",
+      "git_blob": "2b71d534858722e493ee61f861e461609211af75"
+    },
+    {
+      "relative": "CONTROL-GAPS.md",
+      "path": "D:/workspace/workbench-market/tmp/sso2-receipt-review-907/CONTROL-GAPS.md",
+      "bytes": 8476,
+      "sha256": "6b26f1d2fc2c7eb0466dfc6c97ff0da2ee09d041778b14fd29f477105a17df71",
+      "git_blob": "4273e190f90b5556ec13dfb2e075f84783455749"
+    },
+    {
+      "relative": "REVIEW-QUESTIONS.md",
+      "path": "D:/workspace/workbench-market/tmp/sso2-receipt-review-907/REVIEW-QUESTIONS.md",
+      "bytes": 3413,
+      "sha256": "37d4e9bb9f594cb97e42171d5686b58fcaff7cd9446df83f352de24be1267463",
+      "git_blob": "ea8b3fefb2573edab8dd7d03b6fcfc7137611394"
+    },
+    {
+      "relative": "RECEIPT-EXAMPLE-UNAPPROVED.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-receipt-review-907/RECEIPT-EXAMPLE-UNAPPROVED.json",
+      "bytes": 1056,
+      "sha256": "55ebb54f799e9ddda92d3c556d2ee0d60831a95565ef7ad5cbbf546f663ea0cf",
+      "git_blob": "33b6243b1c6242f7c19eb11aa11c41f46a94b3c9"
+    },
+    {
+      "relative": "ACCEPTANCE-PROPOSAL.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-receipt-review-907/ACCEPTANCE-PROPOSAL.json",
+      "bytes": 4093,
+      "sha256": "93508ff9d5aac03d295a0076348eb20fa2c593e80f4c08c9025f414d9ef4912c",
+      "git_blob": "c227c4cc705962bef112f88d459550b5acab9a4a"
+    },
+    {
+      "relative": "STATIC-CHECK.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-receipt-review-907/STATIC-CHECK.json",
+      "bytes": 408,
+      "sha256": "19a522e6f5febaaf0d19dcf088b9331718a6e549f683ea3e31ff1762e816a017",
+      "git_blob": "c264bb0792e9006e80e53f9d783e95b89ad01640"
+    }
+  ],
+  "constraints": {
+    "new_loader_code": false,
+    "new_business_code": false,
+    "deploy_changed": false,
+    "mechanisms_rerun": false,
+    "production_changes": false,
+    "executable_completion_policy_changed": false,
+    "real_verified_receipts": 0
+  },
+  "blocking_questions": [
+    "authorized trusted confirmation source and evidence retrieval boundary unspecified",
+    "reviewer identity/alias verification and revocation truth source unspecified",
+    "49-unit proposed full controls need nonauthor scope review",
+    "stable control_id to existing named check mapping not implemented",
+    "product registration precondition and remaining construction gates unchanged"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "checked_at": "2026-10-29T00:39:46.756Z",
+  "type": "DOCUMENT_STRUCTURE_ONLY",
+  "units": 49,
+  "controls": 334,
+  "deferred": 2,
+  "all_pending": true,
+  "control_hashes_match": true,
+  "original_units_preserved": true,
+  "receipt_example_untrusted": true,
+  "acceptance_cases_not_run": 20,
+  "mechanism_runs": 0,
+  "business_runs": 0,
+  "loader_implemented": false,
+  "approval_truth_verified": false
+}
