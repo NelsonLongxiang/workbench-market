@@ -272,3 +272,9 @@ body {
   outline: 2px solid rgba(5, 150, 105, 0.6);
   outline-offset: 1px;
 }
+
+/* 生命周期全景（/lifecycle） */
+.wm-lc-row { padding: 8px 10px; border: 1px solid var(--ant-color-border-secondary, #eee); border-radius: 8px; margin-bottom: 8px; }
+.wm-lc-lanes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 8px 0; }
+.wm-lc-lane { background: #F8FAFC; border-radius: 6px; padding: 6px 8px; min-height: 56px; }
+@media (max-width: 640px) { .wm-lc-lanes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
