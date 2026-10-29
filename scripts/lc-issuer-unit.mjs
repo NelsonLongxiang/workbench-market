@@ -6,7 +6,7 @@
  *  ⑦ 配置门（测试模式不许指向运行工作区 ~/.ygl-trees-lc、工作区须绝对路径）
  *  参考实现路径：LC_OS_DIR（缺省 ~/workspace/lifecycle-os）；缺失时只跑金向量并标 SKIP。 */
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, verify } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -165,5 +165,9 @@ ok('LC_TEST=1 + 运行工作区子目录 → 拒', /运行工作区/.test(withEn
 ok('非测试模式指向运行工作区 → 放行（生产形态）', withEnv({ ...full, LC_YGL_HOME: runtime }, lifecycleConfigProblem) === null);
 ok('LC_TEST=1 + 全新测试工作区 → 放行', withEnv({ ...full, LC_YGL_HOME: join(tmpdir(), 'lc-test-home'), LC_TEST: '1' }, lifecycleConfigProblem) === null);
 
+// Read-only delivery must also cover the full-page heading, not only TasksView.
+const tasksUi = readFileSync(new URL('../web/src/pages/Tasks.tsx', import.meta.url), 'utf8');
+ok('任务页副标题明确只读且不再声称可批准', tasksUi.includes('生命周期当前仅供查看，工作台审批已停用') && !tasksUi.includes('生命周期提议可在此批准'));
+ok('任务页无批准请求或批准确认CTA', !tasksUi.includes("fetch('/api/lifecycle/approve'") && !tasksUi.includes('批准这条生命周期提议？') && !tasksUi.includes('>批准</Button>'));
 console.log(`lc-issuer-unit: ${pass} passed / ${fail} failed / ${skip} skipped`);
 process.exitCode = fail ? 1 : 0;
