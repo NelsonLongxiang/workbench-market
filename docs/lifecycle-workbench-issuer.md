@@ -1,4 +1,6 @@
-# 工作台作为 lc 断言签发入口（`workbench`）——交付说明
+# 工作台生命周期只读收件箱与签发原语——降级交付
+
+> 当前候选：**禁止HTTP审批**。`POST /api/lifecycle/approve`无条件503 `LC_APPROVAL_READ_ONLY`，先于配置、会话、私钥和引擎访问；没有环境变量或请求参数可重新开启。界面只显示只读原因，不提供批准按钮。以下历史功能说明不代表当前支持HTTP批准；真正审批入口必须另完成源隔离、独立对抗验证与授权。生产LC配置未由本修复启用。
 
 对应 lifecycle-os 设计 v1.1 第九节：业务审批人在工作台「统一待办」里看到并批准生命周期提议，点下去调用内核 `lc approve`。本仓只做工作台这一侧；飞书审批卡片（`feishu-card`）和 A2A 网关（`a2a-gateway`）的签发是后续工作。
 
@@ -9,14 +11,14 @@
 | 断言签发 | `server/src/lifecycle.ts` `signLcAssertion` / `lcReqHash` | 与 lifecycle-os `tools/assert.cjs`、`plugins/ygl-lc` 同一契约（逻辑复制，不跨仓 import）：`base64url(声明JSON).base64url(ed25519 签名)`，声明 `{iss:"workbench", sub, aud:"lc", req, iat, exp, nonce}`，缺省有效期 300 秒（上限 600），nonce 每张 16 字节随机。只为人签：`sub` 必须是 `user:<登录名>`。 |
 | 身份确认 | `resolveOdooViewer` | 取浏览器带来的 Odoo `session_id`，向 `LC_ODOO_URL` 的 `/web/session/get_session_info` 现查（每次都查，Odoo 侧注销即刻生效），`result.username` 即 Odoo 登录名 → `sub = user:<登录名>`。Odoo 地址只认环境变量，不取工作台注册表（注册表可经 MCP `workbench_register` 登记，不能当身份源）。 |
 | 统一待办生命周期源 | `GET /api/tasks` 的 `sources.lifecycle` 与 `source:"lifecycle"` 条目 | 仅在配置了 `LC_*` 时出现。按查看人调 `lc inbox`（每次调用为 `inbox` 现签一张断言），条目带 `lc{proposal_id, grant, object, machine, from, to, effective_at, proposed_by, approvals, levels}`。同一查看人 30 秒内复用结果、批准后即失效；响应 `Cache-Control: private, no-store`。未登录/未配置/引擎失败 → `ok:false` 降级，不影响其它源。 |
-| 批准 | `POST /api/lifecycle/approve {proposal_id, grant}` | 确认登录名 → 为 `lc approve --proposal <P> --grant <G>` 这一条命令现签断言 → 调 lc，原样回 lc 信封的 `status/data/error/next/trace_id`（applied 200 / denied 403 / 用法错误 400 / 其它 502）。请求门：`Content-Type: application/json` + `X-WM-Lifecycle: 1`，`Sec-Fetch-Site` 若有须为 `same-origin`，`Origin` 若有须与 Host 同源（`null` 拒）。编号须 `[A-Za-z0-9]` 开头、不含空白，值不能以 `-` 开头（否则插件会把它解析成下一个旗标）。此路径加入远程写豁免面 `REMOTE_ALLOW_EXACT`：身份靠 Odoo 会话而不是管理员口令（首次启动 S3 豁免面 diff 会记下这一条新增）。 |
+| 批准（当前不可用） | `POST /api/lifecycle/approve` | 无条件503，错误码 `LC_APPROVAL_READ_ONLY`。不认证、不签发、不调用引擎。JSON/Origin门不构成同源攻击防线。 |
 | 自检 | `GET /api/lifecycle/status`（要 `X-Admin-Token`） | 回 `configured / missing / problem / engine_version / pubkey / key_error / test_mode`，公钥给属主核对登记；不回私钥路径与环境变量值。 |
 | 门户会话转发 | `server/src/odoo-session.ts`、`portal.ts`、`index.ts` 的 WS 升级段 | 只有**可信 Odoo 源**（`LC_ODOO_URL` 的源 ∪ `WM_ODOO_ORIGINS`，按 `new URL(url).origin` 精确比对）的台走 SSO v1、拿得到 `session_id`；其余台——包括登记成 `type=odoo` 或地址里带 `:8069` 的——HTTP 与 WS 升级都剥掉它、也不再给 SSO 跳转，其它 cookie 照旧。可信源的 SSO v1 行为不变（过 state 后只透 `session_id`，未过 state 仍剥）。`lifecycle.ts` 用同一模块取会话，所以缺这一改动本功能编译不过。 |
-| UI | `web/src/pages/Tasks.tsx` | 来源筛选多「生命周期」；条目带「批准」按钮（确认框列出对象、状态转移、提议人与授权）；顶部标出「以 user:… 审批」或降级原因。总览聚合卡与驾驶舱待办卡共用同一视图。 |
+| UI | `web/src/pages/Tasks.tsx` | 生命周期条目与查看人可显示，审批控件已移除，逐条显示“仅查看：同源门户/SOP隔离未完成，工作台审批已停用”。 |
 
 调用 lc 的方式：`node "$LC_YGL_BIN" lc <动作> --旗标 值…`，子进程环境是白名单——只有 `PATH/HOME` 等运行所需、`YGL_HOME=$LC_YGL_HOME`、`YGL_SESSION=lc-proto`、`YGL_NO_UPDATE_CHECK=1`、`LC_ASSERTION`；不继承本进程的 `LC_ACTOR`/`LC_CLOCK` 等。引擎版本不等于 0.116.1 就不调；版本按引擎文件的真实路径、大小、mtime 缓存，同一路径换了包会重新核对。`LC_TEST`/`LC_IDENTITY_FILE` 只在工作台进程自身 `LC_TEST=1` 时透传，仅供端到端测试。
 
-批准只记一条审批；放行（`lc release`）按插件设计是另一步，批准结果的 `next` 会给出放行命令。
+历史HTTP批准曾记一条审批；当前HTTP批准不具执行能力。`lc release`仍是独立授权动作，本候选不提供替代审批入口。
 
 ## 2. 部署配置
 
@@ -28,7 +30,7 @@
 | `LC_ODOO_URL` | Odoo 地址（与门户 SSO v1 同一个 Odoo，例如 `http://<同主机>:8069`）；它的源自动算可信 Odoo 源 |
 | `WM_ODOO_ORIGINS` | 其它可信 Odoo 源，逗号分隔（例如 Odoo 台登记的地址与 `LC_ODOO_URL` 不同源时——服务端走回环、浏览器走主机名——把台的源加进来）。非法项忽略并在启动时列出 |
 
-四项任一设置即启用生命周期源，缺项时源显示「未配置：缺 …」。前提：Odoo 与市场**同主机名**（SSO v1 的前提——Odoo 的 `session_id` cookie 按主机名共享给市场端口，`/api/*` 才收得到）；工作台进程能执行 `git`（插件非测试模式要核对 lifecycle-os 的 `decl/` 已提交）。
+以下仅说明经另行批准后只读源的配置，不允许据此启用HTTP审批。四项任一设置即尝试只读生命周期源，缺项时源显示「未配置：缺 …」。前提：Odoo 与市场**同主机名**（SSO v1 的前提——Odoo 的 `session_id` cookie 按主机名共享给市场端口，`/api/*` 才收得到）；工作台进程能执行 `git`（插件非测试模式要核对 lifecycle-os 的 `decl/` 已提交）。
 
 ## 3. 属主需要提供
 
@@ -59,7 +61,9 @@
 - **nonce 账本增长**：每次实际调 lc 都在 `lc_nonce`（只追加）留一行；统一待办每个查看人最多每 30 秒一次 inbox。
 - **测试模式**：`LC_TEST=1` 只在端到端测试里设；运行工作区 `~/.ygl-trees-lc` 本身不认测试模式。入口公钥仍是占位时，运行工作区只能读，生命周期源会显示 lc 拒绝原因（「公钥未配置」）。
 
-## 5. 测试与证据
+## 5. 历史测试与证据（仅遏制之前的作者结果，不用于当前head放行）
+
+当前候选S3要求所有HTTP审批（含完整同源头/SOP Referer/合法形状session）503，Odoo/引擎零调用；旧表“批准成功”不再是本版目标。签名原语单测保留，E2E的HTTP段改为拒绝/nonce及账本不变，直接插件绑定测试保留。缺真引擎/声明仓时仍NEEDS，不冒通过。
 
 | 命令 | 内容 | 结果（feat/lc-workbench-issuer，2026-10-29） |
 |---|---|---|

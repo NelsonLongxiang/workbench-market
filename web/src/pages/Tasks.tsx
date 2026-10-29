@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Card, Drawer, Empty, Form, Input, Popconfirm, Radio, Segmented, Select, Space, Tag, Typography, Upload, App as AntApp } from 'antd';
+import { Button, Card, Drawer, Empty, Form, Input, Radio, Segmented, Select, Space, Tag, Typography, Upload, App as AntApp } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import type { UploadFile } from 'antd';
 import { PageContainer } from '@ant-design/pro-components';
@@ -26,18 +26,6 @@ interface TasksPayload {
 }
 const SOURCE_COLOR: Record<TaskEnvelope['source'], string> = { market: 'geekblue', 'ygl-trees': 'cyan', a2a: 'gold', lifecycle: 'purple' };
 
-/** 批准生命周期提议：服务端确认 Odoo 登录名后为这一条 lc approve 现签断言（X-WM-Lifecycle 为同源门） */
-async function approveLifecycle(t: TaskEnvelope): Promise<{ ok: boolean; message: string }> {
-  const r = await fetch('/api/lifecycle/approve', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-WM-Lifecycle': '1' },
-    body: JSON.stringify({ proposal_id: t.lc!.proposal_id, grant: t.lc!.grant }),
-  });
-  const j = await r.json().catch(() => ({}));
-  if (r.ok && j?.ok) return { ok: true, message: `已批准（${j.data?.approvals ?? '?'}/${j.data?.levels ?? '?'} 级）` };
-  return { ok: false, message: j?.error?.message ?? j?.error ?? `HTTP ${r.status}` };
-}
-
 const STATUS_COLOR: Record<TaskEnvelope['status'], string> = { todo: 'default', doing: 'processing', done: 'success' };
 const STATUS_TEXT: Record<TaskEnvelope['status'], string> = { todo: '待办', doing: '进行中', done: '已完成' };
 
@@ -63,23 +51,9 @@ export function useTasksPoll(intervalMs = 60_000) {
 
 /** 总览聚合卡与驾驶舱卡片共用的数据视图 */
 export function TasksView({ compact = false }: { compact?: boolean }) {
-  const { message } = AntApp.useApp();
   const { payload, loading, reload } = useTasksPoll();
   const [statusFilter, setStatusFilter] = useState<'all' | TaskEnvelope['status']>('all');
   const [sourceFilter, setSourceFilter] = useState<'all' | TaskEnvelope['source']>('all');
-  const [approving, setApproving] = useState<string | null>(null);
-  const approve = async (t: TaskEnvelope) => {
-    setApproving(t.id);
-    try {
-      const r = await approveLifecycle(t);
-      if (r.ok) message.success(`${t.title}：${r.message}`); else message.error(`批准失败：${r.message}`);
-      reload();
-    } catch (e) {
-      message.error(`批准失败：${(e as Error).message}`);
-    } finally {
-      setApproving(null);
-    }
-  };
   const tasks = payload?.tasks ?? [];
   const shown = useMemo(
     () => tasks.filter((t) => (statusFilter === 'all' || t.status === statusFilter) && (sourceFilter === 'all' || t.source === sourceFilter)),
@@ -97,7 +71,7 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
           <Button size="small" icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
           {ygl && !ygl.ok && <Tag color="warning">ygl-trees 源降级（CLI 不可用）</Tag>}
           {life && !life.ok && <Tag color="warning">生命周期源：{life.error ?? '不可用'}</Tag>}
-          {life?.ok && life.viewer && <Tag color="purple">以 {life.viewer} 审批</Tag>}
+          {life?.ok && life.viewer && <Tag color="purple">以 {life.viewer} 查看（只读）</Tag>}
         </Space>
       )}
       {shown.length === 0 ? (
@@ -111,15 +85,7 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
               <Tag color={STATUS_COLOR[t.status]}>{STATUS_TEXT[t.status]}</Tag>
               <Typography.Text type="secondary" style={{ fontSize: 12, flex: 1, minWidth: 120 }}>{[t.project, t.due].filter(Boolean).join(' · ')}</Typography.Text>
               {t.link && <Button type="link" size="small" href={t.link} target="_blank">去处理</Button>}
-              {t.lc && (
-                <Popconfirm
-                  title="批准这条生命周期提议？"
-                  description={`${t.lc.object}：${t.lc.from} → ${t.lc.to}（提议人 ${t.lc.proposed_by}，授权 ${t.lc.grant}）`}
-                  okText="批准" cancelText="取消" onConfirm={() => approve(t)}
-                >
-                  <Button type="primary" size="small" loading={approving === t.id}>批准</Button>
-                </Popconfirm>
-              )}
+              {t.lc && <span role="note">仅查看：同源门户/SOP隔离未完成，工作台审批已停用。</span>}
             </div>
           ))}
         </div>
