@@ -1290,10 +1290,18 @@ app.get(/^\/sop\/[a-z0-9][a-z0-9-]*(\/.*)?$/, (req, res) => {
   const hit = readActiveManifest(m[1]);
   if (!hit) return res.status(404).json({ error: `SOP not found: ${m[1]}` });
   res.setHeader('X-App-Version', `v${hit.app.active_version}`);
+  const runParamRaw = typeof req.query?.run === 'string' && /^\d+$/.test(req.query.run) ? Number(req.query.run) : null;
   if (rest === '' || rest === '/' || rest === 'index.html') {
     // issue #11：非 published 不再渲染下发完整 Runner 页面（信息泄漏面）——403 瘦身为一行
     if (hit.app.status !== 'published') {
       return res.status(403).type('text').send(`SOP ${m[1]} 状态为 ${hit.app.status}，未上架不可执行\n`);
+    }
+    // #263 页面整链：?run=<id> 精确定位既有执行记录（不新开 run）；归属不匹配时 404，不静默换记录
+    if (runParamRaw !== null) {
+      const runRow = svc<SopService>('sop').runById(runParamRaw) as unknown as { sop_slug?: string } | undefined;
+      if (!runRow || runRow.sop_slug !== m[1]) return res.status(404).json({ error: `run ${runParamRaw} 不属于 SOP ${m[1]}` });
+      (globalThis as any).__wmSopPinRun = runParamRaw;
+      try { return res.status(200).type('html').send(renderSopRunner(hit.manifest, hit.app)); } finally { delete (globalThis as any).__wmSopPinRun; }
     }
     return res.status(200).type('html').send(renderSopRunner(hit.manifest, hit.app));
   }
