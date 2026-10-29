@@ -1,0 +1,24 @@
+{
+  "document_kind": "REQUEST_TEMPLATE_NOT_CONFIRMATION",
+  "authority_kb": "5ecb32ccd4",
+  "subject_scope": "CONTROL_COMPLETENESS_ONLY",
+  "repo": "NelsonLongxiang/workbench-market",
+  "issue": 221,
+  "review_package_commit": "42feaacba9d5bb3c130b6e98ef5e2658b0c066be",
+  "driver_commit": "7e64e98fd24d1e5b5c0a7fcbb28c9a1af13c97dc",
+  "product_target_sha": "d90f81abca809a48a893544d0bdd4c409be78526",
+  "contract_blob": "6eb65e85f7461bcb54f77e9d0fcdcb969627dac9",
+  "request": [
+    "governance-fixed confirmation package location",
+    "owner direct-confirmation record or verified host original inbound evidence plus chief per-item confirmation",
+    "reviewer/author per-item roles and independence confirmation",
+    "confirmed content rawhash + commit/contract/source_set/controls + approved units",
+    "ordered latest revision and cumulative revocation source",
+    "same-entry latest confirmation at run start and finish"
+  ],
+  "confirmation_received": false,
+  "latest_revision": null,
+  "approved_units": [],
+  "verified": false,
+  "rule_not_actual_approval": true
+}
