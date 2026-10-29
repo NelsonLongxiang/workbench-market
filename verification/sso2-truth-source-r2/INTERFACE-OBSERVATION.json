@@ -1,0 +1,64 @@
+{
+  "captured_at": "2026-10-29T00:45:52.979Z",
+  "scope": "declared tool capability only; no hidden endpoint probing or sensitive storage reads",
+  "authority": {
+    "kb_id": "5ecb32ccd4",
+    "content_hash": "b68d4701bbae6f60f806de554541ec4ca8a4fcb6",
+    "rules_not_actual_approvals": true
+  },
+  "tools": [
+    {
+      "name": "a2a_whoami",
+      "observed": "this session identity and membership only",
+      "trusted_confirmation_export": false
+    },
+    {
+      "name": "a2a_tasks",
+      "observed_fields": [
+        "taskId",
+        "team",
+        "peer",
+        "startedAt",
+        "direction",
+        "contextId",
+        "brief",
+        "status"
+      ],
+      "raw_signed_record_export_declared": false,
+      "latest_governance_revision_declared": false
+    },
+    {
+      "name": "list_mcp_resources",
+      "server": "srv-41660f5da1860ed7",
+      "result": "server is disconnected"
+    },
+    {
+      "name": "list_mcp_resource_templates",
+      "server": "srv-41660f5da1860ed7",
+      "result": "server is disconnected"
+    }
+  ],
+  "usable_now": "request per-item confirmation through existing governance route; delivery is not confirmation",
+  "confirmation_package_received": false,
+  "latest_revision_interface_received": false,
+  "runtime_verification_state": "NEEDS-MATERIAL",
+  "loader_written": false,
+  "new_platform_created": false,
+  "private_keys_read": false,
+  "scope_preserved": {
+    "units": 49,
+    "proposed_controls": 334,
+    "pending": 49,
+    "acceptance_proposal_cases": 20,
+    "actual_acceptance_runs": 0
+  },
+  "governance_reply": {
+    "source_ref": "direct-a5a3cd3e relayed direct-8fcd0c29",
+    "result": "no verified deliverable host raw confirmation package, controlled manual confirmation package, or latest revision retrieval location",
+    "classification": "NEEDS-MATERIAL - governance input not delivered",
+    "search_complete": true,
+    "further_search_or_mcp_retry_authorized": false,
+    "loader_authorized": false,
+    "next": "independent subcontrol coverage and non-package-dependent 20 counterexample design review may continue; wait actual controlled confirmation/export"
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "version": "truth-source-material-r2",
+  "parent": "42feaacba9d5bb3c130b6e98ef5e2658b0c066be",
+  "governance": {
+    "kb": "5ecb32ccd4",
+    "content_hash": "b68d4701bbae6f60f806de554541ec4ca8a4fcb6"
+  },
+  "created_at": "2026-10-29T00:47:13.694Z",
+  "state": "NEEDS_MATERIAL_TRUSTED_DELIVERY_AND_LATEST_REVISION_NOT_AVAILABLE",
+  "files": [
+    {
+      "relative": "GOVERNANCE-RULES-r2.md",
+      "path": "D:/workspace/workbench-market/tmp/sso2-truth-source-908/GOVERNANCE-RULES-r2.md",
+      "bytes": 4706,
+      "sha256": "75406aefdc04d204cdedd5cbb0b6568531408212874b3538b9f32db41cc5b045",
+      "git_blob": "afdb87dd087ffa896833de178f879ac7edeb36ff"
+    },
+    {
+      "relative": "EXISTING-INTERFACE-NOTE.md",
+      "path": "D:/workspace/workbench-market/tmp/sso2-truth-source-908/EXISTING-INTERFACE-NOTE.md",
+      "bytes": 6037,
+      "sha256": "e85180c8e8fe036e79f008ea465b1608d54ab0ddf96b6fd9d304f64eda6afcbe",
+      "git_blob": "797bce2cac2f6146e7678068a2ea5ba41c0478ec"
+    },
+    {
+      "relative": "INTERFACE-OBSERVATION.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-truth-source-908/INTERFACE-OBSERVATION.json",
+      "bytes": 2148,
+      "sha256": "9e146591cf6a9ae7e82b8d0f3dafc60e128a102ce67533407797277f3e46ef50",
+      "git_blob": "4adf66e8956fd542bb3f92a38f4496cc5ea0c511"
+    },
+    {
+      "relative": "DELIVERY-REQUEST-UNCONFIRMED.json",
+      "path": "D:/workspace/workbench-market/tmp/sso2-truth-source-908/DELIVERY-REQUEST-UNCONFIRMED.json",
+      "bytes": 1078,
+      "sha256": "6d44c0671550c9c6c45ee28f7eae98861d2d067103755eed3b132902d89b2b40",
+      "git_blob": "51b4df4120463f97de2f22bb4b516d1c5587ff90"
+    },
+    {
+      "relative": "PARALLEL-REVIEW-BOUNDARY.md",
+      "path": "D:/workspace/workbench-market/tmp/sso2-truth-source-908/PARALLEL-REVIEW-BOUNDARY.md",
+      "bytes": 1770,
+      "sha256": "0aaea595588b43dc6b804537d5abf50097322e4d5df7296b0491e33fcf537f98",
+      "git_blob": "bb56a3b6425c590d90207aa4a01a2fd08d0e1a11"
+    }
+  ],
+  "checks": {
+    "governance_roles_and_revocation_rules_mapped": true,
+    "request_not_confirmation": true,
+    "runtime_verified_entries": 0,
+    "units_pending": 49,
+    "controls_proposed_not_approved": 334,
+    "cases_not_run": 20,
+    "loader_code_written": false,
+    "new_api_or_platform": false,
+    "mechanisms_rerun": false,
+    "business_or_production_modified": false
+  },
+  "missing": [
+    "host raw inbound verified provenance export/interface or owner per-item direct confirmation record",
+    "governance-controlled fixed confirmation package actually delivered",
+    "ordered latest revision/revocation source and start/end currentness retrieval"
+  ],
+  "governance_actual_reply": "direct-a5a3cd3e: no verified confirmation package/revision delivery available; no further search; no loader authorization"
+}
