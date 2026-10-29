@@ -3,6 +3,7 @@ import { Button, Card, Drawer, Empty, Form, Input, Radio, Segmented, Select, Spa
 import { PlusOutlined } from '@ant-design/icons';
 import type { UploadFile } from 'antd';
 import { PageContainer } from '@ant-design/pro-components';
+import { apiFetch } from '../admin-token';
 import { ReloadOutlined } from '@ant-design/icons';
 
 /** 任务信封（与 server/src/tasks.ts 契约一致，字段冻结 snake_case） */
@@ -123,7 +124,7 @@ function DispatchDrawer({ open, onClose, onDone }: { open: boolean; onClose: () 
         const r0 = await fetch('/api/sop/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: 'task-center', started_by: `expert:${v.expert || 'me'}` }) });
         const run = await r0.json();
         if (!r0.ok) throw new Error(run?.error ?? '创建录入失败');
-        const steps: Array<[string, unknown]> = [['title', v.title], ['intent', v.desc || v.title], ['references', v.refs || ''], ['deliverable', v.deliverable || '按描述交付'], ['target', v.slug], ['due', v.due || '']];
+        const steps: Array<[string, unknown]> = [['title', { value: v.title }], ['intent', { value: v.desc || v.title }], ['references', { value: v.refs || '' }], ['deliverable', { value: v.deliverable || '按描述交付' }], ['target', { value: v.slug }], ['due', { value: v.due || '' }]];
         for (const [k, val] of steps) {
           const rs = await fetch(`/api/sop/runs/${run.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stepKey: k, value: val }) });
           if (!rs.ok) { const j = await rs.json().catch(() => ({})); throw new Error(j?.error ?? `步骤 ${k} 保存失败`); }
@@ -138,10 +139,9 @@ function DispatchDrawer({ open, onClose, onDone }: { open: boolean; onClose: () 
         }
         const rf2 = await fetch(`/api/sop/runs/${run.id}/finish`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
         if (!rf2.ok) { const j = await rf2.json().catch(() => ({})); throw new Error(j?.error ?? '完成录入失败'); }
-        const adminToken = localStorage.getItem('wm_admin_token') || '';
-        const rp = await fetch('/api/task-center/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken, Origin: window.location.origin }, body: JSON.stringify({ intake_run_id: run.id, published_by: v.expert || 'me' }) });
+        const rp = await apiFetch('/api/task-center/tasks', { method: 'POST', headers: { Origin: window.location.origin }, body: JSON.stringify({ intake_run_id: run.id, published_by: v.expert || 'me' }) });
         const pj = await rp.json().catch(() => ({}));
-        if (!rp.ok) throw new Error(pj?.error ?? '发布失败（需要管理员口令；录入已完成，可稍后在任务中心发布）');
+        if (!rp.ok) throw new Error(pj?.error ?? '发布失败（管理员口令缺失或无效；录入已完成，可稍后在任务中心发布）');
         message.success(`任务已发布（task #${pj.id}，录入 run #${run.id}）`);
         form.resetFields(); setFiles([]);
         onDone(); onClose();
