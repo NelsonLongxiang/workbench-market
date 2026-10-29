@@ -252,8 +252,6 @@ export async function lifecycleSourceFor(cookieHeader: string): Promise<{ meta: 
 
 // ---------- 审批 ----------
 
-const LC_ID = /^[A-Za-z0-9][A-Za-z0-9_.:@一-鿿-]{0,127}$/;
-
 /** 审批写面的请求门：只接工作台页面同源发起的 JSON 请求（门户 /go/ 下的台与本站同源，靠这道门挡不住——见交付说明） */
 export function lcWriteGuard(h: Record<string, string | string[] | undefined>): string | null {
   if (String(h['x-wm-lifecycle'] ?? '') !== '1') return '缺少 X-WM-Lifecycle 头（只接受工作台页面发起的审批）';
@@ -267,31 +265,16 @@ export function lcWriteGuard(h: Record<string, string | string[] | undefined>): 
   return null;
 }
 
-/** POST /api/lifecycle/approve：确认 Odoo 登录名 → 为 `lc approve --proposal P --grant G` 这一条命令现签断言 → 调 lc */
-export async function lifecycleApprove(headers: Record<string, string | string[] | undefined>, body: any): Promise<Result> {
-  const guard = lcWriteGuard(headers);
-  if (guard) return { http: 403, body: { ok: false, error: guard } };
-  const proposal = typeof body?.proposal_id === 'string' ? body.proposal_id : '';
-  const grant = typeof body?.grant === 'string' ? body.grant : '';
-  if (!LC_ID.test(proposal) || !LC_ID.test(grant)) return { http: 400, body: { ok: false, error: 'proposal_id 与 grant 必填且须为合法编号' } };
-  const cfg = lcConfig();
-  if (cfg.problem) return { http: 503, body: { ok: false, error: cfg.problem } };
-  const who = await resolveOdooViewer(String(headers.cookie ?? ''), cfg.odooUrl);
-  if (!who.ok) return { http: who.http, body: { ok: false, error: who.error } };
-  const r = await signedLc(who.viewer, 'approve', { proposal, grant });
-  inboxCache.delete(who.viewer.sub);
-  if (!r.ok) return { http: 503, body: { ok: false, viewer: who.viewer.sub, error: r.error } };
-  const env = r.envelope;
-  console.log(`[lc] approve ${who.viewer.sub} proposal=${proposal} grant=${grant} → ${env?.status ?? `rc ${r.rc}`}${env?.error ? ` ${env.error.code}` : ''} trace=${env?.trace_id ?? '-'}`);
-  if (!env) return { http: 502, body: { ok: false, viewer: who.viewer.sub, error: `lc 无信封（rc ${r.rc}）` } };
-  const http = env.status === 'applied' ? 200 : r.rc === 2 ? 400 : env.status === 'denied' ? 403 : env.status === 'error' ? 502 : 409;
-  return { http, body: { ok: env.status === 'applied', viewer: who.viewer.sub, status: env.status, data: env.data, error: env.error, next: env.next, trace_id: env.trace_id } };
+/** Same-origin portal/SOP scripts can impersonate a click: HTTP approval is unavailable until source isolation is verified. */
+export async function lifecycleApprove(_headers: Record<string, string | string[] | undefined>, _body: any): Promise<Result> {
+  // No configuration, cookie, private key, Odoo fetch or engine call may precede this refusal.
+  return { http: 503, body: { ok: false, error: { code: 'LC_APPROVAL_READ_ONLY', message: '生命周期审批为只读模式：同源门户/SOP隔离未完成，不能在工作台批准。' } } };
 }
 
 /** GET /api/lifecycle/status（管理员口令）：签发入口自检（公钥给属主登记用；不回私钥路径与环境变量值） */
 export async function lifecycleStatus(): Promise<Record<string, unknown>> {
   const cfg = lcConfig();
-  const out: Record<string, unknown> = { configured: lifecycleConfigured(), issuer: LC_ISSUER, missing: cfg.missing, problem: cfg.problem, engine_pin: LC_ENGINE_PIN, test_mode: process.env.LC_TEST === '1' };
+  const out: Record<string, unknown> = { configured: lifecycleConfigured(), issuer: LC_ISSUER, approval_mode: 'read-only', approval_blocked_reason: 'SAME_ORIGIN_ISOLATION_REQUIRED', missing: cfg.missing, problem: cfg.problem, engine_pin: LC_ENGINE_PIN, test_mode: process.env.LC_TEST === '1' };
   if (cfg.bin) out.engine_version = await engineVersion(cfg.bin);
   if (cfg.keyFile) { try { out.pubkey = loadIssuerKey(cfg.keyFile).pubkey; } catch (e) { out.key_error = (e as Error).message; } }
   return out;
