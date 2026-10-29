@@ -13,6 +13,7 @@ import { join, posix } from 'node:path';
 import { svc } from './context.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { CookieService } from './services/cookie.ts';
+import { isOdooSessionTarget, odooSessionOf, stripOdooSession } from './odoo-session.ts';
 
 
 export const goPrefix = /^\/go\/(\d+)(.*)$/;
@@ -86,10 +87,12 @@ export function installPortal(
       // SSO v1（监督席 direct-d2330efc 技术审 PASS·两注全收）：Odoo 类台免登——
       // ①浏览器无 session_id → 302 Odoo 登录（redirect 回跳+state 防 open-redirect·评审注②）
       // ②有 session_id → 白名单单键透传（只透 session_id·不透全 Cookie 头·评审注①）
-      const isOdooLike = /odoo/i.test(String(w.type ?? '')) || /:8069/.test(w.url);
+      // 可信 Odoo 源才走 SSO v1（按源判定，台类型/端口可由 agent 登记，不作数·见 odoo-session.ts）；其余台一律不转 Odoo 会话
+      const isOdooLike = isOdooSessionTarget(w.url);
+      if (!isOdooLike) stripOdooSession(req.headers);
       if (isOdooLike) {
         const browserCookies = String(req.headers.cookie ?? '');
-        const sidMatch = /(?:^|;\s*)session_id=([^;\s]+)/.exec(browserCookies);
+        const sid = odooSessionOf(browserCookies);
         const stateCookie = `wm_sso_${m[1]}`;
         const stMatch = new RegExp('(?:^|;\\s*)' + stateCookie + '=([^;\\s]+)').exec(browserCookies);
         const _qs = new URLSearchParams(String(req.originalUrl ?? req.url ?? '').split('?')[1] ?? '');
@@ -103,7 +106,7 @@ export function installPortal(
           u2.searchParams.delete('state');
           req.url = (u2.pathname || '/') + (u2.search ? u2.search : '');
         }
-        if (!sidMatch) {
+        if (!sid) {
           const state = randomUUID();
           const _mkHost = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').trim();
           const _mkProto = (String(req.headers['x-forwarded-proto'] ?? '').includes('https') || req.secure) ? 'https' : 'http';
@@ -113,11 +116,8 @@ export function installPortal(
         }
         const okCookie = `wm_sso_ok_${m[1]}`;
         const ssoOk = new RegExp('(?:^|;\\s*)' + okCookie + '=1').test(browserCookies);
-        if (ssoOk) (req as express.Request & { goSsoSid?: string }).goSsoSid = sidMatch[1]; // #170 P10：仅 state 过检后转发
-        else { // P10b：未过检时从转发 Cookie 中剥除 session_id（否则 HPM 原样带上去=固定旁路）
-          const cleaned = browserCookies.split(';').map((c) => c.trim()).filter((c) => c && !/^session_id=/.test(c)).join('; ');
-          req.headers.cookie = cleaned;
-        }
+        if (ssoOk) (req as express.Request & { goSsoSid?: string }).goSsoSid = sid; // #170 P10：仅 state 过检后转发
+        else stripOdooSession(req.headers); // P10b：未过检时从转发 Cookie 中剥除 session_id（否则 HPM 原样带上去=固定旁路）
       }
       // Cookie 池注入（派单 direct-5fbb2176）：台挂了 cookie_set 时按目标 host 匹配
       // cookie.domain + 未过期过滤 → 拼 Cookie 头（proxyReq 里替换而非追加）
