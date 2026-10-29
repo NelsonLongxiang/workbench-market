@@ -203,4 +203,4 @@ const server = createServer(async (req, res) => {
   }
 });
 const port = Number(process.env.LAYERFS_SERVICE_PORT ?? 8067);
-server.listen(port, () => console.log('[layerfs-svc] real adapter on', port, '| agent:', AGENT_SPEC));
+server.listen(port, () => console.log('[layerfs-svc] real adapter on', port, '| agent:', '@layerfs/agent'));

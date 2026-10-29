@@ -1,5 +1,5 @@
 # #147 部署批：基文件默认回环绑定（P0-4）·layerfs 走 profiles 隔离（P1-1）·token 必设（P1-2）
-# #215：单多阶段真镜像；LAYERFS_SRC 命名上下文需带 .git，镜像内 checkout 完整钉点。
+# #215：先 build-layerfs.sh SOURCE NEW_CONTEXT --prepare-only，再标准 Compose build。
 services:
   market:
     build:
@@ -29,7 +29,7 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile.layerfs
       additional_contexts:
-        layerfs: ${LAYERFS_SRC:?LAYERFS_SRC 必设（含 .git 的 layerfs 检出路径）}
+        layerfs: ${LAYERFS_CONTEXT:?先用 deploy/build-layerfs.sh 准备固定钉点受控 context，再设置 LAYERFS_CONTEXT}
     environment:
       # P1-2：未设即 compose 级拒启（不再静默默认 change-me）
       LAYERFS_SERVICE_TOKEN: ${LAYERFS_SERVICE_TOKEN:?LAYERFS_SERVICE_TOKEN 必设（不可用 change-me）}
