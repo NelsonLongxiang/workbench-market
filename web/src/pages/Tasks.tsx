@@ -189,7 +189,7 @@ export default function Tasks() {
   return (
     <PageContainer
       title="统一待办"
-      subTitle="多源任务聚合 —— 生命周期提议可在此批准（调用内核 lc approve），其余勾销请回原系统"
+      subTitle="多源任务聚合 —— 生命周期当前仅供查看，工作台审批已停用；其余勾销请回原系统"
       className="wm-page"
       extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>发布任务</Button>}
     >
