@@ -8,19 +8,23 @@ import { ReloadOutlined } from '@ant-design/icons';
 /** 任务信封（与 server/src/tasks.ts 契约一致，字段冻结 snake_case） */
 export interface TaskEnvelope {
   id: string;
-  source: 'ygl-trees' | 'market';
+  source: 'ygl-trees' | 'market' | 'a2a' | 'lifecycle';
   title: string;
   status: 'todo' | 'doing' | 'done';
   due: string | null;
   link: string | null;
   project: string | null;
+  /** 仅 lifecycle 源：批准所需的提议与授权 */
+  lc?: { proposal_id: string; grant: string; object: string; machine: string; from: string; to: string; effective_at: string | null; proposed_by: string; approvals: number; levels: number };
 }
 interface SourceMeta { ok: boolean; count: number; latency_ms: number }
 interface TasksPayload {
   tasks: TaskEnvelope[];
-  sources: { 'ygl-trees': SourceMeta; market: SourceMeta };
+  /** lifecycle 仅在服务端配置了生命周期源时出现，按当前 Odoo 登录人计 */
+  sources: { 'ygl-trees': SourceMeta; market: SourceMeta; a2a?: SourceMeta; lifecycle?: SourceMeta & { viewer: string | null; error?: string } };
   generated_at: string;
 }
+const SOURCE_COLOR: Record<TaskEnvelope['source'], string> = { market: 'geekblue', 'ygl-trees': 'cyan', a2a: 'gold', lifecycle: 'purple' };
 
 const STATUS_COLOR: Record<TaskEnvelope['status'], string> = { todo: 'default', doing: 'processing', done: 'success' };
 const STATUS_TEXT: Record<TaskEnvelope['status'], string> = { todo: '待办', doing: '进行中', done: '已完成' };
@@ -49,7 +53,7 @@ export function useTasksPoll(intervalMs = 60_000) {
 export function TasksView({ compact = false }: { compact?: boolean }) {
   const { payload, loading, reload } = useTasksPoll();
   const [statusFilter, setStatusFilter] = useState<'all' | TaskEnvelope['status']>('all');
-  const [sourceFilter, setSourceFilter] = useState<'all' | 'ygl-trees' | 'market'>('all');
+  const [sourceFilter, setSourceFilter] = useState<'all' | TaskEnvelope['source']>('all');
   const tasks = payload?.tasks ?? [];
   const shown = useMemo(
     () => tasks.filter((t) => (statusFilter === 'all' || t.status === statusFilter) && (sourceFilter === 'all' || t.source === sourceFilter)),
@@ -57,14 +61,17 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
   );
   if (loading && !payload) return <Card loading style={{ minHeight: 160 }} />;
   const ygl = payload?.sources?.['ygl-trees'];
+  const life = payload?.sources?.lifecycle;
   return (
     <div>
       {!compact && (
         <Space wrap style={{ marginBottom: 12 }}>
           <Segmented value={statusFilter} onChange={(v) => setStatusFilter(v as never)} options={[{ label: '全部', value: 'all' }, { label: '待办', value: 'todo' }, { label: '进行中', value: 'doing' }, { label: '已完成', value: 'done' }]} />
-          <Segmented value={sourceFilter} onChange={(v) => setSourceFilter(v as never)} options={[{ label: '全部来源', value: 'all' }, { label: 'ygl-trees', value: 'ygl-trees' }, { label: 'market', value: 'market' }]} />
+          <Segmented value={sourceFilter} onChange={(v) => setSourceFilter(v as never)} options={[{ label: '全部来源', value: 'all' }, { label: 'ygl-trees', value: 'ygl-trees' }, { label: 'market', value: 'market' }, ...(life ? [{ label: '生命周期', value: 'lifecycle' }] : [])]} />
           <Button size="small" icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
           {ygl && !ygl.ok && <Tag color="warning">ygl-trees 源降级（CLI 不可用）</Tag>}
+          {life && !life.ok && <Tag color="warning">生命周期源：{life.error ?? '不可用'}</Tag>}
+          {life?.ok && life.viewer && <Tag color="purple">以 {life.viewer} 查看（只读）</Tag>}
         </Space>
       )}
       {shown.length === 0 ? (
@@ -73,18 +80,19 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: compact ? 4 : 8 }}>
           {shown.slice(0, compact ? 8 : 200).map((t) => (
             <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: compact ? '4px 8px' : '8px 12px', border: '1px solid var(--ant-color-border-secondary, #eee)', borderRadius: 8, flexWrap: 'wrap' }}>
-              <Tag color={t.source === 'market' ? 'geekblue' : 'cyan'}>{t.source}</Tag>
+              <Tag color={SOURCE_COLOR[t.source] ?? 'default'}>{t.source}</Tag>
               <Typography.Text ellipsis style={{ maxWidth: 420, fontSize: compact ? 12 : 14 }}>{t.title}</Typography.Text>
               <Tag color={STATUS_COLOR[t.status]}>{STATUS_TEXT[t.status]}</Tag>
               <Typography.Text type="secondary" style={{ fontSize: 12, flex: 1, minWidth: 120 }}>{[t.project, t.due].filter(Boolean).join(' · ')}</Typography.Text>
               {t.link && <Button type="link" size="small" href={t.link} target="_blank">去处理</Button>}
+              {t.lc && <span role="note">仅查看：同源门户/SOP隔离未完成，工作台审批已停用。</span>}
             </div>
           ))}
         </div>
       )}
       {payload && (
         <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
-          生成于 {new Date(payload.generated_at).toLocaleString()} · ygl-trees {ygl?.ok ? `${ygl.count} 条/${ygl.latency_ms}ms` : '降级'} · market {payload.sources.market.count} 条
+          生成于 {new Date(payload.generated_at).toLocaleString()} · ygl-trees {ygl?.ok ? `${ygl.count} 条/${ygl.latency_ms}ms` : '降级'} · market {payload.sources.market.count} 条{life ? ` · 生命周期 ${life.ok ? `${life.count} 条` : '降级'}` : ''}
         </Typography.Text>
       )}
     </div>
@@ -181,7 +189,7 @@ export default function Tasks() {
   return (
     <PageContainer
       title="统一待办"
-      subTitle="三源任务聚合（只读）—— 勾销请回原系统"
+      subTitle="多源任务聚合 —— 生命周期当前仅供查看，工作台审批已停用；其余勾销请回原系统"
       className="wm-page"
       extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>发布任务</Button>}
     >
