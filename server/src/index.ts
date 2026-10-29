@@ -74,7 +74,8 @@ app.use((req, res, next) => {
 // 其余 /api/* 写操作要 X-Admin-Token（本机 REST 面维持内网信任模型不变；此中间件只拦远程写）。
 // 主人裁定 A（2026-10-23）：自产台数据/文件面对远程浏览器开放——应用层写，与发布面同口径；
 // 控制面（/api/mcp/*、/api/sops/*/bindings 等）照旧收口。没有这条，远程节点浏览器提交表单会 403。
-const REMOTE_ALLOW_EXACT = new Set(['/mcp', '/.well-known/agent-card.json', '/a2a/direct']);
+// 生命周期审批：业务审批人从各自浏览器调用，身份靠 Odoo 会话（lifecycle.ts 现查）+ 同源 JSON 门，不靠 X-Admin-Token
+const REMOTE_ALLOW_EXACT = new Set(['/mcp', '/.well-known/agent-card.json', '/a2a/direct', '/api/lifecycle/approve']);
 // ---------- 端点命中计数（总工程师 B 类单：采纳监测 instrumentation）----------
 // 必须挂在所有业务路由之前（Express 按注册序匹配，路由先响应则后续 use 不再执行）
 app.use(endpointStatsMiddleware());
@@ -1675,9 +1676,23 @@ app.get('/api/sop/runs/active', wrap(async (_req, res) => {
 app.get('/api/stats', (_req, res) => { res.json(statsPayload()); });
 
 // ---------- 统一待办（omni-inbox · 总工程师设计 9c5557c1c0）：只读聚合 ----------
-app.get('/api/tasks', wrap(async (_req, res) => {
+app.get('/api/tasks', wrap(async (req, res) => {
   const payload = await collectTasks(svc<SopService>('sop') as never);
-  res.json(payload);
+  if (!lifecycleConfigured()) return res.json(payload);
+  // 生命周期源按查看人（Odoo 会话）现查，不进 30s 共享缓存；响应随 Cookie 变，不许中间缓存
+  const lc = await lifecycleSourceFor(String(req.headers.cookie ?? ''));
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.json({ ...payload, tasks: [...payload.tasks, ...lc.tasks], sources: { ...payload.sources, lifecycle: lc.meta } });
+}));
+
+// ---------- 生命周期审批（工作台 = lc 断言签发入口 workbench）：Odoo 会话确认登录名 → 为这一条 approve 现签断言 ----------
+app.post('/api/lifecycle/approve', wrap(async (req, res) => {
+  const r = await lifecycleApprove(req.headers, req.body);
+  res.status(r.http).json(r.body);
+}));
+app.get('/api/lifecycle/status', wrap(async (req, res) => {
+  if (!adminGuard(req, res)) return; // 配置清单不对远程匿名读开放（评审：只写面有远程门）
+  res.json(await lifecycleStatus());
 }));
 
 // ---------- 技能市场钉装与审计（P1-b · 方案 §1：市场侧 manifest+校验 API+巡检，不动 DSH catalog）----------
@@ -2669,7 +2684,9 @@ import { MCP_TOOLS } from './mcp-tools.ts';
 import { evalCandidates } from './eval.ts'; // #178 评估模型客户端
 
 import { renderSopRunner } from './sop-runner.ts';
+import { isOdooLikeTarget, isOdooSessionTarget, stripOdooSession, trustedOdooOrigins } from './odoo-session.ts';
 import { collectTasks } from './tasks.ts';
+import { lifecycleApprove, lifecycleConfigProblem, lifecycleConfigured, lifecycleSourceFor, lifecycleStatus } from './lifecycle.ts';
 import { endpointStatsMiddleware, statsPayload } from './endpoint-stats.ts';
 
 // ---------- MCP 生产通道（StreamableHTTP · stateless：AI 会话直连市场，零依赖手写 JSON-RPC） ----------
@@ -3333,6 +3350,11 @@ app.post('/api/a2a/send', wrap(async (req, res) => {
 if (getApp('task-center').status === 'published') syncWorkbenchRegistration(getApp('task-center'));
 const goServer = app.listen(PORT, () => {
   if (process.env.ALLOW_PUBLIC_NET === '1') console.warn('[SSRF_GUARD_DISABLED] ALLOW_PUBLIC_NET=1: public registration guard is bypassed; explicitly review this deployment exception.');
+  const odooTrust = trustedOdooOrigins();
+  if (odooTrust.invalid.length) console.warn(`[SSO v1] WM_ODOO_ORIGINS/LC_ODOO_URL 有非法项（已忽略）：${odooTrust.invalid.join(', ')}`);
+  if (odooTrust.origins.size === 0 && listWorkbenches().some((w) => isOdooLikeTarget(w.type, w.url))) console.warn('[SSO v1] 未设 WM_ODOO_ORIGINS / LC_ODOO_URL：门户不转发 Odoo 会话，Odoo 台免登不生效（台内会显示 Odoo 自己的登录页）——要免登请把 Odoo 台的源写进 WM_ODOO_ORIGINS');
+  const lcProblem = lifecycleConfigProblem();
+  if (lcProblem) console.warn(`[lifecycle] 生命周期源不可用：${lcProblem}`);
   const counts = svc<WorkbenchService>('workbench').count() as { n: number };
   console.log(`[workbench-market] server  http://127.0.0.1:${PORT}  (workbenches: ${counts.n}, web-dist: ${existsSync(webDist) ? 'served' : 'none'}, portal: /go/<id>/)`);
   startRedis(); // SOP 状态层（生产 Redis；不可达自动降级直写 SQLite，不阻塞启动）
@@ -3380,6 +3402,7 @@ goServer.on('upgrade', (req, socket, head) => {
   // ① 浏览器握手必带 Origin（=9800 门户源），上游 Origin fence 要求 Origin==Host authority → 403（实测）
   // ② Host 改成上游 authority，与 changeOrigin 语义一致；cookie 名是 authority 的 sha256，
   //    Host 不符则上游取不到签名 cookie → 401（实测）
+  if (!isOdooSessionTarget(w.url)) stripOdooSession(req.headers); // 同 HTTP 门户：Odoo 会话只转给可信 Odoo 源
   const upstreamHost = u.host; // host:port（authority 形态）
   if (req.headers.origin !== undefined) req.headers.origin = u.origin;
   req.headers.host = upstreamHost;
