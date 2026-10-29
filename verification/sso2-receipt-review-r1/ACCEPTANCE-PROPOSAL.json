@@ -1,0 +1,147 @@
+{
+  "status": "PROPOSED_NOT_EXECUTED",
+  "business_tests_rerun": 0,
+  "mechanism_tests_rerun": 0,
+  "cases": [
+    {
+      "id": "R01",
+      "input": "existing trusted source confirms real nonauthor content+source+full controls",
+      "expected": "eligible_for_completion_evaluation_not_direct_PASS",
+      "actual": "NOT_RUN",
+      "review": "PENDING_NONAUTHOR"
+    },
+    {
+      "id": "R02",
+      "input": "missing author",
+      "expected": "NEEDS_no_verified_entry",
+      "actual": "NOT_RUN",
+      "review": "PENDING_NONAUTHOR"
+    },
+    {
+      "id": "R03",
+      "input": "missing reviewer or alias map",
+      "expected": "NEEDS_no_verified_entry",
+      "actual": "NOT_RUN",
+      "review": "PENDING_NONAUTHOR"
+    },
+    {
+      "id": "R04",
+      "input": "author equals reviewer under confirmed alias map",
+      "expected": "REJECT_no_PASS",
+      "actual": "NOT_RUN",
+      "review": "PENDING_NONAUTHOR"
+    },
+    {
+      "id": "R05",
+      "input": "only GitHub role prefix or login",
+      "expected": "NEEDS_not_identity",
+      "actual": "NOT_RUN",
+      "review": "PENDING_NONAUTHOR"
+    },
+    {
+      "id": "R06",
+      "input": "policy self-reports APPROVED or VERIFIED",
+      "expected": "REJECT_no_verified_entry",
+      "actual": "NOT_RUN",
+      "review": "PENDING_NONAUTHOR"
+    },
+    {
+      "id": "R07",
+      "input": "author supplies fake confirmation record",
+      "expected": "REJECT_source_not_trusted",
+      "actual": "NOT_RUN",
+      "review": "PENDING_NONAUTHOR"
+    },
+    {
+      "id": "R08",
+      "input": "receipt different probe_id",
+      "expected": "REJECT_no_scope_leak",
+      "actual": "NOT_RUN",
+      "review": "PENDING_NONAUTHOR"
+    },
+    {
+      "id": "R09",
+      "input": "required control missing or different hash",
+      "expected": "NEEDS_re_review",
+      "actual": "NOT_RUN",
+      "review": "PENDING_NONAUTHOR"
+    },
+    {
+      "id": "R10",
+      "input": "same control name with different ID/expectation",
+      "expected": "REJECT_ambiguous_mapping",
+      "actual": "NOT_RUN",
+      "review": "PENDING_NONAUTHOR"
+    },
+    {
+      "id": "R11",
+      "input": "old driver version/source_set hash",
+      "expected": "NEEDS_re_review",
+      "actual": "NOT_RUN",
+      "review": "PENDING_NONAUTHOR"
+    },
+    {
+      "id": "R12",
+      "input": "wrong product target or contract",
+      "expected": "NEEDS_new_review",
+      "actual": "NOT_RUN",
+      "review": "PENDING_NONAUTHOR"
+    },
+    {
+      "id": "R13",
+      "input": "source changes during active run",
+      "expected": "integrity_ERROR_original_snapshot_preserved",
+      "actual": "NOT_RUN",
+      "review": "PENDING_NONAUTHOR"
+    },
+    {
+      "id": "R14",
+      "input": "comment same ID edited after confirmation",
+      "expected": "ERROR_reference_hash_mismatch",
+      "actual": "NOT_RUN",
+      "review": "PENDING_NONAUTHOR"
+    },
+    {
+      "id": "R15",
+      "input": "duplicate review_id different content",
+      "expected": "ERROR_identity_conflict",
+      "actual": "NOT_RUN",
+      "review": "PENDING_NONAUTHOR"
+    },
+    {
+      "id": "R16",
+      "input": "revoked approval replayed",
+      "expected": "REJECT_and_invalidation_record",
+      "actual": "NOT_RUN",
+      "review": "PENDING_NONAUTHOR"
+    },
+    {
+      "id": "R17",
+      "input": "wrong repository or issue",
+      "expected": "REJECT_wrong_subject",
+      "actual": "NOT_RUN",
+      "review": "PENDING_NONAUTHOR"
+    },
+    {
+      "id": "R18",
+      "input": "revocation status unreachable/offline",
+      "expected": "NEEDS_or_infra_ERROR_reason_retained",
+      "actual": "NOT_RUN",
+      "review": "PENDING_NONAUTHOR"
+    },
+    {
+      "id": "R19",
+      "input": "one unit approved but another/deferred positive not approved",
+      "expected": "unapproved_stays_NEEDS",
+      "actual": "NOT_RUN",
+      "review": "PENDING_NONAUTHOR"
+    },
+    {
+      "id": "R20",
+      "input": "synthetic test confirmation offered to real loader",
+      "expected": "REJECT_nonreal_source",
+      "actual": "NOT_RUN",
+      "review": "PENDING_NONAUTHOR"
+    }
+  ]
+}

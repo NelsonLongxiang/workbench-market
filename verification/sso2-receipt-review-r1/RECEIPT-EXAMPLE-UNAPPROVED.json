@@ -1,0 +1,31 @@
+{
+  "document_kind": "SCHEMA_EXAMPLE_ONLY_NOT_A_RECEIPT",
+  "trusted": false,
+  "review_id": null,
+  "repo": "NelsonLongxiang/workbench-market",
+  "issue": 221,
+  "subject_scope": "CONTROL_COMPLETENESS_ONLY",
+  "verdict": "PENDING",
+  "review_author_session": "dsh/cf31945f",
+  "reviewer_session": null,
+  "reviewed_commit": "7e64e98fd24d1e5b5c0a7fcbb28c9a1af13c97dc",
+  "product_target_sha": "d90f81abca809a48a893544d0bdd4c409be78526",
+  "contract_blob": "6eb65e85f7461bcb54f77e9d0fcdcb969627dac9",
+  "source_set_sha256": null,
+  "controls_manifest_sha256": null,
+  "approved_units": [],
+  "confirmation": {
+    "confirmation_ref": null,
+    "authority_ref": null,
+    "origin_evidence_ref": null,
+    "reviewer_session_verified": null,
+    "receipt_raw_sha256": null,
+    "revocation_status_ref": null
+  },
+  "forbidden_interpretations": [
+    "Do not treat this file as APPROVED",
+    "Do not populate actual verifiedApprovals from this example",
+    "GitHub role prefix is not trusted origin",
+    "No old/new secrets or signatures are requested"
+  ]
+}
