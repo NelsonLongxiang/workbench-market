@@ -3,6 +3,13 @@ on:
   pull_request:
     branches: [main]
 jobs:
+  odoo-operator-synthetic:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Synthetic Odoo operator guards (no credentials or network)
+        shell: pwsh
+        run: ./scripts/ops/odoo-readonly-preflight-test.ps1
   tsc-and-syntax:
     runs-on: ubuntu-latest
     steps:
