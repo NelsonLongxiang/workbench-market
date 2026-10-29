@@ -1,5 +1,5 @@
 # #147 部署批：基文件默认回环绑定（P0-4）·layerfs 走 profiles 隔离（P1-1）·token 必设（P1-2）
-# #215：真镜像经 deploy/build-layerfs.sh 构建（本地检出 context·免 clone 凭证）·compose 引 image
+# #215：单多阶段真镜像；LAYERFS_SRC 命名上下文需带 .git，镜像内 checkout 完整钉点。
 services:
   market:
     build:
@@ -23,8 +23,13 @@ services:
       retries: 3
 
   layerfs:
-    profiles: ["layerfs"]   # #215：真镜像（Rust+@layerfs/agent）·build 走 deploy/build-layerfs.sh（本地检出 context）
+    profiles: ["layerfs"]
     image: ${LAYERFS_IMAGE:-wm-x-layerfs:test}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.layerfs
+      additional_contexts:
+        layerfs: ${LAYERFS_SRC:?LAYERFS_SRC 必设（含 .git 的 layerfs 检出路径）}
     environment:
       # P1-2：未设即 compose 级拒启（不再静默默认 change-me）
       LAYERFS_SERVICE_TOKEN: ${LAYERFS_SERVICE_TOKEN:?LAYERFS_SERVICE_TOKEN 必设（不可用 change-me）}

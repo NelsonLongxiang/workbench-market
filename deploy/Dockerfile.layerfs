@@ -1,19 +1,25 @@
-# #215 final 段：context=market 仓库——真适配器 svc（基底 node:22·SDK 需 ≥18·ubuntu 22.04 古 Node 炸 ?? 语法）
+# #215: market context + named layerfs context including its .git objects.
+# Build via compose --profile layerfs build layerfs; do not use the legacy base-image wrapper.
+ARG LAYERFS_COMMIT=9f97a7ec95b662e9cb288704afa165feff132cfa
+FROM rust:1.85.1-bookworm AS engine
+ARG LAYERFS_COMMIT
+COPY --from=layerfs . /src
+RUN git -c safe.directory=/src -C /src checkout --detach "$LAYERFS_COMMIT"  && test "$(git -c safe.directory=/src -C /src rev-parse HEAD)" = "$LAYERFS_COMMIT"
+WORKDIR /src/core
+RUN cargo build --release --locked -p layerfs-node  && cp target/release/liblayerfs_node.so /out-layerfs.node
+
 FROM node:22-bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
-    && rm -rf /var/lib/apt/lists/*
-COPY --from=wm-x-layerfs:base /usr/local/lib/layerfs.node /usr/local/lib/layerfs.node
-COPY --from=wm-x-layerfs:base /usr/local/lib/layerfs-api /usr/local/lib/layerfs-api
+ARG LAYERFS_COMMIT
+LABEL org.layerfs.commit=$LAYERFS_COMMIT
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl  && rm -rf /var/lib/apt/lists/*
+COPY --from=engine /out-layerfs.node /usr/local/lib/layerfs.node
+COPY --from=engine /src/api/agent/sdk /usr/local/lib/node_modules/@layerfs/agent
 COPY deploy/layerfs-svc.mjs /usr/local/lib/layerfs-svc.mjs
 ENV LAYERFS_NATIVE=/usr/local/lib/layerfs.node
-# #215 十五障②：native 面启动即读（locator=<home>/global/store.sqlite）
 ENV LAYERFS_HOME=/var/lib/layerfs/home
-# #215 X6 十八障：镜像级固化（SDK 读点前必达·inspect 可见）
 ENV LAYERFS_STORE_PATH=/var/lib/layerfs/home/global/store.sqlite
 ENV LAYERFS_STORE_ROOT=/var/lib/layerfs
 ENV LAYERFS_SERVICE_PORT=8067
-ENV LAYERFS_AGENT_PATH=/usr/local/lib/layerfs-api/agent/sdk/src/index.js
-ENV NODE_PATH=/usr/local/lib/layerfs-api/agent/sdk/node_modules
 VOLUME /var/lib/layerfs
 EXPOSE 8067
 ENTRYPOINT ["node", "/usr/local/lib/layerfs-svc.mjs"]
