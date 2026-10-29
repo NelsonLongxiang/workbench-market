@@ -107,6 +107,7 @@ function DispatchDrawer({ open, onClose, onDone }: { open: boolean; onClose: () 
   const [form] = Form.useForm();
   const [sops, setSops] = useState<{ slug: string; title: string }[]>([]);
   const [assignee, setAssignee] = useState<'agent' | 'self' | 'none'>('agent');
+  const [entry, setEntry] = useState<'intake' | 'legacy'>('intake');
   const [files, setFiles] = useState<UploadFile[]>([]);
   const [submitting, setSubmitting] = useState(false);
   useEffect(() => {
@@ -117,6 +118,35 @@ function DispatchDrawer({ open, onClose, onDone }: { open: boolean; onClose: () 
     const v = await form.validateFields();
     setSubmitting(true);
     try {
+      // #263 页面整链：统一入口走 task-center 人工录入→发布链（模板六步），不再直开业务 SOP run
+      if (entry === 'intake') {
+        const r0 = await fetch('/api/sop/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: 'task-center', started_by: `expert:${v.expert || 'me'}` }) });
+        const run = await r0.json();
+        if (!r0.ok) throw new Error(run?.error ?? '创建录入失败');
+        const steps: Array<[string, unknown]> = [['title', v.title], ['intent', v.desc || v.title], ['references', v.refs || ''], ['deliverable', v.deliverable || '按描述交付'], ['target', v.slug], ['due', v.due || '']];
+        for (const [k, val] of steps) {
+          const rs = await fetch(`/api/sop/runs/${run.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stepKey: k, value: val }) });
+          if (!rs.ok) { const j = await rs.json().catch(() => ({})); throw new Error(j?.error ?? `步骤 ${k} 保存失败`); }
+        }
+        for (const f of files) {
+          if (!f.originFileObj) continue;
+          const fd = new FormData();
+          fd.append('file', f.originFileObj);
+          fd.append('created_by', v.expert || 'expert');
+          const rf = await fetch(`/api/sop/runs/${run.id}/files`, { method: 'POST', body: fd });
+          if (!rf.ok) { const j = await rf.json().catch(() => ({})); throw new Error(j?.error ?? `附件 ${f.name} 上传失败`); }
+        }
+        const rf2 = await fetch(`/api/sop/runs/${run.id}/finish`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        if (!rf2.ok) { const j = await rf2.json().catch(() => ({})); throw new Error(j?.error ?? '完成录入失败'); }
+        const adminToken = localStorage.getItem('wm_admin_token') || '';
+        const rp = await fetch('/api/task-center/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken, Origin: window.location.origin }, body: JSON.stringify({ intake_run_id: run.id, published_by: v.expert || 'me' }) });
+        const pj = await rp.json().catch(() => ({}));
+        if (!rp.ok) throw new Error(pj?.error ?? '发布失败（需要管理员口令；录入已完成，可稍后在任务中心发布）');
+        message.success(`任务已发布（task #${pj.id}，录入 run #${run.id}）`);
+        form.resetFields(); setFiles([]);
+        onDone(); onClose();
+        return;
+      }
       const r1 = await fetch('/api/sop/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: v.slug, started_by: assignee === 'agent' ? v.node : `expert:${v.expert || 'me'}` }) });
       const run = await r1.json();
       if (!r1.ok) throw new Error(run?.error ?? '创建失败');
@@ -146,15 +176,29 @@ function DispatchDrawer({ open, onClose, onDone }: { open: boolean; onClose: () 
   return (
     <Drawer title="发布任务" open={open} onClose={onClose} size="large" destroyOnHidden styles={{ wrapper: { width: 520 } }}>
       <Form form={form} layout="vertical">
-        <Form.Item name="slug" label="挂靠 SOP 台（执行面）" rules={[{ required: true, message: '选择一个已上架 SOP' }]}>
+        <Form.Item label="发布方式">
+          <Radio.Group value={entry} onChange={(e) => setEntry(e.target.value)}>
+            <Radio value="intake">统一任务（任务中心录入→发布，入统一待办）</Radio>
+            <Radio value="legacy">直接开 SOP run（旧链·需手动指派才入待验收）</Radio>
+          </Radio.Group>
+        </Form.Item>
+        <Form.Item name="slug" label={entry === 'intake' ? '目标 SOP 台（记录在任务里，不直接开 run）' : '挂靠 SOP 台（执行面）'} rules={[{ required: true, message: '选择一个已上架 SOP' }]}>
           <Select placeholder="选择已上架 SOP" options={sops.map((x) => ({ value: x.slug, label: `${x.title} (${x.slug})` }))} showSearch />
         </Form.Item>
         <Form.Item name="title" label="任务标题" rules={[{ required: true, message: '填写标题' }]}>
           <Input placeholder="如：核对十月物流对账差异" maxLength={80} />
         </Form.Item>
+        {entry === 'intake' && (
+          <>
+            <Form.Item name="deliverable" label="提交物要求"><Input placeholder="如：对账差异报告" maxLength={200} /></Form.Item>
+            <Form.Item name="refs" label="基准材料（可选）"><Input placeholder="材料名或链接" maxLength={200} /></Form.Item>
+            <Form.Item name="due" label="截止日期（可选）"><Input placeholder="如 2026-11-05" maxLength={40} /></Form.Item>
+          </>
+        )}
         <Form.Item name="desc" label="业务描述（一段话）">
           <Input.TextArea rows={3} placeholder="要做什么、验收标准、注意事项" maxLength={2000} />
         </Form.Item>
+        {entry === 'legacy' && (
         <Form.Item label="指派">
           <Radio.Group value={assignee} onChange={(e) => setAssignee(e.target.value)}>
             <Radio value="agent">指派绑定 agent</Radio>
@@ -162,7 +206,8 @@ function DispatchDrawer({ open, onClose, onDone }: { open: boolean; onClose: () 
             <Radio value="none">暂不指派</Radio>
           </Radio.Group>
         </Form.Item>
-        {assignee === 'agent' && (
+        )}
+        {entry === 'legacy' && assignee === 'agent' && (
           <Form.Item name="node" label="agent 节点（dsh/<id8>，须已绑定该 SOP）" rules={[{ required: true, message: '填写节点' }]}>
             <Input placeholder="dsh/6de4035c" />
           </Form.Item>
