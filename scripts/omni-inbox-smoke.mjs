@@ -77,7 +77,7 @@ try {
   await new Promise((r2) => setTimeout(r2, 31_000));
   r = await json(`${BASE}/api/tasks`);
   const mkt = (r.body?.tasks ?? []).filter((t) => t.source === 'market');
-  ok('market 信封 = running 派单 run（doing+深链）', mkt.some((t) => t.id === `market:run-${runId}` && t.status === 'doing' && t.link === '/sop/rv-omni/'), JSON.stringify(mkt));
+  ok('market 信封 = running 派单 run（doing+深链）', mkt.some((t) => t.id === `market:run-${runId}` && t.status === 'doing' && t.link === `/sop/rv-omni/?run=${runId}`), JSON.stringify(mkt)); // #270：深链带 ?run= 精确定位
 
   // J3：驾驶舱 tasks 卡布局服务端保存
   const cp = await json(`${BASE}/api/cockpits`, 'POST', { name: 'omni 舱' }, AT);

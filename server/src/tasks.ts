@@ -79,6 +79,15 @@ function execYglTasks(): Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs
   });
 }
 
+// 任务中心发布时冻结的录入数据里取截止日期：步骤值是 { value } 或裸值；空串/非字符串记 null
+function frozenDue(payloadJson: string): string | null {
+  try {
+    const d = (JSON.parse(payloadJson) as Record<string, unknown>)?.due;
+    const v = d && typeof d === 'object' && !Array.isArray(d) && 'value' in d ? (d as { value: unknown }).value : d;
+    return typeof v === 'string' && v.trim() ? v.trim() : null;
+  } catch { return null; }
+}
+
 function marketTasks(sop: SopServiceLike): TaskEnvelope[] {
   try {
     // #263 页面整链：统一待办呈现人开的任务与指派 run，未指派任务不静默消失
@@ -101,7 +110,7 @@ function marketTasks(sop: SopServiceLike): TaskEnvelope[] {
         project: r.sop_slug,
       });
     }
-    // 任务中心已发布任务（人工录入→发布链）：标题/截止日期入待办，链接回录入 run 溯源
+    // 任务中心已发布任务（人工录入→发布链）：标题与截止日期（取自发布冻结的录入数据）入待办，链接回录入 run 溯源
     try {
       const tcRows = ((globalThis as any).__wmDb?.prepare?.("SELECT t.id, t.title, t.intake_run_id, t.published_at, t.payload_json FROM tasks t WHERE t.status = 'published' ORDER BY t.id DESC LIMIT 100")?.all?.() ?? []) as Array<{ id: number; title: string; intake_run_id: number | null; published_at: string; payload_json: string }>;
       for (const t of tcRows) {
@@ -113,12 +122,12 @@ function marketTasks(sop: SopServiceLike): TaskEnvelope[] {
           source: 'market' as const,
           title: String(t.title ?? '(untitled)'),
           status: 'todo' as const,
-          due: null,
+          due: frozenDue(t.payload_json),
           link: t.intake_run_id ? `/sop/task-center/?run=${t.intake_run_id}` : null,
           project: 'task-center',
         });
       }
-    } catch { /* tasks 表不可读时降级：不阻塞其余 market 条目 */ }
+    } catch (e) { console.warn('[tasks] task-center 已发布任务读取失败，降级略过：', (e as Error)?.message ?? e); /* 不阻塞其余 market 条目 */ }
     return out;
   } catch {
     return [];
