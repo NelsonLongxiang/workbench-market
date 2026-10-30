@@ -293,6 +293,7 @@ export default function Lifecycle() {
   let body: ReactNode;
   if (loading && !payload) body = <Card loading style={{ minHeight: 200 }} />;
   else if (status === 401) body = <LoginRequired payload={payload} reload={reload} />;
+  else if (status === 403) body = <Result status="403" title="无权访问生命周期全景" subTitle={payload?.error ?? '该 Odoo 账号无权访问工作台'} />;
   else if (!payload?.ok || !payload.data) body = <Alert type="warning" showIcon message="生命周期全景暂不可用" description={<>{payload?.error ?? '未知原因'}{(payload?.next ?? []).map((n) => <div key={n}>{n}</div>)}</>} action={<Button size="small" onClick={reload}>重试</Button>} />;
   else body = <BoardBoundary><BoardView payload={payload} reload={reload} /></BoardBoundary>;
   return <PageContainer title="生命周期全景" subTitle="产品 × 采购 × 物流 × 运营 · 只读">{body}</PageContainer>;

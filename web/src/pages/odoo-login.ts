@@ -7,7 +7,7 @@ export const ODOO_SESSION_CONFIRMED = 'wm:odoo-session-confirmed';
  *  - 弹窗被浏览器拦截（window.open 返回 null）→ blocked=true，页面提示用户点按钮（点击属于用户手势，一般不会再被拦）；
  *  - 弹窗读成 closed 不一定是用户关的：Odoo 若带 COOP same-origin，弹窗一跳过去就和本页断开，closed 也读成 true。
  *    所以 closed 后再补查两次（3s/6s），之后靠本页重新获得焦点、切回可见时再查一次；
- *  - 轮询最长 10 分钟；登录成功关弹窗（断开时关不掉也无妨）并回调 onDone。 */
+ *  - 轮询最长 10 分钟；登录成功或确认无权（403）都关弹窗（断开时关不掉也无妨）并回调 onDone。 */
 export function useOdooPopupLogin(href: string | null, onDone: () => void) {
   const [polling, setPolling] = useState(false);
   const [blocked, setBlocked] = useState(false);
@@ -23,7 +23,9 @@ export function useOdooPopupLogin(href: string | null, onDone: () => void) {
     try {
       const r = await fetch('/api/lifecycle/whoami', { cache: 'no-store', credentials: 'same-origin' });
       const j = await r.json().catch(() => null);
-      if (!r.ok || j?.ok !== true || typeof j.viewer?.sub !== 'string' || !j.viewer.sub || typeof j.viewer?.login !== 'string' || !j.viewer.login) return false;
+      // 403 = 登上了但无权（门户账号）：同样结束这一轮，让页面刷新出 403 结果，不空等 10 分钟
+      const denied = r.status === 403;
+      if (!denied && (!r.ok || j?.ok !== true || typeof j.viewer?.sub !== 'string' || !j.viewer.sub || typeof j.viewer?.login !== 'string' || !j.viewer.login)) return false;
       if (Date.now() > attemptUntil.current) return false;
       attemptUntil.current = 0;
       try { popupRef.current?.close(); } catch { /* 断开的弹窗关不掉 */ }

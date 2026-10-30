@@ -23,10 +23,14 @@ let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
 
 const SID = 'sidA' + '0'.repeat(28);
+const SID_PORTAL = 'sidP' + '0'.repeat(28), SID_NOFLAG = 'sidN' + '0'.repeat(28);
 const odoo = createServer((rq, rs) => {
   let s = ''; rq.on('data', (c) => (s += c)); rq.on('end', () => {
     const got = /(?:^|;\s*)session_id=([^;\s]+)/.exec(String(rq.headers.cookie ?? ''))?.[1] ?? '';
-    const body = got === SID ? { jsonrpc: '2.0', id: null, result: { uid: 7, username: 'pm-a' } } : { jsonrpc: '2.0', id: null, error: { code: 100, message: 'Odoo Session Expired' } };
+    const body = got === SID ? { jsonrpc: '2.0', id: null, result: { uid: 7, username: 'pm-a', is_internal_user: true } }
+      : got === SID_PORTAL ? { jsonrpc: '2.0', id: null, result: { uid: 8, username: 'portal-x', is_internal_user: false } }
+      : got === SID_NOFLAG ? { jsonrpc: '2.0', id: null, result: { uid: 9, username: 'old-odoo' } }
+      : { jsonrpc: '2.0', id: null, error: { code: 100, message: 'Odoo Session Expired' } };
     rs.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(body));
   });
 });
@@ -56,7 +60,7 @@ const cookie = { cookie: `session_id=${SID}` };
 
 try {
   const bare = boot({});
-  const P = boot({ LC_YGL_BIN: join(ENG, 'bin.cjs'), LC_YGL_HOME: HOME, LC_ODOO_URL: `http://127.0.0.1:${odoo.address().port}`, LC_LEDGER: 'smoke-ledger', LC_ANCHOR_DIR: ANCHORS });
+  const P = boot({ LC_YGL_BIN: join(ENG, 'bin.cjs'), LC_YGL_HOME: HOME, LC_ODOO_URL: `http://127.0.0.1:${odoo.address().port}`, LC_LEDGER: 'smoke-ledger', LC_ANCHOR_DIR: ANCHORS, LC_WORKBENCH_KEY_FILE: join(TMP, 'never-created.key') }); // 私钥只为让统一待办过配置检查、走到登录门；门户拒绝发生在读私钥之前
   await Promise.all([up(bare), up(P)]);
   const board = (q = '', h = cookie) => http(P, 'GET', `/api/lifecycle/board${q}`, h);
 
@@ -71,6 +75,16 @@ try {
   ok('401 也是 no-store', /no-store/.test(String(r.headers['cache-control'])));
   r = await board('', { cookie: `session_id=${'sidZ' + '0'.repeat(28)}` });
   ok('会话失效 → 401', r.status === 401, JSON.stringify(r.body));
+  for (const [label, sid, why] of [['门户用户（is_internal_user=false）', SID_PORTAL, /门户账号不能访问工作台/], ['字段缺失（fail closed）', SID_NOFLAG, /无法确认是否内部员工/]]) {
+    const ck = { cookie: `session_id=${sid}` };
+    r = await board('', ck);
+    ok(`${label}：board 403，文案说明原因`, r.status === 403 && r.body?.ok === false && why.test(r.body.error ?? ''), JSON.stringify(r.body));
+    r = await http(P, 'GET', '/api/lifecycle/whoami', ck);
+    ok(`${label}：whoami 403、不回 viewer`, r.status === 403 && !r.body?.viewer && r.body?.auth_required === false, JSON.stringify(r.body));
+    r = await http(P, 'GET', '/api/tasks', ck);
+    const life = r.body?.sources?.lifecycle;
+    ok(`${label}：统一待办生命周期源拒绝（不进 inbox，不当未登录）`, life?.ok === false && !life.auth_required && why.test(life.error ?? ''), JSON.stringify(life));
+  }
   ok('登录门挡住时不调引擎', calls().length === 0, JSON.stringify(calls()));
 
   console.log('只读看板');
@@ -86,6 +100,8 @@ try {
   ok('LC_LEDGER → --anchor <LC_ANCHOR_DIR>/<账本名>.jsonl', c1[0]?.args.join(' ').includes(`--anchor ${join(ANCHORS, 'smoke-ledger.jsonl')}`), JSON.stringify(c1[0]?.args));
   r = await board();
   ok('30 秒内再请求：命中缓存不再调引擎', r.body?.ok === true && r.body.cached === true && calls().length === 1, `${calls().length}`);
+  r = await board('', { cookie: `session_id=${SID_PORTAL}` });
+  ok('缓存已热时门户会话仍 403、不回缓存数据', r.status === 403 && r.body?.cached === undefined && r.body?.data === undefined && calls().length === 1, JSON.stringify(r.body));
 
   console.log('并发合并');
   setMode('slow');
