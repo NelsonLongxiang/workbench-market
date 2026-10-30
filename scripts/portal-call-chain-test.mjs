@@ -23,6 +23,18 @@ const variants=[
  ['nested shadowed src',page,frame.replace('return <iframe','{ const src="https://untrusted.example"; return <iframe').replace('fullscreen" />;','fullscreen" />; }'),0],
  ['unreachable iframe after early return',page,frame.replace('return <iframe','return null; return <iframe'),0],
  ['unreachable page call after early return',page.replace('  return (\n    <div className="wm-use-wrap">','  return null; return (\n    <div className="wm-use-wrap">'),frame,0],
+ ['page false conditional JSX',page.replace(call,'{false && '+call+'}'),frame,0],
+ ['page zero ternary JSX',page.replace(call,'{0 ? '+call+' : null}'),frame,0],
+ ['frame false conditional JSX',page,frame.replace('return <iframe','return <>{false && <iframe').replace('fullscreen" />;','fullscreen" />}</>;'),0],
+ ['frame zero ternary JSX',page,frame.replace('return <iframe','return <>{0 ? <iframe').replace('fullscreen" />;','fullscreen" /> : null}</>;'),0],
+ ['iframe srcDoc overrides URL',page,frame.replace('src={src}','src={src} srcDoc="different content"'),0],
+ ['iframe lowercase srcdoc',page,frame.replace('src={src}','src={src} srcdoc="different content"'),0],
+ ['wid redeclared with var',page,frame.replace(route,'var wid = 999; '+route),0],
+ ['wid assigned in initializer',page,frame.replace(route,'const ignored = (wid = 999); '+route),0],
+ ['wid incremented in initializer',page,frame.replace(route,'const ignored = wid++; '+route),0],
+ ['iframe ref mutates src',page,frame.replace('src={src}','src={src} ref={e => { if(e) e.src="https://evil.example/" }}'),0],
+ ['iframe unknown attribute',page,frame.replace('src={src}','src={src} data-test="unknown"'),0],
+ ['wid destructuring assignment',page,frame.replace(route,'const ignored = ([wid] = [999]); '+route),0],
  ['valid current call chain',page,frame,1],
 ];
 for(const [name,p,f,want]of variants)check(name,()=>assert.equal(Number(portalCallChainPresent(p,f)),want));
@@ -38,9 +50,9 @@ mkdirSync(join(fixture,'server/data'));const db=new DatabaseSync(join(fixture,'s
 execFileSync(process.execPath,['scripts/gen-verifier.mjs'],{cwd:fixture,stdio:'pipe'});
 const material=readFileSync(join(fixture,'verify/material.md'),'utf8').trim().split('\n');const candidates=JSON.parse(readFileSync(join(fixture,'verify/candidates.json'))).candidates;const reviews=JSON.parse(readFileSync(join(fixture,'verify/reviews.json'))).reviews;
 check('175 stable numbered material/candidate/review rows',()=>{assert.equal(material.length,175);assert.equal(candidates.length,175);assert.equal(reviews.length,175);for(let i=0;i<175;i++){assert.ok(material[i].startsWith('判据'+(i+1)+'：'));assert.equal(candidates[i].source_clause,material[i]);assert.equal(reviews[i].source_clause,material[i]);assert.equal(candidates[i].anchor.quote,material[i]);}});
-check('explicit new material version',()=>{const v=JSON.parse(readFileSync(join(fixture,'verify/material-version.json')));assert.equal(v.version,'v69');assert.deepEqual(v.changed_criteria,[65]);});
+check('explicit new material version',()=>{const v=JSON.parse(readFileSync(join(fixture,'verify/material-version.json')));assert.equal(v.version,'v69.1');assert.deepEqual(v.changed_criteria,[65]);});
 const extraction=[];
-for(const [name,p,f,want]of variants.filter((_,i)=>[0,1,2,10,11,12,13].includes(i))){
+for(const [name,p,f,want]of variants){
  writeFileSync(join(fixture,'web/src/pages/UseWorkbench.tsx'),p);writeFileSync(join(fixture,'web/src/components/GoFrame.tsx'),f);
  execFileSync(process.execPath,['scripts/make-submission.mjs'],{cwd:fixture,stdio:'pipe'});
  const snapshot=new DatabaseSync(join(fixture,'tmp/verify-snap.sqlite'),{readOnly:true});let row;try{row=snapshot.prepare('SELECT present FROM verifier_text_facts WHERE path=? AND needle=?').get(PORTAL_CALL_CHAIN_FACT.path,PORTAL_CALL_CHAIN_FACT.needle);}finally{snapshot.close()}
