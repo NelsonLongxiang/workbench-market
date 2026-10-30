@@ -97,8 +97,8 @@ export function installPortal(
         const stMatch = new RegExp('(?:^|;\\s*)' + stateCookie + '=([^;\\s]+)').exec(browserCookies);
         const _qs = new URLSearchParams(String(req.originalUrl ?? req.url ?? '').split('?')[1] ?? '');
         const backState = _qs.get('state') ?? '';
-        // #275 过渡登录入口（#221 落地前）：?return=<本站 path> 走完 Odoo 登录后落回市场原页面，不进 Odoo 台。
-        // 带 return 时总是经 Odoo /web/login：已登录的 Odoo 会话会被直接 303 回来（幂等直通），失效会话则出登录页——不会循环
+        // #275 过渡登录入口（#221 落地前）：?return=<白名单页> 只出中继页（见下），回程由市场页轮询 whoami 完成。
+        // wm_sso_ret_<id> 是 #276 时期的回跳 cookie，现已不写也不读，只在两条分支里顺手清掉残留
         const retCookie = `wm_sso_ret_${m[1]}`;
         const ret = backState ? null : safeReturnPath(_qs.get('return'));
         // #170 P1④（安全项）：回跳经市场且 state 校验——不匹配 400 拒（CSRF/open-redirect 防线）；匹配即消费
@@ -106,13 +106,7 @@ export function installPortal(
           if (!stMatch || stMatch[1] !== backState) return res.status(400).type('text').send('SSO state 校验失败（请从市场门户重新进入）');
           res.clearCookie(stateCookie, { path: `/go/${m[1]}/` });
           res.cookie(`wm_sso_ok_${m[1]}`, '1', { httpOnly: true, sameSite: 'lax', path: `/go/${m[1]}/`, maxAge: 12 * 3600 * 1000 }); // #170 P10
-          const rtMatch = new RegExp('(?:^|;\\s*)' + retCookie + '=([^;\\s]+)').exec(browserCookies);
-          if (rtMatch) {
-            res.clearCookie(retCookie, { path: `/go/${m[1]}/` });
-            let back: string | null = null;
-            try { back = safeReturnPath(decodeURIComponent(rtMatch[1])); } catch { back = null; }
-            if (back) return res.redirect(302, back);
-          }
+          res.clearCookie(retCookie, { path: `/go/${m[1]}/` });
           const u2 = new URL(String(req.originalUrl ?? req.url ?? ''), 'http://x');
           u2.searchParams.delete('state');
           req.url = (u2.pathname || '/') + (u2.search ? u2.search : '');
@@ -123,6 +117,7 @@ export function installPortal(
             // Odoo 无法跨源跳回市场；return 流改为本页（市场源）把浏览器送去 Odoo 登录（不带 redirect 参数，登录后落在 Odoo 自己的页面），
             // 回程交给市场页轮询 /api/lifecycle/whoami（弹窗流，#275）。
             const odooLogin = `${u.origin}/web/login`;
+            res.setHeader('Cache-Control', 'no-store');
             return res.status(200).type('html').send(
               '<!doctype html><meta charset="utf-8"><title>跳转 Odoo 登录…</title>' +
               '<p style="font:14px/1.8 system-ui;padding:16px">正在跳转 Odoo 登录；登录完成后回到原窗口即可，本窗口可以关闭。</p>' +
