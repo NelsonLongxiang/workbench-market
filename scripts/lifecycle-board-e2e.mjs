@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 /** 生命周期全景端到端（真 ygl-trees 0.116.1 + lifecycle-os lc board，测试模式全新回放工作区）：
  *  lifecycle-os tests/replay-2611.cjs --fresh-home 建场景（$LC_OS_DIR/work/replay/wb-board-e2e-<ts>，不碰运行工作区 ~/.ygl-trees-lc）→
- *  起隔离工作台 + 替身 Odoo → GET /api/lifecycle/board?as_of=2026-12-18T18:00:00+08:00 核对 6 个产品、5 条卡点、2 条未确认关系。
+ *  lc anchor --out 出锚点文件（LC_LEDGER/LC_ANCHOR_DIR 指过去）→ 起隔离工作台 + 替身 Odoo →
+ *  GET /api/lifecycle/board?as_of=2026-12-18T18:00:00+08:00 核对 6 个产品、5 条卡点、2 条未确认关系、带锚点 tamper_evident:true；
+ *  再改坏锚点文件一行，换 as_of 重取，核对锚点对不上（anchor_ok:false；lc 未升级时 tamper_evident:false）。
  *  --serve：核对后不退出，打印端口与替身 Odoo 会话 cookie，供浏览器看页面与截图。
  *  缺引擎或 lifecycle-os → NEEDS-MATERIAL（exit 2），不计 PASS。环境同 lc-issuer-e2e：LC_OS_DIR、YGL_BIN。 */
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, request } from 'node:http';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -27,6 +29,11 @@ const env0 = { ...process.env, YGL_BIN: BIN, YGL_NO_UPDATE_CHECK: '1' };
 for (const k of ['LC_ACTOR', 'LC_ACTOR_KIND', 'LC_ASSERTION', 'LC_CLOCK', 'YGL_HOME']) delete env0[k];
 const replay = JSON.parse(execFileSync(process.execPath, ['tests/replay-2611.cjs', '--fresh-home', home, '--out', join(home, 'export.sql')], { cwd: LC_OS, env: env0, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).trim().split('\n').pop());
 const tag = replay.tag;
+const ANCH = join(home, 'anchors');
+mkdirSync(ANCH, { recursive: true });
+const anchorFile = join(ANCH, 'e2e.jsonl');
+execFileSync(process.execPath, [BIN, 'lc', 'anchor', '--out', anchorFile], { env: { ...env0, YGL_HOME: home, YGL_SESSION: 'lc-proto', LC_TEST: '1' }, encoding: 'utf8' });
+const goodAnchor = readFileSync(anchorFile, 'utf8');
 
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
@@ -43,8 +50,8 @@ await new Promise((x) => odoo.listen(0, '127.0.0.1', x));
 const PORT = Number(process.env.E2E_PORT) || 20000 + Math.floor(Math.random() * 20000);
 const DATA = resolve('tmp/lc-board-e2e-' + Date.now().toString(36));
 mkdirSync(DATA, { recursive: true });
-const senv = { ...process.env, MCP_GATEWAY: '', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'lc-board-e2e', LC_YGL_BIN: BIN, LC_YGL_HOME: home, LC_ODOO_URL: `http://127.0.0.1:${odoo.address().port}`, LC_TEST: '1' };
-for (const k of ['LC_WORKBENCH_KEY_FILE', 'LC_LEDGER', 'LC_ANCHOR_DIR', 'LC_IDENTITY_FILE']) delete senv[k];
+const senv = { ...process.env, MCP_GATEWAY: '', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'lc-board-e2e', LC_YGL_BIN: BIN, LC_YGL_HOME: home, LC_ODOO_URL: `http://127.0.0.1:${odoo.address().port}`, LC_TEST: '1', LC_LEDGER: 'e2e', LC_ANCHOR_DIR: ANCH };
+for (const k of ['LC_WORKBENCH_KEY_FILE', 'LC_IDENTITY_FILE']) delete senv[k];
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env: senv });
 let serverErr = ''; server.stderr.on('data', (c) => (serverErr += c));
 const http = (path, headers = {}) => new Promise((done) => {
@@ -66,8 +73,15 @@ try {
   ok('2 条未确认关系', d?.links_unconfirmed?.length === 2 && d.summary.links_unconfirmed === 2);
   ok('产品阶段与回放一致', d?.products?.every((p) => replay.product_stages[p.pd.replace(`${tag}:`, '')] === p.states.product_stage?.state), JSON.stringify(replay.product_stages));
   ok('no-store', /no-store/.test(String(r.headers['cache-control'])));
+  const L = d?.ledger;
+  ok('带锚点：tamper_evident:true，covered_through 是行号（数字），回带账本名', L?.tamper_evident === true && typeof L.covered_through === 'number' && L.covered_through === L.rows && r.body?.anchor_ledger === 'e2e', JSON.stringify(L));
   r = await http(`/api/lifecycle/board?as_of=${encodeURIComponent(AS_OF)}&pd=${encodeURIComponent(`${tag}:pd-A`)}`, { cookie: `session_id=${SID}` });
   ok('?pd= 只回该产品', r.body?.ok === true && r.body.data?.products?.length === 1 && r.body.data.products[0].pd === `${tag}:pd-A`, JSON.stringify(r.body?.data?.products?.map((p) => p.pd)));
+  writeFileSync(anchorFile, goodAnchor.replace(/"row_hash":"([0-9a-f])/, (_, c) => `"row_hash":"${c === '0' ? '1' : '0'}`));
+  r = await http(`/api/lifecycle/board?as_of=${encodeURIComponent('2026-12-18T18:00:01+08:00')}`, { cookie: `session_id=${SID}` });
+  const T = r.body?.data?.ledger;
+  ok('锚点改坏：tamper_evident:false，anchor_ok 为 false 或（lc 未升级）缺省', r.body?.ok === true && T?.tamper_evident === false && (T.anchor_ok === false || T.anchor_ok === undefined), JSON.stringify(T));
+  writeFileSync(anchorFile, goodAnchor);
   r = await http('/lifecycle');
   ok('页面路由 /lifecycle 由 SPA 托管', r.status === 200);
 } catch (e) {
