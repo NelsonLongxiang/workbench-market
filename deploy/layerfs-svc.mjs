@@ -46,7 +46,10 @@ async function dropVolume(project) {
 
 // 侧车（契约形读面·同卷持久）
 const sidecar = new DatabaseSync(`${storeRoot}/wm-adapter.sqlite`);
-sidecar.exec('CREATE TABLE IF NOT EXISTS commits (id TEXT PRIMARY KEY, project TEXT NOT NULL, branch TEXT NOT NULL, files TEXT NOT NULL, message TEXT DEFAULT \'\', at TEXT DEFAULT (datetime(\'now\')))')
+sidecar.exec('CREATE TABLE IF NOT EXISTS commits (id TEXT NOT NULL, project TEXT NOT NULL, branch TEXT NOT NULL, files TEXT NOT NULL, message TEXT DEFAULT \'\', at TEXT DEFAULT (datetime(\'now\')), PRIMARY KEY (project,id))')
+// No automatic migration of legacy single-id sidecars in this repair.
+const commitPk = sidecar.prepare("PRAGMA table_info(commits)").all().filter(c=>c.pk).sort((a,b)=>a.pk-b.pk).map(c=>c.name).join(',');
+if (commitPk !== 'project,id') { sidecar.close(); throw new Error('Legacy sidecar schema: explicit migration required; no data modified'); }
 sidecar.exec('CREATE TABLE IF NOT EXISTS branches (project TEXT NOT NULL, branch TEXT NOT NULL, head TEXT, PRIMARY KEY (project, branch))')
 sidecar.exec('CREATE TABLE IF NOT EXISTS engine_refs (project TEXT NOT NULL, branch TEXT NOT NULL, native TEXT NOT NULL, PRIMARY KEY (project, branch))');
 sidecar.exec('CREATE TABLE IF NOT EXISTS drafts (project TEXT NOT NULL, draft TEXT NOT NULL, target TEXT NOT NULL, base TEXT NOT NULL, PRIMARY KEY (project, draft))');
@@ -124,6 +127,20 @@ function saveHead(project, branch, native, result, files, message) {
     sidecar.exec('COMMIT');
   } catch(e) { sidecar.exec('ROLLBACK'); throw e; }
   return id;
+}
+function renameBranch(project, from, to) {
+  if (typeof to !== 'string' || !to) throw refusal('InvalidInput','to required');
+  const hit = headOf(project,from);
+  if (!hit) throw refusal('NoSuchBranch','no such branch');
+  if (headOf(project,to)) throw refusal('NameTaken','target branch already exists');
+  sidecar.exec('BEGIN');
+  try {
+    sidecar.prepare('INSERT INTO branches VALUES (?,?,?)').run(project,to,hit);
+    sidecar.prepare('DELETE FROM branches WHERE project=? AND branch=?').run(project,from);
+    sidecar.prepare('UPDATE engine_refs SET branch=? WHERE project=? AND branch=?').run(to,project,from);
+    sidecar.prepare('UPDATE drafts SET target=? WHERE project=? AND target=?').run(to,project,from);
+    sidecar.exec('COMMIT');
+  } catch(e) { sidecar.exec('ROLLBACK'); throw e; }
 }
 async function publishTo(project, branch, files, message) {
   files = fileSet(files);
@@ -224,7 +241,7 @@ async function handle(req, res) {
       const files = Array.isArray(body.files) ? body.files : [];
       const prev = sidecar.prepare('SELECT head FROM branches WHERE project = ? AND branch = ?').get(proj, br);
       if (prev?.head) {
-        const pc = sidecar.prepare('SELECT files FROM commits WHERE id = ?').get(prev.head);
+        const pc = sidecar.prepare('SELECT files FROM commits WHERE project = ? AND id = ?').get(proj,prev.head);
         if (pc && sameFiles(JSON.parse(pc.files), files)) return json(res, 200, { commit_id: prev.head, changed: false });
       }
       const id = await publishTo(proj, br, files, body.message);
@@ -240,14 +257,7 @@ async function handle(req, res) {
     if (req.method === 'POST' && m) {
       const body = await readBody(req);
       const [proj, from, to] = [decodeURIComponent(m[1]), decodeURIComponent(m[2]), String(body.to ?? '')];
-      const hit = sidecar.prepare('SELECT head FROM branches WHERE project = ? AND branch = ?').get(proj, from);
-      if (!hit || !to) return json(res, 404, { error: 'no such branch / to 必填' });
-      const tr = sidecar.prepare('BEGIN'); tr.run();
-      sidecar.prepare('INSERT INTO branches (project, branch, head) VALUES (?, ?, ?)').run(proj, to, hit.head);
-      sidecar.prepare('DELETE FROM branches WHERE project = ? AND branch = ?').run(proj, from);
-      sidecar.prepare('UPDATE engine_refs SET branch=? WHERE project=? AND branch=?').run(to,proj,from);
-      sidecar.prepare('UPDATE drafts SET target=? WHERE project=? AND target=?').run(to,proj,from);
-      sidecar.prepare('COMMIT').run();
+      renameBranch(proj,from,to);
       return json(res, 200, { renamed: true, from, to });
     }
     m = /^\/v1\/projects\/([^/]+)\/branches\/([^/]+)\/merge$/.exec(url);
@@ -267,7 +277,7 @@ async function handle(req, res) {
       const files = Array.isArray(body.files) ? body.files : [];
       const prev = sidecar.prepare("SELECT head FROM branches WHERE project = ? AND branch = 'release'").get(proj);
       if (prev?.head) {
-        const pc = sidecar.prepare('SELECT files FROM commits WHERE id = ?').get(prev.head);
+        const pc = sidecar.prepare('SELECT files FROM commits WHERE project = ? AND id = ?').get(proj,prev.head);
         if (pc && sameFiles(JSON.parse(pc.files), files)) return json(res, 200, { commit_id: prev.head, changed: false });
       }
       const id = await publishTo(proj, 'release', files, body.message);
@@ -286,12 +296,14 @@ async function handle(req, res) {
       if (!sidecar.prepare('SELECT 1 FROM branches WHERE project=? LIMIT 1').get(proj)) throw refusal('NoSuchProject','no such project');
       const c = clients.get(proj); if (c) { await c.close(); clients.delete(proj); }
       for (const d of [homeDir + '/' + proj, storeRoot + '/sources/' + proj]) { try { rmSync(d, { recursive: true, force: true }); } catch { } } // 裁决 #021·X9
-      sidecar.prepare('BEGIN').run();
-      sidecar.prepare("DELETE FROM commits WHERE project = ?").run(proj);
-      sidecar.prepare("DELETE FROM branches WHERE project = ?").run(proj);
-      sidecar.prepare("DELETE FROM drafts WHERE project = ?").run(proj);
-      sidecar.prepare("DELETE FROM engine_refs WHERE project = ?").run(proj);
-      sidecar.prepare('COMMIT').run();
+      sidecar.exec('BEGIN');
+      try {
+        sidecar.prepare("DELETE FROM commits WHERE project = ?").run(proj);
+        sidecar.prepare("DELETE FROM branches WHERE project = ?").run(proj);
+        sidecar.prepare("DELETE FROM drafts WHERE project = ?").run(proj);
+        sidecar.prepare("DELETE FROM engine_refs WHERE project = ?").run(proj);
+        sidecar.exec('COMMIT');
+      } catch(e) { sidecar.exec('ROLLBACK'); throw e; }
       const volGone = await dropVolume(proj); // 裁决 #022：卷=账本消
       let dirRemoved = true;
       try { rmSync(`${storeRoot}/stores/${proj}`, { recursive: true, force: true }); } catch { dirRemoved = false; } // store 子目录清
@@ -305,6 +317,7 @@ async function handle(req, res) {
     }
     return json(res, 404, { error: 'no such endpoint' });
   } catch (e) {
+    if (e.code === 'NameTaken') return json(res,409,{error:e.message,kind:e.code});
     if (e.code === 'Conflict') return json(res,409,{kind:'Conflict',conflicts:(e.detail?.conflicts ?? []).map(p=>typeof p==='string'?p.replace(/^\//,''):String(p.path ?? '').replace(/^\//,''))});
     const status = ['NoSuchProject','NoSuchBranch','NoSuchCommit','NoSuchPath'].includes(e.code) ? 404 : ['InvalidInput','NoMatch','AmbiguousMatch'].includes(e.code) ? 400 : 500;
     return json(res,status,{error:String(e.message ?? e),kind:e.code}); // R7: no retry, preserve engine refusal
