@@ -40,6 +40,8 @@ jobs:
         run: node scripts/lifecycle-view-unit.mjs
       - name: 生命周期面登录入口冒烟（#275：login_url 选台·/go/ return 回跳·open-redirect 拒）
         run: node scripts/lifecycle-login-smoke.mjs
+      - name: 远程写总门大小写一致性（/API/… 不能绕过口令）
+        run: node scripts/api-gate-case-smoke.mjs
       - name: 安全对抗例组（PASS / SKIP / NEEDS-MATERIAL 分列）
         run: node scripts/security-adversarial-smoke.mjs
       - name: 留存 F5 原始证据与覆盖摘要
