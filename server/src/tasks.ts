@@ -53,14 +53,15 @@ const YGL_CONCURRENCY = 4;
 const YGL_PER_CALL_TIMEOUT_MS = 3_000;
 const YGL_TOTAL_BUDGET_MS = 8_000;
 const YGL_MAX_PROJECTS = 40;
-/** 项目名安全校验（direct-f9ce9e48 S1：动态值禁入 shell——本实现无 shell，校验为纵深防御层） */
-const YGL_PROJECT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+/** 项目名边界（direct-150a721a：无 shell 后 argv 传值天然安全，合法 Unicode 名必须支持——不限制业务命名凑安全）；仅防空/超长 */
+function yglProjectNameOk(name: string): boolean { return name.length >= 1 && name.length <= 128 && !name.includes('\0'); }
 
-/** 无 shell 调 ygl-trees：node + 包内真实入口 dist/bundle/bin.cjs（Windows shim 不再经 shell:true） */
+/** 无 shell 调 ygl-trees：node + 包内真实入口 dist/bundle/bin.cjs（Windows shim 不再经 shell:true）。
+ *  入口解析边界：①node同目录node_modules ②PNPM_HOME ③APPDATA/npm。Linux全局PATH可达但非node同级布局不在支持内（降级ok=false），不引大解析系统。 */
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 function yglCliEntry(): string | null {
-  for (const base of [dirname(process.execPath), process.env.Pnpm_HOME, process.env.APPDATA + '\\npm']) {
+  for (const base of [dirname(process.execPath), process.env.PNPM_HOME, process.env.APPDATA ? process.env.APPDATA + '\\npm' : null]) {
     if (!base) continue;
     const cand = join(base, 'node_modules', 'ygl-trees', 'dist', 'bundle', 'bin.cjs');
     if (existsSync(cand)) return cand;
@@ -104,7 +105,7 @@ function execYglTasks(): Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs
         const remaining = deadline - Date.now();
         if (remaining <= 0) break; // 预算耗尽：剩余项目计入 budget-exhausted
         const name = queue.shift()!;
-        if (!YGL_PROJECT_NAME_RE.test(name)) { results.push({ project: name, ok: false, rows: [] }); continue; } // 名字非法：显式拒绝不静默
+        if (!yglProjectNameOk(name)) { results.push({ project: name, ok: false, rows: [] }); continue; } // 空名/超长/null字节：显式拒绝
         const res = await execYglJson(['task', 'list', '--json', '--project', name], Math.max(200, Math.min(YGL_PER_CALL_TIMEOUT_MS, remaining)));
         // 形状校验：task list 合法输出是数组；{error:...} 对象/rc0 视为该源失败（S3）
         const rows = res.ok && Array.isArray(res.parsed) ? (res.parsed as unknown[]) : [];
