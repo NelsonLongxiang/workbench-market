@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, Descriptions, Popover, Tag, Typography } from 'antd';
+import { Button, Descriptions, Popover, Tag, Tooltip, Typography } from 'antd';
 import { UserOutlined } from '@ant-design/icons';
 import { odooLoginHref } from '../pages/lifecycle-view';
 import { ODOO_SESSION_CONFIRMED, useOdooPopupLogin } from '../pages/odoo-login';
@@ -47,7 +47,12 @@ export default function ViewerChip() {
     return (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
         <Tag icon={<UserOutlined />} color="default" style={{ marginInlineEnd: 0 }}>未登录 Odoo</Tag>
-        {href && <Button size="small" type="link" onClick={login.open} disabled={login.polling}>{login.polling ? '等待登录…' : '登录'}</Button>}
+        {href && !login.tokenHere && <Button size="small" type="link" onClick={login.open} disabled={login.polling}>{login.polling ? '等待登录…' : '登录'}</Button>}
+        {href && login.tokenHere && (
+          <Tooltip title="本标签页存着管理员口令，登录弹窗会复制它；先清除口令，或另开一个标签页登录">
+            <Button size="small" type="link" onClick={login.clearAndOpen}>清除口令并登录</Button>
+          </Tooltip>
+        )}
         {login.blocked && <Typography.Text type="warning" style={{ fontSize: 12 }}>弹窗被拦截</Typography.Text>}
       </span>
     );

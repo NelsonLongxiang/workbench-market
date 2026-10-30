@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { adminTokenPresent, setAdminToken, subscribeAdminToken } from '../admin-token';
 
 // Same-window refresh hint only; consumers must re-fetch whoami, never trust event identity.
 export const ODOO_SESSION_CONFIRMED = 'wm:odoo-session-confirmed';
@@ -7,7 +8,10 @@ export const ODOO_SESSION_CONFIRMED = 'wm:odoo-session-confirmed';
  *  - 弹窗被浏览器拦截（window.open 返回 null）→ blocked=true，页面提示用户点按钮（点击属于用户手势，一般不会再被拦）；
  *  - 弹窗读成 closed 不一定是用户关的：Odoo 若带 COOP same-origin，弹窗一跳过去就和本页断开，closed 也读成 true。
  *    所以 closed 后再补查两次（3s/6s），之后靠本页重新获得焦点、切回可见时再查一次；
- *  - 轮询最长 10 分钟；登录成功或确认无权（403）都关弹窗（断开时关不掉也无妨）并回调 onDone。 */
+ *  - 轮询最长 10 分钟；登录成功或确认无权（403）都关弹窗（断开时关不掉也无妨）并回调 onDone
+ *  - #292 M4：弹窗与本页同源且带 opener，会复制本标签页 sessionStorage、能经 window.opener 读父页——本标签页存着管理员口令时
+ *    **不发起登录**（tokenHere=true，界面给「清除口令并登录」）；发起时先开 about:blank、切断 opener 再跳转，保住句柄
+ *    （关弹窗、判断被拦截/已关闭都靠它），不用 noopener（那样 window.open 恒返回 null）。 */
 export function useOdooPopupLogin(href: string | null, onDone: () => void) {
   const [polling, setPolling] = useState(false);
   const [blocked, setBlocked] = useState(false);
@@ -38,9 +42,15 @@ export function useOdooPopupLogin(href: string | null, onDone: () => void) {
     finally { checking.current = false; }
   }, []);
 
+  const tokenHere = useSyncExternalStore(subscribeAdminToken, adminTokenPresent);
   const open = useCallback((): boolean => {
-    if (!href) return false;
-    const w = window.open(href, 'wm_lc_sso', 'width=520,height=680');
+    if (!href || adminTokenPresent()) return false;
+    // 不复用命名窗口：旧窗口可能已停在别的源，既切不断 opener 也读不到；每次新开空白页再跳转
+    const w = window.open('about:blank', '_blank', 'popup,width=520,height=680');
+    if (w) {
+      try { w.opener = null; } catch { /* 忽略 */ }
+      try { w.location.replace(href); } catch { w.location.href = href; }
+    }
     popupRef.current = w;
     attemptUntil.current = w ? Date.now() + 600_000 : 0;
     setBlocked(!w);
@@ -73,5 +83,8 @@ export function useOdooPopupLogin(href: string | null, onDone: () => void) {
     return () => { window.removeEventListener('focus', onBack); document.removeEventListener('visibilitychange', onBack); };
   }, [href, check]);
 
-  return { open, polling, blocked };
+  /** 先在本页同步清掉管理员口令（内存 + sessionStorage），再开登录弹窗 */
+  const clearAndOpen = useCallback((): boolean => { setAdminToken(''); return open(); }, [open]);
+
+  return { open, polling, blocked, tokenHere, clearAndOpen };
 }
