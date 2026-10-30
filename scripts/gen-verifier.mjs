@@ -5,6 +5,7 @@
  * 用法：node tmp/gen-v4.mjs   （产物落在 verify/，随后 submit/prepare）
  */
 import { writeFileSync, mkdirSync } from "node:fs";
+import { PORTAL_CALL_CHAIN_FACT } from "./portal-call-chain-fact.mjs";
 // #95（净克隆自举·总工 direct-6afe4658）：verify/ 不再入库——写前三件套前先建目录（与 #13 同类自愈）
 mkdirSync("verify", { recursive: true });
 
@@ -108,7 +109,7 @@ const U = [
   { c: "判据62：server/src/index.ts 必须包含「createProxyMiddleware」。", t: "代理中间件在位", s: "S1", ck: existsFact("server/src/index.ts", "createProxyMiddleware"), rv: ["判据原文逐字取自冻结材料，统一门户代理由 http-proxy-middleware 实现。", "提取表三条件 exists 精确判定。", "删代理提取为 0 即 FAIL。"] },
   { c: "判据63：server/src/index.ts 必须包含剥禁嵌头的「x-frame-options」。", t: "禁嵌剥离钉位", s: "S1", ck: existsFact("server/src/portal.ts", "x-frame-options"), rv: ["判据原文逐字取自冻结材料，代理剥除上游 X-Frame-Options 的逻辑在位。", "提取表三条件 exists 精确判定。", "删剥头逻辑提取为 0 即 FAIL。"] },
   { c: "判据64：封装提交物 server/package.json 必须声明依赖「http-proxy-middleware」。", t: "代理依赖在位", s: "S1", ck: existsFact("server/package.json", "http-proxy-middleware"), rv: ["判据原文逐字取自冻结材料，代理依赖已声明。", "提取表三条件 exists 精确判定。", "卸依赖提取为 0 即 FAIL。"] },
-  { c: "判据65：web/src/pages/UseWorkbench.tsx 必须包含「/go/${w.id}/」。", t: "使用页走门户", s: "S1", ck: existsFact("web/src/pages/UseWorkbench.tsx", "/go/${w.id}/"), rv: ["判据原文逐字取自冻结材料，使用页 iframe 经统一门户同源代理而非原始地址。", "提取表三条件 exists 精确判定。", "改回原始地址提取为 0 即 FAIL。"] },
+  { c: "判据65：UseWorkbench 的受支持函数体必须以顶层最终 JSX return 渲染 wid={w.id} 的 GoFrame（默认导入 ../components/GoFrame）；GoFrame 的顶层 const src 必须为 /go/${wid}/，最终顶层 return 的 iframe 必须绑定该 src；不支持的额外 return 或嵌套遮蔽结构拒绝，使用页不得返回原始 URL iframe。", t: "使用页经 GoFrame 走门户调用链", s: "S1", ck: existsFact(PORTAL_CALL_CHAIN_FACT.path, PORTAL_CALL_CHAIN_FACT.needle), rv: ["v69 显式替换 v68 的旧源码位置要求：M4 将入口移至 GoFrame，保留实际门户调用链语义；新材料重新 submit，不复用旧 spec。", "受限 TSX 结构检查只支持顶层变量、仅返回非 iframe/GoFrame JSX 的 early guard 与顶层最终 JSX return；不是通用可达性或数据流证明，运行时语义由 E2E 互证。版本化事实 exists 精确判定。", "改回 raw URL、移除 GoFrame 调用、组件不经 /go 任一均提取0；注释或未使用字符串不能充数。"] },
   // ── 台生成器（自产台：AI 发布 API + 全版本快照——台的管理者到台的生产者） ──
   { c: "判据66：自产台的 slug 字段不得为空。", t: "自产台标识非空", s: "S1", ck: sql("apps", ["id", "slug"], or({ col: "slug", op: "is null" }, { col: "slug", op: "=", value: "" })), rv: ["判据原文逐字取自冻结材料，自产台必须有可寻址标识。", "is null 或空串的 violation 谓词精确判定。", "写入空 slug 行即 FAIL。"] },
   { c: "判据67：内置类型 market-app 必须存在于类型库。", t: "自产台类型存在", s: "S1", ck: exists("types", and({ col: "key", op: "=", value: "market-app" })), rv: ["判据原文逐字取自冻结材料，发布即入册依赖内置类型。", "键精确匹配。", "删 market-app 行即 FAIL。"] },
@@ -266,7 +267,7 @@ const U = [
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
-const header = `workbench-market 开发验证器 v68（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写 + 运行时批整改 + 卫生批整改 + A2A 网络接入 P1+P2 + Agent 执行数据面 + 导出脱敏 + 注册 CRUD MCP 化 + 破坏性测试隔离 + 工具清单一致 + 安全批双锚 + MCP 网关 P1 + 网关管理页与 ADMIN_TOKEN 插槽）
+const header = `workbench-market 开发验证器 v69（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写 + 运行时批整改 + 卫生批整改 + A2A 网络接入 P1+P2 + Agent 执行数据面 + 导出脱敏 + 注册 CRUD MCP 化 + 破坏性测试隔离 + 工具清单一致 + 安全批双锚 + MCP 网关 P1 + 网关管理页与 ADMIN_TOKEN 插槽）
 
 判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
 快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
@@ -358,6 +359,7 @@ const reviews = {
 };
 
 writeFileSync("verify/material.md", material, "utf8");
+writeFileSync("verify/material-version.json", JSON.stringify({ version: "v69", supersedes: "v68", criterion_count: U.length, changed_criteria: [65], reason: "M4 moved portal iframe construction to GoFrame; criterion65 now pins the returned component call chain, not a stale file substring.", title: header.split("\n")[0] }, null, 2) + "\n", "utf8");
 writeFileSync("verify/candidates.json", JSON.stringify(candidates, null, 2) + "\n", "utf8");
 writeFileSync("verify/reviews.json", JSON.stringify(reviews, null, 2) + "\n", "utf8");
 console.log(`✓ verify/material.md (${U.length} 判据) · candidates.json · reviews.json`);
