@@ -61,7 +61,14 @@ try {
   const buf = Buffer.from(await dl.arrayBuffer());
   ok('下载内容一致', dl.status === 200 && buf.equals(png));
   ok('content-type 正确', (dl.headers.get('content-type') ?? '').includes('image/png'));
-  ok('content-disposition attachment（PNG属BIN_EXT二进制附件集·图片inline浏览语义需产品另裁）', (dl.headers.get('content-disposition') ?? '').startsWith('attachment'));
+  ok('content-disposition inline（README契约：png在白名单mime）', (dl.headers.get('content-disposition') ?? '').startsWith('inline'));
+  // 负例：xlsx 存伪 mime text/plain → BIN_EXT 强制 attachment（#215 防 XSS 线）
+  const xlsxBytes = Buffer.from('504b0304140000000800', 'hex');
+  const rx = await uploadFile('fileprobe', 'data.xlsx', 'text/plain', xlsxBytes, { created_by: 'user-a' });
+  ok('xlsx伪mime上传201', rx.status === 201 && rx.body.id > 0, JSON.stringify(rx.body).slice(0,100));
+  const dx = await fetch(`${BASE}/api/apps/fileprobe/files/${rx.body.id}`);
+  ok('xlsx伪mime强制attachment（BIN_EXT防XSS）', (dx.headers.get('content-disposition') ?? '').startsWith('attachment'));
+  ok('xlsx content-type 不被白名单改写', (dx.headers.get('content-type') ?? '').includes('text/plain'));
   ok('nosniff', dl.headers.get('x-content-type-options') === 'nosniff');
   // ⑥ 未知 slug / 未知文件 id 404——且不得留孤儿文件（评审 #25：先校验后落盘）
   const { readdirSync } = await import('node:fs');

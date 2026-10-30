@@ -43,9 +43,18 @@ try {
   ok('expiresAt ≤ 48h', card.expiresAt - Date.now() <= 48 * 3600 * 1000 && card.expiresAt > Date.now());
   ok('无绑定时 sessionTeams 为空数组', Array.isArray(card.sessionTeams) && card.sessionTeams.length === 0);
   ok('不发布 teamMemberships', !('teamMemberships' in card));
-  const { verifyCard } = await import(process.env.A2A_CARD_SRC ?? new URL('../../dsh-open-a2a-net/src/card.ts', import.meta.url).href); // 相对化（隐私门红线）；A2A_CARD_SRC 供隔离归档运行指向可携带裁判副本
+    const { pathToFileURL } = await import('node:url');
+  const { existsSync } = await import('node:fs');
+  const cardSrc = process.env.A2A_CARD_SRC ?? new URL('../../dsh-open-a2a-net/src/card.ts', import.meta.url).href;
+  const cardUrl = /^[a-z]+:/.test(cardSrc) ? cardSrc : pathToFileURL(cardSrc).href; // pathToFileURL：Windows 绝对路径转合法 file: URL
+  const localPath = cardUrl.startsWith('file:') ? new URL(cardUrl).pathname.replace(/^\/([A-Z]:)/, '$1') : cardSrc;
+  if (!existsSync(localPath)) throw new Error(`A2A 裁判源不存在: ${cardSrc}`);
+  const { verifyCard } = await import(cardUrl);
   const v = verifyCard(card, Date.now());
   ok('上游 verifyCard 裁判 PASS', v.ok === true, JSON.stringify(v).slice(0, 120));
+  const badCard = { ...card, signature: card.signature.slice(0, -8) + 'deadbeef' };
+  const vb = verifyCard(badCard, Date.now());
+  ok('篡改卡被 verifyCard 拒绝', vb.ok === false, JSON.stringify(vb).slice(0, 120));
 
   // 发布 SOP（无绑定 → 不上卡）
   const yaml = 'title: A2A 冒烟 SOP\nsteps:\n  - key: a\n    title: A\n';
