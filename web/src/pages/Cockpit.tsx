@@ -9,6 +9,7 @@ import type { Layout } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 import { api } from '../api';
+import GoFrame from '../components/GoFrame';
 import type { Cockpit as CockpitT, PanelConfig, Workbench } from '../types';
 
 const Grid = WidthProvider(GridLayout);
@@ -336,7 +337,7 @@ export default function Cockpit() {
                 </div>
                 <div className="wm-panel-body">
                   {w ? (
-                    <iframe key={fk} src={`/go/${w.id}/`} title={w.name} allow="clipboard-read; clipboard-write; fullscreen" />
+                    <GoFrame wid={w.id} name={w.name} frameKey={fk} />
                   ) : (
                     <Empty description={`工作台 #${p.workbenchId} 已不存在`} style={{ marginTop: 32 }} />
                   )}
