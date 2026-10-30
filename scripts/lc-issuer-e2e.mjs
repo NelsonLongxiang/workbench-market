@@ -77,7 +77,7 @@ const odoo = createServer((rq, rs) => {
   let s = ''; rq.on('data', (c) => (s += c)); rq.on('end', () => {
     const got = /(?:^|;\s*)session_id=([^;\s]+)/.exec(String(rq.headers.cookie ?? ''))?.[1] ?? '';
     const login = Object.entries(SIDS).find(([k]) => sid(k) === got)?.[1];
-    const body = login && rq.url === '/web/session/get_session_info' ? { jsonrpc: '2.0', id: null, result: { uid: 100 + login.length, username: login } } : { jsonrpc: '2.0', id: null, error: { code: 100, message: 'Odoo Session Expired' } };
+    const body = login && rq.url === '/web/session/get_session_info' ? { jsonrpc: '2.0', id: null, result: { uid: 100 + login.length, username: login, is_internal_user: true } } : { jsonrpc: '2.0', id: null, error: { code: 100, message: 'Odoo Session Expired' } };
     rs.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(body));
   });
 });
