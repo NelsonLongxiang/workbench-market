@@ -108,10 +108,17 @@ with sync_playwright() as p:
             if path != '/market': spa(q, path)
             loc = (q.locator(scope) if scope else q).get_by_role('button', name=btn)
             loc.first.wait_for(timeout=8000)
-            n0 = len(opened)
+            q.wait_for_timeout(1500)
+            pre = len(opened) - 1  # 减去主页面
+            ok(f'{label}：有口令时点之前没有自动开登录窗', pre == 0, f'已开 {pre} 个')
             loc.first.click(); q.wait_for_timeout(2500)
-            new = len(opened) - n0 - 0
+            new = len(opened) - 1 - pre
             ok(f'{label}：「{btn}」只开一个登录窗', new == 1, f'开了 {new} 个')
+            q.unroute('**/api/lifecycle/whoami')
+            q.route('**/api/lifecycle/whoami', lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps({'ok': True, 'viewer': {'login': 'pm-a', 'uid': 7, 'sub': 'user:pm-a', 'name': '测试 PM-A', 'kind': '人'}, 'roles': None})))
+            q.wait_for_timeout(4000)
+            left = [pg for pg in opened[1:] if not pg.is_closed()]
+            ok(f'{label}：登录成功后没有遗留的登录窗', len(left) == 0, f'剩 {len(left)} 个')
             c.close()
 
         # ⑥ bfcache：真实往返缓存路径
