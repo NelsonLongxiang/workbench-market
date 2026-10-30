@@ -25,7 +25,7 @@ ok('设口令：present=true、写进 sessionStorage', m.adminTokenPresent() && 
 ok('设口令广播一次变更（GoFrame/顶栏据此切换）', changes === 1, String(changes));
 fire('pagehide');
 ok('pagehide（同标签页跳去 /go/、/sop/、刷新）后 sessionStorage 里没有口令', !store.has('wm-admin-token'));
-ok('本文档内存副本仍在（bfcache 返回可继续用）', m.getAdminToken() === 'synthetic-admin-token');
+ok('本文档内存副本仍在（只证明内存；真实 bfcache 恢复见浏览器用例，未命中记 SKIP）', m.getAdminToken() === 'synthetic-admin-token');
 m.setAdminToken('');
 ok('清除口令：present=false、存储为空、再广播一次', !m.adminTokenPresent() && !store.has('wm-admin-token') && changes === 2, String(changes));
 off();

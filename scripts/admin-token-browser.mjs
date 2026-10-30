@@ -3,7 +3,10 @@
  *  ① 使用页 /use/<id> 与驾驶舱都不出现 /go/ iframe，合成上游页读不到口令；
  *  ② 点「清除口令并内嵌」后 iframe 出现、存储为空；
  *  ③ 同一标签页跳到 /go/<id>/、/sop/<slug>/ 后，新文档的 sessionStorage 里没有口令；
- *  ④ 对照：没设口令时使用页照常内嵌。
+ *  ④ 对照：没设口令时使用页照常内嵌；
+ *  ⑤ 顶栏 ViewerChip 的 Odoo 登录弹窗（whoami 用 page.route 打桩成 401 + 同源 /go/ 探针页）：有口令时不发起、只给「清除口令并登录」；
+ *     弹窗里 sessionStorage 没有口令、window.opener 为 null；登录成功（含弹窗先被关掉、之后 whoami 才变 200）照常收尾；
+ *  ⑥ bfcache：后退若未命中往返缓存（persisted=false）记 SKIP，不当通过。
  *  需先 pnpm --filter web build（服务端托管 web/dist）。合成上游 + 全新 DATA_DIR + 随机回环端口；不碰真实口令。 */
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -14,7 +17,7 @@ if (!existsSync('web/dist/index.html')) { console.error('缺 web/dist：先跑 p
 const TMP = resolve('tmp/admin-token-browser-' + Date.now().toString(36));
 mkdirSync(join(TMP, 'data'), { recursive: true });
 // 合成上游：页面把能读到的口令写进 window.__probe（同源 iframe 时可读 parent 与 sessionStorage）
-const probe = '<!doctype html><title>token probe</title><script>window.__probe={own:sessionStorage.getItem("wm-admin-token")};try{window.__probe.parent=parent.sessionStorage.getItem("wm-admin-token")}catch(e){window.__probe.parent="blocked"}</script>';
+const probe = '<!doctype html><title>token probe</title><script>window.__probe={own:sessionStorage.getItem("wm-admin-token")};try{window.__probe.parent=parent.sessionStorage.getItem("wm-admin-token")}catch(e){window.__probe.parent="blocked"}try{window.__probe.opener=window.opener?window.opener.sessionStorage.getItem("wm-admin-token"):"no-opener"}catch(e){window.__probe.opener="blocked"}</script>';
 const upstream = createServer((rq, rs) => { rq.resume(); rs.writeHead(200, { 'content-type': 'text/html' }); rs.end(probe); });
 await new Promise((x) => upstream.listen(0, '127.0.0.1', x));
 const PORT = 20000 + Math.floor(Math.random() * 20000);

@@ -29,7 +29,9 @@ export function subscribeAdminToken(cb: () => void): () => void {
 }
 
 /** #292 M4 止血：离开市场页面（同标签页跳到 /go/、/sop/、外站，或刷新）时从 sessionStorage 抹掉口令，
- *  新文档（可能是不可信页）就读不到；本文档内存里的副本留给 bfcache 返回时继续用。代价：刷新后要重输口令。 */
+ *  新文档（可能是不可信页）就读不到。代价：刷新后要重输口令。
+ *  注意：本文档内存里的副本不清——浏览器若用往返缓存（bfcache）恢复旧页面，旧页面仍持有口令（GoFrame 照样拒嵌）；
+ *  本机实测后退未命中 bfcache，这条路径未验证。存储为空不等于口令失效。 */
 export function installAdminTokenLeaveGuard(): void {
   window.addEventListener('pagehide', () => {
     try { sessionStorage.removeItem('wm-admin-token'); } catch { /* 忽略 */ }
