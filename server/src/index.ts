@@ -129,7 +129,9 @@ app.use((req, res, next) => {
   if (isLoopback || req.method === 'GET' || req.method === 'HEAD') return next(); // 读面不拦（掩码已有）；本机全放
   // 统一转小写再分类：Express 路由默认不区分大小写，/API/workbenches 也会命中 /api/workbenches——
   // 区分大小写的 startsWith('/api/') 曾让远程请求用大写路径绕过口令（评审席 #294 复验）
-  const p = (req.url ?? '').split('?')[0].toLowerCase();
+  // 用 req.path（与路由同源的 parseurl pathname）而非原始 req.url：绝对形式请求目标
+  // POST http://x/api/… 的 req.url 不以 /api/ 开头，路由却照样命中（#299）
+  const p = req.path.toLowerCase();
   if (REMOTE_ALLOW_EXACT.has(p)) return next();
   if (REMOTE_ALLOW_PREFIX.some((re) => re.test(p))) return next(); // 自产台数据/文件面（主人裁定 A）
   if (p.startsWith('/api/')) {
