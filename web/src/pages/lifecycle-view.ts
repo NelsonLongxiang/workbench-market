@@ -35,3 +35,10 @@ export function ledgerBadge(l: BoardLedger, ledger: string | null): { color: 'er
   if (l.tamper_evident) return { color: 'warning', text: `防篡改 · 最近 ${l.unanchored_rows} 行未受保护`, tip };
   return { color: 'warning', text: `未防篡改 · ${l.unanchored_rows}/${l.rows} 行未锚定`, tip };
 }
+
+/** #275：服务端给的 login_url（/go/<Odoo 台>/?return=…）把 return 换成当前页面；只取 path+query，不带出别的源 */
+export function odooLoginHref(loginUrl: string, origin = window.location.origin, here = window.location.pathname + window.location.search): string {
+  const u = new URL(loginUrl, origin);
+  u.searchParams.set('return', here);
+  return u.pathname + u.search;
+}
