@@ -127,7 +127,9 @@ app.use((req, res, next) => {
   const ip = String(req.socket.remoteAddress ?? '');
   const isLoopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
   if (isLoopback || req.method === 'GET' || req.method === 'HEAD') return next(); // 读面不拦（掩码已有）；本机全放
-  const p = (req.url ?? '').split('?')[0];
+  // 统一转小写再分类：Express 路由默认不区分大小写，/API/workbenches 也会命中 /api/workbenches——
+  // 区分大小写的 startsWith('/api/') 曾让远程请求用大写路径绕过口令（评审席 #294 复验）
+  const p = (req.url ?? '').split('?')[0].toLowerCase();
   if (REMOTE_ALLOW_EXACT.has(p)) return next();
   if (REMOTE_ALLOW_PREFIX.some((re) => re.test(p))) return next(); // 自产台数据/文件面（主人裁定 A）
   if (p.startsWith('/api/')) {
