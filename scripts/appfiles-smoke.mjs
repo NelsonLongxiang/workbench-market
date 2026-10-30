@@ -61,7 +61,7 @@ try {
   const buf = Buffer.from(await dl.arrayBuffer());
   ok('下载内容一致', dl.status === 200 && buf.equals(png));
   ok('content-type 正确', (dl.headers.get('content-type') ?? '').includes('image/png'));
-  ok('content-disposition inline（图片白名单）', (dl.headers.get('content-disposition') ?? '').startsWith('inline'));
+  ok('content-disposition attachment（PNG属BIN_EXT二进制附件集·图片inline浏览语义需产品另裁）', (dl.headers.get('content-disposition') ?? '').startsWith('attachment'));
   ok('nosniff', dl.headers.get('x-content-type-options') === 'nosniff');
   // ⑥ 未知 slug / 未知文件 id 404——且不得留孤儿文件（评审 #25：先校验后落盘）
   const { readdirSync } = await import('node:fs');

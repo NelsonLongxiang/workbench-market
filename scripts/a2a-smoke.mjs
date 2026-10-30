@@ -43,7 +43,7 @@ try {
   ok('expiresAt ≤ 48h', card.expiresAt - Date.now() <= 48 * 3600 * 1000 && card.expiresAt > Date.now());
   ok('无绑定时 sessionTeams 为空数组', Array.isArray(card.sessionTeams) && card.sessionTeams.length === 0);
   ok('不发布 teamMemberships', !('teamMemberships' in card));
-  const { verifyCard } = await import(new URL('../../dsh-open-a2a-net/src/card.ts', import.meta.url)); // 相对化（隐私门红线）——动态 import 直收 URL
+  const { verifyCard } = await import(process.env.A2A_CARD_SRC ?? new URL('../../dsh-open-a2a-net/src/card.ts', import.meta.url).href); // 相对化（隐私门红线）；A2A_CARD_SRC 供隔离归档运行指向可携带裁判副本
   const v = verifyCard(card, Date.now());
   ok('上游 verifyCard 裁判 PASS', v.ok === true, JSON.stringify(v).slice(0, 120));
 
