@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Component, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from 'react';
 import { Alert, Badge, Button, Card, Col, Collapse, Empty, Result, Row, Segmented, Space, Statistic, Table, Tabs, Tag, Tooltip, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import { Link, useLocation } from 'react-router-dom';
+import { fmt, ledgerBadge, type BoardLedger } from './lifecycle-view';
 
 /** lc board 的 data（lifecycle-os plugins/ygl-lc cmdBoard）：事实由内核算好，本页只显示，不重算状态、归属、超时或过期 */
 interface Since { state: string; since: string | null; days: number | null }
@@ -21,7 +22,7 @@ interface BoardJob { job: string; runs: number; last_at: string | null; last_sta
 interface BoardSource { source: string; level: string; owner: string; max_age: string; last_ok_at: string | null; stale: boolean | null }
 interface BoardData {
   as_of: string;
-  ledger: { rows: number; chain_consistent: boolean; anchored: boolean; tamper_evident: boolean; covered_through: string | null; unanchored_rows: number };
+  ledger: BoardLedger;
   lanes: Record<string, string>;
   summary: { products: number; by_stage: Record<string, number>; on_hold: number; pending_human: number; gate_blocked: number; links_unconfirmed: number; unattached: number; alerts_open: number; alerts_overdue: number; sources_stale: number };
   products: BoardProduct[];
@@ -38,8 +39,6 @@ interface BoardPayload { ok: boolean; busy?: boolean; anchor_ledger?: string | n
 
 const LANES = ['产品', '采购', '物流', '运营'] as const;
 const LANE_COLOR: Record<string, string> = { 产品: 'purple', 采购: 'blue', 物流: 'cyan', 运营: 'gold' };
-// 时间照内核给的带时区原文显示（不换算成浏览器时区），只截到分钟
-const fmt = (s: string | null | undefined) => (s ? s.replace('T', ' ').slice(0, 16) : '—');
 const daysText = (d: number | null | undefined) => (d === null || d === undefined ? '' : `${d} 天`);
 const PdTags = ({ pds }: { pds: string[] }) => <>{pds.length ? pds.map((p) => <Tag key={p}>{p}</Tag>) : <Tag color="warning">归属不明</Tag>}</>;
 
@@ -59,15 +58,9 @@ function useBoard(asOf: string | null) {
   return { payload, status, loading, reload: load };
 }
 
-// 锚点对照的是本地检出卷里的文件：每日作业先追加锚点再推送，推送失败时本地会多出没推送的锚点，
-// 内核照样算 tamper_evident:true——按 lifecycle-os AGENTS.md 规则 7，没推送的锚点不算证据，所以文案要写明
-function LedgerBadge({ l, ledger }: { l: BoardData['ledger']; ledger: string | null }) {
-  if (!l.chain_consistent) return <Tag color="error">账本链不一致</Tag>;
-  const src = ledger ? `对照本地检出的锚点文件 ${ledger}.jsonl；只有已推送到远端的锚点才算证据。` : '';
-  const tip = `${src}${l.anchored ? `锚定覆盖至 ${fmt(l.covered_through)}` : '账本尚未外部锚定'}`;
-  if (l.tamper_evident && l.unanchored_rows === 0) return <Tooltip title={tip}><Tag color="success">防篡改（本地锚点）</Tag></Tooltip>;
-  if (l.tamper_evident) return <Tooltip title={tip}><Tag color="warning">防篡改 · 最近 {l.unanchored_rows} 行未受保护</Tag></Tooltip>;
-  return <Tooltip title={tip}><Tag color="warning">未防篡改 · {l.unanchored_rows}/{l.rows} 行未锚定</Tag></Tooltip>;
+function LedgerBadge({ l, ledger }: { l: BoardLedger; ledger: string | null }) {
+  const b = ledgerBadge(l, ledger);
+  return <Tooltip title={b.tip}><Tag color={b.color}>{b.text}</Tag></Tooltip>;
 }
 
 function PendingRow({ p }: { p: BoardPending }) {
@@ -260,6 +253,17 @@ function SourceTable({ rows }: { rows: BoardSource[] }) {
   ]} />;
 }
 
+/** 渲染出错只坏本页这一块，不让整个工作台白屏；内核字段形状变了时把原因露出来 */
+class BoardBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error, info: ErrorInfo) { console.error('[lifecycle] 全景渲染失败', error, info.componentStack); }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return <Alert type="error" showIcon message="生命周期全景渲染失败" description={String(this.state.error.message ?? this.state.error)} action={<Button size="small" onClick={() => this.setState({ error: null })}>重试</Button>} />;
+  }
+}
+
 export default function Lifecycle() {
   const asOf = new URLSearchParams(useLocation().search).get('as_of');
   const { payload, status, loading, reload } = useBoard(asOf);
@@ -267,6 +271,6 @@ export default function Lifecycle() {
   if (loading && !payload) body = <Card loading style={{ minHeight: 200 }} />;
   else if (status === 401) body = <Result status="403" title="需要登录 Odoo" subTitle={payload?.error ?? '请先经门户 Odoo 单点登录后再查看生命周期全景'} extra={<Button onClick={reload}>重试</Button>} />;
   else if (!payload?.ok || !payload.data) body = <Alert type="warning" showIcon message="生命周期全景暂不可用" description={<>{payload?.error ?? '未知原因'}{(payload?.next ?? []).map((n) => <div key={n}>{n}</div>)}</>} action={<Button size="small" onClick={reload}>重试</Button>} />;
-  else body = <BoardView payload={payload} reload={reload} />;
+  else body = <BoardBoundary><BoardView payload={payload} reload={reload} /></BoardBoundary>;
   return <PageContainer title="生命周期全景" subTitle="产品 × 采购 × 物流 × 运营 · 只读">{body}</PageContainer>;
 }
