@@ -48,7 +48,7 @@ await new Promise((r) => upstream.listen(UP_PORT, '127.0.0.1', r));
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server', env: { ...process.env, MCP_GATEWAY: '', PORT: String(PORT), DATA_DIR: `../${DATA}` }, stdio: ['ignore', 'pipe', 'pipe'],
+  cwd: 'server', env: { ...process.env, MCP_GATEWAY: '', ADMIN_TOKEN: '', PORT: String(PORT), DATA_DIR: `../${DATA}` }, stdio: ['ignore', 'pipe', 'pipe'], // ADMIN_TOKEN 显式清空：E2E 主实例合成 token 不继承，注释「未设→控制面 403」为真
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪（20s 超时）'); process.exit(1); }
 
@@ -85,7 +85,7 @@ const DATA2 = 'tmp/e2e-upstr-data2';
 rmSync(DATA2, { recursive: true, force: true });
 mkdirSync(DATA2, { recursive: true });
 const child2 = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server', env: { ...process.env, PORT: String(PORT2), DATA_DIR: `../${DATA2}`, ADMIN_TOKEN: 'up-admin-tok' }, stdio: ['ignore', 'pipe', 'pipe'],
+  cwd: 'server', env: { ...process.env, MCP_GATEWAY: "", PORT: String(PORT2), DATA_DIR: `../${DATA2}`, ADMIN_TOKEN: 'up-admin-tok' }, stdio: ['ignore', 'pipe', 'pipe'], // MCP_GATEWAY 显式空：E2E 主实例 on 不继承，聚合面匿名可测
 });
 const B2 = `http://127.0.0.1:${PORT2}`;
 await waitReady(B2 + '/api/health');
