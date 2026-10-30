@@ -40,6 +40,10 @@ jobs:
         run: node scripts/lifecycle-view-unit.mjs
       - name: 生命周期面登录入口冒烟（#275：login_url 选台·/go/ return 回跳·open-redirect 拒）
         run: node scripts/lifecycle-login-smoke.mjs
+      - name: 管理员口令止血单测（#292 M4：pagehide 抹口令·变更广播）
+        run: node scripts/admin-token-guard-unit.mjs
+      - name: 门户剥 Service-Worker-Allowed 冒烟（#292 M5）
+        run: node scripts/portal-sw-header-smoke.mjs
       - name: 安全对抗例组（PASS / SKIP / NEEDS-MATERIAL 分列）
         run: node scripts/security-adversarial-smoke.mjs
       - name: 留存 F5 原始证据与覆盖摘要
