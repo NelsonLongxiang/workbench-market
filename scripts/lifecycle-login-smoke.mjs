@@ -65,17 +65,19 @@ try {
   const life = r.body?.sources?.lifecycle;
   ok('统一待办：生命周期源 auth_required + login_url 回 /tasks', life?.ok === false && life.auth_required === true && life.login_url === `/go/${wid}/?return=%2Ftasks`, JSON.stringify(life));
 
-  console.log('SSO v1 舞步带 return');
+  console.log('SSO v1 舞步带 return（Odoo 19 修复：市场中继页 + whoami 轮询）');
   const back = '/lifecycle?as_of=2026-12-18T18:00:00+08:00';
   r = await http('GET', `/go/${wid}/?return=${encodeURIComponent(back)}`);
-  const loc = String(r.headers.location ?? '');
-  const state = cookieVal(r, `wm_sso_${wid}`);
-  ok('未登录：302 到 Odoo /web/login，redirect 回市场 /go/<id>/?state=', r.status === 302 && loc.startsWith(`http://127.0.0.1:${OP}/web/login?redirect=`) && decodeURIComponent(loc).includes(`/go/${wid}/?state=${state}`), loc);
-  ok('写回跳 cookie（path 限 /go/<id>/、HttpOnly）', decodeURIComponent(cookieVal(r, `wm_sso_ret_${wid}`) ?? '') === back && cookiesOf(r).some((c) => c.startsWith(`wm_sso_ret_${wid}=`) && /Path=\/go\/\d+\//.test(c) && /HttpOnly/i.test(c)), JSON.stringify(cookiesOf(r)));
+  ok('未登录 return 流：200 中继页（不再让 Odoo 绝对回跳——真实 Odoo 19 会把绝对回跳本地化成 /zh_CN/<path> 404）', r.status === 200 && String(r.headers['content-type'] ?? '').includes('text/html') && !r.headers.location, `${r.status} ${r.headers.location ?? ''} ${r.headers['content-type']}`);
+  ok('return 流不写回跳/state cookie（回程改由 whoami 轮询）', !cookieVal(r, `wm_sso_ret_${wid}`) && !cookieVal(r, `wm_sso_${wid}`), JSON.stringify(cookiesOf(r)));
   r = await http('GET', `/go/${wid}/?return=${encodeURIComponent(back)}`, { headers: { cookie: `session_id=${SID}` } });
-  ok('已有 Odoo 会话也经 /web/login（Odoo 已登录直接 303 回来，不循环）', r.status === 302 && String(r.headers.location ?? '').includes('/web/login?redirect='), String(r.headers.location));
-  const state2 = cookieVal(r, `wm_sso_${wid}`);
-  const ret2 = cookieVal(r, `wm_sso_ret_${wid}`);
+  ok('已有 Odoo 会话的 return 流同样是中继页（弹窗内完成，幂等不循环）', r.status === 200 && !r.headers.location, `${r.status} ${r.headers.location ?? ''}`);
+  r = await http('GET', '/api/lifecycle/whoami');
+  ok('whoami：匿名 401 带 auth_required', r.status === 401 && r.body?.auth_required === true, JSON.stringify(r.body));
+  r = await http('GET', '/api/lifecycle/whoami', { headers: { cookie: `session_id=${SID}` } });
+  ok('whoami：有效会话 200 回 viewer', r.status === 200 && r.body?.ok === true && r.body?.viewer?.sub === 'user:pm-a', JSON.stringify(r.body));
+  const state2 = 'st2-roundtrip';
+  const ret2 = encodeURIComponent(back);
   r = await http('GET', `/go/${wid}/?state=${state2}`, { headers: { cookie: `session_id=${SID}; wm_sso_${wid}=${state2}; wm_sso_ret_${wid}=${ret2}` } });
   ok('state 校验通过：302 落回市场原页面（含 query）', r.status === 302 && r.headers.location === back, `${r.status} ${r.headers.location}`);
   ok('回跳 cookie 已清', cookiesOf(r).some((c) => c.startsWith(`wm_sso_ret_${wid}=;`)), JSON.stringify(cookiesOf(r)));
@@ -92,7 +94,7 @@ try {
   for (const bad of ['//evil.example/x', 'https://evil.example/', '/go/3/', '/\\evil.example', 'lifecycle', '/.//evil.example', '/%2e//evil.example', '/apps/demo/', '/settings']) {
     r = await http('GET', `/go/${wid}/?return=${encodeURIComponent(bad)}`);
     const v = cookieVal(r, `wm_sso_ret_${wid}`);
-    ok(`return=${bad} 不收（不写回跳 cookie）`, r.status === 302 && !v, `${r.status} ${v}`);
+    ok(`return=${bad} 不收（退回普通 302 入口、不写回跳 cookie）`, r.status === 302 && !v, `${r.status} ${v}`);
   }
 } catch (e) {
   ok('冒烟运行', false, String(e?.stack ?? e));
