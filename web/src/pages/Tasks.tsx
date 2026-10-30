@@ -20,7 +20,7 @@ export interface TaskEnvelope {
   /** 仅 lifecycle 源：批准所需的提议与授权 */
   lc?: { proposal_id: string; grant: string; object: string; machine: string; from: string; to: string; effective_at: string | null; proposed_by: string; approvals: number; levels: number };
 }
-interface SourceMeta { ok: boolean; count: number; latency_ms: number }
+interface SourceMeta { ok: boolean; count: number; latency_ms: number; degraded_projects?: string[] }
 interface TasksPayload {
   tasks: TaskEnvelope[];
   /** lifecycle 仅在服务端配置了生命周期源时出现，按当前 Odoo 登录人计 */
@@ -101,7 +101,14 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
       )}
       {payload && (
         <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
-          生成于 {new Date(payload.generated_at).toLocaleString()} · ygl-trees {ygl?.ok ? `${ygl.count} 条/${ygl.latency_ms}ms` : '降级'} · market {payload.sources.market.count} 条{life ? ` · 生命周期 ${life.ok ? `${life.count} 条` : '降级'}` : ''}
+          生成于 {new Date(payload.generated_at).toLocaleString()} · ygl-trees {ygl?.ok ? `${ygl.count} 条/${ygl.latency_ms}ms` : '部分降级'} · market {payload.sources.market.count} 条{life ? ` · 生命周期 ${life.ok ? `${life.count} 条` : '降级'}` : ''}
+        {ygl && !ygl.ok && ygl.degraded_projects?.length ? (
+          <Typography.Text type="warning" style={{ fontSize: 12, display: 'block', marginTop: 2 }}>
+            ygl-trees 未完整读取（{ygl.count} 条已入列）：{ygl.degraded_projects.map((d, i) => (
+              <Tag key={i} color="warning" style={{ fontSize: 11 }}>{d}</Tag>
+            ))}
+          </Typography.Text>
+        ) : null}
         </Typography.Text>
       )}
     </div>
