@@ -87,6 +87,33 @@ with sync_playwright() as p:
         ok('弹窗先关、随后才登录成功：轮询补查照常收尾', True)
         lp.context.close(); lp2.context.close()
 
+        # ⑤b 三个登录入口各只开一个窗（/lifecycle 清口令曾触发自动登录 effect，与手动 open 竞态开两个窗）
+        anon = json.dumps({'ok': False, 'auth_required': True, 'login_url': f'/go/{wid}/'})
+        def tasks_route(route):
+            r = route.fetch(); j = r.json()
+            j.setdefault('sources', {})['lifecycle'] = {'ok': False, 'count': 0, 'latency_ms': 0, 'viewer': None, 'error': '未登录 Odoo', 'auth_required': True, 'login_url': f'/go/{wid}/'}
+            route.fulfill(response=r, body=json.dumps(j), content_type='application/json')
+        for label, path, scope, btn in (
+            ('顶栏 chip', '/market', None, '清除口令并登录'),
+            ('/lifecycle', '/lifecycle', '.ant-result', '清除口令并登录'),
+            ('统一待办', '/tasks', None, '清除管理员口令并登录 Odoo'),
+        ):
+            c = b.new_context(); opened = []
+            c.on('page', lambda pg: opened.append(pg))
+            q = c.new_page()
+            q.route('**/api/lifecycle/whoami', lambda r: r.fulfill(status=401, content_type='application/json', body=anon))
+            q.route('**/api/lifecycle/board*', lambda r: r.fulfill(status=401, content_type='application/json', body=anon))
+            q.route('**/api/tasks', tasks_route)
+            q.goto(base + '/market'); q.get_by_text('未登录 Odoo').wait_for(); set_token(q)
+            if path != '/market': spa(q, path)
+            loc = (q.locator(scope) if scope else q).get_by_role('button', name=btn)
+            loc.first.wait_for(timeout=8000)
+            n0 = len(opened)
+            loc.first.click(); q.wait_for_timeout(2500)
+            new = len(opened) - n0 - 0
+            ok(f'{label}：「{btn}」只开一个登录窗', new == 1, f'开了 {new} 个')
+            c.close()
+
         # ⑥ bfcache：真实往返缓存路径
         bp = b.new_context().new_page()
         bp.add_init_script('addEventListener("pageshow", e => { window.__persisted = e.persisted; })')
