@@ -67,6 +67,7 @@ index.ts的upgrade分支（原3418–3446附近）必须与HTTP共用target映�
 
 | 面 | 改法与用户变化 |
 |---|---|
+| 带凭据台登录前置 | Bearer/Basic/cookie/凭据参数目标必须先在可信入口完成Odoo内部账号登录（沿#289严格门），再获取绑定viewer与target的启动能力；匿名旧免登入口取消。不定义无viewer能力或无cookie注入旁路；需要例外须另批 |
 | 外站/go/<id> | 去该target独立.internal站点；带Bearer/Basic/cookie/凭据参数的台一律noopener新标签页顶层打开，使用页/驾驶舱不再嵌；相对asset/Location/WS跟随本target映射，不能访问其他target |
 | Odoo应用 | 定稿为原源新标签页打开，不再承诺驾驶舱并排嵌入；XFO/frame-ancestors不再为嵌入而剥除。可信登录中继仍留市场，不代理Odoo完整HTML到可信壳 |
 | DSH等带凭据台 | 定稿仅新标签页顶层打开，不再嵌入使用页/驾驶舱；不靠第三方cookie反复登录，不设置SameSite=None回退，不承诺旧门户免登 |
@@ -150,7 +151,22 @@ nonce不是同源授权替代，MessageChannel也不是天然安全：每次消�
 
 #284恢复准备与地址调查可并行，但现场灰度切流前先恢复并验网关；不等#221全包才调查/修执行边界，approve/grant开通仍须稳定身份契约与另案授权。本次不实施。
 
-## 8. 回退与属主待决
+## 8. 非浏览器调用盘点、迁移和回退
+
+实施前按以下清单逐调用方迁移；代码搜索证明存在调用路径，不等于已查齐所有现场客户端。未识别调用方保持未迁移，不能先切再让机器伪造浏览器cookie。
+
+| 调用方/依据 | 类型/当前证据 | 迁移去向与验收 |
+|---|---|---|
+| 品味席经/go调用taste-mcp tools/call | index.ts:64–66的历史事故注释已证该路径曾使用；本轮没有读取其机器配置/凭据，现场是否仍用待该席回填 | 改市场/mcp上游聚合taste__*，使用各自原MCP会话/grants；或服务端直连taste-mcp用自己凭据。机器路径不经过内容listener；由品味席只回脱敏endpoint类别/验证结论，不索值 |
+| MCP use_url生产工具及其agent调用方 | README和mcp-tools/index分发返回/go浏览器入口，不能当机器RPC入口 | 返回用户打开入口仍可保留；机器要读台数据/调用上游改已有受授权本地工具或/mcp聚合，不让use_url成为匿名凭据代理能力 |
+| scripts/cookie-smoke、portal-cookie/odoo-session/sso/sso-p8910/p13/p6711/gzip/rewrite、spa-asset-rewrite、sso-callback/gateway、echo-fixture | 仓库内合成非浏览器HTTP/WS冒烟；明确是测试，不是现场客户端 | 迁为内容host+合法合成启动上下文/明确拒绝反例；保持可信SSO中继原回归，不关闭保护只换期望 |
+| security-adversarial S4、dispatch-smoke相关portal断言、evidence/e2e_test.py http.client/socket/page.request | 跨源/授权与底层透传测试；部分仍假设同源可读/无cookie上游 | 逐条归类浏览器行为或机器协议；浏览器用真实origin/site，机器fixture用独立直连/受限聚合；新的裸/go负例必须403且上游计数0 |
+| docs/README/gen-verifier/make-submission中同源portal锚点 | 文档/冻结判据输入，不是执行客户端 | 新行为原标准受影响时先报维护席，按材料/先红反例正常修订；不临时绕门/删断言凑PASS |
+| 其它现场agent/定时/外部客户端 | 仅仓内搜索不能证明不存在；待各持有方脱敏清单和原有日志计数核对（不读token/body） | 维护者回填consumer→target→read/write→迁移endpoint→原授权→已验状态，所有需凭据机器调用从/go移走后再切流 |
+
+现成迁移通道：settings.mcp_upstreams经人工控制面配置、/mcp网关原会话授权默认拒绝，或服务端自有凭据直连。迁移不新增工具grant/静态身份头、不复制用户Odoo session_id、不为无Origin CLI在内容面开豁免；发现接口缺口给具体API/调用与测试，不加匿名fallback。
+
+### 8.1 回退与属主待决
 
 实施前冻结新旧固定包、配置引用/target-Host-DNS映射、served清单，备一致库副本并验兼容；迁移字段schema属于SOP版本变更需保旧记录、不可静默改已冻结run。切流失败回“写面关闭+旧可用业务”降级，明示旧同源执行风险；禁止“不可信旧HTML＋已启写面”组合。不同目标逐台回退映射，未过目标禁凭据代理可保原站新标签页；不全盘重建会话/授新权限。
 
