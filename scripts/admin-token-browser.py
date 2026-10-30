@@ -38,6 +38,10 @@ with sync_playwright() as p:
         ok('业务面启动时清掉 M1 之前留下的口令', page.evaluate('sessionStorage.getItem("wm-admin-token")') is None)
         r = page.evaluate(WRITE, [tok])
         ok('业务面页面带对口令发管理写 → 403 指向控制面（偷到口令也用不了）', r['status'] == 403 and (r['body'] or {}).get('control_surface_required') is True, str(r))
+        for v in ('/API/workbenches', '/Api/Workbenches'):
+            for t in ('', tok):
+                rv = page.evaluate(WRITE.replace('"/api/workbenches"', json.dumps(v)), [t])
+                ok(f'业务面页面 fetch 大写变体 {v}（{"带" if t else "不带"}口令）→ 403', rv['status'] == 403, str(rv))
         page.goto(base + f'/use/{wid}'); page.wait_for_timeout(1200)
         ok('业务面使用页照常内嵌 /go/', go_frames(page) == 1)
         page.goto(base + f'/cockpit/{cfg["cockpit"]}'); page.wait_for_timeout(1200)

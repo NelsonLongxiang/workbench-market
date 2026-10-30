@@ -42,7 +42,7 @@ app.use(cors({
 // #292 M1 控制面围栏：控制面（WM_CONTROL_PORT）不承载任何不可信内容，也不许被嵌、不嵌别人
 app.use((req, res, next) => {
   if (surfaceOf(req) !== 'control') return next();
-  const p = (req.url ?? '').split('?')[0];
+  const p = (req.url ?? '').split('?')[0].toLowerCase(); // Express 路由不区分大小写，围栏也按小写判（/MCP、/A2A/direct 曾漏过）
   if (/^\/(go|sop|apps)(\/|$)/.test(p) || p === '/mcp' || p.startsWith('/a2a/')) return res.status(404).type('text').send('控制面不提供此路径（请用业务面）\n');
   res.setHeader('content-security-policy', "frame-ancestors 'none'; frame-src 'none'");
   res.setHeader('x-frame-options', 'DENY');
@@ -140,7 +140,8 @@ if (lastAllowDiff.added.length > 0 || lastAllowDiff.removed.length > 0) {
 //   业务写白名单（REMOTE_ALLOW_*）不变，照旧在业务面免口令。
 app.use((req, res, next) => {
   if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next(); // 读面不拦（掩码已有）
-  const p = (req.url ?? '').split('?')[0];
+  // 统一转小写再分类：Express 路由默认不区分大小写，/API/workbenches 也会命中 /api/workbenches（评审席 #294 复验；main 热修 #295）
+  const p = (req.url ?? '').split('?')[0].toLowerCase();
   if (REMOTE_ALLOW_EXACT.has(p)) return next();
   if (REMOTE_ALLOW_PREFIX.some((re) => re.test(p))) return next(); // 自产台数据/文件面（主人裁定 A）
   if (!browserMarked(req) && rawLoopback(req)) return next(); // 本机 CLI
