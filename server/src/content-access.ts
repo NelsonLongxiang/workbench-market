@@ -3,7 +3,8 @@
  * a registered target INSIDE that surface. Adapters must gate HTTP and WS with
  * admit() before reading any stored credential or contacting an upstream.
  */
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import type { RequestHandler } from 'express';
 import type { IncomingMessage } from 'node:http';
 
 export type ContentTarget = Readonly<{ id: number; origin: string }>;
@@ -64,14 +65,28 @@ export function createContentAccess(targets: readonly ContentTarget[], marketOri
     // Reject absolute-form requests rather than letting URL/Host disagree.
     if (!path.startsWith('/') || path.startsWith('//') || path.includes(String.fromCharCode(92)) ||
       [...path].some(c => c.charCodeAt(0) <= 32 || c.charCodeAt(0) === 127)) return null;
-    // Do not let downstream URL normalization change the target/path interpretation.
-    if (path.split('?')[0].split('/').some(p => p === '.' || p === '..' || /%/i.test(p))) return null;
-    const portal = /^[/]go[/]([^/?]+)(?:[/?]|$)/.exec(path);
+    // Decode each resource segment once. Never decode structural go/id delimiters.
+    try {
+      for (const segment of path.split('?')[0].split('/')) {
+        const decoded = decodeURIComponent(segment);
+        if (decoded === '.' || decoded === '..' || /[/%?#]/.test(decoded) ||
+          decoded.includes(String.fromCharCode(92)) || [...decoded].some(c => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127)) return null;
+      }
+    } catch { return null; }
+    if (path.includes('#')) return null;
+    const portal = /^[/]go[/]([^/?]+)(?:[/?]|$)/i.exec(path);
     if (portal && portal[1] !== String(target.id)) return null;
     return target;
   }
+  const route = (req: Request): 'launch' | 'proxy' | null => {
+    const target = resolve(req);
+    if (!target) return null;
+    const p = (req.url ?? '').split('?')[0].toLowerCase();
+    if (p === LAUNCH_PATH) return 'launch';
+    return new RegExp('^/go/' + target.id + '(?:/|$)').test(p) ? 'proxy' : null;
+  };
   return {
-    resolve,
+    resolve, route,
     /** Only the trusted adapter may call this AFTER a fresh strict Odoo internal
      * viewer resolution. There is deliberately no anonymous ticket variant.
      * epoch is an opaque nonsecret revocation reference, never a raw Odoo SID.
@@ -88,7 +103,7 @@ export function createContentAccess(targets: readonly ContentTarget[], marketOri
     /** Top-level cross-site POST only; request body carries the one-use ticket.
      * This endpoint NEVER reads upstream credentials or contacts the upstream.
      */
-    exchange(req: Request, ticket: string): { cookie: string; location: string } | null {
+    exchange(req: Request, ticket: string): { cookie: string; bouncePath: string } | null {
       sweep();
       const target = resolve(req);
       if (!target || req.url !== LAUNCH_PATH || req.method !== 'POST' ||
@@ -98,12 +113,13 @@ export function createContentAccess(targets: readonly ContentTarget[], marketOri
       tickets.delete(ticket); // Consume only after every validation succeeds.
       const id = token();
       sessions.set(id, { ...record, expires: now() + 300_000 });
-      return { cookie: COOKIE + '=' + id + '.' + digest(id) + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=300', location: '/go/' + target.id + '/' };
+      // Adapter MUST return contentLaunchPage(bouncePath), never a 3xx Location.
+      return { cookie: COOKIE + '=' + id + '.' + digest(id) + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=300', bouncePath: '/go/' + target.id + '/' };
     },
     admit(req: Request): { target: ContentTarget; subject: string } | null {
       sweep();
       const target = resolve(req);
-      if (!target || req.url?.split('?')[0] === LAUNCH_PATH) return null;
+      if (!target || route(req) !== 'proxy') return null;
       if (req.headers.origin !== undefined && !exactOrigin(singleHeader(req, 'origin'), target.origin)) return null;
       const cookie = singleHeader(req, 'cookie');
       if (!cookie || cookie.length > 8192) return null;
@@ -118,4 +134,24 @@ export function createContentAccess(targets: readonly ContentTarget[], marketOri
       return { target, subject: record.subject };
     },
   };
+}
+
+/** Invoke only after surfaceOf(req)==content; prevents shared-app fallthrough. */
+export function contentSurfaceFence(access: ReturnType<typeof createContentAccess>): RequestHandler {
+  return (req, res, next) => {
+    if (access.route(req)) return next();
+    res.status(404).type('text').send('Not found');
+  };
+}
+
+/** Must commit a B document, not keep the cross-site POST redirect chain. */
+export function contentLaunchPage(bouncePath: string) {
+  if (!/^[/]go[/][1-9][0-9]*[/]$/.test(bouncePath)) throw new Error('Invalid content bounce path');
+  const script = 'location.replace(' + JSON.stringify(bouncePath) + ')';
+  const sha = createHash('sha256').update(script).digest('base64');
+  return { status: 200 as const, headers: {
+    'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store',
+    'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff',
+    'content-security-policy': "default-src 'none'; script-src 'sha256-" + sha + "'; frame-ancestors 'none'; base-uri 'none'",
+  }, html: '<!doctype html><meta charset="utf-8"><title>Opening workbench</title><script>' + script + '</script>' };
 }
