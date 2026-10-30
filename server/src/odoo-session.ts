@@ -42,6 +42,23 @@ export function isOdooSessionTarget(url: string): boolean {
   try { return origins.has(new URL(url).origin); } catch { return false; }
 }
 
+/** #275 登录回跳只回需要身份的市场页（白名单）；其余本站路径一律不收，免得把刚登录的人送到同源的用户产出页 */
+const RETURN_PATHS = ['/lifecycle', '/tasks'];
+
+/** #275 登录回跳目标：只收白名单页的 path，不合格返回 null。
+ *  归一化前后都查：WHATWG 会消掉点段，/.//evil、/%2e//evil 解析后会变成 //evil（协议相对，外站） */
+export function safeReturnPath(v: unknown): string | null {
+  const s = String(v ?? '');
+  const bad = (x: string) => !x.startsWith('/') || x.startsWith('//') || /[\x00-\x1f\x7f\\]/.test(x);
+  if (!s || s.length > 512 || bad(s)) return null;
+  try {
+    const u = new URL(s, 'http://wm.invalid');
+    const out = u.pathname + u.search + u.hash;
+    if (u.origin !== 'http://wm.invalid' || bad(out) || !RETURN_PATHS.some((p) => u.pathname === p || u.pathname === `${p}/`)) return null;
+    return out;
+  } catch { return null; }
+}
+
 /** 就地剥除转发请求里的 Odoo 会话（剥空则删掉 Cookie 头） */
 export function stripOdooSession(headers: { cookie?: string | string[] }): void {
   const raw = Array.isArray(headers.cookie) ? headers.cookie.join('; ') : headers.cookie;
