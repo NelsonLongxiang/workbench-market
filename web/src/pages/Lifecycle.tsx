@@ -3,7 +3,7 @@ import { Alert, Badge, Button, Card, Col, Collapse, Empty, Result, Row, Segmente
 import { ReloadOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
 import { Link, useLocation } from 'react-router-dom';
-import { fmt, ledgerBadge, type BoardLedger } from './lifecycle-view';
+import { fmt, ledgerBadge, odooLoginHref, type BoardLedger } from './lifecycle-view';
 
 /** lc board 的 data（lifecycle-os plugins/ygl-lc cmdBoard）：事实由内核算好，本页只显示，不重算状态、归属、超时或过期 */
 interface Since { state: string; since: string | null; days: number | null }
@@ -35,7 +35,7 @@ interface BoardData {
   jobs: BoardJob[];
   sources: BoardSource[];
 }
-interface BoardPayload { ok: boolean; busy?: boolean; anchor_ledger?: string | null; error?: string; data?: BoardData; next?: string[]; warnings?: string[]; viewer?: string; cached?: boolean; generated_at?: string }
+interface BoardPayload { ok: boolean; busy?: boolean; login_url?: string | null; anchor_ledger?: string | null; error?: string; data?: BoardData; next?: string[]; warnings?: string[]; viewer?: string; cached?: boolean; generated_at?: string }
 
 const LANES = ['产品', '采购', '物流', '运营'] as const;
 const LANE_COLOR: Record<string, string> = { 产品: 'purple', 采购: 'blue', 物流: 'cyan', 运营: 'gold' };
@@ -264,12 +264,34 @@ class BoardBoundary extends Component<{ children: ReactNode }, { error: Error | 
   }
 }
 
+/** #275 登录入口：401 带 login_url（/go/<Odoo 台>/?return=…）时把 return 换成当前页面并自动跳一次；
+ *  两分钟内已经自动跳过（登录后仍 401，比如 Odoo 账号在生命周期侧不可用）就不再跳，只给按钮，避免循环 */
+const LOGIN_TRY_KEY = 'wm_lc_login_try';
+function LoginRequired({ payload, reload }: { payload: BoardPayload | null; reload: () => void }) {
+  const href = payload?.login_url ? odooLoginHref(payload.login_url) : null;
+  const [auto, setAuto] = useState(false);
+  useEffect(() => {
+    if (!href) return;
+    let last = 0;
+    try { last = Number(sessionStorage.getItem(LOGIN_TRY_KEY) ?? 0); } catch { last = Date.now(); }
+    if (Date.now() - last < 120_000) return;
+    try { sessionStorage.setItem(LOGIN_TRY_KEY, String(Date.now())); } catch { return; }
+    setAuto(true);
+    window.location.assign(href);
+  }, [href]);
+  return (
+    <Result status="403" title={auto ? '正在跳转 Odoo 登录…' : '需要登录 Odoo'}
+      subTitle={href ? (payload?.error ?? '请先登录 Odoo') : `${payload?.error ?? '未登录 Odoo'}；管理员尚未登记可信的 Odoo 工作台，无法自动跳转登录`}
+      extra={<Space>{href && <Button type="primary" href={href}>登录 Odoo</Button>}<Button onClick={reload}>重试</Button></Space>} />
+  );
+}
+
 export default function Lifecycle() {
   const asOf = new URLSearchParams(useLocation().search).get('as_of');
   const { payload, status, loading, reload } = useBoard(asOf);
   let body: ReactNode;
   if (loading && !payload) body = <Card loading style={{ minHeight: 200 }} />;
-  else if (status === 401) body = <Result status="403" title="需要登录 Odoo" subTitle={payload?.error ?? '请先经门户 Odoo 单点登录后再查看生命周期全景'} extra={<Button onClick={reload}>重试</Button>} />;
+  else if (status === 401) body = <LoginRequired payload={payload} reload={reload} />;
   else if (!payload?.ok || !payload.data) body = <Alert type="warning" showIcon message="生命周期全景暂不可用" description={<>{payload?.error ?? '未知原因'}{(payload?.next ?? []).map((n) => <div key={n}>{n}</div>)}</>} action={<Button size="small" onClick={reload}>重试</Button>} />;
   else body = <BoardBoundary><BoardView payload={payload} reload={reload} /></BoardBoundary>;
   return <PageContainer title="生命周期全景" subTitle="产品 × 采购 × 物流 × 运营 · 只读">{body}</PageContainer>;
