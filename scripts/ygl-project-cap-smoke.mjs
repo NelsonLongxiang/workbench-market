@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 if (existsSync(join(dirname(process.execPath), 'node_modules', 'ygl-trees', 'dist', 'bundle', 'bin.cjs'))) {
@@ -23,7 +23,7 @@ setTimeout(() => console.log(JSON.stringify([{ id: 't-' + p, title: p, status: '
 `);
 
 function run(env) {
-  const code = `import('${join(root, 'server/src/tasks.ts').replaceAll('\\', '/')}').then(async (m) => {
+  const code = `import(${JSON.stringify(pathToFileURL(join(root, 'server/src/tasks.ts')).href)}).then(async (m) => {
     const r = await m.collectTasks({ runsDispatchedAll: () => [], runsRunning: () => [] });
     console.log(JSON.stringify({ tasks: r.tasks.filter((t) => t.source === 'ygl-trees').length, src: r.sources['ygl-trees'] }));
   });`;
