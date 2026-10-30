@@ -53,13 +53,32 @@ const YGL_CONCURRENCY = 4;
 const YGL_PER_CALL_TIMEOUT_MS = 3_000;
 const YGL_TOTAL_BUDGET_MS = 8_000;
 const YGL_MAX_PROJECTS = 40;
+/** 项目名安全校验（direct-f9ce9e48 S1：动态值禁入 shell——本实现无 shell，校验为纵深防御层） */
+const YGL_PROJECT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
-function execYglJson(args: string[]): Promise<{ ok: boolean; parsed: unknown }> {
+/** 无 shell 调 ygl-trees：node + 包内真实入口 dist/bundle/bin.cjs（Windows shim 不再经 shell:true） */
+import { existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+function yglCliEntry(): string | null {
+  for (const base of [dirname(process.execPath), process.env.Pnpm_HOME, process.env.APPDATA + '\\npm']) {
+    if (!base) continue;
+    const cand = join(base, 'node_modules', 'ygl-trees', 'dist', 'bundle', 'bin.cjs');
+    if (existsSync(cand)) return cand;
+  }
+  return null;
+}
+
+function execYglJson(args: string[], timeoutMs: number): Promise<{ ok: boolean; parsed: unknown }> {
   return new Promise((resolve) => {
+    const entry = yglCliEntry();
+    if (!entry) return resolve({ ok: false, parsed: null });
     try {
-      execFile('ygl-trees', args, { timeout: YGL_PER_CALL_TIMEOUT_MS, windowsHide: true, maxBuffer: 4 * 1024 * 1024, shell: true }, (err, stdout) => {
+      execFile(process.execPath, [entry, ...args], { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
         if (err) return resolve({ ok: false, parsed: null });
-        try { resolve({ ok: true, parsed: JSON.parse(String(stdout)) }); } catch { resolve({ ok: false, parsed: null }); }
+        try {
+          const parsed = JSON.parse(String(stdout));
+          resolve({ ok: true, parsed });
+        } catch { resolve({ ok: false, parsed: null }); }
       });
     } catch { resolve({ ok: false, parsed: null }); }
   });
@@ -68,37 +87,41 @@ function execYglJson(args: string[]): Promise<{ ok: boolean; parsed: unknown }> 
 function execYglTasks(): Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs: number; degradedProjects?: string[] }> {
   const t0 = Date.now();
   return (async () => {
-    // ① 枚举 active 项目（不改 selection：只读 project list）
-    const projRes = await execYglJson(['project', 'list', '--json']);
+    // ① 枚举 active 项目（只读 project list，不改 selection）
+    const projRes = await execYglJson(['project', 'list', '--json'], YGL_PER_CALL_TIMEOUT_MS);
     if (!projRes.ok || !Array.isArray(projRes.parsed)) return { ok: false, tasks: [], latencyMs: Date.now() - t0 };
-    const projects = (projRes.parsed as { name: string; status: string }[])
-      .filter((x) => x && typeof x.name === 'string' && x.status === 'active')
-      .map((x) => x.name)
-      .slice(0, YGL_MAX_PROJECTS);
+    const allActive = (projRes.parsed as { name: string; status: string }[])
+      .filter((x) => x && typeof x.name === 'string' && x.status === 'active');
+    const projects = allActive.slice(0, YGL_MAX_PROJECTS).map((x) => x.name);
+    const capSkipped = Math.max(0, allActive.length - YGL_MAX_PROJECTS);
 
-    // ② 逐项目读任务（并发上限 + 总预算；--project 显式，不动用户 selection）
+    // ② 逐项目读（并发上限；单项目超时= min(3s, 剩余预算)——总预算不被超）
     const deadline = t0 + YGL_TOTAL_BUDGET_MS;
     const queue = [...projects];
-    const results: { project: string; ok: boolean; rows: any[] }[] = [];
+    const results: { project: string; ok: boolean; rows: unknown[] }[] = [];
     async function worker() {
-      while (queue.length > 0 && Date.now() < deadline) {
+      while (queue.length > 0) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) break; // 预算耗尽：剩余项目计入 budget-exhausted
         const name = queue.shift()!;
-        const res = await execYglJson(['task', 'list', '--json', '--project', name]);
-        const rows = res.ok && Array.isArray(res.parsed) ? (res.parsed as any[]) : [];
-        results.push({ project: name, ok: res.ok, rows });
+        if (!YGL_PROJECT_NAME_RE.test(name)) { results.push({ project: name, ok: false, rows: [] }); continue; } // 名字非法：显式拒绝不静默
+        const res = await execYglJson(['task', 'list', '--json', '--project', name], Math.max(200, Math.min(YGL_PER_CALL_TIMEOUT_MS, remaining)));
+        // 形状校验：task list 合法输出是数组；{error:...} 对象/rc0 视为该源失败（S3）
+        const rows = res.ok && Array.isArray(res.parsed) ? (res.parsed as unknown[]) : [];
+        results.push({ project: name, ok: res.ok && Array.isArray(res.parsed), rows });
       }
     }
-    await Promise.all(Array.from({ length: Math.min(YGL_CONCURRENCY, projects.length) }, worker));
-    const skipped = queue.length; // 预算耗尽未读的项目
+    await Promise.all(Array.from({ length: Math.max(1, Math.min(YGL_CONCURRENCY, projects.length)) }, worker));
+    const budgetSkipped = queue.length; // 预算耗尽未读
 
-    // ③ 映射信封 + 按 (native id, project) 去重 + 标记真实项目名
+    // ③ 信封映射 + (native id, project) 去重 + 项目名取自枚举（防行内伪字段）
     const seen = new Set<string>();
     const tasks: TaskEnvelope[] = [];
     const degradedProjects: string[] = [];
     for (const r of results) {
       if (!r.ok) degradedProjects.push(r.project);
-      for (const row of r.rows) {
-        const nativeId = String(row.id ?? row.task_id ?? '');
+      for (const row of r.rows as any[]) {
+        const nativeId = String(row?.id ?? row?.task_id ?? '');
         const dedupeKey = nativeId + '|' + r.project;
         if (!nativeId || seen.has(dedupeKey)) continue;
         seen.add(dedupeKey);
@@ -109,12 +132,12 @@ function execYglTasks(): Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs
           status: row.status === 'done' ? 'done' : (row.status === 'doing' || row.status === 'in_progress' ? 'doing' : 'todo'),
           due: typeof row.due === 'string' && row.due ? row.due : null,
           link: typeof row.link === 'string' && row.link ? row.link : null,
-          project: r.project, // 逐项目读取：项目名来自枚举而非行内字段（防伪）
+          project: r.project,
         });
       }
     }
-    if (skipped > 0) degradedProjects.push(`(budget-exhausted:${skipped} unread)`);
-    // ok=true 仅当全部项目读取成功且预算未耗尽；部分失败显式降级标记
+    if (capSkipped > 0) degradedProjects.push(`(cap-exceeded:${capSkipped} active projects beyond ${YGL_MAX_PROJECTS} not read)`);
+    if (budgetSkipped > 0) degradedProjects.push(`(budget-exhausted:${budgetSkipped} unread)`);
     const fullyOk = degradedProjects.length === 0;
     return { ok: fullyOk, tasks, latencyMs: Date.now() - t0, ...(degradedProjects.length ? { degradedProjects } : {}) };
   })();
@@ -249,7 +272,7 @@ export async function collectTasks(sop: SopServiceLike): Promise<TasksPayload> {
   const payload: TasksPayload = {
     tasks: [...ygl.tasks, ...mktRows, ...changeRequestTasks(), ...(a2aSettled?.status === 'fulfilled' ? a2aSettled.value.tasks : [])], // S1 人审门入待办
     sources: {
-      'ygl-trees': { ok: ygl.ok, count: ygl.tasks.filter((t) => t.status !== 'done').length, latency_ms: ygl.latencyMs },
+      'ygl-trees': { ok: ygl.ok, count: ygl.tasks.filter((t) => t.status !== 'done').length, latency_ms: ygl.latencyMs, ...((ygl as any).degradedProjects?.length ? { degraded_projects: (ygl as any).degradedProjects } : {}) },
       market: { ok: true, count: mktRows.length, latency_ms: 0 },
       // count=在途数（对账口径）；源缺席（未配置 env）时无 a2a 键——降级只发生在已启用但失败时
       ...(a2aSettled ? { a2a: { ok: a2aSettled.status === 'fulfilled' && a2aSettled.value.ok, count: a2aSettled.status === 'fulfilled' ? a2aSettled.value.tasks.filter((t) => t.status !== 'done').length : 0, latency_ms: a2aSettled.status === 'fulfilled' ? a2aSettled.value.latencyMs : 0 } } : {}),
