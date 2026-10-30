@@ -118,13 +118,23 @@ export function installPortal(
           req.url = (u2.pathname || '/') + (u2.search ? u2.search : '');
         }
         if (!sid || ret) {
+          if (ret) {
+            // 真实 Odoo（19 核心 http.py request.redirect 默认 local=True）会把绝对回跳剥成 Odoo 本地路径（website 再加 /zh_CN 前缀 → 404），
+            // Odoo 无法跨源跳回市场；return 流改为本页（市场源）把浏览器送去 Odoo 登录（不带 redirect 参数，登录后落在 Odoo 自己的页面），
+            // 回程交给市场页轮询 /api/lifecycle/whoami（弹窗流，#275）。
+            const odooLogin = `${u.origin}/web/login`;
+            return res.status(200).type('html').send(
+              '<!doctype html><meta charset="utf-8"><title>跳转 Odoo 登录…</title>' +
+              '<p style="font:14px/1.8 system-ui;padding:16px">正在跳转 Odoo 登录；登录完成后回到原窗口即可，本窗口可以关闭。</p>' +
+              `<script>location.replace(${JSON.stringify(odooLogin).replace(/</g, '\\u003c')})</script>`
+            );
+          }
           const state = randomUUID();
           const _mkHost = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').trim();
           const _mkProto = (String(req.headers['x-forwarded-proto'] ?? '').includes('https') || req.secure) ? 'https' : 'http';
           const redirectUri = encodeURIComponent(`${_mkProto}://${_mkHost}/go/${m[1]}/?state=${state}`); // #170 P8 绝对回跳 // 回跳经市场（带 state·不裸跳目标域）
           res.cookie(stateCookie, state, { httpOnly: true, sameSite: 'lax', path: `/go/${m[1]}/`, maxAge: 10 * 60 * 1000 });
-          if (ret) res.cookie(retCookie, ret, { httpOnly: true, sameSite: 'lax', path: `/go/${m[1]}/`, maxAge: 10 * 60 * 1000 }); // express 按 encodeURIComponent 写，回跳时解一次
-          else res.clearCookie(retCookie, { path: `/go/${m[1]}/` });
+          res.clearCookie(retCookie, { path: `/go/${m[1]}/` });
           return res.redirect(302, `${u.origin}/web/login?redirect=${redirectUri}&state=${state}`);
         }
         const okCookie = `wm_sso_ok_${m[1]}`;
