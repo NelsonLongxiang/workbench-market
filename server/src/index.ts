@@ -1684,13 +1684,16 @@ app.get('/api/sop/runs/active', wrap(async (_req, res) => {
 app.get('/api/stats', (_req, res) => { res.json(statsPayload()); });
 
 /** #275 过渡登录入口（#221 落地前）：挑一个可信 Odoo 台，走 /go/<id>/ 的 SSO v1 舞步并带 return 落回市场原页面。
- *  优先与请求同主机名的台（session_id 是 host-only cookie，跨端口共享只在同主机名成立）；没登记可信 Odoo 台返回 null */
+ *  先选 origin = LC_ODOO_URL 的台（生命周期只认这个 Odoo 的会话；session_id 按主机名跨端口共享，登别的 Odoo 会把它覆盖掉），
+ *  再选与请求同主机名的台；都没有返回 null，不盲选（别的主机名登完市场也拿不到 session_id） */
 function odooLoginUrl(req: express.Request, returnPath: string): string | null {
   let host = '';
   try { host = new URL(`http://${String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').split(',')[0].trim()}`).hostname.toLowerCase(); } catch { host = ''; }
   const odoo = listWorkbenches().filter((w) => w.enabled && /^https?:\/\//i.test(w.url) && isOdooSessionTarget(w.url));
-  const same = odoo.find((w) => { try { return new URL(w.url).hostname.toLowerCase() === host; } catch { return false; } });
-  const pick = same ?? odoo[0];
+  let lcOrigin = '';
+  try { lcOrigin = new URL(String(process.env.LC_ODOO_URL ?? '')).origin; } catch { lcOrigin = ''; }
+  const at = (w: { url: string }) => { try { return new URL(w.url); } catch { return null; } };
+  const pick = odoo.find((w) => lcOrigin && at(w)?.origin === lcOrigin) ?? odoo.find((w) => at(w)?.hostname.toLowerCase() === host);
   return pick ? `/go/${pick.id}/?return=${encodeURIComponent(returnPath)}` : null;
 }
 

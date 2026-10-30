@@ -42,14 +42,20 @@ export function isOdooSessionTarget(url: string): boolean {
   try { return origins.has(new URL(url).origin); } catch { return false; }
 }
 
-/** #275 登录回跳目标：只收本站 path（/开头、非 //、无反斜杠与控制字符、不回 /go/ 免得串跳），不合格返回 null */
+/** #275 登录回跳只回需要身份的市场页（白名单）；其余本站路径一律不收，免得把刚登录的人送到同源的用户产出页 */
+const RETURN_PATHS = ['/lifecycle', '/tasks'];
+
+/** #275 登录回跳目标：只收白名单页的 path，不合格返回 null。
+ *  归一化前后都查：WHATWG 会消掉点段，/.//evil、/%2e//evil 解析后会变成 //evil（协议相对，外站） */
 export function safeReturnPath(v: unknown): string | null {
   const s = String(v ?? '');
-  if (!s || s.length > 512 || !s.startsWith('/') || s.startsWith('//') || /[\x00-\x1f\x7f\\]/.test(s)) return null;
+  const bad = (x: string) => !x.startsWith('/') || x.startsWith('//') || /[\x00-\x1f\x7f\\]/.test(x);
+  if (!s || s.length > 512 || bad(s)) return null;
   try {
     const u = new URL(s, 'http://wm.invalid');
-    if (u.origin !== 'http://wm.invalid' || u.pathname.startsWith('/go/')) return null;
-    return u.pathname + u.search + u.hash;
+    const out = u.pathname + u.search + u.hash;
+    if (u.origin !== 'http://wm.invalid' || bad(out) || !RETURN_PATHS.some((p) => u.pathname === p || u.pathname === `${p}/`)) return null;
+    return out;
   } catch { return null; }
 }
 
