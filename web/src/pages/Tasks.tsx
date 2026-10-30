@@ -6,6 +6,7 @@ import { PageContainer } from '@ant-design/pro-components';
 import { apiFetch } from '../admin-token';
 import { ReloadOutlined } from '@ant-design/icons';
 import { odooLoginHref } from './lifecycle-view';
+import { useOdooPopupLogin } from './odoo-login';
 
 /** 任务信封（与 server/src/tasks.ts 契约一致，字段冻结 snake_case） */
 export interface TaskEnvelope {
@@ -61,9 +62,12 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
     () => tasks.filter((t) => (statusFilter === 'all' || t.status === statusFilter) && (sourceFilter === 'all' || t.source === sourceFilter)),
     [tasks, statusFilter, sourceFilter],
   );
-  if (loading && !payload) return <Card loading style={{ minHeight: 160 }} />;
   const ygl = payload?.sources?.['ygl-trees'];
   const life = payload?.sources?.lifecycle;
+  // 生命周期源未登录：弹窗登录 Odoo，登录完成刷新待办（整页跳去 Odoo 会回不来，#275）；紧凑卡片不显示按钮，也不挂登录逻辑
+  const loginHref = !compact && life && !life.ok && life.auth_required && life.login_url ? odooLoginHref(life.login_url) : null;
+  const login = useOdooPopupLogin(loginHref, reload);
+  if (loading && !payload) return <Card loading style={{ minHeight: 160 }} />;
   return (
     <div>
       {!compact && (
@@ -73,7 +77,8 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
           <Button size="small" icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
           {ygl && !ygl.ok && <Tag color="warning">ygl-trees 源降级（CLI 不可用）</Tag>}
           {life && !life.ok && <Tag color="warning">生命周期源：{life.error ?? '不可用'}</Tag>}
-          {life && !life.ok && life.auth_required && life.login_url && <Button size="small" type="link" href={odooLoginHref(life.login_url)}>登录 Odoo 查看生命周期待办</Button>}
+          {loginHref && <Button size="small" type="link" onClick={login.open} disabled={login.polling}>{login.polling ? '等待 Odoo 登录完成…' : '在弹窗登录 Odoo 查看生命周期待办'}</Button>}
+          {loginHref && login.blocked && <Tag color="warning">浏览器拦截了登录弹窗，请允许弹窗后再点</Tag>}
           {life?.ok && life.viewer && <Tag color="purple">以 {life.viewer} 查看（只读）</Tag>}
         </Space>
       )}
