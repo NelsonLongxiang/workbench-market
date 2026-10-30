@@ -2,7 +2,7 @@
 /** 生命周期全景纯显示逻辑单测（web/src/pages/lifecycle-view.ts，node 直接剥类型运行）：
  *  fmt 对非字符串不抛错；防篡改徽标按 链不一致 → 锚点对不上 → 全覆盖 → 部分覆盖 → 未防篡改 判定；
  *  covered_through 是行号；anchor_ok/anchor_failures 缺省（lc 未升级）时退回原显示。 */
-const { fmt, ledgerBadge } = await import('../web/src/pages/lifecycle-view.ts');
+const { fmt, ledgerBadge, odooLoginHref } = await import('../web/src/pages/lifecycle-view.ts');
 
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
@@ -25,6 +25,9 @@ b = t({ anchored: true, tamper_evident: false, covered_through: null, unanchored
 ok('lc 未升级（anchor_ok 缺省）且锚点对不上：退回黄色未防篡改，不报错', b.color === 'warning' && /未防篡改/.test(b.text), JSON.stringify(b));
 b = t({ anchor_ok: null, anchor_failures: 0 }, null);
 ok('没带锚点：黄色未防篡改，提示「账本尚未外部锚定」', b.color === 'warning' && /尚未外部锚定/.test(b.tip) && !/jsonl/.test(b.tip), JSON.stringify(b));
+
+const h = odooLoginHref('/go/7/?return=%2Flifecycle', 'http://wm.test:9800', '/lifecycle?as_of=2026-12-18T18:00:00+08:00');
+ok('登录链接：return 换成当前页面（含 query），只回 path', h === '/go/7/?return=%2Flifecycle%3Fas_of%3D2026-12-18T18%3A00%3A00%2B08%3A00', h);
 
 console.log(`lifecycle-view-unit: ${pass} passed / ${fail} failed`);
 process.exitCode = fail ? 1 : 0;
