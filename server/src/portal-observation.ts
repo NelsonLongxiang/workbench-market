@@ -20,6 +20,8 @@ export function portalClientClass(headers: Headers): PortalClientClass {
   if (mode === 'navigate' && dest === 'document') return 'browser-top-navigation';
   if (mode === 'navigate' && dest === 'iframe') return 'browser-iframe';
   if ((mode === 'cors' || mode === 'same-origin') && dest === 'empty') return 'browser-fetch';
+  // Node/undici adds mode=cors but no dest/site; observation only, not auth.
+  if (mode === 'cors' && !dest && !one('sec-fetch-site') && /^(node|undici)(?:[/ ]|$)/i.test(ua)) return 'node';
   if (mode || dest || one('sec-fetch-site')) return 'other';
   if (/curl[/]/i.test(ua)) return 'curl';
   if (/python|requests|httpx|aiohttp/i.test(ua)) return 'python';

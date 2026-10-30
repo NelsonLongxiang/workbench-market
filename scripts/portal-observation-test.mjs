@@ -9,6 +9,10 @@ for(const [headers,want] of [
  [{'user-agent':'curl/8.0'},'curl'],[{'user-agent':'node'},'node'],
  [{'user-agent':'python-httpx/1'},'python'],[{'user-agent':'example-mcp-client/1'},'mcp-client'],
  [{'user-agent':'Mozilla/5.0'},'other'],[{},'other'],
+ [{'sec-fetch-mode':'cors','user-agent':'node'},'node'],
+ [{'sec-fetch-mode':'cors','user-agent':'undici/7'},'node'],
+ [{'sec-fetch-mode':'cors','user-agent':'Mozilla/5.0'},'other'],
+ [{'sec-fetch-mode':'cors','sec-fetch-dest':'empty','user-agent':'node'},'browser-fetch'],
  [{'sec-fetch-site':'cross-site','user-agent':'curl/8'},'other'],
 ])check('coarse category '+want,()=>assert.equal(portalClientClass(headers),want));
 for(const url of ['/go/0/','/go/01/','/go/-1/','/go/1evil/','/go/9007199254740992/','/api/go/1/'])
