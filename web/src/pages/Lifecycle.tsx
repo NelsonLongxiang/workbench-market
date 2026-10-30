@@ -1,4 +1,4 @@
-import { Component, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from 'react';
+import { Component, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
 import { Alert, Badge, Button, Card, Col, Collapse, Empty, Result, Row, Segmented, Space, Statistic, Table, Tabs, Tag, Tooltip, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-components';
@@ -264,25 +264,46 @@ class BoardBoundary extends Component<{ children: ReactNode }, { error: Error | 
   }
 }
 
-/** #275 登录入口：401 带 login_url（/go/<Odoo 台>/?return=…）时把 return 换成当前页面并自动跳一次；
- *  两分钟内已经自动跳过（登录后仍 401，比如 Odoo 账号在生命周期侧不可用）就不再跳，只给按钮，避免循环 */
+/** #275 登录入口：401 带 login_url（/go/<Odoo 台>/?return=…）时弹窗送去 Odoo 登录并轮询 whoami，登录完成自动回本页刷新。
+ *  真实 Odoo 19 无法跨源回跳（request.redirect 默认剥掉绝对回跳），所以回程由市场源轮询完成，主窗口不离开本页；
+ *  两分钟内已自动弹过一次（比如 Odoo 账号在生命周期侧不可用）就不再弹，只给按钮，避免打扰 */
 const LOGIN_TRY_KEY = 'wm_lc_login_try';
 function LoginRequired({ payload, reload }: { payload: BoardPayload | null; reload: () => void }) {
   const href = payload?.login_url ? odooLoginHref(payload.login_url) : null;
-  const [auto, setAuto] = useState(false);
+  const [polling, setPolling] = useState(false);
+  const popupRef = useRef<Window | null>(null);
+  const openLogin = () => {
+    if (!href) return;
+    popupRef.current = window.open(href, 'wm_lc_sso', 'width=520,height=680');
+    setPolling(true);
+  };
   useEffect(() => {
     if (!href) return;
     let last = 0;
     try { last = Number(sessionStorage.getItem(LOGIN_TRY_KEY) ?? 0); } catch { last = Date.now(); }
     if (Date.now() - last < 120_000) return;
     try { sessionStorage.setItem(LOGIN_TRY_KEY, String(Date.now())); } catch { return; }
-    setAuto(true);
-    window.location.assign(href);
+    openLogin();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [href]);
+  useEffect(() => {
+    if (!polling) return;
+    const t0 = Date.now();
+    const timer = window.setInterval(async () => {
+      const p = popupRef.current;
+      if (!p || p.closed) { setPolling(false); return; } // 用户手关弹窗：停轮询，保留按钮
+      if (Date.now() - t0 > 600_000) { p.close(); setPolling(false); return; }
+      try {
+        const r = await fetch('/api/lifecycle/whoami', { cache: 'no-store' });
+        if (r.ok) { p.close(); setPolling(false); try { sessionStorage.removeItem(LOGIN_TRY_KEY); } catch { /* 忽略 */ } reload(); }
+      } catch { /* 网络抖动：继续轮询 */ }
+    }, 1500);
+    return () => window.clearInterval(timer);
+  }, [polling, reload]);
   return (
-    <Result status="403" title={auto ? '正在跳转 Odoo 登录…' : '需要登录 Odoo'}
-      subTitle={href ? (payload?.error ?? '请先登录 Odoo') : `${payload?.error ?? '未登录 Odoo'}；管理员尚未登记可信的 Odoo 工作台，无法自动跳转登录`}
-      extra={<Space>{href && <Button type="primary" href={href}>登录 Odoo</Button>}<Button onClick={reload}>重试</Button></Space>} />
+    <Result status="403" title={polling ? '等待 Odoo 登录完成…（登录后本页自动刷新）' : '需要登录 Odoo'}
+      subTitle={href ? (payload?.error ?? '点击按钮在弹窗完成 Odoo 登录') : `${payload?.error ?? '未登录 Odoo'}；管理员尚未登记可信的 Odoo 工作台，无法自动跳转登录`}
+      extra={<Space>{href && <Button type="primary" onClick={openLogin}>在弹窗登录 Odoo</Button>}<Button onClick={reload}>重试</Button></Space>} />
   );
 }
 
