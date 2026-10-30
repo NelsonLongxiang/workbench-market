@@ -256,6 +256,9 @@ export async function lifecycleSourceFor(cookieHeader: string): Promise<{ meta: 
 // 事实由内核算好，这里只透传 data/next，不重算状态、归属、超时或过期。
 
 const BOARD_TTL_MS = 30_000;
+// as_of/pd 由已登录用户给：每个新 key 都要起子进程、在运行工作区 events 记一条 cmd.run，所以缓存条数与并发都封顶
+const BOARD_CACHE_MAX = 64;
+const BOARD_MAX_RUNNING = 2;
 const BOARD_ENV_KEYS = ['LC_YGL_BIN', 'LC_YGL_HOME', 'LC_ODOO_URL'] as const;
 const DEFAULT_ANCHOR_DIR = '/opt/lifecycle-os/anchors'; // 运行检出卷，容器内只读挂载（lifecycle-os 5efa9cd 起）
 const boardCache = new Map<string, { at: number; body: Record<string, unknown> }>();
@@ -271,15 +274,26 @@ function boardConfigProblem(cfg: ReturnType<typeof lcConfig>): string | null {
 }
 
 /** 锚点文件：LC_LEDGER = 账本名 → <LC_ANCHOR_DIR 缺省 /opt/lifecycle-os/anchors>/<账本名>.jsonl；文件不在就不带 --anchor 并告警 */
-function boardAnchor(): { file: string | null; warning: string | null } {
+function boardAnchor(): { file: string | null; ledger: string | null; warning: string | null } {
   const ledger = String(process.env.LC_LEDGER ?? '').trim();
-  if (!ledger) return { file: null, warning: null };
-  if (!/^[A-Za-z0-9_.-]{1,64}$/.test(ledger) || ledger.startsWith('.')) return { file: null, warning: `LC_LEDGER 账本名非法：${ledger.slice(0, 64)}` };
+  if (!ledger) return { file: null, ledger: null, warning: null };
+  if (!/^[A-Za-z0-9_.-]{1,64}$/.test(ledger) || ledger.startsWith('.')) return { file: null, ledger: null, warning: `LC_LEDGER 账本名非法：${ledger.slice(0, 64)}` };
   const dir = String(process.env.LC_ANCHOR_DIR ?? '').trim() || DEFAULT_ANCHOR_DIR;
   const file = resolve(dir, `${ledger}.jsonl`);
-  try { if (statSync(file).isFile()) return { file, warning: null }; } catch { /* 不存在 */ }
-  return { file: null, warning: `锚点文件不存在：${ledger}.jsonl（未带 --anchor，防篡改徽标按未锚定显示）` };
+  try { if (statSync(file).isFile()) return { file, ledger, warning: null }; } catch { /* 不存在 */ }
+  return { file: null, ledger: null, warning: `锚点文件不存在：${ledger}.jsonl（未带 --anchor，防篡改徽标按未锚定显示）` };
 }
+
+/** 写缓存：先清过期项，超上限删最旧（Map 按插入序） */
+function boardCachePut(key: string, body: Record<string, unknown>): void {
+  const now = Date.now();
+  for (const [k, v] of boardCache) if (now - v.at >= BOARD_TTL_MS) boardCache.delete(k);
+  boardCache.delete(key);
+  boardCache.set(key, { at: now, body });
+  while (boardCache.size > BOARD_CACHE_MAX) boardCache.delete(boardCache.keys().next().value as string);
+}
+
+
 
 /** 严格 ISO（纯日期或带显式时区），与引擎 as_of 口径一致；不合格返回 null */
 function boardAsOf(v: unknown): string | null | false {
@@ -323,11 +337,15 @@ export async function lifecycleBoard(cookieHeader: string, query: { pd?: unknown
   if (hit && Date.now() - hit.at < BOARD_TTL_MS) return { http: 200, body: { ...hit.body, viewer: who.viewer.sub, cached: true } };
   let job = boardInflight.get(key);
   if (!job) {
-    job = loadBoard(cfg, flags, anchor.warning ? [anchor.warning] : []).finally(() => boardInflight.delete(key));
+    // 未命中且已有 BOARD_MAX_RUNNING 个子进程在跑：直接回忙，不排队
+    if (boardInflight.size >= BOARD_MAX_RUNNING) return { http: 200, body: { ok: false, busy: true, error: '生命周期全景正忙，稍后重试', viewer: who.viewer.sub } };
+    job = loadBoard(cfg, flags, anchor.warning ? [anchor.warning] : [])
+      .then((b) => ({ ...b, anchor_ledger: anchor.ledger }))
+      .finally(() => boardInflight.delete(key));
     boardInflight.set(key, job);
   }
   const body = await job;
-  if (body.ok) boardCache.set(key, { at: Date.now(), body }); // 失败不缓存：下一次请求重试
+  if (body.ok) boardCachePut(key, body); // 失败不缓存：下一次请求重试
   return { http: 200, body: { ...body, viewer: who.viewer.sub, cached: false } };
 }
 
@@ -356,6 +374,7 @@ export async function lifecycleApprove(_headers: Record<string, string | string[
 export async function lifecycleStatus(): Promise<Record<string, unknown>> {
   const cfg = lcConfig();
   const out: Record<string, unknown> = { configured: lifecycleConfigured(), issuer: LC_ISSUER, approval_mode: 'read-only', approval_blocked_reason: 'SAME_ORIGIN_ISOLATION_REQUIRED', missing: cfg.missing, problem: cfg.problem, engine_pin: LC_ENGINE_PIN, test_mode: process.env.LC_TEST === '1' };
+  out.board_cache = { entries: boardCache.size, max: BOARD_CACHE_MAX, running: boardInflight.size, max_running: BOARD_MAX_RUNNING };
   if (cfg.bin) out.engine_version = await engineVersion(cfg.bin);
   if (cfg.keyFile) { try { out.pubkey = loadIssuerKey(cfg.keyFile).pubkey; } catch (e) { out.key_error = (e as Error).message; } }
   return out;
