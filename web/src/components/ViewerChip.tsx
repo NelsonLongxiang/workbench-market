@@ -7,7 +7,7 @@ import { ODOO_SESSION_CONFIRMED, useOdooPopupLogin } from '../pages/odoo-login';
 /** #279 当前用户 chip（过渡：数据取 /api/lifecycle/whoami，即浏览器的 Odoo 会话；#221 落地后换成 /api/auth/me）。
  *  未配置生命周期源（503）或接口不通时不显示；未登录给 #277 的弹窗登录入口；角色暂无（来源待定、授权通道未实现）。 */
 interface WhoamiViewer { login: string; uid: number; sub: string; name: string | null; kind: string }
-type State = { kind: 'hidden' } | { kind: 'anon'; loginUrl: string | null } | { kind: 'ok'; viewer: WhoamiViewer };
+type State = { kind: 'hidden' } | { kind: 'anon'; loginUrl: string | null } | { kind: 'denied'; error: string } | { kind: 'ok'; viewer: WhoamiViewer };
 
 const REFRESH_MS = 60_000; // 切回页面时最多每分钟复查一次（每次都要现查 Odoo）
 
@@ -24,6 +24,7 @@ export default function ViewerChip() {
       if (request !== requestRef.current) return;
       if (r.ok && j?.ok && j.viewer) setState({ kind: 'ok', viewer: j.viewer });
       else if (r.status === 401) setState({ kind: 'anon', loginUrl: typeof j?.login_url === 'string' ? j.login_url : null });
+      else if (r.status === 403) setState({ kind: 'denied', error: typeof j?.error === 'string' ? j.error : '该 Odoo 账号无权访问工作台' }); // 门户账号
       else setState({ kind: 'hidden' });
     } catch { if (request === requestRef.current) setState({ kind: 'hidden' }); }
   }, []);
@@ -41,6 +42,7 @@ export default function ViewerChip() {
   const login = useOdooPopupLogin(href, () => {}); // confirmed event is the single refresh path
 
   if (state.kind === 'hidden') return null;
+  if (state.kind === 'denied') return <Tag icon={<UserOutlined />} color="error" style={{ marginInlineEnd: 0 }} title={state.error}>无权访问（门户账号）</Tag>;
   if (state.kind === 'anon') {
     return (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>

@@ -27,7 +27,7 @@ export async function runLcApproveGroup() {
   const engine = join(dir, 'engine.cjs');
   writeFileSync(engine, 'require("node:fs").writeFileSync(' + JSON.stringify(marker) + ',"CALLED"); console.log("0.116.1");');
   let odooCalls = 0;
-  const odoo = createServer((_req, res) => { odooCalls++; res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ result: { uid: 7, username: 'synthetic-user' } })); });
+  const odoo = createServer((_req, res) => { odooCalls++; res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ result: { uid: 7, username: 'synthetic-user', is_internal_user: true } })); });
   await new Promise(r => odoo.listen(0, '127.0.0.1', r));
   const reserve = createServer(); await new Promise(r => reserve.listen(0, '127.0.0.1', r));
   const port = reserve.address().port; await new Promise(r => reserve.close(r));
