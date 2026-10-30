@@ -8,9 +8,8 @@
  *  ⑥bridge 未带 Bearer（鉴权头）
  */
 import { spawn } from 'node:child_process';
-import { rmSync, mkdirSync, cpSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const PORT = 9868;
@@ -61,9 +60,8 @@ try {
   const r1 = await pubSkill('s0:multi', [{ path: 'Zebra.txt', content: 'Z' }, { path: 'apple.txt', content: 'a' }]);
   ok('① 多文件发布 201', r1.status === 201, `status=${r1.status}`);
   const j1 = await r1.json().catch(() => ({}));
-  const t1dir = mkdtempSync(join(tmpdir(), 's0-inst-'));
-  writeFileSync(join(t1dir, 'Zebra.txt'), 'Z'); writeFileSync(join(t1dir, 'apple.txt'), 'a');
-  const inst1 = await fetch(`${BASE}/api/skills/s0:multi/install`, { method: 'POST', headers: ADMIN, body: JSON.stringify({ version: j1.version ?? 1, installed_path: t1dir, installed_by: 's0' }) });
+  // #601/#183 后 verify 封禁快照根外路径：钉装默认落快照路径（installed_path 缺省=target.snapshot_path）
+  const inst1 = await fetch(`${BASE}/api/skills/s0:multi/install`, { method: 'POST', headers: ADMIN, body: JSON.stringify({ version: j1.version ?? 1, installed_by: 's0' }) });
   ok('①b 钉装 201', inst1.status === 201, `status=${inst1.status}`);
   const inst1j = await inst1.json().catch(() => ({}));
   if (inst1j.ledger_id) {
