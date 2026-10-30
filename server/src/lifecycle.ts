@@ -184,6 +184,14 @@ async function signedLc(viewer: Viewer, action: string, flags: LcFlags): Promise
 }
 
 // ---------- Odoo 身份 ----------
+/** #275 登录探测（whoami）：前端弹窗送 Odoo 登录后轮询此端点，200 即已登录——真实 Odoo 19 无法跨源回跳（request.redirect 默认 local=True），回程由市场源轮询完成 */
+export async function lifecycleWhoami(cookieHeader: string): Promise<{ http: number; body: object }> {
+  if (!lifecycleConfigured()) return { http: 503, body: { ok: false, error: lifecycleConfigProblem() ?? `未配置：缺 ${lcConfig().missing.join(', ')}` } };
+  const who = await resolveOdooViewer(cookieHeader);
+  if (!who.ok) return { http: who.http, body: { ok: false, error: who.error, auth_required: who.http === 401 } };
+  return { http: 200, body: { ok: true, viewer: who.viewer } };
+}
+
 
 /** 用浏览器的 Odoo session_id 向 LC_ODOO_URL 现查登录名（每次都查：Odoo 侧注销即刻生效） */
 export async function resolveOdooViewer(cookieHeader: string, odooUrl = lcConfig().odooUrl): Promise<{ ok: true; viewer: Viewer } | { ok: false; http: number; error: string }> {

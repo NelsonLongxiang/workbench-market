@@ -1719,6 +1719,12 @@ app.get('/api/lifecycle/board', wrap(async (req, res) => {
   res.setHeader('Cache-Control', 'private, no-store');
   res.status(r.http).json(r.http === 401 ? { ...r.body, login_url: odooLoginUrl(req, '/lifecycle') } : r.body);
 }));
+// #275 登录探测：弹窗送 Odoo 登录后，前端轮询这里拿 200 即回原页面（Odoo 19 无法跨源回跳，回程在市场源完成）
+app.get('/api/lifecycle/whoami', wrap(async (req, res) => {
+  const r = await lifecycleWhoami(String(req.headers.cookie ?? ''));
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.status(r.http).json(r.body);
+}));
 app.get('/api/lifecycle/status', wrap(async (req, res) => {
   if (!adminGuard(req, res)) return; // 配置清单不对远程匿名读开放（评审：只写面有远程门）
   res.json(await lifecycleStatus());
@@ -2715,7 +2721,7 @@ import { evalCandidates } from './eval.ts'; // #178 评估模型客户端
 import { renderSopRunner } from './sop-runner.ts';
 import { isOdooLikeTarget, isOdooSessionTarget, stripOdooSession, trustedOdooOrigins } from './odoo-session.ts';
 import { collectTasks } from './tasks.ts';
-import { lifecycleApprove, lifecycleBoard, lifecycleConfigProblem, lifecycleConfigured, lifecycleSourceFor, lifecycleStatus } from './lifecycle.ts';
+import { lifecycleApprove, lifecycleBoard, lifecycleConfigProblem, lifecycleConfigured, lifecycleSourceFor, lifecycleStatus, lifecycleWhoami } from './lifecycle.ts';
 import { endpointStatsMiddleware, statsPayload } from './endpoint-stats.ts';
 
 // ---------- MCP 生产通道（StreamableHTTP · stateless：AI 会话直连市场，零依赖手写 JSON-RPC） ----------
