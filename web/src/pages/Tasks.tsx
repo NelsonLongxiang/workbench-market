@@ -5,6 +5,7 @@ import type { UploadFile } from 'antd';
 import { PageContainer } from '@ant-design/pro-components';
 import { apiFetch } from '../admin-token';
 import { ReloadOutlined } from '@ant-design/icons';
+import { odooLoginHref } from './lifecycle-view';
 
 /** 任务信封（与 server/src/tasks.ts 契约一致，字段冻结 snake_case） */
 export interface TaskEnvelope {
@@ -22,7 +23,7 @@ interface SourceMeta { ok: boolean; count: number; latency_ms: number }
 interface TasksPayload {
   tasks: TaskEnvelope[];
   /** lifecycle 仅在服务端配置了生命周期源时出现，按当前 Odoo 登录人计 */
-  sources: { 'ygl-trees': SourceMeta; market: SourceMeta; a2a?: SourceMeta; lifecycle?: SourceMeta & { viewer: string | null; error?: string } };
+  sources: { 'ygl-trees': SourceMeta; market: SourceMeta; a2a?: SourceMeta; lifecycle?: SourceMeta & { viewer: string | null; error?: string; auth_required?: boolean; login_url?: string | null } };
   generated_at: string;
 }
 const SOURCE_COLOR: Record<TaskEnvelope['source'], string> = { market: 'geekblue', 'ygl-trees': 'cyan', a2a: 'gold', lifecycle: 'purple' };
@@ -72,6 +73,7 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
           <Button size="small" icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
           {ygl && !ygl.ok && <Tag color="warning">ygl-trees 源降级（CLI 不可用）</Tag>}
           {life && !life.ok && <Tag color="warning">生命周期源：{life.error ?? '不可用'}</Tag>}
+          {life && !life.ok && life.auth_required && life.login_url && <Button size="small" type="link" href={odooLoginHref(life.login_url)}>登录 Odoo 查看生命周期待办</Button>}
           {life?.ok && life.viewer && <Tag color="purple">以 {life.viewer} 查看（只读）</Tag>}
         </Space>
       )}

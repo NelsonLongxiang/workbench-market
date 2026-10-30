@@ -40,7 +40,7 @@ export interface LcEnvelope {
   trace_id: string | null;
   next: string[];
 }
-export interface LcSourceMeta extends SourceMeta { viewer: string | null; error?: string }
+export interface LcSourceMeta extends SourceMeta { viewer: string | null; error?: string; auth_required?: boolean; login_url?: string | null }
 export interface Viewer { login: string; uid: number; sub: string }
 type Result = { http: number; body: Record<string, unknown> };
 
@@ -237,7 +237,7 @@ export async function lifecycleSourceFor(cookieHeader: string): Promise<{ meta: 
   const cfg = lcConfig();
   if (cfg.problem) return fail(cfg.problem);
   const who = await resolveOdooViewer(cookieHeader, cfg.odooUrl);
-  if (!who.ok) return fail(who.error);
+  if (!who.ok) { const f = fail(who.error); if (who.http === 401) f.meta = { ...f.meta, auth_required: true } as typeof f.meta; return f; }
   const hit = inboxCache.get(who.viewer.sub);
   if (hit && Date.now() - hit.at < INBOX_TTL_MS) return { meta: hit.meta, tasks: hit.tasks };
   const r = await signedLc(who.viewer, 'inbox', {});
