@@ -36,6 +36,8 @@ jobs:
         run: node scripts/lc-issuer-unit.mjs
       - name: 生命周期全景接口冒烟（替身引擎+替身 Odoo：401·降级·缓存合并·no-store）
         run: node scripts/lifecycle-board-smoke.mjs
+      - name: 生命周期全景显示逻辑单测（fmt 防御·防篡改徽标判定）
+        run: node scripts/lifecycle-view-unit.mjs
       - name: 安全对抗例组（PASS / SKIP / NEEDS-MATERIAL 分列）
         run: node scripts/security-adversarial-smoke.mjs
       - name: 留存 F5 原始证据与覆盖摘要
