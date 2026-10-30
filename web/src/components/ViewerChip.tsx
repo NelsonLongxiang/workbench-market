@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Descriptions, Popover, Tag, Typography } from 'antd';
 import { UserOutlined } from '@ant-design/icons';
 import { odooLoginHref } from '../pages/lifecycle-view';
-import { useOdooPopupLogin } from '../pages/odoo-login';
+import { ODOO_SESSION_CONFIRMED, useOdooPopupLogin } from '../pages/odoo-login';
 
 /** #279 当前用户 chip（过渡：数据取 /api/lifecycle/whoami，即浏览器的 Odoo 会话；#221 落地后换成 /api/auth/me）。
  *  未配置生命周期源（503）或接口不通时不显示；未登录给 #277 的弹窗登录入口；角色暂无（来源待定、授权通道未实现）。 */
@@ -14,26 +14,31 @@ const REFRESH_MS = 60_000; // 切回页面时最多每分钟复查一次（每�
 export default function ViewerChip() {
   const [state, setState] = useState<State>({ kind: 'hidden' });
   const lastRef = useRef(0);
+  const requestRef = useRef(0);
   const load = useCallback(async () => {
     lastRef.current = Date.now();
+    const request = ++requestRef.current;
     try {
       const r = await fetch('/api/lifecycle/whoami', { cache: 'no-store', credentials: 'same-origin' });
       const j = await r.json().catch(() => null);
+      if (request !== requestRef.current) return;
       if (r.ok && j?.ok && j.viewer) setState({ kind: 'ok', viewer: j.viewer });
       else if (r.status === 401) setState({ kind: 'anon', loginUrl: typeof j?.login_url === 'string' ? j.login_url : null });
       else setState({ kind: 'hidden' });
-    } catch { setState({ kind: 'hidden' }); }
+    } catch { if (request === requestRef.current) setState({ kind: 'hidden' }); }
   }, []);
   useEffect(() => {
     void load();
     const onBack = () => { if (document.visibilityState === 'visible' && Date.now() - lastRef.current > REFRESH_MS) void load(); };
+    const onConfirmed = () => { void load(); }; // bypass focus throttle after verified popup login
+    window.addEventListener(ODOO_SESSION_CONFIRMED, onConfirmed);
     window.addEventListener('focus', onBack);
     document.addEventListener('visibilitychange', onBack);
-    return () => { window.removeEventListener('focus', onBack); document.removeEventListener('visibilitychange', onBack); };
+    return () => { ++requestRef.current; window.removeEventListener(ODOO_SESSION_CONFIRMED, onConfirmed); window.removeEventListener('focus', onBack); document.removeEventListener('visibilitychange', onBack); };
   }, [load]);
 
   const href = state.kind === 'anon' && state.loginUrl ? odooLoginHref(state.loginUrl) : null;
-  const login = useOdooPopupLogin(href, () => { void load(); });
+  const login = useOdooPopupLogin(href, () => {}); // confirmed event is the single refresh path
 
   if (state.kind === 'hidden') return null;
   if (state.kind === 'anon') {
