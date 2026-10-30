@@ -45,6 +45,9 @@ export function useOdooPopupLogin(href: string | null, onDone: () => void) {
   const tokenHere = useSyncExternalStore(subscribeAdminToken, adminTokenPresent);
   const open = useCallback((): boolean => {
     if (!href || adminTokenPresent()) return false;
+    // 同一入口已有登录弹窗开着就复用（/lifecycle 上「清除口令并登录」清口令会触发自动登录 effect，曾开出第二个窗并覆盖句柄）
+    const cur = popupRef.current;
+    if (cur && !cur.closed) { try { cur.focus(); } catch { /* 忽略 */ } return true; }
     // 不复用命名窗口：旧窗口可能已停在别的源，既切不断 opener 也读不到；每次新开空白页再跳转
     const w = window.open('about:blank', '_blank', 'popup,width=520,height=680');
     if (w) {
