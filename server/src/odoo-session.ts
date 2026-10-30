@@ -42,6 +42,17 @@ export function isOdooSessionTarget(url: string): boolean {
   try { return origins.has(new URL(url).origin); } catch { return false; }
 }
 
+/** #275 登录回跳目标：只收本站 path（/开头、非 //、无反斜杠与控制字符、不回 /go/ 免得串跳），不合格返回 null */
+export function safeReturnPath(v: unknown): string | null {
+  const s = String(v ?? '');
+  if (!s || s.length > 512 || !s.startsWith('/') || s.startsWith('//') || /[\x00-\x1f\x7f\\]/.test(s)) return null;
+  try {
+    const u = new URL(s, 'http://wm.invalid');
+    if (u.origin !== 'http://wm.invalid' || u.pathname.startsWith('/go/')) return null;
+    return u.pathname + u.search + u.hash;
+  } catch { return null; }
+}
+
 /** 就地剥除转发请求里的 Odoo 会话（剥空则删掉 Cookie 头） */
 export function stripOdooSession(headers: { cookie?: string | string[] }): void {
   const raw = Array.isArray(headers.cookie) ? headers.cookie.join('; ') : headers.cookie;
