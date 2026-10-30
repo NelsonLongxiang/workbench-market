@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** #275 生命周期面登录入口冒烟（替身引擎 + 替身 Odoo）：
- *  401 带 login_url（只挑可信 Odoo 台、优先同主机名、没登记给 null）· /go/<id>/?return= 经 Odoo 登录（已登录也经过，幂等直通）·
+ *  401 带 login_url（只挑可信 Odoo 台、LC_ODOO_URL 对应的优先、没登记给 null）· /go/<id>/?return= 经 Odoo 登录（已登录也经过，幂等直通）·
  *  state 回跳后 302 落回市场原页面并清掉回跳 cookie · return 只收本站 path（//、绝对 URL、/go/ 都不收）· 统一待办生命周期源带 login_url。 */
 import { spawn } from 'node:child_process';
 import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -60,7 +60,7 @@ try {
   ok('401 带 login_url，只挑可信 Odoo 源、同主机名（127.0.0.1）', r.status === 401 && r.body?.login_url === `/go/${wid}/?return=%2Flifecycle`, JSON.stringify(r.body?.login_url));
   ok('401 仍 no-store', /no-store/.test(String(r.headers['cache-control'])));
   r = await http('GET', '/api/lifecycle/board', { headers: { host: `localhost:${PORT}` } });
-  ok('请求 Host 为 localhost 时挑 localhost 的台', r.body?.login_url === `/go/${wloc}/?return=%2Flifecycle`, JSON.stringify(r.body?.login_url));
+  ok('LC_ODOO_URL 对应的台优先（Host 为 localhost 也不换台：生命周期只认这个 Odoo 的会话）', r.body?.login_url === `/go/${wid}/?return=%2Flifecycle`, JSON.stringify(r.body?.login_url));
   r = await http('GET', '/api/tasks');
   const life = r.body?.sources?.lifecycle;
   ok('统一待办：生命周期源 auth_required + login_url 回 /tasks', life?.ok === false && life.auth_required === true && life.login_url === `/go/${wid}/?return=%2Ftasks`, JSON.stringify(life));
@@ -83,9 +83,13 @@ try {
   ok('state 不符：400，不跳', r.status === 400 && !r.headers.location, `${r.status}`);
   r = await http('GET', `/go/${wid}/?state=${state2}`, { headers: { cookie: `session_id=${SID}; wm_sso_${wid}=${state2}; wm_sso_ret_${wid}=${encodeURIComponent('//evil.example/x')}` } });
   ok('回跳 cookie 被换成 //evil：不跳外站（进 Odoo 台代理）', !String(r.headers.location ?? '').includes('evil'), `${r.status} ${r.headers.location}`);
+  for (const planted of ['/.//evil.example/x', '/%2e//evil.example/x', '/a/..//evil.example/x', '/apps/x/']) {
+    r = await http('GET', `/go/${wid}/?state=${state2}`, { headers: { cookie: `session_id=${SID}; wm_sso_${wid}=${state2}; wm_sso_ret_${wid}=${encodeURIComponent(planted)}` } });
+    ok(`被写入的回跳 cookie ${planted}：state 通过也不跳`, !r.headers.location, `${r.status} ${r.headers.location}`);
+  }
 
   console.log('return 只收本站 path');
-  for (const bad of ['//evil.example/x', 'https://evil.example/', '/go/3/', '/\\evil.example', 'lifecycle']) {
+  for (const bad of ['//evil.example/x', 'https://evil.example/', '/go/3/', '/\\evil.example', 'lifecycle', '/.//evil.example', '/%2e//evil.example', '/apps/demo/', '/settings']) {
     r = await http('GET', `/go/${wid}/?return=${encodeURIComponent(bad)}`);
     const v = cookieVal(r, `wm_sso_ret_${wid}`);
     ok(`return=${bad} 不收（不写回跳 cookie）`, r.status === 302 && !v, `${r.status} ${v}`);
