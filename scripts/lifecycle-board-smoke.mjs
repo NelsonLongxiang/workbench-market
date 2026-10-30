@@ -82,6 +82,7 @@ try {
   ok('Cache-Control: private, no-store', /private/.test(String(r.headers['cache-control'])) && /no-store/.test(String(r.headers['cache-control'])), String(r.headers['cache-control']));
   ok('调引擎一次：lc board，子进程没有 LC_ASSERTION', c1.length === 1 && c1[0].args[0] === 'lc' && c1[0].args[1] === 'board' && c1[0].assertion === false, JSON.stringify(c1));
   ok('YGL_HOME = LC_YGL_HOME', c1[0]?.home === HOME, c1[0]?.home);
+  ok('回带账本名 anchor_ledger（徽标文案用）', r.body?.anchor_ledger === 'smoke-ledger', JSON.stringify(r.body?.anchor_ledger));
   ok('LC_LEDGER → --anchor <LC_ANCHOR_DIR>/<账本名>.jsonl', c1[0]?.args.join(' ').includes(`--anchor ${join(ANCHORS, 'smoke-ledger.jsonl')}`), JSON.stringify(c1[0]?.args));
   r = await board();
   ok('30 秒内再请求：命中缓存不再调引擎', r.body?.ok === true && r.body.cached === true && calls().length === 1, `${calls().length}`);
@@ -115,6 +116,16 @@ try {
   setMode('nolanes');
   r = await board('?pd=rmvu6m0e9:pd-D');
   ok('泳道未登记：ok:true、products 空、next 提示原样透传', r.body?.ok === true && r.body.data?.products?.length === 0 && r.body.next?.[0] === '树里没有泳道登记 reg-lanes', JSON.stringify(r.body?.next));
+  setMode('ok');
+
+  console.log('缓存与并发封顶');
+  for (let i = 0; i < 70; i++) await board(`?as_of=2026-12-01T00:${String(Math.floor(i / 60)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}%2B08:00`);
+  r = await http(P, 'GET', '/api/lifecycle/status', { 'x-admin-token': 'lc-board-smoke' });
+  ok('连续 70 个不同 as_of 后缓存条数 ≤ 64', r.body?.board_cache?.max === 64 && r.body.board_cache.entries <= 64 && r.body.board_cache.entries > 0, JSON.stringify(r.body?.board_cache));
+  setMode('slow');
+  const n1 = calls().length;
+  const burst = await Promise.all(['pd-A', 'pd-B', 'pd-C', 'pd-D'].map((x) => board(`?as_of=2026-12-02T00:00:00%2B08:00&pd=rmvu6m0e9:${x}`)));
+  ok('4 个不同 key 同时未命中：只起 2 个子进程，其余回忙', calls().length - n1 === 2 && burst.filter((x) => x.body?.ok === true).length === 2 && burst.filter((x) => x.status === 200 && x.body?.ok === false && x.body.busy === true && /忙/.test(x.body.error ?? '')).length === 2, `${calls().length - n1} ${JSON.stringify(burst.map((x) => x.body?.busy ?? x.body?.ok))}`);
   setMode('ok');
 
   console.log('锚点缺失');
