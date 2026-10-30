@@ -196,7 +196,7 @@ export async function lifecycleWhoami(cookieHeader: string): Promise<{ http: num
 }
 
 
-/** 用浏览器的 Odoo session_id 向 LC_ODOO_URL 现查登录名（每次都查：Odoo 侧注销即刻生效） */
+/** 用浏览器的 Odoo session_id 向 LC_ODOO_URL 现查登录名（每次都查：Odoo 侧注销即刻生效）；非内部用户 403 */
 export async function resolveOdooViewer(cookieHeader: string, odooUrl = lcConfig().odooUrl): Promise<{ ok: true; viewer: Viewer } | { ok: false; http: number; error: string }> {
   if (!odooUrl) return { ok: false, http: 503, error: '未配置 LC_ODOO_URL' };
   const sid = odooSessionOf(cookieHeader);
@@ -217,6 +217,9 @@ export async function resolveOdooViewer(cookieHeader: string, odooUrl = lcConfig
   const info = j?.result;
   const login = typeof info?.username === 'string' ? info.username : '';
   if (j?.error || !info?.uid || !login) return { ok: false, http: 401, error: 'Odoo 会话已失效，请重新登录' };
+  // 只认内部员工：门户/公共用户（res.users.share）也能登 Odoo，但不能看工作台。Odoo 19 session_info 的
+  // is_internal_user = user._is_internal()；字段缺失或非 true 一律拒（fail closed），每次现查，Odoo 侧改了即刻生效
+  if (info.is_internal_user !== true) return { ok: false, http: 403, error: '门户账号不能访问工作台（仅限内部员工的 Odoo 账号）' };
   if (!loginOk(login)) return { ok: false, http: 401, error: 'Odoo 登录名不可用作 lc 主体' };
   const name = typeof info.name === 'string' && info.name.trim() && !/[\x00-\x1f\x7f]/.test(info.name) ? info.name.trim().slice(0, 128) : null;
   return { ok: true, viewer: { login, uid: Number(info.uid), sub: `user:${login}`, name } };
