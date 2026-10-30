@@ -5,7 +5,8 @@
  *   { id: "<source>:<native_id>", source, title, status: todo|doing|done, due, link, project }
  *
  * 适配器：
- *   - ygl-trees：exec `ygl-trees task list --json`（超时 5s，跨项目全量）；CLI 缺失/超时 → ok=false 降级不阻塞（J5）
+ *   - ygl-trees：project list 枚举 active 项目 → 逐项目 `task list --json --project <name>`（不改用户 selection）；
+ *              并发上限/总预算/单源失败显式降级（direct-c4c460a6：旧单次调用只读当前 selection，跨项目任务丢失）
  *   - market：站内 SOP run（含未指派，running=doing）+ 任务中心已发布任务（#263 页面整链）——
  *              复用现有 sop_runs/a2a_run_ctx/tasks schema，零侵入（J4）
  *   - A2A：v2 预留，不实现
@@ -47,36 +48,100 @@ type SopServiceLike = {
 const CACHE_TTL_MS = 30_000;
 let cache: { at: number; payload: TasksPayload } | null = null;
 
-function execYglTasks(): Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs: number }> {
-  const t0 = Date.now();
+/** 跨项目枚举常量（direct-c4c460a6）：并发、单项目超时、总预算、项目数上限 */
+const YGL_CONCURRENCY = 4;
+const YGL_PER_CALL_TIMEOUT_MS = 3_000;
+const YGL_TOTAL_BUDGET_MS = 8_000;
+const YGL_MAX_PROJECTS = 40;
+/** 项目名边界（direct-150a721a：无 shell 后 argv 传值天然安全，合法 Unicode 名必须支持——不限制业务命名凑安全）；仅防空/超长 */
+function yglProjectNameOk(name: string): boolean { return name.length >= 1 && name.length <= 128 && !name.includes('\0'); }
+
+/** 无 shell 调 ygl-trees：node + 包内真实入口 dist/bundle/bin.cjs（Windows shim 不再经 shell:true）。
+ *  入口解析边界：①node同目录node_modules ②PNPM_HOME ③APPDATA/npm。Linux全局PATH可达但非node同级布局不在支持内（降级ok=false），不引大解析系统。 */
+import { existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+function yglCliEntry(): string | null {
+  for (const base of [dirname(process.execPath), process.env.PNPM_HOME, process.env.APPDATA ? process.env.APPDATA + '\\npm' : null]) {
+    if (!base) continue;
+    const cand = join(base, 'node_modules', 'ygl-trees', 'dist', 'bundle', 'bin.cjs');
+    if (existsSync(cand)) return cand;
+  }
+  return null;
+}
+
+function execYglJson(args: string[], timeoutMs: number): Promise<{ ok: boolean; parsed: unknown }> {
   return new Promise((resolve) => {
+    const entry = yglCliEntry();
+    if (!entry) return resolve({ ok: false, parsed: null });
     try {
-      // Windows：ygl-trees 是无扩展名 bash shim，execFile 无 shell 会 ENOENT（评审席 direct-a989374f S1）
-      // 参数为固定字面量数组，shell:true 无注入面
-      execFile('ygl-trees', ['task', 'list', '--json'], { timeout: 5_000, windowsHide: true, maxBuffer: 4 * 1024 * 1024, shell: true }, (err, stdout) => {
-        const latencyMs = Date.now() - t0;
-        if (err) return resolve({ ok: false, tasks: [], latencyMs });
+      execFile(process.execPath, [entry, ...args], { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
+        if (err) return resolve({ ok: false, parsed: null });
         try {
           const parsed = JSON.parse(String(stdout));
-          const rows: any[] = Array.isArray(parsed) ? parsed : (parsed?.tasks ?? []);
-          const tasks: TaskEnvelope[] = rows.map((r) => ({
-            id: `ygl-trees:${String(r.id ?? r.task_id ?? '')}`,
-            source: 'ygl-trees' as const,
-            title: String(r.title ?? r.name ?? r.summary ?? '(untitled)'),
-            status: r.status === 'done' ? 'done' : (r.status === 'doing' || r.status === 'in_progress' ? 'doing' : 'todo'),
-            due: typeof r.due === 'string' && r.due ? r.due : null,
-            link: typeof r.link === 'string' && r.link ? r.link : null,
-            project: typeof r.project === 'string' && r.project ? r.project : (typeof r.tree === 'string' ? r.tree : null),
-          }));
-          resolve({ ok: true, tasks, latencyMs });
-        } catch {
-          resolve({ ok: false, tasks: [], latencyMs });
-        }
+          resolve({ ok: true, parsed });
+        } catch { resolve({ ok: false, parsed: null }); }
       });
-    } catch {
-      resolve({ ok: false, tasks: [], latencyMs: Date.now() - t0 });
-    }
+    } catch { resolve({ ok: false, parsed: null }); }
   });
+}
+
+function execYglTasks(): Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs: number; degradedProjects?: string[] }> {
+  const t0 = Date.now();
+  return (async () => {
+    // ① 枚举 active 项目（只读 project list，不改 selection）
+    const projRes = await execYglJson(['project', 'list', '--json'], YGL_PER_CALL_TIMEOUT_MS);
+    if (!projRes.ok || !Array.isArray(projRes.parsed)) return { ok: false, tasks: [], latencyMs: Date.now() - t0 };
+    const allActive = (projRes.parsed as { name: string; status: string }[])
+      .filter((x) => x && typeof x.name === 'string' && x.status === 'active');
+    const projects = allActive.slice(0, YGL_MAX_PROJECTS).map((x) => x.name);
+    const capSkipped = Math.max(0, allActive.length - YGL_MAX_PROJECTS);
+
+    // ② 逐项目读（并发上限；单项目超时= min(3s, 剩余预算)——总预算不被超）
+    const deadline = t0 + YGL_TOTAL_BUDGET_MS;
+    const queue = [...projects];
+    const results: { project: string; ok: boolean; rows: unknown[] }[] = [];
+    async function worker() {
+      while (queue.length > 0) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) break; // 预算耗尽：剩余项目计入 budget-exhausted
+        const name = queue.shift()!;
+        if (!yglProjectNameOk(name)) { results.push({ project: name, ok: false, rows: [] }); continue; } // 空名/超长/null字节：显式拒绝
+        const res = await execYglJson(['task', 'list', '--json', '--project', name], Math.max(200, Math.min(YGL_PER_CALL_TIMEOUT_MS, remaining)));
+        // 形状校验：task list 合法输出是数组；{error:...} 对象/rc0 视为该源失败（S3）
+        const rows = res.ok && Array.isArray(res.parsed) ? (res.parsed as unknown[]) : [];
+        results.push({ project: name, ok: res.ok && Array.isArray(res.parsed), rows });
+      }
+    }
+    await Promise.all(Array.from({ length: Math.max(1, Math.min(YGL_CONCURRENCY, projects.length)) }, worker));
+    const budgetSkipped = queue.length; // 预算耗尽未读
+
+    // ③ 信封映射 + (native id, project) 去重 + 项目名取自枚举（防行内伪字段）
+    const seen = new Set<string>();
+    const tasks: TaskEnvelope[] = [];
+    const degradedProjects: string[] = [];
+    for (const r of results) {
+      if (!r.ok) degradedProjects.push(r.project);
+      for (const row of r.rows as any[]) {
+        const nativeId = String(row?.id ?? row?.task_id ?? '');
+        const dedupeKey = nativeId + '|' + r.project;
+        if (!nativeId || seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+        tasks.push({
+          id: `ygl-trees:${nativeId}`,
+          source: 'ygl-trees' as const,
+          title: String(row.title ?? row.name ?? row.summary ?? '(untitled)'),
+          status: row.status === 'done' ? 'done' : (row.status === 'doing' || row.status === 'in_progress' ? 'doing' : 'todo'),
+          due: typeof row.due === 'string' && row.due ? row.due : null,
+          link: typeof row.link === 'string' && row.link ? row.link : null,
+          project: r.project,
+        });
+      }
+    }
+    if (capSkipped > 0) degradedProjects.push(`(cap-exceeded:${capSkipped} active projects beyond ${YGL_MAX_PROJECTS} not read)`);
+    if (budgetSkipped > 0) degradedProjects.push(`(budget-exhausted:${budgetSkipped} unread)`);
+    const fullyOk = degradedProjects.length === 0;
+    return { ok: fullyOk, tasks, latencyMs: Date.now() - t0, ...(degradedProjects.length ? { degradedProjects } : {}) };
+  })();
 }
 
 // 任务中心发布时冻结的录入数据里取截止日期：步骤值是 { value } 或裸值；空串/非字符串记 null
@@ -208,7 +273,7 @@ export async function collectTasks(sop: SopServiceLike): Promise<TasksPayload> {
   const payload: TasksPayload = {
     tasks: [...ygl.tasks, ...mktRows, ...changeRequestTasks(), ...(a2aSettled?.status === 'fulfilled' ? a2aSettled.value.tasks : [])], // S1 人审门入待办
     sources: {
-      'ygl-trees': { ok: ygl.ok, count: ygl.tasks.filter((t) => t.status !== 'done').length, latency_ms: ygl.latencyMs },
+      'ygl-trees': { ok: ygl.ok, count: ygl.tasks.filter((t) => t.status !== 'done').length, latency_ms: ygl.latencyMs, ...((ygl as any).degradedProjects?.length ? { degraded_projects: (ygl as any).degradedProjects } : {}) },
       market: { ok: true, count: mktRows.length, latency_ms: 0 },
       // count=在途数（对账口径）；源缺席（未配置 env）时无 a2a 键——降级只发生在已启用但失败时
       ...(a2aSettled ? { a2a: { ok: a2aSettled.status === 'fulfilled' && a2aSettled.value.ok, count: a2aSettled.status === 'fulfilled' ? a2aSettled.value.tasks.filter((t) => t.status !== 'done').length : 0, latency_ms: a2aSettled.status === 'fulfilled' ? a2aSettled.value.latencyMs : 0 } } : {}),
