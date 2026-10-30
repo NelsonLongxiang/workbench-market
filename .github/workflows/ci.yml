@@ -51,6 +51,8 @@ jobs:
         run: pnpm --filter web typecheck
       - name: server 语法核（esbuild）
         run: node scripts/check-server-syntax.mjs
+      - name: Verifier criterion65 portal call-chain mutations (synthetic snapshot only)
+        run: node scripts/portal-call-chain-test.mjs
       - name: Taskcenter B1 seed and intake publication
         run: node scripts/taskcenter-intake-smoke.mjs
       - name: SSRF 默认关闭与启动告警（隔离实例）
