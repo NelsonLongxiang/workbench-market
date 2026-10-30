@@ -51,8 +51,16 @@ let cache: { at: number; payload: TasksPayload } | null = null;
 /** 跨项目枚举常量（direct-c4c460a6）：并发、单项目超时、总预算、项目数上限 */
 const YGL_CONCURRENCY = 4;
 const YGL_PER_CALL_TIMEOUT_MS = 3_000;
-const YGL_TOTAL_BUDGET_MS = 8_000;
-const YGL_MAX_PROJECTS = 40;
+/** 项目数上限与总预算可经环境变量 YGL_MAX_PROJECTS / YGL_TOTAL_BUDGET_MS 覆盖（.156 现网 52 个 active 项目，旧上限 40 会跳过 12 个）；
+ *  缺省上限 200、总预算 8s；非整数或越界回落缺省。超限/超预算照旧在 degraded_projects 里如实上报，不静默截断。 */
+function envInt(name: string, def: number, min: number, max: number): number {
+  const raw = String(process.env[name] ?? '').trim();
+  if (!/^\d+$/.test(raw)) return def;
+  const n = Number(raw);
+  return n >= min && n <= max ? n : def;
+}
+const yglMaxProjects = () => envInt('YGL_MAX_PROJECTS', 200, 1, 10_000);
+const yglTotalBudgetMs = () => envInt('YGL_TOTAL_BUDGET_MS', 8_000, 500, 120_000);
 /** 项目名边界（direct-150a721a：无 shell 后 argv 传值天然安全，合法 Unicode 名必须支持——不限制业务命名凑安全）；仅防空/超长 */
 function yglProjectNameOk(name: string): boolean { return name.length >= 1 && name.length <= 128 && !name.includes('\0'); }
 
@@ -87,17 +95,18 @@ function execYglJson(args: string[], timeoutMs: number): Promise<{ ok: boolean; 
 
 function execYglTasks(): Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs: number; degradedProjects?: string[] }> {
   const t0 = Date.now();
+  const maxProjects = yglMaxProjects(), totalBudgetMs = yglTotalBudgetMs();
   return (async () => {
     // ① 枚举 active 项目（只读 project list，不改 selection）
     const projRes = await execYglJson(['project', 'list', '--json'], YGL_PER_CALL_TIMEOUT_MS);
     if (!projRes.ok || !Array.isArray(projRes.parsed)) return { ok: false, tasks: [], latencyMs: Date.now() - t0 };
     const allActive = (projRes.parsed as { name: string; status: string }[])
       .filter((x) => x && typeof x.name === 'string' && x.status === 'active');
-    const projects = allActive.slice(0, YGL_MAX_PROJECTS).map((x) => x.name);
-    const capSkipped = Math.max(0, allActive.length - YGL_MAX_PROJECTS);
+    const projects = allActive.slice(0, maxProjects).map((x) => x.name);
+    const capSkipped = Math.max(0, allActive.length - maxProjects);
 
     // ② 逐项目读（并发上限；单项目超时= min(3s, 剩余预算)——总预算不被超）
-    const deadline = t0 + YGL_TOTAL_BUDGET_MS;
+    const deadline = t0 + totalBudgetMs;
     const queue = [...projects];
     const results: { project: string; ok: boolean; rows: unknown[] }[] = [];
     async function worker() {
@@ -137,7 +146,7 @@ function execYglTasks(): Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs
         });
       }
     }
-    if (capSkipped > 0) degradedProjects.push(`(cap-exceeded:${capSkipped} active projects beyond ${YGL_MAX_PROJECTS} not read)`);
+    if (capSkipped > 0) degradedProjects.push(`(cap-exceeded:${capSkipped} active projects beyond ${maxProjects} not read)`);
     if (budgetSkipped > 0) degradedProjects.push(`(budget-exhausted:${budgetSkipped} unread)`);
     const fullyOk = degradedProjects.length === 0;
     return { ok: fullyOk, tasks, latencyMs: Date.now() - t0, ...(degradedProjects.length ? { degradedProjects } : {}) };
