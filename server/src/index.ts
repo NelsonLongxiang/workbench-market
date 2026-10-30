@@ -1683,6 +1683,20 @@ app.get('/api/sop/runs/active', wrap(async (_req, res) => {
 
 app.get('/api/stats', (_req, res) => { res.json(statsPayload()); });
 
+/** #275 过渡登录入口（#221 落地前）：挑一个可信 Odoo 台，走 /go/<id>/ 的 SSO v1 舞步并带 return 落回市场原页面。
+ *  先选 origin = LC_ODOO_URL 的台（生命周期只认这个 Odoo 的会话；session_id 按主机名跨端口共享，登别的 Odoo 会把它覆盖掉），
+ *  再选与请求同主机名的台；都没有返回 null，不盲选（别的主机名登完市场也拿不到 session_id） */
+function odooLoginUrl(req: express.Request, returnPath: string): string | null {
+  let host = '';
+  try { host = new URL(`http://${String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').split(',')[0].trim()}`).hostname.toLowerCase(); } catch { host = ''; }
+  const odoo = listWorkbenches().filter((w) => w.enabled && /^https?:\/\//i.test(w.url) && isOdooSessionTarget(w.url));
+  let lcOrigin = '';
+  try { lcOrigin = new URL(String(process.env.LC_ODOO_URL ?? '')).origin; } catch { lcOrigin = ''; }
+  const at = (w: { url: string }) => { try { return new URL(w.url); } catch { return null; } };
+  const pick = odoo.find((w) => lcOrigin && at(w)?.origin === lcOrigin) ?? odoo.find((w) => at(w)?.hostname.toLowerCase() === host);
+  return pick ? `/go/${pick.id}/?return=${encodeURIComponent(returnPath)}` : null;
+}
+
 // ---------- 统一待办（omni-inbox · 总工程师设计 9c5557c1c0）：只读聚合 ----------
 app.get('/api/tasks', wrap(async (req, res) => {
   const payload = await collectTasks(svc<SopService>('sop') as never);
@@ -1690,7 +1704,8 @@ app.get('/api/tasks', wrap(async (req, res) => {
   // 生命周期源按查看人（Odoo 会话）现查，不进 30s 共享缓存；响应随 Cookie 变，不许中间缓存
   const lc = await lifecycleSourceFor(String(req.headers.cookie ?? ''));
   res.setHeader('Cache-Control', 'private, no-store');
-  res.json({ ...payload, tasks: [...payload.tasks, ...lc.tasks], sources: { ...payload.sources, lifecycle: lc.meta } });
+  const meta = lc.meta.auth_required ? { ...lc.meta, login_url: odooLoginUrl(req, '/tasks') } : lc.meta;
+  res.json({ ...payload, tasks: [...payload.tasks, ...lc.tasks], sources: { ...payload.sources, lifecycle: meta } });
 }));
 
 // ---------- 生命周期审批（工作台 = lc 断言签发入口 workbench）：Odoo 会话确认登录名 → 为这一条 approve 现签断言 ----------
@@ -1702,7 +1717,7 @@ app.post('/api/lifecycle/approve', wrap(async (req, res) => {
 app.get('/api/lifecycle/board', wrap(async (req, res) => {
   const r = await lifecycleBoard(String(req.headers.cookie ?? ''), { pd: req.query.pd, as_of: req.query.as_of });
   res.setHeader('Cache-Control', 'private, no-store');
-  res.status(r.http).json(r.body);
+  res.status(r.http).json(r.http === 401 ? { ...r.body, login_url: odooLoginUrl(req, '/lifecycle') } : r.body);
 }));
 app.get('/api/lifecycle/status', wrap(async (req, res) => {
   if (!adminGuard(req, res)) return; // 配置清单不对远程匿名读开放（评审：只写面有远程门）
