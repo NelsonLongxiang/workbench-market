@@ -270,20 +270,21 @@ class BoardBoundary extends Component<{ children: ReactNode }, { error: Error | 
 const LOGIN_TRY_KEY = 'wm_lc_login_try';
 function LoginRequired({ payload, reload }: { payload: BoardPayload | null; reload: () => void }) {
   const href = payload?.login_url ? odooLoginHref(payload.login_url) : null;
-  const { open, polling, blocked } = useOdooPopupLogin(href, () => { try { sessionStorage.removeItem(LOGIN_TRY_KEY); } catch { /* 忽略 */ } reload(); });
+  const { open, polling, blocked, tokenHere, clearAndOpen } = useOdooPopupLogin(href, () => { try { sessionStorage.removeItem(LOGIN_TRY_KEY); } catch { /* 忽略 */ } reload(); });
   useEffect(() => {
-    if (!href) return;
+    if (!href || tokenHere) return; // #292 M4：有管理员口令的标签页不自动弹登录
     let last = 0;
     try { last = Number(sessionStorage.getItem(LOGIN_TRY_KEY) ?? 0); } catch { last = Date.now(); }
     if (Date.now() - last < 120_000) return;
     try { sessionStorage.setItem(LOGIN_TRY_KEY, String(Date.now())); } catch { return; }
     open();
-  }, [href, open]);
+  }, [href, open, tokenHere]);
   return (
     <Result status="403" title={polling ? '等待 Odoo 登录完成…（登录后本页自动刷新）' : '需要登录 Odoo'}
       subTitle={!href ? `${payload?.error ?? '未登录 Odoo'}；管理员尚未登记可信的 Odoo 工作台，无法自动跳转登录`
+        : tokenHere ? '本标签页存着管理员口令，登录弹窗会复制它：先清除口令再登录，或另开一个标签页登录'
         : blocked ? '浏览器拦截了登录弹窗，请点下面的按钮打开' : (payload?.error ?? '点击按钮在弹窗完成 Odoo 登录')}
-      extra={<Space>{href && <Button type="primary" onClick={open}>在弹窗登录 Odoo</Button>}<Button onClick={reload}>重试</Button></Space>} />
+      extra={<Space>{href && !tokenHere && <Button type="primary" onClick={open}>在弹窗登录 Odoo</Button>}{href && tokenHere && <Button type="primary" onClick={clearAndOpen}>清除口令并登录</Button>}<Button onClick={reload}>重试</Button></Space>} />
   );
 }
 

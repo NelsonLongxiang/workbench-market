@@ -10,6 +10,31 @@ jobs:
       - name: Synthetic Odoo operator guards (no credentials or network)
         shell: pwsh
         run: ./scripts/ops/odoo-readonly-preflight-test.ps1
+  browser-security:
+    # #292 M4 真实浏览器反例：有口令不嵌 /go/、跳出清口令、登录弹窗不复制口令且无 opener（bfcache 未命中记 SKIP）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pnpm install --frozen-lockfile
+      - name: Playwright（Python）+ Chromium
+        run: |
+          python -m pip install playwright==1.57.0
+          python -m playwright install --with-deps chromium
+      - run: pnpm --filter web build
+      - name: 管理员口令浏览器反例
+        env:
+          PYTHON: python
+        run: node scripts/admin-token-browser.mjs
   tsc-and-syntax:
     runs-on: ubuntu-latest
     steps:

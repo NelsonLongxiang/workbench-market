@@ -59,7 +59,7 @@ function AdminTokenBadge() {
         <div style={{ width: 260 }}>
           <AInput.Password
             defaultValue={val}
-            placeholder="ADMIN_TOKEN（仅本标签页；离开或刷新本页即失效）"
+            placeholder="ADMIN_TOKEN（仅本页；刷新或在本标签页跳出后需重输）"
             onChange={(e) => setVal(e.target.value)}
           />
           <div style={{ marginTop: 8, textAlign: 'right' }}>
