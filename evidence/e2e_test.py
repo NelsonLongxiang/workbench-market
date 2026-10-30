@@ -898,7 +898,7 @@ with sync_playwright() as p:
         af = _sp3.run(['node', 'scripts/appfiles-smoke.mjs'], capture_output=True, text=True, timeout=240,
                       cwd=_os4.path.join(_os4.path.dirname(_os4.path.abspath(__file__)), '..'))
         assert af.returncode == 0, f'appfiles-smoke 失败:\n{af.stdout[-500:]}\n{af.stderr[-300:]}'
-        assert '14 通过' in af.stdout, f'appfiles-smoke 计数异常: {af.stdout[-200:]}'
+        assert '17 通过' in af.stdout, f'appfiles-smoke 计数异常: {af.stdout[-200:]}'
         # C12: MCP 上游聚合（GH #20 P2：taste__* 并入 /mcp）——独立实例 + 假上游冒烟
         up = _sp3.run(['node', 'scripts/upstream-smoke.mjs'], capture_output=True, text=True, timeout=180,
                       cwd=_os4.path.join(_os4.path.dirname(_os4.path.abspath(__file__)), '..'))
@@ -1085,7 +1085,7 @@ with sync_playwright() as p:
             capture_output=True, text=True, timeout=180,
             cwd=_os2.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
         assert smoke.returncode == 0, f'a2a-smoke 失败:\n{smoke.stdout[-600:]}\n{smoke.stderr[-300:]}'
-        assert '35 通过' in smoke.stdout, f'a2a-smoke 计数异常: {smoke.stdout[-200:]}'
+        assert '36 通过' in smoke.stdout, f'a2a-smoke 计数异常: {smoke.stdout[-200:]}'
         record('A2A 网络接入 P1（卡片签名/人工绑定/上卡规则/direct 不泄露）', True)
     except Exception as e:
         record('A2A 网络接入 P1', False, str(e)); shot('a2a-p1')
