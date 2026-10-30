@@ -106,7 +106,7 @@ GET              /api/health                    版本与运行时长
   - 控制面不提供 `/go/`、`/sop/`、`/apps/`、`/mcp`、`/a2a/*`（404），响应带 `frame-ancestors 'none'` 与 `X-Frame-Options: DENY`；使用页、驾驶舱、`/lifecycle`、`/tasks` 在控制面上自动跳回业务面同 path。
   - 业务面顶栏不再有口令输入，改为「管理控制面」链接（同 path）；业务面启动时清掉旧版本留在浏览器里的口令。管理员把书签从 `:9800/<path>` 改成 `:9801/<path>` 即可。
 - 本机 CLI（回环直连、**不带** `Origin`/`Sec-Fetch-Site`、**没有** `X-Forwarded-For`/`Forwarded`/`X-Real-IP`）照旧免口令；逐路由自带 `adminGuard` 的写接口仍要口令。同机反代转进来的请求按远程处理。Node 自带 `fetch` 只发 `sec-fetch-mode`，按 CLI 算。
-- web dev（vite 5173）：Origin 为本机 dev 源且本机直连时视同控制面（仍要口令）。
+- web dev（vite 5173）：**默认关闭**；只有显式开启（`pnpm dev` 自带的 `--dev-origin` 启动参数，或 `WM_DEV_ORIGIN=1`）时，Origin 为本机 dev 源且本机直连的请求视同控制面（仍要口令）。生产 `pnpm start` / 容器不开。
 - **远程节点**（非 loopback）：写请求只放 `/mcp`、`.well-known/agent-card.json`、`/a2a/direct`，以及**自产台数据/文件面**（`POST /api/apps/<slug>/data`、`/files`）——应用层写与发布面同口径（远程浏览器提交表单不会被 403）。
 - 控制面（`/api/mcp/*` 会话令牌、SOP 绑定、工作台 CRUD）的远程写一律要 `X-Admin-Token`（未设置则 403）。
 - **读面不拦**：远程 agent 用 `GET /api/apps/<slug>/data`、`/files` 直接读提交数据（掩码策略只作用于凭据，不作用于业务数据）。
