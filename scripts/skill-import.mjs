@@ -6,7 +6,7 @@
  *  判据先红：--selftest 跑导入判据族（导入器未实现时红）。 */
 import { fileURLToPath } from 'node:url';
 import { readdirSync, readFileSync, statSync, existsSync, writeFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 
 const args = process.argv.slice(2);
@@ -18,6 +18,9 @@ const DRY = args.includes('--dry-run') || SELFTEST;
 const AGENTS_SKILLS = process.env.SKILL_SRC_A ?? 'C:/Users/Administrator/.agents/skills';
 // (relocated) { fileURLToPath as _fu2 } from 'node:url';
 const JF_ROOT = process.env.SKILL_SRC_B ?? fileURLToPath(new URL('../../jf-tech-expert-agents', import.meta.url)); // 相对化（隐私门红线）
+const DSH_SKILLS = process.env.SKILL_SRC_C ?? 'C:/Users/Administrator/.dsh/skills'; // 源 C：DSH 平台技能（开发运维层）
+/** 快照根与 DB 同 DATA_DIR（#94 S4 隔离语义对齐：隔离实例的导入不再落产库快照目录；缺省=server/data 不变） */
+const SNAP_ROOT = join(process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : join(REPO_ROOT, 'server/data'), 'skill-snapshots');
 
 // ---- 工具 ----
 /** 目录或指向目录的 junction/符号链接（readdirSync dirent.isDirectory 对链接返 false） */
@@ -76,6 +79,21 @@ function scanAgentsSkills() {
   }
   return rows;
 }
+// ---- 源 C 扫描（.dsh/skills：DSH 平台技能）----
+function scanDshSkills() {
+  const rows = [];
+  if (!existsSync(DSH_SKILLS)) return rows;
+  for (const d of readdirSync(DSH_SKILLS, { withFileTypes: true })) {
+    if (d.name === '_templates') continue; // 模板骨架不是技能
+    if (!d.isDirectory() && !isDirLike(join(DSH_SKILLS, d.name))) continue; // junction/符号链接目录也算（ponytail 族）
+    const sk = join(DSH_SKILLS, d.name, 'SKILL.md');
+    if (!existsSync(sk)) continue;
+    const fm = parseFrontmatter(readFileSync(sk, 'utf8'));
+    if (!fm || !fm.name) { rows.push({ dir: d.name, skipped: 'no-frontmatter' }); continue; }
+    rows.push({ dir: d.name, name: fm.name, description: String(fm.description ?? ''), argumentHint: fm['argument-hint'] ?? '', author: fm.metadata?.author ?? '' });
+  }
+  return rows;
+}
 // ---- 源 B 导入（jf）----
 function scanJfSkills() {
   const root = join(JF_ROOT, '.agents', 'skills');
@@ -113,12 +131,14 @@ function scanJfBundles() {
 async function selftest() {
   let pass = 0, fail = 0;
   const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
-  const A = scanAgentsSkills(); const B = scanJfSkills(); const bundles = scanJfBundles();
+  const A = scanAgentsSkills(); const B = scanJfSkills(); const C = scanDshSkills(); const bundles = scanJfBundles();
   ok('源 A 扫描出技能（>40 严格解析）', A.filter((r) => r.name).length > 40, `解析=${A.filter((r) => r.name).length}/目录=${A.length}`);
   ok('源 A 未解析项有 skip 报告（宽 frontmatter 变体待 P0-b 人审）', A.some((r) => r.skipped));
   ok('源 A frontmatter 字段吸收（name/description）', A.some((r) => r.name && r.description));
   ok('源 A 跳过项有报告', Array.isArray(A));
   ok('源 B 目录扫描在案（frontmatter 变体走 skip 报告，P0-b 登记路径）', B.length >= 5 && Array.isArray(B), `目录=${B.length} 解析=${B.filter((r) => r.name).length}`);
+  ok('源 C 扫描出 DSH 平台技能（>20 严格解析）', C.filter((r) => r.name).length > 20, `解析=${C.filter((r) => r.name).length}/目录=${C.length}`);
+  ok('源 C _templates 不入列', !C.some((r) => r.dir === '_templates'));
   ok('源 B 角色束收编（apollo/dionysus）', bundles.some((b) => /apollo|dionysus/i.test(b.memberName ?? '')), JSON.stringify(bundles.map((b) => b.memberName)));
   ok('角色束 roster_digest 吸收', bundles.every((b) => !b.packId || b.rosterDigest !== ''));
   ok('treeDigest 确定性（同目录两次一致）', (() => { const a = treeDigest(AGENTS_SKILLS + '/brand'); const b = treeDigest(AGENTS_SKILLS + '/brand'); return a.digest === b.digest && a.fileCount > 0; })());
@@ -135,8 +155,8 @@ const { svc } = await import('../server/src/context.ts');
 await new Promise((r) => setTimeout(r, 400));
 const S = svc('skill');
 if (!S) { console.error('skill 服务未就绪'); process.exit(1); }
-const LAYER = { A: 5, B: 1 };
-const report = { a: { imported: 0, skipped: [] }, b: { imported: 0, skipped: [] }, bundles: 0, digests: [] };
+const LAYER = { A: 5, B: 1, C: 2 }; // 源级赋层：agents→5 AI原生运营 / jf→1 业务角色 / dsh→2 开发运维（WM-SKILL-SRC-LAYER-1）
+const report = { a: { imported: 0, skipped: [] }, b: { imported: 0, skipped: [] }, c: { imported: 0, skipped: [] }, bundles: 0, digests: [] };
 if (!DRY) {
   for (const r of scanAgentsSkills()) {
     if (!r.name) { report.a.skipped.push(r.dir); continue; }
@@ -148,11 +168,25 @@ if (!DRY) {
     const ver = (S.versionsMax(row.id)?.v ?? 0) + 1;
     // 快照落盘（方案 §1 P0-b 语义前置到种子导入：首版即快照）
     const { cpSync, mkdirSync } = await import('node:fs');
-    const snapDir = join(REPO_ROOT, 'server/data/skill-snapshots', encodeURIComponent(r.name), `v${ver}`); // S0⑦ 锚定
+    const snapDir = join(SNAP_ROOT, encodeURIComponent(r.name), `v${ver}`); // S0⑦ 锚定 + DATA_DIR 对齐
     // cpSync(dereference) 自带建目录（junction 源复制内容非链接）
     cpSync(join(AGENTS_SKILLS, r.dir), snapDir, { recursive: true, dereference: true }); // junction 源复制内容（drawio-skill 实测）
     S.versionInsert({ skillId: row.id, version: ver, changelog: `import ${new Date().toISOString().slice(0, 10)}`, treeDigest: t.digest, fileCount: t.fileCount, totalBytes: t.totalBytes, snapshotPath: snapDir, reviewedBy: 'importer' });
     report.a.imported++;
+  }
+  for (const r of scanDshSkills()) {
+    if (!r.name) { report.c.skipped.push(r.dir); continue; }
+    const t = treeDigest(join(DSH_SKILLS, r.dir));
+    S.upsertSkill({ slug: `dsh:${r.name}`, name: r.name, layer: LAYER.C, layerName: '开发运维层', description: r.description, argumentHint: r.argumentHint, author: r.author, source: 'dsh-skills' });
+    const row = S.skillBySlug(`dsh:${r.name}`);
+    const exist = S.versionsBySkill(row.id)[0];
+    if (exist?.tree_digest === t.digest) continue;
+    const ver = (S.versionsMax(row.id)?.v ?? 0) + 1;
+    const { cpSync } = await import('node:fs');
+    const snapDir = join(SNAP_ROOT, encodeURIComponent(r.name), `v${ver}`);
+    cpSync(join(DSH_SKILLS, r.dir), snapDir, { recursive: true, dereference: true }); // junction 源复制内容（ponytail 族同 drawio-skill 先例）
+    S.versionInsert({ skillId: row.id, version: ver, changelog: `import ${new Date().toISOString().slice(0, 10)}`, treeDigest: t.digest, fileCount: t.fileCount, totalBytes: t.totalBytes, snapshotPath: snapDir, reviewedBy: 'importer' });
+    report.c.imported++;
   }
   for (const r of scanJfSkills()) {
     if (!r.name) { // markdown 标题式变体：legacy 元数据登记（方案「遗产只登记不快照」）
@@ -173,4 +207,4 @@ if (!DRY) {
   }
 }
 writeFileSync(join(REPO_ROOT, 'tmp/skill-import-report.json'), JSON.stringify(report, null, 2)); // S0⑦ 锚定
-console.log(`导入完成（dry=${DRY}）：A=${report.a.imported} B=${report.b.imported} bundles=${report.bundles} 跳过=${report.a.skipped.length + report.b.skipped.length}`);
+console.log(`导入完成（dry=${DRY}）：A=${report.a.imported} C=${report.c.imported} B=${report.b.imported} bundles=${report.bundles} 跳过=${report.a.skipped.length + report.b.skipped.length + report.c.skipped.length}`);
