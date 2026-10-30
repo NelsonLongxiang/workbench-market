@@ -51,7 +51,10 @@ export function useOdooPopupLogin(href: string | null, onDone: () => void) {
     // 不复用命名窗口：旧窗口可能已停在别的源，既切不断 opener 也读不到；每次新开空白页再跳转
     const w = window.open('about:blank', '_blank', 'popup,width=520,height=680');
     if (w) {
-      try { w.opener = null; } catch { /* 忽略 */ }
+      try { w.opener = null; } catch { /* 下面按结果判 */ }
+      let cut = false;
+      try { cut = w.opener === null; } catch { cut = false; }
+      if (!cut) { try { w.close(); } catch { /* 忽略 */ } popupRef.current = null; setBlocked(false); setPolling(false); return false; } // 切不断 opener 就不跳转
       try { w.location.replace(href); } catch { w.location.href = href; }
     }
     popupRef.current = w;
