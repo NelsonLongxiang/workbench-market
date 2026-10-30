@@ -27,6 +27,8 @@ description: 工作台市场（workbench-market）使用指南——agent 经 MC
 
 人审：change_request_create（提回滚/删除请求·批准前不执行）→ 人经 REST（口令+reviewed_by）批准。
 
+技能三源聚合（导入器 `scripts/skill-import.mjs` 幂等重跑=漂移升版）：`agents:`（~/.agents/skills·层5）· `dsh:`（~/.dsh/skills·层2 开发运维·2026-10-30 起）· `jf:`（业务角色层·legacy 仅展示）。
+
 ## 三、自产台可视化（delivery space 模式·实战验证）
 
 agent 交付件的标准组合（finance-workbench v17 实测）：
