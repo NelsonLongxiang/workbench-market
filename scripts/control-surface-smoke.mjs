@@ -19,6 +19,7 @@ function boot(tag, extraEnv) {
   const env = { ...process.env, MCP_GATEWAY: '', PORT: String(port), DATA_DIR: data, ...extraEnv };
   for (const k of ['LC_YGL_BIN', 'LC_YGL_HOME', 'LC_WORKBENCH_KEY_FILE', 'LC_ODOO_URL', 'WM_ODOO_ORIGINS']) delete env[k];
   if (!('ADMIN_TOKEN' in extraEnv)) delete env.ADMIN_TOKEN;
+  if (!('WM_DEV_ORIGIN' in extraEnv)) delete env.WM_DEV_ORIGIN;
   if (!('WM_CONTROL_PORT' in extraEnv)) delete env.WM_CONTROL_PORT; // 用缺省：业务端口 + 1
   const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });
   let err = ''; child.stderr.on('data', (c) => (err += c));
@@ -64,7 +65,7 @@ try {
   r = await http(A.control, 'POST', '/api/workbenches', { origin: M, 'x-admin-token': TOK }, wb(6));
   ok('控制面收到业务面 Origin（跨源）+ 口令 → 403', r.status === 403, `${r.status}`);
   r = await http(A.port, 'POST', '/api/workbenches', { origin: 'http://localhost:5173', 'x-admin-token': TOK }, wb(7));
-  ok('web dev 源（vite 5173，本机直连）+ 口令 → 201（开发保留）', r.status === 201, `${r.status} ${JSON.stringify(r.body)}`);
+  ok('web dev 源（vite 5173）+ 口令：默认（未开 --dev-origin）→ 403', r.status === 403, `${r.status} ${JSON.stringify(r.body)}`);
 
   console.log('本机 CLI 与反代');
   r = await http(A.port, 'POST', '/api/workbenches', {}, wb(8));
@@ -111,6 +112,20 @@ try {
   ok('新口令在控制面生效 → 201', r.status === 201, `${r.status}`);
   r = await http(B.port, 'GET', '/api/admin-token/state', { origin: MB });
   ok('业务面 state.settable=false', r.body?.settable === false, JSON.stringify(r.body));
+
+  console.log('web dev 来源例外（显式开启）');
+  const D = boot('d', { ADMIN_TOKEN: TOK, WM_DEV_ORIGIN: '1', NODE_ENV: 'production' });
+  await up(D.port);
+  r = await http(D.port, 'POST', '/api/workbenches', { origin: 'http://localhost:5173', 'x-admin-token': TOK }, wb(14));
+  ok('WM_DEV_ORIGIN=1：vite 5173 源 + 口令 → 201', r.status === 201, `${r.status} ${JSON.stringify(r.body)}`);
+  r = await http(D.port, 'POST', '/api/workbenches', { origin: 'http://localhost:5173' }, wb(15));
+  ok('WM_DEV_ORIGIN=1：vite 5173 源不带口令 → 403（例外只免面、不免口令）', r.status === 403, `${r.status}`);
+  r = await http(D.port, 'POST', '/api/workbenches', { origin: 'http://localhost:5173', 'x-admin-token': TOK, 'x-forwarded-for': '10.0.0.8' }, wb(16));
+  ok('WM_DEV_ORIGIN=1：带转发头（非本机直连）→ 403', r.status === 403, `${r.status}`);
+  const P = boot('p', { ADMIN_TOKEN: TOK, NODE_ENV: 'production' });
+  await up(P.port);
+  r = await http(P.port, 'POST', '/api/workbenches', { origin: 'http://localhost:5173', 'x-admin-token': TOK }, wb(17));
+  ok('NODE_ENV=production、未开例外：vite 5173 源 + 口令 → 403', r.status === 403, `${r.status}`);
 
   console.log('控制面关闭（WM_CONTROL_PORT=0）');
   const Z = boot('z', { ADMIN_TOKEN: TOK, WM_CONTROL_PORT: '0' });

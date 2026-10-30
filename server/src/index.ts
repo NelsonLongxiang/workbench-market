@@ -2458,9 +2458,13 @@ function adminGuard(req: express.Request, res: express.Response): boolean {
   return true;
 }
 
-/** web dev（vite 5173 经代理转 /api）：Origin 是白名单里的本机 dev 源、且本机直连时，视同控制面（只给开发用） */
+/** web dev（vite 5173 经代理转 /api）：Origin 是白名单里的本机 dev 源、且本机直连时，视同控制面。
+ *  **默认关闭**，只在显式开启时生效：启动参数 `--dev-origin`（`pnpm dev` 已带）或环境变量 `WM_DEV_ORIGIN=1`；
+ *  生产 `pnpm start` / 容器不带，5173 来源的管理写一律 403（评审席 #294 ee13ad9：曾在 production 下 201）。 */
+const DEV_ORIGIN_ENABLED = process.argv.includes('--dev-origin') || process.env.WM_DEV_ORIGIN === '1';
+if (DEV_ORIGIN_ENABLED) console.warn('[surfaces] 已开启 web dev 来源例外（--dev-origin / WM_DEV_ORIGIN=1）：本机 vite 5173 页面可凭口令做管理写；生产不要开');
 function devOriginOk(req: express.Request): boolean {
-  return CORS_ALLOW.has(String(req.headers.origin ?? '')) && rawLoopback(req);
+  return DEV_ORIGIN_ENABLED && CORS_ALLOW.has(String(req.headers.origin ?? '')) && rawLoopback(req);
 }
 
 // #159 M3 B2（决策 #010）：任务中心——同源门（C1/C9/C10 三态）+ 状态迁移（恰一条事件）+ 8 端点
