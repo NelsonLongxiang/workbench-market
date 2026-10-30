@@ -13,7 +13,7 @@ import { join, posix } from 'node:path';
 import { svc } from './context.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { CookieService } from './services/cookie.ts';
-import { isOdooSessionTarget, odooSessionOf, stripOdooSession } from './odoo-session.ts';
+import { isOdooSessionTarget, odooSessionOf, safeReturnPath, stripOdooSession } from './odoo-session.ts';
 
 
 export const goPrefix = /^\/go\/(\d+)(.*)$/;
@@ -97,21 +97,34 @@ export function installPortal(
         const stMatch = new RegExp('(?:^|;\\s*)' + stateCookie + '=([^;\\s]+)').exec(browserCookies);
         const _qs = new URLSearchParams(String(req.originalUrl ?? req.url ?? '').split('?')[1] ?? '');
         const backState = _qs.get('state') ?? '';
+        // #275 过渡登录入口（#221 落地前）：?return=<本站 path> 走完 Odoo 登录后落回市场原页面，不进 Odoo 台。
+        // 带 return 时总是经 Odoo /web/login：已登录的 Odoo 会话会被直接 303 回来（幂等直通），失效会话则出登录页——不会循环
+        const retCookie = `wm_sso_ret_${m[1]}`;
+        const ret = backState ? null : safeReturnPath(_qs.get('return'));
         // #170 P1④（安全项）：回跳经市场且 state 校验——不匹配 400 拒（CSRF/open-redirect 防线）；匹配即消费
         if (backState) {
           if (!stMatch || stMatch[1] !== backState) return res.status(400).type('text').send('SSO state 校验失败（请从市场门户重新进入）');
           res.clearCookie(stateCookie, { path: `/go/${m[1]}/` });
           res.cookie(`wm_sso_ok_${m[1]}`, '1', { httpOnly: true, sameSite: 'lax', path: `/go/${m[1]}/`, maxAge: 12 * 3600 * 1000 }); // #170 P10
+          const rtMatch = new RegExp('(?:^|;\\s*)' + retCookie + '=([^;\\s]+)').exec(browserCookies);
+          if (rtMatch) {
+            res.clearCookie(retCookie, { path: `/go/${m[1]}/` });
+            let back: string | null = null;
+            try { back = safeReturnPath(decodeURIComponent(rtMatch[1])); } catch { back = null; }
+            if (back) return res.redirect(302, back);
+          }
           const u2 = new URL(String(req.originalUrl ?? req.url ?? ''), 'http://x');
           u2.searchParams.delete('state');
           req.url = (u2.pathname || '/') + (u2.search ? u2.search : '');
         }
-        if (!sid) {
+        if (!sid || ret) {
           const state = randomUUID();
           const _mkHost = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').trim();
           const _mkProto = (String(req.headers['x-forwarded-proto'] ?? '').includes('https') || req.secure) ? 'https' : 'http';
           const redirectUri = encodeURIComponent(`${_mkProto}://${_mkHost}/go/${m[1]}/?state=${state}`); // #170 P8 绝对回跳 // 回跳经市场（带 state·不裸跳目标域）
           res.cookie(stateCookie, state, { httpOnly: true, sameSite: 'lax', path: `/go/${m[1]}/`, maxAge: 10 * 60 * 1000 });
+          if (ret) res.cookie(retCookie, ret, { httpOnly: true, sameSite: 'lax', path: `/go/${m[1]}/`, maxAge: 10 * 60 * 1000 }); // express 按 encodeURIComponent 写，回跳时解一次
+          else res.clearCookie(retCookie, { path: `/go/${m[1]}/` });
           return res.redirect(302, `${u.origin}/web/login?redirect=${redirectUri}&state=${state}`);
         }
         const okCookie = `wm_sso_ok_${m[1]}`;
