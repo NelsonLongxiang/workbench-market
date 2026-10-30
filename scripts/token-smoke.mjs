@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
+import { writeLegacyTokenFixture } from './token-smoke-db.mjs';
 
 const PORT = Number(process.env.TK_PORT) > 0 ? Number(process.env.TK_PORT) : 20000 + Math.floor(Math.random() * 20000); // E2E 内并发避端口撞
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -38,7 +39,10 @@ try {
   // ① 首次设置口令 → 加盐存储
   let r = await call('PUT', '/api/admin-token', { token: 'abcd-strong-1234' });
   ok('设置口令 200', r.status === 200);
-  const row = new DatabaseSync(DB, { readOnly: true }).prepare("SELECT value FROM settings WHERE key='admin_token_sha256'").get();
+  const readDb = new DatabaseSync(DB, { readOnly: true });
+  let row;
+  try { row = readDb.prepare("SELECT value FROM settings WHERE key='admin_token_sha256'").get(); }
+  finally { readDb.close(); }
   ok('存储为加盐格式 salt$hash', typeof row?.value === 'string' && /^[0-9a-f]{32}\$[0-9a-f]{64}$/.test(row.value), row?.value);
   ok('库内不含明文', !String(row?.value ?? '').includes('abcd-strong-1234'));
   // ② 出口剔除：settings / export 不得出现哈希
@@ -63,9 +67,8 @@ try {
   ok('旧口令失效 403', r.status === 403);
   // ⑤ 旧无盐格式兼容（模拟迁移前数据）
   const legacy = createHash('sha256').update('legacy-pass', 'utf8').digest('hex');
-  const db = new DatabaseSync(DB);
-  db.prepare("UPDATE settings SET value=? WHERE key='admin_token_sha256'").run(legacy);
-  db.close();
+  // Test server may be writing concurrently: bounded SQLite wait, never swallow SQLITE_BUSY.
+  writeLegacyTokenFixture(DB, legacy);
   r = await call('GET', '/api/mcp/tools', null, { 'X-Admin-Token': 'legacy-pass' });
   ok('旧无盐格式仍可验证（兼容）', r.status === 200, String(r.status));
   // ⑥ 清除需当前口令
