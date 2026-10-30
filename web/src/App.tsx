@@ -22,7 +22,7 @@ import UseWorkbench from './pages/UseWorkbench';
 import Cockpit from './pages/Cockpit';
 import Sops from './pages/Sops';
 import McpGateways from './pages/McpGateways';
-import { getAdminToken, setAdminToken } from './admin-token';
+import { adminTokenPresent, getAdminToken, setAdminToken, subscribeAdminToken } from './admin-token';
 import { Badge, Button as AButton, Input as AInput, Popover } from 'antd';
 import Tasks from './pages/Tasks';
 import Lifecycle from './pages/Lifecycle';
@@ -48,7 +48,7 @@ const menuRoutes = {
 function AdminTokenBadge() {
   const [open, setOpen] = React.useState(false);
   const [val, setVal] = React.useState(getAdminToken());
-  const saved = getAdminToken() !== '';
+  const saved = React.useSyncExternalStore(subscribeAdminToken, adminTokenPresent); // GoFrame 里清除口令时同步
   return (
     <Popover
       open={open}
@@ -59,7 +59,7 @@ function AdminTokenBadge() {
         <div style={{ width: 260 }}>
           <AInput.Password
             defaultValue={val}
-            placeholder="ADMIN_TOKEN（会话级存储，关闭浏览器即失效）"
+            placeholder="ADMIN_TOKEN（仅本页；刷新或在本标签页跳出后需重输）"
             onChange={(e) => setVal(e.target.value)}
           />
           <div style={{ marginTop: 8, textAlign: 'right' }}>
