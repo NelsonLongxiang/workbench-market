@@ -49,6 +49,12 @@ try {
   ok('127.0.0.1:9800 页面（业务面 Origin）发管理写 → 403，指向控制面', r.status === 403 && r.body?.control_surface_required === true && r.body?.control_url === C, `${r.status} ${JSON.stringify(r.body)}`);
   r = await http(A.port, 'POST', '/api/workbenches', { origin: M, 'x-admin-token': TOK }, wb(2));
   ok('业务面带对口令也拒（口令不该出现在业务面）', r.status === 403 && r.body?.control_surface_required === true, `${r.status}`);
+  for (const v of ['/API/workbenches', '/Api/Workbenches', '/API/WORKBENCHES']) {
+    r = await http(A.port, 'POST', v, { origin: M }, wb('c' + v));
+    ok(`业务面浏览器大写变体 ${v} 无口令 → 403`, r.status === 403, `${r.status}`);
+    r = await http(A.port, 'POST', v, { origin: M, 'x-admin-token': TOK }, wb('t' + v));
+    ok(`业务面浏览器大写变体 ${v} 带口令 → 403`, r.status === 403, `${r.status}`);
+  }
   r = await http(A.port, 'POST', '/api/workbenches', { 'sec-fetch-site': 'same-origin' }, wb(3));
   ok('只有 Sec-Fetch-Site、没有 Origin 也算浏览器 → 403', r.status === 403, `${r.status}`);
   r = await http(A.control, 'POST', '/api/workbenches', { origin: C, 'x-admin-token': TOK }, wb(4));
@@ -67,6 +73,8 @@ try {
   ok('本机 Node fetch（自带 sec-fetch-mode: cors、无 Origin）不带口令 → 201', r.status === 201, `${r.status} ${JSON.stringify(r.body)}`);
   r = await http(A.port, 'POST', '/api/workbenches', { 'x-forwarded-for': '10.0.0.8' }, wb(9));
   ok('本机但带 X-Forwarded-For（同机反代转进来）不带口令 → 403', r.status === 403, `${r.status}`);
+  r = await http(A.port, 'POST', '/API/workbenches', { 'x-forwarded-for': '10.0.0.8' }, wb('9u'));
+  ok('同上大写路径不带口令 → 403', r.status === 403, `${r.status}`);
   r = await http(A.port, 'POST', '/api/workbenches', { 'x-forwarded-for': '10.0.0.8', 'x-admin-token': TOK }, wb(10));
   ok('同上带口令 → 201（远程 CLI 照旧凭口令）', r.status === 201, `${r.status}`);
 
@@ -77,8 +85,8 @@ try {
   ok('业务面 /api/lifecycle/approve 不被总门拦（仍由自身只读 503）', !r.body?.control_surface_required, `${r.status}`);
 
   console.log('控制面围栏');
-  for (const p of ['/go/1/', '/sop/x/', '/apps/x/', '/mcp']) {
-    r = await http(A.control, p === '/mcp' ? 'POST' : 'GET', p);
+  for (const p of ['/go/1/', '/sop/x/', '/apps/x/', '/mcp', '/MCP', '/A2A/direct', '/a2a/direct', '/GO/1/', '/Sop/x/', '/APPS/x/']) {
+    r = await http(A.control, /mcp|a2a/i.test(p) ? 'POST' : 'GET', p);
     ok(`控制面 ${p} → 404`, r.status === 404, `${r.status}`);
   }
   r = await http(A.control, 'GET', '/api/health');
