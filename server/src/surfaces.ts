@@ -13,20 +13,31 @@ export type SurfaceName = 'market' | 'control' | (string & {});
 type Registered = { name: SurfaceName; port: number; server: Server };
 const surfaces: Registered[] = [];
 
-/** 读端口配置：WM_CONTROL_PORT 缺省 9801；'0' 或与业务端口相同 → 关闭控制面（此时浏览器管理写全部拒绝，只能走本机 CLI） */
+/** 读端口配置：WM_CONTROL_PORT 缺省 = 业务端口 + 1（生产 9800 → 9801；测试随机端口不会撞在一起）；
+ *  '0' 或与业务端口相同 → 关闭控制面（此时浏览器管理写全部拒绝，只能走本机 CLI） */
 export function surfacePorts(env: NodeJS.ProcessEnv = process.env): { market: number; control: number | null } {
   const market = Number(env.PORT) || 9800;
   const raw = String(env.WM_CONTROL_PORT ?? '').trim();
-  const n = raw === '' ? 9801 : Number(raw);
+  const n = raw === '' ? market + 1 : Number(raw);
   const control = Number.isInteger(n) && n > 0 && n < 65536 && n !== market ? n : null;
   return { market, control };
 }
 
-/** 在 port 上挂一个面（同一个 app）；返回 server，调用方自己挂 upgrade / close */
-export function registerSurface(app: Express, name: SurfaceName, port: number, onListen?: () => void): Server {
+/** 在 port 上挂一个面（同一个 app）；返回 server，调用方自己挂 upgrade / close。
+ *  host 可选：只监听该地址（如内容面绑专用内容 IP）；缺省与原来一样监听全部接口。
+ *  判面仍只看 localPort，所以同一端口不能在两个地址上注册成不同的面。 */
+export function registerSurface(app: Express, name: SurfaceName, port: number, onListen?: () => void, host?: string): Server {
   if (surfaces.some((s) => s.port === port)) throw new Error(`端口 ${port} 已注册为面 ${surfaces.find((s) => s.port === port)!.name}`);
-  const server = app.listen(port, onListen);
+  const server = host ? app.listen(port, host, onListen) : app.listen(port, onListen);
   surfaces.push({ name, port, server });
+  if (name !== 'market') {
+    // 附属面绑不上（端口被占等）：告警并撤销该面，业务面照常；控制面缺席时浏览器管理写一律拒绝（fail closed）
+    server.on('error', (e) => {
+      console.warn(`[surfaces] 面 ${name} 监听 ${host ?? '*'}:${port} 失败，已撤销：${String((e as Error)?.message ?? e)}`);
+      const i = surfaces.findIndex((x) => x.server === server);
+      if (i >= 0) surfaces.splice(i, 1);
+    });
+  }
   return server;
 }
 
@@ -43,10 +54,11 @@ export function allSurfaceServers(): Server[] {
   return surfaces.map((s) => s.server);
 }
 
-/** 浏览器标记：现代浏览器的非 GET/HEAD 请求一律带 Origin；Sec-Fetch-* 只在 https/回环时有，作补充 */
+/** 浏览器标记：现代浏览器的非 GET/HEAD 请求一律带 Origin；Sec-Fetch-Site 只在 https/回环时有，作补充。
+ *  不看 Sec-Fetch-Mode：Node 自带 fetch（undici）默认发 `sec-fetch-mode: cors`，会把本机脚本误判成浏览器。 */
 export function browserMarked(req: IncomingMessage): boolean {
   const h = req.headers;
-  return h.origin !== undefined || h['sec-fetch-site'] !== undefined || h['sec-fetch-mode'] !== undefined;
+  return h.origin !== undefined || h['sec-fetch-site'] !== undefined;
 }
 
 /** 经过（同机）反代：带 X-Forwarded-For / Forwarded / X-Real-IP 的一律不算本机直连 */
