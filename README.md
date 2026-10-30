@@ -15,7 +15,7 @@ pnpm build            # 构建前端 → web/dist，由 server 同端口托管
 pnpm start            # 生产模式（只跑 server，访问 http://127.0.0.1:9800）
 ```
 
-环境变量（13 面）：`PORT`（默认 9800）、`DATA_DIR`（SQLite 数据目录·默认 `server/data`）、`ADMIN_TOKEN`（控制面口令·可设置页改）、`MCP_GATEWAY`（`on`=会话令牌网关）、`REDIS_URL`（SOP 状态层·缺省读 `DATA_DIR/redis.url`·无则降级 SQLite）、`MARKET_TEAM`（A2A team 默认 `market`）、`MARKET_PUBLIC_URL`（对外基址·A2A 卡片用）、`A2A_API_KEY`/`A2A_STATE_URL`（A2A 外部面）、`LAYERFS_SERVICE_URL`/`LAYERFS_SERVICE_TOKEN`（LayerFS·缺一即禁用）、`AI_GATEWAY_API_KEY`（`skill_search` 评估模型令牌·缺=工具报错不降级）、`EVAL_GATEWAY_URL`（评估网关覆盖·验证器/代理用）、`SANDBOX_BRIDGE_URL`/`SANDBOX_BRIDGE_TOKEN`（sandbox 派发）、`PUBLISH_LOCK_MS`（发布锁窗口·测试可调）、`A2A_EVICT_COOLDOWN_MS`（台驱逐冷却窗·缺省 24h·测试可调）、`A2A_OUTBOX_BACKOFF_SCALE`（A2A 回执 outbox 退避倍率·测试可调）、`ALLOW_PUBLIC_NET`（`1`=允许注册公网地址·缺省拒=SSRF 白名单·跨域前必须保持收紧）（`on` 时 `/mcp` 启用会话令牌网关——**生产已开：所有 /mcp 调用须 `Authorization: Bearer <会话令牌>`**·会话经 `POST /api/mcp/sessions` 创建+`PUT …/grants` 授权）、`LAYERFS_SERVICE_URL`/`LAYERFS_SERVICE_TOKEN`（LayerFS 服务面·两者任一缺失则 LayerFS 集成整个禁用=降级直写）、`WM_ODOO_ORIGINS`（可信 Odoo 源·逗号分隔·门户只把 Odoo `session_id` 转给这些源与 `LC_ODOO_URL` 的源；都未设时谁都不转、Odoo 台免登不生效（fail closed·启动时提示））、`LC_YGL_BIN`/`LC_YGL_HOME`/`LC_WORKBENCH_KEY_FILE`/`LC_ODOO_URL`（生命周期源·四项齐备才可用·见「统一待办」；`LC_TEST`/`LC_IDENTITY_FILE` 只供端到端测试透传，生产不设）、`LC_LEDGER`（生命周期账本名→锚点文件名·PR#272 全景页用·合法字符 [A-Za-z0-9_.-]≤64·首字符非点）、`LC_ANCHOR_DIR`（锚点目录·缺省 /opt/lifecycle-os/anchors·文件不在就不带 --anchor 并告警）。设置键：`run_upload_require_token`（`1`=SOP run 文件上传要令牌·缺省关=旧直传语义）。
+环境变量（13 面）：`PORT`（默认 9800）、`WM_CONTROL_PORT`（#292 M1 控制面端口·缺省 PORT+1·`0` 关闭·见「信任模型」）、`DATA_DIR`（SQLite 数据目录·默认 `server/data`）、`ADMIN_TOKEN`（控制面口令·可设置页改）、`MCP_GATEWAY`（`on`=会话令牌网关）、`REDIS_URL`（SOP 状态层·缺省读 `DATA_DIR/redis.url`·无则降级 SQLite）、`MARKET_TEAM`（A2A team 默认 `market`）、`MARKET_PUBLIC_URL`（对外基址·A2A 卡片用）、`A2A_API_KEY`/`A2A_STATE_URL`（A2A 外部面）、`LAYERFS_SERVICE_URL`/`LAYERFS_SERVICE_TOKEN`（LayerFS·缺一即禁用）、`AI_GATEWAY_API_KEY`（`skill_search` 评估模型令牌·缺=工具报错不降级）、`EVAL_GATEWAY_URL`（评估网关覆盖·验证器/代理用）、`SANDBOX_BRIDGE_URL`/`SANDBOX_BRIDGE_TOKEN`（sandbox 派发）、`PUBLISH_LOCK_MS`（发布锁窗口·测试可调）、`A2A_EVICT_COOLDOWN_MS`（台驱逐冷却窗·缺省 24h·测试可调）、`A2A_OUTBOX_BACKOFF_SCALE`（A2A 回执 outbox 退避倍率·测试可调）、`ALLOW_PUBLIC_NET`（`1`=允许注册公网地址·缺省拒=SSRF 白名单·跨域前必须保持收紧）（`on` 时 `/mcp` 启用会话令牌网关——**生产已开：所有 /mcp 调用须 `Authorization: Bearer <会话令牌>`**·会话经 `POST /api/mcp/sessions` 创建+`PUT …/grants` 授权）、`LAYERFS_SERVICE_URL`/`LAYERFS_SERVICE_TOKEN`（LayerFS 服务面·两者任一缺失则 LayerFS 集成整个禁用=降级直写）、`WM_ODOO_ORIGINS`（可信 Odoo 源·逗号分隔·门户只把 Odoo `session_id` 转给这些源与 `LC_ODOO_URL` 的源；都未设时谁都不转、Odoo 台免登不生效（fail closed·启动时提示））、`LC_YGL_BIN`/`LC_YGL_HOME`/`LC_WORKBENCH_KEY_FILE`/`LC_ODOO_URL`（生命周期源·四项齐备才可用·见「统一待办」；`LC_TEST`/`LC_IDENTITY_FILE` 只供端到端测试透传，生产不设）、`LC_LEDGER`（生命周期账本名→锚点文件名·PR#272 全景页用·合法字符 [A-Za-z0-9_.-]≤64·首字符非点）、`LC_ANCHOR_DIR`（锚点目录·缺省 /opt/lifecycle-os/anchors·文件不在就不带 --anchor 并告警）。设置键：`run_upload_require_token`（`1`=SOP run 文件上传要令牌·缺省关=旧直传语义）。
 
 ## 功能
 
@@ -101,7 +101,12 @@ GET              /api/health                    版本与运行时长
 
 **管理员口令（控制面）**：`设置` 页可手动设置/清除（库存**加盐**哈希 `salt$sha256(salt+口令)`，且 settings/导出出口一律剔除该键；仅本机可设；设置即生效）。优先级：启动环境 `ADMIN_TOKEN` > 页面设置值 > 无（未设则控制面一律 403 休眠）。口令控制 SOP 绑定、MCP 会话、上游配置；远程面收口不依赖它。
 
-- 本机（loopback）REST 全开放——内网信任模型，凭据字段出口统一掩码。
+- **控制面（#292 M1）**：管理写只在控制面端口收——`WM_CONTROL_PORT`（缺省 = `PORT + 1`，即 9801；`0` 关闭）。同一进程同一库，只是另一个端口。
+  - 浏览器发来的管理写（带 `Origin` 或 `Sec-Fetch-Site`）必须到控制面、`Origin` 是控制面、且带口令；**从业务面（9800）页面发的一律 403，包括 `127.0.0.1:9800`**——业务面上跑着 `/go/` 外站与 SOP 等同源内容，口令不能出现在那里。
+  - 控制面不提供 `/go/`、`/sop/`、`/apps/`、`/mcp`、`/a2a/*`（404），响应带 `frame-ancestors 'none'` 与 `X-Frame-Options: DENY`；使用页、驾驶舱、`/lifecycle`、`/tasks` 在控制面上自动跳回业务面同 path。
+  - 业务面顶栏不再有口令输入，改为「管理控制面」链接（同 path）；业务面启动时清掉旧版本留在浏览器里的口令。管理员把书签从 `:9800/<path>` 改成 `:9801/<path>` 即可。
+- 本机 CLI（回环直连、**不带** `Origin`/`Sec-Fetch-Site`、**没有** `X-Forwarded-For`/`Forwarded`/`X-Real-IP`）照旧免口令；逐路由自带 `adminGuard` 的写接口仍要口令。同机反代转进来的请求按远程处理。Node 自带 `fetch` 只发 `sec-fetch-mode`，按 CLI 算。
+- web dev（vite 5173）：Origin 为本机 dev 源且本机直连时视同控制面（仍要口令）。
 - **远程节点**（非 loopback）：写请求只放 `/mcp`、`.well-known/agent-card.json`、`/a2a/direct`，以及**自产台数据/文件面**（`POST /api/apps/<slug>/data`、`/files`）——应用层写与发布面同口径（远程浏览器提交表单不会被 403）。
 - 控制面（`/api/mcp/*` 会话令牌、SOP 绑定、工作台 CRUD）的远程写一律要 `X-Admin-Token`（未设置则 403）。
 - **读面不拦**：远程 agent 用 `GET /api/apps/<slug>/data`、`/files` 直接读提交数据（掩码策略只作用于凭据，不作用于业务数据）。
@@ -239,6 +244,8 @@ services:
       - "0.0.0.0:9800:9800"
 ```
 > 直接写 `ports:` 会与基文件**合并**（追加两条→address already in use），必须 `!override`。
+
+**控制面端口（#292 M1）**：`network_mode: host` 下进程直接监听宿主的 `PORT` 与 `WM_CONTROL_PORT`（缺省 9801），`ports` 映射不生效、不用改。若改用 bridge 模式，要同时映射 9801。**建议防火墙只对管理员网段或 VPN 开放 9801**，9800 照旧；端口绑不上时只告警并关闭控制面（浏览器管理写一律拒绝，本机 CLI 不受影响），业务面照常。
 
 ### 探活与数据
 
