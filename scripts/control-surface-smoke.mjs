@@ -79,6 +79,20 @@ try {
   r = await http(A.port, 'POST', '/api/workbenches', { 'x-forwarded-for': '10.0.0.8', 'x-admin-token': TOK }, wb(10));
   ok('同上带口令 → 201（远程 CLI 照旧凭口令）', r.status === 201, `${r.status}`);
 
+  console.log('绝对形式请求目标（#299：POST http://x/api/… 曾绕过按原始 req.url 分类的门）');
+  for (const v of ['http://x/api/workbenches', 'HTTP://X/API/workbenches', `http://127.0.0.1:${A.port}/api/workbenches`]) {
+    r = await http(A.port, 'POST', v, { origin: M }, wb('abs-b' + v));
+    ok(`业务面浏览器绝对形式 ${v} 无口令 → 403`, r.status === 403 && r.body?.control_surface_required === true, `${r.status} ${JSON.stringify(r.body)}`);
+    r = await http(A.port, 'POST', v, { 'x-forwarded-for': '10.0.0.9' }, wb('abs-r' + v));
+    ok(`反代转发的绝对形式 ${v} 无口令 → 403`, r.status === 403, `${r.status} ${JSON.stringify(r.body)}`);
+  }
+  r = await http(A.port, 'DELETE', 'http://x/api/workbenches/1', { 'x-forwarded-for': '10.0.0.9' });
+  ok('反代转发的绝对形式 DELETE 无口令 → 403', r.status === 403, `${r.status} ${JSON.stringify(r.body)}`);
+  r = await http(A.control, 'POST', `http://127.0.0.1:${A.control}/api/workbenches`, { origin: C, 'x-admin-token': TOK }, wb('abs-ok'));
+  ok('合法正例：控制面绝对形式 + 控制面 Origin + 口令 → 201', r.status === 201, `${r.status} ${JSON.stringify(r.body)}`);
+  r = await http(A.port, 'POST', 'http://x/api/sop/runs', { origin: M }, JSON.stringify({ slug: 'no-such-sop' }));
+  ok('合法正例：业务面绝对形式 /api/sop/runs 仍按业务白名单放行（不是 403 控制面）', !r.body?.control_surface_required && r.status !== 403, `${r.status} ${JSON.stringify(r.body)}`);
+
   console.log('业务写白名单不变');
   r = await http(A.port, 'POST', '/api/sop/runs', { origin: M }, JSON.stringify({ slug: 'no-such-sop' }));
   ok('业务面浏览器 POST /api/sop/runs 不被总门拦（不是 403 控制面）', !r.body?.control_surface_required && r.status !== 403, `${r.status} ${JSON.stringify(r.body)}`);
@@ -86,7 +100,7 @@ try {
   ok('业务面 /api/lifecycle/approve 不被总门拦（仍由自身只读 503）', !r.body?.control_surface_required, `${r.status}`);
 
   console.log('控制面围栏');
-  for (const p of ['/go/1/', '/sop/x/', '/apps/x/', '/mcp', '/MCP', '/A2A/direct', '/a2a/direct', '/GO/1/', '/Sop/x/', '/APPS/x/']) {
+  for (const p of ['/go/1/', '/sop/x/', '/apps/x/', '/mcp', '/MCP', '/A2A/direct', '/a2a/direct', '/GO/1/', '/Sop/x/', '/APPS/x/', 'http://x/go/1/', 'HTTP://X/MCP', 'http://x/a2a/direct', 'http://x/Sop/x/', 'http://x/APPS/x/']) {
     r = await http(A.control, /mcp|a2a/i.test(p) ? 'POST' : 'GET', p);
     ok(`控制面 ${p} → 404`, r.status === 404, `${r.status}`);
   }
