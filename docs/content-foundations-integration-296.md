@@ -2,6 +2,13 @@
 
 本稿只解释Draft基础模块，不是运行实例或完整源隔离验收。index.ts/surfaces.ts尚未接入；等#294实际合入后按其localPort判面，内容面先执行contentSurfaceFence。围栏只放/__wm/launch与本target /go路径，大小写分类先归一，其余（含/API、/mcp、SPA、/sop、/apps）404；随后launch校方法/Origin/单次票据，代理校Strict上下文。HTTP与WS在凭据读取/上游连接之前共同准入；夹具不等生产handler。
 
+## 内容分发终结清单（装配硬约束）
+
+- `contentSurfaceFence`目前放行后`next()`；它只是筛路径，不是终结适配器。实际装配必须在所有市场共享路由之前，按`surfaceOf(req) === content`进入专用分发，`proxy`分支直接交内容适配器并结束响应，不得再`next()`回市场app。适配器大小写语义须与围栏一致；未知路由和代理失败返回受控4xx/5xx，不回退市场SPA。
+- 现portal.ts的goPrefix区分大小写，不能拿共享market portal直接承接围栏放行的`/GO/1/`。`launch`大小写别名也必须在内容分发内拒绝/结束，不能落入SPA。
+- 装配反例：内容端口`/GO/1/`、`/Go/1/x`要么由本台内容适配器处理，要么404，**不能返回市场SPA**；在真实共享Express夹具尾部放假市场SPA哨兵，内容HTTP正负例结束后哨兵命中计数必须为0。此反例尚未随实际listener装配执行，不冒称已通过。
+- 此要求来源非作者续审6526587175；当前模块层58/30与浏览器对照通过只支持继续装配，不等于生产分发已终结。
+
 ## 200引导页硬约束
 exchange返回cookie和bouncePath，不再返回容易被适配器用作3xx的location。适配器必须返回contentLaunchPage的200 HTML与no-store/CSP脚本哈希/Referrer-Policy，附Set-Cookie；不发302/303 Location。脚本只可跳固定/go/<数字id>/，不接任意URL。真实Chromium夹具以127.0.0.1可信壳跨站POST到w-1-test.internal：303对照随后不带Strict cookie、403；200文档location.replace随后带cookie、200；两者opener均null。这是scripts夹具，无生产测试路由/开关。测试需Python Playwright与Chromium，node scripts/content-launch-browser.mjs（Windows可用PYTHON=python选择已有解释器，不改PATH）。
 
