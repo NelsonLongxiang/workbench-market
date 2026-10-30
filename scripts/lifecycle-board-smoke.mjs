@@ -75,15 +75,15 @@ try {
   ok('401 也是 no-store', /no-store/.test(String(r.headers['cache-control'])));
   r = await board('', { cookie: `session_id=${'sidZ' + '0'.repeat(28)}` });
   ok('会话失效 → 401', r.status === 401, JSON.stringify(r.body));
-  for (const [label, sid] of [['门户用户（is_internal_user=false）', SID_PORTAL], ['字段缺失（fail closed）', SID_NOFLAG]]) {
+  for (const [label, sid, why] of [['门户用户（is_internal_user=false）', SID_PORTAL, /门户账号不能访问工作台/], ['字段缺失（fail closed）', SID_NOFLAG, /无法确认是否内部员工/]]) {
     const ck = { cookie: `session_id=${sid}` };
     r = await board('', ck);
-    ok(`${label}：board 403，文案说明门户账号不能访问`, r.status === 403 && r.body?.ok === false && /门户账号不能访问工作台/.test(r.body.error ?? ''), JSON.stringify(r.body));
+    ok(`${label}：board 403，文案说明原因`, r.status === 403 && r.body?.ok === false && why.test(r.body.error ?? ''), JSON.stringify(r.body));
     r = await http(P, 'GET', '/api/lifecycle/whoami', ck);
     ok(`${label}：whoami 403、不回 viewer`, r.status === 403 && !r.body?.viewer && r.body?.auth_required === false, JSON.stringify(r.body));
     r = await http(P, 'GET', '/api/tasks', ck);
     const life = r.body?.sources?.lifecycle;
-    ok(`${label}：统一待办生命周期源拒绝（不进 inbox，不当未登录）`, life?.ok === false && !life.auth_required && /门户账号/.test(life.error ?? ''), JSON.stringify(life));
+    ok(`${label}：统一待办生命周期源拒绝（不进 inbox，不当未登录）`, life?.ok === false && !life.auth_required && why.test(life.error ?? ''), JSON.stringify(life));
   }
   ok('登录门挡住时不调引擎', calls().length === 0, JSON.stringify(calls()));
 
@@ -100,6 +100,8 @@ try {
   ok('LC_LEDGER → --anchor <LC_ANCHOR_DIR>/<账本名>.jsonl', c1[0]?.args.join(' ').includes(`--anchor ${join(ANCHORS, 'smoke-ledger.jsonl')}`), JSON.stringify(c1[0]?.args));
   r = await board();
   ok('30 秒内再请求：命中缓存不再调引擎', r.body?.ok === true && r.body.cached === true && calls().length === 1, `${calls().length}`);
+  r = await board('', { cookie: `session_id=${SID_PORTAL}` });
+  ok('缓存已热时门户会话仍 403、不回缓存数据', r.status === 403 && r.body?.cached === undefined && r.body?.data === undefined && calls().length === 1, JSON.stringify(r.body));
 
   console.log('并发合并');
   setMode('slow');
