@@ -41,7 +41,8 @@ export interface LcEnvelope {
   next: string[];
 }
 export interface LcSourceMeta extends SourceMeta { viewer: string | null; error?: string; auth_required?: boolean; login_url?: string | null }
-export interface Viewer { login: string; uid: number; sub: string }
+/** name：Odoo 显示名（get_session_info.name，缺省 null），只用于显示；签断言只用 sub */
+export interface Viewer { login: string; uid: number; sub: string; name: string | null }
 type Result = { http: number; body: Record<string, unknown> };
 
 // ---------- 断言契约（与插件逐字节一致） ----------
@@ -189,7 +190,9 @@ export async function lifecycleWhoami(cookieHeader: string): Promise<{ http: num
   if (!lifecycleConfigured()) return { http: 503, body: { ok: false, error: lifecycleConfigProblem() ?? `未配置：缺 ${lcConfig().missing.join(', ')}` } };
   const who = await resolveOdooViewer(cookieHeader);
   if (!who.ok) return { http: who.http, body: { ok: false, error: who.error, auth_required: who.http === 401 } };
-  return { http: 200, body: { ok: true, viewer: who.viewer } };
+  // #279 顶栏用户 chip：kind 按主体口径（user: = 人；工作台只为人签，所以经 Odoo 登录的查看人都是「人」）；
+  // roles 暂为 null——角色取 Odoo 权限组还是 lc 授权域待属主定，lc grant 通道也未实现（最终归 #221 A6 /api/auth/me）
+  return { http: 200, body: { ok: true, viewer: { ...who.viewer, kind: who.viewer.sub.startsWith('user:') ? '人' : 'agent' }, roles: null } };
 }
 
 
@@ -215,7 +218,8 @@ export async function resolveOdooViewer(cookieHeader: string, odooUrl = lcConfig
   const login = typeof info?.username === 'string' ? info.username : '';
   if (j?.error || !info?.uid || !login) return { ok: false, http: 401, error: 'Odoo 会话已失效，请重新登录' };
   if (!loginOk(login)) return { ok: false, http: 401, error: 'Odoo 登录名不可用作 lc 主体' };
-  return { ok: true, viewer: { login, uid: Number(info.uid), sub: `user:${login}` } };
+  const name = typeof info.name === 'string' && info.name.trim() && !/[\x00-\x1f\x7f]/.test(info.name) ? info.name.trim().slice(0, 128) : null;
+  return { ok: true, viewer: { login, uid: Number(info.uid), sub: `user:${login}`, name } };
 }
 
 // ---------- 统一待办：生命周期源 ----------
