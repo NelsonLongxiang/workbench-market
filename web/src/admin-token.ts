@@ -17,6 +17,25 @@ export function setAdminToken(token: string): void {
     if (token) sessionStorage.setItem('wm-admin-token', token);
     else sessionStorage.removeItem('wm-admin-token');
   } catch { /* 隐私模式降级：仅内存态 */ }
+  try { window.dispatchEvent(new Event(ADMIN_TOKEN_CHANGED)); } catch { /* 非浏览器环境 */ }
+}
+
+/** #292 M4 止血：口令在本标签页时，/use 与驾驶舱不再以 iframe 嵌 /go/（同源 iframe 读得到 sessionStorage、能挂钩父页 fetch） */
+export const ADMIN_TOKEN_CHANGED = 'wm:admin-token-changed';
+export const adminTokenPresent = (): boolean => getAdminToken() !== '';
+export function subscribeAdminToken(cb: () => void): () => void {
+  window.addEventListener(ADMIN_TOKEN_CHANGED, cb);
+  return () => window.removeEventListener(ADMIN_TOKEN_CHANGED, cb);
+}
+
+/** #292 M4 止血：离开市场页面（同标签页跳到 /go/、/sop/、外站，或刷新）时从 sessionStorage 抹掉口令，
+ *  新文档（可能是不可信页）就读不到。代价：刷新后要重输口令。
+ *  注意：本文档内存里的副本不清——浏览器若用往返缓存（bfcache）恢复旧页面，旧页面仍持有口令（GoFrame 照样拒嵌）；
+ *  本机实测后退未命中 bfcache，这条路径未验证。存储为空不等于口令失效。 */
+export function installAdminTokenLeaveGuard(): void {
+  window.addEventListener('pagehide', () => {
+    try { sessionStorage.removeItem('wm-admin-token'); } catch { /* 忽略 */ }
+  });
 }
 
 /** 统一 API 包装：写请求自动附 X-Admin-Token；401/403 时抛引导性错误（前端可捕获弹输入框）。 */
