@@ -69,6 +69,7 @@ try {
   const back = '/lifecycle?as_of=2026-12-18T18:00:00+08:00';
   r = await http('GET', `/go/${wid}/?return=${encodeURIComponent(back)}`);
   ok('未登录 return 流：200 中继页（不再让 Odoo 绝对回跳——真实 Odoo 19 会把绝对回跳本地化成 /zh_CN/<path> 404）', r.status === 200 && String(r.headers['content-type'] ?? '').includes('text/html') && !r.headers.location, `${r.status} ${r.headers.location ?? ''} ${r.headers['content-type']}`);
+  ok('中继页 Cache-Control: no-store', /no-store/.test(String(r.headers['cache-control'])), String(r.headers['cache-control']));
   ok('return 流不写回跳/state cookie（回程改由 whoami 轮询）', !cookieVal(r, `wm_sso_ret_${wid}`) && !cookieVal(r, `wm_sso_${wid}`), JSON.stringify(cookiesOf(r)));
   r = await http('GET', `/go/${wid}/?return=${encodeURIComponent(back)}`, { headers: { cookie: `session_id=${SID}` } });
   ok('已有 Odoo 会话的 return 流同样是中继页（弹窗内完成，幂等不循环）', r.status === 200 && !r.headers.location, `${r.status} ${r.headers.location ?? ''}`);
@@ -79,8 +80,8 @@ try {
   const state2 = 'st2-roundtrip';
   const ret2 = encodeURIComponent(back);
   r = await http('GET', `/go/${wid}/?state=${state2}`, { headers: { cookie: `session_id=${SID}; wm_sso_${wid}=${state2}; wm_sso_ret_${wid}=${ret2}` } });
-  ok('state 校验通过：302 落回市场原页面（含 query）', r.status === 302 && r.headers.location === back, `${r.status} ${r.headers.location}`);
-  ok('回跳 cookie 已清', cookiesOf(r).some((c) => c.startsWith(`wm_sso_ret_${wid}=;`)), JSON.stringify(cookiesOf(r)));
+  ok('#276 残留的回跳 cookie 不再生效：state 通过也不跳（进 Odoo 台代理）', !r.headers.location, `${r.status} ${r.headers.location}`);
+  ok('残留回跳 cookie 顺手清掉', cookiesOf(r).some((c) => c.startsWith(`wm_sso_ret_${wid}=;`)), JSON.stringify(cookiesOf(r)));
   r = await http('GET', `/go/${wid}/?state=forged`, { headers: { cookie: `session_id=${SID}; wm_sso_${wid}=${state2}; wm_sso_ret_${wid}=${ret2}` } });
   ok('state 不符：400，不跳', r.status === 400 && !r.headers.location, `${r.status}`);
   r = await http('GET', `/go/${wid}/?state=${state2}`, { headers: { cookie: `session_id=${SID}; wm_sso_${wid}=${state2}; wm_sso_ret_${wid}=${encodeURIComponent('//evil.example/x')}` } });
