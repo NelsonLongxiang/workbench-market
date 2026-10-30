@@ -35,6 +35,20 @@ const variants=[
  ['iframe ref mutates src',page,frame.replace('src={src}','src={src} ref={e => { if(e) e.src="https://evil.example/" }}'),0],
  ['iframe unknown attribute',page,frame.replace('src={src}','src={src} data-test="unknown"'),0],
  ['wid destructuring assignment',page,frame.replace(route,'const ignored = ([wid] = [999]); '+route),0],
+ ['page local GoFrame shadows import',page.replace('  const w = req.data;','  const GoFrame = (p: any) => <iframe src={"https://evil.example/" + p.wid} />;\n  const w = req.data;'),frame,0],
+ ['page parameter shadows import',page.replace('function UseWorkbench()','function UseWorkbench(GoFrame: any)'),frame,0],
+ ['page destructuring shadows import',page.replace('  const w = req.data;','  const { GoFrame } = other;\n  const w = req.data;'),frame,0],
+ ['page renamed destructuring shadows import',page.replace('  const w = req.data;','  const { other: GoFrame } = supplied;\n  const w = req.data;'),frame,0],
+ ['page nested function binding shadows import',page+'\nfunction helper(GoFrame: any) { return null; }',frame,0],
+ ['page function declaration shadows import',page.replace('  const w = req.data;','  function GoFrame() { return <iframe src="raw" />; }\n  const w = req.data;'),frame,0],
+ ['iframe className effect rejected',page,frame.replace('className={className}','className={(setTimeout(() => {}, 0), className)}'),0],
+ ['iframe key effect rejected',page,frame.replace('key={frameKey}','key={(setTimeout(() => {}, 0), frameKey)}'),0],
+ ['iframe title effect rejected',page,frame.replace('title={name}','title={(setTimeout(() => {}, 0), name)}'),0],
+ ['iframe allow call rejected',page,frame.replace('allow="clipboard-read; clipboard-write; fullscreen"','allow={sideEffect()}'),0],
+ ['page name effect rejected',page.replace('name={w.name}','name={(setTimeout(() => {}, 0), w.name)}'),frame,0],
+ ['page frameKey effect rejected',page.replace('frameKey={frameKey}','frameKey={(setTimeout(() => {}, 0), frameKey)}'),frame,0],
+ ['page className effect rejected',page.replace('className="wm-use-frame"','className={(sideEffect(), "wm-use-frame")}'),frame,0],
+ ['documented dataflow limit w rewritten',page.replace('const w = req.data;','const w = { ...req.data!, id: 7 };'),frame,1],
  ['valid current call chain',page,frame,1],
 ];
 for(const [name,p,f,want]of variants)check(name,()=>assert.equal(Number(portalCallChainPresent(p,f)),want));
@@ -50,7 +64,7 @@ mkdirSync(join(fixture,'server/data'));const db=new DatabaseSync(join(fixture,'s
 execFileSync(process.execPath,['scripts/gen-verifier.mjs'],{cwd:fixture,stdio:'pipe'});
 const material=readFileSync(join(fixture,'verify/material.md'),'utf8').trim().split('\n');const candidates=JSON.parse(readFileSync(join(fixture,'verify/candidates.json'))).candidates;const reviews=JSON.parse(readFileSync(join(fixture,'verify/reviews.json'))).reviews;
 check('175 stable numbered material/candidate/review rows',()=>{assert.equal(material.length,175);assert.equal(candidates.length,175);assert.equal(reviews.length,175);for(let i=0;i<175;i++){assert.ok(material[i].startsWith('判据'+(i+1)+'：'));assert.equal(candidates[i].source_clause,material[i]);assert.equal(reviews[i].source_clause,material[i]);assert.equal(candidates[i].anchor.quote,material[i]);}});
-check('explicit new material version',()=>{const v=JSON.parse(readFileSync(join(fixture,'verify/material-version.json')));assert.equal(v.version,'v69.1');assert.deepEqual(v.changed_criteria,[65]);});
+check('explicit new material version',()=>{const v=JSON.parse(readFileSync(join(fixture,'verify/material-version.json')));assert.equal(v.version,'v69.2');assert.deepEqual(v.changed_criteria,[65]);});
 const extraction=[];
 for(const [name,p,f,want]of variants){
  writeFileSync(join(fixture,'web/src/pages/UseWorkbench.tsx'),p);writeFileSync(join(fixture,'web/src/components/GoFrame.tsx'),f);

@@ -1,9 +1,9 @@
-/** Structural source fact for criterion65/v69.1; not a browser/security verdict. */
+/** Structural source fact for criterion65/v69.2; not a browser/security verdict. */
 import {createRequire} from 'node:module';
 import {readFileSync} from 'node:fs';
 import {join} from 'node:path';
 const ts=createRequire(new URL('../web/package.json',import.meta.url))('typescript');
-export const PORTAL_CALL_CHAIN_FACT={path:'web/src/pages/UseWorkbench.tsx -> web/src/components/GoFrame.tsx',needle:'v69.1:UseWorkbench.return.GoFrame(wid=w.id)->GoFrame.return.iframe(src=/go/${wid}/)'};
+export const PORTAL_CALL_CHAIN_FACT={path:'web/src/pages/UseWorkbench.tsx -> web/src/components/GoFrame.tsx',needle:'v69.2:UseWorkbench.return.GoFrame(wid=w.id)->GoFrame.return.iframe(src=/go/${wid}/)'};
 const parse=(name,text)=>ts.createSourceFile(name,text,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
 const expr=(attr)=>attr?.initializer&&ts.isJsxExpression(attr.initializer)?attr.initializer.expression:null;
 const attrs=(node,name)=>node.attributes.properties.filter(a=>ts.isJsxAttribute(a)&&a.name.getText()===name);
@@ -37,7 +37,38 @@ function altersWid(body){
  };
  walk(body);return found;
 }
-function onlyAttributes(node,names){return node.attributes.properties.every(a=>ts.isJsxAttribute(a)&&names.includes(a.name.getText()));}
+function bindingContains(name,text){
+ if(!name)return false;
+ if(ts.isIdentifier(name))return name.text===text;
+ if(ts.isObjectBindingPattern(name)||ts.isArrayBindingPattern(name))return name.elements.some(e=>ts.isBindingElement(e)&&bindingContains(e.name,text));
+ return false;
+}
+function shadowsGoFrame(file){
+ let found=false;
+ const walk=n=>{
+  if(ts.isImportDeclaration(n)&&ts.isStringLiteral(n.moduleSpecifier)&&n.moduleSpecifier.text==='../components/GoFrame'&&ident(n.importClause?.name,'GoFrame')){
+   if(n.importClause.namedBindings)walk(n.importClause.namedBindings);
+   return; // The one required default import is the only permitted binding.
+  }
+  if((ts.isVariableDeclaration(n)||ts.isParameter(n)||ts.isBindingElement(n)||
+    ts.isFunctionDeclaration(n)||ts.isFunctionExpression(n)||ts.isClassDeclaration(n)||ts.isClassExpression(n)||
+    ts.isImportClause(n)||ts.isImportSpecifier(n)||ts.isNamespaceImport(n)||ts.isEnumDeclaration(n))&&bindingContains(n.name,'GoFrame'))found=true;
+  ts.forEachChild(n,walk);
+ };
+ walk(file);return found;
+}
+const property=(n,base,name)=>!!n&&ts.isPropertyAccessExpression(n)&&ident(n.expression,base)&&n.name.text===name;
+function attributeShape(node,rules){
+ const seen=new Set();
+ for(const attr of node.attributes.properties){
+  if(!ts.isJsxAttribute(attr))return false;
+  const name=attr.name.getText();if(seen.has(name)||!rules[name])return false;seen.add(name);
+  if(!rules[name](attr))return false;
+ }
+ return true;
+}
+const literalAttr=a=>!!a.initializer&&(ts.isStringLiteral(a.initializer)||!!expr(a)&&ts.isStringLiteral(expr(a)));
+const idAttr=name=>a=>ident(expr(a),name);
 function finalReturnedTags(fn){
  // Restricted current shape only: top-level variables, JSX-only early guards,
  // then one final top-level JSX return. No CFG/data-flow claim is made.
@@ -58,11 +89,11 @@ export function portalCallChainPresent(pageText,frameText){
  const pageFn=exportedFunction(page,'UseWorkbench'),frameFn=exportedFunction(frame,'GoFrame');
  if(!pageFn?.body||!frameFn?.body)return false;
  const imported=page.statements.filter(ts.isImportDeclaration).some(s=>ts.isStringLiteral(s.moduleSpecifier)&&s.moduleSpecifier.text==='../components/GoFrame'&&ident(s.importClause?.name,'GoFrame'));
- if(!imported)return false;
+ if(!imported||shadowsGoFrame(page))return false;
  const calls=finalReturnedTags(pageFn);if(!calls||calls.some(n=>ident(n.tagName,'iframe')))return false;
  const components=calls.filter(n=>ident(n.tagName,'GoFrame'));if(components.length!==1)return false;
  if(!directTags(pageFn.body.statements.at(-1).expression).includes(components[0]))return false;
- if(!onlyAttributes(components[0],['wid','name','frameKey','className']))return false;
+ if(!attributeShape(components[0],{wid:a=>property(expr(a),'w','id'),name:a=>property(expr(a),'w','name'),frameKey:idAttr('frameKey'),className:literalAttr}))return false;
  const wid=safeAttr(components[0],'wid');if(!wid||!ts.isPropertyAccessExpression(wid)||!ident(wid.expression,'w')||wid.name.text!=='id')return false;
  // Pin the parameter and its const source; an unused string/comment is not a route.
  const binding=frameFn.parameters[0]?.name;
@@ -75,7 +106,7 @@ export function portalCallChainPresent(pageText,frameText){
  const finalFrameTags=finalReturnedTags(frameFn);if(!finalFrameTags)return false;
  const frames=finalFrameTags.filter(n=>ident(n.tagName,'iframe'));
  return frames.length===1&&directTags(frameFn.body.statements.at(-1).expression).includes(frames[0])&&
-  onlyAttributes(frames[0],['key','className','src','title','allow'])&&ident(safeAttr(frames[0],'src'),'src');
+  attributeShape(frames[0],{key:idAttr('frameKey'),className:idAttr('className'),src:idAttr('src'),title:idAttr('name'),allow:literalAttr})&&ident(safeAttr(frames[0],'src'),'src');
 }
 export function readPortalCallChainFact(root){
  let present=0;
