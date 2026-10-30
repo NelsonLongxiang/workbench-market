@@ -34,7 +34,7 @@ interface BoardData {
   jobs: BoardJob[];
   sources: BoardSource[];
 }
-interface BoardPayload { ok: boolean; error?: string; data?: BoardData; next?: string[]; warnings?: string[]; viewer?: string; cached?: boolean; generated_at?: string }
+interface BoardPayload { ok: boolean; busy?: boolean; anchor_ledger?: string | null; error?: string; data?: BoardData; next?: string[]; warnings?: string[]; viewer?: string; cached?: boolean; generated_at?: string }
 
 const LANES = ['产品', '采购', '物流', '运营'] as const;
 const LANE_COLOR: Record<string, string> = { 产品: 'purple', 采购: 'blue', 物流: 'cyan', 运营: 'gold' };
@@ -59,10 +59,15 @@ function useBoard(asOf: string | null) {
   return { payload, status, loading, reload: load };
 }
 
-function LedgerBadge({ l }: { l: BoardData['ledger'] }) {
+// 锚点对照的是本地检出卷里的文件：每日作业先追加锚点再推送，推送失败时本地会多出没推送的锚点，
+// 内核照样算 tamper_evident:true——按 lifecycle-os AGENTS.md 规则 7，没推送的锚点不算证据，所以文案要写明
+function LedgerBadge({ l, ledger }: { l: BoardData['ledger']; ledger: string | null }) {
   if (!l.chain_consistent) return <Tag color="error">账本链不一致</Tag>;
-  if (l.tamper_evident) return <Tooltip title={`锚定覆盖至 ${fmt(l.covered_through)}`}><Tag color="success">防篡改 · {l.unanchored_rows} 行未锚定</Tag></Tooltip>;
-  return <Tooltip title={l.anchored ? `锚定覆盖至 ${fmt(l.covered_through)}` : '账本尚未外部锚定'}><Tag color="warning">未防篡改 · {l.unanchored_rows}/{l.rows} 行未锚定</Tag></Tooltip>;
+  const src = ledger ? `对照本地检出的锚点文件 ${ledger}.jsonl；只有已推送到远端的锚点才算证据。` : '';
+  const tip = `${src}${l.anchored ? `锚定覆盖至 ${fmt(l.covered_through)}` : '账本尚未外部锚定'}`;
+  if (l.tamper_evident && l.unanchored_rows === 0) return <Tooltip title={tip}><Tag color="success">防篡改（本地锚点）</Tag></Tooltip>;
+  if (l.tamper_evident) return <Tooltip title={tip}><Tag color="warning">防篡改 · 最近 {l.unanchored_rows} 行未受保护</Tag></Tooltip>;
+  return <Tooltip title={tip}><Tag color="warning">未防篡改 · {l.unanchored_rows}/{l.rows} 行未锚定</Tag></Tooltip>;
 }
 
 function PendingRow({ p }: { p: BoardPending }) {
@@ -169,7 +174,7 @@ function BoardView({ payload, reload }: { payload: BoardPayload; reload: () => v
       <Card size="small" style={{ marginBottom: 12 }}>
         <Space wrap>
           <span>数据截至 <b>{fmt(d.as_of)}</b></span>
-          <LedgerBadge l={d.ledger} />
+          <LedgerBadge l={d.ledger} ledger={payload.anchor_ledger ?? null} />
           <Tag color={s.sources_stale ? 'warning' : 'success'}>过期数据源 {s.sources_stale}</Tag>
           {d.periods.map((p) => <Tag key={p.period} color="geekblue">账期 {p.period}：{p.state}{p.days !== null ? ` · ${p.days} 天` : ''}</Tag>)}
           <Button size="small" icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
