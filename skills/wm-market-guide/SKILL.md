@@ -74,3 +74,13 @@ UX 硬规（ui-ux-pro-max 检索实证）：表格移动端 overflow-x-auto 包�
 1. 看市场：workbench_summary → workbench_list → use_url（取门户地址）
 2. 建台：app_publish（首发）→ 后续 app_draft_open/edit/submit（按差异改）→ 人批准发布
 3. 跑 SOP：sop_run_start → step_save ×N → sandbox（真执行）→ finish
+
+## 九、品味闭环（taste__* 五工具，2026-10-30 起）
+
+上游 dsh-taste-loop 插件聚合进市场 MCP 面，会话 grants 含对应工具即可用（工具未见=grants 缺授权，找管理席加，每请求直读即时生效）。
+
+- `taste__rules` 查规则与提案状态；`taste__case` 生成确定性案例 ID；`taste__record` 记品味判断；`taste__queue` 看待仲裁/结算看板；`taste__update` 自助规则生命周期
+- 快速工作流：判断已有规则 → 直接 record；要立新规则 → 先 taste__case 生成 case → update propose（市场会话经网关密钥已可信，可提案/背书）→ record 记作者判断 → 等其他两个不同 session 盲审（blind）后 endorse 同向 → 域内 effective
+- 背书他人提案：**只看 blind 视图**（勿先看非盲 list，会污染独立性）；不认同就回绝，不凑数
+- 通道区分：品味判断走 taste__record（记进 ygl-trees kb 不算品味登记）；纯 HTTP 自报身份不能提案/背书
+- 详细指南（本地 DSH 会话可载入技能 `taste-loop-guide`；远程 agent 直接读 `taste__update` 工具描述，已内嵌完整工作流）
