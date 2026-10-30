@@ -47,7 +47,7 @@ try {
   const { existsSync } = await import('node:fs');
   const cardSrc = process.env.A2A_CARD_SRC ?? new URL('../../dsh-open-a2a-net/src/card.ts', import.meta.url).href;
   const cardUrl = /^[a-z]+:/.test(cardSrc) ? cardSrc : pathToFileURL(cardSrc).href; // pathToFileURL：Windows 绝对路径转合法 file: URL
-  const localPath = cardUrl.startsWith('file:') ? new URL(cardUrl).pathname.replace(/^\/([A-Z]:)/, '$1') : cardSrc;
+  const localPath = cardUrl.startsWith('file:') ? (await import('node:url')).fileURLToPath(cardUrl) : cardSrc;
   if (!existsSync(localPath)) throw new Error(`A2A 裁判源不存在: ${cardSrc}`);
   const { verifyCard } = await import(cardUrl);
   const v = verifyCard(card, Date.now());
