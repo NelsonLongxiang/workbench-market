@@ -27,6 +27,7 @@ import { Badge, Button as AButton, Input as AInput, Popover } from 'antd';
 import Tasks from './pages/Tasks';
 import Lifecycle from './pages/Lifecycle';
 import SkillsPage from './pages/Skills';
+import ViewerChip from './components/ViewerChip';
 
 const menuRoutes = {
   path: '/',
@@ -124,6 +125,8 @@ export default function App() {
       }}
       contentStyle={{ padding: 16, paddingTop: 12 }}
     >
+      {/* #279 当前用户：侧栏布局不渲染 headerRender，所以在内容区顶部右侧放一行，所有页面（含 /lifecycle）都能看到 */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', minHeight: 24, marginBottom: 4 }}><ViewerChip /></div>
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/cockpit" element={<Cockpit />} />
