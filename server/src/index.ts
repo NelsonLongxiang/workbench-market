@@ -1723,7 +1723,8 @@ app.get('/api/lifecycle/board', wrap(async (req, res) => {
 app.get('/api/lifecycle/whoami', wrap(async (req, res) => {
   const r = await lifecycleWhoami(String(req.headers.cookie ?? ''));
   res.setHeader('Cache-Control', 'private, no-store');
-  res.status(r.http).json(r.body);
+  // #279：未登录时带登录入口（顶栏 chip 复用 #277 弹窗流；中继页只认白名单 return，这里固定 /lifecycle）
+  res.status(r.http).json(r.http === 401 ? { ...r.body, login_url: odooLoginUrl(req, '/lifecycle') } : r.body);
 }));
 app.get('/api/lifecycle/status', wrap(async (req, res) => {
   if (!adminGuard(req, res)) return; // 配置清单不对远程匿名读开放（评审：只写面有远程门）

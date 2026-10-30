@@ -21,7 +21,7 @@ const SID = 'sidL' + '0'.repeat(28);
 const odoo = createServer((rq, rs) => {
   rq.resume(); rq.on('end', () => {
     const got = /(?:^|;\s*)session_id=([^;\s]+)/.exec(String(rq.headers.cookie ?? ''))?.[1] ?? '';
-    rs.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(got === SID ? { jsonrpc: '2.0', id: null, result: { uid: 7, username: 'pm-a' } } : { jsonrpc: '2.0', id: null, error: { code: 100, message: 'Odoo Session Expired' } }));
+    rs.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(got === SID ? { jsonrpc: '2.0', id: null, result: { uid: 7, username: 'pm-a', name: '测试 PM-A' } } : { jsonrpc: '2.0', id: null, error: { code: 100, message: 'Odoo Session Expired' } }));
   });
 });
 await new Promise((x) => odoo.listen(0, '127.0.0.1', x));
@@ -74,9 +74,11 @@ try {
   r = await http('GET', `/go/${wid}/?return=${encodeURIComponent(back)}`, { headers: { cookie: `session_id=${SID}` } });
   ok('已有 Odoo 会话的 return 流同样是中继页（弹窗内完成，幂等不循环）', r.status === 200 && !r.headers.location, `${r.status} ${r.headers.location ?? ''}`);
   r = await http('GET', '/api/lifecycle/whoami');
-  ok('whoami：匿名 401 带 auth_required', r.status === 401 && r.body?.auth_required === true, JSON.stringify(r.body));
+  ok('whoami：匿名 401 带 auth_required 与登录入口（#279 顶栏 chip）', r.status === 401 && r.body?.auth_required === true && r.body.login_url === `/go/${wid}/?return=%2Flifecycle`, JSON.stringify(r.body));
   r = await http('GET', '/api/lifecycle/whoami', { headers: { cookie: `session_id=${SID}` } });
   ok('whoami：有效会话 200 回 viewer', r.status === 200 && r.body?.ok === true && r.body?.viewer?.sub === 'user:pm-a', JSON.stringify(r.body));
+  ok('whoami：带显示名、类别「人」、roles 为 null（#279 过渡）', r.body?.viewer?.name === '测试 PM-A' && r.body.viewer.login === 'pm-a' && r.body.viewer.kind === '人' && r.body.roles === null, JSON.stringify(r.body));
+  ok('whoami 200 也是 no-store', /no-store/.test(String(r.headers['cache-control'])));
   const state2 = 'st2-roundtrip';
   const ret2 = encodeURIComponent(back);
   r = await http('GET', `/go/${wid}/?state=${state2}`, { headers: { cookie: `session_id=${SID}; wm_sso_${wid}=${state2}; wm_sso_ret_${wid}=${ret2}` } });
