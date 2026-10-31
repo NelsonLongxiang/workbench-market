@@ -72,6 +72,14 @@ Cookie池/动态上游登录容器尚未装配：绑定cookie_set_id的台在实
 ## 被动观察
 WM_PORTAL_OBSERVE=1显式启，默认不建表/不计数。market HTTP或upgrade入口各一次，只存已注册targetId/固定类别/UTC日/hits，无URL/query/UA/cookie/body/身份原文。GET /api/content/observation走adminGuard且no-store；writesHealthy与coverageVerified=false分开，完整工作周/重启缺口仍待运维核验。
 
+## WS冷/热对照实验（仍未定因）
+
+content-ws-startup-test默认20个全新进程各一次授权握手，再一进程20次热握手；--prelude先加原surface的资源GET/本台跳转/跨源拒绝三次上游访问。仅启动真实内容surface/注册监听/真实回环HTTP与raw WS，身份为即时合成viewer，**不是实际index/真实Odoo连接、DB或生产冷启动覆盖**。每进程记录runtime-ready/handler-registered/listeners-ready/context-ready、viewer调用起止、credential-read、content/upstream/proxy upgrade/error、listen至请求及握手耗时，不记录Cookie或凭据值；没有独立异步初始化的配置与同步handler注册不能虚报后台“已完成”。撤权监视器沿实际upgrade安装，无产品hook/修改。
+
+本轮默认有效冷0/20失败、热0/20失败；加HTTP prelude仍冷0/20、热0/20。默认冷listen至请求23.78–36.07ms，加prelude34.38–44.85ms；handler均在listen完成前注册。首批另在cold9启动登录HTTP的connect发生EADDRINUSE，未到授权握手，保失败原件、不算握手失败或静默丢请求；完整后续批setup0失败。驱动最多40次尝试补足20有效冷样本并单列所有setup失败，不能把补样本当首次全绿。实验命令成功仅代表有效样本采集完成，失败率在summary单列，不作CI零失败门。
+
+这两组数据不支持本夹具的“冷组明显更差”，也不能证明原空wire已修、不能排除真实Odoo或不同连接/时间序列条件。原surface少量重复中仍出现过授权空wire，**根因UNKNOWN**；已保留原件与请求诊断。没有据未证假设加等待/匿名兜底或归为暂态。冻结mode0的首STOP拒绝属于另一执行链，未证关联、也不因本实验通过被闭合。现场不启用，SOP协议另段。
+
 ## 验证与未完成
 content-access-test原58、portal-observation-test原30、303红/200绿cookie对照保留；content-surface-test真实registerSurface+sharedExpress+counted upstream+假时钟核HTTP/WS/到期/撤权/restart/编码/fallback0。content-index-browser真实index+synthetic DB/home+假Odoo/上游+Chromium核跨站200/opener null/撤权XHR401/导航同target401，上游合法1次且不漏browser身份。不是真实Odoo/DNS或生产验收。
 
