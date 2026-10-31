@@ -62,6 +62,10 @@ if (contentRuntime) {
     if (surfaceOf(req) !== 'market') return res.status(404).end();
     contentRuntime.launch(req, res, next);
   });
+  app.use((req, res, next) => {
+    if (surfaceOf(req) !== 'market') return next();
+    contentRuntime.migrate(req, res, next);
+  });
 }
 // issue #1：CORS 从全开放收紧为白名单——生产形态（web/dist 由本服务同源托管）不需要跨源；
 // 仅 web dev（vite 5173，其 /api 代理是同源转发、但直连调试场景保留）放行本机回环源。
