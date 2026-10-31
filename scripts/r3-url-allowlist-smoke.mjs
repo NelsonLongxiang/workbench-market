@@ -142,6 +142,29 @@ await check('U12 异步回调失败锁存：下一次写报降级并发 audit_fa
   assert.equal(m.auditAllow('register', policy, 'k', 4, 'anonymous'), true, '成功回调后解除');
   m._setAuditWriter((l, done) => done(null));
 });
+await check('回验 审计恢复代次：故障前发起的旧写迟到成功不清新故障；多次故障；故障后新写成功才恢复；背压不算失败', async () => {
+  const pending = [];
+  const lines = [];
+  m._setAuditWriter((l, done) => { lines.push(JSON.parse(l)); pending.push(done); return false; }); // 返回 false = 背压
+  const tick = () => new Promise((r) => setImmediate(r));
+  // 先确保从健康状态开始
+  m.auditDeny('reset2', 'r2', null); pending.shift()(null); await tick();
+  assert.equal(m.auditChannelState().failed, false, '背压 + 成功回调不算失败');
+  assert.equal(m.auditAllow('register', policy, 'k', 10, 'anonymous'), true); // 写 A 发起，回调暂不返回
+  const doneA = pending.shift();
+  m.markAuditChannelFailed(); // 流 error（A 发起之后）
+  m.markAuditChannelFailed(); // 再一次 error
+  doneA(null); // A 迟到成功
+  assert.equal(m.auditChannelState().failed, true, '旧写成功不能清掉更新的故障');
+  assert.equal(m.auditAllow('register', policy, 'k', 11, 'anonymous'), false, '下一写仍降级');
+  assert.equal(lines.at(-1).event, 'workbench_url_audit_failure'); assert.ok(lines.at(-1).channel_failures >= 2);
+  // B 的 allow 与 failure 两条都在故障后发起：其中一条成功即恢复
+  while (pending.length) pending.shift()(null);
+  assert.equal(m.auditChannelState().failed, false, '故障后发起的写成功才恢复');
+  assert.equal(m.auditAllow('register', policy, 'k', 12, 'anonymous'), true);
+  while (pending.length) pending.shift()(null);
+  m._setAuditWriter((l, done) => done(null));
+});
 await check('必改1 百分号与 UTF-8：非法序列 400（公网 key、许可配置、内部路径）；合法空格与中文编码照收', () => {
   const t = () => true;
   const code = (u) => { try { m.admitUrl(u, policy, t); return 'ok'; } catch (e) { return `${e.status} ${e.code}`; } };

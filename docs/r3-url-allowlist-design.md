@@ -179,7 +179,7 @@ PR#256 merged_at=2026-10-28T11:44:09Z；CI run40682179542（head6002c6ee）succe
 - 审计主体：REST 只认已核管理口令（`admin`），MCP 网关会话为 `mcp:<会话名>`，其余 `anonymous`。
 - 百分号编码：公网 key、许可条目、内部路径要求每个 `%` 都是 `%HH`，且解出的字节流（连同字面字符）是合法 UTF-8（拒超长、代理项、越界、截断）；只校验，不用解码结果扩大 key。私网不收紧。
 - 「url 未变」= 原样相同，或同一规范化 key 且 fragment 相同（host 大小写 / 显式缺省端口 / hex 大小写）；此时保留原 url 只改元数据。scheme/port/path/query/fragment 任一变化都是新 url。
-- 审计渠道：写回调带 err 或 `process.stderr` 发 error 时锁存故障；锁存期间每个 allow 写都回 `X-WM-Audit-State: degraded` 并发 `workbench_url_audit_failure`（带故障计数与最后时间），直到有一条写成功回调才解除。`write()` 返回 false（背压）不算失败。
+- 审计渠道：写回调带 err 或 `process.stderr` 发 error 时锁存故障；锁存期间每个 allow 写都回 `X-WM-Audit-State: degraded` 并发 `workbench_url_audit_failure`（带故障计数与最后时间），直到有一条**最近一次故障之后才发起的**写成功回调才解除（故障前发起的旧写迟到成功不清新故障，按故障代次判断）。`write()` 返回 false（背压）不算失败。
 - 有效 health_path：类型级 health_path 只收相对路径（POST/PUT/导入）；探测处对「台自己的或继承自类型的」生效路径统一按台 origin 再核一次，存量的跨 origin 绝对路径记 down、不发请求。
 
 **存量与迁移（属主已确认破坏性收紧）**
