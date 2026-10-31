@@ -8,6 +8,30 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync, rmSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/** 收尾：只停自己起的 server，**确认它已退出**才删自己的 TMP（Windows 上进程还持有 DATA_DIR 文件句柄时 rm 会 EPERM）。
+ *  等到期仍未退出：不删 TMP、留现场并报出 PID，退出码非 0；删不掉同样如实报、非 0。不杀别的进程、不删别的目录。
+ *  exported 供 e2e-full-run-cleanup-test 用假子进程机械回归。 */
+export async function cleanupOwn(child, tmp, code, { timeoutMs = 15_000, rm = rmSync, log = console.error } = {}) {
+  const alive = () => child.exitCode === null && child.signalCode === null;
+  if (alive()) {
+    const exited = new Promise((r) => child.once('exit', r));
+    child.kill();
+    let timer;
+    await Promise.race([exited, new Promise((r) => { timer = setTimeout(r, timeoutMs); })]);
+    clearTimeout(timer);
+  }
+  if (alive()) {
+    log(`e2e-full-run: 自起 server（PID ${child.pid}）${timeoutMs}ms 内未退出，保留 ${tmp} 不删；请确认该进程后手动清理`);
+    return code === 0 ? 1 : code;
+  }
+  try { rm(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
+  catch (e) { log(`e2e-full-run: 清理 ${tmp} 失败：${e.code ?? ''} ${e.message}`); return code === 0 ? 1 : code; }
+  return code;
+}
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();
+async function main() {
 
 const controlOff = process.argv.includes('--control-off');
 const dryEnv = process.argv.includes('--dry-env');
@@ -46,5 +70,6 @@ try {
   const py = spawn(PY, ['evidence/e2e_test.py'], { stdio: 'inherit', env: e2eEnv });
   code = await new Promise((r) => py.on('exit', (c) => r(c ?? 1)));
 } catch (e) { console.error('e2e-full-run:', e.message); }
-finally { server.kill(); rmSync(TMP, { recursive: true, force: true }); }
+finally { code = await cleanupOwn(server, TMP, code); }
 process.exit(code);
+}

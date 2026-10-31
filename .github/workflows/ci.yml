@@ -47,6 +47,8 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/content-index-browser.mjs
+      - name: 完整 E2E 跑器收尾回归（自起 server 未确认退出不删 TMP）
+        run: node scripts/e2e-full-run-cleanup-test.mjs
       - name: 宿主 YGL_HOME 诱饵（不可读目录，完整 E2E 两档都带着它跑）
         run: mkdir -p "$RUNNER_TEMP/decoy-ygl-home" && chmod 000 "$RUNNER_TEMP/decoy-ygl-home"
       - name: 完整 E2E（M1 双面：控制面开，隔离实例）
