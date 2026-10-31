@@ -46,7 +46,8 @@ export async function apiFetch(url: string, init: RequestInit = {}): Promise<Res
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   const r = await fetch(url, { ...init, headers });
   if ((r.status === 401 || r.status === 403) && url.startsWith('/api/')) {
-    const err = new Error('管理员口令缺失或无效') as Error & { needAdminToken?: boolean };
+    const b = await r.clone().json().catch(() => ({})) as { control_surface_required?: boolean; control_url?: string | null };
+    const err = new Error(b.control_surface_required ? `管理操作请到控制面${b.control_url ? `：${b.control_url}${window.location.pathname}` : '（控制面已关闭，只能用本机命令行）'}` : '管理员口令缺失或无效') as Error & { needAdminToken?: boolean };
     err.needAdminToken = true;
     throw err;
   }

@@ -1,8 +1,9 @@
 import express from 'express';
 import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskCenterPolicy } from './task-center.ts';
 import cors from 'cors';
+import { allSurfaceServers, browserMarked, originIsThisSurface, rawLoopback, registerSurface, surfaceOf, surfacePorts, surfaceUrl } from './surfaces.ts';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createReadStream } from 'node:fs';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -38,6 +39,16 @@ app.use(cors({
   },
   credentials: false,
 }));
+// #292 M1 控制面围栏：控制面（WM_CONTROL_PORT）不承载任何不可信内容，也不许被嵌、不嵌别人
+app.use((req, res, next) => {
+  if (surfaceOf(req) !== 'control') return next();
+  // 用 Express 路由同一个 pathname（req.path：已剥查询串、已处理绝对形式 http://x/mcp），再按小写判——路由不区分大小写（/MCP、/A2A/direct 曾漏过；#299 绝对形式）
+  const p = req.path.toLowerCase();
+  if (/^\/(go|sop|apps)(\/|$)/.test(p) || p === '/mcp' || p.startsWith('/a2a/')) return res.status(404).type('text').send('控制面不提供此路径（请用业务面）\n');
+  res.setHeader('content-security-policy', "frame-ancestors 'none'; frame-src 'none'");
+  res.setHeader('x-frame-options', 'DENY');
+  next();
+});
 // #198（裁 A）：自产台数据/文件面的按台令牌 CORS——sandbox 页面（Origin: null）凭 X-App-Token 匹配 slug 才放行
 app.use((req, res, next) => {
   // #198 复修②：路径匹配前剥查询串（GET …/data?limit= 形态此前漏放 ACAO）
@@ -123,23 +134,26 @@ if (lastAllowDiff.added.length > 0 || lastAllowDiff.removed.length > 0) {
     } catch { /* 不阻启动 */ }
   }, 3000);
 }
+// #292 M1：写请求总门。
+//   本机 CLI（回环直连、不带浏览器标记、没有反代转发头）照旧免口令——属主口径；
+//   浏览器发来的管理写（带 Origin / Sec-Fetch-*）一律要控制面 + 控制面 Origin + 口令（adminGuard），
+//   **从 127.0.0.1:9800 页面发的也拒**；同机反代转进来的（带 X-Forwarded-For 等）按远程处理。
+//   业务写白名单（REMOTE_ALLOW_*）不变，照旧在业务面免口令。
 app.use((req, res, next) => {
-  const ip = String(req.socket.remoteAddress ?? '');
-  const isLoopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
-  if (isLoopback || req.method === 'GET' || req.method === 'HEAD') return next(); // 读面不拦（掩码已有）；本机全放
-  // 统一转小写再分类：Express 路由默认不区分大小写，/API/workbenches 也会命中 /api/workbenches——
-  // 区分大小写的 startsWith('/api/') 曾让远程请求用大写路径绕过口令（评审席 #294 复验）
-  // 用 req.path（与路由同源的 parseurl pathname）而非原始 req.url：绝对形式请求目标
-  // POST http://x/api/… 的 req.url 不以 /api/ 开头，路由却照样命中（#299）
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next(); // 读面不拦（掩码已有）
+  // 与路由同口径分类：req.path 是 Express 路由用的 pathname（绝对形式 POST http://x/api/… 的原始 req.url 不以 /api/ 开头，曾绕过本门：#299）；
+  // 再统一转小写：路由默认不区分大小写，/API/workbenches 也会命中 /api/workbenches（评审席 #294 复验；main 热修 #295）
   const p = req.path.toLowerCase();
   if (REMOTE_ALLOW_EXACT.has(p)) return next();
   if (REMOTE_ALLOW_PREFIX.some((re) => re.test(p))) return next(); // 自产台数据/文件面（主人裁定 A）
+  if (!browserMarked(req) && rawLoopback(req)) return next(); // 本机 CLI
+  if (p === '/api/admin-token') return next(); // 设/清口令由路由自己判（首次设置时还没有口令可验）
   if (p.startsWith('/api/')) {
-    // 远程 /api/* 写：走 adminGuard（函数声明有提升，请求期已定义）
+    // 其余 /api/* 写：走 adminGuard（函数声明有提升，请求期已定义）
     if (adminGuard(req, res)) return next();
     return; // adminGuard 已回 403
   }
-  return next(); // 其余远程非 /api 面（如 /go/ 门户读型代理）不在本判据范围
+  return next(); // 其余非 /api 面（如 /go/ 门户读型代理）不在本判据范围
 });
 
 const wrap =
@@ -2227,9 +2241,10 @@ app.delete('/api/types/:id', (req, res) => {
 
 // ---------- 设置 / 导入导出 ----------
 // ---------- 管理员口令手动设置（本机引导：首次无口令时允许从 loopback 设置） ----------
+/** #292 M1：可设/清口令——本机直连，且要么是 CLI（无浏览器标记），要么是控制面页面（Origin 就是控制面） */
 function isLoopbackReq(req: express.Request): boolean {
-  const ip = String(req.socket.remoteAddress ?? '');
-  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+  if (!rawLoopback(req)) return false;
+  return !browserMarked(req) || (surfaceOf(req) === 'control' && originIsThisSurface(req));
 }
 
 app.get('/api/admin-token/state', (req, res) => {
@@ -2240,7 +2255,7 @@ app.get('/api/admin-token/state', (req, res) => {
 });
 
 app.put('/api/admin-token', (req, res) => {
-  if (!isLoopbackReq(req)) return res.status(403).json({ error: '仅本机可设置管理员口令' });
+  if (!isLoopbackReq(req)) return res.status(403).json({ error: '仅本机命令行或本机控制面页面可设置管理员口令', control_url: surfaceUrl(req, 'control') });
   if (process.env.ADMIN_TOKEN) return res.status(400).json({ error: '口令由启动环境 ADMIN_TOKEN 提供，页面不可改（改环境变量并重启）' });
   const token = typeof req.body?.token === 'string' ? req.body.token : '';
   if (token.length < 4 || token.length > 128) return res.status(400).json({ error: '口令长度 4–128' });
@@ -2253,7 +2268,7 @@ app.put('/api/admin-token', (req, res) => {
 });
 
 app.delete('/api/admin-token', (req, res) => {
-  if (!isLoopbackReq(req)) return res.status(403).json({ error: '仅本机可清除管理员口令' });
+  if (!isLoopbackReq(req)) return res.status(403).json({ error: '仅本机命令行或本机控制面页面可清除管理员口令', control_url: surfaceUrl(req, 'control') });
   if (process.env.ADMIN_TOKEN) return res.status(400).json({ error: '口令来自启动环境，需清环境变量并重启' });
   if (!dbAdminTokenOk(req.headers['x-admin-token'])) return res.status(403).json({ error: '需当前口令' });
   svc<SettingService>('setting').delete(ADMIN_TOKEN_KEY);
@@ -2419,12 +2434,17 @@ function adminHeaderOk(req: express.Request): boolean {
 }
 
 function adminGuard(req: express.Request, res: express.Response): boolean {
+  // #292 M1：浏览器发来的管理写只认控制面（口令只在控制面存在；业务面上的同源不可信页拿不到也用不了）
+  if (browserMarked(req) && !(surfaceOf(req) === 'control' && originIsThisSurface(req)) && !devOriginOk(req)) {
+    res.status(403).json({ error: '管理写操作请到控制面（业务面页面发来的一律拒绝）', control_surface_required: true, control_url: surfaceUrl(req, 'control') });
+    return false;
+  }
   if (!adminTokenCheck(req.headers['x-admin-token'])) {
     res.status(403).json({ error: '需要有效的 X-Admin-Token（口令缺失或无效一律拒绝；设置页/顶栏钥匙图标可设置）' }); // 属主报障文案修正：不再把「未带/无效」说成「未设置」
     return false;
   }
   const origin = req.headers.origin;
-  if (origin) {
+  if (origin && !devOriginOk(req)) { // web dev：vite 代理把 Host 改成 9800、Origin 仍是 5173，已在 devOriginOk 里限本机直连
     // 同源判定：Origin 的 host 与请求 Host 一致（http/https 均可）
     try {
       const oh = new URL(String(origin)).host;
@@ -2438,6 +2458,15 @@ function adminGuard(req: express.Request, res: express.Response): boolean {
     }
   }
   return true;
+}
+
+/** web dev（vite 5173 经代理转 /api）：Origin 是白名单里的本机 dev 源、且本机直连时，视同控制面。
+ *  **默认关闭**，只在显式开启时生效：启动参数 `--dev-origin`（`pnpm dev` 已带）或环境变量 `WM_DEV_ORIGIN=1`；
+ *  生产 `pnpm start` / 容器不带，5173 来源的管理写一律 403（评审席 #294 ee13ad9：曾在 production 下 201）。 */
+const DEV_ORIGIN_ENABLED = process.argv.includes('--dev-origin') || process.env.WM_DEV_ORIGIN === '1';
+if (DEV_ORIGIN_ENABLED) console.warn('[surfaces] 已开启 web dev 来源例外（--dev-origin / WM_DEV_ORIGIN=1）：本机 vite 5173 页面可凭口令做管理写；生产不要开');
+function devOriginOk(req: express.Request): boolean {
+  return DEV_ORIGIN_ENABLED && CORS_ALLOW.has(String(req.headers.origin ?? '')) && rawLoopback(req);
 }
 
 // #159 M3 B2（决策 #010）：任务中心——同源门（C1/C9/C10 三态）+ 状态迁移（恰一条事件）+ 8 端点
@@ -3291,13 +3320,25 @@ installPortal(app, wbById, { serveApp, readActiveManifest, renderSopRunner, apps
 
 // ---------- 静态托管前端（生产形态：单端口） ----------
 const webDist = join(here, '..', '..', 'web', 'dist');
+// #292 M1：index.html 按面注入 <meta name="wm-surface">（market/control）与另一面的地址，前端据此分流管理入口
+let indexHtmlCache: { mtimeMs: number; html: string } | null = null;
+function sendSurfaceIndex(req: express.Request, res: express.Response): void {
+  const file = join(webDist, 'index.html');
+  const mtimeMs = statSync(file).mtimeMs;
+  if (!indexHtmlCache || indexHtmlCache.mtimeMs !== mtimeMs) indexHtmlCache = { mtimeMs, html: readFileSync(file, 'utf8') };
+  const attr = (v: string | null) => (v ?? '').replace(/[&"<>]/g, (c) => ({ '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;' }[c]!));
+  const meta = `<meta name="wm-surface" content="${surfaceOf(req) === 'control' ? 'control' : 'market'}">`
+    + `<meta name="wm-control-url" content="${attr(surfaceUrl(req, 'control'))}"><meta name="wm-market-url" content="${attr(surfaceUrl(req, 'market'))}">`;
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('html').send(indexHtmlCache.html.replace(/<head([^>]*)>/i, (m) => m + meta));
+}
 if (existsSync(webDist)) {
-  app.use(express.static(webDist));
+  app.use(express.static(webDist, { index: false })); // index.html 由 sendSurfaceIndex 注入后下发
   // SPA fallback 只兜「路由路径」：静态资源（/assets/*、带扩展名文件）不存在的直接 404——
   // 否则旧缓存 index.html 引用的已删 hash 会被回成 200 text/html，前端炸 MIME 错且难定位（实盘踩坑）
   app.get(/^(?!\/api\/|\/assets\/|\/health).*/, (_req, res, next) => { // P1-4：/health* 不被 SPA 兜底（探活可区分）
-    if (/\.[A-Za-z0-9]+$/.test(_req.path)) return next(); // 带扩展名的文件请求不兜底
-    res.sendFile(join(webDist, 'index.html'));
+    if (/\.[A-Za-z0-9]+$/.test(_req.path) && _req.path !== '/index.html') return next(); // 带扩展名的文件请求不兜底
+    sendSurfaceIndex(_req, res);
   });
   app.use((_req, res) => res.status(404).json({ error: 'not found' }));
 }
@@ -3389,7 +3430,8 @@ app.post('/api/a2a/send', wrap(async (req, res) => {
 }));
 
 if (getApp('task-center').status === 'published') syncWorkbenchRegistration(getApp('task-center'));
-const goServer = app.listen(PORT, () => {
+const SURFACE_PORTS = surfacePorts();
+const goServer = registerSurface(app, 'market', PORT, () => {
   if (process.env.ALLOW_PUBLIC_NET === '1') console.warn('[SSRF_GUARD_DISABLED] ALLOW_PUBLIC_NET=1: public registration guard is bypassed; explicitly review this deployment exception.');
   const odooTrust = trustedOdooOrigins();
   if (odooTrust.invalid.length) console.warn(`[SSO v1] WM_ODOO_ORIGINS/LC_ODOO_URL 有非法项（已忽略）：${odooTrust.invalid.join(', ')}`);
@@ -3398,6 +3440,7 @@ const goServer = app.listen(PORT, () => {
   if (lcProblem) console.warn(`[lifecycle] 生命周期源不可用：${lcProblem}`);
   const counts = svc<WorkbenchService>('workbench').count() as { n: number };
   console.log(`[workbench-market] server  http://127.0.0.1:${PORT}  (workbenches: ${counts.n}, web-dist: ${existsSync(webDist) ? 'served' : 'none'}, portal: /go/<id>/)`);
+  console.log(SURFACE_PORTS.control ? `[workbench-market] control http://127.0.0.1:${SURFACE_PORTS.control}  （#292 M1 管理控制面：浏览器管理写只在这里收）` : '[workbench-market] control 面已关闭（WM_CONTROL_PORT=0）：浏览器管理写一律拒绝，只能用本机命令行');
   startRedis(); // SOP 状态层（生产 Redis；不可达自动降级直写 SQLite，不阻塞启动）
   // 启动自探测（监督席观察项：重载后状态悬空靠人 check-all 兜底已第 3 次）——
   // 延迟 8s 让依赖（上游台）就绪，跑一轮全测归真状态；单台失败不阻断
@@ -3405,10 +3448,13 @@ const goServer = app.listen(PORT, () => {
   boot.unref?.();
 });
 
+if (SURFACE_PORTS.control) registerSurface(app, 'control', SURFACE_PORTS.control);
+
 // P1-3（#147）：优雅关闭——停巡检→WAL checkpoint(db.close)→server.close（容器 stop 不丢写）
 function shutdown(sig: string): void {
   console.log(`[shutdown] ${sig} received——停止接受新请求`);
   try { if (timer) clearTimeout(timer); } catch { /* 未启动 */ }
+  for (const srv of allSurfaceServers()) if (srv !== goServer) srv.close();
   goServer.close(() => {
     try { db.close(); } catch { /* 已关 */ }
     process.exit(0);
@@ -3422,6 +3468,7 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 // 关键：upgrade 事件不流经 Express 中间件链——前置中间件设置的 goOrigin/goBase/goQuery/goAuth
 // 在这里全部不存在，必须对 upgrade 请求重做同样的准备，否则 router 兜底到 http://127.0.0.1（80 端口
 // 无服务）→ DSH 台经门户打开后 WS 永远连不上（页面「重新连接中…」，实测踩坑）。
+for (const srv of allSurfaceServers()) if (srv !== goServer) srv.on('upgrade', (_req, socket) => socket.destroy()); // #292 M1：控制面不提供 WS
 goServer.on('upgrade', (req, socket, head) => {
   const m = goPrefix.exec(req.url ?? '');
   if (!m) return socket.destroy(); // 非 /go/ 的升级请求：本服务自身不提供 WS
