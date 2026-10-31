@@ -9,10 +9,10 @@ import {validateReadonlySop} from './sop-readonly-channel.ts';
 import {assembleReadonlySop,type FrozenSopSource} from './sop-readonly-assembly.ts';
 type ViewerResult = Awaited<ReturnType<typeof resolveOdooViewer>>;
 // Existing run upload hard ceilings: single50MiB / run20 files / run200MiB. Stored MIME is declared, not content-authenticated.
-type Deps = {db:DatabaseSync; odooOrigin:string; marketOrigin:string; frozenYaml:(slug:string,version:number)=>string; viewer?:typeof resolveOdooViewer; now?:()=>number};
+type Deps = {db:DatabaseSync; odooOrigin:string; marketOrigin:string; frozenYaml:(slug:string,version:number)=>string; viewer?:typeof resolveOdooViewer; now?:()=>number; editableCreation?:boolean};
 type Binding = {run_id:number; target_id:number; sop_version:number; owner_subject:string; assignee_subject:string; acl_revision:number; manifest_sha256:string; revoked:number};
 type Scope = {targetId:number;runId:number;step:string};
-type Record = Scope & {action:'read'|'save'|'upload'|'finish';version:number;subject:string;session:string;epoch:number;aclRevision:number;expires:number};
+type Record = Scope & {action:'read'|'save'|'upload'|'finish'|'recover';version:number;subject:string;session:string;epoch:number;aclRevision:number;expires:number};
 const positive = (n:number) => Number.isSafeInteger(n)&&n>0;
 export class SopWriteError extends Error { status:number;code:string;constructor(status:number,code:string){super(code);this.status=status;this.code=code;} }
 const deny = () => { throw new SopWriteError(403,'sop_run_access_denied'); };
@@ -25,6 +25,7 @@ export function createSopRunAccess(deps:Deps) {
   db.exec('CREATE TABLE IF NOT EXISTS sop_run_access (run_id INTEGER PRIMARY KEY, target_id INTEGER NOT NULL, sop_version INTEGER NOT NULL, owner_subject TEXT NOT NULL, assignee_subject TEXT NOT NULL, acl_revision INTEGER NOT NULL, manifest_sha256 TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0)');
   db.exec('CREATE TABLE IF NOT EXISTS sop_run_revisions (run_id INTEGER PRIMARY KEY, revision INTEGER NOT NULL, data_sha256 TEXT NOT NULL)');
   db.exec('CREATE TABLE IF NOT EXISTS sop_channel_files (id TEXT PRIMARY KEY,run_id INTEGER NOT NULL,step TEXT NOT NULL,field_key TEXT NOT NULL,request_id TEXT NOT NULL,mime TEXT NOT NULL,size INTEGER NOT NULL,body BLOB NOT NULL,UNIQUE(run_id,step,request_id))');
+  db.exec('CREATE TABLE IF NOT EXISTS sop_channel_completions (run_id INTEGER PRIMARY KEY, acl_revision INTEGER NOT NULL)');
   const secret=randomBytes(32), records=new Map<string,Record>(), sessions=new Map<string,{epoch:number;generation:number;subject:string|null}>();
   const mac=(s:string)=>createHmac('sha256',secret).update(s).digest('base64url');
   const cookieKey=(cookie:string) => {
@@ -62,26 +63,28 @@ export function createSopRunAccess(deps:Deps) {
     state.subject=subject;
     return {...session,epoch:state.epoch,generation:state.generation,subject};
   }
-  function authorized(scope:Scope,subject:string) {
+  function authorized(scope:Scope,subject:string,finishedRead=false) {
     const r=metadata(scope.runId,scope.targetId),b=binding(scope.runId);
-    if(!/^[a-z][a-z0-9_-]{0,63}$/.test(scope.step)||!allowed(b,subject,scope.targetId)||b!.sop_version!==r.sop_version)return deny();
+    const completed=finishedRead&&r.status==='finished'&&b&&db.prepare('SELECT 1 FROM sop_channel_completions WHERE run_id=? AND acl_revision=?').get(scope.runId,b.acl_revision);
+    const readable=allowed(b,subject,scope.targetId)||(completed&&b!.target_id===scope.targetId&&(b!.owner_subject===subject||!!b!.assignee_subject&&b!.assignee_subject===subject));
+    if(!/^[a-z][a-z0-9_-]{0,63}$/.test(scope.step)||!readable||b!.sop_version!==r.sop_version)return deny();
     return {r,b:b!};
   }
-  function project(scope:Scope,subject:string, allowSave = false, allowUpload = false) {
-    const {r,b}=authorized(scope,subject);
+  function project(scope:Scope,subject:string, allowSave = false, allowUpload = false, finishedRead=false) {
+    const {r,b}=authorized(scope,subject,finishedRead);
     const yaml=deps.frozenYaml(r.sop_slug,r.sop_version);
     if(hash(yaml)!==b.manifest_sha256)return deny();
     // Values are not selected until current viewer AND controlled run binding pass.
     const row=db.prepare('SELECT data FROM sop_runs WHERE id=?').get(r.id) as {data:string};
     const source:FrozenSopSource={targetId:scope.targetId,slug:r.sop_slug,version:r.sop_version,yaml};
     const data=JSON.parse(row.data);
-    if(allowUpload){const refs=db.prepare('SELECT id,field_key FROM sop_channel_files WHERE run_id=? AND step=? ORDER BY rowid').all(scope.runId,scope.step) as {id:string;field_key:string}[];for(const f of refs){data[scope.step]??={};(data[scope.step][f.field_key]??=[]).push(f.id);}}
+    if(allowUpload){const refs=db.prepare('SELECT id,field_key FROM sop_channel_files WHERE run_id=? AND step=? ORDER BY rowid').all(scope.runId,scope.step) as {id:string;field_key:string}[];for(const f of refs){data[scope.step]??={};if(!(data[scope.step][f.field_key]??=[]).includes(f.id))data[scope.step][f.field_key].push(f.id);}}
     const run={id:r.id,sop_slug:r.sop_slug,sop_version:r.sop_version,status:r.status,data};
     const revision=db.prepare('SELECT revision,data_sha256 FROM sop_run_revisions WHERE run_id=?').get(r.id) as {revision:number;data_sha256:string}|undefined;
     if(allowSave && (!revision || hash(row.data)!==revision.data_sha256))throw new SopWriteError(409,'run_revision_conflict');
     const preview=assembleReadonlySop(source,run,scope.step,revision?.revision??0,deps.marketOrigin,allowSave,allowUpload);
     // Projection has no owner/login/uid/session/receipt or upload capability. Token is separate, shell only.
-    return {preview,run:{id:r.id,targetId:scope.targetId,version:r.sop_version,step:scope.step,authorized:true as const},aclRevision:b.acl_revision};
+    return {preview,run:{id:r.id,targetId:scope.targetId,version:r.sop_version,step:scope.step,status:r.status,authorized:true as const},aclRevision:b.acl_revision};
   }
   async function authenticate(cookie:string,capability:string,scope:Scope) {
     sweep();const match=typeof capability==='string'&&/^([A-Za-z0-9_-]{43})[.]([A-Za-z0-9_-]{43})$/.exec(capability);
@@ -92,9 +95,9 @@ export function createSopRunAccess(deps:Deps) {
     if(metadata(scope.runId,scope.targetId).sop_version!==record.version)return deny();
     return {record,who};
   }
-  async function issue(cookie:string,scope:Scope,action:'read'|'save'|'upload'|'finish') {
+  async function issue(cookie:string,scope:Scope,action:'read'|'save'|'upload'|'finish'|'recover') {
     scope={...scope};const who=await identify(cookie);sweep();if(!stillCurrent(who)||records.size>=4096)return deny();
-    const projection=project(scope,who.subject,action!=='read',action!=='read');
+    const projection=project(scope,who.subject,action!=='read',action!=='read',action==='recover');
     if(action==='save' && (metadata(scope.runId,scope.targetId).status!=='running'||!projection.preview.fields.some(f=>f.operations?.includes('save' as never))))return deny();
     if(action==='upload' && (metadata(scope.runId,scope.targetId).status!=='running'||!projection.preview.fields.some(f=>f.type==='file'&&f.operations?.includes('upload' as never))))return deny();
     if(action==='finish' && metadata(scope.runId,scope.targetId).status!=='running')return deny();
@@ -116,7 +119,7 @@ export function createSopRunAccess(deps:Deps) {
         if(!target?.enabled||target.url!=='/sop/'+input.slug+'/'||!app||app.kind!=='sop'||app.status!=='published'||!positive(app.active_version)||!db.prepare('SELECT 1 FROM app_versions WHERE app_id=? AND version=?').get(app.id,app.active_version))return deny();
         const yaml=deps.frozenYaml(input.slug,app.active_version),manifest=parseYaml(yaml,{maxAliasCount:0}),step=manifest?.steps?.[0]?.key;
         // New read-only wiring accepts only reviewed read schemas; invalid source never creates a run.
-        assembleReadonlySop({targetId:input.targetId,slug:input.slug,version:app.active_version,yaml},{id:1,sop_slug:input.slug,sop_version:app.active_version,status:'running',data:{}},step,0,deps.marketOrigin);
+        assembleReadonlySop({targetId:input.targetId,slug:input.slug,version:app.active_version,yaml},{id:1,sop_slug:input.slug,sop_version:app.active_version,status:'running',data:{}},step,0,deps.marketOrigin,!!deps.editableCreation,!!deps.editableCreation);
         if(!stillCurrent(who))return deny();
         const created=db.prepare('INSERT INTO sop_runs(sop_slug,sop_version,started_by,data) VALUES(?,?,?,?)').run(input.slug,app.active_version,'','{}'),id=Number(created.lastInsertRowid);
         db.prepare('INSERT INTO sop_run_access(run_id,target_id,sop_version,owner_subject,assignee_subject,acl_revision,manifest_sha256,revoked) VALUES(?,?,?,?,?,1,?,0)').run(id,input.targetId,app.active_version,who.subject,'',hash(yaml));
@@ -141,10 +144,14 @@ export function createSopRunAccess(deps:Deps) {
     openEditable(cookie:string,scope:Scope) { return issue(cookie,scope,'save'); },
     openUpload(cookie:string,scope:Scope) { return issue(cookie,scope,'upload'); },
     openFinish(cookie:string,scope:Scope) { return issue(cookie,scope,'finish'); },
+    openRecovery(cookie:string,scope:Scope) { return issue(cookie,scope,'recover'); },
+    async recover(cookie:string,capability:string,scope:Scope) {
+      scope={...scope};const {who,record}=await authenticate(cookie,capability,scope);if(record.action!=='recover'||!stillCurrent(who)||record.expires<=now()||record.aclRevision!==binding(scope.runId)?.acl_revision)return deny();return project(scope,who.subject,true,true,true);
+    },
     async read(cookie:string,capability:string,scope:Scope) {
       scope={...scope};const {who,record}=await authenticate(cookie,capability,scope);
       if(!stillCurrent(who)||record.expires<=now()||record.aclRevision!==binding(scope.runId)?.acl_revision)return deny();
-      return project(scope,who.subject,record.action!=='read',record.action!=='read');
+      return project(scope,who.subject,record.action!=='read',record.action!=='read',record.action==='recover');
     },
     async finish(cookie:string,capability:string,scope:Scope,input:{version:number;expected_revision:number;values:Record<string,unknown>}) {
       scope={...scope};input=structuredClone(input);
@@ -174,6 +181,7 @@ export function createSopRunAccess(deps:Deps) {
         if(db.prepare('UPDATE sop_run_revisions SET revision=?,data_sha256=? WHERE run_id=? AND revision=? AND data_sha256=?').run(revision,hash(next),scope.runId,input.expected_revision,hash(row.data)).changes!==1)throw new SopWriteError(409,'run_revision_conflict');
         if(db.prepare("UPDATE sop_runs SET status='finished',data=?,finished_at=datetime('now'),updated_at=datetime('now') WHERE id=? AND status='running'").run(next,scope.runId).changes!==1)return deny();
         db.prepare('UPDATE sop_run_access SET revoked=1,acl_revision=acl_revision+1 WHERE run_id=?').run(scope.runId);
+        db.prepare('INSERT OR REPLACE INTO sop_channel_completions VALUES(?,?)').run(scope.runId,binding(scope.runId)!.acl_revision);
         db.exec('COMMIT');for(const [id,r]of records)if(r.runId===scope.runId)records.delete(id);
         return {ok:true as const,status:'finished' as const,revision};
       }catch(error){db.exec('ROLLBACK');throw error;}

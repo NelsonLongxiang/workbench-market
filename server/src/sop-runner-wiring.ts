@@ -4,12 +4,16 @@ import type {DatabaseSync} from 'node:sqlite';
 import {lstatSync,realpathSync,openSync,fstatSync,readSync,closeSync} from 'node:fs';
 import {resolve,relative,sep,join} from 'node:path';
 import {createSopRunAccess,SopWriteError} from './sop-run-access.ts';
+import {renderEditableSopPreview} from './sop-field-channel.ts';
+import {createSopFieldSaveRouter} from './sop-field-save.ts';
+import {createSopFieldUploadRouter} from './sop-field-upload.ts';
+import {createSopFieldFinishRouter} from './sop-field-finish.ts';
 import {renderReadonlySopPreview} from './sop-readonly-channel.ts';
 import {surfaceOf} from './surfaces.ts';
 import {trustedOdooOrigins} from './odoo-session.ts';
 export function sopRunnerConfig(env:NodeJS.ProcessEnv) {
   const mode=env.WM_SOP_CHANNEL_MODE??'off';if(mode==='off')return null;
-  if(mode!=='readonly')throw Error('WM_SOP_CHANNEL_MODE supports only off/readonly in this stage');
+  if(!['readonly','editable'].includes(mode))throw Error('WM_SOP_CHANNEL_MODE supports only off/readonly/editable');
   const marketOrigin=env.WM_SOP_CHANNEL_MARKET_ORIGIN??'',odooOrigin=env.WM_SOP_CHANNEL_ODOO_ORIGIN??'';
   for(const value of [marketOrigin,odooOrigin]){const u=new URL(value);if(u.origin!==value||!['http:','https:'].includes(u.protocol))throw Error('Explicit SOP channel origins required');}
   if(!trustedOdooOrigins().origins.has(odooOrigin))throw Error('SOP identity origin must be explicitly trusted');
@@ -35,7 +39,7 @@ export function readFrozenSopYaml(appsRoot:string,slug:string,version:number) {
   }finally{closeSync(fd);}
 }
 export function createSopRunnerWiring(config:NonNullable<ReturnType<typeof sopRunnerConfig>>,db:DatabaseSync,appsRoot:string,getSurface:typeof surfaceOf=surfaceOf) {
-  const access=createSopRunAccess({db,odooOrigin:config.odooOrigin,marketOrigin:config.marketOrigin,frozenYaml:(slug,version)=>readFrozenSopYaml(appsRoot,slug,version)});
+  const access=createSopRunAccess({db,odooOrigin:config.odooOrigin,marketOrigin:config.marketOrigin,editableCreation:config.mode==='editable',frozenYaml:(slug,version)=>readFrozenSopYaml(appsRoot,slug,version)});
   const bySlug=new Map(config.targets.map(t=>[t.slug,t.targetId])),authority=new URL(config.marketOrigin).host;
   const registrationPath='/api/sop/channel/runs';
   const registration:express.RequestHandler=(req,res,next)=>{
@@ -73,10 +77,21 @@ export function createSopRunnerWiring(config:NonNullable<ReturnType<typeof sopRu
       const runId=Number(query.get('run')),step=query.get('step')!;
       const meta=db.prepare('SELECT sop_slug FROM sop_runs WHERE id=?').get(runId) as {sop_slug:string}|undefined;
       if(!meta||meta.sop_slug!==match[1])return void res.status(403).json({error:'sop_run_access_denied'});
-      try{const opened=await access.open(String(req.headers.cookie??''),{targetId:bySlug.get(match[1])!,runId,step});
-        res.set('X-App-Version','v'+opened.run.version).status(200).type('html').send(renderReadonlySopPreview(opened.preview));
+      try{const cookie=String(req.headers.cookie??''),scope={targetId:bySlug.get(match[1])!,runId,step};
+        if(config.mode==='editable'){const recovered=await access.openRecovery(cookie,scope);let save='',upload='',finish='';
+          if(recovered.run.status==='running'){if(recovered.preview.fields.some(f=>f.operations?.includes('save' as never)))save=(await access.openEditable(cookie,scope)).capability;else save=recovered.capability;
+            if(recovered.preview.fields.some(f=>f.type==='file'))upload=(await access.openUpload(cookie,scope)).capability;finish=(await access.openFinish(cookie,scope)).capability;}else save=recovered.capability;
+          return void res.set('X-App-Version','v'+recovered.run.version).status(200).type('html').send(renderEditableSopPreview(recovered.preview,save,upload,finish,recovered.capability,recovered.run.status));}
+        const opened=await access.open(cookie,scope);res.set('X-App-Version','v'+opened.run.version).status(200).type('html').send(renderReadonlySopPreview(opened.preview));
       }catch(error){res.status(error instanceof SopWriteError?error.status:503).json({error:error instanceof SopWriteError?error.code:'sop_readonly_unavailable'});}
     })().catch(next);
   };
-  return {handler,registration}; // No existing-run binder, arbitrary owner or generic capability endpoint.
+  const routes=express.Router();
+  if(config.mode==='editable'){
+    routes.use(createSopFieldSaveRouter(access,config.marketOrigin,getSurface));routes.use(createSopFieldUploadRouter(access,config.marketOrigin,getSurface));routes.use(createSopFieldFinishRouter(access,config.marketOrigin,getSurface));
+    routes.post('/api/sop/field-channel/recover',(req,res,next)=>{res.set('Cache-Control','no-store');const count=(name:string)=>req.rawHeaders.filter((_,i)=>i%2===0&&req.rawHeaders[i].toLowerCase()===name).length;
+      if(getSurface(req)!=='market'||req.url!=='/api/sop/field-channel/recover'||['host','origin','cookie','content-type','x-sop-recovery-capability'].some(k=>count(k)!==1)||req.headers.host!==authority||req.headers.origin!==config.marketOrigin||req.headers['content-type']?.split(';')[0].trim()!=='application/json')return void res.status(403).json({error:'sop_recovery_forbidden'});next();
+    },express.json({limit:'4kb',strict:true}),(req,res)=>{void(async()=>{try{const b=req.body;if(!b||Object.keys(b).sort().join(',')!=='runId,step,targetId')throw new SopWriteError(400,'invalid_recovery');const p=await access.recover(String(req.headers.cookie??''),String(req.headers['x-sop-recovery-capability']??''),b);res.json({values:p.preview.values,revision:p.preview.revision,status:p.run.status});}catch(error){res.status(error instanceof SopWriteError?error.status:503).json({error:error instanceof SopWriteError?error.code:'sop_recovery_failed'});}})();});
+  }
+  return {handler,registration,routes}; // No existing-run binder, arbitrary owner or generic capability endpoint.
 }

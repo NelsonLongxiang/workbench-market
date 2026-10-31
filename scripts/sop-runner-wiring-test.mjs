@@ -17,7 +17,7 @@ async function stop(){if(child&&child.exitCode===null&&child.signalCode===null){
 const cookie='session_id=syntheticOwner00000001',register=(body={slug:'inspection-sop'},patch={})=>fetch(market+'/api/sop/channel/runs',{method:'POST',headers:{Cookie:cookie,Origin:market,'Content-Type':'application/json','X-Sop-Channel-Request':'create-owned-run',...patch},body:JSON.stringify(body)}),get=(path,extra={})=>fetch(market+path,{headers:{Cookie:cookie,...extra},redirect:'manual'});
 try{
 check('config defaults off without requiring any origins',sopRunnerConfig({})===null&&sopRunnerConfig({WM_SOP_CHANNEL_MODE:'off'})===null);
-for(const mode of['true','1','editable']){let rejected=false;try{sopRunnerConfig({WM_SOP_CHANNEL_MODE:mode})}catch{rejected=true}check('invalid mode rejected '+mode,rejected);}
+for(const mode of['true','1','unknown-mode']){let rejected=false;try{sopRunnerConfig({WM_SOP_CHANNEL_MODE:mode})}catch{rejected=true}check('invalid mode rejected '+mode,rejected);}
 check('fixed reader uses exact published run version',readFrozenSopYaml(join(data,'apps'),'inspection-sop',3)===yaml);
 for(const [slug,version]of[['../escape',3],['inspection-sop',0],['inspection-sop',99]]){let denied=false;try{readFrozenSopYaml(join(data,'apps'),slug,version)}catch{denied=true}check('fixed reader no invalid or missing version fallback '+slug+'/'+version,denied);}
 mkdirSync(join(data,'apps','bad-utf8','v1'),{recursive:true});writeFileSync(join(data,'apps','bad-utf8','v1','sop.yaml'),Buffer.from([255,254]));let bad=false;try{readFrozenSopYaml(join(data,'apps'),'bad-utf8',1)}catch{bad=true}check('invalid UTF8 rejected',bad);
@@ -55,5 +55,17 @@ check('registered owner can open new frozen run',(await get(created.runner)).sta
 who='other';check('different viewer cannot open new owner run',(await get(created.runner)).status===403);who='owner';
 check('registration cannot adopt old unbound run',(await get('/sop/inspection-sop/?run=14&step=inspect')).status===403);
 const config=join(out,'browser-config.json');writeFileSync(config,JSON.stringify({url:market+'/sop/inspection-sop/?run=12&step=inspect',cookie,result:join(out,'browser.json'),screenshot:join(out,'preview.png')}));const py=spawn(process.env.PYTHON||'python',['scripts/sop-runner-wiring-browser.py',config],{env:{...env,PYTHONIOENCODING:'utf-8',PYTHONUTF8:'1'},stdio:'inherit'});const code=await new Promise((r,j)=>{py.once('exit',r);py.once('error',j)});check('real HTTP index browser readonly protocol succeeds',code===0);
+await stop();
+const editableYaml=yaml.replaceAll('operations: [read]','operations: [read, save]').replace('    fields:', '    fields:'+String.fromCharCode(10)+'      - {key: evidence, type: file, required: true, maxBytes: 10, maxItems: 1, mime: [text/plain], operations: [read, upload]}').replace('      <label>', '      <input type="file" data-field="evidence"><label>');
+writeFileSync(join(data,'apps','inspection-sop','v3','sop.yaml'),editableYaml);
+const editDb=new DatabaseSync(join(data,'workbench-market.db'));editDb.prepare('UPDATE sop_run_access SET manifest_sha256=? WHERE run_id=12').run((await import('node:crypto')).createHash('sha256').update(editableYaml).digest('hex'));editDb.close();
+await start('editable','1');
+check('legacy REST write to managed run rejected',(await fetch(market+'/api/sop/runs/12',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({stepKey:'inspect',value:{note:'legacy overwrite'}})})).status===409);
+check('legacy REST finish managed run rejected',(await fetch(market+'/api/sop/runs/12/finish',{method:'POST'})).status===409);
+check('legacy GET does not read managed Redis state',(await get('/api/sop/runs/12')).status===409);
+check('unmanaged run legacy write stays available',(await fetch(market+'/api/sop/runs/14',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({stepKey:'inspect',value:{note:'legacy unbound'}})})).status===200);
+const recoveryConfig=join(out,'recovery-browser-config.json');writeFileSync(recoveryConfig,JSON.stringify({url:market+'/sop/inspection-sop/?run=12&step=inspect',origin:market,cookie,result:join(out,'recovery-browser.json'),screenshot:join(out,'recovery.png')}));
+const recoveryBrowser=spawn(process.env.PYTHON||'python',['scripts/sop-recovery-browser.py',recoveryConfig],{env:{...env,PYTHONIOENCODING:'utf-8',PYTHONUTF8:'1'},stdio:'inherit'});const recoveryCode=await new Promise((r,j)=>{recoveryBrowser.once('exit',r);recoveryBrowser.once('error',j)});check('real HTTP editable recovery and single-writer composition',recoveryCode===0);
+const persisted=new DatabaseSync(join(data,'workbench-market.db'),{readOnly:true});check('finished row persisted without legacy overwrite',persisted.prepare('SELECT status FROM sop_runs WHERE id=12').get().status==='finished');persisted.close();
 console.log(JSON.stringify({checks,identityChecks:calls,out,scope:'full index synthetic DATA_DIR+home and fake Odoo; real local HTTP and Chromium; not production'}));
 }finally{await stop();await new Promise(r=>odoo.close(r));writeFileSync(join(out,'server.stderr.log'),stderr);writeFileSync(join(out,'server.stdout.log'),stdout);}

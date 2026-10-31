@@ -1,6 +1,7 @@
 /** SOP 域（sop_runs ×10 + sop_bindings ×5 + a2a_run_ctx ×2）：SQL 原文自 index.ts 搬入（S1）。 */
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
+import {assertLegacySopWrite} from '../sop-single-writer.ts';
 
 export class SopService extends Service {
   constructor(ctx: any) {
@@ -20,6 +21,7 @@ export class SopService extends Service {
     return db.prepare('SELECT status, data FROM sop_runs WHERE id = ?').get(id);
   }
   runSaveData(id: number, data: string) {
+    assertLegacySopWrite(db,id);
     return db.prepare("UPDATE sop_runs SET data = ?, updated_at = datetime('now') WHERE id = ?").run(data, id);
   }
   runsBySlug(slug: string) {
@@ -29,9 +31,11 @@ export class SopService extends Service {
     return db.prepare('SELECT * FROM sop_runs ORDER BY id DESC LIMIT ?').all(limit);
   }
   runUpdateData(id: number, data: string) {
+    assertLegacySopWrite(db,id);
     return db.prepare(`UPDATE sop_runs SET data = ?, updated_at = datetime('now') WHERE id = ?`).run(data, id);
   }
   runFinish(id: number, data: string) {
+    assertLegacySopWrite(db,id);
     return db.prepare(`UPDATE sop_runs SET status = 'finished', data = ?, finished_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(data, id);
   }
   runsDispatchedAll() {
@@ -66,6 +70,7 @@ export class SopService extends Service {
   }
   // ---- P4 交付物（product/run-delivery F1-F4） ----
   runFileInsert(r: { runId: number; name: string; mime: string; size: number; storagePath: string; createdBy: string }) {
+    assertLegacySopWrite(db,r.runId);
     return db.prepare('INSERT INTO sop_run_files (run_id, original_name, mime, size, storage_path, created_by) VALUES (?, ?, ?, ?, ?, ?)')
       .run(r.runId, r.name, r.mime, r.size, r.storagePath, r.createdBy);
   }

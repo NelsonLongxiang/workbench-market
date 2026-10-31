@@ -13,7 +13,8 @@
 import { createClient } from 'redis';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { dataDir } from './db.ts';
+import { dataDir,db } from './db.ts';
+import {channelOwnsRun,assertLegacySopWrite} from './sop-single-writer.ts';
 
 function resolveUrl(): string | null {
   // PR#45 TEST 红修复：空串/纯空白一律归入「未设」（评审席干净环境 '' 挂死；本机 6379 兜底掩盖）
@@ -69,6 +70,7 @@ const kActive = 'wm:sop:runs:active';
 
 /** 防抖保存一个步骤值 + 刷 meta.updated_at；活跃索引入集合 */
 export async function runStateSave(id: number, meta: RunMeta, stepKey: string, value: unknown): Promise<boolean> {
+  assertLegacySopWrite(db,id);
   if (!redisHealthy() || !client) return false;
   try {
     const c = client as unknown as {
@@ -80,6 +82,7 @@ export async function runStateSave(id: number, meta: RunMeta, stepKey: string, v
     await c.hSet(kMeta(id), 'status', meta.status);
     await c.hSet(kMeta(id), 'started_by', meta.started_by);
     await c.hSet(kMeta(id), 'updated_at', String(meta.updated_at));
+    assertLegacySopWrite(db,id);
     await c.hSet(kData(id), stepKey, JSON.stringify(value));
     await c.sAdd(kActive, String(id));
     return true;
@@ -90,6 +93,7 @@ export async function runStateSave(id: number, meta: RunMeta, stepKey: string, v
 
 /** 整体写回（SQLite 行恢复 Redis 热态用）：data 为 stepKey→value 对象 */
 export async function runStateRestore(id: number, meta: RunMeta, data: Record<string, unknown>): Promise<boolean> {
+  assertLegacySopWrite(db,id);
   if (!redisHealthy() || !client) return false;
   try {
     const c = client as unknown as { hSet: (k: string, a: string | Record<string, string>, v?: string) => Promise<unknown> };
@@ -98,6 +102,7 @@ export async function runStateRestore(id: number, meta: RunMeta, data: Record<st
       started_by: meta.started_by, updated_at: String(meta.updated_at),
     });
     const entries = Object.fromEntries(Object.entries(data).map(([k, v]) => [k, JSON.stringify(v)]));
+    assertLegacySopWrite(db,id);
     if (Object.keys(entries).length > 0) await c.hSet(kData(id), entries);
     return true;
   } catch {
@@ -107,6 +112,7 @@ export async function runStateRestore(id: number, meta: RunMeta, data: Record<st
 
 /** 读回热数据（恢复现场）；miss 返回 null，调用方查 SQLite */
 export async function runStateLoad(id: number): Promise<{ meta: RunMeta; data: Record<string, unknown> } | null> {
+  if(channelOwnsRun(db,id))return null;
   if (!redisHealthy() || !client) return null;
   try {
     const c = client as unknown as {

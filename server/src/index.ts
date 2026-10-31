@@ -2,6 +2,7 @@ import express from 'express';
 import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskCenterPolicy } from './task-center.ts';
 import cors from 'cors';
 import {sopRunnerConfig,createSopRunnerWiring} from './sop-runner-wiring.ts';
+import {configureSopSingleWriter,channelOwnsRun,assertLegacySopWrite} from './sop-single-writer.ts';
 import { contentConfig, createContentSurface, mountContentSurface, listenContentSurface } from './content-surface.ts';
 import { createPortalObservation } from './portal-observation.ts';
 import { allSurfaceServers, browserMarked, originIsThisSurface, rawLoopback, registerSurface, surfaceOf, surfacePorts, surfaceUrl } from './surfaces.ts';
@@ -81,7 +82,8 @@ if (contentRuntime) {
 }
 // Explicit default-off, selected SOP targets are terminal before legacy Runner/parsers.
 const sopChannelCfg=sopRunnerConfig(process.env);
-if(sopChannelCfg){const sopWiring=createSopRunnerWiring(sopChannelCfg,db,join(dataDir,'apps'));app.use(sopWiring.registration);app.use(sopWiring.handler);}
+if(sopChannelCfg){const sopWiring=createSopRunnerWiring(sopChannelCfg,db,join(dataDir,'apps'));app.use(sopWiring.registration);app.use(sopWiring.handler);app.use(sopWiring.routes);}
+configureSopSingleWriter(!!sopChannelCfg);
 // issue #1：CORS 从全开放收紧为白名单——生产形态（web/dist 由本服务同源托管）不需要跨源；
 // 仅 web dev（vite 5173，其 /api 代理是同源转发、但直连调试场景保留）放行本机回环源。
 // /mcp 为 StreamableHTTP POST（非浏览器 fetch 场景不受 CORS 约束；浏览器 MCP 客户端经同源门户）。
@@ -1456,6 +1458,7 @@ function sopRunStartCore(slugRaw: string, startedByRaw: string): { id: number; s
 
 /** 更新持久化数据（任意步骤键值；Redis 热写 + 30s checkpoint / 降级直写 SQLite） */
 async function sopRunStepSaveCore(id: number, stepKeyRaw: string, value: unknown): Promise<{ ok: boolean; id: number; stepKey: string; persisted: string }> {
+  assertLegacySopWrite(db,id);
   const stepKey = stepKeyRaw.trim();
   if (!stepKey) bad('stepKey 必填');
   if (!/^[\w-]+$/.test(stepKey)) bad('stepKey 仅允许字母/数字/_/-');
@@ -1467,6 +1470,7 @@ async function sopRunStepSaveCore(id: number, stepKeyRaw: string, value: unknown
     return { ok: true, id, stepKey, persisted: 'sqlite' }; // synchronous intake freeze truth source
   }
   const hotOk = await runStateSave(id, { slug: row.sop_slug, version: row.sop_version, status: 'running', started_by: row.started_by, updated_at: Date.now() }, stepKey, value ?? null);
+  assertLegacySopWrite(db,id); // recheck after Redis await; ownership may have changed
   const now = Date.now();
   const last = checkpointAt.get(id) ?? 0;
   if (!hotOk || now - last >= CHECKPOINT_MS) {
@@ -1495,10 +1499,12 @@ function receiptStatusOf(runId: number): string {
 }
 
 async function sopRunGetCore(id: number): Promise<{ id: number; sop_slug: string; sop_version: number; status: string; started_by: string; data: Record<string, unknown>; receipt: string }> {
+  if(channelOwnsRun(db,id))throw new HttpError(409,'sop_channel_authorized_read_required');
   const receipt = receiptStatusOf(id);
   const intake = sopRunRow(id);
   if (intake.sop_slug === 'task-center') return { id, sop_slug: intake.sop_slug, sop_version: intake.sop_version, status: intake.status, started_by: intake.started_by, data: JSON.parse(intake.data), receipt };
   const hot = await runStateLoad(id);
+  if(channelOwnsRun(db,id))throw new HttpError(409,'sop_channel_authorized_read_required');
   if (hot) return { id, sop_slug: hot.meta.slug, sop_version: hot.meta.version, status: hot.meta.status, started_by: hot.meta.started_by, data: hot.data, receipt };
   const row = sopRunRow(id);
   let data: Record<string, unknown> = {};
@@ -1511,6 +1517,7 @@ async function sopRunGetCore(id: number): Promise<{ id: number; sop_slug: string
 
 /** 归档（热态全量沉淀 SQLite；Redis 条目 1h 平滑淘汰） */
 async function sopRunFinishCore(id: number): Promise<{ ok: boolean; id: number; status: string; steps: number }> {
+  assertLegacySopWrite(db,id);
   const row = sopRunRow(id);
   if (row.status !== 'running') throw new HttpError(409, `run ${id} 已 ${row.status}`);
   let data = row.data || '{}';
@@ -1620,6 +1627,7 @@ app.post('/api/sop/runs/:id/files', (req, res, next) => {
   // ②配额（数≤20·单≤50MB[multer]·总量≤200MB→413）③写审计（sop_run_file_audit 同链）
   try {
     if (!/^\d+$/.test(String(req.params.id))) throw new HttpError(404, `run not found: ${req.params.id}`);
+    assertLegacySopWrite(db,Number(req.params.id));
     const row = sopRunRow(Number(req.params.id));
     if (row.status !== 'running') throw new HttpError(409, `run ${req.params.id} 已 ${row.status}，不可再上传`);
     // #150 开关（属主反馈·业务直传恢复）：settings run_upload_require_token='1' 才要令牌；缺省关闭=旧 T1 直传语义
