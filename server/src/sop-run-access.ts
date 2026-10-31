@@ -7,10 +7,11 @@ import {trustedOdooOrigins} from './odoo-session.ts';
 import {validateReadonlySop} from './sop-readonly-channel.ts';
 import {assembleReadonlySop,type FrozenSopSource} from './sop-readonly-assembly.ts';
 type ViewerResult = Awaited<ReturnType<typeof resolveOdooViewer>>;
+// Existing run upload hard ceilings: single50MiB / run20 files / run200MiB. Stored MIME is declared, not content-authenticated.
 type Deps = {db:DatabaseSync; odooOrigin:string; marketOrigin:string; frozenYaml:(slug:string,version:number)=>string; viewer?:typeof resolveOdooViewer; now?:()=>number};
 type Binding = {run_id:number; target_id:number; sop_version:number; owner_subject:string; assignee_subject:string; acl_revision:number; manifest_sha256:string; revoked:number};
 type Scope = {targetId:number;runId:number;step:string};
-type Record = Scope & {action:'read'|'save';version:number;subject:string;session:string;epoch:number;aclRevision:number;expires:number};
+type Record = Scope & {action:'read'|'save'|'upload';version:number;subject:string;session:string;epoch:number;aclRevision:number;expires:number};
 const positive = (n:number) => Number.isSafeInteger(n)&&n>0;
 export class SopWriteError extends Error { status:number;code:string;constructor(status:number,code:string){super(code);this.status=status;this.code=code;} }
 const deny = () => { throw new SopWriteError(403,'sop_run_access_denied'); };
@@ -22,6 +23,7 @@ export function createSopRunAccess(deps:Deps) {
   // Only callers constructing this unmounted service initialize this table. Existing app startup unchanged.
   db.exec('CREATE TABLE IF NOT EXISTS sop_run_access (run_id INTEGER PRIMARY KEY, target_id INTEGER NOT NULL, sop_version INTEGER NOT NULL, owner_subject TEXT NOT NULL, assignee_subject TEXT NOT NULL, acl_revision INTEGER NOT NULL, manifest_sha256 TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0)');
   db.exec('CREATE TABLE IF NOT EXISTS sop_run_revisions (run_id INTEGER PRIMARY KEY, revision INTEGER NOT NULL, data_sha256 TEXT NOT NULL)');
+  db.exec('CREATE TABLE IF NOT EXISTS sop_channel_files (id TEXT PRIMARY KEY,run_id INTEGER NOT NULL,step TEXT NOT NULL,field_key TEXT NOT NULL,request_id TEXT NOT NULL,mime TEXT NOT NULL,size INTEGER NOT NULL,body BLOB NOT NULL,UNIQUE(run_id,step,request_id))');
   const secret=randomBytes(32), records=new Map<string,Record>(), sessions=new Map<string,{epoch:number;generation:number;subject:string|null}>();
   const mac=(s:string)=>createHmac('sha256',secret).update(s).digest('base64url');
   const cookieKey=(cookie:string) => {
@@ -64,17 +66,19 @@ export function createSopRunAccess(deps:Deps) {
     if(!/^[a-z][a-z0-9_-]{0,63}$/.test(scope.step)||!allowed(b,subject,scope.targetId)||b!.sop_version!==r.sop_version)return deny();
     return {r,b:b!};
   }
-  function project(scope:Scope,subject:string, allowSave = false) {
+  function project(scope:Scope,subject:string, allowSave = false, allowUpload = false) {
     const {r,b}=authorized(scope,subject);
     const yaml=deps.frozenYaml(r.sop_slug,r.sop_version);
     if(hash(yaml)!==b.manifest_sha256)return deny();
     // Values are not selected until current viewer AND controlled run binding pass.
     const row=db.prepare('SELECT data FROM sop_runs WHERE id=?').get(r.id) as {data:string};
     const source:FrozenSopSource={targetId:scope.targetId,slug:r.sop_slug,version:r.sop_version,yaml};
-    const run={id:r.id,sop_slug:r.sop_slug,sop_version:r.sop_version,status:r.status,data:JSON.parse(row.data)};
+    const data=JSON.parse(row.data);
+    if(allowUpload){const refs=db.prepare('SELECT id,field_key FROM sop_channel_files WHERE run_id=? AND step=? ORDER BY rowid').all(scope.runId,scope.step) as {id:string;field_key:string}[];for(const f of refs){data[scope.step]??={};(data[scope.step][f.field_key]??=[]).push(f.id);}}
+    const run={id:r.id,sop_slug:r.sop_slug,sop_version:r.sop_version,status:r.status,data};
     const revision=db.prepare('SELECT revision,data_sha256 FROM sop_run_revisions WHERE run_id=?').get(r.id) as {revision:number;data_sha256:string}|undefined;
     if(allowSave && (!revision || hash(row.data)!==revision.data_sha256))throw new SopWriteError(409,'run_revision_conflict');
-    const preview=assembleReadonlySop(source,run,scope.step,revision?.revision??0,deps.marketOrigin,allowSave);
+    const preview=assembleReadonlySop(source,run,scope.step,revision?.revision??0,deps.marketOrigin,allowSave,allowUpload);
     // Projection has no owner/login/uid/session/receipt or upload capability. Token is separate, shell only.
     return {preview,run:{id:r.id,targetId:scope.targetId,version:r.sop_version,step:scope.step,authorized:true as const},aclRevision:b.acl_revision};
   }
@@ -87,10 +91,11 @@ export function createSopRunAccess(deps:Deps) {
     if(metadata(scope.runId,scope.targetId).sop_version!==record.version)return deny();
     return {record,who};
   }
-  async function issue(cookie:string,scope:Scope,action:'read'|'save') {
+  async function issue(cookie:string,scope:Scope,action:'read'|'save'|'upload') {
     scope={...scope};const who=await identify(cookie);sweep();if(!stillCurrent(who)||records.size>=4096)return deny();
-    const projection=project(scope,who.subject,action==='save');
+    const projection=project(scope,who.subject,action!=='read',action!=='read');
     if(action==='save' && (metadata(scope.runId,scope.targetId).status!=='running'||!projection.preview.fields.some(f=>f.operations?.includes('save' as never))))return deny();
+    if(action==='upload' && (metadata(scope.runId,scope.targetId).status!=='running'||!projection.preview.fields.some(f=>f.type==='file'&&f.operations?.includes('upload' as never))))return deny();
     const id=randomBytes(32).toString('base64url'),expires=now()+300_000;
     records.set(id,{...scope,action,version:projection.run.version,subject:who.subject,session:who.key,epoch:who.epoch,aclRevision:projection.aclRevision,expires});
     return {capability:id+'.'+mac(id),expires,...projection};
@@ -111,10 +116,32 @@ export function createSopRunAccess(deps:Deps) {
     revokeSession(cookie:string){revokeKey(cookieKey(cookie).key);},
     open(cookie:string,scope:Scope) { return issue(cookie,scope,'read'); },
     openEditable(cookie:string,scope:Scope) { return issue(cookie,scope,'save'); },
+    openUpload(cookie:string,scope:Scope) { return issue(cookie,scope,'upload'); },
     async read(cookie:string,capability:string,scope:Scope) {
       scope={...scope};const {who,record}=await authenticate(cookie,capability,scope);
       if(!stillCurrent(who)||record.expires<=now()||record.aclRevision!==binding(scope.runId)?.acl_revision)return deny();
-      return project(scope,who.subject,record.action==='save');
+      return project(scope,who.subject,record.action!=='read',record.action!=='read');
+    },
+    async upload(cookie:string,capability:string,scope:Scope,input:{version:number;field:string;request_id:string;mime:string;name:string;bytes:Uint8Array}) {
+      scope={...scope};input=structuredClone(input);
+      if(!input||Object.keys(input).sort().join(',')!=='bytes,field,mime,name,request_id,version'||!(input.bytes instanceof Uint8Array)||input.bytes.byteLength>50*1024*1024||typeof input.name!=='string'||input.name.length>255||typeof input.request_id!=='string'||!/^[a-f0-9-]{36}$/.test(input.request_id))throw new SopWriteError(400,'invalid_upload');
+      const {record,who}=await authenticate(cookie,capability,scope);
+      if(record.action!=='upload'||record.version!==input.version)return deny();
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        if(!stillCurrent(who)||record.expires<=now()||record.aclRevision!==binding(scope.runId)?.acl_revision||metadata(scope.runId,scope.targetId).status!=='running')return deny();
+        const out=project(scope,who.subject,true,true),field=out.preview.fields.find(f=>f.key===input.field);
+        if(!field||field.type!=='file'||!field.operations?.includes('upload' as never))return deny();
+        if(input.bytes.byteLength>field.maxBytes!||!field.mime!.includes(input.mime))throw new SopWriteError(422,'invalid_upload_type_size');
+        if(db.prepare('SELECT 1 FROM sop_channel_files WHERE run_id=? AND step=? AND request_id=?').get(scope.runId,scope.step,input.request_id))throw new SopWriteError(409,'upload_request_replayed');
+        const count=db.prepare('SELECT count(*) n FROM sop_channel_files WHERE run_id=? AND step=? AND field_key=?').get(scope.runId,scope.step,input.field) as {n:number};
+        const total=db.prepare('SELECT count(*) n,coalesce(sum(size),0) bytes FROM sop_channel_files WHERE run_id=?').get(scope.runId) as {n:number;bytes:number};
+        if(count.n>=field.maxItems!||total.n>=20||total.bytes+input.bytes.byteLength>200*1024*1024)throw new SopWriteError(413,'upload_quota_exceeded');
+        // Blob bytes stay inert in SQLite: server-generated key only, client name is never a path or storage input.
+        const id='f_'+randomBytes(24).toString('hex');
+        db.prepare('INSERT INTO sop_channel_files VALUES(?,?,?,?,?,?,?,?)').run(id,scope.runId,scope.step,input.field,input.request_id,input.mime,input.bytes.byteLength,input.bytes);
+        db.exec('COMMIT');return {ok:true as const,id,field:input.field,size:input.bytes.byteLength,mime:input.mime};
+      }catch(error){db.exec('ROLLBACK');throw error;}
     },
     async save(cookie:string,capability:string,scope:Scope,input:{version:number;expected_revision:number;values:Record<string,unknown>}) {
       scope={...scope};input=structuredClone(input);
@@ -124,10 +151,10 @@ export function createSopRunAccess(deps:Deps) {
       db.exec('BEGIN IMMEDIATE');
       try {
         if(!stillCurrent(who)||record.expires<=now()||record.aclRevision!==binding(scope.runId)?.acl_revision||metadata(scope.runId,scope.targetId).status!=='running')return deny();
-        const out=project(scope,who.subject,true);
+        const out=project(scope,who.subject,true,true);
         if(out.preview.revision!==input.expected_revision)throw new SopWriteError(409,'run_revision_conflict');
         let validated;
-        try{validated=validateReadonlySop({...out.preview,values:input.values},true);}catch{throw new SopWriteError(422,'invalid_field_values');}
+        try{validated=validateReadonlySop({...out.preview,values:input.values},true,true);}catch{throw new SopWriteError(422,'invalid_field_values');}
         if(Object.keys(validated.values).some(key=>!out.preview.fields.find(f=>f.key===key)?.operations?.includes('save' as never)))return deny();
         const row=db.prepare('SELECT data FROM sop_runs WHERE id=?').get(scope.runId) as {data:string};
         const data=JSON.parse(row.data),current=data[scope.step]??{};
