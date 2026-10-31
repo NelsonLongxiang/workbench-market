@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // R2: default policy and enabled-policy startup observability, all on fresh test instances.
+// #258 breaking：ALLOW_PUBLIC_NET=1 不再放行公网（只告警），公网拒 403 url_not_allowlisted，混淆/元数据 403 url_hard_denied。
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync } from 'node:fs';
 import { once } from 'node:events';
@@ -30,17 +31,18 @@ for (const enabled of [false, true]) {
   try {
     await waitReady(base + '/api/health', child);
     // Before ANY register request: this distinguishes startup warning from request-time warning.
-    const warning = logs.includes('[SSRF_GUARD_DISABLED] ALLOW_PUBLIC_NET=1');
-    ok(enabled ? 'enabled startup warns before registration' : 'default does not announce enabled policy', warning === enabled, logs.slice(-300));
+    const warning = logs.includes('legacy flag no longer grants public registration');
+    ok(enabled ? 'legacy flag startup warns before registration' : 'default does not announce legacy flag', warning === enabled, logs.slice(-300));
     const reg = url => fetch(base + '/api/workbenches', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'R2-test', url }) });
-    if (enabled) {
-      const r = await reg('http://8.8.8.8/');
-      ok('explicit override permits public registration', r.status === 201, String(r.status));
-    } else {
-      const neg = ['http://8.8.8.8/', 'http://192.30.255.112/', 'http://172.217.0.1/', 'http://10.attacker.example/', 'http://127.0.0.1.nip.io/', 'http://[2001:4860:4860::8888]/', 'http://169.254.169.254/latest/meta-data/'];
-      for (const url of neg) {
-        const r = await reg(url);
-        ok('default ALLOW_PUBLIC_NET absent rejects ' + url, r.status === 400, String(r.status));
+    const label = enabled ? 'legacy ALLOW_PUBLIC_NET=1' : 'default';
+    {
+      for (const url of ['http://8.8.8.8/', 'http://192.30.255.112/', 'http://172.217.0.1/', 'http://[2001:4860:4860::8888]/']) {
+        const r = await reg(url); const j = await r.json().catch(() => ({}));
+        ok(label + ' rejects unlisted public ' + url, r.status === 403 && j.error === 'url_not_allowlisted', r.status + ' ' + j.error);
+      }
+      for (const url of ['http://10.attacker.example/', 'http://127.0.0.1.nip.io/', 'http://169.254.169.254/latest/meta-data/']) {
+        const r = await reg(url); const j = await r.json().catch(() => ({}));
+        ok(label + ' hard-denies ' + url, r.status === 403 && j.error === 'url_hard_denied', r.status + ' ' + j.error);
       }
       for (const url of ['http://192.168.3.100:8080/', 'http://127.0.0.1:4000/']) {
         const r = await reg(url);
