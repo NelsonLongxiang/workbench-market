@@ -10,6 +10,7 @@ import { isIP } from 'node:net';
 import { gunzipSync, brotliDecompressSync, inflateSync } from 'node:zlib';
 import { createContentAccess, contentLaunchPage, type ContentTarget } from './content-access.ts';
 import { registerSurface, surfaceOf } from './surfaces.ts';
+import { STATIC_TARGET, readStaticContent, type StaticContentTarget } from './content-static.ts';
 
 type Viewer = { subject: string; internal: true };
 type Upstream = { url: string; authorization?: string; cookie?: string; queryCredentials?: Record<string, string> };
@@ -18,6 +19,7 @@ type Config = ContentSurfaceConfig;
 type Deps = {
   viewer: (cookie: string) => Promise<Viewer | null>;
   upstream: (id: number) => Upstream | null;
+  staticTarget?: (id: number) => StaticContentTarget | null;
   now?: () => number;
 };
 const json = { error: 'content_context_expired' };
@@ -36,6 +38,7 @@ export function contentConfig(env: NodeJS.ProcessEnv): Config | null {
     if (Number(new URL(t.origin).port || 80) !== port || new URL(t.origin).hostname === new URL(marketOrigin).hostname) throw Error('Content origin port/host mismatch');
     const keys = t.queryCredentialKeys;
     if (keys !== undefined && (!Array.isArray(keys) || keys.length === 0 || keys.length > 8 || keys.some(k => typeof k !== 'string' || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(k)) || new Set(keys.map(k => k.toLowerCase())).size !== keys.length)) throw Error('Invalid query credential key declaration');
+    if (STATIC_TARGET.test(t.upstreamUrl)) { if (keys !== undefined) throw Error('Static target cannot declare credentials'); continue; }
     const u = new URL(t.upstreamUrl);
     if (keys && [...u.searchParams.keys()].some(k => keys.some(key => key.toLowerCase() === k.toLowerCase()))) throw Error('Pinned URL must not contain credential parameters');
     if (!['http:', 'https:'].includes(u.protocol) || u.username || u.password || u.hash) throw Error('Invalid pinned upstream');
@@ -97,6 +100,20 @@ export function createContentSurface(config: Config, deps: Deps) {
     // Odoo request may race a clock/revocation change: re-run core validation after await.
     if (!admitted || !who || !access.admit(req)) { expire(req, res); return; }
     const pin = byId.get(admitted.target.id)!;
+    if (STATIC_TARGET.test(pin.upstreamUrl)) {
+      if (!['GET', 'HEAD'].includes(req.method)) { res.setHeader('Allow', 'GET, HEAD'); res.status(405).end(); return; }
+      const target = deps.staticTarget?.(pin.id); // metadata only: no upstream credential adapter
+      if (!target || target.url !== pin.upstreamUrl) { res.status(503).type('json').send('{"error":"content_target_unavailable"}'); return; }
+      const asset = await readStaticContent(target, req.url, pin.id, req.method === 'HEAD');
+      if (!await valid(admitted.subject) || !access.admit(req)) { expire(req, res); return; }
+      const current = deps.staticTarget?.(pin.id);
+      if (!current || current.url !== target.url || current.root !== target.root || current.version !== target.version) { res.status(503).end(); return; }
+      if (!asset) { res.status(404).type('text').send('Not found'); return; }
+      res.set({ 'Content-Type': asset.mime, 'Content-Length': String(asset.size), 'X-App-Version': 'v' + asset.version,
+        'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
+        'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'" });
+      res.status(200).end(asset.body); return;
+    }
     if (hasCredentialQuery(req.url, pin.queryCredentialKeys)) { res.status(400).type('json').send('{"error":"content_query_not_allowed"}'); return; }
     const upstream = privateUpstream(deps.upstream(admitted.target.id), pin); // FIRST target credential read
     if (!upstream) { res.status(503).type('json').send('{"error":"content_target_unavailable"}'); return; }
@@ -128,7 +145,7 @@ export function createContentSurface(config: Config, deps: Deps) {
     const admitted = access.admit(req), who = admitted ? await valid(admitted.subject) : null;
     if (!admitted || !who || !access.admit(req)) { socket.end('HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n' + JSON.stringify(json)); return; }
     const pin = byId.get(admitted.target.id)!;
-    if (pin.queryCredentialKeys?.length) { socket.end(['HTTP/1.1 403 Forbidden','Connection: close','',''].join(String.fromCharCode(13,10))); return; }
+    if (STATIC_TARGET.test(pin.upstreamUrl) || pin.queryCredentialKeys?.length) { socket.end(['HTTP/1.1 403 Forbidden','Connection: close','',''].join(String.fromCharCode(13,10))); return; }
     const upstream = privateUpstream(deps.upstream(admitted.target.id), pin);
     if (!upstream) { socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n'); return; }
     const url = upstreamUrl(req.url ?? '', upstream, admitted.target.id);
