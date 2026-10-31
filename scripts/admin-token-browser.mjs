@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-/** #292 M4 浏览器反例（Python Playwright/Chromium；未进 CI）：口令在本标签页时
+/** #292 M1（+M4 残余）浏览器反例（Python Playwright/Chromium，CI browser-security job）。
+ *  M1 起：业务面无口令入口、控制面不跑不可信内容、两面互读不到；以下为 M4 时期的原始说明，登录弹窗部分仍适用：
+ *  口令在本标签页时
  *  ① 使用页 /use/<id> 与驾驶舱都不出现 /go/ iframe，合成上游页读不到口令；
  *  ② 点「清除口令并内嵌」后 iframe 出现、存储为空；
  *  ③ 同一标签页跳到 /go/<id>/、/sop/<slug>/ 后，新文档的 sessionStorage 里没有口令；
@@ -23,7 +25,7 @@ await new Promise((x) => upstream.listen(0, '127.0.0.1', x));
 const PORT = 20000 + Math.floor(Math.random() * 20000);
 const base = `http://127.0.0.1:${PORT}`;
 const env = { ...process.env, MCP_GATEWAY: '', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), ADMIN_TOKEN: 'synthetic-browser-admin' };
-for (const k of ['LC_YGL_BIN', 'LC_YGL_HOME', 'LC_WORKBENCH_KEY_FILE', 'LC_ODOO_URL', 'WM_ODOO_ORIGINS']) delete env[k];
+for (const k of ['LC_YGL_BIN', 'LC_YGL_HOME', 'LC_WORKBENCH_KEY_FILE', 'LC_ODOO_URL', 'WM_ODOO_ORIGINS', 'WM_CONTROL_PORT']) delete env[k]; // 控制面用缺省 PORT+1
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });
 let serverErr = ''; server.stderr.on('data', (c) => (serverErr += c));
 const api = async (method, path, body) => {
@@ -41,7 +43,7 @@ try {
   await api('POST', '/api/apps', { slug: 'token-sop', title: 'Token SOP', kind: 'sop', changelog: 'synthetic', files: [{ path: 'sop.yaml', content: JSON.stringify({ title: 'Token SOP', steps: [{ key: 'one', title: 'One', body: '<p>probe</p>' }] }) }] });
   await api('POST', '/api/sops/token-sop/publish', { changelog: 'synthetic' });
   const cfg = join(TMP, 'browser.json');
-  writeFileSync(cfg, JSON.stringify({ base, wid: wb.id, cockpit: ck.id, sop: 'token-sop', token: 'synthetic-browser-token' }));
+  writeFileSync(cfg, JSON.stringify({ base, control: `http://127.0.0.1:${PORT + 1}`, wid: wb.id, cockpit: ck.id, sop: 'token-sop', token: env.ADMIN_TOKEN }));
   const py = spawn(process.env.PYTHON || 'python3', ['scripts/admin-token-browser.py', cfg], { stdio: 'inherit' });
   code = await new Promise((x, j) => { py.on('error', j); py.on('exit', x); });
 } catch (e) {

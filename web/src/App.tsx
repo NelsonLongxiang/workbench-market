@@ -23,7 +23,8 @@ import Cockpit from './pages/Cockpit';
 import Sops from './pages/Sops';
 import McpGateways from './pages/McpGateways';
 import { adminTokenPresent, getAdminToken, setAdminToken, subscribeAdminToken } from './admin-token';
-import { Badge, Button as AButton, Input as AInput, Popover } from 'antd';
+import { controlUrl, MARKET_ONLY, marketUrl, onSurface, surface } from './surface';
+import { Badge, Button as AButton, Input as AInput, Popover, Result, Tag } from 'antd';
 import Tasks from './pages/Tasks';
 import Lifecycle from './pages/Lifecycle';
 import SkillsPage from './pages/Skills';
@@ -45,7 +46,28 @@ const menuRoutes = {
   ],
 };
 
+/** #292 M1：业务面不输口令，只给去控制面的链接（同 path） */
+function ControlSurfaceLink() {
+  const location = useLocation();
+  const href = onSurface(controlUrl, location.pathname + location.search);
+  if (!href) return <Tag color="default" title="WM_CONTROL_PORT=0：浏览器不能做管理写，只能用本机命令行">控制面已关闭</Tag>;
+  return <AButton size="small" icon={<KeyOutlined />} href={href} title="管理操作（登记/修改工作台、发布、设置）在控制面完成，口令只在那里输入">管理控制面</AButton>;
+}
+
+/** #292 M1：控制面上的业务页跳回业务面同 path */
+function MarketOnlyRedirect() {
+  const location = useLocation();
+  const href = onSurface(marketUrl, location.pathname + location.search);
+  React.useEffect(() => { if (href) window.location.replace(href); }, [href]);
+  return <Result status="info" title="这是业务页面，请在业务面打开" extra={href ? <AButton type="primary" href={href}>去业务面</AButton> : null} />;
+}
+
 function AdminTokenBadge() {
+  if (surface === 'market') return <ControlSurfaceLink />;
+  return <AdminTokenInput />;
+}
+
+function AdminTokenInput() {
   const [open, setOpen] = React.useState(false);
   const [val, setVal] = React.useState(getAdminToken());
   const saved = React.useSyncExternalStore(subscribeAdminToken, adminTokenPresent); // GoFrame 里清除口令时同步
@@ -78,6 +100,8 @@ function AdminTokenBadge() {
 
 export default function App() {
   const location = useLocation();
+
+  if (surface === 'control' && MARKET_ONLY.test(location.pathname)) return <MarketOnlyRedirect />;
 
   // 嵌入使用页占满整屏，脱离侧边栏壳
   if (location.pathname.startsWith('/use/')) {
@@ -126,7 +150,7 @@ export default function App() {
       contentStyle={{ padding: 16, paddingTop: 12 }}
     >
       {/* #279 当前用户：侧栏布局不渲染 headerRender，所以在内容区顶部右侧放一行，所有页面（含 /lifecycle）都能看到 */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', minHeight: 24, marginBottom: 4 }}><ViewerChip /></div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', minHeight: 24, marginBottom: 4 }}>{surface !== 'control' && <ViewerChip />}</div>
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/cockpit" element={<Cockpit />} />
