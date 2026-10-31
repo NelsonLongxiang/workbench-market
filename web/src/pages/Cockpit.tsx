@@ -94,6 +94,7 @@ export default function Cockpit() {
   const wbById = useMemo(() => new Map(workbenches.map((w) => [w.id, w])), [workbenches]);
 
   const persist = (next: PanelConfig[], immediate = false) => {
+    if (READ_ONLY) return; // 业务面只读：网格对重叠布局的自动归一也不能触发保存（否则不点也会 PUT 403 + 报错）
     setPanels(next);
     if (!active) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -306,7 +307,7 @@ export default function Cockpit() {
           draggableCancel=".wm-panel-actions, .wm-panel-actions *"
           isDraggable={!READ_ONLY}
           isResizable={!READ_ONLY}
-          onLayoutChange={onLayoutChange}
+          onLayoutChange={READ_ONLY ? undefined : onLayoutChange}
         >
           {panels.map((p) => {
             if (p.kind === 'tasks') {
