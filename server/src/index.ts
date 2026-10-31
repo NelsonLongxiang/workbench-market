@@ -23,7 +23,7 @@ import { db, getSettings, dataDir, rowToWorkbench, rowToCockpit, type WorkbenchR
 (globalThis as any).__wmDb = db; // #94 v3 S1：tasks.ts 直读 change_requests 桥
 import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
 import { HttpError } from './errors.ts';
-import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, legacyGaps, loadAllowPolicy, type AllowPolicy } from './url-admission.ts';
+import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, runStateSave, runStateRestore, runStateLoad, runStateRetire, runActiveIds } from './redis.ts';
 import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, a2aSendOutbound, formatA2aReceipt, MARKET_TEAM } from './a2a.ts';
@@ -261,7 +261,7 @@ const URL_POLICY: AllowPolicy = (() => {
   catch (e: any) { console.error(`[R3] 拒绝启动：${e?.message ?? e}`); process.exit(1); }
 })();
 if (!process.stderr.writable) { console.log('[R3] 拒绝启动：stderr 不可写（准入审计日志渠道）'); process.exit(1); }
-process.stderr.on('error', () => { /* 审计渠道断：单条写失败由 auditAllow 报降级，这里只防进程被 error 事件打死 */ });
+process.stderr.on('error', () => { markAuditChannelFailed(); }); // 审计渠道断：锁存故障，后续 allow 都报降级；不让 error 事件打死进程
 
 /** 内部路径的台必须存在：/sop/<slug>/ 对 kind=sop，/apps/<slug>/ 对其余 */
 function internalTargetExists(area: 'apps' | 'sop', slug: string): boolean {
@@ -303,8 +303,9 @@ function workbenchUpdateCore(id: number, body: any, ctx: WriteCtx = { subject: '
   const f = validateWorkbenchBody(body, true);
   // 掩码回传保护（url 面）：编辑表单从 API 取到的是掩码值，原样回传视为「未变更」
   if (f.url !== undefined && f.url.includes('=****') && f.url !== cur.url) delete f.url;
-  // #258：url 原样未变 = 纯元数据更新，沿旧行（存量公网行不因改名被拒/删）；新 url 必须重新准入
-  if (f.url !== undefined && f.url === cur.url) delete f.url;
+  // #258：url 未变（原样或同一规范化 key、同 fragment）= 纯元数据更新，沿旧行原 url（存量公网行不因改名被拒/删）；
+  // scheme/host/port/path/query 任一变化都是新 url，必须重新准入
+  if (f.url !== undefined && (f.url === cur.url || sameTarget(cur.url, f.url))) delete f.url;
   const adm = f.url !== undefined ? admitOrDeny('update', f.url) : null;
   if (f.url !== undefined || f.health_path !== undefined) checkHealthPath(f.url ?? cur.url, f.health_path ?? cur.health_path ?? '');
   // cookie_set_id 挂接（派单 direct-5fbb2176：nullable=0 取消挂接，正数须为池条目）
@@ -390,7 +391,10 @@ async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkben
   // issue #8：坏 health_path / 非法组合不得让单测整体 500——探测目标构造失败时该台记 down
   let target: string;
   try {
-    target = composeProbeUrl(w.url, w.health_path || t?.health_path || '');
+    // #258 U15：实际生效的 health_path（台自己的或类型继承的）在探测处统一按台 origin 核——存量/类型/导入/MCP 同一处兜住
+    const effective = w.health_path || t?.health_path || '';
+    try { checkHealthPath(w.url, effective); } catch (e: any) { throw new Error(`health_path 被拒：${e?.extra?.message ?? e?.message}`); }
+    target = composeProbeUrl(w.url, effective);
   } catch (e: any) {
     const reason = String(e?.message ?? e);
     svc<WorkbenchService>('workbench').markDownWithError(w.id, reason);
@@ -2215,6 +2219,7 @@ app.post('/api/types', (req, res) => {
   if (typeof b.key !== 'string' || !/^[a-z0-9][a-z0-9-]*$/.test(b.key)) bad('key 必须是小写字母/数字/连字符');
   if (typeof b.name !== 'string' || !b.name.trim()) bad('name 不能为空');
   if (b.key === 'web') bad('内置类型 web 不允许覆盖');
+  checkTypeHealthPath(String(b.health_path ?? '/'));
   const exists = svc<WorkbenchService>('workbench').typeIdByKey(b.key);
   if (exists) bad(`类型已存在: ${b.key}`);
   const r = svc<WorkbenchService>('workbench').typeInsertStmt().run(
@@ -2239,6 +2244,7 @@ app.put('/api/types/:id', (req, res) => {
     expect_status: b.expect_status !== undefined ? (b.expect_status == null ? null : Number(b.expect_status)) : cur.expect_status,
     description: b.description !== undefined ? String(b.description) : cur.description,
   };
+  if (next.health_path !== cur.health_path) checkTypeHealthPath(next.health_path);
   if (cur.key === 'web' && (next.health_path !== cur.health_path || next.expect_status !== cur.expect_status)) {
     bad('内置类型 web 不允许修改探测语义');
   }
@@ -2363,6 +2369,7 @@ app.post('/api/import', (req, res) => {
   const types: any[] = Array.isArray(b.types) ? b.types : [];
   types.forEach((t) => {
     if (!t || typeof t !== 'object' || typeof t.key !== 'string' || !t.key || typeof t.name !== 'string') importErr(400, 'invalid_import', null, 'types 每项须含字符串 key 与 name');
+    try { checkTypeHealthPath(String(t.health_path ?? '/')); } catch (e) { if (e instanceof AdmissionError) importErr(400, e.code, null, `类型 ${t.key}：${e.extra?.message ?? ''}`); throw e; }
   });
   const rows = (b.workbenches as any[]).map((w, i) => {
     if (!w || typeof w !== 'object' || Array.isArray(w)) importErr(400, 'invalid_import', i, '行不是对象');
