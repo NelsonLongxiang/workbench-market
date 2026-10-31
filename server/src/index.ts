@@ -1,6 +1,8 @@
 import express from 'express';
 import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskCenterPolicy } from './task-center.ts';
 import cors from 'cors';
+import { contentConfig, createContentSurface, mountContentSurface, listenContentSurface } from './content-surface.ts';
+import { createPortalObservation } from './portal-observation.ts';
 import { allSurfaceServers, browserMarked, originIsThisSurface, rawLoopback, registerSurface, surfaceOf, surfacePorts, surfaceUrl } from './surfaces.ts';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -28,6 +30,43 @@ import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, a2
 
 const here = dirname(fileURLToPath(import.meta.url));
 const app = express();
+// Explicit opt-in only; no default content listener, no live configuration writes.
+const contentCfg = contentConfig(process.env);
+const portalObserver = process.env.WM_PORTAL_OBSERVE === '1' ? createPortalObservation(db, id => !!svc<WorkbenchService>('workbench').exists(id)) : null;
+app.use((req, _res, next) => { if (surfaceOf(req) === 'market') portalObserver?.observe(req); next(); });
+if (contentCfg) {
+  const odoo = String(process.env.WM_CONTENT_ODOO_ORIGIN ?? '');
+  const parsed = new URL(odoo);
+  const ports = surfacePorts();
+  if (contentCfg.port === ports.market || contentCfg.port === ports.control) throw Error('Content port must be distinct');
+  if (parsed.origin !== odoo || !trustedOdooOrigins().origins.has(odoo)) throw Error('Content viewer source must be an explicitly trusted Odoo origin');
+}
+const contentRuntime = contentCfg ? createContentSurface(contentCfg, {
+  async viewer(cookie) {
+    // Reject duplicate SID instead of inheriting the legacy first-cookie ambiguity.
+    const values = cookie.split(';').map(s => s.trim()).filter(s => s.startsWith('session_id='));
+    if (values.length !== 1) return null;
+    const result = await resolveOdooViewer(values[0], process.env.WM_CONTENT_ODOO_ORIGIN);
+    return result.ok ? { subject: result.viewer.sub + ':' + result.viewer.uid, internal: true } : null;
+  },
+  upstream(id) {
+    const w = wbById(id);
+    if (!w || !w.enabled || w.cookie_set_id) return null; // cookie containers require a separate adapter, never browser fallback
+    return { url: w.url, authorization: w.auth?.type === 'bearer' ? 'Bearer ' + w.auth.value : w.auth?.type === 'basic' ? 'Basic ' + Buffer.from(w.auth.value, 'utf8').toString('base64') : undefined };
+  },
+}) : null;
+if (contentRuntime) {
+  mountContentSurface(app, contentRuntime); // TERMINAL content dispatch before every shared parser/route/SPA
+  app.use((req, res, next) => {
+    if (!req.url.startsWith('/content/open/')) return next();
+    if (surfaceOf(req) !== 'market') return res.status(404).end();
+    contentRuntime.launch(req, res, next);
+  });
+  app.use((req, res, next) => {
+    if (surfaceOf(req) !== 'market') return next();
+    contentRuntime.migrate(req, res, next);
+  });
+}
 // issue #1：CORS 从全开放收紧为白名单——生产形态（web/dist 由本服务同源托管）不需要跨源；
 // 仅 web dev（vite 5173，其 /api 代理是同源转发、但直连调试场景保留）放行本机回环源。
 // /mcp 为 StreamableHTTP POST（非浏览器 fetch 场景不受 CORS 约束；浏览器 MCP 客户端经同源门户）。
@@ -1701,6 +1740,11 @@ app.get('/api/sop/runs/active', wrap(async (_req, res) => {
 }));
 
 app.get('/api/stats', (_req, res) => { res.json(statsPayload()); });
+app.get('/api/content/observation', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(portalObserver ? { ...portalObserver.status(), counts: portalObserver.counts() } : { enabled: false, coverageVerified: false });
+});
 
 /** #275 过渡登录入口（#221 落地前）：挑一个可信 Odoo 台，走 /go/<id>/ 的 SSO v1 舞步并带 return 落回市场原页面。
  *  先选 origin = LC_ODOO_URL 的台（生命周期只认这个 Odoo 的会话；session_id 按主机名跨端口共享，登别的 Odoo 会把它覆盖掉），
@@ -2756,7 +2800,7 @@ import { evalCandidates } from './eval.ts'; // #178 评估模型客户端
 import { renderSopRunner } from './sop-runner.ts';
 import { isOdooLikeTarget, isOdooSessionTarget, stripOdooSession, trustedOdooOrigins } from './odoo-session.ts';
 import { collectTasks } from './tasks.ts';
-import { lifecycleApprove, lifecycleBoard, lifecycleConfigProblem, lifecycleConfigured, lifecycleSourceFor, lifecycleStatus, lifecycleWhoami } from './lifecycle.ts';
+import { lifecycleApprove, lifecycleBoard, lifecycleConfigProblem, lifecycleConfigured, lifecycleSourceFor, lifecycleStatus, lifecycleWhoami, resolveOdooViewer } from './lifecycle.ts';
 import { endpointStatsMiddleware, statsPayload } from './endpoint-stats.ts';
 
 // ---------- MCP 生产通道（StreamableHTTP · stateless：AI 会话直连市场，零依赖手写 JSON-RPC） ----------
@@ -3449,6 +3493,7 @@ const goServer = registerSurface(app, 'market', PORT, () => {
 });
 
 if (SURFACE_PORTS.control) registerSurface(app, 'control', SURFACE_PORTS.control);
+if (contentCfg && contentRuntime) listenContentSurface(app, contentCfg, contentRuntime);
 
 // P1-3（#147）：优雅关闭——停巡检→WAL checkpoint(db.close)→server.close（容器 stop 不丢写）
 function shutdown(sig: string): void {
@@ -3468,8 +3513,9 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 // 关键：upgrade 事件不流经 Express 中间件链——前置中间件设置的 goOrigin/goBase/goQuery/goAuth
 // 在这里全部不存在，必须对 upgrade 请求重做同样的准备，否则 router 兜底到 http://127.0.0.1（80 端口
 // 无服务）→ DSH 台经门户打开后 WS 永远连不上（页面「重新连接中…」，实测踩坑）。
-for (const srv of allSurfaceServers()) if (srv !== goServer) srv.on('upgrade', (_req, socket) => socket.destroy()); // #292 M1：控制面不提供 WS
+for (const srv of allSurfaceServers()) if (srv !== goServer) srv.on('upgrade', (req, socket) => { if (surfaceOf(req) !== 'content') socket.destroy(); }); // #292 M1：控制面不提供 WS
 goServer.on('upgrade', (req, socket, head) => {
+  portalObserver?.observe(req);
   const m = goPrefix.exec(req.url ?? '');
   if (!m) return socket.destroy(); // 非 /go/ 的升级请求：本服务自身不提供 WS
   const w = wbById(Number(m[1]));
