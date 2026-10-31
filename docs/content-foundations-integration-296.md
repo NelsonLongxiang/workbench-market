@@ -130,7 +130,17 @@ frame文件选择经MessagePort结构化克隆File/Blob发UPLOAD_REQUEST(field,r
 
 文件引用由server已存对象生成并投影，file DOM不能像text回填value；child保持引用数组供COLLECT，上传不改变字段data/revision；后续finish必须从server对象表核file引用/required，不信任frame自报ID。本a未做finish，未接旧Runner/Redis/独立内容host或正式运营bind迁移。
 
-测试：实际内存SQLite服务拒超大/错MIME/超数/跨run-step-target/过期撤权/重放/路径名与事务故障；实际Express+multer合成请求流无TCP；序列化双端VM核Blob/头/固定端点/旧port/迟到响应；Chromium真实File跨opaque MessagePort，实际multipart请求经拦截stdio桥送入真实SQLite服务，不冒真实HTTP运输/现网身份。a固定head待独立窄复核，不开始b finish/切流。
+测试：实际内存SQLite服务拒超大/错MIME/超数/跨run-step-target/过期撤权/重放/路径名与事务故障；实际Express+multer合成请求流无TCP；序列化双端VM核Blob/头/固定端点/旧port/迟到响应；Chromium真实File跨opaque MessagePort，实际multipart请求经拦截stdio桥送入真实SQLite服务，不冒真实HTTP运输/现网身份。上传状态修复c30dfa7c已独立窄回验限定通过；本席独立浏览器旧a1dc默认命令未启upload仅8项的纠正保留，本c30显式--upload独立13项另证。b finish在此后另段实现，不切流。
+
+## SOP第3步b：人工完成候选（未挂载）
+
+openFinish签独立action=finish能力，save/upload能力不能完成。仅可信壳人工按钮的isTrusted点击发COLLECT，当前frame/nonce/seq/request_id/schema完整性、required、上传未决/选择错误同核；inert暂停当前iframe用户交互，防collect至提交期间继续修改，失败恢复交互不报完成。frame没有FINISH/UNLOCK消息能力，也不拿finishcap；额外消息拒，不以origin=null授权。isTrusted不是后端权限替代，实际可信壳接入仍需保证cap只在壳与原有精确Origin/Host/market面端点。
+
+仅COLLECT通过后固定/api/sop/field-channel/finish请求带独立cap和expected_revision。service现查Odoo/session/epoch、ACL/current target/run/version，再BEGIN IMMEDIATE重核与dataSHA/revision；当前step完整typed值与受控只读字段一致，不接受frame任意file id。所有step重新从冻结manifest核typed/required，file值从该run/step/field已存对象表取，核MIME/size/数量，不以frame自报作为完成证据；其余step只读已保存值。成功同事务写当前值/全部server文件引用、status=finished/finished_at/updated_at、revision与摘要，并撤ACL/推进ACLrev；commit后清该run全部内存read/save/upload/finish能力。任何失败ROLLBACK，不在锁内await网络。
+
+可信壳仅收到严格ok/statusfinished/revision+1才清壳能力、立即LOCK，LOCK_ACK后显示finished；ACK超时销毁frame但不逆转后端完成。网络/HTTP/冲突/错误响应保持未确认完成，恢复本地交互，不冒成功或自动重放；网络丢包可能发生后端已commit但响应丢失，必须重新从受控入口读回确认，不能宣“网络失败保证后端未完成”。成功后不可由frame要求解锁，服务器status/ACL才是写门。
+
+测试分层同前：SQLite能力/全schema/serverfile/冲突/revocation/故障rollback；真实Express/parser合成请求流；序列化host+frame人工按钮/超时/恶意finish/失败不LOCK；Chromium真实人工点击、COLLECT、注入一次网络失败不锁/随后实际内存service完成与LOCK_ACK，保存/上传/finish经stdio桥、零TCP，非真实HTTP网络/现网Odoo/Runner运营迁移。finish固定head待非作者窄复核，所有三步候选不等现网集成/历史迁移完成，不因此自动挂旧Runner或切流。
 
 ## 验证与未完成
 content-access-test原58、portal-observation-test原30、303红/200绿cookie对照保留；content-surface-test真实registerSurface+sharedExpress+counted upstream+假时钟核HTTP/WS/到期/撤权/restart/编码/fallback0。content-index-browser真实index+synthetic DB/home+假Odoo/上游+Chromium核跨站200/opener null/撤权XHR401/导航同target401，上游合法1次且不漏browser身份。不是真实Odoo/DNS或生产验收。

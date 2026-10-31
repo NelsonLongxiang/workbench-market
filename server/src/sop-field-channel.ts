@@ -3,6 +3,7 @@ import {createHash} from 'node:crypto';
 import {validateReadonlySop,type ReadonlySop} from './sop-readonly-channel.ts';
 import {SOP_FIELD_SAVE_PATH} from './sop-field-save.ts';
 import {SOP_FIELD_UPLOAD_PATH} from './sop-field-upload.ts';
+import {SOP_FIELD_FINISH_PATH} from './sop-field-finish.ts';
 // Serialized on both sides. No dynamic schema registration, URL or HTTP-method fields.
 function validValues(fields:any[],values:any,complete=false) {
   if(!values||typeof values!=='object'||Array.isArray(values)||Object.keys(values).length>100)return false;
@@ -43,16 +44,17 @@ function frameRuntime(boot:any,valid:typeof validValues) {
   };
   lock();window.addEventListener('message',handshake);document.addEventListener('input',change);document.addEventListener('change',change);window.addEventListener('pagehide',end);
 }
-function hostRuntime(boot:any,html:string,capability:string,endpoint:string,valid:typeof validValues,uploadCapability:string,uploadEndpoint:string) {
+function hostRuntime(boot:any,html:string,capability:string,endpoint:string,valid:typeof validValues,uploadCapability:string,uploadEndpoint:string,finishCapability:string,finishEndpoint:string) {
   const frame=document.getElementById('body-frame') as HTMLIFrameElement,state=document.getElementById('channel-state')!;
   const nonce=Array.from(crypto.getRandomValues(new Uint8Array(24)),b=>b.toString(16).padStart(2,'0')).join(''),binding={protocol:1,targetId:boot.targetId,runId:boot.runId,version:boot.version,step:boot.step,nonce};
   let port:MessagePort|null=null,frameWindow:Window|null=null,loaded=false,closed=false,consumed=false,rx=0,tx=0,revision=boot.revision,pending:any={},saving=false,collectId='',locked=false,ready=false;
   const invalidFields=new Set<string>(),uploadErrors=new Set<string>(),uploaded:any=structuredClone(boot.values),uploadRequests=new Set<string>(),latestUpload=new Map<string,string>();
-  let uploading=false,uploadController:AbortController|null=null;
+  let uploading=false,uploadController:AbortController|null=null,finishAttempt=false,finishing=false,finished=false;
+  let finishController:AbortController|null=null;
   let deadline:any,timer:any,controller:AbortController|null=null;
   const current=()=>frame.isConnected&&frame.contentWindow===frameWindow;
   const set=(value:string)=>{state.textContent=value;state.setAttribute('data-state',value);};
-  const stop=(reason='closed')=>{if(closed)return;closed=true;ready=false;clearTimeout(deadline);clearTimeout(timer);controller?.abort();uploadController?.abort();port?.close();port=null;window.removeEventListener('message',handshake);frame.remove();set(reason);};
+  const stop=(reason='closed')=>{if(closed)return;closed=true;ready=false;clearTimeout(deadline);clearTimeout(timer);controller?.abort();uploadController?.abort();finishController?.abort();port?.close();port=null;window.removeEventListener('message',handshake);frame.remove();set(reason);};
   const bound=(m:any)=>m&&Object.keys(binding).every(k=>m[k]===(binding as any)[k]);
   const exact=(m:any,extras:string[])=>m&&typeof m==='object'&&!Array.isArray(m)&&Object.keys(m).length===Object.keys(binding).length+extras.length&&[...Object.keys(binding),...extras].every(k=>Object.hasOwn(m,k));
   const send=(type:string,extra:any={})=>{if(closed||!port||!current()){stop('replaced');return;}port.postMessage({...binding,type,seq:++tx,...extra});};
@@ -64,6 +66,15 @@ function hostRuntime(boot:any,html:string,capability:string,endpoint:string,vali
       if(closed||locked||!current())return;if(!response.ok){pending={...values,...pending};result(false,response.status===409?'conflict':'save_failed');stop(response.status===409?'conflict':'save_failed');return;}
       const saved=await response.json();if(closed||locked||!current())return;if(!saved||Object.keys(saved).sort().join(',')!=='ok,revision'||saved.ok!==true||saved.revision!==revision+1){stop('invalid_response');return;}revision=saved.revision;const invalid=invalidFields.size>0||uploadErrors.size>0,dirty=Object.keys(pending).length>0;result(!invalid&&!dirty&&!uploading,invalid?'invalid_field_values':uploading?'uploading':dirty?'dirty':'saved');set(invalid?'invalid':uploading?'uploading':dirty?'dirty':'saved');
     }catch{if(!closed&&!locked){result(false,'save_failed');stop('save_failed');}}finally{clearTimeout(timeout);saving=false;if(!closed&&Object.keys(pending).length)schedule();}
+  }
+  async function finish(values:any){
+    if(closed||locked||finishing||saving||uploading||uploadErrors.size||invalidFields.size||!current())return;
+    finishing=true;finishController=new AbortController();const timeout=setTimeout(()=>finishController?.abort(),5000);set('finishing');
+    try{const response=await fetch(finishEndpoint,{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','X-Sop-Finish-Capability':finishCapability},signal:finishController.signal,body:JSON.stringify({targetId:boot.targetId,runId:boot.runId,step:boot.step,version:boot.version,expected_revision:revision,values})});
+      if(closed||!current())return;if(!response.ok){result(false,response.status===409?'conflict':'finish_failed');frame.inert=false;set(response.status===409?'conflict':'finish_failed');return;}
+      const done=await response.json();if(closed||!current())return;if(!done||Object.keys(done).sort().join(',')!=='ok,revision,status'||done.ok!==true||done.status!=='finished'||done.revision!==revision+1){result(false,'finish_failed');frame.inert=false;set('finish_failed');return;}
+      revision=done.revision;finished=true;locked=true;pending={};clearTimeout(timer);capability='';uploadCapability='';finishCapability='';send('LOCK');set('locking');arm();
+    }catch{if(!closed){result(false,'finish_failed');frame.inert=false;set('finish_failed');}}finally{clearTimeout(timeout);finishing=false;}
   }
   async function upload(m:any){
     const f=boot.fields.find((f:any)=>f.key===m.field),reply=(ok:boolean,id:string,code:string)=>send('UPLOAD_RESULT',{request_id:m.request_id,field:m.field,ok,id,code});
@@ -83,27 +94,30 @@ function hostRuntime(boot:any,html:string,capability:string,endpoint:string,vali
     consumed=true;window.removeEventListener('message',handshake);const channel=new MessageChannel();port=channel.port1;
     port.onmessage=event=>{const m=event.data;if(closed)return;if(!current()||!bound(m)||!Number.isSafeInteger(m.seq)||m.seq!==rx+1){stop('rejected');return;}rx=m.seq;
       if(!ready){if(m.type!=='ACK'||!exact(m,['type','seq'])){stop('rejected');return;}ready=true;clearTimeout(deadline);set('ready');return;}
-      if(m.type==='UPLOAD_REQUEST'&&exact(m,['type','seq','request_id','field','file'])&&!locked){void upload(m);}
-      else if(m.type==='CHANGE'&&exact(m,['type','seq','field','value'])&&!locked){const field=boot.fields.find((f:any)=>f.key===m.field);if(!field?.operations.includes('save')||!valid(boot.fields,{[m.field]:m.value})){invalidFields.add(m.field);delete pending[m.field];if(!Object.keys(pending).length)clearTimeout(timer);result(false,'invalid_field_values');set('invalid');return;}invalidFields.delete(m.field);pending[m.field]=m.value;set(invalidFields.size||uploadErrors.size?'invalid':uploading?'uploading':'dirty');schedule();}
-      else if(m.type==='VALUES'&&exact(m,['type','seq','request_id','values'])&&collectId&&m.request_id===collectId&&!locked){clearTimeout(deadline);collectId='';if(!valid(boot.fields,m.values,true)||Object.keys(m.values).length!==boot.fields.length){for(const f of boot.fields){if(!valid([f],Object.hasOwn(m.values??{},f.key)?{[f.key]:m.values[f.key]}:{},true)||!Object.hasOwn(m.values??{},f.key)){invalidFields.add(f.key);delete pending[f.key];}}if(!Object.keys(pending).length)clearTimeout(timer);result(false,'invalid_field_values');set('invalid');return;}invalidFields.clear();pending={...pending,...Object.fromEntries(Object.entries(m.values).filter(([key])=>boot.fields.find((f:any)=>f.key===key)?.operations.includes('save')))};set(uploadErrors.size?'invalid':'collected');schedule();}
-      else if(m.type==='LOCK_ACK'&&locked&&exact(m,['type','seq'])){clearTimeout(deadline);set(m.type==='LOCK_ACK'?'locked':'ready');}
+      if(finishing){result(false,'finishing');return;}
+      if(m.type==='UPLOAD_REQUEST'&&exact(m,['type','seq','request_id','field','file'])&&!locked){finishAttempt=false;frame.inert=false;void upload(m);}
+      else if(m.type==='CHANGE'&&exact(m,['type','seq','field','value'])&&!locked){finishAttempt=false;frame.inert=false;const field=boot.fields.find((f:any)=>f.key===m.field);if(!field?.operations.includes('save')||!valid(boot.fields,{[m.field]:m.value})){invalidFields.add(m.field);delete pending[m.field];if(!Object.keys(pending).length)clearTimeout(timer);result(false,'invalid_field_values');set('invalid');return;}invalidFields.delete(m.field);pending[m.field]=m.value;set(invalidFields.size||uploadErrors.size?'invalid':uploading?'uploading':'dirty');schedule();}
+      else if(m.type==='VALUES'&&exact(m,['type','seq','request_id','values'])&&collectId&&m.request_id===collectId&&!locked){clearTimeout(deadline);collectId='';if(!valid(boot.fields,m.values,true)||Object.keys(m.values).length!==boot.fields.length){for(const f of boot.fields){if(!valid([f],Object.hasOwn(m.values??{},f.key)?{[f.key]:m.values[f.key]}:{},true)||!Object.hasOwn(m.values??{},f.key)){invalidFields.add(f.key);delete pending[f.key];}}if(!Object.keys(pending).length)clearTimeout(timer);frame.inert=false;finishAttempt=false;result(false,'invalid_field_values');set('invalid');return;}invalidFields.clear();if(finishAttempt){finishAttempt=false;if(uploadErrors.size){frame.inert=false;result(false,'invalid_upload');set('invalid');return;}clearTimeout(timer);void finish(m.values);return;}pending={...pending,...Object.fromEntries(Object.entries(m.values).filter(([key])=>boot.fields.find((f:any)=>f.key===key)?.operations.includes('save')))};set(uploadErrors.size?'invalid':'collected');schedule();}
+      else if(m.type==='LOCK_ACK'&&locked&&exact(m,['type','seq'])){clearTimeout(deadline);set(finished?'finished':'locked');}
       else stop('rejected');};
     port.onmessageerror=()=>stop('rejected');port.start();frameWindow!.postMessage({...binding,type:'INIT',values:boot.values,field_schema:boot.fields,revision,readOnly:false},'*',[channel.port2]);arm();};
   window.addEventListener('message',handshake);frame.addEventListener('load',()=>{if(closed)return;if(loaded){stop('reloaded');return;}loaded=true;frameWindow=frame.contentWindow;frameWindow!.postMessage({...binding,type:'PROBE'},'*');arm();});
-  document.getElementById('collect')!.addEventListener('click',()=>{if(!ready||closed||locked||collectId||saving||uploading)return;clearTimeout(timer);collectId=crypto.randomUUID();send('COLLECT',{request_id:collectId});set('collecting');arm();});
-  document.getElementById('lock')!.addEventListener('click',()=>{if(!ready||closed)return;locked=true;pending={};clearTimeout(timer);controller?.abort();uploadController?.abort();send('LOCK');arm();});
+  document.getElementById('collect')!.addEventListener('click',()=>{if(!ready||closed||locked||collectId||saving||uploading||finishing)return;finishAttempt=false;clearTimeout(timer);collectId=crypto.randomUUID();send('COLLECT',{request_id:collectId});set('collecting');arm();});
+  document.getElementById('finish')?.addEventListener('click',(event:Event)=>{if(!event.isTrusted||!finishCapability||!ready||closed||locked||finishing||saving||uploading||collectId)return;finishAttempt=true;frame.inert=true;clearTimeout(timer);collectId=crypto.randomUUID();send('COLLECT',{request_id:collectId});set('collecting');arm();});
+  document.getElementById('lock')!.addEventListener('click',()=>{if(!ready||closed||finishing)return;finishAttempt=false;locked=true;pending={};clearTimeout(timer);controller?.abort();uploadController?.abort();send('LOCK');arm();});
   document.getElementById('teardown')!.addEventListener('click',()=>{if(port)send('TEARDOWN');stop();});window.addEventListener('pagehide',()=>stop());arm();frame.srcdoc=html;
 }
 const normalize=(s:string)=>s.split(String.fromCharCode(13,10)).join(String.fromCharCode(10)).split(String.fromCharCode(13)).join(String.fromCharCode(10));
 const json=(v:unknown)=>JSON.stringify(v).replace(/</g,String.fromCharCode(92)+'u003c');
 const escape=(s:string)=>s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
 const hash=(s:string)=>"'sha256-"+createHash('sha256').update(s).digest('base64')+"'";
-export function renderEditableSopPreview(input:ReadonlySop,capability:string,uploadCapability=''):string {
+export function renderEditableSopPreview(input:ReadonlySop,capability:string,uploadCapability='',finishCapability=''):string {
+  if(finishCapability&&!/^[A-Za-z0-9_-]{43}[.][A-Za-z0-9_-]{43}$/.test(finishCapability))throw Error('Invalid shell finish capability');
   const config=validateReadonlySop(input,true,!!uploadCapability);if(uploadCapability&&!/^[A-Za-z0-9_-]{43}[.][A-Za-z0-9_-]{43}$/.test(uploadCapability))throw Error('Invalid shell upload capability');if(!/^[A-Za-z0-9_-]{43}[.][A-Za-z0-9_-]{43}$/.test(capability))throw Error('Shell capability required');
   const {body,values,...childConfig}=config,child=normalize('('+frameRuntime.toString()+')('+json(childConfig)+','+validValues.toString()+');');
   const policy="default-src 'none'; script-src "+hash(child)+"; style-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'";
   const html='<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="'+escape(policy)+'"><body>'+body+'<script>'+child+'</script>';
-  const host=normalize('('+hostRuntime.toString()+')('+json({...config,body:undefined})+','+json(html)+','+json(capability)+','+json(SOP_FIELD_SAVE_PATH)+','+validValues.toString()+','+json(uploadCapability)+','+json(SOP_FIELD_UPLOAD_PATH)+');');
+  const host=normalize('('+hostRuntime.toString()+')('+json({...config,body:undefined})+','+json(html)+','+json(capability)+','+json(SOP_FIELD_SAVE_PATH)+','+validValues.toString()+','+json(uploadCapability)+','+json(SOP_FIELD_UPLOAD_PATH)+','+json(finishCapability)+','+json(SOP_FIELD_FINISH_PATH)+');');
   const hostPolicy="default-src 'none'; script-src "+hash(host)+' '+hash(child)+"; style-src 'unsafe-inline'; frame-src 'self'; connect-src 'self'; form-action 'none'; base-uri 'none'; object-src 'none'";
-  return '<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="'+escape(hostPolicy)+'"><h1>SOP字段通道候选（未切流）</h1><p id="channel-state" data-state="loading" role="status">loading</p><button id="collect">收集当前步骤</button><button id="lock">锁定</button><button id="teardown">销毁</button><iframe id="body-frame" title="隔离步骤字段" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe><script>'+host+'</script>';
+  return '<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="'+escape(hostPolicy)+'"><h1>SOP字段通道候选（未切流）</h1><p id="channel-state" data-state="loading" role="status">loading</p><button id="finish">人工完成</button><button id="collect">收集当前步骤</button><button id="lock">锁定</button><button id="teardown">销毁</button><iframe id="body-frame" title="隔离步骤字段" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe><script>'+host+'</script>';
 }
