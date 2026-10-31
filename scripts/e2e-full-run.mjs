@@ -46,5 +46,14 @@ try {
   const py = spawn(PY, ['evidence/e2e_test.py'], { stdio: 'inherit', env: e2eEnv });
   code = await new Promise((r) => py.on('exit', (c) => r(c ?? 1)));
 } catch (e) { console.error('e2e-full-run:', e.message); }
-finally { server.kill(); rmSync(TMP, { recursive: true, force: true }); }
+finally {
+  // 先等自己起的 server 真正退出再删自己的 TMP（Windows 上进程还持有 DATA_DIR 文件句柄时 rm 会 EPERM）；删不掉如实报、退出码非 0
+  if (server.exitCode === null && server.signalCode === null) {
+    const exited = new Promise((r) => server.once('exit', r));
+    server.kill();
+    await Promise.race([exited, new Promise((r) => setTimeout(r, 15_000))]);
+  }
+  try { rmSync(TMP, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
+  catch (e) { console.error(`e2e-full-run: 清理 ${TMP} 失败：${e.code ?? ''} ${e.message}`); if (code === 0) code = 1; }
+}
 process.exit(code);
