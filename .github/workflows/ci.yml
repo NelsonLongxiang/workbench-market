@@ -76,7 +76,7 @@ jobs:
       - name: server 语法核（esbuild）
         run: node scripts/check-server-syntax.mjs
       - name: Verifier criterion65 portal call-chain mutations (synthetic snapshot only)
-        run: node scripts/portal-call-chain-test.mjs
+        run: node scripts/portal-call-chain-test.mjs && node scripts/verifier-masked-import-test.mjs
       - name: 统一待办 ygl-trees 项目上限与总预算（合成入口）
         run: node scripts/ygl-project-cap-smoke.mjs
       - name: Taskcenter B1 seed and intake publication
