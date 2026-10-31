@@ -4,6 +4,7 @@
 // 全部合成：随机端口、tmp/ 专属 DATA_DIR，公网地址只登记不访问（不发任何外网或元数据请求）。
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:http';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { once } from 'node:events';
 import { join, resolve } from 'node:path';
@@ -121,6 +122,50 @@ await check('U12 审计写失败：auditAllow 返回 false 不抛、另发 audit
   m._setAuditWriter(() => { throw new Error('closed'); });
   assert.equal(m.auditAllow('register', policy, 'http://example.com:80/tool/', 7, 'anonymous'), false); // 渠道全断也不抛
 });
+await check('U12 异步回调失败锁存：下一次写报降级并发 audit_failure；有一条写成功回调后解除', async () => {
+  const lines = [];
+  let broken = true;
+  m._setAuditWriter((l, done) => { lines.push(JSON.parse(l)); setImmediate(() => done(broken ? new Error('EPIPE') : null)); });
+  const tick = () => new Promise((r) => setImmediate(r));
+  await tick(); await tick(); // 清掉上一用例锁存的状态：先让一条成功写回调
+  broken = false; m.auditDeny('reset', 'r', null); await tick(); await tick();
+  assert.equal(m.auditChannelState().failed, false);
+  broken = true;
+  assert.equal(m.auditAllow('register', policy, 'k', 1, 'anonymous'), true, '异步失败前同步面看不出');
+  await tick(); await tick();
+  assert.equal(m.auditChannelState().failed, true);
+  assert.equal(m.auditAllow('register', policy, 'k', 2, 'anonymous'), false, '已知故障后下一写必须降级');
+  assert.equal(lines.at(-1).event, 'workbench_url_audit_failure'); assert.ok(lines.at(-1).channel_failures >= 1);
+  broken = false;
+  assert.equal(m.auditAllow('register', policy, 'k', 3, 'anonymous'), false, '恢复中的这一条仍按已知故障报降级');
+  await tick(); await tick();
+  assert.equal(m.auditAllow('register', policy, 'k', 4, 'anonymous'), true, '成功回调后解除');
+  m._setAuditWriter((l, done) => done(null));
+});
+await check('必改1 百分号与 UTF-8：非法序列 400（公网 key、许可配置、内部路径）；合法空格与中文编码照收', () => {
+  const t = () => true;
+  const code = (u) => { try { m.admitUrl(u, policy, t); return 'ok'; } catch (e) { return `${e.status} ${e.code}`; } };
+  for (const seg of ['%FF', '%C0%AF', '%E0%A4', '%ED%A0%80', '%F4%90%80%80', '%GG', '%', '%4']) {
+    assert.equal(code(`http://unlisted.example/${seg}`), '400 invalid_url', seg);
+    assert.throws(() => m.loadAllowPolicy(JSON.stringify([`http://example.com/${seg}`])), undefined, seg);
+    assert.equal(code(`/apps/real/${seg}`), '400 invalid_url', 'internal ' + seg);
+  }
+  const p2 = m.loadAllowPolicy(JSON.stringify(['http://example.com/ok%20space', 'http://example.com/%E4%B8%AD%E6%96%87?q=%E6%96%87']));
+  assert.equal(p2.size, 2);
+  assert.equal(code('/apps/real/%E4%B8%AD.png'), 'ok');
+  assert.equal(code('http://10.0.0.1/%FF'), 'ok', '私网不借机收紧');
+});
+await check('必改2 sameTarget：host 大小写 / 显式缺省端口 / hex 大小写等价；port/query/path/scheme/fragment 变化不等价', () => {
+  assert.ok(m.sameTarget('http://UNLISTED.example:80/tool/', 'http://unlisted.example/tool/'));
+  assert.ok(m.sameTarget('http://unlisted.example/a%2a', 'http://unlisted.example/a%2A'));
+  for (const u of ['http://unlisted.example:8080/tool/', 'http://unlisted.example/tool/?x=1', 'http://unlisted.example/tool', 'https://unlisted.example/tool/', 'http://unlisted.example/tool/#f', 'http://unlisted.example/tool/%FF'])
+    assert.ok(!m.sameTarget('http://UNLISTED.example:80/tool/', u), u);
+  assert.ok(!m.sameTarget('http://10.0.0.1/#/a', 'http://10.0.0.1/#/b'), '私网 fragment 变化是真改');
+});
+await check('必改4 类型 health_path 只收相对路径', () => {
+  m.checkTypeHealthPath('/'); m.checkTypeHealthPath('/healthz'); m.checkTypeHealthPath('');
+  for (const hp of ['http://127.0.0.1:1/', '//evil.example/', 'https://x.example/h', '\\evil']) assert.throws(() => m.checkTypeHealthPath(hp), undefined, hp);
+});
 
 // ---------- 隔离实例 ----------
 mkdirSync('tmp', { recursive: true });
@@ -131,6 +176,12 @@ writeFileSync(preload, `import { existsSync } from 'node:fs';
 const w = process.stderr.write.bind(process.stderr);
 process.stderr.write = (chunk, ...rest) => {
   if (String(chunk).includes('"workbench_url_allowlist"') && existsSync(process.env.R3_FIXTURE_FAIL_FLAG)) throw new Error('fixture: audit channel broken');
+  if (String(chunk).includes('"workbench_url_allowlist"') && existsSync(process.env.R3_FIXTURE_FAIL_FLAG + '-async')) {
+    // 异步失败夹具：返回 true（看似写成功），回调随后带 EPIPE，并在流上发 error
+    const cb = rest.find((x) => typeof x === 'function');
+    setImmediate(() => { const e = Object.assign(new Error('EPIPE fixture'), { code: 'EPIPE' }); cb?.(e); process.stderr.emit('error', e); });
+    return true;
+  }
   return w(chunk, ...rest);
 };`);
 const tmps = [];
@@ -313,6 +364,58 @@ try {
     rmSync(join(s.data, '.fail-audit'));
     assert.equal((await call(s, 'GET', '/api/health')).status, 200);
   });
+  await check('必改3 实例：stderr 异步 EPIPE → 下一次写 201 + degraded + audit_failure；渠道恢复后解除；不重复建行', async () => {
+    const flag = join(s.data, '.fail-audit-async');
+    const n = (await call(s, 'GET', '/api/workbenches')).body.length;
+    // 先让一条正常写成功回调，清掉同步注错用例的锁存
+    await call(s, 'POST', '/api/workbenches', { name: 'async-pre', url: 'http://example.com/tool/' });
+    await new Promise((r) => setTimeout(r, 100));
+    writeFileSync(flag, '1');
+    const a = await call(s, 'POST', '/api/workbenches', { name: 'async-a', url: 'http://example.com/tool/' });
+    assert.equal(a.status, 201);
+    await new Promise((r) => setTimeout(r, 100));
+    const b = await call(s, 'POST', '/api/workbenches', { name: 'async-b', url: 'http://example.com/tool/' });
+    assert.equal(b.status, 201); assert.equal(b.headers.get('x-wm-audit-state'), 'degraded', '已知异步故障后下一写必须降级');
+    assert.ok(/"workbench_url_audit_failure"[^\n]*"channel_failures":[1-9]/.test(s.err), '记录 audit_failure 与故障计数');
+    rmSync(flag);
+    const c = await call(s, 'POST', '/api/workbenches', { name: 'async-c', url: 'http://example.com/tool/' });
+    assert.equal(c.headers.get('x-wm-audit-state'), 'degraded', '恢复中的这一条仍报已知故障');
+    await new Promise((r) => setTimeout(r, 100));
+    const d = await call(s, 'POST', '/api/workbenches', { name: 'async-d', url: 'http://example.com/tool/' });
+    assert.equal(d.status, 201); assert.equal(d.headers.get('x-wm-audit-state'), null, '有写成功回调后解除');
+    assert.equal((await call(s, 'GET', '/api/workbenches')).body.length, n + 5, '每次一行、不重试');
+    assert.equal((await call(s, 'GET', '/api/health')).status, 200);
+  });
+  await check('必改4 实例：类型 POST/PUT 绝对 health_path 400；存量类型继承的跨 origin health 在探测处拒、对端零请求；相对/同 origin 照常', async () => {
+    let hits = 0;
+    const peer = createServer((req, res) => { hits++; res.end('ok'); }).listen(0, '127.0.0.1');
+    await once(peer, 'listening');
+    const base = createServer((req, res) => res.end('ok')).listen(0, '127.0.0.1');
+    await once(base, 'listening');
+    try {
+      const peerUrl = `http://127.0.0.1:${peer.address().port}/`;
+      const bad = await call(s, 'POST', '/api/types', { key: 'r3t-abs', name: 'abs', health_path: peerUrl });
+      assert.equal(bad.status, 400); assert.equal(bad.body.error, 'invalid_health_path');
+      const t = await call(s, 'POST', '/api/types', { key: 'r3t', name: 'rel', health_path: '/' });
+      assert.equal(t.status, 201);
+      assert.equal((await call(s, 'PUT', `/api/types/${t.body.id}`, { health_path: peerUrl })).body.error, 'invalid_health_path');
+      const imp = await call(s, 'POST', '/api/import?mode=merge', { workbenches: [], types: [{ key: 'r3t-imp', name: 'imp', health_path: peerUrl }] });
+      assert.equal(imp.body.error, 'invalid_health_path');
+      // 存量：直接把类型改成绝对跨 origin（模拟旧版本写入），工作台本身 health 为空 → 继承
+      const db = new DatabaseSync(join(s.data, 'workbench-market.db'));
+      db.prepare('UPDATE types SET health_path = ? WHERE key = ?').run(peerUrl, 'r3t');
+      db.close();
+      const w = await call(s, 'POST', '/api/workbenches', { name: 'inherit', url: `http://127.0.0.1:${base.address().port}/`, type: 'r3t' });
+      assert.equal(w.status, 201);
+      const chk = await call(s, 'POST', `/api/workbenches/${w.body.id}/check`);
+      assert.equal(chk.status, 200); assert.equal(chk.body.last_status, 'down'); assert.ok(String(chk.body.last_error).includes('health_path 被拒'), chk.body.last_error);
+      assert.equal(hits, 0, '跨 origin 对端零请求');
+      // 同 origin 绝对 health 正例照常探测
+      const w2 = await call(s, 'POST', '/api/workbenches', { name: 'same', url: `http://127.0.0.1:${base.address().port}/`, health_path: `http://127.0.0.1:${base.address().port}/ping` });
+      assert.equal(w2.status, 201);
+      assert.equal((await call(s, 'POST', `/api/workbenches/${w2.body.id}/check`)).body.last_status, 'up');
+    } finally { peer.close(); base.close(); }
+  });
   await stop(s);
 
   await check('U14 存量公网行：去掉许可后重启不删行、启动列迁移缺口（只出摘要）、改名照收、新 url 拒', async () => {
@@ -324,6 +427,12 @@ try {
       const row = (await call(s2, 'GET', '/api/workbenches')).body.find((w) => w.name === 'allowed-renamed');
       assert.ok(row, '存量公网行仍在');
       assert.equal((await call(s2, 'PUT', `/api/workbenches/${row.id}`, { name: 'again', url: row.url })).status, 200);
+      // 必改2：同一规范化 key 的不同写法（小写 host、省缺省端口）也是「url 未变」，原 url 原样保留
+      assert.equal(row.url, 'http://EXAMPLE.com:80/tool/');
+      const eq = await call(s2, 'PUT', `/api/workbenches/${row.id}`, { name: 'again2', url: 'http://example.com/tool/' });
+      assert.equal(eq.status, 200, JSON.stringify(eq.body)); assert.equal(eq.body.url, 'http://EXAMPLE.com:80/tool/');
+      for (const u of ['http://example.com:8080/tool/', 'http://example.com/tool/?x=1', 'http://example.com/tool', 'https://example.com/tool/'])
+        assert.equal((await call(s2, 'PUT', `/api/workbenches/${row.id}`, { url: u })).status, 403, u);
       assert.equal((await call(s2, 'POST', '/api/workbenches', { name: 'copy', url: row.url })).status, 403, '复制 = 新登记，必须准入');
     } finally { await stop(s2); }
   });

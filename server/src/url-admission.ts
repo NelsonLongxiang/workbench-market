@@ -109,6 +109,24 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const ENCODED_SEP_RE = /%(2f|5c|3f|23|25|2e)/i;
 const upperHex = (s: string) => s.replace(/%[0-9a-f]{2}/gi, (x) => x.toUpperCase());
 
+/** 百分号序列必须是合法 %HH，且解出的字节流（连同字面字符）是合法 UTF-8；只校验，不拿解码结果参与 key */
+const UTF8 = new TextDecoder('utf-8', { fatal: true });
+export function percentProblem(s: string): string | null {
+  const bytes: number[] = [];
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '%') {
+      const h = s.slice(i + 1, i + 3);
+      if (!/^[0-9a-fA-F]{2}$/.test(h)) return '含非法百分号编码（须 %HH）';
+      bytes.push(parseInt(h, 16));
+      i += 2;
+    } else {
+      bytes.push(...Buffer.from(s[i], 'utf8'));
+    }
+  }
+  try { UTF8.decode(Uint8Array.from(bytes)); } catch { return '百分号编码解出的字节不是合法 UTF-8（超长/代理项/越界/截断）'; }
+  return null;
+}
+
 function hasDotSegment(path: string): boolean {
   return path.split('/').some((seg) => seg === '.' || seg === '..');
 }
@@ -120,6 +138,8 @@ function analyzeInternal(u: string): Analysis {
   const rest = m![3];
   if (/[?#]/.test(rest)) invalid('内部路径不收 query/fragment');
   if (ENCODED_SEP_RE.test(rest)) invalid('内部路径不收编码分隔符或编码点（%2f %5c %3f %23 %25 %2e）');
+  const pp = percentProblem(rest);
+  if (pp) invalid('内部路径' + pp);
   const segs = rest.split('/');
   segs.forEach((seg, i) => {
     if (seg === '.' || seg === '..') invalid('内部路径不收点段');
@@ -202,8 +222,20 @@ export function analyzeUrl(raw: string): Analysis {
   if (fragment !== undefined) strictProblem = '许可 URL 不收 fragment';
   else if (hasDotSegment(rawPath)) strictProblem = '许可 URL 不收点段';
   else if (ENCODED_SEP_RE.test(rawPath)) strictProblem = '许可 URL 路径不收编码分隔符（%2f %5c %3f %23 %25 %2e）';
-  else if (/%(?![0-9a-f]{2})/i.test(rawPath + (m![4] ?? ''))) strictProblem = '许可 URL 含非法百分号编码';
+  else { const pp = percentProblem(rawPath + (m![4] ?? '')); if (pp) strictProblem = '许可 URL ' + pp; }
   return { kind: cls, key, strictProblem };
+}
+
+/**
+ * 存量兼容：新 url 与原 url 是同一个规范化 key（host 大小写 / 显式缺省端口 / hex 大小写）且 fragment 相同，
+ * 视为「url 未变」——旧行做元数据更新不因登记写法不同被拒。新 url 自身格式坏或公网严格形态不合法时不算。
+ */
+export function sameTarget(curUrl: string, nextUrl: string): boolean {
+  let a: Analysis, b: Analysis;
+  try { a = analyzeUrl(curUrl); b = analyzeUrl(nextUrl); } catch { return false; }
+  if (!a.key || a.key !== b.key || a.kind !== b.kind || b.strictProblem) return false;
+  const hash = (u: string) => { const i = u.indexOf('#'); return i < 0 ? '' : u.slice(i); };
+  return hash(curUrl) === hash(nextUrl);
 }
 
 // ---------- 许可配置（WM_REGISTER_URL_ALLOWLIST，进程启动快照） ----------
@@ -271,21 +303,52 @@ export function checkHealthPath(url: string, hp: string): void {
   }
 }
 
-// ---------- 审计（stderr 单行 JSON） ----------
-const sha = (s: string) => createHash('sha256').update(s).digest('hex');
-let auditWrite: (line: string) => void = (line) => { process.stderr.write(line); };
-/** 仅测试用：替换输出通道（生产不调用） */
-export function _setAuditWriter(w: (line: string) => void): void { auditWrite = w; }
-
-function emit(obj: Record<string, unknown>): boolean {
-  try { auditWrite(JSON.stringify(obj) + '\n'); return true; } catch { return false; }
+/** 类型级 health_path 没有自己的 origin，只收相对路径（被各台继承后在探测处再按台 origin 核） */
+export function checkTypeHealthPath(hp: string): void {
+  const v = (hp ?? '').trim();
+  if (!v) return;
+  const fail = (message: string): never => { throw new AdmissionError(400, 'invalid_health_path', message); };
+  if (/[\u0000-\u001f\u007f\\]/.test(v)) fail('类型 health_path 含控制字符或反斜杠');
+  if (v.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(v)) fail('类型 health_path 只收相对路径（绝对 URL 会被所有该类型的台继承成跨 origin 探测）');
 }
 
-/** 成功 commit 后调：返回 false = 审计降级（调用方加 X-WM-Audit-State: degraded，不重试业务写） */
+// ---------- 审计（stderr 单行 JSON） ----------
+const sha = (s: string) => createHash('sha256').update(s).digest('hex');
+/** 输出通道：同步抛错或回调带 err 都算失败；write 返回 false（背压）不算失败 */
+type AuditWriter = (line: string, done: (err?: Error | null) => void) => void;
+let auditWrite: AuditWriter = (line, done) => { process.stderr.write(line, (err) => done(err)); };
+/** 仅测试用：替换输出通道（生产不调用） */
+export function _setAuditWriter(w: AuditWriter): void { auditWrite = w; }
+
+/** 已知的审计渠道故障（异步回调/流 error 后锁存）：锁存期间每次写都报降级，直到有一条写成功回调才解除 */
+const channel = { failed: false, failures: 0, lastAt: '' };
+export function auditChannelState(): { failed: boolean; failures: number; last_failure_at: string } {
+  return { failed: channel.failed, failures: channel.failures, last_failure_at: channel.lastAt };
+}
+/** 流 error 事件（index.ts 挂在 process.stderr 上）与写回调失败共用 */
+export function markAuditChannelFailed(): void {
+  channel.failed = true; channel.failures++; channel.lastAt = new Date().toISOString();
+}
+
+function emit(obj: Record<string, unknown>): boolean {
+  try {
+    auditWrite(JSON.stringify(obj) + '\n', (err) => { if (err) markAuditChannelFailed(); else channel.failed = false; });
+    return true;
+  } catch { markAuditChannelFailed(); return false; }
+}
+
+/**
+ * 成功 commit 后调：返回 false = 审计降级（调用方加 X-WM-Audit-State: degraded，不重试、不回滚业务写）。
+ * 降级 = 本条同步写失败，或此前已锁存渠道故障（异步失败发生在上一响应之后也会在这里体现）。
+ */
 export function auditAllow(op: 'register' | 'update' | 'import', policy: AllowPolicy, key: string, workbenchId: number, subject: string): boolean {
+  const knownBroken = channel.failed;
   const ok = emit({ event: 'workbench_url_allowlist', operation: op, policy_digest: policy.digest, url_digest: sha(key), workbench_id: workbenchId, subject, outcome: 'allow', at: new Date().toISOString() });
-  if (!ok) emit({ event: 'workbench_url_audit_failure', operation: op, workbench_id: workbenchId, at: new Date().toISOString() });
-  return ok;
+  if (!ok || knownBroken) {
+    emit({ event: 'workbench_url_audit_failure', operation: op, workbench_id: workbenchId, sync_write_failed: !ok, channel_failures: channel.failures, last_failure_at: channel.lastAt || null, at: new Date().toISOString() });
+    return false;
+  }
+  return true;
 }
 
 const DENY_WINDOW_MS = 60_000, DENY_MAX = 10;
