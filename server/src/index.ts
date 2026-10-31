@@ -2,7 +2,7 @@ import express from 'express';
 import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskCenterPolicy } from './task-center.ts';
 import cors from 'cors';
 import {sopRunnerConfig,createSopRunnerWiring} from './sop-runner-wiring.ts';
-import {configureSopSingleWriter,channelOwnsRun,assertLegacySopWrite} from './sop-single-writer.ts';
+import {configureSopSingleWriter,channelOwnsRun,assertLegacySopWrite,legacyVisibleRuns} from './sop-single-writer.ts';
 import { contentConfig, createContentSurface, mountContentSurface, listenContentSurface } from './content-surface.ts';
 import { createPortalObservation } from './portal-observation.ts';
 import { allSurfaceServers, browserMarked, originIsThisSurface, rawLoopback, registerSurface, surfaceOf, surfacePorts, surfaceUrl } from './surfaces.ts';
@@ -1665,6 +1665,7 @@ app.post('/api/sop/runs/:id/files', (req, res, next) => {
 app.get('/api/sop/runs/:id/files', (req, res) => {
   if (!/^\d+$/.test(String(req.params.id))) throw new HttpError(404, `run not found: ${req.params.id}`);
   const runId = Number(req.params.id);
+  if(channelOwnsRun(db,runId))throw new HttpError(409,'sop_channel_authorized_read_required');
   sopRunRow(runId); // 404 语义与 run 一致
   const items = (svc<SopService>('sop').runFiles(runId) as any[]).map((f) => ({ ...f, url: `/api/sop/runs/${runId}/files/${f.id}` }));
   res.json({ run_id: runId, items, count: items.length });
@@ -1672,6 +1673,7 @@ app.get('/api/sop/runs/:id/files', (req, res) => {
 app.get('/api/sop/runs/:id/files/:fileId', (req, res) => {
   if (!/^\d+$/.test(String(req.params.id)) || !/^\d+$/.test(String(req.params.fileId))) throw new HttpError(404, 'file not found');
   const runId = Number(req.params.id);
+  if(channelOwnsRun(db,runId))throw new HttpError(409,'sop_channel_authorized_read_required');
   const row = svc<SopService>('sop').runFileById(runId, Number(req.params.fileId)) as any;
   if (!row) throw new HttpError(404, `file not found: ${req.params.fileId}`);
   const abs = join(dataDir, row.storage_path);
@@ -1775,7 +1777,7 @@ app.get('/api/sop/runs/active', wrap(async (_req, res) => {
   // 快路径：Redis 活跃索引；降级态回落 SQLite
   const ids = await runActiveIds();
   if (ids.length > 0) {
-    const rows = ids.map((id) => svc<SopService>('sop').runByIdRunning(id) as unknown as SopRunRow | undefined).filter(Boolean) as SopRunRow[];
+    const rows = ids.map((id) => svc<SopService>('sop').runByIdRunning(id) as unknown as SopRunRow | undefined).filter((row)=>row&&!channelOwnsRun(db,row.id)) as SopRunRow[];
     return res.json(rows);
   }
   const rows = svc<SopService>('sop').runsRunning() as unknown as SopRunRow[];
@@ -2730,7 +2732,7 @@ app.get('/api/sops/:slug/timeline', (req, res) => {
   const versions = (db.prepare('SELECT version, changelog, created_by, created_at FROM app_versions WHERE app_id = ? ORDER BY version DESC').all(a.id) as Array<{ version: number; changelog: string; created_by: string; created_at: string }>).map(v => ({ ...v, changelog: (v.changelog || '').slice(0, 200) }));
   const runs = (svc<SopService>('sop').runsBySlug(a.slug) as unknown as Array<{ id: number; status: string; started_by: string; started_at: string; finished_at: string }>).slice(0, 50).map(r => ({ id: r.id, status: r.status, started_by: r.started_by, started_at: r.started_at, finished_at: r.finished_at }));
   const receipts = (db.prepare("SELECT r.task_id, r.caller, r.receipt_status, r.run_id FROM a2a_run_ctx r WHERE r.task_id != '' AND r.run_id IN (SELECT id FROM sop_runs WHERE sop_slug = ?)").all(a.slug) as Array<{ task_id: string; caller: string; receipt_status: string; run_id: number }>).map(r => ({ task_id: r.task_id, caller: r.caller, receipt_status: r.receipt_status || 'pending', run_id: r.run_id }));
-  res.json({ slug: a.slug, versions, runs, receipts });
+  res.json({ slug: a.slug, versions, runs, receipts:legacyVisibleRuns(db,receipts) });
 });
 
 app.get('/api/bindings', (req, res) => {

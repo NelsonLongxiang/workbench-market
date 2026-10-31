@@ -1,7 +1,7 @@
 /** SOP 域（sop_runs ×10 + sop_bindings ×5 + a2a_run_ctx ×2）：SQL 原文自 index.ts 搬入（S1）。 */
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
-import {assertLegacySopWrite} from '../sop-single-writer.ts';
+import {assertLegacySopWrite,legacyVisibleRuns} from '../sop-single-writer.ts';
 
 export class SopService extends Service {
   constructor(ctx: any) {
@@ -25,10 +25,10 @@ export class SopService extends Service {
     return db.prepare("UPDATE sop_runs SET data = ?, updated_at = datetime('now') WHERE id = ?").run(data, id);
   }
   runsBySlug(slug: string) {
-    return db.prepare('SELECT * FROM sop_runs WHERE sop_slug = ? ORDER BY id DESC').all(slug);
+    return legacyVisibleRuns(db,db.prepare('SELECT * FROM sop_runs WHERE sop_slug = ? ORDER BY id DESC').all(slug) as {id:number}[]);
   }
   runsRecent(limit: number) {
-    return db.prepare('SELECT * FROM sop_runs ORDER BY id DESC LIMIT ?').all(limit);
+    return legacyVisibleRuns(db,db.prepare('SELECT * FROM sop_runs ORDER BY id DESC LIMIT ?').all(limit) as {id:number}[]);
   }
   runUpdateData(id: number, data: string) {
     assertLegacySopWrite(db,id);
@@ -39,13 +39,13 @@ export class SopService extends Service {
     return db.prepare(`UPDATE sop_runs SET status = 'finished', data = ?, finished_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(data, id);
   }
   runsDispatchedAll() {
-    return db.prepare('SELECT r.id, r.sop_slug, r.started_by, r.status, r.updated_at FROM sop_runs r JOIN a2a_run_ctx c ON c.run_id = r.id GROUP BY r.id ORDER BY r.updated_at DESC').all();
+    return legacyVisibleRuns(db,db.prepare('SELECT r.id, r.sop_slug, r.started_by, r.status, r.updated_at FROM sop_runs r JOIN a2a_run_ctx c ON c.run_id = r.id GROUP BY r.id ORDER BY r.updated_at DESC').all() as {id:number}[]);
   }
   runsDispatched() {
-    return db.prepare("SELECT r.* FROM sop_runs r JOIN a2a_run_ctx c ON c.run_id = r.id WHERE r.status = 'running' GROUP BY r.id ORDER BY r.updated_at DESC").all();
+    return legacyVisibleRuns(db,db.prepare("SELECT r.* FROM sop_runs r JOIN a2a_run_ctx c ON c.run_id = r.id WHERE r.status = 'running' GROUP BY r.id ORDER BY r.updated_at DESC").all() as {id:number}[]);
   }
   runsRunning() {
-    return db.prepare("SELECT * FROM sop_runs WHERE status = 'running' ORDER BY updated_at DESC").all();
+    return legacyVisibleRuns(db,db.prepare("SELECT * FROM sop_runs WHERE status = 'running' ORDER BY updated_at DESC").all() as {id:number}[]);
   }
   activeBindingCount() {
     return db.prepare("SELECT COUNT(*) AS n FROM bindings WHERE target_type = 'sop' AND revoked_at = ''").get();
@@ -66,7 +66,7 @@ export class SopService extends Service {
     return db.prepare("SELECT mode FROM sop_bindings WHERE sop_slug = ? AND node = ? AND revoked_at = ''").get(slug, node);
   }
   runsQuery(sql: string, args: unknown[]) {
-    return db.prepare(sql).all(...(args as never[]));
+    return legacyVisibleRuns(db,db.prepare(sql).all(...(args as never[])) as {id:number}[]);
   }
   // ---- P4 交付物（product/run-delivery F1-F4） ----
   runFileInsert(r: { runId: number; name: string; mime: string; size: number; storagePath: string; createdBy: string }) {

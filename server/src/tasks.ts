@@ -13,6 +13,7 @@
  *   - lifecycle：按查看人列 lc inbox（server/src/lifecycle.ts·不进本模块 30s 共享缓存，由 /api/tasks 路由合并）
  */
 import { execFile } from 'node:child_process';
+import {channelOwnsRun} from './sop-single-writer.ts';
 
 export interface TaskEnvelope {
   id: string;
@@ -266,10 +267,16 @@ async function fetchA2aTasks(): Promise<{ ok: boolean; tasks: TaskEnvelope[]; la
   }
 }
 
+function legacyTaskProjection(payload:TasksPayload):TasksPayload {
+  const db=(globalThis as any).__wmDb;if(!db)return payload;
+  const tasks=payload.tasks.filter(t=>{const m=t.source==='market'&&/^market:run-([0-9]+)$/.exec(t.id);return !m||!channelOwnsRun(db,Number(m[1]));});
+  return {...payload,tasks,sources:{...payload.sources,market:{...payload.sources.market,count:tasks.filter(t=>t.source==='market').length}}};
+}
+
 /** 聚合入口（30s 缓存；ygl 源 5s 超时降级 ok=false 不阻塞 market 源）。 */
 export async function collectTasks(sop: SopServiceLike): Promise<TasksPayload> {
   const now = Date.now();
-  if (cache && now - cache.at < CACHE_TTL_MS) return cache.payload;
+  if (cache && now - cache.at < CACHE_TTL_MS) return legacyTaskProjection(cache.payload);
   const jobs: [Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs: number }>, Promise<TaskEnvelope[]>] =
     [execYglTasks(), Promise.resolve(marketTasks(sop))];
   const [yglSettled, mktSettled, a2aSettled] = await Promise.all([
@@ -290,7 +297,7 @@ export async function collectTasks(sop: SopServiceLike): Promise<TasksPayload> {
     generated_at: new Date(now).toISOString(),
   };
   cache = { at: now, payload };
-  return payload;
+  return legacyTaskProjection(payload);
 }
 
 /** #94 v3 S1 人审门：pending change_requests 入统一待办（批准/拒绝回 REST 原系统） */

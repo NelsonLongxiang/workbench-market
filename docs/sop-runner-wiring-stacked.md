@@ -38,7 +38,7 @@ ecbd独立反例：target4已选但重复workbench5同/sop/slug/可匿名/go/5�
 
 ## 单写围栏与Redis边界
 
-启用channel配置后，仅sop_run_access存在登记的run由新SQL通道持有；即使binding被撤销/finished也不回旧写。旧REST/MCP共core的step-save/finish、A2A note域服务SQL sink、旧附件SQL入库均拒409；core在Redis await前与后核，SopService runSaveData/runUpdateData/runFinish/runFileInsert同步写SQL前再核。旧run GET对这类run也拒，不能拿旧Redis值覆盖新通道快照。modeoff/未登记run保原链，不停用全部旧台。
+启用channel配置后，仅sop_run_access存在登记的run由新SQL通道持有；即使binding被撤销/finished也不回旧写。旧REST/MCP共core的step-save/finish、A2A note域服务SQL sink、旧附件SQL入库均拒409；core在Redis await前与后核，SopService runSaveData/runUpdateData/runFinish/runFileInsert同步写SQL前再核。旧run GET对这类run也拒，不能拿旧Redis值覆盖新通道快照。modeoff/未登记run保原链，不停用全部旧台。a209独评另证managed旧匿名列表可返回全步data，已先红复现后用legacyVisibleRuns统一域列表投影过滤登记行（含撤销/finished）：普通/slug/status/dispatched/recent/running/query、MCP列表、tasks聚合均复用过滤；Redisactive快路径与timeline receipts单独同核，缓存tasks返回时再核防登记后旧缓存漏私有元数据。旧文件列表/下载对managed拒，不把新文件引用从旧附件面泄露。该过滤只保护managed run，不凭此宣全站旧数据ACL升级；未来权限内新列表另段设计。
 
 redis.ts的runStateSave/Restore前与data hSet前围栏，managed load不读hot；旧active集合可以残留但不能成为新通道真源。极窄竞态中已经发送到真实Redis的旧命令不可撤回，本实现不声称Redis原子跨DB fencing；**安全边界是所有旧SQL sink拒入、回读永远SQLite+revision，新cap写不读取Redis**。Redis故障降级也不能绕SQL围栏。此处单进程map/generation和shared SQLite顺序不是多worker分布式一致性证明，不引入真实Redis配置/flush/生产迁移。
 
