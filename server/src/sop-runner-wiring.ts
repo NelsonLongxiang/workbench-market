@@ -38,7 +38,12 @@ export function createSopRunnerWiring(config:NonNullable<ReturnType<typeof sopRu
   const bySlug=new Map(config.targets.map(t=>[t.slug,t.targetId])),authority=new URL(config.marketOrigin).host;
   const handler:express.RequestHandler=(req,res,next)=>{
     const portal=/^[/]go[/]([0-9]+)(?:[/]|[?]|$)/i.exec(req.url??'');
-    if(portal&&config.targets.some(t=>t.targetId===Number(portal[1])))return void res.status(403).set('Cache-Control','no-store').json({error:'explicit_authorized_sop_run_required'});
+    if(portal){
+      // Legacy portal dispatches by current registry URL, not only configured ID. Cover every alias.
+      const id=Number(portal[1]),row=db.prepare('SELECT url FROM workbenches WHERE id=?').get(id) as {url:string}|undefined;
+      const sop=row&&/^[/]sop[/]([a-z0-9][a-z0-9-]*)[/]?/.exec(row.url);
+      if(config.targets.some(t=>t.targetId===id)||sop&&bySlug.has(sop[1]))return void res.status(403).set('Cache-Control','no-store').json({error:'explicit_authorized_sop_run_required'});
+    }
     const match=/^[/]sop[/]([^/]+)(?:[/](.*))?$/.exec(req.path??'');
     if(!match||!bySlug.has(match[1]))return next();
     // Selected target is terminal, including attachments; no legacy HTML or token fallback.
