@@ -34,7 +34,13 @@ with sync_playwright() as p:
   page.locator('#collect').click(no_wait_after=True);expect(page.locator('#channel-state')).to_have_attribute('data-state','saved');assert requests[-1]['values']['note']=='collected without change event';assert revision==2
   rows.append({'case':'COLLECT-current-values-request-bound','pass':True})
   assert all('capability' not in x and 'url' not in x and 'method' not in x for x in requests)
-  conflict=True;frame.locator('[data-field=note]').fill('conflicting');expect(page.locator('#channel-state')).to_have_attribute('data-state','conflict');assert page.locator('#body-frame').count()==0;assert revision==2
+  frame.locator('[data-field=note]').fill('x'*101);expect(page.locator('#channel-state')).to_have_attribute('data-state','invalid')
+  with page.expect_event('requestfinished',predicate=lambda r:r.url.endswith('/api/sop/field-channel/save')):
+   frame.locator('[data-field=count]').fill('5')
+  expect(frame.locator('html')).to_have_attribute('data-validation','invalid_field_values');assert requests[-1]['values']=={'count':5};assert revision==3
+  expect(page.locator('#channel-state')).to_have_attribute('data-state','invalid');rows.append({'case':'invalid-note-survives-valid-count-save','pass':True})
+  frame.locator('[data-field=note]').fill('fixed');expect(page.locator('#channel-state')).to_have_attribute('data-state','saved');assert revision==4;rows.append({'case':'corresponding-field-repair-clears-validation','pass':True})
+  conflict=True;frame.locator('[data-field=note]').fill('conflicting');expect(page.locator('#channel-state')).to_have_attribute('data-state','conflict');assert page.locator('#body-frame').count()==0;assert revision==4
   rows.append({'case':'409-conflict-no-fake-saved','pass':True})
   print('BRIDGE '+json.dumps({'reset':True}),flush=True);assert json.loads(sys.stdin.readline())['status']==200
   conflict=False;revision=0;page.goto('http://127.0.0.1:21916/preview',wait_until='load');expect(page.locator('#channel-state')).to_have_attribute('data-state','ready');frame=page.frames[1]
