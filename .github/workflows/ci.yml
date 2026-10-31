@@ -18,7 +18,7 @@ jobs:
         with:
           node-version: 24
       - name: Foreground adapter synthetic lifecycle (no production)
-        run: node scripts/ops/market-foreground-test.mjs && node scripts/ops/market-foreground-lifecycle-test.mjs
+        run: node scripts/ops/market-foreground-test.mjs && node scripts/ops/market-foreground-error-test.mjs && node scripts/ops/market-foreground-lifecycle-test.mjs
   browser-security:
     # #292 M4 真实浏览器反例：有口令不嵌 /go/、跳出清口令、登录弹窗不复制口令且无 opener（bfcache 未命中记 SKIP）
     runs-on: ubuntu-latest
