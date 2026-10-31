@@ -1374,7 +1374,7 @@ function sopRunStartCore(slugRaw: string, startedByRaw: string): { id: number; s
   const r = svc<SopService>('sop').runCreate(slug, hit.app.active_version, started_by) as unknown as { lastInsertRowid: number | bigint };
   const id = Number(r.lastInsertRowid);
   // P0：run-scoped 上传令牌（启动签发·Runner 页内嵌·files POST 必带）
-  const uploadToken = createHash('sha256').update(createHash('sha256').update(String(id) + ':' + Date.now() + ':' + Math.random()).digest('hex') + ':' + String(Math.random())).digest('hex');
+  const uploadToken = randomBytes(32).toString('hex');
   try { db.prepare('UPDATE sop_runs SET upload_token = ? WHERE id = ?').run(uploadToken, id); } catch { /* 列缺=降级 */ }
   if (slug !== 'task-center') void runStateRestore(id, { slug, version: hit.app.active_version, status: 'running', started_by, updated_at: Date.now() }, {}); // Redis 初始化热态（降级态静默跳过）
   return { id, slug, version: hit.app.active_version, status: 'running', started_by, data: {}, upload_token: uploadToken }; // P0：创建者即得令牌（Runner 页内嵌用）
@@ -1594,7 +1594,7 @@ app.get('/api/sop/runs/:id/files/:fileId', (req, res) => {
   if (!row) throw new HttpError(404, `file not found: ${req.params.fileId}`);
   const abs = join(dataDir, row.storage_path);
   if (!existsSync(abs)) throw new HttpError(404, 'stored file missing on disk');
-  res.setHeader('content-type', row.mime || 'application/octet-stream');
+  res.setHeader('content-type', 'application/octet-stream'); // #309 never use upload-supplied MIME for downloads
   res.setHeader('content-length', String(row.size));
   res.setHeader('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(row.original_name || 'file')}`);
   res.setHeader('x-content-type-options', 'nosniff');
@@ -2958,7 +2958,7 @@ async function callTool(name: string, args: any): Promise<unknown> {
       const sqlArgs: unknown[] = [];
       if (slug) { where.push('sop_slug = ?'); sqlArgs.push(slug); }
       if (status) { where.push('status = ?'); sqlArgs.push(status); }
-      const sql = `SELECT id, sop_slug, sop_version, status, started_by, started_at, updated_at, finished_at FROM sop_runs ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY updated_at DESC LIMIT 50`;
+      const sql = `SELECT * FROM sop_runs ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY updated_at DESC LIMIT 50`;
       return svc<SopService>('sop').runsQuery(sql, sqlArgs);
     }
     case 'sop_run_finish':

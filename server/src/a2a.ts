@@ -261,7 +261,7 @@ export function a2aDirectHandle(body: any, rawBytes: number, runOps: {
       artifacts: [],
       consumed: false,
       receipt: 'routed',
-      sop: { slug: sop.slug, run_id: runId, run_status: st?.status ?? 'unknown', steps: st?.steps ?? 0, upload_token: runOps.uploadToken?.(runId) ?? '' }, // P0：run-scoped 上传令牌（创建者即得）
+      sop: { slug: sop.slug, run_id: runId, run_status: st?.status ?? 'unknown', steps: st?.steps ?? 0, ...(action === 'start' ? { upload_token: runOps.uploadToken?.(runId) ?? '' } : {}) }, // Write credential only on creation; status/note queries never reissue it
     },
   };
 }

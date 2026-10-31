@@ -31,6 +31,10 @@ jobs:
           python -m pip install playwright==1.57.0
           python -m playwright install --with-deps chromium
       - run: pnpm --filter web build
+      - name: SOP309 frozen-backport metadata UI (control and control0)
+        env:
+          PYTHON: python
+        run: node scripts/sop-list-privacy-browser.mjs
       - name: 管理员口令浏览器反例
         env:
           PYTHON: python
@@ -51,6 +55,8 @@ jobs:
         run: pnpm --filter web typecheck
       - name: server 语法核（esbuild）
         run: node scripts/check-server-syntax.mjs
+      - name: SOP309 narrow hotfix metadata query credential and maintenance tests
+        run: node scripts/sop-list-privacy-test.mjs && node scripts/sop-query-token-test.mjs && node scripts/sop-upload-token-rotation-test.mjs && node scripts/sop309-maintenance-test.mjs && node scripts/sop-list-privacy-http-test.mjs
       - name: 统一待办 ygl-trees 项目上限与总预算（合成入口）
         run: node scripts/ygl-project-cap-smoke.mjs
       - name: Taskcenter B1 seed and intake publication
