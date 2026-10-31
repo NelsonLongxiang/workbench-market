@@ -19,6 +19,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, write
 import { execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { PORTAL_CALL_CHAIN_FACT, readPortalCallChainFact } from "./portal-call-chain-fact.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const snap = join(root, "tmp", "verify-snap.sqlite");
@@ -119,7 +120,7 @@ const TEXT_FACTS = [
   ["server/src/index.ts", "createProxyMiddleware"],
   ["server/src/portal.ts", "x-frame-options"],
   ["server/package.json", "http-proxy-middleware"],
-  ["web/src/pages/UseWorkbench.tsx", "/go/${w.id}/"],
+  [PORTAL_CALL_CHAIN_FACT.path, PORTAL_CALL_CHAIN_FACT.needle],
   ["server/src/index.ts", "/api/apps"],
   ["server/src/db.ts", "app_versions"],
   ["server/src/index.ts", "authorization"],
@@ -238,8 +239,9 @@ snapDb.exec(`CREATE TABLE verifier_text_facts (
 const ins = snapDb.prepare("INSERT INTO verifier_text_facts (path, needle, present) VALUES (?, ?, ?)");
 let hit = 0;
 for (const [p, needle] of TEXT_FACTS) {
-  const src = readFileSync(join(root, p), "utf8");
-  const present = src.includes(needle) ? 1 : 0;
+  const present = p === PORTAL_CALL_CHAIN_FACT.path && needle === PORTAL_CALL_CHAIN_FACT.needle
+    ? readPortalCallChainFact(root).present
+    : (readFileSync(join(root, p), "utf8").includes(needle) ? 1 : 0);
   hit += present;
   ins.run(p, needle, present);
 }
