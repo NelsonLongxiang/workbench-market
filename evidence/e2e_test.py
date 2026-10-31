@@ -21,6 +21,10 @@ if _port.strip() == '9800' and _os.environ.get('E2E_ALLOW_PROD') != '1':
     print('[E2E] ✗ 拒跑：E2E_PORT=9800 是生产实例（默认拒跑；确需生产演练请显式 E2E_ALLOW_PROD=1）')
     sys.exit(2)
 BASE = f'http://127.0.0.1:{_port}'
+# #292 M1 双面：BASE 是业务面；管理写（登记/改/删工作台、类型、设置、上架）浏览器只在控制面做，
+# 控制面地址取服务端注入的 <meta name="wm-control-url">（空 = WM_CONTROL_PORT=0 已关闭；无该 meta = M1 之前的单面实例）。
+# 控制面写要口令：E2E_ADMIN_TOKEN（实例 ADMIN_TOKEN 或库内口令）；没给且实例未设口令时，本机 CLI 临时设一个、跑完清掉。
+ADMIN_TOKEN = _os.environ.get('E2E_ADMIN_TOKEN', '')
 RESULTS = []
 
 
@@ -93,6 +97,29 @@ with sync_playwright() as p:
     page = browser.new_page(viewport={'width': 1440, 'height': 900})
     page.set_default_timeout(15000)
 
+    import re as _re_m1
+    _m = _re_m1.search(r'<meta name="wm-control-url" content="([^"]*)"', page.request.get(BASE + '/').text())
+    CTRL = _m.group(1).rstrip('/') if _m else None  # None = 单面旧实例；'' = 控制面已关闭
+    ADMIN_UI = BASE if CTRL is None else (CTRL or None)  # 浏览器做管理写的面；None = 浏览器不能做管理写
+    _tmp_token = ''
+    if CTRL and not ADMIN_TOKEN:
+        if page.request.get(BASE + '/api/admin-token/state').json().get('source') == 'none':
+            _tmp_token = ADMIN_TOKEN = 'e2e-' + str(int(time.time() * 1000))
+            _r = page.request.put(BASE + '/api/admin-token', headers={'Content-Type': 'application/json'},
+                                  data=json.dumps({'token': ADMIN_TOKEN}))
+            assert _r.status == 200, f'本机 CLI 设临时口令失败: {_r.status}'
+    if CTRL:
+        # 控制面页面的口令在 sessionStorage（离开页面即清），每次进控制面页面前注入
+        page.add_init_script(f"if (location.origin === {json.dumps(CTRL)}) sessionStorage.setItem('wm-admin-token', {json.dumps(ADMIN_TOKEN)});")
+    print(f'[E2E] 业务面 {BASE}；控制面 ' + ('无（单面实例）' if CTRL is None else (CTRL or '已关闭（WM_CONTROL_PORT=0）')))
+
+    def market_write(path='/api/workbenches', method='POST', body=None):
+        """从当前页面用浏览器 fetch 发管理写（带 Origin = 浏览器标记），**带上正确口令**，返回 [status, json]"""
+        return page.evaluate('''async ([p, m, b, t]) => { const h = { 'content-type': 'application/json' }; if (t) h['x-admin-token'] = t;
+            const r = await fetch(p, { method: m, headers: h, body: JSON.stringify(b) });
+            let j = {}; try { j = await r.json(); } catch {} return [r.status, j]; }''',
+            [path, method, body or {'name': 'E2E 浏览器写', 'url': 'http://127.0.0.1:9/'}, ADMIN_TOKEN])
+
     def shot(name):
         try:
             page.screenshot(path=f'evidence/fail-{name}.png', full_page=True,
@@ -152,140 +179,176 @@ with sync_playwright() as p:
     except Exception as e:
         record('仪表盘渲染（统计卡/操作）', False, str(e)); shot('dashboard')
 
-    # ---------- 2. 市场页：新增（含校验失败分支） ----------
-    # goto 入 try + 失败 dump HTML：主区空（chunk 加载中断）时现场可诊断（E2E 劣化调查增强）
-    try:
-        page.goto(BASE + '/market', wait_until='domcontentloaded', timeout=30000)
-        page.wait_for_load_state('networkidle', timeout=15000)
-        page.wait_for_timeout(800)
-    except Exception as e:
-        record('新增工作台流程', False, f'goto/idle 失败: {e}'); shot('market-goto')
-        with open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'fail-market-goto.html'), 'w', encoding='utf-8') as _hf:
-            _hf.write(page.content())
-        raise
+    if ADMIN_UI:  # #292 M1：市场管理（新增/开关/改名/复制/删除）只在控制面页面做；控制面关闭时走下方本机 CLI 分支
+        # ---------- 2. 市场页：新增（含校验失败分支） ----------
+        # goto 入 try + 失败 dump HTML：主区空（chunk 加载中断）时现场可诊断（E2E 劣化调查增强）
+        try:
+            page.goto(ADMIN_UI + '/market', wait_until='domcontentloaded', timeout=30000)
+            page.wait_for_load_state('networkidle', timeout=15000)
+            page.wait_for_timeout(800)
+        except Exception as e:
+            record('新增工作台流程', False, f'goto/idle 失败: {e}'); shot('market-goto')
+            with open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'fail-market-goto.html'), 'w', encoding='utf-8') as _hf:
+                _hf.write(page.content())
+            raise
 
-    try:
-        page.get_by_role('button', name='新增工作台').click()
-        modal = page.locator('.ant-modal-content').filter(has_text='新增工作台')
-        modal.wait_for(state='visible')
-        # 2a. 空表单提交 → 必填校验
-        submit_modal(modal)
-        page.wait_for_timeout(500)
-        assert '请输入名称' in modal.inner_text(), '必填校验未出现'
-        # 2b. 非法 URL → pattern 校验
-        modal.get_by_label('名称').fill('E2E 测试工作台')
-        modal.get_by_label('服务地址').fill('ftp://bad')
-        submit_modal(modal)
-        page.wait_for_timeout(500)
-        assert '必须以 http' in modal.inner_text(), 'URL pattern 校验未出现'
-        record('表单校验（必填/URL pattern）', True)
-        # 2c. 正常填写提交
-        modal.get_by_label('服务地址').fill(BASE)
-        modal.get_by_label('分类').fill('E2E')
-        modal.get_by_label('标签').click()
-        page.keyboard.type('e2e')
-        page.keyboard.press('Enter')
-        modal.locator('.ant-form-item').filter(has_text='描述').locator('textarea').fill('**E2E** 自动化测试条目')
-        submit_modal(modal)
-        page.wait_for_timeout(1200)
-        expect(page.locator('.ant-table-row').filter(has_text='E2E 测试工作台')).to_be_visible()
-        record('新增工作台 → 表格出现', True)
-    except Exception as e:
-        record('新增工作台流程', False, str(e)); shot('market-create')
+        try:
+            page.get_by_role('button', name='新增工作台').click()
+            modal = page.locator('.ant-modal-content').filter(has_text='新增工作台')
+            modal.wait_for(state='visible')
+            # 2a. 空表单提交 → 必填校验
+            submit_modal(modal)
+            page.wait_for_timeout(500)
+            assert '请输入名称' in modal.inner_text(), '必填校验未出现'
+            # 2b. 非法 URL → pattern 校验
+            modal.get_by_label('名称').fill('E2E 测试工作台')
+            modal.get_by_label('服务地址').fill('ftp://bad')
+            submit_modal(modal)
+            page.wait_for_timeout(500)
+            assert '必须以 http' in modal.inner_text(), 'URL pattern 校验未出现'
+            record('表单校验（必填/URL pattern）', True)
+            # 2c. 正常填写提交
+            modal.get_by_label('服务地址').fill(BASE)
+            modal.get_by_label('分类').fill('E2E')
+            modal.get_by_label('标签').click()
+            page.keyboard.type('e2e')
+            page.keyboard.press('Enter')
+            modal.locator('.ant-form-item').filter(has_text='描述').locator('textarea').fill('**E2E** 自动化测试条目')
+            submit_modal(modal)
+            page.wait_for_timeout(1200)
+            expect(page.locator('.ant-table-row').filter(has_text='E2E 测试工作台')).to_be_visible()
+            record('新增工作台 → 表格出现', True)
+        except Exception as e:
+            record('新增工作台流程', False, str(e)); shot('market-create')
 
-    # ---------- 3. 过滤 ----------
-    try:
-        row = page.locator('.ant-table-row').filter(has_text='E2E 测试工作台')
-        page.get_by_placeholder('搜索名称 / 地址 / 描述').fill('E2E 测试工作台')
-        page.keyboard.press('Enter')
-        page.wait_for_timeout(800)
-        assert row.count() == 1, f'关键词过滤后行数={row.count()}'
-        page.get_by_placeholder('搜索名称 / 地址 / 描述').fill('不存在的关键词xyz')
-        page.keyboard.press('Enter')
-        page.wait_for_timeout(800)
-        assert '暂无工作台' in page.inner_text('body'), '空态未出现'
-        page.get_by_placeholder('搜索名称 / 地址 / 描述').fill('')
-        page.keyboard.press('Enter')
-        page.wait_for_timeout(800)
-        assert row.count() == 1
-        record('关键词过滤（命中/空态/恢复）', True)
-    except Exception as e:
-        record('关键词过滤', False, str(e)); shot('market-filter')
+        # ---------- 3. 过滤 ----------
+        try:
+            row = page.locator('.ant-table-row').filter(has_text='E2E 测试工作台')
+            page.get_by_placeholder('搜索名称 / 地址 / 描述').fill('E2E 测试工作台')
+            page.keyboard.press('Enter')
+            page.wait_for_timeout(800)
+            assert row.count() == 1, f'关键词过滤后行数={row.count()}'
+            page.get_by_placeholder('搜索名称 / 地址 / 描述').fill('不存在的关键词xyz')
+            page.keyboard.press('Enter')
+            page.wait_for_timeout(800)
+            assert '暂无工作台' in page.inner_text('body'), '空态未出现'
+            page.get_by_placeholder('搜索名称 / 地址 / 描述').fill('')
+            page.keyboard.press('Enter')
+            page.wait_for_timeout(800)
+            assert row.count() == 1
+            record('关键词过滤（命中/空态/恢复）', True)
+        except Exception as e:
+            record('关键词过滤', False, str(e)); shot('market-filter')
 
-    # ---------- 4. 行内检测 ----------
-    try:
-        row = page.locator('.ant-table-row').filter(has_text='E2E 测试工作台')
-        row.get_by_role('button', name='检测').click()
-        expect(page.locator('.ant-message')).to_contain_text('在线', timeout=8000)
-        record('行内检测 → 在线提示', True)
-    except Exception as e:
-        record('行内检测', False, str(e)); shot('market-check')
+        # ---------- 4. 行内检测 ----------
+        try:
+            row = page.locator('.ant-table-row').filter(has_text='E2E 测试工作台')
+            row.get_by_role('button', name='检测').click()
+            expect(page.locator('.ant-message')).to_contain_text('在线', timeout=8000)
+            record('行内检测 → 在线提示', True)
+        except Exception as e:
+            record('行内检测', False, str(e)); shot('market-check')
 
-    # ---------- 5. 详情抽屉（Markdown 渲染） ----------
-    try:
-        page.locator('.ant-table-row').filter(has_text='E2E 测试工作台').get_by_text('E2E 测试工作台').click()
-        drawer = page.locator('.ant-drawer-content')
-        drawer.wait_for(state='visible')
-        expect(drawer.locator('strong', has_text='E2E')).to_be_visible()
-        assert '服务地址' in drawer.inner_text() and '分类' in drawer.inner_text()
-        page.keyboard.press('Escape')
-        record('详情抽屉 + Markdown 加粗渲染', True)
-    except Exception as e:
-        record('详情抽屉', False, str(e)); shot('market-drawer')
+        # ---------- 5. 详情抽屉（Markdown 渲染） ----------
+        try:
+            page.locator('.ant-table-row').filter(has_text='E2E 测试工作台').get_by_text('E2E 测试工作台').click()
+            drawer = page.locator('.ant-drawer-content')
+            drawer.wait_for(state='visible')
+            expect(drawer.locator('strong', has_text='E2E')).to_be_visible()
+            assert '服务地址' in drawer.inner_text() and '分类' in drawer.inner_text()
+            page.keyboard.press('Escape')
+            record('详情抽屉 + Markdown 加粗渲染', True)
+        except Exception as e:
+            record('详情抽屉', False, str(e)); shot('market-drawer')
 
-    # ---------- 6. 启用开关 ----------
-    try:
-        row = page.locator('.ant-table-row').filter(has_text='E2E 测试工作台')
-        row.locator('.ant-switch').click()
-        page.wait_for_timeout(1000)
-        wid = [w['id'] for w in api(page, 'GET', '/api/workbenches').json()
-               if w['name'] == 'E2E 测试工作台'][0]
-        w = api(page, 'GET', f'/api/workbenches/{wid}').json()
-        assert w['enabled'] is False, f'开关后 enabled={w["enabled"]}'
-        row.locator('.ant-switch').click()  # 恢复
-        page.wait_for_timeout(800)
-        record('启用开关切换（API 确认持久化）', True)
-    except Exception as e:
-        record('启用开关', False, str(e)); shot('market-switch')
+        # ---------- 6. 启用开关 ----------
+        try:
+            row = page.locator('.ant-table-row').filter(has_text='E2E 测试工作台')
+            row.locator('.ant-switch').click()
+            page.wait_for_timeout(1000)
+            wid = [w['id'] for w in api(page, 'GET', '/api/workbenches').json()
+                   if w['name'] == 'E2E 测试工作台'][0]
+            w = api(page, 'GET', f'/api/workbenches/{wid}').json()
+            assert w['enabled'] is False, f'开关后 enabled={w["enabled"]}'
+            row.locator('.ant-switch').click()  # 恢复
+            page.wait_for_timeout(800)
+            record('启用开关切换（API 确认持久化）', True)
+        except Exception as e:
+            record('启用开关', False, str(e)); shot('market-switch')
 
-    # ---------- 7. 编辑改名 ----------
-    try:
-        row = page.locator('.ant-table-row').filter(has_text='E2E 测试工作台')
-        row.get_by_role('button', name='编辑').click()
-        modal = page.locator('.ant-modal-content').filter(has_text='编辑工作台')
-        modal.wait_for(state='visible')
-        modal.get_by_label('名称').fill('E2E 改名后')
-        submit_modal(modal)
-        page.wait_for_timeout(1000)
-        expect(page.locator('.ant-table-row').filter(has_text='E2E 改名后')).to_be_visible()
-        record('编辑改名持久化', True)
-    except Exception as e:
-        record('编辑改名', False, str(e)); shot('market-edit')
+        # ---------- 7. 编辑改名 ----------
+        try:
+            row = page.locator('.ant-table-row').filter(has_text='E2E 测试工作台')
+            row.get_by_role('button', name='编辑').click()
+            modal = page.locator('.ant-modal-content').filter(has_text='编辑工作台')
+            modal.wait_for(state='visible')
+            modal.get_by_label('名称').fill('E2E 改名后')
+            submit_modal(modal)
+            page.wait_for_timeout(1000)
+            expect(page.locator('.ant-table-row').filter(has_text='E2E 改名后')).to_be_visible()
+            record('编辑改名持久化', True)
+        except Exception as e:
+            record('编辑改名', False, str(e)); shot('market-edit')
 
-    # ---------- 8. 复制工作台 → 副本出现 → UI 删除副本 ----------
-    try:
-        page.locator('.ant-table-row').filter(has_text='E2E 改名后').get_by_role('button', name='复制工作台').click()
-        modal = page.locator('.ant-modal-content').filter(has_text='复制工作台')
-        modal.wait_for(state='visible')
-        # 预填检查：名称带 (副本)，地址与源一致
-        assert modal.get_by_label('名称').input_value() == 'E2E 改名后 (副本)', '副本名称预填错误'
-        assert modal.get_by_label('服务地址').input_value() == BASE, '地址预填错误'
-        modal.get_by_label('名称').fill('E2E 复制件')
-        submit_modal(modal)
-        page.wait_for_timeout(1200)
-        copy_row = page.locator('.ant-table-row').filter(has_text='E2E 复制件')
-        expect(copy_row).to_be_visible()
-        # API 确认字段复制完整（类型/分类/标签/描述）
-        copies = [w for w in api(page, 'GET', '/api/workbenches').json() if w['name'] == 'E2E 复制件']
-        assert copies and copies[0]['category'] == 'E2E' and copies[0]['tags'] == ['e2e'], f'副本字段不全: {copies}'
-        # UI 删除副本（覆盖 Popconfirm 流程）
-        copy_row.get_by_role('button', name='删除').click()
-        page.get_by_role('button', name='确 定').click()
-        page.wait_for_timeout(1000)
-        expect(page.locator('.ant-table-row').filter(has_text='E2E 复制件')).to_have_count(0)
-        record('复制工作台（预填+字段完整+UI 删除）', True)
-    except Exception as e:
-        record('复制工作台', False, str(e)); shot('market-copy')
+        # ---------- 8. 复制工作台 → 副本出现 → UI 删除副本 ----------
+        try:
+            page.locator('.ant-table-row').filter(has_text='E2E 改名后').get_by_role('button', name='复制工作台').click()
+            modal = page.locator('.ant-modal-content').filter(has_text='复制工作台')
+            modal.wait_for(state='visible')
+            # 预填检查：名称带 (副本)，地址与源一致
+            assert modal.get_by_label('名称').input_value() == 'E2E 改名后 (副本)', '副本名称预填错误'
+            assert modal.get_by_label('服务地址').input_value() == BASE, '地址预填错误'
+            modal.get_by_label('名称').fill('E2E 复制件')
+            submit_modal(modal)
+            page.wait_for_timeout(1200)
+            copy_row = page.locator('.ant-table-row').filter(has_text='E2E 复制件')
+            expect(copy_row).to_be_visible()
+            # API 确认字段复制完整（类型/分类/标签/描述）
+            copies = [w for w in api(page, 'GET', '/api/workbenches').json() if w['name'] == 'E2E 复制件']
+            assert copies and copies[0]['category'] == 'E2E' and copies[0]['tags'] == ['e2e'], f'副本字段不全: {copies}'
+            # UI 删除副本（覆盖 Popconfirm 流程）
+            copy_row.get_by_role('button', name='删除').click()
+            page.get_by_role('button', name='确 定').click()
+            page.wait_for_timeout(1000)
+            expect(page.locator('.ant-table-row').filter(has_text='E2E 复制件')).to_have_count(0)
+            record('复制工作台（预填+字段完整+UI 删除）', True)
+        except Exception as e:
+            record('复制工作台', False, str(e)); shot('market-copy')
+
+    else:
+        # 控制面关闭（WM_CONTROL_PORT=0）：管理写只能走本机 CLI（回环、无浏览器标记）；业务面读面 UI 照旧
+        try:
+            r = api(page, 'POST', '/api/workbenches', {'name': 'E2E 测试工作台', 'url': BASE, 'category': 'E2E',
+                                                        'tags': ['e2e'], 'description': '**E2E** 自动化测试条目'})
+            assert r.status == 201, f'CLI 新增应 201: {r.status}'
+            wid = r.json()['id']
+            assert api(page, 'PUT', f'/api/workbenches/{wid}', {'enabled': False}).status == 200
+            assert api(page, 'GET', f'/api/workbenches/{wid}').json()['enabled'] is False, '开关未持久化'
+            api(page, 'PUT', f'/api/workbenches/{wid}', {'enabled': True})
+            r = api(page, 'PUT', f'/api/workbenches/{wid}', {'name': 'E2E 改名后'})
+            assert r.status == 200 and r.json()['name'] == 'E2E 改名后', f'改名失败: {r.status}'
+            cp = api(page, 'POST', '/api/workbenches', {'name': 'E2E 复制件', 'url': BASE, 'category': 'E2E', 'tags': ['e2e']})
+            assert cp.status == 201 and api(page, 'DELETE', f"/api/workbenches/{cp.json()['id']}").status == 200, '复制件建删失败'
+            record('市场管理（控制面关闭·本机 CLI：新增/开关/改名/复制/删除）', True)
+        except Exception as e:
+            record('市场管理（控制面关闭·本机 CLI）', False, str(e))
+        try:
+            page.goto(BASE + '/market', wait_until='domcontentloaded', timeout=30000)
+            page.wait_for_load_state('networkidle', timeout=15000)
+            page.wait_for_timeout(800)
+            page.get_by_placeholder('搜索名称 / 地址 / 描述').fill('E2E 改名后')
+            page.keyboard.press('Enter')
+            page.wait_for_timeout(800)
+            row = page.locator('.ant-table-row').filter(has_text='E2E 改名后')
+            assert row.count() == 1, f'关键词过滤后行数={row.count()}'
+            row.get_by_text('E2E 改名后').click()
+            drawer = page.locator('.ant-drawer-content')
+            drawer.wait_for(state='visible')
+            expect(drawer.locator('strong', has_text='E2E')).to_be_visible()
+            page.keyboard.press('Escape')
+            record('业务面市场页读面（过滤/详情抽屉，控制面关闭）', True)
+        except Exception as e:
+            record('业务面市场页读面', False, str(e)); shot('market-read-off')
 
     # ---------- 9. 使用页 ----------
     try:
@@ -367,117 +430,152 @@ with sync_playwright() as p:
         except Exception: pass
         record('/go/ 代理四探针（G10）', False, str(e)); shot('go-g10')
 
-    # ---------- 10. 类型管理：新增 + 引用保护 + 删除 ----------
-    try:
-        page.goto(BASE + '/types')
-        page.wait_for_load_state('networkidle')
-        page.wait_for_timeout(800)
-        rows = page.locator('.ant-table-row')
-        assert rows.count() >= 8, f'内置类型行数={rows.count()}'
-        page.get_by_role('button', name='新增类型').click()
-        modal = page.locator('.ant-modal-content').filter(has_text='新增类型')
-        modal.wait_for(state='visible')
-        modal.get_by_label('类型标识').fill('e2e-custom')
-        modal.get_by_label('名称').fill('E2E 自定义类型')
-        modal.get_by_label('探测路径').fill('/healthz')
-        submit_modal(modal)
-        page.wait_for_timeout(1000)
-        trow = page.locator('.ant-table-row').filter(has_text='e2e-custom')
-        expect(trow).to_be_visible()
-        assert '/healthz' in trow.inner_text(), '探测路径未显示'
-        record('新增自定义类型', True)
-        api(page, 'POST', '/api/workbenches',
-            {'name': 'E2E 引用者', 'url': BASE, 'type': 'e2e-custom'})
-        page.reload(); page.wait_for_load_state('networkidle'); page.wait_for_timeout(800)
-        trow = page.locator('.ant-table-row').filter(has_text='e2e-custom')
-        assert '1 个' in trow.inner_text(), '使用中计数未更新'
-        del_btn = trow.get_by_role('button', name='删除')
-        assert del_btn.is_disabled(), '引用中删除按钮未禁用'
-        record('类型引用保护（计数 + 删除禁用）', True)
-        for w in api(page, 'GET', '/api/workbenches').json():
-            if w['name'].startswith('E2E'):
-                api(page, 'DELETE', f"/api/workbenches/{w['id']}")
-        page.reload(); page.wait_for_load_state('networkidle'); page.wait_for_timeout(800)
-        trow = page.locator('.ant-table-row').filter(has_text='e2e-custom')
-        trow.get_by_role('button', name='删除').click()
-        page.get_by_role('button', name='确 定').click()
-        page.wait_for_timeout(1000)
-        expect(page.locator('.ant-table-row').filter(has_text='e2e-custom')).to_have_count(0)
-        record('解除引用后删除类型', True)
-    except Exception as e:
-        record('类型管理流程', False, str(e)); shot('types')
+    if ADMIN_UI:  # #292 M1：类型/设置是管理页，浏览器只在控制面做；控制面关闭时走下方本机 CLI 分支
+        # ---------- 10. 类型管理：新增 + 引用保护 + 删除 ----------
+        try:
+            page.goto(ADMIN_UI + '/types')
+            page.wait_for_load_state('networkidle')
+            page.wait_for_timeout(800)
+            rows = page.locator('.ant-table-row')
+            assert rows.count() >= 8, f'内置类型行数={rows.count()}'
+            page.get_by_role('button', name='新增类型').click()
+            modal = page.locator('.ant-modal-content').filter(has_text='新增类型')
+            modal.wait_for(state='visible')
+            modal.get_by_label('类型标识').fill('e2e-custom')
+            modal.get_by_label('名称').fill('E2E 自定义类型')
+            modal.get_by_label('探测路径').fill('/healthz')
+            submit_modal(modal)
+            page.wait_for_timeout(1000)
+            trow = page.locator('.ant-table-row').filter(has_text='e2e-custom')
+            expect(trow).to_be_visible()
+            assert '/healthz' in trow.inner_text(), '探测路径未显示'
+            record('新增自定义类型', True)
+            api(page, 'POST', '/api/workbenches',
+                {'name': 'E2E 引用者', 'url': BASE, 'type': 'e2e-custom'})
+            page.reload(); page.wait_for_load_state('networkidle'); page.wait_for_timeout(800)
+            trow = page.locator('.ant-table-row').filter(has_text='e2e-custom')
+            assert '1 个' in trow.inner_text(), '使用中计数未更新'
+            del_btn = trow.get_by_role('button', name='删除')
+            assert del_btn.is_disabled(), '引用中删除按钮未禁用'
+            record('类型引用保护（计数 + 删除禁用）', True)
+            for w in api(page, 'GET', '/api/workbenches').json():
+                if w['name'].startswith('E2E'):
+                    api(page, 'DELETE', f"/api/workbenches/{w['id']}")
+            page.reload(); page.wait_for_load_state('networkidle'); page.wait_for_timeout(800)
+            trow = page.locator('.ant-table-row').filter(has_text='e2e-custom')
+            trow.get_by_role('button', name='删除').click()
+            page.get_by_role('button', name='确 定').click()
+            page.wait_for_timeout(1000)
+            expect(page.locator('.ant-table-row').filter(has_text='e2e-custom')).to_have_count(0)
+            record('解除引用后删除类型', True)
+        except Exception as e:
+            record('类型管理流程', False, str(e)); shot('types')
 
-    # ---------- 11. 设置保存 + 导出下载 ----------
-    try:
-        page.goto(BASE + '/settings')
-        page.wait_for_load_state('networkidle')
-        page.wait_for_timeout(800)
-        page.get_by_label('巡检间隔（秒）').fill('30')
-        page.get_by_role('button', name='保存').click()
-        expect(page.locator('.ant-message')).to_contain_text('已保存', timeout=8000)
-        s = api(page, 'GET', '/api/settings').json()
-        assert s['health_interval_seconds'] == '30', f'API settings={s}'
-        with page.expect_download() as dl:
-            page.get_by_role('button', name='导出 JSON').click()
-        assert dl.value.suggested_filename.startswith('workbench-market-'), dl.value.suggested_filename
-        record('设置保存（API 确认）+ 导出下载', True)
-        page.get_by_label('巡检间隔（秒）').fill('0')
-        page.get_by_role('button', name='保存').click()
-        page.wait_for_timeout(800)
-    except Exception as e:
-        record('设置/导出', False, str(e)); shot('settings')
+        # ---------- 11. 设置保存 + 导出下载 ----------
+        try:
+            page.goto(ADMIN_UI + '/settings')
+            page.wait_for_load_state('networkidle')
+            page.wait_for_timeout(800)
+            page.get_by_label('巡检间隔（秒）').fill('30')
+            page.get_by_role('button', name='保存').click()
+            expect(page.locator('.ant-message')).to_contain_text('已保存', timeout=8000)
+            s = api(page, 'GET', '/api/settings').json()
+            assert s['health_interval_seconds'] == '30', f'API settings={s}'
+            with page.expect_download() as dl:
+                page.get_by_role('button', name='导出 JSON').click()
+            assert dl.value.suggested_filename.startswith('workbench-market-'), dl.value.suggested_filename
+            record('设置保存（API 确认）+ 导出下载', True)
+            page.get_by_label('巡检间隔（秒）').fill('0')
+            page.get_by_role('button', name='保存').click()
+            page.wait_for_timeout(800)
+        except Exception as e:
+            record('设置/导出', False, str(e)); shot('settings')
 
-    # ---------- 12. 任务驾驶舱（创建→加面板→持久化→面板操作→列表→删除） ----------
+    else:
+        try:
+            r = api(page, 'POST', '/api/types', {'key': 'e2e-custom', 'name': 'E2E 自定义类型', 'health_path': '/healthz'})
+            assert r.status == 201, f'CLI 新增类型应 201: {r.status}'
+            tid = r.json()['id']
+            ref = api(page, 'POST', '/api/workbenches', {'name': 'E2E 引用者', 'url': BASE, 'type': 'e2e-custom'})
+            assert api(page, 'DELETE', f'/api/types/{tid}').status == 409, '引用中类型应拒删（409）'
+            api(page, 'DELETE', f"/api/workbenches/{ref.json()['id']}")
+            assert api(page, 'DELETE', f'/api/types/{tid}').status == 200, '解除引用后应可删'
+            assert api(page, 'PUT', '/api/settings', {'health_interval_seconds': '30'}).status == 200
+            assert api(page, 'GET', '/api/settings').json()['health_interval_seconds'] == '30', '设置未持久化'
+            api(page, 'PUT', '/api/settings', {'health_interval_seconds': '0'})
+            record('类型管理 + 设置（控制面关闭·本机 CLI：新增/引用保护/删除/保存）', True)
+        except Exception as e:
+            record('类型管理 + 设置（控制面关闭·本机 CLI）', False, str(e))
+
+    # ---------- 11b. #292 M1 双面：业务面页面的管理写一律拒；控制面页面带口令可写 ----------
     try:
+        page.goto(BASE + '/market', wait_until='domcontentloaded', timeout=30000)
+        page.wait_for_load_state('networkidle', timeout=15000)
+        if CTRL is None:
+            record('M1 双面（单面旧实例，无此约束）', True)
+        else:
+            st, j = market_write()
+            assert st == 403 and j.get('control_surface_required') is True, f'业务面浏览器带对口令管理写也应 403: {st} {j}'
+            assert (j.get('control_url') or '') == CTRL, f'403 应带控制面地址 {CTRL!r}: {j.get("control_url")!r}'
+            st, _ = market_write('/api/settings', 'PUT', {'health_interval_seconds': '31'})
+            assert st == 403, f'业务面浏览器改设置应 403: {st}'
+            if CTRL:
+                link = page.get_by_role('link', name='管理控制面')
+                assert (link.get_attribute('href') or '').startswith(CTRL + '/market'), '页头应给控制面同 path 链接'
+                page.goto(CTRL + '/market'); page.wait_for_load_state('networkidle')
+                st, j = market_write()
+                assert st == 201, f'控制面页面带口令写应 201: {st} {j}'
+                api(page, 'DELETE', f"/api/workbenches/{j['id']}")
+                record('M1 双面（业务面管理写 403 + 控制面地址 / 控制面带口令写 201）', True)
+            else:
+                assert '控制面已关闭' in page.inner_text('body'), '页头应提示控制面已关闭'
+                record('M1 双面（控制面关闭：业务面管理写 403·无控制面地址·页头提示）', True)
+    except Exception as e:
+        record('M1 双面', False, str(e)); shot('m1-surfaces')
+
+    # ---------- 12. 任务驾驶舱（业务面：创建入口→门户面板渲染→持久化→布局写走 CLI→删除） ----------
+    # #292 M1：驾驶舱是业务页（控制面不提供，会跳回业务面），而 /api/cockpits 写是管理写——业务面浏览器发来一律 403。
+    # 所以布局由本机 CLI 写，页面只验渲染/持久化，并断言业务面页面改布局被拒（单面旧实例仍走页面改）。
+    try:
+        pw = api(page, 'POST', '/api/workbenches', {'name': 'E2E 驾驶舱面板源', 'url': BASE}).json()['id']
         page.goto(BASE + '/cockpit')
         page.wait_for_load_state('networkidle')
-        # 创建（UI 点击覆盖 + API 建名直达：页头按钮存在性断言）
         assert page.get_by_role('button', name='新建驾驶舱').first.is_visible(), '新建按钮缺失'
-        r = api(page, 'POST', '/api/cockpits', {'name': 'E2E 驾驶舱'}).json()
+        r = api(page, 'POST', '/api/cockpits', {'name': 'E2E 驾驶舱', 'panels': [{'workbenchId': pw, 'x': 0, 'y': 0, 'w': 6, 'h': 8}]}).json()
         cid = r['id']
         page.goto(BASE + f'/cockpit/{cid}')
         page.wait_for_load_state('networkidle')
-        # 空态提示
-        assert page.get_by_text('空驾驶舱', exact=False).first.is_visible(), '空驾驶舱提示未出现'
-        # 添加面板：多选 Select 用搜索+回车（下拉项动画期间 locator 点击不稳定）
-        page.locator('.ant-select', has_text='添加工作台面板').first.click()
-        page.wait_for_timeout(300)
-        page.keyboard.type('DSH')
-        page.wait_for_timeout(300)
-        page.keyboard.press('Enter')
-        page.keyboard.press('Escape')
         page.wait_for_timeout(900)
-        # 面板 iframe 出现
-        panels = page.locator('.wm-panel')
-        n_after_add = panels.count()
-        assert n_after_add >= 1, f'面板未出现（{n_after_add}）'
+        assert page.locator('.wm-panel').count() >= 1, f'面板未出现（{page.locator(".wm-panel").count()}）'
         srcs = page.locator('.wm-panel-body iframe').evaluate_all('els => els.map(e => e.getAttribute("src"))')
         assert srcs and srcs[0].startswith('/go/'), f'iframe src 应为统一门户 /go/: {srcs}'
-        # 刷新后布局持久化（服务端保存的面板还在）
         page.reload()
         page.wait_for_load_state('networkidle')
         page.wait_for_timeout(600)
         assert page.locator('.wm-panel').count() >= 1, '刷新后面板丢失（布局未持久化）'
         row = api(page, 'GET', f'/api/cockpits/{cid}').json()
-        assert len(row['panels']) >= 1 and row['panels'][0]['workbenchId'] >= 1, f'API 面板数据异常: {row["panels"]}'
-        assert row['name'] == 'E2E 驾驶舱', f'改名未持久化: {row["name"]}'
-        # 移除面板 → 空态回归
-        page.locator('.wm-panel-actions [aria-label="移除此面板"], .wm-panel-actions .anticon-close').first.click()
-        page.wait_for_timeout(800)
+        assert len(row['panels']) == 1 and row['panels'][0]['workbenchId'] == pw, f'API 面板数据异常: {row["panels"]}'
+        if CTRL is not None:
+            st, j = market_write(f'/api/cockpits/{cid}', 'PUT', {'panels': []})
+            assert st == 403 and j.get('control_surface_required') is True, f'业务面页面改布局应 403: {st} {j}'
+            assert len(api(page, 'GET', f'/api/cockpits/{cid}').json()['panels']) == 1, '被拒的布局写不应生效'
+            assert api(page, 'PUT', f'/api/cockpits/{cid}', {'panels': []}).status == 200, 'CLI 改布局应 200'
+        else:
+            page.locator('.wm-panel-actions [aria-label="移除此面板"], .wm-panel-actions .anticon-close').first.click()
+            page.wait_for_timeout(800)
+        page.reload()
+        page.wait_for_load_state('networkidle')
+        page.wait_for_timeout(600)
         assert page.locator('.wm-panel').count() == 0, '面板移除失败'
-        # 返回列表：卡片出现（E2E 驾驶舱）
+        assert page.get_by_text('空驾驶舱', exact=False).first.is_visible(), '空驾驶舱提示未出现'
         page.get_by_role('button', name='返回驾驶舱列表').click()
         page.wait_for_load_state('networkidle')
-        card = page.get_by_text('E2E 驾驶舱', exact=True).first
-        assert card.is_visible(), '列表中未见 E2E 驾驶舱'
-        # 列表删除
-        page.get_by_text('E2E 驾驶舱', exact=True).first.hover()
-        page.get_by_role('button', name='删除').first.click()
-        page.get_by_role('button', name='确 定').click()
-        page.wait_for_timeout(600)
+        assert page.get_by_text('E2E 驾驶舱', exact=True).first.is_visible(), '列表中未见 E2E 驾驶舱'
+        assert api(page, 'DELETE', f'/api/cockpits/{cid}').status == 200
+        api(page, 'DELETE', f'/api/workbenches/{pw}')
         leftover = api(page, 'GET', '/api/cockpits').json()
         assert not any(c['name'] == 'E2E 驾驶舱' for c in leftover), '驾驶舱删除失败'
-        record('任务驾驶舱（创建/面板/持久化/删除）', True)
+        record('任务驾驶舱（业务面：门户面板渲染/持久化/布局写 403 走 CLI/删除）', True)
     except Exception as e:
         record('任务驾驶舱', False, str(e)); shot('cockpit')
 
@@ -939,7 +1037,7 @@ with sync_playwright() as p:
         # ① draft 行：徽章 + 执行按钮禁用
         api(page, 'POST', '/api/apps', {'slug': 'e2e-sop-ui', 'kind': 'sop', 'title': 'E2E SOP UI 验证',
             'changelog': 'ui 验证', 'files': [{'path': 'sop.yaml', 'content': sop_yaml_ui}]})
-        page.goto(BASE + '/sops')
+        page.goto((ADMIN_UI or BASE) + '/sops')  # #292 M1：上架是管理写，页面在控制面；控制面关闭时读面在业务面、上架走 CLI
         page.wait_for_load_state('networkidle')
         page.wait_for_timeout(800)
         row = page.locator('.ant-table-row').filter(has_text='e2e-sop-ui')
@@ -973,19 +1071,25 @@ with sync_playwright() as p:
         page.wait_for_timeout(400)
         # ④ 上架状态机经页面：draft → published（Popconfirm「确 定」→ note 弹窗「上 架」两段）
         import re as _re2
-        row.locator('button').filter(has_text=_re2.compile(r'上\s*架')).first.click()
-        page.wait_for_timeout(600)
-        page.locator('.ant-popover .ant-btn-primary').filter(has_text=_re2.compile(r'确\s*定')).first.click()
-        page.wait_for_timeout(900)
-        try:
-            page.locator('.ant-modal .ant-btn-primary').filter(has_text=_re2.compile(r'上\s*架')).first.click(timeout=4000)
+        if ADMIN_UI:
+            row.locator('button').filter(has_text=_re2.compile(r'上\s*架')).first.click()
+            page.wait_for_timeout(600)
+            page.locator('.ant-popover .ant-btn-primary').filter(has_text=_re2.compile(r'确\s*定')).first.click()
             page.wait_for_timeout(900)
-        except Exception:
-            pass
+            try:
+                page.locator('.ant-modal .ant-btn-primary').filter(has_text=_re2.compile(r'上\s*架')).first.click(timeout=4000)
+                page.wait_for_timeout(900)
+            except Exception:
+                pass
+        else:  # 控制面关闭：业务面页面上架被拒，本机 CLI 上架
+            st, _ = market_write('/api/sops/e2e-sop-ui/publish', 'POST', {})
+            assert st == 403, f'业务面页面上架应 403: {st}'
+            assert api(page, 'POST', '/api/sops/e2e-sop-ui/publish', {}).status == 200, 'CLI 上架应 200'
+            page.reload(); page.wait_for_load_state('networkidle')
         page.wait_for_timeout(1200)
         row2 = page.locator('.ant-table-row').filter(has_text='e2e-sop-ui')
         assert row2.locator('.ant-tag').filter(has_text='published').count() >= 1, '页面上架后徽章未切换'
-        record('SOP 管理页（状态徽章/Runner 入口/记录 Drawer/页面上架）', True)
+        record('SOP 管理页（状态徽章/Runner 入口/记录 Drawer/' + ('页面上架）' if ADMIN_UI else '上架走 CLI·业务面 403）'), True)
     except Exception as e:
         record('SOP 管理页', False, str(e)); shot('sops-ui')
 
@@ -1091,6 +1195,8 @@ with sync_playwright() as p:
         record('A2A 网络接入 P1', False, str(e)); shot('a2a-p1')
 
     cleanup(page)
+    if _tmp_token:  # 本轮临时设的口令：清掉，实例回到未设口令
+        page.request.delete(BASE + '/api/admin-token', headers={'X-Admin-Token': _tmp_token})
     browser.close()
 
 fails = [r for r in RESULTS if not r[1]]

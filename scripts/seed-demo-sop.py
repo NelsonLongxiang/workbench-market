@@ -6,7 +6,8 @@ import sys
 import urllib.error
 import urllib.request
 
-BASE = 'http://127.0.0.1:9800'
+import os
+BASE = os.environ.get('SEED_BASE', 'http://127.0.0.1:9800')  # 隔离实例（e2e-full-run）用 SEED_BASE 指过去
 sop_yaml = """title: 服务器上架标准流程（演示）
 code: SOP-DEMO-001
 description: 演示用 SOP：开箱检查 → 上架固定 → 通电自检，展示 Runner 执行与分层持久化
