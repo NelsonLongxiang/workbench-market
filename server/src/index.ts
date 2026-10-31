@@ -2393,7 +2393,7 @@ app.put('/api/settings', (req, res) => {
 app.get('/api/export', (req, res) => {
   // compliance 二期首项：导出默认脱敏（compliance 范围 kb ab3279b84a 的「导出面」——
   // 无认证导出曾是最大凭据泄漏向量）。?reveal=1 显式取真值（备份/迁移用途），
-  // 导入侧对掩码行跳过/剥除（见 import 循环）——掩码数据永不落库。
+  // 导入侧对掩码 url/auth 整批400拒绝（见 import 预检）——失败零写，不跳行报成功。
   const reveal = req.query.reveal === '1';
   res.json({
     format: 'workbench-market/export@1',
