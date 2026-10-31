@@ -71,6 +71,8 @@ jobs:
         run: node scripts/admin-token-guard-unit.mjs
       - name: 门户剥 Service-Worker-Allowed 冒烟（#292 M5）
         run: node scripts/portal-sw-header-smoke.mjs
+      - name: 控制面冒烟（#292 M1：浏览器管理写只认控制面·本机 CLI 保留·反代按远程·控制面围栏）
+        run: node scripts/control-surface-smoke.mjs
       - name: 远程写总门大小写一致性（/API/… 不能绕过口令）
         run: node scripts/api-gate-case-smoke.mjs
       - name: 安全对抗例组（PASS / SKIP / NEEDS-MATERIAL 分列）
