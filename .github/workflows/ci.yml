@@ -82,7 +82,7 @@ jobs:
       - name: 统一待办 ygl-trees 项目上限与总预算（合成入口）
         run: node scripts/ygl-project-cap-smoke.mjs
       - name: Content admission and terminal surface (synthetic only)
-        run: node scripts/content-access-test.mjs && node scripts/content-surface-test.mjs && node scripts/portal-observation-test.mjs
+        run: node scripts/content-access-test.mjs && node scripts/content-surface-test.mjs && node scripts/content-stream-revocation-test.mjs && node scripts/portal-observation-test.mjs
       - name: Taskcenter B1 seed and intake publication
         run: node scripts/taskcenter-intake-smoke.mjs
       - name: SSRF 默认关闭与启动告警（隔离实例）

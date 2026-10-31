@@ -54,6 +54,11 @@ export function createContentSurface(config: Config, deps: Deps) {
     if (!who || who.internal !== true || who.subject !== v.subject || v.expires <= now()) { viewers.delete(handle); return null; }
     return who;
   }
+  function monitor(handle: string) {
+    return (disconnect: () => void) => watchContentConnection(
+      () => valid(handle).then(who => !!who), viewers.get(handle)?.expires ?? now(),
+      () => { viewers.delete(handle); disconnect(); }, { now });
+  }
   function expire(req: express.Request, res: express.Response) {
     const target = access.resolve(req);
     const mode = req.headers['sec-fetch-mode'], dest = req.headers['sec-fetch-dest'];
@@ -88,7 +93,7 @@ export function createContentSurface(config: Config, deps: Deps) {
     if (!admitted || !who || !access.admit(req)) { expire(req, res); return; }
     const upstream = deps.upstream(admitted.target.id); // FIRST target credential read
     if (!upstream || upstream.url !== byId.get(admitted.target.id)?.upstreamUrl) { res.status(503).type('json').send('{"error":"content_target_unavailable"}'); return; }
-    proxy(req, res, upstream, admitted.target);
+    proxy(req, res, upstream, admitted.target, monitor(admitted.subject));
   })().catch(() => { if (!res.headersSent) res.status(502).type('json').send('{"error":"content_unavailable"}'); else res.destroy(); }); };
   const launch: express.RequestHandler = (req, res) => { void (async () => {
     res.set(fixedHeaders);
@@ -121,9 +126,14 @@ export function createContentSurface(config: Config, deps: Deps) {
     const headers = upstreamHeaders(req, upstream); headers.connection = 'Upgrade'; headers.upgrade = 'websocket';
     for (const name of ['sec-websocket-key', 'sec-websocket-version', 'sec-websocket-protocol']) if (typeof req.headers[name] === 'string') headers[name] = req.headers[name] as string;
     const q = (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, { method: 'GET', headers });
-    socket.once('close', () => q.destroy()); q.once('error', () => socket.destroy()); q.setTimeout(10_000, () => q.destroy());
+    let remoteSocket: Duplex | null = null;
+    const stopWatch = monitor(admitted.subject)(() => { q.destroy(); remoteSocket?.destroy(); socket.destroy(); });
+    socket.once('close', () => { stopWatch(); q.destroy(); remoteSocket?.destroy(); });
+    q.once('error', () => socket.destroy()); q.setTimeout(10_000, () => { q.destroy(); socket.destroy(); });
     q.once('response', r => { r.resume(); socket.end('HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n'); });
     q.once('upgrade', (r, remote, upstreamHead) => {
+      remoteSocket = remote;
+      if (socket.destroyed) { remote.destroy(); return; }
       const responseHeaders = ['HTTP/1.1 101 Switching Protocols'];
       for (const name of ['upgrade','connection','sec-websocket-accept','sec-websocket-protocol']) if (typeof r.headers[name] === 'string') responseHeaders.push(name + ': ' + r.headers[name]);
       socket.write(responseHeaders.join('\r\n') + '\r\n\r\n'); if (upstreamHead.length) socket.write(upstreamHead); if (head.length) remote.write(head);
@@ -150,7 +160,7 @@ function upstreamHeaders(req: IncomingMessage, target: Upstream): Record<string,
   if (target.cookie) headers.cookie = target.cookie;
   return headers;
 }
-function proxy(req: express.Request, res: express.Response, target: Upstream, content: ContentTarget) {
+function proxy(req: express.Request, res: express.Response, target: Upstream, content: ContentTarget, monitor: (disconnect: () => void) => () => void) {
   const url = upstreamUrl(req.url, target, content.id);
   const q = (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, { method: req.method, headers: upstreamHeaders(req, target) }, r => {
     res.status(r.statusCode ?? 502);
@@ -166,9 +176,45 @@ function proxy(req: express.Request, res: express.Response, target: Upstream, co
     for (const name of ['content-type','content-length','content-encoding','content-range','accept-ranges','etag','last-modified']) { const value = r.headers[name]; if (value !== undefined) res.setHeader(name, value); }
     r.pipe(res);
   });
-  req.once('aborted', () => q.destroy()); res.once('close', () => q.destroy());
+  const stopWatch = monitor(() => { q.destroy(); res.destroy(); req.destroy(); });
+  req.once('aborted', () => { stopWatch(); q.destroy(); });
+  res.once('close', () => { stopWatch(); q.destroy(); });
+  res.once('finish', stopWatch);
   q.once('error', () => { if (!res.headersSent) res.status(502).end(); else res.destroy(); });
   q.setTimeout(10_000, () => q.destroy()); req.pipe(q);
+}
+/** Poll at most once per second; a stalled revalidation fails closed after 5s.
+ * Hard expiry has its own timer, so identity latency cannot extend the 300s bound.
+ * Timers are not real-time guarantees during a blocked event loop/host suspension. */
+export function watchContentConnection(check: () => Promise<boolean>, expiresAt: number, disconnect: () => void,
+  { now = Date.now, intervalMs = 1000, timeoutMs = 5000 } = {}) {
+  let stopped = false, poll: ReturnType<typeof setTimeout> | undefined, pending: ReturnType<typeof setTimeout> | undefined;
+  let expiry: ReturnType<typeof setTimeout> | undefined;
+  function expire() {
+    if (stopped) return;
+    if (now() >= expiresAt) fail();
+    else { expiry = setTimeout(expire, Math.max(1, expiresAt - now())); expiry.unref?.(); }
+  }
+  expiry = setTimeout(expire, Math.max(0, expiresAt - now())); expiry.unref?.();
+  function stop() { stopped = true; clearTimeout(expiry); clearTimeout(poll); clearTimeout(pending); }
+  function fail() { if (stopped) return; stop(); disconnect(); }
+  function schedule() { poll = setTimeout(tick, intervalMs); poll.unref?.(); }
+  async function tick() {
+    if (stopped) return;
+    if (now() >= expiresAt) { fail(); return; }
+    let allowed = false;
+    try {
+      allowed = await Promise.race([Promise.resolve().then(check), new Promise<boolean>(resolve => {
+        pending = setTimeout(() => resolve(false), timeoutMs); pending.unref?.();
+      })]);
+    } catch { /* check unavailable => disconnect, never keep serving */ }
+    clearTimeout(pending);
+    if (stopped) return;
+    if (!allowed || now() >= expiresAt) { fail(); return; }
+    schedule();
+  }
+  if (now() >= expiresAt) fail(); else schedule();
+  return stop;
 }
 export function mountContentSurface(app: express.Express, runtime: ReturnType<typeof createContentSurface>) {
   app.use((req, res, next) => { if (surfaceOf(req) !== 'content') return next(); runtime.handler(req, res, next); });
