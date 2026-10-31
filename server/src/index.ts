@@ -22,6 +22,8 @@ import type { SettingService } from './services/setting.ts';
 import { db, getSettings, dataDir, rowToWorkbench, rowToCockpit, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow, type SopRunRow } from './db.ts';
 (globalThis as any).__wmDb = db; // #94 v3 S1：tasks.ts 直读 change_requests 桥
 import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
+import { HttpError } from './errors.ts';
+import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, runStateSave, runStateRestore, runStateLoad, runStateRetire, runActiveIds } from './redis.ts';
 import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, a2aSendOutbound, formatA2aReceipt, MARKET_TEAM } from './a2a.ts';
@@ -162,13 +164,6 @@ const wrap =
     fn(req, res).catch(next);
   };
 
-class HttpError extends Error {
-  status: number;
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-  }
-}
 const bad = (msg: string): never => { throw new HttpError(400, msg); };
 
 // ---------- 工作台 CRUD ----------
@@ -226,32 +221,7 @@ function validateWorkbenchBody(b: any, partial = false) {
     const u = b.url.trim();
     // 掩码指纹不得入新建（复制工作台从列表带回掩码 url 时在这里拦下，防 **** 落库成坏台）
     if (u.includes('=****')) bad('url 含掩码占位（****）——请填写真实地址（列表展示的 token 已脱敏）');
-    // 以 / 开头 = 市场自产台内部路径（本服务静态托管）；其余必须是 http(s)
-    if (!u.startsWith('/')) assertHttpUrl(u);
-    // R1 SSRF 白名单（监督席派单·外部评审跨域前置）：公网地址默认拒——ALLOW_PUBLIC_NET=1 豁免
-    if (process.env.ALLOW_PUBLIC_NET !== '1') {
-      try {
-                const _h = new URL(u).hostname.toLowerCase();
-        const _m4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(_h);
-        let _priv = false;
-        if (_m4) {
-          const [_a, _b] = _m4.slice(1).map(Number);
-          const _ok = _m4.slice(1).every((x) => Number(x) <= 255);
-          _priv = _ok && (_a === 10 || (_a === 172 && _b >= 16 && _b <= 31) || (_a === 192 && _b === 168) || _a === 127 || _a === 0); // 10/8·172.16/12·192.168/16·127/8·0/8（169.254 链路本地=云元数据红线·不并入·见下拒）
-        } else if (_h.startsWith('[') || _h.includes(':')) {
-          const _v6 = _h.replace(/^\[|\]$/g, '');
-          _priv = _v6 === '::1' || _v6 === '::' || /^f[cd][0-9a-f]{2}:/i.test(_v6) || /^fe[89ab][0-9a-f]:/i.test(_v6); // ::1·fc00::/7·fe80::/10；其余 v6=公网拒
-        } else {
-          const _labels = _h.split('.');
-          if (_labels.some((l) => /^\d+$/.test(l))) _priv = false; // 数值 label 拒（10.attacker.example·127.0.0.1.nip.io 型）
-          else if (_h === 'localhost') _priv = true;
-          else if (!_h.includes('.')) _priv = true; // 内网短名
-          else _priv = false; // 公网域名拒
-        }
-        if (_m4 && _m4[1] === '169' && _m4[2] === '254') _priv = false; // 云元数据红线（#242 ④）
-        if (!_priv) bad('公网地址默认拒绝（R1 白名单·跨域前收紧·显式 ALLOW_PUBLIC_NET=1 豁免）: ' + _h);
-      } catch (e) { if (e instanceof HttpError) throw e; /* 其余吞（assertHttpUrl 已兜） */ }
-    } else { console.warn('[R1] ALLOW_PUBLIC_NET=1——公网注册已豁免（跨域部署前必须收紧）'); }
+    // #258：格式/分类/许可统一在 cores 里经 admitUrl 判（需要知道 update 前的原 url 与操作类型）
     out.url = u;
   }
   if (b.type !== undefined) out.type = String(b.type || 'web');
@@ -285,21 +255,59 @@ function validateWorkbenchBody(b: any, partial = false) {
   return out;
 }
 
+// #258 R3 准入：WM_REGISTER_URL_ALLOWLIST 是进程启动快照；坏配置拒绝启动（不回落成更宽或更窄的默认）
+const URL_POLICY: AllowPolicy = (() => {
+  try { return loadAllowPolicy(process.env.WM_REGISTER_URL_ALLOWLIST); }
+  catch (e: any) { console.error(`[R3] 拒绝启动：${e?.message ?? e}`); process.exit(1); }
+})();
+if (!process.stderr.writable) { console.log('[R3] 拒绝启动：stderr 不可写（准入审计日志渠道）'); process.exit(1); }
+process.stderr.on('error', () => { markAuditChannelFailed(); }); // 审计渠道断：锁存故障，后续 allow 都报降级；不让 error 事件打死进程
+
+/** 内部路径的台必须存在：/sop/<slug>/ 对 kind=sop，/apps/<slug>/ 对其余 */
+function internalTargetExists(area: 'apps' | 'sop', slug: string): boolean {
+  const row = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
+  return !!row && (area === 'sop' ? row.kind === 'sop' : row.kind !== 'sop');
+}
+
+/** 单核准入 + deny 审计（限量）；返回值供 commit 后写 allow 日志 */
+function admitOrDeny(op: 'register' | 'update' | 'import', url: string) {
+  try { return admitUrl(url, URL_POLICY, internalTargetExists); }
+  catch (e) {
+    if (e instanceof AdmissionError) {
+      let key: string | null = null;
+      try { key = analyzeUrl(url).key; } catch { /* 格式坏到无 key */ }
+      auditDeny(op, e.code, key);
+    }
+    throw e;
+  }
+}
+
+/** cores 的调用上下文：subject 只放已核认证标识；auditOk=false 时调用方回 X-WM-Audit-State: degraded */
+interface WriteCtx { subject: string; auditOk?: boolean }
+
 // CRUD 共用核心（REST 与 MCP workbench_register/update/unregister 同链）：
 // MCP 面不接受 auth 字段（凭据只经人工 REST/表单——安全边界内置）
-function workbenchCreateCore(body: any): ReturnType<typeof rowToWorkbench> {
+function workbenchCreateCore(body: any, ctx: WriteCtx = { subject: 'anonymous' }): ReturnType<typeof rowToWorkbench> {
   const f = validateWorkbenchBody(body);
+  const adm = admitOrDeny('register', f.url);
+  checkHealthPath(f.url, f.health_path ?? '');
   const r = svc<WorkbenchService>('workbench').createByNamed({ type: 'web', icon: '', description: '', category: '', tags: '[]', enabled: 1, health_path: '', sort: 0, auth_config: '', ...f }) as unknown as { lastInsertRowid: number | bigint };
   const row = svc<WorkbenchService>('workbench').byId(Number(r.lastInsertRowid)) as unknown as WorkbenchRow;
+  if (adm.allowlisted) ctx.auditOk = auditAllow('register', URL_POLICY, adm.key!, row.id, ctx.subject);
   return rowToWorkbench(row);
 }
 
-function workbenchUpdateCore(id: number, body: any): ReturnType<typeof rowToWorkbench> {
+function workbenchUpdateCore(id: number, body: any, ctx: WriteCtx = { subject: 'anonymous' }): ReturnType<typeof rowToWorkbench> {
   const cur = svc<WorkbenchService>('workbench').byId(id) as unknown as WorkbenchRow | undefined;
   if (!cur) throw new HttpError(404, `workbench not found: ${id}`);
   const f = validateWorkbenchBody(body, true);
   // 掩码回传保护（url 面）：编辑表单从 API 取到的是掩码值，原样回传视为「未变更」
   if (f.url !== undefined && f.url.includes('=****') && f.url !== cur.url) delete f.url;
+  // #258：url 未变（原样或同一规范化 key、同 fragment）= 纯元数据更新，沿旧行原 url（存量公网行不因改名被拒/删）；
+  // scheme/host/port/path/query 任一变化都是新 url，必须重新准入
+  if (f.url !== undefined && (f.url === cur.url || sameTarget(cur.url, f.url))) delete f.url;
+  const adm = f.url !== undefined ? admitOrDeny('update', f.url) : null;
+  if (f.url !== undefined || f.health_path !== undefined) checkHealthPath(f.url ?? cur.url, f.health_path ?? cur.health_path ?? '');
   // cookie_set_id 挂接（派单 direct-5fbb2176：nullable=0 取消挂接，正数须为池条目）
   if (body.cookie_set_id !== undefined) {
     const cid = Number(body.cookie_set_id) || 0;
@@ -317,6 +325,7 @@ function workbenchUpdateCore(id: number, body: any): ReturnType<typeof rowToWork
     auth_config: merged.auth_config ?? '', cookie_set_id: (merged as any).cookie_set_id ?? 0, id,
   });
   const row = svc<WorkbenchService>('workbench').byId(id) as unknown as WorkbenchRow;
+  if (adm?.allowlisted) ctx.auditOk = auditAllow('update', URL_POLICY, adm.key!, id, ctx.subject);
   return rowToWorkbench(row);
 }
 
@@ -336,8 +345,14 @@ function workbenchDeleteCore(id: number): { ok: boolean; deleted: number } {
   return { ok: true, deleted: id };
 }
 
+/** 审计主体：只认已核的管理口令；X-Market-Client 等自报头不算身份 */
+const restSubject = (req: express.Request) => (adminHeaderOk(req) ? 'admin' : 'anonymous');
+
 app.post('/api/workbenches', (req, res) => {
-  res.status(201).json(workbenchCreateCore(req.body));
+  const ctx: WriteCtx = { subject: restSubject(req) };
+  const w = workbenchCreateCore(req.body, ctx);
+  if (ctx.auditOk === false) res.setHeader('X-WM-Audit-State', 'degraded');
+  res.status(201).json(w);
 });
 
 app.get('/api/workbenches/:id', (req, res) => {
@@ -349,7 +364,10 @@ app.get('/api/workbenches/:id', (req, res) => {
 });
 
 app.put('/api/workbenches/:id', (req, res) => {
-  res.json(workbenchUpdateCore(Number(req.params.id), req.body));
+  const ctx: WriteCtx = { subject: restSubject(req) };
+  const w = workbenchUpdateCore(Number(req.params.id), req.body, ctx);
+  if (ctx.auditOk === false) res.setHeader('X-WM-Audit-State', 'degraded');
+  res.json(w);
 });
 
 app.delete('/api/workbenches/:id', (req, res) => {
@@ -373,7 +391,10 @@ async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkben
   // issue #8：坏 health_path / 非法组合不得让单测整体 500——探测目标构造失败时该台记 down
   let target: string;
   try {
-    target = composeProbeUrl(w.url, w.health_path || t?.health_path || '');
+    // #258 U15：实际生效的 health_path（台自己的或类型继承的）在探测处统一按台 origin 核——存量/类型/导入/MCP 同一处兜住
+    const effective = w.health_path || t?.health_path || '';
+    try { checkHealthPath(w.url, effective); } catch (e: any) { throw new Error(`health_path 被拒：${e?.extra?.message ?? e?.message}`); }
+    target = composeProbeUrl(w.url, effective);
   } catch (e: any) {
     const reason = String(e?.message ?? e);
     svc<WorkbenchService>('workbench').markDownWithError(w.id, reason);
@@ -619,6 +640,7 @@ function syncWorkbenchRegistration(a: AppRow): number {
   const url = a.kind === 'sop' ? `/sop/${a.slug}/` : `/apps/${a.slug}/`;
   const icon = a.kind === 'sop' ? '📋' : '🧩';
   const category = a.kind === 'sop' ? 'SOP 台' : '自产台';
+  admitOrDeny('register', url); // #258 同核：自动登记也只收托管白名单形态
   const cur = svc<WorkbenchService>('workbench').idByUrl(url) as { id: number } | undefined;
   if (cur) {
     svc<WorkbenchService>('workbench').renameDescByUrl(a.title, a.description, cur.id);
@@ -2197,6 +2219,7 @@ app.post('/api/types', (req, res) => {
   if (typeof b.key !== 'string' || !/^[a-z0-9][a-z0-9-]*$/.test(b.key)) bad('key 必须是小写字母/数字/连字符');
   if (typeof b.name !== 'string' || !b.name.trim()) bad('name 不能为空');
   if (b.key === 'web') bad('内置类型 web 不允许覆盖');
+  checkTypeHealthPath(String(b.health_path ?? '/'));
   const exists = svc<WorkbenchService>('workbench').typeIdByKey(b.key);
   if (exists) bad(`类型已存在: ${b.key}`);
   const r = svc<WorkbenchService>('workbench').typeInsertStmt().run(
@@ -2221,6 +2244,7 @@ app.put('/api/types/:id', (req, res) => {
     expect_status: b.expect_status !== undefined ? (b.expect_status == null ? null : Number(b.expect_status)) : cur.expect_status,
     description: b.description !== undefined ? String(b.description) : cur.description,
   };
+  if (next.health_path !== cur.health_path) checkTypeHealthPath(next.health_path);
   if (cur.key === 'web' && (next.health_path !== cur.health_path || next.expect_status !== cur.expect_status)) {
     bad('内置类型 web 不允许修改探测语义');
   }
@@ -2330,48 +2354,65 @@ app.get('/api/export', (req, res) => {
   });
 });
 
+// #258 D：import 整批预检（结构 + 掩码 + 同核准入）全过才进事务；replace 的清库、类型、插入、布局修复同一事务，
+// 任一失败整体回滚零写。不再 skip 坏行/掩码行（掩码导出整批拒 masked_import_value，请用 ?reveal=1 的受控备份）。
+const importErr = (status: number, code: string, row_index: number | null, message: string): never => {
+  throw new HttpError(status, code, { message, ...(row_index === null ? {} : { row_index }) });
+};
 app.post('/api/import', (req, res) => {
   const b = req.body ?? {};
-  if (!Array.isArray(b.workbenches)) bad('导入文件缺少 workbenches 数组');
+  if (!Array.isArray(b.workbenches)) importErr(400, 'invalid_import', null, '导入文件缺少 workbenches 数组');
+  if (b.types !== undefined && !Array.isArray(b.types)) importErr(400, 'invalid_import', null, 'types 必须是数组');
   // issue #7：mode 支持 query 优先（README 的 ?mode=replace 写法），body.mode 次之
   const modeRaw = (typeof req.query.mode === 'string' ? req.query.mode : b.mode) ?? 'merge';
   const mode = modeRaw === 'replace' ? 'replace' : 'merge';
-  if (mode === 'replace') {
-    svc<WorkbenchService>('workbench').deleteAll();
-    svc<WorkbenchService>('workbench').typeDeleteAllExcept('web');
-  }
-  const insType = svc<WorkbenchService>('workbench').typeInsertIgnoreStmt();
-  if (Array.isArray(b.types)) {
-    for (const t of b.types) insType.run(t.key, t.name, String(t.icon ?? ''), t.default_port ?? null, t.health_method ?? 'GET', String(t.health_path ?? '/'), t.expect_status ?? null, String(t.description ?? ''));
-  }
-  const ins = svc<WorkbenchService>('workbench').importInsertStmt();
-  let imported = 0;
-  for (const w of b.workbenches) {
-    // issue #7：自产台/SOP 注册行的 url 是市场内部路径（/ 开头）——断言 http URL 会把它们
-    // 静默丢掉（replace 清库后导回再丢 = 注册永久消失）；内部路径直接放行
-    if (!String(w.url).startsWith('/')) {
-      try { assertHttpUrl(String(w.url)); } catch { continue; }
-    }
-    // 导出脱敏配套：掩码行（url 含 =****）不落库——掩码数据写库会毁真实 query 门；
-    // 需要完整恢复请用 ?reveal=1 的导出文件
-    if (String(w.url).includes('=****')) continue;
+  const types: any[] = Array.isArray(b.types) ? b.types : [];
+  types.forEach((t) => {
+    if (!t || typeof t !== 'object' || typeof t.key !== 'string' || !t.key || typeof t.name !== 'string') importErr(400, 'invalid_import', null, 'types 每项须含字符串 key 与 name');
+    try { checkTypeHealthPath(String(t.health_path ?? '/')); } catch (e) { if (e instanceof AdmissionError) importErr(400, e.code, null, `类型 ${t.key}：${e.extra?.message ?? ''}`); throw e; }
+  });
+  const rows = (b.workbenches as any[]).map((w, i) => {
+    if (!w || typeof w !== 'object' || Array.isArray(w)) importErr(400, 'invalid_import', i, '行不是对象');
+    if (typeof w.url !== 'string' || !w.url.trim()) importErr(400, 'invalid_import', i, 'url 缺失');
+    if (w.name !== undefined && typeof w.name !== 'string') importErr(400, 'invalid_import', i, 'name 须为字符串');
+    if (w.tags !== undefined && !Array.isArray(w.tags)) importErr(400, 'invalid_import', i, 'tags 须为数组');
+    const url = w.url.trim();
+    if (url.includes('=****') || w.auth?.value === '****') importErr(400, 'masked_import_value', i, '含掩码占位（****）——掩码导出不能用来恢复，请用 ?reveal=1 的受控备份或重新录入');
     let authCfg = '';
-    if (w.auth && (w.auth.type === 'bearer' || w.auth.type === 'basic') && typeof w.auth.value === 'string' && w.auth.value) {
-      // auth.value 掩码（****）同样剥除——凭据为空导入，由人重新配置
-      if (w.auth.value !== '****') authCfg = JSON.stringify({ type: w.auth.type, value: w.auth.value });
+    if (w.auth !== undefined && w.auth !== null) {
+      if (typeof w.auth !== 'object' || (w.auth.type !== 'bearer' && w.auth.type !== 'basic') || typeof w.auth.value !== 'string' || !w.auth.value || w.auth.value.length > 4096) {
+        importErr(400, 'invalid_import', i, 'auth 形态：{type:"bearer"|"basic", value:string}');
+      }
+      authCfg = JSON.stringify({ type: w.auth.type, value: w.auth.value });
     }
-    ins.run(
-      String(w.name ?? '未命名'), String(w.url), String(w.type ?? 'web'), String(w.icon ?? ''),
-      String(w.description ?? ''), String(w.category ?? ''),
-      JSON.stringify(Array.isArray(w.tags) ? w.tags : []), w.enabled === false ? 0 : 1,
-      String(w.health_path ?? ''), Number(w.sort) || 0, authCfg
-    );
-    imported += 1;
-  }
-  // PR#15 评审吸收的增量思路：replace 重排自增 id 后，驾驶舱面板里指向旧 id 的引用已成悬空
-  // （保存布局恒 400）——导入完成后全量剔除不存在引用（比按 id 精确清理更通用，也清历史遗留）
-  {
-    const wbExists = (id: number) => !!svc<WorkbenchService>('workbench').exists(id);
+    let adm;
+    try { adm = admitOrDeny('import', url); checkHealthPath(url, String(w.health_path ?? '')); }
+    catch (e) { if (e instanceof AdmissionError) importErr(e.status, e.code, i, String(e.extra?.message ?? '')); throw e; }
+    return { w, url, authCfg, adm };
+  });
+  const svcWb = svc<WorkbenchService>('workbench');
+  const inserted: { id: number; key: string | null; allowlisted: boolean }[] = [];
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    if (mode === 'replace') {
+      svcWb.deleteAll();
+      svcWb.typeDeleteAllExcept('web');
+    }
+    const insType = svcWb.typeInsertIgnoreStmt();
+    for (const t of types) insType.run(t.key, t.name, String(t.icon ?? ''), t.default_port ?? null, t.health_method ?? 'GET', String(t.health_path ?? '/'), t.expect_status ?? null, String(t.description ?? ''));
+    const ins = svcWb.importInsertStmt();
+    for (const { w, url, authCfg, adm } of rows) {
+      const r = ins.run(
+        String(w.name ?? '未命名'), url, String(w.type ?? 'web'), String(w.icon ?? ''),
+        String(w.description ?? ''), String(w.category ?? ''),
+        JSON.stringify(Array.isArray(w.tags) ? w.tags : []), w.enabled === false ? 0 : 1,
+        String(w.health_path ?? ''), Number(w.sort) || 0, authCfg
+      ) as { lastInsertRowid: number | bigint };
+      inserted.push({ id: Number(r.lastInsertRowid), key: adm.key, allowlisted: adm.allowlisted });
+    }
+    // PR#15 评审吸收的增量思路：replace 重排自增 id 后，驾驶舱面板里指向旧 id 的引用已成悬空
+    // （保存布局恒 400）——导入完成后全量剔除不存在引用（比按 id 精确清理更通用，也清历史遗留）
+    const wbExists = (id: number) => !!svcWb.exists(id);
     for (const c of svc<CockpitService>('cockpit').all() as unknown as CockpitRow[]) {
       let panels: PanelConfig[];
       try { panels = JSON.parse(c.layout_config || '[]'); } catch { continue; }
@@ -2381,8 +2422,17 @@ app.post('/api/import', (req, res) => {
         svc<CockpitService>('cockpit').setLayout(c.id, JSON.stringify(kept));
       }
     }
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    console.error('[import] 事务回滚：', (e as Error)?.message ?? e);
+    throw new HttpError(500, 'import_failed', { message: '导入写入失败，已整体回滚（原数据未变）' });
   }
-  res.json({ ok: true, mode, imported, skipped: b.workbenches.length - imported });
+  // commit 之后才写 allow：每个命中许可的行恰一条
+  let auditOk = true;
+  for (const x of inserted) if (x.allowlisted && !auditAllow('import', URL_POLICY, x.key!, x.id, restSubject(req))) auditOk = false;
+  if (!auditOk) res.setHeader('X-WM-Audit-State', 'degraded');
+  res.json({ ok: true, mode, imported: inserted.length, skipped: 0 });
 });
 
 app.get('/api/health', (_req, res) => {
@@ -2763,7 +2813,7 @@ import { endpointStatsMiddleware, statsPayload } from './endpoint-stats.ts';
 const MCP_PROTOCOL = '2025-03-26';
 const MCP_KNOWN_PROTOCOLS = ['2024-11-05', '2025-03-26', '2025-06-18'];
 
-async function callTool(name: string, args: any): Promise<unknown> {
+async function callTool(name: string, args: any, subject = 'anonymous'): Promise<unknown> {
   const metaSlug = String(args?.slug ?? '').trim().toLowerCase();
   if (metaSlug === 'task-center' && ['app_publish','app_activate','sop_publish','sop_deprecate','app_draft_open','app_draft_edit','app_draft_submit'].includes(name)) throw new HttpError(403, 'task-center 元台仅人工面可修改');
   switch (name) {
@@ -2974,13 +3024,13 @@ async function callTool(name: string, args: any): Promise<unknown> {
     // 工作台注册 CRUD（agent 登记外部台——与 REST 同链；凭据字段不接受：传入即拒）
     case 'workbench_register': {
       if (args?.auth !== undefined) throw new HttpError(400, '凭据不接受 MCP 写入——请人工经市场页配置');
-      const w = workbenchCreateCore(args);
+      const w = workbenchCreateCore(args, { subject });
       return maskForApi(w);
     }
     case 'workbench_update': {
       if (args?.auth !== undefined) throw new HttpError(400, '凭据不接受 MCP 写入——请人工经市场页配置');
       const { id: _ignored, ...rest } = args ?? {};
-      const w = workbenchUpdateCore(Number(args?.id), rest);
+      const w = workbenchUpdateCore(Number(args?.id), rest, { subject });
       return maskForApi(w);
     }
     case 'workbench_unregister':
@@ -3291,7 +3341,7 @@ app.post('/mcp', async (req, res) => {
         const up = routeUpstream(toolName);
         const out = up
           ? await upstreamRpc(up.upstream, 'tools/call', { name: up.remoteTool, arguments: msg.params.arguments ?? {} }, 2, sess ? `mcp/${sess.name}` : undefined)
-          : await callTool(toolName, msg.params.arguments ?? {});
+          : await callTool(toolName, msg.params.arguments ?? {}, sess ? `mcp:${sess.name}` : 'anonymous');
         audit('tools/call', toolName, true, '', Date.now() - t0, msg.params?.arguments);
         // 上游结果已是 MCP 形状（{content,isError?}）→ 原样透传（下游客户端语义无损）；
         // 本地工具结果是业务对象 → 序列化为 text content。
@@ -3352,7 +3402,7 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   let status = err instanceof HttpError || err instanceof TaskIntakeError ? err.status : 500;
   if (status === 500 && VALIDATION_ERR_PREFIX.some((p) => msg.startsWith(p))) status = 400;
   if (status === 500) console.error('[server] unhandled:', err);
-  res.status(status).json({ error: msg });
+  res.status(status).json({ error: msg, ...(err instanceof HttpError && err.extra ? err.extra : {}) });
 });
 
 // 进程兜底日志（监督席顺查件 direct-db6fc70c③）：不吞异常只记栈——multer 等中间件内部 throw 不经 Express 链时留证
@@ -3432,7 +3482,14 @@ app.post('/api/a2a/send', wrap(async (req, res) => {
 if (getApp('task-center').status === 'published') syncWorkbenchRegistration(getApp('task-center'));
 const SURFACE_PORTS = surfacePorts();
 const goServer = registerSurface(app, 'market', PORT, () => {
-  if (process.env.ALLOW_PUBLIC_NET === '1') console.warn('[SSRF_GUARD_DISABLED] ALLOW_PUBLIC_NET=1: public registration guard is bypassed; explicitly review this deployment exception.');
+  // #258 breaking：旧开关不再放行任何公网登记，只做兼容检测告警
+  if (process.env.ALLOW_PUBLIC_NET === '1') console.warn('[R3] ALLOW_PUBLIC_NET=1: legacy flag no longer grants public registration; use WM_REGISTER_URL_ALLOWLIST exact entries.');
+  console.log(`[R3] URL 准入 policy ${URL_POLICY.digest.slice(0, 12)}：精确许可 ${URL_POLICY.size} 条${URL_POLICY.duplicates ? `（去重 ${URL_POLICY.duplicates} 条）` : ''}`);
+  {
+    const gaps = legacyGaps(listWorkbenches().map((w) => ({ id: w.id, url: w.url })), URL_POLICY);
+    // 迁移材料：存量行不删不停，只列按新规会被拒的 id + URL 摘要 + 原因（不出原 URL/query）
+    if (gaps.length) console.warn(JSON.stringify({ event: 'workbench_url_legacy_gap', policy_digest: URL_POLICY.digest, count: gaps.length, rows: gaps }));
+  }
   const odooTrust = trustedOdooOrigins();
   if (odooTrust.invalid.length) console.warn(`[SSO v1] WM_ODOO_ORIGINS/LC_ODOO_URL 有非法项（已忽略）：${odooTrust.invalid.join(', ')}`);
   if (odooTrust.origins.size === 0 && listWorkbenches().some((w) => isOdooLikeTarget(w.type, w.url))) console.warn('[SSO v1] 未设 WM_ODOO_ORIGINS / LC_ODOO_URL：门户不转发 Odoo 会话，Odoo 台免登不生效（台内会显示 Odoo 自己的登录页）——要免登请把 Odoo 台的源写进 WM_ODOO_ORIGINS');

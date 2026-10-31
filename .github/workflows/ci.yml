@@ -83,6 +83,10 @@ jobs:
         run: node scripts/taskcenter-intake-smoke.mjs
       - name: SSRF 默认关闭与启动告警（隔离实例）
         run: node scripts/r1-ssrf-smoke.mjs
+      - name: R3 URL 登记准入（#258：精确许可·硬拒·全入口同核·import 全事务注错·审计日志）
+        run: node scripts/r3-url-allowlist-smoke.mjs
+      - name: 导入导出（独立实例：replace 语义·内部路径行·掩码整批拒）
+        run: node scripts/import-smoke.mjs
       - name: F5 env-face 判定回归（不启动 Docker）
         run: node scripts/security-env-face-test.mjs
       - name: 生命周期签发入口单测（req 哈希金向量·断言结构·私钥门）

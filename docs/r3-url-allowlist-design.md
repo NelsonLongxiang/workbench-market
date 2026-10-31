@@ -1,6 +1,7 @@
-# R3 业务 URL 登记准入契约 v2（#030 A–F，breaking，未实现）
+# R3 业务 URL 登记准入契约 v2（#030 A–F，breaking，#258 已实现·未部署）
 
-状态：**材料修订 → wm-review独立核 → 新spec先红 → 按另行实施/部署授权落地**。本稿不改代码/生产配置，不以文档合入报准入功能已上线。
+状态：**已实现（#258，属主 2026-10-31 本人排期并确认破坏性收紧的迁移），未部署**。代码在 `server/src/url-admission.ts`，回归在 `scripts/r3-url-allowlist-smoke.mjs`（U1–U15）。上线另需第 9 节的部署材料与窗口，不以代码合入报生产已收紧。
+原状态行（保留）：材料修订 → wm-review独立核 → 新spec先红 → 按另行实施/部署授权落地。
 完整依据：KB **069ad84a83**，content_hash **b1afd0f5a9d2e30bfac556d725db980a29057830**；全文已读，A–F逐条映射。前稿=PR#256 head6002c6ee、merge751e19ec。本稿明确替代前稿“需裁R3-A/B”的方向；以下精确分类表和schema为待review冻结的材料，不暗改旧spec。
 
 ## 1. A：精确公网许可独立flag（breaking）
@@ -164,3 +165,25 @@ PR#256 merged_at=2026-10-28T11:44:09Z；CI run40682179542（head6002c6ee）succe
 独立评审重点：完整IPv6/H4/H6集合是否一致可测、IP标准解析与raw歧义拒、import全事务注错回滚、日志流失败。分类保守子块与masked导入整拒为材料细化提案，若与#030边界矛盾先回needs-decision，不代码代裁。
 
 材料无歧义后新submit/new spec、selfcheck/meta、当前main真实先红，再另派实现；不改旧spec消红。部署另经显式迁移确认/窗口，零生产写/配置/部署。本稿不是实现插队授权，#159与SSO在途不重复派。
+
+## 9. 实现落点与部署迁移（#258）
+
+**实现取舍（评审请重点看）**
+- 严格 URL 形态（拒 fragment / 点段 / 编码分隔符 / 非法百分号）只约束**公网许可 key**与许可配置条目；私网/回环/短名沿旧准入，仍收 `#/spa` 这类 fragment，不借机收紧既有内网台。userinfo、控制字符、空白、反斜杠、非标准数值 IP、zone-id 对所有目标都拒。
+- 敏感 query 键（token/password/secret/api_key/access_token）只在**许可配置条目**里拒；登记 URL 带 token 的既有内网台不受影响（列表/导出照旧掩码）。带敏感 query 的公网目标因此无法许可，凭据请走 auth 配置。
+- 许可配置里出现私网/回环/短名/内部路径条目按坏项拒绝启动（它们本就不需要许可，放进去只会造成「列表能升级权限」的误解）。
+- 「无 query」与「空 `?`」按 WHATWG 序列化视为同一 key。
+- 内部路径要求台在 `apps` 表里已存在（`/sop/` 对 kind=sop，`/apps/` 对其余）；自产台发布链的自动登记同走这一核。
+- 残缺或跨 origin 的绝对 `health_path` 现在登记时 400 `invalid_health_path`（以前落库后靠巡检记 down）。
+- deny 日志对格式坏到无 key 的输入 `url_digest=null`；导入预检里每个被拒行也计一条 deny（同受限量）。
+- 审计主体：REST 只认已核管理口令（`admin`），MCP 网关会话为 `mcp:<会话名>`，其余 `anonymous`。
+- 百分号编码：公网 key、许可条目、内部路径要求每个 `%` 都是 `%HH`，且解出的字节流（连同字面字符）是合法 UTF-8（拒超长、代理项、越界、截断）；只校验，不用解码结果扩大 key。私网不收紧。
+- 「url 未变」= 原样相同，或同一规范化 key 且 fragment 相同（host 大小写 / 显式缺省端口 / hex 大小写）；此时保留原 url 只改元数据。scheme/port/path/query/fragment 任一变化都是新 url。
+- 审计渠道：写回调带 err 或 `process.stderr` 发 error 时锁存故障；锁存期间每个 allow 写都回 `X-WM-Audit-State: degraded` 并发 `workbench_url_audit_failure`（带故障计数与最后时间），直到有一条**最近一次故障之后才发起的**写成功回调才解除（故障前发起的旧写迟到成功不清新故障，按故障代次判断）。`write()` 返回 false（背压）不算失败。
+- 有效 health_path：类型级 health_path 只收相对路径（POST/PUT/导入）；探测处对「台自己的或继承自类型的」生效路径统一按台 origin 再核一次，存量的跨 origin 绝对路径记 down、不发请求。
+
+**存量与迁移（属主已确认破坏性收紧）**
+- 启动时对现有 workbenches 跑一遍新规，按新规会被拒的行输出一条 `workbench_url_legacy_gap`（stderr 单行 JSON：policy_digest、count、每行 id + url_digest + 原因码；不含原 URL/query）。这就是部署前要对照补许可的缺口清单。
+- 存量行不删不停；原 url 原样回传的元数据更新照收；换新 url、复制成新台、导入都要过新规。`/go` 执行访问不因此撤销。
+- 部署步骤：① 在候选实例上用生产库副本启动，取 `workbench_url_legacy_gap`；② 维护者按缺口逐条决定写进 `WM_REGISTER_URL_ALLOWLIST`（精确 URL）或接受该行不能再改 url；③ 记录 policy digest 与是否仍设旧 `ALLOW_PUBLIC_NET`（可去掉，设了只告警）；④ 窗口内切换，确认启动日志 `[R3] URL 准入 policy …` 与缺口数；⑤ 回滚=回退到上一个代码包，**不**以恢复 `ALLOW_PUBLIC_NET=1` 当回滚（它已不放行）。
+- 日志渠道：allow/deny/legacy_gap/audit_failure 都走 stderr，留存由部署采集承接；本实现不承诺跨崩溃 exactly-once（第 6 节边界不变）。
