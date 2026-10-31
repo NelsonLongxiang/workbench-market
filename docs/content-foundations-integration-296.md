@@ -96,7 +96,17 @@ READY现在报告正文DOM真实data-field列表（排序，不去重），壳�
 
 本轮原始YAML固定夹具typed-v3与seed候选加合成run，装配32项、原通道26项、双端实际序列化脚本VM状态56项通过；浏览器14项包括原6项及假null-origin正确绑定错误Window无转移、跨target/step/version/schema、前一frame READY旧nonce重放、替换frame后的旧port ACK拒绝。浏览器仍用拦截响应、零TCP，不证明实际HTTP独立内容host或现网Runner。另加seed-demo-sop的显式候选v2 schema，三步正文与原seed逐字对照，保中文data-field与原字符串值语义；新版本只读浏览器回填已验，不发布、不改变既有v1 run。原生成器与现场SOP尚未审迁，不能用夹具冒充17个实际target兼容或旧SOP全量迁移。
 
-待完成：固定head非作者窄复核、独立内容源托管与真实SOP schema迁移。第1步只读业务装配现可离线调用，仍未接index/旧Runner路由、未切流，不能报现网真实SOP可用。CHANGE/VALIDATE/COLLECT与UPLOAD尚未做，三步全完且获准前不切任何SOP。CI加入装配与拦截式浏览器门，与现网d908/control0完全分开。
+f94e1ef5离线装配非作者窄复核限定通过（另4浏览器负例、跨run READY端口转移0），该head CI三绿。仍待独立内容源托管与真实SOP schema迁移。第1步只读业务装配现可离线调用，仍未接index/旧Runner路由、未切流，不能报现网真实SOP可用。CHANGE/VALIDATE/COLLECT与UPLOAD尚未做，三步全完且获准前不切任何SOP。CI加入装配与拦截式浏览器门，与现网d908/control0完全分开。
+
+## SOP第2步a：授权前置（未挂载组件）
+
+sop-run-access是显式工厂，不由index导入、不新增HTTP/MCP/启动迁移。仅调用工厂的受控后端为给定SQLite建立sop_run_access：run/target/冻结版本、owner/assignee Odoo主体、ACL revision、冻结YAML SHA256与撤销标志。bindTrustedRun只能由后端受控记录调用；无公共登记/回填入口，不接受旧started_by（用户可填标签）或A2A caller/node冒充人类权限。旧run无明确登记默认拒绝，不能从现有数据猜授权。该后端API本身不是身份发行/委托审批系统，真实受控登记与迁移尚未接入。
+
+open/read默认复用resolveOdooViewer现查明确trusted Odoo get_session_info，仅严格内部用户；SID重复/格式异常拒。subject按现有content口径sub+uid匹配受控owner/assignee，再核enabled target的精确/sop/slug/、published SOP及run冻结版本存在；随后才读取冻结YAML（校登记摘要）和保存值。投影含run targetId与authorized=true，不含owner/uid/login/session；未授权不签发能力、不读body/values。只有preview可传render/INIT，能力单独返回可信壳，绝不传frame/URL。
+
+能力是带HMAC的随机opaque进程内引用，绑定session/主体/撤权epoch、run/target/step/version/ACL revision，硬300秒不续租；读时新鲜Odoo校验与所有绑定再核。注销/内部资格缺失/上游失败/会话主体变化、显式epoch或ACL撤销/改派、过期/重启都拒；身份await期间的撤权/过期也拒。epoch借用content的过程内撤权方式，此新组件有自己的有界session记录，不谎称Odoo有全局epoch或已接现网统一撤权总线。单进程cap/session各4096，满拒，重启失效；不声明多进程可用。
+
+测试采用实际内存SQLite+真实Odoo resolver（fetch替身，无TCP），核他人/未绑定/跨target run、已指派人、portal/缺internal/注销/失败、scope/会话/签名/revision/版本/expiry/重启与拒绝前读取计数0；不读现网数据。授权段仍无写能力、save/upload/finish接口或旧Runner挂载；CHANGE/VALIDATE/COLLECT需本固定head窄复核后另段实现，不把read能力当写能力。
 
 ## 验证与未完成
 content-access-test原58、portal-observation-test原30、303红/200绿cookie对照保留；content-surface-test真实registerSurface+sharedExpress+counted upstream+假时钟核HTTP/WS/到期/撤权/restart/编码/fallback0。content-index-browser真实index+synthetic DB/home+假Odoo/上游+Chromium核跨站200/opener null/撤权XHR401/导航同target401，上游合法1次且不漏browser身份。不是真实Odoo/DNS或生产验收。
