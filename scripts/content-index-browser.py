@@ -6,7 +6,16 @@ with sync_playwright() as p:
  b=p.chromium.launch(headless=True,args=['--no-proxy-server','--host-resolver-rules=MAP w-2-test.internal 127.0.0.1'])
  try:
   c=b.new_context();c.add_cookies([{'name':'session_id','value':'synthetic1234567890','url':cfg['market'],'httpOnly':True,'sameSite':'Lax'}]);page=c.new_page()
-  r=page.goto(cfg['market']+'/content/open/2');assert r.status==200
+  page.goto(cfg['market']+'/market');page.wait_for_load_state('networkidle')
+  page.evaluate("()=>{const f=document.createElement('iframe');f.id='legacy-migration-frame';f.style.cssText='position:fixed;left:300px;top:180px;width:700px;height:260px;z-index:9999;background:white';f.src='/go/2/';document.body.append(f)}")
+  entry=page.frame_locator('#legacy-migration-frame').get_by_role('link',name='在新标签页打开')
+  assert entry.get_attribute('href')==cfg['market']+'/content/open/2'
+  with c.expect_page() as trusted_open:entry.click()
+  trusted=trusted_open.value;trusted.wait_for_load_state('networkidle');assert trusted.url==cfg['market']+'/content/open/2';assert trusted.evaluate('window.opener===null');trusted.close()
+  rows.append({'case':'old-iframe-manual-trusted-entry','opener_null':True,'no_automatic_upstream':True})
+  r=page.goto(cfg['market']+'/go/2/original?return=https%3A%2F%2Fevil.invalid');assert r.status==200
+  assert page.url==cfg['market']+'/content/open/2'
+  rows.append({'case':'opt-in-browser-navigation-migrates','target_id':2,'old_query_dropped':True})
   requests=[];c.on('request',lambda r:requests.append({'url':r.url,'method':r.method,'origin':r.headers.get('origin'),'ctype':r.headers.get('content-type')}))
   with c.expect_page() as opened:page.get_by_role('button',name='打开工作台').click()
   target=opened.value
