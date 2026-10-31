@@ -86,9 +86,11 @@ content-ws-startup-test默认20个全新进程各一次授权握手，再一进�
 
 壳产生一次nonce、核event.source为当前frame及opaque origin，READY须固定上下文/schema匹配；INIT只向该Window转移MessagePort，含readOnly=true和保存值，不含Odoo/admin/MCP/run上传能力。后续ACK/LOCK_ACK核固定绑定、nonce、严格seq/闭集键；HYDRATE回填，LOCK禁控件，TEARDOWN移除frame/关闭port，超时/重载/非法消息失败关闭。锁定是显示约束而非后台授权门，frame可不服从；本步完全没有保存/上传/finish/unlock或任何后台写权限。
 
-纯输入校验25项与实际序列化host脚本VM状态21项已过（错source/origin/target/run/version/step/nonce/schema、ACK重放、额外键、timeout/reload/teardown等）；VM模拟窗口/port不代真实浏览器/CSP/存储隔离。轻量浏览器尝试尚未通过：两次无进展取消，后两次有界deadline中断，分别有导航后未ready及请求未到达等观察。JSON脚本转义首反例红已修，锁定已改幂等/observer断开再恢复；这些修改不证明浏览器阻塞根因已定。日志保tmp/content296-sop-readonly，停止本机继续起浏览器，不据25+21过把本第1步报完成。
+纯输入与CSP字节校验26项、实际序列化host脚本VM状态21项通过（错source/origin/target/run/version/step/nonce/schema、ACK重放、额外键、timeout/reload/teardown等）；VM不代浏览器。后续真实Chromium单链6项通过：类型回填、opaque父DOM/存储/Cookie隔离与非可信script拒、HYDRATE、LOCK_ACK、错误窗口消息忽略、TEARDOWN。使用请求拦截提供固定合成origin页面，无TCP listener；证明浏览器渲染/CSP/MessageChannel原语，不证明HTTP运输或真实Runner装配。截图与原件tmp/sop-readonly-browser-1793471115212，旧失败原件不覆盖。
 
-待完成：真实浏览器握手/HYDRATE/LOCK/TEARDOWN与存储隔离、恶意/旧frame端到端反例及非作者评审；与冻结manifest/run状态的实际受控装配；独立内容源托管与真实SOP schema迁移。CHANGE/VALIDATE/COLLECT和UPLOAD后续两步尚未做，三步全完且获准前不切任何SOP。CI本轮只加网络零连接的校验/VM门，不将未通过browser列成已验门。现网d908/control0与此Draft完全分开。
+已证阻断：Windows函数toString保留CRLF，而HTML解析器将CRLF/CR归一化LF，导致声明CSP hash与执行字节不符。旧主hash uMClpaH4…与原字节一致，HTML归一后4sQ7gk8…精确对应浏览器拒绝值；现在先统一LF再hash并原样下发，未加unsafe-inline/unsafe-eval。测试字符串eval与浏览器导航auto-wait另行改为函数谓词/状态属性及no_wait_after原生点击，保后续ACK/回填断言；不能由成功反推所有等待卡顿根因。HTTP控制页零请求超时、早期ERR_ABORTED仍未定因，改拦截只隔离变量、不宣网络已修。
+
+待完成：更全面的恶意/旧frame浏览器反例及非作者评审、冻结manifest/run状态实际装配、独立内容源托管与真实SOP schema迁移。第1步目前仅未挂载只读预览原语，不能报真实SOP可用。CHANGE/VALIDATE/COLLECT与UPLOAD尚未做，三步全完且获准前不切任何SOP。CI加入拦截式浏览器门，与现网d908/control0完全分开。
 
 ## 验证与未完成
 content-access-test原58、portal-observation-test原30、303红/200绿cookie对照保留；content-surface-test真实registerSurface+sharedExpress+counted upstream+假时钟核HTTP/WS/到期/撤权/restart/编码/fallback0。content-index-browser真实index+synthetic DB/home+假Odoo/上游+Chromium核跨站200/opener null/撤权XHR401/导航同target401，上游合法1次且不漏browser身份。不是真实Odoo/DNS或生产验收。

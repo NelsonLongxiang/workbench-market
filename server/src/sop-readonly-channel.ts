@@ -23,6 +23,8 @@ export function validateReadonlySop(input: ReadonlySop): ReadonlySop {
 }
 const json = (value: unknown) => JSON.stringify(value).replace(/</g, String.fromCharCode(92) + 'u003c');
 const escape = (v: string) => v.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+// HTML parsing normalizes CRLF/CR before CSP hashing; emit exactly the bytes hashed.
+const htmlScript = (source: string) => source.split(String.fromCharCode(13,10)).join(String.fromCharCode(10)).split(String.fromCharCode(13)).join(String.fromCharCode(10));
 const scriptPolicy = (script: string) => "'sha256-" + createHash('sha256').update(script).digest('base64') + "'";
 // These functions are serialized as browser code. They contain no server secrets/capabilities.
 function frameRuntime(boot: any) {
@@ -95,10 +97,10 @@ function hostRuntime(boot: any, documentHtml: string) {
 export function renderReadonlySopPreview(input: ReadonlySop): string {
   const config = validateReadonlySop(input);
   const {body,values,...frameConfig} = config;
-  const child = '(' + frameRuntime.toString() + ')(' + json(frameConfig) + ');';
+  const child = htmlScript('(' + frameRuntime.toString() + ')(' + json(frameConfig) + ');');
   const policy = "default-src 'none'; script-src " + scriptPolicy(child) + "; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'";
   const frame = '<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="' + escape(policy) + '"><body>' + body + '<script>' + child + '</script>';
-  const host = '(' + hostRuntime.toString() + ')(' + json({...config,body:undefined}) + ',' + json(frame) + ');';
+  const host = htmlScript('(' + hostRuntime.toString() + ')(' + json({...config,body:undefined}) + ',' + json(frame) + ');');
   const hostPolicy = "default-src 'none'; script-src " + scriptPolicy(host) + " " + scriptPolicy(child) + "; frame-src 'self'; style-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'";
   return '<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="' + escape(hostPolicy) + '"><title>SOP read-only protocol preview</title><h1>SOP只读通道预览</h1><p id="channel-state" role="status" data-state="loading">loading</p><button id="hydrate">回填已存值</button><button id="lock">锁定</button><button id="teardown">销毁通道</button><iframe id="body-frame" title="隔离步骤正文" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe><script>' + host + '</script>';
 }

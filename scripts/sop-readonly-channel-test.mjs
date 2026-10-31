@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {validateReadonlySop,renderReadonlySopPreview} from '../server/src/sop-readonly-channel.ts';
 const input={targetId:4,runId:12,version:3,step:'inspect',revision:0,marketOrigin:'http://127.0.0.1:9999',fields:[{key:'note',type:'text',maxLength:100},{key:'count',type:'number'},{key:'ok',type:'boolean'},{key:'tags',type:'multi',options:['a','b']}],values:{note:'saved',count:4,ok:true,tags:['a']},body:'<label>Note<input data-field="note"></label>'};
 let checks=0;const check=(name,fn)=>{fn();checks++;console.log('PASS '+name)};
@@ -8,4 +9,5 @@ for(const fields of [[input.fields[0],input.fields[0]],[{key:'admin',type:'file'
 for(const values of [{note:42},{count:'4'},{ok:'yes'},{tags:['other']},{note:'x'.repeat(101)},{unknown:'x'}])check('typed saved data rejects mismatch',()=>assert.throws(()=>validateReadonlySop({...input,values})));
 check('HTML only contains opaque sandbox preview, no old runner',()=>{const html=renderReadonlySopPreview(input);assert.ok(html.includes('sandbox="allow-scripts"'));assert.ok(!html.includes('allow-same-origin'));assert.ok(!html.includes('/api/sop/runs'));assert.ok(!html.includes('WM_APP_TOKEN'));});
 check('saved text escaping cannot close trusted script',()=>{const html=renderReadonlySopPreview({...input,values:{note:'</script><script>bad()</script>'}});assert.ok(!html.includes('</script><script>bad()'));});
+check('emitted host script digest matches HTML-normalized bytes',()=>{const html=renderReadonlySopPreview(input),script=html.slice(html.indexOf('<script>')+8,html.lastIndexOf('</script>'));assert.ok(!script.includes(String.fromCharCode(13)));const hash=createHash('sha256').update(script).digest('base64');assert.ok(html.slice(0,html.indexOf('<title>')).includes('sha256-'+hash));assert.ok(!html.includes("'unsafe-eval'"));});
 console.log(JSON.stringify({checks,scope:'read-only preview validation; not deployed runner or write capability'}));
