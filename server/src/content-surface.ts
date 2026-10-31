@@ -7,12 +7,13 @@ import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import type { Duplex } from 'node:stream';
 import { isIP } from 'node:net';
+import { gunzipSync, brotliDecompressSync, inflateSync } from 'node:zlib';
 import { createContentAccess, contentLaunchPage, type ContentTarget } from './content-access.ts';
 import { registerSurface, surfaceOf } from './surfaces.ts';
 
 type Viewer = { subject: string; internal: true };
-type Upstream = { url: string; authorization?: string; cookie?: string };
-export type ContentSurfaceConfig = { host: string; port: number; marketOrigin: string; targets: (ContentTarget & { upstreamUrl: string; migrateBrowser?: boolean })[] };
+type Upstream = { url: string; authorization?: string; cookie?: string; queryCredentials?: Record<string, string> };
+export type ContentSurfaceConfig = { host: string; port: number; marketOrigin: string; targets: (ContentTarget & { upstreamUrl: string; migrateBrowser?: boolean; queryCredentialKeys?: string[] })[] };
 type Config = ContentSurfaceConfig;
 type Deps = {
   viewer: (cookie: string) => Promise<Viewer | null>;
@@ -33,7 +34,10 @@ export function contentConfig(env: NodeJS.ProcessEnv): Config | null {
   for (const t of targets) {
     if (t.migrateBrowser !== undefined && typeof t.migrateBrowser !== 'boolean') throw Error('migrateBrowser must be an explicit boolean');
     if (Number(new URL(t.origin).port || 80) !== port || new URL(t.origin).hostname === new URL(marketOrigin).hostname) throw Error('Content origin port/host mismatch');
+    const keys = t.queryCredentialKeys;
+    if (keys !== undefined && (!Array.isArray(keys) || keys.length === 0 || keys.length > 8 || keys.some(k => typeof k !== 'string' || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(k)) || new Set(keys.map(k => k.toLowerCase())).size !== keys.length)) throw Error('Invalid query credential key declaration');
     const u = new URL(t.upstreamUrl);
+    if (keys && [...u.searchParams.keys()].some(k => keys.some(key => key.toLowerCase() === k.toLowerCase()))) throw Error('Pinned URL must not contain credential parameters');
     if (!['http:', 'https:'].includes(u.protocol) || u.username || u.password || u.hash) throw Error('Invalid pinned upstream');
   }
   createContentAccess(targets, marketOrigin, () => null); // validate hosts, IDs and trusted origin, never an active epoch
@@ -92,8 +96,10 @@ export function createContentSurface(config: Config, deps: Deps) {
     const who = admitted ? await valid(admitted.subject) : null;
     // Odoo request may race a clock/revocation change: re-run core validation after await.
     if (!admitted || !who || !access.admit(req)) { expire(req, res); return; }
-    const upstream = deps.upstream(admitted.target.id); // FIRST target credential read
-    if (!upstream || upstream.url !== byId.get(admitted.target.id)?.upstreamUrl) { res.status(503).type('json').send('{"error":"content_target_unavailable"}'); return; }
+    const pin = byId.get(admitted.target.id)!;
+    if (hasCredentialQuery(req.url, pin.queryCredentialKeys)) { res.status(400).type('json').send('{"error":"content_query_not_allowed"}'); return; }
+    const upstream = privateUpstream(deps.upstream(admitted.target.id), pin); // FIRST target credential read
+    if (!upstream) { res.status(503).type('json').send('{"error":"content_target_unavailable"}'); return; }
     proxy(req, res, upstream, admitted.target, monitor(admitted.subject));
   })().catch(() => { if (!res.headersSent) res.status(502).type('json').send('{"error":"content_unavailable"}'); else res.destroy(); }); };
   const launch: express.RequestHandler = (req, res) => { void (async () => {
@@ -121,8 +127,10 @@ export function createContentSurface(config: Config, deps: Deps) {
   async function upgrade(req: IncomingMessage, socket: Duplex, head: Buffer) {
     const admitted = access.admit(req), who = admitted ? await valid(admitted.subject) : null;
     if (!admitted || !who || !access.admit(req)) { socket.end('HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n' + JSON.stringify(json)); return; }
-    const upstream = deps.upstream(admitted.target.id);
-    if (!upstream || upstream.url !== byId.get(admitted.target.id)?.upstreamUrl) { socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n'); return; }
+    const pin = byId.get(admitted.target.id)!;
+    if (pin.queryCredentialKeys?.length) { socket.end(['HTTP/1.1 403 Forbidden','Connection: close','',''].join(String.fromCharCode(13,10))); return; }
+    const upstream = privateUpstream(deps.upstream(admitted.target.id), pin);
+    if (!upstream) { socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n'); return; }
     const url = upstreamUrl(req.url ?? '', upstream, admitted.target.id);
     const headers = upstreamHeaders(req, upstream); headers.connection = 'Upgrade'; headers.upgrade = 'websocket';
     for (const name of ['sec-websocket-key', 'sec-websocket-version', 'sec-websocket-protocol']) if (typeof req.headers[name] === 'string') headers[name] = req.headers[name] as string;
@@ -172,13 +180,31 @@ export function createContentSurface(config: Config, deps: Deps) {
   };
   return { access, handler, launch, upgrade, migrate };
 }
+function hasCredentialQuery(path: string, keys: readonly string[] = []): boolean {
+  const query = path.indexOf('?');
+  return query >= 0 && [...new URLSearchParams(path.slice(query + 1)).keys()].some(k => keys.some(key => key.toLowerCase() === k.toLowerCase()));
+}
+/** Called only after viewer admission. Pins never carry parameter values. */
+function privateUpstream(source: Upstream | null, pin: Config['targets'][number]): Upstream | null {
+  if (!source) return null;
+  if (!pin.queryCredentialKeys?.length) return source.url === pin.upstreamUrl ? source : null;
+  const url = new URL(source.url), queryCredentials: Record<string, string> = Object.create(null);
+  for (const key of pin.queryCredentialKeys) {
+    const pairs = [...url.searchParams].filter(([k]) => k.toLowerCase() === key.toLowerCase());
+    if (pairs.length !== 1 || pairs[0][0] !== key || !pairs[0][1] || pairs[0][1].length > 2048) return null;
+    queryCredentials[key] = pairs[0][1]; url.searchParams.delete(key);
+  }
+  return url.href === pin.upstreamUrl ? { ...source, url: url.href, queryCredentials } : null;
+}
 function upstreamUrl(path: string, target: Upstream, id: number) {
   const u = new URL(target.url); if (!['http:', 'https:'].includes(u.protocol) || u.username || u.password || u.hash) throw Error('Unsupported content target');
   const prefix = new RegExp('^/go/' + id + '(?=/|[?]|$)', 'i');
   const rest = path.replace(prefix, '') || '/';
   const p = rest.indexOf('?');
   u.pathname = u.pathname.replace(/[/]+$/, '') + (p < 0 ? rest : rest.slice(0, p));
-  if (p >= 0) u.search = rest.slice(p); return u;
+  if (p >= 0) u.search = rest.slice(p);
+  for (const [key, value] of Object.entries(target.queryCredentials ?? {})) u.searchParams.set(key, value);
+  return u;
 }
 function upstreamHeaders(req: IncomingMessage, target: Upstream): Record<string, string> {
   const headers: Record<string, string> = {};
@@ -190,11 +216,51 @@ function upstreamHeaders(req: IncomingMessage, target: Upstream): Record<string,
   if (target.cookie) headers.cookie = target.cookie;
   return headers;
 }
+/** Known-representation echo guard, NOT information-flow protection against an
+ * arbitrary hostile upstream. Query targets require compatibility review before enablement. */
+function relayQueryResponse(r: IncomingMessage, res: express.Response, requested: URL, target: Upstream, content: ContentTarget) {
+  const limit = 2 * 1024 * 1024;
+  const secrets = Object.values(target.queryCredentials ?? {});
+  const variants = secrets.flatMap(v => [v, encodeURIComponent(v), new URLSearchParams({ v }).toString().slice(2),
+    Buffer.from(v).toString('base64'), JSON.stringify(v).slice(1, -1)]).filter(Boolean).map(s => Buffer.from(s));
+  const leaks = (body: Buffer) => variants.some(v => body.includes(v));
+  let bytes = 0, rejected = false; const chunks: Buffer[] = [];
+  function deny() {
+    if (rejected) return; rejected = true; r.destroy();
+    if (!res.destroyed) res.status(502).type('json').end('{"error":"content_response_rejected"}');
+  }
+  r.on('data', chunk => { bytes += chunk.length; if (bytes > limit) deny(); else if (!rejected) chunks.push(Buffer.from(chunk)); });
+  r.once('end', () => {
+    if (rejected || res.destroyed) return;
+    try {
+      let body = Buffer.concat(chunks);
+      const encoding = String(r.headers['content-encoding'] ?? '').toLowerCase();
+      if (encoding === 'gzip') body = gunzipSync(body, { maxOutputLength: limit });
+      else if (encoding === 'br') body = brotliDecompressSync(body, { maxOutputLength: limit });
+      else if (encoding === 'deflate') body = inflateSync(body, { maxOutputLength: limit });
+      else if (encoding && encoding !== 'identity') { deny(); return; }
+      if (body.length > limit || leaks(body) || leaks(Buffer.from(JSON.stringify(r.headers)))) { deny(); return; }
+      if (r.headers.location) {
+        const location = new URL(r.headers.location, requested), base = new URL(target.url);
+        if (location.origin !== base.origin || location.username || location.password || hasCredentialQuery(location.search, Object.keys(target.queryCredentials ?? {})) ||
+          !location.pathname.startsWith(base.pathname.replace(/[/]+$/, '') + '/')) { deny(); return; }
+        res.setHeader('Location', '/go/' + content.id + location.pathname.slice(base.pathname.replace(/[/]+$/, '').length) + location.search);
+      }
+      // No upstream cache/etag/cookie/refresh or arbitrary header values. Body buffered
+      // before any upstream byte is committed, including unsupported compressed replies.
+      const ct = String(r.headers['content-type'] ?? 'application/octet-stream');
+      res.setHeader('Content-Type', ct); res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Referrer-Policy', 'no-referrer'); res.setHeader('Content-Length', body.length);
+      res.end(body);
+    } catch { deny(); }
+  });
+}
 function proxy(req: express.Request, res: express.Response, target: Upstream, content: ContentTarget, monitor: (disconnect: () => void) => () => void) {
   const url = upstreamUrl(req.url, target, content.id);
   const q = (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, { method: req.method, headers: upstreamHeaders(req, target) }, r => {
     res.status(r.statusCode ?? 502);
     r.once('error', () => res.destroy());
+    if (target.queryCredentials) { relayQueryResponse(r, res, url, target, content); return; }
     // Dynamic upstream cookie jar intentionally unsupported: never let it overwrite context.
     // Redirects may stay only on this target's content host/path; no cross-target bounce.
     if (r.headers.location) {

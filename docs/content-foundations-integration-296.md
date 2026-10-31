@@ -38,8 +38,20 @@ POST/其他方法、upgrade、fetch/XHR、curl/node/python/MCP及无提示unknow
 
 实际index合成浏览器包含旧iframe人工noopener入口、旧/go顶层导航迁出丢query、机器旧路health探针不变，并复验内容launch/WS撤权/XHR与导航401。不会自动注册内容DNS或改网络/配置。
 
+## 第3段首个适配：Bearer与URL参数凭据（受限HTTP，未启现场）
+
+公开登记快照38台=25站内/13外部，Bearer1、URL凭据参数标志2、Basic0、Cookie池挂接0；这是类别而非真实运行需求证明，不读取任何参数/凭据值、不访问真实目标。Bearer沿现服务端Authorization重建，真实index合成链同时核browser头不透。Basic只保原有能力，不以未登记推永远不用。
+
+可信WM_CONTENT_TARGETS可增queryCredentialKeys（仅键名，1–8个、不重复/大小写歧义，禁止值），upstreamUrl必须移除这批参数、无userinfo/hash。每请求严格准入及真实Odoo现验后，才从registry私有URL取每个精确单值参数，剥后URL须与pin全文相同；缺/重复/拼写歧义或其他URL变化503。向上游请求仅由服务器追加这些值；浏览器同名/大小写/百分号编码键一律400且在私有配置读取前结束，不接“浏览器覆盖值”。launch/context/browser路径/聚合观察不加入这些值。
+
+query凭据目标WS暂403（在读取私有凭据及业务连接前）；HTTP响应先完整有界缓冲（压缩前与解压后各2MiB），gzip/br/deflate已知编码可解压，未知编码/超限/解压错拒502固定content_response_rejected，不提前发任何上游body。原值、URL编码、表单编码、Base64、JSON转义这几种表示在body及上游header发现则整响应拒；跨块拼接后核，敏感redirect/cookie/header同拒，不反射值。仅允许同target无敏感键跳转；不透Set-Cookie/Refresh/上游缓存/etag/任意header，响应private no-store/no-referrer。二进制按字节检查，不冒覆盖任意字符集或混淆。
+
+**这是已列表示形式的回显防护，不是任意上游信息流保密证明。** 恶意/被攻陷上游可以分散/变换/加密凭据、编码成脚本计算或其他隐蔽信道；一般代理无法证明“任意响应绝无参数值信息”。长轮询/SSE/大下载、query凭据WS以及需要上游动态Cookie的目标不支持；2MiB缓冲存在每请求资源开销，不宣性能/并发SLA。真实两台仍需持权方提供无值兼容材料和目标级验收/风险评审，不因本Draft合成37项与浏览器链过就允许现场切流。若业务要求任意上游也零信息外泄，需要目标专用服务端适配/不向上游发送秘密的协议，不能继续堆字符串黑名单当证明。
+
+测试只用随机合成secret，上游计数记录布尔不记值；捕获进程stdout/stderr与公开聚合检查无该值，不把测试日志事后遮盖当“未泄漏”证明。测试输出文件仍可能包含随机synthetic值的私有夹具配置，不能拿它推断生产配置无秘密；没有输出或读取真实secret。真实registry/API脱敏规则不由本段改变。
+
 ## 目标代理范围与限制
-显式WM_CONTENT_TARGETS固定{id,origin,upstreamUrl}；当前registry URL须全文相同，否则503，不能让agent改URL后用旧target上下文去另一源。HTTP/WS流式传输，按/go/id剥前缀，重建目标Origin；不转browser Cookie/Authorization/X-Admin-Token/forwarded头，只用服务器目标Bearer/Basic。上游Set-Cookie不透出以防覆盖context，跨目标/源跳转拒502。
+显式WM_CONTENT_TARGETS固定{id,origin,upstreamUrl}；当前registry URL（若有声明query凭据则去除这些参数后）须全文相同，否则503，不能让agent改URL后用旧target上下文去另一源。HTTP/WS流式传输，按/go/id剥前缀，重建目标Origin；不转browser Cookie/Authorization/X-Admin-Token/forwarded头，只用服务器目标Bearer/Basic。上游Set-Cookie不透出以防覆盖context，跨目标/源跳转拒502。
 
 Cookie池/动态上游登录容器尚未装配：绑定cookie_set_id的台在实际index拒503，不从browser拿身份兜底。HTML/JS/CSS根路径重写、SOP/自产台内联、MessageChannel字段通道未接；本段只适合自持相对路径HTTP台及准入证明，不能称真实Odoo台/任意网站完整交互可用。
 
