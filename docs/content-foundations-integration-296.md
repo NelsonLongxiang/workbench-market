@@ -14,7 +14,17 @@ resolveOdooViewer现查get_session_info能核uid/username/internal，但无可�
 
 - 到期顶层GET/HEAD导航静态401：唯一同target的可信/content/open/id链接，人工点击，不自动跳转。原路径不保存，固定首页，拒任意return URL切台。HTTP缺Metadata时GET/HEAD+Accept:text/html按导航兜底；明确XHR/cors等得JSON，分类只影响错误表现不参与授权。
 - fetch/XHR/POST等非导航固定401 JSON {"error":"content_context_expired"}，不redirect、不重放body；WS握手同401拒。重启引用/签名key全部丢弃，体验同到期。
-- 可信入口未登录时给/lifecycle登录入口，随后需手动回同target启动页；自动跨Odoo保target回程尚未接，不冒无缝SSO。已升级WS只在握手现验，既有连接撤权后逐帧/主动断连仍待设计，不能宣每帧即时失效。
+- 可信入口未登录时给/lifecycle登录入口，随后需手动回同target启动页；自动跨Odoo保target回程尚未接，不冒无缝SSO。已升级WS与未结束HTTP响应现在有主动租约重验，具体界限见下一节；不是逐帧强一致授权，不能宣每帧即时失效。
+
+## 第1段：已连HTTP/WS主动撤权
+
+每条未结束的HTTP流/已upgrade双工连接独立监视，重验完成后1秒再查，单次等待上限5秒；不重叠发同连接重验。对同一原Odoo SID仍只向已配可信Odoo查询，不读上游身份。发现注销/无效/异常或超时即销毁两侧业务连接；不发送重登录redirect、不重放HTTP body或WS消息。响应finish/close/abort取消监视，WS关闭清远端与待升级请求；重验超时不能阻止关闭。
+
+**断开合同：正常可运行的Node事件循环下，身份撤销在固定Odoo源可见后，保守上界11秒**（可能有一个撤前已发起的5秒校验返回旧成功，再间隔1秒+下一次5秒校验失败）。空闲无在途时通常约1秒，校验挂起约6秒；不能拿测得约1秒替代最坏上界。外加事件循环调度/OS传播误差；主机挂起或事件循环长期阻塞不是实时系统保证，不宣墙钟绝对11秒。期间在途/已缓存字节不能撤回，关闭前仍可能收发，不称撤权瞬间原子隔断。
+
+300秒硬期限单独定时，不等身份校验完成；计时器触发再核同一时钟，假时钟与真实时钟不混用；身份源挂起也不能把本地硬期限续长。每个连接到期/撤销会使对应viewer引用失效，兄弟连接在其下次重验关闭（同上界），不支持跨进程广播。
+
+验收content-stream-revocation-test：真实HTTP长响应及HTTP101双工持续收发，撤销/身份异常/挂起/硬到期后旧连接断、后续收发计数不再增加、上游也关闭；原guard取消/expiry与挂起检查另有机械时钟用例。原raw101夹具只证透明传输，真实Chromium+完整index另以有效RFC6455握手/服务端text帧验证旧WebSocket撤权后close且不再收消息。所有身份均合成，不是真实Odoo时延SLA。
 
 ## 目标代理范围与限制
 显式WM_CONTENT_TARGETS固定{id,origin,upstreamUrl}；当前registry URL须全文相同，否则503，不能让agent改URL后用旧target上下文去另一源。HTTP/WS流式传输，按/go/id剥前缀，重建目标Origin；不转browser Cookie/Authorization/X-Admin-Token/forwarded头，只用服务器目标Bearer/Basic。上游Set-Cookie不透出以防覆盖context，跨目标/源跳转拒502。
@@ -33,4 +43,4 @@ WM_PORTAL_OBSERVE=1显式启，默认不建表/不计数。market HTTP或upgrade
 ## 验证与未完成
 content-access-test原58、portal-observation-test原30、303红/200绿cookie对照保留；content-surface-test真实registerSurface+sharedExpress+counted upstream+假时钟核HTTP/WS/到期/撤权/restart/编码/fallback0。content-index-browser真实index+synthetic DB/home+假Odoo/上游+Chromium核跨站200/opener null/撤权XHR401/导航同target401，上游合法1次且不漏browser身份。不是真实Odoo/DNS或生产验收。
 
-首launch Origin:null失败与从CSP到期页发fetch被connect-src:none拒的驱动错位均留原件；改为原业务文档发撤权XHR，不放松CSP/Origin。数量按本轮实际log。仍待非作者复核、真实身份/网络、cookie容器和资源路径兼容、既有WS撤销、完整工作周观察、SOP通道及部署批准，不冒全树或完整隔离PASS。
+首launch Origin:null失败与从CSP到期页发fetch被connect-src:none拒的驱动错位均留原件；改为原业务文档发撤权XHR，不放松CSP/Origin。数量按本轮实际log。仍待非作者复核、真实身份/网络、cookie容器和资源路径兼容、真实Odoo撤权时延及连接规模、完整工作周观察、SOP通道及部署批准，不冒全树或完整隔离PASS。
