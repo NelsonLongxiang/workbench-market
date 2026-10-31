@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {validateReadonlySop,renderReadonlySopPreview} from '../server/src/sop-readonly-channel.ts';
+const input={targetId:4,runId:12,version:3,step:'inspect',revision:0,marketOrigin:'http://127.0.0.1:9999',fields:[{key:'note',type:'text',maxLength:100},{key:'count',type:'number'},{key:'ok',type:'boolean'},{key:'tags',type:'multi',options:['a','b']}],values:{note:'saved',count:4,ok:true,tags:['a']},body:'<label>Note<input data-field="note"></label>'};
+let checks=0;const check=(name,fn)=>{fn();checks++;console.log('PASS '+name)};
+check('trusted fixed context accepted',()=>assert.equal(validateReadonlySop(input).runId,12));
+for(const key of ['targetId','runId','version'])for(const value of [0,-1,1.5,NaN])check('invalid binding '+key+' '+value,()=>assert.throws(()=>validateReadonlySop({...input,[key]:value})));
+for(const fields of [[input.fields[0],input.fields[0]],[{key:'admin',type:'file'}],[{key:'__proto__',type:'text'}],[{key:'note',type:'text',maxLength:0}]])check('schema rejects ambiguous or unsupported declaration',()=>assert.throws(()=>validateReadonlySop({...input,fields})));
+for(const values of [{note:42},{count:'4'},{ok:'yes'},{tags:['other']},{note:'x'.repeat(101)},{unknown:'x'}])check('typed saved data rejects mismatch',()=>assert.throws(()=>validateReadonlySop({...input,values})));
+check('HTML only contains opaque sandbox preview, no old runner',()=>{const html=renderReadonlySopPreview(input);assert.ok(html.includes('sandbox="allow-scripts"'));assert.ok(!html.includes('allow-same-origin'));assert.ok(!html.includes('/api/sop/runs'));assert.ok(!html.includes('WM_APP_TOKEN'));});
+check('saved text escaping cannot close trusted script',()=>{const html=renderReadonlySopPreview({...input,values:{note:'</script><script>bad()</script>'}});assert.ok(!html.includes('</script><script>bad()'));});
+console.log(JSON.stringify({checks,scope:'read-only preview validation; not deployed runner or write capability'}));
