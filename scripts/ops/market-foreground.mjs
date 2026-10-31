@@ -63,10 +63,10 @@ export async function runForeground(raw,test={}){
  const c=validateConfig(raw),pkg=verifyPackage(c.packageManifest,test.manifestSha??PIN);
  if(c.eventLog===pkg.root||inside(pkg.root,c.eventLog))throw Error('log_must_be_separate');
  const lockPath=join(c.dataDirectory,'.market-foreground-'+c.port+'.lock');
- let log,lock,child=null,exitPromise=null,stopping=false,stopReason='normal',lastCode=null,restarts=0,cleanupIncomplete=false,stopTimer,rejectExit,resumeDelay;
+ let log,lock,child=null,exitPromise=null,stopping=false,stopReason='normal',lastCode=null,restarts=0,cleanupIncomplete=false,stopTimer,rejectExit,resumeDelay,exitObserved=false,noProcess=false;
  const lifecycle=(event,detail={})=>{try{const line=Buffer.from(JSON.stringify({at:new Date().toISOString(),source:FIXED_SOURCE,supervisor_pid:process.pid,event,...detail})+String.fromCharCode(10));if(fstatSync(log).size+line.length>16*1024*1024)throw Error();if(writeSync(log,line)!==line.length)throw Error();}catch{throw Error('event_log_failed');}};
  // child is a retained ChildProcess handle; never a PID read from a caller-supplied receipt.
- const stopOwn=()=>{if(child&&child.exitCode===null&&child.signalCode===null)child.kill('SIGTERM');};
+ const stopOwn=()=>{if(child&&!exitObserved&&!noProcess){try{child.kill('SIGTERM');}catch{/* A failed stop is not exit evidence; keep ownership and wait for real exit. */}}};
  const signal=()=>{stopping=true;stopReason='operator_signal';resumeDelay?.();stopOwn();if(child&&!stopTimer)stopTimer=setTimeout(()=>{cleanupIncomplete=true;rejectExit?.(Error('worker_stop_timeout'));},5000);};
  const waitExit=async()=>{let timer;try{return await Promise.race([exitPromise,new Promise((_,j)=>timer=setTimeout(()=>j(Error('worker_stop_timeout')),5000))]);}finally{clearTimeout(timer);}};
  try{
@@ -84,8 +84,18 @@ export async function runForeground(raw,test={}){
    const bind="import net from 'node:net';const l=net.Server.prototype.listen;net.Server.prototype.listen=function(...a){if(typeof a[0]==='number'){if(typeof a[1]==='string')a[1]='127.0.0.1';else a.splice(1,0,'127.0.0.1')}return l.apply(this,a)};";
    const argv=[...(c.bindHost==='127.0.0.1'?['--import','data:text/javascript,'+encodeURIComponent(bind)]:[]),'--disable-warning=ExperimentalWarning','src/index.ts'];
    child=(test.spawn??spawn)(process.execPath,argv,{cwd:join(pkg.root,'server'),env,detached:false,stdio:['ignore','pipe','pipe']});
-   const worker=child;let spawnFailed=false,stdoutBytes=0,stderrBytes=0;
-   exitPromise=new Promise((r,j)=>{rejectExit=j;worker.once('error',()=>{spawnFailed=true;clearTimeout(stopTimer);r({code:null,signal:null,error:true});});worker.once('exit',(code,signal)=>{clearTimeout(stopTimer);r({code,signal,error:spawnFailed});});});exitPromise.catch(()=>{});
+   const worker=child;let spawnFailed=false,stdoutBytes=0,stderrBytes=0,rejectWorkerError;
+   exitObserved=false;noProcess=false;
+   const workerError=new Promise((_,reject)=>{rejectWorkerError=reject;});workerError.catch(()=>{});
+   exitPromise=new Promise((resolve,reject)=>{
+    rejectExit=reject;
+    worker.on('error',()=>{
+     spawnFailed=true;
+     if(!Number.isSafeInteger(worker.pid)||worker.pid<1){noProcess=true;resolve({code:null,signal:null,error:true});}
+     else rejectWorkerError(Error('live_worker_error')); // error is control failure, NEVER exit evidence.
+    });
+    worker.once('exit',(code,signal)=>{exitObserved=true;clearTimeout(stopTimer);resolve({code,signal,error:spawnFailed});});
+   });exitPromise.catch(()=>{});
    // Drain output but persist only byte counts: workers may print secrets in arbitrary lines.
    worker.stdout?.on('data',b=>stdoutBytes+=b.length);worker.stderr?.on('data',b=>stderrBytes+=b.length);
    lifecycle('worker_started',{worker_pid:worker.pid??null,attempt:restarts+1});
@@ -94,7 +104,7 @@ export async function runForeground(raw,test={}){
    if(!ready||stopping){stopReason=stopping?stopReason:'startup_verification_failed';stopping=true;stopOwn();}
    else{await(test.emptyPort??emptyPort)(c.port+1,c.bindHost);const id=await(test.identity??identity)(worker.pid,c.port);if(worker.exitCode!==null||worker.signalCode!==null||stopping)throw Error('worker_exited_before_ready');lifecycle('worker_ready',{worker_pid:worker.pid,created_ticks:id.createdTicks,executable:id.executable});}
    // During steady state the only completion is the retained child's exit, not parent exit or polling.
-   const result=stopping?await waitExit():await exitPromise;
+   const result=stopping?await waitExit():await Promise.race([exitPromise,workerError]);
    clearTimeout(stopTimer);lastCode=result.code;
    lifecycle('worker_exit',{worker_pid:worker.pid??null,code:result.code,signal:result.signal,error:result.error,stdout_bytes:stdoutBytes,stderr_bytes:stderrBytes});child=null;
    if(stopping||!ready||result.error)break;
@@ -104,10 +114,10 @@ export async function runForeground(raw,test={}){
    if(test.wait)await test.wait(ms);else await new Promise(r=>{const t=setTimeout(()=>{resumeDelay=null;r();},ms);resumeDelay=()=>{clearTimeout(t);resumeDelay=null;r();};});if(!stopping)stopReason='normal';
   }
   const ok=!cleanupIncomplete&&stopReason==='worker_clean_exit';lifecycle('supervisor_exit',{reason:stopReason,restarts,worker_exit_code:lastCode});return{ok,restarts,reason:stopReason,workerExitCode:lastCode};
- }catch(e){stopping=true;try{if(log!==undefined)lifecycle('supervisor_error',{reason:['instance_lock_exists','port_occupied_or_unavailable','db_admin_missing','event_log_failed','worker_stop_timeout','worker_identity_unverified','worker_exited_before_ready'].includes(e.message)?e.message:'preflight_or_runtime_failed'});}catch{}throw e;}
+ }catch(e){stopping=true;try{if(log!==undefined)lifecycle('supervisor_error',{reason:['instance_lock_exists','port_occupied_or_unavailable','db_admin_missing','event_log_failed','worker_stop_timeout','worker_identity_unverified','worker_exited_before_ready','live_worker_error'].includes(e.message)?e.message:'preflight_or_runtime_failed'});}catch{}throw e;}
  finally{
   process.removeListener('SIGINT',signal);process.removeListener('SIGTERM',signal);clearTimeout(stopTimer);
-  if(child){if(child.exitCode===null&&child.signalCode===null){stopOwn();try{await waitExit();}catch{cleanupIncomplete=true;}}if(!cleanupIncomplete){try{lifecycle('worker_cleanup_exit',{worker_pid:child.pid??null,code:child.exitCode,signal:child.signalCode});}catch{}}}
+  if(child){if(!exitObserved&&!noProcess){stopOwn();try{await waitExit();}catch{cleanupIncomplete=true;}}if(!cleanupIncomplete){try{lifecycle('worker_cleanup_exit',{worker_pid:child.pid??null,code:child.exitCode,signal:child.signalCode});}catch{}}}
   // If the worker cannot be proven exited, preserve its lock/journal and require manual intervention.
   if(!cleanupIncomplete&&lock!==undefined){closeSync(lock);unlinkSync(lockPath);}else if(lock!==undefined)closeSync(lock);
   if(log!==undefined)closeSync(log);
