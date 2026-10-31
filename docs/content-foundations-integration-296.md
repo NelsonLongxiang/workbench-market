@@ -50,14 +50,22 @@ query凭据目标WS暂403（在读取私有凭据及业务连接前）；HTTP响
 
 测试只用随机合成secret，上游计数记录布尔不记值；捕获进程stdout/stderr与公开聚合检查无该值，不把测试日志事后遮盖当“未泄漏”证明。测试输出文件仍可能包含随机synthetic值的私有夹具配置，不能拿它推断生产配置无秘密；没有输出或读取真实secret。真实registry/API脱敏规则不由本段改变。
 
+## 站内静态只读段（合成样本不等于17台逐台兼容）
+
+可信配置的upstreamUrl可为精确/apps/<slug>/。只读当前target的kind=app、status=active活跃版已物化资产；workbench须启用、登记URL仍与pin相同。元数据只投影url/enabled与active_version/kind/status，不读auth_config、Cookie池或台级token，不借用会注入token/冷回读的legacy serveApp，也不经市场HTTP/API反代。GET/HEAD之外405，WS403在私有适配前；读前、读后均核身份及上下文，响应提交前重核URL/root/version，变化503。
+
+每段decode一次，拒dot/隐藏/空段、分隔符、二次编码和ADS；逐段lstat拒symlink/junction并做realpath包含检查。文件句柄stat与有界读取最多8MiB，GET/HEAD超限拒，长度变化不发旧Content-Length。仅相对资产/嵌套index，无SPA fallback、历史版查询、LayerFS冷回读或根绝对路径重写。每请求上限不代表并发内存/性能SLA；路径核对不提供本地恶意写权限者并发替换/硬链接攻击的OS级无竞态保证。
+
+响应no-store/nosniff/no-referrer；CSP允许本源脚本/样式与data图片，但connect-src、frame-src、form-action、object-src、base-uri为none，frame-ancestors也为none。依赖市场数据/上传API、外部CDN、绝对根路径或SOP协议的页面尚不支持。SOP/MessageChannel后续分段，三步完成前不切SOP。静态合成GET/HEAD/路径/无凭据读取与浏览器相对JS/CSS已测，**不是17台现场逐台兼容验收**。CI纳入content-static-test；不改真实DNS/IP/现场开关。
+
 ## 目标代理范围与限制
 显式WM_CONTENT_TARGETS固定{id,origin,upstreamUrl}；当前registry URL（若有声明query凭据则去除这些参数后）须全文相同，否则503，不能让agent改URL后用旧target上下文去另一源。HTTP/WS流式传输，按/go/id剥前缀，重建目标Origin；不转browser Cookie/Authorization/X-Admin-Token/forwarded头，只用服务器目标Bearer/Basic。上游Set-Cookie不透出以防覆盖context，跨目标/源跳转拒502。
 
-Cookie池/动态上游登录容器尚未装配：绑定cookie_set_id的台在实际index拒503，不从browser拿身份兜底。HTML/JS/CSS根路径重写、SOP/自产台内联、MessageChannel字段通道未接；本段只适合自持相对路径HTTP台及准入证明，不能称真实Odoo台/任意网站完整交互可用。
+Cookie池/动态上游登录容器尚未装配：绑定cookie_set_id的台在实际index拒503，不从browser拿身份兜底。HTML/JS/CSS根路径重写、SOP/MessageChannel字段通道未接（非SOP活跃静态只读见上）；本段只适合自持相对路径HTTP台及准入证明，不能称真实Odoo台/任意网站完整交互可用。
 
 ## 显式配置，未配置不启
 - WM_CONTENT_PORT缺省/0不开；启用还须WM_CONTENT_IP（非通配显式IP）、WM_CONTENT_MARKET_ORIGIN完整origin、WM_CONTENT_ODOO_ORIGIN（精确origin且属于WM_ODOO_ORIGINS/LC_ODOO_URL信任集合）、WM_CONTENT_TARGETS JSON数组。错配拒启动，不造常量epoch。port不同market/control。
-- 每target origin为http://w-<数字id>-test|gray|prod.internal[:port]，单label，port匹配且hostname不同market。upstreamUrl固定完整http(s) URL，无userinfo/hash。
+- 每target origin为http://w-<数字id>-test|gray|prod.internal[:port]，单label，port匹配且hostname不同market。upstreamUrl固定完整http(s) URL（无userinfo/hash），或精确/apps/<slug>/静态pin。
 - 现场专用IP、域DNS记录、环境/target列表及可信Odoo源仍待交付，不阻合成Draft审查、阻现场启用；browser只host-resolver-rules，不改hosts/DNS/firewall。
 - 单进程内存引用<=2048/core票据会话<=4096，重启失效，不支持多worker；SID最长硬期限内存在heap，不把内存转储当无秘密。
 
