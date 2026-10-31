@@ -56,6 +56,9 @@ with sync_playwright() as p:
    assert frame.evaluate('() => !document.documentElement.outerHTML.includes("'+cfg['uploadCapability']+'")')
    frame.locator('[data-field=evidence]').set_input_files({'name':'oversize.txt','mimeType':'text/plain','buffer':b'12345678901'})
    expect(frame.locator('html')).to_have_attribute('data-upload','invalid_upload');rows.append({'case':'UPLOAD-shell-size-reject','pass':True})
+   with page.expect_event('requestfinished',predicate=lambda r:r.url.endswith('/api/sop/field-channel/save')):
+    page.locator('#collect').click(no_wait_after=True)
+   expect(page.locator('#channel-state')).to_have_attribute('data-state','invalid');expect(frame.locator('html')).to_have_attribute('data-validation','invalid_field_values');rows.append({'case':'COLLECT-prior-refs-does-not-clear-invalid-file-selection','pass':True})
    frame.locator('[data-field=evidence]').set_input_files({'name':'wrong.html','mimeType':'text/html','buffer':b'hi'})
    expect(frame.locator('html')).to_have_attribute('data-upload','invalid_upload');rows.append({'case':'UPLOAD-shell-mime-reject','pass':True})
    frame.locator('[data-field=evidence]').set_input_files({'name':'../../traversal.txt','mimeType':'text/plain','buffer':b'hello'})

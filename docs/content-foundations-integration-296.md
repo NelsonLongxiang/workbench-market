@@ -124,7 +124,7 @@ COLLECT仅可信壳按钮发随机request_id并3秒有界，VALUES按当前step�
 
 file声明仅显式upload装配开启：maxBytes、mime精确列表、maxItems及operations=[read,upload]必填，默认readonly拒file不变。硬天花板沿既有run上传单50MiB、run20文件/200MiB，字段可更窄；MIME是声明类型双核，不谎称内容格式鉴定/恶意文件扫描。存储不执行/不内联，因此伪装类型的活动字节仍只能成为惰性对象。
 
-frame文件选择经MessagePort结构化克隆File/Blob发UPLOAD_REQUEST(field,request_id,file)，不发URL/path/方法/能力。可信壳再核固定绑定/seq、Blob实际size/type和字段数量，仅持独立run action=upload能力向固定/api/sop/field-channel/upload发multipart；save能力不能上传，upload能力不能写字段。字段schema/INIT/srcdoc都不带上传能力。每字段最新selection跟踪防旧成功清后选错误；server随机f_对象id与状态经UPLOAD_RESULT回原port；旧port/请求id重放拒，LOCK/TEARDOWN中止浏览器请求但不承诺撤销已提交存储。
+frame文件选择经MessagePort结构化克隆File/Blob发UPLOAD_REQUEST(field,request_id,file)，不发URL/path/方法/能力。可信壳再核固定绑定/seq、Blob实际size/type和字段数量，仅持独立run action=upload能力向固定/api/sop/field-channel/upload发multipart；save能力不能上传，upload能力不能写字段。字段schema/INIT/srcdoc都不带上传能力。每字段最新selection跟踪防旧成功清后选错误。a1dc独评两red先红复现后修：uploadErrors独立于普通字段invalidFields，COLLECT已存引用不证明当前File选择有效、不清该选择错误；只有该字段最新上传成功才清。文字保存回包同时核上传未决/选择错误/普通字段错误/pending，上传未完时VALIDATE ok=false/状态uploading，不冒整体saved；新选文件开始或失败也发送非成功VALIDATE撤销旧saved提示。server随机f_对象id与状态经UPLOAD_RESULT回原port；旧port/请求id重放拒，LOCK/TEARDOWN中止浏览器请求但不承诺撤销已提交存储。
 
 未挂载multipart Router同market+精确Host/Origin拒null+单头session/上传cap，multer内存上限50MiB/1file/1binding字段，闭集binding；实际service再核fresh Odoo/session epoch、run/target/step/version/ACL/status/schema、尺寸/MIME与字段/run累计配额，BEGIN IMMEDIATE内唯一run-step-request id去重，失败ROLLBACK。文件名只做入参长度上限，不参与存储：SQLite BLOB以服务器随机id保存，与run/step/field绑定，不生成客户端路径，不提供下载/inline/执行路由。本候选增加专用sop_channel_files表，工厂显式调用才建，不改生产db或旧run-files存储。
 
