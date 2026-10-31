@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "node --disable-warning=ExperimentalWarning --watch src/index.ts",
+    "dev": "node --disable-warning=ExperimentalWarning --watch src/index.ts --dev-origin",
     "start": "node --disable-warning=ExperimentalWarning src/index.ts"
   },
   "dependencies": {
