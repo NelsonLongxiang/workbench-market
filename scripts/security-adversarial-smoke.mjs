@@ -22,17 +22,18 @@ try {
   if (!(await waitReady(B + '/api/health'))) throw new Error('Isolated fixture server not ready');
   const reg = (url, name = 'ADV') => fetch(B + '/api/workbenches', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, url }) });
   // S1 SSRF：正例 5+ 拒
+  // #258：未登记公网 403 url_not_allowlisted；元数据/混淆主机 403 url_hard_denied（具名码，不只看状态码）
   const NEG = [
-    ['公网 CIDR 192.30.255.112', 'http://192.30.255.112/'],
-    ['公网 172.217.0.1（非 172.16/12）', 'http://172.217.0.1/'],
-    ['元数据 169.254.169.254', 'http://169.254.169.254/latest/meta-data/'],
-    ['IPv6 字面量公网', 'http://[2001:4860:4860::8888]/'],
-    ['数值 label 域名 10.attacker.example', 'http://10.attacker.example/'],
-    ['nip.io 变形 127.0.0.1.nip.io', 'http://127.0.0.1.nip.io/'],
-    ['公网域名 example.com', 'http://example.com/'],
+    ['公网 CIDR 192.30.255.112', 'http://192.30.255.112/', 'url_not_allowlisted'],
+    ['公网 172.217.0.1（非 172.16/12）', 'http://172.217.0.1/', 'url_not_allowlisted'],
+    ['元数据 169.254.169.254', 'http://169.254.169.254/latest/meta-data/', 'url_hard_denied'],
+    ['IPv6 字面量公网', 'http://[2001:4860:4860::8888]/', 'url_not_allowlisted'],
+    ['数值 label 域名 10.attacker.example', 'http://10.attacker.example/', 'url_hard_denied'],
+    ['nip.io 变形 127.0.0.1.nip.io', 'http://127.0.0.1.nip.io/', 'url_hard_denied'],
+    ['公网域名 example.com', 'http://example.com/', 'url_not_allowlisted'],
   ];
   let n = 0; const holes = [];
-  for (const [label, u] of NEG) { const r = await reg(u); if (r.status === 400) n++; else holes.push(label + '→' + r.status); }
+  for (const [label, u, code] of NEG) { const r = await reg(u); const j = await r.json().catch(() => ({})); if (r.status === 403 && j.error === code) n++; else holes.push(label + '→' + r.status + ' ' + j.error); }
   ok('S1a 对抗例全拒（' + NEG.length + ' 例）', n === NEG.length, holes.join(','));
   // S1 对照：内网/回环/localhost 放行
   const POS = ['http://192.168.3.100:8080/', 'http://10.1.2.3:8000/', 'http://127.0.0.1:4000/', 'http://localhost:4000/'];

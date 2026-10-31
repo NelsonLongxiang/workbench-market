@@ -845,10 +845,10 @@ with sync_playwright() as p:
         assert not au_leak, f'导出泄漏明文 auth: {au_leak[:2]}'
         expr = page.request.fetch(BASE + '/api/export?reveal=1').json()
         assert expr.get('masked') == 0 and any('token=startup-tok' in w['url'] for w in expr['workbenches']), 'reveal 导出未含真值'
-        # 导入掩码行跳过（掩码永不落库）
+        # 导入掩码行整批拒（#258 D：不 skip 后报成功，掩码永不落库）
         bad_payload = {'workbenches': [{'name': 'E2E MaskImport', 'url': 'http://127.0.0.1:9901/x?token=****', 'type': 'web'}], 'types': []}
         rim = api(page, 'POST', '/api/import', bad_payload)
-        assert rim.status == 200 and rim.json()['imported'] == 0, f"掩码行未被跳过: {rim.json()}"
+        assert rim.status == 400 and rim.json().get('error') == 'masked_import_value' and rim.json().get('row_index') == 0, f"掩码行未整批拒: {rim.json()}"
         record('统一门户透传+凭据注入+WS 升级（echo fixture 十九断言）', True)
     except Exception as e:
         record('统一门户透传+凭据注入', False, str(e)); shot('portal-auth')
@@ -1150,12 +1150,9 @@ with sync_playwright() as p:
         # ③ #8 输入校验 400 非 500 + 坏 health_path 单台 down 不炸巡检
         r500 = api(page, 'POST', '/api/workbenches', {'name': 'E2E BadUrl', 'url': 'notaurl', 'type': 'web', 'category': 'E2E'})
         assert r500.status == 400, f'坏 url 未 400: {r500.status}'
-        # 注：Node WHATWG URL 对相对路径极宽容（自动编码），构造失败难经相对路径触发；
-        # 用完整但残缺的 URL（http:// 无 host）走 probe 既有兜底——行为面：单测 200 + 记 down
-        badhp = api(page, 'POST', '/api/workbenches', {'name': 'E2E BadHp', 'url': 'http://127.0.0.1:9901/', 'type': 'web', 'category': 'E2E', 'health_path': 'http://'}).json()
-        chk = api(page, 'POST', f"/api/workbenches/{badhp['id']}/check")
-        assert chk.status == 200, f'坏 health_path 单测 500: {chk.status}'
-        assert chk.json()['last_status'] == 'down', '坏 health_path 未记 down'
+        # #258 U15：残缺/跨 origin 的绝对 health_path 在登记时就 400（不再落库后靠 probe 兜底记 down）
+        rbadhp = api(page, 'POST', '/api/workbenches', {'name': 'E2E BadHp', 'url': 'http://127.0.0.1:9901/', 'type': 'web', 'category': 'E2E', 'health_path': 'http://'})
+        assert rbadhp.status == 400 and rbadhp.json().get('error') == 'invalid_health_path', f'坏 health_path 未在登记时拒: {rbadhp.status} {rbadhp.json()}'
         # ④ #9 删台同步清驾驶舱面板引用（保存布局不再 400）
         pw = api(page, 'POST', '/api/workbenches', {'name': 'E2E CockpitPanel', 'url': 'http://127.0.0.1:9901/', 'type': 'web', 'category': 'E2E'}).json()
         cp = api(page, 'POST', '/api/cockpits', {'name': 'E2E 面板清理舱', 'description': '', 'panels': [{'i': 'p1', 'workbenchId': pw['id'], 'x': 0, 'y': 0, 'w': 4, 'h': 3}]}).json()
@@ -1165,7 +1162,6 @@ with sync_playwright() as p:
         rsave = api(page, 'PUT', f"/api/cockpits/{cp['id']}", {'panels': cp2['panels']})
         assert rsave.status == 200, f'清理后保存布局仍 400: {rsave.status}'
         api(page, 'DELETE', f"/api/cockpits/{cp['id']}")
-        api(page, 'DELETE', f"/api/workbenches/{badhp['id']}")
         # ⑤ #5 改巡检设置不重启生效（幂等重挂——行为面：设置回读 + 服务继续健康）
         api(page, 'PUT', '/api/settings', {'health_timeout_ms': '4000'})
         st = api(page, 'GET', '/api/settings').json()
@@ -1174,7 +1170,7 @@ with sync_playwright() as p:
         # ⑥ #7 导入 replace：**独立实例跑**（scripts/import-smoke.mjs，独立 DATA_DIR+PORT）——
         # replace 是全表清写，在活库跑会重排自增 id 并吃掉真实台（84 事故 ×3 的根因，
         # 监督席 direct-2102fc1b 升级后落地）；断言覆盖 query 语义/内部路径行不丢/
-        # 悬空面板 prune/掩码行跳过/body mode 等价，共 7 项
+        # 悬空面板 prune/掩码行整批拒/body mode 等价，共 7 项
         import subprocess as _sp, os as _os3
         smoke = _sp.run(['node', 'scripts/import-smoke.mjs'], capture_output=True, text=True, timeout=180,
                         cwd=_os3.path.join(_os3.path.dirname(_os3.path.abspath(__file__)), '..'))
