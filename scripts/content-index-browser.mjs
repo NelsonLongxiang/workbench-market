@@ -4,8 +4,9 @@ import {createServer as netServer} from 'node:net';
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {createHash} from 'node:crypto';
-import {mkdirSync,writeFileSync} from 'node:fs';
+import {mkdirSync,writeFileSync,existsSync} from 'node:fs';
 import {resolve,join} from 'node:path';
+if (!existsSync('web/dist/index.html')) { console.error('content-index-browser: 缺 web/dist，请先构建（pnpm --filter web build）'); process.exit(2); }
 const out=resolve('tmp/content-index-browser-'+Date.now());mkdirSync(out,{recursive:true});
 const free=async()=>{const s=netServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const p=s.address().port;await new Promise(r=>s.close(r));return p};
 let revoked=false,upstreamHits=0,identityChecks=0,leaked=false,wsOpened=0,wsMessages=0;
@@ -28,6 +29,7 @@ const exited=once(child,'exit');let stderr='';child.stderr.on('data',b=>stderr+=
 let code=1;
 try{
  let ready=false;for(let i=0;i<120;i++){try{if((await fetch(market+'/api/health')).ok){ready=true;break}}catch{}if(child.exitCode!==null)break;await new Promise(r=>setTimeout(r,100))}if(!ready)throw Error('synthetic index not ready');
+ const marketPage=await fetch(market+'/market');if(marketPage.status!==200)throw Error('synthetic market page unavailable; build web before browser checks');
  const created=await fetch(market+'/api/workbenches',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'synthetic-content',url:target,type:'web',health_path:'/__probe',auth:{type:'bearer',value:'synthetic-target'}})});const row=await created.json();if(created.status!==201||row.id!==2)throw Error('synthetic target fixture mismatch');
  const oldMachine=await fetch(market+'/go/2/__probe',{headers:{'User-Agent':'synthetic-node-probe'}});if(oldMachine.status!==200||await oldMachine.text()!=='health')throw Error('non-browser legacy path changed');
  const config=join(out,'config.json');writeFileSync(config,JSON.stringify({market,content,odoo:odooOrigin,result:join(out,'browser.json')}));
