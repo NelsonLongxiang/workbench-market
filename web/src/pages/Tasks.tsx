@@ -77,7 +77,8 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
           <Button size="small" icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
           {ygl && !ygl.ok && <Tag color="warning">ygl-trees 源降级（CLI 不可用）</Tag>}
           {life && !life.ok && <Tag color="warning">生命周期源：{life.error ?? '不可用'}</Tag>}
-          {loginHref && <Button size="small" type="link" onClick={login.open} disabled={login.polling}>{login.polling ? '等待 Odoo 登录完成…' : '在弹窗登录 Odoo 查看生命周期待办'}</Button>}
+          {loginHref && !login.tokenHere && <Button size="small" type="link" onClick={login.open} disabled={login.polling}>{login.polling ? '等待 Odoo 登录完成…' : '在弹窗登录 Odoo 查看生命周期待办'}</Button>}
+          {loginHref && login.tokenHere && <Button size="small" type="link" onClick={login.clearAndOpen} title="本标签页存着管理员口令，登录弹窗会复制它">清除管理员口令并登录 Odoo</Button>}
           {loginHref && login.blocked && <Tag color="warning">浏览器拦截了登录弹窗，请允许弹窗后再点</Tag>}
           {life?.ok && life.viewer && <Tag color="purple">以 {life.viewer} 查看（只读）</Tag>}
         </Space>

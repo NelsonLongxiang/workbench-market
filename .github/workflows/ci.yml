@@ -10,6 +10,53 @@ jobs:
       - name: Synthetic Odoo operator guards (no credentials or network)
         shell: pwsh
         run: ./scripts/ops/odoo-readonly-preflight-test.ps1
+  browser-security:
+    # #292 M4 真实浏览器反例：有口令不嵌 /go/、跳出清口令、登录弹窗不复制口令且无 opener（bfcache 未命中记 SKIP）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pnpm install --frozen-lockfile
+      - name: Playwright（Python）+ Chromium
+        run: |
+          python -m pip install playwright==1.57.0
+          python -m playwright install --with-deps chromium
+      - run: pnpm --filter web build
+      - name: 管理员口令浏览器反例
+        env:
+          PYTHON: python
+        run: node scripts/admin-token-browser.mjs
+      # E2E 组 21 的 a2a-smoke 用上游 verifyCard 当裁判：检出公开的 dsh-open-a2a-net（钉提交），A2A_CARD_SRC 指过去
+      - uses: actions/checkout@v4
+        with:
+          repository: NelsonLongxiang/dsh-open-a2a-net
+          ref: 9c0dfc012fd9c6001da4af0847682dc2700b154c
+          path: dsh-open-a2a-net
+      - name: 完整 E2E 跑器隔离回归（宿主 YGL_HOME 诱饵不透传）
+        run: node scripts/e2e-full-run-isolation-smoke.mjs
+      - name: 宿主 YGL_HOME 诱饵（不可读目录，完整 E2E 两档都带着它跑）
+        run: mkdir -p "$RUNNER_TEMP/decoy-ygl-home" && chmod 000 "$RUNNER_TEMP/decoy-ygl-home"
+      - name: 完整 E2E（M1 双面：控制面开，隔离实例）
+        env:
+          PYTHON: python
+          A2A_CARD_SRC: ${{ github.workspace }}/dsh-open-a2a-net/src/card.ts
+          YGL_HOME: ${{ runner.temp }}/decoy-ygl-home
+        run: node scripts/e2e-full-run.mjs
+      - name: 完整 E2E（WM_CONTROL_PORT=0 控制面关闭）
+        env:
+          PYTHON: python
+          A2A_CARD_SRC: ${{ github.workspace }}/dsh-open-a2a-net/src/card.ts
+          YGL_HOME: ${{ runner.temp }}/decoy-ygl-home
+        run: node scripts/e2e-full-run.mjs --control-off
   tsc-and-syntax:
     runs-on: ubuntu-latest
     steps:
@@ -26,6 +73,10 @@ jobs:
         run: pnpm --filter web typecheck
       - name: server 语法核（esbuild）
         run: node scripts/check-server-syntax.mjs
+      - name: Verifier criterion65 portal call-chain mutations (synthetic snapshot only)
+        run: node scripts/portal-call-chain-test.mjs
+      - name: 统一待办 ygl-trees 项目上限与总预算（合成入口）
+        run: node scripts/ygl-project-cap-smoke.mjs
       - name: Taskcenter B1 seed and intake publication
         run: node scripts/taskcenter-intake-smoke.mjs
       - name: SSRF 默认关闭与启动告警（隔离实例）
@@ -40,6 +91,14 @@ jobs:
         run: node scripts/lifecycle-view-unit.mjs
       - name: 生命周期面登录入口冒烟（#275：login_url 选台·/go/ return 回跳·open-redirect 拒）
         run: node scripts/lifecycle-login-smoke.mjs
+      - name: 管理员口令止血单测（#292 M4：pagehide 抹口令·变更广播）
+        run: node scripts/admin-token-guard-unit.mjs
+      - name: 门户剥 Service-Worker-Allowed 冒烟（#292 M5）
+        run: node scripts/portal-sw-header-smoke.mjs
+      - name: 控制面冒烟（#292 M1：浏览器管理写只认控制面·本机 CLI 保留·反代按远程·控制面围栏）
+        run: node scripts/control-surface-smoke.mjs
+      - name: 远程写总门大小写一致性（/API/… 不能绕过口令）
+        run: node scripts/api-gate-case-smoke.mjs
       - name: 安全对抗例组（PASS / SKIP / NEEDS-MATERIAL 分列）
         run: node scripts/security-adversarial-smoke.mjs
       - name: 留存 F5 原始证据与覆盖摘要

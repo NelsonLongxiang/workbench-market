@@ -255,6 +255,8 @@ export function installPortal(
         // 剥禁嵌头：代理后与市场同源，这两个头只会误伤 iframe 嵌入（使用页/驾驶舱）
         delete proxyRes.headers['x-frame-options'];
         delete proxyRes.headers['content-security-policy'];
+        // #292 M5：上游可发 Service-Worker-Allowed: / 把 SW 作用域扩到全站（市场源上 HTTPS/localhost 时可常驻接管所有页面、截获管理员口令）
+        delete proxyRes.headers['service-worker-allowed'];
         // Pocket meta-refresh 改写（.157 DSH 台实测根因）：DSH Pocket（如 13080 端口）在
         // token→cookie 交换后返回 <meta refresh url=/>，在门户上下文 / 会跳回市场 SPA 根。
         // 仅对 HTML 响应包装 res.write/end 做字符串替换（JSON/二进制零开销透传）。

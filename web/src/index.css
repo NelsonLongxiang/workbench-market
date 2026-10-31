@@ -278,3 +278,10 @@ body {
 .wm-lc-lanes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 8px 0; }
 .wm-lc-lane { background: #F8FAFC; border-radius: 6px; padding: 6px 8px; min-height: 56px; }
 @media (max-width: 640px) { .wm-lc-lanes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* #292 M4：有口令时 /go/ 内嵌框的替代提示（使用页与驾驶舱面板共用） */
+.wm-go-guard {
+  flex: 1;
+  background: #fff;
+  overflow: auto;
+}
