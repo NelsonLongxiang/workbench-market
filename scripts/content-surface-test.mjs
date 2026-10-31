@@ -3,15 +3,26 @@ import express from '../server/node_modules/express/index.js';
 import {createServer,request} from 'node:http';
 import {createServer as netServer,connect} from 'node:net';
 import {createHash} from 'node:crypto';
+import {mkdirSync,writeFileSync} from 'node:fs';
+import {resolve,join} from 'node:path';
+import {channel} from 'node:diagnostics_channel';
+const evidence=resolve('tmp/content-surface-'+Date.now()+'-'+process.pid);mkdirSync(evidence,{recursive:true});
+const events=[];const event=(name,data={})=>events.push({name,...data});
+const capture=()=>writeFileSync(join(evidence,'fixture.json'),JSON.stringify({count,hits,credentialReads,viewerCalls,fallback,events},null,2));
+// Observe native HTTP client lifecycle without changing request options or proxy code.
+const requestChannel=channel('http.client.request.start');
+const observeRequest=({request:q})=>{if(q.getHeader('upgrade')!=='websocket')return;event('proxy-request',{path:q.path,reusedSocket:q.reusedSocket});q.once('error',e=>{event('proxy-error',{code:e.code??'unknown',reusedSocket:q.reusedSocket});capture()});q.once('response',r=>event('proxy-response',{status:r.statusCode}));q.once('upgrade',r=>event('proxy-upgrade',{status:r.statusCode}));q.once('close',()=>event('proxy-close'));};
+requestChannel.subscribe(observeRequest);
 import {createContentSurface,contentConfig,mountContentSurface,listenContentSurface} from '../server/src/content-surface.ts';
 import {registerSurface} from '../server/src/surfaces.ts';
 let count=0;const check=(name,pass)=>{assert.ok(pass,name);count++;console.log('PASS '+name)};
-const free=async()=>{const s=netServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const p=s.address().port;await new Promise(r=>s.close(r));return p};
+// Reserve together: sequential free() may return the same port. Other processes can still race after release.
+const ports=async()=>{const servers=[];try{for(let i=0;i<2;i++){const s=netServer();servers.push(s);await new Promise((r,j)=>{s.once('error',j);s.listen(0,'127.0.0.1',r)})}return servers.map(s=>s.address().port)}finally{await Promise.all(servers.map(s=>new Promise(r=>s.listening?s.close(r):r())))}};
 let hits=0,credentialReads=0,valid=true,at=1000,fallback=0,viewerCalls=0;
 const upstream=createServer((q,s)=>{hits++;if(q.url==='/base/redirect-local'){s.writeHead(302,{Location:'/base/ok'});s.end();return}if(q.url==='/base/redirect-cross'){s.writeHead(302,{Location:'http://other.invalid/base/ok','Content-Length':'999'});s.end();return}s.setHeader('set-cookie','wm_content_context=upstream-forgery; Path=/');s.setHeader('content-type','application/json');s.end(JSON.stringify({url:q.url,headers:q.headers}))});
-upstream.on('upgrade',(q,s)=>{hits++;const accept=createHash('sha1').update(q.headers['sec-websocket-key']+'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');s.end('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: '+accept+'\r\n\r\n')});
+upstream.on('upgrade',(q,s)=>{event('upstream-upgrade',{path:q.url});s.once('close',()=>event('upstream-close'));s.once('error',e=>event('upstream-error',{code:e.code??'unknown'}));hits++;const accept=createHash('sha1').update(q.headers['sec-websocket-key']+'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');s.end('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: '+accept+'\r\n\r\n')});
 await new Promise(r=>upstream.listen(0,'127.0.0.1',r));
-const mp=await free(),cp=await free(),market='http://127.0.0.1:'+mp,origin='http://w-1-test.internal:'+cp;
+const [mp,cp]=await ports();assert.notEqual(mp,cp);event('ports-selected',{market:mp,content:cp});const market='http://127.0.0.1:'+mp,origin='http://w-1-test.internal:'+cp;
 const config={host:'127.0.0.1',port:cp,marketOrigin:market,targets:[{id:1,origin,upstreamUrl:'http://127.0.0.1:'+upstream.address().port+'/base'}]};
 const deps={now:()=>at,viewer:async cookie=>{viewerCalls++;return valid&&cookie==='session_id=synthetic1234567890'?{subject:'user:fixture:1',internal:true}:null},upstream:id=>{credentialReads++;return {url:config.targets[0].upstreamUrl,authorization:'Bearer synthetic-upstream'}}};
 let runtime=createContentSurface(config,deps);
@@ -23,7 +34,7 @@ const contentServer=listenContentSurface(app,config,{...runtime,upgrade:(q,s,h)=
 const send=(port,path,headers={},method='GET',body)=>new Promise((r,j)=>{const q=request({host:'127.0.0.1',port,path,method,headers:{...headers,...(body?{'Content-Length':Buffer.byteLength(body)}:{})}},s=>{let text='';s.on('data',b=>text+=b);s.on('end',()=>r({status:s.statusCode,headers:s.headers,text}))});q.on('error',j);q.end(body)});
 const req=(path,headers={},method='GET',body)=>send(cp,path,{Host:new URL(origin).host,...headers},method,body);
 const launch=async()=>{const page=await send(mp,'/content/open/1',{Cookie:'session_id=synthetic1234567890; unrelated=never-retained'});assert.equal(page.status,200);const ticket=/name="ticket" value="([^"]+)"/.exec(page.text)[1];const x=await req('/__wm/launch',{'Content-Type':'application/x-www-form-urlencoded',Origin:market},'POST','ticket='+ticket);assert.equal(x.status,200);return x.headers['set-cookie'][0].split(';')[0]};
-const ws=cookie=>new Promise((r,j)=>{const s=connect(cp,'127.0.0.1');let text='';s.on('connect',()=>s.write('GET /go/1/socket HTTP/1.1\r\nHost: '+new URL(origin).host+'\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nOrigin: '+origin+'\r\n'+(cookie?'Cookie: '+cookie+'\r\n':'')+'\r\n'));s.on('data',b=>text+=b);s.on('end',()=>r(text));s.on('error',j)});
+const ws=cookie=>new Promise((r,j)=>{event('client-start',{authenticated:!!cookie,clock:at});const s=connect(cp,'127.0.0.1');let text='';s.once('close',hadError=>event('client-close',{hadError}));s.on('connect',()=>s.write('GET /go/1/socket HTTP/1.1\r\nHost: '+new URL(origin).host+'\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nOrigin: '+origin+'\r\n'+(cookie?'Cookie: '+cookie+'\r\n':'')+'\r\n'));s.on('data',b=>{text+=b;event('client-data',{bytes:b.length})});s.on('end',()=>{event('client-end',{wire:text.replace(/(set-cookie|cookie|authorization):[^\r\n]*/gi,'$1: [omitted]'),bytes:Buffer.byteLength(text),hits,credentialReads,viewerCalls});capture();r(text)});s.on('error',e=>{event('client-error',{code:e.code??'unknown'});capture();j(e)})});
 try {
  check('configuration default disabled',contentConfig({})===null);
  for(const env of [{WM_CONTENT_PORT:'123',WM_CONTENT_IP:'0.0.0.0'},{WM_CONTENT_PORT:'bad'}]){assert.throws(()=>contentConfig(env));count++;}
@@ -56,4 +67,4 @@ try {
  const fresh=await launch();runtime=createContentSurface(config,deps);check('restart invalidates old context',(await req('/go/1/',{Cookie:fresh})).status===401);
  check('all content paths terminal fallback0',fallback===0);
  console.log(count+' content surface checks passed; synthetic only');
-}finally{await Promise.all([new Promise(r=>marketServer.close(r)),new Promise(r=>contentServer.close(r)),new Promise(r=>upstream.close(r))])}
+}catch(e){event('assertion-failed',{message:e.message});throw e}finally{requestChannel.unsubscribe(observeRequest);capture();console.log('surface fixture evidence: '+evidence);await Promise.all([new Promise(r=>marketServer.close(r)),new Promise(r=>contentServer.close(r)),new Promise(r=>upstream.close(r))]);capture()}
