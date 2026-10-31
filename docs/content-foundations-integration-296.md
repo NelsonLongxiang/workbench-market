@@ -80,7 +80,7 @@ content-ws-startup-test默认20个全新进程各一次授权握手，再一进�
 
 这两组数据不支持本夹具的“冷组明显更差”，也不能证明原空wire已修、不能排除真实Odoo或不同连接/时间序列条件。原surface少量重复中仍出现过授权空wire，**根因UNKNOWN**；已保留原件与请求诊断。没有据未证假设加等待/匿名兜底或归为暂态。冻结mode0的首STOP拒绝属于另一执行链，未证关联、也不因本实验通过被闭合。现场不启用，SOP协议另段。
 
-## SOP只读协议在途检查点（第1步未完成）
+## SOP只读协议在途检查点（业务装配离线完成，未挂载/未切流）
 
 新增sop-readonly-channel为未挂载的纯预览renderer，不接index/旧Runner/真实SOP run或后台接口，不切流。调用者必须给已审固定target/run/version/step/schema/保存值；当前schema只支持text/number/boolean/multi的有限回填，不从iframe动态扩写字段。预览壳把正文放sandbox=allow-scripts、无allow-same-origin的srcdoc iframe，正文不插可信DOM；CSP仅hash允许受控bootstrap，禁网络、表单、嵌套frame。该预览使用壳内srcdoc证明原语，不是已部署的独立内容host资源契约。
 
@@ -90,7 +90,13 @@ content-ws-startup-test默认20个全新进程各一次授权握手，再一进�
 
 已证阻断：Windows函数toString保留CRLF，而HTML解析器将CRLF/CR归一化LF，导致声明CSP hash与执行字节不符。旧主hash uMClpaH4…与原字节一致，HTML归一后4sQ7gk8…精确对应浏览器拒绝值；现在先统一LF再hash并原样下发，未加unsafe-inline/unsafe-eval。测试字符串eval与浏览器导航auto-wait另行改为函数谓词/状态属性及no_wait_after原生点击，保后续ACK/回填断言；不能由成功反推所有等待卡顿根因。HTTP控制页零请求超时、早期ERR_ABORTED仍未定因，改拦截只隔离变量、不宣网络已修。
 
-待完成：更全面的恶意/旧frame浏览器反例及非作者评审、冻结manifest/run状态实际装配、独立内容源托管与真实SOP schema迁移。第1步目前仅未挂载只读预览原语，不能报真实SOP可用。CHANGE/VALIDATE/COLLECT与UPLOAD尚未做，三步全完且获准前不切任何SOP。CI加入拦截式浏览器门，与现网d908/control0完全分开。
+后续业务装配新增sop-readonly-assembly：直接解析固定版本原始sop.yaml（不用会丢字段声明的旧解析器），接现有run投影形状，严格核sop_slug/sop_version与固定源；不查活跃版本、不读DB、不带receipt/started_by/上传能力。每步显式fields声明required、text maxLength、multi options/maxItems与operations=[read]；缺声明/重复/未知/超限/写操作/file拒绝并定位步骤，旧HTML不自动猜schema、旧{value}不静默转换。只投影当前step的body/schema/已保存typed值；required仅声明，空草稿可只读，不冒完成校验。revision由可信调用者给固定快照号，并非现有后端CAS实现。
+
+READY现在报告正文DOM真实data-field列表（排序，不去重），壳对照schema拒额外/缺失/重复字段；校验闭集键。绑定首次load的Window且要求frame仍连接，换frame/旧port不能复活；发送HYDRATE前同核。受控frame也核PROBE/INIT/端口消息闭集、schema、类型/限额/revision/序列；不因origin=null授权。浏览器新增反例用测试层捕获真实READY、再构造消息；没有产品测试hook或放宽CSP，测试注入不是恶意正文能拿到壳对象的证明。
+
+本轮原始YAML固定夹具typed-v3与seed候选加合成run，装配32项、原通道26项、双端实际序列化脚本VM状态56项通过；浏览器14项包括原6项及假null-origin正确绑定错误Window无转移、跨target/step/version/schema、前一frame READY旧nonce重放、替换frame后的旧port ACK拒绝。浏览器仍用拦截响应、零TCP，不证明实际HTTP独立内容host或现网Runner。另加seed-demo-sop的显式候选v2 schema，三步正文与原seed逐字对照，保中文data-field与原字符串值语义；新版本只读浏览器回填已验，不发布、不改变既有v1 run。原生成器与现场SOP尚未审迁，不能用夹具冒充17个实际target兼容或旧SOP全量迁移。
+
+待完成：固定head非作者窄复核、独立内容源托管与真实SOP schema迁移。第1步只读业务装配现可离线调用，仍未接index/旧Runner路由、未切流，不能报现网真实SOP可用。CHANGE/VALIDATE/COLLECT与UPLOAD尚未做，三步全完且获准前不切任何SOP。CI加入装配与拦截式浏览器门，与现网d908/control0完全分开。
 
 ## 验证与未完成
 content-access-test原58、portal-observation-test原30、303红/200绿cookie对照保留；content-surface-test真实registerSurface+sharedExpress+counted upstream+假时钟核HTTP/WS/到期/撤权/restart/编码/fallback0。content-index-browser真实index+synthetic DB/home+假Odoo/上游+Chromium核跨站200/opener null/撤权XHR401/导航同target401，上游合法1次且不漏browser身份。不是真实Odoo/DNS或生产验收。

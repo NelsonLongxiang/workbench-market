@@ -1,23 +1,26 @@
 /** Draft protocol stage 1. Pure preview renderer, NOT mounted in the market/Runner. */
 import {createHash} from 'node:crypto';
-type Field = { key: string; type: 'text' | 'number' | 'boolean' | 'multi'; maxLength?: number; options?: string[] };
+type Field = { key: string; type: 'text' | 'number' | 'boolean' | 'multi'; required?: boolean; maxLength?: number; options?: string[]; maxItems?: number; operations?: ['read'] };
 export type ReadonlySop = { targetId: number; runId: number; version: number; step: string; revision: number; marketOrigin: string; fields: Field[]; values: Record<string, unknown>; body: string };
 const key = (v: unknown) => typeof v === 'string' && /^[a-z][a-z0-9_-]{0,63}$/.test(v) && !['__proto__','constructor','prototype'].includes(v);
+// Seed SOPs use Chinese field names; compare attributes directly, never CSS-interpolate.
+const fieldKey = (v: unknown) => typeof v === 'string' && /^[\p{L}][\p{L}\p{N}_-]{0,63}$/u.test(v) && !['__proto__','constructor','prototype'].includes(v);
 export function validateReadonlySop(input: ReadonlySop): ReadonlySop {
   if (!input || ['targetId','runId','version'].some(k => !Number.isSafeInteger(input[k]) || input[k] < 1) || !key(input.step) || !Number.isSafeInteger(input.revision) || input.revision < 0) throw Error('Invalid fixed SOP binding');
   const origin = new URL(input.marketOrigin); if (origin.origin !== input.marketOrigin || !['http:','https:'].includes(origin.protocol)) throw Error('Invalid trusted preview origin');
   if (!Array.isArray(input.fields) || input.fields.length > 100 || typeof input.body !== 'string' || Buffer.byteLength(input.body) > 256*1024) throw Error('Invalid SOP preview schema/body');
   const fields = new Map<string, Field>();
   for (const field of input.fields) {
-    if (!field || !key(field.key) || fields.has(field.key) || !['text','number','boolean','multi'].includes(field.type)) throw Error('Unknown/duplicate field declaration');
+    if (!field || !fieldKey(field.key) || fields.has(field.key) || !['text','number','boolean','multi'].includes(field.type)) throw Error('Unknown/duplicate field declaration');
     if (field.maxLength !== undefined && (!Number.isSafeInteger(field.maxLength) || field.maxLength < 1 || field.maxLength > 4096)) throw Error('Invalid field limit');
+    if (field.required !== undefined && typeof field.required !== 'boolean' || field.maxItems !== undefined && (!Number.isSafeInteger(field.maxItems) || field.maxItems < 1 || field.maxItems > 50) || field.operations !== undefined && (!Array.isArray(field.operations) || field.operations.length !== 1 || field.operations[0] !== 'read')) throw Error('Invalid read-only field constraints');
     if (field.type === 'multi' && (!Array.isArray(field.options) || field.options.length > 50 || field.options.some(v => typeof v !== 'string' || v.length > 100) || new Set(field.options).size !== field.options.length)) throw Error('Invalid enum declaration');
     fields.set(field.key, field);
   }
   if (!input.values || typeof input.values !== 'object' || Array.isArray(input.values)) throw Error('Invalid saved values');
   for (const [name, value] of Object.entries(input.values)) {
     const field = fields.get(name); if (!field) throw Error('Undeclared saved field');
-    if (field.type === 'text' && (typeof value !== 'string' || value.length > (field.maxLength ?? 4096)) || field.type === 'number' && (typeof value !== 'number' || !Number.isFinite(value)) || field.type === 'boolean' && typeof value !== 'boolean' || field.type === 'multi' && (!Array.isArray(value) || value.length > 50 || new Set(value).size !== value.length || value.some(v => !field.options!.includes(v)))) throw Error('Saved value type/limit mismatch');
+    if (field.type === 'text' && (typeof value !== 'string' || value.length > (field.maxLength ?? 4096)) || field.type === 'number' && (typeof value !== 'number' || !Number.isFinite(value)) || field.type === 'boolean' && typeof value !== 'boolean' || field.type === 'multi' && (!Array.isArray(value) || value.length > (field.maxItems ?? 50) || new Set(value).size !== value.length || value.some(v => !field.options!.includes(v)))) throw Error('Saved value type/limit mismatch');
   }
   return structuredClone(input); // Do not retain a mutable caller-owned schema or values object.
 }
@@ -29,6 +32,15 @@ const scriptPolicy = (script: string) => "'sha256-" + createHash('sha256').updat
 // These functions are serialized as browser code. They contain no server secrets/capabilities.
 function frameRuntime(boot: any) {
   let nonce = '', port: MessagePort | null = null, closed = false, seq = 0;
+  const exact = (m: any, keys: string[]) => m && typeof m === 'object' && !Array.isArray(m) && Object.keys(m).length === keys.length && keys.every(k => Object.hasOwn(m,k));
+  const bindingKeys = ['protocol','targetId','runId','version','step','nonce'];
+  const validValues = (values: any) => values && typeof values === 'object' && !Array.isArray(values) && Object.entries(values).every(([name,value]) => {
+    const f = boot.fields.find((f: any) => f.key === name); if (!f) return false;
+    if (f.type === 'text') return typeof value === 'string' && value.length <= (f.maxLength ?? 4096);
+    if (f.type === 'number') return typeof value === 'number' && Number.isFinite(value);
+    if (f.type === 'boolean') return typeof value === 'boolean';
+    return Array.isArray(value) && value.length <= (f.maxItems ?? 50) && new Set(value).size === value.length && value.every(v => f.options.includes(v));
+  });
   const matches = (m: any) => m && typeof m === 'object' && ['targetId','runId','version','step'].every(k => m[k] === boot[k]) && m.protocol === 1 && m.nonce === nonce;
   const lock = () => document.querySelectorAll('input,textarea,select,button,[contenteditable]').forEach((e: any) => { if (!e.disabled) e.disabled = true; if (e.hasAttribute('contenteditable') && e.getAttribute('contenteditable') !== 'false') e.setAttribute('contenteditable','false'); });
   const hydrate = (values: any) => {
@@ -45,14 +57,14 @@ function frameRuntime(boot: any) {
   const handshake = (event: MessageEvent) => {
     const m = event.data;
     if (closed || event.source !== parent || event.origin !== boot.marketOrigin || !m || typeof m !== 'object') return;
-    if (m.type === 'PROBE' && !nonce && typeof m.nonce === 'string' && /^[a-f0-9]{48}$/.test(m.nonce) && m.protocol === 1 && ['targetId','runId','version','step'].every(k => m[k] === boot[k])) {
-      nonce = m.nonce; parent.postMessage({type:'READY',protocol:1,targetId:boot.targetId,runId:boot.runId,version:boot.version,step:boot.step,nonce,field_keys:boot.fields.map((f: any) => f.key)}, boot.marketOrigin); return;
+    if (m.type === 'PROBE' && exact(m,[...bindingKeys,'type']) && !nonce && typeof m.nonce === 'string' && /^[a-f0-9]{48}$/.test(m.nonce) && m.protocol === 1 && ['targetId','runId','version','step'].every(k => m[k] === boot[k])) {
+      nonce = m.nonce; parent.postMessage({type:'READY',protocol:1,targetId:boot.targetId,runId:boot.runId,version:boot.version,step:boot.step,nonce,field_keys:Array.from(document.querySelectorAll('[data-field]'), e => e.getAttribute('data-field')).sort()}, boot.marketOrigin); return;
     }
-    if (m.type !== 'INIT' || port || !matches(m) || event.ports.length !== 1 || m.readOnly !== true) return;
+    if (m.type !== 'INIT' || port || !nonce || !matches(m) || !exact(m,[...bindingKeys,'type','field_schema','readOnly','values','revision']) || event.ports.length !== 1 || m.readOnly !== true || m.revision !== boot.revision || JSON.stringify(m.field_schema) !== JSON.stringify(boot.fields) || !validValues(m.values)) { end(); return; }
     port = event.ports[0]; window.removeEventListener('message',handshake); hydrate(m.values);
     const reply = (type: string) => port?.postMessage({type,protocol:1,targetId:boot.targetId,runId:boot.runId,version:boot.version,step:boot.step,nonce,seq});
     port.onmessage = (event: MessageEvent) => {
-      const message = event.data; if (closed || !matches(message) || !Number.isSafeInteger(message.seq) || message.seq !== seq + 1) { end(); return; }
+      const message = event.data; if (closed || !matches(message) || !exact(message,[...bindingKeys,'type','seq',...(message.type === 'HYDRATE' ? ['values','revision'] : [])]) || !Number.isSafeInteger(message.seq) || message.seq !== seq + 1 || message.type === 'HYDRATE' && (message.revision !== boot.revision || !validValues(message.values))) { end(); return; }
       seq = message.seq;
       if (message.type === 'HYDRATE') { hydrate(message.values); reply('ACK'); }
       else if (message.type === 'LOCK') { lock(); reply('LOCK_ACK'); }
@@ -69,25 +81,27 @@ function hostRuntime(boot: any, documentHtml: string) {
   let port: MessagePort | null = null, consumed = false, closed = false, seq = 0, expected = 'ACK', loading = false;
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(24)), b => b.toString(16).padStart(2,'0')).join('');
   const binding = {protocol:1,targetId:boot.targetId,runId:boot.runId,version:boot.version,step:boot.step,nonce};
+  let frameWindow: Window | null = null;
+  const currentFrame = () => frame.contentWindow === frameWindow && frame.isConnected !== false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const set = (value: string) => { state.textContent = value; state.setAttribute('data-state',value); };
   const stop = (value='closed') => { if (closed) return; closed = true; clearTimeout(timer); window.removeEventListener('message',ready); port?.close(); port = null; set(value); frame.remove(); };
   const deadline = () => { clearTimeout(timer); timer = setTimeout(() => stop('timeout'),3000); };
-  const send = (type: string) => { if (closed || !port || state.getAttribute('data-state') !== 'ready') return; seq++; expected = type === 'LOCK' ? 'LOCK_ACK' : 'ACK'; port.postMessage({...binding,type,seq,...(type === 'HYDRATE'?{values:boot.values,revision:boot.revision}:{})}); set('waiting'); deadline(); };
+  const send = (type: string) => { if (closed || !port || state.getAttribute('data-state') !== 'ready') return; if (!currentFrame()) { stop('replaced'); return; } seq++; expected = type === 'LOCK' ? 'LOCK_ACK' : 'ACK'; port.postMessage({...binding,type,seq,...(type === 'HYDRATE'?{values:boot.values,revision:boot.revision}:{})}); set('waiting'); deadline(); };
   const ready = (event: MessageEvent) => {
-    const m = event.data; if (closed || consumed || event.source !== frame.contentWindow || event.origin !== 'null') return;
-    if (!m || m.type !== 'READY' || !Object.keys(binding).every(k => m[k] === binding[k]) || !Array.isArray(m.field_keys) || JSON.stringify(m.field_keys) !== JSON.stringify(boot.fields.map((f: any) => f.key))) { stop('rejected'); return; }
+    const m = event.data; if (closed || consumed || !loading || !currentFrame() || event.source !== frameWindow || event.origin !== 'null') return;
+    if (!m || Object.keys(m).length !== Object.keys(binding).length + 2 || Object.keys(m).some(k=>![...Object.keys(binding),'type','field_keys'].includes(k)) || m.type !== 'READY' || !Object.keys(binding).every(k => m[k] === binding[k]) || !Array.isArray(m.field_keys) || JSON.stringify(m.field_keys) !== JSON.stringify(boot.fields.map((f: any) => f.key).sort())) { stop('rejected'); return; }
     consumed = true; window.removeEventListener('message',ready); const channel = new MessageChannel(); port = channel.port1;
     port.onmessage = (event: MessageEvent) => {
       const m = event.data; if (closed) return;
-      if (!m || !Object.keys(binding).every(k => m[k] === binding[k]) || m.type !== expected || m.seq !== seq || Object.keys(m).some(k => ![...Object.keys(binding),'type','seq'].includes(k))) { stop('rejected'); return; }
+      if (!currentFrame() || !m || !Object.keys(binding).every(k => m[k] === binding[k]) || m.type !== expected || m.seq !== seq || Object.keys(m).some(k => ![...Object.keys(binding),'type','seq'].includes(k))) { stop('rejected'); return; }
       clearTimeout(timer); expected = ''; set('ready');
     };
     port.onmessageerror = () => stop('rejected'); port.start();
     frame.contentWindow!.postMessage({...binding,type:'INIT',field_schema:boot.fields,readOnly:true,values:boot.values,revision:boot.revision},'*',[channel.port2]); set('waiting'); deadline();
   };
   window.addEventListener('message',ready);
-  frame.addEventListener('load',() => { if (closed) return; if (loading) { stop('reloaded'); return; } loading = true; frame.contentWindow!.postMessage({...binding,type:'PROBE'},'*'); set('handshake'); deadline(); });
+  frame.addEventListener('load',() => { if (closed) return; if (loading) { stop('reloaded'); return; } loading = true; frameWindow = frame.contentWindow; frame.contentWindow!.postMessage({...binding,type:'PROBE'},'*'); set('handshake'); deadline(); });
   document.getElementById('hydrate')!.addEventListener('click',()=>send('HYDRATE'));
   document.getElementById('lock')!.addEventListener('click',()=>send('LOCK'));
   document.getElementById('teardown')!.addEventListener('click',()=>{ if (port) port.postMessage({...binding,type:'TEARDOWN',seq:++seq}); stop(); });

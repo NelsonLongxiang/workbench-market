@@ -1,0 +1,32 @@
+# Candidate v2 migration of seed-demo-sop.py; never published or applied to v1 runs.
+# Preserve legacy string input/select semantics. Body bytes are checked against the original.
+title: 服务器上架标准流程（演示）
+code: SOP-DEMO-001
+steps:
+  - key: prepare
+    title: 开箱检查
+    fields:
+      - {key: 配件数, type: text, required: false, maxLength: 4096, operations: [read]}
+      - {key: 外观, type: text, required: false, maxLength: 4096, operations: [read]}
+    body: |
+      <p>核对配件清单与外观：</p>
+      <p>配件数：<input data-field="配件数" placeholder="如 6"></p>
+      <p>外观异常：<select data-field="外观"><option value="无">无</option><option value="有">有</option></select></p>
+  - key: rack
+    title: 上架固定
+    fields:
+      - {key: 机位, type: text, required: false, maxLength: 4096, operations: [read]}
+      - {key: 扭矩复核, type: text, required: false, maxLength: 4096, operations: [read]}
+    body: |
+      <p>机位编号与固定方式：</p>
+      <p>机位：<input data-field="机位" placeholder="如 A-12"></p>
+      <p>螺丝扭矩复核：<select data-field="扭矩复核"><option value="已复核">已复核</option><option value="未复核">未复核</option></select></p>
+  - key: power
+    title: 通电自检
+    fields:
+      - {key: 自检, type: text, required: false, maxLength: 4096, operations: [read]}
+      - {key: 备注, type: text, required: false, maxLength: 4096, operations: [read]}
+    body: |
+      <p>上电后确认指示灯与风扇：</p>
+      <p>自检结果：<select data-field="自检"><option value="通过">通过</option><option value="不通过">不通过</option></select></p>
+      <p>备注：<input data-field="备注" placeholder="可选"></p>

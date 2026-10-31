@@ -40,6 +40,43 @@ with sync_playwright() as p:
   page.screenshot(path=cfg['screenshot'],full_page=True)
   page.locator('#teardown').click();assert page.locator('iframe').count()==0;assert page.locator('#channel-state').get_attribute('data-state')=='closed'
   page.evaluate("() => window.postMessage({type:'ACK',seq:0},'*')");assert page.locator('#channel-state').get_attribute('data-state')=='closed';rows.append({'case':'TEARDOWN-drops-old-window','pass':True})
+  # Hold actual READY before the host sees it; mutate only synthetic browser events.
+  probe=b.new_page();probe.set_default_timeout(5000)
+  probe.route('http://127.0.0.1:21916/**',lambda r:r.fulfill(status=200,content_type='text/html',body=Path(cfg['html']).read_text(encoding='utf8')))
+  probe.add_init_script("""(() => {if(window!==top)return;window.__holdReady=true;window.__ports=[];const Original=MessageChannel;window.MessageChannel=class extends Original{constructor(){super();window.__ports.push(this.port1)}};window.addEventListener('message',e=>{if(window.__holdReady && e.data?.type==='READY'){window.__held={data:e.data,source:e.source,origin:e.origin};e.stopImmediatePropagation()}},true)})()""")
+  def held():
+   probe.goto(cfg['url'],wait_until='load',timeout=7000)
+   probe.wait_for_function('() => !!window.__held',timeout=5000)
+   expect(probe.locator('#channel-state')).to_have_attribute('data-state','handshake')
+  held()
+  old=probe.evaluate('() => window.__held.data')
+  probe.evaluate("() => {const h=window.__held;window.__holdReady=false;window.dispatchEvent(new MessageEvent('message',{data:h.data,source:window,origin:'null'}))}")
+  assert probe.evaluate('() => window.__ports.length')==0
+  expect(probe.locator('#channel-state')).to_have_attribute('data-state','handshake')
+  probe.evaluate("() => {const h=window.__held;window.dispatchEvent(new MessageEvent('message',h))}")
+  expect(probe.locator('#channel-state')).to_have_attribute('data-state','ready')
+  rows.append({'case':'fake-null-origin-valid-binding-wrong-window-no-transfer','pass':True})
+  for key,value in [('targetId',9),('step','release'),('version',9),('field_keys',['admin'])]:
+   held()
+   probe.evaluate("p => {const h=window.__held;window.__holdReady=false;window.dispatchEvent(new MessageEvent('message',{...h,data:{...h.data,[p.key]:p.value}}))}",{'key':key,'value':value})
+   expect(probe.locator('#channel-state')).to_have_attribute('data-state','rejected')
+   assert probe.evaluate('() => window.__ports.length')==0
+   rows.append({'case':'READY-cross-binding-'+key,'pass':True})
+  held()
+  probe.evaluate("old => {const h=window.__held;window.__holdReady=false;window.dispatchEvent(new MessageEvent('message',{...h,data:old}))}",old)
+  expect(probe.locator('#channel-state')).to_have_attribute('data-state','rejected')
+  rows.append({'case':'previous-frame-READY-replay-rejected','pass':True})
+  held()
+  probe.evaluate("() => {const h=window.__held;window.__holdReady=false;window.dispatchEvent(new MessageEvent('message',h))}")
+  expect(probe.locator('#channel-state')).to_have_attribute('data-state','ready')
+  probe.evaluate("() => {const f=document.getElementById('body-frame');const copy=f.cloneNode();f.replaceWith(copy);const m={...window.__held.data,type:'ACK',seq:0};delete m.field_keys;window.__ports[0].onmessage({data:m})}")
+  expect(probe.locator('#channel-state')).to_have_attribute('data-state','rejected')
+  rows.append({'case':'replace-frame-old-port-ACK-rejected','pass':True})
+  probe.close()
+  seed_page=b.new_page();seed_page.route('http://127.0.0.1:21916/**',lambda r:r.fulfill(status=200,content_type='text/html',body=Path(cfg['seedHtml']).read_text(encoding='utf8')))
+  seed_page.goto(cfg['url'],wait_until='load',timeout=7000);expect(seed_page.locator('#channel-state')).to_have_attribute('data-state','ready')
+  sf=seed_page.frames[1];assert sf.locator('[data-field="配件数"]').input_value()=='6';assert sf.locator('[data-field="外观"]').input_value()=='无';assert sf.locator('input,select').evaluate_all('(xs)=>xs.every(x=>x.disabled)')
+  rows.append({'case':'real-seed-versioned-candidate-unicode-fields-finished-readonly','pass':True});seed_page.close()
   assert not errors,errors
  except Exception as e:
   Path(cfg['result']).write_text(json.dumps({'rows':rows,'errors':errors,'console':console,'failure':str(e)},ensure_ascii=False,indent=2),encoding='utf8')
