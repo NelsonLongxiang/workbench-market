@@ -43,6 +43,10 @@ jobs:
           path: dsh-open-a2a-net
       - name: 完整 E2E 跑器隔离回归（宿主 YGL_HOME 诱饵不透传）
         run: node scripts/e2e-full-run-isolation-smoke.mjs
+      - name: Content full-index launch and revocation browser (fake Odoo, no production)
+        env:
+          PYTHON: python
+        run: node scripts/content-index-browser.mjs
       - name: 宿主 YGL_HOME 诱饵（不可读目录，完整 E2E 两档都带着它跑）
         run: mkdir -p "$RUNNER_TEMP/decoy-ygl-home" && chmod 000 "$RUNNER_TEMP/decoy-ygl-home"
       - name: 完整 E2E（M1 双面：控制面开，隔离实例）
@@ -77,6 +81,8 @@ jobs:
         run: node scripts/portal-call-chain-test.mjs
       - name: 统一待办 ygl-trees 项目上限与总预算（合成入口）
         run: node scripts/ygl-project-cap-smoke.mjs
+      - name: Content admission and terminal surface (synthetic only)
+        run: node scripts/content-access-test.mjs && node scripts/content-surface-test.mjs && node scripts/portal-observation-test.mjs
       - name: Taskcenter B1 seed and intake publication
         run: node scripts/taskcenter-intake-smoke.mjs
       - name: SSRF 默认关闭与启动告警（隔离实例）
