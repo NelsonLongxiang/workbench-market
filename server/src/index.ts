@@ -49,6 +49,15 @@ const contentRuntime = contentCfg ? createContentSurface(contentCfg, {
     const result = await resolveOdooViewer(values[0], process.env.WM_CONTENT_ODOO_ORIGIN);
     return result.ok ? { subject: result.viewer.sub + ':' + result.viewer.uid, internal: true } : null;
   },
+  staticTarget(id) {
+    // Exact metadata projection: no auth_config, Cookie pool or app token read.
+    const w = db.prepare('SELECT url, enabled FROM workbenches WHERE id = ?').get(id) as { url: string; enabled: number } | undefined;
+    const match = w?.enabled ? /^[/]apps[/]([a-z0-9][a-z0-9-]{0,63})[/]$/.exec(w.url) : null;
+    if (!w || !match) return null;
+    const a = db.prepare('SELECT active_version, kind, status FROM apps WHERE slug = ?').get(match[1]) as { active_version: number; kind: string; status: string } | undefined;
+    if (!a || a.kind !== 'app' || a.status !== 'active') return null;
+    return { url: w.url, root: join(appsRoot, match[1], 'v' + a.active_version), version: a.active_version };
+  },
   upstream(id) {
     const w = wbById(id);
     if (!w || !w.enabled || w.cookie_set_id) return null; // cookie containers require a separate adapter, never browser fallback
