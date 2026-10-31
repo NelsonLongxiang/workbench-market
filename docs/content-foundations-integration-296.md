@@ -110,7 +110,7 @@ open/read默认复用resolveOdooViewer现查明确trusted Odoo get_session_info�
 
 ## SOP第2步b：字段写/收集候选（未挂载）
 
-sop-field-channel独立editable renderer，不替换已验read-only默认。冻结schema必须显式operations=[read,save]且由openEditable签action=save能力；普通open(read)能力不能写，finished拒。frame仅受控bootstrap脚本、无网络/身份/通用令牌，typed input/change发CHANGE(field,value)，消息固定target/run/version/step/nonce+双向独立seq闭集；可信壳核schema/当前frame，以400ms debounce合并当前step允许字段，通过固定端点和自定义头保存，能力永不进入INIT/srcdoc/URL。只在明确ok和revision+1时显示saved，409冲突/HTTP/网络/无效响应关闭该通道且不冒保存，用户需重新受控加载；不自动覆盖冲突。
+sop-field-channel独立editable renderer，不替换已验read-only默认。冻结schema必须显式operations=[read,save]且由openEditable签action=save能力；普通open(read)能力不能写，finished拒。frame仅受控bootstrap脚本、无网络/身份/通用令牌，typed input/change发CHANGE(field,value)，消息固定target/run/version/step/nonce+双向独立seq闭集；可信壳核schema/当前frame，以400ms debounce合并当前step允许字段，通过固定端点和自定义头保存，能力永不进入INIT/srcdoc/URL。只在明确ok、revision+1且无任何已知非法字段/后续待保存字段时显示saved。bdf独立反例证单invalid标志被其他合法字段清除：已先红复现后改invalidFields逐字段跟踪，非法A仅删除A的旧pending、不丢B；合法B不清A错误，只有对应字段修正或完整schema的COLLECT有效快照可清错误，在途回包同核全体错误与pending。409冲突/HTTP/网络/无效响应关闭该通道且不冒保存，用户需重新受控加载；不自动覆盖冲突。
 
 COLLECT仅可信壳按钮发随机request_id并3秒有界，VALUES按当前step完整typed schema与required检查，通过才排队保存；超时/旧request/跨绑定拒，不触发finish。LOCK关闭本地字段/取消未发debounce/中止在途fetch，服务器finished/权限仍是真门，已提交请求不能靠Abort回滚；TEARDOWN清port/frame/timers，过时响应不标成功。上传与finish未实现。
 
