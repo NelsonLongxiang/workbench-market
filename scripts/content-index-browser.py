@@ -3,7 +3,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 cfg=json.loads(Path(sys.argv[1]).read_text(encoding='utf8'));rows=[]
 with sync_playwright() as p:
- b=p.chromium.launch(headless=True,args=['--no-proxy-server','--host-resolver-rules=MAP w-2-test.internal 127.0.0.1'])
+ b=p.chromium.launch(headless=True,args=['--no-proxy-server','--host-resolver-rules=MAP w-2-test.internal 127.0.0.1, MAP w-3-test.internal 127.0.0.1'])
  try:
   c=b.new_context();c.add_cookies([{'name':'session_id','value':'synthetic1234567890','url':cfg['market'],'httpOnly':True,'sameSite':'Lax'}]);page=c.new_page()
   page.goto(cfg['market']+'/market');page.wait_for_load_state('networkidle')
@@ -26,6 +26,14 @@ with sync_playwright() as p:
   rows.append({'case':'full-index-cross-site-launch','status':200,'opener_null':True})
   target.evaluate("""()=>{window.wsState={messages:0,closed:false};window.liveSocket=new WebSocket(location.origin.replace('http','ws')+'/go/2/socket');liveSocket.onmessage=()=>wsState.messages++;liveSocket.onclose=()=>{wsState.closed=true};liveSocket.onerror=()=>{};}""")
   target.wait_for_function('wsState.messages>0');target.evaluate("liveSocket.send('before-revocation')")
+  querypage=c.new_page();querypage.goto(cfg['market']+'/content/open/3');querypage.wait_for_load_state('networkidle')
+  with c.expect_page() as query_open:querypage.get_by_role('button',name='打开工作台').click()
+  querytarget=query_open.value;querytarget.wait_for_url('**/go/3/');querytarget.wait_for_load_state('networkidle')
+  assert querytarget.locator('h1').inner_text()=='query-ok';assert '?' not in querytarget.url;assert querytarget.evaluate('window.opener===null')
+  query_result=querytarget.evaluate("""async()=>{const r=await fetch('/go/3/echo');return {status:r.status,text:await r.text()}}""")
+  assert query_result=={'status':502,'text':'{"error":"content_response_rejected"}'}
+  rows.append({'case':'server-query-private-injection','clean_browser_url':True,'opener_null':True,'echo_rejected':True})
+  querytarget.close();querypage.close()
   urllib.request.urlopen(cfg['odoo']+'/revoke').read()
   import time
   started=time.monotonic();target.wait_for_function('wsState.closed',timeout=12000);elapsed_ms=(time.monotonic()-started)*1000
