@@ -26,6 +26,18 @@ resolveOdooViewer现查get_session_info能核uid/username/internal，但无可�
 
 验收content-stream-revocation-test：真实HTTP长响应及HTTP101双工持续收发，撤销/身份异常/挂起/硬到期后旧连接断、后续收发计数不再增加、上游也关闭；原guard取消/expiry与挂起检查另有机械时钟用例。原raw101夹具只证透明传输，真实Chromium+完整index另以有效RFC6455握手/服务端text帧验证旧WebSocket撤权后close且不再收消息。所有身份均合成，不是真实Odoo时延SLA。
 
+## 第2段：逐target旧门户浏览器迁出（默认关闭）
+
+可信部署配置WM_CONTENT_TARGETS每项可设migrateBrowser:boolean，只有严格true开启，缺省/false不开，字符串true/数字/null拒配置；不提供注册表/匿名HTTP改开关。index在旧portal前调用迁出路由，只在market localPort上生效。没有内容配置就没有迁出中间件，不暗改所有/go。
+
+已开启target的GET/HEAD顶层document导航302到固定可信marketOrigin/content/open/id，不带原资源路径/query/return/票据/凭据。旧iframe导航或HTTP无FetchMetadata但Mozilla+text/html的兼容分流，返回200静态人工点击链接（仅可信market可嵌、target=_blank/noopener），不在iframe自动跨站登录，进入可信顶层启动页后再人工launch内容主机。无Metadata时不能可靠区分document/iframe，因此保守统一人工打开，不以放开frame-ancestors解决跳转。不能将此页面当已认证内容。
+
+POST/其他方法、upgrade、fetch/XHR、curl/node/python/MCP及无提示unknown继续旧路，不消费body、不重放、不自动迁走。导航的大小写/编码路径使用同content逐段规则；对已选择target的绝对形式/点段/编码斜杠等拒404；未选择的错id/编码id不改变旧路由语义。Host不等可信market authority拒，不按X-Forwarded-Host决定可信入口。分流本身零viewer/目标凭据读取与业务上游连接。
+
+**这是迁移体验开关，不是安全边界或完整切断旧源**：UA/FetchMetadata可伪造，浏览器也可能无提示；非浏览器旧/go仍保留，机器伪装浏览器也会被导向启动页，不会获匿名授权。被动观察8类只是线索、other不可忽略、coverageVerified仍false；开关何时开/哪些target开及非浏览器盘点迁移由属主/运维排期，本PR不启任何现场开关。先观察完整工作周/确认调用者，再逐台迁移，不宣所有机器调用已盘清。
+
+实际index合成浏览器包含旧iframe人工noopener入口、旧/go顶层导航迁出丢query、机器旧路health探针不变，并复验内容launch/WS撤权/XHR与导航401。不会自动注册内容DNS或改网络/配置。
+
 ## 目标代理范围与限制
 显式WM_CONTENT_TARGETS固定{id,origin,upstreamUrl}；当前registry URL须全文相同，否则503，不能让agent改URL后用旧target上下文去另一源。HTTP/WS流式传输，按/go/id剥前缀，重建目标Origin；不转browser Cookie/Authorization/X-Admin-Token/forwarded头，只用服务器目标Bearer/Basic。上游Set-Cookie不透出以防覆盖context，跨目标/源跳转拒502。
 

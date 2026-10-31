@@ -12,7 +12,7 @@ import { registerSurface, surfaceOf } from './surfaces.ts';
 
 type Viewer = { subject: string; internal: true };
 type Upstream = { url: string; authorization?: string; cookie?: string };
-export type ContentSurfaceConfig = { host: string; port: number; marketOrigin: string; targets: (ContentTarget & { upstreamUrl: string })[] };
+export type ContentSurfaceConfig = { host: string; port: number; marketOrigin: string; targets: (ContentTarget & { upstreamUrl: string; migrateBrowser?: boolean })[] };
 type Config = ContentSurfaceConfig;
 type Deps = {
   viewer: (cookie: string) => Promise<Viewer | null>;
@@ -31,6 +31,7 @@ export function contentConfig(env: NodeJS.ProcessEnv): Config | null {
   const targets: Config['targets'] = JSON.parse(env.WM_CONTENT_TARGETS ?? '[]');
   if (!Array.isArray(targets) || targets.length === 0 || targets.length > 256) throw Error('Explicit content targets required');
   for (const t of targets) {
+    if (t.migrateBrowser !== undefined && typeof t.migrateBrowser !== 'boolean') throw Error('migrateBrowser must be an explicit boolean');
     if (Number(new URL(t.origin).port || 80) !== port || new URL(t.origin).hostname === new URL(marketOrigin).hostname) throw Error('Content origin port/host mismatch');
     const u = new URL(t.upstreamUrl);
     if (!['http:', 'https:'].includes(u.protocol) || u.username || u.password || u.hash) throw Error('Invalid pinned upstream');
@@ -140,7 +141,36 @@ export function createContentSurface(config: Config, deps: Deps) {
       remote.once('error', () => socket.destroy()); socket.once('error', () => remote.destroy()); socket.once('close', () => remote.destroy()); remote.pipe(socket); socket.pipe(remote);
     }); q.end();
   }
-  return { access, handler, launch, upgrade };
+  /** Migration routing only, never caller authentication. Machine clients can spoof
+   * navigation hints and browsers on plain HTTP may omit them; inventory stays incomplete. */
+  const migrate: express.RequestHandler = (req, res, next) => {
+    if (!['GET', 'HEAD'].includes(req.method) || req.headers.upgrade !== undefined) return next(); // no body replay or API/WS migration
+    const mode = req.headers['sec-fetch-mode'], dest = req.headers['sec-fetch-dest'];
+    const explicit = mode === 'navigate' && (dest === 'document' || dest === 'iframe');
+    const legacy = !mode && !dest && req.headers['sec-fetch-site'] === undefined &&
+      req.headers['x-requested-with'] === undefined && /Mozilla[/]/.test(String(req.headers['user-agent'] ?? '')) &&
+      String(req.headers.accept ?? '').includes('text/html');
+    if (!explicit && !legacy) return next();
+    // req.path matches Express pathname; original URL is still checked by the content resolver.
+    const match = /^[/]go[/]([1-9][0-9]*)(?:[/]|$)/i.exec(req.path);
+    const target = match ? byId.get(Number(match[1])) : null;
+    if (!target || target.migrateBrowser !== true) return next();
+    const host = new URL(target.origin).host;
+    const proof = { ...req, headers: { ...req.headers, host }, rawHeaders: ['Host', host] };
+    if (String(req.headers.host ?? '') !== new URL(config.marketOrigin).host || !access.resolve(proof)) {
+      res.status(404).type('text').send('Not found'); return;
+    }
+    const href = config.marketOrigin + '/content/open/' + target.id;
+    res.set(fixedHeaders);
+    // Old iframe cannot perform the new cross-site launch itself: require a user click
+    // into the trusted top-level entry, which subsequently opens content with noopener.
+    if (dest === 'iframe' || legacy) {
+      res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors " + config.marketOrigin + "; base-uri 'none'; form-action 'none'");
+      res.type('html').send('<!doctype html><meta charset="utf-8"><title>Open isolated workbench</title><p>此工作台已迁到独立内容主机。</p><a target="_blank" rel="noopener noreferrer" href="' + esc(href) + '">在新标签页打开</a>'); return;
+    }
+    res.redirect(302, href); // trusted entry only; never a ticket/credential-bearing URL
+  };
+  return { access, handler, launch, upgrade, migrate };
 }
 function upstreamUrl(path: string, target: Upstream, id: number) {
   const u = new URL(target.url); if (!['http:', 'https:'].includes(u.protocol) || u.username || u.password || u.hash) throw Error('Unsupported content target');
