@@ -320,19 +320,27 @@ let auditWrite: AuditWriter = (line, done) => { process.stderr.write(line, (err)
 /** 仅测试用：替换输出通道（生产不调用） */
 export function _setAuditWriter(w: AuditWriter): void { auditWrite = w; }
 
-/** 已知的审计渠道故障（异步回调/流 error 后锁存）：锁存期间每次写都报降级，直到有一条写成功回调才解除 */
-const channel = { failed: false, failures: 0, lastAt: '' };
+/**
+ * 已知的审计渠道故障（异步回调/流 error 后锁存）：锁存期间每次写都报降级。
+ * 解除只认「最近一次故障之后才发起的写」成功回调：每次故障 gen+1，写发起时记下 gen，
+ * 故障前发起的旧写迟到成功不能清掉更新的故障。
+ */
+const channel = { failed: false, failures: 0, lastAt: '', gen: 0 };
 export function auditChannelState(): { failed: boolean; failures: number; last_failure_at: string } {
   return { failed: channel.failed, failures: channel.failures, last_failure_at: channel.lastAt };
 }
 /** 流 error 事件（index.ts 挂在 process.stderr 上）与写回调失败共用 */
 export function markAuditChannelFailed(): void {
-  channel.failed = true; channel.failures++; channel.lastAt = new Date().toISOString();
+  channel.failed = true; channel.failures++; channel.gen++; channel.lastAt = new Date().toISOString();
 }
 
 function emit(obj: Record<string, unknown>): boolean {
   try {
-    auditWrite(JSON.stringify(obj) + '\n', (err) => { if (err) markAuditChannelFailed(); else channel.failed = false; });
+    const startGen = channel.gen;
+    auditWrite(JSON.stringify(obj) + '\n', (err) => {
+      if (err) markAuditChannelFailed();
+      else if (channel.failed && startGen === channel.gen) channel.failed = false; // 只有故障后发起的写成功才算恢复
+    });
     return true;
   } catch { markAuditChannelFailed(); return false; }
 }
