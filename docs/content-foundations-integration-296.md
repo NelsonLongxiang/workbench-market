@@ -118,7 +118,19 @@ COLLECT仅可信壳按钮发随机request_id并3秒有界，VALUES按当前step�
 
 未挂载router只预留POST /api/sop/field-channel/save，必须market surface+精确可信Host/Origin（拒null）+JSON32KiB+非空SID头/自定义能力头、关键头单值；无CORS豁免/无CLI匿名旁路。只读cap、跨target/run/step/version、失效主体/ACL/expiry、finished、未知字段/类型/超限和revision冲突由实际service再核，不桥接任意URL/method/admin/上传/finish。没有index挂载/生产schema写。
 
-证据分层：实际内存SQLite服务测试（save冲突/故障回滚/越权）；真实Express Router+JSON parser经合成Readable请求（无listener）；实际序列化host+frame VM（CHANGE/VALUES/seq/timeout/replay/lock）；Chromium拦截固定origin、实际MessageChannel/CSP，壳fetch由夹具stdio桥到同一个真实内存SQLite授权保存service。最后一层是组合逻辑，不证明真实HTTP网络运输/现网Odoo/历史run迁移或实际Router已上线。所有测试不启TCP listener、不读生产数据。固定b head独立窄复核待交，三步全完及另批前不切SOP。
+证据分层：实际内存SQLite服务测试（save冲突/故障回滚/越权）；真实Express Router+JSON parser经合成Readable请求（无listener）；实际序列化host+frame VM（CHANGE/VALUES/seq/timeout/replay/lock）；Chromium拦截固定origin、实际MessageChannel/CSP，壳fetch由夹具stdio桥到同一个真实内存SQLite授权保存service。最后一层是组合逻辑，不证明真实HTTP网络运输/现网Odoo/历史run迁移或实际Router已上线。所有测试不启TCP listener、不读生产数据。b的42a005de多字段修复独立窄回验限定通过；三步全完及另批前不切SOP。
+
+## SOP第3步a：UPLOAD候选（未挂载）
+
+file声明仅显式upload装配开启：maxBytes、mime精确列表、maxItems及operations=[read,upload]必填，默认readonly拒file不变。硬天花板沿既有run上传单50MiB、run20文件/200MiB，字段可更窄；MIME是声明类型双核，不谎称内容格式鉴定/恶意文件扫描。存储不执行/不内联，因此伪装类型的活动字节仍只能成为惰性对象。
+
+frame文件选择经MessagePort结构化克隆File/Blob发UPLOAD_REQUEST(field,request_id,file)，不发URL/path/方法/能力。可信壳再核固定绑定/seq、Blob实际size/type和字段数量，仅持独立run action=upload能力向固定/api/sop/field-channel/upload发multipart；save能力不能上传，upload能力不能写字段。字段schema/INIT/srcdoc都不带上传能力。每字段最新selection跟踪防旧成功清后选错误；server随机f_对象id与状态经UPLOAD_RESULT回原port；旧port/请求id重放拒，LOCK/TEARDOWN中止浏览器请求但不承诺撤销已提交存储。
+
+未挂载multipart Router同market+精确Host/Origin拒null+单头session/上传cap，multer内存上限50MiB/1file/1binding字段，闭集binding；实际service再核fresh Odoo/session epoch、run/target/step/version/ACL/status/schema、尺寸/MIME与字段/run累计配额，BEGIN IMMEDIATE内唯一run-step-request id去重，失败ROLLBACK。文件名只做入参长度上限，不参与存储：SQLite BLOB以服务器随机id保存，与run/step/field绑定，不生成客户端路径，不提供下载/inline/执行路由。本候选增加专用sop_channel_files表，工厂显式调用才建，不改生产db或旧run-files存储。
+
+文件引用由server已存对象生成并投影，file DOM不能像text回填value；child保持引用数组供COLLECT，上传不改变字段data/revision；后续finish必须从server对象表核file引用/required，不信任frame自报ID。本a未做finish，未接旧Runner/Redis/独立内容host或正式运营bind迁移。
+
+测试：实际内存SQLite服务拒超大/错MIME/超数/跨run-step-target/过期撤权/重放/路径名与事务故障；实际Express+multer合成请求流无TCP；序列化双端VM核Blob/头/固定端点/旧port/迟到响应；Chromium真实File跨opaque MessagePort，实际multipart请求经拦截stdio桥送入真实SQLite服务，不冒真实HTTP运输/现网身份。a固定head待独立窄复核，不开始b finish/切流。
 
 ## 验证与未完成
 content-access-test原58、portal-observation-test原30、303红/200绿cookie对照保留；content-surface-test真实registerSurface+sharedExpress+counted upstream+假时钟核HTTP/WS/到期/撤权/restart/编码/fallback0。content-index-browser真实index+synthetic DB/home+假Odoo/上游+Chromium核跨站200/opener null/撤权XHR401/导航同target401，上游合法1次且不漏browser身份。不是真实Odoo/DNS或生产验收。

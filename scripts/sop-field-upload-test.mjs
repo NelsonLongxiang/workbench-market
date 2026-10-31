@@ -1,0 +1,41 @@
+import assert from 'node:assert/strict';import{DatabaseSync}from'node:sqlite';import{createHash,randomUUID}from'node:crypto';import{createSopRunAccess}from'../server/src/sop-run-access.ts';
+const db=new DatabaseSync(':memory:');db.exec("CREATE TABLE sop_runs(id INTEGER PRIMARY KEY,sop_slug TEXT,sop_version INTEGER,status TEXT,data TEXT);CREATE TABLE apps(id INTEGER,slug TEXT,kind TEXT,status TEXT);CREATE TABLE app_versions(app_id INTEGER,version INTEGER);CREATE TABLE workbenches(id INTEGER,url TEXT,enabled INTEGER);INSERT INTO sop_runs VALUES(12,'upload-sop',1,'running','{}'),(13,'upload-sop',1,'running','{}');INSERT INTO apps VALUES(1,'upload-sop','sop','published');INSERT INTO app_versions VALUES(1,1);INSERT INTO workbenches VALUES(4,'/sop/upload-sop/',1),(5,'/sop/other/',1)");
+const yaml="title: Upload SOP\nsteps:\n  - key: attach\n    title: Attach\n    fields:\n      - {key: note, type: text, required: false, maxLength: 100, operations: [read, save]}\n      - {key: evidence, type: file, required: true, maxBytes: 10, maxItems: 2, mime: [text/plain], operations: [read, upload]}\n    body: '<input type=\"file\" data-field=\"evidence\">'\n";
+const oldOrigin=process.env.WM_ODOO_ORIGINS;process.env.WM_ODOO_ORIGINS='http://odoo.synthetic.invalid';let at=1000,subject='alpha',race=null;
+const cookie='session_id=syntheticAlpha00000001',scope={targetId:4,runId:12,step:'attach'},access=createSopRunAccess({db,odooOrigin:'http://odoo.synthetic.invalid',marketOrigin:'http://market.synthetic.invalid',frozenYaml:()=>yaml,now:()=>at,viewer:async()=>{if(race){const fn=race;race=null;fn()}return{ok:true,viewer:{uid:subject==='alpha'?1:2,sub:'user:'+subject,login:subject,name:null}}}});
+const bind=()=>access.bindTrustedRun({runId:12,targetId:4,ownerSubject:'user:alpha:1',manifestSha256:createHash('sha256').update(yaml).digest('hex')});bind();
+let checks=0;const check=async(n,f)=>{await f();checks++;console.log('PASS '+n)},count=()=>db.prepare('SELECT count(*) n FROM sop_channel_files').get().n;
+const input=(patch={})=>({version:1,field:'evidence',request_id:randomUUID(),mime:'text/plain',name:'note.txt',bytes:Buffer.from('hello'),...patch});
+const reject=async(fn,status)=>{const before=count();await assert.rejects(fn,e=>e.status===status);assert.equal(count(),before)};
+try{
+ const opened=await access.openUpload(cookie,scope),cap=opened.capability;
+ await check('valid save-only capability cannot upload',async()=>{const saveCap=(await access.openEditable(cookie,scope)).capability;await reject(()=>access.upload(cookie,saveCap,scope,input()),403)});
+ await check('valid upload-only capability cannot save',()=>reject(()=>access.save(cookie,cap,scope,{version:1,expected_revision:0,values:{note:'bad'}}),403));
+ await check('schema file metadata admitted only explicit upload path',()=>{assert.equal(opened.preview.fields.find(f=>f.key==='evidence').maxBytes,10);assert.ok(!JSON.stringify(opened.preview).includes(cap))});
+ await check('oversize file denied without store',()=>reject(()=>access.upload(cookie,cap,scope,input({bytes:Buffer.alloc(11)})),422));
+ await check('wrong MIME denied without store',()=>reject(()=>access.upload(cookie,cap,scope,input({mime:'text/html'})),422));
+ for(const s of [{...scope,runId:13},{...scope,targetId:5},{...scope,step:'other'}])await check('cross upload scope denied '+JSON.stringify(s),()=>reject(()=>access.upload(cookie,cap,s,input()),403));
+ await check('wrong field denied',()=>reject(()=>access.upload(cookie,cap,scope,input({field:'other'})),403));
+ await check('wrong version denied',()=>reject(()=>access.upload(cookie,cap,scope,input({version:2})),403));
+ await check('backend body cannot select path or URL',()=>reject(()=>access.upload(cookie,cap,scope,input({path:'../escape'})),400));
+ await check('tampered upload capability rejected',async()=>{await reject(()=>access.upload(cookie,'a'.repeat(43)+'.'+'b'.repeat(43),scope,input()),403)});
+ const first=input({name:'../../outside.html'});let firstId;
+ await check('path traversal filename cannot become storage path',async()=>{const r=await access.upload(cookie,cap,scope,first);firstId=r.id;assert.match(r.id,/^f_[a-f0-9]{48}$/);const row=db.prepare('SELECT * FROM sop_channel_files WHERE id=?').get(r.id);assert.equal(Buffer.from(row.body).toString(),'hello');assert.ok(!JSON.stringify({...row,body:undefined}).includes('outside'));assert.ok(!JSON.stringify(r).includes('path'))});
+ await check('upload request replay rejected zero additional bytes',()=>reject(()=>access.upload(cookie,cap,scope,first),409));
+ await check('reload projection contains generated file reference only',async()=>{const projection=await access.read(cookie,cap,scope);assert.deepEqual(projection.preview.values.evidence,[firstId]);assert.ok(!JSON.stringify(projection).includes('outside.html'))});
+ await check('second valid file succeeds',async()=>assert.equal((await access.upload(cookie,cap,scope,input())).ok,true));
+ await check('schema file count quota enforced',()=>reject(()=>access.upload(cookie,cap,scope,input()),413));
+ await check('finished run upload rejected',async()=>{db.exec("UPDATE sop_runs SET status='finished' WHERE id=12");await reject(()=>access.upload(cookie,cap,scope,input()),403);db.exec("UPDATE sop_runs SET status='running' WHERE id=12")});
+ await check('revoked upload capability denied',async()=>{access.revokeRun(12);await reject(()=>access.upload(cookie,cap,scope,input()),403);bind()});
+ const renewed=(await access.openUpload(cookie,scope)).capability;
+ await check('expired upload capability denied',async()=>{at+=300000;await reject(()=>access.upload(cookie,renewed,scope,input()),403)});
+ const active=(await access.openUpload(cookie,scope)).capability;
+ await check('fresh viewer loses permission',async()=>{subject='beta';await reject(()=>access.upload(cookie,active,scope,input()),403);subject='alpha'});
+ const raced=(await access.openUpload(cookie,scope)).capability;
+ await check('session revoke during identity await denies upload',async()=>{race=()=>access.revokeSession(cookie);await reject(()=>access.upload(cookie,raced,scope,input()),403)});
+ await check('upload cap cannot save fields',()=>reject(()=>access.save(cookie,raced,scope,{version:1,expected_revision:0,values:{}}),403));
+ // Remove inert synthetic bytes solely inside this memory DB to exercise rollback after successful quota admission.
+ db.exec('DELETE FROM sop_channel_files');const fresh=(await access.openUpload(cookie,scope)).capability;
+ await check('storage failure rolls back, no success receipt',async()=>{db.exec("CREATE TRIGGER fail_upload BEFORE INSERT ON sop_channel_files BEGIN SELECT RAISE(ABORT,'synthetic fault');END");await assert.rejects(()=>access.upload(cookie,fresh,scope,input()));assert.equal(count(),0);db.exec('DROP TRIGGER fail_upload')});
+ console.log(JSON.stringify({checks,scope:'actual upload authorization/schema/SQLite BLOB storage; synthetic viewer; zero TCP/filesystem paths'}));
+}finally{db.close();if(oldOrigin===undefined)delete process.env.WM_ODOO_ORIGINS;else process.env.WM_ODOO_ORIGINS=oldOrigin}
