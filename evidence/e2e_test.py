@@ -533,14 +533,18 @@ with sync_playwright() as p:
     except Exception as e:
         record('M1 双面', False, str(e)); shot('m1-surfaces')
 
-    # ---------- 12. 任务驾驶舱（业务面：创建入口→门户面板渲染→持久化→布局写走 CLI→删除） ----------
+    # ---------- 12. 任务驾驶舱（业务面只读：门户面板渲染→持久化→无编辑入口→布局写走 CLI→删除） ----------
     # #292 M1：驾驶舱是业务页（控制面不提供，会跳回业务面），而 /api/cockpits 写是管理写——业务面浏览器发来一律 403。
-    # 所以布局由本机 CLI 写，页面只验渲染/持久化，并断言业务面页面改布局被拒（单面旧实例仍走页面改）。
+    # #302 方案③：业务面隐藏全部编辑入口并提示走命令行；布局由本机 CLI 写，页面只验渲染/持久化（单面旧实例仍走页面改）。
     try:
         pw = api(page, 'POST', '/api/workbenches', {'name': 'E2E 驾驶舱面板源', 'url': BASE}).json()['id']
         page.goto(BASE + '/cockpit')
         page.wait_for_load_state('networkidle')
-        assert page.get_by_role('button', name='新建驾驶舱').first.is_visible(), '新建按钮缺失'
+        if CTRL is None:
+            assert page.get_by_role('button', name='新建驾驶舱').first.is_visible(), '新建按钮缺失'
+        else:
+            assert page.get_by_role('button', name='新建驾驶舱').count() == 0, '业务面不应有新建驾驶舱入口'
+            assert '命令行' in page.locator('.wm-cockpit-readonly').first.inner_text(), '业务面应提示驾驶舱编辑走命令行'
         r = api(page, 'POST', '/api/cockpits', {'name': 'E2E 驾驶舱', 'panels': [{'workbenchId': pw, 'x': 0, 'y': 0, 'w': 6, 'h': 8}]}).json()
         cid = r['id']
         page.goto(BASE + f'/cockpit/{cid}')
@@ -556,6 +560,33 @@ with sync_playwright() as p:
         row = api(page, 'GET', f'/api/cockpits/{cid}').json()
         assert len(row['panels']) == 1 and row['panels'][0]['workbenchId'] == pw, f'API 面板数据异常: {row["panels"]}'
         if CTRL is not None:
+            for name in ('改名', '加待办卡'):
+                assert page.get_by_role('button', name=name).count() == 0, f'业务面不应有「{name}」入口'
+            assert page.get_by_text('添加工作台面板').count() == 0, '业务面不应有添加面板入口'
+            assert page.locator('.wm-panel-actions .anticon-close').count() == 0, '业务面不应有移除面板入口'
+            assert page.locator('.react-resizable-handle:visible').count() == 0, '业务面面板不应可拉伸（拉伸手柄应隐藏）'
+            assert page.locator('.wm-panel.react-draggable').count() == 0, '业务面面板不应可拖拽'
+            assert page.locator('.wm-cockpit-readonly').count() == 1, '单驾驶舱视图应有只读提示'
+            # 重叠布局：网格挂载时会自动归一（把重叠面板挤开）并回调 onLayoutChange——只读页不得因此发保存请求、不得报保存失败
+            ov_panels = [{'workbenchId': pw, 'x': 0, 'y': 0, 'w': 6, 'h': 8},
+                         {'i': 'tasks', 'kind': 'tasks', 'workbenchId': 0, 'x': 0, 'y': 0, 'w': 6, 'h': 12}]
+            ov = api(page, 'POST', '/api/cockpits', {'name': 'E2E 重叠驾驶舱', 'panels': ov_panels}).json()
+            ov_before = api(page, 'GET', f"/api/cockpits/{ov['id']}").json()['panels']
+            cockpit_writes = []
+            _on_req = lambda rq: cockpit_writes.append(f'{rq.method} {rq.url}') if rq.method != 'GET' and '/api/cockpits' in rq.url else None
+            page.on('request', _on_req)
+            page.goto(BASE + f"/cockpit/{ov['id']}")
+            page.wait_for_load_state('networkidle')
+            page.wait_for_timeout(2500)
+            page.remove_listener('request', _on_req)
+            assert page.locator('.wm-panel').count() == 2, f'重叠驾驶舱应渲染 2 个面板: {page.locator(".wm-panel").count()}'
+            assert not cockpit_writes, f'只读页挂载不应发驾驶舱写请求: {cockpit_writes}'
+            assert '布局保存失败' not in page.inner_text('body'), '只读页不应出现保存失败提示'
+            assert api(page, 'GET', f"/api/cockpits/{ov['id']}").json()['panels'] == ov_before, '重叠布局数据不应被改'
+            api(page, 'DELETE', f"/api/cockpits/{ov['id']}")
+            page.goto(BASE + f'/cockpit/{cid}')
+            page.wait_for_load_state('networkidle')
+            page.wait_for_timeout(600)
             st, j = market_write(f'/api/cockpits/{cid}', 'PUT', {'panels': []})
             assert st == 403 and j.get('control_surface_required') is True, f'业务面页面改布局应 403: {st} {j}'
             assert len(api(page, 'GET', f'/api/cockpits/{cid}').json()['panels']) == 1, '被拒的布局写不应生效'
@@ -571,11 +602,15 @@ with sync_playwright() as p:
         page.get_by_role('button', name='返回驾驶舱列表').click()
         page.wait_for_load_state('networkidle')
         assert page.get_by_text('E2E 驾驶舱', exact=True).first.is_visible(), '列表中未见 E2E 驾驶舱'
+        if CTRL is not None:
+            assert page.get_by_role('button', name='删除').count() == 0, '业务面驾驶舱列表不应有删除入口'
+            st, _ = market_write(f'/api/cockpits/{cid}', 'DELETE', {})
+            assert st == 403, f'业务面页面删驾驶舱应 403: {st}'
         assert api(page, 'DELETE', f'/api/cockpits/{cid}').status == 200
         api(page, 'DELETE', f'/api/workbenches/{pw}')
         leftover = api(page, 'GET', '/api/cockpits').json()
         assert not any(c['name'] == 'E2E 驾驶舱' for c in leftover), '驾驶舱删除失败'
-        record('任务驾驶舱（业务面：门户面板渲染/持久化/布局写 403 走 CLI/删除）', True)
+        record('任务驾驶舱（业务面只读：门户面板渲染/持久化/无编辑入口/重叠布局挂载不写/布局写 403 走 CLI/删除）', True)
     except Exception as e:
         record('任务驾驶舱', False, str(e)); shot('cockpit')
 
