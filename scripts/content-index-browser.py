@@ -3,7 +3,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 cfg=json.loads(Path(sys.argv[1]).read_text(encoding='utf8'));rows=[]
 with sync_playwright() as p:
- b=p.chromium.launch(headless=True,args=['--no-proxy-server','--host-resolver-rules=MAP w-2-test.internal 127.0.0.1, MAP w-3-test.internal 127.0.0.1'])
+ b=p.chromium.launch(headless=True,args=['--no-proxy-server','--host-resolver-rules=MAP w-2-test.internal 127.0.0.1, MAP w-3-test.internal 127.0.0.1, MAP w-4-test.internal 127.0.0.1'])
  try:
   c=b.new_context();c.add_cookies([{'name':'session_id','value':'synthetic1234567890','url':cfg['market'],'httpOnly':True,'sameSite':'Lax'}]);page=c.new_page()
   page.goto(cfg['market']+'/market');page.wait_for_load_state('networkidle')
@@ -34,6 +34,16 @@ with sync_playwright() as p:
   assert query_result=={'status':502,'text':'{"error":"content_response_rejected"}'}
   rows.append({'case':'server-query-private-injection','clean_browser_url':True,'opener_null':True,'echo_rejected':True})
   querytarget.close();querypage.close()
+  staticpage=c.new_page();staticpage.goto(cfg['market']+'/content/open/4');staticpage.wait_for_load_state('networkidle')
+  with c.expect_page() as static_open:staticpage.get_by_role('button',name='打开工作台').click()
+  statictarget=static_open.value;statictarget.wait_for_url('**/go/4/');statictarget.wait_for_load_state('networkidle')
+  statictarget.wait_for_function('window.localStaticReady===true');assert statictarget.locator('h1').inner_text()=='local-static'
+  assert statictarget.locator('h1').evaluate('(e)=>getComputedStyle(e).color')=='rgb(0, 0, 128)'
+  assert statictarget.evaluate('window.opener===null');assert not statictarget.evaluate("document.documentElement.outerHTML.includes('WM_APP_TOKEN') || document.documentElement.outerHTML.includes('wm-app-token')")
+  # HEAD is tested by content-static-test's actual HTTP client. Playwright's API
+  # request context does not use Chromium host-resolver-rules; don't bypass DNS here.
+  rows.append({'case':'active-static-relative-assets','js':True,'css':True,'no_token_injection':True,'opener_null':True})
+  statictarget.close();staticpage.close()
   urllib.request.urlopen(cfg['odoo']+'/revoke').read()
   import time
   started=time.monotonic();target.wait_for_function('wsState.closed',timeout=12000);elapsed_ms=(time.monotonic()-started)*1000
