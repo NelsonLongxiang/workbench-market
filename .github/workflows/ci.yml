@@ -50,7 +50,7 @@ jobs:
       - name: SOP read-only preview browser (intercepted origin; no TCP or production)
         env:
           PYTHON: python
-        run: node scripts/sop-readonly-browser.mjs
+        run: node scripts/sop-readonly-browser.mjs && node scripts/sop-field-browser.mjs
       - name: 完整 E2E 跑器收尾回归（自起 server 未确认退出不删 TMP）
         run: node scripts/e2e-full-run-cleanup-test.mjs
       - name: 宿主 YGL_HOME 诱饵（不可读目录，完整 E2E 两档都带着它跑）
@@ -90,7 +90,7 @@ jobs:
       - name: Content admission and terminal surface (synthetic only)
         run: node scripts/content-access-test.mjs && node scripts/content-surface-test.mjs && node scripts/content-stream-revocation-test.mjs && node scripts/content-migration-test.mjs && node scripts/content-query-credentials-test.mjs && node scripts/content-static-test.mjs && node scripts/portal-observation-test.mjs
       - name: SOP read-only preview validation (no browser or production routing)
-        run: node scripts/sop-run-access-test.mjs && node scripts/sop-readonly-assembly-test.mjs && node scripts/sop-readonly-channel-test.mjs && node scripts/sop-readonly-state-test.mjs
+        run: node scripts/sop-field-save-test.mjs && node scripts/sop-field-router-test.mjs && node scripts/sop-field-channel-state-test.mjs && node scripts/sop-run-access-test.mjs && node scripts/sop-readonly-assembly-test.mjs && node scripts/sop-readonly-channel-test.mjs && node scripts/sop-readonly-state-test.mjs
       - name: Taskcenter B1 seed and intake publication
         run: node scripts/taskcenter-intake-smoke.mjs
       - name: SSRF 默认关闭与启动告警（隔离实例）

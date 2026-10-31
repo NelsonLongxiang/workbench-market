@@ -1,11 +1,11 @@
 /** Draft protocol stage 1. Pure preview renderer, NOT mounted in the market/Runner. */
 import {createHash} from 'node:crypto';
-type Field = { key: string; type: 'text' | 'number' | 'boolean' | 'multi'; required?: boolean; maxLength?: number; options?: string[]; maxItems?: number; operations?: ['read'] };
+type Field = { key: string; type: 'text' | 'number' | 'boolean' | 'multi'; required?: boolean; maxLength?: number; options?: string[]; maxItems?: number; operations?: ['read'] | ['read','save'] };
 export type ReadonlySop = { targetId: number; runId: number; version: number; step: string; revision: number; marketOrigin: string; fields: Field[]; values: Record<string, unknown>; body: string };
 const key = (v: unknown) => typeof v === 'string' && /^[a-z][a-z0-9_-]{0,63}$/.test(v) && !['__proto__','constructor','prototype'].includes(v);
 // Seed SOPs use Chinese field names; compare attributes directly, never CSS-interpolate.
 const fieldKey = (v: unknown) => typeof v === 'string' && /^[\p{L}][\p{L}\p{N}_-]{0,63}$/u.test(v) && !['__proto__','constructor','prototype'].includes(v);
-export function validateReadonlySop(input: ReadonlySop): ReadonlySop {
+export function validateReadonlySop(input: ReadonlySop, allowSave = false): ReadonlySop {
   if (!input || ['targetId','runId','version'].some(k => !Number.isSafeInteger(input[k]) || input[k] < 1) || !key(input.step) || !Number.isSafeInteger(input.revision) || input.revision < 0) throw Error('Invalid fixed SOP binding');
   const origin = new URL(input.marketOrigin); if (origin.origin !== input.marketOrigin || !['http:','https:'].includes(origin.protocol)) throw Error('Invalid trusted preview origin');
   if (!Array.isArray(input.fields) || input.fields.length > 100 || typeof input.body !== 'string' || Buffer.byteLength(input.body) > 256*1024) throw Error('Invalid SOP preview schema/body');
@@ -13,7 +13,7 @@ export function validateReadonlySop(input: ReadonlySop): ReadonlySop {
   for (const field of input.fields) {
     if (!field || !fieldKey(field.key) || fields.has(field.key) || !['text','number','boolean','multi'].includes(field.type)) throw Error('Unknown/duplicate field declaration');
     if (field.maxLength !== undefined && (!Number.isSafeInteger(field.maxLength) || field.maxLength < 1 || field.maxLength > 4096)) throw Error('Invalid field limit');
-    if (field.required !== undefined && typeof field.required !== 'boolean' || field.maxItems !== undefined && (!Number.isSafeInteger(field.maxItems) || field.maxItems < 1 || field.maxItems > 50) || field.operations !== undefined && (!Array.isArray(field.operations) || field.operations.length !== 1 || field.operations[0] !== 'read')) throw Error('Invalid read-only field constraints');
+    if (field.required !== undefined && typeof field.required !== 'boolean' || field.maxItems !== undefined && (!Number.isSafeInteger(field.maxItems) || field.maxItems < 1 || field.maxItems > 50) || field.operations !== undefined && (!Array.isArray(field.operations) || JSON.stringify(field.operations) !== JSON.stringify(['read']) && !(allowSave && JSON.stringify(field.operations) === JSON.stringify(['read','save'])))) throw Error('Invalid read-only field constraints');
     if (field.type === 'multi' && (!Array.isArray(field.options) || field.options.length > 50 || field.options.some(v => typeof v !== 'string' || v.length > 100) || new Set(field.options).size !== field.options.length)) throw Error('Invalid enum declaration');
     fields.set(field.key, field);
   }

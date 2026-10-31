@@ -104,9 +104,21 @@ sop-run-access是显式工厂，不由index导入、不新增HTTP/MCP/启动迁�
 
 open/read默认复用resolveOdooViewer现查明确trusted Odoo get_session_info，仅严格内部用户；SID重复/格式异常拒。subject按现有content口径sub+uid匹配受控owner/assignee，再核enabled target的精确/sop/slug/、published SOP及run冻结版本存在；随后才读取冻结YAML（校登记摘要）和保存值。投影含run targetId与authorized=true，不含owner/uid/login/session；未授权不签发能力、不读body/values。只有preview可传render/INIT，能力单独返回可信壳，绝不传frame/URL。
 
-能力是带HMAC的随机opaque进程内引用，绑定session/主体/撤权epoch、run/target/step/version/ACL revision，硬300秒不续租；读时新鲜Odoo校验与所有绑定再核。注销/内部资格缺失/上游失败/会话主体变化、显式epoch或ACL撤销/改派、过期/重启都拒；身份await期间的撤权/过期也拒。epoch借用content的过程内撤权方式，此新组件有自己的有界session记录，不谎称Odoo有全局epoch或已接现网统一撤权总线。单进程cap/session各4096，满拒，重启失效；不声明多进程可用。ccff独立复核另发现open观察同SID身份A→B后旧A能力可复活，已先红复现：共享identify记session当前subject/epoch/generation，每次成功解析发现subject变化即吊全部旧能力（包括后续ACL会拒的身份），最新发起的identity查询生效，过时成功/失败不覆盖新状态；显式revoke使在途await失效，open/read恢复后再核generation/epoch。未靠read旧能力碰撞才吊。新增open双身份、无权限身份、交错await、过时失败与并发显式revoke反例；待新固定head窄回验，不开始写通道。
+能力是带HMAC的随机opaque进程内引用，绑定session/主体/撤权epoch、run/target/step/version/ACL revision，硬300秒不续租；读时新鲜Odoo校验与所有绑定再核。注销/内部资格缺失/上游失败/会话主体变化、显式epoch或ACL撤销/改派、过期/重启都拒；身份await期间的撤权/过期也拒。epoch借用content的过程内撤权方式，此新组件有自己的有界session记录，不谎称Odoo有全局epoch或已接现网统一撤权总线。单进程cap/session各4096，满拒，重启失效；不声明多进程可用。ccff独立复核另发现open观察同SID身份A→B后旧A能力可复活，已先红复现：共享identify记session当前subject/epoch/generation，每次成功解析发现subject变化即吊全部旧能力（包括后续ACL会拒的身份），最新发起的identity查询生效，过时成功/失败不覆盖新状态；显式revoke使在途await失效，open/read恢复后再核generation/epoch。未靠read旧能力碰撞才吊。新增open双身份、无权限身份、交错await、过时失败与并发显式revoke反例；9bbd3be0独立窄回验限定通过，原ccff红保留；b写通道在此后另段实现与复核。
 
 测试采用实际内存SQLite+真实Odoo resolver（fetch替身，无TCP），核他人/未绑定/跨target run、已指派人、portal/缺internal/注销/失败、scope/会话/签名/revision/版本/expiry/重启与拒绝前读取计数0；不读现网数据。授权段仍无写能力、save/upload/finish接口或旧Runner挂载；CHANGE/VALIDATE/COLLECT需本固定head窄复核后另段实现，不把read能力当写能力。
+
+## SOP第2步b：字段写/收集候选（未挂载）
+
+sop-field-channel独立editable renderer，不替换已验read-only默认。冻结schema必须显式operations=[read,save]且由openEditable签action=save能力；普通open(read)能力不能写，finished拒。frame仅受控bootstrap脚本、无网络/身份/通用令牌，typed input/change发CHANGE(field,value)，消息固定target/run/version/step/nonce+双向独立seq闭集；可信壳核schema/当前frame，以400ms debounce合并当前step允许字段，通过固定端点和自定义头保存，能力永不进入INIT/srcdoc/URL。只在明确ok和revision+1时显示saved，409冲突/HTTP/网络/无效响应关闭该通道且不冒保存，用户需重新受控加载；不自动覆盖冲突。
+
+COLLECT仅可信壳按钮发随机request_id并3秒有界，VALUES按当前step完整typed schema与required检查，通过才排队保存；超时/旧request/跨绑定拒，不触发finish。LOCK关闭本地字段/取消未发debounce/中止在途fetch，服务器finished/权限仍是真门，已提交请求不能靠Abort回滚；TEARDOWN清port/frame/timers，过时响应不标成功。上传与finish未实现。
+
+服务工厂新增sop_run_revisions(run_id,revision,data_sha256)，仅显式可信bind初始化当前完整JSON摘要；保存BEGIN IMMEDIATE后再核身份/epoch/能力/ACL/version/status，冻结YAML schema校当前字段，expected_revision与原data摘要CAS，更新revision和sop_runs.data在同事务，故障ROLLBACK。检测任何旧API/Redis checkpoint绕此组件修改原JSON即409，绝不覆盖；此阶段尚未与旧Redis写链共存集成，因此不挂Runner/不切流。read路径保原语义，无写schema默认不启写。
+
+未挂载router只预留POST /api/sop/field-channel/save，必须market surface+精确可信Host/Origin（拒null）+JSON32KiB+非空SID头/自定义能力头、关键头单值；无CORS豁免/无CLI匿名旁路。只读cap、跨target/run/step/version、失效主体/ACL/expiry、finished、未知字段/类型/超限和revision冲突由实际service再核，不桥接任意URL/method/admin/上传/finish。没有index挂载/生产schema写。
+
+证据分层：实际内存SQLite服务测试（save冲突/故障回滚/越权）；真实Express Router+JSON parser经合成Readable请求（无listener）；实际序列化host+frame VM（CHANGE/VALUES/seq/timeout/replay/lock）；Chromium拦截固定origin、实际MessageChannel/CSP，壳fetch由夹具stdio桥到同一个真实内存SQLite授权保存service。最后一层是组合逻辑，不证明真实HTTP网络运输/现网Odoo/历史run迁移或实际Router已上线。所有测试不启TCP listener、不读生产数据。固定b head独立窄复核待交，三步全完及另批前不切SOP。
 
 ## 验证与未完成
 content-access-test原58、portal-observation-test原30、303红/200绿cookie对照保留；content-surface-test真实registerSurface+sharedExpress+counted upstream+假时钟核HTTP/WS/到期/撤权/restart/编码/fallback0。content-index-browser真实index+synthetic DB/home+假Odoo/上游+Chromium核跨站200/opener null/撤权XHR401/导航同target401，上游合法1次且不漏browser身份。不是真实Odoo/DNS或生产验收。
