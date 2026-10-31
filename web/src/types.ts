@@ -108,14 +108,14 @@ export interface SopApp {
   workbench_id: number | null;
 }
 
-/** SOP 执行实例（run）：data 为 stepKey→value JSON 字符串 */
+/** SOP 执行列表只提供元数据；字段值另走单项接口（读授权收口为第二段）。 */
 export interface SopRun {
   id: number;
   sop_slug: string;
   sop_version: number;
   status: 'running' | 'finished';
   started_by: string;
-  data: string;
+  steps: number;
   started_at: string;
   updated_at: string;
   finished_at: string;

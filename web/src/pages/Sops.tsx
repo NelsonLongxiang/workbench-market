@@ -17,14 +17,7 @@ const SOP_STATUS: Record<SopApp['status'], { style: CSSProperties; label: string
   deprecated: { style: { color: '#CF1322', background: '#FFF1F0', borderColor: '#FFA39E' }, label: 'deprecated', hint: '已废弃——市场行停用，历史 run 仍可回放' },
 };
 
-function parseRunData(raw: string): Record<string, unknown> {
-  try {
-    const v = JSON.parse(raw || '{}');
-    return typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : {};
-  } catch {
-    return {};
-  }
-}
+
 
 /** SOP 台管理面：状态机（draft→published→deprecated）+ 版本链 + run 历史 + 网络暴露（人工绑定） */
 export default function Sops() {
@@ -251,7 +244,7 @@ export default function Sops() {
             执行
           </Button>
         </Tooltip>,
-        <Tooltip key="runs" title="查看执行记录（run 历史 + 步骤数据）">
+        <Tooltip key="runs" title="查看执行记录（仅元数据与步骤数量）">
           <Button size="small" icon={<RiseOutlined />} onClick={() => openRuns(s)}>
             记录
           </Button>
@@ -293,7 +286,7 @@ export default function Sops() {
       render: (v: SopRun['status']) => (v === 'running' ? <Tag color="processing">执行中</Tag> : <Tag color="green">已完成</Tag>),
     },
     { title: '执行人', dataIndex: 'started_by', width: 110, render: (v: string) => v || <Typography.Text type="secondary">-</Typography.Text> },
-    { title: '步骤数', width: 80, render: (_: unknown, r: SopRun) => <Typography.Text className="wm-mono">{Object.keys(parseRunData(r.data)).length}</Typography.Text> },
+    { title: '步骤数', width: 80, render: (_: unknown, r: SopRun) => <Typography.Text className="wm-mono">{r.steps ?? 0}</Typography.Text> },
     { title: '开始', dataIndex: 'started_at', width: 150, render: (v: string) => <Typography.Text type="secondary" style={{ fontSize: 12 }}>{fmtCheckedAt(v)}</Typography.Text> },
     { title: '最近活动', dataIndex: 'updated_at', width: 150, render: (v: string) => <Typography.Text type="secondary" style={{ fontSize: 12 }}>{fmtCheckedAt(v)}</Typography.Text> },
   ];
@@ -341,7 +334,7 @@ export default function Sops() {
         onClose={() => setRunsOf(null)}
       >
         <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
-          执行数据分层持久化：热态在 Redis（运行中 ~ms 级读写），真源在 SQLite（sop_runs）——每行展开可见该 run 各步骤的填报数据。
+          此列表仅展示执行元数据与步骤数量，不加载或展开各步骤填报值。单项字段和附件的读权限收口另案处理。
         </Typography.Paragraph>
         <Table<SopRun>
           rowKey="id"
@@ -350,18 +343,7 @@ export default function Sops() {
           dataSource={runs}
           loading={runsLoading}
           pagination={false}
-          expandable={{
-            expandedRowRender: (r) => {
-              const data = parseRunData(r.data);
-              const keys = Object.keys(data);
-              if (keys.length === 0) return <Typography.Text type="secondary">（暂无步骤数据）</Typography.Text>;
-              return (
-                <div className="wm-mono" style={{ background: '#F6F8FB', padding: 12, borderRadius: 6, fontSize: 12, whiteSpace: 'pre-wrap', overflowX: 'auto' }}>
-                  {keys.map((k) => `${k} = ${JSON.stringify(data[k], null, 2)}`).join('\n')}
-                </div>
-              );
-            },
-          }}
+
         />
       </Drawer>
 
