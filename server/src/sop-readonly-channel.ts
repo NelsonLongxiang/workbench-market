@@ -1,25 +1,27 @@
 /** Draft protocol stage 1. Pure preview renderer, NOT mounted in the market/Runner. */
 import {createHash} from 'node:crypto';
-type Field = { key: string; type: 'text' | 'number' | 'boolean' | 'multi'; required?: boolean; maxLength?: number; options?: string[]; maxItems?: number; operations?: ['read'] | ['read','save'] };
+type Field = { key: string; type: 'text' | 'number' | 'boolean' | 'multi' | 'file'; required?: boolean; maxLength?: number; options?: string[]; maxItems?: number; maxBytes?: number; mime?: string[]; operations?: ['read'] | ['read','save'] | ['read','upload'] };
 export type ReadonlySop = { targetId: number; runId: number; version: number; step: string; revision: number; marketOrigin: string; fields: Field[]; values: Record<string, unknown>; body: string };
 const key = (v: unknown) => typeof v === 'string' && /^[a-z][a-z0-9_-]{0,63}$/.test(v) && !['__proto__','constructor','prototype'].includes(v);
 // Seed SOPs use Chinese field names; compare attributes directly, never CSS-interpolate.
 const fieldKey = (v: unknown) => typeof v === 'string' && /^[\p{L}][\p{L}\p{N}_-]{0,63}$/u.test(v) && !['__proto__','constructor','prototype'].includes(v);
-export function validateReadonlySop(input: ReadonlySop, allowSave = false): ReadonlySop {
+export function validateReadonlySop(input: ReadonlySop, allowSave = false, allowUpload = false): ReadonlySop {
   if (!input || ['targetId','runId','version'].some(k => !Number.isSafeInteger(input[k]) || input[k] < 1) || !key(input.step) || !Number.isSafeInteger(input.revision) || input.revision < 0) throw Error('Invalid fixed SOP binding');
   const origin = new URL(input.marketOrigin); if (origin.origin !== input.marketOrigin || !['http:','https:'].includes(origin.protocol)) throw Error('Invalid trusted preview origin');
   if (!Array.isArray(input.fields) || input.fields.length > 100 || typeof input.body !== 'string' || Buffer.byteLength(input.body) > 256*1024) throw Error('Invalid SOP preview schema/body');
   const fields = new Map<string, Field>();
   for (const field of input.fields) {
-    if (!field || !fieldKey(field.key) || fields.has(field.key) || !['text','number','boolean','multi'].includes(field.type)) throw Error('Unknown/duplicate field declaration');
+    if (!field || !fieldKey(field.key) || fields.has(field.key) || !['text','number','boolean','multi',...(allowUpload?['file']:[])].includes(field.type)) throw Error('Unknown/duplicate field declaration');
     if (field.maxLength !== undefined && (!Number.isSafeInteger(field.maxLength) || field.maxLength < 1 || field.maxLength > 4096)) throw Error('Invalid field limit');
-    if (field.required !== undefined && typeof field.required !== 'boolean' || field.maxItems !== undefined && (!Number.isSafeInteger(field.maxItems) || field.maxItems < 1 || field.maxItems > 50) || field.operations !== undefined && (!Array.isArray(field.operations) || JSON.stringify(field.operations) !== JSON.stringify(['read']) && !(allowSave && JSON.stringify(field.operations) === JSON.stringify(['read','save'])))) throw Error('Invalid read-only field constraints');
+    if (field.required !== undefined && typeof field.required !== 'boolean' || field.maxItems !== undefined && (!Number.isSafeInteger(field.maxItems) || field.maxItems < 1 || field.maxItems > 50) || field.operations !== undefined && (!Array.isArray(field.operations) || JSON.stringify(field.operations) !== JSON.stringify(['read']) && !(allowSave && JSON.stringify(field.operations) === JSON.stringify(['read','save'])) && !(allowUpload && field.type==='file' && JSON.stringify(field.operations)===JSON.stringify(['read','upload'])))) throw Error('Invalid read-only field constraints');
     if (field.type === 'multi' && (!Array.isArray(field.options) || field.options.length > 50 || field.options.some(v => typeof v !== 'string' || v.length > 100) || new Set(field.options).size !== field.options.length)) throw Error('Invalid enum declaration');
+    if(field.type==='file' && (!allowUpload || !Number.isSafeInteger(field.maxBytes) || (field.maxBytes ?? 0)<1 || (field.maxBytes ?? 0)>50*1024*1024 || !Number.isSafeInteger(field.maxItems) || (field.maxItems ?? 0)<1 || (field.maxItems ?? 0)>20 || !Array.isArray(field.mime) || !field.mime.length || field.mime.length>20 || field.mime.some(m=>typeof m!=='string'||!/^[-a-z0-9.+]+[/][-a-z0-9.+]+$/.test(m)) || JSON.stringify(field.operations)!==JSON.stringify(['read','upload']))) throw Error('Invalid upload field constraints');
     fields.set(field.key, field);
   }
   if (!input.values || typeof input.values !== 'object' || Array.isArray(input.values)) throw Error('Invalid saved values');
   for (const [name, value] of Object.entries(input.values)) {
     const field = fields.get(name); if (!field) throw Error('Undeclared saved field');
+    if(field.type==='file' && (!Array.isArray(value)||value.length>field.maxItems!||new Set(value).size!==value.length||value.some(id=>typeof id!=='string'||!/^f_[a-f0-9]{48}$/.test(id))))throw Error('Invalid stored upload references');
     if (field.type === 'text' && (typeof value !== 'string' || value.length > (field.maxLength ?? 4096)) || field.type === 'number' && (typeof value !== 'number' || !Number.isFinite(value)) || field.type === 'boolean' && typeof value !== 'boolean' || field.type === 'multi' && (!Array.isArray(value) || value.length > (field.maxItems ?? 50) || new Set(value).size !== value.length || value.some(v => !field.options!.includes(v)))) throw Error('Saved value type/limit mismatch');
   }
   return structuredClone(input); // Do not retain a mutable caller-owned schema or values object.
