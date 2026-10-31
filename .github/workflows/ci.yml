@@ -35,6 +35,14 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/admin-token-browser.mjs
+      - name: 完整 E2E（M1 双面：控制面开，隔离实例）
+        env:
+          PYTHON: python
+        run: node scripts/e2e-full-run.mjs
+      - name: 完整 E2E（WM_CONTROL_PORT=0 控制面关闭）
+        env:
+          PYTHON: python
+        run: node scripts/e2e-full-run.mjs --control-off
   tsc-and-syntax:
     runs-on: ubuntu-latest
     steps:
