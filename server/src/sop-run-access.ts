@@ -103,6 +103,27 @@ export function createSopRunAccess(deps:Deps) {
     return {capability:id+'.'+mac(id),expires,...projection};
   }
   return {
+    /** Create a NEW run and bind its owner from fresh Odoo identity. Never claims an existing run. */
+    async createOwnedRun(cookie:string,input:{slug:string;targetId:number}) {
+      input=structuredClone(input);
+      if(!input||Object.keys(input).sort().join(',')!=='slug,targetId'||typeof input.slug!=='string'||!/^[a-z0-9][a-z0-9-]{0,63}$/.test(input.slug)||!positive(input.targetId))throw new SopWriteError(400,'invalid_owned_run');
+      const who=await identify(cookie);
+      if(!stillCurrent(who))return deny();
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const target=db.prepare('SELECT url,enabled FROM workbenches WHERE id=?').get(input.targetId) as {url:string;enabled:number}|undefined;
+        const app=db.prepare('SELECT id,kind,status,active_version FROM apps WHERE slug=?').get(input.slug) as {id:number;kind:string;status:string;active_version:number}|undefined;
+        if(!target?.enabled||target.url!=='/sop/'+input.slug+'/'||!app||app.kind!=='sop'||app.status!=='published'||!positive(app.active_version)||!db.prepare('SELECT 1 FROM app_versions WHERE app_id=? AND version=?').get(app.id,app.active_version))return deny();
+        const yaml=deps.frozenYaml(input.slug,app.active_version),manifest=parseYaml(yaml,{maxAliasCount:0}),step=manifest?.steps?.[0]?.key;
+        // New read-only wiring accepts only reviewed read schemas; invalid source never creates a run.
+        assembleReadonlySop({targetId:input.targetId,slug:input.slug,version:app.active_version,yaml},{id:1,sop_slug:input.slug,sop_version:app.active_version,status:'running',data:{}},step,0,deps.marketOrigin);
+        if(!stillCurrent(who))return deny();
+        const created=db.prepare('INSERT INTO sop_runs(sop_slug,sop_version,started_by,data) VALUES(?,?,?,?)').run(input.slug,app.active_version,'','{}'),id=Number(created.lastInsertRowid);
+        db.prepare('INSERT INTO sop_run_access(run_id,target_id,sop_version,owner_subject,assignee_subject,acl_revision,manifest_sha256,revoked) VALUES(?,?,?,?,?,1,?,0)').run(id,input.targetId,app.active_version,who.subject,'',hash(yaml));
+        db.prepare('INSERT INTO sop_run_revisions VALUES(?,0,?)').run(id,hash('{}'));
+        db.exec('COMMIT');return {id,targetId:input.targetId,version:app.active_version,step,authorized:true as const};
+      }catch(error){db.exec('ROLLBACK');throw error;}
+    },
     /** Server-only controlled registration. Never expose through MCP or accept started_by as subject.
      * caller supplies Odoo sub+uid derived from trusted records; no legacy backfill/guess. */
     bindTrustedRun(input:{runId:number;targetId:number;ownerSubject:string;assigneeSubject?:string;manifestSha256:string}) {

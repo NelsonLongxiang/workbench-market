@@ -1,5 +1,5 @@
 /** Default-off real Runner wiring, stage 1: authorized read-only shell only. */
-import type express from 'express';
+import express from 'express';
 import type {DatabaseSync} from 'node:sqlite';
 import {lstatSync,realpathSync,openSync,fstatSync,readSync,closeSync} from 'node:fs';
 import {resolve,relative,sep,join} from 'node:path';
@@ -17,7 +17,8 @@ export function sopRunnerConfig(env:NodeJS.ProcessEnv) {
   if(!Array.isArray(targets)||!targets.length||targets.length>256)throw Error('Explicit SOP target allowlist required');
   const slugs=new Set(),ids=new Set();
   for(const t of targets){if(!t||Object.keys(t).sort().join(',')!=='slug,targetId'||typeof t.slug!=='string'||!/^[a-z0-9][a-z0-9-]{0,63}$/.test(t.slug)||!Number.isSafeInteger(t.targetId)||t.targetId<1||slugs.has(t.slug)||ids.has(t.targetId))throw Error('Invalid/duplicate SOP target');slugs.add(t.slug);ids.add(t.targetId);}
-  return {mode,marketOrigin,odooOrigin,targets};
+  const registration=env.WM_SOP_RUN_REGISTRATION??'0';if(!['0','1'].includes(registration))throw Error('WM_SOP_RUN_REGISTRATION must be 0/1');
+  return {mode,marketOrigin,odooOrigin,targets,registration:registration==='1'};
 }
 /** Fixed version raw YAML only. No active fallback, symlink/junction, token injection or cold IO. */
 export function readFrozenSopYaml(appsRoot:string,slug:string,version:number) {
@@ -36,6 +37,20 @@ export function readFrozenSopYaml(appsRoot:string,slug:string,version:number) {
 export function createSopRunnerWiring(config:NonNullable<ReturnType<typeof sopRunnerConfig>>,db:DatabaseSync,appsRoot:string,getSurface:typeof surfaceOf=surfaceOf) {
   const access=createSopRunAccess({db,odooOrigin:config.odooOrigin,marketOrigin:config.marketOrigin,frozenYaml:(slug,version)=>readFrozenSopYaml(appsRoot,slug,version)});
   const bySlug=new Map(config.targets.map(t=>[t.slug,t.targetId])),authority=new URL(config.marketOrigin).host;
+  const registrationPath='/api/sop/channel/runs';
+  const registration:express.RequestHandler=(req,res,next)=>{
+    if(req.path!==registrationPath)return next();
+    res.set('Cache-Control','no-store');
+    if(!config.registration)return void res.status(404).end();
+    const count=(name:string)=>req.rawHeaders.filter((_,i)=>i%2===0&&req.rawHeaders[i].toLowerCase()===name).length;
+    if(getSurface(req)!=='market'||req.method!=='POST'||req.url!==registrationPath||['host','origin','cookie','content-type','x-sop-channel-request'].some(k=>count(k)!==1)||req.headers.host!==authority||req.headers.origin!==config.marketOrigin||req.headers['content-type']?.split(';')[0].trim()!=='application/json'||req.headers['x-sop-channel-request']!=='create-owned-run')return void res.status(403).json({error:'sop_registration_forbidden'});
+    express.json({limit:'4kb',strict:true})(req,res,error=>{if(error)return void res.status(400).json({error:'invalid_owned_run'});
+      void(async()=>{try{const b=req.body;if(!b||Array.isArray(b)||Object.keys(b).join(',')!=='slug'||!bySlug.has(b.slug))throw new SopWriteError(400,'invalid_owned_run');
+        const result=await access.createOwnedRun(String(req.headers.cookie??''),{slug:b.slug,targetId:bySlug.get(b.slug)!});
+        res.status(201).json({...result,runner:'/sop/'+b.slug+'/?run='+result.id+'&step='+result.step});
+      }catch(error){res.status(error instanceof SopWriteError?error.status:503).json({error:error instanceof SopWriteError?error.code:'sop_registration_unavailable'});}})();
+    });
+  };
   const handler:express.RequestHandler=(req,res,next)=>{
     const portal=/^[/]go[/]([0-9]+)(?:[/]|[?]|$)/i.exec(req.url??'');
     if(portal){
@@ -63,5 +78,5 @@ export function createSopRunnerWiring(config:NonNullable<ReturnType<typeof sopRu
       }catch(error){res.status(error instanceof SopWriteError?error.status:503).json({error:error instanceof SopWriteError?error.code:'sop_readonly_unavailable'});}
     })().catch(next);
   };
-  return {handler}; // No public ACL binder or generic capabilities exposed by this wiring.
+  return {handler,registration}; // No existing-run binder, arbitrary owner or generic capability endpoint.
 }

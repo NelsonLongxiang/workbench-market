@@ -10,11 +10,19 @@ WM_SOP_CHANNEL_MODE缺省off，仅off/readonly有效，其他值拒启动。read
 
 固定版本读取来自appsRoot/slug/v<runversion>/sop.yaml，不取active_version；slug/版本硬校，逐段lstat拒link/junction+realpath包含，open句柄有界1MiB/前后stat一致/UTF8 fatal，后端校已登记manifestSHA。不支持LayerFS冷物化；本地恶意写者TOCTOU/hardlink不是该读器OS级证明。
 
-## 首段范围与未交
+## 首段范围（37f固定head）与后续登记增量
 
 实际index已调用factory/handler，但仅在显式readonly开启；不挂save/upload/finish路由，不接运营授权登记入口、不迁移真实run、无自动登录回程/无缺run新建。file/write schema目前readonly renderer默认拒，不静默降权限或扩schema。模式已开但配置未登记run会403，是权威缺失明确拒，不拿fallback刷可用。
 
 后续计划：受控后端登记target与可信Odoo主体/指派人、记录来源与权限；旧run迁移先方案+合成dry-run，不以用户可填标签猜身份。真实写路由/旧Redis共写与完成后受控回读另段实现。即使选中旧/go拒，原市场其他旧API仍未纳该新ACL治理，不宣全入口源隔离或旧写面已收口。
+
+## 新run属主登记增量（仍默认关闭）
+
+另有WM_SOP_RUN_REGISTRATION缺省0，只有在mode=readonly且显式1时才启POST /api/sop/channel/runs。真实market+精确Host/Origin（拒null）+JSON4KiB+自定义X-Sop-Channel-Request=create-owned-run+单头Cookie，body只准slug；targetId由部署allowlist决定，属主只来自同一个session epoch/generation识别的新鲜Odoo sub+uid。无admin凭据传frame、无客户端owner/assignee/runId/version/digest选择。
+
+createOwnedRun仅创建NEW run，先核enabled target/ published SOP和当前materialized版本、原始YAML只读schema，BEGIN IMMEDIATE内run+ownerACL+manifestSHA+revision摘要同事务；不填started_by作授权，不初始派给他人。返回id/target/version/step/authorized与固定Runner路径，不回主体明细/cap。失败回滚，无现有run认领、绑定覆盖或任意binder HTTP/MCP面。
+
+本入口给有效内部用户创建自己run的能力，开关仍属部署者显式控制；不是管理员指派他人的授权入口。assignee权威目录/受控指派链尚未接，旧run仅按sop-legacy-run-migration-plan方案+纯dry-run与合成测试，不触真实库；不能报全部归属运营治理已交。后端只读壳与绑定仍不等旧所有API/Redis写链收口。
 
 ## ecbd旧门户别名修复
 
