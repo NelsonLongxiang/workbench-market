@@ -162,7 +162,7 @@ const TEXT_FACTS = [
   ["server/src/index.ts", "sop_run_step_save"],
   ["evidence/e2e_test.py", "agent-填-1"],
   ["server/src/index.ts", "compliance 二期首项"],
-  ["server/src/index.ts", "掩码行（url 含 =****）不落库"],
+  ["server/src/index.ts", "masked_import_value"],
   ["evidence/e2e_test.py", "E2E MaskImport"],
   ["server/src/index.ts", "workbenchCreateCore"],
   ["server/src/index.ts", "凭据不接受 MCP 写入"],

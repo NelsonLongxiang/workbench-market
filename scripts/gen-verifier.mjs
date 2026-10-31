@@ -153,7 +153,7 @@ const U = [
   { c: "判据97：server/src/index.ts 必须包含巡检重挂锚「issue #5」。", t: "巡检设置即时生效钉位", s: "S1", ck: existsFact("server/src/index.ts", "issue #5"), rv: ["判据原文逐字取自冻结材料，PUT /api/settings 即幂等重挂巡检定时器（armPatrol clearTimeout 开头），不必重启服务（评审 #5）。", "提取表三条件 exists 精确判定。", "删重挂提取为 0 即 FAIL。"] },
   { c: "判据98：server/src/index.ts 必须包含删 SOP 清注册锚「issue #6」。", t: "删台清注册钉位", s: "S1", ck: existsFact("server/src/index.ts", "issue #6"), rv: ["判据原文逐字取自冻结材料，DELETE /api/apps 同时清理 /apps/ 与 /sop/ 两类注册行，不留孤儿工作台（评审 #6）。", "提取表三条件 exists 精确判定。", "删清理提取为 0 即 FAIL。"] },
   { c: "判据99：server/src/index.ts 必须包含导入 mode 锚「issue #7」。", t: "导入 replace 语义钉位", s: "S1", ck: existsFact("server/src/index.ts", "issue #7"), rv: ["判据原文逐字取自冻结材料，import mode 支持 query 优先（README 的 ?mode=replace 写法），且内部路径注册行（/ 开头）不再被 http 断言静默丢弃（评审 #7）。", "提取表三条件 exists 精确判定。", "删语义提取为 0 即 FAIL。"] },
-  { c: "判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-probe」。", t: "运行时批行为断言钉位", s: "S1", ck: existsFact("scripts/import-smoke.mjs", "e2e-import-probe"), rv: ["判据原文逐字取自冻结材料，导入冒烟（独立实例，7 项）覆盖 query replace 语义/内部路径行不丢/悬空面板 prune/掩码行跳过/body mode 等价；E2E 组 19 subprocess 调用——replace 全表清写不再碰活库（84 事故 ×3 根治）。", "提取表三条件 exists 精确判定。", "删探针提取为 0 即 FAIL。"] },
+  { c: "判据100：scripts/import-smoke.mjs 必须包含运行时批探针字面量「e2e-import-probe」。", t: "运行时批行为断言钉位", s: "S1", ck: existsFact("scripts/import-smoke.mjs", "e2e-import-probe"), rv: ["判据原文逐字取自冻结材料，导入冒烟（独立实例，7 项）覆盖 query replace 语义/内部路径行不丢/悬空面板 prune/掩码行整批400拒绝且零写/body mode 等价；E2E 组 19 subprocess 调用——replace 全表清写不再碰活库（84 事故 ×3 根治）。", "提取表三条件 exists 精确判定。", "删探针提取为 0 即 FAIL。"] },
   // ── 卫生批（外部评审 #12/#13：README 一致性 + 干净克隆自愈） ──
   { c: "判据101：scripts/make-submission.mjs 必须包含干净克隆自愈「issue #13」。", t: "提交物脚本自愈钉位", s: "S1", ck: existsFact("scripts/make-submission.mjs", "issue #13"), rv: ["判据原文逐字取自冻结材料，VACUUM INTO 前 mkdirSync(tmp) 幂等创建——干净克隆无 tmp/ 不再必然失败（评审 #13）。", "提取表三条件 exists 精确判定。", "删自愈提取为 0 即 FAIL。"] },
   { c: "判据102：README.md 必须包含验证器判据数锚「144 条判据」。", t: "README 版本一致钉位", s: "S2", ck: existsFact("README.md", "175 条判据"), rv: ["判据原文逐字取自冻结材料，README 验证器节与代码版本同步（评审 #12——锚用判据数，比版本号锚少一次升版漂移）。", "提取表三条件 exists 精确判定。", "版本漂移提取为 0 即 FAIL。"] },
@@ -168,8 +168,8 @@ const U = [
   { c: "判据109：evidence/e2e_test.py 必须包含人机同链断言字面量「agent-填-1」。", t: "人机同链行为断言钉位", s: "S1", ck: existsFact("evidence/e2e_test.py", "agent-填-1"), rv: ["判据原文逐字取自冻结材料，E2E 组 17 C4 断言：MCP 写入的步骤数据经 REST 读回同一份（人机同链），MCP 开 run→写→读回→归档全链。", "提取表三条件 exists 精确判定。", "删断言提取为 0 即 FAIL。"] },
   // ── 导出脱敏（compliance 二期首项：无认证导出曾是最大凭据泄漏向量） ──
   { c: "判据110：server/src/index.ts 必须包含导出脱敏锚「compliance 二期首项」。", t: "导出默认脱敏钉位", s: "S1", ck: existsFact("server/src/index.ts", "compliance 二期首项"), rv: ["判据原文逐字取自冻结材料，/api/export 默认经 maskForApi 脱敏（url query 敏感参数 + auth.value），masked:1 标记；?reveal=1 显式真值（备份迁移用）。", "提取表三条件 exists 精确判定。", "删脱敏提取为 0 即 FAIL。"] },
-  { c: "判据111：server/src/index.ts 必须包含导入掩码跳过锚「掩码行（url 含 =****）不落库」。", t: "导入掩码跳过钉位", s: "S1", ck: existsFact("server/src/index.ts", "掩码行（url 含 =****）不落库"), rv: ["判据原文逐字取自冻结材料，导入侧对掩码 url 行跳过、auth.value=**** 剥除——掩码数据永不落库（完整恢复用 reveal 导出）。", "提取表三条件 exists 精确判定。", "删跳过提取为 0 即 FAIL。"] },
-  { c: "判据112：evidence/e2e_test.py 必须包含导出脱敏断言字面量「E2E MaskImport」。", t: "导出脱敏行为断言钉位", s: "S1", ck: existsFact("evidence/e2e_test.py", "E2E MaskImport"), rv: ["判据原文逐字取自冻结材料，E2E 组 15 第⑫断言：默认导出无明文 token/auth（masked:1）、reveal 含真值、掩码导入行 skipped。", "提取表三条件 exists 精确判定。", "删断言提取为 0 即 FAIL。"] },
+  { c: "判据111：server/src/index.ts 必须包含导入掩码整批拒绝错误码「masked_import_value」。", t: "导入掩码整批拒绝钉位", s: "S1", ck: existsFact("server/src/index.ts", "masked_import_value"), rv: ["v69.3显式替换旧跳过/剥除锚：#304要求url或auth的掩码值使整批400 masked_import_value，预检失败零写；完整恢复用受控reveal导出。", "提取表exists仅证明源码错误码在位，不单独证明可达性/事务行为；实际导入回调和合成SQLite行为反例另验。", "删除错误码提取为0即FAIL；注释可满足字面量的局限不隐瞒，拒绝码/零写回归由独立行为测试发现。"] },
+  { c: "判据112：evidence/e2e_test.py 必须包含导出脱敏断言字面量「E2E MaskImport」。", t: "导出脱敏行为断言钉位", s: "S1", ck: existsFact("evidence/e2e_test.py", "E2E MaskImport"), rv: ["判据原文逐字取自冻结材料，E2E 组 15 第⑫断言：默认导出无明文 token/auth（masked:1）、reveal 含真值、掩码导入整批400 masked_import_value且零写。", "提取表三条件 exists 精确判定。", "删断言提取为 0 即 FAIL。"] },
   // ── 工作台注册 CRUD MCP 化（agent 登记外部台；凭据字段不接受——安全边界内置） ──
   { c: "判据113：server/src/index.ts 必须包含注册 CRUD 共用核心「workbenchCreateCore」。", t: "注册 CRUD 同链钉位", s: "S1", ck: existsFact("server/src/index.ts", "workbenchCreateCore"), rv: ["判据原文逐字取自冻结材料，workbench_register/update/unregister 三 MCP 工具与 REST 走同一套 CRUD 核心（掩码回传保护/驾驶舱联动清理复用）。", "提取表三条件 exists 精确判定。", "删共用核心提取为 0 即 FAIL。"] },
   { c: "判据114：server/src/index.ts 必须包含 MCP 凭据拒绝锚「凭据不接受 MCP 写入」。", t: "MCP 凭据边界钉位", s: "S1", ck: existsFact("server/src/index.ts", "凭据不接受 MCP 写入"), rv: ["判据原文逐字取自冻结材料，register/update 传入 auth 字段一律 400——凭据只经人工 REST/表单（安全边界内置而非文档约定）。", "提取表三条件 exists 精确判定。", "删拒绝提取为 0 即 FAIL。"] },
@@ -267,7 +267,7 @@ const U = [
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
-const header = `workbench-market 开发验证器 v69.2（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写 + 运行时批整改 + 卫生批整改 + A2A 网络接入 P1+P2 + Agent 执行数据面 + 导出脱敏 + 注册 CRUD MCP 化 + 破坏性测试隔离 + 工具清单一致 + 安全批双锚 + MCP 网关 P1 + 网关管理页与 ADMIN_TOKEN 插槽）
+const header = `workbench-market 开发验证器 v69.3（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写 + 运行时批整改 + 卫生批整改 + A2A 网络接入 P1+P2 + Agent 执行数据面 + 导出脱敏 + 注册 CRUD MCP 化 + 破坏性测试隔离 + 工具清单一致 + 安全批双锚 + MCP 网关 P1 + 网关管理页与 ADMIN_TOKEN 插槽）
 
 判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
 快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
@@ -319,7 +319,7 @@ Ed25519 签名卡片过上游 verifyCard、绑定只经 ADMIN_TOKEN+Origin 校�
 （判据107-109：run 持久化链共用核心与 MCP 五工具钉位 + 人机同链行为断言——agent 经
 sop_run_step_save 直接更新持久化执行数据，与 Runner/REST 同一条 Redis+SQLite 链，
 不经版本发布）、导出脱敏（判据110-112：导出默认经 maskForApi 脱敏 + 导入掩码行
-跳过/剥除 + 行为断言——compliance 二期首项，无认证导出曾是最大凭据泄漏向量）、注册
+整批拒绝/零写 + 行为断言——compliance 二期首项，无认证导出曾是最大凭据泄漏向量）、注册
 CRUD MCP 化（判据113-115：register/update/unregister 三工具与 REST 同链共用核心、
 MCP 凭据字段硬拒绝（安全边界内置）、行为断言——agent 发现内网服务可自主登记入册）、
 破坏性测试隔离（判据116：导入 replace 永不碰活库）、工具清单一致（判据117-118：
@@ -359,7 +359,7 @@ const reviews = {
 };
 
 writeFileSync("verify/material.md", material, "utf8");
-writeFileSync("verify/material-version.json", JSON.stringify({ version: "v69.2", supersedes: "v69.1", baseline: "v68", criterion_count: U.length, changed_criteria: [65], reason: "M4 moved portal iframe construction to GoFrame; criterion65 now pins the returned component call chain, not a stale file substring.", title: header.split("\n")[0] }, null, 2) + "\n", "utf8");
+writeFileSync("verify/material-version.json", JSON.stringify({ version: "v69.3", supersedes: "v69.2", baseline: "v68", criterion_count: U.length, changed_criteria: [111], reason: "#304 changed masked imports from skip/strip to whole-batch 400 masked_import_value before transactional writes; replace stale criterion111 anchor without rewriting old reports.", title: header.split("\n")[0] }, null, 2) + "\n", "utf8");
 writeFileSync("verify/candidates.json", JSON.stringify(candidates, null, 2) + "\n", "utf8");
 writeFileSync("verify/reviews.json", JSON.stringify(reviews, null, 2) + "\n", "utf8");
 console.log(`✓ verify/material.md (${U.length} 判据) · candidates.json · reviews.json`);
