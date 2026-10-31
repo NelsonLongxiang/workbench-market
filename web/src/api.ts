@@ -11,9 +11,12 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const b = body as { error?: string; control_url?: string | null };
-    const err = new Error((b.error || `HTTP ${res.status}`) + (b.control_url ? `：${b.control_url}${window.location.pathname}` : '')) as Error & { needAdminToken?: boolean };
-    if (res.status === 401 || res.status === 403) err.needAdminToken = true; // 前端可捕获弹口令输入
+    const b = body as { error?: string; message?: string; row_index?: number; control_url?: string | null };
+    // #258 准入错误带具名码 + 中文 message（导入另带 row_index）：两者都显示，不当成缺口令
+    const text = b.message ? `${b.message}（${b.error}${b.row_index !== undefined ? ` · 第 ${b.row_index + 1} 行` : ''}）` : (b.error || `HTTP ${res.status}`);
+    const err = new Error(text + (b.control_url ? `：${b.control_url}${window.location.pathname}` : '')) as Error & { needAdminToken?: boolean };
+    const admission = typeof b.error === 'string' && /^url_/.test(b.error);
+    if ((res.status === 401 || res.status === 403) && !admission) err.needAdminToken = true; // 前端可捕获弹口令输入
     throw err;
   }
   return body as T;
