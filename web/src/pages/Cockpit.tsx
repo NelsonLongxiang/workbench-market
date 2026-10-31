@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useRequest } from 'ahooks';
-import { Space, Input, App, Badge, Button, Card, Col, Empty, Flex, Popconfirm, Select, Spin, Tooltip, Typography } from 'antd';
+import { Space, Input, App, Alert, Badge, Button, Card, Col, Empty, Flex, Popconfirm, Select, Spin, Tooltip, Typography } from 'antd';
 import { EditOutlined, ArrowLeftOutlined, ExportOutlined, PlusOutlined, ReloadOutlined, CloseOutlined } from '@ant-design/icons';
 import GridLayout from 'react-grid-layout';
 import { WidthProvider } from 'react-grid-layout';
@@ -11,12 +11,18 @@ import 'react-resizable/css/styles.css';
 import { api } from '../api';
 import GoFrame from '../components/GoFrame';
 import type { Cockpit as CockpitT, PanelConfig, Workbench } from '../types';
+import { surface } from '../surface';
+
+/** #302 方案③：驾驶舱写（/api/cockpits）是管理写，业务面浏览器发来一律 403；驾驶舱又只在业务面提供。
+ *  所以业务面只读：隐藏新建/删除/改名/加移面板，网格不可拖拽，给出命令行提示，免得点了才报 403 */
+const READ_ONLY = surface === 'market';
+const READ_ONLY_HINT = '业务面不提供驾驶舱编辑（管理写只在控制面或本机命令行做，而驾驶舱页面只在业务面）。新建、加/移面板、改名、删除请在服务器本机用命令行调用 /api/cockpits。';
 
 const Grid = WidthProvider(GridLayout);
 const COLS = 12;
 const ROW_H = 36;
 
-function PanelHeadActions(props: { wid: number; url?: string; onRefresh: () => void; onRemove: () => void }) {
+function PanelHeadActions(props: { wid: number; url?: string; onRefresh: () => void; onRemove?: () => void }) {
   return (
     <span className="wm-panel-actions">
       <Tooltip title="刷新此面板">
@@ -29,9 +35,11 @@ function PanelHeadActions(props: { wid: number; url?: string; onRefresh: () => v
           </a>
         </Tooltip>
       )}
-      <Tooltip title="移除此面板">
-        <CloseOutlined onClick={props.onRemove} />
-      </Tooltip>
+      {props.onRemove && (
+        <Tooltip title="移除此面板">
+          <CloseOutlined onClick={props.onRemove} />
+        </Tooltip>
+      )}
     </span>
   );
 }
@@ -145,7 +153,7 @@ export default function Cockpit() {
           <Typography.Title level={4} style={{ margin: 0 }}>
             任务驾驶舱
           </Typography.Title>
-          <Button
+          {!READ_ONLY && <Button
             type="primary"
             icon={<PlusOutlined />}
             onClick={async () => {
@@ -159,11 +167,12 @@ export default function Cockpit() {
             }}
           >
             新建驾驶舱
-          </Button>
+          </Button>}
         </Flex>
         <Typography.Text type="secondary">
           把常用的 2-4 个工作台拼成一屏分屏视图，按场景切换——写代码、出图、查资料各一个驾驶舱，不再来回切标签页。
         </Typography.Text>
+        {READ_ONLY && <Alert type="info" showIcon className="wm-cockpit-readonly" message="驾驶舱在这里只能查看" description={READ_ONLY_HINT} />}
         {listReq.data?.length ? (
           <Flex gap={16} wrap="wrap" style={{ width: '100%', rowGap: 16 }}>
             {listReq.data.map((c) => (
@@ -176,7 +185,7 @@ export default function Cockpit() {
                         {c.panels.length} 个面板 · {c.updated_at.slice(0, 16).replace('T', ' ')}
                       </Typography.Text>
                     </Flex>
-                    <Popconfirm
+                    {!READ_ONLY && <Popconfirm
                       title={`删除「${c.name}」？`}
                       onConfirm={async (e) => {
                         e?.stopPropagation();
@@ -193,20 +202,20 @@ export default function Cockpit() {
                       <Button size="small" type="text" danger onClick={(e) => e.stopPropagation()}>
                         删除
                       </Button>
-                    </Popconfirm>
+                    </Popconfirm>}
                   </Flex>
                 </Card>
               </div>
             ))}
           </Flex>
         ) : (
-          <Empty description="还没有驾驶舱——新建一个，把工作台拼成一屏" style={{ marginTop: 48 }}>
-            <Button
+          <Empty description={READ_ONLY ? '还没有驾驶舱' : '还没有驾驶舱——新建一个，把工作台拼成一屏'} style={{ marginTop: 48 }}>
+            {!READ_ONLY && <Button
               type="primary"
               onClick={() => api.createCockpit({ name: '我的驾驶舱' }).then((c) => nav(`/cockpit/${c.id}`))}
             >
               新建驾驶舱
-            </Button>
+            </Button>}
           </Empty>
         )}
       </Flex>
@@ -233,7 +242,7 @@ export default function Cockpit() {
             onChange={(v) => nav(`/cockpit/${v}`)}
             options={(listReq.data ?? []).map((c) => ({ value: c.id, label: c.name }))}
           />
-          {renaming ? (
+          {READ_ONLY ? null : renaming ? (
             <Input
               size="small"
               style={{ width: 180 }}
@@ -251,9 +260,9 @@ export default function Cockpit() {
           ) : (
             <Button size="small" icon={<EditOutlined />} onClick={() => { setRenameValue(active.name); setRenaming(true); }}>改名</Button>
           )}
-          <Typography.Text type="secondary">{saving ? '保存中…' : '布局已自动保存'}</Typography.Text>
+          {!READ_ONLY && <Typography.Text type="secondary">{saving ? '保存中…' : '布局已自动保存'}</Typography.Text>}
         </Flex>
-        <Select
+        {!READ_ONLY && <Select
           mode="multiple"
           placeholder="添加工作台面板"
           style={{ minWidth: 260 }}
@@ -271,8 +280,8 @@ export default function Cockpit() {
               value: w.id,
               label: `${w.icon || '▢'} ${w.name}（${w.last_status === 'up' ? '在线' : w.last_status === 'down' ? '离线' : '未探测'}）`,
             }))}
-        />
-        <Button
+        />}
+        {!READ_ONLY && <Button
           disabled={panels.some((p) => p.kind === 'tasks')}
           onClick={() => {
             const maxY = panels.reduce((m, p) => Math.max(m, p.y + p.h), 0);
@@ -280,11 +289,12 @@ export default function Cockpit() {
           }}
         >
           加待办卡
-        </Button>
+        </Button>}
       </Flex>
+      {READ_ONLY && <Alert type="info" showIcon className="wm-cockpit-readonly" message="驾驶舱在这里只能查看" description={READ_ONLY_HINT} style={{ width: '100%' }} />}
 
       {panels.length === 0 ? (
-        <Empty description="空驾驶舱——从右上角选择工作台加入分屏" style={{ marginTop: 48 }} />
+        <Empty description={READ_ONLY ? '空驾驶舱' : '空驾驶舱——从右上角选择工作台加入分屏'} style={{ marginTop: 48 }} />
       ) : (
         <Grid
           className="wm-cockpit-grid"
@@ -294,6 +304,8 @@ export default function Cockpit() {
           width={1200}
           draggableHandle=".wm-panel-head"
           draggableCancel=".wm-panel-actions, .wm-panel-actions *"
+          isDraggable={!READ_ONLY}
+          isResizable={!READ_ONLY}
           onLayoutChange={onLayoutChange}
         >
           {panels.map((p) => {
@@ -305,7 +317,7 @@ export default function Cockpit() {
                     <Badge status="processing" text={<Typography.Text strong style={{ fontSize: 13 }}>统一待办</Typography.Text>} />
                     <span className="wm-panel-actions">
                       <Link to="/tasks" style={{ fontSize: 12, marginRight: 8 }}>全部</Link>
-                      <Button size="small" type="text" onClick={() => persist(panels.filter((q) => q.i !== 'tasks'), true)}>移除</Button>
+                      {!READ_ONLY && <Button size="small" type="text" onClick={() => persist(panels.filter((q) => q.i !== 'tasks'), true)}>移除</Button>}
                     </span>
                   </div>
                   <div className="wm-panel-body" style={{ overflow: 'auto' }}>
@@ -332,7 +344,7 @@ export default function Cockpit() {
                     wid={p.workbenchId}
                     url={w?.url}
                     onRefresh={() => setFrameKeys((m) => ({ ...m, [p.workbenchId]: (m[p.workbenchId] ?? 0) + 1 }))}
-                    onRemove={() => removePanel(p.workbenchId)}
+                    onRemove={READ_ONLY ? undefined : () => removePanel(p.workbenchId)}
                   />
                 </div>
                 <div className="wm-panel-body">
@@ -349,7 +361,7 @@ export default function Cockpit() {
       )}
 
       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-        拖动面板标题栏移动，右下角拉伸调整大小，布局自动保存 · 部分工作台通过 X-Frame-Options 禁止内嵌，空白时用「新窗口」打开 ·{' '}
+        {READ_ONLY ? '' : '拖动面板标题栏移动，右下角拉伸调整大小，布局自动保存 · '}部分工作台通过 X-Frame-Options 禁止内嵌，空白时用「新窗口」打开 ·{' '}
         <Link to="/market">去工作台市场</Link>
       </Typography.Text>
     </Flex>
