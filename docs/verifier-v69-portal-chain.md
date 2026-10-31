@@ -1,0 +1,36 @@
+# 开发验证器 v69：判据65显式材料迁移
+
+## 旧结论保留
+固定产品e791057在旧v68正式run_77d4eeb3c83e410f为174 PASS/1 FAIL，归档arc_056468a4ebf3已验。唯一失败是判据65要求UseWorkbench.tsx内有字面/go/${w.id}/；M4已将门户构造移到components/GoFrame.tsx。不能往产品加注释字符串骗过提取，不改旧spec/snapshot/report或强写present=1。原e791启动包不变，不重包。
+
+## v69.1 加严修订
+
+v69在529f180上已有独立175/175正式PASS，原材料mat_968758b4b133/spec_ebc26de10c73/run_ba04b3ae85fa7f8b/arc_9fb198c3d4ed保留。非作者后续发现四类结构绕过：JSX条件死代码、srcDoc覆盖、wid重声明/赋值、ref改src。新v69.1版本化事实键与材料65显式加严，须再次新submit/prepare/run，不能将v69旧PASS移贴。
+
+只允许目标为顶层最终JSX根或其直接JSX子元素，不穿JsxExpression；iframe属性白名单key/className/src/title/allow，GoFrame调用属性白名单wid/name/frameKey/className；扫描组件体内wid声明、赋值、更新或循环写入并拒绝。此为受限语法形状，仍不是通用数据流/执行证明。
+
+## v69.2 加严修订与覆盖边界
+
+v69.1在be3a211上独立正式run_9454df5ce6c4e7cc为175/175 PASS，arc_0fd86f635b11保留。后续非作者发现GoFrame本地遮蔽和白名单属性值副作用两类缺口；v69.2需新材料/新spec/run，旧PASS不移贴。
+
+已覆盖写法清单：
+- 原始URL iframe、移除GoFrame调用、组件不经/go、错误导入/id、注释或未用JSX/模板；
+- 目标经JSX表达式的条件/三元死代码、额外顶层return、嵌套src遮蔽；
+- srcDoc/srcdoc/ref、spread和未知属性；wid声明/赋值/更新/解构/闭包写入；
+- 除指定默认import外，使用页文件任何GoFrame变量/函数/参数/解构/导入别名等绑定均拒，包含不相关作用域也保守拒；
+- 调用的wid/name只认w.id/w.name、frameKey只认同名标识符、className只认字符串；iframe key/className/src/title只认frameKey/className/src/name对应标识符，allow只认字符串，拒属性值调用/逗号表达式/回调副作用。
+
+**判据65是受限结构检查，不是数据流或运行时证明。** 明确不覆盖：w/req.data等数据来源或值是否被重写（例如const w = {...req.data!, id:7}结构仍接受）；其他变量初始化/early guard或模块加载中的任意副作用、对象getter/别名变化；React/DOM全局被劫持、第三方组件/库运行语义与上游内容安全。测试显式保留“w重写仍接受”的已知限度正例，避免把它误称被堵。没有构造通用CFG/typechecker或声称穷举JavaScript行为；未知形状保守拒绝不等于已支持形状运行时必安全。实际目标ID、加载URL和浏览器安全行为需运行时E2E/人工评审互证，覆盖边界交属主判断是否足够合并。
+
+## 新口径与限度
+175编号/条数不变，仅65的材料、候选及review逐字同步。新材料描述受限TSX结构：默认导入GoFrame、使用页顶层最终JSX return中的唯一GoFrame(wid=w.id)、组件顶层const src模板/go/${wid}/、组件顶层最终return内唯一iframe(src=src)。支持当前顶层变量声明和仅返回非门户JSX的early if guard；额外顶层return、嵌套block shadow/unreachable decoy等不支持形状拒绝。不是全CFG/通用数据流或运行行为证明，未尝试证明任意JS表达式的可达性；实际iframe/noopener/令牌拦截需E2E和浏览器冒烟互证。
+
+源码事实键为版本化path链与needle，由scripts/portal-call-chain-fact.mjs计算；make-submission在全新快照从当前源计算present，不改产品或手工造事实。旧物理路径字符串不再是成功条件；comments、unused JSX或无用模板不能替代返回结构。
+
+## 材料/冻结纪律
+scripts/gen-verifier.mjs生成material/candidates/reviews及material-version.json（v69.2、supersedes v69.1、baseline v68、changed_criteria=[65]）。生成目录verify仍是忽略产物，PR提交源生成器，不手改已冻结spec。独立验证席对新材料重新submit→prepare产生新material/spec版本→新run→archive verify；新run只能说针对新材料通过，不能把旧174/1原样改口成175绿。
+
+## 回归
+node scripts/portal-call-chain-test.mjs：实际源码正例、raw URL iframe/移除GoFrame调用/组件不经/go三必红，另comments/unused/wrong import/id/spread/嵌套src遮蔽/提前return死代码反例；真实make-submission在独立synthetic DB与源码副本上分别提取0/1，检查175编号及三件套逐字一致。TypeScript用现有web依赖，无新增运行时产品依赖。测试不读取活库，不复制生产SQLite/WAL，不覆盖旧run和包。
+
+测试fixture没有运行真实E2E，不能用其空构建/合成库宣完整175正式PASS；完整新版验收由独立席用真实提交物执行。最初解析依赖junction不足和CRLF导致mutation未命中是测试驱动故障，修正保留本机旧日志；独立预审发现shadow/deadreturn假绿后收紧，不改期望凑绿。

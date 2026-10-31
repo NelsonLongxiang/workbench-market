@@ -5,6 +5,7 @@ import { App, Button, Result, Space, Spin, Tag, Tooltip, Typography } from 'antd
 import { ArrowLeftOutlined, ExportOutlined, ReloadOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import StatusBadge from '../components/StatusBadge';
+import GoFrame from '../components/GoFrame';
 
 export default function UseWorkbench() {
   const { id } = useParams();
@@ -93,13 +94,7 @@ export default function UseWorkbench() {
           </a>
         </Space>
       </div>
-      <iframe
-        key={frameKey}
-        className="wm-use-frame"
-        src={`/go/${w.id}/`}
-        title={w.name}
-        allow="clipboard-read; clipboard-write; fullscreen"
-      />
+      <GoFrame wid={w.id} name={w.name} frameKey={frameKey} className="wm-use-frame" />
       <Typography.Paragraph
         type="secondary"
         style={{ textAlign: 'center', fontSize: 12, margin: '6px 0', flex: 'none' }}
