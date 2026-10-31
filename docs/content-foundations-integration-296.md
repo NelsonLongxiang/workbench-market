@@ -44,9 +44,9 @@ POST/其他方法、upgrade、fetch/XHR、curl/node/python/MCP及无提示unknow
 
 可信WM_CONTENT_TARGETS可增queryCredentialKeys（仅键名，1–8个、不重复/大小写歧义，禁止值），upstreamUrl必须移除这批参数、无userinfo/hash。每请求严格准入及真实Odoo现验后，才从registry私有URL取每个精确单值参数，剥后URL须与pin全文相同；缺/重复/拼写歧义或其他URL变化503。向上游请求仅由服务器追加这些值；浏览器同名/大小写/百分号编码键一律400且在私有配置读取前结束，不接“浏览器覆盖值”。launch/context/browser路径/聚合观察不加入这些值。
 
-query凭据目标WS暂403（在读取私有凭据及业务连接前）；HTTP响应先完整有界缓冲（压缩前与解压后各2MiB），gzip/br/deflate已知编码可解压，未知编码/超限/解压错拒502固定content_response_rejected，不提前发任何上游body。原值、URL编码、表单编码、Base64、JSON转义这几种表示在body及上游header发现则整响应拒；跨块拼接后核，敏感redirect/cookie/header同拒，不反射值。仅允许同target无敏感键跳转；不透Set-Cookie/Refresh/上游缓存/etag/任意header，响应private no-store/no-referrer。二进制按字节检查，不冒覆盖任意字符集或混淆。
+query凭据目标WS暂403（在读取私有凭据及业务连接前）；HTTP响应先完整有界缓冲（压缩前与解压后各2MiB），gzip/br/deflate已知编码可解压，未知编码/超限/解压错拒502固定content_response_rejected，不提前发任何上游body。原值、URL编码、表单编码、Base64、JSON转义这几种表示在body及上游header发现则整响应拒；URL/form仅对合法%HH转义十六进制字母统一大小写后匹配，覆盖upper/lower/mixed标准等价，不对响应整体decode、不更改raw/JSON/Base64字节匹配；跨块拼接后核，敏感redirect/cookie/header同拒，不反射值。仅允许同target无敏感键跳转；不透Set-Cookie/Refresh/上游缓存/etag/任意header，响应private no-store/no-referrer。二进制按字节检查，不冒覆盖任意字符集或混淆。
 
-**这是已列表示形式的回显防护，不是任意上游信息流保密证明。** 恶意/被攻陷上游可以分散/变换/加密凭据、编码成脚本计算或其他隐蔽信道；一般代理无法证明“任意响应绝无参数值信息”。长轮询/SSE/大下载、query凭据WS以及需要上游动态Cookie的目标不支持；2MiB缓冲存在每请求资源开销，不宣性能/并发SLA。真实两台仍需持权方提供无值兼容材料和目标级验收/风险评审，不因本Draft合成37项与浏览器链过就允许现场切流。若业务要求任意上游也零信息外泄，需要目标专用服务端适配/不向上游发送秘密的协议，不能继续堆字符串黑名单当证明。
+**这是已列表示形式的回显防护，不是任意上游信息流保密证明。** 恶意/被攻陷上游可以分散/变换/加密凭据、编码成脚本计算或其他隐蔽信道；一般代理无法证明“任意响应绝无参数值信息”。长轮询/SSE/大下载、query凭据WS以及需要上游动态Cookie的目标不支持；2MiB缓冲存在每请求资源开销，不宣性能/并发SLA。真实两台仍需持权方提供无值兼容材料和目标级验收/风险评审，不因本Draft合成回归与浏览器链过就允许现场切流。若业务要求任意上游也零信息外泄，需要目标专用服务端适配/不向上游发送秘密的协议，不能继续堆字符串黑名单当证明。
 
 测试只用随机合成secret，上游计数记录布尔不记值；捕获进程stdout/stderr与公开聚合检查无该值，不把测试日志事后遮盖当“未泄漏”证明。测试输出文件仍可能包含随机synthetic值的私有夹具配置，不能拿它推断生产配置无秘密；没有输出或读取真实secret。真实registry/API脱敏规则不由本段改变。
 

@@ -221,9 +221,17 @@ function upstreamHeaders(req: IncomingMessage, target: Upstream): Record<string,
 function relayQueryResponse(r: IncomingMessage, res: express.Response, requested: URL, target: Upstream, content: ContentTarget) {
   const limit = 2 * 1024 * 1024;
   const secrets = Object.values(target.queryCredentials ?? {});
-  const variants = secrets.flatMap(v => [v, encodeURIComponent(v), new URLSearchParams({ v }).toString().slice(2),
-    Buffer.from(v).toString('base64'), JSON.stringify(v).slice(1, -1)]).filter(Boolean).map(s => Buffer.from(s));
-  const leaks = (body: Buffer) => variants.some(v => body.includes(v));
+  // Preserve literal/JSON/base64 byte semantics. Canonicalize ONLY the hex digits
+  // of valid percent escapes for URL/form variants; never decode response content.
+  const variants = secrets.flatMap(v => [v, Buffer.from(v).toString('base64'), JSON.stringify(v).slice(1, -1)]).filter(Boolean).map(s => Buffer.from(s));
+  const percentCase = (s: string) => s.replace(/%[A-Fa-f0-9]{2}/g, escape => escape.toUpperCase());
+  const encoded = secrets.flatMap(v => [encodeURIComponent(v), new URLSearchParams({ v }).toString().slice(2)])
+    .filter(Boolean).map(s => percentCase(Buffer.from(s).toString('latin1')));
+  const leaks = (body: Buffer) => {
+    if (variants.some(v => body.includes(v))) return true;
+    const normalized = percentCase(body.toString('latin1'));
+    return encoded.some(v => normalized.includes(v));
+  };
   let bytes = 0, rejected = false; const chunks: Buffer[] = [];
   function deny() {
     if (rejected) return; rejected = true; r.destroy();

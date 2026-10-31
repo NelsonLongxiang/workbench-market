@@ -6,7 +6,7 @@ import{gzipSync,brotliCompressSync,deflateSync}from'node:zlib';
 import{randomBytes}from'node:crypto';
 import{createContentSurface,contentConfig,mountContentSurface,listenContentSurface}from'../server/src/content-surface.ts';
 import{registerSurface}from'../server/src/surfaces.ts';
-const secret=randomBytes(24).toString('hex')+'+/=secret',key='token';
+const secret=randomBytes(24).toString('hex')+'+/= secret',key='token';
 let checks=0,hits=0,reads=0,mode='safe',valid=true;const seen=[];const ok=(n,p)=>{assert.ok(p,n);checks++;console.log('PASS '+n)};
 const free=async()=>{const s=netServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const p=s.address().port;await new Promise(r=>s.close(r));return p};
 const up=createServer((q,s)=>{hits++;const u=new URL(q.url,'http://fixture.invalid');seen.push({has_server_secret:u.searchParams.get(key)===secret,credential_count:u.searchParams.getAll(key).length,ordinary:u.searchParams.get('page')});
@@ -15,7 +15,10 @@ const up=createServer((q,s)=>{hits++;const u=new URL(q.url,'http://fixture.inval
  if(['gzip','br','deflate'].includes(mode)){body=Buffer.from(secret);body=mode==='gzip'?gzipSync(body):mode==='br'?brotliCompressSync(body):deflateSync(body);s.setHeader('Content-Encoding',mode)}
  if(mode==='safe-gzip'){body=gzipSync(body);s.setHeader('Content-Encoding','gzip')}
  if(mode==='unknown-encoding')s.setHeader('Content-Encoding','unsupported');if(mode==='large')body=Buffer.alloc(2*1024*1024+1,65);
- s.setHeader('Content-Type','text/plain');if(mode==='split'){const mid=Math.floor(body.length/2);s.write(body.subarray(0,mid));s.end(body.subarray(mid));}else s.end(body);
+ const caseMode=/^(url|form)-(upper|lower|mixed)-(body|header|location)$/.exec(mode);
+ let contentType='text/plain';
+ if(caseMode){let encoded=caseMode[1]==='url'?encodeURIComponent(secret):new URLSearchParams({v:secret}).toString().slice(2);let i=0;encoded=encoded.replace(/%[A-Fa-f0-9]{2}/g,m=>caseMode[2]==='lower'?m.toLowerCase():caseMode[2]==='mixed'&&i++%2===0?m.toLowerCase():m.toUpperCase());if(caseMode[3]==='body')body=Buffer.from(encoded);else if(caseMode[3]==='header')contentType='text/plain; synthetic='+encoded;else{s.statusCode=302;s.setHeader('Location','/ok?opaque='+encoded);}}
+ s.setHeader('Content-Type',contentType);if(mode==='split'){const mid=Math.floor(body.length/2);s.write(body.subarray(0,mid));s.end(body.subarray(mid));}else s.end(body);
 });await new Promise(r=>up.listen(0,'127.0.0.1',r));
 const mp=await free(),cp=await free(),market='http://127.0.0.1:'+mp,origin='http://w-1-test.internal:'+cp,pinned='http://127.0.0.1:'+up.address().port+'/';
 const cfg={host:'127.0.0.1',port:cp,marketOrigin:market,targets:[{id:1,origin,upstreamUrl:pinned,queryCredentialKeys:[key]}]};let privateUrl=pinned+'?token='+encodeURIComponent(secret);
@@ -31,6 +34,7 @@ try{
  const r=await get();ok('safe response succeeds without secret',r.status===200&&r.text==='safe-content'&&!JSON.stringify(r.headers).includes(secret));ok('server injects one private query and preserves ordinary query',seen.at(-1).has_server_secret&&seen.at(-1).credential_count===1&&seen.at(-1).ordinary==='1');
  for(const suffix of ['?token=browser-value','?TOKEN=browser-value','?%74oken=browser-value','?token=one&token=two']){const n=hits,rr=reads;ok('browser cannot supply declared credential '+suffix,(await get('/go/1/'+suffix)).status===400);ok('query denial before private config read',hits===n&&reads===rr)}
  for(const value of ['raw','encoded','base64','split','header','cookie','redirect','cross','gzip','br','deflate','unknown-encoding','large']){mode=value;ok('response fails closed '+value,denySafe(await get()))}
+ for(const representation of ['url','form'])for(const casing of ['upper','lower','mixed'])for(const destination of ['body','header','location']){mode=representation+'-'+casing+'-'+destination;ok('standard percent equivalence rejected '+mode,denySafe(await get()))}
  mode='safe-gzip';const compressed=await get();ok('safe compressed reply decoded within bound',compressed.status===200&&compressed.text==='safe-content'&&!compressed.headers['content-encoding']);
  mode='safe-redirect';const redirect=await get();ok('safe same-target redirect contains no secret',redirect.status===302&&redirect.headers.location==='/go/1/ok?page=2'&&!JSON.stringify(redirect).includes(secret));
  mode='safe';privateUrl=pinned+'?token=one&token=two';const n=hits;ok('duplicate configured parameter denied',(await get()).status===503&&hits===n);privateUrl=pinned+'?token='+encodeURIComponent(secret)+'&unexpected=1';ok('unpinned ordinary query change denied',(await get()).status===503&&hits===n);privateUrl=pinned+'?token='+encodeURIComponent(secret);
