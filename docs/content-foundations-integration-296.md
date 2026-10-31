@@ -80,6 +80,16 @@ content-ws-startup-test默认20个全新进程各一次授权握手，再一进�
 
 这两组数据不支持本夹具的“冷组明显更差”，也不能证明原空wire已修、不能排除真实Odoo或不同连接/时间序列条件。原surface少量重复中仍出现过授权空wire，**根因UNKNOWN**；已保留原件与请求诊断。没有据未证假设加等待/匿名兜底或归为暂态。冻结mode0的首STOP拒绝属于另一执行链，未证关联、也不因本实验通过被闭合。现场不启用，SOP协议另段。
 
+## SOP只读协议在途检查点（第1步未完成）
+
+新增sop-readonly-channel为未挂载的纯预览renderer，不接index/旧Runner/真实SOP run或后台接口，不切流。调用者必须给已审固定target/run/version/step/schema/保存值；当前schema只支持text/number/boolean/multi的有限回填，不从iframe动态扩写字段。预览壳把正文放sandbox=allow-scripts、无allow-same-origin的srcdoc iframe，正文不插可信DOM；CSP仅hash允许受控bootstrap，禁网络、表单、嵌套frame。该预览使用壳内srcdoc证明原语，不是已部署的独立内容host资源契约。
+
+壳产生一次nonce、核event.source为当前frame及opaque origin，READY须固定上下文/schema匹配；INIT只向该Window转移MessagePort，含readOnly=true和保存值，不含Odoo/admin/MCP/run上传能力。后续ACK/LOCK_ACK核固定绑定、nonce、严格seq/闭集键；HYDRATE回填，LOCK禁控件，TEARDOWN移除frame/关闭port，超时/重载/非法消息失败关闭。锁定是显示约束而非后台授权门，frame可不服从；本步完全没有保存/上传/finish/unlock或任何后台写权限。
+
+纯输入校验25项与实际序列化host脚本VM状态21项已过（错source/origin/target/run/version/step/nonce/schema、ACK重放、额外键、timeout/reload/teardown等）；VM模拟窗口/port不代真实浏览器/CSP/存储隔离。轻量浏览器尝试尚未通过：两次无进展取消，后两次有界deadline中断，分别有导航后未ready及请求未到达等观察。JSON脚本转义首反例红已修，锁定已改幂等/observer断开再恢复；这些修改不证明浏览器阻塞根因已定。日志保tmp/content296-sop-readonly，停止本机继续起浏览器，不据25+21过把本第1步报完成。
+
+待完成：真实浏览器握手/HYDRATE/LOCK/TEARDOWN与存储隔离、恶意/旧frame端到端反例及非作者评审；与冻结manifest/run状态的实际受控装配；独立内容源托管与真实SOP schema迁移。CHANGE/VALIDATE/COLLECT和UPLOAD后续两步尚未做，三步全完且获准前不切任何SOP。CI本轮只加网络零连接的校验/VM门，不将未通过browser列成已验门。现网d908/control0与此Draft完全分开。
+
 ## 验证与未完成
 content-access-test原58、portal-observation-test原30、303红/200绿cookie对照保留；content-surface-test真实registerSurface+sharedExpress+counted upstream+假时钟核HTTP/WS/到期/撤权/restart/编码/fallback0。content-index-browser真实index+synthetic DB/home+假Odoo/上游+Chromium核跨站200/opener null/撤权XHR401/导航同target401，上游合法1次且不漏browser身份。不是真实Odoo/DNS或生产验收。
 

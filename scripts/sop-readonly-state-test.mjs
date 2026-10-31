@@ -1,0 +1,23 @@
+/** No network/browser: execute actual serialized host script against controlled ports/windows. */
+import assert from 'node:assert/strict';import vm from 'node:vm';import{webcrypto}from'node:crypto';
+import{renderReadonlySopPreview}from'../server/src/sop-readonly-channel.ts';
+const input={targetId:4,runId:12,version:3,step:'inspect',revision:0,marketOrigin:'http://127.0.0.1:9999',fields:[{key:'note',type:'text'}],values:{note:'saved'},body:'<input data-field="note">'};
+let checks=0;const check=(n,p)=>{assert.ok(p,n);checks++;console.log('PASS '+n)};
+function fixture(){const listeners=new Map(),actions={},messages=[],ports=[],timers=new Map();let timerId=0;
+ const state={value:'loading',setAttribute(k,v){this.value=v},getAttribute(){return this.value}},frame={contentWindow:{postMessage(m,origin,transferred){messages.push({m,origin,transferred})}},addEventListener(k,fn){actions[k]=fn},remove(){this.removed=true}};
+ class Channel{constructor(){this.port1={postMessage(m){messages.push({out:m})},start(){},close(){this.closed=true}};this.port2={};ports.push(this.port1)}}
+ const window={addEventListener(k,f){listeners.set(k,f)},removeEventListener(k,f){if(listeners.get(k)===f)listeners.delete(k)}};
+ const document={getElementById(id){if(id==='body-frame')return frame;if(id==='channel-state')return state;return{addEventListener(k,f){actions[id]=f}}}};
+ const context={window,document,crypto:webcrypto,MessageChannel:Channel,Uint8Array,setTimeout(f){const id=++timerId;timers.set(id,f);return id},clearTimeout(id){timers.delete(id)}};
+ const html=renderReadonlySopPreview(input),script=/<script>([\s\S]*)<[/]script>$/.exec(html)[1];vm.runInNewContext(script,context);
+ const load=()=>actions.load(),ready=(patch={},source=frame.contentWindow,origin='null')=>{const probe=messages.find(x=>x.m?.type==='PROBE').m;listeners.get('message')?.({source,origin,data:{...probe,type:'READY',field_keys:['note'],...patch}})};
+ const ack=(patch={})=>{const init=messages.find(x=>x.m?.type==='INIT').m;ports[0].onmessage({data:{protocol:init.protocol,targetId:init.targetId,runId:init.runId,version:init.version,step:init.step,nonce:init.nonce,type:'ACK',seq:0,...patch}})};
+ return{listeners,actions,messages,ports,timers,state,frame,load,ready,ack};}
+let f=fixture();check('deadline armed before frame load',f.timers.size===1);f.load();check('PROBE names fixed context, no capability',f.messages[0].m.runId===12&&!('values'in f.messages[0].m));f.ready({},{});check('wrong source ignored',f.ports.length===0);f.ready({},f.frame.contentWindow,'http://wrong.invalid');check('nonopaque READY ignored',f.ports.length===0);f.ready();check('single channel and readonly INIT',f.ports.length===1&&f.messages.at(-1).m.readOnly===true&&f.messages.at(-1).transferred.length===1);f.ack();check('ACK marks ready',f.state.value==='ready'&&f.timers.size===0);f.ack();check('ACK replay closes channel',f.state.value==='rejected'&&f.frame.removed&&f.ports[0].closed);
+for(const patch of [{runId:99},{targetId:99},{step:'other'},{version:99},{nonce:'bad'},{field_keys:['admin']}]){f=fixture();f.load();f.ready(patch);check('bad READY rejected '+Object.keys(patch)[0],f.state.value==='rejected'&&f.ports.length===0)}
+f=fixture();f.load();f.ready();f.ack();f.actions.hydrate();const hydrate=f.messages.at(-1).out;check('HYDRATE fixed schema values and sequence',hydrate.type==='HYDRATE'&&hydrate.seq===1&&hydrate.values.note==='saved');f.ports[0].onmessage({data:{...hydrate,type:'ACK',values:undefined,revision:undefined}});check('extra ACK keys rejected',f.state.value==='rejected');
+f=fixture();f.load();f.ready();f.ack();f.actions.lock();const lock=f.messages.at(-1).out;f.ports[0].onmessage({data:{...lock,type:'LOCK_ACK'}});check('LOCK ACK consumed',f.state.value==='ready');f.actions.teardown();check('TEARDOWN removes frame and closes port',f.state.value==='closed'&&f.frame.removed&&f.ports[0].closed&&!f.listeners.has('message'));f.actions.hydrate();check('closed channel cannot send HYDRATE',f.state.value==='closed');
+f=fixture();f.load();f.ready();f.ack();f.load();check('reload invalidates consumed nonce/port',f.state.value==='reloaded'&&f.frame.removed);
+f=fixture();[...f.timers.values()][0]();check('initial handshake timeout closes unready frame',f.state.value==='timeout'&&f.frame.removed);
+f=fixture();f.load();f.ready();f.ack({type:'CHANGE'});check('unsolicited write operation rejected',f.state.value==='rejected');
+console.log(JSON.stringify({checks,scope:'actual host serialized script with VM window/port mocks; not browser CSP/isolation or mounted Runner acceptance',network_connections:0}));
