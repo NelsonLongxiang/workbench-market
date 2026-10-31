@@ -1,7 +1,8 @@
 import json,sys,mimetypes,re
 from pathlib import Path
 from playwright.sync_api import sync_playwright,expect
-cfg=json.loads(Path(sys.argv[1]).read_text(encoding='utf8'));dist=Path(cfg['dist']);seen=[];errors=[]
+from sop_history_assertions import assert_metadata_history
+cfg=json.loads(Path(sys.argv[1]).read_text(encoding='utf8'));dist=Path(cfg['dist']);seen=[];errors=[];history_rows=[];surface=cfg.get('surface','control')
 with sync_playwright() as p:
  b=p.chromium.launch(headless=True)
  try:
@@ -14,9 +15,20 @@ with sync_playwright() as p:
    elif path=='/api/sop/runs':r.fulfill(content_type='application/json',body=json.dumps([] if 'dispatched=1' in r.request.url else [run]))
    elif path.startswith('/api/') or path=='/health':r.fulfill(content_type='application/json',body='{}')
    else:
-    f=dist/path.lstrip('/') if path.startswith('/assets/') else dist/'index.html';r.fulfill(content_type=mimetypes.guess_type(str(f))[0] or 'application/octet-stream',body=f.read_bytes())
-  page.route('http://privacy.synthetic.invalid/**',route);page.goto('http://privacy.synthetic.invalid/sops',wait_until='load');page.get_by_role('button',name=re.compile(r'记\s*录')).click();expect(page.get_by_text('执行记录',exact=True)).to_be_visible();expect(page.get_by_text('此列表仅展示执行元数据与步骤数量',exact=False)).to_be_visible();expect(page.locator('.ant-drawer table')).to_contain_text('2');assert page.locator('.ant-table-row-expand-icon').count()==0
-  assert not any(x.startswith('/api/sop/runs/') for x in seen),seen;assert not errors,errors
+    f=dist/path.lstrip('/') if path.startswith('/assets/') else dist/'index.html'
+    content=f.read_bytes()
+    if f.name=='index.html':content=content.replace(b'<head>',('<head><meta name="wm-surface" content="'+surface+'">').encode())
+    r.fulfill(content_type=mimetypes.guess_type(str(f))[0] or 'application/octet-stream',body=content)
+  page.route('http://privacy.synthetic.invalid/**',route);page.goto('http://privacy.synthetic.invalid/sops',wait_until='load')
+  with page.expect_response(lambda r:'/api/sop/runs?' in r.url and 'slug=synthetic-sop' in r.url) as response:
+   page.get_by_role('button',name=re.compile(r'记\s*录')).click()
+  history_rows=response.value.json();expect(page.get_by_text('执行记录',exact=True)).to_be_visible()
+  assert_metadata_history(page.locator('.ant-drawer-content'),'synthetic',2,seen,history_rows,('PRIVATE_STEP_VALUE','PRIVATE_UPLOAD_TOKEN'))
+  for bad_rows,bad_requests in [([{**history_rows[0],'data':'PRIVATE_STEP_VALUE'}],seen),([{**history_rows[0],'upload_token':'PRIVATE_UPLOAD_TOKEN'}],seen),(history_rows,seen+['/api/sop/runs/12'])]:
+   try:assert_metadata_history(page.locator('.ant-drawer-content'),'synthetic',2,bad_requests,bad_rows,('PRIVATE_STEP_VALUE','PRIVATE_UPLOAD_TOKEN'))
+   except AssertionError:pass
+   else:raise AssertionError('privacy negative control not detected')
+  assert not errors,errors
   page.wait_for_function('() => {const e=document.querySelector(".ant-drawer-content-wrapper"); if(!e)return false;const r=e.getBoundingClientRect();return r.x>=0 && r.right<=innerWidth+1}')
   page.screenshot(path=cfg['screenshot'],full_page=True)
  finally:

@@ -8,6 +8,9 @@
 import json
 import time
 import sys
+from pathlib import Path as _Path
+sys.path.insert(0,str(_Path(__file__).resolve().parents[1]/'scripts'))
+from sop_history_assertions import assert_metadata_history
 from datetime import datetime, timezone
 from playwright.sync_api import sync_playwright, expect
 
@@ -1092,16 +1095,21 @@ with sync_playwright() as p:
         assert demo.locator('.ant-tag').filter(has_text='published').count() >= 1, 'published 徽章缺失'
         href = demo.locator('a.ant-btn').first.get_attribute('href') or ''
         assert '/sop/demo-rack-sop/' in href, f'执行入口应指 Runner: {href}'
-        # ③ 记录 Drawer：演示 run（#8 风格，3 步数据）可见 + 展开数据
-        demo.locator('button').filter(has_text='记录').first.click()
-        page.wait_for_timeout(900)
-        drawer = page.locator('.ant-drawer-content')
-        drawer.wait_for(state='visible', timeout=5000)
-        assert '已完成' in drawer.inner_text(), '记录 Drawer 未见已完成 run'
-        runrow = drawer.locator('.ant-table-row').filter(has_text='演示·张工').first
-        runrow.locator('.ant-table-row-expand-icon').click()
-        page.wait_for_timeout(500)
-        assert 'A-12' in drawer.inner_text() or '机位' in drawer.inner_text(), 'run 展开未见步骤数据'
+        # ③ metadata-only history: retain run/step count, never expand or refetch private step values.
+        history_requests=[]
+        history_rows=[]
+        def observe_history_request(request):
+            if '/api/sop/runs' in request.url:
+                history_requests.append(request.url)
+        page.on('request',observe_history_request)
+        with page.expect_response(lambda r:'/api/sop/runs?' in r.url and 'slug=demo-rack-sop' in r.url) as history_response:
+            demo.locator('button').filter(has_text='记录').first.click()
+        history_rows=history_response.value.json()
+        drawer=page.locator('.ant-drawer-content')
+        drawer.wait_for(state='visible',timeout=5000)
+        assert '已完成' in drawer.inner_text(),'history Drawer missing completed run'
+        assert_metadata_history(drawer,'演示·张工',3,history_requests,history_rows,('A-12','配件数','机位','扭矩复核','自检'))
+        page.remove_listener('request',observe_history_request)
         page.keyboard.press('Escape')
         page.wait_for_timeout(400)
         # ④ 上架状态机经页面：draft → published（Popconfirm「确 定」→ note 弹窗「上 架」两段）
@@ -1124,7 +1132,7 @@ with sync_playwright() as p:
         page.wait_for_timeout(1200)
         row2 = page.locator('.ant-table-row').filter(has_text='e2e-sop-ui')
         assert row2.locator('.ant-tag').filter(has_text='published').count() >= 1, '页面上架后徽章未切换'
-        record('SOP 管理页（状态徽章/Runner 入口/记录 Drawer/' + ('页面上架）' if ADMIN_UI else '上架走 CLI·业务面 403）'), True)
+        record('SOP 管理页（状态徽章/Runner 入口/元数据步骤数·无私有展开/' + ('页面上架）' if ADMIN_UI else '上架走 CLI·业务面 403）'), True)
     except Exception as e:
         record('SOP 管理页', False, str(e)); shot('sops-ui')
 
