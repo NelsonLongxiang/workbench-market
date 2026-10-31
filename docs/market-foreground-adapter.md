@@ -16,6 +16,8 @@ scripts/ops/market-foreground.mjs是拟交SCM服务宿主调用的前台程序�
 ## 生命周期、有限恢复与日志
 一个adapter同时最多一个worker。worker退出码/信号上报到结果及事件。正常code0不重启；非零运行后退出仅在显式maxRestarts预算内按对应退避，恢复前重新核hash/端口/DBadmin。初始启动门失败、包变化、目录/日志/身份/锁失败不自动恢复。SCM外层自动恢复若另开，必须与本预算协调，防多层无限循环；本提案未配置SCM行为。
 
+ChildProcess error不等于exit：没有创建PID的spawn失败可结束等待；已有PID的error仅使监督失败，不作为exit证据、不清retained句柄。必须清自己的worker并收到真实exit后才释放锁；停止抛错或超时仍保锁、报owned_worker_cleanup_incomplete，不按恢复预算另起worker。原bbc02e0 ready后error无exit却清child/锁的红态保留，新增零worker反例覆盖pre-spawn、ready前/后error、延迟exit、永不exit、停止抛错及有恢复预算不重起。
+
 SIGINT/SIGTERM停止自己的child；退避可被信号取消。退出清理有界5秒，无法证明worker退出时保留锁并报manual cleanup，不启动fallback。Windows服务的控制消息如何转换成Node信号/进程停止还需受审宿主真实验证，未声称SCM优雅停止已通。强杀supervisor绕过finally时的worker/锁残留属于未证明保障；不通过自动删锁恢复。
 
 日志独立于包/data/home，调用者须提供受限Windows目录ACL。追加不截断、不透明转存worker内容：仅时间/source/supervisor与workerPID、ready创建身份、起止/失败类别、退出码/信号、stdout/stderr字节数。16MiB上限，不自动删/轮转，写失败/短写/超限失败关闭并清自己worker；不存在持久化fsync/断电不丢承诺。现阶段不记录worker任意错误行，因此具体业务错误原因需另审脱敏诊断，不能把字节计数当完整日志。配置目录、package manifest和权限是可信运维面，本代码不抵御拥有本地写权限者并发替换/hardlink攻击。
