@@ -4,14 +4,16 @@ import {createHash,createHmac,randomBytes,timingSafeEqual} from 'node:crypto';
 import type {DatabaseSync} from 'node:sqlite';
 import {resolveOdooViewer} from './lifecycle.ts';
 import {trustedOdooOrigins} from './odoo-session.ts';
+import {validateReadonlySop} from './sop-readonly-channel.ts';
 import {assembleReadonlySop,type FrozenSopSource} from './sop-readonly-assembly.ts';
 type ViewerResult = Awaited<ReturnType<typeof resolveOdooViewer>>;
 type Deps = {db:DatabaseSync; odooOrigin:string; marketOrigin:string; frozenYaml:(slug:string,version:number)=>string; viewer?:typeof resolveOdooViewer; now?:()=>number};
 type Binding = {run_id:number; target_id:number; sop_version:number; owner_subject:string; assignee_subject:string; acl_revision:number; manifest_sha256:string; revoked:number};
 type Scope = {targetId:number;runId:number;step:string};
-type Record = Scope & {version:number;subject:string;session:string;epoch:number;aclRevision:number;expires:number};
+type Record = Scope & {action:'read'|'save';version:number;subject:string;session:string;epoch:number;aclRevision:number;expires:number};
 const positive = (n:number) => Number.isSafeInteger(n)&&n>0;
-const deny = () => { throw Error('SOP run access denied'); };
+export class SopWriteError extends Error { status:number;code:string;constructor(status:number,code:string){super(code);this.status=status;this.code=code;} }
+const deny = () => { throw new SopWriteError(403,'sop_run_access_denied'); };
 const hash = (s:string) => createHash('sha256').update(s).digest('hex');
 export function createSopRunAccess(deps:Deps) {
   const {db}=deps, now=deps.now??Date.now, viewer=deps.viewer??resolveOdooViewer;
@@ -19,6 +21,7 @@ export function createSopRunAccess(deps:Deps) {
   if(origin.origin!==deps.odooOrigin || !trustedOdooOrigins().origins.has(deps.odooOrigin)) throw Error('Explicit trusted Odoo origin required');
   // Only callers constructing this unmounted service initialize this table. Existing app startup unchanged.
   db.exec('CREATE TABLE IF NOT EXISTS sop_run_access (run_id INTEGER PRIMARY KEY, target_id INTEGER NOT NULL, sop_version INTEGER NOT NULL, owner_subject TEXT NOT NULL, assignee_subject TEXT NOT NULL, acl_revision INTEGER NOT NULL, manifest_sha256 TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0)');
+  db.exec('CREATE TABLE IF NOT EXISTS sop_run_revisions (run_id INTEGER PRIMARY KEY, revision INTEGER NOT NULL, data_sha256 TEXT NOT NULL)');
   const secret=randomBytes(32), records=new Map<string,Record>(), sessions=new Map<string,{epoch:number;generation:number;subject:string|null}>();
   const mac=(s:string)=>createHmac('sha256',secret).update(s).digest('base64url');
   const cookieKey=(cookie:string) => {
@@ -61,7 +64,7 @@ export function createSopRunAccess(deps:Deps) {
     if(!/^[a-z][a-z0-9_-]{0,63}$/.test(scope.step)||!allowed(b,subject,scope.targetId)||b!.sop_version!==r.sop_version)return deny();
     return {r,b:b!};
   }
-  function project(scope:Scope,subject:string) {
+  function project(scope:Scope,subject:string, allowSave = false) {
     const {r,b}=authorized(scope,subject);
     const yaml=deps.frozenYaml(r.sop_slug,r.sop_version);
     if(hash(yaml)!==b.manifest_sha256)return deny();
@@ -69,9 +72,28 @@ export function createSopRunAccess(deps:Deps) {
     const row=db.prepare('SELECT data FROM sop_runs WHERE id=?').get(r.id) as {data:string};
     const source:FrozenSopSource={targetId:scope.targetId,slug:r.sop_slug,version:r.sop_version,yaml};
     const run={id:r.id,sop_slug:r.sop_slug,sop_version:r.sop_version,status:r.status,data:JSON.parse(row.data)};
-    const preview=assembleReadonlySop(source,run,scope.step,0,deps.marketOrigin);
+    const revision=db.prepare('SELECT revision,data_sha256 FROM sop_run_revisions WHERE run_id=?').get(r.id) as {revision:number;data_sha256:string}|undefined;
+    if(allowSave && (!revision || hash(row.data)!==revision.data_sha256))throw new SopWriteError(409,'run_revision_conflict');
+    const preview=assembleReadonlySop(source,run,scope.step,revision?.revision??0,deps.marketOrigin,allowSave);
     // Projection has no owner/login/uid/session/receipt or upload capability. Token is separate, shell only.
     return {preview,run:{id:r.id,targetId:scope.targetId,version:r.sop_version,step:scope.step,authorized:true as const},aclRevision:b.acl_revision};
+  }
+  async function authenticate(cookie:string,capability:string,scope:Scope) {
+    sweep();const match=typeof capability==='string'&&/^([A-Za-z0-9_-]{43})[.]([A-Za-z0-9_-]{43})$/.exec(capability);
+    if(!match||!timingSafeEqual(Buffer.from(match[2]),Buffer.from(mac(match[1]))))return deny();
+    const record=records.get(match[1]);if(!record||record.expires<=now()||record.targetId!==scope.targetId||record.runId!==scope.runId||record.step!==scope.step)return deny();
+    const who=await identify(cookie);
+    if(!stillCurrent(who)||!records.has(match[1])||record.expires<=now()||record.session!==who.key||record.subject!==who.subject||record.epoch!==who.epoch||record.aclRevision!==binding(scope.runId)?.acl_revision)return deny();
+    if(metadata(scope.runId,scope.targetId).sop_version!==record.version)return deny();
+    return {record,who};
+  }
+  async function issue(cookie:string,scope:Scope,action:'read'|'save') {
+    scope={...scope};const who=await identify(cookie);sweep();if(!stillCurrent(who)||records.size>=4096)return deny();
+    const projection=project(scope,who.subject,action==='save');
+    if(action==='save' && (metadata(scope.runId,scope.targetId).status!=='running'||!projection.preview.fields.some(f=>f.operations?.includes('save' as never))))return deny();
+    const id=randomBytes(32).toString('base64url'),expires=now()+300_000;
+    records.set(id,{...scope,action,version:projection.run.version,subject:who.subject,session:who.key,epoch:who.epoch,aclRevision:projection.aclRevision,expires});
+    return {capability:id+'.'+mac(id),expires,...projection};
   }
   return {
     /** Server-only controlled registration. Never expose through MCP or accept started_by as subject.
@@ -82,23 +104,41 @@ export function createSopRunAccess(deps:Deps) {
       if(!valid(input.ownerSubject)||input.assigneeSubject!==undefined&&!valid(input.assigneeSubject)||!/^[a-f0-9]{64}$/.test(input.manifestSha256))return deny();
       const revision=(binding(input.runId)?.acl_revision??0)+1;
       db.prepare('INSERT INTO sop_run_access(run_id,target_id,sop_version,owner_subject,assignee_subject,acl_revision,manifest_sha256,revoked) VALUES(?,?,?,?,?,?,?,0) ON CONFLICT(run_id) DO UPDATE SET target_id=excluded.target_id,sop_version=excluded.sop_version,owner_subject=excluded.owner_subject,assignee_subject=excluded.assignee_subject,acl_revision=excluded.acl_revision,manifest_sha256=excluded.manifest_sha256,revoked=0').run(input.runId,input.targetId,run.sop_version,input.ownerSubject,input.assigneeSubject??'',revision,input.manifestSha256);
+      const data=(db.prepare('SELECT data FROM sop_runs WHERE id=?').get(input.runId) as {data:string}).data;
+      db.prepare('INSERT OR IGNORE INTO sop_run_revisions VALUES(?,0,?)').run(input.runId,hash(data));
     },
     revokeRun(runId:number){db.prepare('UPDATE sop_run_access SET revoked=1,acl_revision=acl_revision+1 WHERE run_id=?').run(runId);},
     revokeSession(cookie:string){revokeKey(cookieKey(cookie).key);},
-    async open(cookie:string,scope:Scope) {
-      scope={...scope};const who=await identify(cookie);sweep();if(!stillCurrent(who)||records.size>=4096)return deny();
-      const projection=project(scope,who.subject),id=randomBytes(32).toString('base64url'),expires=now()+300_000;
-      records.set(id,{...scope,version:projection.run.version,subject:who.subject,session:who.key,epoch:who.epoch,aclRevision:projection.aclRevision,expires});
-      return {capability:id+'.'+mac(id),expires,...projection};
-    },
+    open(cookie:string,scope:Scope) { return issue(cookie,scope,'read'); },
+    openEditable(cookie:string,scope:Scope) { return issue(cookie,scope,'save'); },
     async read(cookie:string,capability:string,scope:Scope) {
-      scope={...scope};sweep();const match=typeof capability==='string'&&/^([A-Za-z0-9_-]{43})[.]([A-Za-z0-9_-]{43})$/.exec(capability);
-      if(!match||!timingSafeEqual(Buffer.from(match[2]),Buffer.from(mac(match[1]))))return deny();
-      const record=records.get(match[1]);if(!record||record.expires<=now()||record.targetId!==scope.targetId||record.runId!==scope.runId||record.step!==scope.step)return deny();
-      const who=await identify(cookie);
-      if(!stillCurrent(who)||!records.has(match[1])||record.expires<=now()||record.session!==who.key||record.subject!==who.subject||record.epoch!==who.epoch||record.aclRevision!==binding(scope.runId)?.acl_revision)return deny();
-      if(metadata(scope.runId,scope.targetId).sop_version!==record.version)return deny();
-      return project(scope,who.subject);
+      scope={...scope};const {who,record}=await authenticate(cookie,capability,scope);
+      if(!stillCurrent(who)||record.expires<=now()||record.aclRevision!==binding(scope.runId)?.acl_revision)return deny();
+      return project(scope,who.subject,record.action==='save');
+    },
+    async save(cookie:string,capability:string,scope:Scope,input:{version:number;expected_revision:number;values:Record<string,unknown>}) {
+      scope={...scope};input=structuredClone(input);
+      if(!input||Object.keys(input).sort().join(',')!=='expected_revision,values,version'||!Number.isSafeInteger(input.expected_revision)||input.expected_revision<0)throw new SopWriteError(400,'invalid_save');
+      const {who,record}=await authenticate(cookie,capability,scope);
+      if(record.action!=='save'||record.version!==input.version)return deny();
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        if(!stillCurrent(who)||record.expires<=now()||record.aclRevision!==binding(scope.runId)?.acl_revision||metadata(scope.runId,scope.targetId).status!=='running')return deny();
+        const out=project(scope,who.subject,true);
+        if(out.preview.revision!==input.expected_revision)throw new SopWriteError(409,'run_revision_conflict');
+        let validated;
+        try{validated=validateReadonlySop({...out.preview,values:input.values},true);}catch{throw new SopWriteError(422,'invalid_field_values');}
+        if(Object.keys(validated.values).some(key=>!out.preview.fields.find(f=>f.key===key)?.operations?.includes('save' as never)))return deny();
+        const row=db.prepare('SELECT data FROM sop_runs WHERE id=?').get(scope.runId) as {data:string};
+        const data=JSON.parse(row.data),current=data[scope.step]??{};
+        data[scope.step]={...current,...validated.values};
+        const next=JSON.stringify(data),revision=input.expected_revision+1;
+        if(!Number.isSafeInteger(revision))throw new SopWriteError(409,'run_revision_conflict');
+        const changed=db.prepare('UPDATE sop_run_revisions SET revision=?,data_sha256=? WHERE run_id=? AND revision=? AND data_sha256=?').run(revision,hash(next),scope.runId,input.expected_revision,hash(row.data));
+        if(changed.changes!==1)throw new SopWriteError(409,'run_revision_conflict');
+        if(db.prepare("UPDATE sop_runs SET data=? WHERE id=? AND status='running'").run(next,scope.runId).changes!==1)return deny();
+        db.exec('COMMIT');return {ok:true,revision};
+      } catch(error) { db.exec('ROLLBACK');throw error; }
     }
   };
 }
