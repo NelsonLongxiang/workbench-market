@@ -1,6 +1,7 @@
 import express from 'express';
 import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskCenterPolicy } from './task-center.ts';
 import cors from 'cors';
+import {sopRunnerConfig,createSopRunnerWiring} from './sop-runner-wiring.ts';
 import { contentConfig, createContentSurface, mountContentSurface, listenContentSurface } from './content-surface.ts';
 import { createPortalObservation } from './portal-observation.ts';
 import { allSurfaceServers, browserMarked, originIsThisSurface, rawLoopback, registerSurface, surfaceOf, surfacePorts, surfaceUrl } from './surfaces.ts';
@@ -78,6 +79,9 @@ if (contentRuntime) {
     contentRuntime.migrate(req, res, next);
   });
 }
+// Explicit default-off, selected SOP targets are terminal before legacy Runner/parsers.
+const sopChannelCfg=sopRunnerConfig(process.env);
+if(sopChannelCfg){const sopWiring=createSopRunnerWiring(sopChannelCfg,db,join(dataDir,'apps'));app.use(sopWiring.handler);}
 // issue #1：CORS 从全开放收紧为白名单——生产形态（web/dist 由本服务同源托管）不需要跨源；
 // 仅 web dev（vite 5173，其 /api 代理是同源转发、但直连调试场景保留）放行本机回环源。
 // /mcp 为 StreamableHTTP POST（非浏览器 fetch 场景不受 CORS 约束；浏览器 MCP 客户端经同源门户）。
