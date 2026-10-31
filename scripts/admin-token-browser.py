@@ -1,10 +1,11 @@
-"""#292 M4 browser probes (synthetic token, loopback only). Called by admin-token-browser.mjs."""
+"""#292 M1 (+M4 残余) browser probes (synthetic token, loopback only). Called by admin-token-browser.mjs.
+业务面（market）不输口令、不做管理写；控制面（control）只做管理、不跑不可信内容；两面互读不到。"""
 import json, re, sys
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 cfg = json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))
-base, wid, tok = cfg['base'], cfg['wid'], cfg['token']
+base, ctl, wid, tok = cfg['base'], cfg['control'], cfg['wid'], cfg['token']
 passed = failed = 0
 def ok(name, cond, extra=''):
     global passed, failed
@@ -20,125 +21,100 @@ def set_token(page):
     page.get_by_role('button', name=re.compile(r'^保\s*存$')).click()  # antd 两字按钮会插空格
     page.get_by_role('button', name='口令已设').wait_for()
 
-def spa(page, path):  # 站内路由跳转（不换文档，口令仍在内存与 sessionStorage）
-    page.evaluate('p => { history.pushState({}, "", p); dispatchEvent(new PopStateEvent("popstate")); }', path)
-    page.wait_for_timeout(800)
+WRITE = '''async ([t]) => { const r = await fetch("/api/workbenches", { method: "POST", headers: { "Content-Type": "application/json", "X-Admin-Token": t }, body: JSON.stringify({ name: "from-page", url: "http://127.0.0.1:9/", type: "web" }) }); return { status: r.status, body: await r.json().catch(() => null) }; }'''
+VIEWER = {'ok': True, 'viewer': {'login': 'pm-a', 'uid': 7, 'sub': 'user:pm-a', 'name': '测试 PM-A', 'kind': '人'}, 'roles': None}
+ANON = json.dumps({'ok': False, 'auth_required': True, 'login_url': f'/go/{wid}/'})
 
 with sync_playwright() as p:
     b = p.chromium.launch(headless=True)
     try:
-        page = b.new_context().new_page()
-        page.goto(base + f'/use/{wid}'); page.wait_for_timeout(1200)
-        ok('对照：没设口令时使用页照常内嵌 /go/', go_frames(page) == 1)
-
+        print('业务面')
+        c = b.new_context()
+        c.add_init_script('try { if (location.pathname === "/market" && !sessionStorage.getItem("seeded")) { sessionStorage.setItem("seeded", "1"); sessionStorage.setItem("wm-admin-token", "leftover-from-before-m1"); } } catch (e) {}')
+        page = c.new_page()
         page.goto(base + '/market'); page.wait_for_timeout(800)
-        set_token(page)
-        ok('设口令后本标签页 sessionStorage 有口令（前提成立）', page.evaluate('sessionStorage.getItem("wm-admin-token")') == tok)
-        spa(page, f'/use/{wid}')
-        ok('有口令：使用页不出现 /go/ iframe', go_frames(page) == 0)
-        ok('有口令：使用页给出「新标签页打开」与「清除口令并内嵌」', page.get_by_role('button', name='新标签页打开').count() == 1 and page.get_by_role('button', name='清除口令并内嵌').count() == 1)
-        spa(page, f'/cockpit/{cfg["cockpit"]}')
-        ok('有口令：驾驶舱面板也不出现 /go/ iframe', go_frames(page) == 0 and page.get_by_role('button', name='清除口令并内嵌').count() >= 1)
+        link = page.get_by_role('link', name=re.compile('管理控制面'))
+        ok('业务面没有口令输入，只有「管理控制面」链接（同 path）', page.get_by_placeholder('ADMIN_TOKEN').count() == 0 and page.get_by_role('button', name=re.compile(r'口\s*令$')).count() == 0 and link.count() >= 1 and link.first.get_attribute('href') == ctl + '/market', str(link.first.get_attribute('href') if link.count() else None))
+        ok('业务面启动时清掉 M1 之前留下的口令', page.evaluate('sessionStorage.getItem("wm-admin-token")') is None)
+        r = page.evaluate(WRITE, [tok])
+        ok('业务面页面带对口令发管理写 → 403 指向控制面（偷到口令也用不了）', r['status'] == 403 and (r['body'] or {}).get('control_surface_required') is True, str(r))
+        for v in ('/API/workbenches', '/Api/Workbenches'):
+            for t in ('', tok):
+                rv = page.evaluate(WRITE.replace('"/api/workbenches"', json.dumps(v)), [t])
+                ok(f'业务面页面 fetch 大写变体 {v}（{"带" if t else "不带"}口令）→ 403', rv['status'] == 403, str(rv))
+        page.goto(base + f'/use/{wid}'); page.wait_for_timeout(1200)
+        ok('业务面使用页照常内嵌 /go/', go_frames(page) == 1)
+        page.goto(base + f'/cockpit/{cfg["cockpit"]}'); page.wait_for_timeout(1200)
+        ok('业务面驾驶舱照常内嵌 /go/', go_frames(page) == 1)
+        c.close()
 
-        with page.context.expect_page() as newp:
-            page.get_by_role('button', name='新标签页打开').first.click()
-        np = newp.value; np.wait_for_load_state(); np.wait_for_timeout(500)
-        ok('「新标签页打开」：新标签页拿不到口令、没有 opener', np.evaluate('window.__probe && window.__probe.own') is None and np.evaluate('window.opener') is None, str(np.evaluate('window.__probe')))
-        np.close()
+        print('控制面')
+        c = b.new_context(); cp = c.new_page()
+        resp = cp.goto(ctl + '/market'); cp.wait_for_timeout(800)
+        ok('控制面页面带 frame-ancestors none 与 X-Frame-Options DENY', "frame-ancestors 'none'" in resp.headers.get('content-security-policy', '') and resp.headers.get('x-frame-options') == 'DENY', str(resp.headers))
+        set_token(cp)
+        r = cp.evaluate(WRITE, [tok])
+        ok('控制面页面带口令发管理写 → 201', r['status'] == 201, str(r))
+        r = cp.evaluate(WRITE, ['wrong-token'])
+        ok('控制面错口令 → 403', r['status'] == 403, str(r))
+        ok('控制面不显示当前用户 chip（不走 Odoo 登录）', cp.get_by_text('未登录 Odoo').count() == 0)
+        for path in (f'/use/{wid}', f'/cockpit/{cfg["cockpit"]}', '/lifecycle', '/tasks'):
+            cp2 = c.new_page(); cp2.goto(ctl + path); cp2.wait_for_url(base + path + '*', timeout=8000)
+            ok(f'控制面 {path} 跳回业务面同 path，控制面上不出现 /go/ iframe', cp2.url.startswith(base + path), cp2.url)
+            cp2.close()
+        for path in (f'/go/{wid}/', '/sop/x/', '/apps/x/'):
+            rr = cp.request.get(ctl + path)
+            ok(f'控制面 {path} → 404', rr.status == 404, str(rr.status))
 
-        page.get_by_role('button', name='清除口令并内嵌').first.click(); page.wait_for_timeout(1200)
-        ok('清除口令后：驾驶舱内嵌恢复、存储为空', go_frames(page) == 1 and page.evaluate('sessionStorage.getItem("wm-admin-token")') is None)
-        ok('清除后内嵌的上游页读到的口令为空', (lambda pr: pr.get('own') is None and pr.get('parent') is None)(page.frames[-1].evaluate('window.__probe')), str(page.frames[-1].evaluate('window.__probe')))
+        print('两面隔离')
+        mp = c.new_page(); mp.goto(base + f'/use/{wid}'); mp.wait_for_timeout(1200)
+        pr = mp.frames[-1].evaluate('window.__probe')
+        ok('同一浏览器里控制面已设口令；业务面内嵌的上游页读自己和父页都没有口令', pr.get('own') is None and pr.get('parent') is None, str(pr))
+        got = mp.evaluate('''async (u) => { const w = window.open(u + "/market"); await new Promise(r => setTimeout(r, 1500)); let v; try { v = w.sessionStorage.getItem("wm-admin-token"); } catch (e) { v = "blocked"; } try { w.close(); } catch (e) {} return v; }''', ctl)
+        ok('业务面页面 window.open 控制面后读不到它的存储（跨源）', got == 'blocked', str(got))
+        c.close()
 
-        # ⑤ 登录弹窗（顶栏 ViewerChip → useOdooPopupLogin）
-        who = {'state': 'anon'}
-        def whoami(route):
-            if who['state'] == 'anon':
-                route.fulfill(status=401, content_type='application/json', body=json.dumps({'ok': False, 'auth_required': True, 'login_url': f'/go/{wid}/'}))
-            else:
-                route.fulfill(status=200, content_type='application/json', body=json.dumps({'ok': True, 'viewer': {'login': 'pm-a', 'uid': 7, 'sub': 'user:pm-a', 'name': '测试 PM-A', 'kind': '人'}, 'roles': None}))
-        lp = b.new_context().new_page()
-        lp.route('**/api/lifecycle/whoami', whoami)
-        lp.goto(base + '/market'); lp.get_by_text('未登录 Odoo').wait_for()
-        set_token(lp)
-        ok('有口令：顶栏不给「登录」，只给「清除口令并登录」', lp.get_by_role('button', name=re.compile(r'^登\s*录$')).count() == 0 and lp.get_by_role('button', name='清除口令并登录').count() == 1)
-        with lp.context.expect_page() as pp:
-            lp.get_by_role('button', name='清除口令并登录').click()
-        pop = pp.value; pop.wait_for_load_state(); pop.wait_for_function('window.__probe !== undefined')
-        pr = pop.evaluate('window.__probe')
-        ok('清除口令并登录：父页口令已清空（内存与存储）', lp.evaluate('sessionStorage.getItem("wm-admin-token")') is None and lp.get_by_role('button', name=re.compile(r'口\s*令$')).count() == 1)
-        ok('登录弹窗的 sessionStorage 里没有口令（没复制到）', pr.get('own') is None, str(pr))
-        ok('登录弹窗 window.opener 为 null（读不到父页存储）', pr.get('opener') == 'no-opener', str(pr))
-        who['state'] = 'ok'
-        lp.get_by_text('测试 PM-A（pm-a）· 人').wait_for(timeout=8000)
-        ok('登录成功：whoami 轮询收尾、顶栏显示用户、弹窗自动关闭', pop.is_closed())
-
-        who['state'] = 'anon'
-        lp2 = b.new_context().new_page()
-        lp2.route('**/api/lifecycle/whoami', whoami)
-        lp2.goto(base + '/market'); lp2.get_by_text('未登录 Odoo').wait_for()
-        with lp2.context.expect_page() as pp2:
-            lp2.get_by_role('button', name=re.compile(r'^登\s*录$')).click()
-        pop2 = pp2.value; pop2.wait_for_load_state(); pop2.wait_for_function('window.__probe !== undefined')
-        ok('无口令时顶栏「登录」照常开弹窗，弹窗同样没有 opener', pop2.evaluate('window.__probe').get('opener') == 'no-opener')
-        pop2.close()  # 模拟 COOP 断开 / 用户先关弹窗：之后 6 秒内 whoami 变 200 仍要收尾
-        lp2.wait_for_timeout(500); who['state'] = 'ok'
-        lp2.get_by_text('测试 PM-A（pm-a）· 人').wait_for(timeout=8000)
-        ok('弹窗先关、随后才登录成功：轮询补查照常收尾', True)
-        lp.context.close(); lp2.context.close()
-
-        # ⑤b 三个登录入口各只开一个窗（/lifecycle 清口令曾触发自动登录 effect，与手动 open 竞态开两个窗）
-        anon = json.dumps({'ok': False, 'auth_required': True, 'login_url': f'/go/{wid}/'})
-        def tasks_route(route):
-            r = route.fetch(); j = r.json()
-            j.setdefault('sources', {})['lifecycle'] = {'ok': False, 'count': 0, 'latency_ms': 0, 'viewer': None, 'error': '未登录 Odoo', 'auth_required': True, 'login_url': f'/go/{wid}/'}
-            route.fulfill(response=r, body=json.dumps(j), content_type='application/json')
-        for label, path, scope, btn in (
-            ('顶栏 chip', '/market', None, '清除口令并登录'),
-            ('/lifecycle', '/lifecycle', '.ant-result', '清除口令并登录'),
-            ('统一待办', '/tasks', None, '清除管理员口令并登录 Odoo'),
+        print('业务面登录弹窗（M4 残余）')
+        for label, path, scope, btn, auto in (
+            ('顶栏 chip', '/market', None, re.compile(r'^登\s*录$'), False),
+            ('/lifecycle', '/lifecycle', '.ant-result', '在弹窗登录 Odoo', True),
+            ('统一待办', '/tasks', None, '在弹窗登录 Odoo 查看生命周期待办', False),
         ):
             c = b.new_context(); opened = []
             c.on('page', lambda pg: opened.append(pg))
-            q = c.new_page()
-            q.route('**/api/lifecycle/whoami', lambda r: r.fulfill(status=401, content_type='application/json', body=anon))
-            q.route('**/api/lifecycle/board*', lambda r: r.fulfill(status=401, content_type='application/json', body=anon))
+            q = c.new_page(); who = {'s': 'anon'}
+            q.route('**/api/lifecycle/whoami', lambda r: r.fulfill(status=401, content_type='application/json', body=ANON) if who['s'] == 'anon' else r.fulfill(status=200, content_type='application/json', body=json.dumps(VIEWER)))
+            q.route('**/api/lifecycle/board*', lambda r: r.fulfill(status=401, content_type='application/json', body=ANON))
+            def tasks_route(route):
+                rs = route.fetch(); j = rs.json()
+                j.setdefault('sources', {})['lifecycle'] = {'ok': False, 'count': 0, 'latency_ms': 0, 'viewer': None, 'error': '未登录 Odoo', 'auth_required': True, 'login_url': f'/go/{wid}/'}
+                route.fulfill(response=rs, body=json.dumps(j), content_type='application/json')
             q.route('**/api/tasks', tasks_route)
-            q.goto(base + '/market'); q.get_by_text('未登录 Odoo').wait_for(); set_token(q)
-            if path != '/market': spa(q, path)
+            q.goto(base + path)
             loc = (q.locator(scope) if scope else q).get_by_role('button', name=btn)
-            loc.first.wait_for(timeout=8000)
-            q.wait_for_timeout(1500)
-            pre = len(opened) - 1  # 减去主页面
-            ok(f'{label}：有口令时点之前没有自动开登录窗', pre == 0, f'已开 {pre} 个')
+            loc.first.wait_for(timeout=8000); q.wait_for_timeout(1500)
+            pre = len(opened) - 1
+            ok(f'{label}：点之前{"自动开 1 个" if auto else "没有"}登录窗', pre == (1 if auto else 0), f'已开 {pre} 个')
             loc.first.click(); q.wait_for_timeout(2500)
-            new = len(opened) - 1 - pre
-            ok(f'{label}：「{btn}」只开一个登录窗', new == 1, f'开了 {new} 个')
-            q.unroute('**/api/lifecycle/whoami')
-            q.route('**/api/lifecycle/whoami', lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps({'ok': True, 'viewer': {'login': 'pm-a', 'uid': 7, 'sub': 'user:pm-a', 'name': '测试 PM-A', 'kind': '人'}, 'roles': None})))
-            q.wait_for_timeout(4000)
-            left = [pg for pg in opened[1:] if not pg.is_closed()]
-            ok(f'{label}：登录成功后没有遗留的登录窗', len(left) == 0, f'剩 {len(left)} 个')
+            total = len(opened) - 1
+            ok(f'{label}：点之后总共只有 1 个登录窗', total == 1, f'共 {total} 个')
+            pops = [pg for pg in opened[1:] if not pg.is_closed()]
+            if pops:
+                pops[0].wait_for_function('window.__probe !== undefined', timeout=8000)
+                ok(f'{label}：登录窗没有 opener、没有口令', pops[0].evaluate('window.__probe') .get('opener') == 'no-opener' and pops[0].evaluate('window.__probe').get('own') is None, str(pops[0].evaluate('window.__probe')))
+            who['s'] = 'ok'; q.wait_for_timeout(4000)
+            ok(f'{label}：登录成功后没有遗留的登录窗', all(pg.is_closed() for pg in opened[1:]))
             c.close()
 
-        # ⑥ bfcache：真实往返缓存路径
-        bp = b.new_context().new_page()
-        bp.add_init_script('addEventListener("pageshow", e => { window.__persisted = e.persisted; })')
-        bp.goto(base + '/market'); bp.wait_for_timeout(600); set_token(bp)
-        bp.goto(base + f'/go/{wid}/'); bp.wait_for_timeout(500)
-        bp.go_back(); bp.wait_for_timeout(800)
-        if bp.evaluate('window.__persisted') is True:
-            spa(bp, f'/use/{wid}')
-            ok('bfcache 命中：恢复的旧页面内存里仍有口令，GoFrame 继续拒嵌', go_frames(bp) == 0)
-        else:
-            print('  - SKIP bfcache：后退未命中往返缓存（persisted=false），恢复旧页面时内存口令的路径未验证')
-        bp.context.close()
-
-        for target in (f'/go/{wid}/', f'/sop/{cfg["sop"]}/'):
-            page.goto(base + '/market'); page.wait_for_timeout(800)
-            set_token(page)
-            page.goto(base + target); page.wait_for_timeout(800)
-            ok(f'同一标签页跳到 {target}：新文档 sessionStorage 里没有口令', page.evaluate('sessionStorage.getItem("wm-admin-token")') is None)
+        c = b.new_context(); q = c.new_page(); who = {'s': 'anon'}
+        q.route('**/api/lifecycle/whoami', lambda r: r.fulfill(status=401, content_type='application/json', body=ANON) if who['s'] == 'anon' else r.fulfill(status=200, content_type='application/json', body=json.dumps(VIEWER)))
+        q.goto(base + '/market'); q.get_by_text('未登录 Odoo').wait_for()
+        with c.expect_page() as pp:
+            q.get_by_role('button', name=re.compile(r'^登\s*录$')).click()
+        pp.value.close(); q.wait_for_timeout(500); who['s'] = 'ok'  # 模拟 COOP 断开 / 先关弹窗，随后才登录成功
+        q.get_by_text('测试 PM-A（pm-a）· 人').wait_for(timeout=8000)
+        ok('弹窗先关、随后才登录成功：轮询补查照常收尾', True)
+        c.close()
     finally:
         b.close()
 print(f'admin-token-browser: {passed} passed / {failed} failed')
