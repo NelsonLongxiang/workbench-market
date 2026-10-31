@@ -104,7 +104,7 @@ sop-run-access是显式工厂，不由index导入、不新增HTTP/MCP/启动迁�
 
 open/read默认复用resolveOdooViewer现查明确trusted Odoo get_session_info，仅严格内部用户；SID重复/格式异常拒。subject按现有content口径sub+uid匹配受控owner/assignee，再核enabled target的精确/sop/slug/、published SOP及run冻结版本存在；随后才读取冻结YAML（校登记摘要）和保存值。投影含run targetId与authorized=true，不含owner/uid/login/session；未授权不签发能力、不读body/values。只有preview可传render/INIT，能力单独返回可信壳，绝不传frame/URL。
 
-能力是带HMAC的随机opaque进程内引用，绑定session/主体/撤权epoch、run/target/step/version/ACL revision，硬300秒不续租；读时新鲜Odoo校验与所有绑定再核。注销/内部资格缺失/上游失败/会话主体变化、显式epoch或ACL撤销/改派、过期/重启都拒；身份await期间的撤权/过期也拒。epoch借用content的过程内撤权方式，此新组件有自己的有界session记录，不谎称Odoo有全局epoch或已接现网统一撤权总线。单进程cap/session各4096，满拒，重启失效；不声明多进程可用。
+能力是带HMAC的随机opaque进程内引用，绑定session/主体/撤权epoch、run/target/step/version/ACL revision，硬300秒不续租；读时新鲜Odoo校验与所有绑定再核。注销/内部资格缺失/上游失败/会话主体变化、显式epoch或ACL撤销/改派、过期/重启都拒；身份await期间的撤权/过期也拒。epoch借用content的过程内撤权方式，此新组件有自己的有界session记录，不谎称Odoo有全局epoch或已接现网统一撤权总线。单进程cap/session各4096，满拒，重启失效；不声明多进程可用。ccff独立复核另发现open观察同SID身份A→B后旧A能力可复活，已先红复现：共享identify记session当前subject/epoch/generation，每次成功解析发现subject变化即吊全部旧能力（包括后续ACL会拒的身份），最新发起的identity查询生效，过时成功/失败不覆盖新状态；显式revoke使在途await失效，open/read恢复后再核generation/epoch。未靠read旧能力碰撞才吊。新增open双身份、无权限身份、交错await、过时失败与并发显式revoke反例；待新固定head窄回验，不开始写通道。
 
 测试采用实际内存SQLite+真实Odoo resolver（fetch替身，无TCP），核他人/未绑定/跨target run、已指派人、portal/缺internal/注销/失败、scope/会话/签名/revision/版本/expiry/重启与拒绝前读取计数0；不读现网数据。授权段仍无写能力、save/upload/finish接口或旧Runner挂载；CHANGE/VALIDATE/COLLECT需本固定head窄复核后另段实现，不把read能力当写能力。
 
