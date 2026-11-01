@@ -3242,9 +3242,16 @@ app.put('/api/mcp/upstreams', (req, res) => {
 });
 
 
-// 合并与激活解耦：代码进 main 可评审；激活=主人同设 ADMIN_TOKEN+MCP_GATEWAY=on 重启
-// （单设 MCP_GATEWAY 而无 ADMIN_TOKEN 时控制面全 403，无法建会话 → /mcp 全 401，拒绝半激活）。
-const MCP_GATEWAY_ON = process.env.MCP_GATEWAY === 'on';
+// #284 缺省开（fail closed）：未设/空/on 均开网关，只有显式 MCP_GATEWAY=off 才关并在启动时告警；
+// 其它值拒绝启动（防拼写错误静默放开）。重启漏带环境变量不再把 /mcp 退回匿名可调。
+// 网关开而无 ADMIN_TOKEN 时控制面全 403，无法建会话 → /mcp 全 401（拒绝而非放开）。
+const MCP_GATEWAY_RAW = process.env.MCP_GATEWAY ?? '';
+if (!['', 'on', 'off'].includes(MCP_GATEWAY_RAW)) {
+  console.error(`[#284] 拒绝启动：MCP_GATEWAY 只接受 on / off / 不设（当前值无法识别，不按关处理）`);
+  process.exit(1);
+}
+const MCP_GATEWAY_ON = MCP_GATEWAY_RAW !== 'off';
+if (!MCP_GATEWAY_ON) console.warn('[#284] 警告：MCP_GATEWAY=off，/mcp 不校验会话令牌、匿名可调全部工具——只用于本地开发/测试，生产勿设');
 const MCP_SESSION_NAME_RE = /^[a-z][a-z0-9-]{0,63}$/;
 let mcp401Count = 0;
 
