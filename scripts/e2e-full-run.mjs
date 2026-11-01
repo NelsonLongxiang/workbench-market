@@ -39,7 +39,7 @@ if (!dryEnv && !existsSync('web/dist/index.html')) { console.error('e2e-full-run
 const TMP = resolve('tmp/e2e-full-' + Date.now().toString(36)); mkdirSync(TMP, { recursive: true });
 const PORT = 21000 + Math.floor(Math.random() * 18000);
 const YGL_HOME = join(TMP, 'ygl-home'); mkdirSync(YGL_HOME, { recursive: true }); // 专属空工作区：统一待办的 ygl-trees 源只会读到它
-const env = { ...process.env, MCP_GATEWAY: '', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), ADMIN_TOKEN: 'synthetic-e2e-admin', YGL_HOME };
+const env = { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), ADMIN_TOKEN: 'synthetic-e2e-admin', YGL_HOME };
 for (const k of ['LC_YGL_BIN', 'LC_YGL_HOME', 'LC_WORKBENCH_KEY_FILE', 'LC_ODOO_URL', 'WM_ODOO_ORIGINS', 'WM_CONTROL_PORT', 'WM_DEV_ORIGIN', 'E2E_ALLOW_PROD', 'YGL_SESSION', 'A2A_STATE_URL']) delete env[k];
 if (controlOff) env.WM_CONTROL_PORT = '0';
 const base = `http://127.0.0.1:${PORT}`;
