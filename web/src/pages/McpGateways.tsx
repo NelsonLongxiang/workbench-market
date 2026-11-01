@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { App, Button, Empty, Input, Modal, Popconfirm, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
 import { KeyOutlined, PlusOutlined } from '@ant-design/icons';
-import { PageContainer } from '@ant-design/pro-components';
+import WmPage from '../components/WmPage';
 
 interface McpSession {
   id: number; name: string; grants: string[]; revoked_at: string; last_used_at: string; created_at: string;
@@ -180,7 +180,7 @@ export default function McpGateways() {
   ];
 
   return (
-    <PageContainer title="MCP 网关" subTitle="会话 · 令牌 · 授权 · 审计（默认拒绝）" className="wm-page">
+    <WmPage subTitle="会话 · 令牌 · 授权 · 审计（默认拒绝）">
       <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
         令牌只经创建响应出现一次（库存 sha256）；新会话授权为空=默认拒绝；吊销即时生效。
         401 拒绝不进审计只计数。激活需服务端 ADMIN_TOKEN+MCP_GATEWAY=on。
@@ -277,6 +277,6 @@ export default function McpGateways() {
           options={regTools.map((t) => ({ value: t, label: t }))}
         />
       </Modal>
-    </PageContainer>
+    </WmPage>
   );
 }
