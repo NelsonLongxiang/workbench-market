@@ -26,6 +26,11 @@ colors:
   danger: "#DC2626"           # 实心按钮白字 4.83:1；白底文字 4.83:1
   danger-text: "#B91C1C"
   danger-bg: "#FEF2F2"        # danger-text 其上 5.91:1
+  # 侧栏（唯一的深色区域）
+  nav-bg: "#0F172A"
+  nav-text: "#CBD5E1"         # nav-bg 上 12.02:1
+  nav-text-active: "#FFFFFF"
+  nav-item-active-bg: "#1E3A5F" # 白字 11.50:1
   info: "{colors.primary}"
   info-bg: "{colors.primary-subtle}"
 typography:
@@ -84,6 +89,8 @@ components:
 | 自产台（他人开发、经市场门户打开） | 链接市场提供的 `tokens.css`，只用 `--wm-*` 变量名 | 无约定，各台自定 |
 
 裁定（属主 2026-11-01）：覆盖以上三面；**只做浅色**；**只写规范、CI 不拦**，靠评审把关。
+
+菜单与目录、页面骨架、SOP 交付空间、任务清单与列表、数据看板的规则见 [`design-system/workbench-market/PATTERNS.md`](design-system/workbench-market/PATTERNS.md)。「只做浅色」指内容区；侧栏是唯一的深色区域，用 `nav-*` token。
 
 风格基调沿用 `design-system/workbench-market/MASTER.md` 的“瑞士风·高密度仪表台”（Variance 4 / Motion 3 / Density 8）与离线字体决定（零 webfont）。MASTER.md 中与本文件冲突的部分（深色底配色表、`.btn-*`/`.card` 示例 CSS、营销页 Page Pattern、GSAP 滚动动效）以本文件为准。
 
