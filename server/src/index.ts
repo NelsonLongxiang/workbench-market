@@ -1422,6 +1422,10 @@ app.get(/^\/sop\/[a-z0-9][a-z0-9-]*(\/.*)?$/, (req, res) => {
 const runCheckpoints = createRunCheckpoints({
   write(id, data) { svc<SopService>('sop').runCheckpointData(id, data); },
 });
+function runCacheCheckpoint(row: SopRunRow): string {
+  // Namespace + durable revision prevent cache collisions, partial writes and same-value ABA resurrection.
+  return createHash('sha256').update(JSON.stringify([dataDir, row.id, row.sop_slug, row.sop_version, row.started_at, row.cache_revision, row.status, row.data])).digest('hex');
+}
 function storedRunData(row: SopRunRow): Record<string, unknown> {
   try { const data = JSON.parse(row.data || '{}'); return data && typeof data === 'object' && !Array.isArray(data) ? data : {}; } catch { return {}; }
 }
@@ -1471,12 +1475,13 @@ async function sopRunStepSaveCore(id: number, stepKeyRaw: string, value: unknown
       return { ok: true, id, stepKey, persisted: 'sqlite' };
     }
     const prior = runCheckpoints.peek(id);
-    const hot = prior ? null : await runStateLoad(id);
+    const hot = prior ? null : await runStateLoad(id, runCacheCheckpoint(row));
     const data = prior ?? { ...storedRunData(row), ...(hot?.meta.status === 'running' ? hot.data : {}) };
     data[stepKey] = value ?? null;
     // Repopulate all known fields after a Redis loss; a partial HSET must not erase the durable baseline.
-    const hotOk = await runStateRestore(id, { slug: row.sop_slug, version: row.sop_version, status: 'running', started_by: row.started_by, updated_at: Date.now() }, data);
-    runCheckpoints.remember(id, data, !hotOk);
+    const hotOk = await runCheckpoints.save(id, data, () =>
+      runStateRestore(id, { slug: row.sop_slug, version: row.sop_version, status: 'running', started_by: row.started_by, updated_at: Date.now() }, data, runCacheCheckpoint(sopRunRow(id))));
+    // A successful fallback bumps SQLite generation; any surviving OLD Redis payload now misses.
     return { ok: true, id, stepKey, persisted: hotOk ? 'redis+checkpoint' : 'sqlite' };
   });
 }
@@ -1499,9 +1504,10 @@ async function sopRunGetCore(id: number): Promise<{ id: number; sop_slug: string
     let data = storedRunData(row);
     if (row.status === 'running' && row.sop_slug !== 'task-center') {
       const pending = runCheckpoints.peek(id);
-      const hot = pending ? null : await runStateLoad(id);
+      const hot = pending ? null : await runStateLoad(id, runCacheCheckpoint(row));
       data = pending ?? { ...data, ...(hot?.meta.status === 'running' ? hot.data : {}) };
-      if (redisHealthy() && !hot) await runStateRestore(id, { slug: row.sop_slug, version: row.sop_version, status: row.status, started_by: row.started_by, updated_at: Date.now() }, data);
+      if (hot?.meta.status === 'running') runCheckpoints.remember(id, data); // recovered acknowledged hot state must not stay uncheckpointed after restart
+      if (redisHealthy() && !hot) await runStateRestore(id, { slug: row.sop_slug, version: row.sop_version, status: row.status, started_by: row.started_by, updated_at: Date.now() }, data, runCacheCheckpoint(row));
     }
     return { id: row.id, sop_slug: row.sop_slug, sop_version: row.sop_version, status: row.status, started_by: row.started_by, data, receipt: receiptStatusOf(id) };
   });
@@ -1526,8 +1532,8 @@ async function sopRunFinishCore(id: number): Promise<{ ok: boolean; id: number; 
 async function sopRunFinishLockedCore(id: number): Promise<{ ok: boolean; id: number; status: string; steps: number }> {
   const row = sopRunRow(id);
   if (row.status !== 'running') throw new HttpError(409, `run ${id} 已 ${row.status}`);
-  const pending = runCheckpoints.peek(id);
-  const hot = row.sop_slug === 'task-center' || pending ? null : await runStateLoad(id);
+  const pending = row.sop_slug === 'task-center' ? undefined : runCheckpoints.peek(id);
+  const hot = row.sop_slug === 'task-center' || pending ? null : await runStateLoad(id, runCacheCheckpoint(row));
   const data = JSON.stringify(pending ?? { ...storedRunData(row), ...(hot?.meta.status === 'running' ? hot.data : {}) });
   svc<SopService>('sop').runFinish(id, data);
   runCheckpoints.forget(id); // only clear after the durable finish succeeds
@@ -2886,14 +2892,19 @@ app.post('/a2a/direct', express.json({ limit: '600kb' }), async (req, res) => {
     saveNote: (runId: number, text: string): Promise<void> => runCheckpoints.serial(runId, async () => {
       const row = sopRunRow(runId);
       if (row.status !== 'running') throw new HttpError(409, 'run ' + runId + ' 已 ' + row.status + '，不可再写');
-      const prior = runCheckpoints.peek(runId);
-      const hot = prior || row.sop_slug === 'task-center' ? null : await runStateLoad(runId);
+      const prior = row.sop_slug === 'task-center' ? undefined : runCheckpoints.peek(runId);
+      const hot = prior || row.sop_slug === 'task-center' ? null : await runStateLoad(runId, runCacheCheckpoint(row));
       const data = prior ?? { ...storedRunData(row), ...(hot?.meta.status === 'running' ? hot.data : {}) };
       const notes = Array.isArray(data['a2a-notes']) ? data['a2a-notes'] as unknown[] : [];
       notes.push({ at: new Date().toISOString(), text });
       data['a2a-notes'] = notes;
-      if (row.sop_slug !== 'task-center') await runStateRestore(runId, { slug: row.sop_slug, version: row.sop_version, status: row.status, started_by: row.started_by, updated_at: Date.now() }, data);
-      runCheckpoints.remember(runId, data, true); // a delivered note keeps its existing immediate SQLite guarantee
+      if (row.sop_slug === 'task-center') {
+        svc<SopService>('sop').runUpdateData(runId, JSON.stringify(data));
+        runCheckpoints.forget(runId); // pure SQLite path must never retain a stale note snapshot
+      } else {
+        runCheckpoints.remember(runId, data, true); // delivered note requires SQLite success before cache publication
+        await runStateRestore(runId, { slug: row.sop_slug, version: row.sop_version, status: row.status, started_by: row.started_by, updated_at: Date.now() }, data, runCacheCheckpoint(sopRunRow(runId)));
+      }
     }),
     statusOf: (runId: number): { status: string; steps: number } | null => {
       const row = svc<SopService>('sop').runStatusData(runId) as { status: string; data: string } | undefined;
