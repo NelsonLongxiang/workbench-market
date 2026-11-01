@@ -69,6 +69,11 @@ try {
   await cli('POST', `/api/sop/runs/${run.id}/finish`);
   const py = spawn(PY, ['evidence/e2e_test.py'], { stdio: 'inherit', env: e2eEnv });
   code = await new Promise((r) => py.on('exit', (c) => r(c ?? 1)));
+  // #309 phase2：真实浏览器实测 Runner 读能力（localStorage cap + 「需读授权」提示）
+  if (code === 0) {
+    const capBrowser = spawn(PY, ['scripts/sop-runner-cap-browser.py'], { stdio: 'inherit', env: e2eEnv });
+    code = await new Promise((r) => capBrowser.on('exit', (c) => r(c ?? 1)));
+  }
 } catch (e) { console.error('e2e-full-run:', e.message); }
 finally { code = await cleanupOwn(server, TMP, code); }
 process.exit(code);
