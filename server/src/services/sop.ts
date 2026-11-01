@@ -35,6 +35,9 @@ export class SopService extends Service {
   runsRecent(limit: number) {
     return db.prepare('SELECT * FROM sop_runs ORDER BY id DESC LIMIT ?').all(limit).map(runMetadata);
   }
+  runCheckpointData(id: number, data: string) {
+    return db.prepare("UPDATE sop_runs SET data = ?, updated_at = datetime('now') WHERE id = ? AND status = 'running'").run(data, id);
+  }
   runUpdateData(id: number, data: string) {
     return db.prepare(`UPDATE sop_runs SET data = ?, updated_at = datetime('now') WHERE id = ?`).run(data, id);
   }

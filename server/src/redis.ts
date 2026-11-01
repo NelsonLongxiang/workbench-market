@@ -92,13 +92,14 @@ export async function runStateSave(id: number, meta: RunMeta, stepKey: string, v
 export async function runStateRestore(id: number, meta: RunMeta, data: Record<string, unknown>): Promise<boolean> {
   if (!redisHealthy() || !client) return false;
   try {
-    const c = client as unknown as { hSet: (k: string, a: string | Record<string, string>, v?: string) => Promise<unknown> };
+    const c = client as unknown as { hSet: (k: string, a: string | Record<string, string>, v?: string) => Promise<unknown>; sAdd: (k: string, m: string) => Promise<unknown> };
     await c.hSet(kMeta(id), {
       slug: meta.slug, version: String(meta.version), status: meta.status,
       started_by: meta.started_by, updated_at: String(meta.updated_at),
     });
     const entries = Object.fromEntries(Object.entries(data).map(([k, v]) => [k, JSON.stringify(v)]));
     if (Object.keys(entries).length > 0) await c.hSet(kData(id), entries);
+    if (meta.status === 'running') await c.sAdd(kActive, String(id));
     return true;
   } catch {
     return false;
