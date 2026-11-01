@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict';import{DatabaseSync}from'node:sqlite';import{readFileSync}from'node:fs';import{createHash}from'node:crypto';
+import{createSopRunAccess}from'../server/src/sop-run-access.ts';
+const db=new DatabaseSync(':memory:');db.exec("CREATE TABLE sop_runs(id INTEGER PRIMARY KEY,sop_slug TEXT,sop_version INTEGER,status TEXT,data TEXT);CREATE TABLE apps(id INTEGER,slug TEXT,kind TEXT,status TEXT);CREATE TABLE app_versions(app_id INTEGER,version INTEGER);CREATE TABLE workbenches(id INTEGER,url TEXT,enabled INTEGER);INSERT INTO apps VALUES(1,'inspection-sop','sop','published');INSERT INTO app_versions VALUES(1,3);INSERT INTO workbenches VALUES(4,'/sop/inspection-sop/',1)");
+const initial=JSON.stringify({inspect:{note:'old',count:4,ok:true,tags:['a']},release:{private_note:'OTHER_STEP'}});db.prepare('INSERT INTO sop_runs VALUES(12,?,?,?,?)').run('inspection-sop',3,'running',initial);
+let yaml=readFileSync(new URL('./fixtures/sop-readonly/typed-v3.yaml',import.meta.url),'utf8').replaceAll('operations: [read]','operations: [read, save]'),at=1000,subject='alpha';
+const oldOrigin=process.env.WM_ODOO_ORIGINS;process.env.WM_ODOO_ORIGINS='http://odoo.synthetic.invalid';
+const cookie='session_id=syntheticAlpha00000001',scope={runId:12,targetId:4,step:'inspect'};
+const access=createSopRunAccess({db,odooOrigin:'http://odoo.synthetic.invalid',marketOrigin:'http://market.synthetic.invalid',frozenYaml:()=>yaml,now:()=>at,viewer:async()=>({ok:true,viewer:{sub:'user:'+subject,uid:subject==='alpha'?1:2,login:subject,name:null}})});
+const bind=()=>access.bindTrustedRun({runId:12,targetId:4,ownerSubject:'user:alpha:1',manifestSha256:createHash('sha256').update(yaml).digest('hex')});bind();
+let checks=0;const check=async(n,f)=>{await f();checks++;console.log('PASS '+n)},data=()=>db.prepare('SELECT data FROM sop_runs WHERE id=12').get().data,revision=()=>db.prepare('SELECT revision FROM sop_run_revisions WHERE run_id=12').get().revision;
+const save=(cap,patch={},s=scope)=>access.save(cookie,cap,s,{version:3,expected_revision:revision(),values:{note:'new'},...patch});
+const reject=async(fn,status)=>{const before=[data(),revision()];await assert.rejects(fn,e=>e.status===status);assert.deepEqual([data(),revision()],before)};
+try{
+ await check('readonly capability never grants save',async()=>{const readonlyYaml=yaml.replaceAll('[read, save]','[read]');const original=yaml;yaml=readonlyYaml;bind();const cap=await access.open(cookie,scope);await reject(()=>save(cap.capability),403);yaml=original;bind()});
+ const cap=(await access.openEditable(cookie,scope)).capability;
+ await check('typed field save increments revision and preserves other fields/steps',async()=>{const result=await save(cap);assert.equal(result.revision,1);assert.equal(JSON.parse(data()).inspect.count,4);assert.equal(JSON.parse(data()).release.private_note,'OTHER_STEP')});
+ await check('stale expected revision rejects without overwrite',()=>reject(()=>save(cap,{expected_revision:0}),409));
+ for(const values of [{note:42},{unknown:'x'},{tags:['other']},{count:'4'},{ok:'yes'},{note:'x'.repeat(101)}])await check('invalid values rejected '+JSON.stringify(values).slice(0,30),()=>reject(()=>save(cap,{values}),422));
+ for(const s of [{...scope,step:'release'},{...scope,runId:13},{...scope,targetId:5}])await check('write scope cannot cross '+JSON.stringify(s),()=>reject(()=>save(cap,{},s),403));
+ await check('wrong version rejected',()=>reject(()=>save(cap,{version:4}),403));
+ await check('finished run cannot save',async()=>{db.exec("UPDATE sop_runs SET status='finished' WHERE id=12");await reject(()=>save(cap),403);db.exec("UPDATE sop_runs SET status='running' WHERE id=12")});
+ await check('legacy writer change detected by raw-data digest',async()=>{db.prepare('UPDATE sop_runs SET data=? WHERE id=12').run(JSON.stringify({inspect:{note:'legacy'}}));await reject(()=>save(cap),409);db.prepare('UPDATE sop_runs SET data=? WHERE id=12').run(JSON.stringify({inspect:{note:'new',count:4,ok:true,tags:['a']},release:{private_note:'OTHER_STEP'}}))});
+ await check('fresh identity has no run access',async()=>{subject='beta';await reject(()=>save(cap),403);subject='alpha'});
+ const renewed=(await access.openEditable(cookie,scope)).capability;
+ await check('ACL revoke stops write',async()=>{access.revokeRun(12);await reject(()=>save(renewed),403);bind()});
+ const expiry=(await access.openEditable(cookie,scope)).capability;
+ await check('expired write capability denied',async()=>{at+=300000;await reject(()=>save(expiry),403)});
+ const current=(await access.openEditable(cookie,scope)).capability;
+ await check('transaction rollback restores revision and data on data update failure',async()=>{db.exec("CREATE TRIGGER fail_data BEFORE UPDATE ON sop_runs BEGIN SELECT RAISE(ABORT,'synthetic fault');END");await assert.rejects(()=>save(current));assert.equal(revision(),1);assert.equal(JSON.parse(data()).inspect.note,'new');db.exec('DROP TRIGGER fail_data')});
+ await check('valid write after rollback succeeds',async()=>assert.equal((await save(current,{values:{note:'after'}})).revision,2));
+ await check('two writers same expected revision: one commit one conflict',async()=>{const c1=(await access.openEditable(cookie,scope)).capability,c2=(await access.openEditable(cookie,scope)).capability,rev=revision();assert.equal((await save(c1,{expected_revision:rev,values:{note:'first'}})).revision,rev+1);await reject(()=>save(c2,{expected_revision:rev,values:{note:'second'}}),409)});
+ console.log(JSON.stringify({checks,scope:'unmounted explicit save service; SQLite transactions; synthetic viewer; zero TCP and production'}));
+}finally{db.close();if(oldOrigin===undefined)delete process.env.WM_ODOO_ORIGINS;else process.env.WM_ODOO_ORIGINS=oldOrigin}
