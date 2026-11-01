@@ -99,6 +99,8 @@ jobs:
         run: pnpm --filter web typecheck
       - name: server 语法核（esbuild）
         run: node scripts/check-server-syntax.mjs
+      - name: SOP checkpoint deadlines and active-list completeness (#337, #338; synthetic only)
+        run: node scripts/sop-state-checkpoints-test.mjs && node scripts/sop-state-http-test.mjs && node scripts/sop-state-restart-test.mjs
       - name: SOP list privacy and upload-token rotation (#309, synthetic only)
         run: node scripts/sop-list-privacy-test.mjs && node scripts/sop-query-token-test.mjs && node scripts/sop-upload-token-rotation-test.mjs && node scripts/sop-list-privacy-http-test.mjs && node scripts/sop-run-read-auth-test.mjs
       - name: Verifier criterion65 portal call-chain mutations (synthetic snapshot only)

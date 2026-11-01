@@ -159,11 +159,11 @@ function idemClaim(taskId: string, fp: string): 'fresh' | 'replay' | 'conflict' 
  * ⑤ 响应 TASK_STATE_DELIVERED 形状（对齐上游 wait:false 异步语义）
  * DSH 侧那半绑定（canvas 远端成员）是主人操作前置——修订 1 如实口径。
  */
-export function a2aDirectHandle(body: any, rawBytes: number, runOps: {
+export async function a2aDirectHandle(body: any, rawBytes: number, runOps: {
   uploadToken?: (id: number) => string;
   /** #309 phase2：start 现返回 {id, read_capability}——创建即得 run 级读能力（明文仅此一次） */
   start: (slug: string, startedBy: string) => { id: number; read_capability: string };
-  saveNote: (runId: number, text: string) => void;
+  saveNote: (runId: number, text: string) => void | Promise<void>;
   statusOf: (runId: number) => { status: string; steps: number } | null;
   ctxBind: (contextId: string) => number | null; // context → runId（已绑定）
   ctxRegister: (contextId: string, runId: number) => void;
@@ -173,7 +173,7 @@ export function a2aDirectHandle(body: any, rawBytes: number, runOps: {
   bindingCallback?: (slug: string, caller: string) => string;
   /** P3：把绑定上的 callback_url 落到 ctx（供 finish 时构造 outbox） */
   ctxAttachCallback?: (runId: number, callbackUrl: string) => void;
-}): A2aDirectResult {
+}): Promise<A2aDirectResult> {
   const team = typeof body?.team === 'string' ? body.team : '';
   const message = typeof body?.message === 'string' ? body.message : '';
   const caller = typeof body?.caller_session === 'string' ? body.caller_session : '';
@@ -249,7 +249,7 @@ export function a2aDirectHandle(body: any, rawBytes: number, runOps: {
   } else if (runId === null) {
     return { httpStatus: 200, body: { error: 'no run bound to this context_id (send a start first)', code: -32000, team, task_id: taskId, task_status: 'TASK_STATE_FAILED' } };
   } else if (action === 'note') {
-    runOps.saveNote(runId, noteText || '(empty note)');
+    await runOps.saveNote(runId, noteText || '(empty note)');
   }
   const st = runOps.statusOf(runId);
   return {

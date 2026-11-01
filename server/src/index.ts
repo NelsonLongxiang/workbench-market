@@ -28,7 +28,8 @@ import { HttpError } from './errors.ts';
 import { designStandard } from './design-standard.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
-import { startRedis, redisHealthy, runStateSave, runStateRestore, runStateLoad, runStateRetire, runActiveIds } from './redis.ts';
+import { startRedis, redisHealthy, runStateRestore, runStateLoad, runStateRetire } from './redis.ts';
+import { createRunCheckpoints } from './sop-state-checkpoints.ts';
 import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, a2aSendOutbound, formatA2aReceipt, MARKET_TEAM } from './a2a.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -1418,8 +1419,16 @@ app.get(/^\/sop\/[a-z0-9][a-z0-9-]*(\/.*)?$/, (req, res) => {
 // ---------- SOP run API：分层治理（Redis 热态 + SQLite 真源）----------
 // core 函数为唯一持久化链：REST 与 MCP（sop_run_* 工具）共用——agent 更新持久化执行数据
 // 与人在 Runner 页填数据走同一条链（GH #17 P4 的执行数据面提前交付，不经版本发布）。
-const checkpointAt = new Map<number, number>(); // runId → last checkpoint ms（进程内）
-const CHECKPOINT_MS = 30_000;
+const runCheckpoints = createRunCheckpoints({
+  write(id, data) { svc<SopService>('sop').runCheckpointData(id, data); },
+});
+function runCacheCheckpoint(row: SopRunRow): string {
+  // Namespace + durable revision prevent cache collisions, partial writes and same-value ABA resurrection.
+  return createHash('sha256').update(JSON.stringify([dataDir, row.id, row.sop_slug, row.sop_version, row.started_at, row.cache_revision, row.status, row.data])).digest('hex');
+}
+function storedRunData(row: SopRunRow): Record<string, unknown> {
+  try { const data = JSON.parse(row.data || '{}'); return data && typeof data === 'object' && !Array.isArray(data) ? data : {}; } catch { return {}; }
+}
 
 function sopRunRow(id: number): SopRunRow {
   const r = svc<SopService>('sop').runById(id) as unknown as SopRunRow | undefined;
@@ -1447,7 +1456,7 @@ function sopRunStartCore(slugRaw: string, startedByRaw: string): { id: number; s
   // P0：run-scoped 上传令牌（启动签发·Runner 页内嵌·files POST 必带）
   const uploadToken = randomBytes(32).toString('hex');
   try { db.prepare('UPDATE sop_runs SET upload_token = ? WHERE id = ?').run(uploadToken, id); } catch { /* 列缺=降级 */ }
-  if (slug !== 'task-center') void runStateRestore(id, { slug, version: hit.app.active_version, status: 'running', started_by, updated_at: Date.now() }, {}); // Redis 初始化热态（降级态静默跳过）
+  // Lazy Redis initialization under the per-run queue avoids racing a new save or finish.
   // #309 phase2：创建即得 run 级读能力（明文仅此一次；库内只存摘要）
   const readCapability = issueRunReadCap(id);
   return { id, slug, version: hit.app.active_version, status: 'running', started_by, data: {}, upload_token: uploadToken, read_capability: readCapability }; // 创建者即得上传令牌与读能力
@@ -1458,27 +1467,23 @@ async function sopRunStepSaveCore(id: number, stepKeyRaw: string, value: unknown
   const stepKey = stepKeyRaw.trim();
   if (!stepKey) bad('stepKey 必填');
   if (!/^[\w-]+$/.test(stepKey)) bad('stepKey 仅允许字母/数字/_/-');
-  const row = sopRunRow(id);
-  if (row.status !== 'running') throw new HttpError(409, `run ${id} 已 ${row.status}，不可再写`);
-
-  if (row.sop_slug === 'task-center') {
-    svc<SopService>('sop').runUpdateData(id, mergeRunData(row, stepKey, value ?? null));
-    return { ok: true, id, stepKey, persisted: 'sqlite' }; // synchronous intake freeze truth source
-  }
-  const hotOk = await runStateSave(id, { slug: row.sop_slug, version: row.sop_version, status: 'running', started_by: row.started_by, updated_at: Date.now() }, stepKey, value ?? null);
-  const now = Date.now();
-  const last = checkpointAt.get(id) ?? 0;
-  if (!hotOk || now - last >= CHECKPOINT_MS) {
-    // 降级直写 / 30s checkpoint：热数据整体沉淀 SQLite（真源）
-    let source = mergeRunData(row, stepKey, value ?? null);
-    if (hotOk) {
-      const hot = await runStateLoad(id);
-      if (hot) source = JSON.stringify(hot.data);
+  return runCheckpoints.serial(id, async () => {
+    const row = sopRunRow(id);
+    if (row.status !== 'running') throw new HttpError(409, 'run ' + id + ' 已 ' + row.status + '，不可再写');
+    if (row.sop_slug === 'task-center') {
+      svc<SopService>('sop').runUpdateData(id, mergeRunData(row, stepKey, value ?? null));
+      return { ok: true, id, stepKey, persisted: 'sqlite' };
     }
-    svc<SopService>('sop').runUpdateData(id, source);
-    checkpointAt.set(id, now);
-  }
-  return { ok: true, id, stepKey, persisted: hotOk ? 'redis+checkpoint' : 'sqlite' };
+    const prior = runCheckpoints.peek(id);
+    const hot = prior ? null : await runStateLoad(id, runCacheCheckpoint(row));
+    const data = prior ?? { ...storedRunData(row), ...(hot?.meta.status === 'running' ? hot.data : {}) };
+    data[stepKey] = value ?? null;
+    // Repopulate all known fields after a Redis loss; a partial HSET must not erase the durable baseline.
+    const hotOk = await runCheckpoints.save(id, data, () =>
+      runStateRestore(id, { slug: row.sop_slug, version: row.sop_version, status: 'running', started_by: row.started_by, updated_at: Date.now() }, data, runCacheCheckpoint(sopRunRow(id))));
+    // A successful fallback bumps SQLite generation; any surviving OLD Redis payload now misses.
+    return { ok: true, id, stepKey, persisted: hotOk ? 'redis+checkpoint' : 'sqlite' };
+  });
 }
 
 /** 读 run（热读优先，miss 回 SQLite 真源并回填热态） */
@@ -1494,18 +1499,18 @@ function receiptStatusOf(runId: number): string {
 }
 
 async function sopRunGetCore(id: number): Promise<{ id: number; sop_slug: string; sop_version: number; status: string; started_by: string; data: Record<string, unknown>; receipt: string }> {
-  const receipt = receiptStatusOf(id);
-  const intake = sopRunRow(id);
-  if (intake.sop_slug === 'task-center') return { id, sop_slug: intake.sop_slug, sop_version: intake.sop_version, status: intake.status, started_by: intake.started_by, data: JSON.parse(intake.data), receipt };
-  const hot = await runStateLoad(id);
-  if (hot) return { id, sop_slug: hot.meta.slug, sop_version: hot.meta.version, status: hot.meta.status, started_by: hot.meta.started_by, data: hot.data, receipt };
-  const row = sopRunRow(id);
-  let data: Record<string, unknown> = {};
-  try { data = JSON.parse(row.data || '{}'); } catch { data = {}; }
-  if (row.status === 'running' && redisHealthy()) {
-    void runStateRestore(id, { slug: row.sop_slug, version: row.sop_version, status: row.status, started_by: row.started_by, updated_at: Date.now() }, data); // 回填热态
-  }
-  return { id: row.id, sop_slug: row.sop_slug, sop_version: row.sop_version, status: row.status, started_by: row.started_by, data, receipt };
+  return runCheckpoints.serial(id, async () => {
+    const row = sopRunRow(id);
+    let data = storedRunData(row);
+    if (row.status === 'running' && row.sop_slug !== 'task-center') {
+      const pending = runCheckpoints.peek(id);
+      const hot = pending ? null : await runStateLoad(id, runCacheCheckpoint(row));
+      data = pending ?? { ...data, ...(hot?.meta.status === 'running' ? hot.data : {}) };
+      if (hot?.meta.status === 'running') runCheckpoints.remember(id, data); // recovered acknowledged hot state must not stay uncheckpointed after restart
+      if (redisHealthy() && !hot) await runStateRestore(id, { slug: row.sop_slug, version: row.sop_version, status: row.status, started_by: row.started_by, updated_at: Date.now() }, data, runCacheCheckpoint(row));
+    }
+    return { id: row.id, sop_slug: row.sop_slug, sop_version: row.sop_version, status: row.status, started_by: row.started_by, data, receipt: receiptStatusOf(id) };
+  });
 }
 
 /** #309 phase2：未授权单 run 响应——显式元数据白名单，不含私有 data（缺归属即拒私有值）。 */
@@ -1522,14 +1527,17 @@ function runReadCapHeader(req: express.Request): string | undefined {
 
 /** 归档（热态全量沉淀 SQLite；Redis 条目 1h 平滑淘汰） */
 async function sopRunFinishCore(id: number): Promise<{ ok: boolean; id: number; status: string; steps: number }> {
+  return runCheckpoints.serial(id, () => sopRunFinishLockedCore(id));
+}
+async function sopRunFinishLockedCore(id: number): Promise<{ ok: boolean; id: number; status: string; steps: number }> {
   const row = sopRunRow(id);
   if (row.status !== 'running') throw new HttpError(409, `run ${id} 已 ${row.status}`);
-  let data = row.data || '{}';
-  const hot = row.sop_slug === 'task-center' ? null : await runStateLoad(id);
-  if (hot && Object.keys(hot.data).length > 0) data = JSON.stringify(hot.data);
+  const pending = row.sop_slug === 'task-center' ? undefined : runCheckpoints.peek(id);
+  const hot = row.sop_slug === 'task-center' || pending ? null : await runStateLoad(id, runCacheCheckpoint(row));
+  const data = JSON.stringify(pending ?? { ...storedRunData(row), ...(hot?.meta.status === 'running' ? hot.data : {}) });
   svc<SopService>('sop').runFinish(id, data);
-  await runStateRetire(id); // 退出活跃索引 + Redis 条目 1h 平滑淘汰
-  checkpointAt.delete(id);
+  runCheckpoints.forget(id); // only clear after the durable finish succeeds
+  await runStateRetire(id); // best-effort cache retirement; SQLite status remains authoritative
   let parsed: Record<string, unknown> = {};
   try { parsed = JSON.parse(data); } catch { parsed = {}; }
   // P3 回执（network/a2a-receipt）：派单来源 + 有效 callback_url → 入 outbox（run_id 唯一幂等）
@@ -1779,12 +1787,8 @@ app.post('/api/sop/runs', (req, res) => {
 });
 
 app.get('/api/sop/runs/active', wrap(async (_req, res) => {
-  // 快路径：Redis 活跃索引；降级态回落 SQLite
-  const ids = await runActiveIds();
-  if (ids.length > 0) {
-    const rows = ids.map((id) => svc<SopService>('sop').runByIdRunning(id) as unknown as SopRunRow | undefined).filter(Boolean) as SopRunRow[];
-    return res.json(rows);
-  }
+  // #338: a nonempty Redis set is not proof that it contains every running row.
+  // SQLite creates/status-transitions every run, including unsaved and task-center runs.
   const rows = svc<SopService>('sop').runsRunning() as unknown as SopRunRow[];
   res.json(rows);
 }));
@@ -2879,22 +2883,29 @@ app.all('/api/apps/:slug/bindings/:id', (req, res) => {
 // /a2a/direct（P2）：准入开放——有效绑定 + 同 context 续 run + 上游幂等族 + 512KiB + DELIVERED 形状。
 // 查无 SOP 仍 404 不泄露；无绑定/draft/mode 不足 → 200 TASK_STATE_FAILED -32000（对齐上游 admission 形状）。
 // ADMIN_TOKEN 未设置时绑定面休眠（主人裁定：内网信任模型）——direct 对无绑定的 SOP 自然全拒。
-app.post('/a2a/direct', express.json({ limit: '600kb' }), (req, res) => {
+app.post('/a2a/direct', express.json({ limit: '600kb' }), async (req, res) => {
   const rawBytes = Number(req.headers['content-length'] ?? 0) || JSON.stringify(req.body ?? {}).length;
   // run 操作桥（P2 note 写入走 sop_runs 的哑数据面：step_key=note-<ts> 追加不覆盖）
   const runOps = {
     start: (slug: string, startedBy: string): { id: number; read_capability: string } => { const r = sopRunStartCore(slug, startedBy); return { id: r.id, read_capability: r.read_capability }; },
     uploadToken: (id: number): string => String((db.prepare('SELECT upload_token FROM sop_runs WHERE id = ?').get(id) as { upload_token?: string } | undefined)?.upload_token ?? ''), // P0：派单回执带令牌（创建者即得）
-    saveNote: (runId: number, text: string): void => {
+    saveNote: (runId: number, text: string): Promise<void> => runCheckpoints.serial(runId, async () => {
       const row = sopRunRow(runId);
-      if (row.status !== 'running') throw new HttpError(409, `run ${runId} 已 ${row.status}，不可再写`);
-      let data: Record<string, unknown> = {};
-      try { data = JSON.parse(row.data || '{}'); } catch { data = {}; }
-      const notes = Array.isArray(data['a2a-notes']) ? (data['a2a-notes'] as unknown[]) : [];
+      if (row.status !== 'running') throw new HttpError(409, 'run ' + runId + ' 已 ' + row.status + '，不可再写');
+      const prior = row.sop_slug === 'task-center' ? undefined : runCheckpoints.peek(runId);
+      const hot = prior || row.sop_slug === 'task-center' ? null : await runStateLoad(runId, runCacheCheckpoint(row));
+      const data = prior ?? { ...storedRunData(row), ...(hot?.meta.status === 'running' ? hot.data : {}) };
+      const notes = Array.isArray(data['a2a-notes']) ? data['a2a-notes'] as unknown[] : [];
       notes.push({ at: new Date().toISOString(), text });
       data['a2a-notes'] = notes;
-      svc<SopService>('sop').runUpdateData(runId, JSON.stringify(data));
-    },
+      if (row.sop_slug === 'task-center') {
+        svc<SopService>('sop').runUpdateData(runId, JSON.stringify(data));
+        runCheckpoints.forget(runId); // pure SQLite path must never retain a stale note snapshot
+      } else {
+        runCheckpoints.remember(runId, data, true); // delivered note requires SQLite success before cache publication
+        await runStateRestore(runId, { slug: row.sop_slug, version: row.sop_version, status: row.status, started_by: row.started_by, updated_at: Date.now() }, data, runCacheCheckpoint(sopRunRow(runId)));
+      }
+    }),
     statusOf: (runId: number): { status: string; steps: number } | null => {
       const row = svc<SopService>('sop').runStatusData(runId) as { status: string; data: string } | undefined;
       if (!row) return null;
@@ -2921,7 +2932,7 @@ app.post('/a2a/direct', express.json({ limit: '600kb' }), (req, res) => {
     },
   };
   try {
-    const out = a2aDirectHandle(req.body, rawBytes, runOps);
+    const out = await a2aDirectHandle(req.body, rawBytes, runOps);
     res.status(out.httpStatus).json(out.body);
   } catch (e: any) {
     res.status(200).json({ error: `direct handler failed: ${String(e?.message ?? e)}`, code: -32000, task_status: 'TASK_STATE_FAILED' });
@@ -3666,15 +3677,24 @@ if (SURFACE_PORTS.control) registerSurface(app, 'control', SURFACE_PORTS.control
 if (contentCfg && contentRuntime) listenContentSurface(app, contentCfg, contentRuntime);
 
 // P1-3（#147）：优雅关闭——停巡检→WAL checkpoint(db.close)→server.close（容器 stop 不丢写）
-function shutdown(sig: string): void {
-  console.log(`[shutdown] ${sig} received——停止接受新请求`);
-  try { if (timer) clearTimeout(timer); } catch { /* 未启动 */ }
-  for (const srv of allSurfaceServers()) if (srv !== goServer) srv.close();
-  goServer.close(() => {
-    try { db.close(); } catch { /* 已关 */ }
+let shuttingDown = false;
+async function shutdown(sig: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log('[shutdown] ' + sig + ' received——停止接受新请求');
+  if (timer) clearTimeout(timer);
+  const deadline = setTimeout(() => { console.error('[shutdown] checkpoint_or_request_drain_timeout'); process.exit(1); }, 8000);
+  deadline.unref?.();
+  try {
+    await Promise.all(allSurfaceServers().map(srv => new Promise<void>(resolve => { srv.close(() => resolve()); })));
+    await runCheckpoints.close();
+    db.close();
+    clearTimeout(deadline);
     process.exit(0);
-  });
-  setTimeout(() => process.exit(0), 8000).unref?.(); // 兜底强退
+  } catch {
+    console.error('[shutdown] sqlite_checkpoint_failed');
+    process.exit(1);
+  }
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
