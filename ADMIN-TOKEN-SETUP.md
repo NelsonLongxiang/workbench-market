@@ -15,7 +15,7 @@
 2. **设入机器级环境**（所有后续进程继承）：
    ```cmd
    setx ADMIN_TOKEN "<你生成的值>" /M
-   setx MCP_GATEWAY "on" /M   （可选——不设则网关保持 off，仅控制面生效）
+   setx MCP_GATEWAY "on" /M   （可选——#284 起不设也是开；只有显式 off 才关并启动告警，生产勿设 off；OFF/false/0 等其它写法拒绝启动）
    ```
 
 3. **重启 9800 服务**（新进程才继承新 env）：
@@ -39,7 +39,7 @@
 | 守护脚本 `tmp/guard-9800.cmd` | 监督席领地 | 建议：node 启动行前加 `if defined ADMIN_TOKEN set "GWT=%ADMIN_TOKEN%"`（同模式）——请监督席同步 |
 | managed job（监督席） | 监督席领地 | 同上——监督席确认其 job 启动环境从进程 env 继承 |
 
-## DSH 连接器升级（MCP_GATEWAY=on 后）
+## DSH 连接器升级（网关开启后·#284 起升级即缺省开）
 
 1. 市场管理页 `/mcp-gateways` → 建会话（token 只显示一次，立即复制）
 2. grants 编辑器勾选授权工具

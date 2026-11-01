@@ -105,6 +105,8 @@ jobs:
         run: node scripts/r3-url-allowlist-smoke.mjs
       - name: 导入导出（独立实例：replace 语义·内部路径行·掩码整批拒）
         run: node scripts/import-smoke.mjs
+      - name: MCP 网关缺省开（#284·未设/空/on 匿名 401·off 告警·坏值拒启）
+        run: node scripts/gateway-default-smoke.mjs && node scripts/gateway-smoke.mjs
       - name: F5 env-face 判定回归（不启动 Docker）
         run: node scripts/security-env-face-test.mjs
       - name: 生命周期签发入口单测（req 哈希金向量·断言结构·私钥门）
