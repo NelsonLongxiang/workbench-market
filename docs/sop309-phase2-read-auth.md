@@ -37,6 +37,17 @@
 - POST /api/sop/runs/:id/read-caps（重签，明文仅此一次）
 - POST /api/sop/runs/:id/read-caps/revoke {all:true}
 
+## 旧 run 迁移（维护窗口离线播种，不让 agent 拿 admin 口令）
+
+- `scripts/sop-run-read-grant-seed.mjs`：默认 dry-run（只读，输出 plan 摘要）；`--apply` 需 `--expected-plan` 绑定 + `--ack-maintenance-window`。
+- 范围：`--runs 1,2` 或 `--runs-from-a2a`（取 a2a_run_ctx 去重）；主体 `--subject mcp:<会话名>` / `user:<登录名>`；期限 `--ttl-days`（默认 30）。
+- 只增 `sop_run_read_grants` 行，`granted_by='maintenance-seed'` 便于审计与回滚（置 `revoked_at`）；不打印任何密钥。
+- 其余旧 run 一律拒私有值；上线后补授权由属主本人在管理面做（PUT /api/sop/runs/<id>/read-grants、POST …/read-caps）。
+
+## 浏览器实测（监督席自留边界补齐）
+
+`scripts/sop-runner-cap-browser.py`（Playwright，已挂进 `scripts/e2e-full-run.mjs`）：新 run 的 cap 落入 localStorage `wm.sop.run.<slug>.rcap`；无 cap 旧 run 显示「需读授权」且不渲染私有值；注入 cap 后正常渲染。MCP 会话 grant 的正/过期/撤销与 cap 撤销后工具面亦已补断言。
+
 ## 明确残余与后续
 
 - **可信读面未建**：市场源仍承载 SOP 用户 HTML/自产台/go 代理，同源脚本可携环境 Cookie 或读本机 localStorage cap——本段的 cap+会话门挡匿名网络读，不挡被攻陷同源内容。人的私有阅读最终应迁至不承载不可信内容的只读壳（与 #296/#308 的隔离通道衔接），另行设计；在此之前这是已知限制而非已解决。
