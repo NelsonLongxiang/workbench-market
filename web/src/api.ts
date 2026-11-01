@@ -1,4 +1,4 @@
-import type { Cockpit, ExportPayload, PanelConfig, SopApp, SopRun, Summary, Workbench, WorkbenchDraft, WorkbenchType } from './types';
+import type { Cockpit, ExportPayload, PanelConfig, SopApp, SopDefinition, SopRun, SopRunDetail, SopRunFile, Summary, Workbench, WorkbenchDraft, WorkbenchType } from './types';
 import { getAdminToken } from './admin-token';
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
@@ -64,10 +64,27 @@ export const api = {
   deprecateSop: (slug: string) => req<SopApp>(`/api/sops/${slug}/deprecate`, { method: 'POST', body: '{}' }),
   listSopRuns: (params: Record<string, string> = {}) =>
     req<SopRun[]>(`/api/sop/runs?${new URLSearchParams(params)}`),
-  getSopRun: (id: number) => req<SopRun & { data: Record<string, unknown> }>(`/api/sop/runs/${id}`),
+  getSopRun: (id: number) => req<SopRunDetail>(`/api/sop/runs/${id}`),
+  getSopDefinition: (slug: string, version?: number) =>
+    req<SopDefinition>(`/api/sops/${slug}/definition${version ? `?version=${version}` : ''}`),
+  /** 单 run 附件：服务端判读授权，未授权 403（needAdminToken 标记不代表要口令，调用方按「需读授权」处理） */
+  listSopRunFiles: (id: number) => req<{ run_id: number; items: SopRunFile[]; count: number }>(`/api/sop/runs/${id}/files`),
   listActiveSopRuns: () => req<SopRun[]>('/api/sop/runs/active'),
 };
 
 export function typeLabel(types: WorkbenchType[], key: string): WorkbenchType | undefined {
   return types.find((t) => t.key === key);
+}
+
+/** 下载需要鉴权的文件：fetch 带上口令头（控制面）与同源 cookie（业务面的读授权会话），再交给浏览器保存。
+ *  普通 <a href> 不带 X-Admin-Token，控制面上会 403。 */
+export async function downloadAuthed(url: string, filename: string): Promise<void> {
+  const token = getAdminToken();
+  const res = await fetch(url, { headers: token ? { 'X-Admin-Token': token } : {} });
+  if (!res.ok) throw new Error(res.status === 403 ? '没有读授权' : `HTTP ${res.status}`);
+  const href = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = href; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 1000);
 }
