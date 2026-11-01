@@ -7,7 +7,45 @@ import urllib.error
 import urllib.request
 
 import os
-BASE = os.environ.get('SEED_BASE', 'http://127.0.0.1:9800')  # 隔离实例（e2e-full-run）用 SEED_BASE 指过去
+import argparse
+import re
+from urllib.parse import urlsplit
+
+# Validate before constructing an opener or sending any HTTP request.
+parser = argparse.ArgumentParser(description='Publish demo SOP to an explicitly selected target', allow_abbrev=False)
+parser.add_argument('--target-mode', required=True, choices=('isolated', 'production'))
+parser.add_argument('--ack-production-target', action='store_true')
+seen_options = set()
+for token in sys.argv[1:]:
+    option = token.split('=', 1)[0]
+    if option in ('--target-mode', '--ack-production-target'):
+        if option in seen_options:
+            parser.error('duplicate target option: ' + option)
+        seen_options.add(option)
+args = parser.parse_args()
+raw = os.environ.get('SEED_BASE', '')
+match = re.fullmatch(r'(https?)://(\[[0-9A-Fa-f:]+\]|[A-Za-z0-9.-]+):([0-9]{1,5})/?', raw)
+if not match:
+    parser.error('SEED_BASE must be an explicit http(s) origin with port; no credentials/path/query/fragment')
+try:
+    target = urlsplit(raw)
+    port = target.port
+    if not port or port > 65535:
+        raise ValueError('invalid port')
+except ValueError:
+    parser.error('invalid target origin')
+if args.target_mode == 'isolated':
+    if match.group(2).lower() not in ('127.0.0.1', 'localhost', '[::1]') or port in (3080, 9800, 9801):
+        parser.error('isolated target must use canonical loopback and a non-production port')
+elif not args.ack_production_target:
+    parser.error('production target requires --ack-production-target; this flag is not owner authorization')
+BASE = raw.rstrip('/')
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+opener = urllib.request.build_opener(NoRedirect(), urllib.request.ProxyHandler({}))
 sop_yaml = """title: 服务器上架标准流程（演示）
 code: SOP-DEMO-001
 description: 演示用 SOP：开箱检查 → 上架固定 → 通电自检，展示 Runner 执行与分层持久化
@@ -39,9 +77,11 @@ def call(method: str, path: str, body=None):
         data=json.dumps(body).encode() if body is not None else None,
         headers={'Content-Type': 'application/json'})
     try:
-        with urllib.request.urlopen(req, timeout=10) as r:
+        with opener.open(req, timeout=10) as r:
             return r.status, json.loads(r.read().decode() or '{}')
     except urllib.error.HTTPError as e:
+        if 300 <= e.code < 400:
+            raise RuntimeError('target_redirect_refused') from None
         return e.code, json.loads(e.read().decode() or '{}')
 
 
