@@ -21,7 +21,7 @@ db.prepare('INSERT INTO sop_run_files(id,run_id,original_name,mime,size,storage_
 db.prepare('INSERT INTO sop_runs(id,sop_slug,sop_version,status,data) VALUES(?,?,?,?,?)').run(14,'task-center',1,'finished',JSON.stringify({title:{value:'SYNTHETIC_TITLE'},intent:{value:'SYNTHETIC_PRIVATE_INTENT'},deliverable:{value:'SYNTHETIC_DELIVERABLE'},target:{value:'audit-sop'},due:{value:''}}));
 try{tcMod.initializeTaskCenter(join(data,'apps'));tcMod.publishTaskIntake({intake_run_id:14,published_by:'synthetic-role'});}catch(e){assert.fail('task-center seed failed: '+e.message);}
 const token='a'.repeat(64),sha=createHash('sha256').update(token).digest('hex');
-db.prepare('INSERT INTO mcp_sessions(name,token_sha256,grants) VALUES(?,?,?)').run('synthetic-reader',sha,'["sop_run_get"]');
+db.prepare('INSERT INTO mcp_sessions(name,token_sha256,grants) VALUES(?,?,?)').run('synthetic-reader',sha,'["sop_run_get","sop_run_start"]');
 db.close();
 const pre='import net from "node:net";const native=net.Server.prototype.listen;net.Server.prototype.listen=function(...a){if(typeof a[0]==="number"&&typeof a[1]!=="string")a.splice(1,0,"127.0.0.1");return native.apply(this,a)};';
 const child=spawn(process.execPath,['--import','data:text/javascript,'+encodeURIComponent(pre),'server/src/index.ts'],{cwd:source,env,stdio:['ignore','pipe','pipe']}),exited=once(child,'exit');
@@ -66,6 +66,15 @@ check('reissued cap unlocks old run data',reRead.data?.inspect?.note==='SYNTHETI
 // MCP arg-cap machine migration path (before revocation)
 const mcpCap=await(await fetch(base+'/mcp',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'sop_run_get',arguments:{run_id:12,read_capability:re.read_capability}}})})).json();
 check('MCP arg cap path yields full data',JSON.stringify(mcpCap).includes('SYNTHETIC_OTHER_STEP'));
+// tools/list 声明核验：schema 必须声明 read_capability（否则 MCP 客户端按 additionalProperties:false 剥参）
+const tl=await(await fetch(base+'/mcp',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({jsonrpc:'2.0',id:3,method:'tools/list',params:{}})})).json();
+const getDecl=tl.result?.tools?.find((t)=>t.name==='sop_run_get');
+check('tools/list declares sop_run_get read_capability',!!getDecl&&!!getDecl.inputSchema?.properties?.read_capability&&getDecl.inputSchema.additionalProperties===false);
+// 完整 MCP 机器往返：sop_run_start 返回 read_capability → sop_run_get 带它读全量
+const startJ=await(await fetch(base+'/mcp',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({jsonrpc:'2.0',id:4,method:'tools/call',params:{name:'sop_run_start',arguments:{slug:'audit-sop',started_by:'synthetic-mcp'}}})})).json();
+const startTxt=startJ.result?.content?.[0]?.text??'';const startObj=JSON.parse(startTxt);check('MCP sop_run_start issues read_capability',typeof startObj.read_capability==='string'&&startObj.read_capability.length>=64);
+const rt=await(await fetch(base+'/mcp',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({jsonrpc:'2.0',id:5,method:'tools/call',params:{name:'sop_run_get',arguments:{run_id:startObj.id,read_capability:startObj.read_capability}}})})).json();
+const rtObj=JSON.parse(rt.result?.content?.[0]?.text??'{}');check('MCP full round-trip start->get with cap yields data',Object.hasOwn(rtObj,'data')&&rtObj.id===startObj.id);
 await fetch(base+'/api/sop/runs/12/read-caps/revoke',{method:'POST',headers:H,body:JSON.stringify({all:true})});
 const afterRevoke=await(await fetch(base+'/api/sop/runs/12',{headers:{'X-Run-Read-Capability':re.read_capability}})).json();
 check('revoked cap denied',!Object.hasOwn(afterRevoke,'data'));
