@@ -12,6 +12,7 @@ import { api } from '../api';
 import GoFrame from '../components/GoFrame';
 import type { Cockpit as CockpitT, PanelConfig, Workbench } from '../types';
 import { surface } from '../surface';
+import WmPage from '../components/WmPage';
 
 /** #302 方案③：驾驶舱写（/api/cockpits）是管理写，业务面浏览器发来一律 403；驾驶舱又只在业务面提供。
  *  所以业务面只读：隐藏新建/删除/改名/加移面板，网格不可拖拽，给出命令行提示，免得点了才报 403 */
@@ -45,6 +46,7 @@ function PanelHeadActions(props: { wid: number; url?: string; onRefresh: () => v
 }
 
 import { TasksView } from './Tasks';
+import { snapPanels, snapW } from '../cockpit-layout';
 
 export default function Cockpit() {
   const { id } = useParams();
@@ -92,6 +94,8 @@ export default function Cockpit() {
   }, [active]);
 
   const wbById = useMemo(() => new Map(workbenches.map((w) => [w.id, w])), [workbenches]);
+  // #320 读时迁移：渲染用吸附到 3/4/6/12 的布局，不回写；管理员真改动时才存吸附后的值
+  const view = useMemo(() => (panels ? snapPanels(panels) : null), [panels]);
 
   const persist = (next: PanelConfig[], immediate = false) => {
     if (READ_ONLY) return; // 业务面只读：网格对重叠布局的自动归一也不能触发保存（否则不点也会 PUT 403 + 报错）
@@ -113,16 +117,16 @@ export default function Cockpit() {
   };
 
   const onLayoutChange = (layout: Layout[]) => {
-    if (!panels) return;
-    const next = layout
+    if (!panels || !view) return;
+    const next = snapPanels(layout
       .map((l) => {
         const p = panels.find((p2) => p2.i === l.i);
-        return p ? { ...p, x: l.x, y: l.y, w: l.w, h: l.h } : null;
+        return p ? { ...p, x: l.x, y: l.y, w: snapW(l.w), h: l.h } : null;
       })
-      .filter((p): p is PanelConfig => !!p);
-    // GridLayout 初次挂载也触发 onLayoutChange——仅几何真实变化时保存
+      .filter((p): p is PanelConfig => !!p));
+    // GridLayout 初次挂载也触发 onLayoutChange——与吸附后的视图比较，仅几何真实变化时保存（打开页面不触发迁移写）
     const changed = next.some((p) => {
-      const o = panels.find((p2) => p2.i === p.i);
+      const o = view.find((p2) => p2.i === p.i);
       return o && (o.x !== p.x || o.y !== p.y || o.w !== p.w || o.h !== p.h);
     });
     if (changed) persist(next);
@@ -149,12 +153,9 @@ export default function Cockpit() {
   // ---------- 列表视图 ----------
   if (!id) {
     return (
-      <Flex vertical gap={16} style={{ width: '100%' }} align="start">
-        <Flex justify="space-between" align="center" style={{ width: '100%' }}>
-          <Typography.Title level={4} style={{ margin: 0 }}>
-            任务驾驶舱
-          </Typography.Title>
-          {!READ_ONLY && <Button
+      <WmPage
+        subTitle="把常用的 2-4 个工作台拼成一屏分屏视图，按场景切换"
+        extra={!READ_ONLY && <Button
             type="primary"
             icon={<PlusOutlined />}
             onClick={async () => {
@@ -169,10 +170,8 @@ export default function Cockpit() {
           >
             新建驾驶舱
           </Button>}
-        </Flex>
-        <Typography.Text type="secondary">
-          把常用的 2-4 个工作台拼成一屏分屏视图，按场景切换——写代码、出图、查资料各一个驾驶舱，不再来回切标签页。
-        </Typography.Text>
+      >
+      <Flex vertical gap={16} style={{ width: '100%' }} align="start">
         {READ_ONLY && <Alert type="info" showIcon className="wm-cockpit-readonly" message="驾驶舱在这里只能查看" description={READ_ONLY_HINT} />}
         {listReq.data?.length ? (
           <Flex gap={16} wrap="wrap" style={{ width: '100%', rowGap: 16 }}>
@@ -220,19 +219,23 @@ export default function Cockpit() {
           </Empty>
         )}
       </Flex>
+      </WmPage>
     );
   }
 
   // ---------- 单驾驶舱视图 ----------
   if (listReq.loading || !active || panels === null) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
-        <Spin size="large" />
-      </div>
+      <WmPage detail={active?.name}>
+        <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
+          <Spin size="large" />
+        </div>
+      </WmPage>
     );
   }
 
   return (
+    <WmPage detail={active.name}>
     <Flex vertical gap={12} style={{ width: '100%' }} align="start">
       <Flex justify="space-between" align="center" gap={12} style={{ width: '100%', flexWrap: 'wrap', rowGap: 8 }}>
         <Flex align="center" gap={8}>
@@ -299,7 +302,7 @@ export default function Cockpit() {
       ) : (
         <Grid
           className="wm-cockpit-grid"
-          layout={panels.map((p) => ({ i: p.i, x: p.x, y: p.y, w: p.w, h: p.h, minW: 3, minH: 6 }))}
+          layout={(view ?? []).map((p) => ({ i: p.i, x: p.x, y: p.y, w: p.w, h: p.h, minW: 3, minH: 6 }))}
           cols={COLS}
           rowHeight={ROW_H}
           width={1200}
@@ -366,5 +369,6 @@ export default function Cockpit() {
         <Link to="/market">去工作台市场</Link>
       </Typography.Text>
     </Flex>
+    </WmPage>
   );
 }

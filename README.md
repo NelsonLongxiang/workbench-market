@@ -121,6 +121,18 @@ GET              /api/health                    版本与运行时长
 - 控制面（`/api/mcp/*` 会话令牌、SOP 绑定、工作台 CRUD）的远程写一律要 `X-Admin-Token`（未设置则 403）。
 - **读面不拦**：远程 agent 用 `GET /api/apps/<slug>/data`、`/files` 直接读提交数据（掩码策略只作用于凭据，不作用于业务数据）。
 
+## 设计 token（给 SOP 执行页与自产台）
+
+唯一事实源是仓库根的 `DESIGN.md`。`node scripts/gen-design-tokens.mjs` 生成 `web/src/tokens.css`，即 `--wm-*` 变量。市场前端、SOP 执行页、自产台用的都是这一份。
+
+- **自产台**：在页面 `<head>` 里引入 `<link rel="stylesheet" href="/design/tokens@1.css">`。经市场门户（`/apps/<slug>/`、`/go/<id>/`）打开时是同源的。正文、状态、面与线只用 `--wm-*` 变量，不抄色值；可以另加自己的品牌色。完整示例见 [docs/examples/self-built-tokens.html](docs/examples/self-built-tokens.html)。
+- **路径与契约**（DESIGN.md「CSS 变量契约」：**名字稳定、值可变**）：
+  - `/design/tokens@<主版本>.css`（现为 `@1`）：推荐用这个。主版本内只改值、不改名，响应 `no-cache`，值更新后自动生效。
+  - `/design/tokens@<完整版本>.css`（现为 `@1.0.0`）：精确钉版本，内容不变，可长期缓存。
+  - 其他版本一律 404。改名或删名要升主版本，并保留旧名一个版本做别名。
+- **SOP 执行页**（`/sop/<slug>/`）：服务端把同一份变量内联进页面，不另发请求。页面样式只用变量，顶栏是深色区，用 `nav-*`。
+- agent 可以经 MCP 工具 `design_standard` 读取 token 与页面模式。
+
 ## 目录
 
 ```

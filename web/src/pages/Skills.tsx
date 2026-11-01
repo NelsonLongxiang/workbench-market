@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Card, Input, Progress, Segmented, Space, Table, Tag, Timeline, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { PageContainer } from '@ant-design/pro-components';
+import { ProTable } from '@ant-design/pro-components';
+import type { ProColumns } from '@ant-design/pro-components';
+import RelTime from '../components/RelTime';
+import WmPage from '../components/WmPage';
 
 
 /** 技能市场管理页（P1-a · 方案 PR#57：只读浏览 + 版本链 + digest 展示；发布走 CLI/口令，薄分发） */
@@ -49,15 +52,14 @@ export default function SkillsPage() {
     [rows, layer, q],
   );
 
-  const cols: ColumnsType<SkillRow> = [
-    { title: 'slug', dataIndex: 'slug', key: 'slug', render: (_, r) => <Typography.Text code style={{ fontSize: 12 }}>{r.slug}</Typography.Text> },
-    { title: '名称', dataIndex: 'name', key: 'name' },
-    { title: '层', dataIndex: 'layer', key: 'layer', width: 90, render: (_, r) => <Tag color={['', 'geekblue', 'cyan', 'gold', 'purple', 'green'][r.layer]}>{r.layer} {r.layer_name.slice(0, 4)}</Tag> },
-    { title: '族', dataIndex: 'family_parent', key: 'family', width: 110, render: (_, r) => r.family_parent || '-' },
-    { title: '版本', dataIndex: 'versions', key: 'versions', width: 70, render: (_, r) => (
-      <a onClick={() => openVersions(r.slug)}>{r.versions}</a>
-    ) },
-    { title: '形态', key: 'legacy', width: 80, render: (_, r) => r.legacy ? <Tag>legacy 登记</Tag> : <Tag color="processing">快照</Tag> },
+  // 列序按 PATTERNS.md §5：名称（技能无状态列）→ 关键属性；数字右对齐
+  const cols: ProColumns<SkillRow>[] = [
+    { title: '名称', dataIndex: 'name', render: (_, r) => <Typography.Text strong>{r.name}</Typography.Text> },
+    { title: 'slug', dataIndex: 'slug', width: 220, render: (_, r) => <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{r.slug}</Typography.Text> },
+    { title: '层', dataIndex: 'layer', width: 110, render: (_, r) => <Tag color={['', 'geekblue', 'cyan', 'gold', 'purple', 'green'][r.layer]}>{r.layer} {r.layer_name.slice(0, 4)}</Tag> },
+    { title: '族', dataIndex: 'family_parent', width: 130, render: (_, r) => r.family_parent || '-' },
+    { title: '形态', key: 'legacy', width: 100, render: (_, r) => r.legacy ? <Tag>legacy 登记</Tag> : <Tag color="processing">快照</Tag> },
+    { title: '版本', dataIndex: 'versions', width: 70, align: 'right', render: (_, r) => <a className="wm-num" onClick={() => openVersions(r.slug)}>{r.versions}</a> },
   ];
   const vcols: ColumnsType<VersionRow> = [
     { title: 'v', dataIndex: 'version', key: 'v', width: 50 },
@@ -65,11 +67,11 @@ export default function SkillsPage() {
     { title: 'digest', dataIndex: 'tree_digest', key: 'dg', render: (_, r) => <Typography.Text code style={{ fontSize: 11 }}>{r.tree_digest.slice(0, 16)}…</Typography.Text> },
     { title: '文件/字节', key: 'sz', width: 110, render: (_, r) => `${r.file_count} / ${(r.total_bytes / 1024).toFixed(1)}K` },
     { title: '人审', dataIndex: 'reviewed_by', key: 'rv', width: 90 },
-    { title: '时间', dataIndex: 'created_at', key: 'at', width: 140, render: (_, r) => r.created_at?.slice(0, 16) },
+    { title: '时间', dataIndex: 'created_at', key: 'at', width: 120, render: (_, r) => <RelTime value={r.created_at} /> },
   ];
 
   return (
-    <PageContainer title="技能市场" subTitle="五层治理 · 版本不可变 · digest 身份锚（只读浏览，发布走 CLI/口令）" className="wm-page">
+    <WmPage subTitle="五层治理 · 版本不可变 · digest 身份锚（只读浏览，发布走 CLI/口令）">
       <Card>
         {/* 分层统计卡（五层治理：每层数量 + legacy 占比条，点击过滤） */}
         <Space wrap size={8} style={{ marginBottom: 10 }}>
@@ -91,7 +93,7 @@ export default function SkillsPage() {
           <Input.Search placeholder="搜索名称/描述" allowClear style={{ width: 240 }} onSearch={setQ} />
           <Typography.Text type="secondary">共 {shown.length} 项（快照 {shown.filter((r) => !r.legacy).length} / legacy {shown.filter((r) => r.legacy).length}）</Typography.Text>
         </Space>
-        <Table rowKey="slug" size="small" columns={cols} dataSource={shown} loading={loading} pagination={{ pageSize: 20 }} />
+        <ProTable<SkillRow> rowKey="slug" size="middle" columns={cols} dataSource={shown} loading={loading} search={false} options={false} toolBarRender={false} pagination={{ pageSize: 20, hideOnSinglePage: true }} />
       </Card>
       {versionsOf && (
         <Card size="small" title={`版本链：${versionsOf}`} style={{ marginTop: 12 }} extra={<a onClick={() => setVersionsOf(null)}>关闭</a>}>
@@ -117,6 +119,6 @@ export default function SkillsPage() {
           />
         </Card>
       )}
-    </PageContainer>
+    </WmPage>
   );
 }
