@@ -68,16 +68,21 @@ if (val('expected-plan') !== plan) fail('--expected-plan 与当前库状态不�
 if (!has('ack-maintenance-window')) fail('apply 需 --ack-maintenance-window（确认处于停机维护窗口）');
 
 const ins = db.prepare("INSERT INTO sop_run_read_grants (run_id, subject, role, expires_at, granted_by) VALUES (?, ?, ?, ?, ?)");
-let inserted = 0;
+// 幂等：同 (run, subject) 已有未撤销且未过期的授权则跳过——重复 apply 不再累积重复行
+const activeExisting = db.prepare("SELECT id FROM sop_run_read_grants WHERE run_id = ? AND subject = ? AND revoked_at = '' AND (expires_at IS NULL OR expires_at > datetime('now')) ORDER BY id DESC LIMIT 1");
+let inserted = 0, skipped = 0;
 db.exec('BEGIN IMMEDIATE');
 try {
-  for (const runId of runIds) for (const subject of subjects) { ins.run(runId, subject, role, expiresAt, 'maintenance-seed'); inserted++; }
+  for (const runId of runIds) for (const subject of subjects) {
+    if (activeExisting.get(runId, subject)) { skipped++; continue; }
+    ins.run(runId, subject, role, expiresAt, 'maintenance-seed'); inserted++;
+  }
   db.exec('COMMIT');
 } catch (e) { try { db.exec('ROLLBACK'); } catch {} throw e; }
 
 console.log(JSON.stringify({
   dry_run: false, runs: runIds.length, subjects: subjects.slice().sort(), role, expires_at: expiresAt,
-  inserted, revoke_hint: "撤销：管理面 POST /api/sop/runs/<id>/read-grants/revoke {subject}，或 SQL UPDATE sop_run_read_grants SET revoked_at=datetime('now') WHERE granted_by='maintenance-seed' AND revoked_at=''",
+  inserted, skipped, revoke_hint: "撤销：管理面 POST /api/sop/runs/<id>/read-grants/revoke {subject}，或 SQL UPDATE sop_run_read_grants SET revoked_at=datetime('now') WHERE granted_by='maintenance-seed' AND revoked_at=''",
   rollback: "本操作只增行；回滚 = 把 granted_by='maintenance-seed' 且未撤销的行置 revoked_at",
 }));
 db.close();
