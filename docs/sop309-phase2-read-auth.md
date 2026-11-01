@@ -39,7 +39,8 @@
 
 ## 旧 run 迁移（维护窗口离线播种，不让 agent 拿 admin 口令）
 
-- `scripts/sop-run-read-grant-seed.mjs`：默认 dry-run（只读，输出 plan 摘要）；`--apply` 需 `--expected-plan` 绑定 + `--ack-maintenance-window`。
+- `scripts/sop-run-read-grant-seed.mjs`：默认 dry-run（只读，输出 plan 摘要）；`--apply` 需 `--expected-plan` 绑定 + `--ack-maintenance-window`。**plan 摘要只覆盖与时间无关的决策参数**（db/run 集合/主体/角色/TTL），所以 dry-run 与 apply 之间隔几分钟摘要仍一致；`expires_at` 在 apply 时按 TTL 现算。
+- **前置**：本工具要求库内已有 `sop_run_read_grants` 表（由新包启动时创建）——在旧库上会显式拒跑并提示先部署含 phase2 的新包；apply 连接带 `busy_timeout=5000`，可在服务已起的窗口内安全写入。
 - 范围：`--runs 1,2` 或 `--runs-from-a2a`（取 a2a_run_ctx 去重）；主体 `--subject mcp:<会话名>` / `user:<登录名>`；期限 `--ttl-days`（默认 30）。
 - 只增 `sop_run_read_grants` 行，`granted_by='maintenance-seed'` 便于审计与回滚（置 `revoked_at`）；不打印任何密钥。
 - 其余旧 run 一律拒私有值；上线后补授权由属主本人在管理面做（PUT /api/sop/runs/<id>/read-grants、POST …/read-caps）。
