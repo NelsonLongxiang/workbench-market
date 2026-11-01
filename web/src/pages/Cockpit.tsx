@@ -12,6 +12,7 @@ import { api } from '../api';
 import GoFrame from '../components/GoFrame';
 import type { Cockpit as CockpitT, PanelConfig, Workbench } from '../types';
 import { surface } from '../surface';
+import WmPage from '../components/WmPage';
 
 /** #302 方案③：驾驶舱写（/api/cockpits）是管理写，业务面浏览器发来一律 403；驾驶舱又只在业务面提供。
  *  所以业务面只读：隐藏新建/删除/改名/加移面板，网格不可拖拽，给出命令行提示，免得点了才报 403 */
@@ -149,12 +150,9 @@ export default function Cockpit() {
   // ---------- 列表视图 ----------
   if (!id) {
     return (
-      <Flex vertical gap={16} style={{ width: '100%' }} align="start">
-        <Flex justify="space-between" align="center" style={{ width: '100%' }}>
-          <Typography.Title level={4} style={{ margin: 0 }}>
-            任务驾驶舱
-          </Typography.Title>
-          {!READ_ONLY && <Button
+      <WmPage
+        subTitle="把常用的 2-4 个工作台拼成一屏分屏视图，按场景切换"
+        extra={!READ_ONLY && <Button
             type="primary"
             icon={<PlusOutlined />}
             onClick={async () => {
@@ -169,10 +167,8 @@ export default function Cockpit() {
           >
             新建驾驶舱
           </Button>}
-        </Flex>
-        <Typography.Text type="secondary">
-          把常用的 2-4 个工作台拼成一屏分屏视图，按场景切换——写代码、出图、查资料各一个驾驶舱，不再来回切标签页。
-        </Typography.Text>
+      >
+      <Flex vertical gap={16} style={{ width: '100%' }} align="start">
         {READ_ONLY && <Alert type="info" showIcon className="wm-cockpit-readonly" message="驾驶舱在这里只能查看" description={READ_ONLY_HINT} />}
         {listReq.data?.length ? (
           <Flex gap={16} wrap="wrap" style={{ width: '100%', rowGap: 16 }}>
@@ -220,19 +216,23 @@ export default function Cockpit() {
           </Empty>
         )}
       </Flex>
+      </WmPage>
     );
   }
 
   // ---------- 单驾驶舱视图 ----------
   if (listReq.loading || !active || panels === null) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
-        <Spin size="large" />
-      </div>
+      <WmPage detail={active?.name}>
+        <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
+          <Spin size="large" />
+        </div>
+      </WmPage>
     );
   }
 
   return (
+    <WmPage detail={active.name}>
     <Flex vertical gap={12} style={{ width: '100%' }} align="start">
       <Flex justify="space-between" align="center" gap={12} style={{ width: '100%', flexWrap: 'wrap', rowGap: 8 }}>
         <Flex align="center" gap={8}>
@@ -366,5 +366,6 @@ export default function Cockpit() {
         <Link to="/market">去工作台市场</Link>
       </Typography.Text>
     </Flex>
+    </WmPage>
   );
 }

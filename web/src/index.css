@@ -285,3 +285,13 @@ body {
   background: #fff;
   overflow: auto;
 }
+
+/* #316 侧栏分组：antd 把「当前页所在分组」的标题染成 colorPrimary（#1E3A5F），在 nav-bg 上只有 1.6:1；改用 nav-text-active */
+.ant-pro-sider .ant-menu-submenu-selected > .ant-menu-submenu-title {
+  color: var(--wm-color-nav-text-active);
+}
+.wm-menu-link {
+  display: flex;
+  align-items: center;
+  gap: var(--wm-space-2);
+}

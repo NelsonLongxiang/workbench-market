@@ -2,11 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { Button, Card, Drawer, Empty, Form, Input, Radio, Segmented, Select, Space, Tag, Typography, Upload, App as AntApp } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import type { UploadFile } from 'antd';
-import { PageContainer } from '@ant-design/pro-components';
 import { apiFetch } from '../admin-token';
 import { ReloadOutlined } from '@ant-design/icons';
 import { odooLoginHref } from './lifecycle-view';
 import { useOdooPopupLogin } from './odoo-login';
+import WmPage from '../components/WmPage';
 
 /** 任务信封（与 server/src/tasks.ts 契约一致，字段冻结 snake_case） */
 export interface TaskEnvelope {
@@ -84,7 +84,7 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
         </Space>
       )}
       {shown.length === 0 ? (
-        <Empty description={compact ? '暂无待办' : '没有符合条件的任务'} style={{ padding: compact ? 8 : 24 }} />
+        <Empty description={compact ? '暂无待办' : '没有符合条件的任务——换个筛选，或点右上角「发布任务」'} style={{ padding: compact ? 8 : 24 }} />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: compact ? 4 : 8 }}>
           {shown.slice(0, compact ? 8 : 200).map((t) => (
@@ -248,16 +248,14 @@ export default function Tasks() {
   const [open, setOpen] = useState(false);
   const [bump, setBump] = useState(0);
   return (
-    <PageContainer
-      title="统一待办"
+    <WmPage
       subTitle="多源任务聚合 —— 生命周期当前仅供查看，工作台审批已停用；其余勾销请回原系统"
-      className="wm-page"
       extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>发布任务</Button>}
     >
       <Card>
         <TasksView key={bump} />
       </Card>
       <DispatchDrawer open={open} onClose={() => setOpen(false)} onDone={() => setBump((n) => n + 1)} />
-    </PageContainer>
+    </WmPage>
   );
 }
