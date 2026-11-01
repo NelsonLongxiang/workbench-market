@@ -6,6 +6,7 @@ import { ModalForm, ProFormDigit, ProFormSelect, ProFormText, ProFormTextArea } 
 import { ProTable } from '@ant-design/pro-components';
 import { api } from '../api';
 import type { WorkbenchType } from '../types';
+import WmPage from '../components/WmPage';
 
 export default function Types() {
   const { message } = App.useApp();
@@ -133,9 +134,22 @@ export default function Types() {
   ];
 
   return (
-    <>
+    <WmPage
+      subTitle="工作台类型决定健康探测方式（方法 · 路径 · 期望状态码）与默认端口"
+      extra={(
+        <Button
+          type="primary"
+          icon={<PlusOutlined />}
+          onClick={() => {
+            setEditing(null);
+            setFormOpen(true);
+          }}
+        >
+          新增类型
+        </Button>
+      )}
+    >
       <ProTable<WorkbenchType>
-        headerTitle="工作台类型"
         actionRef={actionRef}
         rowKey="id"
         search={false}
@@ -145,19 +159,6 @@ export default function Types() {
           return { data, success: true };
         }}
         pagination={false}
-        toolBarRender={() => [
-          <Button
-            key="create"
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => {
-              setEditing(null);
-              setFormOpen(true);
-            }}
-          >
-            新增类型
-          </Button>,
-        ]}
         options={{ reload: true }}
       />
 
@@ -229,6 +230,6 @@ export default function Types() {
         />
         <ProFormTextArea name="description" label="说明" placeholder="这个类型适用于什么服务（可空）" />
       </ModalForm>
-    </>
+    </WmPage>
   );
 }

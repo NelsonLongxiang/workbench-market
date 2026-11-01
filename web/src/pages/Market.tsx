@@ -10,6 +10,7 @@ import type { Workbench, WorkbenchType } from '../types';
 import StatusBadge, { fmtCheckedAt } from '../components/StatusBadge';
 import WorkbenchForm from '../components/WorkbenchForm';
 import AppDataDrawer from '../components/AppDataDrawer';
+import WmPage from '../components/WmPage';
 
 const TYPE_COLORS = ['geekblue', 'green', 'gold', 'cyan', 'purple', 'volcano', 'magenta', 'orange'];
 function typeColor(key: string): string {
@@ -237,9 +238,23 @@ export default function Market() {
   ];
 
   return (
-    <>
+    <WmPage
+      subTitle="登记与发现各端口的 AI 工作台：类型 · 分类 · 在线状态"
+      extra={(
+        <Button
+          type="primary"
+          icon={<PlusOutlined />}
+          onClick={() => {
+            setEditing(null);
+            setCopySource(null);
+            setFormOpen(true);
+          }}
+        >
+          新增工作台
+        </Button>
+      )}
+    >
       <ProTable<Workbench>
-        headerTitle="工作台市场"
         actionRef={actionRef}
         rowKey="id"
         search={false}
@@ -320,18 +335,6 @@ export default function Market() {
           >
             全部检测
           </Button>,
-          <Button
-            key="create"
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => {
-              setEditing(null);
-              setCopySource(null);
-              setFormOpen(true);
-            }}
-          >
-            新增工作台
-          </Button>,
         ]}
         locale={{ emptyText: <Empty description="暂无工作台，点右上角「新增工作台」注册第一个" /> }}
         options={{ reload: true, density: true, setting: true }}
@@ -407,6 +410,6 @@ export default function Market() {
         ) : null}
       </Drawer>
       <AppDataDrawer slug={dataSlug ?? ''} open={!!dataSlug} onClose={() => setDataSlug(null)} />
-    </>
+    </WmPage>
   );
 }
