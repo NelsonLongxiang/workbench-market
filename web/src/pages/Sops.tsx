@@ -292,7 +292,7 @@ export default function Sops() {
   ];
 
   return (
-    <PageContainer title="SOP 台" subTitle="结构化流程即台：状态机 · 版本链 · 执行记录" className="wm-page">
+    <PageContainer title="SOP 交付空间" subTitle="结构化流程即台：状态机 · 版本链 · 执行记录" className="wm-page">
       <Card size="small" title={`待验收任务（${pendingRuns.length}）`} style={{ marginBottom: 12 }}
         extra={<Button size="small" onClick={() => { void loadPending(); }}>刷新</Button>}>
         {pendingRuns.length === 0 ? <Typography.Text type="secondary">没有待验收的派单任务</Typography.Text> : (
