@@ -2,11 +2,12 @@ import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { App, Button, Card, Drawer, Empty, Popconfirm, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import { ExportOutlined, PlayCircleOutlined, RiseOutlined, StopOutlined } from '@ant-design/icons';
-import { PageContainer, ProTable } from '@ant-design/pro-components';
+import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { api } from '../api';
 import type { SopApp, SopRun } from '../types';
 import { fmtCheckedAt } from '../components/StatusBadge';
+import WmPage from '../components/WmPage';
 
 /** SOP 状态语义：draft 未上架（不入册）/ published 在架可执行 / deprecated 已废弃（市场停用）
  *  色值经对比度审计：published 文字 #15803d on #F6FFED ≈4.8:1、deprecated #CF1322 on #FFF1F0 ≈5.0:1
@@ -292,7 +293,7 @@ export default function Sops() {
   ];
 
   return (
-    <PageContainer title="SOP 交付空间" subTitle="结构化流程即台：状态机 · 版本链 · 执行记录" className="wm-page">
+    <WmPage subTitle="结构化流程即台：状态机 · 版本链 · 执行记录">
       <Card size="small" title={`待验收任务（${pendingRuns.length}）`} style={{ marginBottom: 12 }}
         extra={<Button size="small" onClick={() => { void loadPending(); }}>刷新</Button>}>
         {pendingRuns.length === 0 ? <Typography.Text type="secondary">没有待验收的派单任务</Typography.Text> : (
@@ -317,7 +318,7 @@ export default function Sops() {
         loading={loading}
         search={false}
         pagination={false}
-        locale={{ emptyText: <Empty description="暂无 SOP 台——经 MCP app_publish（kind=sop）或 POST /api/apps 发布" /> }}
+        locale={{ emptyText: <Empty description="还没有 SOP——经 MCP app_publish（kind=sop）或 POST /api/apps 发布第一个" /> }}
         options={{ reload: reload, density: false, setting: false }}
         headerTitle="全部 SOP"
       />
@@ -437,6 +438,6 @@ export default function Sops() {
           ]}
         />
       </Drawer>
-    </PageContainer>
+    </WmPage>
   );
 }
