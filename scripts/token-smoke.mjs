@@ -24,7 +24,7 @@ async function waitReady(url, ms = 20000) {
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server', env: { ...process.env, ADMIN_TOKEN: '', MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: `../${DATA}` }, stdio: ['ignore', 'pipe', 'pipe'], // 清 ADMIN_TOKEN（外层 E2E 环境继承会致「设置口令」403 假红）
+  cwd: 'server', env: { ...process.env, ADMIN_TOKEN: '', MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: `../${DATA}` }, stdio: ['ignore', 'pipe', 'pipe'], // 清 ADMIN_TOKEN（外层 E2E 环境继承会致「设置口令」403 假红）
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪'); process.exit(1); }
 

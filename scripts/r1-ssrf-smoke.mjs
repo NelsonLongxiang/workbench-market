@@ -20,7 +20,7 @@ async function waitReady(url, child) {
 for (const enabled of [false, true]) {
   const port = 20000 + Math.floor(Math.random() * 20000);
   const data = mkdtempSync(join('tmp', 'r2-ssrf-'));
-  const env = { ...process.env, PORT: String(port), DATA_DIR: data, MCP_GATEWAY: 'off', ADMIN_TOKEN: 'r2-test' };
+  const env = { ...process.env, PORT: String(port), DATA_DIR: data, MCP_GATEWAY: 'off', NODE_ENV: 'test', ADMIN_TOKEN: 'r2-test' };
   delete env.ALLOW_PUBLIC_NET; // default means absent, not inherited from the invoking shell
   if (enabled) env.ALLOW_PUBLIC_NET = '1';
   let logs = '';
@@ -44,7 +44,7 @@ for (const enabled of [false, true]) {
         const r = await reg(url); const j = await r.json().catch(() => ({}));
         ok(label + ' hard-denies ' + url, r.status === 403 && j.error === 'url_hard_denied', r.status + ' ' + j.error);
       }
-      for (const url of ['http://192.168.3.100:8080/', 'http://127.0.0.1:4000/']) {
+      for (const url of ['http://192.168.50.100:8080/', 'http://127.0.0.1:4000/']) {
         const r = await reg(url);
         ok('default permits internal control ' + url, r.status === 201, String(r.status));
       }

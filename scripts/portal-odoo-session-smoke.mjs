@@ -80,7 +80,7 @@ export async function runPortalOdooSessionGroup() {
   const PORT = 20000 + Math.floor(Math.random() * 20000);
   const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
     cwd: process.cwd(), stdio: 'ignore',
-    env: { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'sec-portal', WM_ODOO_ORIGINS: `http://127.0.0.1:${real.port}`, LC_ODOO_URL: '' },
+    env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'sec-portal', WM_ODOO_ORIGINS: `http://127.0.0.1:${real.port}`, LC_ODOO_URL: '' },
   });
   try {
     if (!(await waitReady(PORT))) throw new Error('S4 隔离实例未就绪');
@@ -155,7 +155,7 @@ export async function runPortalOdooSessionGroup() {
   const DATA2 = resolve('tmp/sec-portal-sid-none-' + Date.now().toString(36));
   mkdirSync(DATA2, { recursive: true });
   const PORT2 = 20000 + Math.floor(Math.random() * 20000);
-  const env2 = { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT2), DATA_DIR: DATA2, ADMIN_TOKEN: 'sec-portal2' };
+  const env2 = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT2), DATA_DIR: DATA2, ADMIN_TOKEN: 'sec-portal2' };
   delete env2.WM_ODOO_ORIGINS; delete env2.LC_ODOO_URL;
   const child2 = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { cwd: process.cwd(), stdio: 'ignore', env: env2 });
   try {

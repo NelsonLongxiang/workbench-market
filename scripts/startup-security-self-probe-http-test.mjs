@@ -29,14 +29,15 @@ if(mutation==='browser-write')replace("  if (p.startsWith('/api/')) {","  if (fa
 if(mutation==='mcp-timeout'||mutation==='hold-probe'){const a="app.post('/mcp', async (req, res) => {";replace(a,a+(mutation==='mcp-timeout'?"if(req.headers['x-wm-self-probe'])return;":"if(req.headers['x-wm-self-probe'])await new Promise(r=>setTimeout(r,500));"));}
 if(mutation==='handler-error'){const a="app.post('/api/workbenches', (req, res) => {";replace(a,a+"if(req.headers['x-wm-self-probe'])throw Error(process.env.ADMIN_TOKEN);");}
 return{...loaded,source:s};}});`;
-async function runCase(label,{off=false,control=false,occupied=false,unset=false,mutation='',expectFailure=false}={}){
+async function runCase(label,{off=false,control=false,occupied=false,unset=false,mutation='',expectFailure=false,nodeEnv='production'}={}){
  const dir=join(out,label);mkdirSync(dir,{recursive:true});const port=await spare();let cp=control?await spare():0;
  while(cp===port)cp=await spare();
  let foreign,foreignRequests=0;
  if(occupied){foreign=httpServer((_q,r)=>{foreignRequests++;r.statusCode=403;r.end()});await new Promise(r=>foreign.listen(0,'127.0.0.1',r));cp=foreign.address().port;}
  const env={};for(const k of['SystemRoot','WINDIR','PATH','PATHEXT','TEMP','TMP'])if(process.env[k])env[k]=process.env[k];
- Object.assign(env,{PORT:String(port),DATA_DIR:join(dir,'data'),YGL_HOME:join(dir,'home'),WM_CONTROL_PORT:String(cp),MCP_GATEWAY:off?'off':'on',ADMIN_TOKEN:'DO_NOT_LOG_SYNTHETIC_CREDENTIAL',REDIS_URL:'',NODE_ENV:'production',WM_SYNTHETIC_PROBE_MUTATION:mutation});
+ Object.assign(env,{PORT:String(port),DATA_DIR:join(dir,'data'),YGL_HOME:join(dir,'home'),WM_CONTROL_PORT:String(cp),MCP_GATEWAY:off?'off':'on',ADMIN_TOKEN:'DO_NOT_LOG_SYNTHETIC_CREDENTIAL',REDIS_URL:'',NODE_ENV:nodeEnv,WM_SYNTHETIC_PROBE_MUTATION:mutation});
  if(unset)delete env.MCP_GATEWAY;
+ if(nodeEnv===null)delete env.NODE_ENV;
  const child=spawn(process.execPath,['--import','data:text/javascript,'+encodeURIComponent(preload),'server/src/index.ts'],{cwd:root,env,stdio:['ignore','pipe','pipe']});
  const ended=once(child,'exit');let so='',se='',health=null,status=null,pendingChecked=false;
  child.stdout.on('data',b=>so+=b);child.stderr.on('data',b=>se+=b);
@@ -59,6 +60,7 @@ async function runCase(label,{off=false,control=false,occupied=false,unset=false
    check(label+' log identifies failed self-probe row',so.includes('"source":"self-probe"')&&so.includes('"verdict":"fail"'));
    let closed=false;try{await fetch('http://127.0.0.1:'+port+'/api/health',{signal:AbortSignal.timeout(300)})}catch{closed=true}
    check(label+' failure closes only the owned listener',closed);
+   if(off&&nodeEnv!=='development'&&nodeEnv!=='test')check(label+' forbidden gateway mode has named failure and never healthy',so.includes('"reason":"gateway-off-forbidden"')&&so.includes('market.mcp.initialize')&&status!==200);
   }else{
    check(label+' health reports completed pass',status===200&&health?.self_probe?.passed===true&&health.self_probe.at!==null);
    check(label+' table has explicit control skip/pass',health.self_probe.rows.some(x=>x.id==='control.admin-read'&&x.verdict===(control&&!occupied?'pass':'skip')));
@@ -80,11 +82,17 @@ async function runCase(label,{off=false,control=false,occupied=false,unset=false
   writeFileSync(join(dir,'stdout.log'),so);writeFileSync(join(dir,'stderr.log'),se);
  }
 }
+await runCase('production-off',{off:true,expectFailure:true});
+await runCase('unset-environment-off',{off:true,nodeEnv:null,expectFailure:true});
+await runCase('empty-environment-off',{off:true,nodeEnv:'',expectFailure:true});
+await runCase('unknown-environment-off',{off:true,nodeEnv:'staging',expectFailure:true});
 await runCase('normal-control',{control:true});
 await runCase('normal-control-off');
 await runCase('gateway-unset',{unset:true});
 await runCase('occupied-control',{control:true,occupied:true});
-await runCase('explicit-off',{off:true});
+await runCase('development-off',{off:true,nodeEnv:'development'});
+await runCase('test-off',{off:true,nodeEnv:'test'});
+await runCase('development-off-broken-write',{off:true,nodeEnv:'development',mutation:'browser-write',expectFailure:true});
 await runCase('startup-ingress',{mutation:'hold-probe'});
 await runCase('mcp-auth-regression',{mutation:'mcp-auth',expectFailure:true});
 await runCase('browser-write-regression',{mutation:'browser-write',expectFailure:true});
