@@ -86,10 +86,10 @@ const U = [
   { c: "判据43：App.tsx 标题区图标必须取成功色 token「color: T.colors.success」。", t: "标题强调色钉位", s: "S3", ck: existsFact("web/src/App.tsx","color: T.colors.success"), rv: ["判据原文逐字取自冻结材料，深底上的标题图标；v69.4 起不再写死色值，改取 DESIGN.md 成功色 token（#316）。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
   { c: "判据44：设计规范 MASTER.md 必须包含主色值「#1E3A5F」。", t: "规范主色钉位", s: "S3", ck: existsFact("design-system/workbench-market/MASTER.md","#1E3A5F"), rv: ["判据原文逐字取自冻结材料，规范单一事实源钉主色。", "提取表三条件 exists 精确判定。", "删 token 提取为 0 即 FAIL。"] },
   { c: "判据45：设计规范 MASTER.md 必须包含次级文字审计色值「#5A6577」。", t: "规范审计色钉位", s: "S3", ck: existsFact("design-system/workbench-market/MASTER.md","#5A6577"), rv: ["判据原文逐字取自冻结材料，对比度实测表记录修复色。", "提取表三条件 exists 精确判定。", "删记录提取为 0 即 FAIL。"] },
-  { c: "判据46：Dashboard.tsx 统计标签必须包含次级色值「#5A6577」。", t: "统计标签次级色钉位", s: "S2", ck: existsFact("web/src/pages/Dashboard.tsx","#5A6577"), rv: ["判据原文逐字取自冻结材料，统计标签用次级审计色。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
-  { c: "判据47：Dashboard.tsx 在线环必须包含成功色值「#059669」。", t: "在线环色钉位", s: "S2", ck: existsFact("web/src/pages/Dashboard.tsx","#059669"), rv: ["判据原文逐字取自冻结材料，在线率环用 emerald。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
-  { c: "判据48：Dashboard.tsx 离线卡必须包含错误色值「#DC2626」。", t: "离线卡色钉位", s: "S2", ck: existsFact("web/src/pages/Dashboard.tsx","#DC2626"), rv: ["判据原文逐字取自冻结材料，离线数字用错误红。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
-  { c: "判据49：Dashboard.tsx 辅助文字必须包含轴色值「#94A3B8」。", t: "辅助轴色钉位", s: "S3", ck: existsFact("web/src/pages/Dashboard.tsx","#94A3B8"), rv: ["判据原文逐字取自冻结材料，辅助轴文字用 slate。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
+  { c: "判据46：index.css 统计标签必须取次级文字色变量「color: var(--wm-color-text-secondary);」。", t: "统计标签次级色钉位", s: "S2", ck: existsFact("web/src/index.css","color: var(--wm-color-text-secondary);"), rv: ["判据原文逐字取自冻结材料，统计标签用次级审计色（#5A6577，5.9:1）；v69.5 起取 DESIGN.md 变量（#320 看板卡片不再写死色值）。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
+  { c: "判据47：index.css 在线图形必须取成功色变量「.wm-fill-success { background: var(--wm-color-success); }」。", t: "在线环色钉位", s: "S2", ck: existsFact("web/src/index.css",".wm-fill-success { background: var(--wm-color-success); }"), rv: ["判据原文逐字取自冻结材料，在线图形用成功色；v69.5 起在线环改为趋势卡柱条，色值取 DESIGN.md 成功色变量（#047857，属主定稿）。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
+  { c: "判据48：index.css 离线数字必须取错误文字色变量「.wm-tone-danger { color: var(--wm-color-danger-text); }」。", t: "离线卡色钉位", s: "S2", ck: existsFact("web/src/index.css",".wm-tone-danger { color: var(--wm-color-danger-text); }"), rv: ["判据原文逐字取自冻结材料，离线数字用错误红；v69.5 起指标卡写字用 danger-text 变量（DESIGN.md：写字用 *-text）。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
+  { c: "判据49：index.css 趋势图轴线必须取强调线变量「border-left: 1px solid var(--wm-color-border-strong);」。", t: "辅助轴色钉位", s: "S3", ck: existsFact("web/src/index.css","border-left: 1px solid var(--wm-color-border-strong);"), rv: ["判据原文逐字取自冻结材料，辅助轴用 slate；v69.5 起轴线取 border-strong 变量（DESIGN.md：#94A3B8 只给禁用态与占位符，不写有效信息）。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
   { c: "判据50：index.css 必须包含主色淡底色值「rgba(30, 58, 95, 0.1)」。", t: "主色淡底钉位", s: "S3", ck: existsFact("web/src/index.css","rgba(30, 58, 95, 0.1)"), rv: ["判据原文逐字取自冻结材料，navy 主色 10% 淡底。", "提取表三条件 exists 精确判定。", "改值提取为 0 即 FAIL。"] },
   { c: "判据51：index.css 必须包含深底色值「#0f172a」。", t: "css 深底钉位", s: "S3", ck: existsFact("web/src/index.css","#0f172a"), rv: ["判据原文逐字取自冻结材料，样式侧深底 token。", "提取表三条件 exists 精确判定。", "改值提取为 0 即 FAIL。"] },
   // ── E2E 行为证据（经 verifier_e2e_summary 提取表，源自 e2e_test.py 落盘的 evidence/e2e-summary.json） ──
@@ -267,7 +267,7 @@ const U = [
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
-const header = `workbench-market 开发验证器 v69.4（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写 + 运行时批整改 + 卫生批整改 + A2A 网络接入 P1+P2 + Agent 执行数据面 + 导出脱敏 + 注册 CRUD MCP 化 + 破坏性测试隔离 + 工具清单一致 + 安全批双锚 + MCP 网关 P1 + 网关管理页与 ADMIN_TOKEN 插槽）
+const header = `workbench-market 开发验证器 v69.5（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写 + 运行时批整改 + 卫生批整改 + A2A 网络接入 P1+P2 + Agent 执行数据面 + 导出脱敏 + 注册 CRUD MCP 化 + 破坏性测试隔离 + 工具清单一致 + 安全批双锚 + MCP 网关 P1 + 网关管理页与 ADMIN_TOKEN 插槽）
 
 判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
 快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
@@ -359,7 +359,7 @@ const reviews = {
 };
 
 writeFileSync("verify/material.md", material, "utf8");
-writeFileSync("verify/material-version.json", JSON.stringify({ version: "v69.4", supersedes: "v69.3", baseline: "v68", criterion_count: U.length, changed_criteria: [36, 37, 38, 39, 40, 43, 87, 132], reason: "#315/#316/#317 moved theme and sider colors to tokens.css generated from owner-finalized DESIGN.md v1.0.0 (success #059669 -> #047857 for AA) and menu data to nav.tsx; re-anchor the eight text-fact criteria to the new single sources without rewriting old reports.", title: header.split("\n")[0] }, null, 2) + "\n", "utf8");
+writeFileSync("verify/material-version.json", JSON.stringify({ version: "v69.5", supersedes: "v69.4", baseline: "v68", criterion_count: U.length, changed_criteria: [46, 47, 48, 49], reason: "#320 rebuilt the overview as dashboard cards that take colors from DESIGN.md --wm-* variables (no hard-coded hex in Dashboard.tsx); re-anchor the four overview color criteria to the variable rules in index.css without rewriting old reports.", title: header.split("\n")[0] }, null, 2) + "\n", "utf8");
 writeFileSync("verify/candidates.json", JSON.stringify(candidates, null, 2) + "\n", "utf8");
 writeFileSync("verify/reviews.json", JSON.stringify(reviews, null, 2) + "\n", "utf8");
 console.log(`✓ verify/material.md (${U.length} 判据) · candidates.json · reviews.json`);
