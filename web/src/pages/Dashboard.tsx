@@ -11,6 +11,7 @@ import 'react-resizable/css/styles.css';
 import { api } from '../api';
 import type { Workbench } from '../types';
 import StatusBadge, { fmtCheckedAt } from '../components/StatusBadge';
+import WmPage from '../components/WmPage';
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 const LAYOUT_KEY = 'wm.dashboard.layouts.v2';
@@ -120,6 +121,7 @@ export default function Dashboard() {
   const yglOk = tasksPayload?.sources?.['ygl-trees']?.ok !== false;
 
   return (
+    <WmPage subTitle="我的待办摘要 · 常用工作台 · 关键指标">
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <Row gutter={12}>
         {[
@@ -306,5 +308,6 @@ export default function Dashboard() {
         </ResponsiveGridLayout>
       )}
     </div>
+    </WmPage>
   );
 }

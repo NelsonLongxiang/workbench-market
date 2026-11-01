@@ -1,10 +1,10 @@
 import { Component, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from 'react';
 import { Alert, Badge, Button, Card, Col, Collapse, Empty, Result, Row, Segmented, Space, Statistic, Table, Tabs, Tag, Tooltip, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
-import { PageContainer } from '@ant-design/pro-components';
 import { Link, useLocation } from 'react-router-dom';
 import { fmt, ledgerBadge, odooLoginHref, type BoardLedger } from './lifecycle-view';
 import { useOdooPopupLogin } from './odoo-login';
+import WmPage from '../components/WmPage';
 
 /** lc board 的 data（lifecycle-os plugins/ygl-lc cmdBoard）：事实由内核算好，本页只显示，不重算状态、归属、超时或过期 */
 interface Since { state: string; since: string | null; days: number | null }
@@ -299,5 +299,5 @@ export default function Lifecycle() {
   else if (status === 403) body = <Result status="403" title="无权访问生命周期全景" subTitle={payload?.error ?? '该 Odoo 账号无权访问工作台'} />;
   else if (!payload?.ok || !payload.data) body = <Alert type="warning" showIcon message="生命周期全景暂不可用" description={<>{payload?.error ?? '未知原因'}{(payload?.next ?? []).map((n) => <div key={n}>{n}</div>)}</>} action={<Button size="small" onClick={reload}>重试</Button>} />;
   else body = <BoardBoundary><BoardView payload={payload} reload={reload} /></BoardBoundary>;
-  return <PageContainer title="生命周期全景" subTitle="产品 × 采购 × 物流 × 运营 · 只读">{body}</PageContainer>;
+  return <WmPage subTitle="产品 × 采购 × 物流 × 运营 · 只读">{body}</WmPage>;
 }

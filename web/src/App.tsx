@@ -1,20 +1,8 @@
 import React from 'react';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { ProLayout } from '@ant-design/pro-components';
-import { KeyOutlined,
-  AppstoreOutlined,
-  ClusterOutlined,
-  DashboardOutlined,
-  ExperimentOutlined,
-  LayoutOutlined,
-  MenuFoldOutlined,
-  MenuUnfoldOutlined,
-  OrderedListOutlined,
-  CarryOutOutlined,
-  NodeIndexOutlined,
-  SafetyCertificateOutlined,
-  SettingOutlined,
-} from '@ant-design/icons';
+import { KeyOutlined, AppstoreOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
+import { findNav, NAV_GROUPS } from './nav';
 import Dashboard from './pages/Dashboard';
 import Market from './pages/Market';
 import Types from './pages/Types';
@@ -32,35 +20,14 @@ import SkillsPage from './pages/Skills';
 import ViewerChip from './components/ViewerChip';
 import { DESIGN_TOKENS as T } from './design-tokens';
 
-/** #316 菜单五组（PATTERNS.md §2.1）：一级是分组标题，二级才是页面；「管理」组仅持管理员口令时显示、默认折叠。
- *  分组的 path 只当菜单键用，不对应路由；页面路由不变，旧书签照用。 */
-const WORK_GROUPS = ['/g/work', '/g/deliver', '/g/resource', '/g/govern'];
-const ADMIN_GROUP = '/g/admin';
+/** #316 菜单五组（数据在 nav.tsx）：一级是分组标题，二级才是页面；「管理」组仅持管理员口令时显示、默认折叠。
+ *  页面路由不变，旧书签照用。 */
+const ADMIN_GROUP = NAV_GROUPS.find((g) => g.admin)!.key;
+const WORK_GROUPS = NAV_GROUPS.filter((g) => !g.admin).map((g) => g.key);
 function menuRoutes(admin: boolean) {
   return {
     path: '/',
-    routes: [
-      { path: '/g/work', name: '工作', routes: [
-        { path: '/', name: '总览', icon: <DashboardOutlined /> },
-        { path: '/tasks', name: '统一待办', icon: <CarryOutOutlined /> },
-        { path: '/cockpit', name: '驾驶舱', icon: <LayoutOutlined /> },
-      ] },
-      { path: '/g/deliver', name: '交付', routes: [
-        { path: '/sops', name: 'SOP 交付空间', icon: <OrderedListOutlined /> },
-      ] },
-      { path: '/g/resource', name: '资源', routes: [
-        { path: '/market', name: '工作台市场', icon: <AppstoreOutlined /> },
-        { path: '/skills', name: '技能市场', icon: <ExperimentOutlined /> },
-      ] },
-      { path: '/g/govern', name: '治理', routes: [
-        { path: '/lifecycle', name: '生命周期全景', icon: <NodeIndexOutlined /> },
-      ] },
-      ...(admin ? [{ path: ADMIN_GROUP, name: '管理', routes: [
-        { path: '/mcp-gateways', name: 'MCP 网关', icon: <SafetyCertificateOutlined /> },
-        { path: '/types', name: '类型管理', icon: <ClusterOutlined /> },
-        { path: '/settings', name: '设置', icon: <SettingOutlined /> },
-      ] }] : []),
-    ],
+    routes: NAV_GROUPS.filter((g) => admin || !g.admin).map((g) => ({ path: g.key, name: g.name, routes: g.pages })),
   };
 }
 
@@ -121,7 +88,7 @@ export default function App() {
   const admin = React.useSyncExternalStore(subscribeAdminToken, adminTokenPresent);
   // 管理组默认折叠：初始只展开四个日常分组；当前页在管理组时也展开它
   const [openKeys, setOpenKeys] = React.useState<string[]>(() =>
-    /^\/(mcp-gateways|types|settings)(\/|$)/.test(location.pathname) ? [...WORK_GROUPS, ADMIN_GROUP] : WORK_GROUPS);
+    findNav(location.pathname)?.group.admin ? [...WORK_GROUPS, ADMIN_GROUP] : WORK_GROUPS);
 
   if (surface === 'control' && MARKET_ONLY.test(location.pathname)) return <MarketOnlyRedirect />;
 
