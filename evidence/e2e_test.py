@@ -1068,7 +1068,7 @@ with sync_playwright() as p:
     except Exception as e:
         record('MCP 生产通道', False, str(e)); shot('mcp')
 
-    # ---------- 18. SOP 管理页（/sops：状态徽章 + 版本链 + run 记录 Drawer） ----------
+    # ---------- 18. SOP 管理页（/sops：状态徽章 + 版本链；run 记录在交付空间 /sops/:slug，#318） ----------
     try:
         sop_yaml_ui = (
             'title: E2E SOP UI 验证\n'
@@ -1106,15 +1106,18 @@ with sync_playwright() as p:
             if '/api/sop/runs' in request.url:
                 history_requests.append(request.url)
         page.on('request',observe_history_request)
+        # #318：「记录」进入 SOP 交付空间（/sops/:slug），执行记录表沿用同一组元数据断言
         with page.expect_response(lambda r:'/api/sop/runs?' in r.url and 'slug=demo-rack-sop' in r.url) as history_response:
             demo.locator('button').filter(has_text='记录').first.click()
         history_rows=history_response.value.json()
-        drawer=page.locator('.ant-drawer-content')
-        drawer.wait_for(state='visible',timeout=5000)
-        assert '已完成' in drawer.inner_text(),'history Drawer missing completed run'
+        page.wait_for_url('**/sops/demo-rack-sop',timeout=5000)
+        drawer=page.locator('.wm-sop-runs')
+        drawer.locator('.ant-table-row').first.wait_for(state='visible',timeout=5000)
+        assert '已完成' in drawer.inner_text(),'delivery-space history missing completed run'
         assert_metadata_history(drawer,'演示·张工',3,history_requests,history_rows,('A-12','配件数','机位','扭矩复核','自检'))
         page.remove_listener('request',observe_history_request)
-        page.keyboard.press('Escape')
+        page.goto((ADMIN_UI or BASE) + '/sops')
+        page.wait_for_load_state('networkidle')
         page.wait_for_timeout(400)
         # ④ 上架状态机经页面：draft → published（Popconfirm「确 定」→ note 弹窗「上 架」两段）
         import re as _re2
