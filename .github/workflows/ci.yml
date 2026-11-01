@@ -39,6 +39,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/admin-token-browser.mjs
+      - name: 侧栏五组菜单浏览器回归（#316：分组·管理组口令可见且默认折叠·对比度·专属图标·旧路由）
+        env:
+          PYTHON: python
+        run: node scripts/sider-menu-browser.mjs
       # E2E 组 21 的 a2a-smoke 用上游 verifyCard 当裁判：检出公开的 dsh-open-a2a-net（钉提交），A2A_CARD_SRC 指过去
       - uses: actions/checkout@v4
         with:
@@ -109,6 +113,8 @@ jobs:
         run: node scripts/gateway-default-smoke.mjs && node scripts/gateway-smoke.mjs
       - name: MCP design_standard 只读读取设计标准（模块+实例·网关开关两态）
         run: node scripts/design-standard-smoke.mjs
+      - name: design token 管线（#315：产物与 DESIGN.md 同步·引用解析·主题与侧栏不写死色值）
+        run: node scripts/design-tokens-smoke.mjs
       - name: F5 env-face 判定回归（不启动 Docker）
         run: node scripts/security-env-face-test.mjs
       - name: 生命周期签发入口单测（req 哈希金向量·断言结构·私钥门）
