@@ -58,9 +58,22 @@ steps:
       <p>备注：<input data-field="note" placeholder="如 说明"></p>
 """
 
+def goto(page, url):
+    """goto 带一次重试：CI 首跑偶发 30s 超时（监督席复现一次、重跑不复现），故显式 60s + 一次重试。"""
+    for attempt in (1, 2):
+        try:
+            page.goto(url, wait_until='domcontentloaded', timeout=60000)
+            return
+        except Exception:
+            if attempt == 2:
+                raise
+            page.wait_for_timeout(1500)
+
+
 with sync_playwright() as p:
     browser = p.chromium.launch()
     page = browser.new_page()
+    page.set_default_timeout(60000)
 
     # ---- 0. 建台并发布（管理面；不带 Origin 走口令） ----
     try:
@@ -99,7 +112,7 @@ with sync_playwright() as p:
 
     # ---- 2. 新开 Runner：cap 落 localStorage ----
     try:
-        page.goto(f'{BASE}/sop/{SLUG}/', wait_until='domcontentloaded')
+        goto(page, f'{BASE}/sop/{SLUG}/')
         page.wait_for_timeout(1500)
         stored = page.evaluate(f"() => localStorage.getItem('wm.sop.run.{SLUG}.rcap')")
         parsed = json.loads(stored) if stored else None
@@ -112,7 +125,7 @@ with sync_playwright() as p:
     # ---- 3. 清 cap 后开旧 run：显示需读授权、不渲染私有值 ----
     try:
         page.evaluate(f"() => {{ localStorage.removeItem('wm.sop.run.{SLUG}.rcap'); localStorage.removeItem('wm.sop.run.{SLUG}'); }}")
-        page.goto(f'{BASE}/sop/{SLUG}/?run={rid}', wait_until='domcontentloaded')
+        goto(page, f'{BASE}/sop/{SLUG}/?run={rid}')
         page.wait_for_timeout(1500)
         state = page.eval_on_selector('#state', 'el => el.textContent') if page.query_selector('#state') else ''
         body_text = page.inner_text('body')
@@ -126,7 +139,7 @@ with sync_playwright() as p:
     try:
         page.evaluate(
             f"() => localStorage.setItem('wm.sop.run.{SLUG}.rcap', JSON.stringify({{ id: {rid}, c: {json.dumps(cap)} }}))")
-        page.goto(f'{BASE}/sop/{SLUG}/?run={rid}', wait_until='domcontentloaded')
+        goto(page, f'{BASE}/sop/{SLUG}/?run={rid}')
         page.wait_for_timeout(1500)
         state2 = page.eval_on_selector('#state', 'el => el.textContent') if page.query_selector('#state') else ''
         body2 = page.inner_text('body')
