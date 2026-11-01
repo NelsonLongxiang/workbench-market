@@ -149,7 +149,7 @@ function DispatchDrawer({ open, onClose, onDone }: { open: boolean; onClose: () 
           const fd = new FormData();
           fd.append('file', f.originFileObj);
           fd.append('created_by', v.expert || 'expert');
-          const rf = await fetch(`/api/sop/runs/${run.id}/files`, { method: 'POST', body: fd });
+          const rf = await fetch(`/api/sop/runs/${run.id}/files`, { method: 'POST', body: fd, headers: { 'X-Run-Upload-Token': String(run.upload_token ?? '') } });
           if (!rf.ok) { const j = await rf.json().catch(() => ({})); throw new Error(j?.error ?? `附件 ${f.name} 上传失败`); }
         }
         const rf2 = await fetch(`/api/sop/runs/${run.id}/finish`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
@@ -176,7 +176,7 @@ function DispatchDrawer({ open, onClose, onDone }: { open: boolean; onClose: () 
         const fd = new FormData();
         fd.append('file', f.originFileObj);
         fd.append('created_by', v.expert || 'expert');
-        const rf = await fetch(`/api/sop/runs/${run.id}/files`, { method: 'POST', body: fd });
+        const rf = await fetch(`/api/sop/runs/${run.id}/files`, { method: 'POST', body: fd, headers: { 'X-Run-Upload-Token': String(run.upload_token ?? '') } });
         if (!rf.ok) { const j = await rf.json().catch(() => ({})); throw new Error(j?.error ?? `附件 ${f.name} 上传失败`); }
       }
       message.success(`任务已发布（run #${run.id}）${assignee === 'agent' ? '，已指派并进入待验收' : ''}`);

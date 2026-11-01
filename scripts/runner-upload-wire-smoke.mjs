@@ -41,7 +41,7 @@ try {
   const up = await fetch(`${B}/api/sop/runs/${st.id}/files`, { method: 'POST', body: fd, headers: { 'X-Run-Upload-Token': String(st.upload_token) } });
   ok('②b 带 token 上传 201（严格模式）', up.status === 201, `status=${up.status}`);
   const upNo = await fetch(`${B}/api/sop/runs/${st.id}/files`, { method: 'POST', body: (() => { const f2 = new FormData(); f2.append('file', new Blob(['x'], { type: 'text/csv' }), 'n.csv'); return f2; })() });
-  ok('②c 无 token 401（严格仍拦）', upNo.status === 401, `status=${upNo.status}`);
+  ok('②c 无 token 403（严格仍拦）', upNo.status === 403, `status=${upNo.status}`);
   const fin = await fetch(`${B}/api/sop/runs/${st.id}/finish`, { method: 'POST', headers: ADMIN });
   ok('②d 完成 200', fin.status === 200, `status=${fin.status}`);
 } finally { child.kill(); await new Promise((r) => setTimeout(r, 400)); }

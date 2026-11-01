@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** P0 安全冒烟（SOP run 文件写面鉴权三件·总工 direct-c2b55f91/监督席 direct-d111cf20·判据先红后绿）。
- *  ①无 token 无口令 → 401（红版原为 201 直注入）
+ *  ①无 token 无口令 → 403（红版原为 201 直注入）
  *  ②错 run token → 403
  *  ③正确 run token → 201
  *  ④admin 口令（人工作业路径）→ 201
@@ -45,9 +45,9 @@ try {
   ok('⓪ run 开', st.status === 201 && !!runId, `status=${st.status}`);
   const token = String(stj.upload_token ?? '');
   ok('⓪b 启动响应带 upload_token（创建者即得）', token.length >= 32, token.slice(0, 12) || '(空)');
-  // ① 无 token → 401
+  // ① 无 token → 403
   const r1 = await up(runId);
-  ok('① 无 token → 401（红版曾 201 直注入）', r1.status === 401, `status=${r1.status}`);
+  ok('① 无 token → 403（红版曾 201 直注入）', r1.status === 403, `status=${r1.status}`);
   // ② 错 token → 403
   const r2 = await up(runId, { 'X-Run-Upload-Token': 'deadbeef'.repeat(8) });
   ok('② 错 run token → 403', r2.status === 403, `status=${r2.status}`);

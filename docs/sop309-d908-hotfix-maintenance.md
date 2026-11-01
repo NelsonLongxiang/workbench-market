@@ -2,9 +2,15 @@
 
 ## 版本与代码边界
 
-精确d9080a61cd5c6ca7e070cfa64971ffdb342f6f58新分支，只回移#310已验列表metadata白名单/steps、A2A status-note不重发token、管理页取消私有展开与随机新token签发。index仅三个局部：randomBytes签发、MCP list选择源后显式metadata、附件Content-Type固定application/octet-stream；原attachment/nosniff保。没有整覆index，不带main的R3 URL准入/驾驶舱/其他行为变化，不带#296/#308。
+精确d9080a61cd5c6ca7e070cfa64971ffdb342f6f58新分支，只回移#310已验列表metadata白名单/steps、A2A status-note不重发token、管理页取消私有展开与随机新token签发。初版index三个局部：randomBytes签发、MCP list选择源后显式metadata、附件Content-Type固定application/octet-stream；v5另含缺token403与任务中心list最小投影接线，原attachment/nosniff保。没有整覆index，不带main的R3 URL准入/驾驶舱/其他行为变化，不带#296/#308。
 
 单项字段、附件list/download/HEAD匿名读权限本段仍旧，metadata修复不等#309全关闭。附件字节保持/原下载名保持，固定octet-stream不内联解释上传MIME，用户原本attachment下载方式不变；文件内容/MIME只能作为不可信元数据。
+
+## v5维护兼容增量
+
+v4不再作为待批候选。Tasks.tsx的intake/legacy两个表单各自使用本次创建响应upload_token给附件POST带X-Run-Upload-Token，不从列表/他人run取，不降strict。strict1缺token改明确403（旧401拒绝语义仍拒，更新定向契约）。任务中心GET列表taskListView显式metadata白名单，不回payload_json/内部路径/将来新增列；当前UI只消费/api/tasks聚合不读此原列表payload。保id/title/status/time/开关/溯源id，保持状态显示和任务操作需要的元数据。
+
+GET单个task详情/:id目前仓内测试taskcenter-intake/b2/b3使用（需要payload/hash/events等断言），产品UI未发现消费者，仓外未知。本次不擅加第二段授权；详情payload/events仍匿名，明确残余，不能因列表去副本就关闭#309。第二段要同run/任务ACL及可信读面统一收口；本包不带其设计实施。
 
 ## 维护工具（默认dry-run）
 
@@ -36,6 +42,6 @@ sop309-package-start.mjs默认只做包完整性/DB strict1/格式有效running 
 
 ## 合成预演与限制
 
-只在新合成DATA_DIR/HOME/回环随机端口预演control0、metadata、single残余、附件octet-stream/attachment/nosniff、strict0→1、old401/403/new201、UI双模式与失败停新/strict不降/新token保。BEGIN期间/末端故障回滚用内存SQLite，不连真实Redis/真实Odoo，不读生产库/token/backup。
+只在新合成DATA_DIR/HOME/回环随机端口预演control0、metadata、single残余、附件octet-stream/attachment/nosniff、strict0→1、missing403/old403/new201、UI双模式与失败停新/strict不降/新token保。BEGIN期间/末端故障回滚用内存SQLite，不连真实Redis/真实Odoo，不读生产库/token/backup。
 
 完整旧E2E若断言依赖data展开必须对齐metadata；本分支不借main三绿/175章，专属CI与非作者包复核另读；本机不跑密集全E2E。所有包摘要需绑定最终source和UI构建来源。批准前没有生产动作、真实配置/真实令牌轮换、186180停止、网络/LC/.88/WinSW变更。

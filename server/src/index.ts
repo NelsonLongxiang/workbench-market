@@ -1,5 +1,5 @@
 import express from 'express';
-import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskCenterPolicy } from './task-center.ts';
+import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
 import cors from 'cors';
 import { allSurfaceServers, browserMarked, originIsThisSurface, rawLoopback, registerSurface, surfaceOf, surfacePorts, surfaceUrl } from './surfaces.ts';
 import { createProxyMiddleware } from 'http-proxy-middleware';
@@ -1555,7 +1555,7 @@ app.post('/api/sop/runs/:id/files', (req, res, next) => {
       const presented = String(req.headers['x-run-upload-token'] ?? '').trim();
       const expected = String((row as any).upload_token ?? '');
       if (!expected) throw new HttpError(403, '该 run 无上传令牌（旧 run 上传面已关闭）');
-      if (!presented) throw new HttpError(401, '缺少 X-Run-Upload-Token（Runner 页内嵌令牌·人工作业用 admin 口令）');   // T023 修订签 A1：缺令牌=401（错令牌=403·白名单外=400）
+      if (!presented) throw new HttpError(403, '缺少 X-Run-Upload-Token（需本次 run 的上传能力）'); // #309 hotfix: anonymous upload denied
       if (presented !== expected) throw new HttpError(403, '上传令牌不符（run 不匹配或已过期）');
     }
     const existing = (svc<SopService>('sop').runFiles(Number(req.params.id)) as any[]);
@@ -2498,7 +2498,7 @@ app.post('/api/task-center/tasks', (req, res) => {
   res.status(201).json(publishTaskIntake(req.body ?? {}));
 });
 app.get('/api/task-center/tasks', (req, res) => { // 读开放
-  res.json(db.prepare('SELECT * FROM tasks ORDER BY id DESC').all().map(taskView));
+  res.json(db.prepare('SELECT * FROM tasks ORDER BY id DESC').all().map(taskListView));
 });
 app.get('/api/task-center/tasks/:id', (req, res) => {
   const hit = db.prepare('SELECT * FROM tasks WHERE id = ?').get(Number(req.params.id));
