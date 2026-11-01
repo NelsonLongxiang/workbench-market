@@ -47,6 +47,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/sop-space-browser.mjs
+      - name: 设计 token 出口（#321：/design/tokens@1.css 固定路径·SOP 执行页内联变量且不写死色值·与市场同色同字号·自产台示例全走变量）
+        env:
+          PYTHON: python
+        run: node scripts/tokens-surface-smoke.mjs
       # E2E 组 21 的 a2a-smoke 用上游 verifyCard 当裁判：检出公开的 dsh-open-a2a-net（钉提交），A2A_CARD_SRC 指过去
       - uses: actions/checkout@v4
         with:
