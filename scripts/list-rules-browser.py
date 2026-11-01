@@ -3,7 +3,7 @@
 工作台市场 / SOP 列表：状态列固定最左、操作列固定最右、每行直接操作 ≤2（其余在「更多」）、时间为相对时间；
 类型管理：数字列右对齐；技能市场 / MCP 网关：ProTable。"""
 import json, re, sys, urllib.request
-from playwright.sync_api import sync_playwright, expect
+from playwright.sync_api import sync_playwright
 cfg = json.load(open(sys.argv[1]))
 M = cfg['base']
 ok = fail = 0
@@ -22,7 +22,24 @@ def direct_actions(pg, scope):
         out.append(cell.locator('.ant-btn:not([aria-label="更多操作"])').count())
     return out
 
-# UI list rules use an explicitly privileged synthetic fixture, never anonymous production data.
+def open_more(pg, row, tries=4):
+    """点开行的「更多」并读出菜单项。表格首屏会因数据刷新重渲染，把刚打开的下拉关掉（CI 上读到过空）——
+    等表格稳定后再点，并在同一次 JS 求值里确认菜单项可见再读；读不到就关掉重开，最多 tries 次。"""
+    pg.wait_for_load_state('networkidle')
+    for _ in range(tries):
+        row.get_by_role('button', name='更多操作').click()
+        try:
+            h = pg.wait_for_function("""() => {
+              const items = [...document.querySelectorAll('.ant-dropdown:not(.ant-dropdown-hidden) .ant-dropdown-menu-item')]
+                .filter(e => e.offsetParent !== null).map(e => e.innerText.trim()).filter(Boolean);
+              return items.length ? items : null;
+            }""", timeout=3000)
+            return h.json_value()
+        except Exception:
+            pg.keyboard.press('Escape'); pg.wait_for_timeout(300)
+    return []
+
+# Read task rows as the explicitly privileged synthetic fixture, never anonymously.
 api_tasks = json.load(urllib.request.urlopen(urllib.request.Request(M + '/api/tasks', headers={'X-Admin-Token': cfg['token']})))['tasks']
 with sync_playwright() as p:
     b = p.chromium.launch(); pg = b.new_page(viewport={'width': 1440, 'height': 900}); pg.set_default_timeout(10000)
@@ -55,12 +72,8 @@ with sync_playwright() as p:
     check('市场状态列固定最左、操作列固定最右', pg.locator('.wm-page thead th').first.evaluate("e=>e.className").find('fix-left') >= 0 and pg.locator('.wm-page thead th').last.evaluate("e=>e.className").find('fix-right') >= 0)
     da = direct_actions(pg, '.wm-page')
     check(f'市场每行直接操作 ≤2（{da}）', da and max(da) <= 2)
-    pg.locator('.ant-table-row').first.get_by_role('button', name='更多操作').click()
-    # The initial visible match may still be in rc-motion appear-prepare (scale 0 on the next frame).
-    # Assert the required user-visible items directly instead of taking a non-waiting list snapshot.
-    for label in ('检测', '复制工作台', '删除'):
-        expect(pg.get_by_role('menuitem', name=re.compile(r'(?:^|\s)' + re.escape(label) + r'$'))).to_be_visible()
-    check('「更多」里有 检测 / 复制工作台 / 删除', True)
+    items = open_more(pg, pg.locator('.ant-table-row').first)
+    check('「更多」里有 检测 / 复制工作台 / 删除', all(x in items for x in ['检测', '复制工作台', '删除']), items)
     pg.keyboard.press('Escape')
     st = pg.locator('.ant-table-row').first.locator('td').first.inner_text()
     check('市场检测时间为相对时间', bool(REL.search(st)), st)
