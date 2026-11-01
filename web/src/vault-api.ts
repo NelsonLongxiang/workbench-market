@@ -4,7 +4,12 @@ import { getAdminToken } from './admin-token';
 export const VAULT_KINDS = ['login', 'ssh', 'api-key', 'secret', 'oauth', 'cookie', 'card', 'custom'] as const;
 export type VaultKind = (typeof VAULT_KINDS)[number];
 
-export interface VaultStatus { upstream: string; path: string; shared_with_dsh: boolean; exists: boolean; unlocked: boolean; env_password: boolean; idle_lock_minutes: number; count: number | null }
+export interface VaultStatus {
+  upstream: string; path: string; shared_with_dsh: boolean; exists: boolean; unlocked: boolean; env_password: boolean; idle_lock_minutes: number; count: number | null;
+  /** 已解锁库的主密码低于新建库标准（只提示，不强制）；未解锁为 null */
+  weak_master: boolean | null; weak_reasons: string[]; master_policy: { min_length: number; common_list: number };
+}
+export interface MasterCheck { ok: boolean; reasons: string[]; strength: Strength }
 export interface VaultSummary {
   id: string; title: string; kind?: VaultKind; favorite?: boolean; username?: string; email?: string; phone?: string;
   host?: string; port?: string; url?: string; tags?: string[]; icon?: string; hasOtp?: boolean; updatedAt?: number; createdAt?: number;
@@ -27,7 +32,9 @@ export interface VaultEvent { action: string; id?: string; title?: string; at: n
 export class VaultError extends Error {
   status: number;
   code?: string;
-  constructor(status: number, message: string, code?: string) { super(message); this.status = status; this.code = code; }
+  /** vault_weak_master：新建库被拒的逐条原因 */
+  reasons?: string[];
+  constructor(status: number, message: string, code?: string, reasons?: string[]) { super(message); this.status = status; this.code = code; this.reasons = reasons; }
 }
 
 async function vreq<T>(url: string, init: RequestInit = {}): Promise<T> {
@@ -37,8 +44,8 @@ async function vreq<T>(url: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(url, { ...init, headers, cache: 'no-store' });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const b = body as { error?: string; code?: string };
-    throw new VaultError(res.status, b.error || `HTTP ${res.status}`, b.code);
+    const b = body as { error?: string; code?: string; reasons?: string[] };
+    throw new VaultError(res.status, b.error || `HTTP ${res.status}`, b.code, b.reasons);
   }
   return body as T;
 }
@@ -46,7 +53,8 @@ const post = (body?: unknown): RequestInit => ({ method: 'POST', body: JSON.stri
 
 export const vaultApi = {
   status: () => vreq<VaultStatus>('/api/vault/status'),
-  unlock: (password: string) => vreq<{ unlocked: boolean; count: number }>('/api/vault/unlock', post({ password })),
+  unlock: (password: string) => vreq<{ unlocked: boolean; count: number; weak_master: boolean; weak_reasons: string[] }>('/api/vault/unlock', post({ password })),
+  masterCheck: (password: string) => vreq<MasterCheck>('/api/vault/master-check', post({ password })),
   lock: () => vreq<{ unlocked: boolean }>('/api/vault/lock', post()),
   list: (params: Record<string, string> = {}) => vreq<{ entries: VaultSummary[]; stats: VaultStats }>(`/api/vault/entries?${new URLSearchParams(params)}`),
   get: (id: string) => vreq<VaultEntry>(`/api/vault/entries/${encodeURIComponent(id)}`),
