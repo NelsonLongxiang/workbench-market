@@ -64,7 +64,7 @@ mkdirSync(join(fixture,'server/data'));const db=new DatabaseSync(join(fixture,'s
 execFileSync(process.execPath,['scripts/gen-verifier.mjs'],{cwd:fixture,stdio:'pipe'});
 const material=readFileSync(join(fixture,'verify/material.md'),'utf8').trim().split('\n');const candidates=JSON.parse(readFileSync(join(fixture,'verify/candidates.json'))).candidates;const reviews=JSON.parse(readFileSync(join(fixture,'verify/reviews.json'))).reviews;
 check('175 stable numbered material/candidate/review rows',()=>{assert.equal(material.length,175);assert.equal(candidates.length,175);assert.equal(reviews.length,175);for(let i=0;i<175;i++){assert.ok(material[i].startsWith('判据'+(i+1)+'：'));assert.equal(candidates[i].source_clause,material[i]);assert.equal(reviews[i].source_clause,material[i]);assert.equal(candidates[i].anchor.quote,material[i]);}});
-check('explicit new material version',()=>{const v=JSON.parse(readFileSync(join(fixture,'verify/material-version.json')));assert.equal(v.version,'v69.4');assert.equal(v.supersedes,'v69.3');assert.deepEqual(v.changed_criteria,[36,37,38,39,40,43,87,132]);});
+check('explicit new material version',()=>{const v=JSON.parse(readFileSync(join(fixture,'verify/material-version.json')));assert.equal(v.version,'v69.5');assert.equal(v.supersedes,'v69.4');assert.deepEqual(v.changed_criteria,[46,47,48,49]);});
 const extraction=[];
 for(const [name,p,f,want]of variants){
  writeFileSync(join(fixture,'web/src/pages/UseWorkbench.tsx'),p);writeFileSync(join(fixture,'web/src/components/GoFrame.tsx'),f);
