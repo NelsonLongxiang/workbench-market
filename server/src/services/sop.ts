@@ -2,6 +2,13 @@
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
 
+/** #309 public run-list contract: explicit metadata only, never spread stored rows. */
+function runMetadata(row:any) {
+  if(!row)return row;
+  let steps=Number.isSafeInteger(row.steps)&&row.steps>=0?row.steps:0;try{const data=JSON.parse(row.data??'{}');if(row.data!==undefined&&data&&typeof data==='object'&&!Array.isArray(data))steps=Object.keys(data).length;}catch{ /* malformed historical data is not returned */ }
+  return {id:row.id,sop_slug:row.sop_slug,sop_version:row.sop_version,status:row.status,started_by:row.started_by,started_at:row.started_at,updated_at:row.updated_at,finished_at:row.finished_at,steps};
+}
+
 export class SopService extends Service {
   constructor(ctx: any) {
     super(ctx, 'sop');
@@ -14,7 +21,7 @@ export class SopService extends Service {
     return db.prepare('SELECT * FROM sop_runs WHERE id = ?').get(id);
   }
   runByIdRunning(id: number) {
-    return db.prepare('SELECT * FROM sop_runs WHERE id = ? AND status = ?').get(id, 'running');
+    return runMetadata(db.prepare('SELECT * FROM sop_runs WHERE id = ? AND status = ?').get(id, 'running'));
   }
   runStatusData(id: number) {
     return db.prepare('SELECT status, data FROM sop_runs WHERE id = ?').get(id);
@@ -23,10 +30,10 @@ export class SopService extends Service {
     return db.prepare("UPDATE sop_runs SET data = ?, updated_at = datetime('now') WHERE id = ?").run(data, id);
   }
   runsBySlug(slug: string) {
-    return db.prepare('SELECT * FROM sop_runs WHERE sop_slug = ? ORDER BY id DESC').all(slug);
+    return db.prepare('SELECT * FROM sop_runs WHERE sop_slug = ? ORDER BY id DESC').all(slug).map(runMetadata);
   }
   runsRecent(limit: number) {
-    return db.prepare('SELECT * FROM sop_runs ORDER BY id DESC LIMIT ?').all(limit);
+    return db.prepare('SELECT * FROM sop_runs ORDER BY id DESC LIMIT ?').all(limit).map(runMetadata);
   }
   runUpdateData(id: number, data: string) {
     return db.prepare(`UPDATE sop_runs SET data = ?, updated_at = datetime('now') WHERE id = ?`).run(data, id);
@@ -35,13 +42,13 @@ export class SopService extends Service {
     return db.prepare(`UPDATE sop_runs SET status = 'finished', data = ?, finished_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(data, id);
   }
   runsDispatchedAll() {
-    return db.prepare('SELECT r.id, r.sop_slug, r.started_by, r.status, r.updated_at FROM sop_runs r JOIN a2a_run_ctx c ON c.run_id = r.id GROUP BY r.id ORDER BY r.updated_at DESC').all();
+    return db.prepare('SELECT r.* FROM sop_runs r JOIN a2a_run_ctx c ON c.run_id = r.id GROUP BY r.id ORDER BY r.updated_at DESC').all().map(runMetadata);
   }
   runsDispatched() {
-    return db.prepare("SELECT r.* FROM sop_runs r JOIN a2a_run_ctx c ON c.run_id = r.id WHERE r.status = 'running' GROUP BY r.id ORDER BY r.updated_at DESC").all();
+    return db.prepare("SELECT r.* FROM sop_runs r JOIN a2a_run_ctx c ON c.run_id = r.id WHERE r.status = 'running' GROUP BY r.id ORDER BY r.updated_at DESC").all().map(runMetadata);
   }
   runsRunning() {
-    return db.prepare("SELECT * FROM sop_runs WHERE status = 'running' ORDER BY updated_at DESC").all();
+    return db.prepare("SELECT * FROM sop_runs WHERE status = 'running' ORDER BY updated_at DESC").all().map(runMetadata);
   }
   activeBindingCount() {
     return db.prepare("SELECT COUNT(*) AS n FROM bindings WHERE target_type = 'sop' AND revoked_at = ''").get();
@@ -62,7 +69,7 @@ export class SopService extends Service {
     return db.prepare("SELECT mode FROM sop_bindings WHERE sop_slug = ? AND node = ? AND revoked_at = ''").get(slug, node);
   }
   runsQuery(sql: string, args: unknown[]) {
-    return db.prepare(sql).all(...(args as never[]));
+    return db.prepare(sql).all(...(args as never[])).map(runMetadata);
   }
   // ---- P4 交付物（product/run-delivery F1-F4） ----
   runFileInsert(r: { runId: number; name: string; mime: string; size: number; storagePath: string; createdBy: string }) {
