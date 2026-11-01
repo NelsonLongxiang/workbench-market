@@ -82,6 +82,7 @@ window.__SOP__ = ${boot};
   var BOOT = window.__SOP__;
   var runId = null;
   var runUploadToken = ''; // #page-wire：run 级上传令牌（创建响应/本机存档）
+  var runReadCap = ''; // #309 phase2：run 级读能力（创建响应即得/本机存档；恢复与附件读取用）
   var timers = {};
   var LS = 'wm.sop.run.' + BOOT.slug;
   function $(s, el) { return (el || document).querySelector(s); }
@@ -151,12 +152,22 @@ window.__SOP__ = ${boot};
         v.textContent = typeof extra[k] === 'string' ? extra[k] : JSON.stringify(extra[k], null, 2);
         row.appendChild(t); row.appendChild(v); dataBox.appendChild(row);
       });
-      fetch('/api/sop/runs/' + run.id + '/files').then(function (r) { return r.ok ? r.json() : { items: [] }; }).then(function (j) {
+      var fh = runReadCap ? { headers: { 'X-Run-Read-Capability': runReadCap } } : {};
+      fetch('/api/sop/runs/' + run.id + '/files', fh).then(function (r) {
+        if (r.status === 403) { fileBox.textContent = ''; var fn2 = document.getElementById('extras-note'); if (fn2) fn2.textContent = '附件需要读授权（旧记录或无凭据）'; return { items: [] }; }
+        return r.ok ? r.json() : { items: [] };
+      }).then(function (j) {
         fileBox.textContent = '';
         (j.items || []).forEach(function (f) {
           var li = document.createElement('li');
           var a = document.createElement('a');
           a.href = f.url; a.textContent = f.original_name + ' (' + Math.round(f.size / 1024) + ' KB)';
+          // #309 phase2：cap 持有者点链下载——带读能力取流再存（普通导航带不了自定义头）
+          if (runReadCap) { a.href = '#'; a.addEventListener('click', function (ev) { ev.preventDefault();
+            fetch(f.url, { headers: { 'X-Run-Read-Capability': runReadCap } }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); }).then(function (b) {
+              var u = URL.createObjectURL(b); var d = document.createElement('a'); d.href = u; d.download = f.original_name || 'file'; d.click(); setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
+            }).catch(function (e) { setState('附件下载失败：' + e.message); });
+          }); }
           li.appendChild(a); fileBox.appendChild(li);
         });
         var hasData = Object.keys(extra).length > 0;
@@ -174,8 +185,10 @@ window.__SOP__ = ${boot};
     var resume = saved && saved.id && saved.status === 'running' ? saved.id : null;
     if (BOOT.pinRun) resume = BOOT.pinRun; // #263：统一待办 ?run=<id> 精确定位该记录，优先于 localStorage
     window.__wmPinnedRun = resume; // 供状态呈现判断（只读定位不改写入权限）
+    var resumeCap = '';
+    try { var rc = JSON.parse(localStorage.getItem(LS + '.rcap') || 'null'); if (rc && rc.id === resume) resumeCap = String(rc.c || ''); } catch (e) {}
     var p = resume
-      ? fetch('/api/sop/runs/' + resume).then(function (r) { return r.ok ? r.json() : null; })
+      ? fetch('/api/sop/runs/' + resume, resumeCap ? { headers: { 'X-Run-Read-Capability': resumeCap } } : {}).then(function (r) { return r.ok ? r.json() : null; })
       : fetch('/api/sop/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: BOOT.slug }) }).then(function (r) { return r.json(); });
     p.then(function (run) {
       if (!run || !run.id) { setState('开启执行记录失败'); return; }
@@ -184,6 +197,10 @@ window.__SOP__ = ${boot};
       runUploadToken = String(run.upload_token || '');
       if (!runUploadToken) { try { var prevTok = JSON.parse(localStorage.getItem(LS + '.tok') || 'null'); if (prevTok && prevTok.id === run.id) runUploadToken = String(prevTok.t || ''); } catch (e) {} }
       if (runUploadToken) { try { localStorage.setItem(LS + '.tok', JSON.stringify({ id: run.id, t: runUploadToken })); } catch (e) {} }
+      // #309 phase2：读能力接线——创建响应即得；恢复场景读本机存档（同浏览器同 run）
+      runReadCap = String(run.read_capability || resumeCap || '');
+      if (!runReadCap) { try { var prevRc = JSON.parse(localStorage.getItem(LS + '.rcap') || 'null'); if (prevRc && prevRc.id === run.id) runReadCap = String(prevRc.c || ''); } catch (e) {} }
+      if (runReadCap) { try { localStorage.setItem(LS + '.rcap', JSON.stringify({ id: run.id, c: runReadCap })); } catch (e) {} }
       var ub = document.getElementById('upload-btn'); if (ub) ub.disabled = false;
       var un2 = document.getElementById('upload-note'); if (un2) un2.textContent = runUploadToken ? '' : '（无令牌：严格模式下需管理员口令或重开执行）';
       localStorage.setItem(LS, JSON.stringify({ id: run.id, status: 'running' }));
@@ -198,6 +215,7 @@ window.__SOP__ = ${boot};
       });
       $('#finish').disabled = run.status !== 'running';
       if (run.status === 'finished') { setState('已完成——冻结录入（只读）'); document.querySelectorAll('[data-field]').forEach(function (el) { el.disabled = true; }); }
+      else if (run.private_read === 'authorization-required' || !run.data) { setState(runReadCap ? '' : '此记录需读授权（旧记录或无凭据）——已回退本地缓冲'); }
       else { setState('执行中——数据自动保存'); }
       void renderAgentExtras(run);
     }).catch(function () { setState('无法连接市场服务——填写仍会缓冲本地'); });
