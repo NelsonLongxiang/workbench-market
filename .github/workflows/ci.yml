@@ -39,7 +39,7 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/admin-token-browser.mjs
-      - name: 侧栏五组菜单 + 页面骨架浏览器回归（#316 分组·管理组口令可见且默认折叠·对比度·专属图标·旧路由；#317 PageContainer·标题·面包屑·主操作≤1）
+      - name: 侧栏菜单 + 页面骨架 + 列表规则浏览器回归（#316 分组·管理组口令可见·对比度·旧路由；#317 PageContainer·面包屑·主操作≤1；#319 ProTable·待办全部可读且 ID 不重复·状态最左·直接操作≤2·相对时间）
         env:
           PYTHON: python
         run: node scripts/sider-menu-browser.mjs
