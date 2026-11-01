@@ -212,7 +212,7 @@ async function startServer(extraEnv = {}, { expectExit = false } = {}) {
   const port = 21000 + Math.floor(Math.random() * 18000);
   const data = extraEnv.DATA_DIR ?? mkdtempSync(join('tmp', 'r3-allow-'));
   if (!extraEnv.DATA_DIR) tmps.push(data);
-  const env = { ...process.env, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, MCP_GATEWAY: '', ADMIN_TOKEN: 'r3-test', R3_FIXTURE_FAIL_FLAG: join(data, '.fail-audit'), ...extraEnv };
+  const env = { ...process.env, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, MCP_GATEWAY: 'off', ADMIN_TOKEN: 'r3-test', R3_FIXTURE_FAIL_FLAG: join(data, '.fail-audit'), ...extraEnv };
   for (const k of ['ALLOW_PUBLIC_NET', 'WM_REGISTER_URL_ALLOWLIST']) if (!(k in extraEnv)) delete env[k];
   const child = spawn(process.execPath, ['--import', pathToFileURL(preload).href, '--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   const s = { child, port, data, base: `http://127.0.0.1:${port}`, out: '', err: '' };

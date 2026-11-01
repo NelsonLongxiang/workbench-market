@@ -51,7 +51,7 @@ rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const startSrv = (extraEnv = {}) => spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server',
-  env: { ...process.env, MCP_GATEWAY: '', PORT: String(PORT), DATA_DIR: `../${DATA}`, REDIS_URL: '', ...extraEnv },
+  env: { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: `../${DATA}`, REDIS_URL: '', ...extraEnv },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 

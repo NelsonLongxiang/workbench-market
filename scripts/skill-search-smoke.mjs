@@ -34,7 +34,7 @@ rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: tru
 { const { DatabaseSync } = await import('node:sqlite'); const db = new DatabaseSync('server/data/workbench-market.db', { readOnly: true }); db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`); db.close(); }
 for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`server/data/${d}`, `${DATA}/${d}`, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
-  cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: '', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'ss', EVAL_GATEWAY_URL: `http://127.0.0.1:${GW}/v4/ai/evaluation-model`, AI_GATEWAY_API_KEY: 'vck_test' }, stdio: 'ignore',
+  cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'ss', EVAL_GATEWAY_URL: `http://127.0.0.1:${GW}/v4/ai/evaluation-model`, AI_GATEWAY_API_KEY: 'vck_test' }, stdio: 'ignore',
 });
 const B = `http://127.0.0.1:${PORT}`;
 const mcp = async (name, args) => { const r = await fetch(`${B}/mcp`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }), signal: AbortSignal.timeout(20000) }); const j = await r.json().catch(() => ({})); let payload = {}; try { payload = JSON.parse(j.result?.content?.[0]?.text ?? '{}'); } catch {} return { j, payload }; };

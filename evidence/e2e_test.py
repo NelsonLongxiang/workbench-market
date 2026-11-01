@@ -1001,7 +1001,7 @@ with sync_playwright() as p:
         assert fl['count'] == 0 and fl['slug'] == 'e2e-mcp-app', f'app_files_list 异常: {fl}'
         # 清理（走 REST）
         api(page, 'DELETE', '/api/apps/e2e-mcp-app', {'reviewed_by': 'e2e-cleanup'}); api(page, 'DELETE', '/api/apps/e2e-mcp-sop', {'reviewed_by': 'e2e-cleanup'})
-        # C6: MCP 网关 P1（GH #20）——主实例 MCP_GATEWAY 未设（off=现状行为），网关语义走独立实例冒烟
+        # C6: MCP 网关 P1（GH #20）——主实例由跑器显式 MCP_GATEWAY=off（#284 起未设=开），网关语义走独立实例冒烟
         j = mcp('tools/list').json()
         assert len(j['result']['tools']) >= 17, 'off 模式 tools/list 应含全量本地 17（网关默认关）'
         import subprocess as _sp2, os as _os4
