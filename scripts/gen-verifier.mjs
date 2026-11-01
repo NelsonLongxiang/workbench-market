@@ -76,20 +76,20 @@ const U = [
   { c: "判据34：封装提交物必须包含 evidence/e2e_test.py。", t: "E2E 脚本存在", s: "S1", ck: file("evidence/e2e_test.py", 1), rv: ["判据原文逐字取自冻结材料，端到端测试脚本在位。", "精确路径 glob。", "删除即 FAIL。"] },
   { c: "判据35：封装提交物 evidence 目录下的 PNG 截图证据不少于 10 张。", t: "UI 证据下限", s: "S3", ck: file("evidence/*.png", 10), rv: ["判据原文逐字取自冻结材料，UI 证据资产下限。", "目录 glob 计数 >=10。", "清理截图即 FAIL。"] },
   // ── 颜色可见性（经对比度审计的色值钉位；内容由 make-submission 提取进快照 verifier_text_facts 表，sql/exists 断言） ──
-  { c: "判据36：main.tsx 主题必须包含主色值「#1E3A5F」。", t: "主色 token 钉位", s: "S2", ck: existsFact("web/src/main.tsx","#1E3A5F"), rv: ["判据原文逐字取自冻结材料，主色为设计系统脊柱。", "提取表三条件 exists 精确判定。", "改主题色提取为 0 即 FAIL。"] },
-  { c: "判据37：main.tsx 主题必须包含次级文字色值「#5A6577」。", t: "次级文字对比达标色", s: "S1", ck: existsFact("web/src/main.tsx","#5A6577"), rv: ["判据原文逐字取自冻结材料，该值经浅底 5.9:1 审计修复。", "提取表三条件 exists 精确判定。", "回退旧色提取为 0 即 FAIL。"] },
-  { c: "判据38：main.tsx 主题必须包含成功色值「#059669」。", t: "成功色 token 钉位", s: "S3", ck: existsFact("web/src/main.tsx","#059669"), rv: ["判据原文逐字取自冻结材料，在线绿图形用色 3.77:1 达图形标准。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
-  { c: "判据39：main.tsx 主题必须包含错误色值「#DC2626」。", t: "错误色 token 钉位", s: "S2", ck: existsFact("web/src/main.tsx","#DC2626"), rv: ["判据原文逐字取自冻结材料，错误红文字级 4.83:1 达标。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
-  { c: "判据40：App.tsx 侧栏 token 必须包含深底色值「#0F172A」。", t: "侧栏深底钉位", s: "S2", ck: existsFact("web/src/App.tsx","#0F172A"), rv: ["判据原文逐字取自冻结材料，深色导航背景与白字标题配对。", "提取表三条件 exists 精确判定。", "改底色提取为 0 即 FAIL。"] },
+  { c: "判据36：tokens.css 必须包含主色变量「--wm-color-primary: #1E3A5F;」。", t: "主色 token 钉位", s: "S2", ck: existsFact("web/src/tokens.css","--wm-color-primary: #1E3A5F;"), rv: ["判据原文逐字取自冻结材料，主色为设计系统脊柱；v69.4 起唯一来源为 DESIGN.md 生成的 tokens.css（#315，main.tsx 主题从同一份 token 映射）。", "提取表三条件 exists 精确判定。", "改主题色提取为 0 即 FAIL。"] },
+  { c: "判据37：tokens.css 必须包含次级文字色变量「--wm-color-text-secondary: #5A6577;」。", t: "次级文字对比达标色", s: "S1", ck: existsFact("web/src/tokens.css","--wm-color-text-secondary: #5A6577;"), rv: ["判据原文逐字取自冻结材料，该值经浅底 5.9:1 审计修复；v69.4 起唯一来源为 tokens.css（#315）。", "提取表三条件 exists 精确判定。", "回退旧色提取为 0 即 FAIL。"] },
+  { c: "判据38：tokens.css 必须包含成功色变量「--wm-color-success: #047857;」。", t: "成功色 token 钉位", s: "S3", ck: existsFact("web/src/tokens.css","--wm-color-success: #047857;"), rv: ["判据原文逐字取自冻结材料，属主定稿 DESIGN.md v1.0.0 把成功色由 #059669（白字 3.77:1）改为 #047857（白字 5.48:1，达 AA）；唯一来源 tokens.css（#315）。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
+  { c: "判据39：tokens.css 必须包含错误色变量「--wm-color-danger: #DC2626;」。", t: "错误色 token 钉位", s: "S2", ck: existsFact("web/src/tokens.css","--wm-color-danger: #DC2626;"), rv: ["判据原文逐字取自冻结材料，错误红文字级 4.83:1 达标；v69.4 起唯一来源为 tokens.css（#315）。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
+  { c: "判据40：tokens.css 必须包含侧栏深底变量「--wm-color-nav-bg: #0F172A;」。", t: "侧栏深底钉位", s: "S2", ck: existsFact("web/src/tokens.css","--wm-color-nav-bg: #0F172A;"), rv: ["判据原文逐字取自冻结材料，深色导航背景与白字标题配对；v69.4 起侧栏取 nav-* token（#316），唯一来源 tokens.css。", "提取表三条件 exists 精确判定。", "改底色提取为 0 即 FAIL。"] },
   { c: "判据41：index.css 必须包含焦点环色值「rgba(5, 150, 105, 0.6)」。", t: "焦点环可见", s: "S1", ck: existsFact("web/src/index.css","rgba(5, 150, 105, 0.6)"), rv: ["判据原文逐字取自冻结材料，focus-visible 焦点环是键盘可访问性必需。", "提取表三条件 exists 精确判定。", "删焦点环提取为 0 即 FAIL。"] },
   { c: "判据42：index.css 必须包含选中边框色值「rgba(5, 150, 105, 0.45)」。", t: "选中边框钉位", s: "S3", ck: existsFact("web/src/index.css","rgba(5, 150, 105, 0.45)"), rv: ["判据原文逐字取自冻结材料，卡片选中态边框色。", "提取表三条件 exists 精确判定。", "改边框提取为 0 即 FAIL。"] },
-  { c: "判据43：App.tsx 标题区必须包含强调色值「#059669」。", t: "标题强调色钉位", s: "S3", ck: existsFact("web/src/App.tsx","#059669"), rv: ["判据原文逐字取自冻结材料，深底上的 emerald 标题图标。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
+  { c: "判据43：App.tsx 标题区图标必须取成功色 token「color: T.colors.success」。", t: "标题强调色钉位", s: "S3", ck: existsFact("web/src/App.tsx","color: T.colors.success"), rv: ["判据原文逐字取自冻结材料，深底上的标题图标；v69.4 起不再写死色值，改取 DESIGN.md 成功色 token（#316）。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
   { c: "判据44：设计规范 MASTER.md 必须包含主色值「#1E3A5F」。", t: "规范主色钉位", s: "S3", ck: existsFact("design-system/workbench-market/MASTER.md","#1E3A5F"), rv: ["判据原文逐字取自冻结材料，规范单一事实源钉主色。", "提取表三条件 exists 精确判定。", "删 token 提取为 0 即 FAIL。"] },
   { c: "判据45：设计规范 MASTER.md 必须包含次级文字审计色值「#5A6577」。", t: "规范审计色钉位", s: "S3", ck: existsFact("design-system/workbench-market/MASTER.md","#5A6577"), rv: ["判据原文逐字取自冻结材料，对比度实测表记录修复色。", "提取表三条件 exists 精确判定。", "删记录提取为 0 即 FAIL。"] },
-  { c: "判据46：Dashboard.tsx 统计标签必须包含次级色值「#5A6577」。", t: "统计标签次级色钉位", s: "S2", ck: existsFact("web/src/pages/Dashboard.tsx","#5A6577"), rv: ["判据原文逐字取自冻结材料，统计标签用次级审计色。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
-  { c: "判据47：Dashboard.tsx 在线环必须包含成功色值「#059669」。", t: "在线环色钉位", s: "S2", ck: existsFact("web/src/pages/Dashboard.tsx","#059669"), rv: ["判据原文逐字取自冻结材料，在线率环用 emerald。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
-  { c: "判据48：Dashboard.tsx 离线卡必须包含错误色值「#DC2626」。", t: "离线卡色钉位", s: "S2", ck: existsFact("web/src/pages/Dashboard.tsx","#DC2626"), rv: ["判据原文逐字取自冻结材料，离线数字用错误红。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
-  { c: "判据49：Dashboard.tsx 辅助文字必须包含轴色值「#94A3B8」。", t: "辅助轴色钉位", s: "S3", ck: existsFact("web/src/pages/Dashboard.tsx","#94A3B8"), rv: ["判据原文逐字取自冻结材料，辅助轴文字用 slate。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
+  { c: "判据46：index.css 统计标签必须取次级文字色变量「color: var(--wm-color-text-secondary);」。", t: "统计标签次级色钉位", s: "S2", ck: existsFact("web/src/index.css","color: var(--wm-color-text-secondary);"), rv: ["判据原文逐字取自冻结材料，统计标签用次级审计色（#5A6577，5.9:1）；v69.5 起取 DESIGN.md 变量（#320 看板卡片不再写死色值）。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
+  { c: "判据47：index.css 在线图形必须取成功色变量「.wm-fill-success { background: var(--wm-color-success); }」。", t: "在线环色钉位", s: "S2", ck: existsFact("web/src/index.css",".wm-fill-success { background: var(--wm-color-success); }"), rv: ["判据原文逐字取自冻结材料，在线图形用成功色；v69.5 起在线环改为趋势卡柱条，色值取 DESIGN.md 成功色变量（#047857，属主定稿）。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
+  { c: "判据48：index.css 离线数字必须取错误文字色变量「.wm-tone-danger { color: var(--wm-color-danger-text); }」。", t: "离线卡色钉位", s: "S2", ck: existsFact("web/src/index.css",".wm-tone-danger { color: var(--wm-color-danger-text); }"), rv: ["判据原文逐字取自冻结材料，离线数字用错误红；v69.5 起指标卡写字用 danger-text 变量（DESIGN.md：写字用 *-text）。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
+  { c: "判据49：index.css 趋势图轴线必须取强调线变量「border-left: 1px solid var(--wm-color-border-strong);」。", t: "辅助轴色钉位", s: "S3", ck: existsFact("web/src/index.css","border-left: 1px solid var(--wm-color-border-strong);"), rv: ["判据原文逐字取自冻结材料，辅助轴用 slate；v69.5 起轴线取 border-strong 变量（DESIGN.md：#94A3B8 只给禁用态与占位符，不写有效信息）。", "提取表三条件 exists 精确判定。", "改色提取为 0 即 FAIL。"] },
   { c: "判据50：index.css 必须包含主色淡底色值「rgba(30, 58, 95, 0.1)」。", t: "主色淡底钉位", s: "S3", ck: existsFact("web/src/index.css","rgba(30, 58, 95, 0.1)"), rv: ["判据原文逐字取自冻结材料，navy 主色 10% 淡底。", "提取表三条件 exists 精确判定。", "改值提取为 0 即 FAIL。"] },
   { c: "判据51：index.css 必须包含深底色值「#0f172a」。", t: "css 深底钉位", s: "S3", ck: existsFact("web/src/index.css","#0f172a"), rv: ["判据原文逐字取自冻结材料，样式侧深底 token。", "提取表三条件 exists 精确判定。", "改值提取为 0 即 FAIL。"] },
   // ── E2E 行为证据（经 verifier_e2e_summary 提取表，源自 e2e_test.py 落盘的 evidence/e2e-summary.json） ──
@@ -136,7 +136,7 @@ const U = [
   // ── SOP 管理页（/sops：状态徽章 + 版本链 + run 记录——SOP 台的消费与管理面） ──
   { c: "判据85：封装提交物必须包含 web/src/pages/Sops.tsx。", t: "SOP 管理页存在", s: "S1", ck: file("web/src/pages/Sops.tsx", 1), rv: ["判据原文逐字取自冻结材料，SOP 管理页（状态机操作/记录查看）在位。", "精确路径 glob。", "删除即 FAIL。"] },
   { c: "判据86：web/src/pages/Sops.tsx 必须包含状态语义表「SOP_STATUS」。", t: "SOP 状态徽章钉位", s: "S1", ck: existsFact("web/src/pages/Sops.tsx", "SOP_STATUS"), rv: ["判据原文逐字取自冻结材料，draft/published/deprecated 徽章（色值经对比度审计）由单一语义表驱动。", "提取表三条件 exists 精确判定。", "删语义表提取为 0 即 FAIL。"] },
-  { c: "判据87：web/src/App.tsx 必须包含 SOP 路由「path: '/sops'」。", t: "SOP 路由钉位", s: "S1", ck: existsFact("web/src/App.tsx", "path: '/sops'"), rv: ["判据原文逐字取自冻结材料，侧栏菜单与路由表挂载 SOP 管理页。", "提取表三条件 exists 精确判定。", "删路由提取为 0 即 FAIL。"] },
+  { c: "判据87：web/src/nav.tsx 必须包含 SOP 路由「path: '/sops'」。", t: "SOP 路由钉位", s: "S1", ck: existsFact("web/src/nav.tsx", "path: '/sops'"), rv: ["判据原文逐字取自冻结材料，侧栏菜单与路由表挂载 SOP 管理页；v69.4 起菜单数据的唯一来源是 nav.tsx（#317）。", "提取表三条件 exists 精确判定。", "删路由提取为 0 即 FAIL。"] },
   { c: "判据88：evidence/e2e_test.py 必须包含演示 SOP 字面量「demo-rack-sop」。", t: "演示 SOP 常驻钉位", s: "S2", ck: existsFact("evidence/e2e_test.py", "demo-rack-sop"), rv: ["判据原文逐字取自冻结材料，E2E 实测 /sops 页并要求演示 SOP（demo-rack-sop）常驻可见。", "提取表三条件 exists 精确判定。", "删演示或用例提取为 0 即 FAIL。"] },
   // ── 凭据面防泄露（监督席派单 direct-30b57179：列表掩码 + 掩码回传保护） ──
   { c: "判据89：server/src/index.ts 必须包含列表掩码函数「maskSensitiveQuery」。", t: "API token 掩码钉位", s: "S1", ck: existsFact("server/src/index.ts", "maskSensitiveQuery"), rv: ["判据原文逐字取自冻结材料，无认证 API 响应（列表与详情同策略）对 url query 敏感参数（token/password/secret/api_key 等）掩码防浏览泄露；代理侧 DB 直读不受影响。", "提取表三条件 exists 精确判定。", "删掩码函数提取为 0 即 FAIL。"] },
@@ -196,7 +196,7 @@ const U = [
   { c: "判据130：scripts/gateway-smoke.mjs 必须包含网关行为锚「WWW-Authenticate」。", t: "网关行为断言钉位", s: "S1", ck: existsFact("scripts/gateway-smoke.mjs", "WWW-Authenticate"), rv: ["判据原文逐字取自冻结材料，独立实例 24 项：控制面 403/token 一次性/重名坏名 400/列表无 token/grants 校验过滤/401+WWW-Authenticate/未授权=不存在同应答/审计 args_sha256 无原文/401 不入审计/last_used_at/软吊销即时失效。", "提取表三条件 exists 精确判定。", "删断言提取为 0 即 FAIL。"] },
   // ── MCP 网关管理页 + ADMIN_TOKEN 插槽（GH #20 P1 派单①②补充） ──
   { c: "判据131：web/src/pages/McpGateways.tsx 必须包含管理页语义锚「默认拒绝」。", t: "网关管理页钉位", s: "S1", ck: existsFact("web/src/pages/McpGateways.tsx", "默认拒绝"), rv: ["判据原文逐字取自冻结材料，管理页五区（口令输入/新建会话/会话表/grants 编辑器/审计查看器）全走既有五端点无新后端；token 一次性 Modal 提示。", "提取表三条件 exists 精确判定。", "删管理页提取为 0 即 FAIL。"] },
-  { c: "判据132：web/src/App.tsx 必须包含管理页路由「'/mcp-gateways'」。", t: "网关路由钉位", s: "S1", ck: existsFact("web/src/App.tsx", "'/mcp-gateways'"), rv: ["判据原文逐字取自冻结材料，侧栏菜单与路由表挂载网关管理页。", "提取表三条件 exists 精确判定。", "删路由提取为 0 即 FAIL。"] },
+  { c: "判据132：web/src/nav.tsx 必须包含管理页路由「'/mcp-gateways'」。", t: "网关路由钉位", s: "S1", ck: existsFact("web/src/nav.tsx", "'/mcp-gateways'"), rv: ["判据原文逐字取自冻结材料，侧栏菜单与路由表挂载网关管理页；v69.4 起菜单数据的唯一来源是 nav.tsx（#317）。", "提取表三条件 exists 精确判定。", "删路由提取为 0 即 FAIL。"] },
   { c: "判据133：ADMIN-TOKEN-SETUP.md 必须包含主人操作锚「setx ADMIN_TOKEN」。", t: "ADMIN_TOKEN 插槽钉位", s: "S2", ck: existsFact("ADMIN-TOKEN-SETUP.md", "setx ADMIN_TOKEN"), rv: ["判据原文逐字取自冻结材料，主人操作指南（生成/设入/重启/验证 + DSH 连接器升级 + 三启动路径插槽状态）——值不进任何 agent 可读文件（#17 修订 3 诚实约束）。", "提取表三条件 exists 精确判定。", "删指南提取为 0 即 FAIL。"] },
   // ── Cookie 池（派单 direct-5fbb2176：web 型外部台 cookie 认证——导入/挂接/注入/过滤） ──
   { c: "判据134：server/src/index.ts 必须包含 cookie 池表「cookie_sets」。", t: "Cookie 池表钉位", s: "S1", ck: existsFact("server/src/services/cookie.ts", "cookie_sets"), rv: ["判据原文逐字取自冻结材料，Cookie 池（浏览器扩展标准导出导入）+ 工作台挂接 cookie_set_id + /go/ 代理 proxyReq 按目标 host 域匹配+未过期过滤→Cookie 头替换注入；value 明文不回任何 API（逐条掩码）。", "提取表三条件 exists 精确判定。", "删池表提取为 0 即 FAIL。"] },
@@ -267,7 +267,7 @@ const U = [
 ];
 
 // ── 产出三件套 ────────────────────────────────────────────────────────────────
-const header = `workbench-market 开发验证器 v69.3（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写 + 运行时批整改 + 卫生批整改 + A2A 网络接入 P1+P2 + Agent 执行数据面 + 导出脱敏 + 注册 CRUD MCP 化 + 破坏性测试隔离 + 工具清单一致 + 安全批双锚 + MCP 网关 P1 + 网关管理页与 ADMIN_TOKEN 插槽）
+const header = `workbench-market 开发验证器 v69.5（全面覆盖矩阵 + 渲染层对比度 + 驾驶舱 + 统一门户 + 台生成器 + 凭据注入 + WS 升级 + SOP 台 + MCP 生产通道 + SOP 管理页 + 凭据面防泄露 + 安全批整改 + 门户 Location 改写 + 运行时批整改 + 卫生批整改 + A2A 网络接入 P1+P2 + Agent 执行数据面 + 导出脱敏 + 注册 CRUD MCP 化 + 破坏性测试隔离 + 工具清单一致 + 安全批双锚 + MCP 网关 P1 + 网关管理页与 ADMIN_TOKEN 插槽）
 
 判定面：SQLite 快照与封装提交物目录，二者均由 scripts/make-submission.mjs 生成：
 快照 tmp/verify-snap.sqlite 来自活库的一致性副本，并含文本事实提取表
@@ -359,7 +359,7 @@ const reviews = {
 };
 
 writeFileSync("verify/material.md", material, "utf8");
-writeFileSync("verify/material-version.json", JSON.stringify({ version: "v69.3", supersedes: "v69.2", baseline: "v68", criterion_count: U.length, changed_criteria: [111], reason: "#304 changed masked imports from skip/strip to whole-batch 400 masked_import_value before transactional writes; replace stale criterion111 anchor without rewriting old reports.", title: header.split("\n")[0] }, null, 2) + "\n", "utf8");
+writeFileSync("verify/material-version.json", JSON.stringify({ version: "v69.5", supersedes: "v69.4", baseline: "v68", criterion_count: U.length, changed_criteria: [46, 47, 48, 49], reason: "#320 rebuilt the overview as dashboard cards that take colors from DESIGN.md --wm-* variables (no hard-coded hex in Dashboard.tsx); re-anchor the four overview color criteria to the variable rules in index.css without rewriting old reports.", title: header.split("\n")[0] }, null, 2) + "\n", "utf8");
 writeFileSync("verify/candidates.json", JSON.stringify(candidates, null, 2) + "\n", "utf8");
 writeFileSync("verify/reviews.json", JSON.stringify(reviews, null, 2) + "\n", "utf8");
 console.log(`✓ verify/material.md (${U.length} 判据) · candidates.json · reviews.json`);

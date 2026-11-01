@@ -4,6 +4,7 @@ import { DownloadOutlined, KeyOutlined, SaveOutlined, UploadOutlined } from '@an
 import { useRequest } from 'ahooks';
 import { api } from '../api';
 import type { ExportPayload } from '../types';
+import WmPage from '../components/WmPage';
 
 export default function Settings() {
   const { message, modal } = App.useApp();
@@ -102,6 +103,7 @@ export default function Settings() {
   };
 
   return (
+    <WmPage subTitle="健康巡检 · 导入导出 · 系统信息">
     <Flex vertical gap={16} style={{ width: '100%', alignItems: 'flex-start' }}>
       <Card title="健康巡检" style={{ width: '100%', maxWidth: 640 }} styles={{ body: { paddingTop: 8 } }}>
         <Form
@@ -231,5 +233,6 @@ export default function Settings() {
         />
       </Card>
     </Flex>
+    </WmPage>
   );
 }

@@ -249,7 +249,8 @@ with sync_playwright() as p:
         # ---------- 4. 行内检测 ----------
         try:
             row = page.locator('.ant-table-row').filter(has_text='E2E 测试工作台')
-            row.get_by_role('button', name='检测').click()
+            row.get_by_role('button', name='更多操作').click()  # #319：行操作 2 个直接 + 其余收进「更多」
+            page.get_by_role('menuitem', name='检测').click()
             expect(page.locator('.ant-message')).to_contain_text('在线', timeout=8000)
             record('行内检测 → 在线提示', True)
         except Exception as e:
@@ -298,7 +299,8 @@ with sync_playwright() as p:
 
         # ---------- 8. 复制工作台 → 副本出现 → UI 删除副本 ----------
         try:
-            page.locator('.ant-table-row').filter(has_text='E2E 改名后').get_by_role('button', name='复制工作台').click()
+            page.locator('.ant-table-row').filter(has_text='E2E 改名后').get_by_role('button', name='更多操作').click()
+            page.get_by_role('menuitem', name='复制工作台').click()
             modal = page.locator('.ant-modal-content').filter(has_text='复制工作台')
             modal.wait_for(state='visible')
             # 预填检查：名称带 (副本)，地址与源一致
@@ -313,8 +315,9 @@ with sync_playwright() as p:
             copies = [w for w in api(page, 'GET', '/api/workbenches').json() if w['name'] == 'E2E 复制件']
             assert copies and copies[0]['category'] == 'E2E' and copies[0]['tags'] == ['e2e'], f'副本字段不全: {copies}'
             # UI 删除副本（覆盖 Popconfirm 流程）
-            copy_row.get_by_role('button', name='删除').click()
-            page.get_by_role('button', name='确 定').click()
+            copy_row.get_by_role('button', name='更多操作').click()
+            page.get_by_role('menuitem', name='删除').click()
+            page.locator('.ant-modal-confirm .ant-btn-dangerous').click()
             page.wait_for_timeout(1000)
             expect(page.locator('.ant-table-row').filter(has_text='E2E 复制件')).to_have_count(0)
             record('复制工作台（预填+字段完整+UI 删除）', True)
@@ -1068,7 +1071,7 @@ with sync_playwright() as p:
     except Exception as e:
         record('MCP 生产通道', False, str(e)); shot('mcp')
 
-    # ---------- 18. SOP 管理页（/sops：状态徽章 + 版本链 + run 记录 Drawer） ----------
+    # ---------- 18. SOP 管理页（/sops：状态徽章 + 版本链；run 记录在交付空间 /sops/:slug，#318） ----------
     try:
         sop_yaml_ui = (
             'title: E2E SOP UI 验证\n'
@@ -1091,7 +1094,9 @@ with sync_playwright() as p:
         assert exec_link.get_attribute('aria-disabled') == 'true', 'draft 执行入口应禁用'
         # antd 两字中文无 icon 按钮自动插空格（「上 架」），用正则容错
         import re as _re
-        assert row.locator('button').filter(has_text=_re.compile(r'上\s*架')).count() >= 1, 'draft 应有上架按钮'
+        row.get_by_role('button', name='更多操作').click()  # #319：上架在「更多」里
+        assert page.get_by_role('menuitem', name='上架').count() >= 1, 'draft 应有上架入口'
+        page.keyboard.press('Escape')
         # ② 演示 SOP 常驻行：published 徽章 + 执行锚点
         # 行键精确定位（文本过滤会命中 changelog 里提到 demo-rack-sop 的其他 SOP 行）
         demo = page.locator('.ant-table-row[data-row-key="demo-rack-sop"]')
@@ -1106,28 +1111,26 @@ with sync_playwright() as p:
             if '/api/sop/runs' in request.url:
                 history_requests.append(request.url)
         page.on('request',observe_history_request)
+        # #318：「记录」进入 SOP 交付空间（/sops/:slug），执行记录表沿用同一组元数据断言
         with page.expect_response(lambda r:'/api/sop/runs?' in r.url and 'slug=demo-rack-sop' in r.url) as history_response:
             demo.locator('button').filter(has_text='记录').first.click()
         history_rows=history_response.value.json()
-        drawer=page.locator('.ant-drawer-content')
-        drawer.wait_for(state='visible',timeout=5000)
-        assert '已完成' in drawer.inner_text(),'history Drawer missing completed run'
+        page.wait_for_url('**/sops/demo-rack-sop',timeout=5000)
+        drawer=page.locator('.wm-sop-runs')
+        drawer.locator('.ant-table-row').first.wait_for(state='visible',timeout=5000)
+        assert '已完成' in drawer.inner_text(),'delivery-space history missing completed run'
         assert_metadata_history(drawer,'演示·张工',3,history_requests,history_rows,('A-12','配件数','机位','扭矩复核','自检'))
         page.remove_listener('request',observe_history_request)
-        page.keyboard.press('Escape')
+        page.goto((ADMIN_UI or BASE) + '/sops')
+        page.wait_for_load_state('networkidle')
         page.wait_for_timeout(400)
-        # ④ 上架状态机经页面：draft → published（Popconfirm「确 定」→ note 弹窗「上 架」两段）
+        # ④ 上架状态机经页面：draft → published（#319：「更多」→「上架」→ 发布说明弹窗「上 架」）
         import re as _re2
         if ADMIN_UI:
-            row.locator('button').filter(has_text=_re2.compile(r'上\s*架')).first.click()
-            page.wait_for_timeout(600)
-            page.locator('.ant-popover .ant-btn-primary').filter(has_text=_re2.compile(r'确\s*定')).first.click()
+            row.get_by_role('button', name='更多操作').click()
+            page.get_by_role('menuitem', name='上架').click()
+            page.locator('.ant-modal .ant-btn-primary').filter(has_text=_re2.compile(r'上\s*架')).first.click(timeout=4000)
             page.wait_for_timeout(900)
-            try:
-                page.locator('.ant-modal .ant-btn-primary').filter(has_text=_re2.compile(r'上\s*架')).first.click(timeout=4000)
-                page.wait_for_timeout(900)
-            except Exception:
-                pass
         else:  # 控制面关闭：业务面页面上架被拒，本机 CLI 上架
             st, _ = market_write('/api/sops/e2e-sop-ui/publish', 'POST', {})
             assert st == 403, f'业务面页面上架应 403: {st}'

@@ -2257,6 +2257,17 @@ function serveApp(req: express.Request, res: express.Response) {
 }
 // 必须在 web/dist SPA fallback 之前注册
 app.get(/^\/apps\/[a-z0-9][a-z0-9-]*(\/.*)?$/, serveApp);
+// #321 设计 token 的固定路径（自产台 <link> 引入）：/design/tokens@<主版本>.css 推荐（主版本内名字稳定、值可变，按需重新验证），
+// /design/tokens@<完整版本>.css 精确钉版本（内容不变，可长缓存）；其他版本 404，不猜
+app.get(/^\/design\/tokens@[0-9.]+\.css$/, (req, res) => {
+  const t = loadTokensCss();
+  const kind = t ? resolveTokensPath(req.path, t) : null;
+  if (!t || !kind) return res.status(404).type('text').send(t ? `只提供 tokens@${t.major}.css 与 tokens@${t.version}.css\n` : 'design tokens 不可用\n');
+  res.setHeader('Cache-Control', kind === 'exact' ? 'public, max-age=31536000, immutable' : 'no-cache');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-WM-Tokens-Version', t.version);
+  res.type('text/css').send(t.css);
+});
 
 function summaryPayload() {
   const rows = listWorkbenches();
@@ -2784,6 +2795,23 @@ app.get('/api/remote-allow/diff', (req, res) => {
 });
 
 // #19②b 裁 A（direct-2ff2ed21）：治理时间线——版本链+run 历史+验收链三合一面（轻内嵌）
+/** #318 SOP 交付空间「定义」与单次记录的步骤骨架：只回步骤 key / 标题，不回步骤正文 HTML。
+ *  可见性同 Runner（issue #11）：published 公开；draft / deprecated 只给管理员。
+ *  ?version=N 读该版本（单次记录按 run 的 sop_version 取）；版本目录已冷存时 404，不猜。 */
+app.get('/api/sops/:slug/definition', (req, res) => {
+  const a = getApp(req.params.slug);
+  if (a.kind !== 'sop') throw new HttpError(404, `SOP not found: ${req.params.slug}`);
+  if (a.status !== 'published' && !adminHeaderOk(req)) return res.status(403).set('Cache-Control', 'no-store').json({ error: `SOP ${a.slug} 状态为 ${a.status}，定义仅管理员可见` });
+  const raw = req.query.version;
+  const version = raw === undefined || raw === '' ? a.active_version : Number(raw);
+  if (!Number.isInteger(version) || version < 1) bad('version 必须是正整数');
+  if (!svc<AppService>('app').versionExists(a.id, version)) throw new HttpError(404, `版本不存在: v${version}`);
+  const yamlPath = join(appsRoot, a.slug, `v${version}`, 'sop.yaml');
+  if (!existsSync(yamlPath)) return res.status(404).json({ error: `v${version} 未物化（冷版本），无法读取步骤定义`, code: 'version_not_materialized' });
+  const m = parseSopManifest(readFileSync(yamlPath, 'utf8'));
+  res.json({ slug: a.slug, version, active_version: a.active_version, status: a.status, title: m.title, code: m.code ?? a.code ?? '', description: m.description ?? '', steps: m.steps.map(({ key, title }) => ({ key, title })) });
+});
+
 app.get('/api/sops/:slug/timeline', (req, res) => {
   const a = getApp(req.params.slug);
   if (a.kind !== 'sop') throw new HttpError(404, `SOP not found: ${req.params.slug}`);
@@ -2928,7 +2956,10 @@ const wbById = (id: number): ReturnType<typeof rowToWorkbench> | null => {
 import { MCP_TOOLS } from './mcp-tools.ts';
 import { evalCandidates } from './eval.ts'; // #178 评估模型客户端
 
-import { renderSopRunner } from './sop-runner.ts';
+import { renderSopRunner as renderSopRunnerRaw } from './sop-runner.ts';
+import { loadTokensCss, resolveTokensPath } from './design-tokens-css.ts';
+/** #321：执行页内联 DESIGN.md 生成的 --wm-* 变量，与市场前端同色同字号 */
+const renderSopRunner = (manifest: Parameters<typeof renderSopRunnerRaw>[0], app: Parameters<typeof renderSopRunnerRaw>[1]) => renderSopRunnerRaw(manifest, app, loadTokensCss()?.css ?? '');
 import { isOdooLikeTarget, isOdooSessionTarget, stripOdooSession, trustedOdooOrigins } from './odoo-session.ts';
 import { collectTasks } from './tasks.ts';
 import { lifecycleApprove, lifecycleBoard, lifecycleConfigProblem, lifecycleConfigured, lifecycleSourceFor, lifecycleStatus, lifecycleWhoami, resolveOdooViewer } from './lifecycle.ts';
