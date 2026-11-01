@@ -7,6 +7,7 @@ import { KeyOutlined,
   DashboardOutlined,
   ExperimentOutlined,
   LayoutOutlined,
+  LockOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   OrderedListOutlined,
@@ -23,6 +24,7 @@ import UseWorkbench from './pages/UseWorkbench';
 import Cockpit from './pages/Cockpit';
 import Sops from './pages/Sops';
 import McpGateways from './pages/McpGateways';
+import Vault from './pages/Vault';
 import { adminTokenPresent, getAdminToken, setAdminToken, subscribeAdminToken } from './admin-token';
 import { controlUrl, MARKET_ONLY, marketUrl, onSurface, surface } from './surface';
 import { Badge, Button as AButton, Input as AInput, Popover, Result, Tag } from 'antd';
@@ -57,6 +59,7 @@ function menuRoutes(admin: boolean) {
       ] },
       ...(admin ? [{ path: ADMIN_GROUP, name: '管理', routes: [
         { path: '/mcp-gateways', name: 'MCP 网关', icon: <SafetyCertificateOutlined /> },
+        { path: '/vault', name: '凭据库', icon: <LockOutlined /> },
         { path: '/types', name: '类型管理', icon: <ClusterOutlined /> },
         { path: '/settings', name: '设置', icon: <SettingOutlined /> },
       ] }] : []),
@@ -188,6 +191,7 @@ export default function App() {
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/lifecycle" element={<Lifecycle />} />
         <Route path="/mcp-gateways" element={<McpGateways />} />
+        <Route path="/vault" element={<Vault />} />
         <Route path="/types" element={<Types />} />
         <Route path="/skills" element={<SkillsPage />} />
         <Route path="/settings" element={<Settings />} />
