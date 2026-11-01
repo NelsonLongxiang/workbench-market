@@ -90,6 +90,8 @@ components:
 
 裁定（属主 2026-11-01，同日定稿 v1.0.0）：覆盖以上三面；**只做浅色**；**只写规范、CI 不拦**，靠评审把关。
 
+agent 经市场 MCP 工具 `design_standard` 直接读取本标准（`part=tokens` 取结构化 token，`section` 按标题取章节），读的就是本文件与 PATTERNS.md 的现行版本。
+
 菜单与目录、页面骨架、SOP 交付空间、任务清单与列表、数据看板的规则见 [`design-system/workbench-market/PATTERNS.md`](design-system/workbench-market/PATTERNS.md)。「只做浅色」指内容区；侧栏是唯一的深色区域，用 `nav-*` token。
 
 风格基调沿用 `design-system/workbench-market/MASTER.md` 的“瑞士风·高密度仪表台”（Variance 4 / Motion 3 / Density 8）与离线字体决定（零 webfont）。MASTER.md 中与本文件冲突的部分（深色底配色表、`.btn-*`/`.card` 示例 CSS、营销页 Page Pattern、GSAP 滚动动效）以本文件为准。

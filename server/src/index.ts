@@ -25,6 +25,7 @@ import { db, getSettings, dataDir, rowToWorkbench, rowToCockpit, type WorkbenchR
 (globalThis as any).__wmDb = db; // #94 v3 S1：tasks.ts 直读 change_requests 桥
 import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
 import { HttpError } from './errors.ts';
+import { designStandard } from './design-standard.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, runStateSave, runStateRestore, runStateLoad, runStateRetire, runActiveIds } from './redis.ts';
@@ -2928,6 +2929,8 @@ async function callTool(name: string, args: any, subject = 'anonymous'): Promise
   const metaSlug = String(args?.slug ?? '').trim().toLowerCase();
   if (metaSlug === 'task-center' && ['app_publish','app_activate','sop_publish','sop_deprecate','app_draft_open','app_draft_edit','app_draft_submit'].includes(name)) throw new HttpError(403, 'task-center 元台仅人工面可修改');
   switch (name) {
+    case 'design_standard':
+      return designStandard(args ?? {});
     case 'skills_list': {
       const S = svc<SkillService>('skill');
       let rows = S.skillsAll() as any[];
