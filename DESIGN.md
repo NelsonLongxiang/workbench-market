@@ -1,6 +1,6 @@
 ---
 name: workbench-market
-version: 1.0.0-draft
+version: 1.0.0
 description: 工作台 design token 标准——市场前端、SOP 执行页与自产台共用的唯一事实源（仅浅色）
 colors:
   # 品牌
@@ -76,7 +76,7 @@ components:
   tag-danger:       { backgroundColor: "{colors.danger-bg}", textColor: "{colors.danger-text}", rounded: "{rounded.sm}", typography: "{typography.caption}" }
 ---
 
-# 工作台 Design Token 标准（v1.0.0-draft）
+# 工作台 Design Token 标准（v1.0.0）
 
 ## Overview
 
@@ -88,7 +88,7 @@ components:
 | SOP 执行页（`server/src/sop-runner.ts` 服务端渲染） | 页内注入同一份 `--wm-*` 变量 | 自带 11 个硬编码色 |
 | 自产台（他人开发、经市场门户打开） | 链接市场提供的 `tokens.css`，只用 `--wm-*` 变量名 | 无约定，各台自定 |
 
-裁定（属主 2026-11-01）：覆盖以上三面；**只做浅色**；**只写规范、CI 不拦**，靠评审把关。
+裁定（属主 2026-11-01，同日定稿 v1.0.0）：覆盖以上三面；**只做浅色**；**只写规范、CI 不拦**，靠评审把关。
 
 菜单与目录、页面骨架、SOP 交付空间、任务清单与列表、数据看板的规则见 [`design-system/workbench-market/PATTERNS.md`](design-system/workbench-market/PATTERNS.md)。「只做浅色」指内容区；侧栏是唯一的深色区域，用 `nav-*` token。
 
