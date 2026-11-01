@@ -36,9 +36,12 @@ def record(name, ok, err=''):
     print(f'[{"PASS" if ok else "FAIL"}] {name}' + (f' — {err}' if err else ''))
 
 
-def api(page, method, path, payload=None):
-    return page.request.fetch(f'{BASE}{path}', method=method, data=payload,
-                              headers={'Content-Type': 'application/json'})
+def api(page, method, path, payload=None, extra_headers=None):
+    # #309 phase2：extra_headers 透传 run 读能力（创建响应 read_capability）
+    h = {'Content-Type': 'application/json'}
+    if extra_headers:
+        h.update(extra_headers)
+    return page.request.fetch(f'{BASE}{path}', method=method, data=payload, headers=h)
 
 
 def cleanup(page):
@@ -894,15 +897,16 @@ with sync_playwright() as p:
         # ④ run 分层：开 run → PUT 两步 → 热读回 → finish 归档
         r = api(page, 'POST', '/api/sop/runs', {'slug': 'e2e-sop'}).json()
         rid = r['id']
+        rcap = {'X-Run-Read-Capability': r.get('read_capability', '')}  # #309 phase2：创建即得读能力
         assert rid > 0 and r['version'] == 1, f'开 run 异常: {r}'
         p1 = api(page, 'PUT', f'/api/sop/runs/{rid}', {'stepKey': 'prepare', 'value': {'配件数': '42'}}).json()
         assert p1['persisted'] in ('redis+checkpoint', 'sqlite'), f'PUT 异常: {p1}'
         api(page, 'PUT', f'/api/sop/runs/{rid}', {'stepKey': 'rack', 'value': {'机位': 'A-12'}})
-        got = api(page, 'GET', f'/api/sop/runs/{rid}').json()
+        got = api(page, 'GET', f'/api/sop/runs/{rid}', extra_headers=rcap).json()
         assert got['data'].get('prepare', {}).get('配件数') == '42', f"热读缺失: {got['data']}"
         fin = api(page, 'POST', f'/api/sop/runs/{rid}/finish').json()
         assert fin['status'] == 'finished' and fin['steps'] == 2, f'finish 异常: {fin}'
-        got = api(page, 'GET', f'/api/sop/runs/{rid}').json()
+        got = api(page, 'GET', f'/api/sop/runs/{rid}', extra_headers=rcap).json()
         assert got['status'] == 'finished' and got['data'].get('rack', {}).get('机位') == 'A-12', f'归档读异常: {got}'
         # ⑤ draft 状态机拒直跳 deprecate；重发=新版本带 changelog
         r409 = api(page, 'POST', '/api/sops/e2e-sop2-missing/publish')
@@ -969,7 +973,7 @@ with sync_playwright() as p:
             j = mcp('tools/call', {'name': 'sop_run_step_save', 'arguments': {'run_id': mrun['id'], 'step_key': k, 'value': {'v': v}}}).json()
             sv = json.loads(j['result']['content'][0]['text'])
             assert sv['ok'] and sv['persisted'] in ('redis+checkpoint', 'sqlite'), f'MCP 写步骤异常: {sv}'
-        j = mcp('tools/call', {'name': 'sop_run_get', 'arguments': {'run_id': mrun['id']}}).json()
+        j = mcp('tools/call', {'name': 'sop_run_get', 'arguments': {'run_id': mrun['id'], 'read_capability': mrun.get('read_capability', '')}}).json()  # #309 phase2：机器迁移经 args.read_capability
         got = json.loads(j['result']['content'][0]['text'])
         assert got['data'].get('prepare') == {'v': 'agent-填-1'}, f"MCP 读回异常: {got['data']}"
         j = mcp('tools/call', {'name': 'sop_run_finish', 'arguments': {'run_id': mrun['id']}}).json()

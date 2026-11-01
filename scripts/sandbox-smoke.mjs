@@ -53,7 +53,7 @@ try {
     const sdb = new DatabaseSync(DATA + '/workbench-market.db');
     sdb.prepare("INSERT INTO sop_run_files (run_id, original_name, mime, size, storage_path, created_by) VALUES (?, 'sandbox-commit', 'application/x-layerfs-commit', 0, 'layerfs://abc123def456', 'sbx')").run(run.id);
     sdb.close();
-    const fl = await (await fetch(B + '/api/sop/runs/' + run.id + '/files')).json();
+    const fl = await (await fetch(B + '/api/sop/runs/' + run.id + '/files', { headers: { 'X-Run-Read-Capability': String(run.read_capability ?? '') } })).json();
     ok('③ layerfs URI 并存', (fl.items ?? []).some((f) => f.original_name === 'sandbox-commit'), JSON.stringify(fl).slice(0, 100));
   } else ok('③ layerfs URI 并存', false, 'run 未建');
 
