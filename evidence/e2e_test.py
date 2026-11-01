@@ -980,7 +980,7 @@ with sync_playwright() as p:
         fin = json.loads(j['result']['content'][0]['text'])
         assert fin['status'] == 'finished' and fin['steps'] == 2, f'MCP 归档异常: {fin}'
         # 人机同链验证：REST 读到 agent 写的同一份数据
-        same = api(page, 'GET', f"/api/sop/runs/{mrun['id']}").json()
+        same = api(page, 'GET', f"/api/sop/runs/{mrun['id']}", extra_headers={'X-Run-Read-Capability': mrun.get('read_capability', '')}).json()  # #309 phase2：人机同链读也需 run 读能力
         assert same['data'].get('rack') == {'v': 'agent-填-2'}, f"REST/MCP 数据不同链: {same['data']}"
         # C5: agent 登记外部台（CRUD 三工具；凭据字段拒绝）
         j = mcp('tools/call', {'name': 'workbench_register', 'arguments': {'name': 'E2E MCP 台', 'url': 'http://127.0.0.1:9901/mcpreg', 'category': 'E2E', 'tags': ['agent']}}).json()
