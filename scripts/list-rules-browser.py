@@ -3,7 +3,7 @@
 工作台市场 / SOP 列表：状态列固定最左、操作列固定最右、每行直接操作 ≤2（其余在「更多」）、时间为相对时间；
 类型管理：数字列右对齐；技能市场 / MCP 网关：ProTable。"""
 import json, re, sys, urllib.request
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, expect
 cfg = json.load(open(sys.argv[1]))
 M = cfg['base']
 ok = fail = 0
@@ -22,9 +22,12 @@ def direct_actions(pg, scope):
         out.append(cell.locator('.ant-btn:not([aria-label="更多操作"])').count())
     return out
 
-api_tasks = json.load(urllib.request.urlopen(M + '/api/tasks'))['tasks']
+# UI list rules use an explicitly privileged synthetic fixture, never anonymous production data.
+api_tasks = json.load(urllib.request.urlopen(urllib.request.Request(M + '/api/tasks', headers={'X-Admin-Token': cfg['token']})))['tasks']
 with sync_playwright() as p:
     b = p.chromium.launch(); pg = b.new_page(viewport={'width': 1440, 'height': 900}); pg.set_default_timeout(10000)
+    # Attach the test-driver credential only to this fixture's task API, not page storage.
+    pg.route(M + '/api/tasks', lambda r: r.continue_(headers={**r.request.headers, 'x-admin-token': cfg['token']}))
     # ── 统一待办 ──
     pg.goto(M + '/tasks'); pg.wait_for_selector('.wm-tasks-table .ant-table-row')
     ids = [t['id'] for t in api_tasks]
@@ -53,9 +56,11 @@ with sync_playwright() as p:
     da = direct_actions(pg, '.wm-page')
     check(f'市场每行直接操作 ≤2（{da}）', da and max(da) <= 2)
     pg.locator('.ant-table-row').first.get_by_role('button', name='更多操作').click()
-    pg.wait_for_selector('.ant-dropdown:visible .ant-dropdown-menu-item')  # 下拉有入场动画，先等菜单项出现（CI 上曾读到空）
-    items = [t.strip() for t in pg.locator('.ant-dropdown:visible .ant-dropdown-menu-item').all_inner_texts()]
-    check('「更多」里有 检测 / 复制工作台 / 删除', all(x in items for x in ['检测', '复制工作台', '删除']), items)
+    # The initial visible match may still be in rc-motion appear-prepare (scale 0 on the next frame).
+    # Assert the required user-visible items directly instead of taking a non-waiting list snapshot.
+    for label in ('检测', '复制工作台', '删除'):
+        expect(pg.get_by_role('menuitem', name=re.compile(r'(?:^|\s)' + re.escape(label) + r'$'))).to_be_visible()
+    check('「更多」里有 检测 / 复制工作台 / 删除', True)
     pg.keyboard.press('Escape')
     st = pg.locator('.ant-table-row').first.locator('td').first.inner_text()
     check('市场检测时间为相对时间', bool(REL.search(st)), st)
