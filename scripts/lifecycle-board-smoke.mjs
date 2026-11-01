@@ -82,8 +82,7 @@ try {
     r = await http(P, 'GET', '/api/lifecycle/whoami', ck);
     ok(`${label}：whoami 403、不回 viewer`, r.status === 403 && !r.body?.viewer && r.body?.auth_required === false, JSON.stringify(r.body));
     r = await http(P, 'GET', '/api/tasks', ck);
-    const life = r.body?.sources?.lifecycle;
-    ok(`${label}：统一待办生命周期源拒绝（不进 inbox，不当未登录）`, life?.ok === false && !life.auth_required && why.test(life.error ?? ''), JSON.stringify(life));
+    ok(`${label}：统一待办入口403（不进任何私有源）`, r.status === 403 && r.body?.error === 'tasks_internal_user_required' && !r.body.sources && !r.body.tasks, JSON.stringify(r.body));
   }
   ok('登录门挡住时不调引擎', calls().length === 0, JSON.stringify(calls()));
 
