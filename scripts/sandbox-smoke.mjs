@@ -12,7 +12,7 @@ rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server',
-  env: (() => { const e = { ...process.env, PORT: String(PORT), DATA_DIR: '../' + DATA, ADMIN_TOKEN: 'sbx-tok', SANDBOX_BRIDGE_URL: process.env.SANDBOX_BRIDGE_URL || 'http://127.0.0.1:9' }; delete e.REDIS_URL; return e; })(), // 隐私门红线：bridge 内网地址只经 env（unset 用不可达占位→三态错误面仍验）
+  env: (() => { const e = { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: '../' + DATA, ADMIN_TOKEN: 'sbx-tok', SANDBOX_BRIDGE_URL: process.env.SANDBOX_BRIDGE_URL || 'http://127.0.0.1:9' }; delete e.REDIS_URL; return e; })(), // 隐私门红线：bridge 内网地址只经 env（unset 用不可达占位→三态错误面仍验）
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 const end = Date.now() + 30000;

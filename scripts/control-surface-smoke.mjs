@@ -16,7 +16,7 @@ const servers = [];
 function boot(tag, extraEnv) {
   const port = 20000 + Math.floor(Math.random() * 20000);
   const data = join(TMP, `data-${tag}`); mkdirSync(data, { recursive: true });
-  const env = { ...process.env, MCP_GATEWAY: '', PORT: String(port), DATA_DIR: data, ...extraEnv };
+  const env = { ...process.env, MCP_GATEWAY: 'off', PORT: String(port), DATA_DIR: data, ...extraEnv };
   for (const k of ['LC_YGL_BIN', 'LC_YGL_HOME', 'LC_WORKBENCH_KEY_FILE', 'LC_ODOO_URL', 'WM_ODOO_ORIGINS']) delete env[k];
   if (!('ADMIN_TOKEN' in extraEnv)) delete env.ADMIN_TOKEN;
   if (!('WM_DEV_ORIGIN' in extraEnv)) delete env.WM_DEV_ORIGIN;
