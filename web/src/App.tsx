@@ -10,6 +10,8 @@ import Settings from './pages/Settings';
 import UseWorkbench from './pages/UseWorkbench';
 import Cockpit from './pages/Cockpit';
 import Sops from './pages/Sops';
+import SopSpace from './pages/SopSpace';
+import SopRunDetail from './pages/SopRunDetail';
 import McpGateways from './pages/McpGateways';
 import { adminTokenPresent, getAdminToken, setAdminToken, subscribeAdminToken } from './admin-token';
 import { controlUrl, MARKET_ONLY, marketUrl, onSurface, surface } from './surface';
@@ -152,6 +154,8 @@ export default function App() {
         <Route path="/cockpit/:id" element={<Cockpit />} />
         <Route path="/market" element={<Market />} />
         <Route path="/sops" element={<Sops />} />
+        <Route path="/sops/:slug" element={<SopSpace />} />
+        <Route path="/sops/:slug/runs/:id" element={<SopRunDetail />} />
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/lifecycle" element={<Lifecycle />} />
         <Route path="/mcp-gateways" element={<McpGateways />} />
