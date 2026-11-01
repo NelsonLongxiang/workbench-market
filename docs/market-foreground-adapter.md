@@ -1,45 +1,66 @@
-# 固定d908前台adapter（代码提案；未部署/未注册服务）
+# clean-r1 前台托管适配方案（Draft，未实现迁移、未部署）
 
-## 目标与不做的事
-scripts/ops/market-foreground.mjs是拟交SCM服务宿主调用的前台程序，不是Windows服务本体。它不修改已冻结DB-ONLY入口或包、不建立service/task、不安装宿主，不将现网PID186180纳管，也不部署main/#296/#303。生产部署须另得属主明确的服务对象/宿主版本来源与摘要/运行身份及ACL/开机与恢复策略/迁移窗口/回退授权。VM/系统/DSH重启验证未授权，均未做。
+## 1. 状态与唯一目标
 
-原detached launcher不能用来充当前台监督：本adapter核同一固定d9080a61包，自己启动一个detached:false worker，保持ChildProcess句柄与退出事件，不以launcher结束当任务成功；只对自己仍保有的child句柄停止，不接受外部PID/任意命令。它只证明代码约束和所列合成测试，不证明已修原e791退出、DSH Job或端口耗尽问题。
+旧 d908 前台托管方案已经过时。本 PR 保留的 adapter 代码仍固定旧包格式和摘要，**不能用来托管 clean-r1**；原有合成测试通过只描述旧实现，不是本新方案的通过证明。此轮仅迁移方案，不安装服务、不建账号/计划任务、不接管现网 PID。
 
-## 信任输入与固定边界
-- CLI只收--config <absolute JSON path>；无自定义pin、worker路径/argv、ADMIN_TOKEN或探针配置。固定PACKAGE SHA256=2a3c7070be89d11d989afb75a948ec74c7940fda9de6a47c7b8c3ed496c68e6c，source=d9080a61cd5c6ca7e070cfa64971ffdb342f6f58；逐项文件hash/realpath及server/src/index.ts在manifest中才可启动。冻结对象只读。
-- 配置项：packageManifest/dataDirectory/homeDirectory/eventLog必须绝对路径、目录已存在；port合法且给相邻端口保留control0，bindHost默认127.0.0.1，只有显式0.0.0.0可改监听范围（须部署授权）。maxRestarts默认0、最大3；restartDelaysMs默认[30000,120000,600000]、每项10秒至10分钟；readyTimeoutMs默认15秒、允许1–60秒。没有隐含开恢复。
-- 环境仅保OS运行变量，显式PORT/WM_CONTROL_PORT=0/DATA_DIR/YGL_HOME/MCP_GATEWAY=on/REDIS_URL空/NODE_ENV=production/YGL_NO_UPDATE_CHECK。无继承ADMIN_TOKEN/LC/NODE_OPTIONS。不修改profile/PATH或读取原凭据字段。
-- 启动前包核验、自己data下独占锁、market与adjacent端口独占试绑、只读SQLite仅查询DB admin存在布尔；不输出或返回其hash。锁已存在只拒，不自动删除/杀“持锁PID”。SQLite只读WAL连接仍可能触SHM，不宣全文件无写。
-- 启动后有界读取health、browser-marked admin state为db/settablefalse、匿名不存在工具401，核adjacent仍空，再核实际Windows PID/exe/创建ticks与netstat监听owner匹配。端口预检不是原子OS预留到spawn，后核防冒foreign响应；核失败只收自己worker，不杀竞争者。
-- Windows身份查询有界10秒分别执行netstat和Get-Process；查询失败直接关闭，不绕过。非Windows CLI身份不支持而拒绝；CI非Windows的module夹具必须明确标注synthetic identity，不外推现场。
+新方案只面向已按属主 r2 批准上线的固定 clean-r1：
 
-## 生命周期、有限恢复与日志
-一个adapter同时最多一个worker。worker退出码/信号上报到结果及事件。正常code0不重启；非零运行后退出仅在显式maxRestarts预算内按对应退避，恢复前重新核hash/端口/DBadmin。初始启动门失败、包变化、目录/日志/身份/锁失败不自动恢复。SCM外层自动恢复若另开，必须与本预算协调，防多层无限循环；本提案未配置SCM行为。
+- source **108f2fdf0acbf233bd2094f0723377193caa9649**（含 #312/#313，不含后来 #325/#327/#328）。
+- FROZEN-MANIFEST.json 的 SHA256 **ce652914ae6d3b0977cc7729bca12b0de71eec5f550ce809b6ec2842ee0ecc9b**。
+- 唯一服务入口是该冻结包的 scripts/sop309-v6-package-start.mjs；不得重新拼装 server/src/index.ts 的启动环境来绕过启动器前置。
+- 同一包保持只读，运行库/home/日志均在包外；不往包内放锁、测试库、日志或重建清单。
 
-ChildProcess error不等于exit：没有创建PID的spawn失败可结束等待；已有PID的error仅使监督失败，不作为exit证据、不清retained句柄。必须清自己的worker并收到真实exit后才释放锁；停止抛错或超时仍保锁、报owned_worker_cleanup_incomplete，不按恢复预算另起worker。原bbc02e0 ready后error无exit却清child/锁的红态保留，新增零worker反例覆盖pre-spawn、ready前/后error、延迟exit、永不exit、停止抛错及有恢复预算不重起。
+## 2. 拟议调用契约（只说明，不执行）
 
-SIGINT/SIGTERM停止自己的child；退避可被信号取消。退出清理有界5秒，无法证明worker退出时保留锁并报manual cleanup，不启动fallback。Windows服务的控制消息如何转换成Node信号/进程停止还需受审宿主真实验证，未声称SCM优雅停止已通。强杀supervisor绕过finally时的worker/锁残留属于未证明保障；不通过自动删锁恢复。
+前台宿主保留一个 launcher 的 ChildProcess 句柄，detached:false，默认不自动恢复；参数只允许已批准的绝对数据库路径、端口和隔离 home：
 
-日志独立于包/data/home，调用者须提供受限Windows目录ACL。追加不截断、不透明转存worker内容：仅时间/source/supervisor与workerPID、ready创建身份、起止/失败类别、退出码/信号、stdout/stderr字节数。16MiB上限，不自动删/轮转，写失败/短写/超限失败关闭并清自己worker；不存在持久化fsync/断电不丢承诺。现阶段不记录worker任意错误行，因此具体业务错误原因需另审脱敏诊断，不能把字节计数当完整日志。配置目录、package manifest和权限是可信运维面，本代码不抵御拥有本地写权限者并发替换/hardlink攻击。
+    node <固定包>/scripts/sop309-v6-package-start.mjs
+      --db <已核绝对路径>/workbench-market.db --port <批准端口>
+      --home <批准数据目录>/isolated-home
+      --start --ack-owner-approved-maintenance
 
-## 配置样例（只说明，不执行）
-配置由持权人放在受限目录。生产路径/端口由批准指定，示意键：
+--ack 标志是启动器的技术前置，**不是属主批准来源**。实际切换仍须先确认服务对象/真实数据目录/停止范围，并取得绑定固定包的维护批准。配置不得接受任意 worker 命令、可覆写包 pin、隐式个人 home、ADMIN_TOKEN/LC/DSH 环境或原始任意异常输出。
 
-    {"packageManifest":"<冻结entry>/DB-ONLY-PACKAGE.json",
-     "dataDirectory":"<已核绝对数据目录>","homeDirectory":"<已核绝对home>",
-     "eventLog":"<独立受限日志目录>/market-events.jsonl",
-     "port":9800,"bindHost":"127.0.0.1","maxRestarts":0,
-     "restartDelaysMs":[30000,120000,600000],"readyTimeoutMs":15000}
+启动器自己执行完整性、exact application database、strict1、上传凭据格式、home 库存在和端口空闲校验，固定 MCP_GATEWAY=on、control0、NODE_ENV=production。本托管层不复制或弱化这些前置。
 
-命令形式：node scripts/ops/market-foreground.mjs --config <config路径>。这不是本机现网执行命令；本PR不附sc create/Register-ScheduledTask可执行安装脚本。
+## 3. 空隔离 home 与授权边界
 
-## 测试与已知失败
-- market-foreground-test：零worker进程、零网络请求，真实文件/SQLite与受控ChildProcess句柄覆盖参数、hash、原文件hash错、foreign端口拒、缺DBadmin、日志路径/既存追加/满、锁、worker code、默认不恢复、有限恢复预算、身份失败cleanup、spawn故障、SIGTERM和adjacent出现等。mock不代OS权限/SCM。
-- market-foreground-lifecycle-test：一个合成库/home/worker，仅固定形态health/state/MCP拒绝；单个foreign listener负例。独立观察者持有确切合成启动父进程句柄，等worker-ready后仅结束该父进程；核adapter/worker继续健康，夹具文件指令令worker退出7，核记录/失败传播/无自动恢复/锁释放。不是d908真实应用完整运行，不含DSH Job、SCM或VM重启。新测试只用module注入的合成manifest pin，CLI不能以配置替换固定pin。
-- 首OS夹具在旧组合CIM/监听身份查询10秒超时而fail-closed，保tmp/foreground-adapter/lifecycle.log和tmp/foreground-lifecycle-WsDVvn；adapter清自己worker、无现网操作。后换有界netstat+Get-Process后单次实验10项通过，失败不抹去。曾有spawn-failure夹具预期结果返回而实际按安全门抛错，修夹具认reject，未放宽产品。
-- 当前数据/目录权限错误有真实缺目录/目录代日志等反例，完整Windows拒绝ACL故障尚须持权合成环境补测，不把无admin内容或目录不合法等同覆盖全部ACL情形。
+- home 必须是属主批准的专用隔离工作区，不默认回退个人工作区。建库是独立维护写动作，只在明确批准后完成；发现已有非空库须报告，不能清空。
+- readiness 只读健康、冻结静态资源及匿名 MCP 拒绝形状；统一待办只核源元数据及零 ygl 行，不记录标题/项目/正文。
+- 默认 grant 清单为空，不运行播种工具、不重签旧 run 读 capability、不重置/延长既有授权、不轮换上传凭据。旧 run 回迁须真实 run/subject/TTL 及归属证据清单和独立批准。
+- #324 market 任务信封匿名读仍是独立安全修复；空 home 不等于主体级鉴权。不得因进程健康就宣称全部数据可见性安全。
 
-## 正式迁移与回退仍待本人授权
-先锁定adapter新head、完整受审服务宿主版本摘要、帐号权限/配置日志ACL与对象名、开机触发/恢复次数退避、明确现PID186180的停机窗口。原独立备份与冻结包保留。未注册前不影响现网。实施时先禁重入触发，精确身份核后停止原PID，核端口空，再启新宿主并验源/身份/control0/拒绝边界；任何不符只停本次新候选并保持停机。属主另明确允许才用原固定d908入口回退，绝不自动e791/main/DB恢复。
+## 4. 进程归属：不能只把 launcher 当服务
 
-后续合成VM重启和真实宿主停止桥接另授权；原admin/MCP客户端连续性与口令轮换由持权人隐藏输入验证。此PR不接收/复述秘密，不自动轮换或建立新会话，不动网络、LC或.88。
+clean-r1 launcher 会再启动一个 server 子进程。托管层须区分 supervisor、launcher、实际监听 worker 三层，记录 PID/创建时间/可执行文件及 parent-child 关联，证明监听端口归实际 owned worker；不能拿 launcher PID 与端口 PID 不相等当成功，也不能只认端口响应就纳管别人的进程。
+
+- 不接收待停止外部 PID 配置。停止只针对自己保有句柄且身份仍可证的 launcher/worker，绝不宽杀、杀父 cmd 或 DSH。
+- 必须验证 Windows 上信号转发/关闭子树后端口确实释放；error 事件不等于 exit，无法证明 owned worker 退出则保留锁并要求人工处置，不再另起实例。
+- wrapper 需要明确所有权停止桥接；现有旧 adapter 的单 worker 测试不能证明新的双层子进程停止链。
+- 默认 maxRestarts=0。有限自动恢复如需启用，须另外明确次数/退避及与外部宿主的恢复策略，防止多层无限重启；初始包、身份、目录、strict、home或端口校验失败不自动恢复。
+- 不自动起旧包、降 strict、还原数据库或旧凭据。失败只清本次受管进程，保持停机并报固定失败类别。
+
+## 5. 日志与部署前须完成的验证
+
+日志在包外受限目录追加，只记固定source/pin、PID/创建身份、起止时间、退出码/信号及字节数；不得透明转存 worker stdout/stderr、请求正文、凭据或个人路径全集。ACL/日志容量与轮转方案由属主或运维指定，不能把 POSIX 0600 当 Windows ACL 保证。
+
+新实现交付前须在隔离环境完成：
+
+1. 真实固定启动器与 FROZEN-MANIFEST 格式、全文件集合/哈希、包外日志/锁；篡改/错误路径/错库/错home/strict/占用端口均拒绝。
+2. 默认一次启动及失败不恢复；launcher/worker 实际 PID 链和监听归属；伪造 foreign listener 不可冒用。
+3. launcher error/exit 与 worker error/exit 四态；信号停止、超时、强杀宿主后的 owned child/残锁状态，不能只用 mock 证明跨 DSH 生命周期存活。
+4. 默认零grant、零cap签发、零凭据恢复；空home元数据不外露个人待办。
+5. 包冻结前后全树相等、测试产物全部包外；独立非作者复核与同一 head CI，之后才可交属主决定正式部署。
+
+本轮没有运行新宿主或生命周期试验，以上均为**待实现/待验证**。旧 31/10 项测试、旧四绿或当前线上 clean-r1 的21项结果都不能移贴成新托管层已通过。
+
+## 6. 当前服务及下一步
+
+本日22:07起 clean-r1 已按 r2 正式维护启动，运行包和空home边界见维护记录（仓外证据路径由持权人保管）。该批准仅针对那次包替换，**没有批准本 PR、WinSW 或任何常驻安装**；本轮不触碰它。
+
+下一步由属主/运维选择保留前台、受审服务宿主或其他已授权持久化方式；需明确宿主来源/版本摘要、身份权限/目录ACL、开机触发/恢复策略、维护窗口和失败停机方式。未决定前本 PR 保持 Draft，不合并、不装服务、不建账号、不改网络/LC/远端节点；代码迁移与真实宿主验证另经受领后执行。
+
+## 历史实现保留（非本方案支持范围）
+
+scripts/ops/market-foreground.mjs 及其旧 tests 保留用于复核 d908 候选的曾有约束与失败记录；当前 FIXED_SOURCE/PIN 仍是旧 d908/DB-ONLY 格式。明确废止其生产使用建议，不把改文档冒充实现迁移。后续实现应复用可采的 owned-handle/error-vs-exit/日志边界，删除旧固定入口假设，并逐项新增 clean-r1 反例。
