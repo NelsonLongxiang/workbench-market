@@ -57,6 +57,8 @@ try {
   console.log('    [dbg] dispatch sop env:', JSON.stringify(d.body?.sop ?? d.body).slice(0, 160));
   const runId = d.body?.sop?.run_id;
   UPLOAD_TOKEN = String(d.body?.sop?.upload_token ?? '');
+  const READ_CAP = String(d.body?.sop?.read_capability ?? ''); // #309 phase2：创建即得读能力（同链文件读用）
+  const RC = { 'X-Run-Read-Capability': READ_CAP };
   ok('派单 run 就绪', Number.isInteger(runId));
 
   // F1 上传 + 列表 + 下载字节一致
@@ -64,14 +66,14 @@ try {
   let r = await upload(runId, '交付 说明.txt', bytes, 'text/plain');
   ok('F1 上传 201', r.status === 201, JSON.stringify(r.body).slice(0, 120));
   const fileId = r.body?.id;
-  r = await json(`${BASE}/api/sop/runs/${runId}/files`);
+  r = await json(`${BASE}/api/sop/runs/${runId}/files`, 'GET', undefined, RC);
   ok('F1 列表含文件', r.body?.count === 1 && r.body.items[0].original_name === '交付 说明.txt', JSON.stringify(r.body).slice(0, 160));
-  const dl = await fetch(`${BASE}/api/sop/runs/${runId}/files/${fileId}`);
+  const dl = await fetch(`${BASE}/api/sop/runs/${runId}/files/${fileId}`, { headers: RC });
   const got = Buffer.from(await dl.arrayBuffer());
   ok('F1 下载字节一致', dl.status === 200 && got.equals(bytes));
 
   // F2 不存在的 run：404 且不落盘
-  const before = (await json(`${BASE}/api/sop/runs/${runId}/files`)).body?.count ?? 0;
+  const before = (await json(`${BASE}/api/sop/runs/${runId}/files`, 'GET', undefined, RC)).body?.count ?? 0;
   r = await upload(999999, 'x.txt', Buffer.from('x'));
   ok('F2 未知 run 404', r.status === 404, String(r.status));
 
