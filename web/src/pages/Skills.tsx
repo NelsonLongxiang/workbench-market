@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Card, Input, Progress, Segmented, Space, Table, Tag, Timeline, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { PageContainer } from '@ant-design/pro-components';
+import WmPage from '../components/WmPage';
 
 
 /** 技能市场管理页（P1-a · 方案 PR#57：只读浏览 + 版本链 + digest 展示；发布走 CLI/口令，薄分发） */
@@ -69,7 +69,7 @@ export default function SkillsPage() {
   ];
 
   return (
-    <PageContainer title="技能市场" subTitle="五层治理 · 版本不可变 · digest 身份锚（只读浏览，发布走 CLI/口令）" className="wm-page">
+    <WmPage subTitle="五层治理 · 版本不可变 · digest 身份锚（只读浏览，发布走 CLI/口令）">
       <Card>
         {/* 分层统计卡（五层治理：每层数量 + legacy 占比条，点击过滤） */}
         <Space wrap size={8} style={{ marginBottom: 10 }}>
@@ -117,6 +117,6 @@ export default function SkillsPage() {
           />
         </Card>
       )}
-    </PageContainer>
+    </WmPage>
   );
 }
