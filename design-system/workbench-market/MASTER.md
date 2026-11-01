@@ -1,5 +1,7 @@
 # Design System Master File
 
+> **2026-11-01 起 token 以仓库根 [`DESIGN.md`](../../DESIGN.md) 为唯一事实源。** 本文件只保留风格基调、离线字体决定与设计档位；下方深色配色表、`.btn-*`/`.card`/`.modal` 示例 CSS、营销页 Page Pattern、GSAP 动效均已作废，与 DESIGN.md 冲突时以 DESIGN.md 为准。
+
 > **LOGIC:** When building a specific page, first check `design-system/pages/[page-name].md`.
 > If that file exists, its rules **override** this Master file.
 > If not, strictly follow the rules below.
