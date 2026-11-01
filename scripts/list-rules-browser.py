@@ -22,6 +22,23 @@ def direct_actions(pg, scope):
         out.append(cell.locator('.ant-btn:not([aria-label="更多操作"])').count())
     return out
 
+def open_more(pg, row, tries=4):
+    """点开行的「更多」并读出菜单项。表格首屏会因数据刷新重渲染，把刚打开的下拉关掉（CI 上读到过空）——
+    等表格稳定后再点，并在同一次 JS 求值里确认菜单项可见再读；读不到就关掉重开，最多 tries 次。"""
+    pg.wait_for_load_state('networkidle')
+    for _ in range(tries):
+        row.get_by_role('button', name='更多操作').click()
+        try:
+            h = pg.wait_for_function("""() => {
+              const items = [...document.querySelectorAll('.ant-dropdown:not(.ant-dropdown-hidden) .ant-dropdown-menu-item')]
+                .filter(e => e.offsetParent !== null).map(e => e.innerText.trim()).filter(Boolean);
+              return items.length ? items : null;
+            }""", timeout=3000)
+            return h.json_value()
+        except Exception:
+            pg.keyboard.press('Escape'); pg.wait_for_timeout(300)
+    return []
+
 api_tasks = json.load(urllib.request.urlopen(M + '/api/tasks'))['tasks']
 with sync_playwright() as p:
     b = p.chromium.launch(); pg = b.new_page(viewport={'width': 1440, 'height': 900}); pg.set_default_timeout(10000)
@@ -52,9 +69,7 @@ with sync_playwright() as p:
     check('市场状态列固定最左、操作列固定最右', pg.locator('.wm-page thead th').first.evaluate("e=>e.className").find('fix-left') >= 0 and pg.locator('.wm-page thead th').last.evaluate("e=>e.className").find('fix-right') >= 0)
     da = direct_actions(pg, '.wm-page')
     check(f'市场每行直接操作 ≤2（{da}）', da and max(da) <= 2)
-    pg.locator('.ant-table-row').first.get_by_role('button', name='更多操作').click()
-    pg.wait_for_selector('.ant-dropdown:visible .ant-dropdown-menu-item')  # 下拉有入场动画，先等菜单项出现（CI 上曾读到空）
-    items = [t.strip() for t in pg.locator('.ant-dropdown:visible .ant-dropdown-menu-item').all_inner_texts()]
+    items = open_more(pg, pg.locator('.ant-table-row').first)
     check('「更多」里有 检测 / 复制工作台 / 删除', all(x in items for x in ['检测', '复制工作台', '删除']), items)
     pg.keyboard.press('Escape')
     st = pg.locator('.ant-table-row').first.locator('td').first.inner_text()
