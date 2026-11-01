@@ -1,5 +1,5 @@
 import express from 'express';
-import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskCenterPolicy } from './task-center.ts';
+import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
 import cors from 'cors';
 import { contentConfig, createContentSurface, mountContentSurface, listenContentSurface } from './content-surface.ts';
 import { createPortalObservation } from './portal-observation.ts';
@@ -1434,7 +1434,7 @@ function mergeRunData(row: SopRunRow, stepKey: string, value: unknown): string {
 }
 
 /** 开 run（钉当前版本；仅 published） */
-function sopRunStartCore(slugRaw: string, startedByRaw: string): { id: number; slug: string; version: number; status: string; data: Record<string, unknown> } {
+function sopRunStartCore(slugRaw: string, startedByRaw: string): { id: number; slug: string; version: number; status: string; data: Record<string, unknown>; read_capability: string } {
   const slug = slugRaw.trim().toLowerCase();
   if (!slug) bad('slug 必填');
   const hit = readActiveManifest(slug);
@@ -1447,7 +1447,9 @@ function sopRunStartCore(slugRaw: string, startedByRaw: string): { id: number; s
   const uploadToken = randomBytes(32).toString('hex');
   try { db.prepare('UPDATE sop_runs SET upload_token = ? WHERE id = ?').run(uploadToken, id); } catch { /* 列缺=降级 */ }
   if (slug !== 'task-center') void runStateRestore(id, { slug, version: hit.app.active_version, status: 'running', started_by, updated_at: Date.now() }, {}); // Redis 初始化热态（降级态静默跳过）
-  return { id, slug, version: hit.app.active_version, status: 'running', started_by, data: {}, upload_token: uploadToken }; // P0：创建者即得令牌（Runner 页内嵌用）
+  // #309 phase2：创建即得 run 级读能力（明文仅此一次；库内只存摘要）
+  const readCapability = issueRunReadCap(id);
+  return { id, slug, version: hit.app.active_version, status: 'running', started_by, data: {}, upload_token: uploadToken, read_capability: readCapability }; // 创建者即得上传令牌与读能力
 }
 
 /** 更新持久化数据（任意步骤键值；Redis 热写 + 30s checkpoint / 降级直写 SQLite） */
@@ -1503,6 +1505,18 @@ async function sopRunGetCore(id: number): Promise<{ id: number; sop_slug: string
     void runStateRestore(id, { slug: row.sop_slug, version: row.sop_version, status: row.status, started_by: row.started_by, updated_at: Date.now() }, data); // 回填热态
   }
   return { id: row.id, sop_slug: row.sop_slug, sop_version: row.sop_version, status: row.status, started_by: row.started_by, data, receipt };
+}
+
+/** #309 phase2：未授权单 run 响应——显式元数据白名单，不含私有 data（缺归属即拒私有值）。 */
+function sopRunGetMeta(id: number) {
+  const row = sopRunRow(id);
+  let steps = 0;
+  try { steps = Object.keys(JSON.parse(row.data || '{}')).length; } catch { steps = 0; }
+  return { id: row.id, sop_slug: row.sop_slug, sop_version: row.sop_version, status: row.status, started_by: row.started_by, started_at: row.started_at, updated_at: row.updated_at, finished_at: row.finished_at, steps, receipt: receiptStatusOf(id), private_read: 'authorization-required' };
+}
+function runReadCapHeader(req: express.Request): string | undefined {
+  const v = String(req.headers['x-run-read-capability'] ?? '').trim();
+  return v || undefined;
 }
 
 /** 归档（热态全量沉淀 SQLite；Redis 条目 1h 平滑淘汰） */
@@ -1650,16 +1664,20 @@ app.post('/api/sop/runs/:id/files', (req, res, next) => {
     } catch (e) { next(e); }
   });
 });
-app.get('/api/sop/runs/:id/files', (req, res) => {
+app.get('/api/sop/runs/:id/files', wrap(async (req, res) => {
   if (!/^\d+$/.test(String(req.params.id))) throw new HttpError(404, `run not found: ${req.params.id}`);
   const runId = Number(req.params.id);
   sopRunRow(runId); // 404 语义与 run 一致
+  const auth = await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, runId);
+  if (!auth.authorized) return res.status(403).set('Cache-Control', 'no-store').json({ error: 'run read authorization required', hint: '创建响应的 read_capability（X-Run-Read-Capability 头）或已授权会话' });
   const items = (svc<SopService>('sop').runFiles(runId) as any[]).map((f) => ({ ...f, url: `/api/sop/runs/${runId}/files/${f.id}` }));
   res.json({ run_id: runId, items, count: items.length });
-});
-app.get('/api/sop/runs/:id/files/:fileId', (req, res) => {
+}));
+app.get('/api/sop/runs/:id/files/:fileId', wrap(async (req, res) => {
   if (!/^\d+$/.test(String(req.params.id)) || !/^\d+$/.test(String(req.params.fileId))) throw new HttpError(404, 'file not found');
   const runId = Number(req.params.id);
+  const auth = await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, runId);
+  if (!auth.authorized) return res.status(403).set('Cache-Control', 'no-store').json({ error: 'run read authorization required', hint: '创建响应的 read_capability（X-Run-Read-Capability 头）或已授权会话' });
   const row = svc<SopService>('sop').runFileById(runId, Number(req.params.fileId)) as any;
   if (!row) throw new HttpError(404, `file not found: ${req.params.fileId}`);
   const abs = join(dataDir, row.storage_path);
@@ -1669,7 +1687,7 @@ app.get('/api/sop/runs/:id/files/:fileId', (req, res) => {
   res.setHeader('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(row.original_name || 'file')}`);
   res.setHeader('x-content-type-options', 'nosniff');
   createReadStream(abs).pipe(res);
-});
+}));
 
 // ---------- Cookie 池（监督席派单 direct-5fbb2176：web 型外部台 cookie 认证） ----------
 interface CookieExport { name: string; value: string; domain?: string; path?: string; expirationDate?: number; httpOnly?: boolean; sameSite?: string }
@@ -2155,7 +2173,10 @@ app.get('/api/sop/runs', (req, res) => {
 
 // 异步路由一律经 wrap：Express 4 不接 async 抛出的错，404/409 会变成未处理的 Promise 拒绝让进程退出
 app.get('/api/sop/runs/:id(\\d+)', wrap(async (req, res) => {
-  res.json(await sopRunGetCore(Number(req.params.id)));
+  const id = Number(req.params.id);
+  const auth = await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, id);
+  if (auth.authorized) return res.json(await sopRunGetCore(id));
+  res.set('Cache-Control', 'no-store').json(sopRunGetMeta(id)); // #309 phase2：未授权只回元数据，不回私有 data
 }));
 
 app.put('/api/sop/runs/:id(\\d+)', wrap(async (req, res) => {
@@ -2601,13 +2622,49 @@ app.post('/api/task-center/tasks', (req, res) => {
   res.status(201).json(publishTaskIntake(req.body ?? {}));
 });
 app.get('/api/task-center/tasks', (req, res) => { // 读开放
-  res.json(db.prepare('SELECT * FROM tasks ORDER BY id DESC').all().map(taskView));
+  res.json(db.prepare('SELECT * FROM tasks ORDER BY id DESC').all().map(taskListView)); // #309 phase2：列表同样不带 payload_json 私有副本
 });
-app.get('/api/task-center/tasks/:id', (req, res) => {
+app.get('/api/task-center/tasks/:id', wrap(async (req, res) => {
   const hit = db.prepare('SELECT * FROM tasks WHERE id = ?').get(Number(req.params.id));
   if (!hit) throw new HttpError(404, 'task not found');
   const events = db.prepare('SELECT id, type, actor, actor_kind, at, payload_json FROM task_events WHERE task_id = ? ORDER BY id').all(hit.id).map((e: any) => ({...e, action: e.type, detail: JSON.parse(e.payload_json)}));
-  res.json({ ...taskView(hit), events });
+  // #309 phase2：详情复制的录入数据与全量投影需 run 级读授权；未授权只回元数据（payload_json 是私有副本）
+  const auth = hit.intake_run_id ? await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, hit.intake_run_id) : { authorized: false };
+  if (auth.authorized) return res.json({ ...taskView(hit), events });
+  res.set('Cache-Control', 'no-store').json({ ...taskListView(hit), events, private_read: 'authorization-required' });
+}));
+// #309 phase2：run 私有读授权管理面（播种 grant／重签 cap／撤销；adminGuard——运维持权人经权威映射操作，不猜归属）
+app.put('/api/sop/runs/:id(\\d+)/read-grants', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const id = Number(req.params.id);
+  sopRunRow(id);
+  const subject = typeof req.body?.subject === 'string' ? req.body.subject.trim() : '';
+  if (!/^(user|mcp):[A-Za-z0-9_.@-]{1,128}$/.test(subject)) bad('subject 形如 user:<Odoo登录名> 或 mcp:<会话名>');
+  const role = typeof req.body?.role === 'string' && req.body.role ? req.body.role.slice(0, 32) : 'reader';
+  const expiresAt = typeof req.body?.expires_at === 'string' && req.body.expires_at ? req.body.expires_at.slice(0, 19) : null;
+  runReadGrantCreate(id, subject, role, expiresAt, 'admin');
+  res.status(201).json({ ok: true, run_id: id, subject, role, expires_at: expiresAt });
+});
+app.post('/api/sop/runs/:id(\\d+)/read-grants/revoke', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const id = Number(req.params.id);
+  const subject = typeof req.body?.subject === 'string' ? req.body.subject.trim() : '';
+  if (!subject) bad('subject 必填');
+  const n = runReadGrantRevoke(id, subject);
+  res.json({ ok: true, run_id: id, subject, revoked: n });
+});
+app.post('/api/sop/runs/:id(\\d+)/read-caps', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const id = Number(req.params.id);
+  sopRunRow(id);
+  const cap = issueRunReadCap(id);
+  res.status(201).json({ ok: true, run_id: id, read_capability: cap, note: '明文仅此一次出现——请立即分发保管' });
+});
+app.post('/api/sop/runs/:id(\\d+)/read-caps/revoke', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const id = Number(req.params.id);
+  const n = runReadCapRevokeAll(id);
+  res.json({ ok: true, run_id: id, revoked_caps: n });
 });
 app.get('/api/task-center/policy', (req, res) => { // C7 读开放
   res.json(taskCenterPolicy());
@@ -2797,7 +2854,7 @@ app.post('/a2a/direct', express.json({ limit: '600kb' }), (req, res) => {
   const rawBytes = Number(req.headers['content-length'] ?? 0) || JSON.stringify(req.body ?? {}).length;
   // run 操作桥（P2 note 写入走 sop_runs 的哑数据面：step_key=note-<ts> 追加不覆盖）
   const runOps = {
-    start: (slug: string, startedBy: string): number => sopRunStartCore(slug, startedBy).id,
+    start: (slug: string, startedBy: string): { id: number; read_capability: string } => { const r = sopRunStartCore(slug, startedBy); return { id: r.id, read_capability: r.read_capability }; },
     uploadToken: (id: number): string => String((db.prepare('SELECT upload_token FROM sop_runs WHERE id = ?').get(id) as { upload_token?: string } | undefined)?.upload_token ?? ''), // P0：派单回执带令牌（创建者即得）
     saveNote: (runId: number, text: string): void => {
       const row = sopRunRow(runId);
@@ -2860,6 +2917,7 @@ import { renderSopRunner } from './sop-runner.ts';
 import { isOdooLikeTarget, isOdooSessionTarget, stripOdooSession, trustedOdooOrigins } from './odoo-session.ts';
 import { collectTasks } from './tasks.ts';
 import { lifecycleApprove, lifecycleBoard, lifecycleConfigProblem, lifecycleConfigured, lifecycleSourceFor, lifecycleStatus, lifecycleWhoami, resolveOdooViewer } from './lifecycle.ts';
+import { authorizeRunRead, issueRunReadCap, runReadGrantCreate, runReadGrantRevoke, runReadCapRevokeAll } from './sop-read-auth.ts';
 import { endpointStatsMiddleware, statsPayload } from './endpoint-stats.ts';
 
 // ---------- MCP 生产通道（StreamableHTTP · stateless：AI 会话直连市场，零依赖手写 JSON-RPC） ----------
@@ -3052,8 +3110,13 @@ async function callTool(name: string, args: any, subject = 'anonymous'): Promise
       return sopRunStartCore(String(args?.slug ?? ''), String(args?.started_by ?? ''));
     case 'sop_run_step_save':
       return sopRunStepSaveCore(Number(args?.run_id), String(args?.step_key ?? ''), args?.value);
-    case 'sop_run_get':
-      return sopRunGetCore(Number(args?.run_id));
+    case 'sop_run_get': {
+      // #309 phase2：MCP 会话工具 grant ≠ run grant；机器迁移可带 args.read_capability（审计只存哈希）
+      const runId = Number(args?.run_id);
+      const capArg = typeof args?.read_capability === 'string' ? args.read_capability : undefined;
+      const auth = await authorizeRunRead({ cap: capArg, mcpSubject: subject.startsWith('mcp:') ? subject : undefined }, runId);
+      return auth.authorized ? sopRunGetCore(runId) : sopRunGetMeta(runId);
+    }
     case 'sop_run_list': {
       const slug = typeof args?.slug === 'string' ? args.slug : '';
       const status = typeof args?.status === 'string' ? args.status : '';

@@ -161,7 +161,8 @@ function idemClaim(taskId: string, fp: string): 'fresh' | 'replay' | 'conflict' 
  */
 export function a2aDirectHandle(body: any, rawBytes: number, runOps: {
   uploadToken?: (id: number) => string;
-  start: (slug: string, startedBy: string) => number;
+  /** #309 phase2：start 现返回 {id, read_capability}——创建即得 run 级读能力（明文仅此一次） */
+  start: (slug: string, startedBy: string) => { id: number; read_capability: string };
   saveNote: (runId: number, text: string) => void;
   statusOf: (runId: number) => { status: string; steps: number } | null;
   ctxBind: (contextId: string) => number | null; // context → runId（已绑定）
@@ -231,8 +232,11 @@ export function a2aDirectHandle(body: any, rawBytes: number, runOps: {
 
   // run ↔ context_id：start 续沿同一 context 开新 run；note/status 按 context 找 run
   let runId = runOps.ctxBind(contextId);
+  let startReadCap = '';
   if (action === 'start') {
-    runId = runOps.start(sop.slug, caller);
+    const started = runOps.start(sop.slug, caller);
+    runId = started.id;
+    startReadCap = started.read_capability;
     runOps.ctxRegister(contextId, runId);
     // P3（评审席裁定）：回执只投人建绑定时填的 callback_url；自报 callback 不一致 → rejected 且不写 outbox
     const bindingCb = runOps.bindingCallback?.(sop.slug, caller) ?? '';
@@ -261,7 +265,7 @@ export function a2aDirectHandle(body: any, rawBytes: number, runOps: {
       artifacts: [],
       consumed: false,
       receipt: 'routed',
-      sop: { slug: sop.slug, run_id: runId, run_status: st?.status ?? 'unknown', steps: st?.steps ?? 0, ...(action === 'start' ? { upload_token: runOps.uploadToken?.(runId) ?? '' } : {}) }, // Write credential only on creation; status/note queries never reissue it
+      sop: { slug: sop.slug, run_id: runId, run_status: st?.status ?? 'unknown', steps: st?.steps ?? 0, ...(action === 'start' ? { upload_token: runOps.uploadToken?.(runId) ?? '', read_capability: startReadCap } : {}) }, // Write/read credentials only on creation; status/note queries never reissue
     },
   };
 }
