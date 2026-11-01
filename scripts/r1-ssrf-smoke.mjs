@@ -20,7 +20,7 @@ async function waitReady(url, child) {
 for (const enabled of [false, true]) {
   const port = 20000 + Math.floor(Math.random() * 20000);
   const data = mkdtempSync(join('tmp', 'r2-ssrf-'));
-  const env = { ...process.env, PORT: String(port), DATA_DIR: data, MCP_GATEWAY: '', ADMIN_TOKEN: 'r2-test' };
+  const env = { ...process.env, PORT: String(port), DATA_DIR: data, MCP_GATEWAY: 'off', ADMIN_TOKEN: 'r2-test' };
   delete env.ALLOW_PUBLIC_NET; // default means absent, not inherited from the invoking shell
   if (enabled) env.ALLOW_PUBLIC_NET = '1';
   let logs = '';

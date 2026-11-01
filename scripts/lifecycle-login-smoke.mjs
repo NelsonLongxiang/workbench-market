@@ -27,7 +27,7 @@ const odoo = createServer((rq, rs) => {
 await new Promise((x) => odoo.listen(0, '127.0.0.1', x));
 const OP = odoo.address().port;
 const PORT = 20000 + Math.floor(Math.random() * 20000);
-const env = { ...process.env, MCP_GATEWAY: '', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'lc-login-smoke',
+const env = { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'lc-login-smoke',
   LC_YGL_BIN: join(ENG, 'bin.cjs'), LC_YGL_HOME: HOME, LC_ODOO_URL: `http://127.0.0.1:${OP}`, LC_WORKBENCH_KEY_FILE: join(TMP, 'no-such.key'), WM_ODOO_ORIGINS: `http://localhost:${OP}` };
 for (const k of ['LC_LEDGER', 'LC_ANCHOR_DIR', 'LC_TEST']) delete env[k];
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });
