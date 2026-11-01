@@ -11,15 +11,18 @@ export interface WmPageProps extends Omit<PageContainerProps, 'breadcrumb' | 'ti
   title?: ReactNode;
   /** 详情名：进 /x/:id 这类详情页时给，出现在面包屑末尾 */
   detail?: ReactNode;
+  /** 多级详情（如 SOP / 单次记录）：按顺序接在页面名后，除最后一级外可带 to 链接；给了就不用 detail */
+  trail?: Array<{ title: ReactNode; to?: string }>;
   children?: ReactNode;
 }
 
-export default function WmPage({ title, detail, className, children, ...rest }: WmPageProps) {
+export default function WmPage({ title, detail, trail, className, children, ...rest }: WmPageProps) {
   const nav = findNav(useLocation().pathname);
+  const tail = trail ?? (detail ? [{ title: detail }] : []);
   const items = nav ? [
     { title: nav.group.name },
-    { title: detail ? <Link to={nav.page.path}>{nav.page.name}</Link> : nav.page.name },
-    ...(detail ? [{ title: detail }] : []),
+    { title: tail.length ? <Link to={nav.page.path}>{nav.page.name}</Link> : nav.page.name },
+    ...tail.map((t, i) => ({ title: t.to && i < tail.length - 1 ? <Link to={t.to}>{t.title}</Link> : t.title })),
   ] : [];
   return (
     <PageContainer
