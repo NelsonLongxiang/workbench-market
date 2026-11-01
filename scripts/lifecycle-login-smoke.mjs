@@ -62,8 +62,7 @@ try {
   r = await http('GET', '/api/lifecycle/board', { headers: { host: `localhost:${PORT}` } });
   ok('LC_ODOO_URL 对应的台优先（Host 为 localhost 也不换台：生命周期只认这个 Odoo 的会话）', r.body?.login_url === `/go/${wid}/?return=%2Flifecycle`, JSON.stringify(r.body?.login_url));
   r = await http('GET', '/api/tasks');
-  const life = r.body?.sources?.lifecycle;
-  ok('统一待办：生命周期源 auth_required + login_url 回 /tasks', life?.ok === false && life.auth_required === true && life.login_url === `/go/${wid}/?return=%2Ftasks`, JSON.stringify(life));
+  ok('统一待办：查询前401且login_url回/tasks、不返回私有来源', r.status === 401 && r.body?.error === 'tasks_auth_required' && r.body.login_url === `/go/${wid}/?return=%2Ftasks` && !r.body.sources && !r.body.tasks, JSON.stringify(r.body));
 
   console.log('SSO v1 舞步带 return（Odoo 19 修复：市场中继页 + whoami 轮询）');
   const back = '/lifecycle?as_of=2026-12-18T18:00:00+08:00';

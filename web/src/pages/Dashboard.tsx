@@ -115,9 +115,9 @@ export default function Dashboard() {
     }
   };
 
-  const { payload: tasksPayload } = useTasksPoll();
-  const tTodo = (tasksPayload?.tasks ?? []).filter((t) => t.status === 'todo').length;
-  const tDoing = (tasksPayload?.tasks ?? []).filter((t) => t.status === 'doing').length;
+  const { payload: tasksPayload, error: tasksError } = useTasksPoll();
+  const tTodo = tasksPayload ? tasksPayload.tasks.filter((t) => t.status === 'todo').length : '—';
+  const tDoing = tasksPayload ? tasksPayload.tasks.filter((t) => t.status === 'doing').length : '—';
   const yglOk = tasksPayload?.sources?.['ygl-trees']?.ok !== false;
 
   return (
@@ -129,7 +129,7 @@ export default function Dashboard() {
           { title: '在线', value: s?.up ?? 0, suffix: '个', color: '#059669', to: '/market?status=up' },
           { title: '离线', value: s?.down ?? 0, suffix: '个', color: '#DC2626', to: '/market?status=down' },
           { title: '未探测', value: s?.unknown ?? 0, suffix: '个', color: '#8C8C8C', to: '/market?status=unknown' },
-          { title: yglOk ? '待办' : '待办(源降级)', value: tTodo, suffix: '项', color: '#B45309', to: '/tasks' },
+          { title: tasksError ? (tasksError.code === 'tasks_auth_required' ? '待办(需登录)' : '待办(读取失败)') : yglOk ? '待办' : '待办(源降级)', value: tTodo, suffix: '项', color: '#B45309', to: '/tasks' },
           { title: '进行中', value: tDoing, suffix: '项', color: '#2563EB', to: '/tasks' },
         ].map((it) => (
           <Col key={it.title} xs={12} md={6}>

@@ -41,14 +41,14 @@ export class SopService extends Service {
   runFinish(id: number, data: string) {
     return db.prepare(`UPDATE sop_runs SET status = 'finished', data = ?, finished_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(data, id);
   }
-  runsDispatchedAll() {
-    return db.prepare('SELECT r.* FROM sop_runs r JOIN a2a_run_ctx c ON c.run_id = r.id GROUP BY r.id ORDER BY r.updated_at DESC').all().map(runMetadata);
+  runsDispatchedAll(ids?: readonly number[]) {
+    return db.prepare('SELECT r.* FROM sop_runs r JOIN a2a_run_ctx c ON c.run_id = r.id' + (ids ? ' WHERE r.id IN (SELECT value FROM json_each(?))' : '') + ' GROUP BY r.id ORDER BY r.updated_at DESC').all(...(ids ? [JSON.stringify(ids)] : [])).map(runMetadata);
   }
   runsDispatched() {
     return db.prepare("SELECT r.* FROM sop_runs r JOIN a2a_run_ctx c ON c.run_id = r.id WHERE r.status = 'running' GROUP BY r.id ORDER BY r.updated_at DESC").all().map(runMetadata);
   }
-  runsRunning() {
-    return db.prepare("SELECT * FROM sop_runs WHERE status = 'running' ORDER BY updated_at DESC").all().map(runMetadata);
+  runsRunning(ids?: readonly number[]) {
+    return db.prepare("SELECT * FROM sop_runs WHERE status = 'running'" + (ids ? ' AND id IN (SELECT value FROM json_each(?))' : '') + ' ORDER BY updated_at DESC').all(...(ids ? [JSON.stringify(ids)] : [])).map(runMetadata);
   }
   activeBindingCount() {
     return db.prepare("SELECT COUNT(*) AS n FROM bindings WHERE target_type = 'sop' AND revoked_at = ''").get();

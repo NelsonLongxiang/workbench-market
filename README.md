@@ -185,10 +185,10 @@ node scripts/verify-report.mjs <run1.json> [run2.json ...]
 
 ## 统一待办（omni-inbox）
 
-三源任务聚合（只读，勾销回原系统）：`GET /api/tasks`（30s 缓存）返回任务信封 `{id,source,title,status,due,link,project}` 与源元数据；
-- **ygl-trees 源**：server 侧 `ygl-trees task list --json`（5s 超时；CLI 不可用 → `ok=false` 降级，不阻塞其它源）
-- **market 源**：派单 running 的 SOP run（待验收语义，深链 `/sop/<slug>/`）
-- A2A 源为 v2 预留
+任务聚合（只读，勾销回原系统）：`GET /api/tasks` 返回任务信封 `{id,source,title,status,due,link,project}` 与源元数据。**#324：匿名查询前401；新鲜内部会话只读明确获授权的来源/对象，管理者凭有效口令读取；取消聚合共享缓存，响应 private/no-store。**
+- **ygl-trees 源**：只使用显式绝对 `YGL_HOME` 且已有的工作区；管理员枚举 active 项目，普通内部用户只查询单独批准、工作区绑定且未过期/撤销的精确项目，无授权不启动 CLI。
+- **market 源**：running SOP run 与已发布任务；普通用户只读有既有 run 读权的 run/intake 任务，SQL 层按范围查询，不按 started_by 推权。
+- **A2A 源**：仅管理员、配置启用时查询；普通内部用户默认无权。来源故障只出稳定脱敏错误码。显式项目授权/撤权接口与测试边界见 [读取权限契约](docs/tasks-read-authority-324.md)。
 - **生命周期源（只读降级）**：配置经另批准的 `LC_*` 后按查看人读取 `lc inbox`。当前 `POST /api/lifecycle/approve` 无条件503 `LC_APPROVAL_READ_ONLY`，不读Odoo会话、不加载签发私钥、不调用引擎；`/go/`及SOP源隔离未完成，故页面不提供批准按钮。没有环境开关重启HTTP批准。签名/请求绑定原语供独立测试保留，不等生产审批可用；生产配置与真实审批另批。详见 [交付说明](docs/lifecycle-workbench-issuer.md)。
 UI：`/tasks` 页（源/状态过滤·生命周期条目标明「只读，审批停用」）· 总览待办聚合卡 · 驾驶舱「加待办卡」（kind=tasks 面板，布局服务端保存）。
 
