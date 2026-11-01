@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Card, Drawer, Empty, Form, Input, Radio, Segmented, Select, Space, Tag, Tooltip, Typography, Upload, App as AntApp } from 'antd';
 import { ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
 import { PlusOutlined } from '@ant-design/icons';
 import type { UploadFile } from 'antd';
-import { apiFetch } from '../admin-token';
+import { apiFetch, getAdminToken, subscribeAdminToken } from '../admin-token';
 import { ReloadOutlined } from '@ant-design/icons';
 import { odooLoginHref } from './lifecycle-view';
-import { useOdooPopupLogin } from './odoo-login';
+import { ODOO_SESSION_CONFIRMED, useOdooPopupLogin } from './odoo-login';
 import WmPage from '../components/WmPage';
 import RelTime from '../components/RelTime';
 
@@ -23,7 +23,7 @@ export interface TaskEnvelope {
   /** 仅 lifecycle 源：批准所需的提议与授权 */
   lc?: { proposal_id: string; grant: string; object: string; machine: string; from: string; to: string; effective_at: string | null; proposed_by: string; approvals: number; levels: number };
 }
-interface SourceMeta { ok: boolean; count: number; latency_ms: number; degraded_projects?: string[] }
+interface SourceMeta { ok: boolean; count: number; latency_ms: number; error?: string; degraded_projects?: string[] }
 interface TasksPayload {
   tasks: TaskEnvelope[];
   /** lifecycle 仅在服务端配置了生命周期源时出现，按当前 Odoo 登录人计 */
@@ -39,21 +39,35 @@ const STATUS_TEXT: Record<TaskEnvelope['status'], string> = { todo: '待办', do
 export function useTasksPoll(intervalMs = 60_000) {
   const [payload, setPayload] = useState<TasksPayload | null>(null);
   const [loading, setLoading] = useState(true);
-  const load = () => {
-    setLoading(true);
-    fetch('/api/tasks')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => setPayload(j))
-      .catch(() => setPayload(null))
-      .finally(() => setLoading(false));
-  };
+  const [error, setError] = useState<{ code: string; login_url?: string | null } | null>(null);
+  const active = useRef<AbortController | null>(null);
+  const load = useCallback(() => {
+    active.current?.abort();
+    const controller = new AbortController(); active.current = controller;
+    // Never keep an old identity's rows while checking a new/expired identity.
+    setPayload(null); setError(null); setLoading(true);
+    const token = getAdminToken();
+    fetch('/api/tasks', { signal: controller.signal, cache: 'no-store', credentials: 'same-origin', headers: token ? { 'X-Admin-Token': token } : {} })
+      .then(async r => {
+        const j = await r.json();
+        if (controller.signal.aborted) return;
+        if (!r.ok) { setError({ code: r.status === 401 ? 'tasks_auth_required' : r.status === 403 ? 'tasks_access_denied' : 'tasks_request_failed', login_url: typeof j.login_url === 'string' ? j.login_url : null }); return; }
+        setPayload(j);
+      })
+      .catch(() => { if (!controller.signal.aborted) setError({ code: 'tasks_request_failed' }); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+  }, []);
   useEffect(() => {
     load();
     const t = setInterval(load, intervalMs);
-    return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [intervalMs]);
-  return { payload, loading, reload: load };
+    const unsub = subscribeAdminToken(load);
+    const onVisible = () => { if (document.visibilityState === 'visible') load(); };
+    window.addEventListener('focus', load);
+    window.addEventListener(ODOO_SESSION_CONFIRMED, load);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearInterval(t); unsub(); window.removeEventListener('focus', load); window.removeEventListener(ODOO_SESSION_CONFIRMED, load); document.removeEventListener('visibilitychange', onVisible); active.current?.abort(); };
+  }, [intervalMs, load]);
+  return { payload, loading, error, reload: load };
 }
 
 /** 列序按 PATTERNS.md §5：状态 → 标题 → 来源/项目 → 截止 → 操作；来源用 tag 标出，不靠颜色区分 */
@@ -82,7 +96,7 @@ const taskColumns: ProColumns<TaskEnvelope>[] = [
 
 /** 总览聚合卡与驾驶舱卡片共用的数据视图 */
 export function TasksView({ compact = false }: { compact?: boolean }) {
-  const { payload, loading, reload } = useTasksPoll();
+  const { payload, loading, error, reload } = useTasksPoll();
   const [statusFilter, setStatusFilter] = useState<'all' | TaskEnvelope['status']>('all');
   const [sourceFilter, setSourceFilter] = useState<'all' | TaskEnvelope['source']>('all');
   const [q, setQ] = useState('');
@@ -95,18 +109,20 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
   const ygl = payload?.sources?.['ygl-trees'];
   const life = payload?.sources?.lifecycle;
   // 生命周期源未登录：弹窗登录 Odoo，登录完成刷新待办（整页跳去 Odoo 会回不来，#275）；紧凑卡片不显示按钮，也不挂登录逻辑
-  const loginHref = !compact && life && !life.ok && life.auth_required && life.login_url ? odooLoginHref(life.login_url) : null;
+  const loginUrl = error?.login_url ?? (life?.auth_required ? life.login_url : null);
+  const loginHref = !compact && loginUrl ? odooLoginHref(loginUrl) : null;
   const login = useOdooPopupLogin(loginHref, reload);
   if (loading && !payload) return <Card loading style={{ minHeight: 160 }} />;
   return (
     <div>
+      {error && <div role="alert"><Tag color="warning">{error.code === 'tasks_auth_required' ? '请登录 Odoo 查看获授权的待办；管理员读取请走受控通道' : error.code === 'tasks_access_denied' ? '当前身份无权查看待办' : '待办读取失败，请稍后重试'}</Tag></div>}
       {!compact && (
         <Space wrap style={{ marginBottom: 12 }}>
           <Input.Search allowClear placeholder="搜索标题 / 项目" style={{ width: 220 }} onSearch={setQ} />
           <Segmented value={statusFilter} onChange={(v) => setStatusFilter(v as never)} options={[{ label: '全部', value: 'all' }, { label: '待办', value: 'todo' }, { label: '进行中', value: 'doing' }, { label: '已完成', value: 'done' }]} />
           <Segmented value={sourceFilter} onChange={(v) => setSourceFilter(v as never)} options={[{ label: '全部来源', value: 'all' }, { label: 'ygl-trees', value: 'ygl-trees' }, { label: 'market', value: 'market' }, ...(life ? [{ label: '生命周期', value: 'lifecycle' }] : [])]} />
           <Button size="small" icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
-          {ygl && !ygl.ok && <Tag color="warning">ygl-trees 源降级（CLI 不可用）</Tag>}
+          {Object.entries(payload?.sources ?? {}).filter(([, meta]) => !meta.ok).map(([name, meta]) => <Tag key={name} color="warning">{name}：{meta.error === 'source_not_authorized' ? '未获来源授权' : meta.error === 'ygl_home_required' ? '未配置专用工作区' : '来源暂不可用'}</Tag>)}
           {life && !life.ok && <Tag color="warning">生命周期源：{life.error ?? '不可用'}</Tag>}
           {loginHref && !login.tokenHere && <Button size="small" type="link" onClick={login.open} disabled={login.polling}>{login.polling ? '等待 Odoo 登录完成…' : '在弹窗登录 Odoo 查看生命周期待办'}</Button>}
           {loginHref && login.tokenHere && <Button size="small" type="link" onClick={login.clearAndOpen} title="本标签页存着管理员口令，登录弹窗会复制它">清除管理员口令并登录 Odoo</Button>}
@@ -115,7 +131,7 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
         </Space>
       )}
       {compact ? (
-        shown.length === 0 ? <Empty description="暂无待办" style={{ padding: 8 }} /> : (
+        shown.length === 0 ? <Empty description={error ? '未显示私有任务' : '暂无待办'} style={{ padding: 8 }} /> : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {shown.slice(0, 8).map((t) => (
               <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', border: '1px solid var(--wm-color-border)', borderRadius: 8, flexWrap: 'wrap' }}>
@@ -138,7 +154,7 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
           options={false}
           toolBarRender={false}
           pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (n) => `共 ${n} 条` }}
-          locale={{ emptyText: <Empty description="没有符合条件的任务——换个筛选，或点右上角「发布任务」" /> }}
+          locale={{ emptyText: <Empty description={error ? '未显示私有任务' : '没有符合条件的任务——换个筛选，或点右上角「发布任务」'} /> }}
         />
       )}
       {payload && (

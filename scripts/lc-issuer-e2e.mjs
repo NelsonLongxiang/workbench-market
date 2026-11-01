@@ -116,9 +116,9 @@ try {
   r = await tasksAs('sidB');
   ok('没有授权的 pm-b 生命周期待办为空（源 ok）', r.body?.sources?.lifecycle?.ok === true && lcItems(r).length === 0, JSON.stringify(r.body?.sources?.lifecycle));
   r = await tasksAs('sidX');
-  ok('停用账号 ex：lc 拒（已停用），源降级不出条目', r.body?.sources?.lifecycle?.ok === false && /已停用/.test(r.body.sources.lifecycle.error ?? '') && lcItems(r).length === 0, JSON.stringify(r.body?.sources?.lifecycle));
+  ok('停用账号 ex：lc 拒，脱敏错误码且源不出条目', r.body?.sources?.lifecycle?.ok === false && r.body.sources.lifecycle.error === 'lifecycle_source_unavailable' && lcItems(r).length === 0, JSON.stringify(r.body?.sources?.lifecycle));
   r = await tasksAs('sidG');
-  ok('Odoo 有、主体镜像没有的 ghost：lc 拒（未登记）', r.body?.sources?.lifecycle?.ok === false && /未登记/.test(r.body.sources.lifecycle.error ?? ''), JSON.stringify(r.body?.sources?.lifecycle));
+  ok('Odoo 有、主体镜像没有的 ghost：lc 拒，错误脱敏', r.body?.sources?.lifecycle?.ok === false && r.body.sources.lifecycle.error === 'lifecycle_source_unavailable', JSON.stringify(r.body?.sources?.lifecycle));
 
   console.log('HTTP审批只读遏制（不出示断言、不写审批账本）');
   const n0 = nonces().length;

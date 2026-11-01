@@ -78,7 +78,7 @@ const RC = { 'X-Run-Read-Capability': String(r.body?.read_capability ?? '') }; /
   r = await json(`${BASE}/api/sop/runs?dispatched=1`);
   ok('⑤ 自己做不进待验收', !(r.body ?? []).some((x) => x.id === selfRun));
   // ⑥ omni-inbox market 源聚合（指派 running 计入）
-  const tasks = await json(`${BASE}/api/tasks`);
+  const tasks = await json(`${BASE}/api/tasks`, 'GET', undefined, AT);
   ok('⑥ market 源含指派任务', (tasks.body?.tasks ?? []).some((t) => t.id === `market:run-${runId}` && t.status === 'doing'));
   // ⑦ Runner 交付区锚（_brief 非 data-field → 只读渲染面在位）
   const page = await (await fetch(`${BASE}/sop/rv-19a/`)).text();

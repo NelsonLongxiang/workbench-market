@@ -1812,14 +1812,29 @@ function odooLoginUrl(req: express.Request, returnPath: string): string | null {
 
 // ---------- 统一待办（omni-inbox · 总工程师设计 9c5557c1c0）：只读聚合 ----------
 app.get('/api/tasks', wrap(async (req, res) => {
-  const payload = await collectTasks(svc<SopService>('sop') as never);
+  res.set('Cache-Control', 'private, no-store');
+  res.vary('Cookie'); res.vary('X-Admin-Token');
+  if (req.headers['sec-fetch-site'] === 'cross-site' || (req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req))) return res.status(403).json({ error: 'tasks_cross_origin_denied' });
+  const access = await tasksReadAccess(adminHeaderOk(req), String(req.headers.cookie ?? ''));
+  if (!access.ok) return res.status(access.http).json({ error: access.error, ...(access.http === 401 ? { login_url: odooLoginUrl(req, '/tasks') } : {}) });
+  const payload = await collectTasks(svc<SopService>('sop') as never, access.scope);
   if (!lifecycleConfigured()) return res.json(payload);
-  // 生命周期源按查看人（Odoo 会话）现查，不进 30s 共享缓存；响应随 Cookie 变，不许中间缓存
+  // Lifecycle owns its viewer-specific grants; never use an admin identity to impersonate a viewer.
   const lc = await lifecycleSourceFor(String(req.headers.cookie ?? ''));
-  res.setHeader('Cache-Control', 'private, no-store');
-  const meta = lc.meta.auth_required ? { ...lc.meta, login_url: odooLoginUrl(req, '/tasks') } : lc.meta;
+  const meta = { ...lc.meta, ...(!lc.meta.ok ? { error: 'lifecycle_source_unavailable' } : {}), ...(lc.meta.auth_required ? { login_url: odooLoginUrl(req, '/tasks') } : {}) };
   res.json({ ...payload, tasks: [...payload.tasks, ...lc.tasks], sources: { ...payload.sources, lifecycle: meta } });
 }));
+app.put('/api/tasks/read-grants', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  if (!createTaskSourceGrant(req.body)) return res.status(400).json({ error: 'invalid_task_source_grant' });
+  res.status(201).json({ ok: true });
+});
+app.post('/api/tasks/read-grants/revoke', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const n = revokeTaskSourceGrant(req.body);
+  if (n === null) return res.status(400).json({ error: 'invalid_task_source_grant' });
+  res.json({ ok: true, revoked: n });
+});
 
 // ---------- 生命周期审批（工作台 = lc 断言签发入口 workbench）：Odoo 会话确认登录名 → 为这一条 approve 现签断言 ----------
 app.post('/api/lifecycle/approve', wrap(async (req, res) => {
@@ -2948,6 +2963,7 @@ import { loadTokensCss, resolveTokensPath } from './design-tokens-css.ts';
 const renderSopRunner = (manifest: Parameters<typeof renderSopRunnerRaw>[0], app: Parameters<typeof renderSopRunnerRaw>[1]) => renderSopRunnerRaw(manifest, app, loadTokensCss()?.css ?? '');
 import { isOdooLikeTarget, isOdooSessionTarget, stripOdooSession, trustedOdooOrigins } from './odoo-session.ts';
 import { collectTasks } from './tasks.ts';
+import { tasksReadAccess, createTaskSourceGrant, revokeTaskSourceGrant } from './tasks-read-access.ts';
 import { lifecycleApprove, lifecycleBoard, lifecycleConfigProblem, lifecycleConfigured, lifecycleSourceFor, lifecycleStatus, lifecycleWhoami, resolveOdooViewer } from './lifecycle.ts';
 import { authorizeRunRead, issueRunReadCap, runReadGrantCreate, runReadGrantRevoke, runReadCapRevokeAll } from './sop-read-auth.ts';
 import { endpointStatsMiddleware, statsPayload } from './endpoint-stats.ts';

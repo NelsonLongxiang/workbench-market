@@ -24,15 +24,15 @@ export default function Dashboard() {
   const [asOf, setAsOf] = useState<number | null>(null);
   const summary = useRequest(api.summary, { pollingInterval: POLL_MS, onSuccess: () => setAsOf(Date.now()) });
   const list = useRequest(() => api.listWorkbenches(), { pollingInterval: POLL_MS });
-  const { payload: tasksPayload, loading: tasksLoading } = useTasksPoll();
+  const { payload: tasksPayload, loading: tasksLoading, error: tasksError } = useTasksPoll();
   const items = list.data ?? [];
   const s = summary.data;
   const total = s?.total ?? 0;
   const rate = total ? Math.round(((s?.up ?? 0) / total) * 100) : 0;
   const tasks = tasksPayload?.tasks ?? [];
   const open = tasks.filter((t) => t.status !== 'done');
-  const tTodo = tasks.filter((t) => t.status === 'todo').length;
-  const tDoing = tasks.filter((t) => t.status === 'doing').length;
+  const tTodo = tasksPayload ? tasks.filter((t) => t.status === 'todo').length : '—';
+  const tDoing = tasksPayload ? tasks.filter((t) => t.status === 'doing').length : '—';
   const yglOk = tasksPayload?.sources?.['ygl-trees']?.ok !== false;
   const lastChecked = items.reduce<string>((max, w) => (w.last_checked_at && w.last_checked_at > max ? w.last_checked_at : max), '');
 
@@ -75,7 +75,7 @@ export default function Dashboard() {
           sub={<>在线率 <span className="wm-num">{rate}%</span></>} />
         <MetricCard span={4} label="离线" value={s?.down ?? 0} suffix="个" tone={(s?.down ?? 0) > 0 ? 'danger' : 'default'} to="/market?status=down" loading={loadingSummary}
           sub={<>未探测 <span className="wm-num">{s?.unknown ?? 0}</span> 个</>} />
-        <MetricCard span={4} label={yglOk ? '待办' : '待办(源降级)'} value={tTodo} suffix="项" tone={tTodo ? 'warning' : 'default'} to="/tasks" loading={tasksLoading && !tasksPayload} />
+        <MetricCard span={4} label={tasksError ? (tasksError.code === 'tasks_auth_required' ? '待办(需登录)' : '待办(读取失败)') : yglOk ? '待办' : '待办(源降级)'} value={tTodo} suffix="项" tone={typeof tTodo === 'number' && tTodo > 0 ? 'warning' : 'default'} to="/tasks" loading={tasksLoading && !tasksPayload} />
         <MetricCard span={4} label="进行中" value={tDoing} suffix="项" to="/tasks" loading={tasksLoading && !tasksPayload} />
         <MetricCard span={4} label="上次巡检" value={lastChecked ? <RelTime value={lastChecked} /> : '尚未巡检'} to="/settings" loading={list.loading && !list.data}
           sub="巡检间隔可在「设置」页配置" />
@@ -87,7 +87,7 @@ export default function Dashboard() {
           rowKey={(t) => t.id}
           moreTo="/tasks"
           loading={tasksLoading && !tasksPayload}
-          empty={<Typography.Text type="secondary">没有未完成的待办——<Link to="/tasks">去统一待办发布任务</Link></Typography.Text>}
+          empty={<Typography.Text type="secondary">{tasksError ? <Link to="/tasks">待办未读取，请登录或确认权限</Link> : <>没有未完成的待办——<Link to="/tasks">去统一待办发布任务</Link></>}</Typography.Text>}
           render={(t) => (
             <>
               <Tag color={t.status === 'doing' ? 'processing' : 'default'} style={{ marginRight: 0 }}>{t.status === 'doing' ? '进行中' : '待办'}</Tag>

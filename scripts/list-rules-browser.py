@@ -39,9 +39,12 @@ def open_more(pg, row, tries=4):
             pg.keyboard.press('Escape'); pg.wait_for_timeout(300)
     return []
 
-api_tasks = json.load(urllib.request.urlopen(M + '/api/tasks'))['tasks']
+# Read task rows as the explicitly privileged synthetic fixture, never anonymously.
+api_tasks = json.load(urllib.request.urlopen(urllib.request.Request(M + '/api/tasks', headers={'X-Admin-Token': cfg['token']})))['tasks']
 with sync_playwright() as p:
     b = p.chromium.launch(); pg = b.new_page(viewport={'width': 1440, 'height': 900}); pg.set_default_timeout(10000)
+    # Attach the test-driver credential only to this fixture's task API, not page storage.
+    pg.route(M + '/api/tasks', lambda r: r.continue_(headers={**r.request.headers, 'x-admin-token': cfg['token']}))
     # ── 统一待办 ──
     pg.goto(M + '/tasks'); pg.wait_for_selector('.wm-tasks-table .ant-table-row')
     ids = [t['id'] for t in api_tasks]

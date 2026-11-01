@@ -20,7 +20,7 @@ async function waitReady(url, ms = 20000) {
   return false;
 }
 const start = () => spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server', env: { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: `../${DATA}` }, stdio: ['ignore', 'pipe', 'pipe'],
+  cwd: 'server', env: { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'synthetic-stats-admin' }, stdio: ['ignore', 'pipe', 'pipe'],
 });
 const stats = async () => (await fetch(`${BASE}/api/stats`)).json();
 
@@ -67,7 +67,7 @@ try {
   ok('K3 stats 自身不计入', !s4.endpoints.some((e) => e.endpoint === '/api/stats'));
 
   // K2：业务契约不变（/api/tasks 信封字段仍全）
-  const t = await (await fetch(`${BASE}/api/tasks`)).json();
+  const t = await (await fetch(`${BASE}/api/tasks`, { headers: { 'X-Admin-Token': 'synthetic-stats-admin' } })).json();
   ok('K2 /api/tasks 契约不变（tasks/sources/generated_at）', Array.isArray(t.tasks) && 'sources' in t && 'generated_at' in t);
   ok('K2 静态/非 api 路径不计（/tasks 页只按 URL 计一次，/ 不计）', !s4.endpoints.some((e) => e.endpoint === '/'));
 } finally {

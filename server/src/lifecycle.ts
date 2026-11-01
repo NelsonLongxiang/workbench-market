@@ -209,7 +209,7 @@ export async function resolveOdooViewer(cookieHeader: string, odooUrl = lcConfig
       headers: { 'Content-Type': 'application/json', Cookie: `session_id=${sid}` },
       body: JSON.stringify({ jsonrpc: '2.0', method: 'call', params: {} }),
     });
-    if (!r.ok) return { ok: false, http: 401, error: `Odoo 会话无效（HTTP ${r.status}）` };
+    if (!r.ok) return { ok: false, http: r.status >= 500 ? 502 : 401, error: `Odoo 会话无效（HTTP ${r.status}）` };
     j = await r.json();
   } catch (e) {
     return { ok: false, http: 502, error: `Odoo 不可达：${String((e as Error)?.message ?? e).slice(0, 120)}` };

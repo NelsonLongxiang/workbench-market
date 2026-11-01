@@ -253,6 +253,19 @@ CREATE TABLE IF NOT EXISTS sop_run_read_grants (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_sop_run_read_grants_run ON sop_run_read_grants (run_id, subject);
+-- #324: explicit project authority, bound to the configured workspace; no implicit grants.
+CREATE TABLE IF NOT EXISTS task_source_read_grants (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  subject TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source = 'ygl-trees'),
+  project TEXT NOT NULL,
+  workspace_sha256 TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  granted_by TEXT NOT NULL,
+  revoked_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_task_source_subject ON task_source_read_grants(subject, source, revoked_at);
 CREATE TABLE IF NOT EXISTS a2a_outbox (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   run_id INTEGER NOT NULL,

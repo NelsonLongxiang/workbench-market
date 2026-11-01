@@ -14,7 +14,10 @@ def get(path): return json.load(urllib.request.urlopen(M + path))
 
 with sync_playwright() as p:
     b = p.chromium.launch()
-    pg = b.new_page(viewport={'width': 1440, 'height': 900}); pg.set_default_timeout(10000)
+    ctx = b.new_context(viewport={'width': 1440, 'height': 900})
+    # Explicit synthetic task authority for all fixture pages, without business-page token storage.
+    ctx.route(M + '/api/tasks', lambda r: r.continue_(headers={**r.request.headers, 'x-admin-token': cfg['token']}))
+    pg = ctx.new_page(); pg.set_default_timeout(10000)
     pg.clock.install()
     pg.goto(M + '/'); pg.wait_for_selector('.wm-dash-grid .wm-dash-list li')
     cols = pg.evaluate("getComputedStyle(document.querySelector('.wm-dash-grid')).gridTemplateColumns.split(' ').length")
@@ -35,7 +38,7 @@ with sync_playwright() as p:
     pg.clock.fast_forward(45_000); pg.wait_for_timeout(300)
     check('拉取失败超过两个刷新周期 → 卡片头显示「数据截至 HH:mm」', pg.locator('.wm-dash-stale').count() >= 1 and '数据截至' in pg.locator('.wm-dash-stale').first.inner_text())
     pg.unroute('**/api/summary')
-    pg2 = b.new_page(viewport={'width': 1440, 'height': 900}); pg2.set_default_timeout(10000)
+    pg2 = ctx.new_page(); pg2.set_default_timeout(10000)
     pg2.goto(M + '/'); pg2.wait_for_selector('.wm-stat-card')
     pg2.locator('.wm-stat-card', has_text='工作台总数').click(); pg2.wait_for_url(M + '/market')
     check('指标卡点击跳到对应列表页', True)
@@ -47,7 +50,7 @@ with sync_playwright() as p:
     cid = cfg['legacy_cockpit']
     before = get(f'/api/cockpits/{cid}')['panels']
     writes = []
-    pg3 = b.new_page(viewport={'width': 1440, 'height': 900}); pg3.set_default_timeout(10000)
+    pg3 = ctx.new_page(); pg3.set_default_timeout(10000)
     pg3.on('request', lambda r: writes.append(f'{r.method} {r.url}') if r.method != 'GET' and '/api/cockpits' in r.url else None)
     pg3.goto(M + f'/cockpit/{cid}'); pg3.wait_for_selector('.wm-cockpit-grid .wm-panel')
     pg3.wait_for_timeout(800)
@@ -58,5 +61,5 @@ with sync_playwright() as p:
     check(f'面板宽度吸附到 3/4/6/12 档（{cols}）', all(min(abs(c - k) for k in (3, 4, 6, 12)) <= 0.3 for c in cols))
     check('只读页挂载不发布局写请求', not writes, writes)
     check('接口里的布局数据不被改（读时迁移不回写）', get(f'/api/cockpits/{cid}')['panels'] == before)
-    b.close()
+    ctx.unroute(M + '/api/tasks'); ctx.close(); b.close()
 print(f'dashboard-browser: {ok} passed / {fail} failed'); sys.exit(1 if fail else 0)

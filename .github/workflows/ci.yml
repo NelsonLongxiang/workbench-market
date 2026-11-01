@@ -35,6 +35,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/sop-list-privacy-browser.mjs
+      - name: Tasks viewer identity invalidation (#324, synthetic intercepted API)
+        env:
+          PYTHON: python
+        run: node scripts/tasks-read-authority-browser.mjs
       - name: 管理员口令浏览器反例
         env:
           PYTHON: python
@@ -99,6 +103,8 @@ jobs:
         run: pnpm --filter web typecheck
       - name: server 语法核（esbuild）
         run: node scripts/check-server-syntax.mjs
+      - name: Tasks identity and project/run grant isolation (#324, synthetic only)
+        run: node scripts/tasks-read-authority-http-test.mjs
       - name: SOP list privacy and upload-token rotation (#309, synthetic only)
         run: node scripts/sop-list-privacy-test.mjs && node scripts/sop-query-token-test.mjs && node scripts/sop-upload-token-rotation-test.mjs && node scripts/sop-list-privacy-http-test.mjs && node scripts/sop-run-read-auth-test.mjs
       - name: Verifier criterion65 portal call-chain mutations (synthetic snapshot only)
