@@ -53,6 +53,7 @@ with sync_playwright() as p:
     da = direct_actions(pg, '.wm-page')
     check(f'市场每行直接操作 ≤2（{da}）', da and max(da) <= 2)
     pg.locator('.ant-table-row').first.get_by_role('button', name='更多操作').click()
+    pg.wait_for_selector('.ant-dropdown:visible .ant-dropdown-menu-item')  # 下拉有入场动画，先等菜单项出现（CI 上曾读到空）
     items = [t.strip() for t in pg.locator('.ant-dropdown:visible .ant-dropdown-menu-item').all_inner_texts()]
     check('「更多」里有 检测 / 复制工作台 / 删除', all(x in items for x in ['检测', '复制工作台', '删除']), items)
     pg.keyboard.press('Escape')
