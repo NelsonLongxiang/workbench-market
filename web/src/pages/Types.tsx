@@ -6,6 +6,7 @@ import { ModalForm, ProFormDigit, ProFormSelect, ProFormText, ProFormTextArea } 
 import { ProTable } from '@ant-design/pro-components';
 import { api } from '../api';
 import type { WorkbenchType } from '../types';
+import WmPage from '../components/WmPage';
 
 export default function Types() {
   const { message } = App.useApp();
@@ -69,12 +70,14 @@ export default function Types() {
       title: '默认端口',
       dataIndex: 'default_port',
       width: 100,
+      align: 'right',
       render: (_, t) => (t.default_port ? <span className="wm-num wm-mono">{t.default_port}</span> : <Typography.Text type="secondary">-</Typography.Text>),
     },
     {
       title: '使用中',
       key: 'used',
       width: 80,
+      align: 'right',
       render: (_, t) => {
         const n = usedCounts[t.key] ?? 0;
         return n ? <Tag color="blue">{n} 个</Tag> : <Typography.Text type="secondary">0</Typography.Text>;
@@ -133,9 +136,22 @@ export default function Types() {
   ];
 
   return (
-    <>
+    <WmPage
+      subTitle="工作台类型决定健康探测方式（方法 · 路径 · 期望状态码）与默认端口"
+      extra={(
+        <Button
+          type="primary"
+          icon={<PlusOutlined />}
+          onClick={() => {
+            setEditing(null);
+            setFormOpen(true);
+          }}
+        >
+          新增类型
+        </Button>
+      )}
+    >
       <ProTable<WorkbenchType>
-        headerTitle="工作台类型"
         actionRef={actionRef}
         rowKey="id"
         search={false}
@@ -145,19 +161,6 @@ export default function Types() {
           return { data, success: true };
         }}
         pagination={false}
-        toolBarRender={() => [
-          <Button
-            key="create"
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => {
-              setEditing(null);
-              setFormOpen(true);
-            }}
-          >
-            新增类型
-          </Button>,
-        ]}
         options={{ reload: true }}
       />
 
@@ -229,6 +232,6 @@ export default function Types() {
         />
         <ProFormTextArea name="description" label="说明" placeholder="这个类型适用于什么服务（可空）" />
       </ModalForm>
-    </>
+    </WmPage>
   );
 }
