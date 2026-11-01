@@ -17,7 +17,7 @@ await new Promise((r) => gw.listen(GW, '127.0.0.1', r));
 rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: true });
 { const { DatabaseSync } = await import('node:sqlite'); const db = new DatabaseSync('server/data/workbench-market.db', { readOnly: true }); db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`); db.close(); }
 for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync('server/data/' + d, DATA + '/' + d, { recursive: true });
-const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: '', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 's10', EVAL_GATEWAY_URL: 'http://127.0.0.1:' + GW + '/x', AI_GATEWAY_API_KEY: 'vck_t' }, stdio: 'ignore' });
+const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 's10', EVAL_GATEWAY_URL: 'http://127.0.0.1:' + GW + '/x', AI_GATEWAY_API_KEY: 'vck_t' }, stdio: 'ignore' });
 const B = 'http://127.0.0.1:' + PORT;
 const call = async (need) => { const r = await fetch(B + '/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'skill_search', arguments: { need } } }), signal: AbortSignal.timeout(30000) }); return r.json().catch(() => ({})); };
 try {

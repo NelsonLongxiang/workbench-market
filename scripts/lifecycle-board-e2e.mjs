@@ -50,7 +50,7 @@ await new Promise((x) => odoo.listen(0, '127.0.0.1', x));
 const PORT = Number(process.env.E2E_PORT) || 20000 + Math.floor(Math.random() * 20000);
 const DATA = resolve('tmp/lc-board-e2e-' + Date.now().toString(36));
 mkdirSync(DATA, { recursive: true });
-const senv = { ...process.env, MCP_GATEWAY: '', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'lc-board-e2e', LC_YGL_BIN: BIN, LC_YGL_HOME: home, LC_ODOO_URL: `http://127.0.0.1:${odoo.address().port}`, LC_TEST: '1', LC_LEDGER: 'e2e', LC_ANCHOR_DIR: ANCH };
+const senv = { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'lc-board-e2e', LC_YGL_BIN: BIN, LC_YGL_HOME: home, LC_ODOO_URL: `http://127.0.0.1:${odoo.address().port}`, LC_TEST: '1', LC_LEDGER: 'e2e', LC_ANCHOR_DIR: ANCH };
 for (const k of ['LC_WORKBENCH_KEY_FILE', 'LC_IDENTITY_FILE']) delete senv[k];
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env: senv });
 let serverErr = ''; server.stderr.on('data', (c) => (serverErr += c));

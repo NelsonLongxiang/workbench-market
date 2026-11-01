@@ -34,7 +34,7 @@ export async function runLcApproveGroup() {
   const origin = 'http://127.0.0.1:' + port;
   const env = {};
   for (const k of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP']) if (process.env[k]) env[k] = process.env[k];
-  Object.assign(env, { PORT: String(port), DATA_DIR: data, ADMIN_TOKEN: 'SYNTHETIC_READONLY_ADMIN', MCP_GATEWAY: '', LC_ODOO_URL: 'http://127.0.0.1:' + odoo.address().port, LC_YGL_BIN: engine, LC_YGL_HOME: join(dir, 'home'), LC_WORKBENCH_KEY_FILE: join(dir, 'never-created.key') });
+  Object.assign(env, { PORT: String(port), DATA_DIR: data, ADMIN_TOKEN: 'SYNTHETIC_READONLY_ADMIN', MCP_GATEWAY: 'off', LC_ODOO_URL: 'http://127.0.0.1:' + odoo.address().port, LC_YGL_BIN: engine, LC_YGL_HOME: join(dir, 'home'), LC_WORKBENCH_KEY_FILE: join(dir, 'never-created.key') });
   // Native product entry is unchanged; harness binds only its listener to loopback.
   const preload = 'import net from "node:net";const l=net.Server.prototype.listen;net.Server.prototype.listen=function(...a){if(typeof a[0]==="number"&&typeof a[1]!=="string")a.splice(1,0,"127.0.0.1");return l.apply(this,a)};';
   const fdout = openSync(join(dir, 'server.stdout.log'), 'wx'), fderr = openSync(join(dir, 'server.stderr.log'), 'wx');

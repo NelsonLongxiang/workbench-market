@@ -87,7 +87,7 @@ const DATA = resolve('tmp/lc-e2e-' + Date.now().toString(36));
 mkdirSync(DATA, { recursive: true });
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
   cwd: process.cwd(), stdio: ['ignore', 'ignore', 'pipe'],
-  env: { ...process.env, MCP_GATEWAY: '', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'lc-e2e',
+  env: { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'lc-e2e',
     LC_YGL_BIN: BIN, LC_YGL_HOME: home, LC_WORKBENCH_KEY_FILE: keyFile, LC_ODOO_URL: `http://127.0.0.1:${odoo.address().port}`, ...TEST },
 });
 let serverErr = ''; server.stderr.on('data', (c) => (serverErr += c));

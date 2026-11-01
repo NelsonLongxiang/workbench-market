@@ -13,7 +13,7 @@ const TMP = resolve('tmp/api-gate-case-' + Date.now().toString(36)); mkdirSync(T
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
 const port = 20000 + Math.floor(Math.random() * 20000);
-const env = { ...process.env, MCP_GATEWAY: '', PORT: String(port), DATA_DIR: TMP, ADMIN_TOKEN: 'case-smoke' };
+const env = { ...process.env, MCP_GATEWAY: 'off', PORT: String(port), DATA_DIR: TMP, ADMIN_TOKEN: 'case-smoke' };
 for (const k of ['LC_YGL_BIN', 'LC_YGL_HOME', 'LC_WORKBENCH_KEY_FILE', 'LC_ODOO_URL', 'WM_ODOO_ORIGINS', 'WM_CONTROL_PORT']) delete env[k];
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { env, stdio: ['ignore', 'ignore', 'pipe'] });
 let err = ''; child.stderr.on('data', (c) => (err += c));
