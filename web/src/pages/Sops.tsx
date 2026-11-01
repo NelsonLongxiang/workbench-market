@@ -7,7 +7,8 @@ import { ProTable } from '@ant-design/pro-components';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { api } from '../api';
 import type { SopApp } from '../types';
-import { fmtCheckedAt } from '../components/StatusBadge';
+import RelTime from '../components/RelTime';
+import RowActions from '../components/RowActions';
 import WmPage from '../components/WmPage';
 
 /** SOP 状态语义：draft 未上架（不入册）/ published 在架可执行 / deprecated 已废弃（市场停用）
@@ -150,13 +151,21 @@ export default function Sops() {
     }
   };
 
+  // 列序按 PATTERNS.md §5：状态（固定最左）→ 标题 → 编号/slug/版本 → 时间 → 操作（2 个直接操作 + 更多）
   const columns: ProColumns<SopApp>[] = [
     {
-      title: '编号',
-      dataIndex: 'code',
-      width: 120,
-      render: (_, s) =>
-        s.code ? <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{s.code}</Typography.Text> : <Typography.Text type="secondary">-</Typography.Text>,
+      title: '状态',
+      dataIndex: 'status',
+      width: 110,
+      fixed: 'left',
+      render: (_, s) => {
+        const meta = SOP_STATUS[s.status];
+        return (
+          <Tooltip title={meta.hint}>
+            <Tag style={meta.style}>{meta.label}</Tag>
+          </Tooltip>
+        );
+      },
     },
     {
       title: '标题',
@@ -170,23 +179,17 @@ export default function Sops() {
       ),
     },
     {
+      title: '编号',
+      dataIndex: 'code',
+      width: 120,
+      render: (_, s) =>
+        s.code ? <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{s.code}</Typography.Text> : <Typography.Text type="secondary">-</Typography.Text>,
+    },
+    {
       title: 'slug',
       dataIndex: 'slug',
       width: 150,
       render: (_, s) => <Typography.Text className="wm-mono" style={{ fontSize: 12 }} copyable>{s.slug}</Typography.Text>,
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      width: 110,
-      render: (_, s) => {
-        const meta = SOP_STATUS[s.status];
-        return (
-          <Tooltip title={meta.hint}>
-            <Tag style={meta.style}>{meta.label}</Tag>
-          </Tooltip>
-        );
-      },
     },
     {
       title: '版本',
@@ -216,56 +219,35 @@ export default function Sops() {
       title: '更新时间',
       dataIndex: 'updated_at',
       width: 150,
-      render: (_, s) => <Typography.Text type="secondary" style={{ fontSize: 12 }}>{fmtCheckedAt(s.updated_at)}</Typography.Text>,
+      render: (_, s) => <RelTime value={s.updated_at} />,
     },
     {
       title: '操作',
       valueType: 'option',
-      width: 260,
-      render: (_, s) => [
-        <Tooltip key="run" title={s.status === 'published' ? '新窗口打开执行页' : SOP_STATUS[s.status].hint}>
-          <Button
-            size="small"
-            type={s.status === 'published' ? 'primary' : 'default'}
-            icon={<PlayCircleOutlined />}
-            href={`/sop/${s.slug}/`}
-            target="_blank"
-            disabled={s.status !== 'published'}
-          >
-            执行
-          </Button>
-        </Tooltip>,
-        <Tooltip key="runs" title="进入交付空间看执行记录、交付物与定义">
-          <Button size="small" icon={<RiseOutlined />} onClick={() => nav(`/sops/${s.slug}`)}>
-            记录
-          </Button>
-        </Tooltip>,
-        <Tooltip key="net" title="网络暴露：把此 SOP 绑定给具体 agent（market/<id8> 上卡，人工操作）">
-          <Button size="small" onClick={() => { setNetOf(s); setBindings([]); }}>
-            网络
-          </Button>
-        </Tooltip>,
-        s.status !== 'published' ? (
-          <Popconfirm
-            key="publish"
-            title={`上架 ${s.slug}？`}
-            description="上架后市场在册，Runner 可执行"
-            onConfirm={() => transition(s, 'publish')}
-          >
-            <Button size="small" loading={busySlug === s.slug}>上架</Button>
-          </Popconfirm>
-        ) : (
-          <Popconfirm
-            key="deprecate"
-            title={`废弃 ${s.slug}？`}
-            description="市场行将停用；历史 run 保留可回放"
-            okButtonProps={{ danger: true }}
-            onConfirm={() => transition(s, 'deprecate')}
-          >
-            <Button size="small" danger icon={<StopOutlined />} loading={busySlug === s.slug}>废弃</Button>
-          </Popconfirm>
-        ),
-      ],
+      width: 190,
+      fixed: 'right',
+      render: (_, s) => (
+        <RowActions
+          primary={[
+            <Tooltip key="run" title={s.status === 'published' ? '新窗口打开执行页' : SOP_STATUS[s.status].hint}>
+              <Button size="small" type={s.status === 'published' ? 'primary' : 'default'} icon={<PlayCircleOutlined />} href={`/sop/${s.slug}/`} target="_blank" disabled={s.status !== 'published'}>
+                执行
+              </Button>
+            </Tooltip>,
+            <Tooltip key="runs" title="进入交付空间看执行记录、交付物与定义">
+              <Button size="small" icon={<RiseOutlined />} onClick={() => nav(`/sops/${s.slug}`)}>
+                记录
+              </Button>
+            </Tooltip>,
+          ]}
+          more={[
+            { key: 'net', label: '网络暴露', icon: <ExportOutlined />, onClick: () => { setNetOf(s); setBindings([]); } },
+            s.status !== 'published'
+              ? { key: 'publish', label: '上架', disabled: busySlug === s.slug, onClick: () => transition(s, 'publish') }
+              : { key: 'deprecate', label: '废弃', icon: <StopOutlined />, danger: true, disabled: busySlug === s.slug, confirm: { title: `废弃 ${s.slug}？`, content: '市场行将停用；历史 run 保留可回放', okText: '废弃' }, onClick: () => transition(s, 'deprecate') },
+          ]}
+        />
+      ),
     },
   ];
 

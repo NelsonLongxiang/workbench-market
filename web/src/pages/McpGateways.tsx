@@ -1,7 +1,10 @@
 import { useCallback, useState } from 'react';
 import { App, Button, Empty, Input, Modal, Popconfirm, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
 import { KeyOutlined, PlusOutlined } from '@ant-design/icons';
+import { ProTable } from '@ant-design/pro-components';
+import type { ProColumns } from '@ant-design/pro-components';
 import WmPage from '../components/WmPage';
+import RelTime from '../components/RelTime';
 
 interface McpSession {
   id: number; name: string; grants: string[]; revoked_at: string; last_used_at: string; created_at: string;
@@ -151,14 +154,15 @@ export default function McpGateways() {
     setUpPrefix(''); setUpUrl('');
   };
 
-  const sessCols = [
-    { title: '会话', dataIndex: 'name', render: (v: string) => <Typography.Text className="wm-mono" strong>{v}</Typography.Text> },
-    { title: '授权工具', dataIndex: 'grants', render: (g: string[]) => (g.length ? <Tag color="green">{g.length} 个</Tag> : <Tag color="red">默认拒绝</Tag>) },
-    { title: '最近使用', dataIndex: 'last_used_at', width: 150, render: (v: string) => <Typography.Text type="secondary" style={{ fontSize: 12 }}>{v || '—'}</Typography.Text> },
-    { title: '状态', dataIndex: 'revoked_at', width: 80, render: (v: string) => (v ? <Tag color="red">已吊销</Tag> : <Tag color="green">有效</Tag>) },
+  // 列序按 PATTERNS.md §5：状态（最左）→ 名称 → 关键属性 → 时间 → 操作
+  const sessCols: ProColumns<McpSession>[] = [
+    { title: '状态', dataIndex: 'revoked_at', width: 90, fixed: 'left', render: (_, s) => (s.revoked_at ? <Tag color="red">已吊销</Tag> : <Tag color="green">有效</Tag>) },
+    { title: '会话', dataIndex: 'name', render: (_, s) => <Typography.Text className="wm-mono" strong>{s.name}</Typography.Text> },
+    { title: '授权工具', dataIndex: 'grants', width: 110, render: (_, s) => (s.grants.length ? <Tag color="green">{s.grants.length} 个</Tag> : <Tag color="red">默认拒绝</Tag>) },
+    { title: '最近使用', dataIndex: 'last_used_at', width: 120, render: (_, s) => <RelTime value={s.last_used_at || null} /> },
     {
-      title: '操作', width: 180,
-      render: (_: unknown, s: McpSession) => s.revoked_at ? <Typography.Text type="secondary" style={{ fontSize: 12 }}>留审计</Typography.Text> : (
+      title: '操作', valueType: 'option', width: 160, fixed: 'right',
+      render: (_, s) => s.revoked_at ? <Typography.Text type="secondary" style={{ fontSize: 12 }}>留审计</Typography.Text> : (
         <Space>
           <Button size="small" onClick={() => { setGrantsOf(s); setGrantSel(s.grants); }}>grants</Button>
           <Popconfirm title={`吊销 ${s.name}？令牌即时失效。`} onConfirm={() => revoke(s.id)}>
@@ -168,15 +172,14 @@ export default function McpGateways() {
       ),
     },
   ];
-
-  const callCols = [
-    { title: '时间', dataIndex: 'at', width: 150, render: (v: string) => <Typography.Text className="wm-mono" style={{ fontSize: 11 }}>{v}</Typography.Text> },
-    { title: '会话', dataIndex: 'session_name', width: 100, render: (v: string) => <Typography.Text className="wm-mono" style={{ fontSize: 11 }}>{v}</Typography.Text> },
-    { title: '方法', dataIndex: 'method', width: 90, render: (v: string) => <Typography.Text className="wm-mono" style={{ fontSize: 11 }}>{v}</Typography.Text> },
-    { title: '工具', dataIndex: 'tool', width: 130, render: (v: string) => <Typography.Text className="wm-mono" style={{ fontSize: 11 }}>{v || '—'}</Typography.Text> },
-    { title: 'OK', dataIndex: 'ok', width: 50, render: (v: number) => (v ? <Tag color="green">✓</Tag> : <Tag color="red">✗</Tag>) },
-    { title: '耗时', dataIndex: 'duration_ms', width: 70, render: (v: number) => <Typography.Text className="wm-mono" style={{ fontSize: 11 }}>{v}ms</Typography.Text> },
-    { title: '错误', dataIndex: 'error', ellipsis: true, render: (v: string) => <Typography.Text type="secondary" style={{ fontSize: 11 }}>{v || '—'}</Typography.Text> },
+  const callCols: ProColumns<McpCall>[] = [
+    { title: '结果', dataIndex: 'ok', width: 70, fixed: 'left', render: (_, c) => (c.ok ? <Tag color="green">成功</Tag> : <Tag color="red">失败</Tag>) },
+    { title: '工具', dataIndex: 'tool', width: 160, render: (_, c) => <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{c.tool || '—'}</Typography.Text> },
+    { title: '会话', dataIndex: 'session_name', width: 120, render: (_, c) => <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{c.session_name}</Typography.Text> },
+    { title: '方法', dataIndex: 'method', width: 100, render: (_, c) => <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{c.method}</Typography.Text> },
+    { title: '耗时', dataIndex: 'duration_ms', width: 80, align: 'right', render: (_, c) => <Typography.Text className="wm-num">{c.duration_ms}ms</Typography.Text> },
+    { title: '错误', dataIndex: 'error', ellipsis: true, render: (_, c) => <Typography.Text type="secondary" style={{ fontSize: 12 }}>{c.error || '—'}</Typography.Text> },
+    { title: '时间', dataIndex: 'at', width: 120, render: (_, c) => <RelTime value={c.at} /> },
   ];
 
   return (
@@ -213,10 +216,11 @@ export default function McpGateways() {
             key: 'sessions', label: '会话与审计',
             children: (
               <>
-                <Table<McpSession> rowKey="id" size="small" columns={sessCols} dataSource={sessions} loading={loading} pagination={false}
+                <ProTable<McpSession> rowKey="id" size="middle" columns={sessCols} dataSource={sessions} loading={loading} search={false} options={false} toolBarRender={false}
+                  pagination={{ pageSize: 20, hideOnSinglePage: true }}
                   locale={{ emptyText: <Empty description="无会话——输入口令载入，或创建首个会话" /> }} />
                 <Typography.Title level={5} style={{ marginTop: 24 }}>审计（最近 100 条）</Typography.Title>
-                <Table<McpCall> rowKey="id" size="small" columns={callCols} dataSource={calls} loading={callsLoading} pagination={{ pageSize: 20 }} />
+                <ProTable<McpCall> rowKey="id" size="middle" columns={callCols} dataSource={calls} loading={callsLoading} search={false} options={false} toolBarRender={false} pagination={{ pageSize: 20, hideOnSinglePage: true }} />
               </>
             ),
           },
