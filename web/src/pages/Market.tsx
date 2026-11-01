@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { App, Button, Drawer, Descriptions, Empty, Flex, Input, Popconfirm, Select, Space, Switch, Tag, Tooltip, Typography } from 'antd';
+import { App, Button, Drawer, Descriptions, Empty, Flex, Input, Select, Space, Switch, Tag, Tooltip, Typography } from 'antd';
 import { CopyOutlined, ExportOutlined, PlusOutlined, RightOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
@@ -8,6 +8,8 @@ import Markdown from 'react-markdown';
 import { api } from '../api';
 import type { Workbench, WorkbenchType } from '../types';
 import StatusBadge, { fmtCheckedAt } from '../components/StatusBadge';
+import RelTime from '../components/RelTime';
+import RowActions from '../components/RowActions';
 import WorkbenchForm from '../components/WorkbenchForm';
 import AppDataDrawer from '../components/AppDataDrawer';
 import WmPage from '../components/WmPage';
@@ -80,7 +82,25 @@ export default function Market() {
     }
   };
 
+  // 列序按 PATTERNS.md §5：状态（固定最左）→ 名称 → 关键属性 → 操作（固定最右，2 个直接操作 + 更多）
   const columns: ProColumns<Workbench>[] = [
+    {
+      title: '状态',
+      dataIndex: 'last_status',
+      width: 120,
+      fixed: 'left',
+      render: (_, w) => (
+        <Flex vertical gap={0}>
+          <StatusBadge
+            status={w.last_status}
+            latency={w.last_latency_ms}
+            error={w.last_error}
+            checkedAt={w.last_checked_at}
+          />
+          {w.last_checked_at ? <RelTime value={w.last_checked_at} /> : null}
+        </Flex>
+      ),
+    },
     {
       title: '名称',
       dataIndex: 'name',
@@ -133,26 +153,6 @@ export default function Market() {
       },
     },
     {
-      title: '状态',
-      dataIndex: 'last_status',
-      width: 140,
-      render: (_, w) => (
-        <Flex vertical gap={0}>
-          <StatusBadge
-            status={w.last_status}
-            latency={w.last_latency_ms}
-            error={w.last_error}
-            checkedAt={w.last_checked_at}
-          />
-          {w.last_checked_at ? (
-            <Typography.Text type="secondary" className="wm-num" style={{ fontSize: 12 }}>
-              {fmtCheckedAt(w.last_checked_at)}
-            </Typography.Text>
-          ) : null}
-        </Flex>
-      ),
-    },
-    {
       title: '启用',
       dataIndex: 'enabled',
       width: 70,
@@ -174,65 +174,33 @@ export default function Market() {
     {
       title: '操作',
       valueType: 'option',
-      width: 300,
+      width: 150,
+      fixed: 'right',
       render: (_, w) => (
-        <Space size={0}>
-          <Link to={`/use/${w.id}`}>
-            <Button size="small" type="link" icon={<RightOutlined />}>
-              使用
-            </Button>
-          </Link>
-          <Tooltip title="新窗口打开">
-            <a href={w.url} target="_blank" rel="noreferrer">
-              <Button size="small" type="link" icon={<ExportOutlined />} aria-label="新窗口打开" />
-            </a>
-          </Tooltip>
-          <Button size="small" type="link" loading={busyId === w.id} onClick={() => checkOne(w.id)}>
-            检测
-          </Button>
-          <Tooltip title="复制为新的工作台，可改后创建">
-            <Button
-              size="small"
-              type="link"
-              icon={<CopyOutlined />}
-              aria-label="复制工作台"
-              onClick={() => {
-                setEditing(null);
-                setCopySource(w);
-                setFormOpen(true);
-              }}
-            />
-          </Tooltip>
-          <Button
-            size="small"
-            type="link"
-            onClick={() => {
-              setCopySource(null);
-              setEditing(w);
-              setFormOpen(true);
-            }}
-          >
-            编辑
-          </Button>
-          <Popconfirm
-            title={`删除工作台「${w.name}」？`}
-            description="仅移除注册信息，不影响服务本身"
-            okButtonProps={{ danger: true }}
-            onConfirm={async () => {
-              try {
-                await api.deleteWorkbench(w.id);
-                message.success('已删除');
-                actionRef.current?.reload();
-              } catch (e) {
-                message.error(`删除失败：${(e as Error).message}`);
-              }
-            }}
-          >
-            <Button size="small" type="link" danger>
-              删除
-            </Button>
-          </Popconfirm>
-        </Space>
+        <RowActions
+          primary={[
+            <Link key="use" to={`/use/${w.id}`}><Button size="small" type="link" icon={<RightOutlined />}>使用</Button></Link>,
+            <Button key="edit" size="small" type="link" onClick={() => { setCopySource(null); setEditing(w); setFormOpen(true); }}>编辑</Button>,
+          ]}
+          more={[
+            { key: 'check', label: '检测', icon: <ThunderboltOutlined />, onClick: () => checkOne(w.id) },
+            { key: 'open', label: '新窗口打开', icon: <ExportOutlined />, onClick: () => { window.open(w.url, '_blank', 'noopener,noreferrer'); } },
+            { key: 'copy', label: '复制工作台', icon: <CopyOutlined />, onClick: () => { setEditing(null); setCopySource(w); setFormOpen(true); } },
+            {
+              key: 'delete', label: '删除', danger: true,
+              confirm: { title: `删除工作台「${w.name}」？`, content: '仅移除注册信息，不影响服务本身', okText: '删除' },
+              onClick: async () => {
+                try {
+                  await api.deleteWorkbench(w.id);
+                  message.success('已删除');
+                  actionRef.current?.reload();
+                } catch (e) {
+                  message.error(`删除失败：${(e as Error).message}`);
+                }
+              },
+            },
+          ]}
+        />
       ),
     },
   ];

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Card, Drawer, Empty, Form, Input, Radio, Segmented, Select, Space, Tag, Typography, Upload, App as AntApp } from 'antd';
+import { Button, Card, Drawer, Empty, Form, Input, Radio, Segmented, Select, Space, Tag, Tooltip, Typography, Upload, App as AntApp } from 'antd';
+import { ProTable } from '@ant-design/pro-components';
+import type { ProColumns } from '@ant-design/pro-components';
 import { PlusOutlined } from '@ant-design/icons';
 import type { UploadFile } from 'antd';
 import { apiFetch } from '../admin-token';
@@ -7,6 +9,7 @@ import { ReloadOutlined } from '@ant-design/icons';
 import { odooLoginHref } from './lifecycle-view';
 import { useOdooPopupLogin } from './odoo-login';
 import WmPage from '../components/WmPage';
+import RelTime from '../components/RelTime';
 
 /** 任务信封（与 server/src/tasks.ts 契约一致，字段冻结 snake_case） */
 export interface TaskEnvelope {
@@ -28,6 +31,7 @@ interface TasksPayload {
   generated_at: string;
 }
 const SOURCE_COLOR: Record<TaskEnvelope['source'], string> = { market: 'geekblue', 'ygl-trees': 'cyan', a2a: 'gold', lifecycle: 'purple' };
+const SOURCE_TEXT: Record<TaskEnvelope['source'], string> = { market: 'market', 'ygl-trees': 'ygl-trees', a2a: 'a2a', lifecycle: '生命周期' };
 
 const STATUS_COLOR: Record<TaskEnvelope['status'], string> = { todo: 'default', doing: 'processing', done: 'success' };
 const STATUS_TEXT: Record<TaskEnvelope['status'], string> = { todo: '待办', doing: '进行中', done: '已完成' };
@@ -52,15 +56,41 @@ export function useTasksPoll(intervalMs = 60_000) {
   return { payload, loading, reload: load };
 }
 
+/** 列序按 PATTERNS.md §5：状态 → 标题 → 来源/项目 → 截止 → 操作；来源用 tag 标出，不靠颜色区分 */
+const taskColumns: ProColumns<TaskEnvelope>[] = [
+  { title: '状态', dataIndex: 'status', width: 90, fixed: 'left', render: (_, t) => <Tag color={STATUS_COLOR[t.status]}>{STATUS_TEXT[t.status]}</Tag> },
+  {
+    title: '标题', dataIndex: 'title', ellipsis: true,
+    render: (_, t) => (
+      <Space size={6} wrap={false}>
+        {t.link ? <Typography.Link href={t.link} target="_blank">{t.title}</Typography.Link> : <Typography.Text>{t.title}</Typography.Text>}
+        {t.source === 'market' && t.id.startsWith('market:task-') && <Tag color="blue">任务中心</Tag>}
+      </Space>
+    ),
+  },
+  { title: '来源', dataIndex: 'source', width: 110, render: (_, t) => <Tag color={SOURCE_COLOR[t.source] ?? 'default'}>{SOURCE_TEXT[t.source] ?? t.source}</Tag> },
+  { title: '项目', dataIndex: 'project', width: 160, ellipsis: true, render: (_, t) => t.project || <Typography.Text type="secondary">-</Typography.Text> },
+  { title: '截止', dataIndex: 'due', width: 120, render: (_, t) => (t.due ? <RelTime value={t.due} /> : <Typography.Text type="secondary">-</Typography.Text>) },
+  {
+    title: '操作', valueType: 'option', width: 110, fixed: 'right',
+    render: (_, t) => [
+      t.link ? <Button key="go" type="link" size="small" href={t.link} target="_blank">去处理</Button> : null,
+      t.lc ? <Tooltip key="lc" title="同源门户/SOP 隔离未完成，工作台审批已停用"><span role="note">仅查看</span></Tooltip> : null,
+    ],
+  },
+];
+
 /** 总览聚合卡与驾驶舱卡片共用的数据视图 */
 export function TasksView({ compact = false }: { compact?: boolean }) {
   const { payload, loading, reload } = useTasksPoll();
   const [statusFilter, setStatusFilter] = useState<'all' | TaskEnvelope['status']>('all');
   const [sourceFilter, setSourceFilter] = useState<'all' | TaskEnvelope['source']>('all');
+  const [q, setQ] = useState('');
   const tasks = payload?.tasks ?? [];
   const shown = useMemo(
-    () => tasks.filter((t) => (statusFilter === 'all' || t.status === statusFilter) && (sourceFilter === 'all' || t.source === sourceFilter)),
-    [tasks, statusFilter, sourceFilter],
+    () => tasks.filter((t) => (statusFilter === 'all' || t.status === statusFilter) && (sourceFilter === 'all' || t.source === sourceFilter)
+      && (!q || `${t.title} ${t.project ?? ''} ${t.id}`.toLowerCase().includes(q.toLowerCase()))),
+    [tasks, statusFilter, sourceFilter, q],
   );
   const ygl = payload?.sources?.['ygl-trees'];
   const life = payload?.sources?.lifecycle;
@@ -72,6 +102,7 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
     <div>
       {!compact && (
         <Space wrap style={{ marginBottom: 12 }}>
+          <Input.Search allowClear placeholder="搜索标题 / 项目" style={{ width: 220 }} onSearch={setQ} />
           <Segmented value={statusFilter} onChange={(v) => setStatusFilter(v as never)} options={[{ label: '全部', value: 'all' }, { label: '待办', value: 'todo' }, { label: '进行中', value: 'doing' }, { label: '已完成', value: 'done' }]} />
           <Segmented value={sourceFilter} onChange={(v) => setSourceFilter(v as never)} options={[{ label: '全部来源', value: 'all' }, { label: 'ygl-trees', value: 'ygl-trees' }, { label: 'market', value: 'market' }, ...(life ? [{ label: '生命周期', value: 'lifecycle' }] : [])]} />
           <Button size="small" icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
@@ -83,22 +114,32 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
           {life?.ok && life.viewer && <Tag color="purple">以 {life.viewer} 查看（只读）</Tag>}
         </Space>
       )}
-      {shown.length === 0 ? (
-        <Empty description={compact ? '暂无待办' : '没有符合条件的任务——换个筛选，或点右上角「发布任务」'} style={{ padding: compact ? 8 : 24 }} />
+      {compact ? (
+        shown.length === 0 ? <Empty description="暂无待办" style={{ padding: 8 }} /> : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {shown.slice(0, 8).map((t) => (
+              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', border: '1px solid var(--wm-color-border)', borderRadius: 8, flexWrap: 'wrap' }}>
+                <Tag color={STATUS_COLOR[t.status]}>{STATUS_TEXT[t.status]}</Tag>
+                <Typography.Text ellipsis style={{ maxWidth: 420, fontSize: 12 }}>{t.title}</Typography.Text>
+                <Tag color={SOURCE_COLOR[t.source] ?? 'default'}>{SOURCE_TEXT[t.source] ?? t.source}</Tag>
+                {t.link && <Button type="link" size="small" href={t.link} target="_blank">去处理</Button>}
+              </div>
+            ))}
+          </div>
+        )
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: compact ? 4 : 8 }}>
-          {shown.slice(0, compact ? 8 : 200).map((t) => (
-            <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: compact ? '4px 8px' : '8px 12px', border: '1px solid var(--ant-color-border-secondary, #eee)', borderRadius: 8, flexWrap: 'wrap' }}>
-              <Tag color={SOURCE_COLOR[t.source] ?? 'default'}>{t.source}</Tag>
-              <Typography.Text ellipsis style={{ maxWidth: 420, fontSize: compact ? 12 : 14 }}>{t.title}</Typography.Text>
-              <Tag color={STATUS_COLOR[t.status]}>{STATUS_TEXT[t.status]}</Tag>
-              <Typography.Text type="secondary" style={{ fontSize: 12, flex: 1, minWidth: 120 }}>{[t.project, t.due].filter(Boolean).join(' · ')}</Typography.Text>
-              {t.source === 'market' && t.id.startsWith('market:task-') && <Tag color="blue">任务中心</Tag>}
-              {t.link && <Button type="link" size="small" href={t.link} target="_blank">去处理</Button>}
-              {t.lc && <span role="note">仅查看：同源门户/SOP隔离未完成，工作台审批已停用。</span>}
-            </div>
-          ))}
-        </div>
+        <ProTable<TaskEnvelope>
+          className="wm-tasks-table"
+          rowKey="id"
+          size="middle"
+          columns={taskColumns}
+          dataSource={shown}
+          search={false}
+          options={false}
+          toolBarRender={false}
+          pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (n) => `共 ${n} 条` }}
+          locale={{ emptyText: <Empty description="没有符合条件的任务——换个筛选，或点右上角「发布任务」" /> }}
+        />
       )}
       {payload && (
         <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
