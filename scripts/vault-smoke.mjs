@@ -3,9 +3,11 @@
  *  ① 门：读也要口令；业务面浏览器读写一律 403；控制面同源 GET（无 Origin）凭口令放行；跨站 GET 拒。
  *  ② 锁：未解锁 423；错主密码 401；连错 5 次进 30s 冷却 429。
  *  ③ 数据面：列表/回收站/健康/历史不出现任何明文密钥；完整条目只在单条读出；TOTP 6 位；软删→恢复→再删→清除。
- *  ④ 互通：磁盘文件无明文；上游 openVault 用同一主密码读得到；模拟 DSH 插件在外部写入后，市场列表能看见。 */
+ *  ④ 互通：磁盘文件无明文；上游 openVault 用同一主密码读得到；模拟 DSH 插件在外部写入后，市场列表能看见。
+ *  ⑩ 主密码门槛：新建库拒短/全数字/常见/弱口令且不落盘；强口令能建；旧的弱主密码库照常解锁并带提示。
+ *  收尾：每个实例按进程组停（SIGTERM，10s 后 SIGKILL），已被信号杀掉的不再等；整套 180s 看门狗，超时报出卡在哪一步并 exit 1。 */
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { join, resolve } from 'node:path';
 
@@ -13,6 +15,30 @@ const TMP = resolve('tmp/vault-smoke-' + Date.now().toString(36));
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
 const servers = [];
+let step = '启动';
+const section = (t) => { step = t; console.log(t); };
+
+/** 给实例所在进程组发信号（连带它可能拉起的孙进程）；组不在了就退回只发给子进程 */
+const signal = (sv, sig) => { try { process.kill(-sv.child.pid, sig); } catch { try { sv.child.kill(sig); } catch { /* 已退 */ } } };
+const exited = (sv) => sv.child.exitCode !== null || sv.child.signalCode !== null;
+/** 停一个实例并等它真退出：被信号杀掉时 exitCode 为 null（只有 signalCode），不能拿 exitCode 判断，否则会等一个永远不来的 exit */
+async function stop(sv) {
+  if (!exited(sv)) {
+    const ex = new Promise((x) => sv.child.once('exit', x));
+    signal(sv, 'SIGTERM');
+    const hard = setTimeout(() => signal(sv, 'SIGKILL'), 10_000);
+    await ex;
+    clearTimeout(hard);
+  }
+  signal(sv, 'SIGKILL'); // 收掉组里残留的孙进程
+}
+const watchdog = setTimeout(() => {
+  console.log(`  ✗ vault-smoke 超过 180s 未结束（卡在：${step}）`);
+  for (const sv of servers) signal(sv, 'SIGKILL');
+  rmSync(TMP, { recursive: true, force: true });
+  console.log(`vault-smoke: ${pass} passed / ${fail + 1} failed`);
+  process.exit(1);
+}, 180_000);
 
 function boot(tag, extraEnv) {
   const port = 20000 + Math.floor(Math.random() * 20000);
@@ -20,7 +46,7 @@ function boot(tag, extraEnv) {
   const env = { ...process.env, MCP_GATEWAY: 'off', PORT: String(port), DATA_DIR: data, ...extraEnv };
   for (const k of ['LC_YGL_BIN', 'LC_YGL_HOME', 'LC_WORKBENCH_KEY_FILE', 'LC_ODOO_URL', 'WM_ODOO_ORIGINS', 'WM_DEV_ORIGIN', 'WM_CONTROL_PORT']) if (!(k in extraEnv)) delete env[k];
   if (!('DSH_VAULT_PASSWORD' in extraEnv)) delete env.DSH_VAULT_PASSWORD;
-  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });
+  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env, detached: true }); // 独立进程组，收尾整组停
   let err = ''; child.stderr.on('data', (c) => (err += c));
   const s = { port, control: port + 1, child, err: () => err };
   servers.push(s);
@@ -28,7 +54,7 @@ function boot(tag, extraEnv) {
 }
 const http = (port, method, path, headers = {}, body) => new Promise((done) => {
   const h = { ...headers }; if (body !== undefined) { h['content-type'] = 'application/json'; h['content-length'] = Buffer.byteLength(body); }
-  const rq = request({ host: '127.0.0.1', port, method, path, headers: h }, (rs) => {
+  const rq = request({ host: '127.0.0.1', port, method, path, headers: h, agent: false }, (rs) => { // 不复用连接：收尾时没有挂着的 keep-alive
     let s = ''; rs.on('data', (c) => (s += c)); rs.on('end', () => { let j = null; try { j = JSON.parse(s); } catch {} done({ status: rs.statusCode, headers: rs.headers, body: j, text: s }); });
   });
   rq.on('error', (e) => done({ status: 0, headers: {}, body: { error: String(e) }, text: '' }));
@@ -54,7 +80,7 @@ try {
   const get = (p) => http(A.control, 'GET', p, cr);
   const send = (m, p, b) => http(A.control, m, p, cw, b === undefined ? undefined : JSON.stringify(b));
 
-  console.log('① 门');
+  section('① 门');
   let r = await http(A.port, 'GET', '/api/vault/status');
   ok('本机 CLI 无口令读 status → 403（读也要口令）', r.status === 403, `${r.status}`);
   r = await http(A.port, 'GET', '/api/vault/status', { 'x-admin-token': TOK });
@@ -77,7 +103,7 @@ try {
   await new Promise((x) => setTimeout(x, 200));
   ok('坏 JSON 的原始请求体不进服务日志', !A.err().includes(MASTER));
 
-  console.log('② 锁');
+  section('② 锁');
   r = await get('/api/vault/entries');
   ok('未解锁读条目 → 423 vault_locked', r.status === 423 && r.body?.code === 'vault_locked', `${r.status}`);
   r = await send('POST', '/api/vault/unlock', { password: MASTER });
@@ -90,7 +116,7 @@ try {
   ok('连错 5 次后进入冷却 → 429（对的也先拒）', r.status === 429, `${r.status}`);
 
   // 冷却 30s 太长，换一个实例继续（同一库文件 → 顺带验证跨实例可重开）
-  A.child.kill();
+  await stop(A);
   const B = boot('b', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile });
   ok('第二实例起来', (await up(B.port)) && (await up(B.control)));
   const CB = `http://127.0.0.1:${B.control}`;
@@ -101,7 +127,7 @@ try {
   r = await s('POST', '/api/vault/unlock', { password: MASTER });
   ok('同一主密码重开已有库', r.status === 200 && r.body?.count === 0, `${r.status} ${r.text.slice(0, 160)}`);
 
-  console.log('③ 数据面');
+  section('③ 数据面');
   r = await s('POST', '/api/vault/entries', { title: 'GitHub 合成', kind: 'login', username: 'syn-user', password: SECRET_PW, url: 'http://github.example.test/login', otpSecret: OTP, tags: ['dev'] });
   ok('新增 login → 201', r.status === 201 && r.body?.id, `${r.status} ${r.text.slice(0, 160)}`);
   const id1 = r.body?.id;
@@ -168,7 +194,7 @@ try {
   r = await s('POST', '/api/vault/unlock', { password: 'wrong-again' });
   ok('已解锁时输错主密码 → 401 但会话仍解锁', r.status === 401 && (await g('/api/vault/entries')).status === 200);
 
-  console.log('④ 与 DSH 插件互通');
+  section('④ 与 DSH 插件互通');
   const disk = readFileSync(vaultFile, 'utf8');
   ok('磁盘文件不含任何明文', !disk.includes('Changed-Synthetic-Pw-1') && noLeak(disk) && !disk.includes('syn-user'));
   const { openVault } = await import('../server/src/vault/store.ts');
@@ -198,40 +224,40 @@ try {
   r = await s('POST', '/api/vault/lock');
   ok('上锁后读条目 → 423', r.status === 200 && (await g('/api/vault/entries')).status === 423);
 
-  console.log('⑤ 环境变量主密码');
-  B.child.kill();
+  section('⑤ 环境变量主密码');
+  await stop(B);
   const D = boot('d', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile, DSH_VAULT_PASSWORD: MASTER });
   ok('第三实例起来', await up(D.port));
   r = await http(D.port, 'GET', '/api/vault/entries', { 'x-admin-token': TOK });
   ok('DSH_VAULT_PASSWORD 存在时按需自动解锁', r.status === 200 && r.body?.entries?.length === 6, `${r.status} ${r.text.slice(0, 160)}`);
 
-  console.log('⑥ 未设口令 = 凭据库休眠');
+  section('⑥ 未设口令 = 凭据库休眠');
   const E = boot('e', { WM_VAULT_PATH: join(TMP, 'vault-e', 'default.json') });
   ok('第四实例起来', await up(E.port));
   r = await http(E.port, 'GET', '/api/vault/status', { 'x-admin-token': 'anything' });
   ok('无 ADMIN_TOKEN 时一律 403', r.status === 403, `${r.status}`);
 
-  console.log('⑦ 缺省库文件不是 DSH 插件那份');
+  section('⑦ 缺省库文件不是 DSH 插件那份');
   const dshHome = join(TMP, 'dsh-home');
   const F = boot('f', { ADMIN_TOKEN: TOK, DSH_HOME: dshHome });
   ok('第五实例起来', await up(F.port));
   r = await http(F.port, 'GET', '/api/vault/status', { 'x-admin-token': TOK });
   ok('缺省路径在 DATA_DIR 下、shared_with_dsh=false', r.body?.path === join(TMP, 'data-f', 'vault', 'default.json') && r.body.shared_with_dsh === false, r.text.slice(0, 200));
-  F.child.kill();
+  await stop(F);
   const G = boot('g', { ADMIN_TOKEN: TOK, DSH_HOME: dshHome, WM_VAULT_PATH: join(dshHome, 'vault', 'default.json') });
   ok('第六实例起来', await up(G.port));
   r = await http(G.port, 'GET', '/api/vault/status', { 'x-admin-token': TOK });
   ok('显式指向 DSH 插件库文件 → shared_with_dsh=true', r.body?.shared_with_dsh === true, r.text.slice(0, 200));
 
-  console.log('⑧ 并发错密码不能绕过限流');
+  section('⑧ 并发错密码不能绕过限流');
   const cli = (port, m, p, b) => http(port, m, p, { 'x-admin-token': TOK }, b === undefined ? undefined : JSON.stringify(b));
   await cli(G.port, 'POST', '/api/vault/unlock', { password: MASTER }); // 先建库，后面的才是真错密码
   const res = await Promise.all(Array.from({ length: 9 }, () => cli(G.port, 'POST', '/api/vault/unlock', { password: 'nope' })));
   const n401 = res.filter((x) => x.status === 401).length, n429 = res.filter((x) => x.status === 429).length;
   ok('9 个并发错密码：最多 5 个被真正尝试，其余 429', n401 === 5 && n429 === 4, `401=${n401} 429=${n429}`);
-  G.child.kill();
+  await stop(G);
 
-  console.log('⑨ 闲置上锁：取验证码不算活动');
+  section('⑨ 闲置上锁：取验证码不算活动');
   const H = boot('h', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: join(TMP, 'vault-h', 'default.json'), WM_VAULT_IDLE_MIN: '0.03' });
   ok('第七实例起来', await up(H.port));
   await cli(H.port, 'POST', '/api/vault/unlock', { password: MASTER });
@@ -239,8 +265,58 @@ try {
   let last = 0;
   for (let k = 0; k < 7; k++) { last = (await cli(H.port, 'GET', `/api/vault/entries/${idOtp}/totp`)).status; await new Promise((x) => setTimeout(x, 400)); }
   ok('一直轮询验证码也会在闲置 1.8s 后上锁', last === 423 && (await cli(H.port, 'GET', '/api/vault/entries')).status === 423, `last=${last}`);
+  await stop(H);
+
+  section('⑩ 主密码门槛（只管新建库）');
+  const pDir = join(TMP, 'vault-p'), pFile = join(pDir, 'default.json');
+  const P = boot('p', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: pFile });
+  ok('第八实例起来', await up(P.port));
+  const nothingOnDisk = () => !existsSync(pDir) || readdirSync(pDir).length === 0;
+  for (const [label, pw, want] of [
+    ['4 位数字「1234」', '1234', '至少 12 个字符'],
+    ['11 个字符', 'zq8!Lm2#vR7', '至少 12 个字符'],
+    ['12 位全数字', '202611011234', '不能全是数字'],
+    ['常见口令原样（≥12 字符，在 1 万条表里）', 'unbelievable', '常见弱口令'],
+    ['常见口令加数字', 'password1234', '常见弱口令'],
+    ['常见口令变形（大写 + l33t + 符号）', 'P@ssw0rd2024!', '常见弱口令'],
+    ['重复字符', 'aaaaaaaaaaaa', '强度评估为「弱」'],
+  ]) {
+    r = await cli(P.port, 'POST', '/api/vault/unlock', { password: pw });
+    ok(`新建库拒${label} → 400 且说明原因、不落盘`, r.status === 400 && r.body?.code === 'vault_weak_master' && r.body.reasons?.some((x) => x.includes(want)) && nothingOnDisk(), `${r.status} ${r.text.slice(0, 200)}`);
+  }
+  r = await cli(P.port, 'GET', '/api/vault/status');
+  ok('被拒后 status 仍是「库不存在、未解锁」', r.body?.exists === false && r.body.unlocked === false && r.body.master_policy?.min_length === 12 && r.body.master_policy.common_list >= 10000, r.text.slice(0, 200));
+  r = await cli(P.port, 'POST', '/api/vault/master-check', { password: '1234' });
+  ok('master-check：弱口令 ok=false 带原因与强度', r.status === 200 && r.body?.ok === false && r.body.reasons.length > 0 && r.body.strength?.verdict === 'weak', r.text.slice(0, 200));
+  r = await cli(P.port, 'POST', '/api/vault/master-check', { password: MASTER });
+  ok('master-check：强口令 ok=true', r.body?.ok === true && r.body.reasons.length === 0, r.text.slice(0, 200));
+  r = await cli(P.port, 'POST', '/api/vault/unlock', { password: MASTER });
+  ok('强口令能建库，且不带弱主密码提示', r.status === 200 && r.body?.unlocked === true && r.body.weak_master === false && existsSync(pFile), `${r.status} ${r.text.slice(0, 160)}`);
+  await stop(P);
+
+  // 旧库：用上游 openVault 直接建一个 4 位主密码的库（模拟门槛上线前就存在的库）
+  const oFile = join(TMP, 'vault-old', 'default.json');
+  const legacy = await openVault({ masterPassword: '1234', path: oFile });
+  await legacy.add({ title: '旧库里的条目', password: 'Synthetic-Legacy-Pw' });
+  await legacy.lock();
+  const O = boot('o', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: oFile });
+  ok('第九实例起来', await up(O.port));
+  r = await cli(O.port, 'POST', '/api/vault/unlock', { password: '1234' });
+  ok('旧的弱主密码库照常解锁，并提示低于新标准', r.status === 200 && r.body?.unlocked === true && r.body.count === 1 && r.body.weak_master === true && r.body.weak_reasons.length > 0, `${r.status} ${r.text.slice(0, 200)}`);
+  r = await cli(O.port, 'GET', '/api/vault/status');
+  ok('status 也带 weak_master 提示（不强制）', r.body?.weak_master === true && r.body.weak_reasons.some((x) => x.includes('至少 12 个字符')), r.text.slice(0, 200));
+  ok('旧库解锁后读写照常', (await cli(O.port, 'GET', '/api/vault/entries')).body?.entries?.length === 1 && (await cli(O.port, 'POST', '/api/vault/entries', { title: '解锁后新增' })).status === 201);
+  await stop(O);
+
+  const qDir = join(TMP, 'vault-q');
+  const Q = boot('q', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: join(qDir, 'default.json'), DSH_VAULT_PASSWORD: '1234' });
+  ok('第十实例起来', await up(Q.port));
+  r = await cli(Q.port, 'GET', '/api/vault/entries');
+  ok('环境变量弱主密码也不能新建库（400、不落盘）', r.status === 400 && r.body?.code === 'vault_weak_master' && /DSH_VAULT_PASSWORD/.test(r.body.error) && (!existsSync(qDir) || readdirSync(qDir).length === 0), `${r.status} ${r.text.slice(0, 200)}`);
 } finally {
-  for (const sv of servers) if (sv.child.exitCode === null) { const ex = new Promise((x) => sv.child.once('exit', x)); sv.child.kill(); await ex; }
+  step = '收尾';
+  await Promise.all(servers.map(stop));
+  clearTimeout(watchdog);
   rmSync(TMP, { recursive: true, force: true });
 }
 console.log(`vault-smoke: ${pass} passed / ${fail} failed`);

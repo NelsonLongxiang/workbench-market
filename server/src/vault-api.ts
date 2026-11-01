@@ -7,7 +7,8 @@
  *    - 列表/回收站/健康报告只回无密摘要（自定义字段只给键名）；完整条目只在 GET /entries/:id 显式读取，且记入库内审计。
  *    - 主密码只在进程内存：解锁后闲置 WM_VAULT_IDLE_MIN 分钟（缺省 15）由定时器主动上锁；取验证码不算活动。
  *      环境变量 DSH_VAULT_PASSWORD 存在时按需自动解锁、不闲置上锁。
- *    - 解锁/上锁/重开串行执行；文件被别的进程改过就先重开再读写；重开不删别人正持有的写锁。 */
+ *    - 解锁/上锁/重开串行执行；文件被别的进程改过就先重开再读写；重开不删别人正持有的写锁。
+ *    - 新建库的主密码过 vault-policy 门槛（长度/全数字/常见口令/弱），不过就拒、不落盘；已有库照常解锁，只回 weak_master 提示。 */
 import type express from 'express';
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -16,6 +17,7 @@ import { defaultVaultPath, openVault, type VaultEntry, type VaultEntryPatch, typ
 import { parseTotpSecret, totp } from './vault/totp.ts';
 import { generatePassphrase, generatePassword } from './vault/password.ts';
 import { estimateStrength } from './vault/password-strength.ts';
+import { checkMasterPassword, COMMON_PASSWORD_COUNT, MASTER_POLICY } from './vault-policy/policy.ts';
 
 export const VAULT_UPSTREAM = 'dsh-vault@1.10.75';
 const KINDS = ['login', 'ssh', 'api-key', 'secret', 'oauth', 'cookie', 'card', 'custom'] as const;
@@ -29,7 +31,14 @@ type Guard = (req: express.Request, res: express.Response) => boolean;
 class VaultHttpError extends Error {
   status: number;
   code?: string;
-  constructor(status: number, message: string, code?: string) { super(message); this.status = status; this.code = code; }
+  extra?: Record<string, unknown>;
+  constructor(status: number, message: string, code?: string, extra?: Record<string, unknown>) { super(message); this.status = status; this.code = code; this.extra = extra; }
+}
+
+/** 新建库前的门槛：不过就抛 400，调用方此时还没碰磁盘 */
+function assertNewMaster(password: string, who: string): void {
+  const c = checkMasterPassword(password);
+  if (!c.ok) throw new VaultHttpError(400, `${who}不满足新建库要求：${c.reasons.join('；')}`, 'vault_weak_master', { reasons: c.reasons, strength: { score: c.strength.score, verdict: c.strength.verdict } });
 }
 
 function idleMs(): number {
@@ -41,7 +50,8 @@ export function vaultPath(): string {
   return process.env.WM_VAULT_PATH?.trim() || join(dataDir, 'vault', 'default.json');
 }
 
-interface Open { store: VaultStore; password: string; fromEnv: boolean; mtimeMs: number; size: number; lastUsed: number }
+/** weak：主密码按新标准不达标的原因（旧库照常能开，只提示；空 = 达标） */
+interface Open { store: VaultStore; password: string; fromEnv: boolean; mtimeMs: number; size: number; lastUsed: number; weak: string[] }
 let open: Open | null = null;
 let failures = 0;
 let blockedUntil = 0;
@@ -63,7 +73,7 @@ async function doOpen(password: string, fromEnv: boolean): Promise<Open> {
   // clearStaleLock:false —— 运行中重开不能删 DSH 插件等别的进程正持有的 <file>.lock
   const store = await openVault({ masterPassword: password, path, clearStaleLock: false });
   const sig = await fileSig(path);
-  return { store, password, fromEnv, mtimeMs: sig?.mtimeMs ?? 0, size: sig?.size ?? 0, lastUsed: Date.now() };
+  return { store, password, fromEnv, mtimeMs: sig?.mtimeMs ?? 0, size: sig?.size ?? 0, lastUsed: Date.now(), weak: checkMasterPassword(password).reasons };
 }
 
 /** 换下旧实例时把它的派生密钥清零（lock 会先落审计，再由新实例读入） */
@@ -88,6 +98,7 @@ function unlocked(touch = true): Promise<Open> {
     if (!open) {
       const envPw = process.env.DSH_VAULT_PASSWORD;
       if (!envPw) throw new VaultHttpError(423, '凭据库已锁定，请先输入主密码解锁', 'vault_locked');
+      if (!(await fileSig(vaultPath()))) assertNewMaster(envPw, 'DSH_VAULT_PASSWORD ');
       open = await doOpen(envPw, true);
     }
     const sig = await fileSig(vaultPath());
@@ -161,7 +172,7 @@ export function mountVault(app: express.Express, guard: Guard): void {
       res.setHeader('Cache-Control', 'no-store');
       if (!guard(req, res)) return;
       fn(req, res).then((body) => { if (!res.headersSent) res.json(body); }).catch((e: unknown) => {
-        if (e instanceof VaultHttpError) return res.status(e.status).json({ error: e.message, ...(e.code ? { code: e.code } : {}) });
+        if (e instanceof VaultHttpError) return res.status(e.status).json({ error: e.message, ...(e.code ? { code: e.code } : {}), ...e.extra });
         const msg = String((e as Error)?.message ?? e);
         // 写失败时内存可能已改、磁盘没改：强制下次从磁盘重开，丢掉这次没落盘的改动
         if (method !== 'get' && open) open.mtimeMs = -1;
@@ -189,6 +200,9 @@ export function mountVault(app: express.Express, guard: Guard): void {
       env_password: Boolean(process.env.DSH_VAULT_PASSWORD),
       idle_lock_minutes: idle / 60_000,
       count: open ? open.store.list().length : null,
+      weak_master: open ? open.weak.length > 0 : null,
+      weak_reasons: open?.weak ?? [],
+      master_policy: { min_length: MASTER_POLICY.minLength, common_list: COMMON_PASSWORD_COUNT },
     };
   });
 
@@ -197,6 +211,7 @@ export function mountVault(app: express.Express, guard: Guard): void {
     if (!password) throw new VaultHttpError(400, '请输入主密码');
     return serial(async () => {
       if (Date.now() < blockedUntil) throw new VaultHttpError(429, `尝试过多，请 ${Math.ceil((blockedUntil - Date.now()) / 1000)} 秒后再试`);
+      if (!(await fileSig(vaultPath()))) assertNewMaster(password, '主密码'); // 库还不存在 = 这次是新建
       let next: Open;
       try {
         next = await doOpen(password, false);
@@ -212,7 +227,7 @@ export function mountVault(app: express.Express, guard: Guard): void {
       const cur = open;
       open = next;
       await retire(cur);
-      return { unlocked: true, count: next.store.list().length };
+      return { unlocked: true, count: next.store.list().length, weak_master: next.weak.length > 0, weak_reasons: next.weak };
     });
   });
 
@@ -311,6 +326,13 @@ export function mountVault(app: express.Express, guard: Guard): void {
   route('post', '/api/vault/strength', async (req) => {
     const password = typeof req.body?.password === 'string' ? req.body.password.slice(0, 1024) : '';
     return estimateStrength(password);
+  });
+
+  /** 新建库页面的实时校验：和 unlock 用同一个门槛 */
+  route('post', '/api/vault/master-check', async (req) => {
+    const password = typeof req.body?.password === 'string' ? req.body.password.slice(0, 1024) : '';
+    const c = checkMasterPassword(password);
+    return { ok: c.ok, reasons: c.reasons, strength: c.strength };
   });
 
   /** 健康报告：上游 health().reused 带着被复用的明文值——这里去掉，只回哪些条目在复用 */
