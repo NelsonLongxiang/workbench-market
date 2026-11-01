@@ -36,6 +36,14 @@ export function taskCenterPolicy() {
   const row = db.prepare("SELECT value FROM task_center_policy WHERE key='center_switch'").get() as {value:string}|undefined;
   return {agent_dispatch_enabled: row?.value === 'on'};
 }
+/** #309 phase2：公开任务列表/未授权详情只回显式元数据，不带 payload_json/内部路径/未来新增列。 */
+export function taskListView(row: any) {
+  const agent_dispatch = row.agent_dispatch_enabled === 1;
+  return { id: row.id, title: row.title, kind: row.kind, status: row.status, enabled: row.enabled,
+    created_at: row.created_at, updated_at: row.updated_at, published_at: row.published_at,
+    intake_run_id: row.intake_run_id, template_version: row.template_version,
+    agent_dispatch, agent_dispatch_effective: row.status === 'published' && agent_dispatch && taskCenterPolicy().agent_dispatch_enabled };
+}
 export function taskView(row: any) {
   const agent_dispatch = row.agent_dispatch_enabled === 1;
   return {...row, agent_dispatch, agent_dispatch_effective: row.status === 'published' && agent_dispatch && taskCenterPolicy().agent_dispatch_enabled};

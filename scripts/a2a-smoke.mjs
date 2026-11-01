@@ -120,6 +120,7 @@ try {
   ok('task_id 回显', r.body?.task_id === 'p2-task-1');
   ok('sop.run_id 在场', Number.isInteger(r.body?.sop?.run_id));
   const p2run = r.body.sop.run_id;
+  const p2cap = String(r.body?.sop?.read_capability ?? ''); // #309 phase2：创建即得读能力
   // ⑤ 幂等 replay（同 key 同 payload）
   r = await call('POST', '/a2a/direct', { team: teamName, message: JSON.stringify({ sop: { action: 'start' } }), caller_session: 'dsh/1a2b3c4d', task_id: 'p2-task-1', context_id: 'ctx-p2-a' });
   ok('同 key 同 payload → 409 -32003 replay', r.status === 409 && r.body?.code === -32003 && r.body?.replay === true);
@@ -133,7 +134,7 @@ try {
   r = await call('POST', '/a2a/direct', { team: teamName, message: JSON.stringify({ sop: { action: 'status' } }), caller_session: 'dsh/1a2b3c4d', task_id: 'p2-task-3', context_id: 'ctx-p2-a' });
   ok('status → DELIVERED + steps≥1', r.status === 200 && r.body?.sop?.steps >= 1);
   // ⑨ note 数据落 sop_runs（a2a-notes）
-  const runDetail = await call('GET', `/api/sop/runs/${p2run}`);
+  const runDetail = await call('GET', `/api/sop/runs/${p2run}`, undefined, { 'X-Run-Read-Capability': p2cap });
   const notes = runDetail.body?.data?.['a2a-notes'];
   ok('note 写入 a2a-notes', Array.isArray(notes) && notes.some((n) => n.text === 'P2 备注测试'), JSON.stringify(notes).slice(0, 120));
   // ⑩ 512KiB → 413

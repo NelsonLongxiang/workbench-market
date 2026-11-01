@@ -32,7 +32,10 @@ try{
  const template=await (await fetch(base+'/api/task-center/template')).json();
  check('C17 six fixed keys + version',()=>{assert.ok(template.version>0);for(const k of ['title','intent','references','deliverable','target','due'])assert.ok(template.steps.some(s=>s.key===k));});
  const values={title:'isolate test',intent:{z:2,a:'intent'},references:[],deliverable:'report',target:'',due:''};
- async function intake(){const r=await call('/api/sop/runs',{slug:'task-center'});assert.equal(r.status,201);for(const [k,v]of Object.entries(values)){const s=await call('/api/sop/runs/'+r.j.id,{stepKey:k,value:v},'PUT');assert.equal(s.status,200);}return r.j.id;}
+ const CAPS={}; // #309 phase2：录入 run 读能力（创建响应即得，详情授权用）
+ const RC=id=>({'X-Run-Read-Capability':CAPS[id]||''});
+ async function intake(){const r=await call('/api/sop/runs',{slug:'task-center'});assert.equal(r.status,201);CAPS[r.j.id]=String(r.j.read_capability||'');for(const [k,v]of Object.entries(values)){const s=await call('/api/sop/runs/'+r.j.id,{stepKey:k,value:v},'PUT');assert.equal(s.status,200);}return r.j.id;}
+ const taskGet=async id=>(await fetch(base+'/api/task-center/tasks/'+id,{headers:RC(id)})).json();
  const id=await intake();
  const unfinished=await call('/api/task-center/tasks',{intake_run_id:id,published_by:'fixture'});
  check('C3 unfinished run rejected400',()=>assert.equal(unfinished.status,400));
@@ -43,7 +46,7 @@ try{
  check('C10 foreign origin rejected',()=>assert.equal(foreign.status,403));
  const pub=await call('/api/task-center/tasks',{intake_run_id:id,published_by:'fixture'});
  check('C1 completed run published201',()=>assert.equal(pub.status,201,JSON.stringify(pub.j)));
- const task=await (await fetch(base+'/api/task-center/tasks/'+pub.j.id)).json();
+ const task=await taskGet(pub.j.id);
  check('C19 pinned run/template',()=>{assert.equal(task.intake_run_id,id);assert.equal(task.template_version,template.version);});
  check('C2 canonical run hash',()=>assert.equal(task.material_sha256,createHash('sha256').update(canonical(values)).digest('hex')));
  check('C6 task switch defaults off',()=>{assert.equal(task.agent_dispatch,false);assert.equal(task.agent_dispatch_effective,false);});
@@ -75,13 +78,13 @@ try{
  const raced=await intake();await call('/api/sop/runs/'+raced+'/finish',{});
  const pair=await Promise.all([call('/api/task-center/tasks',{intake_run_id:raced,published_by:'fixture'}),call('/api/task-center/tasks',{intake_run_id:raced,published_by:'fixture'})]);
  check('concurrent same run yields one publish one conflict',()=>assert.deepEqual(pair.map(r=>r.status).sort(),[201,409]));
- const direct=await (await fetch(base+'/api/task-center/tasks/'+pub.j.id)).json();
+ const direct=await taskGet(pub.j.id);
  check('publication appends exactly one human event',()=>{assert.equal(direct.events.length,1);assert.equal(direct.events[0].actor,'human:fixture');});
  const shape=await call('/api/sop/runs',{slug:'task-center'});
  for(const key of ['title','intent','deliverable'])await call('/api/sop/runs/'+shape.j.id,{stepKey:key,value:{value:key==='title'?'Runner title':key}},'PUT');
  await call('/api/sop/runs/'+shape.j.id+'/finish',{});
  const shaped=await call('/api/task-center/tasks',{intake_run_id:shape.j.id,published_by:'fixture'});
- const shapedTask=await (await fetch(base+'/api/task-center/tasks/'+shaped.j.id)).json();
+ const shapedTask=await taskGet(shaped.j.id);
  check('Runner field object produces actual title',()=>{assert.equal(shaped.status,201);assert.equal(shapedTask.title,'Runner title');});
  check('C18 seed versions have changelog',()=>assert.ok(initial.versions.every(v=>v.changelog)));
  for(const [path,body,method] of [
@@ -95,33 +98,33 @@ try{
  const on=await call('/api/task-center/tasks/'+pub.j.id+'/agent-dispatch',{enabled:true},'PATCH');
  check('C8 task on center off is ineffective',()=>{assert.equal(on.status,200);assert.equal(on.j.agent_dispatch,true);assert.equal(on.j.agent_dispatch_effective,false);});
  const both=await call('/api/task-center/policy',{agent_dispatch_enabled:true},'PUT');
- const bothTask=await (await fetch(base+'/api/task-center/tasks/'+pub.j.id)).json();
+ const bothTask=await taskGet(pub.j.id);
  check('both locks on effective',()=>{assert.equal(both.status,200);assert.equal(bothTask.agent_dispatch_effective,true);assert.equal(bothTask.events.length,2);});
  await call('/api/task-center/tasks/'+pub.j.id+'/agent-dispatch',{enabled:true},'PATCH');
- const unchanged=await (await fetch(base+'/api/task-center/tasks/'+pub.j.id)).json();
+ const unchanged=await taskGet(pub.j.id);
  check('idempotent same switch does not create event',()=>assert.equal(unchanged.events.length,2));
  await call('/api/task-center/policy',{agent_dispatch_enabled:false},'PUT');
- const centerOff=await (await fetch(base+'/api/task-center/tasks/'+pub.j.id)).json();
+ const centerOff=await taskGet(pub.j.id);
  check('center off kills effective without task event',()=>{assert.equal(centerOff.agent_dispatch_effective,false);assert.equal(centerOff.events.length,2);});
  const invalidPolicy=await call('/api/task-center/policy',{agent_dispatch_enabled:'true'},'PUT');
  check('invalid policy boolean rejected400',()=>assert.equal(invalidPolicy.status,400));
  await call('/api/task-center/tasks/'+pub.j.id+'/withdraw',{});
- const withdrawn=await (await fetch(base+'/api/task-center/tasks/'+pub.j.id)).json();
+ const withdrawn=await taskGet(pub.j.id);
  check('C20 publish/toggle/withdraw exactly one event each',()=>{assert.equal(withdrawn.status,'withdrawn');assert.equal(withdrawn.events.length,3);assert.deepEqual(withdrawn.events.map(e=>e.action),['published','toggled','withdrawn']);});
  check('C21 all human actors',()=>assert.ok(withdrawn.events.every(e=>e.actor.startsWith('human:'))));
  const eid=withdrawn.events[0].id;
  await call('/api/task-center/tasks/'+pub.j.id+'/events/'+eid,{actor:'tamper'},'PUT');
  await call('/api/task-center/tasks/'+pub.j.id+'/events/'+eid,{},'DELETE');
- const afterTamper=await (await fetch(base+'/api/task-center/tasks/'+pub.j.id)).json();
+ const afterTamper=await taskGet(pub.j.id);
  check('C22 event mutation routes do not alter log',()=>assert.deepEqual(afterTamper.events,withdrawn.events));
  const blockedToggle=await call('/api/task-center/tasks/'+pub.j.id+'/agent-dispatch',{enabled:false},'PATCH');
  check('withdrawn switch rejected',()=>assert.equal(blockedToggle.status,409));
  await call('/api/task-center/policy',{agent_dispatch_enabled:true},'PUT');
- const withdrawnEffective=await (await fetch(base+'/api/task-center/tasks/'+pub.j.id)).json();
+ const withdrawnEffective=await taskGet(pub.j.id);
  check('withdrawn task never effective even with both flags',()=>assert.equal(withdrawnEffective.agent_dispatch_effective,false));
  const explicit=await intake();await call('/api/sop/runs/'+explicit+'/finish',{});
  const explicitTask=await call('/api/task-center/tasks',{intake_run_id:explicit,published_by:'fixture',agent_dispatch:true});
- const optIn=await (await fetch(base+'/api/task-center/tasks/'+explicitTask.j.id)).json();
+ const optIn=await taskGet(explicitTask.j.id);
  check('explicit human publication opt-in retained',()=>{assert.equal(optIn.agent_dispatch,true);assert.equal(optIn.agent_dispatch_effective,true);});
  const dbConn=new DatabaseSync(resolve(data,'workbench-market.db'));
  try {
