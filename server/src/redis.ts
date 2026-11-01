@@ -67,66 +67,34 @@ const kData = (id: number) => `wm:sop:run:${id}:data`;
 const kMeta = (id: number) => `wm:sop:run:${id}:meta`;
 const kActive = 'wm:sop:runs:active';
 
-/** 防抖保存一个步骤值 + 刷 meta.updated_at；活跃索引入集合 */
-export async function runStateSave(id: number, meta: RunMeta, stepKey: string, value: unknown): Promise<boolean> {
-  if (!redisHealthy() || !client) return false;
-  try {
-    const c = client as unknown as {
-      hSet: (k: string, f: string, v: string) => Promise<unknown>;
-      sAdd: (k: string, m: string) => Promise<unknown>;
-    };
-    await c.hSet(kMeta(id), 'slug', meta.slug);
-    await c.hSet(kMeta(id), 'version', String(meta.version));
-    await c.hSet(kMeta(id), 'status', meta.status);
-    await c.hSet(kMeta(id), 'started_by', meta.started_by);
-    await c.hSet(kMeta(id), 'updated_at', String(meta.updated_at));
-    await c.hSet(kData(id), stepKey, JSON.stringify(value));
-    await c.sAdd(kActive, String(id));
-    return true;
-  } catch {
-    return false;
-  }
+/** Legacy step adapter; callers must supply the current durable SQLite checkpoint. */
+export async function runStateSave(id: number, meta: RunMeta, stepKey: string, value: unknown, checkpoint: string): Promise<boolean> {
+  const hot = await runStateLoad(id, checkpoint);
+  return runStateRestore(id, meta, { ...(hot?.data ?? {}), [stepKey]: value }, checkpoint);
 }
 
-/** 整体写回（SQLite 行恢复 Redis 热态用）：data 为 stepKey→value 对象 */
-export async function runStateRestore(id: number, meta: RunMeta, data: Record<string, unknown>): Promise<boolean> {
-  if (!redisHealthy() || !client) return false;
+/** One atomic field binds the whole hot snapshot to its durable SQLite generation. */
+export async function runStateRestore(id: number, meta: RunMeta, data: Record<string, unknown>, checkpoint: string): Promise<boolean> {
+  if (!redisHealthy() || !client || typeof checkpoint !== 'string' || checkpoint.length !== 64) return false;
   try {
     const c = client as unknown as { hSet: (k: string, a: string | Record<string, string>, v?: string) => Promise<unknown>; sAdd: (k: string, m: string) => Promise<unknown> };
-    await c.hSet(kMeta(id), {
-      slug: meta.slug, version: String(meta.version), status: meta.status,
-      started_by: meta.started_by, updated_at: String(meta.updated_at),
-    });
-    const entries = Object.fromEntries(Object.entries(data).map(([k, v]) => [k, JSON.stringify(v)]));
-    if (Object.keys(entries).length > 0) await c.hSet(kData(id), entries);
+    await c.hSet(kMeta(id), { slug: meta.slug, version: String(meta.version), status: meta.status, started_by: meta.started_by, updated_at: String(meta.updated_at) });
+    // Never refresh a base marker separately from its data: a later HSET failure could bless old fields.
     if (meta.status === 'running') await c.sAdd(kActive, String(id));
+    await c.hSet(kData(id), '__wm_snapshot_v2', JSON.stringify({ format: 2, checkpoint, meta, data })); // publication is last; failed metadata/index writes never publish rejected data
     return true;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
-/** 读回热数据（恢复现场）；miss 返回 null，调用方查 SQLite */
-export async function runStateLoad(id: number): Promise<{ meta: RunMeta; data: Record<string, unknown> } | null> {
-  if (!redisHealthy() || !client) return null;
+/** Legacy, partial or stale snapshots are misses; SQLite stays authoritative after fallback/restart. */
+export async function runStateLoad(id: number, checkpoint: string): Promise<{ meta: RunMeta; data: Record<string, unknown> } | null> {
+  if (!redisHealthy() || !client || typeof checkpoint !== 'string' || checkpoint.length !== 64) return null;
   try {
-    const c = client as unknown as {
-      hGetAll: (k: string) => Promise<Record<string, string>>;
-    };
-    const m = await c.hGetAll(kMeta(id));
-    if (!m || !m.slug) return null;
-    const d = await c.hGetAll(kData(id));
-    const data: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(d)) {
-      try { data[k] = JSON.parse(v); } catch { data[k] = v; }
-    }
-    return {
-      meta: { slug: m.slug, version: Number(m.version), status: m.status, started_by: m.started_by, updated_at: Number(m.updated_at) },
-      data,
-    };
-  } catch {
-    return null;
-  }
+    const d = await (client as unknown as { hGetAll: (k: string) => Promise<Record<string, string>> }).hGetAll(kData(id));
+    const snapshot = JSON.parse(d.__wm_snapshot_v2 ?? 'null');
+    if (snapshot?.format !== 2 || snapshot.checkpoint !== checkpoint || !snapshot.meta || typeof snapshot.meta.slug !== 'string' || !snapshot.data || typeof snapshot.data !== 'object' || Array.isArray(snapshot.data)) return null;
+    return { meta: snapshot.meta, data: snapshot.data };
+  } catch { return null; }
 }
 
 /** finish/abandon：退出活跃索引 + 热态 status 同步为最终态 + 条目 1h 平滑淘汰（SQLite 已是真源；热态必须同步最终态，否则 TTL 窗口内热读拿到过期 running） */
