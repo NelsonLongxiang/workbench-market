@@ -39,10 +39,18 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/admin-token-browser.mjs
-      - name: 侧栏五组菜单浏览器回归（#316：分组·管理组口令可见且默认折叠·对比度·专属图标·旧路由）
+      - name: UI 外壳浏览器回归（#316 菜单分组；#317 页面骨架；#319 列表规则；#320 看板 12 列栅格·四类卡片·数据截至·驾驶舱旧布局吸附不丢卡不回写）
         env:
           PYTHON: python
         run: node scripts/sider-menu-browser.mjs
+      - name: SOP 交付空间浏览器回归（#318：执行记录元数据·单次记录读授权由服务端判·定义不带正文·刷新不丢·附件带口令下载）
+        env:
+          PYTHON: python
+        run: node scripts/sop-space-browser.mjs
+      - name: 设计 token 出口（#321：/design/tokens@1.css 固定路径·SOP 执行页内联变量且不写死色值·与市场同色同字号·自产台示例全走变量）
+        env:
+          PYTHON: python
+        run: node scripts/tokens-surface-smoke.mjs
       # E2E 组 21 的 a2a-smoke 用上游 verifyCard 当裁判：检出公开的 dsh-open-a2a-net（钉提交），A2A_CARD_SRC 指过去
       - uses: actions/checkout@v4
         with:
@@ -115,6 +123,10 @@ jobs:
         run: node scripts/design-standard-smoke.mjs
       - name: design token 管线（#315：产物与 DESIGN.md 同步·引用解析·主题与侧栏不写死色值）
         run: node scripts/design-tokens-smoke.mjs
+      - name: SOP 定义只读接口（#318：published 公开·draft/deprecated 仅管理员·不带步骤正文·冷版本 404）
+        run: node scripts/sop-definition-smoke.mjs
+      - name: 驾驶舱布局吸附单测（#320：宽度只取 3/4/6/12·x 越界收回·不丢面板·读时迁移不回写）
+        run: node scripts/cockpit-layout-unit.mjs
       - name: 凭据库（融合 dsh-vault：读写要口令·业务面 403·摘要无明文·坏 JSON 不进日志·写锁/重开/闲置上锁/限流）
         run: node scripts/vault-smoke.mjs
       - name: F5 env-face 判定回归（不启动 Docker）
