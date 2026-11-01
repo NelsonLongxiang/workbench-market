@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import dayjs from 'dayjs';
-import { Alert, App, Button, Card, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Popconfirm, Progress, Result, Select, Space, Spin, Switch, Table, Tabs, Tag, Tooltip, Typography } from 'antd';
-import type { ColumnsType } from 'antd/es/table';
-import { PageContainer } from '@ant-design/pro-components';
-import { CopyOutlined, DeleteOutlined, EditOutlined, EyeInvisibleOutlined, EyeOutlined, LockOutlined, PlusOutlined, StarFilled, ThunderboltOutlined, UnlockOutlined } from '@ant-design/icons';
-import { VAULT_KINDS, VaultError, vaultApi, type Strength, type VaultEntry, type VaultEvent, type VaultHealth, type VaultKind, type VaultStats, type VaultStatus, type VaultSummary } from '../vault-api';
+import { Alert, App, Button, Card, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Progress, Result, Select, Space, Spin, Switch, Tabs, Tag, Tooltip, Typography } from 'antd';
+import { ProTable, type ProColumns } from '@ant-design/pro-components';
+import { CopyOutlined, DeleteOutlined, EditOutlined, UndoOutlined, EyeInvisibleOutlined, EyeOutlined, LockOutlined, PlusOutlined, StarFilled, ThunderboltOutlined, UnlockOutlined } from '@ant-design/icons';
+import { VAULT_KINDS, VaultError, vaultApi, type MasterCheck, type Strength, type VaultEntry, type VaultEvent, type VaultHealth, type VaultKind, type VaultStats, type VaultStatus, type VaultSummary } from '../vault-api';
 import { adminTokenPresent, subscribeAdminToken } from '../admin-token';
 import { controlUrl, onSurface, surface } from '../surface';
 import { DESIGN_TOKENS as T } from '../design-tokens';
+import WmPage from '../components/WmPage';
+import RowActions from '../components/RowActions';
+import RelTime from '../components/RelTime';
 
 /** 凭据库（融合 dsh-vault）：只在控制面打开；读写都要口令；与 DSH 插件共用同一个加密库文件 */
 const KIND_LABEL: Record<VaultKind, string> = { login: '登录', ssh: 'SSH', 'api-key': 'API Key', secret: 'Secret', oauth: 'OAuth', cookie: 'Cookie 会话', card: '银行卡', custom: '自定义' };
@@ -35,22 +37,24 @@ const STRENGTH_COLOR: Record<Strength['verdict'], string> = { weak: C['danger-te
 const STRENGTH_LABEL: Record<Strength['verdict'], string> = { weak: '弱', fair: '一般', strong: '强', 'very strong': '很强' };
 const ACTION_LABEL: Record<string, string> = { add: '新增', update: '修改', delete: '移入回收站', restore: '恢复', purge: '永久删除', read: '查看密钥', totp: '取验证码', search: '检索', switch: '切换库', merge: '合并', rollback: '回滚密码' };
 const fmtTime = (ms?: number) => (ms ? new Date(ms).toLocaleString('zh-CN', { hour12: false }) : '—');
+/** 库里的时间是毫秒时间戳；RelTime 吃带时区的串 */
+const rel = (ms?: number) => <RelTime value={ms ? new Date(ms).toISOString() : null} />;
 
 export default function VaultPage() {
   const tokenSet = useSyncExternalStore(subscribeAdminToken, adminTokenPresent);
   if (surface === 'market') {
     const href = onSurface(controlUrl);
     return (
-      <PageContainer title="凭据库" className="wm-page">
+      <WmPage>
         <Result status="info" title="凭据库只在管理控制面打开" subTitle="业务面同源跑着门户代理的外站与 SOP 页面，凭据不在这里展示。" extra={href ? <Button type="primary" icon={<LockOutlined />} href={href}>去控制面</Button> : <Typography.Text type="secondary">控制面已关闭（WM_CONTROL_PORT=0），只能用本机命令行</Typography.Text>} />
-      </PageContainer>
+      </WmPage>
     );
   }
   if (!tokenSet) {
     return (
-      <PageContainer title="凭据库" className="wm-page">
+      <WmPage>
         <Result status="warning" title="先输入管理员口令" subTitle="凭据库的读写都要管理员口令：在左下角「口令」处输入后再回到本页。" />
-      </PageContainer>
+      </WmPage>
     );
   }
   return <VaultBody />;
@@ -70,8 +74,8 @@ function VaultBody() {
     message.error((e as Error).message);
   }, [message, refreshStatus]);
 
-  if (err) return <PageContainer title="凭据库" className="wm-page"><Result status="error" title="无法读取凭据库状态" subTitle={err} extra={<Button onClick={refreshStatus}>重试</Button>} /></PageContainer>;
-  if (!status) return <PageContainer title="凭据库" className="wm-page"><Spin /></PageContainer>;
+  if (err) return <WmPage><Result status="error" title="无法读取凭据库状态" subTitle={err} extra={<Button onClick={refreshStatus}>重试</Button>} /></WmPage>;
+  if (!status) return <WmPage><Spin /></WmPage>;
   if (!status.unlocked && !status.env_password) return <UnlockView status={status} onUnlocked={refreshStatus} />;
   return <UnlockedView status={status} onLocked={refreshStatus} onError={onError} />;
 }
@@ -81,25 +85,43 @@ function UnlockView({ status, onUnlocked }: { status: VaultStatus; onUnlocked: (
   const [pw, setPw] = useState('');
   const [pw2, setPw2] = useState('');
   const [busy, setBusy] = useState(false);
+  const [check, setCheck] = useState<MasterCheck | null>(null);
+  const [rejected, setRejected] = useState<string[]>([]);
   const creating = !status.exists;
   const mismatch = creating && pw2 !== '' && pw !== pw2;
-  const ready = !!pw && (!creating || pw === pw2);
+  // 新建：服务端门槛实时校验（和 unlock 同一套规则）；没过不让提交
+  useEffect(() => {
+    setRejected([]);
+    if (!creating || !pw) { setCheck(null); return; }
+    const t = window.setTimeout(() => { vaultApi.masterCheck(pw).then(setCheck).catch(() => setCheck(null)); }, 250);
+    return () => window.clearTimeout(t);
+  }, [creating, pw]);
+  const ready = !!pw && (!creating || (pw === pw2 && check?.ok === true));
   const submit = () => {
     if (!ready) return;
     setBusy(true);
-    vaultApi.unlock(pw).then(() => { setPw(''); onUnlocked(); }).catch((e: Error) => message.error(e.message)).finally(() => setBusy(false));
+    vaultApi.unlock(pw).then(() => { setPw(''); onUnlocked(); }).catch((e: Error) => {
+      if (e instanceof VaultError && e.reasons?.length) setRejected(e.reasons); else message.error(e.message);
+    }).finally(() => setBusy(false));
   };
+  const reasons = rejected.length ? rejected : check && !check.ok ? check.reasons : [];
   return (
-    <PageContainer title="凭据库" subTitle="加密保存账号、密码、TOTP、SSH、API Key 与 OAuth 令牌（dsh-vault 同款加密格式）" className="wm-page">
+    <WmPage subTitle="加密保存账号、密码、TOTP、SSH、API Key 与 OAuth 令牌（dsh-vault 同款加密格式）">
       <Card style={{ maxWidth: 480, margin: '40px auto' }}>
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
           <Space><LockOutlined style={{ fontSize: 22 }} /><Typography.Title level={4} style={{ margin: 0 }}>{status.exists ? '凭据库已锁定' : '创建凭据库'}</Typography.Title></Space>
           <Typography.Text type="secondary">
             {creating
-              ? '库文件还不存在：这次输入的主密码会用来创建新库。主密码无法找回，请妥善保管。'
+              ? `库文件还不存在：这次输入的主密码会用来创建新库。主密码至少 ${status.master_policy.min_length} 个字符、不能全是数字、不能是常见口令；无法找回，请妥善保管。`
               : `输入主密码解锁。主密码只保存在服务进程内存里${status.idle_lock_minutes > 0 ? `，闲置 ${status.idle_lock_minutes} 分钟后自动锁定` : ''}。`}
           </Typography.Text>
-          <Input.Password autoFocus placeholder="主密码" value={pw} onChange={(e) => setPw(e.target.value)} onPressEnter={submit} autoComplete={creating ? 'new-password' : 'current-password'} />
+          <div>
+            <Input.Password autoFocus placeholder="主密码" value={pw} onChange={(e) => setPw(e.target.value)} onPressEnter={submit} autoComplete={creating ? 'new-password' : 'current-password'} status={reasons.length ? 'error' : undefined} />
+            {creating && check ? <StrengthBar s={check.strength} hint={false} /> : null}
+          </div>
+          {reasons.length ? (
+            <Alert type="error" showIcon message={rejected.length ? '主密码不满足新建库要求，没有创建库文件' : '主密码还不满足新建库要求'} description={<ul style={{ margin: 0, paddingLeft: 18 }}>{reasons.map((r) => <li key={r}>{r}</li>)}</ul>} />
+          ) : null}
           {creating ? <Input.Password placeholder="再输一次主密码" value={pw2} status={mismatch ? 'error' : undefined} onChange={(e) => setPw2(e.target.value)} onPressEnter={submit} autoComplete="new-password" /> : null}
           {mismatch ? <Typography.Text type="danger">两次输入不一致</Typography.Text> : null}
           <Button type="primary" block icon={<UnlockOutlined />} loading={busy} disabled={!ready} onClick={submit}>{creating ? '创建并解锁' : '解锁'}</Button>
@@ -107,7 +129,19 @@ function UnlockView({ status, onUnlocked }: { status: VaultStatus; onUnlocked: (
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>库文件：<Typography.Text code>{status.path}</Typography.Text> · {status.upstream}</Typography.Text>
         </Space>
       </Card>
-    </PageContainer>
+    </WmPage>
+  );
+}
+
+/** 已有库的主密码低于新建库标准：照常可用，只提示（上游 1.10.75 还没有改主密码的功能） */
+function WeakMasterNotice({ reasons }: { reasons: string[] }) {
+  return (
+    <Alert
+      type="warning" showIcon closable style={{ marginBottom: 12 }}
+      message="主密码低于新标准，建议更换"
+      description={`${reasons.join('；')}。库照常可用；但拿到库文件的人可以离线反复猜主密码，弱主密码撑不了多久。`
+        + '当前 dsh-vault 1.10.75 还不能直接修改主密码，要换只能用强主密码新建一个库（WM_VAULT_PATH 指向新文件）再把条目搬过去。'}
+    />
   );
 }
 
@@ -138,7 +172,7 @@ function UnlockedView({ status, onLocked, onError }: { status: VaultStatus; onLo
   const openEdit = (id: string) => vaultApi.get(id).then(setEditing).catch(onError);
   const remove = (id: string) => vaultApi.remove(id).then(() => { message.success('已移入回收站'); load(); }).catch(onError);
 
-  const columns: ColumnsType<VaultSummary> = [
+  const columns: ProColumns<VaultSummary>[] = [
     {
       title: '标题', dataIndex: 'title', width: 220,
       render: (_, r) => (
@@ -149,35 +183,32 @@ function UnlockedView({ status, onLocked, onError }: { status: VaultStatus; onLo
         </Space>
       ),
     },
-    { title: '类型', dataIndex: 'kind', width: 110, render: (k?: VaultKind) => <Tag color={KIND_COLOR[k ?? 'login']}>{KIND_LABEL[k ?? 'login']}</Tag> },
+    { title: '类型', dataIndex: 'kind', width: 110, render: (_, r) => <Tag color={KIND_COLOR[r.kind ?? 'login']}>{KIND_LABEL[r.kind ?? 'login']}</Tag> },
     { title: '账号', key: 'who', width: 160, render: (_, r) => r.username || r.email || r.phone || r.cardHolder || <Typography.Text type="secondary">—</Typography.Text> },
     { title: '地址', key: 'where', width: 220, ellipsis: true, render: (_, r) => (r.host ? <Typography.Text className="wm-mono">{r.host}{r.port ? `:${r.port}` : ''}</Typography.Text> : r.url ? <Typography.Text className="wm-mono" ellipsis={{ tooltip: r.url }}>{r.url}</Typography.Text> : <Typography.Text type="secondary">—</Typography.Text>) },
-    { title: '标签', dataIndex: 'tags', render: (t?: string[]) => (t?.length ? <Space size={2} wrap>{t.map((x) => <Tag key={x}>{x}</Tag>)}</Space> : null) },
-    { title: '2FA', dataIndex: 'hasOtp', width: 64, render: (v?: boolean) => (v ? <Tag color="green">TOTP</Tag> : null) },
-    { title: '更新时间', dataIndex: 'updatedAt', width: 170, render: (v?: number) => <span className="wm-num">{fmtTime(v)}</span> },
+    { title: '标签', dataIndex: 'tags', render: (_, r) => (r.tags?.length ? <Space size={2} wrap>{r.tags.map((x) => <Tag key={x}>{x}</Tag>)}</Space> : null) },
+    { title: '2FA', dataIndex: 'hasOtp', width: 64, render: (_, r) => (r.hasOtp ? <Tag color="green">TOTP</Tag> : null) },
+    { title: '更新时间', dataIndex: 'updatedAt', width: 120, render: (_, r) => rel(r.updatedAt) },
     {
-      title: '操作', key: 'op', width: 120,
+      title: '操作', key: 'op', width: 110, fixed: 'right',
       render: (_, r) => (
-        <Space size={0}>
-          <Tooltip title="编辑"><Button type="text" size="small" icon={<EditOutlined />} onClick={() => openEdit(r.id)} /></Tooltip>
-          <Popconfirm title="移入回收站？" description="可在回收站恢复" onConfirm={() => remove(r.id)}>
-            <Tooltip title="删除"><Button type="text" size="small" danger icon={<DeleteOutlined />} /></Tooltip>
-          </Popconfirm>
-        </Space>
+        <RowActions
+          primary={[<Button key="edit" type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(r.id)}>编辑</Button>]}
+          more={[{ key: 'del', label: '移入回收站', icon: <DeleteOutlined />, danger: true, confirm: { title: `把「${r.title}」移入回收站？`, content: '可在回收站恢复', okText: '移入回收站' }, onClick: () => remove(r.id) }]}
+        />
       ),
     },
   ];
 
   return (
-    <PageContainer
-      title="凭据库"
+    <WmPage
       subTitle={<Tooltip title={`库文件：${status.path} · ${status.upstream}`}><span>{status.shared_with_dsh ? '与 DSH 插件共用库文件' : 'dsh-vault 同款加密格式'}</span></Tooltip>}
-      className="wm-page"
       extra={[
         status.env_password ? <Tag key="env" color="default">主密码来自 DSH_VAULT_PASSWORD</Tag> : <Button key="lock" icon={<LockOutlined />} onClick={lock}>锁定</Button>,
         <Button key="add" type="primary" icon={<PlusOutlined />} onClick={() => setEditing('new')}>新增条目</Button>,
       ]}
     >
+      {status.weak_master ? <WeakMasterNotice reasons={status.weak_reasons} /> : null}
       {status.shared_with_dsh ? <div style={{ marginBottom: 12 }}><SharedWarning /></div> : null}
       <Card>
         <Tabs
@@ -194,8 +225,9 @@ function UnlockedView({ status, onLocked, onError }: { status: VaultStatus; onLo
                     <Select allowClear placeholder="全部类型" style={{ width: 140 }} value={kind || undefined} onChange={(v) => setKind(v ?? '')} options={VAULT_KINDS.map((k) => ({ value: k, label: `${KIND_LABEL[k]}${stats?.byKind[k] ? ` · ${stats.byKind[k]}` : ''}` }))} />
                     {stats ? <Typography.Text type="secondary">含 TOTP {stats.withTotp} · 已过期 {stats.expired} · 回收站 {stats.trashCount}</Typography.Text> : null}
                   </Space>
-                  <Table
+                  <ProTable<VaultSummary>
                     rowKey="id" size="middle" loading={loading} dataSource={rows} columns={columns} scroll={{ x: 960 }} pagination={{ pageSize: 20, hideOnSinglePage: true }}
+                    search={false} options={false} toolBarRender={false}
                     locale={{ emptyText: <Empty description={q || kind ? '没有匹配的条目' : '还没有凭据'}>{!q && !kind ? <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing('new')}>新增第一条凭据</Button> : null}</Empty> }}
                   />
                 </>
@@ -209,7 +241,7 @@ function UnlockedView({ status, onLocked, onError }: { status: VaultStatus; onLo
       </Card>
       <EntryDrawer id={viewId} onClose={closeView} onEdit={(e) => { setViewId(null); setEditing(e); }} onError={onError} />
       {editing ? <EntryForm entry={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} onError={onError} /> : null}
-    </PageContainer>
+    </WmPage>
   );
 }
 
@@ -296,12 +328,16 @@ function StrengthMeter({ password }: { password?: string }) {
     const t = window.setTimeout(() => { vaultApi.strength(password).then(setS).catch(() => setS(null)); }, 300);
     return () => window.clearTimeout(t);
   }, [password]);
-  if (!s) return null;
+  return s ? <StrengthBar s={s} /> : null;
+}
+
+/** hint=false：新建主密码页已有中文原因，不再重复上游的英文提示 */
+function StrengthBar({ s, hint = true }: { s: Strength; hint?: boolean }) {
   return (
     <Space size={8} style={{ marginTop: 4 }}>
       <Progress percent={s.score} steps={10} size="small" strokeColor={STRENGTH_COLOR[s.verdict]} showInfo={false} />
       <Typography.Text style={{ color: STRENGTH_COLOR[s.verdict], fontSize: 12 }}>{STRENGTH_LABEL[s.verdict]}（{s.score}）</Typography.Text>
-      {s.feedback[0] && s.score < 70 ? <Typography.Text type="secondary" style={{ fontSize: 12 }}>{s.feedback[0]}</Typography.Text> : null}
+      {hint && s.feedback[0] && s.score < 70 ? <Typography.Text type="secondary" style={{ fontSize: 12 }}>{s.feedback[0]}</Typography.Text> : null}
     </Space>
   );
 }
@@ -432,22 +468,21 @@ function TrashTab({ onError, onChanged }: { onError: (e: unknown) => void; onCha
   useEffect(load, [load]);
   const after = (msg: string) => () => { message.success(msg); load(); onChanged(); };
   return (
-    <Table
+    <ProTable<VaultSummary>
       rowKey="id" size="middle" loading={rows === null} dataSource={rows ?? []} pagination={{ pageSize: 20, hideOnSinglePage: true }}
+      search={false} options={false} toolBarRender={false}
       locale={{ emptyText: <Empty description="回收站是空的" /> }}
       columns={[
         { title: '标题', dataIndex: 'title' },
-        { title: '类型', dataIndex: 'kind', width: 110, render: (k?: VaultKind) => <Tag color={KIND_COLOR[k ?? 'login']}>{KIND_LABEL[k ?? 'login']}</Tag> },
-        { title: '删除时间', dataIndex: 'deletedAt', width: 180, render: (v?: number) => <span className="wm-num">{fmtTime(v)}</span> },
+        { title: '类型', dataIndex: 'kind', width: 110, render: (_, r) => <Tag color={KIND_COLOR[r.kind ?? 'login']}>{KIND_LABEL[r.kind ?? 'login']}</Tag> },
+        { title: '删除时间', dataIndex: 'deletedAt', width: 120, render: (_, r) => rel(r.deletedAt) },
         {
-          title: '操作', key: 'op', width: 200,
+          title: '操作', key: 'op', width: 110, fixed: 'right',
           render: (_, r) => (
-            <Space>
-              <Button size="small" onClick={() => vaultApi.restore(r.id).then(after('已恢复')).catch(onError)}>恢复</Button>
-              <Popconfirm title="永久删除？" description="从库文件中彻底移除，无法恢复" okButtonProps={{ danger: true }} onConfirm={() => vaultApi.purge(r.id).then(after('已永久删除')).catch(onError)}>
-                <Button size="small" danger>永久删除</Button>
-              </Popconfirm>
-            </Space>
+            <RowActions
+              primary={[<Button key="restore" type="link" size="small" icon={<UndoOutlined />} onClick={() => vaultApi.restore(r.id).then(after('已恢复')).catch(onError)}>恢复</Button>]}
+              more={[{ key: 'purge', label: '永久删除', icon: <DeleteOutlined />, danger: true, confirm: { title: `永久删除「${r.title}」？`, content: '从库文件中彻底移除，无法恢复', okText: '永久删除' }, onClick: () => vaultApi.purge(r.id).then(after('已永久删除')).catch(onError) }]}
+            />
           ),
         },
       ]}
@@ -459,13 +494,14 @@ function HistoryTab({ onError }: { onError: (e: unknown) => void }) {
   const [rows, setRows] = useState<VaultEvent[] | null>(null);
   useEffect(() => { vaultApi.history().then(setRows).catch(onError); }, [onError]);
   return (
-    <Table
-      rowKey={(r) => `${r.at}-${r.action}-${r.id ?? ''}`} size="small" loading={rows === null} dataSource={rows ?? []} pagination={{ pageSize: 30, hideOnSinglePage: true }}
+    <ProTable<VaultEvent>
+      rowKey={(r) => `${r.at}-${r.action}-${r.id ?? ''}`} size="middle" loading={rows === null} dataSource={rows ?? []} pagination={{ pageSize: 30, hideOnSinglePage: true }}
+      search={false} options={false} toolBarRender={false}
       locale={{ emptyText: <Empty description="暂无活动" /> }}
       columns={[
-        { title: '时间', dataIndex: 'at', width: 180, render: (v: number) => <span className="wm-num">{fmtTime(v)}</span> },
-        { title: '动作', dataIndex: 'action', width: 120, render: (a: string) => <Tag>{ACTION_LABEL[a] ?? a}</Tag> },
-        { title: '条目 / 检索词', dataIndex: 'title', render: (t?: string) => t ?? '—' },
+        { title: '动作', dataIndex: 'action', width: 120, render: (_, r) => <Tag>{ACTION_LABEL[r.action] ?? r.action}</Tag> },
+        { title: '条目 / 检索词', dataIndex: 'title', render: (_, r) => r.title ?? '—' },
+        { title: '时间', dataIndex: 'at', width: 120, render: (_, r) => rel(r.at) },
       ]}
     />
   );
