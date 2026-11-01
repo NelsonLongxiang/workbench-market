@@ -7,6 +7,7 @@ import { CopyOutlined, DeleteOutlined, EditOutlined, EyeInvisibleOutlined, EyeOu
 import { VAULT_KINDS, VaultError, vaultApi, type Strength, type VaultEntry, type VaultEvent, type VaultHealth, type VaultKind, type VaultStats, type VaultStatus, type VaultSummary } from '../vault-api';
 import { adminTokenPresent, subscribeAdminToken } from '../admin-token';
 import { controlUrl, onSurface, surface } from '../surface';
+import { DESIGN_TOKENS as T } from '../design-tokens';
 
 /** 凭据库（融合 dsh-vault）：只在控制面打开；读写都要口令；与 DSH 插件共用同一个加密库文件 */
 const KIND_LABEL: Record<VaultKind, string> = { login: '登录', ssh: 'SSH', 'api-key': 'API Key', secret: 'Secret', oauth: 'OAuth', cookie: 'Cookie 会话', card: '银行卡', custom: '自定义' };
@@ -29,7 +30,8 @@ const FIELD_LABEL: Partial<Record<keyof VaultEntry, string>> = {
 };
 const SECRET_FIELDS = new Set<keyof VaultEntry>(['password', 'privateKey', 'apiKey', 'secret', 'accessToken', 'refreshToken', 'otpSecret', 'cardNumber', 'cardCvv']);
 const MULTILINE = new Set<keyof VaultEntry>(['privateKey', 'accessToken', 'refreshToken']);
-const STRENGTH_COLOR: Record<Strength['verdict'], string> = { weak: '#DC2626', fair: '#D97706', strong: '#059669', 'very strong': '#047857' };
+const C = T.colors;
+const STRENGTH_COLOR: Record<Strength['verdict'], string> = { weak: C['danger-text'], fair: C['warning-text'], strong: C.success, 'very strong': C['success-text'] };
 const STRENGTH_LABEL: Record<Strength['verdict'], string> = { weak: '弱', fair: '一般', strong: '强', 'very strong': '很强' };
 const ACTION_LABEL: Record<string, string> = { add: '新增', update: '修改', delete: '移入回收站', restore: '恢复', purge: '永久删除', read: '查看密钥', totp: '取验证码', search: '检索', switch: '切换库', merge: '合并', rollback: '回滚密码' };
 const fmtTime = (ms?: number) => (ms ? new Date(ms).toLocaleString('zh-CN', { hour12: false }) : '—');
@@ -141,7 +143,7 @@ function UnlockedView({ status, onLocked, onError }: { status: VaultStatus; onLo
       title: '标题', dataIndex: 'title', width: 220,
       render: (_, r) => (
         <Space size={6}>
-          {r.favorite ? <StarFilled style={{ color: '#D97706' }} /> : null}
+          {r.favorite ? <StarFilled style={{ color: C.warning }} /> : null}
           {r.icon ? <span>{r.icon}</span> : null}
           <Typography.Link onClick={() => setViewId(r.id)} style={{ fontWeight: 600 }}>{r.title}</Typography.Link>
         </Space>
@@ -395,7 +397,7 @@ function HealthTab({ onError, onOpen }: { onError: (e: unknown) => void; onOpen:
   const [h, setH] = useState<VaultHealth | null>(null);
   useEffect(() => { vaultApi.health().then(setH).catch(onError); }, [onError]);
   if (!h) return <Spin />;
-  const color = h.verdict === 'good' ? '#059669' : h.verdict === 'fair' ? '#D97706' : '#DC2626';
+  const color = h.verdict === 'good' ? C['success-text'] : h.verdict === 'fair' ? C['warning-text'] : C['danger-text'];
   const list = (title: string, items: VaultSummary[], hint: string) => (
     <Card size="small" title={`${title}（${items.length}）`} extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>{hint}</Typography.Text>}>
       {items.length === 0 ? <Typography.Text type="secondary">无</Typography.Text> : <Space wrap>{items.map((e) => <Tag key={e.id} style={{ cursor: 'pointer' }} onClick={() => onOpen(e.id)}>{e.title}</Tag>)}</Space>}
