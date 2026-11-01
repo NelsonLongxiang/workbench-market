@@ -33,7 +33,7 @@ const forbidden=[
  ['reserved9800','http://127.0.0.1:9800'],['reserved9801','http://127.0.0.1:9801'],['DSH3080','http://127.0.0.1:3080'],
  ['remote','https://production.synthetic.invalid:443'],['default-port','http://127.0.0.1'],['userinfo','http://user:secret@127.0.0.1:21991'],
  ['path','http://127.0.0.1:21991/prefix'],['query','http://127.0.0.1:21991/?key=value'],['fragment','http://127.0.0.1:21991/#x'],
- ['file','file:///tmp/not-http'],['whitespace',' http://127.0.0.1:21991'],['bad-port','http://127.0.0.1:99999'],['alternate-ip','http://2130706433:21991'],
+ ['file','file:///tmp/not-http'],['whitespace',' http://127.0.0.1:21991'],['trailing-space','http://127.0.0.1:21991 '],['trailing-newline','http://127.0.0.1:21991\n'],['trailing-tab','http://127.0.0.1:21991\t'],['bad-port','http://127.0.0.1:99999'],['alternate-ip','http://2130706433:21991'],
  ];
 for(const [name,target]of forbidden){await deny('seed isolated rejects '+name,await seed(['--target-mode','isolated'],{SEED_BASE:target}));await deny('migration isolated rejects '+name,await migrate(['--api',target,'--target-mode','isolated']));}
 for(const [label,args]of [['missing-mode',[]],['unknown-mode',['--target-mode','staging']],['prod-no-ack',['--target-mode','production']],['typo-ack',['--target-mode','production','--ack-production-targte']]]){
@@ -42,6 +42,14 @@ for(const [label,args]of [['missing-mode',[]],['unknown-mode',['--target-mode','
 await deny('migration dry mode still requires target mode',await migrate(['--api','http://127.0.0.1:9800','--dry']));
 await deny('seed refuses an unknown CLI argument',await seed(['--target-mode','isolated','--mistyped-flag'],{SEED_BASE:'http://127.0.0.1:21991'}));
 await deny('migration refuses duplicate target',await migrate(['--api','http://127.0.0.1:21991','--api','http://127.0.0.1:21992','--target-mode','isolated']));
+for(const [label,args] of [
+ ['repeated-mode',['--target-mode','isolated','--target-mode','isolated']],
+ ['mixed-inline-mode',['--target-mode=isolated','--target-mode','isolated']],
+ ['conflicting-mode',['--target-mode','production','--target-mode','isolated']],
+ ['repeated-ack',['--target-mode','production','--ack-production-target','--ack-production-target']],
+ ['abbreviated-mode',['--target-m','isolated']],
+ ['abbreviated-ack',['--target-mode','production','--ack-production-targ']],
+]) await deny('seed rejects '+label,await seed(args,{SEED_BASE:'http://127.0.0.1:21991'}));
 let received=[],redirectMode=false,foreignHits=0;
 const foreign=createServer((_q,r)=>{foreignHits++;r.writeHead(200,{'content-type':'application/json'});r.end('{}')});await new Promise(r=>foreign.listen(0,'127.0.0.1',r));
 const server=createServer((q,r)=>{received.push({method:q.method,path:q.url});q.resume();if(redirectMode){r.writeHead(307,{Location:'http://127.0.0.1:'+foreign.address().port+'/redirected'});r.end();return;}r.writeHead(q.method==='POST'&&q.url==='/api/apps'?201:200,{'content-type':'application/json'});r.end(JSON.stringify(q.url==='/api/apps'&&q.method==='GET'?[{slug:'synthetic-app'}]:q.url?.endsWith('/migrate-layerfs')?{results:[{version:1,result:'migrated',sha256_match:true}]}:{version:1,active_version:1,status:'published',workbench_id:1}));});await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;assert(![3080,9800,9801].includes(server.address().port));

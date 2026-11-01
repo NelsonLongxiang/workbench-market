@@ -15,6 +15,13 @@ from urllib.parse import urlsplit
 parser = argparse.ArgumentParser(description='Publish demo SOP to an explicitly selected target', allow_abbrev=False)
 parser.add_argument('--target-mode', required=True, choices=('isolated', 'production'))
 parser.add_argument('--ack-production-target', action='store_true')
+seen_options = set()
+for token in sys.argv[1:]:
+    option = token.split('=', 1)[0]
+    if option in ('--target-mode', '--ack-production-target'):
+        if option in seen_options:
+            parser.error('duplicate target option: ' + option)
+        seen_options.add(option)
 args = parser.parse_args()
 raw = os.environ.get('SEED_BASE', '')
 match = re.fullmatch(r'(https?)://(\[[0-9A-Fa-f:]+\]|[A-Za-z0-9.-]+):([0-9]{1,5})/?', raw)

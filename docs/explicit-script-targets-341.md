@@ -8,7 +8,7 @@
 - scripts/migrate-layerfs-p1.mjs：必须显式 --api 和 --target-mode；--dry 仍会读列表，因此不豁免目标检查。
 - origin 必须是 http(s)://host:port，允许一个末尾/，不允许URL凭据、路径前缀、query、fragment或首尾空白；端口1–65535。
 - isolated 只接受规范回环 127.0.0.1/localhost/[::1]，并拒绝9800/9801/3080。其它目标必须显式 production 加 --ack-production-target；此旗标只是防误触技术确认，**不是属主授权**。
-- 目标或模式缺失、模式未知、未知/拼错CLI旗标，在任何HTTP前非零退出。Node迁移脚本拒绝重复选项，Python不接受缩写选项。
+- 目标或模式缺失、模式未知、未知/拼错CLI旗标，在任何HTTP前非零退出。Node迁移脚本拒绝重复选项；Python同样拒绝重复模式/确认选项（含混合inline写法），不接受缩写选项。
 - 两个脚本都拒绝重定向，不把第一次请求的目标确认延伸到Location。迁移请求有10秒超时，脚本不自动重试或回退目标。
 - Python种子直连显式目标，不继承HTTP代理；不从环境补Cookie、Bearer或管理口令。
 
@@ -23,7 +23,7 @@
 
 scripts/explicit-script-targets-test.mjs 实际运行脚本：所有否定用例替换HTTP入口，任何尝试打印HTTP_ATTEMPT，因此不会真正连接保留端口或远端；合法正例用自建回环随机端口服务。生产模式正例也只对合成服务，不发送生产请求。
 
-87项包含：缺目标/模式/生产确认、保留端口、非回环、URL凭据/path/query/fragment/奇异IP/端口、未知参数、迁移重复目标、合法隔离发布与迁移、dry只读列表、显式production+ack合成正例、两脚本redirect拒绝且对端零请求。红先原件 tmp/explicit-script-targets-red.log；首绿因Windows Node强退活HTTP句柄触发UV assertion的失败保留，迁移改process.exitCode自然收尾后87/87且exit0。
+111项包含（原87项加重复/缩写参数与尾部空白边界）：缺目标/模式/生产确认、保留端口、非回环、URL凭据/path/query/fragment/奇异IP/端口、未知参数、迁移重复目标、合法隔离发布与迁移、dry只读列表、显式production+ack合成正例、两脚本redirect拒绝且对端零请求。红先原件 tmp/explicit-script-targets-red.log；首绿因Windows Node强退活HTTP句柄触发UV assertion的失败保留，迁移改process.exitCode自然收尾后原87/87且exit0。独立评审发现Python重复模式采用最后值，新增零HTTP红测试后拒绝重复；最新111/111且exit0，生产请求0。
 
 E2E runner 已给 seed 显式 --target-mode isolated，仍用自己的 SEED_BASE/TMP data/home，不透传宿主工作区；新增回归接tsc-and-syntax CI，Python只用标准库。
 
