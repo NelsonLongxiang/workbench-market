@@ -13,7 +13,7 @@ rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server',
-  env: (() => { const e = { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'p1a-tok' }; delete e.REDIS_URL; return e; })(),
+  env: (() => { const e = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'p1a-tok' }; delete e.REDIS_URL; return e; })(),
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 const end = Date.now() + 30000;

@@ -8,6 +8,7 @@ export const isStartupProbeRequest = (req: IncomingMessage): boolean => internal
 type Row = { id: string; surface: 'market' | 'control'; method: string; path: string; verdict: 'pass' | 'fail' | 'warn' | 'skip'; status: number | null; reason: string | null };
 type State = { passed: boolean; failed: string[]; at: string | null; rows: Row[] };
 type Target = { port: number; surface: 'market' | 'control' };
+type Options = { market: Server; control?: Server; gatewayOn: boolean; nodeEnv?: string };
 
 /** Does not import the application DB or read host/request-provided targets. */
 export function createStartupSecurityProbe({ timeoutMs = 1500, log = (row: unknown) => console.log(JSON.stringify(row)) } = {}) {
@@ -71,7 +72,7 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, log = (row: unkno
     });
   }
 
-  async function execute({ market, control, gatewayOn }: { market: Server; control?: Server; gatewayOn: boolean }): Promise<State> {
+  async function execute({ market, control, gatewayOn, nodeEnv }: Options): Promise<State> {
     const [m, c] = await Promise.all([listener(market), listener(control)]);
     if (c) c.surface = 'control';
     const table = [
@@ -86,7 +87,12 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, log = (row: unkno
       if (test.surface === 'control' && !c) {
         row.verdict = 'skip'; row.reason = control ? 'control-not-listening' : 'control-disabled';
       } else if (!test.target) row.reason = 'surface-not-listening';
-      else if ('mcp' in test && !gatewayOn) { row.verdict = 'warn'; row.reason = 'gateway-explicitly-off'; }
+      else if ('mcp' in test && !gatewayOn) {
+        // Anonymous MCP is a local-only exception, never inferred from an absent/unknown NODE_ENV.
+        const localMode = nodeEnv === 'development' || nodeEnv === 'test';
+        row.verdict = localMode ? 'warn' : 'fail';
+        row.reason = localMode ? 'gateway-explicitly-off' : 'gateway-off-forbidden';
+      }
       else {
         const result = await send(test.target, test.method, test.path, 'body' in test ? test.body : undefined, 'origin' in test && test.origin);
         row.status = result.status;
@@ -100,7 +106,7 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, log = (row: unkno
     state = { passed: state.rows.every(r => r.verdict !== 'fail'), failed: state.rows.filter(r => r.verdict === 'fail').map(r => r.id), at: new Date().toISOString(), rows: state.rows };
     return snapshot();
   }
-  return { middleware, snapshot, run(options: { market: Server; control?: Server; gatewayOn: boolean }) {
+  return { middleware, snapshot, run(options: Options) {
     return running ??= execute(options);
   } };
 }
