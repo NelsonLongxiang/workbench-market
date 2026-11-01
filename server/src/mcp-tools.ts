@@ -100,7 +100,7 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
   {
     name: 'sop_run_get',
     description: '读 run 详情（热读优先，miss 回 SQLite 真源）——恢复执行现场。',
-    inputSchema: { type: 'object', properties: { run_id: { type: 'integer' } }, required: ['run_id'], additionalProperties: false },
+    inputSchema: { type: 'object', properties: { run_id: { type: 'integer' }, read_capability: { type: 'string', description: '#309 phase2 机器迁移：创建 run 时 sop_run_start/A2A start 响应返回的 run 级读能力（一次性明文）。无有效能力或授权时只回元数据（不含 data）。' } }, required: ['run_id'], additionalProperties: false },
   },
   {
     name: 'sop_run_list',

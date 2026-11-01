@@ -65,6 +65,8 @@ try {
   const team = card.body?.sessionTeams?.find((t) => t.name === 'rv-rcpt')?.team;
   ok('SOP 上卡', !!team, JSON.stringify(card.body?.sessionTeams));
 
+  const CAPS = {}; // #309 phase2：run 级读能力（创建响应即得）
+  const RC = (id) => ({ 'X-Run-Read-Capability': CAPS[id] || '' });
   const dispatch = async (caller, taskId, ctxId, extra = {}) => json(`${BASE}/a2a/direct`, 'POST', {
     team, caller_session: caller, task_id: taskId, context_id: ctxId,
     message: JSON.stringify({ sop: { slug: 'rv-rcpt', action: 'start' } }), ...extra,
@@ -73,6 +75,7 @@ try {
   // E1/E2：派单 → 完成 → 回执到达甲且可被上游 parseReceipt 解析
   let d = await dispatch('dsh/0123rcpt', 'rv-c-1', 'rv-cctx-1');
   const runId = d.body?.sop?.run_id;
+  CAPS[runId] = String(d.body?.sop?.read_capability ?? '');
   ok('派单开出 run', Number.isInteger(runId), JSON.stringify(d.body).slice(0, 160));
   await json(`${BASE}/api/sop/runs/${runId}/finish`, 'POST', {});
   await new Promise((r2) => setTimeout(r2, 1500));
@@ -83,7 +86,7 @@ try {
   ok('E1 上游 parseReceipt 可解析', parsed?.taskId === 'rv-c-1' && parsed?.envelope?.outcome === 'completed', JSON.stringify(parsed));
   ok('E2 幂等键 run-<id>-finished', parsed?.envelope?.idempotencyKey === `run-${runId}-finished`, String(parsed?.envelope?.idempotencyKey));
   ok('E2 context_id 回流', hit.length > 0 && JSON.parse(hit[hit.length - 1].body).context_id === 'rv-cctx-1');
-  r = await json(`${BASE}/api/sop/runs/${runId}`);
+  r = await json(`${BASE}/api/sop/runs/${runId}`, 'GET', undefined, RC(runId));
   ok('E1 receipt=sent', r.body?.receipt === 'sent', String(r.body?.receipt));
 
   // E3：重复完成不重复投递
@@ -95,27 +98,30 @@ try {
   // E4：人自己开的 run 不发回执
   r = await json(`${BASE}/api/sop/runs`, 'POST', { slug: 'rv-rcpt', started_by: 'human' });
   const humanRun = r.body?.id;
+  CAPS[humanRun] = String(r.body?.read_capability ?? '');
   const beforeH = gotA.length + gotB.length;
   await json(`${BASE}/api/sop/runs/${humanRun}/finish`, 'POST', {});
   await new Promise((r2) => setTimeout(r2, 1200));
-  const detail = await json(`${BASE}/api/sop/runs/${humanRun}`);
+  const detail = await json(`${BASE}/api/sop/runs/${humanRun}`, 'GET', undefined, RC(humanRun));
   ok('E4 人开 run 无回执 + receipt=none', gotA.length + gotB.length === beforeH && detail.body?.receipt === 'none', `receipt=${detail.body?.receipt}`);
 
   // E5：自报 callback 与绑定不一致 → 不投递 + rejected
   const beforeB = gotB.length;
   d = await dispatch('dsh/0123rcpt', 'rv-c-5', 'rv-cctx-5', { callback: 'http://127.0.0.1:9843' });
   const run5 = d.body?.sop?.run_id;
+  CAPS[run5] = String(d.body?.sop?.read_capability ?? '');
   await json(`${BASE}/api/sop/runs/${run5}/finish`, 'POST', {});
   await new Promise((r2) => setTimeout(r2, 1500));
-  const d5 = await json(`${BASE}/api/sop/runs/${run5}`);
+  const d5 = await json(`${BASE}/api/sop/runs/${run5}`, 'GET', undefined, RC(run5));
   ok('E5 乙未收到 + receipt=rejected', gotB.length === beforeB && d5.body?.receipt === 'rejected:callback-mismatch', `receipt=${d5.body?.receipt} gotB=${gotB.length}`);
 
   // E6：回调不可达 → pending（首投失败即 pending；dead 转移见 E9）
   d = await dispatch('dsh/0123dead', 'rv-c-6', 'rv-cctx-6');
   const run6 = d.body?.sop?.run_id;
+  CAPS[run6] = String(d.body?.sop?.read_capability ?? '');
   await json(`${BASE}/api/sop/runs/${run6}/finish`, 'POST', {});
   await new Promise((r2) => setTimeout(r2, 800));
-  const d6 = await json(`${BASE}/api/sop/runs/${run6}`);
+  const d6 = await json(`${BASE}/api/sop/runs/${run6}`, 'GET', undefined, RC(run6));
   ok('E6 不可达回执留 pending', d6.body?.receipt === 'pending', String(d6.body?.receipt));
 
   // E8：重试到期补投（#50 修复自查）——丙替身前 2 次 503，之后 200
@@ -129,14 +135,15 @@ try {
   r = await json(`${BASE}/api/bindings`, 'POST', { target_type: 'sop', target_slug: 'rv-rcpt', agent_node: 'dsh/0123rc8', mode: 'run', direction: 'admits', notify_url: `http://127.0.0.1:9844` }, AT);
   d = await dispatch('dsh/0123rc8', 'rv-c-8', 'rv-cctx-8');
   const run8 = d.body?.sop?.run_id;
+  CAPS[run8] = String(d.body?.sop?.read_capability ?? '');
   await json(`${BASE}/api/sop/runs/${run8}/finish`, 'POST', {});
   await new Promise((r2) => setTimeout(r2, 30_000));
-  const d8 = await json(`${BASE}/api/sop/runs/${run8}`);
+  const d8 = await json(`${BASE}/api/sop/runs/${run8}`, 'GET', undefined, RC(run8));
   ok('E8 重试补投 → sent（≥3 次 POST）', d8.body?.receipt === 'sent' && hitsC >= 3, `receipt=${d8.body?.receipt} hitsC=${hitsC}`);
 
   // E9：重试耗尽 → dead（scale 0.001 下退避毫秒级，5 次即 dead）
   await new Promise((r2) => setTimeout(r2, 25_000));
-  const d9 = await json(`${BASE}/api/sop/runs/${run6}`);
+  const d9 = await json(`${BASE}/api/sop/runs/${run6}`, 'GET', undefined, RC(run6));
   ok('E9 耗尽转 dead', d9.body?.receipt === 'dead', String(d9.body?.receipt));
 
   // DB 校验：outbox 行数与幂等唯一
