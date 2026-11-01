@@ -85,6 +85,24 @@ check('authorized task detail includes payload copy',Object.hasOwn(td,'payload_j
 const g=await fetch(base+'/api/sop/runs/12/read-grants',{method:'PUT',headers:{...H,'Content-Type':'application/json'},body:JSON.stringify({subject:'user:synthetic-owner'})});
 check('admin seeds run grant',g.status===201);
 await fetch(base+'/api/sop/runs/12/read-grants/revoke',{method:'POST',headers:{...H,'Content-Type':'application/json'},body:JSON.stringify({subject:'user:synthetic-owner'})});
+// ---- MCP 会话 grant 三态（正/过期/撤销）：监督席要求的逐例实测 ----
+const mcpGet=async()=>{const r=await(await fetch(base+'/mcp',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({jsonrpc:'2.0',id:9,method:'tools/call',params:{name:'sop_run_get',arguments:{run_id:12}}})})).json();return JSON.parse(r.result?.content?.[0]?.text??'{}');};
+const future=new Date(Date.now()+7*86400000).toISOString().slice(0,19).replace('T',' ');
+await fetch(base+'/api/sop/runs/12/read-grants',{method:'PUT',headers:{...H,'Content-Type':'application/json'},body:JSON.stringify({subject:'mcp:synthetic-reader',expires_at:future})});
+const granted=await mcpGet();
+check('MCP session grant yields data',Object.hasOwn(granted,'data')&&JSON.stringify(granted.data).includes('SYNTHETIC_OTHER_STEP'));
+await fetch(base+'/api/sop/runs/12/read-grants/revoke',{method:'POST',headers:{...H,'Content-Type':'application/json'},body:JSON.stringify({subject:'mcp:synthetic-reader'})});
+check('revoked MCP session grant omits data',!Object.hasOwn(await mcpGet(),'data'));
+const past=new Date(Date.now()-86400000).toISOString().slice(0,19).replace('T',' ');
+await fetch(base+'/api/sop/runs/12/read-grants',{method:'PUT',headers:{...H,'Content-Type':'application/json'},body:JSON.stringify({subject:'mcp:synthetic-reader',expires_at:past})});
+check('expired MCP session grant omits data',!Object.hasOwn(await mcpGet(),'data'));
+await fetch(base+'/api/sop/runs/12/read-grants/revoke',{method:'POST',headers:{...H,'Content-Type':'application/json'},body:JSON.stringify({subject:'mcp:synthetic-reader'})});
+// cap 撤销后 MCP 工具面（带旧 cap）也只回元数据
+const freshCap=await(await fetch(base+'/api/sop/runs/12/read-caps',{method:'POST',headers:H})).json();
+await fetch(base+'/api/sop/runs/12/read-caps/revoke',{method:'POST',headers:{...H,'Content-Type':'application/json'},body:JSON.stringify({all:true})});
+const mcpRevokedCap=await(await fetch(base+'/mcp',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({jsonrpc:'2.0',id:10,method:'tools/call',params:{name:'sop_run_get',arguments:{run_id:12,read_capability:freshCap.read_capability}}})})).json();
+const mcpRevokedObj=JSON.parse(mcpRevokedCap.result?.content?.[0]?.text??'{}');
+check('revoked cap on MCP face omits data',!Object.hasOwn(mcpRevokedObj,'data'));
 writeFileSync(join(out,'result.json'),JSON.stringify({checks,production_requests:0,scope:'actual synthetic index; session-grant path unit-tested separately'},null,2));
 console.log(JSON.stringify({out,checks}));
 }finally{if(child.exitCode===null&&child.signalCode===null){child.kill();await exited;}writeFileSync(join(out,'stdout.log'),stdout);writeFileSync(join(out,'stderr.log'),stderr);}
