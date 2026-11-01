@@ -31,6 +31,10 @@ const role = val('role', 'reader');
 
 const db = new DatabaseSync(dbPath, { readOnly: !apply });
 if (!apply) db.exec('PRAGMA query_only=ON');
+// 播种通常在服务已起（新包建表后）的窗口内执行：给写连接 busy_timeout，避免与运行中服务争锁
+if (apply) db.exec('PRAGMA busy_timeout=5000');
+const hasGrantsTable = !!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sop_run_read_grants'").get();
+if (!hasGrantsTable) fail('本库没有 sop_run_read_grants 表——请先部署含 #309 phase2 的新包（建表），再在窗口内播种');
 
 // run 范围：显式 --runs 或 --runs-from-a2a（取 a2a_run_ctx 的 run_id 去重）
 let runIds = [];
@@ -46,8 +50,9 @@ const existing = db.prepare('SELECT id FROM sop_runs WHERE id = ?');
 const missing = runIds.filter((id) => !existing.get(id));
 if (missing.length) fail('run 不存在: ' + missing.join(','));
 
+// plan 摘要只覆盖「与时间无关的决策参数」：dry-run 与 apply 之间隔几分钟也必须一致
+const plan = createHash('sha256').update(JSON.stringify({ db: dbPath, runIds, subjects: subjects.slice().sort(), role, ttlDays })).digest('hex');
 const expiresAt = new Date(Date.now() + ttlDays * 86_400_000).toISOString().slice(0, 19).replace('T', ' ');
-const plan = createHash('sha256').update(JSON.stringify({ db: dbPath, runIds, subjects: subjects.slice().sort(), role, ttlDays, expiresAt })).digest('hex');
 
 if (!apply) {
   console.log(JSON.stringify({
