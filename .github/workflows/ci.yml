@@ -43,7 +43,7 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/admin-token-browser.mjs
-      - name: 侧栏五组菜单 + 页面骨架浏览器回归（#316 分组·管理组口令可见且默认折叠·对比度·专属图标·旧路由；#317 PageContainer·标题·面包屑·主操作≤1）
+      - name: UI 外壳浏览器回归（#316 菜单分组；#317 页面骨架；#319 列表规则；#320 看板 12 列栅格·四类卡片·数据截至·驾驶舱旧布局吸附不丢卡不回写）
         env:
           PYTHON: python
         run: node scripts/sider-menu-browser.mjs
@@ -51,6 +51,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/sop-space-browser.mjs
+      - name: 设计 token 出口（#321：/design/tokens@1.css 固定路径·SOP 执行页内联变量且不写死色值·与市场同色同字号·自产台示例全走变量）
+        env:
+          PYTHON: python
+        run: node scripts/tokens-surface-smoke.mjs
       # E2E 组 21 的 a2a-smoke 用上游 verifyCard 当裁判：检出公开的 dsh-open-a2a-net（钉提交），A2A_CARD_SRC 指过去
       - uses: actions/checkout@v4
         with:
@@ -127,6 +131,8 @@ jobs:
         run: node scripts/design-tokens-smoke.mjs
       - name: SOP 定义只读接口（#318：published 公开·draft/deprecated 仅管理员·不带步骤正文·冷版本 404）
         run: node scripts/sop-definition-smoke.mjs
+      - name: 驾驶舱布局吸附单测（#320：宽度只取 3/4/6/12·x 越界收回·不丢面板·读时迁移不回写）
+        run: node scripts/cockpit-layout-unit.mjs
       - name: F5 env-face 判定回归（不启动 Docker）
         run: node scripts/security-env-face-test.mjs
       - name: 生命周期签发入口单测（req 哈希金向量·断言结构·私钥门）
