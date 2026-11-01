@@ -232,6 +232,27 @@ CREATE TABLE IF NOT EXISTS mcp_calls (
   args_sha256 TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_mcp_calls_session ON mcp_calls (session_name, at);
+-- #309 phase2：run 私有读授权（cap 只存摘要；grant 主体制，缺归属即拒私有值）
+CREATE TABLE IF NOT EXISTS sop_run_read_caps (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id INTEGER NOT NULL,
+  cap_sha256 TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  revoked_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_sop_run_read_caps_sha ON sop_run_read_caps (cap_sha256);
+CREATE TABLE IF NOT EXISTS sop_run_read_grants (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id INTEGER NOT NULL,
+  subject TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'reader',
+  granted_by TEXT NOT NULL DEFAULT '',
+  expires_at TEXT,
+  revoked_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_sop_run_read_grants_run ON sop_run_read_grants (run_id, subject);
 CREATE TABLE IF NOT EXISTS a2a_outbox (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   run_id INTEGER NOT NULL,

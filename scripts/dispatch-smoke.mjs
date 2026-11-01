@@ -44,6 +44,7 @@ try {
 
   // 发布序列①：开 run（指派语义 started_by）
   let r = await json(`${BASE}/api/sop/runs`, 'POST', { slug: 'rv-19a', started_by: 'expert:zhang' });
+const RC = { 'X-Run-Read-Capability': String(r.body?.read_capability ?? '') }; // #309 phase2：创建即得读能力
   const runId = r.body?.id;
   let RUN_TOKEN = String(r.body?.upload_token ?? ''); // P0：run-scoped 上传令牌（启动响应）
   ok('① 开 run 201', r.status === 201 && Number.isInteger(runId));
@@ -51,7 +52,7 @@ try {
   r = await json(`${BASE}/api/sop/runs/${runId}`, 'PUT', { stepKey: '_brief', value: '核对十月物流对账差异' });
   ok('② _brief 写入', r.status === 200, JSON.stringify(r.body).slice(0, 80));
   await json(`${BASE}/api/sop/runs/${runId}`, 'PUT', { stepKey: '_desc', value: '差异清单见附件；按台账口径核' });
-  const detail = await json(`${BASE}/api/sop/runs/${runId}`);
+  const detail = await json(`${BASE}/api/sop/runs/${runId}`, 'GET', undefined, RC);
   ok('② 读回含 _brief/_desc', detail.body?.data?._brief === '核对十月物流对账差异' && !!detail.body?.data?._desc);
   // ③ 指派（assign 薄端点）→ 待验收——先开分拣开关（PR#87 默认关·dispatched=1 需开关开）
   r = await json(`${BASE}/api/settings`, 'PUT', { dispatch_sorting_enabled: '1' }, AT);
@@ -68,7 +69,7 @@ try {
   const rf = await fetch(`${BASE}/api/sop/runs/${runId}/files`, { method: 'POST', body: fd, headers: RUN_TOKEN ? { 'X-Run-Upload-Token': RUN_TOKEN } : {} }); // P0 令牌
   const rj = await rf.json();
   ok('④ 附件 201（交付物通道）', rf.status === 201, JSON.stringify(rj).slice(0, 80));
-  const fl = await json(`${BASE}/api/sop/runs/${runId}/files`);
+  const fl = await json(`${BASE}/api/sop/runs/${runId}/files`, 'GET', undefined, RC);
   ok('④ 附件列表可见', fl.body?.count === 1 && fl.body.items[0].original_name === '差异清单.csv');
   // ⑤ 不指派路径（自己做）：纯人开 run，不进 dispatched
   r = await json(`${BASE}/api/sop/runs`, 'POST', { slug: 'rv-19a', started_by: 'expert:li' });
