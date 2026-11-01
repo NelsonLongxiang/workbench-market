@@ -33,14 +33,35 @@ export function createRunCheckpoints({ write, intervalMs = 30_000, onError = () 
     }, delay);
     item.timer.unref?.();
   }
-  function remember(id: number, data: Data, force = false): void {
+  function snapshot(id: number) {
+    const item = states.get(id);
+    return item && { data: structuredClone(item.data), dirty: item.dirty, at: item.at };
+  }
+  function restore(id: number, prior: ReturnType<typeof snapshot>): void {
+    forget(id);
+    if (prior) { states.set(id, prior); arm(id, Math.max(0, intervalMs - (Date.now() - prior.at))); }
+  }
+  function remember(id: number, data: Data, force = false): boolean {
+    const prior = snapshot(id);
     let item = states.get(id);
     if (item) { item.data = structuredClone(data); item.dirty = true; }
     else { item = { data: structuredClone(data), dirty: true, at: 0 }; states.set(id, item); }
     const left = intervalMs - (Date.now() - item.at);
     if (force || left <= 0) {
-      try { flush(id); } catch (error) { arm(id, intervalMs); throw error; }
-    } else arm(id, left); // not a debounce: later edits never postpone the deadline
+      try { flush(id); } catch (error) { restore(id, prior); throw error; }
+      return true;
+    }
+    arm(id, left); // not a debounce: later edits never postpone the deadline
+    return false;
+  }
+  async function save(id: number, data: Data, publish: () => Promise<boolean>): Promise<boolean> {
+    const prior = snapshot(id);
+    const durable = remember(id, data); // synchronous failure must happen before publication
+    const hotOk = await publish();
+    if (!hotOk && !durable) {
+      try { remember(id, data, true); } catch (error) { restore(id, prior); throw error; }
+    }
+    return hotOk;
   }
   function peek(id: number): Data | undefined {
     const data = states.get(id)?.data;
@@ -58,5 +79,5 @@ export function createRunCheckpoints({ write, intervalMs = 30_000, onError = () 
     flushAll();
     for (const id of states.keys()) forget(id);
   }
-  return { serial, remember, peek, forget, flushAll, close };
+  return { serial, remember, save, peek, forget, flushAll, close };
 }
