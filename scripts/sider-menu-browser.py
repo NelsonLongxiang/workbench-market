@@ -45,7 +45,7 @@ with sync_playwright() as p:
     check('管理组默认折叠（子项不可见）', 'MCP 网关' not in n3 and '设置' not in n3, n3)
     pg.locator('.ant-pro-sider .ant-menu-submenu-title', has_text='管理').click(); pg.wait_for_timeout(400)
     n4=[i[0] for i in pg.evaluate(JS)]
-    check('点开管理组后三项可见', all(x in n4 for x in ['MCP 网关','类型管理','设置']), n4)
+    check('点开管理组后四项可见（含凭据库）', all(x in n4 for x in ['MCP 网关','凭据库','类型管理','设置']), n4)
     pg.locator('.ant-pro-sider .ant-menu-item', has_text='类型管理').click(); pg.wait_for_timeout(400)
     check('点击管理组子项跳转 /types', pg.evaluate('location.pathname')=='/types')
     b.close()

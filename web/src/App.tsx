@@ -13,6 +13,7 @@ import Sops from './pages/Sops';
 import SopSpace from './pages/SopSpace';
 import SopRunDetail from './pages/SopRunDetail';
 import McpGateways from './pages/McpGateways';
+import Vault from './pages/Vault';
 import { adminTokenPresent, getAdminToken, setAdminToken, subscribeAdminToken } from './admin-token';
 import { controlUrl, MARKET_ONLY, marketUrl, onSurface, surface } from './surface';
 import { Badge, Button as AButton, Input as AInput, Popover, Result, Tag } from 'antd';
@@ -159,6 +160,7 @@ export default function App() {
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/lifecycle" element={<Lifecycle />} />
         <Route path="/mcp-gateways" element={<McpGateways />} />
+        <Route path="/vault" element={<Vault />} />
         <Route path="/types" element={<Types />} />
         <Route path="/skills" element={<SkillsPage />} />
         <Route path="/settings" element={<Settings />} />

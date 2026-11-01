@@ -26,6 +26,7 @@ import { db, getSettings, dataDir, rowToWorkbench, rowToCockpit, type WorkbenchR
 import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
 import { HttpError } from './errors.ts';
 import { designStandard } from './design-standard.ts';
+import { mountVault } from './vault-api.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, runStateSave, runStateRestore, runStateLoad, runStateRetire, runActiveIds } from './redis.ts';
@@ -2521,6 +2522,19 @@ app.post('/api/import', (req, res) => {
   res.json({ ok: true, mode, imported: inserted.length, skipped: 0 });
 });
 
+// ---------- 凭据库（融合 dsh-vault）：读写全部过 vaultGuard ----------
+// 与 adminGuard 同口径，只多认一种浏览器形态：同源 GET 不带 Origin（只有 Sec-Fetch-Site: same-origin），
+// adminGuard 按「无 Origin 即非本面」会拒掉控制面页面自己的读请求；凭据读必须和写一样严，所以读也要口令。
+function vaultGuard(req: express.Request, res: express.Response): boolean {
+  if (browserMarked(req) && !req.headers.origin && req.headers['sec-fetch-site'] === 'same-origin' && (surfaceOf(req) === 'control' || (DEV_ORIGIN_ENABLED && rawLoopback(req)))) {
+    if (adminTokenCheck(req.headers['x-admin-token'])) return true;
+    res.status(403).json({ error: '需要有效的 X-Admin-Token（凭据库读写都要口令）' });
+    return false;
+  }
+  return adminGuard(req, res);
+}
+mountVault(app, vaultGuard);
+
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()) });
 });
@@ -3555,6 +3569,10 @@ if (existsSync(webDist)) {
 // 输入校验错误不得 500 泄内部细节。
 const VALIDATION_ERR_PREFIX = ['非法 URL', '仅支持 http'];
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  // body-parser 的坏 JSON / 超限：回 4xx 固定文案，不记日志也不回显——err.body 是原始请求体（凭据库解锁时就是主密码）
+  if (err?.type === 'entity.parse.failed' || err?.type === 'entity.too.large') {
+    return res.status(err.status ?? 400).json({ error: err.type === 'entity.too.large' ? '请求体过大' : '请求体不是合法 JSON' });
+  }
   const msg = String(err?.message ?? err);
   let status = err instanceof HttpError || err instanceof TaskIntakeError ? err.status : 500;
   if (status === 500 && VALIDATION_ERR_PREFIX.some((p) => msg.startsWith(p))) status = 400;
