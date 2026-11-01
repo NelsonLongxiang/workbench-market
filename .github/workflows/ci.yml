@@ -107,6 +107,8 @@ jobs:
         run: node scripts/import-smoke.mjs
       - name: MCP 网关缺省开（#284·未设/空/on 匿名 401·off 告警·坏值拒启）
         run: node scripts/gateway-default-smoke.mjs && node scripts/gateway-smoke.mjs
+      - name: MCP design_standard 只读读取设计标准（模块+实例·网关开关两态）
+        run: node scripts/design-standard-smoke.mjs
       - name: F5 env-face 判定回归（不启动 Docker）
         run: node scripts/security-env-face-test.mjs
       - name: 生命周期签发入口单测（req 哈希金向量·断言结构·私钥门）
