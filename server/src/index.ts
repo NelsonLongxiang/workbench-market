@@ -822,8 +822,9 @@ function mergePatchFiles(slug: string, activeVersion: number, patch: any): { fil
   return { files: [...base.entries()].map(([path, content]) => ({ path, content })), diff: { added, modified, removed } };
 }
 
-/** 发布/重发逻辑（REST 与 MCP 工具共用）：返回响应体与状态码 */
-function publishAppBody(b: any): { status: number; body: object } {
+/** 发布/重发逻辑：返回响应体与状态码。
+ *  属主 2026-11-02 来源收敛后只有两类调用方：GitHub main 同步（syncAppFromGithub，带 source）与 task-center 内置元台的人工面。 */
+function publishAppBody(b: any, source?: { repo: string; path: string; commit: string }): { status: number; body: object } {
   const slug = typeof b.slug === 'string' ? b.slug.trim().toLowerCase() : '';
   if (!SLUG_RE.test(slug)) bad('slug 必须是小写字母/数字/连字符（≤64 字符，字母或数字开头）');
   const kind = b.kind === 'sop' ? 'sop' : 'app';
@@ -907,6 +908,11 @@ function publishAppBody(b: any): { status: number; body: object } {
     version = 1;
     appRow = getApp(slug);
   }
+  if (source) {
+    svc<AppService>('app').setSource(appRow.id, source.repo, source.path);
+    svc<AppService>('app').setVersionCommit(appRow.id, version, source.commit);
+    appRow = getApp(slug);
+  }
   // #94 P1 影子双写：发布同时写 Commit（读路径不变·失败不阻·commit_id 留空可后补迁移）
   void layerfsPublish(layerfsProjectName(slug), files, String(changelog ?? `[publish] v${version}`)).then((out) => {
     if (out) {
@@ -937,19 +943,61 @@ function publishLockGuard(slug: string, who: string, force: boolean): { ok: true
   return { ok: true };
 }
 
+/** 属主 2026-11-02 来源收敛：自产台与 SOP 台只接受 GitHub 仓库 main 分支，直接传文件/patch 的发布一律拒（task-center 内置元台除外，仍只认管理员人工面） */
+const DIRECT_PUBLISH_CLOSED = '自产台与 SOP 台只接受 GitHub 仓库 main 分支：把文件合进仓库 main，再调 POST /api/apps/<slug>/sync（首次须带 source_repo，可选 source_path；本机 CLI 或管理员）或 MCP app_sync';
+
 app.post('/api/apps', (req, res) => {
   const b = (req.body ?? {}) as Record<string, unknown>;
-  if (String(b.slug ?? '').trim().toLowerCase() === 'task-center') {
-    if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
-    if (!adminGuard(req,res)) return;
-  }
+  if (String(b.slug ?? '').trim().toLowerCase() !== 'task-center') return res.status(410).json({ error: DIRECT_PUBLISH_CLOSED });
+  if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
+  if (!adminGuard(req,res)) return;
   // #165 回归修（E2E 红）：锁身份=客户端会话（X-Market-Client/admin 摘要），**不用 created_by**（元数据·同操作者带/不带误判两会话→合法发布 409）
   const who = String(req.headers['x-market-client'] ?? '').trim() || (adminTokenCheck(req.headers['x-admin-token']) ? 'admin-session' : 'loopback-anon');
-  const gate = publishLockGuard(String(b.slug ?? '').trim().toLowerCase(), who, b.force === true || b.force === 'true');
+  const gate = publishLockGuard('task-center', who, b.force === true || b.force === 'true');
   if (!gate.ok) return res.status(409).json({ error: gate.hint });
   const r = publishAppBody(b);
   res.status(r.status).json(r.body);
 });
+
+/** 从 GitHub main 头同步一版。给了 source_repo 即（重新）绑定来源——只走 REST（本机 CLI 或管理员）；不给则按已绑定来源重拉（MCP app_sync 只能这样）。
+ *  main 头与活跃版同一 commit 且来源未变 → 不出新版本（unchanged:true）。 */
+async function syncAppFromGithub(slug: string, b: any, who: string): Promise<{ status: number; body: object }> {
+  slug = String(slug ?? '').trim().toLowerCase();
+  if (!SLUG_RE.test(slug)) bad('slug 必须是小写字母/数字/连字符（≤64 字符，字母或数字开头）');
+  if (slug === 'task-center') throw new HttpError(403, 'task-center 内置元台不从仓库同步');
+  const existing = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
+  const rebind = b?.source_repo !== undefined;
+  if (!existing && !rebind) bad('该台尚未登记来源：首次同步须带 source_repo（owner/repo），可选 source_path');
+  let src: { repo: string; path: string };
+  try { src = rebind ? normalizeSource(b.source_repo, b.source_path) : { repo: existing!.source_repo, path: existing!.source_path }; }
+  catch (e) { if (e instanceof SourceError) throw new HttpError(e.status, e.message); throw e; }
+  if (!src.repo) bad('该台还没有 GitHub 来源（来源收敛前直接发布的旧台）：请管理员带 source_repo 绑定一次');
+  const kind = existing ? existing.kind : (b?.kind === 'sop' ? 'sop' : 'app');
+  let pulled: { commit: string; files: { path: string; content: string }[] };
+  try { pulled = await fetchMainFiles(src.repo, src.path); }
+  catch (e) { if (e instanceof SourceError) throw new HttpError(e.status, e.message); throw e; }
+  if (existing) {
+    const active = (svc<AppService>('app').versions(existing.id) as unknown as AppVersionRow[]).find((v) => v.version === existing.active_version);
+    if (active?.source_commit === pulled.commit && existing.source_repo === src.repo && existing.source_path === src.path) {
+      return { status: 200, body: { ok: true, unchanged: true, slug, version: existing.active_version, source: { ...src, branch: SOURCE_BRANCH, commit: pulled.commit }, app: appDetail(existing) } };
+    }
+  }
+  const short = pulled.commit.slice(0, 7);
+  const changelog = (typeof b?.changelog === 'string' && b.changelog.trim()) ? b.changelog.trim() : `[github] ${src.repo}${src.path ? '/' + src.path : ''}@${SOURCE_BRANCH} ${short}`;
+  const out = publishAppBody({ slug, kind, title: b?.title, description: b?.description, code: b?.code, created_by: who, changelog, force: b?.force === true, files: pulled.files }, { ...src, commit: pulled.commit });
+  return { status: out.status, body: { ...out.body, source: { ...src, branch: SOURCE_BRANCH, commit: pulled.commit } } };
+}
+
+// 写总门已把关：本机 CLI 或管理员（口令 / Odoo 管理员），与原 POST /api/apps 同口径
+app.post('/api/apps/:slug/sync', wrap(async (req, res) => {
+  const b = (req.body ?? {}) as Record<string, unknown>;
+  const who = String(req.headers['x-market-client'] ?? '').trim() || (typeof b.created_by === 'string' && b.created_by.trim()) || 'admin-session';
+  const slug = String(req.params.slug ?? '').trim().toLowerCase();
+  const gate = publishLockGuard(slug, who, b.force === true);
+  if (!gate.ok) return res.status(409).json({ error: gate.hint });
+  const r = await syncAppFromGithub(slug, b, who);
+  res.status(r.status).json(r.body);
+}));
 
 // #94 P1 迁移端点：现有版本依次导成该台项目的 Commit（三门禁复验·异常留档·幂等·sha256 对账）
 app.post('/api/apps/:slug/migrate-layerfs', wrap(async (req, res) => {
@@ -3058,6 +3106,7 @@ import { tasksReadAccess, createTaskSourceGrant, revokeTaskSourceGrant } from '.
 import { lifecycleApprove, lifecycleBoard, lifecycleConfigProblem, lifecycleConfigured, lifecycleSourceFor, lifecycleStatus, lifecycleWhoami, resolveOdooViewer } from './lifecycle.ts';
 import { authorizeRunRead, issueRunReadCap, runReadGrantCreate, runReadGrantRevoke, runReadCapRevokeAll } from './sop-read-auth.ts';
 import { endpointStatsMiddleware, statsPayload } from './endpoint-stats.ts';
+import { fetchMainFiles, normalizeSource, SourceError, SOURCE_BRANCH } from './github-source.ts';
 
 // ---------- MCP 生产通道（StreamableHTTP · stateless：AI 会话直连市场，零依赖手写 JSON-RPC） ----------
 const MCP_PROTOCOL = '2025-03-26';
@@ -3065,7 +3114,7 @@ const MCP_KNOWN_PROTOCOLS = ['2024-11-05', '2025-03-26', '2025-06-18'];
 
 async function callTool(name: string, args: any, subject = 'anonymous'): Promise<unknown> {
   const metaSlug = String(args?.slug ?? '').trim().toLowerCase();
-  if (metaSlug === 'task-center' && ['app_publish','app_activate','sop_publish','sop_deprecate','app_draft_open','app_draft_edit','app_draft_submit'].includes(name)) throw new HttpError(403, 'task-center 元台仅人工面可修改');
+  if (metaSlug === 'task-center' && ['app_sync','app_activate','sop_publish','sop_deprecate'].includes(name)) throw new HttpError(403, 'task-center 元台仅人工面可修改');
   switch (name) {
     case 'design_standard':
       return designStandard(args ?? {});
@@ -3174,52 +3223,22 @@ async function callTool(name: string, args: any, subject = 'anonymous'): Promise
       // issue #3：direct 也掩码——带 token 的直连地址不再下发；浏览器访问请走 portal（代理自动带票）
       return { id: w.id, name: w.name, portal: `/go/${w.id}/`, use_page: `/use/${w.id}`, direct: maskSensitiveQuery(w.url), note: 'portal 经统一门户同源代理（自动注入凭据/剥禁嵌头），推荐浏览器访问；direct 已脱敏' };
     }
-    case 'app_publish': {
-      if (String(args?.slug ?? '') === 'task-center') throw new HttpError(403, 'task-center 元台只能经人工面修改（#159 C13）');
-      // #193 F11：MCP 发布与 REST 同过发布锁（60s 同 slug 异会话 409）
+    case 'app_sync': {
+      // 属主 2026-11-02 来源收敛：MCP 只重拉已登记来源；绑定/改来源是管理员 REST 面
       const _slug = String(args?.slug ?? '').trim().toLowerCase();
-      const _who = String(args?.created_by ?? '').trim() || 'mcp';
-      const _gate = publishLockGuard(_slug, _who, args?.force === true || args?.force === 'true');
+      if (_slug === 'task-center') throw new HttpError(403, 'task-center 元台只能经人工面修改（#159 C13）');
+      if (args?.source_repo !== undefined || args?.source_path !== undefined) throw new HttpError(403, 'MCP 不能绑定或改来源：须本机 CLI 或管理员走 POST /api/apps/<slug>/sync');
+      const _app = svc<AppService>('app').bySlug(_slug) as unknown as AppRow | undefined;
+      if (!_app) throw new HttpError(404, `台不存在: ${_slug}（首次登记来源须管理员走 POST /api/apps/<slug>/sync）`);
+      const _who = 'mcp';
+      // #193 F11：MCP 同步与 REST 同过发布锁（60s 同 slug 异会话 409）
+      const _gate = publishLockGuard(_slug, _who, args?.force === true);
       if (!_gate.ok) throw new HttpError(409, _gate.hint);
-      return publishAppBody({ ...args, created_by: _who }).body;
+      return (await syncAppFromGithub(_slug, { changelog: args?.changelog, force: args?.force === true }, _who)).body;
     }
     // #94 v3 S1（K12）：app_activate 直回滚工具**移除**（破坏性操作 MCP 不可直执）——改经 change_request_create 提请求
     // #94 v3 S1（契约形状·#94 评论 6424247402）：{kind: 'app'|'skill', slug, op: 'rollback'|'delete', target_version?, reason}
-    // #94 P3 agent 工作区（草稿三分支·契约 v1 drafts 面）
-    case 'app_draft_open': {
-      const a0 = getApp(String(args?.slug ?? ''));
-      const v0 = (svc<AppService>('app').versions(a0.id) as any[]).find((x) => x.version === a0.active_version);
-      if (!v0?.commit_id) throw new HttpError(409, `激活版无 Commit 锚——不可开草稿（影子未达）`);
-      const { base, token } = layerfsServiceBase();
-      if (!base) throw new HttpError(502, 'layerfs 服务未配置——草稿不可用');
-      const fr = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(layerfsProjectName(a0.slug)) + '/branches/release/drafts', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ from: v0.commit_id }), signal: AbortSignal.timeout(10000) });
-      if (!fr.ok) throw new HttpError(502, `draft open HTTP ${fr.status}`);
-      return await fr.json();
-    }
-    case 'app_draft_edit': {
-      const aE = getApp(String(args?.slug ?? ''));
-      const { base: bE, token: tE } = layerfsServiceBase();
-      if (!bE) throw new HttpError(502, 'layerfs 服务未配置');
-      const fr = await fetch(bE.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(layerfsProjectName(aE.slug)) + '/branches/release/drafts/' + encodeURIComponent(String(args?.draft ?? '')) + '/apply', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tE ? { Authorization: `Bearer ${tE}` } : {}) }, body: JSON.stringify({ changes: [{ op: 'edit', path: String(args?.path ?? ''), old_text: String(args?.old_text ?? ''), new_text: String(args?.new_text ?? '') }], message: 'draft edit' }), signal: AbortSignal.timeout(10000) });
-      if (!fr.ok) throw new HttpError(502, `draft apply HTTP ${fr.status}`);
-      return await fr.json();
-    }
-    case 'app_draft_submit': {
-      const aS = getApp(String(args?.slug ?? ''));
-      const { base: bS, token: tS } = layerfsServiceBase();
-      if (!bS) throw new HttpError(502, 'layerfs 服务未配置');
-      const proj = layerfsProjectName(aS.slug);
-      const mr = await fetch(bS.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(proj) + '/branches/release/drafts/' + encodeURIComponent(String(args?.draft ?? '')) + '/merge', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tS ? { Authorization: `Bearer ${tS}` } : {}) }, body: JSON.stringify({ into: 'release' }), signal: AbortSignal.timeout(10000) });
-      if (mr.status === 409) throw new HttpError(409, 'Conflict: 同路径已被并行草稿修改——本草稿不合并（后提者拒）'); // L8
-      if (!mr.ok) throw new HttpError(502, `draft merge HTTP ${mr.status}`);
-      const mj = await mr.json() as { commit_id?: string };
-      if (!mj.commit_id) throw new HttpError(502, 'merge 无 commit_id');
-      // 合并产物回读→走发布门禁生成新版本并激活（契约 §3）
-      const cr = await fetch(bS.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(proj) + '/branches/release/commits/' + encodeURIComponent(mj.commit_id) + '/files', { headers: tS ? { Authorization: `Bearer ${tS}` } : {}, signal: AbortSignal.timeout(10000) });
-      const cj = await cr.json() as { files: { path: string; content: string }[] };
-      const out = publishAppBody({ slug: aS.slug, files: cj.files, changelog: String(args?.changelog ?? '[draft-merge]'), created_by: 'draft-submit' });
-      return { ok: true, merged_commit: mj.commit_id, version: (out.body as any).version, note: '草稿已合并回发布线并激活' };
-    }
+    // 属主 2026-11-02 来源收敛：app_publish 与 #94 P3 草稿三工具（app_draft_open/edit/submit）移除——内容只从 GitHub main 来
     case 'change_request_create': {
       const kind = String(args?.kind ?? '');
       if (!['app', 'skill'].includes(kind)) throw new HttpError(400, `kind 须 app|skill（得: ${kind}）`);
