@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** A2A P1 冒烟：专用实例（独立 DATA_DIR + ADMIN_TOKEN）上卡片签名（上游 verifyCard 裁判）+ 绑定 CRUD + 上卡规则。 */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
+import { createServer } from 'node:net';
 
 async function waitReady(url, ms = 20000) {
   const end = Date.now() + ms;
@@ -12,7 +13,7 @@ async function waitReady(url, ms = 20000) {
 }
 import { rmSync, mkdirSync } from 'node:fs';
 
-const PORT = 9840;
+const reserve=createServer();await new Promise(r=>reserve.listen(0,'127.0.0.1',r));const PORT=reserve.address().port;await new Promise(r=>reserve.close(r));
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-a2a-data';
 let pass = 0, fail = 0;
@@ -24,7 +25,7 @@ mkdirSync(DATA, { recursive: true });
 // 起专用实例
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server',
-  env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'e2e-admin-tok' },
+  env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'e2e-admin-tok' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪（20s 超时）'); process.exit(1); }
