@@ -47,7 +47,7 @@ export default function Types() {
       render: (_, t) => (
         <Space size={6}>
           <span>{t.icon}</span>
-          <span style={{ fontWeight: 600 }}>{t.name}</span>
+          <span className="wm-strong">{t.name}</span>
         </Space>
       ),
     },

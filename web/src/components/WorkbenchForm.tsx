@@ -204,20 +204,20 @@ export default function WorkbenchForm({
         extra="选择后经 /go/ 门户访问时自动注入该 cookie 集（按目标域匹配+未过期过滤）；不选 = 浏览器透传"
         fieldProps={{ placeholder: '不挂接 cookie（浏览器透传）' }}
       />
-      <div style={{ marginBottom: 4 }}>
-        <Typography.Text style={{ fontSize: 13 }}>快速导入 Cookie</Typography.Text>
-        <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 4 }}>
+      <div className="wm-mb-1">
+        <Typography.Text className="wm-text-body">快速导入 Cookie</Typography.Text>
+        <Typography.Paragraph type="secondary" className="wm-caption wm-mb-1">
           粘贴 Cookie-Editor / EditThisCookie 导出的 JSON 数组，点导入即可建池
         </Typography.Paragraph>
         <textarea
-          className="wm-mono"
-          style={{ width: '100%', padding: '6px 10px', border: '1px solid #E2E8F0', borderRadius: 6, fontSize: 12, minHeight: 44, resize: 'vertical' }}
+          className="wm-mono wm-input wm-w-full"
+          style={{ minHeight: 44, resize: 'vertical' }}
           placeholder='[{"name":"session","value":"...","domain":"..."}]'
           value={cookieJson}
           onChange={(e) => setCookieJson(e.target.value)}
         />
       </div>
-      <Button size="small" onClick={importCookies} disabled={!cookieJson.trim()} style={{ marginBottom: 16 }}>
+      <Button size="small" onClick={importCookies} disabled={!cookieJson.trim()} className="wm-mb-4">
         导入为 Cookie 集
       </Button>
       <ProFormTextArea name="description" label="描述" placeholder="支持 Markdown；在工作台详情中渲染（可空）" />
