@@ -20,6 +20,9 @@ ready仅恢复transport可用性，不直接取出或合并Redis内容。实际i
 2. scripts/redis-ready-recovery-http-test.mjs：实际index HTTP、SQLite、owned child进程，Redis模块使用仅测试hook替换为文件型fake（支持实际on/ready/error/reconnecting事件），全新合成库/home/备用loopback。验证断连写persisted=sqlite、旧Redis仍残留、ready后persisted=redis+checkpoint、多轮恢复；另run跨进程冷重启排除内存ACK遮蔽，旧快照指纹不匹配→SQLite NEW→重新发布当前代次→hot续写/finish及active列表。最初空SOP定义400属setup失败保留；修正定义后原实现真实失败于ready未恢复热写，不当绿。
 3. 原sop-state-restart20、HTTP14（含31秒静置）、checkpoint21继续运行；fixture旧offline/online现在发真实生命周期事件，无生产Redis网络连接。
 
-CI增加两套#351测试，并保留其余安全矩阵。暂未模拟真实node-redis TCP断连/重新握手与命令重发；不以事件fake证明跨网络所有语义。自动重连策略、Redis持久化/TTL、30秒时限、跨worker一致性及生产配置未改。
+4. scripts/redis-ready-fingerprint-mutation.mjs：只在子进程loader移除checkpoint比较，同一恢复集成必须在冷读取SQLite NEW断言失败；驱动exit0表示成功观察预期红态，不是变异产品PASS。最初变异未传入清洁子环境的准备错误保留，修正后准确命中断言。
+5. scripts/redis-ready-network-test.mjs：可选Docker实测，要求REDIS351_TEST_IMAGE为redis@sha256完整digest，只创建唯一标签、无卷的临时Redis容器，端口仅发布127.0.0.1随机端口。实际node-redis通过自有TCP代理，在保留Redis内容时断流→SQLite降级写→冷恢复/同进程恢复，检查hot路径、指纹更新、finish。finally按精确容器ID+本轮label复核后移除，仅触本轮容器；测试不连接默认6379或生产。此测试原件必须单独读取，不在无Docker环境报SKIP为PASS。
+
+CI增加状态/HTTP/指纹变异三套#351测试，并保留其余安全矩阵。真实网络测试已在本机Windows Node24.12/Docker29.8.2，以redis@sha256:8da19c7399dca900c6822a1cf30f9d2285585e2c4b457ff4095b0f4500054d3f运行10/10 exit0并确认删除本轮容器；这是TCP断流测试，不证明所有网络错误/离线命令重放。自动重连策略、Redis持久化/TTL、30秒时限、跨worker一致性及生产配置未改。
 
 授权来源direct-dd4e4bc8；当前规范v1.14，中档行为修复按scope自验+独立/机器复核及同head三CI绿后处理PR，不以旧v1.12另设门。未触个人YGL、生产库/Redis、服务、DSH检出，无新业务口味判断点。
