@@ -152,10 +152,83 @@ UX_CSS = (
     'input:focus-visible,select:focus-visible,textarea:focus-visible{outline-offset:0!important;border-color:var(--wm-color-primary)!important}\n'
     '[role=button][tabindex],[role=link][tabindex]{cursor:pointer}\n'
 )
+# 菜单 / 目录 / 视图（PATTERNS.md §7.4）：按台配置区块分组；区块按 h2 标题前缀匹配
+NAV = {
+    'finance-workbench': {'title': '财务月度交付驾驶舱', 'groups': [
+        {'key': 'overview', 'label': '总览', 'sections': ['双栏时钟卡', 'KPI 条', '财务行动看板']},
+        {'key': 'delivery', 'label': '交付', 'sections': ['11 件交付清单', '交付空间']},
+        {'key': 'submit', 'label': '提交', 'sections': ['数据包提交', '任务数据提交', '表单异常项评审']},
+        {'key': 'tasks', 'label': '任务', 'sections': ['JF十月执行任务', '在途任务表']},
+        {'key': 'verify', 'label': '验证', 'sections': ['四族验证器状态', 'A 族 spec 明细', '台账近 8 条']},
+    ]},
+}
+NAV_CSS = (
+    'html.wm-has-nav{scroll-padding-top:64px}\n'
+    'html.wm-has-nav body{padding-top:72px!important}\n'
+    '@media (min-width:1024px){html.wm-has-nav body{padding-left:244px!important}}\n'
+    '.wm-off{display:none!important}\n'
+    '.wm-nav-bar{position:fixed;top:0;left:0;right:0;z-index:1000;height:48px;box-sizing:border-box;display:flex;align-items:center;gap:16px;padding:0 16px;'
+    'background:var(--wm-color-surface);border-bottom:1px solid var(--wm-color-border);box-shadow:var(--wm-shadow-1);font-family:var(--wm-font-sans);font-size:14px;line-height:22px}\n'
+    '.wm-nav-home{color:var(--wm-color-text-secondary);text-decoration:none;font-size:12px;line-height:20px;white-space:nowrap}\n'
+    '.wm-nav-home:hover{color:var(--wm-color-primary)}\n'
+    '.wm-nav-title{font-size:16px;line-height:24px;font-weight:600;color:var(--wm-color-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px}\n'
+    '.wm-nav-menu{display:flex;gap:4px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none}\n'
+    '.wm-nav-menu-item,.wm-nav-view,.wm-nav-tocbtn{font:inherit;cursor:pointer;white-space:nowrap}\n'
+    '.wm-nav-menu-item{height:32px;padding:0 12px;border:0;border-radius:6px;background:none;color:var(--wm-color-text-secondary)}\n'
+    '.wm-nav-menu-item:hover{background:var(--wm-color-page);color:var(--wm-color-text)}\n'
+    '.wm-nav-menu-item[aria-selected=true]{background:var(--wm-color-primary-subtle);color:var(--wm-color-primary);font-weight:600}\n'
+    '.wm-nav-views{display:inline-flex;flex:none;padding:2px;border-radius:6px;background:var(--wm-color-page);border:1px solid var(--wm-color-border)}\n'
+    '.wm-nav-view{height:26px;padding:0 12px;border:0;border-radius:4px;background:none;color:var(--wm-color-text-secondary);font-size:12px}\n'
+    '.wm-nav-view[aria-checked=true]{background:var(--wm-color-surface);color:var(--wm-color-text);font-weight:600;box-shadow:var(--wm-shadow-1)}\n'
+    '.wm-nav-tocbtn{display:none;height:32px;padding:0 12px;border:1px solid var(--wm-color-border-strong);border-radius:6px;background:var(--wm-color-surface);color:var(--wm-color-text)}\n'
+    '.wm-nav-toc{position:fixed;top:48px;left:0;bottom:0;z-index:999;width:220px;box-sizing:border-box;overflow-y:auto;padding:16px 8px 24px;'
+    'background:var(--wm-color-surface);border-right:1px solid var(--wm-color-border);font-family:var(--wm-font-sans);font-size:14px;line-height:22px}\n'
+    '.wm-nav-toc-title{padding:4px 12px;font-size:12px;line-height:20px;font-weight:600;color:var(--wm-color-text-secondary)}\n'
+    '.wm-nav-toc-group+.wm-nav-toc-group{margin-top:12px}\n'
+    '.wm-nav-toc ul{list-style:none;margin:0;padding:0}\n'
+    '.wm-nav-toc a{display:block;padding:4px 12px 4px 10px;border-left:2px solid transparent;border-radius:0 6px 6px 0;color:var(--wm-color-text);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n'
+    '.wm-nav-toc a:hover{background:var(--wm-color-page)}\n'
+    '.wm-nav-toc-group:not(.wm-current) a{color:var(--wm-color-text-secondary)}\n'
+    '.wm-nav-toc a[aria-current]{border-left-color:var(--wm-color-primary);background:var(--wm-color-primary-subtle);color:var(--wm-color-primary)!important;font-weight:600}\n'
+    '.wm-nav-scrim{position:fixed;top:48px;left:0;right:0;bottom:0;z-index:998;background:rgba(15,23,42,.32)}\n'
+    '@media (max-width:1023px){.wm-nav-tocbtn{display:inline-flex;align-items:center}.wm-nav-home{display:none}'
+    '.wm-nav-toc{width:280px;max-width:85vw;transform:translateX(-100%);box-shadow:var(--wm-shadow-3);transition:transform var(--wm-motion-base) var(--wm-motion-easing)}.wm-nav-toc.wm-open{transform:none}}\n'
+    '@media (max-width:640px){.wm-nav-bar{gap:8px;padding:0 8px}.wm-nav-title{display:none}}\n'
+    '@media print{.wm-nav-bar,.wm-nav-toc,.wm-nav-scrim{display:none!important}html.wm-has-nav body{padding:24px!important}.wm-off{display:block!important}}\n'
+)
+
+LAYER_RE = re.compile(r'\n<style id="wm-design-layer">.*?</style>\n<script id="wm-ux">.*?</script>\n(?:<script id="wm-nav">.*?</script>\n)?', re.S)
+
+def build_layer(slug, tokens_css):
+    return ('<style id="wm-design-layer">\n/* 工作台统一设计层 · DESIGN.md v1.0.0（仅浅色）。台内样式只引用 --wm-* 变量 */\n'
+             + tokens_css.split('*/', 1)[1].strip() + '\n'
+             'html{color-scheme:light}\n'
+             'body{font-family:var(--wm-font-sans);font-size:var(--wm-font-size-body);line-height:var(--wm-line-height-body);'
+             'color:var(--wm-color-text);background:var(--wm-color-page);-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}\n'
+             'code,pre,kbd,samp{font-family:var(--wm-font-mono)}\n'
+             'button,input,select,textarea{font:inherit;font-size:var(--wm-font-size-body)}\n'
+             'h1{font-size:var(--wm-font-size-title);line-height:var(--wm-line-height-title);font-weight:600}\n'
+             'h2{font-size:var(--wm-font-size-subtitle);line-height:var(--wm-line-height-subtitle);font-weight:600}\n'
+             'h3,h4,h5,h6{font-size:var(--wm-font-size-body);line-height:var(--wm-line-height-body);font-weight:600}\n'
+             'small{font-size:var(--wm-font-size-caption);line-height:var(--wm-line-height-caption)}\n'
+             'a{color:var(--wm-color-primary)}\n'
+             '::selection{background:var(--wm-color-primary-subtle);color:var(--wm-color-text)}\n'
+             + UX_CSS +
+             'input::placeholder,textarea::placeholder{color:var(--wm-color-text-disabled)}\n'
+             '@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}\n'
+             + (NAV_CSS if slug in NAV else '') +
+             '</style>\n<script id="wm-ux">' + UX_JS + '</script>\n'
+             + (('<script id="wm-nav">window.WM_NAV=' + json.dumps(NAV[slug], ensure_ascii=False) + ';' + NAV_JS + '</script>\n') if slug in NAV else ''))
+
 def transform(src, slug, tokens_css, kind='html'):
     dark, ov = slug in DARK, OVERRIDE.get(slug, {})
     stats = {'colors': {}, 'font_size': 0, 'font_family': 0, 'radius': 0}
     s = INJECT.sub('', src)
+    # 换层：已经统一过的页面只替换 <head> 里的统一层，正文不再转换（深色台二次映射会把语义反过来）
+    if kind == 'html' and LAYER_RE.search(s):
+        return LAYER_RE.sub(lambda m: '\n' + build_layer(slug, tokens_css), s, count=1), stats
+    if kind != 'html' and 'var(--wm-' in s:
+        return s, stats
     for a, b in PATCH.get(slug, []): s = s.replace(a, b)
     s = re.sub(r'https?://192\.168\.3\.156:9800(?=/)', '', s)
     s = re.sub(r"(new URL\([^,()]+(?:\([^()]*\))?,\s*)'https?://192\.168\.3\.156:9800/?'", r'\1location.origin', s)
@@ -257,29 +330,14 @@ def transform(src, slug, tokens_css, kind='html'):
     s = ''.join(parts)
     if kind != 'html': return s, stats
 
-    layer = ('<style id="wm-design-layer">\n/* 工作台统一设计层 · DESIGN.md v1.0.0（仅浅色）。台内样式只引用 --wm-* 变量 */\n'
-             + tokens_css.split('*/', 1)[1].strip() + '\n'
-             'html{color-scheme:light}\n'
-             'body{font-family:var(--wm-font-sans);font-size:var(--wm-font-size-body);line-height:var(--wm-line-height-body);'
-             'color:var(--wm-color-text);background:var(--wm-color-page);-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}\n'
-             'code,pre,kbd,samp{font-family:var(--wm-font-mono)}\n'
-             'button,input,select,textarea{font:inherit;font-size:var(--wm-font-size-body)}\n'
-             'h1{font-size:var(--wm-font-size-title);line-height:var(--wm-line-height-title);font-weight:600}\n'
-             'h2{font-size:var(--wm-font-size-subtitle);line-height:var(--wm-line-height-subtitle);font-weight:600}\n'
-             'h3,h4,h5,h6{font-size:var(--wm-font-size-body);line-height:var(--wm-line-height-body);font-weight:600}\n'
-             'small{font-size:var(--wm-font-size-caption);line-height:var(--wm-line-height-caption)}\n'
-             'a{color:var(--wm-color-primary)}\n'
-             '::selection{background:var(--wm-color-primary-subtle);color:var(--wm-color-text)}\n'
-             + UX_CSS +
-             'input::placeholder,textarea::placeholder{color:var(--wm-color-text-disabled)}\n'
-             '@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}\n'
-             '</style>\n<script id="wm-ux">' + UX_JS + '</script>\n')
+    layer = build_layer(slug, tokens_css)
     m = re.search(r'<head[^>]*>', s, re.I)
     # 插在 <head> 起始：台内已映射的规则仍可覆盖基础排版
     s = s[:m.end()] + '\n' + layer + s[m.end():] if m else layer + s
     return s, stats
 
 UX_JS = rd(Path(__file__).parent / 'wm-ux.js')
+NAV_JS = rd(Path(__file__).parent / 'wm-nav.js')
 
 if __name__ == '__main__':
     tokens = rd(Path(sys.argv[1]))

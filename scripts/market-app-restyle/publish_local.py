@@ -1,6 +1,7 @@
 """在 9800 所在主机上运行：抓线上自产台源 → restyle.py 生成 → 与审计过的产物哈希核对 → 本机 CLI 发布（POST /api/apps patch）。
 默认只做演练（不写任何东西），加 --apply 才发布；--only slug1,slug2 限定范围。
-用法: python -I publish_local.py [--base http://127.0.0.1:9800] [--apply] [--only demo-timestamp]
+用法: python -I publish_local.py [--base http://127.0.0.1:9800] [--apply] [--only demo-timestamp] [--changelog 文本]
+已统一过的台走「换层」：只替换 <head> 里的统一层（restyle.py 自动识别）。expected.json 只放本批要发的台。
 本机 CLI 写面按服务端设计走回环信任（非浏览器、127.0.0.1），不需要也不读取管理口令。"""
 import hashlib, json, re, subprocess, sys, tempfile, urllib.request
 from pathlib import Path
@@ -15,10 +16,11 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 MANIFEST = json.loads(rd(HERE / 'expected.json'))
 INJECT = re.compile(r'<meta name="wm-app-token".*?</script>', re.S)
-CHANGELOG = '统一设计层 v1：DESIGN.md v1.0.0 token + PATTERNS.md §7（菜单/焦点/状态持久化）；深色转浅色、写死内网地址改同源'
 
 def arg(name, default=None):
     return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
+
+CHANGELOG = arg('--changelog', '统一层更新（PATTERNS.md §7）')
 
 def get(url):
     with urllib.request.urlopen(url, timeout=60) as r:
