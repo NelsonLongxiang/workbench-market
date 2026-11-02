@@ -1,5 +1,6 @@
 import express from 'express';
 import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
+import { recordAppDataEvent, kickWorkbenchEvents, startWorkbenchEventWorker, registerWorkbenchEventRoutes } from './workbench-events.ts';
 import cors from 'cors';
 import { contentConfig, createContentSurface, mountContentSurface, listenContentSurface } from './content-surface.ts';
 import { createPortalObservation } from './portal-observation.ts';
@@ -148,6 +149,8 @@ app.use(endpointStatsMiddleware());
 const REMOTE_ALLOW_PREFIX = [
   /^\/api\/apps\/[a-z0-9-]{1,64}\/(data|files)(\/|$)/,
   /^\/api\/sop\/runs(\/\d+(\/(finish|files))?)?$/,
+  // 工作台事件 v1：接单节点回写决定（凭投递里的 reply token 鉴权，不认口令；只此一条子路径）
+  /^\/api\/workbench-events\/wbe-[0-9a-f]{16}\/decision$/,
 ];
 
 // S3 豁免面可观测（评审席裁下批·PR#72 真事故锚）：启动时快照+diff——安全清单变更不再无声
@@ -569,6 +572,7 @@ app.delete('/api/cockpits/:id', (req, res) => {
 // ---------- 自产台（台生成器：AI 发布 API + 全版本快照，发布即入册） ----------
 const appsRoot = join(dataDir, 'apps');
 initializeTaskCenter(appsRoot);
+startWorkbenchEventWorker(); // 工作台事件 v1（人提交 → 事件 → 团队接单）；表随 initializeTaskCenter 建
 // #198（监督席裁 A·P11 回归修复）：自产台按台令牌——CSP sandbox 下页面源为 null，
 // 交付空间模式（页面调本台 data/files）靠「Origin: null + X-App-Token 匹配 slug」放行 CORS。
 const APP_TOKEN_KEY_FILE = join(dataDir, '.wm-app-token.key');
@@ -1176,17 +1180,13 @@ app.post('/api/apps/:slug/data', (req, res) => {
   const itemId = Number(r.lastInsertRowid);
   const createdAt = new Date().toISOString();
   res.status(201).json({ ok: true, id: itemId, slug: a.slug, created_at: createdAt });
-  // 属主裁 C（2026-10-26）：提交即推送——绑定 agent 异步收通知（尽力而为不阻塞 201；
-  // 失败仅日志，下次提交再推——数据真源始终在 app_data，拉模式兜底）。
+  // 属主裁 C（2026-10-26）：提交即推送——绑定 agent 异步收通知（不阻塞 201）。
+  // 工作台事件 v1：推送改走事件投递队列（退避重试、终态 sent/dead 可查），信封带 event_id 与 submitter_kind。
+  // 提交面匿名、created_by 自填 → submitter_kind 恒 unverified、dispatch:false（只通知不派发）。
   // 联合评审① C：统一绑定表——notify 方向行（授 admits 不触发推送·方向独立性铁律）
-  const targets = db.prepare("SELECT agent_node, notify_url FROM bindings WHERE target_type = 'app' AND target_slug = ? AND direction IN ('notify','both') AND revoked_at = ''").all(a.slug) as { agent_node: string; notify_url: string }[];
-  for (const t of targets) {
-    if (t.notify_url === '') continue;
-    a2aSendOutbound(a2aKeyPath(), { baseUrl: t.notify_url, team: t.agent_node }, JSON.stringify({
-      type: 'app-data-submitted', slug: a.slug, id: itemId, data, created_at: createdAt,
-      hint: '经 MCP app_data_list（slug + before_id 增量）读取；本通知尽力而为，真源在 app_data',
-    }), undefined, `market/${sopNode8(a.slug)}`).catch(err => console.error(`[app-notify] push failed ${a.slug}→${t.node}: ${String(err).slice(0, 120)}`));
-  }
+  try {
+    if (recordAppDataEvent({ slug: a.slug, id: itemId, data, json, createdBy: created_by, createdAt })) kickWorkbenchEvents();
+  } catch (err) { console.error(`[app-notify] event record failed ${a.slug}: ${String(err).slice(0, 120)}`); }
 });
 
 app.get('/api/apps/:slug/data', (req, res) => {
@@ -2634,7 +2634,9 @@ app.post('/api/task-center/tasks', (req, res) => {
   if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' }); // C10
   if (!adminGuard(req, res)) return; // C9 无口令 401/403
   res.status(201).json(publishTaskIntake(req.body ?? {}));
+  kickWorkbenchEvents(); // 工作台事件 v1：发布同事务已记 human 事件，这里立即试投
 });
+registerWorkbenchEventRoutes(app, { admin: adminGuard, sameOrigin: (req) => sameOriginGuard(req, undefined as never) });
 app.get('/api/task-center/tasks', (req, res) => { // 读开放
   res.json(db.prepare('SELECT * FROM tasks ORDER BY id DESC').all().map(taskListView)); // #309 phase2：列表同样不带 payload_json 私有副本
 });
@@ -2828,7 +2830,7 @@ app.post('/api/bindings', (req, res) => {
   const direction = b.direction;
   if (direction !== 'admits' && direction !== 'notify' && direction !== 'both') bad('direction 必填且只许 admits|notify|both（显式选择·无默认）');
   if (!slug) bad('target_slug 必填');
-  if (!/^[a-z][a-z0-9-]*\/[a-z0-9][a-z0-9_-]{0,63}$/i.test(node)) bad('agent_node 形态：<zone>/<id8>，如 dsh/1a2b3c4d');
+  if (!/^[a-z][a-z0-9-]*\/(canvas\/)?[a-z0-9][a-z0-9_-]{0,63}$/i.test(node)) bad('agent_node 形态：<zone>/<id8> 或画布队 <zone>/canvas/<name>，如 dsh/1a2b3c4d、dsh/canvas/procurement');
   const a = getApp(slug);
   if (a.kind !== targetType) bad(`target_type=${targetType} 与台型不符（${slug} 是 ${a.kind}）`);
   const mode = targetType === 'sop' && b.mode === 'run' ? 'run' : 'read'; // app 行 mode 恒 read（跨型 CHECK）
