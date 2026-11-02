@@ -74,7 +74,7 @@ function AdminTokenInput() {
           <div style={{ marginTop: 8, textAlign: 'right' }}>
             <AButton size="small" type="primary" onClick={() => { setAdminToken(val.trim()); setOpen(false); }}>保存</AButton>
           </div>
-          <div className="wm-mt-1 wm-caption" style={{ color: T.colors['text-secondary'] }}>本机 127.0.0.1 访问通常无需口令</div>
+          <div className="wm-mt-1 wm-caption wm-secondary">本机 127.0.0.1 访问通常无需口令</div>
         </div>
       )}
     >
