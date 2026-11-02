@@ -93,7 +93,7 @@ try {
   }
   // 待办接入：先造一条 pending 再查（刚批的那条已 approved 不在 pending）
   await mcp(9, 'tools/call', { name: 'change_request_create', arguments: { kind: 'app', slug, op: 'rollback', target_version: 1, reason: 's1-pending-probe' } });
-  const tasks = await (await fetch(`${BASE}/api/tasks?refresh=1`)).json();
+  const tasks = await (await fetch(`${BASE}/api/tasks?refresh=1`, { headers: ADMIN })).json();
   const tstr = JSON.stringify(tasks);
   ok('待办接入（tasks 含 change_requests 面）', /change_request|人审/.test(tstr), tstr.slice(0, 80));
 } finally {
