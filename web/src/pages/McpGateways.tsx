@@ -77,10 +77,10 @@ export default function McpGateways() {
         title: `会话 ${b.name} 已创建`,
         content: (
           <div>
-            <Typography.Paragraph type="warning" style={{ fontWeight: 600 }}>
+            <Typography.Paragraph type="warning" className="wm-strong">
               令牌仅此一次显示——请立即复制分发（库存只有 sha256，无法取回）：
             </Typography.Paragraph>
-            <Typography.Paragraph copyable className="wm-mono" style={{ wordBreak: 'break-all', fontSize: 12 }}>
+            <Typography.Paragraph copyable className="wm-mono wm-break wm-caption">
               {b.token}
             </Typography.Paragraph>
             <Typography.Text type="secondary">新会话授权为空（默认拒绝）——请到 grants 编辑器分配工具。</Typography.Text>
@@ -162,7 +162,7 @@ export default function McpGateways() {
     { title: '最近使用', dataIndex: 'last_used_at', width: 120, render: (_, s) => <RelTime value={s.last_used_at || null} /> },
     {
       title: '操作', valueType: 'option', width: 160, fixed: 'right',
-      render: (_, s) => s.revoked_at ? <Typography.Text type="secondary" style={{ fontSize: 12 }}>留审计</Typography.Text> : (
+      render: (_, s) => s.revoked_at ? <Typography.Text type="secondary" className="wm-caption">留审计</Typography.Text> : (
         <Space>
           <Button size="small" onClick={() => { setGrantsOf(s); setGrantSel(s.grants); }}>grants</Button>
           <Popconfirm title={`吊销 ${s.name}？令牌即时失效。`} onConfirm={() => revoke(s.id)}>
@@ -174,38 +174,37 @@ export default function McpGateways() {
   ];
   const callCols: ProColumns<McpCall>[] = [
     { title: '结果', dataIndex: 'ok', width: 70, fixed: 'left', render: (_, c) => (c.ok ? <Tag color="green">成功</Tag> : <Tag color="red">失败</Tag>) },
-    { title: '工具', dataIndex: 'tool', width: 160, render: (_, c) => <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{c.tool || '—'}</Typography.Text> },
-    { title: '会话', dataIndex: 'session_name', width: 120, render: (_, c) => <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{c.session_name}</Typography.Text> },
-    { title: '方法', dataIndex: 'method', width: 100, render: (_, c) => <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{c.method}</Typography.Text> },
+    { title: '工具', dataIndex: 'tool', width: 160, render: (_, c) => <Typography.Text className="wm-mono wm-caption">{c.tool || '—'}</Typography.Text> },
+    { title: '会话', dataIndex: 'session_name', width: 120, render: (_, c) => <Typography.Text className="wm-mono wm-caption">{c.session_name}</Typography.Text> },
+    { title: '方法', dataIndex: 'method', width: 100, render: (_, c) => <Typography.Text className="wm-mono wm-caption">{c.method}</Typography.Text> },
     { title: '耗时', dataIndex: 'duration_ms', width: 80, align: 'right', render: (_, c) => <Typography.Text className="wm-num">{c.duration_ms}ms</Typography.Text> },
-    { title: '错误', dataIndex: 'error', ellipsis: true, render: (_, c) => <Typography.Text type="secondary" style={{ fontSize: 12 }}>{c.error || '—'}</Typography.Text> },
+    { title: '错误', dataIndex: 'error', ellipsis: true, render: (_, c) => <Typography.Text type="secondary" className="wm-caption">{c.error || '—'}</Typography.Text> },
     { title: '时间', dataIndex: 'at', width: 120, render: (_, c) => <RelTime value={c.at} /> },
   ];
 
   return (
     <WmPage subTitle="会话 · 令牌 · 授权 · 审计（默认拒绝）">
-      <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
+      <Typography.Paragraph type="secondary" className="wm-caption">
         令牌只经创建响应出现一次（库存 sha256）；新会话授权为空=默认拒绝；吊销即时生效。
         401 拒绝不进审计只计数。激活需服务端 ADMIN_TOKEN+MCP_GATEWAY=on。
       </Typography.Paragraph>
-      <Space.Compact style={{ width: '100%', maxWidth: 640, marginBottom: 12 }}>
+      <Space.Compact className="wm-w-full wm-mb-3" style={{ maxWidth: 640 }}>
         <Input.Password
           prefix={<KeyOutlined />}
           placeholder="管理员口令（X-Admin-Token，服务端环境变量 ADMIN_TOKEN）"
           value={token}
           onChange={(e) => setToken(e.target.value)}
-          style={{ fontSize: 13 }}
+          className="wm-text-body"
         />
         <Button onClick={reload} loading={loading} disabled={!token}>载入</Button>
       </Space.Compact>
-      <Space.Compact style={{ width: '100%', maxWidth: 640, marginBottom: 16 }}>
+      <Space.Compact className="wm-w-full wm-mb-4" style={{ maxWidth: 640 }}>
         <Input
           prefix={<PlusOutlined />}
           placeholder="新会话名（小写字母/数字/连字符，如 agent-alpha）"
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
-          className="wm-mono"
-          style={{ fontSize: 13 }}
+          className="wm-mono wm-text-body"
         />
         <Button type="primary" onClick={createSession} loading={loading} disabled={!token || !newName}>创建会话</Button>
       </Space.Compact>
@@ -228,22 +227,22 @@ export default function McpGateways() {
             key: 'upstreams', label: `上游聚合（${upstreams.length}）`,
             children: (
               <>
-                <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
+                <Typography.Paragraph type="secondary" className="wm-caption">
                   外部 MCP 服务的工具以 <Typography.Text code>&lt;prefix&gt;__&lt;tool&gt;</Typography.Text> 并入 /mcp（如 taste-mcp → <Typography.Text code>taste__rules</Typography.Text>）。
                   上游不可达时自动降级、不影响本地 17 工具。配置整体替换。
                 </Typography.Paragraph>
-                <Space.Compact style={{ width: '100%', maxWidth: 720, marginBottom: 12 }}>
-                  <Input placeholder="prefix（如 taste）" value={upPrefix} onChange={(e) => setUpPrefix(e.target.value)} style={{ width: 180, fontSize: 13 }} className="wm-mono" />
-                  <Input placeholder="MCP 端点 URL（如 http://127.0.0.1:9810/mcp）" value={upUrl} onChange={(e) => setUpUrl(e.target.value)} style={{ fontSize: 13 }} />
+                <Space.Compact className="wm-w-full wm-mb-3" style={{ maxWidth: 720 }}>
+                  <Input placeholder="prefix（如 taste）" value={upPrefix} onChange={(e) => setUpPrefix(e.target.value)} style={{ width: 180 }} className="wm-mono wm-text-body" />
+                  <Input placeholder="MCP 端点 URL（如 http://127.0.0.1:9810/mcp）" value={upUrl} onChange={(e) => setUpUrl(e.target.value)} className="wm-text-body" />
                   <Button type="primary" onClick={addUpstream} disabled={!token}>添加/更新</Button>
                 </Space.Compact>
                 <Input.TextArea rows={2} value={upHeaders} onChange={(e) => setUpHeaders(e.target.value)}
-                  style={{ maxWidth: 720, fontSize: 12, marginBottom: 12 }} className="wm-mono"
+                  style={{ maxWidth: 720 }} className="wm-mono wm-caption wm-mb-3"
                   placeholder='上游请求头 JSON（如 {"X-Market-Client":"mcp/market-gateway"}）' />
                 <Table rowKey="prefix" size="small" dataSource={upstreams} loading={loading} pagination={false}
                   columns={[
                     { title: 'prefix', dataIndex: 'prefix', render: (v: string) => <Typography.Text className="wm-mono" strong>{v}</Typography.Text> },
-                    { title: '端点', dataIndex: 'url', render: (v: string) => <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{v}</Typography.Text> },
+                    { title: '端点', dataIndex: 'url', render: (v: string) => <Typography.Text className="wm-mono wm-caption">{v}</Typography.Text> },
                     { title: '状态', dataIndex: 'enabled', width: 80, render: (v: boolean) => (v ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>) },
                     {
                       title: '操作', width: 90,
@@ -269,12 +268,12 @@ export default function McpGateways() {
         okText="整体替换"
         width={520}
       >
-        <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
+        <Typography.Paragraph type="secondary" className="wm-caption">
           勾选该会话可用的工具（整体替换语义；新会话为空=默认拒绝）。工具面共 15 个。
         </Typography.Paragraph>
         <Select
           mode="multiple"
-          style={{ width: '100%' }}
+          className="wm-w-full"
           placeholder="选择授权工具"
           value={grantSel}
           onChange={setGrantSel}
