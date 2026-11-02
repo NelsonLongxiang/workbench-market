@@ -13,7 +13,7 @@ interface McpCall { id: number; at: string; session_name: string; method: string
 
 const TOOLS = [
   'workbench_list', 'workbench_summary', 'workbench_check', 'use_url',
-  'app_publish', 'app_activate', 'sop_publish',
+  'app_sync', 'app_activate', 'sop_publish',
   'sop_run_start', 'sop_run_step_save', 'sop_run_get', 'sop_run_list', 'sop_run_finish',
   'workbench_register', 'workbench_update', 'workbench_unregister',
   'app_data_list', 'app_files_list',

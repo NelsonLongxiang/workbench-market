@@ -2,6 +2,7 @@
 /** SandboxService+sop_run_sandbox 判据冒烟（先红）——第十域/MCP 工具/layerfs:// URI 分流。 */
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync } from 'node:fs';
+import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 const PORT = 9991;
 const DATA = 'tmp/e2e-sbx-data';
@@ -10,9 +11,10 @@ const ok = (n, c, x = '') => { if (c) { pass++; console.log('  PASS ' + n + ' ' 
 
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
+const gh = await startFakeGithub(); // 自产台/SOP 台只从 GitHub main 同步：本机替身仓库
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server',
-  env: (() => { const e = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: '../' + DATA, ADMIN_TOKEN: 'sbx-tok', SANDBOX_BRIDGE_URL: process.env.SANDBOX_BRIDGE_URL || 'http://127.0.0.1:9' }; delete e.REDIS_URL; return e; })(), // 隐私门红线：bridge 内网地址只经 env（unset 用不可达占位→三态错误面仍验）
+  env: (() => { const e = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: '../' + DATA, ADMIN_TOKEN: 'sbx-tok', WM_GITHUB_API: gh.api, SANDBOX_BRIDGE_URL: process.env.SANDBOX_BRIDGE_URL || 'http://127.0.0.1:9' }; delete e.REDIS_URL; return e; })(), // 隐私门红线：bridge 内网地址只经 env（unset 用不可达占位→三态错误面仍验）
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 const end = Date.now() + 30000;
@@ -44,7 +46,7 @@ try {
   // ③ run 建行：建真 SOP 再开 run
   // ③ run 建行：建真 SOP 再开 run
   const sopYaml = ['title: SBX','code: SBX','steps:','  - key: s1','    title: a','    body: "<p>x</p>"',''].join(String.fromCharCode(10));
-  await fetch(B + '/api/apps', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': 'sbx-tok' }, body: JSON.stringify({ slug: 'sbx-sop', kind: 'sop', title: 'SBX', files: [{ path: 'sop.yaml', content: sopYaml }], changelog: 'v1' }) });
+  await ghPublish(B, gh, { slug: 'sbx-sop', kind: 'sop', title: 'SBX', files: [{ path: 'sop.yaml', content: sopYaml }], changelog: 'v1' }, { 'X-Admin-Token': 'sbx-tok' });
   await fetch(B + '/api/sops/sbx-sop/publish', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': 'sbx-tok' }, body: '{}' });
   const run = await (await fetch(B + '/api/sop/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: 'sbx-sop', started_by: 'sbx' }) })).json();
   ok('③ run 建行', !!run.id, JSON.stringify(run).slice(0, 80));

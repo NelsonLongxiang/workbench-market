@@ -70,7 +70,7 @@ try {
   // 结论：控制面需要 ADMIN_TOKEN，故本冒烟以 gateway-smoke 的 ADMIN_TOKEN 实例为宿主不可行。
   // 改为：本实例先验「无上游配置 → 工具面 17」与「控制面 403」；聚合验证放在带 ADMIN_TOKEN 的独立实例段。
   let r = await rpc('tools/list');
-  ok('无上游配置工具面 28（24 本地+草稿 3·#178 +1·design_standard +1）', r.body?.result?.tools?.length === 28, JSON.stringify(r.body).slice(0, 120));
+  ok('无上游配置工具面 25（24 本地·app_publish 换 app_sync·草稿 3 已移除·#178 +1·design_standard +1）', r.body?.result?.tools?.length === 25, JSON.stringify(r.body).slice(0, 120));
   r = await call('GET', '/api/mcp/upstreams');
   ok('控制面无口令 403', r.status === 403);
   // 上游不可达时列表不崩（用不存在的端口配置——需口令，跳过）
@@ -113,7 +113,7 @@ try {
   // ③ 聚合工具面（网关 off，无令牌也全量）——本地 17 + 上游 2 = 19
   r = await rpc2('tools/list');
   const names = (r.body?.result?.tools ?? []).map((t) => t.name);
-  ok('聚合 30 工具（28 本地 + 2 上游）', names.length === 30, String(names.length));
+  ok('聚合 27 工具（25 本地 + 2 上游）', names.length === 27, String(names.length));
   ok('taste__rules 在场', names.includes('taste__rules'));
   ok('taste__record 在场', names.includes('taste__record'));
   // ④ 上游工具调用转发
@@ -136,7 +136,7 @@ try {
   r = await call2('PUT', '/api/mcp/upstreams', { upstreams: [{ prefix: 'dead', url: 'http://127.0.0.1:1/', toolCallTimeoutMs: 800 }] }, AT);
   ok('配死上游 200', r.status === 200);
   r = await rpc2('tools/list');
-  ok('上游不可达 → 工具面回落 28 不崩（24+草稿 3+1+1）', (r.body?.result?.tools ?? []).length === 28, String(r.body?.result?.tools?.length));
+  ok('上游不可达 → 工具面回落 25 不崩（24+1+1·草稿 3 已移除）', (r.body?.result?.tools ?? []).length === 25, String(r.body?.result?.tools?.length));
 } finally {
   child2.kill();
   await new Promise((r) => setTimeout(r, 400));
@@ -166,8 +166,8 @@ try {
   let g = await callUp('taste__rules');
   const gout = JSON.parse(g.body?.result?.content?.[0]?.text ?? '{}');
   ok('网关会话身份透传 → mcp/agg-agent', gout.client === 'mcp/agg-agent', String(gout.client));
-  // 未授权工具（本地 app_publish 不在 grants）→ 与不存在同应答
-  g = await callUp('app_publish');
+  // 未授权工具（本地 app_sync 不在 grants）→ 与不存在同应答
+  g = await callUp('app_sync');
   ok('网关授权面覆盖聚合工具（未授权=not found）', g.body?.error?.code === -32601, JSON.stringify(g.body).slice(0, 100));
   // tools/list 只列已授权
   const listR = await fetch(B3 + '/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });

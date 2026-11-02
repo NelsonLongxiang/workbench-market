@@ -3,6 +3,7 @@
  *  覆盖：issue #7 的 query mode 语义 + 内部路径行不丢 + replace 后驾驶舱悬空面板 prune + 掩码行整批拒（#258）。 */
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync } from 'node:fs';
+import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 const PORT = 9812;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -10,11 +11,12 @@ const DATA = 'tmp/e2e-import-data';
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
 
+const gh = await startFakeGithub();
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server',
-  env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: `../${DATA}` },
+  env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: `../${DATA}`, WM_GITHUB_API: gh.api },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 child.stderr.on('data', (d) => process.stderr.write(String(d)));
@@ -31,7 +33,7 @@ try {
   // 准备：一个 http 台 + 一个驾驶舱面板引用 + 一个 market 内部路径台（模拟自产注册行）
   const http1 = (await call('POST', '/api/workbenches', { name: 'A1', url: 'http://127.0.0.1:9990/a1', type: 'web', category: 'X' })).body;
   // #258：内部路径只收已存在的托管台——先发布台（发布即自动入册），再拿它的注册行
-  await call('POST', '/api/apps', { slug: 'e2e-import-probe', title: 'probe', files: [{ path: 'index.html', content: '<p>p</p>' }] });
+  await ghPublish(BASE, gh, { slug: 'e2e-import-probe', title: 'probe', files: [{ path: 'index.html', content: '<p>p</p>' }] });
   const probe_app = (await call('GET', '/api/workbenches')).body.find((w) => w.url === '/apps/e2e-import-probe/');
   const cp = (await call('POST', '/api/cockpits', { name: '舱', panels: [{ i: 'p1', workbenchId: http1.id, x: 0, y: 0, w: 4, h: 3 }] })).body;
 
@@ -65,6 +67,7 @@ try {
 } finally {
   child.kill();
   await new Promise((r) => setTimeout(r, 500));
+  await gh.close();
 }
 console.log(`\n===== 导入冒烟 ${pass + fail} 项：${pass} 通过 / ${fail} 失败 =====`);
 process.exit(fail ? 1 : 0);

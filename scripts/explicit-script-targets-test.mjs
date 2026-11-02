@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve,join } from 'node:path';
+import { startFakeGithub } from './github-fixture.mjs';
 const root=resolve('.'),out=resolve('tmp/explicit-targets-'+Date.now());mkdirSync(out,{recursive:true});
 let checks=0;const check=(name,condition)=>{assert.ok(condition,name);checks++;console.log('PASS '+name)};
 const osEnv={};for(const k of ['SystemRoot','WINDIR','PATH','PATHEXT','TEMP','TMP'])if(process.env[k])osEnv[k]=process.env[k];
@@ -50,16 +51,18 @@ for(const [label,args] of [
  ['abbreviated-mode',['--target-m','isolated']],
  ['abbreviated-ack',['--target-mode','production','--ack-production-targ']],
 ]) await deny('seed rejects '+label,await seed(args,{SEED_BASE:'http://127.0.0.1:21991'}));
+// 11-02 来源收敛：seed 经本机 GitHub 替身提交 sop.yaml，再对目标调 /api/apps/<slug>/sync（替身写口不经 SEED_BASE）
+const gh=await startFakeGithub();const ghEnv={E2E_FAKE_GITHUB:gh.api};const ghPuts=()=>gh.requests.filter(x=>x.method==='PUT').length;
 let received=[],redirectMode=false,foreignHits=0;
 const foreign=createServer((_q,r)=>{foreignHits++;r.writeHead(200,{'content-type':'application/json'});r.end('{}')});await new Promise(r=>foreign.listen(0,'127.0.0.1',r));
 const server=createServer((q,r)=>{received.push({method:q.method,path:q.url});q.resume();if(redirectMode){r.writeHead(307,{Location:'http://127.0.0.1:'+foreign.address().port+'/redirected'});r.end();return;}r.writeHead(q.method==='POST'&&q.url==='/api/apps'?201:200,{'content-type':'application/json'});r.end(JSON.stringify(q.url==='/api/apps'&&q.method==='GET'?[{slug:'synthetic-app'}]:q.url?.endsWith('/migrate-layerfs')?{results:[{version:1,result:'migrated',sha256_match:true}]}:{version:1,active_version:1,status:'published',workbench_id:1}));});await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;assert(![3080,9800,9801].includes(server.address().port));
 try{
- received=[];const localSeed=await seed(['--target-mode','isolated'],{SEED_BASE:base},false);check('explicit isolated seed succeeds',localSeed.code===0);check('seed uses only expected target paths',received.length===3&&received[0].method==='POST'&&received[0].path==='/api/apps'&&received[1].path==='/api/sops/demo-rack-sop/publish'&&received[2].method==='GET');
+ received=[];const puts0=ghPuts();const localSeed=await seed(['--target-mode','isolated'],{SEED_BASE:base,...ghEnv},false);check('explicit isolated seed succeeds',localSeed.code===0);check('isolated seed commits sop.yaml into the local fake GitHub only',ghPuts()===puts0+1);check('seed uses only expected target paths',received.length===3&&received[0].method==='POST'&&received[0].path==='/api/apps/demo-rack-sop/sync'&&received[1].path==='/api/sops/demo-rack-sop/publish'&&received[2].method==='GET');
  received=[];const localMigration=await migrate(['--api',base,'--target-mode','isolated'],false);if(localMigration.code!==0)console.error('isolated migration diagnostic',localMigration);check('explicit isolated migration succeeds',localMigration.code===0);check('migration requests only selected target',received.length===2&&received[0].path==='/api/apps'&&received[1].path==='/api/apps/synthetic-app/migrate-layerfs');
  received=[];const dry=await migrate(['--api',base,'--target-mode','isolated','--dry'],false);check('dry migration reads list but performs zero writes',dry.code===0&&received.length===1&&received[0].method==='GET');
- received=[];check('production-mode seed with explicit ack succeeds only on synthetic target',(await seed(['--target-mode','production','--ack-production-target'],{SEED_BASE:base},false)).code===0&&received.length===3);
+ received=[];const putsP=ghPuts();check('production-mode seed with explicit ack is read-only on synthetic target (one GET, zero writes, no fake-GitHub commit)',(await seed(['--target-mode','production','--ack-production-target'],{SEED_BASE:base,...ghEnv},false)).code===0&&received.length===1&&received[0].method==='GET'&&ghPuts()===putsP);
  received=[];check('production-mode migration with explicit ack succeeds only on synthetic target',(await migrate(['--api',base,'--target-mode','production','--ack-production-target'],false)).code===0&&received.length===2);
- redirectMode=true;received=[];const seedRedirect=await seed(['--target-mode','isolated'],{SEED_BASE:base},false);check('seed rejects redirect instead of following target changes',seedRedirect.code!==0&&received.length===1&&foreignHits===0);
+ redirectMode=true;received=[];const seedRedirect=await seed(['--target-mode','isolated'],{SEED_BASE:base,...ghEnv},false);check('seed rejects redirect instead of following target changes',seedRedirect.code!==0&&received.length===1&&foreignHits===0);
  received=[];const migrationRedirect=await migrate(['--api',base,'--target-mode','isolated'],false);check('migration rejects redirect instead of following target changes',migrationRedirect.code!==0&&received.length===1&&foreignHits===0);
-}finally{for(const s of [server,foreign]){s.closeAllConnections();await new Promise(r=>s.close(r));}}
+}finally{for(const s of [server,foreign]){s.closeAllConnections();await new Promise(r=>s.close(r));}await gh.close();}
 const summary={checks,production_requests:0,personal_home_access:false,scope:'stubbed all negative HTTP + owned 127.0.0.1 ephemeral positive targets'};writeFileSync(join(out,'result.json'),JSON.stringify(summary,null,2));console.log(JSON.stringify({out,...summary}));

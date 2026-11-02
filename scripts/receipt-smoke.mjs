@@ -5,6 +5,7 @@ import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
+import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 import { parseReceipt } from '@nelsonlongxiang/dsh-open-a2a-net/receipt';
 
 const reserve=createServer();await new Promise(r=>reserve.listen(0,'127.0.0.1',r));const PORT=reserve.address().port;await new Promise(r=>reserve.close(r));
@@ -40,9 +41,10 @@ await new Promise((r) => srvB.listen(0, '127.0.0.1', r));
 
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
+const gh = await startFakeGithub(); // 自产台/SOP 台只从 GitHub main 同步：本机替身仓库
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server',
-  env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), WM_CONTROL_PORT:'0', DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'rcpt-tok', A2A_OUTBOX_BACKOFF_SCALE: '0.001' },
+  env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), WM_CONTROL_PORT:'0', DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'rcpt-tok', WM_GITHUB_API: gh.api, A2A_OUTBOX_BACKOFF_SCALE: '0.001' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪'); process.exit(1); }
@@ -50,11 +52,12 @@ const AT = { 'X-Admin-Token': 'rcpt-tok' };
 
 try {
   // 建 SOP 台并上架
-  await json(`${BASE}/api/apps`, 'POST', {
+  const pub0 = await ghPublish(BASE, gh, {
     slug: 'rv-rcpt', kind: 'sop', title: '回执冒烟流程',
     files: [{ path: 'sop.yaml', content: 'title: 回执冒烟流程\ncode: SOP-RCPT\nsteps:\n  - key: s1\n    title: 一步\n    body: "<p>x</p>"\n' }],
     changelog: '冒烟',
   });
+  ok('SOP 经 GitHub main 同步发布 201', pub0.status === 201, `status=${pub0.status}`);
   await json(`${BASE}/api/sops/rv-rcpt/publish`, 'POST', {}, AT);
   // 绑定先行（上卡规则：published ∧ ≥1 有效绑定）→ 再取卡片句柄
   let r = await json(`${BASE}/api/bindings`, 'POST', { target_type: 'sop', target_slug: 'rv-rcpt', agent_node: 'dsh/0123rcpt', mode: 'run', direction: 'admits', notify_url: `http://127.0.0.1:${srvA.address().port}` }, AT);
