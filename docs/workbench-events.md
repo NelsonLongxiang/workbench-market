@@ -38,7 +38,7 @@ curl -X POST http://127.0.0.1:9800/api/workbench-events/<event_id>/release -H "X
 
 - 投递走 a2a `/a2a/direct` 异步模式。`task_id = <event_id>.d<投递>.a<尝试>`，每次尝试一个 id：上游幂等键全机唯一，并且在判定能否投递之前就已登记，所以复用 id 会把拒投误判为已送达。`context_id = wb:<来源>:<事项>`。带绑定形式的 OriginClaim；全舰队关窗后设 `A2A_ORIGIN_CLAIM_UNBOUND=off`，停发 v1。
 - 失败按 1m / 5m / 15m / 1h 退避，5 次后记 `dead`。-32001 / -32002 / -32003 和超出传输上限的载荷一次即 `dead`，不重试。worker 并发投递，一台主机宕机不会拖住其他主机。
-- 投递状态有五种：`held` / `pending` / `sent` / `dead` / `cancelled`。撤回任务时，还没发出的投递转为 `cancelled`。同一节点的 notify 和 both 两条绑定按节点去重。reply token 的明文只在待投期间存在；投递成功或 dead 之后清空，只留哈希。
+- 投递状态有五种：`held` / `pending` / `sent` / `dead` / `cancelled`。撤回任务时，还没发出的投递与撤回在同一事务里转为 `cancelled`；**正在发送的那次不动**，撤回接口返回 `in_flight_deliveries`，落定时如实记 `sent`，并另记一条 `sent-after-withdraw`。`attempts` 是已尝试的次数（含成功的那次）。同一节点的 notify 和 both 两条绑定按节点去重。reply token 的明文只在待投期间存在；投递成功或 dead 之后清空，只留哈希。
 - 终态判据：`held` 不算终态，超过 72 小时没有确认即为不通过。
 
 ## 决定回写

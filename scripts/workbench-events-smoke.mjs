@@ -3,7 +3,7 @@
 // 隔离 DATA_DIR + 本机回环假对端；对端用上游 verifyOriginClaim 按「不绑定窗已关」验每次投递。
 // 判据：
 //   W1 画布队名可作通知绑定的 agent_node（旧正则 400）
-//   W2 开关没全开 → 投递 held，对端收 0；W3 release 后投出，信封字段齐、task_id=event_id、来源签名过验、明文 token 投后清空
+//   W2 开关没全开 → 投递 held，对端收 0；W3 release 后投出，信封字段齐、task_id=<event_id>.d<投递>.a<尝试>、来源签名过验、明文 token 投后清空
 //   W4 决定端点：错 token 404 / 缺理由 400 / ask→accept 200 / 终态后再写 409；业务面浏览器请求可达（远程豁免）
 //   W5 两开关全开 → 自动投递；目标 SOP 台命中 → routed=target
 //   W6 对端前两次「登记幂等键后拒投」→ 退避重试后真的送达（不把 -32003 当已送达）；一直拒 → 5 次后 dead；
@@ -12,7 +12,9 @@
 //   W8 自产台表单提交 → submitter_kind=unverified、dispatch:false、无 reply、旧字段保留
 //   W9 只增日志：UPDATE/DELETE 被触发器拒
 //   W10 撤回 → 未发出的投递 cancelled、release 409；未送达的投递不能回写决定；token 送达 7 天后过期 410
-//   W11 超过传输上限的载荷 → 一次即 dead（不重试 5 次）；W12 画布名与上游同规则（中文可、>40 / 纯数字拒）
+//   W11 超过传输上限的载荷 → 一次即 dead（不重试 5 次）；W12 画布名与上游同规则（中文、中间空格可；>40 / 纯数字拒）
+//   W13 发送途中撤回：撤回如实报 in_flight，落定记 sent + sent-after-withdraw（不把 cancelled 事后改写）
+//   终态判据非空：注入一条 73h 前的 held，判据必须抓到
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -38,7 +40,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 假对端按上游 /a2a/direct 的顺序：先验来源、再按 task_id 登记幂等键（全机唯一，指纹=team+caller+message+wait），
 // 登记之后才判能否投递——拒投时回 200 + -32000，同一 task_id 再来就是 409 -32003/-32002。
 function makePeer() {
-  const peer = { got: [], verdicts: [], claims: new Map(), failFirst: 0, alwaysFail: false };
+  const peer = { got: [], verdicts: [], claims: new Map(), failFirst: 0, alwaysFail: false, delayMs: 0 };
   peer.server = createServer((req, res) => {
     let body = '';
     req.on('data', (c) => (body += c));
@@ -60,6 +62,7 @@ function makePeer() {
         peer.failFirst--;
         return reply(200, { error: 'No live DSH session node accepts team ' + parsed.team, code: -32000, team: parsed.team, task_status: 'TASK_STATE_FAILED' });
       }
+      if (peer.delayMs > 0) await sleep(peer.delayMs);
       peer.got.push(parsed);
       reply(200, { routed: true, delivered: true, task_status: 'TASK_STATE_DELIVERED', task_id: parsed.task_id, context_id: parsed.context_id });
     });
@@ -185,7 +188,7 @@ try {
   const by = Object.fromEntries(e3.deliveries.map((d) => [d.target_team, d]));
   await check('W6a 四个目标各一行投递（双绑定按节点去重、发布不 500）', () => { assert.ok(settled, JSON.stringify(e3.deliveries)); assert.equal(e3.deliveries.length, 4); });
   await check('W6b 登记后拒投两次 → 重试后对端真的收到（-32003 不算送达）', () => {
-    assert.equal(by['dsh/canvas/flaky'].status, 'sent'); assert.equal(by['dsh/canvas/flaky'].attempts, 2);
+    assert.equal(by['dsh/canvas/flaky'].status, 'sent'); assert.equal(by['dsh/canvas/flaky'].attempts, 3);
     assert.equal(flaky.got.filter((g) => JSON.parse(g.message).event_id === t3.event_id).length, 1);
   });
   await check('W6e 同机两个画布队都送达（不撞 -32002）', () => {
@@ -204,7 +207,7 @@ try {
     const heldRows = (await eventOf(tw.event_id)).deliveries;
     const wd = await call('/api/task-center/tasks/' + tw.id + '/withdraw', {});
     await check('W10a 撤回 → 未发出的投递全部 cancelled', async () => {
-      assert.equal(wd.status, 200, JSON.stringify(wd.j)); assert.equal(wd.j.cancelled_deliveries, heldRows.length);
+      assert.equal(wd.status, 200, JSON.stringify(wd.j)); assert.equal(wd.j.cancelled_deliveries, heldRows.length); assert.equal(wd.j.in_flight_deliveries, 0);
       assert.ok((await eventOf(tw.event_id)).deliveries.every((d) => d.status === 'cancelled'));
     });
     await check('W10b 撤回后 release → 409', async () => assert.equal((await call('/api/workbench-events/' + tw.event_id + '/release', {})).status, 409));
@@ -240,7 +243,27 @@ try {
     const zh = await call('/api/bindings', { target_type: 'sop', target_slug: 'task-center', agent_node: 'dsh/canvas/采购组', direction: 'notify', notify_url: ok.base });
     const long = await call('/api/bindings', { target_type: 'sop', target_slug: 'task-center', agent_node: 'dsh/canvas/' + 'a'.repeat(41), direction: 'notify', notify_url: ok.base });
     const digits = await call('/api/bindings', { target_type: 'sop', target_slug: 'task-center', agent_node: 'dsh/canvas/12345', direction: 'notify', notify_url: ok.base });
-    await check('W12 中文画布名 201 / >40 字 400 / 纯数字 400', () => { assert.equal(zh.status, 201); assert.equal(long.status, 400); assert.equal(digits.status, 400); });
+    const spaced = await call('/api/bindings', { target_type: 'sop', target_slug: 'task-center', agent_node: 'dsh/canvas/采购 组', direction: 'notify', notify_url: ok.base });
+    await check('W12 中文 / 中间空格画布名 201，>40 字 400，纯数字 400', () => { assert.equal(zh.status, 201); assert.equal(spaced.status, 201); assert.equal(long.status, 400); assert.equal(digits.status, 400); });
+  }
+
+  // W13：发送途中撤回（对端 2.5s 才应答）
+  {
+    const slow = await makePeer(); peers.push(slow); slow.delayMs = 2500;
+    const binds0 = (await call('/api/bindings?type=sop&slug=task-center', undefined, 'GET')).j;
+    for (const b of Array.isArray(binds0) ? binds0 : []) if (!b.revoked_at) await call('/api/bindings/' + b.id, undefined, 'DELETE');
+    await call('/api/bindings', { target_type: 'sop', target_slug: 'task-center', agent_node: 'dsh/canvas/slow', direction: 'notify', notify_url: slow.base });
+    const ts = await publishTask({ ...values, title: '途中撤回' }, true);
+    await sleep(600); // 已在发送、对端还没应答
+    const wd = await call('/api/task-center/tasks/' + ts.id + '/withdraw', {});
+    await waitFor(async () => (await eventOf(ts.event_id)).deliveries[0].status !== 'pending', 8000);
+    const es = await eventOf(ts.event_id);
+    await check('W13 途中撤回：如实报 in_flight=1，落定 sent + sent-after-withdraw', () => {
+      assert.equal(wd.status, 200); assert.equal(wd.j.cancelled_deliveries, 0); assert.equal(wd.j.in_flight_deliveries, 1);
+      assert.equal(es.deliveries[0].status, 'sent'); assert.equal(slow.got.length, 1);
+      assert.ok(es.log.some((l) => l.action === 'sent-after-withdraw'), JSON.stringify(es.log.map((l) => l.action)));
+      assert.ok(!es.log.some((l) => l.action === 'cancelled'));
+    });
   }
 
   // W7：撤掉全部通知绑定 → unrouted
@@ -283,6 +306,12 @@ try {
     const humans = db.prepare("SELECT COUNT(*) AS n FROM workbench_events WHERE submitter_kind = 'human'").get().n;
     db.close();
     await check(`终态：${humans} 个 human 事件无 pending、无超时 held（${held} 个 held 在 72h 内等确认）`, () => assert.deepEqual(open, []));
+    // 判据非空：把一条 held 的投递时刻（created_at，72h 由此起算）挪到 73h 前，判据必须抓到它
+    const rw = new DatabaseSync(join(data, 'workbench-market.db'));
+    rw.prepare("UPDATE workbench_event_deliveries SET created_at = datetime('now', '-73 hours') WHERE id = (SELECT MIN(id) FROM workbench_event_deliveries WHERE status = 'held')").run();
+    const caught = rw.prepare("SELECT COUNT(*) AS n FROM workbench_event_deliveries d JOIN workbench_events e ON e.event_id = d.event_id WHERE e.submitter_kind = 'human' AND (d.status = 'pending' OR (d.status = 'held' AND d.created_at < datetime('now', '-72 hours')))").get().n;
+    rw.close();
+    await check('终态判据非空：73h 前的 held 被判不通过', () => assert.equal(caught, 1));
   }
   console.log(`workbench-events-smoke: ${pass} PASS`);
 } catch (e) {

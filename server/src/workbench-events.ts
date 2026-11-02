@@ -85,8 +85,13 @@ interface Target { agent_node: string; notify_url: string }
 function notifyTargets(type: 'sop' | 'app', slug: string): Target[] {
   // 同一节点可以同时有 notify 与 both 两行（自然键含 direction）——按节点去重，先绑的那行为准
   const rows = db.prepare("SELECT agent_node, notify_url FROM bindings WHERE target_type = ? AND target_slug = ? AND direction IN ('notify','both') AND revoked_at = '' AND notify_url != '' ORDER BY id").all(type, slug) as unknown as Target[];
-  const seen = new Set<string>();
-  return rows.filter((r) => { if (seen.has(r.agent_node)) return false; seen.add(r.agent_node); return true; });
+  const seen = new Map<string, string>();
+  return rows.filter((r) => {
+    const first = seen.get(r.agent_node);
+    if (first === undefined) { seen.set(r.agent_node, r.notify_url); return true; }
+    if (first !== r.notify_url) console.warn(`[workbench-events] ${type}/${slug} 上 ${r.agent_node} 有两条通知绑定且地址不同，按先绑的 ${first} 投递，忽略 ${r.notify_url}`);
+    return false;
+  });
 }
 
 /** 任务录入的「目标 SOP 台」：按 slug 或标题匹配一个已发布的 SOP；匹配不到返回 '' */
@@ -188,9 +193,15 @@ function backoffScale(): number {
   const v = Number(process.env.A2A_OUTBOX_BACKOFF_SCALE);
   return Number.isFinite(v) && v > 0 ? v : 1;
 }
-function settle(row: DeliveryRow, status: 'sent' | 'dead' | 'cancelled', error = '', attempts = row.attempts, actor = 'market'): void {
-  db.prepare("UPDATE workbench_event_deliveries SET status = ?, message = '', attempts = ?, last_error = ?, sent_at = CASE WHEN ? = 'sent' THEN datetime('now') ELSE sent_at END WHERE id = ?").run(status, attempts, error.slice(0, 300), status, row.id);
-  log(row.event_id, row.id, actor, status, error === '' ? {} : { error: error.slice(0, 300) });
+/** 正在发送的投递（进程内）。撤回不动它们，由发送结果落定，见 cancelTaskCenterDeliveries。 */
+const inFlight = new Set<number>();
+/** attempts = 已尝试次数（含成功的那次）。只从 pending 落定，别的状态不覆盖。 */
+function settle(row: DeliveryRow, status: 'sent' | 'dead' | 'cancelled', error = '', attempts = row.attempts): void {
+  const r = db.prepare("UPDATE workbench_event_deliveries SET status = ?, message = '', attempts = ?, last_error = ?, sent_at = CASE WHEN ? = 'sent' THEN datetime('now') ELSE sent_at END WHERE id = ? AND status = 'pending'").run(status, attempts, error.slice(0, 300), status, row.id);
+  if (Number(r.changes) === 0) return; // 已被别处落定（不应发生：撤回跳过在途行）
+  // 发送途中任务被撤回：接单方确实收到了，如实记 sent，另记一条，供撤回方追查
+  const action = status === 'sent' && taskWithdrawn(row.source, row.item) ? 'sent-after-withdraw' : status;
+  log(row.event_id, row.id, 'market', action, error === '' ? {} : { error: error.slice(0, 300) });
 }
 /** 任务中心事件对应的任务已撤回？（撤回后不再派发） */
 function taskWithdrawn(source: string, item: string): boolean {
@@ -199,17 +210,27 @@ function taskWithdrawn(source: string, item: string): boolean {
   const t = db.prepare('SELECT status FROM tasks WHERE id = ?').get(id) as { status: string } | undefined;
   return t?.status === 'withdrawn';
 }
-/** 任务撤回：把该任务事件里还没发出的投递（held / pending）转为 cancelled。在撤回路由里调用。 */
-export function cancelTaskCenterDeliveries(taskId: number, actor: string): number {
+/**
+ * 任务撤回：把该任务事件里还没发出的投递（held / pending）转为 cancelled。在撤回的同一事务里调用。
+ * 正在发送的那次不动——它可能已经到了对端；返回 in_flight 如实报告，落定时记 sent-after-withdraw。
+ */
+export function cancelTaskCenterDeliveries(taskId: number, actor: string): { cancelled: number; in_flight: number } {
   const rows = db.prepare("SELECT d.id, d.event_id FROM workbench_event_deliveries d JOIN workbench_events e ON e.event_id = d.event_id WHERE e.source = 'task-center' AND e.item = ? AND d.status IN ('held','pending')").all(`task:${taskId}`) as { id: number; event_id: string }[];
+  let cancelled = 0, in_flight = 0;
   for (const r of rows) {
+    if (inFlight.has(r.id)) { in_flight++; continue; }
     db.prepare("UPDATE workbench_event_deliveries SET status = 'cancelled', message = '' WHERE id = ?").run(r.id);
     log(r.event_id, r.id, actor, 'cancelled', { reason: 'task withdrawn' });
+    cancelled++;
   }
-  return rows.length;
+  return { cancelled, in_flight };
 }
 async function deliver(row: DeliveryRow): Promise<void> {
   if (taskWithdrawn(row.source, row.item)) return settle(row, 'cancelled', 'task withdrawn');
+  inFlight.add(row.id);
+  try { await attemptDelivery(row); } finally { inFlight.delete(row.id); }
+}
+async function attemptDelivery(row: DeliveryRow): Promise<void> {
   const attempt = row.attempts + 1;
   // 每次尝试一个 task_id：对端幂等键按 task_id 全机唯一，且登记在「判定能否投递」之前——
   // 同一 task_id 重试拿到的 -32003 不能证明上次送到了；同机多团队共用一个 id 会撞 -32002。
@@ -223,12 +244,12 @@ async function deliver(row: DeliveryRow): Promise<void> {
   } catch (e: any) {
     out = { ok: false, error: String(e?.message ?? e) };
   }
-  if (out?.ok === true) return settle(row, 'sent', '', attempt - 1);
+  if (out?.ok === true) return settle(row, 'sent', '', attempt);
   const error = String(out?.error ?? 'unknown failure');
   if (typeof out?.code === 'number' && TERMINAL_CODES.has(out.code)) return settle(row, 'dead', `${out.code}: ${error}`, attempt);
   if (attempt >= MAX_ATTEMPTS) return settle(row, 'dead', error, attempt);
   const delay = (BACKOFF_MS[Math.min(attempt - 1, BACKOFF_MS.length - 1)] ?? 3_600_000) * backoffScale();
-  db.prepare('UPDATE workbench_event_deliveries SET attempts = ?, next_at = ?, last_error = ? WHERE id = ?').run(attempt, sqliteUtcIn(delay), error.slice(0, 300), row.id);
+  db.prepare("UPDATE workbench_event_deliveries SET attempts = ?, next_at = ?, last_error = ? WHERE id = ? AND status = 'pending'").run(attempt, sqliteUtcIn(delay), error.slice(0, 300), row.id);
   log(row.event_id, row.id, 'market', 'retry', { attempts: attempt, error: error.slice(0, 300) });
 }
 let ticking = false;

@@ -2617,7 +2617,7 @@ function sameOriginGuard(req: express.Request, res: express.Response): boolean {
 }
 
 /** 任务状态迁移：每次变化恰一条事件（BEGIN IMMEDIATE 串行段·#159 C23 只增不改） */
-function applyTaskTransition(taskId: number, action: 'created' | 'toggled' | 'published' | 'withdrawn', actor: string, patch: Record<string, unknown> = {}): void {
+function applyTaskTransition<T = void>(taskId: number, action: 'created' | 'toggled' | 'published' | 'withdrawn', actor: string, patch: Record<string, unknown> = {}, inTx?: () => T): T | undefined {
   db.exec('BEGIN IMMEDIATE');
   try {
     if (Object.keys(patch).length) {
@@ -2625,7 +2625,9 @@ function applyTaskTransition(taskId: number, action: 'created' | 'toggled' | 'pu
       db.prepare('UPDATE tasks SET ' + sets + ", updated_at = datetime('now') WHERE id = @___id").run({ ...patch, ___id: taskId });
     }
     db.prepare("INSERT INTO task_events (task_id, type, actor, actor_kind, payload_json) VALUES (?, ?, ?, 'human', ?)").run(taskId, action, actor, JSON.stringify(patch));
+    const out = inTx?.(); // 同一事务里的附带写（撤回时取消未发出的投递）
     db.exec('COMMIT');
+    return out;
   } catch (e) { db.exec('ROLLBACK'); throw e; }
 }
 
@@ -2732,9 +2734,9 @@ app.post('/api/task-center/tasks/:id/withdraw', (req, res) => {
   if (!hit) throw new HttpError(404, 'task not found');
   if (hit.status !== 'published') throw new HttpError(409, '仅已发布可撤回');
   const actor = 'human:' + String((req as express.Request & { adminActor?: string }).adminActor ?? 'admin');
-  applyTaskTransition(hit.id, 'withdrawn', actor, { status: 'withdrawn' });
-  const cancelled = cancelTaskCenterDeliveries(hit.id, actor); // 工作台事件 v1：撤回后还没发出的投递一律取消
-  res.json({ ok: true, id: hit.id, status: 'withdrawn', cancelled_deliveries: cancelled });
+  // 工作台事件 v1：撤回与取消未发出的投递同一事务；正在发送的那次如实报 in_flight
+  const c = applyTaskTransition(hit.id, 'withdrawn', actor, { status: 'withdrawn' }, () => cancelTaskCenterDeliveries(hit.id, actor));
+  res.json({ ok: true, id: hit.id, status: 'withdrawn', cancelled_deliveries: c?.cancelled ?? 0, in_flight_deliveries: c?.in_flight ?? 0 });
 });
 app.patch('/api/task-center/tasks/:id/agent-dispatch', (req, res) => { // 监督席对齐②：任务级 agent 派发开关（默认关·与任务锁语义对齐）
   if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
@@ -2831,9 +2833,9 @@ app.post('/api/bindings', (req, res) => {
   const direction = b.direction;
   if (direction !== 'admits' && direction !== 'notify' && direction !== 'both') bad('direction 必填且只许 admits|notify|both（显式选择·无默认）');
   if (!slug) bad('target_slug 必填');
-  // 画布队名与上游 canvas-store validName 同规则：1–40 字符、不含 / 与空白、不能是纯数字
-  const canvasName = /^[a-z][a-z0-9-]*\/canvas\/([^/\s]{1,40})$/i.exec(node)?.[1];
-  if (!(canvasName !== undefined ? !/^\d+$/.test(canvasName) : /^[a-z][a-z0-9-]*\/[a-z0-9][a-z0-9_-]{0,63}$/i.test(node))) bad('agent_node 形态：<zone>/<id8> 或画布队 <zone>/canvas/<name>，如 dsh/1a2b3c4d、dsh/canvas/procurement');
+  // 画布队名与上游 canvas-store validName 同规则：trim 后 1–40 字符、不含 /、不能是纯数字（中间可有空格）
+  const canvasName = /^[a-z][a-z0-9-]*\/canvas\/([^/]{1,40})$/i.exec(node)?.[1];
+  if (!(canvasName !== undefined ? canvasName.trim() === canvasName && !/^\d+$/.test(canvasName) : /^[a-z][a-z0-9-]*\/[a-z0-9][a-z0-9_-]{0,63}$/i.test(node))) bad('agent_node 形态：<zone>/<id8> 或画布队 <zone>/canvas/<name>，如 dsh/1a2b3c4d、dsh/canvas/procurement');
   const a = getApp(slug);
   if (a.kind !== targetType) bad(`target_type=${targetType} 与台型不符（${slug} 是 ${a.kind}）`);
   const mode = targetType === 'sop' && b.mode === 'run' ? 'run' : 'read'; // app 行 mode 恒 read（跨型 CHECK）
