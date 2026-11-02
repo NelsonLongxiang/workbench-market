@@ -97,10 +97,19 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Explicit script targets (#341, negative calls intercepted, loopback fixtures)
+        env:
+          PYTHON: python
+        run: node scripts/explicit-script-targets-test.mjs
       - name: tsc (web)
         run: pnpm --filter web typecheck
       - name: server 语法核（esbuild）
         run: node scripts/check-server-syntax.mjs
+      - name: SOP checkpoint deadlines and active-list completeness (#337, #338; synthetic only)
+        run: node scripts/sop-state-checkpoints-test.mjs && node scripts/sop-state-http-test.mjs && node scripts/sop-state-restart-test.mjs
       - name: SOP list privacy and upload-token rotation (#309, synthetic only)
         run: node scripts/sop-list-privacy-test.mjs && node scripts/sop-query-token-test.mjs && node scripts/sop-upload-token-rotation-test.mjs && node scripts/sop-list-privacy-http-test.mjs && node scripts/sop-run-read-auth-test.mjs
       - name: Verifier criterion65 portal call-chain mutations (synthetic snapshot only)
@@ -143,6 +152,8 @@ jobs:
         run: node scripts/sop-definition-smoke.mjs
       - name: 驾驶舱布局吸附单测（#320：宽度只取 3/4/6/12·x 越界收回·不丢面板·读时迁移不回写）
         run: node scripts/cockpit-layout-unit.mjs
+      - name: 凭据库（融合 dsh-vault：读写要口令·业务面 403·摘要无明文·坏 JSON 不进日志·写锁/重开/闲置上锁/限流）
+        run: node scripts/vault-concurrency-test.mjs && node scripts/vault-smoke.mjs
       - name: F5 env-face 判定回归（不启动 Docker）
         run: node scripts/security-env-face-test.mjs
       - name: 生命周期签发入口单测（req 哈希金向量·断言结构·私钥门）
