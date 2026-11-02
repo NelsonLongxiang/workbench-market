@@ -44,7 +44,7 @@ function start(gateway, tag, admin) {
   const PORT = 20000 + Math.floor(Math.random() * 20000);
   const DATA = `tmp/e2e-dstd-${tag}`;
   rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: true });
-  const env = { ...process.env, PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: `../${DATA}`, ADMIN_TOKEN: admin ?? '', MCP_GATEWAY: gateway };
+  const env = { ...process.env, NODE_ENV: 'test', PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: `../${DATA}`, ADMIN_TOKEN: admin ?? '', MCP_GATEWAY: gateway };
   const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], { cwd: 'server', env, stdio: ['ignore', 'ignore', 'pipe'] });
   let e = ''; child.stderr.on('data', (c) => (e += c));
   return { base: `http://127.0.0.1:${PORT}`, child, DATA, stderr: () => e };
