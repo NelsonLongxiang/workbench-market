@@ -9,18 +9,24 @@ import { readdirSync, readFileSync, statSync, existsSync, writeFileSync } from '
 import { join, relative, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 
+import { scriptOptions, explicitPath, validatePathParents } from './explicit-data-target.mjs';
+const targetOptions = scriptOptions({ selftest: { type: 'boolean' }, 'dry-run': { type: 'boolean' } });
 const args = process.argv.slice(2);
+const TARGET_DATA = explicitPath(targetOptions['data-dir'] ?? process.env.DATA_DIR, targetOptions);
+const SOURCES = ['a','b','c'].map(key => explicitPath(targetOptions['source-'+key] ?? process.env['SKILL_SRC_'+key.toUpperCase()], targetOptions));
+for (const path of [TARGET_DATA,...SOURCES]) validatePathParents(path,targetOptions);
+process.env.DATA_DIR = TARGET_DATA;
 // #94 S0⑦：cwd 相对路径→脚本目录锚定（任意 cwd 运行都落在仓库真位）
 const SCRIPT_DIR = fileURLToPath(new URL('.', import.meta.url));
 const REPO_ROOT = join(SCRIPT_DIR, '..');
 const SELFTEST = args.includes('--selftest');
 const DRY = args.includes('--dry-run') || SELFTEST;
-const AGENTS_SKILLS = process.env.SKILL_SRC_A ?? 'C:/Users/Administrator/.agents/skills';
+const AGENTS_SKILLS = SOURCES[0];
 // (relocated) { fileURLToPath as _fu2 } from 'node:url';
-const JF_ROOT = process.env.SKILL_SRC_B ?? fileURLToPath(new URL('../../jf-tech-expert-agents', import.meta.url)); // 相对化（隐私门红线）
-const DSH_SKILLS = process.env.SKILL_SRC_C ?? 'C:/Users/Administrator/.dsh/skills'; // 源 C：DSH 平台技能（开发运维层）
-/** 快照根与 DB 同 DATA_DIR（#94 S4 隔离语义对齐：隔离实例的导入不再落产库快照目录；缺省=server/data 不变） */
-const SNAP_ROOT = join(process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : join(REPO_ROOT, 'server/data'), 'skill-snapshots');
+const JF_ROOT = SOURCES[1];
+const DSH_SKILLS = SOURCES[2];
+/** 快照根与 DB 同 DATA_DIR（#94 S4 隔离语义对齐：隔离实例的导入不再落产库快照目录；缺目标必拒，禁止隐式server/data） */
+const SNAP_ROOT = join(TARGET_DATA, 'skill-snapshots');
 
 // ---- 工具 ----
 /** 目录或指向目录的 junction/符号链接（readdirSync dirent.isDirectory 对链接返 false） */
@@ -149,6 +155,10 @@ async function selftest() {
   process.exit(fail ? 1 : 0);
 }
 if (SELFTEST) { await selftest(); process.exit(0); }
+if (DRY) {
+  console.log(JSON.stringify({ dry: true, a: scanAgentsSkills(), b: scanJfSkills(), c: scanDshSkills(), bundles: scanJfBundles() }));
+  process.exit(0); // no context import, database creation, snapshots or report writes in dry mode
+}
 
 // ---- 正式导入（写库走 SkillService）----
 const { svc } = await import('../server/src/context.ts');

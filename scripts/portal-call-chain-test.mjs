@@ -60,7 +60,7 @@ for(const d of ['scripts','web/src','server/src','design-system'])cpSync(join(ro
 mkdirSync(join(fixture,'web/dist'),{recursive:true});mkdirSync(join(fixture,'evidence'));cpSync(join(root,'evidence/e2e_test.py'),join(fixture,'evidence/e2e_test.py'));
 symlinkSync(join(root,'web/node_modules'),join(fixture,'web/node_modules'),'junction');
 symlinkSync(join(root,'node_modules'),join(fixture,'node_modules'),'junction');
-mkdirSync(join(fixture,'server/data'));const db=new DatabaseSync(join(fixture,'server/data/workbench-market.db'));db.exec('CREATE TABLE synthetic_probe(id INTEGER PRIMARY KEY)');db.close();
+mkdirSync(join(fixture,'synthetic-data'));const db=new DatabaseSync(join(fixture,'synthetic-data/workbench-market.db'));db.exec('CREATE TABLE synthetic_probe(id INTEGER PRIMARY KEY)');db.close();
 execFileSync(process.execPath,['scripts/gen-verifier.mjs'],{cwd:fixture,stdio:'pipe'});
 const material=readFileSync(join(fixture,'verify/material.md'),'utf8').trim().split('\n');const candidates=JSON.parse(readFileSync(join(fixture,'verify/candidates.json'))).candidates;const reviews=JSON.parse(readFileSync(join(fixture,'verify/reviews.json'))).reviews;
 check('175 stable numbered material/candidate/review rows',()=>{assert.equal(material.length,175);assert.equal(candidates.length,175);assert.equal(reviews.length,175);for(let i=0;i<175;i++){assert.ok(material[i].startsWith('判据'+(i+1)+'：'));assert.equal(candidates[i].source_clause,material[i]);assert.equal(reviews[i].source_clause,material[i]);assert.equal(candidates[i].anchor.quote,material[i]);}});
@@ -68,7 +68,7 @@ check('explicit new material version',()=>{const v=JSON.parse(readFileSync(join(
 const extraction=[];
 for(const [name,p,f,want]of variants){
  writeFileSync(join(fixture,'web/src/pages/UseWorkbench.tsx'),p);writeFileSync(join(fixture,'web/src/components/GoFrame.tsx'),f);
- execFileSync(process.execPath,['scripts/make-submission.mjs'],{cwd:fixture,stdio:'pipe'});
+ execFileSync(process.execPath,['scripts/make-submission.mjs','--source-db',join(fixture,'synthetic-data/workbench-market.db'),'--target-mode','isolated','--isolated-root',fixture],{cwd:fixture,stdio:'pipe'});
  const snapshot=new DatabaseSync(join(fixture,'tmp/verify-snap.sqlite'),{readOnly:true});let row;try{row=snapshot.prepare('SELECT present FROM verifier_text_facts WHERE path=? AND needle=?').get(PORTAL_CALL_CHAIN_FACT.path,PORTAL_CALL_CHAIN_FACT.needle);}finally{snapshot.close()}
  check('real snapshot extraction: '+name,()=>assert.equal(row?.present,want));extraction.push({name,present:row.present});
 }

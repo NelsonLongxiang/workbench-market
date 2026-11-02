@@ -9,9 +9,10 @@ import {pathToFileURL} from 'node:url';
 const repo=fileURLToPath(new URL('../../',import.meta.url));
 const root=resolve(repo,'tmp/sup-audit-regression'),fixture=join(root,'fixture'),summary=join(fixture,'evidence/e2e-summary.json');
 mkdirSync(join(fixture,'scripts/supervision'),{recursive:true});mkdirSync(join(fixture,'evidence'),{recursive:true});mkdirSync(join(root,'unrelated-cwd'),{recursive:true});
+copyFileSync(resolve(repo,'scripts/explicit-data-target.mjs'),join(fixture,'scripts/explicit-data-target.mjs'));
 const original=readFileSync(resolve(repo,'scripts/supervision/sup-audit.mjs'));copyFileSync(resolve(repo,'scripts/supervision/sup-audit.mjs'),join(fixture,'scripts/supervision/sup-audit.mjs'));
 const stub=join(root,'network-stub.mjs');writeFileSync(stub,
- 'globalThis.fetch=async (url,opts)=>{console.log("[STUB] "+JSON.stringify({url,method:opts.method,has_signal:!!opts.signal}));if(url!=="http://127.0.0.1:9800/api/workbenches"||opts.method!=="GET"||!opts.signal)throw new Error("unsafe request");const mode=process.env.AUDIT_STUB;if(mode==="connect")throw Object.assign(new Error("connect failed"),{cause:{code:"ECONNREFUSED"}});if(mode==="timeout")return await new Promise((_,reject)=>{const alive=setTimeout(()=>reject(new Error("stub watchdog")),6500);opts.signal.addEventListener("abort",()=>{clearTimeout(alive);reject(opts.signal.reason);},{once:true});});if(mode==="http500")return {ok:false,status:500,json:async()=>({})};if(mode==="badjson")return {ok:true,status:200,json:async()=>{throw new SyntaxError("bad response json")}};return {ok:true,status:200,json:async()=>mode==="badshape"?{}:[{last_status:"up"}]};};');
+ 'globalThis.fetch=async (url,opts)=>{console.log("[STUB] "+JSON.stringify({url,method:opts.method,has_signal:!!opts.signal}));if(url!=="http://127.0.0.1:21991/api/workbenches"||opts.method!=="GET"||!opts.signal)throw new Error("unsafe request");const mode=process.env.AUDIT_STUB;if(mode==="connect")throw Object.assign(new Error("connect failed"),{cause:{code:"ECONNREFUSED"}});if(mode==="timeout")return await new Promise((_,reject)=>{const alive=setTimeout(()=>reject(new Error("stub watchdog")),6500);opts.signal.addEventListener("abort",()=>{clearTimeout(alive);reject(opts.signal.reason);},{once:true});});if(mode==="http500")return {ok:false,status:500,json:async()=>({})};if(mode==="badjson")return {ok:true,status:200,json:async()=>{throw new SyntaxError("bad response json")}};return {ok:true,status:200,json:async()=>mode==="badshape"?{}:[{last_status:"up"}]};};');
 const good=()=>({total:26,passed:26,failed:0,all_passed:1,finished_at:new Date(Date.now()-3600000).toISOString()});
 const cases=[
  ['repo-cwd',good(),'ok',0,fixture],['other-cwd',good(),'ok',0,join(root,'unrelated-cwd')],['script-cwd',good(),'ok',0,join(fixture,'scripts/supervision')],
@@ -20,7 +21,7 @@ const cases=[
 const records=[];
 for(const [name,input,network,expected,cwd=fixture]of cases){
  if(input===undefined){const fs=await import('node:fs');if(existsSync(summary))fs.unlinkSync(summary);}else writeFileSync(summary,typeof input==='string'?input:JSON.stringify(input));
- const r=spawnSync(process.execPath,['--import',pathToFileURL(stub).href,join(fixture,'scripts/supervision/sup-audit.mjs')],{cwd,env:{...process.env,AUDIT_STUB:network},encoding:'utf8',timeout:12000});
+ const r=spawnSync(process.execPath,['--import',pathToFileURL(stub).href,join(fixture,'scripts/supervision/sup-audit.mjs'),'--api','http://127.0.0.1:21991','--summary',summary,'--target-mode','isolated','--isolated-root',root],{cwd,env:{...process.env,AUDIT_STUB:network},encoding:'utf8',timeout:12000});
  assert.equal(r.status,expected,name+': '+r.stdout+r.stderr);assert.match(r.stdout,/ledger.*NOT_CHECKED/);assert.ok(!r.stdout.includes('method":"POST'),'POST found');
  const calls=r.stdout.split('\n').filter(l=>l.startsWith('[STUB] ')).map(l=>JSON.parse(l.slice(7)));assert.equal(calls.length,1,name);assert.ok(calls.every(c=>c.method==='GET'&&c.has_signal));
  if(!expected)assert.match(r.stdout,/AUDIT-OK.*scope=e2e-summary,market-list ledger=NOT_CHECKED/);else assert.match(r.stdout,/AUDIT-FAIL/);

@@ -25,15 +25,15 @@ for(const p of ['README.md','package.json','pnpm-workspace.yaml','server/package
 for(const p of ['scripts','server/src','web/src','design-system'])cpSync(p,join(out,p),{recursive:true});
 mkdirSync(join(out,'web/dist'),{recursive:true});mkdirSync(join(out,'evidence'));cpSync('evidence/e2e_test.py',join(out,'evidence/e2e_test.py'));
 symlinkSync(join(root,'node_modules'),join(out,'node_modules'),'junction');symlinkSync(join(root,'web/node_modules'),join(out,'web/node_modules'),'junction');
-mkdirSync(join(out,'server/data'));const synthetic=new DatabaseSync(join(out,'server/data/workbench-market.db'));synthetic.exec('CREATE TABLE synthetic_probe(id INTEGER PRIMARY KEY)');synthetic.close();
+mkdirSync(join(out,'synthetic-data'));const synthetic=new DatabaseSync(join(out,'synthetic-data/workbench-market.db'));synthetic.exec('CREATE TABLE synthetic_probe(id INTEGER PRIMARY KEY)');synthetic.close();
 execFileSync(process.execPath,['scripts/gen-verifier.mjs'],{cwd:out,stdio:'pipe'});
 const material=readFileSync(join(out,'verify/material.md'),'utf8').trim().split('\n'),candidates=JSON.parse(readFileSync(join(out,'verify/candidates.json'))).candidates,reviews=JSON.parse(readFileSync(join(out,'verify/reviews.json'))).reviews;
 check('current material v69.6 (criterion111 text kept from v69.3)',()=>{const v=JSON.parse(readFileSync(join(out,'verify/material-version.json')));assert.equal(v.version,'v69.6');assert.equal(v.supersedes,'v69.5');assert.deepEqual(v.changed_criteria,[41,42,50,51,58])});
 check('175 material-candidate-review anchors exact',()=>{assert.equal(material.length,175);for(let i=0;i<175;i++){assert.equal(candidates[i].source_clause,material[i]);assert.equal(candidates[i].anchor.quote,material[i]);assert.equal(reviews[i].source_clause,material[i])}assert.ok(material[110].includes('masked_import_value'));assert.ok(!material[110].includes('跳过'))});
-execFileSync(process.execPath,['scripts/make-submission.mjs'],{cwd:out,stdio:'pipe'});
+execFileSync(process.execPath,['scripts/make-submission.mjs','--source-db',join(out,'synthetic-data/workbench-market.db'),'--target-mode','isolated','--isolated-root',out],{cwd:out,stdio:'pipe'});
 function fact(){const snap=new DatabaseSync(join(out,'tmp/verify-snap.sqlite'),{readOnly:true});try{return snap.prepare('SELECT present FROM verifier_text_facts WHERE path=? AND needle=?').get('server/src/index.ts','masked_import_value')?.present}finally{snap.close()}}
 check('real snapshot extraction new error code fact present',()=>assert.equal(fact(),1));
 writeFileSync(join(out,'server/src/index.ts'),source.replaceAll('masked_import_value','removed_mask_code'));
-execFileSync(process.execPath,['scripts/make-submission.mjs'],{cwd:out,stdio:'pipe'});
+execFileSync(process.execPath,['scripts/make-submission.mjs','--source-db',join(out,'synthetic-data/workbench-market.db'),'--target-mode','isolated','--isolated-root',out],{cwd:out,stdio:'pipe'});
 check('removing code fact yields present0, never hand-filled',()=>assert.equal(fact(),0));
 writeFileSync(join(out,'result.json'),JSON.stringify({checks,production_data_used:false,network_connections:0,scope:'route callback with SQLite and material/extraction copies; not formal175 or real HTTP E2E'},null,2));console.log(JSON.stringify({checks,evidence:out}));
