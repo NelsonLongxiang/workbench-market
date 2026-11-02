@@ -108,15 +108,44 @@ export interface SopApp {
   workbench_id: number | null;
 }
 
-/** SOP 执行实例（run）：data 为 stepKey→value JSON 字符串 */
+/** SOP 执行列表只提供元数据；字段值另走单项接口（读授权收口为第二段）。 */
 export interface SopRun {
   id: number;
   sop_slug: string;
   sop_version: number;
   status: 'running' | 'finished';
   started_by: string;
-  data: string;
+  steps: number;
   started_at: string;
   updated_at: string;
   finished_at: string;
+}
+
+/** #318 SOP 定义（GET /api/sops/:slug/definition）：只有步骤 key / 标题，不含步骤正文 HTML。 */
+export interface SopDefinition {
+  slug: string;
+  version: number;
+  active_version: number;
+  status: SopApp['status'];
+  title: string;
+  code: string;
+  description: string;
+  steps: Array<{ key: string; title: string }>;
+}
+
+/** 单次记录：已授权回 data（步骤填写值）；未授权服务端只回元数据并带 private_read，前端照此渲染、不自行隐藏。 */
+export type SopRunDetail =
+  | { id: number; sop_slug: string; sop_version: number; status: SopRun['status']; started_by: string; receipt?: string; data: Record<string, unknown> }
+  | (SopRun & { receipt?: string; private_read: 'authorization-required' });
+
+export interface SopRunFile {
+  id: number;
+  run_id: number;
+  original_name?: string;
+  name?: string;
+  mime: string;
+  size: number;
+  created_by?: string;
+  created_at: string;
+  url: string;
 }
