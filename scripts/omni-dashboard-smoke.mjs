@@ -20,7 +20,7 @@ async function waitReady(url, ms = 20000) {
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server', env: { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: `../${DATA}` }, stdio: ['ignore', 'pipe', 'pipe'],
+  cwd: 'server', env: { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'synthetic-dashboard-admin' }, stdio: ['ignore', 'pipe', 'pipe'],
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪'); process.exit(1); }
 try {
@@ -34,7 +34,7 @@ try {
   ok('总览页含「待办」聚合卡', bundle.includes('待办'));
   ok('总览页含「进行中」聚合卡', bundle.includes('进行中'));
   ok('聚合卡深链 /tasks 在 bundle', bundle.includes('/tasks'));
-  const tasks = await (await fetch(BASE + '/api/tasks')).json();
+  const tasks = await (await fetch(BASE + '/api/tasks', { headers: { 'X-Admin-Token': 'synthetic-dashboard-admin' } })).json();
   ok('聚合卡数据源与 /api/tasks 同源', Array.isArray(tasks?.tasks) && 'sources' in tasks);
 } finally {
   child.kill();
