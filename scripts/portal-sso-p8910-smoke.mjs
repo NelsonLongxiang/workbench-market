@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {requireDataSource} from './explicit-data-target.mjs';
+const SOURCE_DATA_DIR = requireDataSource();
 /** #170 P8/P9/P10 冒烟：①回跳绝对地址 ②伪造 state 的 /sso/callback 400 ③无 wm_sso_ok 时 session_id 不转发。 */
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
@@ -15,8 +17,8 @@ let seenCookie = '';
 const target = createServer((req, res) => { seenCookie = String(req.headers.cookie ?? ''); res.writeHead(200, { 'Content-Type': 'text/html' }); res.end('<h1>ok</h1>'); });
 await new Promise((r) => target.listen(TP, '127.0.0.1', r));
 rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: true });
-{ const { DatabaseSync } = await import('node:sqlite'); const db = new DatabaseSync('server/data/workbench-market.db', { readOnly: true }); db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`); db.close(); }
-for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync('server/data/' + d, DATA + '/' + d, { recursive: true });
+{ const { DatabaseSync } = await import('node:sqlite'); const db = new DatabaseSync(SOURCE_DATA_DIR + '/workbench-market.db', { readOnly: true }); db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`); db.close(); }
+for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(SOURCE_DATA_DIR + '/' + d, DATA + '/' + d, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'p810', WM_ODOO_ORIGINS: 'http://127.0.0.1:' + TP }, stdio: 'ignore' });
 const B = 'http://127.0.0.1:' + PORT;
 try {

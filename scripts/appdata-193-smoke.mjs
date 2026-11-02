@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {requireDataSource} from './explicit-data-target.mjs';
+const SOURCE_DATA_DIR = requireDataSource();
 /** #193 五缺���冒烟：F3 匿名写删 401/403 · F4 软删后下载/改 note 404 · F5 删不存在 404 · F8 配额全量计数 · F11 MCP publish 过锁。 */
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
@@ -11,8 +13,8 @@ const ok = (n, c, x = '') => { if (c) { pass++; console.log('  \u2713 ' + n); } 
 async function waitReady(url, ms = 15000) { const end = Date.now() + ms; while (Date.now() < end) { try { const r = await fetch(url, { signal: AbortSignal.timeout(1500) }); if (r.status < 500) return true; } catch {} await new Promise((r) => setTimeout(r, 250)); } return false; }
 const B = 'http://127.0.0.1:' + PORT;
 rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: true });
-{ const { DatabaseSync } = await import('node:sqlite'); const db = new DatabaseSync('server/data/workbench-market.db', { readOnly: true }); db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`); db.close(); }
-for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync('server/data/' + d, DATA + '/' + d, { recursive: true });
+{ const { DatabaseSync } = await import('node:sqlite'); const db = new DatabaseSync(SOURCE_DATA_DIR + '/workbench-market.db', { readOnly: true }); db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`); db.close(); }
+for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(SOURCE_DATA_DIR + '/' + d, DATA + '/' + d, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'k193' }, stdio: 'ignore' });
 const mcp = async (name, args) => { const r = await fetch(B + '/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }), signal: AbortSignal.timeout(15000) }); return { status: r.status, j: await r.json().catch(() => ({})) }; };
 try {

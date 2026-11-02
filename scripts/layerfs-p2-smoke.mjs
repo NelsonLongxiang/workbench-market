@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {requireDataSource} from './explicit-data-target.mjs';
+const SOURCE_DATA_DIR = requireDataSource();
 /** #94 P2 冒烟（L5 留3版+L6 冷回读·判据先红后绿）。
  *  L5: 发布 6 版后物化目录 ≤3 且含活跃版；回滚 v2 后仍 ≤3 且含 v2
  *  L6: v1 物化已不在——?version=1 → 200·X-App-Version v1·正文与 v1 发布逐字节同（冷回读经服务）
@@ -53,11 +55,11 @@ rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 {
   const { DatabaseSync } = await import('node:sqlite');
-  const db = new DatabaseSync('server/data/workbench-market.db', { readOnly: true });
+  const db = new DatabaseSync(SOURCE_DATA_DIR + '/workbench-market.db', { readOnly: true });
   db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`);
   db.close();
 }
-for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`server/data/${d}`, `${DATA}/${d}`, { recursive: true });
+for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`${SOURCE_DATA_DIR}/${d}`, `${DATA}/${d}`, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
   cwd: process.cwd(),
   env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'p2-tok', LAYERFS_SERVICE_URL: `http://127.0.0.1:${LP}`, LAYERFS_SERVICE_TOKEN: TOKEN },

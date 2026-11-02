@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {requireDataSource} from './explicit-data-target.mjs';
+const SOURCE_DATA_DIR = requireDataSource();
 /** 白屏三层+外链护栏冒烟（PR#128-#130 面·丢失补回后回归）。
  *  ①HTML 资产前缀 ②JS 内 /assets/ 前缀 ③Vite helper 改写 ④外链 airwallex 原样+内链仍改
  */
@@ -25,10 +27,10 @@ const SP = await new Promise((r) => spa.listen(0, '127.0.0.1', () => r(spa.addre
 rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: true });
 {
   const { DatabaseSync } = await import('node:sqlite');
-  const db = new DatabaseSync('server/data/workbench-market.db', { readOnly: true });
+  const db = new DatabaseSync(SOURCE_DATA_DIR + '/workbench-market.db', { readOnly: true });
   db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`); db.close();
 }
-for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`server/data/${d}`, `${DATA}/${d}`, { recursive: true });
+for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`${SOURCE_DATA_DIR}/${d}`, `${DATA}/${d}`, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
   cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'ws-tok' }, stdio: 'ignore',
 });
