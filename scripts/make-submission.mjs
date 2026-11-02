@@ -24,7 +24,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, write
 import { execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PORTAL_CALL_CHAIN_FACT, readPortalCallChainFact } from "./portal-call-chain-fact.mjs";
+const { PORTAL_CALL_CHAIN_FACT, readPortalCallChainFact } = await import("./portal-call-chain-fact.mjs");
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const snap = join(root, "tmp", "verify-snap.sqlite");
