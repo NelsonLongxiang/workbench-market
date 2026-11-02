@@ -1,14 +1,19 @@
 /** 服务层冒烟（S1）：八件 Service 能否在 Cordis 容器里解析并跑通各自核心查询。 */
 import { Context } from '@deepseek-ai/cordis';
-import { DbService } from '../server/src/context.ts';
-import { WorkbenchService } from '../server/src/services/workbench.ts';
-import { SopService } from '../server/src/services/sop.ts';
-import { AppService } from '../server/src/services/app.ts';
-import { AppDataService } from '../server/src/services/app-data.ts';
-import { McpService } from '../server/src/services/mcp.ts';
-import { CookieService } from '../server/src/services/cookie.ts';
-import { CockpitService } from '../server/src/services/cockpit.ts';
-import { SettingService } from '../server/src/services/setting.ts';
+import {scriptOptions,explicitPath,validatePathParents} from './explicit-data-target.mjs';
+const targetOptions=scriptOptions();
+const targetData=explicitPath(targetOptions['data-dir']??process.env.DATA_DIR,targetOptions);
+validatePathParents(targetData,targetOptions);
+process.env.DATA_DIR=targetData;
+const {DbService}=await import('../server/src/context.ts');
+const {WorkbenchService}=await import('../server/src/services/workbench.ts');
+const {SopService}=await import('../server/src/services/sop.ts');
+const {AppService}=await import('../server/src/services/app.ts');
+const {AppDataService}=await import('../server/src/services/app-data.ts');
+const {McpService}=await import('../server/src/services/mcp.ts');
+const {CookieService}=await import('../server/src/services/cookie.ts');
+const {CockpitService}=await import('../server/src/services/cockpit.ts');
+const {SettingService}=await import('../server/src/services/setting.ts');
 
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };

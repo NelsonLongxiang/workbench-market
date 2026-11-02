@@ -26,6 +26,10 @@ try {
       assert.ok(!JSON.stringify(e).includes(decoy), `${who} 环境里出现了诱饵路径`);
       for (const k of ['LC_YGL_HOME', 'LC_YGL_BIN', 'YGL_SESSION']) assert.equal(e[k] ?? null, null, `${who} 不应透传 ${k}`);
       assert.ok(e.DATA_DIR.startsWith(out.tmp), `${who} DATA_DIR 应在 TMP 下`);
+      assert.equal(e.SCRIPT_TARGET_MODE,'isolated');
+      assert.equal(e.SCRIPT_ISOLATED_ROOT,out.tmp);
+      assert.equal(e.SCRIPT_SOURCE_DB,join(out.tmp,'data/workbench-market.db'));
+      assert.equal(e.SCRIPT_SOURCE_DATA_DIR,join(out.tmp,'data'));
       passed++;
     }
   }

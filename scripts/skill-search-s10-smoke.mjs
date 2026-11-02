@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {requireDataSource} from './explicit-data-target.mjs';
+const SOURCE_DATA_DIR = requireDataSource();
 /** #178 S10 回归冒烟：①候选≤30 全量（不截断）②>30 可排序取前 30 ③全 0/并列不砍（>30 照发·分批）。 */
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
@@ -15,8 +17,8 @@ let batchSizes = [];
 const gw = createServer((req, res) => { let b = ''; req.on('data', (c) => b += c); req.on('end', () => { const j = JSON.parse(b); const n = Object.keys(j.state.skills).length; batchSizes.push(n); const answers = {}; for (const qid of Object.keys(j.state.skills)) answers[qid] = { probability: 0.5 }; res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ answers })); }); });
 await new Promise((r) => gw.listen(GW, '127.0.0.1', r));
 rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: true });
-{ const { DatabaseSync } = await import('node:sqlite'); const db = new DatabaseSync('server/data/workbench-market.db', { readOnly: true }); db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`); db.close(); }
-for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync('server/data/' + d, DATA + '/' + d, { recursive: true });
+{ const { DatabaseSync } = await import('node:sqlite'); const db = new DatabaseSync(SOURCE_DATA_DIR + '/workbench-market.db', { readOnly: true }); db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`); db.close(); }
+for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(SOURCE_DATA_DIR + '/' + d, DATA + '/' + d, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 's10', EVAL_GATEWAY_URL: 'http://127.0.0.1:' + GW + '/x', AI_GATEWAY_API_KEY: 'vck_t' }, stdio: 'ignore' });
 const B = 'http://127.0.0.1:' + PORT;
 const call = async (need) => { const r = await fetch(B + '/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'skill_search', arguments: { need } } }), signal: AbortSignal.timeout(30000) }); return r.json().catch(() => ({})); };

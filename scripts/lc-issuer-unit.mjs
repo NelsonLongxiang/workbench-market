@@ -48,9 +48,13 @@ console.log('① 与参考实现逐字节一致');
 ok('金向量：测试私钥公钥 = 参考实现公钥', pubOf(seedKey) === PUBKEY);
 ok(`金向量：req 哈希 ${REQ.length} 例逐一相等`, REQ.every(([a, f, h]) => lcReqHash(a, f) === h), REQ.filter(([a, f, h]) => lcReqHash(a, f) !== h).map(([a]) => a).join(','));
 ok(`金向量：整张断言 ${SIGN.length} 例逐字节相等（ed25519 确定性签名）`, SIGN.every(([sub, action, flags, now, ttl, nonce, want]) => signLcAssertion(seedKey, { sub, action, flags, now, ttl, nonce }) === want));
-const LC_OS = resolve(process.env.LC_OS_DIR || join(homedir(), 'workspace/lifecycle-os'));
-const refFile = join(LC_OS, 'tools/assert.cjs');
-if (existsSync(refFile)) {
+const LC_OS = process.env.LC_OS_DIR;
+if (LC_OS) {
+  const {scriptOptions,explicitPath,validatePathParents}=await import('./explicit-data-target.mjs');
+  const options=scriptOptions();validatePathParents(explicitPath(LC_OS,options),options);
+}
+const refFile = LC_OS ? join(LC_OS, 'tools/assert.cjs') : null;
+if (refFile && existsSync(refFile)) {
   const ref = createRequire(import.meta.url)(refFile);
   const rnd = (n) => randomBytes(n).toString('base64url');
   const pick = (xs) => xs[Math.floor(Math.random() * xs.length)];

@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {requireDataSource} from './explicit-data-target.mjs';
+const SOURCE_DATA_DIR = requireDataSource();
 /** 沙箱真调用闸冒烟（#94 P0·总工立第三闸：真 tools/call 往返·工具名/grep 不算·判据先红后绿）。
  *  背景：PR#70 的 sop_run_sandbox 只有 mcp-tools.ts 声明，index.ts 分发无分支——tools/call 报未知工具，bridge 零请求。
  *  判据：①真 tools/call（/mcp JSON-RPC）→ 非「未知工具」②替身 bridge 收到恰好 1 次 /dispatch（run_id+script 核对）
@@ -48,11 +50,11 @@ rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 {
   const { DatabaseSync } = await import('node:sqlite');
-  const db = new DatabaseSync('server/data/workbench-market.db', { readOnly: true });
+  const db = new DatabaseSync(SOURCE_DATA_DIR + '/workbench-market.db', { readOnly: true });
   db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`);
   db.close();
 }
-for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`server/data/${d}`, `${DATA}/${d}`, { recursive: true });
+for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`${SOURCE_DATA_DIR}/${d}`, `${DATA}/${d}`, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
   cwd: process.cwd(),
   env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, SANDBOX_BRIDGE_URL: `http://127.0.0.1:${BP}` },
