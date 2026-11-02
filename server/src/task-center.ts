@@ -3,6 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { db } from './db.ts';
+import { initWorkbenchEvents, recordTaskCenterEvent } from './workbench-events.ts';
 
 export const taskCenterSteps = [
   { key: 'title', title: '任务标题' }, { key: 'intent', title: '任务意图' },
@@ -10,6 +11,7 @@ export const taskCenterSteps = [
   { key: 'target', title: '目标 SOP 台' }, { key: 'due', title: '截止日期' },
 ];
 export function initializeTaskCenter(appsRoot: string) {
+  initWorkbenchEvents(); // 发布与工作台事件同事务：任务中心在哪里初始化，事件表就在哪里建
   const cols = db.prepare('PRAGMA table_info(tasks)').all() as {name:string}[];
   if (!cols.some(c=>c.name==='intake_run_id')) db.exec('ALTER TABLE tasks ADD COLUMN intake_run_id INTEGER REFERENCES sop_runs(id)');
   if (!cols.some(c=>c.name==='template_version')) db.exec('ALTER TABLE tasks ADD COLUMN template_version INTEGER');
@@ -80,7 +82,9 @@ export function publishTaskIntake(body: any) {
     const info=db.prepare("INSERT INTO tasks(title,kind,payload_json,status,intake_run_id,template_version,material_sha256,published_at,published_by,created_by,agent_dispatch_enabled) VALUES(?,'录入',?,'published',?,?,?,datetime('now'),?,?,?)").run(String(stepValue('title')),frozen,runId,run.sop_version,hash,actor,actor,body.agent_dispatch===true?1:0);
     const id=Number(info.lastInsertRowid);
     db.prepare("INSERT INTO task_events(task_id,type,actor,actor_kind,payload_json) VALUES(?,'published',?,'human',?)").run(id,actor,JSON.stringify({intake_run_id:runId,template_version:run.sop_version,material_sha256:hash}));
+    // 工作台事件 v1：人工发布即 human 事件，与发布同一事务（不会出现发布了却没有事件）
+    const event_id=recordTaskCenterEvent({id,data,stepValue,publishedBy:by,templateVersion:run.sop_version,materialSha256:hash,agentDispatch:body.agent_dispatch===true,centerOn:taskCenterPolicy().agent_dispatch_enabled});
     db.exec('COMMIT');
-    return {ok:true,id,status:'published',intake_run_id:runId,template_version:run.sop_version,material_sha256:hash};
+    return {ok:true,id,status:'published',intake_run_id:runId,template_version:run.sop_version,material_sha256:hash,event_id};
   } catch(e) {db.exec('ROLLBACK');throw e;}
 }
