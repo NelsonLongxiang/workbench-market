@@ -9,13 +9,13 @@ const SOURCE_DATA_DIR = requireDataSource();
  *  ④远程控制面（publish）仍 403（护栏）⑤远程 assign 仍 403（护栏·控制面不放松）
  *  ⑥本机建单 201（回归护栏）。隔离实例=VACUUM INTO 主库快照+ADMIN_TOKEN 复刻门态。
  */
-import { spawn } from './owned-script-fixture.mjs';
+import { spawn, fixtureLanHost } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 
 const PORT = 9852;
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-sopremote-data';
-const LAN_IP = process.env.LAN_IP || ''; // 隐私门红线：内网地址只经 env（unset 则跳过远程判据）
+const LAN_IP = fixtureLanHost(); // Only this machine's owned test listener; never inherit a remote LAN_IP.
 const SLUG = 'procurement-task-submit';
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
