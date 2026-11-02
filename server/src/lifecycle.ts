@@ -42,7 +42,8 @@ export interface LcEnvelope {
 }
 export interface LcSourceMeta extends SourceMeta { viewer: string | null; error?: string; auth_required?: boolean; login_url?: string | null }
 /** name：Odoo 显示名（get_session_info.name，缺省 null），只用于显示；签断言只用 sub */
-export interface Viewer { login: string; uid: number; sub: string; name: string | null }
+/** admin：Odoo session_info.is_admin（res.users._is_admin，设置/访问权限管理员）；字段缺失按 false（fail closed） */
+export interface Viewer { login: string; uid: number; sub: string; name: string | null; admin: boolean }
 type Result = { http: number; body: Record<string, unknown> };
 
 // ---------- 断言契约（与插件逐字节一致） ----------
@@ -223,7 +224,7 @@ export async function resolveOdooViewer(cookieHeader: string, odooUrl = lcConfig
   if (info.is_internal_user !== true) return { ok: false, http: 403, error: '门户账号不能访问工作台（仅限内部员工的 Odoo 账号）' };
   if (!loginOk(login)) return { ok: false, http: 401, error: 'Odoo 登录名不可用作 lc 主体' };
   const name = typeof info.name === 'string' && info.name.trim() && !/[\x00-\x1f\x7f]/.test(info.name) ? info.name.trim().slice(0, 128) : null;
-  return { ok: true, viewer: { login, uid: Number(info.uid), sub: `user:${login}`, name } };
+  return { ok: true, viewer: { login, uid: Number(info.uid), sub: `user:${login}`, name, admin: info.is_admin === true } };
 }
 
 // ---------- 统一待办：生命周期源 ----------

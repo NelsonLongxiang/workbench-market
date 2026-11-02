@@ -23,6 +23,24 @@ export function setAdminToken(token: string): void {
 /** #292 M4 止血：口令在本标签页时，/use 与驾驶舱不再以 iframe 嵌 /go/（同源 iframe 读得到 sessionStorage、能挂钩父页 fetch） */
 export const ADMIN_TOKEN_CHANGED = 'wm:admin-token-changed';
 export const adminTokenPresent = (): boolean => getAdminToken() !== '';
+
+/** Odoo 管理员（属主 2026-11-02：Odoo 管理员登录也算管理员）：服务端按浏览器的 Odoo 会话现查 is_admin，
+ *  这里只缓存结论给菜单与页面开关用；真正的授权在服务端每次请求判。 */
+let odooAdminLogin: string | null = null;
+export const odooAdmin = (): string | null => odooAdminLogin;
+/** 当前页面是否以管理员身份工作：持口令，或 Odoo 管理员 */
+export const adminActive = (): boolean => adminTokenPresent() || odooAdminLogin !== null;
+export async function refreshAdminIdentity(): Promise<void> {
+  let next: string | null = null;
+  try {
+    const r = await fetch('/api/admin/whoami', { headers: { Accept: 'application/json' } });
+    const j = await r.json() as { via?: string | null; login?: string | null };
+    next = j?.via === 'odoo' && typeof j.login === 'string' ? j.login : null;
+  } catch { next = null; }
+  if (next === odooAdminLogin) return;
+  odooAdminLogin = next;
+  try { window.dispatchEvent(new Event(ADMIN_TOKEN_CHANGED)); } catch { /* 非浏览器环境 */ }
+}
 export function subscribeAdminToken(cb: () => void): () => void {
   window.addEventListener(ADMIN_TOKEN_CHANGED, cb);
   return () => window.removeEventListener(ADMIN_TOKEN_CHANGED, cb);
@@ -46,8 +64,7 @@ export async function apiFetch(url: string, init: RequestInit = {}): Promise<Res
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   const r = await fetch(url, { ...init, headers });
   if ((r.status === 401 || r.status === 403) && url.startsWith('/api/')) {
-    const b = await r.clone().json().catch(() => ({})) as { control_surface_required?: boolean; control_url?: string | null };
-    const err = new Error(b.control_surface_required ? `管理操作请到控制面${b.control_url ? `：${b.control_url}${window.location.pathname}` : '（控制面已关闭，只能用本机命令行）'}` : '管理员口令缺失或无效') as Error & { needAdminToken?: boolean };
+    const err = new Error('需要管理员：请在顶栏输入管理员口令，或用 Odoo 管理员账号登录') as Error & { needAdminToken?: boolean };
     err.needAdminToken = true;
     throw err;
   }
