@@ -6,12 +6,13 @@ import { once } from 'node:events';
 import { mkdirSync, mkdtempSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
+import { createServer } from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
 mkdirSync('tmp', {recursive:true});
 const data=mkdtempSync(resolve('tmp','tc-intake-'));
-const port=21000+Math.floor(Math.random()*20000);
+const reserve=createServer();await new Promise(r=>reserve.listen(0,'127.0.0.1',r));const port=reserve.address().port;await new Promise(r=>reserve.close(r));
 const base='http://127.0.0.1:'+port;
-const env={...process.env,PORT:String(port),DATA_DIR:data,ADMIN_TOKEN:'tc-test',MCP_GATEWAY: 'off', NODE_ENV: 'test',REDIS_URL:'',LAYERFS_SERVICE_URL:''};
+const env={...process.env,PORT:String(port),WM_CONTROL_PORT:'0',DATA_DIR:data,ADMIN_TOKEN:'tc-test',MCP_GATEWAY: 'off', NODE_ENV: 'test',REDIS_URL:'',LAYERFS_SERVICE_URL:''};
 let child,logs='',pass=0;
 async function start(){
  child=spawn(process.execPath,['--disable-warning=ExperimentalWarning','server/src/index.ts'],{env,stdio:['ignore','pipe','pipe']});
