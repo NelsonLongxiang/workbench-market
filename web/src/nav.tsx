@@ -7,6 +7,7 @@ import {
   DashboardOutlined,
   ExperimentOutlined,
   LayoutOutlined,
+  LockOutlined,
   NodeIndexOutlined,
   OrderedListOutlined,
   SafetyCertificateOutlined,
@@ -35,6 +36,7 @@ export const NAV_GROUPS: NavGroup[] = [
   ] },
   { key: '/g/admin', name: '管理', admin: true, pages: [
     { path: '/mcp-gateways', name: 'MCP 网关', icon: <SafetyCertificateOutlined /> },
+    { path: '/vault', name: '凭据库', icon: <LockOutlined /> },
     { path: '/types', name: '类型管理', icon: <ClusterOutlined /> },
     { path: '/settings', name: '设置', icon: <SettingOutlined /> },
   ] },
