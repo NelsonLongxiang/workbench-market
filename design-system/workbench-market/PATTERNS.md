@@ -106,7 +106,43 @@ PageContainer
 - 每张卡都要有空态和加载态；数据过期（超过刷新周期）时卡片头显示「数据截至 HH:mm」。
 - 驾驶舱可拖拽布局沿用现有 react-grid-layout，但卡片宽度吸附到上面 4 档。
 
-## 7. 落地顺序（定稿后另开 issue）
+## 7. 自产台：菜单、焦点、状态持久化
+
+自产台是他人写的独立页面，不走 antd。为了在门户里打开时观感和手感一致，每个自产台页面在 `<head>` 起始处带同一个**统一层**（`scripts/market-app-restyle/` 生成）：内联 `--wm-*` token + 基础排版 + 下面三条交互约定。台内逻辑不改，统一层只补语义和记忆。
+
+### 7.1 菜单（页签 / 分段 / 锚点导航）
+
+| 写法 | 判定 | 统一层做的事 |
+|---|---|---|
+| 一组可点项里**恰好一个**选中（`.on`/`.active`/`aria-selected=true`） | 页签 | 容器 `role=tablist`、项 `role=tab` + `aria-selected`；选中项 `tabindex=0`，其余 `-1`；←→↑↓/Home/End 切换并激活 |
+| 台自己维护 `aria-pressed` | 切换按钮组 | 语义原样保留，只统一样式 |
+| 一组链接都不选中 | 锚点导航 | 只统一样式，不加 tab 语义 |
+
+- 选中态统一：`primary-subtle` 底 + `primary` 字 + 600 字重；项内计数/徽标继承选中色，不再各写一套。
+- 深色只允许出现在导航条（顶栏/页头）：底 `nav-bg`，字 `nav-text` / `nav-text-active`。内容区一律浅色，不提供 `prefers-color-scheme: dark`。
+- 台内链接一律同源相对路径（`/apps/…`、`/api/…`），不写死 `http://<内网 IP>:9800`——门户可能经任意入口访问。
+
+### 7.2 焦点
+
+- 键盘焦点统一 `:focus-visible` 2px `primary` 外框、偏移 2px；台内 `outline:none` 不得压掉它（统一层用 `!important`）。输入框聚焦时边框变 `primary`。
+- 带 `onclick` 的非交互元素（`div`/`span`/`tr`…）自动补 `tabindex=0` + `role=button`（行用 `role=link`），回车/空格触发点击。新写的台请直接用 `<button>`/`<a>`。
+- 尊重 `prefers-reduced-motion`：关闭动画与过渡。
+
+### 7.3 状态持久化
+
+按台命名空间存 `localStorage`（键 `wm:<slug>:<页面>:…`），刷新后恢复；读写全部 try/catch，存储不可用时页面照常工作：
+
+| 记什么 | 何时写 | 何时恢复 |
+|---|---|---|
+| 当前页签 | 点击/键盘切换 | 加载后（含异步渲染完成后 4 秒内）；URL hash 已指定视图时让位于链接 |
+| 搜索/筛选/排序控件（`type=search`、`select`，或 id/name/placeholder 含 search·filter·q·sort·搜索·筛选·排序） | `input`/`change` | 加载后回填并派发 `input`/`change`，让台内过滤逻辑重跑 |
+| `<details>` 折叠区 | `toggle` | 加载后 |
+| 滚动位置 | 滚动停 150ms（`sessionStorage`，只在本标签页） | 加载 400ms 后，URL 有 hash 时不恢复 |
+
+- 只记**视图状态**，不记业务数据；业务数据走 `/api/apps/<slug>/data`。
+- 台自己已有持久化（如 `frl_tab`、`pw.filter`）时两者并存：恢复前先判断当前是否已是目标状态，不重复触发。
+
+## 8. 落地顺序（定稿后另开 issue）
 
 1. 侧栏分组与改名、`nav-*` token（改动集中在 `App.tsx`，见效最快）。
 2. 所有页面套 `PageContainer` 统一骨架。
