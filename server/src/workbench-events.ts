@@ -2,7 +2,7 @@
 // 契约（跨项目接口）：dsh-open-a2a-net docs/protocol/workbench-event.md。
 //   · 「是不是人提交的」在这里判（submitter_kind）；a2a 只负责送达和来源签名。
 //   · 「接不接」由接单节点判，凭投递里的 reply token 回写；GitHub issue 是工作记录。
-//   · 每个事件必有下文：unrouted，或每个投递落到 held / sent / dead——不静默丢。
+//   · 每个事件必有下文：unrouted，或每个投递落到 sent / dead / cancelled；held 是等人确认，不是终态。
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type express from 'express';
 import { db } from './db.ts';
@@ -14,6 +14,10 @@ const DECISIONS = new Set(['accept', 'decline', 'ask']);
 const BACKOFF_MS = [60_000, 300_000, 900_000, 3_600_000]; // 与 SOP 回执 outbox 同一退避：1m/5m/15m/1h，5 次后 dead
 const MAX_ATTEMPTS = 5;
 const EVENT_ID = /^wbe-[0-9a-f]{16}$/;
+/** 对端判为不可重试的线码：-32001 载荷超限、-32002 同 task_id 不同载荷、-32003 同 task_id 重放（每次尝试的 task_id 都唯一，出现即异常） */
+const TERMINAL_CODES = new Set([-32001, -32002, -32003]);
+const REPLY_TTL_DAYS = 7; // reply token 自送达起 7 天有效（ask 之后也不例外）
+const WORKER_CONCURRENCY = 8;
 
 export function initWorkbenchEvents(): void {
   db.exec(`
@@ -38,7 +42,7 @@ CREATE TABLE IF NOT EXISTS workbench_event_deliveries (
   target_team TEXT NOT NULL,
   target_url TEXT NOT NULL,
   caller_session TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('held','pending','sent','dead')),
+  status TEXT NOT NULL CHECK (status IN ('held','pending','sent','dead','cancelled')),
   message TEXT NOT NULL DEFAULT '', -- 待投递的完整信封（含 reply token 明文）；sent/dead 后清空，明文只在待投期间存在
   attempts INTEGER NOT NULL DEFAULT 0,
   next_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -79,7 +83,10 @@ function log(eventId: string, deliveryId: number | null, actor: string, action: 
 
 interface Target { agent_node: string; notify_url: string }
 function notifyTargets(type: 'sop' | 'app', slug: string): Target[] {
-  return db.prepare("SELECT agent_node, notify_url FROM bindings WHERE target_type = ? AND target_slug = ? AND direction IN ('notify','both') AND revoked_at = '' AND notify_url != '' ORDER BY id").all(type, slug) as unknown as Target[];
+  // 同一节点可以同时有 notify 与 both 两行（自然键含 direction）——按节点去重，先绑的那行为准
+  const rows = db.prepare("SELECT agent_node, notify_url FROM bindings WHERE target_type = ? AND target_slug = ? AND direction IN ('notify','both') AND revoked_at = '' AND notify_url != '' ORDER BY id").all(type, slug) as unknown as Target[];
+  const seen = new Set<string>();
+  return rows.filter((r) => { if (seen.has(r.agent_node)) return false; seen.add(r.agent_node); return true; });
 }
 
 /** 任务录入的「目标 SOP 台」：按 slug 或标题匹配一个已发布的 SOP；匹配不到返回 '' */
@@ -176,41 +183,68 @@ export function recordAppDataEvent(item: { slug: string; id: number; data: unkno
 }
 
 // ---------- 投递 worker ----------
-interface DeliveryRow { id: number; event_id: string; target_team: string; target_url: string; caller_session: string; message: string; attempts: number; context_id: string }
+interface DeliveryRow { id: number; event_id: string; target_team: string; target_url: string; caller_session: string; message: string; attempts: number; context_id: string; source: string; item: string }
 function backoffScale(): number {
   const v = Number(process.env.A2A_OUTBOX_BACKOFF_SCALE);
   return Number.isFinite(v) && v > 0 ? v : 1;
 }
-function settle(row: DeliveryRow, status: 'sent' | 'dead', error = '', attempts = row.attempts): void {
+function settle(row: DeliveryRow, status: 'sent' | 'dead' | 'cancelled', error = '', attempts = row.attempts, actor = 'market'): void {
   db.prepare("UPDATE workbench_event_deliveries SET status = ?, message = '', attempts = ?, last_error = ?, sent_at = CASE WHEN ? = 'sent' THEN datetime('now') ELSE sent_at END WHERE id = ?").run(status, attempts, error.slice(0, 300), status, row.id);
-  log(row.event_id, row.id, 'market', status, error === '' ? {} : { error: error.slice(0, 300) });
+  log(row.event_id, row.id, actor, status, error === '' ? {} : { error: error.slice(0, 300) });
+}
+/** 任务中心事件对应的任务已撤回？（撤回后不再派发） */
+function taskWithdrawn(source: string, item: string): boolean {
+  if (source !== 'task-center') return false;
+  const id = Number(item.replace(/^task:/, ''));
+  const t = db.prepare('SELECT status FROM tasks WHERE id = ?').get(id) as { status: string } | undefined;
+  return t?.status === 'withdrawn';
+}
+/** 任务撤回：把该任务事件里还没发出的投递（held / pending）转为 cancelled。在撤回路由里调用。 */
+export function cancelTaskCenterDeliveries(taskId: number, actor: string): number {
+  const rows = db.prepare("SELECT d.id, d.event_id FROM workbench_event_deliveries d JOIN workbench_events e ON e.event_id = d.event_id WHERE e.source = 'task-center' AND e.item = ? AND d.status IN ('held','pending')").all(`task:${taskId}`) as { id: number; event_id: string }[];
+  for (const r of rows) {
+    db.prepare("UPDATE workbench_event_deliveries SET status = 'cancelled', message = '' WHERE id = ?").run(r.id);
+    log(r.event_id, r.id, actor, 'cancelled', { reason: 'task withdrawn' });
+  }
+  return rows.length;
 }
 async function deliver(row: DeliveryRow): Promise<void> {
-  if (Buffer.byteLength(row.message, 'utf8') > MAX_ROUTE_BODY_BYTES - 4096) return settle(row, 'dead', 'payload exceeds the direct-route transport cap', row.attempts + 1);
+  if (taskWithdrawn(row.source, row.item)) return settle(row, 'cancelled', 'task withdrawn');
+  const attempt = row.attempts + 1;
+  // 每次尝试一个 task_id：对端幂等键按 task_id 全机唯一，且登记在「判定能否投递」之前——
+  // 同一 task_id 重试拿到的 -32003 不能证明上次送到了；同机多团队共用一个 id 会撞 -32002。
+  // 代价是对端丢了响应时可能收到两次，接单方按 event_id 去重（契约 §5）。
+  const taskId = `${row.event_id}.d${row.id}.a${attempt}`;
+  const body = JSON.stringify({ team: row.target_team, message: row.message, caller_session: row.caller_session, context_id: row.context_id, wait: false, task_id: taskId });
+  if (Buffer.byteLength(body, 'utf8') > MAX_ROUTE_BODY_BYTES) return settle(row, 'dead', 'payload exceeds the direct-route transport cap', attempt);
   let out: any;
   try {
-    out = await a2aSendOutbound(a2aKeyPath(), { baseUrl: row.target_url, team: row.target_team }, row.message, row.context_id, row.caller_session, { taskId: row.event_id, async: true });
+    out = await a2aSendOutbound(a2aKeyPath(), { baseUrl: row.target_url, team: row.target_team }, row.message, row.context_id, row.caller_session, { taskId, async: true });
   } catch (e: any) {
     out = { ok: false, error: String(e?.message ?? e) };
   }
-  // -32003：同一 task_id 在对端幂等窗内重放——上一次已经送到了
-  if (out?.ok === true || out?.code === -32003) return settle(row, 'sent');
+  if (out?.ok === true) return settle(row, 'sent', '', attempt - 1);
   const error = String(out?.error ?? 'unknown failure');
-  const attempts = row.attempts + 1;
-  if (attempts >= MAX_ATTEMPTS) return settle(row, 'dead', error, attempts);
-  const delay = (BACKOFF_MS[Math.min(attempts - 1, BACKOFF_MS.length - 1)] ?? 3_600_000) * backoffScale();
-  db.prepare('UPDATE workbench_event_deliveries SET attempts = ?, next_at = ?, last_error = ? WHERE id = ?').run(attempts, sqliteUtcIn(delay), error.slice(0, 300), row.id);
-  log(row.event_id, row.id, 'market', 'retry', { attempts, error: error.slice(0, 300) });
+  if (typeof out?.code === 'number' && TERMINAL_CODES.has(out.code)) return settle(row, 'dead', `${out.code}: ${error}`, attempt);
+  if (attempt >= MAX_ATTEMPTS) return settle(row, 'dead', error, attempt);
+  const delay = (BACKOFF_MS[Math.min(attempt - 1, BACKOFF_MS.length - 1)] ?? 3_600_000) * backoffScale();
+  db.prepare('UPDATE workbench_event_deliveries SET attempts = ?, next_at = ?, last_error = ? WHERE id = ?').run(attempt, sqliteUtcIn(delay), error.slice(0, 300), row.id);
+  log(row.event_id, row.id, 'market', 'retry', { attempts: attempt, error: error.slice(0, 300) });
 }
 let ticking = false;
+let kickAgain = false;
 export async function workbenchEventTick(): Promise<void> {
-  if (ticking) return;
+  if (ticking) { kickAgain = true; return; }
   ticking = true;
   try {
-    const due = db.prepare("SELECT d.id, d.event_id, d.target_team, d.target_url, d.caller_session, d.message, d.attempts, e.context_id FROM workbench_event_deliveries d JOIN workbench_events e ON e.event_id = d.event_id WHERE d.status = 'pending' AND d.next_at <= datetime('now') ORDER BY d.id LIMIT 20").all() as unknown as DeliveryRow[];
-    for (const row of due) {
-      try { await deliver(row); } catch (e) { console.error(`[workbench-events] delivery ${row.id} failed: ${String(e).slice(0, 120)}`); }
-    }
+    do {
+      kickAgain = false;
+      const due = db.prepare("SELECT d.id, d.event_id, d.target_team, d.target_url, d.caller_session, d.message, d.attempts, e.context_id, e.source, e.item FROM workbench_event_deliveries d JOIN workbench_events e ON e.event_id = d.event_id WHERE d.status = 'pending' AND d.next_at <= datetime('now') ORDER BY d.id LIMIT 20").all() as unknown as DeliveryRow[];
+      // 并发投递：一台宕机的主机（每次可能等满 15s）不拖住发往其他主机的投递
+      for (let i = 0; i < due.length; i += WORKER_CONCURRENCY) {
+        await Promise.allSettled(due.slice(i, i + WORKER_CONCURRENCY).map((row) => deliver(row).catch((e) => console.error(`[workbench-events] delivery ${row.id} failed: ${String(e).slice(0, 120)}`))));
+      }
+    } while (kickAgain);
   } finally { ticking = false; }
 }
 /** 立即试投（发布/提交后调用）；失败留给定时 worker 按退避重试 */
@@ -218,6 +252,7 @@ export function kickWorkbenchEvents(): void {
   setImmediate(() => { void workbenchEventTick(); });
 }
 export function startWorkbenchEventWorker(): void {
+  if (!process.env.MARKET_PUBLIC_URL) console.warn('[workbench-events] MARKET_PUBLIC_URL 未设：派发信封里的 reply.url 与 OriginClaim 的 callerUrl 都是回环地址，远程接单节点回写不了决定、对端也取不到市场卡片');
   const timer = setInterval(() => { void workbenchEventTick(); }, 5_000);
   timer.unref?.();
 }
@@ -248,6 +283,9 @@ export function registerWorkbenchEventRoutes(app: express.Express, guards: { adm
     if (!guards.sameOrigin(req)) return res.status(403).json({ error: '跨源拒绝' });
     if (!guards.admin(req, res)) return;
     const eventId = req.params.eventId;
+    const ev = db.prepare('SELECT source, item FROM workbench_events WHERE event_id = ?').get(eventId) as { source: string; item: string } | undefined;
+    if (!ev) return res.status(404).json({ error: 'event not found' });
+    if (taskWithdrawn(ev.source, ev.item)) return res.status(409).json({ error: '任务已撤回，不再派发', event_id: eventId });
     db.exec('BEGIN IMMEDIATE');
     let released: { id: number }[] = [];
     try {
@@ -277,10 +315,12 @@ export function registerWorkbenchEventRoutes(app: express.Express, guards: { adm
     if (ref.length > 300 || (ref !== '' && !/^https?:\/\/\S+$/.test(ref))) return res.status(400).json({ error: 'ref 须为 http(s) 链接，≤300 字' });
     // 凭 token 找到唯一一条投递；找不到与 token 错同答 404（不泄露事件是否存在）
     const hash = Buffer.from(sha256(token), 'hex');
-    const rows = db.prepare("SELECT id, status, decision, reply_token_sha256 FROM workbench_event_deliveries WHERE event_id = ? AND reply_token_sha256 != ''").all(eventId) as { id: number; status: string; decision: string; reply_token_sha256: string }[];
+    const rows = db.prepare("SELECT id, status, decision, reply_token_sha256, (sent_at != '' AND datetime(sent_at, '+' || ? || ' days') > datetime('now')) AS live FROM workbench_event_deliveries WHERE event_id = ? AND reply_token_sha256 != ''").all(REPLY_TTL_DAYS, eventId) as { id: number; status: string; decision: string; reply_token_sha256: string; live: number }[];
     const row = token === '' ? undefined : rows.find((r) => { const h = Buffer.from(r.reply_token_sha256, 'hex'); return h.length === hash.length && timingSafeEqual(h, hash); });
     if (!row) return res.status(404).json({ error: 'event not found' });
+    if (row.status !== 'sent') return res.status(409).json({ error: `投递状态为 ${row.status}，只有已送达的投递才能回写决定` });
     if (row.decision === 'accept' || row.decision === 'decline') return res.status(409).json({ error: `已有终态决定：${row.decision}`, decision: row.decision });
+    if (row.live !== 1) return res.status(410).json({ error: `reply token 已过期（送达后 ${REPLY_TTL_DAYS} 天）` });
     db.exec('BEGIN IMMEDIATE');
     try {
       db.prepare("UPDATE workbench_event_deliveries SET decision = ?, decision_reason = ?, decision_ref = ?, decided_by = ?, decided_at = datetime('now') WHERE id = ?").run(decision, reason, ref, by, row.id);
