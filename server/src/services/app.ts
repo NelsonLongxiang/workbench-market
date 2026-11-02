@@ -47,6 +47,12 @@ export class AppService extends Service {
   appendChangelog(appId: number, version: number, text: string) {
     return db.prepare(`UPDATE app_versions SET changelog = changelog || ? WHERE app_id = ? AND version = ?`).run(text, appId, version);
   }
+  setSource(id: number, repo: string, path: string) {
+    return db.prepare('UPDATE apps SET source_repo = ?, source_path = ? WHERE id = ?').run(repo, path, id);
+  }
+  setVersionCommit(appId: number, version: number, commit: string) {
+    return db.prepare('UPDATE app_versions SET source_commit = ? WHERE app_id = ? AND version = ?').run(commit, appId, version);
+  }
   versionsMax(appId: number) {
     return db.prepare('SELECT MAX(version) AS v FROM app_versions WHERE app_id = ?').get(appId);
   }
