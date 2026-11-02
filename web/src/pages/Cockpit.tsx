@@ -171,17 +171,17 @@ export default function Cockpit() {
             新建驾驶舱
           </Button>}
       >
-      <Flex vertical gap={16} style={{ width: '100%' }} align="start">
+      <Flex vertical gap={16} className="wm-w-full" align="start">
         {READ_ONLY && <Alert type="info" showIcon className="wm-cockpit-readonly" message="驾驶舱在这里只能查看" description={READ_ONLY_HINT} />}
         {listReq.data?.length ? (
-          <Flex gap={16} wrap="wrap" style={{ width: '100%', rowGap: 16 }}>
+          <Flex gap={16} wrap="wrap" className="wm-w-full" style={{ rowGap: 16 }}>
             {listReq.data.map((c) => (
               <div key={c.id} style={{ flex: '1 1 260px', maxWidth: 360, minWidth: 240 }}>
                 <Card hoverable onClick={() => nav(`/cockpit/${c.id}`)} styles={{ body: { padding: 16 } }}>
                   <Flex justify="space-between" align="start" gap={8}>
                     <Flex vertical gap={4}>
-                      <Typography.Text strong style={{ fontSize: 15 }}>{c.name}</Typography.Text>
-                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      <Typography.Text strong className="wm-text-subtitle">{c.name}</Typography.Text>
+                      <Typography.Text type="secondary" className="wm-caption">
                         {c.panels.length} 个面板 · {c.updated_at.slice(0, 16).replace('T', ' ')}
                       </Typography.Text>
                     </Flex>
@@ -227,7 +227,7 @@ export default function Cockpit() {
   if (listReq.loading || !active || panels === null) {
     return (
       <WmPage detail={active?.name}>
-        <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
+        <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
           <Spin size="large" />
         </div>
       </WmPage>
@@ -236,8 +236,8 @@ export default function Cockpit() {
 
   return (
     <WmPage detail={active.name}>
-    <Flex vertical gap={12} style={{ width: '100%' }} align="start">
-      <Flex justify="space-between" align="center" gap={12} style={{ width: '100%', flexWrap: 'wrap', rowGap: 8 }}>
+    <Flex vertical gap={12} className="wm-w-full" align="start">
+      <Flex justify="space-between" align="center" gap={12} className="wm-w-full" style={{ flexWrap: 'wrap', rowGap: 8 }}>
         <Flex align="center" gap={8}>
           <Button icon={<ArrowLeftOutlined />} onClick={() => nav('/cockpit')} aria-label="返回驾驶舱列表" />
           <Select
@@ -295,7 +295,7 @@ export default function Cockpit() {
           加待办卡
         </Button>}
       </Flex>
-      {READ_ONLY && <Alert type="info" showIcon className="wm-cockpit-readonly" message="驾驶舱在这里只能查看" description={READ_ONLY_HINT} style={{ width: '100%' }} />}
+      {READ_ONLY && <Alert type="info" showIcon className="wm-cockpit-readonly wm-w-full" message="驾驶舱在这里只能查看" description={READ_ONLY_HINT} />}
 
       {panels.length === 0 ? (
         <Empty description={READ_ONLY ? '空驾驶舱' : '空驾驶舱——从右上角选择工作台加入分屏'} style={{ marginTop: 48 }} />
@@ -318,9 +318,9 @@ export default function Cockpit() {
                 <div key={p.i} className="wm-panel">
                   <div className="wm-panel-head">
                     <span className="wm-panel-grip" aria-hidden>⠿</span>
-                    <Badge status="processing" text={<Typography.Text strong style={{ fontSize: 13 }}>统一待办</Typography.Text>} />
+                    <Badge status="processing" text={<Typography.Text strong className="wm-text-body">统一待办</Typography.Text>} />
                     <span className="wm-panel-actions">
-                      <Link to="/tasks" style={{ fontSize: 12, marginRight: 8 }}>全部</Link>
+                      <Link to="/tasks" className="wm-caption" style={{ marginRight: 8 }}>全部</Link>
                       {!READ_ONLY && <Button size="small" type="text" onClick={() => persist(panels.filter((q) => q.i !== 'tasks'), true)}>移除</Button>}
                     </span>
                   </div>
@@ -339,7 +339,7 @@ export default function Cockpit() {
                   <Badge
                     status={w?.last_status === 'up' ? 'success' : w?.last_status === 'down' ? 'error' : 'default'}
                     text={
-                      <Typography.Text strong style={{ fontSize: 13 }}>
+                      <Typography.Text strong className="wm-text-body">
                         {w?.icon || '▢'} {w?.name ?? `工作台 #${p.workbenchId}`}
                       </Typography.Text>
                     }
@@ -364,7 +364,7 @@ export default function Cockpit() {
         </Grid>
       )}
 
-      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+      <Typography.Text type="secondary" className="wm-caption">
         {READ_ONLY ? '' : '拖动面板标题栏移动，右下角拉伸调整大小，布局自动保存 · '}部分工作台通过 X-Frame-Options 禁止内嵌，空白时用「新窗口」打开 ·{' '}
         <Link to="/market">去工作台市场</Link>
       </Typography.Text>

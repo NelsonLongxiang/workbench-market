@@ -104,8 +104,8 @@ export default function Settings() {
 
   return (
     <WmPage subTitle="健康巡检 · 导入导出 · 系统信息">
-    <Flex vertical gap={16} style={{ width: '100%', alignItems: 'flex-start' }}>
-      <Card title="健康巡检" style={{ width: '100%', maxWidth: 640 }} styles={{ body: { paddingTop: 8 } }}>
+    <Flex vertical gap={16} className="wm-w-full" style={{ alignItems: 'flex-start' }}>
+      <Card title="健康巡检" className="wm-w-full" style={{ maxWidth: 640 }} styles={{ body: { paddingTop: 8 } }}>
         <Form
           form={form}
           layout="vertical"
@@ -132,8 +132,8 @@ export default function Settings() {
         </Form>
       </Card>
 
-      <Card title="数据备份 / 迁移" style={{ width: '100%', maxWidth: 640 }} styles={{ body: { paddingTop: 12 } }}>
-        <Flex vertical gap={12} style={{ width: '100%' }}>
+      <Card title="数据备份 / 迁移" className="wm-w-full" style={{ maxWidth: 640 }} styles={{ body: { paddingTop: 12 } }}>
+        <Flex vertical gap={12} className="wm-w-full">
           <Space>
             <Button icon={<DownloadOutlined />} onClick={downloadExport}>
               导出 JSON
@@ -186,7 +186,7 @@ export default function Settings() {
 
       <Card
         title={<Space><KeyOutlined /><span>管理员口令</span></Space>}
-        style={{ width: '100%', maxWidth: 640 }}
+        className="wm-w-full" style={{ maxWidth: 640 }}
         styles={{ body: { paddingTop: 12 } }}
         extra={tokenState ? (
           tokenState.source === 'env' ? <Tag color="blue">启动环境提供</Tag>
@@ -194,19 +194,19 @@ export default function Settings() {
             : <Tag color="orange">未设置 · 控制面休眠</Tag>
         ) : null}
       >
-        <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
+        <Typography.Paragraph type="secondary" className="wm-caption">
           用于 SOP 绑定、MCP 会话管理、上游聚合配置这些<b>控制面</b>（远程面收口不依赖它）。
           {tokenState?.source === 'env'
             ? ' 口令来自启动环境变量 ADMIN_TOKEN，页面不可改（改环境变量并重启）。'
             : ' 设置后立即生效，库存仅 sha256 不可取回；清除后控制面回到休眠。'}
         </Typography.Paragraph>
         {tokenState?.settable ? (
-          <Space.Compact style={{ width: '100%', maxWidth: 480 }}>
+          <Space.Compact className="wm-w-full" style={{ maxWidth: 480 }}>
             <Input.Password
               placeholder="新口令（4–128 字符）"
               value={newToken}
               onChange={(e) => setNewToken(e.target.value)}
-              style={{ fontSize: 13 }}
+              className="wm-text-body"
               autoComplete="new-password"
             />
             <Button type="primary" onClick={saveToken} disabled={newToken.length < 4}>设置口令</Button>
@@ -219,7 +219,7 @@ export default function Settings() {
         ) : null}
       </Card>
 
-      <Card title="关于" style={{ width: '100%', maxWidth: 640 }} styles={{ body: { paddingTop: 8 } }}>
+      <Card title="关于" className="wm-w-full" style={{ maxWidth: 640 }} styles={{ body: { paddingTop: 8 } }}>
         <Descriptions
           column={1}
           size="small"
@@ -227,7 +227,7 @@ export default function Settings() {
             { key: 'name', label: '产品', children: 'workbench-market · 工作台市场' },
             { key: 'ver', label: '版本', children: <span className="wm-num">{String((healthReq.data as { version?: string })?.version ?? '0.1.0')}</span> },
             { key: 'arch', label: '架构', children: 'Express + node:sqlite（单文件 SQLite，零原生依赖）· React + antd + pro-components' },
-            { key: 'db', label: '数据位置', children: <span className="wm-mono" style={{ fontSize: 12 }}>server/data/workbench-market.db（可用 DATA_DIR 环境变量重定向）</span> },
+            { key: 'db', label: '数据位置', children: <span className="wm-mono wm-caption">server/data/workbench-market.db（可用 DATA_DIR 环境变量重定向）</span> },
             { key: 'up', label: '服务运行时长', children: <span className="wm-num">{healthReq.data ? `${(healthReq.data as { uptime_s?: number }).uptime_s}s` : '-'}</span> },
           ]}
         />

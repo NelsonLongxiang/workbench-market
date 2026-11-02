@@ -1,3 +1,5 @@
+/* 全站样式：颜色、字号、间距、圆角、阴影只用 tokens.css 的 --wm-* 变量（DESIGN.md，#322 迁移）。
+   写字只用 text / text-secondary / *-text；侧栏与使用页顶栏是仅有的深色区，用 nav-*。 */
 html,
 body,
 #root {
@@ -6,8 +8,7 @@ body,
 }
 
 body {
-  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-    'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--wm-font-sans);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -15,11 +16,10 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* 等宽栈：URL/端口/路径等机器值统一 Cascadia Mono（Windows 已内置，零 webfont 请求）。
-   不用 Inter/JetBrains webfont——内网工具不拉外部字体（MASTER.md 已决） */
+/* 等宽栈：URL/端口/路径等机器值（零 webfont 请求，MASTER.md 已决） */
 .wm-mono,
 .ant-typography code {
-  font-family: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
+  font-family: var(--wm-font-mono);
 }
 
 /* 瑞士风统计标签：小号 + 加字距 + 次级色（CJK 不受 text-transform 影响） */
@@ -31,72 +31,39 @@ body {
   color: var(--wm-color-text-secondary);
 }
 
-/* ---------- 仪表盘卡片（react-grid-layout 内） ---------- */
-.wm-card {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: #fff;
-  border: 1px solid rgba(30, 58, 95, 0.1);
-  border-radius: 8px;
-  padding: 12px;
-  gap: 8px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-  overflow: hidden;
+/* ---------- 文字与间距工具类（#322：替代散落的 style={{ fontSize / margin }}，值取 DESIGN.md 6 档字号与 4px 栅格） ---------- */
+.wm-caption { font-size: var(--wm-font-size-caption); line-height: var(--wm-line-height-caption); }
+.wm-text-body { font-size: var(--wm-font-size-body); line-height: var(--wm-line-height-body); }
+.wm-display { font-size: var(--wm-font-size-display); line-height: var(--wm-line-height-display); font-weight: var(--wm-font-weight-display); }
+.wm-text-subtitle { font-size: var(--wm-font-size-subtitle); line-height: var(--wm-line-height-subtitle); font-weight: var(--wm-font-weight-subtitle); }
+.wm-strong { font-weight: var(--wm-font-weight-body-strong); }
+.wm-secondary { color: var(--wm-color-text-secondary); }
+.wm-prewrap { white-space: pre-wrap; }
+.wm-break { word-break: break-all; }
+.wm-w-full { width: 100%; }
+.wm-mt-1 { margin-top: var(--wm-space-1); }
+.wm-mt-3 { margin-top: var(--wm-space-3); }
+.wm-mb-1 { margin-bottom: var(--wm-space-1); }
+.wm-mb-2 { margin-bottom: var(--wm-space-2); }
+.wm-mb-3 { margin-bottom: var(--wm-space-3); }
+.wm-mb-4 { margin-bottom: var(--wm-space-4); }
+.wm-m-0 { margin: 0; }
+/* 原生输入框（少数非 antd 表单，如 SOP 网络暴露抽屉、Cookie 粘贴框） */
+.wm-input {
+  padding: var(--wm-space-1) var(--wm-space-3);
+  border: 1px solid var(--wm-color-border-strong);
+  border-radius: var(--wm-radius-md);
+  font-size: var(--wm-font-size-body);
+  color: var(--wm-color-text);
+  background: var(--wm-color-surface);
 }
+.wm-input:focus-visible { outline: 2px solid var(--wm-color-primary); outline-offset: 1px; }
 
-.wm-card:hover {
-  border-color: rgba(5, 150, 105, 0.45);
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.1);
-}
-
-.wm-card.draggable .wm-card-head {
-  cursor: grab;
-}
-
-.wm-card-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.wm-card-icon {
-  font-size: 20px;
-  line-height: 1;
-}
-
-.wm-card-title {
-  font-weight: 600;
-  font-size: 14px;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.wm-card-url {
-  font-size: 12px;
-  color: #64748b;
-  font-family: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.wm-card-foot {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-  margin-top: auto;
-}
-
+/* 驾驶舱拖拽占位 */
 .react-grid-item.react-grid-placeholder {
-  background: #1e3a5f;
+  background: var(--wm-color-primary);
   opacity: 0.15;
-  border-radius: 8px;
+  border-radius: var(--wm-radius-lg);
 }
 
 /* ---------- 任务驾驶舱 ---------- */
@@ -107,29 +74,31 @@ body {
 .wm-panel {
   display: flex;
   flex-direction: column;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  background: var(--wm-color-surface);
+  border: 1px solid var(--wm-color-border);
+  border-radius: var(--wm-radius-lg);
   overflow: hidden;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--wm-shadow-1);
 }
 
 .wm-panel-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--wm-space-2);
   height: 36px;
-  padding: 0 10px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
+  padding: 0 var(--wm-space-3);
+  border-bottom: 1px solid var(--wm-color-border);
+  background: var(--wm-color-page);
   cursor: move;
   user-select: none;
   flex: none;
 }
 
+.wm-panel-title { font-size: var(--wm-font-size-body); font-weight: var(--wm-font-weight-body-strong); }
+
 .wm-panel-grip {
-  color: #94a3b8;
-  font-size: 14px;
+  color: var(--wm-color-text-secondary);
+  font-size: var(--wm-font-size-body);
   line-height: 1;
 }
 
@@ -143,28 +112,28 @@ body {
 .wm-panel-actions {
   margin-left: auto;
   display: inline-flex;
-  gap: 10px;
-  color: #64748b;
+  gap: var(--wm-space-3);
+  color: var(--wm-color-text-secondary);
   cursor: default;
 }
 
 .wm-panel-actions .anticon,
 .wm-panel-actions a {
-  color: #64748b;
-  font-size: 13px;
+  color: var(--wm-color-text-secondary);
+  font-size: var(--wm-font-size-body);
   cursor: pointer;
 }
 
 .wm-panel-actions .anticon:hover,
 .wm-panel-actions a:hover {
-  color: #1e3a5f;
+  color: var(--wm-color-primary);
 }
 
 .wm-panel-body {
   flex: 1;
   min-height: 0;
   position: relative;
-  background: #ffffff;
+  background: var(--wm-color-surface);
 }
 
 .wm-panel-body iframe {
@@ -176,117 +145,106 @@ body {
 }
 
 .wm-panel-body .ant-empty {
-  margin-top: 32px;
+  margin-top: var(--wm-space-8);
 }
 
 
-/* ---------- 嵌入使用页 ---------- */
+/* ---------- 嵌入使用页（顶栏是深色区，用 nav-*） ---------- */
 .wm-use-wrap {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: #f5f5f5;
+  background: var(--wm-color-page);
 }
 
 .wm-use-bar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 16px;
+  gap: var(--wm-space-3);
+  padding: 0 var(--wm-space-4);
   height: 52px;
-  background: #0f172a;
-  color: #e2e8f0;
+  background: var(--wm-color-nav-bg);
+  color: var(--wm-color-nav-text);
   flex: none;
 }
 
 .wm-use-bar .wm-use-title {
-  color: #fff;
-  font-weight: 600;
+  color: var(--wm-color-nav-text-active);
+  font-weight: var(--wm-font-weight-subtitle);
   margin: 0 !important;
 }
 
-/* 深底上的状态文字必须用浅色（默认 antd 文字色在 #0f172a 上仅 1.18:1，不可见）。
+/* 深底上的状态文字必须用浅色（默认 antd 文字色在 nav-bg 上仅 1.18:1，不可见）。
    antd v5 cssinjs 运行时注入的 <style> 排在静态 <link> 之后，同特异度按文档序后者胜，
    平级选择器压不住——必须 !important 抬过级联 */
 .wm-use-bar .ant-badge-status-text {
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--wm-color-nav-text) !important;
 }
 
 .wm-use-bar .ant-btn {
-  color: #CBD5E1 !important;
+  color: var(--wm-color-nav-text) !important;
+}
+
+.wm-use-bar .wm-mono {
+  color: var(--wm-color-nav-text);
 }
 
 .wm-use-frame {
   flex: 1;
   width: 100%;
   border: none;
-  background: #fff;
+  background: var(--wm-color-surface);
 }
 
-/* ---------- 表格工具栏小屏换行（避免横向溢出裁切） ---------- */
-/* 侧栏折叠按钮贴合深色底（默认白底圆突兀）；保留以维持移动端抽屉触发器 */
+/* 侧栏折叠按钮贴合深色底；保留以维持移动端抽屉触发器 */
 .wm-sider-collapse {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 24px;
   height: 24px;
-  border-radius: 50%;
-  background: #1e293b;
-  color: #cbd5e1;
-  font-size: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--wm-radius-full);
+  background: var(--wm-color-nav-item-active-bg);
+  color: var(--wm-color-nav-text);
+  font-size: var(--wm-font-size-caption);
+  border: 1px solid var(--wm-color-nav-item-active-bg);
   cursor: pointer;
-  transition: color 0.2s ease, border-color 0.2s ease;
+  transition: color var(--wm-motion-base) var(--wm-motion-easing), border-color var(--wm-motion-base) var(--wm-motion-easing);
 }
 .wm-sider-collapse:hover {
-  color: #fff;
-  border-color: rgba(5, 150, 105, 0.6);
+  color: var(--wm-color-nav-text-active);
+  border-color: var(--wm-color-nav-text);
 }
 
 /* pro-components v2 把 toolBarRender 全部项包进一个匿名 nowrap DIV（实测 904px），
-   双类选择器压过其 css-hash 单类规则 */
+   双类选择器压过其 css-hash 单类规则——表格工具栏小屏换行，避免横向溢出裁切 */
 .ant-pro-table-list-toolbar .ant-pro-table-list-toolbar-right {
   flex-wrap: wrap;
   width: 100%;
   justify-content: flex-start;
-  row-gap: 8px;
+  row-gap: var(--wm-space-2);
 }
 .ant-pro-table-list-toolbar-right > div:not(.ant-pro-table-list-toolbar-setting-items) {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--wm-space-2);
   max-width: 100%;
 }
 
-/* ---------- 总览统计卡：可点击 deep-link，悬停描 emerald 边 + 焦点环 ---------- */
-.wm-stat-card {
-  cursor: pointer;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-.wm-stat-card.ant-card:hover {
-  border-color: rgba(5, 150, 105, 0.45);
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
-}
-.wm-stat-card:focus-visible {
-  outline: 2px solid rgba(5, 150, 105, 0.6);
-  outline-offset: 1px;
-}
-
 /* 生命周期全景（/lifecycle） */
-.wm-lc-row { padding: 8px 10px; border: 1px solid var(--ant-color-border-secondary, #eee); border-radius: 8px; margin-bottom: 8px; }
-.wm-lc-lanes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 8px 0; }
-.wm-lc-lane { background: #F8FAFC; border-radius: 6px; padding: 6px 8px; min-height: 56px; }
+.wm-lc-row { padding: var(--wm-space-2) var(--wm-space-3); border: 1px solid var(--wm-color-border); border-radius: var(--wm-radius-lg); margin-bottom: var(--wm-space-2); }
+.wm-lc-lanes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--wm-space-2); margin: var(--wm-space-2) 0; }
+.wm-lc-lane { background: var(--wm-color-page); border-radius: var(--wm-radius-md); padding: var(--wm-space-1) var(--wm-space-2); min-height: 56px; }
 @media (max-width: 640px) { .wm-lc-lanes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 /* #292 M4：有口令时 /go/ 内嵌框的替代提示（使用页与驾驶舱面板共用） */
 .wm-go-guard {
   flex: 1;
-  background: #fff;
+  background: var(--wm-color-surface);
   overflow: auto;
 }
 
-/* #316 侧栏分组：antd 把「当前页所在分组」的标题染成 colorPrimary（#1E3A5F），在 nav-bg 上只有 1.6:1；改用 nav-text-active */
+/* #316 侧栏分组：antd 把「当前页所在分组」的标题染成 colorPrimary，在 nav-bg 上只有 1.6:1；改用 nav-text-active */
 .ant-pro-sider .ant-menu-submenu-selected > .ant-menu-submenu-title {
   color: var(--wm-color-nav-text-active);
 }
