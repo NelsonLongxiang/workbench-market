@@ -276,7 +276,7 @@ export default function Sops() {
         loading={loading}
         search={false}
         pagination={false}
-        locale={{ emptyText: <Empty description="还没有 SOP——经 MCP app_publish（kind=sop）或 POST /api/apps 发布第一个" /> }}
+        locale={{ emptyText: <Empty description="还没有 SOP——把 sop.yaml 合进 GitHub 仓库 main，再由管理员 POST /api/apps/<slug>/sync（带 source_repo、kind=sop）登记第一个" /> }}
         options={{ reload: reload, density: false, setting: false }}
         headerTitle="全部 SOP"
       />
