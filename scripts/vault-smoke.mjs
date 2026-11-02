@@ -43,7 +43,7 @@ const watchdog = setTimeout(() => {
 function boot(tag, extraEnv) {
   const port = 20000 + Math.floor(Math.random() * 20000);
   const data = join(TMP, `data-${tag}`); mkdirSync(data, { recursive: true });
-  const env = { ...process.env, MCP_GATEWAY: 'off', PORT: String(port), DATA_DIR: data, ...extraEnv };
+  const env = { ...process.env, NODE_ENV: 'test', MCP_GATEWAY: 'off', PORT: String(port), DATA_DIR: data, ...extraEnv };
   for (const k of ['LC_YGL_BIN', 'LC_YGL_HOME', 'LC_WORKBENCH_KEY_FILE', 'LC_ODOO_URL', 'WM_ODOO_ORIGINS', 'WM_DEV_ORIGIN', 'WM_CONTROL_PORT']) if (!(k in extraEnv)) delete env[k];
   if (!('DSH_VAULT_PASSWORD' in extraEnv)) delete env.DSH_VAULT_PASSWORD;
   // Child-origin IPC proves this test owns each listening port before any HTTP request.

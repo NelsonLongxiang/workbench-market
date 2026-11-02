@@ -41,7 +41,7 @@ function boot(extraEnv) {
   const port = 20000 + Math.floor(Math.random() * 20000);
   const data = join(TMP, `data-${port}`);
   mkdirSync(data, { recursive: true });
-  const env = { ...process.env, MCP_GATEWAY: 'off', PORT: String(port), DATA_DIR: data, ADMIN_TOKEN: 'lc-board-smoke', ...extraEnv };
+  const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), DATA_DIR: data, ADMIN_TOKEN: 'lc-board-smoke', ...extraEnv };
   for (const k of ['LC_YGL_BIN', 'LC_YGL_HOME', 'LC_WORKBENCH_KEY_FILE', 'LC_ODOO_URL', 'LC_LEDGER', 'LC_ANCHOR_DIR', 'LC_TEST']) if (!(k in extraEnv)) delete env[k];
   const p = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });
   p.err = ''; p.stderr.on('data', (c) => (p.err += c));

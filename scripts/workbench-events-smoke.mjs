@@ -31,7 +31,7 @@ mkdirSync('tmp', { recursive: true });
 const data = mkdtempSync(resolve('tmp', 'wbe-'));
 const port = 21000 + Math.floor(Math.random() * 20000);
 const base = 'http://127.0.0.1:' + port;
-const env = { ...process.env, PORT: String(port), DATA_DIR: data, ADMIN_TOKEN: 'wbe-test', MCP_GATEWAY: 'off', REDIS_URL: '', LAYERFS_SERVICE_URL: '', MARKET_PUBLIC_URL: base, A2A_OUTBOX_BACKOFF_SCALE: '0.0001' };
+const env = { ...process.env, PORT: String(port), DATA_DIR: data, ADMIN_TOKEN: 'wbe-test', MCP_GATEWAY: 'on', REDIS_URL: '', LAYERFS_SERVICE_URL: '', MARKET_PUBLIC_URL: base, A2A_OUTBOX_BACKOFF_SCALE: '0.0001' };
 let child, logs = '', pass = 0;
 const check = async (name, fn) => { await fn(); pass++; console.log('PASS ' + name); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

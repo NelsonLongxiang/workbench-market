@@ -36,7 +36,7 @@ mkdirSync(DATA, { recursive: true });
 }
 for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`server/data/${d}`, `${DATA}/${d}`, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
-  cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 's3-tok' }, stdio: 'ignore',
+  cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 's3-tok' }, stdio: 'ignore',
 });
 try {
   if (!(await waitReady(`${BASE}/api/health`))) throw new Error('实例未就绪');
