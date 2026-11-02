@@ -9,7 +9,7 @@ let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log('  \u2713 ' + n); } else { fail++; console.log('  \u2717 ' + n + ' ' + x); } };
 async function waitReady(url, ms = 40000) { const end = Date.now() + ms; while (Date.now() < end) { try { const r = await fetch(url, { signal: AbortSignal.timeout(1500) }); if (r.status < 500) return true; } catch {} await new Promise((r) => setTimeout(r, 250)); } return false; }
 rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: true });
-const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'b2' }, stdio: ['ignore', 'pipe', 'pipe'] });
+const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'b2' }, stdio: ['ignore', 'pipe', 'pipe'] });
 const B = 'http://127.0.0.1:' + PORT;
 child.stderr?.on('data', (c) => process.stderr.write('[srv] ' + c));
 child.on('exit', (c2, s) => console.log('[srv exit]', c2, s));
