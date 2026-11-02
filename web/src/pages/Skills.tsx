@@ -55,7 +55,7 @@ export default function SkillsPage() {
   // 列序按 PATTERNS.md §5：名称（技能无状态列）→ 关键属性；数字右对齐
   const cols: ProColumns<SkillRow>[] = [
     { title: '名称', dataIndex: 'name', render: (_, r) => <Typography.Text strong>{r.name}</Typography.Text> },
-    { title: 'slug', dataIndex: 'slug', width: 220, render: (_, r) => <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{r.slug}</Typography.Text> },
+    { title: 'slug', dataIndex: 'slug', width: 220, render: (_, r) => <Typography.Text className="wm-mono wm-caption">{r.slug}</Typography.Text> },
     { title: '层', dataIndex: 'layer', width: 110, render: (_, r) => <Tag color={['', 'geekblue', 'cyan', 'gold', 'purple', 'green'][r.layer]}>{r.layer} {r.layer_name.slice(0, 4)}</Tag> },
     { title: '族', dataIndex: 'family_parent', width: 130, render: (_, r) => r.family_parent || '-' },
     { title: '形态', key: 'legacy', width: 100, render: (_, r) => r.legacy ? <Tag>legacy 登记</Tag> : <Tag color="processing">快照</Tag> },
@@ -64,7 +64,7 @@ export default function SkillsPage() {
   const vcols: ColumnsType<VersionRow> = [
     { title: 'v', dataIndex: 'version', key: 'v', width: 50 },
     { title: 'changelog', dataIndex: 'changelog', key: 'cl', ellipsis: true },
-    { title: 'digest', dataIndex: 'tree_digest', key: 'dg', render: (_, r) => <Typography.Text code style={{ fontSize: 11 }}>{r.tree_digest.slice(0, 16)}…</Typography.Text> },
+    { title: 'digest', dataIndex: 'tree_digest', key: 'dg', render: (_, r) => <Typography.Text code className="wm-caption">{r.tree_digest.slice(0, 16)}…</Typography.Text> },
     { title: '文件/字节', key: 'sz', width: 110, render: (_, r) => `${r.file_count} / ${(r.total_bytes / 1024).toFixed(1)}K` },
     { title: '人审', dataIndex: 'reviewed_by', key: 'rv', width: 90 },
     { title: '时间', dataIndex: 'created_at', key: 'at', width: 120, render: (_, r) => <RelTime value={r.created_at} /> },
@@ -74,21 +74,21 @@ export default function SkillsPage() {
     <WmPage subTitle="五层治理 · 版本不可变 · digest 身份锚（只读浏览，发布走 CLI/口令）">
       <Card>
         {/* 分层统计卡（五层治理：每层数量 + legacy 占比条，点击过滤） */}
-        <Space wrap size={8} style={{ marginBottom: 10 }}>
+        <Space wrap size={8} style={{ marginBottom: 12 }}>
           {LAYERS.filter((l) => l.value > 0).map((l) => {
             const items = rows.filter((r) => r.layer === l.value);
             const legacy = items.filter((r) => r.legacy).length;
             const pct = items.length ? Math.round((legacy / items.length) * 100) : 0;
             return (
               <Card key={l.value} size="small" style={{ width: 150, cursor: 'pointer' }} onClick={() => setLayer(l.value)}>
-                <Typography.Text type="secondary" style={{ fontSize: 11 }}>{l.label}</Typography.Text>
-                <div style={{ fontSize: 22, fontWeight: 600, lineHeight: 1.3 }}>{items.length}</div>
+                <Typography.Text type="secondary" className="wm-caption">{l.label}</Typography.Text>
+                <div className="wm-display wm-num">{items.length}</div>
                 {legacy > 0 && <Progress percent={pct} size="small" format={() => `legacy ${legacy}`} />}
               </Card>
             );
           })}
         </Space>
-        <Space wrap style={{ marginBottom: 12 }}>
+        <Space wrap className="wm-mb-3">
           <Segmented options={LAYERS} value={layer} onChange={(v) => setLayer(v as number)} />
           <Input.Search placeholder="搜索名称/描述" allowClear style={{ width: 240 }} onSearch={setQ} />
           <Typography.Text type="secondary">共 {shown.length} 项（快照 {shown.filter((r) => !r.legacy).length} / legacy {shown.filter((r) => r.legacy).length}）</Typography.Text>
@@ -96,7 +96,7 @@ export default function SkillsPage() {
         <ProTable<SkillRow> rowKey="slug" size="middle" columns={cols} dataSource={shown} loading={loading} search={false} options={false} toolBarRender={false} pagination={{ pageSize: 20, hideOnSinglePage: true }} />
       </Card>
       {versionsOf && (
-        <Card size="small" title={`版本链：${versionsOf}`} style={{ marginTop: 12 }} extra={<a onClick={() => setVersionsOf(null)}>关闭</a>}>
+        <Card size="small" title={`版本链：${versionsOf}`} className="wm-mt-3" extra={<a onClick={() => setVersionsOf(null)}>关闭</a>}>
           <Timeline
             items={versions.map((v) => ({
               color: v.breaking ? 'red' : 'green',
@@ -104,12 +104,12 @@ export default function SkillsPage() {
                 <div>
                   <Space size={8} wrap>
                     <Tag color={v.breaking ? 'red' : 'green'}>v{v.version}{v.breaking ? ' ⚠breaking' : ''}</Tag>
-                    <Typography.Text style={{ fontSize: 13 }}>{v.changelog || '(no changelog)'}</Typography.Text>
-                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>{v.created_at?.slice(0, 16)}</Typography.Text>
+                    <Typography.Text className="wm-text-body">{v.changelog || '(no changelog)'}</Typography.Text>
+                    <Typography.Text type="secondary" className="wm-caption">{v.created_at?.slice(0, 16)}</Typography.Text>
                   </Space>
-                  <div style={{ marginTop: 4 }}>
-                    <Typography.Text code style={{ fontSize: 11 }}>{v.tree_digest?.slice(0, 20)}…</Typography.Text>
-                    <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
+                  <div className="wm-mt-1">
+                    <Typography.Text code className="wm-caption">{v.tree_digest?.slice(0, 20)}…</Typography.Text>
+                    <Typography.Text type="secondary" className="wm-caption" style={{ marginLeft: 8 }}>
                       {v.file_count} 文件 · {(v.total_bytes / 1024).toFixed(1)}KB{v.reviewed_by ? ` · 人审 ${v.reviewed_by}` : ''}
                     </Typography.Text>
                   </div>
