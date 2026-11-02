@@ -1570,8 +1570,12 @@ async function postReceipt(targetUrl: string, row: { run_id: number; task_id: st
   // OriginClaim：回执同样带绑定形式信封（#64 关窗后未签名的回执会被对端拒收）
   const r = await fetch(url, {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...marketOriginClaim(a2aKeyPath(), { url, method: 'POST' }) }, body: JSON.stringify(body),
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(10_000), redirect: 'manual',
   });
+  if (r.status >= 300 && r.status < 400) {
+    await r.body?.cancel();
+    throw new Error('A2A receipt redirect rejected: HTTP ' + r.status);
+  }
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
 }
 /** 立即试投一次（finish 触发）；失败留给 worker */
