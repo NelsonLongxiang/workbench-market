@@ -35,6 +35,8 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/sop-list-privacy-browser.mjs
+      - name: Review task action and human approval UI (synthetic intercepted API)
+        run: python scripts/review-gate-browser.py
       - name: 管理员口令浏览器反例
         env:
           PYTHON: python

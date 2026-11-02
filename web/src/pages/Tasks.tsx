@@ -9,6 +9,7 @@ import { ReloadOutlined } from '@ant-design/icons';
 import { odooLoginHref } from './lifecycle-view';
 import { useOdooPopupLogin } from './odoo-login';
 import WmPage from '../components/WmPage';
+import { reviewTaskLink } from '../review-task-link';
 import RelTime from '../components/RelTime';
 
 /** 任务信封（与 server/src/tasks.ts 契约一致，字段冻结 snake_case） */
@@ -74,7 +75,7 @@ const taskColumns: ProColumns<TaskEnvelope>[] = [
   {
     title: '操作', valueType: 'option', width: 110, fixed: 'right',
     render: (_, t) => [
-      t.link ? <Button key="go" type="link" size="small" href={t.link} target="_blank">去处理</Button> : null,
+      reviewTaskLink(t) ? <Button key="go" type="link" size="small" href={reviewTaskLink(t)!} target="_blank" rel="noopener noreferrer">去处理</Button> : null,
       t.lc ? <Tooltip key="lc" title="同源门户/SOP 隔离未完成，工作台审批已停用"><span role="note">仅查看</span></Tooltip> : null,
     ],
   },
@@ -122,7 +123,7 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
                 <Tag color={STATUS_COLOR[t.status]}>{STATUS_TEXT[t.status]}</Tag>
                 <Typography.Text ellipsis className="wm-caption" style={{ maxWidth: 420 }}>{t.title}</Typography.Text>
                 <Tag color={SOURCE_COLOR[t.source] ?? 'default'}>{SOURCE_TEXT[t.source] ?? t.source}</Tag>
-                {t.link && <Button type="link" size="small" href={t.link} target="_blank">去处理</Button>}
+                {reviewTaskLink(t) && <Button type="link" size="small" href={reviewTaskLink(t)!} target="_blank" rel="noopener noreferrer">去处理</Button>}
               </div>
             ))}
           </div>

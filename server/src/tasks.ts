@@ -300,7 +300,7 @@ function changeRequestTasks(): TaskEnvelope[] {
     return rows.map((r: any) => ({
       id: `change-request:${r.id}`, source: 'market' as const,
       title: `人审·${r.kind === 'skill' ? '技能' : '台'}${r.op === 'delete' ? '删除' : '回滚'} ${r.slug}${r.reason ? '（' + String(r.reason).slice(0, 60) + '）' : ''}`,
-      status: 'todo' as const, due: '', link: '/api/change-requests', project: 'review-gate',
+      status: 'todo' as const, due: '', link: '/reviews?request=' + r.id, project: 'review-gate',
     }));
   } catch { return []; }
 }
