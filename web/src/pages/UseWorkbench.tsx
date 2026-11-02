@@ -45,7 +45,7 @@ export default function UseWorkbench() {
       <div className="wm-use-bar">
         <Button
           type="text"
-          icon={<ArrowLeftOutlined style={{ color: '#E2E8F0' }} />}
+          icon={<ArrowLeftOutlined />}
           onClick={() => nav('/')}
           aria-label="返回"
         />
@@ -55,7 +55,7 @@ export default function UseWorkbench() {
         </Typography.Title>
         <StatusBadge status={w.last_status} latency={w.last_latency_ms} error={w.last_error} checkedAt={w.last_checked_at} />
         <Tag color="geekblue">{w.type}</Tag>
-        <Typography.Text className="wm-num wm-mono" style={{ color: '#94A3B8', fontSize: 12 }}>
+        <Typography.Text className="wm-num wm-mono wm-caption">
           {w.url}
         </Typography.Text>
         <Space style={{ marginLeft: 'auto' }}>
@@ -74,7 +74,6 @@ export default function UseWorkbench() {
                 setChecking(false);
               }
             }}
-            style={{ color: '#CBD5E1' }}
           >
             检测
           </Button>
@@ -82,13 +81,13 @@ export default function UseWorkbench() {
             <Button
               type="text"
               size="small"
-              icon={<ReloadOutlined style={{ color: '#CBD5E1' }} />}
+              icon={<ReloadOutlined />}
               onClick={() => setFrameKey((k) => k + 1)}
               aria-label="重新载入"
             />
           </Tooltip>
           <a href={w.url} target="_blank" rel="noreferrer">
-            <Button type="text" size="small" icon={<ExportOutlined style={{ color: '#CBD5E1' }} />}>
+            <Button type="text" size="small" icon={<ExportOutlined />}>
               新窗口
             </Button>
           </a>
@@ -97,7 +96,7 @@ export default function UseWorkbench() {
       <GoFrame wid={w.id} name={w.name} frameKey={frameKey} className="wm-use-frame" />
       <Typography.Paragraph
         type="secondary"
-        style={{ textAlign: 'center', fontSize: 12, margin: '6px 0', flex: 'none' }}
+        className="wm-caption" style={{ textAlign: 'center', margin: 'var(--wm-space-2) 0', flex: 'none' }}
       >
         经统一门户 /go/{w.id}/ 同源代理嵌入（自动剥除上游禁嵌响应头）；个别页面主动跳出到外域时请点右上角「新窗口」 ·{' '}
         <Link to="/market">返回市场管理</Link>

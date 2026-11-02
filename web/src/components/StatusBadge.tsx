@@ -34,7 +34,7 @@ export default function StatusBadge({
     <span>
       <Badge status={m.badge} text={m.text} />
       {status === 'up' && latency != null ? (
-        <Typography.Text type="secondary" className="wm-num" style={{ fontSize: 12, marginLeft: 6 }}>
+        <Typography.Text type="secondary" className="wm-num wm-caption" style={{ marginLeft: 8 }}>
           {latency}ms
         </Typography.Text>
       ) : null}

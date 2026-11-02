@@ -24,7 +24,7 @@ rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server',
-  env: { ...process.env, MCP_GATEWAY: '', PORT: String(PORT), DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'gw-admin-tok', MCP_GATEWAY: 'on' },
+  env: { ...process.env, PORT: String(PORT), DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'gw-admin-tok', MCP_GATEWAY: 'on' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪（20s 超时）'); process.exit(1); }
@@ -67,7 +67,7 @@ try {
   r = await call('GET', '/api/mcp/tools');
   ok('GET /api/mcp/tools 无口令 403', r.status === 403);
   r = await call('GET', '/api/mcp/tools', null, AT);
-  ok('tools 面 27 个（#178 skill_search +1）', Array.isArray(r.body) && r.body.length === 27);
+  ok('tools 面 28 个（#178 skill_search +1·design_standard +1）', Array.isArray(r.body) && r.body.length === 28);
   // 授权两个
   r = await call('PUT', `/api/mcp/sessions/${sid}/grants`, { grants: ['workbench_summary', 'use_url'] }, AT);
   ok('grants 整体替换', r.status === 200 && r.body.grants.length === 2);

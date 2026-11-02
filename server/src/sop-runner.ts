@@ -3,7 +3,8 @@
 import type { SopManifest } from './sop-types.ts';
 import type { AppRow } from './db.ts';
 
-export function renderSopRunner(manifest: SopManifest, app: AppRow): string {
+/** tokensCss：DESIGN.md 生成的 --wm-* 变量（#321，与市场前端同一份），内联进页面；缺省时页面照常渲染。 */
+export function renderSopRunner(manifest: SopManifest, app: AppRow, tokensCss = ''): string {
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const stepsHtml = manifest.steps
     .map(
@@ -24,32 +25,38 @@ export function renderSopRunner(manifest: SopManifest, app: AppRow): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(manifest.title)} · SOP Runner</title>
 <style>
-  :root { --navy:#1E3A5F; --emerald:#059669; --ink:#0F172A; --line:#E2E8F0; --mut:#5A6577; }
+${tokensCss.replace(/<\/style/gi, '')}
+</style>
+<style>
+  /* #321：颜色、字体、字号、间距、圆角只用 --wm-* 变量（DESIGN.md），与市场前端同色同字号；顶栏是深色区，用 nav-* */
   * { box-sizing:border-box; }
-  body { margin:0; font-family:Inter,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; color:var(--ink); background:#F6F8FB; }
-  .bar { position:sticky; top:0; z-index:5; background:var(--ink); color:#fff; padding:10px 20px; display:flex; align-items:center; gap:12px; }
-  .bar .code { font-family:"Cascadia Mono",Consolas,monospace; font-size:12px; color:#94A3B8; }
-  .bar h1 { font-size:16px; margin:0; font-weight:600; letter-spacing:.02em; }
-  .badge { font-size:12px; padding:2px 10px; border-radius:999px; background:rgba(5,150,105,.25); color:#6EE7B7; }
-  .runmeta { margin-left:auto; font-family:"Cascadia Mono",Consolas,monospace; font-size:12px; color:#94A3B8; }
-  main { max-width:860px; margin:24px auto; padding:0 16px; }
-  .step { background:#fff; border:1px solid var(--line); border-radius:8px; padding:16px 20px; margin-bottom:14px; }
-  .step header { display:flex; align-items:center; gap:10px; }
-  .step .no { width:24px; height:24px; border-radius:50%; background:var(--navy); color:#fff; font-size:12px; display:flex; align-items:center; justify-content:center; font-family:"Cascadia Mono",Consolas,monospace; }
-  .step h2 { font-size:15px; margin:0; font-weight:600; }
-  .dot { margin-left:auto; width:8px; height:8px; border-radius:50%; background:#CBD5E1; }
-  .dot.saved { background:var(--emerald); }
-  .dot.dirty { background:#F59E0B; }
-  .body { margin-top:10px; font-size:14px; line-height:1.7; }
+  body { margin:0; font-family:var(--wm-font-sans); font-size:var(--wm-font-size-body); line-height:var(--wm-line-height-body); color:var(--wm-color-text); background:var(--wm-color-page); }
+  .bar { position:sticky; top:0; z-index:5; background:var(--wm-color-nav-bg); color:var(--wm-color-nav-text-active); padding:var(--wm-space-2) var(--wm-space-6); display:flex; align-items:center; gap:var(--wm-space-3); }
+  .bar .code { font-family:var(--wm-font-mono); font-size:var(--wm-font-size-caption); color:var(--wm-color-nav-text); }
+  .bar h1 { font-size:var(--wm-font-size-subtitle); line-height:var(--wm-line-height-subtitle); margin:0; font-weight:var(--wm-font-weight-subtitle); }
+  .badge { font-size:var(--wm-font-size-caption); padding:2px var(--wm-space-2); border-radius:var(--wm-radius-full); background:var(--wm-color-success-bg); color:var(--wm-color-success-text); }
+  .runmeta { margin-left:auto; font-family:var(--wm-font-mono); font-size:var(--wm-font-size-caption); color:var(--wm-color-nav-text); }
+  main { max-width:860px; margin:var(--wm-space-6) auto; padding:0 var(--wm-space-4); }
+  .step { background:var(--wm-color-surface); border:1px solid var(--wm-color-border); border-radius:var(--wm-radius-lg); padding:var(--wm-space-4) var(--wm-space-6); margin-bottom:var(--wm-space-3); box-shadow:var(--wm-shadow-1); }
+  .step header { display:flex; align-items:center; gap:var(--wm-space-2); }
+  .step .no { width:24px; height:24px; border-radius:var(--wm-radius-full); background:var(--wm-color-primary); color:var(--wm-color-on-primary); font-size:var(--wm-font-size-caption); display:flex; align-items:center; justify-content:center; font-family:var(--wm-font-mono); }
+  .step h2 { font-size:var(--wm-font-size-subtitle); line-height:var(--wm-line-height-subtitle); margin:0; font-weight:var(--wm-font-weight-subtitle); }
+  .dot { margin-left:auto; width:8px; height:8px; border-radius:var(--wm-radius-full); background:var(--wm-color-border-strong); }
+  .dot.saved { background:var(--wm-color-success); }
+  .dot.dirty { background:var(--wm-color-warning); }
+  .body { margin-top:var(--wm-space-2); }
   .body:empty { display:none; }
-  .muted { color:var(--mut); }
-  input[data-field], select[data-field], textarea[data-field] { width:100%; max-width:420px; padding:7px 10px; border:1px solid var(--line); border-radius:6px; font:inherit; font-family:"Cascadia Mono",Consolas,monospace; font-size:13px; }
-  input[data-field]:focus-visible, textarea[data-field]:focus-visible, select[data-field]:focus-visible { outline:2px solid rgba(5,150,105,.6); outline-offset:1px; }
-  .foot { display:flex; align-items:center; gap:14px; margin:20px 0 40px; }
-  .btn { border:none; border-radius:6px; padding:9px 22px; font:inherit; font-weight:600; cursor:pointer; }
-  .btn.primary { background:var(--emerald); color:#fff; }
+  .muted { color:var(--wm-color-text-secondary); }
+  input[data-field], select[data-field], textarea[data-field] { width:100%; max-width:420px; padding:var(--wm-space-2) var(--wm-space-3); border:1px solid var(--wm-color-border-strong); border-radius:var(--wm-radius-md); font:inherit; font-family:var(--wm-font-mono); font-size:var(--wm-font-size-body); color:var(--wm-color-text); background:var(--wm-color-surface); }
+  input[data-field]:focus-visible, textarea[data-field]:focus-visible, select[data-field]:focus-visible { outline:2px solid var(--wm-color-primary); outline-offset:1px; }
+  .foot { display:flex; align-items:center; gap:var(--wm-space-3); margin:var(--wm-space-6) 0 var(--wm-space-8); }
+  .btn { border:1px solid var(--wm-color-border-strong); border-radius:var(--wm-radius-md); padding:var(--wm-space-2) var(--wm-space-6); font:inherit; font-weight:var(--wm-font-weight-body-strong); cursor:pointer; background:var(--wm-color-surface); color:var(--wm-color-text); }
+  .btn.primary { background:var(--wm-color-primary); border-color:var(--wm-color-primary); color:var(--wm-color-on-primary); }
   .btn:disabled { opacity:.5; cursor:default; }
-  .state { font-size:13px; color:var(--mut); font-family:"Cascadia Mono",Consolas,monospace; }
+  .state { font-size:var(--wm-font-size-caption); color:var(--wm-color-text-secondary); font-family:var(--wm-font-mono); }
+  .extra-row { margin:var(--wm-space-2) 0; padding:var(--wm-space-2) var(--wm-space-3); background:var(--wm-color-page); border:1px solid var(--wm-color-border); border-radius:var(--wm-radius-md); }
+  .extra-row pre { margin:var(--wm-space-1) 0 0; white-space:pre-wrap; word-break:break-all; font-size:var(--wm-font-size-caption); font-family:var(--wm-font-mono); }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; animation:none !important; } }
 </style>
 </head>
 <body>
@@ -64,9 +71,9 @@ ${stepsHtml}
 <section class="step" id="agent-extras" style="display:none">
   <header><h2>agent 交付区</h2><span class="muted" id="extras-note"></span></header>
   <div class="body" id="extras-data"></div>
-  <ul id="extras-files" style="margin:8px 0 0;padding-left:18px"></ul>
-  <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
-    <input type="file" id="upload-input" style="font-size:12px">
+  <ul id="extras-files" style="margin:var(--wm-space-2) 0 0;padding-left:var(--wm-space-4)"></ul>
+  <div style="margin-top:var(--wm-space-2);display:flex;gap:var(--wm-space-2);align-items:center">
+    <input type="file" id="upload-input">
     <button class="btn" id="upload-btn" disabled>上传交付文件</button>
     <span class="muted" id="upload-note"></span>
   </div>
@@ -82,6 +89,7 @@ window.__SOP__ = ${boot};
   var BOOT = window.__SOP__;
   var runId = null;
   var runUploadToken = ''; // #page-wire：run 级上传令牌（创建响应/本机存档）
+  var runReadCap = ''; // #309 phase2：run 级读能力（创建响应即得/本机存档；恢复与附件读取用）
   var timers = {};
   var LS = 'wm.sop.run.' + BOOT.slug;
   function $(s, el) { return (el || document).querySelector(s); }
@@ -143,20 +151,29 @@ window.__SOP__ = ${boot};
       dataBox.textContent = '';
       Object.keys(extra).length && Object.keys(extra).forEach(function (k) {
         var row = document.createElement('div');
-        row.style.cssText = 'margin:6px 0;padding:6px 10px;background:#F8FAFC;border:1px solid var(--line);border-radius:6px';
+        row.className = 'extra-row';
         var t = document.createElement('div');
-        t.className = 'muted'; t.style.fontSize = '12px'; t.textContent = k;
+        t.className = 'muted'; t.textContent = k;
         var v = document.createElement('pre');
-        v.style.cssText = 'margin:4px 0 0;white-space:pre-wrap;word-break:break-all;font-size:12px';
         v.textContent = typeof extra[k] === 'string' ? extra[k] : JSON.stringify(extra[k], null, 2);
         row.appendChild(t); row.appendChild(v); dataBox.appendChild(row);
       });
-      fetch('/api/sop/runs/' + run.id + '/files').then(function (r) { return r.ok ? r.json() : { items: [] }; }).then(function (j) {
+      var fh = runReadCap ? { headers: { 'X-Run-Read-Capability': runReadCap } } : {};
+      fetch('/api/sop/runs/' + run.id + '/files', fh).then(function (r) {
+        if (r.status === 403) { fileBox.textContent = ''; var fn2 = document.getElementById('extras-note'); if (fn2) fn2.textContent = '附件需要读授权（旧记录或无凭据）'; return { items: [] }; }
+        return r.ok ? r.json() : { items: [] };
+      }).then(function (j) {
         fileBox.textContent = '';
         (j.items || []).forEach(function (f) {
           var li = document.createElement('li');
           var a = document.createElement('a');
           a.href = f.url; a.textContent = f.original_name + ' (' + Math.round(f.size / 1024) + ' KB)';
+          // #309 phase2：cap 持有者点链下载——带读能力取流再存（普通导航带不了自定义头）
+          if (runReadCap) { a.href = '#'; a.addEventListener('click', function (ev) { ev.preventDefault();
+            fetch(f.url, { headers: { 'X-Run-Read-Capability': runReadCap } }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); }).then(function (b) {
+              var u = URL.createObjectURL(b); var d = document.createElement('a'); d.href = u; d.download = f.original_name || 'file'; d.click(); setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
+            }).catch(function (e) { setState('附件下载失败：' + e.message); });
+          }); }
           li.appendChild(a); fileBox.appendChild(li);
         });
         var hasData = Object.keys(extra).length > 0;
@@ -174,8 +191,10 @@ window.__SOP__ = ${boot};
     var resume = saved && saved.id && saved.status === 'running' ? saved.id : null;
     if (BOOT.pinRun) resume = BOOT.pinRun; // #263：统一待办 ?run=<id> 精确定位该记录，优先于 localStorage
     window.__wmPinnedRun = resume; // 供状态呈现判断（只读定位不改写入权限）
+    var resumeCap = '';
+    try { var rc = JSON.parse(localStorage.getItem(LS + '.rcap') || 'null'); if (rc && rc.id === resume) resumeCap = String(rc.c || ''); } catch (e) {}
     var p = resume
-      ? fetch('/api/sop/runs/' + resume).then(function (r) { return r.ok ? r.json() : null; })
+      ? fetch('/api/sop/runs/' + resume, resumeCap ? { headers: { 'X-Run-Read-Capability': resumeCap } } : {}).then(function (r) { return r.ok ? r.json() : null; })
       : fetch('/api/sop/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: BOOT.slug }) }).then(function (r) { return r.json(); });
     p.then(function (run) {
       if (!run || !run.id) { setState('开启执行记录失败'); return; }
@@ -184,6 +203,10 @@ window.__SOP__ = ${boot};
       runUploadToken = String(run.upload_token || '');
       if (!runUploadToken) { try { var prevTok = JSON.parse(localStorage.getItem(LS + '.tok') || 'null'); if (prevTok && prevTok.id === run.id) runUploadToken = String(prevTok.t || ''); } catch (e) {} }
       if (runUploadToken) { try { localStorage.setItem(LS + '.tok', JSON.stringify({ id: run.id, t: runUploadToken })); } catch (e) {} }
+      // #309 phase2：读能力接线——创建响应即得；恢复场景读本机存档（同浏览器同 run）
+      runReadCap = String(run.read_capability || resumeCap || '');
+      if (!runReadCap) { try { var prevRc = JSON.parse(localStorage.getItem(LS + '.rcap') || 'null'); if (prevRc && prevRc.id === run.id) runReadCap = String(prevRc.c || ''); } catch (e) {} }
+      if (runReadCap) { try { localStorage.setItem(LS + '.rcap', JSON.stringify({ id: run.id, c: runReadCap })); } catch (e) {} }
       var ub = document.getElementById('upload-btn'); if (ub) ub.disabled = false;
       var un2 = document.getElementById('upload-note'); if (un2) un2.textContent = runUploadToken ? '' : '（无令牌：严格模式下需管理员口令或重开执行）';
       localStorage.setItem(LS, JSON.stringify({ id: run.id, status: 'running' }));
@@ -198,6 +221,7 @@ window.__SOP__ = ${boot};
       });
       $('#finish').disabled = run.status !== 'running';
       if (run.status === 'finished') { setState('已完成——冻结录入（只读）'); document.querySelectorAll('[data-field]').forEach(function (el) { el.disabled = true; }); }
+      else if (run.private_read === 'authorization-required' || !run.data) { setState(runReadCap ? '' : '此记录需读授权（旧记录或无凭据）——已回退本地缓冲'); }
       else { setState('执行中——数据自动保存'); }
       void renderAgentExtras(run);
     }).catch(function () { setState('无法连接市场服务——填写仍会缓冲本地'); });
