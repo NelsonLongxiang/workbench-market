@@ -1,0 +1,302 @@
+"""自产台统一层（DESIGN.md v1.0.0 + PATTERNS.md §7）：色值/字体/字号/圆角映射到 token，深色台转浅色，
+注入 --wm-* 变量、基础排版与 wm-ux.js（菜单/焦点/状态持久化）。
+用法: python3 -I restyle.py <web/src/tokens.css> <apps_dir> <extra_dir> <out_dir>
+  apps_dir/<slug>.html     线上台首页（可带服务端注入的令牌段，会被剥掉）
+  extra_dir/<slug>/<path>  同台附属 .html/.css/.js
+  out_dir/<slug>/<path>    产物 + report.json"""
+import colorsys, json, re, sys
+from pathlib import Path
+
+def rd(p):  # 原样读写：不做换行转换（Windows 下 read_text/write_text 会改 \r\n）
+    with open(p, encoding='utf-8', newline='') as f: return f.read()
+
+def wr(p, s):
+    with open(p, 'w', encoding='utf-8', newline='') as f: f.write(s)
+
+T = {  # token 名 -> 值（与 web/src/tokens.css 一致）
+    'primary': '#1E3A5F', 'primary-subtle': '#EEF2F7', 'on-primary': '#FFFFFF',
+    'text': '#0F172A', 'text-secondary': '#5A6577',
+    'page': '#F6F7F9', 'surface': '#FFFFFF', 'border': '#E2E8F0', 'border-strong': '#CBD5E1',
+    'success': '#047857', 'success-bg': '#ECFDF5', 'warning': '#F59E0B', 'warning-text': '#B45309',
+    'nav-bg': '#0F172A', 'nav-text': '#CBD5E1', 'nav-text-active': '#FFFFFF',
+    'warning-bg': '#FFFBEB', 'danger': '#DC2626', 'danger-text': '#B91C1C', 'danger-bg': '#FEF2F2',
+}
+TOKEN_HEX = {v.upper() for v in T.values()}
+
+# 深色台（规范只做浅色）
+DARK = {'finance-workbench', 'logistics-owba-board', 'preset-ops', 'procurement-workbench'}
+# 每台品牌色/特殊色的人工裁定（hex 大写 -> token 名）
+OVERRIDE = {
+    'dev-collab-board': {'#2F6F4F': 'primary', '#EEF4F0': 'primary-subtle', '#15803D': 'success'},
+    'multi-platform-sop-workbench': {'#164B3E': 'primary', '#E2EEE7': 'primary-subtle', '#315D7B': 'primary', '#E7EFF4': 'primary-subtle'},
+    'multi-platform-product-catalog': {'#174B3D': 'primary'},
+    'multi-platform-t101208-evidence': {'#E3EDE4': 'primary-subtle'},
+    'zcode-cockpit': {'#059669': 'success', '#334155': 'text-secondary'},
+    'yuanguang-crm-budget': {'#B45309': 'primary'},
+    'finance-workbench': {'#FFFFFF': 'on-primary', '#2A6DF0': 'primary', '#3DD68C': 'success'},
+}
+
+def rgb(h):
+    h = h.lstrip('#')
+    if len(h) == 3: h = ''.join(c * 2 for c in h)
+    return tuple(int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+
+def lum(c):
+    f = lambda x: x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4
+    r, g, b = map(f, c)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+def family(c):
+    hue, _, _ = colorsys.rgb_to_hls(*c); hue *= 360
+    if 75 <= hue < 170: return 'success'
+    if hue < 15 or hue >= 340: return 'danger'
+    if hue < 75: return 'warning'
+    return 'primary'
+
+def classify(h, dark, ov):
+    H = '#' + h.lstrip('#').upper()
+    if len(H) == 4: H = '#' + ''.join(c * 2 for c in H[1:])
+    if H in ov: return ov[H]
+    if H == '#F59E0B': return 'warning-text'  # 琥珀主值不写字，统一走 warning-text
+    if H == '#DC2626': return 'danger-text'  # danger 主值写字不足 4.5:1（浅底标签上），统一走 danger-text
+    if H in TOKEN_HEX and not dark:  # 深色台里同值语义相反，不按字面认
+        return next(k for k, v in T.items() if v.upper() == H and not k.startswith('nav-'))
+    c = rgb(H); Y = lum(c); chroma = max(c) - min(c)
+    sat = colorsys.rgb_to_hls(*c)[2]
+    tinted = Y > 0.75 and chroma >= 0.045 and sat >= 0.25  # 浅色带色底（状态条/标签底）
+    grey = (chroma < 0.12 and not tinted) or sat < 0.25 or (not dark and Y < 0.05 and chroma < 0.35)
+    if grey:
+        if dark:
+            if Y < 0.004: return 'page'
+            if Y < 0.025: return 'surface'
+            if Y < 0.12: return 'border'
+            if Y < 0.45: return 'text-secondary'
+            return 'text'
+        if Y >= 0.99: return 'surface'
+        if Y >= 0.90: return 'page'
+        if Y >= 0.80: return 'border'
+        if Y >= 0.55: return 'border-strong'
+        if Y >= 0.04: return 'text-secondary'
+        return 'text'
+    fam = family(c)
+    light_bg = Y < 0.07 if dark else Y > 0.75
+    if light_bg: return 'primary-subtle' if fam == 'primary' else fam + '-bg'
+    return {'primary': 'primary', 'success': 'success', 'warning': 'warning-text', 'danger': 'danger-text'}[fam]
+
+RGB = re.compile(r'rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*(1|1\.0+)\s*)?\)')
+HEX = re.compile(r'(?<![\w&])#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})(?![\w-])')
+def snap(px):
+    """字号吸附到 DESIGN.md 六档 12/14/16/20/24（≥18 平局取大，标题倾向上一档）"""
+    if px >= 24: return 24
+    return min((12, 14, 16, 20, 24), key=lambda g: (abs(g - px), -g if px >= 18 else g))
+
+FS_MAP = {8: 12, 9: 12, 10: 12, 11: 12, 13: 12, 15: 14, 17: 16, 18: 20, 19: 20, 21: 20, 22: 20, 23: 24, 25: 24, 26: 24, 28: 24, 29: 24, 30: 24, 32: 24, 34: 24, 36: 24}
+RADIUS_MAP = {2: 4, 3: 4, 5: 6, 7: 6, 10: 8, 12: 8, 14: 8, 16: 8, 18: 8, 20: 8}
+FONT_DECL = re.compile(r'font-family:\s*((?:"[^"]*"|&#?\w+;|[^;}"\n])+)')
+INJECT = re.compile(r'<meta name="wm-app-token"[^>]*><script>window\.WM_APP_TOKEN=[^<]*</script>')
+STYLE = re.compile(r'(<style[^>]*>)(.*?)(</style>)', re.S)
+
+def nav_bands(css, dark, ov):
+    """浅色台里背景近黑的条带（顶栏/页头）= 规范里唯一允许的深色区：底用 nav-bg，字用 nav-text(-active)"""
+    if dark: return css
+    RULE = re.compile(r'([^{}@]+)\{([^{}]*)\}')
+    scopes = []
+    for m in RULE.finditer(css):
+        bg = re.search(r'background(?:-color)?:\s*(#[0-9a-fA-F]{3,6})\b', m.group(2))
+        if bg and classify(bg.group(1), False, ov) == 'text':
+            scopes += [x.strip() for x in m.group(1).split(',') if x.strip()]
+    if not scopes: return css
+    def in_scope(sel):
+        return any(x.strip() == sc or x.strip().startswith(sc + ' ') or x.strip().startswith(sc + '>') for x in sel.split(',') for sc in scopes)
+    def nav_color(h):
+        c = rgb(h); return 'nav-text-active' if lum(c) > 0.55 or (max(c) - min(c)) > 0.25 else 'nav-text'
+    def fix(m):
+        sel, body = m.group(1), m.group(2)
+        if not in_scope(sel): return m.group(0)
+        body = re.sub(r'(background(?:-color)?:\s*)#[0-9a-fA-F]{3,6}\b', r'\1var(--wm-color-nav-bg)', body)
+        body = re.sub(r'((?<![-\w])color:\s*)(#[0-9a-fA-F]{3,6})\b', lambda c: c.group(1) + 'var(--wm-color-' + nav_color(c.group(2)) + ')', body)
+        body = re.sub(r'((?<![-\w])color:\s*)var\(--(card|surface|paper|bg|white)\)', r'\1var(--wm-color-nav-text-active)', body)
+        return sel + '{' + body + '}'
+    return RULE.sub(fix, css)
+
+def strip_dark(css):
+    """去掉 @media (prefers-color-scheme: dark){…}（规范只做浅色）"""
+    out, i = [], 0
+    for m in re.finditer(r'@media[^{]*prefers-color-scheme\s*:\s*dark[^{]*\{', css):
+        if m.start() < i: continue
+        depth, j = 1, m.end()
+        while j < len(css) and depth:
+            depth += {'{': 1, '}': -1}.get(css[j], 0); j += 1
+        out.append(css[i:m.start()]); i = j
+    return ''.join(out) + css[i:]
+
+def rgba_fix(css, dark):
+    if not dark: return css
+    # 深色主题里的白色叠层/描边在浅色底上改为深色同透明度
+    return re.sub(r'rgba\(\s*255\s*,\s*255\s*,\s*255\s*,', 'rgba(15, 23, 42,', css)
+
+PATCH = {  # 每台的定点修正（规范：primary 按钮实心、不用渐变；深色只留给导航条）
+    'zcode-cockpit': [('.top .sub{color:#94A3B8', '.top .sub{color:var(--wm-color-nav-text)')],
+    'finance-workbench': [("var _TRUSTED_ORIGIN='http://192.168.3.156:9800';", 'var _TRUSTED_ORIGIN=location.origin;'),  # 属主 11-02 已批（v84 条目）
+                          ('background:linear-gradient(90deg,var(--c-cta-from),var(--c-cta-to))', 'background:var(--wm-color-primary)')],
+}
+UX_CSS = (
+    # 菜单：统一选中/悬停态，不动台内布局
+    '.wm-menu-item{transition:background-color var(--wm-motion-fast) var(--wm-motion-easing),color var(--wm-motion-fast) var(--wm-motion-easing)}\n'
+    '.wm-menu-item:hover{color:var(--wm-color-text)}\n'
+    '.wm-menu-item[aria-selected=true],.wm-menu-item[aria-pressed=true]{color:var(--wm-color-primary)!important;font-weight:600}\n'
+    '.wm-menu-item[aria-selected=true] *,.wm-menu-item[aria-pressed=true] *{color:inherit!important}\n'
+    '.wm-menu-item[aria-selected=true]:not(a):not(nav a),.wm-menu-item[aria-pressed=true]{background-color:var(--wm-color-primary-subtle)!important;border-color:var(--wm-color-primary)!important}\n'
+    # 焦点：任何台内 outline:none 都压不掉键盘焦点环
+    ':focus-visible{outline:2px solid var(--wm-color-primary)!important;outline-offset:2px!important}\n'
+    'input:focus-visible,select:focus-visible,textarea:focus-visible{outline-offset:0!important;border-color:var(--wm-color-primary)!important}\n'
+    '[role=button][tabindex],[role=link][tabindex]{cursor:pointer}\n'
+)
+def transform(src, slug, tokens_css, kind='html'):
+    dark, ov = slug in DARK, OVERRIDE.get(slug, {})
+    stats = {'colors': {}, 'font_size': 0, 'font_family': 0, 'radius': 0}
+    s = INJECT.sub('', src)
+    for a, b in PATCH.get(slug, []): s = s.replace(a, b)
+    s = re.sub(r'https?://192\.168\.3\.156:9800(?=/)', '', s)
+    s = re.sub(r"(new URL\([^,()]+(?:\([^()]*\))?,\s*)'https?://192\.168\.3\.156:9800/?'", r'\1location.origin', s)
+    s = RGB.sub(lambda m: '#%02X%02X%02X' % tuple(min(255, int(x)) for x in m.groups()[:3]), s)
+
+    def color_sub(in_css):
+        def f(m):
+            role = classify(m.group(1), dark, ov)
+            stats['colors'][m.group(0).upper()] = role
+            return f'var(--wm-color-{role})' if in_css else T[role]
+        return f
+
+    def fs(m):
+        n = float(m.group(1)); k = snap(n)
+        if k == n: return m.group(0)
+        stats['font_size'] += 1
+        return f'{m.group(0)[:m.group(0).index(m.group(1))]}{k}px'
+
+    def ff(m):
+        stats['font_family'] += 1
+        v = m.group(1).lower()
+        if 'var(--wm-' in v or v.strip() in ('inherit', 'initial', 'unset'): return m.group(0)
+        mono = any(k in v for k in ('mono', 'consolas', 'code', 'courier', 'menlo'))
+        return 'font-family:var(--wm-font-mono)' if mono else 'font-family:var(--wm-font-sans)'
+
+    def rad(m):
+        n = int(m.group(1)); k = RADIUS_MAP.get(n)
+        if k is None: return m.group(0)
+        stats['radius'] += 1
+        return f'border-radius:{k}px'
+
+    def fs_rem(m):
+        stats['font_size'] += 1
+        return f'font-size:{snap(float(m.group(1)) * 16)}px'
+
+    def fs_em(m):
+        stats['font_size'] += 1
+        return f'font-size:{snap(float(m.group(1)) * 14)}px'
+
+    def font_short(f):
+        """font 简写：字号吸附、字体族换 token（clamp 大标题 → display 24/32）"""
+        stats['font_size'] += 1
+        size, lh, fam = f.group(2), f.group(3) or '', f.group(4)
+        if size.startswith('clamp'): px, lh = 24, '/32px'
+        else:
+            n = float(re.match(r'[\d.]+', size).group(0)); unit = size.lstrip('0123456789.')
+            px = snap(n * (16 if unit == 'rem' else 14 if unit == 'em' else 1))
+        mono = any(k in fam.lower() for k in ('mono', 'consolas', 'code', 'courier', 'menlo'))
+        keep = fam.strip() in ('inherit',) or 'var(--' in fam
+        return f"font:{f.group(1)}{px}px{lh} " + (fam if keep else ('var(--wm-font-mono)' if mono else 'var(--wm-font-sans)'))
+
+    def common(x, in_css=False):
+        x = re.sub(r'font-size:\s*(\d*\.?\d+)rem', fs_rem, x)
+        x = re.sub(r'font-size:\s*(\d*\.?\d+)em', fs_em, x)
+        fam = r'((?:&#?\w+;|[^;}\n])+)' if in_css else r'((?:&#?\w+;|[^;}"\n])+)'  # CSS 里字体族可带双引号；内联属性里不能越过属性引号
+        x = re.sub(r'(?<![-\w])font:\s*((?:(?:italic|bold|normal|\d00)\s+)*)(clamp\([^)]*\)|\d*\.?\d+(?:px|rem|em))(/[\w.%]+)?\s+' + fam, font_short, x)
+        x = re.sub(r'(background(?:-color)?:\s*)(#E2E8F0|#CBD5E1)\b', r'\1#F6F7F9', x)
+        x = re.sub(r'font-size:\s*(\d+(?:\.\d+)?)px', fs, x)
+        x = re.sub(r'border-radius:\s*(\d+)px(?=\s*[;}"\'!])', rad, x)
+        return x
+
+    # <style> 内：用 var()
+    def style_block(m):
+        css = nav_bands(strip_dark(m.group(2)), dark, ov)
+        # 渐变压成首个色标的实色（规范：按钮/横幅不用渐变）
+        css = re.sub(r'background(-image)?:\s*linear-gradient\(\s*(?:[\d.]+deg\s*,\s*|to [a-z ]+,\s*)?([^,()]+(?:\([^)]*\))?)[^;}]*\)', lambda g: 'background:' + g.group(2).strip().split(' ')[0], css)
+        css = re.sub(r'--font(?:-body)?:\s*[^;}]+', '--font:var(--wm-font-sans)', css)
+        css = re.sub(r'--font-mono:\s*[^;}]+', '--font-mono:var(--wm-font-mono)', css)
+        css = re.sub(r'--mono:\s*[^;}]+', '--mono:var(--wm-font-mono)', css)
+        css = re.sub(r'--radius:\s*\d+px', '--radius:8px', css)
+        css = FONT_DECL.sub(ff, css)
+        css = HEX.sub(color_sub(True), css)
+        css = rgba_fix(css, dark)
+        css = re.sub(r'(background(?:-color)?:\s*)var\(--wm-color-border(?:-strong)?\)', r'\1var(--wm-color-page)', css)
+        css = re.sub(r'(--([\w-]+):\s*)var\(--wm-color-border(?:-strong)?\)', lambda v: v.group(0) if re.search(r'line|border|rule|sep|stroke|bd|edge|grid', v.group(2)) else v.group(1) + 'var(--wm-color-page)', css)
+        # 实心底（主色/状态色）上的深色字 → on-primary
+        def solid(r):
+            b = r.group(2)
+            if re.search(r'background(?:-color)?:\s*var\(--wm-color-(primary|success|danger-text|warning-text|danger)\)', b):
+                b = re.sub(r'((?<![-\w])color:\s*)var\(--wm-color-(text|text-secondary|page|surface-?\w*)\)', r'\1var(--wm-color-on-primary)', b)
+            return r.group(1) + '{' + b + '}'
+        css = re.sub(r'([^{}@]+)\{([^{}]*)\}', solid, css)
+        # 线色变量被当成文字容器（带 padding 的徽标/标签）的底色 → page，避免灰底压次级字
+        linevars = {v.group(1) for v in re.finditer(r'(--[\w-]+):\s*var\(--wm-color-border(?:-strong)?\)', css)}
+        if linevars:
+            css = re.sub(r'([^{}@]+)\{([^{}]*padding[^{}]*)\}', lambda r: r.group(1) + '{' + re.sub(r'(background(?:-color)?:\s*)var\((' + '|'.join(map(re.escape, linevars)) + r')\)', r'\1var(--wm-color-page)', r.group(2)) + '}', css)
+        return m.group(1) + common(css, True) + m.group(3)
+    if kind == 'css':
+        return style_block(re.match(r'()(.*)()', s, re.S)), stats
+    parts, last = [], 0
+    for m in STYLE.finditer(s):
+        out = s[last:m.start()]
+        out = HEX.sub(color_sub(False), out)  # 内联/脚本：写字面值（canvas/SVG 属性不认 var）
+        out = re.sub(r"font-family:\s*(?:&#?\w+;|[^;\"'}])+", lambda mm: ff(re.match(r'font-family:\s*(.*)', mm.group(0))), out)
+        parts.append(common(rgba_fix(out, dark))); parts.append(style_block(m)); last = m.end()
+    tail = HEX.sub(color_sub(False), s[last:])
+    tail = re.sub(r"font-family:\s*(?:&#?\w+;|[^;\"'}])+", lambda mm: ff(re.match(r'font-family:\s*(.*)', mm.group(0))), tail)
+    parts.append(common(rgba_fix(tail, dark)))
+    s = ''.join(parts)
+    if kind != 'html': return s, stats
+
+    layer = ('<style id="wm-design-layer">\n/* 工作台统一设计层 · DESIGN.md v1.0.0（仅浅色）。台内样式只引用 --wm-* 变量 */\n'
+             + tokens_css.split('*/', 1)[1].strip() + '\n'
+             'html{color-scheme:light}\n'
+             'body{font-family:var(--wm-font-sans);font-size:var(--wm-font-size-body);line-height:var(--wm-line-height-body);'
+             'color:var(--wm-color-text);background:var(--wm-color-page);-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}\n'
+             'code,pre,kbd,samp{font-family:var(--wm-font-mono)}\n'
+             'button,input,select,textarea{font:inherit;font-size:var(--wm-font-size-body)}\n'
+             'h1{font-size:var(--wm-font-size-title);line-height:var(--wm-line-height-title);font-weight:600}\n'
+             'h2{font-size:var(--wm-font-size-subtitle);line-height:var(--wm-line-height-subtitle);font-weight:600}\n'
+             'h3,h4,h5,h6{font-size:var(--wm-font-size-body);line-height:var(--wm-line-height-body);font-weight:600}\n'
+             'small{font-size:var(--wm-font-size-caption);line-height:var(--wm-line-height-caption)}\n'
+             'a{color:var(--wm-color-primary)}\n'
+             '::selection{background:var(--wm-color-primary-subtle);color:var(--wm-color-text)}\n'
+             + UX_CSS +
+             'input::placeholder,textarea::placeholder{color:var(--wm-color-text-disabled)}\n'
+             '@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}\n'
+             '</style>\n<script id="wm-ux">' + UX_JS + '</script>\n')
+    m = re.search(r'<head[^>]*>', s, re.I)
+    # 插在 <head> 起始：台内已映射的规则仍可覆盖基础排版
+    s = s[:m.end()] + '\n' + layer + s[m.end():] if m else layer + s
+    return s, stats
+
+UX_JS = rd(Path(__file__).parent / 'wm-ux.js')
+
+if __name__ == '__main__':
+    tokens = rd(Path(sys.argv[1]))
+    src, extra, out = Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4])
+    report = {}
+    for f in sorted(src.glob('*.html')):
+        slug = f.stem
+        jobs = [('index.html', f)] + [(str(x.relative_to(extra / slug)), x) for x in sorted((extra / slug).rglob('*')) if x.is_file()]
+        agg = {'colors': {}, 'font_size': 0, 'font_family': 0, 'radius': 0}
+        for rel, path in jobs:
+            kind = rel.rsplit('.', 1)[-1] if rel.endswith(('.css', '.js')) else 'html'
+            body, st = transform(rd(path), slug, tokens, kind)
+            dst = out / slug / rel; dst.parent.mkdir(parents=True, exist_ok=True); wr(dst, body)
+            agg['colors'].update(st['colors'])
+            for k in ('font_size', 'font_family', 'radius'): agg[k] += st[k]
+        roles = {}
+        for k, v in agg['colors'].items(): roles.setdefault(v, []).append(k)
+        report[slug] = {'files': [r for r, _ in jobs], 'distinct_colors': len(agg['colors']), 'font_size': agg['font_size'], 'font_family': agg['font_family'], 'radius': agg['radius'], 'roles': roles}
+    wr(out / 'report.json', json.dumps(report, ensure_ascii=False, indent=1))
+    for k, v in report.items(): print(f"{k:38s} files={len(v['files'])} colors={v['distinct_colors']:3d} fs={v['font_size']:4d} ff={v['font_family']:3d} r={v['radius']:3d}")

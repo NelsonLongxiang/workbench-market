@@ -1,0 +1,170 @@
+{
+ "ai-office-os-blueprint": {
+  "files": {
+   "index.html": {
+    "src": "7832440b4a33495c7820e804284bbf4d6eeb811c9ad0bd09dc1ba4c0ab195a61",
+    "out": "def2d6868c1472a5a0b5f6c04382c11b355a62a3191445ceb1fbf760250030f9"
+   }
+  }
+ },
+ "demo-timestamp": {
+  "files": {
+   "index.html": {
+    "src": "14d8d310d8cb11dc6bc66d88d77e6165a9be88d6ab0fe586db98ea753bb0c01c",
+    "out": "fd206bf81bfe97a278aa92328b6d6af5174da1813ac63e980ecb3e61f634a6f0"
+   }
+  }
+ },
+ "dev-collab-board": {
+  "files": {
+   "index.html": {
+    "src": "57e30bb1098c42da8d880b1e3316f709f5fcdb85f09d9fc809672e93999d6e2e",
+    "out": "8a3d2e6f800d66ed8b7b759f9a11e95c10037c3c3da2bb40489df40f567eb21b"
+   }
+  }
+ },
+ "factory-report-huashengweike-v1": {
+  "files": {
+   "index.html": {
+    "src": "6f42f39330fc0e1593c90707353f3dac56ffe2b7980febb3628130ca9e4547ba",
+    "out": "4bc67934ead73476ae5bacf5166ad69471c016a47e7c9438a133b43f0db96992"
+   }
+  }
+ },
+ "factory-report-library": {
+  "files": {
+   "index.html": {
+    "src": "c26c7d17a170a6aa1e9cbdd5c11bd477f63ac6559bab0d3a7766f59424543332",
+    "out": "ee4fcf7e2b48d8c2a37cd647c91b1dff4635bdff1773c431d320d3d51abcd7e9"
+   }
+  }
+ },
+ "finance-workbench": {
+  "files": {
+   "index.html": {
+    "src": "9fb4f4159b5e8e143f6b04b2214f5280c0f169761340cff63931f36138b12896",
+    "out": "7c82c75e54e96c8e9c45f4a04f62c78b7e3e53dc3db65b62e4e2fb20ff3abbba"
+   }
+  }
+ },
+ "logistics-owba-board": {
+  "files": {
+   "index.html": {
+    "src": "66fcc34474883798eafb310111d5f03e1b6073843a445f376e51ee5998aac2c3",
+    "out": "d1a302041179f515e3846ced69fabd8c96804ffc5472768d0ec7463a60dc5ba8"
+   }
+  }
+ },
+ "multi-platform-case-evidence": {
+  "files": {
+   "index.html": {
+    "src": "79520e0dc40e3f2dc6bccfab547d421c1cb5bee58205ccbfc3e18b85b9cd918f",
+    "out": "10be2a6b9928868bbaa05124711cb06685c6346b05a989943f76ab81632e2de6"
+   }
+  }
+ },
+ "multi-platform-product-catalog": {
+  "files": {
+   "index.html": {
+    "src": "6ea6afd6403ac12acc068b3276b7850d00dc20d80e6e1499a38dd326647d403f",
+    "out": "04e6087199f9ed76cfe02bb1f75a5fdcc991d64846bd3ba6a7a1c44db4da0a46"
+   }
+  }
+ },
+ "multi-platform-sop-workbench-test": {
+  "files": {
+   "index.html": {
+    "src": "2ae29868096297c432368ee12c92bab10f2acad84eea62446a832764631f983f",
+    "out": "17a38737f8dbd8b9b8d1bca3e704db2e457c2bbc83c6f67c0cfcee97fe65c61a"
+   },
+   "app.js": {
+    "src": "d85c3c2b496ca17370ffd188b98258ee79843f499723c480d1985d397bbc2652",
+    "out": "d85c3c2b496ca17370ffd188b98258ee79843f499723c480d1985d397bbc2652"
+   },
+   "viewer_core.js": {
+    "src": "ebcb4842acef13713b76c14000c1fdc3590dc394287060386d398a6b1f75f5fd",
+    "out": "ebcb4842acef13713b76c14000c1fdc3590dc394287060386d398a6b1f75f5fd"
+   }
+  }
+ },
+ "multi-platform-sop-workbench": {
+  "files": {
+   "index.html": {
+    "src": "16ad69edac61f25aa3cb5fbdfe71acce747ece7124991e614a28ee85a476592f",
+    "out": "1744b83405ce826d83eb755569ab808d6b2a3041e71ff927d20bcb3dc548ef97"
+   },
+   "finance-evidence.html": {
+    "src": "094f828d3534e924b4bea503d51593c9b06ccb512bd2b349f39da121cf8e2f2f",
+    "out": "9df9c8141c25ff61537e17f3b600f53acb45e5cd3a6dcb71ac727661ed18fbf4"
+   },
+   "finance.html": {
+    "src": "989b845544b79106218901cf3fbcd22d20a7585b85a23f3d4d26ffd968009e86",
+    "out": "3bacf9425454ead205d083d5bfa77dfb0504456bb4ceb0f696cd29d299abc1f7"
+   },
+   "monthly.html": {
+    "src": "b97a8c4cd4901422d2cd79b34276165c3555554edcf68d2873715cde24e9269d",
+    "out": "7077b22298882082c6df0ef877fda0c07e59ad5ff6743303e2e5562b1820b3e8"
+   },
+   "shein-correction-20261102.html": {
+    "src": "929e4ca3a3e0bbbf2ce10b4dea2a4dc92b5900d33097cf627d3610da58f0b0be",
+    "out": "5ac2e210d32d4d6d003d53cb946bad71a488519cfb767a2527d1d7063b78a279"
+   }
+  }
+ },
+ "multi-platform-t101208-evidence": {
+  "files": {
+   "index.html": {
+    "src": "2c2df1c5b24a42442b0179d9dd66a66e8dd1322e4fbdb1dfd6d058ed427822fe",
+    "out": "e088a4d0ada7e6417b5276ba7e898c01a27b8878fcf18eb79aceddf87fefa205"
+   }
+  }
+ },
+ "preset-ops": {
+  "files": {
+   "index.html": {
+    "src": "ccf8887f8af54e57db8fa7ec47f53514ee0f5ab443ddf23e48ae338f1fc1a012",
+    "out": "83313449fba37eb2c8a4b8a3833a56d393d94ac08d265fd2920f9908c4381928"
+   }
+  }
+ },
+ "procurement-workbench": {
+  "files": {
+   "index.html": {
+    "src": "50c0f08bd487f256145f73b0be128a7868f318e7a987c364d280fd163b2ad512",
+    "out": "a69b46d98797a02cd813627a461441eae9836c551decd9b5fea225253c925f6c"
+   },
+   "po-sync.css": {
+    "src": "788e249dfdfc84b913cc9c9a49277524d43fc2bd960e85ae727f578a2fe19c80",
+    "out": "b70e8420e0c77736a9c3456000e5f9e17c62d59603b5231beceb9319daff03f5"
+   },
+   "po-sync.js": {
+    "src": "d88ecdf6a66a6e23ec5c9ad137521d07519b1fe08a4fe945f883e233c5452ae9",
+    "out": "d88ecdf6a66a6e23ec5c9ad137521d07519b1fe08a4fe945f883e233c5452ae9"
+   }
+  }
+ },
+ "taste-board": {
+  "files": {
+   "index.html": {
+    "src": "cb632ab03ed42a1fcf8b27f0ad31fc2df8751f58bc9627ff2b2c87d13c757e65",
+    "out": "4f798ca0689cbbd3d388968aed5142c8009dc92a1c499fd5fc1331ad3ec24734"
+   }
+  }
+ },
+ "yuanguang-crm-budget": {
+  "files": {
+   "index.html": {
+    "src": "f819139e623b424f12ccff9344846ce28416cd047809e70e89ed0f3f4a37e8de",
+    "out": "1d32dfdd433ce4c38a588036ffeb52e2098ae1e7f1eae84b9e27acfebd08bd5c"
+   }
+  }
+ },
+ "zcode-cockpit": {
+  "files": {
+   "index.html": {
+    "src": "d36679113d3efd386fe7a24a90533340bc7859c860c8e37b61b042f1dae86fec",
+    "out": "1057dbc282bb8bf8bd4ad7108052bf547ef03c65fd869300f64e9630ca47e71f"
+   }
+  }
+ }
+}
