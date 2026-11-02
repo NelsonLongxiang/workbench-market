@@ -1,0 +1,9 @@
+/** #351 independent negative control: only child-loaded source is mutated, candidate file is unchanged. */
+import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import {once} from 'node:events';
+import {resolve,join} from 'node:path';
+import {mkdirSync,writeFileSync} from 'node:fs';
+const out=resolve('tmp/redis351-fingerprint-mutation-'+Date.now());mkdirSync(out,{recursive:true});
+const preload="import{registerHooks}from'node:module';registerHooks({load(url,ctx,next){const r=next(url,ctx);if(!url.endsWith('/server/src/redis.ts'))return r;const from='snapshot.checkpoint !== checkpoint';const s=String(r.source);if(!s.includes(from))throw Error('fingerprint mutation anchor missing');return{...r,source:s.replace(from,'false')};}});";
+const env={...process.env,REDIS351_FINGERPRINT_MUTATION:'1',NODE_OPTIONS:'--import=data:text/javascript,'+encodeURIComponent(preload)};const c=spawn(process.execPath,['scripts/redis-ready-recovery-http-test.mjs'],{env,stdio:['ignore','pipe','pipe']});let stdout='',stderr='';c.stdout.on('data',b=>stdout+=b);c.stderr.on('data',b=>stderr+=b);const [exit]=await once(c,'exit');writeFileSync(join(out,'stdout.log'),stdout);writeFileSync(join(out,'stderr.log'),stderr);assert.equal(exit,1,'fingerprint removal must be rejected');assert(stderr.includes('cold recovery rejects stale Redis in favor of SQLite NEW'),'must fail at the actual cold-stale assertion, not setup');const proof={at:new Date().toISOString(),mutation:'remove child-loaded checkpoint comparison only',testExit:exit,failedAt:'cold recovery rejects stale Redis in favor of SQLite NEW',sharedSourceModified:false,production:0};writeFileSync(join(out,'proof.json'),JSON.stringify(proof,null,2));console.log({out,...proof});
