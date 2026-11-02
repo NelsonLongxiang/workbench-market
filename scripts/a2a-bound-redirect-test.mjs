@@ -37,7 +37,11 @@ const outbox=id=>{const d=new DatabaseSync(join(data,'workbench-market.db'),{rea
 const settled=async id=>{const end=Date.now()+5000;for(;;){const row=outbox(id);if(row&&(row.status==='sent'||row.attempts>0))return row;if(Date.now()>end)throw Error('synthetic outbox deadline');await new Promise(r=>setTimeout(r,20))}};
 let checks=0,failures=0;const results=[];const check=(name,pass)=>{checks++;if(!pass)failures++;console.log((pass?'PASS ':'FAIL ')+name);};
 try{
- let ready=false;for(let i=0;i<120;i++){try{if((await http('/api/health')).status===200){ready=true;break}}catch{}if(child.exitCode!==null)throw Error('owned server exited');await new Promise(r=>setTimeout(r,100));}assert(ready,'owned server ready');
+ const bootStarted=Date.now(),bootDeadline=bootStarted+90_000;let ready=false;
+ // A measured cold module/SQLite load exceeded 40s on this Windows host; bound setup separately from security assertions.
+ while(Date.now()<bootDeadline){try{if((await http('/api/health')).status===200){ready=true;break}}catch{}if(child.exitCode!==null)throw Error('owned server exited before ready: '+child.exitCode+'; '+stderr.slice(-1200));await new Promise(r=>setTimeout(r,100));}
+ writeFileSync(join(out,'startup-observation.json'),JSON.stringify({ready,elapsedMs:Date.now()-bootStarted,deadlineMs:90_000,pid:child.pid,exitCode:child.exitCode,stdoutBytes:stdout.length,stderrBytes:stderr.length},null,2));
+ assert(ready,'owned server ready within bounded setup deadline; matrix not run: '+stderr.slice(-1200));
  process.env.MARKET_PUBLIC_URL=env.MARKET_PUBLIC_URL;
  const {a2aSendOutbound}=await import(pathToFileURL(join(root,'server/src/a2a.ts')).href);
  const direct=(target,message)=>a2aSendOutbound(join(data,'a2a-key.pem'),{baseUrl:target,team:'dsh/12345678'},message,'synthetic-context','market/12345678');
@@ -48,7 +52,7 @@ try{
   if(c.kind==='direct'){const r=await direct(originA+'/case/'+c.id,'SYNTHETIC_DIRECT_'+c.id);rejected=r?.ok===false;}
   else{const r=await http('/api/sop/runs/'+c.id+'/finish','POST');assert.equal(r.status,200);const row=await settled(c.id);rejected=row.status==='pending'&&row.attempts>=1;}
   const first=observed.get(c.id)??[],redirected=sinks.filter(x=>x.path==='/relay/'+c.id);const prefix=c.kind+' '+c.code+' '+c.target;
-  check(prefix+' initial POST body and bound signature valid',first.length>=1&&first.every(x=>x.method==='POST'&&x.body.length>0&&validClaim(x)));
+  check(prefix+' initial POST body and bound signature valid',first.length===1&&first.every(x=>x.method==='POST'&&x.body.length>0&&validClaim(x)));
   check(prefix+' redirect produces explicit delivery failure',rejected);
   check(prefix+' zero redirected requests / signed headers / body',redirected.length===0);
   results.push({...c,rejected,initialRequests:first.length,redirectRequests:redirected.length,leakedBodyBytes:redirected.reduce((n,x)=>n+x.bodyBytes,0),leakedClaimHeaders:redirected.reduce((n,x)=>n+x.claimHeaderCount,0)});
