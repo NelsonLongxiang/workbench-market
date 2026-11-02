@@ -46,13 +46,19 @@ function boot(tag, extraEnv) {
   const env = { ...process.env, MCP_GATEWAY: 'off', PORT: String(port), DATA_DIR: data, ...extraEnv };
   for (const k of ['LC_YGL_BIN', 'LC_YGL_HOME', 'LC_WORKBENCH_KEY_FILE', 'LC_ODOO_URL', 'WM_ODOO_ORIGINS', 'WM_DEV_ORIGIN', 'WM_CONTROL_PORT']) if (!(k in extraEnv)) delete env[k];
   if (!('DSH_VAULT_PASSWORD' in extraEnv)) delete env.DSH_VAULT_PASSWORD;
-  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env, detached: true }); // 独立进程组，收尾整组停
+  // Child-origin IPC proves this test owns each listening port before any HTTP request.
+  const preload = "import net from 'node:net';const listen=net.Server.prototype.listen;net.Server.prototype.listen=function(...args){this.once('listening',()=>{const a=this.address();if(a&&typeof a==='object')process.send?.({kind:'synthetic-owned-listener',port:a.port});});return listen.apply(this,args)};";
+  const child = spawn(process.execPath, ['--import', 'data:text/javascript,' + encodeURIComponent(preload), '--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'], env, detached: true }); // 独立进程组，收尾整组停
   let err = ''; child.stderr.on('data', (c) => (err += c));
-  const s = { port, control: port + 1, child, err: () => err };
+  const ownedPorts = new Set();
+  child.on('message', (m) => { if (m?.kind === 'synthetic-owned-listener' && Number.isInteger(m.port)) ownedPorts.add(m.port); });
+  const s = { port, control: port + 1, child, ownedPorts, err: () => err };
   servers.push(s);
   return s;
 }
-const http = (port, method, path, headers = {}, body) => new Promise((done) => {
+const http = (port, method, path, headers = {}, body) => new Promise((done, reject) => {
+  const owner = servers.find(s => (s.port === port || s.control === port) && s.ownedPorts.has(port));
+  if (!owner || exited(owner)) return reject(Error('synthetic_listener_ownership_missing'));
   const h = { ...headers }; if (body !== undefined) { h['content-type'] = 'application/json'; h['content-length'] = Buffer.byteLength(body); }
   const rq = request({ host: '127.0.0.1', port, method, path, headers: h, agent: false }, (rs) => { // 不复用连接：收尾时没有挂着的 keep-alive
     let s = ''; rs.on('data', (c) => (s += c)); rs.on('end', () => { let j = null; try { j = JSON.parse(s); } catch {} done({ status: rs.statusCode, headers: rs.headers, body: j, text: s }); });
@@ -61,7 +67,7 @@ const http = (port, method, path, headers = {}, body) => new Promise((done) => {
   if (body !== undefined) rq.write(body);
   rq.end();
 });
-const up = async (port) => { const end = Date.now() + 40_000; while (Date.now() < end) { if ((await http(port, 'GET', '/api/health')).status === 200) return true; await new Promise((x) => setTimeout(x, 250)); } return false; };
+const up = async (port) => { const end = Date.now() + 40_000; const owner = servers.find(s => s.port === port || s.control === port); if (!owner) throw Error('unknown_synthetic_port'); while (Date.now() < end) { if (exited(owner)) throw Error('owned_synthetic_server_exited: ' + owner.err().slice(-200)); if (owner.ownedPorts.has(port) && (await http(port, 'GET', '/api/health')).status === 200) return true; await new Promise((x) => setTimeout(x, 100)); } throw Error('owned_synthetic_listener_not_ready'); };
 
 const TOK = 'synthetic-vault-admin-token';
 const MASTER = 'synthetic-master-pass-42';
