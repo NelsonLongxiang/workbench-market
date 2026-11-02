@@ -10,7 +10,7 @@ const SOURCE_DATA_DIR = requireDataSource();
  *  ⑥K9 不同技能同内容各自可发布
  *  ⑦导入器脚本目录锚定（静态断言）
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync, writeFileSync, mkdtempSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';

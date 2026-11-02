@@ -6,7 +6,7 @@ const SOURCE_DATA_DIR = requireDataSource();
  *  判据：①GET /api/sops/:slug/timeline 200（红版 404）②含版本链条目（versions[]）③含 run 历史（runs[]）
  *        ④含验收链（receipts[]·dispatched runs 的回执态）⑤时间倒序（护栏）⑥非 SOP slug 404（护栏）。
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 
 const PORT = 9862;

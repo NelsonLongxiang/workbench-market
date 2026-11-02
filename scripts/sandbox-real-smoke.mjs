@@ -7,7 +7,7 @@ const SOURCE_DATA_DIR = requireDataSource();
  *        ③三态透传：bridge 回 ok=true→原样；回 503 retryable→原样 error 面；回 400 fatal→原样
  *        ④未知工具仍报未知（护栏——第三闸不放水）。
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 

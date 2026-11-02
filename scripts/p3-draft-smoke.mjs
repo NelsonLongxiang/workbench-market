@@ -7,7 +7,7 @@ const SOURCE_DATA_DIR = requireDataSource();
  *  ③app_draft_submit——合并回发布线→新版本生成+激活+物化内容=编辑后
  *  ④L8 并行冲突：两草稿同路径——先提者成·后提者 409 Conflict（isError 含 Conflict）·激活版仍先者
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';

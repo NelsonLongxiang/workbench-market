@@ -2,7 +2,7 @@
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #193 五缺���冒烟：F3 匿名写删 401/403 · F4 软删后下载/改 note 404 · F5 删不存在 404 · F8 配额全量计数 · F11 MCP publish 过锁。 */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 
 const PORT = 20000 + Math.floor(Math.random() * 20000);
