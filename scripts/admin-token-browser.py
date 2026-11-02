@@ -1,11 +1,11 @@
-"""#292 M1 (+M4 残余) browser probes (synthetic token, loopback only). Called by admin-token-browser.mjs.
-业务面（market）不输口令、不做管理写；控制面（control）只做管理、不跑不可信内容；两面互读不到。"""
+"""Admin-token browser probes (synthetic token, loopback only). Called by admin-token-browser.mjs.
+属主 2026-11-02 撤销 #292 M1：业务面凭口令即可做管理写；#292 M4 止血（持口令时不内嵌 /go/、离开页面抹口令）保留。"""
 import json, re, sys
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 cfg = json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))
-base, ctl, wid, tok = cfg['base'], cfg['control'], cfg['wid'], cfg['token']
+base, wid, tok = cfg['base'], cfg['wid'], cfg['token']
 passed = failed = 0
 def ok(name, cond, extra=''):
     global passed, failed
@@ -28,50 +28,40 @@ ANON = json.dumps({'ok': False, 'auth_required': True, 'login_url': f'/go/{wid}/
 with sync_playwright() as p:
     b = p.chromium.launch(headless=True)
     try:
-        print('业务面')
+        print('业务面管理（属主 2026-11-02：口令即可，不再限控制面）')
         c = b.new_context()
-        c.add_init_script('try { if (location.pathname === "/market" && !sessionStorage.getItem("seeded")) { sessionStorage.setItem("seeded", "1"); sessionStorage.setItem("wm-admin-token", "leftover-from-before-m1"); } } catch (e) {}')
         page = c.new_page()
-        page.goto(base + '/market'); page.wait_for_timeout(800)
-        link = page.get_by_role('link', name=re.compile('管理控制面'))
-        ok('业务面没有口令输入，只有「管理控制面」链接（同 path）', page.get_by_placeholder('ADMIN_TOKEN').count() == 0 and page.get_by_role('button', name=re.compile(r'口\s*令$')).count() == 0 and link.count() >= 1 and link.first.get_attribute('href') == ctl + '/market', str(link.first.get_attribute('href') if link.count() else None))
-        ok('业务面启动时清掉 M1 之前留下的口令', page.evaluate('sessionStorage.getItem("wm-admin-token")') is None)
-        r = page.evaluate(WRITE, [tok])
-        ok('业务面页面带对口令发管理写 → 403 指向控制面（偷到口令也用不了）', r['status'] == 403 and (r['body'] or {}).get('control_surface_required') is True, str(r))
-        for v in ('/API/workbenches', '/Api/Workbenches'):
-            for t in ('', tok):
-                rv = page.evaluate(WRITE.replace('"/api/workbenches"', json.dumps(v)), [t])
-                ok(f'业务面页面 fetch 大写变体 {v}（{"带" if t else "不带"}口令）→ 403', rv['status'] == 403, str(rv))
         page.goto(base + f'/use/{wid}'); page.wait_for_timeout(1200)
-        ok('业务面使用页照常内嵌 /go/', go_frames(page) == 1)
+        ok('未设口令：使用页照常内嵌 /go/', go_frames(page) == 1)
         page.goto(base + f'/cockpit/{cfg["cockpit"]}'); page.wait_for_timeout(1200)
-        ok('业务面驾驶舱照常内嵌 /go/', go_frames(page) == 1)
+        ok('未设口令：驾驶舱照常内嵌 /go/、只读（没有新建/加面板）', go_frames(page) == 1 and page.get_by_text('驾驶舱在这里只能查看').count() >= 1)
+        page.goto(base + '/market'); page.wait_for_timeout(800)
+        ok('业务面顶栏有口令输入，没有「管理控制面」链接', page.get_by_role('button', name=re.compile(r'口\s*令$')).count() == 1 and page.get_by_role('link', name=re.compile('管理控制面')).count() == 0)
+        set_token(page)
+        r = page.evaluate(WRITE, [tok])
+        ok('业务面页面带对口令发管理写 → 201', r['status'] == 201, str(r))
+        r = page.evaluate(WRITE, ['wrong-token'])
+        ok('业务面页面带错口令 → 403', r['status'] == 403, str(r))
+        for v in ('/API/workbenches', '/Api/Workbenches'):
+            rv = page.evaluate(WRITE.replace('"/api/workbenches"', json.dumps(v)), [''])
+            ok(f'业务面页面 fetch 大写变体 {v}（不带口令）→ 403', rv['status'] == 403, str(rv))
+        ok('设口令后管理菜单组出现', page.get_by_text('管理', exact=True).count() >= 1)
+        page.evaluate(f'history.pushState(null, "", "/cockpit/{cfg["cockpit"]}"); dispatchEvent(new PopStateEvent("popstate"))'); page.wait_for_timeout(1200)
+        ok('持口令：驾驶舱可编辑（不再显示只读提示）', page.get_by_text('驾驶舱在这里只能查看').count() == 0, page.url)
+        ok('持口令：驾驶舱不内嵌 /go/（#292 M4 止血保留）', go_frames(page) == 0)
+        page.evaluate(f'history.pushState(null, "", "/use/{wid}"); dispatchEvent(new PopStateEvent("popstate"))'); page.wait_for_timeout(1200)
+        ok('持口令：使用页不内嵌 /go/，给出「清除口令并内嵌」', go_frames(page) == 0 and page.get_by_role('button', name='清除口令并内嵌').count() == 1)
+        page.get_by_role('button', name='清除口令并内嵌').click(); page.wait_for_timeout(1500)
+        ok('清除口令后才内嵌 /go/，存储为空', go_frames(page) == 1 and page.evaluate('sessionStorage.getItem("wm-admin-token")') is None)
+        pr = page.frames[-1].evaluate('window.__probe')
+        ok('内嵌的上游页读自己和父页都没有口令', pr.get('own') is None and pr.get('parent') is None, str(pr))
         c.close()
 
-        print('控制面')
-        c = b.new_context(); cp = c.new_page()
-        resp = cp.goto(ctl + '/market'); cp.wait_for_timeout(800)
-        ok('控制面页面带 frame-ancestors none 与 X-Frame-Options DENY', "frame-ancestors 'none'" in resp.headers.get('content-security-policy', '') and resp.headers.get('x-frame-options') == 'DENY', str(resp.headers))
-        set_token(cp)
-        r = cp.evaluate(WRITE, [tok])
-        ok('控制面页面带口令发管理写 → 201', r['status'] == 201, str(r))
-        r = cp.evaluate(WRITE, ['wrong-token'])
-        ok('控制面错口令 → 403', r['status'] == 403, str(r))
-        ok('控制面不显示当前用户 chip（不走 Odoo 登录）', cp.get_by_text('未登录 Odoo').count() == 0)
-        for path in (f'/use/{wid}', f'/cockpit/{cfg["cockpit"]}', '/lifecycle', '/tasks'):
-            cp2 = c.new_page(); cp2.goto(ctl + path); cp2.wait_for_url(base + path + '*', timeout=8000)
-            ok(f'控制面 {path} 跳回业务面同 path，控制面上不出现 /go/ iframe', cp2.url.startswith(base + path), cp2.url)
-            cp2.close()
-        for path in (f'/go/{wid}/', '/sop/x/', '/apps/x/'):
-            rr = cp.request.get(ctl + path)
-            ok(f'控制面 {path} → 404', rr.status == 404, str(rr.status))
-
-        print('两面隔离')
-        mp = c.new_page(); mp.goto(base + f'/use/{wid}'); mp.wait_for_timeout(1200)
-        pr = mp.frames[-1].evaluate('window.__probe')
-        ok('同一浏览器里控制面已设口令；业务面内嵌的上游页读自己和父页都没有口令', pr.get('own') is None and pr.get('parent') is None, str(pr))
-        got = mp.evaluate('''async (u) => { const w = window.open(u + "/market"); await new Promise(r => setTimeout(r, 1500)); let v; try { v = w.sessionStorage.getItem("wm-admin-token"); } catch (e) { v = "blocked"; } try { w.close(); } catch (e) {} return v; }''', ctl)
-        ok('业务面页面 window.open 控制面后读不到它的存储（跨源）', got == 'blocked', str(got))
+        print('同标签页离开市场页面即抹掉口令（#292 M4）')
+        c = b.new_context(); page = c.new_page()
+        page.goto(base + '/market'); page.wait_for_timeout(600); set_token(page)
+        page.goto(base + f'/go/{wid}/'); page.wait_for_timeout(1200)
+        ok('同一标签页跳到 /go/ 后，新文档读不到口令', page.evaluate('sessionStorage.getItem("wm-admin-token")') is None)
         c.close()
 
         print('业务面登录弹窗（M4 残余）')
