@@ -7,7 +7,7 @@ const SOURCE_DATA_DIR = requireDataSource();
  *        ②无 cookie→302 Location 含 /web/login 且带 state ✓③非 Odoo 台不受影响（护栏）✓
  *        ④透传白名单：携带 session_id+其他 cookie→上游只收 session_id（评审注①）✓
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 

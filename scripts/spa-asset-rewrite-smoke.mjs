@@ -7,7 +7,7 @@ const SOURCE_DATA_DIR = requireDataSource();
  *  ③真取该资产 → 200 且 JS 内容一致（红版 404 JSON）
  *  ④外链/协议相对/data: 不误改（护栏）
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 

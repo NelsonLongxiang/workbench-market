@@ -9,7 +9,7 @@ const SOURCE_DATA_DIR = requireDataSource();
  *  ⑤迁移幂等：重跑迁移——Commit 数不变
  *  ⑥影子失败不阻发布：服务指死端口——publish 仍 201·commit_id 空·warn 不炸
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';

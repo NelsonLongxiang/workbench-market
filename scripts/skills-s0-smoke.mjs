@@ -9,7 +9,7 @@ const SOURCE_DATA_DIR = requireDataSource();
  *  ⑤暴露 DATA_DIR 绝对路径（发布响应 snapshot_path 不含 dataDir）
  *  ⑥bridge 未带 Bearer（鉴权头）
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';

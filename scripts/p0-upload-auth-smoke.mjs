@@ -9,7 +9,7 @@ const SOURCE_DATA_DIR = requireDataSource();
  *  ⑤配额：第 21 个文件 → 413
  *  ⑥审计行落档（sop_run_file_audit 含 run_id/sha/source）
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 
 const PORT = 9980;

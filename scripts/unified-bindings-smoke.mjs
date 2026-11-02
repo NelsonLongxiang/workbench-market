@@ -5,7 +5,7 @@ const SOURCE_DATA_DIR = requireDataSource();
  *  核心：方向独立性（授 notify 不过 admits 查询·反之亦然）+ direction 显式铁律
  *  + 迁移幂等 + 旧面 410 过渡。红版：新面不存在（404）+ 旧面仍 200。
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 
 const PORT = 9856;

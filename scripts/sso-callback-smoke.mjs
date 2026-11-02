@@ -12,7 +12,7 @@ let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
 
 // A 面（对隔离实例测——红版无路由=404）
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 const PORT = 9863;
 const BASE = `http://127.0.0.1:${PORT}`;

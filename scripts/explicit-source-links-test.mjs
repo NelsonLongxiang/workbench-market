@@ -1,0 +1,6 @@
+import {mkdirSync,writeFileSync,symlinkSync,unlinkSync} from 'node:fs';
+import {resolve,join} from 'node:path';
+import {spawnSync} from 'node:child_process';
+const root=resolve('tmp/source-links-'+Date.now()),source=join(root,'source'),outside=join(root,'outside');mkdirSync(source,{recursive:true});mkdirSync(outside);writeFileSync(join(outside,'synthetic.db'),'SYNTHETIC_ONLY');let checks=0,failures=0;
+function reject(name){const r=spawnSync(process.execPath,['--input-type=module','-e',"const {requireDataSource}=await import('./scripts/explicit-data-target.mjs');requireDataSource();",'--','--target-mode','isolated','--isolated-root',source,'--source-data',source],{encoding:'utf8'});const ok=r.status!==0&&r.stderr.includes('explicit_isolated_link_refused');checks++;if(!ok)failures++;console.log((ok?'PASS ':'FAIL ')+name);}
+symlinkSync(join(outside,'synthetic.db'),join(source,'workbench-market.db'),'file');reject('database child symlink refused');unlinkSync(join(source,'workbench-market.db'));mkdirSync(join(source,'apps'));symlinkSync(outside,join(source,'apps','linked'),'junction');reject('nested app junction refused');console.log(JSON.stringify({root,checks,failures,readOutside:false}));if(failures)process.exitCode=1;

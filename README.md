@@ -197,9 +197,11 @@ data/           SQLite 数据文件（git 忽略）
 - 服务层冒烟：`--data-dir <绝对库目录>` 与模式/隔离根必须先校验，再动态导入context；不允许顶层导入隐式建库。
 - 监督：sup-audit必须给 `--api http://127.0.0.1:<测试端口> --summary <绝对摘要路径>`；sup-live必须给 `--api ... --log-file <绝对日志路径>`。都要显式模式，拒重定向。没有 `--restart-task <精确名称>` 时只报健康不点火；点火只准显式production+确认，不创建/修改计划任务。
 - 生命周期真引擎测试：显式 LC_OS_DIR、YGL_BIN、--data-dir（测试输出根），不搜索个人checkout或引擎。lc-issuer-unit未给LC_OS_DIR时只跑内置向量并明确跳参考实现，不枚举个人路径。
-- 隔离模式要求绝对目标位于显式 --isolated-root 下，拒链接/junction穿越，拒当前检出的server/data与个人.dsh/.ygl-trees；它不能证明整个目录没有业务数据。生产路径不能伪装成隔离源。URL还必须显式端口/规范host，isolated拒9800/9801/3080、非回环、URL凭据/query/fragment/path。
+- 隔离模式要求绝对目标位于显式 --isolated-root 下，递归拒源树内及其祖先链接/junction穿越（含数据库文件和被复制的子目录），拒当前检出的server/data与个人.dsh/.ygl-trees；它不能证明整个目录没有业务数据。生产路径不能伪装成隔离源。URL还必须显式端口/规范host，isolated拒9800/9801/3080、非回环、URL凭据/query/fragment/path。
 
 合成跑器只向子进程显式传 SCRIPT_SOURCE_DATA_DIR、SCRIPT_SOURCE_DB、SCRIPT_TARGET_MODE=isolated、SCRIPT_ISOLATED_ROOT；这些没有代码缺省值。手动操作优先命令行参数，生产确认旗标不从环境继承。不向服务端注入这些脚本参数以改变其运行行为。
+
+39个快照冒烟的自启实例必须经子进程独立IPC报告监听端口后才发HTTP；子进程未成功绑定或退出时拒请求，不以任意端口200当自有服务。此防意外碰撞，不是对恶意本机端口重绑定的原子证明。
 
 验证：`node scripts/explicit-data-targets-test.mjs`拦截所有负例网络/子进程/SQLite/目录访问，正向仅合成目录；原脚本不拿真实服务试。`scripts/explicit-data-target-inventory.json`固定本次清单。冻结包/已有验证报告不就地改写，旧命令需显式传参后重新运行新报告。
 

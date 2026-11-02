@@ -2,7 +2,7 @@
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #178 skill_search 冒烟（替身 Gateway·EVAL_GATEWAY_URL）：协议形状 + 阈值/上限/排序/空态/错误面 + frontmatter 吸收。 */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 

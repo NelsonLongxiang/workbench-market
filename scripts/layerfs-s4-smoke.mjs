@@ -6,7 +6,7 @@ const SOURCE_DATA_DIR = requireDataSource();
  *  L10: 删台五步——批准后市场行清+托管 404+服务收 DELETE /v1/projects/{slug}+物化清
  *  D4: 月度整库重建——admin 触发→服务收 wm-skills 项目 DELETE+活技能重发布（已删技能分支不复生）
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync, existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';

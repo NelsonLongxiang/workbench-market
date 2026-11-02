@@ -2,7 +2,7 @@
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #164 P1① patch 发布+diff 摘要冒烟。 */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 
 const PORT = 20000 + Math.floor(Math.random() * 20000);

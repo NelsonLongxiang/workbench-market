@@ -2,7 +2,7 @@
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #170 P1④⑤ 冒烟：①无 session_id 首访 → 302 带 state+Set-Cookie②回跳 state 不匹配 → 400 ③匹配 → 消费清 cookie 并继续 ④普通 cookie 补 SameSite=Lax。 */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 
