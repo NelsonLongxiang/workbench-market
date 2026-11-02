@@ -212,7 +212,7 @@ try {
     });
     await check('W10b 撤回后 release → 409', async () => assert.equal((await call('/api/workbench-events/' + tw.event_id + '/release', {})).status, 409));
     const th = await publishTask({ ...values, title: '未送达回写' }, false);
-    const db = new DatabaseSync(join(data, 'workbench-market.db'));
+    const db = new DatabaseSync(join(data, 'workbench-market.db')); db.exec('PRAGMA busy_timeout=5000');
     const heldMsg = db.prepare("SELECT message FROM workbench_event_deliveries WHERE event_id = ? LIMIT 1").get(th.event_id).message;
     const heldToken = JSON.parse(heldMsg).reply.token;
     const early = await call('/api/workbench-events/' + th.event_id + '/decision', { token: heldToken, decision: 'accept', reason: '抢答' }, 'POST', remote);
@@ -289,7 +289,7 @@ try {
 
   // W9：只增日志
   {
-    const db = new DatabaseSync(join(data, 'workbench-market.db'));
+    const db = new DatabaseSync(join(data, 'workbench-market.db')); db.exec('PRAGMA busy_timeout=5000');
     let updateRefused = false, deleteRefused = false, eventDeleteRefused = false;
     try { db.exec("UPDATE workbench_event_log SET action = 'x'"); } catch { updateRefused = true; }
     try { db.exec('DELETE FROM workbench_event_log'); } catch { deleteRefused = true; }
@@ -307,7 +307,7 @@ try {
     db.close();
     await check(`终态：${humans} 个 human 事件无 pending、无超时 held（${held} 个 held 在 72h 内等确认）`, () => assert.deepEqual(open, []));
     // 判据非空：把一条 held 的投递时刻（created_at，72h 由此起算）挪到 73h 前，判据必须抓到它
-    const rw = new DatabaseSync(join(data, 'workbench-market.db'));
+    const rw = new DatabaseSync(join(data, 'workbench-market.db')); rw.exec('PRAGMA busy_timeout=5000');
     rw.prepare("UPDATE workbench_event_deliveries SET created_at = datetime('now', '-73 hours') WHERE id = (SELECT MIN(id) FROM workbench_event_deliveries WHERE status = 'held')").run();
     const caught = rw.prepare("SELECT COUNT(*) AS n FROM workbench_event_deliveries d JOIN workbench_events e ON e.event_id = d.event_id WHERE e.submitter_kind = 'human' AND (d.status = 'pending' OR (d.status = 'held' AND d.created_at < datetime('now', '-72 hours')))").get().n;
     rw.close();
