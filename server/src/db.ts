@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS sop_runs (
   status TEXT NOT NULL DEFAULT 'running',
   started_by TEXT NOT NULL DEFAULT '',
   data TEXT NOT NULL DEFAULT '{}',
+  cache_revision INTEGER NOT NULL DEFAULT 0,
   started_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   finished_at TEXT NOT NULL DEFAULT ''
@@ -424,6 +425,13 @@ try {
 // #132 P0：app_files.note+deleted_at·app_data.deleted_at（幂等 ALTER·软删原行留审计）
 try { const afCols = db.prepare('PRAGMA table_info(app_files)').all() as any[]; if (!afCols.some((c) => c.name === 'note')) db.exec("ALTER TABLE app_files ADD COLUMN note TEXT NOT NULL DEFAULT ''"); if (!afCols.some((c) => c.name === 'deleted_at')) db.exec("ALTER TABLE app_files ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 try { const adCols = db.prepare('PRAGMA table_info(app_data)').all() as any[]; if (!adCols.some((c) => c.name === 'deleted_at')) db.exec("ALTER TABLE app_data ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+// #337: a durable monotonic generation invalidates stale Redis snapshots, including same-value writes.
+{
+  const cols = db.prepare('PRAGMA table_info(sop_runs)').all() as { name: string }[];
+  if (!cols.some(c => c.name === 'cache_revision')) db.exec('ALTER TABLE sop_runs ADD COLUMN cache_revision INTEGER NOT NULL DEFAULT 0');
+  db.exec(`CREATE TRIGGER IF NOT EXISTS sop_runs_cache_revision AFTER UPDATE OF data, status ON sop_runs
+    BEGIN UPDATE sop_runs SET cache_revision = OLD.cache_revision + 1 WHERE id = NEW.id; END;`);
+}
 // P0：sop_runs.upload_token（run-scoped 上传令牌·启动签发——总工 direct-c2b55f91）
 try { const srtCols = db.prepare('PRAGMA table_info(sop_runs)').all() as any[]; if (!srtCols.some((c) => c.name === 'upload_token')) db.exec("ALTER TABLE sop_runs ADD COLUMN upload_token TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 {
@@ -523,7 +531,7 @@ export interface AppVersionRow {
 /** SOP 执行实例（分层治理·持久层真源）：data=stepKey→value JSON；热态在 Redis（redis.ts） */
 export interface SopRunRow {
   id: number; sop_slug: string; sop_version: number; status: string; started_by: string;
-  data: string; started_at: string; updated_at: string; finished_at: string;
+  data: string; cache_revision: number; started_at: string; updated_at: string; finished_at: string;
 }
 
 export interface CockpitRow {
