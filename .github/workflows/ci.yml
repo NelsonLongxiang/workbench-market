@@ -35,6 +35,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/sop-list-privacy-browser.mjs
+      - name: Tasks viewer identity invalidation (#324, synthetic intercepted API)
+        env:
+          PYTHON: python
+        run: node scripts/tasks-read-authority-browser.mjs
       - name: 管理员口令浏览器反例
         env:
           PYTHON: python
@@ -108,6 +112,8 @@ jobs:
         run: node scripts/check-server-syntax.mjs
       - name: Startup security self-probe (#326, loopback synthetic only)
         run: node scripts/startup-security-self-probe-test.mjs && node scripts/startup-security-self-probe-http-test.mjs && node scripts/startup-security-self-probe-upgrade-test.mjs
+      - name: Tasks identity and project/run grant isolation (#324, synthetic only)
+        run: node scripts/tasks-read-authority-http-test.mjs
       - name: SOP checkpoint deadlines and active-list completeness (#337, #338; synthetic only)
         run: node scripts/sop-state-checkpoints-test.mjs && node scripts/sop-state-http-test.mjs && node scripts/sop-state-restart-test.mjs
       - name: SOP list privacy and upload-token rotation (#309, synthetic only)
