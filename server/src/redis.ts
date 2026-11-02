@@ -37,20 +37,26 @@ export function startRedis(): void {
     return;
   }
   client = createClient({ url });
-  client.on('error', (e: Error) => {
-    if (degraded) return; // 降级态不再刷屏
-    console.warn(`[redis] 连接错误，进入降级模式（直写 SQLite）：${e.message}`);
+  const connection = client;
+  degraded = true;
+  connection.on('ready', () => {
+    if (client !== connection || !connection.isReady) return;
+    const recovered = degraded;
+    degraded = false;
+    if (recovered) console.log('[redis] 状态层已就绪（SOP run 热数据走 Redis）');
+  });
+  const unavailable = () => { if (client === connection) degraded = true; };
+  connection.on('reconnecting', unavailable);
+  connection.on('end', unavailable);
+  connection.on('error', () => {
+    if (client !== connection) return;
+    if (!degraded) console.warn('[redis] 连接错误，进入降级模式（直写 SQLite）');
     degraded = true;
   });
-  client
-    .connect()
-    .then(() => {
-      degraded = false;
-      console.log('[redis] 状态层已连接（SOP run 热数据走 Redis）');
-    })
-    .catch((e: Error) => {
-      console.warn(`[redis] 首连失败，降级模式（直写 SQLite）：${e.message}`);
-    });
+  // Only ready events restore availability; a delayed initial Promise must not undo a newer error.
+  void connection.connect().catch(() => {
+    if (client === connection && degraded) console.warn('[redis] 首连失败，降级模式（直写 SQLite）');
+  });
 }
 
 export function redisHealthy(): boolean {
