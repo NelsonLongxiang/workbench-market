@@ -74,7 +74,7 @@ function AdminTokenInput() {
           <div style={{ marginTop: 8, textAlign: 'right' }}>
             <AButton size="small" type="primary" onClick={() => { setAdminToken(val.trim()); setOpen(false); }}>保存</AButton>
           </div>
-          <div style={{ marginTop: 4, fontSize: 12, color: T.colors['text-secondary'] }}>本机 127.0.0.1 访问通常无需口令</div>
+          <div className="wm-mt-1 wm-caption" style={{ color: T.colors['text-secondary'] }}>本机 127.0.0.1 访问通常无需口令</div>
         </div>
       )}
     >
@@ -121,9 +121,9 @@ export default function App() {
       menuHeaderRender={() => (
         // ProLayout 默认把 logo 标题染成 colorPrimary（#1E3A5F  Navy），
         // 在深色侧栏上几乎不可见；接管渲染：白字 600 + 字距
-        <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 4px' }}>
+        <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 4px' }}>
           <AppstoreOutlined style={{ fontSize: 22, color: T.colors.success }} />
-          <span style={{ color: T.colors['nav-text-active'], fontSize: 16, fontWeight: 600, letterSpacing: '0.02em', whiteSpace: 'nowrap' }}>
+          <span className="wm-strong" style={{ color: T.colors['nav-text-active'], fontSize: 16, letterSpacing: '0.02em', whiteSpace: 'nowrap' }}>
             工作台市场
           </span>
         </Link>
@@ -147,7 +147,7 @@ export default function App() {
       contentStyle={{ padding: 16, paddingTop: 12 }}
     >
       {/* #279 当前用户：侧栏布局不渲染 headerRender，所以在内容区顶部右侧放一行，所有页面（含 /lifecycle）都能看到 */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', minHeight: 24, marginBottom: 4 }}>{surface !== 'control' && <ViewerChip />}</div>
+      <div className="wm-mb-1" style={{ display: 'flex', justifyContent: 'flex-end', minHeight: 24 }}>{surface !== 'control' && <ViewerChip />}</div>
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/cockpit" element={<Cockpit />} />
