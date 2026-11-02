@@ -11,13 +11,12 @@ import 'react-resizable/css/styles.css';
 import { api } from '../api';
 import GoFrame from '../components/GoFrame';
 import type { Cockpit as CockpitT, PanelConfig, Workbench } from '../types';
-import { surface } from '../surface';
+import { useSyncExternalStore } from 'react';
+import { adminActive, subscribeAdminToken } from '../admin-token';
 import WmPage from '../components/WmPage';
 
-/** #302 方案③：驾驶舱写（/api/cockpits）是管理写，业务面浏览器发来一律 403；驾驶舱又只在业务面提供。
- *  所以业务面只读：隐藏新建/删除/改名/加移面板，网格不可拖拽，给出命令行提示，免得点了才报 403 */
-const READ_ONLY = surface === 'market';
-const READ_ONLY_HINT = '业务面不提供驾驶舱编辑（管理写只在控制面或本机命令行做，而驾驶舱页面只在业务面）。新建、加/移面板、改名、删除请在服务器本机用命令行调用 /api/cockpits。';
+/** 驾驶舱写（/api/cockpits）是管理写：不是管理员（口令或 Odoo 管理员）时只读，隐藏新建/删除/改名/加移面板，网格不可拖拽 */
+const READ_ONLY_HINT = '编辑驾驶舱需要管理员：在顶栏输入管理员口令，或用 Odoo 管理员账号登录。';
 
 const Grid = WidthProvider(GridLayout);
 const COLS = 12;
@@ -49,6 +48,7 @@ import { TasksView } from './Tasks';
 import { snapPanels, snapW } from '../cockpit-layout';
 
 export default function Cockpit() {
+  const READ_ONLY = !useSyncExternalStore(subscribeAdminToken, adminActive);
   const { id } = useParams();
   const nav = useNavigate();
   const { message } = App.useApp();

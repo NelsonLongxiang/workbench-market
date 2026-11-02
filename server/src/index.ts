@@ -193,11 +193,37 @@ if (lastAllowDiff.added.length > 0 || lastAllowDiff.removed.length > 0) {
     } catch { /* 不阻启动 */ }
   }, 3000);
 }
-// #292 M1：写请求总门。
+// 管理身份（属主 2026-11-02 裁定：撤销 #292 M1「管理写只认控制面」，有管理员口令就够；Odoo 管理员登录也算管理员）：
+//   带 Odoo 会话 cookie、却没带有效口令的 /api 请求，现查 Odoo get_session_info；内部员工且 is_admin=true 即记为管理员。
+//   结果按会话哈希缓存 30 秒（Odoo 侧撤管理员权限最迟 30 秒生效），只缓存这一位布尔，不缓存会话本身。
+const ODOO_ADMIN_TTL_MS = 30_000;
+const odooAdminCache = new Map<string, { at: number; login: string | null }>();
+const odooAdminReqs = new WeakMap<express.Request, string>(); // 本次请求经 Odoo 管理员认定 → 登录名
+async function odooAdminOf(cookieHeader: string): Promise<string | null> {
+  const sid = odooSessionOf(cookieHeader);
+  if (!sid) return null;
+  const key = createHash('sha256').update(sid).digest('hex');
+  const hit = odooAdminCache.get(key);
+  if (hit && Date.now() - hit.at < ODOO_ADMIN_TTL_MS) return hit.login;
+  let login: string | null = null;
+  try { const who = await resolveOdooViewer(cookieHeader); login = who.ok && who.viewer.admin ? who.viewer.login : null; } catch { login = null; }
+  if (odooAdminCache.size > 1000) odooAdminCache.clear();
+  odooAdminCache.set(key, { at: Date.now(), login });
+  return login;
+}
+app.use(async (req, _res, next) => {
+  if (!req.path.toLowerCase().startsWith('/api/') || surfaceOf(req) === 'content') return next();
+  if (adminTokenCheck(req.headers['x-admin-token'])) return next();
+  const cookie = String(req.headers.cookie ?? '');
+  if (!odooSessionOf(cookie)) return next();
+  const login = await odooAdminOf(cookie);
+  if (login) odooAdminReqs.set(req, login);
+  next();
+});
+// 写请求总门。
 //   本机 CLI（回环直连、不带浏览器标记、没有反代转发头）照旧免口令——属主口径；
-//   浏览器发来的管理写（带 Origin / Sec-Fetch-*）一律要控制面 + 控制面 Origin + 口令（adminGuard），
-//   **从 127.0.0.1:9800 页面发的也拒**；同机反代转进来的（带 X-Forwarded-For 等）按远程处理。
-//   业务写白名单（REMOTE_ALLOW_*）不变，照旧在业务面免口令。
+//   其余 /api 管理写走 adminGuard：有效口令或 Odoo 管理员，浏览器来的还要同源；同机反代转进来的按远程处理。
+//   业务写白名单（REMOTE_ALLOW_*）不变，照旧免口令。
 app.use((req, res, next) => {
   if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next(); // 读面不拦（掩码已有）
   // 与路由同口径分类：req.path 是 Express 路由用的 pathname（绝对形式 POST http://x/api/… 的原始 req.url 不以 /api/ 开头，曾绕过本门：#299）；
@@ -2380,36 +2406,44 @@ app.delete('/api/types/:id', (req, res) => {
 
 // ---------- 设置 / 导入导出 ----------
 // ---------- 管理员口令手动设置（本机引导：首次无口令时允许从 loopback 设置） ----------
-/** #292 M1：可设/清口令——本机直连，且要么是 CLI（无浏览器标记），要么是控制面页面（Origin 就是控制面） */
+/** 首次设口令（库里还没有口令）：本机直连（CLI 或本机同源页面），或 Odoo 管理员；改/清口令：带当前口令或 Odoo 管理员 */
 function isLoopbackReq(req: express.Request): boolean {
-  if (!rawLoopback(req)) return false;
-  return !browserMarked(req) || (surfaceOf(req) === 'control' && originIsThisSurface(req));
+  return rawLoopback(req) && (!browserMarked(req) || originIsThisSurface(req));
 }
+function adminTokenWritable(req: express.Request, requireCurrent: boolean): boolean {
+  if (!browserSameSite(req) || (req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req))) return false;
+  if (odooAdminReqs.has(req)) return true;
+  return requireCurrent ? dbAdminTokenOk(req.headers['x-admin-token']) : isLoopbackReq(req);
+}
+
+app.get('/api/admin/whoami', (req, res) => {
+  const viaToken = adminTokenCheck(req.headers['x-admin-token']);
+  const odoo = odooAdminReqs.get(req) ?? null;
+  res.set('Cache-Control', 'no-store').json({ admin: viaToken || !!odoo, via: viaToken ? 'token' : odoo ? 'odoo' : null, login: viaToken ? null : odoo });
+});
 
 app.get('/api/admin-token/state', (req, res) => {
   res.json({
     source: process.env.ADMIN_TOKEN ? 'env' : (dbAdminTokenSet() ? 'db' : 'none'),
-    settable: !process.env.ADMIN_TOKEN && isLoopbackReq(req), // env 未设时可由本机页面设置
+    settable: !process.env.ADMIN_TOKEN && (dbAdminTokenSet() || isLoopbackReq(req) || odooAdminReqs.has(req)), // env 未设时：已有口令可凭旧口令改；首次由本机或 Odoo 管理员设
   });
 });
 
 app.put('/api/admin-token', (req, res) => {
-  if (!isLoopbackReq(req)) return res.status(403).json({ error: '仅本机命令行或本机控制面页面可设置管理员口令', control_url: surfaceUrl(req, 'control') });
   if (process.env.ADMIN_TOKEN) return res.status(400).json({ error: '口令由启动环境 ADMIN_TOKEN 提供，页面不可改（改环境变量并重启）' });
   const token = typeof req.body?.token === 'string' ? req.body.token : '';
   if (token.length < 4 || token.length > 128) return res.status(400).json({ error: '口令长度 4–128' });
   const hasExisting = dbAdminTokenSet();
-  if (hasExisting && !dbAdminTokenOk(req.headers['x-admin-token'])) {
-    return res.status(403).json({ error: '修改口令需先在请求头带上当前口令（X-Admin-Token）' });
+  if (!adminTokenWritable(req, hasExisting)) {
+    return res.status(403).json({ error: hasExisting ? '修改口令需先在请求头带上当前口令（X-Admin-Token），或用 Odoo 管理员登录' : '首次设置口令仅限本机命令行/本机页面，或 Odoo 管理员' });
   }
   svc<SettingService>('setting').put(ADMIN_TOKEN_KEY, hashAdminToken(token));
   res.json({ ok: true, source: 'db', note: '口令已设置并立即生效（库存 sha256，不可取回）' });
 });
 
 app.delete('/api/admin-token', (req, res) => {
-  if (!isLoopbackReq(req)) return res.status(403).json({ error: '仅本机命令行或本机控制面页面可清除管理员口令', control_url: surfaceUrl(req, 'control') });
   if (process.env.ADMIN_TOKEN) return res.status(400).json({ error: '口令来自启动环境，需清环境变量并重启' });
-  if (!dbAdminTokenOk(req.headers['x-admin-token'])) return res.status(403).json({ error: '需当前口令' });
+  if (!adminTokenWritable(req, true)) return res.status(403).json({ error: '需当前口令或 Odoo 管理员登录' });
   svc<SettingService>('setting').delete(ADMIN_TOKEN_KEY);
   res.json({ ok: true, source: 'none' });
 });
@@ -2554,9 +2588,9 @@ app.post('/api/import', (req, res) => {
 // 与 adminGuard 同口径，只多认一种浏览器形态：同源 GET 不带 Origin（只有 Sec-Fetch-Site: same-origin），
 // adminGuard 按「无 Origin 即非本面」会拒掉控制面页面自己的读请求；凭据读必须和写一样严，所以读也要口令。
 function vaultGuard(req: express.Request, res: express.Response): boolean {
-  if (browserMarked(req) && !req.headers.origin && req.headers['sec-fetch-site'] === 'same-origin' && (surfaceOf(req) === 'control' || (DEV_ORIGIN_ENABLED && rawLoopback(req)))) {
-    if (adminTokenCheck(req.headers['x-admin-token'])) return true;
-    res.status(403).json({ error: '需要有效的 X-Admin-Token（凭据库读写都要口令）' });
+  if (browserMarked(req) && !req.headers.origin && req.headers['sec-fetch-site'] === 'same-origin' && surfaceOf(req) !== 'content') {
+    if (isAdmin(req)) return true;
+    res.status(403).json({ error: '需要有效的 X-Admin-Token 或 Odoo 管理员登录（凭据库读写都要管理员）' });
     return false;
   }
   return adminGuard(req, res);
@@ -2603,22 +2637,32 @@ function adminTokenCheck(provided: string | undefined): boolean {
   return process.env.ADMIN_TOKEN ? adminTokenOk(provided) : dbAdminTokenOk(provided);
 }
 
-/** P0：静默口令判定（不写响应——供上传面与 token 二选一逻辑用） */
+/** 管理员：有效口令，或本次请求已认定为 Odoo 管理员（见上方预判中间件） */
+function isAdmin(req: express.Request): boolean {
+  return adminTokenCheck(req.headers['x-admin-token']) || odooAdminReqs.has(req);
+}
+
+/** 浏览器来源门：带 Sec-Fetch-Site 的必须是同源（Odoo 会话 cookie 是环境凭据，防跨站借用） */
+function browserSameSite(req: express.Request): boolean {
+  const site = req.headers['sec-fetch-site'];
+  return site === undefined || site === 'same-origin' || site === 'none' || devOriginOk(req);
+}
+
+/** P0：静默管理员判定（不写响应——供上传面与 token 二选一逻辑用） */
 function adminHeaderOk(req: express.Request): boolean {
-  if (!adminTokenCheck(req.headers['x-admin-token'])) return false;
+  if (!isAdmin(req) || !browserSameSite(req)) return false;
   const origin = req.headers.origin;
   if (origin) { try { if (new URL(String(origin)).host !== String(req.headers.host ?? '')) return false; } catch { return false; } }
   return true;
 }
 
 function adminGuard(req: express.Request, res: express.Response): boolean {
-  // #292 M1：浏览器发来的管理写只认控制面（口令只在控制面存在；业务面上的同源不可信页拿不到也用不了）
-  if (browserMarked(req) && !(surfaceOf(req) === 'control' && originIsThisSurface(req)) && !devOriginOk(req)) {
-    res.status(403).json({ error: '管理写操作请到控制面（业务面页面发来的一律拒绝）', control_surface_required: true, control_url: surfaceUrl(req, 'control') });
+  if (!isAdmin(req)) {
+    res.status(403).json({ error: '需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）' }); // 属主报障文案修正：不再把「未带/无效」说成「未设置」
     return false;
   }
-  if (!adminTokenCheck(req.headers['x-admin-token'])) {
-    res.status(403).json({ error: '需要有效的 X-Admin-Token（口令缺失或无效一律拒绝；设置页/顶栏钥匙图标可设置）' }); // 属主报障文案修正：不再把「未带/无效」说成「未设置」
+  if (!browserSameSite(req)) {
+    res.status(403).json({ error: '跨源写操作被拒绝' });
     return false;
   }
   const origin = req.headers.origin;
@@ -3002,7 +3046,7 @@ import { renderSopRunner as renderSopRunnerRaw } from './sop-runner.ts';
 import { loadTokensCss, resolveTokensPath } from './design-tokens-css.ts';
 /** #321：执行页内联 DESIGN.md 生成的 --wm-* 变量，与市场前端同色同字号 */
 const renderSopRunner = (manifest: Parameters<typeof renderSopRunnerRaw>[0], app: Parameters<typeof renderSopRunnerRaw>[1]) => renderSopRunnerRaw(manifest, app, loadTokensCss()?.css ?? '');
-import { isOdooLikeTarget, isOdooSessionTarget, stripOdooSession, trustedOdooOrigins } from './odoo-session.ts';
+import { isOdooLikeTarget, isOdooSessionTarget, odooSessionOf, stripOdooSession, trustedOdooOrigins } from './odoo-session.ts';
 import { collectTasks } from './tasks.ts';
 import { tasksReadAccess, createTaskSourceGrant, revokeTaskSourceGrant } from './tasks-read-access.ts';
 import { lifecycleApprove, lifecycleBoard, lifecycleConfigProblem, lifecycleConfigured, lifecycleSourceFor, lifecycleStatus, lifecycleWhoami, resolveOdooViewer } from './lifecycle.ts';
@@ -3715,7 +3759,7 @@ const goServer = registerSurface(app, 'market', PORT, () => {
   if (lcProblem) console.warn(`[lifecycle] 生命周期源不可用：${lcProblem}`);
   const counts = svc<WorkbenchService>('workbench').count() as { n: number };
   console.log(`[workbench-market] server  http://127.0.0.1:${PORT}  (workbenches: ${counts.n}, web-dist: ${existsSync(webDist) ? 'served' : 'none'}, portal: /go/<id>/)`);
-  console.log(SURFACE_PORTS.control ? `[workbench-market] control http://127.0.0.1:${SURFACE_PORTS.control}  （#292 M1 管理控制面：浏览器管理写只在这里收）` : '[workbench-market] control 面已关闭（WM_CONTROL_PORT=0）：浏览器管理写一律拒绝，只能用本机命令行');
+  if (SURFACE_PORTS.control) console.log(`[workbench-market] control http://127.0.0.1:${SURFACE_PORTS.control}  （可选的独立管理端口；管理写在业务面凭口令或 Odoo 管理员同样可做）`);
   // The listener exists but HTTP/market WS remain gated until anonymous safety checks pass.
 });
 

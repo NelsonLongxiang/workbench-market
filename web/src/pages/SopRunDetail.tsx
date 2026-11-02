@@ -69,7 +69,7 @@ export default function SopRunDetail() {
           type="info"
           showIcon
           message="这条记录的步骤填写值和附件需要读授权"
-          description="你现在只能看到执行元数据。需要查看时，请管理员在控制面为你签发这条记录的读授权（read-grant），或使用发起执行时拿到的读凭证。"
+          description="你现在只能看到执行元数据。需要查看时，请管理员为你签发这条记录的读授权（read-grant），或使用发起执行时拿到的读凭证。"
         />
       ) : <RunBody slug={slug} run={run} />}
     </WmPage>
