@@ -111,6 +111,16 @@ jobs:
         run: node scripts/sop-field-finish-test.mjs && node scripts/sop-field-finish-router-test.mjs && node scripts/sop-field-upload-test.mjs && node scripts/sop-field-upload-router-test.mjs && node scripts/sop-field-save-test.mjs && node scripts/sop-field-router-test.mjs && node scripts/sop-field-channel-state-test.mjs && node scripts/sop-run-access-test.mjs && node scripts/sop-readonly-assembly-test.mjs && node scripts/sop-readonly-channel-test.mjs && node scripts/sop-readonly-state-test.mjs
       - name: Taskcenter B1 seed and intake publication
         run: node scripts/taskcenter-intake-smoke.mjs
+      # OriginClaim 绑定形式：裁判是上游 verifyOriginClaim（钉在含 src/origin-claim.ts 的 master 提交），按关窗后的状态判
+      - uses: actions/checkout@v4
+        with:
+          repository: NelsonLongxiang/dsh-open-a2a-net
+          ref: cf4896164b5df2304fc5f5c7bb613cb865e924f6
+          path: dsh-open-a2a-net
+      - name: OriginClaim 绑定形式出站（#64 关窗后对端只认 Sig2：上游裁判·重放换路由/方法/主机皆拒·仅 v1 反例）
+        env:
+          A2A_ORIGIN_SRC: ${{ github.workspace }}/dsh-open-a2a-net/src/origin-claim.ts
+        run: node scripts/origin-claim-bound-smoke.mjs
       - name: SSRF 默认关闭与启动告警（隔离实例）
         run: node scripts/r1-ssrf-smoke.mjs
       - name: R3 URL 登记准入（#258：精确许可·硬拒·全入口同核·import 全事务注错·审计日志）
