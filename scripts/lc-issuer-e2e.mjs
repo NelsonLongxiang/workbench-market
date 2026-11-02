@@ -15,15 +15,20 @@ import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 const PIN = '0.116.1';
-const LC_OS = resolve(process.env.LC_OS_DIR || join(homedir(), 'workspace/lifecycle-os'));
-const BIN = [process.env.YGL_BIN, join(LC_OS, 'node_modules/.bin/ygl-trees'), join(homedir(), 'workspace/ygl-trees/tmp/wt-0.116.1/dist/bundle/bin.cjs'), join(homedir(), 'workspace/ygl-trees/dist/bundle/bin.cjs')].filter(Boolean).find((p) => existsSync(p));
+import {scriptOptions,explicitPath,validatePathParents} from './explicit-data-target.mjs';
+const targetOptions=scriptOptions({serve:{type:'boolean'}});
+const LC_OS=explicitPath(process.env.LC_OS_DIR,targetOptions);
+const BIN=explicitPath(process.env.YGL_BIN,targetOptions);
+const TEST_ROOT=explicitPath(targetOptions['data-dir']??process.env.DATA_DIR,targetOptions);
+for(const path of[LC_OS,BIN,TEST_ROOT])validatePathParents(path,targetOptions);
+// Engine path is explicit; do not search personal installs.
 const needs = (why) => { console.log(`NEEDS-MATERIAL: ${why}`); process.exit(2); };
 if (!existsSync(join(LC_OS, 'plugins/ygl-lc/index.js')) || !existsSync(join(LC_OS, 'tools/sync-principals.cjs'))) needs(`lifecycle-os 不在 ${LC_OS}（设 LC_OS_DIR）`);
 if (!BIN) needs('找不到 ygl-trees 引擎（设 YGL_BIN）');
 const ver = (execFileSync(process.execPath, [BIN, '--version'], { encoding: 'utf8', env: { ...process.env, YGL_NO_UPDATE_CHECK: '1' } }).trim().split('\n')[0].match(/\d+\.\d+\.\d+/) ?? ['?'])[0];
 if (ver !== PIN) needs(`引擎 ${ver} ≠ 钉版 ${PIN}（${BIN}）`);
 
-const dir = join(LC_OS, 'work/wb-issuer-e2e', Date.now().toString(36));
+const dir = join(TEST_ROOT, 'wb-issuer-e2e', Date.now().toString(36));
 const home = join(dir, 'home');
 if (resolve(home).startsWith(join(homedir(), '.ygl-trees-lc'))) needs('拒绝在运行工作区下建测试工作区');
 mkdirSync(join(dir, 'keys'), { recursive: true, mode: 0o700 });

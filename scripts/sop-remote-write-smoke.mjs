@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {requireDataSource} from './explicit-data-target.mjs';
+const SOURCE_DATA_DIR = requireDataSource();
 /** SOP Runner 远程写面冒烟（#T1 裁定 A 执行件 · 判据先红后绿）。
  *  背景：远程写中间件（server/src/index.ts REMOTE_ALLOW_*）豁免清单漏了 SOP Runner
  *  业务写面——.157 业务同事裸开 Runner 页提交表单 403（主人裁定 A 注释预言的同症状）。
@@ -7,13 +9,13 @@
  *  ④远程控制面（publish）仍 403（护栏）⑤远程 assign 仍 403（护栏·控制面不放松）
  *  ⑥本机建单 201（回归护栏）。隔离实例=VACUUM INTO 主库快照+ADMIN_TOKEN 复刻门态。
  */
-import { spawn } from 'node:child_process';
+import { spawn, fixtureLanHost } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 
 const PORT = 9852;
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-sopremote-data';
-const LAN_IP = process.env.LAN_IP || ''; // 隐私门红线：内网地址只经 env（unset 则跳过远程判据）
+const LAN_IP = fixtureLanHost(); // Only this machine's owned test listener; never inherit a remote LAN_IP.
 const SLUG = 'procurement-task-submit';
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
@@ -32,13 +34,13 @@ rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 {
   const { DatabaseSync } = await import('node:sqlite');
-  const db = new DatabaseSync('server/data/workbench-market.db', { readOnly: true });
+  const db = new DatabaseSync(SOURCE_DATA_DIR + '/workbench-market.db', { readOnly: true });
   db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`);
   db.close();
 }
 // SOP 文件面（版本快照/自产台文件）一并拷入——run 启动要读活跃版本 manifest
 for (const dir of ['apps', 'skill-snapshots']) {
-  cpSync(`server/data/${dir}`, `${DATA}/${dir}`, { recursive: true });
+  cpSync(`${SOURCE_DATA_DIR}/${dir}`, `${DATA}/${dir}`, { recursive: true });
 }
 
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {

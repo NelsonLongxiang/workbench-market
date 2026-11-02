@@ -16,7 +16,7 @@ const SRC_A = join(ROOT, 'tmp/e2e-skimp-srca');
 const SRC_B = join(ROOT, 'tmp/e2e-skimp-srcb');
 const SRC_C = join(ROOT, 'tmp/e2e-skimp-srcc');
 const REPORT = join(ROOT, 'tmp/skill-import-report.json');
-const PROD_SNAP = join(ROOT, 'server/data/skill-snapshots');
+const PROD_SNAP = join(ROOT, 'tmp/e2e-skimp-unrelated-snapshots');
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
 
@@ -27,7 +27,7 @@ writeFileSync(join(SRC_C, 'zz-imp-alpha/SKILL.md'), '---\nname: zz-imp-alpha\nde
 writeFileSync(join(SRC_C, 'zz-imp-alpha/references/note.md'), '# note v1\n');
 writeFileSync(join(SRC_C, 'zz-imp-beta/SKILL.md'), '# no frontmatter here\n');
 
-const runImporter = () => spawnSync(process.execPath, ['scripts/skill-import.mjs'], {
+const runImporter = () => spawnSync(process.execPath, ['scripts/skill-import.mjs','--target-mode','isolated','--isolated-root',join(ROOT,'tmp')], {
   cwd: ROOT,
   env: { ...process.env, DATA_DIR: DATA, SKILL_SRC_A: SRC_A, SKILL_SRC_B: SRC_B, SKILL_SRC_C: SRC_C },
   encoding: 'utf8', timeout: 60000,
