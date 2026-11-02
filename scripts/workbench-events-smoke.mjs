@@ -23,6 +23,7 @@ import { mkdirSync, mkdtempSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 const originSrc = process.env.A2A_ORIGIN_SRC ?? resolve('..', 'dsh-open-a2a-net', 'src', 'origin-claim.ts');
 const { verifyOriginClaim } = await import(pathToFileURL(originSrc).href);
@@ -31,7 +32,8 @@ mkdirSync('tmp', { recursive: true });
 const data = mkdtempSync(resolve('tmp', 'wbe-'));
 const port = 21000 + Math.floor(Math.random() * 20000);
 const base = 'http://127.0.0.1:' + port;
-const env = { ...process.env, PORT: String(port), DATA_DIR: data, ADMIN_TOKEN: 'wbe-test', MCP_GATEWAY: 'on', REDIS_URL: '', LAYERFS_SERVICE_URL: '', MARKET_PUBLIC_URL: base, A2A_OUTBOX_BACKOFF_SCALE: '0.0001' };
+const gh = await startFakeGithub();
+const env = { ...process.env, WM_GITHUB_API: gh.api, PORT: String(port), DATA_DIR: data, ADMIN_TOKEN: 'wbe-test', MCP_GATEWAY: 'on', REDIS_URL: '', LAYERFS_SERVICE_URL: '', MARKET_PUBLIC_URL: base, A2A_OUTBOX_BACKOFF_SCALE: '0.0001' };
 let child, logs = '', pass = 0;
 const check = async (name, fn) => { await fn(); pass++; console.log('PASS ' + name); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -227,7 +229,7 @@ try {
 
   // W11：超过传输上限 → 一次即 dead
   {
-    assert.ok([200, 201].includes((await call('/api/apps', { slug: 'wbe-big', title: 'B', files: [{ path: 'index.html', content: '<h1>b</h1>' }] })).status));
+    assert.ok([200, 201].includes((await ghPublish(base, gh, { slug: 'wbe-big', title: 'B', files: [{ path: 'index.html', content: '<h1>b</h1>' }] }, { 'X-Admin-Token': 'wbe-test' })).status));
     await call('/api/bindings', { target_type: 'app', target_slug: 'wbe-big', agent_node: 'dsh/66abc2cf', direction: 'notify', notify_url: ok.base });
     const big = await call('/api/apps/wbe-big/data', { data: { blob: 'x'.repeat(600_000) } }, 'POST', { 'X-Admin-Token': '' });
     assert.equal(big.status, 201);
@@ -274,7 +276,7 @@ try {
   await check('W7 无绑定 → routed=unrouted、零投递、事件仍在', () => { assert.equal(e4.routed, 'unrouted'); assert.equal(e4.deliveries.length, 0); assert.equal(e4.submitter_kind, 'human'); });
 
   // W8：自产台表单提交
-  assert.ok([200, 201].includes((await call('/api/apps', { slug: 'wbe-form', title: 'F', files: [{ path: 'index.html', content: '<h1>x</h1>' }] })).status));
+  assert.ok([200, 201].includes((await ghPublish(base, gh, { slug: 'wbe-form', title: 'F', files: [{ path: 'index.html', content: '<h1>x</h1>' }] }, { 'X-Admin-Token': 'wbe-test' })).status));
   await call('/api/bindings', { target_type: 'app', target_slug: 'wbe-form', agent_node: 'dsh/66abc2cf', direction: 'notify', notify_url: ok.base });
   const n0 = ok.got.length;
   const sub = await call('/api/apps/wbe-form/data', { data: { po: 'PO-1' }, created_by: 'someone' }, 'POST', { 'X-Admin-Token': '' });
@@ -321,4 +323,5 @@ try {
 } finally {
   await stop();
   for (const p of peers) p.server.close();
+  await gh.close();
 }

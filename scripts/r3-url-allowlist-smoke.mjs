@@ -10,6 +10,7 @@ import { once } from 'node:events';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 const m = await import(pathToFileURL(resolve('server/src/url-admission.ts')).href);
 let pass = 0, fail = 0;
@@ -207,12 +208,13 @@ process.stderr.write = (chunk, ...rest) => {
   }
   return w(chunk, ...rest);
 };`);
+const gh = await startFakeGithub();
 const tmps = [];
 async function startServer(extraEnv = {}, { expectExit = false } = {}) {
   const port = 21000 + Math.floor(Math.random() * 18000);
   const data = extraEnv.DATA_DIR ?? mkdtempSync(join('tmp', 'r3-allow-'));
   if (!extraEnv.DATA_DIR) tmps.push(data);
-  const env = { ...process.env, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, MCP_GATEWAY: 'off', NODE_ENV: 'test', ADMIN_TOKEN: 'r3-test', R3_FIXTURE_FAIL_FLAG: join(data, '.fail-audit'), ...extraEnv };
+  const env = { ...process.env, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, MCP_GATEWAY: 'off', NODE_ENV: 'test', ADMIN_TOKEN: 'r3-test', R3_FIXTURE_FAIL_FLAG: join(data, '.fail-audit'), WM_GITHUB_API: gh.api, ...extraEnv };
   for (const k of ['ALLOW_PUBLIC_NET', 'WM_REGISTER_URL_ALLOWLIST']) if (!(k in extraEnv)) delete env[k];
   const child = spawn(process.execPath, ['--import', pathToFileURL(preload).href, '--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   const s = { child, port, data, base: `http://127.0.0.1:${port}`, out: '', err: '' };
@@ -303,7 +305,8 @@ try {
     assert.equal(allowLines(s).filter((x) => x.workbench_id === id).length, 1);
   });
   await check('U4/U8 内部路径与自动登记：存在的台可登记，不存在 / 任意内路径 / //evil 拒', async () => {
-    const pub = await call(s, 'POST', '/api/apps', { slug: 'r3-real', title: 'R3', files: [{ path: 'index.html', content: '<p>x</p>' }] });
+    const pr = await ghPublish(s.base, gh, { slug: 'r3-real', title: 'R3', files: [{ path: 'index.html', content: '<p>x</p>' }] });
+    const pub = { status: pr.status, body: await pr.json().catch(() => null) };
     assert.ok(pub.status === 200 || pub.status === 201, JSON.stringify(pub.body));
     assert.equal((await call(s, 'POST', '/api/workbenches', { name: 'i', url: '/apps/r3-real/' })).status, 201);
     for (const u of ['/apps/ghost/', '//evil.example/', '/admin/x', '/sop/r3-real/'])
@@ -462,6 +465,7 @@ try {
 } finally {
   for (const d of tmps) rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   rmSync(preload, { force: true });
+  await gh.close();
 }
 console.log(`r3-url-allowlist-smoke: ${pass} passed / ${fail} failed`);
 process.exitCode = fail ? 1 : 0;

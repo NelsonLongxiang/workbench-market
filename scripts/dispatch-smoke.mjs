@@ -4,6 +4,7 @@
 import { spawn } from './owned-script-fixture.mjs';
 import { createServer } from 'node:net';
 import { rmSync, mkdirSync } from 'node:fs';
+import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 const reserve=createServer();await new Promise(r=>reserve.listen(0,'127.0.0.1',r));const PORT=reserve.address().port;await new Promise(r=>reserve.close(r));
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -27,20 +28,22 @@ const json = async (url, method = 'GET', body, headers = {}) => {
 
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
+const gh = await startFakeGithub(); // 自产台/SOP 台只从 GitHub main 同步：本机替身仓库
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server',
   // REDIS_URL 空串在无 Redis 的干净环境会挂死启动（PR#45 TEST 章）——不传该键，让服务端归一为未设
-  env: (() => { const e = { ...process.env, PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 't19a' }; delete e.REDIS_URL; return e; })(),
+  env: (() => { const e = { ...process.env, PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 't19a', WM_GITHUB_API: gh.api }; delete e.REDIS_URL; return e; })(),
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪'); process.exit(1); }
 const AT = { 'X-Admin-Token': 't19a' };
 
 try {
-  await json(`${BASE}/api/apps`, 'POST', {
+  const pub0 = await ghPublish(BASE, gh, {
     slug: 'rv-19a', kind: 'sop', title: '19a 冒烟流程',
     files: [{ path: 'sop.yaml', content: 'title: t\ncode: C\nsteps:\n  - key: s1\n    title: a\n    body: "<p>x</p>"\n' }], changelog: 'x',
   });
+  ok('⓪ SOP 经 GitHub main 同步发布 → 201', pub0.status === 201, `status=${pub0.status}`);
   await json(`${BASE}/api/sops/rv-19a/publish`, 'POST', {}, AT);
 
   // 发布序列①：开 run（指派语义 started_by）

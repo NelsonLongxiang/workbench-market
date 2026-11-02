@@ -113,7 +113,7 @@ const U = [
   // ── 台生成器（自产台：AI 发布 API + 全版本快照——台的管理者到台的生产者） ──
   { c: "判据66：自产台的 slug 字段不得为空。", t: "自产台标识非空", s: "S1", ck: sql("apps", ["id", "slug"], or({ col: "slug", op: "is null" }, { col: "slug", op: "=", value: "" })), rv: ["判据原文逐字取自冻结材料，自产台必须有可寻址标识。", "is null 或空串的 violation 谓词精确判定。", "写入空 slug 行即 FAIL。"] },
   { c: "判据67：内置类型 market-app 必须存在于类型库。", t: "自产台类型存在", s: "S1", ck: exists("types", and({ col: "key", op: "=", value: "market-app" })), rv: ["判据原文逐字取自冻结材料，发布即入册依赖内置类型。", "键精确匹配。", "删 market-app 行即 FAIL。"] },
-  { c: "判据68：server/src/index.ts 必须包含发布路由「/api/apps」。", t: "发布 API 钉位", s: "S1", ck: existsFact("server/src/index.ts", "/api/apps"), rv: ["判据原文逐字取自冻结材料，AI 会话直发的发布通道在位。", "提取表三条件 exists 精确判定。", "删发布路由提取为 0 即 FAIL。"] },
+  { c: "判据68：server/src/index.ts 必须包含发布路由「/api/apps/:slug/sync」。", t: "发布 API 钉位", s: "S1", ck: existsFact("server/src/index.ts", "/api/apps/:slug/sync"), rv: ["判据原文逐字取自冻结材料，自产台/SOP 台只从 GitHub 仓库 main 同步的发布通道在位（属主 2026-11-02 来源收敛，直接传文件发布已关）。", "提取表三条件 exists 精确判定。", "删发布路由提取为 0 即 FAIL。"] },
   { c: "判据69：server/src/db.ts 必须包含版本快照表「app_versions」。", t: "版本链表钉位", s: "S1", ck: existsFact("server/src/db.ts", "app_versions"), rv: ["判据原文逐字取自冻结材料，全版本快照依赖版本链表。", "提取表三条件 exists 精确判定。", "删表提取为 0 即 FAIL。"] },
   { c: "判据70：自产台表中至少发布了 1 个应用。", t: "自产台非空", s: "S2", ck: count("apps", ">=", 1), rv: ["判据原文逐字取自冻结材料，演示自产台常驻库中作为活样例。", "count>=1 数值判定。", "清空 apps 表即 FAIL。"] },
   // ── 凭据注入（auth bearer/basic 经 /go/ 门户注入 Authorization——认证类工作台的凭据盲区） ──
@@ -130,9 +130,9 @@ const U = [
   { c: "判据80：evidence/e2e_test.py 必须包含 SOP 台用例字面量「e2e-sop」。", t: "SOP 行为断言钉位", s: "S1", ck: existsFact("evidence/e2e_test.py", "e2e-sop"), rv: ["判据原文逐字取自冻结材料，E2E 实测 SOP 全链（发布面校验/状态机/Runner/分层读写/版本治理）。", "提取表三条件 exists 精确判定。", "删用例提取为 0 即 FAIL。"] },
   // ── MCP 生产通道（/mcp StreamableHTTP：AI 会话直连市场——生产者的直发面） ──
   { c: "判据81：server/src/index.ts 必须包含 MCP 端点挂载「app.post('/mcp'」。", t: "MCP 端点钉位", s: "S1", ck: existsFact("server/src/index.ts", "app.post('/mcp'"), rv: ["判据原文逐字取自冻结材料，AI 会话经 StreamableHTTP 直连市场的入口在位。", "提取表三条件 exists 精确判定。", "删端点提取为 0 即 FAIL。"] },
-  { c: "判据82：server/src/index.ts 必须包含工具注册表「MCP_TOOLS」。", t: "MCP 工具注册钉位", s: "S1", ck: existsFact("server/src/index.ts", "MCP_TOOLS"), rv: ["判据原文逐字取自冻结材料，7 个生产工具（list/summary/check/use_url/app_publish/app_activate/sop_publish）经注册表暴露。", "提取表三条件 exists 精确判定。", "删注册表提取为 0 即 FAIL。"] },
+  { c: "判据82：server/src/index.ts 必须包含工具注册表「MCP_TOOLS」。", t: "MCP 工具注册钉位", s: "S1", ck: existsFact("server/src/index.ts", "MCP_TOOLS"), rv: ["判据原文逐字取自冻结材料，生产工具（list/summary/check/use_url/app_sync/sop_publish 等）经注册表暴露。", "提取表三条件 exists 精确判定。", "删注册表提取为 0 即 FAIL。"] },
   { c: "判据83：server/src/index.ts 必须包含 JSON-RPC 错误码「-32601」。", t: "JSON-RPC 合规钉位", s: "S1", ck: existsFact("server/src/index.ts", "-32601"), rv: ["判据原文逐字取自冻结材料，未知 method 按 JSON-RPC 2.0 规范回 -32601（协议合规性锚点）。", "提取表三条件 exists 精确判定。", "删错误处理提取为 0 即 FAIL。"] },
-  { c: "判据84：evidence/e2e_test.py 必须包含 MCP 用例字面量「e2e-mcp-app」。", t: "MCP 行为断言钉位", s: "S1", ck: existsFact("evidence/e2e_test.py", "e2e-mcp-app"), rv: ["判据原文逐字取自冻结材料，E2E 实测 MCP 协议面与生产工具链（initialize/tools/list/app_publish/sop_publish）。", "提取表三条件 exists 精确判定。", "删用例提取为 0 即 FAIL。"] },
+  { c: "判据84：evidence/e2e_test.py 必须包含 MCP 用例字面量「e2e-mcp-app」。", t: "MCP 行为断言钉位", s: "S1", ck: existsFact("evidence/e2e_test.py", "e2e-mcp-app"), rv: ["判据原文逐字取自冻结材料，E2E 实测 MCP 协议面与生产工具链（initialize/tools/list/app_sync/sop_publish）。", "提取表三条件 exists 精确判定。", "删用例提取为 0 即 FAIL。"] },
   // ── SOP 管理页（/sops：状态徽章 + 版本链 + run 记录——SOP 台的消费与管理面） ──
   { c: "判据85：封装提交物必须包含 web/src/pages/Sops.tsx。", t: "SOP 管理页存在", s: "S1", ck: file("web/src/pages/Sops.tsx", 1), rv: ["判据原文逐字取自冻结材料，SOP 管理页（状态机操作/记录查看）在位。", "精确路径 glob。", "删除即 FAIL。"] },
   { c: "判据86：web/src/pages/Sops.tsx 必须包含状态语义表「SOP_STATUS」。", t: "SOP 状态徽章钉位", s: "S1", ck: existsFact("web/src/pages/Sops.tsx", "SOP_STATUS"), rv: ["判据原文逐字取自冻结材料，draft/published/deprecated 徽章（色值经对比度审计）由单一语义表驱动。", "提取表三条件 exists 精确判定。", "删语义表提取为 0 即 FAIL。"] },

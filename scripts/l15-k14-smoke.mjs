@@ -11,6 +11,7 @@ import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync, readdirSync, existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
+import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 const ADMIN = { 'Content-Type': 'application/json', 'X-Admin-Token': 'l15-tok' };
 let pass = 0, fail = 0;
@@ -20,8 +21,9 @@ async function waitReady(url, ms = 15000) {
   while (Date.now() < end) { try { const r = await fetch(url); if (r.status < 500) return true; } catch {} await new Promise((r) => setTimeout(r, 250)); }
   return false;
 }
+const gh = await startFakeGithub(); // 自产台/SOP 台只从 GitHub main 同步：本机替身仓库
 const mkInst = (port, data, env = {}) => spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
-  cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), DATA_DIR: data, ADMIN_TOKEN: 'l15-tok', ...env }, stdio: 'ignore',
+  cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), DATA_DIR: data, ADMIN_TOKEN: 'l15-tok', WM_GITHUB_API: gh.api, ...env }, stdio: 'ignore',
 });
 const snapInst = async (data) => {
   rmSync(data, { recursive: true, force: true }); mkdirSync(data, { recursive: true });
@@ -30,7 +32,7 @@ const snapInst = async (data) => {
   db.exec(`VACUUM INTO '${data}/workbench-market.db'`); db.close();
   for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`${SOURCE_DATA_DIR}/${d}`, `${data}/${d}`, { recursive: true });
 };
-const pubApp = (base, slug, i) => fetch(`${base}/api/apps`, { method: 'POST', headers: ADMIN, body: JSON.stringify({ slug, title: slug, files: [{ path: 'index.html', content: `<h1>v${i}</h1><!-- ${'y'.repeat(50)}${i} -->` }] }) });
+const pubApp = (base, slug, i) => ghPublish(base, gh, { slug, title: slug, files: [{ path: 'index.html', content: `<h1>v${i}</h1><!-- ${'y'.repeat(50)}${i} -->` }] }, { 'X-Admin-Token': 'l15-tok' });
 const dirsOf = (data, slug) => (existsSync(data + '/apps/' + slug) ? readdirSync(data + '/apps/' + slug).filter((d) => /^v\d+$/.test(d)) : []);
 
 // ── L15a：无服务默认部署 ──

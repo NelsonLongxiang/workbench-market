@@ -14,8 +14,6 @@
     "scripts/mcp-app-files-upload-smoke.mjs",
     "scripts/meta-sop-smoke.mjs",
     "scripts/p0-upload-auth-smoke.mjs",
-    "scripts/p3-draft-smoke.mjs",
-    "scripts/patch-publish-smoke.mjs",
     "scripts/portal-cookie-smoke.mjs",
     "scripts/portal-gzip-smoke.mjs",
     "scripts/portal-p6711-smoke.mjs",

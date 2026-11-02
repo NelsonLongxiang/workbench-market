@@ -8,11 +8,13 @@ import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
+import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 mkdirSync('tmp', {recursive:true});
 const data=mkdtempSync(resolve('tmp','tc-intake-'));
 const reserve=createServer();await new Promise(r=>reserve.listen(0,'127.0.0.1',r));const port=reserve.address().port;await new Promise(r=>reserve.close(r));
 const base='http://127.0.0.1:'+port;
-const env={...process.env,PORT:String(port),WM_CONTROL_PORT:'0',DATA_DIR:data,ADMIN_TOKEN:'tc-test',MCP_GATEWAY: 'off', NODE_ENV: 'test',REDIS_URL:'',LAYERFS_SERVICE_URL:''};
+const gh=await startFakeGithub();
+const env={...process.env,WM_GITHUB_API:gh.api,PORT:String(port),WM_CONTROL_PORT:'0',DATA_DIR:data,ADMIN_TOKEN:'tc-test',MCP_GATEWAY: 'off', NODE_ENV: 'test',REDIS_URL:'',LAYERFS_SERVICE_URL:''};
 let child,logs='',pass=0;
 async function start(){
  child=spawn(process.execPath,['--disable-warning=ExperimentalWarning','server/src/index.ts'],{env,stdio:['ignore','pipe','pipe']});
@@ -65,9 +67,9 @@ try{
  const seedYaml=JSON.stringify({title:'task-center',meta:'task-center',steps:template.steps});
  const unauthorized=await call('/api/apps',{slug:'task-center',kind:'sop',files:[{path:'sop.yaml',content:seedYaml}],changelog:'not allowed'},'POST',{'X-Admin-Token':''});
  check('C14 REST republish without admin rejected',()=>assert.ok([400,401,403].includes(unauthorized.status)));
- const spoof=await call('/api/apps',{slug:'tc-spoof',title:'spoof',kind:'sop',files:[{path:'sop.yaml',content:seedYaml}],changelog:'spoof'},'POST',{'X-Admin-Token':''});
- check('C15 non-seed meta rejected',()=>assert.equal(spoof.status,400));
- for(const tool of ['app_publish','app_activate','sop_publish']){
+ const spoofRes=await ghPublish(base,gh,{slug:'tc-spoof',title:'spoof',kind:'sop',files:[{path:'sop.yaml',content:seedYaml}],changelog:'spoof'},{'X-Admin-Token':''});const spoof={status:spoofRes.status,j:await spoofRes.json().catch(()=>({}))};
+ check('C15 non-seed meta rejected',()=>{assert.equal(spoof.status,400,JSON.stringify(spoof.j));assert.match(String(spoof.j.error),/meta/);});
+ for(const tool of ['app_sync','app_activate','sop_publish']){
    const r=await call('/mcp',{jsonrpc:'2.0',id:1,method:'tools/call',params:{name:tool,arguments:{slug:' TASK-CENTER ',kind:'sop',version:1,files:[{path:'sop.yaml',content:seedYaml}],changelog:'mcp blocked'}}});
    check('C14 MCP '+tool+' rejects normalized meta slug',()=>assert.ok(r.j.error||r.j.result?.isError,JSON.stringify(r.j)));
  }
@@ -140,4 +142,4 @@ try{
  const reboot=await (await fetch(base+'/api/apps/task-center')).json();
  check('restart seed idempotent/persistent',()=>{assert.equal(reboot.versions.length,initial.versions.length);assert.equal(reboot.active_version,initial.active_version);});
  console.log('Taskcenter B1 '+pass+'/'+pass+'; independent frozen-spec verification still required; DATA_DIR='+data);
-}finally{await stop();}
+}finally{await stop();await gh.close();}
