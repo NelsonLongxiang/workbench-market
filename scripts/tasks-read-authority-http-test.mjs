@@ -20,6 +20,8 @@ const env={};for(const k of['SystemRoot','WINDIR','PATH','PATHEXT','TEMP','TMP']
 Object.assign(env,{PORT:String(port),WM_CONTROL_PORT:'0',DATA_DIR:data,YGL_HOME:home,PNPM_HOME:out,A2A_STATE_URL:'http://127.0.0.1:'+a2a.address().port,NODE_ENV:'test',MCP_GATEWAY:'on',ADMIN_TOKEN:'synthetic-tasks-admin',REDIS_URL:'',LC_ODOO_URL:'http://127.0.0.1:'+odoo.address().port,WM_TASK_TEST_CALLS:join(out,'cli-calls.jsonl'),WM_TASK_TEST_FAILURE:join(out,'cli-fail')});
 for(const [k,v]of Object.entries(env))process.env[k]=v;
 const {db}=await import(pathToFileURL(join(root,'server/src/db.ts')).href);
+// The test writes grants while the real server checkpoints; wait for short SQLite write locks.
+db.exec('PRAGMA busy_timeout=5000');
 const tc=await import(pathToFileURL(join(root,'server/src/task-center.ts')).href);tc.initializeTaskCenter(join(data,'apps'));
 for(const [id,slug]of[[11,'private-a'],[12,'private-b']])db.prepare("INSERT INTO sop_runs(id,sop_slug,sop_version,status,started_by,data) VALUES(?,?,1,'running','plain','{}')").run(id,slug);
 for(const [id,title]of[[21,'TASK_ALICE_ONLY'],[22,'TASK_BOB_ONLY']]){db.prepare("INSERT INTO sop_runs(id,sop_slug,sop_version,status,data) VALUES(?,'task-center',1,'finished',?)").run(id,JSON.stringify({title:{value:title},intent:{value:'SYNTHETIC_PRIVATE_INTENT'},deliverable:{value:'synthetic'},target:{value:'private-a'},due:{value:'2030-01-01'}}));tc.publishTaskIntake({intake_run_id:id,published_by:'synthetic-role'});}
