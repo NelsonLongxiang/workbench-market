@@ -108,7 +108,7 @@ export default function Market() {
       render: (_, w) => (
         <Space size={6}>
           <span style={{ fontSize: 16 }}>{w.icon || '▢'}</span>
-          <a onClick={() => setDetail(w)} style={{ fontWeight: 600 }}>
+          <a onClick={() => setDetail(w)} className="wm-strong">
             {w.name}
           </a>
         </Space>
@@ -121,7 +121,7 @@ export default function Market() {
       width: 260,
       ellipsis: true,
       render: (_, w) => (
-        <Typography.Text className="wm-mono" copyable={{ text: w.url }} style={{ maxWidth: 300, fontSize: 12 }} ellipsis={{ tooltip: w.url }}>
+        <Typography.Text className="wm-mono wm-caption" copyable={{ text: w.url }} style={{ maxWidth: 300 }} ellipsis={{ tooltip: w.url }}>
           {w.url}
         </Typography.Text>
       ),
@@ -334,7 +334,7 @@ export default function Market() {
         onClose={() => setDetail(null)}
       >
         {detail ? (
-          <Flex vertical gap={16} style={{ width: '100%' }}>
+          <Flex vertical gap={16} className="wm-w-full">
             <Descriptions
               column={1}
               size="small"
