@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {requireDataSource} from './explicit-data-target.mjs';
+const SOURCE_DATA_DIR = requireDataSource();
 /** #94 收官后复核 ①④ 冒烟（L15 数据丢失+K14 越权读·判据先红后绿·监督席 direct-7eab77a9 加急）。
  *  L15a: 无服务（默认部署）发 5 版——v1/v2 目录**保留**（无 Commit 不删）
  *  L15b: 有服务发 6 版——仅 commit 版可 prune（≤3）
@@ -24,9 +26,9 @@ const mkInst = (port, data, env = {}) => spawn(process.execPath, ['--disable-war
 const snapInst = async (data) => {
   rmSync(data, { recursive: true, force: true }); mkdirSync(data, { recursive: true });
   const { DatabaseSync } = await import('node:sqlite');
-  const db = new DatabaseSync('server/data/workbench-market.db', { readOnly: true });
+  const db = new DatabaseSync(SOURCE_DATA_DIR + '/workbench-market.db', { readOnly: true });
   db.exec(`VACUUM INTO '${data}/workbench-market.db'`); db.close();
-  for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`server/data/${d}`, `${data}/${d}`, { recursive: true });
+  for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`${SOURCE_DATA_DIR}/${d}`, `${data}/${d}`, { recursive: true });
 };
 const pubApp = (base, slug, i) => fetch(`${base}/api/apps`, { method: 'POST', headers: ADMIN, body: JSON.stringify({ slug, title: slug, files: [{ path: 'index.html', content: `<h1>v${i}</h1><!-- ${'y'.repeat(50)}${i} -->` }] }) });
 const dirsOf = (data, slug) => (existsSync(data + '/apps/' + slug) ? readdirSync(data + '/apps/' + slug).filter((d) => /^v\d+$/.test(d)) : []);
@@ -93,7 +95,7 @@ const dirsOf = (data, slug) => (existsSync(data + '/apps/' + slug) ? readdirSync
   try {
     await waitReady('http://127.0.0.1:9952/api/health');
     // 装一个 DATA_DIR 外目录（产库快照路径·绝对形）→verify 应拒读（400/500）而非逐文件读
-    const inst = await fetch('http://127.0.0.1:9952/api/skills/jf:taste/install', { method: 'POST', headers: ADMIN, body: JSON.stringify({ installed_path: 'D:/workspace/workbench-market/server/data/skill-snapshots' }) });
+    const inst = await fetch('http://127.0.0.1:9952/api/skills/jf:taste/install', { method: 'POST', headers: ADMIN, body: JSON.stringify({ installed_path: SOURCE_DATA_DIR + '/skill-snapshots' }) });
     const vf = await fetch('http://127.0.0.1:9952/api/skills/jf:taste/verify');
     const vj = await vf.json().catch(() => ({}));
     ok('K14 越权形拒（verify 不读 DATA_DIR 外·ok 非 true 即拒面）', vj.ok !== true || vf.status >= 400, `status=${vf.status} ok=${vj.ok}`);

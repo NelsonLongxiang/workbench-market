@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {requireDataSource} from './explicit-data-target.mjs';
+const SOURCE_DATA_DIR = requireDataSource();
 /** S3 豁免面可观测冒烟（评审席裁下批·PR#72 真事故锚·判据先红后绿）。
  *  痛点：安全清单（REMOTE_ALLOW_*）变更无声——业务当 403 探测器（PR#72：SOP 写面漏豁免·业务撞墙才发现）。
  *  设计：启动时快照豁免面入 remote_allow_state 表 + 与前次 diff → 变更面对受影响台（绑定在册的）
@@ -28,11 +30,11 @@ rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 {
   const { DatabaseSync } = await import('node:sqlite');
-  const db = new DatabaseSync('server/data/workbench-market.db', { readOnly: true });
+  const db = new DatabaseSync(SOURCE_DATA_DIR + '/workbench-market.db', { readOnly: true });
   db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`);
   db.close();
 }
-for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`server/data/${d}`, `${DATA}/${d}`, { recursive: true });
+for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`${SOURCE_DATA_DIR}/${d}`, `${DATA}/${d}`, { recursive: true });
 
 const cap = createServer((req, res) => {
   let body = '';

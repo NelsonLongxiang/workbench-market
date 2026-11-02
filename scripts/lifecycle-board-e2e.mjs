@@ -15,15 +15,20 @@ import { join, resolve } from 'node:path';
 const PIN = '0.116.1';
 const AS_OF = '2026-12-18T18:00:00+08:00';
 const SERVE = process.argv.includes('--serve');
-const LC_OS = resolve(process.env.LC_OS_DIR || join(homedir(), 'workspace/lifecycle-os'));
-const BIN = [process.env.YGL_BIN, join(homedir(), '.local/share/lifecycle-os/engine', PIN, 'dist/bundle/bin.cjs'), join(LC_OS, 'node_modules/.bin/ygl-trees'), join(homedir(), 'workspace/ygl-trees/tmp/wt-0.116.1/dist/bundle/bin.cjs')].filter(Boolean).find((p) => existsSync(p));
+import {scriptOptions,explicitPath,validatePathParents} from './explicit-data-target.mjs';
+const targetOptions=scriptOptions({serve:{type:'boolean'}});
+const LC_OS=explicitPath(process.env.LC_OS_DIR,targetOptions);
+const BIN=explicitPath(process.env.YGL_BIN,targetOptions);
+const TEST_ROOT=explicitPath(targetOptions['data-dir']??process.env.DATA_DIR,targetOptions);
+for(const path of[LC_OS,BIN,TEST_ROOT])validatePathParents(path,targetOptions);
+// Engine path is explicit; do not search personal installs.
 const needs = (why) => { console.log(`NEEDS-MATERIAL: ${why}`); process.exit(2); };
 if (!existsSync(join(LC_OS, 'tests/replay-2611.cjs'))) needs(`lifecycle-os 不在 ${LC_OS}（设 LC_OS_DIR）`);
 if (!BIN) needs('找不到 ygl-trees 引擎（设 YGL_BIN）');
 const ver = (execFileSync(process.execPath, [BIN, '--version'], { encoding: 'utf8', env: { ...process.env, YGL_NO_UPDATE_CHECK: '1' } }).trim().split('\n')[0].match(/\d+\.\d+\.\d+/) ?? ['?'])[0];
 if (ver !== PIN) needs(`引擎 ${ver} ≠ 钉版 ${PIN}（${BIN}）`);
 
-const home = join(LC_OS, 'work/replay', `wb-board-e2e-${Date.now().toString(36)}`);
+const home = join(TEST_ROOT, `wb-board-e2e-${Date.now().toString(36)}`);
 if (resolve(home).startsWith(join(homedir(), '.ygl-trees-lc'))) needs('拒绝在运行工作区下建测试工作区');
 const env0 = { ...process.env, YGL_BIN: BIN, YGL_NO_UPDATE_CHECK: '1' };
 for (const k of ['LC_ACTOR', 'LC_ACTOR_KIND', 'LC_ASSERTION', 'LC_CLOCK', 'YGL_HOME']) delete env0[k];

@@ -5,6 +5,8 @@ import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 
+import { requireDataSource } from './explicit-data-target.mjs';
+const SOURCE_DATA_DIR = requireDataSource();
 const PORT = 9921;
 const DATA = 'tmp/e2e-sk1-data';
 let pass = 0, fail = 0;
@@ -51,7 +53,7 @@ try {
   {
     const { existsSync, readdirSync } = await import('node:fs');
     const { fileURLToPath: _fu3 } = await import('node:url');
-    const prodDb = _fu3(new URL('../server/data/workbench-market.db', import.meta.url)); // 相对化（隐私门红线）
+    const prodDb = SOURCE_DATA_DIR + '/workbench-market.db'; // 相对化（隐私门红线）
     if (existsSync(prodDb)) {
       const pdb = new DatabaseSync(prodDb, { readOnly: true });
       const hasSkills = pdb.prepare("SELECT COUNT(*) n FROM skills").get();
@@ -62,7 +64,7 @@ try {
       ok('角色束收编在库（apollo/dionysus）', bundles.n >= 1, String(bundles.n));
       pdb.close?.();
     } else ok('生产种子在库', false, '库缺');
-        const snapRoot = _fu3(new URL('../server/data/skill-snapshots', import.meta.url)); // 相对化（隐私门红线）
+        const snapRoot = SOURCE_DATA_DIR + '/skill-snapshots'; // 相对化（隐私门红线）
     ok('快照根目录在案', existsSync(snapRoot) && readdirSync(snapRoot).length > 0);
   }
 
