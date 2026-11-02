@@ -157,16 +157,19 @@ NAV = {
     'finance-workbench': {'title': '财务月度交付驾驶舱', 'groups': [
         {'key': 'overview', 'label': '总览', 'sections': ['双栏时钟卡', 'KPI 条', '财务行动看板']},
         {'key': 'delivery', 'label': '交付', 'sections': ['11 件交付清单', '交付空间']},
-        {'key': 'submit', 'label': '提交', 'sections': ['数据包提交', '任务数据提交', '表单异常项评审']},
-        {'key': 'tasks', 'label': '任务', 'sections': ['JF十月执行任务', '在途任务表']},
-        {'key': 'verify', 'label': '验证', 'sections': ['四族验证器状态', 'A 族 spec 明细', '台账近 8 条']},
-    ]},
+        {'key': 'submit', 'label': '提交', 'sections': ['数据包提交', '任务数据提交']},
+        {'key': 'tasks', 'label': '任务', 'sections': ['JF十月执行任务']},
+    ],
+        # 只给业务看（属主 11-03）：验证器、运维台账、表单自查、task list 属工程/agent 面，整块不显示
+        'hideSections': ['表单异常项评审', '在途任务表', '四族验证器状态', 'A 族 spec 明细', '台账近 8 条'],
+        'hideNodes': ['只读状态面', '浏览器直连环境警示', '登记口径：', '按 SOP→年→月 组织'],
+        'keepNodes': ['口径图例']},
 }
 NAV_CSS = (
     'html.wm-has-nav{scroll-padding-top:64px}\n'
     'html.wm-has-nav body{padding-top:72px!important}\n'
     '@media (min-width:1024px){html.wm-has-nav body{padding-left:244px!important}}\n'
-    '.wm-off{display:none!important}\n'
+    '.wm-off,.wm-hide{display:none!important}\n'
     '.wm-nav-bar{position:fixed;top:0;left:0;right:0;z-index:1000;height:48px;box-sizing:border-box;display:flex;align-items:center;gap:16px;padding:0 16px;'
     'background:var(--wm-color-surface);border-bottom:1px solid var(--wm-color-border);box-shadow:var(--wm-shadow-1);font-family:var(--wm-font-sans);font-size:14px;line-height:22px}\n'
     '.wm-nav-home{color:var(--wm-color-text-secondary);text-decoration:none;font-size:12px;line-height:20px;white-space:nowrap}\n'
@@ -194,7 +197,7 @@ NAV_CSS = (
     '@media (max-width:1023px){.wm-nav-tocbtn{display:inline-flex;align-items:center}.wm-nav-home{display:none}'
     '.wm-nav-toc{width:280px;max-width:85vw;transform:translateX(-100%);box-shadow:var(--wm-shadow-3);transition:transform var(--wm-motion-base) var(--wm-motion-easing)}.wm-nav-toc.wm-open{transform:none}}\n'
     '@media (max-width:640px){.wm-nav-bar{gap:8px;padding:0 8px}.wm-nav-title{display:none}}\n'
-    '@media print{.wm-nav-bar,.wm-nav-toc,.wm-nav-scrim{display:none!important}html.wm-has-nav body{padding:24px!important}.wm-off{display:block!important}}\n'
+    '@media print{.wm-nav-bar,.wm-nav-toc,.wm-nav-scrim{display:none!important}html.wm-has-nav body{padding:24px!important}.wm-off{display:block!important}.wm-hide{display:none!important}}\n'
 )
 
 LAYER_RE = re.compile(r'\n<style id="wm-design-layer">.*?</style>\n<script id="wm-ux">.*?</script>\n(?:<script id="wm-nav">.*?</script>\n)?', re.S)

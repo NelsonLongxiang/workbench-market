@@ -1,5 +1,7 @@
 /* 工作台统一导航层 · 菜单 / 目录 / 视图（PATTERNS.md §7.4）。读 window.WM_NAV 配置，台内 DOM 只加 class/id，不移动、不改逻辑。
-   WM_NAV = { title, home, groups: [{ key, label, sections: ['区块标题前缀', …] }] }
+   WM_NAV = { title, home, groups: [{ key, label, sections: ['区块标题前缀', …] }],
+              hideSections: ['只给工程/agent 看的区块标题前缀'], hideNodes: ['业务区块里技术说明段落的开头文字'], keepNodes: ['隐藏区块里仍要给业务看的段落开头'] }
+   只给业务看：hideSections/hideNodes 命中的内容不进菜单、目录，任何视图都不显示（数据与接口不动）。
    区块 = 一个 h2 及其后的兄弟元素（到下一个 h2 为止）；h2 之前的内容是页头，始终显示。 */
 (function () {
   var C = window.WM_NAV; if (!C || window.__wmNav) return; window.__wmNav = 1;
@@ -33,12 +35,35 @@
       C.groups.forEach(function (g) {
         g.sections.forEach(function (p) { if (!gkey && text.indexOf(p) === 0) { gkey = g.key; label = p; } });
       });
-      return { h: h, id: h.id, nodes: nodes, label: label.slice(0, 24), group: gkey || 'other' };
+      var hidden = !gkey && (C.hideSections || []).some(function (p) { return text.indexOf(p) === 0; });
+      return { h: h, id: h.id, nodes: nodes, label: label.slice(0, 24), group: hidden ? 'hidden' : (gkey || 'other') };
     });
+    hideNonBusiness();
     groups = C.groups.map(function (g) { return { key: g.key, label: g.label, items: sections.filter(function (s) { return s.group === g.key; }) }; })
       .filter(function (g) { return g.items.length; });
     var other = sections.filter(function (s) { return s.group === 'other'; });
     if (other.length) groups.push({ key: 'other', label: '其他', items: other });
+  }
+
+  /* ---------- 只给业务看：工程/agent 内容整块不显示 ---------- */
+  function starts(e, list) {
+    var t = norm(e.textContent); return (list || []).some(function (p) { return t.indexOf(p) === 0; });
+  }
+  function hideNonBusiness() {
+    var keep = C.keepNodes || [];
+    // 每次重算：台内脚本会挪动节点，旧标记不能跟着节点走
+    Array.prototype.forEach.call(document.querySelectorAll('.wm-hide'), function (e) { e.classList.remove('wm-hide'); });
+    sections.forEach(function (s) {
+      if (s.group !== 'hidden') return;
+      var parent = s.nodes[0].parentElement;
+      s.nodes.forEach(function (n) { if (n.parentElement === parent && !starts(n, keep)) n.classList.add('wm-hide'); });
+    });
+    if (!(C.hideNodes || []).length) return;
+    // 业务区块与页头里的技术说明段落：取最外层命中的元素
+    Array.prototype.forEach.call(document.body.querySelectorAll('div,p,small,span'), function (e) {
+      if (e.closest('[data-wm-nav]') || e.classList.contains('wm-hide')) return;
+      if (starts(e, C.hideNodes) && !(e.parentElement && e.parentElement !== document.body && starts(e.parentElement, C.hideNodes))) e.classList.add('wm-hide');
+    });
   }
 
   /* ---------- 外壳：应用栏 + 目录 ---------- */
@@ -99,6 +124,7 @@
     // 台内脚本可能把节点先插到顶层、再挪进容器：先清掉残留的隐藏标记，再按当前区块重打
     Array.prototype.forEach.call(document.querySelectorAll('.wm-off'), function (n) { n.classList.remove('wm-off'); });
     sections.forEach(function (s) {
+      if (s.group === 'hidden') return;
       var off = state.view === 'group' && s.group !== state.group;
       var parent = s.nodes[0].parentElement;
       s.nodes.forEach(function (n) { if (n.parentElement === parent) n.classList.toggle('wm-off', off); });
@@ -145,7 +171,7 @@
     setTimeout(function () {  // 不用 rAF：后台标签页里 rAF 会暂停
       ticking = false;
       var top = (bar.getBoundingClientRect().height || 0) + 24, cur = null;
-      sections.forEach(function (s) { if (!s.nodes[0].classList.contains('wm-off') && s.h.getBoundingClientRect().top <= top) cur = s; });
+      sections.forEach(function (s) { if (s.group !== 'hidden' && !s.nodes[0].classList.contains('wm-off') && s.h.getBoundingClientRect().top <= top) cur = s; });
       if (!cur) return;
       if (cur.id !== state.section) { state.section = cur.id; mark(cur.id); }
       if (state.view === 'all' && cur.group !== state.group) { state.group = cur.group; render(); }
