@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** Cookie 池冒烟（独立实例）：导入→挂接→注入→过期过滤→掩码→删除全链。 */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 
 async function waitReady(url, ms = 20000) {
   const end = Date.now() + ms;
@@ -13,7 +13,7 @@ async function waitReady(url, ms = 20000) {
 import { rmSync, mkdirSync } from 'node:fs';
 import { createServer } from 'node:http';
 
-const PORT = 9814;
+const reserve=createServer();await new Promise(r=>reserve.listen(0,'127.0.0.1',r));const PORT=reserve.address().port;await new Promise(r=>reserve.close(r));
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-cookie-data';
 let pass = 0, fail = 0;
@@ -24,12 +24,13 @@ const target = createServer((req, res) => {
   res.writeHead(200, { 'content-type': 'application/json' });
   res.end(JSON.stringify({ url: req.url, cookie: req.headers.cookie ?? null }));
 });
-await new Promise((r) => target.listen(9815, '127.0.0.1', r));
+await new Promise((r) => target.listen(0, '127.0.0.1', r));
+const TARGET_BASE='http://127.0.0.1:'+target.address().port;
 
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server', env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: `../${DATA}` }, stdio: ['ignore', 'pipe', 'pipe'],
+  cwd: 'server', env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: `../${DATA}` }, stdio: ['ignore', 'pipe', 'pipe'],
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪（20s 超时）'); process.exit(1); }
 
@@ -58,7 +59,7 @@ try {
   r = await call('GET', '/api/cookies');
   ok('列表含过期信息', r.body[0].all_expired === false && r.body[0].active === 2 && r.body[0].cookies.every((c) => c.value === '****'));
   // ④ 建台 + 挂接
-  r = await call('POST', '/api/workbenches', { name: 'Cookie 台', url: 'http://127.0.0.1:9815/app', type: 'web', category: 'probe' });
+  r = await call('POST', '/api/workbenches', { name: 'Cookie 台', url: TARGET_BASE + '/app', type: 'web', category: 'probe' });
   const wid = r.body.id;
   r = await call('PUT', `/api/workbenches/${wid}`, { cookie_set_id: csid });
   ok('挂接 cookie_set', r.status === 200);
