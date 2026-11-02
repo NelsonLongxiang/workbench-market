@@ -46,6 +46,7 @@ function boot(tag, extraEnv) {
   const env = { ...process.env, NODE_ENV: 'test', MCP_GATEWAY: 'off', PORT: String(port), DATA_DIR: data, ...extraEnv };
   for (const k of ['LC_YGL_BIN', 'LC_YGL_HOME', 'LC_WORKBENCH_KEY_FILE', 'LC_ODOO_URL', 'WM_ODOO_ORIGINS', 'WM_DEV_ORIGIN', 'WM_CONTROL_PORT']) if (!(k in extraEnv)) delete env[k];
   if (!('DSH_VAULT_PASSWORD' in extraEnv)) delete env.DSH_VAULT_PASSWORD;
+  if (!('WM_CONTROL_PORT' in extraEnv)) env.WM_CONTROL_PORT = String(port + 1); // 控制面缺省已不开；本冒烟显式开一个，同时覆盖业务面与控制面两种页面
   // Child-origin IPC proves this test owns each listening port before any HTTP request.
   const preload = "import net from 'node:net';const listen=net.Server.prototype.listen;net.Server.prototype.listen=function(...args){this.once('listening',()=>{const a=this.address();if(a&&typeof a==='object')process.send?.({kind:'synthetic-owned-listener',port:a.port});});return listen.apply(this,args)};";
   const child = spawn(process.execPath, ['--import', 'data:text/javascript,' + encodeURIComponent(preload), '--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'], env, detached: true }); // 独立进程组，收尾整组停
@@ -92,11 +93,15 @@ try {
   r = await http(A.port, 'GET', '/api/vault/status', { 'x-admin-token': TOK });
   ok('本机 CLI 带口令读 status → 200 且 no-store', r.status === 200 && r.headers['cache-control'] === 'no-store' && r.body?.upstream === 'dsh-vault@1.10.75', `${r.status} ${r.text.slice(0, 120)}`);
   r = await http(A.port, 'GET', '/api/vault/status', { 'sec-fetch-site': 'same-origin', 'x-admin-token': TOK });
-  ok('业务面浏览器同源 GET 带口令 → 403 指向控制面', r.status === 403 && r.body?.control_surface_required === true, `${r.status} ${r.text.slice(0, 120)}`);
-  r = await http(A.port, 'POST', '/api/vault/unlock', { origin: `http://127.0.0.1:${A.port}`, 'x-admin-token': TOK }, JSON.stringify({ password: MASTER }));
-  ok('业务面浏览器解锁 → 403', r.status === 403, `${r.status}`);
-  r = await http(A.port, 'GET', '/API/VAULT/STATUS', { 'sec-fetch-site': 'same-origin', 'x-admin-token': TOK });
-  ok('大写变体 /API/VAULT/STATUS 同样拦', r.status === 403, `${r.status}`);
+  ok('业务面浏览器同源 GET 带口令 → 200（属主 2026-11-02：口令即可，不再限控制面）', r.status === 200 && r.headers['cache-control'] === 'no-store', `${r.status} ${r.text.slice(0, 120)}`);
+  r = await http(A.port, 'GET', '/api/vault/status', { 'sec-fetch-site': 'same-origin' });
+  ok('业务面浏览器同源 GET 无口令 → 403', r.status === 403, `${r.status}`);
+  r = await http(A.port, 'POST', '/api/vault/lock', { origin: `http://127.0.0.1:${A.port}`, 'x-admin-token': TOK });
+  ok('业务面浏览器带口令写（上锁）→ 200', r.status === 200, `${r.status} ${r.text.slice(0, 120)}`);
+  r = await http(A.port, 'POST', '/api/vault/lock', { origin: 'http://evil.example', 'x-admin-token': TOK });
+  ok('跨源页面带口令写 → 403', r.status === 403, `${r.status}`);
+  r = await http(A.port, 'GET', '/API/VAULT/STATUS', { 'sec-fetch-site': 'same-origin' });
+  ok('大写变体 /API/VAULT/STATUS 无口令同样拦', r.status === 403, `${r.status}`);
   r = await http(A.control, 'GET', '/api/vault/status', { 'sec-fetch-site': 'same-origin', host: `127.0.0.1:${A.control}` });
   ok('控制面同源 GET 无口令 → 403', r.status === 403, `${r.status}`);
   r = await http(A.control, 'GET', '/api/vault/status', { 'sec-fetch-site': 'cross-site', host: `127.0.0.1:${A.control}`, 'x-admin-token': TOK });

@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { Alert, App, Button, Card, Descriptions, Empty, Form, Input, Modal, Space, Tag, Typography } from 'antd';
 import { useSearchParams } from 'react-router-dom';
-import { apiFetch, getAdminToken, subscribeAdminToken } from '../admin-token';
-import { controlUrl, onSurface, surface } from '../surface';
+import { adminActive, apiFetch, getAdminToken, subscribeAdminToken } from '../admin-token';
 import WmPage from '../components/WmPage';
 
 type Review = { id: number; kind: string; slug: string; op: string; target_version: number | null; status: string; reason: string; requested_by: string; reviewed_by: string; created_at: string };
@@ -17,7 +16,8 @@ export default function Reviews() {
   const [reviewer, setReviewer] = useState('');
   const [busy, setBusy] = useState(false);
   const { message } = App.useApp();
-  const canQuery = surface !== 'market' && !!token;
+  const admin = useSyncExternalStore(subscribeAdminToken, adminActive);
+  const canQuery = admin;
   useEffect(() => subscribeAdminToken(() => setToken(getAdminToken())), []);
   const load = useCallback(async () => {
     if (!canQuery) { setRows([]); return; }
@@ -50,10 +50,7 @@ export default function Reviews() {
   };
   const selected = request ? rows.filter(row => String(row.id) === request) : rows;
   return <WmPage title="变更人审">
-    {surface === 'market' ? <Alert type="info" showIcon message={controlUrl ? '请在管理控制面处理人审申请' : '控制面已关闭'} description={controlUrl
-      ? <Button type="link" href={onSurface(controlUrl, '/reviews' + (request ? '?request=' + encodeURIComponent(request) : ''))!} target="_blank" rel="noopener noreferrer">前往管理控制面</Button>
-      : '当前仅允许持权人通过受控本机管理通路处理。此页面不会索要业务面口令，也不会绕过人审门。若申请已批准，请刷新待办。'} />
-      : !token ? <Alert type="info" showIcon message="请先设置管理员口令" description="使用控制面顶部的口令按钮，设置后自动读取申请。不要在业务面输入管理口令。" />
+    {!admin ? <Alert type="info" showIcon message="请先确认管理员身份" description="在顶栏输入管理员口令，或用 Odoo 管理员账号登录，之后自动读取申请。" />
       : <Space direction="vertical" style={{ width: '100%' }}>
         <Alert type="warning" showIcon message="批准会实际执行回滚或删除" description="核对申请对象、目标版本和理由；已处理申请不可重复执行。" />
         <Space><Form.Item label="审核人" style={{ marginBottom: 0 }}><Input id="reviewer-name" aria-label="审核人" value={reviewer} onChange={e => setReviewer(e.target.value)} autoComplete="off" /></Form.Item><Button loading={loading} onClick={() => void load()}>刷新申请</Button></Space>
