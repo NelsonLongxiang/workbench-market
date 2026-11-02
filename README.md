@@ -155,7 +155,7 @@ data/           SQLite 数据文件（git 忽略）
 设计系统见 `design-system/workbench-market/MASTER.md`（Minimalism & Swiss，主色 #1E3A5F）。
 
 
-> **验证资产为本地产物不入库**（隐私治理·监督席处置单）：`evidence/`、`verify/`、`tmp/` 已 gitignore——E2E 摘要/判据冻结包/运行截图属本机生成物，fresh clone 后先跑一轮 E2E 再 make-submission（摘要门 fail-closed 即本义）。冻结报告另存 `~/.ygl-trees/verify/archives/`（zip 可携带）。**既有克隆合并 untrack 批后须恢复本地验证资产**（untrack=索引删除语义·合并即删工作树文件·全机验证链静默断）：`git checkout <untrack 前 SHA> -- evidence verify && git restore --staged evidence verify`——文件回工作树·不回流索引·gitignore 罩住。**净克隆自举**（#95 修正）：`verify/material.md`/`candidates.json`/`reviews.json` 三件套由 `node scripts/gen-verifier.mjs` 从**单一事实源再生成**（生成器自建 `verify/` 目录·净克隆一条命令重建 175 判据）。干净克隆跑验证链步骤：`node scripts/gen-verifier.mjs` → 跑一轮 E2E 产 `evidence/e2e-summary.json`（摘要门 fail-closed 即本义）→ `node scripts/make-submission.mjs` → `ygl-trees verify submit/prepare/run`。
+> **验证资产为本地产物不入库**（隐私治理·监督席处置单）：`evidence/`、`verify/`、`tmp/` 已 gitignore——E2E 摘要/判据冻结包/运行截图属本机生成物，fresh clone 后先跑一轮 E2E 再 make-submission（摘要门 fail-closed 即本义）。冻结报告另存 `~/.ygl-trees/verify/archives/`（zip 可携带）。**既有克隆合并 untrack 批后须恢复本地验证资产**（untrack=索引删除语义·合并即删工作树文件·全机验证链静默断）：`git checkout <untrack 前 SHA> -- evidence verify && git restore --staged evidence verify`——文件回工作树·不回流索引·gitignore 罩住。**净克隆自举**（#95 修正）：`verify/material.md`/`candidates.json`/`reviews.json` 三件套由 `node scripts/gen-verifier.mjs` 从**单一事实源再生成**（生成器自建 `verify/` 目录·净克隆一条命令重建 175 判据）。干净克隆跑验证链步骤：`node scripts/gen-verifier.mjs` → 跑一轮 E2E 产 `evidence/e2e-summary.json`（摘要门 fail-closed 即本义）→ `node scripts/make-submission.mjs --source-db <绝对库路径> --target-mode isolated --isolated-root <合成数据根>` → `ygl-trees verify submit/prepare/run`。
 
 
 ### 文件面 URL 语义（#164 P1②）
@@ -186,6 +186,25 @@ data/           SQLite 数据文件（git 忽略）
 
 发布元数据（未传=继承·显式空串=清空）·`enabled`（仅列表可见性）·SOP 步骤字段（哑存储·校验归 agent）——详见 [docs/datastore-and-semantics.md](docs/datastore-and-semantics.md)。
 
+## 脚本目标必须显式（#341）
+
+脚本不从仓库 server/data、用户技能目录或任何默认服务地址推断目标。缺少目标/模式时，在网络、数据库或目标目录访问前非零退出；**127.0.0.1:9800 同样不是安全缺省**。生产模式额外要求命令行 `--ack-production-target`，技术确认不代替实际维护授权。服务器自身正常 DATA_DIR 默认不在此脚本整改范围。
+
+- 39个历史快照冒烟：`node scripts/<name>-smoke.mjs --source-data <绝对源数据目录> --target-mode isolated --isolated-root <专用合成根>`。库源与 apps/skill-snapshots/uploads 都从同一显式目录取；源目录不缺省，不能把生产库简单称为 isolated。
+- 打包：`node scripts/make-submission.mjs --source-db <绝对库路径> --target-mode isolated --isolated-root <专用合成根>`。只从指定库产生快照，库缺失报错，不再默默跳过或取仓内库。构建/材料仍从脚本所在检出取。
+- 多源导入：显式 DATA_DIR、SKILL_SRC_A/B/C（或 --data-dir/--source-a/b/c）以及模式/隔离根；未配置的可选源需显式指向自己准备的空目录。`--dry-run`/`--selftest`也不能扫描默认个人目录；dry-run不导入context，不创建数据库/快照。
+- 单技能：显式 DATA_DIR、SKILL_SRC（或 --data-dir/--source-dir）；快照与库共用显式DATA_DIR，不再固定写入仓内 skill-snapshots。
+- 服务层冒烟：`--data-dir <绝对库目录>` 与模式/隔离根必须先校验，再动态导入context；不允许顶层导入隐式建库。
+- 监督：sup-audit必须给 `--api http://127.0.0.1:<测试端口> --summary <绝对摘要路径>`；sup-live必须给 `--api ... --log-file <绝对日志路径>`。都要显式模式，拒重定向。没有 `--restart-task <精确名称>` 时只报健康不点火；点火只准显式production+确认，不创建/修改计划任务。
+- 生命周期真引擎测试：显式 LC_OS_DIR、YGL_BIN、--data-dir（测试输出根），不搜索个人checkout或引擎。lc-issuer-unit未给LC_OS_DIR时只跑内置向量并明确跳参考实现，不枚举个人路径。
+- 隔离模式要求绝对目标位于显式 --isolated-root 下，递归拒源树内及其祖先链接/junction穿越（含数据库文件和被复制的子目录），拒当前检出的server/data与个人.dsh/.ygl-trees；它不能证明整个目录没有业务数据。生产路径不能伪装成隔离源。URL还必须显式端口/规范host，isolated拒9800/9801/3080、非回环、URL凭据/query/fragment/path。
+
+合成跑器只向子进程显式传 SCRIPT_SOURCE_DATA_DIR、SCRIPT_SOURCE_DB、SCRIPT_TARGET_MODE=isolated、SCRIPT_ISOLATED_ROOT；这些没有代码缺省值。手动操作优先命令行参数，生产确认旗标不从环境继承。不向服务端注入这些脚本参数以改变其运行行为。
+
+39个快照冒烟的自启实例必须经子进程独立IPC报告监听端口后才发HTTP；子进程未成功绑定或退出时拒请求，不以任意端口200当自有服务。本地接口测试只从本机网卡枚举地址，不继承LAN_IP；同测试端口的非本机host在底层fetch之前拒绝。本次亦收口appdata与skill-smoke这两项遗漏。此防意外碰撞，不是对恶意本机端口重绑定的原子证明。
+
+验证：`node scripts/explicit-data-targets-test.mjs`拦截所有负例网络/子进程/SQLite/目录访问，正向仅合成目录；原脚本不拿真实服务试。`scripts/explicit-data-target-inventory.json`固定本次清单。冻结包/已有验证报告不就地改写，旧命令需显式传参后重新运行新报告。
+
 ## 开发验证器
 
 v69.2 仅更新判据65的源码结构口径（继v69.1追加GoFrame遮蔽与属性值副作用拒绝，并明示数据流限度）：M4 将 iframe 构造移到 GoFrame，提取器检查使用页到 GoFrame 的受限顶层 return／const 绑定结构，并保留 raw URL、删除组件调用、不经门户、遮蔽与死 return 必红反例；需新材料重新 submit/prepare，不覆盖旧 v68 的174/1报告。175编号不变，结构检查不替代运行时E2E。见 [迁移说明](docs/verifier-v69-portal-chain.md)。
@@ -197,7 +216,7 @@ v69.2 仅更新判据65的源码结构口径（继v69.1追加GoFrame遮蔽与属
 node scripts/gen-verifier.mjs
 
 # 1) 生成判定面：活库快照（含色值/E2E/对比度提取表）+ 封装提交物（幂等，干净克隆自愈——tmp/ 不存在时自动创建；E2E 判据依赖 evidence/e2e-summary.json，未跑 E2E 则 fail-closed）
-node scripts/make-submission.mjs
+node scripts/make-submission.mjs --source-db /absolute/test-data/workbench-market.db --target-mode isolated --isolated-root /absolute/test-data
 
 # 2) 构造期（材料 → 候选 → 盲审 → 三重门 → 冻结 spec；材料/候选/盲审改动后需重新 submit；file 判据需 --attach 提交物 tar）
 ygl-trees verify submit --title "workbench-market 开发验证器 v68" --text verify/material.md --attach tmp/submission-v16.tar.gz

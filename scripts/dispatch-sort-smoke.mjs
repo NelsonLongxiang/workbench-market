@@ -1,10 +1,12 @@
 #!/usr/bin/env node
+import {requireDataSource} from './explicit-data-target.mjs';
+const SOURCE_DATA_DIR = requireDataSource();
 /** 分拣投递开关冒烟（#19 残件 ②a·判据先红后绿）。
  *  痛点：「agent 分拣投递」的 dispatched 待验收面一直在——「默认关闭」语义未钉。
  *  设计：settings 增 dispatch_sorting_enabled（默认 '0'）——关=GET /api/sop/runs?dispatched=1 空数组；开=正常列。
  *  判据：①默认关→dispatched 列空 ②开（settings 写 1）→dispatched 列正常 ③关回→又空（幂等回切）
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 
 const PORT = 9861;
@@ -23,11 +25,11 @@ rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 {
   const { DatabaseSync } = await import('node:sqlite');
-  const db = new DatabaseSync('server/data/workbench-market.db', { readOnly: true });
+  const db = new DatabaseSync(SOURCE_DATA_DIR + '/workbench-market.db', { readOnly: true });
   db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`);
   db.close();
 }
-for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`server/data/${d}`, `${DATA}/${d}`, { recursive: true });
+for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`${SOURCE_DATA_DIR}/${d}`, `${DATA}/${d}`, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
   cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'dsort-tok' }, stdio: 'ignore',
 });

@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {requireDataSource} from './explicit-data-target.mjs';
+const SOURCE_DATA_DIR = requireDataSource();
 /** #94 S2 技能入 LayerFS 冒烟（K13+摘要一致·判据先红后绿）。
  *  ①技能发布双写：skill version 落 commit_id（wm-skills 项目·skill/<slug> 分支）
  *  ②同内容重发：changed:false·commit 稳定
@@ -6,7 +8,7 @@
  *  ④契约 v1 分支路由：替身 /v1 四面（publish/commits files/rename/merge）
  *  ⑤校验面不受影子影响：verify ok:true
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
@@ -66,11 +68,11 @@ rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 {
   const { DatabaseSync } = await import('node:sqlite');
-  const db = new DatabaseSync('server/data/workbench-market.db', { readOnly: true });
+  const db = new DatabaseSync(SOURCE_DATA_DIR + '/workbench-market.db', { readOnly: true });
   db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`);
   db.close();
 }
-for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`server/data/${d}`, `${DATA}/${d}`, { recursive: true });
+for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`${SOURCE_DATA_DIR}/${d}`, `${DATA}/${d}`, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
   cwd: process.cwd(),
   env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 's2-tok', LAYERFS_SERVICE_URL: `http://127.0.0.1:${LP}`, LAYERFS_SERVICE_TOKEN: TOKEN },

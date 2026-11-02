@@ -1,11 +1,13 @@
 #!/usr/bin/env node
+import {requireDataSource} from './explicit-data-target.mjs';
+const SOURCE_DATA_DIR = requireDataSource();
 /** 驾驶舱白屏修冒烟（SPA 绝对路径资产改写·判据先红后绿·监督席 direct-9cd36827）。
  *  ①替身 SPA 台（HTML 引用 /assets/index-abc.js·资产路径真实存在）
  *  ②经 /go/<id>/ 取 HTML——资产引用带 /go/<id>/ 前缀（红版原样 /assets/）
  *  ③真取该资产 → 200 且 JS 内容一致（红版 404 JSON）
  *  ④外链/协议相对/data: 不误改（护栏）
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 
@@ -33,10 +35,10 @@ const SP = await new Promise((r) => spa.listen(0, '127.0.0.1', () => r(spa.addre
 rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: true });
 {
   const { DatabaseSync } = await import('node:sqlite');
-  const db = new DatabaseSync('server/data/workbench-market.db', { readOnly: true });
+  const db = new DatabaseSync(SOURCE_DATA_DIR + '/workbench-market.db', { readOnly: true });
   db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`); db.close();
 }
-for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`server/data/${d}`, `${DATA}/${d}`, { recursive: true });
+for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`${SOURCE_DATA_DIR}/${d}`, `${DATA}/${d}`, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
   cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'ws-tok' }, stdio: 'ignore',
 });
