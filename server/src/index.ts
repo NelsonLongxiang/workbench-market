@@ -29,7 +29,7 @@ import { designStandard } from './design-standard.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, runStateSave, runStateRestore, runStateLoad, runStateRetire, runActiveIds } from './redis.ts';
-import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, a2aSendOutbound, formatA2aReceipt, MARKET_TEAM } from './a2a.ts';
+import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, MARKET_TEAM } from './a2a.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -1566,8 +1566,10 @@ async function postReceipt(targetUrl: string, row: { run_id: number; task_id: st
     context_id: row.context_id,
     message: row.payload,
   };
-  const r = await fetch(`${targetUrl.replace(/\/+$/, '')}/a2a/direct`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  const url = `${targetUrl.replace(/\/+$/, '')}/a2a/direct`;
+  // OriginClaim：回执同样带绑定形式信封（#64 关窗后未签名的回执会被对端拒收）
+  const r = await fetch(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...marketOriginClaim(a2aKeyPath(), { url, method: 'POST' }) }, body: JSON.stringify(body),
     signal: AbortSignal.timeout(10_000),
   });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
