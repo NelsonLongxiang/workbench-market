@@ -319,7 +319,15 @@ export async function a2aSendOutbound(keyPath: string, target: OutboundTarget, m
     sessionId: MARKET_TEAM,
     cardCaller: MARKET_TEAM,
     schedule: (cb: () => void, ms: number) => { const t = setTimeout(cb, ms); return () => clearTimeout(t); },
-    fetch: (url: string, init?: RequestInit) => fetch(url, { ...init, headers: { ...(init?.headers as Record<string, string> | undefined), ...originClaimHeaders(priv, MARKET_TEAM, base, { url, method: String(init?.method ?? 'GET') }) } }).then(async (r) => ({ ok: r.ok, status: r.status, text: () => r.text() })),
+    fetch: async (url: string, init?: RequestInit) => {
+      // The claim is bound to this origin/method/path: never forward it or the payload to Location.
+      const r = await fetch(url, { ...init, redirect: 'manual', headers: { ...(init?.headers as Record<string, string> | undefined), ...originClaimHeaders(priv, MARKET_TEAM, base, { url, method: String(init?.method ?? 'GET') }) } });
+      if (r.status >= 300 && r.status < 400) {
+        await r.body?.cancel();
+        throw new Error('A2A redirect rejected: HTTP ' + r.status);
+      }
+      return { ok: r.ok, status: r.status, text: () => r.text() };
+    },
   } as never);
   const taskId = opts.taskId ?? `market-${randomBytes(4).toString('hex')}`;
   // 联合评审①后补：推送 caller 必须是区限定句柄（market/<node8>）——裸 zone 标签在对端
