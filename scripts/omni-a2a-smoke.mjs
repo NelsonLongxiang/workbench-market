@@ -45,13 +45,13 @@ async function waitReady(url, ms = 20000) {
   }
   return false;
 }
-const json = async (url) => { const r = await fetch(url); let j = null; try { j = await r.json(); } catch { } return { status: r.status, body: j }; };
+const json = async (url) => { const r = await fetch(url, { headers: { 'X-Admin-Token': 'synthetic-a2a-admin' } }); let j = null; try { j = await r.json(); } catch { } return { status: r.status, body: j }; };
 
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const startSrv = (extraEnv = {}) => spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server',
-  env: { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: `../${DATA}`, REDIS_URL: '', ...extraEnv },
+  env: { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: `../${DATA}`, YGL_HOME: new URL('../tmp/a2a-source-no-ygl', import.meta.url).pathname, ADMIN_TOKEN: 'synthetic-a2a-admin', REDIS_URL: '', ...extraEnv },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 
@@ -83,12 +83,12 @@ try {
     // 起新隔离实例指替身（端口 9855）——过 31s 缓存窗用独立端口 9856 实例
     const childCap = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
       cwd: 'server',
-      env: (() => { const e = { ...process.env, PORT: '9860', DATA_DIR: '../tmp/e2e-a2acap', ADMIN_TOKEN: 'cap', A2A_STATE_URL: 'http://127.0.0.1:9855', A2A_API_KEY: 'test-key' }; delete e.REDIS_URL; return e; })(),
+      env: (() => { const e = { ...process.env, PORT: '9860', DATA_DIR: '../tmp/e2e-a2acap', ADMIN_TOKEN: 'cap', YGL_HOME: new URL('../tmp/a2a-cap-no-ygl', import.meta.url).pathname, A2A_STATE_URL: 'http://127.0.0.1:9855', A2A_API_KEY: 'test-key' }; delete e.REDIS_URL; return e; })(),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     if (!(await waitReady('http://127.0.0.1:9860/api/health'))) { ok('cap 实例就绪', false); }
     else {
-      const rc = await fetch('http://127.0.0.1:9860/api/tasks', { headers: { } }).then((r) => r.json()).catch(() => null);
+      const rc = await fetch('http://127.0.0.1:9860/api/tasks', { headers: { 'X-Admin-Token': 'cap' } }).then((r) => r.json()).catch(() => null);
       const done = (rc?.tasks ?? []).filter((t) => t.source === 'a2a' && t.status === 'done');
       ok('ARCHIVE_CAP 投影忠实消费（替身 64 行→信封 64）', done.length === 64, `done=${done.length}`);
       ok('newest-first 顺序保持（r66 在列、r03 在列）',
@@ -107,11 +107,11 @@ try {
 
   // ── 出口二：降级（替身 503 / 错 key 401）──都不阻塞其它源
   serveOk = false;
-  await new Promise((r2) => setTimeout(r2, 31_000)); // 过 30s 缓存窗
+  // #324: no shared cache; source failure must be visible immediately.
   r = await json(`${BASE}/api/tasks`);
   ok('出口二 503→ok=false 且 ygl/market 照常', r.body?.sources?.a2a?.ok === false && 'ygl-trees' in r.body.sources && r.body.sources.market?.ok === true, JSON.stringify(r.body?.sources));
   serveOk = true; requireKey = 'other-key';
-  await new Promise((r2) => setTimeout(r2, 31_000));
+  // #324: verify immediately instead of waiting for a shared cache.
   r = await json(`${BASE}/api/tasks`);
   ok('出口二 401（错 key）→ok=false 不阻塞', r.body?.sources?.a2a?.ok === false && r.body.sources.market?.ok === true, JSON.stringify(r.body?.sources?.a2a));
   child.kill();
