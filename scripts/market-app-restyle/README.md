@@ -19,7 +19,13 @@ python3 -I restyle.py web/src/tokens.css apps extra out
 # 3) 预览与审计：python3 -I proxy.py <含 apps/ extra/ out/ audit.js 的目录>，打开 http://127.0.0.1:8791/new/apps/<slug>/，控制台执行 wmAudit()
 ```
 
-## 发布（生产 MCP 草稿通道）
+## 发布（9800 本机 CLI，现行做法）
+
+生产未部署 LayerFS，草稿通道不可用。在 9800 主机上运行 `publish_local.py`（默认演练，`--apply` 才发布，`--only` 限定范围）：本机非浏览器请求走回环信任写面，不需要管理口令。脚本按 `expected.json` 核对源与产物哈希，不一致即跳过。
+
+Windows 上导出工具链用 `git -c core.autocrlf=false archive -o <tar> <提交> scripts/market-app-restyle web/src/tokens.css`，再 `tar -xf`；不要走 PowerShell 管道，也不要让 autocrlf 改写脚本与 token 文件（会使产物哈希失配）。
+
+## 发布（生产 MCP 草稿通道，待 LayerFS 部署后可用）
 
 前提：该台激活版已有 LayerFS Commit 锚（管理员 `POST /api/apps/<slug>/migrate-layerfs`），且属主已授权。
 
