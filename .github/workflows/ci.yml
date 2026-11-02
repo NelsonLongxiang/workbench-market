@@ -121,6 +121,10 @@ jobs:
         env:
           A2A_ORIGIN_SRC: ${{ github.workspace }}/dsh-open-a2a-net/src/origin-claim.ts
         run: node scripts/origin-claim-bound-smoke.mjs
+      - name: 工作台事件层 v1（人提交→事件→团队接单：held/release·自动派发·退避重试/dead·决定端点·unrouted·表单 unverified·只增日志；对端上游裁判按关窗验）
+        env:
+          A2A_ORIGIN_SRC: ${{ github.workspace }}/dsh-open-a2a-net/src/origin-claim.ts
+        run: node scripts/workbench-events-smoke.mjs
       - name: SSRF 默认关闭与启动告警（隔离实例）
         run: node scripts/r1-ssrf-smoke.mjs
       - name: R3 URL 登记准入（#258：精确许可·硬拒·全入口同核·import 全事务注错·审计日志）
