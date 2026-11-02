@@ -3,7 +3,8 @@
 import type { SopManifest } from './sop-types.ts';
 import type { AppRow } from './db.ts';
 
-export function renderSopRunner(manifest: SopManifest, app: AppRow): string {
+/** tokensCss：DESIGN.md 生成的 --wm-* 变量（#321，与市场前端同一份），内联进页面；缺省时页面照常渲染。 */
+export function renderSopRunner(manifest: SopManifest, app: AppRow, tokensCss = ''): string {
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const stepsHtml = manifest.steps
     .map(
@@ -24,32 +25,38 @@ export function renderSopRunner(manifest: SopManifest, app: AppRow): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(manifest.title)} · SOP Runner</title>
 <style>
-  :root { --navy:#1E3A5F; --emerald:#059669; --ink:#0F172A; --line:#E2E8F0; --mut:#5A6577; }
+${tokensCss.replace(/<\/style/gi, '')}
+</style>
+<style>
+  /* #321：颜色、字体、字号、间距、圆角只用 --wm-* 变量（DESIGN.md），与市场前端同色同字号；顶栏是深色区，用 nav-* */
   * { box-sizing:border-box; }
-  body { margin:0; font-family:Inter,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; color:var(--ink); background:#F6F8FB; }
-  .bar { position:sticky; top:0; z-index:5; background:var(--ink); color:#fff; padding:10px 20px; display:flex; align-items:center; gap:12px; }
-  .bar .code { font-family:"Cascadia Mono",Consolas,monospace; font-size:12px; color:#94A3B8; }
-  .bar h1 { font-size:16px; margin:0; font-weight:600; letter-spacing:.02em; }
-  .badge { font-size:12px; padding:2px 10px; border-radius:999px; background:rgba(5,150,105,.25); color:#6EE7B7; }
-  .runmeta { margin-left:auto; font-family:"Cascadia Mono",Consolas,monospace; font-size:12px; color:#94A3B8; }
-  main { max-width:860px; margin:24px auto; padding:0 16px; }
-  .step { background:#fff; border:1px solid var(--line); border-radius:8px; padding:16px 20px; margin-bottom:14px; }
-  .step header { display:flex; align-items:center; gap:10px; }
-  .step .no { width:24px; height:24px; border-radius:50%; background:var(--navy); color:#fff; font-size:12px; display:flex; align-items:center; justify-content:center; font-family:"Cascadia Mono",Consolas,monospace; }
-  .step h2 { font-size:15px; margin:0; font-weight:600; }
-  .dot { margin-left:auto; width:8px; height:8px; border-radius:50%; background:#CBD5E1; }
-  .dot.saved { background:var(--emerald); }
-  .dot.dirty { background:#F59E0B; }
-  .body { margin-top:10px; font-size:14px; line-height:1.7; }
+  body { margin:0; font-family:var(--wm-font-sans); font-size:var(--wm-font-size-body); line-height:var(--wm-line-height-body); color:var(--wm-color-text); background:var(--wm-color-page); }
+  .bar { position:sticky; top:0; z-index:5; background:var(--wm-color-nav-bg); color:var(--wm-color-nav-text-active); padding:var(--wm-space-2) var(--wm-space-6); display:flex; align-items:center; gap:var(--wm-space-3); }
+  .bar .code { font-family:var(--wm-font-mono); font-size:var(--wm-font-size-caption); color:var(--wm-color-nav-text); }
+  .bar h1 { font-size:var(--wm-font-size-subtitle); line-height:var(--wm-line-height-subtitle); margin:0; font-weight:var(--wm-font-weight-subtitle); }
+  .badge { font-size:var(--wm-font-size-caption); padding:2px var(--wm-space-2); border-radius:var(--wm-radius-full); background:var(--wm-color-success-bg); color:var(--wm-color-success-text); }
+  .runmeta { margin-left:auto; font-family:var(--wm-font-mono); font-size:var(--wm-font-size-caption); color:var(--wm-color-nav-text); }
+  main { max-width:860px; margin:var(--wm-space-6) auto; padding:0 var(--wm-space-4); }
+  .step { background:var(--wm-color-surface); border:1px solid var(--wm-color-border); border-radius:var(--wm-radius-lg); padding:var(--wm-space-4) var(--wm-space-6); margin-bottom:var(--wm-space-3); box-shadow:var(--wm-shadow-1); }
+  .step header { display:flex; align-items:center; gap:var(--wm-space-2); }
+  .step .no { width:24px; height:24px; border-radius:var(--wm-radius-full); background:var(--wm-color-primary); color:var(--wm-color-on-primary); font-size:var(--wm-font-size-caption); display:flex; align-items:center; justify-content:center; font-family:var(--wm-font-mono); }
+  .step h2 { font-size:var(--wm-font-size-subtitle); line-height:var(--wm-line-height-subtitle); margin:0; font-weight:var(--wm-font-weight-subtitle); }
+  .dot { margin-left:auto; width:8px; height:8px; border-radius:var(--wm-radius-full); background:var(--wm-color-border-strong); }
+  .dot.saved { background:var(--wm-color-success); }
+  .dot.dirty { background:var(--wm-color-warning); }
+  .body { margin-top:var(--wm-space-2); }
   .body:empty { display:none; }
-  .muted { color:var(--mut); }
-  input[data-field], select[data-field], textarea[data-field] { width:100%; max-width:420px; padding:7px 10px; border:1px solid var(--line); border-radius:6px; font:inherit; font-family:"Cascadia Mono",Consolas,monospace; font-size:13px; }
-  input[data-field]:focus-visible, textarea[data-field]:focus-visible, select[data-field]:focus-visible { outline:2px solid rgba(5,150,105,.6); outline-offset:1px; }
-  .foot { display:flex; align-items:center; gap:14px; margin:20px 0 40px; }
-  .btn { border:none; border-radius:6px; padding:9px 22px; font:inherit; font-weight:600; cursor:pointer; }
-  .btn.primary { background:var(--emerald); color:#fff; }
+  .muted { color:var(--wm-color-text-secondary); }
+  input[data-field], select[data-field], textarea[data-field] { width:100%; max-width:420px; padding:var(--wm-space-2) var(--wm-space-3); border:1px solid var(--wm-color-border-strong); border-radius:var(--wm-radius-md); font:inherit; font-family:var(--wm-font-mono); font-size:var(--wm-font-size-body); color:var(--wm-color-text); background:var(--wm-color-surface); }
+  input[data-field]:focus-visible, textarea[data-field]:focus-visible, select[data-field]:focus-visible { outline:2px solid var(--wm-color-primary); outline-offset:1px; }
+  .foot { display:flex; align-items:center; gap:var(--wm-space-3); margin:var(--wm-space-6) 0 var(--wm-space-8); }
+  .btn { border:1px solid var(--wm-color-border-strong); border-radius:var(--wm-radius-md); padding:var(--wm-space-2) var(--wm-space-6); font:inherit; font-weight:var(--wm-font-weight-body-strong); cursor:pointer; background:var(--wm-color-surface); color:var(--wm-color-text); }
+  .btn.primary { background:var(--wm-color-primary); border-color:var(--wm-color-primary); color:var(--wm-color-on-primary); }
   .btn:disabled { opacity:.5; cursor:default; }
-  .state { font-size:13px; color:var(--mut); font-family:"Cascadia Mono",Consolas,monospace; }
+  .state { font-size:var(--wm-font-size-caption); color:var(--wm-color-text-secondary); font-family:var(--wm-font-mono); }
+  .extra-row { margin:var(--wm-space-2) 0; padding:var(--wm-space-2) var(--wm-space-3); background:var(--wm-color-page); border:1px solid var(--wm-color-border); border-radius:var(--wm-radius-md); }
+  .extra-row pre { margin:var(--wm-space-1) 0 0; white-space:pre-wrap; word-break:break-all; font-size:var(--wm-font-size-caption); font-family:var(--wm-font-mono); }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; animation:none !important; } }
 </style>
 </head>
 <body>
@@ -64,9 +71,9 @@ ${stepsHtml}
 <section class="step" id="agent-extras" style="display:none">
   <header><h2>agent 交付区</h2><span class="muted" id="extras-note"></span></header>
   <div class="body" id="extras-data"></div>
-  <ul id="extras-files" style="margin:8px 0 0;padding-left:18px"></ul>
-  <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
-    <input type="file" id="upload-input" style="font-size:12px">
+  <ul id="extras-files" style="margin:var(--wm-space-2) 0 0;padding-left:var(--wm-space-4)"></ul>
+  <div style="margin-top:var(--wm-space-2);display:flex;gap:var(--wm-space-2);align-items:center">
+    <input type="file" id="upload-input">
     <button class="btn" id="upload-btn" disabled>上传交付文件</button>
     <span class="muted" id="upload-note"></span>
   </div>
@@ -144,11 +151,10 @@ window.__SOP__ = ${boot};
       dataBox.textContent = '';
       Object.keys(extra).length && Object.keys(extra).forEach(function (k) {
         var row = document.createElement('div');
-        row.style.cssText = 'margin:6px 0;padding:6px 10px;background:#F8FAFC;border:1px solid var(--line);border-radius:6px';
+        row.className = 'extra-row';
         var t = document.createElement('div');
-        t.className = 'muted'; t.style.fontSize = '12px'; t.textContent = k;
+        t.className = 'muted'; t.textContent = k;
         var v = document.createElement('pre');
-        v.style.cssText = 'margin:4px 0 0;white-space:pre-wrap;word-break:break-all;font-size:12px';
         v.textContent = typeof extra[k] === 'string' ? extra[k] : JSON.stringify(extra[k], null, 2);
         row.appendChild(t); row.appendChild(v); dataBox.appendChild(row);
       });
