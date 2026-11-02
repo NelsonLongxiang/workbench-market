@@ -8,14 +8,14 @@ const SOURCE_DATA_DIR = requireDataSource();
  *  判据：①绑定创建 201（红版 404）②提交 201 且 cap 收到 1 发推送（team=node·含 slug/id/字段）
  *  ③撤销后新提交不再推 ④无绑定 slug 提交不推不炸（护栏）⑤远程 LAN 面提交同样触发（裁定 A 面×推送）。
  */
-import { spawn } from './owned-script-fixture.mjs';
+import { spawn, fixtureLanHost } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 
 const PORT = 9853;
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-appnotify-data';
-const LAN_IP = process.env.LAN_IP || ''; // 隐私门红线：内网地址只经 env（unset 则跳过远程判据）
+const LAN_IP = fixtureLanHost(); // Only this machine's owned test listener; never inherit a remote LAN_IP.
 const ADMIN = { 'Content-Type': 'application/json', 'X-Admin-Token': 'appnotify-test-token' };
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };

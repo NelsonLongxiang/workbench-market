@@ -201,7 +201,7 @@ data/           SQLite 数据文件（git 忽略）
 
 合成跑器只向子进程显式传 SCRIPT_SOURCE_DATA_DIR、SCRIPT_SOURCE_DB、SCRIPT_TARGET_MODE=isolated、SCRIPT_ISOLATED_ROOT；这些没有代码缺省值。手动操作优先命令行参数，生产确认旗标不从环境继承。不向服务端注入这些脚本参数以改变其运行行为。
 
-39个快照冒烟的自启实例必须经子进程独立IPC报告监听端口后才发HTTP；子进程未成功绑定或退出时拒请求，不以任意端口200当自有服务。此防意外碰撞，不是对恶意本机端口重绑定的原子证明。
+39个快照冒烟的自启实例必须经子进程独立IPC报告监听端口后才发HTTP；子进程未成功绑定或退出时拒请求，不以任意端口200当自有服务。本地接口测试只从本机网卡枚举地址，不继承LAN_IP；同测试端口的非本机host在底层fetch之前拒绝。本次亦收口appdata与skill-smoke这两项遗漏。此防意外碰撞，不是对恶意本机端口重绑定的原子证明。
 
 验证：`node scripts/explicit-data-targets-test.mjs`拦截所有负例网络/子进程/SQLite/目录访问，正向仅合成目录；原脚本不拿真实服务试。`scripts/explicit-data-target-inventory.json`固定本次清单。冻结包/已有验证报告不就地改写，旧命令需显式传参后重新运行新报告。
 
