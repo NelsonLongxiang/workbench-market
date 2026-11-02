@@ -27,7 +27,7 @@ const odoo = createServer((rq, rs) => {
 await new Promise((x) => odoo.listen(0, '127.0.0.1', x));
 const OP = odoo.address().port;
 const PORT = 20000 + Math.floor(Math.random() * 20000);
-const env = { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'lc-login-smoke',
+const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'lc-login-smoke',
   LC_YGL_BIN: join(ENG, 'bin.cjs'), LC_YGL_HOME: HOME, LC_ODOO_URL: `http://127.0.0.1:${OP}`, LC_WORKBENCH_KEY_FILE: join(TMP, 'no-such.key'), WM_ODOO_ORIGINS: `http://localhost:${OP}` };
 for (const k of ['LC_LEDGER', 'LC_ANCHOR_DIR', 'LC_TEST']) delete env[k];
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });
@@ -62,8 +62,7 @@ try {
   r = await http('GET', '/api/lifecycle/board', { headers: { host: `localhost:${PORT}` } });
   ok('LC_ODOO_URL 对应的台优先（Host 为 localhost 也不换台：生命周期只认这个 Odoo 的会话）', r.body?.login_url === `/go/${wid}/?return=%2Flifecycle`, JSON.stringify(r.body?.login_url));
   r = await http('GET', '/api/tasks');
-  const life = r.body?.sources?.lifecycle;
-  ok('统一待办：生命周期源 auth_required + login_url 回 /tasks', life?.ok === false && life.auth_required === true && life.login_url === `/go/${wid}/?return=%2Ftasks`, JSON.stringify(life));
+  ok('统一待办：查询前401且login_url回/tasks、不返回私有来源', r.status === 401 && r.body?.error === 'tasks_auth_required' && r.body.login_url === `/go/${wid}/?return=%2Ftasks` && !r.body.sources && !r.body.tasks, JSON.stringify(r.body));
 
   console.log('SSO v1 舞步带 return（Odoo 19 修复：市场中继页 + whoami 轮询）');
   const back = '/lifecycle?as_of=2026-12-18T18:00:00+08:00';
