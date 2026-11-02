@@ -34,43 +34,19 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
     inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'], additionalProperties: false },
   },
   {
-    name: 'app_publish',
+    name: 'app_sync',
     description:
-      '发布/更新自产台（市场自己长台）：files=[{path,content}] 发上来即静态托管 /apps/<slug>/ 并自动入册，门户/市场立即可用；同 slug 重发=新版本快照。kind="sop" 走 SOP 台（须含 sop.yaml + changelog，首发 draft，需再调 sop_publish 上架）。',
+      '从 GitHub 仓库 main 分支同步自产台/SOP 台（属主 2026-11-02 来源收敛：自产台只接受仓库 main，不再收直接上传的文件）。先把改动合进该台登记的仓库 main，再调本工具；市场拉 main 头生成新版本并记下 commit。只能重拉已登记来源的台，绑定或改来源须本机 CLI 或管理员走 REST POST /api/apps/<slug>/sync。',
     inputSchema: {
       type: 'object',
       properties: {
-        slug: { type: 'string', description: '小写字母/数字/连字符，≤64 字符' },
-        title: { type: 'string', description: '显示名（首次发布必填）' },
-        description: { type: 'string' },
-        created_by: { type: 'string', description: '发布者标识（如 AI 会话名）' },
-        code: { type: 'string', description: 'SOP 编号（如 SOP-OPS-001，kind=sop 时用）' },
-        kind: { type: 'string', enum: ['app', 'sop'] },
-        changelog: { type: 'string', description: '本版改了什么（kind=sop 必填）' },
-        files: {
-          type: 'array',
-          description: '文件集（UTF-8 文本，单文件 ≤2MB；app 类须含根 index.html，sop 类须含 sop.yaml）',
-          items: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] },
-        },
+        slug: { type: 'string', description: '已登记 GitHub 来源的台' },
+        changelog: { type: 'string', description: '本版说明（缺省为 [github] 仓库@main 短 sha）' },
+        force: { type: 'boolean', description: '体积骤降 >50% 时显式确认' },
       },
-      required: ['slug', 'files'],
+      required: ['slug'],
       additionalProperties: false,
     },
-  },
-  {
-    name: 'app_draft_open',
-    description: '#94 P3 agent 工作区：从台当前头开草稿（LayerFS draft）',
-    inputSchema: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
-  },
-  {
-    description: '#94 P3：编辑草稿（old_text→new_text·apply 到草稿）',
-    name: 'app_draft_edit',
-    inputSchema: { type: 'object', properties: { slug: { type: 'string' }, draft: { type: 'string' }, path: { type: 'string' }, old_text: { type: 'string' }, new_text: { type: 'string' } }, required: ['slug', 'draft', 'path', 'old_text', 'new_text'] },
-  },
-  {
-    name: 'app_draft_submit',
-    description: '#94 P3：草稿合并回发布线→走发布门禁生成新版本并激活（同路径冲突 409 Conflict）',
-    inputSchema: { type: 'object', properties: { slug: { type: 'string' }, draft: { type: 'string' }, changelog: { type: 'string' } }, required: ['slug', 'draft'] },
   },
   {
     name: 'change_request_create',
@@ -169,7 +145,7 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
     inputSchema: {
       type: 'object',
       properties: {
-        name: { type: 'string' }, url: { type: 'string', description: 'http(s) 地址（自产台内部路径请用 app_publish）' },
+        name: { type: 'string' }, url: { type: 'string', description: 'http(s) 地址（自产台走 GitHub main 同步 app_sync）' },
         type: { type: 'string', description: '类型 key，默认 web' }, category: { type: 'string' }, description: { type: 'string' },
         tags: { type: 'array', items: { type: 'string' } }, enabled: { type: 'boolean' }, health_path: { type: 'string' }, sort: { type: 'integer' },
       },
