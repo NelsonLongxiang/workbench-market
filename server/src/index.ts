@@ -1,5 +1,6 @@
 import express from 'express';
 import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
+import { recordAppDataEvent, cancelTaskCenterDeliveries, kickWorkbenchEvents, startWorkbenchEventWorker, registerWorkbenchEventRoutes } from './workbench-events.ts';
 import cors from 'cors';
 import { contentConfig, createContentSurface, mountContentSurface, listenContentSurface } from './content-surface.ts';
 import { createPortalObservation } from './portal-observation.ts';
@@ -29,7 +30,7 @@ import { designStandard } from './design-standard.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, runStateSave, runStateRestore, runStateLoad, runStateRetire, runActiveIds } from './redis.ts';
-import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, a2aSendOutbound, formatA2aReceipt, MARKET_TEAM } from './a2a.ts';
+import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, MARKET_TEAM } from './a2a.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -148,6 +149,8 @@ app.use(endpointStatsMiddleware());
 const REMOTE_ALLOW_PREFIX = [
   /^\/api\/apps\/[a-z0-9-]{1,64}\/(data|files)(\/|$)/,
   /^\/api\/sop\/runs(\/\d+(\/(finish|files))?)?$/,
+  // 工作台事件 v1：接单节点回写决定（凭投递里的 reply token 鉴权，不认口令；只此一条子路径）
+  /^\/api\/workbench-events\/wbe-[0-9a-f]{16}\/decision$/,
 ];
 
 // S3 豁免面可观测（评审席裁下批·PR#72 真事故锚）：启动时快照+diff——安全清单变更不再无声
@@ -569,6 +572,7 @@ app.delete('/api/cockpits/:id', (req, res) => {
 // ---------- 自产台（台生成器：AI 发布 API + 全版本快照，发布即入册） ----------
 const appsRoot = join(dataDir, 'apps');
 initializeTaskCenter(appsRoot);
+startWorkbenchEventWorker(); // 工作台事件 v1（人提交 → 事件 → 团队接单）；表随 initializeTaskCenter 建
 // #198（监督席裁 A·P11 回归修复）：自产台按台令牌——CSP sandbox 下页面源为 null，
 // 交付空间模式（页面调本台 data/files）靠「Origin: null + X-App-Token 匹配 slug」放行 CORS。
 const APP_TOKEN_KEY_FILE = join(dataDir, '.wm-app-token.key');
@@ -1176,17 +1180,13 @@ app.post('/api/apps/:slug/data', (req, res) => {
   const itemId = Number(r.lastInsertRowid);
   const createdAt = new Date().toISOString();
   res.status(201).json({ ok: true, id: itemId, slug: a.slug, created_at: createdAt });
-  // 属主裁 C（2026-10-26）：提交即推送——绑定 agent 异步收通知（尽力而为不阻塞 201；
-  // 失败仅日志，下次提交再推——数据真源始终在 app_data，拉模式兜底）。
+  // 属主裁 C（2026-10-26）：提交即推送——绑定 agent 异步收通知（不阻塞 201）。
+  // 工作台事件 v1：推送改走事件投递队列（退避重试、终态 sent/dead 可查），信封带 event_id 与 submitter_kind。
+  // 提交面匿名、created_by 自填 → submitter_kind 恒 unverified、dispatch:false（只通知不派发）。
   // 联合评审① C：统一绑定表——notify 方向行（授 admits 不触发推送·方向独立性铁律）
-  const targets = db.prepare("SELECT agent_node, notify_url FROM bindings WHERE target_type = 'app' AND target_slug = ? AND direction IN ('notify','both') AND revoked_at = ''").all(a.slug) as { agent_node: string; notify_url: string }[];
-  for (const t of targets) {
-    if (t.notify_url === '') continue;
-    a2aSendOutbound(a2aKeyPath(), { baseUrl: t.notify_url, team: t.agent_node }, JSON.stringify({
-      type: 'app-data-submitted', slug: a.slug, id: itemId, data, created_at: createdAt,
-      hint: '经 MCP app_data_list（slug + before_id 增量）读取；本通知尽力而为，真源在 app_data',
-    }), undefined, `market/${sopNode8(a.slug)}`).catch(err => console.error(`[app-notify] push failed ${a.slug}→${t.node}: ${String(err).slice(0, 120)}`));
-  }
+  try {
+    if (recordAppDataEvent({ slug: a.slug, id: itemId, data, json, createdBy: created_by, createdAt })) kickWorkbenchEvents();
+  } catch (err) { console.error(`[app-notify] event record failed ${a.slug}: ${String(err).slice(0, 120)}`); }
 });
 
 app.get('/api/apps/:slug/data', (req, res) => {
@@ -1566,8 +1566,10 @@ async function postReceipt(targetUrl: string, row: { run_id: number; task_id: st
     context_id: row.context_id,
     message: row.payload,
   };
-  const r = await fetch(`${targetUrl.replace(/\/+$/, '')}/a2a/direct`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  const url = `${targetUrl.replace(/\/+$/, '')}/a2a/direct`;
+  // OriginClaim：回执同样带绑定形式信封（#64 关窗后未签名的回执会被对端拒收）
+  const r = await fetch(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...marketOriginClaim(a2aKeyPath(), { url, method: 'POST' }) }, body: JSON.stringify(body),
     signal: AbortSignal.timeout(10_000),
   });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -2256,6 +2258,17 @@ function serveApp(req: express.Request, res: express.Response) {
 }
 // 必须在 web/dist SPA fallback 之前注册
 app.get(/^\/apps\/[a-z0-9][a-z0-9-]*(\/.*)?$/, serveApp);
+// #321 设计 token 的固定路径（自产台 <link> 引入）：/design/tokens@<主版本>.css 推荐（主版本内名字稳定、值可变，按需重新验证），
+// /design/tokens@<完整版本>.css 精确钉版本（内容不变，可长缓存）；其他版本 404，不猜
+app.get(/^\/design\/tokens@[0-9.]+\.css$/, (req, res) => {
+  const t = loadTokensCss();
+  const kind = t ? resolveTokensPath(req.path, t) : null;
+  if (!t || !kind) return res.status(404).type('text').send(t ? `只提供 tokens@${t.major}.css 与 tokens@${t.version}.css\n` : 'design tokens 不可用\n');
+  res.setHeader('Cache-Control', kind === 'exact' ? 'public, max-age=31536000, immutable' : 'no-cache');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-WM-Tokens-Version', t.version);
+  res.type('text/css').send(t.css);
+});
 
 function summaryPayload() {
   const rows = listWorkbenches();
@@ -2604,7 +2617,7 @@ function sameOriginGuard(req: express.Request, res: express.Response): boolean {
 }
 
 /** 任务状态迁移：每次变化恰一条事件（BEGIN IMMEDIATE 串行段·#159 C23 只增不改） */
-function applyTaskTransition(taskId: number, action: 'created' | 'toggled' | 'published' | 'withdrawn', actor: string, patch: Record<string, unknown> = {}): void {
+function applyTaskTransition<T = void>(taskId: number, action: 'created' | 'toggled' | 'published' | 'withdrawn', actor: string, patch: Record<string, unknown> = {}, inTx?: () => T): T | undefined {
   db.exec('BEGIN IMMEDIATE');
   try {
     if (Object.keys(patch).length) {
@@ -2612,7 +2625,9 @@ function applyTaskTransition(taskId: number, action: 'created' | 'toggled' | 'pu
       db.prepare('UPDATE tasks SET ' + sets + ", updated_at = datetime('now') WHERE id = @___id").run({ ...patch, ___id: taskId });
     }
     db.prepare("INSERT INTO task_events (task_id, type, actor, actor_kind, payload_json) VALUES (?, ?, ?, 'human', ?)").run(taskId, action, actor, JSON.stringify(patch));
+    const out = inTx?.(); // 同一事务里的附带写（撤回时取消未发出的投递）
     db.exec('COMMIT');
+    return out;
   } catch (e) { db.exec('ROLLBACK'); throw e; }
 }
 
@@ -2621,7 +2636,9 @@ app.post('/api/task-center/tasks', (req, res) => {
   if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' }); // C10
   if (!adminGuard(req, res)) return; // C9 无口令 401/403
   res.status(201).json(publishTaskIntake(req.body ?? {}));
+  kickWorkbenchEvents(); // 工作台事件 v1：发布同事务已记 human 事件，这里立即试投
 });
+registerWorkbenchEventRoutes(app, { admin: adminGuard, sameOrigin: (req) => sameOriginGuard(req, undefined as never) });
 app.get('/api/task-center/tasks', (req, res) => { // 读开放
   res.json(db.prepare('SELECT * FROM tasks ORDER BY id DESC').all().map(taskListView)); // #309 phase2：列表同样不带 payload_json 私有副本
 });
@@ -2717,8 +2734,9 @@ app.post('/api/task-center/tasks/:id/withdraw', (req, res) => {
   if (!hit) throw new HttpError(404, 'task not found');
   if (hit.status !== 'published') throw new HttpError(409, '仅已发布可撤回');
   const actor = 'human:' + String((req as express.Request & { adminActor?: string }).adminActor ?? 'admin');
-  applyTaskTransition(hit.id, 'withdrawn', actor, { status: 'withdrawn' });
-  res.json({ ok: true, id: hit.id, status: 'withdrawn' });
+  // 工作台事件 v1：撤回与取消未发出的投递同一事务；正在发送的那次如实报 in_flight
+  const c = applyTaskTransition(hit.id, 'withdrawn', actor, { status: 'withdrawn' }, () => cancelTaskCenterDeliveries(hit.id, actor));
+  res.json({ ok: true, id: hit.id, status: 'withdrawn', cancelled_deliveries: c?.cancelled ?? 0, in_flight_deliveries: c?.in_flight ?? 0 });
 });
 app.patch('/api/task-center/tasks/:id/agent-dispatch', (req, res) => { // 监督席对齐②：任务级 agent 派发开关（默认关·与任务锁语义对齐）
   if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
@@ -2770,6 +2788,23 @@ app.get('/api/remote-allow/diff', (req, res) => {
 });
 
 // #19②b 裁 A（direct-2ff2ed21）：治理时间线——版本链+run 历史+验收链三合一面（轻内嵌）
+/** #318 SOP 交付空间「定义」与单次记录的步骤骨架：只回步骤 key / 标题，不回步骤正文 HTML。
+ *  可见性同 Runner（issue #11）：published 公开；draft / deprecated 只给管理员。
+ *  ?version=N 读该版本（单次记录按 run 的 sop_version 取）；版本目录已冷存时 404，不猜。 */
+app.get('/api/sops/:slug/definition', (req, res) => {
+  const a = getApp(req.params.slug);
+  if (a.kind !== 'sop') throw new HttpError(404, `SOP not found: ${req.params.slug}`);
+  if (a.status !== 'published' && !adminHeaderOk(req)) return res.status(403).set('Cache-Control', 'no-store').json({ error: `SOP ${a.slug} 状态为 ${a.status}，定义仅管理员可见` });
+  const raw = req.query.version;
+  const version = raw === undefined || raw === '' ? a.active_version : Number(raw);
+  if (!Number.isInteger(version) || version < 1) bad('version 必须是正整数');
+  if (!svc<AppService>('app').versionExists(a.id, version)) throw new HttpError(404, `版本不存在: v${version}`);
+  const yamlPath = join(appsRoot, a.slug, `v${version}`, 'sop.yaml');
+  if (!existsSync(yamlPath)) return res.status(404).json({ error: `v${version} 未物化（冷版本），无法读取步骤定义`, code: 'version_not_materialized' });
+  const m = parseSopManifest(readFileSync(yamlPath, 'utf8'));
+  res.json({ slug: a.slug, version, active_version: a.active_version, status: a.status, title: m.title, code: m.code ?? a.code ?? '', description: m.description ?? '', steps: m.steps.map(({ key, title }) => ({ key, title })) });
+});
+
 app.get('/api/sops/:slug/timeline', (req, res) => {
   const a = getApp(req.params.slug);
   if (a.kind !== 'sop') throw new HttpError(404, `SOP not found: ${req.params.slug}`);
@@ -2798,7 +2833,9 @@ app.post('/api/bindings', (req, res) => {
   const direction = b.direction;
   if (direction !== 'admits' && direction !== 'notify' && direction !== 'both') bad('direction 必填且只许 admits|notify|both（显式选择·无默认）');
   if (!slug) bad('target_slug 必填');
-  if (!/^[a-z][a-z0-9-]*\/[a-z0-9][a-z0-9_-]{0,63}$/i.test(node)) bad('agent_node 形态：<zone>/<id8>，如 dsh/1a2b3c4d');
+  // 画布队名与上游 canvas-store validName 同规则：trim 后 1–40 字符、不含 /、不能是纯数字（中间可有空格）
+  const canvasName = /^[a-z][a-z0-9-]*\/canvas\/([^/]{1,40})$/i.exec(node)?.[1];
+  if (!(canvasName !== undefined ? canvasName.trim() === canvasName && !/^\d+$/.test(canvasName) : /^[a-z][a-z0-9-]*\/[a-z0-9][a-z0-9_-]{0,63}$/i.test(node))) bad('agent_node 形态：<zone>/<id8> 或画布队 <zone>/canvas/<name>，如 dsh/1a2b3c4d、dsh/canvas/procurement');
   const a = getApp(slug);
   if (a.kind !== targetType) bad(`target_type=${targetType} 与台型不符（${slug} 是 ${a.kind}）`);
   const mode = targetType === 'sop' && b.mode === 'run' ? 'run' : 'read'; // app 行 mode 恒 read（跨型 CHECK）
@@ -2914,7 +2951,10 @@ const wbById = (id: number): ReturnType<typeof rowToWorkbench> | null => {
 import { MCP_TOOLS } from './mcp-tools.ts';
 import { evalCandidates } from './eval.ts'; // #178 评估模型客户端
 
-import { renderSopRunner } from './sop-runner.ts';
+import { renderSopRunner as renderSopRunnerRaw } from './sop-runner.ts';
+import { loadTokensCss, resolveTokensPath } from './design-tokens-css.ts';
+/** #321：执行页内联 DESIGN.md 生成的 --wm-* 变量，与市场前端同色同字号 */
+const renderSopRunner = (manifest: Parameters<typeof renderSopRunnerRaw>[0], app: Parameters<typeof renderSopRunnerRaw>[1]) => renderSopRunnerRaw(manifest, app, loadTokensCss()?.css ?? '');
 import { isOdooLikeTarget, isOdooSessionTarget, stripOdooSession, trustedOdooOrigins } from './odoo-session.ts';
 import { collectTasks } from './tasks.ts';
 import { lifecycleApprove, lifecycleBoard, lifecycleConfigProblem, lifecycleConfigured, lifecycleSourceFor, lifecycleStatus, lifecycleWhoami, resolveOdooViewer } from './lifecycle.ts';
