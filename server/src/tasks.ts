@@ -31,7 +31,14 @@ export interface LcTaskRef {
   effective_at: string | null; proposed_by: string; approvals: number; levels: number;
 }
 
-export interface SourceMeta { ok: boolean; count: number; latency_ms: number }
+export interface SourceMeta { ok: boolean; count: number; latency_ms: number; error?: string }
+export interface TasksReadScope {
+  subject: string;
+  admin: boolean;
+  yglProjects: 'all' | readonly string[];
+  marketRunIds: 'all' | readonly number[];
+  a2a: boolean;
+}
 export interface TasksPayload {
   tasks: TaskEnvelope[];
   /** a2a 键仅在 A2A_STATE_URL 已配置（源启用）时出现——未配置=源缺席≠降级（总工程师三裁①）；
@@ -41,12 +48,11 @@ export interface TasksPayload {
 }
 
 type SopServiceLike = {
-  runsDispatchedAll(): { id: number; sop_slug: string; started_by: string; status: string; updated_at: string }[];
-  runsRunning(): { id: number; sop_slug: string; started_by: string; status: string; updated_at: string }[];
+  runsDispatchedAll(ids?: readonly number[]): { id: number; sop_slug: string; started_by: string; status: string; updated_at: string }[];
+  runsRunning(ids?: readonly number[]): { id: number; sop_slug: string; started_by: string; status: string; updated_at: string }[];
 };
 
-const CACHE_TTL_MS = 30_000;
-let cache: { at: number; payload: TasksPayload } | null = null;
+// #324: no shared payload cache. Every request applies fresh identity and source/object grants.
 
 /** 跨项目枚举常量（direct-c4c460a6）：并发、单项目超时、总预算、项目数上限 */
 const YGL_CONCURRENCY = 4;
@@ -66,8 +72,19 @@ function yglProjectNameOk(name: string): boolean { return name.length >= 1 && na
 
 /** 无 shell 调 ygl-trees：node + 包内真实入口 dist/bundle/bin.cjs（Windows shim 不再经 shell:true）。
  *  入口解析边界：①node同目录node_modules ②PNPM_HOME ③APPDATA/npm。Linux全局PATH可达但非node同级布局不在支持内（降级ok=false），不引大解析系统。 */
-import { existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { existsSync, realpathSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { join, dirname, isAbsolute } from 'node:path';
+
+export function taskWorkspaceKey(): string | null {
+  const home = process.env.YGL_HOME;
+  if (!home || !isAbsolute(home)) return null;
+  try {
+    const file = join(home, 'ygl-trees.db');
+    if (!statSync(file).isFile()) return null;
+    return createHash('sha256').update(realpathSync(file)).digest('hex');
+  } catch { return null; }
+}
 function yglCliEntry(): string | null {
   for (const base of [dirname(process.execPath), process.env.PNPM_HOME, process.env.APPDATA ? process.env.APPDATA + '\\npm' : null]) {
     if (!base) continue;
@@ -77,12 +94,12 @@ function yglCliEntry(): string | null {
   return null;
 }
 
-function execYglJson(args: string[], timeoutMs: number): Promise<{ ok: boolean; parsed: unknown }> {
+function execYglJson(args: string[], timeoutMs: number, home: string): Promise<{ ok: boolean; parsed: unknown }> {
   return new Promise((resolve) => {
     const entry = yglCliEntry();
     if (!entry) return resolve({ ok: false, parsed: null });
     try {
-      execFile(process.execPath, [entry, ...args], { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
+      execFile(process.execPath, [entry, ...args], { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, YGL_HOME: home } }, (err, stdout) => {
         if (err) return resolve({ ok: false, parsed: null });
         try {
           const parsed = JSON.parse(String(stdout));
@@ -93,17 +110,22 @@ function execYglJson(args: string[], timeoutMs: number): Promise<{ ok: boolean; 
   });
 }
 
-function execYglTasks(): Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs: number; degradedProjects?: string[] }> {
+function execYglTasks(allowed: 'all' | readonly string[]): Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs: number; error?: string; degradedProjects?: string[] }> {
   const t0 = Date.now();
   const maxProjects = yglMaxProjects(), totalBudgetMs = yglTotalBudgetMs();
   return (async () => {
-    // ① 枚举 active 项目（只读 project list，不改 selection）
-    const projRes = await execYglJson(['project', 'list', '--json'], YGL_PER_CALL_TIMEOUT_MS);
-    if (!projRes.ok || !Array.isArray(projRes.parsed)) return { ok: false, tasks: [], latencyMs: Date.now() - t0 };
-    const allActive = (projRes.parsed as { name: string; status: string }[])
-      .filter((x) => x && typeof x.name === 'string' && x.status === 'active');
-    const projects = allActive.slice(0, maxProjects).map((x) => x.name);
-    const capSkipped = Math.max(0, allActive.length - maxProjects);
+    if (allowed !== 'all' && allowed.length === 0) return { ok: false, tasks: [], latencyMs: 0, error: 'source_not_authorized' };
+    if (!taskWorkspaceKey()) return { ok: false, tasks: [], latencyMs: 0, error: 'ygl_home_required' };
+    const home = process.env.YGL_HOME!;
+    // Only admin enumerates workspace projects. Scoped users never query ungranted project metadata.
+    let names: string[];
+    if (allowed === 'all') {
+      const projRes = await execYglJson(['project', 'list', '--json'], YGL_PER_CALL_TIMEOUT_MS, home);
+      if (!projRes.ok || !Array.isArray(projRes.parsed)) return { ok: false, tasks: [], latencyMs: Date.now() - t0, error: 'ygl_source_failed' };
+      names = (projRes.parsed as { name: string; status: string }[]).filter(x => x && typeof x.name === 'string' && x.status === 'active').map(x => x.name);
+    } else names = [...new Set(allowed)];
+    const projects = names.slice(0, maxProjects);
+    const capSkipped = Math.max(0, names.length - maxProjects);
 
     // ② 逐项目读（并发上限；单项目超时= min(3s, 剩余预算)——总预算不被超）
     const deadline = t0 + totalBudgetMs;
@@ -115,7 +137,7 @@ function execYglTasks(): Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs
         if (remaining <= 0) break; // 预算耗尽：剩余项目计入 budget-exhausted
         const name = queue.shift()!;
         if (!yglProjectNameOk(name)) { results.push({ project: name, ok: false, rows: [] }); continue; } // 空名/超长/null字节：显式拒绝
-        const res = await execYglJson(['task', 'list', '--json', '--project', name], Math.max(200, Math.min(YGL_PER_CALL_TIMEOUT_MS, remaining)));
+        const res = await execYglJson(['task', 'list', '--json', '--project=' + name], Math.max(200, Math.min(YGL_PER_CALL_TIMEOUT_MS, remaining)), home);
         // 形状校验：task list 合法输出是数组；{error:...} 对象/rc0 视为该源失败（S3）
         const rows = res.ok && Array.isArray(res.parsed) ? (res.parsed as unknown[]) : [];
         results.push({ project: name, ok: res.ok && Array.isArray(res.parsed), rows });
@@ -129,7 +151,7 @@ function execYglTasks(): Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs
     const tasks: TaskEnvelope[] = [];
     const degradedProjects: string[] = [];
     for (const r of results) {
-      if (!r.ok) degradedProjects.push(r.project);
+      if (!r.ok) degradedProjects.push('(project-source-failed)');
       for (const row of r.rows as any[]) {
         const nativeId = String(row?.id ?? row?.task_id ?? '');
         const dedupeKey = nativeId + '|' + r.project;
@@ -149,7 +171,7 @@ function execYglTasks(): Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs
     if (capSkipped > 0) degradedProjects.push(`(cap-exceeded:${capSkipped} active projects beyond ${maxProjects} not read)`);
     if (budgetSkipped > 0) degradedProjects.push(`(budget-exhausted:${budgetSkipped} unread)`);
     const fullyOk = degradedProjects.length === 0;
-    return { ok: fullyOk, tasks, latencyMs: Date.now() - t0, ...(degradedProjects.length ? { degradedProjects } : {}) };
+    return { ok: fullyOk, tasks, latencyMs: Date.now() - t0, ...(!fullyOk ? { error: 'ygl_source_failed', degradedProjects } : {}) };
   })();
 }
 
@@ -162,11 +184,14 @@ function frozenDue(payloadJson: string): string | null {
   } catch { return null; }
 }
 
-function marketTasks(sop: SopServiceLike): TaskEnvelope[] {
+function marketTasks(sop: SopServiceLike, scope: TasksReadScope): TaskEnvelope[] {
   try {
     // #263 页面整链：统一待办呈现人开的任务与指派 run，未指派任务不静默消失
-    const dispatched = new Set(sop.runsDispatchedAll().map((r) => Number(r.id)));
-    const rows = sop.runsRunning() as Array<{ id: number; sop_slug: string; started_by: string; status: string; updated_at: string }>;
+    const ids = scope.marketRunIds === 'all' ? undefined : scope.marketRunIds;
+    if (ids?.length === 0) return [];
+    const canRead = (id: number) => ids === undefined || ids.includes(Number(id));
+    const dispatched = new Set(sop.runsDispatchedAll(ids).filter(r => canRead(r.id)).map(r => Number(r.id)));
+    const rows = sop.runsRunning(ids).filter(r => canRead(r.id));
     const seen = new Set<string>();
     const out: TaskEnvelope[] = [];
     for (const r of rows) {
@@ -186,7 +211,8 @@ function marketTasks(sop: SopServiceLike): TaskEnvelope[] {
     }
     // 任务中心已发布任务（人工录入→发布链）：标题与截止日期（取自发布冻结的录入数据）入待办，链接回录入 run 溯源
     try {
-      const tcRows = ((globalThis as any).__wmDb?.prepare?.("SELECT t.id, t.title, t.intake_run_id, t.published_at, t.payload_json FROM tasks t WHERE t.status = 'published' ORDER BY t.id DESC LIMIT 100")?.all?.() ?? []) as Array<{ id: number; title: string; intake_run_id: number | null; published_at: string; payload_json: string }>;
+      const sql = "SELECT t.id, t.title, t.intake_run_id, t.published_at, t.payload_json FROM tasks t WHERE t.status = 'published'" + (ids ? ' AND t.intake_run_id IN (SELECT value FROM json_each(?))' : '') + ' ORDER BY t.id DESC LIMIT 100';
+      const tcRows = ((globalThis as any).__wmDb?.prepare?.(sql)?.all?.(...(ids ? [JSON.stringify(ids)] : [])) ?? []) as Array<{ id: number; title: string; intake_run_id: number | null; published_at: string; payload_json: string }>;
       for (const t of tcRows) {
         const key = `market:task-${t.id}`;
         if (seen.has(key)) continue;
@@ -201,10 +227,10 @@ function marketTasks(sop: SopServiceLike): TaskEnvelope[] {
           project: 'task-center',
         });
       }
-    } catch (e) { console.warn('[tasks] task-center 已发布任务读取失败，降级略过：', (e as Error)?.message ?? e); /* 不阻塞其余 market 条目 */ }
+    } catch { throw new Error('market_source_failed'); }
     return out;
   } catch {
-    return [];
+    throw new Error('market_source_failed');
   }
 }
 
@@ -266,32 +292,30 @@ async function fetchA2aTasks(): Promise<{ ok: boolean; tasks: TaskEnvelope[]; la
   }
 }
 
-/** 聚合入口（30s 缓存；ygl 源 5s 超时降级 ok=false 不阻塞 market 源）。 */
-export async function collectTasks(sop: SopServiceLike): Promise<TasksPayload> {
-  const now = Date.now();
-  if (cache && now - cache.at < CACHE_TTL_MS) return cache.payload;
-  const jobs: [Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs: number }>, Promise<TaskEnvelope[]>] =
-    [execYglTasks(), Promise.resolve(marketTasks(sop))];
-  const [yglSettled, mktSettled, a2aSettled] = await Promise.all([
-    jobs[0].then((v) => ({ status: 'fulfilled', value: v }), (e) => ({ status: 'rejected' as const, reason: e })),
-    jobs[1].then((v) => ({ status: 'fulfilled', value: v }), (e) => ({ status: 'rejected' as const, reason: e })),
-    a2aEnabled() ? fetchA2aTasks().then((v) => ({ status: 'fulfilled', value: v }), (e) => ({ status: 'rejected' as const, reason: e })) : Promise.resolve(null),
+/** #324: query only authorized sources; no cross-user payload cache or in-flight sharing. */
+export async function collectTasks(sop: SopServiceLike, scope: TasksReadScope): Promise<TasksPayload> {
+  if (!scope?.subject || typeof scope.admin !== 'boolean' || (scope.yglProjects !== 'all' && !Array.isArray(scope.yglProjects)) || (scope.marketRunIds !== 'all' && !Array.isArray(scope.marketRunIds))) throw new Error('tasks_scope_required');
+  if (!scope.admin && (scope.yglProjects === 'all' || scope.marketRunIds === 'all' || scope.a2a)) throw new Error('tasks_scope_invalid');
+  const authorizedMarket = scope.marketRunIds === 'all' || scope.marketRunIds.length > 0;
+  const [yglResult, marketResult, a2aResult] = await Promise.allSettled([
+    execYglTasks(scope.yglProjects),
+    Promise.resolve().then(() => authorizedMarket ? [...marketTasks(sop, scope), ...(scope.admin ? changeRequestTasks() : [])] : []),
+    a2aEnabled() && scope.a2a ? fetchA2aTasks() : Promise.resolve(null),
   ]);
-  const ygl = yglSettled.status === 'fulfilled' ? yglSettled.value : { ok: false, tasks: [], latencyMs: 0 };
-  const mktRows = mktSettled.status === 'fulfilled' ? mktSettled.value : [];
-  const payload: TasksPayload = {
-    tasks: [...ygl.tasks, ...mktRows, ...changeRequestTasks(), ...(a2aSettled?.status === 'fulfilled' ? a2aSettled.value.tasks : [])], // S1 人审门入待办
+  const ygl = yglResult.status === 'fulfilled' ? yglResult.value : { ok: false, tasks: [], latencyMs: 0, error: 'ygl_source_failed' };
+  const market = marketResult.status === 'fulfilled' ? marketResult.value : [];
+  const a2a = a2aResult.status === 'fulfilled' ? a2aResult.value : null;
+  return {
+    tasks: [...ygl.tasks, ...market, ...(a2a?.tasks ?? [])],
     sources: {
-      'ygl-trees': { ok: ygl.ok, count: ygl.tasks.filter((t) => t.status !== 'done').length, latency_ms: ygl.latencyMs, ...((ygl as any).degradedProjects?.length ? { degraded_projects: (ygl as any).degradedProjects } : {}) },
-      market: { ok: true, count: mktRows.length, latency_ms: 0 },
-      // count=在途数（对账口径）；源缺席（未配置 env）时无 a2a 键——降级只发生在已启用但失败时
-      ...(a2aSettled ? { a2a: { ok: a2aSettled.status === 'fulfilled' && a2aSettled.value.ok, count: a2aSettled.status === 'fulfilled' ? a2aSettled.value.tasks.filter((t) => t.status !== 'done').length : 0, latency_ms: a2aSettled.status === 'fulfilled' ? a2aSettled.value.latencyMs : 0 } } : {}),
+      'ygl-trees': { ok: ygl.ok, count: ygl.tasks.filter(t => t.status !== 'done').length, latency_ms: ygl.latencyMs, ...(ygl.error ? { error: ygl.error } : {}), ...('degradedProjects' in ygl && ygl.degradedProjects?.length ? { degraded_projects: ygl.degradedProjects } : {}) },
+      market: { ok: authorizedMarket && marketResult.status === 'fulfilled', count: market.length, latency_ms: 0, ...(!authorizedMarket ? { error: 'source_not_authorized' } : marketResult.status === 'rejected' ? { error: 'market_source_failed' } : {}) },
+      ...(a2aEnabled() ? { a2a: { ok: !!a2a?.ok, count: a2a?.tasks.filter(t => t.status !== 'done').length ?? 0, latency_ms: a2a?.latencyMs ?? 0, ...(!scope.a2a ? { error: 'source_not_authorized' } : !a2a?.ok ? { error: 'a2a_source_failed' } : {}) } } : {}),
     },
-    generated_at: new Date(now).toISOString(),
+    generated_at: new Date().toISOString(),
   };
-  cache = { at: now, payload };
-  return payload;
 }
+
 
 /** #94 v3 S1 人审门：pending change_requests 入统一待办（批准/拒绝回 REST 原系统） */
 function changeRequestTasks(): TaskEnvelope[] {
@@ -302,5 +326,5 @@ function changeRequestTasks(): TaskEnvelope[] {
       title: `人审·${r.kind === 'skill' ? '技能' : '台'}${r.op === 'delete' ? '删除' : '回滚'} ${r.slug}${r.reason ? '（' + String(r.reason).slice(0, 60) + '）' : ''}`,
       status: 'todo' as const, due: '', link: '/api/change-requests', project: 'review-gate',
     }));
-  } catch { return []; }
+  } catch { throw new Error('market_source_failed'); }
 }
