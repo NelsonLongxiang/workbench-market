@@ -36,9 +36,10 @@ curl -X POST http://127.0.0.1:9800/api/workbench-events/<event_id>/release -H "X
 
 ## 投递与终态
 
-- 投递走 a2a `/a2a/direct` 异步模式，`task_id = event_id`，`context_id = wb:<来源>:<事项>`，带绑定形式的 OriginClaim。
-- 失败按 1m / 5m / 15m / 1h 退避，5 次后记 `dead`。对端返回 -32003（同一 task_id 重放）算作已送达。
-- 投递状态只有四种：`held` / `pending` / `sent` / `dead`。reply token 的明文只在待投期间存在；投递成功或 dead 之后清空，只留哈希。
+- 投递走 a2a `/a2a/direct` 异步模式。`task_id = <event_id>.d<投递>.a<尝试>`，每次尝试一个 id：上游幂等键全机唯一，并且在判定能否投递之前就已登记，所以复用 id 会把拒投误判为已送达。`context_id = wb:<来源>:<事项>`。带绑定形式的 OriginClaim；全舰队关窗后设 `A2A_ORIGIN_CLAIM_UNBOUND=off`，停发 v1。
+- 失败按 1m / 5m / 15m / 1h 退避，5 次后记 `dead`。-32001 / -32002 / -32003 和超出传输上限的载荷一次即 `dead`，不重试。worker 并发投递，一台主机宕机不会拖住其他主机。
+- 投递状态有五种：`held` / `pending` / `sent` / `dead` / `cancelled`。撤回任务时，还没发出的投递转为 `cancelled`。同一节点的 notify 和 both 两条绑定按节点去重。reply token 的明文只在待投期间存在；投递成功或 dead 之后清空，只留哈希。
+- 终态判据：`held` 不算终态，超过 72 小时没有确认即为不通过。
 
 ## 决定回写
 
@@ -49,7 +50,9 @@ curl -X POST http://<市场>/api/workbench-events/<event_id>/decision -H 'Conten
   -d '{"token":"<reply.token>","decision":"accept","reason":"…","ref":"https://github.com/…/issues/N","by":"dsh/66abc2cf"}'
 ```
 
+- 只对 `sent` 的投递有效，其他状态返回 409；自送达起 7 天后返回 410。
 - `ask` 之后还能改；`accept` / `decline` 是终态，之后再写返回 409。
+- token 会进入接单会话的记录，它只是这条投递的回写凭证，不是身份证明；`by` 是自报的。
 - 错 token 和不存在的事件都返回 404，不泄露事件是否存在。
 
 ## 读面
@@ -58,4 +61,4 @@ curl -X POST http://<市场>/api/workbench-events/<event_id>/decision -H 'Conten
 
 ## 验证
 
-`scripts/workbench-events-smoke.mjs` 覆盖 W1–W9 和终态判据。对端用上游 `verifyOriginClaim`，按关窗后的状态验证。
+`scripts/workbench-events-smoke.mjs` 覆盖 W1–W12 和终态判据，共 36 项。假对端按上游 `/a2a/direct` 的顺序实现：先登记幂等键，再判定能否投递。对端用上游 `verifyOriginClaim`，按关窗后的状态验证。
