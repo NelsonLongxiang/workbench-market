@@ -20,7 +20,7 @@ try:
  with sync_playwright() as p:
   browser=p.chromium.launch(headless=True)
   def context(surface,control=None,processed=False,fail=False):
-   ctx=browser.new_context();requests=[];writes=[];state={'status':'approved' if processed else 'pending'}
+   ctx=browser.new_context();requests=[];writes=[];ctx.on('page',lambda pg:pg.on('pageerror',lambda error:None if fail and str(error)=='synthetic apply failed' else (_ for _ in ()).throw(AssertionError('built SPA runtime error: '+str(error)))));state={'status':'approved' if processed else 'pending'}
    def route(r):
     req=r.request;path=req.url.split(base)[-1].split('?')[0]
     if path in ['/','/tasks','/reviews']:
