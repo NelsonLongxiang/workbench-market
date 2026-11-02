@@ -14,6 +14,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join, resolve } from 'node:path';
+import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 if (!existsSync('web/dist/index.html')) { console.error('缺 web/dist：先跑 pnpm --filter web build'); process.exit(2); }
 const TMP = resolve('tmp/admin-token-browser-' + Date.now().toString(36));
@@ -22,9 +23,10 @@ mkdirSync(join(TMP, 'data'), { recursive: true });
 const probe = '<!doctype html><title>token probe</title><script>window.__probe={own:sessionStorage.getItem("wm-admin-token")};try{window.__probe.parent=parent.sessionStorage.getItem("wm-admin-token")}catch(e){window.__probe.parent="blocked"}try{window.__probe.opener=window.opener?window.opener.sessionStorage.getItem("wm-admin-token"):"no-opener"}catch(e){window.__probe.opener="blocked"}</script>';
 const upstream = createServer((rq, rs) => { rq.resume(); rs.writeHead(200, { 'content-type': 'text/html' }); rs.end(probe); });
 await new Promise((x) => upstream.listen(0, '127.0.0.1', x));
+const gh = await startFakeGithub(); // 来源收敛（属主 2026-11-02）：SOP 台只从 GitHub main 同步，测试用本机替身
 const PORT = 20000 + Math.floor(Math.random() * 20000);
 const base = `http://127.0.0.1:${PORT}`;
-const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), YGL_HOME: join(TMP, 'home'), ADMIN_TOKEN: 'synthetic-browser-admin' };
+const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), YGL_HOME: join(TMP, 'home'), ADMIN_TOKEN: 'synthetic-browser-admin', WM_GITHUB_API: gh.api };
 for (const k of ['LC_YGL_BIN', 'LC_YGL_HOME', 'LC_WORKBENCH_KEY_FILE', 'LC_ODOO_URL', 'WM_ODOO_ORIGINS', 'WM_CONTROL_PORT']) delete env[k]; // 缺省不开控制面
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });
 let serverErr = ''; server.stderr.on('data', (c) => (serverErr += c));
@@ -40,7 +42,8 @@ try {
   for (;;) { try { if ((await fetch(base + '/api/health')).ok) break; } catch {} if (Date.now() > end) throw new Error('server not ready'); await new Promise((x) => setTimeout(x, 250)); }
   const wb = await api('POST', '/api/workbenches', { name: 'token-probe', url: `http://127.0.0.1:${upstream.address().port}/`, type: 'web' });
   const ck = await api('POST', '/api/cockpits', { name: 'probe-cockpit', panels: [{ i: 'p1', workbenchId: wb.id, x: 0, y: 0, w: 6, h: 6 }] });
-  await api('POST', '/api/apps', { slug: 'token-sop', title: 'Token SOP', kind: 'sop', changelog: 'synthetic', files: [{ path: 'sop.yaml', content: JSON.stringify({ title: 'Token SOP', steps: [{ key: 'one', title: 'One', body: '<p>probe</p>' }] }) }] });
+  const pub = await ghPublish(base, gh, { slug: 'token-sop', title: 'Token SOP', kind: 'sop', changelog: 'synthetic', files: [{ path: 'sop.yaml', content: JSON.stringify({ title: 'Token SOP', steps: [{ key: 'one', title: 'One', body: '<p>probe</p>' }] }) }] }, { 'x-admin-token': env.ADMIN_TOKEN });
+  if (!pub.ok) throw new Error(`sync token-sop → ${pub.status} ${await pub.text()}`);
   await api('POST', '/api/sops/token-sop/publish', { changelog: 'synthetic' });
   const cfg = join(TMP, 'browser.json');
   writeFileSync(cfg, JSON.stringify({ base, wid: wb.id, cockpit: ck.id, sop: 'token-sop', token: env.ADMIN_TOKEN }));
@@ -49,7 +52,7 @@ try {
 } catch (e) {
   console.error(String(e?.stack ?? e));
 } finally {
-  server.kill(); upstream.close();
+  server.kill(); upstream.close(); await gh.close();
   await new Promise((x) => setTimeout(x, 400));
   if (code && serverErr) console.log(serverErr.slice(-1500));
   rmSync(TMP, { recursive: true, force: true });

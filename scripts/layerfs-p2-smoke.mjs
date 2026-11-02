@@ -9,6 +9,7 @@ import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync, readdirSync, existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
+import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 const PORT = 9899;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -51,6 +52,7 @@ const lfs = createServer(async (req, res) => {
 });
 const LP = await new Promise((r) => lfs.listen(0, '127.0.0.1', () => r(lfs.address().port)));
 
+const gh = await startFakeGithub(); // 自产台/SOP 台只从 GitHub main 同步：本机替身仓库
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 {
@@ -62,7 +64,7 @@ mkdirSync(DATA, { recursive: true });
 for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`${SOURCE_DATA_DIR}/${d}`, `${DATA}/${d}`, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
   cwd: process.cwd(),
-  env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'p2-tok', LAYERFS_SERVICE_URL: `http://127.0.0.1:${LP}`, LAYERFS_SERVICE_TOKEN: TOKEN },
+  env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'p2-tok', LAYERFS_SERVICE_URL: `http://127.0.0.1:${LP}`, LAYERFS_SERVICE_TOKEN: TOKEN, WM_GITHUB_API: gh.api },
   stdio: 'ignore',
 });
 const dirsOf = (slug) => (existsSync(DATA + '/apps/' + slug) ? readdirSync(DATA + '/apps/' + slug).filter((d) => /^v\d+$/.test(d)) : []);
@@ -71,7 +73,7 @@ try {
   if (!(await waitReady(`${BASE}/api/health`))) throw new Error('实例未就绪');
   // 发布 6 版（各异内容）
   for (let i = 1; i <= 6; i++) {
-    const r = await fetch(`${BASE}/api/apps`, { method: 'POST', headers: ADMIN, body: JSON.stringify({ slug: 'p2-keep3', title: 'p2', files: [{ path: 'index.html', content: `<h1>v${i}</h1><!-- ${'x'.repeat(40)}` + i + ` -->` }] }) });
+    const r = await ghPublish(BASE, gh, { slug: 'p2-keep3', title: 'p2', files: [{ path: 'index.html', content: `<h1>v${i}</h1><!-- ${'x'.repeat(40)}` + i + ` -->` }] }, { 'X-Admin-Token': 'p2-tok' });
     if (i === 1 && r.status !== 201) throw new Error('首发失败 ' + r.status);
   }
   await new Promise((r) => setTimeout(r, 800)); // 影子落地
@@ -91,7 +93,7 @@ try {
   ok('L6b X-App-Version=v1', (cold.headers.get('x-app-version') ?? '') === 'v1', cold.headers.get('x-app-version') ?? '');
   ok('L6c 正文与 v1 发布逐字节同', coldBody.includes('<h1>v1</h1>'), coldBody.slice(0, 60));
 } finally {
-  child.kill(); lfs.close();
+  child.kill(); lfs.close(); await gh.close();
   await new Promise((r) => setTimeout(r, 500));
 }
 console.log(`\n===== P2 留3版+冷回读冒烟 ${pass + fail} 项：${pass} 通过 / ${fail} 失败 =====`);

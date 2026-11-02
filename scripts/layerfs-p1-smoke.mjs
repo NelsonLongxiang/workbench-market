@@ -3,7 +3,7 @@ import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #94 P1 影子双写冒烟（监督席 direct-cccd4d16·判据先红后绿）。
  *  ①publish 双写：LAYERFS_SERVICE_URL 配置时——app 详情带 layerfs_project·versions[] 带 commit_id
- *  ②同内容重发：changed:false·commit_id 原头稳定（不建新 Commit）
+ *  ②同内容重发（GitHub main 上新提交、内容不变）：changed:false·commit_id 原头稳定（不建新 Commit）
  *  ③读路径不动：物化目录照写·托管页 200（L11 语义·影子不碰读）
  *  ④迁移脚本：好坏版本混迁——好版本迁毕逐文件 sha256 与物化一致·坏版本（空 content）标异常留档不迁
  *  ⑤迁移幂等：重跑迁移——Commit 数不变
@@ -13,6 +13,7 @@ import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
+import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 const PORT = 9895;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -60,6 +61,7 @@ const lfs = createServer(async (req, res) => {
 });
 const LP = await new Promise((r) => lfs.listen(0, '127.0.0.1', () => r(lfs.address().port)));
 
+const gh = await startFakeGithub(); // 自产台/SOP 台只从 GitHub main 同步：本机替身仓库
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 {
@@ -71,10 +73,10 @@ mkdirSync(DATA, { recursive: true });
 for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`${SOURCE_DATA_DIR}/${d}`, `${DATA}/${d}`, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
   cwd: process.cwd(),
-  env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'p1-tok', LAYERFS_SERVICE_URL: `http://127.0.0.1:${LP}`, LAYERFS_SERVICE_TOKEN: TOKEN },
+  env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'p1-tok', LAYERFS_SERVICE_URL: `http://127.0.0.1:${LP}`, LAYERFS_SERVICE_TOKEN: TOKEN, WM_GITHUB_API: gh.api },
   stdio: 'ignore',
 });
-const pubApp = (slug, files, extra = {}) => fetch(`${BASE}/api/apps`, { method: 'POST', headers: ADMIN, body: JSON.stringify({ slug, title: slug, files, ...extra }) });
+const pubApp = (slug, files, extra = {}) => ghPublish(BASE, gh, { slug, title: slug, files, ...extra }, { 'X-Admin-Token': 'p1-tok' });
 
 try {
   if (!(await waitReady(`${BASE}/api/health`))) throw new Error('实例未就绪');
@@ -120,12 +122,12 @@ try {
     db2.close();
   }
   // ④⑤ 迁移脚本（好坏混迁+幂等）
-  const mig = await import('node:child_process').then((m) => m.execFileSync(process.execPath, ['scripts/migrate-layerfs-p1.mjs', '--slug', 'p1-shadow', '--api', BASE, '--token', 'p1-tok'], { cwd: process.cwd(), encoding: 'utf8' }));
+  const mig = await import('node:child_process').then((m) => m.execFileSync(process.execPath, ['scripts/migrate-layerfs-p1.mjs', '--slug', 'p1-shadow', '--api', BASE, '--token', 'p1-tok', '--target-mode', 'isolated'], { cwd: process.cwd(), encoding: 'utf8' }));
   ok('④a 迁移：好版本skip（影子已迁·幂等语义）+坏版本ANOMALY留档', /v1 skip/.test(mig) && /v3 ANOMALY: 空 content/.test(mig), mig.split('\n').slice(0, 4).join(' | ').slice(0, 160));
-  const again = await import('node:child_process').then((m) => m.execFileSync(process.execPath, ['scripts/migrate-layerfs-p1.mjs', '--slug', 'p1-shadow', '--api', BASE, '--token', 'p1-tok'], { cwd: process.cwd(), encoding: 'utf8' }));
+  const again = await import('node:child_process').then((m) => m.execFileSync(process.execPath, ['scripts/migrate-layerfs-p1.mjs', '--slug', 'p1-shadow', '--api', BASE, '--token', 'p1-tok', '--target-mode', 'isolated'], { cwd: process.cwd(), encoding: 'utf8' }));
   ok('⑤ 迁移幂等（重跑零新增）', /skip|0 migrated|idempotent/i.test(again), again.split('\n').slice(0, 2).join(' | ').slice(0, 80));
 } finally {
-  child.kill(); lfs.close();
+  child.kill(); lfs.close(); await gh.close();
   await new Promise((r) => setTimeout(r, 500));
 }
 console.log(`\n===== P1 影子双写冒烟 ${pass + fail} 项：${pass} 通过 / ${fail} 失败 =====`);

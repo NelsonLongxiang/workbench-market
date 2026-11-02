@@ -4,6 +4,7 @@ const SOURCE_DATA_DIR = requireDataSource();
 /** #198 裁 A 冒烟：①页面注入 wm-app-token ②Origin:null+令牌 → ACAO null 且 data 200 ③无/错令牌不发 ACAO ④异台令牌不通过。 */
 import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
+import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 const PORT = 20000 + Math.floor(Math.random() * 20000);
 const DATA = 'tmp/e2e-198-' + Date.now().toString(36);
@@ -15,11 +16,13 @@ const B = 'http://127.0.0.1:' + PORT;
 rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: true });
 { const { DatabaseSync } = await import('node:sqlite'); const db = new DatabaseSync(SOURCE_DATA_DIR + '/workbench-market.db', { readOnly: true }); db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`); db.close(); }
 for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(SOURCE_DATA_DIR + '/' + d, DATA + '/' + d, { recursive: true });
-const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'k198' }, stdio: 'ignore' });
+const gh = await startFakeGithub(); // 自产台只从 GitHub main 同步：本机替身仓库
+const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'k198', WM_GITHUB_API: gh.api }, stdio: 'ignore' });
 try {
   await waitReady(B + '/api/health');
   for (const slug of ['a198', 'b198']) {
-    await fetch(B + '/api/apps', { method: 'POST', headers: H, body: JSON.stringify({ slug, title: 't', files: [{ path: 'index.html', content: '<html><head><title>x</title></head><body>ok</body></html>' }] }) });
+    const pr = await ghPublish(B, gh, { slug, title: 't', files: [{ path: 'index.html', content: '<html><head><title>x</title></head><body>ok</body></html>' }] }, { 'X-Admin-Token': 'k198' });
+    ok(`⓪ ${slug} 经 GitHub main 同步发布 → 201`, pr.status === 201, `status=${pr.status}`);
   }
   // ① 注入
   const html = await (await fetch(B + '/apps/a198/')).text();

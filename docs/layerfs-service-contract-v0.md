@@ -43,6 +43,7 @@
 - `GET /api/apps/:slug` 台详情带 `layerfs_project`；`versions[]` 每项带 `commit_id`
 - 物化目录 `DATA_DIR/apps/<slug>/v<N>/`（与现行相同·R1 激活版本另有落盘副本）
 - MCP 工具：`app_draft_open {slug}`、`app_draft_edit {slug, draft, path, old_text, new_text}`、`app_draft_submit {slug, draft, changelog}`（合并回发布线并走发布门禁·生成新版本并激活）
+  - **已移除**（属主 2026-11-02 来源收敛）：自产台与 SOP 台只接受 GitHub 仓库 main 分支，草稿三工具随 `app_publish` 一起下线；改台走仓库 main + `app_sync`，见 README「来源：GitHub main」。
 
 ## 4. 客户端池化策略（P0 必含·R8 语义）
 
