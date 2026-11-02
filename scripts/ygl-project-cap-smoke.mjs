@@ -15,21 +15,22 @@ if (existsSync(join(dirname(process.execPath), 'node_modules', 'ygl-trees', 'dis
 const fake = join(root, 'tmp', `ygl-cap-${process.pid}`);
 const entryDir = join(fake, 'node_modules', 'ygl-trees', 'dist', 'bundle');
 mkdirSync(entryDir, { recursive: true });
+const fakeHome = join(fake, 'home'); mkdirSync(fakeHome); writeFileSync(join(fakeHome, 'ygl-trees.db'), 'SYNTHETIC_FAKE_CLI_HOME');
 writeFileSync(join(entryDir, 'bin.cjs'), `
 const a = process.argv.slice(2), n = Number(process.env.FAKE_N), ms = Number(process.env.FAKE_SLEEP_MS || 0);
 if (a[0] === 'project') { console.log(JSON.stringify(Array.from({ length: n }, (_, i) => ({ name: 'p' + i, status: 'active' })))); process.exit(0); }
-const p = a[a.indexOf('--project') + 1];
+const p = a.find(x => x.startsWith('--project='))?.slice('--project='.length);
 setTimeout(() => console.log(JSON.stringify([{ id: 't-' + p, title: p, status: 'todo' }])), ms);
 `);
 
 function run(env) {
   const code = `import(${JSON.stringify(pathToFileURL(join(root, 'server/src/tasks.ts')).href)}).then(async (m) => {
-    const r = await m.collectTasks({ runsDispatchedAll: () => [], runsRunning: () => [] });
+    const r = await m.collectTasks({ runsDispatchedAll: () => [], runsRunning: () => [] }, { subject: 'synthetic-admin', admin: true, yglProjects: 'all', marketRunIds: 'all', a2a: true });
     console.log(JSON.stringify({ tasks: r.tasks.filter((t) => t.source === 'ygl-trees').length, src: r.sources['ygl-trees'] }));
   });`;
   const base = { ...process.env };
   for (const k of ['YGL_MAX_PROJECTS', 'YGL_TOTAL_BUDGET_MS', 'A2A_STATE_URL', 'FAKE_SLEEP_MS']) delete base[k];
-  const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', code], { cwd: root, env: { ...base, PNPM_HOME: fake, ...env }, encoding: 'utf8', timeout: 60_000 });
+  const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', code], { cwd: root, env: { ...base, PNPM_HOME: fake, YGL_HOME: fakeHome, ...env }, encoding: 'utf8', timeout: 60_000 });
   assert.equal(r.status, 0, r.stderr);
   return JSON.parse(r.stdout.trim().split('\n').at(-1));
 }
@@ -37,7 +38,7 @@ function run(env) {
 function accounted(out) {
   const d = out.src.degraded_projects ?? [];
   const num = (re) => d.reduce((s, x) => s + Number((x.match(re) ?? [0, 0])[1]), 0);
-  const failed = d.filter((x) => !x.startsWith('(')).length;
+  const failed = d.filter((x) => x === '(project-source-failed)').length;
   return out.tasks + failed + num(/^\(budget-exhausted:(\d+)/) + num(/^\(cap-exceeded:(\d+)/);
 }
 
