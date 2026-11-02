@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** MCP 上游聚合冒烟（GH #20 P2）：假上游 MCP 服务以 <prefix>__<tool> 并入市场 /mcp。
  *  覆盖：上游配置 CRUD、tools/list 聚合、tools/call 转发、上游不可达降级、本地面不受影响。 */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 
 async function waitReady(url, ms = 20000) {
   const end = Date.now() + ms;
@@ -14,9 +14,8 @@ async function waitReady(url, ms = 20000) {
 import { rmSync, mkdirSync } from 'node:fs';
 import { createServer } from 'node:http';
 
-const PORT = Number(process.env.UP_PORT) > 0 ? Number(process.env.UP_PORT) : 20000 + Math.floor(Math.random() * 20000);
-const PORT2 = PORT + 2;
-const UP_PORT = PORT + 1;
+async function reservePort(){const server=createServer();await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;await new Promise(r=>server.close(r));return port;}
+const PORT=await reservePort(),PORT2=await reservePort(),PORT3=await reservePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-upstr-data';
 let pass = 0, fail = 0;
@@ -43,12 +42,13 @@ const upstream = createServer((req, res) => {
     res.writeHead(400); res.end('{}');
   });
 });
-await new Promise((r) => upstream.listen(UP_PORT, '127.0.0.1', r));
+await new Promise((r) => upstream.listen(0, '127.0.0.1', r));
+const UP_PORT=upstream.address().port;
 
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server', env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', ADMIN_TOKEN: '', PORT: String(PORT), DATA_DIR: `../${DATA}` }, stdio: ['ignore', 'pipe', 'pipe'], // ADMIN_TOKEN 显式清空：E2E 主实例合成 token 不继承，注释「未设→控制面 403」为真
+  cwd: 'server', env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', ADMIN_TOKEN: '', PORT: String(PORT), WM_CONTROL_PORT:'0', DATA_DIR: `../${DATA}` }, stdio: ['ignore', 'pipe', 'pipe'], // ADMIN_TOKEN 显式清空：E2E 主实例合成 token 不继承，注释「未设→控制面 403」为真
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪（20s 超时）'); process.exit(1); }
 
@@ -85,7 +85,7 @@ const DATA2 = 'tmp/e2e-upstr-data2';
 rmSync(DATA2, { recursive: true, force: true });
 mkdirSync(DATA2, { recursive: true });
 const child2 = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server', env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT2), DATA_DIR: `../${DATA2}`, ADMIN_TOKEN: 'up-admin-tok' }, stdio: ['ignore', 'pipe', 'pipe'], // MCP_GATEWAY 显式空：E2E 主实例 on 不继承，聚合面匿名可测
+  cwd: 'server', env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT2), WM_CONTROL_PORT:'0', DATA_DIR: `../${DATA2}`, ADMIN_TOKEN: 'up-admin-tok' }, stdio: ['ignore', 'pipe', 'pipe'], // MCP_GATEWAY 显式空：E2E 主实例 on 不继承，聚合面匿名可测
 });
 const B2 = `http://127.0.0.1:${PORT2}`;
 await waitReady(B2 + '/api/health');
@@ -147,9 +147,9 @@ const DATA3 = 'tmp/e2e-upstr-data3';
 rmSync(DATA3, { recursive: true, force: true });
 mkdirSync(DATA3, { recursive: true });
 const child3 = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server', env: { ...process.env, PORT: '9822', DATA_DIR: `../${DATA3}`, ADMIN_TOKEN: 'gw-tok', MCP_GATEWAY: 'on' }, stdio: ['ignore', 'pipe', 'pipe'],
+  cwd: 'server', env: { ...process.env, PORT: String(PORT3), WM_CONTROL_PORT:'0', DATA_DIR: `../${DATA3}`, ADMIN_TOKEN: 'gw-tok', MCP_GATEWAY: 'on' }, stdio: ['ignore', 'pipe', 'pipe'],
 });
-const B3 = 'http://127.0.0.1:9822';
+const B3 = 'http://127.0.0.1:'+PORT3;
 await waitReady(B3 + '/api/health');
 try {
   let r = await fetch(B3 + '/api/mcp/upstreams', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': 'gw-tok' }, body: JSON.stringify({ upstreams: [{ prefix: 'taste', url: `http://127.0.0.1:${UP_PORT}/`, headers: { 'X-Market-Client': 'static-fallback' } }] }) });
