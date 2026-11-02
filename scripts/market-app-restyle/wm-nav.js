@@ -1,6 +1,7 @@
 /* 工作台统一导航层 · 菜单 / 目录 / 视图（PATTERNS.md §7.4）。读 window.WM_NAV 配置，台内 DOM 只加 class/id，不移动、不改逻辑。
    WM_NAV = { title, home, groups: [{ key, label, sections: ['区块标题前缀', …] }],
-              hideSections: ['只给工程/agent 看的区块标题前缀'], hideNodes: ['业务区块里技术说明段落的开头文字'], keepNodes: ['隐藏区块里仍要给业务看的段落开头'] }
+              hideSections: ['只给工程/agent 看的区块标题前缀'], hideNodes: ['业务区块里技术说明段落的开头文字'], keepNodes: ['隐藏区块里仍要给业务看的段落开头'],
+              hideColumns: ['表头文字'], hideFields: ['字段名前缀'], scrub: ['正则：从正文里删掉的批注'] }
    只给业务看：hideSections/hideNodes 命中的内容不进菜单、目录，任何视图都不显示（数据与接口不动）。
    区块 = 一个 h2 及其后的兄弟元素（到下一个 h2 为止）；h2 之前的内容是页头，始终显示。 */
 (function () {
@@ -58,12 +59,52 @@
       var parent = s.nodes[0].parentElement;
       s.nodes.forEach(function (n) { if (n.parentElement === parent && !starts(n, keep)) n.classList.add('wm-hide'); });
     });
+    scrubFields();
     if (!(C.hideNodes || []).length) return;
     // 业务区块与页头里的技术说明段落：取最外层命中的元素
     Array.prototype.forEach.call(document.body.querySelectorAll('div,p,small,span'), function (e) {
       if (e.closest('[data-wm-nav]') || e.classList.contains('wm-hide')) return;
       if (starts(e, C.hideNodes) && !(e.parentElement && e.parentElement !== document.body && starts(e.parentElement, C.hideNodes))) e.classList.add('wm-hide');
     });
+  }
+
+  /* 业务区块里夹带的工程字段：整列、整个字段、批注文字（台内异步渲染后会重跑） */
+  function field(e, list) { return starts(e, list) && !e.closest('[data-wm-nav]'); }
+  function scrubFields() {
+    (C.hideColumns || []).length && Array.prototype.forEach.call(document.querySelectorAll('table'), function (t) {
+      var head = t.querySelector('tr'); if (!head) return;
+      Array.prototype.forEach.call(head.children, function (th, i) {
+        if (!field(th, C.hideColumns)) return;
+        Array.prototype.forEach.call(t.rows, function (r) { var c = r.cells[i]; if (c) c.classList.add('wm-hide'); });
+      });
+    });
+    var f = C.hideFields || [];
+    if (f.length) {
+      Array.prototype.forEach.call(document.querySelectorAll('label'), function (l) {
+        if (!field(l, f)) return;
+        l.classList.add('wm-hide');
+        var ctl = l.htmlFor && document.getElementById(l.htmlFor); if (ctl) ctl.classList.add('wm-hide');
+        for (var s = l.nextElementSibling; s && s.tagName !== 'LABEL'; s = s.nextElementSibling) if (s.classList.contains('help') || s === ctl) s.classList.add('wm-hide');
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('dt'), function (d) {
+        if (!field(d, f)) return;
+        d.classList.add('wm-hide'); if (d.nextElementSibling && d.nextElementSibling.tagName === 'DD') d.nextElementSibling.classList.add('wm-hide');
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('strong,b'), function (k) {
+        var p = k.parentElement;
+        if (field(k, f) && p && p.firstElementChild === k && starts(p, [norm(k.textContent)])) p.classList.add('wm-hide');
+      });
+    }
+    var res = (C.scrub || []).map(function (s) { return new RegExp(s, 'g'); });
+    if (!res.length) return;
+    var w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, { acceptNode: function (t) {
+      var p = t.parentElement; return p && !/^(SCRIPT|STYLE|TEXTAREA|OPTION)$/.test(p.tagName) && !p.closest('[data-wm-nav]') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    } });
+    for (var t; (t = w.nextNode());) {
+      var v = t.nodeValue, nv = v;
+      res.forEach(function (re) { nv = nv.replace(re, ''); });
+      if (nv !== v) t.nodeValue = nv;
+    }
   }
 
   /* ---------- 外壳：应用栏 + 目录 ---------- */
@@ -199,6 +240,12 @@
     new MutationObserver(function (rs) {
       if (rs.some(function (r) { return r.target === document.body && (r.addedNodes.length || r.removedNodes.length); })) { collect(); render(); }
     }).observe(document.body, { childList: true });
+    // 区块内部异步渲染（列表、卡片、表格）：稍后补做字段清理与段落隐藏
+    var deep;
+    new MutationObserver(function (rs) {
+      if (!rs.some(function (r) { return !(r.target.closest && r.target.closest('[data-wm-nav]')); })) return;
+      clearTimeout(deep); deep = setTimeout(function () { hideNonBusiness(); }, 200);
+    }).observe(document.body, { childList: true, subtree: true });
   }
   document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded', boot) : boot();
 })();

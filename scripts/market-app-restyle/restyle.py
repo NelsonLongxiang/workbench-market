@@ -162,8 +162,13 @@ NAV = {
     ],
         # 只给业务看（属主 11-03）：验证器、运维台账、表单自查、task list 属工程/agent 面，整块不显示
         'hideSections': ['表单异常项评审', '在途任务表', '四族验证器状态', 'A 族 spec 明细', '台账近 8 条'],
-        'hideNodes': ['只读状态面', '浏览器直连环境警示', '登记口径：', '按 SOP→年→月 组织'],
-        'keepNodes': ['口径图例']},
+        'hideNodes': ['只读状态面', '浏览器直连环境警示', '登记口径：', '按 SOP→年→月 组织',
+                      '数据源=task list', 'commitment_clock', '若本数据已过验证器', '已读取'],
+        'keepNodes': ['口径图例'],
+        # 保留区块里的工程字段（属主 11-03「去掉」）
+        'hideColumns': ['任务锚'],
+        'hideFields': ['验证器关联', '验收证', '责任会话'],
+        'scrub': ['（评审席[^）]*）', '\\s*direct-[0-9a-f]{8}', '表单 v\\d+ · ']},
 }
 NAV_CSS = (
     'html.wm-has-nav{scroll-padding-top:64px}\n'
