@@ -47,7 +47,7 @@ export default function Types() {
       render: (_, t) => (
         <Space size={6}>
           <span>{t.icon}</span>
-          <span style={{ fontWeight: 600 }}>{t.name}</span>
+          <span className="wm-strong">{t.name}</span>
         </Space>
       ),
     },
@@ -70,12 +70,14 @@ export default function Types() {
       title: '默认端口',
       dataIndex: 'default_port',
       width: 100,
+      align: 'right',
       render: (_, t) => (t.default_port ? <span className="wm-num wm-mono">{t.default_port}</span> : <Typography.Text type="secondary">-</Typography.Text>),
     },
     {
       title: '使用中',
       key: 'used',
       width: 80,
+      align: 'right',
       render: (_, t) => {
         const n = usedCounts[t.key] ?? 0;
         return n ? <Tag color="blue">{n} 个</Tag> : <Typography.Text type="secondary">0</Typography.Text>;
