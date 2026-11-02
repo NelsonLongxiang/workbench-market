@@ -1,0 +1,18 @@
+# Frozen v3 fixture: reviewed step declarations, never inferred from the iframe.
+title: Read-only inspection SOP
+code: SOP-READONLY-003
+steps:
+  - key: inspect
+    title: Inspect
+    fields:
+      - {key: note, type: text, required: true, maxLength: 100, operations: [read]}
+      - {key: count, type: number, required: false, operations: [read]}
+      - {key: ok, type: boolean, required: false, operations: [read]}
+      - {key: tags, type: multi, required: false, options: [a, b], maxItems: 2, operations: [read]}
+    body: |
+      <label>Note<input data-field="note"></label><input type="number" data-field="count"><input type="checkbox" data-field="ok"><select multiple data-field="tags"><option value="a">A</option><option value="b">B</option></select><script>window.untrustedScriptRan=true</script><button onclick="parent.document.body.innerHTML=1">untrusted</button>
+  - key: release
+    title: Other step, must not be sent
+    fields:
+      - {key: private_note, type: text, required: false, maxLength: 100, operations: [read]}
+    body: '<input data-field="private_note">'

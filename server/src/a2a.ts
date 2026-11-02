@@ -159,10 +159,11 @@ function idemClaim(taskId: string, fp: string): 'fresh' | 'replay' | 'conflict' 
  * ⑤ 响应 TASK_STATE_DELIVERED 形状（对齐上游 wait:false 异步语义）
  * DSH 侧那半绑定（canvas 远端成员）是主人操作前置——修订 1 如实口径。
  */
-export function a2aDirectHandle(body: any, rawBytes: number, runOps: {
+export async function a2aDirectHandle(body: any, rawBytes: number, runOps: {
   uploadToken?: (id: number) => string;
-  start: (slug: string, startedBy: string) => number;
-  saveNote: (runId: number, text: string) => void;
+  /** #309 phase2：start 现返回 {id, read_capability}——创建即得 run 级读能力（明文仅此一次） */
+  start: (slug: string, startedBy: string) => { id: number; read_capability: string };
+  saveNote: (runId: number, text: string) => void | Promise<void>;
   statusOf: (runId: number) => { status: string; steps: number } | null;
   ctxBind: (contextId: string) => number | null; // context → runId（已绑定）
   ctxRegister: (contextId: string, runId: number) => void;
@@ -172,7 +173,7 @@ export function a2aDirectHandle(body: any, rawBytes: number, runOps: {
   bindingCallback?: (slug: string, caller: string) => string;
   /** P3：把绑定上的 callback_url 落到 ctx（供 finish 时构造 outbox） */
   ctxAttachCallback?: (runId: number, callbackUrl: string) => void;
-}): A2aDirectResult {
+}): Promise<A2aDirectResult> {
   const team = typeof body?.team === 'string' ? body.team : '';
   const message = typeof body?.message === 'string' ? body.message : '';
   const caller = typeof body?.caller_session === 'string' ? body.caller_session : '';
@@ -231,8 +232,11 @@ export function a2aDirectHandle(body: any, rawBytes: number, runOps: {
 
   // run ↔ context_id：start 续沿同一 context 开新 run；note/status 按 context 找 run
   let runId = runOps.ctxBind(contextId);
+  let startReadCap = '';
   if (action === 'start') {
-    runId = runOps.start(sop.slug, caller);
+    const started = runOps.start(sop.slug, caller);
+    runId = started.id;
+    startReadCap = started.read_capability;
     runOps.ctxRegister(contextId, runId);
     // P3（评审席裁定）：回执只投人建绑定时填的 callback_url；自报 callback 不一致 → rejected 且不写 outbox
     const bindingCb = runOps.bindingCallback?.(sop.slug, caller) ?? '';
@@ -245,7 +249,7 @@ export function a2aDirectHandle(body: any, rawBytes: number, runOps: {
   } else if (runId === null) {
     return { httpStatus: 200, body: { error: 'no run bound to this context_id (send a start first)', code: -32000, team, task_id: taskId, task_status: 'TASK_STATE_FAILED' } };
   } else if (action === 'note') {
-    runOps.saveNote(runId, noteText || '(empty note)');
+    await runOps.saveNote(runId, noteText || '(empty note)');
   }
   const st = runOps.statusOf(runId);
   return {
@@ -261,7 +265,7 @@ export function a2aDirectHandle(body: any, rawBytes: number, runOps: {
       artifacts: [],
       consumed: false,
       receipt: 'routed',
-      sop: { slug: sop.slug, run_id: runId, run_status: st?.status ?? 'unknown', steps: st?.steps ?? 0, upload_token: runOps.uploadToken?.(runId) ?? '' }, // P0：run-scoped 上传令牌（创建者即得）
+      sop: { slug: sop.slug, run_id: runId, run_status: st?.status ?? 'unknown', steps: st?.steps ?? 0, ...(action === 'start' ? { upload_token: runOps.uploadToken?.(runId) ?? '', read_capability: startReadCap } : {}) }, // Write/read credentials only on creation; status/note queries never reissue
     },
   };
 }
@@ -271,25 +275,56 @@ export function a2aDirectHandle(body: any, rawBytes: number, runOps: {
 // 三件自实现按官方示例：身份密钥（DATA_DIR/a2a-key.pem）、OriginClaim 签名、fetch/schedule 适配。
 export interface OutboundTarget { baseUrl: string; team: string }
 
-function originClaimHeaders(privateKey: KeyObject, zone: string, baseUrl: string): Record<string, string> {
-  const ts = Date.now();
-  const signature = edSign(undefined, Buffer.from(JSON.stringify([zone, baseUrl, ts]), 'utf8'), privateKey).toString('base64');
-  return { 'X-A2A-Caller': zone, 'X-A2A-Caller-Url': baseUrl, 'X-A2A-Caller-Ts': String(ts), 'X-A2A-Caller-Sig': signature };
+/** OriginClaim 绑定形式（v2）的域标签——与上游 src/origin-claim.ts ORIGIN_CLAIM_BOUND_TAG 一致，v1 签名永远验不成 v2。 */
+export const ORIGIN_CLAIM_BOUND_TAG = 'a2a-origin-claim/2';
+
+/**
+ * OriginClaim 信封（上游 docs/protocol/delivery-origin-auth.md §2.1）：按真实目标 url/method 签。
+ * - 绑定形式（v2）：X-A2A-Caller-Aud = 目标 origin，X-A2A-Caller-Sig2 签
+ *   [tag, caller, callerUrl, ts, audience, METHOD, path]——只在那台主机、那条路由上有效。#64 关窗后对端只认它。
+ * - 不绑定形式（v1）：X-A2A-Caller-Sig 签 [caller, callerUrl, ts]，未升级的对端在开窗期间仍认。默认两种同时带，A2A_ORIGIN_CLAIM_UNBOUND=off 停发 v1。
+ * 钉住的 0.6.25 A2aClient 调 originClaim() 不给目标，所以签名放在 fetch 适配层（那里有 url 与 method）。
+ */
+export function originClaimHeaders(privateKey: KeyObject, zone: string, baseUrl: string, target: { url: string; method: string }, ts = Date.now()): Record<string, string> {
+  const sign = (text: string): string => edSign(undefined, Buffer.from(text, 'utf8'), privateKey).toString('base64');
+  const headers: Record<string, string> = { 'X-A2A-Caller': zone, 'X-A2A-Caller-Url': baseUrl, 'X-A2A-Caller-Ts': String(ts) };
+  // v1 只为未升级对端保留；全舰队关窗后设 A2A_ORIGIN_CLAIM_UNBOUND=off 停发（v1 不绑路由，未升级对端上可被剥 Sig2 重放）
+  if (process.env.A2A_ORIGIN_CLAIM_UNBOUND !== 'off') headers['X-A2A-Caller-Sig'] = sign(JSON.stringify([zone, baseUrl, ts]));
+  let audience = '';
+  let path = '';
+  try {
+    const u = new URL(target.url);
+    if (u.protocol === 'http:' || u.protocol === 'https:') { audience = u.origin; path = u.pathname; }
+  } catch { /* 非 http(s) 目标只带 v1 */ }
+  if (audience !== '') {
+    headers['X-A2A-Caller-Aud'] = audience;
+    headers['X-A2A-Caller-Sig2'] = sign(JSON.stringify([ORIGIN_CLAIM_BOUND_TAG, zone, baseUrl, ts, audience, target.method.toUpperCase(), path]));
+  }
+  return headers;
 }
 
-export async function a2aSendOutbound(keyPath: string, target: OutboundTarget, message: string, contextId?: string, callerSession?: string): Promise<unknown> {
+/** 市场对外的基址（OriginClaim 的 callerUrl；对端按它取卡验签） */
+export function marketPublicUrl(): string {
+  return process.env.MARKET_PUBLIC_URL || `http://127.0.0.1:${process.env.PORT || 9800}`;
+}
+
+/** 带市场 OriginClaim 信封的出站请求头（回执 outbox 等不走 A2aClient 的出站用） */
+export function marketOriginClaim(keyPath: string, target: { url: string; method: string }): Record<string, string> {
+  return originClaimHeaders(loadOrCreateKey(keyPath), MARKET_TEAM, marketPublicUrl(), target);
+}
+
+export async function a2aSendOutbound(keyPath: string, target: OutboundTarget, message: string, contextId?: string, callerSession?: string, opts: { taskId?: string; async?: boolean } = {}): Promise<unknown> {
   const priv = loadOrCreateKey(keyPath);
-  const base = process.env.MARKET_PUBLIC_URL || `http://127.0.0.1:${process.env.PORT || 9800}`;
+  const base = marketPublicUrl();
   const client = new A2aClient({
     apiKey: '',
     sessionId: MARKET_TEAM,
     cardCaller: MARKET_TEAM,
-    originClaim: () => originClaimHeaders(priv, MARKET_TEAM, base),
     schedule: (cb: () => void, ms: number) => { const t = setTimeout(cb, ms); return () => clearTimeout(t); },
-    fetch: (url: string, init?: RequestInit) => fetch(url, init).then(async (r) => ({ ok: r.ok, status: r.status, text: () => r.text() })),
+    fetch: (url: string, init?: RequestInit) => fetch(url, { ...init, headers: { ...(init?.headers as Record<string, string> | undefined), ...originClaimHeaders(priv, MARKET_TEAM, base, { url, method: String(init?.method ?? 'GET') }) } }).then(async (r) => ({ ok: r.ok, status: r.status, text: () => r.text() })),
   } as never);
-  const taskId = `market-${randomBytes(4).toString('hex')}`;
+  const taskId = opts.taskId ?? `market-${randomBytes(4).toString('hex')}`;
   // 联合评审①后补：推送 caller 必须是区限定句柄（market/<node8>）——裸 zone 标签在对端
   // free-form 准入分支无画布路径永不可入（.157 实测发现·判据②c2）
-  return client.routeDirect(target.baseUrl, target.team, message, contextId, undefined, callerSession ?? MARKET_TEAM, false, taskId);
+  return client.routeDirect(target.baseUrl, target.team, message, contextId, undefined, callerSession ?? MARKET_TEAM, opts.async === true, taskId);
 }

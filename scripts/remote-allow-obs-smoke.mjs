@@ -44,7 +44,7 @@ const CAP_PORT = await new Promise((r) => cap.listen(0, '127.0.0.1', () => r(cap
 function boot(port) {
   return spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
     cwd: process.cwd(),
-    env: { ...process.env, MCP_GATEWAY: '', PORT: String(port), DATA_DIR: DATA, ADMIN_TOKEN: 's3obs-tok' },
+    env: { ...process.env, MCP_GATEWAY: 'off', PORT: String(port), DATA_DIR: DATA, ADMIN_TOKEN: 's3obs-tok' },
     stdio: 'ignore',
   });
 }
