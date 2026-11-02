@@ -11,6 +11,7 @@
  *    - 新建库的主密码过 vault-policy 门槛（长度/全数字/常见口令/弱），不过就拒、不落盘；已有库照常解锁，只回 weak_master 提示。 */
 import type express from 'express';
 import { stat } from 'node:fs/promises';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { join } from 'node:path';
 import { dataDir } from './db.ts';
 import { defaultVaultPath, openVault, type VaultEntry, type VaultEntryPatch, type VaultEntrySummary, type VaultStore } from './vault/store.ts';
@@ -58,8 +59,12 @@ let blockedUntil = 0;
 
 /** 状态切换（解锁/上锁/重开/闲置上锁）一律串行：否则「重开中途有人点锁定」会把库又打开，并发解锁也能绕过限流 */
 let chain: Promise<unknown> = Promise.resolve();
+const transaction = new AsyncLocalStorage<boolean>();
 function serial<T>(fn: () => Promise<T>): Promise<T> {
-  const next = chain.then(fn, fn);
+  // Route transactions may call unlocked/lockNow without queuing behind themselves.
+  if (transaction.getStore()) return fn();
+  const run = () => transaction.run(true, fn);
+  const next = chain.then(run, run);
   chain = next.catch(() => {});
   return next;
 }
@@ -171,11 +176,16 @@ export function mountVault(app: express.Express, guard: Guard): void {
     app[method](path, (req, res, next) => {
       res.setHeader('Cache-Control', 'no-store');
       if (!guard(req, res)) return;
-      fn(req, res).then((body) => { if (!res.headersSent) res.json(body); }).catch((e: unknown) => {
+      serial(async () => {
+        try { return await fn(req, res); }
+        catch (e) {
+          // Invalidate failed in-memory writes before releasing the queue to another read/write.
+          if (method !== 'get' && open && !(e instanceof VaultHttpError)) open.mtimeMs = -1;
+          throw e;
+        }
+      }).then((body) => { if (!res.headersSent) res.json(body); }).catch((e: unknown) => {
         if (e instanceof VaultHttpError) return res.status(e.status).json({ error: e.message, ...(e.code ? { code: e.code } : {}), ...e.extra });
         const msg = String((e as Error)?.message ?? e);
-        // 写失败时内存可能已改、磁盘没改：强制下次从磁盘重开，丢掉这次没落盘的改动
-        if (method !== 'get' && open) open.mtimeMs = -1;
         if (/timed out waiting for the writer lock/.test(msg)) {
           return res.status(503).json({ error: `库文件正被其他进程写入（${vaultPath()}.lock），请稍后重试；若确认没有进程在写，可手动删除该锁文件`, code: 'vault_busy' });
         }
