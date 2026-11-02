@@ -5,7 +5,7 @@ const SOURCE_DATA_DIR = requireDataSource();
  *  L5: 发布 6 版后物化目录 ≤3 且含活跃版；回滚 v2 后仍 ≤3 且含 v2
  *  L6: v1 物化已不在——?version=1 → 200·X-App-Version v1·正文与 v1 发布逐字节同（冷回读经服务）
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync, readdirSync, existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';

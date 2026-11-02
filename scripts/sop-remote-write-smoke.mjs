@@ -9,7 +9,7 @@ const SOURCE_DATA_DIR = requireDataSource();
  *  ④远程控制面（publish）仍 403（护栏）⑤远程 assign 仍 403（护栏·控制面不放松）
  *  ⑥本机建单 201（回归护栏）。隔离实例=VACUUM INTO 主库快照+ADMIN_TOKEN 复刻门态。
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 
 const PORT = 9852;

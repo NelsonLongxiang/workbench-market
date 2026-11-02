@@ -7,7 +7,7 @@ const SOURCE_DATA_DIR = requireDataSource();
  *  ③上报面：POST report-digest 摘要同→match:true 记档；异→drift:true 记档（K14 漂移）
  *  ④未知版本 404
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 
 const PORT = 9925;

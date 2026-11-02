@@ -8,7 +8,7 @@ const SOURCE_DATA_DIR = requireDataSource();
  *  判据：①绑定创建 201（红版 404）②提交 201 且 cap 收到 1 发推送（team=node·含 slug/id/字段）
  *  ③撤销后新提交不再推 ④无绑定 slug 提交不推不炸（护栏）⑤远程 LAN 面提交同样触发（裁定 A 面×推送）。
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 

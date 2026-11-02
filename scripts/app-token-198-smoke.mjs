@@ -2,7 +2,7 @@
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #198 裁 A 冒烟：①页面注入 wm-app-token ②Origin:null+令牌 → ACAO null 且 data 200 ③无/错令牌不发 ACAO ④异台令牌不通过。 */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 
 const PORT = 20000 + Math.floor(Math.random() * 20000);

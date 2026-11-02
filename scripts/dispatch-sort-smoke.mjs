@@ -6,7 +6,7 @@ const SOURCE_DATA_DIR = requireDataSource();
  *  设计：settings 增 dispatch_sorting_enabled（默认 '0'）——关=GET /api/sop/runs?dispatched=1 空数组；开=正常列。
  *  判据：①默认关→dispatched 列空 ②开（settings 写 1）→dispatched 列正常 ③关回→又空（幂等回切）
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 
 const PORT = 9861;

@@ -8,7 +8,7 @@ const SOURCE_DATA_DIR = requireDataSource();
  *  ④契约 v1 分支路由：替身 /v1 四面（publish/commits files/rename/merge）
  *  ⑤校验面不受影子影响：verify ok:true
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
