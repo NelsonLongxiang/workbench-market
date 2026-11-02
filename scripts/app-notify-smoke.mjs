@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {requireDataSource} from './explicit-data-target.mjs';
+const SOURCE_DATA_DIR = requireDataSource();
 /** 自产台提交推送冒烟（属主裁 C · 判据先红后绿）。
  *  诉求：业务同事在自产台提交表单后，市场应把提交件 A2A 推送到绑定 agent
  *  （页面承诺「采购 agent 将出件」此前无机制承载——数据面是哑存储，纯拉模式）。
@@ -6,14 +8,14 @@
  *  判据：①绑定创建 201（红版 404）②提交 201 且 cap 收到 1 发推送（team=node·含 slug/id/字段）
  *  ③撤销后新提交不再推 ④无绑定 slug 提交不推不炸（护栏）⑤远程 LAN 面提交同样触发（裁定 A 面×推送）。
  */
-import { spawn } from 'node:child_process';
+import { spawn, fixtureLanHost } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 
 const PORT = 9853;
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-appnotify-data';
-const LAN_IP = process.env.LAN_IP || ''; // 隐私门红线：内网地址只经 env（unset 则跳过远程判据）
+const LAN_IP = fixtureLanHost(); // Only this machine's owned test listener; never inherit a remote LAN_IP.
 const ADMIN = { 'Content-Type': 'application/json', 'X-Admin-Token': 'appnotify-test-token' };
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
@@ -44,11 +46,11 @@ rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 {
   const { DatabaseSync } = await import('node:sqlite');
-  const db = new DatabaseSync('server/data/workbench-market.db', { readOnly: true });
+  const db = new DatabaseSync(SOURCE_DATA_DIR + '/workbench-market.db', { readOnly: true });
   db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`);
   db.close();
 }
-for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`server/data/${d}`, `${DATA}/${d}`, { recursive: true });
+for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`${SOURCE_DATA_DIR}/${d}`, `${DATA}/${d}`, { recursive: true });
 
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
   cwd: process.cwd(),

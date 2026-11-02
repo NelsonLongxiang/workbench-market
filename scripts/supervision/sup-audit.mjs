@@ -1,6 +1,10 @@
 // 评审监督席·只读对账：e2e 48h 新鲜度 + 市场列表；A2A 台账未核
 import { readFileSync } from "node:fs";
-const summaryPath = new URL("../../evidence/e2e-summary.json", import.meta.url);
+import {scriptOptions,explicitPath,explicitApi,validatePathParents} from '../explicit-data-target.mjs';
+const targetOptions=scriptOptions();
+const API=explicitApi(targetOptions.api,targetOptions);
+const summaryPath=explicitPath(targetOptions.summary,targetOptions);
+validatePathParents(summaryPath,targetOptions);
 const stamp = new Date().toISOString();
 const problems = [];
 try {
@@ -20,7 +24,7 @@ try {
   if (ageH > 48) problems.push(`e2e 摘要过期 ${ageH.toFixed(0)}h`);
 } catch (e) { problems.push("e2e-summary 不可读: " + String(e).slice(0, 60)); }
 try {
-  const response = await fetch("http://127.0.0.1:9800/api/workbenches", { method: "GET", signal: AbortSignal.timeout(5000) });
+  const response = await fetch(API + "/api/workbenches", { method: "GET", redirect: "error", signal: AbortSignal.timeout(5000) });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const w = await response.json();
   if (!Array.isArray(w)) throw new Error("workbenches 响应不是数组");

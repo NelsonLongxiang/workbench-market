@@ -1,6 +1,8 @@
 #!/usr/bin/env node
+import {requireDataSource} from './explicit-data-target.mjs';
+const SOURCE_DATA_DIR = requireDataSource();
 /** #170 P6/P7/P11 冒烟：①HTML 同源绝对链接改 /go/<id>/ ②Referer 只到目标源 ③自产台响应带 CSP sandbox。 */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 
@@ -16,8 +18,8 @@ const url = 'http://127.0.0.1:' + TP;
 const target = createServer((req, res) => { seenReferer = String(req.headers.referer ?? ''); res.writeHead(200, { 'Content-Type': 'text/html' }); res.end('<html><body><a href="' + url + '/assets/a.png">x</a><a href="https://cdn.other.com/x.png">y</a></body></html>'); });
 await new Promise((r) => target.listen(TP, '127.0.0.1', r));
 rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: true });
-{ const { DatabaseSync } = await import('node:sqlite'); const db = new DatabaseSync('server/data/workbench-market.db', { readOnly: true }); db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`); db.close(); }
-for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync('server/data/' + d, DATA + '/' + d, { recursive: true });
+{ const { DatabaseSync } = await import('node:sqlite'); const db = new DatabaseSync(SOURCE_DATA_DIR + '/workbench-market.db', { readOnly: true }); db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`); db.close(); }
+for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(SOURCE_DATA_DIR + '/' + d, DATA + '/' + d, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'p67' }, stdio: 'ignore' });
 const B = 'http://127.0.0.1:' + PORT;
 try {

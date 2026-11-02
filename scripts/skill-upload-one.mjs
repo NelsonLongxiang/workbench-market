@@ -5,7 +5,12 @@ import { readdirSync, statSync, readFileSync, cpSync, rmSync, mkdirSync } from '
 import { join, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 
-const SRC = process.env.SKILL_SRC ?? 'C:/Users/Administrator/.agents/skills/drawio-skill';
+import { scriptOptions, explicitPath, validatePathParents } from './explicit-data-target.mjs';
+const targetOptions = scriptOptions();
+const TARGET_DATA = explicitPath(targetOptions['data-dir'] ?? process.env.DATA_DIR, targetOptions);
+const SRC = explicitPath(targetOptions['source-dir'] ?? process.env.SKILL_SRC, targetOptions);
+for (const path of [TARGET_DATA,SRC]) validatePathParents(path,targetOptions);
+process.env.DATA_DIR = TARGET_DATA;
 const NAME = process.env.SKILL_NAME ?? 'drawio-skill';
 const files = [];
 (function walk(d) {
@@ -32,7 +37,7 @@ const row = S.skillBySlug(slug);
 const exist = S.versionsBySkill(row.id)[0];
 if (exist?.tree_digest === digest) { console.log('[one] 已存在同 digest·skip'); process.exit(0); }
 const ver = (S.versionsMax(row.id)?.v ?? 0) + 1;
-const snapDir = join(process.cwd(), 'server/data/skill-snapshots', encodeURIComponent(NAME), 'v' + ver);
+const snapDir = join(TARGET_DATA, 'skill-snapshots', encodeURIComponent(NAME), 'v' + ver);
 rmSync(snapDir, { recursive: true, force: true });
 mkdirSync(snapDir, { recursive: true });
 for (const p of files) {

@@ -1,6 +1,8 @@
 #!/usr/bin/env node
+import {requireDataSource} from './explicit-data-target.mjs';
+const SOURCE_DATA_DIR = requireDataSource();
 /** #183 P0 冒烟：①新发布技能 export 200 ②agents:/jf: 同名双来源并存不覆盖 ③verify 失败不漏绝对路径。 */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync, readdirSync } from 'node:fs';
 
 const PORT = 20000 + Math.floor(Math.random() * 20000);
@@ -12,8 +14,8 @@ async function waitReady(url, ms = 15000) { const end = Date.now() + ms; while (
 const B = 'http://127.0.0.1:' + PORT;
 const pub = (slug, body) => fetch(B + '/api/skills/' + encodeURIComponent(slug) + '/versions', { method: 'POST', headers: H, body: JSON.stringify({ changelog: 'x', files: [{ path: 'SKILL.md', content: '---\nname: ' + body.n + '\ndescription: ' + body.d + '\n---\nb' }, { path: 'a.txt', content: body.n }] }) });
 rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: true });
-{ const { DatabaseSync } = await import('node:sqlite'); const db = new DatabaseSync('server/data/workbench-market.db', { readOnly: true }); db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`); db.close(); }
-for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync('server/data/' + d, DATA + '/' + d, { recursive: true });
+{ const { DatabaseSync } = await import('node:sqlite'); const db = new DatabaseSync(SOURCE_DATA_DIR + '/workbench-market.db', { readOnly: true }); db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`); db.close(); }
+for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(SOURCE_DATA_DIR + '/' + d, DATA + '/' + d, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'k183' }, stdio: 'ignore' });
 try {
   await waitReady(B + '/api/health');
