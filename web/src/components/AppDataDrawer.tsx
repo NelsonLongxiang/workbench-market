@@ -46,25 +46,25 @@ export default function AppDataDrawer({ slug, title, open, onClose }: { slug: st
   }, [open, slug]);
 
   const dataCols = [
-    { title: '#', dataIndex: 'id', width: 64, render: (v: number) => <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{v}</Typography.Text> },
+    { title: '#', dataIndex: 'id', width: 64, render: (v: number) => <Typography.Text className="wm-mono wm-caption">{v}</Typography.Text> },
     {
       title: '内容', dataIndex: 'data',
       render: (d: Record<string, unknown>) => (
         <div style={{ maxHeight: 160, overflow: 'auto' }}>
-          <pre className="wm-mono" style={{ fontSize: 11.5, margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{JSON.stringify(d, null, 1)}</pre>
+          <pre className="wm-mono wm-caption wm-m-0 wm-prewrap wm-break">{JSON.stringify(d, null, 1)}</pre>
         </div>
       ),
     },
     { title: '提交者', dataIndex: 'created_by', width: 110, render: (v: string) => v || <Typography.Text type="secondary">—</Typography.Text> },
-    { title: '时间', dataIndex: 'created_at', width: 150, render: (v: string) => <Typography.Text type="secondary" style={{ fontSize: 12 }}>{v}</Typography.Text> },
+    { title: '时间', dataIndex: 'created_at', width: 150, render: (v: string) => <Typography.Text type="secondary" className="wm-caption">{v}</Typography.Text> },
   ];
 
   const fileCols = [
-    { title: '文件', dataIndex: 'original_name', render: (v: string) => <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{v}</Typography.Text> },
+    { title: '文件', dataIndex: 'original_name', render: (v: string) => <Typography.Text className="wm-mono wm-caption">{v}</Typography.Text> },
     { title: '类型', dataIndex: 'mime', width: 140, render: (v: string) => <Tag>{v || 'octet-stream'}</Tag> },
-    { title: '大小', dataIndex: 'size', width: 90, render: (v: number) => <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{fmtSize(v)}</Typography.Text> },
+    { title: '大小', dataIndex: 'size', width: 90, render: (v: number) => <Typography.Text className="wm-mono wm-caption">{fmtSize(v)}</Typography.Text> },
     { title: '提交者', dataIndex: 'created_by', width: 100, render: (v: string) => v || <Typography.Text type="secondary">—</Typography.Text> },
-    { title: '时间', dataIndex: 'created_at', width: 150, render: (v: string) => <Typography.Text type="secondary" style={{ fontSize: 12 }}>{v}</Typography.Text> },
+    { title: '时间', dataIndex: 'created_at', width: 150, render: (v: string) => <Typography.Text type="secondary" className="wm-caption">{v}</Typography.Text> },
     {
       title: '', width: 70, render: (_: unknown, r: AppFileRow) => (
         <Button size="small" type="link" icon={<DownloadOutlined />} href={r.url} target="_blank">下载</Button>
@@ -74,13 +74,13 @@ export default function AppDataDrawer({ slug, title, open, onClose }: { slug: st
 
   return (
     <Drawer
-      title={<Space>提交数据 · <Typography.Text className="wm-mono" style={{ fontSize: 13 }}>{slug}</Typography.Text>{title ? <Typography.Text type="secondary" style={{ fontSize: 12 }}>{title}</Typography.Text> : null}</Space>}
+      title={<Space>提交数据 · <Typography.Text className="wm-mono wm-text-body">{slug}</Typography.Text>{title ? <Typography.Text type="secondary" className="wm-caption">{title}</Typography.Text> : null}</Space>}
       size="large"
       open={open}
       onClose={onClose}
       extra={<Button icon={<ReloadOutlined />} onClick={() => void load(false)} loading={loading}>刷新</Button>}
     >
-      <Descriptions size="small" column={2} style={{ marginBottom: 12 }}
+      <Descriptions size="small" column={2} className="wm-mb-3"
         items={[
           { key: 'd', label: '数据行', children: <b>{rows.length}</b> },
           { key: 'f', label: '文件', children: <b>{files.length}</b> },
@@ -93,7 +93,7 @@ export default function AppDataDrawer({ slug, title, open, onClose }: { slug: st
             children: rows.length ? (
               <>
                 <Table rowKey="id" size="small" columns={dataCols} dataSource={rows} pagination={false} loading={loading} />
-                {more.data ? <Button block style={{ marginTop: 12 }} onClick={() => void load(true)} loading={loading}>加载更多</Button> : null}
+                {more.data ? <Button block className="wm-mt-3" onClick={() => void load(true)} loading={loading}>加载更多</Button> : null}
               </>
             ) : <Empty description="还没有提交数据 —— 台页面的表单点「提交到服务器」后会出现在这里（或经 POST /api/apps/:slug/data 写入）" />,
           },
@@ -102,7 +102,7 @@ export default function AppDataDrawer({ slug, title, open, onClose }: { slug: st
             children: files.length ? (
               <>
                 <Table rowKey="id" size="small" columns={fileCols} dataSource={files} pagination={false} loading={loading} />
-                {more.files ? <Button block style={{ marginTop: 12 }} onClick={() => void load(true)} loading={loading}>加载更多</Button> : null}
+                {more.files ? <Button block className="wm-mt-3" onClick={() => void load(true)} loading={loading}>加载更多</Button> : null}
               </>
             ) : <Empty description="还没有提交文件 —— POST /api/apps/:slug/files（multipart，任意类型 ≤50MB）" />,
           },

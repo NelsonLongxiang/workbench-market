@@ -74,18 +74,18 @@ function PendingRow({ p }: { p: BoardPending }) {
         <span>{p.from} → {p.to}</span>
         <PdTags pds={p.pds} />
       </Space>
-      <Space wrap size={4} style={{ marginTop: 4 }}>
+      <Space wrap size={4} className="wm-mt-1">
         {p.release_by === '人工'
           ? <><Tag color="processing">已批 {p.approvals}/{p.levels} 级</Tag>{p.domain && <Tag>授权域 {p.domain}</Tag>}</>
           : <Tag color="orange">规则放行</Tag>}
         {p.waiting_days !== null && <Tag>等了 {p.waiting_days} 天</Tag>}
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>提议 {p.proposed_by} · 生效 {fmt(p.effective_at)}</Typography.Text>
+        <Typography.Text type="secondary" className="wm-caption">提议 {p.proposed_by} · 生效 {fmt(p.effective_at)}</Typography.Text>
         {p.release_by === '人工' && <Link to="/tasks">去统一待办查看</Link>}
       </Space>
       {p.missing.length > 0 && (
-        <div style={{ marginTop: 4 }}>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>未满足：</Typography.Text>
-          {p.missing.map((m) => <Tag key={m} color="red" style={{ fontSize: 12 }}>{m}</Tag>)}
+        <div className="wm-mt-1">
+          <Typography.Text type="secondary" className="wm-caption">未满足：</Typography.Text>
+          {p.missing.map((m) => <Tag key={m} color="red" className="wm-caption">{m}</Tag>)}
         </div>
       )}
     </div>
@@ -109,7 +109,7 @@ function LinkRow({ l }: { l: BoardLink }) {
 function ObservedText({ o }: { o?: Observed }) {
   const e = Object.entries(o ?? {});
   if (!e.length) return null;
-  return <Typography.Text type="secondary" style={{ fontSize: 12 }}>观测：{e.map(([k, v]) => `${k}=${String(v.value)}（${v.source} @ ${fmt(v.at)}）`).join('；')}</Typography.Text>;
+  return <Typography.Text type="secondary" className="wm-caption">观测：{e.map(([k, v]) => `${k}=${String(v.value)}（${v.source} @ ${fmt(v.at)}）`).join('；')}</Typography.Text>;
 }
 
 function ProductCard({ p, d }: { p: BoardProduct; d: BoardData }) {
@@ -121,7 +121,7 @@ function ProductCard({ p, d }: { p: BoardProduct; d: BoardData }) {
   return (
     <Card size="small" className="wm-lc-product" title={<Space size={6}><span>{p.pd}</span>{stage && <Tag color="purple">{stage.state}{stage.days !== null ? ` · ${stage.days} 天` : ''}</Tag>}</Space>}
       extra={pend.length + links.length > 0 ? <Badge count={pend.length + links.length} title="卡点" /> : null}>
-      <Space wrap size={4} style={{ marginBottom: 8 }}>
+      <Space wrap size={4} className="wm-mb-2">
         {others.map(([k, s]) => <Tag key={k}>{k}：{s.state}{s.days !== null ? ` · ${s.days} 天` : ''}</Tag>)}
       </Space>
       <ObservedText o={p.observed} />
@@ -130,9 +130,9 @@ function ProductCard({ p, d }: { p: BoardProduct; d: BoardData }) {
           const objs = p.objects.filter((o) => o.lane === lane);
           return (
             <div key={lane} className="wm-lc-lane">
-              <Tag color={LANE_COLOR[lane]} style={{ marginBottom: 4 }}>{lane}</Tag>
-              {objs.length === 0 ? <Typography.Text type="secondary" style={{ fontSize: 12 }}>—</Typography.Text> : objs.map((o) => (
-                <div key={o.object} style={{ fontSize: 12 }}>{o.machine} <b>{o.state}</b> <Typography.Text type="secondary">{daysText(o.days)}</Typography.Text></div>
+              <Tag color={LANE_COLOR[lane]} className="wm-mb-1">{lane}</Tag>
+              {objs.length === 0 ? <Typography.Text type="secondary" className="wm-caption">—</Typography.Text> : objs.map((o) => (
+                <div key={o.object} className="wm-caption">{o.machine} <b>{o.state}</b> <Typography.Text type="secondary">{daysText(o.days)}</Typography.Text></div>
               ))}
             </div>
           );
@@ -140,7 +140,7 @@ function ProductCard({ p, d }: { p: BoardProduct; d: BoardData }) {
       </div>
       <Collapse size="small" ghost items={[{ key: 'd', label: `明细（${p.objects.length} 个对象 · ${pend.length + links.length} 条卡点）`, children: (
         <>
-          <Table size="small" pagination={false} rowKey="object" dataSource={p.objects} scroll={{ x: 'max-content' }} style={{ marginBottom: 8 }} locale={{ emptyText: '没有挂在本产品下的对象' }} columns={[
+          <Table size="small" pagination={false} rowKey="object" dataSource={p.objects} scroll={{ x: 'max-content' }} className="wm-mb-2" locale={{ emptyText: '没有挂在本产品下的对象' }} columns={[
             { title: '对象', dataIndex: 'object' }, { title: '状态机', dataIndex: 'machine' }, { title: '泳道', dataIndex: 'lane' },
             { title: '状态', dataIndex: 'state' }, { title: '起始', dataIndex: 'since', render: fmt }, { title: '停留', dataIndex: 'days', render: daysText },
             ...(p.objects.some((o) => Object.keys(o.observed ?? {}).length) ? [{ title: '观测', dataIndex: 'observed', render: (o: Observed) => <ObservedText o={o} /> }] : []),
@@ -165,28 +165,28 @@ function BoardView({ payload, reload }: { payload: BoardPayload; reload: () => v
   const kpis: [string, number][] = [['产品', s.products], ['暂停', s.on_hold], ['人工待审', s.pending_human], ['规则门禁未过', s.gate_blocked], ['未确认关系', s.links_unconfirmed], ['归属不明', s.unattached], ['未结告警', s.alerts_open], ['超时告警', s.alerts_overdue], ['过期数据源', s.sources_stale]];
   return (
     <>
-      <Card size="small" style={{ marginBottom: 12 }}>
+      <Card size="small" className="wm-mb-3">
         <Space wrap>
           <span>数据截至 <b>{fmt(d.as_of)}</b></span>
           <LedgerBadge l={d.ledger} ledger={payload.anchor_ledger ?? null} />
           <Tag color={s.sources_stale ? 'warning' : 'success'}>过期数据源 {s.sources_stale}</Tag>
           {d.periods.map((p) => <Tag key={p.period} color="geekblue">账期 {p.period}：{p.state}{p.days !== null ? ` · ${p.days} 天` : ''}</Tag>)}
           <Button size="small" icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>以 {payload.viewer} 查看（只读）{payload.cached ? ' · 缓存' : ''}</Typography.Text>
+          <Typography.Text type="secondary" className="wm-caption">以 {payload.viewer} 查看（只读）{payload.cached ? ' · 缓存' : ''}</Typography.Text>
         </Space>
       </Card>
-      {(payload.next ?? []).map((n) => <Alert key={n} type="info" showIcon message={n} style={{ marginBottom: 8 }} />)}
-      {(payload.warnings ?? []).map((w) => <Alert key={w} type="warning" showIcon message={w} style={{ marginBottom: 8 }} />)}
+      {(payload.next ?? []).map((n) => <Alert key={n} type="info" showIcon message={n} className="wm-mb-2" />)}
+      {(payload.warnings ?? []).map((w) => <Alert key={w} type="warning" showIcon message={w} className="wm-mb-2" />)}
 
-      <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
+      <Row gutter={[12, 12]} className="wm-mb-3">
         {kpis.map(([t, v]) => <Col key={t} xs={12} sm={8} md={6} lg={4} xl={3}><Card size="small"><Statistic title={t} value={v} /></Card></Col>)}
         <Col xs={24} lg={8} xl={6}><Card size="small" title="按阶段">{Object.entries(s.by_stage).map(([k, v]) => <Tag key={k} color="purple">{k} {v}</Tag>)}</Card></Col>
       </Row>
 
-      <Card size="small" title="卡点" style={{ marginBottom: 12 }} extra={
+      <Card size="small" title="卡点" className="wm-mb-3" extra={
         <Segmented size="small" value={lane} onChange={(v) => setLane(String(v))} options={[{ label: '全部泳道', value: 'all' }, ...LANES.map((l) => ({ label: l, value: l })), { label: '无泳道', value: 'none' }]} />
       }>
-        <Alert type="info" showIcon style={{ marginBottom: 8 }} message="本页只读。人工审批在统一待办查看；工作台审批目前停用（同源门户/SOP 隔离未完成）。" />
+        <Alert type="info" showIcon className="wm-mb-2" message="本页只读。人工审批在统一待办查看；工作台审批目前停用（同源门户/SOP 隔离未完成）。" />
         <Tabs size="small" items={[
           { key: 'h', label: `人工待审 ${human.length}`, children: human.length ? human.map((p) => <PendingRow key={p.proposal_id} p={p} />) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} /> },
           { key: 'g', label: `规则门禁未过 ${gate.length}`, children: gate.length ? gate.map((p) => <PendingRow key={p.proposal_id} p={p} />) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} /> },
@@ -197,13 +197,13 @@ function BoardView({ payload, reload }: { payload: BoardPayload; reload: () => v
       </Card>
 
       <Typography.Title level={5}>产品</Typography.Title>
-      {d.products.length === 0 ? <Empty description="没有产品" style={{ marginBottom: 12 }} /> : (
-        <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
+      {d.products.length === 0 ? <Empty description="没有产品" className="wm-mb-3" /> : (
+        <Row gutter={[12, 12]} className="wm-mb-3">
           {d.products.map((p) => <Col key={p.pd} xs={24} lg={12} xxl={8}><ProductCard p={p} d={d} /></Col>)}
         </Row>
       )}
       {d.unattached.length > 0 && (
-        <Card size="small" title={`归属不明的对象 ${d.unattached.length}`} style={{ marginBottom: 12 }}>
+        <Card size="small" title={`归属不明的对象 ${d.unattached.length}`} className="wm-mb-3">
           <Table size="small" pagination={false} rowKey="object" dataSource={d.unattached} columns={[
             { title: '对象', dataIndex: 'object' }, { title: '状态机', dataIndex: 'machine' }, { title: '泳道', dataIndex: 'lane' },
             { title: '状态', dataIndex: 'state' }, { title: '停留', dataIndex: 'days', render: daysText },
@@ -216,7 +216,7 @@ function BoardView({ payload, reload }: { payload: BoardPayload; reload: () => v
           { key: 'p', label: `账期 ${d.periods.length}`, children: d.periods.map((p) => (
             <div key={p.period} className="wm-lc-row">
               <Space wrap><b>账期 {p.period}</b><Tag color="geekblue">{p.state}</Tag><span>自 {fmt(p.since)}</span></Space>
-              <Table size="small" pagination={false} rowKey="source" dataSource={p.obligations} style={{ marginTop: 4 }} columns={[
+              <Table size="small" pagination={false} rowKey="source" dataSource={p.obligations} className="wm-mt-1" columns={[
                 { title: '义务来源', dataIndex: 'source' }, { title: '截止', dataIndex: 'due', render: fmt },
                 { title: '可补', dataIndex: 'recoverable', render: (v: boolean) => (v ? '是' : '否') },
                 { title: '状态', dataIndex: 'met', render: (v: boolean) => (v ? <Tag color="success">已满足</Tag> : <Tag color="error">未满足</Tag>) },

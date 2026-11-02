@@ -101,7 +101,7 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
   return (
     <div>
       {!compact && (
-        <Space wrap style={{ marginBottom: 12 }}>
+        <Space wrap className="wm-mb-3">
           <Input.Search allowClear placeholder="搜索标题 / 项目" style={{ width: 220 }} onSearch={setQ} />
           <Segmented value={statusFilter} onChange={(v) => setStatusFilter(v as never)} options={[{ label: '全部', value: 'all' }, { label: '待办', value: 'todo' }, { label: '进行中', value: 'doing' }, { label: '已完成', value: 'done' }]} />
           <Segmented value={sourceFilter} onChange={(v) => setSourceFilter(v as never)} options={[{ label: '全部来源', value: 'all' }, { label: 'ygl-trees', value: 'ygl-trees' }, { label: 'market', value: 'market' }, ...(life ? [{ label: '生命周期', value: 'lifecycle' }] : [])]} />
@@ -120,7 +120,7 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
             {shown.slice(0, 8).map((t) => (
               <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', border: '1px solid var(--wm-color-border)', borderRadius: 8, flexWrap: 'wrap' }}>
                 <Tag color={STATUS_COLOR[t.status]}>{STATUS_TEXT[t.status]}</Tag>
-                <Typography.Text ellipsis style={{ maxWidth: 420, fontSize: 12 }}>{t.title}</Typography.Text>
+                <Typography.Text ellipsis className="wm-caption" style={{ maxWidth: 420 }}>{t.title}</Typography.Text>
                 <Tag color={SOURCE_COLOR[t.source] ?? 'default'}>{SOURCE_TEXT[t.source] ?? t.source}</Tag>
                 {t.link && <Button type="link" size="small" href={t.link} target="_blank">去处理</Button>}
               </div>
@@ -142,12 +142,12 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
         />
       )}
       {payload && (
-        <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
+        <Typography.Text type="secondary" className="wm-caption" style={{ display: 'block', marginTop: 8 }}>
           生成于 {new Date(payload.generated_at).toLocaleString()} · ygl-trees {ygl?.ok ? `${ygl.count} 条/${ygl.latency_ms}ms` : '部分降级'} · market {payload.sources.market.count} 条{life ? ` · 生命周期 ${life.ok ? `${life.count} 条` : '降级'}` : ''}
         {ygl && !ygl.ok && ygl.degraded_projects?.length ? (
-          <Typography.Text type="warning" style={{ fontSize: 12, display: 'block', marginTop: 2 }}>
+          <Typography.Text type="warning" className="wm-caption wm-mt-1" style={{ display: 'block' }}>
             ygl-trees 未完整读取（{ygl.count} 条已入列）：{ygl.degraded_projects.map((d, i) => (
-              <Tag key={i} color="warning" style={{ fontSize: 11 }}>{d}</Tag>
+              <Tag key={i} color="warning" className="wm-caption">{d}</Tag>
             ))}
           </Typography.Text>
         ) : null}

@@ -16,7 +16,7 @@ export default function RelTime({ value }: { value?: string | null }) {
   if (!t.isValid()) return <Typography.Text type="secondary">{value}</Typography.Text>;
   return (
     <Tooltip title={t.format('YYYY-MM-DD HH:mm:ss')}>
-      <Typography.Text type="secondary" className="wm-num" style={{ fontSize: 12 }}>{t.fromNow()}</Typography.Text>
+      <Typography.Text type="secondary" className="wm-num wm-caption">{t.fromNow()}</Typography.Text>
     </Tooltip>
   );
 }

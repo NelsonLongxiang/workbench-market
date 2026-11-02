@@ -53,7 +53,7 @@ export default function ViewerChip() {
             <Button size="small" type="link" onClick={login.clearAndOpen}>清除口令并登录</Button>
           </Tooltip>
         )}
-        {login.blocked && <Typography.Text type="warning" style={{ fontSize: 12 }}>弹窗被拦截</Typography.Text>}
+        {login.blocked && <Typography.Text type="warning" className="wm-caption">弹窗被拦截</Typography.Text>}
       </span>
     );
   }
@@ -67,7 +67,7 @@ export default function ViewerChip() {
         { key: 'kind', label: '类别', children: v.kind },
         { key: 'sub', label: '主体', children: <Typography.Text code>{v.sub}</Typography.Text> },
         { key: 'roles', label: '角色', children: <Typography.Text type="secondary">暂无（授权通道未实现）</Typography.Text> },
-        { key: 'src', label: '来源', children: <Typography.Text type="secondary" style={{ fontSize: 12 }}>Odoo 会话（过渡，#221 落地后换市场统一登录）</Typography.Text> },
+        { key: 'src', label: '来源', children: <Typography.Text type="secondary" className="wm-caption">Odoo 会话（过渡，#221 落地后换市场统一登录）</Typography.Text> },
       ]} />
     )}>
       <Tag icon={<UserOutlined />} color="blue" style={{ cursor: 'pointer', marginInlineEnd: 0, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', verticalAlign: 'middle' }} title={label}>{label}</Tag>
