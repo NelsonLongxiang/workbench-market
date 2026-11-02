@@ -11,6 +11,7 @@ async function waitReady(url, ms = 20000) {
   return false;
 }
 import { rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 const PORT = 9817;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -20,8 +21,9 @@ const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ 
 
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
+const gh = await startFakeGithub(); // 自产台/SOP 台只从 GitHub main 同步：本机替身仓库
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server', env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: `../${DATA}` }, stdio: ['ignore', 'pipe', 'pipe'],
+  cwd: 'server', env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: `../${DATA}`, WM_GITHUB_API: gh.api }, stdio: ['ignore', 'pipe', 'pipe'],
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪（20s 超时）'); process.exit(1); }
 
@@ -40,7 +42,8 @@ async function uploadFile(slug, name, mime, bytes, extra = {}) {
 }
 
 try {
-  await call('POST', '/api/apps', { slug: 'fileprobe', title: 'F', files: [{ path: 'index.html', content: '<h1>x</h1>' }] });
+  const pub0 = await ghPublish(BASE, gh, { slug: 'fileprobe', title: 'F', files: [{ path: 'index.html', content: '<h1>x</h1>' }] });
+  ok('台经 GitHub main 同步发布 → 201', pub0.status === 201, `status=${pub0.status}`);
   // ① 上传二进制（PNG 头）——所有类型
   const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
   let r = await uploadFile('fileprobe', '截图.png', 'image/png', png, { created_by: 'user-a', note: '证据截图' });

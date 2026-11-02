@@ -984,14 +984,15 @@ async function syncAppFromGithub(slug: string, b: any, who: string): Promise<{ s
   }
   const short = pulled.commit.slice(0, 7);
   const changelog = (typeof b?.changelog === 'string' && b.changelog.trim()) ? b.changelog.trim() : `[github] ${src.repo}${src.path ? '/' + src.path : ''}@${SOURCE_BRANCH} ${short}`;
-  const out = publishAppBody({ slug, kind, title: b?.title, description: b?.description, code: b?.code, created_by: who, changelog, force: b?.force === true, files: pulled.files }, { ...src, commit: pulled.commit });
+  const out = publishAppBody({ slug, kind, title: b?.title, description: b?.description, code: b?.code, created_by: (typeof b?.created_by === 'string' && b.created_by.trim()) || who, changelog, force: b?.force === true, files: pulled.files }, { ...src, commit: pulled.commit });
   return { status: out.status, body: { ...out.body, source: { ...src, branch: SOURCE_BRANCH, commit: pulled.commit } } };
 }
 
 // 写总门已把关：本机 CLI 或管理员（口令 / Odoo 管理员），与原 POST /api/apps 同口径
 app.post('/api/apps/:slug/sync', wrap(async (req, res) => {
   const b = (req.body ?? {}) as Record<string, unknown>;
-  const who = String(req.headers['x-market-client'] ?? '').trim() || (typeof b.created_by === 'string' && b.created_by.trim()) || 'admin-session';
+  // #165：锁身份=客户端会话，不用 created_by（元数据·同操作者带/不带会被当成两个会话误报 409）
+  const who = String(req.headers['x-market-client'] ?? '').trim() || (isAdmin(req) ? 'admin-session' : 'loopback-anon');
   const slug = String(req.params.slug ?? '').trim().toLowerCase();
   const gate = publishLockGuard(slug, who, b.force === true);
   if (!gate.ok) return res.status(409).json({ error: gate.hint });
