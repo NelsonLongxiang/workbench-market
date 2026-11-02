@@ -106,7 +106,7 @@ function RunsTable({ slug, runs, loading, published }: { slug: string; runs: Sop
   ];
   return (
     <div className="wm-sop-runs">
-      <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+      <Typography.Paragraph type="secondary" className="wm-caption">
         此列表仅展示执行元数据与步骤数量；点一行进入单次记录，步骤填写值和附件只对有读授权的人显示。
       </Typography.Paragraph>
       <ProTable<SopRun>
@@ -169,7 +169,7 @@ function Deliverables({ runs }: { runs: SopRun[] }) {
     },
   ];
   return (
-    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+    <Space direction="vertical" size={12} className="wm-w-full">
       <Space wrap>
         <Select
           style={{ minWidth: 220 }}
@@ -177,7 +177,7 @@ function Deliverables({ runs }: { runs: SopRun[] }) {
           onChange={setRunFilter}
           options={[{ value: 'recent' as const, label: `最近 ${RECENT} 次完成的执行` }, ...finished.map((r) => ({ value: r.id, label: `#${r.id} · ${r.started_by || '-'}` }))]}
         />
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>只汇总已完成的执行；每次执行的附件按它自己的读授权显示</Typography.Text>
+        <Typography.Text type="secondary" className="wm-caption">只汇总已完成的执行；每次执行的附件按它自己的读授权显示</Typography.Text>
       </Space>
       <Table<DeliverableRow>
         rowKey="key"
@@ -209,9 +209,9 @@ function Definition({ sop, def, defErr }: { sop: SopApp; def: SopDefinition | nu
               columns={[
                 { title: '#', dataIndex: 'n', width: 50, align: 'right' as const, render: (v: number) => <Typography.Text className="wm-num">{v}</Typography.Text> },
                 { title: '步骤', dataIndex: 'title' },
-                { title: 'key', dataIndex: 'key', width: 200, render: (v: string) => <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{v}</Typography.Text> },
+                { title: 'key', dataIndex: 'key', width: 200, render: (v: string) => <Typography.Text className="wm-mono wm-caption">{v}</Typography.Text> },
               ]}
-              title={() => <Typography.Text type="secondary" style={{ fontSize: 12 }}>v{def.version}（当前生效版本）共 {def.steps.length} 步</Typography.Text>}
+              title={() => <Typography.Text type="secondary" className="wm-caption">v{def.version}（当前生效版本）共 {def.steps.length} 步</Typography.Text>}
             />
           ) : <Alert type="info" showIcon message="步骤定义暂不可见" description={defErr || '加载中…'} />,
         },
@@ -225,7 +225,7 @@ function Definition({ sop, def, defErr }: { sop: SopApp; def: SopDefinition | nu
               dataSource={versions}
               columns={[
                 { title: '版本', dataIndex: 'version', width: 90, render: (v: number) => <Space size={4}><Typography.Text className="wm-mono">v{v}</Typography.Text>{v === sop.active_version && <Tag color="blue">生效中</Tag>}</Space> },
-                { title: '变更说明', dataIndex: 'changelog', render: (v: string) => (v ? <span style={{ whiteSpace: 'pre-wrap' }}>{v}</span> : <Typography.Text type="secondary">-</Typography.Text>) },
+                { title: '变更说明', dataIndex: 'changelog', render: (v: string) => (v ? <span className="wm-prewrap">{v}</span> : <Typography.Text type="secondary">-</Typography.Text>) },
                 { title: '发布人', dataIndex: 'created_by', width: 140 },
                 { title: '时间', dataIndex: 'created_at', width: 120, render: (v: string) => <RelTime value={v} /> },
               ]}
