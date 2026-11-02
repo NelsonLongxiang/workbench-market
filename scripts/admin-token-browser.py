@@ -86,9 +86,11 @@ with sync_playwright() as p:
             q.route('**/api/lifecycle/whoami', lambda r: r.fulfill(status=401, content_type='application/json', body=ANON) if who['s'] == 'anon' else r.fulfill(status=200, content_type='application/json', body=json.dumps(VIEWER)))
             q.route('**/api/lifecycle/board*', lambda r: r.fulfill(status=401, content_type='application/json', body=ANON))
             def tasks_route(route):
-                rs = route.fetch(); j = rs.json()
-                j.setdefault('sources', {})['lifecycle'] = {'ok': False, 'count': 0, 'latency_ms': 0, 'viewer': None, 'error': '未登录 Odoo', 'auth_required': True, 'login_url': f'/go/{wid}/'}
-                route.fulfill(response=rs, body=json.dumps(j), content_type='application/json')
+                # #324: anonymous identity is rejected before any private source fetch.
+                if who['s'] == 'anon':
+                    route.fulfill(status=401, content_type='application/json', body=json.dumps({'error': 'tasks_auth_required', 'login_url': f'/go/{wid}/'}))
+                else:
+                    route.fulfill(status=200, content_type='application/json', body=json.dumps({'tasks': [], 'sources': {'market': {'ok': False, 'count': 0, 'latency_ms': 0, 'error': 'source_not_authorized'}, 'ygl-trees': {'ok': False, 'count': 0, 'latency_ms': 0, 'error': 'source_not_authorized'}}, 'generated_at': '2026-01-01T00:00:00Z'}))
             q.route('**/api/tasks', tasks_route)
             q.goto(base + path)
             loc = (q.locator(scope) if scope else q).get_by_role('button', name=btn)
