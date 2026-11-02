@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** P0-a-1 四表判据冒烟（判据先红后绿·总工 direct-85d3c5ab 节奏②）：
  *  四表（skills/skill_versions/role_bundles/install_ledger）结构判据——DDL 落地前红，落地后绿。 */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 
