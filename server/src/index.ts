@@ -211,20 +211,25 @@ async function odooAdminOf(cookieHeader: string): Promise<string | null> {
   odooAdminCache.set(key, { at: Date.now(), login });
   return login;
 }
-app.use(async (req, _res, next) => {
-  if (!req.path.toLowerCase().startsWith('/api/') || surfaceOf(req) === 'content') return next();
-  if (adminTokenCheck(req.headers['x-admin-token'])) return next();
+/** 按需认定：只在确实要判管理员的请求上现查（写门调 adminGuard 前、管理读面、口令设置、whoami），其余请求不碰 Odoo */
+async function markOdooAdmin(req: express.Request): Promise<void> {
+  if (odooAdminReqs.has(req) || surfaceOf(req) === 'content' || adminTokenCheck(req.headers['x-admin-token'])) return;
   const cookie = String(req.headers.cookie ?? '');
-  if (!odooSessionOf(cookie)) return next();
+  if (!odooSessionOf(cookie)) return;
   const login = await odooAdminOf(cookie);
   if (login) odooAdminReqs.set(req, login);
+}
+// 管理读面（GET 也走 adminGuard/vaultGuard 的）与口令/身份端点：进路由前先认定
+const ADMIN_IDENTITY_PATHS = /^\/api\/(admin\/whoami|admin-token(\/|$)|mcp\/(sessions|upstreams|tools|calls)(\/|$)|change-requests(\/|$)|bindings(\/|$)|remote-allow\/diff|vault\/|lifecycle\/status)/;
+app.use(async (req, _res, next) => {
+  if (ADMIN_IDENTITY_PATHS.test(req.path.toLowerCase())) await markOdooAdmin(req);
   next();
 });
 // 写请求总门。
 //   本机 CLI（回环直连、不带浏览器标记、没有反代转发头）照旧免口令——属主口径；
 //   其余 /api 管理写走 adminGuard：有效口令或 Odoo 管理员，浏览器来的还要同源；同机反代转进来的按远程处理。
 //   业务写白名单（REMOTE_ALLOW_*）不变，照旧免口令。
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
   if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next(); // 读面不拦（掩码已有）
   // 与路由同口径分类：req.path 是 Express 路由用的 pathname（绝对形式 POST http://x/api/… 的原始 req.url 不以 /api/ 开头，曾绕过本门：#299）；
   // 再统一转小写：路由默认不区分大小写，/API/workbenches 也会命中 /api/workbenches（评审席 #294 复验；main 热修 #295）
@@ -234,7 +239,8 @@ app.use((req, res, next) => {
   if (!browserMarked(req) && rawLoopback(req)) return next(); // 本机 CLI
   if (p === '/api/admin-token') return next(); // 设/清口令由路由自己判（首次设置时还没有口令可验）
   if (p.startsWith('/api/')) {
-    // 其余 /api/* 写：走 adminGuard（函数声明有提升，请求期已定义）
+    // 其余 /api/* 写：走 adminGuard（函数声明有提升，请求期已定义）；先按需认定 Odoo 管理员
+    await markOdooAdmin(req);
     if (adminGuard(req, res)) return next();
     return; // adminGuard 已回 403
   }
