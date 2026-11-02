@@ -282,12 +282,14 @@ export const ORIGIN_CLAIM_BOUND_TAG = 'a2a-origin-claim/2';
  * OriginClaim 信封（上游 docs/protocol/delivery-origin-auth.md §2.1）：按真实目标 url/method 签。
  * - 绑定形式（v2）：X-A2A-Caller-Aud = 目标 origin，X-A2A-Caller-Sig2 签
  *   [tag, caller, callerUrl, ts, audience, METHOD, path]——只在那台主机、那条路由上有效。#64 关窗后对端只认它。
- * - 不绑定形式（v1）：X-A2A-Caller-Sig 签 [caller, callerUrl, ts]，未升级的对端在开窗期间仍认。两种同时带。
+ * - 不绑定形式（v1）：X-A2A-Caller-Sig 签 [caller, callerUrl, ts]，未升级的对端在开窗期间仍认。默认两种同时带，A2A_ORIGIN_CLAIM_UNBOUND=off 停发 v1。
  * 钉住的 0.6.25 A2aClient 调 originClaim() 不给目标，所以签名放在 fetch 适配层（那里有 url 与 method）。
  */
 export function originClaimHeaders(privateKey: KeyObject, zone: string, baseUrl: string, target: { url: string; method: string }, ts = Date.now()): Record<string, string> {
   const sign = (text: string): string => edSign(undefined, Buffer.from(text, 'utf8'), privateKey).toString('base64');
-  const headers: Record<string, string> = { 'X-A2A-Caller': zone, 'X-A2A-Caller-Url': baseUrl, 'X-A2A-Caller-Ts': String(ts), 'X-A2A-Caller-Sig': sign(JSON.stringify([zone, baseUrl, ts])) };
+  const headers: Record<string, string> = { 'X-A2A-Caller': zone, 'X-A2A-Caller-Url': baseUrl, 'X-A2A-Caller-Ts': String(ts) };
+  // v1 只为未升级对端保留；全舰队关窗后设 A2A_ORIGIN_CLAIM_UNBOUND=off 停发（v1 不绑路由，未升级对端上可被剥 Sig2 重放）
+  if (process.env.A2A_ORIGIN_CLAIM_UNBOUND !== 'off') headers['X-A2A-Caller-Sig'] = sign(JSON.stringify([zone, baseUrl, ts]));
   let audience = '';
   let path = '';
   try {
