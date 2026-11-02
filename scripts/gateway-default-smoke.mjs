@@ -12,7 +12,7 @@ function start(mode, tag) {
   const DATA = `tmp/e2e-gwdef-${tag}`;
   rmSync(DATA, { recursive: true, force: true });
   mkdirSync(DATA, { recursive: true });
-  const env = { ...process.env, PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'gwdef-admin-tok' };
+  const env = { ...process.env, NODE_ENV: 'test', PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'gwdef-admin-tok' };
   delete env.MCP_GATEWAY;
   if (mode !== undefined) env.MCP_GATEWAY = mode;
   const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], { cwd: 'server', env, stdio: ['ignore', 'ignore', 'pipe'] });

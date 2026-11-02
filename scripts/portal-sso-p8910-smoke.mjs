@@ -17,7 +17,7 @@ await new Promise((r) => target.listen(TP, '127.0.0.1', r));
 rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: true });
 { const { DatabaseSync } = await import('node:sqlite'); const db = new DatabaseSync('server/data/workbench-market.db', { readOnly: true }); db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`); db.close(); }
 for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync('server/data/' + d, DATA + '/' + d, { recursive: true });
-const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'p810', WM_ODOO_ORIGINS: 'http://127.0.0.1:' + TP }, stdio: 'ignore' });
+const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'p810', WM_ODOO_ORIGINS: 'http://127.0.0.1:' + TP }, stdio: 'ignore' });
 const B = 'http://127.0.0.1:' + PORT;
 try {
   await waitReady(B + '/api/health');

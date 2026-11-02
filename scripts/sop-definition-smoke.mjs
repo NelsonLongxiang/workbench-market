@@ -13,7 +13,7 @@ mkdirSync(join(TMP, 'data'), { recursive: true });
 const PORT = 20000 + Math.floor(Math.random() * 20000);
 const base = `http://127.0.0.1:${PORT}`;
 const ADMIN = 'synthetic-sopdef-admin';
-const env = { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: join(TMP, 'data'), ADMIN_TOKEN: ADMIN };
+const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: join(TMP, 'data'), ADMIN_TOKEN: ADMIN };
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });
 let serverErr = ''; server.stderr.on('data', (c) => (serverErr += c));
 const call = async (method, path, body, admin = true) => {

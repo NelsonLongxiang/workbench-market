@@ -340,8 +340,11 @@ export function watchContentConnection(check: () => Promise<boolean>, expiresAt:
 export function mountContentSurface(app: express.Express, runtime: ReturnType<typeof createContentSurface>) {
   app.use((req, res, next) => { if (surfaceOf(req) !== 'content') return next(); runtime.handler(req, res, next); });
 }
-export function listenContentSurface(app: express.Express, config: Config, runtime: ReturnType<typeof createContentSurface>) {
+export function listenContentSurface(app: express.Express, config: Config, runtime: ReturnType<typeof createContentSurface>, ready: () => boolean = () => true) {
   const server = registerSurface(app, 'content', config.port, undefined, config.host);
-  server.on('upgrade', (req, socket, head) => { void runtime.upgrade(req, socket, head).catch(() => socket.destroy()); });
+  server.on('upgrade', (req, socket, head) => {
+    if (!ready()) return socket.destroy(); // #326: upgrade does not traverse the HTTP startup gate
+    void runtime.upgrade(req, socket, head).catch(() => socket.destroy());
+  });
   return server;
 }
