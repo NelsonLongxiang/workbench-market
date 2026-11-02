@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""演示 SOP 常驻发布（幂等）：demo-rack-sop 发布+上架。"""
+"""演示 SOP 常驻发布（幂等）：demo-rack-sop 经 GitHub main（隔离实例用本机替身）同步+上架；production 模式只读核对。"""
 import json
 import sys
 import urllib.error
@@ -85,12 +85,29 @@ def call(method: str, path: str, body=None):
         return e.code, json.loads(e.read().decode() or '{}')
 
 
-s, b = call('POST', '/api/apps', {
-    'slug': 'demo-rack-sop', 'kind': 'sop', 'title': '服务器上架标准流程（演示）',
-    'code': 'SOP-DEMO-001', 'created_by': 'seed', 'changelog': '演示 SOP 常驻：三步上架流程样例',
-    'files': [{'path': 'sop.yaml', 'content': sop_yaml}],
-})
-print('publish:', s, 'v', b.get('version'), b.get('status'))
+# 属主 2026-11-02 来源收敛：SOP 台只接受 GitHub 仓库 main。隔离实例经本机替身（E2E_FAKE_GITHUB）提交+同步；
+# production 模式没有替身——只读核对演示 SOP 已在（须先由属主把 sop.yaml 合进真实仓库 main 再 sync），绝不对生产发写。
+if args.target_mode == 'production':
+    s3, b3 = call('GET', '/api/apps/demo-rack-sop')
+    if s3 != 200 or b3.get('status') != 'published':
+        print('demo-rack-sop 未在目标实例就绪（production 模式只读，不发布）：自产台/SOP 台只接受 GitHub main——'
+              '请把 sop.yaml 合进仓库 main，再由本机 CLI 或管理员调 POST /api/apps/demo-rack-sop/sync 并上架')
+        sys.exit(1)
+    print('OK demo-rack-sop published (production 只读核对)')
+    sys.exit(0)
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from gh_fixture import sync_request, FakeGithubMissing  # noqa: E402
+try:
+    sync_path, sync_body = sync_request({
+        'slug': 'demo-rack-sop', 'kind': 'sop', 'title': '服务器上架标准流程（演示）',
+        'code': 'SOP-DEMO-001', 'created_by': 'seed', 'changelog': '演示 SOP 常驻：三步上架流程样例',
+        'files': [{'path': 'sop.yaml', 'content': sop_yaml}],
+    })
+except FakeGithubMissing as e:
+    print('seed-demo-sop:', e); sys.exit(2)
+s, b = call('POST', sync_path, sync_body)
+print('sync:', s, 'v', b.get('version'), b.get('status'), 'unchanged' if b.get('unchanged') else '')
 if s not in (200, 201):
     print(json.dumps(b, ensure_ascii=False)); sys.exit(1)
 

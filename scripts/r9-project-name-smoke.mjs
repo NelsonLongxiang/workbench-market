@@ -10,6 +10,7 @@ import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
+import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 const PORT = 9955;
 const DATA = 'tmp/e2e-r9-' + Date.now().toString(36);
@@ -34,6 +35,7 @@ const lfs = createServer(async (req, res) => {
   return json(404, {});
 });
 const LP = await new Promise((r) => lfs.listen(0, '127.0.0.1', () => r(lfs.address().port)));
+const gh = await startFakeGithub(); // 自产台/SOP 台只从 GitHub main 同步：本机替身仓库
 rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: true });
 {
   const { DatabaseSync } = await import('node:sqlite');
@@ -42,14 +44,15 @@ rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: tru
 }
 for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`${SOURCE_DATA_DIR}/${d}`, `${DATA}/${d}`, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
-  cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'r9-tok', LAYERFS_SERVICE_URL: `http://127.0.0.1:${LP}`, LAYERFS_SERVICE_TOKEN: 'r9' }, stdio: 'ignore',
+  cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'r9-tok', LAYERFS_SERVICE_URL: `http://127.0.0.1:${LP}`, LAYERFS_SERVICE_TOKEN: 'r9', WM_GITHUB_API: gh.api }, stdio: 'ignore',
 });
 try {
   await waitReady(`http://127.0.0.1:${PORT}/api/health`);
   const LONG = 'a'.repeat(64); // SLUG_RE 上限 64
-  const rLong = await fetch(`http://127.0.0.1:${PORT}/api/apps`, { method: 'POST', headers: ADMIN, body: JSON.stringify({ slug: LONG, title: 'long', files: [{ path: 'index.html', content: '<h1>x</h1>' }] }) });
+  const rLong = await ghPublish(`http://127.0.0.1:${PORT}`, gh, { slug: LONG, title: 'long', files: [{ path: 'index.html', content: '<h1>x</h1>' }] }, { 'X-Admin-Token': 'r9-tok' });
   console.log('    [dbg] long publish:', rLong.status, (await rLong.text()).slice(0, 80));
-  await fetch(`http://127.0.0.1:${PORT}/api/apps`, { method: 'POST', headers: ADMIN, body: JSON.stringify({ slug: 'r9-short', title: 's', files: [{ path: 'index.html', content: '<h1>y</h1>' }] }) });
+  const rShort = await ghPublish(`http://127.0.0.1:${PORT}`, gh, { slug: 'r9-short', title: 's', files: [{ path: 'index.html', content: '<h1>y</h1>' }] }, { 'X-Admin-Token': 'r9-tok' });
+  console.log('    [dbg] short publish:', rShort.status);
   let d1 = null;
   for (let i = 0; i < 12 && !(d1?.app ?? d1)?.layerfs_project; i++) { await new Promise((r) => setTimeout(r, 250)); d1 = await (await fetch(`http://127.0.0.1:${PORT}/api/apps/${LONG}`)).json(); }
   const proj = String((d1?.app ?? d1)?.layerfs_project ?? '');
