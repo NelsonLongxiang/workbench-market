@@ -11,6 +11,7 @@ async function waitReady(url, ms = 20000) {
   return false;
 }
 import { rmSync, mkdirSync } from 'node:fs';
+import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 const PORT = 9816;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -20,8 +21,9 @@ const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ 
 
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
+const gh = await startFakeGithub(); // 自产台/SOP 台只从 GitHub main 同步：本机替身仓库
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server', env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: `../${DATA}` }, stdio: ['ignore', 'pipe', 'pipe'],
+  cwd: 'server', env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: `../${DATA}`, WM_GITHUB_API: gh.api }, stdio: ['ignore', 'pipe', 'pipe'],
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪（20s 超时）'); process.exit(1); }
 
@@ -33,7 +35,8 @@ async function call(method, path, body) {
 
 try {
   // 发布一个台（数据面挂接对象）
-  await call('POST', '/api/apps', { slug: 'appdata-smoke', title: 'T', files: [{ path: 'index.html', content: '<h1>x</h1>' }] });
+  const pub0 = await ghPublish(BASE, gh, { slug: 'appdata-smoke', title: 'T', files: [{ path: 'index.html', content: '<h1>x</h1>' }] });
+  ok('台经 GitHub main 同步发布 → 201', pub0.status === 201, `status=${pub0.status}`);
   // 双口径对照物理闸（PR#52 教训·direct-2a7684ec）：/api/apps ≥ /api/sops 且 app 类必现
   // ——S2 类批量替换若再装反两口径，此断言先红
   {

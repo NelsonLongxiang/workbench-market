@@ -2,13 +2,14 @@
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #164 P1③ 发布锁冒烟：异会话 60s 内 409（hint 带 served_version 指引）·同会话续发放行·force 越锁。
- *  PUBLISH_LOCK_MS 可经 env 覆盖（测试加速）。 */
+ *  PUBLISH_LOCK_MS 可经 env 覆盖（测试加速）。
+ *  属主 2026-11-02 来源收敛后发布只走 GitHub main 同步（POST /api/apps/<slug>/sync）：锁仍在同步入口上，会话身份按 #165 用 X-Market-Client。 */
 import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
+import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 const PORT = 10041;
 const DATA = 'tmp/e2e-lock-' + Date.now().toString(36);
-const H = { 'Content-Type': 'application/json', 'X-Admin-Token': 'lk' };
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
 async function waitReady(url, ms = 15000) {
@@ -16,7 +17,7 @@ async function waitReady(url, ms = 15000) {
   while (Date.now() < end) { try { const r = await fetch(url, { signal: AbortSignal.timeout(1500) }); if (r.status < 500) return true; } catch {} await new Promise((r) => setTimeout(r, 250)); }
   return false;
 }
-const mk = (slug, content, by, extra = {}) => JSON.stringify({ slug, title: 't', created_by: by, files: [{ path: 'index.html', content }], ...extra });
+const mk = (slug, content, by, extra = {}) => ({ body: { slug, title: 't', files: [{ path: 'index.html', content }], ...extra }, who: by });
 rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: true });
 {
   const { DatabaseSync } = await import('node:sqlite');
@@ -24,11 +25,12 @@ rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: tru
   db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`); db.close();
 }
 for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`${SOURCE_DATA_DIR}/${d}`, `${DATA}/${d}`, { recursive: true });
+const gh = await startFakeGithub(); // 自产台/SOP 台只从 GitHub main 同步：本机替身仓库
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
-  cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'lk', PUBLISH_LOCK_MS: '1500' }, stdio: 'ignore',
+  cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'lk', PUBLISH_LOCK_MS: '1500', WM_GITHUB_API: gh.api }, stdio: 'ignore',
 });
 const B = `http://127.0.0.1:${PORT}`;
-const pub = async (body) => { const r = await fetch(`${B}/api/apps`, { method: 'POST', headers: H, body, signal: AbortSignal.timeout(5000) }); return { status: r.status, j: await r.json().catch(() => ({})) }; };
+const pub = async ({ body, who }) => { const r = await ghPublish(B, gh, body, { 'X-Admin-Token': 'lk', 'X-Market-Client': who }); return { status: r.status, j: await r.json().catch(() => ({})) }; };
 try {
   await waitReady(`${B}/api/health`);
   console.log('    [stage] server ready');

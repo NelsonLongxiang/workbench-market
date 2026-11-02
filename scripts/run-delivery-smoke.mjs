@@ -2,6 +2,7 @@
 /** P4 run 交付物冒烟（product/run-delivery F1-F7 自查版 · 独立实例） */
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync } from 'node:fs';
+import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 const PORT = 9844;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -33,19 +34,21 @@ async function upload(runId, name, bytes, mime = 'application/octet-stream') {
 
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
+const gh = await startFakeGithub(); // 自产台/SOP 台只从 GitHub main 同步：本机替身仓库
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server', env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'dl-tok' },
+  cwd: 'server', env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'dl-tok', WM_GITHUB_API: gh.api },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪'); process.exit(1); }
 const AT = { 'X-Admin-Token': 'dl-tok' };
 
 try {
-  await json(`${BASE}/api/apps`, 'POST', {
+  const pub0 = await ghPublish(BASE, gh, {
     slug: 'rv-deliv', kind: 'sop', title: '交付冒烟',
     files: [{ path: 'sop.yaml', content: 'title: 交付冒烟\ncode: SOP-DLV\nsteps:\n  - key: s1\n    title: 一步\n    body: "<p>x</p>"\n' }],
     changelog: '冒烟',
   });
+  ok('SOP 经 GitHub main 同步发布 201', pub0.status === 201, `status=${pub0.status}`);
   await json(`${BASE}/api/sops/rv-deliv/publish`, 'POST', {}, AT);
   await json(`${BASE}/api/bindings`, 'POST', { target_type: 'sop', target_slug: 'rv-deliv', agent_node: 'dsh/0123dlv', mode: 'run', direction: 'admits' }, AT);
   const card = await json(`${BASE}/.well-known/agent-card.json`);

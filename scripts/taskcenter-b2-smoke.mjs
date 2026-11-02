@@ -41,8 +41,8 @@ try {
   const r7 = await fetch(B + '/api/task-center/tasks/' + j3.id);
   const j7 = await r7.json().catch(() => ({ events: [] }));
   ok('⑦ created 事件恰一条（只增）', Array.isArray(j7.events) && j7.events.filter((e) => e.type === 'created').length === 1, JSON.stringify(j7.events?.length));
-  // ⑧ C13 MCP 拒 slug
-  const r8 = await fetch(B + '/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'app_publish', arguments: { slug: 'task-center', title: 'x', files: [{ path: 'index.html', content: '<h1>x</h1>' }] } } }), signal: AbortSignal.timeout(15000) });
+  // ⑧ C13 MCP 拒 slug（app_publish 已移除，MCP 改台只剩 app_sync）
+  const r8 = await fetch(B + '/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'app_sync', arguments: { slug: 'task-center' } } }), signal: AbortSignal.timeout(15000) });
   const j8 = await r8.json().catch(() => ({}));
   ok('⑧ C13 MCP 拒 task-center slug', /人工面|403/.test(JSON.stringify(j8)), JSON.stringify(j8).slice(0, 60));
 } finally { child.kill(); await new Promise((x) => setTimeout(x, 400)); }
