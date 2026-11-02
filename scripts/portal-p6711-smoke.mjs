@@ -4,6 +4,7 @@ const SOURCE_DATA_DIR = requireDataSource();
 /** #170 P6/P7/P11 冒烟：①HTML 同源绝对链接改 /go/<id>/ ②Referer 只到目标源 ③自产台响应带 CSP sandbox。 */
 import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
+import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 import { createServer } from 'node:http';
 
 const PORT = 20000 + Math.floor(Math.random() * 20000);
@@ -17,10 +18,11 @@ let seenReferer = '';
 const url = 'http://127.0.0.1:' + TP;
 const target = createServer((req, res) => { seenReferer = String(req.headers.referer ?? ''); res.writeHead(200, { 'Content-Type': 'text/html' }); res.end('<html><body><a href="' + url + '/assets/a.png">x</a><a href="https://cdn.other.com/x.png">y</a></body></html>'); });
 await new Promise((r) => target.listen(TP, '127.0.0.1', r));
+const gh = await startFakeGithub(); // 自产台/SOP 台只从 GitHub main 同步：本机替身仓库
 rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: true });
 { const { DatabaseSync } = await import('node:sqlite'); const db = new DatabaseSync(SOURCE_DATA_DIR + '/workbench-market.db', { readOnly: true }); db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`); db.close(); }
 for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(SOURCE_DATA_DIR + '/' + d, DATA + '/' + d, { recursive: true });
-const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'p67' }, stdio: 'ignore' });
+const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'p67', WM_GITHUB_API: gh.api }, stdio: 'ignore' });
 const B = 'http://127.0.0.1:' + PORT;
 try {
   await waitReady(B + '/api/health');
@@ -30,7 +32,8 @@ try {
   ok('①b 跨源外链不动', html.includes('https://cdn.other.com/x.png'), '');
   ok('② Referer 只到目标源（不含 /go/）', seenReferer === url + '/' || seenReferer === url, seenReferer);
   // P11：自产台 CSP sandbox
-  await fetch(B + '/api/apps', { method: 'POST', headers: H, body: JSON.stringify({ slug: 'p67', title: 't', files: [{ path: 'index.html', content: '<h1>x</h1>' }] }) });
+  const pub0 = await ghPublish(B, gh, { slug: 'p67', title: 't', files: [{ path: 'index.html', content: '<h1>x</h1>' }] }, { 'X-Admin-Token': 'p67' });
+  ok('⓪ 台经 GitHub main 同步发布 → 201', pub0.status === 201, `status=${pub0.status}`);
   const r11 = await fetch(B + '/apps/p67/');
   const csp = String(r11.headers.get('content-security-policy') ?? '');
   ok('③ 自产台 CSP sandbox（无 allow-same-origin）', /sandbox/.test(csp) && !/allow-same-origin/.test(csp), csp);

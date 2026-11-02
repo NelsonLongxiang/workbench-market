@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, rmSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { startFakeGithub } from './github-fixture.mjs';
 
 /** 收尾：只停自己起的 server，**确认它已退出**才删自己的 TMP（Windows 上进程还持有 DATA_DIR 文件句柄时 rm 会 EPERM）。
  *  等到期仍未退出：不删 TMP、留现场并报出 PID，退出码非 0；删不掉同样如实报、非 0。不杀别的进程、不删别的目录。
@@ -51,6 +52,11 @@ if (dryEnv) {
   rmSync(TMP, { recursive: true, force: true });
   process.exit(0);
 }
+// 属主 2026-11-02 来源收敛：自产台/SOP 台只从 GitHub main 同步——起本机替身，服务经 WM_GITHUB_API 拉取，
+// Python 子进程（种子/E2E/cap 浏览器）经 E2E_FAKE_GITHUB 的写口提交文件（scripts/gh_fixture.py）
+const gh = await startFakeGithub();
+env.WM_GITHUB_API = gh.api; delete env.WM_GITHUB_TOKEN;
+seedEnv.E2E_FAKE_GITHUB = gh.api; e2eEnv.E2E_FAKE_GITHUB = gh.api;
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });
 let err = ''; server.stderr.on('data', (c) => (err += c));
 let code = 1;
@@ -75,6 +81,6 @@ try {
     code = await new Promise((r) => capBrowser.on('exit', (c) => r(c ?? 1)));
   }
 } catch (e) { console.error('e2e-full-run:', e.message); }
-finally { code = await cleanupOwn(server, TMP, code); }
+finally { code = await cleanupOwn(server, TMP, code); await gh.close(); }
 process.exit(code);
 }

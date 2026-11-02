@@ -7,6 +7,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -15,13 +16,19 @@ mkdirSync(join(TMP, 'data'), { recursive: true });
 const PORT = 20000 + Math.floor(Math.random() * 20000);
 const base = `http://127.0.0.1:${PORT}`;
 const ADMIN = 'synthetic-tokens-admin';
-const env = { ...process.env, MCP_GATEWAY: 'on', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), ADMIN_TOKEN: ADMIN };
+const gh = await startFakeGithub();
+const env = { ...process.env, MCP_GATEWAY: 'on', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), ADMIN_TOKEN: ADMIN, WM_GITHUB_API: gh.api };
 for (const k of ['LC_YGL_BIN', 'LC_YGL_HOME', 'LC_WORKBENCH_KEY_FILE', 'LC_ODOO_URL', 'WM_ODOO_ORIGINS', 'WM_CONTROL_PORT']) delete env[k];
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });
 let serverErr = ''; server.stderr.on('data', (c) => (serverErr += c));
 const adm = async (method, path, body) => {
   const r = await fetch(base + path, { method, headers: { 'content-type': 'application/json', 'x-admin-token': ADMIN }, body: JSON.stringify(body) });
   if (!r.ok) throw new Error(`${method} ${path} → ${r.status} ${await r.text()}`);
+  return r.json();
+};
+const publish = async (body) => {
+  const r = await ghPublish(base, gh, body, { 'x-admin-token': ADMIN });
+  if (!r.ok) throw new Error(`sync ${body.slug} → ${r.status} ${await r.text()}`);
   return r.json();
 };
 const tokensFile = readFileSync('web/src/tokens.css', 'utf8');
@@ -41,7 +48,7 @@ try {
   }
   ok('不在固定路径下的 /design/tokens.css 不被 SPA 兜成 200 HTML', !/text\/html/.test((await fetch(`${base}/design/tokens.css`)).headers.get('content-type') ?? '') );
 
-  await adm('POST', '/api/apps', { slug: 'tokens-sop', kind: 'sop', title: 'Token SOP', changelog: 'x', files: [{ path: 'sop.yaml', content: 'title: Token SOP\nsteps:\n  - key: a\n    title: 第一步\n    body: <p class="muted">说明</p><input data-field="a">\n' }] });
+  await publish({ slug: 'tokens-sop', kind: 'sop', title: 'Token SOP', changelog: 'x', files: [{ path: 'sop.yaml', content: 'title: Token SOP\nsteps:\n  - key: a\n    title: 第一步\n    body: <p class="muted">说明</p><input data-field="a">\n' }] });
   await adm('POST', '/api/sops/tokens-sop/publish', {});
   const html = await (await fetch(`${base}/sop/tokens-sop/`)).text();
   const styles = [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1]);
@@ -53,7 +60,7 @@ try {
   const scriptPart = html.slice(html.indexOf('<script>'));
   ok('执行页脚本里也不再用内联色值', !/#[0-9a-fA-F]{6}\b/.test(scriptPart.replace(/\/\/[^\n]*/g, '')));
 
-  await adm('POST', '/api/apps', { slug: 'tokens-demo', kind: 'app', title: '自产台 token 示例', changelog: 'x', files: [{ path: 'index.html', content: readFileSync('docs/examples/self-built-tokens.html', 'utf8') }] });
+  await publish({ slug: 'tokens-demo', kind: 'app', title: '自产台 token 示例', changelog: 'x', files: [{ path: 'index.html', content: readFileSync('docs/examples/self-built-tokens.html', 'utf8') }] });
   if (process.env.SKIP_BROWSER === '1') {
     console.log('  - 浏览器部分已跳过（SKIP_BROWSER=1）');
   } else {
@@ -71,6 +78,7 @@ try {
   await new Promise((x) => setTimeout(x, 300));
   if (fail && serverErr) console.log(serverErr.slice(-1200));
   rmSync(TMP, { recursive: true, force: true });
+  await gh.close();
 }
 console.log(`tokens-surface-smoke: ${pass} passed / ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -4,6 +4,7 @@ const SOURCE_DATA_DIR = requireDataSource();
 /** #164 P1② MCP app_files_upload 冒烟：①上传 200+id/url ②文件面列表可见（同表同链）③超 50MB→413 ④缺参→400。 */
 import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
+import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 const PORT = 10047;
 const DATA = 'tmp/e2e-up-' + Date.now().toString(36);
@@ -22,6 +23,7 @@ const mcp = async (name, args) => {
   let payload = {}; try { payload = JSON.parse(j.result?.content?.[0]?.text ?? '{}'); } catch {}
   return { status: r.status, j, payload };
 };
+const gh = await startFakeGithub(); // 自产台/SOP 台只从 GitHub main 同步：本机替身仓库
 rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: true });
 {
   const { DatabaseSync } = await import('node:sqlite');
@@ -30,11 +32,12 @@ rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: tru
 }
 for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`${SOURCE_DATA_DIR}/${d}`, `${DATA}/${d}`, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
-  cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'up' }, stdio: 'ignore',
+  cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'up', WM_GITHUB_API: gh.api }, stdio: 'ignore',
 });
 try {
   await waitReady(`${B}/api/health`);
-  await fetch(`${B}/api/apps`, { method: 'POST', headers: H, body: JSON.stringify({ slug: 'up1', title: 'u', files: [{ path: 'index.html', content: '<h1>u</h1>' }] }) });
+  const pub0 = await ghPublish(B, gh, { slug: 'up1', title: 'u', files: [{ path: 'index.html', content: '<h1>u</h1>' }] }, { 'X-Admin-Token': 'up' });
+  ok('⓪ 台经 GitHub main 同步发布 → 201', pub0.status === 201, `status=${pub0.status}`);
   // ① 上传
   const b64 = Buffer.from('hello,mcp\n1,2').toString('base64');
   let r = await mcp('app_files_upload', { slug: 'up1', name: '交付.csv', content_base64: b64, mime: 'text/csv', note: 'MCP 上传', created_by: 'e2e' });
