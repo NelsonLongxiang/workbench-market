@@ -34,7 +34,7 @@ writeFileSync(join(fixtureHome, 'ygl-trees.db'), 'SYNTHETIC_ONLY');
 writeFileSync(join(fixtureRoot, 'node_modules/ygl-trees/dist/bundle/bin.cjs'), '// synthetic interceptor only');
 const preload = String.raw`import cp from 'node:child_process';import {syncBuiltinESMExports} from 'node:module';import {existsSync} from 'node:fs';const original=cp.execFile;cp.execFile=function(file,args,options,callback){if(args?.[0]?.replaceAll('\\','/').endsWith('/ygl-trees/dist/bundle/bin.cjs')){const fail=existsSync(process.env.OMNI_FIXTURE_FAILURE);const rows=args[1]==='project'?[{name:'fixture-project',status:'active'}]:[{id:'one',title:'Synthetic todo',status:'todo'},{id:'two',title:'Synthetic done',status:'done'}];queueMicrotask(()=>callback(fail?Error('synthetic failure'):null,JSON.stringify(rows)));return {kill(){}};}return original.call(this,file,args,options,callback)};syncBuiltinESMExports();`;
 const child = spawn(process.execPath, ['--import', 'data:text/javascript,' + encodeURIComponent(preload), '--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server', env: { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'omni-tok', PNPM_HOME: fixtureRoot, YGL_HOME: fixtureHome, OMNI_FIXTURE_FAILURE: failure },
+  cwd: 'server', env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'omni-tok', PNPM_HOME: fixtureRoot, YGL_HOME: fixtureHome, OMNI_FIXTURE_FAILURE: failure },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪'); process.exit(1); }
