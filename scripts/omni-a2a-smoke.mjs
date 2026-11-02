@@ -51,7 +51,7 @@ rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const startSrv = (extraEnv = {}) => spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server',
-  env: { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: `../${DATA}`, YGL_HOME: new URL('../tmp/a2a-source-no-ygl', import.meta.url).pathname, ADMIN_TOKEN: 'synthetic-a2a-admin', REDIS_URL: '', ...extraEnv },
+  env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: `../${DATA}`, YGL_HOME: new URL('../tmp/a2a-source-no-ygl', import.meta.url).pathname, ADMIN_TOKEN: 'synthetic-a2a-admin', REDIS_URL: '', ...extraEnv },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 

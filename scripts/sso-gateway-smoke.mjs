@@ -40,7 +40,7 @@ mkdirSync(DATA, { recursive: true });
 }
 for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`server/data/${d}`, `${DATA}/${d}`, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
-  cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'ssogw-tok', WM_ODOO_ORIGINS: `http://127.0.0.1:${CAP_PORT}` }, stdio: 'ignore',
+  cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'ssogw-tok', WM_ODOO_ORIGINS: `http://127.0.0.1:${CAP_PORT}` }, stdio: 'ignore',
 });
 
 try {

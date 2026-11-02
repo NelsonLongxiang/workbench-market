@@ -9,6 +9,7 @@
  */
 import type express from 'express';
 import { db } from './db.ts';
+import { isStartupProbeRequest } from './startup-security-self-probe.ts';
 
 db.exec(`CREATE TABLE IF NOT EXISTS endpoint_stats (
   endpoint TEXT NOT NULL,
@@ -47,6 +48,7 @@ export function normalizeEndpoint(pathname: string): string {
 /** 计数中间件：只记 GET/POST 等业务请求，跳过静态资源与 stats 自身（防自增噪声） */
 export function endpointStatsMiddleware(): express.RequestHandler {
   return (req, res, next) => {
+    if (isStartupProbeRequest(req)) return next(); // self-probe has its own credential-free audit, not adoption traffic
     // 入口即取路径：门户 /go/:id/* 的 pathRewrite 会把 req.url 改成上游路径（#39）
     const url = String(req.originalUrl ?? req.url ?? '').split('?')[0];
     next();
