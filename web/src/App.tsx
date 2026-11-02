@@ -14,8 +14,8 @@ import SopSpace from './pages/SopSpace';
 import SopRunDetail from './pages/SopRunDetail';
 import McpGateways from './pages/McpGateways';
 import Vault from './pages/Vault';
-import { adminTokenPresent, getAdminToken, setAdminToken, subscribeAdminToken } from './admin-token';
-import { controlUrl, MARKET_ONLY, marketUrl, onSurface, surface } from './surface';
+import { adminActive, adminTokenPresent, getAdminToken, odooAdmin, refreshAdminIdentity, setAdminToken, subscribeAdminToken } from './admin-token';
+import { MARKET_ONLY, marketUrl, onSurface, surface } from './surface';
 import { Badge, Button as AButton, Input as AInput, Popover, Result, Tag } from 'antd';
 import Tasks from './pages/Tasks';
 import Reviews from './pages/Reviews';
@@ -35,14 +35,6 @@ function menuRoutes(admin: boolean) {
   };
 }
 
-/** #292 M1：业务面不输口令，只给去控制面的链接（同 path） */
-function ControlSurfaceLink() {
-  const location = useLocation();
-  const href = onSurface(controlUrl, location.pathname + location.search);
-  if (!href) return <Tag color="default" title="WM_CONTROL_PORT=0：浏览器不能做管理写，只能用本机命令行">控制面已关闭</Tag>;
-  return <AButton size="small" icon={<KeyOutlined />} href={href} title="管理操作（登记/修改工作台、发布、设置）在控制面完成，口令只在那里输入">管理控制面</AButton>;
-}
-
 /** #292 M1：控制面上的业务页跳回业务面同 path */
 function MarketOnlyRedirect() {
   const location = useLocation();
@@ -51,9 +43,10 @@ function MarketOnlyRedirect() {
   return <Result status="info" title="这是业务页面，请在业务面打开" extra={href ? <AButton type="primary" href={href}>去业务面</AButton> : null} />;
 }
 
+/** 管理身份：管理员口令或 Odoo 管理员登录（属主 2026-11-02 撤销「口令只在控制面输入」） */
 function AdminTokenBadge() {
-  if (surface === 'market') return <ControlSurfaceLink />;
-  return <AdminTokenInput />;
+  const odoo = React.useSyncExternalStore(subscribeAdminToken, odooAdmin);
+  return <>{odoo && <Tag color="blue" title="当前 Odoo 账号是管理员，管理操作无需另输口令">Odoo 管理员 · {odoo}</Tag>}<AdminTokenInput /></>;
 }
 
 function AdminTokenInput() {
@@ -89,7 +82,8 @@ function AdminTokenInput() {
 
 export default function App() {
   const location = useLocation();
-  const admin = React.useSyncExternalStore(subscribeAdminToken, adminTokenPresent);
+  const admin = React.useSyncExternalStore(subscribeAdminToken, adminActive);
+  React.useEffect(() => { void refreshAdminIdentity(); }, []);
   // 管理组默认折叠：初始只展开四个日常分组；当前页在管理组时也展开它
   const [openKeys, setOpenKeys] = React.useState<string[]>(() =>
     findNav(location.pathname)?.group.admin ? [...WORK_GROUPS, ADMIN_GROUP] : WORK_GROUPS);

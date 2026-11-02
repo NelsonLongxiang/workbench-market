@@ -24,9 +24,9 @@ if _port.strip() == '9800' and _os.environ.get('E2E_ALLOW_PROD') != '1':
     print('[E2E] ✗ 拒跑：E2E_PORT=9800 是生产实例（默认拒跑；确需生产演练请显式 E2E_ALLOW_PROD=1）')
     sys.exit(2)
 BASE = f'http://127.0.0.1:{_port}'
-# #292 M1 双面：BASE 是业务面；管理写（登记/改/删工作台、类型、设置、上架）浏览器只在控制面做，
-# 控制面地址取服务端注入的 <meta name="wm-control-url">（空 = WM_CONTROL_PORT=0 已关闭；无该 meta = M1 之前的单面实例）。
-# 控制面写要口令：E2E_ADMIN_TOKEN（实例 ADMIN_TOKEN 或库内口令）；没给且实例未设口令时，本机 CLI 临时设一个、跑完清掉。
+# BASE 是业务面。属主 2026-11-02 撤销 #292 M1：控制面缺省不开，业务面页面凭口令即可做管理写（口令模式）；
+# 显式开了控制面（<meta name="wm-control-url"> 非空）时管理页仍可在控制面做；无该 meta = M1 之前的单面实例。
+# 管理写要口令：E2E_ADMIN_TOKEN（实例 ADMIN_TOKEN 或库内口令）；没给且实例未设口令时，本机 CLI 临时设一个、跑完清掉。
 ADMIN_TOKEN = _os.environ.get('E2E_ADMIN_TOKEN', '')
 RESULTS = []
 
@@ -106,9 +106,10 @@ with sync_playwright() as p:
     import re as _re_m1
     _m = _re_m1.search(r'<meta name="wm-control-url" content="([^"]*)"', page.request.get(BASE + '/').text())
     CTRL = _m.group(1).rstrip('/') if _m else None  # None = 单面旧实例；'' = 控制面已关闭
-    ADMIN_UI = BASE if CTRL is None else (CTRL or None)  # 浏览器做管理写的面；None = 浏览器不能做管理写
+    TOKEN_MODE = CTRL == ''  # 未开控制面：业务面页面凭口令做管理写
+    ADMIN_UI = BASE if CTRL is None or TOKEN_MODE else CTRL  # 浏览器做管理写的面
     _tmp_token = ''
-    if CTRL and not ADMIN_TOKEN:
+    if CTRL is not None and not ADMIN_TOKEN:
         if page.request.get(BASE + '/api/admin-token/state').json().get('source') == 'none':
             _tmp_token = ADMIN_TOKEN = 'e2e-' + str(int(time.time() * 1000))
             _r = page.request.put(BASE + '/api/admin-token', headers={'Content-Type': 'application/json'},
@@ -117,14 +118,17 @@ with sync_playwright() as p:
     if CTRL:
         # 控制面页面的口令在 sessionStorage（离开页面即清），每次进控制面页面前注入
         page.add_init_script(f"if (location.origin === {json.dumps(CTRL)}) sessionStorage.setItem('wm-admin-token', {json.dumps(ADMIN_TOKEN)});")
-    print(f'[E2E] 业务面 {BASE}；控制面 ' + ('无（单面实例）' if CTRL is None else (CTRL or '已关闭（WM_CONTROL_PORT=0）')))
+    elif TOKEN_MODE:
+        # 口令模式：管理页注入口令；驾驶舱/使用页不注入（持口令时不内嵌 /go/，那两页按「访客只读」验）
+        page.add_init_script(f"if (location.origin === {json.dumps(BASE)} && !/^\\/(cockpit|use)(\\/|$)/.test(location.pathname)) sessionStorage.setItem('wm-admin-token', {json.dumps(ADMIN_TOKEN)});")
+    print(f'[E2E] 业务面 {BASE}；' + ('单面实例' if CTRL is None else ('业务面凭口令管理（未开控制面）' if TOKEN_MODE else f'控制面 {CTRL}')))
 
-    def market_write(path='/api/workbenches', method='POST', body=None):
-        """从当前页面用浏览器 fetch 发管理写（带 Origin = 浏览器标记），**带上正确口令**，返回 [status, json]"""
+    def market_write(path='/api/workbenches', method='POST', body=None, token=None):
+        """从当前页面用浏览器 fetch 发管理写（带 Origin = 浏览器标记），默认**带上正确口令**（token='' 不带），返回 [status, json]"""
         return page.evaluate('''async ([p, m, b, t]) => { const h = { 'content-type': 'application/json' }; if (t) h['x-admin-token'] = t;
             const r = await fetch(p, { method: m, headers: h, body: JSON.stringify(b) });
             let j = {}; try { j = await r.json(); } catch {} return [r.status, j]; }''',
-            [path, method, body or {'name': 'E2E 浏览器写', 'url': 'http://127.0.0.1:9/'}, ADMIN_TOKEN])
+            [path, method, body or {'name': 'E2E 浏览器写', 'url': 'http://127.0.0.1:9/'}, ADMIN_TOKEN if token is None else token])
 
     def shot(name):
         try:
@@ -522,6 +526,17 @@ with sync_playwright() as p:
         page.wait_for_load_state('networkidle', timeout=15000)
         if CTRL is None:
             record('M1 双面（单面旧实例，无此约束）', True)
+        elif TOKEN_MODE:
+            st, j = market_write()
+            assert st == 201, f'业务面页面带口令管理写应 201: {st} {j}'
+            api(page, 'DELETE', f"/api/workbenches/{j['id']}")
+            st, j = market_write(token='')
+            assert st == 403, f'业务面页面不带口令管理写应 403: {st} {j}'
+            st, _ = market_write('/api/settings', 'PUT', {'health_interval_seconds': '31'}, token='')
+            assert st == 403, f'业务面页面不带口令改设置应 403: {st}'
+            assert page.get_by_role('link', name='管理控制面').count() == 0, '页头不应再有控制面链接'
+            assert page.get_by_role('button', name=_re_m1.compile(r'口\s*令')).count() >= 1, '页头应有口令入口'
+            record('管理身份（未开控制面：业务面带口令写 201 / 不带口令 403 / 页头口令入口）', True)
         else:
             st, j = market_write()
             assert st == 403 and j.get('control_surface_required') is True, f'业务面浏览器带对口令管理写也应 403: {st} {j}'
@@ -553,7 +568,7 @@ with sync_playwright() as p:
             assert page.get_by_role('button', name='新建驾驶舱').first.is_visible(), '新建按钮缺失'
         else:
             assert page.get_by_role('button', name='新建驾驶舱').count() == 0, '业务面不应有新建驾驶舱入口'
-            assert '命令行' in page.locator('.wm-cockpit-readonly').first.inner_text(), '业务面应提示驾驶舱编辑走命令行'
+            assert _re_m1.search('命令行|管理员', page.locator('.wm-cockpit-readonly').first.inner_text()), '无管理身份时应提示驾驶舱编辑的途径'
         r = api(page, 'POST', '/api/cockpits', {'name': 'E2E 驾驶舱', 'panels': [{'workbenchId': pw, 'x': 0, 'y': 0, 'w': 6, 'h': 8}]}).json()
         cid = r['id']
         page.goto(BASE + f'/cockpit/{cid}')
@@ -596,8 +611,8 @@ with sync_playwright() as p:
             page.goto(BASE + f'/cockpit/{cid}')
             page.wait_for_load_state('networkidle')
             page.wait_for_timeout(600)
-            st, j = market_write(f'/api/cockpits/{cid}', 'PUT', {'panels': []})
-            assert st == 403 and j.get('control_surface_required') is True, f'业务面页面改布局应 403: {st} {j}'
+            st, j = market_write(f'/api/cockpits/{cid}', 'PUT', {'panels': []}, token='' if TOKEN_MODE else None)
+            assert st == 403 and (TOKEN_MODE or j.get('control_surface_required') is True), f'业务面页面{"不带口令" if TOKEN_MODE else ""}改布局应 403: {st} {j}'
             assert len(api(page, 'GET', f'/api/cockpits/{cid}').json()['panels']) == 1, '被拒的布局写不应生效'
             assert api(page, 'PUT', f'/api/cockpits/{cid}', {'panels': []}).status == 200, 'CLI 改布局应 200'
         else:
@@ -613,7 +628,7 @@ with sync_playwright() as p:
         assert page.get_by_text('E2E 驾驶舱', exact=True).first.is_visible(), '列表中未见 E2E 驾驶舱'
         if CTRL is not None:
             assert page.get_by_role('button', name='删除').count() == 0, '业务面驾驶舱列表不应有删除入口'
-            st, _ = market_write(f'/api/cockpits/{cid}', 'DELETE', {})
+            st, _ = market_write(f'/api/cockpits/{cid}', 'DELETE', {}, token='' if TOKEN_MODE else None)
             assert st == 403, f'业务面页面删驾驶舱应 403: {st}'
         assert api(page, 'DELETE', f'/api/cockpits/{cid}').status == 200
         api(page, 'DELETE', f'/api/workbenches/{pw}')

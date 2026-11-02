@@ -13,12 +13,12 @@ export type SurfaceName = 'market' | 'control' | (string & {});
 type Registered = { name: SurfaceName; port: number; server: Server };
 const surfaces: Registered[] = [];
 
-/** 读端口配置：WM_CONTROL_PORT 缺省 = 业务端口 + 1（生产 9800 → 9801；测试随机端口不会撞在一起）；
- *  '0' 或与业务端口相同 → 关闭控制面（此时浏览器管理写全部拒绝，只能走本机 CLI） */
+/** 读端口配置：WM_CONTROL_PORT 缺省不开（属主 2026-11-02 撤销 #292 M1 控制面强制：管理写凭口令或 Odoo 管理员在业务面即可）；
+ *  显式给端口才开一个可选的独立管理端口；'0' 或与业务端口相同 → 不开 */
 export function surfacePorts(env: NodeJS.ProcessEnv = process.env): { market: number; control: number | null } {
   const market = Number(env.PORT) || 9800;
   const raw = String(env.WM_CONTROL_PORT ?? '').trim();
-  const n = raw === '' ? market + 1 : Number(raw);
+  const n = raw === '' ? 0 : Number(raw);
   const control = Number.isInteger(n) && n > 0 && n < 65536 && n !== market ? n : null;
   return { market, control };
 }
