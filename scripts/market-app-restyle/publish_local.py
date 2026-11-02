@@ -5,9 +5,15 @@
 import hashlib, json, re, subprocess, sys, tempfile, urllib.request
 from pathlib import Path
 
+def rd(p):  # 原样读写：不做换行转换（Windows 下 read_text/write_text 会改 \r\n）
+    with open(p, encoding='utf-8', newline='') as f: return f.read()
+
+def wr(p, s):
+    with open(p, 'w', encoding='utf-8', newline='') as f: f.write(s)
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
-MANIFEST = json.loads((HERE / 'expected.json').read_text(encoding='utf-8'))
+MANIFEST = json.loads(rd(HERE / 'expected.json'))
 INJECT = re.compile(r'<meta name="wm-app-token".*?</script>', re.S)
 CHANGELOG = '统一设计层 v1：DESIGN.md v1.0.0 token + PATTERNS.md §7（菜单/焦点/状态持久化）；深色转浅色、写死内网地址改同源'
 
@@ -33,15 +39,15 @@ def main():
         for rel in MANIFEST[slug]['files']:
             txt = get(f'{base}/apps/{slug}/' + ('' if rel == 'index.html' else rel))
             dst = apps / f'{slug}.html' if rel == 'index.html' else extra / slug / rel
-            dst.parent.mkdir(parents=True, exist_ok=True); dst.write_text(txt, encoding='utf-8')
+            dst.parent.mkdir(parents=True, exist_ok=True); wr(dst, txt)
     subprocess.run([sys.executable, '-I', str(HERE / 'restyle.py'), str(ROOT / 'web/src/tokens.css'), str(apps), str(extra), str(out)], check=True, stdout=subprocess.DEVNULL)
     report = {}
     for slug in slugs:
         sets, mismatch = [], []
         for rel, exp in MANIFEST[slug]['files'].items():
             src_path = apps / f'{slug}.html' if rel == 'index.html' else extra / slug / rel
-            src = INJECT.sub('', src_path.read_text(encoding='utf-8'), count=1)
-            new = (out / slug / rel).read_text(encoding='utf-8')
+            src = INJECT.sub('', rd(src_path), count=1)
+            new = rd(out / slug / rel)
             if sha(src) != exp['src'] or sha(new) != exp['out']:
                 mismatch.append(rel)  # 线上源自审计后变了：不发，交回复核
             elif new != src:

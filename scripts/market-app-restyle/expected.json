@@ -2,8 +2,8 @@
  "ai-office-os-blueprint": {
   "files": {
    "index.html": {
-    "src": "002d6180f5014d4525c9603778dcb2aca648f42a52e86f351b19e923e31cc16c",
-    "out": "0d929493a9dd6ab2966c31f37c94decc908e455b032d4403323dfe72a583dd88"
+    "src": "7832440b4a33495c7820e804284bbf4d6eeb811c9ad0bd09dc1ba4c0ab195a61",
+    "out": "def2d6868c1472a5a0b5f6c04382c11b355a62a3191445ceb1fbf760250030f9"
    }
   }
  },
@@ -58,8 +58,8 @@
  "multi-platform-case-evidence": {
   "files": {
    "index.html": {
-    "src": "4fcd820ef35281df87438e222160e3eb4316f2ba1dc353b20c83b12df3269796",
-    "out": "64572b63020a3247eb3927c6051aa147d76420a961b8e3af50b724f8664c8c27"
+    "src": "79520e0dc40e3f2dc6bccfab547d421c1cb5bee58205ccbfc3e18b85b9cd918f",
+    "out": "10be2a6b9928868bbaa05124711cb06685c6346b05a989943f76ab81632e2de6"
    }
   }
  },
@@ -114,8 +114,8 @@
  "multi-platform-t101208-evidence": {
   "files": {
    "index.html": {
-    "src": "5d0d0c7b059da1afab1a84df7da395a9af1206d6a176522790da569820446333",
-    "out": "2e03a770320c39edd20a394d6f32680e0e2633da7db81a83e232313d267c4e68"
+    "src": "2c2df1c5b24a42442b0179d9dd66a66e8dd1322e4fbdb1dfd6d058ed427822fe",
+    "out": "e088a4d0ada7e6417b5276ba7e898c01a27b8878fcf18eb79aceddf87fefa205"
    }
   }
  },

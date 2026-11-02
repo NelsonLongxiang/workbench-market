@@ -4,6 +4,12 @@
 import difflib, json, re, sys
 from pathlib import Path
 
+def rd(p):  # 原样读写：不做换行转换（Windows 下 read_text/write_text 会改 \r\n）
+    with open(p, encoding='utf-8', newline='') as f: return f.read()
+
+def wr(p, s):
+    with open(p, 'w', encoding='utf-8', newline='') as f: f.write(s)
+
 INJECT = re.compile(r'<meta name="wm-app-token".*?</script>', re.S)
 TOK = re.compile(r'[^;{}>,\n]*[;{}>,\n]?')  # 按 CSS/HTML 分隔符切片，长行也能细粒度对齐
 GAP, MAX = 400, 120_000  # 相邻块间距 <400 字符就合并；单条编辑上限 ~120KB
@@ -48,17 +54,17 @@ if __name__ == '__main__':
     summary = {}
     for f in sorted(apps.glob('*.html')):
         slug = f.stem; plan = []
-        jobs = [('index.html', INJECT.sub('', f.read_text(encoding='utf-8'), count=1))]
-        jobs += [(str(x.relative_to(extra / slug)), x.read_text(encoding='utf-8')) for x in sorted((extra / slug).rglob('*')) if x.is_file()]
+        jobs = [('index.html', INJECT.sub('', rd(f), count=1))]
+        jobs += [(str(x.relative_to(extra / slug)), rd(x)) for x in sorted((extra / slug).rglob('*')) if x.is_file()]
         for rel, src in jobs:
-            target = (out / slug / rel).read_text(encoding='utf-8')
+            target = rd(out / slug / rel)
             es = edits_for(src, target)
             # 按位置倒序应用：前面的替换不影响后面 old_text 的唯一性判断
             es.sort(key=lambda e: -e['_at'])
             assert apply(src, es) == target, f'{slug}/{rel} 模拟应用不一致'
             plan.append({'path': rel, 'edits': [{'old_text': e['old_text'], 'new_text': e['new_text']} for e in es],
                          'bytes_old': len(src.encode()), 'bytes_new': len(target.encode())})
-        (dst / f'{slug}.json').write_text(json.dumps(plan, ensure_ascii=False), encoding='utf-8')
+        wr(dst / f'{slug}.json', json.dumps(plan, ensure_ascii=False))
         summary[slug] = [(p['path'], len(p['edits']), max((len(e['old_text']) + len(e['new_text']) for e in p['edits']), default=0)) for p in plan]
     for k, v in summary.items():
         print(f'{k:38s}', ' '.join(f'{p}:{n}条/最大{m // 1024}KB' for p, n, m in v))

@@ -7,6 +7,12 @@
 import colorsys, json, re, sys
 from pathlib import Path
 
+def rd(p):  # 原样读写：不做换行转换（Windows 下 read_text/write_text 会改 \r\n）
+    with open(p, encoding='utf-8', newline='') as f: return f.read()
+
+def wr(p, s):
+    with open(p, 'w', encoding='utf-8', newline='') as f: f.write(s)
+
 T = {  # token 名 -> 值（与 web/src/tokens.css 一致）
     'primary': '#1E3A5F', 'primary-subtle': '#EEF2F7', 'on-primary': '#FFFFFF',
     'text': '#0F172A', 'text-secondary': '#5A6577',
@@ -273,10 +279,10 @@ def transform(src, slug, tokens_css, kind='html'):
     s = s[:m.end()] + '\n' + layer + s[m.end():] if m else layer + s
     return s, stats
 
-UX_JS = (Path(__file__).parent / 'wm-ux.js').read_text(encoding='utf-8')
+UX_JS = rd(Path(__file__).parent / 'wm-ux.js')
 
 if __name__ == '__main__':
-    tokens = Path(sys.argv[1]).read_text(encoding='utf-8')
+    tokens = rd(Path(sys.argv[1]))
     src, extra, out = Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4])
     report = {}
     for f in sorted(src.glob('*.html')):
@@ -285,12 +291,12 @@ if __name__ == '__main__':
         agg = {'colors': {}, 'font_size': 0, 'font_family': 0, 'radius': 0}
         for rel, path in jobs:
             kind = rel.rsplit('.', 1)[-1] if rel.endswith(('.css', '.js')) else 'html'
-            body, st = transform(path.read_text(encoding='utf-8'), slug, tokens, kind)
-            dst = out / slug / rel; dst.parent.mkdir(parents=True, exist_ok=True); dst.write_text(body, encoding='utf-8')
+            body, st = transform(rd(path), slug, tokens, kind)
+            dst = out / slug / rel; dst.parent.mkdir(parents=True, exist_ok=True); wr(dst, body)
             agg['colors'].update(st['colors'])
             for k in ('font_size', 'font_family', 'radius'): agg[k] += st[k]
         roles = {}
         for k, v in agg['colors'].items(): roles.setdefault(v, []).append(k)
         report[slug] = {'files': [r for r, _ in jobs], 'distinct_colors': len(agg['colors']), 'font_size': agg['font_size'], 'font_family': agg['font_family'], 'radius': agg['radius'], 'roles': roles}
-    (out / 'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding='utf-8')
+    wr(out / 'report.json', json.dumps(report, ensure_ascii=False, indent=1))
     for k, v in report.items(): print(f"{k:38s} files={len(v['files'])} colors={v['distinct_colors']:3d} fs={v['font_size']:4d} ff={v['font_family']:3d} r={v['radius']:3d}")
