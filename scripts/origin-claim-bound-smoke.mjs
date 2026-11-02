@@ -18,7 +18,7 @@ mkdirSync('tmp', { recursive: true });
 const data = mkdtempSync(resolve('tmp', 'oc-bound-'));
 const port = 21000 + Math.floor(Math.random() * 20000);
 const base = 'http://127.0.0.1:' + port;
-const env = { ...process.env, PORT: String(port), DATA_DIR: data, ADMIN_TOKEN: 'oc-test', MCP_GATEWAY: 'off', REDIS_URL: '', LAYERFS_SERVICE_URL: '', MARKET_PUBLIC_URL: base };
+const env = { ...process.env, PORT: String(port), DATA_DIR: data, ADMIN_TOKEN: 'oc-test', MCP_GATEWAY: 'on', REDIS_URL: '', LAYERFS_SERVICE_URL: '', MARKET_PUBLIC_URL: base };
 let child, logs = '', pass = 0;
 const check = (name, fn) => { fn(); pass++; console.log('PASS ' + name); };
 
