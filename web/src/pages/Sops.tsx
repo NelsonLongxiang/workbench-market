@@ -12,12 +12,11 @@ import RowActions from '../components/RowActions';
 import WmPage from '../components/WmPage';
 
 /** SOP 状态语义：draft 未上架（不入册）/ published 在架可执行 / deprecated 已废弃（市场停用）
- *  色值经对比度审计：published 文字 #15803d on #F6FFED ≈4.8:1、deprecated #CF1322 on #FFF1F0 ≈5.0:1
- *  （antd 预设 green Tag 的 #389E0D 实测仅 3.37:1，不够 4.5 下限——E2E 渲染层探针抓过） */
+ *  #322：色值取 DESIGN.md 状态色——写字用 *-text、浅底用 *-bg（success-text 在 success-bg 上 5.21:1、danger-text 在 danger-bg 上 5.91:1，均 ≥4.5） */
 export const SOP_STATUS: Record<SopApp['status'], { style: CSSProperties; label: string; hint: string }> = {
   draft: { style: {}, label: 'draft', hint: '草稿——未入册，仅 /sop/:slug/ 直访返回 403' },
-  published: { style: { color: '#15803D', background: '#F6FFED', borderColor: '#B7EB8F' }, label: 'published', hint: '已上架——市场在册，Runner 可执行' },
-  deprecated: { style: { color: '#CF1322', background: '#FFF1F0', borderColor: '#FFA39E' }, label: 'deprecated', hint: '已废弃——市场行停用，历史 run 仍可回放' },
+  published: { style: { color: 'var(--wm-color-success-text)', background: 'var(--wm-color-success-bg)', borderColor: 'var(--wm-color-success-bg)' }, label: 'published', hint: '已上架——市场在册，Runner 可执行' },
+  deprecated: { style: { color: 'var(--wm-color-danger-text)', background: 'var(--wm-color-danger-bg)', borderColor: 'var(--wm-color-danger-bg)' }, label: 'deprecated', hint: '已废弃——市场行停用，历史 run 仍可回放' },
 };
 
 
@@ -118,13 +117,12 @@ export default function Sops() {
             title: `上架 ${s.title}`,
             content: (
               <div style={{ marginTop: 8 }}>
-                <Typography.Paragraph type="secondary" style={{ marginBottom: 8, fontSize: 13 }}>
+                <Typography.Paragraph type="secondary" className="wm-mb-2 wm-caption">
                   上架后市场在册（{s.slug} 入册、Runner 可执行）；发布说明可选，会记入当前版本 changelog。
                 </Typography.Paragraph>
-                <Typography.Title level={5} style={{ marginBottom: 4 }}>发布说明（可选）</Typography.Title>
+                <Typography.Title level={5} className="wm-mb-1">发布说明（可选）</Typography.Title>
                 <input
-                  className="wm-mono"
-                  style={{ width: '100%', padding: '6px 10px', border: '1px solid #E2E8F0', borderRadius: 6, fontSize: 13 }}
+                  className="wm-mono wm-input wm-w-full"
                   placeholder="如：v2 增加通电自检步骤"
                   onChange={(e) => { value = e.target.value; }}
                 />
@@ -183,20 +181,20 @@ export default function Sops() {
       dataIndex: 'code',
       width: 120,
       render: (_, s) =>
-        s.code ? <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{s.code}</Typography.Text> : <Typography.Text type="secondary">-</Typography.Text>,
+        s.code ? <Typography.Text className="wm-mono wm-caption">{s.code}</Typography.Text> : <Typography.Text type="secondary">-</Typography.Text>,
     },
     {
       title: 'slug',
       dataIndex: 'slug',
       width: 150,
-      render: (_, s) => <Typography.Text className="wm-mono" style={{ fontSize: 12 }} copyable>{s.slug}</Typography.Text>,
+      render: (_, s) => <Typography.Text className="wm-mono wm-caption" copyable>{s.slug}</Typography.Text>,
     },
     {
       title: '版本',
       dataIndex: 'active_version',
       width: 90,
       render: (_, s) => (
-        <Typography.Text className="wm-mono">v{s.active_version} <Typography.Text type="secondary" style={{ fontSize: 11 }}>/ {s.versions.length}</Typography.Text></Typography.Text>
+        <Typography.Text className="wm-mono">v{s.active_version} <Typography.Text type="secondary" className="wm-caption">/ {s.versions.length}</Typography.Text></Typography.Text>
       ),
     },
     {
@@ -207,8 +205,8 @@ export default function Sops() {
       render: (_, s) => {
         const cur = s.versions.find((v) => v.version === s.active_version);
         return cur?.changelog ? (
-          <Tooltip title={<span style={{ whiteSpace: 'pre-wrap' }}>{cur.changelog}</span>}>
-            <Typography.Text style={{ fontSize: 12 }} ellipsis>{cur.changelog.split('\n')[0]}</Typography.Text>
+          <Tooltip title={<span className="wm-prewrap">{cur.changelog}</span>}>
+            <Typography.Text className="wm-caption" ellipsis>{cur.changelog.split('\n')[0]}</Typography.Text>
           </Tooltip>
         ) : (
           <Typography.Text type="secondary">-</Typography.Text>
@@ -254,16 +252,16 @@ export default function Sops() {
 
   return (
     <WmPage subTitle="结构化流程即台：状态机 · 版本链 · 执行记录">
-      <Card size="small" title={`待验收任务（${pendingRuns.length}）`} style={{ marginBottom: 12 }}
+      <Card size="small" title={`待验收任务（${pendingRuns.length}）`} className="wm-mb-3"
         extra={<Button size="small" onClick={() => { void loadPending(); }}>刷新</Button>}>
         {pendingRuns.length === 0 ? <Typography.Text type="secondary">没有待验收的派单任务</Typography.Text> : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
+          <div className="wm-w-full" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {pendingRuns.map((r) => (
               <Space key={r.id} wrap>
                 <Tag color="blue">run #{r.id}</Tag>
-                <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{r.sop_slug}</Typography.Text>
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>{r.started_by || 'agent'}</Typography.Text>
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>{r.updated_at}</Typography.Text>
+                <Typography.Text className="wm-mono wm-caption">{r.sop_slug}</Typography.Text>
+                <Typography.Text type="secondary" className="wm-caption">{r.started_by || 'agent'}</Typography.Text>
+                <Typography.Text type="secondary" className="wm-caption">{r.updated_at}</Typography.Text>
                 <Button size="small" type="link" href={`/sop/${r.sop_slug}/`} target="_blank">去验收</Button>
               </Space>
             ))}
@@ -288,40 +286,40 @@ export default function Sops() {
         title={
           <Space>
             <span>网络暴露</span>
-            <Typography.Text type="secondary" style={{ fontSize: 13 }}>{netOf?.title}</Typography.Text>
+            <Typography.Text type="secondary" className="wm-caption">{netOf?.title}</Typography.Text>
           </Space>
         }
         size="large"
         open={!!netOf}
         onClose={() => setNetOf(null)}
       >
-        <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
+        <Typography.Paragraph type="secondary" className="wm-caption">
           暴露给哪个 agent 只由人绑定：绑定后该 SOP 以 <span className="wm-mono">market/&lt;id8&gt;</span> 上卡
           （<span className="wm-mono">/.well-known/agent-card.json</span>），DSH 侧还需主人把该节点加进 canvas 队（两半绑定）。
           卡片不发布绑定图；对端 API Key 仅用于回执投递（P3），存储掩码。
         </Typography.Paragraph>
-        <Space.Compact style={{ width: '100%', marginBottom: 12 }}>
+        <Space.Compact className="wm-w-full wm-mb-3">
           <input
-            className="wm-mono"
+            className="wm-mono wm-input"
             type="password"
             placeholder="管理员口令（X-Admin-Token，服务端环境变量）"
-            style={{ flex: 1, padding: '6px 10px', border: '1px solid #E2E8F0', borderRadius: 6, fontSize: 13 }}
+            style={{ flex: 1 }}
             value={netToken}
             onChange={(e) => setNetToken(e.target.value)}
           />
           <Button onClick={reloadNet} loading={netLoading} disabled={!netToken}>载入绑定</Button>
         </Space.Compact>
-        <Space.Compact style={{ width: '100%', marginBottom: 12 }}>
+        <Space.Compact className="wm-w-full wm-mb-3">
           <input
-            className="wm-mono"
+            className="wm-mono wm-input"
             placeholder="agent 节点，如 dsh/1a2b3c4d"
-            style={{ flex: 2, padding: '6px 10px', border: '1px solid #E2E8F0', borderRadius: 6, fontSize: 13 }}
+            style={{ flex: 2 }}
             value={netNode}
             onChange={(e) => setNetNode(e.target.value)}
           />
           <select
-            className="wm-mono"
-            style={{ flex: 1, padding: '6px 10px', border: '1px solid #E2E8F0', borderRadius: 6, fontSize: 13 }}
+            className="wm-mono wm-input"
+            style={{ flex: 1 }}
             value={netMode}
             onChange={(e) => setNetMode(e.target.value as 'read' | 'run')}
           >
@@ -329,8 +327,8 @@ export default function Sops() {
             <option value="run">run（可执行）</option>
           </select>
           <select
-            className="wm-mono"
-            style={{ flex: 1, padding: '6px 10px', border: '1px solid #E2E8F0', borderRadius: 6, fontSize: 13 }}
+            className="wm-mono wm-input"
+            style={{ flex: 1 }}
             value={netDirection}
             onChange={(e) => setNetDirection(e.target.value as 'admits' | 'notify' | 'both')}
           >
@@ -340,12 +338,12 @@ export default function Sops() {
           </select>
           <Button type="primary" onClick={addBinding} loading={netLoading} disabled={!netToken || !netNode}>绑定</Button>
         </Space.Compact>
-        <Space.Compact style={{ width: '100%', marginBottom: 12 }}>
+        <Space.Compact className="wm-w-full wm-mb-3">
           <input
-            className="wm-mono"
+            className="wm-mono wm-input"
             type="password"
             placeholder="对端 API Key（可选，回执投递用，存储脱敏）"
-            style={{ flex: 1, padding: '6px 10px', border: '1px solid #E2E8F0', borderRadius: 6, fontSize: 13 }}
+            style={{ flex: 1 }}
             value={netKey}
             onChange={(e) => setNetKey(e.target.value)}
           />
@@ -357,7 +355,7 @@ export default function Sops() {
           dataSource={bindings}
           pagination={false}
           columns={[
-            { title: '节点', dataIndex: 'agent_node', render: (v: string) => <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{v}</Typography.Text> },
+            { title: '节点', dataIndex: 'agent_node', render: (v: string) => <Typography.Text className="wm-mono wm-caption">{v}</Typography.Text> },
             { title: '方向', dataIndex: 'direction', width: 80, render: (v: string) => v === 'admits' ? '入站准入' : v === 'notify' ? '出站推送' : '双向' },
           { title: '模式', dataIndex: 'mode', width: 70 },
             { title: 'Key', dataIndex: 'remote_api_key', width: 70, render: (v: string) => (v ? <Tag>已存（掩码）</Tag> : <Typography.Text type="secondary">-</Typography.Text>) },
@@ -365,7 +363,7 @@ export default function Sops() {
             {
               title: '操作', width: 80,
               render: (_: unknown, r: { id: number; revoked_at: string }) =>
-                r.revoked_at ? <Typography.Text type="secondary" style={{ fontSize: 12 }}>留审计</Typography.Text> : (
+                r.revoked_at ? <Typography.Text type="secondary" className="wm-caption">留审计</Typography.Text> : (
                   <Popconfirm title={`撤销绑定 ${r.id}？`} onConfirm={() => revokeBinding(r.id)}>
                     <Button size="small" danger>撤销</Button>
                   </Popconfirm>
