@@ -105,7 +105,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Explicit script data/library targets (#341, missing-target IO intercepted)
-        run: node scripts/explicit-data-targets-test.mjs && node scripts/explicit-data-target-positive-test.mjs && node scripts/explicit-source-links-test.mjs && node scripts/owned-script-fixture-test.mjs
+        run: node scripts/explicit-data-targets-test.mjs && node scripts/explicit-data-target-positive-test.mjs && node scripts/explicit-source-links-test.mjs && node scripts/owned-script-fixture-test.mjs && node scripts/owned-script-fixture-lan-test.mjs
       - name: Explicit script targets (#341, negative calls intercepted, loopback fixtures)
         env:
           PYTHON: python
