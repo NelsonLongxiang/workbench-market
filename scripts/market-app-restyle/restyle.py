@@ -163,12 +163,54 @@ NAV = {
         # 只给业务看（属主 11-03）：验证器、运维台账、表单自查、task list 属工程/agent 面，整块不显示
         'hideSections': ['表单异常项评审', '在途任务表', '四族验证器状态', 'A 族 spec 明细', '台账近 8 条'],
         'hideNodes': ['只读状态面', '浏览器直连环境警示', '登记口径：', '按 SOP→年→月 组织',
-                      '数据源=task list', 'commitment_clock', '若本数据已过验证器', '已读取'],
+                      '数据源=task list', 'commitment_clock', '若本数据已过验证器', '已读取',
+                      '默认聚焦重点业务件', '当前月份：', '全量保留原登记', '来源与登记说明'],
         'keepNodes': ['口径图例'],
         # 保留区块里的工程字段（属主 11-03「去掉」）
         'hideColumns': ['任务锚'],
         'hideFields': ['验证器关联', '验收证', '责任会话'],
-        'scrub': ['（评审席[^）]*）', '\\s*direct-[0-9a-f]{8}', '表单 v\\d+ · ']},
+        'scrub': ['（评审席[^）]*）', '\\s*direct-[0-9a-f]{8}', '表单 v\\d+ · ',
+                  # 交付空间：标签说明与文件元信息
+                  '（全部登记(?:附件引用)?）', '（依登记名；不代表采用）',
+                  '\\s*·\\s*附件备注(?:标注)?归属月(?:份)?：[0-9-]+', '\\s*·\\s*关联记录：[0-9、，, ]+', '\\s*·\\s*同一文件跨月引用'],
+        # 交付空间：单列文件清单 + 紧凑吸顶筛选栏（修 .frow 6 列模板配 5 个子元素导致文件名只剩 38px）
+        'css': (
+            '.ds-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px;padding:8px 16px;margin:12px 0;background:var(--wm-color-surface);border:1px solid var(--wm-color-border);border-radius:8px;box-shadow:var(--wm-shadow-1)}'
+            '@media (min-width:1024px){.ds-toolbar{position:sticky;top:56px;z-index:5}}'
+            '.ds-toolbar>div{display:flex;align-items:center;gap:8px;margin:0}'
+            '.ds-toolbar .tlabel{margin:0;font-size:12px;line-height:20px;font-weight:600;color:var(--wm-color-text-secondary)}'
+            '.ds-toolbar .segbar{display:inline-flex;flex-wrap:wrap;gap:2px;padding:2px;background:var(--wm-color-page);border:1px solid var(--wm-color-border);border-radius:6px}'
+            '.ds-toolbar .segbar .seg.seg{height:28px;min-height:0;margin:0;padding:0 10px;border:0!important;border-radius:4px;background:none!important;color:var(--wm-color-text-secondary)!important;font-size:12px;line-height:28px;font-weight:400;box-shadow:none}'
+            '.ds-toolbar .segbar .seg.seg:hover{color:var(--wm-color-text)!important}'
+            '.ds-toolbar .segbar .seg.seg[aria-pressed=true]{background:var(--wm-color-surface)!important;color:var(--wm-color-text)!important;font-weight:600;box-shadow:var(--wm-shadow-1)}'
+            '.ds-toolbar .seg .ct{margin-left:6px;padding:0;background:none;color:var(--wm-color-text-secondary);font-size:12px;font-weight:400}'
+            '#dsGrid{display:block}'
+            '#dsGrid .ds-section-label{display:flex;align-items:center;gap:8px;margin:16px 0 8px;font-size:16px;line-height:24px;font-weight:600;color:var(--wm-color-text)}'
+            '#dsGrid .ds-section-label .ct{font-size:12px;font-weight:400;color:var(--wm-color-text-secondary);background:var(--wm-color-page);border-radius:4px;padding:0 8px}'
+            '#dsGrid .ds-subgrid{display:grid;grid-template-columns:1fr!important;gap:12px}'
+            '#dsGrid .dcard{padding:0;overflow:hidden;background:var(--wm-color-surface);border:1px solid var(--wm-color-border);border-radius:8px;box-shadow:var(--wm-shadow-1)}'
+            '#dsGrid .dcard-hd{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0;padding:12px 16px;border-bottom:1px solid var(--wm-color-border)}'
+            '#dsGrid .dcard-hd .ti{font-size:16px;line-height:24px;font-weight:600;color:var(--wm-color-text)}'
+            '#dsGrid .dcard-hd .meta{margin-left:auto;font-size:12px;line-height:20px;color:var(--wm-color-text-secondary)}'
+            '#dsGrid .dcard-note{padding:8px 16px 0}'
+            '#dsGrid .frow{display:flex;align-items:center;gap:16px;margin:0;padding:10px 16px;border-bottom:1px solid var(--wm-color-border)}'
+            '#dsGrid .frow:last-child{border-bottom:0}'
+            '#dsGrid .frow:hover{background:var(--wm-color-page)}'
+            '#dsGrid .frow .ftype{flex:none;width:44px;text-align:center}'
+            '#dsGrid .frow .fname{flex:1;min-width:0;white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;font-size:14px;line-height:22px;color:var(--wm-color-text)}'
+            '#dsGrid .frow .month-meta{display:block;margin-top:2px;font-size:12px;line-height:20px;color:var(--wm-color-text-secondary)}'
+            '#dsGrid .frow .fsize{flex:none;width:72px;text-align:right;font-size:12px;color:var(--wm-color-text-secondary)}'
+            '#dsGrid .frow .ftime{flex:none;width:128px;font-size:12px;color:var(--wm-color-text-secondary)}'
+            '#dsGrid .frow .badge,#dsGrid .frow .dl{flex:none}'
+            '#dsGrid details.ds-aux{margin-top:16px;padding:0;background:var(--wm-color-surface);border:1px solid var(--wm-color-border);border-radius:8px}'
+            '#dsGrid details.ds-aux>summary{padding:12px 16px;font-size:14px;font-weight:600;color:var(--wm-color-text)}'
+            '#dsGrid details.ds-aux[open]>summary{border-bottom:1px solid var(--wm-color-border)}'
+            '#dsGrid details.ds-aux>*:not(summary){margin:12px 16px}'
+            '@media (max-width:720px){#dsGrid .frow{flex-wrap:wrap;gap:8px}#dsGrid .frow .fname{flex-basis:calc(100% - 60px)}#dsGrid .frow .ftime{width:auto}}'
+        ),
+        # 最新月份还没有核心业务件时，打开就落到最近一个有成品的月份
+        'fallback': {'probe': '#dsCount', 'when': '核心业务件 0；', 'click': '#segMonth .seg'},
+    },
 }
 NAV_CSS = (
     'html.wm-has-nav{scroll-padding-top:64px}\n'
@@ -224,9 +266,9 @@ def build_layer(slug, tokens_css):
              + UX_CSS +
              'input::placeholder,textarea::placeholder{color:var(--wm-color-text-disabled)}\n'
              '@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}\n'
-             + (NAV_CSS if slug in NAV else '') +
+             + (NAV_CSS if slug in NAV else '') + (NAV.get(slug, {}).get('css', '') + '\n' if slug in NAV else '') +
              '</style>\n<script id="wm-ux">' + UX_JS + '</script>\n'
-             + (('<script id="wm-nav">window.WM_NAV=' + json.dumps(NAV[slug], ensure_ascii=False) + ';' + NAV_JS + '</script>\n') if slug in NAV else ''))
+             + (('<script id="wm-nav">window.WM_NAV=' + json.dumps({k: v for k, v in NAV[slug].items() if k != 'css'}, ensure_ascii=False) + ';' + NAV_JS + '</script>\n') if slug in NAV else ''))
 
 def transform(src, slug, tokens_css, kind='html'):
     dark, ov = slug in DARK, OVERRIDE.get(slug, {})

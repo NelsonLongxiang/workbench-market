@@ -1,7 +1,8 @@
 /* 工作台统一导航层 · 菜单 / 目录 / 视图（PATTERNS.md §7.4）。读 window.WM_NAV 配置，台内 DOM 只加 class/id，不移动、不改逻辑。
    WM_NAV = { title, home, groups: [{ key, label, sections: ['区块标题前缀', …] }],
               hideSections: ['只给工程/agent 看的区块标题前缀'], hideNodes: ['业务区块里技术说明段落的开头文字'], keepNodes: ['隐藏区块里仍要给业务看的段落开头'],
-              hideColumns: ['表头文字'], hideFields: ['字段名前缀'], scrub: ['正则：从正文里删掉的批注'] }
+              hideColumns: ['表头文字'], hideFields: ['字段名前缀'], scrub: ['正则：从正文里删掉的批注'],
+              css: '本台专属样式', fallback: { probe: '选择器', when: '包含此文字时', click: '候选按钮选择器（取当前选中项的前一个）' } }
    只给业务看：hideSections/hideNodes 命中的内容不进菜单、目录，任何视图都不显示（数据与接口不动）。
    区块 = 一个 h2 及其后的兄弟元素（到下一个 h2 为止）；h2 之前的内容是页头，始终显示。 */
 (function () {
@@ -61,10 +62,11 @@
     });
     scrubFields();
     if (!(C.hideNodes || []).length) return;
-    // 业务区块与页头里的技术说明段落：取最外层命中的元素
-    Array.prototype.forEach.call(document.body.querySelectorAll('div,p,small,span'), function (e) {
-      if (e.closest('[data-wm-nav]') || e.classList.contains('wm-hide')) return;
-      if (starts(e, C.hideNodes) && !(e.parentElement && e.parentElement !== document.body && starts(e.parentElement, C.hideNodes))) e.classList.add('wm-hide');
+    // 业务区块与页头里的技术说明段落：取最内层命中的元素（外层容器的文字常以首个子元素开头，不能连容器一起藏）
+    Array.prototype.forEach.call(document.body.querySelectorAll('div,p,small,span,summary'), function (e) {
+      if (e.closest('[data-wm-nav]') || !starts(e, C.hideNodes)) return;
+      if (Array.prototype.some.call(e.children, function (c) { return starts(c, C.hideNodes); })) return;
+      (e.tagName === 'SUMMARY' ? e.parentElement : e).classList.add('wm-hide');  // 说明折叠块：整块藏
     });
   }
 
@@ -219,6 +221,24 @@
     }, 80);
   }, { passive: true });
 
+  /* 打开时的默认落点不理想（例如最新月份还没有成品）：在用户动手之前，按配置往前一个候选回退 */
+  var touched = false;
+  ['pointerdown', 'keydown'].forEach(function (t) { addEventListener(t, function (e) { if (e.isTrusted) touched = true; }, true); });
+  function fallback() {
+    var F = C.fallback; if (!F) return;
+    var tries = 0, steps = 0;
+    (function check() {
+      if (touched || tries++ > 40) return;
+      var probe = document.querySelector(F.probe);
+      if (!probe || !norm(probe.textContent)) return setTimeout(check, 250);  // 台还没渲染完
+      if (probe.textContent.indexOf(F.when) < 0) return;
+      var btns = Array.prototype.slice.call(document.querySelectorAll(F.click));
+      var i = btns.findIndex(function (b) { return b.getAttribute('aria-pressed') === 'true' || b.classList.contains('on'); });
+      if (i <= 0 || steps++ >= btns.length) return;
+      btns[i - 1].click(); setTimeout(check, 400);
+    })();
+  }
+
   function boot() {
     collect(); if (!groups.length) return;
     build();
@@ -226,6 +246,7 @@
     var keys = groups.map(function (g) { return g.key; });
     state.view = m ? (m[3] ? 'all' : 'group') : (get('view') === 'all' ? 'all' : 'group');
     var g = m && keys.indexOf(m[1]) >= 0 ? m[1] : (keys.indexOf(get('group')) >= 0 ? get('group') : keys[0]);
+    fallback();
     var sid = m && m[2] && document.getElementById(m[2]) ? m[2] : null;
     go(g, sid, !!sid);
     // 链接指定了区块：台加载过程中会改动滚动（异步内容、自动聚焦），加载完成后再对齐一次
