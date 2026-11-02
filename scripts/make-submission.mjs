@@ -11,9 +11,14 @@
  *        scripts/ · verify/ · design-system/
  *        evidence/e2e_test.py · evidence/*.png
  *
- * 用法：node scripts/make-submission.mjs
+ * 用法：node scripts/make-submission.mjs --source-db <absolute file> --target-mode isolated --isolated-root <absolute fixture root>
  * 之后：ygl-trees verify run <spec-id> --db tmp/verify-snap.sqlite --submission tmp/submission
  */
+import { scriptOptions, explicitPath, validatePathParents } from "./explicit-data-target.mjs";
+const targetOptions = scriptOptions();
+const SOURCE_DB = explicitPath(targetOptions["source-db"] ?? process.env.SCRIPT_SOURCE_DB, targetOptions);
+validatePathParents(SOURCE_DB, targetOptions);
+if (!existsSync(SOURCE_DB)) throw new Error("explicit_source_database_missing");
 import { DatabaseSync } from "node:sqlite";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -49,15 +54,15 @@ try {
 }
 
 rmSync(snap, { force: true });
-// #161 干净树（git archive 净态）：无本地数据库时明确提示并跳过快照（不崩·rc0）
+// #341 source database is explicit and required; no fallback to the checkout database.
 {
-  const dbPath = join(root, "server", "data", "workbench-market.db");
+  const dbPath = SOURCE_DB;
   if (existsSync(dbPath)) {
     const db = new DatabaseSync(dbPath, { readOnly: true });
     db.exec(`VACUUM INTO '${snap.replaceAll("\\", "/")}'`);
     db.close();
   } else {
-    console.warn("[make-submission] 未发现 server/data/workbench-market.db（干净树无本地库）——跳过快照；如需数据面判据请先启动服务并跑一轮 E2E");
+    throw new Error("explicit_source_database_missing");
   }
 }
 

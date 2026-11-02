@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {requireDataSource} from './explicit-data-target.mjs';
+const SOURCE_DATA_DIR = requireDataSource();
 /** SOP Runner 远程写面冒烟（#T1 裁定 A 执行件 · 判据先红后绿）。
  *  背景：远程写中间件（server/src/index.ts REMOTE_ALLOW_*）豁免清单漏了 SOP Runner
  *  业务写面——.157 业务同事裸开 Runner 页提交表单 403（主人裁定 A 注释预言的同症状）。
@@ -32,13 +34,13 @@ rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 {
   const { DatabaseSync } = await import('node:sqlite');
-  const db = new DatabaseSync('server/data/workbench-market.db', { readOnly: true });
+  const db = new DatabaseSync(SOURCE_DATA_DIR + '/workbench-market.db', { readOnly: true });
   db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`);
   db.close();
 }
 // SOP 文件面（版本快照/自产台文件）一并拷入——run 启动要读活跃版本 manifest
 for (const dir of ['apps', 'skill-snapshots']) {
-  cpSync(`server/data/${dir}`, `${DATA}/${dir}`, { recursive: true });
+  cpSync(`${SOURCE_DATA_DIR}/${dir}`, `${DATA}/${dir}`, { recursive: true });
 }
 
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {

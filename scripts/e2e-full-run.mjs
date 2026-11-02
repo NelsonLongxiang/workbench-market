@@ -39,14 +39,14 @@ if (!dryEnv && !existsSync('web/dist/index.html')) { console.error('e2e-full-run
 const TMP = resolve('tmp/e2e-full-' + Date.now().toString(36)); mkdirSync(TMP, { recursive: true });
 const PORT = 21000 + Math.floor(Math.random() * 18000);
 const YGL_HOME = join(TMP, 'ygl-home'); mkdirSync(YGL_HOME, { recursive: true }); // 专属空工作区：统一待办的 ygl-trees 源只会读到它
-const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), ADMIN_TOKEN: 'synthetic-e2e-admin', YGL_HOME };
+const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), ADMIN_TOKEN: 'synthetic-e2e-admin', YGL_HOME, SCRIPT_TARGET_MODE: 'isolated', SCRIPT_ISOLATED_ROOT: TMP, SCRIPT_SOURCE_DB: join(TMP, 'data/workbench-market.db'), SCRIPT_SOURCE_DATA_DIR: join(TMP, 'data') };
 for (const k of ['LC_YGL_BIN', 'LC_YGL_HOME', 'LC_WORKBENCH_KEY_FILE', 'LC_ODOO_URL', 'WM_ODOO_ORIGINS', 'WM_CONTROL_PORT', 'WM_DEV_ORIGIN', 'E2E_ALLOW_PROD', 'YGL_SESSION', 'A2A_STATE_URL']) delete env[k];
 if (controlOff) env.WM_CONTROL_PORT = '0';
 const base = `http://127.0.0.1:${PORT}`;
 const seedEnv = { ...env, SEED_BASE: base };
 const e2eEnv = { ...env, E2E_PORT: String(PORT), E2E_ADMIN_TOKEN: env.ADMIN_TOKEN };
 if (dryEnv) {
-  const pick = (e) => Object.fromEntries(['YGL_HOME', 'DATA_DIR', ...Object.keys(e).filter((k) => /^LC_|^YGL_|^A2A_STATE/.test(k))].map((k) => [k, e[k] ?? null]));
+  const pick = (e) => Object.fromEntries(['YGL_HOME', 'DATA_DIR', 'SCRIPT_TARGET_MODE', 'SCRIPT_ISOLATED_ROOT', 'SCRIPT_SOURCE_DB', 'SCRIPT_SOURCE_DATA_DIR', ...Object.keys(e).filter((k) => /^LC_|^YGL_|^A2A_STATE/.test(k))].map((k) => [k, e[k] ?? null]));
   console.log(JSON.stringify({ tmp: TMP, server: pick(env), seed: pick(seedEnv), e2e: pick(e2eEnv) }));
   rmSync(TMP, { recursive: true, force: true });
   process.exit(0);
