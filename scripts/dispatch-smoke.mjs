@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /** 19a 任务发布面冒烟（direct-58d60ed6 · 独立实例）：
  *  发布=既有通道组合（开 run → _brief/_desc stepSave → assign → 附件 files），零新后端概念（assign 薄端点除外）。 */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
+import { createServer } from 'node:net';
 import { rmSync, mkdirSync } from 'node:fs';
 
-const PORT = 9879;
+const reserve=createServer();await new Promise(r=>reserve.listen(0,'127.0.0.1',r));const PORT=reserve.address().port;await new Promise(r=>reserve.close(r));
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-19a-data';
 let pass = 0, fail = 0;
@@ -29,7 +30,7 @@ mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server',
   // REDIS_URL 空串在无 Redis 的干净环境会挂死启动（PR#45 TEST 章）——不传该键，让服务端归一为未设
-  env: (() => { const e = { ...process.env, PORT: String(PORT), DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 't19a' }; delete e.REDIS_URL; return e; })(),
+  env: (() => { const e = { ...process.env, PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 't19a' }; delete e.REDIS_URL; return e; })(),
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪'); process.exit(1); }

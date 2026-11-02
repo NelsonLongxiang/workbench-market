@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /** P3 回执冒烟（network/a2a-receipt E1–E7 的本席自查版 · 独立实例）：
  *  派单 run 完成 → 回执投到绑定的 callback_url；自报 callback 被拒；人开 run 无回执；不可达留 pending；重复完成不重复投递。 */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
 import { parseReceipt } from '@nelsonlongxiang/dsh-open-a2a-net/receipt';
 
-const PORT = 9841;
+const reserve=createServer();await new Promise(r=>reserve.listen(0,'127.0.0.1',r));const PORT=reserve.address().port;await new Promise(r=>reserve.close(r));
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-rcpt-data';
 let pass = 0, fail = 0;
@@ -35,14 +35,14 @@ const mk = (sink) => createServer((req, res) => {
 });
 const srvA = mk(gotA), srvB = mk(gotB);
 let srvC = null;
-await new Promise((r) => srvA.listen(9842, '127.0.0.1', r));
-await new Promise((r) => srvB.listen(9843, '127.0.0.1', r));
+await new Promise((r) => srvA.listen(0, '127.0.0.1', r));
+await new Promise((r) => srvB.listen(0, '127.0.0.1', r));
 
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server',
-  env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'rcpt-tok', A2A_OUTBOX_BACKOFF_SCALE: '0.001' },
+  env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), WM_CONTROL_PORT:'0', DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'rcpt-tok', A2A_OUTBOX_BACKOFF_SCALE: '0.001' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪'); process.exit(1); }
@@ -57,7 +57,7 @@ try {
   });
   await json(`${BASE}/api/sops/rv-rcpt/publish`, 'POST', {}, AT);
   // 绑定先行（上卡规则：published ∧ ≥1 有效绑定）→ 再取卡片句柄
-  let r = await json(`${BASE}/api/bindings`, 'POST', { target_type: 'sop', target_slug: 'rv-rcpt', agent_node: 'dsh/0123rcpt', mode: 'run', direction: 'admits', notify_url: `http://127.0.0.1:9842` }, AT);
+  let r = await json(`${BASE}/api/bindings`, 'POST', { target_type: 'sop', target_slug: 'rv-rcpt', agent_node: 'dsh/0123rcpt', mode: 'run', direction: 'admits', notify_url: `http://127.0.0.1:${srvA.address().port}` }, AT);
   ok('绑定(带 callback_url) 201', r.status === 201, JSON.stringify(r.body));
   r = await json(`${BASE}/api/bindings`, 'POST', { target_type: 'sop', target_slug: 'rv-rcpt', agent_node: 'dsh/0123dead', mode: 'run', direction: 'admits', notify_url: `http://127.0.0.1:9849` }, AT);
   ok('绑定(死端口) 201', r.status === 201);
@@ -107,7 +107,7 @@ try {
 
   // E5：自报 callback 与绑定不一致 → 不投递 + rejected
   const beforeB = gotB.length;
-  d = await dispatch('dsh/0123rcpt', 'rv-c-5', 'rv-cctx-5', { callback: 'http://127.0.0.1:9843' });
+  d = await dispatch('dsh/0123rcpt', 'rv-c-5', 'rv-cctx-5', { callback: 'http://127.0.0.1:'+srvB.address().port });
   const run5 = d.body?.sop?.run_id;
   CAPS[run5] = String(d.body?.sop?.read_capability ?? '');
   await json(`${BASE}/api/sop/runs/${run5}/finish`, 'POST', {});
@@ -131,8 +131,8 @@ try {
     if (hitsC <= 2) { res.writeHead(503, { 'content-type': 'application/json' }); return res.end('{}'); }
     res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"ok":true}');
   });
-  await new Promise((r2) => srvC.listen(9844, '127.0.0.1', r2));
-  r = await json(`${BASE}/api/bindings`, 'POST', { target_type: 'sop', target_slug: 'rv-rcpt', agent_node: 'dsh/0123rc8', mode: 'run', direction: 'admits', notify_url: `http://127.0.0.1:9844` }, AT);
+  await new Promise((r2) => srvC.listen(0, '127.0.0.1', r2));
+  r = await json(`${BASE}/api/bindings`, 'POST', { target_type: 'sop', target_slug: 'rv-rcpt', agent_node: 'dsh/0123rc8', mode: 'run', direction: 'admits', notify_url: `http://127.0.0.1:${srvC.address().port}` }, AT);
   d = await dispatch('dsh/0123rc8', 'rv-c-8', 'rv-cctx-8');
   const run8 = d.body?.sop?.run_id;
   CAPS[run8] = String(d.body?.sop?.read_capability ?? '');
