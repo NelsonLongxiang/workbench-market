@@ -7,8 +7,10 @@ const persist=()=>{if(stateFile)writeFileSync(stateFile,JSON.stringify({hashes:O
 let online=true;
 const requireOnline=()=>{if(!online)throw Error('synthetic_redis_unavailable');};
 const maybeFail=kind=>{if(fail.delete(kind))throw Error('synthetic_transient_'+kind);};
+const listeners=new Map();
+const emit=(event,error)=>{for(const fn of listeners.get(event)??[])fn(error);};
 const client={
- get isReady(){return online;},on(){return this;},async connect(){online=true;return this;},
+ get isReady(){return online;},on(event,fn){const rows=listeners.get(event)??[];rows.push(fn);listeners.set(event,rows);return this;},async connect(){online=true;emit('ready');return this;},
  async hSet(key,field,value){requireOnline();maybeFail(key.endsWith(':data')?'data':'meta');const row=hashes.get(key)??{};if(typeof field==='object')Object.assign(row,field);else row[field]=value;hashes.set(key,row);persist();},
  async hGetAll(key){requireOnline();return {...(hashes.get(key)??{})};},
  async sAdd(_key,value){requireOnline();maybeFail('active');active.add(value);persist();},
@@ -18,8 +20,8 @@ const client={
 export const createClient=()=>client;
 process.on('message',msg=>{
  if(msg?.kind!=='synthetic-redis')return;
- if(msg.action==='offline')online=false;
- if(msg.action==='online')online=true;
+ if(msg.action==='offline'){online=false;emit('error',Error('synthetic_redis_unavailable'));emit('reconnecting');}
+ if(msg.action==='online'){online=true;emit('ready');}
  if(msg.action==='clear'){hashes.clear();active.clear();}
  if(msg.action==='fail')fail.add(msg.operation);
  if(msg.action==='active'){active.clear();for(const id of msg.ids)active.add(String(id));}
