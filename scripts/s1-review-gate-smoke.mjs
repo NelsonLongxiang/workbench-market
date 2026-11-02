@@ -36,7 +36,7 @@ mkdirSync(DATA, { recursive: true });
 }
 for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`server/data/${d}`, `${DATA}/${d}`, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
-  cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 's1-tok' }, stdio: 'ignore',
+  cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 's1-tok' }, stdio: 'ignore',
 });
 try {
   if (!(await waitReady(`${BASE}/api/health`))) throw new Error('实例未就绪');
@@ -93,7 +93,7 @@ try {
   }
   // 待办接入：先造一条 pending 再查（刚批的那条已 approved 不在 pending）
   await mcp(9, 'tools/call', { name: 'change_request_create', arguments: { kind: 'app', slug, op: 'rollback', target_version: 1, reason: 's1-pending-probe' } });
-  const tasks = await (await fetch(`${BASE}/api/tasks?refresh=1`)).json();
+  const tasks = await (await fetch(`${BASE}/api/tasks?refresh=1`, { headers: ADMIN })).json();
   const tstr = JSON.stringify(tasks);
   ok('待办接入（tasks 含 change_requests 面）', /change_request|人审/.test(tstr), tstr.slice(0, 80));
 } finally {

@@ -1,4 +1,5 @@
 import express from 'express';
+import { createStartupSecurityProbe, isStartupProbeRequest } from './startup-security-self-probe.ts';
 import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
 import { recordAppDataEvent, cancelTaskCenterDeliveries, kickWorkbenchEvents, startWorkbenchEventWorker, registerWorkbenchEventRoutes } from './workbench-events.ts';
 import cors from 'cors';
@@ -36,6 +37,8 @@ import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, a2
 
 const here = dirname(fileURLToPath(import.meta.url));
 const app = express();
+const startupSecurity = createStartupSecurityProbe();
+app.use(startupSecurity.middleware); // #326: before parsers, content dispatch and every business route
 // Explicit opt-in only; no default content listener, no live configuration writes.
 const contentCfg = contentConfig(process.env);
 const portalObserver = process.env.WM_PORTAL_OBSERVE === '1' ? createPortalObservation(db, id => !!svc<WorkbenchService>('workbench').exists(id)) : null;
@@ -1819,14 +1822,29 @@ function odooLoginUrl(req: express.Request, returnPath: string): string | null {
 
 // ---------- 统一待办（omni-inbox · 总工程师设计 9c5557c1c0）：只读聚合 ----------
 app.get('/api/tasks', wrap(async (req, res) => {
-  const payload = await collectTasks(svc<SopService>('sop') as never);
+  res.set('Cache-Control', 'private, no-store');
+  res.vary('Cookie'); res.vary('X-Admin-Token');
+  if (req.headers['sec-fetch-site'] === 'cross-site' || (req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req))) return res.status(403).json({ error: 'tasks_cross_origin_denied' });
+  const access = await tasksReadAccess(adminHeaderOk(req), String(req.headers.cookie ?? ''));
+  if (!access.ok) return res.status(access.http).json({ error: access.error, ...(access.http === 401 ? { login_url: odooLoginUrl(req, '/tasks') } : {}) });
+  const payload = await collectTasks(svc<SopService>('sop') as never, access.scope);
   if (!lifecycleConfigured()) return res.json(payload);
-  // 生命周期源按查看人（Odoo 会话）现查，不进 30s 共享缓存；响应随 Cookie 变，不许中间缓存
+  // Lifecycle owns its viewer-specific grants; never use an admin identity to impersonate a viewer.
   const lc = await lifecycleSourceFor(String(req.headers.cookie ?? ''));
-  res.setHeader('Cache-Control', 'private, no-store');
-  const meta = lc.meta.auth_required ? { ...lc.meta, login_url: odooLoginUrl(req, '/tasks') } : lc.meta;
+  const meta = { ...lc.meta, ...(!lc.meta.ok ? { error: 'lifecycle_source_unavailable' } : {}), ...(lc.meta.auth_required ? { login_url: odooLoginUrl(req, '/tasks') } : {}) };
   res.json({ ...payload, tasks: [...payload.tasks, ...lc.tasks], sources: { ...payload.sources, lifecycle: meta } });
 }));
+app.put('/api/tasks/read-grants', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  if (!createTaskSourceGrant(req.body)) return res.status(400).json({ error: 'invalid_task_source_grant' });
+  res.status(201).json({ ok: true });
+});
+app.post('/api/tasks/read-grants/revoke', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const n = revokeTaskSourceGrant(req.body);
+  if (n === null) return res.status(400).json({ error: 'invalid_task_source_grant' });
+  res.json({ ok: true, revoked: n });
+});
 
 // ---------- 生命周期审批（工作台 = lc 断言签发入口 workbench）：Odoo 会话确认登录名 → 为这一条 approve 现签断言 ----------
 app.post('/api/lifecycle/approve', wrap(async (req, res) => {
@@ -2542,7 +2560,7 @@ function vaultGuard(req: express.Request, res: express.Response): boolean {
 mountVault(app, vaultGuard);
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()) });
+  res.json({ ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), self_probe: startupSecurity.snapshot() });
 });
 
 // ---------- A2A 网络接入（GH #17 P1：签名卡片 + 人工绑定，只读暴露） ----------
@@ -2982,6 +3000,7 @@ import { loadTokensCss, resolveTokensPath } from './design-tokens-css.ts';
 const renderSopRunner = (manifest: Parameters<typeof renderSopRunnerRaw>[0], app: Parameters<typeof renderSopRunnerRaw>[1]) => renderSopRunnerRaw(manifest, app, loadTokensCss()?.css ?? '');
 import { isOdooLikeTarget, isOdooSessionTarget, stripOdooSession, trustedOdooOrigins } from './odoo-session.ts';
 import { collectTasks } from './tasks.ts';
+import { tasksReadAccess, createTaskSourceGrant, revokeTaskSourceGrant } from './tasks-read-access.ts';
 import { lifecycleApprove, lifecycleBoard, lifecycleConfigProblem, lifecycleConfigured, lifecycleSourceFor, lifecycleStatus, lifecycleWhoami, resolveOdooViewer } from './lifecycle.ts';
 import { authorizeRunRead, issueRunReadCap, runReadGrantCreate, runReadGrantRevoke, runReadCapRevokeAll } from './sop-read-auth.ts';
 import { endpointStatsMiddleware, statsPayload } from './endpoint-stats.ts';
@@ -3475,7 +3494,7 @@ app.post('/mcp', async (req, res) => {
     const m = /^Bearer ([0-9a-f]{64})$/i.exec(auth);
     if (m) sess = mcpSessionByToken(m[1]);
     if (!sess) {
-      mcp401Count += 1; // 401 不进审计只计数
+      if (!isStartupProbeRequest(req)) mcp401Count += 1; // self-probe is not adoption traffic
       res.setHeader('WWW-Authenticate', 'Bearer realm="workbench-market mcp"');
       return res.status(401).json({ error: 'unauthorized: valid session token required', hint: '会话与令牌由管理员经 /api/mcp/sessions 创建分发' });
     }
@@ -3596,6 +3615,10 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   const msg = String(err?.message ?? err);
   let status = err instanceof HttpError || err instanceof TaskIntakeError ? err.status : 500;
   if (status === 500 && VALIDATION_ERR_PREFIX.some((p) => msg.startsWith(p))) status = 400;
+  if (isStartupProbeRequest(_req)) {
+    if (status === 500) console.error(JSON.stringify({ source: 'self-probe', event: 'handler-error', status }));
+    return res.status(status).json({ error: 'self_probe_request_failed' }); // never echo or log raw probe exceptions
+  }
   if (status === 500) console.error('[server] unhandled:', err);
   res.status(status).json({ error: msg, ...(err instanceof HttpError && err.extra ? err.extra : {}) });
 });
@@ -3639,11 +3662,7 @@ function armPatrol(): void {
   timer = setTimeout(() => { patrol().finally(armPatrol); }, s * 1000);
   timer.unref?.();
 }
-armPatrol();
-// 模块级不能取服务（容器异步挂载）：巡检启动标记延到首次 armPatrol 后的下一拍写（行为等价）
-setTimeout(() => {
-  try { svc<SettingService>('setting').put('patrol_armed_at', new Date().toISOString()); } catch { /* 服务未就绪则跳过 */ }
-}, 100).unref?.();
+// #326: background patrol is armed only after the startup safety gate passes.
 
 const PORT = Number(process.env.PORT) || 9800;
 // ---------- A2A 出站（#17 P4 最小面）：市场作为客户端向对端派单/发消息 ----------
@@ -3693,15 +3712,28 @@ const goServer = registerSurface(app, 'market', PORT, () => {
   const counts = svc<WorkbenchService>('workbench').count() as { n: number };
   console.log(`[workbench-market] server  http://127.0.0.1:${PORT}  (workbenches: ${counts.n}, web-dist: ${existsSync(webDist) ? 'served' : 'none'}, portal: /go/<id>/)`);
   console.log(SURFACE_PORTS.control ? `[workbench-market] control http://127.0.0.1:${SURFACE_PORTS.control}  （#292 M1 管理控制面：浏览器管理写只在这里收）` : '[workbench-market] control 面已关闭（WM_CONTROL_PORT=0）：浏览器管理写一律拒绝，只能用本机命令行');
-  startRedis(); // SOP 状态层（生产 Redis；不可达自动降级直写 SQLite，不阻塞启动）
-  // 启动自探测（监督席观察项：重载后状态悬空靠人 check-all 兜底已第 3 次）——
-  // 延迟 8s 让依赖（上游台）就绪，跑一轮全测归真状态；单台失败不阻断
-  const boot = setTimeout(() => { void patrol(); }, 8_000);
-  boot.unref?.();
+  // The listener exists but HTTP/market WS remain gated until anonymous safety checks pass.
 });
 
-if (SURFACE_PORTS.control) registerSurface(app, 'control', SURFACE_PORTS.control);
-if (contentCfg && contentRuntime) listenContentSurface(app, contentCfg, contentRuntime);
+const controlServer = SURFACE_PORTS.control ? registerSurface(app, 'control', SURFACE_PORTS.control) : undefined;
+if (contentCfg && contentRuntime) listenContentSurface(app, contentCfg, contentRuntime, () => startupSecurity.snapshot().passed);
+
+void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV }).then((result) => {
+  if (!result.passed) return refuseUnsafeStartup();
+  startRedis();
+  armPatrol();
+  svc<SettingService>('setting').put('patrol_armed_at', new Date().toISOString());
+  const boot = setTimeout(() => { void patrol(); }, 8_000);
+  boot.unref?.();
+}).catch(() => refuseUnsafeStartup());
+
+function refuseUnsafeStartup(): void {
+  console.error(JSON.stringify({ source: 'self-probe', event: 'startup-refused', failed: startupSecurity.snapshot().failed }));
+  // Only this process's listeners are closed; never signal a PID, parent cmd or host.
+  for (const server of allSurfaceServers()) { server.closeAllConnections(); server.close(); }
+  try { db.close(); } catch { /* initialization may already have closed it */ }
+  process.exit(1);
+}
 
 // P1-3（#147）：优雅关闭——停巡检→WAL checkpoint(db.close)→server.close（容器 stop 不丢写）
 let shuttingDown = false;
@@ -3732,6 +3764,7 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 // 无服务）→ DSH 台经门户打开后 WS 永远连不上（页面「重新连接中…」，实测踩坑）。
 for (const srv of allSurfaceServers()) if (srv !== goServer) srv.on('upgrade', (req, socket) => { if (surfaceOf(req) !== 'content') socket.destroy(); }); // #292 M1：控制面不提供 WS
 goServer.on('upgrade', (req, socket, head) => {
+  if (!startupSecurity.snapshot().passed) return socket.destroy();
   portalObserver?.observe(req);
   const m = goPrefix.exec(req.url ?? '');
   if (!m) return socket.destroy(); // 非 /go/ 的升级请求：本服务自身不提供 WS

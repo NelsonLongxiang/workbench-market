@@ -19,7 +19,7 @@ const upstream = createServer((rq, rs) => {
 });
 await new Promise((x) => upstream.listen(0, '127.0.0.1', x));
 const PORT = 20000 + Math.floor(Math.random() * 20000);
-const env = { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), ADMIN_TOKEN: 'sw-smoke' };
+const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), ADMIN_TOKEN: 'sw-smoke' };
 for (const k of ['LC_YGL_BIN', 'LC_YGL_HOME', 'LC_WORKBENCH_KEY_FILE', 'LC_ODOO_URL', 'WM_ODOO_ORIGINS']) delete env[k];
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });
 let serverErr = ''; server.stderr.on('data', (c) => (serverErr += c));
