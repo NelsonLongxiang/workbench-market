@@ -100,7 +100,7 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
   {
     name: 'sop_run_get',
     description: '读 run 详情（热读优先，miss 回 SQLite 真源）——恢复执行现场。',
-    inputSchema: { type: 'object', properties: { run_id: { type: 'integer' } }, required: ['run_id'], additionalProperties: false },
+    inputSchema: { type: 'object', properties: { run_id: { type: 'integer' }, read_capability: { type: 'string', description: '#309 phase2 机器迁移：创建 run 时 sop_run_start/A2A start 响应返回的 run 级读能力（一次性明文）。无有效能力或授权时只回元数据（不含 data）。' } }, required: ['run_id'], additionalProperties: false },
   },
   {
     name: 'sop_run_list',
@@ -225,4 +225,17 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
     },
   },
 
+  // ── 设计标准（DESIGN.md + PATTERNS.md 只读；agent 开发台/页面前先取） ──
+  {
+    name: 'design_standard',
+    description: '读取工作台 design token 标准与页面模式（只读·唯一事实源 DESIGN.md + design-system/workbench-market/PATTERNS.md）：part=tokens 取结构化 token（颜色/字号/间距/圆角/阴影/动效/组件）；guide 取 DESIGN.md 各节规则；patterns 取菜单与目录、页面骨架、SOP 交付空间、列表、数据看板；all（缺省）全给。section 按标题关键词只取命中章节。返回含 version 与两份源文件 sha256。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        part: { type: 'string', enum: ['all', 'tokens', 'guide', 'patterns'], description: '取哪部分（缺省 all）' },
+        section: { type: 'string', description: '按章节标题关键词过滤，如「数据看板」「Colors」' },
+      },
+      additionalProperties: false,
+    },
+  },
 ];

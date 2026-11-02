@@ -16,7 +16,7 @@ let portalGroup = { pass: 0, fail: 1 };
 const ok = (n, c, x = '') => { if (c) { pass++; console.log('  \u2713 ' + n); } else { fail++; console.log('  \u2717 ' + n + ' ' + x); } };
 async function waitReady(url, ms = 40000) { const end = Date.now() + ms; while (Date.now() < end) { try { const r = await fetch(url, { signal: AbortSignal.timeout(1500) }); if (r.status < 500) return true; } catch {} await new Promise((r) => setTimeout(r, 250)); } return false; }
 rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: true });
-const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: '', ALLOW_PUBLIC_NET: '', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'sec' }, stdio: 'ignore' });
+const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', ALLOW_PUBLIC_NET: '', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'sec' }, stdio: 'ignore' });
 const B = 'http://127.0.0.1:' + PORT;
 try {
   if (!(await waitReady(B + '/api/health'))) throw new Error('Isolated fixture server not ready');

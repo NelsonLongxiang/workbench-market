@@ -12,7 +12,7 @@ rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server',
-  env: (() => { const e = { ...process.env, PORT: String(PORT), DATA_DIR: '../' + DATA, ADMIN_TOKEN: 'sbx-tok', SANDBOX_BRIDGE_URL: process.env.SANDBOX_BRIDGE_URL || 'http://127.0.0.1:9' }; delete e.REDIS_URL; return e; })(), // 隐私门红线：bridge 内网地址只经 env（unset 用不可达占位→三态错误面仍验）
+  env: (() => { const e = { ...process.env, MCP_GATEWAY: 'off', PORT: String(PORT), DATA_DIR: '../' + DATA, ADMIN_TOKEN: 'sbx-tok', SANDBOX_BRIDGE_URL: process.env.SANDBOX_BRIDGE_URL || 'http://127.0.0.1:9' }; delete e.REDIS_URL; return e; })(), // 隐私门红线：bridge 内网地址只经 env（unset 用不可达占位→三态错误面仍验）
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 const end = Date.now() + 30000;
@@ -53,7 +53,7 @@ try {
     const sdb = new DatabaseSync(DATA + '/workbench-market.db');
     sdb.prepare("INSERT INTO sop_run_files (run_id, original_name, mime, size, storage_path, created_by) VALUES (?, 'sandbox-commit', 'application/x-layerfs-commit', 0, 'layerfs://abc123def456', 'sbx')").run(run.id);
     sdb.close();
-    const fl = await (await fetch(B + '/api/sop/runs/' + run.id + '/files')).json();
+    const fl = await (await fetch(B + '/api/sop/runs/' + run.id + '/files', { headers: { 'X-Run-Read-Capability': String(run.read_capability ?? '') } })).json();
     ok('③ layerfs URI 并存', (fl.items ?? []).some((f) => f.original_name === 'sandbox-commit'), JSON.stringify(fl).slice(0, 100));
   } else ok('③ layerfs URI 并存', false, 'run 未建');
 

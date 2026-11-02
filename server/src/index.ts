@@ -1,6 +1,9 @@
 import express from 'express';
-import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskCenterPolicy } from './task-center.ts';
+import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
+import { recordAppDataEvent, cancelTaskCenterDeliveries, kickWorkbenchEvents, startWorkbenchEventWorker, registerWorkbenchEventRoutes } from './workbench-events.ts';
 import cors from 'cors';
+import { contentConfig, createContentSurface, mountContentSurface, listenContentSurface } from './content-surface.ts';
+import { createPortalObservation } from './portal-observation.ts';
 import { allSurfaceServers, browserMarked, originIsThisSurface, rawLoopback, registerSurface, surfaceOf, surfacePorts, surfaceUrl } from './surfaces.ts';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -23,13 +26,61 @@ import { db, getSettings, dataDir, rowToWorkbench, rowToCockpit, type WorkbenchR
 (globalThis as any).__wmDb = db; // #94 v3 S1：tasks.ts 直读 change_requests 桥
 import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
 import { HttpError } from './errors.ts';
+import { designStandard } from './design-standard.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
-import { startRedis, redisHealthy, runStateSave, runStateRestore, runStateLoad, runStateRetire, runActiveIds } from './redis.ts';
-import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, a2aSendOutbound, formatA2aReceipt, MARKET_TEAM } from './a2a.ts';
+import { startRedis, redisHealthy, runStateRestore, runStateLoad, runStateRetire } from './redis.ts';
+import { createRunCheckpoints } from './sop-state-checkpoints.ts';
+import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, MARKET_TEAM } from './a2a.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const app = express();
+// Explicit opt-in only; no default content listener, no live configuration writes.
+const contentCfg = contentConfig(process.env);
+const portalObserver = process.env.WM_PORTAL_OBSERVE === '1' ? createPortalObservation(db, id => !!svc<WorkbenchService>('workbench').exists(id)) : null;
+app.use((req, _res, next) => { if (surfaceOf(req) === 'market') portalObserver?.observe(req); next(); });
+if (contentCfg) {
+  const odoo = String(process.env.WM_CONTENT_ODOO_ORIGIN ?? '');
+  const parsed = new URL(odoo);
+  const ports = surfacePorts();
+  if (contentCfg.port === ports.market || contentCfg.port === ports.control) throw Error('Content port must be distinct');
+  if (parsed.origin !== odoo || !trustedOdooOrigins().origins.has(odoo)) throw Error('Content viewer source must be an explicitly trusted Odoo origin');
+}
+const contentRuntime = contentCfg ? createContentSurface(contentCfg, {
+  async viewer(cookie) {
+    // Reject duplicate SID instead of inheriting the legacy first-cookie ambiguity.
+    const values = cookie.split(';').map(s => s.trim()).filter(s => s.startsWith('session_id='));
+    if (values.length !== 1) return null;
+    const result = await resolveOdooViewer(values[0], process.env.WM_CONTENT_ODOO_ORIGIN);
+    return result.ok ? { subject: result.viewer.sub + ':' + result.viewer.uid, internal: true } : null;
+  },
+  staticTarget(id) {
+    // Exact metadata projection: no auth_config, Cookie pool or app token read.
+    const w = db.prepare('SELECT url, enabled FROM workbenches WHERE id = ?').get(id) as { url: string; enabled: number } | undefined;
+    const match = w?.enabled ? /^[/]apps[/]([a-z0-9][a-z0-9-]{0,63})[/]$/.exec(w.url) : null;
+    if (!w || !match) return null;
+    const a = db.prepare('SELECT active_version, kind, status FROM apps WHERE slug = ?').get(match[1]) as { active_version: number; kind: string; status: string } | undefined;
+    if (!a || a.kind !== 'app' || a.status !== 'active') return null;
+    return { url: w.url, root: join(appsRoot, match[1], 'v' + a.active_version), version: a.active_version };
+  },
+  upstream(id) {
+    const w = wbById(id);
+    if (!w || !w.enabled || w.cookie_set_id) return null; // cookie containers require a separate adapter, never browser fallback
+    return { url: w.url, authorization: w.auth?.type === 'bearer' ? 'Bearer ' + w.auth.value : w.auth?.type === 'basic' ? 'Basic ' + Buffer.from(w.auth.value, 'utf8').toString('base64') : undefined };
+  },
+}) : null;
+if (contentRuntime) {
+  mountContentSurface(app, contentRuntime); // TERMINAL content dispatch before every shared parser/route/SPA
+  app.use((req, res, next) => {
+    if (!req.url.startsWith('/content/open/')) return next();
+    if (surfaceOf(req) !== 'market') return res.status(404).end();
+    contentRuntime.launch(req, res, next);
+  });
+  app.use((req, res, next) => {
+    if (surfaceOf(req) !== 'market') return next();
+    contentRuntime.migrate(req, res, next);
+  });
+}
 // issue #1：CORS 从全开放收紧为白名单——生产形态（web/dist 由本服务同源托管）不需要跨源；
 // 仅 web dev（vite 5173，其 /api 代理是同源转发、但直连调试场景保留）放行本机回环源。
 // /mcp 为 StreamableHTTP POST（非浏览器 fetch 场景不受 CORS 约束；浏览器 MCP 客户端经同源门户）。
@@ -99,6 +150,8 @@ app.use(endpointStatsMiddleware());
 const REMOTE_ALLOW_PREFIX = [
   /^\/api\/apps\/[a-z0-9-]{1,64}\/(data|files)(\/|$)/,
   /^\/api\/sop\/runs(\/\d+(\/(finish|files))?)?$/,
+  // 工作台事件 v1：接单节点回写决定（凭投递里的 reply token 鉴权，不认口令；只此一条子路径）
+  /^\/api\/workbench-events\/wbe-[0-9a-f]{16}\/decision$/,
 ];
 
 // S3 豁免面可观测（评审席裁下批·PR#72 真事故锚）：启动时快照+diff——安全清单变更不再无声
@@ -520,6 +573,7 @@ app.delete('/api/cockpits/:id', (req, res) => {
 // ---------- 自产台（台生成器：AI 发布 API + 全版本快照，发布即入册） ----------
 const appsRoot = join(dataDir, 'apps');
 initializeTaskCenter(appsRoot);
+startWorkbenchEventWorker(); // 工作台事件 v1（人提交 → 事件 → 团队接单）；表随 initializeTaskCenter 建
 // #198（监督席裁 A·P11 回归修复）：自产台按台令牌——CSP sandbox 下页面源为 null，
 // 交付空间模式（页面调本台 data/files）靠「Origin: null + X-App-Token 匹配 slug」放行 CORS。
 const APP_TOKEN_KEY_FILE = join(dataDir, '.wm-app-token.key');
@@ -1127,17 +1181,13 @@ app.post('/api/apps/:slug/data', (req, res) => {
   const itemId = Number(r.lastInsertRowid);
   const createdAt = new Date().toISOString();
   res.status(201).json({ ok: true, id: itemId, slug: a.slug, created_at: createdAt });
-  // 属主裁 C（2026-10-26）：提交即推送——绑定 agent 异步收通知（尽力而为不阻塞 201；
-  // 失败仅日志，下次提交再推——数据真源始终在 app_data，拉模式兜底）。
+  // 属主裁 C（2026-10-26）：提交即推送——绑定 agent 异步收通知（不阻塞 201）。
+  // 工作台事件 v1：推送改走事件投递队列（退避重试、终态 sent/dead 可查），信封带 event_id 与 submitter_kind。
+  // 提交面匿名、created_by 自填 → submitter_kind 恒 unverified、dispatch:false（只通知不派发）。
   // 联合评审① C：统一绑定表——notify 方向行（授 admits 不触发推送·方向独立性铁律）
-  const targets = db.prepare("SELECT agent_node, notify_url FROM bindings WHERE target_type = 'app' AND target_slug = ? AND direction IN ('notify','both') AND revoked_at = ''").all(a.slug) as { agent_node: string; notify_url: string }[];
-  for (const t of targets) {
-    if (t.notify_url === '') continue;
-    a2aSendOutbound(a2aKeyPath(), { baseUrl: t.notify_url, team: t.agent_node }, JSON.stringify({
-      type: 'app-data-submitted', slug: a.slug, id: itemId, data, created_at: createdAt,
-      hint: '经 MCP app_data_list（slug + before_id 增量）读取；本通知尽力而为，真源在 app_data',
-    }), undefined, `market/${sopNode8(a.slug)}`).catch(err => console.error(`[app-notify] push failed ${a.slug}→${t.node}: ${String(err).slice(0, 120)}`));
-  }
+  try {
+    if (recordAppDataEvent({ slug: a.slug, id: itemId, data, json, createdBy: created_by, createdAt })) kickWorkbenchEvents();
+  } catch (err) { console.error(`[app-notify] event record failed ${a.slug}: ${String(err).slice(0, 120)}`); }
 });
 
 app.get('/api/apps/:slug/data', (req, res) => {
@@ -1369,8 +1419,16 @@ app.get(/^\/sop\/[a-z0-9][a-z0-9-]*(\/.*)?$/, (req, res) => {
 // ---------- SOP run API：分层治理（Redis 热态 + SQLite 真源）----------
 // core 函数为唯一持久化链：REST 与 MCP（sop_run_* 工具）共用——agent 更新持久化执行数据
 // 与人在 Runner 页填数据走同一条链（GH #17 P4 的执行数据面提前交付，不经版本发布）。
-const checkpointAt = new Map<number, number>(); // runId → last checkpoint ms（进程内）
-const CHECKPOINT_MS = 30_000;
+const runCheckpoints = createRunCheckpoints({
+  write(id, data) { svc<SopService>('sop').runCheckpointData(id, data); },
+});
+function runCacheCheckpoint(row: SopRunRow): string {
+  // Namespace + durable revision prevent cache collisions, partial writes and same-value ABA resurrection.
+  return createHash('sha256').update(JSON.stringify([dataDir, row.id, row.sop_slug, row.sop_version, row.started_at, row.cache_revision, row.status, row.data])).digest('hex');
+}
+function storedRunData(row: SopRunRow): Record<string, unknown> {
+  try { const data = JSON.parse(row.data || '{}'); return data && typeof data === 'object' && !Array.isArray(data) ? data : {}; } catch { return {}; }
+}
 
 function sopRunRow(id: number): SopRunRow {
   const r = svc<SopService>('sop').runById(id) as unknown as SopRunRow | undefined;
@@ -1386,7 +1444,7 @@ function mergeRunData(row: SopRunRow, stepKey: string, value: unknown): string {
 }
 
 /** 开 run（钉当前版本；仅 published） */
-function sopRunStartCore(slugRaw: string, startedByRaw: string): { id: number; slug: string; version: number; status: string; data: Record<string, unknown> } {
+function sopRunStartCore(slugRaw: string, startedByRaw: string): { id: number; slug: string; version: number; status: string; data: Record<string, unknown>; read_capability: string } {
   const slug = slugRaw.trim().toLowerCase();
   if (!slug) bad('slug 必填');
   const hit = readActiveManifest(slug);
@@ -1396,10 +1454,12 @@ function sopRunStartCore(slugRaw: string, startedByRaw: string): { id: number; s
   const r = svc<SopService>('sop').runCreate(slug, hit.app.active_version, started_by) as unknown as { lastInsertRowid: number | bigint };
   const id = Number(r.lastInsertRowid);
   // P0：run-scoped 上传令牌（启动签发·Runner 页内嵌·files POST 必带）
-  const uploadToken = createHash('sha256').update(createHash('sha256').update(String(id) + ':' + Date.now() + ':' + Math.random()).digest('hex') + ':' + String(Math.random())).digest('hex');
+  const uploadToken = randomBytes(32).toString('hex');
   try { db.prepare('UPDATE sop_runs SET upload_token = ? WHERE id = ?').run(uploadToken, id); } catch { /* 列缺=降级 */ }
-  if (slug !== 'task-center') void runStateRestore(id, { slug, version: hit.app.active_version, status: 'running', started_by, updated_at: Date.now() }, {}); // Redis 初始化热态（降级态静默跳过）
-  return { id, slug, version: hit.app.active_version, status: 'running', started_by, data: {}, upload_token: uploadToken }; // P0：创建者即得令牌（Runner 页内嵌用）
+  // Lazy Redis initialization under the per-run queue avoids racing a new save or finish.
+  // #309 phase2：创建即得 run 级读能力（明文仅此一次；库内只存摘要）
+  const readCapability = issueRunReadCap(id);
+  return { id, slug, version: hit.app.active_version, status: 'running', started_by, data: {}, upload_token: uploadToken, read_capability: readCapability }; // 创建者即得上传令牌与读能力
 }
 
 /** 更新持久化数据（任意步骤键值；Redis 热写 + 30s checkpoint / 降级直写 SQLite） */
@@ -1407,27 +1467,23 @@ async function sopRunStepSaveCore(id: number, stepKeyRaw: string, value: unknown
   const stepKey = stepKeyRaw.trim();
   if (!stepKey) bad('stepKey 必填');
   if (!/^[\w-]+$/.test(stepKey)) bad('stepKey 仅允许字母/数字/_/-');
-  const row = sopRunRow(id);
-  if (row.status !== 'running') throw new HttpError(409, `run ${id} 已 ${row.status}，不可再写`);
-
-  if (row.sop_slug === 'task-center') {
-    svc<SopService>('sop').runUpdateData(id, mergeRunData(row, stepKey, value ?? null));
-    return { ok: true, id, stepKey, persisted: 'sqlite' }; // synchronous intake freeze truth source
-  }
-  const hotOk = await runStateSave(id, { slug: row.sop_slug, version: row.sop_version, status: 'running', started_by: row.started_by, updated_at: Date.now() }, stepKey, value ?? null);
-  const now = Date.now();
-  const last = checkpointAt.get(id) ?? 0;
-  if (!hotOk || now - last >= CHECKPOINT_MS) {
-    // 降级直写 / 30s checkpoint：热数据整体沉淀 SQLite（真源）
-    let source = mergeRunData(row, stepKey, value ?? null);
-    if (hotOk) {
-      const hot = await runStateLoad(id);
-      if (hot) source = JSON.stringify(hot.data);
+  return runCheckpoints.serial(id, async () => {
+    const row = sopRunRow(id);
+    if (row.status !== 'running') throw new HttpError(409, 'run ' + id + ' 已 ' + row.status + '，不可再写');
+    if (row.sop_slug === 'task-center') {
+      svc<SopService>('sop').runUpdateData(id, mergeRunData(row, stepKey, value ?? null));
+      return { ok: true, id, stepKey, persisted: 'sqlite' };
     }
-    svc<SopService>('sop').runUpdateData(id, source);
-    checkpointAt.set(id, now);
-  }
-  return { ok: true, id, stepKey, persisted: hotOk ? 'redis+checkpoint' : 'sqlite' };
+    const prior = runCheckpoints.peek(id);
+    const hot = prior ? null : await runStateLoad(id, runCacheCheckpoint(row));
+    const data = prior ?? { ...storedRunData(row), ...(hot?.meta.status === 'running' ? hot.data : {}) };
+    data[stepKey] = value ?? null;
+    // Repopulate all known fields after a Redis loss; a partial HSET must not erase the durable baseline.
+    const hotOk = await runCheckpoints.save(id, data, () =>
+      runStateRestore(id, { slug: row.sop_slug, version: row.sop_version, status: 'running', started_by: row.started_by, updated_at: Date.now() }, data, runCacheCheckpoint(sopRunRow(id))));
+    // A successful fallback bumps SQLite generation; any surviving OLD Redis payload now misses.
+    return { ok: true, id, stepKey, persisted: hotOk ? 'redis+checkpoint' : 'sqlite' };
+  });
 }
 
 /** 读 run（热读优先，miss 回 SQLite 真源并回填热态） */
@@ -1443,30 +1499,45 @@ function receiptStatusOf(runId: number): string {
 }
 
 async function sopRunGetCore(id: number): Promise<{ id: number; sop_slug: string; sop_version: number; status: string; started_by: string; data: Record<string, unknown>; receipt: string }> {
-  const receipt = receiptStatusOf(id);
-  const intake = sopRunRow(id);
-  if (intake.sop_slug === 'task-center') return { id, sop_slug: intake.sop_slug, sop_version: intake.sop_version, status: intake.status, started_by: intake.started_by, data: JSON.parse(intake.data), receipt };
-  const hot = await runStateLoad(id);
-  if (hot) return { id, sop_slug: hot.meta.slug, sop_version: hot.meta.version, status: hot.meta.status, started_by: hot.meta.started_by, data: hot.data, receipt };
+  return runCheckpoints.serial(id, async () => {
+    const row = sopRunRow(id);
+    let data = storedRunData(row);
+    if (row.status === 'running' && row.sop_slug !== 'task-center') {
+      const pending = runCheckpoints.peek(id);
+      const hot = pending ? null : await runStateLoad(id, runCacheCheckpoint(row));
+      data = pending ?? { ...data, ...(hot?.meta.status === 'running' ? hot.data : {}) };
+      if (hot?.meta.status === 'running') runCheckpoints.remember(id, data); // recovered acknowledged hot state must not stay uncheckpointed after restart
+      if (redisHealthy() && !hot) await runStateRestore(id, { slug: row.sop_slug, version: row.sop_version, status: row.status, started_by: row.started_by, updated_at: Date.now() }, data, runCacheCheckpoint(row));
+    }
+    return { id: row.id, sop_slug: row.sop_slug, sop_version: row.sop_version, status: row.status, started_by: row.started_by, data, receipt: receiptStatusOf(id) };
+  });
+}
+
+/** #309 phase2：未授权单 run 响应——显式元数据白名单，不含私有 data（缺归属即拒私有值）。 */
+function sopRunGetMeta(id: number) {
   const row = sopRunRow(id);
-  let data: Record<string, unknown> = {};
-  try { data = JSON.parse(row.data || '{}'); } catch { data = {}; }
-  if (row.status === 'running' && redisHealthy()) {
-    void runStateRestore(id, { slug: row.sop_slug, version: row.sop_version, status: row.status, started_by: row.started_by, updated_at: Date.now() }, data); // 回填热态
-  }
-  return { id: row.id, sop_slug: row.sop_slug, sop_version: row.sop_version, status: row.status, started_by: row.started_by, data, receipt };
+  let steps = 0;
+  try { steps = Object.keys(JSON.parse(row.data || '{}')).length; } catch { steps = 0; }
+  return { id: row.id, sop_slug: row.sop_slug, sop_version: row.sop_version, status: row.status, started_by: row.started_by, started_at: row.started_at, updated_at: row.updated_at, finished_at: row.finished_at, steps, receipt: receiptStatusOf(id), private_read: 'authorization-required' };
+}
+function runReadCapHeader(req: express.Request): string | undefined {
+  const v = String(req.headers['x-run-read-capability'] ?? '').trim();
+  return v || undefined;
 }
 
 /** 归档（热态全量沉淀 SQLite；Redis 条目 1h 平滑淘汰） */
 async function sopRunFinishCore(id: number): Promise<{ ok: boolean; id: number; status: string; steps: number }> {
+  return runCheckpoints.serial(id, () => sopRunFinishLockedCore(id));
+}
+async function sopRunFinishLockedCore(id: number): Promise<{ ok: boolean; id: number; status: string; steps: number }> {
   const row = sopRunRow(id);
   if (row.status !== 'running') throw new HttpError(409, `run ${id} 已 ${row.status}`);
-  let data = row.data || '{}';
-  const hot = row.sop_slug === 'task-center' ? null : await runStateLoad(id);
-  if (hot && Object.keys(hot.data).length > 0) data = JSON.stringify(hot.data);
+  const pending = row.sop_slug === 'task-center' ? undefined : runCheckpoints.peek(id);
+  const hot = row.sop_slug === 'task-center' || pending ? null : await runStateLoad(id, runCacheCheckpoint(row));
+  const data = JSON.stringify(pending ?? { ...storedRunData(row), ...(hot?.meta.status === 'running' ? hot.data : {}) });
   svc<SopService>('sop').runFinish(id, data);
-  await runStateRetire(id); // 退出活跃索引 + Redis 条目 1h 平滑淘汰
-  checkpointAt.delete(id);
+  runCheckpoints.forget(id); // only clear after the durable finish succeeds
+  await runStateRetire(id); // best-effort cache retirement; SQLite status remains authoritative
   let parsed: Record<string, unknown> = {};
   try { parsed = JSON.parse(data); } catch { parsed = {}; }
   // P3 回执（network/a2a-receipt）：派单来源 + 有效 callback_url → 入 outbox（run_id 唯一幂等）
@@ -1503,8 +1574,10 @@ async function postReceipt(targetUrl: string, row: { run_id: number; task_id: st
     context_id: row.context_id,
     message: row.payload,
   };
-  const r = await fetch(`${targetUrl.replace(/\/+$/, '')}/a2a/direct`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  const url = `${targetUrl.replace(/\/+$/, '')}/a2a/direct`;
+  // OriginClaim：回执同样带绑定形式信封（#64 关窗后未签名的回执会被对端拒收）
+  const r = await fetch(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...marketOriginClaim(a2aKeyPath(), { url, method: 'POST' }) }, body: JSON.stringify(body),
     signal: AbortSignal.timeout(10_000),
   });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -1602,16 +1675,20 @@ app.post('/api/sop/runs/:id/files', (req, res, next) => {
     } catch (e) { next(e); }
   });
 });
-app.get('/api/sop/runs/:id/files', (req, res) => {
+app.get('/api/sop/runs/:id/files', wrap(async (req, res) => {
   if (!/^\d+$/.test(String(req.params.id))) throw new HttpError(404, `run not found: ${req.params.id}`);
   const runId = Number(req.params.id);
   sopRunRow(runId); // 404 语义与 run 一致
+  const auth = await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, runId);
+  if (!auth.authorized) return res.status(403).set('Cache-Control', 'no-store').json({ error: 'run read authorization required', hint: '创建响应的 read_capability（X-Run-Read-Capability 头）或已授权会话' });
   const items = (svc<SopService>('sop').runFiles(runId) as any[]).map((f) => ({ ...f, url: `/api/sop/runs/${runId}/files/${f.id}` }));
   res.json({ run_id: runId, items, count: items.length });
-});
-app.get('/api/sop/runs/:id/files/:fileId', (req, res) => {
+}));
+app.get('/api/sop/runs/:id/files/:fileId', wrap(async (req, res) => {
   if (!/^\d+$/.test(String(req.params.id)) || !/^\d+$/.test(String(req.params.fileId))) throw new HttpError(404, 'file not found');
   const runId = Number(req.params.id);
+  const auth = await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, runId);
+  if (!auth.authorized) return res.status(403).set('Cache-Control', 'no-store').json({ error: 'run read authorization required', hint: '创建响应的 read_capability（X-Run-Read-Capability 头）或已授权会话' });
   const row = svc<SopService>('sop').runFileById(runId, Number(req.params.fileId)) as any;
   if (!row) throw new HttpError(404, `file not found: ${req.params.fileId}`);
   const abs = join(dataDir, row.storage_path);
@@ -1621,7 +1698,7 @@ app.get('/api/sop/runs/:id/files/:fileId', (req, res) => {
   res.setHeader('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(row.original_name || 'file')}`);
   res.setHeader('x-content-type-options', 'nosniff');
   createReadStream(abs).pipe(res);
-});
+}));
 
 // ---------- Cookie 池（监督席派单 direct-5fbb2176：web 型外部台 cookie 认证） ----------
 interface CookieExport { name: string; value: string; domain?: string; path?: string; expirationDate?: number; httpOnly?: boolean; sameSite?: string }
@@ -1712,17 +1789,18 @@ app.post('/api/sop/runs', (req, res) => {
 });
 
 app.get('/api/sop/runs/active', wrap(async (_req, res) => {
-  // 快路径：Redis 活跃索引；降级态回落 SQLite
-  const ids = await runActiveIds();
-  if (ids.length > 0) {
-    const rows = ids.map((id) => svc<SopService>('sop').runByIdRunning(id) as unknown as SopRunRow | undefined).filter(Boolean) as SopRunRow[];
-    return res.json(rows);
-  }
+  // #338: a nonempty Redis set is not proof that it contains every running row.
+  // SQLite creates/status-transitions every run, including unsaved and task-center runs.
   const rows = svc<SopService>('sop').runsRunning() as unknown as SopRunRow[];
   res.json(rows);
 }));
 
 app.get('/api/stats', (_req, res) => { res.json(statsPayload()); });
+app.get('/api/content/observation', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(portalObserver ? { ...portalObserver.status(), counts: portalObserver.counts() } : { enabled: false, coverageVerified: false });
+});
 
 /** #275 过渡登录入口（#221 落地前）：挑一个可信 Odoo 台，走 /go/<id>/ 的 SSO v1 舞步并带 return 落回市场原页面。
  *  先选 origin = LC_ODOO_URL 的台（生命周期只认这个 Odoo 的会话；session_id 按主机名跨端口共享，登别的 Odoo 会把它覆盖掉），
@@ -2102,7 +2180,10 @@ app.get('/api/sop/runs', (req, res) => {
 
 // 异步路由一律经 wrap：Express 4 不接 async 抛出的错，404/409 会变成未处理的 Promise 拒绝让进程退出
 app.get('/api/sop/runs/:id(\\d+)', wrap(async (req, res) => {
-  res.json(await sopRunGetCore(Number(req.params.id)));
+  const id = Number(req.params.id);
+  const auth = await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, id);
+  if (auth.authorized) return res.json(await sopRunGetCore(id));
+  res.set('Cache-Control', 'no-store').json(sopRunGetMeta(id)); // #309 phase2：未授权只回元数据，不回私有 data
 }));
 
 app.put('/api/sop/runs/:id(\\d+)', wrap(async (req, res) => {
@@ -2181,6 +2262,17 @@ function serveApp(req: express.Request, res: express.Response) {
 }
 // 必须在 web/dist SPA fallback 之前注册
 app.get(/^\/apps\/[a-z0-9][a-z0-9-]*(\/.*)?$/, serveApp);
+// #321 设计 token 的固定路径（自产台 <link> 引入）：/design/tokens@<主版本>.css 推荐（主版本内名字稳定、值可变，按需重新验证），
+// /design/tokens@<完整版本>.css 精确钉版本（内容不变，可长缓存）；其他版本 404，不猜
+app.get(/^\/design\/tokens@[0-9.]+\.css$/, (req, res) => {
+  const t = loadTokensCss();
+  const kind = t ? resolveTokensPath(req.path, t) : null;
+  if (!t || !kind) return res.status(404).type('text').send(t ? `只提供 tokens@${t.major}.css 与 tokens@${t.version}.css\n` : 'design tokens 不可用\n');
+  res.setHeader('Cache-Control', kind === 'exact' ? 'public, max-age=31536000, immutable' : 'no-cache');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-WM-Tokens-Version', t.version);
+  res.type('text/css').send(t.css);
+});
 
 function summaryPayload() {
   const rows = listWorkbenches();
@@ -2340,7 +2432,7 @@ app.put('/api/settings', (req, res) => {
 app.get('/api/export', (req, res) => {
   // compliance 二期首项：导出默认脱敏（compliance 范围 kb ab3279b84a 的「导出面」——
   // 无认证导出曾是最大凭据泄漏向量）。?reveal=1 显式取真值（备份/迁移用途），
-  // 导入侧对掩码行跳过/剥除（见 import 循环）——掩码数据永不落库。
+  // 导入侧对掩码 url/auth 整批400拒绝（见 import 预检）——失败零写，不跳行报成功。
   const reveal = req.query.reveal === '1';
   res.json({
     format: 'workbench-market/export@1',
@@ -2529,7 +2621,7 @@ function sameOriginGuard(req: express.Request, res: express.Response): boolean {
 }
 
 /** 任务状态迁移：每次变化恰一条事件（BEGIN IMMEDIATE 串行段·#159 C23 只增不改） */
-function applyTaskTransition(taskId: number, action: 'created' | 'toggled' | 'published' | 'withdrawn', actor: string, patch: Record<string, unknown> = {}): void {
+function applyTaskTransition<T = void>(taskId: number, action: 'created' | 'toggled' | 'published' | 'withdrawn', actor: string, patch: Record<string, unknown> = {}, inTx?: () => T): T | undefined {
   db.exec('BEGIN IMMEDIATE');
   try {
     if (Object.keys(patch).length) {
@@ -2537,7 +2629,9 @@ function applyTaskTransition(taskId: number, action: 'created' | 'toggled' | 'pu
       db.prepare('UPDATE tasks SET ' + sets + ", updated_at = datetime('now') WHERE id = @___id").run({ ...patch, ___id: taskId });
     }
     db.prepare("INSERT INTO task_events (task_id, type, actor, actor_kind, payload_json) VALUES (?, ?, ?, 'human', ?)").run(taskId, action, actor, JSON.stringify(patch));
+    const out = inTx?.(); // 同一事务里的附带写（撤回时取消未发出的投递）
     db.exec('COMMIT');
+    return out;
   } catch (e) { db.exec('ROLLBACK'); throw e; }
 }
 
@@ -2546,15 +2640,53 @@ app.post('/api/task-center/tasks', (req, res) => {
   if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' }); // C10
   if (!adminGuard(req, res)) return; // C9 无口令 401/403
   res.status(201).json(publishTaskIntake(req.body ?? {}));
+  kickWorkbenchEvents(); // 工作台事件 v1：发布同事务已记 human 事件，这里立即试投
 });
+registerWorkbenchEventRoutes(app, { admin: adminGuard, sameOrigin: (req) => sameOriginGuard(req, undefined as never) });
 app.get('/api/task-center/tasks', (req, res) => { // 读开放
-  res.json(db.prepare('SELECT * FROM tasks ORDER BY id DESC').all().map(taskView));
+  res.json(db.prepare('SELECT * FROM tasks ORDER BY id DESC').all().map(taskListView)); // #309 phase2：列表同样不带 payload_json 私有副本
 });
-app.get('/api/task-center/tasks/:id', (req, res) => {
+app.get('/api/task-center/tasks/:id', wrap(async (req, res) => {
   const hit = db.prepare('SELECT * FROM tasks WHERE id = ?').get(Number(req.params.id));
   if (!hit) throw new HttpError(404, 'task not found');
   const events = db.prepare('SELECT id, type, actor, actor_kind, at, payload_json FROM task_events WHERE task_id = ? ORDER BY id').all(hit.id).map((e: any) => ({...e, action: e.type, detail: JSON.parse(e.payload_json)}));
-  res.json({ ...taskView(hit), events });
+  // #309 phase2：详情复制的录入数据与全量投影需 run 级读授权；未授权只回元数据（payload_json 是私有副本）
+  const auth = hit.intake_run_id ? await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, hit.intake_run_id) : { authorized: false };
+  if (auth.authorized) return res.json({ ...taskView(hit), events });
+  res.set('Cache-Control', 'no-store').json({ ...taskListView(hit), events, private_read: 'authorization-required' });
+}));
+// #309 phase2：run 私有读授权管理面（播种 grant／重签 cap／撤销；adminGuard——运维持权人经权威映射操作，不猜归属）
+app.put('/api/sop/runs/:id(\\d+)/read-grants', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const id = Number(req.params.id);
+  sopRunRow(id);
+  const subject = typeof req.body?.subject === 'string' ? req.body.subject.trim() : '';
+  if (!/^(user|mcp):[A-Za-z0-9_.@-]{1,128}$/.test(subject)) bad('subject 形如 user:<Odoo登录名> 或 mcp:<会话名>');
+  const role = typeof req.body?.role === 'string' && req.body.role ? req.body.role.slice(0, 32) : 'reader';
+  const expiresAt = typeof req.body?.expires_at === 'string' && req.body.expires_at ? req.body.expires_at.slice(0, 19) : null;
+  runReadGrantCreate(id, subject, role, expiresAt, 'admin');
+  res.status(201).json({ ok: true, run_id: id, subject, role, expires_at: expiresAt });
+});
+app.post('/api/sop/runs/:id(\\d+)/read-grants/revoke', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const id = Number(req.params.id);
+  const subject = typeof req.body?.subject === 'string' ? req.body.subject.trim() : '';
+  if (!subject) bad('subject 必填');
+  const n = runReadGrantRevoke(id, subject);
+  res.json({ ok: true, run_id: id, subject, revoked: n });
+});
+app.post('/api/sop/runs/:id(\\d+)/read-caps', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const id = Number(req.params.id);
+  sopRunRow(id);
+  const cap = issueRunReadCap(id);
+  res.status(201).json({ ok: true, run_id: id, read_capability: cap, note: '明文仅此一次出现——请立即分发保管' });
+});
+app.post('/api/sop/runs/:id(\\d+)/read-caps/revoke', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const id = Number(req.params.id);
+  const n = runReadCapRevokeAll(id);
+  res.json({ ok: true, run_id: id, revoked_caps: n });
 });
 app.get('/api/task-center/policy', (req, res) => { // C7 读开放
   res.json(taskCenterPolicy());
@@ -2606,8 +2738,9 @@ app.post('/api/task-center/tasks/:id/withdraw', (req, res) => {
   if (!hit) throw new HttpError(404, 'task not found');
   if (hit.status !== 'published') throw new HttpError(409, '仅已发布可撤回');
   const actor = 'human:' + String((req as express.Request & { adminActor?: string }).adminActor ?? 'admin');
-  applyTaskTransition(hit.id, 'withdrawn', actor, { status: 'withdrawn' });
-  res.json({ ok: true, id: hit.id, status: 'withdrawn' });
+  // 工作台事件 v1：撤回与取消未发出的投递同一事务；正在发送的那次如实报 in_flight
+  const c = applyTaskTransition(hit.id, 'withdrawn', actor, { status: 'withdrawn' }, () => cancelTaskCenterDeliveries(hit.id, actor));
+  res.json({ ok: true, id: hit.id, status: 'withdrawn', cancelled_deliveries: c?.cancelled ?? 0, in_flight_deliveries: c?.in_flight ?? 0 });
 });
 app.patch('/api/task-center/tasks/:id/agent-dispatch', (req, res) => { // 监督席对齐②：任务级 agent 派发开关（默认关·与任务锁语义对齐）
   if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
@@ -2659,6 +2792,23 @@ app.get('/api/remote-allow/diff', (req, res) => {
 });
 
 // #19②b 裁 A（direct-2ff2ed21）：治理时间线——版本链+run 历史+验收链三合一面（轻内嵌）
+/** #318 SOP 交付空间「定义」与单次记录的步骤骨架：只回步骤 key / 标题，不回步骤正文 HTML。
+ *  可见性同 Runner（issue #11）：published 公开；draft / deprecated 只给管理员。
+ *  ?version=N 读该版本（单次记录按 run 的 sop_version 取）；版本目录已冷存时 404，不猜。 */
+app.get('/api/sops/:slug/definition', (req, res) => {
+  const a = getApp(req.params.slug);
+  if (a.kind !== 'sop') throw new HttpError(404, `SOP not found: ${req.params.slug}`);
+  if (a.status !== 'published' && !adminHeaderOk(req)) return res.status(403).set('Cache-Control', 'no-store').json({ error: `SOP ${a.slug} 状态为 ${a.status}，定义仅管理员可见` });
+  const raw = req.query.version;
+  const version = raw === undefined || raw === '' ? a.active_version : Number(raw);
+  if (!Number.isInteger(version) || version < 1) bad('version 必须是正整数');
+  if (!svc<AppService>('app').versionExists(a.id, version)) throw new HttpError(404, `版本不存在: v${version}`);
+  const yamlPath = join(appsRoot, a.slug, `v${version}`, 'sop.yaml');
+  if (!existsSync(yamlPath)) return res.status(404).json({ error: `v${version} 未物化（冷版本），无法读取步骤定义`, code: 'version_not_materialized' });
+  const m = parseSopManifest(readFileSync(yamlPath, 'utf8'));
+  res.json({ slug: a.slug, version, active_version: a.active_version, status: a.status, title: m.title, code: m.code ?? a.code ?? '', description: m.description ?? '', steps: m.steps.map(({ key, title }) => ({ key, title })) });
+});
+
 app.get('/api/sops/:slug/timeline', (req, res) => {
   const a = getApp(req.params.slug);
   if (a.kind !== 'sop') throw new HttpError(404, `SOP not found: ${req.params.slug}`);
@@ -2687,7 +2837,9 @@ app.post('/api/bindings', (req, res) => {
   const direction = b.direction;
   if (direction !== 'admits' && direction !== 'notify' && direction !== 'both') bad('direction 必填且只许 admits|notify|both（显式选择·无默认）');
   if (!slug) bad('target_slug 必填');
-  if (!/^[a-z][a-z0-9-]*\/[a-z0-9][a-z0-9_-]{0,63}$/i.test(node)) bad('agent_node 形态：<zone>/<id8>，如 dsh/1a2b3c4d');
+  // 画布队名与上游 canvas-store validName 同规则：trim 后 1–40 字符、不含 /、不能是纯数字（中间可有空格）
+  const canvasName = /^[a-z][a-z0-9-]*\/canvas\/([^/]{1,40})$/i.exec(node)?.[1];
+  if (!(canvasName !== undefined ? canvasName.trim() === canvasName && !/^\d+$/.test(canvasName) : /^[a-z][a-z0-9-]*\/[a-z0-9][a-z0-9_-]{0,63}$/i.test(node))) bad('agent_node 形态：<zone>/<id8> 或画布队 <zone>/canvas/<name>，如 dsh/1a2b3c4d、dsh/canvas/procurement');
   const a = getApp(slug);
   if (a.kind !== targetType) bad(`target_type=${targetType} 与台型不符（${slug} 是 ${a.kind}）`);
   const mode = targetType === 'sop' && b.mode === 'run' ? 'run' : 'read'; // app 行 mode 恒 read（跨型 CHECK）
@@ -2740,22 +2892,29 @@ app.all('/api/apps/:slug/bindings/:id', (req, res) => {
 // /a2a/direct（P2）：准入开放——有效绑定 + 同 context 续 run + 上游幂等族 + 512KiB + DELIVERED 形状。
 // 查无 SOP 仍 404 不泄露；无绑定/draft/mode 不足 → 200 TASK_STATE_FAILED -32000（对齐上游 admission 形状）。
 // ADMIN_TOKEN 未设置时绑定面休眠（主人裁定：内网信任模型）——direct 对无绑定的 SOP 自然全拒。
-app.post('/a2a/direct', express.json({ limit: '600kb' }), (req, res) => {
+app.post('/a2a/direct', express.json({ limit: '600kb' }), async (req, res) => {
   const rawBytes = Number(req.headers['content-length'] ?? 0) || JSON.stringify(req.body ?? {}).length;
   // run 操作桥（P2 note 写入走 sop_runs 的哑数据面：step_key=note-<ts> 追加不覆盖）
   const runOps = {
-    start: (slug: string, startedBy: string): number => sopRunStartCore(slug, startedBy).id,
+    start: (slug: string, startedBy: string): { id: number; read_capability: string } => { const r = sopRunStartCore(slug, startedBy); return { id: r.id, read_capability: r.read_capability }; },
     uploadToken: (id: number): string => String((db.prepare('SELECT upload_token FROM sop_runs WHERE id = ?').get(id) as { upload_token?: string } | undefined)?.upload_token ?? ''), // P0：派单回执带令牌（创建者即得）
-    saveNote: (runId: number, text: string): void => {
+    saveNote: (runId: number, text: string): Promise<void> => runCheckpoints.serial(runId, async () => {
       const row = sopRunRow(runId);
-      if (row.status !== 'running') throw new HttpError(409, `run ${runId} 已 ${row.status}，不可再写`);
-      let data: Record<string, unknown> = {};
-      try { data = JSON.parse(row.data || '{}'); } catch { data = {}; }
-      const notes = Array.isArray(data['a2a-notes']) ? (data['a2a-notes'] as unknown[]) : [];
+      if (row.status !== 'running') throw new HttpError(409, 'run ' + runId + ' 已 ' + row.status + '，不可再写');
+      const prior = row.sop_slug === 'task-center' ? undefined : runCheckpoints.peek(runId);
+      const hot = prior || row.sop_slug === 'task-center' ? null : await runStateLoad(runId, runCacheCheckpoint(row));
+      const data = prior ?? { ...storedRunData(row), ...(hot?.meta.status === 'running' ? hot.data : {}) };
+      const notes = Array.isArray(data['a2a-notes']) ? data['a2a-notes'] as unknown[] : [];
       notes.push({ at: new Date().toISOString(), text });
       data['a2a-notes'] = notes;
-      svc<SopService>('sop').runUpdateData(runId, JSON.stringify(data));
-    },
+      if (row.sop_slug === 'task-center') {
+        svc<SopService>('sop').runUpdateData(runId, JSON.stringify(data));
+        runCheckpoints.forget(runId); // pure SQLite path must never retain a stale note snapshot
+      } else {
+        runCheckpoints.remember(runId, data, true); // delivered note requires SQLite success before cache publication
+        await runStateRestore(runId, { slug: row.sop_slug, version: row.sop_version, status: row.status, started_by: row.started_by, updated_at: Date.now() }, data, runCacheCheckpoint(sopRunRow(runId)));
+      }
+    }),
     statusOf: (runId: number): { status: string; steps: number } | null => {
       const row = svc<SopService>('sop').runStatusData(runId) as { status: string; data: string } | undefined;
       if (!row) return null;
@@ -2782,7 +2941,7 @@ app.post('/a2a/direct', express.json({ limit: '600kb' }), (req, res) => {
     },
   };
   try {
-    const out = a2aDirectHandle(req.body, rawBytes, runOps);
+    const out = await a2aDirectHandle(req.body, rawBytes, runOps);
     res.status(out.httpStatus).json(out.body);
   } catch (e: any) {
     res.status(200).json({ error: `direct handler failed: ${String(e?.message ?? e)}`, code: -32000, task_status: 'TASK_STATE_FAILED' });
@@ -2803,10 +2962,14 @@ const wbById = (id: number): ReturnType<typeof rowToWorkbench> | null => {
 import { MCP_TOOLS } from './mcp-tools.ts';
 import { evalCandidates } from './eval.ts'; // #178 评估模型客户端
 
-import { renderSopRunner } from './sop-runner.ts';
+import { renderSopRunner as renderSopRunnerRaw } from './sop-runner.ts';
+import { loadTokensCss, resolveTokensPath } from './design-tokens-css.ts';
+/** #321：执行页内联 DESIGN.md 生成的 --wm-* 变量，与市场前端同色同字号 */
+const renderSopRunner = (manifest: Parameters<typeof renderSopRunnerRaw>[0], app: Parameters<typeof renderSopRunnerRaw>[1]) => renderSopRunnerRaw(manifest, app, loadTokensCss()?.css ?? '');
 import { isOdooLikeTarget, isOdooSessionTarget, stripOdooSession, trustedOdooOrigins } from './odoo-session.ts';
 import { collectTasks } from './tasks.ts';
-import { lifecycleApprove, lifecycleBoard, lifecycleConfigProblem, lifecycleConfigured, lifecycleSourceFor, lifecycleStatus, lifecycleWhoami } from './lifecycle.ts';
+import { lifecycleApprove, lifecycleBoard, lifecycleConfigProblem, lifecycleConfigured, lifecycleSourceFor, lifecycleStatus, lifecycleWhoami, resolveOdooViewer } from './lifecycle.ts';
+import { authorizeRunRead, issueRunReadCap, runReadGrantCreate, runReadGrantRevoke, runReadCapRevokeAll } from './sop-read-auth.ts';
 import { endpointStatsMiddleware, statsPayload } from './endpoint-stats.ts';
 
 // ---------- MCP 生产通道（StreamableHTTP · stateless：AI 会话直连市场，零依赖手写 JSON-RPC） ----------
@@ -2817,6 +2980,8 @@ async function callTool(name: string, args: any, subject = 'anonymous'): Promise
   const metaSlug = String(args?.slug ?? '').trim().toLowerCase();
   if (metaSlug === 'task-center' && ['app_publish','app_activate','sop_publish','sop_deprecate','app_draft_open','app_draft_edit','app_draft_submit'].includes(name)) throw new HttpError(403, 'task-center 元台仅人工面可修改');
   switch (name) {
+    case 'design_standard':
+      return designStandard(args ?? {});
     case 'skills_list': {
       const S = svc<SkillService>('skill');
       let rows = S.skillsAll() as any[];
@@ -2999,8 +3164,13 @@ async function callTool(name: string, args: any, subject = 'anonymous'): Promise
       return sopRunStartCore(String(args?.slug ?? ''), String(args?.started_by ?? ''));
     case 'sop_run_step_save':
       return sopRunStepSaveCore(Number(args?.run_id), String(args?.step_key ?? ''), args?.value);
-    case 'sop_run_get':
-      return sopRunGetCore(Number(args?.run_id));
+    case 'sop_run_get': {
+      // #309 phase2：MCP 会话工具 grant ≠ run grant；机器迁移可带 args.read_capability（审计只存哈希）
+      const runId = Number(args?.run_id);
+      const capArg = typeof args?.read_capability === 'string' ? args.read_capability : undefined;
+      const auth = await authorizeRunRead({ cap: capArg, mcpSubject: subject.startsWith('mcp:') ? subject : undefined }, runId);
+      return auth.authorized ? sopRunGetCore(runId) : sopRunGetMeta(runId);
+    }
     case 'sop_run_list': {
       const slug = typeof args?.slug === 'string' ? args.slug : '';
       const status = typeof args?.status === 'string' ? args.status : '';
@@ -3008,7 +3178,7 @@ async function callTool(name: string, args: any, subject = 'anonymous'): Promise
       const sqlArgs: unknown[] = [];
       if (slug) { where.push('sop_slug = ?'); sqlArgs.push(slug); }
       if (status) { where.push('status = ?'); sqlArgs.push(status); }
-      const sql = `SELECT id, sop_slug, sop_version, status, started_by, started_at, updated_at, finished_at FROM sop_runs ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY updated_at DESC LIMIT 50`;
+      const sql = `SELECT * FROM sop_runs ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY updated_at DESC LIMIT 50`;
       return svc<SopService>('sop').runsQuery(sql, sqlArgs);
     }
     case 'sop_run_finish':
@@ -3189,9 +3359,16 @@ app.put('/api/mcp/upstreams', (req, res) => {
 });
 
 
-// 合并与激活解耦：代码进 main 可评审；激活=主人同设 ADMIN_TOKEN+MCP_GATEWAY=on 重启
-// （单设 MCP_GATEWAY 而无 ADMIN_TOKEN 时控制面全 403，无法建会话 → /mcp 全 401，拒绝半激活）。
-const MCP_GATEWAY_ON = process.env.MCP_GATEWAY === 'on';
+// #284 缺省开（fail closed）：未设/空/on 均开网关，只有显式 MCP_GATEWAY=off 才关并在启动时告警；
+// 其它值拒绝启动（防拼写错误静默放开）。重启漏带环境变量不再把 /mcp 退回匿名可调。
+// 网关开而无 ADMIN_TOKEN 时控制面全 403，无法建会话 → /mcp 全 401（拒绝而非放开）。
+const MCP_GATEWAY_RAW = process.env.MCP_GATEWAY ?? '';
+if (!['', 'on', 'off'].includes(MCP_GATEWAY_RAW)) {
+  console.error(`[#284] 拒绝启动：MCP_GATEWAY 只接受 on / off / 不设（当前值无法识别，不按关处理）`);
+  process.exit(1);
+}
+const MCP_GATEWAY_ON = MCP_GATEWAY_RAW !== 'off';
+if (!MCP_GATEWAY_ON) console.warn('[#284] 警告：MCP_GATEWAY=off，/mcp 不校验会话令牌、匿名可调全部工具——只用于本地开发/测试，生产勿设');
 const MCP_SESSION_NAME_RE = /^[a-z][a-z0-9-]{0,63}$/;
 let mcp401Count = 0;
 
@@ -3506,17 +3683,27 @@ const goServer = registerSurface(app, 'market', PORT, () => {
 });
 
 if (SURFACE_PORTS.control) registerSurface(app, 'control', SURFACE_PORTS.control);
+if (contentCfg && contentRuntime) listenContentSurface(app, contentCfg, contentRuntime);
 
 // P1-3（#147）：优雅关闭——停巡检→WAL checkpoint(db.close)→server.close（容器 stop 不丢写）
-function shutdown(sig: string): void {
-  console.log(`[shutdown] ${sig} received——停止接受新请求`);
-  try { if (timer) clearTimeout(timer); } catch { /* 未启动 */ }
-  for (const srv of allSurfaceServers()) if (srv !== goServer) srv.close();
-  goServer.close(() => {
-    try { db.close(); } catch { /* 已关 */ }
+let shuttingDown = false;
+async function shutdown(sig: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log('[shutdown] ' + sig + ' received——停止接受新请求');
+  if (timer) clearTimeout(timer);
+  const deadline = setTimeout(() => { console.error('[shutdown] checkpoint_or_request_drain_timeout'); process.exit(1); }, 8000);
+  deadline.unref?.();
+  try {
+    await Promise.all(allSurfaceServers().map(srv => new Promise<void>(resolve => { srv.close(() => resolve()); })));
+    await runCheckpoints.close();
+    db.close();
+    clearTimeout(deadline);
     process.exit(0);
-  });
-  setTimeout(() => process.exit(0), 8000).unref?.(); // 兜底强退
+  } catch {
+    console.error('[shutdown] sqlite_checkpoint_failed');
+    process.exit(1);
+  }
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
@@ -3525,8 +3712,9 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 // 关键：upgrade 事件不流经 Express 中间件链——前置中间件设置的 goOrigin/goBase/goQuery/goAuth
 // 在这里全部不存在，必须对 upgrade 请求重做同样的准备，否则 router 兜底到 http://127.0.0.1（80 端口
 // 无服务）→ DSH 台经门户打开后 WS 永远连不上（页面「重新连接中…」，实测踩坑）。
-for (const srv of allSurfaceServers()) if (srv !== goServer) srv.on('upgrade', (_req, socket) => socket.destroy()); // #292 M1：控制面不提供 WS
+for (const srv of allSurfaceServers()) if (srv !== goServer) srv.on('upgrade', (req, socket) => { if (surfaceOf(req) !== 'content') socket.destroy(); }); // #292 M1：控制面不提供 WS
 goServer.on('upgrade', (req, socket, head) => {
+  portalObserver?.observe(req);
   const m = goPrefix.exec(req.url ?? '');
   if (!m) return socket.destroy(); // 非 /go/ 的升级请求：本服务自身不提供 WS
   const w = wbById(Number(m[1]));
