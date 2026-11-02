@@ -95,6 +95,13 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Explicit script targets (#341, negative calls intercepted, loopback fixtures)
+        env:
+          PYTHON: python
+        run: node scripts/explicit-script-targets-test.mjs
       - name: tsc (web)
         run: pnpm --filter web typecheck
       - name: server 语法核（esbuild）
