@@ -136,17 +136,17 @@ function StepValue({ value }: { value: unknown }) {
     const entries = Object.entries(value as Record<string, unknown>);
     if (!entries.length) return <Typography.Text type="secondary">（空）</Typography.Text>;
     return (
-      <Descriptions size="small" column={1} style={{ marginTop: 4 }}>
+      <Descriptions size="small" column={1} className="wm-mt-1">
         {entries.map(([k, v]) => <Descriptions.Item key={k} label={k}>{scalar(v)}</Descriptions.Item>)}
       </Descriptions>
     );
   }
-  return <div style={{ marginTop: 4 }}>{scalar(value)}</div>;
+  return <div className="wm-mt-1">{scalar(value)}</div>;
 }
 
 function scalar(v: unknown): ReactNode {
   if (v === null || v === undefined || v === '') return <Typography.Text type="secondary">（空）</Typography.Text>;
-  if (typeof v === 'string') return <span style={{ whiteSpace: 'pre-wrap' }}>{v}</span>;
+  if (typeof v === 'string') return <span className="wm-prewrap">{v}</span>;
   if (typeof v === 'number' || typeof v === 'boolean') return <Typography.Text className="wm-num">{String(v)}</Typography.Text>;
-  return <Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{JSON.stringify(v)}</Typography.Text>;
+  return <Typography.Text className="wm-mono wm-caption">{JSON.stringify(v)}</Typography.Text>;
 }
