@@ -5,7 +5,8 @@
   2) 旧 run 无 cap：?run=<id> 打开只回元数据 → 页面显示「需读授权」提示，且不渲染私有字段值。
   3) 有 cap 的旧 run：注入该 run 的 cap 后重开 → 正常渲染字段值、无授权提示。
 
-前置：E2E_PORT 指向已起的合成实例（拒 9800，除非 E2E_ALLOW_PROD=1）；E2E_ADMIN_TOKEN 给管理口令。
+前置：E2E_PORT 指向已起的合成实例（拒 9800，除非 E2E_ALLOW_PROD=1）；E2E_ADMIN_TOKEN 给管理口令；
+E2E_FAKE_GITHUB 指向本机 GitHub 替身（scripts/github-fixture.mjs，由 e2e-full-run.mjs 注入）。
 """
 import json
 import os
@@ -14,6 +15,9 @@ import urllib.error
 import urllib.request
 
 from playwright.sync_api import sync_playwright
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from gh_fixture import sync_request  # noqa: E402
 
 _port = os.environ.get('E2E_PORT', '').strip()
 if not _port:
@@ -81,10 +85,11 @@ with sync_playwright() as p:
             req('DELETE', f'/api/apps/{SLUG}?reviewed_by=cap-browser-cleanup')
         except Exception:
             pass
-        st, _ = req('POST', '/api/apps', {
+        # 属主 2026-11-02 来源收敛：SOP 台只从 GitHub main 同步——文件进本机替身仓库，再 /sync
+        st, _ = req('POST', *sync_request({
             'slug': SLUG, 'kind': 'sop', 'title': 'Cap Browser Fixture', 'changelog': 'cap browser fixture',
             'files': [{'path': 'sop.yaml', 'content': SOP_YAML}],
-        })
+        }))
         assert st in (200, 201), f'建台失败 {st}'
         st, app = req('GET', f'/api/apps/{SLUG}')
         if app.get('status') != 'published':

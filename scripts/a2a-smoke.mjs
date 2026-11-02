@@ -2,6 +2,7 @@
 /** A2A P1 冒烟：专用实例（独立 DATA_DIR + ADMIN_TOKEN）上卡片签名（上游 verifyCard 裁判）+ 绑定 CRUD + 上卡规则。 */
 import { spawn } from './owned-script-fixture.mjs';
 import { createServer } from 'node:net';
+import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 async function waitReady(url, ms = 20000) {
   const end = Date.now() + ms;
@@ -22,10 +23,11 @@ const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ 
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 
-// 起专用实例
+// 起专用实例（自产台/SOP 台只从 GitHub main 同步：起本机替身仓库）
+const gh = await startFakeGithub();
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server',
-  env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'e2e-admin-tok' },
+  env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: `../${DATA}`, ADMIN_TOKEN: 'e2e-admin-tok', WM_GITHUB_API: gh.api },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪（20s 超时）'); process.exit(1); }
@@ -59,7 +61,8 @@ try {
 
   // 发布 SOP（无绑定 → 不上卡）
   const yaml = 'title: A2A 冒烟 SOP\nsteps:\n  - key: a\n    title: A\n';
-  await call('POST', '/api/apps', { slug: 'a2a-smoke-sop', kind: 'sop', title: 'A2A 冒烟 SOP', changelog: 'x', files: [{ path: 'sop.yaml', content: yaml }] });
+  const pubSop = await ghPublish(BASE, gh, { slug: 'a2a-smoke-sop', kind: 'sop', title: 'A2A 冒烟 SOP', changelog: 'x', files: [{ path: 'sop.yaml', content: yaml }] });
+  ok('SOP 经 GitHub main 同步发布 → 201', pubSop.status === 201, `status=${pubSop.status}`);
   await call('POST', '/api/sops/a2a-smoke-sop/publish', {});
   let card2 = (await call('GET', '/.well-known/agent-card.json')).body;
   ok('published 无绑定不上卡', card2.sessionTeams.length === 0);
@@ -147,6 +150,7 @@ try {
   ok('run 模式 note 放行', r.status === 200 && r.body?.task_status === 'TASK_STATE_DELIVERED');
 } finally {
   child.kill();
+  await gh.close();
   await new Promise((r) => setTimeout(r, 500));
 }
 console.log(`\n===== A2A P1+P2 冒烟 ${pass + fail} 项：${pass} 通过 / ${fail} 失败 =====`);

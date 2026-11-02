@@ -126,7 +126,7 @@ const TEXT_FACTS = [
   ["server/src/portal.ts", "x-frame-options"],
   ["server/package.json", "http-proxy-middleware"],
   [PORTAL_CALL_CHAIN_FACT.path, PORTAL_CALL_CHAIN_FACT.needle],
-  ["server/src/index.ts", "/api/apps"],
+  ["server/src/index.ts", "/api/apps/:slug/sync"],
   ["server/src/db.ts", "app_versions"],
   ["server/src/index.ts", "authorization"],
   ["web/src/components/WorkbenchForm.tsx", "authValue"],

@@ -9,6 +9,7 @@ const SOURCE_DATA_DIR = requireDataSource();
  */
 import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
+import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 const PORT = 9993;
 const DATA = 'tmp/e2e-132-' + Date.now().toString(36);
@@ -28,12 +29,14 @@ rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: tru
   db.exec(`VACUUM INTO '${DATA}/workbench-market.db'`); db.close();
 }
 for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`${SOURCE_DATA_DIR}/${d}`, `${DATA}/${d}`, { recursive: true });
+const gh = await startFakeGithub(); // 自产台/SOP 台只从 GitHub main 同步：本机替身仓库
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
-  cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'p132' }, stdio: 'ignore',
+  cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'p132', WM_GITHUB_API: gh.api }, stdio: 'ignore',
 });
 try {
   await waitReady(`${B}/api/health`);
-  await fetch(`${B}/api/apps`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...ADMIN }, body: JSON.stringify({ slug: 'p132', title: 'p', files: [{ path: 'index.html', content: '<h1>x</h1>' }] }) });
+  const pub0 = await ghPublish(B, gh, { slug: 'p132', title: 'p', files: [{ path: 'index.html', content: '<h1>x</h1>' }] }, ADMIN);
+  ok('⓪ 台经 GitHub main 同步发布 → 201', pub0.status === 201, `status=${pub0.status}`);
   // ① 上传带 note
   const fd = new FormData();
   fd.append('file', new Blob([Buffer.from('a,b\n1,2')], { type: 'text/csv' }), 'n.csv');

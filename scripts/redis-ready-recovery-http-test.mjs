@@ -8,6 +8,7 @@ import {request} from 'node:http';
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {DatabaseSync} from 'node:sqlite';
+import {startFakeGithub,ghPublish} from './github-fixture.mjs';
 const which='recovery';
 const root=resolve('.'),out=resolve('tmp/sop-state-restart-'+Date.now()+'-'+which),data=join(out,'data'),home=join(out,'home');mkdirSync(data,{recursive:true});mkdirSync(home,{recursive:true});
 // Seed the pre-cache_revision schema to exercise the real idempotent upgrade, not only a new database.
@@ -15,7 +16,8 @@ const legacy=new DatabaseSync(join(data,'workbench-market.db'));
 legacy.exec(`CREATE TABLE sop_runs(id INTEGER PRIMARY KEY AUTOINCREMENT,sop_slug TEXT NOT NULL,sop_version INTEGER NOT NULL,status TEXT NOT NULL DEFAULT 'running',started_by TEXT NOT NULL DEFAULT '',data TEXT NOT NULL DEFAULT '{}',started_at TEXT NOT NULL DEFAULT (datetime('now')),updated_at TEXT NOT NULL DEFAULT (datetime('now')),finished_at TEXT NOT NULL DEFAULT '');
 INSERT INTO sop_runs(sop_slug,sop_version,status,data) VALUES('synthetic-legacy',1,'finished','{"legacy":"PRESERVED"}');`);legacy.close();
 const reserve=createServer();await new Promise(r=>reserve.listen(0,'127.0.0.1',r));const port=reserve.address().port;await new Promise(r=>reserve.close(r));assert(![3080,9800,9801].includes(port));
-const env={};for(const k of ['SystemRoot','WINDIR','PATH','PATHEXT','TEMP','TMP'])if(process.env[k])env[k]=process.env[k];Object.assign(env,{PORT:String(port),WM_CONTROL_PORT:'0',MCP_GATEWAY:'on',ADMIN_TOKEN:'synthetic-restart-admin',NODE_ENV:'test',DATA_DIR:data,YGL_HOME:home,REDIS_URL:'redis://127.0.0.1:1',SYNTHETIC_REDIS_MODULE:pathToFileURL(join(root,'scripts/fixtures/sop-state-redis.mjs')).href,SYNTHETIC_REDIS_STATE:join(out,'redis.json')});
+const gh=await startFakeGithub();
+const env={};for(const k of ['SystemRoot','WINDIR','PATH','PATHEXT','TEMP','TMP'])if(process.env[k])env[k]=process.env[k];Object.assign(env,{WM_GITHUB_API:gh.api,PORT:String(port),WM_CONTROL_PORT:'0',MCP_GATEWAY:'on',ADMIN_TOKEN:'synthetic-restart-admin',NODE_ENV:'test',DATA_DIR:data,YGL_HOME:home,REDIS_URL:'redis://127.0.0.1:1',SYNTHETIC_REDIS_MODULE:pathToFileURL(join(root,'scripts/fixtures/sop-state-redis.mjs')).href,SYNTHETIC_REDIS_STATE:join(out,'redis.json')});
 const preload="import net from'node:net';import{registerHooks}from'node:module';const listen=net.Server.prototype.listen;net.Server.prototype.listen=function(...a){if(typeof a[0]==='number'&&typeof a[1]!=='string')a.splice(1,0,'127.0.0.1');return listen.apply(this,a)};registerHooks({resolve(s,c,next){return s==='redis'?{url:process.env.SYNTHETIC_REDIS_MODULE,shortCircuit:true}:next(s,c)}});";
 if(process.env.REDIS351_FINGERPRINT_MUTATION==='1')env.NODE_OPTIONS=process.env.NODE_OPTIONS;
 let child,ended,serial=0;const pids=[];let checks=0;
@@ -29,7 +31,7 @@ const store=id=>{const d=new DatabaseSync(join(data,'workbench-market.db'),{read
 const newRun=async(slug='restart-sop')=>{const r=await http('/api/sop/runs','POST',{slug,started_by:'synthetic-restart'});assert.equal(r.status,201);return r.j.id};
 try{
  await start();await control('online');
- const app=await http('/api/apps','POST',{slug:'restart-sop',kind:'sop',title:'Synthetic reconnect',changelog:'test',files:[{path:'sop.yaml',content:['title: Synthetic reconnect','steps:','  - key: inspect','    title: Inspect'].join(String.fromCharCode(10))}]});assert.equal(app.status,201);assert.equal((await http('/api/sops/restart-sop/publish','POST',{})).status,200);
+ const app=await ghPublish('http://127.0.0.1:'+port,gh,{slug:'restart-sop',kind:'sop',title:'Synthetic reconnect',changelog:'test',files:[{path:'sop.yaml',content:['title: Synthetic reconnect','steps:','  - key: inspect','    title: Inspect'].join(String.fromCharCode(10))}]},{'X-Admin-Token':env.ADMIN_TOKEN});assert.equal(app.status,201,await app.clone().text());assert.equal((await http('/api/sops/restart-sop/publish','POST',{})).status,200);
  const cache=id=>JSON.parse(JSON.parse(readFileSync(join(out,'redis.json'),'utf8')).hashes['wm:sop:run:'+id+':data'].__wm_snapshot_v2);
  const a=await newRun();await save(a,'DURABLE_OLD');await save(a,'HOT_OLD');const old=cache(a);
  check('hot value before disconnect is retained in Redis',old.data.field==='HOT_OLD'&&store(a).field==='DURABLE_OLD');
@@ -40,4 +42,4 @@ try{
  const cold=await newRun();await save(cold,'COLD_BASE');await save(cold,'STALE_HOT');const stale=cache(cold);await control('offline');await save(cold,'COLD_SQL_NEW');await stop();await start();await control('online');const got=await http('/api/sop/runs/'+cold);check('cold recovery rejects stale Redis in favor of SQLite NEW',got.status===200&&got.j.data.field==='COLD_SQL_NEW');const rebound=cache(cold);check('recovery rebinds Redis to advanced SQLite generation',rebound.checkpoint!==stale.checkpoint&&rebound.data.field==='COLD_SQL_NEW');const resumed=await save(cold,'POST_RECOVERY_HOT');check('cold recovered run resumes Redis hot path',resumed.j.persisted==='redis+checkpoint');await http('/api/sop/runs/'+cold+'/finish','POST');check('finish after recovery keeps new value durable',store(cold).field==='POST_RECOVERY_HOT');
  const active=await http('/api/sop/runs/active');check('active list after repeated recovery is complete and excludes finished',active.status===200&&active.j.some(r=>r.id===a)&&!active.j.some(r=>r.id===cold));await http('/api/sop/runs/'+a+'/finish','POST');check('original run finish keeps last acknowledged hot value',store(a).field==='HOT_NEW_1');await stop();
  writeFileSync(join(out,'result.json'),JSON.stringify({checks,productionRequests:0,networkRedis:false,scope:'actual index HTTP/SQLite across owned processes with controlled Redis disconnect/ready events'},null,2));console.log(JSON.stringify({out,checks,failures:0}));
-}finally{if(child&&child.exitCode===null&&child.signalCode===null){child.kill('SIGKILL');await ended;}}
+}finally{if(child&&child.exitCode===null&&child.signalCode===null){child.kill('SIGKILL');await ended;}await gh.close();}

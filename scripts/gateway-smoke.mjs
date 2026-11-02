@@ -67,7 +67,7 @@ try {
   r = await call('GET', '/api/mcp/tools');
   ok('GET /api/mcp/tools 无口令 403', r.status === 403);
   r = await call('GET', '/api/mcp/tools', null, AT);
-  ok('tools 面 28 个（#178 skill_search +1·design_standard +1）', Array.isArray(r.body) && r.body.length === 28);
+  ok('tools 面 25 个（#178 skill_search +1·design_standard +1；11-02 来源收敛 app_publish→app_sync、草稿三工具移除 −3）', Array.isArray(r.body) && r.body.length === 25, `len=${r.body?.length}`);
   // 授权两个
   r = await call('PUT', `/api/mcp/sessions/${sid}/grants`, { grants: ['workbench_summary', 'use_url'] }, AT);
   ok('grants 整体替换', r.status === 200 && r.body.grants.length === 2);
@@ -88,7 +88,7 @@ try {
   const names = (r.body?.result?.tools ?? []).map((t) => t.name);
   ok('tools/list 按授权过滤=2', names.length === 2 && names.includes('workbench_summary') && names.includes('use_url'), JSON.stringify(names));
   // 未授权调用 = 与未知工具同应答
-  const r1 = await rpc('tools/call', { name: 'app_publish', arguments: {} }, alphaToken);   // 未授权
+  const r1 = await rpc('tools/call', { name: 'app_sync', arguments: {} }, alphaToken);   // 未授权（存在但未授予）
   const r2 = await rpc('tools/call', { name: 'no_such_tool', arguments: {} }, alphaToken);  // 不存在
   ok('未授权=不存在同应答（不泄露）', r1.status === r2.status && JSON.stringify(r1.body?.error) === JSON.stringify(r2.body?.error),
      `auth:${JSON.stringify(r1.body?.error)} vs none:${JSON.stringify(r2.body?.error)}`);

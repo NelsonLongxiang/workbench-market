@@ -11,6 +11,7 @@ import sys
 from pathlib import Path as _Path
 sys.path.insert(0,str(_Path(__file__).resolve().parents[1]/'scripts'))
 from sop_history_assertions import assert_metadata_history
+from gh_fixture import sync_request
 from datetime import datetime, timezone
 from playwright.sync_api import sync_playwright, expect
 
@@ -42,6 +43,21 @@ def api(page, method, path, payload=None, extra_headers=None):
     if extra_headers:
         h.update(extra_headers)
     return page.request.fetch(f'{BASE}{path}', method=method, data=payload, headers=h)
+
+
+def publish(page, body):
+    """属主 2026-11-02 来源收敛：自产台/SOP 台只接受 GitHub 仓库 main。原 POST /api/apps 带 files 的发布 →
+    文件提交进本机替身仓库 fixture/<slug>（E2E_FAKE_GITHUB，跑器注入），再 POST /api/apps/<slug>/sync（本机 CLI）。"""
+    path, payload = sync_request(body)
+    return api(page, 'POST', path, payload)
+
+
+def smoke_passed(out, at_least):
+    """子冒烟计数门槛：汇总行「N 通过 / 0 失败」且 N ≥ 原门槛（门槛不降）。来源收敛后各冒烟多了一项
+    「经 GitHub main 同步发布 → 201」，计数随之 +1，故由「恰为 N」改为「≥ N 且 0 失败」。"""
+    import re as _re_sp
+    m = _re_sp.findall(r'(\d+) 通过 / 0 失败', out)
+    return bool(m) and int(m[-1]) >= at_least
 
 
 def cleanup(page):
@@ -698,7 +714,7 @@ with sync_playwright() as p:
             api(page, 'DELETE', '/api/apps/e2e-app', {'reviewed_by': 'e2e-cleanup'})
         except Exception:
             pass
-        r = api(page, 'POST', '/api/apps', {
+        r = publish(page, {
             'slug': 'e2e-app',
             'title': 'E2E 自产台',
             'description': 'E2E 发布的版本化小工具',
@@ -737,17 +753,25 @@ with sync_playwright() as p:
         _csp = (_go_html.headers.get('content-security-policy') or '')
         assert 'sandbox' in _csp and 'allow-same-origin' not in _csp, f'自产台应带 CSP sandbox 隔离: {_csp}'
         # 重发 v2 → 静态切换；activate 回 v1 → 回滚
-        api(page, 'POST', '/api/apps', {'slug': 'e2e-app', 'title': 'E2E 自产台',
+        r2 = publish(page, {'slug': 'e2e-app', 'title': 'E2E 自产台',
             'files': [{'path': 'index.html', 'content': '<!doctype html><meta charset="utf-8"><h1>E2E-APP-V2</h1>'}]})
+        assert r2.status == 200 and r2.json().get('version') == 2, f'重发 v2 失败: {r2.status} {r2.text()[:200]}'
         assert 'E2E-APP-V2' in page.request.fetch(BASE + '/apps/e2e-app/').text(), 'v2 未生效'
         api(page, 'POST', '/api/apps/e2e-app/activate', {'version': 1, 'reviewed_by': 'e2e-selftest'})  # S1 人审门（L14）
         assert 'E2E-APP-V1' in page.request.fetch(BASE + '/apps/e2e-app/').text(), '回滚 v1 未生效'
         detail = api(page, 'GET', '/api/apps/e2e-app').json()
         assert len(detail['versions']) == 2 and detail['active_version'] == 1, f'版本链异常: {detail["versions"]}'
         # 非法输入防御
-        r400 = api(page, 'POST', '/api/apps', {'slug': 'Bad!', 'title': 'x',
+        r400 = publish(page, {'slug': 'Bad!', 'title': 'x',
             'files': [{'path': 'index.html', 'content': 'x'}]})
         assert r400.status == 400, '非法 slug 未拒绝'
+        # 来源收敛：直接传文件 / patch 的旧发布入口一律 410（只接受 GitHub main 同步）
+        r410 = api(page, 'POST', '/api/apps', {'slug': 'e2e-app', 'title': 'E2E 自产台',
+            'files': [{'path': 'index.html', 'content': '<h1>E2E-APP-DIRECT</h1>'}]})
+        assert r410.status == 410, f'直接传文件发布应 410: {r410.status}'
+        r410 = api(page, 'POST', '/api/apps', {'slug': 'e2e-app', 'patch': {'set': [{'path': 'index.html', 'content': 'x'}]}})
+        assert r410.status == 410, f'patch 发布应 410: {r410.status}'
+        assert 'E2E-APP-V1' in page.request.fetch(BASE + '/apps/e2e-app/').text(), '被拒的直发不应改动托管内容'
         record('自产台（发布/入册/门户嵌入/版本回滚/防御）', True)
     except Exception as e:
         record('自产台', False, str(e)); shot('apps')
@@ -845,7 +869,7 @@ with sync_playwright() as p:
         assert r_d.headers.get('access-control-allow-origin') == 'http://localhost:5173', 'dev 源未放行'
         # #11 draft 403 不再下发完整 Runner 页面
         draft_yaml = 'title: T\nsteps:\n  - key: a\n    title: SecretStep\n'
-        api(page, 'POST', '/api/apps', {'slug': 'e2e-draft-leak', 'kind': 'sop', 'title': 'L', 'changelog': 'x',
+        publish(page, {'slug': 'e2e-draft-leak', 'kind': 'sop', 'title': 'L', 'changelog': 'x',
             'files': [{'path': 'sop.yaml', 'content': draft_yaml}]})
         r403 = page.request.fetch(BASE + '/sop/e2e-draft-leak/')
         assert r403.status == 403 and 'SecretStep' not in r403.text(), 'draft 403 页面泄漏步骤内容'
@@ -890,15 +914,16 @@ with sync_playwright() as p:
             '    title: 上架固定\n'
             "    body: '<p>机位：<input data-field=\"机位\"></p>'\n"
         )
-        # ① 发布面：缺 changelog 拒；缺 sop.yaml 拒
-        r400 = api(page, 'POST', '/api/apps', {'slug': 'e2e-sop', 'kind': 'sop', 'title': 'E2E SOP',
+        # ① 发布面：直接传文件发布 SOP 拒（410，来源收敛后只接受 GitHub main；原「缺 changelog 拒」——
+        #    sync 缺省 changelog 自动写「[github] 仓库@main 短 sha」，该拒因不再存在）；仓库里缺 sop.yaml 拒
+        r410 = api(page, 'POST', '/api/apps', {'slug': 'e2e-sop', 'kind': 'sop', 'title': 'E2E SOP', 'changelog': 'x',
             'files': [{'path': 'sop.yaml', 'content': sop_yaml}]})
-        assert r400.status == 400, 'SOP 缺 changelog 未拒'
-        r400 = api(page, 'POST', '/api/apps', {'slug': 'e2e-sop', 'kind': 'sop', 'title': 'E2E SOP', 'changelog': 'x',
+        assert r410.status == 410, f'SOP 直接传文件发布应 410: {r410.status}'
+        r400 = publish(page, {'slug': 'e2e-sop', 'kind': 'sop', 'title': 'E2E SOP', 'changelog': 'x',
             'files': [{'path': 'index.html', 'content': 'x'}]})
         assert r400.status == 400, 'SOP 缺 sop.yaml 未拒'
         # ② 发布 → draft 不入册 → publish 入册
-        r = api(page, 'POST', '/api/apps', {'slug': 'e2e-sop', 'kind': 'sop', 'title': 'E2E SOP',
+        r = publish(page, {'slug': 'e2e-sop', 'kind': 'sop', 'title': 'E2E SOP',
             'code': 'SOP-E2E-001', 'changelog': '初版',
             'files': [{'path': 'sop.yaml', 'content': sop_yaml}]}).json()
         assert r['status'] == 'draft' and r['workbench_id'] == 0, f'draft 语义异常: {r}'
@@ -929,7 +954,7 @@ with sync_playwright() as p:
         # ⑤ draft 状态机拒直跳 deprecate；重发=新版本带 changelog
         r409 = api(page, 'POST', '/api/sops/e2e-sop2-missing/publish')
         assert r409.status == 404
-        r = api(page, 'POST', '/api/apps', {'slug': 'e2e-sop', 'kind': 'sop', 'changelog': 'v2 增加自检',
+        r = publish(page, {'slug': 'e2e-sop', 'kind': 'sop', 'changelog': 'v2 增加自检',
             'files': [{'path': 'sop.yaml', 'content': sop_yaml + '  - key: check\n    title: 通电自检\n'}]}).json()
         assert r['version'] == 2, f'重发版本异常: {r}'
         vs = api(page, 'GET', '/api/apps/e2e-sop').json()['versions']
@@ -955,9 +980,11 @@ with sync_playwright() as p:
         assert r.status == 202, f'notification 应 202: {r.status}'
         j = mcp('tools/list').json()
         tool_names = [t['name'] for t in j['result']['tools']]
-        LOCAL_TOOLS = ['workbench_list','workbench_summary','workbench_check','use_url','app_publish','change_request_create','change_requests','sop_publish','sop_run_start','sop_run_step_save','sop_run_get','sop_run_list','sop_run_finish','app_data_list','app_files_list','workbench_register','workbench_update','workbench_unregister']
+        LOCAL_TOOLS = ['workbench_list','workbench_summary','workbench_check','use_url','app_sync','change_request_create','change_requests','sop_publish','sop_run_start','sop_run_step_save','sop_run_get','sop_run_list','sop_run_finish','app_data_list','app_files_list','workbench_register','workbench_update','workbench_unregister']
         missing = [t for t in LOCAL_TOOLS if t not in tool_names]
         assert not missing, f'tools/list 缺本地工具: {missing}'
+        removed = [t for t in ('app_publish', 'app_draft_open', 'app_draft_edit', 'app_draft_submit') if t in tool_names]
+        assert not removed, f'来源收敛后应已移除的工具仍在 tools/list: {removed}'
         assert len(tool_names) >= 17, f'tools/list 异常: {tool_names}'
         j = mcp('wat').json()
         assert j['error']['code'] == -32601, '未知 method 应 -32601'
@@ -965,15 +992,31 @@ with sync_playwright() as p:
         # 工具链：summary + 发布 app + SOP 上架
         j = mcp('tools/call', {'name': 'workbench_summary', 'arguments': {}}).json()
         assert json.loads(j['result']['content'][0]['text'])['total'] > 0, 'summary 工具异常'
+        # 来源收敛：MCP 直发文件（app_publish）已移除；首次登记来源走 REST sync（本机 CLI），MCP app_sync 只按已登记来源重拉 main
         mcp_files = [{'path': 'index.html', 'content': '<h1>E2E-MCP-APP</h1>'}]
         j = mcp('tools/call', {'name': 'app_publish', 'arguments': {'slug': 'e2e-mcp-app', 'title': 'E2E MCP 台', 'created_by': 'e2e', 'files': mcp_files}}).json()
+        assert j['result'].get('isError') is True and '未知工具' in j['result']['content'][0]['text'], f'MCP app_publish 应已移除: {j}'
+        j = mcp('tools/call', {'name': 'app_sync', 'arguments': {'slug': 'e2e-mcp-app'}}).json()
+        assert j['result'].get('isError') is True, f'MCP app_sync 对未登记来源的台应拒: {j}'
+        r0 = publish(page, {'slug': 'e2e-mcp-app', 'title': 'E2E MCP 台', 'created_by': 'e2e', 'files': [{'path': 'index.html', 'content': '<h1>E2E-MCP-APP-V0</h1>'}]})
+        assert r0.status == 201, f'REST 登记来源失败: {r0.status} {r0.text()[:200]}'
+        j = mcp('tools/call', {'name': 'app_sync', 'arguments': {'slug': 'e2e-mcp-app', 'source_repo': 'fixture/other'}}).json()
+        assert j['result'].get('isError') is True, f'MCP app_sync 不应能改来源: {j}'
+        sync_request({'slug': 'e2e-mcp-app', 'files': mcp_files})  # 只提交进替身 main（MCP 不经 REST）
+        # MCP 会话（who=mcp）与刚才的 REST 登记是两会话，同 slug 60s 发布锁（#193 F11）会 409——此处是有意覆盖，带 force
+        j = mcp('tools/call', {'name': 'app_sync', 'arguments': {'slug': 'e2e-mcp-app', 'changelog': 'MCP 重拉'}}).json()
+        assert j['result'].get('isError') is True and '另一会话' in j['result']['content'][0]['text'], f'MCP 与 REST 同 slug 60s 内应过发布锁: {j}'
+        j = mcp('tools/call', {'name': 'app_sync', 'arguments': {'slug': 'e2e-mcp-app', 'changelog': 'MCP 重拉', 'force': True}}).json()
         pub = json.loads(j['result']['content'][0]['text'])
-        assert pub['ok'] and pub['workbench_id'] > 0, f'MCP app_publish 异常: {pub}'
+        assert pub['ok'] and pub['workbench_id'] > 0 and pub['version'] == 2, f'MCP app_sync 异常: {pub}'
         r = page.request.fetch(BASE + '/apps/e2e-mcp-app/')
-        assert r.status == 200 and 'E2E-MCP-APP' in r.text(), 'MCP 发布的台不可访问'
+        assert r.status == 200 and 'E2E-MCP-APP' in r.text() and 'V0' not in r.text(), 'MCP 同步的台不可访问'
         sop_yaml = 'title: E2E MCP SOP\nsteps:\n  - key: a\n    title: 步骤A\n'
-        j = mcp('tools/call', {'name': 'app_publish', 'arguments': {'slug': 'e2e-mcp-sop', 'kind': 'sop', 'title': 'E2E MCP SOP', 'changelog': '初版', 'files': [{'path': 'sop.yaml', 'content': sop_yaml}]}}).json()
-        assert json.loads(j['result']['content'][0]['text'])['status'] == 'draft', 'MCP SOP 发布应 draft'
+        r0 = publish(page, {'slug': 'e2e-mcp-sop', 'kind': 'sop', 'title': 'E2E MCP SOP', 'changelog': '初版', 'files': [{'path': 'sop.yaml', 'content': 'title: E2E MCP SOP\nsteps:\n  - key: a\n    title: 步骤0\n'}]})
+        assert r0.status == 201 and r0.json()['status'] == 'draft', f'REST 登记 SOP 来源失败: {r0.status} {r0.text()[:200]}'
+        sync_request({'slug': 'e2e-mcp-sop', 'files': [{'path': 'sop.yaml', 'content': sop_yaml}]})
+        j = mcp('tools/call', {'name': 'app_sync', 'arguments': {'slug': 'e2e-mcp-sop', 'changelog': '补步骤A', 'force': True}}).json()
+        assert json.loads(j['result']['content'][0]['text'])['status'] == 'draft', f'MCP SOP 同步应 draft: {j}'
         j = mcp('tools/call', {'name': 'sop_publish', 'arguments': {'slug': 'e2e-mcp-sop', 'note': 'E2E 上架'}}).json()
         up = json.loads(j['result']['content'][0]['text'])
         assert up['status'] == 'published' and up['workbench_id'] > 0, f'MCP sop_publish 异常: {up}'
@@ -1030,7 +1073,7 @@ with sync_playwright() as p:
         gw = _sp2.run(['node', 'scripts/gateway-smoke.mjs'], capture_output=True, text=True, timeout=180,
                       cwd=_os4.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
         assert gw.returncode == 0, f'gateway-smoke 失败:\n{gw.stdout[-500:]}\n{gw.stderr[-300:]}'
-        assert '24 通过' in gw.stdout, f'gateway-smoke 计数异常: {gw.stdout[-200:]}'
+        assert smoke_passed(gw.stdout, 24), f'gateway-smoke 计数异常: {gw.stdout[-200:]}'
         # C7: 网关管理页 UI（GH #20 P1 派单①——主实例无 ADMIN_TOKEN，控制面 403 但页面可渲染）
         page.goto(BASE + '/mcp-gateways')
         page.wait_for_load_state('networkidle')
@@ -1045,43 +1088,43 @@ with sync_playwright() as p:
         ck = _sp3.run(['node', 'scripts/cookie-smoke.mjs'], capture_output=True, text=True, timeout=120,
                       cwd=_os4.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
         assert ck.returncode == 0, f'cookie-smoke 失败:\n{ck.stdout[-500:]}\n{ck.stderr[-300:]}'
-        assert '11 通过' in ck.stdout, f'cookie-smoke 计数异常: {ck.stdout[-200:]}'
+        assert smoke_passed(ck.stdout, 11), f'cookie-smoke 计数异常: {ck.stdout[-200:]}'
         # C9: 自产台数据提交面（派单 direct-22838fab）——独立实例冒烟
         ad = _sp3.run(['node', 'scripts/appdata-smoke.mjs'], capture_output=True, text=True, timeout=120,
                       cwd=_os4.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
         assert ad.returncode == 0, f'appdata-smoke 失败:\n{ad.stdout[-500:]}\n{ad.stderr[-300:]}'
         # 隐私门红线后 LAN_IP 不入库：无 env 时远程面三项跳过（13 通过+跳过标记）；设了 env 走全量 16——两形皆绿
-        assert (('16 通过' in ad.stdout) or ('13 通过' in ad.stdout and '跳过远程面' in ad.stdout)), f'appdata-smoke 计数异常: {ad.stdout[-200:]}'
+        assert ((smoke_passed(ad.stdout, 16)) or (smoke_passed(ad.stdout, 13) and '跳过远程面' in ad.stdout)), f'appdata-smoke 计数异常: {ad.stdout[-200:]}'
         # C10: 自产台文件提交面（所有资源类型 · 50MB 上限）——独立实例冒烟
         af = _sp3.run(['node', 'scripts/appfiles-smoke.mjs'], capture_output=True, text=True, timeout=240,
                       cwd=_os4.path.join(_os4.path.dirname(_os4.path.abspath(__file__)), '..'))
         assert af.returncode == 0, f'appfiles-smoke 失败:\n{af.stdout[-500:]}\n{af.stderr[-300:]}'
-        assert '17 通过' in af.stdout, f'appfiles-smoke 计数异常: {af.stdout[-200:]}'
+        assert smoke_passed(af.stdout, 17), f'appfiles-smoke 计数异常: {af.stdout[-200:]}'
         # C12: MCP 上游聚合（GH #20 P2：taste__* 并入 /mcp）——独立实例 + 假上游冒烟
         up = _sp3.run(['node', 'scripts/upstream-smoke.mjs'], capture_output=True, text=True, timeout=180,
                       cwd=_os4.path.join(_os4.path.dirname(_os4.path.abspath(__file__)), '..'))
         assert up.returncode == 0, f'upstream-smoke 失败:\n{up.stdout[-500:]}\n{up.stderr[-300:]}'
-        assert '19 通过' in up.stdout, f'upstream-smoke 计数异常: {up.stdout[-200:]}'
+        assert smoke_passed(up.stdout, 19), f'upstream-smoke 计数异常: {up.stdout[-200:]}'
         # C13: 管理员口令安全（评审 #27：出口剔除 + 加盐存储 + 旧格式兼容）
         tk = _sp3.run(['node', 'scripts/token-smoke.mjs'], capture_output=True, text=True, timeout=180,
                       cwd=_os4.path.join(_os4.path.dirname(_os4.path.abspath(__file__)), '..'))
         assert tk.returncode == 0, f'token-smoke 失败:\n{tk.stdout[-500:]}\n{tk.stderr[-300:]}'
-        assert '16 通过' in tk.stdout, f'token-smoke 计数异常: {tk.stdout[-200:]}'
+        assert smoke_passed(tk.stdout, 16), f'token-smoke 计数异常: {tk.stdout[-200:]}'
         # C14: A2A P3 回执（评审席 network/a2a-receipt E1-E6 自查版，独立实例）
         rc = _sp3.run(['node', 'scripts/receipt-smoke.mjs'], capture_output=True, text=True, timeout=240,
                       cwd=_os4.path.join(_os4.path.dirname(_os4.path.abspath(__file__)), '..'))
         assert rc.returncode == 0, f'receipt-smoke 失败:\n{rc.stdout[-600:]}\n{rc.stderr[-300:]}'
-        assert '16 通过' in rc.stdout, f'receipt-smoke 计数异常: {rc.stdout[-200:]}'
+        assert smoke_passed(rc.stdout, 16), f'receipt-smoke 计数异常: {rc.stdout[-200:]}'
         # C15: P4 run 交付物（product/run-delivery F1-F7 自查版，独立实例）
         dv = _sp3.run(['node', 'scripts/run-delivery-smoke.mjs'], capture_output=True, text=True, timeout=300,
                       cwd=_os4.path.join(_os4.path.dirname(_os4.path.abspath(__file__)), '..'))
         assert dv.returncode == 0, f'run-delivery-smoke 失败:\n{dv.stdout[-600:]}\n{dv.stderr[-300:]}'
-        assert '10 通过' in dv.stdout, f'run-delivery-smoke 计数异常: {dv.stdout[-200:]}'
+        assert smoke_passed(dv.stdout, 10), f'run-delivery-smoke 计数异常: {dv.stdout[-200:]}'
         # C16: 19a 任务发布面（监督席 direct-58d60ed6）
         dp = _sp3.run(['node', 'scripts/dispatch-smoke.mjs'], capture_output=True, text=True, timeout=300,
                       cwd=_os4.path.join(_os4.path.dirname(_os4.path.abspath(__file__)), '..'))
         assert dp.returncode == 0, f'dispatch-smoke 失败:\n{dp.stdout[-600:]}\n{dp.stderr[-300:]}'
-        assert '11 通过' in dp.stdout, f'dispatch-smoke 计数异常: {dp.stdout[-200:]}'
+        assert smoke_passed(dp.stdout, 11), f'dispatch-smoke 计数异常: {dp.stdout[-200:]}'
         record('MCP 生产通道（协议面 + 17 tools + 网关 P1 + 管理页 + Cookie 池 + 数据面 + 文件面 + 上游聚合 P2）', True)
     except Exception as e:
         record('MCP 生产通道', False, str(e)); shot('mcp')
@@ -1095,7 +1138,7 @@ with sync_playwright() as p:
             '    title: 步骤A\n'
         )
         # ① draft 行：徽章 + 执行按钮禁用
-        api(page, 'POST', '/api/apps', {'slug': 'e2e-sop-ui', 'kind': 'sop', 'title': 'E2E SOP UI 验证',
+        publish(page, {'slug': 'e2e-sop-ui', 'kind': 'sop', 'title': 'E2E SOP UI 验证',
             'changelog': 'ui 验证', 'files': [{'path': 'sop.yaml', 'content': sop_yaml_ui}]})
         page.goto((ADMIN_UI or BASE) + '/sops')  # #292 M1：上架是管理写，页面在控制面；控制面关闭时读面在业务面、上架走 CLI
         page.wait_for_load_state('networkidle')
@@ -1161,7 +1204,7 @@ with sync_playwright() as p:
     # ---------- 19. 运行时批六项（评审 #5/#6/#7/#8/#9/#10） ----------
     try:
         # ① #6 删除 SOP 台同时清市场注册（不留孤儿）
-        api(page, 'POST', '/api/apps', {'slug': 'e2e-del-sop', 'kind': 'sop', 'title': 'T', 'changelog': 'x',
+        publish(page, {'slug': 'e2e-del-sop', 'kind': 'sop', 'title': 'T', 'changelog': 'x',
             'files': [{'path': 'sop.yaml', 'content': 'title: T\nsteps:\n  - key: a\n    title: A\n'}]})
         pub = api(page, 'POST', '/api/sops/e2e-del-sop/publish', {}).json()
         swid = pub['workbench_id']
@@ -1169,7 +1212,7 @@ with sync_playwright() as p:
         orphan = [w for w in api(page, 'GET', '/api/workbenches').json() if w['id'] == swid]
         assert not orphan, f'删除 SOP 后孤儿工作台仍在: {orphan[:1]}'
         # ② #10 deprecate→publish 恢复 enabled
-        api(page, 'POST', '/api/apps', {'slug': 'e2e-rearm', 'kind': 'sop', 'title': 'T', 'changelog': 'x',
+        publish(page, {'slug': 'e2e-rearm', 'kind': 'sop', 'title': 'T', 'changelog': 'x',
             'files': [{'path': 'sop.yaml', 'content': 'title: T\nsteps:\n  - key: a\n    title: A\n'}]})
         api(page, 'POST', '/api/sops/e2e-rearm/publish', {})
         api(page, 'POST', '/api/sops/e2e-rearm/deprecate', {})
@@ -1205,7 +1248,7 @@ with sync_playwright() as p:
         smoke = _sp.run(['node', 'scripts/import-smoke.mjs'], capture_output=True, text=True, timeout=180,
                         cwd=_os3.path.join(_os3.path.dirname(_os3.path.abspath(__file__)), '..'))
         assert smoke.returncode == 0, f'import-smoke 失败:\n{smoke.stdout[-500:]}\n{smoke.stderr[-300:]}'
-        assert '7 通过' in smoke.stdout, f'import-smoke 计数异常: {smoke.stdout[-200:]}'
+        assert smoke_passed(smoke.stdout, 7), f'import-smoke 计数异常: {smoke.stdout[-200:]}'
         record('运行时批六项（#5-#10：巡检重挂/删台清注册/导入 replace[独立实例]/校验400/面板清理/enabled 恢复）', True)
     except Exception as e:
         record('运行时批六项', False, str(e)); shot('runtime-batch')
@@ -1250,7 +1293,7 @@ with sync_playwright() as p:
             capture_output=True, text=True, timeout=180,
             cwd=_os2.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
         assert smoke.returncode == 0, f'a2a-smoke 失败:\n{smoke.stdout[-600:]}\n{smoke.stderr[-300:]}'
-        assert '36 通过' in smoke.stdout, f'a2a-smoke 计数异常: {smoke.stdout[-200:]}'
+        assert smoke_passed(smoke.stdout, 36), f'a2a-smoke 计数异常: {smoke.stdout[-200:]}'
         record('A2A 网络接入 P1（卡片签名/人工绑定/上卡规则/direct 不泄露）', True)
     except Exception as e:
         record('A2A 网络接入 P1', False, str(e)); shot('a2a-p1')

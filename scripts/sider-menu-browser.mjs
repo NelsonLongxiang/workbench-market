@@ -10,13 +10,15 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 if (!existsSync('web/dist/index.html')) { console.error('缺 web/dist：先跑 pnpm --filter web build'); process.exit(2); }
 const TMP = resolve('tmp/sider-menu-browser-' + Date.now().toString(36));
 mkdirSync(join(TMP, 'data'), { recursive: true });
+const gh = await startFakeGithub(); // 来源收敛（属主 2026-11-02）：SOP 台只从 GitHub main 同步，测试用本机替身
 const PORT = 20000 + Math.floor(Math.random() * 20000);
 const base = `http://127.0.0.1:${PORT}`;
-const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), YGL_HOME: join(TMP, 'home'), ADMIN_TOKEN: 'synthetic-menu-admin' };
+const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), YGL_HOME: join(TMP, 'home'), ADMIN_TOKEN: 'synthetic-menu-admin', WM_GITHUB_API: gh.api };
 for (const k of ['LC_YGL_BIN', 'LC_YGL_HOME', 'LC_WORKBENCH_KEY_FILE', 'LC_ODOO_URL', 'WM_ODOO_ORIGINS', 'WM_CONTROL_PORT']) delete env[k]; // 控制面用缺省 PORT+1
 env.WM_CONTROL_PORT = String(PORT + 1); // 控制面缺省已不开；本测试显式开一个，覆盖业务面与控制面两种页面
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });
@@ -30,7 +32,8 @@ try {
   const cockpit = (await r.json()).id;
   // #319：25 条进行中 run → 统一待办 25 条 market 任务（超过一页 20 条）；再登记一个工作台
   const adm = (method, path, body) => fetch(base + path, { method, headers: { 'content-type': 'application/json', 'x-admin-token': env.ADMIN_TOKEN }, body: JSON.stringify(body) }).then(async (x) => { if (!x.ok) throw new Error(`${method} ${path} → ${x.status} ${await x.text()}`); return x.json(); });
-  await adm('POST', '/api/apps', { slug: 'list-sop', kind: 'sop', title: '列表合成 SOP', changelog: 'x', files: [{ path: 'sop.yaml', content: 'title: 列表合成 SOP\nsteps:\n  - key: a\n    title: A\n' }] });
+  const pub = await ghPublish(base, gh, { slug: 'list-sop', kind: 'sop', title: '列表合成 SOP', changelog: 'x', files: [{ path: 'sop.yaml', content: 'title: 列表合成 SOP\nsteps:\n  - key: a\n    title: A\n' }] }, { 'x-admin-token': env.ADMIN_TOKEN });
+  if (!pub.ok) throw new Error(`sync list-sop → ${pub.status} ${await pub.text()}`);
   await adm('POST', '/api/sops/list-sop/publish', {});
   for (let i = 0; i < 25; i++) await adm('POST', '/api/sop/runs', { slug: 'list-sop', started_by: `合成-${i}` });
   const wbA = await adm('POST', '/api/workbenches', { name: '列表合成台', url: base + '/api/health', type: 'web', category: '合成' });
@@ -48,7 +51,7 @@ try {
 } catch (e) {
   console.error(String(e?.stack ?? e));
 } finally {
-  server.kill();
+  server.kill(); await gh.close();
   await new Promise((x) => setTimeout(x, 400));
   if (code && serverErr) console.log(serverErr.slice(-1500));
   rmSync(TMP, { recursive: true, force: true });
