@@ -2,7 +2,7 @@
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #170 P6/P7/P11 冒烟：①HTML 同源绝对链接改 /go/<id>/ ②Referer 只到目标源 ③自产台响应带 CSP sandbox。 */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 

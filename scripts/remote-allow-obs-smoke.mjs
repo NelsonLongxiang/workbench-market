@@ -8,7 +8,7 @@ const SOURCE_DATA_DIR = requireDataSource();
  *  判据：①diff 面在（红版 404）②豁免变更（两组实例·前后不同 env）→ diff 记录新增/移除条目
  *  ③通知投递：变更时有绑定的台面收到 A2A 通知（cap 收）④无变更启动→diff 空（护栏）。
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 

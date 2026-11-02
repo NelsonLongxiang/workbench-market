@@ -4,7 +4,7 @@ const SOURCE_DATA_DIR = requireDataSource();
 /** 白屏三层+外链护栏冒烟（PR#128-#130 面·丢失补回后回归）。
  *  ①HTML 资产前缀 ②JS 内 /assets/ 前缀 ③Vite helper 改写 ④外链 airwallex 原样+内链仍改
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 

@@ -6,7 +6,7 @@ const SOURCE_DATA_DIR = requireDataSource();
  *  ②替身收到的 project 与 layerfs_project 一致
  *  ③短 slug → project == slug 原样
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';

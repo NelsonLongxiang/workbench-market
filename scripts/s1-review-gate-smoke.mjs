@@ -7,7 +7,7 @@ const SOURCE_DATA_DIR = requireDataSource();
  *  K12: MCP 工具列表无直接删除/回滚工具
  *  L14: 台回滚与删除未经批准不执行（REST 无 reviewed_by → 400）
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 
 const PORT = 9875;

@@ -2,7 +2,7 @@
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #170 P0 冒烟（判据先红）：①强制 gzip 的上游响应经 /go/ 字节完好（不因文本改写损坏）②identity 上游收到 accept-encoding:identity③明文 HTML 仍能改写（回归）。 */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { gzipSync } from 'node:zlib';

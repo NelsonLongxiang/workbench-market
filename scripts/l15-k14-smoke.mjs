@@ -7,7 +7,7 @@ const SOURCE_DATA_DIR = requireDataSource();
  *  L15c: 服务死后回滚冷版——**拒回滚**（active 不切·4xx/5xx）
  *  K14: resolveSnap 越权形（绝对路径/..）拒——verify 面装 DATA_DIR 外目录不再被读
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync, readdirSync, existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';

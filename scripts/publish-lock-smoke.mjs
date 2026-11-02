@@ -3,7 +3,7 @@ import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #164 P1③ 发布锁冒烟：异会话 60s 内 409（hint 带 served_version 指引）·同会话续发放行·force 越锁。
  *  PUBLISH_LOCK_MS 可经 env 覆盖（测试加速）。 */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 
 const PORT = 10041;

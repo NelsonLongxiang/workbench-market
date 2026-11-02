@@ -2,7 +2,7 @@
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #183 P0 冒烟：①新发布技能 export 200 ②agents:/jf: 同名双来源并存不覆盖 ③verify 失败不漏绝对路径。 */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync, readdirSync } from 'node:fs';
 
 const PORT = 20000 + Math.floor(Math.random() * 20000);

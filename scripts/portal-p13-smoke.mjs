@@ -2,7 +2,7 @@
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #170 P1②③ 冒烟：①非 HTTPS Secure 剥离 ②__Host- 保留 Path=/+Secure ③泛化根路径（"/static/x"→/go/<id>/static/x）④外部 URL/已带前缀不误改。 */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 

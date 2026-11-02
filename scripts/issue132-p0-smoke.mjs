@@ -7,7 +7,7 @@ const SOURCE_DATA_DIR = requireDataSource();
  *  ③软删 → 列表不见+原行在（DB deleted_at 置位）
  *  ④data 软删同
  */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 
 const PORT = 9993;
