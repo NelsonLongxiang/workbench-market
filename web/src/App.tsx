@@ -17,6 +17,7 @@ import { adminTokenPresent, getAdminToken, setAdminToken, subscribeAdminToken } 
 import { controlUrl, MARKET_ONLY, marketUrl, onSurface, surface } from './surface';
 import { Badge, Button as AButton, Input as AInput, Popover, Result, Tag } from 'antd';
 import Tasks from './pages/Tasks';
+import Reviews from './pages/Reviews';
 import Lifecycle from './pages/Lifecycle';
 import SkillsPage from './pages/Skills';
 import ViewerChip from './components/ViewerChip';
@@ -157,6 +158,7 @@ export default function App() {
         <Route path="/sops/:slug" element={<SopSpace />} />
         <Route path="/sops/:slug/runs/:id" element={<SopRunDetail />} />
         <Route path="/tasks" element={<Tasks />} />
+        <Route path="/reviews" element={<Reviews />} />
         <Route path="/lifecycle" element={<Lifecycle />} />
         <Route path="/mcp-gateways" element={<McpGateways />} />
         <Route path="/types" element={<Types />} />
