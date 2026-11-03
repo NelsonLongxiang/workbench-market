@@ -637,7 +637,7 @@ function wmAppToken(slug: string): string {
 }
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const MAX_APP_FILES = 64;
-const MAX_APP_TOTAL_BYTES = 2 * 1024 * 1024;
+const MAX_APP_TOTAL_BYTES = 100 * 1024 * 1024;
 
 function getApp(slug: string): AppRow {
   const row = svc<AppService>('app').bySlug(slug) as unknown as AppRow | undefined;
