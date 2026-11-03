@@ -35,7 +35,10 @@
       if (!h.id) h.id = 'wm-s-' + (i + 1);
       var text = norm(h.textContent), label = text, gkey = null;
       C.groups.forEach(function (g) {
-        g.sections.forEach(function (p) { if (!gkey && text.indexOf(p) === 0) { gkey = g.key; label = p; } });
+        g.sections.forEach(function (p) {  // 「前缀|显示名」：标题带 emoji 或长限定语时，目录里用干净的名字
+          var parts = p.split('|');
+          if (!gkey && text.indexOf(parts[0]) === 0) { gkey = g.key; label = parts[1] || parts[0]; }
+        });
       });
       var hidden = !gkey && (C.hideSections || []).some(function (p) { return text.indexOf(p) === 0; });
       return { h: h, id: h.id, nodes: nodes, label: label.slice(0, 24), group: hidden ? 'hidden' : (gkey || 'other') };
@@ -48,8 +51,9 @@
   }
 
   /* ---------- 只给业务看：工程/agent 内容整块不显示 ---------- */
-  function starts(e, list) {
-    var t = norm(e.textContent); return (list || []).some(function (p) { return t.indexOf(p) === 0; });
+  function starts(e, list) {  // 前缀匹配；「re:」开头按正则（版本号这类每次都变的开头）
+    var t = norm(e.textContent);
+    return (list || []).some(function (p) { return p.indexOf('re:') === 0 ? new RegExp(p.slice(3)).test(t) : t.indexOf(p) === 0; });
   }
   function hideNonBusiness() {
     var keep = C.keepNodes || [];
@@ -63,7 +67,7 @@
     scrubFields();
     if (!(C.hideNodes || []).length) return;
     // 业务区块与页头里的技术说明段落：取最内层命中的元素（外层容器的文字常以首个子元素开头，不能连容器一起藏）
-    Array.prototype.forEach.call(document.body.querySelectorAll('div,p,small,span,summary'), function (e) {
+    Array.prototype.forEach.call(document.body.querySelectorAll('div,p,small,span,summary,nav'), function (e) {
       if (e.closest('[data-wm-nav]') || !starts(e, C.hideNodes)) return;
       if (Array.prototype.some.call(e.children, function (c) { return starts(c, C.hideNodes); })) return;
       (e.tagName === 'SUMMARY' ? e.parentElement : e).classList.add('wm-hide');  // 说明折叠块：整块藏

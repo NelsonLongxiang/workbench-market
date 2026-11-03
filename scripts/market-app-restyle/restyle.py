@@ -157,6 +157,15 @@ UX_CSS = (
 )
 # 菜单 / 目录 / 视图（PATTERNS.md §7.4）：按台配置区块分组；区块按 h2 标题前缀匹配
 NAV = {
+    # 采购台（属主 11-03：重点优化、可重写；分组与隐藏清单已确认）。标题带 emoji，用「前缀|显示名」
+    'procurement-workbench': {'title': '采购工作台', 'groups': [
+        {'key': 'tasks', 'label': '任务', 'sections': ['📝 任务提交|任务提交', '📋 任务列表|任务列表', '🆕 最近合同交付|最近合同交付']},
+        {'key': 'todo', 'label': '待办', 'sections': ['🔐 ERP 写授权待批区|ERP 写授权待批', '🔧 业务整改清单|业务整改清单', '📦 挂账 461 处理专区|挂账 461 处理']},
+        {'key': 'check', 'label': '核对', 'sections': ['领星 → 积加 PO 同步与平台对齐|PO 同步与平台对齐', '📋 84 张待提交单|84 单六字段对齐', '📦 80张已提交PO|80 单入库核对']},
+        {'key': 'plan', 'label': '计划', 'sections': ['🎯 优先级|优先级', '🗺️ 执行计划板|执行计划板']},
+    ],
+        'hideSections': ['📐 系统工程工作规范', '⚠️ 处置队列'],
+        'hideNodes': ['re:^v\\d+ · \\d{4}-\\d{2}-\\d{2}', '📍 焦点目录', 're:^\\d+/\\d+\\s*合同验证器', 're:^\\d+/\\d+\\s*三端产品缺失']},
     'finance-workbench': {'title': '财务月度交付驾驶舱', 'groups': [
         {'key': 'overview', 'label': '总览', 'sections': ['双栏时钟卡', 'KPI 条', '财务行动看板']},
         {'key': 'delivery', 'label': '交付', 'sections': ['11 件交付清单', '交付空间']},
