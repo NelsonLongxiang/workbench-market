@@ -102,7 +102,7 @@ app.use((req, res, next) => {
   if (surfaceOf(req) !== 'control') return next();
   // 用 Express 路由同一个 pathname（req.path：已剥查询串、已处理绝对形式 http://x/mcp），再按小写判——路由不区分大小写（/MCP、/A2A/direct 曾漏过；#299 绝对形式）
   const p = req.path.toLowerCase();
-  if (/^\/(go|sop|apps)(\/|$)/.test(p) || p === '/mcp' || p.startsWith('/a2a/')) return res.status(404).type('text').send('控制面不提供此路径（请用业务面）\n');
+  if (/^\/(go|sop|apps)(\/|$)/.test(p) || p === '/mcp' || p === '/openapi.json' || p.startsWith('/api/mcp-rest/') || p.startsWith('/a2a/')) return res.status(404).type('text').send('控制面不提供此路径（请用业务面）\n');
   res.setHeader('content-security-policy', "frame-ancestors 'none'; frame-src 'none'");
   res.setHeader('x-frame-options', 'DENY');
   next();
@@ -139,9 +139,11 @@ app.use((req, res, next) => {
 // end 事件挂起；401 路径不读 body 所以「看起来通」）。/go/ 的 body 由 HPM 原样 pipe。
 // /mcp 的 app_files_upload 用 base64 传文件：100MB 原始 ≈ 134MB base64，再留 JSON-RPC 包装余量。
 // 只给带有效会话令牌的 /mcp 请求放大：本中间件先于 /mcp 路由里的会话判定执行，不先认令牌，匿名请求也能把 72MB 读进内存
+// REST 开放的工具调用（/api/mcp-rest/tools/<name>）同口径：请求体就是工具参数，app_files_upload 一样带 base64
 const MCP_BODY_LIMIT = '140mb';
 function bodyLimitFor(req: express.Request): string {
-  if ((req.url ?? '').split('?')[0] !== '/mcp') return '4mb';
+  const path = (req.url ?? '').split('?')[0];
+  if (path !== '/mcp' && !path.startsWith('/api/mcp-rest/tools/')) return '4mb';
   const m = /^Bearer ([0-9a-f]{64})$/i.exec(String(req.headers.authorization ?? ''));
   return m && mcpSessionByToken(m[1]) ? MCP_BODY_LIMIT : '4mb';
 }
@@ -168,6 +170,8 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/sop\/runs(\/\d+(\/(finish|files))?)?$/,
   // 工作台事件 v1：接单节点回写决定（凭投递里的 reply token 鉴权，不认口令；只此一条子路径）
   /^\/api\/workbench-events\/wbe-[0-9a-f]{16}\/decision$/,
+  // MCP 工具 REST 开放：与 /mcp 同口径，凭会话令牌在路由内鉴权，不认管理口令
+  /^\/api\/mcp-rest\/tools\/[^/]+$/,
 ];
 
 // S3 豁免面可观测（评审席裁下批·PR#72 真事故锚）：启动时快照+diff——安全清单变更不再无声
@@ -3845,29 +3849,68 @@ app.post('/api/mcp/access-requests/:id/reject', (req, res) => {
   res.json({ ok: true, id, status: 'rejected' });
 });
 
+// ---------- /mcp 与 REST（/api/mcp-rest/*）共用：会话认定、审计、tools/call ----------
+type McpChannel = 'mcp' | 'rest';
+/** 网关会话认定：只认 Authorization: Bearer <会话令牌>。网关开且令牌无效/缺失/吊销 → 已回 401，返回 undefined；
+ *  网关关 → null（匿名可调全部工具，只用于本地开发）。 */
+function mcpGatewaySession(req: express.Request, res: express.Response): McpSess | null | undefined {
+  if (!MCP_GATEWAY_ON) return null;
+  const m = /^Bearer ([0-9a-f]{64})$/i.exec(String(req.headers.authorization ?? ''));
+  const sess = m ? mcpSessionByToken(m[1]) : null;
+  if (!sess) {
+    if (!isStartupProbeRequest(req)) mcp401Count += 1; // self-probe is not adoption traffic
+    res.setHeader('WWW-Authenticate', 'Bearer realm="workbench-market mcp"');
+    res.status(401).json({ error: 'unauthorized: valid session token required', hint: '会话与令牌由管理员经 /api/mcp/sessions 创建分发' });
+    return undefined;
+  }
+  svc<McpService>('mcp').sessionTouched(sess.id);
+  return sess;
+}
+function mcpAudit(sess: McpSess | null, channel: McpChannel, method: string, tool: string, ok: boolean, error: string, durationMs: number, args: unknown): void {
+  if (!MCP_GATEWAY_ON || !sess) return;
+  svc<McpService>('mcp').callInsertStmt()
+    .run(sess.name, method, tool, ok ? 1 : 0, error, durationMs, sha256Hex(JSON.stringify(args ?? {})), channel); // 不存参数原文
+}
+/** 会话可调用：免授权工具 + grants；网关关时全部可调 */
+function mcpToolGranted(sess: McpSess | null, toolName: string): boolean {
+  return !sess || MCP_EXEMPT_TOOLS.has(toolName) || sess.grants.includes(toolName);
+}
+type McpInvokeResult =
+  | { kind: 'not_granted' }
+  | { kind: 'ok'; out: unknown; upstream: boolean }
+  | { kind: 'error'; error: any; upstream: boolean };
+/** tools/call 唯一执行链：授权检查 → 免授权工具 / 上游转发 / 本地工具 → 审计。两个渠道各自把结果映射成自己的应答形状。 */
+async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, channel: McpChannel, t0 = Date.now()): Promise<McpInvokeResult> {
+  if (!mcpToolGranted(sess, toolName)) {
+    mcpAudit(sess, channel, 'tools/call', toolName, false, 'not granted', Date.now() - t0, args);
+    return { kind: 'not_granted' };
+  }
+  // 上游路由（P2）：<prefix>__<tool> → 转发到对应上游 MCP
+  const up = MCP_EXEMPT_TOOLS.has(toolName) ? null : routeUpstream(toolName);
+  try {
+    const out = MCP_EXEMPT_TOOLS.has(toolName)
+      ? await mcpAccessTool(toolName, args ?? {}, sess)
+      : up
+      ? await upstreamRpc(up.upstream, 'tools/call', { name: up.remoteTool, arguments: args ?? {} }, 2, sess ? `mcp/${sess.name}` : undefined)
+      : await callTool(toolName, args ?? {}, sess ? `mcp:${sess.name}` : 'anonymous');
+    mcpAudit(sess, channel, 'tools/call', toolName, true, '', Date.now() - t0, args);
+    return { kind: 'ok', out, upstream: !!up };
+  } catch (e: any) {
+    mcpAudit(sess, channel, 'tools/call', toolName, false, String(e?.message ?? e).slice(0, 200), Date.now() - t0, args);
+    return { kind: 'error', error: e, upstream: !!up };
+  }
+}
+
 // /mcp 网关化（MCP_GATEWAY=on）：Bearer 有效→会话；无效/缺失/吊销→401+WWW-Authenticate（含 initialize，无兼容期）
 app.post('/mcp', async (req, res) => {
   const msg = req.body ?? {};
   const fail = (code: number, message: string) => res.json({ jsonrpc: '2.0', id: msg.id ?? null, error: { code, message } });
 
   // 网关会话判定 + 审计
-  let sess: { id: number; name: string; grants: string[] } | null = null;
-  if (MCP_GATEWAY_ON) {
-    const auth = String(req.headers.authorization ?? '');
-    const m = /^Bearer ([0-9a-f]{64})$/i.exec(auth);
-    if (m) sess = mcpSessionByToken(m[1]);
-    if (!sess) {
-      if (!isStartupProbeRequest(req)) mcp401Count += 1; // self-probe is not adoption traffic
-      res.setHeader('WWW-Authenticate', 'Bearer realm="workbench-market mcp"');
-      return res.status(401).json({ error: 'unauthorized: valid session token required', hint: '会话与令牌由管理员经 /api/mcp/sessions 创建分发' });
-    }
-    svc<McpService>('mcp').sessionTouched(sess.id);
-  }
-  const audit = (method: string, tool: string, ok: boolean, error: string, durationMs: number, args: unknown) => {
-    if (!MCP_GATEWAY_ON || !sess) return;
-    svc<McpService>('mcp').callInsertStmt()
-      .run(sess.name, method, tool, ok ? 1 : 0, error, durationMs, sha256Hex(JSON.stringify(args ?? {}))); // 不存参数原文
-  };
+  const sess = mcpGatewaySession(req, res);
+  if (sess === undefined) return;
+  const audit = (method: string, tool: string, ok: boolean, error: string, durationMs: number, args: unknown) =>
+    mcpAudit(sess, 'mcp', method, tool, ok, error, durationMs, args);
   const t0 = Date.now();
 
   if (typeof msg !== 'object' || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') {
@@ -3895,7 +3938,7 @@ app.post('/mcp', async (req, res) => {
     if (msg.method === 'tools/list') {
       const all = await mcpAggregatedTools(); // 本地 + 上游（P2 聚合）
       // 按授权过滤；access_info / access_request 始终列出（缺权限时靠它们看目录、提申请）
-      const tools = (sess ? all.filter((t) => t.exempt || sess!.grants.includes(t.name)) : all)
+      const tools = all.filter((t) => mcpToolGranted(sess, t.name))
         .map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
       audit('tools/list', '', true, '', Date.now() - t0, null);
       return res.json({ jsonrpc: '2.0', id: msg.id, result: { tools } });
@@ -3907,32 +3950,22 @@ app.post('/mcp', async (req, res) => {
       }
       // 未授权与不存在同应答——不泄露存在性
       const toolName = msg.params.name;
-      if (sess && !MCP_EXEMPT_TOOLS.has(toolName) && !sess.grants.includes(toolName)) {
-        audit('tools/call', toolName, false, 'not found', Date.now() - t0, msg.params?.arguments);
-        return fail(-32601, `Method not found: ${msg.method}`); // 与未知工具同文案族
-      }
-      try {
-        // 上游路由（P2）：<prefix>__<tool> → 转发到对应上游 MCP
-        const up = MCP_EXEMPT_TOOLS.has(toolName) ? null : routeUpstream(toolName);
-        const out = MCP_EXEMPT_TOOLS.has(toolName)
-          ? await mcpAccessTool(toolName, msg.params.arguments ?? {}, sess)
-          : up
-          ? await upstreamRpc(up.upstream, 'tools/call', { name: up.remoteTool, arguments: msg.params.arguments ?? {} }, 2, sess ? `mcp/${sess.name}` : undefined)
-          : await callTool(toolName, msg.params.arguments ?? {}, sess ? `mcp:${sess.name}` : 'anonymous');
-        audit('tools/call', toolName, true, '', Date.now() - t0, msg.params?.arguments);
+      const r = await mcpInvokeTool(sess, toolName, msg.params?.arguments, 'mcp', t0);
+      if (r.kind === 'not_granted') return fail(-32601, `Method not found: ${msg.method}`); // 与未知工具同文案族
+      if (r.kind === 'ok') {
         // 上游结果已是 MCP 形状（{content,isError?}）→ 原样透传（下游客户端语义无损）；
         // 本地工具结果是业务对象 → 序列化为 text content。
-        if (up && out && typeof out === 'object' && Array.isArray((out as any).content)) {
+        const out = r.out;
+        if (r.upstream && out && typeof out === 'object' && Array.isArray((out as any).content)) {
           return res.json({ jsonrpc: '2.0', id: msg.id, result: out });
         }
         return res.json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }] } });
-      } catch (e: any) {
-        // 工具执行失败按 MCP 规范走 isError（协议层错误才用 JSON-RPC error）
-        audit('tools/call', toolName, false, String(e?.message ?? e).slice(0, 200), Date.now() - t0, msg.params?.arguments);
-        // 带具名字段的错误（如数据契约 violations）把状态码与字段原样附在后面，agent 能逐条改
-        const detail = e instanceof HttpError && e.extra ? `\n${JSON.stringify({ status: e.status, ...e.extra })}` : '';
-        return res.json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: `执行失败：${e?.message || e}${detail}` }], isError: true } });
       }
+      // 工具执行失败按 MCP 规范走 isError（协议层错误才用 JSON-RPC error）
+      // 带具名字段的错误（如数据契约 violations）把状态码与字段原样附在后面，agent 能逐条改
+      const e = r.error;
+      const detail = e instanceof HttpError && e.extra ? `\n${JSON.stringify({ status: e.status, ...e.extra })}` : '';
+      return res.json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: `执行失败：${e?.message || e}${detail}` }], isError: true } });
     }
     audit(msg.method, '', false, 'Method not found', Date.now() - t0, msg.params);
     return fail(-32601, `Method not found: ${msg.method}`);
@@ -3943,6 +3976,90 @@ app.post('/mcp', async (req, res) => {
 });
 app.get('/mcp', (_req, res) => res.status(405).json({ error: 'stateless StreamableHTTP：仅支持 POST（无服务端会话流）' }));
 app.delete('/mcp', (_req, res) => res.status(405).json({ error: '无会话可终止（stateless）' }));
+
+// ---------- MCP 工具的 OpenAPI REST 开放：不说 MCP 协议的客户端用同一个会话令牌按 REST 调同一批工具 ----------
+// 认证、授权、审计、上游转发全走上面的共用链（mcpGatewaySession / mcpInvokeTool），只换应答形状。
+// 与 /mcp 不同：未授权回 403 并提示申请（REST 客户端要能区分「没权限」和「没这个工具」）；目录本就能经 access_info 看到，不另泄露。
+const MCP_REST_TOOLS_PATH = '/api/mcp-rest/tools/';
+const MCP_REST_DENIED_HINT = '调 access_info 查看可用工具与授权状态，用 access_request 申请（管理员批准后立即生效）';
+async function mcpOpenApiDoc(req: express.Request, sess: McpSess | null): Promise<Record<string, unknown>> {
+  const tools = (await mcpAggregatedTools()).filter((t) => mcpToolGranted(sess, t.name));
+  const errRef = (name: string) => ({ $ref: `#/components/responses/${name}` });
+  const paths: Record<string, unknown> = {};
+  for (const t of tools) {
+    paths[MCP_REST_TOOLS_PATH + encodeURIComponent(t.name)] = {
+      post: {
+        operationId: t.name,
+        summary: t.description.split('\n')[0].slice(0, 120),
+        description: t.description,
+        'x-category': t.category,
+        'x-granted': true,
+        ...(t.exempt ? { 'x-exempt': true } : {}),
+        requestBody: { required: false, content: { 'application/json': { schema: t.inputSchema } } },
+        responses: {
+          '200': { description: '工具结果（本地工具为业务对象 JSON；上游工具为其 MCP 结果 {content}）', content: { 'application/json': { schema: {} } } },
+          '400': errRef('BadRequest'), '401': errRef('Unauthorized'), '403': errRef('Forbidden'), '404': errRef('NotFound'),
+        },
+      },
+    };
+  }
+  const errSchema = { type: 'object', properties: { error: { type: 'string' }, hint: { type: 'string' }, violations: { type: 'array', items: { type: 'object' } } }, required: ['error'] };
+  const errResp = (description: string) => ({ description, content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } });
+  return {
+    openapi: '3.1.0',
+    info: {
+      title: 'workbench-market MCP tools (REST)',
+      version: '0.1.0',
+      description: `与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。本文档只列当前会话可调用的工具${sess ? `（会话 ${sess.name}）` : ''}；缺权限时调 access_info 查看目录、用 access_request 申请。`,
+    },
+    servers: [{ url: `${req.protocol}://${req.get('host') ?? 'localhost'}` }],
+    security: [{ bearerAuth: [] }],
+    paths,
+    components: {
+      securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', description: 'MCP 会话令牌（管理员经 /api/mcp/sessions 创建，只显示一次）' } },
+      schemas: { Error: errSchema },
+      responses: {
+        BadRequest: errResp('参数错误；违反台数据契约时带 violations'),
+        Unauthorized: errResp('缺少或无效的会话令牌'),
+        Forbidden: errResp('会话未获授权调用此工具'),
+        NotFound: errResp('工具不存在'),
+      },
+    },
+  };
+}
+const serveMcpOpenApi = wrap(async (req, res) => {
+  const sess = mcpGatewaySession(req, res);
+  if (sess === undefined) return;
+  res.setHeader('Cache-Control', 'no-store'); // 内容随会话授权变化
+  res.json(await mcpOpenApiDoc(req, sess));
+});
+app.get('/openapi.json', serveMcpOpenApi);
+app.get('/api/mcp-rest/openapi.json', serveMcpOpenApi);
+app.post('/api/mcp-rest/tools/:name', wrap(async (req, res) => {
+  const t0 = Date.now();
+  const sess = mcpGatewaySession(req, res);
+  if (sess === undefined) return;
+  const toolName = req.params.name;
+  const args = req.body === undefined ? {} : req.body;
+  if (!args || typeof args !== 'object' || Array.isArray(args)) {
+    mcpAudit(sess, 'rest', 'tools/call', toolName, false, '请求体须为 JSON 对象', Date.now() - t0, null);
+    throw new HttpError(400, '请求体须为 JSON 对象（即工具参数）');
+  }
+  if (!(await mcpRegisteredNames()).has(toolName)) {
+    mcpAudit(sess, 'rest', 'tools/call', toolName, false, 'unknown tool', Date.now() - t0, args);
+    throw new HttpError(404, `未知工具: ${toolName}`, { hint: MCP_REST_DENIED_HINT });
+  }
+  const r = await mcpInvokeTool(sess, toolName, args, 'rest', t0);
+  if (r.kind === 'not_granted') throw new HttpError(403, `会话未获授权调用 ${toolName}`, { hint: MCP_REST_DENIED_HINT });
+  if (r.kind === 'ok') {
+    // 上游工具自报 isError：工具级失败，按上游错误回 502，结果原样附上
+    if (r.upstream && r.out && typeof r.out === 'object' && (r.out as any).isError === true) return res.status(502).json({ error: `上游工具 ${toolName} 执行失败`, result: r.out });
+    return res.json(r.out ?? null);
+  }
+  // 本地工具错误走统一错误出口（HttpError 状态码 + 具名字段如 violations；校验类普通 Error → 400）；上游传输失败 → 502
+  if (r.upstream && !(r.error instanceof HttpError)) return res.status(502).json({ error: String(r.error?.message ?? r.error).slice(0, 200) });
+  throw r.error;
+}));
 import { installPortal, goPrefix, moduleProxy } from './portal.ts';
 
 installPortal(app, wbById, { serveApp, readActiveManifest, renderSopRunner, appsRoot });

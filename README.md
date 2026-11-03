@@ -77,6 +77,8 @@ GET              /api/sop/runs/active           活跃 run（Redis 快路径，m
 GET/PUT          /api/sop/runs/:id              run 详情 / 步骤保存（{stepKey, value}；Redis 热写 + 30s checkpoint）
 POST             /api/sop/runs/:id/finish       归档（热态全量沉淀 SQLite，Redis 条目 1h 淘汰）
 POST             /mcp                           MCP StreamableHTTP（initialize/tools/list/tools/call；30 本地工具；GET/DELETE → 405）
+GET              /openapi.json                  MCP 工具的 OpenAPI 3.1 文档（同 /api/mcp-rest/openapi.json；只列本会话可调用的工具；会话令牌必带）
+POST             /api/mcp-rest/tools/:name      按 REST 调一个 MCP 工具：请求体 = 工具参数，返回工具结果 JSON（会话令牌必带；见「MCP 工具的 REST / OpenAPI 开放」）
 POST             /api/apps/:slug/data            自产台数据写入（JSON ≤1MB；按台的 data-contract.json 校验，违约 400+violations；{data, idempotency_key} 信封或 Idempotency-Key 头幂等；台页 iframe 同源 fetch 直通）
 GET              /api/mcp/access-requests        MCP 权限申请列表（?status=pending|approved|rejected；管理员）
 POST             /api/mcp/access-requests/:id/approve  批准：工具并入会话 grants（并集）+ 审计，同一事务；已吊销会话 409（管理员）
@@ -127,10 +129,10 @@ GET              /api/health                    版本与运行时长
 - **Odoo 管理员登录**：浏览器带着 Odoo 会话（`session_id`）访问时，服务端向 `LC_ODOO_URL` 现查 `get_session_info`，内部员工且 `is_admin=true` 即为管理员，不需另输口令；结论按会话哈希缓存 30 秒（Odoo 侧撤权最迟 30 秒生效）。`GET /api/admin/whoami` 返回当前身份（`via: token|odoo|null`），顶栏显示「Odoo 管理员 · 登录名」。
 - 浏览器发来的管理写（带 `Origin` 或 `Sec-Fetch-Site`）在业务面即可做，但必须同源：跨源 `Origin` 或 `Sec-Fetch-Site: cross-site` 一律 403（Odoo 会话 cookie 是环境凭据，防跨站借用）。
 - 持口令时使用页/驾驶舱不内嵌 `/go/`、离开市场页面即抹掉口令（#292 M4 止血保留）。
-- **可选独立管理端口**：`WM_CONTROL_PORT` 显式给端口才开（缺省不开）；开了时它不提供 `/go/`、`/sop/`、`/apps/`、`/mcp`、`/a2a/*`（404），响应带 `frame-ancestors 'none'` 与 `X-Frame-Options: DENY`，管理写规则与业务面相同。
+- **可选独立管理端口**：`WM_CONTROL_PORT` 显式给端口才开（缺省不开）；开了时它不提供 `/go/`、`/sop/`、`/apps/`、`/mcp`、`/openapi.json`、`/api/mcp-rest/*`、`/a2a/*`（404），响应带 `frame-ancestors 'none'` 与 `X-Frame-Options: DENY`，管理写规则与业务面相同。
 - 本机 CLI（回环直连、**不带** `Origin`/`Sec-Fetch-Site`、**没有** `X-Forwarded-For`/`Forwarded`/`X-Real-IP`）照旧免口令；逐路由自带 `adminGuard` 的写接口仍要口令。同机反代转进来的请求按远程处理。Node 自带 `fetch` 只发 `sec-fetch-mode`，按 CLI 算。
 - web dev（vite 5173）：**默认关闭**；只有显式开启（`pnpm dev` 自带的 `--dev-origin` 启动参数，或 `WM_DEV_ORIGIN=1`）时，Origin 为本机 dev 源且本机直连的请求视同同源（仍要口令）。生产 `pnpm start` / 容器不开。
-- **远程节点**（非 loopback）：写请求只放 `/mcp`、`.well-known/agent-card.json`、`/a2a/direct`，以及**自产台数据/文件面**（`POST /api/apps/<slug>/data`、`/files`）——应用层写与发布面同口径（远程浏览器提交表单不会被 403）。
+- **远程节点**（非 loopback）：写请求只放 `/mcp`、`/api/mcp-rest/tools/<name>`（路由内凭会话令牌鉴权）、`.well-known/agent-card.json`、`/a2a/direct`，以及**自产台数据/文件面**（`POST /api/apps/<slug>/data`、`/files`）——应用层写与发布面同口径（远程浏览器提交表单不会被 403）。
 - 管理写（`/api/mcp/*` 会话令牌、SOP 绑定、工作台 CRUD 等）一律要管理员（口令或 Odoo 管理员），否则 403。
 - **读面不拦**：远程 agent 用 `GET /api/apps/<slug>/data`、`/files` 直接读提交数据（掩码策略只作用于凭据，不作用于业务数据）。
 
@@ -253,10 +255,36 @@ UI：`/tasks` 页（源/状态过滤·生命周期条目标明「只读，审批
 | REST `/api/apps`（发布） | `X-Admin-Token` 必带（远程写另经 T1 豁免面清单） | 开放（GET） |
 | REST `/api/apps/:slug/files` | 上传=管理员口令；列表/下载开放 | 开放 |
 | REST `/api/sop/runs/:id/files` | **run-scoped `X-Run-Upload-Token`**（启动响应/派单回执取）或管理员口令 | 开放 |
+| MCP REST `/openapi.json`、`/api/mcp-rest/*` | 与 `/mcp` 同一套：只认 `Authorization: Bearer <会话令牌>`，不走浏览器登录与管理口令 | 同左 |
 | MCP `/mcp` | 无独立口令——网关模式下按会话 `grants` 工具白名单授权（`Authorization: Bearer <token>`）；`access_info` / `access_request` 免授权，缺权限的会话据此看目录、提申请 | 同左 |
 | 管理面（settings/mcp sessions） | `X-Admin-Token` 必带 | 部分开放（脱敏） |
 
 **推荐路径**：agent 侧一律走 MCP（授权白名单可审计）；人工作业走 REST+口令；远程台面发布用 T1 豁免清单内的业务写面。
+
+### MCP 工具的 REST / OpenAPI 开放
+
+不说 MCP 协议的客户端（普通脚本、按 OpenAPI 导入工具的平台）用**同一个会话令牌**按 REST 调同一批工具。认证、授权（`grants` + 两个免授权工具）、审计、上游转发与 `/mcp` 走同一条执行链，只是应答形状不同。
+
+- **文档**：`GET /openapi.json`（或 `/api/mcp-rest/openapi.json`）返回 OpenAPI 3.1。每个工具一个 `POST /api/mcp-rest/tools/{name}`：`operationId` = 工具名，`requestBody` 的 schema 就是工具的 `inputSchema`，`x-category` 标 read/write/admin，`x-granted` 标可调用。文档**只列当前会话可调用的工具**（含 `access_info` / `access_request`），上游聚合工具照旧叫 `<prefix>__<tool>`；匿名或无效令牌 401。授权变了就重新拉一次文档。
+- **调用**：请求体就是工具参数（JSON 对象，可省略=空参数）。
+
+```bash
+curl -s -X POST "$BASE/api/mcp-rest/tools/workbench_summary" \
+  -H "Authorization: Bearer $MCP_SESSION_TOKEN" -H 'Content-Type: application/json' -d '{}'
+```
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | 工具结果 JSON：本地工具是业务对象（与 `/mcp` 的 text content 解析后相同）；上游工具是其 MCP 结果 `{content}` |
+| 400 | 参数错误；违反台数据契约时带逐条 `violations` |
+| 401 | 缺少或无效的会话令牌 |
+| 403 | 会话未获授权；响应 `hint` 提示调 `access_info` 查看、用 `access_request` 申请 |
+| 404 | 工具不存在 |
+| 413 | 请求体过大：带有效会话 140MB，其余 4MB（与 `/mcp` 同口径） |
+| 502 | 上游工具失败或不可达 |
+
+- **审计**：调用照旧记进 `mcp_calls`，`channel` 列区分 `rest` / `mcp`（「MCP 网关」页审计表的「渠道」列）。
+- **与 `/mcp` 的差异**：`/mcp` 对未授权工具按「不存在」应答；REST 分开回 403 / 404，方便脚本区分（工具目录本就能经 `access_info` 看到）。
 
 ### 代理相对路径标准式（iframe / 统一门户 `/go/<id>/`）
 
