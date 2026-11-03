@@ -7,7 +7,7 @@ import { contentConfig, createContentSurface, mountContentSurface, listenContent
 import { createPortalObservation } from './portal-observation.ts';
 import { allSurfaceServers, browserMarked, originIsThisSurface, rawLoopback, registerSurface, surfaceOf, surfacePorts, surfaceUrl } from './surfaces.ts';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createReadStream } from 'node:fs';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -673,6 +673,9 @@ function validateAppFiles(raw: unknown, kind: 'app' | 'sop' = 'app'): { path: st
   } else if (!seen.has('index.html')) {
     bad('files 必须包含根目录 index.html（入口）');
   }
+  // 数据契约写错在同步时就拦下，不留到业务提交时才 500
+  const contract = files.find((f) => f.path === 'data-contract.json');
+  if (contract) { try { parseContract(contract.content); } catch (e) { bad((e as Error).message); } }
   return files;
 }
 
@@ -1260,12 +1263,28 @@ function pageBeforeId(v: unknown): number {
   if (!Number.isFinite(n) || !Number.isInteger(n)) bad('before_id 必须是整数');
   return Math.max(0, n);
 }
+// 台的数据契约（可选，见 app-data-contract.ts）：取活跃版本目录里的 data-contract.json，按 slug@版本缓存
+const _contractCache = new Map<string, DataContract | null>();
+function appDataContract(a: AppRow): DataContract | null {
+  const k = `${a.slug}@${a.active_version}`;
+  if (_contractCache.has(k)) return _contractCache.get(k)!;
+  const f = join(appsRoot, a.slug, `v${a.active_version}`, 'data-contract.json');
+  const c = existsSync(f) ? parseContract(readFileSync(f, 'utf8')) : null;
+  _contractCache.set(k, c);
+  return c;
+}
+
 app.post('/api/apps/:slug/data', (req, res) => {
   const a = getApp(req.params.slug);
   const b = req.body ?? {};
   const data = b.data ?? b; // 兼容 {data: {...}} 或直接 {...} 两种形态
   const json = JSON.stringify(data);
   if (Buffer.byteLength(json, 'utf8') > 1024 * 1024) bad('data 超 1MB 上限');
+  const contract = appDataContract(a);
+  if (contract) {
+    const violations = checkRecord(contract, data, (id) => !!svc<AppDataService>('appData').fileById(id, a.slug));
+    if (violations.length) return res.status(400).json({ error: '提交不符合本台数据契约', violations });
+  }
   const created_by = typeof b.created_by === 'string' ? b.created_by.trim().slice(0, 128) : '';
   const r = svc<AppDataService>('appData').dataInsertStmt()
     .run(a.slug, json, created_by) as unknown as { lastInsertRowid: number | bigint };
@@ -1311,6 +1330,21 @@ const fixFileName = (s: string): string => {
     return s;
   }
 };
+/** 按内容核对上传文件类型：扩展名与内容不符、或是可执行文件 → 删掉落盘文件并回 415（不按文件名自动改 MIME）；
+ *  相符时返回应存的规范 MIME。返回 null 表示已回 415。 */
+function checkUploadKind(res: express.Response, file: Express.Multer.File, name: string): Sniff | null {
+  const headLen = Math.min(file.size, 1024 * 1024);
+  const head = Buffer.alloc(headLen);
+  const fd = openSync(file.path, 'r');
+  try { readSync(fd, head, 0, headLen, 0); } finally { closeSync(fd); }
+  const kind = sniff(name, head, headLen === file.size, file.mimetype || '');
+  if (kind.verdict === 'mismatch' || kind.verdict === 'executable') {
+    rmSync(file.path, { force: true });
+    res.status(415).json({ error: `文件类型不符：${kind.reason}`, name, detected: kind.detected || null });
+    return null;
+  }
+  return kind;
+}
 const upload = multer({
   storage: multer.diskStorage({
     destination(_req, _file, cb) {
@@ -1345,9 +1379,11 @@ app.post('/api/apps/:slug/files', (req, res, next) => {
       // 存储相对路径（dataDir 内，随数据目录迁移）
       const rel = req.file.path.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
       const originalName = fixFileName(req.file.originalname);
-      const r = svc<AppDataService>('appData').fileInsert(a.slug, originalName, req.file.mimetype || 'application/octet-stream', req.file.size, rel, created_by, note) as unknown as { lastInsertRowid: number | bigint }; // #132 P0①：note 落库
+      const kind = checkUploadKind(res, req.file, originalName);
+      if (!kind) return;
+      const r = svc<AppDataService>('appData').fileInsert(a.slug, originalName, kind.mime, req.file.size, rel, created_by, note) as unknown as { lastInsertRowid: number | bigint }; // #132 P0①：note 落库
       const id = Number(r.lastInsertRowid);
-      res.status(201).json({ ok: true, id, slug: a.slug, name: originalName, mime: req.file.mimetype, size: req.file.size, note, url: `/api/apps/${a.slug}/files/${id}` });
+      res.status(201).json({ ok: true, id, slug: a.slug, name: originalName, mime: kind.mime, size: req.file.size, note, url: `/api/apps/${a.slug}/files/${id}` });
     } catch (e) {
       next(e);
     }
@@ -1764,9 +1800,11 @@ app.post('/api/sop/runs/:id/files', (req, res, next) => {
       const createdBy = typeof req.body?.created_by === 'string' ? req.body.created_by.trim().slice(0, 128) : '';
       const rel = req.file.path.replace(dataDir, '').split(pathSep).join('/').replace(/^\/+/, '');
       const originalName = fixFileName(req.file.originalname);
-      const r = svc<SopService>('sop').runFileInsert({ runId, name: originalName, mime: req.file.mimetype || 'application/octet-stream', size: req.file.size, storagePath: rel, createdBy }) as unknown as { lastInsertRowid: number | bigint };
+      const kind = checkUploadKind(res, req.file, originalName);
+      if (!kind) return;
+      const r = svc<SopService>('sop').runFileInsert({ runId, name: originalName, mime: kind.mime, size: req.file.size, storagePath: rel, createdBy }) as unknown as { lastInsertRowid: number | bigint };
       try { db.prepare("INSERT INTO sop_run_file_audit (run_id, name, size, sha256, source) VALUES (?, ?, ?, ?, ?)").run(runId, originalName, req.file.size, sha256Hex(readFileSync(req.file.path)), String(req.headers['x-run-upload-token'] ? 'token' : 'admin')); } catch { /* 审计失败不阻 */ }
-      res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), run_id: runId, name: originalName, mime: req.file.mimetype, size: req.file.size, url: `/api/sop/runs/${runId}/files/${Number(r.lastInsertRowid)}` });
+      res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), run_id: runId, name: originalName, mime: kind.mime, size: req.file.size, url: `/api/sop/runs/${runId}/files/${Number(r.lastInsertRowid)}` });
     } catch (e) { next(e); }
   });
 });
@@ -3115,6 +3153,8 @@ import { lifecycleApprove, lifecycleBoard, lifecycleConfigProblem, lifecycleConf
 import { authorizeRunRead, issueRunReadCap, runReadGrantCreate, runReadGrantRevoke, runReadCapRevokeAll } from './sop-read-auth.ts';
 import { endpointStatsMiddleware, statsPayload } from './endpoint-stats.ts';
 import { fetchMainFiles, normalizeSource, SourceError, SOURCE_BRANCH } from './github-source.ts';
+import { checkRecord, parseContract, type DataContract } from './app-data-contract.ts';
+import { sniff, type Sniff } from './file-sniff.ts';
 
 // ---------- MCP 生产通道（StreamableHTTP · stateless：AI 会话直连市场，零依赖手写 JSON-RPC） ----------
 const MCP_PROTOCOL = '2025-03-26';
