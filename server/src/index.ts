@@ -3649,6 +3649,23 @@ app.delete('/api/mcp/sessions/:id', (req, res) => {
   res.json({ ok: true, revoked: id });
 });
 
+/** grants 校验口径（#379，整体替换与批准申请共用）：注册表里有的保留；不在注册表的，只有 held 里已有的才不报错——
+ *  所属上游已配置但暂不可达 → 保留（kept_unavailable）；其余（工具已下线/改名）→ 剔除（dropped）。held 之外的未知名 400。 */
+function resolveGrants(raw: unknown[], held: string[], registered: Set<string>): { saved: string[]; dropped: string[]; keptUnavailable: string[] } {
+  const upPrefixes = new Set(mcpUpstreams().map((u) => u.prefix));
+  const saved: string[] = [], dropped: string[] = [], keptUnavailable: string[] = [];
+  for (const g of raw) {
+    if (typeof g !== 'string') bad(`工具名必须是字符串: ${JSON.stringify(g)}`);
+    const name = g as string;
+    if (registered.has(name)) { if (!saved.includes(name)) saved.push(name); continue; }
+    if (!held.includes(name)) bad(`未知工具名: ${JSON.stringify(name)}（合法面见 GET /api/mcp/tools）`);
+    const prefix = name.includes('__') ? name.slice(0, name.indexOf('__')) : '';
+    if (prefix && upPrefixes.has(prefix) && upstreamHealth.get(prefix)?.reachable === false) { if (!saved.includes(name)) { saved.push(name); keptUnavailable.push(name); } }
+    else dropped.push(name);
+  }
+  return { saved, dropped, keptUnavailable };
+}
+
 app.put('/api/mcp/sessions/:id/grants', (req, res, next) => {
   if (!adminGuard(req, res)) return;
   const id = Number(req.params.id);
@@ -3664,16 +3681,7 @@ app.put('/api/mcp/sessions/:id/grants', (req, res, next) => {
   try { held = JSON.parse(String((sess as { grants?: string }).grants || '[]')); } catch { held = []; }
   void mcpRegisteredNames().then((registered) => {
     try {
-      const upPrefixes = new Set(mcpUpstreams().map((u) => u.prefix));
-      const saved: string[] = [], dropped: string[] = [], keptUnavailable: string[] = [];
-      for (const g of raw) {
-        if (typeof g !== 'string') bad(`工具名必须是字符串: ${JSON.stringify(g)}`);
-        if (registered.has(g)) { if (!saved.includes(g)) saved.push(g); continue; }
-        if (!held.includes(g)) bad(`未知工具名: ${JSON.stringify(g)}（合法面见 GET /api/mcp/tools）`);
-        const prefix = g.includes('__') ? g.slice(0, g.indexOf('__')) : '';
-        if (prefix && upPrefixes.has(prefix) && upstreamHealth.get(prefix)?.reachable === false) { if (!saved.includes(g)) { saved.push(g); keptUnavailable.push(g); } }
-        else dropped.push(g);
-      }
+      const { saved, dropped, keptUnavailable } = resolveGrants(raw, held, registered);
       svc<McpService>('mcp').sessionGrants(id, JSON.stringify(saved));
       res.json({ ok: true, id, grants: saved, dropped, kept_unavailable: keptUnavailable });
     } catch (e) {
@@ -3795,16 +3803,18 @@ app.post('/api/mcp/access-requests/:id/approve', (req, res, next) => {
       const sess = mcp.sessionFull(r.session_id) as { id: number; name: string; grants: string; revoked_at: string } | undefined;
       if (!sess || sess.revoked_at) throw new HttpError(409, '会话已吊销，不能批准（可驳回）');
       const tools = parseToolList(r.tools);
-      const gone = tools.filter((t) => !registered.has(t));
-      if (gone.length) throw new HttpError(409, `工具已不在目录里：${gone.join(', ')}（请驳回后让会话重新申请）`);
       const before = parseToolList(sess.grants);
+      // 与 PUT grants 同一口径（resolveGrants）：申请的工具当作「已持有」参与判定——上游暂不可达的保留，已下线的剔除；
+      // 申请的工具若被剔除就整单 409（不做部分批准），原有授权里已下线的名字顺带按同口径清掉
+      const { saved: after, dropped, keptUnavailable } = resolveGrants([...before, ...tools], [...before, ...tools], registered);
+      const gone = tools.filter((t) => dropped.includes(t));
+      if (gone.length) throw new HttpError(409, `工具已不在目录里：${gone.join(', ')}（请驳回后让会话重新申请）`);
       const added = tools.filter((t) => !before.includes(t));
-      const after = [...before, ...added];
       mcp.sessionGrants(sess.id, JSON.stringify(after));
       mcp.accessRequestDecide(id, 'approved', actor, note);
       mcp.grantAuditInsert(sess.id, id, 'access_request_approve', actor, JSON.stringify(before), JSON.stringify(after), note);
       db.exec('COMMIT');
-      res.json({ ok: true, id, status: 'approved', session: sess.name, added, grants: after });
+      res.json({ ok: true, id, status: 'approved', session: sess.name, added, grants: after, dropped, kept_unavailable: keptUnavailable });
     } catch (e) {
       db.exec('ROLLBACK');
       next(e);
