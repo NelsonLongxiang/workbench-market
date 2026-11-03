@@ -3,7 +3,8 @@
  *  ① /api/health 是存活：不向 LayerFS 发请求；/api/health/ready 是就绪：探测结果缓存，并发与连续请求只打一次 /healthz；
  *     LayerFS 不健康 → 缓存过期后 ready 503，存活仍 200；
  *  ② 影子发布远端已建 Commit 但响应丢失（本地 commit_id 留空）：配了 LayerFS 时删台仍按项目名删远端；
- *     远端删除失败 → 502 且保留本地台，可重试。 */
+ *     远端删除失败 → 502 且保留本地台，可重试；
+ *  ③ 系统保留项目名（wm-skills 技能库）：同步拒收该 slug；历史遗留的同名台删台只删本地，绝不删远端系统项目。 */
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdirSync } from 'node:fs';
@@ -88,6 +89,19 @@ try {
   ok('重试删台成功', deleted.status === 200, `status=${deleted.status}`);
   ok('删台时按项目名删了远端', lf.deletes.filter((p) => p === 'lf-orphan').length === 2 && !lf.projects.has('lf-orphan'), JSON.stringify(lf.deletes));
   ok('本地台已删', (await call('GET', '/api/apps/lf-orphan')).status === 404);
+
+  // ③ 保留名
+  lf.projects.add('wm-skills');
+  const resv = await ghPublish(base, gh, { slug: 'wm-skills', title: '撞名台', files: [{ path: 'index.html', content: '<!doctype html><p>x</p>' }] }, { 'x-admin-token': ADMIN });
+  ok('同步保留名 wm-skills 被拒（400）', resv.status === 400, `status=${resv.status}`);
+  const { DatabaseSync } = await import('node:sqlite');
+  const db = new DatabaseSync(join(TMP, 'data', 'workbench-market.db'));
+  db.prepare("INSERT INTO apps (slug, title, layerfs_project) VALUES ('wm-skills', '历史遗留撞名台', 'wm-skills') ON CONFLICT(slug) DO UPDATE SET layerfs_project = 'wm-skills'").run();
+  db.close();
+  const delsBefore = lf.deletes.length;
+  const dres = await call('DELETE', '/api/apps/wm-skills', { reviewed_by: 'layerfs-health-delete-smoke' });
+  ok('历史遗留同名台可删（只删本地）', dres.status === 200 && (await call('GET', '/api/apps/wm-skills')).status === 404, `status=${dres.status}`);
+  ok('删台没碰远端技能库项目', lf.deletes.length === delsBefore && lf.projects.has('wm-skills'), JSON.stringify(lf.deletes.slice(delsBefore)));
 } catch (e) {
   fail++; console.log('  ✗ 异常', e?.message ?? e, serverErr.slice(-400));
 } finally {
