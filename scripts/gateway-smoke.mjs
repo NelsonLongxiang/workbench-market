@@ -107,6 +107,24 @@ try {
   ok('审计含身份/方法/时长', calls.every((c) => c.session_name === 'agent-alpha' && c.method && typeof c.duration_ms === 'number'));
   ok('401 不进审计（无 unauthorized 行）', !calls.some((c) => /unauthorized/.test(c.error ?? '')));
 
+  // ============ #379：注册表收缩时 grants 保存不死锁；上游可达状态可见 ============
+  {
+    await call('PUT', '/api/mcp/upstreams', { upstreams: [{ prefix: 'gone', url: 'http://127.0.0.1:9/mcp' }] }, AT);
+    const lg = await call('POST', '/api/mcp/sessions', { name: 'agent-legacy' }, AT);
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(`${DATA}/workbench-market.db`);
+    db.prepare('UPDATE mcp_sessions SET grants = ? WHERE id = ?').run(JSON.stringify(['workbench_list', 'app_publish', 'gone__x']), lg.body.id);
+    db.close();
+    const ups = await call('GET', '/api/mcp/upstreams', null, AT);
+    ok('上游带可达状态（不可达 + 错误原因）', ups.body?.[0]?.reachable === false && !!ups.body[0].last_error, JSON.stringify(ups.body).slice(0, 160));
+    const same = await call('PUT', `/api/mcp/sessions/${lg.body.id}/grants`, { grants: ['workbench_list', 'app_publish', 'gone__x'] }, AT);
+    ok('存量授权原样保存不再 400：已下线的剔除并列明', same.status === 200 && JSON.stringify(same.body.dropped) === '["app_publish"]', JSON.stringify(same.body));
+    ok('上游暂不可达的存量授权保留', JSON.stringify(same.body.kept_unavailable) === '["gone__x"]' && same.body.grants.includes('gone__x'));
+    const typo = await call('PUT', `/api/mcp/sessions/${lg.body.id}/grants`, { grants: ['workbench_list', 'no_such_tool'] }, AT);
+    ok('新加的未知名仍 400', typo.status === 400);
+    await call('PUT', '/api/mcp/upstreams', { upstreams: [] }, AT);
+  }
+
   // ============ 软吊销即时生效 ============
   r = await call('DELETE', `/api/mcp/sessions/${sid}`, null, AT);
   ok('软吊销 200', r.status === 200);

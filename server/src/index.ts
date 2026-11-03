@@ -3420,6 +3420,8 @@ interface McpUpstream { prefix: string; url: string; headers?: Record<string, st
 const MCP_UPSTREAM_PREFIX_RE = /^[a-z][a-z0-9]{0,15}$/;
 const upstreamToolCache = new Map<string, { at: number; tools: { name: string; description: string; inputSchema: Record<string, unknown> }[] }>();
 const UPSTREAM_CACHE_MS = 30_000;
+/** 上游健康（#379）：tools/list 成败都记下来，授权面缩水时管理端看得到原因 */
+const upstreamHealth = new Map<string, { reachable: boolean; tools: number; last_error: string; last_ok_at: string; last_checked_at: string }>();
 
 function mcpUpstreams(): McpUpstream[] {
   try {
@@ -3454,7 +3456,7 @@ async function upstreamRpc(u: McpUpstream, method: string, params: unknown, id =
   return j.result;
 }
 
-/** 聚合工具面：本地 17 + 各上游（<prefix>__<name>）；上游失败静默跳过 */
+/** 聚合工具面：本地 + 各上游（<prefix>__<name>）；上游失败时跳过其工具，并记入 upstreamHealth */
 async function mcpAggregatedTools(): Promise<{ name: string; description: string; inputSchema: Record<string, unknown> }[]> {
   const out = [...MCP_TOOLS];
   const ups = mcpUpstreams();
@@ -3467,13 +3469,16 @@ async function mcpAggregatedTools(): Promise<{ name: string; description: string
     try {
       const res = await upstreamRpc(u, 'tools/list', {}, 1);
       const tools = (res?.tools ?? []) as { name: string; description?: string; inputSchema?: Record<string, unknown> }[];
+      upstreamHealth.set(u.prefix, { reachable: true, tools: tools.length, last_error: '', last_ok_at: new Date().toISOString(), last_checked_at: new Date().toISOString() });
       upstreamToolCache.set(u.prefix, {
         at: Date.now(),
         tools: tools.filter((t) => typeof t.name === 'string').map((t) => ({ name: t.name, description: t.description ?? '', inputSchema: t.inputSchema ?? { type: 'object', properties: {} } })),
       });
       out.push(...tools.filter((t) => typeof t.name === 'string').map((t) => ({ name: `${u.prefix}__${t.name}`, description: `[${u.prefix}] ${t.description ?? ''}`, inputSchema: t.inputSchema ?? { type: 'object', properties: {} } })));
-    } catch {
-      /* 上游不可达：跳过，不影响本地工具面 */
+    } catch (e) {
+      /* 上游不可达：跳过其工具，不影响本地工具面；原因记下来给管理端看 */
+      const prev = upstreamHealth.get(u.prefix);
+      upstreamHealth.set(u.prefix, { reachable: false, tools: 0, last_error: String((e as Error)?.message ?? e).slice(0, 200), last_ok_at: prev?.last_ok_at ?? '', last_checked_at: new Date().toISOString() });
     }
   }
   return out;
@@ -3495,9 +3500,16 @@ async function mcpRegisteredNames(): Promise<Set<string>> {
   return new Set((await mcpAggregatedTools()).map((t) => t.name));
 }
 
-app.get('/api/mcp/upstreams', (req, res) => {
+app.get('/api/mcp/upstreams', (req, res, next) => {
   if (!adminGuard(req, res)) return;
-  res.json(mcpUpstreams().map((u) => ({ prefix: u.prefix, url: u.url, enabled: u.enabled !== false, headers: Object.keys(u.headers ?? {}), toolCallTimeoutMs: u.toolCallTimeoutMs ?? 15000 })));
+  // 先走一遍聚合（有缓存时不打上游），让每个上游都带上可达状态
+  void mcpAggregatedTools().then(() => {
+    res.json(mcpUpstreams().map((u) => {
+      const h = upstreamHealth.get(u.prefix);
+      return { prefix: u.prefix, url: u.url, enabled: u.enabled !== false, headers: Object.keys(u.headers ?? {}), toolCallTimeoutMs: u.toolCallTimeoutMs ?? 15000,
+        reachable: h ? h.reachable : null, tools: h?.tools ?? 0, last_error: h?.last_error ?? '', last_ok_at: h?.last_ok_at ?? '', last_checked_at: h?.last_checked_at ?? '' };
+    }));
+  }).catch(next);
 });
 
 app.put('/api/mcp/upstreams', (req, res) => {
@@ -3579,13 +3591,25 @@ app.put('/api/mcp/sessions/:id/grants', (req, res, next) => {
   const raw = req.body?.grants;
   if (!Array.isArray(raw)) bad('grants 必须是工具名数组（整体替换语义）');
   // 注册表 = 本地工具 + 上游聚合工具（P2：taste__rules 等也可授权）
+  // #379：会话已持有、但当前注册表里没有的名字不再让整次保存 400——
+  //   所属上游已配置但暂不可达 → 保留（上游恢复后照常生效，不被无声挤掉）；其余（工具已下线/改名）→ 剔除并在 dropped 里列明。
+  //   新加的未知名字仍然 400（防拼写错误）。
+  let held: string[] = [];
+  try { held = JSON.parse(String((sess as { grants?: string }).grants || '[]')); } catch { held = []; }
   void mcpRegisteredNames().then((registered) => {
     try {
+      const upPrefixes = new Set(mcpUpstreams().map((u) => u.prefix));
+      const saved: string[] = [], dropped: string[] = [], keptUnavailable: string[] = [];
       for (const g of raw) {
-        if (typeof g !== 'string' || !registered.has(g)) bad(`未知工具名: ${JSON.stringify(g)}（合法面见 GET /api/mcp/tools）`);
+        if (typeof g !== 'string') bad(`工具名必须是字符串: ${JSON.stringify(g)}`);
+        if (registered.has(g)) { if (!saved.includes(g)) saved.push(g); continue; }
+        if (!held.includes(g)) bad(`未知工具名: ${JSON.stringify(g)}（合法面见 GET /api/mcp/tools）`);
+        const prefix = g.includes('__') ? g.slice(0, g.indexOf('__')) : '';
+        if (prefix && upPrefixes.has(prefix) && upstreamHealth.get(prefix)?.reachable === false) { if (!saved.includes(g)) { saved.push(g); keptUnavailable.push(g); } }
+        else dropped.push(g);
       }
-      svc<McpService>('mcp').sessionGrants(id, JSON.stringify(raw));
-      res.json({ ok: true, id, grants: raw });
+      svc<McpService>('mcp').sessionGrants(id, JSON.stringify(saved));
+      res.json({ ok: true, id, grants: saved, dropped, kept_unavailable: keptUnavailable });
     } catch (e) {
       next(e);
     }
