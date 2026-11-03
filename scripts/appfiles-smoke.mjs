@@ -71,7 +71,8 @@ try {
   ok('xlsx伪mime上传201', rx.status === 201 && rx.body.id > 0, JSON.stringify(rx.body).slice(0,100));
   const dx = await fetch(`${BASE}/api/apps/fileprobe/files/${rx.body.id}`);
   ok('xlsx伪mime强制attachment（BIN_EXT防XSS）', (dx.headers.get('content-disposition') ?? '').startsWith('attachment'));
-  ok('xlsx content-type 不被白名单改写', (dx.headers.get('content-type') ?? '').includes('text/plain'));
+  // 上传按内容识别类型：ZIP 文件头 + .xlsx → 存规范 xlsx MIME，不沿用客户端报的 text/plain（下载类型与内容一致）
+  ok('xlsx content-type 按内容存规范值', (dx.headers.get('content-type') ?? '').includes('spreadsheetml'), dx.headers.get('content-type'));
   ok('nosniff', dl.headers.get('x-content-type-options') === 'nosniff');
   // ⑥ 未知 slug / 未知文件 id 404——且不得留孤儿文件（评审 #25：先校验后落盘）
   const { readdirSync } = await import('node:fs');
