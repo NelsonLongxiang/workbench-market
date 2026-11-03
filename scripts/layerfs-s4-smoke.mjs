@@ -97,7 +97,7 @@ try {
   // L10：删台五步（app 经批准）
   const apps = await (await fetch(`${BASE}/api/apps`)).json();
   const app = (Array.isArray(apps) ? apps : []).find((a) => a.slug);
-  const aslug = app?.slug ?? 'sample-app-13';
+  const aslug = app?.slug ?? 'demo-timestamp';
   const appDir = DATA + '/apps/' + aslug;
   dels.length = 0;
   const req2 = await mcp(2, 'change_request_create', { kind: 'app', slug: aslug, op: 'delete', reason: 's4-l10' });

@@ -45,7 +45,7 @@ try {
   // 取一个真实台（产库快照有）
   const apps = await (await fetch(`${BASE}/api/apps`)).json();
   const app = (Array.isArray(apps) ? apps : []).find((a) => (a.versions ?? 1) >= 1) ?? (Array.isArray(apps) ? apps[0] : null);
-  const slug = app?.slug ?? 'sample-app-13';
+  const slug = app?.slug ?? 'demo-timestamp';
 
   // L14 红：REST 回滚/删除无 reviewed_by → 400（现版 200 直执行）
   const rAct = await fetch(`${BASE}/api/apps/${slug}/activate`, { method: 'POST', headers: ADMIN, body: JSON.stringify({ version: 1 }) });
