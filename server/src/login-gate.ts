@@ -10,6 +10,8 @@
  *    - 签名卡片 GET /.well-known/agent-card.json；工作台事件回执（凭投递里的随机 reply token，库存 sha256、有效期）；
  *    - /api/health、登录页与登录/登出/身份接口、设计 token 样式表（公开仓库里的设计变量）；
  *    - 发往 /api/apps/<slug>/(data|files) 与 /api/workbenches/<id>/vars 且带本台 X-App-Token 的请求（沙箱页是不透明源，带不了 cookie）；
+ *    - SOP run 的按 run 凭据（/a2a/direct 建单时发给派单方）：GET /api/sop/runs/<id>[/files[/<fileId>]] 带该 run 有效的
+ *      X-Run-Read-Capability（未吊销、未过期），POST /api/sop/runs/<id>/files 带该 run 的 X-Run-Upload-Token（run 仍在执行）；
  *    - 自产台查看凭证：沙箱页的子资源（脚本、样式、图片）同样带不了 cookie。已登录的人打开 /apps/<slug>/（或指向自产台的 /go/<id>/）时
  *      302 到 /apps/<slug>/~wm/<凭证>/…，凭证按台签名、12 小时有效，相对路径的子资源自然带上；凭证段由本中间件剥掉，下游路由无感。
  *      凭证不能当顶层页面打开（浏览器顶层导航必带 Sec-Fetch-Dest: document，此时仍要身份），复制出去的链接打不开；
@@ -44,6 +46,8 @@ type Deps = {
   appToken: (slug: string) => string;
   /** /api/workbenches/<id>/vars 带的 X-App-Token 是否属于该台 */
   varsAppTokenOk: (req: express.Request) => boolean;
+  /** 按 run 凭据：read = X-Run-Read-Capability 对该 run 有效；upload = X-Run-Upload-Token 等于该 run 的上传令牌且 run 在执行 */
+  runCapOk: (kind: 'read' | 'upload', runId: number, presented: string) => Promise<boolean>;
   /** /go/<id>/ 指向自产台时返回其 slug，否则 null */
   goAppSlug: (id: number) => string | null;
   /** 登录用 Odoo 中继入口（/go/<id>/?return=/login），没有可信 Odoo 台时 null */
@@ -60,6 +64,8 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const APP_DATA_RE = /^\/api\/apps\/([a-z0-9][a-z0-9-]*)\/(data|files)(\/|$)/;
 const APP_FILE_RE = /^\/api\/apps\/([a-z0-9][a-z0-9-]*)\/files\/\d+$/;
 const VARS_RE = /^\/api\/workbenches\/\d+\/vars(\/|$)/;
+const RUN_READ_RE = /^\/api\/sop\/runs\/(\d+)(\/files(\/\d+)?)?$/;
+const RUN_UPLOAD_RE = /^\/api\/sop\/runs\/(\d+)\/files$/;
 const CAP_PATH_RE = /^\/(apps\/([a-z0-9][a-z0-9-]*)|go\/(\d+))\/~wm\/([0-9a-z]+\.[0-9a-f]{32})(\/.*)?$/i;
 const APP_DOC_RE = /^\/(apps\/([a-z0-9][a-z0-9-]*)|go\/(\d+))(\/.*)?$/;
 
@@ -216,6 +222,17 @@ export function createLoginGate(deps: Deps) {
     return false;
   }
 
+  async function runCapOk(req: express.Request, p: string): Promise<boolean> {
+    const get = req.method === 'GET' || req.method === 'HEAD';
+    const read = get ? RUN_READ_RE.exec(p) : null;
+    const cap = String(req.headers['x-run-read-capability'] ?? '').trim();
+    if (read && cap) return deps.runCapOk('read', Number(read[1]), cap);
+    const up = req.method === 'POST' ? RUN_UPLOAD_RE.exec(p) : null;
+    const tok = String(req.headers['x-run-upload-token'] ?? '').trim();
+    if (up && tok) return deps.runCapOk('upload', Number(up[1]), tok);
+    return false;
+  }
+
   function odooRelay(req: express.Request, p: string): boolean {
     if (req.method !== 'GET' || !/^\/go\/\d+\/$/.test(p) || req.query.state !== undefined) return false;
     const href = deps.odooLoginHref(req);
@@ -254,6 +271,7 @@ export function createLoginGate(deps: Deps) {
         return next();
       }
       if (appTokenOk(req, p)) return next();
+      if (await runCapOk(req, p)) return next(); // 派单方凭按 run 凭据直连 REST（路由内照旧判同一凭据）
       const fm = (req.method === 'GET' || req.method === 'HEAD') ? APP_FILE_RE.exec(p) : null;
       if (fm && typeof req.query.wm_av === 'string' && capOk(fm[1], req.query.wm_av)) return next(); // 沙箱页 <img src> / 下载链接
       if (odooRelay(req, p)) return next();
