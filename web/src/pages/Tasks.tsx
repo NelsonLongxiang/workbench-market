@@ -259,7 +259,7 @@ function DispatchDrawer({ open, onClose, onDone }: { open: boolean; onClose: () 
           <Select placeholder="选择已上架 SOP" options={sops.map((x) => ({ value: x.slug, label: `${x.title} (${x.slug})` }))} showSearch />
         </Form.Item>
         <Form.Item name="title" label="任务标题" rules={[{ required: true, message: '填写标题' }]}>
-          <Input placeholder="如：核对十月物流对账差异" maxLength={80} />
+          <Input placeholder="如：核对月度差异" maxLength={80} />
         </Form.Item>
         {entry === 'intake' && (
           <>
@@ -282,7 +282,7 @@ function DispatchDrawer({ open, onClose, onDone }: { open: boolean; onClose: () 
         )}
         {entry === 'legacy' && assignee === 'agent' && (
           <Form.Item name="node" label="agent 节点（dsh/<id8>，须已绑定该 SOP）" rules={[{ required: true, message: '填写节点' }]}>
-            <Input placeholder="dsh/00c0ffee" />
+            <Input placeholder="dsh/xxxxxxxx" />
           </Form.Item>
         )}
         <Form.Item name="expert" label="发布人（可选）">
