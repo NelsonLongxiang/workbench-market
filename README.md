@@ -291,7 +291,7 @@ MCP 自带一套 REST：不说 MCP 协议的客户端（普通脚本、按 OpenA
 | `GET {rest_base}/sop/runs/{id}/files[/{fileId}]` | `sop_run_get` + 该 run 的读授权 | 附件列表与下载 |
 
 - 上传和浏览器上传走同一套入库核心：按内容识别类型（扩展名与内容不符、或是可执行文件返回 415），并检查台文件数配额。返回 `id`、`sha256`、`mime`、`size`、`url`（REST 下载地址）和 `download_url`（台页面用的下载地址）。
-- 下载：响应头 `ETag` 和 `X-Content-SHA256` 都是文件的 sha256；`If-None-Match` 命中返回 304；单段 `Range`（`bytes=a-b` / `a-` / `-n`）返回 206，越界返回 416；`If-Range` 不符时回整份。安全头沿用现有下载：`Content-Disposition: attachment`、`X-Content-Type-Options: nosniff`。
+- 下载：响应头 `ETag` 和 `X-Content-SHA256` 都是文件的 sha256（上传时存进 `app_files.sha256`；早先没存的文件第一次下载时算一次并写回）；`If-None-Match` 命中返回 304；单段 `Range`（`bytes=a-b` / `a-` / `-n`）返回 206，越界返回 416；`If-Range` 不符时回整份。安全头沿用现有下载：`Content-Disposition: attachment`、`X-Content-Type-Options: nosniff`。
 
 ```bash
 curl -s -X PUT "$REST_BASE/apps/$SLUG/files/report.pdf" \

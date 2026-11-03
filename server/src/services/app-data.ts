@@ -28,9 +28,12 @@ export class AppDataService extends Service {
   dataDelete(slug: string) {
     return db.prepare('DELETE FROM app_data WHERE app_slug = ?').run(slug);
   }
-  fileInsert(slug: string, name: string, mime: string, size: number, storagePath: string, createdBy: string, note = '') {
-    // #132 P0①：note 落库（原收了不存）
-    return db.prepare('INSERT INTO app_files (app_slug, original_name, mime, size, storage_path, created_by, note) VALUES (?, ?, ?, ?, ?, ?, ?)').run(slug, name, mime, size, storagePath, createdBy, note);
+  fileInsert(slug: string, name: string, mime: string, size: number, storagePath: string, createdBy: string, note = '', sha256 = '') {
+    // #132 P0①：note 落库（原收了不存）；sha256 入库时已知就存（REST 下载 ETag 用）
+    return db.prepare('INSERT INTO app_files (app_slug, original_name, mime, size, storage_path, created_by, note, sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(slug, name, mime, size, storagePath, createdBy, note, sha256);
+  }
+  fileSetSha256(id: number, slug: string, sha256: string) {
+    return db.prepare("UPDATE app_files SET sha256 = ? WHERE id = ? AND app_slug = ? AND sha256 = ''").run(sha256, id, slug);
   }
   filePage(slug: string, beforeId: number, limit: number) {
     // #132 P0①③：列表返 note/created_by/created_at·软删行过滤

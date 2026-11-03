@@ -149,11 +149,12 @@ function bodyLimitFor(req: express.Request): string {
   const m = /^Bearer ([0-9a-f]{64})$/i.exec(String(req.headers.authorization ?? ''));
   return m && mcpSessionByToken(m[1]) ? MCP_BODY_LIMIT : '4mb';
 }
-// MCP REST 原始字节上传（PUT /api/mcp-rest/apps/<slug>/files/<name>）：请求体就是文件，由路由流式落盘，不经 JSON 解析
+// MCP REST 原始字节上传（PUT /api/mcp-rest/apps/<slug>/files/<name>）：请求体就是文件（data.json 也带 application/json），由路由流式落盘，不经 JSON 解析。
+// 用 req.path（与路由同一个 pathname，已处理绝对形式请求目标 #299）+ 不区分大小写（路由同样不区分）
 const MCP_REST_RAW_UPLOAD = /^\/api\/mcp-rest\/apps\/[^/]+\/files\/[^/]+$/i;
 app.use((req, res, next) => {
   if ((req.url ?? '').startsWith('/go/')) return next();
-  if (req.method === 'PUT' && MCP_REST_RAW_UPLOAD.test((req.url ?? '').split('?')[0])) return next();
+  if (req.method === 'PUT' && MCP_REST_RAW_UPLOAD.test(req.path)) return next();
   return express.json({ limit: bodyLimitFor(req) })(req, res, next);
 });
 
@@ -1400,11 +1401,11 @@ function uploadKindOrThrow(path: string, size: number, name: string, reported: s
   return kind;
 }
 /** 自产台文件入库核心：浏览器 multipart 与 MCP REST（原始字节 PUT / multipart）共用——已落盘的文件按内容核类型（不符删盘 415）后写 app_files */
-function appFileStoreCore(slug: string, f: { path: string; size: number; name: string; reportedMime: string; createdBy: string; note: string }) {
+function appFileStoreCore(slug: string, f: { path: string; size: number; name: string; reportedMime: string; createdBy: string; note: string; sha256?: string }) {
   const kind = uploadKindOrThrow(f.path, f.size, f.name, f.reportedMime);
   // 存储相对路径（dataDir 内，随数据目录迁移）
   const rel = f.path.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
-  const r = svc<AppDataService>('appData').fileInsert(slug, f.name, kind.mime, f.size, rel, f.createdBy, f.note) as unknown as { lastInsertRowid: number | bigint }; // #132 P0①：note 落库
+  const r = svc<AppDataService>('appData').fileInsert(slug, f.name, kind.mime, f.size, rel, f.createdBy, f.note, f.sha256 ?? '') as unknown as { lastInsertRowid: number | bigint }; // #132 P0①：note 落库；sha256 有就存（下载 ETag 不再重算）
   const id = Number(r.lastInsertRowid);
   return { ok: true, id, slug, name: f.name, mime: kind.mime, size: f.size, note: f.note, url: `/api/apps/${slug}/files/${id}` };
 }
@@ -3490,9 +3491,10 @@ async function callTool(name: string, args: any, subject = 'anonymous'): Promise
       const rel = abs.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
       const createdBy = String(args?.created_by ?? '').trim().slice(0, 128);
       const note = String(args?.note ?? '').trim().slice(0, 500);
-      const r = svc<AppDataService>('appData').fileInsert(a.slug, name, kind.mime, buf.length, rel, createdBy, note) as unknown as { lastInsertRowid: number | bigint };
+      const sha256 = createHash('sha256').update(buf).digest('hex');
+      const r = svc<AppDataService>('appData').fileInsert(a.slug, name, kind.mime, buf.length, rel, createdBy, note, sha256) as unknown as { lastInsertRowid: number | bigint };
       const id = Number(r.lastInsertRowid);
-      return { ok: true, id, slug: a.slug, name, mime: kind.mime, size: buf.length, sha256: createHash('sha256').update(buf).digest('hex'), note, url: `/api/apps/${a.slug}/files/${id}` };
+      return { ok: true, id, slug: a.slug, name, mime: kind.mime, size: buf.length, sha256, note, url: `/api/apps/${a.slug}/files/${id}` };
     }
     default:
       throw new HttpError(400, `未知工具: ${name}`);
@@ -4187,7 +4189,7 @@ async function mcpRestRun(sess: McpSess | null, tool: string, op: string, auditA
     throw e;
   }
 }
-/** 文件 sha256（ETag 用）：按 路径+大小+mtime 缓存，同一文件每进程只算一次 */
+/** 文件 sha256（ETag 用，入库没存的才算）：按 路径+大小+mtime 缓存，同一文件每进程只算一次 */
 const fileShaCache = new Map<string, string>();
 async function fileSha256(abs: string): Promise<string> {
   const st = statSync(abs);
@@ -4202,10 +4204,12 @@ async function fileSha256(abs: string): Promise<string> {
   return hex;
 }
 /** 二进制下载：强 ETag = sha256、If-None-Match → 304、单段 Range（bytes=a-b / a- / -n）→ 206、越界 416；安全头同现有下载（attachment + nosniff） */
-async function sendStoredFile(req: express.Request, res: express.Response, f: { abs: string; size: number; mime: string; name: string }): Promise<void> {
+async function sendStoredFile(req: express.Request, res: express.Response, f: { abs: string; size: number; mime: string; name: string; sha256?: string; onSha?: (sha: string) => void }): Promise<void> {
   if (!existsSync(f.abs)) throw new HttpError(404, 'stored file missing on disk');
   const size = statSync(f.abs).size;
-  const sha = await fileSha256(f.abs);
+  // 入库时存了 sha256 就直接用；存量行（浏览器上传等未存的）算一次后经 onSha 回写
+  let sha = f.sha256 && size === f.size ? f.sha256 : '';
+  if (!sha) { sha = await fileSha256(f.abs); f.onSha?.(sha); }
   const etag = `"${sha}"`;
   res.setHeader('content-type', f.mime || 'application/octet-stream');
   res.setHeader('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(f.name || 'file')}`);
@@ -4273,8 +4277,9 @@ app.put('/api/mcp-rest/apps/:slug/files/:name', wrap(async (req, res) => {
     }
     if (size === 0) { rmSync(abs, { force: true }); bad('请求体为空'); }
     const reported = String(req.headers['content-type'] ?? '').split(';')[0].trim();
-    const out = appFileStoreCore(a.slug, { path: abs, size, name, reportedMime: reported === 'application/octet-stream' ? '' : reported, createdBy, note });
-    res.status(201).json({ ...out, sha256: h.digest('hex'), url: `${MCP_REST_BASE}/apps/${a.slug}/files/${out.id}`, download_url: out.url });
+    const sha256 = h.digest('hex');
+    const out = appFileStoreCore(a.slug, { path: abs, size, name, reportedMime: reported === 'application/octet-stream' ? '' : reported, createdBy, note, sha256 });
+    res.status(201).json({ ...out, sha256, url: `${MCP_REST_BASE}/apps/${a.slug}/files/${out.id}`, download_url: out.url });
   });
 }));
 // 上传（multipart）：POST /api/mcp-rest/apps/<slug>/files，字段 file + 可选 note/created_by——与浏览器上传同一个 multer 与入库核心
@@ -4293,8 +4298,9 @@ app.post('/api/mcp-rest/apps/:slug/files', wrap(async (req, res) => {
     const file = req.file!;
     const createdBy = typeof req.body?.created_by === 'string' && req.body.created_by.trim() ? req.body.created_by.trim().slice(0, 128) : (sess ? `mcp:${sess.name}` : '');
     const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 500) : '';
-    const out = appFileStoreCore(a.slug, { path: file.path, size: file.size, name: fixFileName(file.originalname), reportedMime: file.mimetype || '', createdBy, note });
-    res.status(201).json({ ...out, sha256: await fileSha256(file.path), url: `${MCP_REST_BASE}/apps/${a.slug}/files/${out.id}`, download_url: out.url });
+    const sha256 = await fileSha256(file.path);
+    const out = appFileStoreCore(a.slug, { path: file.path, size: file.size, name: fixFileName(file.originalname), reportedMime: file.mimetype || '', createdBy, note, sha256 });
+    res.status(201).json({ ...out, sha256, url: `${MCP_REST_BASE}/apps/${a.slug}/files/${out.id}`, download_url: out.url });
   });
 }));
 // 列文件（倒序游标分页 + quota）：与 app_files_list 工具同一结果，url 指向 REST 下载
@@ -4314,7 +4320,8 @@ app.get('/api/mcp-rest/apps/:slug/files/:id', wrap(async (req, res) => {
     const a = getApp(req.params.slug);
     const row = /^\d+$/.test(String(req.params.id)) ? svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug) as any : null;
     if (!row) throw new HttpError(404, `file not found: ${req.params.id}`);
-    await sendStoredFile(req, res, { abs: join(dataDir, row.storage_path), size: row.size, mime: row.mime, name: row.original_name });
+    await sendStoredFile(req, res, { abs: join(dataDir, row.storage_path), size: row.size, mime: row.mime, name: row.original_name, sha256: row.sha256,
+      onSha: (sha) => svc<AppDataService>('appData').fileSetSha256(row.id, a.slug, sha) });
   });
 }));
 // 读台数据（倒序游标分页）：与 app_data_list 工具同一结果

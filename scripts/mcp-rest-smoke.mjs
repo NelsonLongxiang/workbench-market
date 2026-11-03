@@ -7,7 +7,7 @@
  *  文件与资源（MCP 内嵌）：99MB 原始字节流式上传 sha256 前后一致、multipart 上传、Range/ETag/304/416 下载、列文件带 quota、读台数据、
  *  SOP run 元数据/附件（run 读授权）、未授权 403、匿名 401、内容不符 415；initialize 与 access_info 带 openapi_url / rest_base；openapi 写对二进制类型。 */
 import { spawn } from 'node:child_process';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { rmSync, mkdirSync } from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
 import { join } from 'node:path';
@@ -222,6 +222,26 @@ try {
   rr = await raw('GET', `${FB}/${sm.id}`, undefined, { ...bearer(filer.token), Range: 'bytes=0-9', 'If-Range': '"stale"' });
   ok('If-Range 不符 → 忽略 Range 回整份 200', rr.status === 200 && Buffer.from(await rr.arrayBuffer()).equals(small));
 
+  // application/json 的原始字节上传：全局 JSON 解析必须让路，请求体原样落盘（5MB 超过匿名 4MB 口径，也不能被当成 JSON 解析）
+  const bigJson = Buffer.from(JSON.stringify({ rows: Array.from({ length: 5 * 1024 * 1024 / 64 }, (_, i) => ({ i, v: 'x'.repeat(48) })) }));
+  rr = await raw('PUT', `${FB}/data.json`, bigJson, { ...bearer(filer.token), 'Content-Type': 'application/json' });
+  const js = await rr.json().catch(() => ({}));
+  ok(`5MB data.json + application/json → 201，sha256 一致（${bigJson.length}B）`, rr.status === 201 && js.size === bigJson.length && js.sha256 === createHash('sha256').update(bigJson).digest('hex') && js.mime === 'application/json', `${rr.status} ${JSON.stringify(js).slice(0, 160)}`);
+  rr = await raw('PUT', `${FB}/small.json`, Buffer.from('{"a":1}'), { ...bearer(filer.token), 'Content-Type': 'application/json' });
+  const sj = await rr.json().catch(() => ({}));
+  ok('小 data.json + application/json → 201（不报请求体为空）', rr.status === 201 && sj.size === 7, `${rr.status} ${JSON.stringify(sj)}`);
+  rr = await raw('PUT', `${FB}/broken.json`, Buffer.from('{not json'), { ...bearer(filer.token), 'Content-Type': 'application/json' });
+  ok('非法 JSON 的 .json 按内容判不符 415（不是 JSON 解析的 400）', rr.status === 415, `status=${rr.status}`);
+  // 绝对形式请求目标（PUT http://host/api/…，#299）同样不经 JSON 解析
+  const absBody = Buffer.from('{"abs":true}');
+  const absRes = await new Promise((resolve, reject) => {
+    const q = httpRequest({ host: '127.0.0.1', port: PORT, method: 'PUT', path: `${BASE}${FB}/abs.json`, headers: { ...bearer(filer.token), 'Content-Type': 'application/json', 'Content-Length': absBody.length } }, (resp) => {
+      let b = ''; resp.on('data', (c) => { b += c; }); resp.on('end', () => resolve({ status: resp.statusCode, body: JSON.parse(b || '{}') }));
+    });
+    q.on('error', reject); q.end(absBody);
+  });
+  ok('绝对形式请求目标的 application/json 上传 → 201 原样落盘', absRes.status === 201 && absRes.body.size === absBody.length && absRes.body.sha256 === createHash('sha256').update(absBody).digest('hex'), JSON.stringify(absRes));
+
   // multipart
   const fd = new FormData();
   fd.append('file', new Blob([Buffer.from('{"a":1}')], { type: 'application/json' }), 'cfg.json');
@@ -229,6 +249,18 @@ try {
   rr = await raw('POST', FB, fd, bearer(filer.token));
   const mp = await rr.json();
   ok('multipart 上传 201，带 sha256', rr.status === 201 && mp.sha256 === createHash('sha256').update('{"a":1}').digest('hex') && mp.mime === 'application/json' && mp.note === 'multipart', JSON.stringify(mp));
+
+  // 浏览器上传（入库不存 sha256）的存量行：首次 REST 下载算一次并回写，ETag 仍为 sha256
+  const bfd = new FormData();
+  bfd.append('file', new Blob([small], { type: 'text/plain' }), 'browser.txt');
+  const bu = await (await raw('POST', `/api/apps/${SLUG}/files`, bfd)).json();
+  rr = await raw('GET', `${FB}/${bu.id}`, undefined, bearer(filer.token));
+  await rr.arrayBuffer();
+  ok('未存 sha256 的文件下载 ETag 仍为 sha256', rr.status === 200 && rr.headers.get('etag') === `"${createHash('sha256').update(small).digest('hex')}"`, JSON.stringify(bu));
+  const shaDb = new DatabaseSync(join(DATA, 'workbench-market.db'), { readOnly: true });
+  const shaRows = Object.fromEntries(shaDb.prepare(`SELECT id, sha256 FROM app_files WHERE app_slug = ?`).all(SLUG).map((x) => [x.id, x.sha256]));
+  shaDb.close();
+  ok('REST 上传入库即存 sha256；存量行首次下载后回写', shaRows[up?.id] === bigSha && shaRows[bu.id] === createHash('sha256').update(small).digest('hex'), JSON.stringify(shaRows));
 
   // 415 / 403 / 401 / 404 / 400
   rr = await raw('PUT', `${FB}/fake.png`, Buffer.from('not really a png'), { ...bearer(filer.token), 'Content-Type': 'image/png' });
@@ -257,14 +289,14 @@ try {
   rr = await raw('PUT', `${FB}/${encodeURIComponent('a\\b.txt')}`, Buffer.from('hi'), bearer(filer.token));
   ok('非法文件名（含路径分隔符）400', rr.status === 400);
   const before = (await call('GET', `${FB}?limit=200`, undefined, bearer(filer.token))).body?.items?.length;
-  ok('被拒的上传不留记录（3 个成功上传）', before === 3, `items=${before}`);
+  ok('被拒的上传不留记录（6 个 REST 上传 + 1 个浏览器上传）', before === 7, `items=${before}`);
 
   // 列文件 / 读数据
   r = await call('GET', `${FB}?limit=2`, undefined, bearer(filer.token));
   ok('列文件分页 + quota + REST 下载地址', r.status === 200 && r.body?.items?.length === 2 && r.body?.has_more === true && Number.isInteger(r.body?.next_before_id)
     && r.body?.quota?.max_file_bytes === 100 * 1024 * 1024 && r.body.items.every((it) => it.url === `${FB}/${it.id}`), JSON.stringify(r.body).slice(0, 200));
   r = await call('GET', `${FB}?limit=2&before_id=${r.body?.next_before_id}`, undefined, bearer(filer.token));
-  ok('列文件翻页', r.status === 200 && r.body?.items?.length === 1);
+  ok('列文件翻页', r.status === 200 && r.body?.items?.length === 2 && r.body?.has_more === true);
   r = await call('GET', `/api/mcp-rest/apps/${SLUG}/data?limit=10`, undefined, bearer(filer.token));
   const mviaData = await viaMcp(filer.token, 'app_data_list', { slug: SLUG, limit: 10 });
   ok('读台数据 200，与 app_data_list 一致', r.status === 200 && JSON.stringify(r.body) === JSON.stringify(mviaData.payload) && (r.body?.items ?? []).length >= 1);
