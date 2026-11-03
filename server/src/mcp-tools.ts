@@ -124,7 +124,7 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
   },
   {
     name: 'app_files_upload',
-    description: '向自产台上传文件（base64 内容·≤50MB/个）——agent 侧交付物直接入台文件面（与 REST multipart 同表同链）。返回 id/url/mime/note。',
+    description: '向自产台上传文件（base64 内容·原始 ≤50MB/个，base64 约 ≤67MB）——agent 侧交付物直接入台文件面（与 REST multipart 同表同链、同一套按内容的类型检查）。返回 id/url/mime/size/sha256/note。上传前可用 app_files_list 的 quota 查剩余文件数与上限。',
     inputSchema: {
       type: 'object',
       properties: {

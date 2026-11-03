@@ -137,9 +137,17 @@ app.use((req, res, next) => {
 // body 解析：/go/ 路径跳过（品味席 direct-2999b07d 实测——express.json 在 HPM 之前
 // 消费了 body 流，上游需要读 body 的 POST（如 taste-mcp 的 tools/call）永远等不到
 // end 事件挂起；401 路径不读 body 所以「看起来通」）。/go/ 的 body 由 HPM 原样 pipe。
+// /mcp 的 app_files_upload 用 base64 传文件：50MB 原始 ≈ 67MB base64，再留 JSON-RPC 包装余量。
+// 只给带有效会话令牌的 /mcp 请求放大：本中间件先于 /mcp 路由里的会话判定执行，不先认令牌，匿名请求也能把 72MB 读进内存
+const MCP_BODY_LIMIT = '72mb';
+function bodyLimitFor(req: express.Request): string {
+  if ((req.url ?? '').split('?')[0] !== '/mcp') return '4mb';
+  const m = /^Bearer ([0-9a-f]{64})$/i.exec(String(req.headers.authorization ?? ''));
+  return m && mcpSessionByToken(m[1]) ? MCP_BODY_LIMIT : '4mb';
+}
 app.use((req, res, next) => {
   if ((req.url ?? '').startsWith('/go/')) return next();
-  return express.json({ limit: '4mb' })(req, res, next);
+  return express.json({ limit: bodyLimitFor(req) })(req, res, next);
 });
 
 // GH #20 P1 ④远程面收口：非本机请求只放 /mcp、/.well-known/agent-card.json、/a2a/direct——
@@ -1318,6 +1326,13 @@ app.get('/api/apps/:slug/data', (req, res) => {
 // multipart/form-data：字段 file（单文件）+ 可选 note/created_by。
 // 落盘 DATA_DIR/uploads/<slug>/<YYYYMM>/<id>-<safeName>；元数据入 app_files；GET 列表 + 下载。
 const UPLOAD_MAX = 50 * 1024 * 1024;
+// 每台文件数上限：浏览器上传与 MCP 上传共用；部署可用 WM_APP_FILES_MAX 调整（存量迁移台已有数百个文件）
+const APP_FILES_MAX = Math.max(1, Number(process.env.WM_APP_FILES_MAX) || 2000);
+/** 台的文件容量（上传前可查）：已用/上限文件数、单文件上限、MCP base64 上限 */
+function appFilesQuota(slug: string) {
+  const used = Number(svc<AppDataService>('appData').fileCount(slug)) || 0;
+  return { files_used: used, files_max: APP_FILES_MAX, files_left: Math.max(0, APP_FILES_MAX - used), max_file_bytes: UPLOAD_MAX, mcp_max_base64_chars: Math.ceil(UPLOAD_MAX / 3) * 4 };
+}
 const uploadRoot = join(dataDir, 'uploads');
 // multipart 文件名编码修复：busboy 默认把 UTF-8 字节按 latin1 解码（中文名变 mojibake）
 const fixFileName = (s: string): string => {
@@ -1366,6 +1381,8 @@ const upload = multer({
 
 app.post('/api/apps/:slug/files', (req, res, next) => {
   try { getApp(req.params.slug); } catch (e) { return next(e); }
+  // 先查文件数再收文件，满了不落盘
+  if (appFilesQuota(req.params.slug).files_left <= 0) return res.status(413).json({ error: `该台文件数已达上限（${APP_FILES_MAX}）`, quota: appFilesQuota(req.params.slug) });
   upload.single('file')(req, res, (err: any) => {
     if (err) {
       if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: '文件超 50MB 上限' });
@@ -1398,7 +1415,7 @@ app.get('/api/apps/:slug/files', (req, res) => {
     ? svc<AppDataService>('appData').filePage(a.slug, beforeId, limit)
     : svc<AppDataService>('appData').filePage(a.slug, 0, limit);
   const items = (rows as any[]).map((r) => ({ ...r, url: `/api/apps/${a.slug}/files/${r.id}` }));
-  res.json({ slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null });
+  res.json({ slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null, quota: appFilesQuota(a.slug) });
 });
 
 // #132 P0①：note 更新面（PATCH）
@@ -3381,7 +3398,7 @@ async function callTool(name: string, args: any, subject = 'anonymous'): Promise
         ? svc<AppDataService>('appData').filePage(a.slug, beforeId, limit)
         : svc<AppDataService>('appData').filePage(a.slug, 0, limit);
       const items = (rows as any[]).map((r) => ({ ...r, url: `/api/apps/${a.slug}/files/${r.id}` }));
-      return { slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null };
+      return { slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null, quota: appFilesQuota(a.slug) };
     }
     case 'app_files_upload': {
       // #164 P1②（批派令）：MCP 侧上传——base64 入 app_files（与 REST multipart 同表同链）
@@ -3393,7 +3410,10 @@ async function callTool(name: string, args: any, subject = 'anonymous'): Promise
       const buf = Buffer.from(b64, 'base64');
       if (!buf.length) throw new HttpError(400, 'content_base64 解码为空');
       if (buf.length > UPLOAD_MAX) throw new HttpError(413, `文件超 50MB 上限（${buf.length}B）`);
-      if (svc<AppDataService>('appData').fileCount(a.slug) >= 200) throw new HttpError(413, '该台文件数已达上限（200）'); // #193 F8：全量计数（原 filePage(0,1) 恒 1 永不触发）
+      if (appFilesQuota(a.slug).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`); // #193 F8：全量计数；上限与浏览器上传共用
+      // 与浏览器上传同一套内容类型检查：扩展名与内容不符、或是可执行文件 → 拒收；相符则存规范 MIME
+      const kind = sniff(name, buf.subarray(0, 1024 * 1024), buf.length <= 1024 * 1024, String(args?.mime ?? ''));
+      if (kind.verdict === 'mismatch' || kind.verdict === 'executable') throw new HttpError(415, `文件类型不符：${kind.reason}`);
       const dir = join(dataDir, 'uploads');
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
       const safe = name.replace(/[^\w.\u4e00-\u9fa5-]+/g, '_').slice(0, 80);
@@ -3403,9 +3423,9 @@ async function callTool(name: string, args: any, subject = 'anonymous'): Promise
       const rel = abs.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
       const createdBy = String(args?.created_by ?? '').trim().slice(0, 128);
       const note = String(args?.note ?? '').trim().slice(0, 500);
-      const r = svc<AppDataService>('appData').fileInsert(a.slug, name, String(args?.mime ?? 'application/octet-stream'), buf.length, rel, createdBy, note) as unknown as { lastInsertRowid: number | bigint };
+      const r = svc<AppDataService>('appData').fileInsert(a.slug, name, kind.mime, buf.length, rel, createdBy, note) as unknown as { lastInsertRowid: number | bigint };
       const id = Number(r.lastInsertRowid);
-      return { ok: true, id, slug: a.slug, name, mime: String(args?.mime ?? 'application/octet-stream'), size: buf.length, note, url: `/api/apps/${a.slug}/files/${id}` };
+      return { ok: true, id, slug: a.slug, name, mime: kind.mime, size: buf.length, sha256: createHash('sha256').update(buf).digest('hex'), note, url: `/api/apps/${a.slug}/files/${id}` };
     }
     default:
       throw new HttpError(400, `未知工具: ${name}`);
