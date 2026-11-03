@@ -42,10 +42,14 @@ export default function McpGateways() {
 
   const reload = useCallback(() => {
     if (!token) return;
+    // #371：/api/mcp/tools 返回裸数组 [{name,description}]（也兼容 {tools:[…]} 信封）；失败要可见，不能静默成空列表
     fetch('/api/mcp/tools', { headers: H })
-      .then((r) => (r.ok ? r.json() : { tools: [] }))
-      .then((j) => setRegTools((j.tools || []).map((x: { name?: string } | string) => (typeof x === 'string' ? x : String(x?.name ?? ''))).filter(Boolean)))
-      .catch(() => setRegTools([]));
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((j) => {
+        const list: unknown[] = Array.isArray(j) ? j : Array.isArray(j?.tools) ? j.tools : [];
+        setRegTools(list.map((x) => (typeof x === 'string' ? x : String((x as { name?: string })?.name ?? ''))).filter(Boolean));
+      })
+      .catch(() => { setRegTools([]); message.error('工具清单加载失败：授权编辑器暂时无法选择工具'); });
     setLoading(true);
     fetch('/api/mcp/sessions', { headers: H })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -269,7 +273,7 @@ export default function McpGateways() {
         width={520}
       >
         <Typography.Paragraph type="secondary" className="wm-caption">
-          勾选该会话可用的工具（整体替换语义；新会话为空=默认拒绝）。工具面共 15 个。
+          勾选该会话可用的工具（整体替换语义；新会话为空=默认拒绝）。工具面共 {regTools.length} 个。
         </Typography.Paragraph>
         <Select
           mode="multiple"
