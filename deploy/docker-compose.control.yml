@@ -1,0 +1,9 @@
+# Explicit opt-in only. Keep the control listener bound to loopback.
+services:
+  market:
+    ports:
+      - "127.0.0.1:9801:9801"
+    environment:
+      WM_CONTROL_PORT: "9801"
+    healthcheck:
+      test: ["CMD", "node", "-e", "Promise.all([fetch('http://127.0.0.1:9800/api/health'),fetch('http://127.0.0.1:9801/api/health'),fetch('http://127.0.0.1:9801/').then(r=>r.text())]).then(([m,c,h])=>process.exit(m.ok&&c.ok&&h.includes('wm-surface')&&h.includes('control')?0:1)).catch(()=>process.exit(1))"]

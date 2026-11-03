@@ -26,6 +26,7 @@ import type { AppDataService } from './services/app-data.ts';
 import type { CookieService } from './services/cookie.ts';
 import type { CockpitService } from './services/cockpit.ts';
 import type { SettingService } from './services/setting.ts';
+import { recordLayerFsShadowOutcome, recordLayerFsSkillShadowOutcome } from './layerfs-shadow.ts';
 import { db, getSettings, dataDir, rowToWorkbench, rowToCockpit, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow, type SopRunRow } from './db.ts';
 (globalThis as any).__wmDb = db; // #94 v3 S1：tasks.ts 直读 change_requests 桥
 import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
@@ -728,7 +729,7 @@ function getApp(slug: string): AppRow {
 }
 
 function appDetail(a: AppRow) {
-  const versions = svc<AppService>('app').versions(a.id) as unknown as AppVersionRow[];
+  const versions = (svc<AppService>('app').versions(a.id) as unknown as AppVersionRow[]).map(v => ({ ...v, shadow_status: (v as any).shadow_status ?? (v.commit_id ? 'succeeded' : 'pending'), shadow_error: String((v as any).shadow_error ?? '') }));
   const url = a.kind === 'sop' ? `/sop/${a.slug}/` : `/apps/${a.slug}/`;
   const wb = svc<WorkbenchService>('workbench').marketAppIdByUrl(url) as { id: number } | undefined;
   return { ...a, versions, workbench_id: wb?.id ?? null };
@@ -1004,15 +1005,15 @@ function publishAppBody(b: any, source?: { repo: string; path: string; commit: s
     svc<AppService>('app').setVersionCommit(appRow.id, version, source.commit);
     appRow = getApp(slug);
   }
-  // #94 P1 影子双写：发布同时写 Commit（读路径不变·失败不阻·commit_id 留空可后补迁移）
+  // Shadow remains non-blocking; persist each outcome so failures are visible and retryable.
   void layerfsPublish(layerfsProjectName(slug), files, String(changelog ?? `[publish] v${version}`)).then((out) => {
-    if (out) {
-      try {
-        db.prepare("UPDATE app_versions SET commit_id = ? WHERE app_id = (SELECT id FROM apps WHERE slug = ?) AND version = ?").run(out.commit_id, slug, version);
-        db.prepare("UPDATE apps SET layerfs_project = ? WHERE slug = ?").run(layerfsProjectName(slug), slug);
-      } catch { /* 影子失败不阻 */ }
-    }
-  }); // 异步影子——响应不等（fire-and-forget·不阻发布路径）
+    try { recordLayerFsShadowOutcome(db, slug, version, layerfsProjectName(slug), out); }
+    catch (e) { console.warn(`[P1-shadow] outcome persistence failed: ${slug} v${version}: ${String((e as Error).message).slice(0,100)}`); }
+  }).catch((e) => {
+    console.warn(`[P1-shadow] publish promise failed: ${slug} v${version}: ${String((e as Error).message).slice(0,100)}`);
+    try { recordLayerFsShadowOutcome(db, slug, version, layerfsProjectName(slug), null); }
+    catch (persistErr) { console.warn(`[P1-shadow] failure status persistence failed: ${String((persistErr as Error).message).slice(0,100)}`); }
+  }); // fire-and-forget: keep local publication responsive
   pruneAppDirs(slug); // #94 P2（L5）：发布后留 3 版 ∪ 活跃
 
   // app 类发布即入册；sop 类走状态机——draft 不入册，publish 时入册
@@ -1116,8 +1117,8 @@ app.post('/api/apps/:slug/migrate-layerfs', wrap(async (req, res) => {
     // 幂等：已有 commit_id 跳过
     if (v.commit_id) { results.push({ version: v.version, result: 'skip', commit_id: v.commit_id }); prevBytes = v.total_bytes; continue; }
     const out = await layerfsPublish(layerfsProjectName(a.slug), files, `[migrate] v${v.version}`);
-    if (!out) { results.push({ version: v.version, result: 'error', reason: 'layerfs 服务不可达（影子失败语义·可重跑）' }); prevBytes = v.total_bytes; continue; }
-    db.prepare('UPDATE app_versions SET commit_id = ? WHERE id = ?').run(out.commit_id, v.id);
+    if (!out) { db.prepare("UPDATE app_versions SET shadow_status='failed', shadow_error='LayerFS publish failed; retry migrate-layerfs' WHERE id=? AND commit_id=''").run(v.id); results.push({ version: v.version, result: 'error', reason: 'layerfs 服务不可达（影子失败语义·可重跑）' }); prevBytes = v.total_bytes; continue; }
+    db.prepare("UPDATE app_versions SET commit_id = ?, shadow_status='succeeded', shadow_error='' WHERE id = ?").run(out.commit_id, v.id);
     db.prepare("UPDATE apps SET layerfs_project = ? WHERE slug = ?").run(a.slug, a.slug);
     // sha256 对账（物化 vs 服务 commit——经服务回读）
     const { base, token } = layerfsServiceBase();
@@ -1222,7 +1223,7 @@ app.post('/api/change-requests/:id/approve', wrap(async (req, res) => {
   if (r.kind === 'app' && r.op === 'rollback') {
     await activateAppVersion(r.slug, r.target_version);
   } else if (r.kind === 'app' && r.op === 'delete') {
-    deleteAppCascade(r.slug);
+    await deleteAppCascade(r.slug);
   } else if (r.kind === 'skill' && r.op === 'rollback') {
     await executeSkillRollback(r.slug, Number(r.target_version), reviewedBy);
   } else if (r.kind === 'skill' && r.op === 'delete') {
@@ -1255,7 +1256,7 @@ app.post('/api/apps/:slug/activate', wrap(async (req, res) => {
   res.json({ ...out, reviewed_by: reviewedBy });
 }));
 
-app.delete('/api/apps/:slug', (req, res) => {
+app.delete('/api/apps/:slug', wrap(async (req, res) => {
   if (req.params.slug === 'task-center') {
     if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
     if (!adminGuard(req,res)) return;
@@ -1263,9 +1264,9 @@ app.delete('/api/apps/:slug', (req, res) => {
   // #94 v3 S1（L14）：删除经人审——一步式=口令+reviewed_by
   const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
   if (!reviewedBy) bad('删除需 reviewed_by（人审门——一步式直调必填；或经 MCP change_request_create 提请求）');
-  deleteAppCascade(req.params.slug);
+  await deleteAppCascade(req.params.slug);
   res.json({ ok: true, deleted: req.params.slug, reviewed_by: reviewedBy });
-});
+}));
 
 /** #94 v3 S1：台删除级联体（一步式 REST 与人审批准共用一个执行体——单一事实源） */
 /** #94 P1 影子双写：经 layerfs 服务发布 Commit（契约 v0 §2.1·Bearer）——失败不阻（warn·commit_id 留空） */
@@ -1278,14 +1279,22 @@ function layerfsProjectName(slug: string): string {
 
 function layerfsServiceBase(): { base: string; token: string } {
   const s = getSettings() as Record<string, unknown>;
-  const base = String(s['layerfs_service_url'] ?? process.env.LAYERFS_SERVICE_URL ?? '').trim();
-  const token = String(s['layerfs_service_token'] ?? process.env.LAYERFS_SERVICE_TOKEN ?? '').trim();
+  const tokenFile = String(process.env.LAYERFS_SERVICE_TOKEN_FILE ?? '').trim();
+  let token: string;
+  if (tokenFile) {
+    // In managed Docker mode this file is authoritative; never fall back to a stale DB/env token.
+    token = String(readFileSync(tokenFile, 'utf8')).trim();
+    if (Buffer.byteLength(token, 'utf8') < 32) throw new Error('LayerFS secret file must contain at least 32 bytes');
+  } else {
+    token = String(s['layerfs_service_token'] ?? process.env.LAYERFS_SERVICE_TOKEN ?? '').trim();
+  }
+  const base = tokenFile ? String(process.env.LAYERFS_SERVICE_URL ?? '').trim() : String(s['layerfs_service_url'] ?? process.env.LAYERFS_SERVICE_URL ?? '').trim();
   return { base, token };
 }
 async function layerfsPublish(project: string, files: { path: string; content: string }[], message: string, branch = 'release'): Promise<{ commit_id: string; changed: boolean } | null> {
-  const { base, token } = layerfsServiceBase();
-  if (!base) return null; // 未配置=不启用（契约 §1）
   try {
+    const { base, token } = layerfsServiceBase();
+    if (!base) return null; // 未配置=不启用（契约 §1）
     // #94 契约 v1（监督席 direct-440fb53c）：项目+分支两级路由
     const res = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(project) + '/branches/' + encodeURIComponent(branch) + '/publish', {
       method: 'POST',
@@ -1303,27 +1312,28 @@ async function layerfsPublish(project: string, files: { path: string; content: s
   }
 }
 
-function deleteAppCascade(slug: string): void {
+async function deleteAppCascade(slug: string): Promise<void> {
   const a = getApp(slug);
+  // Delete LayerFS first. If it fails, retain local state and allow the owner to retry.
+  const { base, token } = layerfsServiceBase();
+  if (!base) throw new HttpError(503, 'LayerFS service is required for app deletion');
+  let remote: Response;
+  try {
+    remote = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(layerfsProjectName(slug)), {
+      method: 'DELETE', headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10000),
+    });
+  } catch (e) {
+    throw new HttpError(502, `LayerFS project deletion unavailable; app retained for retry: ${String((e as Error).message).slice(0, 80)}`);
+  }
+  if (!remote.ok && remote.status !== 404) throw new HttpError(502, `LayerFS project deletion failed (HTTP ${remote.status}); app retained for retry`);
   rmSync(join(appsRoot, slug), { recursive: true, force: true });
   svc<AppService>('app').versionsDelete(a.id);
   svc<AppService>('app').delete(a.id);
-  // 数据面/文件面一并清理（派单 direct-22838fab 与文件提交面）
   svc<AppDataService>('appData').dataDelete(slug);
   const files = svc<AppDataService>('appData').filePaths(slug) as { storage_path: string }[];
   for (const f of files) { try { rmSync(join(dataDir, f.storage_path), { force: true }); } catch { /* 已删 */ } }
   svc<AppDataService>('appData').filesDelete(slug);
-  // issue #6：SOP 台的注册 url 是 /sop/<slug>/（非 /apps/），删除时必须一并清理，否则留孤儿工作台（门户 404）
-  // #94 S4（§4.5 五步②③）：服务 project.remove+volume.remove（契约 §2.4——服务删项目·Store 卷·备份）
-  // 任一步失败即停·记录残留·不重试（§4.5 铁则）
-  void (async () => {
-    try {
-      const { base, token } = layerfsServiceBase();
-      if (!base) return; // 服务未配=跳过（市场面已清·残留记）
-      const r = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(layerfsProjectName(slug)), { method: 'DELETE', headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(10000) });
-      if (!r.ok) console.warn(`[S4-residue] 服务删除失败 HTTP ${r.status}（项目 ${slug} 残留·不重试·月度重建兜底）`);
-    } catch (e) { console.warn(`[S4-residue] 服务删除异常: ${String((e as Error).message).slice(0, 80)}（不重试）`); }
-  })();
+  // issue #6：清理应用与 SOP 对应的工作台注册。
   svc<WorkbenchService>('workbench').deleteByAppUrls(`/apps/${slug}/`, `/sop/${a.slug}/`);
 }
 
@@ -2282,9 +2292,14 @@ app.post('/api/skills/:slug/versions', wrap(async (req, res) => {
     writeFileSync(abs, f.content, 'utf8');
   }
   S.versionInsert({ skillId: row.id, version: nextVer, changelog, treeDigest: t.digest, fileCount: t.fileCount, totalBytes: t.totalBytes, snapshotPath: `skill-snapshots/${encodeURIComponent(slug)}/v${nextVer}`, reviewedBy }); // S4：存 dataDir 相对形
-  // #94 S2 技能影子：wm-skills 项目·skill/<slug> 分支（契约 v1·fire-and-forget 同 P1 语义）
+  // Skill shadow remains non-blocking; its per-version outcome is durable/retryable like app publishing.
   void layerfsPublish('wm-skills', files, `[skill-publish] ${slug} v${nextVer}`, `skill/${slug}`).then((out) => {
-    if (out) { try { db.prepare('UPDATE skill_versions SET commit_id = ? WHERE skill_id = ? AND version = ?').run(out.commit_id, row.id, nextVer); } catch { /* 影子失败不阻 */ } }
+    try { recordLayerFsSkillShadowOutcome(db, Number(row.id), nextVer, out); }
+    catch (e) { console.warn(`[S2-shadow] outcome persistence failed: ${slug} v${nextVer}: ${String((e as Error).message).slice(0,100)}`); }
+  }).catch((e) => {
+    console.warn(`[S2-shadow] publish promise failed: ${slug} v${nextVer}: ${String((e as Error).message).slice(0,100)}`);
+    try { recordLayerFsSkillShadowOutcome(db, Number(row.id), nextVer, null); }
+    catch (persistErr) { console.warn(`[S2-shadow] failure status persistence failed: ${String((persistErr as Error).message).slice(0,100)}`); }
   });
   res.status(201).json({ ok: true, slug, version: nextVer, tree_digest: t.digest, file_count: t.fileCount, total_bytes: t.totalBytes, snapshot_path: `skill-snapshots/${encodeURIComponent(slug)}/v${nextVer}` }); // #94 S0⑤：不暴露 DATA_DIR 绝对路径);
 }));
@@ -2320,8 +2335,8 @@ app.post('/api/skills/:slug/migrate-layerfs', wrap(async (req, res) => {
     (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp, 'utf8') }); } })(resolveSnap(v.snapshot_path));
     if (files.length === 0 || files.some((f) => f.content === '')) { results.push({ version: v.version, result: 'anomaly', reason: '空快照/空 content（留档不迁）' }); continue; }
     const out = await layerfsPublish('wm-skills', files, `[skill-migrate] ${row.slug} v${v.version}`, `skill/${row.slug}`);
-    if (!out) { results.push({ version: v.version, result: 'error', reason: 'layerfs 服务不可达（可重跑）' }); continue; }
-    db.prepare('UPDATE skill_versions SET commit_id = ? WHERE id = ?').run(out.commit_id, v.id);
+    if (!out) { db.prepare("UPDATE skill_versions SET shadow_status='failed', shadow_error='LayerFS publish failed; retry migrate-layerfs' WHERE id=? AND commit_id=''").run(v.id); results.push({ version: v.version, result: 'error', reason: 'layerfs 服务不可达（可重跑）' }); continue; }
+    db.prepare("UPDATE skill_versions SET commit_id = ?, shadow_status='succeeded', shadow_error='' WHERE id = ?").run(out.commit_id, v.id);
     // K13 摘要对账（发布摘要==重导后文件集重算）
     const re = SkillService.filesDigest(files).digest;
     results.push({ version: v.version, result: 'migrated', commit_id: out.commit_id, digest_match: re === v.tree_digest });
@@ -2443,8 +2458,8 @@ app.get('/api/skills/:slug/versions', (req, res) => {
   const S = svc<SkillService>('skill');
   const row = S.skillBySlug(String(req.params.slug ?? ''));
   if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
-  // #94 S0⑤（K8）：版本列表 snapshot_path 相对化（不暴露 DATA_DIR）
-  res.json({ slug: row.slug, versions: (S.versionsBySkill(row.id) as any[]).map((v) => ({ ...v, snapshot_path: v.snapshot_path ? `skill-snapshots/${encodeURIComponent(row.slug)}/v${v.version}` : v.snapshot_path })) });
+  // #94 S0⑤（K8）：版本列表 snapshot_path 相对化（不暴露 DATA_DIR）；兼容旧库无状态时推导。
+  res.json({ slug: row.slug, versions: (S.versionsBySkill(row.id) as any[]).map((v) => ({ ...v, shadow_status: v.shadow_status ?? (v.commit_id ? 'succeeded' : 'pending'), shadow_error: v.shadow_error ?? '', snapshot_path: v.snapshot_path ? `skill-snapshots/${encodeURIComponent(row.slug)}/v${v.version}` : v.snapshot_path })) });
 });
 
 app.get('/api/sop/runs', (req, res) => {
@@ -2837,8 +2852,17 @@ function vaultGuard(req: express.Request, res: express.Response): boolean {
 mountVault(app, vaultGuard);
 workbenchVars.mount(app); // #336 /api/workbenches/:id/vars
 
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, self_probe: startupSecurity.snapshot() });
+app.get('/api/health', async (_req, res) => {
+  const result: Record<string, unknown> = { ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, self_probe: startupSecurity.snapshot() };
+  if (process.env.LAYERFS_SERVICE_URL) {
+    try {
+      const { base } = layerfsServiceBase();
+      const r = await fetch(base.replace(/\/+$/, '') + '/healthz', { signal: AbortSignal.timeout(2500) });
+      result.layerfs = r.ok ? 'healthy' : 'unhealthy';
+      if (!r.ok) { result.ok = false; return res.status(503).json(result); }
+    } catch { result.ok = false; result.layerfs = 'unreachable'; return res.status(503).json(result); }
+  }
+  res.json(result);
 });
 loginGate.mount(app); // /login、/api/auth/login|logout|me（解析器之后、SPA 回落之前）
 
@@ -2907,8 +2931,7 @@ function adminGuard(req: express.Request, res: express.Response): boolean {
     return false;
   }
   const origin = req.headers.origin;
-  if (origin && !devOriginOk(req)) { // web dev：vite 代理把 Host 改成 9800、Origin 仍是 5173，已在 devOriginOk 里限本机直连
-    // 同源判定：Origin 的 host 与请求 Host 一致（http/https 均可）
+  if (origin && !devOriginOk(req)) {
     try {
       const oh = new URL(String(origin)).host;
       if (oh !== String(req.headers.host ?? '')) {

@@ -227,6 +227,7 @@ export async function resolveOdooViewer(cookieHeader: string, odooUrl = lcConfig
   return { ok: true, viewer: { login, uid: Number(info.uid), sub: `user:${login}`, name, admin: info.is_admin === true } };
 }
 
+
 // ---------- 统一待办：生命周期源 ----------
 
 const INBOX_TTL_MS = 30_000; // 与统一待办同口径；每次实际调 lc 都现签断言，缓存只省调用

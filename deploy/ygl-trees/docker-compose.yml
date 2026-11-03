@@ -1,0 +1,34 @@
+name: ${COMPOSE_PROJECT_NAME:-ygl-trees-candidate}
+services:
+  ygl-workspace:
+    image: ${YGL_IMAGE:-local/ygl-trees:0.119.0}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        YGL_TREES_VERSION: ${YGL_TREES_VERSION:-0.119.0}
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      YGL_HOME: /var/lib/ygl
+      YGL_SESSION: docker-workspace
+    entrypoint: ["/usr/local/bin/ygl-mcp-entrypoint"]
+    command: ["sleep", "infinity"]
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=64m"]
+    volumes: ["ygl_home:/var/lib/ygl"]
+    networks: [ygl-private]
+    healthcheck:
+      test: ["CMD-SHELL", "ygl-trees doctor --json >/dev/null"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+networks:
+  ygl-private:
+    internal: true
+volumes:
+  ygl_home:
+    name: ${YGL_HOME_VOLUME:-ygl-trees-home-local}

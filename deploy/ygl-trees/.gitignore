@@ -1,0 +1,4 @@
+# Secret file referenced by docker-compose.yml. Keep credentials outside the repository.
+secrets/
+tmp/
+node_modules/

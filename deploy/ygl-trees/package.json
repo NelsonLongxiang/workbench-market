@@ -1,0 +1,9 @@
+{
+  "name": "ygl-trees-docker-runtime",
+  "version": "0.119.0",
+  "private": true,
+  "description": "Locked runtime dependency graph for the isolated ygl-trees Docker candidate",
+  "dependencies": {
+    "ygl-trees": "0.119.0"
+  }
+}

@@ -17,7 +17,7 @@ import { join } from 'node:path';
 
 const PORT = 9920;
 const BASE = `http://127.0.0.1:${PORT}`;
-const DATA = 'tmp/e2e-s2-data';
+const DATA = process.env.LAYERFS_SMOKE_DATA ?? 'tmp/e2e-s2-data';
 const ADMIN = { 'Content-Type': 'application/json', 'X-Admin-Token': 's2-tok' };
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
@@ -39,6 +39,7 @@ const store = new Map(); // project → Map(branch → {commits, head})
 const lfs = createServer(async (req, res) => {
   let body = ''; for await (const c of req) body += c;
   const json = (code, b) => { const s = JSON.stringify(b); res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(s); };
+  if (req.method === 'GET' && (req.url ?? '').split('?')[0] === '/healthz') return json(200, { ok: true });
   if (req.headers.authorization !== `Bearer ${TOKEN}`) return json(401, { error: 'unauthorized' });
   const raw = req.url ?? ''; // raw 匹配（%2F 不解——分支含斜杠是一段）
   const pb = /^\/v1\/projects\/([^/]+)\/branches\/([^/]+)\/publish$/.exec(raw);
@@ -76,7 +77,7 @@ for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`${SOURCE_DATA_DI
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
   cwd: process.cwd(),
   env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 's2-tok', LAYERFS_SERVICE_URL: `http://127.0.0.1:${LP}`, LAYERFS_SERVICE_TOKEN: TOKEN },
-  stdio: 'ignore',
+  stdio: 'inherit',
 });
 const pubSkill = (slug, files, extra = {}) => fetch(`${BASE}/api/skills/${slug}/versions`, { method: 'POST', headers: ADMIN, body: JSON.stringify({ files, changelog: 's2', ...extra }) });
 
@@ -111,7 +112,9 @@ try {
   const f404 = await fetch(`http://127.0.0.1:${LP}/v1/projects/wm-skills/branches/${encodeURIComponent('skill/nope')}/commits/c0/files`, { headers: { Authorization: `Bearer ${TOKEN}` } });
   ok('④ v1 未知分支 commit 404', f404.status === 404, `status=${f404.status}`);
   // ⑤ 校验面不受影（钉装+verify ok:true）
-  const tdir = mkdtempSync(join(tmpdir(), 's2-inst-'));
+  const tdir = join(DATA, 'skill-snapshots', '.s2-inst');
+  rmSync(tdir, { recursive: true, force: true });
+  mkdirSync(tdir, { recursive: true });
   writeFileSync(join(tdir, 'SKILL.md'), FILES[0].content);
   mkdirSync(join(tdir, 'refs')); writeFileSync(join(tdir, 'refs/Nested.md'), FILES[1].content);
   await fetch(`${BASE}/api/skills/s2:k13/install`, { method: 'POST', headers: ADMIN, body: JSON.stringify({ installed_path: tdir }) });

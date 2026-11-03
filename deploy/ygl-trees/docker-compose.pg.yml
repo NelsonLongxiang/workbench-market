@@ -1,0 +1,61 @@
+services:
+  ygl-pg:
+    image: postgres:16-alpine
+    profiles: [pg-mirror]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ygl
+      POSTGRES_DB: ygl
+      POSTGRES_PASSWORD_FILE: /run/secrets/ygl_pg_password
+    secrets: [ygl_pg_password]
+    volumes:
+      - ygl_pg_data:/var/lib/postgresql/data
+    networks: [ygl-private]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ygl -d ygl"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    security_opt: [no-new-privileges:true]
+
+  ygl-pg-sync:
+    profiles: [pg-sync]
+    build:
+      context: .
+      dockerfile: Dockerfile.sync
+      args:
+        YGL_IMAGE: ${YGL_IMAGE:-local/ygl-trees:0.119.0}
+    image: ${YGL_SYNC_IMAGE:-local/ygl-trees-sync:0.119.0}
+    user: "0:0"
+    environment:
+      YGL_HOME: /var/lib/ygl
+      YGL_SESSION: pg-mirror
+      YGL_PG_PASSWORD_FILE: /run/secrets/ygl_pg_password
+      YGL_PG_HOST: ygl-pg
+      YGL_PG_PORT: "5432"
+      YGL_PG_USER: ygl
+      YGL_PG_DATABASE: ygl
+    secrets: [ygl_pg_password]
+    volumes:
+      - ygl_home:/var/lib/ygl
+    networks: [ygl-private]
+    depends_on:
+      ygl-pg: {condition: service_healthy}
+    entrypoint: ["/usr/local/bin/ygl-sync-entrypoint"]
+    command: ["db", "sync", "pg", "--json"]
+    restart: "no"
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID, DAC_OVERRIDE]
+
+networks:
+  ygl-private:
+    internal: true
+volumes:
+  ygl_home:
+    name: ${YGL_HOME_VOLUME:-ygl-trees-home-local}
+  ygl_pg_data:
+    name: ${YGL_PG_VOLUME:-candidate-pg-data}
+secrets:
+  ygl_pg_password:
+    file: ${YGL_PG_PASSWORD_FILE:?Set YGL_PG_PASSWORD_FILE to a protected secret file}

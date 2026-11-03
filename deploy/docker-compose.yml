@@ -1,22 +1,29 @@
-# #147 部署批：基文件默认回环绑定（P0-4）·layerfs 走 profiles 隔离（P1-1）·token 必设（P1-2）
-# #215：先 build-layerfs.sh SOURCE NEW_CONTEXT --prepare-only，再标准 Compose build。
+# LayerFS is mandatory for the standard stack. The service retains the frozen #94 volume lifecycle
+# and therefore has host-root-equivalent Docker socket access; market itself never gets that access.
+# LayerFS is never published; the control surface is opt-in via docker-compose.control.yml.
+# Base stack publishes only the business surface; the opt-in override binds control to loopback.
+# Prepare a pinned source context with deploy/build-layerfs.sh before Compose config/build.
 services:
   market:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.market
-    ports:
-      - "127.0.0.1:9800:9800"   # 安全默认：仅宿主回环。对外暴露请在覆盖层用 !override 改写
     environment:
-      LAYERFS_SERVICE_URL: ${LAYERFS_SERVICE_URL:-}
-      LAYERFS_SERVICE_TOKEN: ${LAYERFS_SERVICE_TOKEN:-}
+      LAYERFS_SERVICE_URL: http://layerfs:8067
+      LAYERFS_SERVICE_TOKEN_FILE: /run/secrets/layerfs_service_token
       DATA_DIR: /data
+    ports:
+      - "127.0.0.1:9800:9800"
     volumes:
       - market-data:/data
-    # 网络模型（#147 P0-3）：host 模式推荐——容器内探本机服务零配置
-    # #292 M1：进程同时监听 WM_CONTROL_PORT（缺省 PORT+1=9801，管理控制面）；host 模式下 ports 不生效，bridge 模式需另映射 9801。
-    #          建议防火墙只对管理员网段开放 9801。
-    network_mode: host
+    secrets:
+      - layerfs_service_token
+    networks:
+      - default
+      - layerfs-private
+    depends_on:
+      layerfs:
+        condition: service_healthy
     healthcheck: &hc
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9800/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
@@ -25,7 +32,6 @@ services:
       retries: 3
 
   layerfs:
-    profiles: ["layerfs"]
     image: ${LAYERFS_IMAGE:-wm-x-layerfs:test}
     build:
       context: ..
@@ -33,18 +39,27 @@ services:
       additional_contexts:
         layerfs: ${LAYERFS_CONTEXT:?先用 deploy/build-layerfs.sh 准备固定钉点受控 context，再设置 LAYERFS_CONTEXT}
     environment:
-      # P1-2：未设即 compose 级拒启（不再静默默认 change-me）
-      LAYERFS_SERVICE_TOKEN: ${LAYERFS_SERVICE_TOKEN:?LAYERFS_SERVICE_TOKEN 必设（不可用 change-me）}
-      LAYERFS_NATIVE: /usr/local/lib/layerfs.node   # #215 X6 八障：SDK addonPath 走 env
-      LAYERFS_HOME: /var/lib/layerfs/home   # #215 十五障②：locator 面（勿设 /layerfs-store 陈值）
-      LAYERFS_STORE_PATH: /var/lib/layerfs/home/global/store.sqlite   # #215 十八障：镜像级同值
+      LAYERFS_SERVICE_HOST: 0.0.0.0
+      LAYERFS_SERVICE_PORT: 8067
+      LAYERFS_SERVICE_TOKEN_FILE: /run/secrets/layerfs_service_token
+      LAYERFS_NATIVE: /usr/local/lib/layerfs.node
+      LAYERFS_HOME: /var/lib/layerfs/home
+      LAYERFS_STORE_PATH: /var/lib/layerfs/home/global/store.sqlite
       LAYERFS_STORE_ROOT: /var/lib/layerfs
-    ports:
-      - "8067:8067"
+    networks:
+      - layerfs-private
+    restart: unless-stopped
+    secrets:
+      - layerfs_service_token
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock   # 注意：挂 socket=服务容器等同宿主 root（文档已标注）
-      - /var/lib/docker/volumes:/var/lib/docker/volumes:rw
+      - /var/run/docker.sock:/var/run/docker.sock   # frozen LayerFS sandbox/volume lifecycle; host-root-equivalent privilege
       - layerfs-store:/var/lib/layerfs
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8067/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
 
   layerfs-p0:              # #215：替身参考镜像转测试专用 profile（契约面对照）
     profiles: ["layerfs-p0"]
@@ -54,7 +69,15 @@ services:
     environment:
       LAYERFS_SERVICE_PORT: 8067
     ports:
-      - "8067:8067"
+      - "18067:8067" # substitute test profile isolated from real LayerFS host port
+
+networks:
+  layerfs-private:
+    internal: true
+
+secrets:
+  layerfs_service_token:
+    file: ${LAYERFS_TOKEN_FILE:?Provide a strong token file outside the repository}
 
 volumes:
   market-data:

@@ -17,7 +17,7 @@ import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 const PORT = 9895;
 const BASE = `http://127.0.0.1:${PORT}`;
-const DATA = 'tmp/e2e-p1-data';
+const DATA = process.env.LAYERFS_SMOKE_DATA ?? 'tmp/e2e-p1-data';
 const ADMIN = { 'Content-Type': 'application/json', 'X-Admin-Token': 'p1-tok' };
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
@@ -37,6 +37,7 @@ const lfs = createServer(async (req, res) => {
   for await (const c of req) body += c;
   hits.push({ m: req.method, url, auth: req.headers.authorization ?? '' });
   const json = (code, b) => { const s = JSON.stringify(b); res.writeHead(code, { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(s)) }); res.end(s); };
+  if (req.method === 'GET' && (req.url ?? '').split('?')[0] === '/healthz') return json(200, { ok: true });
   if (req.headers.authorization !== `Bearer ${TOKEN}`) return json(401, { error: 'unauthorized' });
   const pm = /^\/v1\/projects\/([^/]+)\/branches\/([^/]+)\/publish$/.exec(url);
   if (req.method === 'POST' && pm) {
@@ -74,7 +75,7 @@ for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`${SOURCE_DATA_DI
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
   cwd: process.cwd(),
   env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'p1-tok', LAYERFS_SERVICE_URL: `http://127.0.0.1:${LP}`, LAYERFS_SERVICE_TOKEN: TOKEN, WM_GITHUB_API: gh.api },
-  stdio: 'ignore',
+  stdio: 'inherit',
 });
 const pubApp = (slug, files, extra = {}) => ghPublish(BASE, gh, { slug, title: slug, files, ...extra }, { 'X-Admin-Token': 'p1-tok' });
 
