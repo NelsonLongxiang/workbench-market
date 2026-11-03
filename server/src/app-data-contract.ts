@@ -12,7 +12,8 @@
  *        "enum": { "field": ["a", "b"] },          // 有值时必须在列表内
  *        "pattern": { "field": "^regex$" },        // 有值时（字符串）必须匹配
  *        "when": [{ "if": { "field": ["v1"] }, "require": ["f"], "equals": { "f": true } }],
- *        "file_ids": true                          // file_ids 必须是本台已登记文件的 id 数组
+ *        "file_ids": true,                         // file_ids 必须是本台已登记文件的 id 数组
+ *        "items": { "refs": { "required": [..], "enum": {..}, "pattern": {..}, "max_items": 30 } }  // 数组里每个对象的规则
  *      }
  *    }
  *  }
@@ -24,13 +25,15 @@ export interface ContractType {
   pattern?: Record<string, string>;
   when?: { if: Record<string, unknown[]>; require?: string[]; equals?: Record<string, unknown> }[];
   file_ids?: boolean;
+  /** 数组字段里每个对象的规则（嵌套一层）：有值时必须是对象数组 */
+  items?: Record<string, { required?: string[]; enum?: Record<string, unknown[]>; pattern?: Record<string, string>; max_items?: number }>;
 }
 export interface DataContract {
   version: 1;
   type_fields: string[];
   unknown_types: 'allow' | 'reject';
   types: Record<string, ContractType>;
-  /** 解析时预编译的正则：types.<type>.pattern.<field> */
+  /** 解析时预编译的正则：types.<type>.pattern.<field>；数组对象字段记为 <field>[].<sub> */
   re: Record<string, Record<string, RegExp>>;
 }
 
@@ -59,6 +62,17 @@ export function parseContract(text: string): DataContract {
       try { (re[name] ??= {})[f] = new RegExp(rx); } catch { throw new Error(`types.${name}.pattern.${f} 不是合法正则`); }
       rules++;
     }
+    for (const [f, it] of Object.entries<any>(t.items ?? {})) {
+      if (!it || typeof it !== 'object') throw new Error(`types.${name}.items.${f} 必须是对象`);
+      strArr(it.required, `types.${name}.items.${f}.required`); rules += it.required?.length ?? 0;
+      for (const [sf, vals] of Object.entries<any>(it.enum ?? {})) { if (!Array.isArray(vals) || !vals.length) throw new Error(`types.${name}.items.${f}.enum.${sf} 必须是非空数组`); rules++; }
+      for (const [sf, rx] of Object.entries<any>(it.pattern ?? {})) {
+        if (typeof rx !== 'string') throw new Error(`types.${name}.items.${f}.pattern.${sf} 必须是字符串`);
+        try { (re[name] ??= {})[`${f}[].${sf}`] = new RegExp(rx); } catch { throw new Error(`types.${name}.items.${f}.pattern.${sf} 不是合法正则`); }
+        rules++;
+      }
+      if (it.max_items !== undefined && !(Number.isInteger(it.max_items) && it.max_items > 0)) throw new Error(`types.${name}.items.${f}.max_items 必须是正整数`);
+    }
     if (t.when !== undefined && !Array.isArray(t.when)) throw new Error(`types.${name}.when 必须是数组`);
     for (const [i, w] of (t.when ?? []).entries()) {
       if (!w || typeof w.if !== 'object' || Array.isArray(w.if) || !Object.values(w.if).every(Array.isArray)) throw new Error(`types.${name}.when[${i}].if 必须是 {字段: [取值...]}`);
@@ -86,6 +100,7 @@ export function checkRecord(c: DataContract, data: unknown, fileExists: (id: num
   for (const f of t.required ?? []) if (!present(d[f])) errs.push(`${typeName}.${f} 必填`);
   for (const [f, vals] of Object.entries(t.enum ?? {})) if (present(d[f]) && !vals.includes(d[f])) errs.push(`${typeName}.${f} 取值不在允许范围（${vals.join('、')}）`);
   for (const [f, rx] of Object.entries(c.re[typeName] ?? {})) {
+    if (f.includes('[].')) continue;  // 数组对象字段在下面逐元素核对
     const v = d[f];
     if (!present(v)) continue;
     const vals = Array.isArray(v) ? v : [v];
@@ -97,6 +112,26 @@ export function checkRecord(c: DataContract, data: unknown, fileExists: (id: num
     const cond = Object.entries(w.if).map(([f, vals]) => `${f}=${(vals as unknown[]).join('/')}`).join(' 且 ');
     for (const f of w.require ?? []) if (!present(d[f])) errs.push(`${cond} 时 ${typeName}.${f} 必填`);
     for (const [f, v] of Object.entries(w.equals ?? {})) if (d[f] !== v) errs.push(`${cond} 时 ${typeName}.${f} 必须为 ${JSON.stringify(v)}`);
+  }
+  for (const [f, it] of Object.entries(t.items ?? {})) {
+    const arr = d[f];
+    if (arr === undefined || arr === null) continue;
+    if (!Array.isArray(arr)) { errs.push(`${typeName}.${f} 必须是数组`); continue; }
+    if (it.max_items !== undefined && arr.length > it.max_items) errs.push(`${typeName}.${f} 最多 ${it.max_items} 项`);
+    arr.forEach((el, i) => {
+      const at = `${typeName}.${f}[${i}]`;
+      if (!el || typeof el !== 'object' || Array.isArray(el)) { errs.push(`${at} 必须是对象`); return; }
+      const o = el as Record<string, unknown>;
+      for (const sf of it.required ?? []) if (!present(o[sf])) errs.push(`${at}.${sf} 必填`);
+      for (const [sf, vals] of Object.entries(it.enum ?? {})) if (present(o[sf]) && !vals.includes(o[sf])) errs.push(`${at}.${sf} 取值不在允许范围（${vals.join('、')}）`);
+      for (const sf of Object.keys(it.pattern ?? {})) {
+        const rx = c.re[typeName]?.[`${f}[].${sf}`]; const v = o[sf];
+        if (!rx || !present(v)) continue;
+        const vals = Array.isArray(v) ? v : [v];
+        if (vals.some((x) => typeof x === 'string' && x.length > MAX_PATTERN_INPUT)) { errs.push(`${at}.${sf} 超过 ${MAX_PATTERN_INPUT} 字符`); continue; }
+        if (!vals.every((x) => (typeof x === 'string' || typeof x === 'number') && rx.test(String(x)))) errs.push(`${at}.${sf} 格式不符（${rx.source}）`);
+      }
+    });
   }
   if (t.file_ids && d.file_ids !== undefined) {
     const ids = d.file_ids;
