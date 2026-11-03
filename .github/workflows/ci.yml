@@ -170,6 +170,8 @@ jobs:
         run: node scripts/gateway-default-smoke.mjs && node scripts/gateway-smoke.mjs
       - name: 全站登录门（WM_LOGIN_GATE：enforce 匿名 302/401·口令登录 cookie·限频退避·next 防外跳·台令牌/查看凭证·/mcp 网关·本机命令行·Odoo 替身·off 不变·坏值拒启）
         run: node scripts/login-gate-smoke.mjs
+      - name: 登录门上线演练（enforce 隔离实例：MCP/健康/A2A/SOP/台与门户/生命周期/运维/回滚逐类真实请求）
+        run: node scripts/login-gate-rollout-check.mjs
       - name: MCP 权限可见与自助申请（access_info 全目录·access_request 去重限频·管理员批准并集/驳回不动 grants/吊销不能批·app_data_submit 与 REST 同核契约校验·匿名 401）
         run: node scripts/mcp-access-smoke.mjs
       - name: MCP 内嵌 REST / OpenAPI（文件：99MB 流式上传 sha256 一致·Range/ETag 下载·415·403/401；资源：列文件/读数据/SOP 附件；工具映射与 /mcp 同链·审计 channel=rest·匿名 5MB 413）
@@ -182,6 +184,8 @@ jobs:
         run: node scripts/design-tokens-smoke.mjs
       - name: SOP 定义只读接口（#318：published 公开·draft/deprecated 仅管理员·不带步骤正文·冷版本 404）
         run: node scripts/sop-definition-smoke.mjs
+      - name: 自产台/SOP 台卡片健康核实台本身（不存在或未上架记 down）与 sop_run_get 时间字段
+        run: node scripts/self-hosted-health-smoke.mjs
       - name: 驾驶舱布局吸附单测（#320：宽度只取 3/4/6/12·x 越界收回·不丢面板·读时迁移不回写）
         run: node scripts/cockpit-layout-unit.mjs
       - name: 凭据库（融合 dsh-vault：读写要口令·业务面 403·摘要无明文·坏 JSON 不进日志·写锁/重开/闲置上锁/限流）
