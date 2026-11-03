@@ -17,6 +17,10 @@ import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 const PORT = Number(process.env.GW_PORT) > 0 ? Number(process.env.GW_PORT) : 20000 + Math.floor(Math.random() * 20000);
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-mcp-rest-' + Date.now().toString(36);
+// --login-gate：同一套判据在 WM_LOGIN_GATE=enforce 下再跑一遍；被测的 /mcp、/openapi.json、/api/mcp-rest/* 请求带 X-Forwarded-For 冒充远程
+// （不享本机命令行豁免，只能靠网关会话令牌过登录门），准备步骤照旧走本机命令行
+const GATE = process.argv.includes('--login-gate');
+const remoteFor = (path) => (GATE && /^\/(mcp$|openapi\.json$|api\/mcp-rest\/)/.test(String(path).replace(BASE, '').split('?')[0]) ? { 'X-Forwarded-For': '198.51.100.9' } : {});
 const SLUG = 'rest-demo';
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -49,7 +53,7 @@ const gh = await startFakeGithub();
 rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
-  env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'rest-admin-tok', MCP_GATEWAY: 'on', WM_GITHUB_API: gh.api },
+  env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'rest-admin-tok', MCP_GATEWAY: 'on', WM_GITHUB_API: gh.api, ...(GATE ? { WM_LOGIN_GATE: 'enforce' } : {}) },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪（20s 超时）'); child.kill(); process.exit(1); }
@@ -57,7 +61,7 @@ if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就�
 const AT = { 'X-Admin-Token': 'rest-admin-tok' };
 const bearer = (token) => (token ? { Authorization: `Bearer ${token}` } : {});
 async function call(method, path, body, headers = {}) {
-  const r = await fetch(BASE + path, { method, headers: { 'Content-Type': 'application/json', ...headers }, body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body) });
+  const r = await fetch(BASE + path, { method, headers: { 'Content-Type': 'application/json', ...remoteFor(path), ...headers }, body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body) });
   let j = null; try { j = await r.json(); } catch { /* 非 JSON */ }
   return { status: r.status, body: j, headers: r.headers };
 }
@@ -74,6 +78,15 @@ async function newSession(name, grants = []) {
 }
 
 try {
+  if (GATE) {
+    const h = await (await fetch(BASE + '/api/health')).json();
+    const anon = await fetch(BASE + '/api/apps', { headers: { 'X-Forwarded-For': '198.51.100.9' } });
+    ok('登录门 enforce 生效：远程匿名 /api/apps 被登录门 401', h.login_gate === 'enforce' && anon.status === 401 && anon.headers.get('x-wm-login-required') === '1');
+    for (const [m, pth] of [['GET', '/openapi.json'], ['GET', '/api/mcp-rest/openapi.json'], ['POST', '/api/mcp-rest/tools/app_list']]) {
+      const r = await call(m, pth, m === 'POST' ? {} : undefined);
+      ok(`登录门下远程匿名 ${m} ${pth} → 网关 401（不是登录门 401）`, r.status === 401 && /Bearer/.test(r.headers.get('www-authenticate') ?? '') && r.headers.get('x-wm-login-required') !== '1');
+    }
+  }
   // ============ 准备：中性台 + 数据契约 + 上游 ============
   const contract = { version: 1, type_fields: ['record_type'], unknown_types: 'reject', types: { task: { required: ['title', 'state'], enum: { state: ['todo', 'done'] } } } };
   const pub = await ghPublish(BASE, gh, { slug: SLUG, title: 'REST demo', files: [
@@ -157,7 +170,7 @@ try {
   // ============ 文件与资源（MCP 内嵌 REST） ============
   const filer = await newSession('agent-files', ['app_files_upload', 'app_files_list', 'app_data_list', 'sop_run_get']);
   const FB = `/api/mcp-rest/apps/${SLUG}/files`;
-  const raw = (method, path, body, headers = {}) => fetch(BASE + path, { method, headers, body, ...(body && typeof body.getReader === 'function' ? { duplex: 'half' } : {}) });
+  const raw = (method, path, body, headers = {}) => fetch(BASE + path, { method, headers: { ...remoteFor(path), ...headers }, body, ...(body && typeof body.getReader === 'function' ? { duplex: 'half' } : {}) });
 
   r = await call('POST', '/mcp', { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26' } }, bearer(filer.token));
   ok('initialize 结果带 openapi_url 与 rest_base', /\/openapi\.json$/.test(r.body?.result?.openapi_url ?? '') && /\/api\/mcp-rest$/.test(r.body?.result?.rest_base ?? ''), JSON.stringify(r.body?.result).slice(0, 200));
@@ -235,7 +248,7 @@ try {
   // 绝对形式请求目标（PUT http://host/api/…，#299）同样不经 JSON 解析
   const absBody = Buffer.from('{"abs":true}');
   const absRes = await new Promise((resolve, reject) => {
-    const q = httpRequest({ host: '127.0.0.1', port: PORT, method: 'PUT', path: `${BASE}${FB}/abs.json`, headers: { ...bearer(filer.token), 'Content-Type': 'application/json', 'Content-Length': absBody.length } }, (resp) => {
+    const q = httpRequest({ host: '127.0.0.1', port: PORT, method: 'PUT', path: `${BASE}${FB}/abs.json`, headers: { ...remoteFor(`${FB}/abs.json`), ...bearer(filer.token), 'Content-Type': 'application/json', 'Content-Length': absBody.length } }, (resp) => {
       let b = ''; resp.on('data', (c) => { b += c; }); resp.on('end', () => resolve({ status: resp.statusCode, body: JSON.parse(b || '{}') }));
     });
     q.on('error', reject); q.end(absBody);
