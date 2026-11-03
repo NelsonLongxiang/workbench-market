@@ -66,6 +66,12 @@ const loginGate = createLoginGate({
   },
   appToken: (slug) => wmAppToken(slug),
   varsAppTokenOk: (req) => workbenchVars.appTokenWrite(req),
+  runCapOk: async (kind, runId, presented) => {
+    if (kind === 'read') return (await authorizeRunRead({ cap: presented }, runId)).authorized;
+    const row = db.prepare('SELECT status, upload_token FROM sop_runs WHERE id = ?').get(runId) as { status: string; upload_token: string } | undefined;
+    const want = String(row?.upload_token ?? '');
+    return row?.status === 'running' && want.length > 0 && want.length === presented.length && timingSafeEqual(Buffer.from(want), Buffer.from(presented));
+  },
   goAppSlug: (id) => /^\/apps\/([a-z0-9][a-z0-9-]{0,63})\/?$/.exec(wbById(id)?.url ?? '')?.[1] ?? null,
   odooLoginHref: (req) => (process.env.LC_ODOO_URL ? odooLoginUrl(req, '/login') : null),
   tokensCss: () => loadTokensCss()?.css ?? '',
