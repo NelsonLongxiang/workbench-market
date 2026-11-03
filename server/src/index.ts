@@ -1330,18 +1330,23 @@ async function layerfsPublish(project: string, files: { path: string; content: s
 
 async function deleteAppCascade(slug: string): Promise<void> {
   const a = getApp(slug);
-  // Delete LayerFS first. If it fails, retain local state and allow the owner to retry.
-  const { base, token } = layerfsServiceBase();
-  if (!base) throw new HttpError(503, 'LayerFS service is required for app deletion');
-  let remote: Response;
-  try {
-    remote = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(layerfsProjectName(slug)), {
-      method: 'DELETE', headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10000),
-    });
-  } catch (e) {
-    throw new HttpError(502, `LayerFS project deletion unavailable; app retained for retry: ${String((e as Error).message).slice(0, 80)}`);
+  // Apps never written to LayerFS remain deletable in local/dev deployments.
+  // Once associated/published, remove remote state first and retain local state on failure.
+  const versions = svc<AppService>('app').versions(a.id) as any[];
+  const hasLayerfsState = Boolean((a as any).layerfs_project) || versions.some(v => String(v.commit_id ?? '') !== '');
+  if (hasLayerfsState) {
+    const { base, token } = layerfsServiceBase();
+    if (!base) throw new HttpError(503, 'LayerFS service is required to delete an app with LayerFS data');
+    let remote: Response;
+    try {
+      remote = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(layerfsProjectName(slug)), {
+        method: 'DELETE', headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10000),
+      });
+    } catch (e) {
+      throw new HttpError(502, `LayerFS project deletion unavailable; app retained for retry: ${String((e as Error).message).slice(0, 80)}`);
+    }
+    if (!remote.ok && remote.status !== 404) throw new HttpError(502, `LayerFS project deletion failed (HTTP ${remote.status}); app retained for retry`);
   }
-  if (!remote.ok && remote.status !== 404) throw new HttpError(502, `LayerFS project deletion failed (HTTP ${remote.status}); app retained for retry`);
   rmSync(join(appsRoot, slug), { recursive: true, force: true });
   svc<AppService>('app').versionsDelete(a.id);
   svc<AppService>('app').delete(a.id);
