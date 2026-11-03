@@ -35,4 +35,6 @@ git -C ../workbench-market-apps diff --stat
 `restyle.py` 里的 `DARK`（深色台名单）、`OVERRIDE`（品牌色裁定）、`PATCH`（定点修正）、`NAV`（各台分组表与隐藏清单）是每台的人工裁定，新台接入时按审计结果补。
 
 - 换层识别统一层时容 `\r\n`：有的台在 Windows 上另存过，整页是 CRLF；换层后保持该页原有换行风格。读写一律 `newline=''`，不做换行转换。
-- 已知取舍：`factory-report-huashengweike-v1` 是按 A4 排版的报告文档，内部用缩放后的字号（非 6 档），只统一了色值与字体族。
+- **报告类页面不改**（属主 2026-11-03）：`REPORT` 集合里的工厂报告（huashengweike-v1、liangchong-v5、pickleball-v3、verify-hswk）`--repo` 直接跳过。报告是排好版的成品文档，统一字号/配色会撑破版式。
+- 渐变只压平全不透明的（按钮、横幅）；带 `transparent` / `rgba` 色标的是图片遮罩或线纹，原样保留——压平会让白字露在照片上。
+- 写在自定义属性里的字号（如 `--vh-l0-size:22px`）同样吸附到六档。
