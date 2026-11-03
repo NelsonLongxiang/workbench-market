@@ -441,6 +441,36 @@ try {
 // #132 P0：app_files.note+deleted_at·app_data.deleted_at（幂等 ALTER·软删原行留审计）
 try { const afCols = db.prepare('PRAGMA table_info(app_files)').all() as any[]; if (!afCols.some((c) => c.name === 'note')) db.exec("ALTER TABLE app_files ADD COLUMN note TEXT NOT NULL DEFAULT ''"); if (!afCols.some((c) => c.name === 'deleted_at')) db.exec("ALTER TABLE app_files ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 try { const adCols = db.prepare('PRAGMA table_info(app_data)').all() as any[]; if (!adCols.some((c) => c.name === 'deleted_at')) db.exec("ALTER TABLE app_data ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+// #336：按工作台隔离的变量与常量（workbench_id 为隔离键；value 存 JSON 原文；revision 乐观锁，每次写 +1）。
+// 审计只记值的 sha256 不记原文；IF NOT EXISTS 幂等，旧库启动即补表。
+db.exec(`
+CREATE TABLE IF NOT EXISTS workbench_vars (
+  workbench_id INTEGER NOT NULL,
+  key TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'var' CHECK (kind IN ('var','const')),
+  value TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 1,
+  updated_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (workbench_id, key)
+);
+CREATE TABLE IF NOT EXISTS workbench_var_audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  workbench_id INTEGER NOT NULL,
+  key TEXT NOT NULL,
+  action TEXT NOT NULL,
+  actor TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL DEFAULT '',
+  old_revision INTEGER,
+  new_revision INTEGER,
+  old_sha256 TEXT NOT NULL DEFAULT '',
+  new_sha256 TEXT NOT NULL DEFAULT '',
+  reason TEXT NOT NULL DEFAULT '',
+  at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_workbench_var_audit_wb ON workbench_var_audit(workbench_id, key, id);
+`);
 // #337: a durable monotonic generation invalidates stale Redis snapshots, including same-value writes.
 {
   const cols = db.prepare('PRAGMA table_info(sop_runs)').all() as { name: string }[];

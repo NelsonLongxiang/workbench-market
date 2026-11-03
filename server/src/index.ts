@@ -29,6 +29,7 @@ import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
 import { HttpError } from './errors.ts';
 import { designStandard } from './design-standard.ts';
 import { mountVault } from './vault-api.ts';
+import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet } from './workbench-vars.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, runStateRestore, runStateLoad, runStateRetire } from './redis.ts';
@@ -106,6 +107,9 @@ app.use((req, res, next) => {
   res.setHeader('x-frame-options', 'DENY');
   next();
 });
+// #336 工作台变量：鉴权依赖（函数声明有提升，请求期已定义）；沙箱页面按台令牌 CORS
+const workbenchVars = createWorkbenchVars({ appToken: wmAppToken, markOdooAdmin, adminRead: vaultGuard, adminWrite: adminGuard });
+app.use(workbenchVars.cors);
 // #198（裁 A）：自产台数据/文件面的按台令牌 CORS——sandbox 页面（Origin: null）凭 X-App-Token 匹配 slug 才放行
 app.use((req, res, next) => {
   // #198 复修②：路径匹配前剥查询串（GET …/data?limit= 形态此前漏放 ACAO）
@@ -237,6 +241,7 @@ app.use(async (req, res, next) => {
   if (REMOTE_ALLOW_EXACT.has(p)) return next();
   if (REMOTE_ALLOW_PREFIX.some((re) => re.test(p))) return next(); // 自产台数据/文件面（主人裁定 A）
   if (!browserMarked(req) && rawLoopback(req)) return next(); // 本机 CLI
+  if (workbenchVars.appTokenWrite(req)) return next(); // #336：自产台/SOP 台凭本台令牌写本台变量（路由内再判）
   if (p === '/api/admin-token') return next(); // 设/清口令由路由自己判（首次设置时还没有口令可验）
   if (p.startsWith('/api/')) {
     // 其余 /api/* 写：走 adminGuard（函数声明有提升，请求期已定义）；先按需认定 Odoo 管理员
@@ -421,6 +426,7 @@ function workbenchUpdateCore(id: number, body: any, ctx: WriteCtx = { subject: '
 function workbenchDeleteCore(id: number): { ok: boolean; deleted: number } {
   const r = svc<WorkbenchService>('workbench').delete(id);
   if (!r.changes) throw new HttpError(404, `workbench not found: ${id}`);
+  dropWorkbenchVars(id); // #336 变量随台删除
   // issue #9：删除工作台同步清掉各驾驶舱对它的面板引用——否则悬空面板会让之后每次保存布局 400
   const cocks = svc<CockpitService>('cockpit').all() as unknown as CockpitRow[];
   for (const c of cocks) {
@@ -2651,6 +2657,7 @@ function vaultGuard(req: express.Request, res: express.Response): boolean {
   return adminGuard(req, res);
 }
 mountVault(app, vaultGuard);
+workbenchVars.mount(app); // #336 /api/workbenches/:id/vars
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), self_probe: startupSecurity.snapshot() });
@@ -3312,6 +3319,10 @@ async function callTool(name: string, args: any, subject = 'anonymous'): Promise
     }
     case 'workbench_unregister':
       return workbenchDeleteCore(Number(args?.id));
+    case 'workbench_vars_get':
+      return mcpVarsGet(args);
+    case 'workbench_vars_set':
+      return mcpVarsSet(args, subject);
     case 'app_data_list': {
       const a = getApp(String(args?.slug ?? ''));
       const limit = pageLimit(args?.limit);
