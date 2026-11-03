@@ -62,6 +62,8 @@ fetch('/api/apps/<slug>/data', { headers: { 'X-App-Token': window.WM_APP_TOKEN }
 
 令牌与 slug 绑定、不可跨台复用；不带令牌的 `Origin: null` 请求会被浏览器侧拒绝。
 
+平台同时注入 `window.WM_APP_SLUG`（本台 slug）和 `window.WM_WORKBENCH_ID`（本台在市场里的卡片编号，没登记卡片时为 `null`）。读写工作台变量用后者：`/api/workbenches/${window.WM_WORKBENCH_ID}/vars/<key>`，同样带 `X-App-Token`；不要在页面里写死编号，台重新登记后编号会变。
+
 ## 单文件打包三步（推荐）
 
 1. **环境注入不分叉源码**：页面读可选 `window.XX_ENV`（根路径/外链/内联资产），仓库内直开用默认值
