@@ -26,7 +26,7 @@ export class McpService extends Service {
     return db.prepare('SELECT id, name, grants, revoked_at, last_used_at, created_at FROM mcp_sessions ORDER BY id DESC').all();
   }
   sessionById(id: number) {
-    return db.prepare('SELECT id FROM mcp_sessions WHERE id = ?').get(id);
+    return db.prepare('SELECT id, grants FROM mcp_sessions WHERE id = ?').get(id);  // #379：grants 用于识别会话已持有的旧授权
   }
   sessionRevoke(id: number) {
     return db.prepare("UPDATE mcp_sessions SET revoked_at = datetime('now') WHERE id = ?").run(id);
