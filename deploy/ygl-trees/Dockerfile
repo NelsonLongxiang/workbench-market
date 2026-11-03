@@ -4,9 +4,13 @@ ARG YGL_TREES_INTEGRITY=sha512-voXQXlZxAFeKiDffSfujU7JrLFfWMHHIc5SpktqE29o1/aX0t
 ENV npm_config_update_notifier=false
 COPY --chown=root:root package.json package-lock.json /opt/ygl/
 WORKDIR /opt/ygl
-RUN test "$(node -p 'require("./package-lock.json").packages["node_modules/ygl-trees"].version')" = "${YGL_TREES_VERSION}" \
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends util-linux \
+ && rm -rf /var/lib/apt/lists/* \
+ && test "$(node -p 'require("./package-lock.json").packages["node_modules/ygl-trees"].version')" = "${YGL_TREES_VERSION}" \
  && test "$(node -p 'require("./package-lock.json").packages["node_modules/ygl-trees"].integrity')" = "${YGL_TREES_INTEGRITY}" \
  && npm ci --omit=dev --ignore-scripts=false \
+ && command -v flock >/dev/null \
  && mkdir -p /var/lib/ygl \
  && chown -R node:node /var/lib/ygl
 COPY --chown=root:root mcp-entrypoint.sh /usr/local/bin/ygl-mcp-entrypoint
