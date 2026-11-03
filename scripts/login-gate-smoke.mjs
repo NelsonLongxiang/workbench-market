@@ -224,6 +224,10 @@ try {
     const s = await (await req(B, 'POST', '/api/mcp/sessions', { 'x-admin-token': ADMIN }, { name: 'gate-smoke' })).json();
     const v = await req(B, 'POST', '/mcp', { ...REMOTE, authorization: `Bearer ${s.token}` }, init);
     ok('G6 /mcp 有效会话 → 200', v.status === 200 && (await v.json()).result?.serverInfo?.name === 'workbench-market');
+    for (const [m, pth] of [['GET', '/openapi.json'], ['GET', '/api/mcp-rest/openapi.json'], ['POST', '/api/mcp-rest/tools/x']]) {
+      const r = await req(B, m, pth, REMOTE, m === 'POST' ? {} : undefined);
+      ok(`G6 ${m} ${pth} 交给网关认证（不回登录门 401）`, r.headers.get('x-wm-login-required') !== '1' && r.status !== 302, `${r.status}`);
+    }
     ok('G6 启动日志写明 MCP_GATEWAY=off 被忽略', E.out().includes('MCP_GATEWAY=off 被忽略'));
   }
 
