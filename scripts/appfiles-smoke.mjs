@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** 自产台文件提交面冒烟（独立实例）：所有资源类型——上传→列表→下载→校验→100MB 上限→删除清理。 */
 import { spawn } from 'node:child_process';
+import { DatabaseSync } from 'node:sqlite';
 
 async function waitReady(url, ms = 20000) {
   const end = Date.now() + ms;
@@ -99,9 +100,21 @@ try {
   r = await uploadFile('fileprobe', 'big.bin', 'application/octet-stream', big);
   ok('100MB 上限 → 413', r.status === 413, `status=${r.status}`);
   // ⑧ 删台级联清文件
-  await call('DELETE', '/api/apps/fileprobe', { reviewed_by: 'appfiles-smoke' }); // S1 人审门
+  const deleted = await call('DELETE', '/api/apps/fileprobe', { reviewed_by: 'appfiles-smoke' }); // no LayerFS config and no prior LayerFS publish
+  ok('未配置 LayerFS 且从未写入的台仍可删除', deleted.status === 200 && deleted.body?.ok === true, `status=${deleted.status}`);
   const dlAfter = await fetch(`${BASE}/api/apps/fileprobe/files/${fileId}`);
   ok('删台后文件 404（级联清理）', dlAfter.status === 404);
+
+  // A recorded LayerFS association must not fall back to local-only deletion.
+  const pub1 = await ghPublish(BASE, gh, { slug: 'layerfsprobe', title: 'LF', files: [{ path: 'index.html', content: '<h1>lf</h1>' }] });
+  ok('第二个合成台发布用于关联保护测试', pub1.status === 201, `status=${pub1.status}`);
+  const stateDb = new DatabaseSync(`${DATA}/workbench-market.db`);
+  const appRow = stateDb.prepare("SELECT id FROM apps WHERE slug = 'layerfsprobe'").get();
+  stateDb.prepare("UPDATE apps SET layerfs_project = 'layerfsprobe' WHERE id = ?").run(appRow.id);
+  const refused = await call('DELETE', '/api/apps/layerfsprobe', { reviewed_by: 'appfiles-smoke' });
+  ok('已有 LayerFS 关联但未配置服务时拒绝删除', refused.status === 503, `status=${refused.status}`);
+  ok('拒绝后仍保留本地台', stateDb.prepare("SELECT COUNT(*) AS n FROM apps WHERE slug = 'layerfsprobe'").get().n === 1);
+  stateDb.close();
 } finally {
   child.kill();
   await new Promise((r) => setTimeout(r, 500));

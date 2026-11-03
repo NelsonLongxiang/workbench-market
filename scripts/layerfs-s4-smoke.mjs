@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto';
 
 const PORT = 9930;
 const BASE = `http://127.0.0.1:${PORT}`;
-const DATA = 'tmp/e2e-s4-data';
+const DATA = process.env.LAYERFS_SMOKE_DATA ?? 'tmp/e2e-s4-data';
 const ADMIN = { 'Content-Type': 'application/json', 'X-Admin-Token': 's4-tok' };
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
@@ -36,6 +36,7 @@ const projs = new Map(); // project → Map(branch → state)
 const lfs = createServer(async (req, res) => {
   let body = ''; for await (const c of req) body += c;
   const json = (code, b) => { const s = JSON.stringify(b); res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(s); };
+  if (req.method === 'GET' && (req.url ?? '').split('?')[0] === '/healthz') return json(200, { ok: true });
   if (req.headers.authorization !== `Bearer ${TOKEN}`) return json(401, { error: 'unauthorized' });
   const raw = req.url ?? '';
   const delM = /^\/v1\/projects\/([^/]+)$/.exec(raw);
@@ -72,7 +73,7 @@ for (const d of ['apps', 'skill-snapshots', 'uploads']) cpSync(`${SOURCE_DATA_DI
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
   cwd: process.cwd(),
   env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 's4-tok', LAYERFS_SERVICE_URL: `http://127.0.0.1:${LP}`, LAYERFS_SERVICE_TOKEN: TOKEN },
-  stdio: 'ignore',
+  stdio: 'inherit',
 });
 try {
   if (!(await waitReady(`${BASE}/api/health`))) throw new Error('实例未就绪');
@@ -80,7 +81,8 @@ try {
   const skills = await (await fetch(`${BASE}/api/skills`)).json();
   const victim = (Array.isArray(skills) ? skills : []).find((s) => s.versions >= 1);
   const vslug = victim?.slug ?? 'jf:taste';
-  const snapDir = DATA + '/skill-snapshots/' + encodeURIComponent(vslug);
+  const beforeVersions = await (await fetch(`${BASE}/api/skills/${encodeURIComponent(vslug)}/versions`)).json();
+  const snapDirs = (beforeVersions.versions ?? []).map((v) => DATA + '/' + v.snapshot_path);
   const req1 = await mcp(1, 'change_request_create', { kind: 'skill', slug: vslug, op: 'delete', reason: 's4-k16' });
   const t1 = req1?.result?.content?.[0]?.text ?? '';
   const rid = /"id":\s*(\d+)/.exec(String(t1))?.[1];
@@ -92,7 +94,7 @@ try {
     ok('K16c 批准 200', ap.status === 200, `status=${ap.status}`);
     const gone = await fetch(`${BASE}/api/skills/${encodeURIComponent(vslug)}/versions`);
     ok('K16d 批准后立即下线（404）', gone.status === 404, `status=${gone.status}`);
-    ok('K16e 快照目录清', !existsSync(snapDir), snapDir.slice(-40));
+    ok('K16e 已删技能全部版本快照清', snapDirs.every((dir) => !existsSync(dir)), snapDirs.filter(existsSync).map((dir) => dir.slice(-40)).join(','));
   }
   // L10：删台五步（app 经批准）
   const apps = await (await fetch(`${BASE}/api/apps`)).json();

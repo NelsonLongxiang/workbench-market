@@ -3,14 +3,16 @@
  *  与替身的区别：内容真写进 LayerFS 分支（Store 卷持久·重启内容在）+ 契约形读面由
  *  适配器侧车（wm-adapter.sqlite·同卷）承载 commit→文件集映射；不 import 替身。 */
 import { createServer, request as httpRequest } from 'node:http';
-import { chmodSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+import { accessSync, chmodSync, constants as fsConstants, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 import { LayerFS } from '@layerfs/agent';
 console.log('[layerfs-svc] agent entry: @layerfs/agent');
 
-const token = process.env.LAYERFS_SERVICE_TOKEN ?? 'lfs-token';
+const tokenFile = process.env.LAYERFS_SERVICE_TOKEN_FILE ?? '';
+const token = tokenFile ? readFileSync(tokenFile, 'utf8').trim() : String(process.env.LAYERFS_SERVICE_TOKEN ?? '');
+if (Buffer.byteLength(token, 'utf8') < 32) throw new Error('LayerFS service token (>=32 bytes) is required');
 const storeRoot = process.env.LAYERFS_STORE_ROOT ?? '/var/lib/layerfs';
 // #215 X6 十九障·一次性重写（钉点 api/how-to-use/agent.md 全配方·停逐障接力）
 // 环境契约（镜像 ENV 已固化·SDK 于客户端创建时读）：
@@ -22,7 +24,6 @@ for (const d of [`${storeRoot}/sources`, `${storeRoot}/projects`, homeDir, `${ho
 try { chmodSync(homeDir, 0o700); } catch { /* ACL 归部署 */ }
 // 裁决 #021：每台一 docker 卷（label layerfs.role=store·删台卷随走）——经 /var/run/docker.sock HTTP API
 const DOCKER_SOCK = '/var/run/docker.sock';
-const VOLUMES_DIR = process.env.LAYERFS_VOLUMES_DIR ?? '/var/lib/docker/volumes'; // compose 已 rw 挂
 function dockerCall(method, path, body) {
   
   return new Promise((resolve) => {
@@ -36,11 +37,12 @@ function dockerCall(method, path, body) {
 const volName = (project) => 'wm-' + project + '-store';
 async function ensureVolume(project) {
   const r = await dockerCall('POST', '/v1.41/volumes/create', { Name: volName(project), Labels: { 'layerfs.role': 'store', 'layerfs.project': project } });
-  if (r.status === 0) return VOLUMES_DIR + '/' + volName(project) + '/_data'; // 无 socket 面：目录模式（X7 形差告警）
-  return VOLUMES_DIR + '/' + volName(project) + '/_data';
+  if (r.status !== 201 && r.status !== 200) throw new Error(`Docker volume create failed (HTTP ${r.status ?? 0})`);
+  // This volume is lifecycle metadata only; native Store uses storeRoot/stores/<project>.
+  return true;
 }
 async function dropVolume(project) {
-  const r = await dockerCall('DELETE', '/v1.41/volumes/' + volName(project));
+  const r = await dockerCall('DELETE', '/v1.41/volumes/' + encodeURIComponent(volName(project)));
   return r.status === 204 || r.status === 404;
 }
 
@@ -57,6 +59,132 @@ sidecar.exec('CREATE TABLE IF NOT EXISTS drafts (project TEXT NOT NULL, draft TE
 process.env.LAYERFS_STORE_PATH = process.env.LAYERFS_STORE_PATH ?? `${homeDir}/global/store.sqlite`; // 勿预触文件（init 自建·0B 毒）
 
 const clients = new Map(); // R8：一进程一份 agent·一项目一 client（共享全局 store）
+
+// Per-project backups live outside project trees so deleting one project can
+// remove every registered snapshot without touching global deployment archives.
+const projectBackupRoot = project => storeRoot + '/backups/' + project;
+function projectRows(table, project) {
+  if (!['branches','commits','drafts','engine_refs'].includes(table)) throw new Error('invalid project table');
+  return sidecar.prepare('SELECT * FROM ' + table + ' WHERE project=?').all(project);
+}
+function checkpointProjectSqlite(trees) {
+  for (const root of Object.values(trees)) {
+    if (!existsSync(root)) continue;
+    const walk = path => {
+      for (const entry of readdirSync(path,{withFileTypes:true})) {
+        const file=path+'/'+entry.name;
+        if (entry.isDirectory()) walk(file);
+        else if (entry.isFile() && entry.name.endsWith('.sqlite')) {
+          const db=new DatabaseSync(file);
+          try {
+            const checkpoint=db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get();
+            // SQLite reports {busy, log, checkpointed}; an empty WAL is successful too.
+            if (!checkpoint || Number(checkpoint.busy)!==0 || Number(checkpoint.log)!==Number(checkpoint.checkpointed)) {
+              throw new Error('SQLite WAL checkpoint incomplete (busy='+checkpoint?.busy+', log='+checkpoint?.log+', checkpointed='+checkpoint?.checkpointed+'): '+file);
+            }
+            const result=db.prepare('PRAGMA integrity_check').get();
+            if (result?.integrity_check!=='ok') throw new Error('SQLite integrity check failed: '+file);
+          } finally { db.close(); }
+        }
+      }
+    };
+    walk(root);
+  }
+}
+function projectTreeManifest(root) {
+  const files=[];
+  const walk=(dir,rel='')=>{
+    for(const entry of readdirSync(dir,{withFileTypes:true})) {
+      const name=rel?rel+'/'+entry.name:entry.name, full=dir+'/'+entry.name;
+      if(entry.isDirectory()) walk(full,name);
+      else if(entry.isFile()) files.push({path:name,size:entry.size,sha256:createHash('sha256').update(readFileSync(full)).digest('hex')});
+      else throw new Error('unsupported project backup entry: '+full);
+    }
+  };
+  if(existsSync(root)) walk(root);
+  return files.sort((a,b)=>a.path.localeCompare(b.path));
+}
+async function createProjectBackup(project) {
+  if (!sidecar.prepare('SELECT 1 FROM branches WHERE project=? LIMIT 1').get(project)) throw refusal('NoSuchProject','no such project');
+  const client=clients.get(project);
+  if (client) { await client.close(); clients.delete(project); }
+  const trees={home:homeDir+'/'+project,source:storeRoot+'/sources/'+project,store:storeRoot+'/stores/'+project};
+  checkpointProjectSqlite(trees);
+  const id=Date.now()+'-'+randomBytes(8).toString('hex');
+  const root=projectBackupRoot(project), dest=root+'/'+id, staging=root+'/.staging-'+id;
+  mkdirSync(root,{recursive:true,mode:0o700});
+  mkdirSync(staging,{recursive:false,mode:0o700});
+  try {
+    for(const [name,path] of Object.entries(trees)) if(existsSync(path)) cpSync(path,staging+'/'+name,{recursive:true,preserveTimestamps:true,errorOnExist:true});
+    const tree_manifest={};
+    for(const name of ['home','source','store']) tree_manifest[name]=projectTreeManifest(staging+'/'+name);
+    const data={format:1,project,backup_id:id,created_at:new Date().toISOString(),tree_manifest,branches:projectRows('branches',project),commits:projectRows('commits',project),drafts:projectRows('drafts',project),engine_refs:projectRows('engine_refs',project)};
+    writeFileSync(staging+'/sidecar.json',JSON.stringify(data),{mode:0o600,flag:'wx'});
+    // Publish only a complete snapshot; readers never see an in-progress backup.
+    renameSync(staging,dest);
+    return {backup_id:id,created_at:data.created_at,files:Object.values(tree_manifest).reduce((n,a)=>n+a.length,0)};
+  } catch(e) { rmSync(staging,{recursive:true,force:true}); throw e; }
+}
+function listProjectBackups(project) {
+  const root=projectBackupRoot(project);
+  if(!existsSync(root)) return [];
+  return readdirSync(root,{withFileTypes:true}).filter(d=>d.isDirectory()).map(d=>{
+    const f=root+'/'+d.name+'/sidecar.json';
+    if(!existsSync(f)) throw new Error('corrupt project backup: '+d.name);
+    const j=JSON.parse(readFileSync(f,'utf8'));
+    if(j.project!==project||j.backup_id!==d.name) throw new Error('project backup identity mismatch');
+    return {backup_id:j.backup_id,created_at:j.created_at};
+  }).sort((a,b)=>a.created_at.localeCompare(b.created_at));
+}
+
+async function restoreProjectBackup(project, backupId) {
+  if (!/^[0-9]+-[a-f0-9]{16}$/.test(backupId)) throw refusal('InvalidInput','invalid backup id');
+  if (sidecar.prepare('SELECT 1 FROM branches WHERE project=? LIMIT 1').get(project)) throw refusal('Exists','project already exists; restore requires an absent project');
+  const root=projectBackupRoot(project)+'/'+backupId, manifestPath=root+'/sidecar.json';
+  if (!existsSync(manifestPath)) throw refusal('NoSuchPath','no such project backup');
+  const manifest=JSON.parse(readFileSync(manifestPath,'utf8'));
+  if (manifest.format!==1||manifest.project!==project||manifest.backup_id!==backupId) throw refusal('InvalidInput','project backup identity mismatch');
+  for (const key of ['branches','commits','drafts','engine_refs']) if(!Array.isArray(manifest[key])) throw refusal('InvalidInput','project backup manifest incomplete');
+  if(!manifest.tree_manifest||!['home','source','store'].every(k=>Array.isArray(manifest.tree_manifest[k]))) throw refusal('InvalidInput','project backup tree manifest incomplete');
+  for(const name of ['home','source','store']) {
+    const rootPath=root+'/'+name;
+    const actual=projectTreeManifest(rootPath);
+    if(JSON.stringify(actual)!==JSON.stringify(manifest.tree_manifest[name])) throw refusal('InvalidInput','project backup checksum mismatch: '+name);
+  }
+  const targets={home:homeDir+'/'+project,source:storeRoot+'/sources/'+project,store:storeRoot+'/stores/'+project};
+  if (Object.values(targets).some(existsSync)) throw refusal('Exists','project data path already exists');
+  const volumeProbe=await dockerCall('GET','/v1.41/volumes/'+encodeURIComponent(volName(project)));
+  if(volumeProbe.status===200) throw refusal('Exists','project Store lifecycle volume already exists');
+  if(volumeProbe.status!==404) throw new Error('Docker volume preflight failed (HTTP '+(volumeProbe.status??0)+')');
+  let volume=false, committed=false;
+  try {
+    await ensureVolume(project); volume=true;
+    for(const [name,target] of Object.entries(targets)) { if(!existsSync(root+'/'+name)) throw refusal('InvalidInput','project backup tree missing: '+name); cpSync(root+'/'+name,target,{recursive:true,errorOnExist:true}); }
+    // LayerFS requires each project home root to be owner-private; cp preserves
+    // the source mode, so normalize the restored root before opening the SDK.
+    chmodSync(targets.home,0o700);
+    sidecar.exec('BEGIN');
+    try {
+      for(const table of ['branches','commits','drafts','engine_refs']) {
+        const cols={branches:['project','branch','head'],commits:['id','project','branch','files','message','at'],drafts:['project','draft','target','base'],engine_refs:['project','branch','native']}[table];
+        const stmt=sidecar.prepare('INSERT INTO '+table+' ('+cols.join(',')+') VALUES ('+cols.map(()=>'?').join(',')+')');
+        for(const row of manifest[table]) stmt.run(...cols.map(c=>row[c] ?? null));
+      }
+      sidecar.exec('COMMIT'); committed=true;
+    } catch(e) { sidecar.exec('ROLLBACK'); throw e; }
+    process.env.LAYERFS_STORE_PATH=targets.store+'/global/store.sqlite';
+    const client=await LayerFS.open(project); clients.set(project,client);
+    return {restored:true,project,backup_id:backupId};
+  } catch(e) {
+    if(committed) {
+      sidecar.exec('BEGIN'); try { for(const table of ['commits','branches','drafts','engine_refs']) sidecar.prepare('DELETE FROM '+table+' WHERE project=?').run(project); sidecar.exec('COMMIT'); } catch { sidecar.exec('ROLLBACK'); }
+    }
+    for(const target of Object.values(targets)) rmSync(target,{recursive:true,force:true});
+    if(volume) await dropVolume(project);
+    throw e;
+  }
+}
+
 async function clientOf(project) {
   if (clients.has(project)) return clients.get(project);
     if (!/^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/.test(project)) throw refusal('InvalidInput','invalid project name');
@@ -110,6 +238,14 @@ function fileSet(files) {
   return [...out].sort(([a], [b]) => a.localeCompare(b)).map(([path, content]) => ({ path, content }));
 }
 const sameFiles = (a,b) => JSON.stringify(fileSet(a)) === JSON.stringify(fileSet(b));
+function parentDirs(files) {
+  const dirs = new Set();
+  for (const f of files) {
+    const parts = f.path.split('/');
+    for (let i = 1; i < parts.length; i++) dirs.add(parts.slice(0, i).join('/'));
+  }
+  return [...dirs].sort((a,b)=>a.split('/').length-b.split('/').length || a.localeCompare(b));
+}
 function nativeRef(project, branch) {
   const value = sidecar.prepare('SELECT native FROM engine_refs WHERE project=? AND branch=?').get(project, branch)?.native;
   if (!value) throw refusal('NoSuchBranch', 'no such branch');
@@ -154,7 +290,10 @@ async function publishTo(project, branch, files, message) {
   const before = prev ? snapshot(project,prev) : [];
   const wanted = new Set(files.map(f=>f.path));
   const changes = before.filter(f=>!wanted.has(f.path)).map(f=>({op:'rm',path:'/'+f.path}));
-  changes.push(...files.map(f=>({op:'write',path:'/'+f.path,content:f.content})));
+  // LayerFS fs.apply does not create parents implicitly. Scaffold every unique
+  // parent first so normal app paths like assets/app.css publish natively.
+  const mkdirs = parentDirs(files).map(path=>({op:'mkdir',path:'/'+path}));
+  changes.push(...mkdirs, ...files.map(f=>({op:'write',path:'/'+f.path,content:f.content})));
   const result = await c.fs.apply(native, changes, message || 'publish');
   return saveHead(project,branch,native,result,files,message);
 }
@@ -208,6 +347,56 @@ async function mergeDraft(project,target,draft,body) {
   return saveHead(project,into,merged,result,[...theirs].map(([path,content])=>({path,content})),body.message);
 }
 
+async function deleteProject(proj) {
+  if (!sidecar.prepare('SELECT 1 FROM branches WHERE project=? LIMIT 1').get(proj)) throw refusal('NoSuchProject','no such project');
+  const c = clients.get(proj); if (c) { await c.close(); clients.delete(proj); }
+  // Quarantine trees by same-filesystem rename, then remove sidecar rows transactionally.
+  const token=randomBytes(8).toString('hex');
+  const trees=[homeDir+'/'+proj,storeRoot+'/sources/'+proj,storeRoot+'/stores/'+proj,projectBackupRoot(proj)];
+  const moved=[];
+  const rows=Object.fromEntries(['branches','commits','drafts','engine_refs'].map(t=>[t,projectRows(t,proj)]));
+  let rowsRemoved=false;
+  try {
+    for(const original of trees) if(existsSync(original)) {
+      const staged=original+'.deleting-'+token;
+      if(existsSync(staged)) throw new Error('project deletion tombstone already exists');
+      renameSync(original,staged); moved.push([original,staged]);
+    }
+    sidecar.exec('BEGIN');
+    try {
+      for(const table of ['commits','branches','drafts','engine_refs']) sidecar.prepare('DELETE FROM '+table+' WHERE project=?').run(proj);
+      sidecar.exec('COMMIT'); rowsRemoved=true;
+    } catch(e) { sidecar.exec('ROLLBACK'); throw e; }
+    // Docker DELETE may have acted even if its response is lost; 404 is idempotent success.
+    if(!await dropVolume(proj)) throw new Error('Docker project volume deletion failed');
+  } catch(e) {
+    let compensationError=null;
+    // This idempotently recreates the metadata volume on definite or ambiguous failure.
+    try { await ensureVolume(proj); } catch(err) { compensationError=err; }
+    if(rowsRemoved) {
+      sidecar.exec('BEGIN');
+      try {
+        for(const table of ['branches','commits','drafts','engine_refs']) {
+          const records=rows[table];
+          if(records.length) {
+            const cols=Object.keys(records[0]),stmt=sidecar.prepare('INSERT INTO '+table+' ('+cols.join(',')+') VALUES ('+cols.map(()=>'?').join(',')+')');
+            for(const row of records) stmt.run(...cols.map(k=>row[k]));
+          }
+        }
+        sidecar.exec('COMMIT');
+      } catch(restoreError) { sidecar.exec('ROLLBACK'); compensationError=compensationError??restoreError; }
+    }
+    for(const [original,staged] of moved.reverse()) {
+      try { if(existsSync(staged)) renameSync(staged,original); } catch(err) { compensationError=compensationError??err; }
+    }
+    if(compensationError) throw new Error('project deletion failed and compensation needs recovery; tombstones retained',{cause:compensationError});
+    throw e;
+  }
+  let cleanupPending=false;
+  for(const [,staged] of moved) try { rmSync(staged,{recursive:true,force:true}); } catch { cleanupPending=true; }
+  return { removed:true,volume_removed:true,dir_removed:!cleanupPending,cleanup_pending:cleanupPending };
+}
+
 // Serialize adapter calls: SDK client creation selects a process-wide Store path,
 // and read/modify/publish of the sidecar head must be one lane (no replay).
 let lane = Promise.resolve();
@@ -220,6 +409,16 @@ const server = createServer(async (req, res) => {
 });
 async function handle(req, res) {
   const url = (req.url ?? '').split('?')[0];
+  if (req.method === 'GET' && url === '/healthz') {
+    try {
+      sidecar.prepare('SELECT 1').get();
+      accessSync(storeRoot, fsConstants.R_OK | fsConstants.W_OK);
+      if (!existsSync(DOCKER_SOCK)) throw new Error('docker socket missing');
+      const engine = await dockerCall('GET', '/_ping');
+      if (engine.status !== 200) throw new Error('docker engine unavailable');
+      return json(res, 200, { ok: true, service: 'layerfs', store: 'ready' });
+    } catch { return json(res, 503, { ok: false, service: 'layerfs', store: 'unavailable' }); }
+  }
   if (!auth(req)) return json(res, 401, { error: 'unauthorized' });
   try {
     // Draft wire contract: v1 branch-scoped and v0 release alias share native operations.
@@ -289,25 +488,20 @@ async function handle(req, res) {
       if (!row) return json(res, 404, { error: 'no such commit' });
       return json(res, 200, { files: JSON.parse(row.files) });
     }
+    m = /^\/v1\/projects\/([^/]+)\/backups(?:\/([^/]+)\/restore)?$/.exec(url);
+    if (m) {
+      const project=decodeURIComponent(m[1]);
+      if (!/^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/.test(project)) throw refusal('InvalidInput','invalid project name');
+      if (m[2] && req.method==='POST') return json(res,200,await restoreProjectBackup(project,decodeURIComponent(m[2])));
+      if (m[2]) return json(res,405,{error:'method not allowed'});
+      if (req.method==='POST') return json(res,201,{project,...await createProjectBackup(project)});
+      if (req.method==='GET') return json(res,200,{project,backups:listProjectBackups(project)});
+    }
     m = /^\/v[01]\/projects\/([^/]+)$/.exec(url);
     if (req.method === 'DELETE' && m) {
       const proj = decodeURIComponent(m[1]);
       if (!/^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/.test(proj)) throw refusal('InvalidInput','invalid project name');
-      if (!sidecar.prepare('SELECT 1 FROM branches WHERE project=? LIMIT 1').get(proj)) throw refusal('NoSuchProject','no such project');
-      const c = clients.get(proj); if (c) { await c.close(); clients.delete(proj); }
-      for (const d of [homeDir + '/' + proj, storeRoot + '/sources/' + proj]) { try { rmSync(d, { recursive: true, force: true }); } catch { } } // 裁决 #021·X9
-      sidecar.exec('BEGIN');
-      try {
-        sidecar.prepare("DELETE FROM commits WHERE project = ?").run(proj);
-        sidecar.prepare("DELETE FROM branches WHERE project = ?").run(proj);
-        sidecar.prepare("DELETE FROM drafts WHERE project = ?").run(proj);
-        sidecar.prepare("DELETE FROM engine_refs WHERE project = ?").run(proj);
-        sidecar.exec('COMMIT');
-      } catch(e) { sidecar.exec('ROLLBACK'); throw e; }
-      const volGone = await dropVolume(proj); // 裁决 #022：卷=账本消
-      let dirRemoved = true;
-      try { rmSync(`${storeRoot}/stores/${proj}`, { recursive: true, force: true }); } catch { dirRemoved = false; } // store 子目录清
-      return json(res, 200, { removed: true, volume_removed: volGone, dir_removed: dirRemoved });
+      return json(res,200,await deleteProject(proj));
     }
     m = /^\/v1\/projects\/([^/]+)\/branches\/([^/]+)\/commits\/([^/]+)\/export$/.exec(url);
     if (req.method === 'GET' && m) return json(res, 501, { error: 'export=S3 预留（契约 v1 §2）' });
@@ -317,11 +511,12 @@ async function handle(req, res) {
     }
     return json(res, 404, { error: 'no such endpoint' });
   } catch (e) {
-    if (e.code === 'NameTaken') return json(res,409,{error:e.message,kind:e.code});
+    if (e.code === 'NameTaken' || e.code === 'Exists') return json(res,409,{error:e.message,kind:e.code});
     if (e.code === 'Conflict') return json(res,409,{kind:'Conflict',conflicts:(e.detail?.conflicts ?? []).map(p=>typeof p==='string'?p.replace(/^\//,''):String(p.path ?? '').replace(/^\//,''))});
     const status = ['NoSuchProject','NoSuchBranch','NoSuchCommit','NoSuchPath'].includes(e.code) ? 404 : ['InvalidInput','NoMatch','AmbiguousMatch'].includes(e.code) ? 400 : 500;
     return json(res,status,{error:String(e.message ?? e),kind:e.code}); // R7: no retry, preserve engine refusal
   }
 }
 const port = Number(process.env.LAYERFS_SERVICE_PORT ?? 8067);
-server.listen(port, () => console.log('[layerfs-svc] real adapter on', port, '| agent:', '@layerfs/agent'));
+const listenHost = process.env.LAYERFS_SERVICE_HOST ?? '0.0.0.0';
+server.listen(port, listenHost, () => console.log('[layerfs-svc] real adapter on', listenHost, port, '| agent:', '@layerfs/agent'));

@@ -12,7 +12,7 @@ import { rmSync, mkdirSync, cpSync } from 'node:fs';
 
 const PORT = 9925;
 const BASE = `http://127.0.0.1:${PORT}`;
-const DATA = 'tmp/e2e-s3-data';
+const DATA = process.env.LAYERFS_SMOKE_DATA ?? 'tmp/e2e-s3-data';
 const ADMIN = { 'Content-Type': 'application/json', 'X-Admin-Token': 's3-tok' };
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };

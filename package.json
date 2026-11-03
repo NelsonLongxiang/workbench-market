@@ -8,7 +8,19 @@
     "dev": "concurrently -n server,web -c blue,green \"pnpm --filter server dev\" \"pnpm --filter web dev\"",
     "build": "pnpm --filter web build",
     "start": "pnpm --filter server start",
-    "check": "pnpm --filter web typecheck && node scripts/check-server-syntax.mjs"
+    "check": "pnpm --filter web typecheck && node scripts/check-server-syntax.mjs",
+    "sbom:lockfile": "node scripts/generate-lockfile-sbom.mjs",
+    "sbom:candidate-os": "node scripts/generate-candidate-os-sbom.mjs",
+    "sbom:candidate-partial": "pnpm sbom:lockfile && pnpm sbom:candidate-os && node scripts/generate-candidate-cargo-sbom.mjs && node scripts/generate-candidate-combined-sbom.mjs",
+    "sbom:validate-candidate": "node scripts/validate-candidate-sbom.mjs",
+    "test:layerfs-sbom-validator": "node scripts/layerfs-sbom-validator-test.mjs",
+    "test:layerfs-build-context": "node scripts/layerfs-build-context-test.mjs",
+    "test:layerfs-runtime-isolation": "node scripts/layerfs-runtime-isolation-test.mjs",
+    "test:layerfs-archive-safety": "python3 scripts/layerfs-archive-safety-test.py",
+    "test:layerfs-gpg-runbook": "python3 scripts/layerfs-gpg-runbook-test.py",
+    "test:layerfs-disposable-smokes": "node scripts/layerfs-disposable-fixture-smoke.mjs",
+    "test:layerfs-delete-rollback": "node scripts/layerfs-delete-rollback-test.mjs",
+    "test:ygl-sqlite-backup": "python3 scripts/ygl-sqlite-backup-test.py"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
