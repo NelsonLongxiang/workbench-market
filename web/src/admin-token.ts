@@ -56,13 +56,30 @@ export function installAdminTokenLeaveGuard(): void {
   });
 }
 
-/** 统一 API 包装：写请求自动附 X-Admin-Token；401/403 时抛引导性错误（前端可捕获弹输入框）。 */
+/** 全站登录门（WM_LOGIN_GATE=enforce）拦下的 401 带 X-WM-Login-Required：整页去登录页，登录后回到当前页。
+ *  与「缺管理员口令」的 401/403 区分开——那种仍弹口令输入，不跳页。 */
+export function loginRequired(r: Response): boolean {
+  return r.status === 401 && r.headers.get('X-WM-Login-Required') === '1';
+}
+let leaving = false;
+export function redirectToLogin(): void {
+  if (leaving) return;
+  leaving = true;
+  const here = window.location.pathname + window.location.search + window.location.hash;
+  window.location.assign(here === '/' ? '/login' : `/login?next=${encodeURIComponent(here)}`);
+}
+
+/** 统一 API 包装：写请求自动附 X-Admin-Token；登录门 401 去登录页；其余 401/403 抛引导性错误（前端可捕获弹输入框）。 */
 export async function apiFetch(url: string, init: RequestInit = {}): Promise<Response> {
   const token = getAdminToken();
   const headers = new Headers(init.headers ?? {});
   if (token && !headers.has('X-Admin-Token')) headers.set('X-Admin-Token', token);
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   const r = await fetch(url, { ...init, headers });
+  if (loginRequired(r)) {
+    redirectToLogin();
+    throw new Error('需要登录：正在前往登录页');
+  }
   if ((r.status === 401 || r.status === 403) && url.startsWith('/api/')) {
     const err = new Error('需要管理员：请在顶栏输入管理员口令，或用 Odoo 管理员账号登录') as Error & { needAdminToken?: boolean };
     err.needAdminToken = true;

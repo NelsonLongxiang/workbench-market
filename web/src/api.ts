@@ -1,5 +1,5 @@
 import type { Cockpit, ExportPayload, PanelConfig, SopApp, SopDefinition, SopRun, SopRunDetail, SopRunFile, Summary, Workbench, WorkbenchDraft, WorkbenchType } from './types';
-import { getAdminToken } from './admin-token';
+import { getAdminToken, loginRequired, redirectToLogin } from './admin-token';
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const token = getAdminToken();
@@ -9,6 +9,7 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: { ...baseHeaders, ...(init?.headers as Record<string, string> | undefined) },
   });
+  if (loginRequired(res)) { redirectToLogin(); throw new Error('需要登录：正在前往登录页'); }
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     const b = body as { error?: string; message?: string; row_index?: number; control_url?: string | null };

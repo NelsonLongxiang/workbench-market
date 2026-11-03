@@ -43,7 +43,7 @@ export function isOdooSessionTarget(url: string): boolean {
 }
 
 /** #275 登录回跳只回需要身份的市场页（白名单）；其余本站路径一律不收，免得把刚登录的人送到同源的用户产出页 */
-const RETURN_PATHS = ['/lifecycle', '/tasks'];
+const RETURN_PATHS = ['/lifecycle', '/tasks', '/login']; // /login：登录门的「用 Odoo 登录」
 
 /** #275 登录回跳目标：只收白名单页的 path，不合格返回 null。
  *  归一化前后都查：WHATWG 会消掉点段，/.//evil、/%2e//evil 解析后会变成 //evil（协议相对，外站） */

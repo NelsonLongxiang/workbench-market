@@ -186,7 +186,9 @@ export function installPortal(
     target: 'http://127.0.0.1', // 占位：router 按请求覆盖
     changeOrigin: true,
     xfwd: true,
-    ws: true,
+    // 不让 HPM 自挂 upgrade 监听（ws: true 时首个经过的 HTTP 请求就会 server.on('upgrade')，绕过 index.ts 的升级处理器：
+    // 启动自检门、Odoo 会话剥除与登录门都不再生效）。WS 只走 index.ts 显式调 moduleProxy.upgrade 这一个入口
+    ws: false,
     cookieDomainRewrite: '', // 上游 Cookie 去掉 Domain 属性，落到 9800 同域
     // cookiePathRewrite 交给 proxyRes 钩子（需按 /go/<id>/ 精确改写）；HPM 内建 '/' 会在钩子后覆盖回去（实测）
     router: (req) => (req as express.Request & { goOrigin?: string }).goOrigin ?? 'http://127.0.0.1',

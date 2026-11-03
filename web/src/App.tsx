@@ -22,6 +22,7 @@ import Reviews from './pages/Reviews';
 import Lifecycle from './pages/Lifecycle';
 import SkillsPage from './pages/Skills';
 import ViewerChip from './components/ViewerChip';
+import LoginChip from './components/LoginChip';
 import { DESIGN_TOKENS as T } from './design-tokens';
 
 /** #316 菜单五组（数据在 nav.tsx）：一级是分组标题，二级才是页面；「管理」组仅持管理员口令时显示、默认折叠。
@@ -143,7 +144,7 @@ export default function App() {
       contentStyle={{ padding: 16, paddingTop: 12 }}
     >
       {/* #279 当前用户：侧栏布局不渲染 headerRender，所以在内容区顶部右侧放一行，所有页面（含 /lifecycle）都能看到 */}
-      <div className="wm-mb-1" style={{ display: 'flex', justifyContent: 'flex-end', minHeight: 24 }}>{surface !== 'control' && <ViewerChip />}</div>
+      <div className="wm-mb-1" style={{ display: 'flex', justifyContent: 'flex-end', minHeight: 24 }}><LoginChip />{surface !== 'control' && <ViewerChip />}</div>
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/cockpit" element={<Cockpit />} />

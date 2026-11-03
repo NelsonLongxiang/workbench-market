@@ -1,5 +1,6 @@
 import express from 'express';
 import { createStartupSecurityProbe, isStartupProbeRequest } from './startup-security-self-probe.ts';
+import { createLoginGate, loginGateMode } from './login-gate.ts';
 import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
 import { recordAppDataEvent, cancelTaskCenterDeliveries, kickWorkbenchEvents, startWorkbenchEventWorker, registerWorkbenchEventRoutes } from './workbench-events.ts';
 import cors from 'cors';
@@ -40,6 +41,33 @@ const here = dirname(fileURLToPath(import.meta.url));
 const app = express();
 const startupSecurity = createStartupSecurityProbe();
 app.use(startupSecurity.middleware); // #326: before parsers, content dispatch and every business route
+// 全站登录门（WM_LOGIN_GATE=enforce|off，缺省 off）：紧跟启动自检门，早于内容分发、解析器、静态资源、SPA 回落和各路由。
+// 依赖都是函数声明或请求期才取的值（提升/闭包），这里只建不调。值不合法拒绝启动（同 MCP_GATEWAY #284）
+const LOGIN_GATE_MODE = loginGateMode();
+if (!LOGIN_GATE_MODE) {
+  console.error('[login-gate] 拒绝启动：WM_LOGIN_GATE 只接受 enforce / off / 不设（当前值无法识别，不按关处理）');
+  process.exit(1);
+}
+const loginGate = createLoginGate({
+  mode: LOGIN_GATE_MODE,
+  dataDir,
+  adminTokenCheck: (t) => adminTokenCheck(t),
+  adminTokenFingerprint: () => process.env.ADMIN_TOKEN
+    ? createHash('sha256').update('env|' + process.env.ADMIN_TOKEN, 'utf8').digest('hex')
+    : String((svc<SettingService>('setting').get(ADMIN_TOKEN_KEY) as { value: string } | undefined)?.value ?? ''),
+  odooViewer: async (cookie) => {
+    if (!process.env.LC_ODOO_URL) return null;
+    const who = await resolveOdooViewer(cookie); // 只认内部员工（门户账号 403）
+    return who.ok ? { login: who.viewer.login, admin: who.viewer.admin } : null;
+  },
+  appToken: (slug) => wmAppToken(slug),
+  varsAppTokenOk: (req) => workbenchVars.appTokenWrite(req),
+  goAppSlug: (id) => /^\/apps\/([a-z0-9][a-z0-9-]{0,63})\/?$/.exec(wbById(id)?.url ?? '')?.[1] ?? null,
+  odooLoginHref: (req) => (process.env.LC_ODOO_URL ? odooLoginUrl(req, '/login') : null),
+  tokensCss: () => loadTokensCss()?.css ?? '',
+});
+if (loginGate.enforced) console.log('[login-gate] enforce：无身份的请求一律拦截（页面 302 /login，API 401）');
+app.use(loginGate.middleware);
 // Explicit opt-in only; no default content listener, no live configuration writes.
 const contentCfg = contentConfig(process.env);
 const portalObserver = process.env.WM_PORTAL_OBSERVE === '1' ? createPortalObservation(db, id => !!svc<WorkbenchService>('workbench').exists(id)) : null;
@@ -155,7 +183,7 @@ app.use((req, res, next) => {
 // 主人裁定 A（2026-10-23）：自产台数据/文件面对远程浏览器开放——应用层写，与发布面同口径；
 // 控制面（/api/mcp/*、/api/sops/*/bindings 等）照旧收口。没有这条，远程节点浏览器提交表单会 403。
 // 生命周期审批：业务审批人从各自浏览器调用，身份靠 Odoo 会话（lifecycle.ts 现查）+ 同源 JSON 门，不靠 X-Admin-Token
-const REMOTE_ALLOW_EXACT = new Set(['/mcp', '/.well-known/agent-card.json', '/a2a/direct', '/api/lifecycle/approve']);
+const REMOTE_ALLOW_EXACT = new Set(['/mcp', '/.well-known/agent-card.json', '/a2a/direct', '/api/lifecycle/approve', '/api/auth/login', '/api/auth/logout']); // 登录/登出自带同源门与限频
 // ---------- 端点命中计数（总工程师 B 类单：采纳监测 instrumentation）----------
 // 必须挂在所有业务路由之前（Express 按注册序匹配，路由先响应则后续 use 不再执行）
 app.use(endpointStatsMiddleware());
@@ -2431,7 +2459,7 @@ function serveApp(req: express.Request, res: express.Response) {
       const raw = readFileSync(abs, 'utf8');
       const inject = `<meta name="wm-app-token" content="${tok}"><script>window.WM_APP_TOKEN="${tok}";window.WM_APP_SLUG="${m[1]}";</script>`;
       const out = /<head[^>]*>/i.test(raw) ? raw.replace(/<head([^>]*)>/i, (mm) => mm + inject) : inject + raw;
-      return res.type('html').send(out);
+      return res.type('html').send(loginGate.rewriteAppHtml(req, out)); // 登录门：本台绝对地址补查看凭证（off 时原样）
     } catch { /* 读取失败回落原样 */ }
   }
   res.sendFile(abs);
@@ -2726,8 +2754,9 @@ mountVault(app, vaultGuard);
 workbenchVars.mount(app); // #336 /api/workbenches/:id/vars
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), self_probe: startupSecurity.snapshot() });
+  res.json({ ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, self_probe: startupSecurity.snapshot() });
 });
+loginGate.mount(app); // /login、/api/auth/login|logout|me（解析器之后、SPA 回落之前）
 
 // ---------- A2A 网络接入（GH #17 P1：签名卡片 + 人工绑定，只读暴露） ----------
 // 卡片：canonical/签名与上游 card.ts（裁判钉 75a3ebd）逐字节一致；sessionTeams 只列
@@ -3569,7 +3598,9 @@ if (!['', 'on', 'off'].includes(MCP_GATEWAY_RAW)) {
   console.error(`[#284] 拒绝启动：MCP_GATEWAY 只接受 on / off / 不设（当前值无法识别，不按关处理）`);
   process.exit(1);
 }
-const MCP_GATEWAY_ON = MCP_GATEWAY_RAW !== 'off';
+// 登录门 enforce 时网关强制开：/mcp 不走登录 cookie，只认网关会话令牌，匿名一律 401
+const MCP_GATEWAY_ON = MCP_GATEWAY_RAW !== 'off' || loginGate.enforced;
+if (MCP_GATEWAY_RAW === 'off' && loginGate.enforced) console.warn('[#284] MCP_GATEWAY=off 被忽略：WM_LOGIN_GATE=enforce 时网关强制开');
 if (!MCP_GATEWAY_ON) console.warn('[#284] 警告：MCP_GATEWAY=off，/mcp 不校验会话令牌、匿名可调全部工具——只用于本地开发/测试，生产勿设');
 const MCP_SESSION_NAME_RE = /^[a-z][a-z0-9-]{0,63}$/;
 let mcp401Count = 0;
@@ -3899,7 +3930,7 @@ const goServer = registerSurface(app, 'market', PORT, () => {
 const controlServer = SURFACE_PORTS.control ? registerSurface(app, 'control', SURFACE_PORTS.control) : undefined;
 if (contentCfg && contentRuntime) listenContentSurface(app, contentCfg, contentRuntime, () => startupSecurity.snapshot().passed);
 
-void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV }).then((result) => {
+void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode }).then((result) => {
   if (!result.passed) return refuseUnsafeStartup();
   startRedis();
   armPatrol();
@@ -3944,8 +3975,9 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 // 在这里全部不存在，必须对 upgrade 请求重做同样的准备，否则 router 兜底到 http://127.0.0.1（80 端口
 // 无服务）→ DSH 台经门户打开后 WS 永远连不上（页面「重新连接中…」，实测踩坑）。
 for (const srv of allSurfaceServers()) if (srv !== goServer) srv.on('upgrade', (req, socket) => { if (surfaceOf(req) !== 'content') socket.destroy(); }); // #292 M1：控制面不提供 WS
-goServer.on('upgrade', (req, socket, head) => {
+goServer.on('upgrade', async (req, socket, head) => {
   if (!startupSecurity.snapshot().passed) return socket.destroy();
+  if (!(await loginGate.upgradeAllowed(req))) return socket.destroy(); // 登录门：WS 升级同样要身份
   portalObserver?.observe(req);
   const m = goPrefix.exec(req.url ?? '');
   if (!m) return socket.destroy(); // 非 /go/ 的升级请求：本服务自身不提供 WS

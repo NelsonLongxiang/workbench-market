@@ -8,7 +8,9 @@ export const isStartupProbeRequest = (req: IncomingMessage): boolean => internal
 type Row = { id: string; surface: 'market' | 'control'; method: string; path: string; verdict: 'pass' | 'fail' | 'warn' | 'skip'; status: number | null; reason: string | null };
 type State = { passed: boolean; failed: string[]; at: string | null; rows: Row[] };
 type Target = { port: number; surface: 'market' | 'control' };
-type Options = { market: Server; control?: Server; gatewayOn: boolean; nodeEnv?: string };
+type Options = { market: Server; control?: Server; gatewayOn: boolean; nodeEnv?: string; loginGate?: 'enforce' | 'off' };
+/** Login-gate rows impersonate a remote anonymous browser behind a same-host proxy, so the local-CLI exemption cannot apply. */
+const REMOTE_ANON = { 'x-forwarded-for': '192.0.2.1', accept: 'text/html' };
 
 /** Does not import the application DB or read host/request-provided targets. */
 export function createStartupSecurityProbe({ timeoutMs = 1500, log = (row: unknown) => console.log(JSON.stringify(row)) } = {}) {
@@ -49,11 +51,11 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, log = (row: unkno
     });
   }
 
-  function send(target: Target, method: string, path: string, body?: string, origin = false): Promise<{ status: number | null; bearer: boolean; reason: string | null }> {
+  function send(target: Target, method: string, path: string, body?: string, origin = false, extra: Record<string, string> = {}): Promise<{ status: number | null; bearer: boolean; location: string; reason: string | null }> {
     return new Promise(resolve => {
       expected = { port: target.port, method, path };
       let settled = false;
-      const finish = (result: { status: number | null; bearer: boolean; reason: string | null }) => {
+      const finish = (result: { status: number | null; bearer: boolean; location: string; reason: string | null }) => {
         if (settled) return;
         settled = true; clearTimeout(timer); expected = undefined; resolve(result);
       };
@@ -61,26 +63,33 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, log = (row: unkno
       const req = request({ hostname: '127.0.0.1', port: target.port, method, path, agent: false,
         headers: { 'user-agent': 'workbench-market/self-probe', 'x-wm-self-probe': marker, 'x-internal-probe': '1',
           ...(body === undefined ? {} : { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) }),
-          ...(origin ? { origin: 'http://127.0.0.1:' + target.port } : {}) } }, res => {
+          ...(origin ? { origin: 'http://127.0.0.1:' + target.port } : {}), ...extra } }, res => {
         const bearer = /^Bearer(?:\s|$)/i.test(String(res.headers['www-authenticate'] ?? ''));
-        finish({ status: res.statusCode ?? null, bearer, reason: null });
+        finish({ status: res.statusCode ?? null, bearer, location: String(res.headers.location ?? ''), reason: null });
         res.destroy(); // status/header checks only; never collect potentially sensitive response bodies
       });
-      const timer = setTimeout(() => { finish({ status: null, bearer: false, reason: 'timeout' }); req.destroy(); }, timeoutMs);
-      req.once('error', () => finish({ status: null, bearer: false, reason: 'transport' }));
+      const timer = setTimeout(() => { finish({ status: null, bearer: false, location: '', reason: 'timeout' }); req.destroy(); }, timeoutMs);
+      req.once('error', () => finish({ status: null, bearer: false, location: '', reason: 'transport' }));
       req.end(body);
     });
   }
 
-  async function execute({ market, control, gatewayOn, nodeEnv }: Options): Promise<State> {
+  async function execute({ market, control, gatewayOn, nodeEnv, loginGate = 'off' }: Options): Promise<State> {
     const [m, c] = await Promise.all([listener(market), listener(control)]);
     if (c) c.surface = 'control';
     const table = [
       { id: 'market.mcp.initialize', target: m, surface: 'market', method: 'POST', path: '/mcp', body: '{"jsonrpc":"2.0","id":1,"method":"initialize"}', status: 401, bearer: true, mcp: true },
       { id: 'market.mcp.tools-list', target: m, surface: 'market', method: 'POST', path: '/mcp', body: '{"jsonrpc":"2.0","id":2,"method":"tools/list"}', status: 401, mcp: true },
-      { id: 'market.browser-workbench-write', target: m, surface: 'market', method: 'POST', path: '/api/workbenches', body: '{"name":"","url":""}', origin: true, status: 403 },
+      // enforce: the login gate answers the anonymous browser first (401) before the admin write guard (403)
+      { id: 'market.browser-workbench-write', target: m, surface: 'market', method: 'POST', path: '/api/workbenches', body: '{"name":"","url":""}', origin: true, status: loginGate === 'enforce' ? 401 : 403 },
       { id: 'market.invalid-write-control', target: m, surface: 'market', method: 'POST', path: '/api/workbenches', body: '{"name":"","url":""}', status: 400 },
       { id: 'control.admin-read', target: c, surface: 'control', method: 'GET', path: '/api/mcp/sessions', status: 403 },
+      // Login gate (enforce only): fixed synthetic slug, so a bypass shows up as 404/200 instead of the login redirect
+      ...(loginGate === 'enforce' ? [
+        { id: 'market.login-gate.page', target: m, surface: 'market', method: 'GET', path: '/', headers: REMOTE_ANON, status: 302, login: true },
+        { id: 'market.login-gate.app', target: m, surface: 'market', method: 'GET', path: '/apps/wm-self-probe/', headers: REMOTE_ANON, status: 302, login: true },
+        { id: 'market.login-gate.api', target: m, surface: 'market', method: 'GET', path: '/api/apps', headers: REMOTE_ANON, status: 401 },
+      ] as const : []),
     ] as const;
     for (const test of table) {
       const row: Row = { id: test.id, surface: test.surface, method: test.method, path: test.path, verdict: 'fail', status: null, reason: null };
@@ -94,9 +103,9 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, log = (row: unkno
         row.reason = localMode ? 'gateway-explicitly-off' : 'gateway-off-forbidden';
       }
       else {
-        const result = await send(test.target, test.method, test.path, 'body' in test ? test.body : undefined, 'origin' in test && test.origin);
+        const result = await send(test.target, test.method, test.path, 'body' in test ? test.body : undefined, 'origin' in test && test.origin, 'headers' in test ? test.headers : {});
         row.status = result.status;
-        const passed = result.status === test.status && (!('bearer' in test) || result.bearer);
+        const passed = result.status === test.status && (!('bearer' in test) || result.bearer) && (!('login' in test) || /^\/login(\?|$)/.test(result.location));
         row.verdict = passed ? 'pass' : 'fail';
         row.reason = passed ? null : result.reason ?? 'unexpected-status-or-challenge';
       }
