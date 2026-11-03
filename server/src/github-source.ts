@@ -8,7 +8,7 @@ export const SOURCE_BRANCH = 'main';
 const REPO_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
 const SHA_RE = /^[0-9a-f]{40}$/;
 const MAX_FILES = 200;
-const MAX_FILE_BYTES = 2 * 1024 * 1024;
+const MAX_FILE_BYTES = 100 * 1024 * 1024; // GitHub blobs API 单个 blob 上限也是 100MB
 
 export class SourceError extends Error {
   status: number;
@@ -30,13 +30,13 @@ function apiBase(): string {
   return (process.env.WM_GITHUB_API || 'https://api.github.com').replace(/\/+$/, '');
 }
 
-async function gh(url: string): Promise<any> {
+async function gh(url: string, timeoutMs = 15000): Promise<any> {
   const token = process.env.WM_GITHUB_TOKEN || '';
   let res: Response;
   try {
     res = await fetch(apiBase() + url, {
       headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'workbench-market', 'X-GitHub-Api-Version': '2022-11-28', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(timeoutMs),
       redirect: 'error',
     });
   } catch (e) {
@@ -61,8 +61,8 @@ export async function fetchMainFiles(repo: string, path: string): Promise<{ comm
   if (blobs.length > MAX_FILES) throw new SourceError(400, `文件数 ${blobs.length} 超过上限 ${MAX_FILES}`);
   const files: { path: string; content: string }[] = [];
   for (const e of blobs) {
-    if (typeof e.size === 'number' && e.size > MAX_FILE_BYTES) throw new SourceError(400, `${e.path} 超过单文件 2MB 上限`);
-    const b = await gh(`/repos/${enc}/git/blobs/${encodeURIComponent(String(e.sha))}`);
+    if (typeof e.size === 'number' && e.size > MAX_FILE_BYTES) throw new SourceError(400, `${e.path} 超过单文件 100MB 上限`);
+    const b = await gh(`/repos/${enc}/git/blobs/${encodeURIComponent(String(e.sha))}`, 120000); // 大文件留足下载时间
     if (b?.encoding !== 'base64' || typeof b.content !== 'string') throw new SourceError(502, `${e.path} blob 编码异常`);
     const buf = Buffer.from(b.content, 'base64');
     let content: string;
