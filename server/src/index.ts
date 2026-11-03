@@ -695,6 +695,10 @@ function appTokenKey(): string {
   }
   return _appTokenKey;
 }
+/** 本台在市场里的卡片编号（注入页面供读写 /api/workbenches/:id/vars 用；没登记卡片时为 null）。台重新登记换了编号也跟着变，页面不必写死 */
+function wmWorkbenchIdFor(url: string): number | null {
+  try { const w = svc<WorkbenchService>('workbench').marketAppIdByUrl(url) as { id: number } | undefined; return w && Number.isInteger(w.id) ? w.id : null; } catch { return null; }
+}
 /** 台令牌（HMAC-SHA256(slug, key)·不可跨台复用） */
 function wmAppToken(slug: string): string {
   return createHmac('sha256', appTokenKey()).update(String(slug)).digest('hex');
@@ -1646,7 +1650,7 @@ app.get(/^\/sop\/[a-z0-9][a-z0-9-]*(\/.*)?$/, (req, res) => {
     try {
       const tok = wmAppToken(m[1]);
       const raw = readFileSync(abs, 'utf8');
-      const inject = `<meta name="wm-app-token" content="${tok}"><script>window.WM_APP_TOKEN="${tok}";window.WM_APP_SLUG="${m[1]}";</script>`;
+      const inject = `<meta name="wm-app-token" content="${tok}"><script>window.WM_APP_TOKEN="${tok}";window.WM_APP_SLUG="${m[1]}";window.WM_WORKBENCH_ID=${wmWorkbenchIdFor(`/sop/${m[1]}/`)};</script>`;
       const out = /<head[^>]*>/i.test(raw) ? raw.replace(/<head([^>]*)>/i, (mm) => mm + inject) : inject + raw;
       return res.type('html').send(out);
     } catch { /* 读取失败回落原样 */ }
@@ -2523,7 +2527,7 @@ function serveApp(req: express.Request, res: express.Response) {
     try {
       const tok = wmAppToken(m[1]);
       const raw = readFileSync(abs, 'utf8');
-      const inject = `<meta name="wm-app-token" content="${tok}"><script>window.WM_APP_TOKEN="${tok}";window.WM_APP_SLUG="${m[1]}";</script>`;
+      const inject = `<meta name="wm-app-token" content="${tok}"><script>window.WM_APP_TOKEN="${tok}";window.WM_APP_SLUG="${m[1]}";window.WM_WORKBENCH_ID=${wmWorkbenchIdFor(`/apps/${m[1]}/`)};</script>`;
       const out = /<head[^>]*>/i.test(raw) ? raw.replace(/<head([^>]*)>/i, (mm) => mm + inject) : inject + raw;
       return res.type('html').send(loginGate.rewriteAppHtml(req, out)); // 登录门：本台绝对地址补查看凭证（off 时原样）
     } catch { /* 读取失败回落原样 */ }
