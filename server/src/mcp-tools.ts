@@ -139,6 +139,38 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
       additionalProperties: false,
     },
   },
+  // ── 工作台变量与常量（#336：按 workbench id 隔离，SQLite 持久化，revision 乐观锁） ──
+  {
+    name: 'workbench_vars_get',
+    description: '读某工作台的看板变量/常量：带 key 取单个（含 revision），不带 key 列全部（可按 prefix 过滤）。各台按 workbench id 隔离，自产台/SOP 台/外部台通用。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', description: '工作台 id' },
+        key: { type: 'string', description: '变量键（缺省=列全部）' },
+        prefix: { type: 'string', description: '列举时按键前缀过滤' },
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'workbench_vars_set',
+    description: '写某工作台的看板变量（JSON 值）。新建可不带 revision（或 revision=0 表示仅在不存在时创建）；改已存在的键必须带当前 revision，不符返回 revision 冲突与当前值。kind=const 写入后不可再改，常量修订只限管理员走 REST（MCP 不提供 override）。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', description: '工作台 id' },
+        key: { type: 'string', description: '字母/数字/下划线开头，字母/数字/_ . : -，≤128 字符' },
+        value: { description: '任意 JSON 值（≤64KB）' },
+        kind: { type: 'string', enum: ['var', 'const'], description: '缺省 var；新建时给 const 即锁定' },
+        revision: { type: 'integer', description: '期望的当前 revision（乐观锁）' },
+        reason: { type: 'string', description: '变更说明（记入审计，≤200 字）' },
+      },
+      required: ['id', 'key', 'value'],
+      additionalProperties: false,
+    },
+  },
   {
     name: 'workbench_register',
     description: '登记外部工作台入册（agent 发现内网新服务时自主登记；门户/市场即刻可用）。凭据不接受——需人工经市场页配置（安全边界）。',
