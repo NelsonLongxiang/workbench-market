@@ -38,7 +38,8 @@ export interface DataContract {
 }
 
 const MAX_RULES = 200;
-const MAX_PATTERN_INPUT = 4096;  // 参与正则匹配的单值上限，防回溯型正则被超长输入拖慢
+const MAX_PATTERN_INPUT = 4096;
+const MAX_VIOLATIONS = 50;  // 参与正则匹配的单值上限，防回溯型正则被超长输入拖慢
 
 /** 解析并检查契约文件本身；契约写错时抛错（同步时就拦下，不留到提交时才发现）。 */
 export function parseContract(text: string): DataContract {
@@ -138,5 +139,6 @@ export function checkRecord(c: DataContract, data: unknown, fileExists: (id: num
     if (!Array.isArray(ids) || !ids.every((x) => Number.isInteger(x) && (x as number) > 0)) errs.push(`${typeName}.file_ids 必须是正整数数组`);
     else for (const id of ids as number[]) if (!fileExists(id)) errs.push(`${typeName}.file_ids 含本台不存在的文件 ${id}`);
   }
-  return errs;
+  // 大数组逐元素出错时可能上千条：响应只列前 MAX_VIOLATIONS 条并附总数
+  return errs.length > MAX_VIOLATIONS ? [...errs.slice(0, MAX_VIOLATIONS), `……共 ${errs.length} 条违约，只列前 ${MAX_VIOLATIONS} 条`] : errs;
 }
