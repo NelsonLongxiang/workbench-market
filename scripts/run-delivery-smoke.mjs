@@ -80,10 +80,10 @@ try {
   r = await upload(999999, 'x.txt', Buffer.from('x'));
   ok('F2 未知 run 404', r.status === 404, String(r.status));
 
-  // F4 超 50MB → 413
-  const big = Buffer.alloc(50 * 1024 * 1024 + 1024, 0x41);
+  // F4 超 100MB → 413
+  const big = Buffer.alloc(100 * 1024 * 1024 + 1024, 0x41);
   r = await upload(runId, 'big.bin', big);
-  ok('F4 50MB 上限 413', r.status === 413, String(r.status));
+  ok('F4 100MB 上限 413', r.status === 413, String(r.status));
 
   // F3 完成后不可上传 → 409
   await json(`${BASE}/api/sop/runs/${runId}/finish`, 'POST', {});

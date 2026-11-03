@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
-/** #164 P1② MCP app_files_upload 冒烟：①上传 200+id/url ②文件面列表可见（同表同链）③超 50MB→413 ④缺参→400。 */
+/** #164 P1② MCP app_files_upload 冒烟：①上传 200+id/url ②文件面列表可见（同表同链）③超 100MB→413 ④缺参→400。 */
 import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';

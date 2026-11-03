@@ -1129,7 +1129,7 @@ with sync_playwright() as p:
         assert ad.returncode == 0, f'appdata-smoke 失败:\n{ad.stdout[-500:]}\n{ad.stderr[-300:]}'
         # 隐私门红线后 LAN_IP 不入库：无 env 时远程面三项跳过（13 通过+跳过标记）；设了 env 走全量 16——两形皆绿
         assert ((smoke_passed(ad.stdout, 16)) or (smoke_passed(ad.stdout, 13) and '跳过远程面' in ad.stdout)), f'appdata-smoke 计数异常: {ad.stdout[-200:]}'
-        # C10: 自产台文件提交面（所有资源类型 · 50MB 上限）——独立实例冒烟
+        # C10: 自产台文件提交面（所有资源类型 · 100MB 上限）——独立实例冒烟
         af = _sp3.run(['node', 'scripts/appfiles-smoke.mjs'], capture_output=True, text=True, timeout=240,
                       cwd=_os4.path.join(_os4.path.dirname(_os4.path.abspath(__file__)), '..'))
         assert af.returncode == 0, f'appfiles-smoke 失败:\n{af.stdout[-500:]}\n{af.stderr[-300:]}'

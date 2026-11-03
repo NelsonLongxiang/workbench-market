@@ -137,9 +137,9 @@ app.use((req, res, next) => {
 // body 解析：/go/ 路径跳过（品味席 direct-2999b07d 实测——express.json 在 HPM 之前
 // 消费了 body 流，上游需要读 body 的 POST（如 taste-mcp 的 tools/call）永远等不到
 // end 事件挂起；401 路径不读 body 所以「看起来通」）。/go/ 的 body 由 HPM 原样 pipe。
-// /mcp 的 app_files_upload 用 base64 传文件：50MB 原始 ≈ 67MB base64，再留 JSON-RPC 包装余量。
+// /mcp 的 app_files_upload 用 base64 传文件：100MB 原始 ≈ 134MB base64，再留 JSON-RPC 包装余量。
 // 只给带有效会话令牌的 /mcp 请求放大：本中间件先于 /mcp 路由里的会话判定执行，不先认令牌，匿名请求也能把 72MB 读进内存
-const MCP_BODY_LIMIT = '72mb';
+const MCP_BODY_LIMIT = '140mb';
 function bodyLimitFor(req: express.Request): string {
   if ((req.url ?? '').split('?')[0] !== '/mcp') return '4mb';
   const m = /^Bearer ([0-9a-f]{64})$/i.exec(String(req.headers.authorization ?? ''));
@@ -1322,10 +1322,10 @@ app.get('/api/apps/:slug/data', (req, res) => {
   res.json({ slug: a.slug, items, count: items.length, has_more, next_before_id: has_more ? items[items.length - 1].id : null });
 });
 
-// ---------- 自产台文件提交面（所有资源类型文件，50MB 上限） ----------
+// ---------- 自产台文件提交面（所有资源类型文件，单文件 100MB 上限） ----------
 // multipart/form-data：字段 file（单文件）+ 可选 note/created_by。
 // 落盘 DATA_DIR/uploads/<slug>/<YYYYMM>/<id>-<safeName>；元数据入 app_files；GET 列表 + 下载。
-const UPLOAD_MAX = 50 * 1024 * 1024;
+const UPLOAD_MAX = 100 * 1024 * 1024; // 属主 2026-11-03：单文件放宽到 100MB
 // 每台文件数上限：浏览器上传与 MCP 上传共用；部署可用 WM_APP_FILES_MAX 调整（存量迁移台已有数百个文件）
 const APP_FILES_MAX = Math.max(1, Number(process.env.WM_APP_FILES_MAX) || 2000);
 /** 台的文件容量（上传前可查）：已用/上限文件数、单文件上限、MCP base64 上限 */
@@ -1385,7 +1385,7 @@ app.post('/api/apps/:slug/files', (req, res, next) => {
   if (appFilesQuota(req.params.slug).files_left <= 0) return res.status(413).json({ error: `该台文件数已达上限（${APP_FILES_MAX}）`, quota: appFilesQuota(req.params.slug) });
   upload.single('file')(req, res, (err: any) => {
     if (err) {
-      if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: '文件超 50MB 上限' });
+      if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: '文件超 100MB 上限' });
       return res.status(400).json({ error: `上传失败：${err.message}` });
     }
     try {
@@ -1792,12 +1792,12 @@ const runUpload = multer({
       cb(null, `${Date.now()}-${randomBytes(6).toString('hex')}${ext}`);
     },
   }),
-  limits: { fileSize: 50 * 1024 * 1024, files: 1 },
+  limits: { fileSize: UPLOAD_MAX, files: 1 },
 });
 app.post('/api/sop/runs/:id/files', (req, res, next) => {
   // ── P0 安全（总工 direct-c2b55f91）：上传面鉴权三件 ──
   // ①run-scoped upload token（header X-Run-Upload-Token；admin 口令=人工作业一步式）
-  // ②配额（数≤20·单≤50MB[multer]·总量≤200MB→413）③写审计（sop_run_file_audit 同链）
+  // ②配额（数≤20·单≤100MB[multer]·总量≤200MB→413）③写审计（sop_run_file_audit 同链）
   try {
     if (!/^\d+$/.test(String(req.params.id))) throw new HttpError(404, `run not found: ${req.params.id}`);
     const row = sopRunRow(Number(req.params.id));
@@ -1819,7 +1819,7 @@ app.post('/api/sop/runs/:id/files', (req, res, next) => {
   } catch (e) { return next(e); }
   runUpload.single('file')(req, res, (err: any) => {
     if (err) {
-      if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: '文件超 50MB 上限' });
+      if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: '文件超 100MB 上限' });
       return res.status(400).json({ error: `上传失败：${err.message}` });
     }
     try {
@@ -3421,7 +3421,7 @@ async function callTool(name: string, args: any, subject = 'anonymous'): Promise
       const a = getApp(slug);
       const buf = Buffer.from(b64, 'base64');
       if (!buf.length) throw new HttpError(400, 'content_base64 解码为空');
-      if (buf.length > UPLOAD_MAX) throw new HttpError(413, `文件超 50MB 上限（${buf.length}B）`);
+      if (buf.length > UPLOAD_MAX) throw new HttpError(413, `文件超 100MB 上限（${buf.length}B）`);
       if (appFilesQuota(a.slug).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`); // #193 F8：全量计数；上限与浏览器上传共用
       // 与浏览器上传同一套内容类型检查：扩展名与内容不符、或是可执行文件 → 拒收；相符则存规范 MIME
       const kind = sniff(name, buf.subarray(0, 1024 * 1024), buf.length <= 1024 * 1024, String(args?.mime ?? ''));

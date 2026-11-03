@@ -79,7 +79,7 @@ POST             /api/sop/runs/:id/finish       归档（热态全量沉淀 SQLi
 POST             /mcp                           MCP StreamableHTTP（initialize/tools/list/tools/call；7 生产工具；GET/DELETE → 405）
 POST             /api/apps/:slug/data            自产台数据写入（JSON ≤1MB；台页 iframe 同源 fetch 直通）
 GET              /api/apps/:slug/data            自产台数据列表（游标分页 ?limit=&before_id=）
-POST             /api/apps/:slug/files           自产台文件提交（multipart 任意类型 ≤50MB；超限 413）
+POST             /api/apps/:slug/files           自产台文件提交（multipart 任意类型 ≤100MB；超限 413）
 GET              /api/apps/:slug/files           文件列表（游标分页）
 GET              /api/apps/:slug/files/:id       文件下载（content-type + nosniff；非白名单强制 attachment）
 GET              /api/vault/status              凭据库状态（库文件/是否解锁）——/api/vault/* 读写全部要管理员（口令或 Odoo 管理员）·浏览器须同源·no-store
@@ -164,7 +164,7 @@ data/           SQLite 数据文件（git 忽略）
 
 | 面 | 语义 |
 |---|---|
-| `POST /api/apps/:slug/files` | multipart 上传（`file` 字段·≤50MB）；可带 `note`/`created_by` 表单字段 |
+| `POST /api/apps/:slug/files` | multipart 上传（`file` 字段·≤100MB）；可带 `note`/`created_by` 表单字段 |
 | `POST /mcp` `app_files_upload` | **MCP 侧上传**：`{slug,name,content_base64,mime?,note?,created_by?}`——同表同链（app_files+落盘） |
 | `GET /api/apps/:slug/files` | 列表（倒序游标）：`id/original_name/mime/size/note/created_by/created_at/url`·软删行不返 |
 | `GET /api/apps/:slug/files/:id` | 下载：`Content-Disposition` 白名单 mime inline（png/jpeg/webp/gif/pdf/plain/csv/markdown），其余 attachment·`nosniff` |

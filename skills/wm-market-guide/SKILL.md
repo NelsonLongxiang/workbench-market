@@ -32,7 +32,7 @@ description: 工作台市场（workbench-market）使用指南——agent 经 MC
 ## 三、自产台可视化（delivery space 模式·实战验证）
 
 agent 交付件的标准组合（在自产台上实测）：
-1. 文件通道：POST /api/apps/:slug/files（multer·单文件 ≤50MB）——2026-10-27 起支持 note 字段（列表返 note/created_by/created_at·PATCH 可更新）+软删（deleted_at 隐+原行留审计）
+1. 文件通道：POST /api/apps/:slug/files（multer·单文件 ≤100MB）——2026-10-27 起支持 note 字段（列表返 note/created_by/created_at·PATCH 可更新）+软删（deleted_at 隐+原行留审计）
 2. 数据通道：app_data_list（表单/登记记录）·三态说明（缺口/留空/待确认）
 3. 静态烘焙兜底：交付空间页面图/文件引用加 base href="/go/<id>/" 或全用 /go/<id>/ 前缀（门户 iframe 内的相对路径坑）
 4. 回铃：表单提交→绑定 agent 推送（app_bindings notify 向）——不再轮询

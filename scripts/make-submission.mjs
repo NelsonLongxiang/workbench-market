@@ -198,7 +198,7 @@ const TEXT_FACTS = [
   ["scripts/appdata-smoke.mjs", "游标翻页"],
   ["server/src/index.ts", "app_files"],
   ["server/src/index.ts", "fixFileName"],
-  ["scripts/appfiles-smoke.mjs", "50MB 上限 → 413"],
+  ["scripts/appfiles-smoke.mjs", "100MB 上限 → 413"],
   ["server/src/index.ts", "REMOTE_ALLOW_PREFIX"],
   ["server/src/index.ts", "app_data_list"],
   ["evidence/e2e_test.py", "app_files_list"],
