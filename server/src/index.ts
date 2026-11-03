@@ -8,7 +8,9 @@ import { createPortalObservation } from './portal-observation.ts';
 import { allSurfaceServers, browserMarked, originIsThisSurface, rawLoopback, registerSurface, surfaceOf, surfacePorts, surfaceUrl } from './surfaces.ts';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { createReadStream } from 'node:fs';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { dirname, join, posix, extname, sep as pathSep } from 'node:path';
@@ -102,7 +104,7 @@ app.use((req, res, next) => {
   if (surfaceOf(req) !== 'control') return next();
   // 用 Express 路由同一个 pathname（req.path：已剥查询串、已处理绝对形式 http://x/mcp），再按小写判——路由不区分大小写（/MCP、/A2A/direct 曾漏过；#299 绝对形式）
   const p = req.path.toLowerCase();
-  if (/^\/(go|sop|apps)(\/|$)/.test(p) || p === '/mcp' || p.startsWith('/a2a/')) return res.status(404).type('text').send('控制面不提供此路径（请用业务面）\n');
+  if (/^\/(go|sop|apps)(\/|$)/.test(p) || p === '/mcp' || p === '/openapi.json' || p.startsWith('/api/mcp-rest/') || p.startsWith('/a2a/')) return res.status(404).type('text').send('控制面不提供此路径（请用业务面）\n');
   res.setHeader('content-security-policy', "frame-ancestors 'none'; frame-src 'none'");
   res.setHeader('x-frame-options', 'DENY');
   next();
@@ -139,14 +141,20 @@ app.use((req, res, next) => {
 // end 事件挂起；401 路径不读 body 所以「看起来通」）。/go/ 的 body 由 HPM 原样 pipe。
 // /mcp 的 app_files_upload 用 base64 传文件：100MB 原始 ≈ 134MB base64，再留 JSON-RPC 包装余量。
 // 只给带有效会话令牌的 /mcp 请求放大：本中间件先于 /mcp 路由里的会话判定执行，不先认令牌，匿名请求也能把 72MB 读进内存
+// REST 开放的工具调用（/api/mcp-rest/tools/<name>）同口径：请求体就是工具参数，app_files_upload 一样带 base64
 const MCP_BODY_LIMIT = '140mb';
 function bodyLimitFor(req: express.Request): string {
-  if ((req.url ?? '').split('?')[0] !== '/mcp') return '4mb';
+  const path = (req.url ?? '').split('?')[0];
+  if (path !== '/mcp' && !path.startsWith('/api/mcp-rest/tools/')) return '4mb';
   const m = /^Bearer ([0-9a-f]{64})$/i.exec(String(req.headers.authorization ?? ''));
   return m && mcpSessionByToken(m[1]) ? MCP_BODY_LIMIT : '4mb';
 }
+// MCP REST 原始字节上传（PUT /api/mcp-rest/apps/<slug>/files/<name>）：请求体就是文件（data.json 也带 application/json），由路由流式落盘，不经 JSON 解析。
+// 用 req.path（与路由同一个 pathname，已处理绝对形式请求目标 #299）+ 不区分大小写（路由同样不区分）
+const MCP_REST_RAW_UPLOAD = /^\/api\/mcp-rest\/apps\/[^/]+\/files\/[^/]+$/i;
 app.use((req, res, next) => {
   if ((req.url ?? '').startsWith('/go/')) return next();
+  if (req.method === 'PUT' && MCP_REST_RAW_UPLOAD.test(req.path)) return next();
   return express.json({ limit: bodyLimitFor(req) })(req, res, next);
 });
 
@@ -168,6 +176,8 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/sop\/runs(\/\d+(\/(finish|files))?)?$/,
   // 工作台事件 v1：接单节点回写决定（凭投递里的 reply token 鉴权，不认口令；只此一条子路径）
   /^\/api\/workbench-events\/wbe-[0-9a-f]{16}\/decision$/,
+  // MCP 工具 REST 开放：与 /mcp 同口径，凭会话令牌在路由内鉴权，不认管理口令
+  /^\/api\/mcp-rest\/(tools\/[^/]+|apps\/[a-z0-9-]{1,64}\/files(\/[^/]+)?)$/,
 ];
 
 // S3 豁免面可观测（评审席裁下批·PR#72 真事故锚）：启动时快照+diff——安全清单变更不再无声
@@ -1372,31 +1382,52 @@ const fixFileName = (s: string): string => {
 /** 按内容核对上传文件类型：扩展名与内容不符、或是可执行文件 → 删掉落盘文件并回 415（不按文件名自动改 MIME）；
  *  相符时返回应存的规范 MIME。返回 null 表示已回 415。 */
 function checkUploadKind(res: express.Response, file: Express.Multer.File, name: string): Sniff | null {
-  const headLen = Math.min(file.size, 1024 * 1024);
-  const head = Buffer.alloc(headLen);
-  const fd = openSync(file.path, 'r');
-  try { readSync(fd, head, 0, headLen, 0); } finally { closeSync(fd); }
-  const kind = sniff(name, head, headLen === file.size, file.mimetype || '');
-  if (kind.verdict === 'mismatch' || kind.verdict === 'executable') {
-    rmSync(file.path, { force: true });
-    res.status(415).json({ error: `文件类型不符：${kind.reason}`, name, detected: kind.detected || null });
+  try { return uploadKindOrThrow(file.path, file.size, name, file.mimetype || ''); } catch (e) {
+    if (!(e instanceof HttpError)) throw e;
+    res.status(e.status).json({ error: e.message, ...e.extra });
     return null;
   }
+}
+function uploadKindOrThrow(path: string, size: number, name: string, reported: string): Sniff {
+  const headLen = Math.min(size, 1024 * 1024);
+  const head = Buffer.alloc(headLen);
+  const fd = openSync(path, 'r');
+  try { readSync(fd, head, 0, headLen, 0); } finally { closeSync(fd); }
+  const kind = sniff(name, head, headLen === size, reported);
+  if (kind.verdict === 'mismatch' || kind.verdict === 'executable') {
+    rmSync(path, { force: true });
+    throw new HttpError(415, `文件类型不符：${kind.reason}`, { name, detected: kind.detected || null });
+  }
   return kind;
+}
+/** 自产台文件入库核心：浏览器 multipart 与 MCP REST（原始字节 PUT / multipart）共用——已落盘的文件按内容核类型（不符删盘 415）后写 app_files */
+function appFileStoreCore(slug: string, f: { path: string; size: number; name: string; reportedMime: string; createdBy: string; note: string; sha256?: string }) {
+  const kind = uploadKindOrThrow(f.path, f.size, f.name, f.reportedMime);
+  // 存储相对路径（dataDir 内，随数据目录迁移）
+  const rel = f.path.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
+  const r = svc<AppDataService>('appData').fileInsert(slug, f.name, kind.mime, f.size, rel, f.createdBy, f.note, f.sha256 ?? '') as unknown as { lastInsertRowid: number | bigint }; // #132 P0①：note 落库；sha256 有就存（下载 ETag 不再重算）
+  const id = Number(r.lastInsertRowid);
+  return { ok: true, id, slug, name: f.name, mime: kind.mime, size: f.size, note: f.note, url: `/api/apps/${slug}/files/${id}` };
+}
+/** 上传落盘位置（multer 与原始字节上传同规则）：uploads/<YYYYMM>/<时间戳>-<随机><原扩展名> */
+function uploadMonthDir(): string {
+  const now = new Date();
+  const dir = join(uploadRoot, `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+function uploadFileName(originalName: string): string {
+  // 保留原扩展名、抹掉路径与控制字符
+  const ext = extname(originalName).slice(0, 16).replace(/[^.\w-]/g, '');
+  return `${Date.now()}-${randomBytes(6).toString('hex')}${ext}`;
 }
 const upload = multer({
   storage: multer.diskStorage({
     destination(_req, _file, cb) {
-      const now = new Date();
-      const sub = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
-      const dir = join(uploadRoot, sub);
-      mkdirSync(dir, { recursive: true });
-      cb(null, dir);
+      cb(null, uploadMonthDir());
     },
     filename(_req, file, cb) {
-      // 保留原扩展名、抹掉路径与控制字符
-      const ext = extname(fixFileName(file.originalname)).slice(0, 16).replace(/[^.\w-]/g, '');
-      cb(null, `${Date.now()}-${randomBytes(6).toString('hex')}${ext}`);
+      cb(null, uploadFileName(fixFileName(file.originalname)));
     },
   }),
   limits: { fileSize: UPLOAD_MAX, files: 1 },
@@ -1417,14 +1448,7 @@ app.post('/api/apps/:slug/files', (req, res, next) => {
       if (!req.file) bad('缺少 file 字段（multipart/form-data）');
       const created_by = typeof req.body?.created_by === 'string' ? req.body.created_by.trim().slice(0, 128) : '';
       const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 500) : '';
-      // 存储相对路径（dataDir 内，随数据目录迁移）
-      const rel = req.file.path.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
-      const originalName = fixFileName(req.file.originalname);
-      const kind = checkUploadKind(res, req.file, originalName);
-      if (!kind) return;
-      const r = svc<AppDataService>('appData').fileInsert(a.slug, originalName, kind.mime, req.file.size, rel, created_by, note) as unknown as { lastInsertRowid: number | bigint }; // #132 P0①：note 落库
-      const id = Number(r.lastInsertRowid);
-      res.status(201).json({ ok: true, id, slug: a.slug, name: originalName, mime: kind.mime, size: req.file.size, note, url: `/api/apps/${a.slug}/files/${id}` });
+      res.status(201).json(appFileStoreCore(a.slug, { path: req.file.path, size: req.file.size, name: fixFileName(req.file.originalname), reportedMime: req.file.mimetype || '', createdBy: created_by, note }));
     } catch (e) {
       next(e);
     }
@@ -3467,9 +3491,10 @@ async function callTool(name: string, args: any, subject = 'anonymous'): Promise
       const rel = abs.replace(dataDir, '').replace(/\\/g, '/').replace(/^\/+/, '');
       const createdBy = String(args?.created_by ?? '').trim().slice(0, 128);
       const note = String(args?.note ?? '').trim().slice(0, 500);
-      const r = svc<AppDataService>('appData').fileInsert(a.slug, name, kind.mime, buf.length, rel, createdBy, note) as unknown as { lastInsertRowid: number | bigint };
+      const sha256 = createHash('sha256').update(buf).digest('hex');
+      const r = svc<AppDataService>('appData').fileInsert(a.slug, name, kind.mime, buf.length, rel, createdBy, note, sha256) as unknown as { lastInsertRowid: number | bigint };
       const id = Number(r.lastInsertRowid);
-      return { ok: true, id, slug: a.slug, name, mime: kind.mime, size: buf.length, sha256: createHash('sha256').update(buf).digest('hex'), note, url: `/api/apps/${a.slug}/files/${id}` };
+      return { ok: true, id, slug: a.slug, name, mime: kind.mime, size: buf.length, sha256, note, url: `/api/apps/${a.slug}/files/${id}` };
     }
     default:
       throw new HttpError(400, `未知工具: ${name}`);
@@ -3721,7 +3746,21 @@ function accessRequestForSession(r: Pick<AccessRequestRow, 'id' | 'tools' | 'rea
   return { id: r.id, tools: parseToolList(r.tools), reason: r.reason, status: r.status, note: r.note, decided_at: r.decided_at || null, created_at: r.created_at };
 }
 
-async function mcpAccessTool(name: string, args: any, sess: McpSess | null): Promise<unknown> {
+/** 对外基址：设了 MARKET_PUBLIC_URL 用它（反代/TLS 终止后 req.protocol 不可信），否则按本次请求的主机 */
+function mcpPublicOrigin(req: express.Request): string {
+  const pub = (process.env.MARKET_PUBLIC_URL ?? '').replace(/\/+$/, '');
+  return pub || `${req.protocol}://${req.get('host') ?? 'localhost'}`;
+}
+/** MCP 内嵌 REST 的入口（initialize 与 access_info 告诉 agent：大文件与资源走 REST） */
+function mcpRestInfo(origin: string) {
+  return {
+    openapi_url: `${origin}/openapi.json`,
+    rest_base: `${origin}/api/mcp-rest`,
+    rest_hint: '同一个会话令牌（Authorization: Bearer）可按 REST 调用：大文件上传 PUT {rest_base}/apps/<slug>/files/<文件名>（请求体为原始字节），下载 GET {rest_base}/apps/<slug>/files/<id>（支持 Range）；完整接口见 openapi_url',
+  };
+}
+
+async function mcpAccessTool(name: string, args: any, sess: McpSess | null, origin: string): Promise<unknown> {
   const catalog = await mcpAggregatedTools();
   if (name === 'access_info') {
     const granted = (t: McpToolDef) => !sess || !!t.exempt || sess.grants.includes(t.name); // 网关关时全部可调
@@ -3732,6 +3771,7 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null): Pro
       catalog: catalog.map((t) => ({ name: t.name, description: t.description, category: t.category, granted: granted(t), ...(t.exempt ? { always_allowed: true } : {}) })),
       requests: sess ? (svc<McpService>('mcp').accessRequestsBySession(sess.id) as AccessRequestRow[]).map(accessRequestForSession) : [],
       how_to_request: 'access_request {tools: [工具名], reason: 用途}；管理员在「MCP 网关」页「权限申请」批准后立即生效（并入现有授权）',
+      ...mcpRestInfo(origin),
     };
   }
   // access_request
@@ -3845,29 +3885,68 @@ app.post('/api/mcp/access-requests/:id/reject', (req, res) => {
   res.json({ ok: true, id, status: 'rejected' });
 });
 
+// ---------- /mcp 与 REST（/api/mcp-rest/*）共用：会话认定、审计、tools/call ----------
+type McpChannel = 'mcp' | 'rest';
+/** 网关会话认定：只认 Authorization: Bearer <会话令牌>。网关开且令牌无效/缺失/吊销 → 已回 401，返回 undefined；
+ *  网关关 → null（匿名可调全部工具，只用于本地开发）。 */
+function mcpGatewaySession(req: express.Request, res: express.Response): McpSess | null | undefined {
+  if (!MCP_GATEWAY_ON) return null;
+  const m = /^Bearer ([0-9a-f]{64})$/i.exec(String(req.headers.authorization ?? ''));
+  const sess = m ? mcpSessionByToken(m[1]) : null;
+  if (!sess) {
+    if (!isStartupProbeRequest(req)) mcp401Count += 1; // self-probe is not adoption traffic
+    res.setHeader('WWW-Authenticate', 'Bearer realm="workbench-market mcp"');
+    res.status(401).json({ error: 'unauthorized: valid session token required', hint: '会话与令牌由管理员经 /api/mcp/sessions 创建分发' });
+    return undefined;
+  }
+  svc<McpService>('mcp').sessionTouched(sess.id);
+  return sess;
+}
+function mcpAudit(sess: McpSess | null, channel: McpChannel, method: string, tool: string, ok: boolean, error: string, durationMs: number, args: unknown): void {
+  if (!MCP_GATEWAY_ON || !sess) return;
+  svc<McpService>('mcp').callInsertStmt()
+    .run(sess.name, method, tool, ok ? 1 : 0, error, durationMs, sha256Hex(JSON.stringify(args ?? {})), channel); // 不存参数原文
+}
+/** 会话可调用：免授权工具 + grants；网关关时全部可调 */
+function mcpToolGranted(sess: McpSess | null, toolName: string): boolean {
+  return !sess || MCP_EXEMPT_TOOLS.has(toolName) || sess.grants.includes(toolName);
+}
+type McpInvokeResult =
+  | { kind: 'not_granted' }
+  | { kind: 'ok'; out: unknown; upstream: boolean }
+  | { kind: 'error'; error: any; upstream: boolean };
+/** tools/call 唯一执行链：授权检查 → 免授权工具 / 上游转发 / 本地工具 → 审计。两个渠道各自把结果映射成自己的应答形状。 */
+async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, channel: McpChannel, origin: string, t0 = Date.now()): Promise<McpInvokeResult> {
+  if (!mcpToolGranted(sess, toolName)) {
+    mcpAudit(sess, channel, 'tools/call', toolName, false, 'not granted', Date.now() - t0, args);
+    return { kind: 'not_granted' };
+  }
+  // 上游路由（P2）：<prefix>__<tool> → 转发到对应上游 MCP
+  const up = MCP_EXEMPT_TOOLS.has(toolName) ? null : routeUpstream(toolName);
+  try {
+    const out = MCP_EXEMPT_TOOLS.has(toolName)
+      ? await mcpAccessTool(toolName, args ?? {}, sess, origin)
+      : up
+      ? await upstreamRpc(up.upstream, 'tools/call', { name: up.remoteTool, arguments: args ?? {} }, 2, sess ? `mcp/${sess.name}` : undefined)
+      : await callTool(toolName, args ?? {}, sess ? `mcp:${sess.name}` : 'anonymous');
+    mcpAudit(sess, channel, 'tools/call', toolName, true, '', Date.now() - t0, args);
+    return { kind: 'ok', out, upstream: !!up };
+  } catch (e: any) {
+    mcpAudit(sess, channel, 'tools/call', toolName, false, String(e?.message ?? e).slice(0, 200), Date.now() - t0, args);
+    return { kind: 'error', error: e, upstream: !!up };
+  }
+}
+
 // /mcp 网关化（MCP_GATEWAY=on）：Bearer 有效→会话；无效/缺失/吊销→401+WWW-Authenticate（含 initialize，无兼容期）
 app.post('/mcp', async (req, res) => {
   const msg = req.body ?? {};
   const fail = (code: number, message: string) => res.json({ jsonrpc: '2.0', id: msg.id ?? null, error: { code, message } });
 
   // 网关会话判定 + 审计
-  let sess: { id: number; name: string; grants: string[] } | null = null;
-  if (MCP_GATEWAY_ON) {
-    const auth = String(req.headers.authorization ?? '');
-    const m = /^Bearer ([0-9a-f]{64})$/i.exec(auth);
-    if (m) sess = mcpSessionByToken(m[1]);
-    if (!sess) {
-      if (!isStartupProbeRequest(req)) mcp401Count += 1; // self-probe is not adoption traffic
-      res.setHeader('WWW-Authenticate', 'Bearer realm="workbench-market mcp"');
-      return res.status(401).json({ error: 'unauthorized: valid session token required', hint: '会话与令牌由管理员经 /api/mcp/sessions 创建分发' });
-    }
-    svc<McpService>('mcp').sessionTouched(sess.id);
-  }
-  const audit = (method: string, tool: string, ok: boolean, error: string, durationMs: number, args: unknown) => {
-    if (!MCP_GATEWAY_ON || !sess) return;
-    svc<McpService>('mcp').callInsertStmt()
-      .run(sess.name, method, tool, ok ? 1 : 0, error, durationMs, sha256Hex(JSON.stringify(args ?? {}))); // 不存参数原文
-  };
+  const sess = mcpGatewaySession(req, res);
+  if (sess === undefined) return;
+  const audit = (method: string, tool: string, ok: boolean, error: string, durationMs: number, args: unknown) =>
+    mcpAudit(sess, 'mcp', method, tool, ok, error, durationMs, args);
   const t0 = Date.now();
 
   if (typeof msg !== 'object' || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') {
@@ -3879,12 +3958,15 @@ app.post('/mcp', async (req, res) => {
     if (msg.method === 'initialize') {
       const want = typeof msg.params?.protocolVersion === 'string' ? msg.params.protocolVersion : '';
       audit('initialize', '', true, '', Date.now() - t0, msg.params);
+      const rest = mcpRestInfo(mcpPublicOrigin(req));
       return res.json({
         jsonrpc: '2.0', id: msg.id,
         result: {
           protocolVersion: MCP_KNOWN_PROTOCOLS.includes(want) ? want : MCP_PROTOCOL,
           capabilities: { tools: {} },
           serverInfo: { name: 'workbench-market', version: '0.1.0', title: '工作台市场' },
+          instructions: `缺工具先调 access_info。大文件上传下载与资源读取可用同一会话令牌走 REST：${rest.rest_base}（OpenAPI：${rest.openapi_url}）`,
+          ...rest,
         },
       });
     }
@@ -3895,7 +3977,7 @@ app.post('/mcp', async (req, res) => {
     if (msg.method === 'tools/list') {
       const all = await mcpAggregatedTools(); // 本地 + 上游（P2 聚合）
       // 按授权过滤；access_info / access_request 始终列出（缺权限时靠它们看目录、提申请）
-      const tools = (sess ? all.filter((t) => t.exempt || sess!.grants.includes(t.name)) : all)
+      const tools = all.filter((t) => mcpToolGranted(sess, t.name))
         .map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
       audit('tools/list', '', true, '', Date.now() - t0, null);
       return res.json({ jsonrpc: '2.0', id: msg.id, result: { tools } });
@@ -3907,32 +3989,22 @@ app.post('/mcp', async (req, res) => {
       }
       // 未授权与不存在同应答——不泄露存在性
       const toolName = msg.params.name;
-      if (sess && !MCP_EXEMPT_TOOLS.has(toolName) && !sess.grants.includes(toolName)) {
-        audit('tools/call', toolName, false, 'not found', Date.now() - t0, msg.params?.arguments);
-        return fail(-32601, `Method not found: ${msg.method}`); // 与未知工具同文案族
-      }
-      try {
-        // 上游路由（P2）：<prefix>__<tool> → 转发到对应上游 MCP
-        const up = MCP_EXEMPT_TOOLS.has(toolName) ? null : routeUpstream(toolName);
-        const out = MCP_EXEMPT_TOOLS.has(toolName)
-          ? await mcpAccessTool(toolName, msg.params.arguments ?? {}, sess)
-          : up
-          ? await upstreamRpc(up.upstream, 'tools/call', { name: up.remoteTool, arguments: msg.params.arguments ?? {} }, 2, sess ? `mcp/${sess.name}` : undefined)
-          : await callTool(toolName, msg.params.arguments ?? {}, sess ? `mcp:${sess.name}` : 'anonymous');
-        audit('tools/call', toolName, true, '', Date.now() - t0, msg.params?.arguments);
+      const r = await mcpInvokeTool(sess, toolName, msg.params?.arguments, 'mcp', mcpPublicOrigin(req), t0);
+      if (r.kind === 'not_granted') return fail(-32601, `Method not found: ${msg.method}`); // 与未知工具同文案族
+      if (r.kind === 'ok') {
         // 上游结果已是 MCP 形状（{content,isError?}）→ 原样透传（下游客户端语义无损）；
         // 本地工具结果是业务对象 → 序列化为 text content。
-        if (up && out && typeof out === 'object' && Array.isArray((out as any).content)) {
+        const out = r.out;
+        if (r.upstream && out && typeof out === 'object' && Array.isArray((out as any).content)) {
           return res.json({ jsonrpc: '2.0', id: msg.id, result: out });
         }
         return res.json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }] } });
-      } catch (e: any) {
-        // 工具执行失败按 MCP 规范走 isError（协议层错误才用 JSON-RPC error）
-        audit('tools/call', toolName, false, String(e?.message ?? e).slice(0, 200), Date.now() - t0, msg.params?.arguments);
-        // 带具名字段的错误（如数据契约 violations）把状态码与字段原样附在后面，agent 能逐条改
-        const detail = e instanceof HttpError && e.extra ? `\n${JSON.stringify({ status: e.status, ...e.extra })}` : '';
-        return res.json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: `执行失败：${e?.message || e}${detail}` }], isError: true } });
       }
+      // 工具执行失败按 MCP 规范走 isError（协议层错误才用 JSON-RPC error）
+      // 带具名字段的错误（如数据契约 violations）把状态码与字段原样附在后面，agent 能逐条改
+      const e = r.error;
+      const detail = e instanceof HttpError && e.extra ? `\n${JSON.stringify({ status: e.status, ...e.extra })}` : '';
+      return res.json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: `执行失败：${e?.message || e}${detail}` }], isError: true } });
     }
     audit(msg.method, '', false, 'Method not found', Date.now() - t0, msg.params);
     return fail(-32601, `Method not found: ${msg.method}`);
@@ -3943,6 +4015,360 @@ app.post('/mcp', async (req, res) => {
 });
 app.get('/mcp', (_req, res) => res.status(405).json({ error: 'stateless StreamableHTTP：仅支持 POST（无服务端会话流）' }));
 app.delete('/mcp', (_req, res) => res.status(405).json({ error: '无会话可终止（stateless）' }));
+
+// ---------- MCP 工具的 OpenAPI REST 开放：不说 MCP 协议的客户端用同一个会话令牌按 REST 调同一批工具 ----------
+// 认证、授权、审计、上游转发全走上面的共用链（mcpGatewaySession / mcpInvokeTool），只换应答形状。
+// 与 /mcp 不同：未授权回 403 并提示申请（REST 客户端要能区分「没权限」和「没这个工具」）；目录本就能经 access_info 看到，不另泄露。
+const MCP_REST_TOOLS_PATH = '/api/mcp-rest/tools/';
+const MCP_REST_DENIED_HINT = '调 access_info 查看可用工具与授权状态，用 access_request 申请（管理员批准后立即生效）';
+async function mcpOpenApiDoc(req: express.Request, sess: McpSess | null): Promise<Record<string, unknown>> {
+  const tools = (await mcpAggregatedTools()).filter((t) => mcpToolGranted(sess, t.name));
+  const errRef = (name: string) => ({ $ref: `#/components/responses/${name}` });
+  const paths: Record<string, any> = {};
+  // 文件与资源接口（MCP 内嵌）：按所映射工具的授权过滤，与工具映射同口径
+  for (const op of mcpRestResourceOps()) {
+    if (!mcpToolGranted(sess, op.tool)) continue;
+    const { path, method, tool, errors, ...rest } = op;
+    (paths[path] ??= {})[method] = {
+      ...rest, tags: [path.includes('/sop/') ? 'sop' : path.includes('/files') ? 'files' : 'resources'], 'x-requires-tool': tool, 'x-granted': true,
+      responses: { ...op.responses, ...Object.fromEntries(errors.map((c) => [c, errRef(MCP_REST_ERR_NAMES[c])])) },
+    };
+  }
+  for (const t of tools) {
+    paths[MCP_REST_TOOLS_PATH + encodeURIComponent(t.name)] = {
+      post: {
+        tags: ['tools'],
+        operationId: t.name,
+        summary: t.description.split('\n')[0].slice(0, 120),
+        description: t.description,
+        'x-category': t.category,
+        'x-granted': true,
+        ...(t.exempt ? { 'x-exempt': true } : {}),
+        requestBody: { required: false, content: { 'application/json': { schema: t.inputSchema } } },
+        responses: {
+          '200': { description: '工具结果（本地工具为业务对象 JSON；上游工具为其 MCP 结果 {content}）', content: { 'application/json': { schema: {} } } },
+          '400': errRef('BadRequest'), '401': errRef('Unauthorized'), '403': errRef('Forbidden'), '404': errRef('NotFound'),
+        },
+      },
+    };
+  }
+  const errSchema = { type: 'object', properties: { error: { type: 'string' }, hint: { type: 'string' }, violations: { type: 'array', items: { type: 'object' } } }, required: ['error'] };
+  const errResp = (description: string) => ({ description, content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } });
+  return {
+    openapi: '3.1.0',
+    info: {
+      title: 'workbench-market MCP tools (REST)',
+      version: '0.1.0',
+      description: `与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的${sess ? `（会话 ${sess.name}）` : ''}；缺权限时调 access_info 查看目录、用 access_request 申请。`,
+    },
+    servers: [{ url: mcpPublicOrigin(req) }],
+    security: [{ bearerAuth: [] }],
+    paths,
+    components: {
+      securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', description: 'MCP 会话令牌（管理员经 /api/mcp/sessions 创建，只显示一次）' } },
+      schemas: { Error: errSchema },
+      responses: {
+        BadRequest: errResp('参数错误；违反台数据契约时带 violations'),
+        Unauthorized: errResp('缺少或无效的会话令牌'),
+        Forbidden: errResp('会话未获授权（响应 hint 提示用 access_request 申请）'),
+        NotFound: errResp('工具或资源不存在'),
+        PayloadTooLarge: errResp('文件超 100MB 或台文件数已达上限'),
+        UnsupportedMediaType: errResp('文件内容与扩展名不符，或是可执行文件'),
+        RangeNotSatisfiable: errResp('Range 超出文件范围'),
+      },
+    },
+  };
+}
+const MCP_REST_ERR_NAMES: Record<string, string> = { '400': 'BadRequest', '401': 'Unauthorized', '403': 'Forbidden', '404': 'NotFound', '413': 'PayloadTooLarge', '415': 'UnsupportedMediaType', '416': 'RangeNotSatisfiable' };
+/** 文件与资源接口的 OpenAPI 描述（路由在下方「MCP 内嵌的文件与资源 REST」） */
+function mcpRestResourceOps(): { path: string; method: 'get' | 'put' | 'post'; tool: string; operationId: string; summary: string; description: string; parameters?: unknown[]; requestBody?: unknown; responses: Record<string, unknown>; errors: string[] }[] {
+  const P = (name: string, description: string, schema: Record<string, unknown> = { type: 'string' }) => ({ name, in: 'path', required: true, description, schema });
+  const Q = (name: string, description: string, schema: Record<string, unknown>) => ({ name, in: 'query', required: false, description, schema });
+  const H = (name: string, description: string) => ({ name, in: 'header', required: false, description, schema: { type: 'string' } });
+  const slug = P('slug', '自产台 slug', { type: 'string', pattern: '^[a-z0-9][a-z0-9-]*$' });
+  const page = [Q('limit', '每页条数（默认 50，最多 200）', { type: 'integer', minimum: 1, maximum: 200 }), Q('before_id', '游标：上一页的 next_before_id', { type: 'integer', minimum: 1 })];
+  const json = (description: string) => ({ description, content: { 'application/json': { schema: { type: 'object' } } } });
+  const uploaded = { description: '已入库', content: { 'application/json': { schema: { type: 'object', required: ['id', 'sha256', 'mime', 'size', 'url'], properties: {
+    id: { type: 'integer' }, slug: { type: 'string' }, name: { type: 'string' }, mime: { type: 'string' }, size: { type: 'integer' }, sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+    note: { type: 'string' }, url: { type: 'string', description: 'REST 下载地址' }, download_url: { type: 'string', description: '台页面用的下载地址' } } } } } };
+  const binary = (description: string) => ({
+    description,
+    headers: { ETag: { description: '强 ETag = 文件 sha256', schema: { type: 'string' } }, 'X-Content-SHA256': { schema: { type: 'string' } }, 'Accept-Ranges': { schema: { type: 'string' } }, 'Content-Range': { schema: { type: 'string' } } },
+    content: { 'application/octet-stream': { schema: { type: 'string', format: 'binary' } } },
+  });
+  const download = { parameters: [H('Range', '单段字节范围，如 bytes=0-1023'), H('If-None-Match', '上次的 ETag；未变回 304'), H('If-Range', 'ETag 不符时忽略 Range 回整份')],
+    responses: { '200': binary('文件内容（Content-Type 为入库时识别的类型，Content-Disposition: attachment）'), '206': binary('Range 片段'), '304': { description: '未变化' } } };
+  const base = MCP_REST_BASE;
+  return [
+    { path: `${base}/apps/{slug}/files/{name}`, method: 'put', tool: 'app_files_upload', operationId: 'rest_file_upload', summary: '上传文件（原始字节，流式落盘）',
+      description: '请求体即文件内容（≤100MB），边收边落盘，不经 base64。与浏览器上传同一套核心：按内容识别类型（扩展名与内容不符 415）、台文件数配额。返回 id / sha256 / mime / url。',
+      parameters: [slug, P('name', '文件名（含扩展名，URL 编码）'), Q('note', '备注（≤500 字）', { type: 'string' }), Q('created_by', '提交人（缺省 mcp:<会话名>）', { type: 'string' })],
+      requestBody: { required: true, content: { 'application/octet-stream': { schema: { type: 'string', format: 'binary' } }, '*/*': { schema: { type: 'string', format: 'binary' } } } },
+      responses: { '201': uploaded }, errors: ['400', '401', '403', '404', '413', '415'] },
+    { path: `${base}/apps/{slug}/files`, method: 'post', tool: 'app_files_upload', operationId: 'rest_file_upload_multipart', summary: '上传文件（multipart）',
+      description: 'multipart/form-data：字段 file（单文件 ≤100MB）+ 可选 note / created_by。其余同原始字节上传。',
+      parameters: [slug],
+      requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary' }, note: { type: 'string' }, created_by: { type: 'string' } } } } } },
+      responses: { '201': uploaded }, errors: ['400', '401', '403', '404', '413', '415'] },
+    { path: `${base}/apps/{slug}/files`, method: 'get', tool: 'app_files_list', operationId: 'rest_files_list', summary: '列文件（倒序分页 + 配额）',
+      description: '与 app_files_list 同一结果；items[].url 为 REST 下载地址，quota 为剩余文件数与单文件上限。', parameters: [slug, ...page],
+      responses: { '200': json('{ items, count, has_more, next_before_id, quota }') }, errors: ['401', '403', '404'] },
+    { path: `${base}/apps/{slug}/files/{id}`, method: 'get', tool: 'app_files_list', operationId: 'rest_file_download', summary: '下载文件（二进制，支持 Range / ETag）',
+      description: '返回文件原始字节；ETag 与 X-Content-SHA256 为 sha256，可续传。', parameters: [slug, P('id', '文件 id', { type: 'integer' }), ...download.parameters],
+      responses: download.responses, errors: ['401', '403', '404', '416'] },
+    { path: `${base}/apps/{slug}/data`, method: 'get', tool: 'app_data_list', operationId: 'rest_data_list', summary: '读台数据（倒序分页）',
+      description: '与 app_data_list 同一结果。', parameters: [slug, ...page], responses: { '200': json('{ items, count, has_more, next_before_id }') }, errors: ['401', '403', '404'] },
+    { path: `${base}/sop/runs/{id}`, method: 'get', tool: 'sop_run_get', operationId: 'rest_sop_run_get', summary: '读 SOP run',
+      description: '与 sop_run_get 同一结果：有该 run 的读授权时含执行数据，否则只有元数据。', parameters: [P('id', 'run id', { type: 'integer' }), H('X-Run-Read-Capability', 'run 读凭证（可选）')],
+      responses: { '200': json('run') }, errors: ['401', '403', '404'] },
+    { path: `${base}/sop/runs/{id}/files`, method: 'get', tool: 'sop_run_get', operationId: 'rest_sop_run_files', summary: '列 SOP run 附件',
+      description: '需该 run 的读授权（与 sop_run_get 同一判定）。', parameters: [P('id', 'run id', { type: 'integer' }), H('X-Run-Read-Capability', 'run 读凭证（可选）')],
+      responses: { '200': json('{ run_id, items, count }') }, errors: ['401', '403', '404'] },
+    { path: `${base}/sop/runs/{id}/files/{fileId}`, method: 'get', tool: 'sop_run_get', operationId: 'rest_sop_run_file_download', summary: '下载 SOP run 附件（二进制，支持 Range / ETag）',
+      description: '需该 run 的读授权。', parameters: [P('id', 'run id', { type: 'integer' }), P('fileId', '附件 id', { type: 'integer' }), H('X-Run-Read-Capability', 'run 读凭证（可选）'), ...download.parameters],
+      responses: download.responses, errors: ['401', '403', '404', '416'] },
+  ];
+}
+const serveMcpOpenApi = wrap(async (req, res) => {
+  const sess = mcpGatewaySession(req, res);
+  if (sess === undefined) return;
+  res.setHeader('Cache-Control', 'no-store'); // 内容随会话授权变化
+  res.json(await mcpOpenApiDoc(req, sess));
+});
+app.get('/openapi.json', serveMcpOpenApi);
+app.get('/api/mcp-rest/openapi.json', serveMcpOpenApi);
+app.post('/api/mcp-rest/tools/:name', wrap(async (req, res) => {
+  const t0 = Date.now();
+  const sess = mcpGatewaySession(req, res);
+  if (sess === undefined) return;
+  const toolName = req.params.name;
+  const args = req.body === undefined ? {} : req.body;
+  if (!args || typeof args !== 'object' || Array.isArray(args)) {
+    mcpAudit(sess, 'rest', 'tools/call', toolName, false, '请求体须为 JSON 对象', Date.now() - t0, null);
+    throw new HttpError(400, '请求体须为 JSON 对象（即工具参数）');
+  }
+  if (!(await mcpRegisteredNames()).has(toolName)) {
+    mcpAudit(sess, 'rest', 'tools/call', toolName, false, 'unknown tool', Date.now() - t0, args);
+    throw new HttpError(404, `未知工具: ${toolName}`, { hint: MCP_REST_DENIED_HINT });
+  }
+  const r = await mcpInvokeTool(sess, toolName, args, 'rest', mcpPublicOrigin(req), t0);
+  if (r.kind === 'not_granted') throw new HttpError(403, `会话未获授权调用 ${toolName}`, { hint: MCP_REST_DENIED_HINT });
+  if (r.kind === 'ok') {
+    // 上游工具自报 isError：工具级失败，按上游错误回 502，结果原样附上
+    if (r.upstream && r.out && typeof r.out === 'object' && (r.out as any).isError === true) return res.status(502).json({ error: `上游工具 ${toolName} 执行失败`, result: r.out });
+    return res.json(r.out ?? null);
+  }
+  // 本地工具错误走统一错误出口（HttpError 状态码 + 具名字段如 violations；校验类普通 Error → 400）；上游传输失败 → 502
+  if (r.upstream && !(r.error instanceof HttpError)) return res.status(502).json({ error: String(r.error?.message ?? r.error).slice(0, 200) });
+  throw r.error;
+}));
+
+// ---------- MCP 内嵌的文件与资源 REST：传文件不走 JSON-RPC 的 base64，下载直接拿二进制 ----------
+// 认证同上（会话 Bearer）；授权映射到现有工具 grants，不另设权限：上传 = app_files_upload，列文件/下载 = app_files_list，
+// 读台数据 = app_data_list，SOP run 元数据与附件 = sop_run_get（附件另过 run 读授权，与 sop_run_get 同一判定）。
+const MCP_REST_BASE = '/api/mcp-rest';
+/** 会话认定 + 工具授权。未授权已回 403（提示申请）并记审计，返回 undefined。 */
+function mcpRestSession(req: express.Request, res: express.Response, tool: string, op: string): McpSess | null | undefined {
+  const sess = mcpGatewaySession(req, res);
+  if (sess === undefined) return undefined;
+  if (!mcpToolGranted(sess, tool)) {
+    mcpAudit(sess, 'rest', `rest/${op}`, tool, false, 'not granted', 0, req.params);
+    res.status(403).json({ error: `会话未获授权：${op} 需要工具 ${tool} 的授权`, required_tool: tool, hint: MCP_REST_DENIED_HINT });
+    return undefined;
+  }
+  return sess;
+}
+/** 资源接口的执行与审计：成功/失败都按 rest/<op> 记一行，错误交统一出口映射状态码 */
+async function mcpRestRun(sess: McpSess | null, tool: string, op: string, auditArgs: unknown, fn: () => Promise<void> | void): Promise<void> {
+  const t0 = Date.now();
+  try {
+    await fn();
+    mcpAudit(sess, 'rest', `rest/${op}`, tool, true, '', Date.now() - t0, auditArgs);
+  } catch (e: any) {
+    mcpAudit(sess, 'rest', `rest/${op}`, tool, false, String(e?.message ?? e).slice(0, 200), Date.now() - t0, auditArgs);
+    throw e;
+  }
+}
+/** 文件 sha256（ETag 用，入库没存的才算）：按 路径+大小+mtime 缓存，同一文件每进程只算一次 */
+const fileShaCache = new Map<string, string>();
+async function fileSha256(abs: string): Promise<string> {
+  const st = statSync(abs);
+  const key = `${abs}|${st.size}|${st.mtimeMs}`;
+  const hit = fileShaCache.get(key);
+  if (hit) return hit;
+  const h = createHash('sha256');
+  for await (const chunk of createReadStream(abs)) h.update(chunk as Buffer);
+  const hex = h.digest('hex');
+  if (fileShaCache.size > 2000) fileShaCache.clear();
+  fileShaCache.set(key, hex);
+  return hex;
+}
+/** 二进制下载：强 ETag = sha256、If-None-Match → 304、单段 Range（bytes=a-b / a- / -n）→ 206、越界 416；安全头同现有下载（attachment + nosniff） */
+async function sendStoredFile(req: express.Request, res: express.Response, f: { abs: string; size: number; mime: string; name: string; sha256?: string; onSha?: (sha: string) => void }): Promise<void> {
+  if (!existsSync(f.abs)) throw new HttpError(404, 'stored file missing on disk');
+  const size = statSync(f.abs).size;
+  // 入库时存了 sha256 就直接用；存量行（浏览器上传等未存的）算一次后经 onSha 回写
+  let sha = f.sha256 && size === f.size ? f.sha256 : '';
+  if (!sha) { sha = await fileSha256(f.abs); f.onSha?.(sha); }
+  const etag = `"${sha}"`;
+  res.setHeader('content-type', f.mime || 'application/octet-stream');
+  res.setHeader('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(f.name || 'file')}`);
+  res.setHeader('x-content-type-options', 'nosniff');
+  res.setHeader('etag', etag);
+  res.setHeader('x-content-sha256', sha);
+  res.setHeader('accept-ranges', 'bytes');
+  res.setHeader('cache-control', 'private, no-cache');
+  const inm = String(req.headers['if-none-match'] ?? '');
+  if (inm && inm.split(',').map((x) => x.trim()).some((x) => x === etag || x === '*')) { res.status(304).end(); return; }
+  let start = 0, end = size - 1;
+  const range = String(req.headers.range ?? '');
+  const ifRange = String(req.headers['if-range'] ?? '');
+  if (range && (!ifRange || ifRange === etag)) {
+    const m = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+    if (m && (m[1] || m[2])) { // 多段或坏格式忽略，回整份（RFC 9110 允许）
+      if (m[1]) { start = Number(m[1]); end = m[2] ? Math.min(Number(m[2]), size - 1) : size - 1; }
+      else { start = Math.max(0, size - Number(m[2])); }
+      if (start >= size || start > end || (!m[1] && Number(m[2]) === 0)) {
+        res.setHeader('content-range', `bytes */${size}`);
+        res.status(416).json({ error: 'Range 超出文件范围', size });
+        return;
+      }
+      res.status(206);
+      res.setHeader('content-range', `bytes ${start}-${end}/${size}`);
+    }
+  }
+  res.setHeader('content-length', String(end - start + 1));
+  if (req.method === 'HEAD' || size === 0) { res.end(); return; }
+  await pipeline(createReadStream(f.abs, { start, end }), res);
+}
+const restFileItem = (slug: string, r: any) => ({ ...r, url: `${MCP_REST_BASE}/apps/${slug}/files/${r.id}` });
+
+// 上传（原始字节）：PUT /api/mcp-rest/apps/<slug>/files/<文件名>，请求体即文件内容，边收边算 sha256 边落盘，不整包进内存
+app.put('/api/mcp-rest/apps/:slug/files/:name', wrap(async (req, res) => {
+  res.setHeader('connection', 'close'); // 提前拒绝（401/403/404/413）时不再读剩余请求体
+  const sess = mcpRestSession(req, res, 'app_files_upload', 'file_upload');
+  if (sess === undefined) return;
+  const name = String(req.params.name ?? '').trim();
+  const note = typeof req.query.note === 'string' ? req.query.note.trim().slice(0, 500) : '';
+  const createdBy = typeof req.query.created_by === 'string' && req.query.created_by.trim() ? req.query.created_by.trim().slice(0, 128) : (sess ? `mcp:${sess.name}` : '');
+  await mcpRestRun(sess, 'app_files_upload', 'file_upload', { slug: req.params.slug, name }, async () => {
+    if (!name || name.length > 255 || name === '.' || name === '..' || /[\/\\\x00-\x1f]/.test(name)) bad('文件名不合法（≤255 字符，不含路径分隔符与控制字符）');
+    const a = getApp(req.params.slug);
+    if (appFilesQuota(a.slug).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`, { quota: appFilesQuota(a.slug) });
+    const declared = Number(req.headers['content-length']);
+    if (Number.isFinite(declared) && declared > UPLOAD_MAX) throw new HttpError(413, '文件超 100MB 上限');
+    const abs = join(uploadMonthDir(), uploadFileName(name));
+    const h = createHash('sha256');
+    let size = 0;
+    const meter = new Transform({
+      transform(chunk: Buffer, _enc, cb) {
+        size += chunk.length;
+        if (size > UPLOAD_MAX) return cb(new HttpError(413, '文件超 100MB 上限'));
+        h.update(chunk);
+        cb(null, chunk);
+      },
+    });
+    try {
+      await pipeline(req, meter, createWriteStream(abs));
+    } catch (e) {
+      rmSync(abs, { force: true });
+      if (e instanceof HttpError) throw e; // 超限
+      throw new HttpError(400, `上传中断：${String((e as Error)?.message ?? e).slice(0, 120)}`);
+    }
+    if (size === 0) { rmSync(abs, { force: true }); bad('请求体为空'); }
+    const reported = String(req.headers['content-type'] ?? '').split(';')[0].trim();
+    const sha256 = h.digest('hex');
+    const out = appFileStoreCore(a.slug, { path: abs, size, name, reportedMime: reported === 'application/octet-stream' ? '' : reported, createdBy, note, sha256 });
+    res.status(201).json({ ...out, sha256, url: `${MCP_REST_BASE}/apps/${a.slug}/files/${out.id}`, download_url: out.url });
+  });
+}));
+// 上传（multipart）：POST /api/mcp-rest/apps/<slug>/files，字段 file + 可选 note/created_by——与浏览器上传同一个 multer 与入库核心
+app.post('/api/mcp-rest/apps/:slug/files', wrap(async (req, res) => {
+  res.setHeader('connection', 'close'); // 同上
+  const sess = mcpRestSession(req, res, 'app_files_upload', 'file_upload');
+  if (sess === undefined) return;
+  await mcpRestRun(sess, 'app_files_upload', 'file_upload', { slug: req.params.slug }, async () => {
+    const a = getApp(req.params.slug);
+    if (appFilesQuota(a.slug).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`, { quota: appFilesQuota(a.slug) });
+    await new Promise<void>((resolve, reject) => upload.single('file')(req, res, (err: any) => {
+      if (!err) return resolve();
+      reject(err.code === 'LIMIT_FILE_SIZE' ? new HttpError(413, '文件超 100MB 上限') : new HttpError(400, `上传失败：${err.message}`));
+    }));
+    if (!req.file) bad('缺少 file 字段（multipart/form-data）');
+    const file = req.file!;
+    const createdBy = typeof req.body?.created_by === 'string' && req.body.created_by.trim() ? req.body.created_by.trim().slice(0, 128) : (sess ? `mcp:${sess.name}` : '');
+    const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 500) : '';
+    const sha256 = await fileSha256(file.path);
+    const out = appFileStoreCore(a.slug, { path: file.path, size: file.size, name: fixFileName(file.originalname), reportedMime: file.mimetype || '', createdBy, note, sha256 });
+    res.status(201).json({ ...out, sha256, url: `${MCP_REST_BASE}/apps/${a.slug}/files/${out.id}`, download_url: out.url });
+  });
+}));
+// 列文件（倒序游标分页 + quota）：与 app_files_list 工具同一结果，url 指向 REST 下载
+app.get('/api/mcp-rest/apps/:slug/files', wrap(async (req, res) => {
+  const sess = mcpRestSession(req, res, 'app_files_list', 'files_list');
+  if (sess === undefined) return;
+  const r = await mcpInvokeTool(sess, 'app_files_list', { slug: req.params.slug, limit: req.query.limit, before_id: req.query.before_id }, 'rest', mcpPublicOrigin(req));
+  if (r.kind !== 'ok') throw (r as any).error ?? new HttpError(403, MCP_REST_DENIED_HINT);
+  const out = r.out as { slug: string; items: any[] };
+  res.json({ ...out, items: out.items.map((it) => ({ ...restFileItem(out.slug, it), download_url: it.url })) });
+}));
+// 下载：二进制 + Range + ETag(sha256)
+app.get('/api/mcp-rest/apps/:slug/files/:id', wrap(async (req, res) => {
+  const sess = mcpRestSession(req, res, 'app_files_list', 'file_download');
+  if (sess === undefined) return;
+  await mcpRestRun(sess, 'app_files_list', 'file_download', { slug: req.params.slug, id: req.params.id }, async () => {
+    const a = getApp(req.params.slug);
+    const row = /^\d+$/.test(String(req.params.id)) ? svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug) as any : null;
+    if (!row) throw new HttpError(404, `file not found: ${req.params.id}`);
+    await sendStoredFile(req, res, { abs: join(dataDir, row.storage_path), size: row.size, mime: row.mime, name: row.original_name, sha256: row.sha256,
+      onSha: (sha) => svc<AppDataService>('appData').fileSetSha256(row.id, a.slug, sha) });
+  });
+}));
+// 读台数据（倒序游标分页）：与 app_data_list 工具同一结果
+app.get('/api/mcp-rest/apps/:slug/data', wrap(async (req, res) => {
+  const sess = mcpRestSession(req, res, 'app_data_list', 'data_list');
+  if (sess === undefined) return;
+  const r = await mcpInvokeTool(sess, 'app_data_list', { slug: req.params.slug, limit: req.query.limit, before_id: req.query.before_id }, 'rest', mcpPublicOrigin(req));
+  if (r.kind !== 'ok') throw (r as any).error ?? new HttpError(403, MCP_REST_DENIED_HINT);
+  res.json(r.out);
+}));
+/** SOP run 读授权：与 sop_run_get 同一判定（会话主体 mcp:<会话名> 的 run grant，或 X-Run-Read-Capability） */
+async function mcpRestRunReadable(req: express.Request, sess: McpSess | null, runId: number): Promise<boolean> {
+  return (await authorizeRunRead({ cap: runReadCapHeader(req), mcpSubject: sess ? `mcp:${sess.name}` : undefined }, runId)).authorized;
+}
+const runIdParam = (v: unknown): number => { if (!/^\d+$/.test(String(v))) throw new HttpError(404, `run not found: ${v}`); return Number(v); };
+// SOP run 元数据：与 sop_run_get 工具同一结果（未获 run 读授权时只有元数据）
+app.get('/api/mcp-rest/sop/runs/:id', wrap(async (req, res) => {
+  const sess = mcpRestSession(req, res, 'sop_run_get', 'sop_run_get');
+  if (sess === undefined) return;
+  const runId = runIdParam(req.params.id);
+  const cap = runReadCapHeader(req);
+  const r = await mcpInvokeTool(sess, 'sop_run_get', { run_id: runId, ...(cap ? { read_capability: cap } : {}) }, 'rest', mcpPublicOrigin(req));
+  if (r.kind !== 'ok') throw (r as any).error ?? new HttpError(403, MCP_REST_DENIED_HINT);
+  res.json(r.out);
+}));
+app.get('/api/mcp-rest/sop/runs/:id/files', wrap(async (req, res) => {
+  const sess = mcpRestSession(req, res, 'sop_run_get', 'sop_run_files');
+  if (sess === undefined) return;
+  const runId = runIdParam(req.params.id);
+  await mcpRestRun(sess, 'sop_run_get', 'sop_run_files', { run_id: runId }, async () => {
+    sopRunRow(runId); // 404 语义与 run 一致
+    if (!(await mcpRestRunReadable(req, sess, runId))) throw new HttpError(403, 'run read authorization required', { hint: '会话需有该 run 的读授权（run grant），或带 X-Run-Read-Capability' });
+    const items = (svc<SopService>('sop').runFiles(runId) as any[]).map((f) => ({ ...f, url: `${MCP_REST_BASE}/sop/runs/${runId}/files/${f.id}` }));
+    res.json({ run_id: runId, items, count: items.length });
+  });
+}));
+app.get('/api/mcp-rest/sop/runs/:id/files/:fileId', wrap(async (req, res) => {
+  const sess = mcpRestSession(req, res, 'sop_run_get', 'sop_run_file_download');
+  if (sess === undefined) return;
+  const runId = runIdParam(req.params.id);
+  await mcpRestRun(sess, 'sop_run_get', 'sop_run_file_download', { run_id: runId, file_id: req.params.fileId }, async () => {
+    if (!(await mcpRestRunReadable(req, sess, runId))) throw new HttpError(403, 'run read authorization required', { hint: '会话需有该 run 的读授权（run grant），或带 X-Run-Read-Capability' });
+    const row = /^\d+$/.test(String(req.params.fileId)) ? svc<SopService>('sop').runFileById(runId, Number(req.params.fileId)) as any : null;
+    if (!row) throw new HttpError(404, `file not found: ${req.params.fileId}`);
+    await sendStoredFile(req, res, { abs: join(dataDir, row.storage_path), size: row.size, mime: row.mime, name: row.original_name });
+  });
+}));
 import { installPortal, goPrefix, moduleProxy } from './portal.ts';
 
 installPortal(app, wbById, { serveApp, readActiveManifest, renderSopRunner, appsRoot });
