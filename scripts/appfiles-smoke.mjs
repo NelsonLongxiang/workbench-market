@@ -71,7 +71,14 @@ try {
   ok('xlsx伪mime上传201', rx.status === 201 && rx.body.id > 0, JSON.stringify(rx.body).slice(0,100));
   const dx = await fetch(`${BASE}/api/apps/fileprobe/files/${rx.body.id}`);
   ok('xlsx伪mime强制attachment（BIN_EXT防XSS）', (dx.headers.get('content-disposition') ?? '').startsWith('attachment'));
-  ok('xlsx content-type 不被白名单改写', (dx.headers.get('content-type') ?? '').includes('text/plain'));
+  // 上传按内容识别类型：ZIP 文件头 + .xlsx → 存规范 xlsx MIME，不沿用客户端报的 text/plain（下载类型与内容一致）
+  ok('xlsx content-type 按内容存规范值', (dx.headers.get('content-type') ?? '').includes('spreadsheetml'), dx.headers.get('content-type'));
+  // 中文 Excel 导出常见 GBK 编码的 CSV：不是 UTF-8 也照收，存不带 charset 的 text/csv
+  const gbk = await uploadFile('fileprobe', 'export.csv', 'text/csv', Buffer.from('b6a9b5a5bac52cbdf0b6ee0a312c320a', 'hex'), { created_by: 'user-a' });
+  ok('GBK 编码 CSV 上传 201', gbk.status === 201 && gbk.body.mime === 'text/csv', JSON.stringify(gbk.body).slice(0, 120));
+  // 扩展名与内容不符（PDF 内容冒充 .png）→ 415，不落库
+  const fake = await uploadFile('fileprobe', 'fake.png', 'image/png', Buffer.from('%PDF-1.4 x'), { created_by: 'user-a' });
+  ok('内容与扩展名不符 → 415', fake.status === 415, String(fake.status));
   ok('nosniff', dl.headers.get('x-content-type-options') === 'nosniff');
   // ⑥ 未知 slug / 未知文件 id 404——且不得留孤儿文件（评审 #25：先校验后落盘）
   const { readdirSync } = await import('node:fs');
