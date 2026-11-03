@@ -10,11 +10,14 @@
  *   G7 本机命令行放行；浏览器标记的本机请求不算命令行；X-Admin-Token 头放行
  *   G8 Odoo：内部员工会话放行，门户账号被拦；登录中继只放登录用的那一个入口；WS 升级匿名断开
  *   G9 A2A：签名卡片放行；/a2a/direct 无签名校验 → 拦
+ *   G11 首次 enforce 轮换按台令牌密钥：开门前的旧令牌 401、新令牌放行、记号与密钥 600、日志无密钥、第二次启动不再轮换
  *   G10 off：匿名照旧可读、不跳登录、health 报 off；口令轮换后旧 cookie 失效；非法开关值拒绝启动 */
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { connect } from 'node:net';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+const readdirSafe = (d) => { try { return readdirSync(d); } catch { return []; } };
 import { resolve } from 'node:path';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
@@ -39,9 +42,9 @@ await new Promise((r) => odoo.listen(0, '127.0.0.1', r));
 const ODOO = `http://127.0.0.1:${odoo.address().port}`;
 const gh = await startFakeGithub();
 
-function start(extra, tag) {
+function start(extra, tag, dataDir) {
   const PORT = 21000 + Math.floor(Math.random() * 20000);
-  const DATA = mkdtempSync(resolve('tmp', `login-gate-${tag}-`));
+  const DATA = dataDir ?? mkdtempSync(resolve('tmp', `login-gate-${tag}-`));
   const env = { ...process.env, PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: DATA, NODE_ENV: 'test', REDIS_URL: '', LAYERFS_SERVICE_URL: '', WM_GITHUB_API: gh.api, ...extra };
   for (const k of Object.keys(extra)) if (extra[k] === undefined) delete env[k];
   const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -59,9 +62,9 @@ async function ready(inst) {
   }
   return false;
 }
-async function stop(inst) {
+async function stop(inst, keep = false) {
   if (inst.child.exitCode === null && inst.child.signalCode === null) { inst.child.kill(); await inst.exited; }
-  rmSync(inst.DATA, { recursive: true, force: true });
+  if (!keep) rmSync(inst.DATA, { recursive: true, force: true });
 }
 
 const REMOTE = { 'x-forwarded-for': '198.51.100.7' };
@@ -313,6 +316,48 @@ try {
   const me2 = await (await req(B, 'GET', '/api/auth/me', { ...REMOTE, cookie: `wm_login=${first}` })).json();
   ok('G10 口令轮换后旧 cookie 失效', rot.status === 200 && me2.authenticated === false);
 } finally { await stop(O); }
+
+// ================= 首次 enforce 轮换按台令牌密钥 =================
+console.log('== 首次 enforce 轮换按台令牌 ==');
+{
+  const DATA = mkdtempSync(resolve('tmp', 'login-gate-rotate-'));
+  const tokOf = async (B) => /<meta name="wm-app-token" content="([0-9a-f]{64})">/.exec(await (await req(B, 'GET', '/apps/rot-app/', {})).text())?.[1] ?? '';
+  const keyFile = join(DATA, '.wm-app-token.key'), mark = join(DATA, '.wm-app-token.gate');
+  const A = start({ WM_LOGIN_GATE: 'off', ADMIN_TOKEN: ADMIN, MCP_GATEWAY: 'off' }, 'rotate', DATA);
+  let oldTok = '', fileId = 0;
+  try {
+    ok('G11 off 实例就绪', await ready(A), A.out().slice(-300));
+    const pr = await ghPublish(A.B, gh, { slug: 'rot-app', title: 'Rot App', files: [{ path: 'index.html', content: '<html><head></head><body>r</body></html>' }] }, { 'x-admin-token': ADMIN });
+    const fd = new FormData(); fd.append('file', new Blob(['rotate body'], { type: 'text/plain' }), 'r.txt');
+    const up = await (await fetch(A.B + '/api/apps/rot-app/files', { method: 'POST', body: fd })).json();
+    fileId = up.id ?? up.file?.id;
+    oldTok = await tokOf(A.B);
+    ok('G11 开门前拿到旧台令牌（off 下匿名可读页面）', pr.status === 201 && !!oldTok && Number.isInteger(fileId));
+    ok('G11 off 不写轮换记号', !existsSync(mark));
+  } finally { await stop(A, true); }
+  const keyBefore = readFileSync(keyFile, 'utf8');
+  const E1 = start({ WM_LOGIN_GATE: 'enforce', ADMIN_TOKEN: ADMIN }, 'rotate', DATA);
+  let newTok = '';
+  try {
+    ok('G11 首次 enforce 实例就绪', await ready(E1), E1.out().slice(-300));
+    const T = (t) => ({ ...REMOTE, origin: 'null', 'x-app-token': t });
+    ok('G11 旧令牌读文件 → 401', (await req(E1.B, 'GET', `/api/apps/rot-app/files/${fileId}`, T(oldTok))).status === 401);
+    ok('G11 旧令牌写数据 → 401', (await req(E1.B, 'POST', '/api/apps/rot-app/data', T(oldTok), { x: 1 })).status === 401);
+    newTok = await tokOf(E1.B);
+    ok('G11 新令牌与旧令牌不同', !!newTok && newTok !== oldTok);
+    ok('G11 新令牌读文件 → 200', (await req(E1.B, 'GET', `/api/apps/rot-app/files/${fileId}`, T(newTok))).status === 200);
+    const keyAfter = readFileSync(keyFile, 'utf8');
+    ok('G11 密钥文件已换、权限 600', keyAfter !== keyBefore && /^[0-9a-f]{64}$/.test(keyAfter.trim()) && (statSync(keyFile).mode & 0o777) === 0o600);
+    ok('G11 写了轮换记号（权限 600）', existsSync(mark) && (statSync(mark).mode & 0o777) === 0o600 && JSON.parse(readFileSync(mark, 'utf8')).reason === 'login-gate-enforce');
+    ok('G11 日志写明轮换但不含新旧密钥', E1.out().includes('已轮换按台令牌密钥') && !E1.out().includes(keyAfter.trim()) && !E1.out().includes(keyBefore.trim()));
+    ok('G11 没留下临时文件', !readdirSafe(DATA).some((n) => n.endsWith('.tmp')));
+  } finally { await stop(E1, true); }
+  const E2 = start({ WM_LOGIN_GATE: 'enforce', ADMIN_TOKEN: ADMIN }, 'rotate', DATA);
+  try {
+    ok('G11 第二次 enforce 实例就绪', await ready(E2), E2.out().slice(-300));
+    ok('G11 第二次启动不再轮换：令牌不变、无轮换日志', (await tokOf(E2.B)) === newTok && !E2.out().includes('已轮换按台令牌密钥'));
+  } finally { await stop(E2); }
+}
 
 // ================= 非法开关值 =================
 console.log('== 非法开关值 ==');

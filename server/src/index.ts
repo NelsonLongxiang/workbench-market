@@ -8,7 +8,7 @@ import { contentConfig, createContentSurface, mountContentSurface, listenContent
 import { createPortalObservation } from './portal-observation.ts';
 import { allSurfaceServers, browserMarked, originIsThisSurface, rawLoopback, registerSurface, surfaceOf, surfacePorts, surfaceUrl } from './surfaces.ts';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createReadStream } from 'node:fs';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -656,6 +656,24 @@ startWorkbenchEventWorker(); // 工作台事件 v1（人提交 → 事件 → �
 // 交付空间模式（页面调本台 data/files）靠「Origin: null + X-App-Token 匹配 slug」放行 CORS。
 const APP_TOKEN_KEY_FILE = join(dataDir, '.wm-app-token.key');
 let _appTokenKey = '';
+// 登录门首次 enforce：按台令牌永久有效，开门之前它在公网页面上谁都拿得到；登录门又对带令牌的 data/files 直接放行，
+// 所以首次 enforce 启动时换一把新密钥（旧令牌全部作废），写记号 .wm-app-token.gate 后不再重复。原子替换、权限 600、日志不记密钥。
+// 写不进去（只读卷）：本进程用随机密钥（旧令牌同样作废，重启再换），不写记号
+const APP_TOKEN_GATE_MARK = join(dataDir, '.wm-app-token.gate');
+if (loginGate.enforced && !existsSync(APP_TOKEN_GATE_MARK)) {
+  const fresh = randomBytes(32).toString('hex');
+  try {
+    const tmp = `${APP_TOKEN_KEY_FILE}.${process.pid}.tmp`;
+    writeFileSync(tmp, fresh, { mode: 0o600 });
+    chmodSync(tmp, 0o600);
+    renameSync(tmp, APP_TOKEN_KEY_FILE);
+    writeFileSync(APP_TOKEN_GATE_MARK, JSON.stringify({ rotated_at: new Date().toISOString(), reason: 'login-gate-enforce' }) + '\n', { mode: 0o600 });
+    console.warn('[login-gate] 首次 enforce：已轮换按台令牌密钥，开门前发出的台令牌全部作废（已打开的自产台页面刷新即可）');
+  } catch {
+    console.warn('[login-gate] 首次 enforce：按台令牌密钥写不进 DATA_DIR，本进程改用随机密钥（旧令牌作废，重启后会再换一次）');
+  }
+  _appTokenKey = fresh;
+}
 function appTokenKey(): string {
   if (_appTokenKey) return _appTokenKey;
   try {
