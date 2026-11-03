@@ -69,6 +69,9 @@ ok('数字字段也按格式核对', checkRecord(I, { type: 'task', refs: [{ kin
 ok('超过 max_items', checkRecord(I, { type: 'task', refs: [1, 2, 3].map(() => ({ kind: 'run', id: 'run_0123456789abcdef' })) }, has).some((e) => e.includes('最多 2')));
 ok('不是数组', checkRecord(I, { type: 'task', refs: 'x' }, has).some((e) => e.includes('必须是数组')));
 ok('元素不是对象', checkRecord(I, { type: 'task', refs: ['x'] }, has).some((e) => e.includes('refs[0] 必须是对象')));
+const J = parseContract(JSON.stringify({ version: 1, types: { task: { items: { refs: { required: ['id'] } } } } }));
+const many = checkRecord(J, { type: 'task', refs: Array.from({ length: 120 }, () => ({})) }, has);
+ok('违约多于 50 条时截断并附总数', many.length === 51 && many[50].includes('共 120 条'), String(many.length));
 ok('items 坏正则在解析时报错', throws(() => parseContract(JSON.stringify({ version: 1, types: { t: { items: { a: { pattern: { b: '(' } } } } } }))));
 
 console.log('未声明类型');
