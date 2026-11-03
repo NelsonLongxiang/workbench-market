@@ -40,28 +40,37 @@ const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 
 try {
   if (!(await waitReady(`${BASE}/api/health`))) throw new Error('实例未就绪');
   console.log('实例就绪', BASE);
+  // 目标台不写死在源码里：环境变量指定，否则取快照里第一个自产台
+  const appList = await (await fetch(`${BASE}/api/apps`)).json().catch(() => []);
+  const APP = process.env.SMOKE_APP || (Array.isArray(appList) ? appList : []).filter((a) => a.kind !== 'sop').map((a) => a.slug)[0];
+  if (!APP) throw new Error('快照里没有自产台：请设 SMOKE_APP');
+  // 依赖快照里既有迁移绑定的两项：设了 SMOKE_BOUND_NODE（及 SMOKE_A2A_TEAM）才跑
+  const BOUND_NODE = process.env.SMOKE_BOUND_NODE, A2A_TEAM = process.env.SMOKE_A2A_TEAM;
 
   // ① 新面：GET 统一列表（红版 404）
-  const g1 = await fetch(`${BASE}/api/bindings?type=app&slug=sample-app-13`, { headers: ADMIN });
+  const g1 = await fetch(`${BASE}/api/bindings?type=app&slug=${APP}`, { headers: ADMIN });
   ok('① 统一面 GET 200', g1.status === 200, `status=${g1.status}`);
   const rows = g1.ok ? await g1.json() : [];
-  ok('①b 迁移行在（现网 app 绑定→notify 向）', Array.isArray(rows) && rows.some(r => r.agent_node === 'dsh/00c0ffee' && (r.direction === 'notify' || r.direction === 'both')), JSON.stringify(rows).slice(0, 100));
+  if (BOUND_NODE) ok('①b 迁移行在（现网 app 绑定→notify 向）', Array.isArray(rows) && rows.some(r => r.agent_node === BOUND_NODE && (r.direction === 'notify' || r.direction === 'both')), JSON.stringify(rows).slice(0, 100));
+  else ok('①b 跳过（未设 SMOKE_BOUND_NODE）', true);
 
   // ② direction 显式铁律：无 direction → 400（红版：面都不存在）
-  const p2 = await bind({ target_type: 'app', target_slug: 'sample-app-13', agent_node: 'dsh/00c0ffee' });
+  const p2 = await bind({ target_type: 'app', target_slug: APP, agent_node: BOUND_NODE || 'dsh/00c0ffee' });
   ok('② 无 direction 拒 400', p2.status === 400, `status=${p2.status}`);
 
   // ③ 方向独立性核心红：只授 notify 的行，admits 消费面必不命中
-  //    实证法：A2A direct 对 sample-app-10（SOP 台）以「只有 notify 行的节点」投递 → 必 404/拒
-  //    现网最稳样例：dsh/00c0ffee 对 SOP 台有 admits（迁移自带）——先证 admits 面从统一表读到（直投 200 形）
-  const a2a = await fetch(`${BASE}/a2a/direct`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ team: 'market/00000000', message: '{"sop":{"action":"start","text":"ubind-smoke"}}', caller_session: 'dsh/00c0ffee', task_id: 'ubind-smoke-admits-1' }),
-  });
-  ok('③ admits 面从统一表读（既有 SOP 绑定直投通）', a2a.status === 200 && (await a2a.json()).task_status !== 'TASK_STATE_FAILED', `status=${a2a.status}`);
+  //    实证法：A2A direct 对 SOP 台以「只有 notify 行的节点」投递 → 必 404/拒
+  //    先证 admits 面从统一表读到：用快照里对 SOP 台有 admits 的节点直投（200 形）
+  if (BOUND_NODE && A2A_TEAM) {
+    const a2a = await fetch(`${BASE}/a2a/direct`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ team: A2A_TEAM, message: '{"sop":{"action":"start","text":"ubind-smoke"}}', caller_session: BOUND_NODE, task_id: 'ubind-smoke-admits-1' }),
+    });
+    ok('③ admits 面从统一表读（既有 SOP 绑定直投通）', a2a.status === 200 && (await a2a.json()).task_status !== 'TASK_STATE_FAILED', `status=${a2a.status}`);
+  } else ok('③ 跳过（未设 SMOKE_BOUND_NODE / SMOKE_A2A_TEAM）', true);
 
   // ④ 旧面 410+Location 过渡（红版：仍 200/403）
-  const o4 = await fetch(`${BASE}/api/apps/sample-app-13/bindings`, { headers: ADMIN });
+  const o4 = await fetch(`${BASE}/api/apps/${APP}/bindings`, { headers: ADMIN });
   ok('④ 旧面 410 过渡', o4.status === 410, `status=${o4.status}`);
   ok('④b 410 带 Location 指新面', /\/api\/bindings/.test(o4.headers.get('location') ?? ''), o4.headers.get('location') ?? '(无)');
 

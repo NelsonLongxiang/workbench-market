@@ -36,10 +36,12 @@ const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 
 
 try {
   if (!(await waitReady(`${BASE}/api/health`))) throw new Error('实例未就绪');
-  // 前置：造一条活的 dispatched run（A2A direct start）
+  // 前置：造一条活的 dispatched run（A2A direct start）——需要快照里对 SOP 台有 admits 的节点与市场 team
+  const NODE = process.env.SMOKE_BOUND_NODE, A2A_TEAM = process.env.SMOKE_A2A_TEAM;
+  if (!NODE || !A2A_TEAM) throw new Error('请设 SMOKE_BOUND_NODE（对 SOP 台有 admits 的节点）与 SMOKE_A2A_TEAM（市场 team）');
   const st = await fetch(`${BASE}/a2a/direct`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ team: 'market/00000000', message: '{"sop":{"action":"start","text":"dsort-smoke"}}', caller_session: 'dsh/00c0ffee', task_id: 'dsort-smoke-1' }),
+    body: JSON.stringify({ team: A2A_TEAM, message: '{"sop":{"action":"start","text":"dsort-smoke"}}', caller_session: NODE, task_id: 'dsort-smoke-1' }),
   });
   ok('⓪ 造 dispatched run', st.status === 200, `status=${st.status}`);
   // ① 默认关 → dispatched 空

@@ -39,8 +39,8 @@ const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 
 });
 try {
   await waitReady(`http://127.0.0.1:${PORT}/api/health`);
-  // 开一个 run（用产库快照里的 procurement SOP）
-  const slug = 'sample-app-10';
+  // 开一个 run（SOP 由 SMOKE_SOP 指定，缺省用演示 SOP）
+  const slug = process.env.SMOKE_SOP || 'demo-rack-sop';
   const st = await fetch(`http://127.0.0.1:${PORT}/api/sop/runs`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...ADMIN }, body: JSON.stringify({ slug, started_by: 'p0-smoke' }) });
   const stj = await st.json().catch(() => ({}));
   const runId = stj.id;
