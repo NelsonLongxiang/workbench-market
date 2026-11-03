@@ -21,8 +21,8 @@ RUN mkdir -p /data && chown -R node:node /app /data
 ENV DATA_DIR=/data
 ENV NODE_ENV=production
 EXPOSE 9800
-# P1-4：容器探活走 /api/health（非 SPA fallback）
+# P1-4：容器探活走 /api/health/ready（就绪：含 LayerFS；非 SPA fallback）
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:9800/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:9800/api/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 USER node
 CMD ["node", "--disable-warning=ExperimentalWarning", "server/src/index.ts"]

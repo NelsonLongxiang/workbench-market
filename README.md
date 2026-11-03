@@ -104,7 +104,8 @@ POST             /api/vault/generate|strength   生成密码或口令短语 / �
 GET              /api/vault/health|history      安全体检（复用项不回明文）/ 活动记录（新→旧 200 条）
 GET              /api/export                    全量导出
 POST             /api/import?mode=merge|replace 导入
-GET              /api/health                    版本与运行时长
+GET              /api/health                    存活：版本与运行时长（不发外部请求；配了 LayerFS 时回缓存的上次就绪结果）
+GET              /api/health/ready              就绪：含 LayerFS 探测（结果缓存 10 秒），不健康 503
 ```
 
 ### A2A P3 回执（评审席 network/a2a-receipt）
@@ -370,7 +371,8 @@ services:
 
 ### 探活与数据
 
-- **探活端点 `/api/health`**（镜像已带 HEALTHCHECK；`/health` 不再被 SPA 兜底成 HTML）
+- **探活端点**：`/api/health` 是存活（只看本进程，不对外发请求），`/api/health/ready` 是就绪（配了 LayerFS 时探测它，结果缓存 10 秒，不健康 503）；镜像与 Compose 的 HEALTHCHECK 用就绪端点。`/health` 不再被 SPA 兜底成 HTML
+- **重启策略**：Compose 里 market 与 layerfs 都是 `restart: unless-stopped`，宿主重启后自动拉起
 - 数据卷：`market-data` → `/data`（SQLite WAL·停容器前 SIGTERM 自动 checkpoint）
 - 备份：`docker compose exec market node -e "require('node:sqlite').DatabaseSync" 2>/dev/null || true`——推荐宿主侧 `sqlite3 /var/lib/docker/volumes/.../_data/workbench-market.db ".backup /tmp/bak.db"` 或经 API `GET /api/export`
 - 升级：`git pull && docker compose up -d --build`（数据卷不受影响）

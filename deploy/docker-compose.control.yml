@@ -6,4 +6,4 @@ services:
     environment:
       WM_CONTROL_PORT: "9801"
     healthcheck:
-      test: ["CMD", "node", "-e", "Promise.all([fetch('http://127.0.0.1:9800/api/health'),fetch('http://127.0.0.1:9801/api/health'),fetch('http://127.0.0.1:9801/').then(r=>r.text())]).then(([m,c,h])=>process.exit(m.ok&&c.ok&&h.includes('wm-surface')&&h.includes('control')?0:1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "Promise.all([fetch('http://127.0.0.1:9800/api/health/ready'),fetch('http://127.0.0.1:9801/api/health'),fetch('http://127.0.0.1:9801/').then(r=>r.text())]).then(([m,c,h])=>process.exit(m.ok&&c.ok&&h.includes('wm-surface')&&h.includes('control')?0:1)).catch(()=>process.exit(1))"]

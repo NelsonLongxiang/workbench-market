@@ -30,7 +30,7 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, log = (row: unkno
       return next();
     }
     res.set('Cache-Control', 'no-store');
-    if (req.method === 'GET' && req.path.toLowerCase() === '/api/health') {
+    if (req.method === 'GET' && (req.path.toLowerCase() === '/api/health' || req.path.toLowerCase() === '/api/health/ready')) {
       return res.status(503).json({ ok: false, self_probe: snapshot() });
     }
     return res.status(503).json({ error: 'startup_security_check_pending' });
