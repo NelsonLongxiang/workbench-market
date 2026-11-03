@@ -26,7 +26,7 @@ registerHooks({load(url,ctx,next){const loaded=next(url,ctx);if(!url.endsWith('/
 const replace=(from,to)=>{if(!s.includes(from))throw Error('mutation anchor missing: '+mutation);s=s.replace(from,to);};
 if(mutation==='login-gate')replace('app.use(loginGate.middleware);','app.use((_q,_s,n)=>n());');
 if(mutation==='login-gate-apps')replace('app.use(loginGate.middleware);',"app.use((q,s,n)=>q.path.startsWith('/apps/')?n():loginGate.middleware(q,s,n));");
-if(mutation==='mcp-auth')replace('  if (MCP_GATEWAY_ON) {','  if (false && MCP_GATEWAY_ON) {');
+if(mutation==='mcp-auth')replace('  if (!MCP_GATEWAY_ON) return null;','  if (true || !MCP_GATEWAY_ON) return null;');
 if(mutation==='browser-write')replace("  if (p.startsWith('/api/')) {","  if (false && p.startsWith('/api/')) {");
 if(mutation==='mcp-timeout'||mutation==='hold-probe'){const a="app.post('/mcp', async (req, res) => {";replace(a,a+(mutation==='mcp-timeout'?"if(req.headers['x-wm-self-probe'])return;":"if(req.headers['x-wm-self-probe'])await new Promise(r=>setTimeout(r,500));"));}
 if(mutation==='handler-error'){const a="app.post('/api/workbenches', (req, res) => {";replace(a,a+"if(req.headers['x-wm-self-probe'])throw Error(process.env.ADMIN_TOKEN);");}

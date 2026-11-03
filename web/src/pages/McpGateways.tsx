@@ -23,7 +23,7 @@ const REQ_STATUS: Record<AccessRequest['status'], { color: string; label: string
 const CATEGORY: Record<string, { color: string; label: string }> = {
   read: { color: 'blue', label: '只读' }, write: { color: 'orange', label: '写' }, admin: { color: 'red', label: '管理' },
 };
-interface McpCall { id: number; at: string; session_name: string; method: string; tool: string; ok: number; error: string; duration_ms: number; args_sha256: string; }
+interface McpCall { id: number; at: string; session_name: string; method: string; tool: string; ok: number; error: string; duration_ms: number; args_sha256: string; channel?: string; }
 
 const TOOLS = [
   'workbench_list', 'workbench_summary', 'workbench_check', 'use_url',
@@ -294,6 +294,7 @@ export default function McpGateways() {
     { title: '结果', dataIndex: 'ok', width: 70, fixed: 'left', render: (_, c) => (c.ok ? <Tag color="green">成功</Tag> : <Tag color="red">失败</Tag>) },
     { title: '工具', dataIndex: 'tool', width: 160, render: (_, c) => <Typography.Text className="wm-mono wm-caption">{c.tool || '—'}</Typography.Text> },
     { title: '会话', dataIndex: 'session_name', width: 120, render: (_, c) => <Typography.Text className="wm-mono wm-caption">{c.session_name}</Typography.Text> },
+    { title: '渠道', dataIndex: 'channel', width: 70, render: (_, c) => <Tag>{c.channel === 'rest' ? 'REST' : 'MCP'}</Tag> },
     { title: '方法', dataIndex: 'method', width: 100, render: (_, c) => <Typography.Text className="wm-mono wm-caption">{c.method}</Typography.Text> },
     { title: '耗时', dataIndex: 'duration_ms', width: 80, align: 'right', render: (_, c) => <Typography.Text className="wm-num">{c.duration_ms}ms</Typography.Text> },
     { title: '错误', dataIndex: 'error', ellipsis: true, render: (_, c) => <Typography.Text type="secondary" className="wm-caption">{c.error || '—'}</Typography.Text> },
