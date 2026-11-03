@@ -95,6 +95,10 @@ ok('SQLite 识别', sniff('snap.sqlite', SQLITE, true).mime === 'application/vnd
 ok('.sqlite 实为文本判不符', sniff('snap.sqlite', enc('hello'), true).verdict === 'mismatch');
 ok('旧版 xls（OLE）识别', sniff('old.xls', OLE, true).mime === 'application/vnd.ms-excel');
 ok('.xls 实为 ZIP 判不符', sniff('old.xls', ZIP, true).verdict === 'mismatch');
+ok('HTML 表格导出的 .xls 放行', sniff('export.xls', enc('<html><table><tr><td>1</td></tr></table></html>'), true).verdict === 'ok');
+ok('制表符文本的 .xls 放行', sniff('export.xls', enc('a\tb\n1\t2\n'), true).verdict === 'ok');
+ok('PDF 冒充 .xls 判不符', sniff('x.xls', PDF, true).verdict === 'mismatch');
+ok('含 NUL 又无签名的 .doc 判不符', sniff('x.doc', b(0x61, 0, 0x62), true).verdict === 'mismatch');
 ok('RAR 识别', sniff('a.rar', b(0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0), true).verdict === 'ok');
 ok('7z 识别', sniff('a.7z', b(0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c), true).verdict === 'ok');
 ok('.rar 实为 ZIP 判不符', sniff('a.rar', ZIP, true).verdict === 'mismatch');

@@ -75,6 +75,12 @@ export function sniff(name: string, head: Uint8Array, complete: boolean, reporte
   const want = EXT[ext];
   const sig = signature(head);
   if (sig === 'exe') return { ext, detected: SIG_MIME.exe, mime: SIG_MIME.exe, verdict: 'executable', reason: '内容是可执行文件' };
+  // 旧版 Office（.xls/.doc）：很多系统导出的 .xls 实际是 HTML 表格或制表符文本——没有二进制签名、不含 NUL 的放行；
+  // 只有真 OLE，或文本，才算相符；其他已知二进制格式冒充（含 xlsx 的 ZIP）仍判不符
+  if (want && want.family === 'ole' && !sig) {
+    if (head.includes(0)) return { ext, detected: '', mime: reported || 'application/octet-stream', verdict: 'mismatch', reason: `扩展名 .${ext} 但内容既不是 OLE 也不是文本` };
+    return { ext, detected: 'text/plain', mime: want.mime, verdict: 'ok', reason: '' };
+  }
   if (want && want.family !== 'text') {
     if (sig === want.family) return { ext, detected: SIG_MIME[sig], mime: want.mime, verdict: 'ok', reason: '' };
     return { ext, detected: sig ? SIG_MIME[sig] : '', mime: reported || 'application/octet-stream', verdict: 'mismatch', reason: sig ? `扩展名 .${ext} 与内容（${SIG_MIME[sig]}）不符` : `扩展名 .${ext} 但内容没有该格式的文件头` };
