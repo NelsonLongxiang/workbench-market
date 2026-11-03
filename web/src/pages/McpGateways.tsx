@@ -48,6 +48,7 @@ export default function McpGateways() {
   const [grantSel, setGrantSel] = useState<string[]>([]);
   const [regTools, setRegTools] = useState<string[]>([]); // #grant-ux：活注册表（修硬编码 15 时代旧清单→未知名 400 根因）
   const [toolCat, setToolCat] = useState<Record<string, string>>({}); // 工具名 → read / write / admin
+  const [exemptTools, setExemptTools] = useState<string[]>([]); // 免授权工具（任何会话都能调）
   // 权限申请（会话经 MCP access_request 提交；这里批准/驳回）
   const [requests, setRequests] = useState<AccessRequest[]>([]);
   const [reqStatus, setReqStatus] = useState<ReqStatus>('pending');
@@ -88,6 +89,7 @@ export default function McpGateways() {
         const items = list.map((x) => (typeof x === 'string' ? { name: x } : (x as { name?: string; category?: string; always_allowed?: boolean })));
         // 免授权工具（access_info / access_request）任何会话都能调，不进授权编辑器
         setRegTools(items.filter((x) => !x.always_allowed).map((x) => String(x.name ?? '')).filter(Boolean));
+        setExemptTools(items.filter((x) => x.always_allowed).map((x) => String(x.name ?? '')));
         setToolCat(Object.fromEntries(items.filter((x) => x.name && x.category).map((x) => [String(x.name), String(x.category)])));
       })
       .catch(() => { setRegTools([]); message.error('工具清单加载失败：授权编辑器暂时无法选择工具'); });
@@ -418,7 +420,7 @@ export default function McpGateways() {
         width={520}
       >
         <Typography.Paragraph type="secondary" className="wm-caption">
-          勾选该会话可用的工具（整体替换语义；新会话为空=默认拒绝）。工具面共 {regTools.length} 个。
+          勾选该会话可用的工具（整体替换语义；新会话为空=默认拒绝）。工具面共 {regTools.length + exemptTools.length} 个{exemptTools.length ? `，其中 ${exemptTools.join(' / ')} 免授权、不用勾选` : ''}。
         </Typography.Paragraph>
         {upstreams.some((u) => u.reachable === false) && (
           <Typography.Paragraph type="warning" className="wm-caption">
