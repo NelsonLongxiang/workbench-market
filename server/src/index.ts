@@ -37,7 +37,9 @@ import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealt
 import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, runStateRestore, runStateLoad, runStateRetire } from './redis.ts';
 import { createRunCheckpoints } from './sop-state-checkpoints.ts';
-import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, MARKET_TEAM } from './a2a.ts';
+import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
+import type { IncomingMessage } from 'node:http';
+import { createDirectSigVerifier, directSigBodyMode, directSigMode, type DirectSigMode } from './a2a-direct-sig.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -69,6 +71,16 @@ const loginGate = createLoginGate({
   tokensCss: () => loadTokensCss()?.css ?? '',
 });
 if (loginGate.enforced) console.log('[login-gate] enforce：无身份的请求一律拦截（页面 302 /login，API 401）');
+// /a2a/direct 入站签名（WM_A2A_DIRECT_SIG=require|accept|off，缺省 accept）：enforce 时强制 require；值不合法拒绝启动
+const A2A_DIRECT_SIG_RAW = directSigMode();
+const A2A_DIRECT_SIG_BODY = directSigBodyMode();
+if (!A2A_DIRECT_SIG_RAW || !A2A_DIRECT_SIG_BODY) {
+  console.error('[a2a-direct-sig] 拒绝启动：WM_A2A_DIRECT_SIG 只接受 require / accept / off / 不设，WM_A2A_DIRECT_SIG_BODY 只接受 require / accept / 不设');
+  process.exit(1);
+}
+const A2A_DIRECT_SIG: DirectSigMode = loginGate.enforced ? 'require' : A2A_DIRECT_SIG_RAW;
+if (loginGate.enforced && A2A_DIRECT_SIG_RAW !== 'require') console.warn(`[a2a-direct-sig] WM_A2A_DIRECT_SIG=${A2A_DIRECT_SIG_RAW} 被忽略：WM_LOGIN_GATE=enforce 时 /a2a/direct 强制 require`);
+const directSig = createDirectSigVerifier({ audiences: () => [marketPublicUrl()], bodyMode: A2A_DIRECT_SIG_BODY });
 app.use(loginGate.middleware);
 // Explicit opt-in only; no default content listener, no live configuration writes.
 const contentCfg = contentConfig(process.env);
@@ -183,7 +195,9 @@ const MCP_REST_RAW_UPLOAD = /^\/api\/mcp-rest\/apps\/[^/]+\/files\/[^/]+$/i;
 app.use((req, res, next) => {
   if ((req.url ?? '').startsWith('/go/')) return next();
   if (req.method === 'PUT' && MCP_REST_RAW_UPLOAD.test(req.path)) return next();
-  return express.json({ limit: bodyLimitFor(req) })(req, res, next);
+  // /a2a/direct 的 body 签名要原始字节（a2a-direct-sig.ts 的 X-WM-Body-Sha256）
+  const keepRaw = req.method === 'POST' && req.path.toLowerCase() === '/a2a/direct';
+  return express.json({ limit: bodyLimitFor(req), ...(keepRaw ? { verify: (r: IncomingMessage, _res: unknown, buf: Buffer) => { (r as IncomingMessage & { rawBody?: Buffer }).rawBody = buf; } } : {}) })(req, res, next);
 });
 
 // GH #20 P1 ④远程面收口：非本机请求只放 /mcp、/.well-known/agent-card.json、/a2a/direct——
@@ -3152,9 +3166,9 @@ app.post('/api/bindings', (req, res) => {
   const mode = targetType === 'sop' && b.mode === 'run' ? 'run' : 'read'; // app 行 mode 恒 read（跨型 CHECK）
   const remoteKey = targetType === 'sop' && typeof b.remote_api_key === 'string' ? b.remote_api_key.trim() : '';
   const notifyRaw = typeof b.notify_url === 'string' ? b.notify_url.trim().replace(/\/+$/, '') : '';
-  if (notifyRaw !== '' && !/^https?:\/\/[^\s]+$/.test(notifyRaw)) bad('notify_url 必须是 http(s):// 根地址（达对端：回执投递/推送基址）');
-  // 语义对齐旧面：admits+read 不消费 notify_url（P3 口径）；notify 向必须带 notify_url
-  const notifyUrl = direction === 'admits' && mode === 'read' ? '' : notifyRaw;
+  if (notifyRaw !== '' && !/^https?:\/\/[^\s]+$/.test(notifyRaw)) bad('notify_url 必须是 http(s):// 根地址（达对端：回执投递/推送基址，也是入站验签的取卡地址）');
+  // admits+read 不发回执（P3 口径），但 notify_url 照样留：它是 /a2a/direct 入站验签的取卡地址；notify 向必须带 notify_url
+  const notifyUrl = notifyRaw;
   if ((direction === 'notify' || direction === 'both') && notifyUrl === '') bad('notify 向绑定必须携带 notify_url');
   if (targetType === 'sop') sopNode8(slug); // 确保节点短 id 已生成（上卡用）
   // natural key 命中 → upsert（重绑=刷新字段并复活撤销态·绑定管理语义），首绑/重绑皆 201
@@ -3201,6 +3215,24 @@ app.all('/api/apps/:slug/bindings/:id', (req, res) => {
 // ADMIN_TOKEN 未设置时绑定面休眠（主人裁定：内网信任模型）——direct 对无绑定的 SOP 自然全拒。
 app.post('/a2a/direct', express.json({ limit: '600kb' }), async (req, res) => {
   const rawBytes = Number(req.headers['content-length'] ?? 0) || JSON.stringify(req.body ?? {}).length;
+  // 入站签名（WM_A2A_DIRECT_SIG）：签名身份对上 caller_session 才进下面的绑定准入
+  if (A2A_DIRECT_SIG !== 'off') {
+    const caller = typeof req.body?.caller_session === 'string' ? req.body.caller_session : '';
+    const presence = directSig.presence(req);
+    let reason = '';
+    if (presence === 'signed') {
+      const v = await directSig.verify(req, (req as unknown as { rawBody?: Buffer }).rawBody ?? Buffer.alloc(0), caller);
+      // accept：调用方没登记取卡地址时验不了，按未签名的老路走（不比无签名更宽）
+      if (!v.ok && !(A2A_DIRECT_SIG === 'accept' && v.reason === 'unregistered')) reason = v.reason;
+    } else if (A2A_DIRECT_SIG === 'require') reason = presence === 'unbound' ? 'unbound-only' : 'absent';
+    if (reason !== '') {
+      console.warn(JSON.stringify({ source: 'a2a-direct-sig', refused: reason }));
+      // 对外把「没登记」与「取不到卡」并成一种，不泄露绑定是否存在
+      const shown = reason === 'unregistered' ? 'no-card' : reason;
+      res.status(401).json({ error: `untrusted-origin: signature verification failed (${shown}) — sign with OriginClaim Sig2 (X-A2A-Caller/-Url/-Ts/-Aud/-Sig2) using the card key published at the address registered on your binding`, code: -32000, task_status: 'TASK_STATE_FAILED' });
+      return;
+    }
+  }
   // run 操作桥（P2 note 写入走 sop_runs 的哑数据面：step_key=note-<ts> 追加不覆盖）
   const runOps = {
     start: (slug: string, startedBy: string): { id: number; read_capability: string } => { const r = sopRunStartCore(slug, startedBy); return { id: r.id, read_capability: r.read_capability }; },

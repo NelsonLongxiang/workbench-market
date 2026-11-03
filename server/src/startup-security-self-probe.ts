@@ -89,6 +89,8 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, log = (row: unkno
         { id: 'market.login-gate.page', target: m, surface: 'market', method: 'GET', path: '/', headers: REMOTE_ANON, status: 302, login: true },
         { id: 'market.login-gate.app', target: m, surface: 'market', method: 'GET', path: '/apps/wm-self-probe/', headers: REMOTE_ANON, status: 302, login: true },
         { id: 'market.login-gate.api', target: m, surface: 'market', method: 'GET', path: '/api/apps', headers: REMOTE_ANON, status: 401 },
+        // /a2a/direct 放行到路由、由签名判定：无签名的投递必须 401（合成队名，签名关掉时会落到 404）
+        { id: 'market.a2a-direct.unsigned', target: m, surface: 'market', method: 'POST', path: '/a2a/direct', body: '{"team":"market/00000000","message":"x","caller_session":"wm-self-probe/00000000"}', headers: REMOTE_ANON, status: 401 },
       ] as const : []),
     ] as const;
     for (const test of table) {

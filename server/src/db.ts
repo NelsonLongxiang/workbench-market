@@ -212,6 +212,12 @@ CREATE TABLE IF NOT EXISTS a2a_run_ctx (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_a2a_run_ctx ON a2a_run_ctx (context_id);
+-- /a2a/direct 入站签名防重放：验过的签名摘要存到有效期结束（落库，重启后重放照样拒）
+CREATE TABLE IF NOT EXISTS a2a_sig_seen (
+  sig_hash TEXT PRIMARY KEY,
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_a2a_sig_seen_exp ON a2a_sig_seen (expires_at);
 CREATE TABLE IF NOT EXISTS mcp_sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL UNIQUE,

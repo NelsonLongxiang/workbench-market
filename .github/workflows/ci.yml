@@ -148,6 +148,10 @@ jobs:
         env:
           A2A_ORIGIN_SRC: ${{ github.workspace }}/dsh-open-a2a-net/src/origin-claim.ts
         run: node scripts/origin-claim-bound-smoke.mjs
+      - name: /a2a/direct 入站签名（WM_A2A_DIRECT_SIG accept/require/enforce·上游 signOriginClaim 签·篡改 body/方法/路径/过期/重放/身份不符/未登记/坏卡 401·取卡不跟随重定向·密钥轮换）
+        env:
+          A2A_ORIGIN_SRC: ${{ github.workspace }}/dsh-open-a2a-net/src/origin-claim.ts
+        run: node scripts/a2a-direct-signature-smoke.mjs
       - name: Signed A2A direct and outbox reject redirects (#349, synthetic loopback only)
         run: node scripts/a2a-bound-redirect-test.mjs
       - name: 工作台事件层 v1（人提交→事件→团队接单：held/release·自动派发·退避重试/dead·决定端点·unrouted·表单 unverified·只增日志；对端上游裁判按关窗验）

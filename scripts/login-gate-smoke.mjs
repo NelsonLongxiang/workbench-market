@@ -9,7 +9,7 @@
  *   G6 /mcp：匿名 401（MCP_GATEWAY=off 也被强制开），有效会话 200
  *   G7 本机命令行放行；浏览器标记的本机请求不算命令行；X-Admin-Token 头放行
  *   G8 Odoo：内部员工会话放行，门户账号被拦；登录中继只放登录用的那一个入口；WS 升级匿名断开
- *   G9 A2A：签名卡片放行；/a2a/direct 无签名校验 → 拦
+ *   G9 A2A：签名卡片放行；/a2a/direct 放行到路由、无签名 → 401
  *   G11 首次 enforce 轮换按台令牌密钥：开门前的旧令牌 401、新令牌放行、记号与密钥 600、日志无密钥、第二次启动不再轮换
  *   G10 off：匿名照旧可读、不跳登录、health 报 off；口令轮换后旧 cookie 失效；非法开关值拒绝启动 */
 import { spawn } from 'node:child_process';
@@ -278,7 +278,7 @@ try {
 
   // G9 A2A
   ok('G9 签名卡片匿名可读', (await req(B, 'GET', '/.well-known/agent-card.json')).status === 200);
-  ok('G9 /a2a/direct 无签名校验 → 匿名 401', (await req(B, 'POST', '/a2a/direct', REMOTE, { team: 'market/00000000', message: 'x', caller_session: 'x' })).status === 401);
+  ok('G9 /a2a/direct 无签名 → 路由按签名拒 401', (await req(B, 'POST', '/a2a/direct', REMOTE, { team: 'market/00000000', message: 'x', caller_session: 'x' })).status === 401);
   ok('G9 工作台事件回执（reply token 认证）不被登录门拦', (await req(B, 'POST', '/api/workbench-events/wbe-0000000000000000/decision', REMOTE, { token: 'x', decision: 'ask', reason: 'r' })).status === 404);
 
   // G4 next
