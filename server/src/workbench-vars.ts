@@ -124,6 +124,8 @@ export function setVar(scope: Scope, key: string, input: { value?: unknown; hasV
     if (input.expected === undefined) conflict(scope, key, '改已存在的键必须带期望 revision（If-Match 或 revision）', 'revision_required', 428);
     if (input.expected !== cur.revision) conflict(scope, key, `revision 冲突：期望 ${input.expected}，当前 ${cur.revision}`, 'revision_conflict');
     const kind = (input.kind as string | undefined) ?? cur.kind;
+    // 已存在的键改 kind（冻结 var→const）只限管理员：按台令牌在公开页面里，不能让持令牌者冻结别人的变量
+    if (kind !== cur.kind && !caller.admin) conflict(scope, key, '改已存在键的 kind 只限管理员或本机命令行', 'kind_change_forbidden', 403);
     if (!S.update(scope.id, key, cur.revision, kind, json, caller.actor).changes) conflict(scope, key, 'revision 冲突：已被并发修改', 'revision_conflict');
     const action = cur.kind === 'const' ? 'const_override' : kind === 'const' ? 'freeze' : 'update';
     S.audit({ workbench_id: scope.id, key, action, actor: caller.actor, kind, old_revision: cur.revision, new_revision: cur.revision + 1, old_sha256: sha(cur.value), new_sha256: sha(json), reason });

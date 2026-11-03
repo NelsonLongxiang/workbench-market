@@ -172,7 +172,11 @@ try {
   const au = r.body?.items ?? [];
   ok('审计：create + const_override，带操作者与理由，只记 sha256', r.status === 200 && au[0]?.action === 'const_override' && au[0]?.actor === 'admin' && au[0]?.reason === 'threshold revised' && /^[0-9a-f]{64}$/.test(au[0]?.new_sha256 ?? '') && au[1]?.action === 'create' && !JSON.stringify(au).includes('200,'), JSON.stringify(au));
   r = await put(W.appA, 'counter', { value: 3, revision: 2, kind: 'const' }, page(tokA));
-  ok('变量可冻结为常量（审计 freeze）', r.status === 200 && r.body?.kind === 'const');
+  ok('按台令牌改已存在键的 kind（冻结）→ 403 kind_change_forbidden', r.status === 403 && r.body?.code === 'kind_change_forbidden' && r.body?.current?.kind === 'var', JSON.stringify(r.body));
+  r = await call('PUT', vpath(W.appA, 'counter'), { ...ADM, 'if-match': '"2"' }, { value: 3, kind: 'const' });
+  ok('管理员可冻结变量为常量（审计 freeze）', r.status === 200 && r.body?.kind === 'const' && r.body?.revision === 3, JSON.stringify(r.body));
+  r = await call('GET', vpath(W.appA, 'counter') + '/audit', ADM);
+  ok('审计记 freeze、操作者 admin', r.body?.items?.[0]?.action === 'freeze' && r.body?.items?.[0]?.actor === 'admin', JSON.stringify(r.body?.items?.[0]));
   r = await put(W.appA, 'counter', { value: 4, revision: 3 }, page(tokA));
   ok('冻结后再改 → 403', r.status === 403 && r.body?.code === 'const_locked');
   r = await call('DELETE', vpath(W.appA, 'unit') + '?revision=1&override=1', CLI);
