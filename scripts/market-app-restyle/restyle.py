@@ -26,6 +26,8 @@ TOKEN_HEX = {v.upper() for v in T.values()}
 
 # 深色台（规范只做浅色）
 DARK = {'finance-workbench', 'logistics-owba-board', 'preset-ops', 'procurement-workbench'}
+# 报告类页面（工厂报告等 A4 版式文档）一律不改（属主 2026-11-03：「报告类的不要改我的」）——--repo 直接跳过
+REPORT = {'factory-report-liangchong-v5', 'factory-report-pickleball-v3', 'factory-report-huashengweike-v1', 'factory-report-verify-hswk'}
 # 每台品牌色/特殊色的人工裁定（hex 大写 -> token 名）
 OVERRIDE = {
     'dev-collab-board': {'#2F6F4F': 'primary', '#EEF4F0': 'primary-subtle', '#15803D': 'success'},
@@ -348,12 +350,17 @@ def transform(src, slug, tokens_css, kind='html'):
     # <style> 内：用 var()
     def style_block(m):
         css = nav_bands(strip_dark(m.group(2)), dark, ov)
-        # 渐变压成首个色标的实色（规范：按钮/横幅不用渐变）
-        css = re.sub(r'background(-image)?:\s*linear-gradient\(\s*(?:[\d.]+deg\s*,\s*|to [a-z ]+,\s*)?([^,()]+(?:\([^)]*\))?)[^;}]*\)', lambda g: 'background:' + g.group(2).strip().split(' ')[0], css)
+        # 渐变压成首个色标的实色（规范：按钮/横幅不用渐变）。带透明色标的是图片遮罩或线纹图案，压平会把白字露在图上，原样保留
+        def flatten(g):
+            if re.search(r'transparent|rgba\(|hsla\(', g.group(0)): return g.group(0)
+            return 'background:' + g.group(2).strip().split(' ')[0]
+        css = re.sub(r'background(-image)?:\s*linear-gradient\(\s*(?:[\d.]+deg\s*,\s*|to [a-z ]+,\s*)?([^,()]+(?:\([^)]*\))?)[^;}]*\)', flatten, css)
         css = re.sub(r'--font(?:-body)?:\s*[^;}]+', '--font:var(--wm-font-sans)', css)
         css = re.sub(r'--font-mono:\s*[^;}]+', '--font-mono:var(--wm-font-mono)', css)
         css = re.sub(r'--mono:\s*[^;}]+', '--mono:var(--wm-font-mono)', css)
         css = re.sub(r'--radius:\s*\d+px', '--radius:8px', css)
+        # 字号写在自定义属性里（如 --vh-l0-size:22px，再由 font-size:var(--…) 引用）：同样吸附到六档
+        css = re.sub(r'(--[\w-]*(?:size|fs)[\w-]*:\s*)(\d+(?:\.\d+)?)px', lambda v: v.group(1) + str(snap(float(v.group(2)))) + 'px', css)
         css = FONT_DECL.sub(ff, css)
         css = HEX.sub(color_sub(True), css)
         css = rgba_fix(css, dark)
@@ -402,6 +409,8 @@ def restyle_repo(tokens, repo, only):
     for d in sorted(p for p in repo.iterdir() if p.is_dir() and not p.name.startswith('.')):
         if only and d.name not in only: continue
         if (d / 'sop.yaml').exists() or not (d / 'index.html').exists(): continue
+        if d.name in REPORT:
+            print(f"{d.name:38s} 报告类，不改"); continue
         changed = []
         for f in sorted(x for x in d.rglob('*') if x.is_file() and x.suffix.lower() in ('.html', '.htm', '.css', '.js')):
             rel = str(f.relative_to(d)); src = rd(f)
