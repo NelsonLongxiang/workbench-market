@@ -66,6 +66,6 @@ fetch('/api/apps/<slug>/data', { headers: { 'X-App-Token': window.WM_APP_TOKEN }
 
 1. **环境注入不分叉源码**：页面读可选 `window.XX_ENV`（根路径/外链/内联资产），仓库内直开用默认值
 2. **内联打包**：样式与脚本按原加载顺序内联进 `index.html`；校验脚本无 `</script`、样式无 `</style`；独立页（弹窗报告）作第二个文件
-3. **本地预跑门禁 → 发布后冒烟**：空文件/div 配对/≤64 文件/≤2MB/路径合法，不通过不发；发布后 CDP 冒烟（数据量/样式/图片/弹窗 postMessage/无脚本异常·`/apps/<slug>/`、`/go/<id>/`、`file://` 各一遍）
+3. **本地预跑门禁 → 发布后冒烟**：空文件/div 配对/≤64 文件/≤100MB/路径合法，不通过不发；发布后 CDP 冒烟（数据量/样式/图片/弹窗 postMessage/无脚本异常·`/apps/<slug>/`、`/go/<id>/`、`file://` 各一遍）
 
 > 发布门禁细节：div 配对按**正则计数整个 .html**（内联 JS 模板串里的 `<div` 也算）；v1 只收 UTF-8 文本——图片用 base64 `data:` URI 内联（体积 ×1.33，计入 2MB）。
