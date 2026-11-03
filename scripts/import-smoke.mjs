@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /** 导入/导出行为冒烟（独立实例：独立 DATA_DIR+PORT——replace 全表清写不再碰活库，根治并发撞车）。
  *  覆盖：issue #7 的 query mode 语义 + 内部路径行不丢 + replace 后驾驶舱悬空面板 prune + 掩码行整批拒（#258）。 */
-import { spawn } from 'node:child_process';
+import { spawn } from './owned-script-fixture.mjs';
+import { createServer } from 'node:http';
 import { rmSync, mkdirSync } from 'node:fs';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
-const PORT = 9812;
+const reserve = createServer();await new Promise((r) => reserve.listen(0, '127.0.0.1', r));const PORT = reserve.address().port;await new Promise((r) => reserve.close(r));
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-import-data';
 let pass = 0, fail = 0;
@@ -16,12 +17,13 @@ rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server',
-  env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: `../${DATA}`, WM_GITHUB_API: gh.api },
+  env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: `../${DATA}`, WM_GITHUB_API: gh.api },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 child.stderr.on('data', (d) => process.stderr.write(String(d)));
 child.on('exit', (c) => { if (c !== null && c !== 0) console.error('[import-smoke] 子进程异常退出', c); });
-await new Promise((r) => setTimeout(r, 5000));
+async function waitReady(ms = 30000) { const end = Date.now() + ms; while (Date.now() < end) { try { const r = await fetch(BASE + '/api/health'); if (r.status === 200) return true; } catch {} await new Promise((r) => setTimeout(r, 250)); } return false; }
+if (!(await waitReady())) { console.error('[import-smoke] 实例未就绪（30s 超时）'); process.exit(1); }
 
 async function call(method, path, body) {
   const r = await fetch(BASE + path, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
