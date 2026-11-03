@@ -1662,6 +1662,17 @@ async function sopRunFinishLockedCore(id: number): Promise<{ ok: boolean; id: nu
   const pending = row.sop_slug === 'task-center' ? undefined : runCheckpoints.peek(id);
   const hot = row.sop_slug === 'task-center' || pending ? null : await runStateLoad(id, runCacheCheckpoint(row));
   const data = JSON.stringify(pending ?? { ...storedRunData(row), ...(hot?.meta.status === 'running' ? hot.data : {}) });
+  // 完成前按该 run 所用 SOP 版本里的字段规则（required/pattern/长度/类型）校验；不符则不完成、run 保持进行中
+  if (row.sop_slug !== 'task-center') {
+    const yamlPath = join(appsRoot, row.sop_slug, `v${row.sop_version}`, 'sop.yaml');
+    const manifest = existsSync(yamlPath) ? parseSopManifest(readFileSync(yamlPath, 'utf8')) : readActiveManifest(row.sop_slug)?.manifest;
+    if (manifest) {
+      let parsedData: Record<string, unknown> = {};
+      try { parsedData = JSON.parse(data); } catch { parsedData = {}; }
+      const violations = checkRunData(extractFieldRules(manifest), parsedData);
+      if (violations.length) throw new HttpError(400, `有 ${violations.length} 个字段未通过校验，未完成：${violations.slice(0, 5).join('；')}${violations.length > 5 ? ' 等' : ''}`, { violations });
+    }
+  }
   svc<SopService>('sop').runFinish(id, data);
   runCheckpoints.forget(id); // only clear after the durable finish succeeds
   await runStateRetire(id); // best-effort cache retirement; SQLite status remains authoritative
@@ -3155,6 +3166,7 @@ import { endpointStatsMiddleware, statsPayload } from './endpoint-stats.ts';
 import { fetchMainFiles, normalizeSource, SourceError, SOURCE_BRANCH } from './github-source.ts';
 import { checkRecord, parseContract, type DataContract } from './app-data-contract.ts';
 import { sniff, type Sniff } from './file-sniff.ts';
+import { checkRunData, extractFieldRules } from './sop-field-rules.ts';
 
 // ---------- MCP 生产通道（StreamableHTTP · stateless：AI 会话直连市场，零依赖手写 JSON-RPC） ----------
 const MCP_PROTOCOL = '2025-03-26';
