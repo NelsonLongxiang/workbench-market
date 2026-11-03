@@ -24,18 +24,20 @@ net.Server.prototype.listen=function(...a){if(typeof a[0]==='number'){if(typeof 
 const mutation=process.env.WM_SYNTHETIC_PROBE_MUTATION;
 registerHooks({load(url,ctx,next){const loaded=next(url,ctx);if(!url.endsWith('/server/src/index.ts')||!mutation)return loaded;let s=String(loaded.source);
 const replace=(from,to)=>{if(!s.includes(from))throw Error('mutation anchor missing: '+mutation);s=s.replace(from,to);};
+if(mutation==='login-gate')replace('app.use(loginGate.middleware);','app.use((_q,_s,n)=>n());');
+if(mutation==='login-gate-apps')replace('app.use(loginGate.middleware);',"app.use((q,s,n)=>q.path.startsWith('/apps/')?n():loginGate.middleware(q,s,n));");
 if(mutation==='mcp-auth')replace('  if (!MCP_GATEWAY_ON) return null;','  if (true || !MCP_GATEWAY_ON) return null;');
 if(mutation==='browser-write')replace("  if (p.startsWith('/api/')) {","  if (false && p.startsWith('/api/')) {");
 if(mutation==='mcp-timeout'||mutation==='hold-probe'){const a="app.post('/mcp', async (req, res) => {";replace(a,a+(mutation==='mcp-timeout'?"if(req.headers['x-wm-self-probe'])return;":"if(req.headers['x-wm-self-probe'])await new Promise(r=>setTimeout(r,500));"));}
 if(mutation==='handler-error'){const a="app.post('/api/workbenches', (req, res) => {";replace(a,a+"if(req.headers['x-wm-self-probe'])throw Error(process.env.ADMIN_TOKEN);");}
 return{...loaded,source:s};}});`;
-async function runCase(label,{off=false,control=false,occupied=false,unset=false,mutation='',expectFailure=false,nodeEnv='production'}={}){
+async function runCase(label,{off=false,control=false,occupied=false,unset=false,mutation='',expectFailure=false,nodeEnv='production',gate=''}={}){
  const dir=join(out,label);mkdirSync(dir,{recursive:true});const port=await spare();let cp=control?await spare():0;
  while(cp===port)cp=await spare();
  let foreign,foreignRequests=0;
  if(occupied){foreign=httpServer((_q,r)=>{foreignRequests++;r.statusCode=403;r.end()});await new Promise(r=>foreign.listen(0,'127.0.0.1',r));cp=foreign.address().port;}
  const env={};for(const k of['SystemRoot','WINDIR','PATH','PATHEXT','TEMP','TMP'])if(process.env[k])env[k]=process.env[k];
- Object.assign(env,{PORT:String(port),DATA_DIR:join(dir,'data'),YGL_HOME:join(dir,'home'),WM_CONTROL_PORT:String(cp),MCP_GATEWAY:off?'off':'on',ADMIN_TOKEN:'DO_NOT_LOG_SYNTHETIC_CREDENTIAL',REDIS_URL:'',NODE_ENV:nodeEnv,WM_SYNTHETIC_PROBE_MUTATION:mutation});
+ Object.assign(env,{PORT:String(port),DATA_DIR:join(dir,'data'),YGL_HOME:join(dir,'home'),WM_CONTROL_PORT:String(cp),MCP_GATEWAY:off?'off':'on',ADMIN_TOKEN:'DO_NOT_LOG_SYNTHETIC_CREDENTIAL',REDIS_URL:'',NODE_ENV:nodeEnv,WM_SYNTHETIC_PROBE_MUTATION:mutation,WM_LOGIN_GATE:gate});
  if(unset)delete env.MCP_GATEWAY;
  if(nodeEnv===null)delete env.NODE_ENV;
  const child=spawn(process.execPath,['--import','data:text/javascript,'+encodeURIComponent(preload),'server/src/index.ts'],{cwd:root,env,stdio:['ignore','pipe','pipe']});
@@ -58,15 +60,20 @@ async function runCase(label,{off=false,control=false,occupied=false,unset=false
    let wait;const finish=await Promise.race([ended,new Promise(r=>{wait=setTimeout(()=>r(null),3000)})]);clearTimeout(wait);
    check(label+' unsafe startup exits nonzero',finish!==null&&finish[0]!==0);
    check(label+' log identifies failed self-probe row',so.includes('"source":"self-probe"')&&so.includes('"verdict":"fail"'));
+   if(mutation==='login-gate')check(label+' every login-gate row is named failed',['page','app','api'].every(k=>so.includes('"id":"market.login-gate.'+k+'","surface":"market","method":"GET","path":"'+({page:'/',app:'/apps/wm-self-probe/',api:'/api/apps'})[k]+'","verdict":"fail"')));
+   if(mutation==='login-gate-apps')check(label+' only the leaking /apps row fails',so.includes('"id":"market.login-gate.app","surface":"market","method":"GET","path":"/apps/wm-self-probe/","verdict":"fail"')&&so.includes('"id":"market.login-gate.page","surface":"market","method":"GET","path":"/","verdict":"pass"'));
    let closed=false;try{await fetch('http://127.0.0.1:'+port+'/api/health',{signal:AbortSignal.timeout(300)})}catch{closed=true}
    check(label+' failure closes only the owned listener',closed);
    if(off&&nodeEnv!=='development'&&nodeEnv!=='test')check(label+' forbidden gateway mode has named failure and never healthy',so.includes('"reason":"gateway-off-forbidden"')&&so.includes('market.mcp.initialize')&&status!==200);
   }else{
    check(label+' health reports completed pass',status===200&&health?.self_probe?.passed===true&&health.self_probe.at!==null);
    check(label+' table has explicit control skip/pass',health.self_probe.rows.some(x=>x.id==='control.admin-read'&&x.verdict===(control&&!occupied?'pass':'skip')));
-   if(off)check('explicit gateway off reports exactly two warnings',health.self_probe.rows.filter(x=>x.verdict==='warn').length===2);
+   if(off&&gate!=='enforce')check('explicit gateway off reports exactly two warnings',health.self_probe.rows.filter(x=>x.verdict==='warn').length===2);
+   if(off&&gate==='enforce')check(label+' gateway forced on: MCP rows pass, no warnings, override logged',health.self_probe.rows.filter(x=>x.id.startsWith('market.mcp.')&&x.verdict==='pass').length===2&&!health.self_probe.rows.some(x=>x.verdict==='warn')&&se.includes('WM_LOGIN_GATE=enforce'));
    if(occupied)check('occupied control skips without probing the foreign process',foreignRequests===0&&health.self_probe.rows.some(x=>x.id==='control.admin-read'&&x.reason==='control-not-listening'));
    if(mutation==='hold-probe')check('real pending ingress checks ran before readiness',pendingChecked);
+   if(gate==='enforce')check(label+' login-gate rows all pass',['page','app','api'].every(k=>health.self_probe.rows.some(x=>x.id==='market.login-gate.'+k&&x.verdict==='pass'))&&health.login_gate==='enforce');
+   if(gate!=='enforce')check(label+' no login-gate rows when gate is off',!health.self_probe.rows.some(x=>x.id.startsWith('market.login-gate.')));
    check(label+' ordinary request works after successful startup',(await fetch('http://127.0.0.1:'+port+'/api/workbenches')).status===200);
   }
   const db=new DatabaseSync(join(dir,'data','workbench-market.db'),{readOnly:true});
@@ -98,5 +105,9 @@ await runCase('mcp-auth-regression',{mutation:'mcp-auth',expectFailure:true});
 await runCase('browser-write-regression',{mutation:'browser-write',expectFailure:true});
 await runCase('probe-timeout',{mutation:'mcp-timeout',expectFailure:true});
 await runCase('probe-handler-error',{mutation:'handler-error',expectFailure:true});
+await runCase('login-gate-enforce',{gate:'enforce',control:true});
+await runCase('login-gate-enforce-gateway-off-ignored',{gate:'enforce',off:true});
+await runCase('login-gate-bypassed',{gate:'enforce',mutation:'login-gate',expectFailure:true});
+await runCase('login-gate-apps-leak',{gate:'enforce',mutation:'login-gate-apps',expectFailure:true});
 writeFileSync(join(out,'result.json'),JSON.stringify({checks,production_requests:0,personal_home_access:false},null,2));
 console.log(JSON.stringify({out,checks}));

@@ -45,6 +45,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/admin-token-browser.mjs
+      - name: 全站登录门浏览器回归（enforce：登录页·沙箱自产台子资源/图片/内嵌·SPA 401 去登录·退出·next 防外跳）
+        env:
+          PYTHON: python
+        run: node scripts/login-gate-browser.mjs
       - name: UI 外壳浏览器回归（#316 菜单分组；#317 页面骨架；#319 列表规则；#320 看板 12 列栅格·四类卡片·数据截至·驾驶舱旧布局吸附不丢卡不回写）
         env:
           PYTHON: python
@@ -160,10 +164,12 @@ jobs:
         run: node scripts/import-smoke.mjs
       - name: MCP 网关缺省开（#284·未设/空/on 匿名 401·off 告警·坏值拒启）
         run: node scripts/gateway-default-smoke.mjs && node scripts/gateway-smoke.mjs
+      - name: 全站登录门（WM_LOGIN_GATE：enforce 匿名 302/401·口令登录 cookie·限频退避·next 防外跳·台令牌/查看凭证·/mcp 网关·本机命令行·Odoo 替身·off 不变·坏值拒启）
+        run: node scripts/login-gate-smoke.mjs
       - name: MCP 权限可见与自助申请（access_info 全目录·access_request 去重限频·管理员批准并集/驳回不动 grants/吊销不能批·app_data_submit 与 REST 同核契约校验·匿名 401）
         run: node scripts/mcp-access-smoke.mjs
       - name: MCP 内嵌 REST / OpenAPI（文件：99MB 流式上传 sha256 一致·Range/ETag 下载·415·403/401；资源：列文件/读数据/SOP 附件；工具映射与 /mcp 同链·审计 channel=rest·匿名 5MB 413）
-        run: node scripts/mcp-rest-smoke.mjs
+        run: node scripts/mcp-rest-smoke.mjs && node scripts/mcp-rest-smoke.mjs --login-gate
       - name: 工作台变量与常量（#336：三类台隔离·权限·常量保护·并发 409·重启恢复·MCP）
         run: node scripts/workbench-vars-smoke.mjs
       - name: MCP design_standard 只读读取设计标准（模块+实例·网关开关两态）

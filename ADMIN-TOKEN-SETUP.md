@@ -49,6 +49,26 @@
    ```
    （dsh-mcp-connector 的自定义连接 headers 字段支持）
 
+## 全站登录门（WM_LOGIN_GATE）
+
+`WM_LOGIN_GATE=enforce` 后，没有身份的请求一律拦截：浏览器页面 302 到 `/login?next=<原地址>`（只收同站相对路径），API 回 401 `{"error":"login_required"}`（响应头 `X-WM-Login-Required: 1`，前端据此整页去登录页）。缺省 `off`：行为与以前完全一样。其它值拒绝启动。`GET /api/health` 的 `login_gate` 字段报当前状态。
+
+认的身份（任一即可）：本机命令行（回环直连、无浏览器标记、无反代头）；有效的 `X-Admin-Token` 头；登录页输入管理员口令后签发的 cookie；Odoo 内部员工会话（需配 `LC_ODOO_URL`，只认 `is_internal_user`，门户账号不行）。
+
+- **登录 cookie**：`wm_login`，HMAC 签名（密钥 `DATA_DIR/.wm-login-gate.key`，权限 600，首次启动自动生成），HttpOnly、SameSite=Lax、12 小时；https（或反代带 `X-Forwarded-Proto: https`）时加 Secure。cookie 里不含口令；**口令一轮换，所有已发 cookie 立即失效**。登出（顶栏「退出」/ `POST /api/auth/logout`）清 cookie 并作废这一枚（作废名单在进程内，重启后只靠 cookie 自身到期）。
+- **cookie 只管能不能进站**，管理写仍要口令头或 Odoo 管理员，和以前一样。
+- **登录限频**：按来源 IP 每分钟 10 次；连续失败 3 次起退避 1s、2s、4s…封顶 5 分钟，超限 429 带 `Retry-After`。来源 IP 取 TCP 对端：经同机反代时所有人共用一个桶。口令错与未设置口令同答「口令无效」。审计只记成功/失败、来源 IP 与时间（stdout 一行 JSON，`source=login-gate`）。
+- **/mcp**（以及 #385 的 `/openapi.json`、`/api/mcp-rest/*`）：不走登录 cookie，只认网关会话令牌；enforce 时 `MCP_GATEWAY` 强制视为 on（设了 off 会告警并忽略）。
+- **自产台（沙箱页）**：页面是不透明源，子资源请求带不了 cookie。已登录的人打开 `/apps/<slug>/`（或指向自产台的 `/go/<id>/`）会被 302 到 `/apps/<slug>/~wm/<查看凭证>/…`：凭证按台签名、12 小时有效，相对路径的脚本/样式/图片自然带上；页面里指向本台的绝对地址（`/apps/<slug>/…`、`/api/apps/<slug>/files/<id>`）由服务端和注入脚本补上凭证。带本台 `X-App-Token` 的 data/files/变量请求直接放行。凭证地址不能当顶层页面匿名打开（复制出去的链接要先登录）。
+  已知不覆盖：沙箱页里内嵌**别的**台或 `/sop/`、`/go/<外部台>/` 的 iframe，以及 CSS 里 `url(/apps/…)` 形式的绝对地址——这些请求不带 cookie 也没有凭证，会被拦。
+- **无身份也放行**：`/api/health`、`/login` 与 `/api/auth/*`、`/mcp`（网关认证）、签名卡片 `GET /.well-known/agent-card.json`、工作台事件回执 `POST /api/workbench-events/<id>/decision`（凭投递里的 reply token）、`/design/tokens@*.css`（公开设计变量）、沙箱页对本台数据面的预检、Odoo 登录中继（只有登录页给出的那一个 `/go/<id>/?return=/login`）。
+- **不放行 `/a2a/direct`**：它没有签名校验（准入只按自报的 caller_session 匹配绑定），enforce 下远程节点直投 SOP 会 401。
+- WebSocket 升级（`/go/` 代理的长连接）同样要身份。
+
+- **首次 enforce 自动轮换按台令牌密钥**：按台令牌（`X-App-Token`）永久有效，开门之前它在公网页面上谁都拿得到，而登录门对带令牌的 data/files 请求直接放行。所以首次以 enforce 启动时会原子替换 `DATA_DIR/.wm-app-token.key`（权限 600），并写入记号 `DATA_DIR/.wm-app-token.gate`，之后不再重复轮换；日志只写一行「已轮换」，不记密钥。开门前发出的台令牌全部作废，已打开的自产台页面刷新后会拿到新令牌。要再次轮换，删掉记号文件再以 enforce 重启即可。
+
+开启前：已经打开着的页面在下一次请求时会被要求重新登录；本机脚本（回环直连）不受影响。
+
 ## 安全注意
 
 - ADMIN_TOKEN 泄露=可建任意 MCP 会话/绑定 SOP/写一切控制面——请主人妥善保管
