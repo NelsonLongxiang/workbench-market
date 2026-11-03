@@ -89,6 +89,16 @@ ok('带 BOM 的 UTF-16 .txt 放行（Excel「Unicode 文本」）', sniff('导�
 ok('带 BOM 的 UTF-16 .json 判不符', sniff('a.json', b(0xff, 0xfe, 0x7b, 0, 0x7d, 0), true).verdict === 'mismatch');
 ok('含 NUL 的 .csv 判不符', sniff('a.csv', b(0x61, 0, 0x62), true).verdict === 'mismatch');
 ok('非 UTF-8 的 .json 判不符', sniff('a.json', GBK_CSV, true).verdict === 'mismatch');
+const SQLITE = new Uint8Array([...new TextEncoder().encode('SQLite format 3'), 0, 1, 2]);
+const OLE = b(0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 0);
+ok('SQLite 识别', sniff('snap.sqlite', SQLITE, true).mime === 'application/vnd.sqlite3');
+ok('.sqlite 实为文本判不符', sniff('snap.sqlite', enc('hello'), true).verdict === 'mismatch');
+ok('旧版 xls（OLE）识别', sniff('old.xls', OLE, true).mime === 'application/vnd.ms-excel');
+ok('.xls 实为 ZIP 判不符', sniff('old.xls', ZIP, true).verdict === 'mismatch');
+ok('RAR 识别', sniff('a.rar', b(0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0), true).verdict === 'ok');
+ok('7z 识别', sniff('a.7z', b(0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c), true).verdict === 'ok');
+ok('.rar 实为 ZIP 判不符', sniff('a.rar', ZIP, true).verdict === 'mismatch');
+ok('.db 不当 SQLite 强判（未知扩展名沿用上报）', sniff('x.db', enc('anything'), true, 'application/octet-stream').verdict === 'unknown');
 ok('可执行文件拒收', sniff('setup.zip', EXE, true).verdict === 'executable');
 ok('未知扩展名有签名时按签名', sniff('blob.bin', PNG, true).mime === 'image/png');
 ok('未知扩展名无签名时沿用上报值', sniff('x.dat', enc('abc'), true, 'application/x-foo').mime === 'application/x-foo');
