@@ -1083,6 +1083,29 @@ with sync_playwright() as p:
         assert page.locator('input[type="password"]').count() >= 1, '口令输入未渲染'
         assert '默认拒绝' in body_txt, '默认拒绝提示未渲染'
         assert '审计' in body_txt, '审计区未渲染'
+        # C7b（#371）：授权编辑器的工具下拉必须有选项——/api/mcp/tools 回裸数组，前端曾按 {tools} 信封解析导致恒空
+        _at7 = _os.environ.get('E2E_ADMIN_TOKEN', '')
+        if _at7:
+            _ah7 = {'Content-Type': 'application/json', 'X-Admin-Token': _at7}
+            _s7 = page.request.post(BASE + '/api/mcp/sessions', headers=_ah7,
+                data=json.dumps({'name': 'e2e-grant-ui-' + str(int(__import__('time').time()))})).json()
+            _t7 = page.request.get(BASE + '/api/mcp/tools', headers=_ah7).json()
+            _n7 = len(_t7 if isinstance(_t7, list) else (_t7.get('tools') or []))
+            assert _n7 > 0, '/api/mcp/tools 为空'
+            page.locator('input[type="password"]').first.fill(_at7)
+            page.get_by_role('button', name=__import__('re').compile(r'载\s*入')).click()
+            page.wait_for_timeout(800)
+            page.locator('.ant-table-row').filter(has_text=_s7['name']).get_by_role('button', name='grants').click()
+            _m7 = page.locator('.ant-modal-content').filter(has_text='授权编辑')
+            _m7.wait_for(state='visible')
+            assert f'工具面共 {_n7} 个' in _m7.inner_text(), f'工具总数说明不符: {_m7.inner_text()[:120]}'
+            _m7.locator('.ant-select-selector').click()
+            page.wait_for_timeout(400)
+            _opts7 = page.locator('.ant-select-dropdown:visible .ant-select-item-option').count()
+            assert _opts7 > 0, '授权编辑器工具下拉为空（#371 回归）'
+            page.keyboard.press('Escape')
+            _m7.locator('.ant-modal-close').click()
+            page.request.delete(BASE + f"/api/mcp/sessions/{_s7['id']}", headers=_ah7)
         # C8: Cookie 池（派单 direct-5fbb2176）——独立实例冒烟（导入→挂接→注入→过滤→掩码→删除）
         import subprocess as _sp3
         ck = _sp3.run(['node', 'scripts/cookie-smoke.mjs'], capture_output=True, text=True, timeout=120,
