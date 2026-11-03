@@ -74,6 +74,26 @@ const many = checkRecord(J, { type: 'task', refs: Array.from({ length: 120 }, ()
 ok('违约多于 50 条时截断并附总数', many.length === 51 && many[50].includes('共 120 条'), String(many.length));
 ok('items 坏正则在解析时报错', throws(() => parseContract(JSON.stringify({ version: 1, types: { t: { items: { a: { pattern: { b: '(' } } } } } }))));
 
+console.log('条件规则里的格式（when.pattern，顶层与数组对象）');
+const W = parseContract(JSON.stringify({ version: 1, types: { task: {
+  when: [{ if: { kind: ['material'] }, require: ['sha'], pattern: { sha: '^[0-9a-f]{64}$' } }],
+  items: { attachments: { required: ['role', 'name'], when: [
+    { if: { role: ['结算单'] }, pattern: { name: '\\.(xlsx|csv)$' } },
+    { if: { role: ['业务ZIP'] }, require: ['sha256'], pattern: { name: '\\.zip$' } },
+  ] } },
+} } }));
+const sha = 'a'.repeat(64);
+ok('条件成立且格式对：通过', checkRecord(W, { type: 'task', kind: 'material', sha }, has).length === 0);
+ok('条件成立格式不符：拒绝并写明条件', checkRecord(W, { type: 'task', kind: 'material', sha: 'xyz' }, has).some((e) => e.startsWith('kind=material 时 task.sha 格式不符')));
+ok('条件不成立：不核格式', checkRecord(W, { type: 'task', kind: 'progress', sha: 'xyz' }, has).length === 0);
+ok('元素角色与扩展名相符：通过', checkRecord(W, { type: 'task', attachments: [{ role: '结算单', name: 'a.xlsx' }, { role: '业务ZIP', name: 'b.zip', sha256: sha }] }, has).length === 0);
+const mis = checkRecord(W, { type: 'task', attachments: [{ role: '结算单', name: 'a.png' }, { role: '业务ZIP', name: 'b.pdf' }] }, has);
+ok('元素角色与扩展名错配：逐个指名', mis.some((e) => e.includes('role=结算单 时 task.attachments[0].name 格式不符')) && mis.some((e) => e.includes('task.attachments[1].name 格式不符')), JSON.stringify(mis));
+ok('元素条件必填', mis.some((e) => e.includes('role=业务ZIP 时 task.attachments[1].sha256 必填')));
+ok('其他角色不受影响', checkRecord(W, { type: 'task', attachments: [{ role: '其他', name: 'a.png' }] }, has).length === 0);
+ok('when.pattern 坏正则在解析时报错', throws(() => parseContract(JSON.stringify({ version: 1, types: { t: { when: [{ if: { a: ['x'] }, pattern: { b: '(' } }] } } }))));
+ok('items.when.if 形态错报错', throws(() => parseContract(JSON.stringify({ version: 1, types: { t: { items: { a: { when: [{ if: { r: 'x' } }] } } } } }))));
+
 console.log('未声明类型');
 ok('allow：放行', checkRecord(C, { record_type: 'whatever' }, has).length === 0);
 const R = parseContract(JSON.stringify({ version: 1, unknown_types: 'reject', types: { a: {} } }));
