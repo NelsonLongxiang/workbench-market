@@ -182,6 +182,8 @@ jobs:
         run: node scripts/design-tokens-smoke.mjs
       - name: SOP 定义只读接口（#318：published 公开·draft/deprecated 仅管理员·不带步骤正文·冷版本 404）
         run: node scripts/sop-definition-smoke.mjs
+      - name: 自产台/SOP 台卡片健康核实台本身（不存在或未上架记 down）与 sop_run_get 时间字段
+        run: node scripts/self-hosted-health-smoke.mjs
       - name: 驾驶舱布局吸附单测（#320：宽度只取 3/4/6/12·x 越界收回·不丢面板·读时迁移不回写）
         run: node scripts/cockpit-layout-unit.mjs
       - name: 凭据库（融合 dsh-vault：读写要口令·业务面 403·摘要无明文·坏 JSON 不进日志·写锁/重开/闲置上锁/限流）
