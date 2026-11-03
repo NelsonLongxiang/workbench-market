@@ -80,7 +80,7 @@
       e.preventDefault(); t.click(); return;
     }
     // 页签方向键
-    if (t.getAttribute('role') === 'tab' && /^(ArrowLeft|ArrowRight|ArrowUp|ArrowDown|Home|End)$/.test(e.key)) {
+    if (t.getAttribute('role') === 'tab' && !t.closest('[data-wm-nav]') && /^(ArrowLeft|ArrowRight|ArrowUp|ArrowDown|Home|End)$/.test(e.key)) {  /* 导航层自己处理方向键 */
       var g = t.parentElement, tabs = Array.prototype.filter.call(g.children, function (c) { return c.getAttribute('role') === 'tab'; });
       var i = tabs.indexOf(t), n = tabs.length;
       var j = e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : /Left|Up/.test(e.key) ? (i - 1 + n) % n : (i + 1) % n;

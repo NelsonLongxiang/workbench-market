@@ -1,9 +1,10 @@
 """自产台统一层（DESIGN.md v1.0.0 + PATTERNS.md §7）：色值/字体/字号/圆角映射到 token，深色台转浅色，
-注入 --wm-* 变量、基础排版与 wm-ux.js（菜单/焦点/状态持久化）。
-用法: python3 -I restyle.py <web/src/tokens.css> <apps_dir> <extra_dir> <out_dir>
-  apps_dir/<slug>.html     线上台首页（可带服务端注入的令牌段，会被剥掉）
-  extra_dir/<slug>/<path>  同台附属 .html/.css/.js
-  out_dir/<slug>/<path>    产物 + report.json"""
+注入 --wm-* 变量、基础排版、wm-ux.js（菜单/焦点/状态持久化）与 wm-nav.js（菜单/目录/视图外壳）。
+用法（现行）: python3 -I restyle.py <web/src/tokens.css> --repo <workbench-market-apps 检出目录> [--only slug1,slug2]
+  就地改写仓库里每台目录下的 .html/.css/.js；已统一过的页面只换 <head> 统一层（换层），新页面走全套转换；
+  SOP 台（含 sop.yaml）与数据文件不动。改完在 apps 仓库里看 git diff、提 PR、合 main，再 app_sync 上线。
+用法（本地预览）: python3 -I restyle.py <tokens.css> <apps_dir> <extra_dir> <out_dir>
+  apps_dir/<slug>.html 为台首页（可带服务端注入的令牌段，会被剥掉）；extra_dir/<slug>/<path> 为附属文件；产物写到 out_dir/<slug>/<path>"""
 import colorsys, json, re, sys
 from pathlib import Path
 
@@ -152,10 +153,137 @@ UX_CSS = (
     'input:focus-visible,select:focus-visible,textarea:focus-visible{outline-offset:0!important;border-color:var(--wm-color-primary)!important}\n'
     '[role=button][tabindex],[role=link][tabindex]{cursor:pointer}\n'
 )
+# 菜单 / 目录 / 视图（PATTERNS.md §7.4）：按台配置区块分组；区块按 h2 标题前缀匹配
+NAV = {
+    'finance-workbench': {'title': '财务月度交付驾驶舱', 'groups': [
+        {'key': 'overview', 'label': '总览', 'sections': ['双栏时钟卡', 'KPI 条', '财务行动看板']},
+        {'key': 'delivery', 'label': '交付', 'sections': ['11 件交付清单', '交付空间']},
+        {'key': 'submit', 'label': '提交', 'sections': ['数据包提交', '任务数据提交']},
+        {'key': 'tasks', 'label': '任务', 'sections': ['JF十月执行任务']},
+    ],
+        # 只给业务看（属主 11-03）：验证器、运维台账、表单自查、task list 属工程/agent 面，整块不显示
+        'hideSections': ['表单异常项评审', '在途任务表', '四族验证器状态', 'A 族 spec 明细', '台账近 8 条'],
+        'hideNodes': ['只读状态面', '浏览器直连环境警示', '登记口径：', '按 SOP→年→月 组织',
+                      '数据源=task list', 'commitment_clock', '若本数据已过验证器', '已读取',
+                      '默认聚焦重点业务件', '当前月份：', '全量保留原登记', '来源与登记说明'],
+        'keepNodes': ['口径图例'],
+        # 保留区块里的工程字段（属主 11-03「去掉」）
+        'hideColumns': ['任务锚'],
+        'hideFields': ['验证器关联', '验收证', '责任会话'],
+        'scrub': ['（评审席[^）]*）', '\\s*direct-[0-9a-f]{8}', '表单 v\\d+ · ',
+                  # 交付空间：标签说明与文件元信息
+                  '（全部登记(?:附件引用)?）', '（依登记名；不代表采用）',
+                  '\\s*·\\s*附件备注(?:标注)?归属月(?:份)?：[0-9-]+', '\\s*·\\s*关联记录：[0-9、，, ]+', '\\s*·\\s*同一文件跨月引用'],
+        # 交付空间：单列文件清单 + 紧凑吸顶筛选栏（修 .frow 6 列模板配 5 个子元素导致文件名只剩 38px）
+        'css': (
+            '.ds-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px;padding:8px 16px;margin:12px 0;background:var(--wm-color-surface);border:1px solid var(--wm-color-border);border-radius:8px;box-shadow:var(--wm-shadow-1)}'
+            '@media (min-width:1024px){.ds-toolbar{position:sticky;top:56px;z-index:5}}'
+            '.ds-toolbar>div{display:flex;align-items:center;gap:8px;margin:0}'
+            '.ds-toolbar .tlabel{margin:0;font-size:12px;line-height:20px;font-weight:600;color:var(--wm-color-text-secondary)}'
+            '.ds-toolbar .segbar{display:inline-flex;flex-wrap:wrap;gap:2px;padding:2px;background:var(--wm-color-page);border:1px solid var(--wm-color-border);border-radius:6px}'
+            '.ds-toolbar .segbar .seg.seg{height:28px;min-height:0;margin:0;padding:0 10px;border:0!important;border-radius:4px;background:none!important;color:var(--wm-color-text-secondary)!important;font-size:12px;line-height:28px;font-weight:400;box-shadow:none}'
+            '.ds-toolbar .segbar .seg.seg:hover{color:var(--wm-color-text)!important}'
+            '.ds-toolbar .segbar .seg.seg[aria-pressed=true]{background:var(--wm-color-surface)!important;color:var(--wm-color-text)!important;font-weight:600;box-shadow:var(--wm-shadow-1)}'
+            '.ds-toolbar .seg .ct{margin-left:6px;padding:0;background:none;color:var(--wm-color-text-secondary);font-size:12px;font-weight:400}'
+            '#dsGrid{display:block}'
+            '#dsGrid .ds-section-label{display:flex;align-items:center;gap:8px;margin:16px 0 8px;font-size:16px;line-height:24px;font-weight:600;color:var(--wm-color-text)}'
+            '#dsGrid .ds-section-label .ct{font-size:12px;font-weight:400;color:var(--wm-color-text-secondary);background:var(--wm-color-page);border-radius:4px;padding:0 8px}'
+            '#dsGrid .ds-subgrid{display:grid;grid-template-columns:1fr!important;gap:12px}'
+            '#dsGrid .dcard{padding:0;overflow:hidden;background:var(--wm-color-surface);border:1px solid var(--wm-color-border);border-radius:8px;box-shadow:var(--wm-shadow-1)}'
+            '#dsGrid .dcard-hd{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0;padding:12px 16px;border-bottom:1px solid var(--wm-color-border)}'
+            '#dsGrid .dcard-hd .ti{font-size:16px;line-height:24px;font-weight:600;color:var(--wm-color-text)}'
+            '#dsGrid .dcard-hd .meta{margin-left:auto;font-size:12px;line-height:20px;color:var(--wm-color-text-secondary)}'
+            '#dsGrid .dcard-note{padding:8px 16px 0}'
+            '#dsGrid .frow{display:flex;align-items:center;gap:16px;margin:0;padding:10px 16px;border-bottom:1px solid var(--wm-color-border)}'
+            '#dsGrid .frow:last-child{border-bottom:0}'
+            '#dsGrid .frow:hover{background:var(--wm-color-page)}'
+            '#dsGrid .frow .ftype{flex:none;width:44px;text-align:center}'
+            '#dsGrid .frow .fname{flex:1;min-width:0;white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;font-size:14px;line-height:22px;color:var(--wm-color-text)}'
+            '#dsGrid .frow .month-meta{display:block;margin-top:2px;font-size:12px;line-height:20px;color:var(--wm-color-text-secondary)}'
+            '#dsGrid .frow .fsize{flex:none;width:72px;text-align:right;font-size:12px;color:var(--wm-color-text-secondary)}'
+            '#dsGrid .frow .ftime{flex:none;width:128px;font-size:12px;color:var(--wm-color-text-secondary)}'
+            '#dsGrid .frow .badge,#dsGrid .frow .dl{flex:none}'
+            '#dsGrid details.ds-aux{margin-top:16px;padding:0;background:var(--wm-color-surface);border:1px solid var(--wm-color-border);border-radius:8px}'
+            '#dsGrid details.ds-aux>summary{padding:12px 16px;font-size:14px;font-weight:600;color:var(--wm-color-text)}'
+            '#dsGrid details.ds-aux[open]>summary{border-bottom:1px solid var(--wm-color-border)}'
+            '#dsGrid details.ds-aux>*:not(summary){margin:12px 16px}'
+            '@media (max-width:720px){#dsGrid .frow{flex-wrap:wrap;gap:8px}#dsGrid .frow .fname{flex-basis:calc(100% - 60px)}#dsGrid .frow .ftime{width:auto}}'
+        ),
+        # 最新月份还没有核心业务件时，打开就落到最近一个有成品的月份
+        'fallback': {'probe': '#dsCount', 'when': '核心业务件 0；', 'click': '#segMonth .seg'},
+    },
+}
+NAV_CSS = (
+    'html.wm-has-nav{scroll-padding-top:64px}\n'
+    'html.wm-has-nav body{padding-top:72px!important}\n'
+    '@media (min-width:1024px){html.wm-has-nav body{padding-left:244px!important}}\n'
+    '.wm-off,.wm-hide{display:none!important}\n'
+    '.wm-nav-bar{position:fixed;top:0;left:0;right:0;z-index:1000;height:48px;box-sizing:border-box;display:flex;align-items:center;gap:16px;padding:0 16px;'
+    'background:var(--wm-color-surface);border-bottom:1px solid var(--wm-color-border);box-shadow:var(--wm-shadow-1);font-family:var(--wm-font-sans);font-size:14px;line-height:22px}\n'
+    '.wm-nav-home{color:var(--wm-color-text-secondary);text-decoration:none;font-size:12px;line-height:20px;white-space:nowrap}\n'
+    '.wm-nav-home:hover{color:var(--wm-color-primary)}\n'
+    '.wm-nav-title{font-size:16px;line-height:24px;font-weight:600;color:var(--wm-color-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px}\n'
+    '.wm-nav-menu{display:flex;gap:4px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none}\n'
+    '.wm-nav-menu-item,.wm-nav-view,.wm-nav-tocbtn{font:inherit;cursor:pointer;white-space:nowrap}\n'
+    '.wm-nav-menu-item{height:32px;padding:0 12px;border:0;border-radius:6px;background:none;color:var(--wm-color-text-secondary)}\n'
+    '.wm-nav-menu-item:hover{background:var(--wm-color-page);color:var(--wm-color-text)}\n'
+    '.wm-nav-menu-item[aria-selected=true]{background:var(--wm-color-primary-subtle);color:var(--wm-color-primary);font-weight:600}\n'
+    '.wm-nav-views{display:inline-flex;flex:none;padding:2px;border-radius:6px;background:var(--wm-color-page);border:1px solid var(--wm-color-border)}\n'
+    '.wm-nav-view{height:26px;padding:0 12px;border:0;border-radius:4px;background:none;color:var(--wm-color-text-secondary);font-size:12px}\n'
+    '.wm-nav-view[aria-checked=true]{background:var(--wm-color-surface);color:var(--wm-color-text);font-weight:600;box-shadow:var(--wm-shadow-1)}\n'
+    '.wm-nav-tocbtn{display:none;height:32px;padding:0 12px;border:1px solid var(--wm-color-border-strong);border-radius:6px;background:var(--wm-color-surface);color:var(--wm-color-text)}\n'
+    '.wm-nav-toc{position:fixed;top:48px;left:0;bottom:0;z-index:999;width:220px;box-sizing:border-box;overflow-y:auto;padding:16px 8px 24px;'
+    'background:var(--wm-color-surface);border-right:1px solid var(--wm-color-border);font-family:var(--wm-font-sans);font-size:14px;line-height:22px}\n'
+    '.wm-nav-toc-title{padding:4px 12px;font-size:12px;line-height:20px;font-weight:600;color:var(--wm-color-text-secondary)}\n'
+    '.wm-nav-toc-group+.wm-nav-toc-group{margin-top:12px}\n'
+    '.wm-nav-toc ul{list-style:none;margin:0;padding:0}\n'
+    '.wm-nav-toc a{display:block;padding:4px 12px 4px 10px;border-left:2px solid transparent;border-radius:0 6px 6px 0;color:var(--wm-color-text);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n'
+    '.wm-nav-toc a:hover{background:var(--wm-color-page)}\n'
+    '.wm-nav-toc-group:not(.wm-current) a{color:var(--wm-color-text-secondary)}\n'
+    '.wm-nav-toc a[aria-current]{border-left-color:var(--wm-color-primary);background:var(--wm-color-primary-subtle);color:var(--wm-color-primary)!important;font-weight:600}\n'
+    '.wm-nav-scrim{position:fixed;top:48px;left:0;right:0;bottom:0;z-index:998;background:rgba(15,23,42,.32)}\n'
+    '@media (max-width:1023px){.wm-nav-tocbtn{display:inline-flex;align-items:center}.wm-nav-home{display:none}'
+    '.wm-nav-toc{width:280px;max-width:85vw;transform:translateX(-100%);box-shadow:var(--wm-shadow-3);transition:transform var(--wm-motion-base) var(--wm-motion-easing)}.wm-nav-toc.wm-open{transform:none}}\n'
+    '@media (max-width:640px){.wm-nav-bar{gap:8px;padding:0 8px}.wm-nav-title{display:none}}\n'
+    '@media print{.wm-nav-bar,.wm-nav-toc,.wm-nav-scrim{display:none!important}html.wm-has-nav body{padding:24px!important}.wm-off{display:block!important}.wm-hide{display:none!important}}\n'
+)
+
+# 换行容 \r\n：有的台在 Windows 上另存过，整页（含统一层）都是 CRLF；认不出旧层会叠出第二层
+LAYER_RE = re.compile(r'\r?\n<style id="wm-design-layer">.*?</style>\r?\n<script id="wm-ux">.*?</script>\r?\n(?:<script id="wm-nav">.*?</script>\r?\n)?', re.S)
+
+def build_layer(slug, tokens_css):
+    return ('<style id="wm-design-layer">\n/* 工作台统一设计层 · DESIGN.md v1.0.0（仅浅色）。台内样式只引用 --wm-* 变量 */\n'
+             + tokens_css.split('*/', 1)[1].strip() + '\n'
+             'html{color-scheme:light}\n'
+             'body{font-family:var(--wm-font-sans);font-size:var(--wm-font-size-body);line-height:var(--wm-line-height-body);'
+             'color:var(--wm-color-text);background:var(--wm-color-page);-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}\n'
+             'code,pre,kbd,samp{font-family:var(--wm-font-mono)}\n'
+             'button,input,select,textarea{font:inherit;font-size:var(--wm-font-size-body)}\n'
+             'h1{font-size:var(--wm-font-size-title);line-height:var(--wm-line-height-title);font-weight:600}\n'
+             'h2{font-size:var(--wm-font-size-subtitle);line-height:var(--wm-line-height-subtitle);font-weight:600}\n'
+             'h3,h4,h5,h6{font-size:var(--wm-font-size-body);line-height:var(--wm-line-height-body);font-weight:600}\n'
+             'small{font-size:var(--wm-font-size-caption);line-height:var(--wm-line-height-caption)}\n'
+             'a{color:var(--wm-color-primary)}\n'
+             '::selection{background:var(--wm-color-primary-subtle);color:var(--wm-color-text)}\n'
+             + UX_CSS +
+             'input::placeholder,textarea::placeholder{color:var(--wm-color-text-disabled)}\n'
+             '@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}\n'
+             + (NAV_CSS if slug in NAV else '') + (NAV.get(slug, {}).get('css', '') + '\n' if slug in NAV else '') +
+             '</style>\n<script id="wm-ux">' + UX_JS + '</script>\n'
+             + (('<script id="wm-nav">window.WM_NAV=' + json.dumps({k: v for k, v in NAV[slug].items() if k != 'css'}, ensure_ascii=False) + ';' + NAV_JS + '</script>\n') if slug in NAV else ''))
+
 def transform(src, slug, tokens_css, kind='html'):
     dark, ov = slug in DARK, OVERRIDE.get(slug, {})
     stats = {'colors': {}, 'font_size': 0, 'font_family': 0, 'radius': 0}
     s = INJECT.sub('', src)
+    # 换层：已经统一过的页面只替换 <head> 里的统一层，正文不再转换（深色台二次映射会把语义反过来）
+    if kind == 'html' and LAYER_RE.search(s):
+        def relayer(m):
+            layer = '\n' + build_layer(slug, tokens_css)
+            return layer.replace('\n', '\r\n') if m.group(0).startswith('\r\n') else layer  # 保持该页原有换行风格
+        return LAYER_RE.sub(relayer, s, count=1), stats
+    if kind != 'html' and 'var(--wm-' in s:
+        return s, stats
     for a, b in PATCH.get(slug, []): s = s.replace(a, b)
     s = re.sub(r'https?://192\.168\.3\.156:9800(?=/)', '', s)
     s = re.sub(r"(new URL\([^,()]+(?:\([^()]*\))?,\s*)'https?://192\.168\.3\.156:9800/?'", r'\1location.origin', s)
@@ -257,32 +385,35 @@ def transform(src, slug, tokens_css, kind='html'):
     s = ''.join(parts)
     if kind != 'html': return s, stats
 
-    layer = ('<style id="wm-design-layer">\n/* 工作台统一设计层 · DESIGN.md v1.0.0（仅浅色）。台内样式只引用 --wm-* 变量 */\n'
-             + tokens_css.split('*/', 1)[1].strip() + '\n'
-             'html{color-scheme:light}\n'
-             'body{font-family:var(--wm-font-sans);font-size:var(--wm-font-size-body);line-height:var(--wm-line-height-body);'
-             'color:var(--wm-color-text);background:var(--wm-color-page);-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}\n'
-             'code,pre,kbd,samp{font-family:var(--wm-font-mono)}\n'
-             'button,input,select,textarea{font:inherit;font-size:var(--wm-font-size-body)}\n'
-             'h1{font-size:var(--wm-font-size-title);line-height:var(--wm-line-height-title);font-weight:600}\n'
-             'h2{font-size:var(--wm-font-size-subtitle);line-height:var(--wm-line-height-subtitle);font-weight:600}\n'
-             'h3,h4,h5,h6{font-size:var(--wm-font-size-body);line-height:var(--wm-line-height-body);font-weight:600}\n'
-             'small{font-size:var(--wm-font-size-caption);line-height:var(--wm-line-height-caption)}\n'
-             'a{color:var(--wm-color-primary)}\n'
-             '::selection{background:var(--wm-color-primary-subtle);color:var(--wm-color-text)}\n'
-             + UX_CSS +
-             'input::placeholder,textarea::placeholder{color:var(--wm-color-text-disabled)}\n'
-             '@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}\n'
-             '</style>\n<script id="wm-ux">' + UX_JS + '</script>\n')
+    layer = build_layer(slug, tokens_css)
     m = re.search(r'<head[^>]*>', s, re.I)
     # 插在 <head> 起始：台内已映射的规则仍可覆盖基础排版
     s = s[:m.end()] + '\n' + layer + s[m.end():] if m else layer + s
     return s, stats
 
 UX_JS = rd(Path(__file__).parent / 'wm-ux.js')
+NAV_JS = rd(Path(__file__).parent / 'wm-nav.js')
+
+def kind_of(rel):
+    return rel.rsplit('.', 1)[-1] if rel.endswith(('.css', '.js')) else 'html'
+
+def restyle_repo(tokens, repo, only):
+    """就地改写 apps 仓库：每台一个根目录（source_path=<slug>）"""
+    for d in sorted(p for p in repo.iterdir() if p.is_dir() and not p.name.startswith('.')):
+        if only and d.name not in only: continue
+        if (d / 'sop.yaml').exists() or not (d / 'index.html').exists(): continue
+        changed = []
+        for f in sorted(x for x in d.rglob('*') if x.is_file() and x.suffix.lower() in ('.html', '.htm', '.css', '.js')):
+            rel = str(f.relative_to(d)); src = rd(f)
+            body, _ = transform(src, d.name, tokens, kind_of(rel))
+            if body != src: wr(f, body); changed.append(rel)
+        print(f"{d.name:38s} {'改写 ' + ', '.join(changed) if changed else '无变化'}")
 
 if __name__ == '__main__':
     tokens = rd(Path(sys.argv[1]))
+    if '--repo' in sys.argv:
+        only = set(filter(None, (sys.argv[sys.argv.index('--only') + 1] if '--only' in sys.argv else '').split(',')))
+        restyle_repo(tokens, Path(sys.argv[sys.argv.index('--repo') + 1]), only); sys.exit(0)
     src, extra, out = Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4])
     report = {}
     for f in sorted(src.glob('*.html')):
@@ -290,8 +421,7 @@ if __name__ == '__main__':
         jobs = [('index.html', f)] + [(str(x.relative_to(extra / slug)), x) for x in sorted((extra / slug).rglob('*')) if x.is_file()]
         agg = {'colors': {}, 'font_size': 0, 'font_family': 0, 'radius': 0}
         for rel, path in jobs:
-            kind = rel.rsplit('.', 1)[-1] if rel.endswith(('.css', '.js')) else 'html'
-            body, st = transform(rd(path), slug, tokens, kind)
+            body, st = transform(rd(path), slug, tokens, kind_of(rel))
             dst = out / slug / rel; dst.parent.mkdir(parents=True, exist_ok=True); wr(dst, body)
             agg['colors'].update(st['colors'])
             for k in ('font_size', 'font_family', 'radius'): agg[k] += st[k]
