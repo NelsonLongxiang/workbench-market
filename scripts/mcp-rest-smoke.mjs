@@ -3,10 +3,13 @@
  *  覆盖：/openapi.json 与 /api/mcp-rest/openapi.json 合法（3.1.x、每个 operation 有 operationId/requestBody、bearerAuth）、匿名/无效令牌 401、
  *  带会话只列可调用工具（含两个免授权工具与已授权的上游工具）并标 x-granted；
  *  POST /api/mcp-rest/tools/<name>：已授权 200 且与 /mcp 结果一致、未授权 403 带申请提示、未知 404、参数错误 400、app_data_submit 违约 400 + violations、
- *  上游工具经 REST 转发；mcp_calls 审计 channel=rest/mcp 分列；匿名 5MB 请求体 413。 */
+ *  上游工具经 REST 转发；mcp_calls 审计 channel=rest/mcp 分列；匿名 5MB 请求体 413。
+ *  文件与资源（MCP 内嵌）：99MB 原始字节流式上传 sha256 前后一致、multipart 上传、Range/ETag/304/416 下载、列文件带 quota、读台数据、
+ *  SOP run 元数据/附件（run 读授权）、未授权 403、匿名 401、内容不符 415；initialize 与 access_info 带 openapi_url / rest_base；openapi 写对二进制类型。 */
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { rmSync, mkdirSync } from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
@@ -92,7 +95,7 @@ try {
   const doc = r.body ?? {};
   ok('带会话 200 且 openapi=3.1.x', r.status === 200 && /^3\.1\.\d+$/.test(doc.openapi ?? ''), `status=${r.status} openapi=${doc.openapi}`);
   ok('声明 bearerAuth 安全方案并全局要求', doc.components?.securitySchemes?.bearerAuth?.scheme === 'bearer' && doc.security?.[0]?.bearerAuth !== undefined);
-  const ops = Object.entries(doc.paths ?? {}).map(([p, v]) => ({ path: p, op: v.post }));
+  const ops = Object.entries(doc.paths ?? {}).filter(([p]) => p.startsWith('/api/mcp-rest/tools/')).map(([p, v]) => ({ path: p, op: v.post }));
   ok('每个 operation 有 operationId 与 requestBody（schema 即 inputSchema）', ops.length > 0 && ops.every((o) => o.op?.operationId && o.op?.requestBody?.content?.['application/json']?.schema && o.path === `/api/mcp-rest/tools/${o.op.operationId}`));
   const opNames = ops.map((o) => o.op.operationId).sort();
   ok('只列可调用工具（已授权 4 个 + 免授权 2 个；含上游 up__echo）', opNames.join() === ['access_info', 'access_request', 'app_data_list', 'app_data_submit', 'up__echo', 'workbench_summary'].sort().join(), JSON.stringify(opNames));
@@ -104,7 +107,7 @@ try {
   ok('/api/mcp-rest/openapi.json 与 /openapi.json 同内容', JSON.stringify(alias.body?.paths) === JSON.stringify(doc.paths));
   const bare = await newSession('agent-rest-bare');
   r = await call('GET', '/openapi.json', undefined, bearer(bare.token));
-  ok('零授权会话只看到两个免授权工具', Object.values(r.body?.paths ?? {}).map((v) => v.post.operationId).sort().join() === 'access_info,access_request');
+  ok('零授权会话只看到两个免授权工具（无文件与资源接口）', Object.values(r.body?.paths ?? {}).map((v) => v.post?.operationId).sort().join() === 'access_info,access_request');
 
   // ============ REST 调用 ============
   r = await rest(sess.token, 'workbench_summary', {});
@@ -150,6 +153,153 @@ try {
   r = await call('POST', '/api/mcp-rest/tools/workbench_summary', big, bearer(sess.token));
   ok('有效会话 5MB 请求体不被体积拦（200）', r.status === 200, `status=${r.status}`);
 
+
+  // ============ 文件与资源（MCP 内嵌 REST） ============
+  const filer = await newSession('agent-files', ['app_files_upload', 'app_files_list', 'app_data_list', 'sop_run_get']);
+  const FB = `/api/mcp-rest/apps/${SLUG}/files`;
+  const raw = (method, path, body, headers = {}) => fetch(BASE + path, { method, headers, body, ...(body && typeof body.getReader === 'function' ? { duplex: 'half' } : {}) });
+
+  r = await call('POST', '/mcp', { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26' } }, bearer(filer.token));
+  ok('initialize 结果带 openapi_url 与 rest_base', /\/openapi\.json$/.test(r.body?.result?.openapi_url ?? '') && /\/api\/mcp-rest$/.test(r.body?.result?.rest_base ?? ''), JSON.stringify(r.body?.result).slice(0, 200));
+  const ai = await viaMcp(filer.token, 'access_info');
+  ok('access_info 带 openapi_url 与 rest_base', ai.payload?.openapi_url === r.body?.result?.openapi_url && ai.payload?.rest_base === r.body?.result?.rest_base);
+  const tl = (await call('POST', '/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }, bearer(filer.token))).body?.result?.tools ?? [];
+  ok('app_files_upload / app_files_list 描述提示大文件走 REST', ['app_files_upload', 'app_files_list'].every((n) => /REST/.test(tl.find((t) => t.name === n)?.description ?? '')));
+
+  const fdoc = (await call('GET', '/openapi.json', undefined, bearer(filer.token))).body ?? {};
+  const putOp = fdoc.paths?.['/api/mcp-rest/apps/{slug}/files/{name}']?.put;
+  const dlOp = fdoc.paths?.['/api/mcp-rest/apps/{slug}/files/{id}']?.get;
+  ok('openapi 含原始字节上传（application/octet-stream 二进制请求体）', putOp?.requestBody?.content?.['application/octet-stream']?.schema?.format === 'binary' && putOp?.['x-requires-tool'] === 'app_files_upload');
+  ok('openapi 含 multipart 上传', fdoc.paths?.['/api/mcp-rest/apps/{slug}/files']?.post?.requestBody?.content?.['multipart/form-data'] !== undefined);
+  ok('openapi 下载响应为二进制，含 206', dlOp?.responses?.['200']?.content?.['application/octet-stream']?.schema?.format === 'binary' && !!dlOp?.responses?.['206']);
+  ok('openapi 含 SOP 附件下载与读数据接口', !!fdoc.paths?.['/api/mcp-rest/sop/runs/{id}/files/{fileId}']?.get && !!fdoc.paths?.['/api/mcp-rest/apps/{slug}/data']?.get);
+  const allOps = Object.values(fdoc.paths ?? {}).flatMap((v) => Object.values(v));
+  ok('所有 operation 都有唯一 operationId', allOps.every((o) => o.operationId) && new Set(allOps.map((o) => o.operationId)).size === allOps.length);
+  ok('PUT/POST operation 都有 requestBody', allOps.filter((o) => o.requestBody === undefined).every((o) => !Object.entries(fdoc.paths).some(([, v]) => (v.put === o || v.post === o))));
+
+  // 99MB 原始字节：边生成边上传，本地同时算 sha256
+  const BIG = 99 * 1024 * 1024;
+  const CH = 1024 * 1024;
+  const seed = randomBytes(CH); seed[0] = 0x00; seed[1] = 0x01; // 避开可执行文件签名
+  const hBig = createHash('sha256');
+  let sent = 0;
+  const bigStream = new ReadableStream({
+    pull(ctrl) {
+      if (sent >= BIG) return ctrl.close();
+      const chunk = Buffer.from(seed); chunk.writeUInt32BE(sent / CH, 4);
+      hBig.update(chunk); sent += chunk.length; ctrl.enqueue(chunk);
+    },
+  });
+  const tUp = Date.now();
+  let rr = await raw('PUT', `${FB}/big.bin?note=${encodeURIComponent('大文件')}`, bigStream, { ...bearer(filer.token), 'Content-Type': 'application/octet-stream' });
+  const up = await rr.json().catch(() => null);
+  const bigSha = hBig.digest('hex');
+  ok(`99MB 原始字节上传 201（${Date.now() - tUp}ms）`, rr.status === 201 && up?.size === BIG, `${rr.status} ${JSON.stringify(up)}`);
+  ok('上传返回 sha256 与本地一致，带 id/mime/url', up?.sha256 === bigSha && Number.isInteger(up?.id) && typeof up?.mime === 'string' && up?.url === `${FB}/${up?.id}`);
+  ok('created_by 缺省为 mcp:<会话名>、note 落库', up?.note === '大文件');
+  rr = await raw('GET', `${FB}/${up?.id}`, undefined, bearer(filer.token));
+  const hDown = createHash('sha256');
+  for await (const c of rr.body) hDown.update(c);
+  ok('整份下载 sha256 与上传前一致', rr.status === 200 && hDown.digest('hex') === bigSha);
+  ok('下载头：attachment + nosniff + ETag=sha256 + Accept-Ranges', /^attachment/.test(rr.headers.get('content-disposition') ?? '') && rr.headers.get('x-content-type-options') === 'nosniff'
+    && rr.headers.get('etag') === `"${bigSha}"` && rr.headers.get('accept-ranges') === 'bytes' && rr.headers.get('x-content-sha256') === bigSha);
+  rr = await raw('GET', `${FB}/${up?.id}`, undefined, { ...bearer(filer.token), 'If-None-Match': `"${bigSha}"` });
+  ok('If-None-Match 命中 304', rr.status === 304);
+
+  // 小文件：Range
+  const small = Buffer.from(Array.from({ length: 1000 }, (_, i) => `line ${i}\n`).join(''));
+  rr = await raw('PUT', `${FB}/${encodeURIComponent('说明 v1.txt')}`, small, { ...bearer(filer.token), 'Content-Type': 'text/plain' });
+  const sm = await rr.json();
+  ok('中文文件名 txt 上传 201，mime 按内容识别', rr.status === 201 && sm.name === '说明 v1.txt' && /^text\/plain/.test(sm.mime) && sm.sha256 === createHash('sha256').update(small).digest('hex'), JSON.stringify(sm));
+  rr = await raw('GET', `${FB}/${sm.id}`, undefined, { ...bearer(filer.token), Range: 'bytes=100-199' });
+  let part = Buffer.from(await rr.arrayBuffer());
+  ok('Range bytes=100-199 → 206 + Content-Range + 正确片段', rr.status === 206 && rr.headers.get('content-range') === `bytes 100-199/${small.length}` && part.equals(small.subarray(100, 200)));
+  rr = await raw('GET', `${FB}/${sm.id}`, undefined, { ...bearer(filer.token), Range: 'bytes=-10' });
+  part = Buffer.from(await rr.arrayBuffer());
+  ok('后缀 Range bytes=-10 → 最后 10 字节', rr.status === 206 && part.equals(small.subarray(small.length - 10)));
+  rr = await raw('GET', `${FB}/${sm.id}`, undefined, { ...bearer(filer.token), Range: `bytes=${small.length}-` });
+  ok('越界 Range → 416 + bytes */size', rr.status === 416 && rr.headers.get('content-range') === `bytes */${small.length}`);
+  rr = await raw('GET', `${FB}/${sm.id}`, undefined, { ...bearer(filer.token), Range: 'bytes=0-9', 'If-Range': '"stale"' });
+  ok('If-Range 不符 → 忽略 Range 回整份 200', rr.status === 200 && Buffer.from(await rr.arrayBuffer()).equals(small));
+
+  // multipart
+  const fd = new FormData();
+  fd.append('file', new Blob([Buffer.from('{"a":1}')], { type: 'application/json' }), 'cfg.json');
+  fd.append('note', 'multipart');
+  rr = await raw('POST', FB, fd, bearer(filer.token));
+  const mp = await rr.json();
+  ok('multipart 上传 201，带 sha256', rr.status === 201 && mp.sha256 === createHash('sha256').update('{"a":1}').digest('hex') && mp.mime === 'application/json' && mp.note === 'multipart', JSON.stringify(mp));
+
+  // 415 / 403 / 401 / 404 / 400
+  rr = await raw('PUT', `${FB}/fake.png`, Buffer.from('not really a png'), { ...bearer(filer.token), 'Content-Type': 'image/png' });
+  ok('内容与扩展名不符 → 415', rr.status === 415, `status=${rr.status}`);
+  rr = await raw('PUT', `${FB}/tool.txt`, Buffer.concat([Buffer.from([0x4d, 0x5a]), Buffer.alloc(64)]), bearer(filer.token));
+  ok('可执行文件 → 415', rr.status === 415);
+  rr = await raw('PUT', `${FB}/x.txt`, Buffer.from('hi'), bearer(bare.token));
+  let jb = await rr.json().catch(() => ({}));
+  ok('未授权上传 403，提示 access_request 与所需工具', rr.status === 403 && /access_request/.test(jb.hint ?? '') && jb.required_tool === 'app_files_upload', JSON.stringify(jb));
+  rr = await raw('GET', `${FB}/${sm.id}`, undefined, bearer(bare.token));
+  ok('未授权下载 403', rr.status === 403);
+  rr = await raw('GET', FB, undefined, bearer(sess.token));
+  ok('只有 app_data_list 的会话列文件 403', rr.status === 403);
+  rr = await raw('PUT', `${FB}/x.txt`, Buffer.from('hi'));
+  ok('匿名上传 401', rr.status === 401);
+  rr = await raw('GET', `${FB}/${sm.id}`);
+  ok('匿名下载 401', rr.status === 401);
+  rr = await raw('GET', `${FB}/${sm.id}`, undefined, bearer('0'.repeat(64)));
+  ok('无效令牌下载 401', rr.status === 401);
+  rr = await raw('GET', `${FB}/999999`, undefined, bearer(filer.token));
+  ok('不存在的文件 404', rr.status === 404);
+  rr = await raw('PUT', `/api/mcp-rest/apps/no-such-app/files/x.txt`, Buffer.from('hi'), bearer(filer.token));
+  ok('不存在的台 404', rr.status === 404);
+  rr = await raw('PUT', `${FB}/empty.txt`, Buffer.alloc(0), bearer(filer.token));
+  ok('空请求体 400', rr.status === 400);
+  rr = await raw('PUT', `${FB}/${encodeURIComponent('a\\b.txt')}`, Buffer.from('hi'), bearer(filer.token));
+  ok('非法文件名（含路径分隔符）400', rr.status === 400);
+  const before = (await call('GET', `${FB}?limit=200`, undefined, bearer(filer.token))).body?.items?.length;
+  ok('被拒的上传不留记录（3 个成功上传）', before === 3, `items=${before}`);
+
+  // 列文件 / 读数据
+  r = await call('GET', `${FB}?limit=2`, undefined, bearer(filer.token));
+  ok('列文件分页 + quota + REST 下载地址', r.status === 200 && r.body?.items?.length === 2 && r.body?.has_more === true && Number.isInteger(r.body?.next_before_id)
+    && r.body?.quota?.max_file_bytes === 100 * 1024 * 1024 && r.body.items.every((it) => it.url === `${FB}/${it.id}`), JSON.stringify(r.body).slice(0, 200));
+  r = await call('GET', `${FB}?limit=2&before_id=${r.body?.next_before_id}`, undefined, bearer(filer.token));
+  ok('列文件翻页', r.status === 200 && r.body?.items?.length === 1);
+  r = await call('GET', `/api/mcp-rest/apps/${SLUG}/data?limit=10`, undefined, bearer(filer.token));
+  const mviaData = await viaMcp(filer.token, 'app_data_list', { slug: SLUG, limit: 10 });
+  ok('读台数据 200，与 app_data_list 一致', r.status === 200 && JSON.stringify(r.body) === JSON.stringify(mviaData.payload) && (r.body?.items ?? []).length >= 1);
+
+  // SOP run 元数据与附件
+  const sopYaml = ['title: REST SOP', 'code: RS', 'steps:', '  - key: s1', '    title: a', '    body: "<p>x</p>"', ''].join('\n');
+  await ghPublish(BASE, gh, { slug: 'rest-sop', kind: 'sop', title: 'REST SOP', files: [{ path: 'sop.yaml', content: sopYaml }], changelog: 'v1' }, AT);
+  await call('POST', '/api/sops/rest-sop/publish', {}, AT);
+  const run = (await call('POST', '/api/sop/runs', { slug: 'rest-sop', started_by: 'smoke' })).body ?? {};
+  ok('准备：SOP run 建行', Number.isInteger(run.id), JSON.stringify(run).slice(0, 120));
+  const rfd = new FormData();
+  rfd.append('file', new Blob([small], { type: 'text/plain' }), 'run-note.txt');
+  const ru = await (await raw('POST', `/api/sop/runs/${run.id}/files`, rfd, AT)).json();
+  ok('准备：run 附件上传', Number.isInteger(ru.id), JSON.stringify(ru));
+  r = await call('GET', `/api/mcp-rest/sop/runs/${run.id}`, undefined, bearer(filer.token));
+  ok('读 SOP run 元数据 200', r.status === 200 && Number(r.body?.id ?? r.body?.run_id) === run.id, JSON.stringify(r.body).slice(0, 160));
+  rr = await raw('GET', `/api/mcp-rest/sop/runs/${run.id}/files/${ru.id}`, undefined, bearer(filer.token));
+  ok('无 run 读授权下载附件 403', rr.status === 403);
+  r = await call('PUT', `/api/sop/runs/${run.id}/read-grants`, { subject: 'mcp:agent-files' }, AT);
+  ok('准备：给会话播种 run 读授权', r.status === 201, JSON.stringify(r.body));
+  r = await call('GET', `/api/mcp-rest/sop/runs/${run.id}/files`, undefined, bearer(filer.token));
+  ok('列 run 附件，url 指向 REST', r.status === 200 && r.body?.items?.[0]?.url === `/api/mcp-rest/sop/runs/${run.id}/files/${ru.id}`);
+  rr = await raw('GET', `/api/mcp-rest/sop/runs/${run.id}/files/${ru.id}`, undefined, { ...bearer(filer.token), Range: 'bytes=0-9' });
+  part = Buffer.from(await rr.arrayBuffer());
+  ok('run 附件 Range 下载 206 + attachment + nosniff', rr.status === 206 && part.equals(small.subarray(0, 10)) && /^attachment/.test(rr.headers.get('content-disposition') ?? '') && rr.headers.get('x-content-type-options') === 'nosniff');
+  rr = await raw('GET', `/api/mcp-rest/sop/runs/${run.id}/files/${ru.id}`, undefined, bearer(sess.token));
+  ok('无 sop_run_get 授权的会话 403', rr.status === 403);
+  rr = await raw('GET', `/api/mcp-rest/sop/runs/999999/files`, undefined, bearer(filer.token));
+  ok('不存在的 run 404', rr.status === 404);
+
+  const fcalls = ((await call('GET', '/api/mcp/calls?limit=1000', undefined, AT)).body ?? []).filter((c) => c.session_name === 'agent-files');
+  ok('文件接口审计 channel=rest：上传/下载/run 附件', ['rest/file_upload', 'rest/file_download', 'rest/sop_run_file_download'].every((m) => fcalls.some((c) => c.method === m && c.channel === 'rest' && c.ok === 1)));
+  ok('被拒上传留失败审计（415）', fcalls.some((c) => c.method === 'rest/file_upload' && c.ok === 0 && /类型不符/.test(c.error)));
+  ok('未授权文件调用留失败审计', ((await call('GET', '/api/mcp/calls?limit=1000', undefined, AT)).body ?? []).some((c) => c.session_name === 'agent-rest-bare' && c.method === 'rest/file_upload' && c.ok === 0));
+
   // ============ 审计 ============
   const calls = (await call('GET', '/api/mcp/calls?limit=1000', undefined, AT)).body ?? [];
   const mine = calls.filter((c) => c.session_name === 'agent-rest');
@@ -158,9 +308,9 @@ try {
   ok('未授权 REST 调用留失败审计', mine.some((c) => c.channel === 'rest' && c.tool === 'workbench_register' && c.ok === 0));
   ok('上游 REST 调用留审计', mine.some((c) => c.channel === 'rest' && c.tool === 'up__echo' && c.ok === 1));
   const dbx = new DatabaseSync(join(DATA, 'workbench-market.db'), { readOnly: true });
-  const raw = dbx.prepare("SELECT COUNT(*) AS n FROM mcp_calls WHERE channel = 'rest'").get();
+  const restRows = dbx.prepare("SELECT COUNT(*) AS n FROM mcp_calls WHERE channel = 'rest'").get();
   dbx.close();
-  ok('库内 channel 列落盘', raw.n > 0);
+  ok("库内 channel 列落盘", restRows.n > 0);
 } catch (e) {
   fail++;
   console.log(`  ✗ 异常 ${e?.stack ?? e}`);

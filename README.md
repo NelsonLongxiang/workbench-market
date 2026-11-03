@@ -79,6 +79,12 @@ POST             /api/sop/runs/:id/finish       归档（热态全量沉淀 SQLi
 POST             /mcp                           MCP StreamableHTTP（initialize/tools/list/tools/call；30 本地工具；GET/DELETE → 405）
 GET              /openapi.json                  MCP 工具的 OpenAPI 3.1 文档（同 /api/mcp-rest/openapi.json；只列本会话可调用的工具；会话令牌必带）
 POST             /api/mcp-rest/tools/:name      按 REST 调一个 MCP 工具：请求体 = 工具参数，返回工具结果 JSON（会话令牌必带；见「MCP 工具的 REST / OpenAPI 开放」）
+PUT              /api/mcp-rest/apps/:slug/files/:name  原始字节上传（流式落盘 ≤100MB，返回 id/sha256/mime/url；需 app_files_upload）
+POST             /api/mcp-rest/apps/:slug/files        multipart 上传（字段 file + note/created_by；需 app_files_upload）
+GET              /api/mcp-rest/apps/:slug/files        列文件（分页 + quota；需 app_files_list）
+GET              /api/mcp-rest/apps/:slug/files/:id    二进制下载（Range / ETag=sha256；需 app_files_list）
+GET              /api/mcp-rest/apps/:slug/data         读台数据（分页；需 app_data_list）
+GET              /api/mcp-rest/sop/runs/:id[/files[/:fileId]]  SOP run 元数据 / 附件列表 / 附件下载（需 sop_run_get；附件另需 run 读授权）
 POST             /api/apps/:slug/data            自产台数据写入（JSON ≤1MB；按台的 data-contract.json 校验，违约 400+violations；{data, idempotency_key} 信封或 Idempotency-Key 头幂等；台页 iframe 同源 fetch 直通）
 GET              /api/mcp/access-requests        MCP 权限申请列表（?status=pending|approved|rejected；管理员）
 POST             /api/mcp/access-requests/:id/approve  批准：工具并入会话 grants（并集）+ 审计，同一事务；已吊销会话 409（管理员）
@@ -132,7 +138,7 @@ GET              /api/health                    版本与运行时长
 - **可选独立管理端口**：`WM_CONTROL_PORT` 显式给端口才开（缺省不开）；开了时它不提供 `/go/`、`/sop/`、`/apps/`、`/mcp`、`/openapi.json`、`/api/mcp-rest/*`、`/a2a/*`（404），响应带 `frame-ancestors 'none'` 与 `X-Frame-Options: DENY`，管理写规则与业务面相同。
 - 本机 CLI（回环直连、**不带** `Origin`/`Sec-Fetch-Site`、**没有** `X-Forwarded-For`/`Forwarded`/`X-Real-IP`）照旧免口令；逐路由自带 `adminGuard` 的写接口仍要口令。同机反代转进来的请求按远程处理。Node 自带 `fetch` 只发 `sec-fetch-mode`，按 CLI 算。
 - web dev（vite 5173）：**默认关闭**；只有显式开启（`pnpm dev` 自带的 `--dev-origin` 启动参数，或 `WM_DEV_ORIGIN=1`）时，Origin 为本机 dev 源且本机直连的请求视同同源（仍要口令）。生产 `pnpm start` / 容器不开。
-- **远程节点**（非 loopback）：写请求只放 `/mcp`、`/api/mcp-rest/tools/<name>`（路由内凭会话令牌鉴权）、`.well-known/agent-card.json`、`/a2a/direct`，以及**自产台数据/文件面**（`POST /api/apps/<slug>/data`、`/files`）——应用层写与发布面同口径（远程浏览器提交表单不会被 403）。
+- **远程节点**（非 loopback）：写请求只放 `/mcp`、`/api/mcp-rest/tools/<name>` 与 `/api/mcp-rest/apps/<slug>/files[/<name>]`（路由内凭会话令牌鉴权）、`.well-known/agent-card.json`、`/a2a/direct`，以及**自产台数据/文件面**（`POST /api/apps/<slug>/data`、`/files`）——应用层写与发布面同口径（远程浏览器提交表单不会被 403）。
 - 管理写（`/api/mcp/*` 会话令牌、SOP 绑定、工作台 CRUD 等）一律要管理员（口令或 Odoo 管理员），否则 403。
 - **读面不拦**：远程 agent 用 `GET /api/apps/<slug>/data`、`/files` 直接读提交数据（掩码策略只作用于凭据，不作用于业务数据）。
 
@@ -263,28 +269,60 @@ UI：`/tasks` 页（源/状态过滤·生命周期条目标明「只读，审批
 
 ### MCP 工具的 REST / OpenAPI 开放
 
-不说 MCP 协议的客户端（普通脚本、按 OpenAPI 导入工具的平台）用**同一个会话令牌**按 REST 调同一批工具。认证、授权（`grants` + 两个免授权工具）、审计、上游转发与 `/mcp` 走同一条执行链，只是应答形状不同。
+MCP 自带一套 REST：不说 MCP 协议的客户端（普通脚本、按 OpenAPI 导入工具的平台），以及要传大文件的 agent，用**同一个会话令牌**（`Authorization: Bearer <会话令牌>`）按 REST 调用。认证、授权、审计和 `/mcp` 共用同一条链，不走浏览器登录和管理口令。
 
-- **文档**：`GET /openapi.json`（或 `/api/mcp-rest/openapi.json`）返回 OpenAPI 3.1。每个工具一个 `POST /api/mcp-rest/tools/{name}`：`operationId` = 工具名，`requestBody` 的 schema 就是工具的 `inputSchema`，`x-category` 标 read/write/admin，`x-granted` 标可调用。文档**只列当前会话可调用的工具**（含 `access_info` / `access_request`），上游聚合工具照旧叫 `<prefix>__<tool>`；匿名或无效令牌 401。授权变了就重新拉一次文档。
-- **调用**：请求体就是工具参数（JSON 对象，可省略=空参数）。
+- **入口告诉 agent**：MCP `initialize` 结果和 `access_info` 都带 `openapi_url`、`rest_base`（设了 `MARKET_PUBLIC_URL` 就用它当基址）。`app_files_upload` / `app_files_list` 的描述里也写了大文件改走 REST。
+- **文档**：`GET /openapi.json`（或 `/api/mcp-rest/openapi.json`）返回 OpenAPI 3.1，分两部分：
+  - 文件与资源接口：二进制请求体和响应写的是 `application/octet-stream` / `multipart/form-data`，`x-requires-tool` 标出对应的工具授权。
+  - 工具映射：每个工具一个 `POST /api/mcp-rest/tools/{name}`，`operationId` 是工具名，`requestBody` 是工具的 `inputSchema`，`x-category` 标 read/write/admin。
+
+  文档**只列当前会话能调用的接口**（`x-granted`）；匿名或无效令牌返回 401。授权变了要重新拉一次文档。
+
+**文件与资源**（授权映射到现有工具，不另设权限）：
+
+| 接口 | 需要的工具授权 | 说明 |
+|---|---|---|
+| `PUT {rest_base}/apps/{slug}/files/{文件名}` | `app_files_upload` | 请求体就是文件的原始字节，边收边落盘，不整包读进内存，单文件 ≤100MB；可带 `?note=&created_by=`（`created_by` 缺省为 `mcp:<会话名>`） |
+| `POST {rest_base}/apps/{slug}/files` | `app_files_upload` | multipart：字段 `file`，可选 `note`、`created_by` |
+| `GET {rest_base}/apps/{slug}/files` | `app_files_list` | 列文件，倒序分页（`limit`、`before_id`），带 `quota` |
+| `GET {rest_base}/apps/{slug}/files/{id}` | `app_files_list` | 二进制下载 |
+| `GET {rest_base}/apps/{slug}/data` | `app_data_list` | 读台数据（分页） |
+| `GET {rest_base}/sop/runs/{id}` | `sop_run_get` | 结果与 sop_run_get 相同；没有 run 读授权时只返回元数据 |
+| `GET {rest_base}/sop/runs/{id}/files[/{fileId}]` | `sop_run_get` + 该 run 的读授权 | 附件列表与下载 |
+
+- 上传和浏览器上传走同一套入库核心：按内容识别类型（扩展名与内容不符、或是可执行文件返回 415），并检查台文件数配额。返回 `id`、`sha256`、`mime`、`size`、`url`（REST 下载地址）和 `download_url`（台页面用的下载地址）。
+- 下载：响应头 `ETag` 和 `X-Content-SHA256` 都是文件的 sha256；`If-None-Match` 命中返回 304；单段 `Range`（`bytes=a-b` / `a-` / `-n`）返回 206，越界返回 416；`If-Range` 不符时回整份。安全头沿用现有下载：`Content-Disposition: attachment`、`X-Content-Type-Options: nosniff`。
 
 ```bash
-curl -s -X POST "$BASE/api/mcp-rest/tools/workbench_summary" \
+curl -s -X PUT "$REST_BASE/apps/$SLUG/files/report.pdf" \
+  -H "Authorization: Bearer $MCP_SESSION_TOKEN" -H 'Content-Type: application/octet-stream' --data-binary @report.pdf
+```
+
+```bash
+curl -s -H "Authorization: Bearer $MCP_SESSION_TOKEN" -H 'Range: bytes=0-1048575' -o part.bin "$REST_BASE/apps/$SLUG/files/42"
+```
+
+**工具调用**：`POST {rest_base}/tools/{name}`，请求体就是工具参数（JSON 对象，可省略，即空参数）。
+
+```bash
+curl -s -X POST "$REST_BASE/tools/workbench_summary" \
   -H "Authorization: Bearer $MCP_SESSION_TOKEN" -H 'Content-Type: application/json' -d '{}'
 ```
 
 | 状态码 | 含义 |
 |---|---|
-| 200 | 工具结果 JSON：本地工具是业务对象（与 `/mcp` 的 text content 解析后相同）；上游工具是其 MCP 结果 `{content}` |
+| 200 / 201 / 206 | 成功：工具结果 JSON（本地工具返回业务对象，与 `/mcp` 的 text content 解析后相同；上游工具返回其 MCP 结果 `{content}`）、上传结果、Range 片段 |
 | 400 | 参数错误；违反台数据契约时带逐条 `violations` |
 | 401 | 缺少或无效的会话令牌 |
-| 403 | 会话未获授权；响应 `hint` 提示调 `access_info` 查看、用 `access_request` 申请 |
-| 404 | 工具不存在 |
-| 413 | 请求体过大：带有效会话 140MB，其余 4MB（与 `/mcp` 同口径） |
+| 403 | 会话未获授权；响应里 `hint` 提示调 `access_info` 查看、用 `access_request` 申请，`required_tool` 给出需要的工具 |
+| 404 | 工具或资源不存在 |
+| 413 | 文件超过 100MB 或台文件数已满；JSON 请求体上限：带有效会话 140MB，其余 4MB（与 `/mcp` 同口径） |
+| 415 | 文件内容与扩展名不符，或是可执行文件 |
+| 416 | Range 越界 |
 | 502 | 上游工具失败或不可达 |
 
-- **审计**：调用照旧记进 `mcp_calls`，`channel` 列区分 `rest` / `mcp`（「MCP 网关」页审计表的「渠道」列）。
-- **与 `/mcp` 的差异**：`/mcp` 对未授权工具按「不存在」应答；REST 分开回 403 / 404，方便脚本区分（工具目录本就能经 `access_info` 看到）。
+- **审计**：每次调用都记进 `mcp_calls`，`channel` 列区分 `rest` 和 `mcp`（「MCP 网关」页审计表的「渠道」列）。文件接口的 method 记为 `rest/file_upload`、`rest/file_download` 等。
+- **与 `/mcp` 的差异**：`/mcp` 对未授权的工具按「不存在」应答；REST 分开返回 403 和 404，方便脚本区分（工具目录本来就能经 `access_info` 看到）。
 
 ### 代理相对路径标准式（iframe / 统一门户 `/go/<id>/`）
 

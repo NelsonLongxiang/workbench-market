@@ -169,7 +169,7 @@ export const MCP_TOOLS: McpToolDef[] = [
   {
     name: 'app_files_list',
     category: 'read',
-    description: '读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读，与 GET 同权。',
+    description: '读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读，与 GET 同权。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -184,7 +184,7 @@ export const MCP_TOOLS: McpToolDef[] = [
   {
     name: 'app_files_upload',
     category: 'write',
-    description: '向自产台上传文件（base64 内容·原始 ≤100MB/个，base64 约 ≤134MB）——agent 侧交付物直接入台文件面（与 REST multipart 同表同链、同一套按内容的类型检查）。返回 id/url/mime/size/sha256/note。上传前可用 app_files_list 的 quota 查剩余文件数与上限。',
+    description: '向自产台上传文件（base64 内容·原始 ≤100MB/个，base64 约 ≤134MB）——agent 侧交付物直接入台文件面（与 REST multipart 同表同链、同一套按内容的类型检查）。返回 id/url/mime/size/sha256/note。上传前可用 app_files_list 的 quota 查剩余文件数与上限。大文件用 REST 上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>，请求体为原始字节（同一会话令牌，不经 base64；入口见 access_info 的 rest_base 与 openapi_url）。',
     inputSchema: {
       type: 'object',
       properties: {
