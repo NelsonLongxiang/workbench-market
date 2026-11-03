@@ -8,7 +8,10 @@ export class AppDataService extends Service {
   }
 
   dataInsertStmt() {
-    return db.prepare('INSERT INTO app_data (app_slug, data, created_by) VALUES (?, ?, ?)');
+    return db.prepare('INSERT INTO app_data (app_slug, data, created_by, idempotency_key) VALUES (?, ?, ?, ?)');
+  }
+  dataByIdempotencyKey(slug: string, key: string) {
+    return db.prepare('SELECT id, data, created_at FROM app_data WHERE app_slug = ? AND idempotency_key = ?').get(slug, key);
   }
   fileInsertStmt() {
     return db.prepare('INSERT INTO app_files (app_slug, original_name, mime, size, storage_path, created_by) VALUES (?, ?, ?, ?, ?, ?)');

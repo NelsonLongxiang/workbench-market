@@ -1,8 +1,36 @@
-/** MCP 工具注册表（S3 抽离）：纯数据，供 /mcp 与网关授权面共用。 */
-export const MCP_TOOLS: { name: string; description: string; inputSchema: Record<string, unknown> }[] = [
+/** MCP 工具注册表（S3 抽离）：纯数据，供 /mcp 与网关授权面共用。
+ *  category：read 只读 / write 写业务数据 / admin 改市场配置或发布——供 access_info 目录与管理员审批参考。
+ *  exempt：任何已认证会话都能调、不受 grants 限制（与 initialize、tools/list 同级），tools/list 始终列出。 */
+export type McpToolCategory = 'read' | 'write' | 'admin';
+export interface McpToolDef { name: string; description: string; category: McpToolCategory; exempt?: boolean; inputSchema: Record<string, unknown> }
+export const MCP_TOOLS: McpToolDef[] = [
+  // ── 权限自助（免 grants）：看清自己能调什么、缺什么，再提申请等管理员批 ──
+  {
+    name: 'access_info',
+    category: 'read',
+    exempt: true,
+    description: '查本会话的权限：会话名、已授权工具、完整工具目录（本地 + 上游聚合，每项带 category=read/write/admin 与 granted）、本会话提过的权限申请及状态。任何已认证会话都能调，不受授权限制——调用工具被拒或 tools/list 里找不到想要的工具时先调它。',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'access_request',
+    category: 'write',
+    exempt: true,
+    description: '申请把目录里的工具授权给本会话（管理员在「MCP 网关」页批准后立即生效，批准是并入现有授权，不会收走已有工具）。tools 必须是 access_info 目录里的工具名；reason 必填（≤500 字），写清要做什么。同一组工具已有待批申请时返回那条，不重复建；每会话每小时最多 10 条。会话不能自己批准。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tools: { type: 'array', items: { type: 'string' }, description: '要申请的工具名（来自 access_info 目录）' },
+        reason: { type: 'string', description: '用途说明（必填·≤500 字）' },
+      },
+      required: ['tools', 'reason'],
+      additionalProperties: false,
+    },
+  },
 
   {
     name: 'workbench_list',
+    category: 'read',
     description: '列出市场中的工作台（可按关键词/类型/状态过滤），返回 id/名称/类型/状态/延迟/地址/分类/启用——找台的入口。',
     inputSchema: {
       type: 'object',
@@ -16,11 +44,13 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
   },
   {
     name: 'workbench_summary',
+    category: 'read',
     description: '市场总览统计：总数/启用/在线/离线/未探测/平均延迟/分类聚合。',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     name: 'workbench_check',
+    category: 'write',
     description: '立即健康探测并回写状态：传 id 探测单个台；all=true 并发探测全部启用台。',
     inputSchema: {
       type: 'object',
@@ -30,11 +60,13 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
   },
   {
     name: 'use_url',
+    category: 'read',
     description: '取某工作台的访问入口：portal（/go/<id>/ 同源代理，自动带凭据/剥禁嵌头）与 direct 直连地址。',
     inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'], additionalProperties: false },
   },
   {
     name: 'app_sync',
+    category: 'admin',
     description:
       '从 GitHub 仓库 main 分支同步自产台/SOP 台（属主 2026-11-02 来源收敛：自产台只接受仓库 main，不再收直接上传的文件）。先把改动合进该台登记的仓库 main，再调本工具；市场拉 main 头生成新版本并记下 commit。只能重拉已登记来源的台，绑定或改来源须本机 CLI 或管理员走 REST POST /api/apps/<slug>/sync。',
     inputSchema: {
@@ -50,52 +82,62 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
   },
   {
     name: 'change_request_create',
+    category: 'write',
     description: '#94 v3 S1 人审门：创建台回滚/删除请求（K10——批准前状态不变·批准经 REST 口令面）',
     inputSchema: { type: 'object', properties: { kind: { type: 'string', enum: ['app_rollback', 'app_delete'] }, target_type: { type: 'string' }, target_slug: { type: 'string' }, payload: { type: 'object' }, reason: { type: 'string' }, requested_by: { type: 'string' } }, required: ['kind', 'target_slug'] },
   },
   {
     name: 'change_requests',
+    category: 'read',
     description: '#94 v3 S1：列人审请求（默认 pending）',
     inputSchema: { type: 'object', properties: { status: { type: 'string', enum: ['pending', 'approved', 'rejected'] } } },
   },
   {
     name: 'sop_publish',
+    category: 'admin',
     description: 'SOP 台上架：draft/deprecated → published（首次入册市场；note 记入当前版本 changelog）。',
     inputSchema: { type: 'object', properties: { slug: { type: 'string' }, note: { type: 'string', description: '发布说明（可选）' } }, required: ['slug'], additionalProperties: false },
   },
   {
     name: 'sop_run_start',
+    category: 'write',
     description: '开一次 SOP 执行 run（钉当前版本；仅 published）——agent 更新持久化执行数据的入口，不触发版本发布。',
     inputSchema: { type: 'object', properties: { slug: { type: 'string' }, started_by: { type: 'string', description: '执行者标识（如 agent 会话名）' } }, required: ['slug'], additionalProperties: false },
   },
   {
     name: 'sop_run_step_save',
+    category: 'write',
     description: '更新 run 的持久化数据（stepKey→value 任意键值；与人在 Runner 页填数据同一条链：Redis 热写+30s checkpoint 沉淀 SQLite）。',
     inputSchema: { type: 'object', properties: { run_id: { type: 'integer' }, step_key: { type: 'string', description: '字母/数字/_/-（不必是 sop.yaml 里的步骤——数据面哑存储）' }, value: { description: '任意 JSON 值' } }, required: ['run_id', 'step_key'], additionalProperties: false },
   },
   {
     name: 'sop_run_get',
+    category: 'read',
     description: '读 run 详情（热读优先，miss 回 SQLite 真源）——恢复执行现场。',
     inputSchema: { type: 'object', properties: { run_id: { type: 'integer' }, read_capability: { type: 'string', description: '#309 phase2 机器迁移：创建 run 时 sop_run_start/A2A start 响应返回的 run 级读能力（一次性明文）。无有效能力或授权时只回元数据（不含 data）。' } }, required: ['run_id'], additionalProperties: false },
   },
   {
     name: 'sop_run_list',
+    category: 'read',
     description: '列 SOP 执行记录（可按 slug/status 过滤）。',
     inputSchema: { type: 'object', properties: { slug: { type: 'string' }, status: { type: 'string', enum: ['running', 'finished'] } }, additionalProperties: false },
   },
   // ── LayerFS 沙箱（第十域 · 步骤 4）──
   {
     name: 'sop_run_sandbox',
+    category: 'write',
     description: '派发 SOP 步骤到 VM sandbox 容器执行（LayerFS）——返回 commit_hash（交付物=LayerFS Commit 引用）+ exit_code/stdout_tail/stderr_tail/duration_ms。bridge 不可达时 retryable。',
     inputSchema: { type: 'object', properties: { run_id: { type: 'number', description: 'SOP run id' }, script: { type: 'string', description: '执行的 JS 脚本' }, image_tag: { type: 'string', description: '容器镜像（缺省 node:22-slim）' }, timeout_ms: { type: 'number', description: '超时毫秒（缺省 300000）' } }, required: ['run_id'] },
   },
   {
     name: 'sop_run_finish',
+    category: 'write',
     description: '归档 run（热态全量沉淀 SQLite，Redis 条目平滑淘汰）。',
     inputSchema: { type: 'object', properties: { run_id: { type: 'integer' } }, required: ['run_id'], additionalProperties: false },
   },
   {
     name: 'app_data_list',
+    category: 'read',
     description: '读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读，与 GET 同权。',
     inputSchema: {
       type: 'object',
@@ -109,7 +151,24 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
     },
   },
   {
+    name: 'app_data_submit',
+    category: 'write',
+    description: '向自产台写一条表单数据（与台页面 POST /api/apps/<slug>/data 同一条写入链：1MB 上限、按台的 data-contract.json 校验、写入后照常推送事件）。不符合契约时返回 400 与逐条 violations。附件先用 app_files_upload 上传，再把返回的 id 放进 data.file_ids。带 idempotency_key 重试不会重复写：同键同内容返回原记录（duplicate=true），同键不同内容 409。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slug: { type: 'string', description: '自产台 slug' },
+        data: { type: 'object', description: '记录内容（JSON 对象·≤1MB）' },
+        created_by: { type: 'string', description: '提交者标识（≤128 字符·缺省为 mcp:<会话名>）' },
+        idempotency_key: { type: 'string', description: '幂等键（1–128 个字母/数字/_ . : -）' },
+      },
+      required: ['slug', 'data'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'app_files_list',
+    category: 'read',
     description: '读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读，与 GET 同权。',
     inputSchema: {
       type: 'object',
@@ -124,6 +183,7 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
   },
   {
     name: 'app_files_upload',
+    category: 'write',
     description: '向自产台上传文件（base64 内容·原始 ≤100MB/个，base64 约 ≤134MB）——agent 侧交付物直接入台文件面（与 REST multipart 同表同链、同一套按内容的类型检查）。返回 id/url/mime/size/sha256/note。上传前可用 app_files_list 的 quota 查剩余文件数与上限。',
     inputSchema: {
       type: 'object',
@@ -142,6 +202,7 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
   // ── 工作台变量与常量（#336：按 workbench id 隔离，SQLite 持久化，revision 乐观锁） ──
   {
     name: 'workbench_vars_get',
+    category: 'read',
     description: '读某工作台的看板变量/常量：带 key 取单个（含 revision），不带 key 列全部（可按 prefix 过滤）。各台按 workbench id 隔离，自产台/SOP 台/外部台通用。',
     inputSchema: {
       type: 'object',
@@ -156,6 +217,7 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
   },
   {
     name: 'workbench_vars_set',
+    category: 'write',
     description: '写某工作台的看板变量（JSON 值）。新建可不带 revision（或 revision=0 表示仅在不存在时创建）；改已存在的键必须带当前 revision，不符返回 revision 冲突与当前值。kind=const 写入后不可再改，常量修订只限管理员走 REST（MCP 不提供 override）。',
     inputSchema: {
       type: 'object',
@@ -173,6 +235,7 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
   },
   {
     name: 'workbench_register',
+    category: 'admin',
     description: '登记外部工作台入册（agent 发现内网新服务时自主登记；门户/市场即刻可用）。凭据不接受——需人工经市场页配置（安全边界）。',
     inputSchema: {
       type: 'object',
@@ -186,6 +249,7 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
   },
   {
     name: 'workbench_update',
+    category: 'admin',
     description: '更新工作台配置（name/category/tags/description/enabled/health_path/sort/url）。不接受 auth——凭据变更人工操作；掩码 url 回传视为未变更。',
     inputSchema: {
       type: 'object',
@@ -199,27 +263,32 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
   },
   {
     name: 'workbench_unregister',
+    category: 'admin',
     description: '解除工作台注册（不删服务本体；驾驶舱面板引用联动清理）。',
     inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'], additionalProperties: false },
   },
   // ── 技能市场（P1-a · 方案 PR#57 §1：只读+计划生成，分发薄做） ──
   {
     name: 'skills_list',
+    category: 'read',
     description: '列出市场技能（可按 layer 1-5 过滤：1业务角色/2开发运维/3工作流/4架构设计/5AI原生运营），返回 slug/name/layer/族/版本数——市场技能目录入口。',
     inputSchema: { type: 'object', properties: { layer: { type: 'number', description: '分层过滤 1-5（缺省全量）' }, q: { type: 'string', description: '名称/描述关键词' } } },
   },
   {
     name: 'skill_versions',
+    category: 'read',
     description: '查某技能版本链（newest-first）：version/changelog/breaking/tree_digest/snapshot_path/reviewed_by——版本不可变审计面。',
     inputSchema: { type: 'object', properties: { slug: { type: 'string', description: '技能 slug（如 agents:brand）' } }, required: ['slug'] },
   },
   {
     name: 'skill_install_plan',
+    category: 'read',
     description: '生成安装计划（薄分发：不自动落盘）——返回目标版本 digest（expected sha256 钉装锚）+ 快照路径 + 手工安装指引。',
     inputSchema: { type: 'object', properties: { slug: { type: 'string' }, version: { type: 'number', description: '缺省最新' } }, required: ['slug'] },
   },
   {
     name: 'skill_search',
+    category: 'read',
     description: '语义搜技能：只描述需求（自然语言），评估模型按 P(true) 打分返回 ≤3 个置信度严格 >0.7 的技能（降序）。只读；不可用时**报错不降级**。',
     inputSchema: {
       type: 'object',
@@ -236,6 +305,7 @@ export const MCP_TOOLS: { name: string; description: string; inputSchema: Record
   // ── 设计标准（DESIGN.md + PATTERNS.md 只读；agent 开发台/页面前先取） ──
   {
     name: 'design_standard',
+    category: 'read',
     description: '读取工作台 design token 标准与页面模式（只读·唯一事实源 DESIGN.md + design-system/workbench-market/PATTERNS.md）：part=tokens 取结构化 token（颜色/字号/间距/圆角/阴影/动效/组件）；guide 取 DESIGN.md 各节规则；patterns 取菜单与目录、页面骨架、SOP 交付空间、列表、数据看板；all（缺省）全给。section 按标题关键词只取命中章节。返回含 version 与两份源文件 sha256。',
     inputSchema: {
       type: 'object',

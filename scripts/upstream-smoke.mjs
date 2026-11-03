@@ -30,7 +30,7 @@ const upstream = createServer((req, res) => {
     const send = (result) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ jsonrpc: '2.0', id: msg.id ?? 1, result })); };
     if (msg.method === 'tools/list') {
       return send({ tools: [
-        { name: 'rules', description: '读规则集', inputSchema: { type: 'object', properties: {} } },
+        { name: 'rules', description: '读规则集', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true } },
         { name: 'record', description: '记一条判断', inputSchema: { type: 'object', properties: { text: { type: 'string' } } } },
       ] });
     }
@@ -70,7 +70,7 @@ try {
   // 结论：控制面需要 ADMIN_TOKEN，故本冒烟以 gateway-smoke 的 ADMIN_TOKEN 实例为宿主不可行。
   // 改为：本实例先验「无上游配置 → 工具面 17」与「控制面 403」；聚合验证放在带 ADMIN_TOKEN 的独立实例段。
   let r = await rpc('tools/list');
-  ok('无上游配置工具面 27（24 本地·app_publish 换 app_sync·草稿 3 已移除·#178 +1·design_standard +1·#336 +2）', r.body?.result?.tools?.length === 27, JSON.stringify(r.body).slice(0, 120));
+  ok('无上游配置工具面 30（24 本地·app_publish 换 app_sync·草稿 3 已移除·#178 +1·design_standard +1·#336 +2·权限自助 +2·app_data_submit +1）', r.body?.result?.tools?.length === 30, JSON.stringify(r.body).slice(0, 120));
   r = await call('GET', '/api/mcp/upstreams');
   ok('控制面无口令 403', r.status === 403);
   // 上游不可达时列表不崩（用不存在的端口配置——需口令，跳过）
@@ -113,7 +113,7 @@ try {
   // ③ 聚合工具面（网关 off，无令牌也全量）——本地 17 + 上游 2 = 19
   r = await rpc2('tools/list');
   const names = (r.body?.result?.tools ?? []).map((t) => t.name);
-  ok('聚合 29 工具（27 本地 + 2 上游）', names.length === 29, String(names.length));
+  ok('聚合 32 工具（30 本地 + 2 上游）', names.length === 32, String(names.length));
   ok('taste__rules 在场', names.includes('taste__rules'));
   ok('taste__record 在场', names.includes('taste__record'));
   // ④ 上游工具调用转发
@@ -136,7 +136,7 @@ try {
   r = await call2('PUT', '/api/mcp/upstreams', { upstreams: [{ prefix: 'dead', url: 'http://127.0.0.1:1/', toolCallTimeoutMs: 800 }] }, AT);
   ok('配死上游 200', r.status === 200);
   r = await rpc2('tools/list');
-  ok('上游不可达 → 工具面回落 27 不崩（24+1+1+2·草稿 3 已移除）', (r.body?.result?.tools ?? []).length === 27, String(r.body?.result?.tools?.length));
+  ok('上游不可达 → 工具面回落 30 不崩（24+1+1+2+3·草稿 3 已移除）', (r.body?.result?.tools ?? []).length === 30, String(r.body?.result?.tools?.length));
 } finally {
   child2.kill();
   await new Promise((r) => setTimeout(r, 400));
@@ -172,7 +172,13 @@ try {
   // tools/list 只列已授权
   const listR = await fetch(B3 + '/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
   const lj = await listR.json();
-  ok('网关 tools/list 仅授权面（1 个）', (lj.result?.tools ?? []).length === 1 && lj.result?.tools?.[0]?.name === 'taste__rules', JSON.stringify((lj.result?.tools ?? []).map((t) => t.name)));
+  const lnames = (lj.result?.tools ?? []).map((t) => t.name);
+  ok('网关 tools/list 仅授权面（1 个 + 两个免授权工具）', lnames.length === 3 && lnames.includes('taste__rules') && lnames.includes('access_info') && lnames.includes('access_request'), JSON.stringify(lnames));
+  // access_info 目录含上游工具：readOnlyHint=true → read，未声明 → write（保守）
+  const infoR = await fetch(B3 + '/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'access_info', arguments: {} } }) });
+  const cat = JSON.parse((await infoR.json()).result?.content?.[0]?.text ?? '{}').catalog ?? [];
+  const byName = Object.fromEntries(cat.map((t) => [t.name, t]));
+  ok('access_info 目录含上游工具且类别/授权标记正确', byName.taste__rules?.category === 'read' && byName.taste__rules?.granted === true && byName.taste__record?.category === 'write' && byName.taste__record?.granted === false, JSON.stringify([byName.taste__rules, byName.taste__record]).slice(0, 200));
 } finally {
   child3.kill();
   upstream.close();

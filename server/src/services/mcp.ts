@@ -43,4 +43,35 @@ export class McpService extends Service {
   calls(limit: number) {
     return db.prepare('SELECT * FROM mcp_calls ORDER BY id DESC LIMIT ?').all(limit);
   }
+  // ── 权限自助申请（access_request）与授权审计 ──
+  sessionFull(id: number) {
+    return db.prepare('SELECT id, name, grants, revoked_at FROM mcp_sessions WHERE id = ?').get(id);
+  }
+  accessRequestsBySession(sessionId: number, limit = 50) {
+    return db.prepare('SELECT id, tools, reason, status, note, decided_at, created_at FROM mcp_access_requests WHERE session_id = ? ORDER BY id DESC LIMIT ?').all(sessionId, limit);
+  }
+  accessRequestPendingSame(sessionId: number, tools: string) {
+    return db.prepare("SELECT id, tools, reason, status, note, decided_at, created_at FROM mcp_access_requests WHERE session_id = ? AND tools = ? AND status = 'pending' ORDER BY id LIMIT 1").get(sessionId, tools);
+  }
+  accessRequestCountLastHour(sessionId: number) {
+    return (db.prepare("SELECT COUNT(*) AS n FROM mcp_access_requests WHERE session_id = ? AND created_at > datetime('now', '-1 hour')").get(sessionId) as { n: number }).n;
+  }
+  accessRequestInsert(sessionId: number, tools: string, reason: string) {
+    return db.prepare('INSERT INTO mcp_access_requests (session_id, tools, reason) VALUES (?, ?, ?)').run(sessionId, tools, reason);
+  }
+  accessRequestById(id: number) {
+    return db.prepare('SELECT * FROM mcp_access_requests WHERE id = ?').get(id);
+  }
+  accessRequests(status: string, limit: number) {
+    const sql = 'SELECT r.*, s.name AS session_name, s.revoked_at AS session_revoked_at FROM mcp_access_requests r LEFT JOIN mcp_sessions s ON s.id = r.session_id';
+    return status
+      ? db.prepare(`${sql} WHERE r.status = ? ORDER BY r.id DESC LIMIT ?`).all(status, limit)
+      : db.prepare(`${sql} ORDER BY r.id DESC LIMIT ?`).all(limit);
+  }
+  accessRequestDecide(id: number, status: 'approved' | 'rejected', by: string, note: string) {
+    return db.prepare("UPDATE mcp_access_requests SET status = ?, decided_by = ?, decided_at = datetime('now'), note = ? WHERE id = ? AND status = 'pending'").run(status, by, note, id);
+  }
+  grantAuditInsert(sessionId: number, requestId: number | null, action: string, actor: string, before: string, after: string, note: string) {
+    return db.prepare('INSERT INTO mcp_grant_audit (session_id, request_id, action, actor, grants_before, grants_after, note) VALUES (?, ?, ?, ?, ?, ?, ?)').run(sessionId, requestId, action, actor, before, after, note);
+  }
 }

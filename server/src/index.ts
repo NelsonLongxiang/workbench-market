@@ -260,7 +260,7 @@ async function markOdooAdmin(req: express.Request): Promise<void> {
   if (login) odooAdminReqs.set(req, login);
 }
 // 管理读面（GET 也走 adminGuard/vaultGuard 的）与口令/身份端点：进路由前先认定
-const ADMIN_IDENTITY_PATHS = /^\/api\/(admin\/whoami|admin-token(\/|$)|mcp\/(sessions|upstreams|tools|calls)(\/|$)|change-requests(\/|$)|bindings(\/|$)|remote-allow\/diff|vault\/|lifecycle\/status)/;
+const ADMIN_IDENTITY_PATHS = /^\/api\/(admin\/whoami|admin-token(\/|$)|mcp\/(sessions|upstreams|tools|calls|access-requests)(\/|$)|change-requests(\/|$)|bindings(\/|$)|remote-allow\/diff|vault\/|lifecycle\/status)/;
 app.use(async (req, _res, next) => {
   if (ADMIN_IDENTITY_PATHS.test(req.path.toLowerCase())) await markOdooAdmin(req);
   next();
@@ -1310,23 +1310,33 @@ function appDataContract(a: AppRow): DataContract | null {
   return c;
 }
 
-app.post('/api/apps/:slug/data', (req, res) => {
-  const a = getApp(req.params.slug);
-  const b = req.body ?? {};
-  const data = b.data ?? b; // 兼容 {data: {...}} 或直接 {...} 两种形态
+const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9_.:-]{1,128}$/;
+/** 台数据写入核心：REST POST /api/apps/:slug/data 与 MCP app_data_submit 共用——1MB 上限、数据契约、幂等键、写入后推事件。
+ *  违约不抛错，回 status 400 + violations，由两个入口各自原样交出去。 */
+function submitAppData(a: AppRow, input: { data: unknown; createdBy?: unknown; idempotencyKey?: unknown }): { status: number; body: Record<string, unknown> } {
+  const data = input.data;
   const json = JSON.stringify(data);
+  if (json === undefined) bad('data 必填');
   if (Buffer.byteLength(json, 'utf8') > 1024 * 1024) bad('data 超 1MB 上限');
+  const key = input.idempotencyKey === undefined || input.idempotencyKey === null || input.idempotencyKey === '' ? '' : String(input.idempotencyKey);
+  if (key && !IDEMPOTENCY_KEY_RE.test(key)) bad('idempotency_key 只能是 1–128 个字母/数字/_ . : -');
+  if (key) {
+    const prev = svc<AppDataService>('appData').dataByIdempotencyKey(a.slug, key) as { id: number; data: string; created_at: string } | undefined;
+    if (prev) {
+      if (prev.data !== json) throw new HttpError(409, 'idempotency_key 已用于另一份内容', { id: prev.id });
+      return { status: 200, body: { ok: true, id: prev.id, slug: a.slug, created_at: prev.created_at, duplicate: true } };
+    }
+  }
   const contract = appDataContract(a);
   if (contract) {
     const violations = checkRecord(contract, data, (id) => !!svc<AppDataService>('appData').fileById(id, a.slug));
-    if (violations.length) return res.status(400).json({ error: '提交不符合本台数据契约', violations });
+    if (violations.length) return { status: 400, body: { error: '提交不符合本台数据契约', violations } };
   }
-  const created_by = typeof b.created_by === 'string' ? b.created_by.trim().slice(0, 128) : '';
+  const created_by = typeof input.createdBy === 'string' ? input.createdBy.trim().slice(0, 128) : '';
   const r = svc<AppDataService>('appData').dataInsertStmt()
-    .run(a.slug, json, created_by) as unknown as { lastInsertRowid: number | bigint };
+    .run(a.slug, json, created_by, key) as unknown as { lastInsertRowid: number | bigint };
   const itemId = Number(r.lastInsertRowid);
   const createdAt = new Date().toISOString();
-  res.status(201).json({ ok: true, id: itemId, slug: a.slug, created_at: createdAt });
   // 属主裁 C（2026-10-26）：提交即推送——绑定 agent 异步收通知（不阻塞 201）。
   // 工作台事件 v1：推送改走事件投递队列（退避重试、终态 sent/dead 可查），信封带 event_id 与 submitter_kind。
   // 提交面匿名、created_by 自填 → submitter_kind 恒 unverified、dispatch:false（只通知不派发）。
@@ -1334,6 +1344,20 @@ app.post('/api/apps/:slug/data', (req, res) => {
   try {
     if (recordAppDataEvent({ slug: a.slug, id: itemId, data, json, createdBy: created_by, createdAt })) kickWorkbenchEvents();
   } catch (err) { console.error(`[app-notify] event record failed ${a.slug}: ${String(err).slice(0, 120)}`); }
+  return { status: 201, body: { ok: true, id: itemId, slug: a.slug, created_at: createdAt } };
+}
+
+app.post('/api/apps/:slug/data', (req, res) => {
+  const a = getApp(req.params.slug);
+  const b = req.body ?? {};
+  // 兼容 {data: {...}} 或直接 {...} 两种形态；幂等键只认信封字段或 Idempotency-Key 头（直接形态的字段都算数据）
+  const envelope = b.data !== undefined && b.data !== null;
+  const out = submitAppData(a, {
+    data: envelope ? b.data : b,
+    createdBy: b.created_by,
+    idempotencyKey: req.get('idempotency-key') ?? (envelope ? b.idempotency_key : undefined),
+  });
+  res.status(out.status).json(out.body);
 });
 
 app.get('/api/apps/:slug/data', (req, res) => {
@@ -3196,7 +3220,7 @@ const wbById = (id: number): ReturnType<typeof rowToWorkbench> | null => {
   return row ? rowToWorkbench(row) : null;
 };
 
-import { MCP_TOOLS } from './mcp-tools.ts';
+import { MCP_TOOLS, type McpToolDef, type McpToolCategory } from './mcp-tools.ts';
 import { evalCandidates } from './eval.ts'; // #178 评估模型客户端
 
 import { renderSopRunner as renderSopRunnerRaw } from './sop-runner.ts';
@@ -3431,6 +3455,14 @@ async function callTool(name: string, args: any, subject = 'anonymous'): Promise
       const items = (rows as any[]).map((r) => ({ id: r.id, data: JSON.parse(r.data || '{}'), created_by: r.created_by, created_at: r.created_at }));
       return { slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null };
     }
+    case 'app_data_submit': {
+      // 与 REST POST /api/apps/:slug/data 同一核心（契约校验、幂等、事件推送）；违约 → 400 + violations 原样
+      const a = getApp(String(args?.slug ?? ''));
+      if (args?.data === undefined || args?.data === null) bad('data 必填');
+      const out = submitAppData(a, { data: args.data, createdBy: args?.created_by ?? subject, idempotencyKey: args?.idempotency_key });
+      if (out.status >= 400) throw new HttpError(out.status, String(out.body.error), { violations: out.body.violations });
+      return { ...out.body, status: out.status };
+    }
     case 'app_files_list': {
       const a = getApp(String(args?.slug ?? ''));
       const limit = pageLimit(args?.limit);
@@ -3479,7 +3511,7 @@ async function callTool(name: string, args: any, subject = 'anonymous'): Promise
 // 工具列表 30s 缓存（每请求不直打上游）；上游不可达时跳过其工具、不影响本地工具面。
 interface McpUpstream { prefix: string; url: string; headers?: Record<string, string>; enabled?: boolean; toolCallTimeoutMs?: number }
 const MCP_UPSTREAM_PREFIX_RE = /^[a-z][a-z0-9]{0,15}$/;
-const upstreamToolCache = new Map<string, { at: number; tools: { name: string; description: string; inputSchema: Record<string, unknown> }[] }>();
+const upstreamToolCache = new Map<string, { at: number; tools: McpToolDef[] }>();
 const UPSTREAM_CACHE_MS = 30_000;
 /** 上游健康（#379）：tools/list 成败都记下来，授权面缩水时管理端看得到原因 */
 const upstreamHealth = new Map<string, { reachable: boolean; tools: number; last_error: string; last_ok_at: string; last_checked_at: string }>();
@@ -3517,9 +3549,10 @@ async function upstreamRpc(u: McpUpstream, method: string, params: unknown, id =
   return j.result;
 }
 
-/** 聚合工具面：本地 + 各上游（<prefix>__<name>）；上游失败时跳过其工具，并记入 upstreamHealth */
-async function mcpAggregatedTools(): Promise<{ name: string; description: string; inputSchema: Record<string, unknown> }[]> {
-  const out = [...MCP_TOOLS];
+/** 聚合工具面：本地 + 各上游（<prefix>__<name>）；上游失败时跳过其工具，并记入 upstreamHealth。
+ *  上游工具的类别按其 annotations.readOnlyHint：明说只读才算 read，其余一律按 write（保守）。 */
+async function mcpAggregatedTools(): Promise<McpToolDef[]> {
+  const out: McpToolDef[] = [...MCP_TOOLS];
   const ups = mcpUpstreams();
   for (const u of ups) {
     const cached = upstreamToolCache.get(u.prefix);
@@ -3529,13 +3562,14 @@ async function mcpAggregatedTools(): Promise<{ name: string; description: string
     }
     try {
       const res = await upstreamRpc(u, 'tools/list', {}, 1);
-      const tools = (res?.tools ?? []) as { name: string; description?: string; inputSchema?: Record<string, unknown> }[];
+      const tools = (res?.tools ?? []) as { name: string; description?: string; inputSchema?: Record<string, unknown>; annotations?: { readOnlyHint?: unknown } }[];
       upstreamHealth.set(u.prefix, { reachable: true, tools: tools.length, last_error: '', last_ok_at: new Date().toISOString(), last_checked_at: new Date().toISOString() });
-      upstreamToolCache.set(u.prefix, {
-        at: Date.now(),
-        tools: tools.filter((t) => typeof t.name === 'string').map((t) => ({ name: t.name, description: t.description ?? '', inputSchema: t.inputSchema ?? { type: 'object', properties: {} } })),
-      });
-      out.push(...tools.filter((t) => typeof t.name === 'string').map((t) => ({ name: `${u.prefix}__${t.name}`, description: `[${u.prefix}] ${t.description ?? ''}`, inputSchema: t.inputSchema ?? { type: 'object', properties: {} } })));
+      const clean = tools.filter((t) => typeof t.name === 'string').map((t) => ({
+        name: t.name, description: t.description ?? '', category: (t.annotations?.readOnlyHint === true ? 'read' : 'write') as McpToolCategory,
+        inputSchema: t.inputSchema ?? { type: 'object', properties: {} },
+      }));
+      upstreamToolCache.set(u.prefix, { at: Date.now(), tools: clean });
+      out.push(...clean.map((t) => ({ ...t, name: `${u.prefix}__${t.name}`, description: `[${u.prefix}] ${t.description}` })));
     } catch (e) {
       /* 上游不可达：跳过其工具，不影响本地工具面；原因记下来给管理端看 */
       const prev = upstreamHealth.get(u.prefix);
@@ -3646,6 +3680,23 @@ app.delete('/api/mcp/sessions/:id', (req, res) => {
   res.json({ ok: true, revoked: id });
 });
 
+/** grants 校验口径（#379，整体替换与批准申请共用）：注册表里有的保留；不在注册表的，只有 held 里已有的才不报错——
+ *  所属上游已配置但暂不可达 → 保留（kept_unavailable）；其余（工具已下线/改名）→ 剔除（dropped）。held 之外的未知名 400。 */
+function resolveGrants(raw: unknown[], held: string[], registered: Set<string>): { saved: string[]; dropped: string[]; keptUnavailable: string[] } {
+  const upPrefixes = new Set(mcpUpstreams().map((u) => u.prefix));
+  const saved: string[] = [], dropped: string[] = [], keptUnavailable: string[] = [];
+  for (const g of raw) {
+    if (typeof g !== 'string') bad(`工具名必须是字符串: ${JSON.stringify(g)}`);
+    const name = g as string;
+    if (registered.has(name)) { if (!saved.includes(name)) saved.push(name); continue; }
+    if (!held.includes(name)) bad(`未知工具名: ${JSON.stringify(name)}（合法面见 GET /api/mcp/tools）`);
+    const prefix = name.includes('__') ? name.slice(0, name.indexOf('__')) : '';
+    if (prefix && upPrefixes.has(prefix) && upstreamHealth.get(prefix)?.reachable === false) { if (!saved.includes(name)) { saved.push(name); keptUnavailable.push(name); } }
+    else dropped.push(name);
+  }
+  return { saved, dropped, keptUnavailable };
+}
+
 app.put('/api/mcp/sessions/:id/grants', (req, res, next) => {
   if (!adminGuard(req, res)) return;
   const id = Number(req.params.id);
@@ -3661,16 +3712,7 @@ app.put('/api/mcp/sessions/:id/grants', (req, res, next) => {
   try { held = JSON.parse(String((sess as { grants?: string }).grants || '[]')); } catch { held = []; }
   void mcpRegisteredNames().then((registered) => {
     try {
-      const upPrefixes = new Set(mcpUpstreams().map((u) => u.prefix));
-      const saved: string[] = [], dropped: string[] = [], keptUnavailable: string[] = [];
-      for (const g of raw) {
-        if (typeof g !== 'string') bad(`工具名必须是字符串: ${JSON.stringify(g)}`);
-        if (registered.has(g)) { if (!saved.includes(g)) saved.push(g); continue; }
-        if (!held.includes(g)) bad(`未知工具名: ${JSON.stringify(g)}（合法面见 GET /api/mcp/tools）`);
-        const prefix = g.includes('__') ? g.slice(0, g.indexOf('__')) : '';
-        if (prefix && upPrefixes.has(prefix) && upstreamHealth.get(prefix)?.reachable === false) { if (!saved.includes(g)) { saved.push(g); keptUnavailable.push(g); } }
-        else dropped.push(g);
-      }
+      const { saved, dropped, keptUnavailable } = resolveGrants(raw, held, registered);
       svc<McpService>('mcp').sessionGrants(id, JSON.stringify(saved));
       res.json({ ok: true, id, grants: saved, dropped, kept_unavailable: keptUnavailable });
     } catch (e) {
@@ -3683,7 +3725,7 @@ app.get('/api/mcp/tools', (req, res, next) => {
   if (!adminGuard(req, res)) return;
   // 本地 + 上游聚合面（上游不可达时只列本地，不报错）
   void mcpAggregatedTools()
-    .then((tools) => res.json(tools.map((t) => ({ name: t.name, description: t.description }))))
+    .then((tools) => res.json(tools.map((t) => ({ name: t.name, description: t.description, category: t.category, ...(t.exempt ? { always_allowed: true } : {}) }))))
     .catch(next);
 });
 
@@ -3692,6 +3734,146 @@ app.get('/api/mcp/calls', (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 200, 1000);
   const rows = svc<McpService>('mcp').calls(limit);
   res.json(rows);
+});
+
+// ---------- MCP 权限自助：access_info / access_request（免 grants）+ 管理员审批面 ----------
+// 会话只能看和申请；批准、驳回只走下面的管理员 REST（adminGuard：口令或 Odoo 管理员），会话令牌不是管理身份，自己批不了。
+const MCP_EXEMPT_TOOLS = new Set(MCP_TOOLS.filter((t) => t.exempt).map((t) => t.name));
+const ACCESS_REQUEST_HOURLY_MAX = 10;
+const ACCESS_REASON_MAX = 500;
+const ACCESS_STATUSES = ['pending', 'approved', 'rejected'];
+type McpSess = { id: number; name: string; grants: string[] };
+type AccessRequestRow = { id: number; session_id: number; tools: string; reason: string; status: string; decided_by: string; decided_at: string; note: string; created_at: string };
+function parseToolList(raw: string): string[] {
+  try { const v = JSON.parse(raw || '[]'); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []; } catch { return []; }
+}
+/** 会话看到的申请：不带 decided_by（管理员身份不外露给会话） */
+function accessRequestForSession(r: Pick<AccessRequestRow, 'id' | 'tools' | 'reason' | 'status' | 'note' | 'decided_at' | 'created_at'>) {
+  return { id: r.id, tools: parseToolList(r.tools), reason: r.reason, status: r.status, note: r.note, decided_at: r.decided_at || null, created_at: r.created_at };
+}
+
+async function mcpAccessTool(name: string, args: any, sess: McpSess | null): Promise<unknown> {
+  const catalog = await mcpAggregatedTools();
+  if (name === 'access_info') {
+    const granted = (t: McpToolDef) => !sess || !!t.exempt || sess.grants.includes(t.name); // 网关关时全部可调
+    return {
+      gateway: MCP_GATEWAY_ON ? 'on' : 'off',
+      session: sess?.name ?? null,
+      granted_tools: catalog.filter(granted).map((t) => t.name),
+      catalog: catalog.map((t) => ({ name: t.name, description: t.description, category: t.category, granted: granted(t), ...(t.exempt ? { always_allowed: true } : {}) })),
+      requests: sess ? (svc<McpService>('mcp').accessRequestsBySession(sess.id) as AccessRequestRow[]).map(accessRequestForSession) : [],
+      how_to_request: 'access_request {tools: [工具名], reason: 用途}；管理员在「MCP 网关」页「权限申请」批准后立即生效（并入现有授权）',
+    };
+  }
+  // access_request
+  if (!sess) bad('网关关闭时不校验授权，无需申请');
+  const s = sess as McpSess;
+  const raw = args?.tools;
+  if (!Array.isArray(raw) || raw.length === 0) bad('tools 必须是非空的工具名数组');
+  if (raw.length > 100) bad('tools 一次最多 100 个');
+  const known = new Set(catalog.map((t) => t.name));
+  for (const t of raw) if (typeof t !== 'string' || !known.has(t)) bad(`不在工具目录里: ${JSON.stringify(t)}（先调 access_info 查目录）`);
+  const wanted = [...new Set(raw as string[])].filter((t) => !MCP_EXEMPT_TOOLS.has(t) && !s.grants.includes(t)).sort();
+  if (!wanted.length) bad('申请的工具本会话都已可用，无需申请');
+  const reason = typeof args?.reason === 'string' ? args.reason.trim() : '';
+  if (!reason) bad('reason 必填：写清要用这些工具做什么');
+  if ([...reason].length > ACCESS_REASON_MAX) bad(`reason 超过 ${ACCESS_REASON_MAX} 字`);
+  const toolsJson = JSON.stringify(wanted);
+  const mcp = svc<McpService>('mcp');
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const dup = mcp.accessRequestPendingSame(s.id, toolsJson) as AccessRequestRow | undefined;
+    let out;
+    if (dup) out = { ok: true, duplicate: true, request: accessRequestForSession(dup) };
+    else {
+      if (mcp.accessRequestCountLastHour(s.id) >= ACCESS_REQUEST_HOURLY_MAX) throw new HttpError(429, `每个会话每小时最多提 ${ACCESS_REQUEST_HOURLY_MAX} 条权限申请，请稍后再试`);
+      const r = mcp.accessRequestInsert(s.id, toolsJson, reason) as unknown as { lastInsertRowid: number | bigint };
+      out = { ok: true, duplicate: false, request: accessRequestForSession(mcp.accessRequestById(Number(r.lastInsertRowid)) as AccessRequestRow) };
+    }
+    db.exec('COMMIT');
+    return out;
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+}
+
+/** 审批人：Odoo 管理员记登录名，口令记 admin-token（口令本身不落库） */
+function adminActor(req: express.Request): string {
+  const odoo = odooAdminReqs.get(req);
+  return odoo ? `odoo:${odoo}` : 'admin-token';
+}
+function accessRequestId(req: express.Request): number {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) throw new HttpError(404, `access request not found: ${req.params.id}`);
+  return id;
+}
+
+app.get('/api/mcp/access-requests', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const status = typeof req.query.status === 'string' ? req.query.status : '';
+  if (status && !ACCESS_STATUSES.includes(status)) bad('status 只能是 pending / approved / rejected');
+  const limit = pageLimit(req.query.limit, 200, 1000);
+  const rows = svc<McpService>('mcp').accessRequests(status, limit) as (AccessRequestRow & { session_name: string | null; session_revoked_at: string | null })[];
+  res.json(rows.map((r) => ({ ...r, tools: parseToolList(r.tools), session_revoked: !!r.session_revoked_at || r.session_name === null })));
+});
+
+// 批准 = 申请的工具并入会话 grants（并集）+ 改申请状态 + 审计行，同一事务；已吊销会话不能批
+app.post('/api/mcp/access-requests/:id/approve', (req, res, next) => {
+  if (!adminGuard(req, res)) return;
+  const id = accessRequestId(req);
+  const note = String(req.body?.note ?? '').trim().slice(0, ACCESS_REASON_MAX);
+  const actor = adminActor(req);
+  void mcpRegisteredNames().then((registered) => {
+    const mcp = svc<McpService>('mcp');
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const r = mcp.accessRequestById(id) as AccessRequestRow | undefined;
+      if (!r) throw new HttpError(404, `access request not found: ${id}`);
+      if (r.status !== 'pending') throw new HttpError(409, `申请已处理（${r.status}），不能再批准`);
+      const sess = mcp.sessionFull(r.session_id) as { id: number; name: string; grants: string; revoked_at: string } | undefined;
+      if (!sess || sess.revoked_at) throw new HttpError(409, '会话已吊销，不能批准（可驳回）');
+      const tools = parseToolList(r.tools);
+      const before = parseToolList(sess.grants);
+      // 与 PUT grants 同一口径（resolveGrants）：申请的工具当作「已持有」参与判定——上游暂不可达的保留，已下线的剔除；
+      // 申请的工具若被剔除就整单 409（不做部分批准），原有授权里已下线的名字顺带按同口径清掉
+      const { saved: after, dropped, keptUnavailable } = resolveGrants([...before, ...tools], [...before, ...tools], registered);
+      const gone = tools.filter((t) => dropped.includes(t));
+      if (gone.length) throw new HttpError(409, `工具已不在目录里：${gone.join(', ')}（请驳回后让会话重新申请）`);
+      const added = tools.filter((t) => !before.includes(t));
+      mcp.sessionGrants(sess.id, JSON.stringify(after));
+      mcp.accessRequestDecide(id, 'approved', actor, note);
+      mcp.grantAuditInsert(sess.id, id, 'access_request_approve', actor, JSON.stringify(before), JSON.stringify(after), note);
+      db.exec('COMMIT');
+      res.json({ ok: true, id, status: 'approved', session: sess.name, added, grants: after, dropped, kept_unavailable: keptUnavailable });
+    } catch (e) {
+      db.exec('ROLLBACK');
+      next(e);
+    }
+  }).catch(next);
+});
+
+app.post('/api/mcp/access-requests/:id/reject', (req, res) => {
+  if (!adminGuard(req, res)) return;
+  const id = accessRequestId(req);
+  const note = String(req.body?.note ?? '').trim().slice(0, ACCESS_REASON_MAX);
+  const actor = adminActor(req);
+  const mcp = svc<McpService>('mcp');
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const r = mcp.accessRequestById(id) as AccessRequestRow | undefined;
+    if (!r) throw new HttpError(404, `access request not found: ${id}`);
+    if (r.status !== 'pending') throw new HttpError(409, `申请已处理（${r.status}），不能再驳回`);
+    const sess = mcp.sessionFull(r.session_id) as { grants: string } | undefined;
+    const grants = sess?.grants || '[]';
+    mcp.accessRequestDecide(id, 'rejected', actor, note);
+    mcp.grantAuditInsert(r.session_id, id, 'access_request_reject', actor, grants, grants, note); // 驳回不动 grants
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  res.json({ ok: true, id, status: 'rejected' });
 });
 
 // /mcp 网关化（MCP_GATEWAY=on）：Bearer 有效→会话；无效/缺失/吊销→401+WWW-Authenticate（含 initialize，无兼容期）
@@ -3742,8 +3924,10 @@ app.post('/mcp', async (req, res) => {
       return res.json({ jsonrpc: '2.0', id: msg.id, result: {} });
     }
     if (msg.method === 'tools/list') {
-      const all = await mcpAggregatedTools(); // 本地 17 + 上游（P2 聚合）
-      const tools = sess ? all.filter((t) => sess!.grants.includes(t.name)) : all; // 按授权过滤
+      const all = await mcpAggregatedTools(); // 本地 + 上游（P2 聚合）
+      // 按授权过滤；access_info / access_request 始终列出（缺权限时靠它们看目录、提申请）
+      const tools = (sess ? all.filter((t) => t.exempt || sess!.grants.includes(t.name)) : all)
+        .map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
       audit('tools/list', '', true, '', Date.now() - t0, null);
       return res.json({ jsonrpc: '2.0', id: msg.id, result: { tools } });
     }
@@ -3754,14 +3938,16 @@ app.post('/mcp', async (req, res) => {
       }
       // 未授权与不存在同应答——不泄露存在性
       const toolName = msg.params.name;
-      if (sess && !sess.grants.includes(toolName)) {
+      if (sess && !MCP_EXEMPT_TOOLS.has(toolName) && !sess.grants.includes(toolName)) {
         audit('tools/call', toolName, false, 'not found', Date.now() - t0, msg.params?.arguments);
         return fail(-32601, `Method not found: ${msg.method}`); // 与未知工具同文案族
       }
       try {
         // 上游路由（P2）：<prefix>__<tool> → 转发到对应上游 MCP
-        const up = routeUpstream(toolName);
-        const out = up
+        const up = MCP_EXEMPT_TOOLS.has(toolName) ? null : routeUpstream(toolName);
+        const out = MCP_EXEMPT_TOOLS.has(toolName)
+          ? await mcpAccessTool(toolName, msg.params.arguments ?? {}, sess)
+          : up
           ? await upstreamRpc(up.upstream, 'tools/call', { name: up.remoteTool, arguments: msg.params.arguments ?? {} }, 2, sess ? `mcp/${sess.name}` : undefined)
           : await callTool(toolName, msg.params.arguments ?? {}, sess ? `mcp:${sess.name}` : 'anonymous');
         audit('tools/call', toolName, true, '', Date.now() - t0, msg.params?.arguments);
@@ -3774,7 +3960,9 @@ app.post('/mcp', async (req, res) => {
       } catch (e: any) {
         // 工具执行失败按 MCP 规范走 isError（协议层错误才用 JSON-RPC error）
         audit('tools/call', toolName, false, String(e?.message ?? e).slice(0, 200), Date.now() - t0, msg.params?.arguments);
-        return res.json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: `执行失败：${e?.message || e}` }], isError: true } });
+        // 带具名字段的错误（如数据契约 violations）把状态码与字段原样附在后面，agent 能逐条改
+        const detail = e instanceof HttpError && e.extra ? `\n${JSON.stringify({ status: e.status, ...e.extra })}` : '';
+        return res.json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: `执行失败：${e?.message || e}${detail}` }], isError: true } });
       }
     }
     audit(msg.method, '', false, 'Method not found', Date.now() - t0, msg.params);
