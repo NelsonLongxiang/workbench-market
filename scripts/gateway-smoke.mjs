@@ -67,7 +67,7 @@ try {
   r = await call('GET', '/api/mcp/tools');
   ok('GET /api/mcp/tools 无口令 403', r.status === 403);
   r = await call('GET', '/api/mcp/tools', null, AT);
-  ok('tools 面 25 个（#178 skill_search +1·design_standard +1；11-02 来源收敛 app_publish→app_sync、草稿三工具移除 −3）', Array.isArray(r.body) && r.body.length === 25, `len=${r.body?.length}`);
+  ok('tools 面 27 个（#178 skill_search +1·design_standard +1；11-02 来源收敛 app_publish→app_sync、草稿三工具移除 −3；#336 workbench_vars_get/set +2）', Array.isArray(r.body) && r.body.length === 27, `len=${r.body?.length}`);
   // 授权两个
   r = await call('PUT', `/api/mcp/sessions/${sid}/grants`, { grants: ['workbench_summary', 'use_url'] }, AT);
   ok('grants 整体替换', r.status === 200 && r.body.grants.length === 2);
