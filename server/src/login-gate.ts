@@ -20,6 +20,7 @@ import type { IncomingMessage } from 'node:http';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isIP } from 'node:net';
 import { browserMarked, rawLoopback, surfaceOf } from './surfaces.ts';
 import { odooSessionOf } from './odoo-session.ts';
 
@@ -88,8 +89,18 @@ function wantsPage(req: IncomingMessage): boolean {
   return String(req.headers.accept ?? '').includes('text/html');
 }
 
-function clientIp(req: IncomingMessage): string {
-  return String(req.socket?.remoteAddress ?? '').replace(/^::ffff:/, '');
+/** 来源 IP（限频与审计用）：TCP 对端是本机（同机反代，如 nginx）时，取反代写进来的 X-Real-IP，没有则取 X-Forwarded-For 最右一项
+ *  （nginx 的 $proxy_add_x_forwarded_for 把它见到的对端追加在最右；更左边的是客户端自报，不可信）。
+ *  对端不是本机时只认 TCP 对端：外部直连者自带的转发头一律不信，伪造不了。
+ *  前提：本机反代要覆盖 X-Real-IP（proxy_set_header X-Real-IP $remote_addr），不能原样透传客户端的值。 */
+export function clientIp(req: IncomingMessage): string {
+  const peer = String(req.socket?.remoteAddress ?? '').replace(/^::ffff:/, '');
+  if (peer !== '127.0.0.1' && peer !== '::1') return peer;
+  const pick = (v: unknown) => { const s = String(v ?? '').trim().replace(/^::ffff:/, ''); return isIP(s) ? s : ''; };
+  const real = pick(req.headers['x-real-ip']);
+  if (real) return real;
+  const xff = String(req.headers['x-forwarded-for'] ?? '').split(',');
+  return pick(xff[xff.length - 1]) || peer;
 }
 
 export function createLoginGate(deps: Deps) {
