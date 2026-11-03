@@ -1,0 +1,747 @@
+{
+  "issue": 266,
+  "doc": "docs/app-read-scope-266.md",
+  "state": "PROPOSED_NOT_RUN",
+  "baseline": "main 044d18c",
+  "topology": {
+    "data": "隔离临时 DATA_DIR；合成 slug A/B；合成记录与文件（含软删、磁盘缺失、属于 B 的 id）",
+    "identity": "桩 Odoo（LC_ODOO_URL 指本地夹具：内部/门户/管理员三种会话）；测试专用口令；不读任何真实密钥",
+    "network": "随机回环端口；I14 用 X-Forwarded-For 模拟远程；不访问任何真实实例",
+    "browser": "无头 Chromium 打开真实 CSP sandbox 页面，验证 E5→E1/E2/E3 与 dl 下载"
+  },
+  "entries": {
+    "E1": "GET /api/apps/:slug/data",
+    "E2": "GET /api/apps/:slug/files",
+    "E3": "GET|HEAD /api/apps/:slug/files/:id",
+    "E4": "OPTIONS /api/apps/:slug/(data|files)",
+    "E5": "GET /apps/:slug/**/*.html（含 ?version=N）",
+    "E6": "GET /go/<id>/ → 自产台",
+    "E7": "GET /sop/:slug/<子页>.html",
+    "E8": "MCP app_data_list / app_files_list",
+    "E9": "POST /api/apps/:slug/(data|files)"
+  },
+  "identities": {
+    "I0": "匿名（无 Origin / Origin:null / 伪造 Origin / curl）",
+    "I1": "旧 HMAC(A)",
+    "I2": "读票据 A",
+    "I3": "读票据 A 打 B 路由",
+    "I4": "读票据 A 已过期",
+    "I5": "读票据 A，gid 已撤销或 read_epoch 已变",
+    "I6": "下载票据 A/f1",
+    "I7": "Odoo 内部员工，无授权",
+    "I8": "Odoo 内部员工，有 A 授权",
+    "I9": "Odoo 门户账号",
+    "I10": "Odoo 管理员",
+    "I11": "管理员口令，同站",
+    "I12": "管理员口令 + 跨站 Origin",
+    "I13": "本机命令行（回环、无浏览器标记、无反代头）",
+    "I14": "回环 + X-Forwarded-For",
+    "I15": "MCP 会话，无台授权",
+    "I16": "MCP 会话，有 A 授权"
+  },
+  "cases": [
+    {
+      "id": "C01",
+      "entry": "E1",
+      "entry_desc": "GET /api/apps/:slug/data",
+      "identity": "I0",
+      "identity_desc": "匿名（无 Origin / Origin:null / 伪造 Origin / curl）",
+      "phase": 1,
+      "expected": "401 app_read_auth_required；A/B/不存在 slug 响应体相同；无 ACAO",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C02",
+      "entry": "E1",
+      "entry_desc": "GET /api/apps/:slug/data",
+      "identity": "I1",
+      "identity_desc": "旧 HMAC(A)",
+      "phase": 1,
+      "expected": "401；旧 HMAC 不给读权",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C03",
+      "entry": "E1",
+      "entry_desc": "GET /api/apps/:slug/data",
+      "identity": "I3",
+      "identity_desc": "读票据 A 打 B 路由",
+      "phase": 1,
+      "expected": "403 app_read_denied",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C04",
+      "entry": "E1",
+      "entry_desc": "GET /api/apps/:slug/data",
+      "identity": "I9",
+      "identity_desc": "Odoo 门户账号",
+      "phase": 1,
+      "expected": "403",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C05",
+      "entry": "E1",
+      "entry_desc": "GET /api/apps/:slug/data",
+      "identity": "I10",
+      "identity_desc": "Odoo 管理员",
+      "phase": 1,
+      "expected": "200（A、B 均可）",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C06",
+      "entry": "E1",
+      "entry_desc": "GET /api/apps/:slug/data",
+      "identity": "I11",
+      "identity_desc": "管理员口令，同站",
+      "phase": 1,
+      "expected": "200",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C07",
+      "entry": "E1",
+      "entry_desc": "GET /api/apps/:slug/data",
+      "identity": "I12",
+      "identity_desc": "管理员口令 + 跨站 Origin",
+      "phase": 1,
+      "expected": "403",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C08",
+      "entry": "E1",
+      "entry_desc": "GET /api/apps/:slug/data",
+      "identity": "I13",
+      "identity_desc": "本机命令行（回环、无浏览器标记、无反代头）",
+      "phase": 1,
+      "expected": "200",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C09",
+      "entry": "E1",
+      "entry_desc": "GET /api/apps/:slug/data",
+      "identity": "I14",
+      "identity_desc": "回环 + X-Forwarded-For",
+      "phase": 1,
+      "expected": "401（按远程处理）",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C10",
+      "entry": "E1",
+      "entry_desc": "GET /api/apps/:slug/data",
+      "identity": "I7",
+      "identity_desc": "Odoo 内部员工，无授权",
+      "phase": 1,
+      "expected": "1-B：200；1-A：403",
+      "note": "APP_READ_INTERNAL_FALLBACK 决定",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C11",
+      "entry": "E1",
+      "entry_desc": "GET /api/apps/:slug/data",
+      "identity": "I7",
+      "identity_desc": "Odoo 内部员工，无授权",
+      "phase": 2,
+      "expected": "403（兜底关闭；台策略为 internal 时 200）",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C12",
+      "entry": "E1",
+      "entry_desc": "GET /api/apps/:slug/data",
+      "identity": "I8",
+      "identity_desc": "Odoo 内部员工，有 A 授权",
+      "phase": 2,
+      "expected": "A：200；B：403",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C13",
+      "entry": "E2",
+      "entry_desc": "GET /api/apps/:slug/files",
+      "identity": "I0",
+      "identity_desc": "匿名（无 Origin / Origin:null / 伪造 Origin / curl）",
+      "phase": 1,
+      "expected": "401 app_read_auth_required；A/B/不存在 slug 响应体相同；无 ACAO",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C14",
+      "entry": "E2",
+      "entry_desc": "GET /api/apps/:slug/files",
+      "identity": "I1",
+      "identity_desc": "旧 HMAC(A)",
+      "phase": 1,
+      "expected": "401；旧 HMAC 不给读权",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C15",
+      "entry": "E2",
+      "entry_desc": "GET /api/apps/:slug/files",
+      "identity": "I3",
+      "identity_desc": "读票据 A 打 B 路由",
+      "phase": 1,
+      "expected": "403 app_read_denied",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C16",
+      "entry": "E2",
+      "entry_desc": "GET /api/apps/:slug/files",
+      "identity": "I9",
+      "identity_desc": "Odoo 门户账号",
+      "phase": 1,
+      "expected": "403",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C17",
+      "entry": "E2",
+      "entry_desc": "GET /api/apps/:slug/files",
+      "identity": "I10",
+      "identity_desc": "Odoo 管理员",
+      "phase": 1,
+      "expected": "200（A、B 均可）",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C18",
+      "entry": "E2",
+      "entry_desc": "GET /api/apps/:slug/files",
+      "identity": "I11",
+      "identity_desc": "管理员口令，同站",
+      "phase": 1,
+      "expected": "200",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C19",
+      "entry": "E2",
+      "entry_desc": "GET /api/apps/:slug/files",
+      "identity": "I12",
+      "identity_desc": "管理员口令 + 跨站 Origin",
+      "phase": 1,
+      "expected": "403",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C20",
+      "entry": "E2",
+      "entry_desc": "GET /api/apps/:slug/files",
+      "identity": "I13",
+      "identity_desc": "本机命令行（回环、无浏览器标记、无反代头）",
+      "phase": 1,
+      "expected": "200",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C21",
+      "entry": "E2",
+      "entry_desc": "GET /api/apps/:slug/files",
+      "identity": "I14",
+      "identity_desc": "回环 + X-Forwarded-For",
+      "phase": 1,
+      "expected": "401（按远程处理）",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C22",
+      "entry": "E2",
+      "entry_desc": "GET /api/apps/:slug/files",
+      "identity": "I7",
+      "identity_desc": "Odoo 内部员工，无授权",
+      "phase": 1,
+      "expected": "1-B：200；1-A：403",
+      "note": "APP_READ_INTERNAL_FALLBACK 决定",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C23",
+      "entry": "E2",
+      "entry_desc": "GET /api/apps/:slug/files",
+      "identity": "I7",
+      "identity_desc": "Odoo 内部员工，无授权",
+      "phase": 2,
+      "expected": "403（兜底关闭；台策略为 internal 时 200）",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C24",
+      "entry": "E2",
+      "entry_desc": "GET /api/apps/:slug/files",
+      "identity": "I8",
+      "identity_desc": "Odoo 内部员工，有 A 授权",
+      "phase": 2,
+      "expected": "A：200；B：403",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C25",
+      "entry": "E3",
+      "entry_desc": "GET|HEAD /api/apps/:slug/files/:id",
+      "identity": "I0",
+      "identity_desc": "匿名（无 Origin / Origin:null / 伪造 Origin / curl）",
+      "phase": 1,
+      "expected": "401 app_read_auth_required；A/B/不存在 slug 响应体相同；无 ACAO",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C26",
+      "entry": "E3",
+      "entry_desc": "GET|HEAD /api/apps/:slug/files/:id",
+      "identity": "I1",
+      "identity_desc": "旧 HMAC(A)",
+      "phase": 1,
+      "expected": "401；旧 HMAC 不给读权",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C27",
+      "entry": "E3",
+      "entry_desc": "GET|HEAD /api/apps/:slug/files/:id",
+      "identity": "I3",
+      "identity_desc": "读票据 A 打 B 路由",
+      "phase": 1,
+      "expected": "403 app_read_denied",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C28",
+      "entry": "E3",
+      "entry_desc": "GET|HEAD /api/apps/:slug/files/:id",
+      "identity": "I9",
+      "identity_desc": "Odoo 门户账号",
+      "phase": 1,
+      "expected": "403",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C29",
+      "entry": "E3",
+      "entry_desc": "GET|HEAD /api/apps/:slug/files/:id",
+      "identity": "I10",
+      "identity_desc": "Odoo 管理员",
+      "phase": 1,
+      "expected": "200（A、B 均可）",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C30",
+      "entry": "E3",
+      "entry_desc": "GET|HEAD /api/apps/:slug/files/:id",
+      "identity": "I11",
+      "identity_desc": "管理员口令，同站",
+      "phase": 1,
+      "expected": "200",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C31",
+      "entry": "E3",
+      "entry_desc": "GET|HEAD /api/apps/:slug/files/:id",
+      "identity": "I12",
+      "identity_desc": "管理员口令 + 跨站 Origin",
+      "phase": 1,
+      "expected": "403",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C32",
+      "entry": "E3",
+      "entry_desc": "GET|HEAD /api/apps/:slug/files/:id",
+      "identity": "I13",
+      "identity_desc": "本机命令行（回环、无浏览器标记、无反代头）",
+      "phase": 1,
+      "expected": "200",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C33",
+      "entry": "E3",
+      "entry_desc": "GET|HEAD /api/apps/:slug/files/:id",
+      "identity": "I14",
+      "identity_desc": "回环 + X-Forwarded-For",
+      "phase": 1,
+      "expected": "401（按远程处理）",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C34",
+      "entry": "E3",
+      "entry_desc": "GET|HEAD /api/apps/:slug/files/:id",
+      "identity": "I7",
+      "identity_desc": "Odoo 内部员工，无授权",
+      "phase": 1,
+      "expected": "1-B：200；1-A：403",
+      "note": "APP_READ_INTERNAL_FALLBACK 决定",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C35",
+      "entry": "E3",
+      "entry_desc": "GET|HEAD /api/apps/:slug/files/:id",
+      "identity": "I7",
+      "identity_desc": "Odoo 内部员工，无授权",
+      "phase": 2,
+      "expected": "403（兜底关闭；台策略为 internal 时 200）",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C36",
+      "entry": "E3",
+      "entry_desc": "GET|HEAD /api/apps/:slug/files/:id",
+      "identity": "I8",
+      "identity_desc": "Odoo 内部员工，有 A 授权",
+      "phase": 2,
+      "expected": "A：200；B：403",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C37",
+      "entry": "E1",
+      "entry_desc": "GET /api/apps/:slug/data",
+      "identity": "I2",
+      "identity_desc": "读票据 A",
+      "phase": 1,
+      "expected": "200，只含 A 的记录；Origin:null 时带 ACAO",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C38",
+      "entry": "E2",
+      "entry_desc": "GET /api/apps/:slug/files",
+      "identity": "I2",
+      "identity_desc": "读票据 A",
+      "phase": 1,
+      "expected": "200；每项 url 带 ?dl=wmd1…，只对该文件 id 有效",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C39",
+      "entry": "E3",
+      "entry_desc": "GET|HEAD /api/apps/:slug/files/:id",
+      "identity": "I2",
+      "identity_desc": "读票据 A",
+      "phase": 1,
+      "expected": "403（读票据不能当下载票据）",
+      "note": "页面需用 item.url 或 POST …/dl-ticket",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C40",
+      "entry": "E1",
+      "entry_desc": "GET /api/apps/:slug/data",
+      "identity": "I4",
+      "identity_desc": "读票据 A 已过期",
+      "phase": 1,
+      "expected": "401 app_read_ticket_expired",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C41",
+      "entry": "E2",
+      "entry_desc": "GET /api/apps/:slug/files",
+      "identity": "I4",
+      "identity_desc": "读票据 A 已过期",
+      "phase": 1,
+      "expected": "401 app_read_ticket_expired",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C42",
+      "entry": "E1",
+      "entry_desc": "GET /api/apps/:slug/data",
+      "identity": "I5",
+      "identity_desc": "读票据 A，gid 已撤销或 read_epoch 已变",
+      "phase": 2,
+      "expected": "403（撤销后下一次请求即生效）",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C43",
+      "entry": "E2",
+      "entry_desc": "GET /api/apps/:slug/files",
+      "identity": "I5",
+      "identity_desc": "读票据 A，gid 已撤销或 read_epoch 已变",
+      "phase": 2,
+      "expected": "403",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C44",
+      "entry": "E3",
+      "entry_desc": "GET|HEAD /api/apps/:slug/files/:id",
+      "identity": "I6",
+      "identity_desc": "下载票据 A/f1",
+      "phase": 1,
+      "expected": "f1：200 字节一致；f2：403；B/f1：403；用在 E1/E2：403",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C45",
+      "entry": "E3",
+      "entry_desc": "GET|HEAD /api/apps/:slug/files/:id",
+      "identity": "I6",
+      "identity_desc": "下载票据 A/f1",
+      "phase": 1,
+      "expected": "票据过期后 401；HEAD 与 GET 同判",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C46",
+      "entry": "E4",
+      "entry_desc": "OPTIONS /api/apps/:slug/(data|files)",
+      "identity": "I0",
+      "identity_desc": "匿名（无 Origin / Origin:null / 伪造 Origin / curl）",
+      "phase": 1,
+      "expected": "204，只回 ACAO 与允许头，不返回数据、不构成授权",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C47",
+      "entry": "E5",
+      "entry_desc": "GET /apps/:slug/**/*.html（含 ?version=N）",
+      "identity": "I0",
+      "identity_desc": "匿名（无 Origin / Origin:null / 伪造 Origin / curl）",
+      "phase": 1,
+      "expected": "注入旧 HMAC，WM_APP_READ=false；Cache-Control: no-store",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C48",
+      "entry": "E5",
+      "entry_desc": "GET /apps/:slug/**/*.html（含 ?version=N）",
+      "identity": "I10",
+      "identity_desc": "Odoo 管理员",
+      "phase": 1,
+      "expected": "注入 wmr1 读票据（via=admin，exp ≤ 30 分钟）；no-store；Vary: Cookie",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C49",
+      "entry": "E5",
+      "entry_desc": "GET /apps/:slug/**/*.html（含 ?version=N）",
+      "identity": "I7",
+      "identity_desc": "Odoo 内部员工，无授权",
+      "phase": 1,
+      "expected": "1-B：注入读票据（via=internal）；1-A：旧 HMAC",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C50",
+      "entry": "E5",
+      "entry_desc": "GET /apps/:slug/**/*.html（含 ?version=N）",
+      "identity": "I8",
+      "identity_desc": "Odoo 内部员工，有 A 授权",
+      "phase": 2,
+      "expected": "A：注入读票据（via=grant, gid）；B：旧 HMAC",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C51",
+      "entry": "E5",
+      "entry_desc": "GET /apps/:slug/**/*.html（含 ?version=N）",
+      "identity": "I9",
+      "identity_desc": "Odoo 门户账号",
+      "phase": 1,
+      "expected": "旧 HMAC，WM_APP_READ=false",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C52",
+      "entry": "E5",
+      "entry_desc": "GET /apps/:slug/**/*.html（含 ?version=N）",
+      "identity": "I11",
+      "identity_desc": "管理员口令，同站",
+      "phase": 1,
+      "expected": "不签发读票据（文档请求带不上口令头）",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C53",
+      "entry": "E6",
+      "entry_desc": "GET /go/<id>/ → 自产台",
+      "identity": "I0",
+      "identity_desc": "匿名（无 Origin / Origin:null / 伪造 Origin / curl）",
+      "phase": 1,
+      "expected": "与 E5/I0 相同",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C54",
+      "entry": "E6",
+      "entry_desc": "GET /go/<id>/ → 自产台",
+      "identity": "I8",
+      "identity_desc": "Odoo 内部员工，有 A 授权",
+      "phase": 2,
+      "expected": "与 E5/I8 相同",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C55",
+      "entry": "E7",
+      "entry_desc": "GET /sop/:slug/<子页>.html",
+      "identity": "I0",
+      "identity_desc": "匿名（无 Origin / Origin:null / 伪造 Origin / curl）",
+      "phase": 1,
+      "expected": "与 E5/I0 相同",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C56",
+      "entry": "E7",
+      "entry_desc": "GET /sop/:slug/<子页>.html",
+      "identity": "I8",
+      "identity_desc": "Odoo 内部员工，有 A 授权",
+      "phase": 2,
+      "expected": "与 E5/I8 相同",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C57",
+      "entry": "E8",
+      "entry_desc": "MCP app_data_list / app_files_list",
+      "identity": "I0",
+      "identity_desc": "匿名（无 Origin / Origin:null / 伪造 Origin / curl）",
+      "phase": 1,
+      "expected": "网关 401（不变）",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C58",
+      "entry": "E8",
+      "entry_desc": "MCP app_data_list / app_files_list",
+      "identity": "I15",
+      "identity_desc": "MCP 会话，无台授权",
+      "phase": 3,
+      "expected": "403，args.slug 不能授权",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C59",
+      "entry": "E8",
+      "entry_desc": "MCP app_data_list / app_files_list",
+      "identity": "I16",
+      "identity_desc": "MCP 会话，有 A 授权",
+      "phase": 3,
+      "expected": "A：可读；B：403",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C60",
+      "entry": "E9",
+      "entry_desc": "POST /api/apps/:slug/(data|files)",
+      "identity": "I0",
+      "identity_desc": "匿名（无 Origin / Origin:null / 伪造 Origin / curl）",
+      "phase": 1,
+      "expected": "写行为与 main 相同（回归），旧 HMAC 下 Origin:null 仍带 ACAO",
+      "note": "W1",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "C61",
+      "entry": "E9",
+      "entry_desc": "POST /api/apps/:slug/(data|files)",
+      "identity": "I2",
+      "identity_desc": "读票据 A",
+      "phase": 1,
+      "expected": "读票据下 Origin:null 写请求带 ACAO",
+      "note": "W2",
+      "actual": "NOT_RUN"
+    }
+  ],
+  "special": [
+    {
+      "id": "S1",
+      "input": "匿名取 /apps/A/ HTML → 取出注入值 → 带它 GET data/files/files/:id",
+      "expected": "全部 401；先在旧 main 上红，再在 PR 上绿，同一套夹具",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "S2",
+      "input": "存在/不存在 slug、文件 id；百分号编码、尾斜杠、大小写",
+      "expected": "未授权时响应体与状态码逐字节相同，无文件名、大小、ETag、Last-Modified、Content-Range",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "S3",
+      "input": "HEAD、Range、If-None-Match/If-Modified-Since",
+      "expected": "先过门，再出现 206/304；未授权时一律 401/403",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "S4",
+      "input": "同名 X-App-Token 头出现两个；读票据放在查询串；下载票据放在头里",
+      "expected": "拒绝，不挑第一个值",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "S5",
+      "input": "OPTIONS 预检后带错票据发实际 GET",
+      "expected": "实际请求仍被拒",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "S6",
+      "input": "带票据的 HTML 与不带票据的 HTML",
+      "expected": "Cache-Control: private, no-store；Vary: Cookie",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "S7",
+      "input": "已授权下载（白名单 MIME 与二进制扩展名各一）",
+      "expected": "Disposition 沿用现逻辑；nosniff；CSP sandbox；Referrer-Policy: no-referrer；private, no-store",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "S8",
+      "input": "成功、拒绝、错误路径的日志与 endpoint-stats",
+      "expected": "不出现 wmr1/wmd1/口令/cookie 值",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "S9",
+      "input": "冷回读与 SPA 回落",
+      "expected": "不注入任何令牌或票据",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "S10",
+      "input": "/go/<id>/ 与 /sop/<slug>/ 子页",
+      "expected": "注入行为与 /apps/ 一致",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "S11",
+      "input": "APP_READ_GATE=report",
+      "expected": "照旧放行；would-deny 按 slug×原因计数；响应头 X-WM-Read-Gate: would-deny",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "S12",
+      "input": "Odoo 不可达或超时",
+      "expected": "cookie 路径 503 fail closed，不降级为放行；票据路径不受影响",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "S13",
+      "input": "轮换 .wm-app-read.key（PR-3）",
+      "expected": "所有旧票据 401",
+      "actual": "NOT_RUN"
+    },
+    {
+      "id": "S14",
+      "input": "软删文件、磁盘缺失、属于 B 的 id（已授权）",
+      "expected": "404 not_found，无 storage_path",
+      "actual": "NOT_RUN"
+    }
+  ],
+  "production_actions": 0
+}
