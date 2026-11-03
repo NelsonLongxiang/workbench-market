@@ -79,6 +79,11 @@ try {
   // 扩展名与内容不符（PDF 内容冒充 .png）→ 415，不落库
   const fake = await uploadFile('fileprobe', 'fake.png', 'image/png', Buffer.from('%PDF-1.4 x'), { created_by: 'user-a' });
   ok('内容与扩展名不符 → 415', fake.status === 415, String(fake.status));
+  // 系统导出的 .xls 常是 HTML 表格：照收；PDF 冒充 .xls 仍拒
+  const htmlXls = await uploadFile('fileprobe', 'export.xls', 'application/vnd.ms-excel', Buffer.from('<html><table><tr><td>1</td></tr></table></html>'), { created_by: 'user-a' });
+  ok('HTML 内容的 .xls → 201', htmlXls.status === 201, JSON.stringify(htmlXls.body).slice(0, 120));
+  const pdfXls = await uploadFile('fileprobe', 'fake.xls', 'application/vnd.ms-excel', Buffer.from('%PDF-1.4 x'), { created_by: 'user-a' });
+  ok('PDF 内容的 .xls → 415', pdfXls.status === 415, String(pdfXls.status));
   ok('nosniff', dl.headers.get('x-content-type-options') === 'nosniff');
   // ⑥ 未知 slug / 未知文件 id 404——且不得留孤儿文件（评审 #25：先校验后落盘）
   const { readdirSync } = await import('node:fs');
