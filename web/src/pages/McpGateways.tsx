@@ -7,6 +7,8 @@ import WmPage from '../components/WmPage';
 import RelTime from '../components/RelTime';
 import { adminActive, apiFetch, odooAdmin, setAdminToken, subscribeAdminToken } from '../admin-token';
 
+/** #379：上游带可达状态（reachable=null 表示还没探过） */
+interface McpUpstreamRow { prefix: string; url: string; enabled: boolean; reachable?: boolean | null; tools?: number; last_error?: string; last_ok_at?: string }
 interface McpSession {
   id: number; name: string; grants: string[]; revoked_at: string; last_used_at: string; created_at: string;
 }
@@ -35,7 +37,7 @@ export default function McpGateways() {
   const [grantSel, setGrantSel] = useState<string[]>([]);
   const [regTools, setRegTools] = useState<string[]>([]); // #grant-ux：活注册表（修硬编码 15 时代旧清单→未知名 400 根因）
   // 上游聚合（#20 P2）配置面
-  const [upstreams, setUpstreams] = useState<{ prefix: string; url: string; enabled: boolean }[]>([]);
+  const [upstreams, setUpstreams] = useState<McpUpstreamRow[]>([]);
   const [upPrefix, setUpPrefix] = useState('');
   const [upUrl, setUpUrl] = useState('');
   const [upHeaders, setUpHeaders] = useState('{"X-Market-Client":"mcp/market-gateway"}');
@@ -130,8 +132,13 @@ export default function McpGateways() {
         method: 'PUT',
         body: JSON.stringify({ grants: grantSel }),
       });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      message.success(`授权已整体替换（${grantSel.length} 个工具）`);
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`);
+      const saved: string[] = Array.isArray(j.grants) ? j.grants : grantSel;
+      message.success(`授权已整体替换（${saved.length} 个工具）`);
+      // #379：已下线的旧授权被剔除、所属上游暂不可达的旧授权被保留——都要让管理员看见
+      if (Array.isArray(j.dropped) && j.dropped.length) message.warning(`已剔除 ${j.dropped.length} 个已下线的工具：${j.dropped.join('、')}`, 8);
+      if (Array.isArray(j.kept_unavailable) && j.kept_unavailable.length) message.info(`保留 ${j.kept_unavailable.length} 个暂不可达上游的授权，上游恢复后生效：${j.kept_unavailable.join('、')}`, 8);
       setGrantsOf(null);
       reload();
     } catch (e) {
@@ -266,8 +273,14 @@ export default function McpGateways() {
                     { title: '端点', dataIndex: 'url', render: (v: string) => <Typography.Text className="wm-mono wm-caption">{v}</Typography.Text> },
                     { title: '状态', dataIndex: 'enabled', width: 80, render: (v: boolean) => (v ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>) },
                     {
+                      title: '可达', dataIndex: 'reachable', width: 200,
+                      render: (_: unknown, u: McpUpstreamRow) => (u.reachable === false
+                        ? <span title={u.last_error}><Tag color="red">不可达</Tag><Typography.Text type="secondary" className="wm-caption">{u.last_ok_at ? `上次可达 ${u.last_ok_at.slice(0, 16).replace('T', ' ')}` : '从未连通'}</Typography.Text></span>
+                        : u.reachable ? <Tag color="green">可达 · {u.tools ?? 0} 个工具</Tag> : <Tag>未探测</Tag>),
+                    },
+                    {
                       title: '操作', width: 90,
-                      render: (_: unknown, u: { prefix: string; url: string; enabled: boolean }) => (
+                      render: (_: unknown, u: McpUpstreamRow) => (
                         <Popconfirm title={`移除上游 ${u.prefix}？`} onConfirm={() => void saveUpstreams(upstreams.filter((x) => x.prefix !== u.prefix))}>
                           <Button size="small" danger>移除</Button>
                         </Popconfirm>
@@ -292,13 +305,18 @@ export default function McpGateways() {
         <Typography.Paragraph type="secondary" className="wm-caption">
           勾选该会话可用的工具（整体替换语义；新会话为空=默认拒绝）。工具面共 {regTools.length} 个。
         </Typography.Paragraph>
+        {upstreams.some((u) => u.reachable === false) && (
+          <Typography.Paragraph type="warning" className="wm-caption">
+            上游 {upstreams.filter((u) => u.reachable === false).map((u) => u.prefix).join('、')} 暂不可达，其工具不在下拉里；会话已持有的这些授权保存时会保留，上游恢复后生效。
+          </Typography.Paragraph>
+        )}
         <Select
           mode="multiple"
           className="wm-w-full"
           placeholder="选择授权工具"
           value={grantSel}
           onChange={setGrantSel}
-          options={regTools.map((t) => ({ value: t, label: t }))}
+          options={[...regTools.map((t) => ({ value: t, label: t })), ...grantSel.filter((g) => !regTools.includes(g)).map((g) => ({ value: g, label: `${g}（当前不可用）` }))]}
         />
       </Modal>
     </WmPage>
