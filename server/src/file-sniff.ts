@@ -68,6 +68,9 @@ export function sniff(name: string, head: Uint8Array, complete: boolean, reporte
   }
   if (want && want.family === 'text') {
     if (sig) return { ext, detected: SIG_MIME[sig], mime: reported || 'application/octet-stream', verdict: 'mismatch', reason: `扩展名 .${ext} 但内容是 ${SIG_MIME[sig]}` };
+    // 带 BOM 的 UTF-16（Excel「Unicode 文本」另存）：含 NUL 但是文本；.json 仍须 UTF-8
+    const utf16 = (head[0] === 0xff && head[1] === 0xfe) || (head[0] === 0xfe && head[1] === 0xff);
+    if (utf16 && ext !== 'json') { const bare = want.mime.split(';')[0]; return { ext, detected: bare, mime: bare, verdict: 'ok', reason: '' }; }
     if (head.includes(0)) return { ext, detected: '', mime: reported || 'application/octet-stream', verdict: 'mismatch', reason: `扩展名 .${ext} 但内容含 NUL，不是文本` };
     if (!isUtf8(head, complete)) {
       if (ext === 'json') return { ext, detected: 'text/plain', mime: reported || 'application/octet-stream', verdict: 'mismatch', reason: '扩展名 .json 但内容不是 UTF-8' };

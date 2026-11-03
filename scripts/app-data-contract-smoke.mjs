@@ -85,6 +85,8 @@ ok('.json 只读到文件头时不解析', sniff('a.json', enc('{"a":'), false).
 ok('.txt 含二进制判不符', sniff('a.txt', PNG, true).verdict === 'mismatch');
 const GBK_CSV = b(0xb6, 0xa9, 0xb5, 0xa5, 0xba, 0xc5, 0x2c, 0xbd, 0xf0, 0xb6, 0xee, 0x0a, 0x31, 0x2c, 0x32, 0x0a); // 「订单号,金额」GBK 编码
 ok('GBK 编码的 CSV 放行，存不带 charset 的 text/csv', (() => { const s = sniff('导出.csv', GBK_CSV, true); return s.verdict === 'ok' && s.mime === 'text/csv'; })());
+ok('带 BOM 的 UTF-16 .txt 放行（Excel「Unicode 文本」）', sniff('导出.txt', b(0xff, 0xfe, 0x61, 0, 0x62, 0), true).mime === 'text/plain');
+ok('带 BOM 的 UTF-16 .json 判不符', sniff('a.json', b(0xff, 0xfe, 0x7b, 0, 0x7d, 0), true).verdict === 'mismatch');
 ok('含 NUL 的 .csv 判不符', sniff('a.csv', b(0x61, 0, 0x62), true).verdict === 'mismatch');
 ok('非 UTF-8 的 .json 判不符', sniff('a.json', GBK_CSV, true).verdict === 'mismatch');
 ok('可执行文件拒收', sniff('setup.zip', EXE, true).verdict === 'executable');
