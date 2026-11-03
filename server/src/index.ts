@@ -137,11 +137,17 @@ app.use((req, res, next) => {
 // body 解析：/go/ 路径跳过（品味席 direct-2999b07d 实测——express.json 在 HPM 之前
 // 消费了 body 流，上游需要读 body 的 POST（如 taste-mcp 的 tools/call）永远等不到
 // end 事件挂起；401 路径不读 body 所以「看起来通」）。/go/ 的 body 由 HPM 原样 pipe。
-// /mcp 的 app_files_upload 用 base64 传文件：50MB 原始 ≈ 67MB base64，再留 JSON-RPC 包装余量
+// /mcp 的 app_files_upload 用 base64 传文件：50MB 原始 ≈ 67MB base64，再留 JSON-RPC 包装余量。
+// 只给带有效会话令牌的 /mcp 请求放大：本中间件先于 /mcp 路由里的会话判定执行，不先认令牌，匿名请求也能把 72MB 读进内存
 const MCP_BODY_LIMIT = '72mb';
+function bodyLimitFor(req: express.Request): string {
+  if ((req.url ?? '').split('?')[0] !== '/mcp') return '4mb';
+  const m = /^Bearer ([0-9a-f]{64})$/i.exec(String(req.headers.authorization ?? ''));
+  return m && mcpSessionByToken(m[1]) ? MCP_BODY_LIMIT : '4mb';
+}
 app.use((req, res, next) => {
   if ((req.url ?? '').startsWith('/go/')) return next();
-  return express.json({ limit: (req.url ?? '').split('?')[0] === '/mcp' ? MCP_BODY_LIMIT : '4mb' })(req, res, next);
+  return express.json({ limit: bodyLimitFor(req) })(req, res, next);
 });
 
 // GH #20 P1 ④远程面收口：非本机请求只放 /mcp、/.well-known/agent-card.json、/a2a/direct——
