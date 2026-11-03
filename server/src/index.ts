@@ -535,8 +535,18 @@ function typeOf(key: string): TypeRow | undefined {
 }
 
 async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkbench>> {
-  // 自产台（url 以 / 开头）由本服务静态托管：服务活着即在线，探测短路
+  // 自产台（url 以 / 开头）由本服务静态托管：不发 HTTP 探测，但要核实台本身还在——
+  // /apps/<slug>/ 要求台存在，/sop/<slug>/ 要求 SOP 存在且已上架；否则记 down（台被删或下架后卡片不再显示在线）
   if (w.url.startsWith('/')) {
+    const self = /^\/(apps|sop)\/([a-z0-9][a-z0-9-]*)(\/|$)/.exec(w.url);
+    if (self) {
+      const a = (self[1] === 'sop' ? svc<AppService>('app').sopBySlug(self[2]) : svc<AppService>('app').bySlug(self[2])) as unknown as AppRow | undefined;
+      const why = !a ? `${self[1] === 'sop' ? 'SOP' : '自产台'}不存在：${self[2]}` : self[1] === 'sop' && a.status !== 'published' ? `SOP 状态为 ${a.status}，未上架` : '';
+      if (why) {
+        svc<WorkbenchService>('workbench').markDownWithError(w.id, why);
+        return rowToWorkbench(svc<WorkbenchService>('workbench').byId(w.id) as unknown as WorkbenchRow);
+      }
+    }
     svc<WorkbenchService>('workbench').markSelfUp(w.id);
     const selfRow = svc<WorkbenchService>('workbench').byId(w.id) as unknown as WorkbenchRow;
     return rowToWorkbench(selfRow);
@@ -1754,7 +1764,7 @@ function receiptStatusOf(runId: number): string {
   return 'none';
 }
 
-async function sopRunGetCore(id: number): Promise<{ id: number; sop_slug: string; sop_version: number; status: string; started_by: string; data: Record<string, unknown>; receipt: string }> {
+async function sopRunGetCore(id: number): Promise<{ id: number; sop_slug: string; sop_version: number; status: string; started_by: string; started_at: string; updated_at: string; finished_at: string | null; data: Record<string, unknown>; receipt: string }> {
   return runCheckpoints.serial(id, async () => {
     const row = sopRunRow(id);
     let data = storedRunData(row);
@@ -1765,7 +1775,8 @@ async function sopRunGetCore(id: number): Promise<{ id: number; sop_slug: string
       if (hot?.meta.status === 'running') runCheckpoints.remember(id, data); // recovered acknowledged hot state must not stay uncheckpointed after restart
       if (redisHealthy() && !hot) await runStateRestore(id, { slug: row.sop_slug, version: row.sop_version, status: row.status, started_by: row.started_by, updated_at: Date.now() }, data, runCacheCheckpoint(row));
     }
-    return { id: row.id, sop_slug: row.sop_slug, sop_version: row.sop_version, status: row.status, started_by: row.started_by, data, receipt: receiptStatusOf(id) };
+    // 时间字段与无读凭证的元数据视图（sopRunGetMeta）、sop_run_list 一致
+    return { id: row.id, sop_slug: row.sop_slug, sop_version: row.sop_version, status: row.status, started_by: row.started_by, started_at: row.started_at, updated_at: row.updated_at, finished_at: row.finished_at ?? null, data, receipt: receiptStatusOf(id) };
   });
 }
 
