@@ -288,7 +288,7 @@ function DispatchDrawer({ open, onClose, onDone }: { open: boolean; onClose: () 
         <Form.Item name="expert" label="发布人（可选）">
           <Input placeholder="业务专家姓名/工号" maxLength={40} />
         </Form.Item>
-        <Form.Item label="附件（≤50MB/个，走交付物通道）">
+        <Form.Item label="附件（≤100MB/个，走交付物通道）">
           <Upload.Dragger multiple beforeUpload={() => false} fileList={files} onChange={({ fileList }) => setFiles(fileList)}>
             <Typography.Text type="secondary">点击或拖入附件</Typography.Text>
           </Upload.Dragger>
