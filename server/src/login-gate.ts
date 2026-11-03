@@ -8,7 +8,7 @@
  *  无身份也放行的（各自有认证或本身公开）：
  *    - /mcp 与 #385 的 /openapi.json、/api/mcp-rest/*：网关自己的 Bearer 会话认证（enforce 时网关强制开）；
  *    - 签名卡片 GET /.well-known/agent-card.json；工作台事件回执（凭投递里的随机 reply token，库存 sha256、有效期）；
- *    - /api/health、登录页与登录/登出/身份接口、设计 token 样式表（公开仓库里的设计变量）；
+ *    - /api/health（存活）与 /api/health/ready（就绪）、登录页与登录/登出/身份接口、设计 token 样式表（公开仓库里的设计变量）；
  *    - 发往 /api/apps/<slug>/(data|files) 与 /api/workbenches/<id>/vars 且带本台 X-App-Token 的请求（沙箱页是不透明源，带不了 cookie）；
  *    - SOP run 的按 run 凭据（/a2a/direct 建单时发给派单方）：GET /api/sop/runs/<id>[/files[/<fileId>]] 带该 run 有效的
  *      X-Run-Read-Capability（未吊销、未过期），POST /api/sop/runs/<id>/files 带该 run 的 X-Run-Upload-Token（run 仍在执行）；
@@ -215,7 +215,7 @@ export function createLoginGate(deps: Deps) {
     if (p === '/mcp') return true; // 网关 Bearer 会话认证；enforce 时网关强制开
     // #385 MCP 工具的 REST 开放：路由内只认网关会话令牌（mcpGatewaySession，无效 401），同 /mcp 不走浏览器登录
     if ((get && p === '/openapi.json') || p.startsWith('/api/mcp-rest/')) return true;
-    if (get && (p === '/api/health' || p === '/login' || p === '/api/auth/me' || p === '/.well-known/agent-card.json')) return true;
+    if (get && (p === '/api/health' || p === '/api/health/ready' || p === '/login' || p === '/api/auth/me' || p === '/.well-known/agent-card.json')) return true;
     if (m === 'POST' && (p === '/api/auth/login' || p === '/api/auth/logout')) return true;
     if (m === 'POST' && p === '/a2a/direct') return true; // 路由内验签（a2a-direct-sig.ts），enforce 下无签名 401
     if (m === 'POST' && /^\/api\/workbench-events\/wbe-[0-9a-f]{16}\/decision$/.test(p)) return true; // reply token 认证

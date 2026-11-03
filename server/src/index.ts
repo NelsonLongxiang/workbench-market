@@ -1330,13 +1330,13 @@ async function layerfsPublish(project: string, files: { path: string; content: s
 
 async function deleteAppCascade(slug: string): Promise<void> {
   const a = getApp(slug);
-  // Apps never written to LayerFS remain deletable in local/dev deployments.
-  // Once associated/published, remove remote state first and retain local state on failure.
+  // Remove remote state first and retain local state on failure; without LayerFS config, apps never written there stay deletable.
   const versions = svc<AppService>('app').versions(a.id) as any[];
   const hasLayerfsState = Boolean((a as any).layerfs_project) || versions.some(v => String(v.commit_id ?? '') !== '');
-  if (hasLayerfsState) {
-    const { base, token } = layerfsServiceBase();
-    if (!base) throw new HttpError(503, 'LayerFS service is required to delete an app with LayerFS data');
+  // 配了 LayerFS 就一律按项目名删远端（404 视为没有）：影子发布可能远端已建 Commit 而响应丢了，本地没留记号
+  const { base, token } = layerfsServiceBase();
+  if (hasLayerfsState && !base) throw new HttpError(503, 'LayerFS service is required to delete an app with LayerFS data');
+  if (base) {
     let remote: Response;
     try {
       remote = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(layerfsProjectName(slug)), {
@@ -2874,15 +2874,38 @@ function vaultGuard(req: express.Request, res: express.Response): boolean {
 mountVault(app, vaultGuard);
 workbenchVars.mount(app); // #336 /api/workbenches/:id/vars
 
-app.get('/api/health', async (_req, res) => {
-  const result: Record<string, unknown> = { ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, self_probe: startupSecurity.snapshot() };
-  if (process.env.LAYERFS_SERVICE_URL) {
+// 存活 / 就绪分开：/api/health 是存活（只看本进程，不发外部请求）；/api/health/ready 是就绪（含 LayerFS）。
+// 两者都是公开端点，LayerFS 探测结果缓存 10 秒、同一时刻只发一次，匿名请求打不穿到 LayerFS。
+const LAYERFS_PROBE_TTL_MS = 10_000;
+let layerfsProbe: { at: number; status: 'healthy' | 'unhealthy' | 'unreachable' } | null = null;
+let layerfsProbing: Promise<'healthy' | 'unhealthy' | 'unreachable'> | null = null;
+function layerfsReadiness(): Promise<'healthy' | 'unhealthy' | 'unreachable'> {
+  if (layerfsProbe && Date.now() - layerfsProbe.at < LAYERFS_PROBE_TTL_MS) return Promise.resolve(layerfsProbe.status);
+  layerfsProbing ??= (async () => {
+    let status: 'healthy' | 'unhealthy' | 'unreachable';
     try {
       const { base } = layerfsServiceBase();
       const r = await fetch(base.replace(/\/+$/, '') + '/healthz', { signal: AbortSignal.timeout(2500) });
-      result.layerfs = r.ok ? 'healthy' : 'unhealthy';
-      if (!r.ok) { result.ok = false; return res.status(503).json(result); }
-    } catch { result.ok = false; result.layerfs = 'unreachable'; return res.status(503).json(result); }
+      status = r.ok ? 'healthy' : 'unhealthy';
+    } catch { status = 'unreachable'; }
+    layerfsProbe = { at: Date.now(), status };
+    return status;
+  })().finally(() => { layerfsProbing = null; });
+  return layerfsProbing;
+}
+function healthBase(): Record<string, unknown> {
+  return { ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, self_probe: startupSecurity.snapshot() };
+}
+app.get('/api/health', (_req, res) => {
+  const result = healthBase();
+  if (process.env.LAYERFS_SERVICE_URL && layerfsProbe) result.layerfs = layerfsProbe.status; // 只回缓存的上次结果，不触发探测
+  res.json(result);
+});
+app.get('/api/health/ready', async (_req, res) => {
+  const result = healthBase();
+  if (process.env.LAYERFS_SERVICE_URL) {
+    result.layerfs = await layerfsReadiness();
+    if (result.layerfs !== 'healthy') { result.ok = false; return res.status(503).json(result); }
   }
   res.json(result);
 });
