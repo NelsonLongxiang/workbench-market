@@ -59,6 +59,18 @@ ok('坏 spec 格式被拦（含 FAIL）', checkRecord(C, { type: 'agent_delivery
 ok('FAIL 不要求 PASS 要件', checkRecord(C, { type: 'agent_delivery', verdict: 'FAIL' }, has).length === 0);
 ok('type 与 record_type 并存时取已声明的那个', checkRecord(C, { type: 'agent_delivery', record_type: 'production_progress', verdict: 'PASS' }, has).length > 0);
 
+console.log('数组对象（items）');
+const I = parseContract(JSON.stringify({ version: 1, types: { task: { items: { refs: { required: ['kind', 'id'], enum: { kind: ['run', 'spec'] }, pattern: { id: '^(run_[0-9a-f]{16}|spec_[0-9a-f]{12})$', size: '^[1-9]\\d*$' }, max_items: 2 } } } } }));
+ok('合规数组通过', checkRecord(I, { type: 'task', refs: [{ kind: 'run', id: 'run_0123456789abcdef' }] }, has).length === 0);
+ok('元素缺必填', checkRecord(I, { type: 'task', refs: [{ kind: 'run' }] }, has).some((e) => e.includes('refs[0].id 必填')));
+ok('元素枚举不符', checkRecord(I, { type: 'task', refs: [{ kind: 'x', id: 'run_0123456789abcdef' }] }, has).some((e) => e.includes('refs[0].kind')));
+ok('元素格式不符（任意文字冒充 run）', checkRecord(I, { type: 'task', refs: [{ kind: 'run', id: 'arbitrary-not-a-run' }] }, has).some((e) => e.includes('refs[0].id 格式不符')));
+ok('数字字段也按格式核对', checkRecord(I, { type: 'task', refs: [{ kind: 'run', id: 'run_0123456789abcdef', size: 0 }] }, has).some((e) => e.includes('size')));
+ok('超过 max_items', checkRecord(I, { type: 'task', refs: [1, 2, 3].map(() => ({ kind: 'run', id: 'run_0123456789abcdef' })) }, has).some((e) => e.includes('最多 2')));
+ok('不是数组', checkRecord(I, { type: 'task', refs: 'x' }, has).some((e) => e.includes('必须是数组')));
+ok('元素不是对象', checkRecord(I, { type: 'task', refs: ['x'] }, has).some((e) => e.includes('refs[0] 必须是对象')));
+ok('items 坏正则在解析时报错', throws(() => parseContract(JSON.stringify({ version: 1, types: { t: { items: { a: { pattern: { b: '(' } } } } } }))));
+
 console.log('未声明类型');
 ok('allow：放行', checkRecord(C, { record_type: 'whatever' }, has).length === 0);
 const R = parseContract(JSON.stringify({ version: 1, unknown_types: 'reject', types: { a: {} } }));
