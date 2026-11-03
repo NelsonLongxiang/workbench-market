@@ -1,9 +1,10 @@
 """自产台统一层（DESIGN.md v1.0.0 + PATTERNS.md §7）：色值/字体/字号/圆角映射到 token，深色台转浅色，
-注入 --wm-* 变量、基础排版与 wm-ux.js（菜单/焦点/状态持久化）。
-用法: python3 -I restyle.py <web/src/tokens.css> <apps_dir> <extra_dir> <out_dir>
-  apps_dir/<slug>.html     线上台首页（可带服务端注入的令牌段，会被剥掉）
-  extra_dir/<slug>/<path>  同台附属 .html/.css/.js
-  out_dir/<slug>/<path>    产物 + report.json"""
+注入 --wm-* 变量、基础排版、wm-ux.js（菜单/焦点/状态持久化）与 wm-nav.js（菜单/目录/视图外壳）。
+用法（现行）: python3 -I restyle.py <web/src/tokens.css> --repo <workbench-market-apps 检出目录> [--only slug1,slug2]
+  就地改写仓库里每台目录下的 .html/.css/.js；已统一过的页面只换 <head> 统一层（换层），新页面走全套转换；
+  SOP 台（含 sop.yaml）与数据文件不动。改完在 apps 仓库里看 git diff、提 PR、合 main，再 app_sync 上线。
+用法（本地预览）: python3 -I restyle.py <tokens.css> <apps_dir> <extra_dir> <out_dir>
+  apps_dir/<slug>.html 为台首页（可带服务端注入的令牌段，会被剥掉）；extra_dir/<slug>/<path> 为附属文件；产物写到 out_dir/<slug>/<path>"""
 import colorsys, json, re, sys
 from pathlib import Path
 
@@ -247,7 +248,8 @@ NAV_CSS = (
     '@media print{.wm-nav-bar,.wm-nav-toc,.wm-nav-scrim{display:none!important}html.wm-has-nav body{padding:24px!important}.wm-off{display:block!important}.wm-hide{display:none!important}}\n'
 )
 
-LAYER_RE = re.compile(r'\n<style id="wm-design-layer">.*?</style>\n<script id="wm-ux">.*?</script>\n(?:<script id="wm-nav">.*?</script>\n)?', re.S)
+# 换行容 \r\n：有的台在 Windows 上另存过，整页（含统一层）都是 CRLF；认不出旧层会叠出第二层
+LAYER_RE = re.compile(r'\r?\n<style id="wm-design-layer">.*?</style>\r?\n<script id="wm-ux">.*?</script>\r?\n(?:<script id="wm-nav">.*?</script>\r?\n)?', re.S)
 
 def build_layer(slug, tokens_css):
     return ('<style id="wm-design-layer">\n/* 工作台统一设计层 · DESIGN.md v1.0.0（仅浅色）。台内样式只引用 --wm-* 变量 */\n'
@@ -276,7 +278,10 @@ def transform(src, slug, tokens_css, kind='html'):
     s = INJECT.sub('', src)
     # 换层：已经统一过的页面只替换 <head> 里的统一层，正文不再转换（深色台二次映射会把语义反过来）
     if kind == 'html' and LAYER_RE.search(s):
-        return LAYER_RE.sub(lambda m: '\n' + build_layer(slug, tokens_css), s, count=1), stats
+        def relayer(m):
+            layer = '\n' + build_layer(slug, tokens_css)
+            return layer.replace('\n', '\r\n') if m.group(0).startswith('\r\n') else layer  # 保持该页原有换行风格
+        return LAYER_RE.sub(relayer, s, count=1), stats
     if kind != 'html' and 'var(--wm-' in s:
         return s, stats
     for a, b in PATCH.get(slug, []): s = s.replace(a, b)
@@ -389,8 +394,26 @@ def transform(src, slug, tokens_css, kind='html'):
 UX_JS = rd(Path(__file__).parent / 'wm-ux.js')
 NAV_JS = rd(Path(__file__).parent / 'wm-nav.js')
 
+def kind_of(rel):
+    return rel.rsplit('.', 1)[-1] if rel.endswith(('.css', '.js')) else 'html'
+
+def restyle_repo(tokens, repo, only):
+    """就地改写 apps 仓库：每台一个根目录（source_path=<slug>）"""
+    for d in sorted(p for p in repo.iterdir() if p.is_dir() and not p.name.startswith('.')):
+        if only and d.name not in only: continue
+        if (d / 'sop.yaml').exists() or not (d / 'index.html').exists(): continue
+        changed = []
+        for f in sorted(x for x in d.rglob('*') if x.is_file() and x.suffix.lower() in ('.html', '.htm', '.css', '.js')):
+            rel = str(f.relative_to(d)); src = rd(f)
+            body, _ = transform(src, d.name, tokens, kind_of(rel))
+            if body != src: wr(f, body); changed.append(rel)
+        print(f"{d.name:38s} {'改写 ' + ', '.join(changed) if changed else '无变化'}")
+
 if __name__ == '__main__':
     tokens = rd(Path(sys.argv[1]))
+    if '--repo' in sys.argv:
+        only = set(filter(None, (sys.argv[sys.argv.index('--only') + 1] if '--only' in sys.argv else '').split(',')))
+        restyle_repo(tokens, Path(sys.argv[sys.argv.index('--repo') + 1]), only); sys.exit(0)
     src, extra, out = Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4])
     report = {}
     for f in sorted(src.glob('*.html')):
@@ -398,8 +421,7 @@ if __name__ == '__main__':
         jobs = [('index.html', f)] + [(str(x.relative_to(extra / slug)), x) for x in sorted((extra / slug).rglob('*')) if x.is_file()]
         agg = {'colors': {}, 'font_size': 0, 'font_family': 0, 'radius': 0}
         for rel, path in jobs:
-            kind = rel.rsplit('.', 1)[-1] if rel.endswith(('.css', '.js')) else 'html'
-            body, st = transform(rd(path), slug, tokens, kind)
+            body, st = transform(rd(path), slug, tokens, kind_of(rel))
             dst = out / slug / rel; dst.parent.mkdir(parents=True, exist_ok=True); wr(dst, body)
             agg['colors'].update(st['colors'])
             for k in ('font_size', 'font_family', 'radius'): agg[k] += st[k]
