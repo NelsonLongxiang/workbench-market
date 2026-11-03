@@ -1,10 +1,11 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { App, Button, Empty, Input, Modal, Popconfirm, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
 import { KeyOutlined, PlusOutlined } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
 import WmPage from '../components/WmPage';
 import RelTime from '../components/RelTime';
+import { adminActive, apiFetch, odooAdmin, setAdminToken, subscribeAdminToken } from '../admin-token';
 
 interface McpSession {
   id: number; name: string; grants: string[]; revoked_at: string; last_used_at: string; created_at: string;
@@ -20,10 +21,11 @@ const TOOLS = [
 ];
 
 /** MCP 网关管理页（GH #20 P1）：会话/令牌/授权/审计——全部走既有五端点（无新后端）。
- *  口令只存会话态（同 /sops 网络暴露区模式）；ADMIN_TOKEN 未设时控制面一律 403。 */
+ *  #375：接入全局管理身份——持顶栏口令或已登录 Odoo 管理员即可载入；口令框只在两者都没有时出现，写入全局口令。 */
 export default function McpGateways() {
   const { message, modal } = App.useApp();
-  const [token, setToken] = useState('');
+  const [active, setActive] = useState(adminActive()); // 持口令或 Odoo 管理员
+  const [tokenDraft, setTokenDraft] = useState('');
   const [sessions, setSessions] = useState<McpSession[]>([]);
   const [calls, setCalls] = useState<McpCall[]>([]);
   const [loading, setLoading] = useState(false);
@@ -38,12 +40,10 @@ export default function McpGateways() {
   const [upUrl, setUpUrl] = useState('');
   const [upHeaders, setUpHeaders] = useState('{"X-Market-Client":"mcp/market-gateway"}');
 
-  const H = { 'X-Admin-Token': token };
-
   const reload = useCallback(() => {
-    if (!token) return;
+    if (!adminActive()) return;
     // #371：/api/mcp/tools 返回裸数组 [{name,description}]（也兼容 {tools:[…]} 信封）；失败要可见，不能静默成空列表
-    fetch('/api/mcp/tools', { headers: H })
+    apiFetch('/api/mcp/tools')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((j) => {
         const list: unknown[] = Array.isArray(j) ? j : Array.isArray(j?.tools) ? j.tools : [];
@@ -51,28 +51,35 @@ export default function McpGateways() {
       })
       .catch(() => { setRegTools([]); message.error('工具清单加载失败：授权编辑器暂时无法选择工具'); });
     setLoading(true);
-    fetch('/api/mcp/sessions', { headers: H })
+    apiFetch('/api/mcp/sessions')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(setSessions)
-      .catch(() => message.error('会话列表加载失败（口令无效或 ADMIN_TOKEN 未设）'))
+      .catch((e) => message.error(`会话列表加载失败：${(e as Error).message}`))
       .finally(() => setLoading(false));
-    fetch('/api/mcp/upstreams', { headers: H })
+    apiFetch('/api/mcp/upstreams')
       .then((r) => (r.ok ? r.json() : []))
       .then(setUpstreams)
       .catch(() => setUpstreams([]));
     setCallsLoading(true);
-    fetch('/api/mcp/calls?limit=100', { headers: H })
+    apiFetch('/api/mcp/calls?limit=100')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(setCalls)
       .catch(() => undefined)
       .finally(() => setCallsLoading(false));
-  }, [token, message]);
+  }, [message]);
+
+  // 身份变化（顶栏输入或清除口令、Odoo 管理员认定完成）后重新判定并载入
+  useEffect(() => {
+    const sync = () => { const a = adminActive(); setActive(a); if (a) reload(); };
+    sync();
+    return subscribeAdminToken(sync);
+  }, [reload]);
 
   const createSession = async () => {
     setLoading(true);
     try {
-      const r = await fetch('/api/mcp/sessions', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', ...H },
+      const r = await apiFetch('/api/mcp/sessions', {
+        method: 'POST',
         body: JSON.stringify({ name: newName }),
       });
       const b = await r.json().catch(() => ({}));
@@ -104,7 +111,7 @@ export default function McpGateways() {
   const revoke = async (id: number) => {
     setLoading(true);
     try {
-      const r = await fetch(`/api/mcp/sessions/${id}`, { method: 'DELETE', headers: H });
+      const r = await apiFetch(`/api/mcp/sessions/${id}`, { method: 'DELETE' });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       message.success('已软吊销（令牌即时失效，留审计行）');
       reload();
@@ -119,8 +126,8 @@ export default function McpGateways() {
     if (!grantsOf) return;
     setLoading(true);
     try {
-      const r = await fetch(`/api/mcp/sessions/${grantsOf.id}/grants`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json', ...H },
+      const r = await apiFetch(`/api/mcp/sessions/${grantsOf.id}/grants`, {
+        method: 'PUT',
         body: JSON.stringify({ grants: grantSel }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -137,8 +144,8 @@ export default function McpGateways() {
   const saveUpstreams = async (next: { prefix: string; url: string; enabled: boolean }[]) => {
     setLoading(true);
     try {
-      const r = await fetch('/api/mcp/upstreams', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json', ...H },
+      const r = await apiFetch('/api/mcp/upstreams', {
+        method: 'PUT',
         body: JSON.stringify({ upstreams: next.map((u) => ({ ...u, headers: JSON.parse(upHeaders || '{}') })) }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -192,16 +199,26 @@ export default function McpGateways() {
         令牌只经创建响应出现一次（库存 sha256）；新会话授权为空=默认拒绝；吊销即时生效。
         401 拒绝不进审计只计数。激活需服务端 ADMIN_TOKEN+MCP_GATEWAY=on。
       </Typography.Paragraph>
-      <Space.Compact className="wm-w-full wm-mb-3" style={{ maxWidth: 640 }}>
-        <Input.Password
-          prefix={<KeyOutlined />}
-          placeholder="管理员口令（X-Admin-Token，服务端环境变量 ADMIN_TOKEN）"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          className="wm-text-body"
-        />
-        <Button onClick={reload} loading={loading} disabled={!token}>载入</Button>
-      </Space.Compact>
+      {active ? (
+        <Space className="wm-mb-3">
+          <Typography.Text type="secondary" className="wm-caption">
+            {odooAdmin() ? `已按 Odoo 管理员（${odooAdmin()}）载入` : '已按管理员口令载入'}
+          </Typography.Text>
+          <Button onClick={reload} loading={loading}>刷新</Button>
+        </Space>
+      ) : (
+        <Space.Compact className="wm-w-full wm-mb-3" style={{ maxWidth: 640 }}>
+          <Input.Password
+            prefix={<KeyOutlined />}
+            placeholder="管理员口令（或用 Odoo 管理员账号登录后免输）"
+            value={tokenDraft}
+            onChange={(e) => setTokenDraft(e.target.value)}
+            onPressEnter={() => tokenDraft && setAdminToken(tokenDraft)}
+            className="wm-text-body"
+          />
+          <Button onClick={() => setAdminToken(tokenDraft)} disabled={!tokenDraft}>载入</Button>
+        </Space.Compact>
+      )}
       <Space.Compact className="wm-w-full wm-mb-4" style={{ maxWidth: 640 }}>
         <Input
           prefix={<PlusOutlined />}
@@ -210,7 +227,7 @@ export default function McpGateways() {
           onChange={(e) => setNewName(e.target.value)}
           className="wm-mono wm-text-body"
         />
-        <Button type="primary" onClick={createSession} loading={loading} disabled={!token || !newName}>创建会话</Button>
+        <Button type="primary" onClick={createSession} loading={loading} disabled={!active || !newName}>创建会话</Button>
       </Space.Compact>
 
       <Tabs
@@ -221,7 +238,7 @@ export default function McpGateways() {
               <>
                 <ProTable<McpSession> rowKey="id" size="middle" columns={sessCols} dataSource={sessions} loading={loading} search={false} options={false} toolBarRender={false}
                   pagination={{ pageSize: 20, hideOnSinglePage: true }}
-                  locale={{ emptyText: <Empty description="无会话——输入口令载入，或创建首个会话" /> }} />
+                  locale={{ emptyText: <Empty description={active ? "无会话——创建首个会话" : "需要管理员：输入口令，或用 Odoo 管理员账号登录"} /> }} />
                 <Typography.Title level={5} style={{ marginTop: 24 }}>审计（最近 100 条）</Typography.Title>
                 <ProTable<McpCall> rowKey="id" size="middle" columns={callCols} dataSource={calls} loading={callsLoading} search={false} options={false} toolBarRender={false} pagination={{ pageSize: 20, hideOnSinglePage: true }} />
               </>
@@ -238,7 +255,7 @@ export default function McpGateways() {
                 <Space.Compact className="wm-w-full wm-mb-3" style={{ maxWidth: 720 }}>
                   <Input placeholder="prefix（如 taste）" value={upPrefix} onChange={(e) => setUpPrefix(e.target.value)} style={{ width: 180 }} className="wm-mono wm-text-body" />
                   <Input placeholder="MCP 端点 URL（如 http://127.0.0.1:9810/mcp）" value={upUrl} onChange={(e) => setUpUrl(e.target.value)} className="wm-text-body" />
-                  <Button type="primary" onClick={addUpstream} disabled={!token}>添加/更新</Button>
+                  <Button type="primary" onClick={addUpstream} disabled={!active}>添加/更新</Button>
                 </Space.Compact>
                 <Input.TextArea rows={2} value={upHeaders} onChange={(e) => setUpHeaders(e.target.value)}
                   style={{ maxWidth: 720 }} className="wm-mono wm-caption wm-mb-3"

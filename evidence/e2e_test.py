@@ -1080,7 +1080,8 @@ with sync_playwright() as p:
         page.wait_for_timeout(600)
         body_txt = page.locator('body').inner_text()
         assert 'MCP 网关' in body_txt, '管理页标题未渲染'
-        assert page.locator('input[type="password"]').count() >= 1, '口令输入未渲染'
+        # #375：没有管理身份时显示页内口令框；已持全局口令或 Odoo 管理员时直接载入
+        assert page.locator('input[type="password"]').count() >= 1 or '已按' in body_txt, '口令输入或已载入状态都未渲染'
         assert '默认拒绝' in body_txt, '默认拒绝提示未渲染'
         assert '审计' in body_txt, '审计区未渲染'
         # C7b（#371）：授权编辑器的工具下拉必须有选项——/api/mcp/tools 回裸数组，前端曾按 {tools} 信封解析导致恒空
@@ -1092,10 +1093,20 @@ with sync_playwright() as p:
             _t7 = page.request.get(BASE + '/api/mcp/tools', headers=_ah7).json()
             _n7 = len(_t7 if isinstance(_t7, list) else (_t7.get('tools') or []))
             assert _n7 > 0, '/api/mcp/tools 为空'
-            page.locator('input[type="password"]').first.fill(_at7)
-            page.get_by_role('button', name=__import__('re').compile(r'载\s*入')).click()
-            page.wait_for_timeout(800)
-            page.locator('.ant-table-row').filter(has_text=_s7['name']).get_by_role('button', name='grants').click()
+            # #375：页面接入全局管理身份——全局口令（顶栏钥匙写的就是它）在位时，不用页内口令框、不点载入就自动载入
+            page.goto(BASE + '/mcp-gateways')
+            page.wait_for_load_state('networkidle')
+            if not page.evaluate("() => !!sessionStorage.getItem('wm-admin-token')"):
+                # 没预注入口令的形态：走顶栏钥匙（全局入口），不用页内口令框
+                _re7 = __import__('re')
+                page.get_by_role('button', name=_re7.compile(r'口\s*令')).first.click()
+                page.locator('.ant-popover .ant-input-password input').fill(_at7)
+                page.locator('.ant-popover').get_by_role('button', name=_re7.compile(r'保\s*存')).click()
+            _row7 = page.locator('.ant-table-row').filter(has_text=_s7['name'])
+            _row7.wait_for(state='visible', timeout=8000)
+            assert page.get_by_placeholder(__import__('re').compile('Odoo 管理员账号登录后免输')).count() == 0, '持全局口令时页内口令框不应出现（#375）'
+            assert '已按管理员口令载入' in page.locator('body').inner_text(), '未显示按全局口令载入（#375）'
+            _row7.get_by_role('button', name='grants').click()
             _m7 = page.locator('.ant-modal-content').filter(has_text='授权编辑')
             _m7.wait_for(state='visible')
             assert f'工具面共 {_n7} 个' in _m7.inner_text(), f'工具总数说明不符: {_m7.inner_text()[:120]}'
