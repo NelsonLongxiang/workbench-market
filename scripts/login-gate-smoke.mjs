@@ -10,11 +10,14 @@
  *   G7 本机命令行放行；浏览器标记的本机请求不算命令行；X-Admin-Token 头放行
  *   G8 Odoo：内部员工会话放行，门户账号被拦；登录中继只放登录用的那一个入口；WS 升级匿名断开
  *   G9 A2A：签名卡片放行；/a2a/direct 放行到路由、无签名 → 401
+ *   G13 来源 IP：同机反代（对端回环）时按 X-Real-IP / X-Forwarded-For 最右一项分桶限频、审计记真实 IP；对端不是本机时转发头一律不信
+ *   G12 按 run 凭据：读凭证只放行该 run 的读与附件下载，上传令牌只放行该 run（执行中）的附件上传；换 run、伪造、吊销、结束都拦
  *   G11 首次 enforce 轮换按台令牌密钥：开门前的旧令牌 401、新令牌放行、记号与密钥 600、日志无密钥、第二次启动不再轮换
  *   G10 off：匿名照旧可读、不跳登录、health 报 off；口令轮换后旧 cookie 失效；非法开关值拒绝启动 */
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { connect } from 'node:net';
+import { networkInterfaces } from 'node:os';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 const readdirSafe = (d) => { try { return readdirSync(d); } catch { return []; } };
@@ -276,6 +279,32 @@ try {
     ok('G8 WS 升级带登录 cookie → 交给门户（有响应字节）', (await rawWs(E.PORT, odooGo + 'ws', `wm_login=${ck}`)) > 0);
   }
 
+  // G12 按 run 凭据（/a2a/direct 建单发给派单方的 read_capability / upload_token）
+  {
+    const mk = async () => (await req(B, 'POST', '/api/sop/runs', {}, { slug: 'gate-sop', started_by: 'gate-dispatcher' })).json();
+    const r1 = await mk(), r2 = await mk();
+    const RC = (cap) => ({ ...REMOTE, 'x-run-read-capability': cap });
+    const UT = (t) => ({ ...REMOTE, 'x-run-upload-token': t });
+    ok('G12 远程凭本 run 读凭证 GET /api/sop/runs/<id> → 200', (await req(B, 'GET', `/api/sop/runs/${r1.id}`, RC(r1.read_capability))).status === 200);
+    ok('G12 远程凭读凭证列附件 → 200', (await req(B, 'GET', `/api/sop/runs/${r1.id}/files`, RC(r1.read_capability))).status === 200);
+    const upf = () => { const f = new FormData(); f.append('file', new Blob(['dispatcher file'], { type: 'text/plain' }), 'd.txt'); return f; };
+    const up = await fetch(B + `/api/sop/runs/${r1.id}/files`, { method: 'POST', headers: UT(r1.upload_token), body: upf() });
+    const upj = await up.json().catch(() => ({}));
+    ok('G12 远程凭本 run 上传令牌传附件 → 2xx', up.status < 300, `${up.status}`);
+    ok('G12 远程凭读凭证下载该附件 → 200', (await req(B, 'GET', `/api/sop/runs/${r1.id}/files/${upj.id ?? upj.file?.id}`, RC(r1.read_capability))).status === 200);
+    ok('G12 读凭证换到别的 run → 401', (await req(B, 'GET', `/api/sop/runs/${r2.id}`, RC(r1.read_capability))).status === 401);
+    ok('G12 伪造读凭证 → 401', (await req(B, 'GET', `/api/sop/runs/${r1.id}`, RC('x'.repeat(64)))).status === 401);
+    ok('G12 读凭证不放行 run 列表与写', (await req(B, 'GET', '/api/sop/runs', RC(r1.read_capability))).status === 401 && (await req(B, 'PUT', `/api/sop/runs/${r1.id}`, RC(r1.read_capability), { stepKey: 'one', value: {} })).status === 401);
+    const up2 = await fetch(B + `/api/sop/runs/${r2.id}/files`, { method: 'POST', headers: UT(r1.upload_token), body: upf() });
+    ok('G12 上传令牌换到别的 run → 401', up2.status === 401);
+    ok('G12 上传令牌不放行读', (await req(B, 'GET', `/api/sop/runs/${r1.id}`, UT(r1.upload_token))).status === 401);
+    await req(B, 'POST', `/api/sop/runs/${r1.id}/read-caps/revoke`, { 'x-admin-token': ADMIN }, {});
+    ok('G12 读凭证吊销后 → 401', (await req(B, 'GET', `/api/sop/runs/${r1.id}`, RC(r1.read_capability))).status === 401);
+    await req(B, 'POST', `/api/sop/runs/${r2.id}/finish`, {}, {});
+    const up3 = await fetch(B + `/api/sop/runs/${r2.id}/files`, { method: 'POST', headers: UT(r2.upload_token), body: upf() });
+    ok('G12 run 已结束后上传令牌 → 401', up3.status === 401, `${up3.status}`);
+  }
+
   // G9 A2A
   ok('G9 签名卡片匿名可读', (await req(B, 'GET', '/.well-known/agent-card.json')).status === 200);
   ok('G9 /a2a/direct 无签名 → 路由按签名拒 401', (await req(B, 'POST', '/a2a/direct', REMOTE, { team: 'market/00000000', message: 'x', caller_session: 'x' })).status === 401);
@@ -329,6 +358,31 @@ try {
   const me2 = await (await req(B, 'GET', '/api/auth/me', { ...REMOTE, cookie: `wm_login=${first}` })).json();
   ok('G10 口令轮换后旧 cookie 失效', rot.status === 200 && me2.authenticated === false);
 } finally { await stop(O); }
+
+// ================= 来源 IP（反代后的真实客户端） =================
+console.log('== 来源 IP（同机反代）==');
+{
+  const R = start({ WM_LOGIN_GATE: 'enforce', ADMIN_TOKEN: ADMIN }, 'realip');
+  try {
+    ok('G13 实例就绪', await ready(R), R.out().slice(-300));
+    const B = R.B;
+    const viaProxy = (ip, extra = {}) => ({ 'x-real-ip': ip, 'x-forwarded-for': ip, ...extra });
+    const attempt = (h) => req(B, 'POST', '/api/auth/login', h, { token: ADMIN });
+    for (let i = 0; i < 10; i++) await attempt(viaProxy('203.0.113.10'));
+    ok('G13 同一真实客户端一分钟第 11 次 → 429', (await attempt(viaProxy('203.0.113.10'))).status === 429);
+    ok('G13 经同一反代的另一个客户端不受牵连 → 200', (await attempt(viaProxy('203.0.113.11'))).status === 200);
+    ok('G13 只有 X-Forwarded-For 时取最右一项（左边客户端自报的不算）', (await attempt({ 'x-forwarded-for': '203.0.113.10, 203.0.113.12' })).status === 200 && (await attempt({ 'x-forwarded-for': '203.0.113.12, 203.0.113.10' })).status === 429);
+    ok('G13 X-Real-IP 不是合法 IP 时回落到 X-Forwarded-For', (await attempt({ 'x-real-ip': 'not-an-ip', 'x-forwarded-for': '203.0.113.10' })).status === 429);
+    ok('G13 审计记真实客户端 IP，不记反代地址', /"event":"login","ok":true,"ip":"203\.0\.113\.11"/.test(R.out()) && !/"event":"login","ok":true,"ip":"127\.0\.0\.1"/.test(R.out()));
+    const lan = Object.values(networkInterfaces()).flat().find((n) => n && n.family === 'IPv4' && !n.internal)?.address;
+    if (lan) {
+      const lanAttempt = (h) => fetch(`http://${lan}:${R.PORT}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json', ...h }, body: JSON.stringify({ token: ADMIN }) });
+      for (let i = 0; i < 10; i++) await lanAttempt(viaProxy(`198.18.0.${i + 1}`));
+      const r11 = await lanAttempt(viaProxy('198.18.0.99'));
+      ok('G13 对端不是本机时，换转发头也绕不过限频（按 TCP 对端计）', r11.status === 429, `${r11.status}`);
+    } else ok('G13 对端非本机的伪造对照（本机无非回环地址，跳过）', true);
+  } finally { await stop(R); }
+}
 
 // ================= 首次 enforce 轮换按台令牌密钥 =================
 console.log('== 首次 enforce 轮换按台令牌 ==');
