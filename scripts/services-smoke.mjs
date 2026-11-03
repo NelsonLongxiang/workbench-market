@@ -42,7 +42,7 @@ ok('workbench.types 有数据', Array.isArray(types) && types.length >= 9, Strin
 const apps = app.all();
 ok('app.all 有数据', Array.isArray(apps) && apps.length > 0, String(apps?.length));
 ok('sop.runsRecent 可查', Array.isArray(sop.runsRecent(3)));
-ok('appData.dataPage 可查', Array.isArray(appData.dataPage('logistics-owba-board', 0, 3)));
+ok('appData.dataPage 可查', Array.isArray(appData.dataPage(process.env.SMOKE_APP || apps[0]?.slug || 'demo-timestamp', 0, 3)));
 ok('mcp.sessions 可查', Array.isArray(mcp.sessions()));
 ok('cookie.all 可查', Array.isArray(cookie.all()));
 ok('cockpit.list 可查', Array.isArray(cockpit.list()));

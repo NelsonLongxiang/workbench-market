@@ -53,16 +53,18 @@ const RC = { 'X-Run-Read-Capability': String(r.body?.read_capability ?? '') }; /
   let RUN_TOKEN = String(r.body?.upload_token ?? ''); // P0：run-scoped 上传令牌（启动响应）
   ok('① 开 run 201', r.status === 201 && Number.isInteger(runId));
   // ② 标题/描述进保留键（Runner 交付区只读渲染面）
-  r = await json(`${BASE}/api/sop/runs/${runId}`, 'PUT', { stepKey: '_brief', value: '核对十月物流对账差异' });
+  r = await json(`${BASE}/api/sop/runs/${runId}`, 'PUT', { stepKey: '_brief', value: '示例任务：核对月度差异' });
   ok('② _brief 写入', r.status === 200, JSON.stringify(r.body).slice(0, 80));
-  await json(`${BASE}/api/sop/runs/${runId}`, 'PUT', { stepKey: '_desc', value: '差异清单见附件；按台账口径核' });
+  await json(`${BASE}/api/sop/runs/${runId}`, 'PUT', { stepKey: '_desc', value: '差异清单见附件' });
   const detail = await json(`${BASE}/api/sop/runs/${runId}`, 'GET', undefined, RC);
-  ok('② 读回含 _brief/_desc', detail.body?.data?._brief === '核对十月物流对账差异' && !!detail.body?.data?._desc);
+  ok('② 读回含 _brief/_desc', detail.body?.data?._brief === '示例任务：核对月度差异' && !!detail.body?.data?._desc);
   // ③ 指派（assign 薄端点）→ 待验收——先开分拣开关（PR#87 默认关·dispatched=1 需开关开）
   r = await json(`${BASE}/api/settings`, 'PUT', { dispatch_sorting_enabled: '1' }, AT);
-  r = await json(`${BASE}/api/sop/runs/${runId}/assign`, 'POST', { node: 'dsh/6de4035c' });
+  // 节点：针对数据快照跑时用 SMOKE_BOUND_NODE 指定一个已绑定该 SOP 的节点
+  const NODE = process.env.SMOKE_BOUND_NODE || 'dsh/00c0ffee';
+  r = await json(`${BASE}/api/sop/runs/${runId}/assign`, 'POST', { node: NODE });
   ok('③ assign 201', r.status === 201 && r.body?.task_id === `task-${runId}`, JSON.stringify(r.body));
-  r = await json(`${BASE}/api/sop/runs/${runId}/assign`, 'POST', { node: 'dsh/6de4035c' });
+  r = await json(`${BASE}/api/sop/runs/${runId}/assign`, 'POST', { node: NODE });
   ok('③ 重复指派 409', r.status === 409);
   r = await json(`${BASE}/api/sop/runs?dispatched=1`);
   ok('③ 入待验收列表', (r.body ?? []).some((x) => x.id === runId));

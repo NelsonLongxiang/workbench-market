@@ -58,24 +58,38 @@ const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 
   stdio: 'ignore',
 });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// 目标台不写死在源码里：环境变量指定，否则从数据快照里挑
+const NODE = process.env.SMOKE_AGENT_NODE || 'dsh/00c0ffee';
+let APP, UNBOUND_APP;
 try {
   if (!(await waitReady(`${BASE}/api/health`))) throw new Error('隔离实例未就绪');
   console.log('隔离实例就绪', BASE, '| cap@', CAP_PORT);
+  const appList = await (await fetch(`${BASE}/api/apps`)).json().catch(() => []);
+  const appSlugs = (Array.isArray(appList) ? appList : []).filter((a) => a.kind !== 'sop').map((a) => a.slug);
+  APP = process.env.SMOKE_APP || appSlugs[0];
+  UNBOUND_APP = process.env.SMOKE_UNBOUND_APP;
+  for (const s of appSlugs) {
+    if (UNBOUND_APP || s === APP) continue;
+    const rows = await (await fetch(`${BASE}/api/bindings?type=app&slug=${s}`, { headers: ADMIN })).json().catch(() => []);
+    if (!(Array.isArray(rows) ? rows : []).some((r) => !r.revoked_at && (r.direction === 'notify' || r.direction === 'both'))) UNBOUND_APP = s;
+  }
+  if (!APP || !UNBOUND_APP) throw new Error('快照里找不到两个可用自产台：请设 SMOKE_APP / SMOKE_UNBOUND_APP');
+  console.log('目标台', APP, '| 无绑定台', UNBOUND_APP);
 
   // ① 绑定创建（统一面）：先撤销同 node 旧行（现网迁移行已在·UNIQUE natural key 撞）——测试隔离性
-  const old = await (await fetch(`${BASE}/api/bindings?type=app&slug=procurement-workbench`, { headers: ADMIN })).json().catch(() => []);
-  for (const row of Array.isArray(old) ? old : []) if (row.agent_node === 'dsh/6de4035c' && !row.revoked_at) await fetch(`${BASE}/api/bindings/${row.id}`, { method: 'DELETE', headers: ADMIN });
+  const old = await (await fetch(`${BASE}/api/bindings?type=app&slug=${APP}`, { headers: ADMIN })).json().catch(() => []);
+  for (const row of Array.isArray(old) ? old : []) if (row.agent_node === NODE && !row.revoked_at) await fetch(`${BASE}/api/bindings/${row.id}`, { method: 'DELETE', headers: ADMIN });
   const b1 = await fetch(`${BASE}/api/bindings`, {
     method: 'POST', headers: ADMIN,
-    body: JSON.stringify({ target_type: 'app', target_slug: 'procurement-workbench', agent_node: 'dsh/6de4035c', direction: 'notify', notify_url: `http://127.0.0.1:${CAP_PORT}` }),
+    body: JSON.stringify({ target_type: 'app', target_slug: APP, agent_node: NODE, direction: 'notify', notify_url: `http://127.0.0.1:${CAP_PORT}` }),
   });
   ok('① 绑定创建 201', b1.status === 201, `status=${b1.status}`);
   const binding = await b1.json().catch(() => null);
-  ok('①b 返回 id/node', typeof binding?.id === 'number' && binding?.agent_node === 'dsh/6de4035c');
+  ok('①b 返回 id/node', typeof binding?.id === 'number' && binding?.agent_node === NODE);
 
   // ② 提交 → 推送
   pushes.length = 0;
-  const s1 = await fetch(`${BASE}/api/apps/procurement-workbench/data`, {
+  const s1 = await fetch(`${BASE}/api/apps/${APP}/data`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ form: 'contract_task', 'PO号列表': 'PO-NOTIFY-1', '提交人': 'notify-smoke' }),
   });
@@ -85,17 +99,17 @@ try {
   ok('②b cap 收到推送 ×1', pushes.length === 1, `got=${pushes.length}`);
   if (pushes.length > 0) {
     const p = pushes[0];
-    ok('②c 推送 team=绑定 node', p.body?.team === 'dsh/6de4035c', JSON.stringify(p.body?.team));
+    ok('②c 推送 team=绑定 node', p.body?.team === NODE, JSON.stringify(p.body?.team));
     ok('②c2 推送 caller=区限定句柄 market/<8hex>（裸 zone 对端永不可准入）', /^market\/[0-9a-f]{8}$/.test(String(p.body?.caller_session ?? '')), String(p.body?.caller_session));
     const msg = typeof p.body?.message === 'string' ? p.body.message : '';
-    ok('②d 推送含 slug/id/字段', msg.includes('procurement-workbench') && msg.includes(String(item?.id)) && msg.includes('PO-NOTIFY-1'), msg.slice(0, 80));
+    ok('②d 推送含 slug/id/字段', msg.includes(APP) && msg.includes(String(item?.id)) && msg.includes('PO-NOTIFY-1'), msg.slice(0, 80));
   }
 
   // ③ 撤销 → 不再推
   if (binding?.id) {
     await fetch(`${BASE}/api/bindings/${binding.id}`, { method: 'DELETE', headers: ADMIN });
     pushes.length = 0;
-    await fetch(`${BASE}/api/apps/procurement-workbench/data`, {
+    await fetch(`${BASE}/api/apps/${APP}/data`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 'PO号列表': 'PO-NOTIFY-2', '提交人': 'notify-smoke' }),
     });
@@ -103,9 +117,9 @@ try {
     ok('③ 撤销后不推', pushes.length === 0, `got=${pushes.length}`);
   }
 
-  // ④ 无绑定 slug：不推不炸（procurement-task-submit 是 SOP 台非自产台——用 factory-report-library）
+  // ④ 无绑定的自产台：不推不炸
   pushes.length = 0;
-  const s4 = await fetch(`${BASE}/api/apps/factory-report-library/data`, {
+  const s4 = await fetch(`${BASE}/api/apps/${UNBOUND_APP}/data`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ probe: 'no-binding' }),
   });
@@ -135,10 +149,10 @@ try {
     // 重挂绑定（③ 已撤销）
     const b5 = await fetch(`${BASE}/api/bindings`, {
       method: 'POST', headers: ADMIN,
-      body: JSON.stringify({ target_type: 'app', target_slug: 'procurement-workbench', agent_node: 'dsh/6de4035c', direction: 'notify', notify_url: `http://127.0.0.1:${CAP_PORT}` }),
+      body: JSON.stringify({ target_type: 'app', target_slug: APP, agent_node: NODE, direction: 'notify', notify_url: `http://127.0.0.1:${CAP_PORT}` }),
     });
     pushes.length = 0;
-    await fetch(`http://${LAN_IP}:${PORT}/api/apps/procurement-workbench/data`, {
+    await fetch(`http://${LAN_IP}:${PORT}/api/apps/${APP}/data`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 'PO号列表': 'PO-NOTIFY-LAN', '提交人': 'notify-smoke-lan' }),
     });

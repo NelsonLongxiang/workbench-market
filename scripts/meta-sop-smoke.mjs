@@ -33,7 +33,8 @@ const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 
 });
 try {
   if (!(await waitReady(`${BASE}/api/health`))) throw new Error('实例未就绪');
-  const r = await fetch(`${BASE}/api/sops/procurement-task-submit/timeline`);
+  const SOP = process.env.SMOKE_SOP || 'demo-rack-sop';
+  const r = await fetch(`${BASE}/api/sops/${SOP}/timeline`);
   ok('① timeline 面 200（红版 404）', r.status === 200, `status=${r.status}`);
   const j = r.ok ? await r.json() : {};
   ok('② 含版本链 versions[]', Array.isArray(j.versions) && j.versions.length >= 1, `got=${j.versions?.length ?? 'x'}`);

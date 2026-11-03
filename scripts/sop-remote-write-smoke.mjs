@@ -16,7 +16,7 @@ const PORT = 9852;
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-sopremote-data';
 const LAN_IP = fixtureLanHost(); // Only this machine's owned test listener; never inherit a remote LAN_IP.
-const SLUG = 'procurement-task-submit';
+const SLUG = process.env.SMOKE_SOP || 'demo-rack-sop';
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
 

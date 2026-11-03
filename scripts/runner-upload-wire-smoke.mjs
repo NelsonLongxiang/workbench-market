@@ -32,11 +32,12 @@ try {
   // 严格开
   await fetch(`${B}/api/settings`, { method: 'PUT', headers: ADMIN, body: JSON.stringify({ run_upload_require_token: '1' }) });
   // ① 页面渲染含控件+接线
-  const html = await (await fetch(`${B}/sop/procurement-task-submit/`)).text();
+  const SOP = process.env.SMOKE_SOP || 'demo-rack-sop';
+  const html = await (await fetch(`${B}/sop/${SOP}/`)).text();
   ok('①a 页面含上传控件（upload-input/btn）', html.includes('upload-input') && html.includes('upload-btn'), '');
   ok('①b 页面含令牌接线（upload_token/X-Run-Upload-Token）', html.includes('upload_token') && html.includes('X-Run-Upload-Token'), '');
   // ② 严格全链
-  const st = await (await fetch(`${B}/api/sop/runs`, { method: 'POST', headers: ADMIN, body: JSON.stringify({ slug: 'procurement-task-submit', started_by: 'pw' }) })).json();
+  const st = await (await fetch(`${B}/api/sop/runs`, { method: 'POST', headers: ADMIN, body: JSON.stringify({ slug: SOP, started_by: 'pw' }) })).json();
   ok('②a 创建响应带 token', String(st.upload_token ?? '').length >= 32, '');
   const fd = new FormData();
   fd.append('file', new Blob([Buffer.from('a,b\n1,2')], { type: 'text/csv' }), 'd.csv');
