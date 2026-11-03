@@ -49,6 +49,8 @@ ${tokensCss.replace(/<\/style/gi, '')}
   .muted { color:var(--wm-color-text-secondary); }
   input[data-field], select[data-field], textarea[data-field] { width:100%; max-width:420px; padding:var(--wm-space-2) var(--wm-space-3); border:1px solid var(--wm-color-border-strong); border-radius:var(--wm-radius-md); font:inherit; font-family:var(--wm-font-mono); font-size:var(--wm-font-size-body); color:var(--wm-color-text); background:var(--wm-color-surface); }
   input[data-field]:focus-visible, textarea[data-field]:focus-visible, select[data-field]:focus-visible { outline:2px solid var(--wm-color-primary); outline-offset:1px; }
+  [data-field][aria-invalid="true"] { border-color:var(--wm-color-danger) !important; }
+  .fv-msg { display:block; margin-top:2px; font-size:12px; line-height:20px; color:var(--wm-color-danger-text); }
   .foot { display:flex; align-items:center; gap:var(--wm-space-3); margin:var(--wm-space-6) 0 var(--wm-space-8); }
   .btn { border:1px solid var(--wm-color-border-strong); border-radius:var(--wm-radius-md); padding:var(--wm-space-2) var(--wm-space-6); font:inherit; font-weight:var(--wm-font-weight-body-strong); cursor:pointer; background:var(--wm-color-surface); color:var(--wm-color-text); }
   .btn.primary { background:var(--wm-color-primary); border-color:var(--wm-color-primary); color:var(--wm-color-on-primary); }
@@ -117,6 +119,20 @@ window.__SOP__ = ${boot};
     });
   }
 
+  // 字段规则（sop.yaml 控件上的 required/pattern/长度/类型）：填写时即时提示、草稿照存；完成时全部核对，服务端再核一遍
+  function checkField(el, strict) {
+    if (!el.checkValidity) return true;
+    var empty = el.type === 'checkbox' ? !el.checked : !String(el.value || '').trim();
+    // textarea 没有原生 pattern：按服务端同样的整体匹配规则手动核对
+    var pat = el.tagName === 'TEXTAREA' && !empty ? el.getAttribute('pattern') : null;
+    if (pat) { var re = null; try { re = new RegExp('^(?:' + pat + ')$', 'u'); } catch (e) { re = null; } el.setCustomValidity(re && !re.test(String(el.value).trim()) ? (el.getAttribute('data-error') || '格式不符') : ''); }
+    var ok = el.checkValidity() || (!strict && empty);
+    el.setAttribute('aria-invalid', ok ? 'false' : 'true');
+    var msg = el.nextElementSibling && el.nextElementSibling.classList && el.nextElementSibling.classList.contains('fv-msg') ? el.nextElementSibling : null;
+    if (!ok && !msg) { msg = document.createElement('span'); msg.className = 'fv-msg'; msg.setAttribute('role', 'alert'); el.insertAdjacentElement('afterend', msg); }
+    if (msg) msg.textContent = ok ? '' : (empty ? '必填' : (el.getAttribute('data-error') || el.validationMessage || '格式不符'));
+    return ok;
+  }
   function queueSave(stepKey) {
     dot(stepKey, 'dirty');
     clearTimeout(timers[stepKey]);
@@ -230,6 +246,7 @@ window.__SOP__ = ${boot};
   document.addEventListener('input', function (ev) {
     var el = ev.target;
     if (!el || !el.hasAttribute || !el.hasAttribute('data-field')) return;
+    checkField(el, false);
     var sec = el.closest('[data-step]');
     if (sec) queueSave(sec.getAttribute('data-step'));
   });
@@ -265,23 +282,26 @@ window.__SOP__ = ${boot};
   document.addEventListener('change', function (ev) {
     var el = ev.target;
     if (!el || !el.hasAttribute || !el.hasAttribute('data-field')) return;
+    checkField(el, false);
     var sec = el.closest('[data-step]');
     if (sec) queueSave(sec.getAttribute('data-step'));
   });
 
   $('#finish').addEventListener('click', function () {
     if (!runId) return;
+    var bad = $$('[data-field]').filter(function (el) { return !el.disabled && !checkField(el, true); });
+    if (bad.length) { setState('有 ' + bad.length + ' 个字段未填或格式不符，已标红——改正后再完成（草稿已保存）'); bad[0].focus(); return; }
     // 收尾前把所有未落盘的缓冲步骤推上去
     Promise.all(BOOT.steps.filter(function (k) { return timers[k]; }).map(function (k) {
       clearTimeout(timers[k]); return save(k), Promise.resolve();
     })).then(function () {
       return fetch('/api/sop/runs/' + runId + '/finish', { method: 'POST' });
-    }).then(function (r) { return r.json(); }).then(function (out) {
+    }).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error((j && j.error) || ('HTTP ' + r.status)); return j; }); }).then(function (out) {
       localStorage.setItem(LS, JSON.stringify({ id: runId, status: 'finished' }));
       setRunMeta('run #' + out.id + ' · 已完成');
       setState('执行完成，记录已归档（' + out.steps + ' 个步骤数据）');
       $('#finish').disabled = true;
-    }).catch(function () { setState('完成失败——数据仍在，稍后重试'); });
+    }).catch(function (e) { setState('未完成：' + ((e && e.message) || '网络异常') + '——数据仍在，改正后重试'); });
   });
 
   startRun();
