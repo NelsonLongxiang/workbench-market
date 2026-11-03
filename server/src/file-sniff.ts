@@ -1,9 +1,9 @@
 /** 按文件内容识别类型（不只看文件名或浏览器报的 MIME）。上传校验与存量审计共用。
- *  - 内容带已知签名（PNG/JPEG/GIF/WebP/PDF/ZIP/可执行文件）时，以签名为准
+ *  - 内容带已知签名（PNG/JPEG/GIF/WebP/PDF/ZIP/旧版 Office/SQLite/RAR/7z/gzip/可执行文件）时，以签名为准
  *  - 文本类扩展名（.json/.md/.txt/.csv…）：带二进制签名或含 NUL 判不符；非 UTF-8（如 GBK 导出的 CSV）放行，存不带 charset 的类型；.json 须是能解析的 UTF-8
  *  - 扩展名与内容不符 → mismatch：上传拒收，审计报告标出，交人工核查；不按文件名自动改 MIME */
 
-type Family = 'png' | 'jpeg' | 'gif' | 'webp' | 'pdf' | 'zip' | 'exe' | 'text';
+type Family = 'png' | 'jpeg' | 'gif' | 'webp' | 'pdf' | 'zip' | 'ole' | 'sqlite' | 'rar' | '7z' | 'gzip' | 'exe' | 'text';
 
 const EXT: Record<string, { family: Family; mime: string }> = {
   png: { family: 'png', mime: 'image/png' },
@@ -16,6 +16,13 @@ const EXT: Record<string, { family: Family; mime: string }> = {
   xlsx: { family: 'zip', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
   docx: { family: 'zip', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
   pptx: { family: 'zip', mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' },
+  xls: { family: 'ole', mime: 'application/vnd.ms-excel' },
+  doc: { family: 'ole', mime: 'application/msword' },
+  sqlite: { family: 'sqlite', mime: 'application/vnd.sqlite3' },
+  sqlite3: { family: 'sqlite', mime: 'application/vnd.sqlite3' },
+  rar: { family: 'rar', mime: 'application/vnd.rar' },
+  '7z': { family: '7z', mime: 'application/x-7z-compressed' },
+  gz: { family: 'gzip', mime: 'application/gzip' },
   json: { family: 'text', mime: 'application/json' },
   md: { family: 'text', mime: 'text/markdown; charset=utf-8' },
   txt: { family: 'text', mime: 'text/plain; charset=utf-8' },
@@ -27,7 +34,8 @@ const EXT: Record<string, { family: Family; mime: string }> = {
   log: { family: 'text', mime: 'text/plain; charset=utf-8' },
 };
 const SIG_MIME: Record<Exclude<Family, 'text'>, string> = {
-  png: 'image/png', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', pdf: 'application/pdf', zip: 'application/zip', exe: 'application/x-executable',
+  png: 'image/png', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', pdf: 'application/pdf', zip: 'application/zip',
+  ole: 'application/x-ole-storage', sqlite: 'application/vnd.sqlite3', rar: 'application/vnd.rar', '7z': 'application/x-7z-compressed', gzip: 'application/gzip', exe: 'application/x-executable',
 };
 
 function signature(b: Uint8Array): Exclude<Family, 'text'> | null {
@@ -38,6 +46,11 @@ function signature(b: Uint8Array): Exclude<Family, 'text'> | null {
   if (at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50)) return 'webp';
   if (at(0, 0x25, 0x50, 0x44, 0x46, 0x2d)) return 'pdf';
   if (at(0, 0x50, 0x4b, 0x03, 0x04) || at(0, 0x50, 0x4b, 0x05, 0x06)) return 'zip';
+  if (at(0, 0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1)) return 'ole';   // 旧版 Office（xls/doc）
+  if (at(0, 0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74, 0x20, 0x33, 0x00)) return 'sqlite';  // "SQLite format 3\0"
+  if (at(0, 0x52, 0x61, 0x72, 0x21, 0x1a, 0x07)) return 'rar';
+  if (at(0, 0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c)) return '7z';
+  if (at(0, 0x1f, 0x8b)) return 'gzip';
   if (at(0, 0x4d, 0x5a) || at(0, 0x7f, 0x45, 0x4c, 0x46) || at(0, 0xcf, 0xfa, 0xed, 0xfe) || at(0, 0xfe, 0xed, 0xfa, 0xcf) || at(0, 0xca, 0xfe, 0xba, 0xbe)) return 'exe';
   return null;
 }
@@ -62,6 +75,12 @@ export function sniff(name: string, head: Uint8Array, complete: boolean, reporte
   const want = EXT[ext];
   const sig = signature(head);
   if (sig === 'exe') return { ext, detected: SIG_MIME.exe, mime: SIG_MIME.exe, verdict: 'executable', reason: '内容是可执行文件' };
+  // 旧版 Office（.xls/.doc）：很多系统导出的 .xls 实际是 HTML 表格或制表符文本——没有二进制签名、不含 NUL 的放行；
+  // 只有真 OLE，或文本，才算相符；其他已知二进制格式冒充（含 xlsx 的 ZIP）仍判不符
+  if (want && want.family === 'ole' && !sig) {
+    if (head.includes(0)) return { ext, detected: '', mime: reported || 'application/octet-stream', verdict: 'mismatch', reason: `扩展名 .${ext} 但内容既不是 OLE 也不是文本` };
+    return { ext, detected: 'text/plain', mime: want.mime, verdict: 'ok', reason: '' };
+  }
   if (want && want.family !== 'text') {
     if (sig === want.family) return { ext, detected: SIG_MIME[sig], mime: want.mime, verdict: 'ok', reason: '' };
     return { ext, detected: sig ? SIG_MIME[sig] : '', mime: reported || 'application/octet-stream', verdict: 'mismatch', reason: sig ? `扩展名 .${ext} 与内容（${SIG_MIME[sig]}）不符` : `扩展名 .${ext} 但内容没有该格式的文件头` };
