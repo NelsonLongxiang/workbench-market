@@ -123,6 +123,9 @@ window.__SOP__ = ${boot};
   function checkField(el, strict) {
     if (!el.checkValidity) return true;
     var empty = el.type === 'checkbox' ? !el.checked : !String(el.value || '').trim();
+    // textarea 没有原生 pattern：按服务端同样的整体匹配规则手动核对
+    var pat = el.tagName === 'TEXTAREA' && !empty ? el.getAttribute('pattern') : null;
+    if (pat) { var re = null; try { re = new RegExp('^(?:' + pat + ')$', 'u'); } catch (e) { re = null; } el.setCustomValidity(re && !re.test(String(el.value).trim()) ? (el.getAttribute('data-error') || '格式不符') : ''); }
     var ok = el.checkValidity() || (!strict && empty);
     el.setAttribute('aria-invalid', ok ? 'false' : 'true');
     var msg = el.nextElementSibling && el.nextElementSibling.classList && el.nextElementSibling.classList.contains('fv-msg') ? el.nextElementSibling : null;
