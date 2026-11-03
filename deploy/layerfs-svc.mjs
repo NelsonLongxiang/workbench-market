@@ -347,6 +347,56 @@ async function mergeDraft(project,target,draft,body) {
   return saveHead(project,into,merged,result,[...theirs].map(([path,content])=>({path,content})),body.message);
 }
 
+async function deleteProject(proj) {
+  if (!sidecar.prepare('SELECT 1 FROM branches WHERE project=? LIMIT 1').get(proj)) throw refusal('NoSuchProject','no such project');
+  const c = clients.get(proj); if (c) { await c.close(); clients.delete(proj); }
+  // Quarantine trees by same-filesystem rename, then remove sidecar rows transactionally.
+  const token=randomBytes(8).toString('hex');
+  const trees=[homeDir+'/'+proj,storeRoot+'/sources/'+proj,storeRoot+'/stores/'+proj,projectBackupRoot(proj)];
+  const moved=[];
+  const rows=Object.fromEntries(['branches','commits','drafts','engine_refs'].map(t=>[t,projectRows(t,proj)]));
+  let rowsRemoved=false;
+  try {
+    for(const original of trees) if(existsSync(original)) {
+      const staged=original+'.deleting-'+token;
+      if(existsSync(staged)) throw new Error('project deletion tombstone already exists');
+      renameSync(original,staged); moved.push([original,staged]);
+    }
+    sidecar.exec('BEGIN');
+    try {
+      for(const table of ['commits','branches','drafts','engine_refs']) sidecar.prepare('DELETE FROM '+table+' WHERE project=?').run(proj);
+      sidecar.exec('COMMIT'); rowsRemoved=true;
+    } catch(e) { sidecar.exec('ROLLBACK'); throw e; }
+    // Docker DELETE may have acted even if its response is lost; 404 is idempotent success.
+    if(!await dropVolume(proj)) throw new Error('Docker project volume deletion failed');
+  } catch(e) {
+    let compensationError=null;
+    // This idempotently recreates the metadata volume on definite or ambiguous failure.
+    try { await ensureVolume(proj); } catch(err) { compensationError=err; }
+    if(rowsRemoved) {
+      sidecar.exec('BEGIN');
+      try {
+        for(const table of ['branches','commits','drafts','engine_refs']) {
+          const records=rows[table];
+          if(records.length) {
+            const cols=Object.keys(records[0]),stmt=sidecar.prepare('INSERT INTO '+table+' ('+cols.join(',')+') VALUES ('+cols.map(()=>'?').join(',')+')');
+            for(const row of records) stmt.run(...cols.map(k=>row[k]));
+          }
+        }
+        sidecar.exec('COMMIT');
+      } catch(restoreError) { sidecar.exec('ROLLBACK'); compensationError=compensationError??restoreError; }
+    }
+    for(const [original,staged] of moved.reverse()) {
+      try { if(existsSync(staged)) renameSync(staged,original); } catch(err) { compensationError=compensationError??err; }
+    }
+    if(compensationError) throw new Error('project deletion failed and compensation needs recovery; tombstones retained',{cause:compensationError});
+    throw e;
+  }
+  let cleanupPending=false;
+  for(const [,staged] of moved) try { rmSync(staged,{recursive:true,force:true}); } catch { cleanupPending=true; }
+  return { removed:true,volume_removed:true,dir_removed:!cleanupPending,cleanup_pending:cleanupPending };
+}
+
 // Serialize adapter calls: SDK client creation selects a process-wide Store path,
 // and read/modify/publish of the sidecar head must be one lane (no replay).
 let lane = Promise.resolve();
@@ -451,59 +501,7 @@ async function handle(req, res) {
     if (req.method === 'DELETE' && m) {
       const proj = decodeURIComponent(m[1]);
       if (!/^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/.test(proj)) throw refusal('InvalidInput','invalid project name');
-      if (!sidecar.prepare('SELECT 1 FROM branches WHERE project=? LIMIT 1').get(proj)) throw refusal('NoSuchProject','no such project');
-      const c = clients.get(proj); if (c) { await c.close(); clients.delete(proj); }
-      // Quarantine trees by same-filesystem rename, then remove sidecar rows transactionally.
-      // If any pre-finalization step fails, restore both rows and paths before returning failure.
-      const token=randomBytes(8).toString('hex');
-      const trees=[homeDir+'/'+proj,storeRoot+'/sources/'+proj,storeRoot+'/stores/'+proj,projectBackupRoot(proj)];
-      const moved=[];
-      const rows=Object.fromEntries(['branches','commits','drafts','engine_refs'].map(t=>[t,projectRows(t,proj)]));
-      let rowsRemoved=false, volumeRemoved=false;
-      try {
-        // Rename each tree to a sibling tombstone so every move is atomic and on the same filesystem.
-        for(const original of trees) if(existsSync(original)) {
-          const staged=original+'.deleting-'+token;
-          if(existsSync(staged)) throw new Error('project deletion tombstone already exists');
-          renameSync(original,staged); moved.push([original,staged]);
-        }
-        sidecar.exec('BEGIN');
-        try {
-          for(const table of ['commits','branches','drafts','engine_refs']) sidecar.prepare('DELETE FROM '+table+' WHERE project=?').run(proj);
-          sidecar.exec('COMMIT'); rowsRemoved=true;
-        } catch(e) { sidecar.exec('ROLLBACK'); throw e; }
-        // Make the irreversible remote-volume deletion the final fallible operation.
-        if(!await dropVolume(proj)) throw new Error('Docker project volume deletion failed');
-        volumeRemoved=true;
-      } catch(e) {
-        // Docker DELETE can fail after the daemon has acted but before its response arrives.
-        // Re-issuing idempotent volume create makes both definite and ambiguous failures recoverable.
-        let compensationError=null;
-        try { await ensureVolume(proj); } catch(err) { compensationError=err; }
-        if(rowsRemoved) {
-          sidecar.exec('BEGIN');
-          try {
-            for(const table of ['branches','commits','drafts','engine_refs']) {
-              const records=rows[table];
-              if(records.length) {
-                const cols=Object.keys(records[0]),stmt=sidecar.prepare('INSERT INTO '+table+' ('+cols.join(',')+') VALUES ('+cols.map(()=>'?').join(',')+')');
-                for(const row of records) stmt.run(...cols.map(k=>row[k]));
-              }
-            }
-            sidecar.exec('COMMIT');
-          } catch(restoreError) { sidecar.exec('ROLLBACK'); compensationError=compensationError??restoreError; }
-        }
-        for(const [original,staged] of moved.reverse()) {
-          try { if(existsSync(staged)) renameSync(staged,original); } catch(err) { compensationError=compensationError??err; }
-        }
-        // Preserve any unrestored tombstones for operator recovery; never report success.
-        if(compensationError) throw new Error('project deletion failed and compensation needs recovery; tombstones retained',{cause:compensationError});
-        throw e;
-      }
-      // The sidecar and Docker metadata now both reflect deletion; tombstone cleanup is retriable.
-      let cleanupPending=false;
-      for(const [,staged] of moved) try { rmSync(staged,{recursive:true,force:true}); } catch { cleanupPending=true; }
-      return json(res, 200, { removed: true, volume_removed: true, dir_removed: !cleanupPending, cleanup_pending: cleanupPending });
+      return json(res,200,await deleteProject(proj));
     }
     m = /^\/v1\/projects\/([^/]+)\/branches\/([^/]+)\/commits\/([^/]+)\/export$/.exec(url);
     if (req.method === 'GET' && m) return json(res, 501, { error: 'export=S3 预留（契约 v1 §2）' });

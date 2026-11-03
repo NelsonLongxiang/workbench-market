@@ -11,7 +11,8 @@ RUN test "$(node -p 'require("./package-lock.json").packages["node_modules/ygl-t
  && chown -R node:node /var/lib/ygl
 COPY --chown=root:root mcp-entrypoint.sh /usr/local/bin/ygl-mcp-entrypoint
 COPY --chown=root:root entrypoint.sh /usr/local/bin/ygl-sync-entrypoint
-RUN chmod 0555 /usr/local/bin/ygl-mcp-entrypoint /usr/local/bin/ygl-sync-entrypoint
+COPY --chown=root:root scripts/checkpoint-sqlite.mjs /usr/local/bin/ygl-checkpoint-sqlite.mjs
+RUN chmod 0555 /usr/local/bin/ygl-mcp-entrypoint /usr/local/bin/ygl-sync-entrypoint /usr/local/bin/ygl-checkpoint-sqlite.mjs
 ENV PATH=/opt/ygl/node_modules/.bin:${PATH} YGL_HOME=/var/lib/ygl HOME=/var/lib/ygl YGL_SESSION=docker-workspace
 USER node
 WORKDIR /var/lib/ygl

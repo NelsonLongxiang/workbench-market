@@ -18,7 +18,9 @@
     "test:layerfs-runtime-isolation": "node scripts/layerfs-runtime-isolation-test.mjs",
     "test:layerfs-archive-safety": "python3 scripts/layerfs-archive-safety-test.py",
     "test:layerfs-gpg-runbook": "python3 scripts/layerfs-gpg-runbook-test.py",
-    "test:layerfs-disposable-smokes": "node scripts/layerfs-disposable-fixture-smoke.mjs"
+    "test:layerfs-disposable-smokes": "node scripts/layerfs-disposable-fixture-smoke.mjs",
+    "test:layerfs-delete-rollback": "node scripts/layerfs-delete-rollback-test.mjs",
+    "test:ygl-sqlite-backup": "python3 scripts/ygl-sqlite-backup-test.py"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",

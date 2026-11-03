@@ -31,4 +31,4 @@ networks:
     internal: true
 volumes:
   ygl_home:
-    name: ${YGL_HOME_VOLUME:-ygl-trees-home-local}
+    name: ${YGL_HOME_VOLUME:-${COMPOSE_PROJECT_NAME:-ygl-trees-candidate}_home}

@@ -19,10 +19,11 @@ print("PASS documented bash blocks parse")
 
 with tempfile.TemporaryDirectory(prefix="layerfs-gpg-runbook-") as temp:
     base = pathlib.Path(temp)
-    home, stage, outdir, restore_parent = (base / n for n in ("gnupg", "stage", "out", "restore"))
-    for p in (home, stage, outdir, restore_parent):
+    home, signer_home, stage, outdir, restore_parent = (base / n for n in ("decrypt-gnupg", "signer-gnupg", "stage", "out", "restore"))
+    for p in (home, signer_home, stage, outdir, restore_parent):
         p.mkdir(mode=0o700)
     os.chmod(home, 0o700)
+    os.chmod(signer_home, 0o700)
     (stage / "marker.txt").write_bytes(b"synthetic LayerFS snapshot\x00" + os.urandom(64))
     (stage / "tree").mkdir()
     (stage / "tree" / "file.bin").write_bytes(os.urandom(512))
@@ -31,8 +32,11 @@ with tempfile.TemporaryDirectory(prefix="layerfs-gpg-runbook-") as temp:
     fprs = [line.split(":")[9] for line in listing.splitlines() if line.startswith("fpr:")]
     if not fprs:
         raise SystemExit("temporary test key did not produce a fingerprint")
+    subprocess.run(["gpg", "--homedir", str(signer_home), "--batch", "--pinentry-mode", "loopback", "--passphrase", "", "--quick-generate-key", "Disposable manifest signer <signer@example.invalid>", "ed25519", "sign", "1d"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    signer_listing=subprocess.run(["gpg","--homedir",str(signer_home),"--batch","--with-colons","--list-keys"],check=True,text=True,capture_output=True).stdout
+    signer_fpr=next(line.split(":")[9] for line in signer_listing.splitlines() if line.startswith("fpr:"))
     env = os.environ.copy()
-    env.update({"RECIPIENT_FPR": fprs[0], "STAGE": str(stage), "ARCHIVE": str(base / "plain.tar.gz"), "OUT": str(outdir / "backup.gpg"), "GPG_HOME": str(home)})
+    env.update({"RECIPIENT_FPR": fprs[0], "STAGE": str(stage), "ARCHIVE": str(base / "plain.tar.gz"), "OUT": str(outdir / "backup.gpg"), "GPG_HOME": str(home), "SIGNING_GPG_HOME": str(signer_home), "SIGNING_FPR": signer_fpr, "MANIFEST_OUT": str(outdir / "backup.manifest.json"), "SIGNING_PUBKEY_OUT": str(outdir / "backup.signer.asc")})
     subprocess.run(["bash", "-euo", "pipefail", "-c", BLOCKS[0]], env=env, check=True, cwd=ROOT)
     cipher = pathlib.Path(env["OUT"])
     if not cipher.is_file() or not pathlib.Path(str(cipher) + ".sha256").is_file() or pathlib.Path(env["ARCHIVE"]).exists():
