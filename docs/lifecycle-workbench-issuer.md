@@ -35,7 +35,7 @@
 ## 3. 属主需要提供
 
 1. **工作台签发密钥对与公钥登记**
-   - 在跑市场服务的机器上生成：`node tools/assert.cjs keygen --issuer workbench`（lifecycle-os 仓内执行；私钥写到 `~/.config/lifecycle-os/keys/workbench.key`，权限 600，打印公钥十六进制）。把 `LC_WORKBENCH_KEY_FILE` 指向这个私钥文件。
+   - 在跑市场服务的机器上生成：`node tools/assert.cjs keygen --issuer workbench`（lifecycle-os 仓内执行；私钥写到 lifecycle-os 配置目录下的 `keys/workbench.key`（具体路径以 keygen 输出为准），权限 600，打印公钥十六进制）。把 `LC_WORKBENCH_KEY_FILE` 指向这个私钥文件。
    - 把公钥十六进制填进 lifecycle-os `decl/identity.yaml` 的 `workbench` 行，替换占位 `__P:ISSUER-KEY-WORKBENCH__`，**提交并推送**（非测试模式下 `decl/` 有未提交改动插件就拒写；只提交不推送，导出的声明哈希对不上已推送的提交）。
    - 起服务后用 `GET /api/lifecycle/status` 核对 `pubkey` 与登记的一致。
 2. **Odoo 用户表的账号类型字段**：`decl/identity.yaml` 的 `principal_source.account_type_field`（占位 `__P:ODOO-ACCOUNT-TYPE-FIELD__`）要定成 `res.users` 上区分「人 / agent」的字段。工作台用的是 Odoo 登录名（`res.users.login`，即 `get_session_info` 的 `username`），主体镜像必须以同一登录名写成 `user:<login>`，否则 lc 报「主体未登记」。
