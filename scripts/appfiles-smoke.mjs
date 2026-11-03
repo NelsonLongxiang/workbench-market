@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** 自产台文件提交面冒烟（独立实例）：所有资源类型——上传→列表→下载→校验→50MB 上限→删除清理。 */
+/** 自产台文件提交面冒烟（独立实例）：所有资源类型——上传→列表→下载→校验→100MB 上限→删除清理。 */
 import { spawn } from 'node:child_process';
 
 async function waitReady(url, ms = 20000) {
@@ -89,10 +89,10 @@ try {
   ok('404 不落盘（无孤儿文件）', countUploads() === beforeUp, `${beforeUp} → ${countUploads()}`);
   const dl404 = await fetch(`${BASE}/api/apps/fileprobe/files/99999`);
   ok('未知文件 id 404', dl404.status === 404);
-  // ⑦ 50MB 上限 → 413
-  const big = Buffer.alloc(50 * 1024 * 1024 + 1024, 0x41);
+  // ⑦ 100MB 上限 → 413
+  const big = Buffer.alloc(100 * 1024 * 1024 + 1024, 0x41);
   r = await uploadFile('fileprobe', 'big.bin', 'application/octet-stream', big);
-  ok('50MB 上限 → 413', r.status === 413, `status=${r.status}`);
+  ok('100MB 上限 → 413', r.status === 413, `status=${r.status}`);
   // ⑧ 删台级联清文件
   await call('DELETE', '/api/apps/fileprobe', { reviewed_by: 'appfiles-smoke' }); // S1 人审门
   const dlAfter = await fetch(`${BASE}/api/apps/fileprobe/files/${fileId}`);

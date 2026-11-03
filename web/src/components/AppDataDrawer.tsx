@@ -104,7 +104,7 @@ export default function AppDataDrawer({ slug, title, open, onClose }: { slug: st
                 <Table rowKey="id" size="small" columns={fileCols} dataSource={files} pagination={false} loading={loading} />
                 {more.files ? <Button block className="wm-mt-3" onClick={() => void load(true)} loading={loading}>加载更多</Button> : null}
               </>
-            ) : <Empty description="还没有提交文件 —— POST /api/apps/:slug/files（multipart，任意类型 ≤50MB）" />,
+            ) : <Empty description="还没有提交文件 —— POST /api/apps/:slug/files（multipart，任意类型 ≤100MB）" />,
           },
         ]}
       />
