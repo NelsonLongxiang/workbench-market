@@ -125,6 +125,17 @@ try {
     await call('PUT', '/api/mcp/upstreams', { upstreams: [] }, AT);
   }
 
+  // ============ 请求体上限：只有有效会话才放大到 72MB ============
+  {
+    const big = JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'tools/list', params: { pad: 'x'.repeat(5 * 1024 * 1024) } });
+    const anon = await fetch(BASE + '/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: big });
+    ok('无令牌 5MB → 413（不为匿名请求放大请求体）', anon.status === 413, String(anon.status));
+    const bad = await fetch(BASE + '/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + '0'.repeat(64) }, body: big });
+    ok('无效令牌 5MB → 413', bad.status === 413, String(bad.status));
+    const authed = await fetch(BASE + '/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${alphaToken}` }, body: big });
+    ok('有效会话 5MB 不被请求体上限拦', authed.status !== 413, String(authed.status));
+  }
+
   // ============ 软吊销即时生效 ============
   r = await call('DELETE', `/api/mcp/sessions/${sid}`, null, AT);
   ok('软吊销 200', r.status === 200);
