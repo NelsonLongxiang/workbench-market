@@ -14,7 +14,7 @@
  *      302 到 /apps/<slug>/~wm/<凭证>/…，凭证按台签名、12 小时有效，相对路径的子资源自然带上；凭证段由本中间件剥掉，下游路由无感。
  *      凭证不能当顶层页面打开（浏览器顶层导航必带 Sec-Fetch-Dest: document，此时仍要身份），复制出去的链接打不开；
  *    - Odoo 登录中继：GET /go/<登录用 Odoo 台>/?return=/login（只出跳转页，不代理 Odoo 内容）。
- *  /a2a/direct 没有签名校验（准入只按自报的 caller_session 匹配绑定），enforce 下不放行。 */
+ *    - POST /a2a/direct：只放行到路由，由路由按 OriginClaim 签名判定（enforce 时 WM_A2A_DIRECT_SIG 强制 require，无签名或验不过 401）。 */
 import type express from 'express';
 import type { IncomingMessage } from 'node:http';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -200,6 +200,7 @@ export function createLoginGate(deps: Deps) {
     if ((get && p === '/openapi.json') || p.startsWith('/api/mcp-rest/')) return true;
     if (get && (p === '/api/health' || p === '/login' || p === '/api/auth/me' || p === '/.well-known/agent-card.json')) return true;
     if (m === 'POST' && (p === '/api/auth/login' || p === '/api/auth/logout')) return true;
+    if (m === 'POST' && p === '/a2a/direct') return true; // 路由内验签（a2a-direct-sig.ts），enforce 下无签名 401
     if (m === 'POST' && /^\/api\/workbench-events\/wbe-[0-9a-f]{16}\/decision$/.test(p)) return true; // reply token 认证
     if (get && /^\/design\/tokens@[0-9.]+\.css$/.test(p)) return true;
     // 沙箱页对本台数据面/变量面的预检：只回允许头，不带数据（实际请求再凭令牌）

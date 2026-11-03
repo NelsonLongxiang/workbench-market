@@ -62,7 +62,7 @@
 - **自产台（沙箱页）**：页面是不透明源，子资源请求带不了 cookie。已登录的人打开 `/apps/<slug>/`（或指向自产台的 `/go/<id>/`）会被 302 到 `/apps/<slug>/~wm/<查看凭证>/…`：凭证按台签名、12 小时有效，相对路径的脚本/样式/图片自然带上；页面里指向本台的绝对地址（`/apps/<slug>/…`、`/api/apps/<slug>/files/<id>`）由服务端和注入脚本补上凭证。带本台 `X-App-Token` 的 data/files/变量请求直接放行。凭证地址不能当顶层页面匿名打开（复制出去的链接要先登录）。
   已知不覆盖：沙箱页里内嵌**别的**台或 `/sop/`、`/go/<外部台>/` 的 iframe，以及 CSS 里 `url(/apps/…)` 形式的绝对地址——这些请求不带 cookie 也没有凭证，会被拦。
 - **无身份也放行**：`/api/health`、`/login` 与 `/api/auth/*`、`/mcp`（网关认证）、签名卡片 `GET /.well-known/agent-card.json`、工作台事件回执 `POST /api/workbench-events/<id>/decision`（凭投递里的 reply token）、`/design/tokens@*.css`（公开设计变量）、沙箱页对本台数据面的预检、Odoo 登录中继（只有登录页给出的那一个 `/go/<id>/?return=/login`）。
-- **不放行 `/a2a/direct`**：它没有签名校验（准入只按自报的 caller_session 匹配绑定），enforce 下远程节点直投 SOP 会 401。
+- **`POST /a2a/direct` 放行到路由、由签名判定**：enforce 时 `WM_A2A_DIRECT_SIG` 强制 `require`——远程节点必须带 OriginClaim 绑定形式信封（`X-A2A-Caller`/`-Url`/`-Ts`/`-Aud`/`-Sig2`，DSH 节点 0.6.32 起每个对端请求都带），没带或验不过 401。市场只从该调用方绑定上登记的 `notify_url` 取对端卡片验签（不用请求里的地址、不跟随重定向、5 秒超时），签名身份（zone）要和 `caller_session` 的 zone 一致，同一签名只认一次。开 enforce 前先给每条准入绑定补上 `notify_url`（对端根地址），否则那个节点直投会 401。
 - WebSocket 升级（`/go/` 代理的长连接）同样要身份。
 
 - **首次 enforce 自动轮换按台令牌密钥**：按台令牌（`X-App-Token`）永久有效，开门之前它在公网页面上谁都拿得到，而登录门对带令牌的 data/files 请求直接放行。所以首次以 enforce 启动时会原子替换 `DATA_DIR/.wm-app-token.key`（权限 600），并写入记号 `DATA_DIR/.wm-app-token.gate`，之后不再重复轮换；日志只写一行「已轮换」，不记密钥。开门前发出的台令牌全部作废，已打开的自产台页面刷新后会拿到新令牌。要再次轮换，删掉记号文件再以 enforce 重启即可。

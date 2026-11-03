@@ -26,6 +26,7 @@ registerHooks({load(url,ctx,next){const loaded=next(url,ctx);if(!url.endsWith('/
 const replace=(from,to)=>{if(!s.includes(from))throw Error('mutation anchor missing: '+mutation);s=s.replace(from,to);};
 if(mutation==='login-gate')replace('app.use(loginGate.middleware);','app.use((_q,_s,n)=>n());');
 if(mutation==='login-gate-apps')replace('app.use(loginGate.middleware);',"app.use((q,s,n)=>q.path.startsWith('/apps/')?n():loginGate.middleware(q,s,n));");
+if(mutation==='a2a-direct-unsigned')replace("  if (A2A_DIRECT_SIG !== 'off') {","  if (false) {");
 if(mutation==='mcp-auth')replace('  if (!MCP_GATEWAY_ON) return null;','  if (true || !MCP_GATEWAY_ON) return null;');
 if(mutation==='browser-write')replace("  if (p.startsWith('/api/')) {","  if (false && p.startsWith('/api/')) {");
 if(mutation==='mcp-timeout'||mutation==='hold-probe'){const a="app.post('/mcp', async (req, res) => {";replace(a,a+(mutation==='mcp-timeout'?"if(req.headers['x-wm-self-probe'])return;":"if(req.headers['x-wm-self-probe'])await new Promise(r=>setTimeout(r,500));"));}
@@ -72,8 +73,8 @@ async function runCase(label,{off=false,control=false,occupied=false,unset=false
    if(off&&gate==='enforce')check(label+' gateway forced on: MCP rows pass, no warnings, override logged',health.self_probe.rows.filter(x=>x.id.startsWith('market.mcp.')&&x.verdict==='pass').length===2&&!health.self_probe.rows.some(x=>x.verdict==='warn')&&se.includes('WM_LOGIN_GATE=enforce'));
    if(occupied)check('occupied control skips without probing the foreign process',foreignRequests===0&&health.self_probe.rows.some(x=>x.id==='control.admin-read'&&x.reason==='control-not-listening'));
    if(mutation==='hold-probe')check('real pending ingress checks ran before readiness',pendingChecked);
-   if(gate==='enforce')check(label+' login-gate rows all pass',['page','app','api'].every(k=>health.self_probe.rows.some(x=>x.id==='market.login-gate.'+k&&x.verdict==='pass'))&&health.login_gate==='enforce');
-   if(gate!=='enforce')check(label+' no login-gate rows when gate is off',!health.self_probe.rows.some(x=>x.id.startsWith('market.login-gate.')));
+   if(gate==='enforce')check(label+' login-gate rows all pass',['page','app','api'].every(k=>health.self_probe.rows.some(x=>x.id==='market.login-gate.'+k&&x.verdict==='pass'))&&health.self_probe.rows.some(x=>x.id==='market.a2a-direct.unsigned'&&x.verdict==='pass')&&health.login_gate==='enforce');
+   if(gate!=='enforce')check(label+' no login-gate rows when gate is off',!health.self_probe.rows.some(x=>x.id.startsWith('market.login-gate.')||x.id.startsWith('market.a2a-direct.')));
    check(label+' ordinary request works after successful startup',(await fetch('http://127.0.0.1:'+port+'/api/workbenches')).status===200);
   }
   const db=new DatabaseSync(join(dir,'data','workbench-market.db'),{readOnly:true});
@@ -109,5 +110,6 @@ await runCase('login-gate-enforce',{gate:'enforce',control:true});
 await runCase('login-gate-enforce-gateway-off-ignored',{gate:'enforce',off:true});
 await runCase('login-gate-bypassed',{gate:'enforce',mutation:'login-gate',expectFailure:true});
 await runCase('login-gate-apps-leak',{gate:'enforce',mutation:'login-gate-apps',expectFailure:true});
+await runCase('a2a-direct-unsigned-leak',{gate:'enforce',mutation:'a2a-direct-unsigned',expectFailure:true});
 writeFileSync(join(out,'result.json'),JSON.stringify({checks,production_requests:0,personal_home_access:false},null,2));
 console.log(JSON.stringify({out,checks}));
