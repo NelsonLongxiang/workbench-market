@@ -1,6 +1,6 @@
 /** 按文件内容识别类型（不只看文件名或浏览器报的 MIME）。上传校验与存量审计共用。
  *  - 内容带已知签名（PNG/JPEG/GIF/WebP/PDF/ZIP/可执行文件）时，以签名为准
- *  - 文本类扩展名（.json/.md/.txt/.csv…）要求内容是 UTF-8 文本、无 NUL；.json 还要能解析
+ *  - 文本类扩展名（.json/.md/.txt/.csv…）：带二进制签名或含 NUL 判不符；非 UTF-8（如 GBK 导出的 CSV）放行，存不带 charset 的类型；.json 须是能解析的 UTF-8
  *  - 扩展名与内容不符 → mismatch：上传拒收，审计报告标出，交人工核查；不按文件名自动改 MIME */
 
 type Family = 'png' | 'jpeg' | 'gif' | 'webp' | 'pdf' | 'zip' | 'exe' | 'text';
@@ -42,8 +42,7 @@ function signature(b: Uint8Array): Exclude<Family, 'text'> | null {
   return null;
 }
 
-function isUtf8Text(b: Uint8Array, complete: boolean): boolean {
-  if (b.includes(0)) return false;
+function isUtf8(b: Uint8Array, complete: boolean): boolean {
   // 只读了文件头时，末尾可能截断在多字节字符中间：去掉最后 3 字节再判
   const part = complete ? b : b.subarray(0, Math.max(0, b.length - 3));
   try { new TextDecoder('utf-8', { fatal: true }).decode(part); return true; } catch { return false; }
@@ -69,7 +68,12 @@ export function sniff(name: string, head: Uint8Array, complete: boolean, reporte
   }
   if (want && want.family === 'text') {
     if (sig) return { ext, detected: SIG_MIME[sig], mime: reported || 'application/octet-stream', verdict: 'mismatch', reason: `扩展名 .${ext} 但内容是 ${SIG_MIME[sig]}` };
-    if (!isUtf8Text(head, complete)) return { ext, detected: '', mime: reported || 'application/octet-stream', verdict: 'mismatch', reason: `扩展名 .${ext} 但内容不是 UTF-8 文本` };
+    if (head.includes(0)) return { ext, detected: '', mime: reported || 'application/octet-stream', verdict: 'mismatch', reason: `扩展名 .${ext} 但内容含 NUL，不是文本` };
+    if (!isUtf8(head, complete)) {
+      if (ext === 'json') return { ext, detected: 'text/plain', mime: reported || 'application/octet-stream', verdict: 'mismatch', reason: '扩展名 .json 但内容不是 UTF-8' };
+      const bare = want.mime.split(';')[0];  // 编码未知（常见 GBK 导出）：不声明 charset，交给打开方判断
+      return { ext, detected: bare, mime: bare, verdict: 'ok', reason: '' };
+    }
     if (ext === 'json' && complete) {
       try { JSON.parse(new TextDecoder().decode(head)); } catch { return { ext, detected: 'text/plain', mime: reported || 'application/octet-stream', verdict: 'mismatch', reason: '扩展名 .json 但内容不是合法 JSON' }; }
     }

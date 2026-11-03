@@ -47,6 +47,7 @@ ok('财务线不要求 case_ref', checkRecord(C, { ...good, line: 'finance', cas
 ok('file_ids 指向别台/不存在的文件被拦', checkRecord(C, { ...good, file_ids: [99] }, has).some((e) => e.includes('99')));
 ok('file_ids 非整数被拦', checkRecord(C, { ...good, file_ids: ['10'] }, has).some((e) => e.includes('正整数')));
 ok('非对象被拦', checkRecord(C, [1], has).length === 1);
+ok('超长字符串不进正则、直接拦下', checkRecord(C, { ...good, task_ref: 't' + '1'.repeat(5000) }, has).some((e) => e.includes('超过')));
 
 console.log('交付事件（PASS 前提）');
 const pass0 = { type: 'agent_delivery', verdict: 'PASS', spec_ref: 'spec_0123456789ab@v2', run_id: 'run_0123456789abcdef', archive_id: 'arc_0123456789ab', zip_sha256: 'a'.repeat(64), human_ack: true };
@@ -82,6 +83,10 @@ ok('.pdf 无文件头判不符', sniff('a.pdf', enc('hello'), true).verdict === 
 ok('.json 内容坏判不符', sniff('a.json', enc('{bad'), true).verdict === 'mismatch');
 ok('.json 只读到文件头时不解析', sniff('a.json', enc('{"a":'), false).verdict === 'ok');
 ok('.txt 含二进制判不符', sniff('a.txt', PNG, true).verdict === 'mismatch');
+const GBK_CSV = b(0xb6, 0xa9, 0xb5, 0xa5, 0xba, 0xc5, 0x2c, 0xbd, 0xf0, 0xb6, 0xee, 0x0a, 0x31, 0x2c, 0x32, 0x0a); // 「订单号,金额」GBK 编码
+ok('GBK 编码的 CSV 放行，存不带 charset 的 text/csv', (() => { const s = sniff('导出.csv', GBK_CSV, true); return s.verdict === 'ok' && s.mime === 'text/csv'; })());
+ok('含 NUL 的 .csv 判不符', sniff('a.csv', b(0x61, 0, 0x62), true).verdict === 'mismatch');
+ok('非 UTF-8 的 .json 判不符', sniff('a.json', GBK_CSV, true).verdict === 'mismatch');
 ok('可执行文件拒收', sniff('setup.zip', EXE, true).verdict === 'executable');
 ok('未知扩展名有签名时按签名', sniff('blob.bin', PNG, true).mime === 'image/png');
 ok('未知扩展名无签名时沿用上报值', sniff('x.dat', enc('abc'), true, 'application/x-foo').mime === 'application/x-foo');

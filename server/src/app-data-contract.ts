@@ -30,9 +30,12 @@ export interface DataContract {
   type_fields: string[];
   unknown_types: 'allow' | 'reject';
   types: Record<string, ContractType>;
+  /** 解析时预编译的正则：types.<type>.pattern.<field> */
+  re: Record<string, Record<string, RegExp>>;
 }
 
 const MAX_RULES = 200;
+const MAX_PATTERN_INPUT = 4096;  // 参与正则匹配的单值上限，防回溯型正则被超长输入拖慢
 
 /** 解析并检查契约文件本身；契约写错时抛错（同步时就拦下，不留到提交时才发现）。 */
 export function parseContract(text: string): DataContract {
@@ -45,14 +48,15 @@ export function parseContract(text: string): DataContract {
   if (unknown !== 'allow' && unknown !== 'reject') throw new Error('unknown_types 只能是 allow 或 reject');
   if (!raw.types || typeof raw.types !== 'object' || Array.isArray(raw.types)) throw new Error('types 必须是对象');
   let rules = 0;
+  const re: Record<string, Record<string, RegExp>> = {};
   const strArr = (v: unknown, what: string) => { if (v !== undefined && (!Array.isArray(v) || !v.every((x) => typeof x === 'string'))) throw new Error(`${what} 必须是字符串数组`); };
   for (const [name, t] of Object.entries<any>(raw.types)) {
     if (!t || typeof t !== 'object') throw new Error(`types.${name} 必须是对象`);
     strArr(t.required, `types.${name}.required`); rules += t.required?.length ?? 0;
     for (const [f, vals] of Object.entries<any>(t.enum ?? {})) { if (!Array.isArray(vals) || !vals.length) throw new Error(`types.${name}.enum.${f} 必须是非空数组`); rules++; }
-    for (const [f, re] of Object.entries<any>(t.pattern ?? {})) {
-      if (typeof re !== 'string') throw new Error(`types.${name}.pattern.${f} 必须是字符串`);
-      try { new RegExp(re); } catch { throw new Error(`types.${name}.pattern.${f} 不是合法正则`); }
+    for (const [f, rx] of Object.entries<any>(t.pattern ?? {})) {
+      if (typeof rx !== 'string') throw new Error(`types.${name}.pattern.${f} 必须是字符串`);
+      try { (re[name] ??= {})[f] = new RegExp(rx); } catch { throw new Error(`types.${name}.pattern.${f} 不是合法正则`); }
       rules++;
     }
     if (t.when !== undefined && !Array.isArray(t.when)) throw new Error(`types.${name}.when 必须是数组`);
@@ -63,7 +67,7 @@ export function parseContract(text: string): DataContract {
     }
   }
   if (rules > MAX_RULES) throw new Error(`契约规则数 ${rules} 超过上限 ${MAX_RULES}`);
-  return { version: 1, type_fields: typeFields, unknown_types: unknown, types: raw.types };
+  return { version: 1, type_fields: typeFields, unknown_types: unknown, types: raw.types, re };
 }
 
 const present = (v: unknown) => v !== undefined && v !== null && !(typeof v === 'string' && v.trim() === '') && !(Array.isArray(v) && v.length === 0);
@@ -81,11 +85,12 @@ export function checkRecord(c: DataContract, data: unknown, fileExists: (id: num
   const t = c.types[typeName], errs: string[] = [];
   for (const f of t.required ?? []) if (!present(d[f])) errs.push(`${typeName}.${f} 必填`);
   for (const [f, vals] of Object.entries(t.enum ?? {})) if (present(d[f]) && !vals.includes(d[f])) errs.push(`${typeName}.${f} 取值不在允许范围（${vals.join('、')}）`);
-  for (const [f, re] of Object.entries(t.pattern ?? {})) {
+  for (const [f, rx] of Object.entries(c.re[typeName] ?? {})) {
     const v = d[f];
     if (!present(v)) continue;
     const vals = Array.isArray(v) ? v : [v];
-    if (!vals.every((x) => typeof x === 'string' && new RegExp(re).test(x))) errs.push(`${typeName}.${f} 格式不符（${re}）`);
+    if (vals.some((x) => typeof x === 'string' && x.length > MAX_PATTERN_INPUT)) { errs.push(`${typeName}.${f} 超过 ${MAX_PATTERN_INPUT} 字符`); continue; }
+    if (!vals.every((x) => typeof x === 'string' && rx.test(x))) errs.push(`${typeName}.${f} 格式不符（${rx.source}）`);
   }
   for (const w of t.when ?? []) {
     if (!Object.entries(w.if).every(([f, vals]) => (vals as unknown[]).includes(d[f]))) continue;
