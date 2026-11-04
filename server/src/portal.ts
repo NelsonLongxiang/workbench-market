@@ -141,7 +141,7 @@ export function installPortal(
           const _mkHost = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').trim();
           const _mkProto = (String(req.headers['x-forwarded-proto'] ?? '').includes('https') || req.secure) ? 'https' : 'http';
           const redirectUri = encodeURIComponent(`${_mkProto}://${_mkHost}/go/${m[1]}/?state=${state}`); // #170 P8 绝对回跳 // 回跳经市场（带 state·不裸跳目标域）
-          res.cookie(stateCookie, state, { httpOnly: true, sameSite: 'lax', path: `/go/${m[1]}/`, maxAge: 10 * 60 * 1000 });
+          res.cookie(stateCookie, state, { httpOnly: true, sameSite: 'lax', path: `/go/${m[1]}/`, maxAge: 10 * 60 * 1000, secure: _mkProto === 'https' }); // HTTPS 入口不让 state cookie 走明文 HTTP
           res.clearCookie(retCookie, { path: `/go/${m[1]}/` });
           if (relay) {
             return res.redirect(302, `/web/login?redirect=${encodeURIComponent(`/go/${m[1]}/?state=${state}`)}`);

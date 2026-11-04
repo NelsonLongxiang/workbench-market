@@ -115,8 +115,9 @@ try {
   for (const [label,host,https] of [['LAN plain','192.0.2.88:9800',false],['public plain','market.example.test',true]]) {
     const h={host,...(https?{'x-forwarded-proto':'https'}:{})};
     const entry=await http('GET','/go/'+wid+'/',h);
-    const loc=String(entry.headers.location??''); const st=/wm_sso_\d+=([0-9a-f-]{36})/.exec(String(entry.headers['set-cookie']??''))?.[1]??'';
+    const loc=String(entry.headers.location??''); const entryCookie=String(entry.headers['set-cookie']??''); const st=/wm_sso_\d+=([0-9a-f-]{36})/.exec(entryCookie)?.[1]??'';
     check(label+' entry redirects to same-host login without upstream host',entry.status===302 && loc==='/web/login?redirect='+encodeURIComponent('/go/'+wid+'/?state='+st) && !!st && !loc.includes('127.0.0.1') && !entry.text.includes(env.WM_ODOO_URL));
+    check(label+' state cookie is HttpOnly/Lax and Secure only on HTTPS',/HttpOnly/i.test(entryCookie)&&/SameSite=Lax/i.test(entryCookie)&&(https?/Secure(?:;|$)/i.test(entryCookie):!/Secure(?:;|$)/i.test(entryCookie)));
     const page=await http('GET',loc,h);
     check(label+' login page keeps the SSO callback for Odoo',page.status===200 && seen.at(-1).path==='/web/login?redirect='+encodeURIComponent('/go/'+wid+'/?state='+st));
     const post=await http('POST','/web/login',{...h,origin:(https?'https://':'http://')+host,'sec-fetch-site':'same-origin','content-type':'application/x-www-form-urlencoded',cookie:'session_id='+SID0},new URLSearchParams({csrf_token:'fixture-csrf',login:'fixture',password:'fixture-password',redirect:'/go/'+wid+'/?state='+st}).toString());
