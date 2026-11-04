@@ -101,16 +101,18 @@ export function installOdooLoginProxy(app: express.Express): void {
         // keeps the origin for CSRF checks without sending the source path or query.
         proxyRes.headers['referrer-policy'] = 'strict-origin';
         delete proxyRes.headers['service-worker-allowed'];
-        // 登录页挂在市场主机上，谁能嵌它由市场定，不由上游定：上游 CSP 里的 frame-ancestors 一律去掉，改成 'self'
-        // （Chromium 里 frame-ancestors 优先于 XFO，上游指向别的源就能嵌——运维席 direct-d9c28a29）；上游其它 CSP 指令原样保留。
-        // XFO 只保留上游的 DENY（更严），其余一律 SAMEORIGIN；nosniff 恒设
+        // 嵌入策略取交集（direct-871e4312 / direct-237dbde1 / PG 席 direct-5a3a140f）：上游 CSP 头原样保留、一条不改，
+        // 另追加一条只含市场 frame-ancestors 的独立 CSP。浏览器对多条 CSP 逐条都要满足，结果只会比上游更严，不会放宽：
+        // 上游 XFO 是 DENY、或任一条上游 CSP 的 frame-ancestors 是 'none' → 追加 'none'；其余 → 追加 'self'（挡住别的源）。
+        // XFO 只保留上游 DENY，其余 SAMEORIGIN（不支持 frame-ancestors 的旧浏览器靠它）；nosniff 恒设
         const xfo = String(proxyRes.headers['x-frame-options'] ?? '').trim().toUpperCase();
+        // 从 rawHeaders 取上游的每一条 CSP 头（headers 里重复的 CSP 已被 node 用逗号并成一条）
+        const raw = (proxyRes as { rawHeaders?: string[] }).rawHeaders ?? [];
+        const upstreamCsp = raw.flatMap((v, i) => (i % 2 === 0 && v.toLowerCase() === 'content-security-policy' ? [String(raw[i + 1])] : []));
+        const forbidAll = xfo === 'DENY' || upstreamCsp.some((v) => v.split(';').some((d) => /^\s*frame-ancestors\s+'none'\s*$/i.test(d)));
         proxyRes.headers['x-frame-options'] = xfo === 'DENY' ? 'DENY' : 'SAMEORIGIN';
         proxyRes.headers['x-content-type-options'] = 'nosniff';
-        const csp = ([] as string[]).concat(proxyRes.headers['content-security-policy'] ?? [])
-          .map((v) => String(v).split(';').map((d) => d.trim()).filter((d) => d && !/^frame-ancestors\b/i.test(d)).join('; '))
-          .filter(Boolean);
-        proxyRes.headers['content-security-policy'] = [...csp, "frame-ancestors 'self'"] as unknown as string;
+        proxyRes.headers['content-security-policy'] = [...upstreamCsp, `frame-ancestors ${forbidAll ? "'none'" : "'self'"}`] as unknown as string;
       },
     },
   });
