@@ -191,8 +191,14 @@ export function installPortal(
     next();
   });
 
-  // 查询串（? 或编码后的 %3F 起，到空白或 ] 为止）一律换成 ?…；其余原样
-  const redactQuery = (x: unknown) => (typeof x === 'string' ? x.replace(/(\?|%3F)[^\s\]]*/gi, '?…') : x);
+  // 每个 URL 从第一个 ? 或 %（任何百分号编码，含 %3F、%253F 这类多重编码的查询串）起到空白或 ] 为止一律换成 …；
+  // 对象参数（如错误对象）只取 message 再抹，不把整个对象（可能带 url/headers）打出来
+  const redactQuery = (x: unknown): unknown => {
+    if (typeof x === 'string') return x.replace(/[?%][^\s\]]*/g, '…');
+    if (x instanceof Error) return `${x.name}: ${String(redactQuery(x.message))}`;
+    if (x && typeof x === 'object') return '[object]';
+    return x;
+  };
   const hpmLogger = {
     info: (...a: unknown[]) => console.log(...a.map(redactQuery)),
     warn: (...a: unknown[]) => console.warn(...a.map(redactQuery)),
@@ -248,9 +254,10 @@ export function installPortal(
         if (rq.goCookies) proxyReq.setHeader('cookie', rq.goCookies);
       },
       proxyRes: (proxyRes, req, res) => {
-        // 只记路径与 cookie 名：Set-Cookie 的值里有上游会话（如 Odoo session_id），查询串里可能有 SSO state——都不进日志
+        // 只记台 id、路径长度与 cookie 名：Set-Cookie 的值里有上游会话（如 Odoo session_id）；路径本身也不记——
+        // 查询串可能以 ? / %3F / %253F 等各种编码藏在路径里（运维席 direct-d9c28a29），按字符截断挡不全
         const scNames = ([] as string[]).concat(proxyRes.headers['set-cookie'] ?? []).map((c) => String(c).split('=')[0].trim()).filter(Boolean);
-        console.log('[proxres-entry]', String(req.url ?? '').split('?')[0], '| wid:', (req as any).goWid, '| sc:', scNames.join(',') || '-');
+        console.log('[proxres-entry]', `/go/${(req as any).goWid ?? '?'}/`, `(path ${String(req.url ?? '').length}B)`, '| sc:', scNames.join(',') || '-');
         // 登录态保持（属主报障 /use/1861 Sub2API）：目标台 Set-Cookie 改写——去 Domain（存市场域）+ Path 加 /go/<id>/（各台隔离）
         // 登录态保持（#157）+ #170 P1②：Set-Cookie 属性透传——去 Domain/Path 加 /go/<id>/；非 HTTPS 入口剥 Secure（否则浏览器拒存）；__Host-/__Secure- 前缀保留 Path=/ 语义（前缀强制 Secure+Path=/）
         if (proxyRes.headers['set-cookie']) {
