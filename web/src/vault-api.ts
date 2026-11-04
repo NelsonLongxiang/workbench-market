@@ -5,7 +5,7 @@ export const VAULT_KINDS = ['login', 'ssh', 'api-key', 'secret', 'oauth', 'cooki
 export type VaultKind = (typeof VAULT_KINDS)[number];
 
 export interface VaultStatus {
-  upstream: string; path: string; shared_with_dsh: boolean; exists: boolean; unlocked: boolean; env_password: boolean; idle_lock_minutes: number; count: number | null;
+  upstream: string; path: string; shared_with_dsh: boolean; exists: boolean; unlocked: boolean; env_password: boolean; password_source?: 'file' | 'env' | ''; control_only?: boolean; idle_lock_minutes: number; count: number | null;
   /** 已解锁库的主密码低于新建库标准（只提示，不强制）；未解锁为 null */
   weak_master: boolean | null; weak_reasons: string[]; master_policy: { min_length: number; common_list: number };
 }

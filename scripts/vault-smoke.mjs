@@ -46,6 +46,7 @@ function boot(tag, extraEnv) {
   const env = { ...process.env, NODE_ENV: 'test', MCP_GATEWAY: 'off', PORT: String(port), DATA_DIR: data, ...extraEnv };
   for (const k of ['LC_YGL_BIN', 'LC_YGL_HOME', 'LC_WORKBENCH_KEY_FILE', 'LC_ODOO_URL', 'WM_ODOO_ORIGINS', 'WM_DEV_ORIGIN', 'WM_CONTROL_PORT']) if (!(k in extraEnv)) delete env[k];
   if (!('DSH_VAULT_PASSWORD' in extraEnv)) delete env.DSH_VAULT_PASSWORD;
+  if (!('DSH_VAULT_PASSWORD_FILE' in extraEnv)) delete env.DSH_VAULT_PASSWORD_FILE;
   if (!('WM_CONTROL_PORT' in extraEnv)) env.WM_CONTROL_PORT = String(port + 1); // 控制面缺省已不开；本冒烟显式开一个，同时覆盖业务面与控制面两种页面
   // Child-origin IPC proves this test owns each listening port before any HTTP request.
   const preload = "import net from 'node:net';const listen=net.Server.prototype.listen;net.Server.prototype.listen=function(...args){this.once('listening',()=>{const a=this.address();if(a&&typeof a==='object')process.send?.({kind:'synthetic-owned-listener',port:a.port});});return listen.apply(this,args)};";
@@ -239,8 +240,35 @@ try {
   await stop(B);
   const D = boot('d', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile, DSH_VAULT_PASSWORD: MASTER });
   ok('第三实例起来', await up(D.port));
+  r = await http(D.control, 'GET', '/api/vault/entries', { 'x-admin-token': TOK });
+  ok('DSH_VAULT_PASSWORD 存在时控制面按需自动解锁', r.status === 200 && r.body?.entries?.length === 6, `${r.status} ${r.text.slice(0, 160)}`);
   r = await http(D.port, 'GET', '/api/vault/entries', { 'x-admin-token': TOK });
-  ok('DSH_VAULT_PASSWORD 存在时按需自动解锁', r.status === 200 && r.body?.entries?.length === 6, `${r.status} ${r.text.slice(0, 160)}`);
+  ok('服务端持有主密码时业务面一律 403（vault_control_only）', r.status === 403 && r.body?.code === 'vault_control_only', `${r.status} ${r.text.slice(0, 120)}`);
+  r = await http(D.port, 'GET', '/api/vault/status', { 'x-admin-token': TOK });
+  ok('业务面状态只报 control_only，不给库信息', r.status === 200 && r.body?.control_only === true && r.body?.path === undefined && r.body?.count === undefined, JSON.stringify(r.body).slice(0, 120));
+  await stop(D);
+
+  section('⑤b 主密码文件（DSH_VAULT_PASSWORD_FILE）：管理员免输入');
+  const pwFile = join(TMP, 'vault-master.txt');
+  writeFileSync(pwFile, MASTER + '\n', { mode: 0o600 });
+  // 文件为准：同时配了错的环境变量也不回落
+  const PF = boot('pf', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile, DSH_VAULT_PASSWORD_FILE: pwFile, DSH_VAULT_PASSWORD: 'wrong-env-master-not-used' });
+  ok('主密码文件实例起来', await up(PF.port));
+  r = await http(PF.control, 'GET', '/api/vault/status', { 'x-admin-token': TOK });
+  ok('状态报 password_source=file、页面不出解锁框', r.status === 200 && r.body?.password_source === 'file' && r.body?.env_password === true, JSON.stringify(r.body).slice(0, 160));
+  r = await http(PF.control, 'GET', '/api/vault/entries', { 'x-admin-token': TOK });
+  ok('管理员直接读条目，无需输入主密码（文件优先于环境变量）', r.status === 200 && r.body?.entries?.length === 6, `${r.status} ${r.text.slice(0, 160)}`);
+  r = await http(PF.control, 'GET', '/api/vault/entries');
+  ok('不是管理员仍 403', r.status === 403, `${r.status}`);
+  r = await http(PF.control, 'POST', '/api/vault/lock', { 'x-admin-token': TOK });
+  r = await http(PF.control, 'GET', '/api/vault/entries', { 'x-admin-token': TOK });
+  ok('上锁后下一次访问自动重开', r.status === 200 && r.body?.entries?.length === 6, `${r.status}`);
+  await stop(PF);
+  const PG = boot('pg', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile, DSH_VAULT_PASSWORD_FILE: join(TMP, 'no-such-master.txt'), DSH_VAULT_PASSWORD: MASTER });
+  ok('缺文件实例起来', await up(PG.port));
+  r = await http(PG.control, 'GET', '/api/vault/entries', { 'x-admin-token': TOK });
+  ok('主密码文件读不到 → 503，不回落环境变量', r.status === 503 && r.body?.code === 'vault_password_file', `${r.status} ${r.text.slice(0, 120)}`);
+  await stop(PG);
 
   section('⑥ 未设口令 = 凭据库休眠');
   const E = boot('e', { WM_VAULT_PATH: join(TMP, 'vault-e', 'default.json') });
@@ -322,7 +350,7 @@ try {
   const qDir = join(TMP, 'vault-q');
   const Q = boot('q', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: join(qDir, 'default.json'), DSH_VAULT_PASSWORD: '1234' });
   ok('第十实例起来', await up(Q.port));
-  r = await cli(Q.port, 'GET', '/api/vault/entries');
+  r = await cli(Q.control, 'GET', '/api/vault/entries');
   ok('环境变量弱主密码也不能新建库（400、不落盘）', r.status === 400 && r.body?.code === 'vault_weak_master' && /DSH_VAULT_PASSWORD/.test(r.body.error) && (!existsSync(qDir) || readdirSync(qDir).length === 0), `${r.status} ${r.text.slice(0, 200)}`);
 } finally {
   step = '收尾';

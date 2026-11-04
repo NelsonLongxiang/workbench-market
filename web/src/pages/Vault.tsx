@@ -67,6 +67,7 @@ function VaultBody() {
 
   if (err) return <WmPage><Result status="error" title="无法读取凭据库状态" subTitle={err} extra={<Button onClick={refreshStatus}>重试</Button>} /></WmPage>;
   if (!status) return <WmPage><Spin /></WmPage>;
+  if (status.control_only) return <WmPage><Result status="info" title="凭据库只在控制面开放" subTitle="服务端持有主密码、免输入解锁，因此凭据库不在承载外站与 SOP 内容的业务面开放。请从控制面地址打开凭据库。" /></WmPage>;
   if (!status.unlocked && !status.env_password) return <UnlockView status={status} onUnlocked={refreshStatus} />;
   return <UnlockedView status={status} onLocked={refreshStatus} onError={onError} />;
 }
@@ -195,7 +196,7 @@ function UnlockedView({ status, onLocked, onError }: { status: VaultStatus; onLo
     <WmPage
       subTitle={<Tooltip title={`库文件：${status.path} · ${status.upstream}`}><span>{status.shared_with_dsh ? '与 DSH 插件共用库文件' : 'dsh-vault 同款加密格式'}</span></Tooltip>}
       extra={[
-        status.env_password ? <Tag key="env" color="default">主密码来自 DSH_VAULT_PASSWORD</Tag> : <Button key="lock" icon={<LockOutlined />} onClick={lock}>锁定</Button>,
+        status.env_password ? <Tag key="env" color="default">服务端自动解锁（主密码来自 {status.password_source === 'file' ? 'DSH_VAULT_PASSWORD_FILE' : 'DSH_VAULT_PASSWORD'}）</Tag> : <Button key="lock" icon={<LockOutlined />} onClick={lock}>锁定</Button>,
         <Button key="add" type="primary" icon={<PlusOutlined />} onClick={() => setEditing('new')}>新增条目</Button>,
       ]}
     >
