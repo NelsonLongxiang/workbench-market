@@ -62,6 +62,10 @@ export function installOdooLoginProxy(app: express.Express): void {
         else proxyReq.removeHeader('cookie');
         proxyReq.setHeader('origin', origin);
         proxyReq.setHeader('accept-encoding', 'identity');
+        // Odoo redirects browser-language translations to /<lang>/...; that path is outside
+        // this narrow relay. Request English only for this read-only endpoint so the login
+        // bundle always gets JSON instead of a language redirect.
+        if (String(req.url ?? '').split('?')[0] === '/website/translations') proxyReq.setHeader('accept-language', 'en-US,en;q=0.9');
         fixRequestBody(proxyReq, req);
       },
       proxyRes(proxyRes, req) {

@@ -37,7 +37,10 @@ const up = createServer((req, res) => {
       res.writeHead(200, {'content-type':'application/json'});
       return res.end(JSON.stringify(ok ? {result:{uid:7,username:'fixture',name:'Fixture',is_internal_user:true}} : {error:{code:100}}));
     }
-    if (p.pathname === '/website/translations') { res.writeHead(200, {'content-type':'application/json'}); return res.end('{}'); }
+    if (p.pathname === '/website/translations') {
+      if (/^zh/i.test(String(req.headers['accept-language'] ?? ''))) { res.writeHead(303, {location:'/zh_CN/website/translations?hash=&lang='}); return res.end(); }
+      res.writeHead(200, {'content-type':'application/json'}); return res.end('{}');
+    }
     if (p.pathname.startsWith('/web/assets/')) { res.writeHead(200, {'content-type':'text/css','set-cookie':['session_id=must-not-pass; Path=/']}); return res.end('/* fixture */'); }
     res.writeHead(404).end();
   });
@@ -189,6 +192,8 @@ try {
   check('Odoo login assets available without setting a session',r.status===200 && r.text==='/* fixture */' && !r.headers['set-cookie']);
   r=await http('GET','/website/translations',{host:'market.example.test'});
   check('read-only Odoo translations are proxied',r.status===200 && r.text==='{}');
+  r=await http('GET','/website/translations?hash=&lang=',{host:'market.example.test','accept-language':'zh-CN,zh;q=0.9,en;q=0.8'});
+  check('Chinese browser translations stay JSON instead of language redirect',r.status===200 && r.text==='{}' && seen.at(-1).path==='/website/translations?hash=&lang=' && /^en-US,en/.test(String(seen.at(-1).headers['accept-language'])));
   r=await http('GET','/web/login?redirect=%2F%2Fevil.invalid',{host:'market.example.test'});
   check('untrusted return removed before Odoo',!seen.at(-1).path.includes('evil.invalid'));
   r=await http('POST','/web/login',{host:'market.example.test','content-type':'application/x-www-form-urlencoded',cookie:'session_id='+SID0},new URLSearchParams({login:'fixture',password:'fixture-password',redirect:'//evil.invalid'}).toString());
