@@ -59,6 +59,16 @@ export function safeReturnPath(v: unknown): string | null {
   } catch { return null; }
 }
 
+/** 同域登录中继专用（WM_ODOO_LOGIN_PROXY=1）：白名单页之外，再收门户 SSO 回调 /go/<台id>/?state=<uuid>——
+ *  不带 return 的普通 /go/<id>/ 入口登录完要回到这个回调，由门户核对 wm_sso_<id> state cookie（不符 400）后才转发会话。
+ *  只收这一种精确形状：数字台 id、单个 state 参数、小写 uuid，不带别的参数和 hash */
+export function safeLoginRedirect(v: unknown): string | null {
+  const page = safeReturnPath(v);
+  if (page) return page;
+  const s = String(v ?? '');
+  return /^\/go\/[1-9][0-9]{0,9}\/\?state=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(s) ? s : null;
+}
+
 /** 就地剥除转发请求里的 Odoo 会话（剥空则删掉 Cookie 头） */
 export function stripOdooSession(headers: { cookie?: string | string[] }): void {
   const raw = Array.isArray(headers.cookie) ? headers.cookie.join('; ') : headers.cookie;

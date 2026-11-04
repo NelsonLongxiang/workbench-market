@@ -1,7 +1,7 @@
 /** Optional same-origin Odoo login relay. It never proxies the Odoo application. */
 import express from 'express';
 import { createProxyMiddleware, fixRequestBody } from 'http-proxy-middleware';
-import { odooSessionOf, safeReturnPath } from './odoo-session.ts';
+import { odooSessionOf, safeLoginRedirect } from './odoo-session.ts';
 import { surfaceOf } from './surfaces.ts';
 
 const ASSET = /^\/web\/(?:assets|static)\/[A-Za-z0-9_./~-]+$/;
@@ -86,9 +86,9 @@ export function installOdooLoginProxy(app: express.Express): void {
             const u = new URL(loc, origin);
             if (u.origin === origin && !String(loc).startsWith('//')) {
               const candidate = u.pathname + u.search + u.hash;
-              if (safeReturnPath(candidate)) next = candidate;
+              if (safeLoginRedirect(candidate)) next = candidate;
               else if (u.pathname === '/web/login' || u.pathname === '/web/login/totp') {
-                const r = safeReturnPath(u.searchParams.get('redirect'));
+                const r = safeLoginRedirect(u.searchParams.get('redirect'));
                 next = u.pathname + (r ? '?redirect=' + encodeURIComponent(r) : '');
               }
             }
@@ -117,9 +117,9 @@ export function installOdooLoginProxy(app: express.Express): void {
       }
       if (!req.is('application/x-www-form-urlencoded')) return res.status(415).end();
     }
-    // Only the three known market destinations can be supplied to Odoo as redirect.
+    // Only the known market destinations (and the portal SSO callback) can be supplied to Odoo as redirect.
     const u = new URL(String(req.url ?? ''), 'http://wm.invalid');
-    const r = safeReturnPath(u.searchParams.get('redirect'));
+    const r = safeLoginRedirect(u.searchParams.get('redirect'));
     if (u.searchParams.has('redirect')) { u.searchParams.delete('redirect'); if (r) u.searchParams.set('redirect', r); }
     req.url = u.pathname + u.search;
     const forward = () => proxy(req, res, next);
@@ -127,7 +127,7 @@ export function installOdooLoginProxy(app: express.Express): void {
     return express.urlencoded({ extended: false, limit: '16kb', parameterLimit: 24 })(req, res, (err) => {
       if (err) return res.status(err.status === 413 ? 413 : 400).type('text').send('Invalid login request'); // never log or echo form data
       if (req.body && Object.hasOwn(req.body, 'redirect')) {
-        const safe = safeReturnPath(req.body.redirect);
+        const safe = safeLoginRedirect(req.body.redirect);
         if (safe) req.body.redirect = safe; else delete req.body.redirect;
       }
       forward();

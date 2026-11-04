@@ -115,6 +115,33 @@ try {
     board=await http('GET','/api/lifecycle/board',{...h,cookie:'session_id='+SID1});
     check(label+' authenticated board succeeds',board.status===200 && JSON.parse(board.text).ok===true);
   }
+  // Plain /go/<id>/ entry (no return): same-host relay, back to this workbench's SSO callback; upstream host never shown.
+  for (const [label,host,https] of [['LAN plain','192.168.3.88:9800',false],['public plain','jf-tech.davoria.cn',true]]) {
+    const h={host,...(https?{'x-forwarded-proto':'https'}:{})};
+    const entry=await http('GET','/go/'+wid+'/',h);
+    const loc=String(entry.headers.location??''); const st=/wm_sso_\d+=([0-9a-f-]{36})/.exec(String(entry.headers['set-cookie']??''))?.[1]??'';
+    check(label+' entry redirects to same-host login without upstream host',entry.status===302 && loc==='/web/login?redirect='+encodeURIComponent('/go/'+wid+'/?state='+st) && !!st && !loc.includes('127.0.0.1') && !entry.text.includes(env.LC_ODOO_URL));
+    const page=await http('GET',loc,h);
+    check(label+' login page keeps the SSO callback for Odoo',page.status===200 && seen.at(-1).path==='/web/login?redirect='+encodeURIComponent('/go/'+wid+'/?state='+st));
+    const post=await http('POST','/web/login',{...h,origin:(https?'https://':'http://')+host,'sec-fetch-site':'same-origin','content-type':'application/x-www-form-urlencoded',cookie:'session_id='+SID0},new URLSearchParams({csrf_token:'fixture-csrf',login:'fixture',password:'fixture-password',redirect:'/go/'+wid+'/?state='+st}).toString());
+    check(label+' login returns to the workbench SSO callback',post.status===303 && post.headers.location==='/go/'+wid+'/?state='+st);
+    const back=await http('GET',post.headers.location,{...h,cookie:'session_id='+SID1+'; wm_sso_'+wid+'='+st});
+    check(label+' callback passes the state check',back.status!==400 && String(back.headers['set-cookie']??'').includes('wm_sso_ok_'+wid+'=1'));
+  }
+  for (const bad of ['/go/'+wid+'/?state=x','/go/'+wid+'/?state=00000000-0000-0000-0000-000000000000&x=1','/go/abc/?state=00000000-0000-0000-0000-000000000000','//evil.invalid/go/1/?state=00000000-0000-0000-0000-000000000000']) {
+    await http('GET','/web/login?redirect='+encodeURIComponent(bad),{host:'jf-tech.davoria.cn'});
+    check('relay strips non-callback redirect '+JSON.stringify(bad),!seen.at(-1).path.includes('redirect='));
+  }
+  const offPort=port+3, offData=join(tmp,'proxy-off'); mkdirSync(offData);
+  const off=spawn(process.execPath,['--disable-warning=ExperimentalWarning','server/src/index.ts'],{env:{...env,PORT:String(offPort),DATA_DIR:offData,WM_ODOO_LOGIN_PROXY:''},stdio:'ignore'});
+  try {
+    const b='http://127.0.0.1:'+offPort, end=Date.now()+30000; let ok=false;
+    while(Date.now()<end){try{if((await fetch(b+'/api/health')).status===200){ok=true;break;}}catch{} await new Promise(q=>setTimeout(q,100));}
+    if(!ok)throw Error('proxy-off instance not ready');
+    const reg2=await (await fetch(b+'/api/workbenches',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:'fixture Odoo',url:env.LC_ODOO_URL+'/web',type:'web'})})).json();
+    const z=await fetch(b+'/go/'+reg2.id+'/',{redirect:'manual'});
+    check('relay off keeps the classic upstream login redirect',z.status===302 && String(z.headers.get('location')).startsWith(env.LC_ODOO_URL+'/web/login?redirect='));
+  } finally {off.kill(); await new Promise(q=>off.once('exit',q));}
   let before=seen.length;
   let r=await http('POST','/web/login',{host:'jf-tech.davoria.cn',origin:'https://attacker.invalid','sec-fetch-site':'cross-site','content-type':'application/x-www-form-urlencoded'},'login=x');
   check('cross-origin login rejected before upstream',r.status===403 && seen.length===before);

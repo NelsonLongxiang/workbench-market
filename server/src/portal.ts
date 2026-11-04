@@ -134,6 +134,11 @@ export function installPortal(
           const redirectUri = encodeURIComponent(`${_mkProto}://${_mkHost}/go/${m[1]}/?state=${state}`); // #170 P8 绝对回跳 // 回跳经市场（带 state·不裸跳目标域）
           res.cookie(stateCookie, state, { httpOnly: true, sameSite: 'lax', path: `/go/${m[1]}/`, maxAge: 10 * 60 * 1000 });
           res.clearCookie(retCookie, { path: `/go/${m[1]}/` });
+          // 同域登录中继开着且目标就是部署配置的 Odoo：留在当前主机登录（上游主机名可能是容器名，浏览器解析不了），
+          // 回跳是本台的 SSO 回调（相对路径），照旧核对 state cookie 后才转发会话
+          if (process.env.WM_ODOO_LOGIN_PROXY === '1' && u.origin === new URL(String(process.env.LC_ODOO_URL)).origin) {
+            return res.redirect(302, `/web/login?redirect=${encodeURIComponent(`/go/${m[1]}/?state=${state}`)}`);
+          }
           return res.redirect(302, `${u.origin}/web/login?redirect=${redirectUri}&state=${state}`);
         }
         const okCookie = `wm_sso_ok_${m[1]}`;
