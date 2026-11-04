@@ -85,7 +85,7 @@ const rawWs = (port, path, cookie) => new Promise((resolveWs) => {
 
 // ================= enforce =================
 console.log('== enforce（MCP_GATEWAY=off 一并设上，验证被强制开）==');
-const E = start({ WM_LOGIN_GATE: 'enforce', MCP_GATEWAY: 'off', ADMIN_TOKEN: ADMIN, LC_ODOO_URL: ODOO, WM_ODOO_ORIGINS: ODOO }, 'enforce');
+const E = start({ WM_LOGIN_GATE: 'enforce', MCP_GATEWAY: 'off', ADMIN_TOKEN: ADMIN, WM_ODOO_URL: ODOO, WM_ODOO_ORIGINS: ODOO }, 'enforce');
 try {
   ok('enforce 实例就绪', await ready(E), E.out().slice(-400));
   const B = E.B;
@@ -257,7 +257,7 @@ try {
       const viaOdoo = await req(B, 'GET', '/api/tasks', { ...REMOTE, cookie: 'session_id=adminsession0000000001' });
       const tj = await viaToken.json(), oj = await viaOdoo.json();
       const titles = (j) => JSON.stringify((j.tasks ?? []).map((t) => t.title).sort());
-      const notAuthorized = (j) => Object.entries(j.sources ?? {}).filter(([k]) => k !== 'lifecycle').some(([, v]) => v?.error === 'source_not_authorized');
+      const notAuthorized = (j) => Object.entries(j.sources ?? {}).some(([, v]) => v?.error === 'source_not_authorized');
       ok('G8 Odoo 管理员（只带会话）/api/tasks → 200，与口令管理员同为全量', viaToken.status === 200 && viaOdoo.status === 200 && titles(oj) === titles(tj) && (tj.tasks ?? []).length > 0 && !notAuthorized(oj), `${viaToken.status}/${viaOdoo.status} ${titles(oj).slice(0, 80)} vs ${titles(tj).slice(0, 80)}`);
       const viaInternal = await req(B, 'GET', '/api/tasks', internal);
       const ij = await viaInternal.json().catch(() => ({}));

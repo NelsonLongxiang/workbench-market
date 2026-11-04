@@ -11,7 +11,7 @@ def check(n, c, x=''):
     if c: ok += 1; print('  ✓', n)
     else: fail += 1; print('  ✗', n, x)
 PAGES = [('/', '工作', '总览'), ('/tasks', '工作', '统一待办'), ('/cockpit', '工作', '驾驶舱'), ('/sops', '交付', 'SOP 交付空间'),
-         ('/market', '资源', '工作台市场'), ('/skills', '资源', '技能市场'), ('/lifecycle', '治理', '生命周期全景'),
+         ('/market', '资源', '工作台市场'), ('/skills', '资源', '技能市场'),
          ('/mcp-gateways', '管理', 'MCP 网关'), ('/vault', '管理', '凭据库'), ('/types', '管理', '类型管理'), ('/settings', '管理', '设置')]
 CRUMBS = "[...document.querySelectorAll('.ant-page-header .ant-breadcrumb li')].filter(li=>!li.classList.contains('ant-breadcrumb-separator')).map(li=>[li.innerText.trim(), !!li.querySelector('a')])"
 with sync_playwright() as p:

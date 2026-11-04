@@ -16,10 +16,10 @@ export function odooLoginProxyRoute(method: string, pathname: string, enabled = 
 /** Only the deployment-configured Odoo origin is an upstream. */
 function configuredOdooOrigin(): string {
   try {
-    const upstream = new URL(String(process.env.LC_ODOO_URL ?? ''));
+    const upstream = new URL(String(process.env.WM_ODOO_URL ?? ''));
     if (!['http:', 'https:'].includes(upstream.protocol) || upstream.username || upstream.password || upstream.search || upstream.hash || (upstream.pathname !== '/' && upstream.pathname !== '')) throw new Error('origin required');
     return upstream.origin;
-  } catch { throw new Error('WM_ODOO_LOGIN_PROXY=1 requires LC_ODOO_URL to be an http(s) origin without credentials or path'); }
+  } catch { throw new Error('WM_ODOO_LOGIN_PROXY=1 requires WM_ODOO_URL to be an http(s) origin without credentials or path'); }
 }
 
 /** Terminate the exact Odoo session via its authenticated JSON-RPC endpoint.

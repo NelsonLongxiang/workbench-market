@@ -8,8 +8,8 @@ token 取值见仓库根 [`DESIGN.md`](../../DESIGN.md)。本文件规定**菜�
 |---|---|
 | 菜单 10 项平铺，日常使用页和管理页混在一起；「统一待办」「技能市场」用了同一个图标 | `web/src/App.tsx` |
 | 页面骨架不一：11 个页面里 6 个用 `PageContainer`，其余直接 `Card` 或什么都不包 | `web/src/pages/*` |
-| 列表三种写法并存：`ProTable`（Market/Sops/Types）、`Table`（Lifecycle/McpGateways）、卡片网格（Dashboard） | 同上 |
-| 筛选两种写法：`Segmented`（Tasks/Skills/Lifecycle）与 `Tabs`（McpGateways/Lifecycle） | 同上 |
+| 列表三种写法并存：`ProTable`（Market/Sops/Types）、`Table`（McpGateways）、卡片网格（Dashboard） | 同上 |
+| 筛选两种写法：`Segmented`（Tasks/Skills）与 `Tabs`（McpGateways） | 同上 |
 | 侧栏配色在 `App.tsx` 里写死 6 个色值 | `App.tsx:142` |
 | SOP 的「执行 → 记录 → 交付物」散在 Sops 页的两个抽屉里，没有独立的交付空间 | `pages/Sops.tsx` |
 
@@ -27,8 +27,7 @@ token 取值见仓库根 [`DESIGN.md`](../../DESIGN.md)。本文件规定**菜�
 资源
   工作台市场      /market
   技能市场        /skills
-治理
-  生命周期全景    /lifecycle
+（扩展的菜单项：并进已有分组，或另起一组排在「管理」之前，见 web/src/extensions.ts）
 管理（仅管理员可见，默认折叠）
   MCP 网关        /mcp-gateways
   类型管理        /types
@@ -87,7 +86,7 @@ PageContainer
 - 列顺序：状态 → 标题/名称（可点） → 关键属性 → 负责人 → 时间 → 操作。
 - 状态列用 `StatusBadge`，固定在最左；操作列固定在最右，最多 2 个直接操作，其余收进「更多」。
 - 时间显示相对时间（「3 小时前」），悬停显示绝对时间；数字列右对齐 + `tabular-nums`。
-- 统一待办的来源（market / ygl-trees / 生命周期）用 tag 标出，不靠颜色区分。
+- 统一待办的来源（market / ygl-trees / 扩展注册的来源）用 tag 标出，不靠颜色区分。
 - 行密度用 antd `size="middle"`；批量操作出现在表头上方，选中后才显示。
 - 筛选条：关键词搜索 + 最多 3 个常用筛选；更多筛选收进「高级筛选」。
 

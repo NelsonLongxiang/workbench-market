@@ -60,12 +60,12 @@ export function classifyV4(n: number): 'private' | 'public' | 'hard' {
 /** 已经 isIPv6 校验过的文本 → 128 位整数（含 ::ffff:a.b.c.d 尾段） */
 export function parseV6(s: string): bigint | null {
   let str = s.toLowerCase();
-  const lc = str.lastIndexOf(':');
-  const last = str.slice(lc + 1);
+  const colon = str.lastIndexOf(':');
+  const last = str.slice(colon + 1);
   if (last.includes('.')) {
     const v4 = parseV4(last);
     if (v4 === null) return null;
-    str = str.slice(0, lc + 1) + (v4 >>> 16).toString(16) + ':' + (v4 & 0xffff).toString(16);
+    str = str.slice(0, colon + 1) + (v4 >>> 16).toString(16) + ':' + (v4 & 0xffff).toString(16);
   }
   const halves = str.split('::');
   if (halves.length > 2) return null;

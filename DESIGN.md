@@ -162,5 +162,5 @@ agent 经市场 MCP 工具 `design_standard` 直接读取本标准（`part=token
 1. 由本文件生成 `web/src/tokens.css` 与 antd theme 映射，替换 `main.tsx` 里的手写 6 项。
 2. SOP 执行页改用 `--wm-*` 变量，去掉 11 个硬编码色。
 3. 市场提供带版本号的 `tokens.css` 给自产台，README 写明引入方式。
-4. 按页迁移 213 处内联样式与 46 种散落色值（Sops / McpGateways / Lifecycle / Cockpit / Dashboard 最多）。
+4. 按页迁移 213 处内联样式与 46 种散落色值（Sops / McpGateways / Cockpit / Dashboard 最多）。
 5. 本标准按属主裁定**不进 CI 门禁**；评审时对照上表 Do's and Don'ts。

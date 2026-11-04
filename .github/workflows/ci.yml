@@ -201,14 +201,10 @@ jobs:
         run: node scripts/vault-concurrency-test.mjs && node scripts/vault-smoke.mjs
       - name: F5 env-face 判定回归（不启动 Docker）
         run: node scripts/security-env-face-test.mjs
-      - name: 生命周期签发入口单测（req 哈希金向量·断言结构·私钥门）
-        run: node scripts/lc-issuer-unit.mjs
-      - name: 生命周期全景接口冒烟（替身引擎+替身 Odoo：401·降级·缓存合并·no-store）
-        run: node scripts/lifecycle-board-smoke.mjs
-      - name: 生命周期全景显示逻辑单测（fmt 防御·防篡改徽标判定）
-        run: node scripts/lifecycle-view-unit.mjs
-      - name: 生命周期面登录入口冒烟（#275：login_url 选台·/go/ return 回跳·open-redirect 拒）
-        run: node scripts/lifecycle-login-smoke.mjs
+      - name: 扩展挂载点冒烟（WM_EXTENSIONS_DIR：不设不加载·目录/模块/register 出错拒绝启动·路由/待办来源/业务写面）
+        run: node scripts/extensions-smoke.mjs
+      - name: Odoo 弹窗登录链接单测（return 换成当前页·只回 path）
+        run: node scripts/odoo-login-href-unit.mjs
       - name: 管理员口令止血单测（#292 M4：pagehide 抹口令·变更广播）
         run: node scripts/admin-token-guard-unit.mjs
       - name: 门户剥 Service-Worker-Allowed 冒烟（#292 M5）

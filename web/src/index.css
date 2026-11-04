@@ -231,12 +231,6 @@ body {
   max-width: 100%;
 }
 
-/* 生命周期全景（/lifecycle） */
-.wm-lc-row { padding: var(--wm-space-2) var(--wm-space-3); border: 1px solid var(--wm-color-border); border-radius: var(--wm-radius-lg); margin-bottom: var(--wm-space-2); }
-.wm-lc-lanes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--wm-space-2); margin: var(--wm-space-2) 0; }
-.wm-lc-lane { background: var(--wm-color-page); border-radius: var(--wm-radius-md); padding: var(--wm-space-1) var(--wm-space-2); min-height: 56px; }
-@media (max-width: 640px) { .wm-lc-lanes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-
 /* #292 M4：有口令时 /go/ 内嵌框的替代提示（使用页与驾驶舱面板共用） */
 .wm-go-guard {
   flex: 1;

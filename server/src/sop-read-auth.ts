@@ -8,7 +8,7 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { db } from './db.ts';
-import { resolveOdooViewer } from './lifecycle.ts';
+import { resolveOdooViewer } from './odoo-viewer.ts';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 

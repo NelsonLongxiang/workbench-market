@@ -1,4 +1,4 @@
-// 统一待办 ygl-trees 适配器的项目上限与总预算（lifecycle-os direct-e0cec900）：
+// 统一待办 ygl-trees 适配器的项目上限与总预算（协调席 direct-e0cec900）：
 // .156 现网 52 个 active 项目，旧硬上限 40 会跳过 12 个。用合成 ygl-trees 入口（PNPM_HOME 下的假 bin.cjs）验证：
 // 缺省全部枚举；显式上限/超预算时如实降级、任务数 + 未读 + 失败 = 项目总数（不静默截断）。不碰真实 ygl-trees 与 YGL_HOME。
 import assert from 'node:assert/strict';

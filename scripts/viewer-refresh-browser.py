@@ -15,7 +15,7 @@ with sync_playwright() as p:
             page=ctx.new_page()
             state={'phase':False,'calls':0}
             def route(r):
-                if '/api/lifecycle/whoami' in r.request.url:
+                if '/api/auth/viewer' in r.request.url:
                     state['calls']+=1
                     code=401; body={'ok':False,'login_url':'/login'}
                     if state['phase']:

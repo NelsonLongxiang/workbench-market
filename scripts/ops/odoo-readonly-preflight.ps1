@@ -1,8 +1,8 @@
 # Credential input is operator-only. The agent never supplies or sees it.
 [CmdletBinding()]
 param(
-  # 配置目录：LIFECYCLE_OS_CONFIG_DIR 优先，缺省 ~/.config/lifecycle-os；已有其他目录的运维机设该变量或显式传 -ConfigPath
-  [string]$ConfigPath = (Join-Path $(if ($env:LIFECYCLE_OS_CONFIG_DIR) { $env:LIFECYCLE_OS_CONFIG_DIR } else { Join-Path $env:USERPROFILE '.config/lifecycle-os' }) 'odoo-sync.connection.json'),
+  # 配置目录：WM_ODOO_OPS_CONFIG_DIR 优先，缺省 ~/.config/workbench-market；已有其他目录的运维机设该变量或显式传 -ConfigPath
+  [string]$ConfigPath = (Join-Path $(if ($env:WM_ODOO_OPS_CONFIG_DIR) { $env:WM_ODOO_OPS_CONFIG_DIR } else { Join-Path $env:USERPROFILE '.config/workbench-market' }) 'odoo-sync.connection.json'),
   [switch]$Configure,
   [switch]$StoreOnly,
   [switch]$AllowInsecureHttp,

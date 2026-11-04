@@ -10,25 +10,23 @@
  *   - market：站内 SOP run（含未指派，running=doing）+ 任务中心已发布任务（#263 页面整链）——
  *              复用现有 sop_runs/a2a_run_ctx/tasks schema，零侵入（J4）
  *   - A2A：v2 预留，不实现
- *   - lifecycle：按查看人列 lc inbox（server/src/lifecycle.ts·不进本模块 30s 共享缓存，由 /api/tasks 路由合并）
+ *   - 扩展来源：WM_EXTENSIONS_DIR 里的扩展经 ctx.tasks.addSource 注册（server/src/extensions.ts·不进本模块 30s 共享缓存，由 /api/tasks 路由合并）
  */
 import { execFile } from 'node:child_process';
 
 export interface TaskEnvelope {
   id: string;
-  source: 'ygl-trees' | 'market' | 'a2a' | 'lifecycle';
+  /** 内置 ygl-trees / market / a2a，或扩展注册的来源键 */
+  source: string;
   title: string;
   status: 'todo' | 'doing' | 'done';
   due: string | null;
   link: string | null;
   project: string | null;
-  /** 仅 lifecycle 源：批准动作所需的提议与授权（POST /api/lifecycle/approve） */
-  lc?: LcTaskRef;
-}
-
-export interface LcTaskRef {
-  proposal_id: string; grant: string; object: string; machine: string; from: string; to: string;
-  effective_at: string | null; proposed_by: string; approvals: number; levels: number;
+  /** 扩展来源可选：该条在工作台只能查看时给出原因（页面显示「仅查看」并以此为提示） */
+  readonly_note?: string;
+  /** 扩展来源可选：来源自有的结构化细节，宿主不解读 */
+  detail?: Record<string, unknown>;
 }
 
 export interface SourceMeta { ok: boolean; count: number; latency_ms: number; error?: string }
@@ -42,8 +40,8 @@ export interface TasksReadScope {
 export interface TasksPayload {
   tasks: TaskEnvelope[];
   /** a2a 键仅在 A2A_STATE_URL 已配置（源启用）时出现——未配置=源缺席≠降级（总工程师三裁①）；
-   *  lifecycle 键同理，仅在 LC_* 已配置时出现，按查看人计 */
-  sources: { 'ygl-trees': SourceMeta; market: SourceMeta; a2a?: SourceMeta; lifecycle?: SourceMeta & { viewer: string | null; error?: string } };
+   *  扩展来源键同理，仅在扩展注册了来源时出现（带 label/color） */
+  sources: { 'ygl-trees': SourceMeta; market: SourceMeta; a2a?: SourceMeta } & Record<string, unknown>;
   generated_at: string;
 }
 

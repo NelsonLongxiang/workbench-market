@@ -18,7 +18,7 @@ const base = `http://127.0.0.1:${PORT}`;
 const ADMIN = 'synthetic-tokens-admin';
 const gh = await startFakeGithub();
 const env = { ...process.env, MCP_GATEWAY: 'on', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), ADMIN_TOKEN: ADMIN, WM_GITHUB_API: gh.api };
-for (const k of ['LC_YGL_BIN', 'LC_YGL_HOME', 'LC_WORKBENCH_KEY_FILE', 'LC_ODOO_URL', 'WM_ODOO_ORIGINS', 'WM_CONTROL_PORT']) delete env[k];
+for (const k of ['WM_ODOO_URL', 'WM_EXTENSIONS_DIR', 'WM_ODOO_ORIGINS', 'WM_CONTROL_PORT']) delete env[k];
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });
 let serverErr = ''; server.stderr.on('data', (c) => (serverErr += c));
 const adm = async (method, path, body) => {
