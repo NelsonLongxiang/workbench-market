@@ -195,6 +195,8 @@ jobs:
         run: node scripts/layerfs-health-delete-smoke.mjs
       - name: sop_run_list 翻页冒烟（limit/offset·同时间戳按 id 排定）
         run: node scripts/sop-run-list-page-smoke.mjs
+      - name: 技能迁移 LayerFS 冒烟（0 字节文件照常迁移·读回摘要一致才记 commit_id·摘要不符留档）
+        run: node scripts/skill-migrate-layerfs-smoke.mjs
       - name: 驾驶舱布局吸附单测（#320：宽度只取 3/4/6/12·x 越界收回·不丢面板·读时迁移不回写）
         run: node scripts/cockpit-layout-unit.mjs
       - name: 凭据库（融合 dsh-vault：读写要口令·业务面 403·摘要无明文·坏 JSON 不进日志·写锁/重开/闲置上锁/限流）
