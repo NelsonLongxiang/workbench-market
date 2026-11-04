@@ -3,15 +3,15 @@
  * WM_ODOO_URL 的 /web/session/get_session_info 现查登录名。登录门、统一待办读权、SOP 读权、管理员认定和扩展共用这一处。
  * Odoo 地址只认环境变量——注册表里的 Odoo 类台可经 MCP workbench_register 登记，不能当身份源。
  */
-import { odooSessionOf } from './odoo-session.ts';
+import { configuredOdooUrl, odooSessionOf } from './odoo-session.ts';
 
 /** name：Odoo 显示名（get_session_info.name，缺省 null），只用于显示；sub = user:<Odoo 登录名> */
 /** admin：Odoo session_info.is_admin（res.users._is_admin，设置/访问权限管理员）；字段缺失按 false（fail closed） */
 export interface Viewer { login: string; uid: number; sub: string; name: string | null; admin: boolean }
 
-/** 部署配置的 Odoo 地址（去掉末尾斜杠）；未配置为空串 */
+/** 部署配置的 Odoo 地址（去掉末尾斜杠；WM_ODOO_URL，空时回退旧名 LC_ODOO_URL）；未配置为空串 */
 export function odooUrl(): string {
-  return String(process.env.WM_ODOO_URL ?? '').trim().replace(/\/+$/, '');
+  return configuredOdooUrl().replace(/\/+$/, '');
 }
 
 export function loginOk(login: string): boolean {

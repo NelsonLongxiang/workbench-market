@@ -25,10 +25,20 @@ export function isOdooLikeTarget(type: unknown, url: string): boolean {
   return /odoo/i.test(String(type ?? '')) || /:8069/.test(url);
 }
 
-/** 可信 Odoo 源：WM_ODOO_URL 的源 ∪ WM_ODOO_ORIGINS（逗号分隔）；非法项忽略并列入 invalid */
+/** 部署配置的 Odoo 地址原值：WM_ODOO_URL；为空时回退旧名 LC_ODOO_URL（已弃用，启动时告警，见 odooUrlDeprecated） */
+export function configuredOdooUrl(): string {
+  return String(process.env.WM_ODOO_URL ?? '').trim() || String(process.env.LC_ODOO_URL ?? '').trim();
+}
+/** 只设了旧名 LC_ODOO_URL（两个都设时以 WM_ODOO_URL 为准，也提示旧名可删） */
+export function odooUrlDeprecated(): 'only-old' | 'both' | null {
+  const neu = String(process.env.WM_ODOO_URL ?? '').trim(), old = String(process.env.LC_ODOO_URL ?? '').trim();
+  return old ? (neu ? 'both' : 'only-old') : null;
+}
+
+/** 可信 Odoo 源：WM_ODOO_URL（或旧名）的源 ∪ WM_ODOO_ORIGINS（逗号分隔）；非法项忽略并列入 invalid */
 export function trustedOdooOrigins(): { origins: Set<string>; invalid: string[] } {
   const origins = new Set<string>(), invalid: string[] = [];
-  for (const raw of [process.env.WM_ODOO_URL ?? '', ...String(process.env.WM_ODOO_ORIGINS ?? '').split(',')]) {
+  for (const raw of [configuredOdooUrl(), ...String(process.env.WM_ODOO_ORIGINS ?? '').split(',')]) {
     const v = raw.trim();
     if (!v) continue;
     try { const u = new URL(v); if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error(); origins.add(u.origin); } catch { invalid.push(v); }

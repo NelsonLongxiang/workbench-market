@@ -5,6 +5,7 @@
  *  业务写面进 S3 快照且远程浏览器写不被管理写门拦、登录回跳页登记生效。 */
 import { spawn } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { join, resolve } from 'node:path';
 import { extensionWebEntries } from '../web/vite-extensions.mjs';
 
@@ -15,13 +16,14 @@ const TMP = resolve('tmp/extensions-smoke-' + Date.now().toString(36));
 mkdirSync(TMP, { recursive: true });
 const ADMIN = 'synthetic-ext-admin';
 
-function boot(name, extDir) {
+function boot(name, extDir, extra = {}) {
   const port = 20000 + Math.floor(Math.random() * 20000);
   const data = join(TMP, `data-${name}`);
   mkdirSync(data, { recursive: true });
   const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, ADMIN_TOKEN: ADMIN, REDIS_URL: '', LAYERFS_SERVICE_URL: '' };
-  for (const k of ['WM_EXTENSIONS_DIR', 'WM_ODOO_URL', 'WM_ODOO_ORIGINS', 'WM_LOGIN_GATE']) delete env[k];
+  for (const k of ['WM_EXTENSIONS_DIR', 'WM_ODOO_URL', 'LC_ODOO_URL', 'WM_ODOO_ORIGINS', 'WM_LOGIN_GATE']) delete env[k];
   if (extDir !== undefined) env.WM_EXTENSIONS_DIR = extDir;
+  Object.assign(env, extra);
   const p = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'pipe', 'pipe'], env });
   p.out = ''; p.stdout.on('data', (c) => (p.out += c)); p.stderr.on('data', (c) => (p.out += c));
   p.done = new Promise((r) => p.on('exit', (code) => r(code)));
@@ -117,6 +119,27 @@ try {
   ok('来源只收自己键的条目（冒名条目丢弃）', j.tasks.some((t) => t.id === 'demo:1' && t.readonly_note === '只读') && !j.tasks.some((t) => t.id === 'x:1'));
   ok('来源抛错：降级为稳定码，不回原始错误', j.sources?.['demo-broken']?.ok === false && j.sources['demo-broken'].error === 'demo-broken_source_unavailable' && !JSON.stringify(j).includes('PRIVATE_DETAIL'), JSON.stringify(j.sources?.['demo-broken']));
   g.p.kill(); await g.done;
+
+  // ---- Odoo 地址旧名 LC_ODOO_URL 兼容（已弃用）：只设旧名能用；两个都设以 WM_ODOO_URL 为准 ----
+  const SID = 'sidCompat' + '0'.repeat(23);
+  const odoo = createServer((req, res) => { req.resume(); req.on('end', () => { const ok = String(req.headers.cookie).includes(SID); res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(ok ? { result: { uid: 7, username: 'compat', name: 'Compat', is_internal_user: true } } : { error: { code: 100 } })); }); });
+  await new Promise((x) => odoo.listen(0, '127.0.0.1', x));
+  const good = `http://127.0.0.1:${odoo.address().port}`;
+  const viewer = async (s) => { const x = await fetch(s.base + '/api/auth/viewer', { headers: { cookie: `session_id=${SID}` } }); return { status: x.status, j: await x.json().catch(() => null) }; };
+  const old = boot('odoo-old', undefined, { LC_ODOO_URL: good });
+  ok('只设旧名 LC_ODOO_URL：启动', await ready(old), old.p.out.slice(-300));
+  let v = await viewer(old);
+  ok('只设旧名：照常认人', v.status === 200 && v.j?.viewer?.login === 'compat', JSON.stringify(v));
+  ok('只设旧名：启动告警已弃用、请改名', /LC_ODOO_URL 已弃用，请改名为 WM_ODOO_URL/.test(old.p.out), old.p.out.slice(-300));
+  old.p.kill(); await old.done;
+  const both = boot('odoo-both', undefined, { WM_ODOO_URL: good, LC_ODOO_URL: 'http://127.0.0.1:9' });
+  ok('两个都设：启动', await ready(both), both.p.out.slice(-300));
+  v = await viewer(both);
+  ok('两个都设：以 WM_ODOO_URL 为准', v.status === 200 && v.j?.viewer?.login === 'compat', JSON.stringify(v));
+  ok('两个都设：告警旧名可删', /以 WM_ODOO_URL 为准，LC_ODOO_URL 可删/.test(both.p.out), both.p.out.slice(-300));
+  both.p.kill(); await both.done;
+  await new Promise((x) => odoo.close(x));
+
   const { addOdooReturnPath, safeReturnPath } = await import('../server/src/odoo-session.ts');
   ok('登录回跳白名单默认不含扩展页', safeReturnPath('/demo-page') === null && safeReturnPath('/tasks') === '/tasks');
   addOdooReturnPath('/demo-page');

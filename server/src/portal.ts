@@ -13,7 +13,7 @@ import { join, posix } from 'node:path';
 import { svc } from './context.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { CookieService } from './services/cookie.ts';
-import { isOdooSessionTarget, odooSessionOf, safeReturnPath, stripOdooSession } from './odoo-session.ts';
+import { configuredOdooUrl, isOdooSessionTarget, odooSessionOf, safeReturnPath, stripOdooSession } from './odoo-session.ts';
 
 
 export const goPrefix = /^\/go\/(\d+)(.*)$/;
@@ -118,7 +118,7 @@ export function installPortal(
             // 回程交给市场页轮询 /api/auth/viewer（弹窗流，#275）。
             // Optional same-origin login relay keeps LAN and public visitors on their
             // current authority; the upstream is still the fixed WM_ODOO_URL.
-            const odooLogin = process.env.WM_ODOO_LOGIN_PROXY === '1' && u.origin === new URL(String(process.env.WM_ODOO_URL)).origin
+            const odooLogin = process.env.WM_ODOO_LOGIN_PROXY === '1' && u.origin === new URL(configuredOdooUrl()).origin
               ? `/web/login?redirect=${encodeURIComponent(ret)}`
               : `${u.origin}/web/login`;
             res.setHeader('Cache-Control', 'no-store');

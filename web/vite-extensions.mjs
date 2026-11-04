@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 /** 扩展从这里取宿主组件：import { WmPage } from '@wm/host' */
 export const HOST_ALIAS = fileURLToPath(new URL('./src/ext/host.ts', import.meta.url));
 
-const ID = 'virtual:wm-extensions';
-const RESOLVED = '\0' + ID;
+/** 仓库里恒为空的扩展清单；构建时换成生成的导入 */
+const REGISTRY = fileURLToPath(new URL('./src/ext/registry.ts', import.meta.url)).replace(/\\/g, '/'); // vite 的 id 一律正斜杠（含 Windows）
 
 /** 列出扩展的前端入口（绝对路径，按扩展名排序）；dir 为空返回 [] */
 export function extensionWebEntries(dirRaw = process.env.WM_EXTENSIONS_DIR) {
@@ -27,8 +27,8 @@ export function wmExtensions() {
   const entries = extensionWebEntries();
   return {
     name: 'wm-extensions',
-    resolveId: (id) => (id === ID ? RESOLVED : null),
-    load: (id) => id === RESOLVED
+    enforce: 'pre',
+    load: (id) => id.split('?')[0].replace(/\\/g, '/') === REGISTRY
       ? entries.map((f, i) => `import e${i} from ${JSON.stringify(f)};`).join('\n') + `\nexport default [${entries.map((_, i) => `e${i}`).join(', ')}];\n`
       : null,
   };

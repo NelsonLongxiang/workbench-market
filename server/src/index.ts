@@ -3422,7 +3422,7 @@ import { renderSopRunner as renderSopRunnerRaw } from './sop-runner.ts';
 import { loadTokensCss, resolveTokensPath } from './design-tokens-css.ts';
 /** #321：执行页内联 DESIGN.md 生成的 --wm-* 变量，与市场前端同色同字号 */
 const renderSopRunner = (manifest: Parameters<typeof renderSopRunnerRaw>[0], app: Parameters<typeof renderSopRunnerRaw>[1]) => renderSopRunnerRaw(manifest, app, loadTokensCss()?.css ?? '');
-import { addOdooReturnPath, isOdooLikeTarget, isOdooSessionTarget, odooSessionOf, stripOdooSession, trustedOdooOrigins } from './odoo-session.ts';
+import { addOdooReturnPath, odooUrlDeprecated, isOdooLikeTarget, isOdooSessionTarget, odooSessionOf, stripOdooSession, trustedOdooOrigins } from './odoo-session.ts';
 import { collectTasks } from './tasks.ts';
 import { tasksReadAccess, createTaskSourceGrant, revokeTaskSourceGrant } from './tasks-read-access.ts';
 import { odooUrl, odooViewerWhoami, resolveOdooViewer } from './odoo-viewer.ts';
@@ -4706,6 +4706,9 @@ const goServer = registerSurface(app, 'market', PORT, () => {
     if (gaps.length) console.warn(JSON.stringify({ event: 'workbench_url_legacy_gap', policy_digest: URL_POLICY.digest, count: gaps.length, rows: gaps }));
   }
   const odooTrust = trustedOdooOrigins();
+  const oldOdoo = odooUrlDeprecated();
+  if (oldOdoo === 'only-old') console.warn('[odoo] LC_ODOO_URL 已弃用，请改名为 WM_ODOO_URL（当前按旧名读取）');
+  else if (oldOdoo === 'both') console.warn('[odoo] WM_ODOO_URL 与已弃用的 LC_ODOO_URL 都设了：以 WM_ODOO_URL 为准，LC_ODOO_URL 可删');
   if (odooTrust.invalid.length) console.warn(`[SSO v1] WM_ODOO_ORIGINS/WM_ODOO_URL 有非法项（已忽略）：${odooTrust.invalid.join(', ')}`);
   if (odooTrust.origins.size === 0 && listWorkbenches().some((w) => isOdooLikeTarget(w.type, w.url))) console.warn('[SSO v1] 未设 WM_ODOO_ORIGINS / WM_ODOO_URL：门户不转发 Odoo 会话，Odoo 台免登不生效（台内会显示 Odoo 自己的登录页）——要免登请把 Odoo 台的源写进 WM_ODOO_ORIGINS');
   const counts = svc<WorkbenchService>('workbench').count() as { n: number };
