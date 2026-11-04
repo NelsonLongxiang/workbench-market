@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /** 日志不泄露上游会话 + 登录中继安全头（运维席 direct-cb457b75 / direct-b2e1f6fe 复现的两个问题，合成实例与替身上游）：
  *  ① 门户 /go/<id>/ 上游下发 Set-Cookie（含 Odoo session_id），进程 stdout/stderr 里不出现 cookie 值，只记 cookie 名；查询串也不进日志；
- *  ② 同域登录中继 /web/login：上游没给时补 X-Frame-Options: SAMEORIGIN、X-Content-Type-Options: nosniff、CSP frame-ancestors 'self'；
- *     上游给 DENY 保留、给别的（ALLOW-FROM 等）改 SAMEORIGIN；上游 CSP 其它指令保留，上游 frame-ancestors 一律换成 'self'；中继登录下发的会话值同样不进日志。
- *  对抗（direct-d9c28a29）：路径里藏 %3F / %253F 编码的查询串不进日志；上游 frame-ancestors 指向别的源时，
- *  带 CHROME_BIN 时用 Chromium 从那个源 iframe 加载登录页，必须被拒。 */
+ *  ② 同域登录中继 /web/login 的嵌入策略取交集：上游 CSP 头逐条原样保留，另追加一条市场的 frame-ancestors
+ *     （上游 XFO DENY 或任一条 frame-ancestors 'none' → 'none'，否则 'self'）；XFO 只留上游 DENY、其余 SAMEORIGIN；nosniff 恒设。
+ *     七种上游（无头 / 只有 XFO DENY / CSP none+DENY / frame-ancestors 指向别的源 / 多条 CSP / XFO ALLOW-FROM / 重复 XFO 含 DENY）逐一核对响应头，
+ *     带 CHROME_BIN 时每一种都用 Chromium 分别从同源、跨源 iframe 加载：原本禁止的照旧禁止，别的源一律挡住，不会比上游放宽。
+ *  对抗（direct-d9c28a29 / direct-871e4312 / direct-237dbde1）：路径里藏 %3F / %253F 编码的查询串不进日志。 */
 import { spawn } from 'node:child_process';
-import { createServer } from 'node:http';
+import { createServer, request } from 'node:http';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
@@ -27,14 +28,24 @@ const evil = createServer((req, res) => { req.resume(); req.on('end', () => { re
 await new Promise((r) => evil.listen(0, '127.0.0.1', r));
 const EVIL = `http://127.0.0.1:${evil.address().port}`;
 let upstreamMode = 'bare';
+/** 六种上游登录页响应头（ev = 别的源） */
+const UPSTREAM = {
+  bare: () => ({}),
+  xfoDeny: () => ({ 'x-frame-options': 'DENY' }),
+  noneDeny: () => ({ 'x-frame-options': 'DENY', 'content-security-policy': "default-src 'self'; frame-ancestors 'none'" }),
+  foreign: (ev) => ({ 'x-frame-options': `ALLOW-FROM ${ev}`, 'content-security-policy': `default-src 'self'; frame-ancestors ${ev}` }),
+  multiCsp: () => ({ 'content-security-policy': ["default-src 'self'", "script-src 'self' 'unsafe-inline'"] }),
+  allowFrom: (ev) => ({ 'x-frame-options': `ALLOW-FROM ${ev}` }),
+  // 上游重复下发 XFO（一条 SAMEORIGIN、一条 DENY）：任一条 DENY 就按 DENY 算
+  dupXfo: () => ({ 'x-frame-options': ['SAMEORIGIN', 'DENY'] }),
+};
 const up = createServer((req, res) => {
   req.resume();
   req.on('end', () => {
     const p = new URL(req.url, 'http://upstream');
     if (p.pathname === '/web/login') {
       const h = { 'content-type': 'text/html', 'set-cookie': [`session_id=${RELAY_SECRET}; Path=/; HttpOnly`] };
-      if (upstreamMode === 'own') { h['x-frame-options'] = 'DENY'; h['content-security-policy'] = "default-src 'self'"; }
-      if (upstreamMode === 'foreign') { h['x-frame-options'] = `ALLOW-FROM ${EVIL}`; h['content-security-policy'] = `default-src 'self'; frame-ancestors ${EVIL}`; }
+      Object.assign(h, UPSTREAM[upstreamMode](EVIL));
       res.writeHead(200, h);
       return res.end('<form method="post" action="/web/login"><input name="csrf_token"></form>');
     }
@@ -54,26 +65,39 @@ for (const k of ['WM_EXTENSIONS_DIR', 'LC_ODOO_URL', 'WM_ODOO_ORIGINS']) delete 
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'pipe', 'pipe'], env });
 let logs = ''; server.stdout.on('data', (c) => (logs += c)); server.stderr.on('data', (c) => (logs += c));
 
-/** Chromium 从 parentOrigin 的页面 iframe 嵌市场 /web/login：返回 blocked（被拒，子框落到 chrome-error）或 loaded */
-async function framedBy(parentOrigin) {
-  const chrome = spawn(process.env.CHROME_BIN, ['--headless', '--no-sandbox', '--disable-gpu', '--no-proxy-server', '--user-data-dir=' + join(TMP, 'chrome'), '--remote-debugging-port=0', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
-  try {
-    const port = await new Promise((done, no) => { let t = ''; const tm = setTimeout(() => no(new Error('chrome timeout')), 15000); chrome.stderr.on('data', (d) => { t += d; const m = t.match(/127[.]0[.]0[.]1:(\d+)/); if (m) { clearTimeout(tm); done(m[1]); } }); });
-    const target = await (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: 'PUT' })).json();
-    const ws = new WebSocket(target.webSocketDebuggerUrl); await new Promise((o, n) => { ws.onopen = o; ws.onerror = n; });
-    let id = 0; const pending = new Map();
-    ws.onmessage = (e) => { const j = JSON.parse(e.data); if (j.id && pending.has(j.id)) { pending.get(j.id)(j.result); pending.delete(j.id); } };
-    const send = (method, params = {}) => new Promise((o) => { const n = ++id; pending.set(n, o); ws.send(JSON.stringify({ id: n, method, params })); });
-    await send('Page.enable');
-    upstreamMode = 'foreign';
-    await send('Page.navigate', { url: parentOrigin + '/' });
-    await sleep(3000);
-    const tree = await send('Page.getFrameTree');
-    const child = tree?.frameTree?.childFrames?.[0]?.frame;
-    ws.close();
-    if (!child) return 'no-child-frame';
-    return /^chrome-error:/.test(child.url) || child.unreachableUrl ? 'blocked' : 'loaded:' + child.url;
-  } finally { chrome.kill(); }
+/** Chromium 里分别从同源（市场页面里插 iframe）、跨源（别的源的页面）iframe 嵌市场 /web/login；
+ *  返回 { same, cross }，各为 blocked（子框落到 chrome-error）或 loaded */
+let chrome = null, cdp = null;
+async function browser() {
+  if (cdp) return cdp;
+  chrome = spawn(process.env.CHROME_BIN, ['--headless', '--no-sandbox', '--disable-gpu', '--no-proxy-server', '--user-data-dir=' + join(TMP, 'chrome'), '--remote-debugging-port=0', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
+  const port = await new Promise((done, no) => { let t = ''; const tm = setTimeout(() => no(new Error('chrome timeout')), 15000); chrome.stderr.on('data', (d) => { t += d; const m = t.match(/127[.]0[.]0[.]1:(\d+)/); if (m) { clearTimeout(tm); done(m[1]); } }); });
+  const target = await (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: 'PUT' })).json();
+  const ws = new WebSocket(target.webSocketDebuggerUrl); await new Promise((o, n) => { ws.onopen = o; ws.onerror = n; });
+  let id = 0; const pending = new Map();
+  ws.onmessage = (e) => { const j = JSON.parse(e.data); if (j.id && pending.has(j.id)) { pending.get(j.id)(j.result); pending.delete(j.id); } };
+  const send = (method, params = {}) => new Promise((o) => { const n = ++id; pending.set(n, o); ws.send(JSON.stringify({ id: n, method, params })); });
+  await send('Page.enable'); await send('Runtime.enable');
+  cdp = { ws, send };
+  return cdp;
+}
+async function childVerdict(send) {
+  await sleep(2500);
+  const tree = await send('Page.getFrameTree');
+  const child = tree?.frameTree?.childFrames?.[0]?.frame;
+  if (!child) return 'no-child-frame';
+  return /^chrome-error:/.test(child.url) || child.unreachableUrl ? 'blocked' : 'loaded';
+}
+async function framed() {
+  const { send } = await browser();
+  // 同源：先打开市场自己的一个页面，再往里插 iframe（同一个源）
+  await send('Page.navigate', { url: base + '/api/health' }); await sleep(800);
+  await send('Runtime.evaluate', { expression: `document.body.innerHTML='';const f=document.createElement('iframe');f.src='/web/login';document.body.appendChild(f);true` });
+  const same = await childVerdict(send);
+  // 跨源：别的源的页面里 iframe 市场 /web/login
+  await send('Page.navigate', { url: EVIL + '/' });
+  const cross = await childVerdict(send);
+  return { same, cross };
 }
 
 try {
@@ -100,36 +124,42 @@ try {
   ok('查询串（SSO state 等）不进日志', !logs.includes(QUERY_SECRET), logs.split('\n').filter((l) => l.includes(QUERY_SECRET)).join(' / ').replaceAll(QUERY_SECRET, '<Q>').slice(0, 300));
   other.close();
 
-  // ② 同域登录中继
-  upstreamMode = 'bare';
-  let r = await fetch(base + '/web/login', { headers: { host: 'market.example.test' }, redirect: 'manual' });
-  await r.text();
-  ok('上游没给：补 X-Frame-Options: SAMEORIGIN', r.headers.get('x-frame-options') === 'SAMEORIGIN', String(r.headers.get('x-frame-options')));
-  ok('上游没给：补 X-Content-Type-Options: nosniff', r.headers.get('x-content-type-options') === 'nosniff', String(r.headers.get('x-content-type-options')));
-  ok("上游没给：补 CSP frame-ancestors 'self'", /frame-ancestors 'self'/.test(String(r.headers.get('content-security-policy'))), String(r.headers.get('content-security-policy')));
-  upstreamMode = 'own';
-  r = await fetch(base + '/web/login', { headers: { host: 'market.example.test' }, redirect: 'manual' });
-  await r.text();
-  ok('上游给了 X-Frame-Options：原样保留（DENY 不被放宽）', r.headers.get('x-frame-options') === 'DENY', String(r.headers.get('x-frame-options')));
-  const csp = String(r.headers.get('content-security-policy'));
-  ok("上游 CSP 原样保留，另加 frame-ancestors 'self'", csp.includes("default-src 'self'") && csp.includes("frame-ancestors 'self'"), csp);
-  ok('中继：nosniff 仍在', r.headers.get('x-content-type-options') === 'nosniff');
-  upstreamMode = 'foreign';
-  r = await fetch(base + '/web/login', { headers: { host: 'market.example.test' }, redirect: 'manual' });
-  await r.text();
-  const fcsp = String(r.headers.get('content-security-policy'));
-  ok("上游 frame-ancestors 指向别的源：换成 'self'，不留那个源", fcsp.includes("frame-ancestors 'self'") && !fcsp.includes(EVIL) && fcsp.includes("default-src 'self'"), fcsp);
-  ok('上游 XFO 是 ALLOW-FROM：改成 SAMEORIGIN', r.headers.get('x-frame-options') === 'SAMEORIGIN', String(r.headers.get('x-frame-options')));
+  // ② 同域登录中继：六种上游，核对响应头；带 CHROME_BIN 时逐一用 Chromium 同源 / 跨源 iframe 加载
+  const EXPECT = {
+    bare:     { fa: "'self'", xfo: 'SAMEORIGIN', same: 'loaded',  cross: 'blocked', keep: [] },
+    xfoDeny:  { fa: "'none'", xfo: 'DENY',       same: 'blocked', cross: 'blocked', keep: [] },
+    noneDeny: { fa: "'none'", xfo: 'DENY',       same: 'blocked', cross: 'blocked', keep: ["default-src 'self'; frame-ancestors 'none'"] },
+    // 上游只许别的源嵌，市场只许同源：两条取交集后谁都嵌不了（不放宽上游，也不放别的源）
+    foreign:  { fa: "'self'", xfo: 'SAMEORIGIN', same: 'blocked', cross: 'blocked', keep: [`default-src 'self'; frame-ancestors ${EVIL}`] },
+    multiCsp: { fa: "'self'", xfo: 'SAMEORIGIN', same: 'loaded',  cross: 'blocked', keep: ["default-src 'self'", "script-src 'self' 'unsafe-inline'"] },
+    allowFrom:{ fa: "'self'", xfo: 'SAMEORIGIN', same: 'loaded',  cross: 'blocked', keep: [] },
+    dupXfo:   { fa: "'none'", xfo: 'DENY',       same: 'blocked', cross: 'blocked', keep: [] },
+  };
   if (!process.env.CHROME_BIN) console.log('  - Chromium iframe 检查 SKIP（设 CHROME_BIN 才跑）');
-  else {
-    const verdict = await framedBy(EVIL);
-    ok('Chromium：别的源 iframe 加载登录页被拒', verdict === 'blocked', verdict);
+  for (const [mode, want] of Object.entries(EXPECT)) {
+    upstreamMode = mode;
+    const raw = await new Promise((done) => {
+      const q = request({ host: '127.0.0.1', port: PORT, path: '/web/login', headers: { host: 'market.example.test' } }, (rs) => { rs.resume(); rs.on('end', () => done(rs)); });
+      q.end();
+    });
+    // 用 rawHeaders 看真实的多条头（node 解析后的 headers 会把重复的 CSP 用逗号并成一条）
+    const csps = raw.rawHeaders.flatMap((v, i) => (i % 2 === 0 && v.toLowerCase() === 'content-security-policy' ? [raw.rawHeaders[i + 1]] : []));
+    const market = csps.at(-1), upstream = csps.slice(0, -1);
+    ok(`${mode}：上游 CSP 逐条原样保留`, JSON.stringify(upstream) === JSON.stringify(want.keep), JSON.stringify(csps));
+    ok(`${mode}：追加一条 frame-ancestors ${want.fa}`, market === `frame-ancestors ${want.fa}`, String(market));
+    ok(`${mode}：XFO ${want.xfo}，nosniff`, raw.headers['x-frame-options'] === want.xfo && raw.headers['x-content-type-options'] === 'nosniff', `${raw.headers['x-frame-options']} ${raw.headers['x-content-type-options']}`);
+    if (process.env.CHROME_BIN) {
+      const v = await framed();
+      ok(`${mode}：Chromium 同源 iframe ${want.same}`, v.same === want.same, v.same);
+      ok(`${mode}：Chromium 跨源 iframe ${want.cross}`, v.cross === want.cross, v.cross);
+    }
   }
   await sleep(300);
   ok('中继下发的会话值不进日志', !logs.includes(RELAY_SECRET));
 } catch (e) {
   fail++; console.log('  ✗ 异常', e?.stack ?? e);
 } finally {
+  try { cdp?.ws.close(); chrome?.kill(); } catch {}
   server.kill(); up.close(); evil.close(); await sleep(300); rmSync(TMP, { recursive: true, force: true });
 }
 console.log(`\nlog-secret-relay-headers-smoke: ${pass} passed / ${fail} failed`);
