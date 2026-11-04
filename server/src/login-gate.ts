@@ -25,7 +25,7 @@ import { join } from 'node:path';
 import { isIP } from 'node:net';
 import { browserMarked, rawLoopback, surfaceOf } from './surfaces.ts';
 import { odooSessionOf } from './odoo-session.ts';
-import { odooLoginProxyRoute } from './odoo-login-proxy.ts';
+import { odooLoginProxyRoute, revokeOdooSession } from './odoo-login-proxy.ts';
 
 export type LoginGateMode = 'enforce' | 'off';
 /** 取开关；值不合法返回 null（调用方拒绝启动，参照 MCP_GATEWAY） */
@@ -171,6 +171,11 @@ export function createLoginGate(deps: Deps) {
   async function odooOf(cookie: string): Promise<{ login: string; admin: boolean } | null> {
     const sid = odooSessionOf(cookie);
     if (!sid) return null;
+    // Relay mode supports explicit Odoo logout: do not keep a stale positive identity
+    // after the upstream session has been revoked.
+    if (process.env.WM_ODOO_LOGIN_PROXY === '1') {
+      try { return await deps.odooViewer(cookie); } catch { return null; }
+    }
     const k = sha256(sid);
     const hit = odooCache.get(k);
     if (hit && Date.now() - hit.at < ODOO_TTL_MS) return hit.who;
@@ -364,7 +369,8 @@ export function createLoginGate(deps: Deps) {
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('X-Frame-Options', 'DENY');
       res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
-      res.type('html').send(loginPage(safeNext(req.query.next), deps.odooLoginHref(req), deps.tokensCss(), deps.mode));
+      const canOdooLogout = process.env.WM_ODOO_LOGIN_PROXY === '1' && String(req.headers.cookie ?? '').split(';').some(s => s.trim().startsWith('session_id='));
+      res.type('html').send(loginPage(safeNext(req.query.next), deps.odooLoginHref(req), deps.tokensCss(), deps.mode, canOdooLogout));
     });
     app.post('/api/auth/login', (req, res) => {
       res.setHeader('Cache-Control', 'no-store');
@@ -381,16 +387,31 @@ export function createLoginGate(deps: Deps) {
       setLoginCookie(req, res, c.value, SESSION_MS);
       res.json({ ok: true, expires_at: new Date(c.exp).toISOString() });
     });
-    app.post('/api/auth/logout', (req, res) => {
+    app.post('/api/auth/logout', async (req, res) => {
       res.setHeader('Cache-Control', 'no-store');
       if (!sameOrigin(req)) return res.status(403).json({ error: '跨源登出被拒绝' });
+      const cookie = String(req.headers.cookie ?? '');
+      const sessions = cookie.split(';').map(s => s.trim()).filter(s => s.startsWith('session_id='));
+      const relay = process.env.WM_ODOO_LOGIN_PROXY === '1';
+      if (relay && sessions.length) {
+        // A browser must make an explicit same-origin JSON request to terminate Odoo.
+        let originOk = false;
+        try { originOk = !!req.headers.origin && new URL(String(req.headers.origin)).protocol === (secure(req) ? 'https:' : 'http:'); } catch { /* reject */ }
+        if (!originOk || !req.is('application/json') || req.headers['x-wm-odoo-logout'] !== '1') return res.status(403).json({ error: 'Odoo 登出请求不符合安全要求' });
+      }
       const v = verifyCookie(cookieValue(req));
       if (v) {
         revoked.set(v.jti, v.exp);
         for (const [j, exp] of revoked) if (exp <= Date.now()) revoked.delete(j);
       }
       res.clearCookie(LOGIN_COOKIE, { httpOnly: true, sameSite: 'lax', path: '/', secure: secure(req) });
-      res.json({ ok: true, odoo_session: !!odooSessionOf(String(req.headers.cookie ?? '')) });
+      if (!relay) return res.json({ ok: true, odoo_session: !!odooSessionOf(cookie) });
+      res.clearCookie('session_id', { httpOnly: true, sameSite: 'lax', path: '/', secure: secure(req) });
+      if (!sessions.length) return res.json({ ok: true, odoo_session: false, browser_session_cleared: true });
+      if (sessions.length !== 1) return res.status(409).json({ ok: false, error: 'Odoo 会话不唯一，无法确认服务器端已注销', browser_session_cleared: true, odoo_session_revoked: false });
+      const sid = sessions[0].slice('session_id='.length);
+      const done = await revokeOdooSession(sid);
+      return res.status(done ? 200 : 502).json({ ok: done, odoo_session: true, browser_session_cleared: true, odoo_session_revoked: done, ...(!done ? { error: '已清除浏览器会话，但无法确认 Odoo 服务器端注销' } : {}) });
     });
     app.get('/api/auth/me', async (req, res, next) => {
       try {
@@ -405,7 +426,7 @@ export function createLoginGate(deps: Deps) {
   return { mode: deps.mode, enforced, middleware, mount, identity, upgradeAllowed, rewriteAppHtml };
 }
 
-function loginPage(next: string, odooHref: string | null, tokensCss: string, mode: LoginGateMode): string {
+function loginPage(next: string, odooHref: string | null, tokensCss: string, mode: LoginGateMode, canOdooLogout: boolean): string {
   const j = (v: unknown) => JSON.stringify(v).replace(/</g, '\\u003c');
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>登录 · 工作台市场</title><style>
@@ -424,6 +445,7 @@ input{box-sizing:border-box;width:100%;height:36px;padding:0 var(--wm-space-3,12
 .msg.info{color:var(--wm-color-text-secondary,#646a73)}
 </style></head><body><main class="card">
 <h1>工作台市场</h1><p class="sub">${mode === 'enforce' ? '本站需要登录后访问' : '登录门未开启（WM_LOGIN_GATE=off）'}</p>
+${canOdooLogout ? '<button id="odoo-logout" type="button">退出当前 Odoo 会话</button><div class="msg" id="odoo-logout-msg" role="alert"></div>' : ''}
 ${odooHref ? `<button class="primary" id="odoo" type="button">用 Odoo 登录</button><div class="msg info" id="odoo-msg"></div><div class="or">或</div>` : ''}
 <form id="f"><input id="t" type="password" autocomplete="current-password" placeholder="管理员口令" aria-label="管理员口令" required>
 <button ${odooHref ? '' : 'class="primary" '}type="submit" id="go">输入管理员口令登录</button><div class="msg" id="msg" role="alert"></div></form>
@@ -434,6 +456,11 @@ f.addEventListener('submit',function(e){e.preventDefault();go.disabled=true;msg.
 fetch('/api/auth/login',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:t.value})})
 .then(function(r){return r.json().catch(function(){return{}}).then(function(b){t.value='';if(r.ok)return done();msg.textContent=r.status===429?'尝试过于频繁，请 '+(b.retry_after_s||60)+' 秒后再试':(b.error||'登录失败');go.disabled=false;t.focus()})})
 .catch(function(){msg.textContent='网络错误';go.disabled=false})});
+var ob=document.getElementById('odoo-logout'),oe=document.getElementById('odoo-logout-msg');
+if(ob)ob.addEventListener('click',function(){ob.disabled=true;oe.textContent='';
+fetch('/api/auth/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-WM-Odoo-Logout':'1'},body:'{}'})
+.then(function(r){return r.json().catch(function(){return{}}).then(function(b){if(r.ok&&b.ok){location.reload();return}oe.textContent=b.error||'无法确认 Odoo 会话已退出';ob.disabled=false})})
+.catch(function(){oe.textContent='网络错误，无法确认会话已退出';ob.disabled=false})});
 if(!odoo)return;var btn=document.getElementById('odoo'),om=document.getElementById('odoo-msg'),pop=null,until=0,timer=0;
 function check(){if(!until||Date.now()>until)return;fetch('/api/auth/me',{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.json()}).then(function(b){if(b&&b.authenticated){until=0;try{pop&&pop.close()}catch(e){}done()}}).catch(function(){})}
 btn.addEventListener('click',function(){

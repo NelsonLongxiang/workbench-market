@@ -9,3 +9,9 @@ Only `/lifecycle`, `/tasks` and `/login` are valid market return paths. Odoo pas
 Enabling this option exposes the Odoo login surface through the market domain. Apply appropriate network restrictions and ensure Odoo's own login-throttling is active. Because reverse proxy/NAT may collapse source addresses, verify the actual client-address and rate-limit behavior before relying on per-client limits. This relay does not change lifecycle approval's existing read-only restriction or provide origin isolation for other content surfaces.
 
 Run `node scripts/odoo-same-host-login-smoke.mjs` for isolated HTTP tests. Set `CHROME_BIN` to a Chromium executable to include the synthetic browser form, cookie and return checks. No real account or production data is used by this test.
+
+## Odoo logout when the relay is enabled
+
+The viewer menu provides **退出 Odoo**, including a logout control on the login page for an Odoo account that is denied market access. The explicit same-origin JSON logout clears the market-scoped root session cookie and sends only the SID to the fixed configured Odoo origin's authenticated POST JSON-RPC /web/session/destroy. It does not expose a general Odoo logout proxy or follow redirects. A 502 means the browser cookie was cleared but upstream revocation could not be confirmed; the UI warns the user rather than claiming success. Ambiguous duplicate session cookies fail closed. When relay mode is off, legacy logout behavior is unchanged.
+
+Relay mode checks Odoo identity fresh for the login gate and administrator checks rather than retaining positive identity cache entries across an explicit logout. Requests already in flight are not retroactively cancelled. Verify real Odoo login **and logout** using the deployment's actual authentication method before enabling the relay publicly.

@@ -13,15 +13,42 @@ export function odooLoginProxyRoute(method: string, pathname: string, enabled = 
   return (method === 'GET' || method === 'HEAD') && (ASSET.test(pathname) || pathname === '/web/binary/company_logo' || pathname === '/website/translations');
 }
 
-/** Only the deployment-configured Odoo origin is an upstream; request headers never choose it. */
+/** Only the deployment-configured Odoo origin is an upstream. */
+function configuredOdooOrigin(): string {
+  try {
+    const upstream = new URL(String(process.env.LC_ODOO_URL ?? ''));
+    if (!['http:', 'https:'].includes(upstream.protocol) || upstream.username || upstream.password || upstream.search || upstream.hash || (upstream.pathname !== '/' && upstream.pathname !== '')) throw new Error('origin required');
+    return upstream.origin;
+  } catch { throw new Error('WM_ODOO_LOGIN_PROXY=1 requires LC_ODOO_URL to be an http(s) origin without credentials or path'); }
+}
+
+/** Terminate the exact Odoo session via its authenticated JSON-RPC endpoint.
+ *  Never expose the SID or upstream response in logs/errors. */
+export async function revokeOdooSession(sid: string): Promise<boolean> {
+  if (!/^[A-Za-z0-9_.=-]{16,512}$/.test(sid)) return false;
+  try {
+    const r = await fetch(configuredOdooOrigin() + '/web/session/destroy', {
+      method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(5000),
+      headers: { 'Content-Type': 'application/json', Cookie: 'session_id=' + sid },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'call', params: {} }),
+    });
+    if (!r.ok || !r.body) return false;
+    const reader = r.body.getReader(); const chunks: Uint8Array[] = []; let size = 0;
+    while (true) {
+      const part = await reader.read(); if (part.done) break;
+      size += part.value.byteLength;
+      if (size > 65536) { await reader.cancel(); return false; }
+      chunks.push(part.value);
+    }
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    return body?.jsonrpc === '2.0' && !body.error && Object.hasOwn(body, 'result') && body.result === null;
+  } catch { return false; }
+}
+
+/** Install the narrowly scoped same-origin login routes. */
 export function installOdooLoginProxy(app: express.Express): void {
   if (process.env.WM_ODOO_LOGIN_PROXY !== '1') return;
-  let upstream: URL;
-  try {
-    upstream = new URL(String(process.env.LC_ODOO_URL ?? ''));
-    if (!['http:', 'https:'].includes(upstream.protocol) || upstream.username || upstream.password || upstream.search || upstream.hash || (upstream.pathname !== '/' && upstream.pathname !== '')) throw new Error('origin required');
-  } catch { throw new Error('WM_ODOO_LOGIN_PROXY=1 requires LC_ODOO_URL to be an http(s) origin without credentials or path'); }
-  const origin = upstream.origin;
+  const origin = configuredOdooOrigin();
   const proxy = createProxyMiddleware({
     target: origin, changeOrigin: true, xfwd: false,
     pathFilter: (_path, req) => odooLoginProxyRoute(req.method ?? '', String(req.url ?? '').split('?')[0]),
