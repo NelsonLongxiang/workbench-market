@@ -209,6 +209,8 @@ jobs:
         run: node scripts/lifecycle-view-unit.mjs
       - name: 生命周期面登录入口冒烟（#275：login_url 选台·/go/ return 回跳·open-redirect 拒）
         run: node scripts/lifecycle-login-smoke.mjs
+      - name: 日志不泄露上游会话 + 登录中继安全头（Set-Cookie 只记名·查询串不进日志·XFO/nosniff/frame-ancestors）
+        run: node scripts/log-secret-relay-headers-smoke.mjs
       - name: 管理员口令止血单测（#292 M4：pagehide 抹口令·变更广播）
         run: node scripts/admin-token-guard-unit.mjs
       - name: 门户剥 Service-Worker-Allowed 冒烟（#292 M5）
