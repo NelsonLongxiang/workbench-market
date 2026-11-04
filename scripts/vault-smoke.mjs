@@ -48,6 +48,7 @@ function boot(tag, extraEnv) {
   if (!('DSH_VAULT_PASSWORD' in extraEnv)) delete env.DSH_VAULT_PASSWORD;
   if (!('DSH_VAULT_PASSWORD_FILE' in extraEnv)) delete env.DSH_VAULT_PASSWORD_FILE;
   if (!('WM_VAULT_HOST' in extraEnv)) delete env.WM_VAULT_HOST;
+  if (!('WM_VAULT_SERVER_PASSWORD_ON_MAIN' in extraEnv)) delete env.WM_VAULT_SERVER_PASSWORD_ON_MAIN;
   if (!('WM_CONTROL_PORT' in extraEnv)) env.WM_CONTROL_PORT = String(port + 1); // 控制面缺省已不开；本冒烟显式开一个，同时覆盖业务面与控制面两种页面
   // Child-origin IPC proves this test owns each listening port before any HTTP request.
   const preload = "import net from 'node:net';const listen=net.Server.prototype.listen;net.Server.prototype.listen=function(...args){this.once('listening',()=>{const a=this.address();if(a&&typeof a==='object')process.send?.({kind:'synthetic-owned-listener',port:a.port});});return listen.apply(this,args)};";
@@ -300,6 +301,29 @@ try {
     mkdirSync(env.DATA_DIR, { recursive: true });
     const b = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { env, timeout: 30_000, encoding: 'utf8' });
     ok('WM_VAULT_HOST 带协议/路径拒绝启动', b.status === 1 && /WM_VAULT_HOST/.test(b.stderr), `status=${b.status} ${String(b.stderr).slice(-120)}`);
+  }
+
+  section('⑤d 主域名开放开关（WM_VAULT_SERVER_PASSWORD_ON_MAIN=accept-same-origin-risk）');
+  const VM = boot('vm', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile, DSH_VAULT_PASSWORD_FILE: pwFile, WM_VAULT_SERVER_PASSWORD_ON_MAIN: 'accept-same-origin-risk' });
+  ok('开关实例起来', await up(VM.port));
+  r = await http(VM.port, 'GET', '/api/vault/entries', { 'x-admin-token': TOK });
+  ok('开关打开：主域名上管理员直接读', r.status === 200 && r.body?.entries?.length === 6, `${r.status} ${r.text.slice(0, 120)}`);
+  r = await http(VM.port, 'GET', '/api/vault/status', { 'x-admin-token': TOK });
+  ok('开关打开：主域名状态完整（不再只报 control_only）', r.status === 200 && r.body?.control_only === undefined && r.body?.password_source === 'file', JSON.stringify(r.body).slice(0, 120));
+  r = await http(VM.port, 'GET', '/api/vault/entries');
+  ok('开关打开：非管理员仍 403', r.status === 403 && r.body?.code !== 'vault_control_only', `${r.status}`);
+  await stop(VM);
+  const VN = boot('vn', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile, DSH_VAULT_PASSWORD_FILE: pwFile });
+  ok('无开关实例起来', await up(VN.port));
+  r = await http(VN.port, 'GET', '/api/vault/entries', { 'x-admin-token': TOK });
+  ok('开关没开：主域名仍 403 vault_control_only', r.status === 403 && r.body?.code === 'vault_control_only', `${r.status}`);
+  await stop(VN);
+  {
+    const { spawnSync } = await import('node:child_process');
+    const env = { ...process.env, NODE_ENV: 'test', MCP_GATEWAY: 'off', PORT: '0', WM_CONTROL_PORT: '0', DATA_DIR: join(TMP, 'data-badmain'), WM_VAULT_SERVER_PASSWORD_ON_MAIN: '1' };
+    mkdirSync(env.DATA_DIR, { recursive: true });
+    const b = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { env, timeout: 30_000, encoding: 'utf8' });
+    ok('开关取值不是 accept-same-origin-risk 拒绝启动', b.status === 1 && /WM_VAULT_SERVER_PASSWORD_ON_MAIN/.test(b.stderr), `status=${b.status}`);
   }
 
   section('⑥ 未设口令 = 凭据库休眠');
