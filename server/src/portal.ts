@@ -191,11 +191,18 @@ export function installPortal(
     next();
   });
 
+  // 查询串（? 或编码后的 %3F 起，到空白或 ] 为止）一律换成 ?…；其余原样
+  const redactQuery = (x: unknown) => (typeof x === 'string' ? x.replace(/(\?|%3F)[^\s\]]*/gi, '?…') : x);
+  const hpmLogger = {
+    info: (...a: unknown[]) => console.log(...a.map(redactQuery)),
+    warn: (...a: unknown[]) => console.warn(...a.map(redactQuery)),
+    error: (...a: unknown[]) => console.error(...a.map(redactQuery)),
+  };
   moduleProxy = createProxyMiddleware({
     // HPM 4.x 默认 logger 是 noopLogger（options.logger || noop）——pathFilter/配置错误零输出，
     // 静默漏到 SPA fallback 返回 200 假绿（实测踩坑：RegExp pathFilter 坏了整整一天没人发现）。
-    // 显式传 console，让配置类错误至少可见。
-    logger: console,
+    // 显式传 console，让配置类错误至少可见。HPM 的访问日志会打完整 URL（含查询串，里面可能有 SSO state、台凭据参数），先抹掉查询串再打
+    logger: hpmLogger,
     // HPM 4.x 的 pathFilter 不支持 RegExp（matchPathFilter 抛 Invalid pathFilter，被 shouldProxy
     // 吞成 next() → 静默漏到 SPA fallback）；函数形式走 custom-matching 分支（实测透传 3080 的 401）
     pathFilter: (pathname: string) => goPrefix.test(pathname),
@@ -241,7 +248,9 @@ export function installPortal(
         if (rq.goCookies) proxyReq.setHeader('cookie', rq.goCookies);
       },
       proxyRes: (proxyRes, req, res) => {
-        console.log('[proxres-entry]', req.url, '| wid:', (req as any).goWid, '| sc:', JSON.stringify(proxyRes.headers['set-cookie']));
+        // 只记路径与 cookie 名：Set-Cookie 的值里有上游会话（如 Odoo session_id），查询串里可能有 SSO state——都不进日志
+        const scNames = ([] as string[]).concat(proxyRes.headers['set-cookie'] ?? []).map((c) => String(c).split('=')[0].trim()).filter(Boolean);
+        console.log('[proxres-entry]', String(req.url ?? '').split('?')[0], '| wid:', (req as any).goWid, '| sc:', scNames.join(',') || '-');
         // 登录态保持（属主报障 /use/1861 Sub2API）：目标台 Set-Cookie 改写——去 Domain（存市场域）+ Path 加 /go/<id>/（各台隔离）
         // 登录态保持（#157）+ #170 P1②：Set-Cookie 属性透传——去 Domain/Path 加 /go/<id>/；非 HTTPS 入口剥 Secure（否则浏览器拒存）；__Host-/__Secure- 前缀保留 Path=/ 语义（前缀强制 Secure+Path=/）
         if (proxyRes.headers['set-cookie']) {
