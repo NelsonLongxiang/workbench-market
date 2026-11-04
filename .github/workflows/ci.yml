@@ -36,6 +36,7 @@ jobs:
           export CHROME_BIN=$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')
           node scripts/odoo-same-host-login-smoke.mjs
           node scripts/odoo-logout-smoke.mjs
+          node scripts/log-secret-relay-headers-smoke.mjs
       - name: SOP metadata-only history UI (#309, synthetic intercepted API)
         env:
           PYTHON: python

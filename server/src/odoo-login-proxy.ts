@@ -101,11 +101,16 @@ export function installOdooLoginProxy(app: express.Express): void {
         // keeps the origin for CSRF checks without sending the source path or query.
         proxyRes.headers['referrer-policy'] = 'strict-origin';
         delete proxyRes.headers['service-worker-allowed'];
-        // 登录页不许被别的源嵌、不许嗅探类型：上游给了就原样保留，没给就补上；CSP 另加一条 frame-ancestors（多条 CSP 叠加生效，不改上游原有策略）
-        if (!proxyRes.headers['x-frame-options']) proxyRes.headers['x-frame-options'] = 'SAMEORIGIN';
+        // 登录页挂在市场主机上，谁能嵌它由市场定，不由上游定：上游 CSP 里的 frame-ancestors 一律去掉，改成 'self'
+        // （Chromium 里 frame-ancestors 优先于 XFO，上游指向别的源就能嵌——运维席 direct-d9c28a29）；上游其它 CSP 指令原样保留。
+        // XFO 只保留上游的 DENY（更严），其余一律 SAMEORIGIN；nosniff 恒设
+        const xfo = String(proxyRes.headers['x-frame-options'] ?? '').trim().toUpperCase();
+        proxyRes.headers['x-frame-options'] = xfo === 'DENY' ? 'DENY' : 'SAMEORIGIN';
         proxyRes.headers['x-content-type-options'] = 'nosniff';
-        const csp = ([] as string[]).concat(proxyRes.headers['content-security-policy'] ?? []);
-        if (!csp.some((v) => /(?:^|;)\s*frame-ancestors\b/i.test(v))) proxyRes.headers['content-security-policy'] = [...csp, "frame-ancestors 'self'"] as unknown as string;
+        const csp = ([] as string[]).concat(proxyRes.headers['content-security-policy'] ?? [])
+          .map((v) => String(v).split(';').map((d) => d.trim()).filter((d) => d && !/^frame-ancestors\b/i.test(d)).join('; '))
+          .filter(Boolean);
+        proxyRes.headers['content-security-policy'] = [...csp, "frame-ancestors 'self'"] as unknown as string;
       },
     },
   });
