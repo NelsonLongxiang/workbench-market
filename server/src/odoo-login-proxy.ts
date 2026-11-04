@@ -45,6 +45,17 @@ export async function revokeOdooSession(sid: string): Promise<boolean> {
   } catch { return false; }
 }
 
+/** Hide/disable external Odoo OAuth choices in the relay surface.
+ *  Password/TOTP remain; Feishu and Odoo.com OAuth cannot round-trip through this
+ *  narrow same-origin relay and previously produced language-prefix redirect loops. */
+export function suppressUnsupportedOdooLogins(html: string): string {
+  const css = '<style id="wm-hide-odoo-oauth">.o_login_auth{display:none!important;visibility:hidden!important}a[href^="/auth_feishu/login"],a[href*="accounts.odoo.com/oauth2/auth"],a[href^="/auth_oauth/"]{display:none!important;pointer-events:none!important}</style>';
+  const script = '<script>(function(){function off(n){n.tabIndex=-1;n.addEventListener(\'click\',function(e){e.preventDefault();e.stopPropagation()},true)}document.querySelectorAll(\'.o_login_auth\').forEach(function(n){n.hidden=true;n.setAttribute(\'aria-hidden\',\'true\');n.querySelectorAll(\'a,button\').forEach(off)});document.querySelectorAll(\'a[href^="/auth_feishu/login"],a[href*="accounts.odoo.com/oauth2/auth"],a[href^="/auth_oauth/"]\').forEach(function(n){n.hidden=true;off(n)})})();</script>';
+  let out = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, m => m + css) : css + html;
+  out = /<\/body>/i.test(out) ? out.replace(/<\/body>/i, script + '</body>') : out + script;
+  return out;
+}
+
 /** Install the narrowly scoped same-origin login routes. */
 export function installOdooLoginProxy(app: express.Express): void {
   if (process.env.WM_ODOO_LOGIN_PROXY !== '1') return;
@@ -100,6 +111,7 @@ export function installOdooLoginProxy(app: express.Express): void {
           if (next) proxyRes.headers.location = next;
           else { delete proxyRes.headers.location; proxyRes.statusCode = 502; } // unsupported MFA/OAuth/foreign redirect: fail closed
         }
+        // GET login HTML is handled by relayLoginGet below; this hook remains for POST redirects/cookies.
         proxyRes.headers['cache-control'] = 'no-store';
         // no-referrer makes some browsers send Origin: null on form POST; strict-origin
         // keeps the origin for CSRF checks without sending the source path or query.
@@ -108,6 +120,54 @@ export function installOdooLoginProxy(app: express.Express): void {
       },
     },
   });
+
+  // Fetch the two read-only Odoo login forms directly. This lets us suppress unsupported
+  // OAuth controls without intercepting HPM's streamed response; POST still uses the proxy.
+  const relayLoginGet = async (req: express.Request, res: express.Response): Promise<void> => {
+    const upstreamUrl = new URL(String(req.url ?? '/'), origin);
+    const sid = odooSessionOf(String(req.headers.cookie ?? ''));
+    const headers: Record<string, string> = { accept: String(req.headers.accept ?? 'text/html'), 'user-agent': String(req.headers['user-agent'] ?? 'workbench-relay') };
+    const language = String(req.headers['accept-language'] ?? '');
+    if (language) headers['accept-language'] = language;
+    if (/^[A-Za-z0-9_.=-]{16,512}$/.test(sid)) headers.cookie = `session_id=${sid}`;
+    const upstream = await fetch(upstreamUrl, { method: req.method === 'HEAD' ? 'HEAD' : 'GET', headers, redirect: 'manual', signal: AbortSignal.timeout(10_000) });
+    const secure = req.secure || String(req.headers['x-forwarded-proto'] ?? '').split(',')[0].trim() === 'https';
+    const sessionCookies = upstream.headers.getSetCookie().filter(c => /^session_id=/i.test(c)).map(c => {
+      let v = c.replace(/;\s*(domain|path|samesite)=[^;]*/gi, '');
+      if (!/;\s*httponly\b/i.test(v)) v += '; HttpOnly';
+      if (secure && !/;\s*secure\b/i.test(v)) v += '; Secure';
+      return v + '; Path=/; SameSite=Lax';
+    });
+    if (sessionCookies.length) res.setHeader('Set-Cookie', sessionCookies);
+    const location = upstream.headers.get('location');
+    if (location) {
+      let next = '';
+      try {
+        const u = new URL(location, origin);
+        if (u.origin === origin && !location.startsWith('//')) {
+          const candidate = u.pathname + u.search + u.hash;
+          if (safeLoginRedirect(candidate)) next = candidate;
+          else if (u.pathname === '/web/login' || u.pathname === '/web/login/totp') {
+            const r = safeLoginRedirect(u.searchParams.get('redirect'));
+            next = u.pathname + (r ? '?redirect=' + encodeURIComponent(r) : '');
+          }
+        }
+      } catch { /* refuse */ }
+      res.setHeader('Cache-Control', 'no-store');
+      if (next) { res.setHeader('Location', next); return void res.status(upstream.status).end(); }
+      return void res.status(502).type('text').send('Unsupported Odoo login redirect');
+    }
+    const contentType = String(upstream.headers.get('content-type') ?? 'text/html');
+    let body = await upstream.text();
+    if (contentType.includes('text/html')) body = suppressUnsupportedOdooLogins(body);
+    res.status(upstream.status).type(contentType);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Referrer-Policy', 'strict-origin');
+    res.setHeader('Content-Length', String(Buffer.byteLength(body, 'utf8')));
+    if (req.method === 'HEAD') return void res.end();
+    return void res.end(body);
+  };
+
   app.use((req, res, next) => {
     const rawPath = String(req.url ?? '').split('?')[0];
     if (!odooLoginProxyRoute(req.method, rawPath)) return next();
@@ -126,6 +186,9 @@ export function installOdooLoginProxy(app: express.Express): void {
     const r = safeLoginRedirect(u.searchParams.get('redirect'));
     if (u.searchParams.has('redirect')) { u.searchParams.delete('redirect'); if (r) u.searchParams.set('redirect', r); }
     req.url = u.pathname + u.search;
+    if ((req.method === 'GET' || req.method === 'HEAD') && (rawPath === '/web/login' || rawPath === '/web/login/totp')) {
+      return void relayLoginGet(req, res).catch(() => { if (!res.headersSent) res.status(502).type('text').send('Odoo login unavailable'); });
+    }
     const forward = () => proxy(req, res, next);
     if (req.method !== 'POST') return forward();
     return express.urlencoded({ extended: false, limit: '16kb', parameterLimit: 24 })(req, res, (err) => {

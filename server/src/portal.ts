@@ -15,6 +15,7 @@ import type { WorkbenchService } from './services/workbench.ts';
 import type { CookieService } from './services/cookie.ts';
 import { clientIp } from './login-gate.ts';
 import { configuredOdooUrl, consumeSsoCallback, isOdooSessionTarget, issueSsoCallback, odooSessionOf, safeReturnPath, setSsoTargetLookup, stripOdooSession } from './odoo-session.ts';
+import { suppressUnsupportedOdooLogins } from './odoo-login-proxy.ts';
 
 
 export const goPrefix = /^\/go\/(\d+)(.*)$/;
@@ -309,6 +310,13 @@ export function installPortal(
               return `${name}=${q}${goBase}${url}${q}`;
             };
             if (pCt.includes('text/html')) {
+              // Same-host Odoo relay: external OAuth buttons cannot round-trip and can create
+              // language-prefix loops under /go/<id>/. Hide them while retaining password/TOTP.
+              try {
+                const relayOdooOrigin = process.env.WM_ODOO_LOGIN_PROXY === '1' ? new URL(configuredOdooUrl()).origin : '';
+                const portalOrigin = String((req as express.Request & { goOrigin?: string }).goOrigin ?? '');
+                if (relayOdooOrigin && portalOrigin === relayOdooOrigin) body = suppressUnsupportedOdooLogins(body);
+              } catch { /* bad relay config leaves upstream HTML untouched */ }
               body = body.replace(/(src|href)=(["'])(\/[^"']*)\2/gi, (m, n, q, u) => fixAttr(m, n, q, u));
               // #170 P6 绝对链接：指向目标源自身的完整地址 → /go/<id>/ 前缀（跨源外链不动）
               const _tgtOrigin = String((req as express.Request & { goOrigin?: string }).goOrigin ?? '');
