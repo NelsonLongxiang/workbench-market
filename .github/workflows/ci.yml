@@ -207,6 +207,8 @@ jobs:
         run: node scripts/extensions-smoke.mjs
       - name: Odoo 弹窗登录链接单测（return 换成当前页·只回 path）
         run: node scripts/odoo-login-href-unit.mjs
+      - name: 日志不泄露上游会话 + 登录中继安全头（Set-Cookie 只记名·查询串不进日志·XFO/nosniff/frame-ancestors）
+        run: node scripts/log-secret-relay-headers-smoke.mjs
       - name: 管理员口令止血单测（#292 M4：pagehide 抹口令·变更广播）
         run: node scripts/admin-token-guard-unit.mjs
       - name: 门户剥 Service-Worker-Allowed 冒烟（#292 M5）
