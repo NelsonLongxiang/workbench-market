@@ -2881,7 +2881,7 @@ function vaultGuard(req: express.Request, res: express.Response): boolean {
   }
   return adminGuard(req, res);
 }
-mountVault(app, vaultGuard);
+mountVault(app, vaultGuard, (req) => surfaceOf(req) === 'control'); // 服务端持有主密码时只在控制面开放（控制面不承载 /go/、/sop/、/apps/）
 workbenchVars.mount(app); // #336 /api/workbenches/:id/vars
 
 // 存活 / 就绪分开：/api/health 是存活（只看本进程，不发外部请求）；/api/health/ready 是就绪（含 LayerFS）。

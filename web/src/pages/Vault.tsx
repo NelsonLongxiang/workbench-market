@@ -67,6 +67,7 @@ function VaultBody() {
 
   if (err) return <WmPage><Result status="error" title="无法读取凭据库状态" subTitle={err} extra={<Button onClick={refreshStatus}>重试</Button>} /></WmPage>;
   if (!status) return <WmPage><Spin /></WmPage>;
+  if (status.control_only) return <WmPage><Result status="info" title="凭据库只在控制面开放" subTitle="服务端持有主密码、免输入解锁，因此凭据库不在承载外站与 SOP 内容的业务面开放。请从控制面地址打开凭据库。" /></WmPage>;
   if (!status.unlocked && !status.env_password) return <UnlockView status={status} onUnlocked={refreshStatus} />;
   return <UnlockedView status={status} onLocked={refreshStatus} onError={onError} />;
 }
