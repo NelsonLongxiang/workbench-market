@@ -13,6 +13,7 @@ import { join, posix } from 'node:path';
 import { svc } from './context.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { CookieService } from './services/cookie.ts';
+import { clientIp } from './login-gate.ts';
 import { configuredOdooUrl, consumeSsoCallback, isOdooSessionTarget, issueSsoCallback, odooSessionOf, safeReturnPath, setSsoTargetLookup, stripOdooSession } from './odoo-session.ts';
 
 
@@ -134,7 +135,9 @@ export function installPortal(
           // 同域登录中继开着且目标就是部署配置的 Odoo：留在当前主机登录（上游主机名可能是容器名，浏览器解析不了），
           // 回跳是本台的 SSO 回调（相对路径）；state 由服务端签成一次性票据，中继只放行持有效票据的回调
           const relay = process.env.WM_ODOO_LOGIN_PROXY === '1' && u.origin === new URL(configuredOdooUrl()).origin;
-          const state = relay ? issueSsoCallback(Number(m[1]), u.origin) : randomUUID();
+          const ticket = relay ? issueSsoCallback(Number(m[1]), u.origin, clientIp(req)) : null;
+          if (relay && !ticket) { res.setHeader('Retry-After', '600'); return res.status(429).type('text').send('Odoo 登录尝试过于频繁，请稍后再试'); }
+          const state = ticket ?? randomUUID();
           const _mkHost = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').trim();
           const _mkProto = (String(req.headers['x-forwarded-proto'] ?? '').includes('https') || req.secure) ? 'https' : 'http';
           const redirectUri = encodeURIComponent(`${_mkProto}://${_mkHost}/go/${m[1]}/?state=${state}`); // #170 P8 绝对回跳 // 回跳经市场（带 state·不裸跳目标域）

@@ -22,7 +22,7 @@ import type { IncomingMessage } from 'node:http';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { isIP } from 'node:net';
+import { BlockList, isIP } from 'node:net';
 import { browserMarked, rawLoopback, surfaceOf } from './surfaces.ts';
 import { odooSessionOf } from './odoo-session.ts';
 import { odooLoginProxyRoute, revokeOdooSession } from './odoo-login-proxy.ts';
@@ -96,13 +96,38 @@ function wantsPage(req: IncomingMessage): boolean {
   return String(req.headers.accept ?? '').includes('text/html');
 }
 
-/** 来源 IP（限频与审计用）：TCP 对端是本机（同机反代，如 nginx）时，取反代写进来的 X-Real-IP，没有则取 X-Forwarded-For 最右一项
- *  （nginx 的 $proxy_add_x_forwarded_for 把它见到的对端追加在最右；更左边的是客户端自报，不可信）。
- *  对端不是本机时只认 TCP 对端：外部直连者自带的转发头一律不信，伪造不了。
- *  前提：本机反代要覆盖 X-Real-IP（proxy_set_header X-Real-IP $remote_addr），不能原样透传客户端的值。 */
+/** 可信反代（WM_TRUSTED_PROXIES）：逗号分隔的 IP 或 CIDR（IPv4/IPv6），如容器里看到的 docker 网桥网关 172.17.0.1 或反代主机网段。
+ *  回环恒为可信。非法项列进 invalid（index.ts 启动时拒绝启动）；按原值缓存，测试改环境变量即时生效 */
+export function trustedProxies(raw = String(process.env.WM_TRUSTED_PROXIES ?? '')): { list: BlockList; entries: string[]; invalid: string[] } {
+  const list = new BlockList(), entries: string[] = [], invalid: string[] = [];
+  for (const item of raw.split(',').map((x) => x.trim()).filter(Boolean)) {
+    const [addr, bits, extra] = item.split('/');
+    const fam = isIP(addr);
+    const max = fam === 4 ? 32 : 128;
+    const prefix = bits === undefined ? max : /^\d{1,3}$/.test(bits) ? Number(bits) : -1;
+    if (!fam || extra !== undefined || prefix < 0 || prefix > max) { invalid.push(item); continue; }
+    list.addSubnet(addr, prefix, fam === 4 ? 'ipv4' : 'ipv6');
+    entries.push(item);
+  }
+  return { list, entries, invalid };
+}
+let proxyCache: { raw: string; list: BlockList } | null = null;
+function trustedPeer(peer: string): boolean {
+  if (peer === '127.0.0.1' || peer === '::1') return true;
+  const raw = String(process.env.WM_TRUSTED_PROXIES ?? '');
+  if (!raw.trim()) return false;
+  if (proxyCache?.raw !== raw) proxyCache = { raw, list: trustedProxies(raw).list };
+  const fam = isIP(peer);
+  return fam !== 0 && proxyCache.list.check(peer, fam === 4 ? 'ipv4' : 'ipv6');
+}
+
+/** 来源 IP（限频与审计用）：TCP 对端是可信反代（本机回环，或 WM_TRUSTED_PROXIES 里的地址/网段）时，取反代写进来的 X-Real-IP，
+ *  没有则取 X-Forwarded-For 最右一项（nginx 的 $proxy_add_x_forwarded_for 把它见到的对端追加在最右；更左边的是客户端自报，不可信）。
+ *  对端不可信时只认 TCP 对端：外部直连者自带的转发头一律不信，伪造不了。
+ *  前提：可信反代要覆盖 X-Real-IP（proxy_set_header X-Real-IP $remote_addr），不能原样透传客户端的值。 */
 export function clientIp(req: IncomingMessage): string {
   const peer = String(req.socket?.remoteAddress ?? '').replace(/^::ffff:/, '');
-  if (peer !== '127.0.0.1' && peer !== '::1') return peer;
+  if (!trustedPeer(peer)) return peer;
   const pick = (v: unknown) => { const s = String(v ?? '').trim().replace(/^::ffff:/, ''); return isIP(s) ? s : ''; };
   const real = pick(req.headers['x-real-ip']);
   if (real) return real;

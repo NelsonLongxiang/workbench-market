@@ -60,7 +60,7 @@ const SKILL = [
 ];
 function snapshot(rel, files) {
   const dir = join(DATA, 'skill-snapshots', rel);
-  for (const f of files) { mkdirSync(join(dir, f.path, '..'), { recursive: true }); writeFileSync(join(dir, f.path), f.content); }
+  for (const f of files) { mkdirSync(join(dir, f.path, '..'), { recursive: true }); writeFileSync(join(dir, f.path), f.bytes ?? f.content); }
   if (!files.length) mkdirSync(dir, { recursive: true });
   return `skill-snapshots/${rel}`; // 登记的是相对 DATA_DIR 的路径
 }
@@ -89,6 +89,7 @@ try {
   addSkill('digest-drift', SKILL, digest([...SKILL, { path: 'extra.txt', content: 'x' }]));
   addSkill('readback-loses-empty', SKILL);
   addSkill('empty-snapshot', [], digest([]));
+  addSkill('has-binary', [...SKILL, { path: 'assets/logo.png', content: '', bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0xfe, 0x00]) }]);
   const row = (slug) => db.prepare('SELECT v.commit_id, v.shadow_status, v.shadow_error FROM skill_versions v JOIN skills s ON s.id = v.skill_id WHERE s.slug = ?').get(slug);
 
   let r = await migrate('zero-byte-demo');
@@ -108,9 +109,13 @@ try {
   r = await migrate('readback-loses-empty');
   dropEmpty = false;
   ok('服务读回丢了空文件：不记 commit_id、标失败可重跑', r.j?.results?.[0]?.result === 'error' && row('readback-loses-empty').commit_id === '' && /readback digest mismatch/.test(row('readback-loses-empty').shadow_error), JSON.stringify(r.j));
+  ok('孤立的 commit 记进 shadow_error 便于核对', row('readback-loses-empty').shadow_error.includes(`orphan commit ${r.j?.results?.[0]?.commit_id_unrecorded}`) && !!r.j?.results?.[0]?.commit_id_unrecorded, row('readback-loses-empty').shadow_error);
   r = await migrate('readback-loses-empty');
   ok('服务恢复后重跑：迁移成功', r.j?.results?.[0]?.result === 'migrated' && row('readback-loses-empty').commit_id !== '', JSON.stringify(r.j));
 
+  const beforeBin = published.length;
+  r = await migrate('has-binary');
+  ok('含二进制文件：点名留档不迁、不发布', r.j?.results?.[0]?.result === 'anomaly' && /assets\/logo\.png/.test(r.j.results[0].reason) && published.length === beforeBin && row('has-binary').commit_id === '', JSON.stringify(r.j));
   r = await migrate('empty-snapshot');
   ok('空快照：异常留档', r.j?.results?.[0]?.result === 'anomaly' && row('empty-snapshot').commit_id === '', JSON.stringify(r.j));
   db.close();

@@ -144,6 +144,25 @@ try {
   check('workbench moved off the trusted Odoo origin: pending ticket no longer relayed',moved.status<300 && !(await relayedRedirect('/go/'+wid+'/?state='+pending)));
   await http('PUT','/api/workbenches/'+wid,{'content-type':'application/json'},JSON.stringify({name:'fixture Odoo',url:env.WM_ODOO_URL+'/web',type:'web'}));
   check('workbench moved back: ticket checked against the current registry',await relayedRedirect('/go/'+wid+'/?state='+pending));
+  // Per-source ticket quota: one source refreshing the anonymous entry cannot crowd out others' tickets.
+  const fromSrc=async (ip)=>{ const x=await http('GET','/go/'+wid+'/',{...H,'x-real-ip':ip}); return {status:x.status,st:/wm_sso_\d+=([0-9a-f-]{36})/.exec(String(x.headers['set-cookie']??''))?.[1]??''}; };
+  const victim=await fromSrc('198.51.100.20');
+  let issued=0, limited=null;
+  for(let n=0;n<25;n++){ const x=await fromSrc('198.51.100.66'); if(x.status===302 && x.st) issued++; else { limited=x; break; } }
+  check('one source gets at most 20 live tickets, then 429',issued===20 && limited?.status===429);
+  check('another source still gets a ticket',(await fromSrc('198.51.100.21')).status===302);
+  check('flooding source did not evict the other source\'s ticket',!!victim.st && await relayedRedirect('/go/'+wid+'/?state='+victim.st));
+  // Shared store: a second instance on the same DATA_DIR honours tickets issued by the first one.
+  const peerPort=port+4;
+  const peer=spawn(process.execPath,['--disable-warning=ExperimentalWarning','server/src/index.ts'],{env:{...env,PORT:String(peerPort)},stdio:'ignore'});
+  try {
+    const pb='http://127.0.0.1:'+peerPort, until=Date.now()+30000; let up=false;
+    while(Date.now()<until){try{if((await fetch(pb+'/api/health')).status===200){up=true;break;}}catch{} await new Promise(q=>setTimeout(q,100));}
+    if(!up)throw Error('peer instance not ready');
+    const shared=await fromSrc('198.51.100.30');
+    await fetch(pb+'/web/login?redirect='+encodeURIComponent('/go/'+wid+'/?state='+shared.st),{headers:{host:'market.example.test'},redirect:'manual'});
+    check('ticket issued on one instance is honoured by another on the same data dir',seen.at(-1).path.includes('redirect='));
+  } finally {peer.kill(); await new Promise(q=>peer.once('exit',q));}
   for (const bad of ['/go/'+wid+'/?state=x','/go/'+wid+'/?state=00000000-0000-0000-0000-000000000000&x=1','/go/abc/?state=00000000-0000-0000-0000-000000000000','//evil.invalid/go/1/?state=00000000-0000-0000-0000-000000000000']) {
     await http('GET','/web/login?redirect='+encodeURIComponent(bad),{host:'market.example.test'});
     check('relay strips non-callback redirect '+JSON.stringify(bad),!seen.at(-1).path.includes('redirect='));

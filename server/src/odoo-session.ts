@@ -84,7 +84,32 @@ export function safeReturnPath(v: unknown): string | null {
 // 部署配置的 WM_ODOO_URL 也还是这个源；门户回调核对 state cookie 通过后作废票据（重放即失效）。
 const SSO_TICKET_TTL_MS = 10 * 60 * 1000; // 与 wm_sso_<id> state cookie 同寿命
 const SSO_TICKET_MAX = 4096;
-const ssoTickets = new Map<string, { id: number; origin: string; exp: number }>();
+/** 同一来源（clientIp）同时持有的有效票据上限：匿名 GET 就能签发，不设上限的话一个来源刷入口就能把别人的票据挤掉 */
+export const SSO_TICKET_PER_SOURCE = 20;
+export interface SsoTicket { id: number; origin: string; source: string; exp: number }
+/** 票据存储：缺省进程内存；index.ts 装配时换成 SQLite（重启不丢，同一 DATA_DIR 的多个实例共享） */
+export interface SsoTicketStore {
+  get(state: string): SsoTicket | null;
+  put(state: string, t: SsoTicket): void;
+  /** 原子地取出并删除（多实例下同一张票据只能被一个回调核销）；不存在返回 null */
+  take(state: string): SsoTicket | null;
+  /** 删掉过期票据；size > max 时删最早签发的，直到不超过 max */
+  sweep(now: number, max: number): void;
+  activeBySource(source: string, now: number): number;
+}
+const memoryTickets = new Map<string, SsoTicket>();
+const memoryStore: SsoTicketStore = {
+  get: (s) => memoryTickets.get(s) ?? null,
+  put: (s, t) => { memoryTickets.set(s, t); },
+  take: (s) => { const t = memoryTickets.get(s) ?? null; memoryTickets.delete(s); return t; },
+  sweep: (now, max) => {
+    for (const [k, t] of memoryTickets) if (t.exp <= now) memoryTickets.delete(k);
+    while (memoryTickets.size > max) memoryTickets.delete(memoryTickets.keys().next().value as string);
+  },
+  activeBySource: (src, now) => { let n = 0; for (const t of memoryTickets.values()) if (t.source === src && t.exp > now) n++; return n; },
+};
+let ticketStore: SsoTicketStore = memoryStore;
+export function setSsoTicketStore(store: SsoTicketStore): void { ticketStore = store; }
 let ssoTargetUrl: (id: number) => string | null = () => null;
 
 /** 门户装配时登记：按台 id 现查注册表里的地址（台不存在或已停用返回 null） */
@@ -92,18 +117,20 @@ export function setSsoTargetLookup(fn: (id: number) => string | null): void { ss
 
 const originOf = (url: string): string => { try { return new URL(url).origin; } catch { return ''; } };
 
-/** 为可信 Odoo 台签一张回调票据，返回 state（同时用作 wm_sso_<id> cookie 值） */
-export function issueSsoCallback(id: number, origin: string): string {
+/** 为可信 Odoo 台签一张回调票据，返回 state（同时用作 wm_sso_<id> cookie 值）；该来源已持有上限张有效票据时返回 null（调用方回 429） */
+export function issueSsoCallback(id: number, origin: string, source: string): string | null {
   const now = Date.now();
-  for (const [k, t] of ssoTickets) if (t.exp <= now) ssoTickets.delete(k);
-  while (ssoTickets.size >= SSO_TICKET_MAX) ssoTickets.delete(ssoTickets.keys().next().value as string);
+  ticketStore.sweep(now, SSO_TICKET_MAX - 1);
+  if (ticketStore.activeBySource(source, now) >= SSO_TICKET_PER_SOURCE) return null;
   const state = randomUUID();
-  ssoTickets.set(state, { id, origin, exp: now + SSO_TICKET_TTL_MS });
+  ticketStore.put(state, { id, origin, source, exp: now + SSO_TICKET_TTL_MS });
   return state;
 }
 
 function ssoTicketValid(id: number, state: string): boolean {
-  const t = ssoTickets.get(state);
+  return ticketMatches(ticketStore.get(state), id);
+}
+function ticketMatches(t: SsoTicket | null, id: number): boolean {
   if (!t || t.id !== id || t.exp <= Date.now()) return false;
   const url = ssoTargetUrl(id);
   if (!url || !isOdooSessionTarget(url) || originOf(url) !== t.origin) return false; // 台改了地址 / 不再是可信源
@@ -112,9 +139,7 @@ function ssoTicketValid(id: number, state: string): boolean {
 
 /** 门户 SSO 回调（state cookie 已核对）时作废票据；返回作废前是否有效。经典流程（中继关）没有票据，返回 false 不影响 */
 export function consumeSsoCallback(id: number, state: string): boolean {
-  const ok = ssoTicketValid(id, state);
-  ssoTickets.delete(state);
-  return ok;
+  return ticketMatches(ticketStore.take(state), id);
 }
 
 /** 同域登录中继专用（WM_ODOO_LOGIN_PROXY=1）：白名单页之外，只再收「持有效票据」的门户 SSO 回调

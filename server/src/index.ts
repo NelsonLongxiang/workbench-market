@@ -1,6 +1,6 @@
 import express from 'express';
 import { createStartupSecurityProbe, isStartupProbeRequest } from './startup-security-self-probe.ts';
-import { createLoginGate, loginGateMode } from './login-gate.ts';
+import { createLoginGate, loginGateMode, trustedProxies } from './login-gate.ts';
 import { installOdooLoginProxy } from './odoo-login-proxy.ts';
 import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
 import { recordAppDataEvent, cancelTaskCenterDeliveries, kickWorkbenchEvents, startWorkbenchEventWorker, registerWorkbenchEventRoutes } from './workbench-events.ts';
@@ -80,6 +80,12 @@ const loginGate = createLoginGate({
 });
 if (loginGate.enforced) console.log('[login-gate] enforce：无身份的请求一律拦截（页面 302 /login，API 401）');
 // /a2a/direct 入站签名（WM_A2A_DIRECT_SIG=require|accept|off，缺省 accept）：enforce 时强制 require；值不合法拒绝启动
+// 可信反代（WM_TRUSTED_PROXIES）：来源 IP（登录门限频与审计、SSO 票据按来源限额）只对这些对端认 X-Real-IP / XFF；非法项拒绝启动
+{
+  const tp = trustedProxies();
+  if (tp.invalid.length) { console.error(`[trusted-proxies] 拒绝启动：WM_TRUSTED_PROXIES 有非法项（只收 IP 或 CIDR）：${tp.invalid.join(', ')}`); process.exit(1); }
+  if (tp.entries.length) console.log(`[trusted-proxies] 认这些对端写入的 X-Real-IP/X-Forwarded-For：${tp.entries.join(', ')}（回环恒可信）`);
+}
 const A2A_DIRECT_SIG_RAW = directSigMode();
 const A2A_DIRECT_SIG_BODY = directSigBodyMode();
 if (!A2A_DIRECT_SIG_RAW || !A2A_DIRECT_SIG_BODY) {
@@ -2402,8 +2408,12 @@ app.post('/api/skills/:slug/migrate-layerfs', wrap(async (req, res) => {
   for (const v of vs.sort((a, b) => a.version - b.version)) {
     if (v.commit_id) { results.push({ version: v.version, result: 'skip', commit_id: v.commit_id }); continue; } // 幂等
     if (!v.snapshot_path || !existsSync(resolveSnap(v.snapshot_path))) { results.push({ version: v.version, result: 'anomaly', reason: '快照目录缺失' }); continue; }
-    const files: { path: string; content: string }[] = [];
-    (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp, 'utf8') }); } })(resolveSnap(v.snapshot_path));
+    // 按字节读：LayerFS 契约 v1 的 content 是文本，非 UTF-8（二进制）文件转不了，点名留档不迁，不拿改坏的内容去算摘要
+    const raw: { path: string; bytes: Buffer }[] = [];
+    (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else raw.push({ path: rel + e.name, bytes: readFileSync(fp) }); } })(resolveSnap(v.snapshot_path));
+    const binary = raw.find((f) => !Buffer.from(f.bytes.toString('utf8'), 'utf8').equals(f.bytes));
+    if (binary) { results.push({ version: v.version, result: 'anomaly', reason: `含非 UTF-8（二进制）文件 ${binary.path}：LayerFS 契约只收文本，留档不迁` }); continue; }
+    const files = raw.map((f) => ({ path: f.path, content: f.bytes.toString('utf8') }));
     // 0 字节文件是合法内容（如 Python 包的 __init__.py），照常迁移；整个快照一个文件都没有才算异常。
     // 判据改为摘要：快照读出的文件集必须与登记的 tree_digest 一致才发布（登记快照不可变，不改它），发布后再从服务读回同一 commit 重算
     if (files.length === 0) { results.push({ version: v.version, result: 'anomaly', reason: '空快照（留档不迁）' }); continue; }
@@ -2420,7 +2430,8 @@ app.post('/api/skills/:slug/migrate-layerfs', wrap(async (req, res) => {
       if (fr.ok && Array.isArray(fj.files)) back = SkillService.filesDigest(fj.files).digest;
     } catch { back = ''; }
     if (back !== v.tree_digest) {
-      db.prepare("UPDATE skill_versions SET shadow_status='failed', shadow_error='LayerFS readback digest mismatch; retry migrate-layerfs' WHERE id=? AND commit_id=''").run(v.id);
+      // 这个 commit 已在分支上但不登记（孤立）：记进 shadow_error 便于核对；月度整库重建（rebuildWmSkills）会清掉它
+      db.prepare("UPDATE skill_versions SET shadow_status='failed', shadow_error=? WHERE id=? AND commit_id=''").run(`LayerFS readback digest mismatch; orphan commit ${out.commit_id} (cleared by monthly rebuild); retry migrate-layerfs`, v.id);
       results.push({ version: v.version, result: 'error', reason: back ? '读回摘要与登记不符（不记 commit_id·可重跑）' : '读回失败（不记 commit_id·可重跑）', commit_id_unrecorded: out.commit_id });
       continue;
     }
@@ -3437,7 +3448,8 @@ import { renderSopRunner as renderSopRunnerRaw } from './sop-runner.ts';
 import { loadTokensCss, resolveTokensPath } from './design-tokens-css.ts';
 /** #321：执行页内联 DESIGN.md 生成的 --wm-* 变量，与市场前端同色同字号 */
 const renderSopRunner = (manifest: Parameters<typeof renderSopRunnerRaw>[0], app: Parameters<typeof renderSopRunnerRaw>[1]) => renderSopRunnerRaw(manifest, app, loadTokensCss()?.css ?? '');
-import { addOdooReturnPath, odooUrlDeprecated, isOdooLikeTarget, isOdooSessionTarget, odooSessionOf, stripOdooSession, trustedOdooOrigins } from './odoo-session.ts';
+import { sqliteSsoTicketStore } from './sso-ticket-store.ts';
+import { addOdooReturnPath, setSsoTicketStore, odooUrlDeprecated, isOdooLikeTarget, isOdooSessionTarget, odooSessionOf, stripOdooSession, trustedOdooOrigins } from './odoo-session.ts';
 import { collectTasks } from './tasks.ts';
 import { tasksReadAccess, createTaskSourceGrant, revokeTaskSourceGrant } from './tasks-read-access.ts';
 import { odooUrl, odooViewerWhoami, resolveOdooViewer } from './odoo-viewer.ts';
@@ -4592,6 +4604,7 @@ app.get('/api/mcp-rest/sop/runs/:id/files/:fileId', wrap(async (req, res) => {
 }));
 import { installPortal, goPrefix, moduleProxy } from './portal.ts';
 
+setSsoTicketStore(sqliteSsoTicketStore()); // SSO 回调票据落库：重启不丢、同一 DATA_DIR 的实例共享
 installPortal(app, wbById, { serveApp, readActiveManifest, renderSopRunner, appsRoot });
 
 // ---------- 静态托管前端（生产形态：单端口） ----------

@@ -57,7 +57,7 @@
 
 - **登录 cookie**：`wm_login`，HMAC 签名（密钥 `DATA_DIR/.wm-login-gate.key`，权限 600，首次启动自动生成），HttpOnly、SameSite=Lax、12 小时；https（或反代带 `X-Forwarded-Proto: https`）时加 Secure。cookie 里不含口令；**口令一轮换，所有已发 cookie 立即失效**。登出（顶栏「退出」/ `POST /api/auth/logout`）清 cookie 并作废这一枚（作废名单在进程内，重启后只靠 cookie 自身到期）。
 - **cookie 只管能不能进站**，管理写仍要口令头或 Odoo 管理员，和以前一样。
-- **登录限频**：按来源 IP 每分钟 10 次；连续失败 3 次起退避 1s、2s、4s…封顶 5 分钟，超限 429 带 `Retry-After`。来源 IP：TCP 对端是本机（同机反代）时取反代写入的 `X-Real-IP`，没有则取 `X-Forwarded-For` 最右一项；对端不是本机时只认 TCP 对端，客户端自带的转发头不信。所以本机反代必须**覆盖**这两个头（nginx：`proxy_set_header X-Real-IP $remote_addr;`、`proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`），不能原样透传客户端的值。口令错与未设置口令同答「口令无效」。审计只记成功/失败、来源 IP 与时间（stdout 一行 JSON，`source=login-gate`）。
+- **登录限频**：按来源 IP 每分钟 10 次；连续失败 3 次起退避 1s、2s、4s…封顶 5 分钟，超限 429 带 `Retry-After`。来源 IP：TCP 对端是可信反代时取反代写入的 `X-Real-IP`，没有则取 `X-Forwarded-For` 最右一项；可信反代 = 本机回环，加上 `WM_TRUSTED_PROXIES` 列出的 IP/CIDR（容器部署时 nginx 经 docker 网桥转进来，对端是网关如 `172.17.0.1`，要把它或所在网段写进来，否则全体访客算成同一个来源）。对端不可信时只认 TCP 对端，客户端自带的转发头不信。所以可信反代必须**覆盖**这两个头（nginx：`proxy_set_header X-Real-IP $remote_addr;`、`proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`），不能原样透传客户端的值。口令错与未设置口令同答「口令无效」。审计只记成功/失败、来源 IP 与时间（stdout 一行 JSON，`source=login-gate`）。
 - **/mcp**（以及 #385 的 `/openapi.json`、`/api/mcp-rest/*`）：不走登录 cookie，只认网关会话令牌；enforce 时 `MCP_GATEWAY` 强制视为 on（设了 off 会告警并忽略）。
 - **自产台（沙箱页）**：页面是不透明源，子资源请求带不了 cookie。已登录的人打开 `/apps/<slug>/`（或指向自产台的 `/go/<id>/`）会被 302 到 `/apps/<slug>/~wm/<查看凭证>/…`：凭证按台签名、12 小时有效，相对路径的脚本/样式/图片自然带上；页面里指向本台的绝对地址（`/apps/<slug>/…`、`/api/apps/<slug>/files/<id>`）由服务端和注入脚本补上凭证。带本台 `X-App-Token` 的 data/files/变量请求直接放行。凭证地址不能当顶层页面匿名打开（复制出去的链接要先登录）。
   已知不覆盖：沙箱页里内嵌**别的**台或 `/sop/`、`/go/<外部台>/` 的 iframe，以及 CSS 里 `url(/apps/…)` 形式的绝对地址——这些请求不带 cookie 也没有凭证，会被拦。
