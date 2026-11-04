@@ -3,16 +3,18 @@ import { Button, Descriptions, Popover, Tag, Tooltip, Typography } from 'antd';
 import { UserOutlined } from '@ant-design/icons';
 import { odooLoginHref } from '../pages/lifecycle-view';
 import { ODOO_SESSION_CONFIRMED, useOdooPopupLogin } from '../pages/odoo-login';
+import { logoutCurrentSession } from '../odoo-logout';
 
 /** #279 当前用户 chip（过渡：数据取 /api/lifecycle/whoami，即浏览器的 Odoo 会话；#221 落地后换成 /api/auth/me）。
  *  未配置生命周期源（503）或接口不通时不显示；未登录给 #277 的弹窗登录入口；角色暂无（来源待定、授权通道未实现）。 */
 interface WhoamiViewer { login: string; uid: number; sub: string; name: string | null; kind: string }
-type State = { kind: 'hidden' } | { kind: 'anon'; loginUrl: string | null } | { kind: 'denied'; error: string } | { kind: 'ok'; viewer: WhoamiViewer };
+type State = { kind: 'hidden' } | { kind: 'anon'; loginUrl: string | null } | { kind: 'denied'; error: string; logoutAvailable: boolean } | { kind: 'ok'; viewer: WhoamiViewer; logoutAvailable: boolean };
 
 const REFRESH_MS = 60_000; // 切回页面时最多每分钟复查一次（每次都要现查 Odoo）
 
 export default function ViewerChip() {
   const [state, setState] = useState<State>({ kind: 'hidden' });
+  const [loggingOut, setLoggingOut] = useState(false);
   const lastRef = useRef(0);
   const requestRef = useRef(0);
   const load = useCallback(async () => {
@@ -22,9 +24,9 @@ export default function ViewerChip() {
       const r = await fetch('/api/lifecycle/whoami', { cache: 'no-store', credentials: 'same-origin' });
       const j = await r.json().catch(() => null);
       if (request !== requestRef.current) return;
-      if (r.ok && j?.ok && j.viewer) setState({ kind: 'ok', viewer: j.viewer });
+      if (r.ok && j?.ok && j.viewer) setState({ kind: 'ok', viewer: j.viewer, logoutAvailable: j.odoo_logout_supported === true });
       else if (r.status === 401) setState({ kind: 'anon', loginUrl: typeof j?.login_url === 'string' ? j.login_url : null });
-      else if (r.status === 403) setState({ kind: 'denied', error: typeof j?.error === 'string' ? j.error : '该 Odoo 账号无权访问工作台' }); // 门户账号
+      else if (r.status === 403) setState({ kind: 'denied', error: typeof j?.error === 'string' ? j.error : '该 Odoo 账号无权访问工作台', logoutAvailable: j?.odoo_logout_supported === true }); // 门户账号
       else setState({ kind: 'hidden' });
     } catch { if (request === requestRef.current) setState({ kind: 'hidden' }); }
   }, []);
@@ -41,8 +43,14 @@ export default function ViewerChip() {
   const href = state.kind === 'anon' && state.loginUrl ? odooLoginHref(state.loginUrl) : null;
   const login = useOdooPopupLogin(href, () => {}); // confirmed event is the single refresh path
 
+  const logout = async () => {
+    setLoggingOut(true);
+    const result = await logoutCurrentSession();
+    if (!result.ok) window.alert(result.message ?? '无法确认已退出。');
+    window.location.assign('/login');
+  };
   if (state.kind === 'hidden') return null;
-  if (state.kind === 'denied') return <Tag icon={<UserOutlined />} color="error" style={{ marginInlineEnd: 0 }} title={state.error}>无权访问（门户账号）</Tag>;
+  if (state.kind === 'denied') return <span><Tag icon={<UserOutlined />} color="error" style={{ marginInlineEnd: 0 }} title={state.error}>无权访问（门户账号）</Tag>{state.logoutAvailable && <Button size="small" type="link" loading={loggingOut} onClick={logout}>退出 Odoo</Button>}</span>;
   if (state.kind === 'anon') {
     return (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -61,14 +69,14 @@ export default function ViewerChip() {
   const label = `${v.name ?? v.login}（${v.login}）· ${v.kind}`;
   return (
     <Popover trigger="click" title="当前用户" content={(
-      <Descriptions size="small" column={1} style={{ width: 280 }} items={[
+      <><Descriptions size="small" column={1} style={{ width: 280 }} items={[
         { key: 'name', label: '显示名', children: v.name ?? '—' },
         { key: 'login', label: '登录名', children: v.login },
         { key: 'kind', label: '类别', children: v.kind },
         { key: 'sub', label: '主体', children: <Typography.Text code>{v.sub}</Typography.Text> },
         { key: 'roles', label: '角色', children: <Typography.Text type="secondary">暂无（授权通道未实现）</Typography.Text> },
         { key: 'src', label: '来源', children: <Typography.Text type="secondary" className="wm-caption">Odoo 会话（过渡，#221 落地后换市场统一登录）</Typography.Text> },
-      ]} />
+      ]} />{state.logoutAvailable && <Button size="small" loading={loggingOut} onClick={logout}>退出 Odoo</Button>}</>
     )}>
       <Tag icon={<UserOutlined />} color="blue" style={{ cursor: 'pointer', marginInlineEnd: 0, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', verticalAlign: 'middle' }} title={label}>{label}</Tag>
     </Popover>

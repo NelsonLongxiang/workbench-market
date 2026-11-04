@@ -1,6 +1,7 @@
 import express from 'express';
 import { createStartupSecurityProbe, isStartupProbeRequest } from './startup-security-self-probe.ts';
 import { createLoginGate, loginGateMode } from './login-gate.ts';
+import { installOdooLoginProxy } from './odoo-login-proxy.ts';
 import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
 import { recordAppDataEvent, cancelTaskCenterDeliveries, kickWorkbenchEvents, startWorkbenchEventWorker, registerWorkbenchEventRoutes } from './workbench-events.ts';
 import cors from 'cors';
@@ -89,6 +90,7 @@ const A2A_DIRECT_SIG: DirectSigMode = loginGate.enforced ? 'require' : A2A_DIREC
 if (loginGate.enforced && A2A_DIRECT_SIG_RAW !== 'require') console.warn(`[a2a-direct-sig] WM_A2A_DIRECT_SIG=${A2A_DIRECT_SIG_RAW} 被忽略：WM_LOGIN_GATE=enforce 时 /a2a/direct 强制 require`);
 const directSig = createDirectSigVerifier({ audiences: () => [marketPublicUrl()], bodyMode: A2A_DIRECT_SIG_BODY });
 app.use(loginGate.middleware);
+installOdooLoginProxy(app); // narrow same-origin Odoo login, before any body parser
 // Explicit opt-in only; no default content listener, no live configuration writes.
 const contentCfg = contentConfig(process.env);
 const portalObserver = process.env.WM_PORTAL_OBSERVE === '1' ? createPortalObservation(db, id => !!svc<WorkbenchService>('workbench').exists(id)) : null;
@@ -293,6 +295,10 @@ const odooAdminReqs = new WeakMap<express.Request, string>(); // 本次请求经
 async function odooAdminOf(cookieHeader: string): Promise<string | null> {
   const sid = odooSessionOf(cookieHeader);
   if (!sid) return null;
+  // Explicit relay logout revokes Odoo sessions; never reuse a stale admin verdict.
+  if (process.env.WM_ODOO_LOGIN_PROXY === '1') {
+    try { const who = await resolveOdooViewer(cookieHeader); return who.ok && who.viewer.admin ? who.viewer.login : null; } catch { return null; }
+  }
   const key = createHash('sha256').update(sid).digest('hex');
   const hit = odooAdminCache.get(key);
   if (hit && Date.now() - hit.at < ODOO_ADMIN_TTL_MS) return hit.login;
@@ -2193,7 +2199,7 @@ app.get('/api/lifecycle/whoami', wrap(async (req, res) => {
   const r = await lifecycleWhoami(String(req.headers.cookie ?? ''));
   res.setHeader('Cache-Control', 'private, no-store');
   // #279：未登录时带登录入口（顶栏 chip 复用 #277 弹窗流；中继页只认白名单 return，这里固定 /lifecycle）
-  res.status(r.http).json(r.http === 401 ? { ...r.body, login_url: odooLoginUrl(req, '/lifecycle') } : r.body);
+  res.status(r.http).json(r.http === 401 ? { ...r.body, login_url: odooLoginUrl(req, '/lifecycle') } : (r.http === 200 || r.http === 403) && process.env.WM_ODOO_LOGIN_PROXY === '1' ? { ...r.body, odoo_logout_supported: true } : r.body);
 }));
 app.get('/api/lifecycle/status', wrap(async (req, res) => {
   if (!adminGuard(req, res)) return; // 配置清单不对远程匿名读开放（评审：只写面有远程门）

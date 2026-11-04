@@ -116,7 +116,11 @@ export function installPortal(
             // 真实 Odoo（19 核心 http.py request.redirect 默认 local=True）会把绝对回跳剥成 Odoo 本地路径（website 再加 /zh_CN 前缀 → 404），
             // Odoo 无法跨源跳回市场；return 流改为本页（市场源）把浏览器送去 Odoo 登录（不带 redirect 参数，登录后落在 Odoo 自己的页面），
             // 回程交给市场页轮询 /api/lifecycle/whoami（弹窗流，#275）。
-            const odooLogin = `${u.origin}/web/login`;
+            // Optional same-origin login relay keeps LAN and public visitors on their
+            // current authority; the upstream is still the fixed LC_ODOO_URL.
+            const odooLogin = process.env.WM_ODOO_LOGIN_PROXY === '1' && u.origin === new URL(String(process.env.LC_ODOO_URL)).origin
+              ? `/web/login?redirect=${encodeURIComponent(ret)}`
+              : `${u.origin}/web/login`;
             res.setHeader('Cache-Control', 'no-store');
             return res.status(200).type('html').send(
               '<!doctype html><meta charset="utf-8"><title>跳转 Odoo 登录…</title>' +
