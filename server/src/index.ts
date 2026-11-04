@@ -153,6 +153,15 @@ if (VAULT_HOST && !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9
   console.error('[vault] 拒绝启动：WM_VAULT_HOST 只接受主机名（如 vault.example.com，不带协议、端口、路径）');
   process.exit(1);
 }
+// 属主取舍（不开 9801、不用专用域名，又要管理员免输主密码）：显式开关 WM_VAULT_SERVER_PASSWORD_ON_MAIN=accept-same-origin-risk
+// 才让服务端持有主密码时凭据库也在主域名开放。残余风险：管理员登着时，/go/ 外站页面或带脚本的 SOP 正文可静默读走全部凭据明文。
+const VAULT_ON_MAIN_RAW = String(process.env.WM_VAULT_SERVER_PASSWORD_ON_MAIN ?? '').trim();
+if (VAULT_ON_MAIN_RAW && VAULT_ON_MAIN_RAW !== 'accept-same-origin-risk') {
+  console.error('[vault] 拒绝启动：WM_VAULT_SERVER_PASSWORD_ON_MAIN 只接受 accept-same-origin-risk 或不设');
+  process.exit(1);
+}
+const VAULT_ON_MAIN = VAULT_ON_MAIN_RAW === 'accept-same-origin-risk';
+if (VAULT_ON_MAIN) console.warn('[vault] WM_VAULT_SERVER_PASSWORD_ON_MAIN=accept-same-origin-risk：服务端持有主密码时凭据库在主域名开放，同源内容可静默读走全部凭据');
 function onVaultHost(req: express.Request): boolean {
   if (!VAULT_HOST) return false;
   return String(req.headers.host ?? '').trim().toLowerCase().replace(/:\d+$/, '') === VAULT_HOST;
@@ -2892,7 +2901,7 @@ function vaultGuard(req: express.Request, res: express.Response): boolean {
   }
   return adminGuard(req, res);
 }
-mountVault(app, vaultGuard, (req) => surfaceOf(req) === 'control' || onVaultHost(req)); // 服务端持有主密码时只在控制面或凭据库专用域名开放（两者都不承载 /go/、/sop/、/apps/）
+mountVault(app, vaultGuard, (req) => VAULT_ON_MAIN || surfaceOf(req) === 'control' || onVaultHost(req)); // 服务端持有主密码时只在控制面或凭据库专用域名开放（两者都不承载 /go/、/sop/、/apps/）；属主显式接受同源风险时主域名也开放
 workbenchVars.mount(app); // #336 /api/workbenches/:id/vars
 
 // 存活 / 就绪分开：/api/health 是存活（只看本进程，不发外部请求）；/api/health/ready 是就绪（含 LayerFS）。
