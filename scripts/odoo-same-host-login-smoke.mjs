@@ -111,6 +111,7 @@ try {
     check(label+' logged-in whoami succeeds',who.status===200 && JSON.parse(who.text).viewer?.login==='fixture');
   }
   // Plain /go/<id>/ entry (no return): same-host relay, back to this workbench's SSO callback; upstream host never shown.
+  let lastSt='';
   for (const [label,host,https] of [['LAN plain','192.0.2.88:9800',false],['public plain','market.example.test',true]]) {
     const h={host,...(https?{'x-forwarded-proto':'https'}:{})};
     const entry=await http('GET','/go/'+wid+'/',h);
@@ -122,7 +123,27 @@ try {
     check(label+' login returns to the workbench SSO callback',post.status===303 && post.headers.location==='/go/'+wid+'/?state='+st);
     const back=await http('GET',post.headers.location,{...h,cookie:'session_id='+SID1+'; wm_sso_'+wid+'='+st});
     check(label+' callback passes the state check',back.status!==400 && String(back.headers['set-cookie']??'').includes('wm_sso_ok_'+wid+'=1'));
+    lastSt=st;
   }
+  // Counterexamples (direct-24dd6c02): the callback redirect is honoured only with a ticket the portal issued for a trusted Odoo workbench.
+  const H={host:'market.example.test'};
+  const relayedRedirect=async (target)=>{ await http('GET','/web/login?redirect='+encodeURIComponent(target),H); return seen.at(-1).path.includes('redirect='); };
+  const postedRedirect=async (target)=>{ const p=await http('POST','/web/login',{...H,origin:'http://market.example.test','sec-fetch-site':'same-origin','content-type':'application/x-www-form-urlencoded',cookie:'session_id='+SID0},new URLSearchParams({login:'fixture',password:'fixture-password',redirect:target}).toString()); return {forwarded:new URLSearchParams(seen.at(-1).body).has('redirect'),location:String(p.headers.location??'')}; };
+  const other=JSON.parse((await http('POST','/api/workbenches',{'content-type':'application/json'},JSON.stringify({name:'untrusted page',url:'http://127.0.0.1:9/',type:'web'}))).text).id;
+  const ticket=async ()=>/wm_sso_\d+=([0-9a-f-]{36})/.exec(String((await http('GET','/go/'+wid+'/',H)).headers['set-cookie']??''))?.[1]??'';
+  const fresh=await ticket();
+  check('non-Odoo target with a well-formed uuid is not relayed',!(await relayedRedirect('/go/'+other+'/?state=00000000-0000-4000-8000-000000000000')));
+  check('a real ticket cannot be moved to a non-Odoo workbench',!(await relayedRedirect('/go/'+other+'/?state='+fresh)));
+  let pr=await postedRedirect('/go/'+other+'/?state='+fresh);
+  check('login POST never lands on the non-Odoo workbench',!pr.forwarded && !pr.location.includes('/go/'+other+'/'));
+  check('forged state for the Odoo workbench is not relayed',!(await relayedRedirect('/go/'+wid+'/?state=00000000-0000-4000-8000-000000000000')));
+  check('fresh ticket for the Odoo workbench is relayed',await relayedRedirect('/go/'+wid+'/?state='+fresh));
+  check('consumed ticket is not relayed again (replay)',!!lastSt && !(await relayedRedirect('/go/'+wid+'/?state='+lastSt)));
+  const pending=await ticket();
+  const moved=await http('PUT','/api/workbenches/'+wid,{'content-type':'application/json'},JSON.stringify({name:'fixture Odoo',url:'http://127.0.0.1:9/web',type:'web'}));
+  check('workbench moved off the trusted Odoo origin: pending ticket no longer relayed',moved.status<300 && !(await relayedRedirect('/go/'+wid+'/?state='+pending)));
+  await http('PUT','/api/workbenches/'+wid,{'content-type':'application/json'},JSON.stringify({name:'fixture Odoo',url:env.WM_ODOO_URL+'/web',type:'web'}));
+  check('workbench moved back: ticket checked against the current registry',await relayedRedirect('/go/'+wid+'/?state='+pending));
   for (const bad of ['/go/'+wid+'/?state=x','/go/'+wid+'/?state=00000000-0000-0000-0000-000000000000&x=1','/go/abc/?state=00000000-0000-0000-0000-000000000000','//evil.invalid/go/1/?state=00000000-0000-0000-0000-000000000000']) {
     await http('GET','/web/login?redirect='+encodeURIComponent(bad),{host:'market.example.test'});
     check('relay strips non-callback redirect '+JSON.stringify(bad),!seen.at(-1).path.includes('redirect='));

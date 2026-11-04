@@ -6,6 +6,8 @@
  * 台的类型与地址可以经 MCP workbench_register 由 agent 随意登记，所以「类型含 odoo / 端口 8069」不能决定谁拿会话，
  * 只认管理员在部署环境里给的源（WM_ODOO_ORIGINS、WM_ODOO_URL）。HTTP 与 WS 升级两条转发路径都按这里判定与剥除。
  */
+import { randomUUID } from 'node:crypto';
+
 export const ODOO_SESSION_COOKIE = 'session_id';
 
 const SID_RE = /(?:^|;\s*)session_id=([^;\s]+)/;
@@ -75,14 +77,54 @@ export function safeReturnPath(v: unknown): string | null {
   } catch { return null; }
 }
 
-/** 同域登录中继专用（WM_ODOO_LOGIN_PROXY=1）：白名单页之外，再收门户 SSO 回调 /go/<台id>/?state=<uuid>——
- *  不带 return 的普通 /go/<id>/ 入口登录完要回到这个回调，由门户核对 wm_sso_<id> state cookie（不符 400）后才转发会话。
- *  只收这一种精确形状：数字台 id、单个 state 参数、小写 uuid，不带别的参数和 hash */
+// ---------- 门户 SSO 回调票据（同域登录中继专用） ----------
+// 不带 return 的普通 /go/<id>/ 入口登录完要回本台 SSO 回调 /go/<id>/?state=<uuid>。只看形状不够：任何台 id 配一个
+// 形状合法的 uuid，都能让中继把刚登录的人送到不可信台（运维席 direct-24dd6c02 反例）。所以回调地址只认门户自己签发、
+// 未过期、未用过的票据：票据把台 id、state 和签发时的可信 Odoo 源绑在一起；每次核对都按注册表现查该台仍是同一可信源，
+// 部署配置的 WM_ODOO_URL 也还是这个源；门户回调核对 state cookie 通过后作废票据（重放即失效）。
+const SSO_TICKET_TTL_MS = 10 * 60 * 1000; // 与 wm_sso_<id> state cookie 同寿命
+const SSO_TICKET_MAX = 4096;
+const ssoTickets = new Map<string, { id: number; origin: string; exp: number }>();
+let ssoTargetUrl: (id: number) => string | null = () => null;
+
+/** 门户装配时登记：按台 id 现查注册表里的地址（台不存在或已停用返回 null） */
+export function setSsoTargetLookup(fn: (id: number) => string | null): void { ssoTargetUrl = fn; }
+
+const originOf = (url: string): string => { try { return new URL(url).origin; } catch { return ''; } };
+
+/** 为可信 Odoo 台签一张回调票据，返回 state（同时用作 wm_sso_<id> cookie 值） */
+export function issueSsoCallback(id: number, origin: string): string {
+  const now = Date.now();
+  for (const [k, t] of ssoTickets) if (t.exp <= now) ssoTickets.delete(k);
+  while (ssoTickets.size >= SSO_TICKET_MAX) ssoTickets.delete(ssoTickets.keys().next().value as string);
+  const state = randomUUID();
+  ssoTickets.set(state, { id, origin, exp: now + SSO_TICKET_TTL_MS });
+  return state;
+}
+
+function ssoTicketValid(id: number, state: string): boolean {
+  const t = ssoTickets.get(state);
+  if (!t || t.id !== id || t.exp <= Date.now()) return false;
+  const url = ssoTargetUrl(id);
+  if (!url || !isOdooSessionTarget(url) || originOf(url) !== t.origin) return false; // 台改了地址 / 不再是可信源
+  return originOf(configuredOdooUrl()) === t.origin; // 部署配置的 Odoo 换了
+}
+
+/** 门户 SSO 回调（state cookie 已核对）时作废票据；返回作废前是否有效。经典流程（中继关）没有票据，返回 false 不影响 */
+export function consumeSsoCallback(id: number, state: string): boolean {
+  const ok = ssoTicketValid(id, state);
+  ssoTickets.delete(state);
+  return ok;
+}
+
+/** 同域登录中继专用（WM_ODOO_LOGIN_PROXY=1）：白名单页之外，只再收「持有效票据」的门户 SSO 回调
+ *  /go/<台id>/?state=<uuid>（精确形状：数字台 id、单个 state 参数、小写 uuid，不带别的参数和 hash） */
 export function safeLoginRedirect(v: unknown): string | null {
   const page = safeReturnPath(v);
   if (page) return page;
   const s = String(v ?? '');
-  return /^\/go\/[1-9][0-9]{0,9}\/\?state=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(s) ? s : null;
+  const m = /^\/go\/([1-9][0-9]{0,9})\/\?state=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.exec(s);
+  return m && ssoTicketValid(Number(m[1]), m[2]) ? s : null;
 }
 
 /** 就地剥除转发请求里的 Odoo 会话（剥空则删掉 Cookie 头） */
