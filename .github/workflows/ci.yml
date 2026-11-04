@@ -31,6 +31,9 @@ jobs:
           python -m pip install playwright==1.57.0
           python -m playwright install --with-deps chromium
       - run: pnpm --filter web build
+      - name: Odoo same-host login (synthetic HTTP and Chromium)
+        run: |
+          CHROME_BIN=$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()') node scripts/odoo-same-host-login-smoke.mjs
       - name: SOP metadata-only history UI (#309, synthetic intercepted API)
         env:
           PYTHON: python

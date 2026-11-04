@@ -1,6 +1,7 @@
 import express from 'express';
 import { createStartupSecurityProbe, isStartupProbeRequest } from './startup-security-self-probe.ts';
 import { createLoginGate, loginGateMode } from './login-gate.ts';
+import { installOdooLoginProxy } from './odoo-login-proxy.ts';
 import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
 import { recordAppDataEvent, cancelTaskCenterDeliveries, kickWorkbenchEvents, startWorkbenchEventWorker, registerWorkbenchEventRoutes } from './workbench-events.ts';
 import cors from 'cors';
@@ -89,6 +90,7 @@ const A2A_DIRECT_SIG: DirectSigMode = loginGate.enforced ? 'require' : A2A_DIREC
 if (loginGate.enforced && A2A_DIRECT_SIG_RAW !== 'require') console.warn(`[a2a-direct-sig] WM_A2A_DIRECT_SIG=${A2A_DIRECT_SIG_RAW} 被忽略：WM_LOGIN_GATE=enforce 时 /a2a/direct 强制 require`);
 const directSig = createDirectSigVerifier({ audiences: () => [marketPublicUrl()], bodyMode: A2A_DIRECT_SIG_BODY });
 app.use(loginGate.middleware);
+installOdooLoginProxy(app); // narrow same-origin Odoo login, before any body parser
 // Explicit opt-in only; no default content listener, no live configuration writes.
 const contentCfg = contentConfig(process.env);
 const portalObserver = process.env.WM_PORTAL_OBSERVE === '1' ? createPortalObservation(db, id => !!svc<WorkbenchService>('workbench').exists(id)) : null;

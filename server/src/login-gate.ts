@@ -25,6 +25,7 @@ import { join } from 'node:path';
 import { isIP } from 'node:net';
 import { browserMarked, rawLoopback, surfaceOf } from './surfaces.ts';
 import { odooSessionOf } from './odoo-session.ts';
+import { odooLoginProxyRoute } from './odoo-login-proxy.ts';
 
 export type LoginGateMode = 'enforce' | 'off';
 /** 取开关；值不合法返回 null（调用方拒绝启动，参照 MCP_GATEWAY） */
@@ -212,6 +213,7 @@ export function createLoginGate(deps: Deps) {
   function publicRoute(req: express.Request, p: string): boolean {
     const m = req.method;
     const get = m === 'GET' || m === 'HEAD';
+    if (surfaceOf(req) === 'market' && odooLoginProxyRoute(m, String(req.url ?? '').split('?')[0])) return true;
     if (p === '/mcp') return true; // 网关 Bearer 会话认证；enforce 时网关强制开
     // #385 MCP 工具的 REST 开放：路由内只认网关会话令牌（mcpGatewaySession，无效 401），同 /mcp 不走浏览器登录
     if ((get && p === '/openapi.json') || p.startsWith('/api/mcp-rest/')) return true;
