@@ -202,6 +202,16 @@ CREATE INDEX IF NOT EXISTS idx_bindings_target ON bindings (target_type, target_
 CREATE INDEX IF NOT EXISTS idx_bindings_node ON bindings (agent_node, revoked_at);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_bindings_natural ON bindings (target_type, target_slug, agent_node, direction);
 -- S3 豁免面可观测（评审席裁下批）：REMOTE_ALLOW 快照逐次落库·启动 diff 变更面
+-- 门户 SSO 回调票据（同域登录中继·odoo-session.ts）：放库里重启不丢、同一 DATA_DIR 的多个实例共享；只存台 id/源/来源/到期，不存会话
+CREATE TABLE IF NOT EXISTS sso_tickets (
+  state TEXT PRIMARY KEY,
+  wb_id INTEGER NOT NULL,
+  origin TEXT NOT NULL,
+  source TEXT NOT NULL,
+  exp INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sso_tickets_exp ON sso_tickets(exp);
+CREATE INDEX IF NOT EXISTS idx_sso_tickets_source ON sso_tickets(source, exp);
 CREATE TABLE IF NOT EXISTS remote_allow_state (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   snapshot TEXT NOT NULL,
