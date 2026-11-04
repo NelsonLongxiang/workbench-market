@@ -98,7 +98,7 @@ try {
   if(!ready)throw Error('fixture server not ready: '+errors.slice(-800));
   const reg=await http('POST','/api/workbenches',{'content-type':'application/json'},JSON.stringify({name:'fixture Odoo',url:env.LC_ODOO_URL+'/web',type:'web'}));
   const wid=JSON.parse(reg.text).id; if(!wid)throw Error('fixture registration failed');
-  for (const [label,host,https] of [['LAN','192.168.3.88:9800',false],['public','jf-tech.davoria.cn',true]]) {
+  for (const [label,host,https] of [['LAN','192.0.2.88:9800',false],['public','market.example.test',true]]) {
     const h={host,...(https?{'x-forwarded-proto':'https'}:{})};
     let board=await http('GET','/api/lifecycle/board',h); let login=JSON.parse(board.text).login_url;
     check(label+' anonymous board returns relative login URL',board.status===401 && login==='/go/'+wid+'/?return=%2Flifecycle');
@@ -116,7 +116,7 @@ try {
     check(label+' authenticated board succeeds',board.status===200 && JSON.parse(board.text).ok===true);
   }
   // Plain /go/<id>/ entry (no return): same-host relay, back to this workbench's SSO callback; upstream host never shown.
-  for (const [label,host,https] of [['LAN plain','192.168.3.88:9800',false],['public plain','jf-tech.davoria.cn',true]]) {
+  for (const [label,host,https] of [['LAN plain','192.0.2.88:9800',false],['public plain','market.example.test',true]]) {
     const h={host,...(https?{'x-forwarded-proto':'https'}:{})};
     const entry=await http('GET','/go/'+wid+'/',h);
     const loc=String(entry.headers.location??''); const st=/wm_sso_\d+=([0-9a-f-]{36})/.exec(String(entry.headers['set-cookie']??''))?.[1]??'';
@@ -129,7 +129,7 @@ try {
     check(label+' callback passes the state check',back.status!==400 && String(back.headers['set-cookie']??'').includes('wm_sso_ok_'+wid+'=1'));
   }
   for (const bad of ['/go/'+wid+'/?state=x','/go/'+wid+'/?state=00000000-0000-0000-0000-000000000000&x=1','/go/abc/?state=00000000-0000-0000-0000-000000000000','//evil.invalid/go/1/?state=00000000-0000-0000-0000-000000000000']) {
-    await http('GET','/web/login?redirect='+encodeURIComponent(bad),{host:'jf-tech.davoria.cn'});
+    await http('GET','/web/login?redirect='+encodeURIComponent(bad),{host:'market.example.test'});
     check('relay strips non-callback redirect '+JSON.stringify(bad),!seen.at(-1).path.includes('redirect='));
   }
   const offPort=port+3, offData=join(tmp,'proxy-off'); mkdirSync(offData);
@@ -143,29 +143,29 @@ try {
     check('relay off keeps the classic upstream login redirect',z.status===302 && String(z.headers.get('location')).startsWith(env.LC_ODOO_URL+'/web/login?redirect='));
   } finally {off.kill(); await new Promise(q=>off.once('exit',q));}
   let before=seen.length;
-  let r=await http('POST','/web/login',{host:'jf-tech.davoria.cn',origin:'https://attacker.invalid','sec-fetch-site':'cross-site','content-type':'application/x-www-form-urlencoded'},'login=x');
+  let r=await http('POST','/web/login',{host:'market.example.test',origin:'https://attacker.invalid','sec-fetch-site':'cross-site','content-type':'application/x-www-form-urlencoded'},'login=x');
   check('cross-origin login rejected before upstream',r.status===403 && seen.length===before);
-  r=await http('POST','/web/login',{host:'jf-tech.davoria.cn','content-type':'application/json'},'{}');
+  r=await http('POST','/web/login',{host:'market.example.test','content-type':'application/json'},'{}');
   check('JSON login rejected before upstream',r.status===415 && seen.length===before);
-  r=await http('GET','/web/session/get_session_info',{host:'jf-tech.davoria.cn'});
+  r=await http('GET','/web/session/get_session_info',{host:'market.example.test'});
   check('arbitrary Odoo API not proxied',seen.length===before && !String(r.headers['content-type']).includes('application/json'));
-  r=await http('GET','/web/assets/a/fixture.css',{host:'jf-tech.davoria.cn'});
+  r=await http('GET','/web/assets/a/fixture.css',{host:'market.example.test'});
   check('Odoo login assets available without setting a session',r.status===200 && r.text==='/* fixture */' && !r.headers['set-cookie']);
-  r=await http('GET','/website/translations',{host:'jf-tech.davoria.cn'});
+  r=await http('GET','/website/translations',{host:'market.example.test'});
   check('read-only Odoo translations are proxied',r.status===200 && r.text==='{}');
-  r=await http('GET','/web/login?redirect=%2F%2Fevil.invalid',{host:'jf-tech.davoria.cn'});
+  r=await http('GET','/web/login?redirect=%2F%2Fevil.invalid',{host:'market.example.test'});
   check('untrusted return removed before Odoo',!seen.at(-1).path.includes('evil.invalid'));
-  r=await http('POST','/web/login',{host:'jf-tech.davoria.cn','content-type':'application/x-www-form-urlencoded',cookie:'session_id='+SID0},new URLSearchParams({login:'fixture',password:'fixture-password',redirect:'//evil.invalid'}).toString());
+  r=await http('POST','/web/login',{host:'market.example.test','content-type':'application/x-www-form-urlencoded',cookie:'session_id='+SID0},new URLSearchParams({login:'fixture',password:'fixture-password',redirect:'//evil.invalid'}).toString());
   check('untrusted form return removed',!r.headers.location?.includes('evil.invalid') && !seen.at(-1).body.includes('evil.invalid'));
-  r=await http('POST','/web/login',{host:'jf-tech.davoria.cn','content-type':'application/x-www-form-urlencoded'},'login=fixture-totp');
+  r=await http('POST','/web/login',{host:'market.example.test','content-type':'application/x-www-form-urlencoded'},'login=fixture-totp');
   check('TOTP challenge stays on current host',r.status===302 && r.headers.location==='/web/login/totp?redirect=%2Flifecycle');
-  r=await http('GET',r.headers.location,{host:'jf-tech.davoria.cn'});
+  r=await http('GET',r.headers.location,{host:'market.example.test'});
   check('TOTP form reaches fixed Odoo',r.status===200 && r.text==='synthetic-totp');
-  r=await http('POST','/web/login/totp',{host:'jf-tech.davoria.cn','content-type':'application/x-www-form-urlencoded'},'totp_token=123456');
+  r=await http('POST','/web/login/totp',{host:'market.example.test','content-type':'application/x-www-form-urlencoded'},'totp_token=123456');
   check('TOTP completes with Odoo session',r.status===303 && r.headers.location==='/lifecycle' && r.headers['set-cookie']?.[0]?.includes(SID1));
-  r=await http('POST','/web/login',{host:'jf-tech.davoria.cn','content-type':'application/x-www-form-urlencoded'},'login=fixture-foreign');
+  r=await http('POST','/web/login',{host:'market.example.test','content-type':'application/x-www-form-urlencoded'},'login=fixture-foreign');
   check('foreign upstream redirect rejected',r.status===502 && !r.headers.location);
-  r=await http('POST','/web/login',{host:'jf-tech.davoria.cn','content-type':'application/x-www-form-urlencoded'},'x='+('a'.repeat(17000)));
+  r=await http('POST','/web/login',{host:'market.example.test','content-type':'application/x-www-form-urlencoded'},'x='+('a'.repeat(17000)));
   check('large form rejected without contacting Odoo',r.status===413);
   // Exercise the actual enforce gate on a second isolated instance.
   const gatePort=port+1, gateData=join(tmp,'gate-data'); mkdirSync(gateData);
