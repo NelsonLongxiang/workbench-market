@@ -1,6 +1,6 @@
 import express from 'express';
 import { createStartupSecurityProbe, isStartupProbeRequest } from './startup-security-self-probe.ts';
-import { createLoginGate, loginGateMode } from './login-gate.ts';
+import { createLoginGate, loginGateMode, trustedProxies } from './login-gate.ts';
 import { installOdooLoginProxy } from './odoo-login-proxy.ts';
 import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
 import { recordAppDataEvent, cancelTaskCenterDeliveries, kickWorkbenchEvents, startWorkbenchEventWorker, registerWorkbenchEventRoutes } from './workbench-events.ts';
@@ -80,6 +80,12 @@ const loginGate = createLoginGate({
 });
 if (loginGate.enforced) console.log('[login-gate] enforce：无身份的请求一律拦截（页面 302 /login，API 401）');
 // /a2a/direct 入站签名（WM_A2A_DIRECT_SIG=require|accept|off，缺省 accept）：enforce 时强制 require；值不合法拒绝启动
+// 可信反代（WM_TRUSTED_PROXIES）：来源 IP（登录门限频与审计、SSO 票据按来源限额）只对这些对端认 X-Real-IP / XFF；非法项拒绝启动
+{
+  const tp = trustedProxies();
+  if (tp.invalid.length) { console.error(`[trusted-proxies] 拒绝启动：WM_TRUSTED_PROXIES 有非法项（只收 IP 或 CIDR）：${tp.invalid.join(', ')}`); process.exit(1); }
+  if (tp.entries.length) console.log(`[trusted-proxies] 认这些对端写入的 X-Real-IP/X-Forwarded-For：${tp.entries.join(', ')}（回环恒可信）`);
+}
 const A2A_DIRECT_SIG_RAW = directSigMode();
 const A2A_DIRECT_SIG_BODY = directSigBodyMode();
 if (!A2A_DIRECT_SIG_RAW || !A2A_DIRECT_SIG_BODY) {

@@ -91,7 +91,8 @@ export interface SsoTicket { id: number; origin: string; source: string; exp: nu
 export interface SsoTicketStore {
   get(state: string): SsoTicket | null;
   put(state: string, t: SsoTicket): void;
-  del(state: string): void;
+  /** 原子地取出并删除（多实例下同一张票据只能被一个回调核销）；不存在返回 null */
+  take(state: string): SsoTicket | null;
   /** 删掉过期票据；size > max 时删最早签发的，直到不超过 max */
   sweep(now: number, max: number): void;
   activeBySource(source: string, now: number): number;
@@ -100,7 +101,7 @@ const memoryTickets = new Map<string, SsoTicket>();
 const memoryStore: SsoTicketStore = {
   get: (s) => memoryTickets.get(s) ?? null,
   put: (s, t) => { memoryTickets.set(s, t); },
-  del: (s) => { memoryTickets.delete(s); },
+  take: (s) => { const t = memoryTickets.get(s) ?? null; memoryTickets.delete(s); return t; },
   sweep: (now, max) => {
     for (const [k, t] of memoryTickets) if (t.exp <= now) memoryTickets.delete(k);
     while (memoryTickets.size > max) memoryTickets.delete(memoryTickets.keys().next().value as string);
@@ -127,7 +128,9 @@ export function issueSsoCallback(id: number, origin: string, source: string): st
 }
 
 function ssoTicketValid(id: number, state: string): boolean {
-  const t = ticketStore.get(state);
+  return ticketMatches(ticketStore.get(state), id);
+}
+function ticketMatches(t: SsoTicket | null, id: number): boolean {
   if (!t || t.id !== id || t.exp <= Date.now()) return false;
   const url = ssoTargetUrl(id);
   if (!url || !isOdooSessionTarget(url) || originOf(url) !== t.origin) return false; // 台改了地址 / 不再是可信源
@@ -136,9 +139,7 @@ function ssoTicketValid(id: number, state: string): boolean {
 
 /** 门户 SSO 回调（state cookie 已核对）时作废票据；返回作废前是否有效。经典流程（中继关）没有票据，返回 false 不影响 */
 export function consumeSsoCallback(id: number, state: string): boolean {
-  const ok = ssoTicketValid(id, state);
-  ticketStore.del(state);
-  return ok;
+  return ticketMatches(ticketStore.take(state), id);
 }
 
 /** 同域登录中继专用（WM_ODOO_LOGIN_PROXY=1）：白名单页之外，只再收「持有效票据」的门户 SSO 回调
