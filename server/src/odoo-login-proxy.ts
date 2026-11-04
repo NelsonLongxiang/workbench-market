@@ -105,12 +105,14 @@ export function installOdooLoginProxy(app: express.Express): void {
         // 另追加一条只含市场 frame-ancestors 的独立 CSP。浏览器对多条 CSP 逐条都要满足，结果只会比上游更严，不会放宽：
         // 上游 XFO 是 DENY、或任一条上游 CSP 的 frame-ancestors 是 'none' → 追加 'none'；其余 → 追加 'self'（挡住别的源）。
         // XFO 只保留上游 DENY，其余 SAMEORIGIN（不支持 frame-ancestors 的旧浏览器靠它）；nosniff 恒设
-        const xfo = String(proxyRes.headers['x-frame-options'] ?? '').trim().toUpperCase();
-        // 从 rawHeaders 取上游的每一条 CSP 头（headers 里重复的 CSP 已被 node 用逗号并成一条）
+        // 从 rawHeaders 取上游的每一条 CSP / XFO 头（headers 里重复的头已被 node 用逗号并成一条）
         const raw = (proxyRes as { rawHeaders?: string[] }).rawHeaders ?? [];
-        const upstreamCsp = raw.flatMap((v, i) => (i % 2 === 0 && v.toLowerCase() === 'content-security-policy' ? [String(raw[i + 1])] : []));
-        const forbidAll = xfo === 'DENY' || upstreamCsp.some((v) => v.split(';').some((d) => /^\s*frame-ancestors\s+'none'\s*$/i.test(d)));
-        proxyRes.headers['x-frame-options'] = xfo === 'DENY' ? 'DENY' : 'SAMEORIGIN';
+        const rawAll = (name: string) => raw.flatMap((v, i) => (i % 2 === 0 && v.toLowerCase() === name ? [String(raw[i + 1])] : []));
+        const upstreamCsp = rawAll('content-security-policy');
+        // 上游 XFO 只要任一条、任一项（逗号拆开）是 DENY，就按 DENY 算——重复下发的 XFO 不能被认成「没禁」
+        const xfoDeny = rawAll('x-frame-options').some((v) => v.split(',').some((t) => t.trim().toUpperCase() === 'DENY'));
+        const forbidAll = xfoDeny || upstreamCsp.some((v) => v.split(';').some((d) => /^\s*frame-ancestors\s+'none'\s*$/i.test(d)));
+        proxyRes.headers['x-frame-options'] = xfoDeny ? 'DENY' : 'SAMEORIGIN';
         proxyRes.headers['x-content-type-options'] = 'nosniff';
         proxyRes.headers['content-security-policy'] = [...upstreamCsp, `frame-ancestors ${forbidAll ? "'none'" : "'self'"}`] as unknown as string;
       },

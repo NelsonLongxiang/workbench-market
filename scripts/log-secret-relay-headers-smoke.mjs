@@ -3,7 +3,7 @@
  *  ① 门户 /go/<id>/ 上游下发 Set-Cookie（含 Odoo session_id），进程 stdout/stderr 里不出现 cookie 值，只记 cookie 名；查询串也不进日志；
  *  ② 同域登录中继 /web/login 的嵌入策略取交集：上游 CSP 头逐条原样保留，另追加一条市场的 frame-ancestors
  *     （上游 XFO DENY 或任一条 frame-ancestors 'none' → 'none'，否则 'self'）；XFO 只留上游 DENY、其余 SAMEORIGIN；nosniff 恒设。
- *     六种上游（无头 / 只有 XFO DENY / CSP none+DENY / frame-ancestors 指向别的源 / 多条 CSP / XFO ALLOW-FROM）逐一核对响应头，
+ *     七种上游（无头 / 只有 XFO DENY / CSP none+DENY / frame-ancestors 指向别的源 / 多条 CSP / XFO ALLOW-FROM / 重复 XFO 含 DENY）逐一核对响应头，
  *     带 CHROME_BIN 时每一种都用 Chromium 分别从同源、跨源 iframe 加载：原本禁止的照旧禁止，别的源一律挡住，不会比上游放宽。
  *  对抗（direct-d9c28a29 / direct-871e4312 / direct-237dbde1）：路径里藏 %3F / %253F 编码的查询串不进日志。 */
 import { spawn } from 'node:child_process';
@@ -36,6 +36,8 @@ const UPSTREAM = {
   foreign: (ev) => ({ 'x-frame-options': `ALLOW-FROM ${ev}`, 'content-security-policy': `default-src 'self'; frame-ancestors ${ev}` }),
   multiCsp: () => ({ 'content-security-policy': ["default-src 'self'", "script-src 'self' 'unsafe-inline'"] }),
   allowFrom: (ev) => ({ 'x-frame-options': `ALLOW-FROM ${ev}` }),
+  // 上游重复下发 XFO（一条 SAMEORIGIN、一条 DENY）：任一条 DENY 就按 DENY 算
+  dupXfo: () => ({ 'x-frame-options': ['SAMEORIGIN', 'DENY'] }),
 };
 const up = createServer((req, res) => {
   req.resume();
@@ -131,6 +133,7 @@ try {
     foreign:  { fa: "'self'", xfo: 'SAMEORIGIN', same: 'blocked', cross: 'blocked', keep: [`default-src 'self'; frame-ancestors ${EVIL}`] },
     multiCsp: { fa: "'self'", xfo: 'SAMEORIGIN', same: 'loaded',  cross: 'blocked', keep: ["default-src 'self'", "script-src 'self' 'unsafe-inline'"] },
     allowFrom:{ fa: "'self'", xfo: 'SAMEORIGIN', same: 'loaded',  cross: 'blocked', keep: [] },
+    dupXfo:   { fa: "'none'", xfo: 'DENY',       same: 'blocked', cross: 'blocked', keep: [] },
   };
   if (!process.env.CHROME_BIN) console.log('  - Chromium iframe 检查 SKIP（设 CHROME_BIN 才跑）');
   for (const [mode, want] of Object.entries(EXPECT)) {
