@@ -195,7 +195,7 @@ function UnlockedView({ status, onLocked, onError }: { status: VaultStatus; onLo
     <WmPage
       subTitle={<Tooltip title={`库文件：${status.path} · ${status.upstream}`}><span>{status.shared_with_dsh ? '与 DSH 插件共用库文件' : 'dsh-vault 同款加密格式'}</span></Tooltip>}
       extra={[
-        status.env_password ? <Tag key="env" color="default">主密码来自 DSH_VAULT_PASSWORD</Tag> : <Button key="lock" icon={<LockOutlined />} onClick={lock}>锁定</Button>,
+        status.env_password ? <Tag key="env" color="default">服务端自动解锁（主密码来自 {status.password_source === 'file' ? 'DSH_VAULT_PASSWORD_FILE' : 'DSH_VAULT_PASSWORD'}）</Tag> : <Button key="lock" icon={<LockOutlined />} onClick={lock}>锁定</Button>,
         <Button key="add" type="primary" icon={<PlusOutlined />} onClick={() => setEditing('new')}>新增条目</Button>,
       ]}
     >

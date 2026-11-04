@@ -6,10 +6,12 @@
  *    - 每个路由（**读也算**）都过 guard：浏览器只认控制面 + 口令；业务面一律 403（业务面跑着 /go/ 外站与 SOP 同源内容）。
  *    - 列表/回收站/健康报告只回无密摘要（自定义字段只给键名）；完整条目只在 GET /entries/:id 显式读取，且记入库内审计。
  *    - 主密码只在进程内存：解锁后闲置 WM_VAULT_IDLE_MIN 分钟（缺省 15）由定时器主动上锁；取验证码不算活动。
- *      环境变量 DSH_VAULT_PASSWORD 存在时按需自动解锁、不闲置上锁。
+ *      服务端配了主密码（DSH_VAULT_PASSWORD_FILE 优先，其次 DSH_VAULT_PASSWORD）时，管理员访问即按需自动解锁、不闲置上锁，不用在页面输入。
+ *      文件模式下文件为准：读不到或为空回 503，不回落到环境变量。
  *    - 解锁/上锁/重开串行执行；文件被别的进程改过就先重开再读写；重开不删别人正持有的写锁。
  *    - 新建库的主密码过 vault-policy 门槛（长度/全数字/常见口令/弱），不过就拒、不落盘；已有库照常解锁，只回 weak_master 提示。 */
 import type express from 'express';
+import { readFileSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { join } from 'node:path';
@@ -49,6 +51,21 @@ function idleMs(): number {
 
 export function vaultPath(): string {
   return process.env.WM_VAULT_PATH?.trim() || join(dataDir, 'vault', 'default.json');
+}
+
+/** 服务端配置的主密码来源：'file' | 'env' | ''（未配置 = 页面输入） */
+function serverPasswordSource(): 'file' | 'env' | '' {
+  if (String(process.env.DSH_VAULT_PASSWORD_FILE ?? '').trim()) return 'file';
+  return process.env.DSH_VAULT_PASSWORD ? 'env' : '';
+}
+/** 每次开库现读（改文件不用重启）；只去掉末尾一个换行，主密码里的空格原样保留 */
+function serverPassword(): string {
+  const file = String(process.env.DSH_VAULT_PASSWORD_FILE ?? '').trim();
+  if (!file) return process.env.DSH_VAULT_PASSWORD ?? '';
+  let pw: string;
+  try { pw = readFileSync(file, 'utf8').replace(/\r?\n$/, ''); } catch { throw new VaultHttpError(503, '主密码文件读不到（DSH_VAULT_PASSWORD_FILE）', 'vault_password_file'); }
+  if (!pw) throw new VaultHttpError(503, '主密码文件为空（DSH_VAULT_PASSWORD_FILE）', 'vault_password_file');
+  return pw;
 }
 
 /** weak：主密码按新标准不达标的原因（旧库照常能开，只提示；空 = 达标） */
@@ -101,9 +118,9 @@ function unlocked(touch = true): Promise<Open> {
   return serial(async () => {
     if (idleExpired(open)) { const cur = open; open = null; await retire(cur); }
     if (!open) {
-      const envPw = process.env.DSH_VAULT_PASSWORD;
+      const envPw = serverPassword();
       if (!envPw) throw new VaultHttpError(423, '凭据库已锁定，请先输入主密码解锁', 'vault_locked');
-      if (!(await fileSig(vaultPath()))) assertNewMaster(envPw, 'DSH_VAULT_PASSWORD ');
+      if (!(await fileSig(vaultPath()))) assertNewMaster(envPw, serverPasswordSource() === 'file' ? 'DSH_VAULT_PASSWORD_FILE 里的主密码' : 'DSH_VAULT_PASSWORD ');
       open = await doOpen(envPw, true);
     }
     const sig = await fileSig(vaultPath());
@@ -207,7 +224,8 @@ export function mountVault(app: express.Express, guard: Guard): void {
       shared_with_dsh: path === defaultVaultPath('default'),
       exists: sig !== null,
       unlocked: open !== null,
-      env_password: Boolean(process.env.DSH_VAULT_PASSWORD),
+      env_password: serverPasswordSource() !== '',
+      password_source: serverPasswordSource(),
       idle_lock_minutes: idle / 60_000,
       count: open ? open.store.list().length : null,
       weak_master: open ? open.weak.length > 0 : null,
