@@ -13,7 +13,7 @@ import { join, posix } from 'node:path';
 import { svc } from './context.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { CookieService } from './services/cookie.ts';
-import { configuredOdooUrl, isOdooSessionTarget, odooSessionOf, safeReturnPath, stripOdooSession } from './odoo-session.ts';
+import { configuredOdooUrl, consumeSsoCallback, isOdooSessionTarget, issueSsoCallback, odooSessionOf, safeReturnPath, setSsoTargetLookup, stripOdooSession } from './odoo-session.ts';
 
 
 export const goPrefix = /^\/go\/(\d+)(.*)$/;
@@ -32,6 +32,8 @@ export function installPortal(
   },
 ): void {
   const { serveApp, readActiveManifest, renderSopRunner, appsRoot } = deps;
+  // SSO 回调票据核对时按注册表现查台地址（已停用的台不算）
+  setSsoTargetLookup((id) => { const w = wbById(id); return w && w.enabled !== false && w.enabled !== 0 && typeof w.url === 'string' ? w.url : null; });
   const goPrefix = /^\/go\/(\d+)(.*)$/;
 
   // id 校验 + 404（在代理前拦截，避免 router 内抛错变 500）
@@ -104,6 +106,7 @@ export function installPortal(
         // #170 P1④（安全项）：回跳经市场且 state 校验——不匹配 400 拒（CSRF/open-redirect 防线）；匹配即消费
         if (backState) {
           if (!stMatch || stMatch[1] !== backState) return res.status(400).type('text').send('SSO state 校验失败（请从市场门户重新进入）');
+          consumeSsoCallback(Number(m[1]), backState); // 中继签发的回调票据一次性：用过即作废
           res.clearCookie(stateCookie, { path: `/go/${m[1]}/` });
           res.cookie(`wm_sso_ok_${m[1]}`, '1', { httpOnly: true, sameSite: 'lax', path: `/go/${m[1]}/`, maxAge: 12 * 3600 * 1000 }); // #170 P10
           res.clearCookie(retCookie, { path: `/go/${m[1]}/` });
@@ -128,12 +131,18 @@ export function installPortal(
               `<script>location.replace(${JSON.stringify(odooLogin).replace(/</g, '\\u003c')})</script>`
             );
           }
-          const state = randomUUID();
+          // 同域登录中继开着且目标就是部署配置的 Odoo：留在当前主机登录（上游主机名可能是容器名，浏览器解析不了），
+          // 回跳是本台的 SSO 回调（相对路径）；state 由服务端签成一次性票据，中继只放行持有效票据的回调
+          const relay = process.env.WM_ODOO_LOGIN_PROXY === '1' && u.origin === new URL(configuredOdooUrl()).origin;
+          const state = relay ? issueSsoCallback(Number(m[1]), u.origin) : randomUUID();
           const _mkHost = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').trim();
           const _mkProto = (String(req.headers['x-forwarded-proto'] ?? '').includes('https') || req.secure) ? 'https' : 'http';
           const redirectUri = encodeURIComponent(`${_mkProto}://${_mkHost}/go/${m[1]}/?state=${state}`); // #170 P8 绝对回跳 // 回跳经市场（带 state·不裸跳目标域）
           res.cookie(stateCookie, state, { httpOnly: true, sameSite: 'lax', path: `/go/${m[1]}/`, maxAge: 10 * 60 * 1000 });
           res.clearCookie(retCookie, { path: `/go/${m[1]}/` });
+          if (relay) {
+            return res.redirect(302, `/web/login?redirect=${encodeURIComponent(`/go/${m[1]}/?state=${state}`)}`);
+          }
           return res.redirect(302, `${u.origin}/web/login?redirect=${redirectUri}&state=${state}`);
         }
         const okCookie = `wm_sso_ok_${m[1]}`;
