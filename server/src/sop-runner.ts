@@ -139,13 +139,12 @@ window.__SOP__ = ${boot};
     timers[stepKey] = setTimeout(function () { save(stepKey); }, 800);
   }
   function save(stepKey) {
-    if (!runId) return;
     var value = collect(stepKey);
     try { localStorage.setItem(LS + '.' + stepKey, JSON.stringify(value)); } catch (e) {}
-    fetch('/api/sop/runs/' + runId, {
+    return ensureRun().then(function () { return fetch('/api/sop/runs/' + runId, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ stepKey: stepKey, value: value })
-    }).then(function (r) {
+    }); }).then(function (r) {
       dot(stepKey, r.ok ? 'saved' : 'dirty');
       if (!r.ok) setState('保存失败（HTTP ' + r.status + '）——已缓冲本地，将随下次输入重试');
     }).catch(function () {
@@ -209,11 +208,39 @@ window.__SOP__ = ${boot};
     window.__wmPinnedRun = resume; // 供状态呈现判断（只读定位不改写入权限）
     var resumeCap = '';
     try { var rc = JSON.parse(localStorage.getItem(LS + '.rcap') || 'null'); if (rc && rc.id === resume) resumeCap = String(rc.c || ''); } catch (e) {}
-    var p = resume
-      ? fetch('/api/sop/runs/' + resume, resumeCap ? { headers: { 'X-Run-Read-Capability': resumeCap } } : {}).then(function (r) { return r.ok ? r.json() : null; })
-      : fetch('/api/sop/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: BOOT.slug }) }).then(function (r) { return r.json(); });
-    p.then(function (run) {
+    // 没有可续的记录时不建 run：打开页面（含无头验收、巡检、只看一眼）不留 0 步的 running 记录，第一次保存/上传/完成才建（ensureRun）
+    if (!resume) {
+      var ub0 = document.getElementById('upload-btn'); if (ub0) ub0.disabled = false;
+      $('#finish').disabled = false;
+      setRunMeta('未开始 · v' + BOOT.version);
+      setState('开始填写即自动建执行记录');
+      return;
+    }
+    fetch('/api/sop/runs/' + resume, resumeCap ? { headers: { 'X-Run-Read-Capability': resumeCap } } : {}).then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (run) {
       if (!run || !run.id) { setState('开启执行记录失败'); return; }
+      adoptRun(run, resumeCap, true);
+    }).catch(function () { setState('无法连接市场服务——填写仍会缓冲本地'); });
+  }
+
+  var creating = null;
+  function ensureRun() {
+    if (runId) return Promise.resolve(runId);
+    if (!creating) {
+      creating = fetch('/api/sop/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: BOOT.slug }) })
+        .then(function (r) { return r.json(); })
+        .then(function (run) {
+          if (!run || !run.id) throw new Error('开启执行记录失败');
+          adoptRun(run, '', false);
+          return runId;
+        });
+      creating.catch(function () { creating = null; setState('开启执行记录失败——填写已缓冲本地，继续输入会重试'); });
+    }
+    return creating;
+  }
+
+  // backfill=false：刚建的空记录，不回填（页面上正在填、尚未落盘的输入不能被清掉）
+  function adoptRun(run, resumeCap, backfill) {
       runId = run.id;
       // #page-wire（监督席 direct-c869d6db）：令牌接线——创建响应即得；恢复场景读本机存档（同浏览器同 run）
       runUploadToken = String(run.upload_token || '');
@@ -227,6 +254,8 @@ window.__SOP__ = ${boot};
       var un2 = document.getElementById('upload-note'); if (un2) un2.textContent = runUploadToken ? '' : '（无令牌：严格模式下需管理员口令或重开执行）';
       localStorage.setItem(LS, JSON.stringify({ id: run.id, status: 'running' }));
       setRunMeta('run #' + run.id + ' · v' + (run.version || BOOT.version));
+      $('#finish').disabled = run.status !== 'running';
+      if (!backfill) { setState('执行中——数据自动保存'); return; }
       // 回填已有数据（恢复现场）：远端优先，本地缓冲兜底
       BOOT.steps.forEach(function (k) {
         var remote = run.data && run.data[k];
@@ -235,12 +264,10 @@ window.__SOP__ = ${boot};
         fill(k, remote || local);
         if (remote || local) dot(k, 'saved');
       });
-      $('#finish').disabled = run.status !== 'running';
       if (run.status === 'finished') { setState('已完成——冻结录入（只读）'); document.querySelectorAll('[data-field]').forEach(function (el) { el.disabled = true; }); }
       else if (run.private_read === 'authorization-required' || !run.data) { setState(runReadCap ? '' : '此记录需读授权（旧记录或无凭据）——已回退本地缓冲'); }
       else { setState('执行中——数据自动保存'); }
       void renderAgentExtras(run);
-    }).catch(function () { setState('无法连接市场服务——填写仍会缓冲本地'); });
   }
 
   document.addEventListener('input', function (ev) {
@@ -258,12 +285,13 @@ window.__SOP__ = ${boot};
       var inp = document.getElementById('upload-input');
       var note = document.getElementById('upload-note');
       if (!inp || !inp.files || !inp.files.length) { if (note) note.textContent = '请选择文件'; return; }
-      if (!runId) { if (note) note.textContent = '执行未开始'; return; }
       var fd = new FormData();
       fd.append('file', inp.files[0]);
-      var hdr = runUploadToken ? { 'X-Run-Upload-Token': runUploadToken } : {};
       btn.disabled = true;
-      fetch('/api/sop/runs/' + runId + '/files', { method: 'POST', body: fd, headers: hdr })
+      ensureRun().then(function () {
+        var hdr = runUploadToken ? { 'X-Run-Upload-Token': runUploadToken } : {};
+        return fetch('/api/sop/runs/' + runId + '/files', { method: 'POST', body: fd, headers: hdr });
+      })
         .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, j: j }; }); })
         .then(function (res) {
           if (note) note.textContent = res.ok ? ('已上传：' + (res.j.name || '')) : ('上传失败(' + res.status + ')：' + (res.j.error || ''));
@@ -288,13 +316,12 @@ window.__SOP__ = ${boot};
   });
 
   $('#finish').addEventListener('click', function () {
-    if (!runId) return;
     var bad = $$('[data-field]').filter(function (el) { return !el.disabled && !checkField(el, true); });
     if (bad.length) { setState('有 ' + bad.length + ' 个字段未填或格式不符，已标红——改正后再完成（草稿已保存）'); bad[0].focus(); return; }
-    // 收尾前把所有未落盘的缓冲步骤推上去
-    Promise.all(BOOT.steps.filter(function (k) { return timers[k]; }).map(function (k) {
-      clearTimeout(timers[k]); return save(k), Promise.resolve();
-    })).then(function () {
+    // 收尾前把所有未落盘的缓冲步骤推上去（还没建记录时 ensureRun 先建）
+    ensureRun().then(function () { return Promise.all(BOOT.steps.filter(function (k) { return timers[k]; }).map(function (k) {
+      clearTimeout(timers[k]); return save(k);
+    })); }).then(function () {
       return fetch('/api/sop/runs/' + runId + '/finish', { method: 'POST' });
     }).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error((j && j.error) || ('HTTP ' + r.status)); return j; }); }).then(function (out) {
       localStorage.setItem(LS, JSON.stringify({ id: runId, status: 'finished' }));

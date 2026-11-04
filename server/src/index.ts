@@ -3570,8 +3570,11 @@ async function callTool(name: string, args: any, subject = 'anonymous'): Promise
       const sqlArgs: unknown[] = [];
       if (slug) { where.push('sop_slug = ?'); sqlArgs.push(slug); }
       if (status) { where.push('status = ?'); sqlArgs.push(status); }
-      const sql = `SELECT * FROM sop_runs ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY updated_at DESC LIMIT 50`;
-      return svc<SopService>('sop').runsQuery(sql, sqlArgs);
+      // 翻页：limit 1–200（缺省 50）+ offset；同时间戳按 id 排定，翻页不漏不重
+      const limit = Math.min(200, Math.max(1, Math.trunc(Number(args?.limit ?? 50)) || 50));
+      const offset = Math.max(0, Math.trunc(Number(args?.offset ?? 0)) || 0);
+      const sql = `SELECT * FROM sop_runs ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`;
+      return svc<SopService>('sop').runsQuery(sql, [...sqlArgs, limit, offset]);
     }
     case 'sop_run_finish':
       return sopRunFinishCore(Number(args?.run_id));

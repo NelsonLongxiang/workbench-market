@@ -119,8 +119,8 @@ export const MCP_TOOLS: McpToolDef[] = [
   {
     name: 'sop_run_list',
     category: 'read',
-    description: '列 SOP 执行记录（可按 slug/status 过滤）。',
-    inputSchema: { type: 'object', properties: { slug: { type: 'string' }, status: { type: 'string', enum: ['running', 'finished'] } }, additionalProperties: false },
+    description: '列 SOP 执行记录（可按 slug/status 过滤；按更新时间倒序，limit 缺省 50、最大 200，offset 翻页：回满 limit 条就继续取下一页）。',
+    inputSchema: { type: 'object', properties: { slug: { type: 'string' }, status: { type: 'string', enum: ['running', 'finished'] }, limit: { type: 'integer', minimum: 1, maximum: 200 }, offset: { type: 'integer', minimum: 0 } }, additionalProperties: false },
   },
   // ── LayerFS 沙箱（第十域 · 步骤 4）──
   {

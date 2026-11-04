@@ -115,15 +115,26 @@ with sync_playwright() as p:
         print(json.dumps({'results': RESULTS}))
         sys.exit(1)
 
-    # ---- 2. 新开 Runner：cap 落 localStorage ----
+    # ---- 2. 新开 Runner：只打开不建 run；第一次填写才建，cap 落 localStorage ----
     try:
+        _, before = req('GET', f'/api/sop/runs?slug={SLUG}')
         goto(page, f'{BASE}/sop/{SLUG}/')
         page.wait_for_timeout(1500)
+        _, after_open = req('GET', f'/api/sop/runs?slug={SLUG}')
+        record('只打开 Runner 不建 run', len(after_open) == len(before), f'before={len(before)} after={len(after_open)}')
+        page.fill('[data-field="note"]', 'first input')
+        page.wait_for_timeout(2500)
+        _, after_fill = req('GET', f'/api/sop/runs?slug={SLUG}')
+        record('第一次填写建 1 个 run', len(after_fill) == len(before) + 1, f'before={len(before)} after={len(after_fill)}')
         stored = page.evaluate(f"() => localStorage.getItem('wm.sop.run.{SLUG}.rcap')")
         parsed = json.loads(stored) if stored else None
         record('Runner 把 cap 存入 localStorage',
                bool(parsed) and isinstance(parsed.get('id'), int) and len(str(parsed.get('c', ''))) >= 64,
                f'localStorage={str(stored)[:80]}')
+        fresh = page.evaluate(
+            f"() => fetch('/api/sop/runs/{parsed['id'] if parsed else 0}', {{ headers: {{ 'X-Run-Read-Capability': {json.dumps(str((parsed or {}).get('c', '')))} }} }}).then(r => r.json())")
+        record('第一次填写的值落进新 run', ((fresh or {}).get('data') or {}).get('inspect', {}).get('note') == 'first input',
+               f"data={str((fresh or {}).get('data'))[:80]}")
     except Exception as e:
         record('Runner 把 cap 存入 localStorage', False, str(e)[:160])
 
