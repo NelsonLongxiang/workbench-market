@@ -131,7 +131,7 @@ export function createContentSurface(config: Config, deps: Deps) {
     const cookie = sid.length === 1 && /^session_id=[A-Za-z0-9_.=-]{16,512}$/.test(sid[0]) ? sid[0] : '';
     try { who = await deps.viewer(cookie); } catch { /* fail closed */ }
     if (!who || who.internal !== true) {
-      res.status(401).type('html').send('<!doctype html><meta charset="utf-8"><title>Login required</title><p>请先在可信入口登录，再返回此工作台启动页。</p><a href="/lifecycle" rel="noopener noreferrer">前往可信登录入口</a>'); return;
+      res.status(401).type('html').send('<!doctype html><meta charset="utf-8"><title>Login required</title><p>请先在可信入口登录，再返回此工作台启动页。</p><a href="/tasks" rel="noopener noreferrer">前往可信登录入口</a>'); return;
     }
     const handle = randomBytes(32).toString('base64url'), epoch = randomBytes(24).toString('base64url');
     viewers.set(handle, { cookie, subject: who.subject, epoch, expires: now() + 300_000 });

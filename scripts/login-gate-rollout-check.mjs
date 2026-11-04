@@ -51,8 +51,8 @@ const gh = await startFakeGithub();
 
 // ---------- 实例 ----------
 function boot(extra) {
-  const env = { ...process.env, PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: DATA, NODE_ENV: 'test', REDIS_URL: '', LAYERFS_SERVICE_URL: '', WM_GITHUB_API: gh.api, ADMIN_TOKEN: ADMIN, MARKET_PUBLIC_URL: B, LC_ODOO_URL: ODOO, WM_ODOO_ORIGINS: ODOO, MCP_GATEWAY: 'on', WM_A2A_DIRECT_SIG: '', WM_A2A_DIRECT_SIG_BODY: '', ...extra };
-  for (const k of ['LC_YGL_BIN', 'LC_YGL_HOME', 'LC_WORKBENCH_KEY_FILE', 'YGL_HOME']) delete env[k];
+  const env = { ...process.env, PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: DATA, NODE_ENV: 'test', REDIS_URL: '', LAYERFS_SERVICE_URL: '', WM_GITHUB_API: gh.api, ADMIN_TOKEN: ADMIN, MARKET_PUBLIC_URL: B, WM_ODOO_URL: ODOO, WM_ODOO_ORIGINS: ODOO, MCP_GATEWAY: 'on', WM_A2A_DIRECT_SIG: '', WM_A2A_DIRECT_SIG_BODY: '', ...extra };
+  for (const k of ['WM_EXTENSIONS_DIR', 'YGL_HOME']) delete env[k];
   const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = ''; child.stdout.on('data', (c) => (out += c)); child.stderr.on('data', (c) => (out += c));
   const exited = new Promise((r) => child.once('exit', r));
@@ -206,29 +206,25 @@ try {
   r = await req('POST', '/api/apps/rc-app/data', T(newTok), { x: 1 });
   row('台', '新台令牌写数据（沙箱页）', '放行（非 401）', st(r), r.status !== 401 && r.status < 500);
 
-  console.log('\n— 生命周期、任务中心、Odoo 登录回跳');
-  r = await req('GET', '/lifecycle', PAGE);
-  row('生命周期', '远程匿名打开 /lifecycle', '302 /login?next=%2Flifecycle', st(r), r.status === 302 && r.h.get('location') === '/login?next=%2Flifecycle');
-  r = await req('GET', '/api/lifecycle/whoami', ODOO_IN);
-  row('生命周期', 'Odoo 内部员工 /api/lifecycle/whoami', '过登录门（未配生命周期源时路由 503）', st(r), !gate401(r));
-  r = await req('GET', '/api/lifecycle/board', ODOO_IN);
-  row('生命周期', 'Odoo 内部员工 /api/lifecycle/board', '过登录门', st(r), !gate401(r));
-  r = await req('POST', '/api/lifecycle/approve', { ...ODOO_IN, origin: B, 'sec-fetch-site': 'same-origin' }, {});
-  row('生命周期', 'Odoo 内部员工 POST /api/lifecycle/approve', '过登录门（参数不全由路由拒）', st(r), !gate401(r));
-  r = await req('GET', '/api/lifecycle/whoami', { ...REMOTE, cookie: 'session_id=portalsession00000000001' });
-  row('生命周期', 'Odoo 门户账号', '401（登录门只认内部员工）', st(r), gate401(r));
+  console.log('\n— 统一待办、Odoo 身份、任务中心、Odoo 登录回跳');
+  r = await req('GET', '/tasks', PAGE);
+  row('统一待办', '远程匿名打开 /tasks', '302 /login?next=%2Ftasks', st(r), r.status === 302 && r.h.get('location') === '/login?next=%2Ftasks');
+  r = await req('GET', '/api/auth/viewer', ODOO_IN);
+  row('Odoo 身份', 'Odoo 内部员工 /api/auth/viewer', '过登录门', st(r), !gate401(r));
+  r = await req('GET', '/api/auth/viewer', { ...REMOTE, cookie: 'session_id=portalsession00000000001' });
+  row('Odoo 身份', 'Odoo 门户账号', '401（登录门只认内部员工）', st(r), gate401(r));
   r = await req('GET', '/api/tasks', ODOO_ADM);
-  row('生命周期', 'Odoo 管理员只带会话读 /api/tasks', '200', st(r), r.status === 200);
+  row('统一待办', 'Odoo 管理员只带会话读 /api/tasks', '200', st(r), r.status === 200);
   r = await req('POST', '/api/task-center/tasks/999999/publish', BRW, {});
   row('任务中心', '只有登录 cookie（非管理员）发布任务', '403（管理写仍要口令或 Odoo 管理员）', st(r), r.status === 403);
   r = await req('POST', '/api/task-center/tasks/999999/publish', { ...REMOTE, 'x-admin-token': ADMIN }, {});
   row('任务中心', '远程带口令发布任务', '过两道门（不存在的任务 404）', st(r), r.status === 404);
   r = await req('GET', `/go/${odooWb.id}/?return=%2Flogin`, PAGE);
   row('Odoo', '登录中继 /go/<Odoo 台>/?return=/login（匿名）', '200 跳转页', st(r), r.status === 200 && r.text.includes(`${ODOO}/web/login`));
-  r = await req('GET', `/go/${odooWb.id}/?return=%2Flifecycle`, PAGE);
-  row('Odoo', '旧入口 ?return=/lifecycle（匿名）', '302 /login（只能从登录页走）', st(r), r.status === 302, 'info', '匿名用户先到登录页；已登录用户在 /lifecycle 照旧可用');
-  r = await req('GET', `/go/${odooWb.id}/?return=%2Flifecycle`, { ...PAGE, cookie: `wm_login=${ck}` });
-  row('Odoo', '已登录用户走 ?return=/lifecycle', '200 跳转页', st(r), r.status === 200);
+  r = await req('GET', `/go/${odooWb.id}/?return=%2Ftasks`, PAGE);
+  row('Odoo', '旧入口 ?return=/tasks（匿名）', '302 /login（只能从登录页走）', st(r), r.status === 302, 'info', '匿名用户先到登录页；已登录用户在 /tasks 照旧可用');
+  r = await req('GET', `/go/${odooWb.id}/?return=%2Ftasks`, { ...PAGE, cookie: `wm_login=${ck}` });
+  row('Odoo', '已登录用户走 ?return=/tasks', '200 跳转页', st(r), r.status === 200);
   r = await req('GET', `/sso/callback?redirect=/go/${odooWb.id}/&state=x`, { ...PAGE, cookie: 'session_id=internalsession00000000001' });
   row('Odoo', 'Odoo 登录回跳 /sso/callback（带内部员工会话）', '过登录门（state 不符由路由 400）', st(r), !gate401(r) && r.status !== 302);
   r = await req('GET', '/login', PAGE);

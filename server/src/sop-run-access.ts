@@ -2,7 +2,7 @@
  * Legacy started_by / A2A node labels NEVER confer a human permission. */
 import {createHash,createHmac,randomBytes,timingSafeEqual} from 'node:crypto';
 import type {DatabaseSync} from 'node:sqlite';
-import {resolveOdooViewer} from './lifecycle.ts';
+import {resolveOdooViewer} from './odoo-viewer.ts';
 import {parse as parseYaml} from 'yaml';
 import {trustedOdooOrigins} from './odoo-session.ts';
 import {validateReadonlySop} from './sop-readonly-channel.ts';

@@ -1,10 +1,10 @@
 /**
  * Odoo 会话 cookie（SSO v1：Odoo 与市场同主机名，浏览器按主机名把 session_id 带给市场的每个路径）。
  *
- * 它是用户在 Odoo 里的全部身份，也是生命周期审批的身份凭据（lifecycle.ts 用它确认 Odoo 登录名）。
- * 所以门户只许把它转给可信 Odoo 源：转给别的台，等于把用户的 Odoo 会话和审批身份交给那个台的运营方。
+ * 它是用户在 Odoo 里的全部身份，也是工作台认人的凭据（odoo-viewer.ts 用它确认 Odoo 登录名）。
+ * 所以门户只许把它转给可信 Odoo 源：转给别的台，等于把用户的 Odoo 会话和工作台身份交给那个台的运营方。
  * 台的类型与地址可以经 MCP workbench_register 由 agent 随意登记，所以「类型含 odoo / 端口 8069」不能决定谁拿会话，
- * 只认管理员在部署环境里给的源（WM_ODOO_ORIGINS、LC_ODOO_URL）。HTTP 与 WS 升级两条转发路径都按这里判定与剥除。
+ * 只认管理员在部署环境里给的源（WM_ODOO_ORIGINS、WM_ODOO_URL）。HTTP 与 WS 升级两条转发路径都按这里判定与剥除。
  */
 export const ODOO_SESSION_COOKIE = 'session_id';
 
@@ -25,10 +25,20 @@ export function isOdooLikeTarget(type: unknown, url: string): boolean {
   return /odoo/i.test(String(type ?? '')) || /:8069/.test(url);
 }
 
-/** 可信 Odoo 源：LC_ODOO_URL 的源 ∪ WM_ODOO_ORIGINS（逗号分隔）；非法项忽略并列入 invalid */
+/** 部署配置的 Odoo 地址原值：WM_ODOO_URL；为空时回退旧名 LC_ODOO_URL（已弃用，启动时告警，见 odooUrlDeprecated） */
+export function configuredOdooUrl(): string {
+  return String(process.env.WM_ODOO_URL ?? '').trim() || String(process.env.LC_ODOO_URL ?? '').trim();
+}
+/** 只设了旧名 LC_ODOO_URL（两个都设时以 WM_ODOO_URL 为准，也提示旧名可删） */
+export function odooUrlDeprecated(): 'only-old' | 'both' | null {
+  const neu = String(process.env.WM_ODOO_URL ?? '').trim(), old = String(process.env.LC_ODOO_URL ?? '').trim();
+  return old ? (neu ? 'both' : 'only-old') : null;
+}
+
+/** 可信 Odoo 源：WM_ODOO_URL（或旧名）的源 ∪ WM_ODOO_ORIGINS（逗号分隔）；非法项忽略并列入 invalid */
 export function trustedOdooOrigins(): { origins: Set<string>; invalid: string[] } {
   const origins = new Set<string>(), invalid: string[] = [];
-  for (const raw of [process.env.LC_ODOO_URL ?? '', ...String(process.env.WM_ODOO_ORIGINS ?? '').split(',')]) {
+  for (const raw of [configuredOdooUrl(), ...String(process.env.WM_ODOO_ORIGINS ?? '').split(',')]) {
     const v = raw.trim();
     if (!v) continue;
     try { const u = new URL(v); if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error(); origins.add(u.origin); } catch { invalid.push(v); }
@@ -43,7 +53,13 @@ export function isOdooSessionTarget(url: string): boolean {
 }
 
 /** #275 登录回跳只回需要身份的市场页（白名单）；其余本站路径一律不收，免得把刚登录的人送到同源的用户产出页 */
-const RETURN_PATHS = ['/lifecycle', '/tasks', '/login']; // /login：登录门的「用 Odoo 登录」
+const RETURN_PATHS = ['/tasks', '/login']; // /login：登录门的「用 Odoo 登录」
+
+/** 扩展登记自己需要身份的页面（ctx.odoo.addReturnPath）：只收 /小写段[/小写段]，重复登记无副作用 */
+export function addOdooReturnPath(p: string): void {
+  if (!/^\/[a-z0-9][a-z0-9-]{0,63}(\/[a-z0-9][a-z0-9-]{0,63})?$/.test(p)) throw new Error(`登录回跳页路径非法：${p}`);
+  if (!RETURN_PATHS.includes(p)) RETURN_PATHS.push(p);
+}
 
 /** #275 登录回跳目标：只收白名单页的 path，不合格返回 null。
  *  归一化前后都查：WHATWG 会消掉点段，/.//evil、/%2e//evil 解析后会变成 //evil（协议相对，外站） */

@@ -63,7 +63,7 @@ index.ts的upgrade分支（原3418–3446附近）必须与HTTP共用target映�
 
 ## 3. 路由迁移与用户可见变化
 
-可信壳留/lifecycle、/tasks、/use/<id>、驾驶舱、SOP受控导航/按钮及登录中继；不把非可信HTML拼进壳DOM。
+可信壳留/tasks、扩展页面、/use/<id>、驾驶舱、SOP受控导航/按钮及登录中继；不把非可信HTML拼进壳DOM。
 
 | 面 | 改法与用户变化 |
 |---|---|
@@ -75,7 +75,7 @@ index.ts的upgrade分支（原3418–3446附近）必须与HTTP共用target映�
 | 只读无凭据静态app/SOP | 照常嵌入对应.internal站点并保opaque sandbox；不因普通静态请求缺Strict认证上下文而全部拒绝，也不读取/注入上游凭据。富表单另走字段通道；若需X-App-Token数据面须独立窄能力评审，不能冒称无凭据 |
 | 上传inline文件 | 活动内容、图片/PDF/文本等不可信回显走对应内容/下载target；HTML/SVG/JS不在可信源inline，app/run附件保attachment+nosniff |
 | 技能快照 | 保React文本/tar下载；作为app/SOP执行时走该目标隔离，不新增可信HTML执行器 |
-| /lifecycle、/tasks、顶栏、Odoo登录中继 | 保可信源与既有登录authority，显示与登录中继行为不变（需原回归验证） |
+| /tasks、扩展页面、顶栏、Odoo登录中继 | 保可信源与既有登录authority，显示与登录中继行为不变（需原回归验证） |
 
 旧书签保id/slug/version/run，可信壳用配置映射到对应target，不泄露能力在URL；返回origin不可由用户注册数据任意指定。无可分配安全origin或第三方登录不兼容时明确不可嵌入，不重新剥安全头回可信源。
 

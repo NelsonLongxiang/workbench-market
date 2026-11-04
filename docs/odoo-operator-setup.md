@@ -1,6 +1,6 @@
 # Odoo readonly preflight (Windows operator tool)
 
-This tool does not create Odoo accounts/fields, enable lifecycle approval, or synchronize users. It discovers account-type metadata and queries model ACLs using only authenticate, fields_get and check_access_rights. A read-only ACL result is **not** proof of row/field minimization. No user records are exported.
+This tool does not create Odoo accounts/fields, enable approval flows, or synchronize users. It discovers account-type metadata and queries model ACLs using only authenticate, fields_get and check_access_rights. A read-only ACL result is **not** proof of row/field minimization. No user records are exported.
 
 ## Local setup
 
@@ -12,7 +12,7 @@ PowerShell 7 on the deployment host, run as its service user. Store connection J
 
 The directory ACL must allow only the current service user and SYSTEM. The helper rejects a symlink/reparse store and refuses to overwrite a credential. Provision a dedicated account with no create/write/unlink rights; independently check row/field scope and inherited groups. Never use an administrator as the sync account.
 
-Connection config lives in `odoo-sync.connection.json` under `$env:LIFECYCLE_OS_CONFIG_DIR`, defaulting to `~/.config/lifecycle-os`. If your machine already keeps it in another directory, set `LIFECYCLE_OS_CONFIG_DIR` to that directory (or pass `-ConfigPath <file>`) instead of moving the file.
+Connection config lives in `odoo-sync.connection.json` under `$env:WM_ODOO_OPS_CONFIG_DIR`, defaulting to `~/.config/workbench-market`. If your machine already keeps it in another directory, set `WM_ODOO_OPS_CONFIG_DIR` to that directory (or pass `-ConfigPath <file>`) instead of moving the file.
 
 To store a **rotated** password once without making a network request:
 
@@ -31,7 +31,7 @@ A missing metadata field may mean it is not visible to this service account. Do 
 Actions Secrets and local service credentials are separate stores. Only if an approved workflow needs the password, a credential-authorized human runs:
 
 ~~~sh
-gh secret set ODOO_PASSWORD -R <lifecycle-os 仓库>
+gh secret set ODOO_PASSWORD -R <私有部署仓库>
 ~~~
 
 The CLI prompts for the value; do not supply it as a command argument or paste it into chat. Storing a GitHub secret alone does not configure this deployment host or add a workflow consumer.

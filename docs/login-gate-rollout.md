@@ -12,7 +12,7 @@
 
 ## 1. 各类调用方受什么影响
 
-登录门认四种身份：本机命令行（回环直连、无浏览器标记、无反代头）、`X-Admin-Token` 头、口令登录 cookie、Odoo 内部员工会话（需 `LC_ODOO_URL`）。在此之外，下表「放行依据」一列是 `server/src/login-gate.ts` 里无身份也放行的条目。
+登录门认四种身份：本机命令行（回环直连、无浏览器标记、无反代头）、`X-Admin-Token` 头、口令登录 cookie、Odoo 内部员工会话（需 `WM_ODOO_URL`）。在此之外，下表「放行依据」一列是 `server/src/login-gate.ts` 里无身份也放行的条目。
 
 | 调用方 | 开 enforce 后 | 放行依据 / 该怎么办 | 要补豁免吗 |
 |---|---|---|---|
@@ -25,9 +25,9 @@
 | SOP Runner 页 `/sop/<slug>/` 与其上传、读凭证、附件 | 匿名打开 302 到登录页；登录后与以前一样（同源页面带 cookie） | 现场人员要能登录：Odoo 内部员工账号（推荐），或管理员口令 | 否 |
 | 自产台、SOP 台页面与内嵌（沙箱子资源） | 登录后 302 到带查看凭证的地址，子资源、`<img>`、`/use` 内嵌照常；首次 enforce 轮换台令牌，**已打开的自产台页面要刷新** | 查看凭证、带本台 `X-App-Token` 的 data/files/vars | 否。已知不覆盖：沙箱页里内嵌别的台、`/sop/` 或外部 `/go/` 的 iframe，以及 CSS 里 `url(/apps/…)` 形式的绝对地址 |
 | `/go/` 门户（外部台）与 WebSocket | 匿名 302 / 断开；登录后照常 | 身份 | 否 |
-| 生命周期 `/lifecycle`、`/api/lifecycle/*` | Odoo 内部员工照常；门户账号与匿名被拦；`approve` 照旧凭 Odoo 会话 | Odoo 会话身份 | 否 |
+| 统一待办 `/tasks`、Odoo 身份探测 `/api/auth/viewer`、扩展页面 | Odoo 内部员工照常；门户账号与匿名被拦 | Odoo 会话身份 | 否 |
 | 任务中心发布 | 只有登录 cookie 不够（403），仍要口令或 Odoo 管理员，与以前一样 | 管理写门不变 | 否 |
-| Odoo 登录回跳 | 「用 Odoo 登录」走登录页的中继；`/sso/callback` 带内部员工会话可过；匿名用户的旧入口 `?return=/lifecycle` 会先被送到登录页 | Odoo 登录中继（只放 `?return=/login` 那一个） | 否 |
+| Odoo 登录回跳 | 「用 Odoo 登录」走登录页的中继；`/sso/callback` 带内部员工会话可过；匿名用户的旧入口 `?return=/tasks` 会先被送到登录页 | Odoo 登录中继（只放 `?return=/login` 那一个） | 否 |
 | LayerFS | 没有入站回调（只有市场调 LayerFS），不受影响 | — | 否 |
 | 本机命令行（开发席本机、sync、publish-lock、自检） | 不受影响 | 本机命令行身份。发布锁与登录门无关 | 否 |
 | 局域网 / 远程脚本、看板（不带口令） | **以前开放的只读接口改为 401**：`/api/workbenches`、`/api/summary`、`/api/stats`、`/api/skills` 等；远程写由 403 变为 401 | 改为带 `X-Admin-Token`，或改走 MCP 会话 | 否（这是登录门的目的） |
@@ -73,17 +73,15 @@
 | 台 | 登录后 /go/ WebSocket 升级 | 交给门户（有响应字节） | 45 字节 | ✅ 通过 |
 | 台 | 开门前的旧台令牌写数据 | 401（首次 enforce 已轮换） | 401 login_required | ✅ 通过 |
 | 台 | 新台令牌写数据（沙箱页） | 放行（非 401） | 201 | ✅ 通过 |
-| 生命周期 | 远程匿名打开 /lifecycle | 302 /login?next=%2Flifecycle | 302 → /login?next=%2Flifecycle | ✅ 通过 |
-| 生命周期 | Odoo 内部员工 /api/lifecycle/whoami | 过登录门（未配生命周期源时路由 503） | 200 | ✅ 通过 |
-| 生命周期 | Odoo 内部员工 /api/lifecycle/board | 过登录门 | 200 | ✅ 通过 |
-| 生命周期 | Odoo 内部员工 POST /api/lifecycle/approve | 过登录门（参数不全由路由拒） | 503 | ✅ 通过 |
-| 生命周期 | Odoo 门户账号 | 401（登录门只认内部员工） | 401 login_required | ✅ 通过 |
-| 生命周期 | Odoo 管理员只带会话读 /api/tasks | 200 | 200 | ✅ 通过 |
+| 统一待办 | 远程匿名打开 /tasks | 302 /login?next=%2Ftasks | 302 → /login?next=%2Ftasks | ✅ 通过 |
+| Odoo 身份 | Odoo 内部员工 /api/auth/viewer | 过登录门 | 200 | ✅ 通过 |
+| Odoo 身份 | Odoo 门户账号 | 401（登录门只认内部员工） | 401 login_required | ✅ 通过 |
+| 统一待办 | Odoo 管理员只带会话读 /api/tasks | 200 | 200 | ✅ 通过 |
 | 任务中心 | 只有登录 cookie（非管理员）发布任务 | 403（管理写仍要口令或 Odoo 管理员） | 403 | ✅ 通过 |
 | 任务中心 | 远程带口令发布任务 | 过两道门（不存在的任务 404） | 404 | ✅ 通过 |
 | Odoo | 登录中继 /go/<Odoo 台>/?return=/login（匿名） | 200 跳转页 | 200 | ✅ 通过 |
-| Odoo | 旧入口 ?return=/lifecycle（匿名） | 302 /login（只能从登录页走） | 302 → /login?next=%2Fgo%2F5%2F%3Freturn%3D%252Flifecycle（匿名用户先到登录页；已登录用户在 /lifecycle 照旧可用） | ℹ️ 符合预期 |
-| Odoo | 已登录用户走 ?return=/lifecycle | 200 跳转页 | 200 | ✅ 通过 |
+| Odoo | 旧入口 ?return=/tasks（匿名） | 302 /login（只能从登录页走） | 302 → /login?next=%2Fgo%2F5%2F%3Freturn%3D%252Ftasks（匿名用户先到登录页；已登录用户在 /tasks 照旧可用） | ℹ️ 符合预期 |
+| Odoo | 已登录用户走 ?return=/tasks | 200 跳转页 | 200 | ✅ 通过 |
 | Odoo | Odoo 登录回跳 /sso/callback（带内部员工会话） | 过登录门（state 不符由路由 400） | 400 | ✅ 通过 |
 | Odoo | 登录页给出「用 Odoo 登录」 | 有 | 有 | ✅ 通过 |
 | 运维 | 本机命令行 GET /api/apps | 200 | 200 | ✅ 通过 |
@@ -109,7 +107,7 @@
    - `WM_LOGIN_GATE=enforce`。
    - `ADMIN_TOKEN`（或库存口令）：口令登录和远程运维要用；只分发给管理员，不要发给现场人员当「门票」。
    - `MARKET_PUBLIC_URL`：设成外部实际访问的根地址。A2A 入站签名的 audience 与事件回写地址都用它，未设时远程 A2A 全部 401。
-   - `LC_ODOO_URL`（与包含它的 `WM_ODOO_ORIGINS`），并登记一个该源的 Odoo 台：现场与业务人员靠它登录。浏览器的 Odoo `session_id` 必须能送到市场（与 Odoo 同主机名，cookie 不区分端口）；否则他们只能用口令。
+   - `WM_ODOO_URL`（与包含它的 `WM_ODOO_ORIGINS`），并登记一个该源的 Odoo 台：现场与业务人员靠它登录。浏览器的 Odoo `session_id` 必须能送到市场（与 Odoo 同主机名，cookie 不区分端口）；否则他们只能用口令。
    - 绑定：每条 admits 绑定补 `notify_url`（对端卡片所在根地址），否则签名验不了，按 no-card 401。
    - HTTPS（建议）：有 https 时 cookie 自动加 Secure；经反代时带 `X-Forwarded-Proto: https`。若仍是 http，登录 cookie 与口令在网络上是明文，对公网开放前应先上 HTTPS。
 3. **通知调用方**：远程只读脚本、看板改为带口令或走 MCP；A2A 对端确认按 Sig2 签名（或 body 签名）发 direct。

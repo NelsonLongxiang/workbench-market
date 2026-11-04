@@ -14,7 +14,7 @@ resolveOdooViewer现查get_session_info能核uid/username/internal，但无可�
 
 - 到期顶层GET/HEAD导航静态401：唯一同target的可信/content/open/id链接，人工点击，不自动跳转。原路径不保存，固定首页，拒任意return URL切台。HTTP缺Metadata时GET/HEAD+Accept:text/html按导航兜底；明确XHR/cors等得JSON，分类只影响错误表现不参与授权。
 - fetch/XHR/POST等非导航固定401 JSON {"error":"content_context_expired"}，不redirect、不重放body；WS握手同401拒。重启引用/签名key全部丢弃，体验同到期。
-- 可信入口未登录时给/lifecycle登录入口，随后需手动回同target启动页；自动跨Odoo保target回程尚未接，不冒无缝SSO。已升级WS与未结束HTTP响应现在有主动租约重验，具体界限见下一节；不是逐帧强一致授权，不能宣每帧即时失效。
+- 可信入口未登录时给/tasks登录入口，随后需手动回同target启动页；自动跨Odoo保target回程尚未接，不冒无缝SSO。已升级WS与未结束HTTP响应现在有主动租约重验，具体界限见下一节；不是逐帧强一致授权，不能宣每帧即时失效。
 
 ## 第1段：已连HTTP/WS主动撤权
 
@@ -64,7 +64,7 @@ query凭据目标WS暂403（在读取私有凭据及业务连接前）；HTTP响
 Cookie池/动态上游登录容器尚未装配：绑定cookie_set_id的台在实际index拒503，不从browser拿身份兜底。HTML/JS/CSS根路径重写、SOP/MessageChannel字段通道未接（非SOP活跃静态只读见上）；本段只适合自持相对路径HTTP台及准入证明，不能称真实Odoo台/任意网站完整交互可用。
 
 ## 显式配置，未配置不启
-- WM_CONTENT_PORT缺省/0不开；启用还须WM_CONTENT_IP（非通配显式IP）、WM_CONTENT_MARKET_ORIGIN完整origin、WM_CONTENT_ODOO_ORIGIN（精确origin且属于WM_ODOO_ORIGINS/LC_ODOO_URL信任集合）、WM_CONTENT_TARGETS JSON数组。错配拒启动，不造常量epoch。port不同market/control。
+- WM_CONTENT_PORT缺省/0不开；启用还须WM_CONTENT_IP（非通配显式IP）、WM_CONTENT_MARKET_ORIGIN完整origin、WM_CONTENT_ODOO_ORIGIN（精确origin且属于WM_ODOO_ORIGINS/WM_ODOO_URL信任集合）、WM_CONTENT_TARGETS JSON数组。错配拒启动，不造常量epoch。port不同market/control。
 - 每target origin为http://w-<数字id>-test|gray|prod.internal[:port]，单label，port匹配且hostname不同market。upstreamUrl固定完整http(s) URL（无userinfo/hash），或精确/apps/<slug>/静态pin。
 - 现场专用IP、域DNS记录、环境/target列表及可信Odoo源仍待交付，不阻合成Draft审查、阻现场启用；browser只host-resolver-rules，不改hosts/DNS/firewall。
 - 单进程内存引用<=2048/core票据会话<=4096，重启失效，不支持多worker；SID最长硬期限内存在heap，不把内存转储当无秘密。

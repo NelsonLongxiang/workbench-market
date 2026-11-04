@@ -2,15 +2,12 @@
 /** Isolated Odoo logout regression: node scripts/odoo-logout-smoke.mjs */
 import { spawn } from 'node:child_process';
 import { createServer, request } from 'node:http';
-import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 
 const root=resolve('tmp'),tmp=join(root,'odoo-logout-'+Date.now().toString(36));
-const data=join(tmp,'data'),home=join(tmp,'home'),engine=join(tmp,'engine');
-for(const d of [data,home,engine])mkdirSync(d,{recursive:true});
-copyFileSync('scripts/fixtures/fake-lc-engine.cjs',join(engine,'bin.cjs'));
-copyFileSync('scripts/fixtures/lc-board-sample.json',join(engine,'lc-board-sample.json'));
-writeFileSync(join(engine,'mode'),'ok');
+const data=join(tmp,'data');
+mkdirSync(data,{recursive:true});
 const SID='session'+ '1'.repeat(25), OTHER='session'+'2'.repeat(25), INVALID='session'+'3'.repeat(25), PORTAL='session'+'4'.repeat(25), OFF='session'+'5'.repeat(25);
 const active=new Set([SID,OTHER,PORTAL]); let mode='ok'; const seen=[];
 const upstream=createServer((req,res)=>{let body='';req.setEncoding('utf8');req.on('data',c=>body+=c);req.on('end',()=>{
@@ -33,8 +30,8 @@ const upstream=createServer((req,res)=>{let body='';req.setEncoding('utf8');req.
 });});
 await new Promise(r=>upstream.listen(0,'127.0.0.1',r));
 const port=20000+Math.floor(Math.random()*18000),base='http://127.0.0.1:'+port;
-const env={...process.env,NODE_ENV:'test',MCP_GATEWAY:'off',WM_LOGIN_GATE:'enforce',WM_ODOO_LOGIN_PROXY:'1',PORT:String(port),DATA_DIR:data,ADMIN_TOKEN:'logout-fixture-only',LC_YGL_BIN:join(engine,'bin.cjs'),LC_YGL_HOME:home,LC_ODOO_URL:'http://127.0.0.1:'+upstream.address().port,LC_WORKBENCH_KEY_FILE:join(tmp,'unused.key')};
-for(const k of ['LC_LEDGER','LC_ANCHOR_DIR','LC_TEST','WM_ODOO_ORIGINS'])delete env[k];
+const env={...process.env,NODE_ENV:'test',MCP_GATEWAY:'off',WM_LOGIN_GATE:'enforce',WM_ODOO_LOGIN_PROXY:'1',PORT:String(port),DATA_DIR:data,ADMIN_TOKEN:'logout-fixture-only',WM_ODOO_URL:'http://127.0.0.1:'+upstream.address().port};
+for(const k of ['WM_EXTENSIONS_DIR','WM_ODOO_ORIGINS'])delete env[k];
 const child=spawn(process.execPath,['--disable-warning=ExperimentalWarning','server/src/index.ts'],{env,stdio:['ignore','pipe','pipe']});let logs='';child.stdout.on('data',c=>logs+=c);child.stderr.on('data',c=>logs+=c);
 const http=(method,path,headers={},body='')=>new Promise((ok,no)=>{const q=request({host:'127.0.0.1',port,method,path,headers:{...headers,...(body?{'content-length':Buffer.byteLength(body)}:{})}},r=>{let text='';r.on('data',c=>text+=c);r.on('end',()=>{let json;try{json=JSON.parse(text)}catch{}ok({status:r.statusCode,headers:r.headers,json,text})})});q.on('error',no);if(body)q.write(body);q.end()});
 const same={origin:base,'sec-fetch-site':'same-origin','content-type':'application/json','x-wm-odoo-logout':'1','x-forwarded-for':'198.51.100.8'};
@@ -54,7 +51,7 @@ async function browserLogout(browserBase=base, browserSid=SID, label='enforce'){
     const evaluate=async(expression,gesture=false)=>(await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true,userGesture:gesture})).result.value;
     await send('Page.enable');await send('Runtime.enable');await send('Network.enable');
     await send('Network.setCookie',{name:'session_id',value:browserSid,url:browserBase,httpOnly:true,sameSite:'Lax'});
-    await send('Page.navigate',{url:browserBase+'/lifecycle'});
+    await send('Page.navigate',{url:browserBase+'/tasks'});
     let found=false;for(let i=0;i<100;i++){try{found=!!(await evaluate("!!document.querySelector('[title*=fixture]')"));}catch{}if(found)break;await new Promise(r=>setTimeout(r,100));}
     check(label+' browser shows authenticated Odoo identity',found);
     if(found){
@@ -69,7 +66,7 @@ async function browserLogout(browserBase=base, browserSid=SID, label='enforce'){
 try{
   const end=Date.now()+30000;let ready=false;while(Date.now()<end){try{if((await http('GET','/api/health')).status===200){ready=true;break}}catch{}await new Promise(r=>setTimeout(r,100))}if(!ready)throw Error('fixture server not ready');
   const h={cookie:'session_id='+SID,'x-forwarded-for':'198.51.100.8','sec-fetch-site':'same-origin'};
-  let r=await http('GET','/api/lifecycle/whoami',h);check('valid Odoo viewer advertises logout',r.status===200 && r.json?.odoo_logout_supported===true);
+  let r=await http('GET','/api/auth/viewer',h);check('valid Odoo viewer advertises logout',r.status===200 && r.json?.odoo_logout_supported===true);
   r=await http('GET','/api/auth/me',h);check('valid Odoo identity is recognized',r.status===200 && r.json?.via==='odoo');
   r=await http('GET','/api/admin/whoami',h);check('valid Odoo admin identity is recognized',r.status===200 && r.json?.admin===true);
   let n=count();
@@ -81,7 +78,7 @@ try{
   const last=seen.filter(x=>x.path==='/web/session/destroy').at(-1);
   check('explicit logout revokes exact Odoo session and clears browser cookies',r.status===200&&r.json?.odoo_session_revoked===true&&r.json?.browser_session_cleared===true&&cookie(r,'session_id')&&cookie(r,'wm_login')&&!active.has(SID));
   check('upstream receives only fixed session cookie and no market credentials',last?.method==='POST'&&last.sid===SID&&last.headers.cookie==='session_id='+SID&&!last.headers['x-admin-token']);
-  r=await http('GET','/api/lifecycle/whoami',h);check('revoked session immediately fails fresh whoami',r.status===401);
+  r=await http('GET','/api/auth/viewer',h);check('revoked session immediately fails fresh whoami',r.status===401);
   r=await http('GET','/api/auth/me',h);check('revoked session is not accepted by identity cache',r.status===200&&r.json?.authenticated===false);
   r=await http('GET','/api/admin/whoami',h);check('revoked session is not accepted by admin cache',r.status===401 || (r.status===200 && r.json?.admin===false));
   const portalHeaders={...h,cookie:'session_id='+PORTAL};

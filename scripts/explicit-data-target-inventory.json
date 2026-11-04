@@ -43,9 +43,7 @@
     "scripts/skill-smoke.mjs",
     "scripts/skill-import.mjs",
     "scripts/skill-upload-one.mjs",
-    "scripts/services-smoke.mjs",
-    "scripts/lc-issuer-e2e.mjs",
-    "scripts/lifecycle-board-e2e.mjs"
+    "scripts/services-smoke.mjs"
   ],
   "supervisionScripts": [
     "scripts/supervision/sup-live.mjs",

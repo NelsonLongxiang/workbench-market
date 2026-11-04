@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** S4 门户 Odoo 会话转发组（security-adversarial-smoke 调用；也可单跑）：
  *  Odoo 的 session_id 同主机名下会被浏览器带进 /go/<id>/ 的每个请求；它既是用户的 Odoo 会话，也是生命周期审批的身份凭据，
- *  门户只许把它转给可信 Odoo 源（WM_ODOO_ORIGINS / LC_ODOO_URL）——台的类型与端口可由 agent 经 MCP 随意登记，不作数。
+ *  门户只许把它转给可信 Odoo 源（WM_ODOO_ORIGINS / WM_ODOO_URL）——台的类型与端口可由 agent 经 MCP 随意登记，不作数。
  *  隔离实例（WM_ODOO_ORIGINS=可信上游）+ 两个记录型上游（可信 Odoo / 攻击者），各记下收到的 Cookie 头（HTTP 与 WS 升级）。
  *  正例拒：普通台 GET/POST/只有会话/多个同名/WS；攻击者源登记成 type=odoo、或地址路径/查询里带 :8069——走完 SSO state 回跳
  *  （门户给的话）再加同源脚本可伪造的 wm_sso_ok cookie，仍收不到 session_id。
@@ -52,8 +52,8 @@ export async function runPortalOdooSessionGroup() {
   const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ✓ ' + n); } else { fail++; console.log('  ✗ ' + n + ' ' + x); } };
   // 判定谓词：只认可信源（不起服务）
   {
-    const saved = { W: process.env.WM_ODOO_ORIGINS, L: process.env.LC_ODOO_URL };
-    const withTrust = (w, l, fn) => { process.env.WM_ODOO_ORIGINS = w; process.env.LC_ODOO_URL = l; try { return fn(); } finally { for (const [k, v] of [['WM_ODOO_ORIGINS', saved.W], ['LC_ODOO_URL', saved.L]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } } };
+    const saved = { W: process.env.WM_ODOO_ORIGINS, L: process.env.WM_ODOO_URL };
+    const withTrust = (w, l, fn) => { process.env.WM_ODOO_ORIGINS = w; process.env.WM_ODOO_URL = l; try { return fn(); } finally { for (const [k, v] of [['WM_ODOO_ORIGINS', saved.W], ['WM_ODOO_URL', saved.L]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } } };
     const T = (url) => withTrust('http://odoo.corp:8069, https://erp.corp', '', () => isOdooSessionTarget(url));
     const cases = [
       ['可信源本身（含路径）', T('http://odoo.corp:8069/web'), true],
@@ -69,8 +69,8 @@ export async function runPortalOdooSessionGroup() {
     ];
     const bad = cases.filter(([, got, want]) => got !== want).map(([n, got]) => `${n}=${got}`);
     ok(`S4p 判定谓词只认可信源（${cases.length} 例：端口/userinfo/相似主机/换协议/换端口都不算；台类型不参与判定）`, bad.length === 0, bad.join(','));
-    const t = withTrust('http://ok.corp, ftp://x.corp, :::', 'http://lc-odoo.corp:8069/odoo', trustedOdooOrigins);
-    ok('S4q 可信源 = LC_ODOO_URL 的源 ∪ WM_ODOO_ORIGINS，非法项列出不采信', [...t.origins].sort().join(',') === 'http://lc-odoo.corp:8069,http://ok.corp' && t.invalid.length === 2, JSON.stringify({ o: [...t.origins], i: t.invalid }));
+    const t = withTrust('http://ok.corp, ftp://x.corp, :::', 'http://id-odoo.corp:8069/odoo', trustedOdooOrigins);
+    ok('S4q 可信源 = WM_ODOO_URL 的源 ∪ WM_ODOO_ORIGINS，非法项列出不采信', [...t.origins].sort().join(',') === 'http://id-odoo.corp:8069,http://ok.corp' && t.invalid.length === 2, JSON.stringify({ o: [...t.origins], i: t.invalid }));
     ok('S4r 一个可信源都没配：谁都不转（fail closed）', withTrust('', '', () => !isOdooSessionTarget('http://x/') && !isOdooSessionTarget('http://x:8069/') && !isOdooSessionTarget('http://127.0.0.1:8069/odoo')));
   }
   const cap = await startCaptureUpstream(); // 攻击者源（以及普通台）
@@ -80,7 +80,7 @@ export async function runPortalOdooSessionGroup() {
   const PORT = 20000 + Math.floor(Math.random() * 20000);
   const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
     cwd: process.cwd(), stdio: 'ignore',
-    env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'sec-portal', WM_ODOO_ORIGINS: `http://127.0.0.1:${real.port}`, LC_ODOO_URL: '' },
+    env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'sec-portal', WM_ODOO_ORIGINS: `http://127.0.0.1:${real.port}`, WM_ODOO_URL: '' },
   });
   try {
     if (!(await waitReady(PORT))) throw new Error('S4 隔离实例未就绪');
@@ -156,7 +156,7 @@ export async function runPortalOdooSessionGroup() {
   mkdirSync(DATA2, { recursive: true });
   const PORT2 = 20000 + Math.floor(Math.random() * 20000);
   const env2 = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT2), DATA_DIR: DATA2, ADMIN_TOKEN: 'sec-portal2' };
-  delete env2.WM_ODOO_ORIGINS; delete env2.LC_ODOO_URL;
+  delete env2.WM_ODOO_ORIGINS; delete env2.WM_ODOO_URL;
   const child2 = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { cwd: process.cwd(), stdio: 'ignore', env: env2 });
   try {
     if (!(await waitReady(PORT2))) throw new Error('S4 未配可信源实例未就绪');

@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Descriptions, Popover, Tag, Tooltip, Typography } from 'antd';
 import { UserOutlined } from '@ant-design/icons';
-import { odooLoginHref } from '../pages/lifecycle-view';
-import { ODOO_SESSION_CONFIRMED, useOdooPopupLogin } from '../pages/odoo-login';
+import { ODOO_SESSION_CONFIRMED, odooLoginHref, useOdooPopupLogin } from '../pages/odoo-login';
 import { logoutCurrentSession } from '../odoo-logout';
 
-/** #279 当前用户 chip（过渡：数据取 /api/lifecycle/whoami，即浏览器的 Odoo 会话；#221 落地后换成 /api/auth/me）。
- *  未配置生命周期源（503）或接口不通时不显示；未登录给 #277 的弹窗登录入口；角色暂无（来源待定、授权通道未实现）。 */
+/** #279 当前用户 chip（过渡：数据取 /api/auth/viewer，即浏览器的 Odoo 会话；#221 落地后换成 /api/auth/me）。
+ *  未配置 WM_ODOO_URL（503）或接口不通时不显示；未登录给 #277 的弹窗登录入口；角色暂无（来源待定、授权通道未实现）。 */
 interface WhoamiViewer { login: string; uid: number; sub: string; name: string | null; kind: string }
 type State = { kind: 'hidden' } | { kind: 'anon'; loginUrl: string | null } | { kind: 'denied'; error: string; logoutAvailable: boolean } | { kind: 'ok'; viewer: WhoamiViewer; logoutAvailable: boolean };
 
@@ -21,7 +20,7 @@ export default function ViewerChip() {
     lastRef.current = Date.now();
     const request = ++requestRef.current;
     try {
-      const r = await fetch('/api/lifecycle/whoami', { cache: 'no-store', credentials: 'same-origin' });
+      const r = await fetch('/api/auth/viewer', { cache: 'no-store', credentials: 'same-origin' });
       const j = await r.json().catch(() => null);
       if (request !== requestRef.current) return;
       if (r.ok && j?.ok && j.viewer) setState({ kind: 'ok', viewer: j.viewer, logoutAvailable: j.odoo_logout_supported === true });

@@ -1,8 +1,14 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { HOST_ALIAS, wmExtensions } from './vite-extensions.mjs';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), wmExtensions()],
+  resolve: {
+    alias: { '@wm/host': HOST_ALIAS },
+    // 扩展源码在仓库外：这些依赖一律从本项目解析，保证与宿主同一份（React 双实例会直接崩）
+    dedupe: ['react', 'react-dom', 'react-router-dom', 'antd', '@ant-design/icons', 'dayjs'],
+  },
   build: {
     rollupOptions: {
       output: {

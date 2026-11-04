@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 import { useRequest } from 'ahooks';
 import { App, Button, Tag, Tooltip, Typography } from 'antd';
 import { AppstoreOutlined, ReloadOutlined, RightOutlined, ThunderboltOutlined } from '@ant-design/icons';
-import { useTasksPoll } from './Tasks';
+import { sourceDeco, useTasksPoll } from './Tasks';
 import { api } from '../api';
 import StatusBadge from '../components/StatusBadge';
 import WmPage from '../components/WmPage';
@@ -93,7 +93,7 @@ export default function Dashboard() {
               <Tag color={t.status === 'doing' ? 'processing' : 'default'} style={{ marginRight: 0 }}>{t.status === 'doing' ? '进行中' : '待办'}</Tag>
               {t.link ? <Typography.Link href={t.link} target="_blank" ellipsis style={{ flex: 1, minWidth: 0 }}>{t.title}</Typography.Link>
                 : <Typography.Text ellipsis style={{ flex: 1, minWidth: 0 }}>{t.title}</Typography.Text>}
-              <Tag style={{ marginRight: 0 }}>{t.source === 'lifecycle' ? '生命周期' : t.source}</Tag>
+              <Tag style={{ marginRight: 0 }}>{sourceDeco(t.source, tasksPayload?.sources).label}</Tag>
             </>
           )}
         />
