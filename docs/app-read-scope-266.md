@@ -28,7 +28,7 @@
 
 | 部件 | 位置 | 用途 |
 |---|---|---|
-| `resolveOdooViewer(cookie)` | `lifecycle.ts:201` | 每次向 Odoo 现查：只认 `is_internal_user === true`，得到 `user:<login>` 和 `admin` 标志 |
+| `resolveOdooViewer(cookie)` | `odoo-viewer.ts` | 每次向 Odoo 现查：只认 `is_internal_user === true`，得到 `user:<login>` 和 `admin` 标志 |
 | `odooAdminOf` / `markOdooAdmin` | `index.ts:202–221` | Odoo 管理员认定，按会话哈希缓存 30 秒 |
 | `adminHeaderOk` | `index.ts:2707` | 管理员口令或 Odoo 管理员，且请求为同站 |
 | `rawLoopback` + `browserMarked` | `surfaces.ts` | 本机命令行：回环直连、无浏览器标记、无反代头 |
@@ -232,7 +232,7 @@ wmd1.<payload>.<sig>   payload = {"t":"dl","s":"<slug>","f":<file id>,"sub":…,
 
 ## 5. 测试矩阵
 
-完整矩阵见 `app-read-scope-266.matrix.json`。每一例都写明入口、身份、阶段和预期，全部为 `NOT_RUN`。测试环境：隔离的临时 `DATA_DIR`，两个合成 slug（A、B），合成记录和文件（包括软删的、磁盘上缺失的、属于 B 的 id），桩 Odoo（`LC_ODOO_URL` 指向本地夹具，返回内部、门户、管理员三种会话），随机回环端口，**不接触任何真实数据或密钥**。
+完整矩阵见 `app-read-scope-266.matrix.json`。每一例都写明入口、身份、阶段和预期，全部为 `NOT_RUN`。测试环境：隔离的临时 `DATA_DIR`，两个合成 slug（A、B），合成记录和文件（包括软删的、磁盘上缺失的、属于 B 的 id），桩 Odoo（`WM_ODOO_URL` 指向本地夹具，返回内部、门户、管理员三种会话），随机回环端口，**不接触任何真实数据或密钥**。
 
 入口（E）× 身份（I）的总表，「→」后面是第 2 阶段之后的结果：
 

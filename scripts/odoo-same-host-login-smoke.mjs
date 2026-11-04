@@ -2,15 +2,12 @@
 /** Isolated same-host Odoo login relay test: node scripts/odoo-same-host-login-smoke.mjs */
 import { spawn } from 'node:child_process';
 import { createServer, request } from 'node:http';
-import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const tmp = resolve('tmp/odoo-same-host-' + Date.now().toString(36));
-const data = join(tmp, 'data'), engine = join(tmp, 'engine'), home = join(tmp, 'home');
-for (const d of [data, engine, home]) mkdirSync(d, { recursive: true });
-copyFileSync('scripts/fixtures/fake-lc-engine.cjs', join(engine, 'bin.cjs'));
-copyFileSync('scripts/fixtures/lc-board-sample.json', join(engine, 'lc-board-sample.json'));
-writeFileSync(join(engine, 'mode'), 'ok');
+const data = join(tmp, 'data');
+mkdirSync(data, { recursive: true });
 const SID0 = 'anon' + 'a'.repeat(28), SID1 = 'auth' + 'b'.repeat(28);
 const seen = [];
 const up = createServer((req, res) => {
@@ -23,15 +20,15 @@ const up = createServer((req, res) => {
     }
     if (p.pathname === '/web/login' && req.method === 'POST') {
       const fields = new URLSearchParams(body);
-      if (fields.get('login') === 'fixture-totp') { res.writeHead(302, {'location':'/web/login/totp?redirect=%2Flifecycle'}); return res.end(); }
+      if (fields.get('login') === 'fixture-totp') { res.writeHead(302, {'location':'/web/login/totp?redirect=%2Ftasks'}); return res.end(); }
       if (fields.get('login') === 'fixture-foreign') { res.writeHead(302, {'location':'https://evil.invalid'}); return res.end(); }
       if (fields.get('login') === 'fixture' && fields.get('password') === 'fixture-password' && String(req.headers.cookie).includes(SID0)) {
-        res.writeHead(303, {'location':fields.get('redirect') || '/lifecycle', 'set-cookie': ['session_id='+SID1+'; Path=/; HttpOnly']});
+        res.writeHead(303, {'location':fields.get('redirect') || '/tasks', 'set-cookie': ['session_id='+SID1+'; Path=/; HttpOnly']});
       } else res.writeHead(200, {'content-type':'text/html'});
       return res.end();
     }
     if (p.pathname === '/web/login/totp') {
-      if (req.method === 'POST') res.writeHead(303, {'location':'/lifecycle','set-cookie':['session_id='+SID1+'; Path=/; HttpOnly']});
+      if (req.method === 'POST') res.writeHead(303, {'location':'/tasks','set-cookie':['session_id='+SID1+'; Path=/; HttpOnly']});
       else res.writeHead(200, {'content-type':'text/html'});
       return res.end('synthetic-totp');
     }
@@ -47,8 +44,8 @@ const up = createServer((req, res) => {
 });
 await new Promise(r => up.listen(0, '127.0.0.1', r));
 const port = 20000 + Math.floor(Math.random() * 20000);
-const env = {...process.env, NODE_ENV:'test', MCP_GATEWAY:'off', WM_LOGIN_GATE:'off', WM_ODOO_LOGIN_PROXY:'1', PORT:String(port), DATA_DIR:data, ADMIN_TOKEN:'fixture-only', LC_YGL_BIN:join(engine,'bin.cjs'), LC_YGL_HOME:home, LC_ODOO_URL:'http://127.0.0.1:' + up.address().port, LC_WORKBENCH_KEY_FILE:join(tmp,'no.key')};
-for (const k of ['LC_LEDGER','LC_ANCHOR_DIR','LC_TEST','WM_ODOO_ORIGINS']) delete env[k];
+const env = {...process.env, NODE_ENV:'test', MCP_GATEWAY:'off', WM_LOGIN_GATE:'off', WM_ODOO_LOGIN_PROXY:'1', PORT:String(port), DATA_DIR:data, ADMIN_TOKEN:'fixture-only', WM_ODOO_URL:'http://127.0.0.1:' + up.address().port};
+for (const k of ['WM_EXTENSIONS_DIR','WM_ODOO_ORIGINS']) delete env[k];
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning','server/src/index.ts'], {env,stdio:['ignore','ignore','pipe']});
 let errors=''; server.stderr.on('data', c => errors += c);
 const http = (method,path,headers={},body='') => new Promise((done,reject) => {
@@ -71,20 +68,20 @@ async function browserLogin(wid) {
       const send=(method,params={})=>new Promise((ok,no)=>{const n=++id;pending.set(n,{resolve:ok,reject:no});ws.send(JSON.stringify({id:n,method,params}));});
       const evaluate=async expression=>(await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true})).result.value;
       await send('Page.enable');await send('Runtime.enable');await send('Network.enable');
-      await send('Page.navigate',{url:'http://'+host+':'+port+'/go/'+wid+'/?return=%2Flifecycle'});
+      await send('Page.navigate',{url:'http://'+host+':'+port+'/go/'+wid+'/?return=%2Ftasks'});
       let login=false;
       for(let n=0;n<80;n++){try{login=!!(await evaluate("location.pathname==='/web/login' && !!document.querySelector('input[name=login]')"));}catch{}if(login)break;await new Promise(q=>setTimeout(q,100));}
       check(host+' browser follows same-host relay',login);
       if(login){
-        const anonymous=await evaluate("fetch('/api/lifecycle/whoami').then(r=>r.status===401)");
+        const anonymous=await evaluate("fetch('/api/auth/viewer').then(r=>r.status===401)");
         check(host+' starts with no authenticated session',anonymous===true);
         await evaluate("document.querySelector('input[name=login]').value='fixture';document.querySelector('input[name=password]').value='fixture-password';document.querySelector('form').requestSubmit();true");
         let who=false;
-        for(let n=0;n<80;n++){try{who=!!(await evaluate("fetch('/api/lifecycle/whoami').then(async r=>{const x=await r.json();return r.status===200 && x.ok===true && x.viewer?.login==='fixture'})"));}catch{}if(who)break;await new Promise(q=>setTimeout(q,100));}
+        for(let n=0;n<80;n++){try{who=!!(await evaluate("fetch('/api/auth/viewer').then(async r=>{const x=await r.json();return r.status===200 && x.ok===true && x.viewer?.login==='fixture'})"));}catch{}if(who)break;await new Promise(q=>setTimeout(q,100));}
         const browserPost=seen.slice(seenAtStart).some(x=>x.method==='POST' && x.path.split('?')[0]==='/web/login' && new URLSearchParams(x.body).get('login')==='fixture' && String(x.headers.cookie).includes(SID0));
         check(host+' browser form reaches Odoo and shares session with whoami',who && browserPost);
         let landed=false;
-        for(let n=0;n<80;n++){try{landed=!!(await evaluate("location.hostname === '"+host+"' && location.pathname === '/lifecycle'"));}catch{}if(landed)break;await new Promise(q=>setTimeout(q,100));}
+        for(let n=0;n<80;n++){try{landed=!!(await evaluate("location.hostname === '"+host+"' && location.pathname === '/tasks'"));}catch{}if(landed)break;await new Promise(q=>setTimeout(q,100));}
         if(!landed) { const nav=await evaluate("JSON.stringify({path:location.pathname,document:performance.getEntriesByType('navigation')[0]?.name})"); console.log('    browser navigation:',nav); const last=seen.filter(x=>x.method==='POST' && x.path.startsWith('/web/login')).at(-1); console.log('    submitted fixture:',last ? {redirect:new URLSearchParams(last.body).get('redirect'),loginOk:new URLSearchParams(last.body).get('login')==='fixture',passwordOk:new URLSearchParams(last.body).get('password')==='fixture-password',cookieOk:String(last.headers.cookie).includes(SID0)} : 'no POST', 'navigation:', JSON.stringify(navEvents),'upstream:',JSON.stringify(seen.slice(seenAtStart).map(x=>({method:x.method,path:x.path.split('?')[0],sid0:String(x.headers.cookie).includes(SID0),sid1:String(x.headers.cookie).includes(SID1)})))); }
         check(host+' browser login returns to market host',landed);
       }
@@ -96,31 +93,29 @@ try {
   const until=Date.now()+30000; let ready=false;
   while(Date.now()<until){try{if((await http('GET','/api/health')).status===200){ready=true;break;}}catch{} await new Promise(r=>setTimeout(r,100));}
   if(!ready)throw Error('fixture server not ready: '+errors.slice(-800));
-  const reg=await http('POST','/api/workbenches',{'content-type':'application/json'},JSON.stringify({name:'fixture Odoo',url:env.LC_ODOO_URL+'/web',type:'web'}));
+  const reg=await http('POST','/api/workbenches',{'content-type':'application/json'},JSON.stringify({name:'fixture Odoo',url:env.WM_ODOO_URL+'/web',type:'web'}));
   const wid=JSON.parse(reg.text).id; if(!wid)throw Error('fixture registration failed');
   for (const [label,host,https] of [['LAN','192.0.2.88:9800',false],['public','market.example.test',true]]) {
     const h={host,...(https?{'x-forwarded-proto':'https'}:{})};
-    let board=await http('GET','/api/lifecycle/board',h); let login=JSON.parse(board.text).login_url;
-    check(label+' anonymous board returns relative login URL',board.status===401 && login==='/go/'+wid+'/?return=%2Flifecycle');
+    let anon=await http('GET','/api/auth/viewer',h); let login=JSON.parse(anon.text).login_url;
+    check(label+' anonymous viewer probe returns relative login URL',anon.status===401 && login==='/go/'+wid+'/?return=%2Ftasks');
     let relay=await http('GET',login,h);
-    check(label+' relay stays on current host',relay.status===200 && relay.text.includes('/web/login?redirect=%2Flifecycle') && !relay.text.includes(env.LC_ODOO_URL));
-    let page=await http('GET','/web/login?redirect=%2Flifecycle',h);
+    check(label+' relay stays on current host',relay.status===200 && relay.text.includes('/web/login?redirect=%2Ftasks') && !relay.text.includes(env.WM_ODOO_URL));
+    let page=await http('GET','/web/login?redirect=%2Ftasks',h);
     const ck=page.headers['set-cookie']||[];
     check(label+' login proxied and cookie scoped correctly',page.status===200 && page.text.includes('csrf_token') && ck.length===1 && ck[0].includes('Path=/') && ck[0].includes('HttpOnly') && ck[0].includes('SameSite=Lax') && (https ? ck[0].includes('Secure') : !ck[0].includes('Secure')));
-    const payload=new URLSearchParams({csrf_token:'fixture-csrf',login:'fixture',password:'fixture-password',redirect:'/lifecycle'}).toString();
+    const payload=new URLSearchParams({csrf_token:'fixture-csrf',login:'fixture',password:'fixture-password',redirect:'/tasks'}).toString();
     let post=await http('POST','/web/login', {...h,origin:(https?'https://':'http://')+host, 'sec-fetch-site':'same-origin','content-type':'application/x-www-form-urlencoded',cookie:'session_id='+SID0+'; wm_login=private', 'x-admin-token':'private-token',authorization:'Bearer private-token','x-app-token':'private-app-token'},payload);
-    check(label+' login POST succeeds without leaking market credentials',post.status===303 && post.headers.location==='/lifecycle' && post.headers['set-cookie']?.[0]?.includes(SID1) && seen.at(-1).headers.cookie==='session_id='+SID0 && !seen.at(-1).headers['x-admin-token'] && !seen.at(-1).headers.authorization && !seen.at(-1).headers['x-app-token']);
-    let who=await http('GET','/api/lifecycle/whoami',{...h,cookie:'session_id='+SID1});
+    check(label+' login POST succeeds without leaking market credentials',post.status===303 && post.headers.location==='/tasks' && post.headers['set-cookie']?.[0]?.includes(SID1) && seen.at(-1).headers.cookie==='session_id='+SID0 && !seen.at(-1).headers['x-admin-token'] && !seen.at(-1).headers.authorization && !seen.at(-1).headers['x-app-token']);
+    let who=await http('GET','/api/auth/viewer',{...h,cookie:'session_id='+SID1});
     check(label+' logged-in whoami succeeds',who.status===200 && JSON.parse(who.text).viewer?.login==='fixture');
-    board=await http('GET','/api/lifecycle/board',{...h,cookie:'session_id='+SID1});
-    check(label+' authenticated board succeeds',board.status===200 && JSON.parse(board.text).ok===true);
   }
   // Plain /go/<id>/ entry (no return): same-host relay, back to this workbench's SSO callback; upstream host never shown.
   for (const [label,host,https] of [['LAN plain','192.0.2.88:9800',false],['public plain','market.example.test',true]]) {
     const h={host,...(https?{'x-forwarded-proto':'https'}:{})};
     const entry=await http('GET','/go/'+wid+'/',h);
     const loc=String(entry.headers.location??''); const st=/wm_sso_\d+=([0-9a-f-]{36})/.exec(String(entry.headers['set-cookie']??''))?.[1]??'';
-    check(label+' entry redirects to same-host login without upstream host',entry.status===302 && loc==='/web/login?redirect='+encodeURIComponent('/go/'+wid+'/?state='+st) && !!st && !loc.includes('127.0.0.1') && !entry.text.includes(env.LC_ODOO_URL));
+    check(label+' entry redirects to same-host login without upstream host',entry.status===302 && loc==='/web/login?redirect='+encodeURIComponent('/go/'+wid+'/?state='+st) && !!st && !loc.includes('127.0.0.1') && !entry.text.includes(env.WM_ODOO_URL));
     const page=await http('GET',loc,h);
     check(label+' login page keeps the SSO callback for Odoo',page.status===200 && seen.at(-1).path==='/web/login?redirect='+encodeURIComponent('/go/'+wid+'/?state='+st));
     const post=await http('POST','/web/login',{...h,origin:(https?'https://':'http://')+host,'sec-fetch-site':'same-origin','content-type':'application/x-www-form-urlencoded',cookie:'session_id='+SID0},new URLSearchParams({csrf_token:'fixture-csrf',login:'fixture',password:'fixture-password',redirect:'/go/'+wid+'/?state='+st}).toString());
@@ -138,9 +133,9 @@ try {
     const b='http://127.0.0.1:'+offPort, end=Date.now()+30000; let ok=false;
     while(Date.now()<end){try{if((await fetch(b+'/api/health')).status===200){ok=true;break;}}catch{} await new Promise(q=>setTimeout(q,100));}
     if(!ok)throw Error('proxy-off instance not ready');
-    const reg2=await (await fetch(b+'/api/workbenches',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:'fixture Odoo',url:env.LC_ODOO_URL+'/web',type:'web'})})).json();
+    const reg2=await (await fetch(b+'/api/workbenches',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:'fixture Odoo',url:env.WM_ODOO_URL+'/web',type:'web'})})).json();
     const z=await fetch(b+'/go/'+reg2.id+'/',{redirect:'manual'});
-    check('relay off keeps the classic upstream login redirect',z.status===302 && String(z.headers.get('location')).startsWith(env.LC_ODOO_URL+'/web/login?redirect='));
+    check('relay off keeps the classic upstream login redirect',z.status===302 && String(z.headers.get('location')).startsWith(env.WM_ODOO_URL+'/web/login?redirect='));
   } finally {off.kill(); await new Promise(q=>off.once('exit',q));}
   let before=seen.length;
   let r=await http('POST','/web/login',{host:'market.example.test',origin:'https://attacker.invalid','sec-fetch-site':'cross-site','content-type':'application/x-www-form-urlencoded'},'login=x');
@@ -158,11 +153,11 @@ try {
   r=await http('POST','/web/login',{host:'market.example.test','content-type':'application/x-www-form-urlencoded',cookie:'session_id='+SID0},new URLSearchParams({login:'fixture',password:'fixture-password',redirect:'//evil.invalid'}).toString());
   check('untrusted form return removed',!r.headers.location?.includes('evil.invalid') && !seen.at(-1).body.includes('evil.invalid'));
   r=await http('POST','/web/login',{host:'market.example.test','content-type':'application/x-www-form-urlencoded'},'login=fixture-totp');
-  check('TOTP challenge stays on current host',r.status===302 && r.headers.location==='/web/login/totp?redirect=%2Flifecycle');
+  check('TOTP challenge stays on current host',r.status===302 && r.headers.location==='/web/login/totp?redirect=%2Ftasks');
   r=await http('GET',r.headers.location,{host:'market.example.test'});
   check('TOTP form reaches fixed Odoo',r.status===200 && r.text==='synthetic-totp');
   r=await http('POST','/web/login/totp',{host:'market.example.test','content-type':'application/x-www-form-urlencoded'},'totp_token=123456');
-  check('TOTP completes with Odoo session',r.status===303 && r.headers.location==='/lifecycle' && r.headers['set-cookie']?.[0]?.includes(SID1));
+  check('TOTP completes with Odoo session',r.status===303 && r.headers.location==='/tasks' && r.headers['set-cookie']?.[0]?.includes(SID1));
   r=await http('POST','/web/login',{host:'market.example.test','content-type':'application/x-www-form-urlencoded'},'login=fixture-foreign');
   check('foreign upstream redirect rejected',r.status===502 && !r.headers.location);
   r=await http('POST','/web/login',{host:'market.example.test','content-type':'application/x-www-form-urlencoded'},'x='+('a'.repeat(17000)));

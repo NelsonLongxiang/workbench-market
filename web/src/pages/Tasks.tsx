@@ -6,8 +6,7 @@ import { PlusOutlined } from '@ant-design/icons';
 import type { UploadFile } from 'antd';
 import { apiFetch, getAdminToken, subscribeAdminToken } from '../admin-token';
 import { ReloadOutlined } from '@ant-design/icons';
-import { odooLoginHref } from './lifecycle-view';
-import { ODOO_SESSION_CONFIRMED, useOdooPopupLogin } from './odoo-login';
+import { ODOO_SESSION_CONFIRMED, odooLoginHref, useOdooPopupLogin } from './odoo-login';
 import WmPage from '../components/WmPage';
 import { reviewTaskLink } from '../review-task-link';
 import RelTime from '../components/RelTime';
@@ -15,24 +14,31 @@ import RelTime from '../components/RelTime';
 /** 任务信封（与 server/src/tasks.ts 契约一致，字段冻结 snake_case） */
 export interface TaskEnvelope {
   id: string;
-  source: 'ygl-trees' | 'market' | 'a2a' | 'lifecycle';
+  /** 内置 ygl-trees / market / a2a，或扩展注册的来源键 */
+  source: string;
   title: string;
   status: 'todo' | 'doing' | 'done';
   due: string | null;
   link: string | null;
   project: string | null;
-  /** 仅 lifecycle 源：批准所需的提议与授权 */
-  lc?: { proposal_id: string; grant: string; object: string; machine: string; from: string; to: string; effective_at: string | null; proposed_by: string; approvals: number; levels: number };
+  /** 扩展来源：该条在工作台只能查看时的原因 */
+  readonly_note?: string;
 }
-interface SourceMeta { ok: boolean; count: number; latency_ms: number; error?: string; degraded_projects?: string[] }
+/** 扩展来源另带 label/color（服务端注册时给），按查看人计的还带 viewer、auth_required、login_url */
+interface SourceMeta { ok: boolean; count: number; latency_ms: number; error?: string; degraded_projects?: string[]; label?: string; color?: string; viewer?: string | null; auth_required?: boolean; login_url?: string | null }
 interface TasksPayload {
   tasks: TaskEnvelope[];
-  /** lifecycle 仅在服务端配置了生命周期源时出现，按当前 Odoo 登录人计 */
-  sources: { 'ygl-trees': SourceMeta; market: SourceMeta; a2a?: SourceMeta; lifecycle?: SourceMeta & { viewer: string | null; error?: string; auth_required?: boolean; login_url?: string | null } };
+  /** 扩展来源键仅在服务端加载了注册该来源的扩展时出现 */
+  sources: { 'ygl-trees': SourceMeta; market: SourceMeta; a2a?: SourceMeta } & Record<string, SourceMeta | undefined>;
   generated_at: string;
 }
-const SOURCE_COLOR: Record<TaskEnvelope['source'], string> = { market: 'geekblue', 'ygl-trees': 'cyan', a2a: 'gold', lifecycle: 'purple' };
-const SOURCE_TEXT: Record<TaskEnvelope['source'], string> = { market: 'market', 'ygl-trees': 'ygl-trees', a2a: 'a2a', lifecycle: '生命周期' };
+const BUILTIN_SOURCES: Record<string, { label: string; color: string }> = { market: { label: 'market', color: 'geekblue' }, 'ygl-trees': { label: 'ygl-trees', color: 'cyan' }, a2a: { label: 'a2a', color: 'gold' } };
+/** 来源的显示名与颜色：内置来源固定，扩展来源取服务端随 sources 给的 label/color */
+export function sourceDeco(key: string, sources?: TasksPayload['sources']): { label: string; color: string } {
+  const m = sources?.[key];
+  return BUILTIN_SOURCES[key] ?? { label: m?.label || key, color: m?.color || 'default' };
+}
+const extensionSources = (sources?: TasksPayload['sources']) => Object.entries(sources ?? {}).filter((e): e is [string, SourceMeta] => !(e[0] in BUILTIN_SOURCES) && !!e[1]);
 
 const STATUS_COLOR: Record<TaskEnvelope['status'], string> = { todo: 'default', doing: 'processing', done: 'success' };
 const STATUS_TEXT: Record<TaskEnvelope['status'], string> = { todo: '待办', doing: '进行中', done: '已完成' };
@@ -72,7 +78,7 @@ export function useTasksPoll(intervalMs = 60_000) {
 }
 
 /** 列序按 PATTERNS.md §5：状态 → 标题 → 来源/项目 → 截止 → 操作；来源用 tag 标出，不靠颜色区分 */
-const taskColumns: ProColumns<TaskEnvelope>[] = [
+const taskColumns = (sources?: TasksPayload['sources']): ProColumns<TaskEnvelope>[] => [
   { title: '状态', dataIndex: 'status', width: 90, fixed: 'left', render: (_, t) => <Tag color={STATUS_COLOR[t.status]}>{STATUS_TEXT[t.status]}</Tag> },
   {
     title: '标题', dataIndex: 'title', ellipsis: true,
@@ -83,14 +89,14 @@ const taskColumns: ProColumns<TaskEnvelope>[] = [
       </Space>
     ),
   },
-  { title: '来源', dataIndex: 'source', width: 110, render: (_, t) => <Tag color={SOURCE_COLOR[t.source] ?? 'default'}>{SOURCE_TEXT[t.source] ?? t.source}</Tag> },
+  { title: '来源', dataIndex: 'source', width: 110, render: (_, t) => { const d = sourceDeco(t.source, sources); return <Tag color={d.color}>{d.label}</Tag>; } },
   { title: '项目', dataIndex: 'project', width: 160, ellipsis: true, render: (_, t) => t.project || <Typography.Text type="secondary">-</Typography.Text> },
   { title: '截止', dataIndex: 'due', width: 120, render: (_, t) => (t.due ? <RelTime value={t.due} /> : <Typography.Text type="secondary">-</Typography.Text>) },
   {
     title: '操作', valueType: 'option', width: 110, fixed: 'right',
     render: (_, t) => [
       reviewTaskLink(t) ? <Button key="go" type="link" size="small" href={reviewTaskLink(t)!} target="_blank" rel="noopener noreferrer">去处理</Button> : null,
-      t.lc ? <Tooltip key="lc" title="同源门户/SOP 隔离未完成，工作台审批已停用"><span role="note">仅查看</span></Tooltip> : null,
+      t.readonly_note ? <Tooltip key="ro" title={t.readonly_note}><span role="note">仅查看</span></Tooltip> : null,
     ],
   },
 ];
@@ -108,9 +114,11 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
     [tasks, statusFilter, sourceFilter, q],
   );
   const ygl = payload?.sources?.['ygl-trees'];
-  const life = payload?.sources?.lifecycle;
-  // 生命周期源未登录：弹窗登录 Odoo，登录完成刷新待办（整页跳去 Odoo 会回不来，#275）；紧凑卡片不显示按钮，也不挂登录逻辑
-  const loginUrl = error?.login_url ?? (life?.auth_required ? life.login_url : null);
+  const ext = extensionSources(payload?.sources);
+  const columns = useMemo(() => taskColumns(payload?.sources), [payload?.sources]);
+  // 扩展来源未登录：弹窗登录 Odoo，登录完成刷新待办（整页跳去 Odoo 会回不来，#275）；紧凑卡片不显示按钮，也不挂登录逻辑
+  const authNeeded = ext.find(([, m]) => m.auth_required && m.login_url);
+  const loginUrl = error?.login_url ?? authNeeded?.[1].login_url ?? null;
   const loginHref = !compact && loginUrl ? odooLoginHref(loginUrl) : null;
   const login = useOdooPopupLogin(loginHref, reload);
   if (loading && !payload) return <Card loading style={{ minHeight: 160 }} />;
@@ -121,14 +129,13 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
         <Space wrap className="wm-mb-3">
           <Input.Search allowClear placeholder="搜索标题 / 项目" style={{ width: 220 }} onSearch={setQ} />
           <Segmented value={statusFilter} onChange={(v) => setStatusFilter(v as never)} options={[{ label: '全部', value: 'all' }, { label: '待办', value: 'todo' }, { label: '进行中', value: 'doing' }, { label: '已完成', value: 'done' }]} />
-          <Segmented value={sourceFilter} onChange={(v) => setSourceFilter(v as never)} options={[{ label: '全部来源', value: 'all' }, { label: 'ygl-trees', value: 'ygl-trees' }, { label: 'market', value: 'market' }, ...(life ? [{ label: '生命周期', value: 'lifecycle' }] : [])]} />
+          <Segmented value={sourceFilter} onChange={(v) => setSourceFilter(v as never)} options={[{ label: '全部来源', value: 'all' }, { label: 'ygl-trees', value: 'ygl-trees' }, { label: 'market', value: 'market' }, ...ext.map(([k]) => ({ label: sourceDeco(k, payload?.sources).label, value: k }))]} />
           <Button size="small" icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
-          {Object.entries(payload?.sources ?? {}).filter(([, meta]) => !meta.ok).map(([name, meta]) => <Tag key={name} color="warning">{name}：{meta.error === 'source_not_authorized' ? '未获来源授权' : meta.error === 'ygl_home_required' ? '未配置专用工作区' : '来源暂不可用'}</Tag>)}
-          {life && !life.ok && <Tag color="warning">生命周期源：{life.error ?? '不可用'}</Tag>}
-          {loginHref && !login.tokenHere && <Button size="small" type="link" onClick={login.open} disabled={login.polling}>{login.polling ? '等待 Odoo 登录完成…' : '在弹窗登录 Odoo 查看生命周期待办'}</Button>}
+          {Object.entries(payload?.sources ?? {}).filter((e): e is [string, SourceMeta] => !!e[1] && !e[1].ok).map(([name, meta]) => <Tag key={name} color="warning">{sourceDeco(name, payload?.sources).label}：{meta.error === 'source_not_authorized' ? '未获来源授权' : meta.error === 'ygl_home_required' ? '未配置专用工作区' : '来源暂不可用'}</Tag>)}
+          {loginHref && !login.tokenHere && <Button size="small" type="link" onClick={login.open} disabled={login.polling}>{login.polling ? '等待 Odoo 登录完成…' : authNeeded ? `在弹窗登录 Odoo 查看${sourceDeco(authNeeded[0], payload?.sources).label}待办` : '在弹窗登录 Odoo'}</Button>}
           {loginHref && login.tokenHere && <Button size="small" type="link" onClick={login.clearAndOpen} title="本标签页存着管理员口令，登录弹窗会复制它">清除管理员口令并登录 Odoo</Button>}
           {loginHref && login.blocked && <Tag color="warning">浏览器拦截了登录弹窗，请允许弹窗后再点</Tag>}
-          {life?.ok && life.viewer && <Tag color="purple">以 {life.viewer} 查看（只读）</Tag>}
+          {ext.filter(([, m]) => m.ok && m.viewer).map(([k, m]) => <Tag key={`v:${k}`} color={sourceDeco(k, payload?.sources).color}>{sourceDeco(k, payload?.sources).label}：以 {m.viewer} 查看（只读）</Tag>)}
         </Space>
       )}
       {compact ? (
@@ -138,7 +145,7 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
               <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', border: '1px solid var(--wm-color-border)', borderRadius: 8, flexWrap: 'wrap' }}>
                 <Tag color={STATUS_COLOR[t.status]}>{STATUS_TEXT[t.status]}</Tag>
                 <Typography.Text ellipsis className="wm-caption" style={{ maxWidth: 420 }}>{t.title}</Typography.Text>
-                <Tag color={SOURCE_COLOR[t.source] ?? 'default'}>{SOURCE_TEXT[t.source] ?? t.source}</Tag>
+                <Tag color={sourceDeco(t.source, payload?.sources).color}>{sourceDeco(t.source, payload?.sources).label}</Tag>
                 {reviewTaskLink(t) && <Button type="link" size="small" href={reviewTaskLink(t)!} target="_blank" rel="noopener noreferrer">去处理</Button>}
               </div>
             ))}
@@ -149,7 +156,7 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
           className="wm-tasks-table"
           rowKey="id"
           size="middle"
-          columns={taskColumns}
+          columns={columns}
           dataSource={shown}
           search={false}
           options={false}
@@ -160,7 +167,7 @@ export function TasksView({ compact = false }: { compact?: boolean }) {
       )}
       {payload && (
         <Typography.Text type="secondary" className="wm-caption" style={{ display: 'block', marginTop: 8 }}>
-          生成于 {new Date(payload.generated_at).toLocaleString()} · ygl-trees {ygl?.ok ? `${ygl.count} 条/${ygl.latency_ms}ms` : '部分降级'} · market {payload.sources.market.count} 条{life ? ` · 生命周期 ${life.ok ? `${life.count} 条` : '降级'}` : ''}
+          生成于 {new Date(payload.generated_at).toLocaleString()} · ygl-trees {ygl?.ok ? `${ygl.count} 条/${ygl.latency_ms}ms` : '部分降级'} · market {payload.sources.market.count} 条{ext.map(([k, m]) => ` · ${sourceDeco(k, payload?.sources).label} ${m.ok ? `${m.count} 条` : '降级'}`).join('')}
         {ygl && !ygl.ok && ygl.degraded_projects?.length ? (
           <Typography.Text type="warning" className="wm-caption wm-mt-1" style={{ display: 'block' }}>
             ygl-trees 未完整读取（{ygl.count} 条已入列）：{ygl.degraded_projects.map((d, i) => (
@@ -307,7 +314,7 @@ export default function Tasks() {
   const [bump, setBump] = useState(0);
   return (
     <WmPage
-      subTitle="多源任务聚合 —— 生命周期当前仅供查看，工作台审批已停用；其余勾销请回原系统"
+      subTitle="多源任务聚合 —— 只读汇总，勾销请回原系统"
       extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>发布任务</Button>}
     >
       <Card>

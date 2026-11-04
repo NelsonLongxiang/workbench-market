@@ -81,7 +81,7 @@ export function readDocumentedKeys(text) {
 // OS/plumbing variables the code reads to locate itself, not configuration the README should list.
 const PLUMBING = new Set(['PATH','HOME','USERPROFILE','SystemRoot','TEMP','TMP','APPDATA','LOCALAPPDATA','PNPM_HOME','NODE_ENV','GITHUB_STEP_SUMMARY'])
 // Screaming-case names that are protocol codes, not configuration: the README mentions them as values.
-const NON_CONFIG = new Set(['LC_APPROVAL_READ_ONLY'])
+const NON_CONFIG = new Set([])
 
 export function compare(documented, runtime) {
   const doc = new Set(documented.filter(k => !NON_CONFIG.has(k) && !PLUMBING.has(k)))

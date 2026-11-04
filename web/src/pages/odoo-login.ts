@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { adminTokenPresent, setAdminToken, subscribeAdminToken } from '../admin-token';
+export { odooLoginHref } from './odoo-login-href';
 
 // Same-window refresh hint only; consumers must re-fetch whoami, never trust event identity.
 export const ODOO_SESSION_CONFIRMED = 'wm:odoo-session-confirmed';
 
-/** #275 弹窗登录 Odoo（真实 Odoo 19 不能跨源回跳，回程由市场页查 /api/lifecycle/whoami 完成）。
+/** #275 弹窗登录 Odoo（真实 Odoo 19 不能跨源回跳，回程由市场页查 /api/auth/viewer 完成）。
  *  - 弹窗被浏览器拦截（window.open 返回 null）→ blocked=true，页面提示用户点按钮（点击属于用户手势，一般不会再被拦）；
  *  - 弹窗读成 closed 不一定是用户关的：Odoo 若带 COOP same-origin，弹窗一跳过去就和本页断开，closed 也读成 true。
  *    所以 closed 后再补查两次（3s/6s），之后靠本页重新获得焦点、切回可见时再查一次；
@@ -25,7 +26,7 @@ export function useOdooPopupLogin(href: string | null, onDone: () => void) {
     if (!attemptUntil.current || Date.now() > attemptUntil.current || checking.current) return false;
     checking.current = true;
     try {
-      const r = await fetch('/api/lifecycle/whoami', { cache: 'no-store', credentials: 'same-origin' });
+      const r = await fetch('/api/auth/viewer', { cache: 'no-store', credentials: 'same-origin' });
       const j = await r.json().catch(() => null);
       // 403 = 登上了但无权（门户账号）：同样结束这一轮，让页面刷新出 403 结果，不空等 10 分钟
       const denied = r.status === 403;
@@ -45,7 +46,7 @@ export function useOdooPopupLogin(href: string | null, onDone: () => void) {
   const tokenHere = useSyncExternalStore(subscribeAdminToken, adminTokenPresent);
   const open = useCallback((): boolean => {
     if (!href || adminTokenPresent()) return false;
-    // 同一入口已有登录弹窗开着就复用（/lifecycle 上「清除口令并登录」清口令会触发自动登录 effect，曾开出第二个窗并覆盖句柄）
+    // 同一入口已有登录弹窗开着就复用（页面上「清除口令并登录」清口令会触发自动登录 effect，曾开出第二个窗并覆盖句柄）
     const cur = popupRef.current;
     if (cur && !cur.closed) { try { cur.focus(); } catch { /* 忽略 */ } return true; }
     // 不复用命名窗口：旧窗口可能已停在别的源，既切不断 opener 也读不到；每次新开空白页再跳转

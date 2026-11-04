@@ -18,7 +18,7 @@ function boot(tag, extraEnv) {
   const data = join(TMP, `data-${tag}`); mkdirSync(data, { recursive: true });
   const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), DATA_DIR: data, ...extraEnv };
   if (env.NODE_ENV === 'production') env.MCP_GATEWAY = 'on'; // keep production control tests authenticated
-  for (const k of ['LC_YGL_BIN', 'LC_YGL_HOME', 'LC_WORKBENCH_KEY_FILE', 'LC_ODOO_URL', 'WM_ODOO_ORIGINS']) if (!(k in extraEnv)) delete env[k];
+  for (const k of ['WM_ODOO_URL', 'WM_EXTENSIONS_DIR', 'WM_ODOO_ORIGINS']) if (!(k in extraEnv)) delete env[k];
   if (!('ADMIN_TOKEN' in extraEnv)) delete env.ADMIN_TOKEN;
   if (!('WM_DEV_ORIGIN' in extraEnv)) delete env.WM_DEV_ORIGIN;
   if (!('WM_CONTROL_PORT' in extraEnv)) delete env.WM_CONTROL_PORT; // 用缺省：不开控制面
@@ -102,8 +102,6 @@ try {
   console.log('业务写白名单不变');
   r = await http(A.port, 'POST', '/api/sop/runs', { origin: M }, JSON.stringify({ slug: 'no-such-sop' }));
   ok('业务面浏览器 POST /api/sop/runs 不被总门拦', r.status !== 403, `${r.status} ${JSON.stringify(r.body)}`);
-  r = await http(A.port, 'POST', '/api/lifecycle/approve', { origin: M }, '{}');
-  ok('业务面 /api/lifecycle/approve 不被总门拦（仍由自身只读 503）', !/X-Admin-Token/.test(String(r.body?.error ?? '')), `${r.status}`);
 
   console.log('显式开控制面（WM_CONTROL_PORT）时围栏照旧');
   const E2 = boot('e2', { ADMIN_TOKEN: TOK, WM_CONTROL_PORT: String(20000 + Math.floor(Math.random() * 20000)) });
@@ -165,7 +163,7 @@ try {
     });
   });
   await new Promise((x) => odoo.listen(0, '127.0.0.1', x));
-  const O = boot('o', { ADMIN_TOKEN: TOK, LC_ODOO_URL: `http://127.0.0.1:${odoo.address().port}` });
+  const O = boot('o', { ADMIN_TOKEN: TOK, WM_ODOO_URL: `http://127.0.0.1:${odoo.address().port}` });
   await up(O.port);
   const MO = `http://127.0.0.1:${O.port}`;
   const ck = (sid) => ({ cookie: `session_id=${sid}` });

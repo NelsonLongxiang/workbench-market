@@ -15,17 +15,17 @@ import SopRunDetail from './pages/SopRunDetail';
 import McpGateways from './pages/McpGateways';
 import Vault from './pages/Vault';
 import { adminActive, adminTokenPresent, getAdminToken, odooAdmin, refreshAdminIdentity, setAdminToken, subscribeAdminToken } from './admin-token';
-import { MARKET_ONLY, marketUrl, onSurface, surface } from './surface';
+import { marketOnly, marketUrl, onSurface, surface } from './surface';
+import { WEB_EXTENSIONS } from './extensions';
 import { Badge, Button as AButton, Input as AInput, Popover, Result, Tag } from 'antd';
 import Tasks from './pages/Tasks';
 import Reviews from './pages/Reviews';
-import Lifecycle from './pages/Lifecycle';
 import SkillsPage from './pages/Skills';
 import ViewerChip from './components/ViewerChip';
 import LoginChip from './components/LoginChip';
 import { DESIGN_TOKENS as T } from './design-tokens';
 
-/** #316 菜单五组（数据在 nav.tsx）：一级是分组标题，二级才是页面；「管理」组仅持管理员口令时显示、默认折叠。
+/** #316 菜单分组（数据在 nav.tsx，扩展可加组）：一级是分组标题，二级才是页面；「管理」组仅持管理员口令时显示、默认折叠。
  *  页面路由不变，旧书签照用。 */
 const ADMIN_GROUP = NAV_GROUPS.find((g) => g.admin)!.key;
 const WORK_GROUPS = NAV_GROUPS.filter((g) => !g.admin).map((g) => g.key);
@@ -89,7 +89,7 @@ export default function App() {
   const [openKeys, setOpenKeys] = React.useState<string[]>(() =>
     findNav(location.pathname)?.group.admin ? [...WORK_GROUPS, ADMIN_GROUP] : WORK_GROUPS);
 
-  if (surface === 'control' && MARKET_ONLY.test(location.pathname)) return <MarketOnlyRedirect />;
+  if (surface === 'control' && marketOnly(location.pathname)) return <MarketOnlyRedirect />;
 
   // 嵌入使用页占满整屏，脱离侧边栏壳
   if (location.pathname.startsWith('/use/')) {
@@ -143,7 +143,7 @@ export default function App() {
       }}
       contentStyle={{ padding: 16, paddingTop: 12 }}
     >
-      {/* #279 当前用户：侧栏布局不渲染 headerRender，所以在内容区顶部右侧放一行，所有页面（含 /lifecycle）都能看到 */}
+      {/* #279 当前用户：侧栏布局不渲染 headerRender，所以在内容区顶部右侧放一行，所有页面（含扩展页面）都能看到 */}
       <div className="wm-mb-1" style={{ display: 'flex', justifyContent: 'flex-end', minHeight: 24 }}><LoginChip />{surface !== 'control' && <ViewerChip />}</div>
       <Routes>
         <Route path="/" element={<Dashboard />} />
@@ -155,7 +155,7 @@ export default function App() {
         <Route path="/sops/:slug/runs/:id" element={<SopRunDetail />} />
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/reviews" element={<Reviews />} />
-        <Route path="/lifecycle" element={<Lifecycle />} />
+        {WEB_EXTENSIONS.flatMap((e) => (e.routes ?? []).map((r) => <Route key={`${e.name}:${r.path}`} path={r.path} element={r.element} />))}
         <Route path="/mcp-gateways" element={<McpGateways />} />
         <Route path="/vault" element={<Vault />} />
         <Route path="/types" element={<Types />} />

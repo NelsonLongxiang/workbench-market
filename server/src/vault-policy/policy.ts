@@ -1,4 +1,4 @@
-/** 凭据库主密码门槛（lifecycle-os 协调会话代属主定案，2026-11-01）：只管**新建库**；已有库照常解锁，只提示低于标准。
+/** 凭据库主密码门槛（协调会话代属主定案，2026-11-01）：只管**新建库**；已有库照常解锁，只提示低于标准。
  *  阈值都在 MASTER_POLICY 里，属主要调改这一处即可（vault-smoke 的红测按这里的值断言）。
  *  常见口令表 = SecLists `Passwords/Common-Credentials/10k-most-common.txt`（MIT，提交 913b327，许可证见同目录 LICENSE.SecLists），
  *  并上上游 breach.ts 的内置表；比对复用上游 estimateStrength 的变形规则（大小写、l33t、首尾加数字/符号）。 */

@@ -19,14 +19,14 @@ JS="""[...document.querySelectorAll('.ant-pro-sider .ant-menu-submenu-title, .an
 def rgb(s): return tuple(int(float(x)) for x in s[s.index('(')+1:s.index(')')].split(',')[:3])
 with sync_playwright() as p:
     b=p.chromium.launch(); pg=b.new_page(viewport={'width':1280,'height':800})
-    for path in ['/','/tasks','/cockpit','/sops','/market','/skills','/lifecycle','/mcp-gateways','/types','/settings']:
+    for path in ['/','/tasks','/cockpit','/sops','/market','/skills','/mcp-gateways','/types','/settings']:
         pg.goto(M+path); pg.wait_for_selector('.ant-pro-sider .ant-menu')
         check(f'业务面 {path} 旧路由仍可打开（未被重定向到 /）', pg.evaluate('location.pathname')==path, pg.evaluate('location.pathname'))
     pg.goto(M+'/sops'); pg.wait_for_selector('.ant-pro-sider .ant-menu')
     items=pg.evaluate(JS); names=[i[0] for i in items]
-    check('业务面菜单五组中的四组按序出现', [n for n in names if n in ('工作','交付','资源','治理','管理')]==['工作','交付','资源','治理'], names)
+    check('业务面菜单（无扩展）三个日常分组按序出现', [n for n in names if n in ('工作','交付','资源','管理')]==['工作','交付','资源'], names)
     check('业务面无口令：看不到管理组', '管理' not in names and 'MCP 网关' not in names, names)
-    check('四个日常分组默认展开（9 个页面项可见）', all(n in names for n in ['总览','统一待办','驾驶舱','SOP 交付空间','工作台市场','技能市场','生命周期全景']), names)
+    check('日常分组默认展开（页面项可见）', all(n in names for n in ['总览','统一待办','驾驶舱','SOP 交付空间','工作台市场','技能市场']), names)
     check('页面标题改为 SOP 交付空间', pg.locator('.ant-page-header-heading-title, .ant-pro-page-container-title, h1, .ant-page-header-heading-title').first.inner_text().strip()=='SOP 交付空间' if pg.locator('.ant-page-header-heading-title').count() else 'SOP 交付空间' in pg.content())
     worst=min((ratio(rgb(c), rgb(bg) if 'rgba(0, 0, 0, 0)' not in bg else NAV), n) for n,c,bg in items)
     check(f'侧栏所有文字对比度 ≥4.5（最低 {worst[0]:.2f} @{worst[1]}）', worst[0]>=4.5)

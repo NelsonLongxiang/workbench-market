@@ -1,5 +1,5 @@
 /** #292 M1 面（surface）：同一个 express app 挂在多个端口上，每个端口一个面。
- *  - market（PORT，默认 9800）：业务面，照旧承载 /go、/sop、/apps、/lifecycle 等；**不接受浏览器发来的管理写**；
+ *  - market（PORT，默认 9800）：业务面，照旧承载 /go、/sop、/apps、/tasks 及扩展页面等；**不接受浏览器发来的管理写**；
  *  - control（WM_CONTROL_PORT，默认 9801；设 0 关闭）：管理控制面，口令只在这里输入和使用，不承载任何不可信内容。
  *  #291 的内容 listener 也从这里注册（registerSurface），不另写一套 listen。
  *

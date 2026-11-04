@@ -67,14 +67,12 @@ with sync_playwright() as p:
         print('业务面登录弹窗（M4 残余）')
         for label, path, scope, btn, auto in (
             ('顶栏 chip', '/market', None, re.compile(r'^登\s*录$'), False),
-            ('/lifecycle', '/lifecycle', '.ant-result', '在弹窗登录 Odoo', True),
-            ('统一待办', '/tasks', None, '在弹窗登录 Odoo 查看生命周期待办', False),
+            ('统一待办', '/tasks', None, '在弹窗登录 Odoo', False),
         ):
             c = b.new_context(); opened = []
             c.on('page', lambda pg: opened.append(pg))
             q = c.new_page(); who = {'s': 'anon'}
-            q.route('**/api/lifecycle/whoami', lambda r: r.fulfill(status=401, content_type='application/json', body=ANON) if who['s'] == 'anon' else r.fulfill(status=200, content_type='application/json', body=json.dumps(VIEWER)))
-            q.route('**/api/lifecycle/board*', lambda r: r.fulfill(status=401, content_type='application/json', body=ANON))
+            q.route('**/api/auth/viewer', lambda r: r.fulfill(status=401, content_type='application/json', body=ANON) if who['s'] == 'anon' else r.fulfill(status=200, content_type='application/json', body=json.dumps(VIEWER)))
             def tasks_route(route):
                 # #324: anonymous identity is rejected before any private source fetch.
                 if who['s'] == 'anon':
@@ -99,7 +97,7 @@ with sync_playwright() as p:
             c.close()
 
         c = b.new_context(); q = c.new_page(); who = {'s': 'anon'}
-        q.route('**/api/lifecycle/whoami', lambda r: r.fulfill(status=401, content_type='application/json', body=ANON) if who['s'] == 'anon' else r.fulfill(status=200, content_type='application/json', body=json.dumps(VIEWER)))
+        q.route('**/api/auth/viewer', lambda r: r.fulfill(status=401, content_type='application/json', body=ANON) if who['s'] == 'anon' else r.fulfill(status=200, content_type='application/json', body=json.dumps(VIEWER)))
         q.goto(base + '/market'); q.get_by_text('未登录 Odoo').wait_for()
         with c.expect_page() as pp:
             q.get_by_role('button', name=re.compile(r'^登\s*录$')).click()

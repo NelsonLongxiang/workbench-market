@@ -5,7 +5,7 @@
   "baseline": "main 044d18c",
   "topology": {
     "data": "隔离临时 DATA_DIR；合成 slug A/B；合成记录与文件（含软删、磁盘缺失、属于 B 的 id）",
-    "identity": "桩 Odoo（LC_ODOO_URL 指本地夹具：内部/门户/管理员三种会话）；测试专用口令；不读任何真实密钥",
+    "identity": "桩 Odoo（WM_ODOO_URL 指本地夹具：内部/门户/管理员三种会话）；测试专用口令；不读任何真实密钥",
     "network": "随机回环端口；I14 用 X-Forwarded-For 模拟远程；不访问任何真实实例",
     "browser": "无头 Chromium 打开真实 CSP sandbox 页面，验证 E5→E1/E2/E3 与 dl 下载"
   },
