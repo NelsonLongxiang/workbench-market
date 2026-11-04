@@ -47,6 +47,7 @@ function boot(tag, extraEnv) {
   for (const k of ['LC_YGL_BIN', 'LC_YGL_HOME', 'LC_WORKBENCH_KEY_FILE', 'LC_ODOO_URL', 'WM_ODOO_ORIGINS', 'WM_DEV_ORIGIN', 'WM_CONTROL_PORT']) if (!(k in extraEnv)) delete env[k];
   if (!('DSH_VAULT_PASSWORD' in extraEnv)) delete env.DSH_VAULT_PASSWORD;
   if (!('DSH_VAULT_PASSWORD_FILE' in extraEnv)) delete env.DSH_VAULT_PASSWORD_FILE;
+  if (!('WM_VAULT_HOST' in extraEnv)) delete env.WM_VAULT_HOST;
   if (!('WM_CONTROL_PORT' in extraEnv)) env.WM_CONTROL_PORT = String(port + 1); // 控制面缺省已不开；本冒烟显式开一个，同时覆盖业务面与控制面两种页面
   // Child-origin IPC proves this test owns each listening port before any HTTP request.
   const preload = "import net from 'node:net';const listen=net.Server.prototype.listen;net.Server.prototype.listen=function(...args){this.once('listening',()=>{const a=this.address();if(a&&typeof a==='object')process.send?.({kind:'synthetic-owned-listener',port:a.port});});return listen.apply(this,args)};";
@@ -269,6 +270,37 @@ try {
   r = await http(PG.control, 'GET', '/api/vault/entries', { 'x-admin-token': TOK });
   ok('主密码文件读不到 → 503，不回落环境变量', r.status === 503 && r.body?.code === 'vault_password_file', `${r.status} ${r.text.slice(0, 120)}`);
   await stop(PG);
+
+  section('⑤c 凭据库专用域名（WM_VAULT_HOST）：主域名 403、专用域名免输入、围栏');
+  const VH = boot('vh', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile, DSH_VAULT_PASSWORD_FILE: pwFile, WM_VAULT_HOST: 'Vault.Synthetic.Test' });
+  ok('专用域名实例起来', await up(VH.port));
+  const onHost = (h) => ({ 'x-admin-token': TOK, host: h });
+  r = await http(VH.port, 'GET', '/api/vault/entries', onHost(`127.0.0.1:${VH.port}`));
+  ok('主域名上凭据库 403 vault_control_only', r.status === 403 && r.body?.code === 'vault_control_only', `${r.status} ${r.text.slice(0, 120)}`);
+  r = await http(VH.port, 'GET', '/api/vault/entries', onHost('vault.synthetic.test.evil'));
+  ok('Host 不匹配（后缀拼接）拒绝', r.status === 403 && r.body?.code === 'vault_control_only', `${r.status}`);
+  r = await http(VH.port, 'GET', '/api/vault/entries', onHost('VAULT.synthetic.test:8443'));
+  ok('专用域名上管理员直接读（不分大小写、不看端口）', r.status === 200 && r.body?.entries?.length === 6, `${r.status} ${r.text.slice(0, 120)}`);
+  r = await http(VH.port, 'GET', '/api/vault/entries', { host: 'vault.synthetic.test' });
+  ok('专用域名上不是管理员仍 403', r.status === 403 && r.body?.code !== 'vault_control_only', `${r.status}`);
+  r = await http(VH.port, 'GET', '/api/vault/status', onHost(`127.0.0.1:${VH.port}`));
+  ok('主域名状态脱敏（只 control_only）', r.status === 200 && r.body?.control_only === true && r.body?.path === undefined && r.body?.count === undefined, JSON.stringify(r.body).slice(0, 120));
+  for (const p of ['/go/1/', '/sop/demo/', '/apps/demo/', '/mcp', '/a2a/direct', '/openapi.json']) {
+    r = await http(VH.port, 'GET', p, { host: 'vault.synthetic.test' });
+    ok(`专用域名上 ${p} → 404`, r.status === 404, `${r.status}`);
+  }
+  r = await http(VH.port, 'GET', '/api/vault/status', onHost('vault.synthetic.test'));
+  ok('专用域名禁止被嵌（frame-ancestors none / DENY）', /frame-ancestors 'none'/.test(String(r.headers['content-security-policy'] ?? '')) && r.headers['x-frame-options'] === 'DENY', JSON.stringify(r.headers['content-security-policy']));
+  r = await http(VH.port, 'GET', '/go/1/', { host: `127.0.0.1:${VH.port}` });
+  ok('主域名 /go/ 不受围栏影响（不是 404 围栏文案）', !/凭据库域名不提供此路径/.test(r.text), `${r.status}`);
+  await stop(VH);
+  {
+    const { spawnSync } = await import('node:child_process');
+    const env = { ...process.env, NODE_ENV: 'test', MCP_GATEWAY: 'off', PORT: '0', WM_CONTROL_PORT: '0', DATA_DIR: join(TMP, 'data-badhost'), WM_VAULT_HOST: 'https://vault.x/' };
+    mkdirSync(env.DATA_DIR, { recursive: true });
+    const b = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { env, timeout: 30_000, encoding: 'utf8' });
+    ok('WM_VAULT_HOST 带协议/路径拒绝启动', b.status === 1 && /WM_VAULT_HOST/.test(b.stderr), `status=${b.status} ${String(b.stderr).slice(-120)}`);
+  }
 
   section('⑥ 未设口令 = 凭据库休眠');
   const E = boot('e', { WM_VAULT_PATH: join(TMP, 'vault-e', 'default.json') });

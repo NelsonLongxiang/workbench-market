@@ -146,12 +146,23 @@ app.use(cors({
   },
   credentials: false,
 }));
-// #292 M1 控制面围栏：控制面（WM_CONTROL_PORT）不承载任何不可信内容，也不许被嵌、不嵌别人
+// 凭据库专用域名（WM_VAULT_HOST）：服务端持有主密码时凭据库只在这个源（或控制面）开放。按请求 Host 精确比较、不分大小写、不看端口；
+// 防的是浏览器里主域名上的同源脚本（/go/ 外站、SOP 正文）——它们改不了 Host、也读不到跨源响应。非浏览器客户端本来就要管理员口令。
+const VAULT_HOST = String(process.env.WM_VAULT_HOST ?? '').trim().toLowerCase();
+if (VAULT_HOST && !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/.test(VAULT_HOST)) {
+  console.error('[vault] 拒绝启动：WM_VAULT_HOST 只接受主机名（如 vault.example.com，不带协议、端口、路径）');
+  process.exit(1);
+}
+function onVaultHost(req: express.Request): boolean {
+  if (!VAULT_HOST) return false;
+  return String(req.headers.host ?? '').trim().toLowerCase().replace(/:\d+$/, '') === VAULT_HOST;
+}
+// #292 M1 控制面围栏：控制面（WM_CONTROL_PORT）不承载任何不可信内容，也不许被嵌、不嵌别人；凭据库专用域名同一道围栏
 app.use((req, res, next) => {
-  if (surfaceOf(req) !== 'control') return next();
+  if (surfaceOf(req) !== 'control' && !onVaultHost(req)) return next();
   // 用 Express 路由同一个 pathname（req.path：已剥查询串、已处理绝对形式 http://x/mcp），再按小写判——路由不区分大小写（/MCP、/A2A/direct 曾漏过；#299 绝对形式）
   const p = req.path.toLowerCase();
-  if (/^\/(go|sop|apps)(\/|$)/.test(p) || p === '/mcp' || p === '/openapi.json' || p.startsWith('/api/mcp-rest/') || p.startsWith('/a2a/')) return res.status(404).type('text').send('控制面不提供此路径（请用业务面）\n');
+  if (/^\/(go|sop|apps)(\/|$)/.test(p) || p === '/mcp' || p === '/openapi.json' || p.startsWith('/api/mcp-rest/') || p.startsWith('/a2a/')) return res.status(404).type('text').send(surfaceOf(req) === 'control' ? '控制面不提供此路径（请用业务面）\n' : '凭据库域名不提供此路径（请用主域名）\n');
   res.setHeader('content-security-policy', "frame-ancestors 'none'; frame-src 'none'");
   res.setHeader('x-frame-options', 'DENY');
   next();
@@ -2881,7 +2892,7 @@ function vaultGuard(req: express.Request, res: express.Response): boolean {
   }
   return adminGuard(req, res);
 }
-mountVault(app, vaultGuard, (req) => surfaceOf(req) === 'control'); // 服务端持有主密码时只在控制面开放（控制面不承载 /go/、/sop/、/apps/）
+mountVault(app, vaultGuard, (req) => surfaceOf(req) === 'control' || onVaultHost(req)); // 服务端持有主密码时只在控制面或凭据库专用域名开放（两者都不承载 /go/、/sop/、/apps/）
 workbenchVars.mount(app); // #336 /api/workbenches/:id/vars
 
 // 存活 / 就绪分开：/api/health 是存活（只看本进程，不发外部请求）；/api/health/ready 是就绪（含 LayerFS）。
