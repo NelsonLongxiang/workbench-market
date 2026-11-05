@@ -552,6 +552,9 @@ db.exec("UPDATE workbench_vars SET owner = updated_by WHERE kind = 'const' AND o
 }
 // P0：sop_runs.upload_token（run-scoped 上传令牌·启动签发——总工 direct-c2b55f91）
 try { const srtCols = db.prepare('PRAGMA table_info(sop_runs)').all() as any[]; if (!srtCols.some((c) => c.name === 'upload_token')) db.exec("ALTER TABLE sop_runs ADD COLUMN upload_token TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+// #437② run 文件记 sha256（上传时算）；引用已有文件的行记 ref_of=源文件 id（同一份存储，不另占上传配额）
+try { const rfCols = db.prepare('PRAGMA table_info(sop_run_files)').all() as any[]; if (!rfCols.some((c) => c.name === 'sha256')) db.exec("ALTER TABLE sop_run_files ADD COLUMN sha256 TEXT NOT NULL DEFAULT ''"); if (!rfCols.some((c) => c.name === 'ref_of')) db.exec('ALTER TABLE sop_run_files ADD COLUMN ref_of INTEGER NOT NULL DEFAULT 0'); } catch { /* 列已在 */ }
+db.exec("CREATE INDEX IF NOT EXISTS idx_sop_run_files_sha ON sop_run_files(sha256) WHERE sha256 <> ''");
 {
   const cols = db.prepare('PRAGMA table_info(workbenches)').all() as { name: string }[];
   if (!cols.some((c) => c.name === 'auth_config')) {

@@ -78,6 +78,7 @@ GET/PUT          /api/sop/runs/:id              run 详情 / 步骤保存（{ste
 POST             /api/sop/runs/:id/finish       归档（热态全量沉淀 SQLite，Redis 条目 1h 淘汰）
 GET              /api/sop/runs/:id/upgrade-preflight  进行中的 run 升级到当前 SOP 版本前的预检：旧/新规则各核一遍，列新增、失效字段和没处放的数据（要 run 读授权）
 POST             /api/sop/runs/:id/upgrade      升级到当前版本（管理员或本机命令行，reason 必填，可带 expected_version）；已填数据原样保留，未落盘缓冲一并写回，审计入 sop_run_upgrade_audit
+POST             /api/sop/runs/:id/files/refs   引用已有文件（分批，单次 ≤200 条）：items=[{run_id,file_id,read_capability} | {sha256}]，只限同一 SOP；按 run/文件引用要带源 run 读凭证（管理员免），按 sha256 只限管理员；逐条回 linked/duplicate/failed+原因；引用与源共用存储、不占上传配额（20 个/200MB），另限 2000 条；GET …/files 回 quota
 POST             /mcp                           MCP StreamableHTTP（initialize/tools/list/tools/call；30 本地工具；GET/DELETE → 405）
 GET              /openapi.json                  MCP 工具的 OpenAPI 3.1 文档（同 /api/mcp-rest/openapi.json；只列本会话可调用的工具；会话令牌必带）
 POST             /api/mcp-rest/tools/:name      按 REST 调一个 MCP 工具：请求体 = 工具参数，返回工具结果 JSON（会话令牌必带；见「MCP 工具的 REST / OpenAPI 开放」）
@@ -273,7 +274,7 @@ UI：`/tasks` 页（源/状态过滤·扩展条目可标「仅查看」）· 总
 |---|---|---|
 | REST `/api/apps`（发布） | `X-Admin-Token` 必带（远程写另经 T1 豁免面清单） | 开放（GET） |
 | REST `/api/apps/:slug/files` | 上传=管理员口令；列表/下载开放 | 开放 |
-| REST `/api/sop/runs/:id/files` | **run-scoped `X-Run-Upload-Token`**（启动响应/派单回执取）或管理员口令 | 开放 |
+| REST `/api/sop/runs/:id/files`、`…/files/refs` | **run-scoped `X-Run-Upload-Token`**（启动响应/派单回执取）或管理员口令；refs 另逐条核源 run 读凭证 | 开放 |
 | MCP REST `/openapi.json`、`/api/mcp-rest/*` | 与 `/mcp` 同一套：只认 `Authorization: Bearer <会话令牌>`，不走浏览器登录与管理口令 | 同左 |
 | MCP `/mcp` | 无独立口令——网关模式下按会话 `grants` 工具白名单授权（`Authorization: Bearer <token>`）；`access_info` / `access_request` 免授权，缺权限的会话据此看目录、提申请 | 同左 |
 | 管理面（settings/mcp sessions） | `X-Admin-Token` 必带 | 部分开放（脱敏） |

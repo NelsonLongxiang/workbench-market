@@ -81,10 +81,12 @@ ${stepsHtml}
   <div class="body" id="extras-data"></div>
   <ul id="extras-files" style="margin:var(--wm-space-2) 0 0;padding-left:var(--wm-space-4)"></ul>
   <div style="margin-top:var(--wm-space-2);display:flex;gap:var(--wm-space-2);align-items:center">
-    <input type="file" id="upload-input">
+    <input type="file" id="upload-input" multiple aria-describedby="upload-quota">
     <button class="btn" id="upload-btn" disabled>上传交付文件</button>
     <span class="muted" id="upload-note"></span>
   </div>
+  <p class="muted" id="upload-quota" style="margin:var(--wm-space-1) 0 0;font-size:var(--wm-font-size-caption)"></p>
+  <ul id="upload-status" style="margin:var(--wm-space-1) 0 0;padding-left:var(--wm-space-4);font-size:var(--wm-font-size-caption)" aria-live="polite"></ul>
 </section>
 <div class="foot">
   <button class="btn primary" id="finish" disabled>完成执行</button>
@@ -207,6 +209,12 @@ window.__SOP__ = ${boot};
   }
 
   // P4（F5/F6）：把 run.data 里非 data-field 的键只读渲染 + 交付文件列表
+  // #437② 剩余配额：只算本 run 自己上传的；引用已有文件（同一 SOP 的历史资料）不占配额
+  function showQuota(q) {
+    var el = document.getElementById('upload-quota');
+    if (!el || !q) return;
+    el.textContent = '本记录还能上传 ' + q.upload_left_count + ' 个文件、' + Math.floor(q.upload_left_bytes / 1048576) + ' MB（已上传 ' + q.upload_count + '/' + q.upload_max_count + '）；引用已有文件不占上传配额（已引用 ' + q.ref_count + '）';
+  }
   function renderAgentExtras(run) {
     var sec = document.getElementById('agent-extras');
     var dataBox = document.getElementById('extras-data');
@@ -232,6 +240,7 @@ window.__SOP__ = ${boot};
         if (r.status === 403) { fileBox.textContent = ''; var fn2 = document.getElementById('extras-note'); if (fn2) fn2.textContent = '附件需要读授权（旧记录或无凭据）'; return { items: [] }; }
         return r.ok ? r.json() : { items: [] };
       }).then(function (j) {
+        showQuota(j.quota);
         fileBox.textContent = '';
         (j.items || []).forEach(function (f) {
           var li = document.createElement('li');
@@ -247,7 +256,8 @@ window.__SOP__ = ${boot};
         });
         var hasData = Object.keys(extra).length > 0;
         var hasFiles = (j.items || []).length > 0;
-        sec.style.display = (hasData || hasFiles) ? '' : 'none';
+        // #437② 进行中的记录也显示交付区：上传入口和剩余配额要看得到，不能等已经有文件才出现
+        sec.style.display = (hasData || hasFiles || run.status === 'running') ? '' : 'none';
         note.textContent = hasData || hasFiles ? '由执行 agent 提供（只读）' : '';
       });
       if (Object.keys(extra).length) sec.style.display = '';
@@ -340,27 +350,41 @@ window.__SOP__ = ${boot};
     btn.addEventListener('click', function () {
       var inp = document.getElementById('upload-input');
       var note = document.getElementById('upload-note');
+      var list = document.getElementById('upload-status');
       if (!inp || !inp.files || !inp.files.length) { if (note) note.textContent = '请选择文件'; return; }
-      var fd = new FormData();
-      fd.append('file', inp.files[0]);
-      btn.disabled = true;
-      ensureRun().then(function () {
-        var hdr = runUploadToken ? { 'X-Run-Upload-Token': runUploadToken } : {};
-        return fetch('/api/sop/runs/' + runId + '/files', { method: 'POST', body: fd, headers: hdr });
-      })
-        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, j: j }; }); })
-        .then(function (res) {
-          if (note) note.textContent = res.ok ? ('已上传：' + (res.j.name || '')) : ('上传失败(' + res.status + ')：' + (res.j.error || ''));
-          btn.disabled = false; inp.value = '';
-          if (res.ok) { // 刷新交付文件列表（就地把新行加进 extras-files）
-            var fileBox = document.getElementById('extras-files');
-            if (fileBox && res.j && res.j.name) {
-              var li = document.createElement('li');
-              li.textContent = res.j.name + '（' + Math.round((res.j.size || 0) / 1024) + ' KB）';
-              fileBox.appendChild(li);
-            }
-          }
-        }).catch(function (e) { if (note) note.textContent = '上传异常：' + e; btn.disabled = false; });
+      // #437② 多选逐个上传：每个文件一行状态（待传 / 上传中 / 已上传 / 失败+原因）；一个失败不影响其余，已填内容不动
+      var files = Array.prototype.slice.call(inp.files);
+      var rows = files.map(function (f) {
+        var li = document.createElement('li'); li.textContent = f.name + '：待传'; if (list) list.appendChild(li); return li;
+      });
+      btn.disabled = true; inp.disabled = true;
+      var okN = 0, failN = 0;
+      function one(i) {
+        if (i >= files.length) {
+          btn.disabled = false; inp.disabled = false; inp.value = '';
+          if (note) note.textContent = '上传完成：成功 ' + okN + ' 个' + (failN ? '，失败 ' + failN + ' 个（见下方原因，可单独重传）' : '');
+          return;
+        }
+        var f = files[i], li = rows[i];
+        li.textContent = f.name + '：上传中…';
+        var fd = new FormData(); fd.append('file', f);
+        ensureRun().then(function () {
+          var hdr = runUploadToken ? { 'X-Run-Upload-Token': runUploadToken } : {};
+          return fetch('/api/sop/runs/' + runId + '/files', { method: 'POST', body: fd, headers: hdr });
+        })
+          .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, status: r.status, j: j }; }); })
+          .then(function (res) {
+            if (res.ok) {
+              okN++; li.textContent = f.name + '：已上传（' + Math.round((res.j.size || 0) / 1024) + ' KB）';
+              showQuota(res.j.quota);
+              var fileBox = document.getElementById('extras-files');
+              if (fileBox && res.j && res.j.name) { var row = document.createElement('li'); row.textContent = res.j.name + '（' + Math.round((res.j.size || 0) / 1024) + ' KB）'; fileBox.appendChild(row); }
+            } else { failN++; li.textContent = f.name + '：失败（' + res.status + '）' + (res.j.error || ''); }
+          })
+          .catch(function (e) { failN++; li.textContent = f.name + '：失败（网络）' + e; })
+          .then(function () { one(i + 1); });
+      }
+      one(0);
     });
   })();
   document.addEventListener('change', function (ev) {
