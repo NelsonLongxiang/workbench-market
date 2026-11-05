@@ -185,7 +185,7 @@ app.use((req, res, next) => {
   next();
 });
 // #336 工作台变量：鉴权依赖（函数声明有提升，请求期已定义）；沙箱页面按台令牌 CORS
-const workbenchVars = createWorkbenchVars({ appToken: wmAppToken, markOdooAdmin, adminRead: vaultGuard, adminWrite: adminGuard });
+const workbenchVars = createWorkbenchVars({ appToken: wmAppToken, markOdooAdmin, adminRead: vaultGuard, adminWrite: adminGuard, adminActor });
 app.use(workbenchVars.cors);
 // #198（裁 A）：自产台数据/文件面的按台令牌 CORS——sandbox 页面（Origin: null）凭 X-App-Token 匹配 slug 才放行
 app.use((req, res, next) => {
