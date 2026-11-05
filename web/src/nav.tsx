@@ -7,6 +7,7 @@ import {
   ClusterOutlined,
   DashboardOutlined,
   ExperimentOutlined,
+  InboxOutlined,
   LayoutOutlined,
   LockOutlined,
   OrderedListOutlined,
@@ -32,6 +33,7 @@ const BASE_GROUPS: NavGroup[] = [
     { path: '/skills', name: '技能市场', icon: <ExperimentOutlined /> },
   ] },
   { key: '/g/admin', name: '管理', admin: true, pages: [
+    { path: '/owner-pending', name: '待属主看板', icon: <InboxOutlined /> },
     { path: '/mcp-gateways', name: 'MCP 网关', icon: <SafetyCertificateOutlined /> },
     { path: '/vault', name: '凭据库', icon: <LockOutlined /> },
     { path: '/types', name: '类型管理', icon: <ClusterOutlined /> },
