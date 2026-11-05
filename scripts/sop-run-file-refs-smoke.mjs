@@ -26,6 +26,7 @@ const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ✓ ' + n); } els
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const CLI = { 'content-type': 'application/json' };
 const REMOTE = { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.11' };
+const withCap = (cap, h = REMOTE) => ({ ...h, 'x-run-read-capability': cap });
 const ADM = { ...REMOTE, 'x-admin-token': ADMIN };
 async function call(method, path, headers = CLI, body) {
   const r = await fetch(B + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -58,18 +59,23 @@ try {
   ok('上传回执带 sha256 与配额', u1.status === 201 && u1.body?.sha256 === sha1 && u1.body?.quota?.upload_count === 1 && u2.body?.quota?.upload_left_count === 18, JSON.stringify(u1.body));
 
   console.log('▶ R2 逐条引用');
-  let r = await call('POST', `/api/sop/runs/${Bn.id}/files/refs`, REMOTE, { items: [
+  let r = await call('POST', `/api/sop/runs/${Bn.id}/files/refs`, withCap(Bn.read_capability), { items: [
     { run_id: A.id, file_id: u1.body.id, read_capability: A.read_capability },
     { run_id: A.id, file_id: u2.body.id },
     { run_id: A.id, file_id: 99999, read_capability: A.read_capability },
   ] });
   const res = r.body?.results ?? [];
   ok('一批三条：带凭证的 linked，缺凭证、不存在的各自 failed', r.status === 200 && res[0]?.status === 'linked' && res[1]?.status === 'failed' && /读授权/.test(res[1]?.reason ?? '') && res[2]?.status === 'failed' && r.body?.linked === 1, JSON.stringify(r.body));
-  r = await call('POST', `/api/sop/runs/${C.id}/files/refs`, REMOTE, { items: [{ run_id: A.id, file_id: u1.body.id, read_capability: A.read_capability }] });
+  r = await call('POST', `/api/sop/runs/${C.id}/files/refs`, withCap(C.read_capability), { items: [{ run_id: A.id, file_id: u1.body.id, read_capability: A.read_capability }] });
   ok('跨 SOP 引用 → failed，整批都失败时 422', r.status === 422 && r.body?.results?.[0]?.status === 'failed' && /同一 SOP/.test(r.body.results[0].reason), JSON.stringify(r.body));
 
+  console.log('▶ R2b 没有本 run 读权不能借引用列文件名');
+  r = await call('POST', `/api/sop/runs/${A.id}/files/refs`, REMOTE, { items: [{ run_id: A.id, file_id: u1.body.id }, { run_id: A.id, file_id: u2.body.id }] });
+  ok('不带本 run 读凭证自引用 → 403，响应里没有文件名', r.status === 403 && !JSON.stringify(r.body).includes('history-'), JSON.stringify(r.body));
+  r = await call('POST', `/api/sop/runs/${Bn.id}/files/refs`, withCap(Bn.read_capability), { items: [{ run_id: A.id, file_id: 99999 }, { run_id: A.id, file_id: u2.body.id }] });
+  ok('没有源 run 读凭证：存在与不存在的文件给同样的回答（先核授权）', r.body?.results?.[0]?.reason === r.body?.results?.[1]?.reason && /读授权/.test(r.body?.results?.[0]?.reason ?? '') && !JSON.stringify(r.body).includes('history-'), JSON.stringify(r.body));
   console.log('▶ R3 重复、配额、下载');
-  r = await call('POST', `/api/sop/runs/${Bn.id}/files/refs`, REMOTE, { items: [{ run_id: A.id, file_id: u1.body.id, read_capability: A.read_capability }] });
+  r = await call('POST', `/api/sop/runs/${Bn.id}/files/refs`, withCap(Bn.read_capability), { items: [{ run_id: A.id, file_id: u1.body.id, read_capability: A.read_capability }] });
   ok('重复引用 → duplicate', r.status === 200 && r.body?.results?.[0]?.status === 'duplicate', JSON.stringify(r.body));
   r = await call('GET', `/api/sop/runs/${Bn.id}/files`, { 'x-run-read-capability': Bn.read_capability });
   const refRow = r.body?.items?.find((f) => f.ref_of === u1.body.id);
@@ -78,14 +84,14 @@ try {
   ok('下载引用文件内容与源一致', dl.status === 200 && (await dl.text()) === '历史资料一');
 
   console.log('▶ R4 sha256、批量上限、已完成、审计');
-  r = await call('POST', `/api/sop/runs/${Bn.id}/files/refs`, REMOTE, { items: [{ sha256: sha2 }] });
+  r = await call('POST', `/api/sop/runs/${Bn.id}/files/refs`, withCap(Bn.read_capability), { items: [{ sha256: sha2 }] });
   ok('非管理员按 sha256 引用 → failed', r.body?.results?.[0]?.status === 'failed' && /管理员/.test(r.body.results[0].reason), JSON.stringify(r.body));
   r = await call('POST', `/api/sop/runs/${Bn.id}/files/refs`, ADM, { items: [{ sha256: sha2 }] });
   ok('管理员按 sha256 引用同 SOP 的已上传文件 → linked', r.status === 200 && r.body?.results?.[0]?.status === 'linked' && r.body.results[0].source_file_id === u2.body.id, JSON.stringify(r.body));
-  r = await call('POST', `/api/sop/runs/${Bn.id}/files/refs`, REMOTE, { items: Array.from({ length: 201 }, () => ({ sha256: sha1 })) });
+  r = await call('POST', `/api/sop/runs/${Bn.id}/files/refs`, withCap(Bn.read_capability), { items: Array.from({ length: 201 }, () => ({ sha256: sha1 })) });
   ok('单批超过 200 条 → 400', r.status === 400, String(r.status));
   await call('POST', `/api/sop/runs/${A.id}/finish`, CLI);
-  r = await call('POST', `/api/sop/runs/${A.id}/files/refs`, REMOTE, { items: [{ run_id: Bn.id, file_id: refRow.id, read_capability: Bn.read_capability }] });
+  r = await call('POST', `/api/sop/runs/${A.id}/files/refs`, withCap(A.read_capability), { items: [{ run_id: Bn.id, file_id: refRow.id, read_capability: Bn.read_capability }] });
   ok('已完成的 run 不能再关联 → 409', r.status === 409, JSON.stringify(r.body));
 
   if (process.env.PYTHON) {

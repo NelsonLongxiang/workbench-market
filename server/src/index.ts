@@ -2026,10 +2026,13 @@ app.post('/api/sop/runs/:id(\\d+)/files/refs', wrap(async (req, res) => {
   await markOdooAdmin(req);
   runFileWriteGate(req, runId);
   const target = sopRunRow(runId);
+  // 先核目标 run 的读授权：结果会回显文件名（duplicate / linked），没有读权的人不能借引用逐个试出本 run 的文件（执行页本就持有自己 run 的读能力）
+  const admin = adminHeaderOk(req);
+  const targetAuth = await authorizeRunRead({ adminOk: admin, cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, runId);
+  if (!targetAuth.authorized) return res.status(403).set('Cache-Control', 'no-store').json({ error: 'run read authorization required', hint: '带上本 run 的 X-Run-Read-Capability，或已授权会话、管理员' });
   const items = Array.isArray(req.body?.items) ? req.body.items : null;
   if (!items || !items.length) bad('items 必须是非空数组：[{ run_id, file_id, read_capability? } | { sha256 }]');
   if (items.length > RUN_REF_BATCH_MAX) bad(`单次最多 ${RUN_REF_BATCH_MAX} 条，请分批关联`);
-  const admin = adminHeaderOk(req);
   const createdBy = typeof req.body?.created_by === 'string' ? req.body.created_by.trim().slice(0, 128) : '';
   const results: { index: number; status: 'linked' | 'duplicate' | 'failed'; id?: number; source_file_id?: number; name?: string; reason?: string }[] = [];
   for (const [index, it] of items.entries()) {
@@ -2043,13 +2046,14 @@ app.post('/api/sop/runs/:id(\\d+)/files/refs', wrap(async (req, res) => {
       } else {
         const sr = Number(it?.run_id), sf = Number(it?.file_id);
         if (!Number.isInteger(sr) || !Number.isInteger(sf) || sr <= 0 || sf <= 0) throw new HttpError(400, '需要 run_id 与 file_id（正整数），或 sha256');
-        src = svc<SopService>('sop').runFileWithRun(sf);
-        if (!src || src.run_id !== sr) throw new HttpError(404, `run ${sr} 里没有文件 ${sf}`);
-        if (src.sop_slug !== target.sop_slug) throw new HttpError(403, '只能引用同一 SOP 的文件');
+        // 先核源 run 读授权，再查文件：不让无权者借 404 / 403 判断某文件属不属于那个 run（本 run 已在请求开头核过）
         if (sr !== runId) {
           const auth = await authorizeRunRead({ adminOk: admin, cap: typeof it.read_capability === 'string' ? it.read_capability : '', cookieHeader: req.headers.cookie }, sr);
           if (!auth.authorized) throw new HttpError(403, `没有 run ${sr} 的读授权（带上它的 read_capability）`);
         }
+        src = svc<SopService>('sop').runFileWithRun(sf);
+        if (!src || src.run_id !== sr) throw new HttpError(404, `run ${sr} 里没有文件 ${sf}`);
+        if (src.sop_slug !== target.sop_slug) throw new HttpError(403, '只能引用同一 SOP 的文件');
       }
       const rootId = Number(src.ref_of) || Number(src.id);
       const have = (svc<SopService>('sop').runFiles(runId) as { id: number; ref_of: number }[]).find((f) => f.id === rootId || f.ref_of === rootId);
