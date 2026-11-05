@@ -1,0 +1,6 @@
+# Overlay existing deployment files; only Workbench image and explicit browser-facing login origin change.
+services:
+  workbench:
+    image: ${WM_ODOO_BROWSER_IMAGE:?pin reviewed browser-login image}
+    environment:
+      WM_ODOO_BROWSER_URL: ${WM_ODOO_BROWSER_URL:?trusted same-host intranet Odoo origin}

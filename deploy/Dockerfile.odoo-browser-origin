@@ -1,0 +1,9 @@
+# Narrow backend-only overlay on the exact deployed release; no frontend or unrelated source changes.
+ARG MARKET_BASE_IMAGE
+FROM $MARKET_BASE_IMAGE
+ARG SOURCE_SHA
+LABEL org.opencontainers.image.revision="$SOURCE_SHA"
+USER root
+COPY server/src/portal.ts server/src/odoo-browser-origin.ts /app/server/src/
+RUN node --check /app/server/src/portal.ts && node --check /app/server/src/odoo-browser-origin.ts
+USER node
