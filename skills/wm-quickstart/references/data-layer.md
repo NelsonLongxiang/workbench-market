@@ -9,6 +9,8 @@
 | 明细记录：台账、事件、表单提交 | 本台**数据面** | `GET /api/apps/<slug>/data`（按 `before_id` 翻页读全） |
 | 文件：截图、面单、报表、证据包 | 本台**文件面** | `GET /api/apps/<slug>/files`；下载走返回的 `url` |
 
+每个台的具体键名、记录类型和写入规矩写在本台常量 `AGENTS.md` 里，见 [workbench-agents.md](workbench-agents.md)。
+
 所有请求都带本台的 `X-App-Token`（平台注入的 `<meta name="wm-app-token">` 或 `window.WM_APP_TOKEN`）。
 
 ## 不允许的写法

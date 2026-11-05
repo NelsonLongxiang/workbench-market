@@ -1,6 +1,6 @@
 ---
 name: wm-quickstart
-version: 1.1.0
+version: 1.2.0
 description: 工作台市场·快速开始构建——builder/agent 视角 15 分钟从零建台：登记外部工作台、发布自产台（全量+patch 增量）、文件/数据双通道、交付空间模式、发布纪律（served+1/60s 锁）、三闸。当需要「在市场上建一个台」「发布页面/交付物」「app_publish 怎么用」时加载。
 ---
 
@@ -23,6 +23,9 @@ MCP app_publish({
 ## 数据层规范（硬规）
 **严禁把可视化数据写死在台页面里**：不写数据字面量，不内嵌 JSON 快照，不读台目录里的静态 `.json`。看板值、小型索引放工作台变量，定稿的值放工作台常量，明细记录放本台数据面，文件放本台文件面，页面在运行时读取。读不到要明说「没读到」，不显示成 0。细则与迁移步骤见 references/data-layer.md。
 
+## 台的读写约定（先读再动）
+每个台在工作台空间里放一个常量 `AGENTS.md`，写清本台的数据放在哪、谁写什么、怎么写。读写一个台的变量、数据面、文件面之前先读它（`workbench_vars_get { key: "AGENTS.md" }`），返回 404 时先问属主。内容节与修订流程见 references/workbench-agents.md。
+
 ## 交付空间模式（数据+文件双通道·实战验证）
 1. 页面表单 → /api/apps/<slug>/data（哑存储任意 JSON）
 2. 文件上传 → /api/apps/<slug>/files（≤100MB/个+note 可改）
@@ -42,6 +45,7 @@ MCP app_publish({
 - 工具全景/鉴权/坑：`wm-market-guide`（深度参考）
 - 判据：写读全链见 references/write-read.md
 - 数据层规范（数据放哪、怎么读、读不到怎么办）：references/data-layer.md
+- 台的读写约定（常量 AGENTS.md）：references/workbench-agents.md
 
 
 ## sandbox 运行约束（#170 P11 / #198）
