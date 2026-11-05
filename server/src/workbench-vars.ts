@@ -153,13 +153,15 @@ export function setVar(scope: Scope, key: string, input: { value?: unknown; hasV
     if (input.expected === undefined) conflict(scope, key, '改已存在的键必须带期望 revision（If-Match 或 revision）', 'revision_required', 428);
     if (input.expected !== cur.revision) conflict(scope, key, `revision 冲突：期望 ${input.expected}，当前 ${cur.revision}`, 'revision_conflict');
     const kind = (input.kind as string | undefined) ?? cur.kind;
-    // 已存在的键改 kind（冻结 var→const）只限管理员：按台令牌在公开页面里，不能让持令牌者冻结别人的变量
-    if (kind !== cur.kind && !caller.admin) conflict(scope, key, '改已存在键的 kind 只限管理员或本机命令行', 'kind_change_forbidden', 403);
+    // 已存在的键改 kind（冻结 var→const）只限管理员：按台令牌在公开页面里，不能让持令牌者冻结别人的变量。
+    // 例外：作者本人可以把自己的常量放开成变量，交给大家按需维护（上面已核过作者与 reason）
+    const release = cur.kind === 'const' && kind === 'var' && !!cur.owner && caller.actor === cur.owner;
+    if (kind !== cur.kind && !caller.admin && !release) conflict(scope, key, '改已存在键的 kind 只限管理员或本机命令行（作者本人可把自己的常量放开成变量）', 'kind_change_forbidden', 403);
     if (asked !== undefined && kind !== 'const') throw new HttpError(400, 'owner 只用于常量');
     // 作者：常量照旧（移交另算）；冻结时冻结者是作者；转回变量就没有作者
     const owner = kind !== 'const' ? '' : asked ?? (cur.kind === 'const' ? cur.owner : personal(caller.actor));
     if (!S.update(scope.id, key, cur.revision, kind, json, caller.actor, owner).changes) conflict(scope, key, 'revision 冲突：已被并发修改', 'revision_conflict');
-    const action = cur.kind === 'const' ? 'const_override' : kind === 'const' ? 'freeze' : 'update';
+    const action = cur.kind === 'const' ? (kind === 'var' ? 'release' : 'const_override') : kind === 'const' ? 'freeze' : 'update';
     S.audit({ workbench_id: scope.id, key, action, actor: caller.actor, kind, old_revision: cur.revision, new_revision: cur.revision + 1, old_sha256: sha(cur.value), new_sha256: sha(json), reason });
     return { ok: true, created: false, workbench_id: scope.id, ...view(S.get(scope.id, key) as WorkbenchVarRow) };
   });
