@@ -14,6 +14,7 @@ import { svc } from './context.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { CookieService } from './services/cookie.ts';
 import { clientIp } from './login-gate.ts';
+import { browserLoginOrigin, odooBrowserOrigin } from './odoo-browser-origin.ts';
 import { configuredOdooUrl, consumeSsoCallback, isOdooSessionTarget, issueSsoCallback, odooSessionOf, safeReturnPath, setSsoTargetLookup, stripOdooSession } from './odoo-session.ts';
 
 
@@ -35,6 +36,8 @@ export function installPortal(
   const { serveApp, readActiveManifest, renderSopRunner, appsRoot } = deps;
   // SSO 回调票据核对时按注册表现查台地址（已停用的台不算）
   setSsoTargetLookup((id) => { const w = wbById(id); return w && w.enabled !== false && w.enabled !== 0 && typeof w.url === 'string' ? w.url : null; });
+  const browserOrigin = odooBrowserOrigin(); // 显式配置的浏览器登录地址：非法即拒启动（在监听之前）
+  if (browserOrigin && process.env.WM_ODOO_LOGIN_PROXY === '1') console.warn('[portal] WM_ODOO_LOGIN_PROXY=1 时同域中继优先，WM_ODOO_BROWSER_URL 对中继覆盖的 Odoo 台不生效');
   const goPrefix = /^\/go\/(\d+)(.*)$/;
 
   // id 校验 + 404（在代理前拦截，避免 router 内抛错变 500）
@@ -116,6 +119,12 @@ export function installPortal(
           req.url = (u2.pathname || '/') + (u2.search ? u2.search : '');
         }
         if (!sid || ret) {
+          // 浏览器登录地址（WM_ODOO_BROWSER_URL）：上游是容器名等浏览器解析不了的内部地址时，只把「登录这一跳」送到显式配置的可信地址；
+          // 当前主机名对不上（host-only 会话 cookie 带不回来）或 https 入口要降级到 http 时一律 503。同域中继开着时由中继处理，这里不介入。
+          const relayOn = process.env.WM_ODOO_LOGIN_PROXY === '1' && u.origin === new URL(configuredOdooUrl()).origin;
+          const secureLogin = req.secure || String(req.headers['x-forwarded-proto'] ?? '').split(',').some((p) => p.trim().toLowerCase() === 'https');
+          const loginOrigin = relayOn ? u.origin : browserLoginOrigin(u.origin, String(req.headers.host ?? ''), browserOrigin, secureLogin);
+          if (!loginOrigin) return res.status(503).set('Cache-Control', 'no-store').json({ error: 'odoo_browser_host_mismatch' });
           if (ret) {
             // 真实 Odoo（19 核心 http.py request.redirect 默认 local=True）会把绝对回跳剥成 Odoo 本地路径（website 再加 /zh_CN 前缀 → 404），
             // Odoo 无法跨源跳回市场；return 流改为本页（市场源）把浏览器送去 Odoo 登录（不带 redirect 参数，登录后落在 Odoo 自己的页面），
@@ -124,7 +133,7 @@ export function installPortal(
             // current authority; the upstream is still the fixed WM_ODOO_URL.
             const odooLogin = process.env.WM_ODOO_LOGIN_PROXY === '1' && u.origin === new URL(configuredOdooUrl()).origin
               ? `/web/login?redirect=${encodeURIComponent(ret)}`
-              : `${u.origin}/web/login`;
+              : `${loginOrigin}/web/login`;
             res.setHeader('Cache-Control', 'no-store');
             return res.status(200).type('html').send(
               '<!doctype html><meta charset="utf-8"><title>跳转 Odoo 登录…</title>' +
@@ -146,7 +155,7 @@ export function installPortal(
           if (relay) {
             return res.redirect(302, `/web/login?redirect=${encodeURIComponent(`/go/${m[1]}/?state=${state}`)}`);
           }
-          return res.redirect(302, `${u.origin}/web/login?redirect=${redirectUri}&state=${state}`);
+          return res.redirect(302, `${loginOrigin}/web/login?redirect=${redirectUri}&state=${state}`);
         }
         const okCookie = `wm_sso_ok_${m[1]}`;
         const ssoOk = new RegExp('(?:^|;\\s*)' + okCookie + '=1').test(browserCookies);

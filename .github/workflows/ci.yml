@@ -35,6 +35,7 @@ jobs:
         run: |
           export CHROME_BIN=$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')
           node scripts/odoo-same-host-login-smoke.mjs
+          node scripts/odoo-browser-origin-http-test.mjs
           node scripts/odoo-logout-smoke.mjs
           node scripts/log-secret-relay-headers-smoke.mjs
       - name: SOP metadata-only history UI (#309, synthetic intercepted API)
@@ -208,6 +209,8 @@ jobs:
         run: node scripts/extensions-smoke.mjs
       - name: Odoo 弹窗登录链接单测（return 换成当前页·只回 path）
         run: node scripts/odoo-login-href-unit.mjs
+      - name: Odoo 浏览器登录地址策略（WM_ODOO_BROWSER_URL）
+        run: node scripts/odoo-browser-origin-test.mjs
       - name: 来源 IP 单测（WM_TRUSTED_PROXIES：可信反代才认 X-Real-IP/XFF·伪造不生效·非法项拒绝启动）
         run: node scripts/client-ip-unit.mjs
       - name: 日志不泄露上游会话 + 登录中继安全头（Set-Cookie 只记名·查询串不进日志·XFO/nosniff/frame-ancestors）
