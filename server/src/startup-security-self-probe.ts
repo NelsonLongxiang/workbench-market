@@ -12,9 +12,9 @@ type Options = { market: Server; control?: Server; gatewayOn: boolean; nodeEnv?:
 /** Login-gate rows impersonate a remote anonymous browser behind a same-host proxy, so the local-CLI exemption cannot apply. */
 const REMOTE_ANON = { 'x-forwarded-for': '192.0.2.1', accept: 'text/html' };
 
-/** Does not import the application DB or read host/request-provided targets. */
 const LISTEN_WAIT_MS = 10_000;
 
+/** Does not import the application DB or read host/request-provided targets. */
 export function createStartupSecurityProbe({ timeoutMs = 1500, log = (row: unknown) => console.log(JSON.stringify(row)) } = {}) {
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 5000) throw Error('Invalid self-probe timeout');
   const marker = randomBytes(32).toString('hex');
