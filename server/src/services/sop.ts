@@ -85,12 +85,20 @@ export class SopService extends Service {
     return db.prepare(sql).all(...(args as never[])).map(runMetadata);
   }
   // ---- P4 交付物（product/run-delivery F1-F4） ----
-  runFileInsert(r: { runId: number; name: string; mime: string; size: number; storagePath: string; createdBy: string }) {
-    return db.prepare('INSERT INTO sop_run_files (run_id, original_name, mime, size, storage_path, created_by) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(r.runId, r.name, r.mime, r.size, r.storagePath, r.createdBy);
+  runFileInsert(r: { runId: number; name: string; mime: string; size: number; storagePath: string; createdBy: string; sha256?: string; refOf?: number }) {
+    return db.prepare('INSERT INTO sop_run_files (run_id, original_name, mime, size, storage_path, created_by, sha256, ref_of) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(r.runId, r.name, r.mime, r.size, r.storagePath, r.createdBy, r.sha256 ?? '', r.refOf ?? 0);
   }
   runFiles(runId: number) {
-    return db.prepare('SELECT id, original_name, mime, size, created_by, created_at FROM sop_run_files WHERE run_id = ? ORDER BY id ASC').all(runId);
+    return db.prepare('SELECT id, original_name, mime, size, sha256, ref_of, created_by, created_at FROM sop_run_files WHERE run_id = ? ORDER BY id ASC').all(runId);
+  }
+  /** #437② 引用源：按文件 id 取行并带上所属 run 的 SOP（同 SOP 才能引用） */
+  runFileWithRun(fileId: number) {
+    return db.prepare('SELECT f.*, r.sop_slug AS sop_slug FROM sop_run_files f JOIN sop_runs r ON r.id = f.run_id WHERE f.id = ?').get(fileId);
+  }
+  /** 同一 SOP 里内容为该 sha256 的最早一份上传（只认上传时记了 sha 的行） */
+  runFileBySha(slug: string, sha: string) {
+    return db.prepare("SELECT f.*, r.sop_slug AS sop_slug FROM sop_run_files f JOIN sop_runs r ON r.id = f.run_id WHERE f.sha256 = ? AND r.sop_slug = ? AND f.ref_of = 0 ORDER BY f.id LIMIT 1").get(sha, slug);
   }
   runFileById(runId: number, id: number) {
     return db.prepare('SELECT * FROM sop_run_files WHERE run_id = ? AND id = ?').get(runId, id);

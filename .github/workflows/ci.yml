@@ -88,6 +88,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/sop-runner-a11y-browser.mjs
+      - name: SOP run 引用已有文件与配额（#437②：逐条结果·同 SOP·源 run 读凭证·不占上传配额·执行页多选逐个上传）
+        env:
+          PYTHON: python
+        run: node scripts/sop-run-file-refs-smoke.mjs
       - name: 完整 E2E 跑器收尾回归（自起 server 未确认退出不删 TMP）
         run: node scripts/e2e-full-run-cleanup-test.mjs
       - name: 宿主 YGL_HOME 诱饵（不可读目录，完整 E2E 两档都带着它跑）
