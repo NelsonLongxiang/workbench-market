@@ -6,11 +6,13 @@
 //   B3 事项：登记会话 owner-board 建 item.* 常量 → 采信；别的会话建的 item 点名不采信；别的会话改不了 owner-board 的事项
 //   B4 答复：boss 建 answer.* → 已答复；mallory、口令管理员、别的会话写的答复都不采信；boss 带 override 改自己的答复
 //   B5 MCP 只授三个工具：会话调 app_data_submit 被拒
+//   B6 轮换：属主带 override 修订 config.owner 加新登记身份；新会话写的事项采信；旧会话吊销后写不进，它以前写的事项照常采信；别人改不了
+//   B7 抢先登记：属主登记前被别的 Odoo 管理员抢先——页面显示的属主是抢先者（看得出来），真属主登记回冲突，其答复不被采信
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { answerBody, buildBoard, findBoardWorkbench, parseConfig } from '../web/src/owner-pending.ts';
+import { answerBody, buildBoard, configRevisionBody, findBoardWorkbench, parseConfig } from '../web/src/owner-pending.ts';
 
 mkdirSync('tmp', { recursive: true });
 const ADMIN = 'owner-board-admin';
@@ -92,10 +94,11 @@ try {
   const mk = async (name, grants) => {
     const s = await call('POST', '/api/mcp/sessions', ADM, { name });
     await call('PUT', `/api/mcp/sessions/${s.body?.id}/grants`, ADM, { grants });
-    return s.body?.token;
+    return { token: s.body?.token, id: s.body?.id };
   };
   const THREE = ['workbench_vars_get', 'workbench_vars_set', 'workbench_list'];
-  const writer = await mk('owner-board', THREE), intruder = await mk('intruder', THREE);
+  const W1 = await mk('owner-board', THREE), I1 = await mk('intruder', THREE);
+  const writer = W1.token, intruder = I1.token;
   ok('两个会话（登记身份、另一个会话）', typeof writer === 'string' && typeof intruder === 'string');
   const item = (q) => ({ question: q, checked: '记忆、仓库', waiting_for: '属主', first_raised: '2026-11-05', last_change: '2026-11-05', source: '监督席' });
   let m = await rpc(writer, 'workbench_vars_set', { id: W, key: 'item.1', value: item('要不要做 A'), kind: 'const' });
@@ -121,7 +124,7 @@ try {
   ok('冒答不算：item.1 仍待办，answer.1 点名 odoo:mallory', by['1']?.status === 'open' && /odoo:mallory/.test(why['answer.1'] || ''), JSON.stringify({ row: by['1'], why }));
   ok('口令写的答复点名「无」作者', /作者「无」/.test(why['answer.3'] || ''), why['answer.3']);
   ok('冒名事项 item.4 点名 mcp:intruder，不进看板', !by['4'] && /mcp:intruder/.test(why['item.4'] || ''), JSON.stringify(why));
-  ok('撤回与历史答复', by['2']?.status === 'withdrawn' && by['3']?.status === 'answered' && by['3']?.answer?.historical === true);
+  ok('撤回与历史答复（历史答复单独成 history）', by['2']?.status === 'withdrawn' && by['3']?.status === 'history' && by['3']?.answer?.historical === true);
 
   // answer.1 被 mallory 占了：属主新建会冲突、也改不了别人的常量——页面列为来源不符，清理走部署机本机命令行
   r = await call('PUT', vpath(W, 'answer.1'), odooPage('boss-session-0123456789'), answerBody('boss 答', '2026-11-06', null));
@@ -141,6 +144,42 @@ try {
   console.log('▶ B5 授权范围');
   m = await rpc(writer, 'app_data_submit', { slug: 'x', data: {} });
   ok('只授三个工具：调 app_data_submit 被拒', m.isError && /not_granted|未授权|授权|Method not found/.test(m.text), m.text.slice(0, 200));
+
+  console.log('▶ B6 轮换登记身份');
+  const W2 = await mk('owner-board-2', THREE);
+  let cur = (await board(W)).cfg;
+  r = await call('PUT', vpath(W, 'config.owner'), odooPage('mallory-session-0123456789'), configRevisionBody(cur, ['mcp:owner-board', 'mcp:mallory-seat']));
+  ok('别的 Odoo 管理员修订不了 config.owner', r.status === 403, `${r.status}`);
+  r = await call('PUT', vpath(W, 'config.owner'), odooPage('boss-session-0123456789'), configRevisionBody(cur, ['mcp:owner-board', 'mcp:owner-board-2']));
+  ok('属主带 override 与当前 revision 修订 config.owner', r.status === 200 && r.body?.owner === 'odoo:boss' && r.body?.revision === cur.revision + 1, JSON.stringify(r.body));
+  cur = (await board(W)).cfg;
+  ok('回读：登记身份含新会话、属主不变', cur && cur.ownerLogin === 'boss' && JSON.stringify(cur.writers) === '["mcp:owner-board","mcp:owner-board-2"]', JSON.stringify(cur));
+  m = await rpc(W2.token, 'workbench_vars_set', { id: W, key: 'item.7', value: item('新会话登记的事项'), kind: 'const' });
+  ok('新会话建 item.7', !m.isError && m.out?.owner === 'mcp:owner-board-2', m.text.slice(0, 200));
+  r = await call('DELETE', `/api/mcp/sessions/${W1.id}`, ADM);
+  ok('吊销旧会话', r.status === 200, `${r.status} ${JSON.stringify(r.body)}`);
+  m = await rpc(writer, 'workbench_vars_set', { id: W, key: 'item.8', value: item('旧会话吊销后再写'), kind: 'const' });
+  ok('旧会话吊销后写不进', m.isError || !m.out?.owner, m.text.slice(0, 120));
+  B = await board(W);
+  const ids = B.rows.map((x) => x.no);
+  ok('看板：新会话的 item.7 采信，旧会话以前写的 item.1 照常采信，没有 item.8', ids.includes('7') && ids.includes('1') && !ids.includes('8'), JSON.stringify(ids));
+
+  console.log('▶ B7 抢先登记');
+  const wb2 = await call('POST', '/api/workbenches', CLI, { name: '看板（抢先场景）', url: 'http://127.0.0.1:9/owner-pending-preempt', type: 'web' });
+  const P = wb2.body?.id;
+  r = await call('PUT', vpath(P, 'config.owner'), odooPage('mallory-session-0123456789'), { value: { owner_login: 'mallory', writers: ['mcp:owner-board-2'] }, kind: 'const', reason: '抢先' });
+  ok('别的 Odoo 管理员抢先登记成功（服务端不知道谁是真属主）', r.status === 201 && r.body?.owner === 'odoo:mallory', JSON.stringify(r.body));
+  r = await call('PUT', vpath(P, 'config.owner'), odooPage('boss-session-0123456789'), { value: { owner_login: 'boss', writers: ['mcp:owner-board-2'] }, kind: 'const', reason: '属主登记' });
+  ok('真属主再登记被拒（常量已锁，不会被静默覆盖）', r.status === 403 || r.status === 409 || r.status === 428, `${r.status}`);
+  await rpc(W2.token, 'workbench_vars_set', { id: P, key: 'item.1', value: item('事项'), kind: 'const' });
+  await call('PUT', vpath(P, 'answer.1'), odooPage('boss-session-0123456789'), answerBody('真属主的答复', '2026-11-06', null));
+  const pr = await call('GET', `/api/workbenches/${P}/vars`, ADM);
+  const pc = parseConfig(pr.body.items.find((x) => x.key === 'config.owner'));
+  const pb = buildBoard(pr.body.items, pc);
+  ok('页面顶部显示的属主是抢先者 odoo:mallory（看得出来，可据此作废本机清理）', pc && pc.ownerLogin === 'mallory', JSON.stringify(pc));
+  ok('真属主的答复不被当作属主答复，点名作者', pb.rows[0]?.status === 'open' && pb.anomalies.some((a) => a.key === 'answer.1' && /odoo:boss/.test(a.reason)), JSON.stringify(pb));
+  const au = await call('GET', vpath(P, 'config.owner') + '/audit', ADM);
+  ok('审计能查出抢先者：config.owner 的 create actor = odoo:mallory', (au.body?.items ?? []).some((a) => a.action === 'create' && a.actor === 'odoo:mallory'), JSON.stringify(au.body).slice(0, 200));
 } finally {
   if (child.exitCode === null) { const ex = new Promise((x) => child.once('exit', x)); child.kill(); await ex; }
   odoo.close();

@@ -8,7 +8,8 @@ export const BOARD_PATH = '/owner-pending';
 
 export type BoardVar = { key: string; kind: string; value: unknown; revision: number; owner: string; updated_by: string; updated_at: string };
 export type BoardConfig = { ownerLogin: string; writers: string[]; revision: number };
-export type ItemStatus = 'open' | 'answered' | 'withdrawn';
+/** history：迁移时由登记身份记入的历史答复，未经本页属主确认，和属主答复分开 */
+export type ItemStatus = 'open' | 'history' | 'answered' | 'withdrawn';
 export type BoardRow = {
   no: string;
   question: string;
@@ -20,6 +21,8 @@ export type BoardRow = {
   status: ItemStatus;
   answer: { summary: string; date: string; by: string; revision: number | null; historical: boolean } | null;
   itemRevision: number;
+  /** 撤回原因（item.withdraw_reason）与撤回者（item 的最后写入者） */
+  withdrawn: { reason: string; by: string } | null;
   /** answer.<NN> 已被别人建成常量：属主在这个编号上写不进去，要部署机本机命令行清理 */
   answerTakenBy: string | null;
 };
@@ -28,6 +31,11 @@ export type Anomaly = { key: string; reason: string };
 const NO_RE = /^\d{1,4}$/;
 const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {});
+/** SQLite 的 updated_at 是 UTC「YYYY-MM-DD HH:MM:SS」：按北京时间取日期，凌晨 0–8 点写入的不会差一天 */
+export function bjDate(sqliteUtc: string): string {
+  const t = Date.parse(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(sqliteUtc) ? sqliteUtc.replace(' ', 'T') + 'Z' : sqliteUtc);
+  return isNaN(t) ? '' : new Date(t).toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+}
 
 /** 看板台：登记 URL 路径为 /owner-pending 的卡片；没有或多于一张都要人处理，不猜 */
 export function findBoardWorkbench(list: Array<{ id: number; url: string }>, base: string): { id: number } | { error: string } {
@@ -78,7 +86,7 @@ export function buildBoard(vars: BoardVar[], config: BoardConfig): { rows: Board
     const a = answers.get(no);
     const hist = obj(val.history_answer);
     const answer = a
-      ? { summary: str(obj(a.value).summary), date: str(obj(a.value).date) || a.updated_at.slice(0, 10), by: a.owner, revision: a.revision, historical: false }
+      ? { summary: str(obj(a.value).summary), date: str(obj(a.value).date) || bjDate(a.updated_at), by: a.owner, revision: a.revision, historical: false }
       : str(hist.summary) ? { summary: str(hist.summary), date: str(hist.date), by: '历史答复（迁移时由登记身份记入）', revision: null, historical: true } : null;
     answers.delete(no);
     return {
@@ -89,14 +97,15 @@ export function buildBoard(vars: BoardVar[], config: BoardConfig): { rows: Board
       firstRaised: str(val.first_raised),
       lastChange: str(val.last_change),
       source: str(val.source),
-      status: str(val.status) === 'withdrawn' ? 'withdrawn' : answer ? 'answered' : 'open',
+      status: str(val.status) === 'withdrawn' ? 'withdrawn' : !answer ? 'open' : answer.historical ? 'history' : 'answered',
       answer,
       itemRevision: v.revision,
+      withdrawn: str(val.status) === 'withdrawn' ? { reason: str(val.withdraw_reason), by: v.updated_by || v.owner } : null,
       answerTakenBy: taken.get(no) ?? null,
     };
   });
   for (const [no] of answers) anomalies.push({ key: `answer.${no}`, reason: '没有对应的事项 item.' + no });
-  const order: Record<ItemStatus, number> = { open: 0, answered: 1, withdrawn: 2 };
+  const order: Record<ItemStatus, number> = { open: 0, history: 1, answered: 2, withdrawn: 3 };
   rows.sort((x, y) => order[x.status] - order[y.status] || Number(x.no) - Number(y.no));
   return { rows, anomalies };
 }
@@ -107,4 +116,11 @@ export function answerBody(summary: string, date: string, existingRevision: numb
   return existingRevision
     ? { value, kind: 'const', override: true, revision: existingRevision, reason: '属主修订答复' }
     : { value, kind: 'const', reason: '属主答复' };
+}
+
+/** 属主修订登记身份（轮换会话）：config.owner 是属主本人的常量，带 override、当前 revision 与 reason；owner_login 不变 */
+export function configRevisionBody(cfg: BoardConfig, writers: string[]): Record<string, unknown> | { error: string } {
+  const list = [...new Set(writers.map((w) => w.trim()).filter(Boolean))];
+  if (!list.length || !list.every((w) => /^mcp:[^\s]{1,128}$/.test(w))) return { error: '登记身份写成 mcp:<会话名>，多个用逗号隔开，至少一个' };
+  return { value: { owner_login: cfg.ownerLogin, writers: list }, kind: 'const', override: true, revision: cfg.revision, reason: `属主修订登记身份：${list.join('、')}` };
 }
