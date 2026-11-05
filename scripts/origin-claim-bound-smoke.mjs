@@ -59,7 +59,7 @@ try {
   await start();
   const sent = await fetch(base + '/api/a2a/send', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': 'oc-test' },
-    body: JSON.stringify({ target_url: peerBase, team: 'dsh/66abc2cf', message: 'origin-claim probe' }),
+    body: JSON.stringify({ target_url: peerBase, team: 'dsh/6a6b6c6d', message: 'origin-claim probe' }),
   });
   check('出站 200', () => assert.equal(sent.status, 200, logs.slice(-400)));
   check('对端收到 1 次投递', () => assert.equal(seen.length, 1));

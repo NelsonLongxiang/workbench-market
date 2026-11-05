@@ -154,15 +154,15 @@ try {
     assert.equal((await call(dpath, { token: env1.reply.token, decision: 'accept' }, 'POST', remote)).status, 400);
     assert.equal((await call(dpath, { token: env1.reply.token, decision: 'merge', reason: 'x' }, 'POST', remote)).status, 400);
   });
-  const ask = await call(dpath, { token: env1.reply.token, decision: 'ask', reason: '需要确认对账口径', by: 'dsh/66abc2cf' }, 'POST', remote);
+  const ask = await call(dpath, { token: env1.reply.token, decision: 'ask', reason: '需要确认对账口径', by: 'dsh/6a6b6c6d' }, 'POST', remote);
   await check('W4c ask 200（远程面可达）', () => assert.equal(ask.status, 200, JSON.stringify(ask.j)));
-  const acc = await call(dpath, { token: env1.reply.token, decision: 'accept', reason: '口径已确认', ref: 'https://github.com/NelsonLongxiang/dsh-open-a2a-net/issues/1', by: 'dsh/66abc2cf' }, 'POST', remote);
+  const acc = await call(dpath, { token: env1.reply.token, decision: 'accept', reason: '口径已确认', ref: 'https://github.com/NelsonLongxiang/dsh-open-a2a-net/issues/1', by: 'dsh/6a6b6c6d' }, 'POST', remote);
   await check('W4d ask 之后 accept 200', () => assert.equal(acc.status, 200, JSON.stringify(acc.j)));
   const again = await call(dpath, { token: env1.reply.token, decision: 'decline', reason: '改主意' }, 'POST', remote);
   await check('W4e 终态后再写 → 409', () => assert.equal(again.status, 409));
   const e1b = await eventOf(t1.event_id);
   await check('W4f 决定落在投递行、日志按序', () => {
-    assert.equal(e1b.deliveries[0].decision, 'accept'); assert.equal(e1b.deliveries[0].decided_by, 'dsh/66abc2cf');
+    assert.equal(e1b.deliveries[0].decision, 'accept'); assert.equal(e1b.deliveries[0].decided_by, 'dsh/6a6b6c6d');
     assert.deepEqual(e1b.log.map((l) => l.action), ['recorded', 'held', 'released', 'sent', 'decision:ask', 'decision:accept']);
   });
   await check('W4g 列表需口令', async () => assert.equal((await call('/api/workbench-events', undefined, 'GET', { 'X-Admin-Token': '' })).status, 403));
@@ -230,7 +230,7 @@ try {
   // W11：超过传输上限 → 一次即 dead
   {
     assert.ok([200, 201].includes((await ghPublish(base, gh, { slug: 'wbe-big', title: 'B', files: [{ path: 'index.html', content: '<h1>b</h1>' }] }, { 'X-Admin-Token': 'wbe-test' })).status));
-    await call('/api/bindings', { target_type: 'app', target_slug: 'wbe-big', agent_node: 'dsh/66abc2cf', direction: 'notify', notify_url: ok.base });
+    await call('/api/bindings', { target_type: 'app', target_slug: 'wbe-big', agent_node: 'dsh/6a6b6c6d', direction: 'notify', notify_url: ok.base });
     const big = await call('/api/apps/wbe-big/data', { data: { blob: 'x'.repeat(600_000) } }, 'POST', { 'X-Admin-Token': '' });
     assert.equal(big.status, 201);
     // 201 先于事件落库返回（推送不阻塞提交），等投递落到终态再读
@@ -277,7 +277,7 @@ try {
 
   // W8：自产台表单提交
   assert.ok([200, 201].includes((await ghPublish(base, gh, { slug: 'wbe-form', title: 'F', files: [{ path: 'index.html', content: '<h1>x</h1>' }] }, { 'X-Admin-Token': 'wbe-test' })).status));
-  await call('/api/bindings', { target_type: 'app', target_slug: 'wbe-form', agent_node: 'dsh/66abc2cf', direction: 'notify', notify_url: ok.base });
+  await call('/api/bindings', { target_type: 'app', target_slug: 'wbe-form', agent_node: 'dsh/6a6b6c6d', direction: 'notify', notify_url: ok.base });
   const n0 = ok.got.length;
   const sub = await call('/api/apps/wbe-form/data', { data: { po: 'PO-1' }, created_by: 'someone' }, 'POST', { 'X-Admin-Token': '' });
   await check('W8a 提交 201', () => assert.equal(sub.status, 201));

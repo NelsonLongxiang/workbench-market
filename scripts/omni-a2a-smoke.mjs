@@ -15,7 +15,7 @@ const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } els
 const FIXTURE = {
   tasks: [
     { taskId: 'om-t1', team: 'market/26812e74', peer: 'dsh/11111111', direction: 'outbound', startedAt: '2026-10-23T10:00:00Z', brief: '回执链路联测' },
-    { taskId: 'om-t2', team: 'dsh/414d2b90', peer: 'dsh/22222222', direction: 'inbound', startedAt: '2026-10-23T11:00:00Z' },
+    { taskId: 'om-t2', team: 'dsh/4a4b4c4d', peer: 'dsh/22222222', direction: 'inbound', startedAt: '2026-10-23T11:00:00Z' },
   ],
   archived: [
     { taskId: 'om-r1', team: 'market/26812e74', peer: 'dsh/33333333', direction: 'outbound', startedAt: '2026-10-23T08:00:00Z', resolvedAt: '2026-10-23T08:05:00Z', endedBy: 'receipt', outcome: 'completed', brief: 'P3 回执验收' },
@@ -98,7 +98,7 @@ try {
     try { rmSync('tmp/e2e-a2acap', { recursive: true, force: true }); } catch { }
   }
   ok('在途→doing（含 brief 作 title）', a2a.some((t) => t.id === 'a2a:om-t1' && t.status === 'doing' && t.title === '回执链路联测'));
-  ok('无 brief 回退 title（team·peer id）', a2a.some((t) => t.id === 'a2a:om-t2' && t.status === 'doing' && t.title.includes('dsh/414d2b90')));
+  ok('无 brief 回退 title（team·peer id）', a2a.some((t) => t.id === 'a2a:om-t2' && t.status === 'doing' && t.title.includes('dsh/4a4b4c4d')));
   ok('归档→done（title 带 endedBy）', a2a.some((t) => t.id === 'a2a:om-r1' && t.status === 'done' && t.title.includes('（receipt）')));
   ok('summary 回退链（无 brief 用 summary 作 title）', a2a.some((t) => t.id === 'a2a:om-r2' && t.title.includes('取消联测-摘要可见')));
   ok('project=team', a2a.every((t) => t.project === null || t.project.startsWith('market/') || t.project.startsWith('dsh/')));

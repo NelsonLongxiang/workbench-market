@@ -47,7 +47,7 @@ curl -X POST http://127.0.0.1:9800/api/workbench-events/<event_id>/release -H "X
 
 ```bash
 curl -X POST http://<市场>/api/workbench-events/<event_id>/decision -H 'Content-Type: application/json' \
-  -d '{"token":"<reply.token>","decision":"accept","reason":"…","ref":"https://github.com/…/issues/N","by":"dsh/66abc2cf"}'
+  -d '{"token":"<reply.token>","decision":"accept","reason":"…","ref":"https://github.com/…/issues/N","by":"dsh/<节点id>"}'
 ```
 
 - 只对 `sent` 的投递有效，其他状态返回 409；自送达起 7 天后返回 410。
