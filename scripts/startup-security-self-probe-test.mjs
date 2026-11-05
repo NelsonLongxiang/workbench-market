@@ -60,4 +60,18 @@ for(const nodeEnv of ['production',undefined,'','staging','development ','Produc
 for(const nodeEnv of ['development','test']){
  const f=await fixture({off:true,nodeEnv});try{const r=await f.start();check('explicit local mode permits two off warnings: '+nodeEnv,r.passed&&r.rows.filter(x=>x.verdict==='warn').length===2);}finally{await f.close();}
 }
+{
+ // 启动慢：market 面在请求超时（500ms）之后才开始监听，等监听不能套用请求超时，否则四项一起误判 surface-not-listening
+ const app=express(),probe=createStartupSecurityProbe({timeoutMs:500,log:()=>{}});app.use(probe.middleware);app.use(express.json());
+ app.post('/mcp',(_req,res)=>res.status(401).set('WWW-Authenticate','Bearer realm="synthetic"').json({error:'denied'}));
+ app.post('/api/workbenches',(req,res)=>res.status(req.headers.origin?403:400).end());
+ const server=createServer(app);const running=probe.run({market:server,gatewayOn:true,nodeEnv:'test'});
+ await new Promise(r=>setTimeout(r,900));await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ try{const r=await running;check('market surface that starts listening after the request timeout still passes',r.passed===true&&r.rows.filter(x=>x.verdict==='pass').length===4);}finally{server.closeAllConnections();await new Promise(r=>server.close(r));}
+}
+{
+ const app=express(),probe=createStartupSecurityProbe({timeoutMs:50,log:()=>{}});const server=createServer(app);
+ const t0=Date.now(),r=await probe.run({market:server,gatewayOn:true,nodeEnv:'test'});
+ check('a market surface that never listens still fails closed (bounded wait)',r.passed===false&&r.rows.filter(x=>x.reason==='surface-not-listening').length===4&&Date.now()-t0<15000);
+}
 console.log(JSON.stringify({checks,production_requests:0,personal_home_access:false}));
