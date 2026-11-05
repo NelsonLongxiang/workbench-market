@@ -5,7 +5,7 @@ import { ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
 import WmPage from '../components/WmPage';
 import RelTime from '../components/RelTime';
-import { adminActive, apiFetch, odooAdmin, setAdminToken, subscribeAdminToken } from '../admin-token';
+import { adminActive, apiFetch, checkAdminToken, odooAdmin, setAdminToken, subscribeAdminToken } from '../admin-token';
 
 /** #379：上游带可达状态（reachable=null 表示还没探过） */
 interface McpUpstreamRow { prefix: string; url: string; enabled: boolean; reachable?: boolean | null; tools?: number; last_error?: string; last_ok_at?: string }
@@ -39,6 +39,16 @@ export default function McpGateways() {
   const { message, modal } = App.useApp();
   const [active, setActive] = useState(adminActive()); // 持口令或 Odoo 管理员
   const [tokenDraft, setTokenDraft] = useState('');
+  const [tokenChecking, setTokenChecking] = useState(false);
+  const loadToken = async () => {
+    const t = tokenDraft.trim();
+    if (!t) return;
+    setTokenChecking(true);
+    const why = await checkAdminToken(t);
+    setTokenChecking(false);
+    if (why) { message.error(why); return; } // 口令不对就不存，免得下面各面板报「需要管理员」
+    setAdminToken(t);
+  };
   const [sessions, setSessions] = useState<McpSession[]>([]);
   const [calls, setCalls] = useState<McpCall[]>([]);
   const [loading, setLoading] = useState(false);
@@ -321,10 +331,10 @@ export default function McpGateways() {
             placeholder="管理员口令（或用 Odoo 管理员账号登录后免输）"
             value={tokenDraft}
             onChange={(e) => setTokenDraft(e.target.value)}
-            onPressEnter={() => tokenDraft && setAdminToken(tokenDraft)}
+            onPressEnter={() => { void loadToken(); }}
             className="wm-text-body"
           />
-          <Button onClick={() => setAdminToken(tokenDraft)} disabled={!tokenDraft}>载入</Button>
+          <Button onClick={() => { void loadToken(); }} disabled={!tokenDraft.trim()} loading={tokenChecking}>载入</Button>
         </Space.Compact>
       )}
       <Space.Compact className="wm-w-full wm-mb-4" style={{ maxWidth: 640 }}>
