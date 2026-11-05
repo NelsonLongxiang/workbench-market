@@ -105,19 +105,27 @@ export function getVar(scope: Scope, key: string) {
   return { workbench_id: scope.id, ...view(r) };
 }
 
-/** 常量维护权：作者本人，或部署机本机命令行 */
+/** 公共常量：owner 为 * 时，任何个人身份（mcp:/odoo:）都能带 override 与 reason 修订；台令牌、管理员口令这类共享身份不行 */
+const PUBLIC_OWNER = '*';
+/** 常量维护权：作者本人、公共常量的任一个人身份，或部署机本机命令行 */
 function maintainConst(scope: Scope, key: string, cur: WorkbenchVarRow, caller: Caller, reason: string, what: string): void {
-  if (!(caller.cli || (cur.owner && caller.actor === cur.owner))) {
-    conflict(scope, key, `常量只能由作者（${cur.owner || '未登记作者'}）或部署机本机命令行${what}`, 'const_override_forbidden', 403);
+  const may = caller.cli || (cur.owner === PUBLIC_OWNER ? PERSONAL_RE.test(caller.actor) : !!cur.owner && caller.actor === cur.owner);
+  if (!may) {
+    const who = cur.owner === PUBLIC_OWNER ? '个人身份（MCP 会话或 Odoo 登录）' : `作者（${cur.owner || '未登记作者'}）`;
+    conflict(scope, key, `常量只能由${who}或部署机本机命令行${what}`, 'const_override_forbidden', 403);
   }
   if (!reason) conflict(scope, key, `${what}常量要写 reason（记入审计）`, 'reason_required', 400);
 }
-/** 指定作者（新建或移交）只限本机命令行，且必须是个人身份 */
-function ownerInput(scope: Scope, key: string, owner: unknown, caller: Caller): string | undefined {
+/**
+ * 指定作者：本机命令行可新建时指定或移交给个人身份或 *；
+ * 作者本人修订时只能把自己的常量设成公共（*），之后收回或另指作者只能走本机命令行。
+ */
+function ownerInput(scope: Scope, key: string, owner: unknown, caller: Caller, cur?: WorkbenchVarRow): string | undefined {
   if (owner === undefined) return undefined;
-  if (!caller.cli) conflict(scope, key, '指定或移交常量作者只限部署机本机命令行', 'owner_change_forbidden', 403);
   const o = typeof owner === 'string' ? owner.trim() : '';
-  if (o !== '' && !PERSONAL_RE.test(o)) throw new HttpError(400, 'owner 只能是 mcp:<会话名> 或 odoo:<登录名>（空串=无作者）');
+  const toPublic = o === PUBLIC_OWNER && cur?.kind === 'const' && !!cur.owner && cur.owner !== PUBLIC_OWNER && caller.actor === cur.owner;
+  if (!caller.cli && !toPublic) conflict(scope, key, '指定或移交常量作者只限部署机本机命令行（作者本人可把自己的常量设成公共：owner="*"）', 'owner_change_forbidden', 403);
+  if (o !== '' && o !== PUBLIC_OWNER && !PERSONAL_RE.test(o)) throw new HttpError(400, 'owner 只能是 mcp:<会话名>、odoo:<登录名> 或 *（公共）；空串=无作者');
   return o;
 }
 
@@ -149,19 +157,17 @@ export function setVar(scope: Scope, key: string, input: { value?: unknown; hasV
       if (!input.override) conflict(scope, key, '常量写入后不能直接修改（作者本人可带 override 与 reason 修订）', 'const_locked', 403);
       maintainConst(scope, key, cur, caller, reason, '修订');
     }
-    const asked = ownerInput(scope, key, input.owner, caller);
+    const asked = ownerInput(scope, key, input.owner, caller, cur);
     if (input.expected === undefined) conflict(scope, key, '改已存在的键必须带期望 revision（If-Match 或 revision）', 'revision_required', 428);
     if (input.expected !== cur.revision) conflict(scope, key, `revision 冲突：期望 ${input.expected}，当前 ${cur.revision}`, 'revision_conflict');
     const kind = (input.kind as string | undefined) ?? cur.kind;
-    // 已存在的键改 kind（冻结 var→const）只限管理员：按台令牌在公开页面里，不能让持令牌者冻结别人的变量。
-    // 例外：作者本人可以把自己的常量放开成变量，交给大家按需维护（上面已核过作者与 reason）
-    const release = cur.kind === 'const' && kind === 'var' && !!cur.owner && caller.actor === cur.owner;
-    if (kind !== cur.kind && !caller.admin && !release) conflict(scope, key, '改已存在键的 kind 只限管理员或本机命令行（作者本人可把自己的常量放开成变量）', 'kind_change_forbidden', 403);
+    // 已存在的键改 kind（冻结 var→const）只限管理员：按台令牌在公开页面里，不能让持令牌者冻结别人的变量
+    if (kind !== cur.kind && !caller.admin) conflict(scope, key, '改已存在键的 kind 只限管理员或本机命令行', 'kind_change_forbidden', 403);
     if (asked !== undefined && kind !== 'const') throw new HttpError(400, 'owner 只用于常量');
     // 作者：常量照旧（移交另算）；冻结时冻结者是作者；转回变量就没有作者
     const owner = kind !== 'const' ? '' : asked ?? (cur.kind === 'const' ? cur.owner : personal(caller.actor));
     if (!S.update(scope.id, key, cur.revision, kind, json, caller.actor, owner).changes) conflict(scope, key, 'revision 冲突：已被并发修改', 'revision_conflict');
-    const action = cur.kind === 'const' ? (kind === 'var' ? 'release' : 'const_override') : kind === 'const' ? 'freeze' : 'update';
+    const action = cur.kind === 'const' ? (owner === PUBLIC_OWNER && cur.owner !== PUBLIC_OWNER ? 'make_public' : 'const_override') : kind === 'const' ? 'freeze' : 'update';
     S.audit({ workbench_id: scope.id, key, action, actor: caller.actor, kind, old_revision: cur.revision, new_revision: cur.revision + 1, old_sha256: sha(cur.value), new_sha256: sha(json), reason });
     return { ok: true, created: false, workbench_id: scope.id, ...view(S.get(scope.id, key) as WorkbenchVarRow) };
   });
@@ -200,7 +206,7 @@ export function mcpVarsSet(args: any, subject: string) {
   const scope = workbenchScope(Number(args?.id));
   return setVar(scope, String(args?.key ?? ''), {
     value: args?.value, hasValue: args != null && Object.prototype.hasOwnProperty.call(args, 'value'),
-    kind: args?.kind, expected: expectedRevision(undefined, args?.revision), reason: args?.reason, override: truthy(args?.override),
+    kind: args?.kind, expected: expectedRevision(undefined, args?.revision), reason: args?.reason, override: truthy(args?.override), owner: args?.owner,
   }, { actor: subject, admin: false, cli: false });
 }
 

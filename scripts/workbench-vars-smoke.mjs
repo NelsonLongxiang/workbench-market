@@ -169,6 +169,12 @@ try {
   ok('本机命令行可新建常量 → 201（共享身份不记作者）', r.status === 201 && r.body?.kind === 'const' && r.body?.owner === '', JSON.stringify(r.body));
   r = await put(W.appA, 'unit', { value: 'g', revision: 1, override: true }, page(tokA));
   ok('按台令牌带 override 改常量 → 403 const_override_forbidden', r.status === 403 && r.body?.code === 'const_override_forbidden', JSON.stringify(r.body));
+  r = await put(W.appA, 'pubunit', { value: 'kg', kind: 'const', owner: '*' }, CLI);
+  ok('本机命令行新建公共常量（owner=*）→ 201', r.status === 201 && r.body?.owner === '*', JSON.stringify(r.body));
+  r = await put(W.appA, 'pubunit', { value: 'g', revision: 1, override: true, reason: 'page edit' }, page(tokA));
+  ok('公共常量：按台令牌带 override 与 reason 改 → 403（台令牌不是个人身份）', r.status === 403 && r.body?.code === 'const_override_forbidden', JSON.stringify(r.body));
+  r = await put(W.appA, 'pubunit', { value: 'g', revision: 1, override: true, reason: 'admin edit' }, ADM);
+  ok('公共常量：管理员口令改 → 403（共享身份）', r.status === 403 && r.body?.code === 'const_override_forbidden', JSON.stringify(r.body));
   r = await put(W.ext1, 'limit', { value: 200, revision: 1, override: true, reason: 'threshold revised' }, ADM);
   ok('口令管理员不是作者，override 改常量 → 403 const_override_forbidden', r.status === 403 && r.body?.code === 'const_override_forbidden', JSON.stringify(r.body));
   r = await put(W.ext1, 'limit', { value: 200, revision: 1, override: true }, CLI);

@@ -6,7 +6,7 @@
 //   O3 口令管理员不是作者，改不了；它新建的常量不记作者（共享身份）。按台令牌不能新建常量见 workbench-vars-smoke V4
 //   O4 本机命令行兜底：可修订（要 reason）、可移交作者（只认个人身份）；移交后新作者能改、旧作者不能
 //   O5 删除：口令管理员删不了别人的常量；本机命令行带 reason 兜底删除（MCP 不提供删除）
-//   O7 放开：作者本人带 override 与 reason 把常量转成变量，之后别的会话按 revision 正常改；别人放不开；转回常量仍只限管理员
+//   O7 公共常量：作者本人带 owner=*、override、reason 设成公共；之后任何会话带 override 与 reason 可修订，管理员口令仍不行；收归个人、转变量只限本机命令行/管理员
 //   O6 旧库升级：没有 owner 列的库启动后补列，常量按 mcp:/odoo: 最后写入者回填，共享身份留空
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
@@ -103,21 +103,31 @@ try {
   m = await rpc(bob, { id: W, key: 'rules', value: { v: 4 }, revision: 3, override: true, reason: '接手后更新' });
   ok('移交后新作者能改', !m.isError && m.out?.revision === 4 && m.out?.owner === 'mcp:seat-bob', m.text.slice(0, 200));
 
-  console.log('▶ O7 作者放开成变量');
+  console.log('▶ O7 公共常量');
   m = await rpc(alice, { id: W, key: 'shared', value: 'v1', kind: 'const' });
   ok('seat-alice 新建常量 shared', !m.isError && m.out?.owner === 'mcp:seat-alice', m.text.slice(0, 200));
-  m = await rpc(bob, { id: W, key: 'shared', value: 'v1', kind: 'var', revision: 1, override: true, reason: 'bob opens' });
-  ok('别的会话放不开 → const_override_forbidden', m.isError && /const_override_forbidden|只能由作者/.test(m.text), m.text.slice(0, 200));
-  m = await rpc(alice, { id: W, key: 'shared', value: 'v1', kind: 'var', revision: 1, override: true });
-  ok('作者放开不写 reason → reason_required', m.isError && /reason/.test(m.text), m.text.slice(0, 200));
-  m = await rpc(alice, { id: W, key: 'shared', value: 'v1', kind: 'var', revision: 1, override: true, reason: '部门公共，大家按需维护' });
-  ok('作者带 override 与 reason 放开 → 变量、无作者', !m.isError && m.out?.kind === 'var' && m.out?.owner === '' && m.out?.revision === 2, m.text.slice(0, 200));
+  m = await rpc(bob, { id: W, key: 'shared', value: 'v1', revision: 1, override: true, reason: 'bob', owner: '*' });
+  ok('别的会话设不了公共 → 拒绝', m.isError && /const_override_forbidden|只能由/.test(m.text), m.text.slice(0, 200));
+  m = await rpc(alice, { id: W, key: 'shared', value: 'v1', revision: 1, override: true, owner: '*' });
+  ok('作者设公共不写 reason → reason_required', m.isError && /reason/.test(m.text), m.text.slice(0, 200));
+  m = await rpc(alice, { id: W, key: 'shared', value: 'v1', revision: 1, override: true, reason: '部门公共，大家按需维护', owner: '*' });
+  ok('作者带 override、reason、owner=* → 仍是常量，owner=*', !m.isError && m.out?.kind === 'const' && m.out?.owner === '*' && m.out?.revision === 2, m.text.slice(0, 200));
   r = await call(i.base, 'GET', vpath(W, 'shared') + '/audit', CLI);
-  ok('审计记 release、作者与理由', r.body?.items?.[0]?.action === 'release' && r.body?.items?.[0]?.actor === 'mcp:seat-alice' && r.body?.items?.[0]?.reason === '部门公共，大家按需维护', JSON.stringify(r.body?.items?.[0]));
+  ok('审计记 make_public、作者与理由', r.body?.items?.[0]?.action === 'make_public' && r.body?.items?.[0]?.actor === 'mcp:seat-alice' && r.body?.items?.[0]?.reason === '部门公共，大家按需维护', JSON.stringify(r.body?.items?.[0]));
   m = await rpc(bob, { id: W, key: 'shared', value: 'v2', revision: 2 });
-  ok('放开后别的会话按 revision 正常改', !m.isError && m.out?.revision === 3 && m.out?.value === 'v2', m.text.slice(0, 200));
-  m = await rpc(alice, { id: W, key: 'shared', value: 'v2', kind: 'const', revision: 3 });
-  ok('会话转回常量 → kind_change_forbidden', m.isError && /kind_change_forbidden|只限管理员/.test(m.text), m.text.slice(0, 200));
+  ok('公共常量不带 override 改 → const_locked', m.isError && /const_locked|不能直接修改/.test(m.text), m.text.slice(0, 200));
+  m = await rpc(bob, { id: W, key: 'shared', value: 'v2', revision: 2, override: true });
+  ok('公共常量不写 reason → reason_required', m.isError && /reason/.test(m.text), m.text.slice(0, 200));
+  m = await rpc(bob, { id: W, key: 'shared', value: 'v2', revision: 2, override: true, reason: 'seat-bob：补一条' });
+  ok('别的会话带 override 与 reason 修订公共常量 → 200，owner 仍是 *', !m.isError && m.out?.revision === 3 && m.out?.owner === '*' && m.out?.value === 'v2', m.text.slice(0, 200));
+  r = await call(i.base, 'PUT', vpath(W, 'shared'), ADM, { value: 'v3', revision: 3, override: true, reason: 'admin' });
+  ok('管理员口令改公共常量 → 403（共享身份）', r.status === 403 && r.body?.code === 'const_override_forbidden', JSON.stringify(r.body));
+  m = await rpc(bob, { id: W, key: 'shared', value: 'v2', revision: 3, override: true, reason: 'take', owner: 'mcp:seat-bob' });
+  ok('会话把公共常量收归自己 → owner_change_forbidden', m.isError && /owner_change_forbidden|只限部署机/.test(m.text), m.text.slice(0, 200));
+  m = await rpc(bob, { id: W, key: 'shared', value: 'v2', kind: 'var', revision: 3, override: true, reason: 'unlock' });
+  ok('会话把公共常量转成变量 → kind_change_forbidden', m.isError && /kind_change_forbidden|只限管理员/.test(m.text), m.text.slice(0, 200));
+  r = await call(i.base, 'PUT', vpath(W, 'shared'), CLI, { value: 'v2', revision: 3, override: true, reason: 'handover', owner: 'mcp:seat-alice' });
+  ok('本机命令行可把公共常量移交回个人作者', r.status === 200 && r.body?.owner === 'mcp:seat-alice', JSON.stringify(r.body));
 
   console.log('▶ O5 删除');
   r = await call(i.base, 'DELETE', vpath(W, 'rules') + '?revision=4&override=1&reason=retired', ADM);

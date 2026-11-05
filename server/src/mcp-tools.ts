@@ -218,7 +218,7 @@ export const MCP_TOOLS: McpToolDef[] = [
   {
     name: 'workbench_vars_set',
     category: 'write',
-    description: '写某工作台的看板变量（JSON 值）。新建可不带 revision（或 revision=0 表示仅在不存在时创建）；改已存在的键必须带当前 revision，不符返回 revision 冲突与当前值。kind=const 写入后不能直接改：谁写的谁维护——新建常量的会话是作者，作者本人带 override=true 与 reason 可修订；别人的常量改不了（作者缺失时由部署机本机命令行兜底）。',
+    description: '写某工作台的看板变量（JSON 值）。新建可不带 revision（或 revision=0 表示仅在不存在时创建）；改已存在的键必须带当前 revision，不符返回 revision 冲突与当前值。kind=const 写入后不能直接改：谁写的谁维护——新建常量的会话是作者，作者本人带 override=true 与 reason 可修订；别人的常量改不了（作者缺失时由部署机本机命令行兜底）。作者本人修订时带 owner="*" 可把常量设成公共：之后任何 MCP 会话或 Odoo 登录带 override 与 reason 都能修订，台令牌仍不能写。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -228,7 +228,8 @@ export const MCP_TOOLS: McpToolDef[] = [
         kind: { type: 'string', enum: ['var', 'const'], description: '缺省 var；新建时给 const 即锁定' },
         revision: { type: 'integer', description: '期望的当前 revision（乐观锁）' },
         reason: { type: 'string', description: '变更说明（记入审计，≤200 字；修订常量时必填）' },
-        override: { type: 'boolean', description: '修订自己写的常量时给 true（只对常量作者本人的会话生效）' },
+        override: { type: 'boolean', description: '修订常量时给 true（作者本人，或公共常量的任一会话）' },
+        owner: { type: 'string', enum: ['*'], description: '只接受 "*"：作者本人把自己的常量设成公共（须同时带 override 与 reason）' },
       },
       required: ['id', 'key', 'value'],
       additionalProperties: false,
