@@ -2640,6 +2640,7 @@ async function sopRunUpgradePlan(id: number) {
 }
 app.get('/api/sop/runs/:id(\\d+)/upgrade-preflight', wrap(async (req, res) => {
   const id = Number(req.params.id);
+  await markOdooAdmin(req); // 只用 Odoo 登录的管理员能升级，也要能打开预检（GET 不经写门，不会预先认定）
   const auth = await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, id);
   if (!auth.authorized) return res.status(403).set('Cache-Control', 'no-store').json({ error: 'run read authorization required' });
   res.set('Cache-Control', 'no-store').json((await sopRunUpgradePlan(id)).preflight);
