@@ -13,6 +13,7 @@ import Sops from './pages/Sops';
 import SopSpace from './pages/SopSpace';
 import SopRunDetail from './pages/SopRunDetail';
 import McpGateways from './pages/McpGateways';
+import OwnerPending from './pages/OwnerPending';
 import Vault from './pages/Vault';
 import { adminActive, adminTokenPresent, checkAdminToken, getAdminToken, odooAdmin, refreshAdminIdentity, setAdminToken, subscribeAdminToken } from './admin-token';
 import { marketOnly, marketUrl, onSurface, surface } from './surface';
@@ -170,6 +171,7 @@ export default function App() {
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/reviews" element={<Reviews />} />
         {WEB_EXTENSIONS.flatMap((e) => (e.routes ?? []).map((r) => <Route key={`${e.name}:${r.path}`} path={r.path} element={r.element} />))}
+        <Route path="/owner-pending" element={<OwnerPending />} />
         <Route path="/mcp-gateways" element={<McpGateways />} />
         <Route path="/vault" element={<Vault />} />
         <Route path="/types" element={<Types />} />
