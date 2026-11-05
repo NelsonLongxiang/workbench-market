@@ -311,6 +311,18 @@ CREATE TABLE IF NOT EXISTS sop_run_files (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_sop_run_files_run ON sop_run_files(run_id, id);
+-- #437③ 进行中的 run 升级到当前 SOP 版本：人确认、留审计（只记版本、操作者、理由和预检计数，不记字段值）
+CREATE TABLE IF NOT EXISTS sop_run_upgrade_audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id INTEGER NOT NULL,
+  from_version INTEGER NOT NULL,
+  to_version INTEGER NOT NULL,
+  actor TEXT NOT NULL DEFAULT '',
+  reason TEXT NOT NULL DEFAULT '',
+  violations INTEGER NOT NULL DEFAULT 0,
+  at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_sop_run_upgrade_audit_run ON sop_run_upgrade_audit(run_id, id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_outbox_run ON a2a_outbox(run_id);
 CREATE TABLE IF NOT EXISTS cookie_sets (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

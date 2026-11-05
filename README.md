@@ -76,6 +76,8 @@ POST             /api/sop/runs                  开 run（钉 sop_version；Redi
 GET              /api/sop/runs/active           活跃 run（Redis 快路径，miss 回落 SQLite）
 GET/PUT          /api/sop/runs/:id              run 详情 / 步骤保存（{stepKey, value}；Redis 热写 + 30s checkpoint）
 POST             /api/sop/runs/:id/finish       归档（热态全量沉淀 SQLite，Redis 条目 1h 淘汰）
+GET              /api/sop/runs/:id/upgrade-preflight  进行中的 run 升级到当前 SOP 版本前的预检：旧/新规则各核一遍，列新增、失效字段和没处放的数据（要 run 读授权）
+POST             /api/sop/runs/:id/upgrade      升级到当前版本（管理员或本机命令行，reason 必填，可带 expected_version）；已填数据原样保留，未落盘缓冲一并写回，审计入 sop_run_upgrade_audit
 POST             /mcp                           MCP StreamableHTTP（initialize/tools/list/tools/call；30 本地工具；GET/DELETE → 405）
 GET              /openapi.json                  MCP 工具的 OpenAPI 3.1 文档（同 /api/mcp-rest/openapi.json；只列本会话可调用的工具；会话令牌必带）
 POST             /api/mcp-rest/tools/:name      按 REST 调一个 MCP 工具：请求体 = 工具参数，返回工具结果 JSON（会话令牌必带；见「MCP 工具的 REST / OpenAPI 开放」）
