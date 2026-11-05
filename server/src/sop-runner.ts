@@ -320,6 +320,7 @@ window.__SOP__ = ${boot};
       });
       if (run.status === 'finished') { setState('已完成——冻结录入（只读）'); document.querySelectorAll('[data-field]').forEach(function (el) { el.disabled = true; }); }
       else if (run.private_read === 'authorization-required' || !run.data) { setState(runReadCap ? '' : '此记录需读授权（旧记录或无凭据）——已回退本地缓冲'); }
+      else if (run.sop_version && run.sop_version !== BOOT.version) { setState('执行中——这条记录按 v' + run.sop_version + ' 开启（当前页面是 v' + BOOT.version + '），完成时按 v' + run.sop_version + ' 的规则校验；要用新规则，请管理员先升级这条记录'); }
       else { setState('执行中——数据自动保存'); }
       void renderAgentExtras(run);
   }

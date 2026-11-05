@@ -41,6 +41,16 @@ export class SopService extends Service {
   runUpdateData(id: number, data: string) {
     return db.prepare(`UPDATE sop_runs SET data = ?, updated_at = datetime('now') WHERE id = ?`).run(data, id);
   }
+  /** #437③ 升级到新版本：只对仍在进行、且版本没被别人先改的 run 生效（changes=0 ⇒ 状态或版本已变） */
+  runUpgrade(id: number, fromVersion: number, toVersion: number, data: string) {
+    return db.prepare("UPDATE sop_runs SET sop_version = ?, data = ?, updated_at = datetime('now') WHERE id = ? AND status = 'running' AND sop_version = ?").run(toVersion, data, id, fromVersion);
+  }
+  runUpgradeAudit(r: { runId: number; from: number; to: number; actor: string; reason: string; violations: number }) {
+    return db.prepare('INSERT INTO sop_run_upgrade_audit (run_id, from_version, to_version, actor, reason, violations) VALUES (?, ?, ?, ?, ?, ?)').run(r.runId, r.from, r.to, r.actor, r.reason, r.violations);
+  }
+  runUpgradeAuditList(id: number) {
+    return db.prepare('SELECT from_version, to_version, actor, reason, violations, at FROM sop_run_upgrade_audit WHERE run_id = ? ORDER BY id').all(id);
+  }
   runFinish(id: number, data: string) {
     return db.prepare(`UPDATE sop_runs SET status = 'finished', data = ?, finished_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(data, id);
   }
