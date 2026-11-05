@@ -120,8 +120,21 @@ window.__SOP__ = ${boot};
   }
 
   // 字段规则（sop.yaml 控件上的 required/pattern/长度/类型）：填写时即时提示、草稿照存；完成时全部核对，服务端再核一遍
+  // 条件必填 data-required-if="<字段>=<值1>|<值2>"（<步骤>.<字段> 可跨步）：与服务端 sop-field-rules 同一语义
+  function requiredIfMet(el) {
+    var m = /^\\s*(?:([A-Za-z0-9_-]+)\\.)?([A-Za-z0-9_-]+)\\s*=([\\s\\S]*)$/.exec(el.getAttribute('data-required-if') || '');
+    if (!m) return null;
+    var values = m[3].split('|').map(function (v) { return v.trim(); }).filter(Boolean);
+    if (!values.length) return null;
+    var own = el.closest('[data-step]');
+    var sec = m[1] ? $('[data-step="' + m[1] + '"]') : own;
+    var src = sec ? $('[data-field="' + m[2] + '"]', sec) : null;
+    var v = !src ? '' : src.type === 'checkbox' ? (src.checked ? 'true' : '') : String(src.value || '').trim();
+    return values.indexOf(v) >= 0;
+  }
   function checkField(el, strict) {
     if (!el.checkValidity) return true;
+    if (el.hasAttribute('data-required-if')) { var met = requiredIfMet(el); if (met !== null) el.required = met; }
     var empty = el.type === 'checkbox' ? !el.checked : !String(el.value || '').trim();
     // textarea 没有原生 pattern：按服务端同样的整体匹配规则手动核对
     var pat = el.tagName === 'TEXTAREA' && !empty ? el.getAttribute('pattern') : null;
@@ -311,6 +324,8 @@ window.__SOP__ = ${boot};
     var el = ev.target;
     if (!el || !el.hasAttribute || !el.hasAttribute('data-field')) return;
     checkField(el, false);
+    // 条件字段变了：重算依赖它的字段的必填状态（未填的不急着标红，完成时再严格核）
+    $$('[data-required-if]').forEach(function (d) { if (d !== el) checkField(d, false); });
     var sec = el.closest('[data-step]');
     if (sec) queueSave(sec.getAttribute('data-step'));
   });

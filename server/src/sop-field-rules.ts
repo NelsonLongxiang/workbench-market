@@ -1,5 +1,6 @@
 /** SOP 字段规则：从 sop.yaml 步骤 HTML 里的 data-field 控件读取原生校验属性
  *  （required / pattern / minlength / maxlength / type=url|number|date|month / min / max），
+ *  以及条件必填 data-required-if="<字段>=<值1>|<值2>"（字段写 <步骤>.<字段> 可跨步；条件成立才必填，不成立时只核格式），
  *  完成（finish）时在服务端按同一套规则校验 run 数据。执行页边填边存草稿，所以只在完成时拦。
  *  没写这些属性的 SOP 不受影响。 */
 import type { SopManifest } from './sop-types.ts';
@@ -8,6 +9,16 @@ export interface FieldRule {
   step: string; field: string; label: string;
   required: boolean; pattern?: string; minlength?: number; maxlength?: number;
   type?: string; min?: number; max?: number; message?: string;
+  /** 条件必填：只有 requiredIf.step 步骤里 requiredIf.field 的值在 values 里时才必填 */
+  requiredIf?: { step: string; field: string; values: string[] };
+}
+
+/** 解析 data-required-if="<字段>=<值1>|<值2>"；坏写法返回 undefined（当作没有条件，不让 SOP 因笔误整页失效） */
+export function parseRequiredIf(src: string, step: string): FieldRule['requiredIf'] {
+  const m = /^\s*(?:([A-Za-z0-9_-]+)\.)?([A-Za-z0-9_-]+)\s*=(.*)$/s.exec(src);
+  if (!m) return undefined;
+  const values = m[3].split('|').map((v) => v.trim()).filter(Boolean);
+  return values.length ? { step: m[1] ?? step, field: m[2], values } : undefined;
 }
 
 const TAG_RE = /<(input|textarea|select)\b([^>]*)>/gi;
@@ -34,7 +45,8 @@ export function extractFieldRules(manifest: SopManifest): FieldRule[] {
       r.minlength = num('minlength'); r.maxlength = num('maxlength'); r.min = num('min'); r.max = num('max');
       if (m[1].toLowerCase() === 'input' && typeof a.type === 'string') r.type = a.type.toLowerCase();
       if (typeof a['data-error'] === 'string') r.message = decode(a['data-error']);
-      if (r.required || r.pattern || r.minlength !== undefined || r.maxlength !== undefined || ['url', 'number', 'date', 'month', 'email'].includes(r.type ?? '')) rules.push(r);
+      if (typeof a['data-required-if'] === 'string') r.requiredIf = parseRequiredIf(decode(a['data-required-if']), step.key);
+      if (r.required || r.requiredIf || r.pattern || r.minlength !== undefined || r.maxlength !== undefined || ['url', 'number', 'date', 'month', 'email'].includes(r.type ?? '')) rules.push(r);
     }
   }
   return rules;
@@ -43,13 +55,18 @@ export function extractFieldRules(manifest: SopManifest): FieldRule[] {
 /** data 形态与执行页一致：{ [stepKey]: { [field]: value } }。返回违约说明（空 = 通过）。 */
 export function checkRunData(rules: FieldRule[], data: Record<string, unknown>): string[] {
   const errs: string[] = [];
+  const valueOf = (step: string, field: string) => {
+    const stepVal = data?.[step];
+    const raw = stepVal && typeof stepVal === 'object' ? (stepVal as Record<string, unknown>)[field] : undefined;
+    return raw === undefined || raw === null || raw === false ? '' : raw === true ? 'true' : String(raw).trim();
+  };
   for (const r of rules) {
-    const stepVal = data?.[r.step];
-    const raw = stepVal && typeof stepVal === 'object' ? (stepVal as Record<string, unknown>)[r.field] : undefined;
-    const v = raw === undefined || raw === null || raw === false ? '' : raw === true ? 'true' : String(raw).trim();
+    const v = valueOf(r.step, r.field);
     const name = `${r.step}.${r.label}`;
     const why = (msg: string) => errs.push(`${name}：${r.message ?? msg}`);
-    if (!v) { if (r.required) errs.push(`${name}：必填`); continue; }  // 自定义提示（data-error）只用于格式错误
+    // 有条件时以条件为准（静态 required 一并让位），条件字段的值在列表里才必填
+    const required = r.requiredIf ? r.requiredIf.values.includes(valueOf(r.requiredIf.step, r.requiredIf.field)) : r.required;
+    if (!v) { if (required) errs.push(`${name}：必填${r.requiredIf ? `（${r.requiredIf.field} 为 ${valueOf(r.requiredIf.step, r.requiredIf.field)} 时）` : ''}`); continue; }  // 自定义提示（data-error）只用于格式错误
     if (r.minlength !== undefined && v.length < r.minlength) why(`至少 ${r.minlength} 字`);
     if (r.maxlength !== undefined && v.length > r.maxlength) why(`最多 ${r.maxlength} 字`);
     if (r.pattern) {

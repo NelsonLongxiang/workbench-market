@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** SOP 字段规则冒烟（纯函数）：从步骤 HTML 抽 required/pattern/长度/类型，完成时核对 run 数据。 */
 import { checkRunData, extractFieldRules } from '../server/src/sop-field-rules.ts';
+import { renderSopRunner } from '../server/src/sop-runner.ts';
 
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
@@ -32,6 +33,29 @@ ok('非必填留空不报', v({ scope: { url: '', note: '', price: '' } }).lengt
 ok('步骤整体缺失时必填仍报', checkRunData(rules, {}).filter((e) => e.includes('必填')).length === 2);
 ok('第二步 pattern', v({ verify: { run: 'run_x' } }).some((e) => e.startsWith('verify.run')));
 ok('没有规则的 SOP 永远通过', checkRunData(extractFieldRules({ title: 'x', steps: [{ key: 'a', title: 'a', body: '<input data-field="x">' }] }), {}).length === 0);
+
+// 条件必填 data-required-if：条件成立才必填；不成立只核格式；可跨步；坏写法当作没有条件
+const cm = { title: 'c', steps: [
+  { key: 'scope', title: '定界', body: `
+    <select data-field="task_type"><option value="">—</option><option>单商品研究</option><option>跨任务分类</option></select>
+    <input data-field="anchor" data-label="锚 ASIN" pattern="B0[A-Z0-9]{8}" data-required-if="task_type=单商品研究|类目探索">
+    <input data-field="product" data-label="商品" required data-required-if="scope.task_type=单商品研究">
+    <input data-field="bad" data-required-if="没有等号">` },
+  { key: 'deliver', title: '交付', body: `<input data-field="period" data-label="报告期" type="month" data-required-if="scope.task_type=单商品研究">` },
+] };
+const cr = extractFieldRules(cm);
+ok('有条件的字段即使没别的规则也抽出', cr.some((r) => r.field === 'period') && cr.find((r) => r.field === 'anchor')?.requiredIf?.values.join() === '单商品研究,类目探索');
+ok('坏写法不算条件（也没别的规则就不抽）', !cr.some((r) => r.field === 'bad'));
+const c = (scope, deliver = {}) => checkRunData(cr, { scope, deliver });
+ok('条件成立：缺项逐个报必填（含跨步）', (() => { const e = c({ task_type: '单商品研究' }); return ['锚 ASIN', '商品', '报告期'].every((n) => e.some((x) => x.includes(n) && x.includes('必填'))); })());
+ok('条件不成立：留空不报（静态 required 让位给条件）', c({ task_type: '跨任务分类' }).length === 0, JSON.stringify(c({ task_type: '跨任务分类' })));
+ok('条件不成立：填了仍核格式', c({ task_type: '跨任务分类', anchor: 'x' }).some((e) => e.includes('锚 ASIN')));
+ok('条件字段为空：不必填', c({}).length === 0);
+ok('条件成立且合规：通过', c({ task_type: '单商品研究', anchor: 'B0TEST0001', product: '支架' }, { period: '2026-09' }).length === 0);
+
+// 执行页脚本写在模板字符串里：正则的反斜杠要双写，否则 \s 变成 s，条件必填在浏览器里永远不成立
+const runnerHtml = renderSopRunner(cm, { id: 1, slug: 'c', title: 'c', kind: 'sop' });
+ok('执行页条件必填正则保留反斜杠', runnerHtml.includes('/^\\s*(?:([A-Za-z0-9_-]+)\\.)?([A-Za-z0-9_-]+)\\s*=([\\s\\S]*)$/'));
 
 console.log(`\n${pass} 通过 / ${fail} 失败`);
 process.exit(fail ? 1 : 0);
