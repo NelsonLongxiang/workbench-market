@@ -2164,6 +2164,9 @@ app.get('/api/content/observation', (req, res) => {
  *  先选 origin = WM_ODOO_URL 的台（工作台只认这个 Odoo 的会话；session_id 按主机名跨端口共享，登别的 Odoo 会把它覆盖掉），
  *  再选与请求同主机名的台；都没有返回 null，不盲选（别的主机名登完市场也拿不到 session_id） */
 function odooLoginUrl(req: express.Request, returnPath: string): string | null {
+  // 同域登录中继开着：登录入口就是本机 /web/login（中继只放行登录面、上游固定为 WM_ODOO_URL、redirect 只认白名单回跳页），
+  // 不再依赖库里登记了 Odoo 台——否则部署方只能手工插一条假工作台才有登录入口
+  if (process.env.WM_ODOO_LOGIN_PROXY === '1' && odooUrl()) return `/web/login?redirect=${encodeURIComponent(returnPath)}`;
   let host = '';
   try { host = new URL(`http://${String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').split(',')[0].trim()}`).hostname.toLowerCase(); } catch { host = ''; }
   const odoo = listWorkbenches().filter((w) => w.enabled && /^https?:\/\//i.test(w.url) && isOdooSessionTarget(w.url));

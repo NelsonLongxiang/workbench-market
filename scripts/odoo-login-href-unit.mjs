@@ -8,5 +8,7 @@ const h = odooLoginHref('/go/7/?return=%2Ftasks', 'http://wm.test:9800', '/tasks
 ok('return 换成当前页面（含 query），只回 path', h === '/go/7/?return=%2Ftasks%3Fq%3D2026-12-18T18%3A00%3A00%2B08%3A00', h);
 const x = odooLoginHref('http://evil.example/go/7/?return=%2Ftasks', 'http://wm.test:9800', '/tasks');
 ok('绝对地址也只取 path+query，不带出别的源', x === '/go/7/?return=%2Ftasks', x);
+const w = odooLoginHref('/web/login?redirect=%2Ftasks', 'http://wm.test:9800', '/login');
+ok('同域中继的 /web/login 换 redirect，不加 return', w === '/web/login?redirect=%2Flogin', w);
 console.log(`odoo-login-href-unit: ${pass} passed / ${fail} failed`);
 process.exitCode = fail ? 1 : 0;
