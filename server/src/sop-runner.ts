@@ -74,7 +74,7 @@ ${tokensCss.replace(/<\/style/gi, '')}
   <span class="runmeta" id="runmeta">未开始</span>
 </div>
 <main>
-<div class="fv-summary" id="fv-summary" tabindex="-1" aria-labelledby="fv-summary-title" hidden></div>
+<div class="fv-summary" id="fv-summary" role="group" tabindex="-1" aria-labelledby="fv-summary-title" hidden></div>
 ${stepsHtml}
 <section class="step" id="agent-extras" style="display:none">
   <header><h2>agent 交付区</h2><span class="muted" id="extras-note"></span></header>
@@ -139,9 +139,10 @@ window.__SOP__ = ${boot};
     return values.indexOf(v) >= 0;
   }
   // #436 可访问性：data-field 控件统一补可访问名称、稳定 id，把紧跟的说明和错误提示关联到 aria-describedby（各 SOP 台不用手写）
-  function describe(el, id) {
-    var ids = (el.getAttribute('aria-describedby') || '').split(' ').filter(Boolean);
-    if (ids.indexOf(id) < 0) { ids.push(id); el.setAttribute('aria-describedby', ids.join(' ')); }
+  function describe(el, id, on) {
+    var ids = (el.getAttribute('aria-describedby') || '').split(' ').filter(function (x) { return x && x !== id; });
+    if (on !== false) ids.push(id);
+    if (ids.length) el.setAttribute('aria-describedby', ids.join(' ')); else el.removeAttribute('aria-describedby');
   }
   function textBefore(el) {
     // 「本次商品：<input>」这类写法：取控件前面同一段里的文字当名称
@@ -181,7 +182,8 @@ window.__SOP__ = ${boot};
     el.setAttribute('aria-invalid', ok ? 'false' : 'true');
     var msg = el.nextElementSibling && el.nextElementSibling.classList && el.nextElementSibling.classList.contains('fv-msg') ? el.nextElementSibling : null;
     if (!ok && !msg) { msg = document.createElement('span'); msg.className = 'fv-msg'; msg.setAttribute('role', 'alert'); el.insertAdjacentElement('afterend', msg); }
-    if (msg) { if (!msg.id) msg.id = (el.id || el.getAttribute('data-field')) + '-err'; describe(el, msg.id); }
+    // 有错才挂错误提示；改好后从 aria-describedby 移除，读屏不再读空提示
+    if (msg) { if (!msg.id) msg.id = (el.id || el.getAttribute('data-field')) + '-err'; describe(el, msg.id, !ok); }
     if (msg) msg.textContent = ok ? '' : (empty ? '必填' : (el.getAttribute('data-error') || el.validationMessage || '格式不符'));
     return ok;
   }
@@ -326,6 +328,7 @@ window.__SOP__ = ${boot};
     var el = ev.target;
     if (!el || !el.hasAttribute || !el.hasAttribute('data-field')) return;
     checkField(el, false);
+    refreshSummary();
     var sec = el.closest('[data-step]');
     if (sec) queueSave(sec.getAttribute('data-step'));
   });
@@ -365,32 +368,44 @@ window.__SOP__ = ${boot};
     checkField(el, false);
     // 条件字段变了：重算依赖它的字段的必填状态（未填的不急着标红，完成时再严格核）
     $$('[data-required-if]').forEach(function (d) { if (d !== el) checkField(d, false); });
+    refreshSummary();
     var sec = el.closest('[data-step]');
     if (sec) queueSave(sec.getAttribute('data-step'));
   });
 
+  // #436 错误汇总：逐项列字段名和原因，点一项跳到对应控件。汇总不设 role=alert（各字段错误已是 alert，避免连读 N+1 次），
+  // role=group 并以标题命名，被拦时靠拿焦点让读屏读出标题里的总数
+  function renderSummary(bad) {
+    var sum = $('#fv-summary');
+    if (!sum) return;
+    sum.innerHTML = '';
+    if (!bad.length) { sum.hidden = true; return; }
+    var h = document.createElement('h2'); h.id = 'fv-summary-title'; h.textContent = '有 ' + bad.length + ' 项需要改正后才能完成'; sum.appendChild(h);
+    var ul = document.createElement('ul');
+    bad.forEach(function (el) {
+      var li = document.createElement('li'), a = document.createElement('a');
+      // 错误提示由 checkField 插在控件正后方；直接取它，不依赖 id 的写法
+      var m = el.nextElementSibling && el.nextElementSibling.classList && el.nextElementSibling.classList.contains('fv-msg') ? el.nextElementSibling : null;
+      a.href = '#' + el.id; a.textContent = fieldName(el) + '：' + ((m && m.textContent) || '格式不符');
+      a.addEventListener('click', function (ev) { ev.preventDefault(); el.scrollIntoView({ block: 'center' }); el.focus(); });
+      li.appendChild(a); ul.appendChild(li);
+    });
+    sum.appendChild(ul); sum.hidden = false;
+  }
+  // 汇总展开后边改边刷新：改好的项移出，全部改好就收起（不抢焦点）
+  function refreshSummary() {
+    var sum = $('#fv-summary');
+    if (sum && !sum.hidden) renderSummary($$('[data-field]').filter(function (d) { return !d.disabled && !checkField(d, true); }));
+  }
+
   $('#finish').addEventListener('click', function () {
     var bad = $$('[data-field]').filter(function (el) { return !el.disabled && !checkField(el, true); });
-    var sum = $('#fv-summary');
+    renderSummary(bad);
     if (bad.length) {
       setState('有 ' + bad.length + ' 个字段未填或格式不符，已标红——改正后再完成（草稿已保存）');
-      // #436 错误汇总：逐项列字段名和原因，点一项跳到对应控件。汇总不设 role=alert（各字段错误已是 alert，避免连读 N+1 次），
-      // 靠拿焦点让读屏读出标题里的总数
-      sum.innerHTML = '';
-      var h = document.createElement('h2'); h.id = 'fv-summary-title'; h.textContent = '有 ' + bad.length + ' 项需要改正后才能完成'; sum.appendChild(h);
-      var ul = document.createElement('ul');
-      bad.forEach(function (el) {
-        var li = document.createElement('li'), a = document.createElement('a');
-        // 错误提示由 checkField 插在控件正后方；直接取它，不依赖 id 的写法
-        var m = el.nextElementSibling && el.nextElementSibling.classList && el.nextElementSibling.classList.contains('fv-msg') ? el.nextElementSibling : null;
-        a.href = '#' + el.id; a.textContent = fieldName(el) + '：' + ((m && m.textContent) || '格式不符');
-        a.addEventListener('click', function (ev) { ev.preventDefault(); el.scrollIntoView({ block: 'center' }); el.focus(); });
-        li.appendChild(a); ul.appendChild(li);
-      });
-      sum.appendChild(ul); sum.hidden = false; sum.focus();
+      $('#fv-summary').focus();
       return;
     }
-    if (sum) { sum.hidden = true; sum.innerHTML = ''; }
     // 收尾前把所有未落盘的缓冲步骤推上去（还没建记录时 ensureRun 先建）
     ensureRun().then(function () { return Promise.all(BOOT.steps.filter(function (k) { return timers[k]; }).map(function (k) {
       clearTimeout(timers[k]); return save(k);

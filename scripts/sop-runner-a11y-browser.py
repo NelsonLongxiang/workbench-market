@@ -48,7 +48,7 @@ with sync_playwright() as p:
     pg.click('#finish')
     summary = pg.locator('#fv-summary')
     check('A3 被拦时出现错误汇总并获得焦点', summary.is_visible() and pg.evaluate("document.activeElement && document.activeElement.id") == 'fv-summary')
-    check('A3 汇总不重复播报：不设 role=alert，以标题命名', summary.get_attribute('role') is None and pg.evaluate("document.getElementById('fv-summary').getAttribute('aria-labelledby')") == 'fv-summary-title' and pg.locator('#fv-summary-title').inner_text().startswith('有 2 项'))
+    check('A3 汇总不重复播报：role=group（不是 alert），以标题命名', summary.get_attribute('role') == 'group' and pg.evaluate("document.getElementById('fv-summary').getAttribute('aria-labelledby')") == 'fv-summary-title' and pg.locator('#fv-summary-title').inner_text().startswith('有 2 项'))
     items = summary.locator('li a')
     texts = items.all_inner_texts()
     check('A3 汇总逐项列字段名和原因', len(texts) == 2 and any(t.startswith('任务类型：') for t in texts) and any('锚 ASIN：ASIN 为 B0 开头' in t for t in texts), texts)
@@ -66,7 +66,18 @@ with sync_playwright() as p:
     check('A4 条件切换后错误提示关联存在', '必填' in s['product']['desc'] and s['product']['required'], s['product'])
     pg.select_option('[data-field="task_type"]', '跨任务分类')
     s = {x['field']: x for x in pg.evaluate(STATE)}
-    check('A4 条件不成立后不再必填，名称与关联仍在', (not s['product']['required']) and s['product']['name'] == '本次商品' and any(d is not None for d in s['product']['desc']), s['product'])
+    check('A4 条件不成立后不再必填，名称还在，也不留空的错误关联', (not s['product']['required']) and s['product']['name'] == '本次商品' and not any(d is None or d == '' for d in s['product']['desc']), s['product'])
+    # 汇总展开后边改边刷新，全部改好就收起；改好的字段不再挂错误提示
+    pg.select_option('[data-field="task_type"]', '单商品研究')
+    pg.click('#finish')
+    n0 = pg.locator('#fv-summary li').count()
+    pg.fill('[data-field="product"]', '支架')
+    n1 = pg.locator('#fv-summary li').count()
+    s = {x['field']: x for x in pg.evaluate(STATE)}
+    check('A5 改好一项，汇总立即少一项', n0 == 2 and n1 == 1, (n0, n1))
+    check('A5 改好的字段不再关联错误提示', not any(d == '' or (d and '必填' in d) for d in s['product']['desc']), s['product']['desc'])
+    pg.fill('[data-field="period"]', '2026-09')
+    check('A5 全部改好，汇总收起', pg.locator('#fv-summary').is_hidden())
     check('页面无脚本错误', not errors, errors)
     b.close()
 
