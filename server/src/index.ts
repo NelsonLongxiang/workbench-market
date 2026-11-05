@@ -4758,7 +4758,10 @@ void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: 
 }).catch(() => refuseUnsafeStartup());
 
 function refuseUnsafeStartup(): void {
-  console.error(JSON.stringify({ source: 'self-probe', event: 'startup-refused', failed: startupSecurity.snapshot().failed }));
+  const snap = startupSecurity.snapshot();
+  // 失败项的原因与状态码也写 stderr（逐项结果在 stdout，只收 stderr 的冒烟与容器日志里看不到为什么拒绝）
+  const why = snap.rows.filter((r) => r.verdict === 'fail').map((r) => ({ id: r.id, status: r.status, reason: r.reason }));
+  console.error(JSON.stringify({ source: 'self-probe', event: 'startup-refused', failed: snap.failed, why }));
   // Only this process's listeners are closed; never signal a PID, parent cmd or host.
   for (const server of allSurfaceServers()) { server.closeAllConnections(); server.close(); }
   try { db.close(); } catch { /* initialization may already have closed it */ }
