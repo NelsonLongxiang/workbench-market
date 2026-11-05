@@ -27,6 +27,7 @@ try:
      html=(DIST/'index.html').read_text(encoding='utf8');meta='<meta name="wm-surface" content="'+surface+'"><meta name="wm-control-url" content="'+(control or '')+'">';r.fulfill(status=200,content_type='text/html',body=html.replace('<head>','<head>'+meta));return
     if path.startswith('/api/'):
      requests.append({'path':path,'method':req.method,'token_present':bool(req.headers.get('x-admin-token'))})
+     if path=='/api/admin/whoami':tok=bool(req.headers.get('x-admin-token'));r.fulfill(json={'admin':tok,'via':'token' if tok else None,'login':None});return # 口令保存前要先核对（#424）
      if path=='/api/tasks':r.fulfill(json={'tasks':[{'id':'change-request:1','source':'market','title':'SYNTHETIC review','status':'todo','due':None,'link':'/api/change-requests','project':'review-gate'}],'sources':{'market':{'ok':True,'count':1,'latency_ms':1},'ygl-trees':{'ok':True,'count':0,'latency_ms':1}},'generated_at':'synthetic'});return
      if path=='/api/change-requests':
       if not req.headers.get('x-admin-token'):r.fulfill(status=403,json={'error':'token required'});return
