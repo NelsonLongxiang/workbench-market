@@ -25,6 +25,13 @@ ok('合规数据通过', checkRunData(rules, good).length === 0, JSON.stringify(
 const v = (patch) => checkRunData(rules, { scope: { ...good.scope, ...patch.scope }, verify: { ...good.verify, ...patch.verify } });
 ok('必填缺失', v({ scope: { period: '' } }).some((e) => e.includes('报告期') && e.includes('必填')));
 ok('月份格式', v({ scope: { period: '2026/09' } }).some((e) => e.includes('YYYY-MM')));
+ok('月份须在 01–12', v({ scope: { period: '2026-13' } }).some((e) => e.includes('01–12')) && v({ scope: { period: '2026-00' } }).some((e) => e.includes('01–12')) && v({ scope: { period: '2026-12' } }).length === 0);
+{
+  const dr = extractFieldRules({ title: 'd', steps: [{ key: 's', title: 's', body: '<input data-field="at" data-label="采集日" type="date">' }] });
+  const bad = (d) => checkRunData(dr, { s: { at: d } }).some((e) => e.includes('日历上没有'));
+  ok('日期按真实日历核', ['2026-02-30', '2026-02-29', '2026-04-31', '2026-13-01', '2026-00-10', '2100-02-29'].every(bad), '');
+  ok('合法日期与闰日通过', ['2028-02-29', '2000-02-29', '2026-12-31', '2026-01-31'].every((d) => checkRunData(dr, { s: { at: d } }).length === 0));
+}
 ok('pattern 整体匹配（自定义提示）', v({ scope: { anchor: 'xB0TEST0001' } }).some((e) => e.includes('B0 开头')));
 ok('url 须 http(s)', v({ scope: { url: 'ftp://x' } }).some((e) => e.includes('http')));
 ok('maxlength', v({ scope: { note: '十一个字十一个字十一个' } }).some((e) => e.includes('最多 10')));

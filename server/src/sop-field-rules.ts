@@ -37,6 +37,8 @@ export function parseRequiredIf(src: string, step: string): FieldRule['requiredI
 const TAG_RE = /<(input|textarea|select)\b([^>]*)>/gi;
 const ATTR_RE = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
 const MAX_PATTERN_INPUT = 20000;
+/** 格式对了再核日历：2026-02-30、2026-13-01 这类不存在的日子拒掉（浏览器日期控件拦得住，agent 直接写数据拦不住） */
+const realDate = (v: string) => { const [y, m, d] = v.split('-').map(Number); const t = new Date(Date.UTC(2000, m - 1, d)); t.setUTCFullYear(y); return t.getUTCMonth() === m - 1 && t.getUTCDate() === d; };
 
 function attrs(src: string): Record<string, string | true> {
   const out: Record<string, string | true> = {};
@@ -115,8 +117,8 @@ export function checkRunData(rules: FieldRule[], data: Record<string, unknown>):
     }
     if (r.type === 'url') { try { const u = new URL(v); if (!/^https?:$/.test(u.protocol)) why('须为 http(s) 链接'); } catch { why('不是合法链接'); } }
     if (r.type === 'email' && !/^[^\s@]+@[^\s@]+$/.test(v)) why('不是合法邮箱');
-    if (r.type === 'date' && !/^\d{4}-\d{2}-\d{2}$/.test(v)) why('日期须为 YYYY-MM-DD');
-    if (r.type === 'month' && !/^\d{4}-\d{2}$/.test(v)) why('月份须为 YYYY-MM');
+    if (r.type === 'date') { if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) why('日期须为 YYYY-MM-DD'); else if (!realDate(v)) why('日历上没有这一天'); }
+    if (r.type === 'month') { if (!/^\d{4}-\d{2}$/.test(v)) why('月份须为 YYYY-MM'); else if (!realDate(`${v}-01`)) why('月份须在 01–12'); }
     if (r.type === 'number') {
       const n = Number(v);
       if (!Number.isFinite(n)) why('须为数字');
