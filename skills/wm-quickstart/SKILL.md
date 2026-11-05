@@ -1,6 +1,6 @@
 ---
 name: wm-quickstart
-version: 1.2.2
+version: 1.2.3
 description: 工作台市场·快速开始构建——builder/agent 视角 15 分钟从零建台：登记外部工作台、发布自产台（全量+patch 增量）、文件/数据双通道、交付空间模式、发布纪律（served+1/60s 锁）、三闸。当需要「在市场上建一个台」「发布页面/交付物」「app_publish 怎么用」时加载。
 ---
 
@@ -46,6 +46,7 @@ MCP app_publish({
 - 判据：写读全链见 references/write-read.md
 - 数据层规范（数据放哪、怎么读、读不到怎么办）：references/data-layer.md
 - 台的读写约定（常量 AGENTS.md）：references/workbench-agents.md
+- SOP 步骤字段的校验属性与文件清单字段：references/sop-fields.md
 
 
 ## sandbox 运行约束（#170 P11 / #198）

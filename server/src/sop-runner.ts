@@ -56,6 +56,13 @@ ${tokensCss.replace(/<\/style/gi, '')}
   .fv-summary h2 { font-size:var(--wm-font-size-body); margin:0 0 var(--wm-space-1); }
   .fv-summary ul { margin:0; padding-left:var(--wm-space-4); }
   .fv-summary a { color:var(--wm-color-danger-text); }
+  .fl-editor { border:1px solid var(--wm-color-border); border-radius:var(--wm-radius-md); padding:var(--wm-space-2); margin:var(--wm-space-1) 0; }
+  .fl-editor:focus-visible { outline:2px solid var(--wm-color-primary); outline-offset:1px; }
+  .fl-editor table { width:100%; border-collapse:collapse; font-size:var(--wm-font-size-caption); }
+  .fl-editor th { text-align:left; color:var(--wm-color-text-secondary); font-weight:var(--wm-font-weight-body-strong); padding:2px var(--wm-space-1); }
+  .fl-editor td { padding:2px var(--wm-space-1); vertical-align:top; }
+  .fl-editor td select, .fl-editor td input { width:100%; padding:2px var(--wm-space-1); border:1px solid var(--wm-color-border-strong); border-radius:var(--wm-radius-sm); font:inherit; }
+  .fl-editor .fl-sha { font-family:var(--wm-font-mono); color:var(--wm-color-text-secondary); }
   .foot { display:flex; align-items:center; gap:var(--wm-space-3); margin:var(--wm-space-6) 0 var(--wm-space-8); }
   .btn { border:1px solid var(--wm-color-border-strong); border-radius:var(--wm-radius-md); padding:var(--wm-space-2) var(--wm-space-6); font:inherit; font-weight:var(--wm-font-weight-body-strong); cursor:pointer; background:var(--wm-color-surface); color:var(--wm-color-text); }
   .btn.primary { background:var(--wm-color-primary); border-color:var(--wm-color-primary); color:var(--wm-color-on-primary); }
@@ -113,7 +120,7 @@ window.__SOP__ = ${boot};
     var out = {};
     $$('[data-field]', sec).forEach(function (el) {
       var f = el.getAttribute('data-field');
-      out[f] = el.type === 'checkbox' ? el.checked : el.value;
+      out[f] = el.getAttribute('data-type') === 'file-list' ? readRows(el) : el.type === 'checkbox' ? el.checked : el.value;
     });
     return out;
   }
@@ -123,9 +130,68 @@ window.__SOP__ = ${boot};
     Object.keys(value).forEach(function (f) {
       var el = $('[data-field="' + f + '"]', sec);
       if (!el) return;
+      if (el.getAttribute('data-type') === 'file-list') { el.value = Array.isArray(value[f]) && value[f].length ? JSON.stringify(value[f]) : (typeof value[f] === 'string' ? value[f] : ''); renderFileList(el); return; }
       if (el.type === 'checkbox') el.checked = !!value[f]; else el.value = value[f];
     });
   }
+
+  // #437① 文件清单字段（<textarea data-type="file-list">）：表格编辑器，每行从本记录已有的文件里选（上传或引用的），
+  // 自动带出文件名、sha256、大小、类型；角色 / 状态按 data-roles / data-statuses 给选项。值是行对象数组，完成时服务端按实际 hash 逐行核
+  var runFilesCache = [];
+  function readRows(el) { try { var v = JSON.parse(el.value || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } }
+  function writeRows(el, rows) { el.value = rows.length ? JSON.stringify(rows) : ''; el.dispatchEvent(new Event('input', { bubbles: true })); }
+  function opts(sel, list, cur, blank) {
+    sel.innerHTML = '';
+    var o0 = document.createElement('option'); o0.value = ''; o0.textContent = blank; sel.appendChild(o0);
+    list.forEach(function (x) { var o = document.createElement('option'); o.value = String(x.v); o.textContent = x.t; sel.appendChild(o); });
+    sel.value = cur == null ? '' : String(cur);
+  }
+  function renderFileList(el) {
+    var ed = document.getElementById(el.id + '-editor');
+    if (!ed) {
+      ed = document.createElement('div'); ed.className = 'fl-editor'; ed.id = el.id + '-editor'; ed.tabIndex = -1;
+      ed.setAttribute('role', 'group'); ed.setAttribute('aria-label', el.getAttribute('data-label') || el.getAttribute('aria-label') || el.getAttribute('data-field'));
+      el.style.display = 'none'; el.insertAdjacentElement('afterend', ed);
+    }
+    var rows = readRows(el);
+    var roles = (el.getAttribute('data-roles') || '').split('|').map(function (x) { return x.trim(); }).filter(Boolean);
+    var statuses = (el.getAttribute('data-statuses') || '').split('|').map(function (x) { return x.trim(); }).filter(Boolean);
+    ed.innerHTML = '';
+    if (!runFilesCache.length) { var p0 = document.createElement('p'); p0.className = 'muted'; p0.textContent = '先在下方交付区上传或引用文件，再在这里选'; ed.appendChild(p0); }
+    var tb = document.createElement('table'), th = document.createElement('tr');
+    ['文件', '角色', '来源', '时期', '状态', 'sha256', ''].forEach(function (t) { var c = document.createElement('th'); c.textContent = t; th.appendChild(c); });
+    tb.appendChild(th);
+    rows.forEach(function (row, i) {
+      var tr = document.createElement('tr');
+      function cell(node) { var td = document.createElement('td'); td.appendChild(node); tr.appendChild(td); return node; }
+      var fs = cell(document.createElement('select'));
+      var files = runFilesCache.map(function (f) { return { v: f.id, t: f.original_name + '（' + Math.round((f.size || 0) / 1024) + ' KB' + (f.ref_of ? '，引用' : '') + '）' }; });
+      if (row.file_id && !runFilesCache.some(function (f) { return f.id === row.file_id; })) files.push({ v: row.file_id, t: '（不在本记录：#' + row.file_id + ' ' + (row.name || '') + '）' });
+      opts(fs, files, row.file_id, '请选择文件'); fs.setAttribute('aria-label', '第 ' + (i + 1) + ' 行文件');
+      fs.addEventListener('change', function () {
+        var f = runFilesCache.filter(function (x) { return String(x.id) === fs.value; })[0];
+        rows[i] = Object.assign({}, rows[i], f ? { file_id: f.id, name: f.original_name, sha256: f.sha256 || '', size: f.size, mime: f.mime } : { file_id: 0, name: '', sha256: '', size: 0, mime: '' });
+        writeRows(el, rows); renderFileList(el);
+      });
+      function pick(key, list, label) {
+        var n;
+        if (list.length) { n = cell(document.createElement('select')); opts(n, list.map(function (x) { return { v: x, t: x }; }), row[key], '请选择'); }
+        else { n = cell(document.createElement('input')); n.value = row[key] || ''; }
+        n.setAttribute('aria-label', '第 ' + (i + 1) + ' 行' + label);
+        n.addEventListener('change', function () { rows[i] = Object.assign({}, rows[i]); rows[i][key] = n.value; writeRows(el, rows); });
+      }
+      pick('role', roles, '角色'); pick('source', [], '来源'); pick('period', [], '时期'); pick('status', statuses, '状态');
+      var sha = cell(document.createElement('span')); sha.className = 'fl-sha'; sha.textContent = row.sha256 ? String(row.sha256).slice(0, 12) + '…' : '—';
+      var del = cell(document.createElement('button')); del.type = 'button'; del.className = 'btn'; del.textContent = '删除'; del.setAttribute('aria-label', '删除第 ' + (i + 1) + ' 行');
+      del.addEventListener('click', function () { rows.splice(i, 1); writeRows(el, rows); renderFileList(el); });
+      tb.appendChild(tr);
+    });
+    ed.appendChild(tb);
+    var add = document.createElement('button'); add.type = 'button'; add.className = 'btn'; add.textContent = '加一行';
+    add.addEventListener('click', function () { rows.push({ file_id: 0, role: '', source: '', period: '', status: '', sha256: '' }); writeRows(el, rows); renderFileList(el); });
+    ed.appendChild(add);
+  }
+  function setRunFiles(items) { runFilesCache = items || []; $$('textarea[data-type="file-list"][data-field]').forEach(renderFileList); }
 
   // 字段规则（sop.yaml 控件上的 required/pattern/长度/类型）：填写时即时提示、草稿照存；完成时全部核对，服务端再核一遍
   // 条件必填 data-required-if="<字段>=<值1>|<值2>"（<步骤>.<字段> 可跨步）：与服务端 sop-field-rules 同一语义
@@ -177,6 +243,21 @@ window.__SOP__ = ${boot};
     if (!el.checkValidity) return true;
     if (el.hasAttribute('data-required-if')) { var met = requiredIfMet(el); if (met !== null) el.required = met; }
     var empty = el.type === 'checkbox' ? !el.checked : !String(el.value || '').trim();
+    if (el.getAttribute('data-type') === 'file-list') {
+      // 文件清单：行数上下限、每行要选文件，有角色 / 状态清单的要选；与服务端结构校验同一口径（hash 只在完成时由服务端核）
+      var rows = readRows(el), why = '';
+      var mn = Number(el.getAttribute('data-min-items') || 0), mx = Number(el.getAttribute('data-max-items') || 0);
+      if (rows.length && mn && rows.length < mn) why = '至少 ' + mn + ' 行';
+      else if (mx && rows.length > mx) why = '最多 ' + mx + ' 行';
+      else rows.some(function (r, i) {
+        if (!r.file_id) { why = '第 ' + (i + 1) + ' 行没有选文件'; return true; }
+        if (el.getAttribute('data-roles') && !r.role) { why = '第 ' + (i + 1) + ' 行没有选角色'; return true; }
+        if (el.getAttribute('data-statuses') && !r.status) { why = '第 ' + (i + 1) + ' 行没有选状态'; return true; }
+        return false;
+      });
+      el.setCustomValidity(why);
+      empty = !rows.length;
+    }
     // textarea 没有原生 pattern：按服务端同样的整体匹配规则手动核对
     var pat = el.tagName === 'TEXTAREA' && !empty ? el.getAttribute('pattern') : null;
     if (pat) { var re = null; try { re = new RegExp('^(?:' + pat + ')$', 'u'); } catch (e) { re = null; } el.setCustomValidity(re && !re.test(String(el.value).trim()) ? (el.getAttribute('data-error') || '格式不符') : ''); }
@@ -241,6 +322,7 @@ window.__SOP__ = ${boot};
         return r.ok ? r.json() : { items: [] };
       }).then(function (j) {
         showQuota(j.quota);
+        setRunFiles(j.items);
         fileBox.textContent = '';
         (j.items || []).forEach(function (f) {
           var li = document.createElement('li');
@@ -377,6 +459,8 @@ window.__SOP__ = ${boot};
             if (res.ok) {
               okN++; li.textContent = f.name + '：已上传（' + Math.round((res.j.size || 0) / 1024) + ' KB）';
               showQuota(res.j.quota);
+              runFilesCache.push({ id: res.j.id, original_name: res.j.name, size: res.j.size, mime: res.j.mime, sha256: res.j.sha256, ref_of: 0 });
+              setRunFiles(runFilesCache);
               var fileBox = document.getElementById('extras-files');
               if (fileBox && res.j && res.j.name) { var row = document.createElement('li'); row.textContent = res.j.name + '（' + Math.round((res.j.size || 0) / 1024) + ' KB）'; fileBox.appendChild(row); }
             } else { failN++; li.textContent = f.name + '：失败（' + res.status + '）' + (res.j.error || ''); }
@@ -412,7 +496,7 @@ window.__SOP__ = ${boot};
       // 错误提示由 checkField 插在控件正后方；直接取它，不依赖 id 的写法
       var m = el.nextElementSibling && el.nextElementSibling.classList && el.nextElementSibling.classList.contains('fv-msg') ? el.nextElementSibling : null;
       a.href = '#' + el.id; a.textContent = fieldName(el) + '：' + ((m && m.textContent) || '格式不符');
-      a.addEventListener('click', function (ev) { ev.preventDefault(); el.scrollIntoView({ block: 'center' }); el.focus(); });
+      a.addEventListener('click', function (ev) { ev.preventDefault(); var tgt = document.getElementById(el.id + '-editor') || el; tgt.scrollIntoView({ block: 'center' }); tgt.focus(); });
       li.appendChild(a); ul.appendChild(li);
     });
     sum.appendChild(ul); sum.hidden = false;
@@ -445,6 +529,7 @@ window.__SOP__ = ${boot};
   });
 
   wireA11y();
+  $$('textarea[data-type="file-list"][data-field]').forEach(renderFileList);
   startRun();
 })();
 </script>

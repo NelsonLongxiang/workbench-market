@@ -53,6 +53,19 @@ ok('条件不成立：填了仍核格式', c({ task_type: '跨任务分类', anc
 ok('条件字段为空：不必填', c({}).length === 0);
 ok('条件成立且合规：通过', c({ task_type: '单商品研究', anchor: 'B0TEST0001', product: '支架' }, { period: '2026-09' }).length === 0);
 
+// #437① 文件清单字段：结构校验（行数、file_id、sha256、角色/状态清单）；hash 对文件面的核对在完成时由服务端做
+const fm = { title: 'f', steps: [{ key: 'deliver', title: '交付', body: `<textarea data-field="files" data-label="交付文件清单" data-type="file-list" data-roles="交付件|验证报告" data-statuses="有效|作废" data-min-items="1" data-max-items="3" required pattern=".+"></textarea>` }] };
+const fr = extractFieldRules(fm);
+ok('文件清单字段抽出：类型、角色、状态、行数（pattern 不适用于清单）', fr.length === 1 && fr[0].type === 'file-list' && fr[0].roles?.join() === '交付件,验证报告' && fr[0].statuses?.join() === '有效,作废' && fr[0].minItems === 1 && fr[0].maxItems === 3 && fr[0].pattern === undefined);
+const sha = 'a'.repeat(64);
+const fc = (files) => checkRunData(fr, { deliver: { files } });
+ok('空清单：必填', fc([]).some((e) => e.includes('必填')));
+ok('不是数组：报错', fc('abc').some((e) => e.includes('不是文件清单')));
+ok('JSON 文本形态也认', fc(JSON.stringify([{ file_id: 1, sha256: sha, role: '交付件', status: '有效' }])).length === 0);
+ok('缺 file_id、坏 sha、角色/状态不在清单：逐项报', (() => { const e = fc([{ file_id: 0, sha256: 'x', role: '别的', status: '?' }]); return ['没有选文件', '缺 sha256', '角色须为', '状态须为'].every((k) => e.some((x) => x.includes(k))); })());
+ok('超过行数上限：报', fc(Array.from({ length: 4 }, (_, i) => ({ file_id: i + 1, sha256: sha, role: '交付件', status: '有效' }))).some((e) => e.includes('最多 3 行')));
+ok('合规：通过', fc([{ file_id: 1, sha256: sha, role: '验证报告', status: '有效' }]).length === 0);
+
 // 执行页脚本写在模板字符串里：正则的反斜杠要双写，否则 \s 变成 s，条件必填在浏览器里永远不成立
 const runnerHtml = renderSopRunner(cm, { id: 1, slug: 'c', title: 'c', kind: 'sop' });
 ok('执行页条件必填正则保留反斜杠', runnerHtml.includes('/^\\s*(?:([A-Za-z0-9_-]+)\\.)?([A-Za-z0-9_-]+)\\s*=([\\s\\S]*)$/'));
