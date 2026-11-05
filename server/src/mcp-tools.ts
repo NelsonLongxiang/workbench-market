@@ -218,7 +218,7 @@ export const MCP_TOOLS: McpToolDef[] = [
   {
     name: 'workbench_vars_set',
     category: 'write',
-    description: '写某工作台的看板变量（JSON 值）。新建可不带 revision（或 revision=0 表示仅在不存在时创建）；改已存在的键必须带当前 revision，不符返回 revision 冲突与当前值。kind=const 写入后不可再改，常量修订只限管理员走 REST（MCP 不提供 override）。',
+    description: '写某工作台的看板变量（JSON 值）。新建可不带 revision（或 revision=0 表示仅在不存在时创建）；改已存在的键必须带当前 revision，不符返回 revision 冲突与当前值。kind=const 写入后不能直接改：谁写的谁维护——新建常量的会话是作者，作者本人带 override=true 与 reason 可修订；别人的常量改不了（作者缺失时由部署机本机命令行兜底）。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -227,7 +227,8 @@ export const MCP_TOOLS: McpToolDef[] = [
         value: { description: '任意 JSON 值（≤64KB）' },
         kind: { type: 'string', enum: ['var', 'const'], description: '缺省 var；新建时给 const 即锁定' },
         revision: { type: 'integer', description: '期望的当前 revision（乐观锁）' },
-        reason: { type: 'string', description: '变更说明（记入审计，≤200 字）' },
+        reason: { type: 'string', description: '变更说明（记入审计，≤200 字；修订常量时必填）' },
+        override: { type: 'boolean', description: '修订自己写的常量时给 true（只对常量作者本人的会话生效）' },
       },
       required: ['id', 'key', 'value'],
       additionalProperties: false,

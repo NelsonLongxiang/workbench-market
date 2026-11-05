@@ -2,7 +2,9 @@
 //   · 持久化只用 SQLite（workbench_vars），写入返回即已落库；不经 Redis，也就没有「缓存写成功 ≠ 持久化成功」的歧义。
 //   · 并发：乐观锁。每次写 revision +1；改/删已存在的键必须带期望 revision（If-Match 或 revision 参数），不符 409 并回当前 revision。
 //     新建时可带 revision=0 表示「只在不存在时创建」；不带也行（撞上并发创建同样 409）。
-//   · 常量 kind=const：写入后不能改、不能删；管理员（含本机命令行）显式带 override 才能修订，留审计（审计只记值的 sha256）。
+//   · 常量 kind=const：写入后不能直接改、删。谁写的谁维护：新建时记作者（只认个人身份 mcp:<会话名> / odoo:<登录名>），
+//     作者本人带 override 与 reason 可修订、删除（REST 与 MCP 都行）；作者缺失或要移交时由部署机本机命令行兜底（可改作者）。
+//     管理员口令与 Odoo 管理员不因「是管理员」就能动别人的常量；按台令牌注入在台页面里、人人可得，不能新建常量。修订都留审计（只记值的 sha256）。
 //   · 读写口径：本机命令行 / 管理员（口令或 Odoo 管理员）可读写任意台；自产台、SOP 台页面凭本台 X-App-Token 只能读写本台；
 //     外部台没有按台令牌，只有管理员能读写。匿名一律 403。
 import { createHash, timingSafeEqual } from 'node:crypto';
@@ -21,8 +23,11 @@ const PATH_RE = /^\/api\/workbenches\/(\d{1,12})\/vars(?:\/|$)/i;
 
 export type WorkbenchClass = 'app' | 'sop' | 'external';
 type Scope = { id: number; cls: WorkbenchClass; slug: string | null };
-/** 调用方：admin=true 才能修订常量（本机命令行与管理员）；按台令牌与 MCP 会话都是 false */
-type Caller = { actor: string; admin: boolean };
+/** 调用方：actor 记入 updated_by / 审计；admin=管理读写面（本机命令行、口令、Odoo 管理员）；cli=部署机本机命令行（常量兜底维护） */
+type Caller = { actor: string; admin: boolean; cli: boolean };
+/** 能当常量作者的个人身份：MCP 会话或 Odoo 登录人；口令、本机、台令牌都是共享身份 */
+const PERSONAL_RE = /^(mcp|odoo):[^\s]{1,128}$/;
+const personal = (actor: string) => PERSONAL_RE.test(actor) ? actor : '';
 
 export type WorkbenchVarsDeps = {
   /** 按台令牌（index.ts 的 wmAppToken） */
@@ -33,6 +38,8 @@ export type WorkbenchVarsDeps = {
   adminRead: (req: express.Request, res: express.Response) => boolean;
   /** 管理写门（口令或 Odoo 管理员 + 同源） */
   adminWrite: (req: express.Request, res: express.Response) => boolean;
+  /** 管理员身份落到人：Odoo 管理员 odoo:<登录名>，口令 admin-token */
+  adminActor: (req: express.Request) => string;
 };
 
 const vars = () => svc<WorkbenchVarsService>('workbenchVars');
@@ -57,7 +64,7 @@ function checkKey(key: unknown): string {
 }
 
 function view(r: WorkbenchVarRow) {
-  return { key: r.key, kind: r.kind, value: JSON.parse(r.value), revision: r.revision, updated_by: r.updated_by, created_at: r.created_at, updated_at: r.updated_at };
+  return { key: r.key, kind: r.kind, value: JSON.parse(r.value), revision: r.revision, updated_by: r.updated_by, owner: r.owner ?? '', created_at: r.created_at, updated_at: r.updated_at };
 }
 
 /** 期望 revision：If-Match（"3" / W/"3" / 3）与 revision 参数二选一；都给且不同 400 */
@@ -98,7 +105,23 @@ export function getVar(scope: Scope, key: string) {
   return { workbench_id: scope.id, ...view(r) };
 }
 
-export function setVar(scope: Scope, key: string, input: { value?: unknown; hasValue: boolean; kind?: unknown; expected?: number; override?: boolean; reason?: unknown }, caller: Caller) {
+/** 常量维护权：作者本人，或部署机本机命令行 */
+function maintainConst(scope: Scope, key: string, cur: WorkbenchVarRow, caller: Caller, reason: string, what: string): void {
+  if (!(caller.cli || (cur.owner && caller.actor === cur.owner))) {
+    conflict(scope, key, `常量只能由作者（${cur.owner || '未登记作者'}）或部署机本机命令行${what}`, 'const_override_forbidden', 403);
+  }
+  if (!reason) conflict(scope, key, `${what}常量要写 reason（记入审计）`, 'reason_required', 400);
+}
+/** 指定作者（新建或移交）只限本机命令行，且必须是个人身份 */
+function ownerInput(scope: Scope, key: string, owner: unknown, caller: Caller): string | undefined {
+  if (owner === undefined) return undefined;
+  if (!caller.cli) conflict(scope, key, '指定或移交常量作者只限部署机本机命令行', 'owner_change_forbidden', 403);
+  const o = typeof owner === 'string' ? owner.trim() : '';
+  if (o !== '' && !PERSONAL_RE.test(o)) throw new HttpError(400, 'owner 只能是 mcp:<会话名> 或 odoo:<登录名>（空串=无作者）');
+  return o;
+}
+
+export function setVar(scope: Scope, key: string, input: { value?: unknown; hasValue: boolean; kind?: unknown; expected?: number; override?: boolean; reason?: unknown; owner?: unknown }, caller: Caller) {
   checkKey(key);
   if (!input.hasValue) throw new HttpError(400, '缺 value（任意 JSON 值，null 也算）');
   if (input.kind !== undefined && input.kind !== 'var' && input.kind !== 'const') throw new HttpError(400, "kind 只能是 'var' 或 'const'");
@@ -113,20 +136,29 @@ export function setVar(scope: Scope, key: string, input: { value?: unknown; hasV
       if (input.expected !== undefined && input.expected !== 0) conflict(scope, key, `键不存在，期望 revision ${input.expected} 不成立`, 'revision_conflict');
       if (S.count(scope.id) >= MAX_KEYS_PER_WORKBENCH) throw new HttpError(400, `每台最多 ${MAX_KEYS_PER_WORKBENCH} 个键`);
       const kind = (input.kind as string | undefined) ?? 'var';
-      if (!S.insert(scope.id, key, kind, json, caller.actor).changes) conflict(scope, key, '并发创建：键已被写入', 'revision_conflict');
+      // 台令牌注入在台页面里，打开页面的人都拿得到：它建的常量没有可追的作者，只能写普通变量
+      if (kind === 'const' && caller.actor.startsWith('app:')) conflict(scope, key, '按台令牌不能新建常量：常量要有作者，请用 MCP 会话或 Odoo 登录写', 'const_create_forbidden', 403);
+      const asked = ownerInput(scope, key, input.owner, caller);
+      if (asked !== undefined && kind !== 'const') throw new HttpError(400, 'owner 只用于常量');
+      const owner = kind === 'const' ? (asked ?? personal(caller.actor)) : '';
+      if (!S.insert(scope.id, key, kind, json, caller.actor, owner).changes) conflict(scope, key, '并发创建：键已被写入', 'revision_conflict');
       S.audit({ workbench_id: scope.id, key, action: 'create', actor: caller.actor, kind, old_revision: null, new_revision: 1, old_sha256: '', new_sha256: sha(json), reason });
       return { ok: true, created: true, workbench_id: scope.id, ...view(S.get(scope.id, key) as WorkbenchVarRow) };
     }
     if (cur.kind === 'const') {
-      if (!input.override) conflict(scope, key, '常量写入后不能修改（管理员可显式带 override 修订）', 'const_locked', 403);
-      if (!caller.admin) conflict(scope, key, '常量修订只限管理员或本机命令行（按台令牌与 MCP 不能 override）', 'const_override_forbidden', 403);
+      if (!input.override) conflict(scope, key, '常量写入后不能直接修改（作者本人可带 override 与 reason 修订）', 'const_locked', 403);
+      maintainConst(scope, key, cur, caller, reason, '修订');
     }
+    const asked = ownerInput(scope, key, input.owner, caller);
     if (input.expected === undefined) conflict(scope, key, '改已存在的键必须带期望 revision（If-Match 或 revision）', 'revision_required', 428);
     if (input.expected !== cur.revision) conflict(scope, key, `revision 冲突：期望 ${input.expected}，当前 ${cur.revision}`, 'revision_conflict');
     const kind = (input.kind as string | undefined) ?? cur.kind;
     // 已存在的键改 kind（冻结 var→const）只限管理员：按台令牌在公开页面里，不能让持令牌者冻结别人的变量
     if (kind !== cur.kind && !caller.admin) conflict(scope, key, '改已存在键的 kind 只限管理员或本机命令行', 'kind_change_forbidden', 403);
-    if (!S.update(scope.id, key, cur.revision, kind, json, caller.actor).changes) conflict(scope, key, 'revision 冲突：已被并发修改', 'revision_conflict');
+    if (asked !== undefined && kind !== 'const') throw new HttpError(400, 'owner 只用于常量');
+    // 作者：常量照旧（移交另算）；冻结时冻结者是作者；转回变量就没有作者
+    const owner = kind !== 'const' ? '' : asked ?? (cur.kind === 'const' ? cur.owner : personal(caller.actor));
+    if (!S.update(scope.id, key, cur.revision, kind, json, caller.actor, owner).changes) conflict(scope, key, 'revision 冲突：已被并发修改', 'revision_conflict');
     const action = cur.kind === 'const' ? 'const_override' : kind === 'const' ? 'freeze' : 'update';
     S.audit({ workbench_id: scope.id, key, action, actor: caller.actor, kind, old_revision: cur.revision, new_revision: cur.revision + 1, old_sha256: sha(cur.value), new_sha256: sha(json), reason });
     return { ok: true, created: false, workbench_id: scope.id, ...view(S.get(scope.id, key) as WorkbenchVarRow) };
@@ -141,8 +173,8 @@ export function deleteVar(scope: Scope, key: string, input: { expected?: number;
     const cur = S.get(scope.id, key) as WorkbenchVarRow | undefined;
     if (!cur) throw new HttpError(404, `var not found: ${key}`, { code: 'not_found', workbench_id: scope.id, key, current_revision: 0 });
     if (cur.kind === 'const') {
-      if (!input.override) conflict(scope, key, '常量不能删除（管理员可显式带 override）', 'const_locked', 403);
-      if (!caller.admin) conflict(scope, key, '常量删除只限管理员或本机命令行', 'const_override_forbidden', 403);
+      if (!input.override) conflict(scope, key, '常量不能直接删除（作者本人可带 override 与 reason 删除）', 'const_locked', 403);
+      maintainConst(scope, key, cur, caller, reason, '删除');
     }
     if (input.expected === undefined) conflict(scope, key, '删除必须带期望 revision（If-Match 或 revision）', 'revision_required', 428);
     if (input.expected !== cur.revision || !S.delete(scope.id, key, cur.revision).changes) conflict(scope, key, `revision 冲突：期望 ${input.expected}，当前 ${cur.revision}`, 'revision_conflict');
@@ -156,19 +188,18 @@ export function dropWorkbenchVars(workbenchId: number): void {
   vars().deleteAll(workbenchId);
 }
 
-// ---------- MCP（workbench_vars_get / workbench_vars_set）：会话授权由 /mcp 网关管，这里不认 override ----------
+// ---------- MCP（workbench_vars_get / workbench_vars_set）：会话授权由 /mcp 网关管；常量 override 只对作者本人的会话生效 ----------
 export function mcpVarsGet(args: any) {
   const scope = workbenchScope(Number(args?.id));
   return args?.key === undefined ? listVars(scope, typeof args?.prefix === 'string' ? args.prefix : '') : getVar(scope, String(args.key));
 }
 
 export function mcpVarsSet(args: any, subject: string) {
-  if (args?.override !== undefined) throw new HttpError(403, '常量修订只走 REST（管理员带 override），MCP 不提供');
   const scope = workbenchScope(Number(args?.id));
   return setVar(scope, String(args?.key ?? ''), {
     value: args?.value, hasValue: args != null && Object.prototype.hasOwnProperty.call(args, 'value'),
-    kind: args?.kind, expected: expectedRevision(undefined, args?.revision), reason: args?.reason,
-  }, { actor: subject, admin: false });
+    kind: args?.kind, expected: expectedRevision(undefined, args?.revision), reason: args?.reason, override: truthy(args?.override),
+  }, { actor: subject, admin: false, cli: false });
 }
 
 // ---------- REST ----------
@@ -180,15 +211,15 @@ export function createWorkbenchVars(deps: WorkbenchVarsDeps) {
   }
 
   async function authorize(req: express.Request, res: express.Response, scope: Scope, write: boolean): Promise<Caller | null> {
-    if (!browserMarked(req) && rawLoopback(req)) return { actor: 'cli', admin: true }; // 本机命令行
+    if (!browserMarked(req) && rawLoopback(req)) return { actor: 'cli', admin: true, cli: true }; // 本机命令行
     if (req.headers['x-app-token'] !== undefined) {
-      if (appTokenOk(req, scope)) return { actor: `app:${scope.slug}`, admin: false };
+      if (appTokenOk(req, scope)) return { actor: `app:${scope.slug}`, admin: false, cli: false };
       res.status(403).json({ error: '按台令牌不属于该工作台（只能读写本台变量；外部台只限管理员）', code: 'app_token_mismatch' });
       return null;
     }
     await deps.markOdooAdmin(req);
     if (!(write ? deps.adminWrite(req, res) : deps.adminRead(req, res))) return null;
-    return { actor: 'admin', admin: true };
+    return { actor: deps.adminActor(req), admin: true, cli: false };
   }
 
   const handle = (write: boolean, fn: (req: express.Request, res: express.Response, scope: Scope, caller: Caller) => void) =>
@@ -245,7 +276,7 @@ export function createWorkbenchVars(deps: WorkbenchVarsDeps) {
         const out = setVar(scope, req.params.key, {
           value: b.value, hasValue: Object.prototype.hasOwnProperty.call(b, 'value'), kind: b.kind,
           expected: expectedRevision(req.headers['if-match'], b.revision ?? req.query.revision),
-          override: truthy(b.override) || truthy(req.query.override), reason: b.reason,
+          override: truthy(b.override) || truthy(req.query.override), reason: b.reason, owner: b.owner,
         }, caller);
         res.status(out.created ? 201 : 200).set('ETag', `"${out.revision}"`).json(out);
       }));

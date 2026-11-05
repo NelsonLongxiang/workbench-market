@@ -4,10 +4,11 @@
 //   V1 三类台都能建/读/列/改：自产台、SOP 台、外部 Web 台（另一外部台做隔离对照）
 //   V2 隔离：同名键各台各一份；自产台令牌读写别的台 403（含外部台）；列举只见本台
 //   V3 权限：浏览器匿名读写 403、经反代的远程匿名写 403；管理员口令读写 200；外部台不认任何按台令牌
-//   V4 常量：kind=const 后改/删 403 const_locked；按台令牌带 override 仍 403；管理员 override 200 且审计记 const_override（只记 sha256）
+//   V4 常量：kind=const 后改/删 403 const_locked；按台令牌不能新建常量、带 override 也改不了；口令管理员不是作者也改不了；
+//      本机命令行带 reason 兜底修订 200 且审计记 const_override（只记 sha256，操作者落到 cli / admin-token）
 //   V5 并发：改已存在的键不带 revision → 428；错 revision → 409 回当前 revision；同 revision 并发两写恰一成一 409
 //   V6 沙箱页面（Origin: null）：预检 204 带允许头；有效令牌带 ACAO，异台令牌不带
-//   V7 MCP：tools/list 含 workbench_vars_get/set；set 带 override 被拒；get 读到 REST 写的值
+//   V7 MCP：tools/list 含 workbench_vars_get/set；非作者 set 带 override 被拒；get 读到 REST 写的值（作者本人修订见 workbench-const-owner-smoke）
 //   V8 重启恢复：杀进程重启，同一 DATA_DIR 下值、revision、kind 原样
 //   V9 删台：变量随台删除（审计留存）
 import { spawn } from 'node:child_process';
@@ -163,24 +164,32 @@ try {
   r = await call('DELETE', vpath(W.ext1, 'limit') + '?revision=1', ADM);
   ok('常量不带 override 删 → 403', r.status === 403 && r.body?.code === 'const_locked');
   r = await put(W.appA, 'unit', { value: 'kg', kind: 'const' }, page(tokA));
-  ok('自产台页面可新建本台常量 → 201', r.status === 201 && r.body?.kind === 'const');
+  ok('按台令牌新建常量 → 403 const_create_forbidden（令牌在页面里，常量没有可追的作者）', r.status === 403 && r.body?.code === 'const_create_forbidden', JSON.stringify(r.body));
+  r = await put(W.appA, 'unit', { value: 'kg', kind: 'const' }, CLI);
+  ok('本机命令行可新建常量 → 201（共享身份不记作者）', r.status === 201 && r.body?.kind === 'const' && r.body?.owner === '', JSON.stringify(r.body));
   r = await put(W.appA, 'unit', { value: 'g', revision: 1, override: true }, page(tokA));
   ok('按台令牌带 override 改常量 → 403 const_override_forbidden', r.status === 403 && r.body?.code === 'const_override_forbidden', JSON.stringify(r.body));
   r = await put(W.ext1, 'limit', { value: 200, revision: 1, override: true, reason: 'threshold revised' }, ADM);
-  ok('管理员显式 override 修订常量 → 200 revision=2 仍为 const', r.status === 200 && r.body?.revision === 2 && r.body?.kind === 'const' && r.body?.value === 200, JSON.stringify(r.body));
+  ok('口令管理员不是作者，override 改常量 → 403 const_override_forbidden', r.status === 403 && r.body?.code === 'const_override_forbidden', JSON.stringify(r.body));
+  r = await put(W.ext1, 'limit', { value: 200, revision: 1, override: true }, CLI);
+  ok('本机命令行兜底修订不写 reason → 400 reason_required', r.status === 400 && r.body?.code === 'reason_required', JSON.stringify(r.body));
+  r = await put(W.ext1, 'limit', { value: 200, revision: 1, override: true, reason: 'threshold revised' }, CLI);
+  ok('本机命令行带 reason 兜底修订常量 → 200 revision=2 仍为 const', r.status === 200 && r.body?.revision === 2 && r.body?.kind === 'const' && r.body?.value === 200, JSON.stringify(r.body));
   r = await call('GET', vpath(W.ext1, 'limit') + '/audit', ADM);
   const au = r.body?.items ?? [];
-  ok('审计：create + const_override，带操作者与理由，只记 sha256', r.status === 200 && au[0]?.action === 'const_override' && au[0]?.actor === 'admin' && au[0]?.reason === 'threshold revised' && /^[0-9a-f]{64}$/.test(au[0]?.new_sha256 ?? '') && au[1]?.action === 'create' && !JSON.stringify(au).includes('200,'), JSON.stringify(au));
+  ok('审计：create + const_override，带操作者与理由，只记 sha256', r.status === 200 && au[0]?.action === 'const_override' && au[0]?.actor === 'cli' && au[1]?.actor === 'admin-token' && au[0]?.reason === 'threshold revised' && /^[0-9a-f]{64}$/.test(au[0]?.new_sha256 ?? '') && au[1]?.action === 'create' && !JSON.stringify(au).includes('200,'), JSON.stringify(au));
   r = await put(W.appA, 'counter', { value: 3, revision: 2, kind: 'const' }, page(tokA));
   ok('按台令牌改已存在键的 kind（冻结）→ 403 kind_change_forbidden', r.status === 403 && r.body?.code === 'kind_change_forbidden' && r.body?.current?.kind === 'var', JSON.stringify(r.body));
   r = await call('PUT', vpath(W.appA, 'counter'), { ...ADM, 'if-match': '"2"' }, { value: 3, kind: 'const' });
   ok('管理员可冻结变量为常量（审计 freeze）', r.status === 200 && r.body?.kind === 'const' && r.body?.revision === 3, JSON.stringify(r.body));
   r = await call('GET', vpath(W.appA, 'counter') + '/audit', ADM);
-  ok('审计记 freeze、操作者 admin', r.body?.items?.[0]?.action === 'freeze' && r.body?.items?.[0]?.actor === 'admin', JSON.stringify(r.body?.items?.[0]));
+  ok('审计记 freeze、操作者落到 admin-token', r.body?.items?.[0]?.action === 'freeze' && r.body?.items?.[0]?.actor === 'admin-token', JSON.stringify(r.body?.items?.[0]));
   r = await put(W.appA, 'counter', { value: 4, revision: 3 }, page(tokA));
   ok('冻结后再改 → 403', r.status === 403 && r.body?.code === 'const_locked');
   r = await call('DELETE', vpath(W.appA, 'unit') + '?revision=1&override=1', CLI);
-  ok('本机命令行 override 删常量 → 200', r.status === 200 && r.body?.deleted === true, JSON.stringify(r.body));
+  ok('本机命令行删常量不写 reason → 400', r.status === 400 && r.body?.code === 'reason_required', JSON.stringify(r.body));
+  r = await call('DELETE', vpath(W.appA, 'unit') + '?revision=1&override=1&reason=cleanup', CLI);
+  ok('本机命令行带 reason 删常量 → 200', r.status === 200 && r.body?.deleted === true, JSON.stringify(r.body));
 
   console.log('▶ V5 并发');
   await put(W.sop, 'progress', { value: 0 }, page(tokS));

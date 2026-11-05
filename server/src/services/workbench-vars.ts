@@ -4,7 +4,7 @@ import { db } from '../db.ts';
 
 export type WorkbenchVarRow = {
   workbench_id: number; key: string; kind: 'var' | 'const'; value: string;
-  revision: number; updated_by: string; created_at: string; updated_at: string;
+  revision: number; updated_by: string; owner: string; created_at: string; updated_at: string;
 };
 
 export class WorkbenchVarsService extends Service {
@@ -24,14 +24,14 @@ export class WorkbenchVarsService extends Service {
     return (db.prepare('SELECT COUNT(*) AS n FROM workbench_vars WHERE workbench_id = ?').get(workbenchId) as { n: number }).n;
   }
   /** 只在键不存在时插入（changes=0 ⇒ 并发创建撞键） */
-  insert(workbenchId: number, key: string, kind: string, value: string, by: string) {
-    return db.prepare('INSERT INTO workbench_vars (workbench_id, key, kind, value, revision, updated_by) VALUES (?, ?, ?, ?, 1, ?) ON CONFLICT(workbench_id, key) DO NOTHING')
-      .run(workbenchId, key, kind, value, by);
+  insert(workbenchId: number, key: string, kind: string, value: string, by: string, owner: string) {
+    return db.prepare('INSERT INTO workbench_vars (workbench_id, key, kind, value, revision, updated_by, owner) VALUES (?, ?, ?, ?, 1, ?, ?) ON CONFLICT(workbench_id, key) DO NOTHING')
+      .run(workbenchId, key, kind, value, by, owner);
   }
   /** 比较并写：revision 不等（被别人改过）⇒ changes=0 */
-  update(workbenchId: number, key: string, expected: number, kind: string, value: string, by: string) {
-    return db.prepare("UPDATE workbench_vars SET kind = ?, value = ?, revision = revision + 1, updated_by = ?, updated_at = datetime('now') WHERE workbench_id = ? AND key = ? AND revision = ?")
-      .run(kind, value, by, workbenchId, key, expected);
+  update(workbenchId: number, key: string, expected: number, kind: string, value: string, by: string, owner: string) {
+    return db.prepare("UPDATE workbench_vars SET kind = ?, value = ?, revision = revision + 1, updated_by = ?, owner = ?, updated_at = datetime('now') WHERE workbench_id = ? AND key = ? AND revision = ?")
+      .run(kind, value, by, owner, workbenchId, key, expected);
   }
   delete(workbenchId: number, key: string, expected: number) {
     return db.prepare('DELETE FROM workbench_vars WHERE workbench_id = ? AND key = ? AND revision = ?').run(workbenchId, key, expected);
