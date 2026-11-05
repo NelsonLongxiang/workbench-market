@@ -4,6 +4,7 @@
  *  完成（finish）时在服务端按同一套规则校验 run 数据。执行页边填边存草稿，所以只在完成时拦。
  *  #437① 文件清单字段：<textarea data-field data-type="file-list" data-roles="a|b" data-statuses="x|y" data-min-items data-max-items>，
  *  值是行对象数组 [{file_id, name, role, source, period, status, sha256, size, mime}]；这里核结构，完成时另按文件面实际 hash 逐行核。
+ *  data-void-statuses="作废" 标出「不算数」的状态：这些行照样核结构，但不计入必填与 data-min-items。
  *  没写这些属性的 SOP 不受影响。 */
 import type { SopManifest } from './sop-types.ts';
 
@@ -15,6 +16,8 @@ export interface FieldRule {
   requiredIf?: { step: string; field: string; values: string[] };
   /** #437① 文件清单（type === 'file-list'）：可选角色、状态清单与行数上下限 */
   roles?: string[]; statuses?: string[]; minItems?: number; maxItems?: number;
+  /** 不计数的状态（如「作废」）：必填与最少行数只数其余的行 */
+  voidStatuses?: string[];
 }
 
 export interface FileListRow { file_id: number; name?: string; role?: string; source?: string; period?: string; status?: string; sha256: string; size?: number; mime?: string }
@@ -65,6 +68,7 @@ export function extractFieldRules(manifest: SopManifest): FieldRule[] {
         r.type = 'file-list'; r.pattern = undefined; r.minlength = undefined; r.maxlength = undefined;
         r.roles = listOf(typeof a['data-roles'] === 'string' ? decode(a['data-roles']) : undefined);
         r.statuses = listOf(typeof a['data-statuses'] === 'string' ? decode(a['data-statuses']) : undefined);
+        r.voidStatuses = listOf(typeof a['data-void-statuses'] === 'string' ? decode(a['data-void-statuses']) : undefined);
         r.minItems = num('data-min-items'); r.maxItems = num('data-max-items');
         rules.push(r); continue;
       }
@@ -90,7 +94,11 @@ export function checkRunData(rules: FieldRule[], data: Record<string, unknown>):
       const rows = fileListRows(rawOf(r.step, r.field));
       if (rows === null) { errs.push(`${name}：不是文件清单（应为行对象数组）`); continue; }
       if (!rows.length) { if (required || (r.minItems ?? 0) > 0) errs.push(`${name}：必填（至少 ${Math.max(1, r.minItems ?? 1)} 行）`); continue; }
-      if (r.minItems !== undefined && rows.length < r.minItems) errs.push(`${name}：至少 ${r.minItems} 行`);
+      // 作废行照样核结构，但不算数：全是作废行等于没填
+      const live = r.voidStatuses ? rows.filter((o) => !(o && typeof o === 'object' && r.voidStatuses!.includes(String((o as Record<string, unknown>).status ?? '')))).length : rows.length;
+      const voidNote = r.voidStatuses && live < rows.length ? `不算「${r.voidStatuses.join(' / ')}」的行` : '';
+      if (!live && (required || (r.minItems ?? 0) > 0)) errs.push(`${name}：必填（至少 ${Math.max(1, r.minItems ?? 1)} 行${voidNote ? `，${voidNote}` : ''}）`);
+      else if (r.minItems !== undefined && live < r.minItems) errs.push(`${name}：至少 ${r.minItems} 行${voidNote ? `（${voidNote}）` : ''}`);
       if (r.maxItems !== undefined && rows.length > r.maxItems) errs.push(`${name}：最多 ${r.maxItems} 行`);
       rows.forEach((row, i) => {
         const at = `${name} 第 ${i + 1} 行`;

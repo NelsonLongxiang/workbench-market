@@ -138,7 +138,8 @@ window.__SOP__ = ${boot};
   // #437① 文件清单字段（<textarea data-type="file-list">）：表格编辑器，每行从本记录已有的文件里选（上传或引用的），
   // 自动带出文件名、sha256、大小、类型；角色 / 状态按 data-roles / data-statuses 给选项。值是行对象数组，完成时服务端按实际 hash 逐行核
   var runFilesCache = [];
-  function readRows(el) { try { var v = JSON.parse(el.value || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } }
+  // 存下的数据里混进 null 或非对象行时换成空行：编辑器照常渲染，校验报「没有选文件」，不抛错
+  function readRows(el) { try { var v = JSON.parse(el.value || '[]'); return Array.isArray(v) ? v.map(function (r) { return r && typeof r === 'object' && !Array.isArray(r) ? r : {}; }) : []; } catch (e) { return []; } }
   function writeRows(el, rows) { el.value = rows.length ? JSON.stringify(rows) : ''; el.dispatchEvent(new Event('input', { bubbles: true })); }
   function opts(sel, list, cur, blank) {
     sel.innerHTML = '';
@@ -247,7 +248,11 @@ window.__SOP__ = ${boot};
       // 文件清单：行数上下限、每行要选文件，有角色 / 状态清单的要选；与服务端结构校验同一口径（hash 只在完成时由服务端核）
       var rows = readRows(el), why = '';
       var mn = Number(el.getAttribute('data-min-items') || 0), mx = Number(el.getAttribute('data-max-items') || 0);
-      if (rows.length && mn && rows.length < mn) why = '至少 ' + mn + ' 行';
+      // data-void-statuses 里的状态（如「作废」）不计入必填与最少行数，和服务端同一口径
+      var voids = (el.getAttribute('data-void-statuses') || '').split('|').map(function (x) { return x.trim(); }).filter(Boolean);
+      var live = rows.filter(function (r) { return voids.indexOf(String(r.status || '')) < 0; }).length;
+      if (rows.length && !live && (el.required || mn)) why = '至少要有 1 行不是「' + voids.join(' / ') + '」';
+      else if (rows.length && mn && live < mn) why = '至少 ' + mn + ' 行' + (live < rows.length ? '（不算「' + voids.join(' / ') + '」的行）' : '');
       else if (mx && rows.length > mx) why = '最多 ' + mx + ' 行';
       else rows.some(function (r, i) {
         if (!r.file_id) { why = '第 ' + (i + 1) + ' 行没有选文件'; return true; }
