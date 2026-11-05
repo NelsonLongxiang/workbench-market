@@ -8,6 +8,8 @@ try{
  process.env.WM_ODOO_BROWSER_URL='http://192.0.2.88:8069';const cfg=odooBrowserOrigin();
  test('explicit trusted browser origin remains separate from fixed backend',()=>{assert.equal(cfg.origin,'http://192.0.2.88:8069');assert.equal(cfg.upstream,'http://odoo.internal:8069');assert.equal(process.env.LC_ODOO_URL,cfg.upstream);});
  test('matching host across ports redirects only login to browser origin',()=>assert.equal(browserLoginOrigin(cfg.upstream,'192.0.2.88:9800',cfg),cfg.origin));
+ test('secure browser context cannot downgrade to configured HTTP origin',()=>assert.equal(browserLoginOrigin(cfg.upstream,'192.0.2.88:9800',cfg,true),null));
+ test('secure context can use an explicitly trusted HTTPS browser origin',()=>assert.equal(browserLoginOrigin(cfg.upstream,'192.0.2.88:9800',{...cfg,origin:'https://192.0.2.88'},true),'https://192.0.2.88'));
  test('other market host refuses host-only session mismatch',()=>assert.equal(browserLoginOrigin(cfg.upstream,'market.example:9800',cfg),null));
  test('unrelated trusted Odoo card keeps its own browser destination',()=>assert.equal(browserLoginOrigin('http://other-odoo:8069','192.0.2.88:9800',cfg),'http://other-odoo:8069'));
  for(const value of ['', 'http://user:password@192.0.2.88:8069','http://192.0.2.88:8069/path','http://192.0.2.88:8069/?q=1','http://192.0.2.88:8069/#x','https://untrusted.invalid','ftp://192.0.2.88:8069','http://192.0.2.88:8069/../','http://192.0.2.88:8069?','http://192.0.2.88:8069#',' http://192.0.2.88:8069'])test('unsafe browser origin refuses: '+(value.includes('@')?'userinfo':value),()=>{process.env.WM_ODOO_BROWSER_URL=value;assert.throws(()=>odooBrowserOrigin(),/WM_ODOO_BROWSER_URL/);});

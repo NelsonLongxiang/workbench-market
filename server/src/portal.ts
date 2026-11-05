@@ -114,7 +114,8 @@ export function installPortal(
           req.url = (u2.pathname || '/') + (u2.search ? u2.search : '');
         }
         if (!sid || ret) {
-          const loginOrigin = browserLoginOrigin(u.origin, String(req.headers.host ?? ''), browserOrigin);
+          const secureLogin = req.secure || String(req.headers['x-forwarded-proto'] ?? '').split(',').some(p => p.trim().toLowerCase() === 'https');
+          const loginOrigin = browserLoginOrigin(u.origin, String(req.headers.host ?? ''), browserOrigin, secureLogin);
           if (!loginOrigin) return res.status(503).set('Cache-Control', 'no-store').json({ error: 'odoo_browser_host_mismatch' });
           if (ret) {
             // 真实 Odoo（19 核心 http.py request.redirect 默认 local=True）会把绝对回跳剥成 Odoo 本地路径（website 再加 /zh_CN 前缀 → 404），

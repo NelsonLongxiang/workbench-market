@@ -20,8 +20,10 @@ export function odooBrowserOrigin(): { origin: string; hostname: string; upstrea
 }
 
 /** null means the fixed LAN origin cannot safely share a host-only SID with this browser authority. */
-export function browserLoginOrigin(target: string, authority: string, configured: ReturnType<typeof odooBrowserOrigin>): string | null {
+export function browserLoginOrigin(target: string, authority: string, configured: ReturnType<typeof odooBrowserOrigin>, secure = false): string | null {
   if (!configured || target !== configured.upstream) return target;
+  // A TLS signal is used only to refuse a downgrade, never to authorize a destination.
+  if (secure && !configured.origin.startsWith('https:')) return null;
   try {
     const current = new URL('http://' + authority);
     if (current.username || current.password || current.pathname !== '/' || current.search || current.hash || current.hostname.toLowerCase() !== configured.hostname) return null;
