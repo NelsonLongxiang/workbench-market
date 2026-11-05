@@ -74,7 +74,7 @@ ${tokensCss.replace(/<\/style/gi, '')}
   <span class="runmeta" id="runmeta">未开始</span>
 </div>
 <main>
-<div class="fv-summary" id="fv-summary" role="alert" tabindex="-1" hidden></div>
+<div class="fv-summary" id="fv-summary" tabindex="-1" aria-labelledby="fv-summary-title" hidden></div>
 ${stepsHtml}
 <section class="step" id="agent-extras" style="display:none">
   <header><h2>agent 交付区</h2><span class="muted" id="extras-note"></span></header>
@@ -374,13 +374,15 @@ window.__SOP__ = ${boot};
     var sum = $('#fv-summary');
     if (bad.length) {
       setState('有 ' + bad.length + ' 个字段未填或格式不符，已标红——改正后再完成（草稿已保存）');
-      // #436 错误汇总：逐项列字段名和原因，点一项跳到对应控件；焦点先落在汇总上，读屏会先读到总数
+      // #436 错误汇总：逐项列字段名和原因，点一项跳到对应控件。汇总不设 role=alert（各字段错误已是 alert，避免连读 N+1 次），
+      // 靠拿焦点让读屏读出标题里的总数
       sum.innerHTML = '';
-      var h = document.createElement('h2'); h.textContent = '有 ' + bad.length + ' 项需要改正后才能完成'; sum.appendChild(h);
+      var h = document.createElement('h2'); h.id = 'fv-summary-title'; h.textContent = '有 ' + bad.length + ' 项需要改正后才能完成'; sum.appendChild(h);
       var ul = document.createElement('ul');
       bad.forEach(function (el) {
         var li = document.createElement('li'), a = document.createElement('a');
-        var m = el.id && document.getElementById(el.id + '-err');
+        // 错误提示由 checkField 插在控件正后方；直接取它，不依赖 id 的写法
+        var m = el.nextElementSibling && el.nextElementSibling.classList && el.nextElementSibling.classList.contains('fv-msg') ? el.nextElementSibling : null;
         a.href = '#' + el.id; a.textContent = fieldName(el) + '：' + ((m && m.textContent) || '格式不符');
         a.addEventListener('click', function (ev) { ev.preventDefault(); el.scrollIntoView({ block: 'center' }); el.focus(); });
         li.appendChild(a); ul.appendChild(li);

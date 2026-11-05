@@ -48,6 +48,7 @@ with sync_playwright() as p:
     pg.click('#finish')
     summary = pg.locator('#fv-summary')
     check('A3 被拦时出现错误汇总并获得焦点', summary.is_visible() and pg.evaluate("document.activeElement && document.activeElement.id") == 'fv-summary')
+    check('A3 汇总不重复播报：不设 role=alert，以标题命名', summary.get_attribute('role') is None and pg.evaluate("document.getElementById('fv-summary').getAttribute('aria-labelledby')") == 'fv-summary-title' and pg.locator('#fv-summary-title').inner_text().startswith('有 2 项'))
     items = summary.locator('li a')
     texts = items.all_inner_texts()
     check('A3 汇总逐项列字段名和原因', len(texts) == 2 and any(t.startswith('任务类型：') for t in texts) and any('锚 ASIN：ASIN 为 B0 开头' in t for t in texts), texts)
