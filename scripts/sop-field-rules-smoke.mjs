@@ -90,6 +90,7 @@ ok('合规：通过', fc([{ file_id: 1, sha256: sha, role: '验证报告', statu
 const runnerHtml = renderSopRunner(cm, { id: 1, slug: 'c', title: 'c', kind: 'sop' });
 ok('执行页条件必填正则保留反斜杠', runnerHtml.includes('/^\\s*(?:([A-Za-z0-9_-]+)\\.)?([A-Za-z0-9_-]+)\\s*=([\\s\\S]*)$/'));
 ok('执行页文件清单认 data-void-statuses', renderSopRunner(fm, { id: 1, slug: 'f', title: 'f', kind: 'sop' }).includes("getAttribute('data-void-statuses')"));
+ok('执行页读清单时非对象行换成空行', renderSopRunner(fm, { id: 1, slug: 'f', title: 'f', kind: 'sop' }).includes("return r && typeof r === 'object' && !Array.isArray(r) ? r : {};"));
 
 console.log(`\n${pass} 通过 / ${fail} 失败`);
 process.exit(fail ? 1 : 0);

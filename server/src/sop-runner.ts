@@ -138,7 +138,8 @@ window.__SOP__ = ${boot};
   // #437① 文件清单字段（<textarea data-type="file-list">）：表格编辑器，每行从本记录已有的文件里选（上传或引用的），
   // 自动带出文件名、sha256、大小、类型；角色 / 状态按 data-roles / data-statuses 给选项。值是行对象数组，完成时服务端按实际 hash 逐行核
   var runFilesCache = [];
-  function readRows(el) { try { var v = JSON.parse(el.value || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } }
+  // 存下的数据里混进 null 或非对象行时换成空行：编辑器照常渲染，校验报「没有选文件」，不抛错
+  function readRows(el) { try { var v = JSON.parse(el.value || '[]'); return Array.isArray(v) ? v.map(function (r) { return r && typeof r === 'object' && !Array.isArray(r) ? r : {}; }) : []; } catch (e) { return []; } }
   function writeRows(el, rows) { el.value = rows.length ? JSON.stringify(rows) : ''; el.dispatchEvent(new Event('input', { bubbles: true })); }
   function opts(sel, list, cur, blank) {
     sel.innerHTML = '';
