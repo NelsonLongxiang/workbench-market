@@ -4,6 +4,8 @@
  * Credentials are env/file only. No --fresh, sync, overwrite, implicit project merge or consumer cutover.
  */
 import { createHash, randomUUID } from 'node:crypto';
+import { pgCatalog, pinnedCatalogs } from './ygl-pg-catalog.mjs';
+export { pgCatalog } from './ygl-pg-catalog.mjs';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { resolve, join, dirname, basename, relative, sep, isAbsolute } from 'node:path';
@@ -31,7 +33,8 @@ export function loadEngine(root) {
   const {exportableRows}=req(join(root,'dist/packages/ops/tools/src/config.js'));
   const {SCHEMA_VERSION}=req(join(root,'dist/packages/core/database/src/db.js'));
   const {pgTargetHash}=req(join(root,'dist/packages/core/database/src/pg-workspace.js'));
-  return {Native:req('better-sqlite3'),Client:req('pg').Client,migrateToPg,tables:MIRROR_TABLES,exportableRows,schemaVersion:SCHEMA_VERSION,pgTargetHash,version:pkg.version,migrationSha256:hash(readFileSync(migrationPath))};
+  const migrationSource=readFileSync(migrationPath);
+  return {Native:req('better-sqlite3'),Client:req('pg').Client,migrateToPg,tables:MIRROR_TABLES,exportableRows,schemaVersion:SCHEMA_VERSION,pgTargetHash,version:pkg.version,migrationSha256:hash(migrationSource),migrationNormalizedSha256:hash(migrationSource.toString('utf8').replace(/\r\n/g,'\n'))};
 }
 function adapter(db){return {all:(sql,params=[])=>db.prepare(sql).all(params),get:(sql,params=[])=>db.prepare(sql).get(params)};}
 function columns(db,table){return db.prepare('PRAGMA table_info('+quote(table)+')').all().map(r=>({name:r.name,type:r.type,notnull:Number(r.notnull),pk:Number(r.pk),default:r.dflt_value}));}
@@ -119,13 +122,6 @@ function preflight(engine,snapshot){
   if(snapshot.db.prepare("SELECT name FROM sqlite_master WHERE type='view'").all().length)refuse('unsupported_source_views');
   if(snapshot.db.prepare("SELECT 1 FROM meta WHERE key='backend_binding'").get())refuse('source_backend_binding_present');
 }
-export async function pgCatalog(client){
-  const columns=(await client.query("SELECT table_name,column_name,data_type,udt_name,is_nullable,column_default,is_generated,generation_expression FROM information_schema.columns WHERE table_schema='public' ORDER BY table_name,ordinal_position")).rows;
-  const constraints=(await client.query("SELECT c.relname AS table_name,p.conname,pg_get_constraintdef(p.oid) definition FROM pg_constraint p JOIN pg_class c ON c.oid=p.conrelid WHERE p.connamespace='public'::regnamespace ORDER BY c.relname,p.conname")).rows;
-  const indexes=(await client.query("SELECT tablename,indexname,indexdef FROM pg_indexes WHERE schemaname='public' ORDER BY tablename,indexname")).rows;
-  const fingerprint=hash(JSON.stringify({columns,constraints,indexes}));
-  return {columns,constraints,indexes,sha256:fingerprint};
-}
 async function verifyRows(engine,snapshot,client){
   const results=[];
   for(const table of engine.tables){
@@ -154,6 +150,9 @@ export async function migrateSnapshot(engine,dir,expected,report,env=process.env
     if(occupied(report))refuse('report_exists');
     snapshot=openSnapshot(engine,dir);
     preflight(engine,snapshot);
+    // Never derive a trusted baseline from the target being verified.
+    const expectedCatalogs=pinnedCatalogs(engine.migrationNormalizedSha256);
+    if(!expectedCatalogs)refuse('engine_catalog_baseline_unavailable');
     const target=targetUrl(engine,env,expected);
     client=new engine.Client({connectionString:target.url,connectionTimeoutMillis:5000});await client.connect();
     const identity=(await client.query('SELECT current_database() db,current_schema() schema')).rows[0];
@@ -172,15 +171,21 @@ export async function migrateSnapshot(engine,dir,expected,report,env=process.env
       await client.query('COMMIT');transaction=false;
     }
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');transaction=true;
+    // Hold read locks through catalog and row checks so table DDL cannot race them.
+    try { await client.query('LOCK TABLE '+engine.tables.map(quote).join(',')+' IN ACCESS SHARE MODE'); }
+    catch(e) { if(e?.code==='42P01')refuse('target_catalog_mismatch');throw e; }
+    const fullCatalog=await pgCatalog(client);
+    if(!expectedCatalogs.includes(fullCatalog.sha256))refuse('target_catalog_mismatch');
+    // Reports retain only the fingerprint/counts, not arbitrary target DDL text.
+    const catalog={sha256:fullCatalog.sha256,counts:Object.fromEntries(Object.entries(fullCatalog).filter(([k])=>k!=='sha256').map(([k,v])=>[k,v.length]))};
     const tables=await verifyRows(engine,snapshot,client);
     const seq=(await client.query('SELECT last_value,is_called FROM events_seq')).rows[0];
     const maximum=(await client.query('SELECT COALESCE(MAX(seq),0) n FROM events')).rows[0].n;
     const next=BigInt(seq.last_value)+(seq.is_called?1n:0n);
     if(next<=BigInt(maximum))refuse('events_sequence_behind_history');
-    const catalog=await pgCatalog(client);
     await client.query('COMMIT');transaction=false;
     if(hash(readFileSync(snapshot.file))!==snapshot.manifest.snapshot_sha256)refuse('snapshot_changed_during_migration');
-    const result={ok:true,operation:verifyOnly?'verify':'migrate',verified_at:new Date().toISOString(),engine_version:engine.version,migration_module_sha256:engine.migrationSha256,target_hash:target.identity,snapshot_sha256:snapshot.manifest.snapshot_sha256,tables,catalog,known_transformations:['secret config.set event payloads redacted by official export','postgres schema_migrations graduation row','search ngram/generated columns rebuilt from official tokenizer','events_seq advanced beyond historical maximum'],production_cutover:false};
+    const result={ok:true,operation:verifyOnly?'verify':'migrate',verified_at:new Date().toISOString(),engine_version:engine.version,migration_module_sha256:engine.migrationSha256,migration_module_normalized_sha256:engine.migrationNormalizedSha256,target_hash:target.identity,snapshot_sha256:snapshot.manifest.snapshot_sha256,tables,catalog,known_transformations:['secret config.set event payloads redacted by official export','postgres schema_migrations graduation row','search ngram/generated columns rebuilt from official tokenizer','events_seq advanced beyond historical maximum'],production_cutover:false};
     writeNew(report,result);return result;
   }catch(e){if(transaction)await client?.query('ROLLBACK').catch(()=>{});const error=e instanceof MigrationRefusal?e.code:'pg_migration_or_verification_failed';if(reportOwned&&!occupied(report))writeNew(report,{ok:false,error,operation:verifyOnly?'verify':'migrate',production_cutover:false,target_may_be_partially_migrated:!verifyOnly&&!!client});throw new MigrationRefusal(error);}
   finally{if(locked)await client?.query("SELECT pg_advisory_unlock(hashtext('ygl:explicit-empty-database-migration'))").catch(()=>{});await client?.end().catch(()=>{});snapshot?.db.close();if(reportOwned)unlinkSync(reportLock);}

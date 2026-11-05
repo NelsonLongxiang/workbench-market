@@ -11,14 +11,22 @@
 
 ## 快照与迁移工具
 
-`scripts/ygl-pg-migrate.mjs` 支持 `snapshot`、`migrate` 和 `verify`：只读源库并创建受保护的一致快照；迁入显式指定、原本为空的 PG 数据库；按表比较行内容摘要并检查 schema 与序列。它不提供覆盖已有库、双写、自动消费者切换或隐式合并。
+`scripts/ygl-pg-migrate.mjs` 支持 `snapshot`、`migrate` 和 `verify`：只读源库并创建受保护的一致快照；迁入显式指定、原本为空的 PG 数据库；按表比较行内容摘要并检查 schema 与序列。`migrate` 与 `verify` 均将目标 catalog 与钉定 YGL 迁移模块对应、随本改动一同送审的独立 schema 基线比较，不以待验证目标自身首次生成的指纹充当基线；未知模块拒绝，外键、列、索引等结构漂移拒绝。它不提供覆盖已有库、双写、自动消费者切换或隐式合并。
 
 `snapshot` 要求源 SQLite 文件、全新输出目录和已构建 YGL 引擎的绝对路径；输出的父目录必须已存在，且输出不能处于源文件所在工作区或其符号链接、bind 挂载等物理别名内。`migrate`/`verify` 使用受保护的 `YGL_MIGRATION_PG_URL_FILE`（优先）或环境变量、明确的目标身份摘要、快照目录及全新报告路径；目标 URL 不能放进 argv。快照是为恢复保留的旧数据副本，不是新的生产写入源。
 
 来源存在未登记表、触发器、视图或不支持的插件数据时，工具拒绝静默遗漏。Lifecycle 的 `lc_*` 插件状态须由其专用迁移方案处理；工作台自身持久层需另行适配。切换后若 PG 已产生新写入，不得直接指回旧 SQLite；先停写并按已验证的 PG 恢复方案处理。
 
+## Schema 基线与安全边界
+
+内置基线来自精确 YGL `a9f6ae4db2365de327b052db5af213e8b44704d8` 的编译后 `pgsync.js`（仅归一化 CRLF）；在全新隔离 PG14、15、16、18 用上游迁移 DDL 生成，PG18 的 NOT NULL catalog 表示不同，因此有两种候选指纹。其他版本只有实际 catalog 与所钉指纹一致时才可通过，不能由此推断整套引擎已在该版本验收。引擎迁移模块变更后先在隔离数据库重建基线、审查变更，再更新代码；不得从待验证的业务目标捕获指纹后自行当作可信基线。
+
+核对覆盖列顺序、类型、默认值、约束及其有效/强制状态、索引定义与有效状态、表的持久性/复制身份、序列选项、触发器（含被关闭的内部外键触发器）、规则、策略和用户 schema 等；验证事务持有目标表只读锁到核对结束。它不证明 PG 角色授权、对象所有权、备份恢复、部署运行配置或目标在核对后永不发生变更，正式切换仍须按既有流程停写、保护基线并单独验收。报告仅保存 catalog 指纹和各类对象数，不保存任意目标 DDL 原文。
+
+Windows 的 chmod 不能证明输出 ACL 私密：测试会明确跳过 POSIX mode 断言，部署者须单独验证受保护目录/文件 ACL。
+
 ## 验证范围
 
-`node scripts/ygl-task-source-test.mjs` 检查配置、目标身份和失败不回退；`node scripts/tasks-read-authority-http-test.mjs` 以合成身份验证读取范围。`scripts/ygl-task-pg-integration.mjs` 与 `scripts/ygl-pg-migrate-test.mjs` 需要显式的隔离 PG 和测试引擎；测试临时数据库和种子不得指向生产或个人工作区。
+`node scripts/ygl-task-source-test.mjs` 检查配置、目标身份和失败不回退；`node scripts/tasks-read-authority-http-test.mjs` 以合成身份验证读取范围。`scripts/ygl-task-pg-integration.mjs`、`scripts/ygl-pg-migrate-test.mjs` 和直接调用上游 DDL 的 `scripts/ygl-pg-catalog-baseline-test.mjs` 需要显式的隔离 PG 和测试引擎；测试临时数据库和种子不得指向生产或个人工作区。
 
 上线须对最终整合提交和实际配置独立评审，按既有迁移/备份/恢复方案核对，再做真实业务回读；单项合成测试、健康检查或空任务列表均不代表全量迁移完成。
