@@ -96,9 +96,9 @@ export function checkRunData(rules: FieldRule[], data: Record<string, unknown>):
       if (!rows.length) { if (required || (r.minItems ?? 0) > 0) errs.push(`${name}：必填（至少 ${Math.max(1, r.minItems ?? 1)} 行）`); continue; }
       // 作废行照样核结构，但不算数：全是作废行等于没填
       const live = r.voidStatuses ? rows.filter((o) => !(o && typeof o === 'object' && r.voidStatuses!.includes(String((o as Record<string, unknown>).status ?? '')))).length : rows.length;
-      const voidNote = r.voidStatuses && live < rows.length ? `（不算「${r.voidStatuses.join(' / ')}」的行）` : '';
-      if (!live && (required || (r.minItems ?? 0) > 0)) errs.push(`${name}：必填（至少 ${Math.max(1, r.minItems ?? 1)} 行${voidNote}）`);
-      else if (r.minItems !== undefined && live < r.minItems) errs.push(`${name}：至少 ${r.minItems} 行${voidNote}`);
+      const voidNote = r.voidStatuses && live < rows.length ? `不算「${r.voidStatuses.join(' / ')}」的行` : '';
+      if (!live && (required || (r.minItems ?? 0) > 0)) errs.push(`${name}：必填（至少 ${Math.max(1, r.minItems ?? 1)} 行${voidNote ? `，${voidNote}` : ''}）`);
+      else if (r.minItems !== undefined && live < r.minItems) errs.push(`${name}：至少 ${r.minItems} 行${voidNote ? `（${voidNote}）` : ''}`);
       if (r.maxItems !== undefined && rows.length > r.maxItems) errs.push(`${name}：最多 ${r.maxItems} 行`);
       rows.forEach((row, i) => {
         const at = `${name} 第 ${i + 1} 行`;
