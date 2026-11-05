@@ -37,7 +37,7 @@ import { mountVault } from './vault-api.ts';
 import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet } from './workbench-vars.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
-import { startRedis, redisHealthy, runStateRestore, runStateLoad, runStateRetire } from './redis.ts';
+import { startRedis, redisHealthy, runStateRestore, runStateRead, runStateRetire, type RunStateRead } from './redis.ts';
 import { createRunCheckpoints } from './sop-state-checkpoints.ts';
 import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
 import type { IncomingMessage } from 'node:http';
@@ -1769,6 +1769,21 @@ function runCacheCheckpoint(row: SopRunRow): string {
 function storedRunData(row: SopRunRow): Record<string, unknown> {
   try { const data = JSON.parse(row.data || '{}'); return data && typeof data === 'object' && !Array.isArray(data) ? data : {}; } catch { return {}; }
 }
+/**
+ * #442 进行中 run 的最新数据：本进程缓冲 > 当前一代热态 > SQLite。
+ * 没有缓冲又读不到热态时，Redis 里可能还有已确认、尚未落盘的写入，不能当成「没有热态」：
+ *   error（连着但这次读出错）一律 503，稍后重试；
+ *   down（配了但没连上）只在 strict（完成、升级）时 503，等 Redis 恢复；日常保存仍按降级设计直写 SQLite。
+ */
+async function runLiveData(row: SopRunRow, strict: boolean): Promise<{ data: Record<string, unknown>; buffered: boolean; hot: RunStateRead }> {
+  const pending = runCheckpoints.peek(row.id);
+  if (pending) return { data: pending, buffered: true, hot: { kind: 'miss' } };
+  const hot = await runStateRead(row.id, runCacheCheckpoint(row));
+  if (hot.kind === 'error' || (strict && hot.kind === 'down')) {
+    throw new HttpError(503, `run ${row.id} 的热态暂时读不到（Redis ${hot.kind === 'down' ? '未连上' : '读出错'}），为免丢掉已确认的填写，稍后重试`, { redis: hot.kind, retryable: true });
+  }
+  return { data: { ...storedRunData(row), ...(hot.kind === 'hit' && hot.meta.status === 'running' ? hot.data : {}) }, buffered: false, hot };
+}
 
 function sopRunRow(id: number): SopRunRow {
   const r = svc<SopService>('sop').runById(id) as unknown as SopRunRow | undefined;
@@ -1814,9 +1829,7 @@ async function sopRunStepSaveCore(id: number, stepKeyRaw: string, value: unknown
       svc<SopService>('sop').runUpdateData(id, mergeRunData(row, stepKey, value ?? null));
       return { ok: true, id, stepKey, persisted: 'sqlite' };
     }
-    const prior = runCheckpoints.peek(id);
-    const hot = prior ? null : await runStateLoad(id, runCacheCheckpoint(row));
-    const data = prior ?? { ...storedRunData(row), ...(hot?.meta.status === 'running' ? hot.data : {}) };
+    const { data } = await runLiveData(row, false);
     data[stepKey] = value ?? null;
     // Repopulate all known fields after a Redis loss; a partial HSET must not erase the durable baseline.
     const hotOk = await runCheckpoints.save(id, data, () =>
@@ -1843,11 +1856,10 @@ async function sopRunGetCore(id: number): Promise<{ id: number; sop_slug: string
     const row = sopRunRow(id);
     let data = storedRunData(row);
     if (row.status === 'running' && row.sop_slug !== 'task-center') {
-      const pending = runCheckpoints.peek(id);
-      const hot = pending ? null : await runStateLoad(id, runCacheCheckpoint(row));
-      data = pending ?? { ...data, ...(hot?.meta.status === 'running' ? hot.data : {}) };
-      if (hot?.meta.status === 'running') runCheckpoints.remember(id, data); // recovered acknowledged hot state must not stay uncheckpointed after restart
-      if (redisHealthy() && !hot) await runStateRestore(id, { slug: row.sop_slug, version: row.sop_version, status: row.status, started_by: row.started_by, updated_at: Date.now() }, data, runCacheCheckpoint(row));
+      const live = await runLiveData(row, false);
+      data = live.data;
+      if (live.hot.kind === 'hit' && live.hot.meta.status === 'running') runCheckpoints.remember(id, data); // recovered acknowledged hot state must not stay uncheckpointed after restart
+      if (redisHealthy() && live.hot.kind !== 'hit') await runStateRestore(id, { slug: row.sop_slug, version: row.sop_version, status: row.status, started_by: row.started_by, updated_at: Date.now() }, data, runCacheCheckpoint(row));
     }
     // 时间字段与无读凭证的元数据视图（sopRunGetMeta）、sop_run_list 一致
     return { id: row.id, sop_slug: row.sop_slug, sop_version: row.sop_version, status: row.status, started_by: row.started_by, started_at: row.started_at, updated_at: row.updated_at, finished_at: row.finished_at ?? null, data, receipt: receiptStatusOf(id) };
@@ -1914,9 +1926,7 @@ async function sopRunFinishCore(id: number): Promise<{ ok: boolean; id: number; 
 async function sopRunFinishLockedCore(id: number): Promise<{ ok: boolean; id: number; status: string; steps: number }> {
   const row = sopRunRow(id);
   if (row.status !== 'running') throw new HttpError(409, `run ${id} 已 ${row.status}`);
-  const pending = row.sop_slug === 'task-center' ? undefined : runCheckpoints.peek(id);
-  const hot = row.sop_slug === 'task-center' || pending ? null : await runStateLoad(id, runCacheCheckpoint(row));
-  const data = JSON.stringify(pending ?? { ...storedRunData(row), ...(hot?.meta.status === 'running' ? hot.data : {}) });
+  const data = JSON.stringify(row.sop_slug === 'task-center' ? storedRunData(row) : (await runLiveData(row, true)).data);
   // 完成前按该 run 所用 SOP 版本里的字段规则（required/pattern/长度/类型）校验；不符则不完成、run 保持进行中
   if (row.sop_slug !== 'task-center') {
     const yamlPath = join(appsRoot, row.sop_slug, `v${row.sop_version}`, 'sop.yaml');
@@ -2745,9 +2755,7 @@ async function sopRunUpgradePlan(id: number) {
   if (row.status !== 'running') throw new HttpError(409, `run ${id} 已 ${row.status}，只能升级进行中的记录`);
   const active = readActiveManifest(row.sop_slug);
   if (!active) throw new HttpError(404, `SOP ${row.sop_slug} 当前版本不可读`);
-  const pending = runCheckpoints.peek(id);
-  const hot = pending ? null : await runStateLoad(id, runCacheCheckpoint(row));
-  const data: Record<string, unknown> = pending ?? { ...storedRunData(row), ...(hot?.meta.status === 'running' ? hot.data : {}) };
+  const { data } = await runLiveData(row, true); // 升级会换版本号，旧热态之后对不上校验点，读不到时必须等
   const oldM = sopVersionManifest(row.sop_slug, row.sop_version);
   const newM = active.manifest;
   const oldF = oldM ? sopStepFields(oldM) : new Map<string, Set<string>>();
@@ -3585,9 +3593,7 @@ app.post('/a2a/direct', express.json({ limit: '600kb' }), async (req, res) => {
     saveNote: (runId: number, text: string): Promise<void> => runCheckpoints.serial(runId, async () => {
       const row = sopRunRow(runId);
       if (row.status !== 'running') throw new HttpError(409, 'run ' + runId + ' 已 ' + row.status + '，不可再写');
-      const prior = row.sop_slug === 'task-center' ? undefined : runCheckpoints.peek(runId);
-      const hot = prior || row.sop_slug === 'task-center' ? null : await runStateLoad(runId, runCacheCheckpoint(row));
-      const data = prior ?? { ...storedRunData(row), ...(hot?.meta.status === 'running' ? hot.data : {}) };
+      const data = row.sop_slug === 'task-center' ? storedRunData(row) : (await runLiveData(row, false)).data;
       const notes = Array.isArray(data['a2a-notes']) ? data['a2a-notes'] as unknown[] : [];
       notes.push({ at: new Date().toISOString(), text });
       data['a2a-notes'] = notes;
@@ -4851,6 +4857,7 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
     return res.status(status).json({ error: 'self_probe_request_failed' }); // never echo or log raw probe exceptions
   }
   if (status === 500) console.error('[server] unhandled:', err);
+  if (status === 503 && err instanceof HttpError && err.extra?.retryable) res.set('Retry-After', '5'); // #442 热态读不到：稍后重试
   res.status(status).json({ error: msg, ...(err instanceof HttpError && err.extra ? err.extra : {}) });
 });
 

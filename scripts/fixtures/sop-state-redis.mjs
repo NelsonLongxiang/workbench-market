@@ -12,7 +12,7 @@ const emit=(event,error)=>{for(const fn of listeners.get(event)??[])fn(error);};
 const client={
  get isReady(){return online;},on(event,fn){const rows=listeners.get(event)??[];rows.push(fn);listeners.set(event,rows);return this;},async connect(){online=true;emit('ready');return this;},
  async hSet(key,field,value){requireOnline();maybeFail(key.endsWith(':data')?'data':'meta');const row=hashes.get(key)??{};if(typeof field==='object')Object.assign(row,field);else row[field]=value;hashes.set(key,row);persist();},
- async hGetAll(key){requireOnline();return {...(hashes.get(key)??{})};},
+ async hGetAll(key){requireOnline();maybeFail('read');return {...(hashes.get(key)??{})};},
  async sAdd(_key,value){requireOnline();maybeFail('active');active.add(value);persist();},
  async sRem(_key,value){requireOnline();active.delete(value);persist();},
  async sMembers(){requireOnline();return [...active];},async expire(){requireOnline();return 1;},

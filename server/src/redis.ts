@@ -75,8 +75,8 @@ const kActive = 'wm:sop:runs:active';
 
 /** Legacy step adapter; callers must supply the current durable SQLite checkpoint. */
 export async function runStateSave(id: number, meta: RunMeta, stepKey: string, value: unknown, checkpoint: string): Promise<boolean> {
-  const hot = await runStateLoad(id, checkpoint);
-  return runStateRestore(id, meta, { ...(hot?.data ?? {}), [stepKey]: value }, checkpoint);
+  const hot = await runStateRead(id, checkpoint);
+  return runStateRestore(id, meta, { ...(hot.kind === 'hit' ? hot.data : {}), [stepKey]: value }, checkpoint);
 }
 
 /** One atomic field binds the whole hot snapshot to its durable SQLite generation. */
@@ -92,15 +92,27 @@ export async function runStateRestore(id: number, meta: RunMeta, data: Record<st
   } catch { return false; }
 }
 
-/** Legacy, partial or stale snapshots are misses; SQLite stays authoritative after fallback/restart. */
-export async function runStateLoad(id: number, checkpoint: string): Promise<{ meta: RunMeta; data: Record<string, unknown> } | null> {
-  if (!redisHealthy() || !client || typeof checkpoint !== 'string' || checkpoint.length !== 64) return null;
+/**
+ * #442 读热态的五种结果，调用方据此区分：
+ *   off  未配置 Redis（纯 SQLite）；down 配了但没连上；error 连着但这次读出错；
+ *   miss 没有热态，或是旧格式/残缺/校验点对不上的快照（SQLite 为准）；hit 读到当前一代的热态。
+ * down/error 时 Redis 里可能还有已确认、尚未落 SQLite 的写入，调用方不能把它当成 miss。
+ */
+export type RunStateRead =
+  | { kind: 'off' | 'down' | 'error' | 'miss' }
+  | { kind: 'hit'; meta: RunMeta; data: Record<string, unknown> };
+export async function runStateRead(id: number, checkpoint: string): Promise<RunStateRead> {
+  if (!client) return { kind: 'off' };
+  if (!redisHealthy()) return { kind: 'down' };
+  if (typeof checkpoint !== 'string' || checkpoint.length !== 64) return { kind: 'miss' };
+  let d: Record<string, string>;
   try {
-    const d = await (client as unknown as { hGetAll: (k: string) => Promise<Record<string, string>> }).hGetAll(kData(id));
-    const snapshot = JSON.parse(d.__wm_snapshot_v2 ?? 'null');
-    if (snapshot?.format !== 2 || snapshot.checkpoint !== checkpoint || !snapshot.meta || typeof snapshot.meta.slug !== 'string' || !snapshot.data || typeof snapshot.data !== 'object' || Array.isArray(snapshot.data)) return null;
-    return { meta: snapshot.meta, data: snapshot.data };
-  } catch { return null; }
+    d = await (client as unknown as { hGetAll: (k: string) => Promise<Record<string, string>> }).hGetAll(kData(id));
+  } catch { return { kind: 'error' }; }
+  let snapshot: { format?: unknown; checkpoint?: unknown; meta?: RunMeta; data?: unknown } | null;
+  try { snapshot = JSON.parse(d.__wm_snapshot_v2 ?? 'null'); } catch { return { kind: 'miss' }; }
+  if (snapshot?.format !== 2 || snapshot.checkpoint !== checkpoint || !snapshot.meta || typeof snapshot.meta.slug !== 'string' || !snapshot.data || typeof snapshot.data !== 'object' || Array.isArray(snapshot.data)) return { kind: 'miss' };
+  return { kind: 'hit', meta: snapshot.meta, data: snapshot.data as Record<string, unknown> };
 }
 
 /** finish/abandon：退出活跃索引 + 热态 status 同步为最终态 + 条目 1h 平滑淘汰（SQLite 已是真源；热态必须同步最终态，否则 TTL 窗口内热读拿到过期 running） */
