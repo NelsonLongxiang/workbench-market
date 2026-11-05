@@ -73,9 +73,23 @@ ok('缺 file_id、坏 sha、角色/状态不在清单：逐项报', (() => { con
 ok('超过行数上限：报', fc(Array.from({ length: 4 }, (_, i) => ({ file_id: i + 1, sha256: sha, role: '交付件', status: '有效' }))).some((e) => e.includes('最多 3 行')));
 ok('合规：通过', fc([{ file_id: 1, sha256: sha, role: '验证报告', status: '有效' }]).length === 0);
 
+// data-void-statuses：作废行照样核结构，但不计入必填与最少行数
+{
+  const vr = extractFieldRules({ title: 'v', steps: [{ key: 'v', title: 'v', body: `<textarea data-field="files" data-label="验证文件" data-type="file-list" data-statuses="有效|作废" data-void-statuses="作废" required></textarea><textarea data-field="two" data-label="两件" data-type="file-list" data-statuses="有效|作废" data-void-statuses="作废" data-min-items="2"></textarea>` }] });
+  const row = (id, status) => ({ file_id: id, sha256: sha, status });
+  const vc = (files, two = [row(8, '有效'), row(9, '有效')]) => checkRunData(vr, { v: { files, two } });
+  ok('作废状态抽出', vr[0].voidStatuses?.join() === '作废');
+  ok('全是作废行：等于没填', vc([row(1, '作废'), row(2, '作废')]).some((e) => e.includes('验证文件') && e.includes('必填') && e.includes('作废')));
+  ok('有一行有效：通过', vc([row(1, '作废'), row(2, '有效')]).length === 0);
+  ok('最少行数只数有效行', vc([row(1, '有效')], [row(3, '有效'), row(4, '作废')]).some((e) => e.includes('两件') && e.includes('至少 2 行')));
+  ok('作废行照样核结构', vc([row(1, '有效'), { file_id: 0, sha256: 'x', status: '作废' }]).some((e) => e.includes('第 2 行')));
+  ok('不写 data-void-statuses 时口径不变', fc([{ file_id: 1, sha256: sha, role: '交付件', status: '作废' }]).length === 0);
+}
+
 // 执行页脚本写在模板字符串里：正则的反斜杠要双写，否则 \s 变成 s，条件必填在浏览器里永远不成立
 const runnerHtml = renderSopRunner(cm, { id: 1, slug: 'c', title: 'c', kind: 'sop' });
 ok('执行页条件必填正则保留反斜杠', runnerHtml.includes('/^\\s*(?:([A-Za-z0-9_-]+)\\.)?([A-Za-z0-9_-]+)\\s*=([\\s\\S]*)$/'));
+ok('执行页文件清单认 data-void-statuses', renderSopRunner(fm, { id: 1, slug: 'f', title: 'f', kind: 'sop' }).includes("getAttribute('data-void-statuses')"));
 
 console.log(`\n${pass} 通过 / ${fail} 失败`);
 process.exit(fail ? 1 : 0);

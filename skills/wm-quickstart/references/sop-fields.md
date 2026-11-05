@@ -20,11 +20,12 @@ SOP 步骤正文（`sop.yaml` 各步的 `body`）里，带 `data-field="<字段�
 
 ```html
 <textarea data-field="delivery_files" data-label="交付文件清单" data-type="file-list"
-  data-roles="交付件|验证报告|归档" data-statuses="有效|作废" data-min-items="1" data-max-items="50"></textarea>
+  data-roles="交付件|验证报告|归档" data-statuses="有效|作废" data-void-statuses="作废" data-min-items="1" data-max-items="50"></textarea>
 ```
 
 - 值是行对象数组：`[{ file_id, name, role, source, period, status, sha256, size, mime }]`。
 - `data-roles` / `data-statuses` 给出可选值；不写时就是自由文本。`data-min-items` / `data-max-items` 限制行数；`required` 表示至少要有一行。
+- `data-void-statuses` 标出不算数的状态（如 `作废`）：这些行照样核结构，但不计入 `required` 和 `data-min-items`。全部行都标作废，等于没填。
 - 完成时服务端逐行对照文件面核对：`file_id` 必须是本记录的文件；登记的 `sha256` 必须等于文件的实际内容；文件名必须一致。同名但内容不同的文件，或者换了文件却沿用旧登记，都会被拦下。
 - agent 直接写数据时，也按这个结构写。`sha256` 取上传回执里的值，或 `GET /api/sop/runs/<id>/files` 里的值，不要自己编。
 

@@ -247,7 +247,11 @@ window.__SOP__ = ${boot};
       // 文件清单：行数上下限、每行要选文件，有角色 / 状态清单的要选；与服务端结构校验同一口径（hash 只在完成时由服务端核）
       var rows = readRows(el), why = '';
       var mn = Number(el.getAttribute('data-min-items') || 0), mx = Number(el.getAttribute('data-max-items') || 0);
-      if (rows.length && mn && rows.length < mn) why = '至少 ' + mn + ' 行';
+      // data-void-statuses 里的状态（如「作废」）不计入必填与最少行数，和服务端同一口径
+      var voids = (el.getAttribute('data-void-statuses') || '').split('|').map(function (x) { return x.trim(); }).filter(Boolean);
+      var live = rows.filter(function (r) { return voids.indexOf(String(r.status || '')) < 0; }).length;
+      if (rows.length && !live && (el.required || mn)) why = '至少要有 1 行不是「' + voids.join(' / ') + '」';
+      else if (rows.length && mn && live < mn) why = '至少 ' + mn + ' 行' + (live < rows.length ? '（不算「' + voids.join(' / ') + '」的行）' : '');
       else if (mx && rows.length > mx) why = '最多 ' + mx + ' 行';
       else rows.some(function (r, i) {
         if (!r.file_id) { why = '第 ' + (i + 1) + ' 行没有选文件'; return true; }
