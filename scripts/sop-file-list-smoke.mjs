@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 mkdirSync('tmp', { recursive: true });
@@ -74,6 +75,16 @@ try {
   await save([{ file_id: f1.id, name: f1.name, sha256: f1.sha256, role: '交付件' }, { file_id: refId, name: '验证报告.md', sha256: sha('# 报告'), role: '验证报告' }]);
   r = await finish();
   ok('上传的与引用的各一行，都对得上 → 完成', r.status === 200 && r.body?.status === 'finished', JSON.stringify(r.body));
+
+  console.log('▶ L2b 旧文件没记 sha256');
+  const run4 = (await call('POST', '/api/sop/runs', CLI, { slug: 'fl-sop' })).body;
+  const f4 = await upload(run4.id, '旧件.txt', '旧文件内容');
+  { const db = new DatabaseSync(resolve(DATA, 'workbench-market.db')); db.prepare("UPDATE sop_run_files SET sha256 = '' WHERE id = ?").run(f4.id); db.close(); }
+  r = await call('GET', `/api/sop/runs/${run4.id}/files`, { 'x-run-read-capability': run4.read_capability });
+  ok('列文件时补算缺的 sha256（流式）', r.body?.items?.find((f) => f.id === f4.id)?.sha256 === sha('旧文件内容'), JSON.stringify(r.body?.items));
+  await call('PUT', `/api/sop/runs/${run4.id}`, CLI, { stepKey: 'deliver', value: { files: [{ file_id: f4.id, name: '旧件.txt', sha256: sha('旧文件内容'), role: '交付件' }] } });
+  r = await call('POST', `/api/sop/runs/${run4.id}/finish`, CLI);
+  ok('按补出的 sha 登记，第一次完成就能通过', r.status === 200, JSON.stringify(r.body));
 
   if (process.env.PYTHON) {
     console.log('▶ L3 执行页表格编辑器');

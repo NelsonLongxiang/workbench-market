@@ -1867,30 +1867,43 @@ function runReadCapHeader(req: express.Request): string | undefined {
 }
 
 /** 归档（热态全量沉淀 SQLite；Redis 条目 1h 平滑淘汰） */
+/** 流式算文件 sha256（不把整个文件读进内存、不卡事件循环） */
+function sha256File(abs: string): Promise<string> {
+  return new Promise((done, fail) => {
+    const h = createHash('sha256');
+    createReadStream(abs).on('data', (c) => h.update(c)).on('error', fail).on('end', () => done(h.digest('hex')));
+  });
+}
+/** #437① 旧文件没记 sha256 的现算一次，按存储路径给源行与引用行一起补记；返回补齐后的 sha（文件不在存储里返回 ''） */
+async function ensureRunFileSha(f: { storage_path: string; sha256?: string }): Promise<string> {
+  if (f.sha256) return f.sha256;
+  if (!f.storage_path) return '';
+  const abs = join(dataDir, f.storage_path);
+  if (!existsSync(abs)) return '';
+  const sha = await sha256File(abs);
+  try { svc<SopService>('sop').runFileSetShaByPath(f.storage_path, sha); } catch { /* 补记失败不影响本次 */ }
+  return sha;
+}
+
 /** #437① 文件清单逐行对文件面核：file_id 必须是本 run 的文件（上传或引用），登记的 sha256 必须等于文件实际 hash，
  *  文件名必须一致——同名不同内容、换了文件却沿用旧登记，都在完成时拦下。旧文件没记 sha 的现算一次并补记。 */
-function checkFileListsAgainstStore(rules: FieldRule[], data: Record<string, unknown>, runId: number): string[] {
+async function checkFileListsAgainstStore(rules: FieldRule[], data: Record<string, unknown>, runId: number): Promise<string[]> {
   const errs: string[] = [];
   for (const r of rules.filter((x) => x.type === 'file-list')) {
     const sv = data?.[r.step];
     const rows = fileListRows(sv && typeof sv === 'object' ? (sv as Record<string, unknown>)[r.field] : undefined) ?? [];
-    rows.forEach((row, i) => {
+    for (const [i, row] of rows.entries()) {
       const o = row && typeof row === 'object' ? row as Record<string, unknown> : null;
       const fid = Number(o?.file_id);
-      if (!o || !Number.isInteger(fid) || fid <= 0) return; // 结构问题 checkRunData 已报
+      if (!o || !Number.isInteger(fid) || fid <= 0) continue; // 结构问题 checkRunData 已报
       const at = `${r.step}.${r.label} 第 ${i + 1} 行`;
       const f = svc<SopService>('sop').runFileById(runId, fid) as { id: number; original_name: string; storage_path: string; sha256?: string } | undefined;
-      if (!f) { errs.push(`${at}：文件 ${fid} 不在本记录里（先上传或引用）`); return; }
-      let actual = String(f.sha256 || '');
-      if (!actual) {
-        const abs = join(dataDir, f.storage_path);
-        if (!existsSync(abs)) { errs.push(`${at}：文件 ${fid} 已不在存储里`); return; }
-        actual = sha256Hex(readFileSync(abs));
-        try { svc<SopService>('sop').runFileSetSha(f.id, actual); } catch { /* 补记失败不影响核对 */ }
-      }
+      if (!f) { errs.push(`${at}：文件 ${fid} 不在本记录里（先上传或引用）`); continue; }
+      const actual = await ensureRunFileSha(f);
+      if (!actual) { errs.push(`${at}：文件 ${fid} 已不在存储里`); continue; }
       if (String(o.sha256 ?? '') !== actual) errs.push(`${at}：登记的 sha256 与文件 ${fid} 的实际内容不一致（文件可能已更换，请重新选择）`);
       if (o.name !== undefined && String(o.name) !== f.original_name) errs.push(`${at}：文件名与文件 ${fid} 不一致`);
-    });
+    }
   }
   return errs;
 }
@@ -1912,7 +1925,7 @@ async function sopRunFinishLockedCore(id: number): Promise<{ ok: boolean; id: nu
       let parsedData: Record<string, unknown> = {};
       try { parsedData = JSON.parse(data); } catch { parsedData = {}; }
       const rules = extractFieldRules(manifest);
-      const violations = [...checkRunData(rules, parsedData), ...checkFileListsAgainstStore(rules, parsedData, id)];
+      const violations = [...checkRunData(rules, parsedData), ...(await checkFileListsAgainstStore(rules, parsedData, id))];
       if (violations.length) throw new HttpError(400, `有 ${violations.length} 个字段未通过校验，未完成：${violations.slice(0, 5).join('；')}${violations.length > 5 ? ' 等' : ''}`, { violations });
     }
   }
@@ -2149,7 +2162,10 @@ app.get('/api/sop/runs/:id/files', wrap(async (req, res) => {
   sopRunRow(runId); // 404 语义与 run 一致
   const auth = await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, runId);
   if (!auth.authorized) return res.status(403).set('Cache-Control', 'no-store').json({ error: 'run read authorization required', hint: '创建响应的 read_capability（X-Run-Read-Capability 头）或已授权会话' });
-  const items = (svc<SopService>('sop').runFiles(runId) as any[]).map((f) => ({ ...f, url: `/api/sop/runs/${runId}/files/${f.id}` }));
+  // 旧文件没记 sha256 的先补算（流式、按存储路径一次补齐），执行页文件清单选上就带 sha，第一次完成不会因缺 sha 失败
+  const rows = svc<SopService>('sop').runFiles(runId) as any[];
+  for (const f of rows.filter((x) => !x.sha256)) f.sha256 = await ensureRunFileSha({ storage_path: (svc<SopService>('sop').runFileById(runId, f.id) as any)?.storage_path ?? '', sha256: '' });
+  const items = rows.map((f) => ({ ...f, url: `/api/sop/runs/${runId}/files/${f.id}` }));
   res.json({ run_id: runId, items, count: items.length, quota: runFileQuota(runId) });
 }));
 app.get('/api/sop/runs/:id/files/:fileId', wrap(async (req, res) => {

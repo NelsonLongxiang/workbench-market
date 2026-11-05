@@ -181,7 +181,7 @@ window.__SOP__ = ${boot};
         n.addEventListener('change', function () { rows[i] = Object.assign({}, rows[i]); rows[i][key] = n.value; writeRows(el, rows); });
       }
       pick('role', roles, '角色'); pick('source', [], '来源'); pick('period', [], '时期'); pick('status', statuses, '状态');
-      var sha = cell(document.createElement('span')); sha.className = 'fl-sha'; sha.textContent = row.sha256 ? row.sha256.slice(0, 12) + '…' : '—';
+      var sha = cell(document.createElement('span')); sha.className = 'fl-sha'; sha.textContent = row.sha256 ? String(row.sha256).slice(0, 12) + '…' : '—';
       var del = cell(document.createElement('button')); del.type = 'button'; del.className = 'btn'; del.textContent = '删除'; del.setAttribute('aria-label', '删除第 ' + (i + 1) + ' 行');
       del.addEventListener('click', function () { rows.splice(i, 1); writeRows(el, rows); renderFileList(el); });
       tb.appendChild(tr);
