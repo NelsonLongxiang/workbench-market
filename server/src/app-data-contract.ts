@@ -39,7 +39,9 @@ export interface DataContract {
   re: Record<string, Record<string, RegExp>>;
 }
 
-const MAX_RULES = 200;
+// 一张台常有十几种记录类型（按主题分），每种的必填/枚举/格式加起来就上百条；200 曾卡住真实台的新类型。
+// 解析时逐条预编译、按 台@版本 缓存，核对时每条记录只走自己那一型的规则，500 条的开销仍可忽略
+const MAX_RULES = 500;
 const MAX_PATTERN_INPUT = 4096;  // 参与正则匹配的单值上限，防回溯型正则被超长输入拖慢
 const MAX_VIOLATIONS = 50;
 

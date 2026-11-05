@@ -15,6 +15,10 @@ ok('缺 version 报错', throws(() => parseContract('{"types":{}}')));
 ok('坏正则报错', throws(() => parseContract(JSON.stringify({ version: 1, types: { t: { pattern: { a: '(' } } } }))));
 ok('unknown_types 非法值报错', throws(() => parseContract(JSON.stringify({ version: 1, unknown_types: 'maybe', types: {} }))));
 ok('when.if 形态错报错', throws(() => parseContract(JSON.stringify({ version: 1, types: { t: { when: [{ if: { a: 'x' } }] } } }))));
+// 规则数上限 500：一张台多种记录类型各有一组规则，合计 500 条以内能解析，超出报错
+const ruleSet = (n) => JSON.stringify({ version: 1, types: Object.fromEntries(Array.from({ length: n }, (_, k) => [`t${k}`, { required: ['a', 'b', 'c', 'd', 'e'] }])) });
+ok('规则数 500 以内能解析（100 型 × 5 条）', !throws(() => parseContract(ruleSet(100))));
+ok('规则数超过 500 报错', throws(() => parseContract(ruleSet(101))));
 
 const C = parseContract(JSON.stringify({
   version: 1, type_fields: ['record_type', 'type'], unknown_types: 'allow',
