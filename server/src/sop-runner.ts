@@ -51,6 +51,11 @@ ${tokensCss.replace(/<\/style/gi, '')}
   input[data-field]:focus-visible, textarea[data-field]:focus-visible, select[data-field]:focus-visible { outline:2px solid var(--wm-color-primary); outline-offset:1px; }
   [data-field][aria-invalid="true"] { border-color:var(--wm-color-danger) !important; }
   .fv-msg { display:block; margin-top:2px; font-size:12px; line-height:20px; color:var(--wm-color-danger-text); }
+  .fv-summary { background:var(--wm-color-danger-bg); border:1px solid var(--wm-color-danger); border-radius:var(--wm-radius-lg); padding:var(--wm-space-3) var(--wm-space-4); margin-bottom:var(--wm-space-3); color:var(--wm-color-danger-text); }
+  .fv-summary:focus-visible { outline:2px solid var(--wm-color-primary); outline-offset:2px; }
+  .fv-summary h2 { font-size:var(--wm-font-size-body); margin:0 0 var(--wm-space-1); }
+  .fv-summary ul { margin:0; padding-left:var(--wm-space-4); }
+  .fv-summary a { color:var(--wm-color-danger-text); }
   .foot { display:flex; align-items:center; gap:var(--wm-space-3); margin:var(--wm-space-6) 0 var(--wm-space-8); }
   .btn { border:1px solid var(--wm-color-border-strong); border-radius:var(--wm-radius-md); padding:var(--wm-space-2) var(--wm-space-6); font:inherit; font-weight:var(--wm-font-weight-body-strong); cursor:pointer; background:var(--wm-color-surface); color:var(--wm-color-text); }
   .btn.primary { background:var(--wm-color-primary); border-color:var(--wm-color-primary); color:var(--wm-color-on-primary); }
@@ -69,6 +74,7 @@ ${tokensCss.replace(/<\/style/gi, '')}
   <span class="runmeta" id="runmeta">未开始</span>
 </div>
 <main>
+<div class="fv-summary" id="fv-summary" role="alert" tabindex="-1" hidden></div>
 ${stepsHtml}
 <section class="step" id="agent-extras" style="display:none">
   <header><h2>agent 交付区</h2><span class="muted" id="extras-note"></span></header>
@@ -132,6 +138,38 @@ window.__SOP__ = ${boot};
     var v = !src ? '' : src.type === 'checkbox' ? (src.checked ? 'true' : '') : String(src.value || '').trim();
     return values.indexOf(v) >= 0;
   }
+  // #436 可访问性：data-field 控件统一补可访问名称、稳定 id，把紧跟的说明和错误提示关联到 aria-describedby（各 SOP 台不用手写）
+  function describe(el, id) {
+    var ids = (el.getAttribute('aria-describedby') || '').split(' ').filter(Boolean);
+    if (ids.indexOf(id) < 0) { ids.push(id); el.setAttribute('aria-describedby', ids.join(' ')); }
+  }
+  function textBefore(el) {
+    // 「本次商品：<input>」这类写法：取控件前面同一段里的文字当名称
+    var t = '', n = el.previousSibling;
+    while (n && n.nodeType === 3) { t = n.textContent + t; n = n.previousSibling; }
+    t = t.trim();
+    while (t && '：:'.indexOf(t.charAt(t.length - 1)) >= 0) t = t.slice(0, -1).trim();
+    return t;
+  }
+  function fieldName(el) {
+    return el.getAttribute('data-label') || el.getAttribute('aria-label') || el.getAttribute('data-field');
+  }
+  function wireA11y() {
+    var used = {};
+    $$('[data-field]').forEach(function (el) {
+      var sec = el.closest('[data-step]');
+      var base = 'f-' + ((sec && sec.getAttribute('data-step')) || 'x') + '-' + el.getAttribute('data-field');
+      base = base.split('').map(function (c) { return /[A-Za-z0-9_-]/.test(c) ? c : '_'; }).join('');
+      if (!el.id) { var id = base, i = 2; while (used[id] || document.getElementById(id)) id = base + '-' + (i++); el.id = id; }
+      used[el.id] = true;
+      var named = (el.labels && el.labels.length) || el.getAttribute('aria-label') || el.getAttribute('aria-labelledby');
+      if (!named) el.setAttribute('aria-label', el.getAttribute('data-label') || textBefore(el) || el.getAttribute('data-field'));
+      // 紧跟的 <small> 说明（中间可隔 <br> 或执行页插入的错误提示）
+      var n = el.nextElementSibling;
+      while (n && (n.tagName === 'BR' || (n.classList && n.classList.contains('fv-msg')))) n = n.nextElementSibling;
+      if (n && n.tagName === 'SMALL') { if (!n.id) n.id = el.id + '-desc'; describe(el, n.id); }
+    });
+  }
   function checkField(el, strict) {
     if (!el.checkValidity) return true;
     if (el.hasAttribute('data-required-if')) { var met = requiredIfMet(el); if (met !== null) el.required = met; }
@@ -143,6 +181,7 @@ window.__SOP__ = ${boot};
     el.setAttribute('aria-invalid', ok ? 'false' : 'true');
     var msg = el.nextElementSibling && el.nextElementSibling.classList && el.nextElementSibling.classList.contains('fv-msg') ? el.nextElementSibling : null;
     if (!ok && !msg) { msg = document.createElement('span'); msg.className = 'fv-msg'; msg.setAttribute('role', 'alert'); el.insertAdjacentElement('afterend', msg); }
+    if (msg) { if (!msg.id) msg.id = (el.id || el.getAttribute('data-field')) + '-err'; describe(el, msg.id); }
     if (msg) msg.textContent = ok ? '' : (empty ? '必填' : (el.getAttribute('data-error') || el.validationMessage || '格式不符'));
     return ok;
   }
@@ -332,7 +371,24 @@ window.__SOP__ = ${boot};
 
   $('#finish').addEventListener('click', function () {
     var bad = $$('[data-field]').filter(function (el) { return !el.disabled && !checkField(el, true); });
-    if (bad.length) { setState('有 ' + bad.length + ' 个字段未填或格式不符，已标红——改正后再完成（草稿已保存）'); bad[0].focus(); return; }
+    var sum = $('#fv-summary');
+    if (bad.length) {
+      setState('有 ' + bad.length + ' 个字段未填或格式不符，已标红——改正后再完成（草稿已保存）');
+      // #436 错误汇总：逐项列字段名和原因，点一项跳到对应控件；焦点先落在汇总上，读屏会先读到总数
+      sum.innerHTML = '';
+      var h = document.createElement('h2'); h.textContent = '有 ' + bad.length + ' 项需要改正后才能完成'; sum.appendChild(h);
+      var ul = document.createElement('ul');
+      bad.forEach(function (el) {
+        var li = document.createElement('li'), a = document.createElement('a');
+        var m = el.id && document.getElementById(el.id + '-err');
+        a.href = '#' + el.id; a.textContent = fieldName(el) + '：' + ((m && m.textContent) || '格式不符');
+        a.addEventListener('click', function (ev) { ev.preventDefault(); el.scrollIntoView({ block: 'center' }); el.focus(); });
+        li.appendChild(a); ul.appendChild(li);
+      });
+      sum.appendChild(ul); sum.hidden = false; sum.focus();
+      return;
+    }
+    if (sum) { sum.hidden = true; sum.innerHTML = ''; }
     // 收尾前把所有未落盘的缓冲步骤推上去（还没建记录时 ensureRun 先建）
     ensureRun().then(function () { return Promise.all(BOOT.steps.filter(function (k) { return timers[k]; }).map(function (k) {
       clearTimeout(timers[k]); return save(k);
@@ -346,6 +402,7 @@ window.__SOP__ = ${boot};
     }).catch(function (e) { setState('未完成：' + ((e && e.message) || '网络异常') + '——数据仍在，改正后重试'); });
   });
 
+  wireA11y();
   startRun();
 })();
 </script>
