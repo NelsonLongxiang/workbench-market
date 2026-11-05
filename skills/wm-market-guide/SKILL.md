@@ -1,6 +1,6 @@
 ---
 name: wm-market-guide
-version: 1.1.0
+version: 1.2.0
 description: 工作台市场（workbench-market）使用指南——agent 经 MCP 面板操作市场（27 工具）与可视化界面（驾驶舱/门户/交付空间/技能市场）的完整实践：工具选型、UI/UX token 规范、可视化组件模式、常见坑。当需要通过 MCP 操作工作台、发布自产台、跑 SOP、管技能、搭驾驶舱或排查门户 iframe/代理问题时加载。
 ---
 
@@ -34,7 +34,7 @@ description: 工作台市场（workbench-market）使用指南——agent 经 MC
 agent 交付件的标准组合（在自产台上实测）：
 1. 文件通道：POST /api/apps/:slug/files（multer·单文件 ≤100MB）——2026-10-27 起支持 note 字段（列表返 note/created_by/created_at·PATCH 可更新）+软删（deleted_at 隐+原行留审计）
 2. 数据通道：app_data_list（表单/登记记录）·三态说明（缺口/留空/待确认）
-3. 变量通道：看板值与定稿常量走 `/api/workbenches/:id/vars`（MCP `workbench_vars_get/set`）——**可视化数据不得写死在页面里**，见 wm-quickstart 的 references/data-layer.md
+3. 变量通道：看板值与定稿常量走 `/api/workbenches/:id/vars`（MCP `workbench_vars_get/set`）——**可视化数据不得写死在页面里**，见 wm-quickstart 的 references/data-layer.md。读写一个台之前先读它的常量 `AGENTS.md`（本台的读写约定，见 wm-quickstart 的 references/workbench-agents.md）
 4. 资源路径：页面图/文件引用加 base href="/go/<id>/" 或全用 /go/<id>/ 前缀（门户 iframe 内的相对路径坑）
 5. 回铃：表单提交→绑定 agent 推送（app_bindings notify 向）——不再轮询
 
