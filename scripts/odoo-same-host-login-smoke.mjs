@@ -93,13 +93,16 @@ try {
   const until=Date.now()+30000; let ready=false;
   while(Date.now()<until){try{if((await http('GET','/api/health')).status===200){ready=true;break;}}catch{} await new Promise(r=>setTimeout(r,100));}
   if(!ready)throw Error('fixture server not ready: '+errors.slice(-800));
+  // 中继开着、库里还没有任何 Odoo 台：登录入口照样给出（直接是本机 /web/login），部署方不用插假工作台
+  const bare=await http('GET','/api/auth/viewer',{host:'192.0.2.88:9800'});
+  check('relay login entry without any registered Odoo workbench',bare.status===401 && JSON.parse(bare.text).login_url==='/web/login?redirect=%2Ftasks');
   const reg=await http('POST','/api/workbenches',{'content-type':'application/json'},JSON.stringify({name:'fixture Odoo',url:env.WM_ODOO_URL+'/web',type:'web'}));
   const wid=JSON.parse(reg.text).id; if(!wid)throw Error('fixture registration failed');
   for (const [label,host,https] of [['LAN','192.0.2.88:9800',false],['public','market.example.test',true]]) {
     const h={host,...(https?{'x-forwarded-proto':'https'}:{})};
     let anon=await http('GET','/api/auth/viewer',h); let login=JSON.parse(anon.text).login_url;
-    check(label+' anonymous viewer probe returns relative login URL',anon.status===401 && login==='/go/'+wid+'/?return=%2Ftasks');
-    let relay=await http('GET',login,h);
+    check(label+' anonymous viewer probe returns relative login URL',anon.status===401 && login==='/web/login?redirect=%2Ftasks');
+    let relay=await http('GET','/go/'+wid+'/?return=%2Ftasks',h);
     check(label+' relay stays on current host',relay.status===200 && relay.text.includes('/web/login?redirect=%2Ftasks') && !relay.text.includes(env.WM_ODOO_URL));
     let page=await http('GET','/web/login?redirect=%2Ftasks',h);
     const ck=page.headers['set-cookie']||[];
