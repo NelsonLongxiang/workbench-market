@@ -14,6 +14,7 @@ import { svc } from './context.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { CookieService } from './services/cookie.ts';
 import { isOdooSessionTarget, odooSessionOf, safeReturnPath, stripOdooSession } from './odoo-session.ts';
+import { browserLoginOrigin, odooBrowserOrigin } from './odoo-browser-origin.ts';
 
 
 export const goPrefix = /^\/go\/(\d+)(.*)$/;
@@ -32,6 +33,7 @@ export function installPortal(
   },
 ): void {
   const { serveApp, readActiveManifest, renderSopRunner, appsRoot } = deps;
+  const browserOrigin = odooBrowserOrigin(); // validate explicit deployment setting before listening
   const goPrefix = /^\/go\/(\d+)(.*)$/;
 
   // id 校验 + 404（在代理前拦截，避免 router 内抛错变 500）
@@ -112,6 +114,8 @@ export function installPortal(
           req.url = (u2.pathname || '/') + (u2.search ? u2.search : '');
         }
         if (!sid || ret) {
+          const loginOrigin = browserLoginOrigin(u.origin, String(req.headers.host ?? ''), browserOrigin);
+          if (!loginOrigin) return res.status(503).set('Cache-Control', 'no-store').json({ error: 'odoo_browser_host_mismatch' });
           if (ret) {
             // 真实 Odoo（19 核心 http.py request.redirect 默认 local=True）会把绝对回跳剥成 Odoo 本地路径（website 再加 /zh_CN 前缀 → 404），
             // Odoo 无法跨源跳回市场；return 流改为本页（市场源）把浏览器送去 Odoo 登录（不带 redirect 参数，登录后落在 Odoo 自己的页面），
@@ -120,7 +124,7 @@ export function installPortal(
             // current authority; the upstream is still the fixed LC_ODOO_URL.
             const odooLogin = process.env.WM_ODOO_LOGIN_PROXY === '1' && u.origin === new URL(String(process.env.LC_ODOO_URL)).origin
               ? `/web/login?redirect=${encodeURIComponent(ret)}`
-              : `${u.origin}/web/login`;
+              : `${loginOrigin}/web/login`;
             res.setHeader('Cache-Control', 'no-store');
             return res.status(200).type('html').send(
               '<!doctype html><meta charset="utf-8"><title>跳转 Odoo 登录…</title>' +
@@ -134,7 +138,7 @@ export function installPortal(
           const redirectUri = encodeURIComponent(`${_mkProto}://${_mkHost}/go/${m[1]}/?state=${state}`); // #170 P8 绝对回跳 // 回跳经市场（带 state·不裸跳目标域）
           res.cookie(stateCookie, state, { httpOnly: true, sameSite: 'lax', path: `/go/${m[1]}/`, maxAge: 10 * 60 * 1000 });
           res.clearCookie(retCookie, { path: `/go/${m[1]}/` });
-          return res.redirect(302, `${u.origin}/web/login?redirect=${redirectUri}&state=${state}`);
+          return res.redirect(302, `${loginOrigin}/web/login?redirect=${redirectUri}&state=${state}`);
         }
         const okCookie = `wm_sso_ok_${m[1]}`;
         const ssoOk = new RegExp('(?:^|;\\s*)' + okCookie + '=1').test(browserCookies);
