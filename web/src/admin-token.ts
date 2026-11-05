@@ -26,6 +26,7 @@ export async function checkAdminToken(token: string): Promise<string | null> {
   if (!/^[\x21-\x7e]+$/.test(token)) return '口令只能是可见的 ASCII 字符，不能含空格、中文或全角符号';
   try {
     const r = await fetch('/api/admin/whoami', { headers: { Accept: 'application/json', 'X-Admin-Token': token } });
+    if (r.status === 429) return '尝试太频繁，请稍后再试'; // 限频时不能当作「连不上」照旧存下
     if (!r.ok) return null;
     const j = await r.json() as { via?: string | null };
     if (j?.via === 'token') return null;
