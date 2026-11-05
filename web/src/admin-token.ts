@@ -20,6 +20,25 @@ export function setAdminToken(token: string): void {
   try { window.dispatchEvent(new Event(ADMIN_TOKEN_CHANGED)); } catch { /* 非浏览器环境 */ }
 }
 
+/** 保存前向服务端核对口令：输错的口令不再存下来、再到每个管理页报「需要管理员」。
+ *  返回 null = 可用（或服务端暂时不可达，照旧存下）；否则是给人看的原因。 */
+export async function checkAdminToken(token: string): Promise<string | null> {
+  if (!/^[\x21-\x7e]+$/.test(token)) return '口令只能是可见的 ASCII 字符，不能含空格、中文或全角符号';
+  try {
+    const r = await fetch('/api/admin/whoami', { headers: { Accept: 'application/json', 'X-Admin-Token': token } });
+    if (r.status === 429) return '尝试太频繁，请稍后再试'; // 限频时不能当作「连不上」照旧存下
+    if (!r.ok) return null;
+    const j = await r.json() as { via?: string | null };
+    if (j?.via === 'token') return null;
+    const s: { source?: string } = await fetch('/api/admin-token/state', { headers: { Accept: 'application/json' } })
+      .then((x) => (x.ok ? x.json() : {}))
+      .catch(() => ({}));
+    if (s.source === 'none') return '服务端还没有设置管理员口令；请用 Odoo 管理员账号登录，或在本机设置口令';
+    if (s.source === 'env') return '口令不对：服务端口令来自部署环境变量 ADMIN_TOKEN，以前在设置页改过的口令不再生效';
+    return '口令不对：与服务端当前口令不一致';
+  } catch { return null; }
+}
+
 /** #292 M4 止血：口令在本标签页时，/use 与驾驶舱不再以 iframe 嵌 /go/（同源 iframe 读得到 sessionStorage、能挂钩父页 fetch） */
 export const ADMIN_TOKEN_CHANGED = 'wm:admin-token-changed';
 export const adminTokenPresent = (): boolean => getAdminToken() !== '';

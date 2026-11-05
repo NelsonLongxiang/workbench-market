@@ -14,7 +14,7 @@ import SopSpace from './pages/SopSpace';
 import SopRunDetail from './pages/SopRunDetail';
 import McpGateways from './pages/McpGateways';
 import Vault from './pages/Vault';
-import { adminActive, adminTokenPresent, getAdminToken, odooAdmin, refreshAdminIdentity, setAdminToken, subscribeAdminToken } from './admin-token';
+import { adminActive, adminTokenPresent, checkAdminToken, getAdminToken, odooAdmin, refreshAdminIdentity, setAdminToken, subscribeAdminToken } from './admin-token';
 import { marketOnly, marketUrl, onSurface, surface } from './surface';
 import { WEB_EXTENSIONS } from './extensions';
 import { Badge, Button as AButton, Input as AInput, Popover, Result, Tag } from 'antd';
@@ -53,7 +53,18 @@ function AdminTokenBadge() {
 function AdminTokenInput() {
   const [open, setOpen] = React.useState(false);
   const [val, setVal] = React.useState(getAdminToken());
+  const [err, setErr] = React.useState('');
+  const [checking, setChecking] = React.useState(false);
   const saved = React.useSyncExternalStore(subscribeAdminToken, adminTokenPresent); // GoFrame 里清除口令时同步
+  const save = async () => {
+    const t = val.trim();
+    if (!t) { setAdminToken(''); setErr(''); setOpen(false); return; }
+    setChecking(true);
+    const why = await checkAdminToken(t);
+    setChecking(false);
+    if (why) { setErr(why); return; } // 口令不对就不存，免得各管理页再报「需要管理员」
+    setAdminToken(t); setErr(''); setOpen(false);
+  };
   return (
     <Popover
       open={open}
@@ -65,10 +76,13 @@ function AdminTokenInput() {
           <AInput.Password
             defaultValue={val}
             placeholder="ADMIN_TOKEN（仅本页；刷新或在本标签页跳出后需重输）"
-            onChange={(e) => setVal(e.target.value)}
+            onChange={(e) => { setVal(e.target.value); setErr(''); }}
+            onPressEnter={() => { void save(); }}
+            status={err ? 'error' : undefined}
           />
+          {err && <div className="wm-mt-1 wm-caption wm-tone-danger" role="alert">{err}</div>}
           <div style={{ marginTop: 8, textAlign: 'right' }}>
-            <AButton size="small" type="primary" onClick={() => { setAdminToken(val.trim()); setOpen(false); }}>保存</AButton>
+            <AButton size="small" type="primary" loading={checking} onClick={() => { void save(); }}>保存</AButton>
           </div>
           <div className="wm-mt-1 wm-caption wm-secondary">本机 127.0.0.1 访问通常无需口令</div>
         </div>
