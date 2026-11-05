@@ -42,3 +42,13 @@ scripts/sop-state-restart-test.mjs跨多个自有server进程复用新合成SQLi
 本进程为触达的进行中run保留完整快照，内存成本与活跃run数据量相关；未证明跨worker/跨进程写或外部直接改库一致性。Windows child.kill可能强制终止，不能用它冒正常信号交付；单元close证据与系统层关停分开。
 
 未动生产run/个人YGL/clean-r1、服务/WinSW/网络或DSH源码。不修其他权限问题、不合并不部署；按既有SQLite真源与30秒规范实现，无新增业务口味判断点。
+
+## #442 读不到热态时不继续
+
+`runStateRead` 把结果分成 off（没配 Redis）、down（配了但没连上）、error（连着但这次读出错）、miss、hit。读热态的五处（保存、读取、完成、升级预检与升级、A2A 备注）统一走 `runLiveData`：有进程内缓冲就用缓冲；没有缓冲时，error 一律 503（带 `Retry-After: 5`），down 只在完成与升级时 503。日常保存与读取在 down 时仍按降级设计直写或直读 SQLite。
+
+原因：进程崩溃重启后缓冲已经没了，30 秒检查点之前确认的写入只在 Redis 里。旧代码把读出错当成「没有热态」，完成会只用 SQLite 数据归档，升级换了版本号后旧热态的校验点再也对不上，这些写入就悄悄丢了。
+
+取舍：Redis 断开期间又碰上重启，完成与升级要等 Redis 恢复；确实要放弃 Redis 里的数据，可去掉 `REDIS_URL` 重启，按纯 SQLite 运行。
+
+`scripts/sop-redis-read-503-test.mjs`：真实 index、合成库、可持久的替身 Redis，SIGKILL 模拟崩溃。覆盖重启后完成、升级拿到只在 Redis 里的写入；读出错时完成、预检、升级、保存、读取都 503 且不写库；Redis 断开时完成、预检、升级 503，读取照旧回 SQLite；恢复后完成拿到热态写入。
