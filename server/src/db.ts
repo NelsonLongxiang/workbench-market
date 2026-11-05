@@ -528,7 +528,9 @@ CREATE TABLE IF NOT EXISTS workbench_var_audit (
 CREATE INDEX IF NOT EXISTS idx_workbench_var_audit_wb ON workbench_var_audit(workbench_id, key, id);
 `);
 // 常量作者（谁写的谁维护）：只记个人身份 mcp:<会话名> / odoo:<登录名>；旧常量按最后写入者回填，共享身份（口令、本机、台令牌）留空=只有本机命令行能修订
-try { const wvCols = db.prepare('PRAGMA table_info(workbench_vars)').all() as any[]; if (!wvCols.some((c) => c.name === 'owner')) { db.exec("ALTER TABLE workbench_vars ADD COLUMN owner TEXT NOT NULL DEFAULT ''"); db.exec("UPDATE workbench_vars SET owner = updated_by WHERE kind = 'const' AND (updated_by LIKE 'mcp:%' OR updated_by LIKE 'odoo:%')"); } } catch { /* 列已在 */ }
+try { const wvCols = db.prepare('PRAGMA table_info(workbench_vars)').all() as any[]; if (!wvCols.some((c) => c.name === 'owner')) db.exec("ALTER TABLE workbench_vars ADD COLUMN owner TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+// 回填每次启动都跑（幂等）：补列后中途退出也不会漏。作者为空的常量只可能由共享身份最后写过，所以按个人身份回填不会改掉兜底移交的结果
+db.exec("UPDATE workbench_vars SET owner = updated_by WHERE kind = 'const' AND owner = '' AND (updated_by LIKE 'mcp:%' OR updated_by LIKE 'odoo:%')");
 // #337: a durable monotonic generation invalidates stale Redis snapshots, including same-value writes.
 {
   const cols = db.prepare('PRAGMA table_info(sop_runs)').all() as { name: string }[];
