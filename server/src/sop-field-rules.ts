@@ -2,6 +2,8 @@
  *  （required / pattern / minlength / maxlength / type=url|number|date|month / min / max），
  *  以及条件必填 data-required-if="<字段>=<值1>|<值2>"（字段写 <步骤>.<字段> 可跨步；条件成立才必填，不成立时只核格式），
  *  完成（finish）时在服务端按同一套规则校验 run 数据。执行页边填边存草稿，所以只在完成时拦。
+ *  #437① 文件清单字段：<textarea data-field data-type="file-list" data-roles="a|b" data-statuses="x|y" data-min-items data-max-items>，
+ *  值是行对象数组 [{file_id, name, role, source, period, status, sha256, size, mime}]；这里核结构，完成时另按文件面实际 hash 逐行核。
  *  没写这些属性的 SOP 不受影响。 */
 import type { SopManifest } from './sop-types.ts';
 
@@ -11,7 +13,18 @@ export interface FieldRule {
   type?: string; min?: number; max?: number; message?: string;
   /** 条件必填：只有 requiredIf.step 步骤里 requiredIf.field 的值在 values 里时才必填 */
   requiredIf?: { step: string; field: string; values: string[] };
+  /** #437① 文件清单（type === 'file-list'）：可选角色、状态清单与行数上下限 */
+  roles?: string[]; statuses?: string[]; minItems?: number; maxItems?: number;
 }
+
+export interface FileListRow { file_id: number; name?: string; role?: string; source?: string; period?: string; status?: string; sha256: string; size?: number; mime?: string }
+/** 文件清单的值：数组，或执行页早期存成的 JSON 文本；取不出数组返回 null */
+export function fileListRows(raw: unknown): unknown[] | null {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') { const t = raw.trim(); if (!t) return []; try { const v = JSON.parse(t); return Array.isArray(v) ? v : null; } catch { return null; } }
+  return raw === undefined || raw === null ? [] : null;
+}
+const listOf = (v: unknown) => (typeof v === 'string' ? v.split('|').map((x) => x.trim()).filter(Boolean) : undefined);
 
 /** 解析 data-required-if="<字段>=<值1>|<值2>"；坏写法返回 undefined（当作没有条件，不让 SOP 因笔误整页失效） */
 export function parseRequiredIf(src: string, step: string): FieldRule['requiredIf'] {
@@ -46,6 +59,13 @@ export function extractFieldRules(manifest: SopManifest): FieldRule[] {
       if (m[1].toLowerCase() === 'input' && typeof a.type === 'string') r.type = a.type.toLowerCase();
       if (typeof a['data-error'] === 'string') r.message = decode(a['data-error']);
       if (typeof a['data-required-if'] === 'string') r.requiredIf = parseRequiredIf(decode(a['data-required-if']), step.key);
+      if (m[1].toLowerCase() === 'textarea' && a['data-type'] === 'file-list') {
+        r.type = 'file-list'; r.pattern = undefined; r.minlength = undefined; r.maxlength = undefined;
+        r.roles = listOf(typeof a['data-roles'] === 'string' ? decode(a['data-roles']) : undefined);
+        r.statuses = listOf(typeof a['data-statuses'] === 'string' ? decode(a['data-statuses']) : undefined);
+        r.minItems = num('data-min-items'); r.maxItems = num('data-max-items');
+        rules.push(r); continue;
+      }
       if (r.required || r.requiredIf || r.pattern || r.minlength !== undefined || r.maxlength !== undefined || ['url', 'number', 'date', 'month', 'email'].includes(r.type ?? '')) rules.push(r);
     }
   }
@@ -60,7 +80,27 @@ export function checkRunData(rules: FieldRule[], data: Record<string, unknown>):
     const raw = stepVal && typeof stepVal === 'object' ? (stepVal as Record<string, unknown>)[field] : undefined;
     return raw === undefined || raw === null || raw === false ? '' : raw === true ? 'true' : String(raw).trim();
   };
+  const rawOf = (step: string, field: string) => { const sv = data?.[step]; return sv && typeof sv === 'object' ? (sv as Record<string, unknown>)[field] : undefined; };
   for (const r of rules) {
+    if (r.type === 'file-list') {
+      const name = `${r.step}.${r.label}`;
+      const required = r.requiredIf ? r.requiredIf.values.includes(valueOf(r.requiredIf.step, r.requiredIf.field)) : r.required;
+      const rows = fileListRows(rawOf(r.step, r.field));
+      if (rows === null) { errs.push(`${name}：不是文件清单（应为行对象数组）`); continue; }
+      if (!rows.length) { if (required || (r.minItems ?? 0) > 0) errs.push(`${name}：必填（至少 ${Math.max(1, r.minItems ?? 1)} 行）`); continue; }
+      if (r.minItems !== undefined && rows.length < r.minItems) errs.push(`${name}：至少 ${r.minItems} 行`);
+      if (r.maxItems !== undefined && rows.length > r.maxItems) errs.push(`${name}：最多 ${r.maxItems} 行`);
+      rows.forEach((row, i) => {
+        const at = `${name} 第 ${i + 1} 行`;
+        const o = row && typeof row === 'object' && !Array.isArray(row) ? row as Record<string, unknown> : null;
+        if (!o) { errs.push(`${at}：不是对象`); return; }
+        if (!Number.isInteger(Number(o.file_id)) || Number(o.file_id) <= 0) errs.push(`${at}：没有选文件（file_id）`);
+        if (typeof o.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(o.sha256)) errs.push(`${at}：缺 sha256`);
+        if (r.roles && !r.roles.includes(String(o.role ?? ''))) errs.push(`${at}：角色须为 ${r.roles.join(' / ')}`);
+        if (r.statuses && !r.statuses.includes(String(o.status ?? ''))) errs.push(`${at}：状态须为 ${r.statuses.join(' / ')}`);
+      });
+      continue;
+    }
     const v = valueOf(r.step, r.field);
     const name = `${r.step}.${r.label}`;
     const why = (msg: string) => errs.push(`${name}：${r.message ?? msg}`);

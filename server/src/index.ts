@@ -1867,6 +1867,34 @@ function runReadCapHeader(req: express.Request): string | undefined {
 }
 
 /** 归档（热态全量沉淀 SQLite；Redis 条目 1h 平滑淘汰） */
+/** #437① 文件清单逐行对文件面核：file_id 必须是本 run 的文件（上传或引用），登记的 sha256 必须等于文件实际 hash，
+ *  文件名必须一致——同名不同内容、换了文件却沿用旧登记，都在完成时拦下。旧文件没记 sha 的现算一次并补记。 */
+function checkFileListsAgainstStore(rules: FieldRule[], data: Record<string, unknown>, runId: number): string[] {
+  const errs: string[] = [];
+  for (const r of rules.filter((x) => x.type === 'file-list')) {
+    const sv = data?.[r.step];
+    const rows = fileListRows(sv && typeof sv === 'object' ? (sv as Record<string, unknown>)[r.field] : undefined) ?? [];
+    rows.forEach((row, i) => {
+      const o = row && typeof row === 'object' ? row as Record<string, unknown> : null;
+      const fid = Number(o?.file_id);
+      if (!o || !Number.isInteger(fid) || fid <= 0) return; // 结构问题 checkRunData 已报
+      const at = `${r.step}.${r.label} 第 ${i + 1} 行`;
+      const f = svc<SopService>('sop').runFileById(runId, fid) as { id: number; original_name: string; storage_path: string; sha256?: string } | undefined;
+      if (!f) { errs.push(`${at}：文件 ${fid} 不在本记录里（先上传或引用）`); return; }
+      let actual = String(f.sha256 || '');
+      if (!actual) {
+        const abs = join(dataDir, f.storage_path);
+        if (!existsSync(abs)) { errs.push(`${at}：文件 ${fid} 已不在存储里`); return; }
+        actual = sha256Hex(readFileSync(abs));
+        try { svc<SopService>('sop').runFileSetSha(f.id, actual); } catch { /* 补记失败不影响核对 */ }
+      }
+      if (String(o.sha256 ?? '') !== actual) errs.push(`${at}：登记的 sha256 与文件 ${fid} 的实际内容不一致（文件可能已更换，请重新选择）`);
+      if (o.name !== undefined && String(o.name) !== f.original_name) errs.push(`${at}：文件名与文件 ${fid} 不一致`);
+    });
+  }
+  return errs;
+}
+
 async function sopRunFinishCore(id: number): Promise<{ ok: boolean; id: number; status: string; steps: number }> {
   return runCheckpoints.serial(id, () => sopRunFinishLockedCore(id));
 }
@@ -1883,7 +1911,8 @@ async function sopRunFinishLockedCore(id: number): Promise<{ ok: boolean; id: nu
     if (manifest) {
       let parsedData: Record<string, unknown> = {};
       try { parsedData = JSON.parse(data); } catch { parsedData = {}; }
-      const violations = checkRunData(extractFieldRules(manifest), parsedData);
+      const rules = extractFieldRules(manifest);
+      const violations = [...checkRunData(rules, parsedData), ...checkFileListsAgainstStore(rules, parsedData, id)];
       if (violations.length) throw new HttpError(400, `有 ${violations.length} 个字段未通过校验，未完成：${violations.slice(0, 5).join('；')}${violations.length > 5 ? ' 等' : ''}`, { violations });
     }
   }
@@ -3616,7 +3645,7 @@ import { endpointStatsMiddleware, statsPayload } from './endpoint-stats.ts';
 import { fetchMainFiles, normalizeSource, SourceError, SOURCE_BRANCH } from './github-source.ts';
 import { checkRecord, parseContract, type DataContract } from './app-data-contract.ts';
 import { sniff, type Sniff } from './file-sniff.ts';
-import { checkRunData, extractFieldRules } from './sop-field-rules.ts';
+import { checkRunData, extractFieldRules, fileListRows, type FieldRule } from './sop-field-rules.ts';
 
 // ---------- MCP 生产通道（StreamableHTTP · stateless：AI 会话直连市场，零依赖手写 JSON-RPC） ----------
 const MCP_PROTOCOL = '2025-03-26';

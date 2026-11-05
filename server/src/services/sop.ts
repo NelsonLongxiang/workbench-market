@@ -92,6 +92,10 @@ export class SopService extends Service {
   runFiles(runId: number) {
     return db.prepare('SELECT id, original_name, mime, size, sha256, ref_of, created_by, created_at FROM sop_run_files WHERE run_id = ? ORDER BY id ASC').all(runId);
   }
+  /** #437① 旧文件没记 sha256 时，完成核对现算一次并补记 */
+  runFileSetSha(id: number, sha: string) {
+    return db.prepare("UPDATE sop_run_files SET sha256 = ? WHERE id = ? AND sha256 = ''").run(sha, id);
+  }
   /** #437② 引用源：按文件 id 取行并带上所属 run 的 SOP（同 SOP 才能引用） */
   runFileWithRun(fileId: number) {
     return db.prepare('SELECT f.*, r.sop_slug AS sop_slug FROM sop_run_files f JOIN sop_runs r ON r.id = f.run_id WHERE f.id = ?').get(fileId);
