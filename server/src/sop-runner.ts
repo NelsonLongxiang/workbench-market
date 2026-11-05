@@ -51,6 +51,10 @@ ${tokensCss.replace(/<\/style/gi, '')}
   input[data-field]:focus-visible, textarea[data-field]:focus-visible, select[data-field]:focus-visible { outline:2px solid var(--wm-color-primary); outline-offset:1px; }
   [data-field][aria-invalid="true"] { border-color:var(--wm-color-danger) !important; }
   .fv-msg { display:block; margin-top:2px; font-size:12px; line-height:20px; color:var(--wm-color-danger-text); }
+  .fv-summary { margin:0 0 var(--wm-space-3); padding:var(--wm-space-3) var(--wm-space-4); border:1px solid var(--wm-color-danger); border-radius:var(--wm-radius-md); background:var(--wm-color-danger-bg); color:var(--wm-color-danger-text); font-size:13px; }
+  .fv-summary[hidden] { display:none; }
+  .fv-summary ul { margin:var(--wm-space-1) 0 0; padding-left:var(--wm-space-4); }
+  .fv-summary a { color:inherit; text-decoration:underline; }
   .foot { display:flex; align-items:center; gap:var(--wm-space-3); margin:var(--wm-space-6) 0 var(--wm-space-8); }
   .btn { border:1px solid var(--wm-color-border-strong); border-radius:var(--wm-radius-md); padding:var(--wm-space-2) var(--wm-space-6); font:inherit; font-weight:var(--wm-font-weight-body-strong); cursor:pointer; background:var(--wm-color-surface); color:var(--wm-color-text); }
   .btn.primary { background:var(--wm-color-primary); border-color:var(--wm-color-primary); color:var(--wm-color-on-primary); }
@@ -80,6 +84,7 @@ ${stepsHtml}
     <span class="muted" id="upload-note"></span>
   </div>
 </section>
+<div class="fv-summary" id="fv-summary" role="alert" tabindex="-1" hidden></div>
 <div class="foot">
   <button class="btn primary" id="finish" disabled>完成执行</button>
   <span class="state" id="state"></span>
@@ -120,6 +125,33 @@ window.__SOP__ = ${boot};
   }
 
   // 字段规则（sop.yaml 控件上的 required/pattern/长度/类型）：填写时即时提示、草稿照存；完成时全部核对，服务端再核一遍
+  // #436 无障碍：每个 data-field 控件要有稳定 id、可访问名称（缺省用 data-label），
+  // 紧跟的说明 <small> 与错误提示 .fv-msg 经 aria-describedby 关联；不改 SOP 作者已经写好的 label / aria 属性
+  function fieldName(el) { return el.getAttribute('data-label') || el.getAttribute('data-field') || ''; }
+  function describe(el, id, on) {
+    var ids = (el.getAttribute('aria-describedby') || '').split(' ').filter(function (x) { return x && x !== id; });
+    if (on) ids.push(id);
+    if (ids.length) el.setAttribute('aria-describedby', ids.join(' ')); else el.removeAttribute('aria-describedby');
+  }
+  function a11yInit() {
+    var used = {};
+    $$('[id]').forEach(function (n) { used[n.id] = 1; });
+    $$('[data-field]').forEach(function (el) {
+      if (!el.id) {
+        var sec = el.closest('[data-step]');
+        var base = ('f-' + (sec ? sec.getAttribute('data-step') + '-' : '') + el.getAttribute('data-field')).replace(/[^A-Za-z0-9_-]/g, '_');
+        var id = base, n = 2;
+        while (used[id]) id = base + '-' + (n++);
+        el.id = id; used[id] = 1;
+      }
+      var labelled = el.hasAttribute('aria-label') || el.hasAttribute('aria-labelledby') || !!el.closest('label') || !!$('label[for="' + el.id + '"]');
+      if (!labelled && fieldName(el)) el.setAttribute('aria-label', fieldName(el));
+      // 说明：控件后面（隔着 <br> 也算）第一个 <small>
+      var sib = el.nextElementSibling;
+      while (sib && sib.tagName === 'BR') sib = sib.nextElementSibling;
+      if (sib && sib.tagName === 'SMALL') { if (!sib.id) sib.id = el.id + '-help'; describe(el, sib.id, true); }
+    });
+  }
   // 条件必填 data-required-if="<字段>=<值1>|<值2>"（<步骤>.<字段> 可跨步）：与服务端 sop-field-rules 同一语义
   function requiredIfMet(el) {
     var m = /^\\s*(?:([A-Za-z0-9_-]+)\\.)?([A-Za-z0-9_-]+)\\s*=([\\s\\S]*)$/.exec(el.getAttribute('data-required-if') || '');
@@ -142,9 +174,30 @@ window.__SOP__ = ${boot};
     var ok = el.checkValidity() || (!strict && empty);
     el.setAttribute('aria-invalid', ok ? 'false' : 'true');
     var msg = el.nextElementSibling && el.nextElementSibling.classList && el.nextElementSibling.classList.contains('fv-msg') ? el.nextElementSibling : null;
-    if (!ok && !msg) { msg = document.createElement('span'); msg.className = 'fv-msg'; msg.setAttribute('role', 'alert'); el.insertAdjacentElement('afterend', msg); }
+    if (!ok && !msg) { msg = document.createElement('span'); msg.className = 'fv-msg'; msg.setAttribute('role', 'alert'); if (el.id) msg.id = el.id + '-err'; el.insertAdjacentElement('afterend', msg); }
     if (msg) msg.textContent = ok ? '' : (empty ? '必填' : (el.getAttribute('data-error') || el.validationMessage || '格式不符'));
+    if (msg && msg.id) describe(el, msg.id, !ok);
     return ok;
+  }
+  // 完成被拦时的错误汇总：逐项列出字段与原因，点一项跳到对应控件；全部改好后收起
+  function renderSummary(bad) {
+    var box = $('#fv-summary');
+    if (!box) return;
+    if (!bad.length) { box.hidden = true; box.innerHTML = ''; return; }
+    box.innerHTML = '';
+    var head = document.createElement('div');
+    head.textContent = '有 ' + bad.length + ' 个字段未填或格式不符，改正后再完成（草稿已保存）：';
+    var ul = document.createElement('ul');
+    bad.forEach(function (el) {
+      var li = document.createElement('li'), a = document.createElement('a');
+      var msg = el.id ? document.getElementById(el.id + '-err') : null;
+      a.href = '#' + el.id;
+      a.textContent = fieldName(el) + '：' + (msg && msg.textContent ? msg.textContent : '未通过校验');
+      a.addEventListener('click', function (ev) { ev.preventDefault(); el.focus(); });
+      li.appendChild(a); ul.appendChild(li);
+    });
+    box.appendChild(head); box.appendChild(ul);
+    box.hidden = false;
   }
   function queueSave(stepKey) {
     dot(stepKey, 'dirty');
@@ -283,10 +336,17 @@ window.__SOP__ = ${boot};
       void renderAgentExtras(run);
   }
 
+  a11yInit();
+  // 汇总已展开时，边改边刷新（改好的项移出，全部改好就收起）
+  function refreshSummary() {
+    var box = $('#fv-summary');
+    if (box && !box.hidden) renderSummary($$('[data-field]').filter(function (d) { return !d.disabled && !checkField(d, true); }));
+  }
   document.addEventListener('input', function (ev) {
     var el = ev.target;
     if (!el || !el.hasAttribute || !el.hasAttribute('data-field')) return;
     checkField(el, false);
+    refreshSummary();
     var sec = el.closest('[data-step]');
     if (sec) queueSave(sec.getAttribute('data-step'));
   });
@@ -326,13 +386,15 @@ window.__SOP__ = ${boot};
     checkField(el, false);
     // 条件字段变了：重算依赖它的字段的必填状态（未填的不急着标红，完成时再严格核）
     $$('[data-required-if]').forEach(function (d) { if (d !== el) checkField(d, false); });
+    refreshSummary();
     var sec = el.closest('[data-step]');
     if (sec) queueSave(sec.getAttribute('data-step'));
   });
 
   $('#finish').addEventListener('click', function () {
     var bad = $$('[data-field]').filter(function (el) { return !el.disabled && !checkField(el, true); });
-    if (bad.length) { setState('有 ' + bad.length + ' 个字段未填或格式不符，已标红——改正后再完成（草稿已保存）'); bad[0].focus(); return; }
+    renderSummary(bad);
+    if (bad.length) { setState('有 ' + bad.length + ' 个字段未填或格式不符，已标红——改正后再完成（草稿已保存）'); $('#fv-summary').focus(); return; }
     // 收尾前把所有未落盘的缓冲步骤推上去（还没建记录时 ensureRun 先建）
     ensureRun().then(function () { return Promise.all(BOOT.steps.filter(function (k) { return timers[k]; }).map(function (k) {
       clearTimeout(timers[k]); return save(k);

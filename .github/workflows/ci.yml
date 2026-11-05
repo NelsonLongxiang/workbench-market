@@ -64,6 +64,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/sop-space-browser.mjs
+      - name: SOP 执行页无障碍回归（#436：字段可访问名称·说明与错误关联·完成被拦时的错误汇总）
+        env:
+          PYTHON: python
+        run: node scripts/sop-runner-a11y-browser.mjs
       - name: 设计 token 出口（#321：/design/tokens@1.css 固定路径·SOP 执行页内联变量且不写死色值·与市场同色同字号·自产台示例全走变量）
         env:
           PYTHON: python
