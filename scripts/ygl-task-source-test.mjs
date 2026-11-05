@@ -16,6 +16,8 @@ try {
  check('different database and host never reuse grants',()=>{for(const u of ['postgres://localhost/other','postgres://otherhost/ygl'])assert.notEqual(resolveYglTaskSource({YGL_HOME:home,YGL_DB_URL:u}).source.workspaceKey,key);});
  check('PG target hash matches YGL canonical identity',()=>assert.equal(yglPgTargetHash(pg),'sha256:'+createHash('sha256').update(JSON.stringify(['localhost','5432','ygl'])).digest('hex')));
  check('bad target and query destination overrides fail closed safely',()=>{for(const u of ['notpg','sqlite:///a','postgres://localhost','postgres://localhost/ygl?options=-csearch_path=x','postgres://localhost/ygl?host=other','postgres://localhost/ygl?dbname=other']){const x=resolveYglTaskSource({YGL_HOME:home,YGL_DB_URL:u});assert.deepEqual(x,{ok:false,error:'ygl_source_config_invalid'});}});
+ check('ambiguous percent-encoded database names are refused',()=>{for(const u of ['postgres://localhost/dsh_%26a','postgres://localhost/dsh_%2Fa','postgres://localhost/dsh_%3Fa']){const x=resolveYglTaskSource({YGL_HOME:home,YGL_DB_URL:u});assert.deepEqual(x,{ok:false,error:'ygl_source_config_invalid'});assert.throws(()=>yglPgTargetHash(u),/ambiguous PG database name/);}});
+ check('unreserved escapes keep the canonical identity',()=>assert.equal(yglPgTargetHash('postgres://LOCALHOST/dsh_%41'),yglPgTargetHash('postgres://localhost/dsh_A')));
  writeFileSync(secret,pg);
  check('explicit URL secret file is supported',()=>assert.equal(resolveYglTaskSource({YGL_HOME:home,YGL_DB_URL_FILE:secret}).source.workspaceKey,key));
  check('valid secret file takes precedence over empty env URL',()=>assert.equal(resolveYglTaskSource({YGL_HOME:home,YGL_DB_URL_FILE:secret,YGL_DB_URL:''}).source.workspaceKey,key));

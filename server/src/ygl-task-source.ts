@@ -13,7 +13,12 @@ export function yglPgTargetHash(raw: string): string {
   for (const k of u.searchParams.keys()) {
     if (/^(host|hostaddr|port|dbname|database|service|servicefile|options)$/i.test(k)) throw new Error('PG target override');
   }
-  const id = [u.hostname.toLowerCase(), u.port || '5432', decodeURIComponent(u.pathname.slice(1))];
+  // The identity hash decodes the database name, while the pg driver keeps reserved characters
+  // percent-encoded (decodeURI). Names where the two disagree would collide across real databases
+  // while binding and read grants follow the hash, so they are refused outright.
+  const rawDb = u.pathname.slice(1);
+  if (decodeURI(rawDb) !== decodeURIComponent(rawDb)) throw new Error('ambiguous PG database name');
+  const id = [u.hostname.toLowerCase(), u.port || '5432', decodeURIComponent(rawDb)];
   if (!id[2]) throw new Error('PG database required');
   return 'sha256:' + createHash('sha256').update(JSON.stringify(id)).digest('hex');
 }

@@ -108,8 +108,17 @@ function targetUrl(engine,env,expected){
   let url;if(env.YGL_MIGRATION_PG_URL_FILE!==undefined){const f=env.YGL_MIGRATION_PG_URL_FILE;if(!isAbsolute(f)||!isRegular(f))refuse('target_secret_file_invalid');url=readFileSync(f,'utf8').trim();}else url=env.YGL_MIGRATION_PG_URL||'';
   if(!url||!/^sha256:[a-f0-9]{64}$/.test(expected||''))refuse('explicit_target_identity_required');
   let identity;try{identity=engine.pgTargetHash(url);}catch{refuse('target_url_invalid');}
-  const u=new URL(url);if(u.hash||['postgres','template0','template1'].includes(decodeURIComponent(u.pathname.slice(1))))refuse('system_database_refused');
-  if(identity!==expected)refuse('target_identity_mismatch');return {url,identity};
+  const u=new URL(url);
+  if(!u.hostname)refuse('target_host_required');
+  if(u.hash||['postgres','template0','template1'].includes(decodeURIComponent(u.pathname.slice(1))))refuse('system_database_refused');
+  // The identity hash decodes the database name, while the pg driver keeps reserved characters
+  // percent-encoded (decodeURI). Names where the two disagree would collide across real databases.
+  if(decodeURI(u.pathname.slice(1))!==decodeURIComponent(u.pathname.slice(1)))refuse('target_database_name_ambiguous');
+  if(identity!==expected)refuse('target_identity_mismatch');
+  // Pin the exact authority the identity declared: ambient PGHOST/PGPORT-style environment must not
+  // divert either this connection or the upstream engine migration to a different endpoint.
+  u.port=u.port||'5432';
+  return {url:u.toString(),identity,port:u.port};
 }
 function preflight(engine,snapshot){
   if(snapshot.manifest.schema_version!==engine.schemaVersion)refuse('schema_version_mismatch');
@@ -155,8 +164,9 @@ export async function migrateSnapshot(engine,dir,expected,report,env=process.env
     if(!expectedCatalogs)refuse('engine_catalog_baseline_unavailable');
     const target=targetUrl(engine,env,expected);
     client=new engine.Client({connectionString:target.url,connectionTimeoutMillis:5000});await client.connect();
-    const identity=(await client.query('SELECT current_database() db,current_schema() schema')).rows[0];
+    const identity=(await client.query('SELECT current_database() db,current_schema() schema,inet_server_port() port')).rows[0];
     if(identity.schema!=='public'||identity.db!==decodeURIComponent(new URL(target.url).pathname.slice(1)))refuse('target_schema_or_database_mismatch');
+    if(identity.port!==null&&String(identity.port)!==target.port)refuse('target_endpoint_mismatch');
     await client.query("SET statement_timeout TO '30s'");
     if(!verifyOnly){
       locked=Boolean((await client.query("SELECT pg_try_advisory_lock(hashtext('ygl:explicit-empty-database-migration')) AS locked")).rows[0].locked);if(!locked)refuse('migration_already_in_progress');
