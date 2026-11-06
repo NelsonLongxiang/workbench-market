@@ -71,6 +71,12 @@ identity 用事务性 ALTER COLUMN RESTART（不使用不可随事务回滚的 s
 
 这是合成 SOP-only 的逻辑格式/恢复行为证据，不是 #402 G1 的生产全量备份，不覆盖其他市场表、Redis/WAL 热态冻结、附件字节、角色/权限恢复、异机灾备、PITR 或真实网络丢 COMMIT 恢复。生产 G-pre 未满足时不通过该演练宣称生产门槛通过。
 
+### 原生 PG settings 存储（未接入配置/认证调用链）
+
+`server/src/pg-settings.ts` 为 settings(key,value) 提供显式新表 bootstrap 与注入 pool 的 get/has/all/put/putMany/delete；不提供同步 Statement 替身、不播种默认值、不读取生产配置、不回退 SQLite。空值与缺键分开，原始文本参数化保存；返回可能含敏感设置，只允许内部调用，不直接暴露给 API。批量输入在 checkout 前复制校验，拒重复键和非法文本，按键排序同连接事务写入，失败整体回滚，不自动重试。
+
+隔离专项验证原子批量失败回滚、参数等待快照、并发写、初始非法零 checkout、schema冲突及缺键/空值，并将合成 settings 行纳入 pg_dump/pg_restore 读回。SOP 旧负例测试曾一次性创建三个拒绝 Promise 后逐个观察，可能提前触发 unhandled rejection；现改为逐个创建并立即 await 同一精确错误断言，不修改产品逻辑或弱化判据。设置服务原有同步调用方、认证启动、缓存失效与历史 settings 导入尚未接入，不代表市场已改用 PG 或已迁移私有配置。
+
 ## 验证范围
 
 迁移回归的无效目标用例自行构造旧格式的声明摘要，不调用会提前拒绝该目标的新引擎来生成测试输入；按实际引擎拒绝顺序核对稳定错误码与失败报告，并用 Socket 正控证明空 host/歧义库名在连接前拒绝。另用旧身份函数测试本地守卫，避免新引擎的先拒绝掩盖迁移工具自身回归。
