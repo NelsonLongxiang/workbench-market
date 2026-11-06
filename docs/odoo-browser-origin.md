@@ -10,6 +10,8 @@
 - 浏览器访问市场用的主机名和配置地址的主机名不一致，因为会话 cookie 带不回来；
 - 请求是 TLS，或者 `X-Forwarded-Proto` 里任一项声明了 https，而配置的是 http 地址，因为这样会降级。这个信号只用来拒绝，不决定跳去哪里。
 
+Odoo 台登记的 URL 只写源（`http(s)://主机:端口`），不要带 `/web` 这类路径。门户把台地址里的路径当挂载前缀：`/go/<id>/<p>` 会转到上游的「路径+`<p>`」。Odoo 的语言跳转（`/web/` → `/zh_CN/web/`）会落在这个前缀之外，旧版本会把前缀逐跳叠成 `/go/<id>/zh_CN/web/zh_CN/web/…`；现在这种跳转直接返回 502 `go_redirect_outside_base`，并说明要把台地址改成不带路径的源。
+
 这个设置不声称覆盖其他主机名或公网入口。开启同域登录中继（`WM_ODOO_LOGIN_PROXY=1`，见 [odoo-login-relay.md](odoo-login-relay.md)）时，中继优先，这个设置对中继覆盖的 Odoo 台不生效，启动时会给出提示。飞书登录和密码表单都在 Odoo 自己的入口上，不受影响。
 
 回滚：去掉 `WM_ODOO_BROWSER_URL` 后重启，就回到跳转 Odoo 台源的原行为。
