@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /** 技能回滚=移「当前版本」指针：发 v1/v2 后回滚到 v1 不再撞 (skill_id, tree_digest) 唯一索引（旧实现复制出同指纹 N+1 → 500）；
- *  回滚后缺省取装/导出/安装计划/校验都拿 v1 的内容，含 base64 二进制的版本逐字节一致；经 MCP 变更申请批准的同一执行体可前移回 v2；
+ *  回滚后缺省取装/导出/下载/安装计划/校验都拿 v1 的内容，含 base64 二进制的版本逐字节一致；经 MCP 变更申请批准的同一执行体可前移回 v2；
  *  发布新版恢复跟随最新。合成数据 + 全新 DATA_DIR + 随机回环端口。 */
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 
 const TMP = resolve('tmp/skill-rollback-smoke-' + Date.now().toString(36));
 const DATA = join(TMP, 'data');
@@ -43,6 +44,12 @@ const untar = (buf) => {
     o += 512 + Math.ceil(size / 512) * 512;
   }
   return out;
+};
+/** MCP skill_download 不带版本 → 取票据下载 .tar.gz 包 */
+const downloadPkg = async () => {
+  const dl = await rpc('skill_download', { slug });
+  const r = await fetch(dl?.download_url ?? `${B}/-`);
+  return { dl, digest: r.headers.get('x-expected-digest'), files: r.ok ? untar(gunzipSync(Buffer.from(await r.arrayBuffer()))) : new Map() };
 };
 const exportTar = async (q = '') => { const r = await fetch(`${B}/api/skills/${S}/export${q}`); return { digest: r.headers.get('x-expected-digest'), files: untar(Buffer.from(await r.arrayBuffer())) }; };
 
@@ -87,6 +94,9 @@ try {
   ok('缺省导出=v1：摘要头', tar.digest === d1, String(tar.digest));
   ok('缺省导出=v1：文本', tar.files.get('probe/SKILL.md')?.toString('utf8') === md1);
   ok('缺省导出=v1：二进制逐字节一致', tar.files.get('probe/assets/logo.png')?.equals(png1) === true);
+  let pkg = await downloadPkg();
+  ok('回滚后不带版本下载=v1（签发版本与摘要头）', pkg.dl?.version === 1 && pkg.dl?.tree_digest === d1 && pkg.digest === d1, JSON.stringify(pkg.dl).slice(0, 300));
+  ok('回滚后下载包内二进制与 v1 逐字节一致', pkg.files.get('rb.probe/assets/logo.png')?.equals(png1) === true && pkg.files.get('rb.probe/SKILL.md')?.toString('utf8') === md1, [...pkg.files.keys()].join(','));
   const plan = await rpc('skill_install_plan', { slug });
   ok('MCP 安装计划缺省=v1', plan?.version === 1 && plan?.expected_sha256 === d1 && /version=1$/.test(plan?.export_url ?? ''), JSON.stringify(plan));
   r = await post(`/api/skills/${S}/install`, { installed_by: 'smoke' });
@@ -115,6 +125,8 @@ try {
   ok('批准执行 → 200', r.status === 200 && r.body?.executed === 'skill/rollback', `${r.status} ${JSON.stringify(r.body)}`);
   tar = await exportTar();
   ok('批准后缺省导出=v2（二进制逐字节一致）', tar.digest === d2 && tar.files.get('probe/assets/logo.png')?.equals(png2) === true);
+  pkg = await downloadPkg();
+  ok('批准后不带版本下载=v2', pkg.dl?.version === 2 && pkg.files.get('rb.probe/assets/logo.png')?.equals(png2) === true, JSON.stringify(pkg.dl).slice(0, 200));
 
   // 6) 再回 v1（反复回滚不撞）；同内容重发仍 409（不可变锚照旧）
   r = await post(`/api/skills/${S}/activate`, { version: 1, reviewed_by: 'smoke' });
