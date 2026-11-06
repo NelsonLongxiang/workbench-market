@@ -273,13 +273,13 @@ export const MCP_TOOLS: McpToolDef[] = [
   {
     name: 'skills_list',
     category: 'read',
-    description: '列出市场技能（可按 layer 1-5 过滤：1业务角色/2开发运维/3工作流/4架构设计/5AI原生运营），返回 slug/name/layer/族/版本数/active_version（当前版本，回滚后即回滚到的版本）——市场技能目录入口。',
+    description: '列出市场技能（可按 layer 1-5 过滤：1业务角色/2开发运维/3工作流/4架构设计/5AI原生运营），返回 slug/name/layer/族/版本数/active_version/current_version——市场技能目录入口。两个版本字段别混：active_version＝市场当前版本（回滚指针，不带版本号的取装/导出/下载/安装计划都取它，未回滚即最新版）；current_version＝本机钉装记录里的版本（未钉装为 null）。',
     inputSchema: { type: 'object', properties: { layer: { type: 'number', description: '分层过滤 1-5（缺省全量）' }, q: { type: 'string', description: '名称/描述关键词' } } },
   },
   {
     name: 'skill_versions',
     category: 'read',
-    description: '查某技能版本链（newest-first）：version/changelog/breaking/tree_digest/snapshot_path/reviewed_by——版本不可变审计面；active=true 的是当前版本（回滚只移这个指针，不新增版本）。',
+    description: '查某技能版本链（newest-first）：version/changelog/breaking/tree_digest/snapshot_path/reviewed_by——版本不可变审计面；active=true 的是市场当前版本（active_version，回滚指针；回滚只移这个指针，不新增版本）。',
     inputSchema: { type: 'object', properties: { slug: { type: 'string', description: '技能 slug（如 agents:brand）' } }, required: ['slug'] },
   },
   {
@@ -319,14 +319,14 @@ export const MCP_TOOLS: McpToolDef[] = [
   {
     name: 'skill_download',
     category: 'read',
-    description: '获取技能（安装/更新）：签发某版本（缺省当前版本：回滚后即回滚到的版本，未回滚即最新）的技能包下载链接，10 分钟有效，过期重新调用。包是 .tar.gz，顶层目录 package_dir（slug 的 : 换成 .），内含技能文件、清单 .wm-skill.json（逐文件 sha256 与整版 tree_digest）和校验脚本 .wm-skill-verify.mjs。安装步骤（经用户同意后执行）：下载到临时目录，先核对整包 sha256 等于应答的 package_sha256（不等就停，不解压）；解压后核对 .wm-skill-verify.mjs 的 sha256 等于应答的 verify_script_sha256（不等就停，不执行它）；再运行 `node <package_dir>/.wm-skill-verify.mjs --install --expect <应答的 tree_digest>`——包里清单的指纹与 --expect 不符、或文件与清单不一致、有符号链接/硬链接/设备文件、清单路径或目录名不合规，就整包拒绝、什么都不动；一致则把 ~/.workbench-market/skills/<package_dir> 的旧版本移进 ~/.workbench-market/skills/.backups/<package_dir>/（每个技能最多留 3 个），再整体换上新版本。返回里的 install_command 是这套步骤的一行 shell 写法。之后随时运行 verify_command 可列出本地被改动的文件。没设 MARKET_PUBLIC_URL 且请求主机不规范时不签发。',
-    inputSchema: { type: 'object', properties: { slug: { type: 'string' }, version: { type: 'integer', description: '缺省当前版本（未回滚过即最新版）' } }, required: ['slug'], additionalProperties: false },
+    description: '获取技能（安装/更新）：签发某版本（缺省市场当前版本 active_version：回滚后即回滚到的版本，未回滚即最新）的技能包下载链接，10 分钟有效，过期重新调用。包是 .tar.gz，顶层目录 package_dir（slug 的 : 换成 .），内含技能文件、清单 .wm-skill.json（逐文件 sha256 与整版 tree_digest）和校验脚本 .wm-skill-verify.mjs。安装步骤（经用户同意后执行）：下载到临时目录，先核对整包 sha256 等于应答的 package_sha256（不等就停，不解压）；解压后核对 .wm-skill-verify.mjs 的 sha256 等于应答的 verify_script_sha256（不等就停，不执行它）；再运行 `node <package_dir>/.wm-skill-verify.mjs --install --expect <应答的 tree_digest>`——包里清单的指纹与 --expect 不符、或文件与清单不一致、有符号链接/硬链接/设备文件、清单路径或目录名不合规，就整包拒绝、什么都不动；一致则把 ~/.workbench-market/skills/<package_dir> 的旧版本移进 ~/.workbench-market/skills/.backups/<package_dir>/（每个技能最多留 3 个），再整体换上新版本。返回里的 install_command 是这套步骤的一行 shell 写法。之后随时运行 verify_command 可列出本地被改动的文件。没设 MARKET_PUBLIC_URL 且请求主机不规范时不签发。',
+    inputSchema: { type: 'object', properties: { slug: { type: 'string' }, version: { type: 'integer', description: '缺省市场当前版本 active_version（回滚指针，未回滚即最新版）' } }, required: ['slug'], additionalProperties: false },
   },
   {
     name: 'skill_install_plan',
     category: 'read',
     description: '生成安装计划（薄分发：不自动落盘）——返回目标版本 digest（expected sha256 钉装锚）+ 快照路径 + 手工安装指引。',
-    inputSchema: { type: 'object', properties: { slug: { type: 'string' }, version: { type: 'number', description: '缺省当前版本（未回滚过即最新版）' } }, required: ['slug'] },
+    inputSchema: { type: 'object', properties: { slug: { type: 'string' }, version: { type: 'number', description: '缺省市场当前版本 active_version（回滚指针，未回滚即最新版）' } }, required: ['slug'] },
   },
   {
     name: 'skill_search',

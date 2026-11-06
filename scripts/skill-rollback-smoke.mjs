@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /** 技能回滚=移「当前版本」指针：发 v1/v2 后回滚到 v1 不再撞 (skill_id, tree_digest) 唯一索引（旧实现复制出同指纹 N+1 → 500）；
  *  回滚后缺省取装/导出/下载/安装计划/校验都拿 v1 的内容，含 base64 二进制的版本逐字节一致；经 MCP 变更申请批准的同一执行体可前移回 v2；
- *  发布新版恢复跟随最新。合成数据 + 全新 DATA_DIR + 随机回环端口。 */
+ *  发布新版恢复跟随最新；预置的孤儿 v{N+1}/（旧实现回滚失败留下的）发布时先挪进 .orphans/，不混进新版本。合成数据 + 全新 DATA_DIR + 随机回环端口。 */
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
@@ -134,13 +134,28 @@ try {
   r = await post(`/api/skills/${S}/versions`, { files: filesOf(md1, png1), reviewed_by: 'smoke' });
   ok('重发 v1 同内容仍 409（同技能同指纹唯一不变）', r.status === 409, `${r.status}`);
 
-  // 7) 发布新版恢复跟随最新
+  // 7) 预置孤儿 v3/（旧实现回滚撞索引前已写好的目录：带 v1 的多余文件）；发布新版恢复跟随最新
+  const slugDir = join(DATA, 'skill-snapshots', encodeURIComponent(slug));
+  mkdirSync(join(slugDir, 'v3', 'docs'), { recursive: true });
+  writeFileSync(join(slugDir, 'v3', 'extra.md'), 'orphan extra');
+  writeFileSync(join(slugDir, 'v3', 'SKILL.md'), md1);
+  writeFileSync(join(slugDir, 'v3', 'docs', 'old.md'), 'orphan nested');
   r = await post(`/api/skills/${S}/versions`, { files: filesOf(md3, png1), changelog: 'v3', reviewed_by: 'smoke' });
   ok('回滚后发 v3 → 201', r.status === 201 && r.body?.version === 3, `${r.status} ${JSON.stringify(r.body)}`);
   vs = await get(`/api/skills/${S}/versions`);
   ok('发布后当前版本=v3', vs.active_version === 3 && vs.versions.find((v) => v.active)?.version === 3, JSON.stringify(vs.versions?.map((v) => [v.version, v.active])));
+  const d3 = digest([{ path: 'SKILL.md', bytes: Buffer.from(md3) }, { path: 'assets/logo.png', bytes: png1 }]);
+  ok('v3 指纹只按本次发布的文件算', r.body?.tree_digest === d3, String(r.body?.tree_digest));
+  const walk = (d, rel = '') => readdirSync(d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(join(d, e.name), rel + e.name + '/') : [rel + e.name]).sort();
+  ok('v3 快照目录只含本次发布的文件（孤儿内容没混进来）', walk(join(slugDir, 'v3')).join() === 'SKILL.md,assets/logo.png', walk(join(slugDir, 'v3')).join());
+  const orphans = existsSync(join(slugDir, '.orphans')) ? readdirSync(join(slugDir, '.orphans')) : [];
+  ok('孤儿目录整体挪进 .orphans/', orphans.length === 1 && /^v3-/.test(orphans[0]) && walk(join(slugDir, '.orphans', orphans[0])).join() === 'SKILL.md,docs/old.md,extra.md', orphans.join());
+  ok('没留下临时目录', readdirSync(slugDir).filter((n) => n.includes('.tmp-')).length === 0, readdirSync(slugDir).join());
   tar = await exportTar();
-  ok('缺省导出=v3', tar.files.get('probe/SKILL.md')?.toString('utf8') === md3);
+  ok('缺省导出=v3 且只含本次文件', tar.digest === d3 && tar.files.get('probe/SKILL.md')?.toString('utf8') === md3 && [...tar.files.keys()].sort().join() === 'probe/SKILL.md,probe/assets/logo.png', [...tar.files.keys()].join());
+  pkg = await downloadPkg();
+  const pkgFiles = [...pkg.files.keys()].filter((k) => !/\/\.wm-skill/.test(k)).sort().join();
+  ok('不带版本下载=v3，包里不含孤儿文件', pkg.dl?.version === 3 && pkg.dl?.tree_digest === d3 && pkgFiles === 'rb.probe/SKILL.md,rb.probe/assets/logo.png', pkgFiles);
   r = await post(`/api/skills/${S}/install`, { installed_by: 'smoke' });
   ok('缺省取装=v3', r.status === 201 && r.body?.version === 3, `${r.status} ${JSON.stringify(r.body)}`);
 } catch (e) {

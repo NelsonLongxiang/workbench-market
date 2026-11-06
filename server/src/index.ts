@@ -16,7 +16,7 @@ import { pipeline } from 'node:stream/promises';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { gzipSync } from 'node:zlib';
-import { dirname, join, posix, extname, sep as pathSep } from 'node:path';
+import { dirname, join, posix, extname, relative, sep as pathSep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import multer from 'multer';
 import { svc } from './context.ts';
@@ -2627,17 +2627,28 @@ async function skillPublishCore(slugIn: unknown, files: any, changelogIn: unknow
   } else if (fmDesc || fmHint || fmName) {
     S.upsertSkill({ slug, name: fmName || row.name, layer: row.layer, layerName: row.layer_name, description: fmDesc || row.description, argumentHint: fmHint || row.argument_hint, source: 'publish' }); // #178 S14：已存技能同步吸收
   }
-  // 快照落盘
-  const { mkdirSync, writeFileSync } = await import('node:fs');
+  // 快照落盘：先写同级临时目录，写完整体改名成 v{N}——写到一半崩溃不留半个版本；
+  // v{N} 已在而库里没有这一版（旧回滚失败、崩溃留下的孤儿）就先挪进 .orphans/，绝不和旧内容混写（混进去的文件不在 tree_digest 里，安装会因指纹不符被拒）
   const snapDir = join(dataDir, skillSnapRel(slug, nextVer)); // #183：磁盘与 DB 同一函数（slug 唯一形）
-  mkdirSync(snapDir, { recursive: true });
-  const { dirname } = await import('node:path');
-  for (const f of blobs) {
-    const abs = join(snapDir, f.path);
-    mkdirSync(dirname(abs), { recursive: true }); // #94 S0②：子目录路径建父目录（docs/a.md 不再 500）
-    writeFileSync(abs, f.content);
-  }
-  S.versionInsert({ skillId: row.id, version: nextVer, changelog, treeDigest: t.digest, fileCount: t.fileCount, totalBytes: t.totalBytes, snapshotPath: `skill-snapshots/${encodeURIComponent(slug)}/v${nextVer}`, reviewedBy }); // S4：存 dataDir 相对形
+  const tmpDir = `${snapDir}.tmp-${randomBytes(6).toString('hex')}`;
+  try {
+    for (const f of blobs) {
+      const abs = join(tmpDir, f.path);
+      mkdirSync(dirname(abs), { recursive: true }); // #94 S0②：子目录路径建父目录（docs/a.md 不再 500）
+      writeFileSync(abs, f.content);
+    }
+    mkdirSync(tmpDir, { recursive: true }); // 空文件树也有目录（上面已校验非空，这里只兜底）
+    if (existsSync(snapDir)) {
+      const orphan = join(dirname(snapDir), '.orphans', `v${nextVer}-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+      mkdirSync(dirname(orphan), { recursive: true });
+      renameSync(snapDir, orphan);
+      console.warn(`[skill-publish] ${slug} v${nextVer}: 快照目录已存在但库里无此版本（孤儿），已挪到 ${relative(dataDir, orphan).split('\\').join('/')}`);
+    }
+    renameSync(tmpDir, snapDir);
+  } catch (e) { rmSync(tmpDir, { recursive: true, force: true }); throw e; }
+  try {
+    S.versionInsert({ skillId: row.id, version: nextVer, changelog, treeDigest: t.digest, fileCount: t.fileCount, totalBytes: t.totalBytes, snapshotPath: `skill-snapshots/${encodeURIComponent(slug)}/v${nextVer}`, reviewedBy }); // S4：存 dataDir 相对形
+  } catch (e) { rmSync(snapDir, { recursive: true, force: true }); throw e; } // 版本行没落下就不留目录（否则又是孤儿）
   S.setActive(row.id, null); // 发布新版即恢复跟随最新（回滚指针清掉）
   // Skill shadow remains non-blocking; its per-version outcome is durable/retryable like app publishing.
   // LayerFS 契约 v1 只收文本：含二进制的版本不推影子，记 skipped（与 migrate-layerfs 的留档不迁同义）
