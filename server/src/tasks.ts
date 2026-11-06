@@ -34,6 +34,8 @@ export interface TasksReadScope {
   subject: string;
   admin: boolean;
   yglProjects: 'all' | readonly string[];
+  /** Source key captured when grants are read; a changed target cannot inherit old grants. */
+  yglWorkspaceKey?: string | null;
   marketRunIds: 'all' | readonly number[];
   a2a: boolean;
 }
@@ -70,20 +72,18 @@ function yglProjectNameOk(name: string): boolean { return name.length >= 1 && na
 
 /** 无 shell 调 ygl-trees：node + 包内真实入口 dist/bundle/bin.cjs（Windows shim 不再经 shell:true）。
  *  入口解析边界：①node同目录node_modules ②PNPM_HOME ③APPDATA/npm。Linux全局PATH可达但非node同级布局不在支持内（降级ok=false），不引大解析系统。 */
-import { existsSync, realpathSync, statSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { existsSync, statSync } from 'node:fs';
+import { resolveYglTaskSource, type YglTaskSource } from './ygl-task-source.ts';
 import { join, dirname, isAbsolute } from 'node:path';
 
 export function taskWorkspaceKey(): string | null {
-  const home = process.env.YGL_HOME;
-  if (!home || !isAbsolute(home)) return null;
-  try {
-    const file = join(home, 'ygl-trees.db');
-    if (!statSync(file).isFile()) return null;
-    return createHash('sha256').update(realpathSync(file)).digest('hex');
-  } catch { return null; }
+  const result = resolveYglTaskSource();
+  return result.ok ? result.source.workspaceKey : null;
 }
 function yglCliEntry(): string | null {
+  if (process.env.YGL_BIN !== undefined) {
+    try { return isAbsolute(process.env.YGL_BIN) && statSync(process.env.YGL_BIN).isFile() ? process.env.YGL_BIN : null; } catch { return null; }
+  }
   for (const base of [dirname(process.execPath), process.env.PNPM_HOME, process.env.APPDATA ? process.env.APPDATA + '\\npm' : null]) {
     if (!base) continue;
     const cand = join(base, 'node_modules', 'ygl-trees', 'dist', 'bundle', 'bin.cjs');
@@ -92,12 +92,24 @@ function yglCliEntry(): string | null {
   return null;
 }
 
-function execYglJson(args: string[], timeoutMs: number, home: string): Promise<{ ok: boolean; parsed: unknown }> {
+function execYglJson(args: string[], timeoutMs: number, source: YglTaskSource): Promise<{ ok: boolean; parsed: unknown }> {
   return new Promise((resolve) => {
     const entry = yglCliEntry();
     if (!entry) return resolve({ ok: false, parsed: null });
     try {
-      execFile(process.execPath, [entry, ...args], { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, YGL_HOME: home } }, (err, stdout) => {
+      // PG task reads need the database credential, not the market's admin, GitHub,
+      // gateway or service tokens. Preserve legacy SQLite env behavior separately.
+      const env: NodeJS.ProcessEnv = source.backend === 'pg' ? {} : { ...process.env };
+      if (source.backend === 'pg') {
+        for (const key of ['PATH', 'HOME', 'USERPROFILE', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'TMPDIR', 'APPDATA', 'LOCALAPPDATA', 'LANG', 'LC_ALL', 'TZ', 'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'PGUSER', 'PGPASSWORD', 'PGPASSFILE', 'PGSSLMODE', 'PGSSLROOTCERT', 'PGSSLCERT', 'PGSSLKEY', 'PGSSLCRL', 'PGCONNECT_TIMEOUT', 'PGAPPNAME']) {
+          if (process.env[key] !== undefined) env[key] = process.env[key];
+        }
+        env.YGL_DB_URL = source.dbUrl;
+      } else delete env.YGL_DB_URL;
+      env.YGL_HOME = source.home;
+      env.YGL_SESSION = process.env.YGL_SESSION || 'workbench-tasks';
+      env.YGL_NO_UPDATE_CHECK = '1';
+      execFile(process.execPath, [entry, ...args], { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024, env }, (err, stdout) => {
         if (err) return resolve({ ok: false, parsed: null });
         try {
           const parsed = JSON.parse(String(stdout));
@@ -108,17 +120,19 @@ function execYglJson(args: string[], timeoutMs: number, home: string): Promise<{
   });
 }
 
-function execYglTasks(allowed: 'all' | readonly string[]): Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs: number; error?: string; degradedProjects?: string[] }> {
+function execYglTasks(allowed: 'all' | readonly string[], expectedKey?: string | null): Promise<{ ok: boolean; tasks: TaskEnvelope[]; latencyMs: number; error?: string; degradedProjects?: string[] }> {
   const t0 = Date.now();
   const maxProjects = yglMaxProjects(), totalBudgetMs = yglTotalBudgetMs();
   return (async () => {
     if (allowed !== 'all' && allowed.length === 0) return { ok: false, tasks: [], latencyMs: 0, error: 'source_not_authorized' };
-    if (!taskWorkspaceKey()) return { ok: false, tasks: [], latencyMs: 0, error: 'ygl_home_required' };
-    const home = process.env.YGL_HOME!;
+    const resolved = resolveYglTaskSource();
+    if (!resolved.ok) return { ok: false, tasks: [], latencyMs: 0, error: resolved.error };
+    const source = resolved.source;
+    if (allowed !== 'all' && expectedKey !== source.workspaceKey) return { ok: false, tasks: [], latencyMs: 0, error: 'source_not_authorized' };
     // Only admin enumerates workspace projects. Scoped users never query ungranted project metadata.
     let names: string[];
     if (allowed === 'all') {
-      const projRes = await execYglJson(['project', 'list', '--json'], YGL_PER_CALL_TIMEOUT_MS, home);
+      const projRes = await execYglJson(['project', 'list', '--json'], YGL_PER_CALL_TIMEOUT_MS, source);
       if (!projRes.ok || !Array.isArray(projRes.parsed)) return { ok: false, tasks: [], latencyMs: Date.now() - t0, error: 'ygl_source_failed' };
       names = (projRes.parsed as { name: string; status: string }[]).filter(x => x && typeof x.name === 'string' && x.status === 'active').map(x => x.name);
     } else names = [...new Set(allowed)];
@@ -135,7 +149,7 @@ function execYglTasks(allowed: 'all' | readonly string[]): Promise<{ ok: boolean
         if (remaining <= 0) break; // 预算耗尽：剩余项目计入 budget-exhausted
         const name = queue.shift()!;
         if (!yglProjectNameOk(name)) { results.push({ project: name, ok: false, rows: [] }); continue; } // 空名/超长/null字节：显式拒绝
-        const res = await execYglJson(['task', 'list', '--json', '--project=' + name], Math.max(200, Math.min(YGL_PER_CALL_TIMEOUT_MS, remaining)), home);
+        const res = await execYglJson(['task', 'list', '--json', '--project=' + name], Math.max(200, Math.min(YGL_PER_CALL_TIMEOUT_MS, remaining)), source);
         // 形状校验：task list 合法输出是数组；{error:...} 对象/rc0 视为该源失败（S3）
         const rows = res.ok && Array.isArray(res.parsed) ? (res.parsed as unknown[]) : [];
         results.push({ project: name, ok: res.ok && Array.isArray(res.parsed), rows });
@@ -296,7 +310,7 @@ export async function collectTasks(sop: SopServiceLike, scope: TasksReadScope): 
   if (!scope.admin && (scope.yglProjects === 'all' || scope.marketRunIds === 'all' || scope.a2a)) throw new Error('tasks_scope_invalid');
   const authorizedMarket = scope.marketRunIds === 'all' || scope.marketRunIds.length > 0;
   const [yglResult, marketResult, a2aResult] = await Promise.allSettled([
-    execYglTasks(scope.yglProjects),
+    execYglTasks(scope.yglProjects, scope.yglWorkspaceKey),
     Promise.resolve().then(() => authorizedMarket ? [...marketTasks(sop, scope), ...(scope.admin ? changeRequestTasks() : [])] : []),
     a2aEnabled() && scope.a2a ? fetchA2aTasks() : Promise.resolve(null),
   ]);

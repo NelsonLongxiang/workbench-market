@@ -26,7 +26,13 @@ GET /api/tasks 在任何私有来源查询前判权：
 
 ## 显式 ygl 项目授权
 
-新增 task_source_read_grants 仅存 source=ygl-trees、经验证主体 user:<login>、精确project、工作区真实数据库路径摘要、UTC到期、授予人、创建/撤销时间。没有默认授权、通配授权或自动迁移。工作区必须显式绝对YGL_HOME并已有ygl-trees.db；缺失时不回落个人默认库，源返回ygl_home_required。
+新增 task_source_read_grants 仅存 source=ygl-trees、经验证主体 user:<login>、精确project、工作区标识摘要、UTC到期、授予人、创建/撤销时间。没有默认授权、通配授权或自动迁移。工作区必须显式绝对YGL_HOME；未配置时不回落个人默认库，源返回ygl_home_required。
+
+- SQLite 保留原口径：已有 ygl-trees.db，以其 realpath 的 SHA-256 绑定。
+- PG 显式配置 YGL_DB_URL 或 YGL_DB_URL_FILE（绝对 secret 文件，优先于环境 URL）；使用独立、不含 ygl-trees.db 的 YGL_HOME，不需要创建 SQLite 文件。数据库目标标识对齐 ygl-trees pgTargetHash（规范化 host/port/database，不含账号与密码），再以 PG 独立命名空间生成 workspace_sha256。换密码不失效，换 host/database 或 SQLite→PG 不能复用旧授权；不自动搬迁 grants。目录内已有 pg-binding.json 必须与目标一致；PG 配置无效/空 secret/文件不可读/混合后端/绑定冲突返回 ygl_source_config_invalid，不降级 SQLite。URL 的 host/db/service/options 覆盖参数拒绝。
+- `YGL_DB_URL_FILE` 若已设置则优先，其空值或不可读均拒绝；只有该文件键未设置时才读取 `YGL_DB_URL`，其显式空值也拒绝。仅两键均未设置时才允许旧 SQLite 兼容分支。
+- 授权解析时捕获工作区键，实际查询前再比对；同一次请求中 secret/目标变化不能把旧项目授权带到新库。
+- YGL_BIN 可显式指定绝对 CLI JavaScript 入口，缺失或非法显式值不回落其它入口。CLI 以 node+argv 运行，不用 shell，不把 PG URL 放 argv；PG 模式只向子进程传运行环境、PG 连接/TLS 所需变量、已解析 URL 和专用 session，不继承市场管理员、GitHub、AI 网关或 LayerFS 等应用凭据，并禁止更新检查。旧 SQLite 兼容模式保留原有环境行为。必须部署支持 task list 的 PG 引擎；旧引擎拒绝显示来源故障，不显示假空成功。
 
 经既有管理门：
 

@@ -127,8 +127,13 @@ jobs:
         run: node scripts/check-server-syntax.mjs
       - name: Startup security self-probe (#326, loopback synthetic only)
         run: node scripts/startup-security-self-probe-test.mjs && node scripts/startup-security-self-probe-http-test.mjs && node scripts/startup-security-self-probe-upgrade-test.mjs
-      - name: Tasks identity and project/run grant isolation (#324, synthetic only)
-        run: node scripts/tasks-read-authority-http-test.mjs
+      - name: Tasks PG source and project/run grant isolation (#324, synthetic only)
+        run: |
+          node scripts/ygl-task-source-test.mjs
+          node scripts/ygl-pg-catalog-unit-test.mjs
+          node scripts/ygl-pg-snapshot-path-test.mjs
+          node scripts/tasks-read-authority-http-test.mjs
+          WM_TASK_TEST_BACKEND=pg node scripts/tasks-read-authority-http-test.mjs
       - name: Redis ready recovery and durable-generation rebound (#351, synthetic only)
         run: node scripts/redis-ready-state-test.mjs && node scripts/redis-ready-recovery-http-test.mjs && node scripts/redis-ready-fingerprint-mutation.mjs
       - name: SOP checkpoint deadlines and active-list completeness (#337, #338; synthetic only)

@@ -1754,7 +1754,7 @@ app.get(/^\/sop\/[a-z0-9][a-z0-9-]*(\/.*)?$/, (req, res) => {
 // core 函数为唯一持久化链：REST 与 MCP（sop_run_* 工具）共用——agent 更新持久化执行数据
 // 与人在 Runner 页填数据走同一条链（GH #17 P4 的执行数据面提前交付，不经版本发布）。
 const runCheckpoints = createRunCheckpoints({
-  write(id, data) { svc<SopService>('sop').runCheckpointData(id, data); },
+  write(id, data) { return svc<SopService>('sop').runCheckpointData(id, data); },
 });
 function runCacheCheckpoint(row: SopRunRow): string {
   // Namespace + durable revision prevent cache collisions, partial writes and same-value ABA resurrection.
@@ -1840,7 +1840,7 @@ async function sopRunGetCore(id: number): Promise<{ id: number; sop_slug: string
       const pending = runCheckpoints.peek(id);
       const hot = pending ? null : await runStateLoad(id, runCacheCheckpoint(row));
       data = pending ?? { ...data, ...(hot?.meta.status === 'running' ? hot.data : {}) };
-      if (hot?.meta.status === 'running') runCheckpoints.remember(id, data); // recovered acknowledged hot state must not stay uncheckpointed after restart
+      if (hot?.meta.status === 'running') await runCheckpoints.remember(id, data); // recovered acknowledged hot state must not stay uncheckpointed after restart
       if (redisHealthy() && !hot) await runStateRestore(id, { slug: row.sop_slug, version: row.sop_version, status: row.status, started_by: row.started_by, updated_at: Date.now() }, data, runCacheCheckpoint(row));
     }
     // 时间字段与无读凭证的元数据视图（sopRunGetMeta）、sop_run_list 一致
@@ -3382,7 +3382,7 @@ app.post('/a2a/direct', express.json({ limit: '600kb' }), async (req, res) => {
         svc<SopService>('sop').runUpdateData(runId, JSON.stringify(data));
         runCheckpoints.forget(runId); // pure SQLite path must never retain a stale note snapshot
       } else {
-        runCheckpoints.remember(runId, data, true); // delivered note requires SQLite success before cache publication
+        await runCheckpoints.remember(runId, data, true); // delivered note requires SQLite success before cache publication
         await runStateRestore(runId, { slug: row.sop_slug, version: row.sop_version, status: row.status, started_by: row.started_by, updated_at: Date.now() }, data, runCacheCheckpoint(sopRunRow(runId)));
       }
     }),

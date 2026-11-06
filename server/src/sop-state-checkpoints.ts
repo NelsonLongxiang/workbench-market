@@ -1,7 +1,10 @@
-/** #337: one per-run queue and an actual deadline for acknowledged hot writes. */
+/** #337: one per-run queue and an actual deadline for acknowledged hot writes.
+ * Mutating operations belong inside serial(); durable writes may complete asynchronously.
+ * This coordinator does not select a database backend or recover unvisited hot state.
+ */
 type Data = Record<string, unknown>;
 export function createRunCheckpoints({ write, intervalMs = 30_000, onError = () => console.error('[sop-checkpoint] sqlite_write_failed') }: {
-  write: (id: number, data: string) => void;
+  write: (id: number, data: string) => unknown | Promise<unknown>;
   intervalMs?: number;
   onError?: () => void;
 }) {
@@ -15,10 +18,10 @@ export function createRunCheckpoints({ write, intervalMs = 30_000, onError = () 
     void next.finally(() => { if (queues.get(id) === next) queues.delete(id); }).catch(() => {});
     return next;
   }
-  function flush(id: number): void {
+  async function flush(id: number): Promise<void> {
     const item = states.get(id);
     if (!item?.dirty) return;
-    write(id, JSON.stringify(item.data)); // failure retains the acknowledged snapshot
+    await write(id, JSON.stringify(item.data)); // commit rejection retains the acknowledged snapshot
     if (item.timer) clearTimeout(item.timer);
     item.timer = undefined; item.dirty = false; item.at = Date.now();
   }
@@ -28,7 +31,7 @@ export function createRunCheckpoints({ write, intervalMs = 30_000, onError = () 
     item.timer = setTimeout(() => {
       item.timer = undefined;
       void serial(id, async () => {
-        try { flush(id); } catch { onError(); arm(id, intervalMs); }
+        try { await flush(id); } catch { onError(); arm(id, intervalMs); }
       }).catch(() => onError());
     }, delay);
     item.timer.unref?.();
@@ -41,14 +44,14 @@ export function createRunCheckpoints({ write, intervalMs = 30_000, onError = () 
     forget(id);
     if (prior) { states.set(id, prior); arm(id, Math.max(0, intervalMs - (Date.now() - prior.at))); }
   }
-  function remember(id: number, data: Data, force = false): boolean {
+  async function remember(id: number, data: Data, force = false): Promise<boolean> {
     const prior = snapshot(id);
     let item = states.get(id);
     if (item) { item.data = structuredClone(data); item.dirty = true; }
     else { item = { data: structuredClone(data), dirty: true, at: 0 }; states.set(id, item); }
     const left = intervalMs - (Date.now() - item.at);
     if (force || left <= 0) {
-      try { flush(id); } catch (error) { restore(id, prior); throw error; }
+      try { await flush(id); } catch (error) { restore(id, prior); throw error; }
       return true;
     }
     arm(id, left); // not a debounce: later edits never postpone the deadline
@@ -56,10 +59,10 @@ export function createRunCheckpoints({ write, intervalMs = 30_000, onError = () 
   }
   async function save(id: number, data: Data, publish: () => Promise<boolean>): Promise<boolean> {
     const prior = snapshot(id);
-    const durable = remember(id, data); // synchronous failure must happen before publication
+    const durable = await remember(id, data); // await durable commit before publication, including asynchronous stores
     const hotOk = await publish();
     if (!hotOk && !durable) {
-      try { remember(id, data, true); } catch (error) { restore(id, prior); throw error; }
+      try { await remember(id, data, true); } catch (error) { restore(id, prior); throw error; }
     }
     return hotOk;
   }
@@ -72,11 +75,11 @@ export function createRunCheckpoints({ write, intervalMs = 30_000, onError = () 
     if (timer) clearTimeout(timer);
     states.delete(id);
   }
-  function flushAll(): void { for (const id of states.keys()) flush(id); }
+  async function flushAll(): Promise<void> { for (const id of states.keys()) await flush(id); }
   async function close(): Promise<void> {
     closing = true;
     await Promise.allSettled([...queues.values()]);
-    flushAll();
+    await flushAll();
     for (const id of states.keys()) forget(id);
   }
   return { serial, remember, save, peek, forget, flushAll, close };

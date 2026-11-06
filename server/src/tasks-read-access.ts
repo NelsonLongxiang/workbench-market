@@ -17,7 +17,7 @@ export async function tasksReadAccess(adminOk: boolean, cookie: string): Promise
     const projects = workspace ? (db.prepare("SELECT DISTINCT project FROM task_source_read_grants WHERE subject=? AND source='ygl-trees' AND workspace_sha256=? AND revoked_at='' AND datetime(expires_at)>datetime('now')").all(subject, workspace) as { project: string }[]).map(r => r.project) : [];
     // Match the run-detail authority: newest unrevoked grant decides expiry.
     const runs = (db.prepare("SELECT DISTINCT run_id FROM sop_run_read_grants WHERE subject=? AND revoked_at=''").all(subject) as { run_id: number }[]).map(r => Number(r.run_id)).filter(id => runGrantActive(id, subject));
-    return { ok: true, scope: { subject, admin: false, yglProjects: projects, marketRunIds: runs, a2a: false } };
+    return { ok: true, scope: { subject, admin: false, yglProjects: projects, yglWorkspaceKey: workspace, marketRunIds: runs, a2a: false } };
   } catch { return { ok: false, http: 503, error: 'tasks_authority_unavailable' }; }
 }
 
