@@ -35,6 +35,12 @@ YGL 来源候选不改变市场本体的 `DatabaseSync` 启动路径。市场认
 
 这不引入 PG 驱动、不改市场数据库选择、不解决冷进程未访问热态的恢复，也不消除现有 30s 热写窗口。迁移前仍须保护 SQLite/WAL 与 Redis，并在原身份下核对全部已确认热态；更改 DATA_DIR 或启动一个未读 run 的进程再优雅退出，不是热态已经落盘的证据。附件字节存储范围仍须业务确认，不默认删改原文件。
 
+### PG 事务连接基础层（未接入运行入口）
+
+`server/src/pg-transaction.ts` 注入兼容 pg 的 pool，单次事务只 checkout 一条连接，BEGIN/业务查询/COMMIT/ROLLBACK 均绑定该连接；不使用 pool.query 拼事务。callback 或任一查询失败（即使被 callback catch）都不返回成功，回滚失败和提交结果不确定时销毁连接，不自动重试或重放。查询 scope 在 callback 结束后过期，已发出的异步查询完成后才提交或回滚。callback 只接受可信服务端原生 PG SQL，不是 SQL 防火墙；不得自行提交事务或传入不可信 SQL。
+
+本层不读取数据库配置、不导入 db.ts、不装载 SQLite，也没有接入市场启动或领域服务。`node scripts/pg-transaction-test.mjs` 用确定性注入检验生命周期；`scripts/pg-transaction-integration.mjs` 须显式给出本机已有的两个 sha256 镜像，自动创建 nonce 标记的内部网络、tmpfs PostgreSQL/SCRAM 与一次性 runner，拒绝 URL/host/生产目标参数，不发布宿主端口，结束核身份清理。runner 用测试镜像已有的 pg 驱动执行当前源码，因此不是该镜像本身通过新版验证，亦不代表原生领域迁移/部署完成。真实延迟约束提交失败只证明这一失败分支，不替代网络断开时提交结果不确定的恢复验证。
+
 ## 验证范围
 
 迁移回归的无效目标用例自行构造旧格式的声明摘要，不调用会提前拒绝该目标的新引擎来生成测试输入；按实际引擎拒绝顺序核对稳定错误码与失败报告，并用 Socket 正控证明空 host/歧义库名在连接前拒绝。另用旧身份函数测试本地守卫，避免新引擎的先拒绝掩盖迁移工具自身回归。
