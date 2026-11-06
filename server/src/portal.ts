@@ -300,6 +300,47 @@ export function installPortal(
         delete proxyRes.headers['content-security-policy'];
         // #292 M5：上游可发 Service-Worker-Allowed: / 把 SW 作用域扩到全站（市场源上 HTTPS/localhost 时可常驻接管所有页面、截获管理员口令）
         delete proxyRes.headers['service-worker-allowed'];
+        // 台地址带路径（base）时 /go/N/<p> 只对应上游 base+<p>。上游跳到 base 之外照旧硬拼成 /go/N/<loc>（issue #4 的契约，
+        // E2E redir-relative：base /xfo、跳 /landed → /go/N/landed）。但若跳转目标里还含着刚请求的上游路径
+        // （如 Odoo 台登记成 …/web，语言跳转 /web/ → /zh_CN/web/），硬拼后再请求就是 base+/zh_CN/web/，每跳叠一层、永不收敛。
+        // 只有这种自增长跳转才 502 说明原因，不让浏览器进循环；修法是把台地址改成上游的源（不带路径）。
+        const outsideBase = (() => {
+          const loc = proxyRes.headers.location, base = (req as express.Request & { goBase?: string }).goBase ?? '';
+          if (typeof loc !== 'string' || !base) return false;
+          let p: string | null = null;
+          if (loc.startsWith('/') && !loc.startsWith('//')) p = loc;
+          else if (/^https?:\/\//i.test(loc)) {
+            try { const lu = new URL(loc); if (lu.origin === (req as express.Request & { goOrigin?: string }).goOrigin) p = lu.pathname; } catch { /* 异常 URL 透传 */ }
+          }
+          if (p === null) return false;
+          const path = p.split(/[?#]/)[0];
+          if (path === base || path.startsWith(base + '/')) return false;
+          // req.url 此时已是上游路径（pathRewrite 之后）；去掉尾斜杠再比，/web/ 与 /zh_CN/web/ 也算包含
+          const upPath = String(req.url ?? '').split(/[?#]/)[0].replace(/\/+$/, '');
+          // 按路径段比：两边补尾斜杠再比，/website/info 不算含 /web（子串比会误拦，见 #458 评审 R1）
+          return upPath.length > 1 && (path.replace(/\/+$/, '') + '/').includes(upPath + '/');
+        })();
+        if (outsideBase) {
+          const wid0 = (req as express.Request & { goWid?: string }).goWid ?? '?';
+          const base0 = (req as express.Request & { goBase?: string }).goBase ?? '';
+          console.warn('[go-outside-base]', `/go/${wid0}/`, `base ${base0}`, '上游跳转落在台地址路径之外，已拦下');
+          const body = Buffer.from(JSON.stringify({
+            error: 'go_redirect_outside_base',
+            detail: `工作台 ${wid0} 的登记地址带路径 ${base0}，上游跳到了这个路径之外，门户无法映射（硬拼会逐跳叠加前缀）。请把该台地址改成上游的源（不带路径）。`,
+          }));
+          proxyRes.statusCode = 502;
+          proxyRes.statusMessage = 'Bad Gateway'; // 否则抄上游原因短语，状态行成了「502 See Other」
+          delete proxyRes.headers.location;
+          delete proxyRes.headers['content-length'];
+          delete (proxyRes.headers as any)['transfer-encoding'];
+          delete proxyRes.headers['content-encoding'];
+          proxyRes.headers['content-type'] = 'application/json; charset=utf-8';
+          proxyRes.headers['cache-control'] = 'no-store';
+          const origEnd = res.end.bind(res);
+          (res as any).write = () => true; // 丢弃上游 3xx 正文
+          (res as any).end = () => { try { res.removeHeader('transfer-encoding'); } catch { /* 未设 */ } res.setHeader('content-length', String(body.length)); return origEnd(body); };
+          return;
+        }
         // Pocket meta-refresh 改写（.157 DSH 台实测根因）：DSH Pocket（如 13080 端口）在
         // token→cookie 交换后返回 <meta refresh url=/>，在门户上下文 / 会跳回市场 SPA 根。
         // 仅对 HTML 响应包装 res.write/end 做字符串替换（JSON/二进制零开销透传）。
@@ -328,10 +369,13 @@ export function installPortal(
             // 白屏修（监督席 direct-9cd36827）：SPA 绝对路径资产引用改写——src="/…"·href="/…" → /go/<wid>/…
             // 排除：//协议相对·data:/http(s): 等 scheme·已带 /go/ 前缀·单引号同款兼容
             const goBase = `/go/${pWid}`;
+            // 台地址自带路径时，上游页面里 base 下的绝对路径先去掉 base（/go/N/<p> 会再拼回 base+<p>，不去掉就成 base+base+<p>）
+            const upBase = (req as express.Request & { goBase?: string }).goBase ?? '';
+            const stripBase = (u: string) => (upBase && (u === upBase || u.startsWith(upBase + '/') || u.startsWith(upBase + '?') || u.startsWith(upBase + '#')) ? (u.slice(upBase.length).startsWith('/') ? u.slice(upBase.length) : '/' + u.slice(upBase.length)) : u);
             const fixAttr = (m: string, name: string, q: string, url: string) => {
               if (!url.startsWith('/') || url.startsWith('//') || url.startsWith(goBase + '/')) return m;
               if (/^\/go\/\d+\//.test(url)) return m; // 已是任意 /go/N/ 形
-              return `${name}=${q}${goBase}${url}${q}`;
+              return `${name}=${q}${goBase}${stripBase(url)}${q}`;
             };
             if (pCt.includes('text/html')) {
               body = body.replace(/(src|href)=(["'])(\/[^"']*)\2/gi, (m, n, q, u) => fixAttr(m, n, q, u));
@@ -340,7 +384,7 @@ export function installPortal(
               if (_tgtOrigin) body = body.replace(/(src|href)=(["'])(https?:\/\/[^"']+)\2/gi, (m, n, q, u) => {
                 if (!u.startsWith(_tgtOrigin)) return m;
                 const rest = u.slice(_tgtOrigin.length) || '/';
-                return n + '=' + q + goBase + rest + q;
+                return n + '=' + q + goBase + stripBase(rest) + q;
               });
             }
             // 白屏第二层（监督席 direct-aa94cbd4）：Vite 动态 chunk——JS/CSS 内绝对 /assets/ 前缀改写（仅此单前缀·避免误伤）
@@ -367,13 +411,15 @@ export function installPortal(
           {
             const base = (req as express.Request & { goBase?: string }).goBase ?? '';
             if (loc.startsWith('/')) {
-              proxyRes.headers.location = `/go/${wid}${loc.startsWith(base + '/') ? loc.slice(base.length) : loc}`;
+              // base 本身（/web、/web?x）映射到台根 /go/N/，base 下的路径去掉 base；base 之外的自增长跳转已在上面拦成 502，其余照 issue #4 映射
+              const inBase = base && (loc === base || loc.startsWith(base + '?') || loc.startsWith(base + '#'));
+              proxyRes.headers.location = `/go/${wid}${inBase ? '/' + loc.slice(base.length) : loc.startsWith(base + '/') ? loc.slice(base.length) : loc}`;
             } else if (/^https?:\/\//i.test(loc)) {
               try {
                 const lu = new URL(loc);
                 if (lu.origin === (req as express.Request & { goOrigin?: string }).goOrigin) {
                   let p = lu.pathname;
-                  if (base && p.startsWith(base)) p = p.slice(base.length);
+                  if (base && (p === base || p.startsWith(base + '/'))) p = p.slice(base.length) || '/';
                   proxyRes.headers.location = `/go/${wid}${p}${lu.search}${lu.hash}`;
                 }
               } catch { /* 异常 URL 透传 */ }
