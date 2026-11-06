@@ -2504,19 +2504,34 @@ function skillPackage(row: any, target: any, dir: string): Buffer {
   files.push({ path: SKILL_PKG_META, content: Buffer.from(JSON.stringify(meta, null, 2) + '\n', 'utf8') }, { path: SKILL_PKG_VERIFY, content: skillVerifyScript() });
   return gzipSync(ustarTar(files, { prefix: name + '/' }));
 }
+/** 安装命令里会拼进对外地址：只收规范的 http(s)://主机[:端口]，带引号等字符的 Host 头直接拒（没设 MARKET_PUBLIC_URL 时取自请求） */
+function skillDownloadOrigin(origin: string): string {
+  let u: URL | null = null;
+  try { u = new URL(origin); } catch { /* 下面统一报 */ }
+  if (!u || !/^https?:$/.test(u.protocol) || u.username || u.password || u.pathname !== '/' || u.search || u.hash || !/^[A-Za-z0-9.\-\[\]:]+$/.test(u.host)) {
+    throw new HttpError(400, '无法确定市场对外地址，不签发下载链接；请部署方设置 MARKET_PUBLIC_URL');
+  }
+  return u.origin;
+}
 function skillDownloadIssue(slugIn: unknown, versionIn: unknown, issuedTo: string, origin: string): Record<string, unknown> {
+  const base = skillDownloadOrigin(origin);
   const { row, target } = skillVersionDir(slugIn, versionIn);
   const id = randomBytes(32).toString('hex');
   const exp = Date.now() + SKILL_DL_TTL_MS;
   db.prepare('DELETE FROM skill_download_tickets WHERE expires_at < ?').run(Date.now() - 86400_000); // 过期一天的票顺手清掉
   db.prepare('INSERT INTO skill_download_tickets (id, slug, version, issued_to, expires_at) VALUES (?, ?, ?, ?, ?)').run(id, row.slug, target.version, issuedTo, exp);
   const name = skillPkgDir(row.slug);
-  const url = `${origin}/api/skills/dl/${id}`;
+  const url = `${base}/api/skills/dl/${id}`;
+  // 安装链只信 MCP 应答（会话通道）里的两个值：先核对包里脚本 = 市场模板，再让脚本核对清单指纹 = 应答 tree_digest
+  const scriptSha = createHash('sha256').update(skillVerifyScript()).digest('hex');
+  const script = `"$d/${name}/${SKILL_PKG_VERIFY}"`;
+  const checkScript = `node -e 'const h=require("crypto").createHash("sha256").update(require("fs").readFileSync(process.argv[1])).digest("hex");if(h!==process.argv[2]){console.error("校验脚本不是市场模板，已停止");process.exit(2)}' ${script} ${scriptSha}`;
   return {
     slug: row.slug, version: target.version, tree_digest: target.tree_digest, file_count: target.file_count, total_bytes: target.total_bytes,
     download_url: url, expires_at: new Date(exp).toISOString(), package_dir: name, install_dir: `${SKILL_INSTALL_ROOT}/${name}`,
-    install_command: `d=$(mktemp -d) && curl -fsSL '${url}' -o "$d/pkg.tgz" && tar -xzf "$d/pkg.tgz" -C "$d" && node "$d/${name}/${SKILL_PKG_VERIFY}" --install; rm -rf "$d"`,
-    verify_command: `node ${SKILL_INSTALL_ROOT}/${name}/${SKILL_PKG_VERIFY}`,
+    verify_script_sha256: scriptSha,
+    install_command: `d=$(mktemp -d) && curl -fsSL '${url}' -o "$d/pkg.tgz" && tar -xzf "$d/pkg.tgz" -C "$d" && ${checkScript} && node ${script} --install --expect ${target.tree_digest}; rc=$?; rm -rf "$d"; (exit $rc)`, // 清理临时目录但保留安装结果的返回码
+    verify_command: `node ${SKILL_INSTALL_ROOT}/${name}/${SKILL_PKG_VERIFY} --expect ${target.tree_digest}`,
   };
 }
 app.get('/api/skills/dl/:ticket', (req, res) => {

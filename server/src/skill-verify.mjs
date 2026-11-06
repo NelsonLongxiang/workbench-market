@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /** 工作台市场技能包自带的校验/安装脚本（市场打包时原样放进每个技能包，文件名 .wm-skill-verify.mjs；只依赖 Node 内置模块）。
  *
- *  校验：node .wm-skill-verify.mjs [--dir <技能目录>]
+ *  校验：node .wm-skill-verify.mjs [--dir <技能目录>] [--expect <tree_digest>]
  *        按同目录 .wm-skill.json 的清单逐文件比 sha256，列出新增/缺失/被改的文件，并重算整版指纹；一致 rc=0，不一致 rc=1。
- *  安装：node .wm-skill-verify.mjs --install [--root <技能根目录>]
- *        在解压出的包目录里运行：先校验包本身（不一致 rc=2，什么都不动），再把已装的旧版本移进
+ *  安装：node .wm-skill-verify.mjs --install --expect <tree_digest> [--root <技能根目录>]
+ *        在解压出的包目录里运行。--expect 必填，取 MCP skill_download 应答里的 tree_digest：包里的清单可能随包一起被换掉，
+ *        只有应答里的值能证明包是市场发的。先校验包本身（清单指纹 ≠ --expect、或文件与清单不一致 rc=2，什么都不动），再把已装的旧版本移进
  *        <root>/.backups/<目录名>/（每个技能最多留 3 个），最后整体换上新版本。root 缺省 ~/.workbench-market/skills。
  *  输出都是一行 JSON。 */
 import { createHash, randomBytes } from 'node:crypto';
@@ -26,7 +27,8 @@ function walk(root) {
     for (const e of readdirSync(d, { withFileTypes: true })) {
       const p = join(d, e.name), r = rel + e.name;
       if (e.isDirectory()) go(p, r + '/');
-      else if (e.isFile() && r !== META && r !== SELF) out.push({ path: r, bytes: readFileSync(p) });
+      else if (!e.isFile()) out.push({ path: r, bytes: null }); // 符号链接、设备文件等：清单里不会有，一律算新增，校验不通过
+      else if (r !== META && r !== SELF) out.push({ path: r, bytes: readFileSync(p) });
     }
   })(root, '');
   return out.sort((a, b) => cmp(a.path, b.path));
@@ -35,7 +37,7 @@ function walk(root) {
 /** 与市场 tree_digest 同一算法：按路径字节序排序，逐个喂「路径 \0 文件sha256 \0」 */
 function treeDigest(files) {
   const h = createHash('sha256');
-  for (const f of files) { h.update(f.path); h.update('\0'); h.update(sha(f.bytes)); h.update('\0'); }
+  for (const f of files) { if (!f.bytes) continue; h.update(f.path); h.update('\0'); h.update(sha(f.bytes)); h.update('\0'); }
   return h.digest('hex');
 }
 
@@ -48,7 +50,7 @@ function verify(dir) {
   const added = [], modified = [];
   for (const f of have) {
     seen.add(f.path);
-    if (!want.has(f.path)) added.push(f.path);
+    if (!f.bytes || !want.has(f.path)) added.push(f.path);
     else if (want.get(f.path) !== sha(f.bytes)) modified.push(f.path);
   }
   const missing = [...want.keys()].filter((p) => !seen.has(p)).sort(cmp);
@@ -61,8 +63,10 @@ function stamp() {
   return new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
 }
 
-function install(src, root) {
+function install(src, root, expect) {
+  if (!/^[0-9a-f]{64}$/.test(String(expect ?? ''))) return { rc: 2, out: { ok: false, step: 'verify-package', error: '--install 必须带 --expect <tree_digest>（取 MCP skill_download 应答里的值）', note: '未做任何改动' } };
   const pkg = verify(src);
+  if (pkg.tree_digest !== expect) return { rc: 2, out: { ok: false, step: 'verify-package', ...pkg, expected: expect, note: '包里清单的指纹与市场应答不符（包可能被整体替换），未做任何改动' } };
   if (!pkg.ok) return { rc: 2, out: { ok: false, step: 'verify-package', ...pkg, note: '包与清单不一致，未做任何改动' } };
   const meta = JSON.parse(readFileSync(join(src, META), 'utf8'));
   const name = String(meta.dir ?? basename(src));
@@ -104,11 +108,13 @@ const args = process.argv.slice(2);
 const opt = (k) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : undefined; };
 const here = dirname(fileURLToPath(import.meta.url));
 if (args.includes('--install')) {
-  const { rc, out } = install(here, resolve(opt('--root') ?? join(homedir(), '.workbench-market', 'skills')));
+  const { rc, out } = install(here, resolve(opt('--root') ?? join(homedir(), '.workbench-market', 'skills')), opt('--expect'));
   console.log(JSON.stringify(out));
   process.exitCode = rc;
 } else {
   const out = verify(resolve(opt('--dir') ?? here));
+  const expect = opt('--expect');
+  if (expect !== undefined && out.tree_digest !== expect) { out.ok = false; out.expected = expect; }
   console.log(JSON.stringify(out));
   process.exitCode = out.ok ? 0 : 1;
 }
