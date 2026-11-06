@@ -9,7 +9,7 @@
  *        <root>/.backups/<目录名>/（每个技能最多留 3 个），最后整体换上新版本。root 缺省 ~/.workbench-market/skills。
  *  输出都是一行 JSON。 */
 import { createHash, randomBytes } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,7 +27,9 @@ function walk(root) {
     for (const e of readdirSync(d, { withFileTypes: true })) {
       const p = join(d, e.name), r = rel + e.name;
       if (e.isDirectory()) go(p, r + '/');
-      else if (!e.isFile()) out.push({ path: r, bytes: null }); // 符号链接、设备文件等：清单里不会有，一律算新增，校验不通过
+      // 符号链接、硬链接、设备文件等一律拒绝整包（不是跳过）：清单里只会有普通文件
+      else if (!e.isFile()) out.push({ path: r, bytes: null, reject: e.isSymbolicLink() ? 'symlink' : 'not-regular-file' });
+      else if (lstatSync(p).nlink > 1) out.push({ path: r, bytes: null, reject: 'hardlink' });
       else if (r !== META && r !== SELF) out.push({ path: r, bytes: readFileSync(p) });
     }
   })(root, '');
@@ -46,6 +48,9 @@ function verify(dir) {
   try { meta = JSON.parse(readFileSync(join(dir, META), 'utf8')); } catch { return { ok: false, dir, error: `读不到 ${META}` }; }
   const want = new Map((meta.files ?? []).map((f) => [f.path, f.sha256]));
   const have = walk(dir);
+  // 清单里的路径也要合规：绝对路径、反斜杠、空 / . / .. 段一律拒绝
+  const rejected = [...want.keys()].filter((p) => typeof p !== 'string' || !p || p.startsWith('/') || /^[A-Za-z]:/.test(p) || p.includes('\\') || p.split('/').some((g) => g === '' || g === '.' || g === '..')).map((p) => ({ path: String(p), reason: 'manifest-path' }));
+  rejected.push(...have.filter((f) => f.reject).map((f) => ({ path: f.path, reason: f.reject })));
   const seen = new Set();
   const added = [], modified = [];
   for (const f of have) {
@@ -55,8 +60,8 @@ function verify(dir) {
   }
   const missing = [...want.keys()].filter((p) => !seen.has(p)).sort(cmp);
   const actual = treeDigest(have);
-  const ok = added.length === 0 && modified.length === 0 && missing.length === 0 && actual === meta.tree_digest;
-  return { ok, dir, slug: meta.slug, version: meta.version, tree_digest: meta.tree_digest, actual_digest: actual, added, missing, modified };
+  const ok = rejected.length === 0 && added.length === 0 && modified.length === 0 && missing.length === 0 && actual === meta.tree_digest;
+  return { ok, dir, slug: meta.slug, version: meta.version, tree_digest: meta.tree_digest, actual_digest: actual, rejected, added, missing, modified };
 }
 
 function stamp() {
@@ -69,8 +74,10 @@ function install(src, root, expect) {
   if (pkg.tree_digest !== expect) return { rc: 2, out: { ok: false, step: 'verify-package', ...pkg, expected: expect, note: '包里清单的指纹与市场应答不符（包可能被整体替换），未做任何改动' } };
   if (!pkg.ok) return { rc: 2, out: { ok: false, step: 'verify-package', ...pkg, note: '包与清单不一致，未做任何改动' } };
   const meta = JSON.parse(readFileSync(join(src, META), 'utf8'));
-  const name = String(meta.dir ?? basename(src));
+  const name = String(meta.dir ?? '');
   if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(name)) return { rc: 2, out: { ok: false, step: 'verify-package', error: `目录名非法: ${name}` } };
+  // tree_digest 不覆盖清单里的 dir：装到哪儿以包目录名为准（install_command 按应答的 package_dir 运行脚本），两者不一致就拒
+  if (name !== basename(src)) return { rc: 2, out: { ok: false, step: 'verify-package', error: `清单目录名 ${name} 与包目录名 ${basename(src)} 不一致`, note: '未做任何改动' } };
   mkdirSync(root, { recursive: true });
   const target = join(root, name);
   const result = { ok: true, slug: meta.slug, version: meta.version, tree_digest: meta.tree_digest, installed_to: target, previous: null, backup: null, pruned: [] };

@@ -4,7 +4,7 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
 import { gunzipSync } from 'node:zlib';
 import { join, resolve } from 'node:path';
@@ -176,8 +176,12 @@ try {
   ok('来回装 6 次后备份只留 3 个', backs.length === 3, backs.join(','));
   ok('根目录下没有残留的临时目录', readdirSync(ROOT).filter((n) => n.includes('.incoming-')).length === 0, readdirSync(ROOT).join(','));
 
-  // 9b) 篡改：解出一份真包，改完再按 install_command 的步骤跑（下载一步换成拷贝改过的包）
+  // 9b) 篡改。第一道：命令内联逻辑核对整包 sha256，包被换了一个字节都到不了解压和执行
   const d9 = (await call('skill_download', { slug })).out;
+  const again9 = (await call('skill_download', { slug })).out;
+  const raw9 = Buffer.from(await (await fetch(again9.download_url)).arrayBuffer());
+  ok('同一版本每次打出的包逐字节相同，= 应答 package_sha256', d9.package_sha256 === again9.package_sha256 && createHash('sha256').update(raw9).digest('hex') === d9.package_sha256, `${d9.package_sha256} ${again9.package_sha256}`);
+  ok('install_command 先核对整包哈希再解压，核对脚本哈希再执行', /pkg\.tgz" [0-9a-f]{64} && tar -xzf/.test(d9.install_command) && d9.install_command.indexOf(d9.package_sha256) < d9.install_command.indexOf('tar -xzf') && d9.install_command.indexOf(d9.verify_script_sha256) < d9.install_command.indexOf('--install'));
   const fresh = async (tag) => {
     const work = join(TMP, 'tamper-' + tag);
     mkdirSync(work, { recursive: true });
@@ -185,47 +189,84 @@ try {
     execFileSync('tar', ['-xzf', join(work, 'pkg.tgz'), '-C', work]);
     return work;
   };
-  const runTampered = (work) => {
-    execFileSync('tar', ['-czf', join(work, 'evil.tgz'), '-C', work, 'bin.probe']);
-    return sh(d9.install_command.replace(/curl -fsSL '[^']+' -o "\$d\/pkg\.tgz"/, `cp '${join(work, 'evil.tgz')}' "$d/pkg.tgz"`));
-  };
+  const repack = (work) => { execFileSync('tar', ['-czf', join(work, 'evil.tgz'), '-C', work, 'bin.probe']); return join(work, 'evil.tgz'); };
+  const runCmdWith = (tgz) => sh(d9.install_command.replace(/curl -fsSL '[^']+' -o "\$d\/pkg\.tgz"/, `cp '${tgz}' "$d/pkg.tgz"`));
   const before = readFileSync(join(ROOT, 'bin.probe/SKILL.md'));
   {
-    const work = await fresh('file');
-    writeFileSync(join(work, 'bin.probe/SKILL.md'), 'tampered');
-    const r = runTampered(work);
-    ok('改文件不改清单：rc=2，已装版本不动', r.status === 2 && readFileSync(join(ROOT, 'bin.probe/SKILL.md')).equals(before), r.stdout + r.stderr);
-  }
-  {
-    // 连清单一起按同一算法重写：包自洽，但清单指纹 ≠ 应答 tree_digest
-    const work = await fresh('meta');
-    const dir = join(work, 'bin.probe');
-    writeFileSync(join(dir, 'SKILL.md'), 'tampered');
-    const m = JSON.parse(readFileSync(join(dir, '.wm-skill.json'), 'utf8'));
-    m.files = m.files.map((f) => ({ ...f, sha256: createHash('sha256').update(readFileSync(join(dir, f.path))).digest('hex') }));
-    m.tree_digest = digest(m.files.map((f) => ({ path: f.path, bytes: readFileSync(join(dir, f.path)) })));
-    writeFileSync(join(dir, '.wm-skill.json'), JSON.stringify(m));
-    const self = spawnSync(process.execPath, [join(dir, '.wm-skill-verify.mjs')], { encoding: 'utf8' });
-    ok('（前提）连清单一起篡改后包本身自洽', self.status === 0, self.stdout);
-    const r = runTampered(work);
-    ok('连清单一起篡改：清单指纹与 --expect 不符 rc=2，已装版本不动', r.status === 2 && /与市场应答不符/.test(r.stdout) && readFileSync(join(ROOT, 'bin.probe/SKILL.md')).equals(before), r.stdout + r.stderr);
-    const noExpect = spawnSync(process.execPath, [join(dir, '.wm-skill-verify.mjs'), '--install', '--root', ROOT], { encoding: 'utf8' });
-    ok('不带 --expect 的 --install 一律拒绝', noExpect.status === 2 && /必须带 --expect/.test(noExpect.stdout), noExpect.stdout);
-  }
-  {
-    // 换掉校验脚本：install_command 在执行它之前就停下
+    // 换掉包里的校验脚本（让它一运行就留下记号）并重新打包：整包哈希先不符，脚本不会被执行
     const work = await fresh('script');
     const marker = join(TMP, 'evil-ran');
     writeFileSync(join(work, 'bin.probe/.wm-skill-verify.mjs'), `require('fs').writeFileSync(${JSON.stringify(marker)}, 'x')`);
-    const r = runTampered(work);
-    ok('换掉校验脚本：核对哈希失败即停，脚本没被执行', r.status !== 0 && !existsSync(marker) && /不是市场模板/.test(r.stderr) && readFileSync(join(ROOT, 'bin.probe/SKILL.md')).equals(before), `${r.status} ${r.stderr}`);
+    const r = runCmdWith(repack(work));
+    ok('包被替换：整包 sha256 不符即停，包内代码没被执行，已装版本不动', r.status === 2 && !existsSync(marker) && /sha256 不符/.test(r.stderr) && /pkg\.tgz/.test(r.stderr) && readFileSync(join(ROOT, 'bin.probe/SKILL.md')).equals(before), `${r.status} ${r.stderr}`);
   }
   {
-    // 包里多出符号链接：算新增，拒装
+    // 包没换、但解出来后脚本被换（模拟整包核对之后的替换）：第二道脚本哈希核对拦下
+    const marker = join(TMP, 'evil-ran-2');
+    const cmd = d9.install_command.replace('&& tar -xzf "$d/pkg.tgz" -C "$d" &&', `&& tar -xzf "$d/pkg.tgz" -C "$d" && printf %s ${JSON.stringify(`require('fs').writeFileSync(${JSON.stringify(marker)}, 'x')`).replace(/"/g, "'")} > "$d/bin.probe/.wm-skill-verify.mjs" &&`);
+    const r = sh(cmd);
+    ok('解压后脚本被换：脚本哈希不符即停，没被执行', r.status === 2 && !existsSync(marker) && /wm-skill-verify/.test(r.stderr), `${r.status} ${r.stderr}`);
+  }
+  // 第二道：包内脚本自己的检查（绕过整包核对、直接对改过的目录跑 --install --expect）
+  const runScript = (work, expect = d9.tree_digest) => spawnSync(process.execPath, [join(work, 'bin.probe', '.wm-skill-verify.mjs'), '--install', '--root', ROOT, ...(expect ? ['--expect', expect] : [])], { encoding: 'utf8' });
+  const rewriteMeta = (dir, mutate) => {
+    const m = JSON.parse(readFileSync(join(dir, '.wm-skill.json'), 'utf8'));
+    mutate(m);
+    m.tree_digest = digest(m.files.filter((f) => existsSync(join(dir, f.path))).map((f) => ({ path: f.path, bytes: readFileSync(join(dir, f.path)) })));
+    writeFileSync(join(dir, '.wm-skill.json'), JSON.stringify(m));
+    return m;
+  };
+  {
+    const work = await fresh('file');
+    writeFileSync(join(work, 'bin.probe/SKILL.md'), 'tampered');
+    const r = runScript(work);
+    ok('改文件不改清单：rc=2，已装版本不动', r.status === 2 && readFileSync(join(ROOT, 'bin.probe/SKILL.md')).equals(before), r.stdout);
+  }
+  {
+    const work = await fresh('meta');
+    const dir = join(work, 'bin.probe');
+    writeFileSync(join(dir, 'SKILL.md'), 'tampered');
+    rewriteMeta(dir, (m) => { m.files = m.files.map((f) => ({ ...f, sha256: createHash('sha256').update(readFileSync(join(dir, f.path))).digest('hex') })); });
+    const self = spawnSync(process.execPath, [join(dir, '.wm-skill-verify.mjs')], { encoding: 'utf8' });
+    ok('（前提）连清单一起篡改后包本身自洽', self.status === 0, self.stdout);
+    const r = runScript(work);
+    ok('连清单一起篡改：清单指纹与 --expect 不符 rc=2，已装版本不动', r.status === 2 && /与市场应答不符/.test(r.stdout) && readFileSync(join(ROOT, 'bin.probe/SKILL.md')).equals(before), r.stdout);
+    const noExpect = runScript(work, null);
+    ok('不带 --expect 的 --install 一律拒绝', noExpect.status === 2 && /必须带 --expect/.test(noExpect.stdout), noExpect.stdout);
+  }
+  {
     const work = await fresh('link');
     symlinkSync('/etc/hosts', join(work, 'bin.probe/hosts-link'));
-    const r = runTampered(work);
-    ok('包里多出符号链接：rc=2，已装版本里没有它', r.status === 2 && /hosts-link/.test(r.stdout) && !existsSync(join(ROOT, 'bin.probe/hosts-link')), r.stdout + r.stderr);
+    const r = runScript(work);
+    ok('包里有符号链接：整包拒绝 rc=2，点名 symlink', r.status === 2 && /"reason":"symlink"/.test(r.stdout) && !existsSync(join(ROOT, 'bin.probe/hosts-link')), r.stdout);
+  }
+  {
+    // 硬链接：把清单里的文件换成指向包外文件的硬链接，内容与清单一致也要拒
+    const work = await fresh('hard');
+    const dir = join(work, 'bin.probe');
+    const outside = join(work, 'outside.md');
+    writeFileSync(outside, readFileSync(join(dir, 'SKILL.md')));
+    rmSync(join(dir, 'SKILL.md'));
+    linkSync(outside, join(dir, 'SKILL.md'));
+    const r = runScript(work);
+    ok('包里有硬链接（内容与清单一致）：整包拒绝 rc=2，点名 hardlink', r.status === 2 && /"reason":"hardlink"/.test(r.stdout), r.stdout);
+  }
+  {
+    // R3：只改清单 dir（文件与指纹都不动），--expect 照样对得上，但不许装到别的目录
+    const work = await fresh('dir');
+    const dir = join(work, 'bin.probe');
+    const m = JSON.parse(readFileSync(join(dir, '.wm-skill.json'), 'utf8'));
+    m.dir = 'other.skill';
+    writeFileSync(join(dir, '.wm-skill.json'), JSON.stringify(m));
+    const r = runScript(work);
+    ok('只改清单 dir：rc=2，不装到 other.skill，原安装不动', r.status === 2 && /目录名/.test(r.stdout) && !existsSync(join(ROOT, 'other.skill')) && readFileSync(join(ROOT, 'bin.probe/SKILL.md')).equals(before), r.stdout);
+  }
+  for (const [tag, bad] of [['dotdot', '../escape.md'], ['abs', '/tmp/escape.md']]) {
+    const work = await fresh(tag);
+    const dir = join(work, 'bin.probe');
+    const m = rewriteMeta(dir, (mm) => { mm.files.push({ path: bad, sha256: 'a'.repeat(64), size: 1 }); });
+    const r = runScript(work, m.tree_digest);
+    ok(`清单里有 ${tag === 'abs' ? '绝对路径' : '.. 路径'}：整包拒绝 rc=2，点名 manifest-path`, r.status === 2 && /"reason":"manifest-path"/.test(r.stdout) && readFileSync(join(ROOT, 'bin.probe/SKILL.md')).equals(before), r.stdout);
   }
   {
     // N1：Host 头带引号时不签发（没设 MARKET_PUBLIC_URL）

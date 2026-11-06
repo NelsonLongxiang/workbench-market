@@ -2502,7 +2502,8 @@ function skillPackage(row: any, target: any, dir: string): Buffer {
     verify: `node ${SKILL_PKG_VERIFY}`, install: `node ${SKILL_PKG_VERIFY} --install`,
   };
   files.push({ path: SKILL_PKG_META, content: Buffer.from(JSON.stringify(meta, null, 2) + '\n', 'utf8') }, { path: SKILL_PKG_VERIFY, content: skillVerifyScript() });
-  return gzipSync(ustarTar(files, { prefix: name + '/' }));
+  const mtime = Date.parse(String(target.created_at ?? '').replace(' ', 'T') + 'Z');
+  return gzipSync(ustarTar(files, { prefix: name + '/', mtime: Number.isFinite(mtime) ? mtime / 1000 : 0 })); // gzip 头 mtime 恒 0
 }
 /** 安装命令里会拼进对外地址：只收规范的 http(s)://主机[:端口]，带引号等字符的 Host 头直接拒（没设 MARKET_PUBLIC_URL 时取自请求） */
 function skillDownloadOrigin(origin: string): string {
@@ -2522,15 +2523,18 @@ function skillDownloadIssue(slugIn: unknown, versionIn: unknown, issuedTo: strin
   db.prepare('INSERT INTO skill_download_tickets (id, slug, version, issued_to, expires_at) VALUES (?, ?, ?, ?, ?)').run(id, row.slug, target.version, issuedTo, exp);
   const name = skillPkgDir(row.slug);
   const url = `${base}/api/skills/dl/${id}`;
-  // 安装链只信 MCP 应答（会话通道）里的两个值：先核对包里脚本 = 市场模板，再让脚本核对清单指纹 = 应答 tree_digest
+  const pkgSha = createHash('sha256').update(skillPackage(row, target, skillVersionDir(row.slug, target.version).dir)).digest('hex');
+  // 安装链只信 MCP 应答（会话通道）里服务端给的摘要，并把它们写进命令本身：
+  // 下载后先用命令内联的固定逻辑核对整个包的 sha256，再解压，再核对校验脚本 = 市场模板，最后才运行包里的脚本（它再核对清单指纹 = tree_digest）。
+  // 明文 http 下包被换也能发现；仍建议设 MARKET_PUBLIC_URL 走 https。
   const scriptSha = createHash('sha256').update(skillVerifyScript()).digest('hex');
   const script = `"$d/${name}/${SKILL_PKG_VERIFY}"`;
-  const checkScript = `node -e 'const h=require("crypto").createHash("sha256").update(require("fs").readFileSync(process.argv[1])).digest("hex");if(h!==process.argv[2]){console.error("校验脚本不是市场模板，已停止");process.exit(2)}' ${script} ${scriptSha}`;
+  const pin = (file: string, sha: string) => `node -e 'const h=require("crypto").createHash("sha256").update(require("fs").readFileSync(process.argv[1])).digest("hex");if(h!==process.argv[2]){console.error("sha256 不符，已停止，未执行包内任何代码: "+process.argv[1]);process.exit(2)}' ${file} ${sha}`;
   return {
     slug: row.slug, version: target.version, tree_digest: target.tree_digest, file_count: target.file_count, total_bytes: target.total_bytes,
     download_url: url, expires_at: new Date(exp).toISOString(), package_dir: name, install_dir: `${SKILL_INSTALL_ROOT}/${name}`,
-    verify_script_sha256: scriptSha,
-    install_command: `d=$(mktemp -d) && curl -fsSL '${url}' -o "$d/pkg.tgz" && tar -xzf "$d/pkg.tgz" -C "$d" && ${checkScript} && node ${script} --install --expect ${target.tree_digest}; rc=$?; rm -rf "$d"; (exit $rc)`, // 清理临时目录但保留安装结果的返回码
+    package_sha256: pkgSha, verify_script_sha256: scriptSha,
+    install_command: `d=$(mktemp -d) && curl -fsSL '${url}' -o "$d/pkg.tgz" && ${pin('"$d/pkg.tgz"', pkgSha)} && tar -xzf "$d/pkg.tgz" -C "$d" && ${pin(script, scriptSha)} && node ${script} --install --expect ${target.tree_digest}; rc=$?; rm -rf "$d"; (exit $rc)`, // 清理临时目录但保留安装结果的返回码
     verify_command: `node ${SKILL_INSTALL_ROOT}/${name}/${SKILL_PKG_VERIFY} --expect ${target.tree_digest}`,
   };
 }
@@ -2547,6 +2551,7 @@ app.get('/api/skills/dl/:ticket', (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="${skillPkgDir(row.slug)}-v${target.version}.tar.gz"`);
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('X-Expected-Digest', target.tree_digest);
+  res.setHeader('X-Package-Sha256', createHash('sha256').update(pkg).digest('hex'));
   res.end(pkg);
 });
 
@@ -2771,7 +2776,7 @@ function isUtf8Bytes(b: Buffer): boolean {
   return Buffer.from(b.toString('utf8'), 'utf8').equals(b);
 }
 /** #94 S3：最小 ustar 打包（薄分发导出——D5·无外部依赖） */
-function ustarTar(files: { path: string; content: string | Buffer }[], opts: { prefix?: string } = {}): Buffer {
+function ustarTar(files: { path: string; content: string | Buffer }[], opts: { prefix?: string; mtime?: number } = {}): Buffer {
   const chunks: Buffer[] = [];
   const header = (name: string, size: number, type: string) => {
     const h = Buffer.alloc(512, 0);
@@ -2786,7 +2791,7 @@ function ustarTar(files: { path: string; content: string | Buffer }[], opts: { p
     if (pre) h.write(pre, 345, 'utf8');
     h.write('0000644\0', 100); h.write('0000000\0', 108); h.write('0000000\0', 116);
     h.write(size.toString(8).padStart(11, '0') + '\0', 124);
-    h.write(Math.floor(Date.now() / 1000).toString(8).padStart(11, '0') + '\0', 136);
+    h.write(Math.floor(opts.mtime ?? Date.now() / 1000).toString(8).padStart(11, '0') + '\0', 136); // 技能包传版本发布时刻：同一版本每次打出逐字节相同的包
     h.write(' '.repeat(8), 148);
     h.write(type, 156);
     h.write('ustar\0', 257); h.write('00', 263);
