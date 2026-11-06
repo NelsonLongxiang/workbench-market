@@ -72,6 +72,8 @@ if(process.argv[2]==='--inside'){
   runid=docker(['create','--name',runname,'--label','wm.test.transaction='+nonce,'--network',net,'--read-only','--user',uid+':'+gid,'--cap-drop','ALL','--security-opt','no-new-privileges','--tmpfs','/tmp:rw,nosuid,nodev,uid=1000,gid=1000,mode=0700','--mount','type=bind,src='+root+'/server/src/pg-transaction.ts,dst=/fixture/server/src/pg-transaction.ts,readonly','--mount','type=bind,src='+root+'/scripts/pg-transaction-integration.mjs,dst=/fixture/scripts/pg-transaction-integration.mjs,readonly','--mount','type=bind,src='+root+'/server/src/pg-sop-runs.ts,dst=/fixture/server/src/pg-sop-runs.ts,readonly','--mount','type=bind,src='+root+'/scripts/pg-sop-runs-test.mjs,dst=/fixture/scripts/pg-sop-runs-test.mjs,readonly',...['sop-preservation-plan.mjs','sop-preservation-import.mjs','sop-preservation-import-test.mjs'].flatMap(name=>['--mount','type=bind,src='+root+'/scripts/'+name+',dst=/fixture/scripts/'+name+',readonly']),'--env','PGPASSWORD','--env','PG_TRANSACTION_FIXTURE_NONCE='+nonce,'--entrypoint','node',runner,'/fixture/scripts/pg-transaction-integration.mjs','--inside']);
   owned(runid,runname,runner);console.log(docker(['start','--attach',runid],60000));
   const ended=owned(runid,runname,runner);assert.equal(ended.State.ExitCode,0,'fixture exit code');
+  const {verifySopDumpRestore}=await import('./pg-sop-backup-restore-test.mjs');
+  verifySopDumpRestore({docker,container:pgid,nonce,verifyOwned:()=>owned(pgid,pgname,pg)});
  }finally{
   const failures=[];
   for(const [id,name,image]of [[runid,runname,runner],[pgid,pgname,pg]])if(id){try{owned(id,name,image);docker(['rm','-f',id])}catch{failures.push(name)}}
