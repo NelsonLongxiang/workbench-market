@@ -23,6 +23,8 @@ const upstream = createServer((rq, rs) => {
   if (path === '/web/abs') { rs.writeHead(302, { location: `http://127.0.0.1:${upstream.address().port}/web/page` }); return rs.end(); }
   if (path === '/web/abs-out') { rs.writeHead(302, { location: `http://127.0.0.1:${upstream.address().port}/zh_CN/web/abs-out` }); return rs.end(); }
   if (path === '/web/landing') { rs.writeHead(302, { location: '/landed' }); return rs.end(); }
+  if (path === '/web/site') { rs.writeHead(302, { location: '/website/info' }); return rs.end(); }
+  if (path === '/web/') { rs.writeHead(303, { location: '/zh_CN/web/', 'content-type': 'text/html' }); rs.statusMessage = 'See Other'; return rs.end('<a href="/zh_CN/web/">redirect</a>'); }
   if (path.startsWith('/web/page')) {
     rs.writeHead(200, { 'content-type': 'text/html' });
     return rs.end('<!doctype html><link rel="stylesheet" href="/web/assets/91d484d/web.assets_frontend.min.css"><script src="/other/x.js"></script><a href="/web">home</a>');
@@ -41,7 +43,7 @@ let serverErr = ''; server.stderr.on('data', (c) => (serverErr += c));
 
 const http = (method, path, { headers = {}, body } = {}) => new Promise((done) => {
   const rq = request({ host: '127.0.0.1', port: PORT, method, path, headers: { ...(body !== undefined ? { 'content-length': Buffer.byteLength(body) } : {}), ...headers } }, (rs) => {
-    let s = ''; rs.on('data', (c) => (s += c)); rs.on('end', () => { let j = null; try { j = JSON.parse(s); } catch {} done({ status: rs.statusCode, headers: rs.headers, body: j, text: s }); });
+    let s = ''; rs.on('data', (c) => (s += c)); rs.on('end', () => { let j = null; try { j = JSON.parse(s); } catch {} done({ status: rs.statusCode, statusMessage: rs.statusMessage, headers: rs.headers, body: j, text: s }); });
   });
   rq.on('error', (e) => done({ status: 0, headers: {}, body: { error: String(e) } }));
   if (body !== undefined) rq.write(body);
@@ -70,6 +72,7 @@ try {
   ok('base 之外的语言跳转被拦成 502，不再逐跳叠 zh_CN/web', last?.status === 502 && last.body?.error === 'go_redirect_outside_base', hops.join(' | '));
   ok('502 说明里点名台与 base，给出改法', /带路径 \/web/.test(last?.body?.detail ?? '') && /不带路径/.test(last?.body?.detail ?? ''), JSON.stringify(last?.body));
   ok('拦下的跳转不带 Location', last?.headers.location === undefined);
+  ok('状态行原因短语是 Bad Gateway（不抄上游的 See Other）', last?.statusMessage === 'Bad Gateway', String(last?.statusMessage));
   ok('没有任何请求打到叠出来的上游路径', !seen.some((p) => /zh_CN\/web\/zh_CN/.test(p) || /^\/web\/zh_CN/.test(p)), seen.join(','));
 
   // 2) 同源绝对地址跳到 base 之外，同样拦下
@@ -79,6 +82,10 @@ try {
   // 2b) base 之外但不含请求路径的跳转：保持 issue #4 契约，照旧映射成 /go/N/<loc>
   const landing = await http('GET', `/go/${withBase}/landing`);
   ok('base 之外的普通跳转 /landed → /go/N/landed（契约不变）', landing.status === 302 && landing.headers.location === `/go/${withBase}/landed`, `${landing.status} ${landing.headers.location}`);
+
+  // 2c) 反例：/website/info 与请求路径 /web 只是子串重叠、不是同一路径段，不能误拦（#458 评审 R1）
+  const site = await http('GET', `/go/${withBase}/site`);
+  ok('base 外跳 /website/info 按契约映射成 /go/N/website/info（不误拦成 502）', site.status === 302 && site.headers.location === `/go/${withBase}/website/info`, `${site.status} ${site.headers.location}`);
 
   // 3) base 之内照常映射，去掉 base
   const inside = await http('GET', `/go/${withBase}/inside`);

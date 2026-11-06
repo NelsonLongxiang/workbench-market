@@ -317,7 +317,8 @@ export function installPortal(
           if (path === base || path.startsWith(base + '/')) return false;
           // req.url 此时已是上游路径（pathRewrite 之后）；去掉尾斜杠再比，/web/ 与 /zh_CN/web/ 也算包含
           const upPath = String(req.url ?? '').split(/[?#]/)[0].replace(/\/+$/, '');
-          return upPath.length > 1 && path.includes(upPath);
+          // 按路径段比：两边补尾斜杠再比，/website/info 不算含 /web（子串比会误拦，见 #458 评审 R1）
+          return upPath.length > 1 && (path.replace(/\/+$/, '') + '/').includes(upPath + '/');
         })();
         if (outsideBase) {
           const wid0 = (req as express.Request & { goWid?: string }).goWid ?? '?';
@@ -328,6 +329,7 @@ export function installPortal(
             detail: `工作台 ${wid0} 的登记地址带路径 ${base0}，上游跳到了这个路径之外，门户无法映射（硬拼会逐跳叠加前缀）。请把该台地址改成上游的源（不带路径）。`,
           }));
           proxyRes.statusCode = 502;
+          proxyRes.statusMessage = 'Bad Gateway'; // 否则抄上游原因短语，状态行成了「502 See Other」
           delete proxyRes.headers.location;
           delete proxyRes.headers['content-length'];
           delete (proxyRes.headers as any)['transfer-encoding'];
@@ -369,7 +371,7 @@ export function installPortal(
             const goBase = `/go/${pWid}`;
             // 台地址自带路径时，上游页面里 base 下的绝对路径先去掉 base（/go/N/<p> 会再拼回 base+<p>，不去掉就成 base+base+<p>）
             const upBase = (req as express.Request & { goBase?: string }).goBase ?? '';
-            const stripBase = (u: string) => (upBase && (u === upBase || u.startsWith(upBase + '/') || u.startsWith(upBase + '?')) ? (u.slice(upBase.length).startsWith('/') ? u.slice(upBase.length) : '/' + u.slice(upBase.length)) : u);
+            const stripBase = (u: string) => (upBase && (u === upBase || u.startsWith(upBase + '/') || u.startsWith(upBase + '?') || u.startsWith(upBase + '#')) ? (u.slice(upBase.length).startsWith('/') ? u.slice(upBase.length) : '/' + u.slice(upBase.length)) : u);
             const fixAttr = (m: string, name: string, q: string, url: string) => {
               if (!url.startsWith('/') || url.startsWith('//') || url.startsWith(goBase + '/')) return m;
               if (/^\/go\/\d+\//.test(url)) return m; // 已是任意 /go/N/ 形
@@ -409,7 +411,7 @@ export function installPortal(
           {
             const base = (req as express.Request & { goBase?: string }).goBase ?? '';
             if (loc.startsWith('/')) {
-              // base 本身（/web、/web?x）映射到台根 /go/N/，base 下的路径去掉 base；落在 base 之外的已在上面拦成 502
+              // base 本身（/web、/web?x）映射到台根 /go/N/，base 下的路径去掉 base；base 之外的自增长跳转已在上面拦成 502，其余照 issue #4 映射
               const inBase = base && (loc === base || loc.startsWith(base + '?') || loc.startsWith(base + '#'));
               proxyRes.headers.location = `/go/${wid}${inBase ? '/' + loc.slice(base.length) : loc.startsWith(base + '/') ? loc.slice(base.length) : loc}`;
             } else if (/^https?:\/\//i.test(loc)) {
