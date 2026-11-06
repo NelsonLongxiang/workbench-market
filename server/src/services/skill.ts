@@ -47,6 +47,16 @@ export class SkillService extends Service {
       ? db.prepare('SELECT * FROM skill_versions WHERE tree_digest = ? AND skill_id = ?').get(digest, skillId)
       : db.prepare('SELECT * FROM skill_versions WHERE tree_digest = ?').get(digest);
   }
+  /** 当前版本：skills.active_version 指针指向的版本（回滚后），未设或指向已不在的版本时取最新版。vs 为 versionsBySkill 结果（newest-first） */
+  static currentOf(skill: { active_version?: number | null }, vs: any[]): any | undefined {
+    return (skill.active_version != null && vs.find((v) => v.version === skill.active_version)) || vs[0];
+  }
+  /** 回滚/前移：指针指向已有版本（不新增版本）；version=null 恢复跟随最新版（发布新版时） */
+  setActive(skillId: number, version: number | null, by = '') {
+    return version == null
+      ? db.prepare("UPDATE skills SET active_version = NULL, active_by = '', active_at = '' WHERE id = ?").run(skillId)
+      : db.prepare("UPDATE skills SET active_version = ?, active_by = ?, active_at = datetime('now') WHERE id = ?").run(version, by, skillId);
+  }
   versionsMax(skillId: number) {
     return db.prepare('SELECT MAX(version) AS v FROM skill_versions WHERE skill_id = ?').get(skillId);
   }

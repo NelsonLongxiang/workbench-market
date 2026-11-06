@@ -12,7 +12,7 @@ interface SkillRow {
   slug: string; name: string; layer: number; layer_name: string;
   family_parent: string; description?: string; legacy: boolean; versions: number;
 }
-interface VersionRow { id: number; version: number; changelog: string; breaking: number; tree_digest: string; file_count: number; total_bytes: number; reviewed_by: string; created_at: string; }
+interface VersionRow { id: number; version: number; changelog: string; breaking: number; tree_digest: string; file_count: number; total_bytes: number; reviewed_by: string; created_at: string; active?: boolean; }
 
 const LAYERS = [
   { label: '全部', value: 0 },
@@ -104,6 +104,7 @@ export default function SkillsPage() {
                 <div>
                   <Space size={8} wrap>
                     <Tag color={v.breaking ? 'red' : 'green'}>v{v.version}{v.breaking ? ' ⚠breaking' : ''}</Tag>
+                    {v.active && <Tag color="blue">当前</Tag>}
                     <Typography.Text className="wm-text-body">{v.changelog || '(no changelog)'}</Typography.Text>
                     <Typography.Text type="secondary" className="wm-caption">{v.created_at?.slice(0, 16)}</Typography.Text>
                   </Space>
