@@ -83,8 +83,8 @@ export const MCP_TOOLS: McpToolDef[] = [
   {
     name: 'change_request_create',
     category: 'write',
-    description: '#94 v3 S1 人审门：创建台回滚/删除请求（K10——批准前状态不变·批准经 REST 口令面）',
-    inputSchema: { type: 'object', properties: { kind: { type: 'string', enum: ['app_rollback', 'app_delete'] }, target_type: { type: 'string' }, target_slug: { type: 'string' }, payload: { type: 'object' }, reason: { type: 'string' }, requested_by: { type: 'string' } }, required: ['kind', 'target_slug'] },
+    description: '#94 v3 S1 人审门：创建台或技能的回滚/删除请求（K10——批准前状态不变·批准经 REST 口令面）。',
+    inputSchema: { type: 'object', properties: { kind: { type: 'string', enum: ['app', 'skill'] }, op: { type: 'string', enum: ['rollback', 'delete'] }, slug: { type: 'string' }, target_version: { type: 'integer', description: 'op=rollback 时必填：要回滚到的版本号' }, reason: { type: 'string' }, requested_by: { type: 'string' } }, required: ['kind', 'op', 'slug'] },
   },
   {
     name: 'change_requests',
@@ -281,6 +281,46 @@ export const MCP_TOOLS: McpToolDef[] = [
     category: 'read',
     description: '查某技能版本链（newest-first）：version/changelog/breaking/tree_digest/snapshot_path/reviewed_by——版本不可变审计面。',
     inputSchema: { type: 'object', properties: { slug: { type: 'string', description: '技能 slug（如 agents:brand）' } }, required: ['slug'] },
+  },
+  {
+    name: 'skill_file_put',
+    category: 'admin',
+    description: '技能上传第一步：一次上传一个文件（不收压缩包），暂存在市场上，返回 sha256。文本文件 content 直接给；二进制文件（图片/字体/模板）content 给 base64 并带 encoding:"base64"。单文件上限 10MB。同内容重复上传幂等并续期，暂存 24 小时后清掉。全部文件传完后调 skill_publish 按 sha256 引用成版。',
+    inputSchema: {
+      type: 'object',
+      properties: { content: { type: 'string' }, encoding: { type: 'string', enum: ['utf8', 'base64'], description: '缺省 utf8' } },
+      required: ['content'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'skill_publish',
+    category: 'admin',
+    description: '技能上传第二步（发版/更新）：用 skill_file_put 返回的 sha256 列出整棵文件树，一次成版。slug 不存在时建技能并发 v1，已存在时发新版本 N+1（旧版本不变）。有文件没上传或暂存已过期时报 400 并点名路径。SKILL.md 的 name/description/argument-hint 自动同步到技能信息。同一技能已有内容完全相同的版本时报 409。审计人记为本会话。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slug: { type: 'string', description: '小写字母数字开头·仅 [a-z0-9:_-]·≤64 字符' },
+        files: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: { path: { type: 'string', description: '相对路径（/ 分隔，不许绝对路径或 . / .. 段）' }, sha256: { type: 'string', description: 'skill_file_put 返回的 sha256' } },
+            required: ['path', 'sha256'],
+            additionalProperties: false,
+          },
+        },
+        changelog: { type: 'string', description: '本版说明（≤2000 字）' },
+      },
+      required: ['slug', 'files'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'skill_download',
+    category: 'read',
+    description: '获取技能（安装/更新）：签发某版本（缺省最新）的技能包下载链接，10 分钟有效，过期重新调用。包是 .tar.gz，顶层目录 package_dir（slug 的 : 换成 .），内含技能文件、清单 .wm-skill.json（逐文件 sha256 与整版 tree_digest）和校验脚本 .wm-skill-verify.mjs。安装步骤（经用户同意后执行）：下载到临时目录，先核对整包 sha256 等于应答的 package_sha256（不等就停，不解压）；解压后核对 .wm-skill-verify.mjs 的 sha256 等于应答的 verify_script_sha256（不等就停，不执行它）；再运行 `node <package_dir>/.wm-skill-verify.mjs --install --expect <应答的 tree_digest>`——包里清单的指纹与 --expect 不符、或文件与清单不一致、有符号链接/硬链接/设备文件、清单路径或目录名不合规，就整包拒绝、什么都不动；一致则把 ~/.workbench-market/skills/<package_dir> 的旧版本移进 ~/.workbench-market/skills/.backups/<package_dir>/（每个技能最多留 3 个），再整体换上新版本。返回里的 install_command 是这套步骤的一行 shell 写法。之后随时运行 verify_command 可列出本地被改动的文件。没设 MARKET_PUBLIC_URL 且请求主机不规范时不签发。',
+    inputSchema: { type: 'object', properties: { slug: { type: 'string' }, version: { type: 'integer', description: '缺省最新' } }, required: ['slug'], additionalProperties: false },
   },
   {
     name: 'skill_install_plan',

@@ -218,6 +218,11 @@ try {
     ok('G5 沙箱预检 → 204 带允许头', pre.status === 204 && pre.headers.get('access-control-allow-origin') === 'null');
     const tokens = await req(B, 'GET', '/design/tokens@1.css', REMOTE);
     ok('G5 设计 token 样式表（公开设计变量）匿名可取', tokens.status !== 401 && tokens.status !== 302, `${tokens.status}`);
+    const dl = await req(B, 'GET', `/api/skills/dl/${'0'.repeat(64)}`, REMOTE);
+    ok('G5 技能包下载票据路径放行到路由（假票 404，不是 401）', dl.status === 404, `${dl.status}`);
+    const dl2 = await req(B, 'GET', '/api/skills/dl/not-a-ticket', REMOTE);
+    const sk = await req(B, 'GET', '/api/skills', REMOTE);
+    ok('G5 票号格式不对、技能列表仍要登录', dl2.status === 401 && sk.status === 401, `${dl2.status} ${sk.status}`);
   }
 
   // G6 MCP
