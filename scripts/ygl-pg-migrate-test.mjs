@@ -17,7 +17,12 @@ const h=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
 const before=()=>[h(source),existsSync(source+'-wal')?h(source+'-wal'):null];
 const check=(label,ok)=>{assert(ok,label);checks++;console.log('PASS '+label);};
 const report=()=>join(dir,'report-'+(++reports)+'.json');
-const verifyCli=(targetHash,targetEnv)=>spawnSync(process.execPath,[join(root,'scripts/ygl-pg-migrate.mjs'),'verify','--engine-root',process.env.YGL_ENGINE_ROOT,'--snapshot',snap,'--target-hash',targetHash,'--report',report()],{cwd:root,env:{...clean,...targetEnv},encoding:'utf8',timeout:30000});
+const socketMarker='SYNTHETIC_MIGRATION_SOCKET_ATTEMPT';
+const socketGuard="import net from 'node:net';net.Socket.prototype.connect=function(){process.stderr.write('SYNTHETIC_MIGRATION_SOCKET_ATTEMPT'+String.fromCharCode(10));throw new Error('synthetic_socket_blocked');};";
+const verifyCli=(targetHash,targetEnv,guardSocket=false)=>{const reportPath=report();const preload=guardSocket?['--import','data:text/javascript,'+encodeURIComponent(socketGuard)]:[];return {...spawnSync(process.execPath,[...preload,join(root,'scripts/ygl-pg-migrate.mjs'),'verify','--engine-root',process.env.YGL_ENGINE_ROOT,'--snapshot',snap,'--target-hash',targetHash,'--report',reportPath],{cwd:root,env:{...clean,...targetEnv},encoding:'utf8',timeout:30000}),reportPath};};
+// Invalid targets cannot ask the validating engine to manufacture their negative-test hash.
+const negativeIdentity=raw=>{const x=new URL(raw);return 'sha256:'+createHash('sha256').update(JSON.stringify([x.hostname.toLowerCase(),x.port||'5432',decodeURIComponent(x.pathname.slice(1))])).digest('hex');};
+const refusalCode=(raw,localCode)=>{try{engine.pgTargetHash(raw);return localCode;}catch{return 'target_url_invalid';}};
 const fresh=async()=>{const n='migrate_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);await admin.query('CREATE DATABASE "'+n+'"');names.push(n);const x=new URL(url);x.pathname='/'+n;return x.toString();};
 const refusals=async(label,fn,code)=>{await assert.rejects(fn,e=>e instanceof MigrationRefusal&&e.code===code);checks++;console.log('PASS '+label);};
 try{
@@ -50,12 +55,17 @@ try{
   check('CLI verify repeats with ambient PGPORT set',driftCli.status===0&&JSON.parse(driftCli.stdout).ok===true);
   const explicitCli=verifyCli(driftHash,{YGL_MIGRATION_PG_URL:driftTarget,PGPORT:'1'});
   check('explicit-port verify is immune to ambient PGPORT',explicitCli.status===0&&JSON.parse(explicitCli.stdout).ok===true);
-  const ambiguous=new URL(await fresh());ambiguous.pathname='/dsh_%26ambiguous';const ambHash=engine.pgTargetHash(ambiguous.toString());
-  const ambCli=verifyCli(ambHash,{YGL_MIGRATION_PG_URL:ambiguous.toString()});
-  check('CLI refuses ambiguous percent-encoded database name',ambCli.status===1&&JSON.parse(ambCli.stderr).error==='target_database_name_ambiguous');
-  const noHostUrl='postgres:///dsh_nohost_'+Math.random().toString(36).slice(2,10);const nhHash=engine.pgTargetHash(noHostUrl);
-  const nhCli=verifyCli(nhHash,{YGL_MIGRATION_PG_URL:noHostUrl});
-  check('CLI refuses target without explicit host',nhCli.status===1&&JSON.parse(nhCli.stderr).error==='target_host_required');
+  const ambiguous=new URL(driftTarget);ambiguous.pathname='/dsh_%26ambiguous';const ambUrl=ambiguous.toString(),ambHash=negativeIdentity(ambUrl),ambCode=refusalCode(ambUrl,'target_database_name_ambiguous');
+  const ambCli=verifyCli(ambHash,{YGL_MIGRATION_PG_URL:ambUrl},true),ambReport=JSON.parse(readFileSync(ambCli.reportPath,'utf8'));
+  check('CLI refuses ambiguous percent-encoded database name before socket',ambCli.status===1&&!ambCli.stderr.includes(socketMarker)&&JSON.parse(ambCli.stderr).error===ambCode&&ambReport.ok===false&&ambReport.error===ambCode);
+  const noHostUrl='postgres:///dsh_nohost_'+Math.random().toString(36).slice(2,10),nhHash=negativeIdentity(noHostUrl),nhCode=refusalCode(noHostUrl,'target_host_required');
+  const nhCli=verifyCli(nhHash,{YGL_MIGRATION_PG_URL:noHostUrl},true),nhReport=JSON.parse(readFileSync(nhCli.reportPath,'utf8'));
+  check('CLI refuses target without explicit host before socket',nhCli.status===1&&!nhCli.stderr.includes(socketMarker)&&JSON.parse(nhCli.stderr).error===nhCode&&nhReport.ok===false&&nhReport.error===nhCode);
+  const socketControl=verifyCli(hash,env,true);check('socket guard positive control detects a valid target connection',socketControl.status===1&&socketControl.stderr.includes(socketMarker));
+  // Exercise the local guards too, even when a newer upstream engine rejects before them.
+  let attempted=0;const legacyIdentityEngine={...engine,pgTargetHash:negativeIdentity,Client:class{constructor(){attempted++;throw Error('unexpected_target_connection')}}};
+  await refusals('local ambiguous-name guard remains effective with legacy identity engine',()=>migrateSnapshot(legacyIdentityEngine,snap,ambHash,report(),{YGL_MIGRATION_PG_URL:ambUrl},true),'target_database_name_ambiguous');
+  await refusals('local explicit-host guard remains effective with legacy identity engine',()=>migrateSnapshot(legacyIdentityEngine,snap,nhHash,report(),{YGL_MIGRATION_PG_URL:noHostUrl},true),'target_host_required');assert.equal(attempted,0);
   await pg.query('ALTER TABLE artifacts DROP CONSTRAINT artifacts_project_id_fkey');
   await refusals('verify rejects missing target foreign key',()=>migrateSnapshot(engine,snap,hash,report(),env,true),'target_catalog_mismatch');
   const cliMissingFk=verifyCli(hash,env);check('CLI verify rejects missing target foreign key',cliMissingFk.status===1&&JSON.parse(cliMissingFk.stderr).error==='target_catalog_mismatch');

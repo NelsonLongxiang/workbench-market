@@ -29,6 +29,8 @@ Windows 的 chmod 不能证明输出 ACL 私密：测试会明确跳过 POSIX mo
 
 ## 验证范围
 
+迁移回归的无效目标用例自行构造旧格式的声明摘要，不调用会提前拒绝该目标的新引擎来生成测试输入；按实际引擎拒绝顺序核对稳定错误码与失败报告，并用 Socket 正控证明空 host/歧义库名在连接前拒绝。另用旧身份函数测试本地守卫，避免新引擎的先拒绝掩盖迁移工具自身回归。
+
 `node scripts/ygl-task-source-test.mjs` 检查配置、目标身份和失败不回退；`node scripts/tasks-read-authority-http-test.mjs` 以合成身份验证读取范围。`scripts/ygl-task-pg-integration.mjs`、`scripts/ygl-pg-migrate-test.mjs` 和直接调用上游 DDL 的 `scripts/ygl-pg-catalog-baseline-test.mjs` 需要显式的隔离 PG 和测试引擎；测试临时数据库和种子不得指向生产或个人工作区。
 
 上线须对最终整合提交和实际配置独立评审，按既有迁移/备份/恢复方案核对，再做真实业务回读；单项合成测试、健康检查或空任务列表均不代表全量迁移完成。
