@@ -16,7 +16,7 @@ import { pipeline } from 'node:stream/promises';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { gzipSync } from 'node:zlib';
-import { dirname, join, posix, extname, sep as pathSep } from 'node:path';
+import { dirname, join, posix, extname, relative, sep as pathSep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import multer from 'multer';
 import { svc } from './context.ts';
@@ -1239,7 +1239,9 @@ async function activateAppVersion(slug: string, vRaw: unknown): Promise<object> 
 }
 
 // ---------- #94 v3 S1 统一人审门：请求-批准两段（agent 提请求·人批准执行）----------
-/** #94 v3 S1：技能回滚执行体（以旧版内容产新版·与批准执行体同源） */
+/** #94 v3 S1：技能回滚执行体（与批准执行体同源）。回滚=把「当前版本」指针移到已有版本，不复制出新版本：
+ *  版本是不可变内容锚、同技能同指纹唯一（K9），复制出的 N+1 与目标同指纹必撞唯一索引；指针与台的 active_version 同构，
+ *  可回可进（再指回新版即恢复），快照不碰所以二进制逐字节不变。取装/导出/安装计划/搜索缺省都取当前版本；发布新版恢复跟随最新。 */
 async function executeSkillRollback(slug: string, targetVersion: number, reviewedBy: string): Promise<Record<string, unknown>> {
   const S = svc<SkillService>('skill');
   const row = S.skillBySlug(slug);
@@ -1247,17 +1249,10 @@ async function executeSkillRollback(slug: string, targetVersion: number, reviewe
   const vs = S.versionsBySkill(row.id) as any[];
   const src = vs.find((v) => v.version === targetVersion);
   if (!src) throw new HttpError(404, `version not found: ${targetVersion}`);
-  const nextVer = (S.versionsMax(row.id)?.v ?? 0) + 1;
-  const { readdirSync, readFileSync, mkdirSync, writeFileSync } = await import('node:fs');
-  const { join: j } = await import('node:path');
-  const files: { path: string; content: Buffer }[] = []; // 按字节复制：二进制文件回滚后不走样
-  (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = j(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp) }); } })(resolveSnap(src.snapshot_path));
-  const dg = SkillService.filesDigest(files);
-  const snapDir = j(dataDir, skillSnapRel(slug, nextVer));
-  mkdirSync(snapDir, { recursive: true });
-  for (const f of files) { const abs = j(snapDir, f.path); mkdirSync(j(abs, '..'), { recursive: true }); writeFileSync(abs, f.content); }
-  S.versionInsert({ skillId: row.id, version: nextVer, changelog: `[rollback] 回滚自 v${targetVersion}`, treeDigest: dg.digest, fileCount: dg.fileCount, totalBytes: dg.totalBytes, snapshotPath: skillSnapRel(slug, nextVer), reviewedBy }); // S4/#183
-  return { ok: true, slug, new_version: nextVer, rolled_back_from: targetVersion, reviewed_by: reviewedBy };
+  if (!src.snapshot_path || !existsSync(resolveSnap(src.snapshot_path))) throw new HttpError(409, `v${targetVersion} 快照缺失——拒回滚（当前版本不动）`);
+  const prev = SkillService.currentOf(row, vs)?.version ?? null;
+  S.setActive(row.id, targetVersion, reviewedBy);
+  return { ok: true, slug, active_version: targetVersion, previous_version: prev, latest_version: vs[0].version, tree_digest: src.tree_digest, reviewed_by: reviewedBy };
 }
 /** #94 v3 S1：技能删除执行体（版本快照+台账+技能行级联） */
 function executeSkillDelete(slug: string): void {
@@ -2372,7 +2367,7 @@ app.post('/api/skills/:slug/install', wrap(async (req, res) => {
   const row = S.skillBySlug(String(req.params.slug ?? ''));
   if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
   const vs = S.versionsBySkill(row.id) as any[];
-  const target = typeof req.body?.version === 'number' ? vs.find((v) => v.version === req.body.version) : vs[0];
+  const target = typeof req.body?.version === 'number' ? vs.find((v) => v.version === req.body.version) : SkillService.currentOf(row, vs); // 缺省当前版本（回滚后即回滚到的版本）
   if (!target) throw new HttpError(404, `无版本`);
   S.ledgerInsert({ skillId: row.id, versionId: target.id, expectedDigest: target.tree_digest, installedPath: String(req.body?.installed_path ?? target.snapshot_path), installedBy: String(req.body?.installed_by ?? '') });
   const ledger = S.ledgerActive() as any[];
@@ -2429,7 +2424,7 @@ app.get('/api/skills', (_req, res) => {
   const rows = S.skillsAll() as any[];
   res.json(rows.map((r) => {
     const led = (S.ledgerActive() as any[]).find((l) => l.skill_id === r.id && l.status === 'installed');
-    return { slug: r.slug, name: r.name, layer: r.layer, layer_name: r.layer_name, family_parent: r.family_parent, description: r.description, legacy: r.legacy === 1, versions: (S.versionsBySkill(r.id) as any[]).length, is_installed: !!led, current_version: led ? (S.versionsBySkill(r.id) as any[]).find((v) => v.id === led.version_id)?.version ?? null : null }; // #132 P1⑤
+    return { slug: r.slug, name: r.name, layer: r.layer, layer_name: r.layer_name, family_parent: r.family_parent, description: r.description, legacy: r.legacy === 1, versions: (S.versionsBySkill(r.id) as any[]).length, active_version: SkillService.currentOf(r, S.versionsBySkill(r.id) as any[])?.version ?? null, is_installed: !!led, current_version: led ? (S.versionsBySkill(r.id) as any[]).find((v) => v.id === led.version_id)?.version ?? null : null }; // #132 P1⑤；active_version=当前版本（回滚指针），current_version=钉装的版本
   }));
 });
 
@@ -2460,13 +2455,13 @@ function skillStagePut(content: unknown, encoding: unknown): { sha256: string; s
   else { const tmp = `${fp}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`; writeFileSync(tmp, buf); renameSync(tmp, fp); } // 先写临时再改名：发布不会读到半个文件
   return { sha256: sha, size: buf.length, expires_in_hours: 24 };
 }
-/** 某技能某版本的快照目录（缺省最新）+ 版本行 */
+/** 某技能某版本的快照目录（缺省当前版本：回滚指针，未回滚即最新）+ 版本行 */
 function skillVersionDir(slugIn: unknown, versionIn: unknown): { row: any; target: any; dir: string } {
   const S = svc<SkillService>('skill');
   const row = S.skillBySlug(String(slugIn ?? ''));
   if (!row) throw new HttpError(404, `skill not found: ${slugIn}`);
   const vs = S.versionsBySkill(row.id) as any[];
-  const target = typeof versionIn === 'number' ? vs.find((v) => v.version === versionIn) : vs[0];
+  const target = typeof versionIn === 'number' ? vs.find((v) => v.version === versionIn) : SkillService.currentOf(row, vs);
   if (!target) throw new HttpError(404, versionIn === undefined ? `无版本：${slugIn}` : `version not found: ${versionIn}`);
   const dir = resolveSnap(target.snapshot_path);
   if (!dir || !existsSync(dir)) throw new HttpError(404, `snapshot missing: v${target.version}`);
@@ -2632,17 +2627,29 @@ async function skillPublishCore(slugIn: unknown, files: any, changelogIn: unknow
   } else if (fmDesc || fmHint || fmName) {
     S.upsertSkill({ slug, name: fmName || row.name, layer: row.layer, layerName: row.layer_name, description: fmDesc || row.description, argumentHint: fmHint || row.argument_hint, source: 'publish' }); // #178 S14：已存技能同步吸收
   }
-  // 快照落盘
-  const { mkdirSync, writeFileSync } = await import('node:fs');
+  // 快照落盘：先写同级临时目录，写完整体改名成 v{N}——写到一半崩溃不留半个版本；
+  // v{N} 已在而库里没有这一版（旧回滚失败、崩溃留下的孤儿）就先挪进 .orphans/，绝不和旧内容混写（混进去的文件不在 tree_digest 里，安装会因指纹不符被拒）
   const snapDir = join(dataDir, skillSnapRel(slug, nextVer)); // #183：磁盘与 DB 同一函数（slug 唯一形）
-  mkdirSync(snapDir, { recursive: true });
-  const { dirname } = await import('node:path');
-  for (const f of blobs) {
-    const abs = join(snapDir, f.path);
-    mkdirSync(dirname(abs), { recursive: true }); // #94 S0②：子目录路径建父目录（docs/a.md 不再 500）
-    writeFileSync(abs, f.content);
-  }
-  S.versionInsert({ skillId: row.id, version: nextVer, changelog, treeDigest: t.digest, fileCount: t.fileCount, totalBytes: t.totalBytes, snapshotPath: `skill-snapshots/${encodeURIComponent(slug)}/v${nextVer}`, reviewedBy }); // S4：存 dataDir 相对形
+  const tmpDir = `${snapDir}.tmp-${randomBytes(6).toString('hex')}`;
+  try {
+    for (const f of blobs) {
+      const abs = join(tmpDir, f.path);
+      mkdirSync(dirname(abs), { recursive: true }); // #94 S0②：子目录路径建父目录（docs/a.md 不再 500）
+      writeFileSync(abs, f.content);
+    }
+    mkdirSync(tmpDir, { recursive: true }); // 空文件树也有目录（上面已校验非空，这里只兜底）
+    if (existsSync(snapDir)) {
+      const orphan = join(dirname(snapDir), '.orphans', `v${nextVer}-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+      mkdirSync(dirname(orphan), { recursive: true });
+      renameSync(snapDir, orphan);
+      console.warn(`[skill-publish] ${slug} v${nextVer}: 快照目录已存在但库里无此版本（孤儿），已挪到 ${relative(dataDir, orphan).split('\\').join('/')}`);
+    }
+    renameSync(tmpDir, snapDir);
+  } catch (e) { rmSync(tmpDir, { recursive: true, force: true }); throw e; }
+  try {
+    S.versionInsert({ skillId: row.id, version: nextVer, changelog, treeDigest: t.digest, fileCount: t.fileCount, totalBytes: t.totalBytes, snapshotPath: `skill-snapshots/${encodeURIComponent(slug)}/v${nextVer}`, reviewedBy }); // S4：存 dataDir 相对形
+  } catch (e) { rmSync(snapDir, { recursive: true, force: true }); throw e; } // 版本行没落下就不留目录（否则又是孤儿）
+  S.setActive(row.id, null); // 发布新版即恢复跟随最新（回滚指针清掉）
   // Skill shadow remains non-blocking; its per-version outcome is durable/retryable like app publishing.
   // LayerFS 契约 v1 只收文本：含二进制的版本不推影子，记 skipped（与 migrate-layerfs 的留档不迁同义）
   const binary = blobs.find((f) => !isUtf8Bytes(f.content));
@@ -2728,12 +2735,12 @@ async function rebuildWmSkills(trigger: string): Promise<{ ok: boolean; deleted_
     const r = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + LAYERFS_SKILLS_PROJECT, { method: 'DELETE', headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(15000) });
     deleted = r.ok;
   } catch { deleted = false; }
-  // ② 活技能最新版重发布（旧 commit_id 清——重建后历史 commit 失效）
+  // ② 活技能当前版本重发布（旧 commit_id 清——重建后历史 commit 失效；回滚过的技能分支头即回滚到的版本）
   let republished = 0; let cleared = 0;
   const S = svc<SkillService>('skill');
   for (const sk of S.skillsAll() as any[]) {
     const vs = S.versionsBySkill(sk.id) as any[];
-    const latest = vs[0];
+    const latest = SkillService.currentOf(sk, vs);
     if (!latest?.snapshot_path || !existsSync(resolveSnap(latest.snapshot_path))) continue;
     db.prepare("UPDATE skill_versions SET commit_id = '' WHERE skill_id = ?").run(sk.id); cleared++;
     const raw: { path: string; bytes: Buffer }[] = [];
@@ -2814,7 +2821,7 @@ app.get('/api/skills/:slug/export', (req, res) => {
   const row = S.skillBySlug(String(req.params.slug ?? ''));
   if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
   const vs = S.versionsBySkill(row.id) as any[];
-  const v = req.query.version !== undefined ? Number(req.query.version) : vs[0]?.version;
+  const v = req.query.version !== undefined ? Number(req.query.version) : SkillService.currentOf(row, vs)?.version; // 缺省当前版本
   const target = vs.find((x) => x.version === v);
   if (!target) throw new HttpError(404, `version not found: ${v}`);
   const dir = resolveSnap(target.snapshot_path);
@@ -2851,7 +2858,9 @@ app.get('/api/skills/:slug/versions', (req, res) => {
   const row = S.skillBySlug(String(req.params.slug ?? ''));
   if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
   // #94 S0⑤（K8）：版本列表 snapshot_path 相对化（不暴露 DATA_DIR）；兼容旧库无状态时推导。
-  res.json({ slug: row.slug, versions: (S.versionsBySkill(row.id) as any[]).map((v) => ({ ...v, shadow_status: v.shadow_status ?? (v.commit_id ? 'succeeded' : 'pending'), shadow_error: v.shadow_error ?? '', snapshot_path: v.snapshot_path ? `skill-snapshots/${encodeURIComponent(row.slug)}/v${v.version}` : v.snapshot_path })) });
+  const vsAll = S.versionsBySkill(row.id) as any[];
+  const activeV = SkillService.currentOf(row, vsAll)?.version ?? null;
+  res.json({ slug: row.slug, active_version: activeV, versions: vsAll.map((v) => ({ ...v, active: v.version === activeV, shadow_status: v.shadow_status ?? (v.commit_id ? 'succeeded' : 'pending'), shadow_error: v.shadow_error ?? '', snapshot_path: v.snapshot_path ? `skill-snapshots/${encodeURIComponent(row.slug)}/v${v.version}` : v.snapshot_path })) });
 });
 
 app.get('/api/sop/runs', (req, res) => {
@@ -3842,7 +3851,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       if (typeof args?.q === 'string' && args.q) { const k = args.q.toLowerCase(); rows = rows.filter((r) => `${r.name} ${r.description}`.toLowerCase().includes(k)); }
       return rows.slice(0, 200).map((r) => {
       const led = (S.ledgerActive() as any[]).find((l: any) => l.skill_id === r.id && l.status === 'installed');
-      return { slug: r.slug, name: r.name, layer: r.layer, layer_name: r.layer_name, family_parent: r.family_parent, legacy: r.legacy === 1, versions: (S.versionsBySkill(r.id) as any[]).length, is_installed: !!led, current_version: led ? (S.versionsBySkill(r.id) as any[]).find((v) => v.id === led.version_id)?.version ?? null : null }; // #132 P1⑤ MCP
+      return { slug: r.slug, name: r.name, layer: r.layer, layer_name: r.layer_name, family_parent: r.family_parent, legacy: r.legacy === 1, versions: (S.versionsBySkill(r.id) as any[]).length, active_version: SkillService.currentOf(r, S.versionsBySkill(r.id) as any[])?.version ?? null, is_installed: !!led, current_version: led ? (S.versionsBySkill(r.id) as any[]).find((v) => v.id === led.version_id)?.version ?? null : null }; // #132 P1⑤ MCP
     });
     }
     case 'skill_versions': {
@@ -3850,7 +3859,9 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       const row = S.skillBySlug(String(args?.slug ?? ''));
       if (!row) return { error: `skill not found: ${args?.slug}` };
       // #94 S0⑤（K8）：MCP 面同规则——snapshot_path 相对化
-      return (S.versionsBySkill(row.id) as any[]).map((v) => ({ ...v, snapshot_path: v.snapshot_path ? `skill-snapshots/${encodeURIComponent(row.slug)}/v${v.version}` : v.snapshot_path }));
+      const vs = S.versionsBySkill(row.id) as any[];
+      const activeV = SkillService.currentOf(row, vs)?.version ?? null;
+      return vs.map((v) => ({ ...v, active: v.version === activeV, snapshot_path: v.snapshot_path ? `skill-snapshots/${encodeURIComponent(row.slug)}/v${v.version}` : v.snapshot_path }));
     }
     // 技能传输面：一次只传一个文件，不收也不发压缩包
     case 'skill_file_put':
@@ -3866,7 +3877,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       if (!row) return { error: `skill not found: ${args?.slug}` };
       const vs = S.versionsBySkill(row.id) as any[];
       if (vs.length === 0) return { error: `无版本：${args?.slug}` };
-      const target = typeof args?.version === 'number' ? vs.find((v) => v.version === args.version) : vs[0];
+      const target = typeof args?.version === 'number' ? vs.find((v) => v.version === args.version) : SkillService.currentOf(row, vs); // 缺省当前版本
       if (!target) return { error: `版本不存在：v${args?.version}` };
       return {
         slug: row.slug, version: target.version, tree_digest: target.tree_digest, snapshot_path: `skill-snapshots/${encodeURIComponent(row.slug)}/v${target.version}`, // K8 相对化
@@ -3907,7 +3918,8 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       const items = entries.map(([qid, pv]) => {
         const s = qidOf.get(qid);
         const vs = SS.versionsBySkill(s.id) as any[];
-        return { slug: s.slug, name: s.name, layer: s.layer, description: String(s.description ?? ''), confidence: pv, version: vs[0]?.version ?? null, install_plan: { slug: s.slug, version: vs[0]?.version ?? null } };
+        const cur = SkillService.currentOf(s, vs)?.version ?? null;
+        return { slug: s.slug, name: s.name, layer: s.layer, description: String(s.description ?? ''), confidence: pv, version: cur, install_plan: { slug: s.slug, version: cur } };
       });
       try { db.prepare("INSERT INTO mcp_calls (at, session_name, method, tool, ok, error, duration_ms, args_sha256) VALUES (datetime('now'), ?, 'tools/call', 'skill_search', 1, '', 0, ?)").run('skill_search', need_digest); } catch { /* 审计失败不阻 */ }
       const _total = { candidates_total: candidatesTotal, top_n: topN }; // #007 总量披露（恒报·含未截断）
