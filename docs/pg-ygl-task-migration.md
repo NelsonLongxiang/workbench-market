@@ -45,7 +45,7 @@ YGL 来源候选不改变市场本体的 `DatabaseSync` 启动路径。市场认
 
 `server/src/pg-sop-runs.ts` 提供显式全新表 bootstrap 和注入 pool 的 create/byId/checkpoint/saveStep/finish。schema 只覆盖 sop_runs 的既有 11 列；ID 与 cache_revision 为受 JS 安全整数范围限制的 bigint，数据保留 TEXT JSON 字节、时间保留 UTC 文本形状。status/版本/整数范围比旧 SQLite 更严格：不兼容历史值必须由未来导入预检点名，不能静默丢弃。bootstrap 遇既有对象即失败，DDL 同事务，不用于覆盖或原位迁移。
 
-数据/状态 UPDATE 触发器以 OLD.cache_revision+1 生成新代号，同值写也失效旧缓存；保存与完成使用行锁+显式 expected generation，多个进程写同一旧代号最多一个成功。完成同时落数据/状态/时间，不可把归档重新打开；调用者提供的修改值在首个 await 前序列化。私有 byId 返回内部完整行（含 upload_token），不得直接用于未授权 API。认证/能力、SOP manifest/字段校验、附件与归档 outbox 事务尚未接入，本层不代替这些业务门禁，也不恢复 Redis 热态。
+数据/状态 UPDATE 触发器以 OLD.cache_revision+1 生成新代号，同值写也失效旧缓存；保存与完成使用行锁+显式 expected generation，多个进程写同一旧代号最多一个成功。完成同时落数据/状态/时间，不可把归档重新打开；调用者提供的修改值在首个 await 前序列化；create 的 slug/version/startedBy/uploadToken 在校验前一次性读取局部快照，事务 callback 不再跨 await 重读可变输入。私有 byId 返回内部完整行（含 upload_token），不得直接用于未授权 API。认证/能力、SOP manifest/字段校验、附件与归档 outbox 事务尚未接入，本层不代替这些业务门禁，也不恢复 Redis 热态。
 
 同一隔离 PG runner 可执行 `scripts/pg-sop-runs-test.mjs` 的真实并发、版本号、同值写、归档与触发器失败/DDL失败回滚测试；不代表生产数据保全、完整 schema 转换或最终镜像验收。
 

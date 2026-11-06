@@ -8,6 +8,22 @@ export async function runPgSopRunsTests(pool){
  await createNewPgSopRunsSchema(pool);
  let run;
  await check('create returns native ID and legacy-compatible text fields',async()=>{run=await store.create(input);assert.equal(typeof run.id,'number');assert(run.id>0);assert.equal(run.cache_revision,0);assert.equal(run.data,'{}');assert.equal(run.status,'running');assert.equal(run.sop_version,3);assert.equal(run.upload_token,input.uploadToken);assert.match(run.started_at,/^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$/);assert.equal(run.finished_at,'')});
+ await check('create snapshots all validated fields before delayed checkout',async()=>{
+  let release,checkoutStarted;const waiting=new Promise(r=>release=r),started=new Promise(r=>checkoutStarted=r);let checkouts=0;
+  const delayed={async connect(){checkouts++;checkoutStarted();await waiting;return pool.connect()}};
+  const source={...input};const promise=createPgSopRuns(delayed).create(source);await started;
+  Object.assign(source,{slug:'../mutated-invalid',version:9,startedBy:'mutated-actor',uploadToken:'mutated-token'});
+  release();const created=await promise;
+  assert.equal(checkouts,1);assert.equal(created.sop_slug,input.slug,'slug snapshot');assert.equal(created.sop_version,input.version,'version snapshot');assert.equal(created.started_by,input.startedBy,'actor snapshot');assert.equal(created.upload_token,input.uploadToken,'token snapshot');
+ });
+ await check('invalid initial create refuses before checkout and inserts no row',async()=>{
+  let checkouts=0;const guarded={async connect(){checkouts++;return pool.connect()}};const before=(await pool.query('SELECT count(*)::int AS n FROM public.sop_runs')).rows[0].n;
+  await refusal(createPgSopRuns(guarded).create({...input,slug:'../invalid'}),'sop_run_slug_invalid');assert.equal(checkouts,0);assert.equal((await pool.query('SELECT count(*)::int AS n FROM public.sop_runs')).rows[0].n,before);
+ });
+ await check('unchanged create with delayed checkout preserves supplied fields',async()=>{
+  let release,entered;const gate=new Promise(r=>release=r),start=new Promise(r=>entered=r);const delayed={async connect(){entered();await gate;return pool.connect()}};
+  const promise=createPgSopRuns(delayed).create({...input});await start;release();const created=await promise;assert.equal(created.sop_slug,input.slug);assert.equal(created.sop_version,input.version);assert.equal(created.started_by,input.startedBy);assert.equal(created.upload_token,input.uploadToken);
+ });
  await check('missing run read is null and missing write is a stable refusal',async()=>{assert.equal(await store.byId(9007199254740000),null);await refusal(store.checkpoint(9007199254740000,0,'{}'),'sop_run_not_found')});
  await check('saveStep merges fields and returns advanced generation',async()=>{run=await store.saveStep(run.id,0,'first',{nested:['中文',true,null]});run=await store.saveStep(run.id,1,'second',42);assert.deepEqual(JSON.parse(run.data),{first:{nested:['中文',true,null]},second:42});assert.equal(run.cache_revision,2)});
  await check('checkpoint preserves exact JSON whitespace and Unicode bytes',async()=>{const exact=' { \"中文\": [1, null, true], \"second\": 42 } ';run=await store.checkpoint(run.id,run.cache_revision,exact);assert.equal(run.data,exact);assert.equal((await store.byId(run.id)).data,exact)});

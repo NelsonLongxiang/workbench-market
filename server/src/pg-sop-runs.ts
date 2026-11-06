@@ -80,12 +80,14 @@ export function createPgSopRuns(pool: PgTransactionPool) {
   }
   return Object.freeze({
     async create(input: { slug: string; version: number; startedBy: string; uploadToken: string }): Promise<PgSopRun> {
-      if (typeof input.slug !== 'string' || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(input.slug)) refuse('sop_run_slug_invalid');
-      integer(input.version, 1, 'sop_run_version_invalid');
-      if (input.version > 2147483647) refuse('sop_run_version_invalid');
-      if (typeof input.startedBy !== 'string' || typeof input.uploadToken !== 'string') refuse('sop_run_create_invalid');
+      // Snapshot once before validation and before checkout/BEGIN can yield to caller mutations.
+      const { slug, version, startedBy, uploadToken } = input;
+      if (typeof slug !== 'string' || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(slug)) refuse('sop_run_slug_invalid');
+      integer(version, 1, 'sop_run_version_invalid');
+      if (version > 2147483647) refuse('sop_run_version_invalid');
+      if (typeof startedBy !== 'string' || typeof uploadToken !== 'string') refuse('sop_run_create_invalid');
       return withPgTransaction(pool, async tx => {
-        const created = await tx.query('INSERT INTO public.sop_runs(sop_slug,sop_version,started_by,upload_token) VALUES($1,$2,$3,$4) RETURNING *', [input.slug,input.version,input.startedBy,input.uploadToken]);
+        const created = await tx.query('INSERT INTO public.sop_runs(sop_slug,sop_version,started_by,upload_token) VALUES($1,$2,$3,$4) RETURNING *', [slug,version,startedBy,uploadToken]);
         return row(created.rows[0]);
       });
     },
