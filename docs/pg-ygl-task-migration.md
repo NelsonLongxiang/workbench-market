@@ -57,6 +57,14 @@ YGL 来源候选不改变市场本体的 `DatabaseSync` 启动路径。市场认
 
 输出分私有行（含 upload_token 与实际数据，必须受保护）和仅含 run ID/选择/计数/摘要的 summary；summary 绑定原行、原热快照与选择结果。该计划不修改代号/时间、不生成旧源写入，不代表跨表引用、序列、权限、文件字节或 Redis+SQLite/WAL 已保全。`node scripts/sop-preservation-plan-test.mjs` 只跑合成输入，不宣称真实采集或恢复验收。
 
+### SOP-only PG 导入原语（内部注入，无生产 CLI）
+
+`scripts/sop-preservation-import.mjs` 从纯核对计划重新生成私有行；调用者须先独立验证 PG 目标/schema/角色并冻结完整授权采集，本函数不解析 URL/凭证、不建立目标连接，也不承担这些外部验证。只锁定已初始化的 sop_runs 空表（ACCESS EXCLUSIVE），检查列集合，原 ID/数据/时间/令牌/代号逐列参数化插入，事务内读回全部选中字段摘要，禁止覆盖非空目标。它不验收完整 catalog/权限或其他表，不能脱离前置条件当通用生产迁移器。
+
+identity 用事务性 ALTER COLUMN RESTART（不使用不可随事务回滚的 setval），在插入前执行，避免 PostgreSQL pending deferred trigger events 阻止 ALTER。延迟约束在 COMMIT 才拒绝时，行和序列重置均回滚；成功提交后新 ID 从导入最大 ID 后开始。调用前输入会被复制为纯值，后续调用者修改不影响已选材料。回执只有计数/选择/摘要；底层 PG 错误可能包含私有 detail，异常必须留在受保护诊断，不得直接发给外部 API。
+
+隔离合成测试覆盖原绑定热态保留、逐列读回、导入后继续写入、非空目标/并发导入拒绝、行失败/读回差异/延迟 COMMIT 拒绝及序列回滚；这不是 SQLite/Redis 实际冻结采集、跨表迁移或 pg_dump/restore 灾备恢复证明。市场运行入口、完整身份权限与回执事务仍未切到 PG。
+
 ## 验证范围
 
 迁移回归的无效目标用例自行构造旧格式的声明摘要，不调用会提前拒绝该目标的新引擎来生成测试输入；按实际引擎拒绝顺序核对稳定错误码与失败报告，并用 Socket 正控证明空 host/歧义库名在连接前拒绝。另用旧身份函数测试本地守卫，避免新引擎的先拒绝掩盖迁移工具自身回归。
