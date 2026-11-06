@@ -14,7 +14,8 @@ export function verifySopDumpRestore({docker,container,nonce,verifyOwned}){
   const trigger=sql(db,"SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgrelid='public.sop_runs'::regclass AND NOT tgisinternal ORDER BY tgname");
   const columns=sql(db,"SELECT json_agg(json_build_array(column_name,data_type,is_nullable,column_default,is_identity) ORDER BY ordinal_position)::text FROM information_schema.columns WHERE table_schema='public' AND table_name='sop_runs'");
   const settings=sql(db,"SELECT COALESCE(json_agg(r ORDER BY key),'[]'::json)::text FROM public.settings r");
-  return {rows,generation,trigger,columns,settings};
+  const registry=sql(db,"SELECT COALESCE(json_agg(r ORDER BY id),'[]'::json)::text FROM public.workbenches r");
+  return {rows,generation,trigger,columns,settings,registry};
  };
  const digest=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
  let checks=0;const check=(name,ok)=>{assert(ok,name);checks++;console.log('PASS RESTORE '+name)};
@@ -27,6 +28,7 @@ export function verifySopDumpRestore({docker,container,nonce,verifyOwned}){
  exec(['pg_restore','-h','127.0.0.1','-U',user,'-d',target,'--no-owner','--no-privileges','--single-transaction','--exit-on-error',file]);
  const restored=snapshot(target);check('all row bytes and private fields survive restore',restored.rows===before.rows);
  check('synthetic settings values survive logical restore',restored.settings===before.settings);
+ check('synthetic registry and credential fields survive logical restore',restored.registry===before.registry);
  check('schema column shape and generation trigger survive restore',restored.columns===before.columns&&restored.trigger===before.trigger);
  check('sequence last value and called state survive restore',restored.generation===before.generation);
  const [last,called]=before.generation.split(':');const expected=BigInt(last)+(called==='true'?1n:0n);
@@ -43,6 +45,6 @@ export function verifySopDumpRestore({docker,container,nonce,verifyOwned}){
  }
  check('truncated archive fails validation negative control',rejected);
  check('archive remains unchanged after restore',exec(['sha256sum',file]).split(' ')[0]===sha);
- const receipt={restore_checks:checks,archive_bytes:size,archive_sha256:sha,source_snapshot_sha256:digest(before),restored_snapshot_sha256:digest(restored),storage:'owned-container-tmpfs',production_requests:0,production_backup:false,scope:'synthetic SOP and settings logical dump/restore in same disposable PG instance; no offhost/PITR/full-market evidence'};
+ const receipt={restore_checks:checks,archive_bytes:size,archive_sha256:sha,source_snapshot_sha256:digest(before),restored_snapshot_sha256:digest(restored),storage:'owned-container-tmpfs',production_requests:0,production_backup:false,scope:'synthetic SOP, settings and registry logical dump/restore in same disposable PG instance; no offhost/PITR/full-market evidence'};
  console.log(JSON.stringify(receipt));return receipt;
 }
