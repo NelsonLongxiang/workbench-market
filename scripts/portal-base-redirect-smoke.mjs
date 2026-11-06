@@ -23,6 +23,7 @@ const upstream = createServer((rq, rs) => {
   if (path === '/web/abs') { rs.writeHead(302, { location: `http://127.0.0.1:${upstream.address().port}/web/page` }); return rs.end(); }
   if (path === '/web/abs-out') { rs.writeHead(302, { location: `http://127.0.0.1:${upstream.address().port}/zh_CN/web/abs-out` }); return rs.end(); }
   if (path === '/web/landing') { rs.writeHead(302, { location: '/landed' }); return rs.end(); }
+  if (path === '/shop/') { rs.writeHead(302, { location: '/shopping/cart' }); return rs.end(); }
   if (path === '/web/site') { rs.writeHead(302, { location: '/website/info' }); return rs.end(); }
   if (path === '/web/') { rs.writeHead(303, { location: '/zh_CN/web/', 'content-type': 'text/html' }); rs.statusMessage = 'See Other'; return rs.end('<a href="/zh_CN/web/">redirect</a>'); }
   if (path.startsWith('/web/page')) {
@@ -86,6 +87,11 @@ try {
   // 2c) 反例：/website/info 与请求路径 /web 只是子串重叠、不是同一路径段，不能误拦（#458 评审 R1）
   const site = await http('GET', `/go/${withBase}/site`);
   ok('base 外跳 /website/info 按契约映射成 /go/N/website/info（不误拦成 502）', site.status === 302 && site.headers.location === `/go/${withBase}/website/info`, `${site.status} ${site.headers.location}`);
+
+  // 2d) 反例要从台根进：此时上游请求路径就是 base 本身（/shop），子串比会把 /shopping/cart 误判成自增长
+  const shop = await register('shop-base', `${UP}/shop`);
+  const sh = await http('GET', `/go/${shop}/`);
+  ok('台根请求、base 外跳 /shopping/cart 按契约映射（子串重叠不算自增长）', sh.status === 302 && sh.headers.location === `/go/${shop}/shopping/cart`, `${sh.status} ${sh.headers.location}`);
 
   // 3) base 之内照常映射，去掉 base
   const inside = await http('GET', `/go/${withBase}/inside`);
