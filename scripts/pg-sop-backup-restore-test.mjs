@@ -17,7 +17,8 @@ export function verifySopDumpRestore({docker,container,nonce,verifyOwned}){
   const registry=sql(db,"SELECT COALESCE(json_agg(r ORDER BY id),'[]'::json)::text FROM public.workbenches r");
   const variables=sql(db,"SELECT COALESCE(json_agg(r ORDER BY workbench_id,key),'[]'::json)::text FROM public.workbench_vars r");
   const audit=sql(db,"SELECT COALESCE(json_agg(r ORDER BY id),'[]'::json)::text FROM public.workbench_var_audit r");
-  return {rows,generation,trigger,columns,settings,registry,variables,audit};
+  const submissions=sql(db,"SELECT COALESCE(json_agg(r ORDER BY id),'[]'::json)::text FROM public.app_data r");
+  return {rows,generation,trigger,columns,settings,registry,variables,audit,submissions};
  };
  const digest=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
  let checks=0;const check=(name,ok)=>{assert(ok,name);checks++;console.log('PASS RESTORE '+name)};
@@ -32,6 +33,7 @@ export function verifySopDumpRestore({docker,container,nonce,verifyOwned}){
  check('synthetic settings values survive logical restore',restored.settings===before.settings);
  check('synthetic registry and credential fields survive logical restore',restored.registry===before.registry);
  check('variables constants and audit history survive logical restore',restored.variables===before.variables&&restored.audit===before.audit);
+ check('submissions idempotency and soft-delete history survive logical restore',restored.submissions===before.submissions);
  check('schema column shape and generation trigger survive restore',restored.columns===before.columns&&restored.trigger===before.trigger);
  check('sequence last value and called state survive restore',restored.generation===before.generation);
  const [last,called]=before.generation.split(':');const expected=BigInt(last)+(called==='true'?1n:0n);
@@ -48,6 +50,6 @@ export function verifySopDumpRestore({docker,container,nonce,verifyOwned}){
  }
  check('truncated archive fails validation negative control',rejected);
  check('archive remains unchanged after restore',exec(['sha256sum',file]).split(' ')[0]===sha);
- const receipt={restore_checks:checks,archive_bytes:size,archive_sha256:sha,source_snapshot_sha256:digest(before),restored_snapshot_sha256:digest(restored),storage:'owned-container-tmpfs',production_requests:0,production_backup:false,scope:'synthetic SOP, settings, registry and vars/audit logical dump/restore in same disposable PG instance; no offhost/PITR/full-market evidence'};
+ const receipt={restore_checks:checks,archive_bytes:size,archive_sha256:sha,source_snapshot_sha256:digest(before),restored_snapshot_sha256:digest(restored),storage:'owned-container-tmpfs',production_requests:0,production_backup:false,scope:'synthetic SOP/settings/registry/vars-audit/submissions logical dump/restore in same disposable PG instance; no offhost/PITR/full-market evidence'};
  console.log(JSON.stringify(receipt));return receipt;
 }
