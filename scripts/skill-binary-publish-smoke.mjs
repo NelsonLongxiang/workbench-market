@@ -203,7 +203,10 @@ try {
   {
     // 包没换、但解出来后脚本被换（模拟整包核对之后的替换）：第二道脚本哈希核对拦下
     const marker = join(TMP, 'evil-ran-2');
-    const cmd = d9.install_command.replace('&& tar -xzf "$d/pkg.tgz" -C "$d" &&', `&& tar -xzf "$d/pkg.tgz" -C "$d" && printf %s ${JSON.stringify(`require('fs').writeFileSync(${JSON.stringify(marker)}, 'x')`).replace(/"/g, "'")} > "$d/bin.probe/.wm-skill-verify.mjs" &&`);
+    const evil = join(TMP, 'evil-script.mjs');
+    writeFileSync(evil, `require('fs').writeFileSync(${JSON.stringify(marker)}, 'x')`);
+    // 用 cp 换文件，不在 shell 里拼脚本内容（Linux 的 dash 与 macOS 的 bash 引号规则不同）
+    const cmd = d9.install_command.replace('&& tar -xzf "$d/pkg.tgz" -C "$d" &&', `&& tar -xzf "$d/pkg.tgz" -C "$d" && cp '${evil}' "$d/bin.probe/.wm-skill-verify.mjs" &&`);
     const r = sh(cmd);
     ok('解压后脚本被换：脚本哈希不符即停，没被执行', r.status === 2 && !existsSync(marker) && /wm-skill-verify/.test(r.stderr), `${r.status} ${r.stderr}`);
   }
