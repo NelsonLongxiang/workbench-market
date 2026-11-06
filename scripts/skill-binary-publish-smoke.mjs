@@ -178,9 +178,12 @@ try {
 
   // 9b) 篡改。第一道：命令内联逻辑核对整包 sha256，包被换了一个字节都到不了解压和执行
   const d9 = (await call('skill_download', { slug })).out;
+  const raw9a = Buffer.from(await (await fetch(d9.download_url)).arrayBuffer());
+  // 两次签发/下载隔开 1 秒以上：打包若混进当前时间（秒级 mtime），这里才会露出来
+  await new Promise((x) => setTimeout(x, 1100));
   const again9 = (await call('skill_download', { slug })).out;
   const raw9 = Buffer.from(await (await fetch(again9.download_url)).arrayBuffer());
-  ok('同一版本每次打出的包逐字节相同，= 应答 package_sha256', d9.package_sha256 === again9.package_sha256 && createHash('sha256').update(raw9).digest('hex') === d9.package_sha256, `${d9.package_sha256} ${again9.package_sha256}`);
+  ok('同一版本隔 1 秒再打包仍逐字节相同，= 应答 package_sha256', d9.package_sha256 === again9.package_sha256 && raw9a.equals(raw9) && createHash('sha256').update(raw9).digest('hex') === d9.package_sha256, `${d9.package_sha256} ${again9.package_sha256}`);
   ok('install_command 先核对整包哈希再解压，核对脚本哈希再执行', /pkg\.tgz" [0-9a-f]{64} && tar -xzf/.test(d9.install_command) && d9.install_command.indexOf(d9.package_sha256) < d9.install_command.indexOf('tar -xzf') && d9.install_command.indexOf(d9.verify_script_sha256) < d9.install_command.indexOf('--install'));
   const fresh = async (tag) => {
     const work = join(TMP, 'tamper-' + tag);
@@ -196,7 +199,7 @@ try {
     // 换掉包里的校验脚本（让它一运行就留下记号）并重新打包：整包哈希先不符，脚本不会被执行
     const work = await fresh('script');
     const marker = join(TMP, 'evil-ran');
-    writeFileSync(join(work, 'bin.probe/.wm-skill-verify.mjs'), `require('fs').writeFileSync(${JSON.stringify(marker)}, 'x')`);
+    writeFileSync(join(work, 'bin.probe/.wm-skill-verify.mjs'), `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'x');`);
     const r = runCmdWith(repack(work));
     ok('包被替换：整包 sha256 不符即停，包内代码没被执行，已装版本不动', r.status === 2 && !existsSync(marker) && /sha256 不符/.test(r.stderr) && /pkg\.tgz/.test(r.stderr) && readFileSync(join(ROOT, 'bin.probe/SKILL.md')).equals(before), `${r.status} ${r.stderr}`);
   }
@@ -204,7 +207,12 @@ try {
     // 包没换、但解出来后脚本被换（模拟整包核对之后的替换）：第二道脚本哈希核对拦下
     const marker = join(TMP, 'evil-ran-2');
     const evil = join(TMP, 'evil-script.mjs');
-    writeFileSync(evil, `require('fs').writeFileSync(${JSON.stringify(marker)}, 'x')`);
+    writeFileSync(evil, `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'x');`);
+    // 对照：这个脚本真被执行就会留下记号（否则下面「没被执行」的断言是空的）
+    const probe = join(TMP, 'evil-ran-probe');
+    writeFileSync(join(TMP, 'evil-probe.mjs'), `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(probe)}, 'x');`);
+    spawnSync(process.execPath, [join(TMP, 'evil-probe.mjs')]);
+    ok('对照：替换脚本直接运行确实会留下记号', existsSync(probe));
     // 用 cp 换文件，不在 shell 里拼脚本内容（Linux 的 dash 与 macOS 的 bash 引号规则不同）
     const cmd = d9.install_command.replace('&& tar -xzf "$d/pkg.tgz" -C "$d" &&', `&& tar -xzf "$d/pkg.tgz" -C "$d" && cp '${evil}' "$d/bin.probe/.wm-skill-verify.mjs" &&`);
     const r = sh(cmd);
