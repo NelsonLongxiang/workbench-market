@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** 台地址带路径（base）时的 /go/ 映射：上游跳到 base 之外不再逐跳叠前缀（Odoo 台登记成 …/web，语言跳转
+/** 台地址带路径（base）时的 /go/ 映射：上游跳到 base 之外且含请求路径（自增长）时不再逐跳叠前缀（Odoo 台登记成 …/web，语言跳转
  *  /web/ → /zh_CN/web/ 曾拼出 /go/N/zh_CN/web/zh_CN/web/…），base 内的跳转与页面绝对链接去掉 base 后再挂 /go/N/。
  *  合成上游 + 全新 DATA_DIR + 随机回环端口；不碰真实工作台。 */
 import { spawn } from 'node:child_process';
@@ -21,7 +21,8 @@ const upstream = createServer((rq, rs) => {
   if (path === '/web/inside') { rs.writeHead(303, { location: '/web/page?x=1', 'content-type': 'text/html' }); return rs.end('<a href="/web/page">moved</a>'); }
   if (path === '/web/root') { rs.writeHead(302, { location: '/web' }); return rs.end(); }
   if (path === '/web/abs') { rs.writeHead(302, { location: `http://127.0.0.1:${upstream.address().port}/web/page` }); return rs.end(); }
-  if (path === '/web/abs-out') { rs.writeHead(302, { location: `http://127.0.0.1:${upstream.address().port}/zh_CN/web/` }); return rs.end(); }
+  if (path === '/web/abs-out') { rs.writeHead(302, { location: `http://127.0.0.1:${upstream.address().port}/zh_CN/web/abs-out` }); return rs.end(); }
+  if (path === '/web/landing') { rs.writeHead(302, { location: '/landed' }); return rs.end(); }
   if (path.startsWith('/web/page')) {
     rs.writeHead(200, { 'content-type': 'text/html' });
     return rs.end('<!doctype html><link rel="stylesheet" href="/web/assets/91d484d/web.assets_frontend.min.css"><script src="/other/x.js"></script><a href="/web">home</a>');
@@ -73,7 +74,11 @@ try {
 
   // 2) 同源绝对地址跳到 base 之外，同样拦下
   const absOut = await http('GET', `/go/${withBase}/abs-out`);
-  ok('同源绝对地址跳到 base 之外：502', absOut.status === 502 && absOut.body?.error === 'go_redirect_outside_base', `${absOut.status} ${absOut.headers.location}`);
+  ok('同源绝对地址自增长跳转（/zh_CN/web/abs-out 含请求路径）：502', absOut.status === 502 && absOut.body?.error === 'go_redirect_outside_base', `${absOut.status} ${absOut.headers.location}`);
+
+  // 2b) base 之外但不含请求路径的跳转：保持 issue #4 契约，照旧映射成 /go/N/<loc>
+  const landing = await http('GET', `/go/${withBase}/landing`);
+  ok('base 之外的普通跳转 /landed → /go/N/landed（契约不变）', landing.status === 302 && landing.headers.location === `/go/${withBase}/landed`, `${landing.status} ${landing.headers.location}`);
 
   // 3) base 之内照常映射，去掉 base
   const inside = await http('GET', `/go/${withBase}/inside`);

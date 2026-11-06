@@ -300,9 +300,10 @@ export function installPortal(
         delete proxyRes.headers['content-security-policy'];
         // #292 M5：上游可发 Service-Worker-Allowed: / 把 SW 作用域扩到全站（市场源上 HTTPS/localhost 时可常驻接管所有页面、截获管理员口令）
         delete proxyRes.headers['service-worker-allowed'];
-        // 台地址带路径（base）时 /go/N/<p> 只对应上游 base+<p>。上游跳到 base 之外（如 Odoo 台登记成 …/web，
-        // 语言跳转 /web/ → /zh_CN/web/）门户映射不出：硬拼 /go/N/zh_CN/web/ 再请求就成了 base+/zh_CN/web/，每跳叠一层。
-        // 这种跳转直接 502 说明原因，不让浏览器进循环；修法是把台地址改成上游的源（不带路径）。
+        // 台地址带路径（base）时 /go/N/<p> 只对应上游 base+<p>。上游跳到 base 之外照旧硬拼成 /go/N/<loc>（issue #4 的契约，
+        // E2E redir-relative：base /xfo、跳 /landed → /go/N/landed）。但若跳转目标里还含着刚请求的上游路径
+        // （如 Odoo 台登记成 …/web，语言跳转 /web/ → /zh_CN/web/），硬拼后再请求就是 base+/zh_CN/web/，每跳叠一层、永不收敛。
+        // 只有这种自增长跳转才 502 说明原因，不让浏览器进循环；修法是把台地址改成上游的源（不带路径）。
         const outsideBase = (() => {
           const loc = proxyRes.headers.location, base = (req as express.Request & { goBase?: string }).goBase ?? '';
           if (typeof loc !== 'string' || !base) return false;
@@ -313,7 +314,10 @@ export function installPortal(
           }
           if (p === null) return false;
           const path = p.split(/[?#]/)[0];
-          return !(path === base || path.startsWith(base + '/'));
+          if (path === base || path.startsWith(base + '/')) return false;
+          // req.url 此时已是上游路径（pathRewrite 之后）；去掉尾斜杠再比，/web/ 与 /zh_CN/web/ 也算包含
+          const upPath = String(req.url ?? '').split(/[?#]/)[0].replace(/\/+$/, '');
+          return upPath.length > 1 && path.includes(upPath);
         })();
         if (outsideBase) {
           const wid0 = (req as express.Request & { goWid?: string }).goWid ?? '?';
