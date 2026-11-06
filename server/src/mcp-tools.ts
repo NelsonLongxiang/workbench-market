@@ -283,9 +283,20 @@ export const MCP_TOOLS: McpToolDef[] = [
     inputSchema: { type: 'object', properties: { slug: { type: 'string', description: '技能 slug（如 agents:brand）' } }, required: ['slug'] },
   },
   {
+    name: 'skill_file_put',
+    category: 'admin',
+    description: '技能上传第一步：一次上传一个文件（不收压缩包），暂存在市场上，返回 sha256。文本文件 content 直接给；二进制文件（图片/字体/模板）content 给 base64 并带 encoding:"base64"。单文件上限 10MB。同内容重复上传幂等并续期，暂存 24 小时后清掉。全部文件传完后调 skill_publish 按 sha256 引用成版。',
+    inputSchema: {
+      type: 'object',
+      properties: { content: { type: 'string' }, encoding: { type: 'string', enum: ['utf8', 'base64'], description: '缺省 utf8' } },
+      required: ['content'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'skill_publish',
     category: 'admin',
-    description: '技能上传/发版/更新：slug 不存在时建技能并发 v1，已存在时发新版本 N+1（旧版本不变）。files 是整棵文件树；文本文件 content 直接给，二进制文件（图片/字体/模板）content 给 base64 并带 encoding:"base64"。SKILL.md 的 name/description/argument-hint 自动同步到技能信息。同一技能已有内容完全相同的版本时报 409。审计人记为本会话。',
+    description: '技能上传第二步（发版/更新）：用 skill_file_put 返回的 sha256 列出整棵文件树，一次成版。slug 不存在时建技能并发 v1，已存在时发新版本 N+1（旧版本不变）。有文件没上传或暂存已过期时报 400 并点名路径。SKILL.md 的 name/description/argument-hint 自动同步到技能信息。同一技能已有内容完全相同的版本时报 409。审计人记为本会话。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -294,8 +305,8 @@ export const MCP_TOOLS: McpToolDef[] = [
           type: 'array',
           items: {
             type: 'object',
-            properties: { path: { type: 'string', description: '相对路径（/ 分隔，不许绝对路径或 . / .. 段）' }, content: { type: 'string' }, encoding: { type: 'string', enum: ['utf8', 'base64'], description: '缺省 utf8' } },
-            required: ['path', 'content'],
+            properties: { path: { type: 'string', description: '相对路径（/ 分隔，不许绝对路径或 . / .. 段）' }, sha256: { type: 'string', description: 'skill_file_put 返回的 sha256' } },
+            required: ['path', 'sha256'],
             additionalProperties: false,
           },
         },
@@ -304,6 +315,18 @@ export const MCP_TOOLS: McpToolDef[] = [
       required: ['slug', 'files'],
       additionalProperties: false,
     },
+  },
+  {
+    name: 'skill_manifest',
+    category: 'read',
+    description: '技能获取第一步：列出某版本（缺省最新）的文件清单——每个文件的 path、sha256、size，以及整版期望指纹 tree_digest。再按清单逐个调 skill_file_get 取文件，写到你要的目录。',
+    inputSchema: { type: 'object', properties: { slug: { type: 'string' }, version: { type: 'integer', description: '缺省最新' } }, required: ['slug'], additionalProperties: false },
+  },
+  {
+    name: 'skill_file_get',
+    category: 'read',
+    description: '技能获取第二步：一次取一个文件（不发压缩包）。path 必须是 skill_manifest 清单里的路径。返回 content、encoding（文本 utf8 / 二进制 base64）、sha256、size；调用方自己写到目标位置并按 sha256 校验。超过 10MB 的文件不经 MCP 传，改用 REST 导出。',
+    inputSchema: { type: 'object', properties: { slug: { type: 'string' }, version: { type: 'integer', description: '缺省最新' }, path: { type: 'string' } }, required: ['slug', 'path'], additionalProperties: false },
   },
   {
     name: 'skill_install_plan',

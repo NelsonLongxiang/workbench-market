@@ -9,7 +9,7 @@ import { contentConfig, createContentSurface, mountContentSurface, listenContent
 import { createPortalObservation } from './portal-observation.ts';
 import { allSurfaceServers, browserMarked, originIsThisSurface, rawLoopback, registerSurface, surfaceOf, surfacePorts, surfaceUrl } from './surfaces.ts';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -2437,14 +2437,57 @@ app.post('/api/skills/:slug/versions', wrap(async (req, res) => {
   if (!adminGuard(req, res)) return; // 口令门（方案裁定：复用 X-Admin-Token）
   res.status(201).json(await skillPublishCore(String(req.params.slug ?? ''), req.body?.files, req.body?.changelog, req.body?.reviewed_by));
 }));
-/** 技能发布核心（REST 口令面与 MCP skill_publish 共用）：首版建技能，此后每次 N+1；同技能同内容 409 */
-async function skillPublishCore(slugIn: unknown, files: any, changelogIn: unknown, reviewedByIn: unknown): Promise<Record<string, unknown>> {
+// ---------- 技能文件暂存（MCP 一次只传一个文件：skill_file_put 先暂存，skill_publish 按 sha256 引用成版）----------
+const SKILL_STAGE_DIR = join(dataDir, 'skill-staging');
+const SKILL_STAGE_TTL_MS = 24 * 3600_000;
+const SKILL_FILE_MAX = 10 * 1024 * 1024; // 单文件上限（MCP 传输面；更大的走 REST 导出/发布）
+/** 暂存一个文件，内容寻址：同内容幂等；顺手清掉超过 24h 的暂存 */
+function skillStagePut(content: unknown, encoding: unknown): { sha256: string; size: number; expires_in_hours: number } {
+  if (typeof content !== 'string') bad('content 必须是字符串');
+  if (encoding !== undefined && encoding !== 'utf8' && encoding !== 'base64') bad('encoding 只收 utf8 或 base64');
+  if (encoding === 'base64' && !isStrictBase64(content as string)) bad('content 不是合法 base64');
+  const buf = Buffer.from(content as string, encoding === 'base64' ? 'base64' : 'utf8');
+  if (buf.length > SKILL_FILE_MAX) bad(`单文件超过 ${SKILL_FILE_MAX} 字节上限`);
+  const sha = createHash('sha256').update(buf).digest('hex');
+  mkdirSync(SKILL_STAGE_DIR, { recursive: true });
+  const now = Date.now();
+  for (const e of readdirSync(SKILL_STAGE_DIR)) {
+    try { const fp = join(SKILL_STAGE_DIR, e); if (now - statSync(fp).mtimeMs > SKILL_STAGE_TTL_MS) rmSync(fp, { force: true }); } catch { /* 并发删除 */ }
+  }
+  const fp = join(SKILL_STAGE_DIR, sha);
+  if (existsSync(fp)) utimesSync(fp, new Date(), new Date()); // 重传续期
+  else { const tmp = `${fp}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`; writeFileSync(tmp, buf); renameSync(tmp, fp); } // 先写临时再改名：发布不会读到半个文件
+  return { sha256: sha, size: buf.length, expires_in_hours: 24 };
+}
+/** 某技能某版本的快照目录（缺省最新）+ 版本行 */
+function skillVersionDir(slugIn: unknown, versionIn: unknown): { row: any; target: any; dir: string } {
+  const S = svc<SkillService>('skill');
+  const row = S.skillBySlug(String(slugIn ?? ''));
+  if (!row) throw new HttpError(404, `skill not found: ${slugIn}`);
+  const vs = S.versionsBySkill(row.id) as any[];
+  const target = typeof versionIn === 'number' ? vs.find((v) => v.version === versionIn) : vs[0];
+  if (!target) throw new HttpError(404, versionIn === undefined ? `无版本：${slugIn}` : `version not found: ${versionIn}`);
+  const dir = resolveSnap(target.snapshot_path);
+  if (!dir || !existsSync(dir)) throw new HttpError(404, `snapshot missing: v${target.version}`);
+  return { row, target, dir };
+}
+function skillSnapFiles(dir: string): { path: string; abs: string }[] {
+  const out: { path: string; abs: string }[] = [];
+  (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else out.push({ path: rel + e.name, abs: fp }); } })(dir);
+  return out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+}
+
+/** 技能发布核心（REST 口令面与 MCP skill_publish 共用）：首版建技能，此后每次 N+1；同技能同内容 409。
+ *  refsOnly（MCP）：files 只收 {path, sha256}，内容取自 skill_file_put 的暂存，缺哪个点名 400 */
+async function skillPublishCore(slugIn: unknown, files: any, changelogIn: unknown, reviewedByIn: unknown, opts: { refsOnly?: boolean } = {}): Promise<Record<string, unknown>> {
   const slug = String(slugIn ?? '').trim();
   // #94 S0③：slug 校验（小写字母数字开头·[a-z0-9:_-]·≤64）
   if (!/^[a-z0-9][a-z0-9:_-]{0,63}$/.test(slug)) bad('slug 非法（小写字母数字开头·仅 [a-z0-9:_-]·≤64 字符）');
-  if (!Array.isArray(files) || files.length === 0) bad('files 必须为非空 [{path, content}]');
+  if (!Array.isArray(files) || files.length === 0) bad(opts.refsOnly ? 'files 必须为非空 [{path, sha256}]' : 'files 必须为非空 [{path, content}]');
   for (const f of files) {
-    if (typeof f?.path !== 'string' || !f.path || typeof f?.content !== 'string') bad('files 项须 {path, content}');
+    if (opts.refsOnly) {
+      if (typeof f?.path !== 'string' || !f.path || typeof f?.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(f.sha256) || f.content !== undefined) bad('files 项须 {path, sha256}（内容先逐个经 skill_file_put 上传）');
+    } else if (typeof f?.path !== 'string' || !f.path || typeof f?.content !== 'string') bad('files 项须 {path, content}');
     // 二进制文件（图片/字体/模板）用 encoding:'base64'；缺省 utf8 = 旧语义
     if (f.encoding !== undefined && f.encoding !== 'utf8' && f.encoding !== 'base64') bad(`encoding 只收 utf8 或 base64: ${f.path}`);
     if (f.encoding === 'base64' && !isStrictBase64(f.content)) bad(`content 不是合法 base64: ${f.path}`);
@@ -2466,7 +2509,12 @@ async function skillPublishCore(slugIn: unknown, files: any, changelogIn: unknow
   const reviewedBy = String(reviewedByIn ?? '').trim();
   const S = svc<SkillService>('skill');
   // 指纹与落盘都按字节：utf8 文本与等价 base64 得同一 digest
-  const blobs = (files as any[]).map((f) => ({ path: String(f.path), content: Buffer.from(String(f.content), f.encoding === 'base64' ? 'base64' : 'utf8') }));
+  let blobs: { path: string; content: Buffer }[];
+  if (opts.refsOnly) {
+    const missing = (files as any[]).filter((f) => !existsSync(join(SKILL_STAGE_DIR, f.sha256))).map((f) => f.path);
+    if (missing.length) bad(`这些文件还没经 skill_file_put 上传（或暂存已过 24h）：${missing.slice(0, 20).join(', ')}${missing.length > 20 ? ` 等 ${missing.length} 个` : ''}`);
+    blobs = (files as any[]).map((f) => ({ path: String(f.path), content: readFileSync(join(SKILL_STAGE_DIR, f.sha256)) }));
+  } else blobs = (files as any[]).map((f) => ({ path: String(f.path), content: Buffer.from(String(f.content), f.encoding === 'base64' ? 'base64' : 'utf8') }));
   const t = SkillService.filesDigest(blobs);
   let row = S.skillBySlug(slug);
   // #94 S0⑥（K9）：digest 按 skill 域查重（不同技能同内容各自可发布——全局唯一是误拒）
@@ -3717,9 +3765,27 @@ async function callTool(name: string, args: any, subject = 'anonymous'): Promise
       // #94 S0⑤（K8）：MCP 面同规则——snapshot_path 相对化
       return (S.versionsBySkill(row.id) as any[]).map((v) => ({ ...v, snapshot_path: v.snapshot_path ? `skill-snapshots/${encodeURIComponent(row.slug)}/v${v.version}` : v.snapshot_path }));
     }
+    // 技能传输面：一次只传一个文件，不收也不发压缩包
+    case 'skill_file_put':
+      return skillStagePut(args?.content, args?.encoding);
     case 'skill_publish':
       // 审计人恒为调用会话（不收 agent 自报的 reviewed_by）
-      return skillPublishCore(args?.slug, args?.files, args?.changelog, subject);
+      return skillPublishCore(args?.slug, args?.files, args?.changelog, subject, { refsOnly: true });
+    case 'skill_manifest': {
+      const { row, target, dir } = skillVersionDir(args?.slug, args?.version);
+      const files = skillSnapFiles(dir).map((f) => { const b = readFileSync(f.abs); return { path: f.path, sha256: createHash('sha256').update(b).digest('hex'), size: b.length }; });
+      return { slug: row.slug, version: target.version, tree_digest: target.tree_digest, file_count: files.length, files };
+    }
+    case 'skill_file_get': {
+      const { row, target, dir } = skillVersionDir(args?.slug, args?.version);
+      const want = String(args?.path ?? '');
+      const hit = skillSnapFiles(dir).find((f) => f.path === want); // 只认清单里的路径，不拼路径（防 ..）
+      if (!hit) throw new HttpError(404, `v${target.version} 没有文件 ${want}（先调 skill_manifest 看清单）`);
+      const b = readFileSync(hit.abs);
+      if (b.length > SKILL_FILE_MAX) throw new HttpError(413, `文件超过 ${SKILL_FILE_MAX} 字节，MCP 不传；改用 REST 导出`);
+      const text = isUtf8Bytes(b);
+      return { slug: row.slug, version: target.version, path: hit.path, sha256: createHash('sha256').update(b).digest('hex'), size: b.length, encoding: text ? 'utf8' : 'base64', content: b.toString(text ? 'utf8' : 'base64') };
+    }
     case 'skill_install_plan': {
       const S = svc<SkillService>('skill');
       const row = S.skillBySlug(String(args?.slug ?? ''));
