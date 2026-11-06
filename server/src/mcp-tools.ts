@@ -83,8 +83,8 @@ export const MCP_TOOLS: McpToolDef[] = [
   {
     name: 'change_request_create',
     category: 'write',
-    description: '#94 v3 S1 人审门：创建台回滚/删除请求（K10——批准前状态不变·批准经 REST 口令面）',
-    inputSchema: { type: 'object', properties: { kind: { type: 'string', enum: ['app_rollback', 'app_delete'] }, target_type: { type: 'string' }, target_slug: { type: 'string' }, payload: { type: 'object' }, reason: { type: 'string' }, requested_by: { type: 'string' } }, required: ['kind', 'target_slug'] },
+    description: '#94 v3 S1 人审门：创建台或技能的回滚/删除请求（K10——批准前状态不变·批准经 REST 口令面）。',
+    inputSchema: { type: 'object', properties: { kind: { type: 'string', enum: ['app', 'skill'] }, op: { type: 'string', enum: ['rollback', 'delete'] }, slug: { type: 'string' }, target_version: { type: 'integer', description: 'op=rollback 时必填：要回滚到的版本号' }, reason: { type: 'string' }, requested_by: { type: 'string' } }, required: ['kind', 'op', 'slug'] },
   },
   {
     name: 'change_requests',
@@ -281,6 +281,29 @@ export const MCP_TOOLS: McpToolDef[] = [
     category: 'read',
     description: '查某技能版本链（newest-first）：version/changelog/breaking/tree_digest/snapshot_path/reviewed_by——版本不可变审计面。',
     inputSchema: { type: 'object', properties: { slug: { type: 'string', description: '技能 slug（如 agents:brand）' } }, required: ['slug'] },
+  },
+  {
+    name: 'skill_publish',
+    category: 'admin',
+    description: '技能上传/发版/更新：slug 不存在时建技能并发 v1，已存在时发新版本 N+1（旧版本不变）。files 是整棵文件树；文本文件 content 直接给，二进制文件（图片/字体/模板）content 给 base64 并带 encoding:"base64"。SKILL.md 的 name/description/argument-hint 自动同步到技能信息。同一技能已有内容完全相同的版本时报 409。审计人记为本会话。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slug: { type: 'string', description: '小写字母数字开头·仅 [a-z0-9:_-]·≤64 字符' },
+        files: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: { path: { type: 'string', description: '相对路径（/ 分隔，不许绝对路径或 . / .. 段）' }, content: { type: 'string' }, encoding: { type: 'string', enum: ['utf8', 'base64'], description: '缺省 utf8' } },
+            required: ['path', 'content'],
+            additionalProperties: false,
+          },
+        },
+        changelog: { type: 'string', description: '本版说明（≤2000 字）' },
+      },
+      required: ['slug', 'files'],
+      additionalProperties: false,
+    },
   },
   {
     name: 'skill_install_plan',

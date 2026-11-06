@@ -1249,12 +1249,12 @@ async function executeSkillRollback(slug: string, targetVersion: number, reviewe
   const nextVer = (S.versionsMax(row.id)?.v ?? 0) + 1;
   const { readdirSync, readFileSync, mkdirSync, writeFileSync } = await import('node:fs');
   const { join: j } = await import('node:path');
-  const files: { path: string; content: string }[] = [];
-  (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = j(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp, 'utf8') }); } })(resolveSnap(src.snapshot_path));
+  const files: { path: string; content: Buffer }[] = []; // 按字节复制：二进制文件回滚后不走样
+  (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = j(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp) }); } })(resolveSnap(src.snapshot_path));
   const dg = SkillService.filesDigest(files);
   const snapDir = j(dataDir, skillSnapRel(slug, nextVer));
   mkdirSync(snapDir, { recursive: true });
-  for (const f of files) { const abs = j(snapDir, f.path); mkdirSync(j(abs, '..'), { recursive: true }); writeFileSync(abs, f.content, 'utf8'); }
+  for (const f of files) { const abs = j(snapDir, f.path); mkdirSync(j(abs, '..'), { recursive: true }); writeFileSync(abs, f.content); }
   S.versionInsert({ skillId: row.id, version: nextVer, changelog: `[rollback] 回滚自 v${targetVersion}`, treeDigest: dg.digest, fileCount: dg.fileCount, totalBytes: dg.totalBytes, snapshotPath: skillSnapRel(slug, nextVer), reviewedBy }); // S4/#183
   return { ok: true, slug, new_version: nextVer, rolled_back_from: targetVersion, reviewed_by: reviewedBy };
 }
@@ -2435,13 +2435,19 @@ app.get('/api/skills', (_req, res) => {
 // ---------- 技能市场发布面（P0-b · 方案 PR#57 §1：口令门+首版人审+N+1 快照+digest 锚）----------
 app.post('/api/skills/:slug/versions', wrap(async (req, res) => {
   if (!adminGuard(req, res)) return; // 口令门（方案裁定：复用 X-Admin-Token）
-  const slug = String(req.params.slug ?? '').trim();
+  res.status(201).json(await skillPublishCore(String(req.params.slug ?? ''), req.body?.files, req.body?.changelog, req.body?.reviewed_by));
+}));
+/** 技能发布核心（REST 口令面与 MCP skill_publish 共用）：首版建技能，此后每次 N+1；同技能同内容 409 */
+async function skillPublishCore(slugIn: unknown, files: any, changelogIn: unknown, reviewedByIn: unknown): Promise<Record<string, unknown>> {
+  const slug = String(slugIn ?? '').trim();
   // #94 S0③：slug 校验（小写字母数字开头·[a-z0-9:_-]·≤64）
   if (!/^[a-z0-9][a-z0-9:_-]{0,63}$/.test(slug)) bad('slug 非法（小写字母数字开头·仅 [a-z0-9:_-]·≤64 字符）');
-  const files = req.body?.files;
   if (!Array.isArray(files) || files.length === 0) bad('files 必须为非空 [{path, content}]');
   for (const f of files) {
     if (typeof f?.path !== 'string' || !f.path || typeof f?.content !== 'string') bad('files 项须 {path, content}');
+    // 二进制文件（图片/字体/模板）用 encoding:'base64'；缺省 utf8 = 旧语义
+    if (f.encoding !== undefined && f.encoding !== 'utf8' && f.encoding !== 'base64') bad(`encoding 只收 utf8 或 base64: ${f.path}`);
+    if (f.encoding === 'base64' && !isStrictBase64(f.content)) bad(`content 不是合法 base64: ${f.path}`);
     // #94 S0③：path 严校验（反斜杠/绝对路径/空·.·..段全拒）
     if (f.path.length > 200) bad('path 过长（>200）');
     if (f.path.includes('\\')) bad(`path 非法（禁反斜杠）: ${f.path}`);
@@ -2456,10 +2462,12 @@ app.post('/api/skills/:slug/versions', wrap(async (req, res) => {
       seen.add(f.path);
     }
   }
-  const changelog = String(req.body?.changelog ?? '').slice(0, 2000);
-  const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
+  const changelog = String(changelogIn ?? '').slice(0, 2000);
+  const reviewedBy = String(reviewedByIn ?? '').trim();
   const S = svc<SkillService>('skill');
-  const t = SkillService.filesDigest(files);
+  // 指纹与落盘都按字节：utf8 文本与等价 base64 得同一 digest
+  const blobs = (files as any[]).map((f) => ({ path: String(f.path), content: Buffer.from(String(f.content), f.encoding === 'base64' ? 'base64' : 'utf8') }));
+  const t = SkillService.filesDigest(blobs);
   let row = S.skillBySlug(slug);
   // #94 S0⑥（K9）：digest 按 skill 域查重（不同技能同内容各自可发布——全局唯一是误拒）
   const existed = row ? S.versionByDigest(t.digest, row.id) : undefined; // #94 S0⑥：仅同技能域查重（新技能无域可撞）
@@ -2470,9 +2478,9 @@ app.post('/api/skills/:slug/versions', wrap(async (req, res) => {
   let fmDesc = '';
   let fmHint = '';
   {
-    const sk = (files as any[]).find((f) => /(^|\/)SKILL\.md$/i.test(String(f?.path ?? '')));
-    if (sk && typeof sk.content === 'string') {
-      const txt = String(sk.content).replace(/\r\n?/g, '\n');
+    const sk = blobs.find((f) => /(^|\/)SKILL\.md$/i.test(f.path));
+    if (sk) {
+      const txt = sk.content.toString('utf8').replace(/\r\n?/g, '\n');
       if (txt.startsWith('---')) {
         const end = txt.indexOf('\n---', 3);
         if (end > 0) {
@@ -2502,14 +2510,17 @@ app.post('/api/skills/:slug/versions', wrap(async (req, res) => {
   const snapDir = join(dataDir, skillSnapRel(slug, nextVer)); // #183：磁盘与 DB 同一函数（slug 唯一形）
   mkdirSync(snapDir, { recursive: true });
   const { dirname } = await import('node:path');
-  for (const f of files) {
+  for (const f of blobs) {
     const abs = join(snapDir, f.path);
     mkdirSync(dirname(abs), { recursive: true }); // #94 S0②：子目录路径建父目录（docs/a.md 不再 500）
-    writeFileSync(abs, f.content, 'utf8');
+    writeFileSync(abs, f.content);
   }
   S.versionInsert({ skillId: row.id, version: nextVer, changelog, treeDigest: t.digest, fileCount: t.fileCount, totalBytes: t.totalBytes, snapshotPath: `skill-snapshots/${encodeURIComponent(slug)}/v${nextVer}`, reviewedBy }); // S4：存 dataDir 相对形
   // Skill shadow remains non-blocking; its per-version outcome is durable/retryable like app publishing.
-  void layerfsPublish(LAYERFS_SKILLS_PROJECT, files, `[skill-publish] ${slug} v${nextVer}`, `skill/${slug}`).then((out) => {
+  // LayerFS 契约 v1 只收文本：含二进制的版本不推影子，记 skipped（与 migrate-layerfs 的留档不迁同义）
+  const binary = blobs.find((f) => !isUtf8Bytes(f.content));
+  if (binary) db.prepare("UPDATE skill_versions SET shadow_status='skipped', shadow_error=? WHERE skill_id=? AND version=? AND commit_id=''").run(`含非 UTF-8（二进制）文件 ${binary.path}：LayerFS 契约只收文本，不推影子`, row.id, nextVer);
+  else void layerfsPublish(LAYERFS_SKILLS_PROJECT, blobs.map((f) => ({ path: f.path, content: f.content.toString('utf8') })), `[skill-publish] ${slug} v${nextVer}`, `skill/${slug}`).then((out) => {
     try { recordLayerFsSkillShadowOutcome(db, Number(row.id), nextVer, out); }
     catch (e) { console.warn(`[S2-shadow] outcome persistence failed: ${slug} v${nextVer}: ${String((e as Error).message).slice(0,100)}`); }
   }).catch((e) => {
@@ -2517,8 +2528,8 @@ app.post('/api/skills/:slug/versions', wrap(async (req, res) => {
     try { recordLayerFsSkillShadowOutcome(db, Number(row.id), nextVer, null); }
     catch (persistErr) { console.warn(`[S2-shadow] failure status persistence failed: ${String((persistErr as Error).message).slice(0,100)}`); }
   });
-  res.status(201).json({ ok: true, slug, version: nextVer, tree_digest: t.digest, file_count: t.fileCount, total_bytes: t.totalBytes, snapshot_path: `skill-snapshots/${encodeURIComponent(slug)}/v${nextVer}` }); // #94 S0⑤：不暴露 DATA_DIR 绝对路径);
-}));
+  return { ok: true, slug, version: nextVer, tree_digest: t.digest, file_count: t.fileCount, total_bytes: t.totalBytes, snapshot_path: `skill-snapshots/${encodeURIComponent(slug)}/v${nextVer}` }; // #94 S0⑤：不暴露 DATA_DIR 绝对路径
+}
 
 // #94 v3 S1/K16：技能一步式回滚/删除（口令+reviewed_by·与 app 同语义）
 app.post('/api/skills/:slug/activate', wrap(async (req, res) => {
@@ -2598,8 +2609,10 @@ async function rebuildWmSkills(trigger: string): Promise<{ ok: boolean; deleted_
     const latest = vs[0];
     if (!latest?.snapshot_path || !existsSync(resolveSnap(latest.snapshot_path))) continue;
     db.prepare("UPDATE skill_versions SET commit_id = '' WHERE skill_id = ?").run(sk.id); cleared++;
-    const files: { path: string; content: string }[] = [];
-    try { (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp, 'utf8') }); } })(resolveSnap(latest.snapshot_path)); } catch { continue; }
+    const raw: { path: string; bytes: Buffer }[] = [];
+    try { (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else raw.push({ path: rel + e.name, bytes: readFileSync(fp) }); } })(resolveSnap(latest.snapshot_path)); } catch { continue; }
+    if (raw.some((f) => !isUtf8Bytes(f.bytes))) continue; // 含二进制：LayerFS 只收文本，不迁
+    const files = raw.map((f) => ({ path: f.path, content: f.bytes.toString('utf8') }));
     if (files.length === 0 || files.some((f) => f.content === '')) continue; // 异常快照不迁
     const out = await layerfsPublish(LAYERFS_SKILLS_PROJECT, files, `[rebuild] ${sk.slug} v${latest.version}`, `skill/${sk.slug}`);
     if (out) { db.prepare('UPDATE skill_versions SET commit_id = ? WHERE id = ?').run(out.commit_id, latest.id); republished++; }
@@ -2627,8 +2640,16 @@ void (async function scheduleMonthlyRebuild() {
 })();
 
 
+/** 严格 base64（标准字母表、长度 4 的倍数、末尾至多两个 =）；Buffer.from 会静默跳过非法字符，不能拿它当校验 */
+function isStrictBase64(s: string): boolean {
+  return s.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(s);
+}
+/** 字节能无损按 UTF-8 往返 = 文本文件 */
+function isUtf8Bytes(b: Buffer): boolean {
+  return Buffer.from(b.toString('utf8'), 'utf8').equals(b);
+}
 /** #94 S3：最小 ustar 打包（薄分发导出——D5·无外部依赖） */
-function ustarTar(files: { path: string; content: string }[], opts: { prefix?: string } = {}): Buffer {
+function ustarTar(files: { path: string; content: string | Buffer }[], opts: { prefix?: string } = {}): Buffer {
   const chunks: Buffer[] = [];
   const header = (name: string, size: number, type: string) => {
     const h = Buffer.alloc(512, 0);
@@ -2644,7 +2665,7 @@ function ustarTar(files: { path: string; content: string }[], opts: { prefix?: s
     return h;
   };
   for (const f of files) {
-    const body = Buffer.from(f.content, 'utf8');
+    const body = typeof f.content === 'string' ? Buffer.from(f.content, 'utf8') : f.content;
     chunks.push(header((opts.prefix ?? '') + f.path, body.length, '0')); // #132 P1④：包内 <slug>/ 顶层
     chunks.push(body, Buffer.alloc((512 - (body.length % 512)) % 512, 0));
   }
@@ -2663,8 +2684,8 @@ app.get('/api/skills/:slug/export', (req, res) => {
   if (!target) throw new HttpError(404, `version not found: ${v}`);
   const dir = resolveSnap(target.snapshot_path);
   if (!dir || !existsSync(dir)) throw new HttpError(404, `snapshot missing: v${v}`);
-  const files: { path: string; content: string }[] = [];
-  (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp, 'utf8') }); } })(dir);
+  const files: { path: string; content: Buffer }[] = []; // 按字节打包：导出的二进制文件与快照一致
+  (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp) }); } })(dir);
   const tar = ustarTar(files, { prefix: String(row.slug).split(':').pop() + '/' }); // #601
   res.setHeader('Content-Type', 'application/x-tar');
   res.setHeader('Content-Disposition', 'attachment; filename="' + row.slug.replace(/[^a-z0-9._-]/gi, '_') + '-v' + v + '.tar"');
@@ -3696,6 +3717,9 @@ async function callTool(name: string, args: any, subject = 'anonymous'): Promise
       // #94 S0⑤（K8）：MCP 面同规则——snapshot_path 相对化
       return (S.versionsBySkill(row.id) as any[]).map((v) => ({ ...v, snapshot_path: v.snapshot_path ? `skill-snapshots/${encodeURIComponent(row.slug)}/v${v.version}` : v.snapshot_path }));
     }
+    case 'skill_publish':
+      // 审计人恒为调用会话（不收 agent 自报的 reviewed_by）
+      return skillPublishCore(args?.slug, args?.files, args?.changelog, subject);
     case 'skill_install_plan': {
       const S = svc<SkillService>('skill');
       const row = S.skillBySlug(String(args?.slug ?? ''));

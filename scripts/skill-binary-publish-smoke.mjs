@@ -1,0 +1,118 @@
+#!/usr/bin/env node
+/** 技能发布按字节：JSON 发布面收 encoding:'base64' 的二进制文件，快照/回滚/导出/钉装校验都不改坏字节；
+ *  MCP skill_publish 与 REST 同一发布核心（上传·发版·更新）。合成数据 + 全新 DATA_DIR + 随机回环端口。 */
+import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+
+const TMP = resolve('tmp/skill-binary-publish-smoke-' + Date.now().toString(36));
+const DATA = join(TMP, 'data');
+mkdirSync(DATA, { recursive: true });
+let pass = 0, fail = 0;
+const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
+
+const PORT = 20000 + Math.floor(Math.random() * 20000);
+const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'bin-smoke' };
+for (const k of ['REDIS_URL', 'LAYERFS_SERVICE_URL', 'LAYERFS_SERVICE_TOKEN', 'LAYERFS_SERVICE_TOKEN_FILE', 'WM_EXTENSIONS_DIR']) delete env[k];
+const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });
+let serverErr = ''; server.stderr.on('data', (c) => (serverErr += c));
+
+const B = `http://127.0.0.1:${PORT}`;
+const AT = { 'Content-Type': 'application/json', 'X-Admin-Token': 'bin-smoke' };
+const post = async (u, body, h = AT) => { const r = await fetch(B + u, { method: 'POST', headers: h, body: JSON.stringify(body) }); let j = null; try { j = await r.json(); } catch {} return { status: r.status, body: j }; };
+const get = async (u) => { const r = await fetch(B + u); return r.json(); };
+const rpc = async (method, params) => (await fetch(`${B}/mcp`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json();
+const digest = (files) => {
+  const h = createHash('sha256');
+  for (const f of [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))) { h.update(f.path); h.update('\0'); h.update(createHash('sha256').update(f.bytes).digest('hex')); h.update('\0'); }
+  return h.digest('hex');
+};
+/** 解 ustar：只取普通文件 name → bytes */
+const untar = (buf) => {
+  const out = new Map();
+  for (let o = 0; o + 512 <= buf.length;) {
+    const name = buf.subarray(o, o + 100).toString('utf8').replace(/\0.*$/s, '');
+    if (!name) break;
+    const size = parseInt(buf.subarray(o + 124, o + 136).toString('utf8').replace(/\0.*$/s, '').trim(), 8);
+    out.set(name, Buffer.from(buf.subarray(o + 512, o + 512 + size)));
+    o += 512 + Math.ceil(size / 512) * 512;
+  }
+  return out;
+};
+
+// 合成二进制：PNG 头 + 全部 256 个字节值（含 0x00、0x80–0xFF 这类非 UTF-8 序列）
+const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from(Array.from({ length: 256 }, (_, i) => i))]);
+const skillMd = '---\nname: bin-probe\ndescription: 二进制往返探针\n---\nbody';
+const slug = 'bin:probe';
+const S = encodeURIComponent(slug);
+
+try {
+  const end = Date.now() + 40_000;
+  while (Date.now() < end) { try { if ((await fetch(`${B}/api/health`)).ok) break; } catch {} await new Promise((x) => setTimeout(x, 250)); }
+
+  // 1) REST 发布：文本 + base64 二进制
+  const v1Files = [{ path: 'SKILL.md', content: skillMd }, { path: 'assets/logo.png', content: png.toString('base64'), encoding: 'base64' }];
+  const v1Expect = digest([{ path: 'SKILL.md', bytes: Buffer.from(skillMd) }, { path: 'assets/logo.png', bytes: png }]);
+  let r = await post(`/api/skills/${S}/versions`, { files: v1Files, changelog: 'v1', reviewed_by: 'smoke' });
+  ok('带 base64 二进制的首版发布 201 → v1', r.status === 201 && r.body?.version === 1, JSON.stringify(r.body));
+  ok('指纹按原始字节算（与本地重算一致）', r.body?.tree_digest === v1Expect, `${r.body?.tree_digest} vs ${v1Expect}`);
+  ok('total_bytes 按字节计', r.body?.total_bytes === Buffer.byteLength(skillMd) + png.length, String(r.body?.total_bytes));
+  ok('快照里的二进制文件逐字节一致', readFileSync(join(DATA, r.body?.snapshot_path ?? '-', 'assets/logo.png')).equals(png));
+
+  // 2) 等价写法：文本用 base64 给，与 utf8 给是同一内容 → 409
+  r = await post(`/api/skills/${S}/versions`, { files: [{ path: 'SKILL.md', content: Buffer.from(skillMd).toString('base64'), encoding: 'base64' }, v1Files[1]], reviewed_by: 'smoke' });
+  ok('文本改用 base64 给出：同内容同指纹 409', r.status === 409, `${r.status} ${JSON.stringify(r.body)}`);
+
+  // 3) 坏输入
+  r = await post(`/api/skills/${S}/versions`, { files: [{ path: 'a.bin', content: 'not base64!', encoding: 'base64' }] });
+  ok('非法 base64 → 400', r.status === 400, `${r.status} ${JSON.stringify(r.body)}`);
+  r = await post(`/api/skills/${S}/versions`, { files: [{ path: 'a.bin', content: 'QUJD', encoding: 'hex' }] });
+  ok('未知 encoding → 400', r.status === 400, `${r.status} ${JSON.stringify(r.body)}`);
+  r = await post(`/api/skills/${S}/versions`, { files: [{ path: '../x.bin', content: 'QUJD', encoding: 'base64' }] });
+  ok('base64 文件同样走路径校验（.. 段 400）', r.status === 400, `${r.status}`);
+
+  // 4) LayerFS 影子：含二进制的版本记 skipped，不推
+  const vs = await get(`/api/skills/${S}/versions`);
+  const v1 = vs.versions?.find((v) => v.version === 1);
+  ok('含二进制版本的影子记 skipped 并点名文件', v1?.shadow_status === 'skipped' && /assets\/logo\.png/.test(v1?.shadow_error ?? ''), JSON.stringify(v1));
+
+  // 5) 导出 tar 里的二进制逐字节一致
+  const tarRes = await fetch(`${B}/api/skills/${S}/export?version=1`);
+  const tar = untar(Buffer.from(await tarRes.arrayBuffer()));
+  ok('导出 tar 中二进制逐字节一致', tar.get('probe/assets/logo.png')?.equals(png) === true, [...tar.keys()].join(','));
+  ok('导出 tar 中文本一致', tar.get('probe/SKILL.md')?.toString('utf8') === skillMd);
+
+  // 6) 钉装后校验：按字节重算 = 期望指纹
+  r = await post(`/api/skills/${S}/install`, { version: 1, installed_by: 'smoke' });
+  ok('钉装 v1', r.status === 201, `${r.status}`);
+  const ver = await get(`/api/skills/${S}/verify`);
+  ok('钉装校验 ok（二进制不被误判篡改）', ver.ok === true && ver.expected === v1Expect, JSON.stringify(ver));
+
+  // 7) MCP：tools/list 在场；skill_publish 发 v2（更新），审计人记会话
+  const tl = await rpc('tools/list', {});
+  const tool = (tl.result?.tools ?? []).find((t) => t.name === 'skill_publish');
+  ok('MCP skill_publish 在 tools/list', !!tool);
+  const png2 = Buffer.concat([png, Buffer.from([0xff, 0xfe])]);
+  let m = await rpc('tools/call', { name: 'skill_publish', arguments: { slug, files: [{ path: 'SKILL.md', content: skillMd }, { path: 'assets/logo.png', content: png2.toString('base64'), encoding: 'base64' }], changelog: 'v2 经 MCP' } });
+  const mOut = JSON.parse(m.result?.content?.[0]?.text ?? '{}');
+  ok('MCP 发新版本 → v2', !m.result?.isError && mOut.version === 2, JSON.stringify(m).slice(0, 300));
+  ok('MCP 发布的二进制快照逐字节一致', readFileSync(join(DATA, mOut.snapshot_path ?? '-', 'assets/logo.png')).equals(png2));
+  const v2row = (await get(`/api/skills/${S}/versions`)).versions?.find((v) => v.version === 2);
+  ok('MCP 发布的 reviewed_by 记调用会话、changelog 在案', v2row?.reviewed_by === 'anonymous' && v2row?.changelog === 'v2 经 MCP', JSON.stringify(v2row));
+  m = await rpc('tools/call', { name: 'skill_publish', arguments: { slug, files: [{ path: 'SKILL.md', content: skillMd }, { path: 'assets/logo.png', content: png2.toString('base64'), encoding: 'base64' }] } });
+  ok('MCP 同内容重发被拒（409 语义）', m.result?.isError === true || !!m.error, JSON.stringify(m).slice(0, 200));
+  m = await rpc('tools/call', { name: 'skill_publish', arguments: { slug: 'mcp:new-skill', files: [{ path: 'SKILL.md', content: '---\nname: mcp-new\ndescription: 从 MCP 首次上传\n---\n' }] } });
+  const mNew = JSON.parse(m.result?.content?.[0]?.text ?? '{}');
+  ok('MCP 首次上传新技能 → v1，SKILL.md 描述同步', mNew.version === 1 && (await get('/api/skills')).some((s) => s.slug === 'mcp:new-skill' && s.description === '从 MCP 首次上传'), JSON.stringify(m).slice(0, 200));
+
+} catch (e) {
+  ok('冒烟运行', false, String(e?.stack ?? e));
+} finally {
+  server.kill();
+  await new Promise((x) => setTimeout(x, 400));
+  if (fail && serverErr) console.log(serverErr.slice(-1500));
+  rmSync(TMP, { recursive: true, force: true });
+}
+console.log(`skill-binary-publish-smoke: ${pass} passed / ${fail} failed`);
+process.exitCode = fail ? 1 : 0;
