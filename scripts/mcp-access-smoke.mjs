@@ -88,7 +88,7 @@ try {
   ok('零授权会话 access_info 可调', !info.isError && info.payload?.session === 'agent-bare', info.text.slice(0, 120));
   const catalog = info.payload?.catalog ?? [];
   const adminTools = (await call('GET', '/api/mcp/tools', null, AT)).body ?? [];
-  ok('目录与注册表一致（34 = 27 + access_info/access_request/app_data_submit + 技能传输 4）', catalog.length === 34 && adminTools.length === 34, `catalog=${catalog.length} admin=${adminTools.length}`);
+  ok('目录与注册表一致（33 = 27 + access_info/access_request/app_data_submit + 技能传输 3）', catalog.length === 33 && adminTools.length === 33, `catalog=${catalog.length} admin=${adminTools.length}`);
   ok('目录每项带 name/description/category/granted', catalog.every((t) => t.name && typeof t.description === 'string' && ['read', 'write', 'admin'].includes(t.category) && typeof t.granted === 'boolean'));
   ok('零授权：只有两个免授权工具 granted=true', catalog.filter((t) => t.granted).map((t) => t.name).sort().join() === 'access_info,access_request');
   ok('类别标注：app_data_list=read · app_data_submit=write · workbench_register=admin',

@@ -15,6 +15,7 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { gzipSync } from 'node:zlib';
 import { dirname, join, posix, extname, sep as pathSep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import multer from 'multer';
@@ -2477,6 +2478,63 @@ function skillSnapFiles(dir: string): { path: string; abs: string }[] {
   return out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }
 
+// ---------- 技能包下载（MCP skill_download 签发 10 分钟票据 → GET /api/skills/dl/<票号> 取 .tar.gz）----------
+const SKILL_PKG_META = '.wm-skill.json';
+const SKILL_PKG_VERIFY = '.wm-skill-verify.mjs';
+const SKILL_PKG_RESERVED: ReadonlySet<string> = new Set([SKILL_PKG_META, SKILL_PKG_VERIFY]);
+const SKILL_DL_TTL_MS = 10 * 60_000;
+const SKILL_INSTALL_ROOT = '~/.workbench-market/skills';
+/** 包内目录名：slug 里的 : 换成 .（slug 不允许 .，所以不会撞名；Windows 也不收 :） */
+const skillPkgDir = (slug: string) => slug.replace(/:/g, '.');
+let _skillVerifyScript: Buffer | null = null;
+function skillVerifyScript(): Buffer {
+  return (_skillVerifyScript ??= readFileSync(new URL('./skill-verify.mjs', import.meta.url)));
+}
+/** 技能包 = <目录名>/ 下的快照文件 + 市场生成的 .wm-skill.json（清单）与 .wm-skill-verify.mjs（固定模板）。tree_digest 不含这两个文件 */
+function skillPackage(row: any, target: any, dir: string): Buffer {
+  const files = skillSnapFiles(dir).map((f) => ({ path: f.path, content: readFileSync(f.abs) }));
+  if (files.some((f) => SKILL_PKG_RESERVED.has(f.path))) throw new HttpError(409, `v${target.version} 快照里有保留名文件，不能打包`);
+  const name = skillPkgDir(row.slug);
+  const meta = {
+    schema: 1, slug: row.slug, name: row.name, dir: name, version: target.version, tree_digest: target.tree_digest,
+    published_at: target.created_at ?? '', changelog: target.changelog ?? '',
+    files: files.map((f) => ({ path: f.path, sha256: createHash('sha256').update(f.content).digest('hex'), size: f.content.length })),
+    verify: `node ${SKILL_PKG_VERIFY}`, install: `node ${SKILL_PKG_VERIFY} --install`,
+  };
+  files.push({ path: SKILL_PKG_META, content: Buffer.from(JSON.stringify(meta, null, 2) + '\n', 'utf8') }, { path: SKILL_PKG_VERIFY, content: skillVerifyScript() });
+  return gzipSync(ustarTar(files, { prefix: name + '/' }));
+}
+function skillDownloadIssue(slugIn: unknown, versionIn: unknown, issuedTo: string, origin: string): Record<string, unknown> {
+  const { row, target } = skillVersionDir(slugIn, versionIn);
+  const id = randomBytes(32).toString('hex');
+  const exp = Date.now() + SKILL_DL_TTL_MS;
+  db.prepare('DELETE FROM skill_download_tickets WHERE expires_at < ?').run(Date.now() - 86400_000); // 过期一天的票顺手清掉
+  db.prepare('INSERT INTO skill_download_tickets (id, slug, version, issued_to, expires_at) VALUES (?, ?, ?, ?, ?)').run(id, row.slug, target.version, issuedTo, exp);
+  const name = skillPkgDir(row.slug);
+  const url = `${origin}/api/skills/dl/${id}`;
+  return {
+    slug: row.slug, version: target.version, tree_digest: target.tree_digest, file_count: target.file_count, total_bytes: target.total_bytes,
+    download_url: url, expires_at: new Date(exp).toISOString(), package_dir: name, install_dir: `${SKILL_INSTALL_ROOT}/${name}`,
+    install_command: `d=$(mktemp -d) && curl -fsSL '${url}' -o "$d/pkg.tgz" && tar -xzf "$d/pkg.tgz" -C "$d" && node "$d/${name}/${SKILL_PKG_VERIFY}" --install; rm -rf "$d"`,
+    verify_command: `node ${SKILL_INSTALL_ROOT}/${name}/${SKILL_PKG_VERIFY}`,
+  };
+}
+app.get('/api/skills/dl/:ticket', (req, res) => {
+  const id = String(req.params.ticket ?? '');
+  const t = /^[0-9a-f]{64}$/.test(id) ? db.prepare('SELECT * FROM skill_download_tickets WHERE id = ?').get(id) as any : undefined;
+  // 票不存在与已过期同一应答：不透露票号是否签发过
+  if (!t || t.expires_at <= Date.now()) throw new HttpError(404, '下载链接无效或已过期（10 分钟有效），请重新调 skill_download');
+  const { row, target, dir } = skillVersionDir(t.slug, t.version);
+  const pkg = skillPackage(row, target, dir);
+  db.prepare("UPDATE skill_download_tickets SET downloads = downloads + 1, last_download_at = datetime('now') WHERE id = ?").run(id);
+  console.log(`[skill-download] ${t.slug} v${t.version} issued_to=${t.issued_to} bytes=${pkg.length}`);
+  res.setHeader('Content-Type', 'application/gzip');
+  res.setHeader('Content-Disposition', `attachment; filename="${skillPkgDir(row.slug)}-v${target.version}.tar.gz"`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Expected-Digest', target.tree_digest);
+  res.end(pkg);
+});
+
 /** 技能发布核心（REST 口令面与 MCP skill_publish 共用）：首版建技能，此后每次 N+1；同技能同内容 409。
  *  refsOnly（MCP）：files 只收 {path, sha256}，内容取自 skill_file_put 的暂存，缺哪个点名 400 */
 async function skillPublishCore(slugIn: unknown, files: any, changelogIn: unknown, reviewedByIn: unknown, opts: { refsOnly?: boolean } = {}): Promise<Record<string, unknown>> {
@@ -2496,6 +2554,7 @@ async function skillPublishCore(slugIn: unknown, files: any, changelogIn: unknow
     if (f.path.includes('\\')) bad(`path 非法（禁反斜杠）: ${f.path}`);
     if (f.path.startsWith('/') || /^[A-Za-z]:/.test(f.path)) bad(`path 非法（禁绝对路径）: ${f.path}`);
     for (const seg of f.path.split('/')) if (seg === '' || seg === '.' || seg === '..') bad(`path 非法（空/. / .. 段）: ${f.path}`);
+    if (SKILL_PKG_RESERVED.has(f.path)) bad(`path ${f.path} 是技能包保留名（市场打包时生成）`);
   }
   // #94 S0③（K6）：同名重复路径拒收（同 path 两义——内容静默覆盖防）
   {
@@ -2701,7 +2760,15 @@ function ustarTar(files: { path: string; content: string | Buffer }[], opts: { p
   const chunks: Buffer[] = [];
   const header = (name: string, size: number, type: string) => {
     const h = Buffer.alloc(512, 0);
-    h.write(name.slice(0, 99), 0, 'utf8');
+    // 名字超过 100 字节时拆进 ustar 的 prefix 字段（≤155 字节，在 / 处断开），不再静默截断
+    let nm = name, pre = '';
+    if (Buffer.byteLength(nm) > 100) {
+      const cut = [...nm.matchAll(/\//g)].map((m) => m.index!).reverse().find((i) => Buffer.byteLength(nm.slice(0, i)) <= 155 && Buffer.byteLength(nm.slice(i + 1)) <= 100);
+      if (cut === undefined) throw new HttpError(422, `路径过长，tar 装不下: ${name}`);
+      pre = nm.slice(0, cut); nm = nm.slice(cut + 1);
+    }
+    h.write(nm, 0, 'utf8');
+    if (pre) h.write(pre, 345, 'utf8');
     h.write('0000644\0', 100); h.write('0000000\0', 108); h.write('0000000\0', 116);
     h.write(size.toString(8).padStart(11, '0') + '\0', 124);
     h.write(Math.floor(Date.now() / 1000).toString(8).padStart(11, '0') + '\0', 136);
@@ -3742,7 +3809,7 @@ import { checkRunData, extractFieldRules, fileListRows, type FieldRule } from '.
 const MCP_PROTOCOL = '2025-03-26';
 const MCP_KNOWN_PROTOCOLS = ['2024-11-05', '2025-03-26', '2025-06-18'];
 
-async function callTool(name: string, args: any, subject = 'anonymous'): Promise<unknown> {
+async function callTool(name: string, args: any, subject = 'anonymous', origin = ''): Promise<unknown> {
   const metaSlug = String(args?.slug ?? '').trim().toLowerCase();
   if (metaSlug === 'task-center' && ['app_sync','app_activate','sop_publish','sop_deprecate'].includes(name)) throw new HttpError(403, 'task-center 元台仅人工面可修改');
   switch (name) {
@@ -3771,21 +3838,8 @@ async function callTool(name: string, args: any, subject = 'anonymous'): Promise
     case 'skill_publish':
       // 审计人恒为调用会话（不收 agent 自报的 reviewed_by）
       return skillPublishCore(args?.slug, args?.files, args?.changelog, subject, { refsOnly: true });
-    case 'skill_manifest': {
-      const { row, target, dir } = skillVersionDir(args?.slug, args?.version);
-      const files = skillSnapFiles(dir).map((f) => { const b = readFileSync(f.abs); return { path: f.path, sha256: createHash('sha256').update(b).digest('hex'), size: b.length }; });
-      return { slug: row.slug, version: target.version, tree_digest: target.tree_digest, file_count: files.length, files };
-    }
-    case 'skill_file_get': {
-      const { row, target, dir } = skillVersionDir(args?.slug, args?.version);
-      const want = String(args?.path ?? '');
-      const hit = skillSnapFiles(dir).find((f) => f.path === want); // 只认清单里的路径，不拼路径（防 ..）
-      if (!hit) throw new HttpError(404, `v${target.version} 没有文件 ${want}（先调 skill_manifest 看清单）`);
-      const b = readFileSync(hit.abs);
-      if (b.length > SKILL_FILE_MAX) throw new HttpError(413, `文件超过 ${SKILL_FILE_MAX} 字节，MCP 不传；改用 REST 导出`);
-      const text = isUtf8Bytes(b);
-      return { slug: row.slug, version: target.version, path: hit.path, sha256: createHash('sha256').update(b).digest('hex'), size: b.length, encoding: text ? 'utf8' : 'base64', content: b.toString(text ? 'utf8' : 'base64') };
-    }
+    case 'skill_download':
+      return skillDownloadIssue(args?.slug, args?.version, subject, origin);
     case 'skill_install_plan': {
       const S = svc<SkillService>('skill');
       const row = S.skillBySlug(String(args?.slug ?? ''));
@@ -4459,7 +4513,7 @@ async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, 
       ? await mcpAccessTool(toolName, args ?? {}, sess, origin)
       : up
       ? await upstreamRpc(up.upstream, 'tools/call', { name: up.remoteTool, arguments: args ?? {} }, 2, sess ? `mcp/${sess.name}` : undefined)
-      : await callTool(toolName, args ?? {}, sess ? `mcp:${sess.name}` : 'anonymous');
+      : await callTool(toolName, args ?? {}, sess ? `mcp:${sess.name}` : 'anonymous', origin);
     mcpAudit(sess, channel, 'tools/call', toolName, true, '', Date.now() - t0, args);
     return { kind: 'ok', out, upstream: !!up };
   } catch (e: any) {

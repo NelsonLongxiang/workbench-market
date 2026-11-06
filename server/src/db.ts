@@ -183,6 +183,17 @@ CREATE TABLE IF NOT EXISTS skill_digest_reports (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_sdr_skill ON skill_digest_reports (skill_id, version);
+-- 技能包下载票据：MCP skill_download 签发，10 分钟有效；URL 里只有随机票号，不带会话令牌
+CREATE TABLE IF NOT EXISTS skill_download_tickets (
+  id TEXT PRIMARY KEY,
+  slug TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  issued_to TEXT NOT NULL DEFAULT '',
+  expires_at INTEGER NOT NULL,
+  downloads INTEGER NOT NULL DEFAULT 0,
+  last_download_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 -- 旧两表保留一版作回滚锚与迁移源（下版删除）。
 CREATE TABLE IF NOT EXISTS bindings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

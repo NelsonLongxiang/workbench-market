@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 /** 技能发布按字节：JSON 发布面收 encoding:'base64' 的二进制文件，快照/回滚/导出/钉装校验都不改坏字节；
- *  MCP 一次只传一个文件：skill_file_put → skill_publish 按 sha256 成版，skill_manifest → skill_file_get 逐个取回。合成数据 + 全新 DATA_DIR + 随机回环端口。 */
+ *  MCP 一次只传一个文件：skill_file_put → skill_publish 按 sha256 成版，skill_download 签发 10 分钟票据，包内清单 + 校验脚本真装一遍（备份至多 3 个）。合成数据 + 全新 DATA_DIR + 随机回环端口。 */
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { gunzipSync } from 'node:zlib';
 import { join, resolve } from 'node:path';
 
 const TMP = resolve('tmp/skill-binary-publish-smoke-' + Date.now().toString(36));
@@ -14,7 +16,7 @@ const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } els
 
 const PORT = 20000 + Math.floor(Math.random() * 20000);
 const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'bin-smoke' };
-for (const k of ['REDIS_URL', 'LAYERFS_SERVICE_URL', 'LAYERFS_SERVICE_TOKEN', 'LAYERFS_SERVICE_TOKEN_FILE', 'WM_EXTENSIONS_DIR']) delete env[k];
+for (const k of ['MARKET_PUBLIC_URL', 'REDIS_URL', 'LAYERFS_SERVICE_URL', 'LAYERFS_SERVICE_TOKEN', 'LAYERFS_SERVICE_TOKEN_FILE', 'WM_EXTENSIONS_DIR']) delete env[k];
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });
 let serverErr = ''; server.stderr.on('data', (c) => (serverErr += c));
 
@@ -92,7 +94,7 @@ try {
   // 7) MCP 上传：一次一个文件 skill_file_put → skill_publish 按 sha256 引用成版
   const tl = await rpc('tools/list', {});
   const names = (tl.result?.tools ?? []).map((t) => t.name);
-  ok('MCP 技能传输四工具在 tools/list', ['skill_file_put', 'skill_publish', 'skill_manifest', 'skill_file_get'].every((n) => names.includes(n)), names.join(','));
+  ok('MCP 技能传输三工具在 tools/list，旧的 manifest/file_get 已移除', ['skill_file_put', 'skill_publish', 'skill_download'].every((n) => names.includes(n)) && !names.includes('skill_manifest') && !names.includes('skill_file_get'), names.join(','));
   const call = async (name, args) => { const m = await rpc('tools/call', { name, arguments: args }); let out = null; try { out = JSON.parse(m.result?.content?.[0]?.text ?? 'null'); } catch {} return { m, out, err: m.result?.isError === true || !!m.error }; };
   const png2 = Buffer.concat([png, Buffer.from([0xff, 0xfe])]);
   const p1 = await call('skill_file_put', { content: skillMd });
@@ -117,20 +119,87 @@ try {
   r7 = await call('skill_publish', { slug: 'mcp:new-skill', files: [{ path: 'SKILL.md', sha256: p3.out?.sha256 }] });
   ok('MCP 首次上传新技能 → v1，SKILL.md 描述同步', r7.out?.version === 1 && (await get('/api/skills')).some((s) => s.slug === 'mcp:new-skill' && s.description === '从 MCP 首次上传'), JSON.stringify(r7.m).slice(0, 200));
 
-  // 8) MCP 获取：清单 → 逐个取文件，按 sha256 自校验，重算整版指纹
-  const man = await call('skill_manifest', { slug });
-  ok('skill_manifest 缺省最新版（v2）列出 path/sha256/size', man.out?.version === 2 && man.out?.files?.length === 2 && man.out.files.every((f) => /^[0-9a-f]{64}$/.test(f.sha256) && Number.isInteger(f.size)), JSON.stringify(man.out));
-  const got = [];
-  for (const f of man.out?.files ?? []) {
-    const g = await call('skill_file_get', { slug, path: f.path });
-    got.push({ path: f.path, bytes: Buffer.from(g.out?.content ?? '', g.out?.encoding === 'base64' ? 'base64' : 'utf8'), enc: g.out?.encoding, sha: g.out?.sha256 });
+  // 8) MCP 获取：skill_download 只给 10 分钟下载票据，包里带清单与校验脚本
+  const dl = await call('skill_download', { slug });
+  ok('skill_download 缺省最新版（v2），给下载链接、过期时间、安装命令', dl.out?.version === 2 && /\/api\/skills\/dl\/[0-9a-f]{64}$/.test(dl.out?.download_url ?? '') && Date.parse(dl.out?.expires_at) - Date.now() <= 10 * 60_000 && Date.parse(dl.out?.expires_at) > Date.now() && dl.out?.package_dir === 'bin.probe' && dl.out?.install_dir === '~/.workbench-market/skills/bin.probe' && /--install/.test(dl.out?.install_command ?? ''), JSON.stringify(dl.out));
+  ok('下载链接不带会话令牌之类的查询参数', !(dl.out?.download_url ?? '').includes('?'));
+  const pkgRes = await fetch(dl.out.download_url);
+  const pkgBuf = Buffer.from(await pkgRes.arrayBuffer());
+  ok('凭票下载 .tar.gz，带期望指纹头', pkgRes.status === 200 && pkgRes.headers.get('content-type') === 'application/gzip' && pkgRes.headers.get('x-expected-digest') === dl.out.tree_digest, `${pkgRes.status} ${pkgRes.headers.get('content-type')}`);
+  const tar2 = untar(gunzipSync(pkgBuf));
+  const meta = JSON.parse(tar2.get('bin.probe/.wm-skill.json')?.toString('utf8') ?? '{}');
+  ok('包内有清单与校验脚本，二进制逐字节一致', meta.slug === slug && meta.version === 2 && meta.tree_digest === dl.out.tree_digest && tar2.has('bin.probe/.wm-skill-verify.mjs') && tar2.get('bin.probe/assets/logo.png')?.equals(png2) === true, [...tar2.keys()].join(','));
+  ok('清单逐文件 sha256 与 tree_digest 自洽（不含清单与脚本本身）', digest(meta.files.map((f) => ({ path: f.path, bytes: tar2.get('bin.probe/' + f.path) }))) === meta.tree_digest && meta.files.every((f) => f.sha256 === createHash('sha256').update(tar2.get('bin.probe/' + f.path)).digest('hex')));
+  ok('校验脚本是市场模板原样', tar2.get('bin.probe/.wm-skill-verify.mjs')?.equals(readFileSync('server/src/skill-verify.mjs')) === true);
+  const bad = await fetch(`${B}/api/skills/dl/${'0'.repeat(64)}`);
+  ok('伪造票号 404', bad.status === 404);
+  {
+    const { DatabaseSync } = await import('node:sqlite');
+    const sdb = new DatabaseSync(join(DATA, 'workbench-market.db'));
+    const row = sdb.prepare('SELECT issued_to, downloads FROM skill_download_tickets WHERE id = ?').get(dl.out.download_url.split('/').pop());
+    ok('票据记签发会话与下载次数', row?.issued_to === 'anonymous' && row?.downloads === 1, JSON.stringify(row));
+    sdb.prepare('UPDATE skill_download_tickets SET expires_at = ? WHERE id = ?').run(Date.now() - 1, dl.out.download_url.split('/').pop());
+    sdb.close();
   }
-  ok('逐个取回的文件与清单 sha256 一致', got.length === 2 && got.every((g, i) => createHash('sha256').update(g.bytes).digest('hex') === man.out.files[i].sha256 && g.sha === man.out.files[i].sha256));
-  ok('二进制给 base64、文本给 utf8', got.find((g) => g.path === 'assets/logo.png')?.enc === 'base64' && got.find((g) => g.path === 'SKILL.md')?.enc === 'utf8');
-  ok('取回文件重算整版指纹 = tree_digest', digest(got) === man.out?.tree_digest);
-  const g1 = await call('skill_file_get', { slug, version: 1, path: 'assets/logo.png' });
-  ok('指定版本取文件（v1 的旧 logo）', Buffer.from(g1.out?.content ?? '', 'base64').equals(png));
-  ok('清单外的路径（含 ..）取不到', (await call('skill_file_get', { slug, path: '../../bin%3Aprobe/v1/SKILL.md' })).err && (await call('skill_file_get', { slug, path: 'nope.md' })).err);
+  ok('过期票据 404（与伪造同一应答）', (await fetch(dl.out.download_url)).status === 404);
+  ok('保留名不能当技能文件发布', (await post(`/api/skills/${S}/versions`, { files: [{ path: '.wm-skill.json', content: '{}' }] })).status === 400);
+
+  // 9) 按安装命令的步骤真装：解压 → 包内脚本 --install（root 指到临时目录，不碰真实家目录）
+  const ROOT = join(TMP, 'skills-root');
+  const installOnce = async (version) => {
+    const d = await call('skill_download', version ? { slug, version } : { slug });
+    const buf = Buffer.from(await (await fetch(d.out.download_url)).arrayBuffer());
+    const work = join(TMP, 'work-' + Math.random().toString(36).slice(2));
+    mkdirSync(work, { recursive: true });
+    writeFileSync(join(work, 'pkg.tgz'), buf);
+    execFileSync('tar', ['-xzf', join(work, 'pkg.tgz'), '-C', work]);
+    const r = spawnSync(process.execPath, [join(work, 'bin.probe', '.wm-skill-verify.mjs'), '--install', '--root', ROOT], { encoding: 'utf8' });
+    rmSync(work, { recursive: true, force: true });
+    return { rc: r.status, out: JSON.parse(r.stdout || '{}') };
+  };
+  const verifyLocal = () => { const r = spawnSync(process.execPath, [join(ROOT, 'bin.probe', '.wm-skill-verify.mjs')], { encoding: 'utf8' }); return { rc: r.status, out: JSON.parse(r.stdout || '{}') }; };
+  let ins = await installOnce();
+  ok('首次安装：rc=0，装到 <root>/bin.probe，无备份', ins.rc === 0 && ins.out.installed_to === join(ROOT, 'bin.probe') && ins.out.backup === null && readFileSync(join(ROOT, 'bin.probe/assets/logo.png')).equals(png2), JSON.stringify(ins.out));
+  let vr = verifyLocal();
+  ok('装好后校验一致 rc=0', vr.rc === 0 && vr.out.ok === true, JSON.stringify(vr.out));
+  ins = await installOnce();
+  ok('同版本未改动：不重装', ins.rc === 0 && ins.out.unchanged === true, JSON.stringify(ins.out));
+  writeFileSync(join(ROOT, 'bin.probe/SKILL.md'), 'local edit');
+  writeFileSync(join(ROOT, 'bin.probe/extra.txt'), 'x');
+  vr = verifyLocal();
+  ok('本地改动被列出：modified/added，rc=1', vr.rc === 1 && vr.out.modified.includes('SKILL.md') && vr.out.added.includes('extra.txt'), JSON.stringify(vr.out));
+  ins = await installOnce(1);
+  ok('装 v1 覆盖：旧目录（含本地改动）进备份，previous 点名改动', ins.rc === 0 && ins.out.version === 1 && ins.out.previous?.intact === false && ins.out.previous?.modified.includes('SKILL.md') && existsSync(join(ins.out.backup, 'extra.txt')) && readFileSync(join(ROOT, 'bin.probe/assets/logo.png')).equals(png), JSON.stringify(ins.out));
+  for (const v of [2, 1, 2, 1]) await installOnce(v);
+  const backs = readdirSync(join(ROOT, '.backups', 'bin.probe'));
+  ok('来回装 6 次后备份只留 3 个', backs.length === 3, backs.join(','));
+  ok('根目录下没有残留的临时目录', readdirSync(ROOT).filter((n) => n.includes('.incoming-')).length === 0, readdirSync(ROOT).join(','));
+  {
+    // 包被篡改：--install 拒绝，什么都不动
+    const d = await call('skill_download', { slug });
+    const work = join(TMP, 'work-tamper');
+    mkdirSync(work, { recursive: true });
+    writeFileSync(join(work, 'pkg.tgz'), Buffer.from(await (await fetch(d.out.download_url)).arrayBuffer()));
+    execFileSync('tar', ['-xzf', join(work, 'pkg.tgz'), '-C', work]);
+    writeFileSync(join(work, 'bin.probe/SKILL.md'), 'tampered');
+    const before = readFileSync(join(ROOT, 'bin.probe/SKILL.md'));
+    const r = spawnSync(process.execPath, [join(work, 'bin.probe', '.wm-skill-verify.mjs'), '--install', '--root', ROOT], { encoding: 'utf8' });
+    ok('被篡改的包 --install rc=2，已装版本不动', r.status === 2 && readFileSync(join(ROOT, 'bin.probe/SKILL.md')).equals(before), r.stdout);
+  }
+
+  // 10) 长路径（>100 字节）走 ustar prefix 字段，系统 tar 解出来路径完整
+  {
+    const longPath = 'docs/' + 'a'.repeat(60) + '/' + 'b'.repeat(60) + '/readme.md';
+    const lp = await call('skill_file_put', { content: 'long' });
+    await call('skill_publish', { slug: 'bin:long-path', files: [{ path: 'SKILL.md', sha256: p1.out.sha256 }, { path: longPath, sha256: lp.out.sha256 }] });
+    const d = await call('skill_download', { slug: 'bin:long-path' });
+    const work = join(TMP, 'work-long');
+    mkdirSync(work, { recursive: true });
+    writeFileSync(join(work, 'pkg.tgz'), Buffer.from(await (await fetch(d.out.download_url)).arrayBuffer()));
+    execFileSync('tar', ['-xzf', join(work, 'pkg.tgz'), '-C', work]);
+    const r = spawnSync(process.execPath, [join(work, 'bin.long-path', '.wm-skill-verify.mjs')], { encoding: 'utf8' });
+    ok('长路径文件完整解出，包校验一致', readFileSync(join(work, 'bin.long-path', longPath), 'utf8') === 'long' && r.status === 0, r.stdout);
+  }
 
 } catch (e) {
   ok('冒烟运行', false, String(e?.stack ?? e));
