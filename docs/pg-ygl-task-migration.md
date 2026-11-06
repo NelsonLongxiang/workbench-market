@@ -41,6 +41,14 @@ YGL 来源候选不改变市场本体的 `DatabaseSync` 启动路径。市场认
 
 本层不读取数据库配置、不导入 db.ts、不装载 SQLite，也没有接入市场启动或领域服务。`node scripts/pg-transaction-test.mjs` 用确定性注入检验生命周期；`scripts/pg-transaction-integration.mjs` 须显式给出本机已有的两个 sha256 镜像，自动创建 nonce 标记的内部网络、tmpfs PostgreSQL/SCRAM 与一次性 runner，拒绝 URL/host/生产目标参数，不发布宿主端口，结束核身份清理。runner 用测试镜像已有的 pg 驱动执行当前源码，因此不是该镜像本身通过新版验证，亦不代表原生领域迁移/部署完成。真实延迟约束提交失败只证明这一失败分支，不替代网络断开时提交结果不确定的恢复验证。
 
+### SOP 原生持久层切片（未接入 HTTP）
+
+`server/src/pg-sop-runs.ts` 提供显式全新表 bootstrap 和注入 pool 的 create/byId/checkpoint/saveStep/finish。schema 只覆盖 sop_runs 的既有 11 列；ID 与 cache_revision 为受 JS 安全整数范围限制的 bigint，数据保留 TEXT JSON 字节、时间保留 UTC 文本形状。status/版本/整数范围比旧 SQLite 更严格：不兼容历史值必须由未来导入预检点名，不能静默丢弃。bootstrap 遇既有对象即失败，DDL 同事务，不用于覆盖或原位迁移。
+
+数据/状态 UPDATE 触发器以 OLD.cache_revision+1 生成新代号，同值写也失效旧缓存；保存与完成使用行锁+显式 expected generation，多个进程写同一旧代号最多一个成功。完成同时落数据/状态/时间，不可把归档重新打开；调用者提供的修改值在首个 await 前序列化。私有 byId 返回内部完整行（含 upload_token），不得直接用于未授权 API。认证/能力、SOP manifest/字段校验、附件与归档 outbox 事务尚未接入，本层不代替这些业务门禁，也不恢复 Redis 热态。
+
+同一隔离 PG runner 可执行 `scripts/pg-sop-runs-test.mjs` 的真实并发、版本号、同值写、归档与触发器失败/DDL失败回滚测试；不代表生产数据保全、完整 schema 转换或最终镜像验收。
+
 ## 验证范围
 
 迁移回归的无效目标用例自行构造旧格式的声明摘要，不调用会提前拒绝该目标的新引擎来生成测试输入；按实际引擎拒绝顺序核对稳定错误码与失败报告，并用 Socket 正控证明空 host/歧义库名在连接前拒绝。另用旧身份函数测试本地守卫，避免新引擎的先拒绝掩盖迁移工具自身回归。

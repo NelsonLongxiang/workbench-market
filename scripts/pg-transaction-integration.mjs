@@ -38,6 +38,17 @@ if(process.argv[2]==='--inside'){
   await assert.rejects(withPgTransaction(pool,async tx=>{await tx.query('SET LOCAL statement_timeout = 20');await tx.query('SELECT pg_sleep(1)')}),e=>e.code==='57014');
   check('statement timeout rejects and leaves pool reusable',(await withPgTransaction(pool,tx=>tx.query('SELECT 8::int AS n'))).rows[0].n===8);
   console.log(JSON.stringify({checks,production_requests:0,real_postgresql:true,backend_activation:false}));
+  const {runPgSopRunsTests}=await import('./pg-sop-runs-test.mjs');
+  const roleSql=await pool.query("SELECT format('CREATE ROLE wm_sop_fixture LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L', $1::text) AS sql",[process.env.PGPASSWORD]);
+  await pool.query(roleSql.rows[0].sql);
+  await pool.query('CREATE DATABASE wm_sop_fixture OWNER wm_sop_fixture');
+  const appPool=new Pool({host:'pg',port:5432,user:'wm_sop_fixture',database:'wm_sop_fixture',password:process.env.PGPASSWORD,max:3,connectionTimeoutMillis:5000,statement_timeout:5000});
+  try {
+    const role=await appPool.query('SELECT current_user AS name, rolsuper FROM pg_roles WHERE rolname=current_user');
+    assert.equal(role.rows[0].name,'wm_sop_fixture');assert.equal(role.rows[0].rolsuper,false);
+    console.log('SOP_FIXTURE_NON_SUPERUSER_DATABASE_OWNER=yes');
+    await runPgSopRunsTests(appPool);
+  } finally { await appPool.end(); }
  }finally{await pool.end()}
 }else{
  assert.equal(process.argv.length,2,'no URL/host/target arguments accepted');
@@ -56,7 +67,7 @@ if(process.argv[2]==='--inside'){
   // pg_isready runs only inside this owned container; it never probes a host service.
   docker(['exec',pgid,'sh','-c','for i in 1 2 3 4 5 6 7 8 9 10; do pg_isready -h 127.0.0.1 -U postgres -d postgres && exit 0; sleep 1; done; exit 1'],15000);
   const root=resolve(import.meta.dirname,'..'),uid=process.getuid?.()??1000,gid=process.getgid?.()??1000;
-  runid=docker(['create','--name',runname,'--label','wm.test.transaction='+nonce,'--network',net,'--read-only','--user',uid+':'+gid,'--cap-drop','ALL','--security-opt','no-new-privileges','--tmpfs','/tmp:rw,nosuid,nodev,uid=1000,gid=1000,mode=0700','--mount','type=bind,src='+root+'/server/src/pg-transaction.ts,dst=/fixture/server/src/pg-transaction.ts,readonly','--mount','type=bind,src='+root+'/scripts/pg-transaction-integration.mjs,dst=/fixture/scripts/pg-transaction-integration.mjs,readonly','--env','PGPASSWORD','--env','PG_TRANSACTION_FIXTURE_NONCE='+nonce,'--entrypoint','node',runner,'/fixture/scripts/pg-transaction-integration.mjs','--inside']);
+  runid=docker(['create','--name',runname,'--label','wm.test.transaction='+nonce,'--network',net,'--read-only','--user',uid+':'+gid,'--cap-drop','ALL','--security-opt','no-new-privileges','--tmpfs','/tmp:rw,nosuid,nodev,uid=1000,gid=1000,mode=0700','--mount','type=bind,src='+root+'/server/src/pg-transaction.ts,dst=/fixture/server/src/pg-transaction.ts,readonly','--mount','type=bind,src='+root+'/scripts/pg-transaction-integration.mjs,dst=/fixture/scripts/pg-transaction-integration.mjs,readonly','--mount','type=bind,src='+root+'/server/src/pg-sop-runs.ts,dst=/fixture/server/src/pg-sop-runs.ts,readonly','--mount','type=bind,src='+root+'/scripts/pg-sop-runs-test.mjs,dst=/fixture/scripts/pg-sop-runs-test.mjs,readonly','--env','PGPASSWORD','--env','PG_TRANSACTION_FIXTURE_NONCE='+nonce,'--entrypoint','node',runner,'/fixture/scripts/pg-transaction-integration.mjs','--inside']);
   owned(runid,runname,runner);console.log(docker(['start','--attach',runid],60000));
   const ended=owned(runid,runname,runner);assert.equal(ended.State.ExitCode,0,'fixture exit code');
  }finally{
