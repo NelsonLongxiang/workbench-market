@@ -22,21 +22,30 @@ async function crash(){child.kill('SIGKILL');await ended;} // no graceful flush:
 const check=(name,pass,detail='')=>{assert.ok(pass,name+' '+detail);checks++;console.log('PASS '+name)};
 const put=(id,stepKey,value)=>http('/api/sop/runs/'+id,'PUT',{stepKey,value});
 const save=async(id,value)=>{const r=await put(id,'field',value);assert.equal(r.status,200,JSON.stringify(r.j));return r};
-const row=id=>{const d=new DatabaseSync(join(data,'workbench-market.db'),{readOnly:true});try{const r=d.prepare('SELECT data,status,hot_pending FROM sop_runs WHERE id=?').get(id);const j=JSON.parse(r.data);return {...r,field:j.field,other:j.other}}finally{d.close()}};
+const row=id=>{const d=new DatabaseSync(join(data,'workbench-market.db'),{readOnly:true});try{const r=d.prepare('SELECT data,status,hot_pending FROM sop_runs WHERE id=?').get(id);const j=JSON.parse(r.data);return {...r,field:j.field,other:j.other,notes:(j['a2a-notes']??[]).map(n=>n.text)}}finally{d.close()}};
 const yaml=t=>[{path:'sop.yaml',content:['title: '+t,'steps:','  - key: inspect','    title: Inspect'].join(String.fromCharCode(10))}];
 const unavailable=(r,kind)=>r.status===503&&r.j?.redis===kind&&r.j?.retryable===true&&r.retry==='5';
 try{
  await start();await control('online');
  let r=await ghPublish('http://127.0.0.1:'+port,gh,{slug:'s448',kind:'sop',title:'Synthetic 448',changelog:'v1',files:yaml('Synthetic 448')},{'X-Admin-Token':env.ADMIN_TOKEN});assert.equal(r.status,201);assert.equal((await http('/api/sops/s448/publish','POST',{})).status,200);
  const runs={};for(const k of ['pending','clean']){const n=await http('/api/sop/runs','POST',{slug:'s448',started_by:'synthetic-448'});assert.equal(n.status,201);runs[k]=n.j.id;await save(runs[k],'DURABLE_BASE');}
- const hot=await save(runs.pending,'HOT_ACK');assert.equal(hot.j.persisted,'redis+checkpoint');
+ // #466 N3: A2A note writes take the same guard; a bound caller starts a run over /a2a/direct
+ r=await http('/api/bindings','POST',{target_type:'sop',target_slug:'s448',agent_node:'dsh/1a2b3c4d',mode:'run',direction:'admits'});assert.equal(r.status,201,JSON.stringify(r.j));
+ const team='market/'+((await http('/.well-known/agent-card.json')).j?.sessionTeams?.[0]?.team?.split('/')[1]??'');let taskSeq=0;
+ const a2a=(action,text)=>http('/a2a/direct','POST',{team,message:JSON.stringify({sop:{action,...(text?{text}:{})}}),caller_session:'dsh/1a2b3c4d',task_id:'t448-'+(++taskSeq),context_id:'ctx-448'});
+ r=await a2a('start');assert.equal(r.j?.task_status,'TASK_STATE_DELIVERED',JSON.stringify(r.j));runs.note=r.j.sop.run_id;await save(runs.note,'DURABLE_BASE');
+ const hot=await save(runs.pending,'HOT_ACK');assert.equal(hot.j.persisted,'redis+checkpoint');assert.equal((await save(runs.note,'HOT_ACK')).j.persisted,'redis+checkpoint');
  check('hot-only write is flagged in SQLite, durable-only run is not',row(runs.pending).field==='DURABLE_BASE'&&row(runs.pending).hot_pending===1&&row(runs.clean).hot_pending===0,JSON.stringify([row(runs.pending),row(runs.clean)]));
  await crash();await start();await control('offline');
  r=await put(runs.pending,'other','AFTER_RESTART');check('restart + redis down: save on a run with a hot-only write answers 503',unavailable(r,'down'),JSON.stringify(r.j));
  const p=row(runs.pending);check('restart + redis down: nothing written, flag kept',p.field==='DURABLE_BASE'&&p.other===undefined&&p.hot_pending===1,JSON.stringify(p));
- r=await put(runs.clean,'other','DEGRADED_OK');check('restart + redis down: run without hot-only writes still saves degraded to SQLite',r.status===200&&r.j.persisted==='sqlite'&&row(runs.clean).other==='DEGRADED_OK',JSON.stringify(r.j));
+ r=await put(runs.clean,'other','DEGRADED_OK');check('restart + redis down: run without hot-only writes still saves degraded to SQLite, flag stays clear',r.status===200&&r.j.persisted==='sqlite'&&row(runs.clean).other==='DEGRADED_OK'&&row(runs.clean).hot_pending===0,JSON.stringify([r.j,row(runs.clean)]));
+ r=await a2a('note','OFFLINE_NOTE');const nd=row(runs.note);check('restart + redis down: A2A note on a run with a hot-only write is refused (TASK_STATE_FAILED, retry later), nothing written',r.status===200&&r.j?.task_status==='TASK_STATE_FAILED'&&String(r.j?.error).includes('热态暂时读不到')&&nd.notes.length===0&&nd.field==='DURABLE_BASE'&&nd.hot_pending===1,JSON.stringify([r.status,r.j,nd]));
  await control('online');
  r=await put(runs.pending,'other','AFTER_RESTART');check('redis back: save succeeds',r.status===200,JSON.stringify(r.j));
+ r=await a2a('note','ONLINE_NOTE');check('redis back: A2A note delivered',r.status===200&&r.j?.task_status==='TASK_STATE_DELIVERED',JSON.stringify(r.j));
+ r=await http('/api/sop/runs/'+runs.note+'/finish','POST');const fn=row(runs.note);
+ check('redis back: finish keeps the earlier hot write and only the delivered note',r.status===200&&fn.field==='HOT_ACK'&&JSON.stringify(fn.notes)==='["ONLINE_NOTE"]'&&fn.hot_pending===0,JSON.stringify(fn));
  r=await http('/api/sop/runs/'+runs.pending+'/finish','POST');const f=row(runs.pending);
  check('redis back: finish keeps the earlier hot write and the new step, flag cleared',r.status===200&&f.status==='finished'&&f.field==='HOT_ACK'&&f.other==='AFTER_RESTART'&&f.hot_pending===0,JSON.stringify(f));
  child.kill('SIGTERM');await ended;

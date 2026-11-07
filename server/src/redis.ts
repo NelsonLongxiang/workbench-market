@@ -59,6 +59,11 @@ export function startRedis(): void {
   });
 }
 
+/** 配了 Redis（不论此刻连没连上）。#466：热写标记按「配置了」判断，避免判断健康与发布之间 Redis 恰好恢复的窄窗 */
+export function redisConfigured(): boolean {
+  return client !== null;
+}
+
 export function redisHealthy(): boolean {
   return !degraded && client !== null && client.isReady;
 }
