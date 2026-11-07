@@ -2478,6 +2478,9 @@ const SKILL_PKG_META = '.wm-skill.json';
 const SKILL_PKG_VERIFY = '.wm-skill-verify.mjs';
 const SKILL_PKG_RESERVED: ReadonlySet<string> = new Set([SKILL_PKG_META, SKILL_PKG_VERIFY]);
 const SKILL_DL_TTL_MS = 10 * 60_000;
+const SKILL_DL_MAX = 5; // 单票下载次数上限（留给网络重试），超过与过期同一 404，拒绝次数记在 denied
+/** 票据表只存票号的 sha256：库被读走也拿不到能用的票（票号是 32 字节随机数，无需加盐） */
+const skillTicketKey = (ticket: string) => createHash('sha256').update(ticket).digest('hex');
 const SKILL_INSTALL_ROOT = '~/.workbench-market/skills';
 /** 包内目录名：slug 里的 : 换成 .（slug 不允许 .，所以不会撞名；Windows 也不收 :） */
 const skillPkgDir = (slug: string) => slug.replace(/:/g, '.');
@@ -2515,7 +2518,7 @@ function skillDownloadIssue(slugIn: unknown, versionIn: unknown, issuedTo: strin
   const id = randomBytes(32).toString('hex');
   const exp = Date.now() + SKILL_DL_TTL_MS;
   db.prepare('DELETE FROM skill_download_tickets WHERE expires_at < ?').run(Date.now() - 86400_000); // 过期一天的票顺手清掉
-  db.prepare('INSERT INTO skill_download_tickets (id, slug, version, issued_to, expires_at) VALUES (?, ?, ?, ?, ?)').run(id, row.slug, target.version, issuedTo, exp);
+  db.prepare('INSERT INTO skill_download_tickets (id, slug, version, issued_to, expires_at) VALUES (?, ?, ?, ?, ?)').run(skillTicketKey(id), row.slug, target.version, issuedTo, exp);
   const name = skillPkgDir(row.slug);
   const url = `${base}/api/skills/dl/${id}`;
   const pkgSha = createHash('sha256').update(skillPackage(row, target, skillVersionDir(row.slug, target.version).dir)).digest('hex');
@@ -2534,13 +2537,19 @@ function skillDownloadIssue(slugIn: unknown, versionIn: unknown, issuedTo: strin
   };
 }
 app.get('/api/skills/dl/:ticket', (req, res) => {
-  const id = String(req.params.ticket ?? '');
-  const t = /^[0-9a-f]{64}$/.test(id) ? db.prepare('SELECT * FROM skill_download_tickets WHERE id = ?').get(id) as any : undefined;
-  // 票不存在与已过期同一应答：不透露票号是否签发过
-  if (!t || t.expires_at <= Date.now()) throw new HttpError(404, '下载链接无效或已过期（10 分钟有效），请重新调 skill_download');
+  res.setHeader('Referrer-Policy', 'no-referrer'); // 票号在路径里：不随 Referer 外带（404 也带）
+  const ticket = String(req.params.ticket ?? '');
+  const key = /^[0-9a-f]{64}$/.test(ticket) ? skillTicketKey(ticket) : '';
+  const t = key ? db.prepare('SELECT * FROM skill_download_tickets WHERE id = ?').get(key) as any : undefined;
+  if (t && t.expires_at > Date.now() && t.downloads >= SKILL_DL_MAX) {
+    db.prepare('UPDATE skill_download_tickets SET denied = denied + 1 WHERE id = ?').run(key);
+    console.warn(`[skill-download] ${t.slug} v${t.version} issued_to=${t.issued_to} 单票已下载 ${t.downloads} 次（上限 ${SKILL_DL_MAX}），拒绝`);
+  }
+  // 票不存在、已过期、超过次数上限同一应答：不透露票号是否签发过
+  if (!t || t.expires_at <= Date.now() || t.downloads >= SKILL_DL_MAX) throw new HttpError(404, `下载链接无效、已过期（10 分钟有效）或已用满 ${SKILL_DL_MAX} 次，请重新调 skill_download`);
   const { row, target, dir } = skillVersionDir(t.slug, t.version);
   const pkg = skillPackage(row, target, dir);
-  db.prepare("UPDATE skill_download_tickets SET downloads = downloads + 1, last_download_at = datetime('now') WHERE id = ?").run(id);
+  db.prepare("UPDATE skill_download_tickets SET downloads = downloads + 1, last_download_at = datetime('now') WHERE id = ?").run(key);
   console.log(`[skill-download] ${t.slug} v${t.version} issued_to=${t.issued_to} bytes=${pkg.length}`);
   res.setHeader('Content-Type', 'application/gzip');
   res.setHeader('Content-Disposition', `attachment; filename="${skillPkgDir(row.slug)}-v${target.version}.tar.gz"`);

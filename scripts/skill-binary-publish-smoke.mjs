@@ -126,6 +126,7 @@ try {
   ok('下载链接不带会话令牌之类的查询参数', !(dl.out?.download_url ?? '').includes('?'));
   const pkgRes = await fetch(dl.out.download_url);
   const pkgBuf = Buffer.from(await pkgRes.arrayBuffer());
+  ok('下载响应带 Referrer-Policy: no-referrer', pkgRes.headers.get('referrer-policy') === 'no-referrer', String(pkgRes.headers.get('referrer-policy')));
   ok('凭票下载 .tar.gz，带期望指纹头', pkgRes.status === 200 && pkgRes.headers.get('content-type') === 'application/gzip' && pkgRes.headers.get('x-expected-digest') === dl.out.tree_digest, `${pkgRes.status} ${pkgRes.headers.get('content-type')}`);
   const tar2 = untar(gunzipSync(pkgBuf));
   const meta = JSON.parse(tar2.get('bin.probe/.wm-skill.json')?.toString('utf8') ?? '{}');
@@ -133,13 +134,22 @@ try {
   ok('清单逐文件 sha256 与 tree_digest 自洽（不含清单与脚本本身）', digest(meta.files.map((f) => ({ path: f.path, bytes: tar2.get('bin.probe/' + f.path) }))) === meta.tree_digest && meta.files.every((f) => f.sha256 === createHash('sha256').update(tar2.get('bin.probe/' + f.path)).digest('hex')));
   ok('校验脚本是市场模板原样', tar2.get('bin.probe/.wm-skill-verify.mjs')?.equals(readFileSync('server/src/skill-verify.mjs')) === true);
   const bad = await fetch(`${B}/api/skills/dl/${'0'.repeat(64)}`);
-  ok('伪造票号 404', bad.status === 404);
+  ok('伪造票号 404，也带 no-referrer', bad.status === 404 && bad.headers.get('referrer-policy') === 'no-referrer');
   {
     const { DatabaseSync } = await import('node:sqlite');
     const sdb = new DatabaseSync(join(DATA, 'workbench-market.db'));
-    const row = sdb.prepare('SELECT issued_to, downloads FROM skill_download_tickets WHERE id = ?').get(dl.out.download_url.split('/').pop());
-    ok('票据记签发会话与下载次数', row?.issued_to === 'anonymous' && row?.downloads === 1, JSON.stringify(row));
-    sdb.prepare('UPDATE skill_download_tickets SET expires_at = ? WHERE id = ?').run(Date.now() - 1, dl.out.download_url.split('/').pop());
+    const ticket = dl.out.download_url.split('/').pop();
+    const key = createHash('sha256').update(ticket).digest('hex');
+    ok('票据表里查不到明文票号（只存 sha256）', !sdb.prepare('SELECT 1 FROM skill_download_tickets WHERE id = ?').get(ticket) && !sdb.prepare('SELECT 1 FROM skill_download_tickets WHERE instr(id, ?) > 0 OR instr(issued_to, ?) > 0').get(ticket, ticket));
+    const row = sdb.prepare('SELECT issued_to, downloads, denied FROM skill_download_tickets WHERE id = ?').get(key);
+    ok('票据按哈希记签发会话与下载次数', row?.issued_to === 'anonymous' && row?.downloads === 1 && row?.denied === 0, JSON.stringify(row));
+    // 单票次数上限：再下 4 次到 5 次都成功，第 6 次 404，拒绝计数可见
+    const more = [];
+    for (let i = 0; i < 4; i++) more.push((await fetch(dl.out.download_url)).status);
+    const over = await fetch(dl.out.download_url);
+    const row2 = sdb.prepare('SELECT downloads, denied FROM skill_download_tickets WHERE id = ?').get(key);
+    ok('单票最多下载 5 次，第 6 次 404，拒绝计数可见', more.every((s) => s === 200) && over.status === 404 && row2?.downloads === 5 && row2?.denied === 1, `${more} ${over.status} ${JSON.stringify(row2)}`);
+    sdb.prepare('UPDATE skill_download_tickets SET expires_at = ?, downloads = 0 WHERE id = ?').run(Date.now() - 1, key);
     sdb.close();
   }
   ok('过期票据 404（与伪造同一应答）', (await fetch(dl.out.download_url)).status === 404);
