@@ -6,6 +6,7 @@ import type { ProColumns } from '@ant-design/pro-components';
 import WmPage from '../components/WmPage';
 import RelTime from '../components/RelTime';
 import { adminActive, apiFetch, checkAdminToken, odooAdmin, setAdminToken, subscribeAdminToken } from '../admin-token';
+import { api } from '../api';
 
 /** #379：上游带可达状态（reachable=null 表示还没探过） */
 interface McpUpstreamRow { prefix: string; url: string; enabled: boolean; reachable?: boolean | null; tools?: number; last_error?: string; last_ok_at?: string }
@@ -59,6 +60,8 @@ export default function McpGateways() {
   const [regTools, setRegTools] = useState<string[]>([]); // #grant-ux：活注册表（修硬编码 15 时代旧清单→未知名 400 根因）
   const [toolCat, setToolCat] = useState<Record<string, string>>({}); // 工具名 → read / write / admin
   const [exemptTools, setExemptTools] = useState<string[]>([]); // 免授权工具（任何会话都能调）
+  const [scopableTools, setScopableTools] = useState<string[]>([]); // #452 可按台授权（工具@台）的工具
+  const [wbNames, setWbNames] = useState<{ id: number; name: string }[]>([]);
   // 权限申请（会话经 MCP access_request 提交；这里批准/驳回）
   const [requests, setRequests] = useState<AccessRequest[]>([]);
   const [reqStatus, setReqStatus] = useState<ReqStatus>('pending');
@@ -96,13 +99,15 @@ export default function McpGateways() {
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((j) => {
         const list: unknown[] = Array.isArray(j) ? j : Array.isArray(j?.tools) ? j.tools : [];
-        const items = list.map((x) => (typeof x === 'string' ? { name: x } : (x as { name?: string; category?: string; always_allowed?: boolean })));
+        const items = list.map((x) => (typeof x === 'string' ? { name: x } : (x as { name?: string; category?: string; always_allowed?: boolean; scopable?: boolean })));
         // 免授权工具（access_info / access_request）任何会话都能调，不进授权编辑器
         setRegTools(items.filter((x) => !x.always_allowed).map((x) => String(x.name ?? '')).filter(Boolean));
         setExemptTools(items.filter((x) => x.always_allowed).map((x) => String(x.name ?? '')));
+        setScopableTools(items.filter((x) => x.scopable).map((x) => String(x.name ?? '')));
         setToolCat(Object.fromEntries(items.filter((x) => x.name && x.category).map((x) => [String(x.name), String(x.category)])));
       })
       .catch(() => { setRegTools([]); message.error('工具清单加载失败：授权编辑器暂时无法选择工具'); });
+    api.listWorkbenches().then((ws) => setWbNames(ws.map((w) => ({ id: w.id, name: w.name })))).catch(() => setWbNames([])); // 工具@台 选项用
     setLoading(true);
     apiFetch('/api/mcp/sessions')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -433,6 +438,11 @@ export default function McpGateways() {
         <Typography.Paragraph type="secondary" className="wm-caption">
           勾选该会话可用的工具（整体替换语义；新会话为空=默认拒绝）。工具面共 {regTools.length + exemptTools.length} 个{exemptTools.length ? `，其中 ${exemptTools.join(' / ')} 免授权、不用勾选` : ''}。
         </Typography.Paragraph>
+        {scopableTools.length > 0 && (
+          <Typography.Paragraph type="secondary" className="wm-caption">
+            {scopableTools.join(' / ')} 可只授权到某张台：选「工具 @ 台」项（可搜台名或 id）；选了不带 @ 的工具名则对所有台生效。
+          </Typography.Paragraph>
+        )}
         {upstreams.some((u) => u.reachable === false) && (
           <Typography.Paragraph type="warning" className="wm-caption">
             上游 {upstreams.filter((u) => u.reachable === false).map((u) => u.prefix).join('、')} 暂不可达，其工具不在下拉里；会话已持有的这些授权保存时会保留，上游恢复后生效。
@@ -444,10 +454,16 @@ export default function McpGateways() {
           placeholder="选择授权工具"
           value={grantSel}
           onChange={setGrantSel}
-          options={[
-            ...regTools.map((t) => ({ value: t, label: CATEGORY[toolCat[t] ?? ''] ? `${t} · ${CATEGORY[toolCat[t]].label}` : t })),
-            ...grantSel.filter((g) => !regTools.includes(g)).map((g) => ({ value: g, label: `${g}（当前不可用）` })),
-          ]}
+          optionFilterProp="label"
+          options={(() => {
+            const scoped = scopableTools.flatMap((t) => wbNames.map((w) => ({ value: `${t}@${w.id}`, label: `${t} @ ${w.name}（台 ${w.id}）` })));
+            const known = new Set([...regTools, ...scoped.map((o) => o.value)]);
+            return [
+              ...regTools.map((t) => ({ value: t, label: CATEGORY[toolCat[t] ?? ''] ? `${t} · ${CATEGORY[toolCat[t]].label}` : t })),
+              ...scoped,
+              ...grantSel.filter((g) => !known.has(g)).map((g) => ({ value: g, label: `${g}（当前不可用）` })),
+            ];
+          })()}
         />
       </Modal>
 
