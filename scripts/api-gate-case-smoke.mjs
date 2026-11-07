@@ -12,7 +12,7 @@ if (!lan) { console.log('api-gate-case-smoke: SKIP（本机没有非回环 IPv4�
 const TMP = resolve('tmp/api-gate-case-' + Date.now().toString(36)); mkdirSync(TMP, { recursive: true });
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
-const port = 20000 + Math.floor(Math.random() * 20000);
+const port = 20000 + Math.floor(Math.random() * 12000);
 const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), DATA_DIR: TMP, ADMIN_TOKEN: 'case-smoke' };
 for (const k of ['WM_ODOO_URL', 'WM_EXTENSIONS_DIR', 'WM_ODOO_ORIGINS', 'WM_CONTROL_PORT']) delete env[k];
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { env, stdio: ['ignore', 'ignore', 'pipe'] });

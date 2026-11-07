@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
-const PORT = Number(process.env.GW_PORT) > 0 ? Number(process.env.GW_PORT) : 20000 + Math.floor(Math.random() * 20000);
+const PORT = Number(process.env.GW_PORT) > 0 ? Number(process.env.GW_PORT) : 20000 + Math.floor(Math.random() * 12000);
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-mcp-rest-' + Date.now().toString(36);
 // --login-gate：同一套判据在 WM_LOGIN_GATE=enforce 下再跑一遍；被测的 /mcp、/openapi.json、/api/mcp-rest/* 请求带 X-Forwarded-For 冒充远程

@@ -29,7 +29,7 @@ const upstream=createServer((req,res)=>{let body='';req.setEncoding('utf8');req.
   res.writeHead(404).end();
 });});
 await new Promise(r=>upstream.listen(0,'127.0.0.1',r));
-const port=20000+Math.floor(Math.random()*18000),base='http://127.0.0.1:'+port;
+const port=20000+Math.floor(Math.random()*12000),base='http://127.0.0.1:'+port;
 const env={...process.env,NODE_ENV:'test',MCP_GATEWAY:'off',WM_LOGIN_GATE:'enforce',WM_ODOO_LOGIN_PROXY:'1',PORT:String(port),DATA_DIR:data,ADMIN_TOKEN:'logout-fixture-only',WM_ODOO_URL:'http://127.0.0.1:'+upstream.address().port};
 for(const k of ['WM_EXTENSIONS_DIR','WM_ODOO_ORIGINS'])delete env[k];
 const child=spawn(process.execPath,['--disable-warning=ExperimentalWarning','server/src/index.ts'],{env,stdio:['ignore','pipe','pipe']});let logs='';child.stdout.on('data',c=>logs+=c);child.stderr.on('data',c=>logs+=c);

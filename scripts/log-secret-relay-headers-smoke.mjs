@@ -56,7 +56,7 @@ const up = createServer((req, res) => {
 await new Promise((r) => up.listen(0, '127.0.0.1', r));
 const UP = `http://127.0.0.1:${up.address().port}`;
 
-const PORT = 20000 + Math.floor(Math.random() * 20000);
+const PORT = 20000 + Math.floor(Math.random() * 12000);
 const base = `http://127.0.0.1:${PORT}`;
 globalThis.__MARKET = base;
 const env = { ...process.env, NODE_ENV: 'test', MCP_GATEWAY: 'off', PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: join(TMP, 'data'), ADMIN_TOKEN: 'log-secret-admin', REDIS_URL: '', LAYERFS_SERVICE_URL: '',

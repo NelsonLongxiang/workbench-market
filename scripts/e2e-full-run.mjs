@@ -38,7 +38,7 @@ const controlOff = process.argv.includes('--control-off');
 const dryEnv = process.argv.includes('--dry-env');
 if (!dryEnv && !existsSync('web/dist/index.html')) { console.error('e2e-full-run: 缺 web/dist（先 pnpm --filter web build）'); process.exit(2); }
 const TMP = resolve('tmp/e2e-full-' + Date.now().toString(36)); mkdirSync(TMP, { recursive: true });
-const PORT = 21000 + Math.floor(Math.random() * 18000);
+const PORT = 21000 + Math.floor(Math.random() * 11000);
 const YGL_HOME = join(TMP, 'ygl-home'); mkdirSync(YGL_HOME, { recursive: true }); // 专属空工作区：统一待办的 ygl-trees 源只会读到它
 const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), ADMIN_TOKEN: 'synthetic-e2e-admin', YGL_HOME, SCRIPT_TARGET_MODE: 'isolated', SCRIPT_ISOLATED_ROOT: TMP, SCRIPT_SOURCE_DB: join(TMP, 'data/workbench-market.db'), SCRIPT_SOURCE_DATA_DIR: join(TMP, 'data') };
 for (const k of ['WM_ODOO_URL', 'WM_EXTENSIONS_DIR', 'WM_ODOO_ORIGINS', 'WM_CONTROL_PORT', 'WM_DEV_ORIGIN', 'E2E_ALLOW_PROD', 'YGL_SESSION', 'A2A_STATE_URL']) delete env[k];

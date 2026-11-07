@@ -16,7 +16,7 @@ if (!existsSync('web/dist/index.html')) { console.error('缺 web/dist：先跑 p
 const TMP = resolve('tmp/login-gate-browser-' + Date.now().toString(36));
 mkdirSync(join(TMP, 'data'), { recursive: true });
 const gh = await startFakeGithub();
-const PORT = 20000 + Math.floor(Math.random() * 20000);
+const PORT = 20000 + Math.floor(Math.random() * 12000);
 const base = `http://127.0.0.1:${PORT}`;
 const env = { ...process.env, WM_LOGIN_GATE: 'enforce', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), YGL_HOME: join(TMP, 'home'), ADMIN_TOKEN: 'synthetic-login-gate-browser', WM_GITHUB_API: gh.api, REDIS_URL: '' };
 for (const k of ['WM_ODOO_URL', 'WM_EXTENSIONS_DIR', 'WM_ODOO_ORIGINS', 'WM_CONTROL_PORT', 'MCP_GATEWAY']) delete env[k];
