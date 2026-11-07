@@ -6,7 +6,7 @@ import { appendFileSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { runEnvFace } from './security-env-face.mjs';
 import { runPortalOdooSessionGroup } from './portal-odoo-session-smoke.mjs';
 
-const PORT = 20000 + Math.floor(Math.random() * 20000);
+const PORT = 20000 + Math.floor(Math.random() * 12000);
 const DATA = 'tmp/sec-adv-' + Date.now().toString(36);
 let pass = 0, fail = 0;
 let environment = { status: 'NEEDS-MATERIAL', reason: 'probe not reached' };

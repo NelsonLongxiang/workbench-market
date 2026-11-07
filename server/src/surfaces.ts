@@ -30,6 +30,8 @@ export function registerSurface(app: Express, name: SurfaceName, port: number, o
   if (surfaces.some((s) => s.port === port)) throw new Error(`端口 ${port} 已注册为面 ${surfaces.find((s) => s.port === port)!.name}`);
   const server = host ? app.listen(port, host, onListen) : app.listen(port, onListen);
   surfaces.push({ name, port, server });
+  // 业务面绑不上时由启动自检拒绝启动（reason 只写 surface-not-listening），这里补一行带错误码的原因（如 EADDRINUSE）便于排查
+  if (name === 'market') server.on('error', (e) => console.error(`[surfaces] 业务面监听 ${host ?? '*'}:${port} 失败：${String((e as NodeJS.ErrnoException)?.code ?? (e as Error)?.message ?? e)}`));
   if (name !== 'market') {
     // 附属面绑不上（端口被占等）：告警并撤销该面，业务面照常；控制面缺席时浏览器管理写一律拒绝（fail closed）
     server.on('error', (e) => {

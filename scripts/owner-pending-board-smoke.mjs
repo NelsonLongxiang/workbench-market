@@ -31,7 +31,7 @@ const odoo = createServer((rq, rs) => {
 await new Promise((x) => odoo.listen(0, '127.0.0.1', x));
 
 const DATA = mkdtempSync(resolve('tmp', 'owner-board-'));
-const PORT = 22000 + Math.floor(Math.random() * 20000);
+const PORT = 22000 + Math.floor(Math.random() * 10000);
 const base = 'http://127.0.0.1:' + PORT;
 const env = { ...process.env, PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: DATA, ADMIN_TOKEN: ADMIN, MCP_GATEWAY: 'on', NODE_ENV: 'test', REDIS_URL: '', LAYERFS_SERVICE_URL: '', WM_ODOO_URL: `http://127.0.0.1:${odoo.address().port}` };
 for (const k of ['WM_EXTENSIONS_DIR', 'WM_ODOO_ORIGINS', 'WM_LOGIN_GATE']) delete env[k];

@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { writeLegacyTokenFixture } from './token-smoke-db.mjs';
 
-const PORT = Number(process.env.TK_PORT) > 0 ? Number(process.env.TK_PORT) : 20000 + Math.floor(Math.random() * 20000); // E2E 内并发避端口撞
+const PORT = Number(process.env.TK_PORT) > 0 ? Number(process.env.TK_PORT) : 20000 + Math.floor(Math.random() * 12000); // E2E 内并发避端口撞
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-token-data';
 let pass = 0, fail = 0;

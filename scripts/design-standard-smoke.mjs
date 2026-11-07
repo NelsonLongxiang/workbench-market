@@ -41,7 +41,7 @@ rmSync(tmpRoot, { recursive: true, force: true });
 
 // ── 实例级 ──
 function start(gateway, tag, admin) {
-  const PORT = 20000 + Math.floor(Math.random() * 20000);
+  const PORT = 20000 + Math.floor(Math.random() * 12000);
   const DATA = `tmp/e2e-dstd-${tag}`;
   rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: true });
   const env = { ...process.env, NODE_ENV: 'test', PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: `../${DATA}`, ADMIN_TOKEN: admin ?? '', MCP_GATEWAY: gateway };

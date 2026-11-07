@@ -17,7 +17,7 @@ mkdirSync(TMP, { recursive: true });
 const ADMIN = 'synthetic-ext-admin';
 
 function boot(name, extDir, extra = {}) {
-  const port = 20000 + Math.floor(Math.random() * 20000);
+  const port = 20000 + Math.floor(Math.random() * 12000);
   const data = join(TMP, `data-${name}`);
   mkdirSync(data, { recursive: true });
   const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, ADMIN_TOKEN: ADMIN, REDIS_URL: '', LAYERFS_SERVICE_URL: '' };

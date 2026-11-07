@@ -7,7 +7,7 @@ import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { gzipSync } from 'node:zlib';
 
-const PORT = 20000 + Math.floor(Math.random() * 20000);
+const PORT = 20000 + Math.floor(Math.random() * 12000);
 const TP = PORT + 1;
 const DATA = 'tmp/e2e-gz-' + Date.now().toString(36);
 const H = { 'Content-Type': 'application/json', 'X-Admin-Token': 'gz' };

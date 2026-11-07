@@ -33,7 +33,7 @@ ok('trustedProxies：合法项收下，非法项列出', t.entries.length === 3 
 
 // 非法值拒绝启动
 const dir = mkdtempSync(join(tmpdir(), 'wm-trusted-proxies-'));
-const port = 20000 + Math.floor(Math.random() * 20000);
+const port = 20000 + Math.floor(Math.random() * 12000);
 const env = { ...process.env, NODE_ENV: 'test', MCP_GATEWAY: 'off', PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: dir, WM_TRUSTED_PROXIES: '172.17.0.0/12, nope' };
 const p = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { env, stdio: ['ignore', 'ignore', 'pipe'] });
 let err = ''; p.stderr.on('data', (c) => (err += c));

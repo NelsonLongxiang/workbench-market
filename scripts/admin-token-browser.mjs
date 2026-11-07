@@ -24,7 +24,7 @@ const probe = '<!doctype html><title>token probe</title><script>window.__probe={
 const upstream = createServer((rq, rs) => { rq.resume(); rs.writeHead(200, { 'content-type': 'text/html' }); rs.end(probe); });
 await new Promise((x) => upstream.listen(0, '127.0.0.1', x));
 const gh = await startFakeGithub(); // 来源收敛（属主 2026-11-02）：SOP 台只从 GitHub main 同步，测试用本机替身
-const PORT = 20000 + Math.floor(Math.random() * 20000);
+const PORT = 20000 + Math.floor(Math.random() * 12000);
 const base = `http://127.0.0.1:${PORT}`;
 const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), YGL_HOME: join(TMP, 'home'), ADMIN_TOKEN: 'synthetic-browser-admin', WM_GITHUB_API: gh.api };
 for (const k of ['WM_ODOO_URL', 'WM_EXTENSIONS_DIR', 'WM_ODOO_ORIGINS', 'WM_CONTROL_PORT']) delete env[k]; // 缺省不开控制面

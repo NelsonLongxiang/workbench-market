@@ -18,7 +18,7 @@ const upstream = createServer((rq, rs) => {
   rs.end(js ? 'self.addEventListener("fetch",()=>{})' : '<!doctype html><title>sw probe</title>');
 });
 await new Promise((x) => upstream.listen(0, '127.0.0.1', x));
-const PORT = 20000 + Math.floor(Math.random() * 20000);
+const PORT = 20000 + Math.floor(Math.random() * 12000);
 const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), ADMIN_TOKEN: 'sw-smoke' };
 for (const k of ['WM_ODOO_URL', 'WM_EXTENSIONS_DIR', 'WM_ODOO_ORIGINS']) delete env[k];
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });

@@ -211,7 +211,7 @@ process.stderr.write = (chunk, ...rest) => {
 const gh = await startFakeGithub();
 const tmps = [];
 async function startServer(extraEnv = {}, { expectExit = false } = {}) {
-  const port = 21000 + Math.floor(Math.random() * 18000);
+  const port = 21000 + Math.floor(Math.random() * 11000);
   const data = extraEnv.DATA_DIR ?? mkdtempSync(join('tmp', 'r3-allow-'));
   if (!extraEnv.DATA_DIR) tmps.push(data);
   const env = { ...process.env, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, MCP_GATEWAY: 'off', NODE_ENV: 'test', ADMIN_TOKEN: 'r3-test', R3_FIXTURE_FAIL_FLAG: join(data, '.fail-audit'), WM_GITHUB_API: gh.api, ...extraEnv };

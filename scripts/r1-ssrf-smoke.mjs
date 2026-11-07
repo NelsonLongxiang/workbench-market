@@ -18,7 +18,7 @@ async function waitReady(url, child) {
   throw new Error('isolated server not ready: ' + url);
 }
 for (const enabled of [false, true]) {
-  const port = 20000 + Math.floor(Math.random() * 20000);
+  const port = 20000 + Math.floor(Math.random() * 12000);
   const data = mkdtempSync(join('tmp', 'r2-ssrf-'));
   const env = { ...process.env, PORT: String(port), DATA_DIR: data, MCP_GATEWAY: 'off', NODE_ENV: 'test', ADMIN_TOKEN: 'r2-test' };
   delete env.ALLOW_PUBLIC_NET; // default means absent, not inherited from the invoking shell

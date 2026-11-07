@@ -43,7 +43,7 @@ const up = createServer((req, res) => {
   });
 });
 await new Promise(r => up.listen(0, '127.0.0.1', r));
-const port = 20000 + Math.floor(Math.random() * 20000);
+const port = 20000 + Math.floor(Math.random() * 12000);
 const env = {...process.env, NODE_ENV:'test', MCP_GATEWAY:'off', WM_LOGIN_GATE:'off', WM_ODOO_LOGIN_PROXY:'1', PORT:String(port), DATA_DIR:data, ADMIN_TOKEN:'fixture-only', WM_ODOO_URL:'http://127.0.0.1:' + up.address().port};
 for (const k of ['WM_EXTENSIONS_DIR','WM_ODOO_ORIGINS']) delete env[k];
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning','server/src/index.ts'], {env,stdio:['ignore','ignore','pipe']});

@@ -65,7 +65,7 @@ function snapshot(rel, files) {
   return `skill-snapshots/${rel}`; // 登记的是相对 DATA_DIR 的路径
 }
 
-const PORT = 20000 + Math.floor(Math.random() * 20000);
+const PORT = 20000 + Math.floor(Math.random() * 12000);
 const base = `http://127.0.0.1:${PORT}`;
 const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: DATA, ADMIN_TOKEN: 'skill-migrate-admin', REDIS_URL: '',
   LAYERFS_SERVICE_URL: `http://127.0.0.1:${lfs.address().port}`, LAYERFS_SERVICE_TOKEN: TOKEN };

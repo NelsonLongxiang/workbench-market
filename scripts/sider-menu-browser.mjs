@@ -16,7 +16,7 @@ if (!existsSync('web/dist/index.html')) { console.error('缺 web/dist：先跑 p
 const TMP = resolve('tmp/sider-menu-browser-' + Date.now().toString(36));
 mkdirSync(join(TMP, 'data'), { recursive: true });
 const gh = await startFakeGithub(); // 来源收敛（属主 2026-11-02）：SOP 台只从 GitHub main 同步，测试用本机替身
-const PORT = 20000 + Math.floor(Math.random() * 20000);
+const PORT = 20000 + Math.floor(Math.random() * 12000);
 const base = `http://127.0.0.1:${PORT}`;
 const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), YGL_HOME: join(TMP, 'home'), ADMIN_TOKEN: 'synthetic-menu-admin', WM_GITHUB_API: gh.api };
 for (const k of ['WM_ODOO_URL', 'WM_EXTENSIONS_DIR', 'WM_ODOO_ORIGINS', 'WM_CONTROL_PORT']) delete env[k]; // 控制面用缺省 PORT+1

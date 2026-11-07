@@ -30,7 +30,7 @@ const { verifyOriginClaim } = await import(pathToFileURL(originSrc).href);
 
 mkdirSync('tmp', { recursive: true });
 const data = mkdtempSync(resolve('tmp', 'wbe-'));
-const port = 21000 + Math.floor(Math.random() * 20000);
+const port = 21000 + Math.floor(Math.random() * 11000);
 const base = 'http://127.0.0.1:' + port;
 const gh = await startFakeGithub();
 const env = { ...process.env, WM_GITHUB_API: gh.api, PORT: String(port), DATA_DIR: data, ADMIN_TOKEN: 'wbe-test', MCP_GATEWAY: 'on', REDIS_URL: '', LAYERFS_SERVICE_URL: '', MARKET_PUBLIC_URL: base, A2A_OUTBOX_BACKOFF_SCALE: '0.0001' };

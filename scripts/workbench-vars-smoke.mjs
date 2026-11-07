@@ -20,7 +20,7 @@ import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 mkdirSync('tmp', { recursive: true });
 const DATA = mkdtempSync(resolve('tmp', 'wbvars-'));
-const PORT = 22000 + Math.floor(Math.random() * 20000);
+const PORT = 22000 + Math.floor(Math.random() * 10000);
 const B = 'http://127.0.0.1:' + PORT;
 const ADMIN = 'wbvars-test';
 const gh = await startFakeGithub();

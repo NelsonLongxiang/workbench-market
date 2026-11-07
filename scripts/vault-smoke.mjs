@@ -41,7 +41,7 @@ const watchdog = setTimeout(() => {
 }, 180_000);
 
 function boot(tag, extraEnv) {
-  const port = 20000 + Math.floor(Math.random() * 20000);
+  const port = 20000 + Math.floor(Math.random() * 12000);
   const data = join(TMP, `data-${tag}`); mkdirSync(data, { recursive: true });
   const env = { ...process.env, NODE_ENV: 'test', MCP_GATEWAY: 'off', PORT: String(port), DATA_DIR: data, ...extraEnv };
   for (const k of ['WM_ODOO_URL', 'WM_EXTENSIONS_DIR', 'WM_ODOO_ORIGINS', 'WM_DEV_ORIGIN', 'WM_CONTROL_PORT']) if (!(k in extraEnv)) delete env[k];
