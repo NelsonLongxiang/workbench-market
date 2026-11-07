@@ -35,6 +35,10 @@ export class SopService extends Service {
   runsRecent(limit: number) {
     return db.prepare('SELECT * FROM sop_runs ORDER BY id DESC LIMIT ?').all(limit).map(runMetadata);
   }
+  /** #448: mark before publishing a hot-only write; cleared by the next durable data write (trigger in db.ts). */
+  runMarkHotPending(id: number) {
+    return db.prepare("UPDATE sop_runs SET hot_pending = 1 WHERE id = ? AND status = 'running'").run(id);
+  }
   runCheckpointData(id: number, data: string) {
     return db.prepare("UPDATE sop_runs SET data = ?, updated_at = datetime('now') WHERE id = ? AND status = 'running'").run(data, id);
   }

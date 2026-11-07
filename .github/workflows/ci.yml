@@ -138,7 +138,7 @@ jobs:
       - name: Tasks identity and project/run grant isolation (#324, synthetic only)
         run: node scripts/tasks-read-authority-http-test.mjs
       - name: Redis ready recovery and durable-generation rebound (#351, synthetic only)
-        run: node scripts/redis-ready-state-test.mjs && node scripts/redis-ready-recovery-http-test.mjs && node scripts/redis-ready-fingerprint-mutation.mjs && node scripts/sop-redis-read-503-test.mjs
+        run: node scripts/redis-ready-state-test.mjs && node scripts/redis-ready-recovery-http-test.mjs && node scripts/redis-ready-fingerprint-mutation.mjs && node scripts/sop-redis-read-503-test.mjs && node scripts/sop-hot-pending-restart-test.mjs
       - name: SOP checkpoint deadlines and active-list completeness (#337, #338; synthetic only)
         run: node scripts/sop-state-checkpoints-test.mjs && node scripts/sop-state-http-test.mjs && node scripts/sop-state-restart-test.mjs
       - name: SOP list privacy and upload-token rotation (#309, synthetic only)

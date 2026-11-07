@@ -54,9 +54,11 @@ export function createRunCheckpoints({ write, intervalMs = 30_000, onError = () 
     arm(id, left); // not a debounce: later edits never postpone the deadline
     return false;
   }
-  async function save(id: number, data: Data, publish: () => Promise<boolean>): Promise<boolean> {
+  async function save(id: number, data: Data, publish: () => Promise<boolean>, beforeHotOnly?: () => void): Promise<boolean> {
     const prior = snapshot(id);
     const durable = remember(id, data); // synchronous failure must happen before publication
+    // #448: a write that will live only in Redis until the next flush is recorded durably first, so a restart knows it exists
+    if (!durable && beforeHotOnly) { try { beforeHotOnly(); } catch (error) { restore(id, prior); throw error; } }
     const hotOk = await publish();
     if (!hotOk && !durable) {
       try { remember(id, data, true); } catch (error) { restore(id, prior); throw error; }
