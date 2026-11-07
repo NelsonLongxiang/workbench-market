@@ -38,7 +38,7 @@ import { mountVault } from './vault-api.ts';
 import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet } from './workbench-vars.ts';
 import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealthPath, checkTypeHealthPath, legacyGaps, loadAllowPolicy, markAuditChannelFailed, sameTarget, type AllowPolicy } from './url-admission.ts';
 import { parse as parseYaml } from 'yaml';
-import { startRedis, redisHealthy, runStateRestore, runStateRead, runStateRetire, type RunStateRead } from './redis.ts';
+import { startRedis, redisHealthy, redisConfigured, runStateRestore, runStateRead, runStateRetire, type RunStateRead } from './redis.ts';
 import { createRunCheckpoints } from './sop-state-checkpoints.ts';
 import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
 import type { IncomingMessage } from 'node:http';
@@ -1832,7 +1832,7 @@ async function sopRunStepSaveCore(id: number, stepKeyRaw: string, value: unknown
     // Repopulate all known fields after a Redis loss; a partial HSET must not erase the durable baseline.
     const hotOk = await runCheckpoints.save(id, data, () =>
       runStateRestore(id, { slug: row.sop_slug, version: row.sop_version, status: 'running', started_by: row.started_by, updated_at: Date.now() }, data, runCacheCheckpoint(sopRunRow(id))),
-      () => { if (redisHealthy()) svc<SopService>('sop').runMarkHotPending(id); });
+      () => { if (redisConfigured()) svc<SopService>('sop').runMarkHotPending(id); }); // #466 N2：发布失败时强制落盘会清掉标记
     // A successful fallback bumps SQLite generation; any surviving OLD Redis payload now misses.
     return { ok: true, id, stepKey, persisted: hotOk ? 'redis+checkpoint' : 'sqlite' };
   });
@@ -4565,7 +4565,7 @@ function mcpAudit(sess: McpSess | null, channel: McpChannel, method: string, too
 }
 /** 会话对某工具的授权范围（#452）：'all'＝免授权/全局授权/网关关；台 id 集合＝只授权了 工具@台；null＝无权 */
 function mcpToolScope(sess: McpSess | null, toolName: string): 'all' | Set<number> | null {
-  if (!sess || MCP_EXEMPT_TOOLS.has(toolName) || sess.grants.includes(toolName)) return 'all';
+  if (!sess || MCP_EXEMPT_TOOLS.has(toolName) || (!toolName.includes('@') && sess.grants.includes(toolName))) return 'all'; // 全局授权只认不带 @ 的工具名
   if (!MCP_SCOPED_TOOLS.has(toolName)) return null;
   const ids = new Set<number>();
   for (const g of sess.grants) { const p = parseGrant(g); if (p.wid !== null && p.tool === toolName) ids.add(p.wid); }

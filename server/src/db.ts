@@ -565,7 +565,9 @@ db.exec("UPDATE workbench_vars SET owner = updated_by WHERE kind = 'const' AND o
   db.exec(`CREATE TRIGGER IF NOT EXISTS sop_runs_cache_revision AFTER UPDATE OF data, status ON sop_runs
     BEGIN UPDATE sop_runs SET cache_revision = OLD.cache_revision + 1 WHERE id = NEW.id; END;`);
   // #448: hot_pending=1 while Redis may hold an acknowledged write newer than SQLite. Any durable data write
-  // (checkpoint, finish, upgrade) is built from the latest state, so it clears the flag.
+  // (checkpoint, finish, upgrade, note) is built from the latest state, so it clears the flag.
+  // Exception (#466): sop-run-access.ts save/finish write SQLite-only data; they are not routed yet and must join
+  // runCheckpoints.serial + runLiveData before they are, or this trigger would clear the flag on stale data.
   if (!cols.some(c => c.name === 'hot_pending')) db.exec('ALTER TABLE sop_runs ADD COLUMN hot_pending INTEGER NOT NULL DEFAULT 0');
   db.exec(`CREATE TRIGGER IF NOT EXISTS sop_runs_hot_pending_clear AFTER UPDATE OF data ON sop_runs WHEN NEW.hot_pending <> 0
     BEGIN UPDATE sop_runs SET hot_pending = 0 WHERE id = NEW.id; END;`);

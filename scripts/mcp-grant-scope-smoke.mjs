@@ -88,6 +88,8 @@ try {
   ok('MCP 写台 B 按未授权拒绝（-32601，与未知工具同应答）', r.rpcError?.code === -32601, JSON.stringify(r.rpcError));
   r = await tool(s.token, 'workbench_vars_set', { key: 'k1', value: 1 });
   ok('MCP 不带 id 也拒绝', r.rpcError?.code === -32601);
+  r = await tool(s.token, `workbench_vars_set@${A}`, { id: B, key: 'k9', value: 9 });
+  ok('把授权串 工具@台 当工具名调用：按未授权拒绝（全局判定只认不带 @ 的名字）', r.rpcError?.code === -32601, JSON.stringify(r.rpcError ?? r.text).slice(0, 120));
   r = await tool(s.token, 'workbench_vars_get', { id: A, key: 'k1' });
   ok('MCP 读台 A 成功', !r.rpcError && !r.isError, r.text.slice(0, 160));
   r = await rest(s.token, 'workbench_vars_set', { id: A, key: 'k2', value: 2 });
