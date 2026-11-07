@@ -16,7 +16,7 @@ const up = createServer((req, res) => {
     const p = new URL(req.url, 'http://upstream');
     if (p.pathname === '/web/login' && req.method === 'GET') {
       res.writeHead(200, {'content-type':'text/html', 'set-cookie': ['session_id='+SID0+'; Path=/; HttpOnly', 'wm_login=must-not-pass; Path=/']});
-      return res.end('<form method="post" action="/web/login"><input name="csrf_token"><input name="login"><input name="password"></form>');
+      return res.end('<!doctype html><html><head><title>Odoo</title></head><body><form method="post" action="/web/login"><input name="csrf_token"><input name="login"><input name="password"></form><div class="o_login_auth"><a href="/auth_feishu/login?redirect=%2Ftasks">Login with Feishu</a><a href="https://accounts.odoo.com/oauth2/auth?x=1">Sign in with Odoo.com</a></div></body></html>');
     }
     if (p.pathname === '/web/login' && req.method === 'POST') {
       const fields = new URLSearchParams(body);
@@ -32,12 +32,19 @@ const up = createServer((req, res) => {
       else res.writeHead(200, {'content-type':'text/html'});
       return res.end('synthetic-totp');
     }
+    if ((p.pathname === '/web' || p.pathname === '/web/web') && req.method === 'GET') {
+      res.writeHead(200, {'content-type':'text/html'});
+      return res.end('<!doctype html><html><head><title>Odoo web</title></head><body><div class="o_login_auth"><a href="/auth_feishu/login?redirect=%2Fweb">Login with Feishu</a></div></body></html>');
+    }
     if (p.pathname === '/web/session/get_session_info') {
       const ok = String(req.headers.cookie).includes(SID1);
       res.writeHead(200, {'content-type':'application/json'});
       return res.end(JSON.stringify(ok ? {result:{uid:7,username:'fixture',name:'Fixture',is_internal_user:true}} : {error:{code:100}}));
     }
-    if (p.pathname === '/website/translations') { res.writeHead(200, {'content-type':'application/json'}); return res.end('{}'); }
+    if (p.pathname === '/website/translations') {
+      if (/^zh/i.test(String(req.headers['accept-language'] ?? ''))) { res.writeHead(303, {location:'/zh_CN/website/translations?hash=&lang='}); return res.end(); }
+      res.writeHead(200, {'content-type':'application/json'}); return res.end('{}');
+    }
     if (p.pathname.startsWith('/web/assets/')) { res.writeHead(200, {'content-type':'text/css','set-cookie':['session_id=must-not-pass; Path=/']}); return res.end('/* fixture */'); }
     res.writeHead(404).end();
   });
@@ -73,6 +80,10 @@ async function browserLogin(wid) {
       for(let n=0;n<80;n++){try{login=!!(await evaluate("location.pathname==='/web/login' && !!document.querySelector('input[name=login]')"));}catch{}if(login)break;await new Promise(q=>setTimeout(q,100));}
       check(host+' browser follows same-host relay',login);
       if(login){
+        const oauthHidden=await evaluate("!!document.querySelector('.o_login_auth') && document.querySelector('.o_login_auth').hidden && document.querySelector('.o_login_auth').getBoundingClientRect().height===0 && [...document.querySelectorAll('.o_login_auth a')].every(a=>a.offsetParent===null)");
+        check(host+' browser hides unsupported OAuth controls',oauthHidden);
+      }
+      if(login){
         const anonymous=await evaluate("fetch('/api/auth/viewer').then(r=>r.status===401)");
         check(host+' starts with no authenticated session',anonymous===true);
         await evaluate("document.querySelector('input[name=login]').value='fixture';document.querySelector('input[name=password]').value='fixture-password';document.querySelector('form').requestSubmit();true");
@@ -107,6 +118,7 @@ try {
     let page=await http('GET','/web/login?redirect=%2Ftasks',h);
     const ck=page.headers['set-cookie']||[];
     check(label+' login proxied and cookie scoped correctly',page.status===200 && page.text.includes('csrf_token') && ck.length===1 && ck[0].includes('Path=/') && ck[0].includes('HttpOnly') && ck[0].includes('SameSite=Lax') && (https ? ck[0].includes('Secure') : !ck[0].includes('Secure')));
+    check(label+' unsupported OAuth controls are suppressed in login HTML',page.text.includes('id="wm-hide-odoo-oauth"') && page.text.includes('.o_login_auth{display:none') && page.text.includes('/auth_feishu/login') && page.text.includes('accounts.odoo.com/oauth2/auth'));
     const payload=new URLSearchParams({csrf_token:'fixture-csrf',login:'fixture',password:'fixture-password',redirect:'/tasks'}).toString();
     let post=await http('POST','/web/login', {...h,origin:(https?'https://':'http://')+host, 'sec-fetch-site':'same-origin','content-type':'application/x-www-form-urlencoded',cookie:'session_id='+SID0+'; wm_login=private', 'x-admin-token':'private-token',authorization:'Bearer private-token','x-app-token':'private-app-token'},payload);
     check(label+' login POST succeeds without leaking market credentials',post.status===303 && post.headers.location==='/tasks' && post.headers['set-cookie']?.[0]?.includes(SID1) && seen.at(-1).headers.cookie==='session_id='+SID0 && !seen.at(-1).headers['x-admin-token'] && !seen.at(-1).headers.authorization && !seen.at(-1).headers['x-app-token']);
@@ -118,8 +130,9 @@ try {
   for (const [label,host,https] of [['LAN plain','192.0.2.88:9800',false],['public plain','market.example.test',true]]) {
     const h={host,...(https?{'x-forwarded-proto':'https'}:{})};
     const entry=await http('GET','/go/'+wid+'/',h);
-    const loc=String(entry.headers.location??''); const st=/wm_sso_\d+=([0-9a-f-]{36})/.exec(String(entry.headers['set-cookie']??''))?.[1]??'';
+    const loc=String(entry.headers.location??''); const entryCookie=String(entry.headers['set-cookie']??''); const st=/wm_sso_\d+=([0-9a-f-]{36})/.exec(entryCookie)?.[1]??'';
     check(label+' entry redirects to same-host login without upstream host',entry.status===302 && loc==='/web/login?redirect='+encodeURIComponent('/go/'+wid+'/?state='+st) && !!st && !loc.includes('127.0.0.1') && !entry.text.includes(env.WM_ODOO_URL));
+    check(label+' state cookie is HttpOnly/Lax and Secure only on HTTPS',/HttpOnly/i.test(entryCookie)&&/SameSite=Lax/i.test(entryCookie)&&(https?/Secure(?:;|$)/i.test(entryCookie):!/Secure(?:;|$)/i.test(entryCookie)));
     const page=await http('GET',loc,h);
     check(label+' login page keeps the SSO callback for Odoo',page.status===200 && seen.at(-1).path==='/web/login?redirect='+encodeURIComponent('/go/'+wid+'/?state='+st));
     const post=await http('POST','/web/login',{...h,origin:(https?'https://':'http://')+host,'sec-fetch-site':'same-origin','content-type':'application/x-www-form-urlencoded',cookie:'session_id='+SID0},new URLSearchParams({csrf_token:'fixture-csrf',login:'fixture',password:'fixture-password',redirect:'/go/'+wid+'/?state='+st}).toString());
@@ -127,7 +140,8 @@ try {
     const back=await http('GET',post.headers.location,{...h,cookie:'session_id='+SID1+'; wm_sso_'+wid+'='+st});
     check(label+' callback passes the state check',back.status!==400 && String(back.headers['set-cookie']??'').includes('wm_sso_ok_'+wid+'=1'));
     lastSt=st;
-  }
+    const portal=await http('GET','/go/'+wid+'/web',{...h,cookie:'session_id='+SID1+'; wm_sso_ok_'+wid+'=1'});
+    check(label+' Odoo portal hides unsupported OAuth controls',portal.status===200 && portal.text.includes('wm-hide-odoo-oauth') && portal.text.includes('/auth_feishu/login'));  }
   // Counterexamples (direct-24dd6c02): the callback redirect is honoured only with a ticket the portal issued for a trusted Odoo workbench.
   const H={host:'market.example.test'};
   const relayedRedirect=async (target)=>{ await http('GET','/web/login?redirect='+encodeURIComponent(target),H); return seen.at(-1).path.includes('redirect='); };
@@ -191,6 +205,8 @@ try {
   check('Odoo login assets available without setting a session',r.status===200 && r.text==='/* fixture */' && !r.headers['set-cookie']);
   r=await http('GET','/website/translations',{host:'market.example.test'});
   check('read-only Odoo translations are proxied',r.status===200 && r.text==='{}');
+  r=await http('GET','/website/translations?hash=&lang=',{host:'market.example.test','accept-language':'zh-CN,zh;q=0.9,en;q=0.8'});
+  check('Chinese browser translations stay JSON instead of language redirect',r.status===200 && r.text==='{}' && seen.at(-1).path==='/website/translations?hash=&lang=' && /^en-US,en/.test(String(seen.at(-1).headers['accept-language'])));
   r=await http('GET','/web/login?redirect=%2F%2Fevil.invalid',{host:'market.example.test'});
   check('untrusted return removed before Odoo',!seen.at(-1).path.includes('evil.invalid'));
   r=await http('POST','/web/login',{host:'market.example.test','content-type':'application/x-www-form-urlencoded',cookie:'session_id='+SID0},new URLSearchParams({login:'fixture',password:'fixture-password',redirect:'//evil.invalid'}).toString());
@@ -198,7 +214,7 @@ try {
   r=await http('POST','/web/login',{host:'market.example.test','content-type':'application/x-www-form-urlencoded'},'login=fixture-totp');
   check('TOTP challenge stays on current host',r.status===302 && r.headers.location==='/web/login/totp?redirect=%2Ftasks');
   r=await http('GET',r.headers.location,{host:'market.example.test'});
-  check('TOTP form reaches fixed Odoo',r.status===200 && r.text==='synthetic-totp');
+  check('TOTP form reaches fixed Odoo',r.status===200 && r.text.includes('synthetic-totp') && r.text.includes('wm-hide-odoo-oauth'));
   r=await http('POST','/web/login/totp',{host:'market.example.test','content-type':'application/x-www-form-urlencoded'},'totp_token=123456');
   check('TOTP completes with Odoo session',r.status===303 && r.headers.location==='/tasks' && r.headers['set-cookie']?.[0]?.includes(SID1));
   r=await http('POST','/web/login',{host:'market.example.test','content-type':'application/x-www-form-urlencoded'},'login=fixture-foreign');
