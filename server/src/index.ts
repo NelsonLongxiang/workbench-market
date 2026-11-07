@@ -1769,13 +1769,15 @@ function storedRunData(row: SopRunRow): Record<string, unknown> {
  * #442 进行中 run 的最新数据：本进程缓冲 > 当前一代热态 > SQLite。
  * 没有缓冲又读不到热态时，Redis 里可能还有已确认、尚未落盘的写入，不能当成「没有热态」：
  *   error（连着但这次读出错）一律 503，稍后重试；
- *   down（配了但没连上）只在 strict（完成、升级）时 503，等 Redis 恢复；日常保存仍按降级设计直写 SQLite。
+ *   down（配了但没连上）在 strict（完成、升级）时 503，等 Redis 恢复；日常保存仍按降级设计直写 SQLite，
+ *   除非 SQLite 记着「热态有未落盘写入」（hot_pending，#448）——那时保存（writing）直写会让 Redis 里那份更新的写入再也对不上校验点，同样 503；只读照常降级。
  */
-async function runLiveData(row: SopRunRow, strict: boolean): Promise<{ data: Record<string, unknown>; buffered: boolean; hot: RunStateRead }> {
+async function runLiveData(row: SopRunRow, strict: boolean, writing = false): Promise<{ data: Record<string, unknown>; buffered: boolean; hot: RunStateRead }> {
   const pending = runCheckpoints.peek(row.id);
   if (pending) return { data: pending, buffered: true, hot: { kind: 'miss' } };
   const hot = await runStateRead(row.id, runCacheCheckpoint(row));
-  if (hot.kind === 'error' || (strict && hot.kind === 'down')) {
+  // #448: after a restart the buffer is gone; if SQLite says Redis may hold a newer acknowledged write, a degraded save would orphan it (reads stay degraded)
+  if (hot.kind === 'error' || (hot.kind === 'down' && (strict || (writing && !!row.hot_pending)))) {
     throw new HttpError(503, `run ${row.id} 的热态暂时读不到（Redis ${hot.kind === 'down' ? '未连上' : '读出错'}），为免丢掉已确认的填写，稍后重试`, { redis: hot.kind, retryable: true });
   }
   return { data: { ...storedRunData(row), ...(hot.kind === 'hit' && hot.meta.status === 'running' ? hot.data : {}) }, buffered: false, hot };
@@ -1825,11 +1827,12 @@ async function sopRunStepSaveCore(id: number, stepKeyRaw: string, value: unknown
       svc<SopService>('sop').runUpdateData(id, mergeRunData(row, stepKey, value ?? null));
       return { ok: true, id, stepKey, persisted: 'sqlite' };
     }
-    const { data } = await runLiveData(row, false);
+    const { data } = await runLiveData(row, false, true);
     data[stepKey] = value ?? null;
     // Repopulate all known fields after a Redis loss; a partial HSET must not erase the durable baseline.
     const hotOk = await runCheckpoints.save(id, data, () =>
-      runStateRestore(id, { slug: row.sop_slug, version: row.sop_version, status: 'running', started_by: row.started_by, updated_at: Date.now() }, data, runCacheCheckpoint(sopRunRow(id))));
+      runStateRestore(id, { slug: row.sop_slug, version: row.sop_version, status: 'running', started_by: row.started_by, updated_at: Date.now() }, data, runCacheCheckpoint(sopRunRow(id))),
+      () => { if (redisHealthy()) svc<SopService>('sop').runMarkHotPending(id); });
     // A successful fallback bumps SQLite generation; any surviving OLD Redis payload now misses.
     return { ok: true, id, stepKey, persisted: hotOk ? 'redis+checkpoint' : 'sqlite' };
   });
@@ -3767,7 +3770,7 @@ app.post('/a2a/direct', express.json({ limit: '600kb' }), async (req, res) => {
     saveNote: (runId: number, text: string): Promise<void> => runCheckpoints.serial(runId, async () => {
       const row = sopRunRow(runId);
       if (row.status !== 'running') throw new HttpError(409, 'run ' + runId + ' 已 ' + row.status + '，不可再写');
-      const data = row.sop_slug === 'task-center' ? storedRunData(row) : (await runLiveData(row, false)).data;
+      const data = row.sop_slug === 'task-center' ? storedRunData(row) : (await runLiveData(row, false, true)).data; // #448: a note is a write too
       const notes = Array.isArray(data['a2a-notes']) ? data['a2a-notes'] as unknown[] : [];
       notes.push({ at: new Date().toISOString(), text });
       data['a2a-notes'] = notes;

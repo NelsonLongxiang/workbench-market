@@ -564,6 +564,11 @@ db.exec("UPDATE workbench_vars SET owner = updated_by WHERE kind = 'const' AND o
   if (!cols.some(c => c.name === 'cache_revision')) db.exec('ALTER TABLE sop_runs ADD COLUMN cache_revision INTEGER NOT NULL DEFAULT 0');
   db.exec(`CREATE TRIGGER IF NOT EXISTS sop_runs_cache_revision AFTER UPDATE OF data, status ON sop_runs
     BEGIN UPDATE sop_runs SET cache_revision = OLD.cache_revision + 1 WHERE id = NEW.id; END;`);
+  // #448: hot_pending=1 while Redis may hold an acknowledged write newer than SQLite. Any durable data write
+  // (checkpoint, finish, upgrade) is built from the latest state, so it clears the flag.
+  if (!cols.some(c => c.name === 'hot_pending')) db.exec('ALTER TABLE sop_runs ADD COLUMN hot_pending INTEGER NOT NULL DEFAULT 0');
+  db.exec(`CREATE TRIGGER IF NOT EXISTS sop_runs_hot_pending_clear AFTER UPDATE OF data ON sop_runs WHEN NEW.hot_pending <> 0
+    BEGIN UPDATE sop_runs SET hot_pending = 0 WHERE id = NEW.id; END;`);
 }
 // P0：sop_runs.upload_token（run-scoped 上传令牌·启动签发——总工 direct-c2b55f91）
 try { const srtCols = db.prepare('PRAGMA table_info(sop_runs)').all() as any[]; if (!srtCols.some((c) => c.name === 'upload_token')) db.exec("ALTER TABLE sop_runs ADD COLUMN upload_token TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
@@ -668,7 +673,7 @@ export interface AppVersionRow {
 /** SOP 执行实例（分层治理·持久层真源）：data=stepKey→value JSON；热态在 Redis（redis.ts） */
 export interface SopRunRow {
   id: number; sop_slug: string; sop_version: number; status: string; started_by: string;
-  data: string; cache_revision: number; started_at: string; updated_at: string; finished_at: string;
+  data: string; cache_revision: number; hot_pending?: number; started_at: string; updated_at: string; finished_at: string;
 }
 
 export interface CockpitRow {
