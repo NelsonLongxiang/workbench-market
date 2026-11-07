@@ -128,6 +128,15 @@ try {
   ok('已有全局授权再申请 工具@台 无需申请', r.isError && r.text.includes('无需申请'), r.text.slice(0, 120));
 
   // ============ 台删除后 ============
+  const C = await wbCreate('scope-c');
+  r = await tool(s.token, 'access_request', { tools: [`workbench_vars_set@${C}`], reason: '要写台 C' });
+  const reqC = r.payload?.request?.id;
+  ok('申请台 C 建 pending', !r.isError && Number.isInteger(reqC), r.text.slice(0, 120));
+  ok('删除台 C（申请还没批）', [200, 204].includes((await call('DELETE', `/api/workbenches/${C}`, null, AT)).status));
+  const beforeC = await grantsOf(s.id);
+  r = await call('POST', `/api/mcp/access-requests/${reqC}/approve`, {}, AT);
+  ok('批准前台已删除：整单 409，点名该 工具@台', r.status === 409 && String(r.body?.error).includes(`workbench_vars_set@${C}`) && String(r.body?.error).includes('台已删除'), JSON.stringify(r.body));
+  ok('批准失败不改授权、申请仍 pending', JSON.stringify(await grantsOf(s.id)) === JSON.stringify(beforeC) && ((await call('GET', '/api/mcp/access-requests?status=pending', null, AT)).body ?? []).some((q) => q.id === reqC));
   r = await call('DELETE', `/api/workbenches/${A}`, null, AT);
   ok('删除台 A', r.status === 200 || r.status === 204, JSON.stringify(r.body));
   r = await call('PUT', `/api/mcp/sessions/${s.id}/grants`, { grants: [`workbench_vars_set@${A}`, `workbench_vars_set@${B}`] }, AT);

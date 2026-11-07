@@ -4368,7 +4368,9 @@ app.get('/api/mcp/calls', (req, res) => {
 // ---------- MCP 权限自助：access_info / access_request（免 grants）+ 管理员审批面 ----------
 // 会话只能看和申请；批准、驳回只走下面的管理员 REST（adminGuard：口令或 Odoo 管理员），会话令牌不是管理身份，自己批不了。
 const MCP_EXEMPT_TOOLS = new Set(MCP_TOOLS.filter((t) => t.exempt).map((t) => t.name));
-/** #452 可按台授权（工具@台）的工具：按 id 参数取工作台的。以后可扩到 app_data_* / app_files_* / app_sync（按 slug） */
+/** #452 可按台授权（工具@台）的工具：按 id 参数取工作台的。以后可扩到 app_data_* / app_files_* / app_sync（按 slug）。
+ *  依赖 workbenches.id 为 AUTOINCREMENT、不复用：台删除后旧的 工具@台 要到下次保存才剔除，期间新台拿不到旧 id。
+ *  例外：从备份恢复库或 sqlite_sequence 被重置时，要先清理各会话 grants 里的 工具@台。 */
 const MCP_SCOPED_TOOLS: ReadonlySet<string> = new Set(['workbench_vars_get', 'workbench_vars_set']);
 /** 授权串 'tool' 或 'tool@<台 id>'；@ 后不是正整数的整串当工具名（随后按未知工具名 400） */
 function parseGrant(g: string): { tool: string; wid: number | null } {
@@ -4499,7 +4501,7 @@ app.post('/api/mcp/access-requests/:id/approve', (req, res, next) => {
       // 申请的工具若被剔除就整单 409（不做部分批准），原有授权里已下线的名字顺带按同口径清掉
       const { saved: after, dropped, keptUnavailable } = resolveGrants([...before, ...tools], [...before, ...tools], registered);
       const gone = tools.filter((t) => dropped.includes(t));
-      if (gone.length) throw new HttpError(409, `工具已不在目录里：${gone.join(', ')}（请驳回后让会话重新申请）`);
+      if (gone.length) throw new HttpError(409, `已不可用（工具已下线，或 工具@台 的台已删除）：${gone.join(', ')}（请驳回后让会话重新申请）`);
       const added = tools.filter((t) => !before.includes(t));
       mcp.sessionGrants(sess.id, JSON.stringify(after));
       mcp.accessRequestDecide(id, 'approved', actor, note);
