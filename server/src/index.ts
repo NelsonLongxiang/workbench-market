@@ -4308,6 +4308,15 @@ function resolveGrants(raw: unknown[], held: string[], registered: Set<string>):
   for (const g of raw) {
     if (typeof g !== 'string') bad(`工具名必须是字符串: ${JSON.stringify(g)}`);
     const name = g as string;
+    const scoped = parseGrant(name);
+    if (scoped.wid !== null) { // #452 工具@台：工具须支持按台授权、台须存在；已持有但台已删除的剔除
+      if (!registered.has(scoped.tool)) bad(`未知工具名: ${JSON.stringify(scoped.tool)}（合法面见 GET /api/mcp/tools）`);
+      if (!MCP_SCOPED_TOOLS.has(scoped.tool)) bad(`${scoped.tool} 暂不支持按台授权（目前只有 ${[...MCP_SCOPED_TOOLS].join(' / ')}）`);
+      if (svc<WorkbenchService>('workbench').exists(scoped.wid)) { if (!saved.includes(name)) saved.push(name); }
+      else if (held.includes(name)) dropped.push(name);
+      else bad(`台不存在: ${scoped.wid}（${name}）`);
+      continue;
+    }
     if (registered.has(name)) { if (!saved.includes(name)) saved.push(name); continue; }
     if (!held.includes(name)) bad(`未知工具名: ${JSON.stringify(name)}（合法面见 GET /api/mcp/tools）`);
     const prefix = name.includes('__') ? name.slice(0, name.indexOf('__')) : '';
@@ -4345,7 +4354,7 @@ app.get('/api/mcp/tools', (req, res, next) => {
   if (!adminGuard(req, res)) return;
   // 本地 + 上游聚合面（上游不可达时只列本地，不报错）
   void mcpAggregatedTools()
-    .then((tools) => res.json(tools.map((t) => ({ name: t.name, description: t.description, category: t.category, ...(t.exempt ? { always_allowed: true } : {}) }))))
+    .then((tools) => res.json(tools.map((t) => ({ name: t.name, description: t.description, category: t.category, ...(MCP_SCOPED_TOOLS.has(t.name) ? { scopable: true } : {}), ...(t.exempt ? { always_allowed: true } : {}) }))))
     .catch(next);
 });
 
@@ -4359,6 +4368,15 @@ app.get('/api/mcp/calls', (req, res) => {
 // ---------- MCP 权限自助：access_info / access_request（免 grants）+ 管理员审批面 ----------
 // 会话只能看和申请；批准、驳回只走下面的管理员 REST（adminGuard：口令或 Odoo 管理员），会话令牌不是管理身份，自己批不了。
 const MCP_EXEMPT_TOOLS = new Set(MCP_TOOLS.filter((t) => t.exempt).map((t) => t.name));
+/** #452 可按台授权（工具@台）的工具：按 id 参数取工作台的。以后可扩到 app_data_* / app_files_* / app_sync（按 slug）。
+ *  依赖 workbenches.id 为 AUTOINCREMENT、不复用：台删除后旧的 工具@台 要到下次保存才剔除，期间新台拿不到旧 id。
+ *  例外：从备份恢复库或 sqlite_sequence 被重置时，要先清理各会话 grants 里的 工具@台。 */
+const MCP_SCOPED_TOOLS: ReadonlySet<string> = new Set(['workbench_vars_get', 'workbench_vars_set']);
+/** 授权串 'tool' 或 'tool@<台 id>'；@ 后不是正整数的整串当工具名（随后按未知工具名 400） */
+function parseGrant(g: string): { tool: string; wid: number | null } {
+  const m = /^(.+)@([1-9]\d{0,9})$/.exec(g);
+  return m ? { tool: m[1], wid: Number(m[2]) } : { tool: g, wid: null };
+}
 const ACCESS_REQUEST_HOURLY_MAX = 10;
 const ACCESS_REASON_MAX = 500;
 const ACCESS_STATUSES = ['pending', 'approved', 'rejected'];
@@ -4389,14 +4407,15 @@ function mcpRestInfo(origin: string) {
 async function mcpAccessTool(name: string, args: any, sess: McpSess | null, origin: string): Promise<unknown> {
   const catalog = await mcpAggregatedTools();
   if (name === 'access_info') {
-    const granted = (t: McpToolDef) => !sess || !!t.exempt || sess.grants.includes(t.name); // 网关关时全部可调
+    const granted = (t: McpToolDef) => mcpToolGranted(sess, t.name); // 网关关时全部可调
+    const scopeOf = (t: McpToolDef) => { const sc = mcpToolScope(sess, t.name); return sc && sc !== 'all' ? [...sc].sort((a, b) => a - b) : null; };
     return {
       gateway: MCP_GATEWAY_ON ? 'on' : 'off',
       session: sess?.name ?? null,
       granted_tools: catalog.filter(granted).map((t) => t.name),
-      catalog: catalog.map((t) => ({ name: t.name, description: t.description, category: t.category, granted: granted(t), ...(t.exempt ? { always_allowed: true } : {}) })),
+      catalog: catalog.map((t) => ({ name: t.name, description: t.description, category: t.category, granted: granted(t), ...(scopeOf(t) ? { granted_workbenches: scopeOf(t) } : {}), ...(MCP_SCOPED_TOOLS.has(t.name) ? { scopable: true } : {}), ...(t.exempt ? { always_allowed: true } : {}) })),
       requests: sess ? (svc<McpService>('mcp').accessRequestsBySession(sess.id) as AccessRequestRow[]).map(accessRequestForSession) : [],
-      how_to_request: 'access_request {tools: [工具名], reason: 用途}；管理员在「MCP 网关」页「权限申请」批准后立即生效（并入现有授权）',
+      how_to_request: `access_request {tools: [工具名], reason: 用途}；只要一张台时写 工具@台id（目前 ${[...MCP_SCOPED_TOOLS].join(' / ')} 支持）；管理员在「MCP 网关」页「权限申请」批准后立即生效（并入现有授权）`,
       ...mcpRestInfo(origin),
     };
   }
@@ -4407,8 +4426,16 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
   if (!Array.isArray(raw) || raw.length === 0) bad('tools 必须是非空的工具名数组');
   if (raw.length > 100) bad('tools 一次最多 100 个');
   const known = new Set(catalog.map((t) => t.name));
-  for (const t of raw) if (typeof t !== 'string' || !known.has(t)) bad(`不在工具目录里: ${JSON.stringify(t)}（先调 access_info 查目录）`);
-  const wanted = [...new Set(raw as string[])].filter((t) => !MCP_EXEMPT_TOOLS.has(t) && !s.grants.includes(t)).sort();
+  for (const t of raw) {
+    const p = typeof t === 'string' ? parseGrant(t) : null;
+    if (!p || !known.has(p.tool)) bad(`不在工具目录里: ${JSON.stringify(t)}（先调 access_info 查目录）`);
+    if (p!.wid !== null) {
+      if (!MCP_SCOPED_TOOLS.has(p!.tool)) bad(`${p!.tool} 暂不支持按台申请（目前只有 ${[...MCP_SCOPED_TOOLS].join(' / ')}）`);
+      if (!svc<WorkbenchService>('workbench').exists(p!.wid)) bad(`台不存在: ${p!.wid}`);
+    }
+  }
+  // 已有全局授权的工具，再申请它的 工具@台 也算已可用
+  const wanted = [...new Set(raw as string[])].filter((t) => !MCP_EXEMPT_TOOLS.has(t) && !s.grants.includes(t) && !s.grants.includes(parseGrant(t).tool)).sort();
   if (!wanted.length) bad('申请的工具本会话都已可用，无需申请');
   const reason = typeof args?.reason === 'string' ? args.reason.trim() : '';
   if (!reason) bad('reason 必填：写清要用这些工具做什么');
@@ -4474,7 +4501,7 @@ app.post('/api/mcp/access-requests/:id/approve', (req, res, next) => {
       // 申请的工具若被剔除就整单 409（不做部分批准），原有授权里已下线的名字顺带按同口径清掉
       const { saved: after, dropped, keptUnavailable } = resolveGrants([...before, ...tools], [...before, ...tools], registered);
       const gone = tools.filter((t) => dropped.includes(t));
-      if (gone.length) throw new HttpError(409, `工具已不在目录里：${gone.join(', ')}（请驳回后让会话重新申请）`);
+      if (gone.length) throw new HttpError(409, `已不可用（工具已下线，或 工具@台 的台已删除）：${gone.join(', ')}（请驳回后让会话重新申请）`);
       const added = tools.filter((t) => !before.includes(t));
       mcp.sessionGrants(sess.id, JSON.stringify(after));
       mcp.accessRequestDecide(id, 'approved', actor, note);
@@ -4533,9 +4560,17 @@ function mcpAudit(sess: McpSess | null, channel: McpChannel, method: string, too
   svc<McpService>('mcp').callInsertStmt()
     .run(sess.name, method, tool, ok ? 1 : 0, error, durationMs, sha256Hex(JSON.stringify(args ?? {})), channel); // 不存参数原文
 }
-/** 会话可调用：免授权工具 + grants；网关关时全部可调 */
+/** 会话对某工具的授权范围（#452）：'all'＝免授权/全局授权/网关关；台 id 集合＝只授权了 工具@台；null＝无权 */
+function mcpToolScope(sess: McpSess | null, toolName: string): 'all' | Set<number> | null {
+  if (!sess || MCP_EXEMPT_TOOLS.has(toolName) || sess.grants.includes(toolName)) return 'all';
+  if (!MCP_SCOPED_TOOLS.has(toolName)) return null;
+  const ids = new Set<number>();
+  for (const g of sess.grants) { const p = parseGrant(g); if (p.wid !== null && p.tool === toolName) ids.add(p.wid); }
+  return ids.size ? ids : null;
+}
+/** 会话可调用（列目录用）：免授权工具 + grants（含只限定到某些台的）；网关关时全部可调 */
 function mcpToolGranted(sess: McpSess | null, toolName: string): boolean {
-  return !sess || MCP_EXEMPT_TOOLS.has(toolName) || sess.grants.includes(toolName);
+  return mcpToolScope(sess, toolName) !== null;
 }
 type McpInvokeResult =
   | { kind: 'not_granted' }
@@ -4543,8 +4578,10 @@ type McpInvokeResult =
   | { kind: 'error'; error: any; upstream: boolean };
 /** tools/call 唯一执行链：授权检查 → 免授权工具 / 上游转发 / 本地工具 → 审计。两个渠道各自把结果映射成自己的应答形状。 */
 async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, channel: McpChannel, origin: string, t0 = Date.now()): Promise<McpInvokeResult> {
-  if (!mcpToolGranted(sess, toolName)) {
-    mcpAudit(sess, channel, 'tools/call', toolName, false, 'not granted', Date.now() - t0, args);
+  const scope = mcpToolScope(sess, toolName);
+  // 限定到台的授权在分发前按 id 参数核对（与工具自身同样 Number(args.id) 解析），台外按未授权处理并记审计
+  if (scope === null || (scope !== 'all' && !scope.has(Number(args?.id)))) {
+    mcpAudit(sess, channel, 'tools/call', toolName, false, scope === null ? 'not granted' : 'not granted: workbench scope', Date.now() - t0, args);
     return { kind: 'not_granted' };
   }
   // 上游路由（P2）：<prefix>__<tool> → 转发到对应上游 MCP
