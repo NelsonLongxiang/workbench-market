@@ -183,7 +183,7 @@ CREATE TABLE IF NOT EXISTS skill_digest_reports (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_sdr_skill ON skill_digest_reports (skill_id, version);
--- 技能包下载票据：MCP skill_download 签发，10 分钟有效；URL 里只有随机票号，不带会话令牌
+-- 技能包下载票据：MCP skill_download 签发，10 分钟有效；URL 里只有随机票号，不带会话令牌。id 存票号的 sha256，不存明文
 CREATE TABLE IF NOT EXISTS skill_download_tickets (
   id TEXT PRIMARY KEY,
   slug TEXT NOT NULL,
@@ -191,6 +191,7 @@ CREATE TABLE IF NOT EXISTS skill_download_tickets (
   issued_to TEXT NOT NULL DEFAULT '',
   expires_at INTEGER NOT NULL,
   downloads INTEGER NOT NULL DEFAULT 0,
+  denied INTEGER NOT NULL DEFAULT 0,
   last_download_at TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -426,6 +427,7 @@ CREATE TABLE IF NOT EXISTS install_ledger (
 // #94 S2：skill_versions.commit_id（技能入 LayerFS·wm-skills 项目 skill/<slug> 分支）
 try { const svCols = db.prepare('PRAGMA table_info(skill_versions)').all() as any[]; if (!svCols.some((c) => c.name === 'commit_id')) db.exec("ALTER TABLE skill_versions ADD COLUMN commit_id TEXT NOT NULL DEFAULT ''"); if (!svCols.some((c) => c.name === 'shadow_status')) db.exec("ALTER TABLE skill_versions ADD COLUMN shadow_status TEXT NOT NULL DEFAULT 'pending'"); if (!svCols.some((c) => c.name === 'shadow_error')) db.exec("ALTER TABLE skill_versions ADD COLUMN shadow_error TEXT NOT NULL DEFAULT ''"); db.exec("UPDATE skill_versions SET shadow_status='succeeded', shadow_error='' WHERE commit_id <> '' AND shadow_status='pending'"); } catch { /* 列已在 */ }
 // 技能回滚=移「当前版本」指针（skills.active_version，NULL=跟随最新版）：版本链只增、同技能同指纹唯一（K9）都不动，回滚不再复制出同指纹的新版本撞唯一索引
+try { const dlCols = db.prepare('PRAGMA table_info(skill_download_tickets)').all() as any[]; if (!dlCols.some((c) => c.name === 'denied')) db.exec('ALTER TABLE skill_download_tickets ADD COLUMN denied INTEGER NOT NULL DEFAULT 0'); } catch { /* 列已在 */ } // #462：旧库补拒绝计数（旧明文票按哈希查不到，自然失效）
 try { const skCols = db.prepare('PRAGMA table_info(skills)').all() as any[]; if (!skCols.some((c) => c.name === 'active_version')) db.exec('ALTER TABLE skills ADD COLUMN active_version INTEGER'); if (!skCols.some((c) => c.name === 'active_by')) db.exec("ALTER TABLE skills ADD COLUMN active_by TEXT NOT NULL DEFAULT ''"); if (!skCols.some((c) => c.name === 'active_at')) db.exec("ALTER TABLE skills ADD COLUMN active_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 // #94 P1 影子双写：apps.layerfs_project + app_versions.commit_id（幂等 ALTER）
 try { const appCols = db.prepare('PRAGMA table_info(apps)').all() as any[]; if (!appCols.some((c) => c.name === 'layerfs_project')) db.exec("ALTER TABLE apps ADD COLUMN layerfs_project TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
