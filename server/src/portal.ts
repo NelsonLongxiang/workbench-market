@@ -106,7 +106,10 @@ export function installPortal(
         // #275 过渡登录入口（#221 落地前）：?return=<白名单页> 只出中继页（见下），回程由市场页轮询 whoami 完成。
         // wm_sso_ret_<id> 是 #276 时期的回跳 cookie，现已不写也不读，只在两条分支里顺手清掉残留
         const retCookie = `wm_sso_ret_${m[1]}`;
-        const ret = backState ? null : safeReturnPath(_qs.get('return'));
+        // 登录入口 = 带 return 打到 /go/<id>/ 根：回跳页不在白名单（如从首页点「登录」带 return=/）时退回市场首页，
+        // 不能当普通访问转发——浏览器里有 Odoo 匿名 session_id 时会被 Odoo 自己跳到 /web/login，经 /go/ 代理打开、静态资源加载不出来
+        const atEntry = ['', '/'].includes(String(m[2] ?? '').split('?')[0]);
+        const ret = backState ? null : (safeReturnPath(_qs.get('return')) ?? (atEntry && _qs.has('return') ? '/' : null));
         // #170 P1④（安全项）：回跳经市场且 state 校验——不匹配 400 拒（CSRF/open-redirect 防线）；匹配即消费
         if (backState) {
           if (!stMatch || stMatch[1] !== backState) return res.status(400).type('text').send('SSO state 校验失败（请从市场门户重新进入）');
