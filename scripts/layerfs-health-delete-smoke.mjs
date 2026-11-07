@@ -35,7 +35,7 @@ const LF = `http://127.0.0.1:${lfServer.address().port}`;
 
 const TMP = resolve('tmp/layerfs-health-delete-smoke-' + Date.now().toString(36));
 mkdirSync(join(TMP, 'data'), { recursive: true });
-const PORT = 20000 + Math.floor(Math.random() * 20000);
+const PORT = 20000 + Math.floor(Math.random() * 12000);
 const base = `http://127.0.0.1:${PORT}`;
 const ADMIN = 'synthetic-lfhealth-admin';
 const gh = await startFakeGithub();

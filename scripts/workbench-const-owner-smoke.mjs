@@ -20,7 +20,7 @@ const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ✓ ' + n); } els
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function start(DATA) {
-  const PORT = 22000 + Math.floor(Math.random() * 20000);
+  const PORT = 22000 + Math.floor(Math.random() * 10000);
   const env = { ...process.env, PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: DATA, ADMIN_TOKEN: ADMIN, MCP_GATEWAY: 'on', NODE_ENV: 'test', REDIS_URL: '', LAYERFS_SERVICE_URL: '' };
   const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { env, stdio: ['ignore', 'ignore', 'pipe'] });
   let err = ''; child.stderr.on('data', (c) => (err += c));

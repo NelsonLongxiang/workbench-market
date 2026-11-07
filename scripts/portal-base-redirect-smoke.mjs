@@ -36,7 +36,7 @@ const upstream = createServer((rq, rs) => {
 });
 await new Promise((x) => upstream.listen(0, '127.0.0.1', x));
 const UP = `http://127.0.0.1:${upstream.address().port}`;
-const PORT = 20000 + Math.floor(Math.random() * 20000);
+const PORT = 20000 + Math.floor(Math.random() * 12000);
 const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), ADMIN_TOKEN: 'base-smoke' };
 for (const k of ['WM_ODOO_URL', 'WM_EXTENSIONS_DIR', 'WM_ODOO_ORIGINS', 'WM_ODOO_BROWSER_URL', 'WM_ODOO_LOGIN_PROXY']) delete env[k];
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });

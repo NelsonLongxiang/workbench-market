@@ -8,7 +8,7 @@ let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
 
 function start(mode, tag) {
-  const PORT = 20000 + Math.floor(Math.random() * 20000);
+  const PORT = 20000 + Math.floor(Math.random() * 12000);
   const DATA = `tmp/e2e-gwdef-${tag}`;
   rmSync(DATA, { recursive: true, force: true });
   mkdirSync(DATA, { recursive: true });

@@ -46,7 +46,7 @@ const ODOO = `http://127.0.0.1:${odoo.address().port}`;
 const gh = await startFakeGithub();
 
 function start(extra, tag, dataDir) {
-  const PORT = 21000 + Math.floor(Math.random() * 20000);
+  const PORT = 21000 + Math.floor(Math.random() * 11000);
   const DATA = dataDir ?? mkdtempSync(resolve('tmp', `login-gate-${tag}-`));
   const env = { ...process.env, PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: DATA, NODE_ENV: 'test', REDIS_URL: '', LAYERFS_SERVICE_URL: '', WM_GITHUB_API: gh.api, ...extra };
   for (const k of Object.keys(extra)) if (extra[k] === undefined) delete env[k];

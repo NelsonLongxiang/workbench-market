@@ -14,7 +14,7 @@ const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } els
 const servers = [];
 
 function boot(tag, extraEnv) {
-  const port = 20000 + Math.floor(Math.random() * 20000);
+  const port = 20000 + Math.floor(Math.random() * 12000);
   const data = join(TMP, `data-${tag}`); mkdirSync(data, { recursive: true });
   const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), DATA_DIR: data, ...extraEnv };
   if (env.NODE_ENV === 'production') env.MCP_GATEWAY = 'on'; // keep production control tests authenticated
@@ -104,7 +104,7 @@ try {
   ok('业务面浏览器 POST /api/sop/runs 不被总门拦', r.status !== 403, `${r.status} ${JSON.stringify(r.body)}`);
 
   console.log('显式开控制面（WM_CONTROL_PORT）时围栏照旧');
-  const E2 = boot('e2', { ADMIN_TOKEN: TOK, WM_CONTROL_PORT: String(20000 + Math.floor(Math.random() * 20000)) });
+  const E2 = boot('e2', { ADMIN_TOKEN: TOK, WM_CONTROL_PORT: String(20000 + Math.floor(Math.random() * 12000)) });
   ok('业务面与控制面都起来', (await up(E2.port)) && (await up(E2.control)));
   const C = `http://127.0.0.1:${E2.control}`;
   r = await http(E2.control, 'POST', '/api/workbenches', { origin: C, 'x-admin-token': TOK }, wb(20));

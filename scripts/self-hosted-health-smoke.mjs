@@ -11,7 +11,7 @@ let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
 const TMP = resolve('tmp/self-hosted-health-smoke-' + Date.now().toString(36));
 mkdirSync(join(TMP, 'data'), { recursive: true });
-const PORT = 20000 + Math.floor(Math.random() * 20000);
+const PORT = 20000 + Math.floor(Math.random() * 12000);
 const base = `http://127.0.0.1:${PORT}`;
 const ADMIN = 'synthetic-selfhealth-admin';
 const gh = await startFakeGithub();
