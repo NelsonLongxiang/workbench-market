@@ -10,7 +10,7 @@ const ASSET = /^\/web\/(?:assets|static)\/[A-Za-z0-9_./~-]+$/;
 export function odooLoginProxyRoute(method: string, pathname: string, enabled = process.env.WM_ODOO_LOGIN_PROXY === '1'): boolean {
   if (!enabled || !pathname.startsWith('/') || pathname.includes('..') || pathname.includes('//') || pathname.includes('%') || pathname.includes('\\')) return false;
   if (pathname === '/web/login' || pathname === '/web/login/totp') return method === 'GET' || method === 'HEAD' || method === 'POST';
-  return (method === 'GET' || method === 'HEAD') && (ASSET.test(pathname) || pathname === '/web/binary/company_logo' || (pathname === '/website/translations' || /^/[a-z]{2}(_[A-Z]{2})?/website/translations$/.test(pathname)));
+  return (method === 'GET' || method === 'HEAD') && (ASSET.test(pathname) || pathname === '/web/binary/company_logo' || (pathname === '/website/translations' || /^\/[a-z]{2}(_[A-Z]{2})?\/website\/translations$/.test(pathname)));
 }
 
 /** Only the deployment-configured Odoo origin is an upstream. */
