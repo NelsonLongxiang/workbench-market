@@ -87,6 +87,11 @@ export function installOdooLoginProxy(app: express.Express): void {
             if (u.origin === origin && !String(loc).startsWith('//')) {
               const candidate = u.pathname + u.search + u.hash;
               if (safeLoginRedirect(candidate)) next = candidate;
+              // Odoo language negotiation: 303 to /<lang>/<same-path> (e.g. /zh_CN/website/translations).
+              // Same origin, same resource, language prefix only — not an MFA/OAuth/foreign redirect.
+              else if (loginPath !== '/web/login' && loginPath !== '/web/login/totp' && /^\/[a-z]{2}(_[A-Z]{2})?\//.test(u.pathname) && u.pathname.replace(/^\/[a-z]{2}(_[A-Z]{2})?\//, '/') === loginPath) {
+                next = candidate;
+              }
               else if (u.pathname === '/web/login' || u.pathname === '/web/login/totp') {
                 const r = safeLoginRedirect(u.searchParams.get('redirect'));
                 next = u.pathname + (r ? '?redirect=' + encodeURIComponent(r) : '');
