@@ -109,6 +109,7 @@ export function checkCassette(cassette, known, moduleRouteCount = null, answered
       const method = String(step?.request?.method ?? '');
       const path = String(step?.request?.path ?? '');
       if (!method || !path.startsWith('/')) { problems.push(`${where}：request 要有 method 和以 / 开头的 path`); continue; }
+      if (step.compare !== undefined && step.compare !== 'status' && !(Array.isArray(step.compare) && step.compare.length > 0 && step.compare.every((x) => typeof x === 'string' && x))) { problems.push(`${where}：compare 只能是 'status'，或者一组字段的路径`); continue; }
       if (step.route === undefined) continue;
       if (!covered.has(step.route)) { problems.push(`${where}：route 不在 routes 里：${step.route}`); continue; }
       if (!CLASSES.includes(step.class)) { problems.push(`${where}：class 只能是 ${CLASSES.join(' / ')}`); continue; }
@@ -237,13 +238,28 @@ export function differences(before, after, path = '响应体', out = []) {
   return out;
 }
 
-/** 录下来的应答和这次的应答比。compare 是 'status' 的请求只比状态码（借别的域布置现场用）。 */
+/**
+ * 一条请求录什么、比什么，由它的 compare 定：
+ *   · 不写：状态码、内容类型、响应头、响应体，全比；
+ *   · 'status'：只比状态码（借别的域的路由布置现场用）；
+ *   · 一组字段的路径（比如 ['cookie_set_id']）：比状态码和响应体里点名的这几个字段。
+ *     借别的域的路由看副作用用：那条路由的应答里别的字段可能每次不一样，也不归这个域管。
+ */
+export function shapeOf(step, raw) {
+  if (step.compare === 'status') return { status: raw.status };
+  // 应答里没有的字段不记（写进 JSON 也留不住），所以「原来没有、后来有了」和「原来有、后来没了」都看得出来
+  if (Array.isArray(step.compare)) return { status: raw.status, picked: Object.fromEntries(step.compare.map((path) => [path, steady(pick(raw.body, path))]).filter(([, value]) => value !== undefined)) };
+  return steadyResponse(raw);
+}
+
+/** 录下来的应答和这次的应答比。 */
 export function compareStep(step, actual) {
   const recorded = step.response;
   if (!recorded) return ['还没录过（跑一次 --record）'];
   const out = [];
   if (recorded.status !== actual.status) out.push(`状态码：${recorded.status} → ${actual.status}`);
   if (step.compare === 'status') return out;
+  if (Array.isArray(step.compare)) return differences(recorded.picked ?? {}, actual.picked ?? {}, '点名的字段', out);
   if (recorded.type !== actual.type) out.push(`内容类型：${JSON.stringify(recorded.type)} → ${JSON.stringify(actual.type)}`);
   if (!recorded.headers) out.push('录制里没有响应头（跑一次 --record）');
   else differences(recorded.headers, actual.headers ?? {}, '响应头', out);
@@ -267,7 +283,7 @@ export async function runSteps(steps, sendRequest, record = false) {
         if (value !== undefined && value !== null) vars[name] = value;
         else if (record) throw new Error(`应答里取不到要存的 ${path}`);
       }
-      actual = step.compare === 'status' ? { status: raw.status } : steadyResponse(raw);
+      actual = shapeOf(step, raw);
     } catch (err) {
       if (record) throw new Error(`${step.id}：${err.message}`);
       results.push({ step, diffs: [`请求没发出去：${err.message}`] });
@@ -445,6 +461,15 @@ async function selftest() {
   check(compareStep({ response: { status: 200, type: 'a', headers: {}, body: { a: 1, b: 2 } } }, { status: 200, type: 'a', headers: {}, body: { b: 2, a: 1 } }).join().includes('顺序'), '比较：字段顺序变了，报出来');
   check(compareStep({ ...recorded, compare: 'status' }, { status: 200, type: 'x', body: 'y' }).length === 0, '比较：只比状态码的请求不看响应头和响应体');
   check(compareStep({}, answer()).join().includes('还没录过'), '比较：没录过的请求算差异');
+  // 只比点名的字段
+  const wb = { id: 2, name: '台', cookie_set_id: 0, last_status: 'unknown', nested: { at: '2026-01-02 03:04:05' } };
+  const picking = { compare: ['cookie_set_id', 'nested.at', 'gone'] };
+  const pickedNow = shapeOf(picking, { status: 200, type: 'application/json', headers: {}, body: wb });
+  check(JSON.stringify(pickedNow) === JSON.stringify({ status: 200, picked: { cookie_set_id: 0, 'nested.at': 'YYYY-MM-DD hh:mm:ss' } }), '点名的字段：只录状态码和点名的字段；带点的路径往里取；时间照样换占位；没有的字段不录');
+  const pickedStep = { ...picking, response: JSON.parse(JSON.stringify(pickedNow)) };
+  check(compareStep(pickedStep, shapeOf(picking, { status: 200, body: { ...wb, last_status: 'down', name: '改了' } })).length === 0, '点名的字段：没点名的字段变了不算差异');
+  check(compareStep(pickedStep, shapeOf(picking, { status: 200, body: { ...wb, cookie_set_id: 7 } })).join().includes('点名的字段.cookie_set_id') && compareStep(pickedStep, shapeOf(picking, { status: 404, body: wb })).join().includes('200 → 404') && compareStep(pickedStep, shapeOf(picking, { status: 200, body: { ...wb, gone: 1 } })).join().includes('点名的字段.gone'), '点名的字段：点名的字段变了、状态码变了、原来没有的字段冒出来了，都算差异');
+  check(checkCassette(withSteps([a, b, c, { id: 'p', compare: [], request: { method: 'GET', path: '/api/other' } }]), known).some((p) => p.includes('compare')) && checkCassette(withSteps([a, b, c, { id: 'p', compare: 'body', request: { method: 'GET', path: '/api/other' } }]), known).some((p) => p.includes('compare')), '点名的字段：compare 写得不对，静态检查拦下');
   // 响应头
   check(compareStep(recorded, answer({ headers: { ...heads, vary: 'Origin, Cookie' } })).join().includes('响应头.vary'), '比较：响应头的值变了，报到哪个头');
   check(compareStep(recorded, answer({ headers: { 'set-cookie': heads['set-cookie'] } })).join().includes('响应头.vary') && compareStep(recorded, answer({ headers: { ...heads, location: '/login' } })).join().includes('响应头.location'), '比较：少了一个头、多了一个头，都报出来');
