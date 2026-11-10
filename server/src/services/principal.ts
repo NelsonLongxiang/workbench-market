@@ -5,6 +5,8 @@
  *   · 见过的外部身份：取出它的主体。主体停用了就不认。
  *   · 没见过的：建一个人（标识 `user:<对方的用户标识>`）和这条外部身份，同一个事务。
  *   · 标识已经被别的主体占着、却没有绑定这个外部身份：不自动认领（那等于让一个外来账号顶替已有的主体），不认。
+ *   · 「占着」按规范化之后的值算（comparisonKey）：只差大小写、全角半角、夹零宽字符的写法算撞上，同样不认、不另建。
+ *     只拒不并——两个写法到底是不是同一个人，这里判断不了，交给管理员。
  * 停用和恢复是本地动作，改的是 status 这一列；每个入口认人时现查，所以立即生效。
  *
  * 这一版只有「人」在用。席位、台、系统、外部节点只建好了结构（类别、标识前缀、责任人必填由表的约束守着）。
@@ -22,6 +24,17 @@ export type PrincipalRow = {
 };
 export type PrincipalIdentity = { provider: string; external_id: string; created_at: string };
 export type PrincipalView = PrincipalRow & { identities: PrincipalIdentity[] };
+
+/**
+ * 比较用的规范化值：NFKC（全角半角、兼容字符归一），去掉默认可忽略的字符（零宽空格、零宽连接符、软连字符……），
+ * 大小写折叠（先转大写再转小写：ß 和 SS 归到一处），再 NFKC 一次。只用来判「是不是撞上了」，原值照存。
+ */
+export function comparisonKey(value: string): string {
+  return value.normalize('NFKC').replace(/\p{Default_Ignorable_Code_Point}/gu, '').toUpperCase().toLowerCase().normalize('NFKC');
+}
+
+/** 列表和详情交出去的列：比较用的规范化值不交出去 */
+const COLUMNS = 'id, kind, display_name, owner, status, status_changed_at, status_changed_by, status_reason, created_at';
 
 /** 提供方的名字：小写字母、数字、连字符、下划线 */
 const providerOk = (v: unknown): v is string => typeof v === 'string' && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(v);
@@ -50,17 +63,20 @@ export class PrincipalService extends Service implements PrincipalDirectory {
     const bound = this.boundTo(provider, externalId);
     if (bound) return verdict(bound);
 
-    const id = `user:${externalId}`;
+    const id = `user:${externalId}`, idKey = comparisonKey(id), externalKey = comparisonKey(externalId);
+    if (!externalKey) throw new Error('外部身份规范化之后是空的');
     db.exec('BEGIN IMMEDIATE');
     try {
       // 拿到写锁之后再看一眼：共用数据目录的另一个实例可能刚建好
       const again = this.boundTo(provider, externalId);
       let out: Admission;
       if (again) out = verdict(again);
-      else if (db.prepare('SELECT 1 FROM principals WHERE id = ?').get(id)) out = { ok: false, reason: 'unbound' };
+      // 等价写法已经有了（同一个提供方下的外部身份，或者任何一个主体标识）：不认、不建
+      else if (db.prepare('SELECT 1 FROM principal_identities WHERE provider = ? AND external_key = ?').get(provider, externalKey)) out = { ok: false, reason: 'unbound' };
+      else if (db.prepare('SELECT 1 FROM principals WHERE id_key = ?').get(idKey)) out = { ok: false, reason: 'unbound' };
       else {
-        db.prepare("INSERT INTO principals (id, kind, display_name) VALUES (?, 'person', ?)").run(id, text(identity.displayName, 256));
-        db.prepare('INSERT INTO principal_identities (provider, external_id, principal_id) VALUES (?, ?, ?)').run(provider, externalId, id);
+        db.prepare("INSERT INTO principals (id, id_key, kind, display_name) VALUES (?, ?, 'person', ?)").run(id, idKey, text(identity.displayName, 256));
+        db.prepare('INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES (?, ?, ?, ?)').run(provider, externalId, externalKey, id);
         out = { ok: true, principal: id };
       }
       db.exec('COMMIT');
@@ -72,14 +88,14 @@ export class PrincipalService extends Service implements PrincipalDirectory {
   }
 
   get(id: string): PrincipalView | null {
-    const row = db.prepare('SELECT * FROM principals WHERE id = ?').get(id) as PrincipalRow | undefined;
+    const row = db.prepare(`SELECT ${COLUMNS} FROM principals WHERE id = ?`).get(id) as PrincipalRow | undefined;
     if (!row) return null;
     return { ...row, identities: db.prepare('SELECT provider, external_id, created_at FROM principal_identities WHERE principal_id = ? ORDER BY provider, external_id').all(id) as PrincipalIdentity[] };
   }
 
   /** 全部主体，连同各自的外部身份。按标识排序 */
   list(): PrincipalView[] {
-    const rows = db.prepare('SELECT * FROM principals ORDER BY id').all() as PrincipalRow[];
+    const rows = db.prepare(`SELECT ${COLUMNS} FROM principals ORDER BY id`).all() as PrincipalRow[];
     const byPrincipal = new Map<string, PrincipalIdentity[]>();
     for (const i of db.prepare('SELECT principal_id, provider, external_id, created_at FROM principal_identities ORDER BY provider, external_id').all() as (PrincipalIdentity & { principal_id: string })[]) {
       const { principal_id, ...identity } = i;

@@ -53,8 +53,10 @@ try {
   const { PrincipalService } = await import(at('server/src/services/principal.ts'));
   await root.plugin(PrincipalService);
   const principals = root.get('principals');
+  /** 预期被拒的调用：抛错（靠表的唯一约束炸开）也算没过，服务该自己判出来、回 unbound */
+  const tryAdmit = (x) => { try { return principals.admit(x); } catch (e) { return { threw: String(e?.message ?? e) }; } };
   const count = (table) => db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n;
-  const insert = (id, kind, owner = '') => db.prepare('INSERT INTO principals (id, kind, owner) VALUES (?, ?, ?)').run(id, kind, owner);
+  const insert = (id, kind, owner = '') => db.prepare('INSERT INTO principals (id, id_key, kind, owner) VALUES (?, ?, ?, ?)').run(id, id.toLowerCase(), kind, owner);
 
   // ---------- 一、表的约束：五类、标识前缀、责任人 ----------
   check(count('principals') === 0 && count('principal_identities') === 0, '新库：两张表都在，都是空的');
@@ -66,16 +68,16 @@ try {
   }
   check(throws(() => insert('user:nobody-owns-me', 'person')) === '', '对照·人：不要求责任人');
   {
-    const wrong = [['seat:x', 'person'], ['user:x', 'seat'], ['alice', 'person'], ['user:', 'person'], ['USER:x', 'person'], ['app:x', 'node']];
+    const wrong = [['seat:x', 'person'], ['user:x', 'seat'], ['node:x', 'seat'], ['alice', 'person'], ['user:', 'person'], ['USER:x', 'person'], ['app:x', 'node']];
     const leaked = wrong.filter(([id, kind]) => !/CHECK/i.test(throws(() => insert(id, kind, 'user:owner'))));
     check(leaked.length === 0, `标识的前缀要和类别对得上（${wrong.length} 种写错的都建不出来）`, show(leaked));
   }
-  check(/CHECK/i.test(throws(() => insert('user:k', 'robot'))) && /CHECK/i.test(throws(() => db.prepare("INSERT INTO principals (id, kind, status) VALUES ('user:st', 'person', 'paused')").run())), '类别只有五种，状态只有启用和停用');
+  check(/CHECK/i.test(throws(() => insert('user:k', 'robot'))) && /CHECK/i.test(throws(() => insert('node:k', 'robot', 'user:owner'))) && /CHECK/i.test(throws(() => db.prepare("INSERT INTO principals (id, id_key, kind, status) VALUES ('user:st', 'user:st', 'person', 'paused')").run())), '类别只有五种，状态只有启用和停用');
   check(/UNIQUE|PRIMARY/i.test(throws(() => insert('user:owner', 'person'))), '主体标识唯一');
-  db.prepare("INSERT INTO principal_identities (provider, external_id, principal_id) VALUES ('fake', 'dup', 'user:owner')").run();
-  check(/UNIQUE|PRIMARY/i.test(throws(() => db.prepare("INSERT INTO principal_identities (provider, external_id, principal_id) VALUES ('fake', 'dup', 'user:nobody-owns-me')").run())), '外部身份：提供方加对方的用户标识唯一，同一个身份不能挂到两个主体上');
-  check(throws(() => db.prepare("INSERT INTO principal_identities (provider, external_id, principal_id) VALUES ('other', 'dup', 'user:nobody-owns-me')").run()) === '', '对照：换一个提供方，同名的用户标识是另一个身份');
-  check(/CHECK/i.test(throws(() => db.prepare("INSERT INTO principal_identities (provider, external_id, principal_id) VALUES ('', 'x', 'user:owner')").run())) && /CHECK/i.test(throws(() => db.prepare("INSERT INTO principal_identities (provider, external_id, principal_id) VALUES ('fake', '', 'user:owner')").run())), '外部身份：提供方和用户标识都不能是空的');
+  db.prepare("INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES ('fake', 'dup', 'dup', 'user:owner')").run();
+  check(/UNIQUE|PRIMARY/i.test(throws(() => db.prepare("INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES ('fake', 'dup', 'dup', 'user:nobody-owns-me')").run())), '外部身份：提供方加对方的用户标识唯一，同一个身份不能挂到两个主体上');
+  check(throws(() => db.prepare("INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES ('other', 'dup', 'dup', 'user:nobody-owns-me')").run()) === '', '对照：换一个提供方，同名的用户标识是另一个身份');
+  check(/CHECK/i.test(throws(() => db.prepare("INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES ('', 'x', 'x', 'user:owner')").run())) && /CHECK/i.test(throws(() => db.prepare("INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES ('fake', '', '', 'user:owner')").run())), '外部身份：提供方和用户标识都不能是空的');
   db.exec('DELETE FROM principal_identities; DELETE FROM principals;');
 
   // ---------- 二、对到主体：第一次见到就建，之后都是同一个 ----------
@@ -117,15 +119,15 @@ try {
   {
     insert('user:carol', 'person'); // 标识已经有主了，却没有绑定这个外部身份
     const n = count('principal_identities');
-    const a = principals.admit({ provider: 'fake', externalId: 'carol', displayName: 'Carol' });
+    const a = tryAdmit({ provider: 'fake', externalId: 'carol', displayName: 'Carol' });
     check(a.ok === false && a.reason === 'unbound' && count('principal_identities') === n && principals.principalOf('fake', 'carol') === null, '标识被一个已有的主体占着、外部身份没绑定：不认，也不替它绑上', show(a));
-    db.prepare("INSERT OR IGNORE INTO principal_identities (provider, external_id, principal_id) VALUES ('fake', 'carol', 'user:carol')").run(); // 管理员对一次
+    db.prepare("INSERT OR IGNORE INTO principal_identities (provider, external_id, external_key, principal_id) VALUES ('fake', 'carol', 'carol', 'user:carol')").run(); // 管理员对一次
     const b = principals.admit({ provider: 'fake', externalId: 'carol', displayName: 'Carol' });
     check(b.ok === true && b.principal === 'user:carol' && a.ok === false, '对照：绑定之后就认');
   }
   {
     // 外部身份可以绑到名字不一样的主体上（以后同一个人挂多个身份用）
-    db.prepare("INSERT INTO principal_identities (provider, external_id, principal_id) VALUES ('other', 'a.lice', 'user:alice')").run();
+    db.prepare("INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES ('other', 'a.lice', 'a.lice', 'user:alice')").run();
     const a = principals.admit({ provider: 'other', externalId: 'a.lice', displayName: null });
     check(a.ok === true && a.principal === 'user:alice' && principals.get('user:alice').identities.length === 2, '一个主体可以有多个外部身份：另一个身份对到的是同一个主体', show(a));
     principals.setStatus('user:alice', 'disabled', 'cli', '');
@@ -136,9 +138,36 @@ try {
   {
     // 登录认出来的只能是人
     insert('seat:robot', 'seat', 'user:alice');
-    db.prepare("INSERT INTO principal_identities (provider, external_id, principal_id) VALUES ('fake', 'robot', 'seat:robot')").run();
-    const a = principals.admit({ provider: 'fake', externalId: 'robot', displayName: null });
+    db.prepare("INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES ('fake', 'robot', 'robot', 'seat:robot')").run();
+    const a = tryAdmit({ provider: 'fake', externalId: 'robot', displayName: null });
     check(a.ok === false && a.reason === 'unbound', '外部身份绑在席位上：不能拿来登录', show(a));
+  }
+
+  // ---------- 四之二、登录名的等价写法：比较按规范化之后的值，撞上了不认、不并 ----------
+  {
+    // 抛错（表的唯一约束兜住了）也算没过：服务该自己判出撞名、回 unbound，不能靠约束炸开
+    const admit = (x) => { try { return principals.admit(x); } catch (e) { return { threw: String(e?.message ?? e) }; } };
+    const before = count('principals'), ids = count('principal_identities');
+    const variants = ['Alice', 'ALICE', '\uff41\uff4c\uff49\uff43\uff45', 'al\u200bice', 'alice\u00ad', '\uff21\uff2c\uff29\uff23\uff25'];
+    const answers = variants.map((v) => [v, admit({ provider: 'fake', externalId: v, displayName: null })]);
+    const wrong = answers.filter(([, a]) => !(a.ok === false && a.reason === 'unbound'));
+    check(wrong.length === 0 && count('principals') === before && count('principal_identities') === ids, `alice 已有主体：登录名只差大小写、全角、夹零宽或软连字符（${variants.length} 种）→ 都不认（unbound），不另建主体，也不替它绑上`, show(wrong));
+    principals.setStatus('user:alice', 'disabled', 'cli', '');
+    const off = admit({ provider: 'fake', externalId: 'ALICE', displayName: null });
+    principals.setStatus('user:alice', 'active', 'cli', '');
+    check(off.ok === false && count('principals') === before, '停用 alice 之后换个大小写：照样不认，绕不过停用', show(off));
+    // 不同提供方各算各的：另一个提供方的 Alice 撞的是主体标识 user:Alice ≈ user:alice，同样不认
+    const other = admit({ provider: 'other', externalId: 'Alice', displayName: null });
+    check(other.ok === false && other.reason === 'unbound', '另一个提供方的 Alice：主体标识按规范化撞上 user:alice，不认', show(other));
+    // 表这一层也守着：直接往库里写等价写法，唯一约束拒绝
+    check(/UNIQUE/i.test(throws(() => db.prepare("INSERT INTO principals (id, id_key, kind) VALUES ('user:ALICE', 'user:alice', 'person')").run())), '表：主体标识按规范化之后的值唯一');
+    check(/UNIQUE/i.test(throws(() => db.prepare("INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES ('fake', 'ALICE', 'alice', 'user:alice')").run())), '表：外部身份按提供方加规范化之后的值唯一');
+    // 只撞外部身份、不撞主体标识：other 提供方下 a.lice 绑在 user:alice 上，再来 A.LICE（主体标识 user:A.LICE 没人占）
+    const dotted = admit({ provider: 'other', externalId: 'A.LICE', displayName: null });
+    check(dotted.ok === false && dotted.reason === 'unbound' && principals.get('user:A.LICE') === null, '同一个提供方下外部身份只差大小写（主体标识没撞）：不认、不建', show(dotted));
+    // 对照：真的不一样的名照常建
+    const bob2 = admit({ provider: 'fake', externalId: 'alice2', displayName: null });
+    check(bob2.ok === true && bob2.principal === 'user:alice2', '对照：alice2 是另一个人，照常建');
   }
 
   // ---------- 五、入参的形状 ----------

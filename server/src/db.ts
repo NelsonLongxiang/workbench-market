@@ -563,10 +563,13 @@ db.exec("UPDATE workbench_vars SET owner = updated_by WHERE kind = 'const' AND o
 //   停用是本地动作：status 一改，所有入口现查现拒（见 services/principal.ts）。最近一次状态变更是谁、什么时候、为什么，记在行上。
 // 外部身份（登录账号等）挂在主体上：提供方 + 对方的用户标识唯一，一个主体可以有多个。
 //   旧留痕里的 `odoo:<登录名>` 就是这张表里的（provider='odoo', external_id=<登录名>），不改历史记录。
+// id_key / external_key 是比较用的规范化值（services/principal.ts 的 comparisonKey：NFKC、大小写折叠、去掉零宽一类的字符），
+//   唯一约束按它算：只差大小写、全角半角、夹零宽字符的写法，表这一层就建不出第二份。原值照存，显示和留痕用原值。
 // IF NOT EXISTS 幂等，旧库启动即补表。
 db.exec(`
 CREATE TABLE IF NOT EXISTS principals (
   id TEXT PRIMARY KEY,
+  id_key TEXT NOT NULL UNIQUE CHECK (id_key <> ''),
   kind TEXT NOT NULL CHECK (kind IN ('person','seat','app','system','node')),
   display_name TEXT NOT NULL DEFAULT '',
   owner TEXT NOT NULL DEFAULT '',
@@ -575,18 +578,19 @@ CREATE TABLE IF NOT EXISTS principals (
   status_changed_by TEXT NOT NULL DEFAULT '',
   status_reason TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  CHECK (length(id) > length(CASE kind WHEN 'person' THEN 'user:' WHEN 'seat' THEN 'seat:' WHEN 'app' THEN 'app:' WHEN 'system' THEN 'system:' ELSE 'node:' END)
-    AND substr(id, 1, length(CASE kind WHEN 'person' THEN 'user:' WHEN 'seat' THEN 'seat:' WHEN 'app' THEN 'app:' WHEN 'system' THEN 'system:' ELSE 'node:' END))
-      = CASE kind WHEN 'person' THEN 'user:' WHEN 'seat' THEN 'seat:' WHEN 'app' THEN 'app:' WHEN 'system' THEN 'system:' ELSE 'node:' END),
+  CHECK ((kind = 'person' AND id GLOB 'user:?*') OR (kind = 'seat' AND id GLOB 'seat:?*') OR (kind = 'app' AND id GLOB 'app:?*')
+    OR (kind = 'system' AND id GLOB 'system:?*') OR (kind = 'node' AND id GLOB 'node:?*')),
   CHECK (kind = 'person' OR owner <> '')
 );
 CREATE INDEX IF NOT EXISTS idx_principals_status ON principals (status, id);
 CREATE TABLE IF NOT EXISTS principal_identities (
   provider TEXT NOT NULL CHECK (provider <> ''),
   external_id TEXT NOT NULL CHECK (external_id <> ''),
+  external_key TEXT NOT NULL CHECK (external_key <> ''),
   principal_id TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (provider, external_id)
+  PRIMARY KEY (provider, external_id),
+  UNIQUE (provider, external_key)
 );
 CREATE INDEX IF NOT EXISTS idx_principal_identities_principal ON principal_identities (principal_id);
 `);

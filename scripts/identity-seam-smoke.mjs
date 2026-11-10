@@ -300,7 +300,7 @@ async function principalChecks(srv, tag, relay) {
   // ⑧ 标识被一个已有的主体占着：新来的登录不自动认领它
   {
     const db = new DatabaseSync(join(srv.data, 'workbench-market.db'));
-    try { db.exec('PRAGMA busy_timeout=5000'); db.prepare("INSERT INTO principals (id, kind, display_name) VALUES ('user:squatted', 'person', 'Synthetic owner')").run(); } finally { db.close(); }
+    try { db.exec('PRAGMA busy_timeout=5000'); db.prepare("INSERT INTO principals (id, id_key, kind, display_name) VALUES ('user:squatted', 'user:squatted', 'person', 'Synthetic owner')").run(); } finally { db.close(); }
     const o = await observe(srv, SESSIONS.squatter);
     const row = (await principalsOf(srv) ?? []).find((p) => p.id === 'user:squatted');
     check(o.viewer === 403 && o.login === null && o.admin === false && o.write === 403 && o.tasks === 403 && o.ext === false && o.extGuard === 403 && row?.identities.length === 0 && controls,
@@ -345,6 +345,22 @@ async function principalChecks(srv, tag, relay) {
     check(list.status === 200 && off.status === 200 && off.json?.principal?.status_changed_by === 'cli' && refused.viewer === 403 && on.status === 200 && on.json?.principal?.status === 'active'
       && browserList.status === 403 && browserOff.status === 403 && still?.status === 'active',
       `${tag}主体⑩·本机命令行列得出、停用得了（留痕记 cli）；同样从本机来、带着浏览器标记的不算命令行（403）`, show({ list: list.status, off: off.status, by: off.json?.principal?.status_changed_by, browserList: browserList.status, browserOff: browserOff.status }));
+  }
+  // ⑫ 登录名的等价写法（大小写、全角、夹零宽字符）：不另建主体，alpha 启用时不认、停用时更不认
+  {
+    const variants = [['大小写', SESSIONS.alphaUpper], ['全角', SESSIONS.alphaWide], ['夹零宽字符', SESSIONS.alphaZeroWidth]];
+    const refusedEverywhere = (o) => o.viewer === 403 && o.login === null && o.admin === false && o.write === 403 && o.tasks === 403 && !o.runPrivate && o.ext === false && o.extGuard === 403;
+    const seen = [];
+    for (const [label, sid] of variants) seen.push([label, 'active', await observe(srv, sid)]);
+    await setStatus(srv, 'disable', 'user:alpha', TOKEN, null, '合成：测等价写法');
+    for (const [label, sid] of variants) seen.push([label, 'disabled', await observe(srv, sid)]);
+    const stillOff = await observe(srv, SESSIONS.alpha);
+    await setStatus(srv, 'restore', 'user:alpha');
+    const ids = (await principalsOf(srv) ?? []).map((p) => p.id);
+    const extra = ids.filter((id) => id !== 'user:alpha' && id.toLowerCase().normalize('NFKC').replace(/\u200b/g, '') === 'user:alpha');
+    const leaked = seen.filter(([, , o]) => !refusedEverywhere(o)).map(([label, state, o]) => `${label}/${state}：${show(o)}`);
+    check(leaked.length === 0 && extra.length === 0 && stillOff.viewer === 403 && fine(await observe(srv, SESSIONS.alpha), 'alpha'),
+      `${tag}主体⑫·登录名只差大小写、全角、夹零宽字符：不另建主体；alpha 启用和停用时都不认（停用绕不过去）；对照：alpha 恢复后照常`, `${leaked.join('；')} 多出来的主体：${show(extra)}`);
   }
   // ⑪ 授权跟着主体走，不跟着登录名走：把 beta 这个外部身份改绑到 alpha 的主体上，它就是 user:alpha，读得到授权给 user:alpha 的 run 私有值
   {

@@ -9,9 +9,9 @@
       "what": "缺省配置：登录门关，没设管理口令，没配身份来源。本机命令行（回环直连、不带浏览器标记和转发头）算管理员；带转发头的按远程处理，没有口令就不是管理员。库里预先放两个主体。",
       "env": {},
       "seed": [
-        { "table": "principals", "row": { "id": "user:synthetic-a", "kind": "person", "display_name": "Synthetic A" } },
-        { "table": "principal_identities", "row": { "provider": "odoo", "external_id": "synthetic-a", "principal_id": "user:synthetic-a" } },
-        { "table": "principals", "row": { "id": "seat:synthetic-seat", "kind": "seat", "owner": "user:synthetic-a" } }
+        { "table": "principals", "row": { "id": "user:synthetic-a", "id_key": "user:synthetic-a", "kind": "person", "display_name": "Synthetic A" } },
+        { "table": "principal_identities", "row": { "provider": "odoo", "external_id": "synthetic-a", "external_key": "synthetic-a", "principal_id": "user:synthetic-a" } },
+        { "table": "principals", "row": { "id": "seat:synthetic-seat", "id_key": "seat:synthetic-seat", "kind": "seat", "owner": "user:synthetic-a" } }
       ],
       "steps": [
         {
@@ -307,7 +307,7 @@
       "name": "token",
       "what": "设了管理口令。远程请求带对口令算管理员，带错口令不算。",
       "env": { "ADMIN_TOKEN": "synthetic-replay-admin" },
-      "seed": [{ "table": "principals", "row": { "id": "user:synthetic-b", "kind": "person" } }],
+      "seed": [{ "table": "principals", "row": { "id": "user:synthetic-b", "id_key": "user:synthetic-b", "kind": "person" } }],
       "steps": [
         {
           "id": "list-wrong-token",

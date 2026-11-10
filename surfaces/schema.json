@@ -193,11 +193,13 @@
     "principal_identities": [
       "provider TEXT NOT NULL PK",
       "external_id TEXT NOT NULL PK",
+      "external_key TEXT NOT NULL",
       "principal_id TEXT NOT NULL",
       "created_at TEXT NOT NULL DEFAULT datetime('now')"
     ],
     "principals": [
       "id TEXT PK",
+      "id_key TEXT NOT NULL",
       "kind TEXT NOT NULL",
       "display_name TEXT NOT NULL DEFAULT ''",
       "owner TEXT NOT NULL DEFAULT ''",

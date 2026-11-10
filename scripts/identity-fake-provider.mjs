@@ -47,6 +47,10 @@ export const SESSIONS = {
   viewerThrows: 'fake-answer-viewer-throws-1', // 回答对象的 viewer 一读就抛错
   flipLogin: 'fake-login-flips-on-reread', // 登录名头两次读是 alpha，再读就成了 root-admin
   squatter: 'fake-squatter-session-01', // 登录名 squatted，自称管理员：测「标识已被别的主体占着」时用，别处不要认它
+  // 和 alpha 是同一个写法的等价变体（同一个 uid）：只能被拒，不能另建主体，更不能绕过 alpha 的停用
+  alphaUpper: 'fake-alpha-upper-case-01', // 登录名 Alpha
+  alphaWide: 'fake-alpha-full-width-01', // 登录名是全角的 ａｌｐｈａ
+  alphaZeroWidth: 'fake-alpha-zero-width-01', // 登录名 al<零宽空格>pha
 };
 
 /** 「只认第一次」的会话：login 是认出来的登录名；admin 为真时第一次的回答自称管理员 */
@@ -83,6 +87,9 @@ const ANSWERS = {
   [SESSIONS.okThrows]: () => ({ get ok() { throw new Error('synthetic accessor failure'); } }),
   [SESSIONS.viewerThrows]: () => ({ ok: true, get viewer() { throw new Error('synthetic accessor failure'); } }),
   [SESSIONS.squatter]: () => viewer('squatted', 31, { admin: true }),
+  [SESSIONS.alphaUpper]: () => viewer('Alpha', 11, { admin: false }),
+  [SESSIONS.alphaWide]: () => viewer('\uff41\uff4c\uff50\uff48\uff41', 11, { admin: false }),
+  [SESSIONS.alphaZeroWidth]: () => viewer('al\u200bpha', 11, { admin: false }),
   [SESSIONS.flipLogin]: () => { let reads = 0; return { ok: true, viewer: { get login() { reads++; return reads <= 2 ? 'alpha' : 'root-admin'; }, uid: 11, sub: 'user:alpha', name: null, admin: false } }; },
 };
 
