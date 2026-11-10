@@ -1,0 +1,167 @@
+{
+  "domain": "design-tokens",
+  "what": "设计 token 的固定路径：/design/tokens@<版本>.css 的 1 条路由。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。应答的内容就是 web/src/tokens.css：改了 token（DESIGN.md → gen-design-tokens）要跟着重录，PR 里看得见改了什么。",
+  "routes": ["GET /^\\/design\\/tokens@[0-9.]+\\.css$/"],
+  "exempt": [{ "route": "GET /^\\/design\\/tokens@[0-9.]+\\.css$/", "class": "unauthorized", "why": "设计 token 是公开的：登录门特意放行它（自产台的页面要引用），没有会被拒的身份", "shown_by": "gated/anonymous" }],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "缺省配置：登录门关。",
+      "env": {},
+      "steps": [
+        {
+          "id": "major",
+          "route": "GET /^\\/design\\/tokens@[0-9.]+\\.css$/",
+          "class": "normal",
+          "what": "主版本：内容是 web/src/tokens.css，按需重新验证（no-cache）",
+          "request": { "method": "GET", "path": "/design/tokens@1.css" },
+          "response": {
+            "status": 200,
+            "type": "text/css; charset=utf-8",
+            "headers": { "cache-control": "no-cache", "content-length": "2522", "etag": "W/\"9da-<指纹>\"", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express", "x-wm-tokens-version": "1.0.0" },
+            "body": "/* 由 scripts/gen-design-tokens.mjs 从 DESIGN.md v1.0.0 生成，勿手改；改 token 请改 DESIGN.md 后重新生成。\n   变量契约见 DESIGN.md「CSS 变量契约」：名字稳定、值可变。 */\n:root {\n  --wm-version: \"1.0.0\";\n  --wm-color-primary: #1E3A5F;\n  --wm-color-on-primary: #FFFFFF;\n  --wm-color-primary-subtle: #EEF2F7;\n  --wm-color-text: #0F172A;\n  --wm-color-text-secondary: #5A6577;\n  --wm-color-text-disabled: #94A3B8;\n  --wm-color-page: #F6F7F9;\n  --wm-color-surface: #FFFFFF;\n  --wm-color-border: #E2E8F0;\n  --wm-color-border-strong: #CBD5E1;\n  --wm-color-success: #047857;\n  --wm-color-success-text: #047857;\n  --wm-color-success-bg: #ECFDF5;\n  --wm-color-warning: #F59E0B;\n  --wm-color-warning-text: #B45309;\n  --wm-color-warning-bg: #FFFBEB;\n  --wm-color-danger: #DC2626;\n  --wm-color-danger-text: #B91C1C;\n  --wm-color-danger-bg: #FEF2F2;\n  --wm-color-nav-bg: #0F172A;\n  --wm-color-nav-text: #CBD5E1;\n  --wm-color-nav-text-active: #FFFFFF;\n  --wm-color-nav-item-active-bg: #1E3A5F;\n  --wm-color-info: #1E3A5F;\n  --wm-color-info-bg: #EEF2F7;\n  --wm-font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;\n  --wm-font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;\n  --wm-font-size-caption: 12px;\n  --wm-line-height-caption: 20px;\n  --wm-font-weight-caption: 400;\n  --wm-font-size-body: 14px;\n  --wm-line-height-body: 22px;\n  --wm-font-weight-body: 400;\n  --wm-font-size-body-strong: 14px;\n  --wm-line-height-body-strong: 22px;\n  --wm-font-weight-body-strong: 600;\n  --wm-font-size-subtitle: 16px;\n  --wm-line-height-subtitle: 24px;\n  --wm-font-weight-subtitle: 600;\n  --wm-font-size-title: 20px;\n  --wm-line-height-title: 28px;\n  --wm-font-weight-title: 600;\n  --wm-font-size-display: 24px;\n  --wm-line-height-display: 32px;\n  --wm-font-weight-display: 600;\n  --wm-font-size-stat-label: 12px;\n  --wm-line-height-stat-label: 20px;\n  --wm-font-weight-stat-label: 600;\n  --wm-space-1: 4px;\n  --wm-space-2: 8px;\n  --wm-space-3: 12px;\n  --wm-space-4: 16px;\n  --wm-space-6: 24px;\n  --wm-space-8: 32px;\n  --wm-space-12: 48px;\n  --wm-radius-sm: 4px;\n  --wm-radius-md: 6px;\n  --wm-radius-lg: 8px;\n  --wm-radius-full: 9999px;\n  --wm-shadow-0: none;\n  --wm-shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05);\n  --wm-shadow-2: 0 4px 12px rgba(15, 23, 42, 0.10);\n  --wm-shadow-3: 0 12px 32px rgba(15, 23, 42, 0.16);\n  --wm-motion-fast: 120ms;\n  --wm-motion-base: 200ms;\n  --wm-motion-easing: ease;\n}\n"
+          }
+        },
+        {
+          "id": "exact",
+          "route": "GET /^\\/design\\/tokens@[0-9.]+\\.css$/",
+          "class": "normal",
+          "what": "完整版本：同样的内容，长缓存（immutable）",
+          "request": { "method": "GET", "path": "/design/tokens@1.0.0.css" },
+          "response": {
+            "status": 200,
+            "type": "text/css; charset=utf-8",
+            "headers": { "cache-control": "public, max-age=31536000, immutable", "content-length": "2522", "etag": "W/\"9da-<指纹>\"", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express", "x-wm-tokens-version": "1.0.0" },
+            "body": "/* 由 scripts/gen-design-tokens.mjs 从 DESIGN.md v1.0.0 生成，勿手改；改 token 请改 DESIGN.md 后重新生成。\n   变量契约见 DESIGN.md「CSS 变量契约」：名字稳定、值可变。 */\n:root {\n  --wm-version: \"1.0.0\";\n  --wm-color-primary: #1E3A5F;\n  --wm-color-on-primary: #FFFFFF;\n  --wm-color-primary-subtle: #EEF2F7;\n  --wm-color-text: #0F172A;\n  --wm-color-text-secondary: #5A6577;\n  --wm-color-text-disabled: #94A3B8;\n  --wm-color-page: #F6F7F9;\n  --wm-color-surface: #FFFFFF;\n  --wm-color-border: #E2E8F0;\n  --wm-color-border-strong: #CBD5E1;\n  --wm-color-success: #047857;\n  --wm-color-success-text: #047857;\n  --wm-color-success-bg: #ECFDF5;\n  --wm-color-warning: #F59E0B;\n  --wm-color-warning-text: #B45309;\n  --wm-color-warning-bg: #FFFBEB;\n  --wm-color-danger: #DC2626;\n  --wm-color-danger-text: #B91C1C;\n  --wm-color-danger-bg: #FEF2F2;\n  --wm-color-nav-bg: #0F172A;\n  --wm-color-nav-text: #CBD5E1;\n  --wm-color-nav-text-active: #FFFFFF;\n  --wm-color-nav-item-active-bg: #1E3A5F;\n  --wm-color-info: #1E3A5F;\n  --wm-color-info-bg: #EEF2F7;\n  --wm-font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;\n  --wm-font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;\n  --wm-font-size-caption: 12px;\n  --wm-line-height-caption: 20px;\n  --wm-font-weight-caption: 400;\n  --wm-font-size-body: 14px;\n  --wm-line-height-body: 22px;\n  --wm-font-weight-body: 400;\n  --wm-font-size-body-strong: 14px;\n  --wm-line-height-body-strong: 22px;\n  --wm-font-weight-body-strong: 600;\n  --wm-font-size-subtitle: 16px;\n  --wm-line-height-subtitle: 24px;\n  --wm-font-weight-subtitle: 600;\n  --wm-font-size-title: 20px;\n  --wm-line-height-title: 28px;\n  --wm-font-weight-title: 600;\n  --wm-font-size-display: 24px;\n  --wm-line-height-display: 32px;\n  --wm-font-weight-display: 600;\n  --wm-font-size-stat-label: 12px;\n  --wm-line-height-stat-label: 20px;\n  --wm-font-weight-stat-label: 600;\n  --wm-space-1: 4px;\n  --wm-space-2: 8px;\n  --wm-space-3: 12px;\n  --wm-space-4: 16px;\n  --wm-space-6: 24px;\n  --wm-space-8: 32px;\n  --wm-space-12: 48px;\n  --wm-radius-sm: 4px;\n  --wm-radius-md: 6px;\n  --wm-radius-lg: 8px;\n  --wm-radius-full: 9999px;\n  --wm-shadow-0: none;\n  --wm-shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05);\n  --wm-shadow-2: 0 4px 12px rgba(15, 23, 42, 0.10);\n  --wm-shadow-3: 0 12px 32px rgba(15, 23, 42, 0.16);\n  --wm-motion-fast: 120ms;\n  --wm-motion-base: 200ms;\n  --wm-motion-easing: ease;\n}\n"
+          }
+        },
+        {
+          "id": "major-remote-anonymous",
+          "route": "GET /^\\/design\\/tokens@[0-9.]+\\.css$/",
+          "class": "normal",
+          "what": "带转发头的匿名读：公开",
+          "request": { "method": "GET", "path": "/design/tokens@1.css", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "text/css; charset=utf-8",
+            "headers": { "cache-control": "no-cache", "content-length": "2522", "etag": "W/\"9da-<指纹>\"", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express", "x-wm-tokens-version": "1.0.0" },
+            "body": "/* 由 scripts/gen-design-tokens.mjs 从 DESIGN.md v1.0.0 生成，勿手改；改 token 请改 DESIGN.md 后重新生成。\n   变量契约见 DESIGN.md「CSS 变量契约」：名字稳定、值可变。 */\n:root {\n  --wm-version: \"1.0.0\";\n  --wm-color-primary: #1E3A5F;\n  --wm-color-on-primary: #FFFFFF;\n  --wm-color-primary-subtle: #EEF2F7;\n  --wm-color-text: #0F172A;\n  --wm-color-text-secondary: #5A6577;\n  --wm-color-text-disabled: #94A3B8;\n  --wm-color-page: #F6F7F9;\n  --wm-color-surface: #FFFFFF;\n  --wm-color-border: #E2E8F0;\n  --wm-color-border-strong: #CBD5E1;\n  --wm-color-success: #047857;\n  --wm-color-success-text: #047857;\n  --wm-color-success-bg: #ECFDF5;\n  --wm-color-warning: #F59E0B;\n  --wm-color-warning-text: #B45309;\n  --wm-color-warning-bg: #FFFBEB;\n  --wm-color-danger: #DC2626;\n  --wm-color-danger-text: #B91C1C;\n  --wm-color-danger-bg: #FEF2F2;\n  --wm-color-nav-bg: #0F172A;\n  --wm-color-nav-text: #CBD5E1;\n  --wm-color-nav-text-active: #FFFFFF;\n  --wm-color-nav-item-active-bg: #1E3A5F;\n  --wm-color-info: #1E3A5F;\n  --wm-color-info-bg: #EEF2F7;\n  --wm-font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;\n  --wm-font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;\n  --wm-font-size-caption: 12px;\n  --wm-line-height-caption: 20px;\n  --wm-font-weight-caption: 400;\n  --wm-font-size-body: 14px;\n  --wm-line-height-body: 22px;\n  --wm-font-weight-body: 400;\n  --wm-font-size-body-strong: 14px;\n  --wm-line-height-body-strong: 22px;\n  --wm-font-weight-body-strong: 600;\n  --wm-font-size-subtitle: 16px;\n  --wm-line-height-subtitle: 24px;\n  --wm-font-weight-subtitle: 600;\n  --wm-font-size-title: 20px;\n  --wm-line-height-title: 28px;\n  --wm-font-weight-title: 600;\n  --wm-font-size-display: 24px;\n  --wm-line-height-display: 32px;\n  --wm-font-weight-display: 600;\n  --wm-font-size-stat-label: 12px;\n  --wm-line-height-stat-label: 20px;\n  --wm-font-weight-stat-label: 600;\n  --wm-space-1: 4px;\n  --wm-space-2: 8px;\n  --wm-space-3: 12px;\n  --wm-space-4: 16px;\n  --wm-space-6: 24px;\n  --wm-space-8: 32px;\n  --wm-space-12: 48px;\n  --wm-radius-sm: 4px;\n  --wm-radius-md: 6px;\n  --wm-radius-lg: 8px;\n  --wm-radius-full: 9999px;\n  --wm-shadow-0: none;\n  --wm-shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05);\n  --wm-shadow-2: 0 4px 12px rgba(15, 23, 42, 0.10);\n  --wm-shadow-3: 0 12px 32px rgba(15, 23, 42, 0.16);\n  --wm-motion-fast: 120ms;\n  --wm-motion-base: 200ms;\n  --wm-motion-easing: ease;\n}\n"
+          }
+        },
+        {
+          "id": "exact-with-query",
+          "route": "GET /^\\/design\\/tokens@[0-9.]+\\.css$/",
+          "class": "normal",
+          "what": "查询串不影响",
+          "request": { "method": "GET", "path": "/design/tokens@1.0.0.css?v=junk" },
+          "response": {
+            "status": 200,
+            "type": "text/css; charset=utf-8",
+            "headers": { "cache-control": "public, max-age=31536000, immutable", "content-length": "2522", "etag": "W/\"9da-<指纹>\"", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express", "x-wm-tokens-version": "1.0.0" },
+            "body": "/* 由 scripts/gen-design-tokens.mjs 从 DESIGN.md v1.0.0 生成，勿手改；改 token 请改 DESIGN.md 后重新生成。\n   变量契约见 DESIGN.md「CSS 变量契约」：名字稳定、值可变。 */\n:root {\n  --wm-version: \"1.0.0\";\n  --wm-color-primary: #1E3A5F;\n  --wm-color-on-primary: #FFFFFF;\n  --wm-color-primary-subtle: #EEF2F7;\n  --wm-color-text: #0F172A;\n  --wm-color-text-secondary: #5A6577;\n  --wm-color-text-disabled: #94A3B8;\n  --wm-color-page: #F6F7F9;\n  --wm-color-surface: #FFFFFF;\n  --wm-color-border: #E2E8F0;\n  --wm-color-border-strong: #CBD5E1;\n  --wm-color-success: #047857;\n  --wm-color-success-text: #047857;\n  --wm-color-success-bg: #ECFDF5;\n  --wm-color-warning: #F59E0B;\n  --wm-color-warning-text: #B45309;\n  --wm-color-warning-bg: #FFFBEB;\n  --wm-color-danger: #DC2626;\n  --wm-color-danger-text: #B91C1C;\n  --wm-color-danger-bg: #FEF2F2;\n  --wm-color-nav-bg: #0F172A;\n  --wm-color-nav-text: #CBD5E1;\n  --wm-color-nav-text-active: #FFFFFF;\n  --wm-color-nav-item-active-bg: #1E3A5F;\n  --wm-color-info: #1E3A5F;\n  --wm-color-info-bg: #EEF2F7;\n  --wm-font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;\n  --wm-font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;\n  --wm-font-size-caption: 12px;\n  --wm-line-height-caption: 20px;\n  --wm-font-weight-caption: 400;\n  --wm-font-size-body: 14px;\n  --wm-line-height-body: 22px;\n  --wm-font-weight-body: 400;\n  --wm-font-size-body-strong: 14px;\n  --wm-line-height-body-strong: 22px;\n  --wm-font-weight-body-strong: 600;\n  --wm-font-size-subtitle: 16px;\n  --wm-line-height-subtitle: 24px;\n  --wm-font-weight-subtitle: 600;\n  --wm-font-size-title: 20px;\n  --wm-line-height-title: 28px;\n  --wm-font-weight-title: 600;\n  --wm-font-size-display: 24px;\n  --wm-line-height-display: 32px;\n  --wm-font-weight-display: 600;\n  --wm-font-size-stat-label: 12px;\n  --wm-line-height-stat-label: 20px;\n  --wm-font-weight-stat-label: 600;\n  --wm-space-1: 4px;\n  --wm-space-2: 8px;\n  --wm-space-3: 12px;\n  --wm-space-4: 16px;\n  --wm-space-6: 24px;\n  --wm-space-8: 32px;\n  --wm-space-12: 48px;\n  --wm-radius-sm: 4px;\n  --wm-radius-md: 6px;\n  --wm-radius-lg: 8px;\n  --wm-radius-full: 9999px;\n  --wm-shadow-0: none;\n  --wm-shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05);\n  --wm-shadow-2: 0 4px 12px rgba(15, 23, 42, 0.10);\n  --wm-shadow-3: 0 12px 32px rgba(15, 23, 42, 0.16);\n  --wm-motion-fast: 120ms;\n  --wm-motion-base: 200ms;\n  --wm-motion-easing: ease;\n}\n"
+          }
+        },
+        {
+          "id": "other-major",
+          "route": "GET /^\\/design\\/tokens@[0-9.]+\\.css$/",
+          "class": "invalid",
+          "what": "别的主版本：404，告诉你只有哪两个",
+          "request": { "method": "GET", "path": "/design/tokens@2.css" },
+          "response": { "status": 404, "type": "text/plain; charset=utf-8", "headers": { "content-length": "44", "etag": "W/\"2c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": "只提供 tokens@1.css 与 tokens@1.0.0.css\n" }
+        },
+        {
+          "id": "other-exact",
+          "route": "GET /^\\/design\\/tokens@[0-9.]+\\.css$/",
+          "class": "invalid",
+          "what": "别的完整版本",
+          "request": { "method": "GET", "path": "/design/tokens@1.0.1.css" },
+          "response": { "status": 404, "type": "text/plain; charset=utf-8", "headers": { "content-length": "44", "etag": "W/\"2c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": "只提供 tokens@1.css 与 tokens@1.0.0.css\n" }
+        },
+        {
+          "id": "partial-version",
+          "route": "GET /^\\/design\\/tokens@[0-9.]+\\.css$/",
+          "class": "invalid",
+          "what": "只给了主版本和次版本",
+          "request": { "method": "GET", "path": "/design/tokens@1.0.css" },
+          "response": { "status": 404, "type": "text/plain; charset=utf-8", "headers": { "content-length": "44", "etag": "W/\"2c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": "只提供 tokens@1.css 与 tokens@1.0.0.css\n" }
+        },
+        {
+          "id": "zero",
+          "route": "GET /^\\/design\\/tokens@[0-9.]+\\.css$/",
+          "class": "invalid",
+          "what": "版本是 0",
+          "request": { "method": "GET", "path": "/design/tokens@0.css" },
+          "response": { "status": 404, "type": "text/plain; charset=utf-8", "headers": { "content-length": "44", "etag": "W/\"2c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": "只提供 tokens@1.css 与 tokens@1.0.0.css\n" }
+        },
+        {
+          "id": "dots-only",
+          "route": "GET /^\\/design\\/tokens@[0-9.]+\\.css$/",
+          "class": "invalid",
+          "what": "版本只有点",
+          "request": { "method": "GET", "path": "/design/tokens@...css" },
+          "response": { "status": 404, "type": "text/plain; charset=utf-8", "headers": { "content-length": "44", "etag": "W/\"2c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": "只提供 tokens@1.css 与 tokens@1.0.0.css\n" }
+        },
+        {
+          "id": "leading-zero",
+          "route": "GET /^\\/design\\/tokens@[0-9.]+\\.css$/",
+          "class": "invalid",
+          "what": "主版本写成 01",
+          "request": { "method": "GET", "path": "/design/tokens@01.css" },
+          "response": { "status": 404, "type": "text/plain; charset=utf-8", "headers": { "content-length": "44", "etag": "W/\"2c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": "只提供 tokens@1.css 与 tokens@1.0.0.css\n" }
+        },
+        {
+          "id": "head",
+          "what": "HEAD 走同一条 GET 路由，没有响应体",
+          "request": { "method": "HEAD", "path": "/design/tokens@1.css" },
+          "response": {
+            "status": 200,
+            "type": "text/css; charset=utf-8",
+            "headers": { "cache-control": "no-cache", "content-length": "2522", "etag": "W/\"9da-<指纹>\"", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express", "x-wm-tokens-version": "1.0.0" },
+            "body": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce），管理口令由环境给（合成值，只在隔离实例里用）。设计 token 照样公开。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "steps": [
+        {
+          "id": "anonymous",
+          "route": "GET /^\\/design\\/tokens@[0-9.]+\\.css$/",
+          "class": "normal",
+          "what": "登录门开着，远程匿名：设计 token 照样公开（自产台的页面要引用）",
+          "request": { "method": "GET", "path": "/design/tokens@1.css", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "text/css; charset=utf-8",
+            "headers": { "cache-control": "no-cache", "content-length": "2522", "etag": "W/\"9da-<指纹>\"", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express", "x-wm-tokens-version": "1.0.0" },
+            "body": "/* 由 scripts/gen-design-tokens.mjs 从 DESIGN.md v1.0.0 生成，勿手改；改 token 请改 DESIGN.md 后重新生成。\n   变量契约见 DESIGN.md「CSS 变量契约」：名字稳定、值可变。 */\n:root {\n  --wm-version: \"1.0.0\";\n  --wm-color-primary: #1E3A5F;\n  --wm-color-on-primary: #FFFFFF;\n  --wm-color-primary-subtle: #EEF2F7;\n  --wm-color-text: #0F172A;\n  --wm-color-text-secondary: #5A6577;\n  --wm-color-text-disabled: #94A3B8;\n  --wm-color-page: #F6F7F9;\n  --wm-color-surface: #FFFFFF;\n  --wm-color-border: #E2E8F0;\n  --wm-color-border-strong: #CBD5E1;\n  --wm-color-success: #047857;\n  --wm-color-success-text: #047857;\n  --wm-color-success-bg: #ECFDF5;\n  --wm-color-warning: #F59E0B;\n  --wm-color-warning-text: #B45309;\n  --wm-color-warning-bg: #FFFBEB;\n  --wm-color-danger: #DC2626;\n  --wm-color-danger-text: #B91C1C;\n  --wm-color-danger-bg: #FEF2F2;\n  --wm-color-nav-bg: #0F172A;\n  --wm-color-nav-text: #CBD5E1;\n  --wm-color-nav-text-active: #FFFFFF;\n  --wm-color-nav-item-active-bg: #1E3A5F;\n  --wm-color-info: #1E3A5F;\n  --wm-color-info-bg: #EEF2F7;\n  --wm-font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;\n  --wm-font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;\n  --wm-font-size-caption: 12px;\n  --wm-line-height-caption: 20px;\n  --wm-font-weight-caption: 400;\n  --wm-font-size-body: 14px;\n  --wm-line-height-body: 22px;\n  --wm-font-weight-body: 400;\n  --wm-font-size-body-strong: 14px;\n  --wm-line-height-body-strong: 22px;\n  --wm-font-weight-body-strong: 600;\n  --wm-font-size-subtitle: 16px;\n  --wm-line-height-subtitle: 24px;\n  --wm-font-weight-subtitle: 600;\n  --wm-font-size-title: 20px;\n  --wm-line-height-title: 28px;\n  --wm-font-weight-title: 600;\n  --wm-font-size-display: 24px;\n  --wm-line-height-display: 32px;\n  --wm-font-weight-display: 600;\n  --wm-font-size-stat-label: 12px;\n  --wm-line-height-stat-label: 20px;\n  --wm-font-weight-stat-label: 600;\n  --wm-space-1: 4px;\n  --wm-space-2: 8px;\n  --wm-space-3: 12px;\n  --wm-space-4: 16px;\n  --wm-space-6: 24px;\n  --wm-space-8: 32px;\n  --wm-space-12: 48px;\n  --wm-radius-sm: 4px;\n  --wm-radius-md: 6px;\n  --wm-radius-lg: 8px;\n  --wm-radius-full: 9999px;\n  --wm-shadow-0: none;\n  --wm-shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05);\n  --wm-shadow-2: 0 4px 12px rgba(15, 23, 42, 0.10);\n  --wm-shadow-3: 0 12px 32px rgba(15, 23, 42, 0.16);\n  --wm-motion-fast: 120ms;\n  --wm-motion-base: 200ms;\n  --wm-motion-easing: ease;\n}\n"
+          }
+        },
+        {
+          "id": "browser-anonymous",
+          "route": "GET /^\\/design\\/tokens@[0-9.]+\\.css$/",
+          "class": "normal",
+          "what": "登录门开着，本机带浏览器标记：照样公开",
+          "request": { "method": "GET", "path": "/design/tokens@1.0.0.css", "headers": { "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 200,
+            "type": "text/css; charset=utf-8",
+            "headers": { "cache-control": "public, max-age=31536000, immutable", "content-length": "2522", "etag": "W/\"9da-<指纹>\"", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express", "x-wm-tokens-version": "1.0.0" },
+            "body": "/* 由 scripts/gen-design-tokens.mjs 从 DESIGN.md v1.0.0 生成，勿手改；改 token 请改 DESIGN.md 后重新生成。\n   变量契约见 DESIGN.md「CSS 变量契约」：名字稳定、值可变。 */\n:root {\n  --wm-version: \"1.0.0\";\n  --wm-color-primary: #1E3A5F;\n  --wm-color-on-primary: #FFFFFF;\n  --wm-color-primary-subtle: #EEF2F7;\n  --wm-color-text: #0F172A;\n  --wm-color-text-secondary: #5A6577;\n  --wm-color-text-disabled: #94A3B8;\n  --wm-color-page: #F6F7F9;\n  --wm-color-surface: #FFFFFF;\n  --wm-color-border: #E2E8F0;\n  --wm-color-border-strong: #CBD5E1;\n  --wm-color-success: #047857;\n  --wm-color-success-text: #047857;\n  --wm-color-success-bg: #ECFDF5;\n  --wm-color-warning: #F59E0B;\n  --wm-color-warning-text: #B45309;\n  --wm-color-warning-bg: #FFFBEB;\n  --wm-color-danger: #DC2626;\n  --wm-color-danger-text: #B91C1C;\n  --wm-color-danger-bg: #FEF2F2;\n  --wm-color-nav-bg: #0F172A;\n  --wm-color-nav-text: #CBD5E1;\n  --wm-color-nav-text-active: #FFFFFF;\n  --wm-color-nav-item-active-bg: #1E3A5F;\n  --wm-color-info: #1E3A5F;\n  --wm-color-info-bg: #EEF2F7;\n  --wm-font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;\n  --wm-font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;\n  --wm-font-size-caption: 12px;\n  --wm-line-height-caption: 20px;\n  --wm-font-weight-caption: 400;\n  --wm-font-size-body: 14px;\n  --wm-line-height-body: 22px;\n  --wm-font-weight-body: 400;\n  --wm-font-size-body-strong: 14px;\n  --wm-line-height-body-strong: 22px;\n  --wm-font-weight-body-strong: 600;\n  --wm-font-size-subtitle: 16px;\n  --wm-line-height-subtitle: 24px;\n  --wm-font-weight-subtitle: 600;\n  --wm-font-size-title: 20px;\n  --wm-line-height-title: 28px;\n  --wm-font-weight-title: 600;\n  --wm-font-size-display: 24px;\n  --wm-line-height-display: 32px;\n  --wm-font-weight-display: 600;\n  --wm-font-size-stat-label: 12px;\n  --wm-line-height-stat-label: 20px;\n  --wm-font-weight-stat-label: 600;\n  --wm-space-1: 4px;\n  --wm-space-2: 8px;\n  --wm-space-3: 12px;\n  --wm-space-4: 16px;\n  --wm-space-6: 24px;\n  --wm-space-8: 32px;\n  --wm-space-12: 48px;\n  --wm-radius-sm: 4px;\n  --wm-radius-md: 6px;\n  --wm-radius-lg: 8px;\n  --wm-radius-full: 9999px;\n  --wm-shadow-0: none;\n  --wm-shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05);\n  --wm-shadow-2: 0 4px 12px rgba(15, 23, 42, 0.10);\n  --wm-shadow-3: 0 12px 32px rgba(15, 23, 42, 0.16);\n  --wm-motion-fast: 120ms;\n  --wm-motion-base: 200ms;\n  --wm-motion-easing: ease;\n}\n"
+          }
+        },
+        {
+          "id": "anonymous-other-version",
+          "route": "GET /^\\/design\\/tokens@[0-9.]+\\.css$/",
+          "class": "invalid",
+          "what": "登录门开着，远程匿名要别的版本：404，不是 401",
+          "request": { "method": "GET", "path": "/design/tokens@2.css", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": { "status": 404, "type": "text/plain; charset=utf-8", "headers": { "content-length": "44", "etag": "W/\"2c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": "只提供 tokens@1.css 与 tokens@1.0.0.css\n" }
+        }
+      ]
+    }
+  ]
+}
