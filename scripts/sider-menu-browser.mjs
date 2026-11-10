@@ -7,6 +7,7 @@
  *  旧路由照开 · 业务面四组按序且无管理组 · 日常组默认展开 · 侧栏文字对比度 ≥4.5 · 每页专属图标 ·
  *  控制面无口令无管理组、输口令后管理组出现且默认折叠、点开可跳转。
  *  需先 pnpm --filter web build（服务端托管 web/dist）。全新 DATA_DIR + 随机回环端口；合成口令。 */
+import { pythonBin } from './python-bin.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -45,7 +46,7 @@ try {
   writeFileSync(cfg, JSON.stringify({ base, control: `http://127.0.0.1:${PORT + 1}`, token: env.ADMIN_TOKEN, cockpit, cockpit_name: '合成驾驶舱', min_tasks: 25, legacy_cockpit: legacy.id }));
   code = 0;
   for (const script of ['scripts/sider-menu-browser.py', 'scripts/page-skeleton-browser.py', 'scripts/list-rules-browser.py', 'scripts/dashboard-browser.py']) {
-    const py = spawn(process.env.PYTHON || 'python3', [script, cfg], { stdio: 'inherit' });
+    const py = spawn(pythonBin(), [script, cfg], { stdio: 'inherit' });
     code |= await new Promise((x, j) => { py.on('error', j); py.on('exit', x); });
   }
 } catch (e) {

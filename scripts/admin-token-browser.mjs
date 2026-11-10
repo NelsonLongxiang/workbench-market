@@ -10,6 +10,7 @@
  *     弹窗里 sessionStorage 没有口令、window.opener 为 null；登录成功（含弹窗先被关掉、之后 whoami 才变 200）照常收尾；
  *  ⑥ bfcache：后退若未命中往返缓存（persisted=false）记 SKIP，不当通过。
  *  需先 pnpm --filter web build（服务端托管 web/dist）。合成上游 + 全新 DATA_DIR + 随机回环端口；不碰真实口令。 */
+import { pythonBin } from './python-bin.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -47,7 +48,7 @@ try {
   await api('POST', '/api/sops/token-sop/publish', { changelog: 'synthetic' });
   const cfg = join(TMP, 'browser.json');
   writeFileSync(cfg, JSON.stringify({ base, wid: wb.id, cockpit: ck.id, sop: 'token-sop', token: env.ADMIN_TOKEN }));
-  const py = spawn(process.env.PYTHON || 'python3', ['scripts/admin-token-browser.py', cfg], { stdio: 'inherit' });
+  const py = spawn(pythonBin(), ['scripts/admin-token-browser.py', cfg], { stdio: 'inherit' });
   code = await new Promise((x, j) => { py.on('error', j); py.on('exit', x); });
 } catch (e) {
   console.error(String(e?.stack ?? e));

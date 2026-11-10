@@ -4,6 +4,7 @@
  *        SOP 执行页内联同一份变量，页面自有样式不再写死色值。
  *  浏览器（Python Playwright，PYTHON 指定解释器；SKIP_BROWSER=1 只跑 HTTP 部分）：执行页与市场前端同主色/次级文字色/字号/字体；
  *        示例自产台（docs/examples/self-built-tokens.html）正文、状态、面与线全部取变量。 */
+import { pythonBin } from './python-bin.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -67,7 +68,7 @@ try {
     if (!existsSync('web/dist/index.html')) throw new Error('缺 web/dist：先跑 pnpm --filter web build（或 SKIP_BROWSER=1）');
     const cfg = join(TMP, 'browser.json');
     writeFileSync(cfg, JSON.stringify({ base }));
-    const py = spawn(process.env.PYTHON || 'python3', ['scripts/tokens-surface-browser.py', cfg], { stdio: 'inherit' });
+    const py = spawn(pythonBin(), ['scripts/tokens-surface-browser.py', cfg], { stdio: 'inherit' });
     const code = await new Promise((x, j) => { py.on('error', j); py.on('exit', x); });
     if (code) fail++;
   }

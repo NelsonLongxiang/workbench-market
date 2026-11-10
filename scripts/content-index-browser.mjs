@@ -1,4 +1,5 @@
 /** Synthetic full index integration: explicit content listener, fresh Odoo adapter, real Chromium. */
+import { pythonBin } from './python-bin.mjs';
 import {createServer} from 'node:http';
 import {createServer as netServer} from 'node:net';
 import {spawn} from 'node:child_process';
@@ -38,7 +39,7 @@ try{
  const published=await ghPublish(market,gh,{slug:'synthetic-static',title:'Synthetic static fixture',files:[{path:'index.html',content:'<!doctype html><link rel="stylesheet" href="assets/style.css"><h1>local-static</h1><script src="assets/app.js"></script>'},{path:'assets/app.js',content:'window.localStaticReady=true;'},{path:'assets/style.css',content:'h1{color:rgb(0, 0, 128)}'}]});const appResult=await published.json();if(published.status!==201||appResult.workbench_id!==4)throw Error('synthetic static fixture mismatch');
  const oldMachine=await fetch(market+'/go/2/__probe',{headers:{'User-Agent':'synthetic-node-probe'}});if(oldMachine.status!==200||await oldMachine.text()!=='health')throw Error('non-browser legacy path changed');
  const config=join(out,'config.json');writeFileSync(config,JSON.stringify({market,content,queryContent,odoo:odooOrigin,result:join(out,'browser.json')}));
- const py=spawn(process.env.PYTHON||'python3',['scripts/content-index-browser.py',config],{env,stdio:'inherit'});code=await new Promise((r,j)=>{py.on('exit',r);py.on('error',j)});
+ const py=spawn(pythonBin(),['scripts/content-index-browser.py',config],{env,stdio:'inherit'});code=await new Promise((r,j)=>{py.on('exit',r);py.on('error',j)});
  const inventory=await(await fetch(market+'/api/content/observation',{headers:{'X-Admin-Token':'synthetic-admin'}})).text();
  if(inventory.includes(querySecret)){code=1;throw Error('observation secret exposure');}
  if(upstreamHits!==1||leaked||identityChecks<5||wsOpened!==1||wsMessages<1||wsSockets.size!==0||queryHits!==2||!queryInjected||stderr.includes(querySecret)||stdout.includes(querySecret)){code=1;throw Error('upstream isolation/count invariant');}

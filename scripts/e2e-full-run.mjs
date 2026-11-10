@@ -5,6 +5,7 @@
  *  宿主 YGL_HOME 一律覆盖。需要 web 已构建（pnpm --filter web build）与 Python Playwright。
  *  用法：node scripts/e2e-full-run.mjs [--control-off] [--dry-env]；PYTHON 指定解释器（缺省 python3）。
  *  --dry-env：不起实例，只打印三类子进程会拿到的隔离相关环境（JSON），供 e2e-full-run-isolation-smoke 机械回归。 */
+import { pythonBin } from './python-bin.mjs';
 import { spawn } from 'node:child_process';
 import { mkdirSync, rmSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -66,7 +67,7 @@ try {
   if (!up) throw new Error('实例未就绪：' + err.slice(-400));
   console.log(`[e2e-full-run] 实例 ${PORT}，控制面 ${controlOff ? '关闭（WM_CONTROL_PORT=0）' : PORT + 1}`);
   // E2E 组 18 要求演示 SOP（demo-rack-sop）常驻、且有一条已完成的演示 run（演示·张工，3 步数据）——生产库里本来就有，隔离实例要先种
-  const PY = process.env.PYTHON || 'python3';
+  const PY = pythonBin();
   const seed = spawn(PY, ['scripts/seed-demo-sop.py', '--target-mode', 'isolated'], { stdio: 'inherit', env: seedEnv });
   if ((await new Promise((r) => seed.on('exit', r))) !== 0) throw new Error('演示 SOP 种子失败');
   const cli = (m, p, b) => fetch(base + p, { method: m, headers: { 'content-type': 'application/json' }, body: b === undefined ? undefined : JSON.stringify(b) }).then((r) => r.json());

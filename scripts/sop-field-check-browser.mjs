@@ -4,6 +4,7 @@
 //   K2 改了被引用的字段，依赖它的字段立即重算（错误出现与消失）
 //   K3 点「完成」被拦时，错误汇总列出关系违约
 // 不起服务、不连网络：页面在合成源上打开，所有 /api 请求被拦截。
+import { pythonBin } from './python-bin.mjs';
 import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
@@ -44,7 +45,7 @@ const html = renderSopRunner(manifest, { id: 1, slug: 'check-sop', title: 'Check
 writeFileSync(join(out, 'runner.html'), html);
 const config = join(out, 'config.json');
 writeFileSync(config, JSON.stringify({ html: join(out, 'runner.html'), result: join(out, 'browser.json'), fields, checkFields, cases }));
-const child = spawn(process.env.PYTHON || 'python3', ['scripts/sop-field-check-browser.py', config], { stdio: 'inherit' });
+const child = spawn(pythonBin(), ['scripts/sop-field-check-browser.py', config], { stdio: 'inherit' });
 const code = await new Promise((r) => child.once('exit', r));
 console.log({ out, code });
 process.exit(code ?? 1);

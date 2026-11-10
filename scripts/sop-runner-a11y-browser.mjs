@@ -5,6 +5,7 @@
 //   A3 点「完成」被拦时，顶部出现可聚焦的错误汇总，逐项列字段名与原因，点一项跳到对应控件
 //   A4 条件必填（#435）切换后，说明与错误的关联不丢
 // 不起服务、不连网络：页面在合成源上打开，所有 /api 请求被拦截（打开页面本就不建 run）。
+import { pythonBin } from './python-bin.mjs';
 import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
@@ -24,7 +25,7 @@ const html = renderSopRunner(manifest, { id: 1, slug: 'a11y-sop', title: 'A11y S
 writeFileSync(join(out, 'runner.html'), html);
 const config = join(out, 'config.json');
 writeFileSync(config, JSON.stringify({ html: join(out, 'runner.html'), result: join(out, 'browser.json') }));
-const child = spawn(process.env.PYTHON || 'python3', ['scripts/sop-runner-a11y-browser.py', config], { stdio: 'inherit' });
+const child = spawn(pythonBin(), ['scripts/sop-runner-a11y-browser.py', config], { stdio: 'inherit' });
 const code = await new Promise((r) => child.once('exit', r));
 console.log({ out, code });
 process.exit(code ?? 1);
