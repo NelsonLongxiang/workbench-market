@@ -24,6 +24,7 @@ import type { HttpService } from './http.ts';
 import { registerTypeRoutes } from './routes/types.ts';
 import { registerCockpitRoutes } from './routes/cockpits.ts';
 import { registerCookieRoutes } from './routes/cookies.ts';
+import { registerStatsRoutes } from './routes/stats.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import { SkillService } from './services/skill.ts';
@@ -2165,7 +2166,7 @@ app.get('/api/sop/runs/active', wrap(async (_req, res) => {
   res.json(rows);
 }));
 
-app.get('/api/stats', (_req, res) => { res.json(statsPayload()); });
+registerStatsRoutes(http);
 app.get('/api/content/observation', (req, res) => {
   if (!adminGuard(req, res)) return;
   res.setHeader('Cache-Control', 'no-store');
@@ -3665,7 +3666,7 @@ import { closeYglUpstreams, yglHomeProblem, yglUpstreamRpc } from './mcp-stdio-u
 import { tasksReadAccess, createTaskSourceGrant, revokeTaskSourceGrant } from './tasks-read-access.ts';
 import { collectExtensionTasks, extensionTaskSourceKeys, loadExtensions } from './extensions.ts';
 import { authorizeRunRead, issueRunReadCap, runReadGrantCreate, runReadGrantRevoke, runReadCapRevokeAll } from './sop-read-auth.ts';
-import { endpointStatsMiddleware, statsPayload } from './endpoint-stats.ts';
+import { endpointStatsMiddleware } from './endpoint-stats.ts';
 import { fetchMainFiles, normalizeSource, SourceError, SOURCE_BRANCH } from './github-source.ts';
 import { checkRecord, parseContract, type DataContract } from './app-data-contract.ts';
 import { sniff, type Sniff } from './file-sniff.ts';
