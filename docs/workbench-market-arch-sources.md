@@ -128,6 +128,8 @@
 | [sso-ticket-store.ts](../server/src/sso-ticket-store.ts) | `6d7f61d0bd51079e4f9a111f6d5d0e656e5a55bf` |
 | [sop-state-checkpoints.ts](../server/src/sop-state-checkpoints.ts) | `4978b498713f194f7fb9fdab79416d555f8315e3` |
 
+表里的 blob 号是上述固定 pin 那个提交里的。`odoo-session.ts` 和 `odoo-browser-origin.ts` 在那个提交里位于 `server/src/`，后来原名挪进了 `server/src/login-providers/odoo/`，内容也改过；上面的链接指向现在的位置，blob 号不随之更新，复核仍以 pin 为准。
+
 ## 2. 联合候选证据（转述层，非本次复跑）
 
 公开原件已逐条读回：
