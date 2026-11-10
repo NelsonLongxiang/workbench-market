@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * 对外面的快照：路由（带挂载顺序，和每条路由前面挂的守卫）、MCP 工具、表结构。
- * 起一个隔离实例（临时数据目录、随机回环端口、固定的最小环境变量），从运行中的进程里导出，
+ * 起一个隔离实例（临时数据目录、在回环上探到的空闲端口、固定的最小环境变量），从运行中的进程里导出，
  * 再和 surfaces/ 下已提交的三份比较。改了面（加路由、加工具、改表）就跑一次 --write，
  * 连同代码一起提交：PR 里看得见面变了什么。
  *
@@ -12,7 +12,7 @@
  */
 import { spawn } from './owned-script-fixture.mjs';
 import { createServer } from 'node:http';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
@@ -29,7 +29,38 @@ const FILES = { routes: 'routes.json', tools: 'mcp-tools.json', schema: 'schema.
 const ENV_NOTE = '隔离实例：MCP_GATEWAY=off、NODE_ENV=test、WM_CONTROL_PORT=0，不带任何别的配置，按前端已构建的形态导出。随配置才挂的路由、用到才建的表不在其中。';
 // 有没有 web/dist 会差三层（静态托管、页面兜底、404）。快照取「前端已构建」的形态：没构建时临时放一个占位目录，导出完就删。
 const WEB_DIST = join(ROOT, 'web', 'dist');
-const STUB_MARK = join(WEB_DIST, '.surface-snapshot-stub');
+const STUB_PREFIX = '.surface-snapshot-stub-';
+const STUB_HTML = '<!doctype html><title>surface-snapshot</title>\n';
+const stubMarks = () => { try { return readdirSync(WEB_DIST).filter((n) => n.startsWith(STUB_PREFIX)); } catch { return []; } };
+
+/** 占位目录：每个进程放自己的标记，最后一个用完的才删目录；目录里出现了别的东西（真的构建产物）就不删。 */
+function claimStub() {
+  // 先清掉已经不在了的进程留下的标记（上次被 SIGKILL 的话，标记和占位目录都会留下）。
+  for (const name of stubMarks()) {
+    const pid = Number(name.slice(STUB_PREFIX.length));
+    let alive = false;
+    try { process.kill(pid, 0); alive = true; } catch (e) { alive = e.code === 'EPERM'; }
+    if (!alive) rmSync(join(WEB_DIST, name), { force: true });
+  }
+  const leftover = existsSync(WEB_DIST) && stubMarks().length === 0 && readdirSync(WEB_DIST).join() === 'index.html' && readFileSync(join(WEB_DIST, 'index.html'), 'utf8') === STUB_HTML;
+  if (existsSync(WEB_DIST) && stubMarks().length === 0 && !leftover) return false; // 有真的构建产物，不动它
+  mkdirSync(WEB_DIST, { recursive: true });
+  writeFileSync(join(WEB_DIST, `${STUB_PREFIX}${process.pid}`), '');
+  if (!existsSync(join(WEB_DIST, 'index.html'))) writeFileSync(join(WEB_DIST, 'index.html'), STUB_HTML);
+  return true;
+}
+function releaseStub() {
+  rmSync(join(WEB_DIST, `${STUB_PREFIX}${process.pid}`), { force: true });
+  let names;
+  try { names = readdirSync(WEB_DIST); } catch { return; }
+  const onlyStub = names.length === 1 && names[0] === 'index.html' && readFileSync(join(WEB_DIST, 'index.html'), 'utf8') === STUB_HTML;
+  if (onlyStub) rmSync(WEB_DIST, { recursive: true, force: true });
+}
+
+/** 收尾的事放在一处：正常结束、出错、被 SIGINT / SIGTERM 打断，都走这里。 */
+const cleanups = [];
+function cleanupAll() { while (cleanups.length) { try { cleanups.pop()(); } catch { /* 收尾不再抛 */ } } }
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { cleanupAll(); process.exit(130); });
 
 async function freePort() {
   const probe = createServer();
@@ -59,21 +90,18 @@ async function exportSurfaces() {
   const { MCP_TOOLS } = await import(pathToFileURL(join(ROOT, 'server/src/mcp-tools.ts')).href);
   const tools = MCP_TOOLS.map((t) => `${t.name}  ${t.category}${t.exempt ? '  exempt' : ''}`).sort();
 
-  const stub = !existsSync(WEB_DIST) || existsSync(STUB_MARK); // 上次异常退出留下的占位目录也算
-  if (stub) {
-    mkdirSync(WEB_DIST, { recursive: true });
-    writeFileSync(STUB_MARK, '');
-    writeFileSync(join(WEB_DIST, 'index.html'), '<!doctype html><title>surface-snapshot</title>\n');
-  }
+  if (claimStub()) cleanups.push(releaseStub);
   const port = await freePort();
   const data = join(ROOT, 'tmp', `surface-snapshot-${process.pid}`);
   rmSync(data, { recursive: true, force: true });
   mkdirSync(data, { recursive: true });
+  cleanups.push(() => rmSync(data, { recursive: true, force: true }));
   const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', pathToFileURL(join(HERE, 'surface-recorder.mjs')).href, 'src/index.ts'], {
     cwd: join(ROOT, 'server'),
     env: { PATH: process.env.PATH, HOME: process.env.HOME, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  cleanups.push(() => child.kill('SIGKILL'));
   let stderr = '';
   child.stderr.on('data', (d) => { stderr += String(d); });
   try {
@@ -83,7 +111,12 @@ async function exportSurfaces() {
       try { ready = (await fetch(`http://127.0.0.1:${port}/api/health`)).status === 200; } catch { /* 还没起来 */ }
       if (!ready) await new Promise((r) => setTimeout(r, 200));
     }
-    if (!ready) throw new Error(`隔离实例没起来：${stderr.trim().split('\n').slice(-3).join(' | ') || '没有输出'}`);
+    if (!ready) {
+      // 报错的那一行通常在中间（后面是调用栈和 Node 版本），挑带 Error 的；挑不到就取开头几行。
+      const lines = stderr.split('\n').map((l) => l.trim()).filter(Boolean);
+      const why = lines.find((l) => /Error|错误|拒绝/.test(l)) || lines.slice(0, 2).join(' ') || '没有输出';
+      throw new Error(`隔离实例没起来：${why.slice(0, 200)}`);
+    }
     const apps = await new Promise((resolveDump, reject) => {
       const timer = setTimeout(() => reject(new Error('实例没有回传路由（10 秒超时）')), 10000);
       child.on('message', (msg) => { if (msg?.wmSurface) { clearTimeout(timer); resolveDump(msg.wmSurface); } });
@@ -93,8 +126,7 @@ async function exportSurfaces() {
   } finally {
     child.kill('SIGTERM');
     await new Promise((r) => { if (child.exitCode !== null) r(); else { child.once('exit', r); setTimeout(r, 3000); } });
-    rmSync(data, { recursive: true, force: true });
-    if (stub) rmSync(WEB_DIST, { recursive: true, force: true });
+    cleanupAll();
   }
 }
 

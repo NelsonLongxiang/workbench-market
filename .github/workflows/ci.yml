@@ -142,7 +142,7 @@ jobs:
           git fetch --no-tags --depth=1 origin main
           node scripts/tech-route-check.mjs --selftest
           node scripts/surface-snapshot.mjs --selftest
-          node scripts/tech-route-check.mjs
+          node scripts/tech-route-check.mjs --strict
           node scripts/privacy-gate.mjs --selftest
       - name: Startup security self-probe (#326, loopback synthetic only)
         run: node scripts/startup-security-self-probe-test.mjs && node scripts/startup-security-self-probe-http-test.mjs && node scripts/startup-security-self-probe-upgrade-test.mjs

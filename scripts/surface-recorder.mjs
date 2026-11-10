@@ -3,6 +3,7 @@
  * 记下进程里建出来的 Express 应用；父进程经 IPC 发来 'wm-surface-dump' 时，把每个应用的层按挂载顺序回传。
  * 不改任何行为：只是在应用初始化时多记一个引用。
  */
+import { METHODS } from 'node:http';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -22,15 +23,21 @@ function mountOf(layer) {
   return String(layer.regexp?.source ?? '').replace(/^\^/, '').replace(/\\\/\?\(\?=\\\/\|\$\)$/, '').replace(/\\\//g, '/') || '/';
 }
 
+const EVERY_METHOD = METHODS.map((m) => m.toLowerCase());
+
 /** 一层一行。路由行：方法 路径 <- 这条路由上依次挂的处理函数名（守卫在前）。子路由缩进。 */
 function dump(stack, depth = 0) {
   const pad = '  '.repeat(depth);
   const lines = [];
   for (const layer of stack || []) {
     if (layer.route) {
-      const methods = Object.keys(layer.route.methods).filter((m) => layer.route.methods[m]).map((m) => m.toUpperCase()).sort().join(',');
+      // app.all 在 Express 里是把每个 HTTP 方法各注册一遍。方法表随 Node 版本变，所以记成 ALL，处理函数只留一轮。
+      const every = EVERY_METHOD.every((m) => layer.route.methods[m]);
+      const methods = every ? 'ALL' : Object.keys(layer.route.methods).filter((m) => layer.route.methods[m]).map((m) => m.toUpperCase()).sort().join(',');
       const path = Array.isArray(layer.route.path) ? layer.route.path.map(String).join(' | ') : String(layer.route.path);
-      lines.push(`${pad}${methods} ${path}  <- ${layer.route.stack.map((l) => l.name || '<anonymous>').join(', ')}`);
+      const names = layer.route.stack.map((l) => l.name || '<anonymous>');
+      const chain = every && names.length % EVERY_METHOD.length === 0 ? names.slice(0, names.length / EVERY_METHOD.length) : names;
+      lines.push(`${pad}${methods} ${path}  <- ${chain.join(', ')}`);
     } else {
       lines.push(`${pad}USE ${mountOf(layer)}  <- ${layer.name || '<anonymous>'}`);
       if (layer.handle?.stack) lines.push(...dump(layer.handle.stack, depth + 1));
@@ -38,6 +45,9 @@ function dump(stack, depth = 0) {
   }
   return lines;
 }
+
+// 父进程没了（被打断、被杀），实例自己退出，不留孤儿。
+process.on('disconnect', () => process.exit(0));
 
 process.on('message', (msg) => {
   if (msg !== 'wm-surface-dump') return;
