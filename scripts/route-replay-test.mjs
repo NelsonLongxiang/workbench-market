@@ -3,6 +3,8 @@
  * 路由的录制回放：搬路由之前录一遍，之后对同一组请求重放，状态码、响应头和响应体必须和录下来的一样。
  * 每个域一份 surfaces/replay/<域>.json，请求和录下来的应答放在一起，对应 server/src/routes/<域>.ts。
  * 每个场景起一个隔离实例：临时数据目录、临时 HOME、随机的空闲端口（请求只发到回环地址）、固定的最小环境变量，再加场景自己声明的几个。
+ * 场景里写了 clock（一个 ISO 时刻）的，实例的时钟从那一刻开始走（scripts/replay-clock-preload.mjs）：
+ * 应答里由「现在」算出来的数（还有几天过期、今天是哪一天）才能每次都一样。数据库自己取的时间不受影响，照旧换成占位。
  *
  *   node scripts/route-replay-test.mjs                 回放全部域；有差异退出 1，逐条列出
  *   node scripts/route-replay-test.mjs types           只回放一个域（多打印每条路由三类各有几条）
@@ -24,15 +26,17 @@
  */
 import { spawn } from './owned-script-fixture.mjs';
 import { createServer } from 'node:http';
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
 const REPLAY_DIR = join(ROOT, 'surfaces', 'replay');
 const ROUTES_SNAPSHOT = join(ROOT, 'surfaces', 'routes.json');
 const MODULES_DIR = join(ROOT, 'server', 'src', 'routes');
+const CLOCK_PRELOAD = join(HERE, 'replay-clock-preload.mjs');
 const CLASSES = ['unauthorized', 'invalid', 'normal'];
 const CLASS_NAME = { unauthorized: '未授权', invalid: '参数非法', normal: '正常' };
 // 和 scripts/tech-route-check.mjs 数路由的写法一样，另外多认 all：体检不数它，但它在运行时是一条路由（快照里记成 ALL）
@@ -96,6 +100,7 @@ export function checkCassette(cassette, known, moduleRouteCount = null, answered
   const covered = new Map(routes.map((r) => [r, new Set()]));
   for (const scenario of scenarios) {
     if (!scenario?.name) problems.push('有场景没有 name');
+    if (scenario?.clock !== undefined && (typeof scenario.clock !== 'string' || !Number.isFinite(Date.parse(scenario.clock)))) problems.push(`${scenario?.name}：clock 要写成 ISO 时刻（比如 2030-01-01T00:00:00Z）`);
     for (const step of scenario?.steps ?? []) {
       const where = `${scenario.name}/${step?.id ?? '?'}`;
       if (!step?.id) problems.push(`${scenario.name} 里有请求没有 id`);
@@ -298,17 +303,25 @@ export async function withPortRetry(start, attempts = 3, note = (line) => consol
   }
 }
 
-const boot = (tag, env) => withPortRetry(() => bootOnce(tag, env));
+const boot = (tag, env, clock) => withPortRetry(() => bootOnce(tag, env, clock));
 
-async function bootOnce(tag, env) {
+/** 起实例用的 node 参数和多出来的环境变量。场景定了时钟，就把平移时钟的预加载带上。 */
+export function launchPlan(clock) {
+  if (clock === undefined) return { args: ['--disable-warning=ExperimentalWarning', 'src/index.ts'], env: {} };
+  if (typeof clock !== 'string' || !Number.isFinite(Date.parse(clock))) throw new Error(`clock 要写成 ISO 时刻（比如 2030-01-01T00:00:00Z），现在是 ${JSON.stringify(clock)}`);
+  return { args: ['--disable-warning=ExperimentalWarning', '--import', pathToFileURL(CLOCK_PRELOAD).href, 'src/index.ts'], env: { WM_REPLAY_CLOCK: clock } };
+}
+
+async function bootOnce(tag, env, clock) {
+  const plan = launchPlan(clock);
   const port = await freePort();
   const root = join(ROOT, 'tmp', `route-replay-${process.pid}-${tag}`);
   rmSync(root, { recursive: true, force: true });
   mkdirSync(join(root, 'data'), { recursive: true });
   mkdirSync(join(root, 'home'), { recursive: true });
-  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
+  const child = spawn(process.execPath, plan.args, {
     cwd: join(ROOT, 'server'),
-    env: { PATH: process.env.PATH, HOME: join(root, 'home'), MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: join(root, 'data'), ...env },
+    env: { PATH: process.env.PATH, HOME: join(root, 'home'), MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: join(root, 'data'), ...env, ...plan.env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stderr = '';
@@ -358,7 +371,7 @@ function canonical(cassette) {
     scenarios: cassette.scenarios.map((s) => order({
       ...s,
       steps: s.steps.map((step) => order({ ...step, request: order(step.request, ['method', 'path', 'headers', 'json', 'text']) }, ['id', 'route', 'class', 'what', 'compare', 'request', 'save', 'response'])),
-    }, ['name', 'what', 'env', 'steps'])),
+    }, ['name', 'what', 'env', 'clock', 'steps'])),
   }, ['domain', 'what', 'routes', 'exempt', 'scenarios']);
 }
 
@@ -492,6 +505,17 @@ async function selftest() {
   const broken = starter(9, false);
   let failedFast = false; try { await withPortRetry(broken, 3, () => {}); } catch { failedFast = true; }
   check(failedFast && broken.calls() === 1, '起实例：别的原因起不来，不重试，直接报');
+  // 场景定时钟
+  const plain = launchPlan(undefined), timed = launchPlan('2030-01-01T00:00:00Z');
+  let badClock = false; try { launchPlan('tomorrow'); } catch { badClock = true; }
+  check(!plain.args.includes('--import') && Object.keys(plain.env).length === 0 && timed.args.includes('--import') && timed.args.at(-1) === 'src/index.ts' && timed.env.WM_REPLAY_CLOCK === '2030-01-01T00:00:00Z' && badClock, '定时钟：场景没写 clock 就照常起；写了才带上预加载；写得不是时刻直接报错');
+  check(checkCassette(withSteps([a, b, c], { scenarios: [{ name: 's', clock: 'tomorrow', steps: [a, b, c] }] }), known).some((p) => p.includes('clock')) && checkCassette(withSteps([a, b, c], { scenarios: [{ name: 's', clock: '2030-01-01T00:00:00Z', steps: [a, b, c] }] }), known).length === 0, '定时钟：请求集里 clock 写得不对，静态检查就拦下');
+  const probe = 'const t = Date.now(); console.log(JSON.stringify([new Date(t).toISOString().slice(0, 16), new Date().toISOString().slice(0, 16), Date().slice(0, 21) === new Date(t).toString().slice(0, 21), new Date(0).toISOString(), new Date() instanceof Date, new Date().constructor === Date]))';
+  const shifted = spawnSync(process.execPath, ['--import', pathToFileURL(CLOCK_PRELOAD).href, '-e', probe], { env: { PATH: process.env.PATH, NODE_ENV: 'test', WM_REPLAY_CLOCK: '2030-01-01T00:00:00Z' }, encoding: 'utf8' });
+  check(shifted.status === 0 && shifted.stdout.trim() === JSON.stringify(['2030-01-01T00:00', '2030-01-01T00:00', true, '1970-01-01T00:00:00.000Z', true, true]), `定时钟：Date.now()、new Date()、Date() 都从给的时刻开始走；带参数的 new Date(x) 照旧 ${shifted.stdout.trim()}${shifted.stderr.trim()}`);
+  const refusedOutsideTest = spawnSync(process.execPath, ['--import', pathToFileURL(CLOCK_PRELOAD).href, '-e', 'console.log(1)'], { env: { PATH: process.env.PATH, NODE_ENV: 'production', WM_REPLAY_CLOCK: '2030-01-01T00:00:00Z' }, encoding: 'utf8' });
+  const refusedBadClock = spawnSync(process.execPath, ['--import', pathToFileURL(CLOCK_PRELOAD).href, '-e', 'console.log(1)'], { env: { PATH: process.env.PATH, NODE_ENV: 'test' }, encoding: 'utf8' });
+  check(refusedOutsideTest.status === 1 && refusedOutsideTest.stdout === '' && refusedBadClock.status === 1 && refusedBadClock.stdout === '', '定时钟：不是测试环境、或者没给时刻，预加载让进程直接退出，不带着假的时钟起来');
   console.log(failed ? `===== 录制回放自检：${failed} 项失败 =====` : '===== 录制回放自检：全过 =====');
   return failed ? 1 : 0;
 }
@@ -525,7 +549,7 @@ async function main() {
       if (only) for (const line of coverage(cassette)) console.log(`（覆盖，按录下来的应答算）${line}`);
     }
     for (const scenario of cassette.scenarios) {
-      const instance = await boot(`${domain}-${scenario.name}`, scenario.env ?? {});
+      const instance = await boot(`${domain}-${scenario.name}`, scenario.env ?? {}, scenario.clock);
       let results;
       try { results = await runSteps(scenario.steps, (request, vars) => send(instance.base, request, vars), record); }
       catch (err) { throw new Error(`${domain}/${scenario.name}/${err.message}`); }
