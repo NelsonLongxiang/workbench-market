@@ -66,7 +66,7 @@ v1 `decision=ask` 保留兼容。v2 在 `report` 里用 `state=blocked` 加 `que
 ```json
 { "type": "workbench-event", "v": 2, "event_id": "wbe-…", "source": "task-center",
   "kind": "answer", "item": "task:<id>", "context_id": "wb:task-center:<id>",
-  "answer": { "qid": "q-…", "text": "…", "by": "odoo:<登录名>" },
+  "answer": { "qid": "q-…", "text": "…", "by": "user:<名>" },
   "reply": { "url": "…/api/workbench-events/<新 event_id>/report", "token": "…" } }
 ```
 

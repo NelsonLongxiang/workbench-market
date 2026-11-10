@@ -27,7 +27,7 @@
 
 | 字段组 | 字段 | 说明 |
 |---|---|---|
-| 身份 | `item_id`、`title`、`created_at`、`created_by` | `created_by` 用个人身份（`odoo:<登录名>` / `mcp:<会话名>`） |
+| 身份 | `item_id`、`title`、`created_at`、`created_by` | `created_by` 用主体标识（`user:<名>` / `seat:<名>`，见 [11](11-identity-and-permission.md)） |
 | 来源 | `source_kind`（task-center / app-data / agent / cockpit）、`source_ref` | 指向原始提交 |
 | 场景 | `context`（JSON：店铺、SKU、PD、日期等） | 来自驾驶舱的场景上下文（见 [03](03-cockpit-v2.md)） |
 | 投递 | `event_id`；每次投递的 A2A `task_id`（多次） | 沿用 `workbench_events`，不另建 |
