@@ -2,6 +2,7 @@
  * 纯函数（manifest + app → HTML 字符串），无 IO、无 Express 依赖。 */
 import type { SopManifest } from './sop-types.ts';
 import type { AppRow } from './db.ts';
+import { checkMessage, evalCheckExpr, parseCheckExpr } from './sop-field-rules.ts';
 
 /** tokensCss：DESIGN.md 生成的 --wm-* 变量（#321，与市场前端同一份），内联进页面；缺省时页面照常渲染。 */
 export function renderSopRunner(manifest: SopManifest, app: AppRow, tokensCss = ''): string {
@@ -207,6 +208,28 @@ window.__SOP__ = ${boot};
     var v = !src ? '' : src.type === 'checkbox' ? (src.checked ? 'true' : '') : String(src.value || '').trim();
     return values.indexOf(v) >= 0;
   }
+  // #471 字段间数值关系 data-check：嵌入服务端同一份解析、求值与提示函数源码，两边同一语义
+  var parseCheckExpr = ${String(parseCheckExpr)};
+  var evalCheckExpr = ${String(evalCheckExpr)};
+  var checkMessage = ${String(checkMessage)};
+  function checkFieldValue(own, step, field) {
+    var sec = step ? $('[data-step="' + step + '"]') : own;
+    var src = sec ? $('[data-field="' + field + '"]', sec) : null;
+    return !src ? '' : src.type === 'checkbox' ? (src.checked ? 'true' : '') : String(src.value || '').trim();
+  }
+  // 返回违约提示；通过、跳过或表达式写错都返回空串
+  function checkRelation(el) {
+    var p = parseCheckExpr(el.getAttribute('data-check'));
+    if (!p) return '';
+    var own = el.closest('[data-step]');
+    var res = evalCheckExpr(p, function (step, field) { return checkFieldValue(own, step, field); });
+    if (!res || res.ok) return '';
+    return el.getAttribute('data-check-error') || checkMessage(p, res, function (step, field) {
+      var sec = step ? $('[data-step="' + step + '"]') : own;
+      var src = sec ? $('[data-field="' + field + '"]', sec) : null;
+      return (src && src.getAttribute('data-label')) || field;
+    });
+  }
   // #436 可访问性：data-field 控件统一补可访问名称、稳定 id，把紧跟的说明和错误提示关联到 aria-describedby（各 SOP 台不用手写）
   function describe(el, id, on) {
     var ids = (el.getAttribute('aria-describedby') || '').split(' ').filter(function (x) { return x && x !== id; });
@@ -266,13 +289,20 @@ window.__SOP__ = ${boot};
     // textarea 没有原生 pattern：按服务端同样的整体匹配规则手动核对
     var pat = el.tagName === 'TEXTAREA' && !empty ? el.getAttribute('pattern') : null;
     if (pat) { var re = null; try { re = new RegExp('^(?:' + pat + ')$', 'u'); } catch (e) { re = null; } el.setCustomValidity(re && !re.test(String(el.value).trim()) ? (el.getAttribute('data-error') || '格式不符') : ''); }
+    // #471 字段间关系：控件自己有值、且没有别的格式错时才核（和服务端一样）；只有它自己用自定义校验的控件，先清掉上次的结果
+    var relMsg = '';
+    if (el.hasAttribute('data-check') && el.getAttribute('data-type') !== 'file-list') {
+      if (!pat) el.setCustomValidity('');
+      if (!empty && el.validity.valid) relMsg = checkRelation(el);
+      if (relMsg) el.setCustomValidity(relMsg);
+    }
     var ok = el.checkValidity() || (!strict && empty);
     el.setAttribute('aria-invalid', ok ? 'false' : 'true');
     var msg = el.nextElementSibling && el.nextElementSibling.classList && el.nextElementSibling.classList.contains('fv-msg') ? el.nextElementSibling : null;
     if (!ok && !msg) { msg = document.createElement('span'); msg.className = 'fv-msg'; msg.setAttribute('role', 'alert'); el.insertAdjacentElement('afterend', msg); }
     // 有错才挂错误提示；改好后从 aria-describedby 移除，读屏不再读空提示
     if (msg) { if (!msg.id) msg.id = (el.id || el.getAttribute('data-field')) + '-err'; describe(el, msg.id, !ok); }
-    if (msg) msg.textContent = ok ? '' : (empty ? '必填' : (el.getAttribute('data-error') || el.validationMessage || '格式不符'));
+    if (msg) msg.textContent = ok ? '' : (empty ? '必填' : relMsg || (el.getAttribute('data-error') || el.validationMessage || '格式不符'));
     return ok;
   }
   function queueSave(stepKey) {
@@ -480,8 +510,8 @@ window.__SOP__ = ${boot};
     var el = ev.target;
     if (!el || !el.hasAttribute || !el.hasAttribute('data-field')) return;
     checkField(el, false);
-    // 条件字段变了：重算依赖它的字段的必填状态（未填的不急着标红，完成时再严格核）
-    $$('[data-required-if]').forEach(function (d) { if (d !== el) checkField(d, false); });
+    // 条件字段变了：重算依赖它的字段的必填状态（未填的不急着标红，完成时再严格核）；data-check 引用的字段变了也要重算
+    $$('[data-required-if],[data-check]').forEach(function (d) { if (d !== el) checkField(d, false); });
     refreshSummary();
     var sec = el.closest('[data-step]');
     if (sec) queueSave(sec.getAttribute('data-step'));

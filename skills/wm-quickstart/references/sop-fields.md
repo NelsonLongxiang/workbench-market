@@ -13,6 +13,22 @@ SOP 步骤正文（`sop.yaml` 各步的 `body`）里，带 `data-field="<字段�
 | `type="url\|number\|date\|month\|email"`、`min` / `max` | 类型校验，仅 `input` |
 | `data-error` | 格式不符时显示的提示（必填的提示不用它） |
 | `data-required-if="<字段>=<值1>\|<值2>"` | 条件必填。字段写成 `<步骤>.<字段>` 可以跨步；条件成立才必填，不成立时只核格式 |
+| `data-check="<表达式>"`、`data-check-error` | 字段之间的数值关系，见下节 |
+
+## 字段之间的数值关系
+
+在字段上写 `data-check`，声明它和别的字段之间的关系：
+
+```html
+<input data-field="count" data-label="实际条数" type="number" data-check="count <= target">
+<input data-field="overlap" data-label="交集" type="number" data-check="overlap + only = count" data-check-error="交集＋独有应等于实际条数">
+```
+
+- 表达式是「若干项相加减 比较符 若干项相加减」，只有一个比较符：`<=`、`>=`、`<`、`>`、`=`（`==` 也行）。项是数字或字段名，跨步写 `<步骤>.<字段>`。字段名里不能有 `-`（会被当成减号）。
+- 控件自己为空时不核；引用的字段有空值或不是数字时也跳过。必填和数字格式交给 `required`、`type="number"` 这些已有规则。
+- 违反时提示 `data-check-error`；没写就用默认文字，如「须满足 实际条数 ≤ 应取条数（现为 101 与 100）」。
+- 表达式写错（比如用了 `*`、括号或两个比较符）时，当作没有这条规则，不会让整页失效。
+- 执行页和服务端用的是同一份解析代码，结论一致。等号按很小的误差比较，`0.1 + 0.2 = 0.3` 成立。
 
 ## 文件清单字段
 

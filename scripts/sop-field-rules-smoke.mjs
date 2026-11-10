@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** SOP 字段规则冒烟（纯函数）：从步骤 HTML 抽 required/pattern/长度/类型，完成时核对 run 数据。 */
-import { checkRunData, extractFieldRules } from '../server/src/sop-field-rules.ts';
+import { checkMessage, checkRunData, evalCheckExpr, extractFieldRules, parseCheckExpr } from '../server/src/sop-field-rules.ts';
 import { renderSopRunner } from '../server/src/sop-runner.ts';
 
 let pass = 0, fail = 0;
@@ -84,6 +84,44 @@ ok('合规：通过', fc([{ file_id: 1, sha256: sha, role: '验证报告', statu
   ok('最少行数只数有效行', vc([row(1, '有效')], [row(3, '有效'), row(4, '作废')]).some((e) => e.includes('两件') && e.includes('至少 2 行')));
   ok('作废行照样核结构', vc([row(1, '有效'), { file_id: 0, sha256: 'x', status: '作废' }]).some((e) => e.includes('第 2 行')));
   ok('不写 data-void-statuses 时口径不变', fc([{ file_id: 1, sha256: sha, role: '交付件', status: '作废' }]).length === 0);
+}
+
+// #471 字段间数值关系 data-check
+{
+  const P = (e) => parseCheckExpr(e);
+  ok('C1 合法写法都能解析', ['a <= b', 'a+b=c', 'a + b - 1 >= s2.c', '-a < 0', 'a == b', 'a>1.5', ' a  >=  b '].every((e) => P(e)), '');
+  ok('C2 写错的表达式返回 null', ['', 'a', 'a <= ', '<= b', 'a <= b <= c', 'a ** b', 'a <= b; alert(1)', 'a(b) = 1', '1 <= 2', 'a <= b'.padEnd(201, ' '), 'a b = c', 'a.b.c = 1', 'a-b-c'].every((e) => P(e) === null), ['', 'a', 'a <= ', '<= b', 'a <= b <= c', 'a ** b', 'a <= b; alert(1)', 'a(b) = 1', '1 <= 2', 'a b = c', 'a.b.c = 1', 'a-b-c'].filter((e) => P(e) !== null).join(' | '));
+  const g = (vals) => (step, field) => vals[(step ? step + '.' : '') + field];
+  const E = (e, vals) => evalCheckExpr(P(e), g(vals));
+  ok('C3 比较五种', E('a <= b', { a: '1', b: '1' }).ok && !E('a < b', { a: '1', b: '1' }).ok && E('a >= b', { a: '2', b: '1' }).ok && !E('a > b', { a: '1', b: '1' }).ok && E('a = b', { a: '3', b: '3' }).ok);
+  ok('C4 加减与跨步', E('a + b = s2.c', { a: '40', b: '60', 's2.c': '100' }).ok && !E('a + b = s2.c', { a: '40', b: '61', 's2.c': '100' }).ok && E('a - 1 >= b', { a: '5', b: '4' }).ok && E('-a < 0', { a: '1' }).ok);
+  ok('C5 小数相等不受浮点误差影响', E('a + b = c', { a: '0.1', b: '0.2', c: '0.3' }).ok);
+  ok('C6 引用为空或不是数字时跳过', E('a <= b', { a: '1', b: '' }) === null && E('a <= b', { a: '1' }) === null && E('a <= b', { a: '1', b: 'abc' }) === null && E('a <= b', { a: 'Infinity', b: '1' }) === null);
+  ok('C7 嵌进执行页的三个函数不依赖外部变量', ['parseCheckExpr', 'evalCheckExpr', 'checkMessage'].every((n) => { try { return typeof new Function('return ' + String({ parseCheckExpr, evalCheckExpr, checkMessage }[n]))() === 'function'; } catch { return false; } }));
+  ok('C8 默认提示用 label', checkMessage(P('a <= b'), { a: 101, b: 100 }, (st, f) => ({ a: '实际条数', b: '应取条数' })[f]) === '须满足 实际条数 ≤ 应取条数（现为 101 与 100）');
+
+  const km = { title: 'k', steps: [
+    { key: 'samples', title: '样本', body: `
+      <input data-field="count" data-label="实际条数" type="number" min="0" data-check="count <= target">
+      <input data-field="target" data-label="应取条数" type="number" min="1">
+      <input data-field="overlap" data-label="交集" type="number" data-check="overlap + only = count" data-check-error="交集＋独有应等于实际条数">
+      <input data-field="only" data-label="独有" type="number">
+      <input data-field="bad" data-check="bad <= ">
+      <textarea data-field="files" data-type="file-list" data-check="files <= 1"></textarea>` },
+    { key: 'verify', title: '验证', body: `<input data-field="checked" data-label="已核条数" data-check="checked <= samples.count">` },
+  ] };
+  const kr = extractFieldRules(km);
+  const kv = (samples, verify = {}) => checkRunData(kr, { samples, verify });
+  ok('C9 只有带 data-check 也会被抽成规则；写错的表达式不抽', kr.some((r) => r.field === 'checked' && r.check) && !kr.some((r) => r.field === 'bad') && !kr.find((r) => r.field === 'files')?.check);
+  ok('C10 合规数据通过', kv({ count: '64', target: '100', overlap: '40', only: '24' }, { checked: '64' }).length === 0, JSON.stringify(kv({ count: '64', target: '100', overlap: '40', only: '24' }, { checked: '64' })));
+  ok('C11 违反 ≤ 用默认提示（label）', kv({ count: '101', target: '100' }).some((e) => e === 'samples.实际条数：须满足 实际条数 ≤ 应取条数（现为 101 与 100）'), JSON.stringify(kv({ count: '101', target: '100' })));
+  ok('C12 违反和相等用 data-check-error', kv({ count: '64', target: '100', overlap: '40', only: '25' }).includes('samples.交集：交集＋独有应等于实际条数'));
+  ok('C13 跨步引用', kv({ count: '64', target: '100' }, { checked: '65' }).some((e) => e.startsWith('verify.已核条数：须满足 已核条数 ≤ 实际条数')));
+  ok('C14 自己为空或引用为空都跳过（必填归别的规则）', kv({ count: '', target: '100', overlap: '', only: '' }, { checked: '' }).length === 0 && kv({ count: '64', target: '' }).length === 0);
+  ok('C15 不是数字时只报数字格式，不再报关系', JSON.stringify(kv({ count: 'abc', target: '100' })) === JSON.stringify(['samples.实际条数：须为数字']), JSON.stringify(kv({ count: 'abc', target: '100' })));
+  const kh = renderSopRunner(km, { id: 1, slug: 'k', title: 'k', kind: 'sop' });
+  ok('C16 执行页嵌入同一份函数源码', [parseCheckExpr, evalCheckExpr, checkMessage].every((f) => kh.includes(String(f))));
+  ok('C17 执行页条件变化时也重算 data-check 字段', kh.includes("$$('[data-required-if],[data-check]')"));
 }
 
 // 执行页脚本写在模板字符串里：正则的反斜杠要双写，否则 \s 变成 s，条件必填在浏览器里永远不成立
