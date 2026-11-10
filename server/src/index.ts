@@ -20,6 +20,8 @@ import { dirname, join, posix, extname, relative, sep as pathSep } from 'node:pa
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import multer from 'multer';
 import { svc } from './context.ts';
+import type { HttpService } from './http.ts';
+import { registerTypeRoutes } from './routes/types.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import { SkillService } from './services/skill.ts';
@@ -45,7 +47,8 @@ import type { IncomingMessage } from 'node:http';
 import { createDirectSigVerifier, directSigBodyMode, directSigMode, type DirectSigMode } from './a2a-direct-sig.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const app = express();
+const http = svc<HttpService>('http'); // HTTP 服务持有 Express 应用；域模块经它注册路由（注册可撤销）
+const app = http.expressApp(); // 全局中间件、监听和还没搬走的路由，照旧直接用应用本身
 const startupSecurity = createStartupSecurityProbe();
 app.use(startupSecurity.middleware); // #326: before parsers, content dispatch and every business route
 // 全站登录门（WM_LOGIN_GATE=enforce|off，缺省 off）：紧跟启动自检门，早于内容分发、解析器、静态资源、SPA 回落和各路由。
@@ -3089,58 +3092,7 @@ app.get('/api/summary', (_req, res) => {
 });
 
 // ---------- 类型管理 ----------
-app.get('/api/types', (_req, res) => {
-  res.json(svc<WorkbenchService>('workbench').types());
-});
-
-app.post('/api/types', (req, res) => {
-  const b = req.body ?? {};
-  if (typeof b.key !== 'string' || !/^[a-z0-9][a-z0-9-]*$/.test(b.key)) bad('key 必须是小写字母/数字/连字符');
-  if (typeof b.name !== 'string' || !b.name.trim()) bad('name 不能为空');
-  if (b.key === 'web') bad('内置类型 web 不允许覆盖');
-  checkTypeHealthPath(String(b.health_path ?? '/'));
-  const exists = svc<WorkbenchService>('workbench').typeIdByKey(b.key);
-  if (exists) bad(`类型已存在: ${b.key}`);
-  const r = svc<WorkbenchService>('workbench').typeInsertStmt().run(
-    b.key, b.name.trim(), String(b.icon ?? ''), b.default_port ?? null,
-    b.health_method === 'HEAD' ? 'HEAD' : 'GET',
-    String(b.health_path ?? '/'), b.expect_status == null ? null : Number(b.expect_status), String(b.description ?? '')
-  );
-  res.status(201).json(svc<WorkbenchService>('workbench').typeById(Number(r.lastInsertRowid)));
-});
-
-app.put('/api/types/:id', (req, res) => {
-  const id = Number(req.params.id);
-  const cur = svc<WorkbenchService>('workbench').typeById(id) as unknown as TypeRow | undefined;
-  if (!cur) throw new HttpError(404, `type not found: ${id}`);
-  const b = req.body ?? {};
-  const next = {
-    name: typeof b.name === 'string' && b.name.trim() ? b.name.trim() : cur.name,
-    icon: b.icon !== undefined ? String(b.icon) : cur.icon,
-    default_port: b.default_port !== undefined ? (b.default_port ?? null) : cur.default_port,
-    health_method: b.health_method ? (b.health_method === 'HEAD' ? 'HEAD' : 'GET') : cur.health_method,
-    health_path: b.health_path !== undefined ? String(b.health_path) : cur.health_path,
-    expect_status: b.expect_status !== undefined ? (b.expect_status == null ? null : Number(b.expect_status)) : cur.expect_status,
-    description: b.description !== undefined ? String(b.description) : cur.description,
-  };
-  if (next.health_path !== cur.health_path) checkTypeHealthPath(next.health_path);
-  if (cur.key === 'web' && (next.health_path !== cur.health_path || next.expect_status !== cur.expect_status)) {
-    bad('内置类型 web 不允许修改探测语义');
-  }
-  svc<WorkbenchService>('workbench').typeUpdate({ ...next, id });
-  res.json(svc<WorkbenchService>('workbench').typeById(id));
-});
-
-app.delete('/api/types/:id', (req, res) => {
-  const id = Number(req.params.id);
-  const cur = svc<WorkbenchService>('workbench').typeById(id) as unknown as TypeRow | undefined;
-  if (!cur) throw new HttpError(404, `type not found: ${id}`);
-  if (cur.key === 'web' || cur.key === 'market-app') bad(`内置类型 ${cur.key} 不允许删除`);
-  const used = svc<WorkbenchService>('workbench').typeUsageCount(cur.key) as { n: number };
-  if (used.n > 0) throw new HttpError(409, `类型 ${cur.key} 仍被 ${used.n} 个工作台使用，先改挂其他类型`);
-  svc<WorkbenchService>('workbench').typeDelete(id);
-  res.json({ ok: true, deleted: id });
-});
+registerTypeRoutes(http);
 
 // ---------- 设置 / 导入导出 ----------
 // ---------- 管理员口令手动设置（本机引导：首次无口令时允许从 loopback 设置） ----------

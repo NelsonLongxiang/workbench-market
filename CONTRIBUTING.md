@@ -18,7 +18,7 @@
 
 | 新增的东西 | 写在哪 | 不要 |
 |---|---|---|
-| 路由 | 按域分的模块，自带注册函数 | 写进 `server/src/index.ts` |
+| 路由 | `server/src/routes/<域>.ts`，自带注册函数，经 HTTP 服务（`http`）注册 | 写进 `server/src/index.ts` |
 | 登录方式 | `server/src/login-providers/` 下的一个插件，登记进那里的清单 | 改核心 |
 | SQL | `server/src/services/` 里对应域的服务 | 写在路由处理函数或别的模块里 |
 | 表、列 | `server/src/db.ts`（幂等迁移） | 在别的文件里建表、改表 |
@@ -47,6 +47,8 @@ pnpm check                           # web 类型检查 + server 语法检查
 
 - 先把东西放到上表说的地方。
 - 改了路由、MCP 工具或表结构：跑 `node scripts/surface-snapshot.mjs --write`，把 `surfaces/` 和代码一起提交。
+- 把路由从 `index.ts` 搬进 `server/src/routes/`：纯移动。搬之前先写好这个域的请求集并录下应答（`node scripts/route-replay-test.mjs --record <域>`，单独提交），搬完之后路由快照和录制回放都必须零差异。
+- 有意改了已搬走的路由的行为：跑 `node scripts/route-replay-test.mjs --record`，把 `surfaces/replay/` 和代码一起提交。
 - 类型错误超了：体检表下面贴着 tsc 的原始报错行，照着改。量法是带空值检查、其余宽松。
 - 带着存量搬家：预算按文件记，把 `index.ts` 里的 SQL 原样挪到新文件会被当成新增。先把 SQL 收进 `services/`，或者走豁免。
 - 确实要破例：在 `tech-route.json` 的 `waivers` 里加一条，五项都要写：规则、哪一项、理由、谁批的、到哪天（`YYYY-MM-DD`）。缺一项体检直接报错；过期不算。
