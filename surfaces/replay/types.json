@@ -142,6 +142,38 @@
           "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "key 必须是小写字母/数字/连字符" } }
         },
         {
+          "id": "create-key-trailing-junk",
+          "route": "POST /api/types",
+          "class": "invalid",
+          "what": "key 开头合规、后面带下划线：整个 key 都要合规，不是只看开头",
+          "request": { "method": "POST", "path": "/api/types", "json": { "key": "a_b", "name": "x" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "key 必须是小写字母/数字/连字符" } }
+        },
+        {
+          "id": "create-key-leading-hyphen",
+          "route": "POST /api/types",
+          "class": "invalid",
+          "what": "key 以连字符开头",
+          "request": { "method": "POST", "path": "/api/types", "json": { "key": "-a", "name": "x" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "key 必须是小写字母/数字/连字符" } }
+        },
+        {
+          "id": "create-key-uppercase",
+          "route": "POST /api/types",
+          "class": "invalid",
+          "what": "key 里有大写字母",
+          "request": { "method": "POST", "path": "/api/types", "json": { "key": "Replay", "name": "x" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "key 必须是小写字母/数字/连字符" } }
+        },
+        {
+          "id": "create-key-not-string",
+          "route": "POST /api/types",
+          "class": "invalid",
+          "what": "key 是数字，不是字符串",
+          "request": { "method": "POST", "path": "/api/types", "json": { "key": 7, "name": "x" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "key 必须是小写字母/数字/连字符" } }
+        },
+        {
           "id": "create-empty-body",
           "route": "POST /api/types",
           "class": "invalid",
@@ -155,6 +187,22 @@
           "class": "invalid",
           "what": "请求体是数组",
           "request": { "method": "POST", "path": "/api/types", "json": [] },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "key 必须是小写字母/数字/连字符" } }
+        },
+        {
+          "id": "create-nonempty-array-body",
+          "route": "POST /api/types",
+          "class": "invalid",
+          "what": "请求体是装着一个对象的数组：不拿里面的对象来用",
+          "request": { "method": "POST", "path": "/api/types", "json": [{ "key": "replay-arr", "name": "x" }] },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "key 必须是小写字母/数字/连字符" } }
+        },
+        {
+          "id": "create-no-body",
+          "route": "POST /api/types",
+          "class": "invalid",
+          "what": "没有请求体",
+          "request": { "method": "POST", "path": "/api/types" },
           "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "key 必须是小写字母/数字/连字符" } }
         },
         {
@@ -174,11 +222,35 @@
           "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "name 不能为空" } }
         },
         {
+          "id": "create-name-not-string",
+          "route": "POST /api/types",
+          "class": "invalid",
+          "what": "name 是数字，不是字符串",
+          "request": { "method": "POST", "path": "/api/types", "json": { "key": "replay-n", "name": 7 } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "name 不能为空" } }
+        },
+        {
           "id": "create-builtin-web",
           "route": "POST /api/types",
           "class": "invalid",
           "what": "覆盖内置类型 web",
           "request": { "method": "POST", "path": "/api/types", "json": { "key": "web", "name": "x" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "44", "etag": "W/\"2c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "内置类型 web 不允许覆盖" } }
+        },
+        {
+          "id": "create-builtin-web-blank-name",
+          "route": "POST /api/types",
+          "class": "invalid",
+          "what": "两处都不对时先报哪一处：name 的检查排在内置类型的检查前面",
+          "request": { "method": "POST", "path": "/api/types", "json": { "key": "web", "name": "   " } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "name 不能为空" } }
+        },
+        {
+          "id": "create-builtin-web-bad-health-path",
+          "route": "POST /api/types",
+          "class": "invalid",
+          "what": "两处都不对时先报哪一处：内置类型的检查排在 health_path 的检查前面",
+          "request": { "method": "POST", "path": "/api/types", "json": { "key": "web", "name": "x", "health_path": "//elsewhere.example/x" } },
           "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "44", "etag": "W/\"2c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "内置类型 web 不允许覆盖" } }
         },
         {
@@ -256,6 +328,19 @@
           "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "类型已存在: replay-min" } }
         },
         {
+          "id": "create-duplicate-bad-health-path",
+          "route": "POST /api/types",
+          "class": "invalid",
+          "what": "两处都不对时先报哪一处：health_path 的检查排在查重前面",
+          "request": { "method": "POST", "path": "/api/types", "json": { "key": "replay-min", "name": "x", "health_path": "//elsewhere.example/x" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "151", "etag": "W/\"97-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "invalid_health_path", "message": "类型 health_path 只收相对路径（绝对 URL 会被所有该类型的台继承成跨 origin 探测）" }
+          }
+        },
+        {
           "id": "create-odd-values",
           "route": "POST /api/types",
           "class": "normal",
@@ -281,6 +366,72 @@
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "182", "etag": "W/\"b6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "id": 13, "key": "replay-nan", "name": "x", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" }
+          }
+        },
+        {
+          "id": "create-digit-first-key",
+          "route": "POST /api/types",
+          "class": "normal",
+          "what": "key 可以数字开头、连字符结尾",
+          "request": { "method": "POST", "path": "/api/types", "json": { "key": "9-x-", "name": "数字开头" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "187", "etag": "W/\"bb-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 14, "key": "9-x-", "name": "数字开头", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" }
+          }
+        },
+        {
+          "id": "create-zero-values",
+          "route": "POST /api/types",
+          "class": "normal",
+          "what": "各字段给 0 和空串：都算给了值，不落到缺省上",
+          "request": { "method": "POST", "path": "/api/types", "json": { "key": "replay-zero", "name": "x", "icon": 0, "default_port": 0, "health_method": "", "health_path": "", "expect_status": 0, "description": 0 } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "178", "etag": "W/\"b2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 15, "key": "replay-zero", "name": "x", "icon": "0", "default_port": 0, "health_method": "GET", "health_path": "", "expect_status": 0, "description": "0", "created_at": "<时间>" }
+          }
+        },
+        {
+          "id": "create-null-values",
+          "route": "POST /api/types",
+          "class": "normal",
+          "what": "各字段明给 null：和没给一样，取缺省",
+          "request": { "method": "POST", "path": "/api/types", "json": { "key": "replay-null", "name": "x", "icon": null, "default_port": null, "health_method": null, "health_path": null, "expect_status": null, "description": null } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "183", "etag": "W/\"b7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 16, "key": "replay-null", "name": "x", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" }
+          }
+        },
+        {
+          "id": "create-text-port",
+          "route": "POST /api/types",
+          "class": "normal",
+          "what": "default_port 是不像数字的字符串，health_method 是小写的 head：端口原样存成文本；小写不算 HEAD",
+          "request": { "method": "POST", "path": "/api/types", "json": { "key": "replay-port", "name": "x", "default_port": "abc", "health_method": "head" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "184", "etag": "W/\"b8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 17, "key": "replay-port", "name": "x", "icon": "", "default_port": "abc", "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" }
+          }
+        },
+        {
+          "id": "create-for-update",
+          "route": "POST /api/types",
+          "class": "normal",
+          "what": "给后面几条 PUT 用：各字段都有值，探测方法是 HEAD",
+          "request": { "method": "POST", "path": "/api/types", "json": { "key": "replay-put", "name": "给 PUT 用", "icon": "🧷", "default_port": 8200, "health_method": "HEAD", "health_path": "/hp", "expect_status": 200, "description": "原样" } },
+          "save": { "putId": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "204", "etag": "W/\"cc-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 18, "key": "replay-put", "name": "给 PUT 用", "icon": "🧷", "default_port": 8200, "health_method": "HEAD", "health_path": "/hp", "expect_status": 200, "description": "原样", "created_at": "<时间>" }
           }
         },
         {
@@ -375,6 +526,110 @@
           }
         },
         {
+          "id": "update-empty-strings",
+          "route": "PUT /api/types/:id",
+          "class": "normal",
+          "what": "各字段给空串：name、health_method 保持原样；icon、health_path、description 改成空串；expect_status 变成 0",
+          "request": { "method": "PUT", "path": "/api/types/{{putId}}", "json": { "name": "", "icon": "", "health_method": "", "health_path": "", "expect_status": "", "description": "" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "189", "etag": "W/\"bd-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 18, "key": "replay-put", "name": "给 PUT 用", "icon": "", "default_port": 8200, "health_method": "HEAD", "health_path": "", "expect_status": 0, "description": "", "created_at": "<时间>" }
+          }
+        },
+        {
+          "id": "update-nulls",
+          "route": "PUT /api/types/:id",
+          "class": "normal",
+          "what": "各字段给 null：name、health_method 保持原样；default_port、expect_status 清空；icon、health_path、description 变成字符串 null",
+          "request": { "method": "PUT", "path": "/api/types/{{putId}}", "json": { "name": null, "icon": null, "default_port": null, "health_method": null, "health_path": null, "expect_status": null, "description": null } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "204", "etag": "W/\"cc-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 18, "key": "replay-put", "name": "给 PUT 用", "icon": "null", "default_port": null, "health_method": "HEAD", "health_path": "null", "expect_status": null, "description": "null", "created_at": "<时间>" }
+          }
+        },
+        {
+          "id": "update-zeros",
+          "route": "PUT /api/types/:id",
+          "class": "normal",
+          "what": "各字段给 0：name、health_method 保持原样；其余都改成 0（文本列里是字符串 0）",
+          "request": { "method": "PUT", "path": "/api/types/{{putId}}", "json": { "name": 0, "icon": 0, "default_port": 0, "health_method": 0, "health_path": 0, "expect_status": 0, "description": 0 } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "189", "etag": "W/\"bd-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 18, "key": "replay-put", "name": "给 PUT 用", "icon": "0", "default_port": 0, "health_method": "HEAD", "health_path": "0", "expect_status": 0, "description": "0", "created_at": "<时间>" }
+          }
+        },
+        {
+          "id": "update-answers-with-stored-row",
+          "route": "PUT /api/types/:id",
+          "class": "normal",
+          "what": "端口给数字样的字符串、name 两头带空白、health_method 给小写的 head：应答是库里的那一行（端口是数字、名字去了空白），小写不算 HEAD",
+          "request": { "method": "PUT", "path": "/api/types/{{putId}}", "json": { "name": "  两头有空白  ", "default_port": "9200", "health_method": "head", "expect_status": "204" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "197", "etag": "W/\"c5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 18, "key": "replay-put", "name": "两头有空白", "icon": "0", "default_port": 9200, "health_method": "GET", "health_path": "0", "expect_status": 204, "description": "0", "created_at": "<时间>" }
+          }
+        },
+        {
+          "id": "update-nonempty-array-body",
+          "route": "PUT /api/types/:id",
+          "class": "normal",
+          "what": "请求体是装着一个对象的数组：不拿里面的对象来用，什么都不改",
+          "request": { "method": "PUT", "path": "/api/types/{{putId}}", "json": [{ "name": "数组里的名字" }] },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "197", "etag": "W/\"c5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 18, "key": "replay-put", "name": "两头有空白", "icon": "0", "default_port": 9200, "health_method": "GET", "health_path": "0", "expect_status": 204, "description": "0", "created_at": "<时间>" }
+          }
+        },
+        {
+          "id": "update-no-body",
+          "route": "PUT /api/types/:id",
+          "class": "normal",
+          "what": "没有请求体：什么都不改，照样回这一行",
+          "request": { "method": "PUT", "path": "/api/types/{{putId}}" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "197", "etag": "W/\"c5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 18, "key": "replay-put", "name": "两头有空白", "icon": "0", "default_port": 9200, "health_method": "GET", "health_path": "0", "expect_status": 204, "description": "0", "created_at": "<时间>" }
+          }
+        },
+        {
+          "id": "update-key-ignored",
+          "route": "PUT /api/types/:id",
+          "class": "normal",
+          "what": "请求体里带 key：key 改不了，别的字段照改",
+          "request": { "method": "PUT", "path": "/api/types/{{putId}}", "json": { "key": "renamed", "description": "带了 key 也不改 key" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "220", "etag": "W/\"dc-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 18, "key": "replay-put", "name": "两头有空白", "icon": "0", "default_port": 9200, "health_method": "GET", "health_path": "0", "expect_status": 204, "description": "带了 key 也不改 key", "created_at": "<时间>" }
+          }
+        },
+        {
+          "id": "update-rejected-writes-nothing",
+          "route": "PUT /api/types/:id",
+          "class": "invalid",
+          "what": "被拒的 PUT 什么都不落库：同一个请求里别的字段是合规的，这一行也保持原样（看 list-after）",
+          "request": { "method": "PUT", "path": "/api/types/{{putId}}", "json": { "key": "renamed", "name": "不该落库", "description": "不该落库", "health_path": "//elsewhere.example/x" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "151", "etag": "W/\"97-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "invalid_health_path", "message": "类型 health_path 只收相对路径（绝对 URL 会被所有该类型的台继承成跨 origin 探测）" }
+          }
+        },
+        {
           "id": "update-missing",
           "route": "PUT /api/types/:id",
           "class": "invalid",
@@ -388,6 +643,35 @@
           "class": "invalid",
           "what": "id 不是数字",
           "request": { "method": "PUT", "path": "/api/types/abc", "json": { "name": "x" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "type not found: NaN" } }
+        },
+        {
+          "id": "update-hex-id",
+          "route": "PUT /api/types/:id",
+          "class": "normal",
+          "what": "id 写成 0x1：按数字读是 1，改到的是内置类型 web",
+          "request": { "method": "PUT", "path": "/api/types/0x1", "json": { "description": "经 0x1 改的描述" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "217", "etag": "W/\"d9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "经 0x1 改的描述", "created_at": "<时间>" }
+          }
+        },
+        {
+          "id": "update-fractional-id",
+          "route": "PUT /api/types/:id",
+          "class": "invalid",
+          "what": "id 写成 1.5：不截成 1，没有这一行",
+          "request": { "method": "PUT", "path": "/api/types/1.5", "json": { "description": "不该改到" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "type not found: 1.5" } }
+        },
+        {
+          "id": "update-trailing-junk-id",
+          "route": "PUT /api/types/:id",
+          "class": "invalid",
+          "what": "id 是数字后面跟着字母：不截成前面的数字，没有这一行",
+          "request": { "method": "PUT", "path": "/api/types/{{putId}}abc", "json": { "description": "不该改到" } },
           "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "type not found: NaN" } }
         },
         {
@@ -420,6 +704,19 @@
           "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "56", "etag": "W/\"38-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "内置类型 web 不允许修改探测语义" } }
         },
         {
+          "id": "update-builtin-web-bad-health-path",
+          "route": "PUT /api/types/:id",
+          "class": "invalid",
+          "what": "两处都不对时先报哪一处：health_path 的检查排在内置类型的检查前面",
+          "request": { "method": "PUT", "path": "/api/types/1", "json": { "health_path": "//elsewhere.example/x" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "151", "etag": "W/\"97-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "invalid_health_path", "message": "类型 health_path 只收相对路径（绝对 URL 会被所有该类型的台继承成跨 origin 探测）" }
+          }
+        },
+        {
           "id": "update-builtin-web-description",
           "route": "PUT /api/types/:id",
           "class": "normal",
@@ -445,6 +742,13 @@
           "what": "布置现场：登记一个用 replay-min 类型的台（借工作台域的路由，只比状态码）",
           "compare": "status",
           "request": { "method": "POST", "path": "/api/workbenches", "json": { "name": "回放用的台", "url": "http://127.0.0.1:9990/replay", "type": "replay-min" } },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "use-web-type",
+          "what": "布置现场：再登记一个用内置类型 web 的台（借工作台域的路由，只比状态码）。这样删 web 时「内置」和「还有台在用」两条都成立，看先报哪一条",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/workbenches", "json": { "name": "回放用的台·web", "url": "http://127.0.0.1:9991/replay", "type": "web" } },
           "response": { "status": 201 }
         },
         {
@@ -477,10 +781,34 @@
           "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "type not found: NaN" } }
         },
         {
+          "id": "delete-hex-id",
+          "route": "DELETE /api/types/:id",
+          "class": "invalid",
+          "what": "id 写成 0x1：按数字读是 1，是内置类型 web，不许删",
+          "request": { "method": "DELETE", "path": "/api/types/0x1" },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "44", "etag": "W/\"2c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "内置类型 web 不允许删除" } }
+        },
+        {
+          "id": "delete-fractional-id",
+          "route": "DELETE /api/types/:id",
+          "class": "invalid",
+          "what": "id 写成 1.5：不截成 1，没有这一行",
+          "request": { "method": "DELETE", "path": "/api/types/1.5" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "type not found: 1.5" } }
+        },
+        {
+          "id": "delete-trailing-junk-id",
+          "route": "DELETE /api/types/:id",
+          "class": "invalid",
+          "what": "id 是数字后面跟着字母：不截成前面的数字，没有这一行",
+          "request": { "method": "DELETE", "path": "/api/types/{{putId}}abc" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "type not found: NaN" } }
+        },
+        {
           "id": "delete-builtin-web",
           "route": "DELETE /api/types/:id",
           "class": "invalid",
-          "what": "删内置类型 web",
+          "what": "删内置类型 web：这时还有台在用它，先报的是「内置」（内置的检查排在占用的检查前面）",
           "request": { "method": "DELETE", "path": "/api/types/1" },
           "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "44", "etag": "W/\"2c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "内置类型 web 不允许删除" } }
         },
@@ -520,12 +848,12 @@
           "id": "list-after",
           "route": "GET /api/types",
           "class": "normal",
-          "what": "写完之后的样子：web 的描述改了，replay-full 没了，replay-min、replay-odd、replay-nan 是改过的值",
+          "what": "写完之后的样子：web 的描述改了，replay-full 没了，其余新建的类型是各自最后一次改过的值",
           "request": { "method": "GET", "path": "/api/types" },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "2698", "etag": "W/\"a8a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "3655", "etag": "W/\"e47-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "回放时改过描述", "created_at": "<时间>" },
               { "id": 2, "key": "openai-api", "name": "OpenAI 兼容 API", "icon": "🤖", "default_port": 8000, "health_method": "GET", "health_path": "/v1/models", "expect_status": null, "description": "兼容 OpenAI 接口的服务（401 也算存活）", "created_at": "<时间>" },
@@ -538,7 +866,12 @@
               { "id": 9, "key": "market-app", "name": "市场自产台", "icon": "🧩", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "市场内置静态托管（POST /api/apps 发布），服务存活即在线", "created_at": "<时间>" },
               { "id": 11, "key": "replay-min", "name": "回放·最少字段", "icon": "", "default_port": 9000, "health_method": "HEAD", "health_path": "/", "expect_status": 204, "description": "只改描述", "created_at": "<时间>" },
               { "id": 12, "key": "replay-odd", "name": "x", "icon": "8", "default_port": 8125, "health_method": "GET", "health_path": "no-leading-slash", "expect_status": null, "description": "null", "created_at": "<时间>" },
-              { "id": 13, "key": "replay-nan", "name": "x", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" }
+              { "id": 13, "key": "replay-nan", "name": "x", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" },
+              { "id": 14, "key": "9-x-", "name": "数字开头", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" },
+              { "id": 15, "key": "replay-zero", "name": "x", "icon": "0", "default_port": 0, "health_method": "GET", "health_path": "", "expect_status": 0, "description": "0", "created_at": "<时间>" },
+              { "id": 16, "key": "replay-null", "name": "x", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" },
+              { "id": 17, "key": "replay-port", "name": "x", "icon": "", "default_port": "abc", "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" },
+              { "id": 18, "key": "replay-put", "name": "两头有空白", "icon": "0", "default_port": 9200, "health_method": "GET", "health_path": "0", "expect_status": 204, "description": "带了 key 也不改 key", "created_at": "<时间>" }
             ]
           }
         }
