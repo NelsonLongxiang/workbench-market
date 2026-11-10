@@ -11,7 +11,7 @@
  *
  * 录什么、比什么：状态码、内容类型、其余的响应头、响应体。每次都不一样的东西不比：
  *   · Date、Connection、Keep-Alive 这三个头不录（传输层的，随时间和客户端变）；
- *   · 时间换成占位（响应体和响应头里的都换）；
+ *   · 时间里的数字换成占位，写法留着（中间是空格还是 T、小数秒几位、带不带 Z），所以写法变了看得出来；响应体和响应头里的都换；
  *   · 按内容算出来的 ETag 只留长度，后半段换成占位（响应体里有时间，那一段每次都变；响应体本身另外比）。
  *
  * 覆盖要求，不满足就直接失败、不起实例：
@@ -155,10 +155,18 @@ export function fill(value, vars) {
   return value;
 }
 
-const DATETIME = /\b\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?/g;
+const DATETIME = /\b\d{4}-\d{2}-\d{2}([ T])\d{2}:\d{2}:\d{2}(?:\.(\d+))?(Z?)/g;
+/**
+ * 时间每次都不一样：数字换成字母占位，写法原样留着（中间是空格还是 T、小数秒几位、带不带 Z），长度也不变。
+ * 整个换成同一个占位的话，时间的写法变了（比如空格换成 T）是看不出来的。
+ */
+export function maskTime(text) {
+  return String(text).replace(DATETIME, (_all, sep, fraction, zone) => `YYYY-MM-DD${sep}hh:mm:ss${fraction ? `.${'f'.repeat(fraction.length)}` : ''}${zone}`);
+}
+
 /** 响应体里每次都不一样的东西只有时间：换成占位。别的一律原样比较。 */
 export function steady(value) {
-  if (typeof value === 'string') return value.replace(DATETIME, '<时间>');
+  if (typeof value === 'string') return maskTime(value);
   if (Array.isArray(value)) return value.map(steady);
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, steady(v)]));
   return value;
@@ -166,7 +174,7 @@ export function steady(value) {
 
 // 传输层的头：随时间、随客户端怎么用连接而变，不是路由的行为
 const TRANSPORT_HEADERS = new Set(['date', 'connection', 'keep-alive']);
-// 头里的时间是 HTTP 的写法（Expires、Last-Modified、Set-Cookie 的 Expires=）
+// 头里的时间多半是 HTTP 的写法（Expires、Last-Modified、Set-Cookie 的 Expires=）。这种写法只有一种，整个换成 <时间>
 const HTTP_DATE = /\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT\b/g;
 // 按内容算出来的 ETag 是「长度-内容的指纹或改动时间」。响应体里有时间，后半段每次都变；长度留着比
 const DERIVED_ETAG = /^(W\/)?"([0-9a-f]+)-[^"]+"$/;
@@ -176,7 +184,7 @@ export function steadyHeaders(headers) {
   const out = {};
   for (const name of Object.keys(headers ?? {}).sort()) {
     if (TRANSPORT_HEADERS.has(name)) continue;
-    const one = (v) => (name === 'etag' ? String(v).replace(DERIVED_ETAG, '$1"$2-<指纹>"') : String(v).replace(HTTP_DATE, '<时间>').replace(DATETIME, '<时间>'));
+    const one = (v) => (name === 'etag' ? String(v).replace(DERIVED_ETAG, '$1"$2-<指纹>"') : maskTime(String(v).replace(HTTP_DATE, '<时间>')));
     out[name] = Array.isArray(headers[name]) ? headers[name].map(one) : one(headers[name]);
   }
   return out;
@@ -409,7 +417,9 @@ async function selftest() {
   check(fill({ path: '/api/x/{{id}}', n: [1, '{{id}}'] }, { id: 7 }).path === '/api/x/7' && fill(['{{id}}'], { id: 7 })[0] === '7', '变量：路径和请求体里都能代入');
   let threw = false; try { fill('/api/x/{{nope}}', {}); } catch { threw = true; }
   check(threw, '变量：没存过的变量直接报错');
-  check(steady({ at: '2026-01-02 03:04:05', iso: 'x 2026-01-02T03:04:05.678Z y', n: 1 }).at === '<时间>' && steady('x 2026-01-02T03:04:05.678Z y') === 'x <时间> y', '整理：只把时间换成占位');
+  check(steady({ at: '2026-01-02 03:04:05', n: 1 }).at === 'YYYY-MM-DD hh:mm:ss' && steady({ at: '2026-01-02 03:04:05', n: 1 }).n === 1 && steady('x 2026-01-02T03:04:05.678Z y') === 'x YYYY-MM-DDThh:mm:ss.fffZ y', '整理：只把时间里的数字换成占位，别的原样');
+  const stamps = ['2026-01-02 03:04:05', '2026-01-02T03:04:05', '2026-01-02T03:04:05Z', '2026-01-02T03:04:05.6Z', '2026-01-02T03:04:05.678Z'];
+  check(new Set(stamps.map(steady)).size === stamps.length && stamps.every((t) => steady(t).length === t.length) && steady('2026-01-02 03:04:05') === steady('1999-12-31 23:59:59'), '整理：时间的写法不同，占位也不同（空格还是 T、小数秒几位、带不带 Z）；写法相同的两个时间占位相同；长度不变');
   const heads = { 'set-cookie': ['sid=abc; HttpOnly', 'theme=dark'], vary: 'Origin' };
   const body = { a: 1, list: [{ k: 'v' }] };
   const recorded = { response: { status: 200, type: 'application/json', headers: heads, body } };
@@ -446,7 +456,7 @@ async function selftest() {
     check(moved.headers['set-cookie']?.length === 2 && moved.headers['set-cookie'][0] === 'sid=abc; Path=/; Expires=<时间>; HttpOnly' && moved.headers['set-cookie'][1] === 'theme=dark; Path=/' && moved.headers['cache-control'] === 'no-store', '发请求：两条 Set-Cookie 各录一条，Cache-Control 原样录下');
     const json = steadyResponse(await send(base, { method: 'GET', path: '/json', headers: { 'x-echo': '{{v}}' } }, { v: 'hi' }));
     check(json.type === 'application/json; charset=utf-8' && !('content-type' in json.headers) && !('date' in json.headers) && !('connection' in json.headers), '发请求：内容类型记在 type 里；Date、Connection 不录');
-    check(json.headers.etag === 'W/"2f-<指纹>"' && json.body.at === '<时间>' && json.body.echo === 'hi', '发请求：请求头里的变量代入了；应答里的时间和 ETag 的后半段换成了占位');
+    check(json.headers.etag === 'W/"2f-<指纹>"' && json.body.at === 'YYYY-MM-DD hh:mm:ss' && json.body.echo === 'hi', '发请求：请求头里的变量代入了；应答里的时间和 ETag 的后半段换成了占位');
   } finally { wire.closeAllConnections(); wire.close(); }
   const sample = { a: [{ id: 1, name: 'x' }], b: {}, c: [] };
   check(JSON.stringify(JSON.parse(render(sample))) === JSON.stringify(sample), '写文件：写出来的是同一份 JSON');
@@ -463,7 +473,7 @@ async function selftest() {
   ];
   const tape = steps();
   await runSteps(tape, fake({ id: 7 }), true);
-  check(tape.every((s) => s.response) && tape[1].response.body.at === '<时间>' && tape[2].response.status === 404, '录制：每条请求都写进了应答，时间已换成占位');
+  check(tape.every((s) => s.response) && tape[1].response.body.at === 'YYYY-MM-DD hh:mm:ss' && tape[2].response.status === 404, '录制：每条请求都写进了应答，时间已换成占位');
   check((await runSteps(tape, fake({ id: 7 }))).every((r) => r.diffs.length === 0), '回放：行为没变，零差异');
   const moved = await runSteps(tape, fake({ id: 8 }));
   check(moved.filter((r) => r.diffs.length).map((r) => r.step.id).join() === 'create,read', '回放：行为变了，变了的那几条报出来，没变的不报');

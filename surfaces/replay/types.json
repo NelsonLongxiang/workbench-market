@@ -20,15 +20,15 @@
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "2110", "etag": "W/\"83e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
-              { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "任意 HTTP 响应即视为在线", "created_at": "<时间>" },
-              { "id": 2, "key": "openai-api", "name": "OpenAI 兼容 API", "icon": "🤖", "default_port": 8000, "health_method": "GET", "health_path": "/v1/models", "expect_status": null, "description": "兼容 OpenAI 接口的服务（401 也算存活）", "created_at": "<时间>" },
-              { "id": 3, "key": "ollama", "name": "Ollama 服务", "icon": "🦙", "default_port": 11434, "health_method": "GET", "health_path": "/api/tags", "expect_status": 200, "description": "本地模型服务", "created_at": "<时间>" },
-              { "id": 4, "key": "gradio", "name": "Gradio 应用", "icon": "🎨", "default_port": 7860, "health_method": "GET", "health_path": "/config", "expect_status": null, "description": "Gradio WebUI 应用", "created_at": "<时间>" },
-              { "id": 5, "key": "streamlit", "name": "Streamlit 应用", "icon": "📊", "default_port": 8501, "health_method": "GET", "health_path": "/_stcore/health", "expect_status": 200, "description": "Streamlit 数据应用", "created_at": "<时间>" },
-              { "id": 6, "key": "jupyter", "name": "Jupyter 服务", "icon": "📓", "default_port": 8888, "health_method": "GET", "health_path": "/api", "expect_status": null, "description": "Jupyter Notebook / Lab", "created_at": "<时间>" },
-              { "id": 7, "key": "mcp-sse", "name": "MCP SSE 端点", "icon": "🔌", "default_port": 3000, "health_method": "GET", "health_path": "/sse", "expect_status": null, "description": "MCP Server-Sent Events 端点", "created_at": "<时间>" },
-              { "id": 8, "key": "docs", "name": "文档站", "icon": "📚", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "静态文档 / 知识库站点", "created_at": "<时间>" },
-              { "id": 9, "key": "market-app", "name": "市场自产台", "icon": "🧩", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "市场内置静态托管（POST /api/apps 发布），服务存活即在线", "created_at": "<时间>" }
+              { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "任意 HTTP 响应即视为在线", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 2, "key": "openai-api", "name": "OpenAI 兼容 API", "icon": "🤖", "default_port": 8000, "health_method": "GET", "health_path": "/v1/models", "expect_status": null, "description": "兼容 OpenAI 接口的服务（401 也算存活）", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 3, "key": "ollama", "name": "Ollama 服务", "icon": "🦙", "default_port": 11434, "health_method": "GET", "health_path": "/api/tags", "expect_status": 200, "description": "本地模型服务", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 4, "key": "gradio", "name": "Gradio 应用", "icon": "🎨", "default_port": 7860, "health_method": "GET", "health_path": "/config", "expect_status": null, "description": "Gradio WebUI 应用", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 5, "key": "streamlit", "name": "Streamlit 应用", "icon": "📊", "default_port": 8501, "health_method": "GET", "health_path": "/_stcore/health", "expect_status": 200, "description": "Streamlit 数据应用", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 6, "key": "jupyter", "name": "Jupyter 服务", "icon": "📓", "default_port": 8888, "health_method": "GET", "health_path": "/api", "expect_status": null, "description": "Jupyter Notebook / Lab", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 7, "key": "mcp-sse", "name": "MCP SSE 端点", "icon": "🔌", "default_port": 3000, "health_method": "GET", "health_path": "/sse", "expect_status": null, "description": "MCP Server-Sent Events 端点", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 8, "key": "docs", "name": "文档站", "icon": "📚", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "静态文档 / 知识库站点", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 9, "key": "market-app", "name": "市场自产台", "icon": "🧩", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "市场内置静态托管（POST /api/apps 发布），服务存活即在线", "created_at": "YYYY-MM-DD hh:mm:ss" }
             ]
           }
         },
@@ -43,15 +43,15 @@
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "2110", "etag": "W/\"83e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
-              { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "任意 HTTP 响应即视为在线", "created_at": "<时间>" },
-              { "id": 2, "key": "openai-api", "name": "OpenAI 兼容 API", "icon": "🤖", "default_port": 8000, "health_method": "GET", "health_path": "/v1/models", "expect_status": null, "description": "兼容 OpenAI 接口的服务（401 也算存活）", "created_at": "<时间>" },
-              { "id": 3, "key": "ollama", "name": "Ollama 服务", "icon": "🦙", "default_port": 11434, "health_method": "GET", "health_path": "/api/tags", "expect_status": 200, "description": "本地模型服务", "created_at": "<时间>" },
-              { "id": 4, "key": "gradio", "name": "Gradio 应用", "icon": "🎨", "default_port": 7860, "health_method": "GET", "health_path": "/config", "expect_status": null, "description": "Gradio WebUI 应用", "created_at": "<时间>" },
-              { "id": 5, "key": "streamlit", "name": "Streamlit 应用", "icon": "📊", "default_port": 8501, "health_method": "GET", "health_path": "/_stcore/health", "expect_status": 200, "description": "Streamlit 数据应用", "created_at": "<时间>" },
-              { "id": 6, "key": "jupyter", "name": "Jupyter 服务", "icon": "📓", "default_port": 8888, "health_method": "GET", "health_path": "/api", "expect_status": null, "description": "Jupyter Notebook / Lab", "created_at": "<时间>" },
-              { "id": 7, "key": "mcp-sse", "name": "MCP SSE 端点", "icon": "🔌", "default_port": 3000, "health_method": "GET", "health_path": "/sse", "expect_status": null, "description": "MCP Server-Sent Events 端点", "created_at": "<时间>" },
-              { "id": 8, "key": "docs", "name": "文档站", "icon": "📚", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "静态文档 / 知识库站点", "created_at": "<时间>" },
-              { "id": 9, "key": "market-app", "name": "市场自产台", "icon": "🧩", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "市场内置静态托管（POST /api/apps 发布），服务存活即在线", "created_at": "<时间>" }
+              { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "任意 HTTP 响应即视为在线", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 2, "key": "openai-api", "name": "OpenAI 兼容 API", "icon": "🤖", "default_port": 8000, "health_method": "GET", "health_path": "/v1/models", "expect_status": null, "description": "兼容 OpenAI 接口的服务（401 也算存活）", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 3, "key": "ollama", "name": "Ollama 服务", "icon": "🦙", "default_port": 11434, "health_method": "GET", "health_path": "/api/tags", "expect_status": 200, "description": "本地模型服务", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 4, "key": "gradio", "name": "Gradio 应用", "icon": "🎨", "default_port": 7860, "health_method": "GET", "health_path": "/config", "expect_status": null, "description": "Gradio WebUI 应用", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 5, "key": "streamlit", "name": "Streamlit 应用", "icon": "📊", "default_port": 8501, "health_method": "GET", "health_path": "/_stcore/health", "expect_status": 200, "description": "Streamlit 数据应用", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 6, "key": "jupyter", "name": "Jupyter 服务", "icon": "📓", "default_port": 8888, "health_method": "GET", "health_path": "/api", "expect_status": null, "description": "Jupyter Notebook / Lab", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 7, "key": "mcp-sse", "name": "MCP SSE 端点", "icon": "🔌", "default_port": 3000, "health_method": "GET", "health_path": "/sse", "expect_status": null, "description": "MCP Server-Sent Events 端点", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 8, "key": "docs", "name": "文档站", "icon": "📚", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "静态文档 / 知识库站点", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 9, "key": "market-app", "name": "市场自产台", "icon": "🧩", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "市场内置静态托管（POST /api/apps 发布），服务存活即在线", "created_at": "YYYY-MM-DD hh:mm:ss" }
             ]
           }
         },
@@ -66,15 +66,15 @@
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "2110", "etag": "W/\"83e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
-              { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "任意 HTTP 响应即视为在线", "created_at": "<时间>" },
-              { "id": 2, "key": "openai-api", "name": "OpenAI 兼容 API", "icon": "🤖", "default_port": 8000, "health_method": "GET", "health_path": "/v1/models", "expect_status": null, "description": "兼容 OpenAI 接口的服务（401 也算存活）", "created_at": "<时间>" },
-              { "id": 3, "key": "ollama", "name": "Ollama 服务", "icon": "🦙", "default_port": 11434, "health_method": "GET", "health_path": "/api/tags", "expect_status": 200, "description": "本地模型服务", "created_at": "<时间>" },
-              { "id": 4, "key": "gradio", "name": "Gradio 应用", "icon": "🎨", "default_port": 7860, "health_method": "GET", "health_path": "/config", "expect_status": null, "description": "Gradio WebUI 应用", "created_at": "<时间>" },
-              { "id": 5, "key": "streamlit", "name": "Streamlit 应用", "icon": "📊", "default_port": 8501, "health_method": "GET", "health_path": "/_stcore/health", "expect_status": 200, "description": "Streamlit 数据应用", "created_at": "<时间>" },
-              { "id": 6, "key": "jupyter", "name": "Jupyter 服务", "icon": "📓", "default_port": 8888, "health_method": "GET", "health_path": "/api", "expect_status": null, "description": "Jupyter Notebook / Lab", "created_at": "<时间>" },
-              { "id": 7, "key": "mcp-sse", "name": "MCP SSE 端点", "icon": "🔌", "default_port": 3000, "health_method": "GET", "health_path": "/sse", "expect_status": null, "description": "MCP Server-Sent Events 端点", "created_at": "<时间>" },
-              { "id": 8, "key": "docs", "name": "文档站", "icon": "📚", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "静态文档 / 知识库站点", "created_at": "<时间>" },
-              { "id": 9, "key": "market-app", "name": "市场自产台", "icon": "🧩", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "市场内置静态托管（POST /api/apps 发布），服务存活即在线", "created_at": "<时间>" }
+              { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "任意 HTTP 响应即视为在线", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 2, "key": "openai-api", "name": "OpenAI 兼容 API", "icon": "🤖", "default_port": 8000, "health_method": "GET", "health_path": "/v1/models", "expect_status": null, "description": "兼容 OpenAI 接口的服务（401 也算存活）", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 3, "key": "ollama", "name": "Ollama 服务", "icon": "🦙", "default_port": 11434, "health_method": "GET", "health_path": "/api/tags", "expect_status": 200, "description": "本地模型服务", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 4, "key": "gradio", "name": "Gradio 应用", "icon": "🎨", "default_port": 7860, "health_method": "GET", "health_path": "/config", "expect_status": null, "description": "Gradio WebUI 应用", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 5, "key": "streamlit", "name": "Streamlit 应用", "icon": "📊", "default_port": 8501, "health_method": "GET", "health_path": "/_stcore/health", "expect_status": 200, "description": "Streamlit 数据应用", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 6, "key": "jupyter", "name": "Jupyter 服务", "icon": "📓", "default_port": 8888, "health_method": "GET", "health_path": "/api", "expect_status": null, "description": "Jupyter Notebook / Lab", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 7, "key": "mcp-sse", "name": "MCP SSE 端点", "icon": "🔌", "default_port": 3000, "health_method": "GET", "health_path": "/sse", "expect_status": null, "description": "MCP Server-Sent Events 端点", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 8, "key": "docs", "name": "文档站", "icon": "📚", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "静态文档 / 知识库站点", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 9, "key": "market-app", "name": "市场自产台", "icon": "🧩", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "市场内置静态托管（POST /api/apps 发布），服务存活即在线", "created_at": "YYYY-MM-DD hh:mm:ss" }
             ]
           }
         },
@@ -89,15 +89,15 @@
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "2110", "etag": "W/\"83e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
-              { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "任意 HTTP 响应即视为在线", "created_at": "<时间>" },
-              { "id": 2, "key": "openai-api", "name": "OpenAI 兼容 API", "icon": "🤖", "default_port": 8000, "health_method": "GET", "health_path": "/v1/models", "expect_status": null, "description": "兼容 OpenAI 接口的服务（401 也算存活）", "created_at": "<时间>" },
-              { "id": 3, "key": "ollama", "name": "Ollama 服务", "icon": "🦙", "default_port": 11434, "health_method": "GET", "health_path": "/api/tags", "expect_status": 200, "description": "本地模型服务", "created_at": "<时间>" },
-              { "id": 4, "key": "gradio", "name": "Gradio 应用", "icon": "🎨", "default_port": 7860, "health_method": "GET", "health_path": "/config", "expect_status": null, "description": "Gradio WebUI 应用", "created_at": "<时间>" },
-              { "id": 5, "key": "streamlit", "name": "Streamlit 应用", "icon": "📊", "default_port": 8501, "health_method": "GET", "health_path": "/_stcore/health", "expect_status": 200, "description": "Streamlit 数据应用", "created_at": "<时间>" },
-              { "id": 6, "key": "jupyter", "name": "Jupyter 服务", "icon": "📓", "default_port": 8888, "health_method": "GET", "health_path": "/api", "expect_status": null, "description": "Jupyter Notebook / Lab", "created_at": "<时间>" },
-              { "id": 7, "key": "mcp-sse", "name": "MCP SSE 端点", "icon": "🔌", "default_port": 3000, "health_method": "GET", "health_path": "/sse", "expect_status": null, "description": "MCP Server-Sent Events 端点", "created_at": "<时间>" },
-              { "id": 8, "key": "docs", "name": "文档站", "icon": "📚", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "静态文档 / 知识库站点", "created_at": "<时间>" },
-              { "id": 9, "key": "market-app", "name": "市场自产台", "icon": "🧩", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "市场内置静态托管（POST /api/apps 发布），服务存活即在线", "created_at": "<时间>" }
+              { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "任意 HTTP 响应即视为在线", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 2, "key": "openai-api", "name": "OpenAI 兼容 API", "icon": "🤖", "default_port": 8000, "health_method": "GET", "health_path": "/v1/models", "expect_status": null, "description": "兼容 OpenAI 接口的服务（401 也算存活）", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 3, "key": "ollama", "name": "Ollama 服务", "icon": "🦙", "default_port": 11434, "health_method": "GET", "health_path": "/api/tags", "expect_status": 200, "description": "本地模型服务", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 4, "key": "gradio", "name": "Gradio 应用", "icon": "🎨", "default_port": 7860, "health_method": "GET", "health_path": "/config", "expect_status": null, "description": "Gradio WebUI 应用", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 5, "key": "streamlit", "name": "Streamlit 应用", "icon": "📊", "default_port": 8501, "health_method": "GET", "health_path": "/_stcore/health", "expect_status": 200, "description": "Streamlit 数据应用", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 6, "key": "jupyter", "name": "Jupyter 服务", "icon": "📓", "default_port": 8888, "health_method": "GET", "health_path": "/api", "expect_status": null, "description": "Jupyter Notebook / Lab", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 7, "key": "mcp-sse", "name": "MCP SSE 端点", "icon": "🔌", "default_port": 3000, "health_method": "GET", "health_path": "/sse", "expect_status": null, "description": "MCP Server-Sent Events 端点", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 8, "key": "docs", "name": "文档站", "icon": "📚", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "静态文档 / 知识库站点", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 9, "key": "market-app", "name": "市场自产台", "icon": "🧩", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "市场内置静态托管（POST /api/apps 发布），服务存活即在线", "created_at": "YYYY-MM-DD hh:mm:ss" }
             ]
           }
         },
@@ -302,7 +302,7 @@
             "status": 201,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "225", "etag": "W/\"e1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 10, "key": "replay-full", "name": "回放·全字段", "icon": "🧪", "default_port": 8123, "health_method": "HEAD", "health_path": "/healthz", "expect_status": 204, "description": "录制回放用", "created_at": "<时间>" }
+            "body": { "id": 10, "key": "replay-full", "name": "回放·全字段", "icon": "🧪", "default_port": 8123, "health_method": "HEAD", "health_path": "/healthz", "expect_status": 204, "description": "录制回放用", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -316,7 +316,7 @@
             "status": 201,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "201", "etag": "W/\"c9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 11, "key": "replay-min", "name": "回放·最少字段", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" }
+            "body": { "id": 11, "key": "replay-min", "name": "回放·最少字段", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -351,7 +351,7 @@
             "status": 201,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "199", "etag": "W/\"c7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 12, "key": "replay-odd", "name": "x", "icon": "7", "default_port": 8125, "health_method": "GET", "health_path": "no-leading-slash", "expect_status": 204, "description": "42", "created_at": "<时间>" }
+            "body": { "id": 12, "key": "replay-odd", "name": "x", "icon": "7", "default_port": 8125, "health_method": "GET", "health_path": "no-leading-slash", "expect_status": 204, "description": "42", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -365,7 +365,7 @@
             "status": 201,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "182", "etag": "W/\"b6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 13, "key": "replay-nan", "name": "x", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" }
+            "body": { "id": 13, "key": "replay-nan", "name": "x", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -378,7 +378,7 @@
             "status": 201,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "187", "etag": "W/\"bb-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 14, "key": "9-x-", "name": "数字开头", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" }
+            "body": { "id": 14, "key": "9-x-", "name": "数字开头", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -391,7 +391,7 @@
             "status": 201,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "178", "etag": "W/\"b2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 15, "key": "replay-zero", "name": "x", "icon": "0", "default_port": 0, "health_method": "GET", "health_path": "", "expect_status": 0, "description": "0", "created_at": "<时间>" }
+            "body": { "id": 15, "key": "replay-zero", "name": "x", "icon": "0", "default_port": 0, "health_method": "GET", "health_path": "", "expect_status": 0, "description": "0", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -404,7 +404,7 @@
             "status": 201,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "183", "etag": "W/\"b7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 16, "key": "replay-null", "name": "x", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" }
+            "body": { "id": 16, "key": "replay-null", "name": "x", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -417,7 +417,7 @@
             "status": 201,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "184", "etag": "W/\"b8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 17, "key": "replay-port", "name": "x", "icon": "", "default_port": "abc", "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" }
+            "body": { "id": 17, "key": "replay-port", "name": "x", "icon": "", "default_port": "abc", "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -431,7 +431,7 @@
             "status": 201,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "204", "etag": "W/\"cc-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 18, "key": "replay-put", "name": "给 PUT 用", "icon": "🧷", "default_port": 8200, "health_method": "HEAD", "health_path": "/hp", "expect_status": 200, "description": "原样", "created_at": "<时间>" }
+            "body": { "id": 18, "key": "replay-put", "name": "给 PUT 用", "icon": "🧷", "default_port": 8200, "health_method": "HEAD", "health_path": "/hp", "expect_status": 200, "description": "原样", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -457,7 +457,7 @@
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "217", "etag": "W/\"d9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 10, "key": "replay-full", "name": "回放·改名", "icon": "🔧", "default_port": null, "health_method": "GET", "health_path": "/ready", "expect_status": null, "description": "改过一次", "created_at": "<时间>" }
+            "body": { "id": 10, "key": "replay-full", "name": "回放·改名", "icon": "🔧", "default_port": null, "health_method": "GET", "health_path": "/ready", "expect_status": null, "description": "改过一次", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -470,7 +470,7 @@
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "213", "etag": "W/\"d5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 11, "key": "replay-min", "name": "回放·最少字段", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "只改描述", "created_at": "<时间>" }
+            "body": { "id": 11, "key": "replay-min", "name": "回放·最少字段", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "只改描述", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -483,7 +483,7 @@
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "213", "etag": "W/\"d5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 11, "key": "replay-min", "name": "回放·最少字段", "icon": "", "default_port": 9000, "health_method": "HEAD", "health_path": "/", "expect_status": 204, "description": "只改描述", "created_at": "<时间>" }
+            "body": { "id": 11, "key": "replay-min", "name": "回放·最少字段", "icon": "", "default_port": 9000, "health_method": "HEAD", "health_path": "/", "expect_status": 204, "description": "只改描述", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -496,7 +496,7 @@
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "213", "etag": "W/\"d5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 11, "key": "replay-min", "name": "回放·最少字段", "icon": "", "default_port": 9000, "health_method": "HEAD", "health_path": "/", "expect_status": 204, "description": "只改描述", "created_at": "<时间>" }
+            "body": { "id": 11, "key": "replay-min", "name": "回放·最少字段", "icon": "", "default_port": 9000, "health_method": "HEAD", "health_path": "/", "expect_status": 204, "description": "只改描述", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -509,7 +509,7 @@
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "201", "etag": "W/\"c9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 12, "key": "replay-odd", "name": "x", "icon": "8", "default_port": 8125, "health_method": "GET", "health_path": "no-leading-slash", "expect_status": 301, "description": "null", "created_at": "<时间>" }
+            "body": { "id": 12, "key": "replay-odd", "name": "x", "icon": "8", "default_port": 8125, "health_method": "GET", "health_path": "no-leading-slash", "expect_status": 301, "description": "null", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -522,7 +522,7 @@
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "202", "etag": "W/\"ca-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 12, "key": "replay-odd", "name": "x", "icon": "8", "default_port": 8125, "health_method": "GET", "health_path": "no-leading-slash", "expect_status": null, "description": "null", "created_at": "<时间>" }
+            "body": { "id": 12, "key": "replay-odd", "name": "x", "icon": "8", "default_port": 8125, "health_method": "GET", "health_path": "no-leading-slash", "expect_status": null, "description": "null", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -535,7 +535,7 @@
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "189", "etag": "W/\"bd-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 18, "key": "replay-put", "name": "给 PUT 用", "icon": "", "default_port": 8200, "health_method": "HEAD", "health_path": "", "expect_status": 0, "description": "", "created_at": "<时间>" }
+            "body": { "id": 18, "key": "replay-put", "name": "给 PUT 用", "icon": "", "default_port": 8200, "health_method": "HEAD", "health_path": "", "expect_status": 0, "description": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -548,7 +548,7 @@
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "204", "etag": "W/\"cc-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 18, "key": "replay-put", "name": "给 PUT 用", "icon": "null", "default_port": null, "health_method": "HEAD", "health_path": "null", "expect_status": null, "description": "null", "created_at": "<时间>" }
+            "body": { "id": 18, "key": "replay-put", "name": "给 PUT 用", "icon": "null", "default_port": null, "health_method": "HEAD", "health_path": "null", "expect_status": null, "description": "null", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -561,7 +561,7 @@
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "189", "etag": "W/\"bd-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 18, "key": "replay-put", "name": "给 PUT 用", "icon": "0", "default_port": 0, "health_method": "HEAD", "health_path": "0", "expect_status": 0, "description": "0", "created_at": "<时间>" }
+            "body": { "id": 18, "key": "replay-put", "name": "给 PUT 用", "icon": "0", "default_port": 0, "health_method": "HEAD", "health_path": "0", "expect_status": 0, "description": "0", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -574,7 +574,7 @@
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "197", "etag": "W/\"c5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 18, "key": "replay-put", "name": "两头有空白", "icon": "0", "default_port": 9200, "health_method": "GET", "health_path": "0", "expect_status": 204, "description": "0", "created_at": "<时间>" }
+            "body": { "id": 18, "key": "replay-put", "name": "两头有空白", "icon": "0", "default_port": 9200, "health_method": "GET", "health_path": "0", "expect_status": 204, "description": "0", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -587,7 +587,7 @@
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "197", "etag": "W/\"c5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 18, "key": "replay-put", "name": "两头有空白", "icon": "0", "default_port": 9200, "health_method": "GET", "health_path": "0", "expect_status": 204, "description": "0", "created_at": "<时间>" }
+            "body": { "id": 18, "key": "replay-put", "name": "两头有空白", "icon": "0", "default_port": 9200, "health_method": "GET", "health_path": "0", "expect_status": 204, "description": "0", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -600,7 +600,7 @@
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "197", "etag": "W/\"c5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 18, "key": "replay-put", "name": "两头有空白", "icon": "0", "default_port": 9200, "health_method": "GET", "health_path": "0", "expect_status": 204, "description": "0", "created_at": "<时间>" }
+            "body": { "id": 18, "key": "replay-put", "name": "两头有空白", "icon": "0", "default_port": 9200, "health_method": "GET", "health_path": "0", "expect_status": 204, "description": "0", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -613,7 +613,7 @@
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "220", "etag": "W/\"dc-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 18, "key": "replay-put", "name": "两头有空白", "icon": "0", "default_port": 9200, "health_method": "GET", "health_path": "0", "expect_status": 204, "description": "带了 key 也不改 key", "created_at": "<时间>" }
+            "body": { "id": 18, "key": "replay-put", "name": "两头有空白", "icon": "0", "default_port": 9200, "health_method": "GET", "health_path": "0", "expect_status": 204, "description": "带了 key 也不改 key", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -655,7 +655,7 @@
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "217", "etag": "W/\"d9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "经 0x1 改的描述", "created_at": "<时间>" }
+            "body": { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "经 0x1 改的描述", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -726,7 +726,7 @@
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "218", "etag": "W/\"da-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "回放时改过描述", "created_at": "<时间>" }
+            "body": { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "回放时改过描述", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -855,23 +855,23 @@
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "3655", "etag": "W/\"e47-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
-              { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "回放时改过描述", "created_at": "<时间>" },
-              { "id": 2, "key": "openai-api", "name": "OpenAI 兼容 API", "icon": "🤖", "default_port": 8000, "health_method": "GET", "health_path": "/v1/models", "expect_status": null, "description": "兼容 OpenAI 接口的服务（401 也算存活）", "created_at": "<时间>" },
-              { "id": 3, "key": "ollama", "name": "Ollama 服务", "icon": "🦙", "default_port": 11434, "health_method": "GET", "health_path": "/api/tags", "expect_status": 200, "description": "本地模型服务", "created_at": "<时间>" },
-              { "id": 4, "key": "gradio", "name": "Gradio 应用", "icon": "🎨", "default_port": 7860, "health_method": "GET", "health_path": "/config", "expect_status": null, "description": "Gradio WebUI 应用", "created_at": "<时间>" },
-              { "id": 5, "key": "streamlit", "name": "Streamlit 应用", "icon": "📊", "default_port": 8501, "health_method": "GET", "health_path": "/_stcore/health", "expect_status": 200, "description": "Streamlit 数据应用", "created_at": "<时间>" },
-              { "id": 6, "key": "jupyter", "name": "Jupyter 服务", "icon": "📓", "default_port": 8888, "health_method": "GET", "health_path": "/api", "expect_status": null, "description": "Jupyter Notebook / Lab", "created_at": "<时间>" },
-              { "id": 7, "key": "mcp-sse", "name": "MCP SSE 端点", "icon": "🔌", "default_port": 3000, "health_method": "GET", "health_path": "/sse", "expect_status": null, "description": "MCP Server-Sent Events 端点", "created_at": "<时间>" },
-              { "id": 8, "key": "docs", "name": "文档站", "icon": "📚", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "静态文档 / 知识库站点", "created_at": "<时间>" },
-              { "id": 9, "key": "market-app", "name": "市场自产台", "icon": "🧩", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "市场内置静态托管（POST /api/apps 发布），服务存活即在线", "created_at": "<时间>" },
-              { "id": 11, "key": "replay-min", "name": "回放·最少字段", "icon": "", "default_port": 9000, "health_method": "HEAD", "health_path": "/", "expect_status": 204, "description": "只改描述", "created_at": "<时间>" },
-              { "id": 12, "key": "replay-odd", "name": "x", "icon": "8", "default_port": 8125, "health_method": "GET", "health_path": "no-leading-slash", "expect_status": null, "description": "null", "created_at": "<时间>" },
-              { "id": 13, "key": "replay-nan", "name": "x", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" },
-              { "id": 14, "key": "9-x-", "name": "数字开头", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" },
-              { "id": 15, "key": "replay-zero", "name": "x", "icon": "0", "default_port": 0, "health_method": "GET", "health_path": "", "expect_status": 0, "description": "0", "created_at": "<时间>" },
-              { "id": 16, "key": "replay-null", "name": "x", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" },
-              { "id": 17, "key": "replay-port", "name": "x", "icon": "", "default_port": "abc", "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" },
-              { "id": 18, "key": "replay-put", "name": "两头有空白", "icon": "0", "default_port": 9200, "health_method": "GET", "health_path": "0", "expect_status": 204, "description": "带了 key 也不改 key", "created_at": "<时间>" }
+              { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "回放时改过描述", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 2, "key": "openai-api", "name": "OpenAI 兼容 API", "icon": "🤖", "default_port": 8000, "health_method": "GET", "health_path": "/v1/models", "expect_status": null, "description": "兼容 OpenAI 接口的服务（401 也算存活）", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 3, "key": "ollama", "name": "Ollama 服务", "icon": "🦙", "default_port": 11434, "health_method": "GET", "health_path": "/api/tags", "expect_status": 200, "description": "本地模型服务", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 4, "key": "gradio", "name": "Gradio 应用", "icon": "🎨", "default_port": 7860, "health_method": "GET", "health_path": "/config", "expect_status": null, "description": "Gradio WebUI 应用", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 5, "key": "streamlit", "name": "Streamlit 应用", "icon": "📊", "default_port": 8501, "health_method": "GET", "health_path": "/_stcore/health", "expect_status": 200, "description": "Streamlit 数据应用", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 6, "key": "jupyter", "name": "Jupyter 服务", "icon": "📓", "default_port": 8888, "health_method": "GET", "health_path": "/api", "expect_status": null, "description": "Jupyter Notebook / Lab", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 7, "key": "mcp-sse", "name": "MCP SSE 端点", "icon": "🔌", "default_port": 3000, "health_method": "GET", "health_path": "/sse", "expect_status": null, "description": "MCP Server-Sent Events 端点", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 8, "key": "docs", "name": "文档站", "icon": "📚", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "静态文档 / 知识库站点", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 9, "key": "market-app", "name": "市场自产台", "icon": "🧩", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "市场内置静态托管（POST /api/apps 发布），服务存活即在线", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 11, "key": "replay-min", "name": "回放·最少字段", "icon": "", "default_port": 9000, "health_method": "HEAD", "health_path": "/", "expect_status": 204, "description": "只改描述", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 12, "key": "replay-odd", "name": "x", "icon": "8", "default_port": 8125, "health_method": "GET", "health_path": "no-leading-slash", "expect_status": null, "description": "null", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 13, "key": "replay-nan", "name": "x", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 14, "key": "9-x-", "name": "数字开头", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 15, "key": "replay-zero", "name": "x", "icon": "0", "default_port": 0, "health_method": "GET", "health_path": "", "expect_status": 0, "description": "0", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 16, "key": "replay-null", "name": "x", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 17, "key": "replay-port", "name": "x", "icon": "", "default_port": "abc", "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 18, "key": "replay-put", "name": "两头有空白", "icon": "0", "default_port": 9200, "health_method": "GET", "health_path": "0", "expect_status": 204, "description": "带了 key 也不改 key", "created_at": "YYYY-MM-DD hh:mm:ss" }
             ]
           }
         }
@@ -932,15 +932,15 @@
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "2110", "etag": "W/\"83e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
-              { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "任意 HTTP 响应即视为在线", "created_at": "<时间>" },
-              { "id": 2, "key": "openai-api", "name": "OpenAI 兼容 API", "icon": "🤖", "default_port": 8000, "health_method": "GET", "health_path": "/v1/models", "expect_status": null, "description": "兼容 OpenAI 接口的服务（401 也算存活）", "created_at": "<时间>" },
-              { "id": 3, "key": "ollama", "name": "Ollama 服务", "icon": "🦙", "default_port": 11434, "health_method": "GET", "health_path": "/api/tags", "expect_status": 200, "description": "本地模型服务", "created_at": "<时间>" },
-              { "id": 4, "key": "gradio", "name": "Gradio 应用", "icon": "🎨", "default_port": 7860, "health_method": "GET", "health_path": "/config", "expect_status": null, "description": "Gradio WebUI 应用", "created_at": "<时间>" },
-              { "id": 5, "key": "streamlit", "name": "Streamlit 应用", "icon": "📊", "default_port": 8501, "health_method": "GET", "health_path": "/_stcore/health", "expect_status": 200, "description": "Streamlit 数据应用", "created_at": "<时间>" },
-              { "id": 6, "key": "jupyter", "name": "Jupyter 服务", "icon": "📓", "default_port": 8888, "health_method": "GET", "health_path": "/api", "expect_status": null, "description": "Jupyter Notebook / Lab", "created_at": "<时间>" },
-              { "id": 7, "key": "mcp-sse", "name": "MCP SSE 端点", "icon": "🔌", "default_port": 3000, "health_method": "GET", "health_path": "/sse", "expect_status": null, "description": "MCP Server-Sent Events 端点", "created_at": "<时间>" },
-              { "id": 8, "key": "docs", "name": "文档站", "icon": "📚", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "静态文档 / 知识库站点", "created_at": "<时间>" },
-              { "id": 9, "key": "market-app", "name": "市场自产台", "icon": "🧩", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "市场内置静态托管（POST /api/apps 发布），服务存活即在线", "created_at": "<时间>" }
+              { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "任意 HTTP 响应即视为在线", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 2, "key": "openai-api", "name": "OpenAI 兼容 API", "icon": "🤖", "default_port": 8000, "health_method": "GET", "health_path": "/v1/models", "expect_status": null, "description": "兼容 OpenAI 接口的服务（401 也算存活）", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 3, "key": "ollama", "name": "Ollama 服务", "icon": "🦙", "default_port": 11434, "health_method": "GET", "health_path": "/api/tags", "expect_status": 200, "description": "本地模型服务", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 4, "key": "gradio", "name": "Gradio 应用", "icon": "🎨", "default_port": 7860, "health_method": "GET", "health_path": "/config", "expect_status": null, "description": "Gradio WebUI 应用", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 5, "key": "streamlit", "name": "Streamlit 应用", "icon": "📊", "default_port": 8501, "health_method": "GET", "health_path": "/_stcore/health", "expect_status": 200, "description": "Streamlit 数据应用", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 6, "key": "jupyter", "name": "Jupyter 服务", "icon": "📓", "default_port": 8888, "health_method": "GET", "health_path": "/api", "expect_status": null, "description": "Jupyter Notebook / Lab", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 7, "key": "mcp-sse", "name": "MCP SSE 端点", "icon": "🔌", "default_port": 3000, "health_method": "GET", "health_path": "/sse", "expect_status": null, "description": "MCP Server-Sent Events 端点", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 8, "key": "docs", "name": "文档站", "icon": "📚", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "静态文档 / 知识库站点", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 9, "key": "market-app", "name": "市场自产台", "icon": "🧩", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "市场内置静态托管（POST /api/apps 发布），服务存活即在线", "created_at": "YYYY-MM-DD hh:mm:ss" }
             ]
           }
         },
@@ -1002,7 +1002,7 @@
             "status": 201,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "199", "etag": "W/\"c7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 10, "key": "gated-a", "name": "登录门后面建的", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" }
+            "body": { "id": 10, "key": "gated-a", "name": "登录门后面建的", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
@@ -1049,7 +1049,7 @@
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "199", "etag": "W/\"c7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": 10, "key": "gated-a", "name": "登录门后面改的", "icon": "", "default_port": 8124, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" }
+            "body": { "id": 10, "key": "gated-a", "name": "登录门后面改的", "icon": "", "default_port": 8124, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
           }
         },
         {
