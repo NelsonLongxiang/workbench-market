@@ -9,7 +9,7 @@
 写这个系统的不是一个坐在一起的团队，而是多个并行的 agent 会话：
 
 - 每个会话的上下文有限，读不完 5278 行的入口文件，也看不到别的会话正在改什么。
-- 会话各有各的记忆，仓库之外的约定对新会话不存在。仓库里今天没有 `AGENTS.md`。
+- 会话各有各的记忆，仓库之外的约定对新会话不存在。仓库里今天没有写给会话看的约定文件。
 - 评审查的是对不对、安不安全（见 PR 模板），不查结构。
 - 属主不读 diff。
 
@@ -46,7 +46,7 @@
         ┌───────────────────────────┼───────────────────────────┐
         ▼                           ▼                           ▼
   闸一 写的时候               闸二 合并之前               闸三 运行的时候
-  AGENTS.md                   CI：tech-route-check         启动：自检、路由登记齐全、配置校验
+  CONTRIBUTING.md             CI：tech-route-check         启动：自检、路由登记齐全、配置校验
   会话开工先读                红线 / 预算 / 计数           每次请求：身份 → 判定 → 留痕
         │                           │                           │
         └───────────────────────────┼───────────────────────────┘
@@ -80,7 +80,7 @@
 
 ### 闸一：写的时候
 
-仓库根放一份 `AGENTS.md`（60 行以内），`CLAUDE.md` 只写一行引用它。骨架：
+仓库根放一份约定文件（60 行以内）：`CONTRIBUTING.md`，`CLAUDE.md` 只写一行引用它。原本打算叫 `AGENTS.md`，但仓库的 `.gitignore` 从公开发布起就忽略这个名字；取消忽略的话，别的检出里本地的 `AGENTS.md` 会在拉取时被覆盖。所以先不动它，要不要改由属主定。骨架：
 
 ```markdown
 路线：市场是组织中心的入口，只做呈现、判定、留痕、索引；地基是 Cordis。详见 docs/productization/08。
@@ -129,13 +129,15 @@ CI 加一步 `tech-route-check`：一条命令跑完全部检查，红线和预�
 | `tests-registered` | 测试脚本要么在 CI，要么登记不进的理由 | 83 个不在 CI，其中 58 个没有任何执行入口 | 0 个未登记 | 预算 |
 | `server-typecheck` | server 的类型错误数（宽松模式） | 85 | 0，之后按目录开严格模式 | 预算 |
 | `readme-tree` | README 的目录说明覆盖 server 文件 | 16 个没提到（顶层 1 个） | 顶层 0 | 预算 |
+| `readme-stale-paths` | README 提到但已不存在的文件 | 3 个 | 0 | 预算 |
 | `env-via-config` | 插件 Config 之外直接读环境变量 | 87 处，17 个文件 | 0 | 预算（Config 就位后开） |
 | `timers-in-context` | Cordis 定时器服务之外的 `setInterval` | 6 处 | 0 | 预算（定时器服务装上后开） |
 | `identity-in-core` | 核心里直接引用身份具体实现的文件 | 8 个 | 0 | 预算 |
 | `surface-snapshots` | 三份快照与代码一致：路由清单（带顺序）、MCP 工具清单、表结构 | 152 条、33 个、49 张 | 改了面就连同快照一起提交 | 红线 |
 | `public-hygiene` | 公开仓卫生：内网细节、凭证、业务词 | 脚本已有，不在 CI | 0 | 红线 |
 | `erasable-syntax` | 只用可擦除语法 | 0 处违反 | 0 | 红线 |
-| `layering` | 领域服务不引 express；a2a-net 只在外部节点插件里引用；这个插件不引业务服务 | 0 个；3 个文件引用 a2a-net（插件建好后 1 个在外） | 0 | 红线（后两条随 [07](07-a2a-adapter-refactor.md) 生效） |
+| `services-no-express` | 领域服务不引 express | 0 个 | 0 | 红线 |
+| `a2a-import-sites` | a2a-net 只在外部节点插件里引用，这个插件不引业务服务 | 3 个文件引用（插件建好后 1 个在外） | 只有插件引用 | 计数，随 [07](07-a2a-adapter-refactor.md) 转红线 |
 | `deps-registered` | 运行时依赖与清单一致 | 根 1、server 8、web 11 | 新增先登记 | 红线 |
 | `env-docs` | 运行时读取的环境变量都写进 README | 1 个没写 | 0 | 红线（先补上那 1 个） |
 | `web-fetch` | `api.ts` 之外直接 `fetch` | 33 处，13 个文件 | 0 | 计数，稳定后转预算 |
@@ -149,7 +151,7 @@ CI 加一步 `tech-route-check`：一条命令跑完全部检查，红线和预�
 
 | | 写系统的 | 跑在系统里的 |
 |---|---|---|
-| 规则 | 路线清单、`AGENTS.md` | 角色与授予（[11](11-identity-and-permission.md)） |
+| 规则 | 路线清单、`CONTRIBUTING.md` | 角色与授予（[11](11-identity-and-permission.md)） |
 | 卡口 | CI 检查、启动自检 | 四个入口面的身份 → 判定 |
 | 例外找人 | 豁免写进清单，属主裁定，带期限 | `ask` 进「关注」，人来答复 |
 | 留痕 | git 历史、体检表的走势 | 留痕总账 |
@@ -162,7 +164,7 @@ CI 加一步 `tech-route-check`：一条命令跑完全部检查，红线和预�
 
 | 批 | 内容 | 性质 |
 |---|---|---|
-| 1 | `tech-route.json`、`scripts/tech-route-check.mjs`、今天的基线、`AGENTS.md`；已有的三个脚本接进 CI；补上 README 缺的那个环境变量 | 不改运行时；**全部只报告，不拦任何 PR** |
+| 1 | `tech-route.json`、`scripts/tech-route-check.mjs`、今天的基线、`CONTRIBUTING.md`；已有的三个脚本接进 CI；补上 README 缺的那个环境变量 | 不改运行时；**全部只报告，不拦任何 PR** |
 | 2 | 按属主裁定打开红线和预算；三份快照（由脚本在隔离实例上导出，不改 server 代码） | 不改运行时 |
 | 3 | HTTP 服务；按域把路由和守卫搬进领域插件 | 快照零差异，录制回放 |
 | 4 | server 类型检查进 CI，85 → 0 | 顺带修掉那处潜在缺陷 |
@@ -191,7 +193,7 @@ CI 加一步 `tech-route-check`：一条命令跑完全部检查，红线和预�
 ## 待决
 
 - **P1**：各检查的档位（上表「建议档位」一列）。原则是没有存量的进红线，有存量的进预算。
-- **P1**：仓库根放 `AGENTS.md`。它约束所有在本仓工作的会话，不只是起草它的这一个。
+- **P1**：约定文件用 `CONTRIBUTING.md`（已随阶段一提交），还是改回 `AGENTS.md`。它约束所有在本仓工作的会话，不只是起草它的这一个。
 - **P1**：公开仓卫生检查用的业务词表放在哪。候选：CI 的密文配置，或私有仓。
 - P2：各预算项的目标值与日期（第 2 批打开时由合并方按当时的基线提）。
 
@@ -212,6 +214,7 @@ CI 加一步 `tech-route-check`：一条命令跑完全部检查，红线和预�
 | 类型错误 | 用临时配置跑 `tsc --noEmit`。宽松：`strict: false` 加 `erasableSyntaxOnly`；严格：`strict: true`。两者都跳过库文件检查 |
 | 测试类脚本 | 文件名以 `-test`、`-smoke`、`-mutation` 结尾。在 CI：`ci.yml` 里出现 `scripts/<文件名>`。有命令：出现在某个 `package.json`。被调用：文件名出现在 `scripts/` 下另一个可执行脚本里。其余算没有执行入口 |
 | README 目录 | server 文件的文件名没在 `README.md` 里出现 |
+| README 里的路径 | `README.md` 里形如 `scripts/…`、`server/src/…`、`web/src/…`、`deploy/…`、`docs/…` 的文件路径，在仓库里不存在 |
 | 前端取数 | `web/src` 里的 `fetch(`，不含 `apiFetch(` |
 | 内联样式、色值 | 仓库已有的 `scripts/inline-style-count.mjs` |
 | 环境变量文档 | 仓库已有的 `scripts/docs-env-face.mjs`。它的口径比上面宽（含解构、别名、助手函数），所以它数出的变量比 46 个多 |
