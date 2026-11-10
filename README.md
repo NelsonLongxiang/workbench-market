@@ -175,7 +175,7 @@ server/src/     index.ts（REST+静态+巡检装配） db.ts（schema+迁移） 
 server/src/login-providers/  登录提供方插件（身份的具体实现只放这里，核心不引用）：index.ts（清单：这个部署装哪些提供方） odoo/index.ts（Odoo 提供方的插件入口：向 `identity` 登记、提供 `loginRelay`） odoo/odoo-viewer.ts（Odoo 查看人现查） odoo/odoo-session.ts（门户 Odoo 会话可信源判定与剥除、登录回调票据） odoo/odoo-login-proxy.ts（可选同源 Odoo 登录中继 WM_ODOO_LOGIN_PROXY：只放行登录面，不代理 Odoo 应用） odoo/odoo-browser-origin.ts（只给浏览器用的 Odoo 登录地址 WM_ODOO_BROWSER_URL：登录一跳送到可信内网地址，身份与代理目标不变）
 server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·cookie·setting·mcp（域服务）· sop-runner.ts（执行页）
 server/src/http.ts    HTTP 服务（Cordis 服务 http）：持有 Express 应用；域模块经它注册路由，注册可撤销
-server/src/routes/    按域分的路由模块，各带一个注册函数：types.ts（类型管理 /api/types）
+server/src/routes/    按域分的路由模块，各带一个注册函数：types.ts（类型管理 /api/types） cockpits.ts（驾驶舱 /api/cockpits） cookies.ts（Cookie 池 /api/cookies） stats.ts（端点命中统计 /api/stats）
 web/src/        pages/（Dashboard/Market/Sops/Types/Settings/UseWorkbench/Cockpit/McpGateways/Tasks/Skills/SopSpace/SopRunDetail/Vault/Reviews/OwnerPending） components/ admin-token.ts（统一口令注入）
 deploy/         Dockerfile.market（多阶段·非 root·HEALTHCHECK） docker-compose.yml（回环默认·profiles 隔离） layerfs-svc.mjs
 docs/           layerfs-service-contract-v0/v1.md（LayerFS 服务契约）
@@ -193,6 +193,8 @@ data/           SQLite 数据文件（git 忽略）
 快照管的是「有哪些路由、按什么顺序」，应答对不对由录制回放管。`surfaces/replay/<域>.json` 里是一组请求和录下来的应答：状态码、响应头、响应体。`scripts/route-replay-test.mjs` 按场景各起一个隔离实例，对同一组请求重放，有一处不一样就失败。搬路由之前先录，搬完重放必须零差异。有意改了行为，就加 `--record` 重录，把录制和代码一起提交。
 
 每次都不一样的东西不比：`Date`、`Connection`、`Keep-Alive` 三个头不录；时间里的数字换成占位，写法留着（所以时间的写法变了看得出来）；按内容算出来的 ETag 只留长度。值每次都变的响应头（比如带随机会话号的 `Set-Cookie`）现在还没有换占位的办法，搬到有这种头的域之前要先补。
+
+应答里由「现在」算出来的数（还有几天过期、今天是哪一天）每次也不一样。这样的场景在请求集里写一个 `clock`（ISO 时刻），实例的时钟就从那一刻开始走（`scripts/replay-clock-preload.mjs`，只在测试环境可用），这些数才能录下来比。数据库自己取的时间不受影响。
 
 每条路由都要有未授权、参数非法、正常三类请求。类别按录下来的应答核对：未授权是 401 或 403，参数非法是其余的 4xx，正常是 2xx 或 3xx；请求上标的类别和应答对不上，脚本就失败。确实没有某一类的路由（比如不读任何参数，就没有会被拒的输入），在请求集的 `exempt` 里写明理由，并指给一条打在这条路由上、照常应答的请求。
 

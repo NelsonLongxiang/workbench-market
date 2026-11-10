@@ -3,6 +3,8 @@
  * 路由的录制回放：搬路由之前录一遍，之后对同一组请求重放，状态码、响应头和响应体必须和录下来的一样。
  * 每个域一份 surfaces/replay/<域>.json，请求和录下来的应答放在一起，对应 server/src/routes/<域>.ts。
  * 每个场景起一个隔离实例：临时数据目录、临时 HOME、随机的空闲端口（请求只发到回环地址）、固定的最小环境变量，再加场景自己声明的几个。
+ * 场景里写了 clock（一个 ISO 时刻）的，实例的时钟从那一刻开始走（scripts/replay-clock-preload.mjs）：
+ * 应答里由「现在」算出来的数（还有几天过期、今天是哪一天）才能每次都一样。数据库自己取的时间不受影响，照旧换成占位。
  *
  *   node scripts/route-replay-test.mjs                 回放全部域；有差异退出 1，逐条列出
  *   node scripts/route-replay-test.mjs types           只回放一个域（多打印每条路由三类各有几条）
@@ -24,15 +26,17 @@
  */
 import { spawn } from './owned-script-fixture.mjs';
 import { createServer } from 'node:http';
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
 const REPLAY_DIR = join(ROOT, 'surfaces', 'replay');
 const ROUTES_SNAPSHOT = join(ROOT, 'surfaces', 'routes.json');
 const MODULES_DIR = join(ROOT, 'server', 'src', 'routes');
+const CLOCK_PRELOAD = join(HERE, 'replay-clock-preload.mjs');
 const CLASSES = ['unauthorized', 'invalid', 'normal'];
 const CLASS_NAME = { unauthorized: '未授权', invalid: '参数非法', normal: '正常' };
 // 和 scripts/tech-route-check.mjs 数路由的写法一样，另外多认 all：体检不数它，但它在运行时是一条路由（快照里记成 ALL）
@@ -96,6 +100,7 @@ export function checkCassette(cassette, known, moduleRouteCount = null, answered
   const covered = new Map(routes.map((r) => [r, new Set()]));
   for (const scenario of scenarios) {
     if (!scenario?.name) problems.push('有场景没有 name');
+    if (scenario?.clock !== undefined && (typeof scenario.clock !== 'string' || !Number.isFinite(Date.parse(scenario.clock)))) problems.push(`${scenario?.name}：clock 要写成 ISO 时刻（比如 2030-01-01T00:00:00Z）`);
     for (const step of scenario?.steps ?? []) {
       const where = `${scenario.name}/${step?.id ?? '?'}`;
       if (!step?.id) problems.push(`${scenario.name} 里有请求没有 id`);
@@ -104,6 +109,7 @@ export function checkCassette(cassette, known, moduleRouteCount = null, answered
       const method = String(step?.request?.method ?? '');
       const path = String(step?.request?.path ?? '');
       if (!method || !path.startsWith('/')) { problems.push(`${where}：request 要有 method 和以 / 开头的 path`); continue; }
+      if (step.compare !== undefined && step.compare !== 'status' && !(Array.isArray(step.compare) && step.compare.length > 0 && step.compare.every((x) => typeof x === 'string' && x))) { problems.push(`${where}：compare 只能是 'status'，或者一组字段的路径`); continue; }
       if (step.route === undefined) continue;
       if (!covered.has(step.route)) { problems.push(`${where}：route 不在 routes 里：${step.route}`); continue; }
       if (!CLASSES.includes(step.class)) { problems.push(`${where}：class 只能是 ${CLASSES.join(' / ')}`); continue; }
@@ -232,13 +238,28 @@ export function differences(before, after, path = '响应体', out = []) {
   return out;
 }
 
-/** 录下来的应答和这次的应答比。compare 是 'status' 的请求只比状态码（借别的域布置现场用）。 */
+/**
+ * 一条请求录什么、比什么，由它的 compare 定：
+ *   · 不写：状态码、内容类型、响应头、响应体，全比；
+ *   · 'status'：只比状态码（借别的域的路由布置现场用）；
+ *   · 一组字段的路径（比如 ['cookie_set_id']）：比状态码和响应体里点名的这几个字段。
+ *     借别的域的路由看副作用用：那条路由的应答里别的字段可能每次不一样，也不归这个域管。
+ */
+export function shapeOf(step, raw) {
+  if (step.compare === 'status') return { status: raw.status };
+  // 应答里没有的字段不记（写进 JSON 也留不住），所以「原来没有、后来有了」和「原来有、后来没了」都看得出来
+  if (Array.isArray(step.compare)) return { status: raw.status, picked: Object.fromEntries(step.compare.map((path) => [path, steady(pick(raw.body, path))]).filter(([, value]) => value !== undefined)) };
+  return steadyResponse(raw);
+}
+
+/** 录下来的应答和这次的应答比。 */
 export function compareStep(step, actual) {
   const recorded = step.response;
   if (!recorded) return ['还没录过（跑一次 --record）'];
   const out = [];
   if (recorded.status !== actual.status) out.push(`状态码：${recorded.status} → ${actual.status}`);
   if (step.compare === 'status') return out;
+  if (Array.isArray(step.compare)) return differences(recorded.picked ?? {}, actual.picked ?? {}, '点名的字段', out);
   if (recorded.type !== actual.type) out.push(`内容类型：${JSON.stringify(recorded.type)} → ${JSON.stringify(actual.type)}`);
   if (!recorded.headers) out.push('录制里没有响应头（跑一次 --record）');
   else differences(recorded.headers, actual.headers ?? {}, '响应头', out);
@@ -262,7 +283,7 @@ export async function runSteps(steps, sendRequest, record = false) {
         if (value !== undefined && value !== null) vars[name] = value;
         else if (record) throw new Error(`应答里取不到要存的 ${path}`);
       }
-      actual = step.compare === 'status' ? { status: raw.status } : steadyResponse(raw);
+      actual = shapeOf(step, raw);
     } catch (err) {
       if (record) throw new Error(`${step.id}：${err.message}`);
       results.push({ step, diffs: [`请求没发出去：${err.message}`] });
@@ -298,17 +319,25 @@ export async function withPortRetry(start, attempts = 3, note = (line) => consol
   }
 }
 
-const boot = (tag, env) => withPortRetry(() => bootOnce(tag, env));
+const boot = (tag, env, clock) => withPortRetry(() => bootOnce(tag, env, clock));
 
-async function bootOnce(tag, env) {
+/** 起实例用的 node 参数和多出来的环境变量。场景定了时钟，就把平移时钟的预加载带上。 */
+export function launchPlan(clock) {
+  if (clock === undefined) return { args: ['--disable-warning=ExperimentalWarning', 'src/index.ts'], env: {} };
+  if (typeof clock !== 'string' || !Number.isFinite(Date.parse(clock))) throw new Error(`clock 要写成 ISO 时刻（比如 2030-01-01T00:00:00Z），现在是 ${JSON.stringify(clock)}`);
+  return { args: ['--disable-warning=ExperimentalWarning', '--import', pathToFileURL(CLOCK_PRELOAD).href, 'src/index.ts'], env: { WM_REPLAY_CLOCK: clock } };
+}
+
+async function bootOnce(tag, env, clock) {
+  const plan = launchPlan(clock);
   const port = await freePort();
   const root = join(ROOT, 'tmp', `route-replay-${process.pid}-${tag}`);
   rmSync(root, { recursive: true, force: true });
   mkdirSync(join(root, 'data'), { recursive: true });
   mkdirSync(join(root, 'home'), { recursive: true });
-  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
+  const child = spawn(process.execPath, plan.args, {
     cwd: join(ROOT, 'server'),
-    env: { PATH: process.env.PATH, HOME: join(root, 'home'), MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: join(root, 'data'), ...env },
+    env: { PATH: process.env.PATH, HOME: join(root, 'home'), MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: join(root, 'data'), ...env, ...plan.env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stderr = '';
@@ -358,7 +387,7 @@ function canonical(cassette) {
     scenarios: cassette.scenarios.map((s) => order({
       ...s,
       steps: s.steps.map((step) => order({ ...step, request: order(step.request, ['method', 'path', 'headers', 'json', 'text']) }, ['id', 'route', 'class', 'what', 'compare', 'request', 'save', 'response'])),
-    }, ['name', 'what', 'env', 'steps'])),
+    }, ['name', 'what', 'env', 'clock', 'steps'])),
   }, ['domain', 'what', 'routes', 'exempt', 'scenarios']);
 }
 
@@ -432,6 +461,15 @@ async function selftest() {
   check(compareStep({ response: { status: 200, type: 'a', headers: {}, body: { a: 1, b: 2 } } }, { status: 200, type: 'a', headers: {}, body: { b: 2, a: 1 } }).join().includes('顺序'), '比较：字段顺序变了，报出来');
   check(compareStep({ ...recorded, compare: 'status' }, { status: 200, type: 'x', body: 'y' }).length === 0, '比较：只比状态码的请求不看响应头和响应体');
   check(compareStep({}, answer()).join().includes('还没录过'), '比较：没录过的请求算差异');
+  // 只比点名的字段
+  const wb = { id: 2, name: '台', cookie_set_id: 0, last_status: 'unknown', nested: { at: '2026-01-02 03:04:05' } };
+  const picking = { compare: ['cookie_set_id', 'nested.at', 'gone'] };
+  const pickedNow = shapeOf(picking, { status: 200, type: 'application/json', headers: {}, body: wb });
+  check(JSON.stringify(pickedNow) === JSON.stringify({ status: 200, picked: { cookie_set_id: 0, 'nested.at': 'YYYY-MM-DD hh:mm:ss' } }), '点名的字段：只录状态码和点名的字段；带点的路径往里取；时间照样换占位；没有的字段不录');
+  const pickedStep = { ...picking, response: JSON.parse(JSON.stringify(pickedNow)) };
+  check(compareStep(pickedStep, shapeOf(picking, { status: 200, body: { ...wb, last_status: 'down', name: '改了' } })).length === 0, '点名的字段：没点名的字段变了不算差异');
+  check(compareStep(pickedStep, shapeOf(picking, { status: 200, body: { ...wb, cookie_set_id: 7 } })).join().includes('点名的字段.cookie_set_id') && compareStep(pickedStep, shapeOf(picking, { status: 404, body: wb })).join().includes('200 → 404') && compareStep(pickedStep, shapeOf(picking, { status: 200, body: { ...wb, gone: 1 } })).join().includes('点名的字段.gone'), '点名的字段：点名的字段变了、状态码变了、原来没有的字段冒出来了，都算差异');
+  check(checkCassette(withSteps([a, b, c, { id: 'p', compare: [], request: { method: 'GET', path: '/api/other' } }]), known).some((p) => p.includes('compare')) && checkCassette(withSteps([a, b, c, { id: 'p', compare: 'body', request: { method: 'GET', path: '/api/other' } }]), known).some((p) => p.includes('compare')), '点名的字段：compare 写得不对，静态检查拦下');
   // 响应头
   check(compareStep(recorded, answer({ headers: { ...heads, vary: 'Origin, Cookie' } })).join().includes('响应头.vary'), '比较：响应头的值变了，报到哪个头');
   check(compareStep(recorded, answer({ headers: { 'set-cookie': heads['set-cookie'] } })).join().includes('响应头.vary') && compareStep(recorded, answer({ headers: { ...heads, location: '/login' } })).join().includes('响应头.location'), '比较：少了一个头、多了一个头，都报出来');
@@ -492,6 +530,17 @@ async function selftest() {
   const broken = starter(9, false);
   let failedFast = false; try { await withPortRetry(broken, 3, () => {}); } catch { failedFast = true; }
   check(failedFast && broken.calls() === 1, '起实例：别的原因起不来，不重试，直接报');
+  // 场景定时钟
+  const plain = launchPlan(undefined), timed = launchPlan('2030-01-01T00:00:00Z');
+  let badClock = false; try { launchPlan('tomorrow'); } catch { badClock = true; }
+  check(!plain.args.includes('--import') && Object.keys(plain.env).length === 0 && timed.args.includes('--import') && timed.args.at(-1) === 'src/index.ts' && timed.env.WM_REPLAY_CLOCK === '2030-01-01T00:00:00Z' && badClock, '定时钟：场景没写 clock 就照常起；写了才带上预加载；写得不是时刻直接报错');
+  check(checkCassette(withSteps([a, b, c], { scenarios: [{ name: 's', clock: 'tomorrow', steps: [a, b, c] }] }), known).some((p) => p.includes('clock')) && checkCassette(withSteps([a, b, c], { scenarios: [{ name: 's', clock: '2030-01-01T00:00:00Z', steps: [a, b, c] }] }), known).length === 0, '定时钟：请求集里 clock 写得不对，静态检查就拦下');
+  const probe = 'const t = Date.now(); console.log(JSON.stringify([new Date(t).toISOString().slice(0, 16), new Date().toISOString().slice(0, 16), Date().slice(0, 21) === new Date(t).toString().slice(0, 21), new Date(0).toISOString(), new Date() instanceof Date, new Date().constructor === Date]))';
+  const shifted = spawnSync(process.execPath, ['--import', pathToFileURL(CLOCK_PRELOAD).href, '-e', probe], { env: { PATH: process.env.PATH, NODE_ENV: 'test', WM_REPLAY_CLOCK: '2030-01-01T00:00:00Z' }, encoding: 'utf8' });
+  check(shifted.status === 0 && shifted.stdout.trim() === JSON.stringify(['2030-01-01T00:00', '2030-01-01T00:00', true, '1970-01-01T00:00:00.000Z', true, true]), `定时钟：Date.now()、new Date()、Date() 都从给的时刻开始走；带参数的 new Date(x) 照旧 ${shifted.stdout.trim()}${shifted.stderr.trim()}`);
+  const refusedOutsideTest = spawnSync(process.execPath, ['--import', pathToFileURL(CLOCK_PRELOAD).href, '-e', 'console.log(1)'], { env: { PATH: process.env.PATH, NODE_ENV: 'production', WM_REPLAY_CLOCK: '2030-01-01T00:00:00Z' }, encoding: 'utf8' });
+  const refusedBadClock = spawnSync(process.execPath, ['--import', pathToFileURL(CLOCK_PRELOAD).href, '-e', 'console.log(1)'], { env: { PATH: process.env.PATH, NODE_ENV: 'test' }, encoding: 'utf8' });
+  check(refusedOutsideTest.status === 1 && refusedOutsideTest.stdout === '' && refusedBadClock.status === 1 && refusedBadClock.stdout === '', '定时钟：不是测试环境、或者没给时刻，预加载让进程直接退出，不带着假的时钟起来');
   console.log(failed ? `===== 录制回放自检：${failed} 项失败 =====` : '===== 录制回放自检：全过 =====');
   return failed ? 1 : 0;
 }
@@ -525,7 +574,7 @@ async function main() {
       if (only) for (const line of coverage(cassette)) console.log(`（覆盖，按录下来的应答算）${line}`);
     }
     for (const scenario of cassette.scenarios) {
-      const instance = await boot(`${domain}-${scenario.name}`, scenario.env ?? {});
+      const instance = await boot(`${domain}-${scenario.name}`, scenario.env ?? {}, scenario.clock);
       let results;
       try { results = await runSteps(scenario.steps, (request, vars) => send(instance.base, request, vars), record); }
       catch (err) { throw new Error(`${domain}/${scenario.name}/${err.message}`); }

@@ -10,6 +10,8 @@ export class HttpError extends Error {
   }
 }
 
-export const bad = (msg: string): never => {
+// 类型写在常量上（不是只写在箭头函数的返回值上）：这样 TypeScript 才认它是「调用之后不会往下走」的函数，
+// 调用点后面的代码才会按前面的判断收窄。运行时没有区别。
+export const bad: (msg: string) => never = (msg) => {
   throw new HttpError(400, msg);
 };

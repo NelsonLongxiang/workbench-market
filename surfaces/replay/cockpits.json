@@ -1,0 +1,1339 @@
+{
+  "domain": "cockpits",
+  "what": "驾驶舱：/api/cockpits 的 5 条路由。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /api/cockpits", "POST /api/cockpits", "GET /api/cockpits/:id", "PUT /api/cockpits/:id", "DELETE /api/cockpits/:id"],
+  "exempt": [{ "route": "GET /api/cockpits", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/list-junk-query" }],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "缺省配置：登录门关，没设管理口令。本机命令行免口令；带转发头或浏览器标记的写请求要管理员。读面开放。",
+      "env": {},
+      "steps": [
+        {
+          "id": "list-empty",
+          "route": "GET /api/cockpits",
+          "class": "normal",
+          "what": "新库里没有驾驶舱",
+          "request": { "method": "GET", "path": "/api/cockpits" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": [] }
+        },
+        {
+          "id": "list-junk-query",
+          "route": "GET /api/cockpits",
+          "class": "normal",
+          "what": "这条路由不读查询串：带无关、畸形的参数照常应答",
+          "request": { "method": "GET", "path": "/api/cockpits?limit=abc&id=-1&name[]=x" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": [] }
+        },
+        {
+          "id": "list-head",
+          "what": "HEAD 走同一条 GET 路由，没有响应体",
+          "request": { "method": "HEAD", "path": "/api/cockpits" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": "" }
+        },
+        {
+          "id": "use-workbench-a",
+          "what": "布置现场：登记一个台给面板引用（借工作台域的路由，只比状态码）。新库里已有一个内置的台，id 是 1；这个是 2",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/workbenches", "json": { "name": "回放用的台·甲", "url": "http://127.0.0.1:9990/a", "type": "web" } },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "use-workbench-b",
+          "what": "布置现场：再登记一个台，id 是 3",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/workbenches", "json": { "name": "回放用的台·乙", "url": "http://127.0.0.1:9991/b", "type": "web" } },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "create-remote-anonymous",
+          "route": "POST /api/cockpits",
+          "class": "unauthorized",
+          "what": "带转发头、没有口令的写",
+          "request": { "method": "POST", "path": "/api/cockpits", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "name": "不该建出来" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "create-cross-origin-browser",
+          "route": "POST /api/cockpits",
+          "class": "unauthorized",
+          "what": "浏览器从别的站点发来的写",
+          "request": { "method": "POST", "path": "/api/cockpits", "headers": { "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": { "name": "不该建出来" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "create-no-name",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "没给 name",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "name 不能为空" } }
+        },
+        {
+          "id": "create-blank-name",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "name 只有空白",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "   " } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "name 不能为空" } }
+        },
+        {
+          "id": "create-name-not-string",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "name 是数字，不是字符串：新建时不转成字符串，当成没给",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": 7 } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "name 不能为空" } }
+        },
+        {
+          "id": "create-array-body",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "请求体是装着一个对象的数组：不拿里面的对象来用",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": [{ "name": "数组里的" }] },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "name 不能为空" } }
+        },
+        {
+          "id": "create-no-body",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "没有请求体",
+          "request": { "method": "POST", "path": "/api/cockpits" },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "name 不能为空" } }
+        },
+        {
+          "id": "create-malformed-json",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "请求体不是合法 JSON",
+          "request": { "method": "POST", "path": "/api/cockpits", "headers": { "content-type": "application/json" }, "text": "{not json" },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "请求体不是合法 JSON" } }
+        },
+        {
+          "id": "create-panels-object",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "panels 是对象，不是数组",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": {} } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "47", "etag": "W/\"2f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "layout_config 必须是面板数组" } }
+        },
+        {
+          "id": "create-panels-string",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "panels 是字符串",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": "[]" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "47", "etag": "W/\"2f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "layout_config 必须是面板数组" } }
+        },
+        {
+          "id": "create-panels-empty-string",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "panels 是空串：给了就要是数组，不当成没给",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": "" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "47", "etag": "W/\"2f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "layout_config 必须是面板数组" } }
+        },
+        {
+          "id": "create-blank-name-bad-panels",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "两处都不对时先报哪一处：name 的检查排在面板的检查前面",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": " ", "panels": {} } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "name 不能为空" } }
+        },
+        {
+          "id": "create-panel-zero-id",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "面板的 workbenchId 是 0",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "workbenchId": 0 }] } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "面板 workbenchId 非法: {\"workbenchId\":0}" }
+          }
+        },
+        {
+          "id": "create-panel-zero-id-with-i",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "面板的 workbenchId 是 0，同时给了合规的 i：给了 workbenchId 就以它为准，不去读 i",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "workbenchId": 0, "i": "wb-2" }] } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "73", "etag": "W/\"49-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "面板 workbenchId 非法: {\"workbenchId\":0,\"i\":\"wb-2\"}" }
+          }
+        },
+        {
+          "id": "create-panel-negative-id",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "面板的 workbenchId 是负数",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "workbenchId": -1 }] } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "59", "etag": "W/\"3b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "面板 workbenchId 非法: {\"workbenchId\":-1}" }
+          }
+        },
+        {
+          "id": "create-panel-fraction-id",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "面板的 workbenchId 是小数",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "workbenchId": 1.5 }] } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "60", "etag": "W/\"3c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "面板 workbenchId 非法: {\"workbenchId\":1.5}" }
+          }
+        },
+        {
+          "id": "create-panel-text-id",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "面板的 workbenchId 不是数字",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "workbenchId": "abc" }] } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "64", "etag": "W/\"40-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "面板 workbenchId 非法: {\"workbenchId\":\"abc\"}" }
+          }
+        },
+        {
+          "id": "create-panel-no-id",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "面板既没给 workbenchId 也没给 i",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "w": 3 }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "48", "etag": "W/\"30-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "面板 workbenchId 非法: {\"w\":3}" } }
+        },
+        {
+          "id": "create-panel-null",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "面板是 null",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [null] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "43", "etag": "W/\"2b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "面板 workbenchId 非法: null" } }
+        },
+        {
+          "id": "create-panel-bad-i",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "面板只给了 i，但不是 wb-数字 的写法",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "i": "wb-x" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "55", "etag": "W/\"37-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "面板 workbenchId 非法: {\"i\":\"wb-x\"}" } }
+        },
+        {
+          "id": "create-panel-tasks-wrong-i",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "kind 是 tasks 但 i 不是 tasks：不算待办卡，按普通面板查",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "kind": "tasks", "i": "other" }] } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "75", "etag": "W/\"4b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "面板 workbenchId 非法: {\"kind\":\"tasks\",\"i\":\"other\"}" }
+          }
+        },
+        {
+          "id": "create-panel-tasks-wrong-kind",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "i 是 tasks 但 kind 不是 tasks：不算待办卡",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "kind": "task", "i": "tasks" }] } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "74", "etag": "W/\"4a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "面板 workbenchId 非法: {\"kind\":\"task\",\"i\":\"tasks\"}" }
+          }
+        },
+        {
+          "id": "create-panel-duplicate",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "两块面板引用同一个台（一块用 workbenchId，一块用 i）",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "workbenchId": 2 }, { "i": "wb-2" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "面板重复引用工作台 2" } }
+        },
+        {
+          "id": "create-panel-missing-workbench",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "面板引用的台不存在",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "workbenchId": 999 }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "50", "etag": "W/\"32-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "面板引用的工作台不存在: 999" } }
+        },
+        {
+          "id": "create-second-panel-bad",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "第一块面板合规、第二块不合规：整个请求被拒",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "panels": [{ "workbenchId": 2 }, { "workbenchId": 0 }] } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "面板 workbenchId 非法: {\"workbenchId\":0}" }
+          }
+        },
+        {
+          "id": "list-after-rejected",
+          "route": "GET /api/cockpits",
+          "class": "normal",
+          "what": "上面被拒的请求一个都没建出来",
+          "request": { "method": "GET", "path": "/api/cockpits" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": [] }
+        },
+        {
+          "id": "create-minimal",
+          "route": "POST /api/cockpits",
+          "class": "normal",
+          "what": "只给 name：两头的空白去掉，描述是空串，没有面板",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "  回放·最少  " } },
+          "save": { "c1": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "152", "etag": "W/\"98-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 1, "name": "回放·最少", "description": "", "layout_config": "[]", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "panels": [] }
+          }
+        },
+        {
+          "id": "create-full",
+          "route": "POST /api/cockpits",
+          "class": "normal",
+          "what": "两个台加一张待办卡；第二块面板只给 i，从 wb-3 里读出台号",
+          "request": {
+            "method": "POST",
+            "path": "/api/cockpits",
+            "json": {
+              "name": "回放·面板齐全",
+              "description": "两个台加待办卡",
+              "panels": [{ "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-3", "x": 6, "y": 0, "w": 6, "h": 10 }, { "kind": "tasks", "i": "tasks", "x": 0, "y": 10, "w": 12, "h": 12 }]
+            }
+          },
+          "save": { "c2": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "583", "etag": "W/\"247-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 2,
+              "name": "回放·面板齐全",
+              "description": "两个台加待办卡",
+              "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":6,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":0,\"y\":10,\"w\":12,\"h\":12}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-3", "workbenchId": 3, "x": 6, "y": 0, "w": 6, "h": 10 }, { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 10, "w": 12, "h": 12 }]
+            }
+          }
+        },
+        {
+          "id": "create-clamps",
+          "route": "POST /api/cockpits",
+          "class": "normal",
+          "what": "尺寸和位置超出范围的收回来；面板里多余的字段丢掉；待办卡可以有两张；描述给 0 存成字符串 0",
+          "request": {
+            "method": "POST",
+            "path": "/api/cockpits",
+            "json": {
+              "name": "回放·钳位",
+              "description": 0,
+              "panels": [
+                { "workbenchId": 2, "w": 0, "h": 100, "x": 20, "y": -1, "foo": 1 },
+                { "workbenchId": 3, "w": 13, "h": 2, "x": -3, "y": 7.5 },
+                { "kind": "tasks", "i": "tasks", "w": 1, "h": 3, "x": 99, "y": -5 },
+                { "kind": "tasks", "i": "tasks", "w": 20, "h": 50 }
+              ]
+            }
+          },
+          "save": { "c3": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "715", "etag": "W/\"2cb-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 3,
+              "name": "回放·钳位",
+              "description": "0",
+              "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":6,\"y\":0,\"w\":6,\"h\":40},{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":0,\"y\":7.5,\"w\":12,\"h\":4},{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":9,\"y\":0,\"w\":3,\"h\":6},{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":0,\"y\":0,\"w\":12,\"h\":40}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [
+                { "i": "wb-2", "workbenchId": 2, "x": 6, "y": 0, "w": 6, "h": 40 },
+                { "i": "wb-3", "workbenchId": 3, "x": 0, "y": 7.5, "w": 12, "h": 4 },
+                { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 9, "y": 0, "w": 3, "h": 6 },
+                { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 0, "w": 12, "h": 40 }
+              ]
+            }
+          }
+        },
+        {
+          "id": "create-odd-values",
+          "route": "POST /api/cockpits",
+          "class": "normal",
+          "what": "字段类型不对：不报错，按现有的转换规则存（数字样的字符串转成数，不像数字的取缺省，描述转成字符串）",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "x", "description": 42, "panels": [{ "workbenchId": "2", "w": "abc", "h": "7", "x": "2", "y": "3" }, { "workbenchId": 3, "w": -5, "h": -1, "x": null, "y": "z" }] } },
+          "save": { "c4": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "379", "etag": "W/\"17b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 4,
+              "name": "x",
+              "description": "42",
+              "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":2,\"y\":3,\"w\":6,\"h\":7},{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":0,\"y\":0,\"w\":1,\"h\":4}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 2, "y": 3, "w": 6, "h": 7 }, { "i": "wb-3", "workbenchId": 3, "x": 0, "y": 0, "w": 1, "h": 4 }]
+            }
+          }
+        },
+        {
+          "id": "create-null-fields",
+          "route": "POST /api/cockpits",
+          "class": "normal",
+          "what": "描述和面板明给 null：和没给一样，取缺省",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "回放·空值", "description": null, "panels": null } },
+          "save": { "c5": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "152", "etag": "W/\"98-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 5, "name": "回放·空值", "description": "", "layout_config": "[]", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "panels": [] }
+          }
+        },
+        {
+          "id": "create-fractions",
+          "route": "POST /api/cockpits",
+          "class": "normal",
+          "what": "尺寸和位置是小数：原样留着，不取整。引用的是内置的那个台（id 1）",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "回放·小数", "panels": [{ "workbenchId": 1, "w": 2.5, "h": 4.5, "x": 1.5, "y": 0.5 }] } },
+          "save": { "c6": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "286", "etag": "W/\"11e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 6,
+              "name": "回放·小数",
+              "description": "",
+              "layout_config": "[{\"i\":\"wb-1\",\"workbenchId\":1,\"x\":1.5,\"y\":0.5,\"w\":2.5,\"h\":4.5}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [{ "i": "wb-1", "workbenchId": 1, "x": 1.5, "y": 0.5, "w": 2.5, "h": 4.5 }]
+            }
+          }
+        },
+        {
+          "id": "create-id-and-i",
+          "route": "POST /api/cockpits",
+          "class": "normal",
+          "what": "第一块面板 workbenchId 和 i 都给了而且对不上：以 workbenchId 为准，i 重新写；第二块 workbenchId 是 null：当成没给，从 i 里读",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "回放·两个都给", "panels": [{ "workbenchId": 3, "i": "wb-2" }, { "workbenchId": null, "i": "wb-2" }] } },
+          "save": { "c7": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "400", "etag": "W/\"190-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 7,
+              "name": "回放·两个都给",
+              "description": "",
+              "layout_config": "[{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":0,\"y\":0,\"w\":6,\"h\":10}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [{ "i": "wb-3", "workbenchId": 3, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }]
+            }
+          }
+        },
+        {
+          "id": "get",
+          "route": "GET /api/cockpits/:id",
+          "class": "normal",
+          "what": "读一个",
+          "request": { "method": "GET", "path": "/api/cockpits/{{c2}}" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "583", "etag": "W/\"247-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 2,
+              "name": "回放·面板齐全",
+              "description": "两个台加待办卡",
+              "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":6,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":0,\"y\":10,\"w\":12,\"h\":12}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-3", "workbenchId": 3, "x": 6, "y": 0, "w": 6, "h": 10 }, { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 10, "w": 12, "h": 12 }]
+            }
+          }
+        },
+        {
+          "id": "get-remote-anonymous",
+          "route": "GET /api/cockpits/:id",
+          "class": "normal",
+          "what": "带转发头的匿名读：登录门关着时读面开放（要身份的情形见 gated 场景）",
+          "request": { "method": "GET", "path": "/api/cockpits/{{c2}}", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "583", "etag": "W/\"247-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 2,
+              "name": "回放·面板齐全",
+              "description": "两个台加待办卡",
+              "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":6,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":0,\"y\":10,\"w\":12,\"h\":12}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-3", "workbenchId": 3, "x": 6, "y": 0, "w": 6, "h": 10 }, { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 10, "w": 12, "h": 12 }]
+            }
+          }
+        },
+        {
+          "id": "get-missing",
+          "route": "GET /api/cockpits/:id",
+          "class": "invalid",
+          "what": "id 不存在",
+          "request": { "method": "GET", "path": "/api/cockpits/999999" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cockpit not found: 999999" } }
+        },
+        {
+          "id": "get-non-numeric-id",
+          "route": "GET /api/cockpits/:id",
+          "class": "invalid",
+          "what": "id 不是数字",
+          "request": { "method": "GET", "path": "/api/cockpits/abc" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cockpit not found: NaN" } }
+        },
+        {
+          "id": "get-hex-id",
+          "route": "GET /api/cockpits/:id",
+          "class": "normal",
+          "what": "id 写成 0x2：按数字读是 2",
+          "request": { "method": "GET", "path": "/api/cockpits/0x{{c2}}" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "583", "etag": "W/\"247-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 2,
+              "name": "回放·面板齐全",
+              "description": "两个台加待办卡",
+              "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":6,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":0,\"y\":10,\"w\":12,\"h\":12}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-3", "workbenchId": 3, "x": 6, "y": 0, "w": 6, "h": 10 }, { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 10, "w": 12, "h": 12 }]
+            }
+          }
+        },
+        {
+          "id": "get-fraction-id",
+          "route": "GET /api/cockpits/:id",
+          "class": "invalid",
+          "what": "id 写成 2.5：不截成 2，没有这一行",
+          "request": { "method": "GET", "path": "/api/cockpits/{{c2}}.5" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cockpit not found: 2.5" } }
+        },
+        {
+          "id": "get-trailing-junk-id",
+          "route": "GET /api/cockpits/:id",
+          "class": "invalid",
+          "what": "id 是数字后面跟着字母：不截成前面的数字",
+          "request": { "method": "GET", "path": "/api/cockpits/{{c2}}abc" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cockpit not found: NaN" } }
+        },
+        {
+          "id": "list-after-creates",
+          "route": "GET /api/cockpits",
+          "class": "normal",
+          "what": "列表：后建的排前面",
+          "request": { "method": "GET", "path": "/api/cockpits" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2675", "etag": "W/\"a73-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 7,
+                "name": "回放·两个都给",
+                "description": "",
+                "layout_config": "[{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":0,\"y\":0,\"w\":6,\"h\":10}]",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "panels": [{ "i": "wb-3", "workbenchId": 3, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }]
+              },
+              {
+                "id": 6,
+                "name": "回放·小数",
+                "description": "",
+                "layout_config": "[{\"i\":\"wb-1\",\"workbenchId\":1,\"x\":1.5,\"y\":0.5,\"w\":2.5,\"h\":4.5}]",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "panels": [{ "i": "wb-1", "workbenchId": 1, "x": 1.5, "y": 0.5, "w": 2.5, "h": 4.5 }]
+              },
+              { "id": 5, "name": "回放·空值", "description": "", "layout_config": "[]", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "panels": [] },
+              {
+                "id": 4,
+                "name": "x",
+                "description": "42",
+                "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":2,\"y\":3,\"w\":6,\"h\":7},{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":0,\"y\":0,\"w\":1,\"h\":4}]",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 2, "y": 3, "w": 6, "h": 7 }, { "i": "wb-3", "workbenchId": 3, "x": 0, "y": 0, "w": 1, "h": 4 }]
+              },
+              {
+                "id": 3,
+                "name": "回放·钳位",
+                "description": "0",
+                "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":6,\"y\":0,\"w\":6,\"h\":40},{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":0,\"y\":7.5,\"w\":12,\"h\":4},{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":9,\"y\":0,\"w\":3,\"h\":6},{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":0,\"y\":0,\"w\":12,\"h\":40}]",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "panels": [
+                  { "i": "wb-2", "workbenchId": 2, "x": 6, "y": 0, "w": 6, "h": 40 },
+                  { "i": "wb-3", "workbenchId": 3, "x": 0, "y": 7.5, "w": 12, "h": 4 },
+                  { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 9, "y": 0, "w": 3, "h": 6 },
+                  { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 0, "w": 12, "h": 40 }
+                ]
+              },
+              {
+                "id": 2,
+                "name": "回放·面板齐全",
+                "description": "两个台加待办卡",
+                "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":6,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":0,\"y\":10,\"w\":12,\"h\":12}]",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-3", "workbenchId": 3, "x": 6, "y": 0, "w": 6, "h": 10 }, { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 10, "w": 12, "h": 12 }]
+              },
+              { "id": 1, "name": "回放·最少", "description": "", "layout_config": "[]", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "panels": [] }
+            ]
+          }
+        },
+        {
+          "id": "create-for-update",
+          "route": "POST /api/cockpits",
+          "class": "normal",
+          "what": "给后面几条 PUT 用",
+          "request": { "method": "POST", "path": "/api/cockpits", "json": { "name": "给 PUT 用", "description": "原样", "panels": [{ "workbenchId": 2, "x": 1, "y": 2, "w": 3, "h": 5 }] } },
+          "save": { "cput": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "273", "etag": "W/\"111-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 8,
+              "name": "给 PUT 用",
+              "description": "原样",
+              "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":1,\"y\":2,\"w\":3,\"h\":5}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 1, "y": 2, "w": 3, "h": 5 }]
+            }
+          }
+        },
+        {
+          "id": "update-remote-anonymous",
+          "route": "PUT /api/cockpits/:id",
+          "class": "unauthorized",
+          "what": "带转发头、没有口令的写",
+          "request": { "method": "PUT", "path": "/api/cockpits/{{cput}}", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "name": "不该改成" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "update-missing",
+          "route": "PUT /api/cockpits/:id",
+          "class": "invalid",
+          "what": "id 不存在",
+          "request": { "method": "PUT", "path": "/api/cockpits/999999", "json": { "name": "x" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cockpit not found: 999999" } }
+        },
+        {
+          "id": "update-non-numeric-id",
+          "route": "PUT /api/cockpits/:id",
+          "class": "invalid",
+          "what": "id 不是数字",
+          "request": { "method": "PUT", "path": "/api/cockpits/abc", "json": { "name": "x" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cockpit not found: NaN" } }
+        },
+        {
+          "id": "update-fraction-id",
+          "route": "PUT /api/cockpits/:id",
+          "class": "invalid",
+          "what": "id 带小数：不截成整数，没有这一行",
+          "request": { "method": "PUT", "path": "/api/cockpits/{{cput}}.5", "json": { "name": "不该改到" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cockpit not found: 8.5" } }
+        },
+        {
+          "id": "update-trailing-junk-id",
+          "route": "PUT /api/cockpits/:id",
+          "class": "invalid",
+          "what": "id 是数字后面跟着字母：不截成前面的数字",
+          "request": { "method": "PUT", "path": "/api/cockpits/{{cput}}abc", "json": { "name": "不该改到" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cockpit not found: NaN" } }
+        },
+        {
+          "id": "update-empty-name",
+          "route": "PUT /api/cockpits/:id",
+          "class": "invalid",
+          "what": "name 给空串：改的时候给了就算数，空的不收",
+          "request": { "method": "PUT", "path": "/api/cockpits/{{cput}}", "json": { "name": "" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "name 不能为空" } }
+        },
+        {
+          "id": "update-blank-name",
+          "route": "PUT /api/cockpits/:id",
+          "class": "invalid",
+          "what": "name 只有空白",
+          "request": { "method": "PUT", "path": "/api/cockpits/{{cput}}", "json": { "name": "   " } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "name 不能为空" } }
+        },
+        {
+          "id": "update-panels-null",
+          "route": "PUT /api/cockpits/:id",
+          "class": "invalid",
+          "what": "panels 明给 null：改的时候给了就要是数组，不当成没给",
+          "request": { "method": "PUT", "path": "/api/cockpits/{{cput}}", "json": { "panels": null } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "47", "etag": "W/\"2f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "layout_config 必须是面板数组" } }
+        },
+        {
+          "id": "update-rejected-writes-nothing",
+          "route": "PUT /api/cockpits/:id",
+          "class": "invalid",
+          "what": "被拒的 PUT 什么都不落库：同一个请求里 name 和描述是合规的，这一行也保持原样（看下一条）",
+          "request": { "method": "PUT", "path": "/api/cockpits/{{cput}}", "json": { "name": "不该落库", "description": "不该落库", "panels": [{ "workbenchId": 999 }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "50", "etag": "W/\"32-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "面板引用的工作台不存在: 999" } }
+        },
+        {
+          "id": "get-after-rejected",
+          "route": "GET /api/cockpits/:id",
+          "class": "normal",
+          "what": "上一条被拒之后再读：还是原样",
+          "request": { "method": "GET", "path": "/api/cockpits/{{cput}}" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "273", "etag": "W/\"111-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 8,
+              "name": "给 PUT 用",
+              "description": "原样",
+              "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":1,\"y\":2,\"w\":3,\"h\":5}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 1, "y": 2, "w": 3, "h": 5 }]
+            }
+          }
+        },
+        {
+          "id": "update-malformed-json",
+          "route": "PUT /api/cockpits/:id",
+          "class": "invalid",
+          "what": "请求体不是合法 JSON",
+          "request": { "method": "PUT", "path": "/api/cockpits/{{cput}}", "headers": { "content-type": "application/json" }, "text": "{not json" },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "请求体不是合法 JSON" } }
+        },
+        {
+          "id": "update-no-body",
+          "route": "PUT /api/cockpits/:id",
+          "class": "normal",
+          "what": "没有请求体：什么都不改，照样回这一行",
+          "request": { "method": "PUT", "path": "/api/cockpits/{{cput}}" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "273", "etag": "W/\"111-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 8,
+              "name": "给 PUT 用",
+              "description": "原样",
+              "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":1,\"y\":2,\"w\":3,\"h\":5}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 1, "y": 2, "w": 3, "h": 5 }]
+            }
+          }
+        },
+        {
+          "id": "update-array-body",
+          "route": "PUT /api/cockpits/:id",
+          "class": "normal",
+          "what": "请求体是装着一个对象的数组：不拿里面的对象来用，什么都不改",
+          "request": { "method": "PUT", "path": "/api/cockpits/{{cput}}", "json": [{ "name": "数组里的名字" }] },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "273", "etag": "W/\"111-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 8,
+              "name": "给 PUT 用",
+              "description": "原样",
+              "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":1,\"y\":2,\"w\":3,\"h\":5}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 1, "y": 2, "w": 3, "h": 5 }]
+            }
+          }
+        },
+        {
+          "id": "update-name-only",
+          "route": "PUT /api/cockpits/:id",
+          "class": "normal",
+          "what": "只改 name（两头的空白去掉），描述和面板不动",
+          "request": { "method": "PUT", "path": "/api/cockpits/{{cput}}", "json": { "name": "  改名  " } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "268", "etag": "W/\"10c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 8,
+              "name": "改名",
+              "description": "原样",
+              "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":1,\"y\":2,\"w\":3,\"h\":5}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 1, "y": 2, "w": 3, "h": 5 }]
+            }
+          }
+        },
+        {
+          "id": "update-description-only",
+          "route": "PUT /api/cockpits/:id",
+          "class": "normal",
+          "what": "只改描述",
+          "request": { "method": "PUT", "path": "/api/cockpits/{{cput}}", "json": { "description": "只改描述" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "274", "etag": "W/\"112-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 8,
+              "name": "改名",
+              "description": "只改描述",
+              "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":1,\"y\":2,\"w\":3,\"h\":5}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 1, "y": 2, "w": 3, "h": 5 }]
+            }
+          }
+        },
+        {
+          "id": "update-panels-only",
+          "route": "PUT /api/cockpits/:id",
+          "class": "normal",
+          "what": "只改面板：没给尺寸的取缺省（普通面板 6×10，待办卡 6×12）",
+          "request": { "method": "PUT", "path": "/api/cockpits/{{cput}}", "json": { "panels": [{ "workbenchId": 3 }, { "kind": "tasks", "i": "tasks" }] } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "434", "etag": "W/\"1b2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 8,
+              "name": "改名",
+              "description": "只改描述",
+              "layout_config": "[{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":0,\"y\":0,\"w\":6,\"h\":12}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [{ "i": "wb-3", "workbenchId": 3, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 0, "w": 6, "h": 12 }]
+            }
+          }
+        },
+        {
+          "id": "update-nulls",
+          "route": "PUT /api/cockpits/:id",
+          "class": "normal",
+          "what": "name 和描述给 null：改的时候转成字符串 null，不当成没给",
+          "request": { "method": "PUT", "path": "/api/cockpits/{{cput}}", "json": { "name": null, "description": null } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "424", "etag": "W/\"1a8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 8,
+              "name": "null",
+              "description": "null",
+              "layout_config": "[{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":0,\"y\":0,\"w\":6,\"h\":12}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [{ "i": "wb-3", "workbenchId": 3, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 0, "w": 6, "h": 12 }]
+            }
+          }
+        },
+        {
+          "id": "update-zeros",
+          "route": "PUT /api/cockpits/:id",
+          "class": "normal",
+          "what": "name 和描述给 0：存成字符串 0；面板给空数组就是清空",
+          "request": { "method": "PUT", "path": "/api/cockpits/{{cput}}", "json": { "name": 0, "description": 0, "panels": [] } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "140", "etag": "W/\"8c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 8, "name": "0", "description": "0", "layout_config": "[]", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "panels": [] }
+          }
+        },
+        {
+          "id": "update-empty-description",
+          "route": "PUT /api/cockpits/:id",
+          "class": "normal",
+          "what": "描述给空串：改成空串，不当成没给",
+          "request": { "method": "PUT", "path": "/api/cockpits/{{cput}}", "json": { "description": "" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "139", "etag": "W/\"8b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 8, "name": "0", "description": "", "layout_config": "[]", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "panels": [] }
+          }
+        },
+        {
+          "id": "update-hex-id",
+          "route": "PUT /api/cockpits/:id",
+          "class": "normal",
+          "what": "id 写成 0x 开头：按数字读",
+          "request": { "method": "PUT", "path": "/api/cockpits/0x{{cput}}", "json": { "description": "经 0x 改的描述" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "158", "etag": "W/\"9e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 8, "name": "0", "description": "经 0x 改的描述", "layout_config": "[]", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "panels": [] }
+          }
+        },
+        {
+          "id": "update-all",
+          "route": "PUT /api/cockpits/:id",
+          "class": "normal",
+          "what": "三个字段都改；面板引用内置的台和登记的台",
+          "request": { "method": "PUT", "path": "/api/cockpits/{{cput}}", "json": { "name": "回放·全改", "description": "全改", "panels": [{ "workbenchId": 2, "x": 0, "y": 0, "w": 4, "h": 8 }, { "workbenchId": 1, "x": 4, "y": 0, "w": 4, "h": 8 }] } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "396", "etag": "W/\"18c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 8,
+              "name": "回放·全改",
+              "description": "全改",
+              "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":0,\"y\":0,\"w\":4,\"h\":8},{\"i\":\"wb-1\",\"workbenchId\":1,\"x\":4,\"y\":0,\"w\":4,\"h\":8}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 4, "h": 8 }, { "i": "wb-1", "workbenchId": 1, "x": 4, "y": 0, "w": 4, "h": 8 }]
+            }
+          }
+        },
+        {
+          "id": "delete-remote-anonymous",
+          "route": "DELETE /api/cockpits/:id",
+          "class": "unauthorized",
+          "what": "带转发头、没有口令的写",
+          "request": { "method": "DELETE", "path": "/api/cockpits/{{c1}}", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "delete-missing",
+          "route": "DELETE /api/cockpits/:id",
+          "class": "invalid",
+          "what": "id 不存在",
+          "request": { "method": "DELETE", "path": "/api/cockpits/999999" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cockpit not found: 999999" } }
+        },
+        {
+          "id": "delete-non-numeric-id",
+          "route": "DELETE /api/cockpits/:id",
+          "class": "invalid",
+          "what": "id 不是数字",
+          "request": { "method": "DELETE", "path": "/api/cockpits/abc" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cockpit not found: NaN" } }
+        },
+        {
+          "id": "delete-fraction-id",
+          "route": "DELETE /api/cockpits/:id",
+          "class": "invalid",
+          "what": "id 带小数：不截成整数，没有这一行",
+          "request": { "method": "DELETE", "path": "/api/cockpits/{{c1}}.5" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cockpit not found: 1.5" } }
+        },
+        {
+          "id": "delete-trailing-junk-id",
+          "route": "DELETE /api/cockpits/:id",
+          "class": "invalid",
+          "what": "id 是数字后面跟着字母：不截成前面的数字",
+          "request": { "method": "DELETE", "path": "/api/cockpits/{{c1}}abc" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cockpit not found: NaN" } }
+        },
+        {
+          "id": "delete-hex-id",
+          "route": "DELETE /api/cockpits/:id",
+          "class": "normal",
+          "what": "id 写成 0x1：按数字读是 1，删掉的是第一个",
+          "request": { "method": "DELETE", "path": "/api/cockpits/0x{{c1}}" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "11", "etag": "W/\"b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true } }
+        },
+        {
+          "id": "delete-again",
+          "route": "DELETE /api/cockpits/:id",
+          "class": "invalid",
+          "what": "已经删掉的再删一次",
+          "request": { "method": "DELETE", "path": "/api/cockpits/{{c1}}" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cockpit not found: 1" } }
+        },
+        {
+          "id": "delete",
+          "route": "DELETE /api/cockpits/:id",
+          "class": "normal",
+          "what": "删一个",
+          "request": { "method": "DELETE", "path": "/api/cockpits/{{c3}}" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "11", "etag": "W/\"b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true } }
+        },
+        {
+          "id": "get-deleted",
+          "route": "GET /api/cockpits/:id",
+          "class": "invalid",
+          "what": "删掉的读不到",
+          "request": { "method": "GET", "path": "/api/cockpits/{{c3}}" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cockpit not found: 3" } }
+        },
+        {
+          "id": "list-after",
+          "route": "GET /api/cockpits",
+          "class": "normal",
+          "what": "写完之后的样子：1 和 3 没了，最后建的那个是改过的值、排在最前面",
+          "request": { "method": "GET", "path": "/api/cockpits" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2203", "etag": "W/\"89b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 8,
+                "name": "回放·全改",
+                "description": "全改",
+                "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":0,\"y\":0,\"w\":4,\"h\":8},{\"i\":\"wb-1\",\"workbenchId\":1,\"x\":4,\"y\":0,\"w\":4,\"h\":8}]",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 4, "h": 8 }, { "i": "wb-1", "workbenchId": 1, "x": 4, "y": 0, "w": 4, "h": 8 }]
+              },
+              {
+                "id": 7,
+                "name": "回放·两个都给",
+                "description": "",
+                "layout_config": "[{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":0,\"y\":0,\"w\":6,\"h\":10}]",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "panels": [{ "i": "wb-3", "workbenchId": 3, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }]
+              },
+              {
+                "id": 6,
+                "name": "回放·小数",
+                "description": "",
+                "layout_config": "[{\"i\":\"wb-1\",\"workbenchId\":1,\"x\":1.5,\"y\":0.5,\"w\":2.5,\"h\":4.5}]",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "panels": [{ "i": "wb-1", "workbenchId": 1, "x": 1.5, "y": 0.5, "w": 2.5, "h": 4.5 }]
+              },
+              { "id": 5, "name": "回放·空值", "description": "", "layout_config": "[]", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "panels": [] },
+              {
+                "id": 4,
+                "name": "x",
+                "description": "42",
+                "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":2,\"y\":3,\"w\":6,\"h\":7},{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":0,\"y\":0,\"w\":1,\"h\":4}]",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 2, "y": 3, "w": 6, "h": 7 }, { "i": "wb-3", "workbenchId": 3, "x": 0, "y": 0, "w": 1, "h": 4 }]
+              },
+              {
+                "id": 2,
+                "name": "回放·面板齐全",
+                "description": "两个台加待办卡",
+                "layout_config": "[{\"i\":\"wb-2\",\"workbenchId\":2,\"x\":0,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"wb-3\",\"workbenchId\":3,\"x\":6,\"y\":0,\"w\":6,\"h\":10},{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":0,\"y\":10,\"w\":12,\"h\":12}]",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "panels": [{ "i": "wb-2", "workbenchId": 2, "x": 0, "y": 0, "w": 6, "h": 10 }, { "i": "wb-3", "workbenchId": 3, "x": 6, "y": 0, "w": 6, "h": 10 }, { "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 10, "w": 12, "h": 12 }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce），管理口令由环境给（合成值，只在隔离实例里用）。没有身份什么都访问不到；带口令的远程请求按管理员处理，浏览器来的还要同源。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "steps": [
+        {
+          "id": "list-anonymous",
+          "route": "GET /api/cockpits",
+          "class": "unauthorized",
+          "what": "远程匿名",
+          "request": { "method": "GET", "path": "/api/cockpits", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "list-wrong-token",
+          "route": "GET /api/cockpits",
+          "class": "unauthorized",
+          "what": "口令不对",
+          "request": { "method": "GET", "path": "/api/cockpits", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "not-the-token" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "list-browser-anonymous",
+          "route": "GET /api/cockpits",
+          "class": "unauthorized",
+          "what": "本机但带浏览器标记：不算命令行",
+          "request": { "method": "GET", "path": "/api/cockpits", "headers": { "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "list-with-token",
+          "route": "GET /api/cockpits",
+          "class": "normal",
+          "what": "远程带口令",
+          "request": { "method": "GET", "path": "/api/cockpits", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": [] }
+        },
+        {
+          "id": "create-anonymous",
+          "route": "POST /api/cockpits",
+          "class": "unauthorized",
+          "what": "远程匿名",
+          "request": { "method": "POST", "path": "/api/cockpits", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "name": "不该建出来" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "create-wrong-token",
+          "route": "POST /api/cockpits",
+          "class": "unauthorized",
+          "what": "口令不对",
+          "request": { "method": "POST", "path": "/api/cockpits", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "not-the-token" }, "json": { "name": "不该建出来" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "create-token-cross-origin",
+          "route": "POST /api/cockpits",
+          "class": "unauthorized",
+          "what": "口令对，但浏览器从别的站点发来",
+          "request": {
+            "method": "POST",
+            "path": "/api/cockpits",
+            "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" },
+            "json": { "name": "不该建出来" }
+          },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "create-with-token-no-name",
+          "route": "POST /api/cockpits",
+          "class": "invalid",
+          "what": "远程带口令，没给 name",
+          "request": { "method": "POST", "path": "/api/cockpits", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "name 不能为空" } }
+        },
+        {
+          "id": "create-with-token",
+          "route": "POST /api/cockpits",
+          "class": "normal",
+          "what": "远程带口令",
+          "request": { "method": "POST", "path": "/api/cockpits", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "name": "登录门后面建的", "panels": [{ "kind": "tasks", "i": "tasks" }] } },
+          "save": { "g": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "315", "etag": "W/\"13b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 1,
+              "name": "登录门后面建的",
+              "description": "",
+              "layout_config": "[{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":0,\"y\":0,\"w\":6,\"h\":12}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [{ "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 0, "w": 6, "h": 12 }]
+            }
+          }
+        },
+        {
+          "id": "get-anonymous",
+          "route": "GET /api/cockpits/:id",
+          "class": "unauthorized",
+          "what": "远程匿名",
+          "request": { "method": "GET", "path": "/api/cockpits/{{g}}", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "get-with-token-missing",
+          "route": "GET /api/cockpits/:id",
+          "class": "invalid",
+          "what": "远程带口令，id 不存在",
+          "request": { "method": "GET", "path": "/api/cockpits/999999", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cockpit not found: 999999" } }
+        },
+        {
+          "id": "get-with-token",
+          "route": "GET /api/cockpits/:id",
+          "class": "normal",
+          "what": "远程带口令",
+          "request": { "method": "GET", "path": "/api/cockpits/{{g}}", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "315", "etag": "W/\"13b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 1,
+              "name": "登录门后面建的",
+              "description": "",
+              "layout_config": "[{\"i\":\"tasks\",\"workbenchId\":0,\"kind\":\"tasks\",\"x\":0,\"y\":0,\"w\":6,\"h\":12}]",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "panels": [{ "i": "tasks", "workbenchId": 0, "kind": "tasks", "x": 0, "y": 0, "w": 6, "h": 12 }]
+            }
+          }
+        },
+        {
+          "id": "update-anonymous",
+          "route": "PUT /api/cockpits/:id",
+          "class": "unauthorized",
+          "what": "远程匿名",
+          "request": { "method": "PUT", "path": "/api/cockpits/{{g}}", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "name": "不该改成" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "update-token-cross-origin",
+          "route": "PUT /api/cockpits/:id",
+          "class": "unauthorized",
+          "what": "口令对，但浏览器从别的站点发来",
+          "request": {
+            "method": "PUT",
+            "path": "/api/cockpits/{{g}}",
+            "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" },
+            "json": { "name": "不该改成" }
+          },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "update-with-token-missing",
+          "route": "PUT /api/cockpits/:id",
+          "class": "invalid",
+          "what": "远程带口令，id 不存在",
+          "request": { "method": "PUT", "path": "/api/cockpits/999999", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "name": "x" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cockpit not found: 999999" } }
+        },
+        {
+          "id": "update-with-token",
+          "route": "PUT /api/cockpits/:id",
+          "class": "normal",
+          "what": "远程带口令",
+          "request": { "method": "PUT", "path": "/api/cockpits/{{g}}", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "name": "登录门后面改的", "panels": [] } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "159", "etag": "W/\"9f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 1, "name": "登录门后面改的", "description": "", "layout_config": "[]", "created_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "panels": [] }
+          }
+        },
+        {
+          "id": "delete-anonymous",
+          "route": "DELETE /api/cockpits/:id",
+          "class": "unauthorized",
+          "what": "远程匿名",
+          "request": { "method": "DELETE", "path": "/api/cockpits/{{g}}", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "delete-wrong-token",
+          "route": "DELETE /api/cockpits/:id",
+          "class": "unauthorized",
+          "what": "口令不对",
+          "request": { "method": "DELETE", "path": "/api/cockpits/{{g}}", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "not-the-token" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "delete-with-token",
+          "route": "DELETE /api/cockpits/:id",
+          "class": "normal",
+          "what": "远程带口令",
+          "request": { "method": "DELETE", "path": "/api/cockpits/{{g}}", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "11", "etag": "W/\"b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true } }
+        },
+        {
+          "id": "delete-local-cli",
+          "route": "DELETE /api/cockpits/:id",
+          "class": "invalid",
+          "what": "本机命令行不用口令也能过门；这个驾驶舱上一步已经删了",
+          "request": { "method": "DELETE", "path": "/api/cockpits/{{g}}" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cockpit not found: 1" } }
+        }
+      ]
+    }
+  ]
+}

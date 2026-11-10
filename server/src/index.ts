@@ -22,6 +22,9 @@ import multer from 'multer';
 import { svc } from './context.ts';
 import type { HttpService } from './http.ts';
 import { registerTypeRoutes } from './routes/types.ts';
+import { registerCockpitRoutes } from './routes/cockpits.ts';
+import { registerCookieRoutes } from './routes/cookies.ts';
+import { registerStatsRoutes } from './routes/stats.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import { SkillService } from './services/skill.ts';
@@ -31,7 +34,7 @@ import type { CookieService } from './services/cookie.ts';
 import type { CockpitService } from './services/cockpit.ts';
 import type { SettingService } from './services/setting.ts';
 import { recordLayerFsShadowOutcome, recordLayerFsSkillShadowOutcome } from './layerfs-shadow.ts';
-import { db, getSettings, dataDir, rowToWorkbench, rowToCockpit, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow, type SopRunRow } from './db.ts';
+import { db, getSettings, dataDir, rowToWorkbench, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow, type SopRunRow } from './db.ts';
 (globalThis as any).__wmDb = db; // #94 v3 S1：tasks.ts 直读 change_requests 桥
 import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
 import { HttpError } from './errors.ts';
@@ -669,72 +672,7 @@ app.post('/api/check-all', wrap(async (_req, res) => {
 }));
 
 // ---------- 驾驶舱 CRUD（任务驾驶舱：多工作台分屏组合视图） ----------
-function getCockpit(id: number): CockpitRow {
-  const row = svc<CockpitService>('cockpit').byId(id) as unknown as CockpitRow | undefined;
-  if (!row) throw new HttpError(404, `cockpit not found: ${id}`);
-  return row;
-}
-
-function validatePanels(raw: unknown): PanelConfig[] {
-  if (!Array.isArray(raw)) bad('layout_config 必须是面板数组');
-  const seen = new Set<number>();
-  return raw.map((p: any) => {
-    // 统一待办卡（omni-inbox）：kind='tasks'，workbenchId=0 占位，不引用工作台
-    if (p?.kind === 'tasks' && String(p?.i ?? '') === 'tasks') {
-      const tw = Math.min(12, Math.max(3, Number(p?.w) || 6));
-      const th = Math.min(40, Math.max(6, Number(p?.h) || 12));
-      return { i: 'tasks', workbenchId: 0, kind: 'tasks' as const, x: Math.min(12 - tw, Math.max(0, Number(p?.x) || 0)), y: Math.max(0, Number(p?.y) || 0), w: tw, h: th };
-    }
-    const workbenchId = Number(p?.workbenchId ?? Number(String(p?.i ?? '').replace('wb-', '')));
-    if (!Number.isInteger(workbenchId) || workbenchId < 1) bad(`面板 workbenchId 非法: ${JSON.stringify(p)}`);
-    if (seen.has(workbenchId)) bad(`面板重复引用工作台 ${workbenchId}`);
-    seen.add(workbenchId);
-    if (!svc<WorkbenchService>('workbench').idById(workbenchId)) bad(`面板引用的工作台不存在: ${workbenchId}`);
-    const w = Math.min(12, Math.max(1, Number(p?.w) || 6));
-    const h = Math.min(40, Math.max(4, Number(p?.h) || 10));
-    return {
-      i: `wb-${workbenchId}`,
-      workbenchId,
-      x: Math.min(12 - w, Math.max(0, Number(p?.x) || 0)),
-      y: Math.max(0, Number(p?.y) || 0),
-      w, h,
-    };
-  });
-}
-
-app.get('/api/cockpits', (_req, res) => {
-  const rows = svc<CockpitService>('cockpit').list() as unknown as CockpitRow[];
-  res.json(rows.map(rowToCockpit));
-});
-
-app.post('/api/cockpits', (req, res) => {
-  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
-  if (!name) bad('name 不能为空');
-  const description = String(req.body?.description ?? '');
-  const panels = validatePanels(req.body?.panels ?? []);
-  const r = svc<CockpitService>('cockpit').create(name, description, JSON.stringify(panels)) as unknown as { lastInsertRowid: number | bigint };
-  res.status(201).json(rowToCockpit(getCockpit(Number(r.lastInsertRowid))));
-});
-
-app.get('/api/cockpits/:id', (req, res) => {
-  res.json(rowToCockpit(getCockpit(Number(req.params.id))));
-});
-
-app.put('/api/cockpits/:id', (req, res) => {
-  const cur = getCockpit(Number(req.params.id));
-  const name = req.body?.name !== undefined ? String(req.body.name).trim() : cur.name;
-  if (!name) bad('name 不能为空');
-  const description = req.body?.description !== undefined ? String(req.body.description) : cur.description;
-  const panels = req.body?.panels !== undefined ? validatePanels(req.body.panels) : JSON.parse(cur.layout_config || '[]');
-  svc<CockpitService>('cockpit').update(cur.id, name, description, JSON.stringify(panels));
-  res.json(rowToCockpit(getCockpit(cur.id)));
-});
-
-app.delete('/api/cockpits/:id', (req, res) => {
-  const cur = getCockpit(Number(req.params.id));
-  svc<CockpitService>('cockpit').delete(cur.id);
-  res.json({ ok: true });
-});
+registerCockpitRoutes(http);
 
 // ---------- 自产台（台生成器：AI 发布 API + 全版本快照，发布即入册） ----------
 const appsRoot = join(dataDir, 'apps');
@@ -2197,70 +2135,7 @@ app.get('/api/sop/runs/:id/files/:fileId', wrap(async (req, res) => {
 }));
 
 // ---------- Cookie 池（监督席派单 direct-5fbb2176：web 型外部台 cookie 认证） ----------
-interface CookieExport { name: string; value: string; domain?: string; path?: string; expirationDate?: number; httpOnly?: boolean; sameSite?: string }
-interface CookieRow { id: number; label: string; cookies_json: string; created_at: string }
-
-function cookieExpiryInfo(cookies: CookieExport[]): { total: number; active: number; soonestExpMs: number | null; allExpired: boolean } {
-  const now = Date.now();
-  let active = 0;
-  let soonest: number | null = null;
-  for (const c of cookies) {
-    if (!c.expirationDate || c.expirationDate * 1000 > now) {
-      active++;
-      if (c.expirationDate) {
-        const ms = c.expirationDate * 1000 - now;
-        if (soonest === null || ms < soonest) soonest = ms;
-      }
-    }
-  }
-  return { total: cookies.length, active, soonestExpMs: soonest, allExpired: cookies.length > 0 && active === 0 };
-}
-
-function maskCookies(cookies: CookieExport[]): CookieExport[] {
-  return cookies.map((c) => ({ ...c, value: '****' }));
-}
-
-app.post('/api/cookies', (req, res) => {
-  const b = req.body ?? {};
-  const label = typeof b.label === 'string' ? b.label.trim() : '';
-  if (!label) bad('label 必填（如「DSH-3080 生产」）');
-  const arr = b.cookies;
-  if (!Array.isArray(arr) || arr.length === 0) bad('cookies 必须是非空数组（Cookie-Editor/EditThisCookie 导出格式）');
-  // 校验每条 name+value 必填（浏览器扩展标准导出全对象 verbatim 存储）
-  const clean: CookieExport[] = [];
-  for (const c of arr) {
-    if (typeof c?.name !== 'string' || !c.name) bad('每条 cookie 的 name 必填');
-    if (typeof c?.value !== 'string') bad(`cookie "${c.name}" 缺 value`);
-    clean.push({ name: c.name, value: c.value, domain: String(c.domain ?? ''), path: String(c.path ?? '/'), expirationDate: typeof c.expirationDate === 'number' ? c.expirationDate : undefined, httpOnly: !!c.httpOnly, sameSite: String(c.sameSite ?? '') });
-  }
-  const r = svc<CookieService>('cookie').create(label, JSON.stringify(clean)) as unknown as { lastInsertRowid: number | bigint };
-  const info = cookieExpiryInfo(clean);
-  res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), label, cookie_count: clean.length, active: info.active, cookies: maskCookies(clean) });
-});
-
-app.get('/api/cookies', (_req, res) => {
-  const rows = svc<CookieService>('cookie').all() as unknown as CookieRow[];
-  res.json(rows.map((r) => {
-    let cookies: CookieExport[] = [];
-    try { cookies = JSON.parse(r.cookies_json || '[]'); } catch { cookies = []; }
-    const info = cookieExpiryInfo(cookies);
-    return {
-      id: r.id, label: r.label, cookie_count: info.total, active: info.active,
-      all_expired: info.allExpired, soonest_exp_days: info.soonestExpMs !== null ? Math.floor(info.soonestExpMs / 86400000) : null,
-      created_at: r.created_at,
-      cookies: maskCookies(cookies), // value 全掩码——明文不回任何 API
-    };
-  }));
-});
-
-app.delete('/api/cookies/:id', (req, res) => {
-  const id = Number(req.params.id);
-  const r = svc<CookieService>('cookie').delete(id);
-  if (!r.changes) throw new HttpError(404, `cookie set not found: ${id}`);
-  // 挂接了该池的台自动取消引用
-  svc<WorkbenchService>('workbench').clearCookieSet(id);
-  res.json({ ok: true, deleted: id });
-});
+registerCookieRoutes(http);
 
 // PUT /api/workbenches/:id 已扩展支持 cookie_set_id（在 validateWorkbenchBody 后 merged）
 
@@ -2291,7 +2166,7 @@ app.get('/api/sop/runs/active', wrap(async (_req, res) => {
   res.json(rows);
 }));
 
-app.get('/api/stats', (_req, res) => { res.json(statsPayload()); });
+registerStatsRoutes(http);
 app.get('/api/content/observation', (req, res) => {
   if (!adminGuard(req, res)) return;
   res.setHeader('Cache-Control', 'no-store');
@@ -3791,7 +3666,7 @@ import { closeYglUpstreams, yglHomeProblem, yglUpstreamRpc } from './mcp-stdio-u
 import { tasksReadAccess, createTaskSourceGrant, revokeTaskSourceGrant } from './tasks-read-access.ts';
 import { collectExtensionTasks, extensionTaskSourceKeys, loadExtensions } from './extensions.ts';
 import { authorizeRunRead, issueRunReadCap, runReadGrantCreate, runReadGrantRevoke, runReadCapRevokeAll } from './sop-read-auth.ts';
-import { endpointStatsMiddleware, statsPayload } from './endpoint-stats.ts';
+import { endpointStatsMiddleware } from './endpoint-stats.ts';
 import { fetchMainFiles, normalizeSource, SourceError, SOURCE_BRANCH } from './github-source.ts';
 import { checkRecord, parseContract, type DataContract } from './app-data-contract.ts';
 import { sniff, type Sniff } from './file-sniff.ts';
