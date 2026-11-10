@@ -8,7 +8,7 @@
  * 别的核心文件只用下面的 identity() 和 loginRelay()。
  *
  * 服务不照单全收提供方的回答，一律朝认不出人的方向收：
- *   没装提供方、提供方抛错、回答的形状不对 → 认不出（不放行）；管理员标记不是 true → 不是管理员。
+ *   没装提供方、提供方抛错、到点没回答、回答的形状不对 → 认不出（不放行）；管理员标记不是 true → 不是管理员。
  *
  * 不碰数据库：登录门、SOP 字段通道这类不开库的模块也引用这里。
  */
@@ -36,6 +36,11 @@ export type Whoami = { http: number; body: Record<string, unknown> };
 export interface LoginProvider {
   /** 提供方的名字：排障和留痕用 */
   readonly name: string;
+  /**
+   * 认一次人最多等多久（毫秒，1～60000）。到点没有回答，服务按身份来源不可用处理，不放行。不写就是 10 秒。
+   * 提供方自己也该有期限；这一条是它没守住时的底线。
+   */
+  readonly deadlineMs?: number;
   /** 有没有配置身份来源 */
   configured(): boolean;
   /** 请求带来的、这个提供方认的凭据。只取不验；没有就是空串 */
@@ -47,28 +52,54 @@ export interface LoginProvider {
 const NO_PROVIDER = '未配置身份来源';
 const UNAVAILABLE = '身份来源不可用';
 const UNRECOGNIZED = '身份来源的回答无法识别，按认不出处理';
+/** 提供方没有自报期限时的底线。比自带提供方自己的 5 秒超时长，不会抢在它前面 */
+const DEFAULT_DEADLINE_MS = 10_000;
+const MAX_DEADLINE_MS = 60_000;
 
 const loginOk = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 128 && v === v.trim() && !/[\x00-\x1f\x7f]/.test(v);
+const deadlineOk = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 1 && v <= MAX_DEADLINE_MS;
+const unrecognized = (): ViewerResult => ({ ok: false, http: 502, error: UNRECOGNIZED });
 
-/** 把提供方的回答收成契约的形状；收不成就是认不出 */
+/** 到点还没有回答，就算它出错 */
+function within<T>(answer: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error('deadline')), ms); });
+  return Promise.race([answer, late]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * 把提供方的回答收成契约的形状；收不成就是认不出。
+ * 回答可以是任何东西，包括带访问器的对象：每个字段只读一次、读出来再判；读的时候抛错，也按认不出。
+ */
 function checked(answer: unknown): ViewerResult {
-  const a = answer as { ok?: unknown; viewer?: Partial<Viewer> | null; http?: unknown; error?: unknown } | null | undefined;
-  if (a?.ok === true) {
-    const v = a.viewer;
-    if (!v || !loginOk(v.login) || v.sub !== `user:${v.login}` || typeof v.uid !== 'number' || (v.name !== null && typeof v.name !== 'string')) {
-      return { ok: false, http: 502, error: UNRECOGNIZED };
+  try {
+    const a = answer as { ok?: unknown; viewer?: { [K in keyof Viewer]?: unknown } | null; http?: unknown; error?: unknown } | null | undefined;
+    if (a === null || a === undefined) return unrecognized();
+    const ok = a.ok;
+    if (ok === true) {
+      const v = a.viewer;
+      if (!v) return unrecognized();
+      const login = v.login, uid = v.uid, sub = v.sub, name = v.name, admin = v.admin;
+      if (!loginOk(login)) return unrecognized();
+      if (sub !== `user:${login}`) return unrecognized();
+      if (typeof uid !== 'number') return unrecognized();
+      if (name !== null && typeof name !== 'string') return unrecognized();
+      return { ok: true, viewer: { login, uid, sub: `user:${login}`, name: name as string | null, admin: admin === true } };
     }
-    return { ok: true, viewer: { login: v.login, uid: v.uid, sub: v.sub, name: v.name, admin: v.admin === true } };
-  }
-  if (a?.ok === false && typeof a.http === 'number' && Number.isInteger(a.http) && a.http >= 400 && a.http <= 599 && typeof a.error === 'string') {
-    return { ok: false, http: a.http, error: a.error };
-  }
-  return { ok: false, http: 502, error: UNRECOGNIZED };
+    if (ok === false) {
+      const http = a.http, error = a.error;
+      if (typeof http !== 'number' || !Number.isInteger(http) || http < 400 || http > 599) return unrecognized();
+      if (typeof error !== 'string') return unrecognized();
+      return { ok: false, http, error };
+    }
+  } catch { /* 读回答的时候抛错：按认不出 */ }
+  return unrecognized();
 }
 
 /** 身份服务（Cordis 服务名 `identity`）。字段不用 # 私有：Cordis 交出来的服务是一层代理 */
 export class IdentityService extends Service {
   private provider: LoginProvider | null = null;
+  private deadlineMs = DEFAULT_DEADLINE_MS;
 
   constructor(ctx: Context) {
     super(ctx, 'identity');
@@ -77,11 +108,18 @@ export class IdentityService extends Service {
   /** 登录提供方插件登记自己，返回撤销函数（插件放进 ctx.effect，卸载时一并撤销）。同时只能有一个 */
   register(provider: LoginProvider): () => void {
     if (this.provider) throw new Error(`已经有登录提供方 ${this.provider.name}，不能再登记 ${provider?.name}`);
-    if (!provider || typeof provider.name !== 'string' || !provider.name || typeof provider.configured !== 'function' || typeof provider.credentialOf !== 'function' || typeof provider.resolveViewer !== 'function') {
-      throw new Error('登录提供方不符合契约：要有 name、configured()、credentialOf()、resolveViewer()');
+    const deadline = provider?.deadlineMs;
+    if (!provider || typeof provider.name !== 'string' || !provider.name || typeof provider.configured !== 'function' || typeof provider.credentialOf !== 'function' || typeof provider.resolveViewer !== 'function'
+      || (deadline !== undefined && !deadlineOk(deadline))) {
+      throw new Error('登录提供方不符合契约：要有 name、configured()、credentialOf()、resolveViewer()；deadlineMs 写了就得是 1～60000 的毫秒数');
     }
     this.provider = provider;
-    return () => { if (this.provider === provider) this.provider = null; };
+    this.deadlineMs = deadline ?? DEFAULT_DEADLINE_MS;
+    return () => {
+      if (this.provider !== provider) return;
+      this.provider = null;
+      this.deadlineMs = DEFAULT_DEADLINE_MS;
+    };
   }
 
   /** 现在登记着的提供方的名字；没有为 null */
@@ -99,12 +137,12 @@ export class IdentityService extends Service {
     try { const c = this.provider?.credentialOf(cookieHeader); return typeof c === 'string' ? c : ''; } catch { return ''; }
   }
 
-  /** 把请求带来的 cookie 认成查看者。从不抛错：认不出就是 ok:false */
+  /** 把请求带来的 cookie 认成查看者。从不抛错，也不会一直等：认不出、提供方出错、到点没回答，都是 ok:false */
   async resolveViewer(cookieHeader: string, source?: string): Promise<ViewerResult> {
     const provider = this.provider;
     if (!provider) return { ok: false, http: 503, error: NO_PROVIDER };
     let answer: unknown;
-    try { answer = await provider.resolveViewer(cookieHeader, source); } catch { return { ok: false, http: 502, error: UNAVAILABLE }; }
+    try { answer = await within(Promise.resolve(provider.resolveViewer(cookieHeader, source)), this.deadlineMs); } catch { return { ok: false, http: 502, error: UNAVAILABLE }; }
     return checked(answer);
   }
 
@@ -192,9 +230,11 @@ export interface LoginRelay {
 await root.plugin(IdentityService);
 for (const plugin of loginProviders) await root.plugin(plugin);
 
-/** 身份服务 */
+/** 身份服务。不在就抛错，不让调用点拿着 undefined 往下走 */
 export function identity(): IdentityService {
-  return root.get('identity') as IdentityService;
+  const service = root.get('identity') as IdentityService | undefined;
+  if (!service) throw new Error('身份服务没有装上');
+  return service;
 }
 
 /** 业务台的登录中继。没有插件提供它就抛错，不给一个什么都放行的空实现 */
