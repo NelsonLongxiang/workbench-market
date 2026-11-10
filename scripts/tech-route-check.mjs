@@ -76,23 +76,29 @@ const outsideServices = (f) => f !== 'server/src/db.ts' && !f.startsWith('server
 
 // 身份的具体实现只许待在登录提供方目录里；目录之外的 server 文件都算核心。
 const PROVIDERS_DIR = 'server/src/login-providers/';
-// 核心里唯一放行的一条引用：装配点引用提供方清单。清单只交出插件本身，不转出实现里的函数。
+// 核心里唯一放行的一条引用：装配点从提供方清单引入 loginProviders（一串插件）。只认下面这一种写法——
+// 多引一个名字、整包引入、转出（export … from）、动态引入都不放行，免得实现里的函数经清单和契约文件洗一道流进核心。
 const IDENTITY_ASSEMBLY = 'server/src/identity.ts';
 const PROVIDERS_LIST = 'server/src/login-providers/index.ts';
+const ASSEMBLY_IMPORT = /^import \{ loginProviders \} from '\.\/login-providers\/index\.ts';\r?$/gm;
 /** 一个文件里所有的模块引用（import … from、export … from、import '…'、import('…')、require('…')），相对路径解析成仓库路径。 */
 function moduleRefs(file, text) {
   return [...text.matchAll(RE.moduleRef)].map((m) => (m[1].startsWith('.') ? posix.normalize(posix.join(posix.dirname(file), m[1])) : m[1]));
 }
 /**
  * 这个核心文件有没有直接引用身份的具体实现。两条都算：
- *   a. 引用指到登录提供方目录里面（装配点引用清单除外）；
+ *   a. 引用指到登录提供方目录里面（装配点那一句除外）；
  *   b. 引用指到文件名是 odoo-*.ts 的模块——挪目录之前的量法，留着：实现文件换个地方放、或者又长回核心里，照样数得到。
+ * 量的是写在源码里的引用。路径是算出来的（先存进变量、拼接）数不到，这是按文本量的固有限制。
  */
 function refsIdentityImpl(file, text) {
-  return moduleRefs(file, text).some((ref) => {
-    if (ref.startsWith(PROVIDERS_DIR)) return !(file === IDENTITY_ASSEMBLY && ref === PROVIDERS_LIST);
-    return /^odoo-[\w-]+\.ts$/.test(posix.basename(ref));
-  });
+  const refs = moduleRefs(file, text);
+  const inside = refs.filter((ref) => ref.startsWith(PROVIDERS_DIR));
+  if (refs.some((ref) => !ref.startsWith(PROVIDERS_DIR) && /^odoo-[\w-]+\.ts$/.test(posix.basename(ref)))) return true;
+  if (inside.length === 0) return false;
+  if (file !== IDENTITY_ASSEMBLY) return true;
+  // 装配点：指进提供方目录的引用，每一条都得是放行的那一句
+  return inside.some((ref) => ref !== PROVIDERS_LIST) || inside.length !== count(text, ASSEMBLY_IMPORT);
 }
 
 /** 调仓库里已有的检查脚本，取它的 JSON 输出；脚本不在就返回 null。 */
@@ -281,6 +287,15 @@ const RULES = [
       { label: '实现文件留在核心里（旧位置、旧文件名）', files: { 'server/src/odoo-session.ts': '', 'server/src/foo.ts': "import { x } from './odoo-session.ts';\n" }, expect: 1 },
       { label: '实现文件换个目录放、不进提供方目录', files: { 'server/src/auth/odoo-viewer.ts': '', 'server/src/foo.ts': "import { x } from './auth/odoo-viewer.ts';\n" }, expect: 1 },
       { label: '核心里的 odoo-*.ts 引用提供方目录（按位置算核心，不看文件名）', files: { 'server/src/odoo-extra.ts': "import { x } from './login-providers/odoo/odoo-viewer.ts';\n" }, expect: 1 },
+      { label: '洗一道：装配点把清单里的东西转出去，核心再从契约文件拿', files: { 'server/src/identity.ts': "import { loginProviders } from './login-providers/index.ts';\nexport { resolveOdooViewer } from './login-providers/index.ts';\n", 'server/src/foo.ts': "import { identity, resolveOdooViewer } from './identity.ts';\n" }, expect: 1 },
+      { label: '装配点从清单多引一个名字', files: { 'server/src/identity.ts': "import { loginProviders, resolveOdooViewer } from './login-providers/index.ts';\n" }, expect: 1 },
+      { label: '装配点整包引入清单', files: { 'server/src/identity.ts': "import * as providers from './login-providers/index.ts';\n" }, expect: 1 },
+      { label: '装配点把清单整个转出', files: { 'server/src/identity.ts': "import { loginProviders } from './login-providers/index.ts';\nexport * from './login-providers/index.ts';\n" }, expect: 1 },
+      { label: '装配点动态引入清单', files: { 'server/src/identity.ts': "const { loginProviders } = await import('./login-providers/index.ts');\n" }, expect: 1 },
+      { label: '多行的 import（from 另起一行）也算', files: { 'server/src/foo.ts': "import {\n  resolveOdooViewer,\n}\n  from\n  './login-providers/odoo/odoo-viewer.ts';\n" }, expect: 1 },
+      { label: '绕路的相对路径也算', files: { 'server/src/foo.ts': "import { x } from './services/../login-providers/odoo/odoo-viewer.ts';\n" }, expect: 1 },
+      { label: 'import() 里的模板字面量也算', files: { 'server/src/foo.ts': "const load = (n) => import(`./login-providers/${n}/index.ts`);\n" }, expect: 1 },
+      { label: '装配点只引入 loginProviders：放行', files: { 'server/src/identity.ts': "import { root } from './root-context.ts';\nimport { loginProviders } from './login-providers/index.ts';\n" }, expect: 0 },
       { label: '提供方目录内部互相引用不算', files: { 'server/src/login-providers/odoo/index.ts': "import { x } from './odoo-viewer.ts';\nimport { y } from '../index.ts';\n" }, expect: 0 },
       { label: '注释和字符串里提到文件名不算', files: { 'server/src/foo.ts': "// 见 login-providers/odoo/odoo-session.ts\nconst hint = 'odoo-session.ts';\n" }, expect: 0 },
       { label: '引用契约不算', files: { 'server/src/foo.ts': "import { identity, loginRelay } from './identity.ts';\n" }, expect: 0 },
