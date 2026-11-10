@@ -1,0 +1,422 @@
+{
+  "schema": 1,
+  "as_of": "2026-11-10",
+  "doc": "路线清单：规则、档位、基线、豁免。由 scripts/tech-route-check.mjs 读写，约定见 CONTRIBUTING.md。tier 是现在生效的档位（count 只报告，budget 超过基线失败，redline 超过目标失败）；proposed 是建议档位，等属主裁定。deps 是登记过的运行时依赖；tests 登记不进 CI 的测试脚本和理由；waivers 是豁免：{rule, item, reason, by, until}，过期不算。",
+  "rules": [
+    {
+      "id": "entry-routes",
+      "tier": "count",
+      "proposed": "budget",
+      "what": "index.ts 里的路由数",
+      "target": 0,
+      "baseline": {
+        "total": 139,
+        "files": {
+          "server/src/index.ts": 139
+        }
+      }
+    },
+    {
+      "id": "sql-outside-services",
+      "tier": "count",
+      "proposed": "budget",
+      "what": "services/ 与 db.ts 之外的 SQL 调用点",
+      "target": 0,
+      "baseline": {
+        "total": 213,
+        "files": {
+          "server/src/a2a-direct-sig.ts": 3,
+          "server/src/a2a.ts": 6,
+          "server/src/endpoint-stats.ts": 3,
+          "server/src/index.ts": 81,
+          "server/src/layerfs-shadow.ts": 11,
+          "server/src/portal-observation.ts": 3,
+          "server/src/sop-read-auth.ts": 6,
+          "server/src/sop-run-access.ts": 36,
+          "server/src/sso-ticket-store.ts": 7,
+          "server/src/task-center.ts": 20,
+          "server/src/tasks-read-access.ts": 4,
+          "server/src/workbench-events.ts": 30,
+          "server/src/workbench-vars.ts": 3
+        }
+      }
+    },
+    {
+      "id": "schema-only-in-db",
+      "tier": "count",
+      "proposed": "budget",
+      "what": "db.ts 之外的建表、改表语句",
+      "target": 0,
+      "baseline": {
+        "total": 11,
+        "files": {
+          "server/src/endpoint-stats.ts": 1,
+          "server/src/portal-observation.ts": 1,
+          "server/src/sop-run-access.ts": 3,
+          "server/src/task-center.ts": 3,
+          "server/src/workbench-events.ts": 3
+        }
+      }
+    },
+    {
+      "id": "tests-registered",
+      "tier": "count",
+      "proposed": "budget",
+      "what": "不在 CI、也没登记理由的测试脚本",
+      "target": 0,
+      "baseline": {
+        "total": 83,
+        "items": [
+          "a2a-smoke.mjs",
+          "app-data-contract-smoke.mjs",
+          "app-notify-smoke.mjs",
+          "app-token-198-smoke.mjs",
+          "appdata-193-smoke.mjs",
+          "appdata-smoke.mjs",
+          "appfiles-smoke.mjs",
+          "co-checkout-smoke.mjs",
+          "cockpit-rename-smoke.mjs",
+          "content-ws-startup-test.mjs",
+          "cookie-smoke.mjs",
+          "dispatch-smoke.mjs",
+          "dispatch-sort-smoke.mjs",
+          "docs-env-face-test.mjs",
+          "global-token-smoke.mjs",
+          "issue132-p0-smoke.mjs",
+          "l15-k14-smoke.mjs",
+          "layerfs-archive-safety-test.py",
+          "layerfs-build-context-test.mjs",
+          "layerfs-delete-rollback-test.mjs",
+          "layerfs-disposable-fixture-smoke.mjs",
+          "layerfs-docker-volume-test.mjs",
+          "layerfs-gpg-runbook-test.py",
+          "layerfs-p0-smoke.mjs",
+          "layerfs-p1-smoke.mjs",
+          "layerfs-p2-smoke.mjs",
+          "layerfs-project-backup-test.mjs",
+          "layerfs-runtime-isolation-test.mjs",
+          "layerfs-s2-smoke.mjs",
+          "layerfs-s3-smoke.mjs",
+          "layerfs-s4-smoke.mjs",
+          "layerfs-sbom-validator-test.mjs",
+          "layerfs-shadow-outcome-test.mjs",
+          "layerfs-sidecar-test.mjs",
+          "mcp-app-files-upload-smoke.mjs",
+          "meta-sop-smoke.mjs",
+          "omni-a2a-smoke.mjs",
+          "omni-dashboard-smoke.mjs",
+          "omni-inbox-smoke.mjs",
+          "p0-upload-auth-smoke.mjs",
+          "portal-cookie-smoke.mjs",
+          "portal-gzip-smoke.mjs",
+          "portal-odoo-session-smoke.mjs",
+          "portal-p13-smoke.mjs",
+          "portal-p6711-smoke.mjs",
+          "portal-rewrite-smoke.mjs",
+          "portal-sso-p8910-smoke.mjs",
+          "portal-sso-smoke.mjs",
+          "publish-gate-smoke.mjs",
+          "publish-lock-smoke.mjs",
+          "r9-project-name-smoke.mjs",
+          "receipt-smoke.mjs",
+          "redis-ready-network-test.mjs",
+          "remote-allow-obs-smoke.mjs",
+          "run-delivery-smoke.mjs",
+          "runner-upload-wire-smoke.mjs",
+          "s1-review-gate-smoke.mjs",
+          "sandbox-real-smoke.mjs",
+          "sandbox-smoke.mjs",
+          "services-smoke.mjs",
+          "skill-import-smoke.mjs",
+          "skill-install-smoke.mjs",
+          "skill-mcp-smoke.mjs",
+          "skill-publish-smoke.mjs",
+          "skill-search-s10-smoke.mjs",
+          "skill-search-smoke.mjs",
+          "skill-smoke.mjs",
+          "skill-snap-183-smoke.mjs",
+          "skills-s0-smoke.mjs",
+          "skills-s0b-smoke.mjs",
+          "sop-remote-write-smoke.mjs",
+          "spa-asset-rewrite-smoke.mjs",
+          "sso-callback-smoke.mjs",
+          "sso-gateway-smoke.mjs",
+          "stats-smoke.mjs",
+          "taskcenter-b1-smoke.mjs",
+          "taskcenter-b2-smoke.mjs",
+          "taskcenter-b3-smoke.mjs",
+          "token-smoke-lock-test.mjs",
+          "token-smoke.mjs",
+          "unified-bindings-smoke.mjs",
+          "upstream-smoke.mjs",
+          "ygl-sqlite-backup-test.py"
+        ]
+      }
+    },
+    {
+      "id": "server-typecheck",
+      "tier": "count",
+      "proposed": "budget",
+      "what": "server 的类型错误（宽松模式）",
+      "target": 0,
+      "baseline": {
+        "total": 85,
+        "files": {
+          "server/src/context.ts": 1,
+          "server/src/index.ts": 65,
+          "server/src/login-gate.ts": 2,
+          "server/src/odoo-viewer.ts": 3,
+          "server/src/portal.ts": 2,
+          "server/src/services/workbench.ts": 2,
+          "server/src/sop-field-channel.ts": 1,
+          "server/src/sop-read-auth.ts": 2,
+          "server/src/sop-readonly-assembly.ts": 1,
+          "server/src/sop-run-access.ts": 2,
+          "server/src/tasks-read-access.ts": 4
+        }
+      }
+    },
+    {
+      "id": "readme-tree",
+      "tier": "count",
+      "proposed": "budget",
+      "what": "README 没提到的 server 文件",
+      "target": 0,
+      "baseline": {
+        "total": 15,
+        "items": [
+          "server/src/services/app-data.ts",
+          "server/src/services/app.ts",
+          "server/src/services/cockpit.ts",
+          "server/src/services/cookie.ts",
+          "server/src/services/sandbox.ts",
+          "server/src/services/setting.ts",
+          "server/src/services/skill.ts",
+          "server/src/services/workbench.ts",
+          "server/src/vault/atomic-write.ts",
+          "server/src/vault/breach.ts",
+          "server/src/vault/crypto.ts",
+          "server/src/vault/home-paths.ts",
+          "server/src/vault/password-strength.ts",
+          "server/src/vault/password.ts",
+          "server/src/vault/totp.ts"
+        ]
+      }
+    },
+    {
+      "id": "readme-stale-paths",
+      "tier": "count",
+      "proposed": "budget",
+      "what": "README 提到但已不存在的文件",
+      "target": 0,
+      "baseline": {
+        "total": 3,
+        "items": [
+          "scripts/a2a-peer-smoke.mjs",
+          "scripts/a2a-peer.mjs",
+          "scripts/explicit-data-target-inventory.js"
+        ]
+      }
+    },
+    {
+      "id": "env-via-config",
+      "tier": "count",
+      "proposed": "budget",
+      "what": "直接读环境变量的地方",
+      "target": 0,
+      "baseline": {
+        "total": 87,
+        "files": {
+          "server/src/a2a.ts": 5,
+          "server/src/db.ts": 2,
+          "server/src/eval.ts": 2,
+          "server/src/github-source.ts": 2,
+          "server/src/index.ts": 36,
+          "server/src/login-gate.ts": 5,
+          "server/src/mcp-stdio-upstream.ts": 1,
+          "server/src/odoo-browser-origin.ts": 2,
+          "server/src/odoo-login-proxy.ts": 2,
+          "server/src/odoo-session.ts": 5,
+          "server/src/portal.ts": 4,
+          "server/src/redis.ts": 2,
+          "server/src/services/sandbox.ts": 2,
+          "server/src/sop-read-auth.ts": 1,
+          "server/src/tasks.ts": 8,
+          "server/src/vault-api.ts": 6,
+          "server/src/workbench-events.ts": 2
+        }
+      }
+    },
+    {
+      "id": "timers-in-context",
+      "tier": "count",
+      "proposed": "budget",
+      "what": "裸的 setInterval",
+      "target": 0,
+      "baseline": {
+        "total": 6,
+        "files": {
+          "server/src/endpoint-stats.ts": 1,
+          "server/src/index.ts": 2,
+          "server/src/login-gate.ts": 1,
+          "server/src/vault-api.ts": 1,
+          "server/src/workbench-events.ts": 1
+        }
+      }
+    },
+    {
+      "id": "identity-in-core",
+      "tier": "count",
+      "proposed": "budget",
+      "what": "核心里直接引用身份具体实现的文件",
+      "target": 0,
+      "baseline": {
+        "total": 8,
+        "items": [
+          "server/src/extensions.ts",
+          "server/src/index.ts",
+          "server/src/login-gate.ts",
+          "server/src/portal.ts",
+          "server/src/sop-read-auth.ts",
+          "server/src/sop-run-access.ts",
+          "server/src/sso-ticket-store.ts",
+          "server/src/tasks-read-access.ts"
+        ]
+      }
+    },
+    {
+      "id": "erasable-syntax",
+      "tier": "count",
+      "proposed": "redline",
+      "what": "不可擦除的语法（enum、namespace、参数属性）",
+      "target": 0,
+      "baseline": {
+        "total": 0,
+        "files": {}
+      }
+    },
+    {
+      "id": "services-no-express",
+      "tier": "count",
+      "proposed": "redline",
+      "what": "引用 express 的领域服务",
+      "target": 0,
+      "baseline": {
+        "total": 0,
+        "items": []
+      }
+    },
+    {
+      "id": "a2a-import-sites",
+      "tier": "count",
+      "proposed": "count",
+      "what": "引用 a2a-net 的文件",
+      "target": null,
+      "baseline": {
+        "total": 3,
+        "items": [
+          "server/src/a2a-direct-sig.ts",
+          "server/src/a2a.ts",
+          "server/src/workbench-events.ts"
+        ]
+      }
+    },
+    {
+      "id": "deps-registered",
+      "tier": "count",
+      "proposed": "redline",
+      "what": "没登记的运行时依赖",
+      "target": 0,
+      "baseline": {
+        "total": 0,
+        "items": []
+      }
+    },
+    {
+      "id": "env-docs",
+      "tier": "count",
+      "proposed": "redline",
+      "what": "环境变量与 README 对不上的个数",
+      "target": 0,
+      "baseline": {
+        "total": 0,
+        "items": []
+      }
+    },
+    {
+      "id": "public-hygiene",
+      "tier": "count",
+      "proposed": "redline",
+      "what": "这次改动的文件里的隐私命中",
+      "target": 0,
+      "baseline": {
+        "total": 0
+      }
+    },
+    {
+      "id": "web-fetch",
+      "tier": "count",
+      "proposed": "count",
+      "what": "api.ts 之外直接 fetch",
+      "target": 0,
+      "baseline": {
+        "total": 33,
+        "files": {
+          "web/src/admin-token.ts": 4,
+          "web/src/components/AppDataDrawer.tsx": 2,
+          "web/src/components/LoginChip.tsx": 1,
+          "web/src/components/ViewerChip.tsx": 1,
+          "web/src/components/WorkbenchForm.tsx": 1,
+          "web/src/odoo-logout.ts": 1,
+          "web/src/pages/odoo-login.ts": 1,
+          "web/src/pages/OwnerPending.tsx": 1,
+          "web/src/pages/Settings.tsx": 3,
+          "web/src/pages/Skills.tsx": 2,
+          "web/src/pages/Sops.tsx": 4,
+          "web/src/pages/Tasks.tsx": 11,
+          "web/src/vault-api.ts": 1
+        }
+      }
+    },
+    {
+      "id": "design-counts",
+      "tier": "count",
+      "proposed": "count",
+      "what": "内联样式",
+      "target": null,
+      "baseline": {
+        "total": 131
+      }
+    }
+  ],
+  "deps": {
+    "root": [
+      "@nelsonlongxiang/dsh-open-a2a-net"
+    ],
+    "server": [
+      "@deepseek-ai/cordis",
+      "@types/multer",
+      "cors",
+      "express",
+      "http-proxy-middleware",
+      "multer",
+      "redis",
+      "yaml"
+    ],
+    "web": [
+      "@ant-design/icons",
+      "@ant-design/pro-components",
+      "ahooks",
+      "antd",
+      "dayjs",
+      "react",
+      "react-dom",
+      "react-grid-layout",
+      "react-markdown",
+      "react-resizable",
+      "react-router-dom"
+    ]
+  },
+  "tests": {},
+  "waivers": []
+}
