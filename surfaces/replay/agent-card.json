@@ -19,6 +19,7 @@
           "class": "normal",
           "what": "新库：没有对端，没有上卡的 SOP。公钥和签名每个实例随机，只比类型和长度；过期时间往下取整到分钟",
           "vary": { "publicKey": "random", "signature": "random", "expiresAt": 60000 },
+          "verify": "a2a-card",
           "request": { "method": "GET", "path": "/.well-known/agent-card.json" },
           "response": {
             "status": 200,
@@ -34,7 +35,8 @@
               "signature": "<每个实例随机·string·88>",
               "sessionTeams": [],
               "version": "p1"
-            }
+            },
+            "verified": { "a2a-card": true }
           }
         },
         {
@@ -43,6 +45,7 @@
           "class": "normal",
           "what": "同一个实例再取一次：密钥不变（vary 只管长度，这里看的是别的字段和头）",
           "vary": { "publicKey": "random", "signature": "random", "expiresAt": 60000 },
+          "verify": "a2a-card",
           "request": { "method": "GET", "path": "/.well-known/agent-card.json" },
           "response": {
             "status": 200,
@@ -58,7 +61,8 @@
               "signature": "<每个实例随机·string·88>",
               "sessionTeams": [],
               "version": "p1"
-            }
+            },
+            "verified": { "a2a-card": true }
           }
         },
         {
@@ -67,6 +71,7 @@
           "class": "normal",
           "what": "这条路由不读查询串：带无关、畸形的参数照常应答",
           "vary": { "publicKey": "random", "signature": "random", "expiresAt": 60000 },
+          "verify": "a2a-card",
           "request": { "method": "GET", "path": "/.well-known/agent-card.json?team=x&sop[]=y" },
           "response": {
             "status": 200,
@@ -82,7 +87,8 @@
               "signature": "<每个实例随机·string·88>",
               "sessionTeams": [],
               "version": "p1"
-            }
+            },
+            "verified": { "a2a-card": true }
           }
         },
         {
@@ -91,6 +97,7 @@
           "class": "normal",
           "what": "带转发头的匿名读：卡片是公开的",
           "vary": { "publicKey": "random", "signature": "random", "expiresAt": 60000 },
+          "verify": "a2a-card",
           "request": { "method": "GET", "path": "/.well-known/agent-card.json", "headers": { "x-forwarded-for": "198.51.100.7" } },
           "response": {
             "status": 200,
@@ -106,7 +113,8 @@
               "signature": "<每个实例随机·string·88>",
               "sessionTeams": [],
               "version": "p1"
-            }
+            },
+            "verified": { "a2a-card": true }
           }
         },
         {
@@ -122,6 +130,7 @@
           "class": "normal",
           "what": "设了对端：卡片带上 peers",
           "vary": { "publicKey": "random", "signature": "random", "expiresAt": 60000 },
+          "verify": "a2a-card",
           "request": { "method": "GET", "path": "/.well-known/agent-card.json" },
           "response": {
             "status": 200,
@@ -138,7 +147,8 @@
               "sessionTeams": [],
               "peers": ["peer-a.example", "peer-b.example"],
               "version": "p1"
-            }
+            },
+            "verified": { "a2a-card": true }
           }
         },
         {
@@ -154,6 +164,7 @@
           "class": "normal",
           "what": "不是字符串的对端被滤掉",
           "vary": { "publicKey": "random", "signature": "random", "expiresAt": 60000 },
+          "verify": "a2a-card",
           "request": { "method": "GET", "path": "/.well-known/agent-card.json" },
           "response": {
             "status": 200,
@@ -170,7 +181,8 @@
               "sessionTeams": [],
               "peers": ["peer-a.example"],
               "version": "p1"
-            }
+            },
+            "verified": { "a2a-card": true }
           }
         },
         {
@@ -186,6 +198,7 @@
           "class": "normal",
           "what": "对端设置坏了：当成没有，不报错",
           "vary": { "publicKey": "random", "signature": "random", "expiresAt": 60000 },
+          "verify": "a2a-card",
           "request": { "method": "GET", "path": "/.well-known/agent-card.json" },
           "response": {
             "status": 200,
@@ -201,7 +214,8 @@
               "signature": "<每个实例随机·string·88>",
               "sessionTeams": [],
               "version": "p1"
-            }
+            },
+            "verified": { "a2a-card": true }
           }
         },
         {
@@ -217,6 +231,7 @@
           "class": "normal",
           "what": "对端是空数组：卡片不带 peers 字段",
           "vary": { "publicKey": "random", "signature": "random", "expiresAt": 60000 },
+          "verify": "a2a-card",
           "request": { "method": "GET", "path": "/.well-known/agent-card.json" },
           "response": {
             "status": 200,
@@ -232,7 +247,8 @@
               "signature": "<每个实例随机·string·88>",
               "sessionTeams": [],
               "version": "p1"
-            }
+            },
+            "verified": { "a2a-card": true }
           }
         },
         {
@@ -256,6 +272,7 @@
           "class": "normal",
           "what": "登录门开着，远程匿名：卡片照样公开",
           "vary": { "publicKey": "random", "signature": "random", "expiresAt": 60000 },
+          "verify": "a2a-card",
           "request": { "method": "GET", "path": "/.well-known/agent-card.json", "headers": { "x-forwarded-for": "198.51.100.7" } },
           "response": {
             "status": 200,
@@ -271,7 +288,8 @@
               "signature": "<每个实例随机·string·88>",
               "sessionTeams": [],
               "version": "p1"
-            }
+            },
+            "verified": { "a2a-card": true }
           }
         },
         {
@@ -280,6 +298,7 @@
           "class": "normal",
           "what": "登录门开着，本机带浏览器标记：照样公开",
           "vary": { "publicKey": "random", "signature": "random", "expiresAt": 60000 },
+          "verify": "a2a-card",
           "request": { "method": "GET", "path": "/.well-known/agent-card.json", "headers": { "sec-fetch-site": "same-origin" } },
           "response": {
             "status": 200,
@@ -295,7 +314,8 @@
               "signature": "<每个实例随机·string·88>",
               "sessionTeams": [],
               "version": "p1"
-            }
+            },
+            "verified": { "a2a-card": true }
           }
         },
         {
@@ -304,6 +324,7 @@
           "class": "normal",
           "what": "远程带口令",
           "vary": { "publicKey": "random", "signature": "random", "expiresAt": 60000 },
+          "verify": "a2a-card",
           "request": { "method": "GET", "path": "/.well-known/agent-card.json", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
           "response": {
             "status": 200,
@@ -319,7 +340,8 @@
               "signature": "<每个实例随机·string·88>",
               "sessionTeams": [],
               "version": "p1"
-            }
+            },
+            "verified": { "a2a-card": true }
           }
         }
       ]
