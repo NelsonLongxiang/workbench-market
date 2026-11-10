@@ -1,0 +1,512 @@
+{
+  "domain": "auth-viewer",
+  "what": "登录探测：/api/auth/viewer 的 1 条路由（认人，经身份服务的 whoami）。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。认人用的是假的登录提供方（测试夹具），不访问任何外部系统；应答带 Cache-Control: private, no-store，在响应头里比。",
+  "routes": ["GET /api/auth/viewer"],
+  "exempt": [{ "route": "GET /api/auth/viewer", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体；会话由登录提供方判，认不出回 401 或 403（算未授权），来源出问题回 5xx", "shown_by": "faked/alpha" }],
+  "scenarios": [
+    {
+      "name": "unconfigured",
+      "what": "缺省配置：没装身份来源（没设 WM_ODOO_URL）。",
+      "env": {},
+      "steps": [
+        {
+          "id": "no-session",
+          "what": "没配置身份来源：503（5xx 不算三类里的哪一类，只录下来比）",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": {} },
+          "response": {
+            "status": 503,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "44", "etag": "W/\"2c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "未配置 WM_ODOO_URL" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "faked",
+      "what": "登录提供方换成假的。登录中继没开：没登录时的登录入口要去找登记过的 Odoo 台，假中继不认任何台，所以没有入口。",
+      "env": {},
+      "fixtures": ["identity-fake"],
+      "steps": [
+        {
+          "id": "no-session",
+          "route": "GET /api/auth/viewer",
+          "class": "unauthorized",
+          "what": "没带会话：401，带登录入口",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "85", "etag": "W/\"55-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "没有会话（合成）", "auth_required": true, "login_url": null }
+          }
+        },
+        {
+          "id": "forged",
+          "route": "GET /api/auth/viewer",
+          "class": "unauthorized",
+          "what": "提供方不认的会话：401",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-forged-session-0001" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "85", "etag": "W/\"55-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "会话无效（合成）", "auth_required": true, "login_url": null }
+          }
+        },
+        {
+          "id": "malformed-answer",
+          "what": "提供方回答的形状不对（ok 但没有查看者）：回答的形状不对，按身份来源出问题处理（5xx，只录下来比）",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-malformed-answer-01" } },
+          "response": {
+            "status": 502,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "99", "etag": "W/\"63-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "身份来源的回答无法识别，按认不出处理", "auth_required": false }
+          }
+        },
+        {
+          "id": "impersonate",
+          "what": "登录名和主体对不上：回答的形状不对，按身份来源出问题处理（5xx，只录下来比）",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-sub-impersonation-1" } },
+          "response": {
+            "status": 502,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "99", "etag": "W/\"63-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "身份来源的回答无法识别，按认不出处理", "auth_required": false }
+          }
+        },
+        {
+          "id": "padded-login",
+          "what": "登录名前面带空格：回答的形状不对，按身份来源出问题处理（5xx，只录下来比）",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-login-with-padding1" } },
+          "response": {
+            "status": 502,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "99", "etag": "W/\"63-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "身份来源的回答无法识别，按认不出处理", "auth_required": false }
+          }
+        },
+        {
+          "id": "refusal-200",
+          "what": "提供方说认不出、状态码却写 200：回答的形状不对，按身份来源出问题处理（5xx，只录下来比）",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-refusal-says-200-01" } },
+          "response": {
+            "status": 502,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "99", "etag": "W/\"63-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "身份来源的回答无法识别，按认不出处理", "auth_required": false }
+          }
+        },
+        {
+          "id": "refusal-no-text",
+          "what": "提供方说认不出、没给说法：按身份来源出问题处理（5xx，只录下来比）",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-refusal-no-reason-1" } },
+          "response": {
+            "status": 502,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "99", "etag": "W/\"63-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "身份来源的回答无法识别，按认不出处理", "auth_required": false }
+          }
+        },
+        {
+          "id": "portal",
+          "route": "GET /api/auth/viewer",
+          "class": "unauthorized",
+          "what": "不是内部账号：403",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-portal-account-0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "72", "etag": "W/\"48-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "非内部账号（合成）", "auth_required": false }
+          }
+        },
+        {
+          "id": "alpha",
+          "route": "GET /api/auth/viewer",
+          "class": "normal",
+          "what": "内部员工，不是管理员",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "131", "etag": "W/\"83-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "viewer": { "login": "alpha", "uid": 11, "sub": "user:alpha", "name": "Synthetic alpha", "admin": false, "kind": "人" }, "roles": null }
+          }
+        },
+        {
+          "id": "admin",
+          "route": "GET /api/auth/viewer",
+          "class": "normal",
+          "what": "管理员",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-internal-admin-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "144", "etag": "W/\"90-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "viewer": { "login": "root-admin", "uid": 1, "sub": "user:root-admin", "name": "Synthetic root-admin", "admin": true, "kind": "人" }, "roles": null }
+          }
+        },
+        {
+          "id": "no-admin-flag",
+          "route": "GET /api/auth/viewer",
+          "class": "normal",
+          "what": "回答里没有管理员标记：按不是管理员",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-admin-flag-missing1" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "137", "etag": "W/\"89-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "viewer": { "login": "no-flag", "uid": 13, "sub": "user:no-flag", "name": "Synthetic no-flag", "admin": false, "kind": "人" }, "roles": null }
+          }
+        },
+        {
+          "id": "truthy-admin",
+          "route": "GET /api/auth/viewer",
+          "class": "normal",
+          "what": "管理员标记是字符串 \"true\"：不算管理员",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-admin-flag-truthy-1" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "149", "etag": "W/\"95-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "viewer": { "login": "truthy-flag", "uid": 14, "sub": "user:truthy-flag", "name": "Synthetic truthy-flag", "admin": false, "kind": "人" }, "roles": null }
+          }
+        },
+        {
+          "id": "among-cookies",
+          "route": "GET /api/auth/viewer",
+          "class": "normal",
+          "what": "别的 cookie 夹在前后：只认 session_id",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "a=1; session_id=fake-internal-alpha-0001; b=2" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "131", "etag": "W/\"83-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "viewer": { "login": "alpha", "uid": 11, "sub": "user:alpha", "name": "Synthetic alpha", "admin": false, "kind": "人" }, "roles": null }
+          }
+        },
+        {
+          "id": "remote",
+          "route": "GET /api/auth/viewer",
+          "class": "normal",
+          "what": "带转发头的请求：照样认人",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "131", "etag": "W/\"83-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "viewer": { "login": "alpha", "uid": 11, "sub": "user:alpha", "name": "Synthetic alpha", "admin": false, "kind": "人" }, "roles": null }
+          }
+        },
+        {
+          "id": "unreachable",
+          "what": "身份来源不可达：502",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-source-unreachable1" } },
+          "response": {
+            "status": 502,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "78", "etag": "W/\"4e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "身份来源不可达（合成）", "auth_required": false }
+          }
+        },
+        {
+          "id": "throws",
+          "what": "提供方自己抛错：按认不出处理，不把异常漏出去",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-provider-throws-001" } },
+          "response": {
+            "status": 502,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "66", "etag": "W/\"42-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "身份来源不可用", "auth_required": false }
+          }
+        },
+        {
+          "id": "hangs",
+          "what": "提供方到点不回答：按不可用处理（假提供方的期限是 250 毫秒）",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-provider-never-answers" } },
+          "response": {
+            "status": 502,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "66", "etag": "W/\"42-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "身份来源不可用", "auth_required": false }
+          }
+        }
+      ]
+    },
+    {
+      "name": "faked-relay",
+      "what": "登录提供方换成假的，登录中继开着（WM_ODOO_LOGIN_PROXY=1）：没登录时登录入口是本机的 /web/login；认出人时多带「可以登出」。",
+      "env": { "WM_ODOO_LOGIN_PROXY": "1" },
+      "fixtures": ["identity-fake"],
+      "steps": [
+        {
+          "id": "no-session",
+          "route": "GET /api/auth/viewer",
+          "class": "unauthorized",
+          "what": "没带会话：401，带登录入口",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "111", "etag": "W/\"6f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "没有会话（合成）", "auth_required": true, "login_url": "/web/login?redirect=%2Ftasks" }
+          }
+        },
+        {
+          "id": "forged",
+          "route": "GET /api/auth/viewer",
+          "class": "unauthorized",
+          "what": "提供方不认的会话：401",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-forged-session-0001" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "111", "etag": "W/\"6f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "会话无效（合成）", "auth_required": true, "login_url": "/web/login?redirect=%2Ftasks" }
+          }
+        },
+        {
+          "id": "malformed-answer",
+          "what": "提供方回答的形状不对（ok 但没有查看者）：回答的形状不对，按身份来源出问题处理（5xx，只录下来比）",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-malformed-answer-01" } },
+          "response": {
+            "status": 502,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "99", "etag": "W/\"63-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "身份来源的回答无法识别，按认不出处理", "auth_required": false }
+          }
+        },
+        {
+          "id": "impersonate",
+          "what": "登录名和主体对不上：回答的形状不对，按身份来源出问题处理（5xx，只录下来比）",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-sub-impersonation-1" } },
+          "response": {
+            "status": 502,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "99", "etag": "W/\"63-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "身份来源的回答无法识别，按认不出处理", "auth_required": false }
+          }
+        },
+        {
+          "id": "padded-login",
+          "what": "登录名前面带空格：回答的形状不对，按身份来源出问题处理（5xx，只录下来比）",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-login-with-padding1" } },
+          "response": {
+            "status": 502,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "99", "etag": "W/\"63-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "身份来源的回答无法识别，按认不出处理", "auth_required": false }
+          }
+        },
+        {
+          "id": "refusal-200",
+          "what": "提供方说认不出、状态码却写 200：回答的形状不对，按身份来源出问题处理（5xx，只录下来比）",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-refusal-says-200-01" } },
+          "response": {
+            "status": 502,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "99", "etag": "W/\"63-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "身份来源的回答无法识别，按认不出处理", "auth_required": false }
+          }
+        },
+        {
+          "id": "refusal-no-text",
+          "what": "提供方说认不出、没给说法：按身份来源出问题处理（5xx，只录下来比）",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-refusal-no-reason-1" } },
+          "response": {
+            "status": 502,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "99", "etag": "W/\"63-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "身份来源的回答无法识别，按认不出处理", "auth_required": false }
+          }
+        },
+        {
+          "id": "portal",
+          "route": "GET /api/auth/viewer",
+          "class": "unauthorized",
+          "what": "不是内部账号：403",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-portal-account-0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "101", "etag": "W/\"65-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "非内部账号（合成）", "auth_required": false, "odoo_logout_supported": true }
+          }
+        },
+        {
+          "id": "alpha",
+          "route": "GET /api/auth/viewer",
+          "class": "normal",
+          "what": "内部员工，不是管理员",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "160", "etag": "W/\"a0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "viewer": { "login": "alpha", "uid": 11, "sub": "user:alpha", "name": "Synthetic alpha", "admin": false, "kind": "人" }, "roles": null, "odoo_logout_supported": true }
+          }
+        },
+        {
+          "id": "admin",
+          "route": "GET /api/auth/viewer",
+          "class": "normal",
+          "what": "管理员",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-internal-admin-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "173", "etag": "W/\"ad-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "viewer": { "login": "root-admin", "uid": 1, "sub": "user:root-admin", "name": "Synthetic root-admin", "admin": true, "kind": "人" }, "roles": null, "odoo_logout_supported": true }
+          }
+        },
+        {
+          "id": "no-admin-flag",
+          "route": "GET /api/auth/viewer",
+          "class": "normal",
+          "what": "回答里没有管理员标记：按不是管理员",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-admin-flag-missing1" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "166", "etag": "W/\"a6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "viewer": { "login": "no-flag", "uid": 13, "sub": "user:no-flag", "name": "Synthetic no-flag", "admin": false, "kind": "人" }, "roles": null, "odoo_logout_supported": true }
+          }
+        },
+        {
+          "id": "truthy-admin",
+          "route": "GET /api/auth/viewer",
+          "class": "normal",
+          "what": "管理员标记是字符串 \"true\"：不算管理员",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-admin-flag-truthy-1" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "178", "etag": "W/\"b2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "viewer": { "login": "truthy-flag", "uid": 14, "sub": "user:truthy-flag", "name": "Synthetic truthy-flag", "admin": false, "kind": "人" }, "roles": null, "odoo_logout_supported": true }
+          }
+        },
+        {
+          "id": "among-cookies",
+          "route": "GET /api/auth/viewer",
+          "class": "normal",
+          "what": "别的 cookie 夹在前后：只认 session_id",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "a=1; session_id=fake-internal-alpha-0001; b=2" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "160", "etag": "W/\"a0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "viewer": { "login": "alpha", "uid": 11, "sub": "user:alpha", "name": "Synthetic alpha", "admin": false, "kind": "人" }, "roles": null, "odoo_logout_supported": true }
+          }
+        },
+        {
+          "id": "remote",
+          "route": "GET /api/auth/viewer",
+          "class": "normal",
+          "what": "带转发头的请求：照样认人",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "160", "etag": "W/\"a0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "viewer": { "login": "alpha", "uid": 11, "sub": "user:alpha", "name": "Synthetic alpha", "admin": false, "kind": "人" }, "roles": null, "odoo_logout_supported": true }
+          }
+        },
+        {
+          "id": "unreachable",
+          "what": "身份来源不可达：502",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-source-unreachable1" } },
+          "response": {
+            "status": 502,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "78", "etag": "W/\"4e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "身份来源不可达（合成）", "auth_required": false }
+          }
+        },
+        {
+          "id": "throws",
+          "what": "提供方自己抛错：按认不出处理，不把异常漏出去",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-provider-throws-001" } },
+          "response": {
+            "status": 502,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "66", "etag": "W/\"42-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "身份来源不可用", "auth_required": false }
+          }
+        },
+        {
+          "id": "hangs",
+          "what": "提供方到点不回答：按不可用处理（假提供方的期限是 250 毫秒）",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-provider-never-answers" } },
+          "response": {
+            "status": 502,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "66", "etag": "W/\"42-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "身份来源不可用", "auth_required": false }
+          }
+        }
+      ]
+    },
+    {
+      "name": "faked-gated",
+      "what": "登录提供方换成假的，登录门开着：认得出的会话本身就能过门。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "fixtures": ["identity-fake"],
+      "steps": [
+        {
+          "id": "remote-anonymous",
+          "route": "GET /api/auth/viewer",
+          "class": "unauthorized",
+          "what": "远程匿名：被登录门拦下",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "remote-forged",
+          "route": "GET /api/auth/viewer",
+          "class": "unauthorized",
+          "what": "远程带着不认的会话：被登录门拦下",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "session_id=fake-forged-session-0001" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "remote-alpha",
+          "route": "GET /api/auth/viewer",
+          "class": "normal",
+          "what": "远程带着认得出的会话：过门，回查看者",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "131", "etag": "W/\"83-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "viewer": { "login": "alpha", "uid": 11, "sub": "user:alpha", "name": "Synthetic alpha", "admin": false, "kind": "人" }, "roles": null }
+          }
+        },
+        {
+          "id": "remote-token",
+          "route": "GET /api/auth/viewer",
+          "class": "unauthorized",
+          "what": "远程只带管理口令、没有会话：过门，但这条路由认的是会话，401",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "85", "etag": "W/\"55-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": false, "error": "没有会话（合成）", "auth_required": true, "login_url": null }
+          }
+        }
+      ]
+    }
+  ]
+}
