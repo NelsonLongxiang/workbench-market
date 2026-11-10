@@ -14,6 +14,7 @@ pnpm dev              # 并行起 server(9800, watch) 与 web(5173, 代理 /api)
 pnpm build            # 构建前端 → web/dist，由 server 同端口托管
 pnpm start            # 生产模式（只跑 server，访问 http://127.0.0.1:9800）
 node scripts/gen-design-tokens.mjs   # 改了 DESIGN.md 的 token 后重新生成 web/src/tokens.css 与 design-tokens.ts（--check 只比对）
+node scripts/tech-route-check.mjs    # 路线体检：结构数字对照 tech-route.json 里的基线（只报告；--selftest 自检）
 ```
 
 浏览器回归（`scripts/*-browser.mjs` 等）要用 Python Playwright，版本与 CI 一致。一般交给 CI 或共用测试环境跑。解释器由 `scripts/python-bin.mjs` 统一选取，顺序是：`PYTHON` 环境变量 → 仓库根的 `.venv` → 系统 `python3`，不用在命令前手写解释器路径。想在自己机器上跑的话（可选），建一次 `.venv` 即可：
@@ -175,6 +176,10 @@ deploy/         Dockerfile.market（多阶段·非 root·HEALTHCHECK） docker-c
 docs/           layerfs-service-contract-v0/v1.md（LayerFS 服务契约）
 data/           SQLite 数据文件（git 忽略）
 ```
+
+`server/src/mcp-stdio-upstream.ts`（#474）：`settings.mcp_upstreams` 里 `kind` 为 `ygl-trees` 的上游不走 HTTP，由市场启动 `ygl-trees mcp`（stdio）子进程，工作区取该项的 `ygl_home`。子进程只拿运行必需的系统变量，不继承市场的口令和令牌；它的 `YGL_SESSION` 由市场设成 `market-<前缀>`。
+
+结构上的约定（新东西该写在哪）见仓库根的 `CONTRIBUTING.md`。`node scripts/tech-route-check.mjs` 把这些约定量成数字，对照 `tech-route.json` 里的基线；CI 每次把体检表写进摘要页。现在全部只报告，不拦 PR。
 
 设计系统见 `design-system/workbench-market/MASTER.md`（Minimalism & Swiss，主色 #1E3A5F）。
 
