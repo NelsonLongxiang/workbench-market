@@ -5,12 +5,15 @@ import { configuredOdooUrl, odooSessionOf, safeLoginRedirect } from './odoo-sess
 import { surfaceOf } from './surfaces.ts';
 
 const ASSET = /^\/web\/(?:assets|static)\/[A-Za-z0-9_./~-]+$/;
+const LANG_TRANSLATIONS = /^\/[a-z]{2}(?:_[A-Z]{2})?\/website\/translations$/;
 
 /** Exact unauthenticated surface shared by login-gate and the proxy. */
 export function odooLoginProxyRoute(method: string, pathname: string, enabled = process.env.WM_ODOO_LOGIN_PROXY === '1'): boolean {
   if (!enabled || !pathname.startsWith('/') || pathname.includes('..') || pathname.includes('//') || pathname.includes('%') || pathname.includes('\\')) return false;
   if (pathname === '/web/login' || pathname === '/web/login/totp') return method === 'GET' || method === 'HEAD' || method === 'POST';
-  return (method === 'GET' || method === 'HEAD') && (ASSET.test(pathname) || pathname === '/web/binary/company_logo' || pathname === '/website/translations');
+  // Odoo 按语言协商把 /website/translations 303 到 /<lang>/website/translations（如 /zh_CN/…，#472 放行了这个跳转），
+  // 浏览器随后请求的带前缀路径也要放行，否则登录页翻译加载失败（生产 deploy 分支 e869ec3/0252598 的修复）
+  return (method === 'GET' || method === 'HEAD') && (ASSET.test(pathname) || pathname === '/web/binary/company_logo' || pathname === '/website/translations' || LANG_TRANSLATIONS.test(pathname));
 }
 
 /** Only the deployment-configured Odoo origin is an upstream. */

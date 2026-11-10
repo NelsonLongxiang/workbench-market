@@ -37,7 +37,7 @@ const up = createServer((req, res) => {
       res.writeHead(200, {'content-type':'application/json'});
       return res.end(JSON.stringify(ok ? {result:{uid:7,username:'fixture',name:'Fixture',is_internal_user:true}} : {error:{code:100}}));
     }
-    if (p.pathname === '/website/translations') { res.writeHead(200, {'content-type':'application/json'}); return res.end('{}'); }
+    if (p.pathname === '/website/translations' || p.pathname === '/zh_CN/website/translations') { res.writeHead(200, {'content-type':'application/json'}); return res.end('{}'); }
     if (p.pathname.startsWith('/web/assets/')) { res.writeHead(200, {'content-type':'text/css','set-cookie':['session_id=must-not-pass; Path=/']}); return res.end('/* fixture */'); }
     res.writeHead(404).end();
   });
@@ -191,6 +191,12 @@ try {
   check('Odoo login assets available without setting a session',r.status===200 && r.text==='/* fixture */' && !r.headers['set-cookie']);
   r=await http('GET','/website/translations',{host:'market.example.test'});
   check('read-only Odoo translations are proxied',r.status===200 && r.text==='{}');
+  r=await http('GET','/zh_CN/website/translations',{host:'market.example.test'});
+  check('language-prefixed Odoo translations are proxied',r.status===200 && r.text==='{}');
+  for (const bad of ['/zh_CN/website/other','/zh_cn/website/translations','/zh_CN/zh_CN/website/translations','/zhCN/website/translations','/zh_CN/web/session/get_session_info']) {
+    const n=seen.length; r=await http('GET',bad,{host:'market.example.test'});
+    check('not proxied: '+bad,seen.length===n);
+  }
   r=await http('GET','/web/login?redirect=%2F%2Fevil.invalid',{host:'market.example.test'});
   check('untrusted return removed before Odoo',!seen.at(-1).path.includes('evil.invalid'));
   r=await http('POST','/web/login',{host:'market.example.test','content-type':'application/x-www-form-urlencoded',cookie:'session_id='+SID0},new URLSearchParams({login:'fixture',password:'fixture-password',redirect:'//evil.invalid'}).toString());
