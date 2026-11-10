@@ -1,6 +1,6 @@
-/** 门户 SSO 回调票据的 SQLite 存储（odoo-session.ts SsoTicketStore）：重启不丢，同一 DATA_DIR 的多个实例共享同一张表。 */
+/** 门户 SSO 回调票据的 SQLite 存储（契约 identity.ts 的 SsoTicketStore）：重启不丢，同一 DATA_DIR 的多个实例共享同一张表。 */
 import { db } from './db.ts';
-import type { SsoTicket, SsoTicketStore } from './login-providers/odoo/odoo-session.ts';
+import type { SsoTicket, SsoTicketStore } from './identity.ts';
 
 export function sqliteSsoTicketStore(): SsoTicketStore {
   const getQ = db.prepare('SELECT wb_id, origin, source, exp FROM sso_tickets WHERE state = ?');

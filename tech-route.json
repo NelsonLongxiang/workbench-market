@@ -265,23 +265,13 @@
     },
     {
       "id": "identity-in-core",
-      "tier": "count",
+      "tier": "budget",
       "proposed": "budget",
       "what": "核心里直接引用身份具体实现的文件",
       "target": 0,
-      "note": "落点还没建好：身份服务建好之后开预算档",
       "baseline": {
-        "total": 8,
-        "items": [
-          "server/src/extensions.ts",
-          "server/src/index.ts",
-          "server/src/login-gate.ts",
-          "server/src/portal.ts",
-          "server/src/sop-read-auth.ts",
-          "server/src/sop-run-access.ts",
-          "server/src/sso-ticket-store.ts",
-          "server/src/tasks-read-access.ts"
-        ]
+        "total": 0,
+        "items": []
       }
     },
     {

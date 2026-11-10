@@ -8,7 +8,7 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { db } from './db.ts';
-import { resolveOdooViewer } from './login-providers/odoo/odoo-viewer.ts';
+import { identity } from './identity.ts';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
@@ -50,7 +50,7 @@ export async function authorizeRunRead(ctx: RunReadContext, runId: number): Prom
     return { authorized: false, via: 'none' };
   }
   if (ctx.cookieHeader) {
-    const viewer = await resolveOdooViewer(String(ctx.cookieHeader));
+    const viewer = await identity().resolveViewer(String(ctx.cookieHeader));
     if (viewer.ok && runGrantActive(runId, 'user:' + viewer.viewer.login)) return { authorized: true, via: 'session-grant' };
   }
   return { authorized: false, via: 'none' };

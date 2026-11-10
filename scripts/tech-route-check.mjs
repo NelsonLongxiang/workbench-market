@@ -17,7 +17,7 @@
  * 退出码：0 通过；1 有预算或红线被突破；2 用法或清单错误（清单缺失、缺规则、档位写错、豁免不完整）。
  */
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, posix, relative, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -66,13 +66,34 @@ const RE = {
   fetch: /\bfetch\(/g,
   express: /from\s+['"]express['"]/,
   a2a: /from\s+['"]@nelsonlongxiang\/dsh-open-a2a-net[^'"]*['"]/,
-  identity: /from\s+['"]\.{1,2}\/(?:[\w-]+\/)*odoo-[\w-]+\.ts['"]/,
+  moduleRef: /(?:\bfrom|\bimport|\brequire\s*\()\s*\(?\s*['"`]([^'"`]+)['"`]/g,
   nonErasable: /^\s*(?:export\s+)?(?:declare\s+)?(?:const\s+)?enum\s+\w|^\s*(?:export\s+)?(?:declare\s+)?namespace\s+\w|constructor\([^)]*\b(?:private|public|protected|readonly)\s+\w/gm,
   readmePath: /(?:^|[^\w./-])((?:scripts|server\/src|web\/src|deploy|docs)\/[\w./-]+\.(?:json|yaml|yml|mjs|cjs|tsx|ts|js|py|sh|md))(?![\w-])/g,
   testLike: /(?:-|_)(?:test|smoke|mutation)s?\.(?:mjs|js|py|sh)$/,
   runnable: /\.(?:mjs|js|py|sh)$/,
 };
 const outsideServices = (f) => f !== 'server/src/db.ts' && !f.startsWith('server/src/services/');
+
+// 身份的具体实现只许待在登录提供方目录里；目录之外的 server 文件都算核心。
+const PROVIDERS_DIR = 'server/src/login-providers/';
+// 核心里唯一放行的一条引用：装配点引用提供方清单。清单只交出插件本身，不转出实现里的函数。
+const IDENTITY_ASSEMBLY = 'server/src/identity.ts';
+const PROVIDERS_LIST = 'server/src/login-providers/index.ts';
+/** 一个文件里所有的模块引用（import … from、export … from、import '…'、import('…')、require('…')），相对路径解析成仓库路径。 */
+function moduleRefs(file, text) {
+  return [...text.matchAll(RE.moduleRef)].map((m) => (m[1].startsWith('.') ? posix.normalize(posix.join(posix.dirname(file), m[1])) : m[1]));
+}
+/**
+ * 这个核心文件有没有直接引用身份的具体实现。两条都算：
+ *   a. 引用指到登录提供方目录里面（装配点引用清单除外）；
+ *   b. 引用指到文件名是 odoo-*.ts 的模块——挪目录之前的量法，留着：实现文件换个地方放、或者又长回核心里，照样数得到。
+ */
+function refsIdentityImpl(file, text) {
+  return moduleRefs(file, text).some((ref) => {
+    if (ref.startsWith(PROVIDERS_DIR)) return !(file === IDENTITY_ASSEMBLY && ref === PROVIDERS_LIST);
+    return /^odoo-[\w-]+\.ts$/.test(posix.basename(ref));
+  });
+}
 
 /** 调仓库里已有的检查脚本，取它的 JSON 输出；脚本不在就返回 null。 */
 function runScript(repo, script, args) {
@@ -129,6 +150,7 @@ function changedFiles(repo) {
  * 检查项。measure 返回 { total, files?, items?, note?, skipped? }：
  * files 是「文件 → 次数」，items 是一串名字；两者都没有就只比 total。
  * sample 是自检用的两棵最小目录树：clean 必须量出 0，dirty 必须量出 expect。
+ * cases 是更多的自检样本，一种写法一份：{ label, files, expect }。
  */
 const RULES = [
   {
@@ -230,13 +252,39 @@ const RULES = [
   {
     id: 'identity-in-core', what: '核心里直接引用身份具体实现的文件', target: 0, proposed: 'budget',
     measure: (repo) => {
-      const items = repo.server().filter((f) => !basename(f).startsWith('odoo-') && RE.identity.test(repo.read(f)));
-      return { total: items.length, items };
+      const core = repo.server().filter((f) => !f.startsWith(PROVIDERS_DIR));
+      const items = core.filter((f) => refsIdentityImpl(f, repo.read(f)));
+      return { total: items.length, items, note: `核心 ${core.length} 个文件；登录提供方目录 ${repo.server().length - core.length} 个` };
     },
     sample: {
-      clean: { 'server/src/odoo-session.ts': "import { x } from './odoo-viewer.ts';\n" },
-      dirty: { 'server/src/foo.ts': "import { x } from './odoo-viewer.ts';\n" }, expect: 1,
+      clean: {
+        'server/src/identity.ts': "import { loginProviders } from './login-providers/index.ts';\n",
+        'server/src/login-providers/index.ts': "import * as odoo from './odoo/index.ts';\n",
+        'server/src/login-providers/odoo/index.ts': "import type { LoginProvider } from '../../identity.ts';\nimport { resolveOdooViewer } from './odoo-viewer.ts';\n",
+        'server/src/login-providers/odoo/odoo-viewer.ts': "import { odooSessionOf } from './odoo-session.ts';\n",
+        'server/src/tasks-read-access.ts': "import { identity } from './identity.ts';\n",
+        'server/src/services/a.ts': "import { identity } from '../identity.ts';\n",
+      },
+      dirty: { 'server/src/foo.ts': "import { x } from './login-providers/odoo/odoo-viewer.ts';\n" }, expect: 1,
     },
+    // 每种绕法各一份：都必须被数到。干净的那几份防的是量法误伤。
+    cases: [
+      { label: '核心静态引用提供方目录里的实现', files: { 'server/src/foo.ts': "import { resolveOdooViewer } from './login-providers/odoo/odoo-viewer.ts';\n" }, expect: 1 },
+      { label: '只引用类型也算', files: { 'server/src/foo.ts': "import type { X } from './login-providers/odoo/odoo-session.ts';\n" }, expect: 1 },
+      { label: '转出（export … from）也算', files: { 'server/src/foo.ts': "export { resolveOdooViewer } from './login-providers/odoo/odoo-viewer.ts';\n" }, expect: 1 },
+      { label: '动态 import() 也算', files: { 'server/src/foo.ts': "const m = await import('./login-providers/odoo/index.ts');\n" }, expect: 1 },
+      { label: '只为副作用的 import 也算', files: { 'server/src/foo.ts': "import './login-providers/odoo/index.ts';\n" }, expect: 1 },
+      { label: 'require() 也算', files: { 'server/src/foo.ts': "const m = require('./login-providers/odoo/odoo-session.ts');\n" }, expect: 1 },
+      { label: '子目录里的核心文件往上引用也算', files: { 'server/src/services/a.ts': "import { x } from '../login-providers/odoo/odoo-viewer.ts';\n" }, expect: 1 },
+      { label: '装配点绕过清单、直接引用实现', files: { 'server/src/identity.ts': "import { resolveOdooViewer } from './login-providers/odoo/odoo-viewer.ts';\n" }, expect: 1 },
+      { label: '装配点之外的核心文件引用清单', files: { 'server/src/foo.ts': "import { loginProviders } from './login-providers/index.ts';\n" }, expect: 1 },
+      { label: '实现文件留在核心里（旧位置、旧文件名）', files: { 'server/src/odoo-session.ts': '', 'server/src/foo.ts': "import { x } from './odoo-session.ts';\n" }, expect: 1 },
+      { label: '实现文件换个目录放、不进提供方目录', files: { 'server/src/auth/odoo-viewer.ts': '', 'server/src/foo.ts': "import { x } from './auth/odoo-viewer.ts';\n" }, expect: 1 },
+      { label: '核心里的 odoo-*.ts 引用提供方目录（按位置算核心，不看文件名）', files: { 'server/src/odoo-extra.ts': "import { x } from './login-providers/odoo/odoo-viewer.ts';\n" }, expect: 1 },
+      { label: '提供方目录内部互相引用不算', files: { 'server/src/login-providers/odoo/index.ts': "import { x } from './odoo-viewer.ts';\nimport { y } from '../index.ts';\n" }, expect: 0 },
+      { label: '注释和字符串里提到文件名不算', files: { 'server/src/foo.ts': "// 见 login-providers/odoo/odoo-session.ts\nconst hint = 'odoo-session.ts';\n" }, expect: 0 },
+      { label: '引用契约不算', files: { 'server/src/foo.ts': "import { identity, loginRelay } from './identity.ts';\n" }, expect: 0 },
+    ],
   },
   {
     id: 'erasable-syntax', what: '不可擦除的语法（enum、namespace、参数属性）', target: 0, proposed: 'redline',
@@ -516,6 +564,13 @@ function selftest() {
       check(clean.total === 0, `${def.id} 干净样本量出 ${clean.total}（应为 0）`);
       check(dirty.total === def.sample.expect, `${def.id} 违规样本量出 ${dirty.total}（应为 ${def.sample.expect}）`);
     } finally { for (const r of roots) rmSync(r, { recursive: true, force: true }); }
+    for (const c of def.cases || []) {
+      const root = plant(c.files);
+      try {
+        const got = def.measure(openRepo(root), { deps: {}, tests: {} }).total;
+        check(got === c.expect, `${def.id} ${c.label}：量出 ${got}（应为 ${c.expect}）`);
+      } finally { rmSync(root, { recursive: true, force: true }); }
+    }
   }
   const rule = (tier, baseline, target = 0) => ({ id: 'x', tier, target, baseline });
   const m = { total: 3, files: { 'a.ts': 2, 'b.ts': 1 } };

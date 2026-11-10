@@ -25,8 +25,7 @@ import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { BlockList, isIP } from 'node:net';
 import { browserMarked, rawLoopback, surfaceOf } from './surfaces.ts';
-import { odooSessionOf } from './login-providers/odoo/odoo-session.ts';
-import { odooLoginProxyRoute, revokeOdooSession } from './login-providers/odoo/odoo-login-proxy.ts';
+import { identity as identityService, loginRelay } from './identity.ts';
 
 export type LoginGateMode = 'enforce' | 'off';
 /** 取开关；值不合法返回 null（调用方拒绝启动，参照 MCP_GATEWAY） */
@@ -195,7 +194,7 @@ export function createLoginGate(deps: Deps) {
   // ---------- Odoo 内部员工（按会话哈希缓存） ----------
   const odooCache = new Map<string, { at: number; who: { login: string; admin: boolean } | null }>();
   async function odooOf(cookie: string): Promise<{ login: string; admin: boolean } | null> {
-    const sid = odooSessionOf(cookie);
+    const sid = identityService().credentialOf(cookie);
     if (!sid) return null;
     // Relay mode supports explicit Odoo logout: do not keep a stale positive identity
     // after the upstream session has been revoked.
@@ -244,7 +243,7 @@ export function createLoginGate(deps: Deps) {
   function publicRoute(req: express.Request, p: string): boolean {
     const m = req.method;
     const get = m === 'GET' || m === 'HEAD';
-    if (surfaceOf(req) === 'market' && odooLoginProxyRoute(m, String(req.url ?? '').split('?')[0])) return true;
+    if (surfaceOf(req) === 'market' && loginRelay().publicRoute(m, String(req.url ?? '').split('?')[0])) return true;
     if (p === '/mcp') return true; // 网关 Bearer 会话认证；enforce 时网关强制开
     // #385 MCP 工具的 REST 开放：路由内只认网关会话令牌（mcpGatewaySession，无效 401），同 /mcp 不走浏览器登录
     if ((get && p === '/openapi.json') || p.startsWith('/api/mcp-rest/')) return true;
@@ -432,12 +431,12 @@ export function createLoginGate(deps: Deps) {
         for (const [j, exp] of revoked) if (exp <= Date.now()) revoked.delete(j);
       }
       res.clearCookie(LOGIN_COOKIE, { httpOnly: true, sameSite: 'lax', path: '/', secure: secure(req) });
-      if (!relay) return res.json({ ok: true, odoo_session: !!odooSessionOf(cookie) });
+      if (!relay) return res.json({ ok: true, odoo_session: !!loginRelay().sessionOf(cookie) });
       res.clearCookie('session_id', { httpOnly: true, sameSite: 'lax', path: '/', secure: secure(req) });
       if (!sessions.length) return res.json({ ok: true, odoo_session: false, browser_session_cleared: true });
       if (sessions.length !== 1) return res.status(409).json({ ok: false, error: 'Odoo 会话不唯一，无法确认服务器端已注销', browser_session_cleared: true, odoo_session_revoked: false });
       const sid = sessions[0].slice('session_id='.length);
-      const done = await revokeOdooSession(sid);
+      const done = await loginRelay().revokeSession(sid);
       return res.status(done ? 200 : 502).json({ ok: done, odoo_session: true, browser_session_cleared: true, odoo_session_revoked: done, ...(!done ? { error: '已清除浏览器会话，但无法确认 Odoo 服务器端注销' } : {}) });
     });
     app.get('/api/auth/me', async (req, res, next) => {

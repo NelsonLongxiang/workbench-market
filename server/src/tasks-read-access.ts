@@ -1,6 +1,6 @@
 /** #324: a fresh verified identity is not a source-wide task grant. */
 import { db } from './db.ts';
-import { resolveOdooViewer } from './login-providers/odoo/odoo-viewer.ts';
+import { identity } from './identity.ts';
 import { runGrantActive } from './sop-read-auth.ts';
 import { taskWorkspaceKey, type TasksReadScope } from './tasks.ts';
 
@@ -9,7 +9,7 @@ export async function tasksReadAccess(adminOk: boolean, cookie: string): Promise
 > {
   if (adminOk) return { ok: true, scope: { subject: 'admin', admin: true, yglProjects: 'all', marketRunIds: 'all', a2a: true } };
   if (!/(?:^|;\s*)session_id=/.test(cookie)) return { ok: false, http: 401, error: 'tasks_auth_required' };
-  const who = await resolveOdooViewer(cookie);
+  const who = await identity().resolveViewer(cookie);
   if (!who.ok) return { ok: false, http: who.http >= 500 ? 503 : who.http, error: who.http >= 500 ? 'tasks_identity_unavailable' : who.http === 403 ? 'tasks_internal_user_required' : 'tasks_auth_required' };
   const subject = who.viewer.sub;
   try {
