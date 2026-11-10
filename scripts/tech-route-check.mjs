@@ -66,7 +66,7 @@ const RE = {
   a2a: /from\s+['"]@nelsonlongxiang\/dsh-open-a2a-net[^'"]*['"]/,
   identity: /from\s+['"]\.{1,2}\/(?:[\w-]+\/)*odoo-[\w-]+\.ts['"]/,
   nonErasable: /^\s*(?:export\s+)?(?:declare\s+)?(?:const\s+)?enum\s+\w|^\s*(?:export\s+)?(?:declare\s+)?namespace\s+\w|constructor\([^)]*\b(?:private|public|protected|readonly)\s+\w/gm,
-  readmePath: /(?:^|[^\w./-])((?:scripts|server\/src|web\/src|deploy|docs)\/[\w./-]+\.(?:mjs|cjs|js|ts|tsx|py|sh|md|json|yml))/g,
+  readmePath: /(?:^|[^\w./-])((?:scripts|server\/src|web\/src|deploy|docs)\/[\w./-]+\.(?:json|yaml|yml|mjs|cjs|tsx|ts|js|py|sh|md))(?![\w-])/g,
   testLike: /(?:-|_)(?:test|smoke|mutation)s?\.(?:mjs|js|py|sh)$/,
   runnable: /\.(?:mjs|js|py|sh)$/,
 };
@@ -204,7 +204,7 @@ const RULES = [
       return { total: items.length, items, note: `核对了 ${seen.size} 个路径` };
     },
     sample: {
-      clean: { 'README.md': '见 `scripts/a.mjs`。\n', 'scripts/a.mjs': '' },
+      clean: { 'README.md': '见 `scripts/a.mjs`、`scripts/b.json`、`web/src/C.tsx`。\n', 'scripts/a.mjs': '', 'scripts/b.json': '{}', 'web/src/C.tsx': '' },
       dirty: { 'README.md': '见 `scripts/gone.mjs`。\n' }, expect: 1,
     },
   },
@@ -331,7 +331,7 @@ function compare(rule, m, waivers = [], now = today()) {
   if (m.items) { const known = new Set(base.items || []); for (const it of m.items) if (!known.has(it)) over.push(it); }
   else if (m.files) { for (const [f, n] of Object.entries(m.files)) { const b = base.files?.[f] ?? 0; if (n > b) over.push(`${f}（${b} → ${n}）`); } }
   else if (m.total > base.total) over.push(`${base.total} → ${m.total}`);
-  const waived = (text) => waivers.some((w) => w.rule === rule.id && text.startsWith(w.item) && String(w.until) >= now);
+  const waived = (text) => waivers.some((w) => w.rule === rule.id && (text === w.item || text.startsWith(`${w.item}（`)) && String(w.until) >= now);
   return { over: over.filter((o) => !waived(o)), delta: m.total - base.total };
 }
 
@@ -439,6 +439,8 @@ function selftest() {
   const waiver = (until) => [{ rule: 'x', item: 'b.ts', reason: '自检', by: '自检', until }];
   check(compare(rule('budget', { total: 2, files: { 'a.ts': 2 } }), m, waiver('2999-01-01')).over.length === 0, '豁免未过期：不算超出');
   check(compare(rule('budget', { total: 2, files: { 'a.ts': 2 } }), m, waiver('2000-01-01')).over.length === 1, '豁免已过期：照算');
+  const prefix = [{ rule: 'x', item: 'b', reason: '自检', by: '自检', until: '2999-01-01' }];
+  check(compare(rule('budget', { total: 2, files: { 'a.ts': 2 } }), m, prefix).over.length === 1, '豁免只认整项：item 是 b，不会顺带豁免 b.ts');
   console.log(failed ? `===== 路线体检自检：${failed} 项失败 =====` : '===== 路线体检自检：全过 =====');
   return failed ? 1 : 0;
 }

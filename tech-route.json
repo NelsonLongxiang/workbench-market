@@ -210,11 +210,10 @@
       "what": "README 提到但已不存在的文件",
       "target": 0,
       "baseline": {
-        "total": 3,
+        "total": 2,
         "items": [
           "scripts/a2a-peer-smoke.mjs",
-          "scripts/a2a-peer.mjs",
-          "scripts/explicit-data-target-inventory.js"
+          "scripts/a2a-peer.mjs"
         ]
       }
     },
