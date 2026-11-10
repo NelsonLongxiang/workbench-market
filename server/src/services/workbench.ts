@@ -69,6 +69,10 @@ export class WorkbenchService extends Service {
   cookieSetId(id: number) {
     return db.prepare('SELECT cookie_set_id FROM workbenches WHERE id = ?').get(id);
   }
+  /** 门户访问范围（portal-access.ts）；值由调用方校验 */
+  setAccess(id: number, access: string, logins: string[]) {
+    return db.prepare(`UPDATE workbenches SET access = ?, access_logins = ?, updated_at = datetime('now') WHERE id = ?`).run(access, JSON.stringify(logins), id);
+  }
   exists(id: number) {
     return db.prepare('SELECT 1 AS x FROM workbenches WHERE id = ?').get(id);
   }

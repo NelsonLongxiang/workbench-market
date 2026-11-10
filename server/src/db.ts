@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isCredentialed, isInternalTarget } from './portal-access.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const dataDir = process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : join(here, '..', 'data');
@@ -585,6 +586,16 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_sop_run_files_sha ON sop_run_files(sha25
   if (!cols.some((c) => c.name === 'cookie_set_id')) {
     db.exec("ALTER TABLE workbenches ADD COLUMN cookie_set_id INTEGER NOT NULL DEFAULT 0");
   }
+  // 门户按台访问范围（portal-access.ts）。加列那一次回填：门户会替打开者注入凭据的外部台改为只给管理员，其余保持 all（旧行为）
+  if (!cols.some((c) => c.name === 'access')) {
+    db.exec("ALTER TABLE workbenches ADD COLUMN access TEXT NOT NULL DEFAULT 'all'");
+    db.exec("ALTER TABLE workbenches ADD COLUMN access_logins TEXT NOT NULL DEFAULT '[]'");
+    const rows = db.prepare('SELECT id, url, auth_config, cookie_set_id FROM workbenches').all() as { id: number; url: string; auth_config: string; cookie_set_id: number }[];
+    const raise = db.prepare("UPDATE workbenches SET access = 'admin' WHERE id = ?");
+    const raised: number[] = [];
+    for (const r of rows) if (!isInternalTarget(r.url) && isCredentialed(r)) { raise.run(r.id); raised.push(r.id); }
+    if (raised.length) console.warn(`[portal-access] 带凭据的外部台已改为只给管理员打开：${raised.join(', ')}（需要放宽到指定人员时在台详情里改访问范围）`);
+  }
 }
 {
   const cols = db.prepare('PRAGMA table_info(apps)').all() as { name: string }[];
@@ -643,6 +654,7 @@ export interface WorkbenchRow {
   category: string; tags: string; enabled: number; health_path: string;
   last_status: string; last_checked_at: string; last_latency_ms: number | null;
   last_http_code: number | null; last_error: string; sort: number; auth_config: string;
+  cookie_set_id?: number; access: string; access_logins: string;
   created_at: string; updated_at: string;
 }
 
@@ -703,6 +715,8 @@ export function rowToWorkbench(r: WorkbenchRow) {
   try { tags = JSON.parse(r.tags || '[]'); } catch { tags = []; }
   let auth: AuthConfig | null = null;
   try { const a = JSON.parse(r.auth_config || 'null'); if (a && (a.type === 'bearer' || a.type === 'basic') && typeof a.value === 'string') auth = a; } catch { auth = null; }
+  let access_logins: string[] = [];
+  try { const v = JSON.parse(r.access_logins || '[]'); if (Array.isArray(v)) access_logins = v.map(String); } catch { access_logins = []; }
   const { auth_config: _ac, ...rest } = r;
-  return { ...rest, enabled: !!r.enabled, tags, auth };
+  return { ...rest, enabled: !!r.enabled, tags, auth, access_logins };
 }
