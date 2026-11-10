@@ -28,6 +28,7 @@ import { registerStatsRoutes } from './routes/stats.ts';
 import { registerDesignTokenRoutes } from './routes/design-tokens.ts';
 import { registerAgentCardRoutes } from './routes/agent-card.ts';
 import { registerSsoRoutes } from './routes/sso.ts';
+import { registerSummaryRoutes } from './routes/summary.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import { SkillService } from './services/skill.ts';
@@ -2957,9 +2958,7 @@ function summaryPayload() {
   };
 }
 
-app.get('/api/summary', (_req, res) => {
-  res.json(summaryPayload());
-});
+registerSummaryRoutes(http, { summaryPayload });
 
 // ---------- 类型管理 ----------
 registerTypeRoutes(http);
