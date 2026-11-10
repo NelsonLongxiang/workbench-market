@@ -22,6 +22,7 @@ import multer from 'multer';
 import { svc } from './context.ts';
 import type { HttpService } from './http.ts';
 import { registerTypeRoutes } from './routes/types.ts';
+import { registerCockpitRoutes } from './routes/cockpits.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import { SkillService } from './services/skill.ts';
@@ -31,7 +32,7 @@ import type { CookieService } from './services/cookie.ts';
 import type { CockpitService } from './services/cockpit.ts';
 import type { SettingService } from './services/setting.ts';
 import { recordLayerFsShadowOutcome, recordLayerFsSkillShadowOutcome } from './layerfs-shadow.ts';
-import { db, getSettings, dataDir, rowToWorkbench, rowToCockpit, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow, type SopRunRow } from './db.ts';
+import { db, getSettings, dataDir, rowToWorkbench, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow, type SopRunRow } from './db.ts';
 (globalThis as any).__wmDb = db; // #94 v3 S1：tasks.ts 直读 change_requests 桥
 import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
 import { HttpError } from './errors.ts';
@@ -669,72 +670,7 @@ app.post('/api/check-all', wrap(async (_req, res) => {
 }));
 
 // ---------- 驾驶舱 CRUD（任务驾驶舱：多工作台分屏组合视图） ----------
-function getCockpit(id: number): CockpitRow {
-  const row = svc<CockpitService>('cockpit').byId(id) as unknown as CockpitRow | undefined;
-  if (!row) throw new HttpError(404, `cockpit not found: ${id}`);
-  return row;
-}
-
-function validatePanels(raw: unknown): PanelConfig[] {
-  if (!Array.isArray(raw)) bad('layout_config 必须是面板数组');
-  const seen = new Set<number>();
-  return raw.map((p: any) => {
-    // 统一待办卡（omni-inbox）：kind='tasks'，workbenchId=0 占位，不引用工作台
-    if (p?.kind === 'tasks' && String(p?.i ?? '') === 'tasks') {
-      const tw = Math.min(12, Math.max(3, Number(p?.w) || 6));
-      const th = Math.min(40, Math.max(6, Number(p?.h) || 12));
-      return { i: 'tasks', workbenchId: 0, kind: 'tasks' as const, x: Math.min(12 - tw, Math.max(0, Number(p?.x) || 0)), y: Math.max(0, Number(p?.y) || 0), w: tw, h: th };
-    }
-    const workbenchId = Number(p?.workbenchId ?? Number(String(p?.i ?? '').replace('wb-', '')));
-    if (!Number.isInteger(workbenchId) || workbenchId < 1) bad(`面板 workbenchId 非法: ${JSON.stringify(p)}`);
-    if (seen.has(workbenchId)) bad(`面板重复引用工作台 ${workbenchId}`);
-    seen.add(workbenchId);
-    if (!svc<WorkbenchService>('workbench').idById(workbenchId)) bad(`面板引用的工作台不存在: ${workbenchId}`);
-    const w = Math.min(12, Math.max(1, Number(p?.w) || 6));
-    const h = Math.min(40, Math.max(4, Number(p?.h) || 10));
-    return {
-      i: `wb-${workbenchId}`,
-      workbenchId,
-      x: Math.min(12 - w, Math.max(0, Number(p?.x) || 0)),
-      y: Math.max(0, Number(p?.y) || 0),
-      w, h,
-    };
-  });
-}
-
-app.get('/api/cockpits', (_req, res) => {
-  const rows = svc<CockpitService>('cockpit').list() as unknown as CockpitRow[];
-  res.json(rows.map(rowToCockpit));
-});
-
-app.post('/api/cockpits', (req, res) => {
-  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
-  if (!name) bad('name 不能为空');
-  const description = String(req.body?.description ?? '');
-  const panels = validatePanels(req.body?.panels ?? []);
-  const r = svc<CockpitService>('cockpit').create(name, description, JSON.stringify(panels)) as unknown as { lastInsertRowid: number | bigint };
-  res.status(201).json(rowToCockpit(getCockpit(Number(r.lastInsertRowid))));
-});
-
-app.get('/api/cockpits/:id', (req, res) => {
-  res.json(rowToCockpit(getCockpit(Number(req.params.id))));
-});
-
-app.put('/api/cockpits/:id', (req, res) => {
-  const cur = getCockpit(Number(req.params.id));
-  const name = req.body?.name !== undefined ? String(req.body.name).trim() : cur.name;
-  if (!name) bad('name 不能为空');
-  const description = req.body?.description !== undefined ? String(req.body.description) : cur.description;
-  const panels = req.body?.panels !== undefined ? validatePanels(req.body.panels) : JSON.parse(cur.layout_config || '[]');
-  svc<CockpitService>('cockpit').update(cur.id, name, description, JSON.stringify(panels));
-  res.json(rowToCockpit(getCockpit(cur.id)));
-});
-
-app.delete('/api/cockpits/:id', (req, res) => {
-  const cur = getCockpit(Number(req.params.id));
-  svc<CockpitService>('cockpit').delete(cur.id);
-  res.json({ ok: true });
-});
+registerCockpitRoutes(http);
 
 // ---------- 自产台（台生成器：AI 发布 API + 全版本快照，发布即入册） ----------
 const appsRoot = join(dataDir, 'apps');

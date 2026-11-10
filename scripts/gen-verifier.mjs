@@ -104,7 +104,7 @@ const U = [
   // ── 任务驾驶舱（多工作台分屏组合视图——收藏夹到驾驶舱的质变） ──
   { c: "判据59：驾驶舱的 name 字段不得为空。", t: "驾驶舱名称非空", s: "S1", ck: sql("cockpits", ["id", "name"], or({ col: "name", op: "is null" }, { col: "name", op: "=", value: "" })), rv: ["判据原文逐字取自冻结材料，驾驶舱必须有可辨识名称。", "is null 或空串的 violation 谓词精确判定。", "写入空名驾驶舱即 FAIL。"] },
   { c: "判据60：封装提交物必须包含 web/src/pages/Cockpit.tsx。", t: "驾驶舱页面存在", s: "S1", ck: file("web/src/pages/Cockpit.tsx", 1), rv: ["判据原文逐字取自冻结材料，任务驾驶舱功能页在位。", "精确路径 glob。", "删除即 FAIL。"] },
-  { c: "判据61：server/src/index.ts 必须包含驾驶舱路由「/api/cockpits」。", t: "驾驶舱路由钉位", s: "S1", ck: existsFact("server/src/index.ts", "/api/cockpits"), rv: ["判据原文逐字取自冻结材料，驾驶舱 CRUD 路由组在位。", "提取表三条件 exists 精确判定。", "删路由提取为 0 即 FAIL。"] },
+  { c: "判据61：server/src/routes/cockpits.ts 必须包含驾驶舱路由「/api/cockpits」。", t: "驾驶舱路由钉位", s: "S1", ck: existsFact("server/src/routes/cockpits.ts", "/api/cockpits"), rv: ["判据原文逐字取自冻结材料，驾驶舱 CRUD 路由组在位。", "提取表三条件 exists 精确判定。", "删路由提取为 0 即 FAIL。"] },
   // ── 统一门户（/go/ 反向代理：一个端口号 + 同源 + 禁嵌剥离） ──
   { c: "判据62：server/src/index.ts 必须包含「createProxyMiddleware」。", t: "代理中间件在位", s: "S1", ck: existsFact("server/src/index.ts", "createProxyMiddleware"), rv: ["判据原文逐字取自冻结材料，统一门户代理由 http-proxy-middleware 实现。", "提取表三条件 exists 精确判定。", "删代理提取为 0 即 FAIL。"] },
   { c: "判据63：server/src/index.ts 必须包含剥禁嵌头的「x-frame-options」。", t: "禁嵌剥离钉位", s: "S1", ck: existsFact("server/src/portal.ts", "x-frame-options"), rv: ["判据原文逐字取自冻结材料，代理剥除上游 X-Frame-Options 的逻辑在位。", "提取表三条件 exists 精确判定。", "删剥头逻辑提取为 0 即 FAIL。"] },

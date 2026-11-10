@@ -121,7 +121,7 @@ const TEXT_FACTS = [
   ["web/src/index.css", "background: var(--wm-color-nav-bg);"],
   ["web/src/index.css", ".wm-use-bar .ant-badge-status-text"],
   ["web/src/index.css", "color: var(--wm-color-nav-text) !important;"],
-  ["server/src/index.ts", "/api/cockpits"],
+  ["server/src/routes/cockpits.ts", "/api/cockpits"],
   ["server/src/index.ts", "createProxyMiddleware"],
   ["server/src/portal.ts", "x-frame-options"],
   ["server/package.json", "http-proxy-middleware"],
