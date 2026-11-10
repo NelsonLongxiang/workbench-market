@@ -16,6 +16,7 @@ pnpm start            # 生产模式（只跑 server，访问 http://127.0.0.1:9
 node scripts/gen-design-tokens.mjs   # 改了 DESIGN.md 的 token 后重新生成 web/src/tokens.css 与 design-tokens.ts（--check 只比对）
 node scripts/tech-route-check.mjs    # 路线体检：结构数字对照 tech-route.json 里的基线（预算与红线超了会失败；--selftest 自检）
 node scripts/surface-snapshot.mjs     # 对外面的快照：改了路由、MCP 工具或表结构后，加 --write 重新生成
+node scripts/route-replay-test.mjs    # 路由录制回放：对同一组请求重放，状态码、响应头和响应体要和录下来的一样（有意改了行为加 --record 重录）
 ```
 
 浏览器回归（`scripts/*-browser.mjs` 等）要用 Python Playwright，版本与 CI 一致。一般交给 CI 或共用测试环境跑。解释器由 `scripts/python-bin.mjs` 统一选取，顺序是：`PYTHON` 环境变量 → 仓库根的 `.venv` → 系统 `python3`，不用在命令前手写解释器路径。想在自己机器上跑的话（可选），建一次 `.venv` 即可：
@@ -173,6 +174,8 @@ GET              /api/health/ready              就绪：含 LayerFS 探测（�
 server/src/     index.ts（REST+静态+巡检装配） db.ts（schema+迁移） portal.ts（/go/ 反代·白屏五层+登录态） a2a.ts（卡片/绑定/direct 准入） a2a-direct-sig.ts（/a2a/direct 入站签名校验：只从登记地址取卡·防重放·WM_A2A_DIRECT_SIG） eval.ts（#178 jev 评估客户端） mcp-tools.ts（MCP 工具注册表） sop-runner.ts（SOP 执行页） redis.ts（SOP 状态层） sop-state-checkpoints.ts（#337 热写检查点：逐 run 串行与 SQLite 落盘期限） health.ts（探测） tasks.ts（定时任务） task-center.ts（任务中心元台种子+收件发布） endpoint-stats.ts（端点数） errors.ts（错误类型） context.ts（服务容器） sop-types.ts（SOP 类型） identity.ts（身份契约：核心只经它认人·Cordis 服务 `identity` 认人与 whoami、`loginRelay` 业务台登录中继的窄接口·`/api/auth/viewer`） root-context.ts（全进程唯一的 Cordis 根上下文·不开数据库） extensions.ts（扩展挂载点·WM_EXTENSIONS_DIR） surfaces.ts（#292 M1 业务面/控制面多端口监听·按 localPort 判面·浏览器标记与回环判定） content-access.ts（内容票据与准入） content-surface.ts（内容面终结分发与到期引导） portal-observation.ts（无敏感原文的被动计数） url-admission.ts（#258 R3 业务 URL 登记准入单核·WM_REGISTER_URL_ALLOWLIST） vault-api.ts（凭据库 REST 面） workbench-vars.ts（#336 工作台变量与常量：按台隔离、revision 乐观锁、常量保护） vault/（dsh-vault 存储层引入件·见其 README） content-static.ts（无令牌静态资产读取） sop-readonly-channel.ts（只读隔离字段通道） sop-readonly-assembly.ts（冻结清单与run装配） sop-run-access.ts（run授权、能力与revision事务） sop-field-channel.ts（字段/上传/人工完成通道候选） sop-field-save.ts（未挂载字段保存路由） sop-field-upload.ts（未挂载惰性文件上传路由） sop-field-finish.ts（未挂载人工完成路由） sop-read-auth.ts（#309 run 私有读授权：读能力 + 主体 grant） design-standard.ts（MCP design_standard 工具的 design token 标准只读读取） design-tokens-css.ts（DESIGN.md 生成的 tokens.css 服务端出口） workbench-events.ts（工作台事件层 v1：人提交→事件→团队接单→决定回写） tasks-read-access.ts（#324 待办身份与来源授权） startup-security-self-probe.ts（#326 启动匿名安全面自检与门闩） github-source.ts（GitHub main 分支来源拉取：commits/trees/blobs 三段取内容·版本记 commit sha） layerfs-shadow.ts（LayerFS 影子发布结果持久化：只回写 commit_id 为空的版本行，失败标记后可重试） app-data-contract.ts（自产台数据契约：必填/枚举/格式/条件规则（含条件格式）/数组对象逐元素，POST 数据时服务端权威校验） file-sniff.ts（上传按内容识别类型：签名为准、扩展名与内容不符或可执行文件拒收） sop-field-rules.ts（SOP 字段规则：从步骤 HTML 读 required/pattern/长度/类型、条件必填 data-required-if、字段间数值关系 data-check 与文件清单 data-type="file-list"，完成时服务端校验，文件清单另按文件面实际 hash 逐行核） login-gate.ts（全站登录门 WM_LOGIN_GATE：enforce 时页面 302 登录、API 401） sso-ticket-store.ts（门户 SSO 回调一次性票据的 SQLite 存储：重启不丢、多实例原子取出）
 server/src/login-providers/  登录提供方插件（身份的具体实现只放这里，核心不引用）：index.ts（清单：这个部署装哪些提供方） odoo/index.ts（Odoo 提供方的插件入口：向 `identity` 登记、提供 `loginRelay`） odoo/odoo-viewer.ts（Odoo 查看人现查） odoo/odoo-session.ts（门户 Odoo 会话可信源判定与剥除、登录回调票据） odoo/odoo-login-proxy.ts（可选同源 Odoo 登录中继 WM_ODOO_LOGIN_PROXY：只放行登录面，不代理 Odoo 应用） odoo/odoo-browser-origin.ts（只给浏览器用的 Odoo 登录地址 WM_ODOO_BROWSER_URL：登录一跳送到可信内网地址，身份与代理目标不变）
 server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·cookie·setting·mcp（域服务）· sop-runner.ts（执行页）
+server/src/http.ts    HTTP 服务（Cordis 服务 http）：持有 Express 应用；域模块经它注册路由，注册可撤销
+server/src/routes/    按域分的路由模块，各带一个注册函数：types.ts（类型管理 /api/types）
 web/src/        pages/（Dashboard/Market/Sops/Types/Settings/UseWorkbench/Cockpit/McpGateways/Tasks/Skills/SopSpace/SopRunDetail/Vault/Reviews/OwnerPending） components/ admin-token.ts（统一口令注入）
 deploy/         Dockerfile.market（多阶段·非 root·HEALTHCHECK） docker-compose.yml（回环默认·profiles 隔离） layerfs-svc.mjs
 docs/           layerfs-service-contract-v0/v1.md（LayerFS 服务契约）
@@ -183,7 +186,15 @@ data/           SQLite 数据文件（git 忽略）
 
 结构上的约定（新东西该写在哪）见仓库根的 `CONTRIBUTING.md`。`node scripts/tech-route-check.mjs` 把这些约定量成数字，对照 `tech-route.json` 里的基线；CI 每次把体检表写进摘要页。预算档的检查比基线多了、红线档的检查高于目标，CI 就失败；其余只报告。每项现在是哪一档，以 `tech-route.json` 为准。
 
+路由正在按域从 `server/src/index.ts` 搬进 `server/src/routes/<域>.ts`，终点是 `index.ts` 只做装配。域模块导出一个注册函数，`index.ts` 在这组路由原来的位置调用它，所以挂载顺序不变。注册经 HTTP 服务（`server/src/http.ts`）：路由还是挂在同一个 Express 应用上，处理函数原样传入；每次注册都能撤销，由插件注册的随插件卸载一起撤销（`scripts/http-service-test.mjs`）。搬一个域是纯移动，下面的路由快照和录制回放都必须零差异。
+
 对外的面有三份快照，放在 `surfaces/`：路由（带挂载顺序）、MCP 工具、表结构，由 `scripts/surface-snapshot.mjs` 从一个隔离实例里导出。改了面就加 `--write` 重新生成，把快照和代码一起提交。
+
+快照管的是「有哪些路由、按什么顺序」，应答对不对由录制回放管。`surfaces/replay/<域>.json` 里是一组请求和录下来的应答：状态码、响应头、响应体。`scripts/route-replay-test.mjs` 按场景各起一个隔离实例，对同一组请求重放，有一处不一样就失败。搬路由之前先录，搬完重放必须零差异。有意改了行为，就加 `--record` 重录，把录制和代码一起提交。
+
+每次都不一样的东西不比：`Date`、`Connection`、`Keep-Alive` 三个头不录；时间里的数字换成占位，写法留着（所以时间的写法变了看得出来）；按内容算出来的 ETag 只留长度。值每次都变的响应头（比如带随机会话号的 `Set-Cookie`）现在还没有换占位的办法，搬到有这种头的域之前要先补。
+
+每条路由都要有未授权、参数非法、正常三类请求。类别按录下来的应答核对：未授权是 401 或 403，参数非法是其余的 4xx，正常是 2xx 或 3xx；请求上标的类别和应答对不上，脚本就失败。确实没有某一类的路由（比如不读任何参数，就没有会被拒的输入），在请求集的 `exempt` 里写明理由，并指给一条打在这条路由上、照常应答的请求。
 
 设计系统见 `design-system/workbench-market/MASTER.md`（Minimalism & Swiss，主色 #1E3A5F）。
 
