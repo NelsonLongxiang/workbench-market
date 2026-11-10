@@ -1,5 +1,5 @@
 {
-  "note": "隔离实例：MCP_GATEWAY=off、NODE_ENV=test、WM_CONTROL_PORT=0，不带任何别的配置。随配置才挂的路由、用到才建的表不在其中。",
+  "note": "隔离实例：MCP_GATEWAY=off、NODE_ENV=test、WM_CONTROL_PORT=0，不带任何别的配置，按前端已构建的形态导出。随配置才挂的路由、用到才建的表不在其中。",
   "apps": [
     [
       "USE /  <- query",

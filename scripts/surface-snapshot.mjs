@@ -26,7 +26,10 @@ const quiet = flag('--json');
 const say = (text) => { if (!quiet) console.log(text); };
 
 const FILES = { routes: 'routes.json', tools: 'mcp-tools.json', schema: 'schema.json' };
-const ENV_NOTE = '隔离实例：MCP_GATEWAY=off、NODE_ENV=test、WM_CONTROL_PORT=0，不带任何别的配置。随配置才挂的路由、用到才建的表不在其中。';
+const ENV_NOTE = '隔离实例：MCP_GATEWAY=off、NODE_ENV=test、WM_CONTROL_PORT=0，不带任何别的配置，按前端已构建的形态导出。随配置才挂的路由、用到才建的表不在其中。';
+// 有没有 web/dist 会差三层（静态托管、页面兜底、404）。快照取「前端已构建」的形态：没构建时临时放一个占位目录，导出完就删。
+const WEB_DIST = join(ROOT, 'web', 'dist');
+const STUB_MARK = join(WEB_DIST, '.surface-snapshot-stub');
 
 async function freePort() {
   const probe = createServer();
@@ -56,6 +59,12 @@ async function exportSurfaces() {
   const { MCP_TOOLS } = await import(pathToFileURL(join(ROOT, 'server/src/mcp-tools.ts')).href);
   const tools = MCP_TOOLS.map((t) => `${t.name}  ${t.category}${t.exempt ? '  exempt' : ''}`).sort();
 
+  const stub = !existsSync(WEB_DIST) || existsSync(STUB_MARK); // 上次异常退出留下的占位目录也算
+  if (stub) {
+    mkdirSync(WEB_DIST, { recursive: true });
+    writeFileSync(STUB_MARK, '');
+    writeFileSync(join(WEB_DIST, 'index.html'), '<!doctype html><title>surface-snapshot</title>\n');
+  }
   const port = await freePort();
   const data = join(ROOT, 'tmp', `surface-snapshot-${process.pid}`);
   rmSync(data, { recursive: true, force: true });
@@ -85,6 +94,7 @@ async function exportSurfaces() {
     child.kill('SIGTERM');
     await new Promise((r) => { if (child.exitCode !== null) r(); else { child.once('exit', r); setTimeout(r, 3000); } });
     rmSync(data, { recursive: true, force: true });
+    if (stub) rmSync(WEB_DIST, { recursive: true, force: true });
   }
 }
 
