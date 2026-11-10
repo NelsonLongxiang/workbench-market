@@ -435,6 +435,32 @@
           }
         },
         {
+          "id": "create-single-char-key",
+          "route": "POST /api/types",
+          "class": "normal",
+          "what": "key 只有一个字符也可以",
+          "request": { "method": "POST", "path": "/api/types", "json": { "key": "a", "name": "一个字符的 key" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "191", "etag": "W/\"bf-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 19, "key": "a", "name": "一个字符的 key", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+          }
+        },
+        {
+          "id": "create-empty-string-status",
+          "route": "POST /api/types",
+          "class": "normal",
+          "what": "expect_status 给空串：算给了值，存成 0，不当成没给",
+          "request": { "method": "POST", "path": "/api/types", "json": { "key": "replay-empty-status", "name": "x", "expect_status": "" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "188", "etag": "W/\"bc-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 20, "key": "replay-empty-status", "name": "x", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": 0, "description": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+          }
+        },
+        {
           "id": "update-remote-anonymous",
           "route": "PUT /api/types/:id",
           "class": "unauthorized",
@@ -853,7 +879,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "3655", "etag": "W/\"e47-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "4036", "etag": "W/\"fc4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "回放时改过描述", "created_at": "YYYY-MM-DD hh:mm:ss" },
               { "id": 2, "key": "openai-api", "name": "OpenAI 兼容 API", "icon": "🤖", "default_port": 8000, "health_method": "GET", "health_path": "/v1/models", "expect_status": null, "description": "兼容 OpenAI 接口的服务（401 也算存活）", "created_at": "YYYY-MM-DD hh:mm:ss" },
@@ -871,7 +897,9 @@
               { "id": 15, "key": "replay-zero", "name": "x", "icon": "0", "default_port": 0, "health_method": "GET", "health_path": "", "expect_status": 0, "description": "0", "created_at": "YYYY-MM-DD hh:mm:ss" },
               { "id": 16, "key": "replay-null", "name": "x", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
               { "id": 17, "key": "replay-port", "name": "x", "icon": "", "default_port": "abc", "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
-              { "id": 18, "key": "replay-put", "name": "两头有空白", "icon": "0", "default_port": 9200, "health_method": "GET", "health_path": "0", "expect_status": 204, "description": "带了 key 也不改 key", "created_at": "YYYY-MM-DD hh:mm:ss" }
+              { "id": 18, "key": "replay-put", "name": "两头有空白", "icon": "0", "default_port": 9200, "health_method": "GET", "health_path": "0", "expect_status": 204, "description": "带了 key 也不改 key", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 19, "key": "a", "name": "一个字符的 key", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 20, "key": "replay-empty-status", "name": "x", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": 0, "description": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
             ]
           }
         }
