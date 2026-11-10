@@ -59,6 +59,15 @@ export default function Market() {
     [allItems]
   );
 
+  /** 门户访问范围标记：只给收窄了的外部台打，避免满屏标签 */
+  const accessTag = (w: Workbench) => {
+    if (w.url.startsWith('/') || !w.access || w.access === 'all') return null;
+    return (
+      <Tooltip title={w.access === 'admin' ? '经门户只给管理员打开' : `经门户只给管理员和指定的人打开：${(w.access_logins ?? []).map((s) => s.replace(/^odoo:/, '')).join('、')}`}>
+        <Tag>{w.access === 'admin' ? '仅管理员' : '指定人员'}</Tag>
+      </Tooltip>
+    );
+  };
   const typeTag = (key: string) => {
     const t = types.find((x) => x.key === key);
     return (
@@ -121,9 +130,12 @@ export default function Market() {
       width: 260,
       ellipsis: true,
       render: (_, w) => (
-        <Typography.Text className="wm-mono wm-caption" copyable={{ text: w.url }} style={{ maxWidth: 300 }} ellipsis={{ tooltip: w.url }}>
-          {w.url}
-        </Typography.Text>
+        <Space size={4}>
+          {accessTag(w)}
+          <Typography.Text className="wm-mono wm-caption" copyable={{ text: w.url }} style={{ maxWidth: 300 }} ellipsis={{ tooltip: w.url }}>
+            {w.url}
+          </Typography.Text>
+        </Space>
       ),
     },
     {
@@ -353,6 +365,15 @@ export default function Market() {
                   ) : (
                     <Typography.Text type="secondary">无</Typography.Text>
                   ),
+                },
+                {
+                  key: 'access',
+                  label: '谁能打开',
+                  children: detail.url.startsWith('/') ? (
+                    <Typography.Text type="secondary">登录即可（自产台、SOP 台不经门户独占）</Typography.Text>
+                  ) : detail.access === 'admin' ? '仅管理员'
+                    : detail.access === 'listed' ? `管理员和：${(detail.access_logins ?? []).map((s) => s.replace(/^odoo:/, '')).join('、')}`
+                    : '登录即可',
                 },
                 { key: 'status', label: '状态', children: <StatusBadge status={detail.last_status} latency={detail.last_latency_ms} error={detail.last_error} checkedAt={detail.last_checked_at} /> },
                 { key: 'category', label: '分类', children: detail.category || '-' },

@@ -86,6 +86,8 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, log = (row: unkno
       // enforce: the login gate answers the anonymous browser first (401) before the admin write guard (403)
       { id: 'market.browser-workbench-write', target: m, surface: 'market', method: 'POST', path: '/api/workbenches', body: '{"name":"","url":""}', origin: true, status: loginGate === 'enforce' ? 401 : 403 },
       { id: 'market.invalid-write-control', target: m, surface: 'market', method: 'POST', path: '/api/workbenches', body: '{"name":"","url":""}', status: 400 },
+      // 门户按台访问范围：非法 access 必须在 URL 准入之前 400；校验被拿掉时这个 .invalid 地址会被准入 403 拦下——两种结局都不落库
+      { id: 'market.workbench-access-validate', target: m, surface: 'market', method: 'POST', path: '/api/workbenches', body: '{"name":"wm-self-probe","url":"http://wm-self-probe.invalid/","access":"wm-self-probe-invalid"}', status: 400 },
       { id: 'control.admin-read', target: c, surface: 'control', method: 'GET', path: '/api/mcp/sessions', status: 403 },
       // Login gate (enforce only): fixed synthetic slug, so a bypass shows up as 404/200 instead of the login redirect
       ...(loginGate === 'enforce' ? [

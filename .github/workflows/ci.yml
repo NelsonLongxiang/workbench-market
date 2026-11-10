@@ -139,6 +139,8 @@ jobs:
         run: node scripts/check-server-syntax.mjs
       - name: Startup security self-probe (#326, loopback synthetic only)
         run: node scripts/startup-security-self-probe-test.mjs && node scripts/startup-security-self-probe-http-test.mjs && node scripts/startup-security-self-probe-upgrade-test.mjs
+      - name: 门户按台访问范围（all/admin/listed·带凭据默认 admin·HTTP 与 WS 同判·MCP 不能改范围/挂 Cookie/改带凭据台地址·旧库回填·导入；合成实例）
+        run: node scripts/portal-access-test.mjs
       - name: Tasks identity and project/run grant isolation (#324, synthetic only)
         run: node scripts/tasks-read-authority-http-test.mjs
       - name: Redis ready recovery and durable-generation rebound (#351, synthetic only)
