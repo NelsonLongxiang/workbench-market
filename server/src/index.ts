@@ -1,7 +1,7 @@
 import express from 'express';
 import { createStartupSecurityProbe, isStartupProbeRequest } from './startup-security-self-probe.ts';
 import { createLoginGate, loginGateMode, trustedProxies } from './login-gate.ts';
-import { installOdooLoginProxy } from './odoo-login-proxy.ts';
+import { identity, loginRelay } from './identity.ts';
 import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
 import { recordAppDataEvent, cancelTaskCenterDeliveries, kickWorkbenchEvents, startWorkbenchEventWorker, registerWorkbenchEventRoutes } from './workbench-events.ts';
 import cors from 'cors';
@@ -63,8 +63,8 @@ const loginGate = createLoginGate({
     ? createHash('sha256').update('env|' + process.env.ADMIN_TOKEN, 'utf8').digest('hex')
     : String((svc<SettingService>('setting').get(ADMIN_TOKEN_KEY) as { value: string } | undefined)?.value ?? ''),
   odooViewer: async (cookie) => {
-    if (!odooUrl()) return null;
-    const who = await resolveOdooViewer(cookie); // 只认内部员工（门户账号 403）
+    if (!identity().configured()) return null;
+    const who = await identity().resolveViewer(cookie); // 只认内部员工（门户账号 403）
     return who.ok ? { login: who.viewer.login, admin: who.viewer.admin } : null;
   },
   appToken: (slug) => wmAppToken(slug),
@@ -76,7 +76,7 @@ const loginGate = createLoginGate({
     return row?.status === 'running' && want.length > 0 && want.length === presented.length && timingSafeEqual(Buffer.from(want), Buffer.from(presented));
   },
   goAppSlug: (id) => /^\/apps\/([a-z0-9][a-z0-9-]{0,63})\/?$/.exec(wbById(id)?.url ?? '')?.[1] ?? null,
-  odooLoginHref: (req) => (odooUrl() ? odooLoginUrl(req, '/login') : null),
+  odooLoginHref: (req) => (identity().configured() ? odooLoginUrl(req, '/login') : null),
   tokensCss: () => loadTokensCss()?.css ?? '',
 });
 if (loginGate.enforced) console.log('[login-gate] enforce：无身份的请求一律拦截（页面 302 /login，API 401）');
@@ -97,7 +97,7 @@ const A2A_DIRECT_SIG: DirectSigMode = loginGate.enforced ? 'require' : A2A_DIREC
 if (loginGate.enforced && A2A_DIRECT_SIG_RAW !== 'require') console.warn(`[a2a-direct-sig] WM_A2A_DIRECT_SIG=${A2A_DIRECT_SIG_RAW} 被忽略：WM_LOGIN_GATE=enforce 时 /a2a/direct 强制 require`);
 const directSig = createDirectSigVerifier({ audiences: () => [marketPublicUrl()], bodyMode: A2A_DIRECT_SIG_BODY });
 app.use(loginGate.middleware);
-installOdooLoginProxy(app); // narrow same-origin Odoo login, before any body parser
+loginRelay().install(app); // narrow same-origin Odoo login, before any body parser
 // Explicit opt-in only; no default content listener, no live configuration writes.
 const contentCfg = contentConfig(process.env);
 const portalObserver = process.env.WM_PORTAL_OBSERVE === '1' ? createPortalObservation(db, id => !!svc<WorkbenchService>('workbench').exists(id)) : null;
@@ -107,14 +107,14 @@ if (contentCfg) {
   const parsed = new URL(odoo);
   const ports = surfacePorts();
   if (contentCfg.port === ports.market || contentCfg.port === ports.control) throw Error('Content port must be distinct');
-  if (parsed.origin !== odoo || !trustedOdooOrigins().origins.has(odoo)) throw Error('Content viewer source must be an explicitly trusted Odoo origin');
+  if (parsed.origin !== odoo || !loginRelay().trustedOrigins().origins.has(odoo)) throw Error('Content viewer source must be an explicitly trusted Odoo origin');
 }
 const contentRuntime = contentCfg ? createContentSurface(contentCfg, {
   async viewer(cookie) {
     // Reject duplicate SID instead of inheriting the legacy first-cookie ambiguity.
     const values = cookie.split(';').map(s => s.trim()).filter(s => s.startsWith('session_id='));
     if (values.length !== 1) return null;
-    const result = await resolveOdooViewer(values[0], process.env.WM_CONTENT_ODOO_ORIGIN);
+    const result = await identity().resolveViewer(values[0], process.env.WM_CONTENT_ODOO_ORIGIN);
     return result.ok ? { subject: result.viewer.sub + ':' + result.viewer.uid, internal: true } : null;
   },
   staticTarget(id) {
@@ -311,17 +311,17 @@ const ODOO_ADMIN_TTL_MS = 30_000;
 const odooAdminCache = new Map<string, { at: number; login: string | null }>();
 const odooAdminReqs = new WeakMap<express.Request, string>(); // 本次请求经 Odoo 管理员认定 → 登录名
 async function odooAdminOf(cookieHeader: string): Promise<string | null> {
-  const sid = odooSessionOf(cookieHeader);
+  const sid = identity().credentialOf(cookieHeader);
   if (!sid) return null;
   // Explicit relay logout revokes Odoo sessions; never reuse a stale admin verdict.
   if (process.env.WM_ODOO_LOGIN_PROXY === '1') {
-    try { const who = await resolveOdooViewer(cookieHeader); return who.ok && who.viewer.admin ? who.viewer.login : null; } catch { return null; }
+    try { const who = await identity().resolveViewer(cookieHeader); return who.ok && who.viewer.admin ? who.viewer.login : null; } catch { return null; }
   }
   const key = createHash('sha256').update(sid).digest('hex');
   const hit = odooAdminCache.get(key);
   if (hit && Date.now() - hit.at < ODOO_ADMIN_TTL_MS) return hit.login;
   let login: string | null = null;
-  try { const who = await resolveOdooViewer(cookieHeader); login = who.ok && who.viewer.admin ? who.viewer.login : null; } catch { login = null; }
+  try { const who = await identity().resolveViewer(cookieHeader); login = who.ok && who.viewer.admin ? who.viewer.login : null; } catch { login = null; }
   if (odooAdminCache.size > 1000) odooAdminCache.clear();
   odooAdminCache.set(key, { at: Date.now(), login });
   return login;
@@ -330,7 +330,7 @@ async function odooAdminOf(cookieHeader: string): Promise<string | null> {
 async function markOdooAdmin(req: express.Request): Promise<void> {
   if (odooAdminReqs.has(req) || surfaceOf(req) === 'content' || adminTokenCheck(req.headers['x-admin-token'])) return;
   const cookie = String(req.headers.cookie ?? '');
-  if (!odooSessionOf(cookie)) return;
+  if (!identity().credentialOf(cookie)) return;
   const login = await odooAdminOf(cookie);
   if (login) odooAdminReqs.set(req, login);
 }
@@ -2301,12 +2301,12 @@ app.get('/api/content/observation', (req, res) => {
 function odooLoginUrl(req: express.Request, returnPath: string): string | null {
   // 同域登录中继开着：登录入口就是本机 /web/login（中继只放行登录面、上游固定为 WM_ODOO_URL、redirect 只认白名单回跳页），
   // 不再依赖库里登记了 Odoo 台——否则部署方只能手工插一条假工作台才有登录入口
-  if (process.env.WM_ODOO_LOGIN_PROXY === '1' && odooUrl()) return `/web/login?redirect=${encodeURIComponent(returnPath)}`;
+  if (process.env.WM_ODOO_LOGIN_PROXY === '1' && loginRelay().sourceUrl()) return `/web/login?redirect=${encodeURIComponent(returnPath)}`;
   let host = '';
   try { host = new URL(`http://${String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').split(',')[0].trim()}`).hostname.toLowerCase(); } catch { host = ''; }
-  const odoo = listWorkbenches().filter((w) => w.enabled && /^https?:\/\//i.test(w.url) && isOdooSessionTarget(w.url));
+  const odoo = listWorkbenches().filter((w) => w.enabled && /^https?:\/\//i.test(w.url) && loginRelay().isSessionTarget(w.url));
   let idOrigin = '';
-  try { idOrigin = new URL(odooUrl()).origin; } catch { idOrigin = ''; }
+  try { idOrigin = new URL(loginRelay().sourceUrl()).origin; } catch { idOrigin = ''; }
   const at = (w: { url: string }) => { try { return new URL(w.url); } catch { return null; } };
   const pick = odoo.find((w) => idOrigin && at(w)?.origin === idOrigin) ?? odoo.find((w) => at(w)?.hostname.toLowerCase() === host);
   return pick ? `/go/${pick.id}/?return=${encodeURIComponent(returnPath)}` : null;
@@ -2342,7 +2342,7 @@ app.post('/api/tasks/read-grants/revoke', (req, res) => {
 
 // #275 登录探测：弹窗送 Odoo 登录后，前端轮询这里拿 200 即回原页面（Odoo 19 无法跨源回跳，回程在市场源完成）；顶栏用户 chip 同源
 app.get('/api/auth/viewer', wrap(async (req, res) => {
-  const r = await odooViewerWhoami(String(req.headers.cookie ?? ''));
+  const r = await identity().whoami(String(req.headers.cookie ?? ''));
   res.setHeader('Cache-Control', 'private, no-store');
   // #279：未登录时带登录入口（顶栏 chip 复用 #277 弹窗流；中继页只认白名单 return，这里固定 /tasks）
   res.status(r.http).json(r.http === 401 ? { ...r.body, login_url: odooLoginUrl(req, '/tasks') } : (r.http === 200 || r.http === 403) && process.env.WM_ODOO_LOGIN_PROXY === '1' ? { ...r.body, odoo_logout_supported: true } : r.body);
@@ -2353,7 +2353,7 @@ try {
   const loaded = await loadExtensions(process.env.WM_EXTENSIONS_DIR, {
     app, wrap,
     adminGuard: async (req, res) => { await markOdooAdmin(req); return adminGuard(req, res); },
-    odoo: { url: odooUrl, sessionOf: odooSessionOf, resolveViewer: (cookie) => resolveOdooViewer(cookie), loginUrl: odooLoginUrl, addReturnPath: addOdooReturnPath },
+    odoo: { url: () => loginRelay().sourceUrl(), sessionOf: (cookie) => loginRelay().sessionOf(cookie), resolveViewer: (cookie) => identity().resolveViewer(cookie), loginUrl: odooLoginUrl, addReturnPath: (path) => loginRelay().addReturnPath(path) },
     remoteWrite: { allowExact: allowExtensionRemoteWrite },
   });
   if (loaded.length) console.log(`[extensions] 已加载：${loaded.join('、')}（${process.env.WM_EXTENSIONS_DIR}）`);
@@ -3834,11 +3834,9 @@ import { loadTokensCss, resolveTokensPath } from './design-tokens-css.ts';
 /** #321：执行页内联 DESIGN.md 生成的 --wm-* 变量，与市场前端同色同字号 */
 const renderSopRunner = (manifest: Parameters<typeof renderSopRunnerRaw>[0], app: Parameters<typeof renderSopRunnerRaw>[1]) => renderSopRunnerRaw(manifest, app, loadTokensCss()?.css ?? '');
 import { sqliteSsoTicketStore } from './sso-ticket-store.ts';
-import { addOdooReturnPath, setSsoTicketStore, odooUrlDeprecated, isOdooLikeTarget, isOdooSessionTarget, odooSessionOf, stripOdooSession, trustedOdooOrigins } from './odoo-session.ts';
 import { collectTasks } from './tasks.ts';
 import { closeYglUpstreams, yglHomeProblem, yglUpstreamRpc } from './mcp-stdio-upstream.ts';
 import { tasksReadAccess, createTaskSourceGrant, revokeTaskSourceGrant } from './tasks-read-access.ts';
-import { odooUrl, odooViewerWhoami, resolveOdooViewer } from './odoo-viewer.ts';
 import { collectExtensionTasks, extensionTaskSourceKeys, loadExtensions } from './extensions.ts';
 import { authorizeRunRead, issueRunReadCap, runReadGrantCreate, runReadGrantRevoke, runReadCapRevokeAll } from './sop-read-auth.ts';
 import { endpointStatsMiddleware, statsPayload } from './endpoint-stats.ts';
@@ -5053,7 +5051,7 @@ app.get('/api/mcp-rest/sop/runs/:id/files/:fileId', wrap(async (req, res) => {
 }));
 import { installPortal, goPrefix, moduleProxy } from './portal.ts';
 
-setSsoTicketStore(sqliteSsoTicketStore()); // SSO 回调票据落库：重启不丢、同一 DATA_DIR 的实例共享
+loginRelay().useTicketStore(sqliteSsoTicketStore()); // SSO 回调票据落库：重启不丢、同一 DATA_DIR 的实例共享
 installPortal(app, wbById, { serveApp, readActiveManifest, renderSopRunner, appsRoot });
 
 // ---------- 静态托管前端（生产形态：单端口） ----------
@@ -5183,12 +5181,12 @@ const goServer = registerSurface(app, 'market', PORT, () => {
     // 迁移材料：存量行不删不停，只列按新规会被拒的 id + URL 摘要 + 原因（不出原 URL/query）
     if (gaps.length) console.warn(JSON.stringify({ event: 'workbench_url_legacy_gap', policy_digest: URL_POLICY.digest, count: gaps.length, rows: gaps }));
   }
-  const odooTrust = trustedOdooOrigins();
-  const oldOdoo = odooUrlDeprecated();
+  const odooTrust = loginRelay().trustedOrigins();
+  const oldOdoo = loginRelay().legacyConfig();
   if (oldOdoo === 'only-old') console.warn('[odoo] LC_ODOO_URL 已弃用，请改名为 WM_ODOO_URL（当前按旧名读取）');
   else if (oldOdoo === 'both') console.warn('[odoo] WM_ODOO_URL 与已弃用的 LC_ODOO_URL 都设了：以 WM_ODOO_URL 为准，LC_ODOO_URL 可删');
   if (odooTrust.invalid.length) console.warn(`[SSO v1] WM_ODOO_ORIGINS/WM_ODOO_URL 有非法项（已忽略）：${odooTrust.invalid.join(', ')}`);
-  if (odooTrust.origins.size === 0 && listWorkbenches().some((w) => isOdooLikeTarget(w.type, w.url))) console.warn('[SSO v1] 未设 WM_ODOO_ORIGINS / WM_ODOO_URL：门户不转发 Odoo 会话，Odoo 台免登不生效（台内会显示 Odoo 自己的登录页）——要免登请把 Odoo 台的源写进 WM_ODOO_ORIGINS');
+  if (odooTrust.origins.size === 0 && listWorkbenches().some((w) => loginRelay().looksLikeTarget(w.type, w.url))) console.warn('[SSO v1] 未设 WM_ODOO_ORIGINS / WM_ODOO_URL：门户不转发 Odoo 会话，Odoo 台免登不生效（台内会显示 Odoo 自己的登录页）——要免登请把 Odoo 台的源写进 WM_ODOO_ORIGINS');
   const counts = svc<WorkbenchService>('workbench').count() as { n: number };
   console.log(`[workbench-market] server  http://127.0.0.1:${PORT}  (workbenches: ${counts.n}, web-dist: ${existsSync(webDist) ? 'served' : 'none'}, portal: /go/<id>/)`);
   if (SURFACE_PORTS.control) console.log(`[workbench-market] control http://127.0.0.1:${SURFACE_PORTS.control}  （可选的独立管理端口；管理写在业务面凭口令或 Odoo 管理员同样可做）`);
@@ -5270,7 +5268,7 @@ goServer.on('upgrade', async (req, socket, head) => {
   // ① 浏览器握手必带 Origin（=9800 门户源），上游 Origin fence 要求 Origin==Host authority → 403（实测）
   // ② Host 改成上游 authority，与 changeOrigin 语义一致；cookie 名是 authority 的 sha256，
   //    Host 不符则上游取不到签名 cookie → 401（实测）
-  if (!isOdooSessionTarget(w.url)) stripOdooSession(req.headers); // 同 HTTP 门户：Odoo 会话只转给可信 Odoo 源
+  if (!loginRelay().isSessionTarget(w.url)) loginRelay().stripSession(req.headers); // 同 HTTP 门户：Odoo 会话只转给可信 Odoo 源
   const upstreamHost = u.host; // host:port（authority 形态）
   if (req.headers.origin !== undefined) req.headers.origin = u.origin;
   req.headers.host = upstreamHost;

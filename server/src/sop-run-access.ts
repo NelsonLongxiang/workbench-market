@@ -2,14 +2,13 @@
  * Legacy started_by / A2A node labels NEVER confer a human permission. */
 import {createHash,createHmac,randomBytes,timingSafeEqual} from 'node:crypto';
 import type {DatabaseSync} from 'node:sqlite';
-import {resolveOdooViewer} from './odoo-viewer.ts';
+import {identity,loginRelay,type ViewerResult} from './identity.ts';
 import {parse as parseYaml} from 'yaml';
-import {trustedOdooOrigins} from './odoo-session.ts';
 import {validateReadonlySop} from './sop-readonly-channel.ts';
 import {assembleReadonlySop,type FrozenSopSource} from './sop-readonly-assembly.ts';
-type ViewerResult = Awaited<ReturnType<typeof resolveOdooViewer>>;
+type ResolveViewer = (cookieHeader:string,source?:string)=>Promise<ViewerResult>;
 // Existing run upload hard ceilings: single50MiB / run20 files / run200MiB. Stored MIME is declared, not content-authenticated.
-type Deps = {db:DatabaseSync; odooOrigin:string; marketOrigin:string; frozenYaml:(slug:string,version:number)=>string; viewer?:typeof resolveOdooViewer; now?:()=>number};
+type Deps = {db:DatabaseSync; odooOrigin:string; marketOrigin:string; frozenYaml:(slug:string,version:number)=>string; viewer?:ResolveViewer; now?:()=>number};
 type Binding = {run_id:number; target_id:number; sop_version:number; owner_subject:string; assignee_subject:string; acl_revision:number; manifest_sha256:string; revoked:number};
 type Scope = {targetId:number;runId:number;step:string};
 type Record = Scope & {action:'read'|'save'|'upload'|'finish';version:number;subject:string;session:string;epoch:number;aclRevision:number;expires:number};
@@ -18,9 +17,9 @@ export class SopWriteError extends Error { status:number;code:string;constructor
 const deny = () => { throw new SopWriteError(403,'sop_run_access_denied'); };
 const hash = (s:string) => createHash('sha256').update(s).digest('hex');
 export function createSopRunAccess(deps:Deps) {
-  const {db}=deps, now=deps.now??Date.now, viewer=deps.viewer??resolveOdooViewer;
+  const {db}=deps, now=deps.now??Date.now, viewer:ResolveViewer=deps.viewer??((cookie,source)=>identity().resolveViewer(cookie,source));
   const origin=new URL(deps.odooOrigin);
-  if(origin.origin!==deps.odooOrigin || !trustedOdooOrigins().origins.has(deps.odooOrigin)) throw Error('Explicit trusted Odoo origin required');
+  if(origin.origin!==deps.odooOrigin || !loginRelay().trustedOrigins().origins.has(deps.odooOrigin)) throw Error('Explicit trusted Odoo origin required');
   // Only callers constructing this unmounted service initialize this table. Existing app startup unchanged.
   db.exec('CREATE TABLE IF NOT EXISTS sop_run_access (run_id INTEGER PRIMARY KEY, target_id INTEGER NOT NULL, sop_version INTEGER NOT NULL, owner_subject TEXT NOT NULL, assignee_subject TEXT NOT NULL, acl_revision INTEGER NOT NULL, manifest_sha256 TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0)');
   db.exec('CREATE TABLE IF NOT EXISTS sop_run_revisions (run_id INTEGER PRIMARY KEY, revision INTEGER NOT NULL, data_sha256 TEXT NOT NULL)');

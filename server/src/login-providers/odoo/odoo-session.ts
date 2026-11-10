@@ -7,6 +7,7 @@
  * 只认管理员在部署环境里给的源（WM_ODOO_ORIGINS、WM_ODOO_URL）。HTTP 与 WS 升级两条转发路径都按这里判定与剥除。
  */
 import { randomUUID } from 'node:crypto';
+import type { SsoTicket, SsoTicketStore } from '../../identity.ts';
 
 export const ODOO_SESSION_COOKIE = 'session_id';
 
@@ -86,17 +87,7 @@ const SSO_TICKET_TTL_MS = 10 * 60 * 1000; // 与 wm_sso_<id> state cookie 同寿
 const SSO_TICKET_MAX = 4096;
 /** 同一来源（clientIp）同时持有的有效票据上限：匿名 GET 就能签发，不设上限的话一个来源刷入口就能把别人的票据挤掉 */
 export const SSO_TICKET_PER_SOURCE = 20;
-export interface SsoTicket { id: number; origin: string; source: string; exp: number }
-/** 票据存储：缺省进程内存；index.ts 装配时换成 SQLite（重启不丢，同一 DATA_DIR 的多个实例共享） */
-export interface SsoTicketStore {
-  get(state: string): SsoTicket | null;
-  put(state: string, t: SsoTicket): void;
-  /** 原子地取出并删除（多实例下同一张票据只能被一个回调核销）；不存在返回 null */
-  take(state: string): SsoTicket | null;
-  /** 删掉过期票据；size > max 时删最早签发的，直到不超过 max */
-  sweep(now: number, max: number): void;
-  activeBySource(source: string, now: number): number;
-}
+// 票据与票据存储的形状见契约（identity.ts 的 SsoTicket、SsoTicketStore）：缺省进程内存；index.ts 装配时换成 SQLite
 const memoryTickets = new Map<string, SsoTicket>();
 const memoryStore: SsoTicketStore = {
   get: (s) => memoryTickets.get(s) ?? null,

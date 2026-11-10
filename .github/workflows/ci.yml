@@ -144,6 +144,8 @@ jobs:
           node scripts/surface-snapshot.mjs --selftest
           node scripts/tech-route-check.mjs --strict
           node scripts/privacy-gate.mjs --selftest
+      - name: 身份接缝（契约单测·假提供方对抗组：缺省/登录门/登录中继/中继加登录门四个实例上的拒绝例与合法对照·夹具只在测试环境可用·变异测试逐个改坏必须变红；不访问任何外部系统）
+        run: node scripts/identity-contract-test.mjs && node scripts/identity-seam-smoke.mjs && node scripts/identity-seam-mutation.mjs
       - name: Startup security self-probe (#326, loopback synthetic only)
         run: node scripts/startup-security-self-probe-test.mjs && node scripts/startup-security-self-probe-http-test.mjs && node scripts/startup-security-self-probe-upgrade-test.mjs
       - name: Tasks identity and project/run grant isolation (#324, synthetic only)

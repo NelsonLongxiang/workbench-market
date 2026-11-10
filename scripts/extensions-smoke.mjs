@@ -140,7 +140,7 @@ try {
   both.p.kill(); await both.done;
   await new Promise((x) => odoo.close(x));
 
-  const { addOdooReturnPath, safeReturnPath } = await import('../server/src/odoo-session.ts');
+  const { addOdooReturnPath, safeReturnPath } = await import('../server/src/login-providers/odoo/odoo-session.ts');
   ok('登录回跳白名单默认不含扩展页', safeReturnPath('/demo-page') === null && safeReturnPath('/tasks') === '/tasks');
   addOdooReturnPath('/demo-page');
   ok('ctx.odoo.addReturnPath 登记后可回跳（含 query）', safeReturnPath('/demo-page?x=1') === '/demo-page?x=1');

@@ -7,6 +7,7 @@
  * 用法：`import { svc } from './context.ts'`；服务通过 `svc<X>('name')` 取用。
  */
 import { Context, Service } from '@deepseek-ai/cordis';
+import { root } from './root-context.ts';
 import { db } from './db.ts';
 import { WorkbenchService } from './services/workbench.ts';
 import { SopService } from './services/sop.ts';
@@ -28,7 +29,8 @@ export class DbService extends Service {
   }
 }
 
-export const ctx = new Context();
+/** 全进程一个上下文：就是 root-context.ts 的根（身份服务也装在它上面）。 */
+export const ctx = root;
 
 // 八域 + db：全部注册（顺序不影响语义，Cordis 按名解析）。
 // ctx.plugin 异步装配，等全部就绪再交出模块——否则 index.ts 的 listen 回调里 svc() 取到 undefined（#32）
