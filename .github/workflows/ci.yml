@@ -148,7 +148,7 @@ jobs:
         run: node scripts/identity-contract-test.mjs && node scripts/identity-seam-smoke.mjs && node scripts/identity-seam-mutation.mjs
       - name: HTTP 服务单测（经服务注册与直接注册的路由栈逐行相同·注册可撤销·同一路径只撤一条·随插件卸载·撤销时在途请求不受影响）
         run: node scripts/http-service-test.mjs
-      - name: 路由录制回放（搬路由之前录下的应答，对同一组请求重放必须零差异；每条路由都有未授权、参数非法、正常三类；自检先红后绿）
+      - name: 路由录制回放（搬路由之前录下的应答，对同一组请求重放，状态码、响应头、响应体必须零差异；每条路由都有未授权、参数非法、正常三类，按录下来的应答核对；自检先红后绿）
         run: node scripts/route-replay-test.mjs --selftest && node scripts/route-replay-test.mjs
       - name: Startup security self-probe (#326, loopback synthetic only)
         run: node scripts/startup-security-self-probe-test.mjs && node scripts/startup-security-self-probe-http-test.mjs && node scripts/startup-security-self-probe-upgrade-test.mjs

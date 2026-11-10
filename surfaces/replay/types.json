@@ -2,6 +2,7 @@
   "domain": "types",
   "what": "类型管理：/api/types 的 4 条路由。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
   "routes": ["GET /api/types", "POST /api/types", "PUT /api/types/:id", "DELETE /api/types/:id"],
+  "exempt": [{ "route": "GET /api/types", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/list-junk-query" }],
   "scenarios": [
     {
       "name": "open",
@@ -17,6 +18,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2110", "etag": "W/\"83e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "任意 HTTP 响应即视为在线", "created_at": "<时间>" },
               { "id": 2, "key": "openai-api", "name": "OpenAI 兼容 API", "icon": "🤖", "default_port": 8000, "health_method": "GET", "health_path": "/v1/models", "expect_status": null, "description": "兼容 OpenAI 接口的服务（401 也算存活）", "created_at": "<时间>" },
@@ -33,12 +35,13 @@
         {
           "id": "list-junk-query",
           "route": "GET /api/types",
-          "class": "invalid",
+          "class": "normal",
           "what": "这条路由不读查询串：带无关、畸形的参数照常应答",
           "request": { "method": "GET", "path": "/api/types?limit=abc&id=-1&key[]=web" },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2110", "etag": "W/\"83e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "任意 HTTP 响应即视为在线", "created_at": "<时间>" },
               { "id": 2, "key": "openai-api", "name": "OpenAI 兼容 API", "icon": "🤖", "default_port": 8000, "health_method": "GET", "health_path": "/v1/models", "expect_status": null, "description": "兼容 OpenAI 接口的服务（401 也算存活）", "created_at": "<时间>" },
@@ -55,12 +58,13 @@
         {
           "id": "list-remote-anonymous",
           "route": "GET /api/types",
-          "class": "unauthorized",
+          "class": "normal",
           "what": "带转发头的匿名读：登录门关着时读面开放（要身份的情形见 gated 场景）",
           "request": { "method": "GET", "path": "/api/types", "headers": { "x-forwarded-for": "198.51.100.7" } },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2110", "etag": "W/\"83e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "任意 HTTP 响应即视为在线", "created_at": "<时间>" },
               { "id": 2, "key": "openai-api", "name": "OpenAI 兼容 API", "icon": "🤖", "default_port": 8000, "health_method": "GET", "health_path": "/v1/models", "expect_status": null, "description": "兼容 OpenAI 接口的服务（401 也算存活）", "created_at": "<时间>" },
@@ -83,6 +87,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2110", "etag": "W/\"83e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "任意 HTTP 响应即视为在线", "created_at": "<时间>" },
               { "id": 2, "key": "openai-api", "name": "OpenAI 兼容 API", "icon": "🤖", "default_port": 8000, "health_method": "GET", "health_path": "/v1/models", "expect_status": null, "description": "兼容 OpenAI 接口的服务（401 也算存活）", "created_at": "<时间>" },
@@ -100,7 +105,7 @@
           "id": "list-head",
           "what": "HEAD 走同一条 GET 路由，没有响应体",
           "request": { "method": "HEAD", "path": "/api/types" },
-          "response": { "status": 200, "type": "application/json; charset=utf-8", "body": "" }
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2110", "etag": "W/\"83e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": "" }
         },
         {
           "id": "create-remote-anonymous",
@@ -108,7 +113,12 @@
           "class": "unauthorized",
           "what": "带转发头、没有口令的写",
           "request": { "method": "POST", "path": "/api/types", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "key": "replay-remote", "name": "不该建出来" } },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" } }
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
         },
         {
           "id": "create-cross-origin-browser",
@@ -116,7 +126,12 @@
           "class": "unauthorized",
           "what": "浏览器从别的站点发来的写",
           "request": { "method": "POST", "path": "/api/types", "headers": { "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": { "key": "replay-remote", "name": "不该建出来" } },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" } }
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
         },
         {
           "id": "create-bad-key",
@@ -124,7 +139,7 @@
           "class": "invalid",
           "what": "key 带大写和空格",
           "request": { "method": "POST", "path": "/api/types", "json": { "key": "Bad Key", "name": "x" } },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "body": { "error": "key 必须是小写字母/数字/连字符" } }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "key 必须是小写字母/数字/连字符" } }
         },
         {
           "id": "create-empty-body",
@@ -132,7 +147,7 @@
           "class": "invalid",
           "what": "空对象",
           "request": { "method": "POST", "path": "/api/types", "json": {} },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "body": { "error": "key 必须是小写字母/数字/连字符" } }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "key 必须是小写字母/数字/连字符" } }
         },
         {
           "id": "create-array-body",
@@ -140,7 +155,7 @@
           "class": "invalid",
           "what": "请求体是数组",
           "request": { "method": "POST", "path": "/api/types", "json": [] },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "body": { "error": "key 必须是小写字母/数字/连字符" } }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "key 必须是小写字母/数字/连字符" } }
         },
         {
           "id": "create-blank-name",
@@ -148,7 +163,7 @@
           "class": "invalid",
           "what": "name 只有空白",
           "request": { "method": "POST", "path": "/api/types", "json": { "key": "replay-blank", "name": "   " } },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "body": { "error": "name 不能为空" } }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "name 不能为空" } }
         },
         {
           "id": "create-missing-name",
@@ -156,7 +171,7 @@
           "class": "invalid",
           "what": "没给 name",
           "request": { "method": "POST", "path": "/api/types", "json": { "key": "replay-noname" } },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "body": { "error": "name 不能为空" } }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "name 不能为空" } }
         },
         {
           "id": "create-builtin-web",
@@ -164,7 +179,7 @@
           "class": "invalid",
           "what": "覆盖内置类型 web",
           "request": { "method": "POST", "path": "/api/types", "json": { "key": "web", "name": "x" } },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "body": { "error": "内置类型 web 不允许覆盖" } }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "44", "etag": "W/\"2c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "内置类型 web 不允许覆盖" } }
         },
         {
           "id": "create-absolute-health-path",
@@ -172,7 +187,12 @@
           "class": "invalid",
           "what": "health_path 是绝对地址",
           "request": { "method": "POST", "path": "/api/types", "json": { "key": "replay-hp", "name": "x", "health_path": "http://elsewhere.example/x" } },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "body": { "error": "invalid_health_path", "message": "类型 health_path 只收相对路径（绝对 URL 会被所有该类型的台继承成跨 origin 探测）" } }
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "151", "etag": "W/\"97-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "invalid_health_path", "message": "类型 health_path 只收相对路径（绝对 URL 会被所有该类型的台继承成跨 origin 探测）" }
+          }
         },
         {
           "id": "create-backslash-health-path",
@@ -180,7 +200,12 @@
           "class": "invalid",
           "what": "health_path 带反斜杠",
           "request": { "method": "POST", "path": "/api/types", "json": { "key": "replay-hp", "name": "x", "health_path": "\\\\elsewhere\\x" } },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "body": { "error": "invalid_health_path", "message": "类型 health_path 含控制字符或反斜杠" } }
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "90", "etag": "W/\"5a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "invalid_health_path", "message": "类型 health_path 含控制字符或反斜杠" }
+          }
         },
         {
           "id": "create-malformed-json",
@@ -188,7 +213,7 @@
           "class": "invalid",
           "what": "请求体不是合法 JSON",
           "request": { "method": "POST", "path": "/api/types", "headers": { "content-type": "application/json" }, "text": "{not json" },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "body": { "error": "请求体不是合法 JSON" } }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "请求体不是合法 JSON" } }
         },
         {
           "id": "create-full",
@@ -204,6 +229,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "225", "etag": "W/\"e1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "id": 10, "key": "replay-full", "name": "回放·全字段", "icon": "🧪", "default_port": 8123, "health_method": "HEAD", "health_path": "/healthz", "expect_status": 204, "description": "录制回放用", "created_at": "<时间>" }
           }
         },
@@ -217,6 +243,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "201", "etag": "W/\"c9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "id": 11, "key": "replay-min", "name": "回放·最少字段", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" }
           }
         },
@@ -226,31 +253,33 @@
           "class": "invalid",
           "what": "key 已存在",
           "request": { "method": "POST", "path": "/api/types", "json": { "key": "replay-min", "name": "再建一次" } },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "body": { "error": "类型已存在: replay-min" } }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "类型已存在: replay-min" } }
         },
         {
           "id": "create-odd-values",
           "route": "POST /api/types",
-          "class": "invalid",
+          "class": "normal",
           "what": "字段类型不对：不报错，按现有的转换规则存（health_method 不是 HEAD 就当 GET，数字和字符串互转）",
           "request": { "method": "POST", "path": "/api/types", "json": { "key": "replay-odd", "name": "x", "icon": 7, "default_port": "8125", "health_method": "POST", "health_path": "no-leading-slash", "expect_status": "204", "description": 42 } },
           "save": { "oddId": "id" },
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "199", "etag": "W/\"c7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "id": 12, "key": "replay-odd", "name": "x", "icon": "7", "default_port": 8125, "health_method": "GET", "health_path": "no-leading-slash", "expect_status": 204, "description": "42", "created_at": "<时间>" }
           }
         },
         {
           "id": "create-nonnumeric-status",
           "route": "POST /api/types",
-          "class": "invalid",
+          "class": "normal",
           "what": "expect_status 不是数字：不报错，存成空",
           "request": { "method": "POST", "path": "/api/types", "json": { "key": "replay-nan", "name": "x", "expect_status": "abc" } },
           "save": { "nanId": "id" },
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "182", "etag": "W/\"b6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "id": 13, "key": "replay-nan", "name": "x", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" }
           }
         },
@@ -260,7 +289,12 @@
           "class": "unauthorized",
           "what": "带转发头、没有口令的写",
           "request": { "method": "PUT", "path": "/api/types/{{fullId}}", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "name": "不该改成" } },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" } }
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
         },
         {
           "id": "update-full",
@@ -271,6 +305,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "217", "etag": "W/\"d9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "id": 10, "key": "replay-full", "name": "回放·改名", "icon": "🔧", "default_port": null, "health_method": "GET", "health_path": "/ready", "expect_status": null, "description": "改过一次", "created_at": "<时间>" }
           }
         },
@@ -283,6 +318,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "213", "etag": "W/\"d5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "id": 11, "key": "replay-min", "name": "回放·最少字段", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "只改描述", "created_at": "<时间>" }
           }
         },
@@ -295,42 +331,46 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "213", "etag": "W/\"d5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "id": 11, "key": "replay-min", "name": "回放·最少字段", "icon": "", "default_port": 9000, "health_method": "HEAD", "health_path": "/", "expect_status": 204, "description": "只改描述", "created_at": "<时间>" }
           }
         },
         {
           "id": "update-blank-name",
           "route": "PUT /api/types/:id",
-          "class": "invalid",
+          "class": "normal",
           "what": "name 只有空白：不报错，名字保持原样",
           "request": { "method": "PUT", "path": "/api/types/{{minId}}", "json": { "name": "   " } },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "213", "etag": "W/\"d5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "id": 11, "key": "replay-min", "name": "回放·最少字段", "icon": "", "default_port": 9000, "health_method": "HEAD", "health_path": "/", "expect_status": 204, "description": "只改描述", "created_at": "<时间>" }
           }
         },
         {
           "id": "update-odd-values",
           "route": "PUT /api/types/:id",
-          "class": "invalid",
+          "class": "normal",
           "what": "字段类型不对：不报错，按现有的转换规则存",
           "request": { "method": "PUT", "path": "/api/types/{{oddId}}", "json": { "name": 12, "icon": 8, "health_method": "TRACE", "expect_status": "301", "description": null } },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "201", "etag": "W/\"c9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "id": 12, "key": "replay-odd", "name": "x", "icon": "8", "default_port": 8125, "health_method": "GET", "health_path": "no-leading-slash", "expect_status": 301, "description": "null", "created_at": "<时间>" }
           }
         },
         {
           "id": "update-nonnumeric-status",
           "route": "PUT /api/types/:id",
-          "class": "invalid",
+          "class": "normal",
           "what": "expect_status 不是数字：不报错，存成空",
           "request": { "method": "PUT", "path": "/api/types/{{oddId}}", "json": { "expect_status": "abc" } },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "202", "etag": "W/\"ca-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "id": 12, "key": "replay-odd", "name": "x", "icon": "8", "default_port": 8125, "health_method": "GET", "health_path": "no-leading-slash", "expect_status": null, "description": "null", "created_at": "<时间>" }
           }
         },
@@ -340,7 +380,7 @@
           "class": "invalid",
           "what": "id 不存在",
           "request": { "method": "PUT", "path": "/api/types/999999", "json": { "name": "x" } },
-          "response": { "status": 404, "type": "application/json; charset=utf-8", "body": { "error": "type not found: 999999" } }
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "type not found: 999999" } }
         },
         {
           "id": "update-non-numeric-id",
@@ -348,7 +388,7 @@
           "class": "invalid",
           "what": "id 不是数字",
           "request": { "method": "PUT", "path": "/api/types/abc", "json": { "name": "x" } },
-          "response": { "status": 404, "type": "application/json; charset=utf-8", "body": { "error": "type not found: NaN" } }
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "type not found: NaN" } }
         },
         {
           "id": "update-protocol-relative-health-path",
@@ -356,7 +396,12 @@
           "class": "invalid",
           "what": "health_path 是协议相对地址",
           "request": { "method": "PUT", "path": "/api/types/{{minId}}", "json": { "health_path": "//elsewhere.example/x" } },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "body": { "error": "invalid_health_path", "message": "类型 health_path 只收相对路径（绝对 URL 会被所有该类型的台继承成跨 origin 探测）" } }
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "151", "etag": "W/\"97-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "invalid_health_path", "message": "类型 health_path 只收相对路径（绝对 URL 会被所有该类型的台继承成跨 origin 探测）" }
+          }
         },
         {
           "id": "update-builtin-web-semantics",
@@ -364,7 +409,7 @@
           "class": "invalid",
           "what": "改内置类型 web 的探测语义（新库里 web 的 id 是 1）",
           "request": { "method": "PUT", "path": "/api/types/1", "json": { "expect_status": 200 } },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "body": { "error": "内置类型 web 不允许修改探测语义" } }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "56", "etag": "W/\"38-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "内置类型 web 不允许修改探测语义" } }
         },
         {
           "id": "update-builtin-web-health-path",
@@ -372,7 +417,7 @@
           "class": "invalid",
           "what": "改内置类型 web 的探测路径",
           "request": { "method": "PUT", "path": "/api/types/1", "json": { "health_path": "/changed" } },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "body": { "error": "内置类型 web 不允许修改探测语义" } }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "56", "etag": "W/\"38-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "内置类型 web 不允许修改探测语义" } }
         },
         {
           "id": "update-builtin-web-description",
@@ -383,6 +428,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "218", "etag": "W/\"da-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "回放时改过描述", "created_at": "<时间>" }
           }
         },
@@ -392,7 +438,7 @@
           "class": "invalid",
           "what": "请求体不是合法 JSON",
           "request": { "method": "PUT", "path": "/api/types/{{minId}}", "headers": { "content-type": "application/json" }, "text": "{not json" },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "body": { "error": "请求体不是合法 JSON" } }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "请求体不是合法 JSON" } }
         },
         {
           "id": "use-min-type",
@@ -407,7 +453,12 @@
           "class": "unauthorized",
           "what": "带转发头、没有口令的写",
           "request": { "method": "DELETE", "path": "/api/types/{{fullId}}", "headers": { "x-forwarded-for": "198.51.100.7" } },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" } }
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
         },
         {
           "id": "delete-missing",
@@ -415,7 +466,7 @@
           "class": "invalid",
           "what": "id 不存在",
           "request": { "method": "DELETE", "path": "/api/types/999999" },
-          "response": { "status": 404, "type": "application/json; charset=utf-8", "body": { "error": "type not found: 999999" } }
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "type not found: 999999" } }
         },
         {
           "id": "delete-non-numeric-id",
@@ -423,7 +474,7 @@
           "class": "invalid",
           "what": "id 不是数字",
           "request": { "method": "DELETE", "path": "/api/types/abc" },
-          "response": { "status": 404, "type": "application/json; charset=utf-8", "body": { "error": "type not found: NaN" } }
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "type not found: NaN" } }
         },
         {
           "id": "delete-builtin-web",
@@ -431,7 +482,7 @@
           "class": "invalid",
           "what": "删内置类型 web",
           "request": { "method": "DELETE", "path": "/api/types/1" },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "body": { "error": "内置类型 web 不允许删除" } }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "44", "etag": "W/\"2c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "内置类型 web 不允许删除" } }
         },
         {
           "id": "delete-builtin-market-app",
@@ -439,7 +490,7 @@
           "class": "invalid",
           "what": "删内置类型 market-app（新库里它的 id 是 9）",
           "request": { "method": "DELETE", "path": "/api/types/9" },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "body": { "error": "内置类型 market-app 不允许删除" } }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "内置类型 market-app 不允许删除" } }
         },
         {
           "id": "delete-in-use",
@@ -447,7 +498,7 @@
           "class": "invalid",
           "what": "还有台在用的类型",
           "request": { "method": "DELETE", "path": "/api/types/{{minId}}" },
-          "response": { "status": 409, "type": "application/json; charset=utf-8", "body": { "error": "类型 replay-min 仍被 1 个工作台使用，先改挂其他类型" } }
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "81", "etag": "W/\"51-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "类型 replay-min 仍被 1 个工作台使用，先改挂其他类型" } }
         },
         {
           "id": "delete-full",
@@ -455,7 +506,7 @@
           "class": "normal",
           "what": "没有台在用的类型",
           "request": { "method": "DELETE", "path": "/api/types/{{fullId}}" },
-          "response": { "status": 200, "type": "application/json; charset=utf-8", "body": { "ok": true, "deleted": 10 } }
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "24", "etag": "W/\"18-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "deleted": 10 } }
         },
         {
           "id": "delete-again",
@@ -463,7 +514,7 @@
           "class": "invalid",
           "what": "已经删掉的再删一次",
           "request": { "method": "DELETE", "path": "/api/types/{{fullId}}" },
-          "response": { "status": 404, "type": "application/json; charset=utf-8", "body": { "error": "type not found: 10" } }
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "type not found: 10" } }
         },
         {
           "id": "list-after",
@@ -474,6 +525,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2698", "etag": "W/\"a8a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "回放时改过描述", "created_at": "<时间>" },
               { "id": 2, "key": "openai-api", "name": "OpenAI 兼容 API", "icon": "🤖", "default_port": 8000, "health_method": "GET", "health_path": "/v1/models", "expect_status": null, "description": "兼容 OpenAI 接口的服务（401 也算存活）", "created_at": "<时间>" },
@@ -503,7 +555,12 @@
           "class": "unauthorized",
           "what": "远程匿名",
           "request": { "method": "GET", "path": "/api/types", "headers": { "x-forwarded-for": "198.51.100.7" } },
-          "response": { "status": 401, "type": "application/json; charset=utf-8", "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" } }
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
         },
         {
           "id": "list-wrong-token",
@@ -511,7 +568,12 @@
           "class": "unauthorized",
           "what": "口令不对",
           "request": { "method": "GET", "path": "/api/types", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "not-the-token" } },
-          "response": { "status": 401, "type": "application/json; charset=utf-8", "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" } }
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
         },
         {
           "id": "list-browser-anonymous",
@@ -519,7 +581,12 @@
           "class": "unauthorized",
           "what": "本机但带浏览器标记：不算命令行",
           "request": { "method": "GET", "path": "/api/types", "headers": { "sec-fetch-site": "same-origin" } },
-          "response": { "status": 401, "type": "application/json; charset=utf-8", "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" } }
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
         },
         {
           "id": "list-with-token",
@@ -530,6 +597,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2110", "etag": "W/\"83e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "任意 HTTP 响应即视为在线", "created_at": "<时间>" },
               { "id": 2, "key": "openai-api", "name": "OpenAI 兼容 API", "icon": "🤖", "default_port": 8000, "health_method": "GET", "health_path": "/v1/models", "expect_status": null, "description": "兼容 OpenAI 接口的服务（401 也算存活）", "created_at": "<时间>" },
@@ -549,7 +617,12 @@
           "class": "unauthorized",
           "what": "远程匿名",
           "request": { "method": "POST", "path": "/api/types", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "key": "gated-a", "name": "不该建出来" } },
-          "response": { "status": 401, "type": "application/json; charset=utf-8", "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" } }
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
         },
         {
           "id": "create-wrong-token",
@@ -557,7 +630,12 @@
           "class": "unauthorized",
           "what": "口令不对",
           "request": { "method": "POST", "path": "/api/types", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "not-the-token" }, "json": { "key": "gated-a", "name": "不该建出来" } },
-          "response": { "status": 401, "type": "application/json; charset=utf-8", "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" } }
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
         },
         {
           "id": "create-token-cross-origin",
@@ -570,7 +648,7 @@
             "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" },
             "json": { "key": "gated-a", "name": "不该建出来" }
           },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "body": { "error": "跨源写操作被拒绝" } }
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
         },
         {
           "id": "create-with-token-bad-key",
@@ -578,7 +656,7 @@
           "class": "invalid",
           "what": "远程带口令，key 非法",
           "request": { "method": "POST", "path": "/api/types", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "key": "Bad Key", "name": "x" } },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "body": { "error": "key 必须是小写字母/数字/连字符" } }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "key 必须是小写字母/数字/连字符" } }
         },
         {
           "id": "create-with-token",
@@ -590,6 +668,7 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "199", "etag": "W/\"c7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "id": 10, "key": "gated-a", "name": "登录门后面建的", "icon": "", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" }
           }
         },
@@ -599,7 +678,12 @@
           "class": "unauthorized",
           "what": "远程匿名",
           "request": { "method": "PUT", "path": "/api/types/{{gatedId}}", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "name": "不该改成" } },
-          "response": { "status": 401, "type": "application/json; charset=utf-8", "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" } }
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
         },
         {
           "id": "update-token-cross-origin",
@@ -612,7 +696,7 @@
             "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" },
             "json": { "name": "不该改成" }
           },
-          "response": { "status": 403, "type": "application/json; charset=utf-8", "body": { "error": "跨源写操作被拒绝" } }
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
         },
         {
           "id": "update-with-token-missing",
@@ -620,7 +704,7 @@
           "class": "invalid",
           "what": "远程带口令，id 不存在",
           "request": { "method": "PUT", "path": "/api/types/999999", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "name": "x" } },
-          "response": { "status": 404, "type": "application/json; charset=utf-8", "body": { "error": "type not found: 999999" } }
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "type not found: 999999" } }
         },
         {
           "id": "update-with-token",
@@ -631,6 +715,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "199", "etag": "W/\"c7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "id": 10, "key": "gated-a", "name": "登录门后面改的", "icon": "", "default_port": 8124, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "<时间>" }
           }
         },
@@ -640,7 +725,12 @@
           "class": "unauthorized",
           "what": "远程匿名",
           "request": { "method": "DELETE", "path": "/api/types/{{gatedId}}", "headers": { "x-forwarded-for": "198.51.100.7" } },
-          "response": { "status": 401, "type": "application/json; charset=utf-8", "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" } }
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
         },
         {
           "id": "delete-wrong-token",
@@ -648,7 +738,12 @@
           "class": "unauthorized",
           "what": "口令不对",
           "request": { "method": "DELETE", "path": "/api/types/{{gatedId}}", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "not-the-token" } },
-          "response": { "status": 401, "type": "application/json; charset=utf-8", "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" } }
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
         },
         {
           "id": "delete-with-token-builtin",
@@ -656,7 +751,7 @@
           "class": "invalid",
           "what": "远程带口令，删内置类型",
           "request": { "method": "DELETE", "path": "/api/types/1", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "body": { "error": "内置类型 web 不允许删除" } }
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "44", "etag": "W/\"2c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "内置类型 web 不允许删除" } }
         },
         {
           "id": "delete-with-token",
@@ -664,7 +759,7 @@
           "class": "normal",
           "what": "远程带口令",
           "request": { "method": "DELETE", "path": "/api/types/{{gatedId}}", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
-          "response": { "status": 200, "type": "application/json; charset=utf-8", "body": { "ok": true, "deleted": 10 } }
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "24", "etag": "W/\"18-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "deleted": 10 } }
         },
         {
           "id": "delete-local-cli",
@@ -672,7 +767,7 @@
           "class": "invalid",
           "what": "本机命令行不用口令也能过门；这个类型上一步已经删了",
           "request": { "method": "DELETE", "path": "/api/types/{{gatedId}}" },
-          "response": { "status": 404, "type": "application/json; charset=utf-8", "body": { "error": "type not found: 10" } }
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "type not found: 10" } }
         }
       ]
     }

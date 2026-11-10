@@ -16,7 +16,7 @@ pnpm start            # 生产模式（只跑 server，访问 http://127.0.0.1:9
 node scripts/gen-design-tokens.mjs   # 改了 DESIGN.md 的 token 后重新生成 web/src/tokens.css 与 design-tokens.ts（--check 只比对）
 node scripts/tech-route-check.mjs    # 路线体检：结构数字对照 tech-route.json 里的基线（预算与红线超了会失败；--selftest 自检）
 node scripts/surface-snapshot.mjs     # 对外面的快照：改了路由、MCP 工具或表结构后，加 --write 重新生成
-node scripts/route-replay-test.mjs    # 路由录制回放：对同一组请求重放，状态码和响应体要和录下来的一样（有意改了行为加 --record 重录）
+node scripts/route-replay-test.mjs    # 路由录制回放：对同一组请求重放，状态码、响应头和响应体要和录下来的一样（有意改了行为加 --record 重录）
 ```
 
 浏览器回归（`scripts/*-browser.mjs` 等）要用 Python Playwright，版本与 CI 一致。一般交给 CI 或共用测试环境跑。解释器由 `scripts/python-bin.mjs` 统一选取，顺序是：`PYTHON` 环境变量 → 仓库根的 `.venv` → 系统 `python3`，不用在命令前手写解释器路径。想在自己机器上跑的话（可选），建一次 `.venv` 即可：
@@ -190,7 +190,11 @@ data/           SQLite 数据文件（git 忽略）
 
 对外的面有三份快照，放在 `surfaces/`：路由（带挂载顺序）、MCP 工具、表结构，由 `scripts/surface-snapshot.mjs` 从一个隔离实例里导出。改了面就加 `--write` 重新生成，把快照和代码一起提交。
 
-快照管的是「有哪些路由、按什么顺序」，应答对不对由录制回放管。`surfaces/replay/<域>.json` 里是一组请求和录下来的应答（状态码、内容类型、响应体；时间换成占位）。`scripts/route-replay-test.mjs` 按场景各起一个隔离实例，对同一组请求重放，有一处不一样就失败。搬路由之前先录，搬完重放必须零差异。每条路由都要有未授权、参数非法、正常三类请求，脚本会核对。有意改了行为，就加 `--record` 重录，把录制和代码一起提交。
+快照管的是「有哪些路由、按什么顺序」，应答对不对由录制回放管。`surfaces/replay/<域>.json` 里是一组请求和录下来的应答：状态码、响应头、响应体。`scripts/route-replay-test.mjs` 按场景各起一个隔离实例，对同一组请求重放，有一处不一样就失败。搬路由之前先录，搬完重放必须零差异。有意改了行为，就加 `--record` 重录，把录制和代码一起提交。
+
+每次都不一样的东西不比：`Date`、`Connection`、`Keep-Alive` 三个头不录；时间换成占位；按内容算出来的 ETag 只留长度。值每次都变的响应头（比如带随机会话号的 `Set-Cookie`）现在还没有换占位的办法，搬到有这种头的域之前要先补。
+
+每条路由都要有未授权、参数非法、正常三类请求。类别按录下来的应答核对：未授权是 401 或 403，参数非法是其余的 4xx，正常是 2xx 或 3xx；请求上标的类别和应答对不上，脚本就失败。确实没有某一类的路由（比如不读任何参数，就没有会被拒的输入），在请求集的 `exempt` 里写明理由，并指给一条打在这条路由上、照常应答的请求。
 
 设计系统见 `design-system/workbench-market/MASTER.md`（Minimalism & Swiss，主色 #1E3A5F）。
 
