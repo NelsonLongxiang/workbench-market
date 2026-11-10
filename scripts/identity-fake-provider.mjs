@@ -171,7 +171,8 @@ export const fakeRelay = {
     if (kept) headers.cookie = kept; else delete headers.cookie;
   },
   isSessionTarget: () => false,
-  trustedOrigins: () => ({ origins: new Set(), invalid: [] }),
+  // 内容面要求身份来源是可信源：测试要开内容面时，用 IDENTITY_FAKE_TRUSTED_ORIGIN 指定一个（只在测试环境里装得上，见 assertTestEnv）
+  trustedOrigins: () => ({ origins: new Set(process.env.IDENTITY_FAKE_TRUSTED_ORIGIN ? [process.env.IDENTITY_FAKE_TRUSTED_ORIGIN] : []), invalid: [] }),
   looksLikeTarget: () => false,
   safeReturnPath: () => null,
   addReturnPath() {},

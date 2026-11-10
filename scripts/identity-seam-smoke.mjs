@@ -71,7 +71,7 @@ function baseEnv(name, extraEnv) {
 
 /** 起一个隔离实例；提供方在 index.ts 装配之前换成假的。dataOf 给了就和那个实例共用数据目录。 */
 async function boot(name, extraEnv = {}, dataOf = null) {
-  const port = await freePort();
+  const port = extraEnv.PORT ? Number(extraEnv.PORT) : await freePort(); // 内容面要预先知道市场的端口
   const { env, data } = baseEnv(name, { PORT: String(port), ...(dataOf ? { DATA_DIR: dataOf.data } : {}), ...extraEnv });
   const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
@@ -110,7 +110,7 @@ async function boot(name, extraEnv = {}, dataOf = null) {
       return { status: 0, json: null, text: `没有应答：${String(e?.name ?? e)}` };
     }
   };
-  return { name, data: dataOf ? dataOf.data : data, call, stop };
+  return { name, port, data: dataOf ? dataOf.data : data, call, stop, log: () => log };
 }
 
 /** 给实例种一个带私有值的已结束 run，只授权给 user:alpha */
@@ -264,6 +264,9 @@ async function principalChecks(srv, tag, relay) {
     for (let i = 0; i < 5; i++) await srv.call('GET', '/api/auth/viewer', SESSIONS.alpha);
     const rows = (await principalsOf(srv) ?? []).filter((p) => p.id === 'user:alpha');
     check(rows.length === 1 && rows[0].status === 'disabled' && rows[0].identities.length === 1 && (await srv.call('GET', '/api/auth/viewer', SESSIONS.alpha)).status === 403, `${tag}主体④·停用之后反复登录：一直不认，主体还是那一个、还是停用`, show(rows));
+    // 每次变更写一行日志，带谁做的；重复停用（没有变更）不写
+    const lines = srv.log().split('\n').filter((l) => l.includes('"source":"principals"') && l.includes('"id":"user:alpha"'));
+    check(lines.length === 1 && lines[0].includes('"event":"disable"') && lines[0].includes('"by":"admin-token"') && !lines[0].includes(SESSIONS.alpha), `${tag}主体④·停用写了一行日志（source=principals、谁做的），不带会话值`, show(lines));
   }
   // ⑤ 恢复：立即照常（这回由管理员登录来做，留痕记的是它）
   {
@@ -271,6 +274,8 @@ async function principalChecks(srv, tag, relay) {
     const alpha = await observe(srv, SESSIONS.alpha);
     check(on.status === 200 && on.json?.changed === true && on.json.principal?.status === 'active' && on.json.principal.status_changed_by === 'odoo:root-admin' && show(alpha) === show(before.alpha) && controls,
       `${tag}主体⑤·恢复 alpha → 每个入口立即和停用之前一模一样`, show(alpha));
+    const lines = srv.log().split('\n').filter((l) => l.includes('"source":"principals"') && l.includes('"id":"user:alpha"'));
+    check(lines.length === 2 && lines[1].includes('"event":"restore"') && lines[1].includes('"by":"odoo:root-admin"'), `${tag}主体⑤·恢复也写一行日志，记下是管理员登录做的`, show(lines));
   }
   // ⑥ 停用管理员：管理员认定立即不成立（它的缓存是热的），自己也恢复不了自己
   {
@@ -422,6 +427,28 @@ async function gatePrincipalChecks(srv, tag, relay) {
   }
 }
 
+/** 开着内容面的实例：内容面启动页现查认人，停用的主体拿不到票据 */
+async function contentChecks(tag) {
+  const contentPort = await freePort();
+  const port = await freePort();
+  const source = 'http://identity-source.invalid';
+  const srv = await boot('content', {
+    PORT: String(port), IDENTITY_FAKE_TRUSTED_ORIGIN: source, WM_CONTENT_ODOO_ORIGIN: source,
+    WM_CONTENT_PORT: String(contentPort), WM_CONTENT_IP: '127.0.0.1', WM_CONTENT_MARKET_ORIGIN: `http://127.0.0.1:${port}`,
+    WM_CONTENT_TARGETS: JSON.stringify([{ id: 2, origin: `http://w-2-test.internal:${contentPort}`, upstreamUrl: 'http://127.0.0.1:9/' }]),
+  });
+  running.push(srv);
+  const launch = async (sid) => { const r = await srv.call('GET', '/content/open/2', sid); return { status: r.status, ticket: /ticket/i.test(r.text) }; };
+  const before = await launch(SESSIONS.alpha), beta = await launch(SESSIONS.beta), anon = await launch(null);
+  await setStatus(srv, 'disable', 'user:alpha');
+  const off = await launch(SESSIONS.alpha), betaOff = await launch(SESSIONS.beta);
+  await setStatus(srv, 'restore', 'user:alpha');
+  const back = await launch(SESSIONS.alpha);
+  const issued = (x) => x.status === before.status && x.ticket === before.ticket;
+  check(before.status === 200 && before.ticket && issued(beta) && !anon.ticket && !off.ticket && off.status !== 200 && issued(betaOff) && issued(back),
+    `${tag}主体·内容面：停用 alpha → 启动页不发票据；beta 照常；恢复 → alpha 照常`, show({ before, anon, off, betaOff, back }));
+}
+
 /** 两个实例共用一个数据目录：在一个上停用，另一个立即不认；重启之后还是停用 */
 async function sharedChecks(a, tag) {
   const fine = (o, login) => o.viewer === 200 && o.login === login && o.tasks === 200 && o.ext === true;
@@ -464,6 +491,7 @@ try {
   await openChecks(open, '');
   await principalChecks(open, '', false);
   await sharedChecks(open, '');
+  await contentChecks('内容面·');
   await gateChecks(gated, '登录门·');
   await gatePrincipalChecks(gated, '登录门·', false);
   // 同域登录中继开着：管理员认定和登录门各走另一支（不缓存，每次现查），同样的例子再过一遍
