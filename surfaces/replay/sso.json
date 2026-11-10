@@ -1,0 +1,297 @@
+{
+  "domain": "sso",
+  "what": "SSO 回调：/sso/callback 的 1 条路由（302 回跳）。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。Location 头在响应头里比。",
+  "routes": ["GET /sso/callback"],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "缺省配置：登录门关。",
+      "env": {},
+      "steps": [
+        {
+          "id": "normal",
+          "route": "GET /sso/callback",
+          "class": "normal",
+          "what": "state 和 cookie 对得上：302 回到目标台",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=/go/3/&state=s3", "headers": { "cookie": "wm_sso_3=s3" } },
+          "response": { "status": 302, "type": "text/plain; charset=utf-8", "headers": { "content-length": "28", "location": "/go/3/", "vary": "Origin, Accept", "x-powered-by": "Express" }, "body": "Found. Redirecting to /go/3/" }
+        },
+        {
+          "id": "normal-deep-path",
+          "route": "GET /sso/callback",
+          "class": "normal",
+          "what": "目标台下面的深路径和查询串原样带回去",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=%2Fgo%2F3%2Fapp%2Fpage%3Fa%3D1%26b%3D2&state=s3", "headers": { "cookie": "wm_sso_3=s3" } },
+          "response": {
+            "status": 302,
+            "type": "text/plain; charset=utf-8",
+            "headers": { "content-length": "44", "location": "/go/3/app/page?a=1&b=2", "vary": "Origin, Accept", "x-powered-by": "Express" },
+            "body": "Found. Redirecting to /go/3/app/page?a=1&b=2"
+          }
+        },
+        {
+          "id": "normal-among-cookies",
+          "route": "GET /sso/callback",
+          "class": "normal",
+          "what": "别的 cookie 夹在前后：只认 wm_sso_<台号> 那一个",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=/go/12/&state=st12", "headers": { "cookie": "other=1; wm_sso_1=zz;  wm_sso_12=st12; tail=x" } },
+          "response": { "status": 302, "type": "text/plain; charset=utf-8", "headers": { "content-length": "29", "location": "/go/12/", "vary": "Origin, Accept", "x-powered-by": "Express" }, "body": "Found. Redirecting to /go/12/" }
+        },
+        {
+          "id": "normal-remote-anonymous",
+          "route": "GET /sso/callback",
+          "class": "normal",
+          "what": "带转发头的匿名请求：登录门关着时照常跳转（要身份的情形见 gated 场景）",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=/go/3/&state=s3", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "wm_sso_3=s3" } },
+          "response": { "status": 302, "type": "text/plain; charset=utf-8", "headers": { "content-length": "28", "location": "/go/3/", "vary": "Origin, Accept", "x-powered-by": "Express" }, "body": "Found. Redirecting to /go/3/" }
+        },
+        {
+          "id": "backslash-host",
+          "route": "GET /sso/callback",
+          "class": "invalid",
+          "what": "/ 后面直接跟反斜杠：浏览器把它解析成外域，拒",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=%2F%5Celsewhere.example%2Fgo%2F3%2F&state=s3", "headers": { "cookie": "wm_sso_3=s3" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "55", "etag": "W/\"37-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "redirect 形态非法（须 /go/<id>/…）" } }
+        },
+        {
+          "id": "no-redirect",
+          "route": "GET /sso/callback",
+          "class": "invalid",
+          "what": "没给 redirect",
+          "request": { "method": "GET", "path": "/sso/callback?state=s3", "headers": { "cookie": "wm_sso_3=s3" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "72", "etag": "W/\"48-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "redirect 和 state 必填（Odoo 登录回跳统一入口）" } }
+        },
+        {
+          "id": "no-state",
+          "route": "GET /sso/callback",
+          "class": "invalid",
+          "what": "没给 state",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=/go/3/", "headers": { "cookie": "wm_sso_3=s3" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "72", "etag": "W/\"48-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "redirect 和 state 必填（Odoo 登录回跳统一入口）" } }
+        },
+        {
+          "id": "no-query",
+          "route": "GET /sso/callback",
+          "class": "invalid",
+          "what": "什么都没给",
+          "request": { "method": "GET", "path": "/sso/callback", "headers": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "72", "etag": "W/\"48-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "redirect 和 state 必填（Odoo 登录回跳统一入口）" } }
+        },
+        {
+          "id": "empty-state",
+          "route": "GET /sso/callback",
+          "class": "invalid",
+          "what": "state 是空串",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=/go/3/&state=", "headers": { "cookie": "wm_sso_3=" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "72", "etag": "W/\"48-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "redirect 和 state 必填（Odoo 登录回跳统一入口）" } }
+        },
+        {
+          "id": "not-go-path",
+          "route": "GET /sso/callback",
+          "class": "invalid",
+          "what": "redirect 不是 /go/<台号>/ 的形态",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=/api/types&state=s", "headers": { "cookie": "wm_sso_3=s" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "55", "etag": "W/\"37-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "redirect 形态非法（须 /go/<id>/…）" } }
+        },
+        {
+          "id": "go-without-slash",
+          "route": "GET /sso/callback",
+          "class": "invalid",
+          "what": "redirect 是 /go/3（台号后面没有斜杠）",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=/go/3&state=s3", "headers": { "cookie": "wm_sso_3=s3" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "55", "etag": "W/\"37-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "redirect 形态非法（须 /go/<id>/…）" } }
+        },
+        {
+          "id": "go-non-numeric",
+          "route": "GET /sso/callback",
+          "class": "invalid",
+          "what": "redirect 的台号不是数字",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=/go/abc/&state=s", "headers": { "cookie": "wm_sso_abc=s" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "55", "etag": "W/\"37-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "redirect 形态非法（须 /go/<id>/…）" } }
+        },
+        {
+          "id": "absolute-url",
+          "route": "GET /sso/callback",
+          "class": "invalid",
+          "what": "redirect 是绝对地址（外域）",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=https://elsewhere.example/go/3/&state=s3", "headers": { "cookie": "wm_sso_3=s3" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "55", "etag": "W/\"37-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "redirect 形态非法（须 /go/<id>/…）" } }
+        },
+        {
+          "id": "protocol-relative",
+          "route": "GET /sso/callback",
+          "class": "invalid",
+          "what": "redirect 是协议相对地址",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=//elsewhere.example/go/3/&state=s3", "headers": { "cookie": "wm_sso_3=s3" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "55", "etag": "W/\"37-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "redirect 形态非法（须 /go/<id>/…）" } }
+        },
+        {
+          "id": "no-cookie",
+          "route": "GET /sso/callback",
+          "class": "invalid",
+          "what": "没带 cookie",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=/go/3/&state=s3", "headers": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "70", "etag": "W/\"46-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "SSO state 校验失败（请从市场门户重新进入）" } }
+        },
+        {
+          "id": "cookie-wrong-state",
+          "route": "GET /sso/callback",
+          "class": "invalid",
+          "what": "cookie 里的 state 对不上",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=/go/3/&state=s3", "headers": { "cookie": "wm_sso_3=other" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "70", "etag": "W/\"46-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "SSO state 校验失败（请从市场门户重新进入）" } }
+        },
+        {
+          "id": "cookie-other-workbench",
+          "route": "GET /sso/callback",
+          "class": "invalid",
+          "what": "cookie 是别的台的",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=/go/3/&state=s3", "headers": { "cookie": "wm_sso_4=s3" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "70", "etag": "W/\"46-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "SSO state 校验失败（请从市场门户重新进入）" } }
+        },
+        {
+          "id": "cookie-prefix-workbench",
+          "route": "GET /sso/callback",
+          "class": "invalid",
+          "what": "cookie 的台号只是前缀对得上（wm_sso_33 不是 wm_sso_3）",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=/go/3/&state=s3", "headers": { "cookie": "wm_sso_33=s3" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "70", "etag": "W/\"46-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "SSO state 校验失败（请从市场门户重新进入）" } }
+        },
+        {
+          "id": "cookie-name-suffix",
+          "route": "GET /sso/callback",
+          "class": "invalid",
+          "what": "cookie 名字前面还有别的字（x_wm_sso_3 不算）",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=/go/3/&state=s3", "headers": { "cookie": "x_wm_sso_3=s3" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "70", "etag": "W/\"46-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "SSO state 校验失败（请从市场门户重新进入）" } }
+        },
+        {
+          "id": "cookie-state-prefix",
+          "route": "GET /sso/callback",
+          "class": "invalid",
+          "what": "cookie 里的 state 只是前缀对得上",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=/go/3/&state=s3", "headers": { "cookie": "wm_sso_3=s3extra" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "70", "etag": "W/\"46-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "SSO state 校验失败（请从市场门户重新进入）" } }
+        },
+        {
+          "id": "state-not-in-cookie-order",
+          "route": "GET /sso/callback",
+          "class": "invalid",
+          "what": "两个同名 cookie：只认第一个",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=/go/3/&state=s3", "headers": { "cookie": "wm_sso_3=first; wm_sso_3=s3" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "70", "etag": "W/\"46-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "SSO state 校验失败（请从市场门户重新进入）" } }
+        },
+        {
+          "id": "backslash-in-path",
+          "route": "GET /sso/callback",
+          "class": "normal",
+          "what": "/go/3/ 后面跟反斜杠和外域名：按浏览器的解析仍是本站的路径，放行",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=%2Fgo%2F3%2F%5C%5Celsewhere.example&state=s3", "headers": { "cookie": "wm_sso_3=s3" } },
+          "response": {
+            "status": 302,
+            "type": "text/plain; charset=utf-8",
+            "headers": { "content-length": "47", "location": "/go/3/\\\\elsewhere.example", "vary": "Origin, Accept", "x-powered-by": "Express" },
+            "body": "Found. Redirecting to /go/3/\\\\elsewhere.example"
+          }
+        },
+        {
+          "id": "array-redirect",
+          "route": "GET /sso/callback",
+          "class": "normal",
+          "what": "redirect 给了两个：拼成一个逗号隔开的字符串，开头是 /go/3/，放行",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=/go/3/&redirect=/go/4/&state=s3", "headers": { "cookie": "wm_sso_3=s3" } },
+          "response": { "status": 302, "type": "text/plain; charset=utf-8", "headers": { "content-length": "35", "location": "/go/3/,/go/4/", "vary": "Origin, Accept", "x-powered-by": "Express" }, "body": "Found. Redirecting to /go/3/,/go/4/" }
+        },
+        {
+          "id": "post-not-routed",
+          "what": "POST 不是这条路由（只比状态码，交给后面的层）",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/sso/callback?redirect=/go/3/&state=s3", "headers": { "cookie": "wm_sso_3=s3" } },
+          "response": { "status": 404 }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce），管理口令由环境给（合成值，只在隔离实例里用）。没有身份的跳转请求被拦下。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "steps": [
+        {
+          "id": "anonymous",
+          "route": "GET /sso/callback",
+          "class": "unauthorized",
+          "what": "远程匿名",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=/go/3/&state=s3", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "wm_sso_3=s3" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "wrong-token",
+          "route": "GET /sso/callback",
+          "class": "unauthorized",
+          "what": "口令不对",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=/go/3/&state=s3", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "not-the-token", "cookie": "wm_sso_3=s3" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "browser-anonymous",
+          "route": "GET /sso/callback",
+          "class": "unauthorized",
+          "what": "本机但带浏览器标记：不算命令行",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=/go/3/&state=s3", "headers": { "sec-fetch-site": "same-origin", "cookie": "wm_sso_3=s3" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "with-token",
+          "route": "GET /sso/callback",
+          "class": "normal",
+          "what": "远程带口令",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=/go/3/&state=s3", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "cookie": "wm_sso_3=s3" } },
+          "response": { "status": 302, "type": "text/plain; charset=utf-8", "headers": { "content-length": "28", "location": "/go/3/", "vary": "Origin, Accept", "x-powered-by": "Express" }, "body": "Found. Redirecting to /go/3/" }
+        },
+        {
+          "id": "with-token-cross-site",
+          "route": "GET /sso/callback",
+          "class": "normal",
+          "what": "口令对、浏览器从别的站点跳回来：这是读，不查同源",
+          "request": {
+            "method": "GET",
+            "path": "/sso/callback?redirect=/go/3/&state=s3",
+            "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site", "cookie": "wm_sso_3=s3" }
+          },
+          "response": { "status": 302, "type": "text/plain; charset=utf-8", "headers": { "content-length": "28", "location": "/go/3/", "vary": "Accept", "x-powered-by": "Express" }, "body": "Found. Redirecting to /go/3/" }
+        },
+        {
+          "id": "with-token-bad-state",
+          "route": "GET /sso/callback",
+          "class": "invalid",
+          "what": "远程带口令，state 对不上",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=/go/3/&state=s3", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "cookie": "wm_sso_3=x" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "70", "etag": "W/\"46-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "SSO state 校验失败（请从市场门户重新进入）" } }
+        },
+        {
+          "id": "local-cli",
+          "route": "GET /sso/callback",
+          "class": "normal",
+          "what": "本机命令行不用口令也能过门",
+          "request": { "method": "GET", "path": "/sso/callback?redirect=/go/3/&state=s3", "headers": { "cookie": "wm_sso_3=s3" } },
+          "response": { "status": 302, "type": "text/plain; charset=utf-8", "headers": { "content-length": "28", "location": "/go/3/", "vary": "Origin, Accept", "x-powered-by": "Express" }, "body": "Found. Redirecting to /go/3/" }
+        }
+      ]
+    }
+  ]
+}
