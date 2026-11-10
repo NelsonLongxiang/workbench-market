@@ -1,0 +1,925 @@
+{
+  "domain": "cookies",
+  "what": "Cookie 池：/api/cookies 的 3 条路由。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。请求里的 cookie 值都是合成的。",
+  "routes": ["GET /api/cookies", "POST /api/cookies", "DELETE /api/cookies/:id"],
+  "exempt": [{ "route": "GET /api/cookies", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/list-junk-query" }],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "缺省配置：登录门关，没设管理口令。本机命令行免口令；带转发头或浏览器标记的写请求要管理员。读面开放。定了时钟：「还有几天过期」是拿现在算的。",
+      "env": {},
+      "clock": "2030-01-01T00:00:00Z",
+      "steps": [
+        {
+          "id": "list-empty",
+          "route": "GET /api/cookies",
+          "class": "normal",
+          "what": "新库里没有 Cookie 池",
+          "request": { "method": "GET", "path": "/api/cookies" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": [] }
+        },
+        {
+          "id": "list-junk-query",
+          "route": "GET /api/cookies",
+          "class": "normal",
+          "what": "这条路由不读查询串：带无关、畸形的参数照常应答",
+          "request": { "method": "GET", "path": "/api/cookies?limit=abc&id=-1&label[]=x" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": [] }
+        },
+        {
+          "id": "list-head",
+          "what": "HEAD 走同一条 GET 路由，没有响应体",
+          "request": { "method": "HEAD", "path": "/api/cookies" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": "" }
+        },
+        {
+          "id": "create-remote-anonymous",
+          "route": "POST /api/cookies",
+          "class": "unauthorized",
+          "what": "带转发头、没有口令的写",
+          "request": { "method": "POST", "path": "/api/cookies", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "label": "不该建出来", "cookies": [{ "name": "sid", "value": "synthetic-value" }] } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "create-cross-origin-browser",
+          "route": "POST /api/cookies",
+          "class": "unauthorized",
+          "what": "浏览器从别的站点发来的写",
+          "request": { "method": "POST", "path": "/api/cookies", "headers": { "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": { "label": "不该建出来", "cookies": [{ "name": "sid", "value": "synthetic-value" }] } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "create-no-label",
+          "route": "POST /api/cookies",
+          "class": "invalid",
+          "what": "没给 label",
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "cookies": [{ "name": "sid", "value": "synthetic-value" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "label 必填（如「DSH-3080 生产」）" } }
+        },
+        {
+          "id": "create-blank-label",
+          "route": "POST /api/cookies",
+          "class": "invalid",
+          "what": "label 只有空白",
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "   ", "cookies": [{ "name": "sid", "value": "synthetic-value" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "label 必填（如「DSH-3080 生产」）" } }
+        },
+        {
+          "id": "create-label-not-string",
+          "route": "POST /api/cookies",
+          "class": "invalid",
+          "what": "label 是数字，不是字符串：不转成字符串，当成没给",
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": 7, "cookies": [{ "name": "sid", "value": "synthetic-value" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "label 必填（如「DSH-3080 生产」）" } }
+        },
+        {
+          "id": "create-no-cookies",
+          "route": "POST /api/cookies",
+          "class": "invalid",
+          "what": "没给 cookies",
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "x" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "88", "etag": "W/\"58-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "cookies 必须是非空数组（Cookie-Editor/EditThisCookie 导出格式）" }
+          }
+        },
+        {
+          "id": "create-empty-cookies",
+          "route": "POST /api/cookies",
+          "class": "invalid",
+          "what": "cookies 是空数组",
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "x", "cookies": [] } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "88", "etag": "W/\"58-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "cookies 必须是非空数组（Cookie-Editor/EditThisCookie 导出格式）" }
+          }
+        },
+        {
+          "id": "create-cookies-object",
+          "route": "POST /api/cookies",
+          "class": "invalid",
+          "what": "cookies 是对象，不是数组",
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "x", "cookies": { "name": "sid", "value": "v" } } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "88", "etag": "W/\"58-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "cookies 必须是非空数组（Cookie-Editor/EditThisCookie 导出格式）" }
+          }
+        },
+        {
+          "id": "create-cookies-string",
+          "route": "POST /api/cookies",
+          "class": "invalid",
+          "what": "cookies 是字符串",
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "x", "cookies": "sid=v" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "88", "etag": "W/\"58-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "cookies 必须是非空数组（Cookie-Editor/EditThisCookie 导出格式）" }
+          }
+        },
+        {
+          "id": "create-blank-label-bad-cookies",
+          "route": "POST /api/cookies",
+          "class": "invalid",
+          "what": "两处都不对时先报哪一处：label 的检查排在 cookies 的检查前面",
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": " ", "cookies": [] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "label 必填（如「DSH-3080 生产」）" } }
+        },
+        {
+          "id": "create-cookie-no-name",
+          "route": "POST /api/cookies",
+          "class": "invalid",
+          "what": "有一条 cookie 没给 name",
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "x", "cookies": [{ "value": "v" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "每条 cookie 的 name 必填" } }
+        },
+        {
+          "id": "create-cookie-empty-name",
+          "route": "POST /api/cookies",
+          "class": "invalid",
+          "what": "有一条 cookie 的 name 是空串",
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "x", "cookies": [{ "name": "", "value": "v" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "每条 cookie 的 name 必填" } }
+        },
+        {
+          "id": "create-cookie-name-not-string",
+          "route": "POST /api/cookies",
+          "class": "invalid",
+          "what": "有一条 cookie 的 name 是数字",
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "x", "cookies": [{ "name": 5, "value": "v" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "每条 cookie 的 name 必填" } }
+        },
+        {
+          "id": "create-cookie-null",
+          "route": "POST /api/cookies",
+          "class": "invalid",
+          "what": "数组里有一项是 null",
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "x", "cookies": [null] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "每条 cookie 的 name 必填" } }
+        },
+        {
+          "id": "create-cookie-no-value",
+          "route": "POST /api/cookies",
+          "class": "invalid",
+          "what": "有一条 cookie 没给 value：报错里带上它的 name",
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "x", "cookies": [{ "name": "sid" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cookie \"sid\" 缺 value" } }
+        },
+        {
+          "id": "create-cookie-value-not-string",
+          "route": "POST /api/cookies",
+          "class": "invalid",
+          "what": "有一条 cookie 的 value 是数字",
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "x", "cookies": [{ "name": "sid", "value": 7 }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cookie \"sid\" 缺 value" } }
+        },
+        {
+          "id": "create-cookie-no-name-no-value",
+          "route": "POST /api/cookies",
+          "class": "invalid",
+          "what": "两处都不对时先报哪一处：name 的检查排在 value 的检查前面",
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "x", "cookies": [{}] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "每条 cookie 的 name 必填" } }
+        },
+        {
+          "id": "create-second-cookie-bad",
+          "route": "POST /api/cookies",
+          "class": "invalid",
+          "what": "第一条合规、第二条不合规：整个请求被拒",
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "x", "cookies": [{ "name": "sid", "value": "synthetic-value" }, { "name": "later" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cookie \"later\" 缺 value" } }
+        },
+        {
+          "id": "create-array-body",
+          "route": "POST /api/cookies",
+          "class": "invalid",
+          "what": "请求体是装着一个对象的数组：不拿里面的对象来用",
+          "request": { "method": "POST", "path": "/api/cookies", "json": [{ "label": "x", "cookies": [{ "name": "sid", "value": "synthetic-value" }] }] },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "label 必填（如「DSH-3080 生产」）" } }
+        },
+        {
+          "id": "create-no-body",
+          "route": "POST /api/cookies",
+          "class": "invalid",
+          "what": "没有请求体",
+          "request": { "method": "POST", "path": "/api/cookies" },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "label 必填（如「DSH-3080 生产」）" } }
+        },
+        {
+          "id": "create-malformed-json",
+          "route": "POST /api/cookies",
+          "class": "invalid",
+          "what": "请求体不是合法 JSON",
+          "request": { "method": "POST", "path": "/api/cookies", "headers": { "content-type": "application/json" }, "text": "{not json" },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "请求体不是合法 JSON" } }
+        },
+        {
+          "id": "list-after-rejected",
+          "route": "GET /api/cookies",
+          "class": "normal",
+          "what": "上面被拒的请求一个都没建出来",
+          "request": { "method": "GET", "path": "/api/cookies" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": [] }
+        },
+        {
+          "id": "create-mixed",
+          "route": "POST /api/cookies",
+          "class": "normal",
+          "what": "四条：十天半后过期、三十天半后过期、早就过期、没有过期时间（value 是空串也收）。label 两头的空白去掉；没给的字段取缺省",
+          "request": {
+            "method": "POST",
+            "path": "/api/cookies",
+            "json": {
+              "label": "  回放·混合  ",
+              "cookies": [
+                { "name": "sid", "value": "synthetic-value-1", "domain": ".replay.example", "path": "/app", "expirationDate": 1894363200, "httpOnly": true, "sameSite": "lax" },
+                { "name": "later", "value": "synthetic-value-2", "expirationDate": 1896091200 },
+                { "name": "old", "value": "synthetic-value-3", "expirationDate": 1000000000 },
+                { "name": "sess", "value": "" }
+              ]
+            }
+          },
+          "save": { "setA": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "526", "etag": "W/\"20e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "id": 1,
+              "label": "回放·混合",
+              "cookie_count": 4,
+              "active": 3,
+              "cookies": [
+                { "name": "sid", "value": "****", "domain": ".replay.example", "path": "/app", "expirationDate": 1894363200, "httpOnly": true, "sameSite": "lax" },
+                { "name": "later", "value": "****", "domain": "", "path": "/", "expirationDate": 1896091200, "httpOnly": false, "sameSite": "" },
+                { "name": "old", "value": "****", "domain": "", "path": "/", "expirationDate": 1000000000, "httpOnly": false, "sameSite": "" },
+                { "name": "sess", "value": "****", "domain": "", "path": "/", "httpOnly": false, "sameSite": "" }
+              ]
+            }
+          }
+        },
+        {
+          "id": "create-all-expired",
+          "route": "POST /api/cookies",
+          "class": "normal",
+          "what": "两条都过期了",
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "回放·全过期", "cookies": [{ "name": "a", "value": "v", "expirationDate": 1000000000 }, { "name": "b", "value": "v", "expirationDate": 1 }] } },
+          "save": { "setB": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "297", "etag": "W/\"129-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "id": 2,
+              "label": "回放·全过期",
+              "cookie_count": 2,
+              "active": 0,
+              "cookies": [
+                { "name": "a", "value": "****", "domain": "", "path": "/", "expirationDate": 1000000000, "httpOnly": false, "sameSite": "" },
+                { "name": "b", "value": "****", "domain": "", "path": "/", "expirationDate": 1, "httpOnly": false, "sameSite": "" }
+              ]
+            }
+          }
+        },
+        {
+          "id": "create-session-only",
+          "route": "POST /api/cookies",
+          "class": "normal",
+          "what": "只有一条，没有过期时间",
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "回放·会话", "cookies": [{ "name": "s", "value": "v" }] } },
+          "save": { "setC": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "165", "etag": "W/\"a5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 3, "label": "回放·会话", "cookie_count": 1, "active": 1, "cookies": [{ "name": "s", "value": "****", "domain": "", "path": "/", "httpOnly": false, "sameSite": "" }] }
+          }
+        },
+        {
+          "id": "create-odd-values",
+          "route": "POST /api/cookies",
+          "class": "normal",
+          "what": "字段类型不对：不报错，按现有的转换规则存（过期时间不是数字就不存；多余的字段丢掉）",
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "回放·怪值", "cookies": [{ "name": "n", "value": "v", "domain": 5, "path": null, "expirationDate": "1894363200", "httpOnly": "yes", "sameSite": 0, "extra": "丢掉" }] } },
+          "save": { "setD": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "166", "etag": "W/\"a6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 4, "label": "回放·怪值", "cookie_count": 1, "active": 1, "cookies": [{ "name": "n", "value": "****", "domain": "5", "path": "/", "httpOnly": true, "sameSite": "0" }] }
+          }
+        },
+        {
+          "id": "create-zero-values",
+          "route": "POST /api/cookies",
+          "class": "normal",
+          "what": "过期时间是 0、path 和 domain 是空串、httpOnly 是 0：0 原样存着，算没有过期时间；空串不落到缺省上",
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "回放·零值", "cookies": [{ "name": "z", "value": "v", "expirationDate": 0, "httpOnly": 0, "path": "", "domain": "", "sameSite": "" }] } },
+          "save": { "setE": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "183", "etag": "W/\"b7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 5, "label": "回放·零值", "cookie_count": 1, "active": 1, "cookies": [{ "name": "z", "value": "****", "domain": "", "path": "", "expirationDate": 0, "httpOnly": false, "sameSite": "" }] }
+          }
+        },
+        {
+          "id": "create-nearer-second",
+          "route": "POST /api/cookies",
+          "class": "normal",
+          "what": "两条都没过期，过期早的排在后面：列表里「还有几天」取的是最早的那个",
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "回放·近的在后", "cookies": [{ "name": "far", "value": "v", "expirationDate": 1896091200 }, { "name": "near", "value": "v", "expirationDate": 1894363200 }] } },
+          "save": { "setF": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "314", "etag": "W/\"13a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "id": 6,
+              "label": "回放·近的在后",
+              "cookie_count": 2,
+              "active": 2,
+              "cookies": [
+                { "name": "far", "value": "****", "domain": "", "path": "/", "expirationDate": 1896091200, "httpOnly": false, "sameSite": "" },
+                { "name": "near", "value": "****", "domain": "", "path": "/", "expirationDate": 1894363200, "httpOnly": false, "sameSite": "" }
+              ]
+            }
+          }
+        },
+        {
+          "id": "list-after-creates",
+          "route": "GET /api/cookies",
+          "class": "normal",
+          "what": "列表：后建的排前面；每个池有几条、几条没过期、是不是全过期、最早的还有几天",
+          "request": { "method": "GET", "path": "/api/cookies" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2067", "etag": "W/\"813-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 6,
+                "label": "回放·近的在后",
+                "cookie_count": 2,
+                "active": 2,
+                "all_expired": false,
+                "soonest_exp_days": 10,
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "cookies": [
+                  { "name": "far", "value": "****", "domain": "", "path": "/", "expirationDate": 1896091200, "httpOnly": false, "sameSite": "" },
+                  { "name": "near", "value": "****", "domain": "", "path": "/", "expirationDate": 1894363200, "httpOnly": false, "sameSite": "" }
+                ]
+              },
+              {
+                "id": 5,
+                "label": "回放·零值",
+                "cookie_count": 1,
+                "active": 1,
+                "all_expired": false,
+                "soonest_exp_days": null,
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "cookies": [{ "name": "z", "value": "****", "domain": "", "path": "", "expirationDate": 0, "httpOnly": false, "sameSite": "" }]
+              },
+              {
+                "id": 4,
+                "label": "回放·怪值",
+                "cookie_count": 1,
+                "active": 1,
+                "all_expired": false,
+                "soonest_exp_days": null,
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "cookies": [{ "name": "n", "value": "****", "domain": "5", "path": "/", "httpOnly": true, "sameSite": "0" }]
+              },
+              {
+                "id": 3,
+                "label": "回放·会话",
+                "cookie_count": 1,
+                "active": 1,
+                "all_expired": false,
+                "soonest_exp_days": null,
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "cookies": [{ "name": "s", "value": "****", "domain": "", "path": "/", "httpOnly": false, "sameSite": "" }]
+              },
+              {
+                "id": 2,
+                "label": "回放·全过期",
+                "cookie_count": 2,
+                "active": 0,
+                "all_expired": true,
+                "soonest_exp_days": null,
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "cookies": [
+                  { "name": "a", "value": "****", "domain": "", "path": "/", "expirationDate": 1000000000, "httpOnly": false, "sameSite": "" },
+                  { "name": "b", "value": "****", "domain": "", "path": "/", "expirationDate": 1, "httpOnly": false, "sameSite": "" }
+                ]
+              },
+              {
+                "id": 1,
+                "label": "回放·混合",
+                "cookie_count": 4,
+                "active": 3,
+                "all_expired": false,
+                "soonest_exp_days": 10,
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "cookies": [
+                  { "name": "sid", "value": "****", "domain": ".replay.example", "path": "/app", "expirationDate": 1894363200, "httpOnly": true, "sameSite": "lax" },
+                  { "name": "later", "value": "****", "domain": "", "path": "/", "expirationDate": 1896091200, "httpOnly": false, "sameSite": "" },
+                  { "name": "old", "value": "****", "domain": "", "path": "/", "expirationDate": 1000000000, "httpOnly": false, "sameSite": "" },
+                  { "name": "sess", "value": "****", "domain": "", "path": "/", "httpOnly": false, "sameSite": "" }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": "list-remote-anonymous",
+          "route": "GET /api/cookies",
+          "class": "normal",
+          "what": "带转发头的匿名读：登录门关着时读面开放（要身份的情形见 gated 场景）；看到的也只是掩码",
+          "request": { "method": "GET", "path": "/api/cookies", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2067", "etag": "W/\"813-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 6,
+                "label": "回放·近的在后",
+                "cookie_count": 2,
+                "active": 2,
+                "all_expired": false,
+                "soonest_exp_days": 10,
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "cookies": [
+                  { "name": "far", "value": "****", "domain": "", "path": "/", "expirationDate": 1896091200, "httpOnly": false, "sameSite": "" },
+                  { "name": "near", "value": "****", "domain": "", "path": "/", "expirationDate": 1894363200, "httpOnly": false, "sameSite": "" }
+                ]
+              },
+              {
+                "id": 5,
+                "label": "回放·零值",
+                "cookie_count": 1,
+                "active": 1,
+                "all_expired": false,
+                "soonest_exp_days": null,
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "cookies": [{ "name": "z", "value": "****", "domain": "", "path": "", "expirationDate": 0, "httpOnly": false, "sameSite": "" }]
+              },
+              {
+                "id": 4,
+                "label": "回放·怪值",
+                "cookie_count": 1,
+                "active": 1,
+                "all_expired": false,
+                "soonest_exp_days": null,
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "cookies": [{ "name": "n", "value": "****", "domain": "5", "path": "/", "httpOnly": true, "sameSite": "0" }]
+              },
+              {
+                "id": 3,
+                "label": "回放·会话",
+                "cookie_count": 1,
+                "active": 1,
+                "all_expired": false,
+                "soonest_exp_days": null,
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "cookies": [{ "name": "s", "value": "****", "domain": "", "path": "/", "httpOnly": false, "sameSite": "" }]
+              },
+              {
+                "id": 2,
+                "label": "回放·全过期",
+                "cookie_count": 2,
+                "active": 0,
+                "all_expired": true,
+                "soonest_exp_days": null,
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "cookies": [
+                  { "name": "a", "value": "****", "domain": "", "path": "/", "expirationDate": 1000000000, "httpOnly": false, "sameSite": "" },
+                  { "name": "b", "value": "****", "domain": "", "path": "/", "expirationDate": 1, "httpOnly": false, "sameSite": "" }
+                ]
+              },
+              {
+                "id": 1,
+                "label": "回放·混合",
+                "cookie_count": 4,
+                "active": 3,
+                "all_expired": false,
+                "soonest_exp_days": 10,
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "cookies": [
+                  { "name": "sid", "value": "****", "domain": ".replay.example", "path": "/app", "expirationDate": 1894363200, "httpOnly": true, "sameSite": "lax" },
+                  { "name": "later", "value": "****", "domain": "", "path": "/", "expirationDate": 1896091200, "httpOnly": false, "sameSite": "" },
+                  { "name": "old", "value": "****", "domain": "", "path": "/", "expirationDate": 1000000000, "httpOnly": false, "sameSite": "" },
+                  { "name": "sess", "value": "****", "domain": "", "path": "/", "httpOnly": false, "sameSite": "" }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": "use-workbench-a",
+          "what": "布置现场：登记一个台（借工作台域的路由，只比状态码）。新库里已有一个内置的台，id 是 1；这个是 2",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/workbenches", "json": { "name": "回放用的台·甲", "url": "http://127.0.0.1:9990/a", "type": "web" } },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "use-workbench-b",
+          "what": "布置现场：再登记一个台，id 是 3",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/workbenches", "json": { "name": "回放用的台·乙", "url": "http://127.0.0.1:9991/b", "type": "web" } },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "attach-a",
+          "what": "布置现场：台甲挂上「会话」那个池（只比状态码和挂的是哪个池）",
+          "compare": ["cookie_set_id"],
+          "request": { "method": "PUT", "path": "/api/workbenches/2", "json": { "cookie_set_id": 3 } },
+          "response": { "status": 200, "picked": { "cookie_set_id": 3 } }
+        },
+        {
+          "id": "attach-b",
+          "what": "布置现场：台乙挂上「混合」那个池",
+          "compare": ["cookie_set_id"],
+          "request": { "method": "PUT", "path": "/api/workbenches/3", "json": { "cookie_set_id": 1 } },
+          "response": { "status": 200, "picked": { "cookie_set_id": 1 } }
+        },
+        {
+          "id": "delete-remote-anonymous",
+          "route": "DELETE /api/cookies/:id",
+          "class": "unauthorized",
+          "what": "带转发头、没有口令的写",
+          "request": { "method": "DELETE", "path": "/api/cookies/{{setC}}", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "delete-missing",
+          "route": "DELETE /api/cookies/:id",
+          "class": "invalid",
+          "what": "id 不存在",
+          "request": { "method": "DELETE", "path": "/api/cookies/999999" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "40", "etag": "W/\"28-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cookie set not found: 999999" } }
+        },
+        {
+          "id": "delete-non-numeric-id",
+          "route": "DELETE /api/cookies/:id",
+          "class": "invalid",
+          "what": "id 不是数字",
+          "request": { "method": "DELETE", "path": "/api/cookies/abc" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cookie set not found: NaN" } }
+        },
+        {
+          "id": "delete-fraction-id",
+          "route": "DELETE /api/cookies/:id",
+          "class": "invalid",
+          "what": "id 带小数：不截成整数，没有这一行",
+          "request": { "method": "DELETE", "path": "/api/cookies/{{setD}}.5" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cookie set not found: 4.5" } }
+        },
+        {
+          "id": "delete-trailing-junk-id",
+          "route": "DELETE /api/cookies/:id",
+          "class": "invalid",
+          "what": "id 是数字后面跟着字母：不截成前面的数字",
+          "request": { "method": "DELETE", "path": "/api/cookies/{{setD}}abc" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cookie set not found: NaN" } }
+        },
+        {
+          "id": "attached-before-delete",
+          "what": "上面几条被拒的删除之后：台甲还挂着",
+          "compare": ["cookie_set_id"],
+          "request": { "method": "GET", "path": "/api/workbenches/2" },
+          "response": { "status": 200, "picked": { "cookie_set_id": 3 } }
+        },
+        {
+          "id": "delete-attached",
+          "route": "DELETE /api/cookies/:id",
+          "class": "normal",
+          "what": "删掉台甲挂着的那个池",
+          "request": { "method": "DELETE", "path": "/api/cookies/{{setC}}" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "23", "etag": "W/\"17-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "deleted": 3 } }
+        },
+        {
+          "id": "detached-after-delete",
+          "what": "台甲自动取消了引用",
+          "compare": ["cookie_set_id"],
+          "request": { "method": "GET", "path": "/api/workbenches/2" },
+          "response": { "status": 200, "picked": { "cookie_set_id": 0 } }
+        },
+        {
+          "id": "other-still-attached",
+          "what": "台乙挂的是别的池，不受影响",
+          "compare": ["cookie_set_id"],
+          "request": { "method": "GET", "path": "/api/workbenches/3" },
+          "response": { "status": 200, "picked": { "cookie_set_id": 1 } }
+        },
+        {
+          "id": "delete-hex-id",
+          "route": "DELETE /api/cookies/:id",
+          "class": "normal",
+          "what": "id 写成 0x2：按数字读是 2，删掉的是「全过期」那个池",
+          "request": { "method": "DELETE", "path": "/api/cookies/0x{{setB}}" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "23", "etag": "W/\"17-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "deleted": 2 } }
+        },
+        {
+          "id": "delete-again",
+          "route": "DELETE /api/cookies/:id",
+          "class": "invalid",
+          "what": "已经删掉的再删一次",
+          "request": { "method": "DELETE", "path": "/api/cookies/{{setB}}" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cookie set not found: 2" } }
+        },
+        {
+          "id": "list-after",
+          "route": "GET /api/cookies",
+          "class": "normal",
+          "what": "写完之后的样子：2 和 3 没了",
+          "request": { "method": "GET", "path": "/api/cookies" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1466", "etag": "W/\"5ba-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 6,
+                "label": "回放·近的在后",
+                "cookie_count": 2,
+                "active": 2,
+                "all_expired": false,
+                "soonest_exp_days": 10,
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "cookies": [
+                  { "name": "far", "value": "****", "domain": "", "path": "/", "expirationDate": 1896091200, "httpOnly": false, "sameSite": "" },
+                  { "name": "near", "value": "****", "domain": "", "path": "/", "expirationDate": 1894363200, "httpOnly": false, "sameSite": "" }
+                ]
+              },
+              {
+                "id": 5,
+                "label": "回放·零值",
+                "cookie_count": 1,
+                "active": 1,
+                "all_expired": false,
+                "soonest_exp_days": null,
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "cookies": [{ "name": "z", "value": "****", "domain": "", "path": "", "expirationDate": 0, "httpOnly": false, "sameSite": "" }]
+              },
+              {
+                "id": 4,
+                "label": "回放·怪值",
+                "cookie_count": 1,
+                "active": 1,
+                "all_expired": false,
+                "soonest_exp_days": null,
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "cookies": [{ "name": "n", "value": "****", "domain": "5", "path": "/", "httpOnly": true, "sameSite": "0" }]
+              },
+              {
+                "id": 1,
+                "label": "回放·混合",
+                "cookie_count": 4,
+                "active": 3,
+                "all_expired": false,
+                "soonest_exp_days": 10,
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "cookies": [
+                  { "name": "sid", "value": "****", "domain": ".replay.example", "path": "/app", "expirationDate": 1894363200, "httpOnly": true, "sameSite": "lax" },
+                  { "name": "later", "value": "****", "domain": "", "path": "/", "expirationDate": 1896091200, "httpOnly": false, "sameSite": "" },
+                  { "name": "old", "value": "****", "domain": "", "path": "/", "expirationDate": 1000000000, "httpOnly": false, "sameSite": "" },
+                  { "name": "sess", "value": "****", "domain": "", "path": "/", "httpOnly": false, "sameSite": "" }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce），管理口令由环境给（合成值，只在隔离实例里用）。没有身份什么都访问不到；带口令的远程请求按管理员处理，浏览器来的还要同源。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "steps": [
+        {
+          "id": "list-anonymous",
+          "route": "GET /api/cookies",
+          "class": "unauthorized",
+          "what": "远程匿名",
+          "request": { "method": "GET", "path": "/api/cookies", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "list-wrong-token",
+          "route": "GET /api/cookies",
+          "class": "unauthorized",
+          "what": "口令不对",
+          "request": { "method": "GET", "path": "/api/cookies", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "not-the-token" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "list-browser-anonymous",
+          "route": "GET /api/cookies",
+          "class": "unauthorized",
+          "what": "本机但带浏览器标记：不算命令行",
+          "request": { "method": "GET", "path": "/api/cookies", "headers": { "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "list-with-token",
+          "route": "GET /api/cookies",
+          "class": "normal",
+          "what": "远程带口令",
+          "request": { "method": "GET", "path": "/api/cookies", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": [] }
+        },
+        {
+          "id": "create-anonymous",
+          "route": "POST /api/cookies",
+          "class": "unauthorized",
+          "what": "远程匿名",
+          "request": { "method": "POST", "path": "/api/cookies", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "label": "不该建出来", "cookies": [{ "name": "sid", "value": "synthetic-value" }] } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "create-wrong-token",
+          "route": "POST /api/cookies",
+          "class": "unauthorized",
+          "what": "口令不对",
+          "request": { "method": "POST", "path": "/api/cookies", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "not-the-token" }, "json": { "label": "不该建出来", "cookies": [{ "name": "sid", "value": "synthetic-value" }] } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "create-token-cross-origin",
+          "route": "POST /api/cookies",
+          "class": "unauthorized",
+          "what": "口令对，但浏览器从别的站点发来",
+          "request": {
+            "method": "POST",
+            "path": "/api/cookies",
+            "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" },
+            "json": { "label": "不该建出来", "cookies": [{ "name": "sid", "value": "synthetic-value" }] }
+          },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "create-with-token-no-label",
+          "route": "POST /api/cookies",
+          "class": "invalid",
+          "what": "远程带口令，没给 label",
+          "request": { "method": "POST", "path": "/api/cookies", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "cookies": [{ "name": "sid", "value": "synthetic-value" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "label 必填（如「DSH-3080 生产」）" } }
+        },
+        {
+          "id": "create-with-token",
+          "route": "POST /api/cookies",
+          "class": "normal",
+          "what": "远程带口令",
+          "request": {
+            "method": "POST",
+            "path": "/api/cookies",
+            "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" },
+            "json": { "label": "登录门后面建的", "cookies": [{ "name": "sid", "value": "synthetic-value", "expirationDate": 1894363200 }] }
+          },
+          "save": { "g": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "202", "etag": "W/\"ca-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 1, "label": "登录门后面建的", "cookie_count": 1, "active": 1, "cookies": [{ "name": "sid", "value": "****", "domain": "", "path": "/", "expirationDate": 1894363200, "httpOnly": false, "sameSite": "" }] }
+          }
+        },
+        {
+          "id": "list-with-token-after",
+          "route": "GET /api/cookies",
+          "class": "normal",
+          "what": "远程带口令：看到的也只是掩码",
+          "request": { "method": "GET", "path": "/api/cookies", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "271", "etag": "W/\"10f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 1,
+                "label": "登录门后面建的",
+                "cookie_count": 1,
+                "active": 1,
+                "all_expired": false,
+                "soonest_exp_days": 10,
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "cookies": [{ "name": "sid", "value": "****", "domain": "", "path": "/", "expirationDate": 1894363200, "httpOnly": false, "sameSite": "" }]
+              }
+            ]
+          }
+        },
+        {
+          "id": "delete-anonymous",
+          "route": "DELETE /api/cookies/:id",
+          "class": "unauthorized",
+          "what": "远程匿名",
+          "request": { "method": "DELETE", "path": "/api/cookies/{{g}}", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "delete-wrong-token",
+          "route": "DELETE /api/cookies/:id",
+          "class": "unauthorized",
+          "what": "口令不对",
+          "request": { "method": "DELETE", "path": "/api/cookies/{{g}}", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "not-the-token" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "delete-token-cross-origin",
+          "route": "DELETE /api/cookies/:id",
+          "class": "unauthorized",
+          "what": "口令对，但浏览器从别的站点发来",
+          "request": { "method": "DELETE", "path": "/api/cookies/{{g}}", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "delete-with-token-missing",
+          "route": "DELETE /api/cookies/:id",
+          "class": "invalid",
+          "what": "远程带口令，id 不存在",
+          "request": { "method": "DELETE", "path": "/api/cookies/999999", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "40", "etag": "W/\"28-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cookie set not found: 999999" } }
+        },
+        {
+          "id": "delete-with-token",
+          "route": "DELETE /api/cookies/:id",
+          "class": "normal",
+          "what": "远程带口令",
+          "request": { "method": "DELETE", "path": "/api/cookies/{{g}}", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "23", "etag": "W/\"17-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "deleted": 1 } }
+        },
+        {
+          "id": "delete-local-cli",
+          "route": "DELETE /api/cookies/:id",
+          "class": "invalid",
+          "what": "本机命令行不用口令也能过门；这个池上一步已经删了",
+          "request": { "method": "DELETE", "path": "/api/cookies/{{g}}" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "cookie set not found: 1" } }
+        }
+      ]
+    }
+  ]
+}
