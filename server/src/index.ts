@@ -31,6 +31,7 @@ import { registerSsoRoutes } from './routes/sso.ts';
 import { registerSummaryRoutes } from './routes/summary.ts';
 import { registerContentObservationRoutes } from './routes/content-observation.ts';
 import { registerAuthViewerRoutes } from './routes/auth-viewer.ts';
+import { registerPrincipalRoutes } from './routes/principals.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import { SkillService } from './services/skill.ts';
@@ -67,6 +68,7 @@ if (!LOGIN_GATE_MODE) {
   console.error('[login-gate] 拒绝启动：WM_LOGIN_GATE 只接受 enforce / off / 不设（当前值无法识别，不按关处理）');
   process.exit(1);
 }
+const loginGateViewer = identity().cachedResolver({ ttlMs: 30_000, max: 2000 }); // 提供方的回答最多留 30 秒；主体停没停用每次现查
 const loginGate = createLoginGate({
   mode: LOGIN_GATE_MODE,
   dataDir,
@@ -74,9 +76,9 @@ const loginGate = createLoginGate({
   adminTokenFingerprint: () => process.env.ADMIN_TOKEN
     ? createHash('sha256').update('env|' + process.env.ADMIN_TOKEN, 'utf8').digest('hex')
     : String((svc<SettingService>('setting').get(ADMIN_TOKEN_KEY) as { value: string } | undefined)?.value ?? ''),
-  odooViewer: async (cookie) => {
+  odooViewer: async (cookie, fresh) => {
     if (!identity().configured()) return null;
-    const who = await identity().resolveViewer(cookie); // 只认内部员工（门户账号 403）
+    const who = fresh ? await identity().resolveViewer(cookie) : await loginGateViewer(cookie); // 只认内部员工（门户账号 403）
     return who.ok ? { login: who.viewer.login, admin: who.viewer.admin } : null;
   },
   appToken: (slug) => wmAppToken(slug),
@@ -318,25 +320,18 @@ function allowExtensionRemoteWrite(path: string): void {
 }
 // 管理身份（属主 2026-11-02 裁定：撤销 #292 M1「管理写只认控制面」，有管理员口令就够；Odoo 管理员登录也算管理员）：
 //   带 Odoo 会话 cookie、却没带有效口令的 /api 请求，现查 Odoo get_session_info；内部员工且 is_admin=true 即记为管理员。
-//   结果按会话哈希缓存 30 秒（Odoo 侧撤管理员权限最迟 30 秒生效），只缓存这一位布尔，不缓存会话本身。
+//   提供方的回答按会话哈希缓存 30 秒（Odoo 侧撤管理员权限最迟 30 秒生效），缓存在身份服务里，不缓存会话本身；
+//   主体停没停用不进缓存，每次现查：停用一个主体，管理员认定立即不成立。
 const ODOO_ADMIN_TTL_MS = 30_000;
-const odooAdminCache = new Map<string, { at: number; login: string | null }>();
+const odooAdminViewer = identity().cachedResolver({ ttlMs: ODOO_ADMIN_TTL_MS, max: 1000 });
 const odooAdminReqs = new WeakMap<express.Request, string>(); // 本次请求经 Odoo 管理员认定 → 登录名
 async function odooAdminOf(cookieHeader: string): Promise<string | null> {
-  const sid = identity().credentialOf(cookieHeader);
-  if (!sid) return null;
-  // Explicit relay logout revokes Odoo sessions; never reuse a stale admin verdict.
-  if (process.env.WM_ODOO_LOGIN_PROXY === '1') {
-    try { const who = await identity().resolveViewer(cookieHeader); return who.ok && who.viewer.admin ? who.viewer.login : null; } catch { return null; }
-  }
-  const key = createHash('sha256').update(sid).digest('hex');
-  const hit = odooAdminCache.get(key);
-  if (hit && Date.now() - hit.at < ODOO_ADMIN_TTL_MS) return hit.login;
-  let login: string | null = null;
-  try { const who = await identity().resolveViewer(cookieHeader); login = who.ok && who.viewer.admin ? who.viewer.login : null; } catch { login = null; }
-  if (odooAdminCache.size > 1000) odooAdminCache.clear();
-  odooAdminCache.set(key, { at: Date.now(), login });
-  return login;
+  if (!identity().credentialOf(cookieHeader)) return null;
+  try {
+    // Explicit relay logout revokes Odoo sessions; never reuse a stale admin verdict.
+    const who = process.env.WM_ODOO_LOGIN_PROXY === '1' ? await identity().resolveViewer(cookieHeader) : await odooAdminViewer(cookieHeader);
+    return who.ok && who.viewer.admin ? who.viewer.login : null;
+  } catch { return null; }
 }
 /** 按需认定：只在确实要判管理员的请求上现查（写门调 adminGuard 前、管理读面、口令设置、whoami），其余请求不碰 Odoo */
 async function markOdooAdmin(req: express.Request): Promise<void> {
@@ -2222,6 +2217,9 @@ app.post('/api/tasks/read-grants/revoke', (req, res) => {
 
 // #275 登录探测：弹窗送 Odoo 登录后，前端轮询这里拿 200 即回原页面（Odoo 19 无法跨源回跳，回程在市场源完成）；顶栏用户 chip 同源
 registerAuthViewerRoutes(http, { wrap, odooLoginUrl });
+
+// ---------- 主体管理（列出、停用、恢复）：路由在域模块里 ----------
+registerPrincipalRoutes(http, { markOdooAdmin, adminGuard, adminActor });
 
 // ---------- 扩展（WM_EXTENSIONS_DIR）：挂在身份/写门之后、SPA 回落之前；加载失败拒绝启动 ----------
 try {

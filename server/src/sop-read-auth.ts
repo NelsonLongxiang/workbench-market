@@ -51,7 +51,7 @@ export async function authorizeRunRead(ctx: RunReadContext, runId: number): Prom
   }
   if (ctx.cookieHeader) {
     const viewer = await identity().resolveViewer(String(ctx.cookieHeader));
-    if (viewer.ok && runGrantActive(runId, 'user:' + viewer.viewer.login)) return { authorized: true, via: 'session-grant' };
+    if (viewer.ok && runGrantActive(runId, viewer.viewer.sub)) return { authorized: true, via: 'session-grant' }; // 按主体标识查授权，不拿登录名去拼
   }
   return { authorized: false, via: 'none' };
 }

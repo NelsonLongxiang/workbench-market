@@ -558,6 +558,38 @@ CREATE INDEX IF NOT EXISTS idx_workbench_var_audit_wb ON workbench_var_audit(wor
 try { const wvCols = db.prepare('PRAGMA table_info(workbench_vars)').all() as any[]; if (!wvCols.some((c) => c.name === 'owner')) db.exec("ALTER TABLE workbench_vars ADD COLUMN owner TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 // 回填每次启动都跑（幂等）：补列后中途退出也不会漏。作者为空的常量只可能由共享身份最后写过，所以按个人身份回填不会改掉兜底移交的结果
 db.exec("UPDATE workbench_vars SET owner = updated_by WHERE kind = 'const' AND owner = '' AND (updated_by LIKE 'mcp:%' OR updated_by LIKE 'odoo:%')");
+// 阶段五：主体与外部身份。主体是「谁」的那一张表，五类（人、席位、台、系统、外部节点）；
+//   标识带类别前缀：user: / seat: / app: / system: / node:；不是人的主体必须有责任人（责任人写主体标识）。
+//   停用是本地动作：status 一改，所有入口现查现拒（见 services/principal.ts）。最近一次状态变更是谁、什么时候、为什么，记在行上。
+// 外部身份（登录账号等）挂在主体上：提供方 + 对方的用户标识唯一，一个主体可以有多个。
+//   旧留痕里的 `odoo:<登录名>` 就是这张表里的（provider='odoo', external_id=<登录名>），不改历史记录。
+// IF NOT EXISTS 幂等，旧库启动即补表。
+db.exec(`
+CREATE TABLE IF NOT EXISTS principals (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('person','seat','app','system','node')),
+  display_name TEXT NOT NULL DEFAULT '',
+  owner TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','disabled')),
+  status_changed_at TEXT NOT NULL DEFAULT '',
+  status_changed_by TEXT NOT NULL DEFAULT '',
+  status_reason TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK (length(id) > length(CASE kind WHEN 'person' THEN 'user:' WHEN 'seat' THEN 'seat:' WHEN 'app' THEN 'app:' WHEN 'system' THEN 'system:' ELSE 'node:' END)
+    AND substr(id, 1, length(CASE kind WHEN 'person' THEN 'user:' WHEN 'seat' THEN 'seat:' WHEN 'app' THEN 'app:' WHEN 'system' THEN 'system:' ELSE 'node:' END))
+      = CASE kind WHEN 'person' THEN 'user:' WHEN 'seat' THEN 'seat:' WHEN 'app' THEN 'app:' WHEN 'system' THEN 'system:' ELSE 'node:' END),
+  CHECK (kind = 'person' OR owner <> '')
+);
+CREATE INDEX IF NOT EXISTS idx_principals_status ON principals (status, id);
+CREATE TABLE IF NOT EXISTS principal_identities (
+  provider TEXT NOT NULL CHECK (provider <> ''),
+  external_id TEXT NOT NULL CHECK (external_id <> ''),
+  principal_id TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (provider, external_id)
+);
+CREATE INDEX IF NOT EXISTS idx_principal_identities_principal ON principal_identities (principal_id);
+`);
 // #337: a durable monotonic generation invalidates stale Redis snapshots, including same-value writes.
 {
   const cols = db.prepare('PRAGMA table_info(sop_runs)').all() as { name: string }[];

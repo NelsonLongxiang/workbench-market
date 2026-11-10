@@ -20,7 +20,7 @@
  *    - POST /a2a/direct：只放行到路由，由路由按 OriginClaim 签名判定（enforce 时 WM_A2A_DIRECT_SIG 强制 require，无签名或验不过 401）。 */
 import type express from 'express';
 import type { IncomingMessage } from 'node:http';
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { BlockList, isIP } from 'node:net';
@@ -43,8 +43,9 @@ type Deps = {
   adminTokenCheck: (provided: string | undefined) => boolean;
   /** 当前口令的指纹（env 口令或库存哈希）；无口令时空串。签进 cookie：口令一换，旧 cookie 全部失效 */
   adminTokenFingerprint: () => string;
-  /** Odoo 内部员工（未配置 Odoo、门户账号、会话无效一律 null） */
-  odooViewer: (cookieHeader: string) => Promise<{ login: string; admin: boolean } | null>;
+  /** Odoo 内部员工（未配置 Odoo、门户账号、会话无效、主体停用一律 null）。
+   *  fresh=true 每次都问提供方；false 时提供方的回答可以用缓存的（期限由装配方定）。主体停没停用总是现查，这里不再自己缓存 */
+  odooViewer: (cookieHeader: string, fresh: boolean) => Promise<{ login: string; admin: boolean } | null>;
   appToken: (slug: string) => string;
   /** /api/workbenches/<id>/vars 带的 X-App-Token 是否属于该台 */
   varsAppTokenOk: (req: express.Request) => boolean;
@@ -60,7 +61,6 @@ type Deps = {
 
 export const LOGIN_COOKIE = 'wm_login';
 const SESSION_MS = 12 * 3600 * 1000;
-const ODOO_TTL_MS = 30_000;
 const CAP_SEG = '~wm';
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const APP_DATA_RE = /^\/api\/apps\/([a-z0-9][a-z0-9-]*)\/(data|files)(\/|$)/;
@@ -71,7 +71,6 @@ const RUN_UPLOAD_RE = /^\/api\/sop\/runs\/(\d+)\/files$/;
 const CAP_PATH_RE = /^\/(apps\/([a-z0-9][a-z0-9-]*)|go\/(\d+))\/~wm\/([0-9a-z]+\.[0-9a-f]{32})(\/.*)?$/i;
 const APP_DOC_RE = /^\/(apps\/([a-z0-9][a-z0-9-]*)|go\/(\d+))(\/.*)?$/;
 
-const sha256 = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex');
 const eq = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64url');
 
@@ -191,24 +190,12 @@ export function createLoginGate(deps: Deps) {
   }
   const viewCaps = new WeakMap<IncomingMessage, { slug: string; cap: string; base: string }>();
 
-  // ---------- Odoo 内部员工（按会话哈希缓存） ----------
-  const odooCache = new Map<string, { at: number; who: { login: string; admin: boolean } | null }>();
+  // ---------- Odoo 内部员工 ----------
   async function odooOf(cookie: string): Promise<{ login: string; admin: boolean } | null> {
-    const sid = identityService().credentialOf(cookie);
-    if (!sid) return null;
+    if (!identityService().credentialOf(cookie)) return null;
     // Relay mode supports explicit Odoo logout: do not keep a stale positive identity
-    // after the upstream session has been revoked.
-    if (process.env.WM_ODOO_LOGIN_PROXY === '1') {
-      try { return await deps.odooViewer(cookie); } catch { return null; }
-    }
-    const k = sha256(sid);
-    const hit = odooCache.get(k);
-    if (hit && Date.now() - hit.at < ODOO_TTL_MS) return hit.who;
-    let who: { login: string; admin: boolean } | null = null;
-    try { who = await deps.odooViewer(cookie); } catch { who = null; }
-    if (odooCache.size > 2000) odooCache.clear();
-    odooCache.set(k, { at: Date.now(), who });
-    return who;
+    // after the upstream session has been revoked. 其余情况提供方的回答可以用缓存的（缓存在身份服务里，主体状态不进缓存）。
+    try { return await deps.odooViewer(cookie, process.env.WM_ODOO_LOGIN_PROXY === '1'); } catch { return null; }
   }
 
   // ---------- 身份 ----------
