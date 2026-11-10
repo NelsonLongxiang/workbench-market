@@ -25,6 +25,7 @@ import { registerTypeRoutes } from './routes/types.ts';
 import { registerCockpitRoutes } from './routes/cockpits.ts';
 import { registerCookieRoutes } from './routes/cookies.ts';
 import { registerStatsRoutes } from './routes/stats.ts';
+import { registerDesignTokenRoutes } from './routes/design-tokens.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import { SkillService } from './services/skill.ts';
@@ -2929,15 +2930,7 @@ function serveApp(req: express.Request, res: express.Response) {
 app.get(/^\/apps\/[a-z0-9][a-z0-9-]*(\/.*)?$/, serveApp);
 // #321 设计 token 的固定路径（自产台 <link> 引入）：/design/tokens@<主版本>.css 推荐（主版本内名字稳定、值可变，按需重新验证），
 // /design/tokens@<完整版本>.css 精确钉版本（内容不变，可长缓存）；其他版本 404，不猜
-app.get(/^\/design\/tokens@[0-9.]+\.css$/, (req, res) => {
-  const t = loadTokensCss();
-  const kind = t ? resolveTokensPath(req.path, t) : null;
-  if (!t || !kind) return res.status(404).type('text').send(t ? `只提供 tokens@${t.major}.css 与 tokens@${t.version}.css\n` : 'design tokens 不可用\n');
-  res.setHeader('Cache-Control', kind === 'exact' ? 'public, max-age=31536000, immutable' : 'no-cache');
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-WM-Tokens-Version', t.version);
-  res.type('text/css').send(t.css);
-});
+registerDesignTokenRoutes(http);
 
 function summaryPayload() {
   const rows = listWorkbenches();
@@ -3657,7 +3650,7 @@ import { MCP_TOOLS, type McpToolDef, type McpToolCategory } from './mcp-tools.ts
 import { evalCandidates } from './eval.ts'; // #178 评估模型客户端
 
 import { renderSopRunner as renderSopRunnerRaw } from './sop-runner.ts';
-import { loadTokensCss, resolveTokensPath } from './design-tokens-css.ts';
+import { loadTokensCss } from './design-tokens-css.ts';
 /** #321：执行页内联 DESIGN.md 生成的 --wm-* 变量，与市场前端同色同字号 */
 const renderSopRunner = (manifest: Parameters<typeof renderSopRunnerRaw>[0], app: Parameters<typeof renderSopRunnerRaw>[1]) => renderSopRunnerRaw(manifest, app, loadTokensCss()?.css ?? '');
 import { sqliteSsoTicketStore } from './sso-ticket-store.ts';
