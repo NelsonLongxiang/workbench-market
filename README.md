@@ -16,7 +16,7 @@ pnpm start            # 生产模式（只跑 server，访问 http://127.0.0.1:9
 node scripts/gen-design-tokens.mjs   # 改了 DESIGN.md 的 token 后重新生成 web/src/tokens.css 与 design-tokens.ts（--check 只比对）
 ```
 
-浏览器回归（`scripts/*-browser.mjs` 等）要用 Python Playwright，版本与 CI 一致。解释器由 `scripts/python-bin.mjs` 统一选取，顺序是：`PYTHON` 环境变量 → 仓库根的 `.venv` → 系统 `python3`。本机建一次 `.venv` 之后，直接 `node scripts/<名字>.mjs` 就能跑，不用在命令前写解释器路径：
+浏览器回归（`scripts/*-browser.mjs` 等）要用 Python Playwright，版本与 CI 一致。一般交给 CI 或共用测试环境跑。解释器由 `scripts/python-bin.mjs` 统一选取，顺序是：`PYTHON` 环境变量 → 仓库根的 `.venv` → 系统 `python3`，不用在命令前手写解释器路径。想在自己机器上跑的话（可选），建一次 `.venv` 即可：
 
 ```bash
 python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
