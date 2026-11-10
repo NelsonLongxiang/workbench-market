@@ -1,4 +1,5 @@
 /** One browser, intercepted synthetic origin; no TCP listener or production DB/home. */
+import { pythonBin } from './python-bin.mjs';
 import {spawn} from 'node:child_process';
 import {mkdirSync,writeFileSync,readFileSync} from 'node:fs';
 import {resolve,join} from 'node:path';
@@ -14,7 +15,7 @@ const seedRun={id:30,sop_slug:seedSource.slug,sop_version:2,status:'finished',da
 writeFileSync(join(out,'seed.html'),renderReadonlySopRun(seedSource,seedRun,'prepare',0,marketOrigin));
 const config=join(out,'config.json');writeFileSync(config,JSON.stringify({url:marketOrigin+'/preview',html:join(out,'rendered.html'),seedHtml:join(out,'seed.html'),result:join(out,'browser.json'),screenshot:join(out,'preview.png')}));
 const env={PYTHONIOENCODING:'utf-8',PYTHONUTF8:'1'};for(const k of ['SystemRoot','WINDIR','PATH','PATHEXT','TEMP','TMP'])if(process.env[k])env[k]=process.env[k];
-let code=null;const p=spawn(process.env.PYTHON||'python',['scripts/sop-readonly-browser.py',config],{env,stdio:'inherit'});
+let code=null;const p=spawn(pythonBin(),['scripts/sop-readonly-browser.py',config],{env,stdio:'inherit'});
 const timer=setTimeout(()=>{console.error('owned SOP browser deadline exceeded');p.kill()},25000);
 try{code=await new Promise((r,j)=>{p.once('exit',r);p.once('error',j)})}finally{clearTimeout(timer);writeFileSync(join(out,'result.json'),JSON.stringify({code,production:false,tcp_connections:0,scope:'Playwright request interception; actual Chromium opaque srcdoc/CSP; not HTTP transport or mounted Runner'},null,2));console.log({out,code})}
 process.exitCode=code??1;

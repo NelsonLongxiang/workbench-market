@@ -7,6 +7,7 @@
  *  ④ SPA 顶栏显示登录身份与「退出」；会话失效后 SPA 的接口 401 整页去登录页（next 回当前页）；退出后再进被拦
  *  ⑤ next 指向站外时登录后落在首页
  *  需先 pnpm --filter web build。合成口令、中性 slug、本机 GitHub 替身、随机回环端口；不碰生产。 */
+import { pythonBin } from './python-bin.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -53,7 +54,7 @@ try {
   const wid = wbs.find((w) => w.url === '/apps/gate-app/')?.id;
   const cfg = join(TMP, 'browser.json');
   writeFileSync(cfg, JSON.stringify({ base, wid, token: env.ADMIN_TOKEN }));
-  const py = spawn(process.env.PYTHON || 'python3', ['scripts/login-gate-browser.py', cfg], { stdio: 'inherit' });
+  const py = spawn(pythonBin(), ['scripts/login-gate-browser.py', cfg], { stdio: 'inherit' });
   code = await new Promise((x, j) => { py.on('error', j); py.on('exit', x); });
 } catch (e) {
   console.error(String(e?.stack ?? e));

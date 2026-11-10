@@ -1,4 +1,5 @@
 /** #296 browser fixture only: demonstrates 303 Strict-cookie red and 200 bounce green. */
+import { pythonBin } from './python-bin.mjs';
 import {createServer} from 'node:http';import{spawn}from'node:child_process';import{mkdirSync,writeFileSync}from'node:fs';import{resolve,join}from'node:path';import{randomUUID}from'node:crypto';
 import{createContentAccess,contentLaunchPage}from'../server/src/content-access.ts';
 const out=resolve('tmp/content-launch-browser',randomUUID());mkdirSync(out,{recursive:true});let access,market,content;let mode='200';
@@ -19,5 +20,5 @@ const server=createServer(async(q,s)=>{
 });
 await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;market='http://127.0.0.1:'+port;content='http://w-1-test.internal:'+port;access=createContentAccess([{id:1,origin:content}],market,()=> 'fixture');
 const cfg=join(out,'config.json');writeFileSync(cfg,JSON.stringify({market,result:join(out,'result.json')}));let code=1;
-try{const p=spawn(process.env.PYTHON||'python3',['scripts/content-launch-browser.py',cfg],{stdio:'inherit'});code=await new Promise((r,j)=>{p.on('exit',r);p.on('error',j)})}finally{await new Promise(r=>server.close(r))}
+try{const p=spawn(pythonBin(),['scripts/content-launch-browser.py',cfg],{stdio:'inherit'});code=await new Promise((r,j)=>{p.on('exit',r);p.on('error',j)})}finally{await new Promise(r=>server.close(r))}
 console.log(JSON.stringify({evidence:out,code}));process.exitCode=code??1;

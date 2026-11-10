@@ -1,4 +1,5 @@
 /** #341: actual script boundaries, intercepted negatives + real owned-loopback positives only. */
+import { pythonBin } from './python-bin.mjs';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -24,7 +25,7 @@ urllib.request.OpenerDirector.open=intercept
 sys.argv=['scripts/seed-demo-sop.py',*sys.argv[1:]]
 runpy.run_path('scripts/seed-demo-sop.py',run_name='__main__')
 `;
-const python=process.env.PYTHON||(process.platform==='win32'?'python':'python3');
+const python=pythonBin();
 const migrate=(args,stub=true)=>run(process.execPath,[...(stub?['--import','data:text/javascript,'+encodeURIComponent(intercepted)]:[]),'scripts/migrate-layerfs-p1.mjs',...args]);
 const seed=(args,env={},stub=true)=>run(python,stub?['-c',pyIntercept,...args]:['scripts/seed-demo-sop.py',...args],env);
 const deny=async(name,result)=>{check(name+' nonzero',result.code!==0);check(name+' zero HTTP calls',!result.stdout.includes('HTTP_ATTEMPT'));};

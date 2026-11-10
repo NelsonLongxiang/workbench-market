@@ -2,6 +2,7 @@
 /** #318 SOP 交付空间浏览器回归（Python Playwright/Chromium，CI browser-security job）。
  *  合成 SOP（含私有填写值 + 附件）+ 全新 DATA_DIR + 随机回环端口；业务面无读授权、控制面持管理员口令两种视角。
  *  需先 pnpm --filter web build（服务端托管 web/dist）。 */
+import { pythonBin } from './python-bin.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -40,7 +41,7 @@ try {
   await api('POST', `/api/sop/runs/${run.id}/finish`, {});
   const cfg = join(TMP, 'browser.json');
   writeFileSync(cfg, JSON.stringify({ base, control: `http://127.0.0.1:${PORT + 1}`, token: env.ADMIN_TOKEN, slug: 'rack-check', run: run.id, private: ['A-12', 'SECRET-POS', 'PRIVATE-TORQUE-42', 'report-private.txt'], step_body: 'STEP-BODY-HTML', downloads: join(TMP, 'dl') }));
-  const py = spawn(process.env.PYTHON || 'python3', ['scripts/sop-space-browser.py', cfg], { stdio: 'inherit' });
+  const py = spawn(pythonBin(), ['scripts/sop-space-browser.py', cfg], { stdio: 'inherit' });
   code = await new Promise((x, j) => { py.on('error', j); py.on('exit', x); });
 } catch (e) {
   console.error(String(e?.stack ?? e));
