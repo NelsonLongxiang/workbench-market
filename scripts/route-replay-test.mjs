@@ -156,6 +156,35 @@ export function compareStep(step, actual) {
   return differences(recorded.body, actual.body, '响应体', out);
 }
 
+/**
+ * 依次跑一个场景的请求。sendRequest(request, vars) 负责发出去并返回 { status, type, body }（自检时换成假的）。
+ * 回放：返回每条请求的差异。某一条发不出去（比如它要用的变量前面没存下来），算这一条的差异，后面的照跑。
+ * 录制：把应答写进 step.response；发不出去、或要存的值没取到，直接报错，不写出半份录制。
+ */
+export async function runSteps(steps, sendRequest, record = false) {
+  const vars = {};
+  const results = [];
+  for (const step of steps) {
+    let actual;
+    try {
+      const raw = await sendRequest(step.request, vars);
+      for (const [name, path] of Object.entries(step.save ?? {})) {
+        const value = pick(raw.body, path);
+        if (value !== undefined && value !== null) vars[name] = value;
+        else if (record) throw new Error(`应答里取不到要存的 ${path}`);
+      }
+      actual = step.compare === 'status' ? { status: raw.status } : steady(raw);
+    } catch (err) {
+      if (record) throw new Error(`${step.id}：${err.message}`);
+      results.push({ step, diffs: [`请求没发出去：${err.message}`] });
+      continue;
+    }
+    if (record) step.response = actual;
+    results.push({ step, diffs: record ? [] : compareStep(step, actual) });
+  }
+  return results;
+}
+
 // ---------- 隔离实例 ----------
 
 async function freePort() {
@@ -238,7 +267,7 @@ function moduleRouteCount(domain) {
 
 // ---------- 自检 ----------
 
-function selftest() {
+async function selftest() {
   let failed = 0;
   const check = (ok, label) => { console.log(`  ${ok ? '✓' : '✗'} ${label}`); if (!ok) failed++; };
   const known = snapshotRoutes({ apps: [['USE /  <- query', 'GET /api/x  <- <anonymous>', 'PUT /api/x/:id(\\d+)  <- <anonymous>', 'GET,POST /api/y  <- a, b', 'GET /^\\/z\\/[a-z]+$/  <- <anonymous>']] });
@@ -270,6 +299,27 @@ function selftest() {
   check(compareStep({}, { status: 200, type: '', body: '' }).join().includes('还没录过'), '比较：没录过的请求算差异');
   const sample = { a: [{ id: 1, name: 'x' }], b: {}, c: [] };
   check(JSON.stringify(JSON.parse(render(sample))) === JSON.stringify(sample), '写文件：写出来的是同一份 JSON');
+  // 整条链路，发请求的一段换成假的：建一个、读它、读一个不存在的
+  const fake = (created) => async (request, vars) => {
+    const path = fill(request.path, vars);
+    if (request.method === 'POST') return { status: 201, type: 'application/json', body: created };
+    return path === '/api/x/7' ? { status: 200, type: 'application/json', body: { id: 7, at: '2026-01-02 03:04:05' } } : { status: 404, type: 'application/json', body: { error: 'not found' } };
+  };
+  const steps = () => [
+    { id: 'create', request: { method: 'POST', path: '/api/x' }, save: { id: 'id' } },
+    { id: 'read', request: { method: 'GET', path: '/api/x/{{id}}' } },
+    { id: 'missing', request: { method: 'GET', path: '/api/x/8' } },
+  ];
+  const tape = steps();
+  await runSteps(tape, fake({ id: 7 }), true);
+  check(tape.every((s) => s.response) && tape[1].response.body.at === '<时间>' && tape[2].response.status === 404, '录制：每条请求都写进了应答，时间已换成占位');
+  check((await runSteps(tape, fake({ id: 7 }))).every((r) => r.diffs.length === 0), '回放：行为没变，零差异');
+  const moved = await runSteps(tape, fake({ id: 8 }));
+  check(moved.filter((r) => r.diffs.length).map((r) => r.step.id).join() === 'create,read', '回放：行为变了，变了的那几条报出来，没变的不报');
+  const lost = await runSteps(tape, fake({}));
+  check(lost[1].diffs.join().includes('没存过的变量') && lost[2].diffs.length === 0, '回放：前一条没给出要存的值，用到它的那条算差异，后面的照跑');
+  let refused = ''; try { await runSteps(steps(), fake({}), true); } catch (e) { refused = e.message; }
+  check(refused.includes('create') && refused.includes('取不到'), '录制：要存的值没取到，直接报错，不写出半份录制');
   console.log(failed ? `===== 录制回放自检：${failed} 项失败 =====` : '===== 录制回放自检：全过 =====');
   return failed ? 1 : 0;
 }
@@ -299,23 +349,19 @@ async function main() {
   for (const { file, domain, cassette } of cassettes) {
     for (const scenario of cassette.scenarios) {
       const instance = await boot(`${domain}-${scenario.name}`, scenario.env ?? {});
-      const vars = {};
+      let results;
+      try { results = await runSteps(scenario.steps, (request, vars) => send(instance.base, request, vars), record); }
+      catch (err) { throw new Error(`${domain}/${scenario.name}/${err.message}`); }
+      finally { await instance.stop(); }
+      total += results.length;
       let diffs = 0;
-      try {
-        for (const step of scenario.steps) {
-          const raw = await send(instance.base, step.request, vars);
-          for (const [name, path] of Object.entries(step.save ?? {})) vars[name] = pick(raw.body, path);
-          const actual = step.compare === 'status' ? { status: raw.status } : steady(raw);
-          total++;
-          if (record) { step.response = actual; continue; }
-          const d = compareStep(step, actual);
-          if (d.length === 0) continue;
-          diffs++;
-          console.log(`\n✗ ${domain}/${scenario.name}/${step.id}  ${step.request.method} ${step.request.path}`);
-          for (const line of d.slice(0, 12)) console.log(`    ${line}`);
-          if (d.length > 12) console.log(`    …共 ${d.length} 处`);
-        }
-      } finally { await instance.stop(); }
+      for (const { step, diffs: d } of results) {
+        if (d.length === 0) continue;
+        diffs++;
+        console.log(`\n✗ ${domain}/${scenario.name}/${step.id}  ${step.request.method} ${step.request.path}`);
+        for (const line of d.slice(0, 12)) console.log(`    ${line}`);
+        if (d.length > 12) console.log(`    …共 ${d.length} 处`);
+      }
       changed += diffs;
       if (!record) console.log(`${diffs ? '✗' : '✓'} ${domain}/${scenario.name}：${scenario.steps.length} 条请求，${diffs ? `${diffs} 条和录下来的不一样` : '和录下来的一样'}`);
     }
