@@ -26,6 +26,7 @@ import { registerCockpitRoutes } from './routes/cockpits.ts';
 import { registerCookieRoutes } from './routes/cookies.ts';
 import { registerStatsRoutes } from './routes/stats.ts';
 import { registerDesignTokenRoutes } from './routes/design-tokens.ts';
+import { registerAgentCardRoutes } from './routes/agent-card.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import { SkillService } from './services/skill.ts';
@@ -3196,9 +3197,7 @@ loginGate.mount(app); // /login、/api/auth/login|logout|me（解析器之后、
 // ---------- A2A 网络接入（GH #17 P1：签名卡片 + 人工绑定，只读暴露） ----------
 // 卡片：canonical/签名与上游 card.ts（裁判钉 75a3ebd）逐字节一致；sessionTeams 只列
 // published 且 ≥1 有效绑定的 SOP；不发布 teamMemberships（修订 3：绑定图不出门）。
-app.get('/.well-known/agent-card.json', (_req, res) => {
-  res.json(buildAgentCard(a2aKeyPath()));
-});
+registerAgentCardRoutes(http);
 
 // 人工绑定 API（读写都要 ADMIN_TOKEN + Origin 空或同源——服务端校验跨源，CORS 白名单管不住执行）
 // 管理员口令存储（主人要求「页面手动设置」）：settings.admin_token_sha256（不可逆），
