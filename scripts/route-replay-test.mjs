@@ -16,6 +16,7 @@
  *
  * 覆盖要求，不满足就直接失败、不起实例：
  *   · server/src/routes/ 下每个域模块都有一份；routes 的条数等于模块里注册的路由数，每条都在 surfaces/routes.json 里；
+ *     用 app.all 注册的路由在 routes 里写成「ALL 路径」，什么方法的请求都算打在它上面；
  *   · 每条路由都有未授权（unauthorized）、参数非法（invalid）、正常（normal）三类请求，请求确实打在那条路由上；
  *   · 类别按录下来的应答核对，不是标了就算：未授权是 401 或 403，参数非法是其余的 4xx，正常是 2xx 或 3xx；
  *   · 确实没有某一类的路由（比如不读任何参数，就没有会被拒的输入），在 exempt 里写明理由，并指给一条打在这条路由上、照常应答的请求。
@@ -34,8 +35,13 @@ const ROUTES_SNAPSHOT = join(ROOT, 'surfaces', 'routes.json');
 const MODULES_DIR = join(ROOT, 'server', 'src', 'routes');
 const CLASSES = ['unauthorized', 'invalid', 'normal'];
 const CLASS_NAME = { unauthorized: '未授权', invalid: '参数非法', normal: '正常' };
-// 和 scripts/tech-route-check.mjs 数路由用的是同一个写法
-const ROUTE_CALL = /\b(?:app|router|r|api)\.(?:get|post|put|patch|delete)\(\s*['"`\/\[]/g;
+// 和 scripts/tech-route-check.mjs 数路由的写法一样，另外多认 all：体检不数它，但它在运行时是一条路由（快照里记成 ALL）
+const ROUTE_CALL = /\b(?:app|router|r|api)\.(?:get|post|put|patch|delete|all)\(\s*['"`\/\[]/g;
+
+/** 一段源码里注册了几条路由。 */
+export function countRouteCalls(source) {
+  return (String(source).match(ROUTE_CALL) || []).length;
+}
 
 /** 一个应答算哪一类，只看状态码：401、403 是未授权；其余 4xx 是参数非法；2xx、3xx 是正常；别的（比如 5xx）哪一类都不算。 */
 export function classOf(status) {
@@ -103,7 +109,7 @@ export function checkCassette(cassette, known, moduleRouteCount = null, answered
       if (!CLASSES.includes(step.class)) { problems.push(`${where}：class 只能是 ${CLASSES.join(' / ')}`); continue; }
       const [routeMethod, ...rest] = step.route.split(' ');
       const pathname = path.split('?')[0].replace(/\{\{[A-Za-z0-9_]+\}\}/g, '0');
-      if (routeMethod !== method.toUpperCase() || !routeMatcher(rest.join(' ')).test(pathname)) { problems.push(`${where}：请求 ${method} ${path} 打不到它声明的路由 ${step.route}`); continue; }
+      if ((routeMethod !== 'ALL' && routeMethod !== method.toUpperCase()) || !routeMatcher(rest.join(' ')).test(pathname)) { problems.push(`${where}：请求 ${method} ${path} 打不到它声明的路由 ${step.route}`); continue; }
       if (answered) {
         const status = step.response?.status;
         if (typeof status !== 'number') { problems.push(`${where}：还没录过（跑一次 --record）`); continue; }
@@ -356,7 +362,7 @@ function loadCassettes(only) {
 
 function moduleRouteCount(domain) {
   const file = join(MODULES_DIR, `${domain}.ts`);
-  return existsSync(file) ? (readFileSync(file, 'utf8').match(ROUTE_CALL) || []).length : null;
+  return existsSync(file) ? countRouteCalls(readFileSync(file, 'utf8')) : null;
 }
 
 // ---------- 自检 ----------
@@ -378,6 +384,11 @@ async function selftest() {
   check(checkCassette({ ...full, routes: ['GET /api/x', 'GET /api/gone'] }, known).some((p) => p.includes('/api/gone')), '覆盖检查：路由不在快照里，点名');
   check(checkCassette(full, known, 2).some((p) => p.includes('注册了 2 条')), '覆盖检查：域模块里的路由比列出来的多，失败');
   check(checkCassette(withSteps([a, b, c, step('d', 'GET /api/x', 'normal', 'GET', '/api/other', 200)]), known).some((p) => p.includes('打不到')), '覆盖检查：请求没打在它声明的路由上，失败');
+  check(countRouteCalls("app.get('/a', h);\n  app.all('/b', h);\n  r.post(`/c`, h);\n  app.use(x); app.set('etag', false);") === 3, '数路由：get、post、all 都算一条，use 和 set 不算');
+  const anyKnown = snapshotRoutes({ apps: [['ALL /api/w/:id  <- <anonymous>']] });
+  const anyMethod = (extra = []) => ({ domain: 'w', routes: ['ALL /api/w/:id'], scenarios: [{ name: 's', steps: [step('a', 'ALL /api/w/:id', 'unauthorized', 'DELETE', '/api/w/1', 403), step('b', 'ALL /api/w/:id', 'invalid', 'POST', '/api/w/1', 400), step('c', 'ALL /api/w/:id', 'normal', 'GET', '/api/w/1', 200), ...extra] }] });
+  check(checkCassette(anyMethod(), anyKnown, 1).length === 0, '覆盖检查：用 all 注册的路由写成 ALL，什么方法的请求都算打在它上面');
+  check(checkCassette(anyMethod([step('d', 'ALL /api/w/:id', 'normal', 'GET', '/api/other', 200)]), anyKnown).some((p) => p.includes('打不到')), '覆盖检查：ALL 的路由，路径对不上照样算打不到');
   // 类别按应答核对
   check([401, 403].every((s) => classOf(s) === 'unauthorized') && [400, 404, 409, 422].every((s) => classOf(s) === 'invalid') && [200, 201, 204, 302].every((s) => classOf(s) === 'normal') && classOf(500) === null, '类别：401、403 是未授权，其余 4xx 是参数非法，2xx、3xx 是正常，5xx 哪一类都不算');
   const mislabeled = checkCassette(withSteps([{ ...a, response: { status: 200 } }, b, c]), known);
