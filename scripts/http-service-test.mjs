@@ -7,6 +7,8 @@
  *   H4 撤销是换一个新数组：撤销发生时正在处理中的请求照样走完后面的层
  *   H5 不带处理函数的注册直接报错，栈不变（Express 里 app.get(x) 是读配置项）
  *   H6 expressApp() 给出的是 Express 应用本身，不是代理
+ *   H7 同一路径上有好几条路由（本仓最常见的形状：GET、POST 同一个路径）：撤哪条就只摘哪条，同路径的其余几条不动
+ *   H8 撤销函数是普通函数：不带 then，调用后不返回东西
  */
 import { createRequire } from 'node:module';
 import { once } from 'node:events';
@@ -151,6 +153,42 @@ try {
     const done = await pending;
     ok('H4 撤销发生时正在处理中的请求，照样走到后面的层', done.status === 200 && done.body.reached === 'tail', JSON.stringify(done));
     ok('H4 撤销本身生效：新请求打不到被撤销的路由', (await call('GET', '/early')).body.reached === 'tail');
+  }
+
+  // ---------- H7：同一路径上有好几条路由，只撤其中一条 ----------
+  {
+    const { http, app } = await fresh();
+    const say = (who) => (_req, res) => res.json({ who });
+    const first = say('get-1'), second = say('get-2'), post = say('post'), put = say('put');
+    const revokeFirst = http.get('/same', first);
+    const revokePost = http.post('/same', post);
+    const revokeSecond = http.get('/same', second); // 同一方法、同一路径再注册一次：排在后面，前一条在的时候轮不到它
+    http.put('/same', put);
+    app.use(tail);
+    const call = await serve(app);
+    const handlers = () => app._router.stack.filter((l) => l.route).map((l) => l.route.stack[0].handle);
+    const same = (a, b) => a.length === b.length && a.every((h, i) => h === b[i]);
+    ok('H7 撤销之前：同一路径上的 GET、POST、PUT 各答各的，重复注册的 GET 由先注册的那条应答', (await call('GET', '/same')).body.who === 'get-1' && (await call('POST', '/same')).body.who === 'post' && (await call('PUT', '/same')).body.who === 'put');
+    revokePost();
+    ok('H7 只撤 POST：栈里只少它这一层，同路径的另外三条还在、顺序不变', same(handlers(), [first, second, put]), `\n${dump(app).join('\n')}`);
+    ok('H7 只撤 POST：POST 落到兜底，同路径的 GET 和 PUT 照常应答', (await call('POST', '/same')).body.error === 'fell-through' && (await call('GET', '/same')).body.who === 'get-1' && (await call('PUT', '/same')).body.who === 'put');
+    revokeFirst();
+    ok('H7 再撤先注册的 GET：只摘它自己，后注册的那条 GET 接着应答', same(handlers(), [second, put]) && (await call('GET', '/same')).body.who === 'get-2' && (await call('PUT', '/same')).body.who === 'put');
+    revokeSecond();
+    ok('H7 两条 GET 都撤了：GET 落到兜底，PUT 还在', same(handlers(), [put]) && (await call('GET', '/same')).body.error === 'fell-through' && (await call('PUT', '/same')).body.who === 'put');
+  }
+
+  // ---------- H8：撤销函数是普通函数 ----------
+  {
+    const { http, app } = await fresh();
+    const revoke = http.get('/plain', (_req, res) => res.json({ route: 'plain' }));
+    app.use(tail);
+    // Cordis 的 effect 交回来的东西带 then：谁要是在异步的注册函数里写了 await http.get(...)，拿到的会是另一个函数
+    const awaited = await revoke;
+    ok('H8 撤销函数不带 then：await 注册结果，拿到的还是它自己', typeof revoke === 'function' && !('then' in revoke) && awaited === revoke);
+    const before = dump(app);
+    const returned = revoke();
+    ok('H8 调用撤销函数不返回东西，路由当场摘掉（不用等）', returned === undefined && dump(app).join('\n') === before.filter((l) => !l.startsWith('GET /plain ')).join('\n'));
   }
 
   // ---------- H5、H6 ----------
