@@ -36,4 +36,15 @@ node scripts/tech-route-check.mjs    # 路线体检：把末尾「本次变化�
 pnpm check                           # web 类型检查 + server 语法检查
 ```
 
-体检现在全部只报告，不拦 PR。哪些检查以后变成预算或红线，由属主裁定后写进 `tech-route.json`。
+体检分三档，每项现在是哪一档以 `tech-route.json` 为准（属主 2026-11-10 裁定）：
+
+- **红线**，高于目标就失败：不可擦除的语法、领域服务引用 express、没登记的运行时依赖、环境变量没写进 README、改动里有隐私命中、对外的面和快照不一致。
+- **预算**，比基线多就失败：`index.ts` 里的路由、`services/` 之外的 SQL、`db.ts` 之外的建表改表、没登记的测试脚本、类型错误、README 没提到的文件和已失效的路径。
+- **计数**，只报告：其余各项。其中三项的落点还没建好（配置、定时器、身份），建好之后转预算。
+
+被拦住的时候：
+
+- 先把东西放到上表说的地方。
+- 改了路由、MCP 工具或表结构：跑 `node scripts/surface-snapshot.mjs --write`，把 `surfaces/` 和代码一起提交。
+- 确实要破例：在 `tech-route.json` 的 `waivers` 里加一条，写明规则、哪一项、理由、谁批的、到哪天。过期不算。
+- 数字变小了：合并之后跑 `node scripts/tech-route-check.mjs --tighten`，把基线收紧。

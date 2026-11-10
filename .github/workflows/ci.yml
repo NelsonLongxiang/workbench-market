@@ -137,10 +137,11 @@ jobs:
         run: pnpm --filter web typecheck
       - name: server 语法核（esbuild）
         run: node scripts/check-server-syntax.mjs
-      - name: 路线体检（只报告：结构数字对照 tech-route.json 的基线，体检表写进摘要页；自检先红后绿）
+      - name: 路线体检（结构数字对照 tech-route.json 的基线：预算与红线超了就失败，体检表写进摘要页；自检先红后绿）
         run: |
           git fetch --no-tags --depth=1 origin main
           node scripts/tech-route-check.mjs --selftest
+          node scripts/surface-snapshot.mjs --selftest
           node scripts/tech-route-check.mjs
           node scripts/privacy-gate.mjs --selftest
       - name: Startup security self-probe (#326, loopback synthetic only)

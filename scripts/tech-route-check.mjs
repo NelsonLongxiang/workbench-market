@@ -2,14 +2,15 @@
 /**
  * 路线体检：把技术路线上的每条约定量成数字，对照仓库根 tech-route.json 里的基线。
  * 只读、零依赖。档位是 count 的检查只报告；budget 超过基线、redline 超过目标，退出码才是 1。
- * 第一批全部是 count，不拦任何 PR。约定本身见仓库根的 CONTRIBUTING.md。
+ * 每个检查现在是哪一档，写在 tech-route.json 里。约定本身见仓库根的 CONTRIBUTING.md。
  *
  *   node scripts/tech-route-check.mjs               打印体检表（CI 里同时写进摘要页）
  *   node scripts/tech-route-check.mjs --json        机器可读
  *   node scripts/tech-route-check.mjs --selftest    每个检查先红后绿：干净样本必为 0，违规样本必被数到
  *   node scripts/tech-route-check.mjs --init        按现状写基线（只在建清单或新增检查时用）
  *   node scripts/tech-route-check.mjs --tighten     把变小了的基线收紧（只减不增）
- *   node scripts/tech-route-check.mjs --no-types    跳过类型检查那一项（它要跑一遍 tsc，最慢）
+ *   node scripts/tech-route-check.mjs --no-types    跳过类型检查那一项（它要跑一遍 tsc）
+ *   node scripts/tech-route-check.mjs --no-boot     跳过快照那一项（它要起一个隔离实例）
  *   node scripts/tech-route-check.mjs --root DIR    体检另一棵目录树
  *
  * 退出码：0 通过；1 有预算或红线被突破；2 用法或清单错误。
@@ -77,7 +78,7 @@ function runScript(repo, script, args) {
   const file = join(repo.root, 'scripts', script);
   if (!existsSync(file)) return null;
   const r = spawnSync(process.execPath, [file, ...args], { cwd: repo.root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
-  return { status: r.status, stdout: r.stdout || '' };
+  return { status: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
 }
 
 function typecheck(repo) {
@@ -293,7 +294,9 @@ const RULES = [
       if (files.length === 0) return { total: 0, note: '没有改动的文件' };
       const r = runScript(repo, 'privacy-gate.mjs', files);
       if (!r) return { total: 0, skipped: '没有 scripts/privacy-gate.mjs' };
-      return { total: r.status === 0 ? 0 : 1, note: `扫了 ${files.length} 个改动的文件；通用模式，业务词表未接` };
+      const items = [...new Set([...r.stderr.matchAll(/^\s*✗ (.+?) — /gm)].map((m) => m[1]))].sort();
+      if (r.status !== 0 && items.length === 0) items.push('隐私闸报了命中，但没读出文件名');
+      return { total: items.length, items, note: `扫了 ${files.length} 个改动的文件；通用模式，业务词表未接` };
     },
   },
   {
@@ -318,6 +321,18 @@ const RULES = [
       return { total: out.total.style, note: `写死的色值 ${out.total.colors}，档位外字号 ${out.total.offScaleFont}` };
     },
   },
+  {
+    id: 'surface-snapshots', what: '与快照不一致的对外面（路由、MCP 工具、表结构）', target: 0, proposed: 'redline',
+    measure: (repo) => {
+      if (flag('--no-boot')) return { total: 0, skipped: '按 --no-boot 跳过' };
+      if (!repo.exists('server/node_modules')) return { total: 0, skipped: '没装依赖（起不了隔离实例）' };
+      const r = runScript(repo, 'surface-snapshot.mjs', ['--json']);
+      if (!r) return { total: 0, skipped: '没有 scripts/surface-snapshot.mjs' };
+      let out;
+      try { out = JSON.parse(r.stdout); } catch { return { total: 1, items: [`快照脚本没跑成：${(r.stderr || r.stdout).trim().split('\n').pop()?.slice(0, 160) || '没有输出'}`] }; }
+      return { total: out.changed.length, items: out.changed, note: `${out.counts.routes} 条路由、${out.counts.tools} 个工具、${out.counts.tables} 张表` };
+    },
+  },
 ];
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -326,19 +341,24 @@ const baselineOf = (m) => (m.items ? { total: m.total, items: m.items } : m.file
 /** 实际值对照基线：over 是「比基线多出来的」，每条都点名。豁免未过期的不算。 */
 function compare(rule, m, waivers = [], now = today()) {
   const base = rule.baseline;
-  if (!base) return { over: [], delta: 0, note: '没有基线' };
+  // 豁免只认整项：条目相等，或文件型条目的「文件（b → n）」。不按前缀，免得 a 顺带豁免了 a2a.ts。
+  const waived = (text) => waivers.some((w) => w.rule === rule.id && (text === w.item || text.startsWith(`${w.item}（`)) && String(w.until) >= now);
+  // live：去掉未过期豁免之后还剩多少，红线档拿它和目标比。
+  const live = m.items ? m.items.filter((it) => !waived(it)).length
+    : m.files ? Object.entries(m.files).filter(([f]) => !waived(f)).reduce((a, [, n]) => a + n, 0)
+    : m.total;
+  if (!base) return { over: [], delta: 0, live, note: '没有基线' };
   const over = [];
   if (m.items) { const known = new Set(base.items || []); for (const it of m.items) if (!known.has(it)) over.push(it); }
   else if (m.files) { for (const [f, n] of Object.entries(m.files)) { const b = base.files?.[f] ?? 0; if (n > b) over.push(`${f}（${b} → ${n}）`); } }
   else if (m.total > base.total) over.push(`${base.total} → ${m.total}`);
-  const waived = (text) => waivers.some((w) => w.rule === rule.id && (text === w.item || text.startsWith(`${w.item}（`)) && String(w.until) >= now);
-  return { over: over.filter((o) => !waived(o)), delta: m.total - base.total };
+  return { over: over.filter((o) => !waived(o)), delta: m.total - base.total, live };
 }
 
 function verdict(rule, m, cmp) {
   if (m.skipped) return { fail: false, change: `未量：${m.skipped}` };
   const tier = rule.tier || 'count';
-  const fail = (tier === 'budget' && cmp.over.length > 0) || (tier === 'redline' && rule.target !== null && m.total > rule.target);
+  const fail = (tier === 'budget' && cmp.over.length > 0) || (tier === 'redline' && rule.target !== null && cmp.live > rule.target);
   const change = cmp.over.length ? `多出 ${cmp.over.length} 处：${cmp.over.slice(0, 3).join('、')}${cmp.over.length > 3 ? ' 等' : ''}`
     : cmp.delta < 0 ? `少了 ${-cmp.delta}` : cmp.note || '持平';
   return { fail, change };
@@ -394,12 +414,12 @@ function writeList(root, rows, previous, mode) {
     else if (m.files) { const files = keep(Object.fromEntries(Object.entries(old.files || {}).map(([f, n]) => [f, Math.min(n, m.files[f] ?? 0)]))); baseline = { total: sum(files), files }; }
     else baseline = { total: Math.min(old.total, m.total) };
     if (old && baseline.total !== old.total) changes.push(`${rule.id} ${old.total} → ${baseline.total}`);
-    return { id: rule.id, tier: rule.tier || 'count', proposed: rule.proposed, what: rule.what, target: rule.target, baseline };
+    return { id: rule.id, tier: rule.tier || 'count', proposed: rule.proposed, what: rule.what, target: rule.target, ...(rule.note ? { note: rule.note } : {}), baseline };
   });
   const list = {
     schema: 1,
     as_of: today(),
-    doc: '路线清单：规则、档位、基线、豁免。由 scripts/tech-route-check.mjs 读写，约定见 CONTRIBUTING.md。tier 是现在生效的档位（count 只报告，budget 超过基线失败，redline 超过目标失败）；proposed 是建议档位，等属主裁定。deps 是登记过的运行时依赖；tests 登记不进 CI 的测试脚本和理由；waivers 是豁免：{rule, item, reason, by, until}，过期不算。',
+    doc: '路线清单：规则、档位、基线、豁免。由 scripts/tech-route-check.mjs 读写，约定见 CONTRIBUTING.md。tier 是现在生效的档位（count 只报告，budget 超过基线失败，redline 超过目标失败）；proposed 是建议档位。属主 2026-11-10 裁定按建议档位开；落点还没建好的检查先留在 count，rule.note 写明什么时候开。deps 是登记过的运行时依赖；tests 登记不进 CI 的测试脚本和理由；waivers 是豁免：{rule, item, reason, by, until}，过期不算。',
     rules,
     deps,
     tests: previous?.tests || {},
@@ -441,6 +461,9 @@ function selftest() {
   check(compare(rule('budget', { total: 2, files: { 'a.ts': 2 } }), m, waiver('2000-01-01')).over.length === 1, '豁免已过期：照算');
   const prefix = [{ rule: 'x', item: 'b', reason: '自检', by: '自检', until: '2999-01-01' }];
   check(compare(rule('budget', { total: 2, files: { 'a.ts': 2 } }), m, prefix).over.length === 1, '豁免只认整项：item 是 b，不会顺带豁免 b.ts');
+  const both = [...waiver('2999-01-01'), { rule: 'x', item: 'a.ts', reason: '自检', by: '自检', until: '2999-01-01' }];
+  check(!verdict(rule('redline', {}), m, compare(rule('redline', {}), m, both)).fail, '红线档：全部有未过期的豁免，通过');
+  check(verdict(rule('redline', {}), m, compare(rule('redline', {}), m, waiver('2999-01-01'))).fail, '红线档：只豁免了一部分，照样失败');
   console.log(failed ? `===== 路线体检自检：${failed} 项失败 =====` : '===== 路线体检自检：全过 =====');
   return failed ? 1 : 0;
 }
