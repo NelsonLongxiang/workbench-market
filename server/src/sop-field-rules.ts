@@ -5,6 +5,10 @@
  *  #437① 文件清单字段：<textarea data-field data-type="file-list" data-roles="a|b" data-statuses="x|y" data-min-items data-max-items>，
  *  值是行对象数组 [{file_id, name, role, source, period, status, sha256, size, mime}]；这里核结构，完成时另按文件面实际 hash 逐行核。
  *  data-void-statuses="作废" 标出「不算数」的状态：这些行照样核结构，但不计入必填与 data-min-items。
+ *  #471 字段间数值关系 data-check="<表达式>"：如 public_count <= public_target、overlap + only_a = count_a。
+ *  表达式只认字段名（同步的 field，跨步写 step.field）、数字、+ - 和一个比较（<= >= < > =），不执行任意脚本；
+ *  控件自己为空、或引用的字段有空值或不是数字时跳过（必填与数字格式由已有规则管）；写错的表达式当作没有这条规则。
+ *  提示用 data-check-error，没写就给默认文案。执行页嵌入下面同一份 parseCheckExpr / evalCheckExpr 源码，两边同一语义。
  *  没写这些属性的 SOP 不受影响。 */
 import type { SopManifest } from './sop-types.ts';
 
@@ -18,6 +22,103 @@ export interface FieldRule {
   roles?: string[]; statuses?: string[]; minItems?: number; maxItems?: number;
   /** 不计数的状态（如「作废」）：必填与最少行数只数其余的行 */
   voidStatuses?: string[];
+  /** #471 字段间数值关系：parsed 为 parseCheckExpr 的结果；message 来自 data-check-error */
+  check?: { expr: string; parsed: CheckExpr; message?: string };
+  /** 默认提示里把字段名换成 label 用 */
+  checkLabels?: (step: string | null | undefined, field: string) => string;
+}
+
+/** parseCheckExpr 的结果：两边各是带符号的项（数字或字段引用），中间一个比较符 */
+export interface CheckExpr {
+  left: CheckTerm[]; op: string; right: CheckTerm[];
+}
+export interface CheckTerm { sign: number; num?: number; step?: string | null; field?: string }
+
+// —— 下面三个函数会被原样嵌进执行页脚本（sop-runner.ts 用 String(fn)），所以只写浏览器能跑的纯 JS：不加类型标注、不用外部变量 ——
+
+/** 解析 data-check 表达式；写法不对返回 null（当作没有这条规则，不让 SOP 因笔误整页失效） */
+export function parseCheckExpr(src) {
+  var s = String(src == null ? '' : src);
+  if (!s.trim() || s.length > 200) return null;
+  var toks = [], i = 0, n = s.length;
+  var isD = function (c) { return c >= '0' && c <= '9'; };
+  var isA = function (c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c === '_'; };
+  while (i < n) {
+    var c = s.charAt(i);
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') { i++; continue; }
+    if (isD(c)) {
+      var j = i; while (j < n && isD(s.charAt(j))) j++;
+      if (s.charAt(j) === '.' && isD(s.charAt(j + 1))) { j++; while (j < n && isD(s.charAt(j))) j++; }
+      toks.push({ t: 'num', v: Number(s.slice(i, j)) }); i = j; continue;
+    }
+    if (isA(c)) {
+      var k = i; while (k < n && (isA(s.charAt(k)) || isD(s.charAt(k)))) k++;
+      var name = s.slice(i, k), step = null;
+      if (s.charAt(k) === '.' && isA(s.charAt(k + 1))) { step = name; var k2 = k + 1; while (k2 < n && (isA(s.charAt(k2)) || isD(s.charAt(k2)))) k2++; name = s.slice(k + 1, k2); k = k2; }
+      toks.push({ t: 'ref', step: step, field: name }); i = k; continue;
+    }
+    var two = s.slice(i, i + 2);
+    if (two === '<=' || two === '>=' || two === '==') { toks.push({ t: 'cmp', v: two === '==' ? '=' : two }); i += 2; continue; }
+    if (c === '<' || c === '>' || c === '=') { toks.push({ t: 'cmp', v: c }); i++; continue; }
+    if (c === '+' || c === '-') { toks.push({ t: 'sign', v: c === '-' ? -1 : 1 }); i++; continue; }
+    return null;
+  }
+  var sides = [[], []], side = 0, op = '', want = 'term', sign = 1;
+  for (var q = 0; q < toks.length; q++) {
+    var tk = toks[q];
+    if (want === 'term') {
+      if (tk.t === 'sign') { sign = sign * tk.v; continue; }
+      if (tk.t === 'num') sides[side].push({ sign: sign, num: tk.v });
+      else if (tk.t === 'ref') sides[side].push({ sign: sign, step: tk.step, field: tk.field });
+      else return null;
+      sign = 1; want = 'op';
+    } else {
+      if (tk.t === 'sign') { sign = tk.v; want = 'term'; continue; }
+      if (tk.t === 'cmp' && !op) { op = tk.v; side = 1; want = 'term'; continue; }
+      return null;
+    }
+  }
+  if (!op || want !== 'op' || !sides[0].length || !sides[1].length || sides[0].length + sides[1].length > 12) return null;
+  var refs = sides[0].concat(sides[1]).filter(function (x) { return x.field; });
+  if (!refs.length) return null;
+  return { left: sides[0], op: op, right: sides[1] };
+}
+
+/** 求值：get(step, field) 取字段的文本值（step 为 null 表示控件自己所在的步骤）。
+ *  有引用为空或不是数字 → 返回 null（跳过）；否则返回 { ok, a, b }（a、b 为两边的值） */
+export function evalCheckExpr(p, get) {
+  var sum = function (terms) {
+    var t = 0;
+    for (var i = 0; i < terms.length; i++) {
+      var x = terms[i], v;
+      if (x.field) {
+        var raw = get(x.step, x.field);
+        var str = raw === undefined || raw === null ? '' : String(raw).trim();
+        if (!str) return null;
+        v = Number(str);
+        if (!isFinite(v)) return null;
+      } else v = x.num;
+      t += x.sign * v;
+    }
+    return t;
+  };
+  var a = sum(p.left), b = sum(p.right);
+  if (a === null || b === null) return null;
+  var eps = 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
+  var ok = p.op === '<=' ? a <= b + eps : p.op === '>=' ? a >= b - eps : p.op === '<' ? a < b - eps : p.op === '>' ? a > b + eps : Math.abs(a - b) <= eps;
+  return { ok: ok, a: Math.round(a * 1e9) / 1e9, b: Math.round(b * 1e9) / 1e9 };
+}
+
+/** 默认提示：把字段名换成 label，如「须满足 实际条数 ≤ 应取条数（现为 101 与 100）」 */
+export function checkMessage(p, res, labelOf) {
+  var sym = { '<=': '≤', '>=': '≥', '<': '<', '>': '>', '=': '=' };
+  var side = function (terms) {
+    return terms.map(function (x, i) {
+      var name = x.field ? labelOf(x.step, x.field) : String(x.num);
+      return (i === 0 ? (x.sign < 0 ? '-' : '') : (x.sign < 0 ? ' - ' : ' + ')) + name;
+    }).join('');
+  };
+  return '须满足 ' + side(p.left) + ' ' + sym[p.op] + ' ' + side(p.right) + '（现为 ' + res.a + ' 与 ' + res.b + '）';
 }
 
 export interface FileListRow { file_id: number; name?: string; role?: string; source?: string; period?: string; status?: string; sha256: string; size?: number; mime?: string }
@@ -52,6 +153,11 @@ const decode = (s: string) => s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").r
 
 export function extractFieldRules(manifest: SopManifest): FieldRule[] {
   const rules: FieldRule[] = [];
+  const labels = new Map<string, string>();
+  for (const step of manifest.steps ?? []) for (const m of String(step.body ?? '').matchAll(TAG_RE)) {
+    const a = attrs(m[2]);
+    if (typeof a['data-field'] === 'string') labels.set(`${step.key}.${a['data-field']}`, typeof a['data-label'] === 'string' ? decode(a['data-label']) : a['data-field']);
+  }
   for (const step of manifest.steps ?? []) {
     for (const m of String(step.body ?? '').matchAll(TAG_RE)) {
       const a = attrs(m[2]);
@@ -64,6 +170,10 @@ export function extractFieldRules(manifest: SopManifest): FieldRule[] {
       if (m[1].toLowerCase() === 'input' && typeof a.type === 'string') r.type = a.type.toLowerCase();
       if (typeof a['data-error'] === 'string') r.message = decode(a['data-error']);
       if (typeof a['data-required-if'] === 'string') r.requiredIf = parseRequiredIf(decode(a['data-required-if']), step.key);
+      if (typeof a['data-check'] === 'string' && a['data-type'] !== 'file-list') {
+        const expr = decode(a['data-check']), parsed = parseCheckExpr(expr) as CheckExpr | null;
+        if (parsed) r.check = { expr, parsed, message: typeof a['data-check-error'] === 'string' ? decode(a['data-check-error']) : undefined };
+      }
       if (m[1].toLowerCase() === 'textarea' && a['data-type'] === 'file-list') {
         r.type = 'file-list'; r.pattern = undefined; r.minlength = undefined; r.maxlength = undefined;
         r.roles = listOf(typeof a['data-roles'] === 'string' ? decode(a['data-roles']) : undefined);
@@ -72,7 +182,8 @@ export function extractFieldRules(manifest: SopManifest): FieldRule[] {
         r.minItems = num('data-min-items'); r.maxItems = num('data-max-items');
         rules.push(r); continue;
       }
-      if (r.required || r.requiredIf || r.pattern || r.minlength !== undefined || r.maxlength !== undefined || ['url', 'number', 'date', 'month', 'email'].includes(r.type ?? '')) rules.push(r);
+      if (r.check) r.checkLabels = (s: string | null | undefined, f: string) => labels.get(`${s ?? step.key}.${f}`) ?? f;
+      if (r.check || r.required || r.requiredIf || r.pattern || r.minlength !== undefined || r.maxlength !== undefined || ['url', 'number', 'date', 'month', 'email'].includes(r.type ?? '')) rules.push(r);
     }
   }
   return rules;
@@ -131,6 +242,11 @@ export function checkRunData(rules: FieldRule[], data: Record<string, unknown>):
       const n = Number(v);
       if (!Number.isFinite(n)) why('须为数字');
       else { if (r.min !== undefined && n < r.min) why(`不小于 ${r.min}`); if (r.max !== undefined && n > r.max) why(`不大于 ${r.max}`); }
+    }
+    // #471 字段间数值关系：控件自己有值才核；引用的字段有空值或不是数字时跳过
+    if (r.check) {
+      const res = evalCheckExpr(r.check.parsed, (s: string | null, f: string) => valueOf(s ?? r.step, f));
+      if (res && !res.ok) errs.push(`${name}：${r.check.message ?? checkMessage(r.check.parsed, res, r.checkLabels ?? ((_s: string | null, f: string) => f))}`);
     }
   }
   return errs;

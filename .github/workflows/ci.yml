@@ -88,6 +88,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/sop-runner-a11y-browser.mjs
+      - name: SOP 字段间数值关系（#471：data-check 执行页与服务端逐字同结论·依赖字段重算·错误汇总）
+        env:
+          PYTHON: python
+        run: node scripts/sop-field-check-browser.mjs
       - name: SOP run 引用已有文件与配额、文件清单字段（#437②①：逐条结果·同 SOP·源 run 读凭证·不占上传配额·执行页多选逐个上传）
         env:
           PYTHON: python
