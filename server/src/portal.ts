@@ -16,6 +16,7 @@ import type { CookieService } from './services/cookie.ts';
 import { clientIp } from './login-gate.ts';
 import { browserLoginOrigin, odooBrowserOrigin } from './odoo-browser-origin.ts';
 import { configuredOdooUrl, consumeSsoCallback, isOdooSessionTarget, issueSsoCallback, odooSessionOf, safeReturnPath, setSsoTargetLookup, stripOdooSession } from './odoo-session.ts';
+import { suppressUnsupportedOdooLogins } from './odoo-login-proxy.ts';
 
 
 export const goPrefix = /^\/go\/(\d+)(.*)$/;
@@ -153,7 +154,7 @@ export function installPortal(
           const _mkHost = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').trim();
           const _mkProto = (String(req.headers['x-forwarded-proto'] ?? '').includes('https') || req.secure) ? 'https' : 'http';
           const redirectUri = encodeURIComponent(`${_mkProto}://${_mkHost}/go/${m[1]}/?state=${state}`); // #170 P8 绝对回跳 // 回跳经市场（带 state·不裸跳目标域）
-          res.cookie(stateCookie, state, { httpOnly: true, sameSite: 'lax', path: `/go/${m[1]}/`, maxAge: 10 * 60 * 1000 });
+          res.cookie(stateCookie, state, { httpOnly: true, sameSite: 'lax', path: `/go/${m[1]}/`, maxAge: 10 * 60 * 1000, secure: _mkProto === 'https' }); // HTTPS 入口不让 state cookie 走明文 HTTP
           res.clearCookie(retCookie, { path: `/go/${m[1]}/` });
           if (relay) {
             return res.redirect(302, `/web/login?redirect=${encodeURIComponent(`/go/${m[1]}/?state=${state}`)}`);
@@ -381,6 +382,13 @@ export function installPortal(
               return `${name}=${q}${goBase}${stripBase(url)}${q}`;
             };
             if (pCt.includes('text/html')) {
+              // Same-host Odoo relay: external OAuth buttons cannot round-trip and can create
+              // language-prefix loops under /go/<id>/. Hide them while retaining password/TOTP.
+              try {
+                const relayOdooOrigin = process.env.WM_ODOO_LOGIN_PROXY === '1' ? new URL(configuredOdooUrl()).origin : '';
+                const portalOrigin = String((req as express.Request & { goOrigin?: string }).goOrigin ?? '');
+                if (relayOdooOrigin && portalOrigin === relayOdooOrigin) body = suppressUnsupportedOdooLogins(body);
+              } catch { /* bad relay config leaves upstream HTML untouched */ }
               body = body.replace(/(src|href)=(["'])(\/[^"']*)\2/gi, (m, n, q, u) => fixAttr(m, n, q, u));
               // #170 P6 绝对链接：指向目标源自身的完整地址 → /go/<id>/ 前缀（跨源外链不动）
               const _tgtOrigin = String((req as express.Request & { goOrigin?: string }).goOrigin ?? '');
