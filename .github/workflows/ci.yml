@@ -144,8 +144,8 @@ jobs:
           node scripts/surface-snapshot.mjs --selftest
           node scripts/tech-route-check.mjs --strict
           node scripts/privacy-gate.mjs --selftest
-      - name: 身份接缝（契约单测·假提供方对抗组：缺省/登录门/登录中继/中继加登录门四个实例上的拒绝例与合法对照·夹具只在测试环境可用·变异测试逐个改坏必须变红；不访问任何外部系统）
-        run: node scripts/identity-contract-test.mjs && node scripts/identity-seam-smoke.mjs && node scripts/identity-seam-mutation.mjs
+      - name: 身份接缝与主体（契约单测·主体服务单测·假提供方对抗组：缺省/登录门/登录中继/中继加登录门四个实例上的拒绝例与合法对照，停用一个主体各入口立即不认、恢复立即照常·夹具只在测试环境可用·变异测试逐个改坏必须变红；不访问任何外部系统）
+        run: node scripts/identity-contract-test.mjs && node scripts/principal-service-test.mjs && node scripts/identity-seam-smoke.mjs && node scripts/identity-seam-mutation.mjs
       - name: HTTP 服务单测（经服务注册与直接注册的路由栈逐行相同·注册可撤销·同一路径只撤一条·随插件卸载·撤销时在途请求不受影响）
         run: node scripts/http-service-test.mjs
       - name: 路由录制回放（搬路由之前录下的应答，对同一组请求重放，状态码、响应头、响应体必须零差异；每条路由都有未授权、参数非法、正常三类，按录下来的应答核对；自检先红后绿）

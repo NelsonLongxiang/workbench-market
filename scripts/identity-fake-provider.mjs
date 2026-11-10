@@ -5,6 +5,10 @@
  * 核心一行不改，也没有给测试留后门。
  *
  * 认人只看 session_id 的值：一个值一种回答，见 ANSWERS。
+ * 另有一类「只认第一次」的会话（onceSession）：提供方第一次被问到时认得出，之后都说会话失效——
+ * 用来看核心有没有在该现查的地方用了缓存、该用缓存的地方现查。
+ *
+ * 主体目录：起真实入口的测试用真的（services/principal.ts，开库）；进程内不开库的测试用这里的内存版（memoryDirectory）。
  *
  * 只在测试环境里可用（NODE_ENV=test）：scripts/ 会随镜像一起发出去，不能让它在别的环境里把提供方换掉。
  */
@@ -42,7 +46,13 @@ export const SESSIONS = {
   okThrows: 'fake-answer-ok-getter-throws', // 回答对象的 ok 一读就抛错
   viewerThrows: 'fake-answer-viewer-throws-1', // 回答对象的 viewer 一读就抛错
   flipLogin: 'fake-login-flips-on-reread', // 登录名头两次读是 alpha，再读就成了 root-admin
+  squatter: 'fake-squatter-session-01', // 登录名 squatted，自称管理员：测「标识已被别的主体占着」时用，别处不要认它
 };
+
+/** 「只认第一次」的会话：login 是认出来的登录名；admin 为真时第一次的回答自称管理员 */
+export const onceSession = (login, admin = false) => `fake-once-${admin ? 'admin' : 'staff'}-${login}`;
+const ONCE_RE = /^fake-once-(admin|staff)-([a-z0-9-]{1,40})$/;
+const onceAsked = new Set();
 
 /** 假提供方自报的期限：永远不回答的那一种，到点就按不可用处理 */
 export const DEADLINE_MS = 250;
@@ -72,6 +82,7 @@ const ANSWERS = {
   [SESSIONS.hangs]: () => new Promise(() => {}),
   [SESSIONS.okThrows]: () => ({ get ok() { throw new Error('synthetic accessor failure'); } }),
   [SESSIONS.viewerThrows]: () => ({ ok: true, get viewer() { throw new Error('synthetic accessor failure'); } }),
+  [SESSIONS.squatter]: () => viewer('squatted', 31, { admin: true }),
   [SESSIONS.flipLogin]: () => { let reads = 0; return { ok: true, viewer: { get login() { reads++; return reads <= 2 ? 'alpha' : 'root-admin'; }, uid: 11, sub: 'user:alpha', name: null, admin: false } }; },
 };
 
@@ -85,10 +96,61 @@ export const fakeProvider = {
   async resolveViewer(cookieHeader) {
     const sid = sessionOf(cookieHeader);
     if (!sid) return { ok: false, http: 401, error: '没有会话（合成）' };
+    const once = ONCE_RE.exec(sid);
+    if (once) {
+      if (onceAsked.has(sid)) return { ok: false, http: 401, error: '会话已失效（合成：只认第一次）' };
+      onceAsked.add(sid);
+      return viewer(once[2], 900 + onceAsked.size, { admin: once[1] === 'admin' });
+    }
     const answer = ANSWERS[sid];
     return answer ? answer() : { ok: false, http: 401, error: '会话无效（合成）' };
   },
 };
+
+/**
+ * 内存版主体目录：和真的同一份契约（identity.ts 的 PrincipalDirectory），不开库。
+ * 见过的外部身份取出主体；没见过的建一个 user:<对方的用户标识>；标识被占着却没绑定的不认领。
+ * 另带几个只给测试用的把手：停用、恢复、预先绑定、预先占一个标识、让它出错、看它被问了几次。
+ */
+export function memoryDirectory() {
+  const principals = new Map(); // 主体标识 → 'active' | 'disabled'
+  const bound = new Map(); // `${provider}\u0000${externalId}` → 主体标识
+  const state = { admitted: 0, fail: null, answer: null };
+  return {
+    admit(identity) {
+      state.admitted++;
+      if (state.fail) throw state.fail;
+      if (state.answer) return state.answer();
+      const key = `${identity.provider}\u0000${identity.externalId}`;
+      let id = bound.get(key);
+      if (!id) {
+        id = `user:${identity.externalId}`;
+        if (principals.has(id)) return { ok: false, reason: 'unbound' };
+        principals.set(id, 'active');
+        bound.set(key, id);
+      }
+      return principals.get(id) === 'active' ? { ok: true, principal: id } : { ok: false, reason: 'disabled' };
+    },
+    // —— 以下只给测试用 ——
+    disable(id) { principals.set(id, 'disabled'); },
+    restore(id) { principals.set(id, 'active'); },
+    bind(provider, externalId, id) { if (!principals.has(id)) principals.set(id, 'active'); bound.set(`${provider}\u0000${externalId}`, id); },
+    occupy(id) { principals.set(id, 'active'); },
+    failWith(error) { state.fail = error; },
+    answerWith(fn) { state.answer = fn; },
+    get admitted() { return state.admitted; },
+    get size() { return principals.size; },
+  };
+}
+
+/** 把一个主体目录装成 Cordis 服务 `principals`（进程内不开库的测试用） */
+export const directoryPlugin = (directory) => ({
+  name: 'principal-directory-memory',
+  apply(ctx) {
+    assertTestEnv();
+    ctx.provide('principals', directory);
+  },
+});
 
 /** 假的登录中继：不给任何地址转会话，不开任何登录面。 */
 export const fakeRelay = {
