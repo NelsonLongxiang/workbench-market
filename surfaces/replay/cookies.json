@@ -242,15 +242,15 @@
           "id": "create-mixed",
           "route": "POST /api/cookies",
           "class": "normal",
-          "what": "四条：十天半后过期、三十天半后过期、早就过期、没有过期时间（value 是空串也收）。label 两头的空白去掉；没给的字段取缺省",
+          "what": "四条：十天多后过期、三十天多后过期、早就过期、没有过期时间（value 是空串也收）。label 两头的空白去掉；没给的字段取缺省",
           "request": {
             "method": "POST",
             "path": "/api/cookies",
             "json": {
               "label": "  回放·混合  ",
               "cookies": [
-                { "name": "sid", "value": "synthetic-value-1", "domain": ".replay.example", "path": "/app", "expirationDate": 1894363200, "httpOnly": true, "sameSite": "lax" },
-                { "name": "later", "value": "synthetic-value-2", "expirationDate": 1896091200 },
+                { "name": "sid", "value": "synthetic-value-1", "domain": ".replay.example", "path": "/app", "expirationDate": 1894384800, "httpOnly": true, "sameSite": "lax" },
+                { "name": "later", "value": "synthetic-value-2", "expirationDate": 1896112800 },
                 { "name": "old", "value": "synthetic-value-3", "expirationDate": 1000000000 },
                 { "name": "sess", "value": "" }
               ]
@@ -268,8 +268,8 @@
               "cookie_count": 4,
               "active": 3,
               "cookies": [
-                { "name": "sid", "value": "****", "domain": ".replay.example", "path": "/app", "expirationDate": 1894363200, "httpOnly": true, "sameSite": "lax" },
-                { "name": "later", "value": "****", "domain": "", "path": "/", "expirationDate": 1896091200, "httpOnly": false, "sameSite": "" },
+                { "name": "sid", "value": "****", "domain": ".replay.example", "path": "/app", "expirationDate": 1894384800, "httpOnly": true, "sameSite": "lax" },
+                { "name": "later", "value": "****", "domain": "", "path": "/", "expirationDate": 1896112800, "httpOnly": false, "sameSite": "" },
                 { "name": "old", "value": "****", "domain": "", "path": "/", "expirationDate": 1000000000, "httpOnly": false, "sameSite": "" },
                 { "name": "sess", "value": "****", "domain": "", "path": "/", "httpOnly": false, "sameSite": "" }
               ]
@@ -319,7 +319,7 @@
           "route": "POST /api/cookies",
           "class": "normal",
           "what": "字段类型不对：不报错，按现有的转换规则存（过期时间不是数字就不存；多余的字段丢掉）",
-          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "回放·怪值", "cookies": [{ "name": "n", "value": "v", "domain": 5, "path": null, "expirationDate": "1894363200", "httpOnly": "yes", "sameSite": 0, "extra": "丢掉" }] } },
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "回放·怪值", "cookies": [{ "name": "n", "value": "v", "domain": 5, "path": null, "expirationDate": "1894384800", "httpOnly": "yes", "sameSite": 0, "extra": "丢掉" }] } },
           "save": { "setD": "id" },
           "response": {
             "status": 201,
@@ -332,14 +332,14 @@
           "id": "create-zero-values",
           "route": "POST /api/cookies",
           "class": "normal",
-          "what": "过期时间是 0、path 和 domain 是空串、httpOnly 是 0：0 原样存着，算没有过期时间；空串不落到缺省上",
-          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "回放·零值", "cookies": [{ "name": "z", "value": "v", "expirationDate": 0, "httpOnly": 0, "path": "", "domain": "", "sameSite": "" }] } },
+          "what": "过期时间是 0、domain 是 0、path 是空串、httpOnly 是 0：过期时间的 0 原样存着，算没有过期时间；domain 的 0 存成字符串 0；空串不落到缺省上",
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "回放·零值", "cookies": [{ "name": "z", "value": "v", "expirationDate": 0, "httpOnly": 0, "path": "", "domain": 0, "sameSite": "" }] } },
           "save": { "setE": "id" },
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "183", "etag": "W/\"b7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "ok": true, "id": 5, "label": "回放·零值", "cookie_count": 1, "active": 1, "cookies": [{ "name": "z", "value": "****", "domain": "", "path": "", "expirationDate": 0, "httpOnly": false, "sameSite": "" }] }
+            "headers": { "content-length": "184", "etag": "W/\"b8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 5, "label": "回放·零值", "cookie_count": 1, "active": 1, "cookies": [{ "name": "z", "value": "****", "domain": "0", "path": "", "expirationDate": 0, "httpOnly": false, "sameSite": "" }] }
           }
         },
         {
@@ -347,7 +347,7 @@
           "route": "POST /api/cookies",
           "class": "normal",
           "what": "两条都没过期，过期早的排在后面：列表里「还有几天」取的是最早的那个",
-          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "回放·近的在后", "cookies": [{ "name": "far", "value": "v", "expirationDate": 1896091200 }, { "name": "near", "value": "v", "expirationDate": 1894363200 }] } },
+          "request": { "method": "POST", "path": "/api/cookies", "json": { "label": "回放·近的在后", "cookies": [{ "name": "far", "value": "v", "expirationDate": 1896112800 }, { "name": "near", "value": "v", "expirationDate": 1894384800 }] } },
           "save": { "setF": "id" },
           "response": {
             "status": 201,
@@ -360,8 +360,8 @@
               "cookie_count": 2,
               "active": 2,
               "cookies": [
-                { "name": "far", "value": "****", "domain": "", "path": "/", "expirationDate": 1896091200, "httpOnly": false, "sameSite": "" },
-                { "name": "near", "value": "****", "domain": "", "path": "/", "expirationDate": 1894363200, "httpOnly": false, "sameSite": "" }
+                { "name": "far", "value": "****", "domain": "", "path": "/", "expirationDate": 1896112800, "httpOnly": false, "sameSite": "" },
+                { "name": "near", "value": "****", "domain": "", "path": "/", "expirationDate": 1894384800, "httpOnly": false, "sameSite": "" }
               ]
             }
           }
@@ -375,7 +375,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "2067", "etag": "W/\"813-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "2068", "etag": "W/\"814-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               {
                 "id": 6,
@@ -386,8 +386,8 @@
                 "soonest_exp_days": 10,
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "cookies": [
-                  { "name": "far", "value": "****", "domain": "", "path": "/", "expirationDate": 1896091200, "httpOnly": false, "sameSite": "" },
-                  { "name": "near", "value": "****", "domain": "", "path": "/", "expirationDate": 1894363200, "httpOnly": false, "sameSite": "" }
+                  { "name": "far", "value": "****", "domain": "", "path": "/", "expirationDate": 1896112800, "httpOnly": false, "sameSite": "" },
+                  { "name": "near", "value": "****", "domain": "", "path": "/", "expirationDate": 1894384800, "httpOnly": false, "sameSite": "" }
                 ]
               },
               {
@@ -398,7 +398,7 @@
                 "all_expired": false,
                 "soonest_exp_days": null,
                 "created_at": "YYYY-MM-DD hh:mm:ss",
-                "cookies": [{ "name": "z", "value": "****", "domain": "", "path": "", "expirationDate": 0, "httpOnly": false, "sameSite": "" }]
+                "cookies": [{ "name": "z", "value": "****", "domain": "0", "path": "", "expirationDate": 0, "httpOnly": false, "sameSite": "" }]
               },
               {
                 "id": 4,
@@ -442,8 +442,8 @@
                 "soonest_exp_days": 10,
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "cookies": [
-                  { "name": "sid", "value": "****", "domain": ".replay.example", "path": "/app", "expirationDate": 1894363200, "httpOnly": true, "sameSite": "lax" },
-                  { "name": "later", "value": "****", "domain": "", "path": "/", "expirationDate": 1896091200, "httpOnly": false, "sameSite": "" },
+                  { "name": "sid", "value": "****", "domain": ".replay.example", "path": "/app", "expirationDate": 1894384800, "httpOnly": true, "sameSite": "lax" },
+                  { "name": "later", "value": "****", "domain": "", "path": "/", "expirationDate": 1896112800, "httpOnly": false, "sameSite": "" },
                   { "name": "old", "value": "****", "domain": "", "path": "/", "expirationDate": 1000000000, "httpOnly": false, "sameSite": "" },
                   { "name": "sess", "value": "****", "domain": "", "path": "/", "httpOnly": false, "sameSite": "" }
                 ]
@@ -460,7 +460,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "2067", "etag": "W/\"813-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "2068", "etag": "W/\"814-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               {
                 "id": 6,
@@ -471,8 +471,8 @@
                 "soonest_exp_days": 10,
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "cookies": [
-                  { "name": "far", "value": "****", "domain": "", "path": "/", "expirationDate": 1896091200, "httpOnly": false, "sameSite": "" },
-                  { "name": "near", "value": "****", "domain": "", "path": "/", "expirationDate": 1894363200, "httpOnly": false, "sameSite": "" }
+                  { "name": "far", "value": "****", "domain": "", "path": "/", "expirationDate": 1896112800, "httpOnly": false, "sameSite": "" },
+                  { "name": "near", "value": "****", "domain": "", "path": "/", "expirationDate": 1894384800, "httpOnly": false, "sameSite": "" }
                 ]
               },
               {
@@ -483,7 +483,7 @@
                 "all_expired": false,
                 "soonest_exp_days": null,
                 "created_at": "YYYY-MM-DD hh:mm:ss",
-                "cookies": [{ "name": "z", "value": "****", "domain": "", "path": "", "expirationDate": 0, "httpOnly": false, "sameSite": "" }]
+                "cookies": [{ "name": "z", "value": "****", "domain": "0", "path": "", "expirationDate": 0, "httpOnly": false, "sameSite": "" }]
               },
               {
                 "id": 4,
@@ -527,8 +527,8 @@
                 "soonest_exp_days": 10,
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "cookies": [
-                  { "name": "sid", "value": "****", "domain": ".replay.example", "path": "/app", "expirationDate": 1894363200, "httpOnly": true, "sameSite": "lax" },
-                  { "name": "later", "value": "****", "domain": "", "path": "/", "expirationDate": 1896091200, "httpOnly": false, "sameSite": "" },
+                  { "name": "sid", "value": "****", "domain": ".replay.example", "path": "/app", "expirationDate": 1894384800, "httpOnly": true, "sameSite": "lax" },
+                  { "name": "later", "value": "****", "domain": "", "path": "/", "expirationDate": 1896112800, "httpOnly": false, "sameSite": "" },
                   { "name": "old", "value": "****", "domain": "", "path": "/", "expirationDate": 1000000000, "httpOnly": false, "sameSite": "" },
                   { "name": "sess", "value": "****", "domain": "", "path": "/", "httpOnly": false, "sameSite": "" }
                 ]
@@ -663,7 +663,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1466", "etag": "W/\"5ba-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "1467", "etag": "W/\"5bb-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               {
                 "id": 6,
@@ -674,8 +674,8 @@
                 "soonest_exp_days": 10,
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "cookies": [
-                  { "name": "far", "value": "****", "domain": "", "path": "/", "expirationDate": 1896091200, "httpOnly": false, "sameSite": "" },
-                  { "name": "near", "value": "****", "domain": "", "path": "/", "expirationDate": 1894363200, "httpOnly": false, "sameSite": "" }
+                  { "name": "far", "value": "****", "domain": "", "path": "/", "expirationDate": 1896112800, "httpOnly": false, "sameSite": "" },
+                  { "name": "near", "value": "****", "domain": "", "path": "/", "expirationDate": 1894384800, "httpOnly": false, "sameSite": "" }
                 ]
               },
               {
@@ -686,7 +686,7 @@
                 "all_expired": false,
                 "soonest_exp_days": null,
                 "created_at": "YYYY-MM-DD hh:mm:ss",
-                "cookies": [{ "name": "z", "value": "****", "domain": "", "path": "", "expirationDate": 0, "httpOnly": false, "sameSite": "" }]
+                "cookies": [{ "name": "z", "value": "****", "domain": "0", "path": "", "expirationDate": 0, "httpOnly": false, "sameSite": "" }]
               },
               {
                 "id": 4,
@@ -707,8 +707,8 @@
                 "soonest_exp_days": 10,
                 "created_at": "YYYY-MM-DD hh:mm:ss",
                 "cookies": [
-                  { "name": "sid", "value": "****", "domain": ".replay.example", "path": "/app", "expirationDate": 1894363200, "httpOnly": true, "sameSite": "lax" },
-                  { "name": "later", "value": "****", "domain": "", "path": "/", "expirationDate": 1896091200, "httpOnly": false, "sameSite": "" },
+                  { "name": "sid", "value": "****", "domain": ".replay.example", "path": "/app", "expirationDate": 1894384800, "httpOnly": true, "sameSite": "lax" },
+                  { "name": "later", "value": "****", "domain": "", "path": "/", "expirationDate": 1896112800, "httpOnly": false, "sameSite": "" },
                   { "name": "old", "value": "****", "domain": "", "path": "/", "expirationDate": 1000000000, "httpOnly": false, "sameSite": "" },
                   { "name": "sess", "value": "****", "domain": "", "path": "/", "httpOnly": false, "sameSite": "" }
                 ]
@@ -827,14 +827,14 @@
             "method": "POST",
             "path": "/api/cookies",
             "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" },
-            "json": { "label": "登录门后面建的", "cookies": [{ "name": "sid", "value": "synthetic-value", "expirationDate": 1894363200 }] }
+            "json": { "label": "登录门后面建的", "cookies": [{ "name": "sid", "value": "synthetic-value", "expirationDate": 1894384800 }] }
           },
           "save": { "g": "id" },
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "202", "etag": "W/\"ca-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "ok": true, "id": 1, "label": "登录门后面建的", "cookie_count": 1, "active": 1, "cookies": [{ "name": "sid", "value": "****", "domain": "", "path": "/", "expirationDate": 1894363200, "httpOnly": false, "sameSite": "" }] }
+            "body": { "ok": true, "id": 1, "label": "登录门后面建的", "cookie_count": 1, "active": 1, "cookies": [{ "name": "sid", "value": "****", "domain": "", "path": "/", "expirationDate": 1894384800, "httpOnly": false, "sameSite": "" }] }
           }
         },
         {
@@ -856,7 +856,7 @@
                 "all_expired": false,
                 "soonest_exp_days": 10,
                 "created_at": "YYYY-MM-DD hh:mm:ss",
-                "cookies": [{ "name": "sid", "value": "****", "domain": "", "path": "/", "expirationDate": 1894363200, "httpOnly": false, "sameSite": "" }]
+                "cookies": [{ "name": "sid", "value": "****", "domain": "", "path": "/", "expirationDate": 1894384800, "httpOnly": false, "sameSite": "" }]
               }
             ]
           }
