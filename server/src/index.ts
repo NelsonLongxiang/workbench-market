@@ -25,6 +25,9 @@ import { registerTypeRoutes } from './routes/types.ts';
 import { registerCockpitRoutes } from './routes/cockpits.ts';
 import { registerCookieRoutes } from './routes/cookies.ts';
 import { registerStatsRoutes } from './routes/stats.ts';
+import { registerDesignTokenRoutes } from './routes/design-tokens.ts';
+import { registerAgentCardRoutes } from './routes/agent-card.ts';
+import { registerSsoRoutes } from './routes/sso.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import { SkillService } from './services/skill.ts';
@@ -2929,15 +2932,7 @@ function serveApp(req: express.Request, res: express.Response) {
 app.get(/^\/apps\/[a-z0-9][a-z0-9-]*(\/.*)?$/, serveApp);
 // #321 设计 token 的固定路径（自产台 <link> 引入）：/design/tokens@<主版本>.css 推荐（主版本内名字稳定、值可变，按需重新验证），
 // /design/tokens@<完整版本>.css 精确钉版本（内容不变，可长缓存）；其他版本 404，不猜
-app.get(/^\/design\/tokens@[0-9.]+\.css$/, (req, res) => {
-  const t = loadTokensCss();
-  const kind = t ? resolveTokensPath(req.path, t) : null;
-  if (!t || !kind) return res.status(404).type('text').send(t ? `只提供 tokens@${t.major}.css 与 tokens@${t.version}.css\n` : 'design tokens 不可用\n');
-  res.setHeader('Cache-Control', kind === 'exact' ? 'public, max-age=31536000, immutable' : 'no-cache');
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-WM-Tokens-Version', t.version);
-  res.type('text/css').send(t.css);
-});
+registerDesignTokenRoutes(http);
 
 function summaryPayload() {
   const rows = listWorkbenches();
@@ -3203,9 +3198,7 @@ loginGate.mount(app); // /login、/api/auth/login|logout|me（解析器之后、
 // ---------- A2A 网络接入（GH #17 P1：签名卡片 + 人工绑定，只读暴露） ----------
 // 卡片：canonical/签名与上游 card.ts（裁判钉 75a3ebd）逐字节一致；sessionTeams 只列
 // published 且 ≥1 有效绑定的 SOP；不发布 teamMemberships（修订 3：绑定图不出门）。
-app.get('/.well-known/agent-card.json', (_req, res) => {
-  res.json(buildAgentCard(a2aKeyPath()));
-});
+registerAgentCardRoutes(http);
 
 // 人工绑定 API（读写都要 ADMIN_TOKEN + Origin 空或同源——服务端校验跨源，CORS 白名单管不住执行）
 // 管理员口令存储（主人要求「页面手动设置」）：settings.admin_token_sha256（不可逆），
@@ -3446,23 +3439,7 @@ function maskKey(v: string): string {
 // S3 豁免面可观测（评审席裁下批）：GET /api/remote-allow/diff——安全清单变更管理面可查
 // SSO 回调路由（属主令「都需要」·A 面）：Odoo 登录完 302 回市场统一入口——
 // /sso/callback?redirect=/go/N/&state=xxx → 内域校验 → 302 目标台（会话 cookie 由浏览器自持 Odoo 域·此处只管回跳安全）
-app.get('/sso/callback', (req, res) => {
-  const redirect = String(req.query.redirect ?? '');
-  const state = String(req.query.state ?? '');
-  if (!redirect || !state) return res.status(400).json({ error: 'redirect 和 state 必填（Odoo 登录回跳统一入口）' });
-  {
-    // #170 P9：state 必须与 /go/<id>/ 回跳一一对应（伪造 state 旁路拒）
-    const mId = /^\/go\/(\d+)\//.exec(redirect);
-    if (!mId) return res.status(400).json({ error: 'redirect 形态非法（须 /go/<id>/…）' });
-    const ck = new RegExp('(?:^|;\\s*)wm_sso_' + mId[1] + '=([^;\\s]+)').exec(String(req.headers.cookie ?? ''));
-    if (!ck || ck[1] !== state) return res.status(400).json({ error: 'SSO state 校验失败（请从市场门户重新进入）' });
-  }
-  // open-redirect 护栏：只许内域路径（/ 开头且非 //）；再按浏览器 URL 解析复核——WHATWG 把 \ 当 /，/\evil.com 会被解析成外域（#92）
-  if (!redirect.startsWith('/') || redirect.startsWith('//') || new URL(redirect, 'http://sso.internal/').host !== 'sso.internal') {
-    return res.status(400).json({ error: 'redirect 只许本站路径（/go/... 形态·外域拒）' });
-  }
-  return res.redirect(302, redirect);
-});
+registerSsoRoutes(http);
 
 app.get('/api/remote-allow/diff', (req, res) => {
   if (!adminGuard(req, res)) return;
@@ -3657,7 +3634,7 @@ import { MCP_TOOLS, type McpToolDef, type McpToolCategory } from './mcp-tools.ts
 import { evalCandidates } from './eval.ts'; // #178 评估模型客户端
 
 import { renderSopRunner as renderSopRunnerRaw } from './sop-runner.ts';
-import { loadTokensCss, resolveTokensPath } from './design-tokens-css.ts';
+import { loadTokensCss } from './design-tokens-css.ts';
 /** #321：执行页内联 DESIGN.md 生成的 --wm-* 变量，与市场前端同色同字号 */
 const renderSopRunner = (manifest: Parameters<typeof renderSopRunnerRaw>[0], app: Parameters<typeof renderSopRunnerRaw>[1]) => renderSopRunnerRaw(manifest, app, loadTokensCss()?.css ?? '');
 import { sqliteSsoTicketStore } from './sso-ticket-store.ts';

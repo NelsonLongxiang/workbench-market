@@ -1,0 +1,328 @@
+{
+  "domain": "agent-card",
+  "what": "A2A 签名卡片：/.well-known/agent-card.json 的 1 条路由。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。上卡的 SOP 要发布并绑定，布置起来牵扯别的域，这里没有；那一段等搬 /api/bindings 时补。",
+  "routes": ["GET /.well-known/agent-card.json"],
+  "exempt": [
+    { "route": "GET /.well-known/agent-card.json", "class": "unauthorized", "why": "卡片是公开的：登录门特意放行它（login-gate.ts 的公开路径清单），没有会被拒的身份", "shown_by": "gated/anonymous" },
+    { "route": "GET /.well-known/agent-card.json", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/junk-query" }
+  ],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "缺省配置：登录门关。定了时钟：过期时间是拿现在算的。",
+      "env": {},
+      "clock": "2030-01-01T00:00:00Z",
+      "steps": [
+        {
+          "id": "fresh",
+          "route": "GET /.well-known/agent-card.json",
+          "class": "normal",
+          "what": "新库：没有对端，没有上卡的 SOP。公钥和签名每个实例随机，只比类型和长度；过期时间往下取整到分钟",
+          "vary": { "publicKey": "random", "signature": "random", "expiresAt": 60000 },
+          "request": { "method": "GET", "path": "/.well-known/agent-card.json" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "373", "etag": "W/\"175-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly" },
+              "expiresAt": 1893618000000,
+              "name": "workbench-market",
+              "session": "market",
+              "team": "market",
+              "publicKey": "<每个实例随机·string·60>",
+              "signature": "<每个实例随机·string·88>",
+              "sessionTeams": [],
+              "version": "p1"
+            }
+          }
+        },
+        {
+          "id": "again",
+          "route": "GET /.well-known/agent-card.json",
+          "class": "normal",
+          "what": "同一个实例再取一次：密钥不变（vary 只管长度，这里看的是别的字段和头）",
+          "vary": { "publicKey": "random", "signature": "random", "expiresAt": 60000 },
+          "request": { "method": "GET", "path": "/.well-known/agent-card.json" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "373", "etag": "W/\"175-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly" },
+              "expiresAt": 1893618000000,
+              "name": "workbench-market",
+              "session": "market",
+              "team": "market",
+              "publicKey": "<每个实例随机·string·60>",
+              "signature": "<每个实例随机·string·88>",
+              "sessionTeams": [],
+              "version": "p1"
+            }
+          }
+        },
+        {
+          "id": "junk-query",
+          "route": "GET /.well-known/agent-card.json",
+          "class": "normal",
+          "what": "这条路由不读查询串：带无关、畸形的参数照常应答",
+          "vary": { "publicKey": "random", "signature": "random", "expiresAt": 60000 },
+          "request": { "method": "GET", "path": "/.well-known/agent-card.json?team=x&sop[]=y" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "373", "etag": "W/\"175-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly" },
+              "expiresAt": 1893618000000,
+              "name": "workbench-market",
+              "session": "market",
+              "team": "market",
+              "publicKey": "<每个实例随机·string·60>",
+              "signature": "<每个实例随机·string·88>",
+              "sessionTeams": [],
+              "version": "p1"
+            }
+          }
+        },
+        {
+          "id": "remote-anonymous",
+          "route": "GET /.well-known/agent-card.json",
+          "class": "normal",
+          "what": "带转发头的匿名读：卡片是公开的",
+          "vary": { "publicKey": "random", "signature": "random", "expiresAt": 60000 },
+          "request": { "method": "GET", "path": "/.well-known/agent-card.json", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "373", "etag": "W/\"175-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly" },
+              "expiresAt": 1893618000000,
+              "name": "workbench-market",
+              "session": "market",
+              "team": "market",
+              "publicKey": "<每个实例随机·string·60>",
+              "signature": "<每个实例随机·string·88>",
+              "sessionTeams": [],
+              "version": "p1"
+            }
+          }
+        },
+        {
+          "id": "set-peers",
+          "what": "布置现场：设两个对端（借设置的路由，只比状态码）",
+          "compare": "status",
+          "request": { "method": "PUT", "path": "/api/settings", "json": { "a2a_peers": "[\"peer-a.example\",\"peer-b.example\"]" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "with-peers",
+          "route": "GET /.well-known/agent-card.json",
+          "class": "normal",
+          "what": "设了对端：卡片带上 peers",
+          "vary": { "publicKey": "random", "signature": "random", "expiresAt": 60000 },
+          "request": { "method": "GET", "path": "/.well-known/agent-card.json" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "417", "etag": "W/\"1a1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly" },
+              "expiresAt": 1893618000000,
+              "name": "workbench-market",
+              "session": "market",
+              "team": "market",
+              "publicKey": "<每个实例随机·string·60>",
+              "signature": "<每个实例随机·string·88>",
+              "sessionTeams": [],
+              "peers": ["peer-a.example", "peer-b.example"],
+              "version": "p1"
+            }
+          }
+        },
+        {
+          "id": "set-peers-junk",
+          "what": "布置现场：对端里混了不是字符串的值",
+          "compare": "status",
+          "request": { "method": "PUT", "path": "/api/settings", "json": { "a2a_peers": "[\"peer-a.example\",7,null]" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "peers-filtered",
+          "route": "GET /.well-known/agent-card.json",
+          "class": "normal",
+          "what": "不是字符串的对端被滤掉",
+          "vary": { "publicKey": "random", "signature": "random", "expiresAt": 60000 },
+          "request": { "method": "GET", "path": "/.well-known/agent-card.json" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "400", "etag": "W/\"190-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly" },
+              "expiresAt": 1893618000000,
+              "name": "workbench-market",
+              "session": "market",
+              "team": "market",
+              "publicKey": "<每个实例随机·string·60>",
+              "signature": "<每个实例随机·string·88>",
+              "sessionTeams": [],
+              "peers": ["peer-a.example"],
+              "version": "p1"
+            }
+          }
+        },
+        {
+          "id": "set-peers-broken",
+          "what": "布置现场：对端设置不是合法 JSON",
+          "compare": "status",
+          "request": { "method": "PUT", "path": "/api/settings", "json": { "a2a_peers": "[not json" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "peers-broken",
+          "route": "GET /.well-known/agent-card.json",
+          "class": "normal",
+          "what": "对端设置坏了：当成没有，不报错",
+          "vary": { "publicKey": "random", "signature": "random", "expiresAt": 60000 },
+          "request": { "method": "GET", "path": "/.well-known/agent-card.json" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "373", "etag": "W/\"175-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly" },
+              "expiresAt": 1893618000000,
+              "name": "workbench-market",
+              "session": "market",
+              "team": "market",
+              "publicKey": "<每个实例随机·string·60>",
+              "signature": "<每个实例随机·string·88>",
+              "sessionTeams": [],
+              "version": "p1"
+            }
+          }
+        },
+        {
+          "id": "set-peers-empty",
+          "what": "布置现场：对端是空数组",
+          "compare": "status",
+          "request": { "method": "PUT", "path": "/api/settings", "json": { "a2a_peers": "[]" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "peers-empty",
+          "route": "GET /.well-known/agent-card.json",
+          "class": "normal",
+          "what": "对端是空数组：卡片不带 peers 字段",
+          "vary": { "publicKey": "random", "signature": "random", "expiresAt": 60000 },
+          "request": { "method": "GET", "path": "/.well-known/agent-card.json" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "373", "etag": "W/\"175-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly" },
+              "expiresAt": 1893618000000,
+              "name": "workbench-market",
+              "session": "market",
+              "team": "market",
+              "publicKey": "<每个实例随机·string·60>",
+              "signature": "<每个实例随机·string·88>",
+              "sessionTeams": [],
+              "version": "p1"
+            }
+          }
+        },
+        {
+          "id": "head",
+          "what": "HEAD 走同一条 GET 路由，没有响应体（只比状态码：长度随过期时间的毫秒变）",
+          "compare": "status",
+          "request": { "method": "HEAD", "path": "/.well-known/agent-card.json" },
+          "response": { "status": 200 }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce），管理口令由环境给（合成值，只在隔离实例里用）。卡片照样公开。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "steps": [
+        {
+          "id": "anonymous",
+          "route": "GET /.well-known/agent-card.json",
+          "class": "normal",
+          "what": "登录门开着，远程匿名：卡片照样公开",
+          "vary": { "publicKey": "random", "signature": "random", "expiresAt": 60000 },
+          "request": { "method": "GET", "path": "/.well-known/agent-card.json", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "373", "etag": "W/\"175-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly" },
+              "expiresAt": 1893618000000,
+              "name": "workbench-market",
+              "session": "market",
+              "team": "market",
+              "publicKey": "<每个实例随机·string·60>",
+              "signature": "<每个实例随机·string·88>",
+              "sessionTeams": [],
+              "version": "p1"
+            }
+          }
+        },
+        {
+          "id": "browser-anonymous",
+          "route": "GET /.well-known/agent-card.json",
+          "class": "normal",
+          "what": "登录门开着，本机带浏览器标记：照样公开",
+          "vary": { "publicKey": "random", "signature": "random", "expiresAt": 60000 },
+          "request": { "method": "GET", "path": "/.well-known/agent-card.json", "headers": { "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "373", "etag": "W/\"175-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly" },
+              "expiresAt": 1893618000000,
+              "name": "workbench-market",
+              "session": "market",
+              "team": "market",
+              "publicKey": "<每个实例随机·string·60>",
+              "signature": "<每个实例随机·string·88>",
+              "sessionTeams": [],
+              "version": "p1"
+            }
+          }
+        },
+        {
+          "id": "with-token",
+          "route": "GET /.well-known/agent-card.json",
+          "class": "normal",
+          "what": "远程带口令",
+          "vary": { "publicKey": "random", "signature": "random", "expiresAt": 60000 },
+          "request": { "method": "GET", "path": "/.well-known/agent-card.json", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "373", "etag": "W/\"175-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "capabilities": { "sop": true, "bindings": "human-only", "stage": "P1-readonly" },
+              "expiresAt": 1893618000000,
+              "name": "workbench-market",
+              "session": "market",
+              "team": "market",
+              "publicKey": "<每个实例随机·string·60>",
+              "signature": "<每个实例随机·string·88>",
+              "sessionTeams": [],
+              "version": "p1"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

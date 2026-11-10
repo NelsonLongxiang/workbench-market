@@ -109,6 +109,7 @@ export function checkCassette(cassette, known, moduleRouteCount = null, answered
       const method = String(step?.request?.method ?? '');
       const path = String(step?.request?.path ?? '');
       if (!method || !path.startsWith('/')) { problems.push(`${where}：request 要有 method 和以 / 开头的 path`); continue; }
+      if (step.vary !== undefined && !(step.vary && typeof step.vary === 'object' && !Array.isArray(step.vary) && Object.keys(step.vary).length > 0 && Object.values(step.vary).every((h) => h === 'random' || (typeof h === 'number' && h > 0)))) { problems.push(`${where}：vary 要写成 { 字段路径: 'random' 或一个正数 }`); continue; }
       if (step.compare !== undefined && step.compare !== 'status' && !(Array.isArray(step.compare) && step.compare.length > 0 && step.compare.every((x) => typeof x === 'string' && x))) { problems.push(`${where}：compare 只能是 'status'，或者一组字段的路径`); continue; }
       if (step.route === undefined) continue;
       if (!covered.has(step.route)) { problems.push(`${where}：route 不在 routes 里：${step.route}`); continue; }
@@ -245,8 +246,30 @@ export function differences(before, after, path = '响应体', out = []) {
  *   · 一组字段的路径（比如 ['cookie_set_id']）：比状态码和响应体里点名的这几个字段。
  *     借别的域的路由看副作用用：那条路由的应答里别的字段可能每次不一样，也不归这个域管。
  */
+/**
+ * 应答体里每次都不一样、又不是时间的字段：请求上写 vary，按字段的路径点名。
+ *   'random'：每个实例随机生成的值（密钥、签名）。换成占位，只留类型和长度，有没有这个字段照样比。
+ *   一个正数 n：由「现在」算出来、带毫秒的数。往下取整到 n 的倍数再比（定了时钟，起实例到发请求只差几秒）。
+ * 别的字段照常比，响应头也照常比。
+ */
+export function applyVary(body, vary) {
+  if (!vary || body === null || typeof body !== 'object') return body;
+  const out = structuredClone(body);
+  for (const [path, how] of Object.entries(vary)) {
+    const keys = String(path).split('.');
+    const last = keys.pop();
+    const holder = keys.reduce((v, k) => (v == null ? undefined : v[k]), out);
+    if (holder == null || typeof holder !== 'object' || !(last in holder)) continue;
+    const value = holder[last];
+    if (how === 'random') holder[last] = `<每个实例随机·${typeof value}·${typeof value === 'string' ? value.length : String(value).length}>`;
+    else if (typeof how === 'number' && typeof value === 'number') holder[last] = value - (value % how);
+  }
+  return out;
+}
+
 export function shapeOf(step, raw) {
   if (step.compare === 'status') return { status: raw.status };
+  if (step.vary) raw = { ...raw, body: applyVary(raw.body, step.vary) };
   // 应答里没有的字段不记（写进 JSON 也留不住），所以「原来没有、后来有了」和「原来有、后来没了」都看得出来
   if (Array.isArray(step.compare)) return { status: raw.status, picked: Object.fromEntries(step.compare.map((path) => [path, steady(pick(raw.body, path))]).filter(([, value]) => value !== undefined)) };
   return steadyResponse(raw);
@@ -386,7 +409,7 @@ function canonical(cassette) {
     ...cassette,
     scenarios: cassette.scenarios.map((s) => order({
       ...s,
-      steps: s.steps.map((step) => order({ ...step, request: order(step.request, ['method', 'path', 'headers', 'json', 'text']) }, ['id', 'route', 'class', 'what', 'compare', 'request', 'save', 'response'])),
+      steps: s.steps.map((step) => order({ ...step, request: order(step.request, ['method', 'path', 'headers', 'json', 'text']) }, ['id', 'route', 'class', 'what', 'compare', 'vary', 'request', 'save', 'response'])),
     }, ['name', 'what', 'env', 'clock', 'steps'])),
   }, ['domain', 'what', 'routes', 'exempt', 'scenarios']);
 }
@@ -461,6 +484,14 @@ async function selftest() {
   check(compareStep({ response: { status: 200, type: 'a', headers: {}, body: { a: 1, b: 2 } } }, { status: 200, type: 'a', headers: {}, body: { b: 2, a: 1 } }).join().includes('顺序'), '比较：字段顺序变了，报出来');
   check(compareStep({ ...recorded, compare: 'status' }, { status: 200, type: 'x', body: 'y' }).length === 0, '比较：只比状态码的请求不看响应头和响应体');
   check(compareStep({}, answer()).join().includes('还没录过'), '比较：没录过的请求算差异');
+  // vary
+  const card = { publicKey: 'abcd', signature: 'xyz12', expiresAt: 1893456123456, name: 'm', nested: { k: 'q' } };
+  const varied = applyVary(card, { publicKey: 'random', signature: 'random', expiresAt: 60000, 'nested.k': 'random', gone: 'random' });
+  check(varied.publicKey === '<每个实例随机·string·4>' && varied.signature === '<每个实例随机·string·5>' && varied.expiresAt === 1893456120000 && varied.name === 'm' && varied.nested.k === '<每个实例随机·string·1>' && !('gone' in varied) && card.publicKey === 'abcd', 'vary：随机的值换成占位、留类型和长度；带毫秒的数往下取整；别的字段不动；不改原对象');
+  const vstep = { vary: { signature: 'random' } };
+  const vrec = { ...vstep, response: shapeOf(vstep, { status: 200, type: 'a', headers: {}, body: { signature: 'aaaa', name: 'm' } }) };
+  check(compareStep(vrec, shapeOf(vstep, { status: 200, type: 'a', headers: {}, body: { signature: 'bbbb', name: 'm' } })).length === 0 && compareStep(vrec, shapeOf(vstep, { status: 200, type: 'a', headers: {}, body: { signature: 'bbbbb', name: 'm' } })).length === 1 && compareStep(vrec, shapeOf(vstep, { status: 200, type: 'a', headers: {}, body: { name: 'm' } })).length === 1 && compareStep(vrec, shapeOf(vstep, { status: 200, type: 'a', headers: {}, body: { signature: 'bbbb', name: 'n' } })).length === 1, 'vary：随机字段换了值不算差异；长度变了、字段没了、别的字段变了都算');
+  check(checkCassette(withSteps([a, b, c, { id: 'v', vary: { x: 'sometimes' }, request: { method: 'GET', path: '/api/x' } }]), known).some((p) => p.includes('vary')) && checkCassette(withSteps([a, b, c, { id: 'v', vary: [], request: { method: 'GET', path: '/api/x' } }]), known).some((p) => p.includes('vary')), 'vary：写得不对，静态检查拦下');
   // 只比点名的字段
   const wb = { id: 2, name: '台', cookie_set_id: 0, last_status: 'unknown', nested: { at: '2026-01-02 03:04:05' } };
   const picking = { compare: ['cookie_set_id', 'nested.at', 'gone'] };
