@@ -3836,6 +3836,7 @@ const renderSopRunner = (manifest: Parameters<typeof renderSopRunnerRaw>[0], app
 import { sqliteSsoTicketStore } from './sso-ticket-store.ts';
 import { addOdooReturnPath, setSsoTicketStore, odooUrlDeprecated, isOdooLikeTarget, isOdooSessionTarget, odooSessionOf, stripOdooSession, trustedOdooOrigins } from './odoo-session.ts';
 import { collectTasks } from './tasks.ts';
+import { closeYglUpstreams, yglHomeProblem, yglUpstreamRpc } from './mcp-stdio-upstream.ts';
 import { tasksReadAccess, createTaskSourceGrant, revokeTaskSourceGrant } from './tasks-read-access.ts';
 import { odooUrl, odooViewerWhoami, resolveOdooViewer } from './odoo-viewer.ts';
 import { collectExtensionTasks, extensionTaskSourceKeys, loadExtensions } from './extensions.ts';
@@ -4132,7 +4133,8 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
 // 配置：settings.mcp_upstreams = JSON 数组 [{prefix,url,headers?,enabled?,toolCallTimeoutMs?}]
 // prefix 规范 [a-z][a-z0-9]{0,15}（与本地工具名不冲突——本地工具无 __ 分隔）。
 // 工具列表 30s 缓存（每请求不直打上游）；上游不可达时跳过其工具、不影响本地工具面。
-interface McpUpstream { prefix: string; url: string; headers?: Record<string, string>; enabled?: boolean; toolCallTimeoutMs?: number }
+// #474 kind='ygl-trees'：不走 HTTP，由服务端启动 `ygl-trees mcp`（stdio），工作区为 ygl_home（见 mcp-stdio-upstream.ts）
+interface McpUpstream { prefix: string; url: string; headers?: Record<string, string>; enabled?: boolean; toolCallTimeoutMs?: number; kind?: 'ygl-trees'; ygl_home?: string }
 const MCP_UPSTREAM_PREFIX_RE = /^[a-z][a-z0-9]{0,15}$/;
 const upstreamToolCache = new Map<string, { at: number; tools: McpToolDef[] }>();
 const UPSTREAM_CACHE_MS = 30_000;
@@ -4145,7 +4147,8 @@ function mcpUpstreams(): McpUpstream[] {
     if (!raw) return [];
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return [];
-    return arr.filter((u: any) => u && typeof u.prefix === 'string' && MCP_UPSTREAM_PREFIX_RE.test(u.prefix) && typeof u.url === 'string' && /^https?:\/\//.test(u.url) && u.enabled !== false);
+    return arr.filter((u: any) => u && typeof u.prefix === 'string' && MCP_UPSTREAM_PREFIX_RE.test(u.prefix) && u.enabled !== false
+      && (u.kind === 'ygl-trees' ? typeof u.ygl_home === 'string' : (u.kind === undefined && typeof u.url === 'string' && /^https?:\/\//.test(u.url))));
   } catch {
     return [];
   }
@@ -4153,6 +4156,7 @@ function mcpUpstreams(): McpUpstream[] {
 
 async function upstreamRpc(u: McpUpstream, method: string, params: unknown, id = 1, clientIdent?: string): Promise<any> {
   const timeout = u.toolCallTimeoutMs && u.toolCallTimeoutMs > 0 ? u.toolCallTimeoutMs : 15_000;
+  if (u.kind === 'ygl-trees') return yglUpstreamRpc({ prefix: u.prefix, yglHome: String(u.ygl_home) }, method, params, timeout);
   // 身份透传（#20 P2）：网关会话存在时以 mcp/<会话名> 覆盖静态头——
   // 上游（如 taste-mcp）以此判 judge 身份：agent:<X-Market-Client>@<model>。
   const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...(u.headers ?? {}) };
@@ -4188,7 +4192,8 @@ async function mcpAggregatedTools(): Promise<McpToolDef[]> {
       const tools = (res?.tools ?? []) as { name: string; description?: string; inputSchema?: Record<string, unknown>; annotations?: { readOnlyHint?: unknown } }[];
       upstreamHealth.set(u.prefix, { reachable: true, tools: tools.length, last_error: '', last_ok_at: new Date().toISOString(), last_checked_at: new Date().toISOString() });
       const clean = tools.filter((t) => typeof t.name === 'string').map((t) => ({
-        name: t.name, description: t.description ?? '', category: (t.annotations?.readOnlyHint === true ? 'read' : 'write') as McpToolCategory,
+        // ygl-trees 的工具没有 readOnlyHint；它的 read 工具只读（只路由到 CLI 的读动作），按 read 归类，其余仍按 write
+        name: t.name, description: t.description ?? '', category: (t.annotations?.readOnlyHint === true || (u.kind === 'ygl-trees' && t.name === 'read') ? 'read' : 'write') as McpToolCategory,
         inputSchema: t.inputSchema ?? { type: 'object', properties: {} },
       }));
       upstreamToolCache.set(u.prefix, { at: Date.now(), tools: clean });
@@ -4224,7 +4229,7 @@ app.get('/api/mcp/upstreams', (req, res, next) => {
   void mcpAggregatedTools().then(() => {
     res.json(mcpUpstreams().map((u) => {
       const h = upstreamHealth.get(u.prefix);
-      return { prefix: u.prefix, url: u.url, enabled: u.enabled !== false, headers: Object.keys(u.headers ?? {}), toolCallTimeoutMs: u.toolCallTimeoutMs ?? 15000,
+      return { prefix: u.prefix, kind: u.kind ?? 'http', url: u.url ?? '', ygl_home: u.ygl_home, enabled: u.enabled !== false, headers: Object.keys(u.headers ?? {}), toolCallTimeoutMs: u.toolCallTimeoutMs ?? 15000,
         reachable: h ? h.reachable : null, tools: h?.tools ?? 0, last_error: h?.last_error ?? '', last_ok_at: h?.last_ok_at ?? '', last_checked_at: h?.last_checked_at ?? '' };
     }));
   }).catch(next);
@@ -4237,13 +4242,24 @@ app.put('/api/mcp/upstreams', (req, res) => {
   const clean: McpUpstream[] = [];
   for (const u of arr) {
     if (!u || typeof u.prefix !== 'string' || !MCP_UPSTREAM_PREFIX_RE.test(u.prefix)) bad(`prefix 规范：[a-z][a-z0-9]{0,15}——${JSON.stringify(u?.prefix)}`);
+    if (clean.some((x) => x.prefix === u.prefix)) bad(`上游前缀重复：${u.prefix}`);
+    if (u.kind !== undefined && u.kind !== 'ygl-trees') bad(`上游 ${u.prefix} 的 kind 只能是 ygl-trees 或不写`);
+    if (u.kind === 'ygl-trees') {
+      // 只认服务端自己解析的 ygl-trees 入口，配置里不能写命令、参数或环境变量
+      if (u.url !== undefined || u.headers !== undefined || u.command !== undefined || u.args !== undefined || u.env !== undefined) bad(`上游 ${u.prefix}（ygl-trees）只接受 prefix、ygl_home、enabled、toolCallTimeoutMs`);
+      const why = yglHomeProblem(u.ygl_home);
+      if (why) bad(`上游 ${u.prefix}：${why}`);
+      clean.push({ prefix: u.prefix, kind: 'ygl-trees', ygl_home: u.ygl_home, url: '', enabled: u.enabled !== false, toolCallTimeoutMs: Number(u.toolCallTimeoutMs) || 30000 });
+      continue;
+    }
     if (typeof u.url !== 'string' || !/^https?:\/\//.test(u.url)) bad(`上游 ${u.prefix} 的 url 必须是 http(s)://`);
     if (u.headers !== undefined && (typeof u.headers !== 'object' || u.headers === null || Object.values(u.headers).some((v) => typeof v !== 'string'))) bad(`上游 ${u.prefix} 的 headers 必须是字符串映射`);
     clean.push({ prefix: u.prefix, url: u.url, headers: u.headers ?? {}, enabled: u.enabled !== false, toolCallTimeoutMs: Number(u.toolCallTimeoutMs) || 15000 });
   }
   svc<SettingService>('setting').upsertStmt().run('mcp_upstreams', JSON.stringify(clean));
   upstreamToolCache.clear();
-  res.json({ ok: true, upstreams: clean.map((u) => ({ prefix: u.prefix, url: u.url, enabled: u.enabled !== false })) });
+  closeYglUpstreams();
+  res.json({ ok: true, upstreams: clean.map((u) => ({ prefix: u.prefix, kind: u.kind ?? 'http', url: u.url, ygl_home: u.ygl_home, enabled: u.enabled !== false })) });
 });
 
 
