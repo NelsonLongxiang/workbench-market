@@ -2,7 +2,7 @@
 /**
  * 路由的录制回放：搬路由之前录一遍，之后对同一组请求重放，状态码、响应头和响应体必须和录下来的一样。
  * 每个域一份 surfaces/replay/<域>.json，请求和录下来的应答放在一起，对应 server/src/routes/<域>.ts。
- * 每个场景起一个隔离实例：临时数据目录、临时 HOME、随机回环端口、固定的最小环境变量，再加场景自己声明的几个。
+ * 每个场景起一个隔离实例：临时数据目录、临时 HOME、随机的空闲端口（请求只发到回环地址）、固定的最小环境变量，再加场景自己声明的几个。
  *
  *   node scripts/route-replay-test.mjs                 回放全部域；有差异退出 1，逐条列出
  *   node scripts/route-replay-test.mjs types           只回放一个域（多打印每条路由三类各有几条）
@@ -270,7 +270,23 @@ async function freePort() {
   return port;
 }
 
-async function boot(tag, env) {
+/**
+ * 端口是先探到空闲的、再交给实例去绑，中间可能被别的进程占走，实例就起不来（EADDRINUSE）。
+ * 只有这一种失败换一个端口再起，最多三次；别的失败（比如代码改坏了起不来）不重试，直接报。
+ */
+export async function withPortRetry(start, attempts = 3, note = (line) => console.error(line)) {
+  for (let attempt = 1; ; attempt++) {
+    try { return await start(); }
+    catch (err) {
+      if (!err?.portBusy || attempt >= attempts) throw err;
+      note(`[route-replay] 探到的端口被别的进程占了，换一个再起（第 ${attempt + 1} 次）`);
+    }
+  }
+}
+
+const boot = (tag, env) => withPortRetry(() => bootOnce(tag, env));
+
+async function bootOnce(tag, env) {
   const port = await freePort();
   const root = join(ROOT, 'tmp', `route-replay-${process.pid}-${tag}`);
   rmSync(root, { recursive: true, force: true });
@@ -294,7 +310,10 @@ async function boot(tag, env) {
     try { ready = (await fetch(`${base}/api/health`)).status === 200; } catch { /* 还没起来 */ }
     if (!ready) await new Promise((r) => setTimeout(r, 200));
   }
-  if (!ready) { await stop(); throw new Error(`隔离实例没起来（${tag}）：${stderr.trim().split('\n').slice(-3).join(' | ') || '没有输出'}`); }
+  if (!ready) {
+    await stop();
+    throw Object.assign(new Error(`隔离实例没起来（${tag}）：${stderr.trim().split('\n').slice(-3).join(' | ') || '没有输出'}`), { portBusy: stderr.includes('EADDRINUSE') });
+  }
   return { base, stop };
 }
 
@@ -441,6 +460,17 @@ async function selftest() {
   check(lost[1].diffs.join().includes('没存过的变量') && lost[2].diffs.length === 0, '回放：前一条没给出要存的值，用到它的那条算差异，后面的照跑');
   let refused = ''; try { await runSteps(steps(), fake({}), true); } catch (e) { refused = e.message; }
   check(refused.includes('create') && refused.includes('取不到'), '录制：要存的值没取到，直接报错，不写出半份录制');
+  // 起实例时端口被占
+  const starter = (failures, busy) => { let calls = 0; return Object.assign(async () => { calls++; if (calls <= failures) throw Object.assign(new Error('没起来'), { portBusy: busy }); return 'up'; }, { calls: () => calls }); };
+  const notes = [];
+  const twice = starter(2, true);
+  check(await withPortRetry(twice, 3, (line) => notes.push(line)) === 'up' && twice.calls() === 3 && notes.length === 2, '起实例：端口被占就换一个再起，第三次起来了');
+  const always = starter(9, true);
+  let gaveUp = false; try { await withPortRetry(always, 3, () => {}); } catch { gaveUp = true; }
+  check(gaveUp && always.calls() === 3, '起实例：三次都被占，报错，不再试');
+  const broken = starter(9, false);
+  let failedFast = false; try { await withPortRetry(broken, 3, () => {}); } catch { failedFast = true; }
+  check(failedFast && broken.calls() === 1, '起实例：别的原因起不来，不重试，直接报');
   console.log(failed ? `===== 录制回放自检：${failed} 项失败 =====` : '===== 录制回放自检：全过 =====');
   return failed ? 1 : 0;
 }
