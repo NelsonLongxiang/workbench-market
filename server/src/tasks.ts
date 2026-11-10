@@ -83,7 +83,7 @@ export function taskWorkspaceKey(): string | null {
     return createHash('sha256').update(realpathSync(file)).digest('hex');
   } catch { return null; }
 }
-function yglCliEntry(): string | null {
+export function yglCliEntry(): string | null {
   for (const base of [dirname(process.execPath), process.env.PNPM_HOME, process.env.APPDATA ? process.env.APPDATA + '\\npm' : null]) {
     if (!base) continue;
     const cand = join(base, 'node_modules', 'ygl-trees', 'dist', 'bundle', 'bin.cjs');
