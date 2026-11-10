@@ -2,17 +2,19 @@
 /**
  * 路线体检：把技术路线上的每条约定量成数字，对照仓库根 tech-route.json 里的基线。
  * 只读、零依赖。档位是 count 的检查只报告；budget 超过基线、redline 超过目标，退出码才是 1。
- * 第一批全部是 count，不拦任何 PR。约定本身见仓库根的 CONTRIBUTING.md。
+ * 每个检查现在是哪一档，写在 tech-route.json 里。约定本身见仓库根的 CONTRIBUTING.md。
  *
  *   node scripts/tech-route-check.mjs               打印体检表（CI 里同时写进摘要页）
  *   node scripts/tech-route-check.mjs --json        机器可读
  *   node scripts/tech-route-check.mjs --selftest    每个检查先红后绿：干净样本必为 0，违规样本必被数到
  *   node scripts/tech-route-check.mjs --init        按现状写基线（只在建清单或新增检查时用）
  *   node scripts/tech-route-check.mjs --tighten     把变小了的基线收紧（只减不增）
- *   node scripts/tech-route-check.mjs --no-types    跳过类型检查那一项（它要跑一遍 tsc，最慢）
+ *   node scripts/tech-route-check.mjs --no-types    跳过类型检查那一项（它要跑一遍 tsc）
+ *   node scripts/tech-route-check.mjs --no-boot     跳过快照那一项（它要起一个隔离实例）
+ *   node scripts/tech-route-check.mjs --strict      预算档、红线档的检查量不出来也算失败（CI 用这个）
  *   node scripts/tech-route-check.mjs --root DIR    体检另一棵目录树
  *
- * 退出码：0 通过；1 有预算或红线被突破；2 用法或清单错误。
+ * 退出码：0 通过；1 有预算或红线被突破；2 用法或清单错误（清单缺失、缺规则、档位写错、豁免不完整）。
  */
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
@@ -77,7 +79,7 @@ function runScript(repo, script, args) {
   const file = join(repo.root, 'scripts', script);
   if (!existsSync(file)) return null;
   const r = spawnSync(process.execPath, [file, ...args], { cwd: repo.root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
-  return { status: r.status, stdout: r.stdout || '' };
+  return { status: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
 }
 
 function typecheck(repo) {
@@ -93,28 +95,31 @@ function typecheck(repo) {
     const config = {
       compilerOptions: {
         target: 'ES2023', module: 'NodeNext', moduleResolution: 'NodeNext', noEmit: true, allowImportingTsExtensions: true,
-        skipLibCheck: true, strict: false, erasableSyntaxOnly: true,
+        // strictNullChecks 必须开：关着的时候 TypeScript 不按真假值收窄「成功 / 失败」这种联合类型，
+        // 会把 if (!r.ok) return r.hint 这样正确的写法判成错误。其余仍是宽松模式。
+        skipLibCheck: true, strict: false, strictNullChecks: true, erasableSyntaxOnly: true,
         typeRoots: [nodeTypes, join(repo.root, 'server/node_modules/@types')], types: ['node'],
       },
       include: [join(repo.root, 'server/src/**/*.ts')],
     };
     writeFileSync(join(dir, 'tsconfig.json'), JSON.stringify(config));
     const r = spawnSync(process.execPath, [tsc, '-p', join(dir, 'tsconfig.json'), '--pretty', 'false'], { cwd: repo.root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-    const files = {};
+    const files = {}, detail = {};
     for (const line of (r.stdout || '').split('\n')) {
-      const m = /^(.+?)\(\d+,\d+\): error TS\d+:/.exec(line);
+      const m = /^(.+?)(\(\d+,\d+\): error TS\d+:.*)$/.exec(line);
       if (!m) continue;
       const f = relative(repo.root, resolve(repo.root, m[1])).split('\\').join('/');
       files[f] = (files[f] || 0) + 1;
+      (detail[f] ||= []).push(`${f}${m[2]}`.slice(0, 240));
     }
-    return { total: sum(files), files: keep(files) };
+    return { total: sum(files), files: keep(files), detail };
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
-/** 这次改动了哪些文件（相对 main）。取不到对比基准就返回 null。 */
+/** 这次改动了哪些文件（相对 main；新增、修改、改名都算）。取不到对比基准就返回 null。 */
 function changedFiles(repo) {
   for (const range of [['origin/main...HEAD'], ['origin/main', 'HEAD'], ['FETCH_HEAD', 'HEAD']]) {
-    const r = spawnSync('git', ['diff', '--name-only', '--diff-filter=AM', ...range], { cwd: repo.root, encoding: 'utf8' });
+    const r = spawnSync('git', ['diff', '--name-only', '--diff-filter=AMR', ...range], { cwd: repo.root, encoding: 'utf8' });
     if (r.status === 0) return r.stdout.split('\n').filter(Boolean).filter((f) => existsSync(join(repo.root, f)));
   }
   return null;
@@ -181,7 +186,7 @@ const RULES = [
     },
   },
   {
-    id: 'server-typecheck', what: 'server 的类型错误（宽松模式）', target: 0, proposed: 'budget',
+    id: 'server-typecheck', what: 'server 的类型错误（带空值检查，其余宽松）', target: 0, proposed: 'budget',
     measure: (repo) => typecheck(repo),
   },
   {
@@ -293,7 +298,9 @@ const RULES = [
       if (files.length === 0) return { total: 0, note: '没有改动的文件' };
       const r = runScript(repo, 'privacy-gate.mjs', files);
       if (!r) return { total: 0, skipped: '没有 scripts/privacy-gate.mjs' };
-      return { total: r.status === 0 ? 0 : 1, note: `扫了 ${files.length} 个改动的文件；通用模式，业务词表未接` };
+      const items = [...new Set([...r.stderr.matchAll(/^\s*✗ (.+?) — /gm)].map((m) => m[1]))].sort();
+      if (r.status !== 0 && items.length === 0) items.push('隐私闸报了命中，但没读出文件名');
+      return { total: items.length, items, note: `扫了 ${files.length} 个改动的文件；通用模式，业务词表未接` };
     },
   },
   {
@@ -318,30 +325,75 @@ const RULES = [
       return { total: out.total.style, note: `写死的色值 ${out.total.colors}，档位外字号 ${out.total.offScaleFont}` };
     },
   },
+  {
+    id: 'surface-snapshots', what: '与快照不一致的对外面（路由、MCP 工具、表结构）', target: 0, proposed: 'redline',
+    measure: (repo) => {
+      if (flag('--no-boot')) return { total: 0, skipped: '按 --no-boot 跳过' };
+      if (!repo.exists('server/node_modules')) return { total: 0, skipped: '没装依赖（起不了隔离实例）' };
+      const r = runScript(repo, 'surface-snapshot.mjs', ['--json']);
+      if (!r) return { total: 0, skipped: '没有 scripts/surface-snapshot.mjs' };
+      let out;
+      try { out = JSON.parse(r.stdout); } catch { return { total: 1, items: [`快照脚本没跑成：${(r.stderr || r.stdout).trim().split('\n').pop()?.slice(0, 160) || '没有输出'}`] }; }
+      return { total: out.changed.length, items: out.changed, note: `${out.counts.routes} 条路由、${out.counts.tools} 个工具、${out.counts.tables} 张表` };
+    },
+  },
 ];
 
 const today = () => new Date().toISOString().slice(0, 10);
 const baselineOf = (m) => (m.items ? { total: m.total, items: m.items } : m.files ? { total: m.total, files: m.files } : { total: m.total });
 
+const TIERS = ['count', 'budget', 'redline'];
+
+/** 清单本身有没有毛病。有就不往下跑：一条规则被悄悄关掉，比检查失败更糟。 */
+function listProblems(list, { allowMissing = false } = {}) {
+  const problems = [];
+  const known = new Set(RULES.map((r) => r.id));
+  const seen = new Set();
+  for (const r of list.rules || []) {
+    if (!known.has(r.id)) problems.push(`清单里有不认识的规则：${r.id}`);
+    if (seen.has(r.id)) problems.push(`规则重复：${r.id}`);
+    seen.add(r.id);
+    if (!TIERS.includes(r.tier)) problems.push(`${r.id} 的 tier 是「${r.tier}」，只能是 ${TIERS.join('、')}`);
+    if (!allowMissing && typeof r.baseline?.total !== 'number') problems.push(`${r.id} 没有基线`);
+  }
+  if (!allowMissing) for (const id of known) if (!seen.has(id)) problems.push(`清单里缺规则：${id}`);
+  for (const [i, w] of (list.waivers || []).entries()) {
+    const where = `第 ${i + 1} 条豁免`;
+    for (const k of ['rule', 'item', 'reason', 'by', 'until']) if (typeof w?.[k] !== 'string' || !w[k].trim()) problems.push(`${where}缺 ${k}`);
+    if (typeof w?.until === 'string' && w.until.trim() && (!/^\d{4}-\d{2}-\d{2}$/.test(w.until) || Number.isNaN(Date.parse(w.until)))) problems.push(`${where}的 until 要写成 YYYY-MM-DD`);
+    if (typeof w?.rule === 'string' && w.rule.trim() && !known.has(w.rule)) problems.push(`${where}的 rule 不认识：${w.rule}`);
+  }
+  for (const [name, reason] of Object.entries(list.tests || {})) if (typeof reason !== 'string' || !reason.trim()) problems.push(`tests 里的 ${name} 没写理由`);
+  return problems;
+}
+
 /** 实际值对照基线：over 是「比基线多出来的」，每条都点名。豁免未过期的不算。 */
 function compare(rule, m, waivers = [], now = today()) {
   const base = rule.baseline;
-  if (!base) return { over: [], delta: 0, note: '没有基线' };
+  // 豁免只认整项：条目相等，或文件型条目的「文件（b → n）」。不按前缀，免得 a 顺带豁免了 a2a.ts。
+  // until 必须是 YYYY-MM-DD（读清单时校验过）；这里再守一道，格式不对的一律不算。
+  const waived = (text) => waivers.some((w) => w.rule === rule.id && (text === w.item || text.startsWith(`${w.item}（`)) && /^\d{4}-\d{2}-\d{2}$/.test(String(w.until)) && w.until >= now);
+  // live：去掉未过期豁免之后还剩多少，红线档拿它和目标比。
+  const live = m.items ? m.items.filter((it) => !waived(it)).length
+    : m.files ? Object.entries(m.files).filter(([f]) => !waived(f)).reduce((a, [, n]) => a + n, 0)
+    : m.total;
+  const waivedCount = (m.items || Object.keys(m.files || {})).filter(waived).length;
+  if (!base) return { over: [], delta: 0, live, waivedCount, note: '没有基线' };
   const over = [];
   if (m.items) { const known = new Set(base.items || []); for (const it of m.items) if (!known.has(it)) over.push(it); }
   else if (m.files) { for (const [f, n] of Object.entries(m.files)) { const b = base.files?.[f] ?? 0; if (n > b) over.push(`${f}（${b} → ${n}）`); } }
   else if (m.total > base.total) over.push(`${base.total} → ${m.total}`);
-  const waived = (text) => waivers.some((w) => w.rule === rule.id && (text === w.item || text.startsWith(`${w.item}（`)) && String(w.until) >= now);
-  return { over: over.filter((o) => !waived(o)), delta: m.total - base.total };
+  return { over: over.filter((o) => !waived(o)), delta: m.total - base.total, live, waivedCount };
 }
 
-function verdict(rule, m, cmp) {
-  if (m.skipped) return { fail: false, change: `未量：${m.skipped}` };
+function verdict(rule, m, cmp, strict = false) {
   const tier = rule.tier || 'count';
-  const fail = (tier === 'budget' && cmp.over.length > 0) || (tier === 'redline' && rule.target !== null && m.total > rule.target);
-  const change = cmp.over.length ? `多出 ${cmp.over.length} 处：${cmp.over.slice(0, 3).join('、')}${cmp.over.length > 3 ? ' 等' : ''}`
-    : cmp.delta < 0 ? `少了 ${-cmp.delta}` : cmp.note || '持平';
-  return { fail, change };
+  // 量不出来：平时只提示；--strict 下，预算档和红线档量不出来就算失败，免得一条规则无声地失效。
+  if (m.skipped) return { fail: strict && tier !== 'count', change: `未量：${m.skipped}` };
+  const fail = (tier === 'budget' && cmp.over.length > 0) || (tier === 'redline' && rule.target !== null && cmp.live > rule.target);
+  const base = cmp.over.length ? `多出 ${cmp.over.length} 处：${cmp.over.slice(0, 3).join('、')}${cmp.over.length > 3 ? ' 等' : ''}`
+    : cmp.delta < 0 ? `少了 ${-cmp.delta}，合并后可以收紧基线` : cmp.note || '持平';
+  return { fail, change: cmp.waivedCount ? `${base}（豁免 ${cmp.waivedCount} 处）` : base };
 }
 
 function loadList(root) {
@@ -360,22 +412,59 @@ function run(root) {
       const rule = { ...def, ...(byId.get(def.id) || {}) };
       const m = def.measure(repo, list);
       const cmp = compare(rule, m, list?.waivers || []);
-      return { rule, m, cmp, ...verdict(rule, m, cmp) };
+      return { rule, m, cmp, ...verdict(rule, m, cmp, flag('--strict')) };
     }),
   };
 }
 
 const TIER = { count: '计数', budget: '预算', redline: '红线' };
-function table(rows, hasList) {
+
+/** 清单相对 main 放宽了什么：档位、基线、目标、豁免、登记。取不到 main 上的清单返回 null。 */
+function listLoosened(root, list) {
+  const r = spawnSync('git', ['show', `origin/main:${LIST}`], { cwd: root, encoding: 'utf8' });
+  if (r.status !== 0) return null;
+  let main;
+  try { main = JSON.parse(r.stdout); } catch { return null; }
+  const rank = { count: 0, budget: 1, redline: 2 };
+  const before = new Map((main.rules || []).map((x) => [x.id, x]));
+  const now = new Map((list.rules || []).map((x) => [x.id, x]));
+  const out = [];
+  for (const [id, b] of before) {
+    const a = now.get(id);
+    if (!a) { out.push(`${id} 被删掉`); continue; }
+    if (rank[a.tier] < rank[b.tier]) out.push(`${id} 档位放宽（${TIER[b.tier]} → ${TIER[a.tier]}）`);
+    if (a.baseline?.total > b.baseline?.total) out.push(`${id} 基线变大（${b.baseline.total} → ${a.baseline.total}）`);
+    if ((a.target ?? Infinity) > (b.target ?? Infinity)) out.push(`${id} 目标放宽`);
+  }
+  const key = (w) => `${w.rule} ${w.item}`;
+  const had = new Set((main.waivers || []).map(key));
+  const added = (list.waivers || []).map(key).filter((k) => !had.has(k));
+  if (added.length) out.push(`新增豁免 ${added.length} 处（${added.slice(0, 3).join('、')}${added.length > 3 ? ' 等' : ''}）`);
+  const tests = Object.keys(list.tests || {}).filter((k) => !(k in (main.tests || {})));
+  if (tests.length) out.push(`新登记不进 CI 的测试 ${tests.length} 个`);
+  return out;
+}
+
+const cell = (text) => String(text).replace(/\|/g, '¦').replace(/\s*\n\s*/g, ' ');
+function table(rows, hasList, loosened) {
   const lines = ['| 检查 | 查什么 | 现在 | 基线 | 目标 | 档位 | 变化 |', '|---|---|---|---|---|---|---|'];
   for (const { rule, m, change } of rows) {
     const now = m.skipped ? '—' : `${m.total}${m.note ? `（${m.note}）` : ''}`;
-    lines.push(`| \`${rule.id}\` | ${rule.what} | ${now} | ${rule.baseline ? rule.baseline.total : '—'} | ${rule.target ?? '—'} | ${TIER[rule.tier || 'count']} | ${change} |`);
+    lines.push(`| \`${rule.id}\` | ${cell(rule.what)} | ${cell(now)} | ${rule.baseline ? rule.baseline.total : '—'} | ${rule.target ?? '—'} | ${TIER[rule.tier || 'count']} | ${cell(change)} |`);
   }
   const moved = rows.filter((r) => !r.m.skipped && (r.cmp.over.length || r.cmp.delta !== 0));
   const unmeasured = rows.filter((r) => r.m.skipped).map((r) => r.rule.id);
   lines.push('', !hasList ? `还没有 ${LIST}：只有现状，没有基线。`
     : `本次变化：${moved.length ? moved.map((r) => `${r.rule.id} ${r.cmp.delta > 0 ? '+' : ''}${r.cmp.delta}`).join(' · ') : '与基线一致'}${unmeasured.length ? `（未量：${unmeasured.join('、')}）` : ''}`);
+  if (hasList) lines.push(`清单变化（相对 main）：${loosened === null ? '取不到 main 上的清单' : loosened.length ? loosened.join('；') : '没有放宽'}`);
+  // 文件型检查超了的，把量到的原始报错行贴出来（类型检查用得上：只给「文件 0 → 1」看不出是哪一行）。
+  for (const { rule, m, cmp } of rows) {
+    if (!m.detail || !cmp.over.length) continue;
+    const files = Object.keys(m.files || {}).filter((f) => (m.files[f] || 0) > (rule.baseline?.files?.[f] ?? 0));
+    lines.push('', `${rule.id} 多出来的文件，量到的原始报错（这些文件里原有的也在内）：`, '', '```');
+    for (const f of files.slice(0, 8)) lines.push(...(m.detail[f] || []).slice(0, 12));
+    lines.push('```');
+  }
   return lines.join('\n');
 }
 
@@ -394,12 +483,12 @@ function writeList(root, rows, previous, mode) {
     else if (m.files) { const files = keep(Object.fromEntries(Object.entries(old.files || {}).map(([f, n]) => [f, Math.min(n, m.files[f] ?? 0)]))); baseline = { total: sum(files), files }; }
     else baseline = { total: Math.min(old.total, m.total) };
     if (old && baseline.total !== old.total) changes.push(`${rule.id} ${old.total} → ${baseline.total}`);
-    return { id: rule.id, tier: rule.tier || 'count', proposed: rule.proposed, what: rule.what, target: rule.target, baseline };
+    return { id: rule.id, tier: rule.tier || 'count', proposed: rule.proposed, what: rule.what, target: rule.target, ...(rule.note ? { note: rule.note } : {}), baseline };
   });
   const list = {
     schema: 1,
     as_of: today(),
-    doc: '路线清单：规则、档位、基线、豁免。由 scripts/tech-route-check.mjs 读写，约定见 CONTRIBUTING.md。tier 是现在生效的档位（count 只报告，budget 超过基线失败，redline 超过目标失败）；proposed 是建议档位，等属主裁定。deps 是登记过的运行时依赖；tests 登记不进 CI 的测试脚本和理由；waivers 是豁免：{rule, item, reason, by, until}，过期不算。',
+    doc: '路线清单：规则、档位、基线、豁免。由 scripts/tech-route-check.mjs 读写，约定见 CONTRIBUTING.md。tier 是现在生效的档位（count 只报告，budget 超过基线失败，redline 超过目标失败）；proposed 是建议档位。属主 2026-11-10 裁定按建议档位开；落点还没建好的检查先留在 count，rule.note 写明什么时候开。deps 是登记过的运行时依赖；tests 登记不进 CI 的测试脚本和理由；waivers 是豁免：{rule, item, reason, by, until} 五项都要写，until 是 YYYY-MM-DD，过期不算。',
     rules,
     deps,
     tests: previous?.tests || {},
@@ -441,6 +530,26 @@ function selftest() {
   check(compare(rule('budget', { total: 2, files: { 'a.ts': 2 } }), m, waiver('2000-01-01')).over.length === 1, '豁免已过期：照算');
   const prefix = [{ rule: 'x', item: 'b', reason: '自检', by: '自检', until: '2999-01-01' }];
   check(compare(rule('budget', { total: 2, files: { 'a.ts': 2 } }), m, prefix).over.length === 1, '豁免只认整项：item 是 b，不会顺带豁免 b.ts');
+  const both = [...waiver('2999-01-01'), { rule: 'x', item: 'a.ts', reason: '自检', by: '自检', until: '2999-01-01' }];
+  check(!verdict(rule('redline', {}), m, compare(rule('redline', {}), m, both)).fail, '红线档：全部有未过期的豁免，通过');
+  check(verdict(rule('redline', {}), m, compare(rule('redline', {}), m, waiver('2999-01-01'))).fail, '红线档：只豁免了一部分，照样失败');
+  check(compare(rule('budget', { total: 2, files: { 'a.ts': 2 } }), m, [{ rule: 'x', item: 'b.ts' }]).over.length === 1, '豁免没写期限：不算');
+  check(compare(rule('budget', { total: 2, files: { 'a.ts': 2 } }), m, [{ rule: 'x', item: 'b.ts', until: 'never' }]).over.length === 1, '豁免的期限不是日期：不算');
+  check(compare(rule('budget', { total: 2, files: { 'a.ts': 2 } }), m, waiver('2999-01-01')).waivedCount === 1, '豁免了几处数得出来');
+  const skipped = { total: 0, skipped: '自检' };
+  check(!verdict(rule('redline', {}), skipped, compare(rule('redline', {}), skipped)).fail, '量不出来：平时只提示');
+  check(verdict(rule('redline', {}), skipped, compare(rule('redline', {}), skipped), true).fail, '量不出来：--strict 下红线档算失败');
+  check(!verdict(rule('count', {}), skipped, compare(rule('count', {}), skipped), true).fail, '量不出来：--strict 下计数档仍只提示');
+  const good = { rules: RULES.map((r) => ({ id: r.id, tier: 'count', baseline: { total: 0 } })), waivers: [], tests: {} };
+  const broken = (patch) => listProblems({ ...good, ...patch }).length > 0;
+  check(listProblems(good).length === 0, '清单校验：完整的清单没有问题');
+  check(broken({ rules: good.rules.slice(1) }), '清单校验：缺一条规则，报错');
+  check(broken({ rules: good.rules.map((r, i) => (i ? r : { ...r, tier: 'redlne' })) }), '清单校验：档位写错一个字母，报错');
+  check(broken({ rules: [...good.rules, { id: 'no-such-rule', tier: 'count', baseline: { total: 0 } }] }), '清单校验：不认识的规则，报错');
+  check(broken({ waivers: [{ rule: RULES[0].id, item: 'a.ts' }] }), '清单校验：豁免缺理由、批准人、期限，报错');
+  check(broken({ waivers: [{ rule: RULES[0].id, item: 'a.ts', reason: 'r', by: 'b', until: 'never' }] }), '清单校验：豁免的期限不是日期，报错');
+  check(!broken({ waivers: [{ rule: RULES[0].id, item: 'a.ts', reason: 'r', by: 'b', until: '2999-01-01' }] }), '清单校验：五项齐全的豁免，通过');
+  check(broken({ tests: { 'a-test.mjs': '' } }), '清单校验：登记的测试没写理由，报错');
   console.log(failed ? `===== 路线体检自检：${failed} 项失败 =====` : '===== 路线体检自检：全过 =====');
   return failed ? 1 : 0;
 }
@@ -448,6 +557,12 @@ function selftest() {
 function main() {
   if (flag('--selftest')) process.exit(selftest());
   const root = resolve(opt('--root') || join(HERE, '..'));
+  const existing = loadList(root);
+  if (!existing && !flag('--init')) { console.error(`没有 ${LIST}。它是提交在仓库里的；确实要新建，跑 --init。`); process.exit(2); }
+  if (existing) {
+    const problems = listProblems(existing, { allowMissing: flag('--init') });
+    if (problems.length) { console.error(`${LIST} 有问题，先修好再跑：\n- ${problems.join('\n- ')}`); process.exit(2); }
+  }
   const { list, rows } = run(root);
   if (flag('--init') || flag('--tighten')) {
     if (flag('--tighten') && !list) { console.error(`没有 ${LIST}，先用 --init 建`); process.exit(2); }
@@ -458,9 +573,9 @@ function main() {
     return;
   }
   if (flag('--json')) {
-    console.log(JSON.stringify(rows.map(({ rule, m, cmp, fail, change }) => ({ id: rule.id, tier: rule.tier || 'count', total: m.total, baseline: rule.baseline?.total ?? null, target: rule.target, skipped: m.skipped || null, over: cmp.over, change, fail })), null, 2));
+    console.log(JSON.stringify(rows.map(({ rule, m, cmp, fail, change }) => ({ id: rule.id, tier: rule.tier || 'count', total: m.total, baseline: rule.baseline?.total ?? null, target: rule.target, skipped: m.skipped || null, over: cmp.over, waived: cmp.waivedCount || 0, change, fail })), null, 2));
   } else {
-    const text = table(rows, Boolean(list));
+    const text = table(rows, Boolean(list), list ? listLoosened(root, list) : null);
     console.log(`# 路线体检 ${today()}\n\n${text}`);
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## 路线体检\n\n${text}\n`);
   }

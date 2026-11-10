@@ -1,11 +1,11 @@
 {
   "schema": 1,
   "as_of": "2026-11-10",
-  "doc": "路线清单：规则、档位、基线、豁免。由 scripts/tech-route-check.mjs 读写，约定见 CONTRIBUTING.md。tier 是现在生效的档位（count 只报告，budget 超过基线失败，redline 超过目标失败）；proposed 是建议档位，等属主裁定。deps 是登记过的运行时依赖；tests 登记不进 CI 的测试脚本和理由；waivers 是豁免：{rule, item, reason, by, until}，过期不算。",
+  "doc": "路线清单：规则、档位、基线、豁免。由 scripts/tech-route-check.mjs 读写，约定见 CONTRIBUTING.md。tier 是现在生效的档位（count 只报告，budget 超过基线失败，redline 超过目标失败）；proposed 是建议档位。属主 2026-11-10 裁定按建议档位开；落点还没建好的检查先留在 count，rule.note 写明什么时候开。deps 是登记过的运行时依赖；tests 登记不进 CI 的测试脚本和理由；waivers 是豁免：{rule, item, reason, by, until} 五项都要写，until 是 YYYY-MM-DD，过期不算。",
   "rules": [
     {
       "id": "entry-routes",
-      "tier": "count",
+      "tier": "budget",
       "proposed": "budget",
       "what": "index.ts 里的路由数",
       "target": 0,
@@ -18,7 +18,7 @@
     },
     {
       "id": "sql-outside-services",
-      "tier": "count",
+      "tier": "budget",
       "proposed": "budget",
       "what": "services/ 与 db.ts 之外的 SQL 调用点",
       "target": 0,
@@ -43,7 +43,7 @@
     },
     {
       "id": "schema-only-in-db",
-      "tier": "count",
+      "tier": "budget",
       "proposed": "budget",
       "what": "db.ts 之外的建表、改表语句",
       "target": 0,
@@ -60,7 +60,7 @@
     },
     {
       "id": "tests-registered",
-      "tier": "count",
+      "tier": "budget",
       "proposed": "budget",
       "what": "不在 CI、也没登记理由的测试脚本",
       "target": 0,
@@ -155,30 +155,28 @@
     },
     {
       "id": "server-typecheck",
-      "tier": "count",
+      "tier": "budget",
       "proposed": "budget",
-      "what": "server 的类型错误（宽松模式）",
+      "what": "server 的类型错误（带空值检查，其余宽松）",
       "target": 0,
       "baseline": {
-        "total": 85,
+        "total": 94,
         "files": {
           "server/src/context.ts": 1,
-          "server/src/index.ts": 65,
-          "server/src/login-gate.ts": 2,
-          "server/src/odoo-viewer.ts": 3,
+          "server/src/index.ts": 63,
           "server/src/portal.ts": 2,
           "server/src/services/workbench.ts": 2,
           "server/src/sop-field-channel.ts": 1,
+          "server/src/sop-field-rules.ts": 20,
           "server/src/sop-read-auth.ts": 2,
           "server/src/sop-readonly-assembly.ts": 1,
-          "server/src/sop-run-access.ts": 2,
-          "server/src/tasks-read-access.ts": 4
+          "server/src/sop-run-access.ts": 2
         }
       }
     },
     {
       "id": "readme-tree",
-      "tier": "count",
+      "tier": "budget",
       "proposed": "budget",
       "what": "README 没提到的 server 文件",
       "target": 0,
@@ -205,7 +203,7 @@
     },
     {
       "id": "readme-stale-paths",
-      "tier": "count",
+      "tier": "budget",
       "proposed": "budget",
       "what": "README 提到但已不存在的文件",
       "target": 0,
@@ -223,6 +221,7 @@
       "proposed": "budget",
       "what": "直接读环境变量的地方",
       "target": 0,
+      "note": "落点还没建好：配置改成插件 Config 之后开预算档",
       "baseline": {
         "total": 87,
         "files": {
@@ -252,6 +251,7 @@
       "proposed": "budget",
       "what": "裸的 setInterval",
       "target": 0,
+      "note": "落点还没建好：定时器服务装进上下文之后开预算档",
       "baseline": {
         "total": 6,
         "files": {
@@ -269,6 +269,7 @@
       "proposed": "budget",
       "what": "核心里直接引用身份具体实现的文件",
       "target": 0,
+      "note": "落点还没建好：身份服务建好之后开预算档",
       "baseline": {
         "total": 8,
         "items": [
@@ -285,7 +286,7 @@
     },
     {
       "id": "erasable-syntax",
-      "tier": "count",
+      "tier": "redline",
       "proposed": "redline",
       "what": "不可擦除的语法（enum、namespace、参数属性）",
       "target": 0,
@@ -296,7 +297,7 @@
     },
     {
       "id": "services-no-express",
-      "tier": "count",
+      "tier": "redline",
       "proposed": "redline",
       "what": "引用 express 的领域服务",
       "target": 0,
@@ -322,7 +323,7 @@
     },
     {
       "id": "deps-registered",
-      "tier": "count",
+      "tier": "redline",
       "proposed": "redline",
       "what": "没登记的运行时依赖",
       "target": 0,
@@ -333,7 +334,7 @@
     },
     {
       "id": "env-docs",
-      "tier": "count",
+      "tier": "redline",
       "proposed": "redline",
       "what": "环境变量与 README 对不上的个数",
       "target": 0,
@@ -344,12 +345,13 @@
     },
     {
       "id": "public-hygiene",
-      "tier": "count",
+      "tier": "redline",
       "proposed": "redline",
       "what": "这次改动的文件里的隐私命中",
       "target": 0,
       "baseline": {
-        "total": 0
+        "total": 0,
+        "items": []
       }
     },
     {
@@ -385,6 +387,17 @@
       "target": null,
       "baseline": {
         "total": 131
+      }
+    },
+    {
+      "id": "surface-snapshots",
+      "tier": "redline",
+      "proposed": "redline",
+      "what": "与快照不一致的对外面（路由、MCP 工具、表结构）",
+      "target": 0,
+      "baseline": {
+        "total": 0,
+        "items": []
       }
     }
   ],
