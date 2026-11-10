@@ -25,8 +25,8 @@ import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { BlockList, isIP } from 'node:net';
 import { browserMarked, rawLoopback, surfaceOf } from './surfaces.ts';
-import { odooSessionOf } from './odoo-session.ts';
-import { odooLoginProxyRoute, revokeOdooSession } from './odoo-login-proxy.ts';
+import { odooSessionOf } from './login-providers/odoo/odoo-session.ts';
+import { odooLoginProxyRoute, revokeOdooSession } from './login-providers/odoo/odoo-login-proxy.ts';
 
 export type LoginGateMode = 'enforce' | 'off';
 /** 取开关；值不合法返回 null（调用方拒绝启动，参照 MCP_GATEWAY） */

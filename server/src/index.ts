@@ -1,7 +1,7 @@
 import express from 'express';
 import { createStartupSecurityProbe, isStartupProbeRequest } from './startup-security-self-probe.ts';
 import { createLoginGate, loginGateMode, trustedProxies } from './login-gate.ts';
-import { installOdooLoginProxy } from './odoo-login-proxy.ts';
+import { installOdooLoginProxy } from './login-providers/odoo/odoo-login-proxy.ts';
 import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
 import { recordAppDataEvent, cancelTaskCenterDeliveries, kickWorkbenchEvents, startWorkbenchEventWorker, registerWorkbenchEventRoutes } from './workbench-events.ts';
 import cors from 'cors';
@@ -3834,11 +3834,11 @@ import { loadTokensCss, resolveTokensPath } from './design-tokens-css.ts';
 /** #321：执行页内联 DESIGN.md 生成的 --wm-* 变量，与市场前端同色同字号 */
 const renderSopRunner = (manifest: Parameters<typeof renderSopRunnerRaw>[0], app: Parameters<typeof renderSopRunnerRaw>[1]) => renderSopRunnerRaw(manifest, app, loadTokensCss()?.css ?? '');
 import { sqliteSsoTicketStore } from './sso-ticket-store.ts';
-import { addOdooReturnPath, setSsoTicketStore, odooUrlDeprecated, isOdooLikeTarget, isOdooSessionTarget, odooSessionOf, stripOdooSession, trustedOdooOrigins } from './odoo-session.ts';
+import { addOdooReturnPath, setSsoTicketStore, odooUrlDeprecated, isOdooLikeTarget, isOdooSessionTarget, odooSessionOf, stripOdooSession, trustedOdooOrigins } from './login-providers/odoo/odoo-session.ts';
 import { collectTasks } from './tasks.ts';
 import { closeYglUpstreams, yglHomeProblem, yglUpstreamRpc } from './mcp-stdio-upstream.ts';
 import { tasksReadAccess, createTaskSourceGrant, revokeTaskSourceGrant } from './tasks-read-access.ts';
-import { odooUrl, odooViewerWhoami, resolveOdooViewer } from './odoo-viewer.ts';
+import { odooUrl, odooViewerWhoami, resolveOdooViewer } from './login-providers/odoo/odoo-viewer.ts';
 import { collectExtensionTasks, extensionTaskSourceKeys, loadExtensions } from './extensions.ts';
 import { authorizeRunRead, issueRunReadCap, runReadGrantCreate, runReadGrantRevoke, runReadCapRevokeAll } from './sop-read-auth.ts';
 import { endpointStatsMiddleware, statsPayload } from './endpoint-stats.ts';

@@ -12,7 +12,7 @@ import { isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Express, Request, Response, NextFunction } from 'express';
 import type { TaskEnvelope, SourceMeta } from './tasks.ts';
-import type { Viewer } from './odoo-viewer.ts';
+import type { Viewer } from './login-providers/odoo/odoo-viewer.ts';
 
 export const EXTENSION_API_VERSION = 1;
 const SERVER_ENTRIES = ['server.ts', 'server.mjs', 'server.js'];

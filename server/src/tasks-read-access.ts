@@ -1,6 +1,6 @@
 /** #324: a fresh verified identity is not a source-wide task grant. */
 import { db } from './db.ts';
-import { resolveOdooViewer } from './odoo-viewer.ts';
+import { resolveOdooViewer } from './login-providers/odoo/odoo-viewer.ts';
 import { runGrantActive } from './sop-read-auth.ts';
 import { taskWorkspaceKey, type TasksReadScope } from './tasks.ts';
 

@@ -14,8 +14,8 @@ import { svc } from './context.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { CookieService } from './services/cookie.ts';
 import { clientIp } from './login-gate.ts';
-import { browserLoginOrigin, odooBrowserOrigin } from './odoo-browser-origin.ts';
-import { configuredOdooUrl, consumeSsoCallback, isOdooSessionTarget, issueSsoCallback, odooSessionOf, safeReturnPath, setSsoTargetLookup, stripOdooSession } from './odoo-session.ts';
+import { browserLoginOrigin, odooBrowserOrigin } from './login-providers/odoo/odoo-browser-origin.ts';
+import { configuredOdooUrl, consumeSsoCallback, isOdooSessionTarget, issueSsoCallback, odooSessionOf, safeReturnPath, setSsoTargetLookup, stripOdooSession } from './login-providers/odoo/odoo-session.ts';
 
 
 export const goPrefix = /^\/go\/(\d+)(.*)$/;

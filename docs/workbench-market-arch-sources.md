@@ -107,10 +107,10 @@
 |---|---|---|
 | 待办 API 先判读权限，再取授权来源 | [index.ts:2178–2191](../server/src/index.ts#L2178-L2191) | 扩展来源也按查看人身份收集，宿主不以管理员代取。 |
 | 领域服务和部署扩展 | [extensions.ts](../server/src/extensions.ts)、[index.ts:2213–2224](../server/src/index.ts#L2213-L2224) | `WM_EXTENSIONS_DIR` 显式挂载；图中虚线不证明具体私有扩展在测试或生产中已加载。 |
-| 浏览器登录 origin 与内部身份／代理源分离 | [odoo-browser-origin.ts](../server/src/odoo-browser-origin.ts)、[portal.ts](../server/src/portal.ts) | 只对所配置内部登录源替换浏览器目的地；Host 和 HTTPS 信号只收窄拒绝，不能自选新目的地。未配置时保持原行为；不是同域登录中继的等价物。 |
+| 浏览器登录 origin 与内部身份／代理源分离 | [odoo-browser-origin.ts](../server/src/login-providers/odoo/odoo-browser-origin.ts)、[portal.ts](../server/src/portal.ts) | 只对所配置内部登录源替换浏览器目的地；Host 和 HTTPS 信号只收窄拒绝，不能自选新目的地。未配置时保持原行为；不是同域登录中继的等价物。 |
 | 工作台自身数据库 | [db.ts:1–13](../server/src/db.ts#L1-L13) | `node:sqlite` 与 `workbench-market.db`；LC／YGL PG 成果不能替代工作台自身数据迁移。 |
 | 内置 ygl 待办来源 | [tasks.ts:77–145](../server/src/tasks.ts#L77-L145) | 该固定源码要求专用 `YGL_HOME` 和工作区数据库，调用 CLI；PG 待办来源仍属右页候选，不将其画成这份主线已经实现。子进程环境继承行为不等于已发生外泄。 |
-| SSO 票据与状态 | [sso-ticket-store.ts](../server/src/sso-ticket-store.ts)、[odoo-session.ts](../server/src/odoo-session.ts) | `DELETE … RETURNING` 保留共享库票据原子消费；过期清理／匹配另在调用链。来源计数再写入是多步操作，本图不声称并发签发配额已被原子验证。 |
+| SSO 票据与状态 | [sso-ticket-store.ts](../server/src/sso-ticket-store.ts)、[odoo-session.ts](../server/src/login-providers/odoo/odoo-session.ts) | `DELETE … RETURNING` 保留共享库票据原子消费；过期清理／匹配另在调用链。来源计数再写入是多步操作，本图不声称并发签发配额已被原子验证。 |
 | SOP 热态到 SQLite 的检查点 | [sop-state-checkpoints.ts](../server/src/sop-state-checkpoints.ts) | 按 run 串行及实际写入期限；图中 Redis／LayerFS 是独立基础设施角色，不声明当前健康或部署状态。 |
 
 以下 Git blob 身份对应上述固定 pin；后续文件行号可能随版本改变，复核应优先按完整 pin，而非可变 main：
@@ -123,8 +123,8 @@
 | [tasks.ts](../server/src/tasks.ts) | `5888fc4f542a54bb0966a8032047ccfd97f3f92b` |
 | [extensions.ts](../server/src/extensions.ts) | `ee0d29f67bb29718c7b9733a18dd4876a6204a73` |
 | [portal.ts](../server/src/portal.ts) | `7bb5fc6ace9f0b054c76aa79e7b9e4bdef2244fc` |
-| [odoo-session.ts](../server/src/odoo-session.ts) | `943cc10afc00454467c015c378b2dad2560638e3` |
-| [odoo-browser-origin.ts](../server/src/odoo-browser-origin.ts) | `234386740a0dd5956f218f803cd6709b20291535` |
+| [odoo-session.ts](../server/src/login-providers/odoo/odoo-session.ts) | `943cc10afc00454467c015c378b2dad2560638e3` |
+| [odoo-browser-origin.ts](../server/src/login-providers/odoo/odoo-browser-origin.ts) | `234386740a0dd5956f218f803cd6709b20291535` |
 | [sso-ticket-store.ts](../server/src/sso-ticket-store.ts) | `6d7f61d0bd51079e4f9a111f6d5d0e656e5a55bf` |
 | [sop-state-checkpoints.ts](../server/src/sop-state-checkpoints.ts) | `4978b498713f194f7fb9fdab79416d555f8315e3` |
 

@@ -2,7 +2,7 @@
 import express from 'express';
 import { createProxyMiddleware, fixRequestBody } from 'http-proxy-middleware';
 import { configuredOdooUrl, odooSessionOf, safeLoginRedirect } from './odoo-session.ts';
-import { surfaceOf } from './surfaces.ts';
+import { surfaceOf } from '../../surfaces.ts';
 
 const ASSET = /^\/web\/(?:assets|static)\/[A-Za-z0-9_./~-]+$/;
 const LANG_TRANSLATIONS = /^\/[a-z]{2}(?:_[A-Z]{2})?\/website\/translations$/;
