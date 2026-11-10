@@ -9,6 +9,7 @@
  *   H6 expressApp() 给出的是 Express 应用本身，不是代理
  *   H7 同一路径上有好几条路由（本仓最常见的形状：GET、POST 同一个路径）：撤哪条就只摘哪条，同路径的其余几条不动
  *   H8 撤销函数是普通函数：不带 then，调用后不返回东西
+ *   H9 同一个处理函数挂在几条路由上：撤一条只摘那一层，不是按处理函数认的
  */
 import { createRequire } from 'node:module';
 import { once } from 'node:events';
@@ -189,6 +190,22 @@ try {
     const before = dump(app);
     const returned = revoke();
     ok('H8 调用撤销函数不返回东西，路由当场摘掉（不用等）', returned === undefined && dump(app).join('\n') === before.filter((l) => !l.startsWith('GET /plain ')).join('\n'));
+  }
+
+  // ---------- H9：同一个处理函数挂在几条路由上 ----------
+  {
+    const { http, app } = await fresh();
+    function shared(req, res) { res.json({ method: req.method, path: req.path }); }
+    const revokeA = http.get('/alias-a', shared);
+    http.get('/alias-b', shared);
+    http.post('/alias-a', guard, shared);
+    app.use(tail);
+    const call = await serve(app);
+    const before = dump(app);
+    ok('H9 撤销之前：挂着同一个处理函数的三条路由都应答', (await call('GET', '/alias-a')).body.path === '/alias-a' && (await call('GET', '/alias-b')).body.path === '/alias-b' && (await call('POST', '/alias-a')).body.method === 'POST');
+    revokeA();
+    ok('H9 只撤其中一条：栈里只少这一层，另外两条还在（不是按处理函数认的）', dump(app).join('\n') === before.filter((l) => !l.startsWith('GET /alias-a ')).join('\n'), `\n${dump(app).join('\n')}`);
+    ok('H9 被撤的那条落到兜底，另外两条照常应答', (await call('GET', '/alias-a')).body.error === 'fell-through' && (await call('GET', '/alias-b')).body.path === '/alias-b' && (await call('POST', '/alias-a')).body.method === 'POST');
   }
 
   // ---------- H5、H6 ----------
