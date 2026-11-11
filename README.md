@@ -425,7 +425,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   workbenches.ts（工作台 /api/workbenches、/api/check-all）
 web/src/        pages/（Dashboard/Market/Sops/Types/Settings/UseWorkbench/Cockpit/McpGateways/Tasks/Skills/SopSpace/SopRunDetail/Vault/Reviews/OwnerPending/Attention/WorkItem） work-item-view.ts（事项详情页的提示、进展、结果解析，纯函数） components/ admin-token.ts（统一口令注入）
 deploy/         Dockerfile.market（多阶段·非 root·HEALTHCHECK） docker-compose.yml（回环默认·profiles 隔离） layerfs-svc.mjs
-docs/           layerfs-service-contract-v0/v1.md（LayerFS 服务契约）
+docs/           layerfs-service-contract-v0/v1.md（LayerFS 服务契约） data-views.md（数据视图设计稿：模块化渲染组件、每台一份数据、经 MCP 更新；未开工）
 data/           SQLite 数据文件（git 忽略）
 ```
 
