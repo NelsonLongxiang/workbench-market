@@ -15,8 +15,9 @@
 //   W11 超过传输上限的载荷 → 一次即 dead（不重试 5 次）；W12 画布名与上游同规则（中文、中间空格可；>40 / 纯数字拒）
 //   W13 发送途中撤回：撤回如实报 in_flight，落定记 sent + sent-after-withdraw（不把 cancelled 事后改写）
 //   终态判据非空：注入一条 73h 前的 held，判据必须抓到
+//   W14 阶段八 8b：每个事件都建出事项、状态和来源对得上；监听器没出错；只跑回填和实时建的逐行相同
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { mkdirSync, mkdtempSync } from 'node:fs';
@@ -314,6 +315,48 @@ try {
     const caught = rw.prepare("SELECT COUNT(*) AS n FROM workbench_event_deliveries d JOIN workbench_events e ON e.event_id = d.event_id WHERE e.submitter_kind = 'human' AND (d.status = 'pending' OR (d.status = 'held' AND d.created_at < datetime('now', '-72 hours')))").get().n;
     rw.close();
     await check('终态判据非空：73h 前的 held 被判不通过', () => assert.equal(caught, 1));
+  }
+  // W14（阶段八 8b）：每个事件都在同一个事务里建出了事项，状态和来源对得上；实时建的和只跑回填建的逐行相同
+  {
+    const db = dbRead();
+    const evs = db.prepare('SELECT event_id, submitter_kind, routed FROM workbench_events ORDER BY id').all();
+    const byEvent = (sql, id) => db.prepare(sql).all(id);
+    const expected = (e) => {
+      if (e.submitter_kind === 'unverified' || e.routed === 'unrouted') return 'draft';
+      const ds = byEvent('SELECT status, decision FROM workbench_event_deliveries WHERE event_id = ?', e.event_id);
+      const acts = byEvent('SELECT action FROM workbench_event_log WHERE event_id = ?', e.event_id).map((r) => r.action);
+      if (ds.some((d) => d.decision === 'accept')) return 'accepted';
+      if (ds.some((d) => d.decision === 'ask')) return 'blocked';
+      const alive = ds.filter((d) => ['held', 'pending'].includes(d.status) || (d.status === 'sent' && d.decision === ''));
+      if (ds.length && ds.every((d) => d.status === 'cancelled')) return acts.some((a) => a.startsWith('sent')) ? 'delivered' : 'cancelled';
+      if (!alive.length && ds.some((d) => d.status === 'dead' || d.decision === 'decline')) return 'failed';
+      if (ds.length && ds.every((d) => d.status === 'held' || d.status === 'cancelled')) return 'held';
+      return 'delivered';
+    };
+    const wrong = [];
+    for (const e of evs) {
+      const item = db.prepare('SELECT state FROM work_items WHERE id = ?').get(`wi_${e.event_id}`);
+      if (item?.state !== expected(e)) wrong.push(`${e.event_id}（${e.submitter_kind}/${e.routed}）：应为 ${expected(e)}，得到 ${item?.state ?? '没有事项'}`);
+    }
+    const dumpOf = (conn) => JSON.stringify(conn.prepare('SELECT id, state, eval, eval_reason, open_asks, created_by, source_ref FROM work_items ORDER BY id').all().map((i) => [i,
+      conn.prepare('SELECT fact, fact_source, fact_id, from_state, to_state, actor, detail FROM work_item_log WHERE item_id = ? ORDER BY seq').all(i.id)]));
+    const live = dumpOf(db);
+    const copyDir = mkdtempSync(resolve('tmp', 'wbe-backfill-'));
+    db.exec(`VACUUM INTO '${join(copyDir, 'workbench-market.db').replace(/'/g, "''")}'`);
+    db.close();
+    const rw = new DatabaseSync(join(copyDir, 'workbench-market.db'));
+    rw.exec('DROP TABLE work_item_log; DROP TABLE work_items;');
+    rw.close();
+    const script = `const { root } = await import(${JSON.stringify(pathToFileURL(resolve('server/src/root-context.ts')).href)});
+      const { WorkItemService } = await import(${JSON.stringify(pathToFileURL(resolve('server/src/services/work-item.ts')).href)});
+      await root.plugin(WorkItemService); root.get('workItems').backfill(); root.get('workItems').backfill(); console.log('BACKFILLED');`;
+    const out = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', script], { env: { ...process.env, DATA_DIR: copyDir }, encoding: 'utf8' });
+    const back = new DatabaseSync(join(copyDir, 'workbench-market.db'), { readOnly: true });
+    const backfilled = out.stdout.includes('BACKFILLED') ? dumpOf(back) : `回填没跑完：${out.stderr.slice(-500)}`;
+    back.close();
+    await check(`W14a ${evs.length} 个事件各有一个事项，状态和来源对得上（未验证、未路由停在草稿）`, () => assert.deepEqual(wrong, []));
+    await check('W14b 监听器没出过错（服务日志里没有「没推进到事项」）', () => assert.ok(!logs.includes('没推进到事项'), logs.slice(-800)));
+    await check('W14c 只跑回填（两遍）建出来的事项和事项日志，和实时建的逐行相同', () => assert.equal(backfilled, live));
   }
   console.log(`workbench-events-smoke: ${pass} PASS`);
 } catch (e) {

@@ -57,6 +57,13 @@ const VARIANTS = {
   verify: { kind: 'verify', actor: 'user:alice' },
   return: { kind: 'return', actor: 'user:alice' },
   'answer·没带 ask_id': { kind: 'answer', answer: '店铺 A' },
+  // 8b 补的写法
+  'withdraw·一次都没发出去': { kind: 'withdraw', none_sent: true },
+  'eval·stop 带理由·还有别的投递活着': { kind: 'eval', verdict: 'stop', reason: '不接', others_alive: true },
+  'delivery·dead·还有别的投递活着': { kind: 'delivery', outcome: 'dead', others_alive: true },
+  'note·未路由': { kind: 'note', note: 'unrouted' },
+  'note·未采信': { kind: 'note', note: 'untrusted' },
+  'note·写错的备注': { kind: 'note', note: 'whatever' },
   'answer·答一条没问过的提问': { kind: 'answer', ask_id: 'no-such-ask', answer: '店铺 A' },
 };
 
@@ -68,16 +75,21 @@ const SPEC = {
   'submit·开关全开': to('delivered', 'draft', 'held'),
   release: to('delivered', 'draft', 'held'),
   withdraw: to('cancelled', 'draft', 'held'),
+  // 8b 实现时补定：排了队、一次都没发出去就撤回
+  'withdraw·一次都没发出去': to('cancelled', 'draft', 'held', 'delivered'),
   'delivery·dead': to('failed', 'delivered'),
-  'eval·accept': to('accepted', 'delivered'),
+  // 附录 8b：先问后接
+  'eval·accept': to('accepted', 'delivered', 'blocked'),
   'eval·stop 带理由': to('failed', 'delivered'),
+  'eval·stop 带理由·还有别的投递活着': {},
   'eval·ignore 带理由': to('failed', 'delivered'),
   'eval·unavailable 带理由': to('failed', 'delivered'),
   // 附录 8a 补定：原地重复的上报（progress→progress、waiting→waiting、blocked 时又来提问）算合法
   'report·progress': to('progress', 'accepted', 'waiting', 'blocked', 'progress'),
   'report·waiting': to('waiting', 'accepted', 'progress', 'waiting'),
   'report·blocked': to('blocked', 'accepted', 'progress', 'waiting'),
-  ask: to('blocked', 'accepted', 'progress', 'waiting', 'blocked'),
+  // 附录 8b：接单前就可以提问
+  ask: to('blocked', 'delivered', 'accepted', 'progress', 'waiting', 'blocked'),
   'report·ready': to('ready', 'progress', 'waiting', 'blocked'),
   verify: to('done', 'ready'),
   return: to('progress', 'ready'),
@@ -88,7 +100,19 @@ const SPEC = {
 
 /** 附录 8a 补定的「只记录」：状态不变、记一行日志。回执（outcome 不是 failed）在 ready 和任一终态都接受，终态之后的标「晚到」。
  *  answer 要答一条真问过的提问，单独在第四节之后测。 */
-const RECORD = { 'receipt·done': ['ready', 'done', 'failed', 'dropped', 'cancelled'] };
+const AFTER_ACCEPT = ['accepted', 'progress', 'waiting', 'ready'];
+const RECORD = {
+  'receipt·done': ['ready', 'done', 'failed', 'dropped', 'cancelled'],
+  // 附录 8b：一个事件投给多个团队——已有团队接手之后别的团队的决定、别的投递 dead；还有别的投递活着时的拒接和 dead
+  'eval·accept': AFTER_ACCEPT, 'eval·stop 带理由': AFTER_ACCEPT, 'eval·ignore 带理由': AFTER_ACCEPT, 'eval·unavailable 带理由': AFTER_ACCEPT,
+  'eval·stop 没理由': AFTER_ACCEPT, 'eval·stop 理由是空白': AFTER_ACCEPT,
+  'eval·stop 带理由·还有别的投递活着': ['delivered', 'blocked', ...AFTER_ACCEPT],
+  'delivery·dead': ['accepted', 'progress', 'waiting', 'blocked', 'ready'],
+  'delivery·dead·还有别的投递活着': ['delivered', 'accepted', 'progress', 'waiting', 'blocked', 'ready'],
+  // 附录 8b：未路由、收到但未采信
+  'note·未路由': ['draft', 'held', 'delivered', 'accepted', 'progress', 'waiting', 'ready', 'blocked'],
+  'note·未采信': ['draft', 'held', 'delivered', 'accepted', 'progress', 'waiting', 'ready', 'blocked'],
+};
 
 /** 走到某个状态的合法路径（每步都是表里的一行） */
 const PATH = {
@@ -169,7 +193,7 @@ try {
         }
       }
     }
-    check(wrong.length === 0, `第三节的表（含补定的原地行）逐行做正例（${allowed} 例到了对的状态、各写一行日志），只记录的回执 ${recorded} 例状态不变、记一行，表外的迁移逐个做反例（${refused} 例被拒、状态和日志都不动）`, wrong.slice(0, 6).join('；'));
+    check(wrong.length === 0, `第三节的表（含补定的原地行）逐行做正例（${allowed} 例到了对的状态、各写一行日志），只记录的事实 ${recorded} 例状态不变、记一行，表外的迁移逐个做反例（${refused} 例被拒、状态和日志都不动）`, wrong.slice(0, 6).join('；'));
   }
 
   // ---------- 三、终态之后不再接受任何事实 ----------
