@@ -41,7 +41,7 @@ def set_token(pg):
     pg.locator('.ant-popover input[type=password]').last.fill(TOK)
     pg.locator('.ant-popover button', has_text='保').last.click()
     pg.wait_for_selector('[data-testid=nav-admin]', timeout=10000)
-    pg.keyboard.press('Escape'); pg.mouse.click(900, 450); pg.wait_for_timeout(300)
+    pg.keyboard.press('Escape'); pg.mouse.click(800, 26); pg.wait_for_timeout(300)  # 点顶栏空白处关掉用户卡；别点内容区，会点到卡片
 
 with sync_playwright() as p:
     b = p.chromium.launch()
@@ -60,7 +60,13 @@ with sync_playwright() as p:
     check('没有质量评级（没有来源）', pg.locator('text=质量评级').count() == 0)
     hrefs = pg.evaluate("[...document.querySelectorAll('[data-testid=mkt-card]')].map(e=>e.getAttribute('href'))")
     check('工作台卡片去 /use/<id>，流程卡片去 /sops/<slug>', all(f'/use/{w["id"]}' in hrefs for w in wbs) and all(f'/sops/{s["slug"]}' in hrefs for s in sops), hrefs)
-    check('没有管理员：不露「管理工作台」', pg.locator('.wm-top-actions', has_text='管理工作台').count() == 0)
+    check('没有管理员：不露「管理」', pg.locator('[data-testid=mkt-manage]').count() == 0)
+    tags_rows = pg.evaluate("[...document.querySelectorAll('[data-testid=mkt-card]')].map(e=>[e.dataset.kind,[...e.querySelectorAll('.wm-mkt-tag')].map(t=>t.innerText.trim())])")
+    check('标签行不重复类别；只有类别的卡片没有标签行', all(kind not in tags for kind, tags in tags_rows), tags_rows)
+    descs = pg.evaluate("[...document.querySelectorAll('[data-testid=mkt-card]')].map(e=>e.querySelector('.wm-mkt-desc')?.innerText.trim()||'')")
+    check('每张卡片都有说明区：没有说明的写「还没有说明」', all(d for d in descs), descs)
+    bottoms = pg.evaluate("[...document.querySelectorAll('[data-testid=mkt-card]')].slice(0,3).map(e=>Math.round(e.getBoundingClientRect().bottom))")
+    check('同一排卡片底部对齐', len(set(bottoms)) == 1, bottoms)
 
     pg.locator('[data-testid="mkt-tab-流程"]').click(); pg.wait_for_timeout(200)
     kinds = set(pg.evaluate("[...document.querySelectorAll('[data-testid=mkt-card]')].map(e=>e.dataset.kind)"))
@@ -88,10 +94,13 @@ with sync_playwright() as p:
 
     # 管理员
     set_token(pg)
-    btn = pg.locator('.wm-top-actions', has_text='管理工作台')
+    btn = pg.locator('[data-testid=mkt-manage]')
     btn.wait_for(timeout=5000)
-    check('管理员：顶栏有「管理工作台」，且不是主按钮', btn.count() == 1 and pg.locator('.wm-top-actions .ant-btn-primary').count() == 0)
-    btn.locator('a').click(); pg.wait_for_url(M + '/market/manage'); pg.wait_for_selector('.ant-table-row')
+    check('管理员：顶栏有「管理」，且不是主按钮', btn.count() == 1 and pg.locator('.wm-top-actions .ant-btn-primary').count() == 0)
+    btn.click(); pg.locator('.ant-dropdown-menu', has_text='管理工作台').wait_for(); settled(pg, '.ant-dropdown-menu')
+    items = [t.strip() for t in pg.locator('.ant-dropdown-menu .ant-dropdown-menu-item').all_inner_texts()]
+    check('「管理」里是工作台、流程、技能三处原来的管理面', items == ['管理工作台', '流程的发布与绑定', '技能的版本'], items)
+    pg.locator('.ant-dropdown-menu a', has_text='管理工作台').click(); pg.wait_for_url(M + '/market/manage'); pg.wait_for_selector('.ant-table-row')
     crumb = pg.locator('.wm-top-crumb').inner_text().replace('\n', ' ')
     check('管理页：顶栏「工作台市场 / 管理工作台」，原来的工作台表格在', '工作台市场' in crumb and '管理工作台' in crumb and pg.locator('.ant-table-row').count() == len(wbs), crumb)
     pg.locator('.wm-top-crumb a').click(); pg.wait_for_url(M + '/market'); pg.wait_for_selector('[data-testid=mkt-card]')

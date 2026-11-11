@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 工作台市场页的纯函数单测（web/src/market-view.ts）：三个来源合成卡片、分类计数、读不到和空着时怎么说。数据都是合成的。 */
-import { cardsOf, emptyText, healthLabel, initialOf, runningBySlug, skillCards, sopCards, sourceProblem, tabFromQuery, usableIcon, workbenchCards } from '../web/src/market-view.ts';
+import { NO_DESCRIPTION, cardsOf, emptyText, extraTags, healthLabel, initialOf, runningBySlug, skillCards, sopCards, sourceProblem, tabFromQuery, usableIcon, workbenchCards } from '../web/src/market-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -20,6 +20,8 @@ const wbs = workbenchCards([wb(2, '乙台', { sort: 1 }), wb(1, '甲台', { icon
 ok('工作台：停用的、形状不对的不列；按 sort 再按名字排', J(wbs.map((c) => c.name)) === '["甲台","乙台"]', J(wbs.map((c) => c.name)));
 ok('工作台：图标、分类、标签最多三个、健康、去处 /use/<id>、「打开」', wbs[0].icon === '💹' && !wbs[0].initial && wbs[0].caption === '分类一' && J(wbs[0].tags) === '["a","b","c"]' && wbs[0].usage === '离线' && wbs[0].href === '/use/1' && wbs[0].action === '打开');
 ok('工作台：没有图标用名字的头一个字', wbs[1].icon === '乙' && wbs[1].initial === true);
+const checked = workbenchCards([wb(5, '有检测', { last_checked_at: '2026-11-11 10:00:00' }), wb(6, '空检测', { last_checked_at: '  ' })]);
+ok('工作台：带最近一次检测时间（页面接相对时间）；空的不带', checked.find((c) => c.name === '有检测').checkedAt === '2026-11-11 10:00:00' && !('checkedAt' in checked.find((c) => c.name === '空检测')));
 ok('工作台：应答不是数组按空处理，不抛', workbenchCards({ error: 'x' }).length === 0 && workbenchCards(null).length === 0);
 
 // 流程
@@ -37,6 +39,10 @@ const sks = skillCards([skill('s-2', { name: '乙技能', layer: 2, layer_name: 
 ok('技能：没有版本的不列；按层再按名字排', J(sks.map((c) => c.name)) === '["甲技能","乙技能"]', J(sks.map((c) => c.name)));
 ok('技能：层、族和「旧版」标签、版本数、「查看」', sks[1].caption === '开发运维' && J(sks[1].tags) === '["族一","旧版"]' && sks[1].usage === '3 个版本' && sks[1].action === '查看' && sks[1].href === '/skills');
 ok('技能：应答是 { items } 也认；别的形状按空', skillCards({ items: [skill('s-1')] }).length === 1 && skillCards({ error: 'x' }).length === 0);
+
+// 标签行、说明
+ok('标签行：只放类别以外的标签；只有类别时是空的（页面不显示这一行）', J(extraTags({ kind: '工作台', tags: ['工作台', '财务'] })) === '["财务"]' && extraTags({ kind: '流程', tags: [] }).length === 0);
+ok('没有说明的卡片写一句中性的话', NO_DESCRIPTION === '还没有说明');
 
 // 分类
 const all = [...wbs, ...sops, ...sks];

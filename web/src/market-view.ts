@@ -29,8 +29,10 @@ export interface MarketCard {
   caption: string;
   description: string;
   tags: string[];
-  /** 卡片底部左边：现在怎么样（在线、在办几件、几个版本） */
+  /** 卡片底部左边：一句有来源的事实（工作台的在线状态、流程在办几件、技能几个版本）；没有来源就只写状态，不造数字 */
   usage: string;
+  /** 工作台最近一次检测的时间（服务端 UTC 时间）：页面在状态后面接相对时间 */
+  checkedAt?: string;
   /** 卡片底部右边的去处 */
   href: string;
   action: '打开' | '查看';
@@ -72,6 +74,7 @@ export function workbenchCards(list: unknown): MarketCard[] {
         description: String(w.description ?? '').trim(),
         tags: Array.isArray(w.tags) ? w.tags.filter((t) => typeof t === 'string' && t.trim()).slice(0, 3) : [],
         usage: healthLabel(w.last_status),
+        ...(typeof w.last_checked_at === 'string' && w.last_checked_at.trim() ? { checkedAt: w.last_checked_at.trim() } : {}),
         href: `/use/${w.id}`, action: '打开' as const,
       };
     });
@@ -136,6 +139,14 @@ export function cardsOf(cards: MarketCard[], tab: MarketTab): MarketCard[] {
   return tab === '全部' ? cards : cards.filter((c) => c.kind === tab);
 }
 
+/** 没有说明的卡片在说明区写这一句（卡片等高、同一排底部对齐） */
+export const NO_DESCRIPTION = '还没有说明';
+
+/** 标签行只放类别以外的标签（类别已经是上面的分类页签了）；没有就不显示这一行 */
+export function extraTags(c: MarketCard): string[] {
+  return c.tags.filter((t) => t !== c.kind);
+}
+
 /** 地址里的分类（?k=流程）：认不出的当「全部」 */
 export function tabFromQuery(raw: string | null): MarketTab {
   return (MARKET_TABS as readonly string[]).includes(String(raw)) ? (raw as MarketTab) : '全部';
@@ -156,7 +167,7 @@ export function sourceProblem(kind: MarketKind, r: SourceResult | null): { type:
 
 /** 某一类空着时怎么说：为什么空、下一步能做什么 */
 export function emptyText(tab: MarketTab, admin: boolean): string {
-  if (tab === '工作台') return admin ? '还没有登记的工作台。点右上角「管理工作台」登记第一个。' : '还没有登记的工作台。工作台由管理员登记，登记后会出现在这里。';
+  if (tab === '工作台') return admin ? '还没有登记的工作台。点右上角「管理」里的「管理工作台」登记第一个。' : '还没有登记的工作台。工作台由管理员登记，登记后会出现在这里。';
   if (tab === '流程') return '还没有发布的流程。流程在 SOP 交付空间发布之后会出现在这里。';
   if (tab === '技能') return '还没有发布的技能。技能发布第一个版本之后会出现在这里。';
   return '市场里还什么都没有。工作台、流程、技能上架之后会出现在这里。';

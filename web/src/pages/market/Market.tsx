@@ -1,16 +1,18 @@
 /**
  * 工作台市场（照产品化原型 3fbfd0b 的 #/market）：一个入口里按「工作台 / 流程 / 技能」分类浏览，卡片三列。
  * 原来分散的三页并进来：/market 的工作台、/sops 的已发布流程、/skills 的技能。原型里的「连接器」和「质量评级」现在没有数据来源，不出现。
- * 管理工作台（登记、停用、删除、检测）在 /market/manage，只对管理员露出入口；流程和技能的管理仍在原来的页面。
+ * 管理（只对管理员露出）：工作台的登记、停用、删除、检测在 /market/manage（原来的表格）；流程的发布、停用、绑定在 /sops，技能的版本链在 /skills（原来的页面）。
  * 判断逻辑在 web/src/market-view.ts（有单测）。
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Alert, Button, Empty, Skeleton } from 'antd';
+import { Alert, Button, Dropdown, Empty, Skeleton } from 'antd';
+import { DownOutlined } from '@ant-design/icons';
+import RelTime from '../../components/RelTime';
 import WmPage from '../../components/WmPage';
 import { getMarketRunningSops, getMarketSkills, getMarketSops, getMarketWorkbenches } from '../../api';
 import { adminActive, subscribeAdminToken } from '../../admin-token';
-import { MARKET_TABS, cardsOf, emptyText, runningBySlug, skillCards, sopCards, sourceProblem, tabFromQuery, workbenchCards } from '../../market-view';
+import { MARKET_TABS, NO_DESCRIPTION, cardsOf, emptyText, extraTags, runningBySlug, skillCards, sopCards, sourceProblem, tabFromQuery, workbenchCards } from '../../market-view';
 import type { MarketCard, MarketKind, MarketTab, SourceResult } from '../../market-view';
 
 type Sources = { wb: SourceResult | null; sop: SourceResult | null; skill: SourceResult | null; running: SourceResult | null };
@@ -27,13 +29,10 @@ function Card({ c }: { c: MarketCard }) {
           {c.caption && <span className="wm-mkt-caption">{c.caption}</span>}
         </span>
       </div>
-      {c.description && <div className="wm-mkt-desc">{c.description}</div>}
-      <div className="wm-mkt-tags">
-        <span className="wm-mkt-tag">{c.kind}</span>
-        {c.tags.map((t) => <span key={t} className="wm-mkt-tag">{t}</span>)}
-      </div>
+      {c.description ? <div className="wm-mkt-desc">{c.description}</div> : <div className="wm-mkt-desc wm-mkt-desc-none">{NO_DESCRIPTION}</div>}
+      {extraTags(c).length > 0 && <div className="wm-mkt-tags">{extraTags(c).map((t) => <span key={t} className="wm-mkt-tag">{t}</span>)}</div>}
       <div className="wm-mkt-foot">
-        <span>{c.usage}</span>
+        <span className="wm-mkt-usage">{c.usage}{c.checkedAt && <> · <RelTime value={c.checkedAt} /></>}</span>
         <span className="wm-mkt-go">{c.action} →</span>
       </div>
     </Link>
@@ -72,7 +71,15 @@ export default function Market() {
   const pick = (t: MarketTab) => setParams(t === '全部' ? {} : { k: t }, { replace: true });
 
   return (
-    <WmPage extra={admin ? <Link to="/market/manage"><Button>管理工作台</Button></Link> : undefined}>
+    <WmPage extra={admin ? (
+      <Dropdown trigger={['click']} menu={{ items: [
+        { key: 'wb', label: <Link to="/market/manage">管理工作台</Link> },
+        { key: 'sop', label: <Link to="/sops">流程的发布与绑定</Link> },
+        { key: 'skill', label: <Link to="/skills">技能的版本</Link> },
+      ] }}>
+        <Button data-testid="mkt-manage">管理 <DownOutlined /></Button>
+      </Dropdown>
+    ) : undefined}>
       <div className="wm-mkt-tabs" role="tablist">
         {MARKET_TABS.map((t) => (
           <button key={t} type="button" role="tab" aria-selected={tab === t} className={tab === t ? 'wm-mkt-tab on' : 'wm-mkt-tab'} data-testid={`mkt-tab-${t}`} onClick={() => pick(t)}>
