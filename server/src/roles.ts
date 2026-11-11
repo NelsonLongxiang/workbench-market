@@ -47,7 +47,7 @@ export const SYSTEM_DOMAINS: readonly string[] = [
 ];
 /** 明确算业务的域。和 SYSTEM_DOMAINS 一起要盖住全部已登记动作的域（扩展的动作另算，都是业务） */
 export const BUSINESS_DOMAINS: readonly string[] = [
-  'app-data', 'attention', 'change-request', 'cockpit', 'mcp-rest', 'mcp-tool', 'sop', 'sop-run', 'summary', 'task-center', 'work-item', 'work-items',
+  'app-data', 'attention', 'change-request', 'cockpit', 'mcp-rest', 'mcp-tool', 'sop', 'sop-run', 'summary', 'task-center', 'tasks', 'work-item', 'work-items',
 ];
 /** 动作的域：点号前面那段；MCP 工具名（没有点）都算 mcp-tool */
 export const domainOf = (action: string): string => (action.includes('.') ? action.slice(0, action.indexOf('.')) : 'mcp-tool');
@@ -63,7 +63,7 @@ export function unclassifiedDomains(actions: Iterable<string>): string[] {
  */
 export const BLOCKS: readonly { key: string; name: string; domains: readonly string[] }[] = [
   { key: 'overview', name: '全景', domains: ['cockpit', 'summary'] },
-  { key: 'work', name: '事项与对话', domains: ['change-request', 'sop', 'sop-run', 'task-center', 'work-item', 'work-items'] },
+  { key: 'work', name: '事项与对话', domains: ['change-request', 'sop', 'sop-run', 'task-center', 'tasks', 'work-item', 'work-items'] },
   { key: 'attention', name: '关注', domains: ['attention'] },
   { key: 'bench-data', name: '工作台数据', domains: ['app-data', 'mcp-rest', 'mcp-tool'] },
   { key: 'team', name: '团队与 AI 员工', domains: ['binding', 'principal'] },
