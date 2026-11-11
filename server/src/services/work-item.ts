@@ -67,6 +67,16 @@ type Row = { from: readonly WorkItemState[]; fact: Fact['kind']; when: (f: Fact)
 const is = <K extends keyof Fact>(k: K, v: Fact[K]) => (f: Fact) => f[k] === v;
 const hasReason = (f: Fact) => typeof f.reason === 'string' && f.reason.trim() !== '';
 
+/**
+ * 阶段七 R3：「对方说不干了」的回执结局和它推到的终态。所有这类行都只在 lastTeamStanding 成立时迁移：
+ * 别的团队已接手或还活着时，一个团队的失败、拒绝、放弃不能把事项判死（ready 时也一样：只有接手的那个投递自己说才算）。
+ */
+export const GIVE_UP_OUTCOMES: readonly string[] = ['failed', 'rejected', 'abandoned'];
+const GIVE_UP_TO: Record<string, WorkItemState> = { failed: 'failed', rejected: 'failed', abandoned: 'dropped' };
+const GIVE_UP_NOTE: Record<string, string> = { failed: '没办成', rejected: '对方拒绝', abandoned: '放弃（回执即放弃要的那条回执）' };
+/** 说不干了的这个投递是不是最后一个还在场的：别的投递里没有活着的（held / pending / sent）、也没有已接手的 */
+export const lastTeamStanding = (f: Fact): boolean => f.others_engaged !== true;
+
 /** 迁移表：第三节那张表逐行照抄。表里没有的（状态，事实）组合一律拒绝。 */
 export const TRANSITIONS: readonly Row[] = [
   { from: ['draft'], fact: 'submit', when: is('dispatch_open', false), to: 'held', note: '提交，派发开关没全开' },
@@ -95,14 +105,11 @@ export const TRANSITIONS: readonly Row[] = [
   // 实现时补定（8b）：排了队、一次都没发出去就撤回，等同于还没转交
   { from: ['delivered'], fact: 'withdraw', when: is('none_sent', true), to: 'cancelled', note: '排队中还没发出就撤回' },
   { from: NON_TERMINAL, fact: 'report', when: is('status', 'failed'), to: 'failed', note: '席位 report：failed' },
-  { from: NON_TERMINAL, fact: 'receipt', when: is('outcome', 'failed'), to: 'failed', note: '终态回执 outcome=failed' },
+  // 对方说不干了（回执 failed / rejected / abandoned）：统一走 lastTeamStanding——别的投递里还有活着的或已接手的，只记录（见 RECORDS）
+  ...GIVE_UP_OUTCOMES.map((o) => ({ from: NON_TERMINAL, fact: 'receipt' as const, when: (f: Fact) => f.outcome === o && lastTeamStanding(f), to: GIVE_UP_TO[o], note: `回执 outcome=${o}：${GIVE_UP_NOTE[o]}（别的投递没有活着或已接手的）` })),
   { from: NON_TERMINAL, fact: 'report', when: (f) => f.status === 'dropped' && typeof f.receipt?.outcome === 'string' && f.receipt.outcome !== '', to: 'dropped', note: '席位 report：dropped（同时有回执）' },
   // 阶段七 R3：席位的 A2A 回执（superagent 不发 report，只发回执）。没先收到接单回执就直接来结果的，视同接单后完成
   { from: ['delivered', 'accepted', 'progress', 'waiting', 'blocked'], fact: 'receipt', when: is('outcome', 'completed'), to: 'ready', note: '回执 outcome=completed：做完，等验收' },
-  // rejected / abandoned 只在「别的投递里没有活着的、也没有已接手的」时推终态：别的团队已接手时，一个团队的拒绝或放弃不能把事项判死。
-  // ready（等建立人验收）时也一样：只有回执来自接手的那个投递（别人都不在）才迁移
-  { from: NON_TERMINAL, fact: 'receipt', when: (f) => f.outcome === 'rejected' && f.others_engaged !== true, to: 'failed', note: '回执 outcome=rejected：对方拒绝（别的投递没有活着或已接手的）' },
-  { from: NON_TERMINAL, fact: 'receipt', when: (f) => f.outcome === 'abandoned' && f.others_engaged !== true, to: 'dropped', note: '回执 outcome=abandoned：放弃（别的投递没有活着或已接手的；回执即放弃要的那条回执）' },
 ];
 
 /** 查表：这个状态下这条事实能到哪。查不到返回 null。 */
@@ -124,8 +131,8 @@ export const RECORDS: readonly { from: readonly WorkItemState[]; fact: Fact['kin
   { from: ['accepted', 'progress', 'waiting', 'ready'], fact: 'eval', when: (f) => ['accept', 'stop', 'ignore', 'unavailable'].includes(f.verdict ?? ''), note: '已有团队接手之后，别的团队再来接或拒' },
   { from: ['delivered', 'blocked'], fact: 'eval', when: (f) => ['stop', 'ignore', 'unavailable'].includes(f.verdict ?? '') && f.others_alive === true, note: '一个团队拒接，还有别的投递活着' },
   { from: ['delivered'], fact: 'delivery', when: (f) => f.outcome === 'dead' && f.others_alive === true, note: '一个投递 dead，还有别的投递活着' },
-  // 阶段七 R3：一个团队回执拒绝，还有别的投递活着
-  { from: NON_TERMINAL, fact: 'receipt', when: (f) => (f.outcome === 'rejected' || f.outcome === 'abandoned') && f.others_engaged === true, note: '一个团队回执拒绝或放弃，别的投递还活着或已接手' },
+  // 阶段七 R3：一个团队说不干了（回执 failed / rejected / abandoned），别的投递还活着或已接手——只记录
+  { from: NON_TERMINAL, fact: 'receipt', when: (f) => GIVE_UP_OUTCOMES.includes(f.outcome ?? '') && !lastTeamStanding(f), note: '一个团队回执说不干了（failed / rejected / abandoned），别的投递还活着或已接手' },
   { from: ['accepted', 'progress', 'waiting', 'blocked', 'ready'], fact: 'delivery', when: is('outcome', 'dead'), note: '已有团队接手之后，别的投递 dead' },
   // 8b：未路由、未采信
   { from: NON_TERMINAL, fact: 'note', when: (f) => f.note === 'unrouted' || f.note === 'untrusted' || f.note === 'undispatched', note: '未路由 / 收到但未采信 / 未派发' },
