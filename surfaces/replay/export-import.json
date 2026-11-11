@@ -1320,6 +1320,62 @@
           }
         },
         {
+          "id": "replace-via-body",
+          "route": "POST /api/import",
+          "class": "normal",
+          "what": "查询串没写 mode、body 里写 replace：按替换",
+          "request": { "method": "POST", "path": "/api/import", "json": { "mode": "replace", "workbenches": [{ "name": "body 替换", "url": "http://127.0.0.1:9/b1" }] } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "53", "etag": "W/\"35-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "mode": "replace", "imported": 1, "skipped": 0 }
+          }
+        },
+        {
+          "id": "export-after-body-replace",
+          "route": "GET /api/export",
+          "class": "normal",
+          "what": "body 替换之后：只剩这一个台",
+          "request": { "method": "GET", "path": "/api/export?reveal=1" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "972", "etag": "W/\"3cc-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "format": "workbench-market/export@1",
+              "exported_at": "YYYY-MM-DDThh:mm:ss.fffZ",
+              "masked": 0,
+              "workbenches": [
+                {
+                  "id": 9,
+                  "name": "body 替换",
+                  "url": "http://127.0.0.1:9/b1",
+                  "type": "web",
+                  "icon": "",
+                  "description": "",
+                  "category": "",
+                  "tags": [],
+                  "enabled": true,
+                  "health_path": "",
+                  "last_status": "unknown",
+                  "last_checked_at": "",
+                  "last_latency_ms": null,
+                  "last_http_code": null,
+                  "last_error": "",
+                  "sort": 0,
+                  "created_at": "YYYY-MM-DD hh:mm:ss",
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "cookie_set_id": 0,
+                  "auth": null
+                }
+              ],
+              "types": [{ "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "任意 HTTP 响应即视为在线", "created_at": "YYYY-MM-DD hh:mm:ss" }],
+              "settings": { "health_interval_seconds": "0", "health_timeout_ms": "5000", "health_concurrency": "8", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ", "mcp_upstreams": "[{\"name\":\"up\",\"url\":\"http://127.0.0.1:9/mcp\",\"headers\":{\"Authorization\":\"****\"}}]" }
+            }
+          }
+        },
+        {
           "id": "cockpit-after-replace",
           "what": "替换之后看驾驶舱：面板只剩待办卡（借驾驶舱的路由，只比面板）",
           "compare": ["panels"],
