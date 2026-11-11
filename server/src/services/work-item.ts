@@ -358,6 +358,17 @@ export type BackfillStatus = {
 
 type BackfillMark = { version: number; status: string; phase: string; cursor: number; batches: number; events: number; log_mark: number; dirty: number };
 
+/** 一条事项日志给人看的那句话：进展摘要、提问、答复、理由、备注……取第一个有的；都没有就空串 */
+function logText(l: WorkItemLogRow): string {
+  let d: Record<string, unknown> = {};
+  try { d = JSON.parse(l.detail || '{}') as Record<string, unknown>; } catch { return ''; }
+  for (const k of ['summary', 'text', 'question', 'answer', 'reason', 'note', 'status', 'verdict', 'outcome']) {
+    const v = d[k];
+    if (typeof v === 'string' && v.trim() !== '') return v.slice(0, 500);
+  }
+  return '';
+}
+
 export class WorkItemService extends Service {
   constructor(ctx: any) {
     super(ctx, 'workItems');
@@ -642,6 +653,48 @@ export class WorkItemService extends Service {
     const where: string[] = [], args: string[] = [];
     for (const k of ['state', 'object', 'phase'] as const) if (typeof filter[k] === 'string') { where.push(`${k} = ?`); args.push(filter[k]!); }
     return db.prepare(`SELECT * FROM work_items ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY created_at, id`).all(...args) as WorkItemRow[];
+  }
+
+  /**
+   * 列表一页（给事项列表的读接口）：按 updated_at、id 倒序，游标翻页；同时给可见范围里按状态的计数。
+   *   viewer = null 是管理员（看全部）；否则是查看者的主体标识，只看自己是建立人的——和详情、「关注」同一个判断（isCreator）。
+   *   看不到的不出现，也不计数。每行带最后一条事项日志（谁、做了什么、什么时候），前端不再拉全量日志。
+   * SQL 只用两种库都认的写法：游标比较、IN 列表、GROUP BY。
+   */
+  page(opts: { viewer: string | null; state?: WorkItemState; object?: string; phase?: string; limit: number; after?: { updated_at: string; id: string } }): {
+    items: (WorkItemRow & { last_log: { actor: string; fact: string; text: string; at: string } | null })[];
+    counts: Record<WorkItemState, number>; total: number; next: { updated_at: string; id: string } | null;
+  } {
+    const counts = Object.fromEntries(STATES.map((st) => [st, 0])) as Record<WorkItemState, number>;
+    if (opts.viewer !== null && !PERSON_PRINCIPAL.test(opts.viewer)) return { items: [], counts, total: 0, next: null };
+    const scope: string[] = [], scopeArgs: string[] = [];
+    if (opts.viewer !== null) { scope.push('creator_principal = ?'); scopeArgs.push(opts.viewer); }
+    const filt: string[] = [...scope], filtArgs: string[] = [...scopeArgs];
+    for (const k of ['state', 'object', 'phase'] as const) if (typeof opts[k] === 'string') { filt.push(`${k} = ?`); filtArgs.push(opts[k]!); }
+    // 计数：可见范围里、按 object、phase 筛过（不按 state 筛）之后按状态分组
+    const countWhere = filt.filter((w) => !w.startsWith('state ')), countArgs = filtArgs.filter((_, i) => !filt[i].startsWith('state '));
+    for (const r of db.prepare(`SELECT state, COUNT(*) AS n FROM work_items ${countWhere.length ? 'WHERE ' + countWhere.join(' AND ') : ''} GROUP BY state`).all(...countArgs) as { state: WorkItemState; n: number }[]) {
+      if (r.state in counts) counts[r.state] = Number(r.n);
+    }
+    const page = [...filt], pageArgs: (string | number)[] = [...filtArgs];
+    if (opts.after) { page.push('(updated_at < ? OR (updated_at = ? AND id < ?))'); pageArgs.push(opts.after.updated_at, opts.after.updated_at, opts.after.id); }
+    const rows = db.prepare(`SELECT * FROM work_items ${page.length ? 'WHERE ' + page.join(' AND ') : ''} ORDER BY updated_at DESC, id DESC LIMIT ?`)
+      .all(...pageArgs, opts.limit + 1) as WorkItemRow[];
+    const more = rows.length > opts.limit;
+    // 再按同一个判断函数过一遍（SQL 那一道之外的纵深）
+    const visible = rows.slice(0, opts.limit).filter((w) => opts.viewer === null || isCreator(w, opts.viewer));
+    const last = new Map<string, WorkItemLogRow>();
+    if (visible.length) {
+      const ids = visible.map((w) => w.id);
+      const logs = db.prepare(`SELECT * FROM work_item_log WHERE seq IN (SELECT MAX(seq) FROM work_item_log WHERE item_id IN (${ids.map(() => '?').join(', ')}) GROUP BY item_id)`).all(...ids) as WorkItemLogRow[];
+      for (const l of logs) last.set(l.item_id, l);
+    }
+    const items = visible.map((w) => {
+      const l = last.get(w.id);
+      return { ...w, last_log: l ? { actor: l.actor, fact: l.fact, text: logText(l), at: l.at } : null };
+    });
+    const tail = rows[opts.limit - 1];
+    return { items, counts, total: Object.values(counts).reduce((a, b) => a + b, 0), next: more && tail ? { updated_at: tail.updated_at, id: tail.id } : null };
   }
 
   /** 唯一的改状态入口。 */
