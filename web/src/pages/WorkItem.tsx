@@ -15,6 +15,8 @@ import { adminActive, apiFetch, subscribeAdminToken } from '../admin-token';
 import { OUTCOME, VERDICT, answerChoices, answerRoute, describe, type AttentionItem, type LogRow } from '../attention-view';
 import { getMe, getWorkItem, postAskAnswer, postCreatorDecision, postSeatMessageReply, postSeatMessagesRead } from '../api';
 import SectionBoundary from '../components/SectionBoundary';
+import { rowActor, seatSummary, showProgress, subitemsOf, ticketStateLabel } from '../work-item-view';
+import { teamLabel } from '../people';
 import { VIEWER_NONE, actorLabel, groupTimeline, isCreator, seatLabel, type Viewer, askerLabel, textOf, who, PROGRESS_STATE, TERMINAL, canOf, stateLabel, askIdOf, creatorLabel, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
 
 type Item = { id: string; title: string; state: string; created_by: string; creator_principal?: string | null; created_at: string; updated_at: string; source_kind: string; source_ref: string; target_team: string; seat: string; eval: string; eval_reason: string; progress_summary: string; receipt_outcome: string; object: string; phase: string; open_asks: string; outputs: string; evidence: string };
@@ -27,10 +29,10 @@ const STATE_COLOR: Record<string, string> = {
 export const STATE: Record<string, { label: string; color: string }> = Object.fromEntries(Object.entries(STATE_COLOR).map(([k, color]) => [k, { label: stateLabel(k), color }]));
 const FACT: Record<string, string> = {
   create: '建立', submit: '提交', release: '放行', withdraw: '撤回', delivery: '投递结果', eval: '接单判断', report: '进展上报', ask: '席位问了',
-  receipt: '回执', verify: '验收', return: '退回', answer: '答复', note: '备注',
+  receipt: '回执', verify: '验收', return: '打回重做', answer: '答复', note: '备注',
 };
 type SeatMessage = { id: number; sender: string; peer: string; text: string; truncated: boolean; at: string; status: 'unread' | 'read' | 'replied' | 'over-cap' };
-type Data = { item: Item; log: LogRow[]; messages?: SeatMessage[]; unread?: number; progress?: SeatProgress | null; asks?: SeatAsk[] };
+type Data = { item: Item; log: LogRow[]; messages?: SeatMessage[]; unread?: number; progress?: SeatProgress | null; asks?: SeatAsk[]; subitems?: unknown };
 const MSG_STATUS: Record<SeatMessage['status'], { label: string; color: string }> = {
   unread: { label: '未读', color: 'blue' }, read: { label: '看过', color: 'default' }, replied: { label: '已回复', color: 'green' }, 'over-cap': { label: '超出上限', color: 'default' },
 };
@@ -195,7 +197,7 @@ function LogLine({ row, askIds, seat }: { row: LogRow; askIds?: Set<string>; sea
       {row.from_state !== row.to_state ? <>{stateTag(row.from_state)}→{stateTag(row.to_state)}</> : null}
       {row.rejected && <Tag color="default">收到，未采信：{REJECTED[row.rejected] ?? row.rejected}</Tag>}
     </Space>
-    <div><Typography.Text type="secondary">{row.at} · {actorLabel(row.actor || row.fact_source, seat)}</Typography.Text></div>
+    <div><Typography.Text type="secondary">{row.at} · {rowActor(row)}</Typography.Text></div>
     {describe(row) && <div>{describe(row)}</div>}
   </div>;
 }
@@ -246,7 +248,7 @@ export default function WorkItem() {
   const viewer: Viewer = { mine: isCreator(login, item?.creator_principal), can, creator: who(item?.creator_principal || item?.created_by).replace(/^(user|human):/, '') };
   const hint = item ? stateHint(item.state, item.seat, asks ? openAsks === 0 && asks.length > 0 : lastAskAnswered(data?.log ?? []), viewer) : null;
   const progress = data?.progress ?? null;
-  const tickets = Array.isArray(progress?.tickets) ? progress.tickets : [];
+  const tickets = subitemsOf(data?.subitems, progress);
   // 结果：事项的 outputs 列（现在还没人写）加上日志里回执带来的产物，去重
   const timeline = (data?.log ?? []).filter((r) => !hiddenInTimeline(r));
   // 提问号在 asks 里是数字、在日志的 fact_id / detail.ask_id 里是字符串：统一成字符串再比
@@ -264,8 +266,8 @@ export default function WorkItem() {
             <Flex vertical gap="small">
               {hint && <Alert type={hint.type} showIcon message={hint.text} data-testid="work-item-hint" />}
               <Descriptions column={2} size="small" items={[
-                { key: 'seat', label: '承接', children: seatLabel(who(item.seat)) || <Typography.Text type="secondary">还没有席位接手</Typography.Text> },
-                { key: 'team', label: '派给', children: item.target_team || '—' },
+                { key: 'seat', label: '承接', children: seatSummary(item.seat, tickets) || <Typography.Text type="secondary">还没有席位接手</Typography.Text> },
+                { key: 'team', label: '派给', children: teamLabel(item.target_team) || '—' },
                 { key: 'by', label: '建立人', children: creatorLabel(item.created_by, item.creator_principal) },
                 { key: 'obj', label: '对象 / 阶段', children: [item.object, item.phase].filter(Boolean).join(' / ') || '—' },
                 { key: 'eval', label: '接单判断', children: item.eval ? `${VERDICT[item.eval] ?? item.eval}${item.eval_reason ? `（${item.eval_reason}）` : ''}` : '—' },
@@ -285,15 +287,17 @@ export default function WorkItem() {
           </Card>}
           </SectionBoundary>
           <SectionBoundary name="正在处理">
-          {progress && <Card size="small" title="正在处理" data-testid="work-item-progress">
+          {progress && showProgress(item.state) && <Card size="small" title="正在处理" data-testid="work-item-progress">
             <Flex vertical gap="small">
               <Space wrap size={6}><Typography.Text strong>{progressLine(progress)}</Typography.Text>{who(progress.by) && <Typography.Text type="secondary">{who(progress.by)}</Typography.Text>}<RelTime value={progress.at || progress.received_at} /></Space>
               {textOf(progress.summary) && <Typography.Paragraph className="wm-m-0">{textOf(progress.summary)}</Typography.Paragraph>}
-              {tickets.length > 0 && <List size="small" header={<Typography.Text type="secondary">拆出的子项 {tickets.length} 件</Typography.Text>} dataSource={tickets} rowKey={(t) => textOf(t.id) || JSON.stringify(t)}
-                renderItem={(t) => <List.Item data-testid="work-item-ticket" extra={<Tag>{PROGRESS_STATE[textOf(t.state)] ?? textOf(t.state)}{textOf(t.outcome) ? ` · ${textOf(t.outcome)}` : ''}</Tag>}>
-                  <Space size={6}><span>{textOf(t.title) || textOf(t.id)}</span>{who(t.seat) && <Typography.Text type="secondary">{who(t.seat)}</Typography.Text>}</Space>
-                </List.Item>} />}
             </Flex>
+          </Card>}
+          {tickets.length > 0 && <Card size="small" title={`拆出的子项 ${tickets.length} 件`} data-testid="work-item-subitems">
+            <List size="small" dataSource={tickets} rowKey={(t) => textOf(t.id) || JSON.stringify(t)}
+              renderItem={(t) => <List.Item data-testid="work-item-ticket" extra={<Tag>{ticketStateLabel(textOf(t.state), textOf(t.outcome))}</Tag>}>
+                <Space size={6}><span>{textOf(t.title) || textOf(t.id)}</span>{who(t.seat) && <Typography.Text type="secondary">{seatLabel(who(t.seat))}</Typography.Text>}</Space>
+              </List.Item>} />
           </Card>}
           </SectionBoundary>
           <SectionBoundary name="对话">

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 事项详情页的纯函数单测（web/src/work-item-view.ts）：提示条、进展一行字、结果解析与链接、关注条目对到事项。 */
-import { VIEWER_NONE, actorLabel, groupTimeline, isCreator, seatLabel, askerLabel, textOf, who, CAN_NONE, canOf, stateLabel, askIdOf, creatorLabel, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint } from '../web/src/work-item-view.ts';
+import { VIEWER_NONE, actorLabel, groupTimeline, isCreator, seatLabel, askerLabel, textOf, who, CAN_NONE, canOf, stateLabel, askIdOf, creatorLabel, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, rowActor, seatSummary, showProgress, subitemsOf, ticketStateLabel } from '../web/src/work-item-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -60,6 +60,18 @@ ok('提问人：来源标记 receiver:<区> 换成承接席位，没有承接就
 const att = (source, link) => ({ source, source_id: '1', category: 'ask', title: '', waiting_for: '', since: '', answers: [], object: '', phase: '', link });
 const mine = pendingFor([att('seat-asks', '/work-items/wi_a'), att('work-items', '/work-items/wi_b'), att('work-items', '/work-items/wi_a'), att('x', '/other')], 'wi_a');
 ok('关注条目：只取链接到这件事项的', mine.length === 2 && mine.every((x) => x.link === '/work-items/wi_a'));
+
+// 协调第三轮（stage3-accept 九条里属于详情页的）
+ok('子项状态说中文：结束了按结局说', ticketStateLabel('ended', 'completed') === '做完了' && ticketStateLabel('ended', 'failed') === '没办成' && ticketStateLabel('ended', '') === '结束了' && ticketStateLabel('working') === '正在处理' && ticketStateLabel('waiting', 'x') === '在等 · x');
+{
+  const subs = [{ id: 't1', title: 'A', seat: '小采 · zone/a1', state: 'working' }, { id: 't2', title: 'B', seat: 'zone/b2', state: 'waiting' }, { id: 't3', title: 'C', seat: 'zone/c3', state: 'ended', outcome: 'completed' }];
+  ok('拆单承接：席位清空时按在做的子项数成员', seatSummary('', subs) === '2 个成员在做：小采（zone/a1）、zone/b2', seatSummary('', subs));
+  ok('拆单承接：有席位照常显示、标记 - 当空', seatSummary('小采 · zone/a1', subs) === '小采（zone/a1）' && seatSummary('-', [subs[0]]) === '小采（zone/a1）' && seatSummary('', []) === '');
+  ok('子项：详情 subitems 优先，没有用进展的 tickets，坏项丢掉', subitemsOf(subs, null).length === 3 && subitemsOf([], { tickets: [subs[0], null, 7] }).length === 1 && subitemsOf(null, null).length === 0);
+}
+ok('「正在处理」只在还在做时给：结束了、等验收不给', showProgress('progress') && !showProgress('ready') && !showProgress('done') && !showProgress('failed'));
+ok('时间线的谁：用回执的 by（名字（席位）），不用事项当前承接', rowActor({ actor: 'receiver:dsh', detail: JSON.stringify({ by: { seat: 'zone/26b40ae2', name: '总工' } }) }) === '总工（zone/26b40ae2）');
+ok('时间线的谁：by 是字符串、没有 by 时只去前缀', rowActor({ actor: 'receiver:dsh', detail: JSON.stringify({ by: 'zone/26b40ae2' }) }) === 'zone/26b40ae2' && rowActor({ actor: 'receiver:dsh', detail: '{}' }) === 'dsh' && rowActor({ actor: 'market', detail: 'bad' }) === '市场');
 
 console.log(`\nwork-item-detail-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

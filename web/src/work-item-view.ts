@@ -241,3 +241,43 @@ export function pendingFor(items: AttentionItem[], itemId: string): AttentionIte
   const link = `/work-items/${itemId}`;
   return items.filter((x) => x.link === link || x.link === `/work-items/${encodeURIComponent(itemId)}`);
 }
+
+/** 子项（拆单）的状态说法：结束了的按结局说（做完了 / 没办成……），在做的按步骤状态说；都不认得就原样 */
+const TICKET_OUTCOME: Record<string, string> = { completed: '做完了', done: '做完了', failed: '没办成', cancelled: '取消了', canceled: '取消了', dropped: '放弃了', abandoned: '放弃了', rejected: '拒了' };
+export function ticketStateLabel(state: string, outcome?: string): string {
+  const s = (state || '').trim(), o = (outcome || '').trim();
+  if (s === 'ended' || s === 'done') return TICKET_OUTCOME[o] ?? (o ? o : '结束了');
+  const head = PROGRESS_STATE[s] ?? (s || '—');
+  return o ? `${head} · ${TICKET_OUTCOME[o] ?? o}` : head;
+}
+
+/** 子项列表：详情的 subitems（#575）优先，没有就用进展里的 tickets；只收形状对的项 */
+export function subitemsOf(subitems: unknown, progress: SeatProgress | null | undefined): Ticket[] {
+  const raw = Array.isArray(subitems) && subitems.length ? subitems : Array.isArray(progress?.tickets) ? progress.tickets : [];
+  return (raw as unknown[]).filter((t): t is Ticket => !!t && typeof t === 'object' && (typeof (t as Ticket).id === 'string' || typeof (t as Ticket).title === 'string'));
+}
+
+/** 承接：有席位就显示席位；拆单后主事项承接清空（#575），这时按在做的子项数成员「2 个成员在做：A、B」；都没有返回空串 */
+export function seatSummary(seat: unknown, subitems: Ticket[]): string {
+  const s = seatLabel(who(seat));
+  if (s && s !== '-') return s;
+  const doing = [...new Set(subitems.filter((t) => ['working', 'waiting', 'blocked'].includes(t.state)).map((t) => seatLabel(who(t.seat))).filter(Boolean))];
+  return doing.length > 1 ? `${doing.length} 个成员在做：${doing.join('、')}` : doing[0] ?? '';
+}
+
+/** 「正在处理」只在事项还在做时给：结束了、等验收（ready）时上一次进展已经过时，不显示 */
+export const showProgress = (state: string): boolean => !TERMINAL.includes(state) && state !== 'ready';
+
+/** 时间线一行的「谁」：回执带了 by 就用 by（总工、成员各记各的）；没有 by 时只去掉来源前缀，不再拿事项的当前承接去顶 */
+export function rowActor(row: { actor?: string; fact_source?: string; detail?: string }): string {
+  let by: unknown = null;
+  try { by = (JSON.parse(row.detail || '{}') as { by?: unknown }).by ?? null; } catch { /* 坏的 detail 当没有 */ }
+  if (by && typeof by === 'object') {
+    const o = by as Record<string, unknown>;
+    const name = typeof o.name === 'string' ? o.name.trim() : '', seat = typeof o.seat === 'string' ? o.seat.trim() : '';
+    if (name && seat) return `${name}（${seat}）`;
+    if (name || seat) return name || seat;
+  }
+  if (typeof by === 'string' && by.trim()) return actorLabel(by, '');
+  return actorLabel(row.actor || row.fact_source || '', '');
+}
