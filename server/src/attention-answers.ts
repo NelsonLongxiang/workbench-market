@@ -2,11 +2,12 @@
  * 「关注」各来源的答法（阶段八 8d）：提供方的 answer() 和 deny()。规格见产品化文档 02 附录 8d。
  *
  * 两种实现：
- *   · 转给原路由（attention-forward.ts）：变更申请、MCP 权限申请、待属主看板、待对接清单、事项的放行和撤回。
+ *   · 转给原路由（attention-forward.ts）：MCP 权限申请、待属主看板、待对接清单、事项的放行和撤回。
  *     路径和方法只来自下面的 FORWARD 表，id 先核形状再编码填进去；请求体只由答法换算，表里没有的答法拒绝，
  *     调用方多带的字段一概不用。检查、状态变化、留痕都是原路由那一套，原路由回什么就交回什么。
  *     阶段三把这些处理函数抽出来之后，逐个换成直接调用，接口不变。
- *   · 直接实现：席位提问的答复、事项的验收和退回（以前没有旧入口）。
+ *   · 直接实现：席位提问的答复、事项的验收和退回（以前没有旧入口）；变更申请的批准和拒绝（调旧入口用的同一个 changeRequestReview，
+ *     审核人取认出来的管理员、不收自填的名字，不通过要写理由）。
  * 统一待办不提供答法。
  *
  * 重复答、并发答由「关注」服务的记账（once）给出：同一条再答返回第一次的结果，两个人同时答一个生效、另一个被告知。
@@ -20,6 +21,8 @@ import { identity } from './identity.ts';
 import { forward } from './attention-forward.ts';
 import { answerBody, findBoardWorkbench } from './owner-pending.ts';
 import { principalsAdmin } from './routes/principals.ts';
+import { changeRequestReview } from './routes/change-requests.ts';
+import { HttpError } from './errors.ts';
 import { currentAskOfDelivery, pendingAskOfDelivery, pendingPrincipalAppearance } from './services/attention-sources.ts';
 import { askTaskOf, deliveryTarget, eventDispatched, inReplyTx, queueReply } from './services/a2a-replies.ts';
 import { kickWorkbenchEvents, logDeliveryFact } from './workbench-events.ts';
@@ -71,8 +74,6 @@ async function actorOf(req: Req): Promise<string> {
  * 请求体只取这一种答法要的字段。表里没有的答法，入口直接拒。
  */
 const FORWARD: Record<string, Record<string, (id: string, input: Input) => Route>> = {
-  'change-requests': Object.fromEntries((['approve', 'reject'] as const).map((op) => [op, (id: string, input: Input): Route =>
-    NUM.test(id) ? { method: 'POST', path: `/api/change-requests/${encodeURIComponent(id)}/${op}`, body: { reviewed_by: text(input.reviewed_by, 128) } } : bad('attention_id_invalid')])),
   'mcp-access': Object.fromEntries((['approve', 'reject'] as const).map((op) => [op, (id: string, input: Input): Route =>
     NUM.test(id) ? { method: 'POST', path: `/api/mcp/access-requests/${encodeURIComponent(id)}/${op}`, body: { note: text(input.note, 500) } } : bad('attention_id_invalid')])),
   'owner-pending': {
@@ -119,6 +120,14 @@ export function forwardRoute(source: string, answer: string, id: string, input: 
 
 /** 直接实现的答法（以前没有旧入口） */
 const DIRECT: Record<string, Record<string, (req: Req, id: string, input: Input, actor: string) => Promise<AnswerOutcome>>> = {
+  'change-requests': {
+    approve: async (req, id, _input, actor) => reviewed(req, id, actor, (n, who) => changeRequestReview!.approve(n, who, who)),
+    reject: async (req, id, input, actor) => {
+      const reason = text(input.reason, 500);
+      if (!reason) return { status: 400, body: { error: 'reason_required' } };
+      return reviewed(req, id, actor, async (n, who) => changeRequestReview!.reject(n, who, who, reason));
+    },
+  },
   'work-items': {
     verify: async (_req, id, _input, actor) => applied(id, { kind: 'verify', source: 'attention', id: randomUUID(), actor }),
     return: async (_req, id, input, actor) => {
@@ -164,6 +173,21 @@ const DIRECT: Record<string, Record<string, (req: Req, id: string, input: Input,
     },
   },
 };
+
+/**
+ * 审核卡片当场批：只有管理员（和旧入口同一个管理门；「关注」列表本来就只给管理员看这个来源，这里再判一次）。
+ * 审核人就是认出来的管理员（actorOf），请求里自报的名字不收。判断和执行都在 changeRequestReview，判不过抛的 HttpError 换成同样的应答。
+ */
+async function reviewed(req: Req, id: string, actor: string, run: (id: number, reviewer: string) => Promise<Record<string, unknown>>): Promise<AnswerOutcome> {
+  if (!NUM.test(id)) return { status: 400, body: { error: 'attention_id_invalid' } };
+  const admin = principalsAdmin ? await principalsAdmin(req, capturing().res) : null;
+  if (!admin || admin !== actor) return { status: 403, body: { error: 'forbidden' } };
+  if (!changeRequestReview) return { status: 503, body: { error: 'change_request_review_unavailable' } };
+  try { return { status: 200, body: await run(Number(id), actor) }; } catch (e) {
+    if (e instanceof HttpError) return { status: e.status, body: { error: e.message, ...(e.extra ?? {}) } };
+    throw e;
+  }
+}
 
 function applied(id: string, fact: Parameters<WorkItemService['apply']>[1]): AnswerOutcome {
   const out = svc<WorkItemService>('workItems').apply(id, fact);
