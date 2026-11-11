@@ -134,7 +134,7 @@ export function checkCassette(cassette, known, moduleRouteCount = null, answered
       if (!method || !path.startsWith('/')) { problems.push(`${where}：request 要有 method 和以 / 开头的 path`); continue; }
       if (step.request.raw !== undefined && step.request.raw !== true) { problems.push(`${where}：request.raw 只能写 true（路径原样发出去）`); continue; }
       if (step.verify !== undefined && !(step.verify in VERIFIERS)) { problems.push(`${where}：verify 只能是 ${Object.keys(VERIFIERS).join('、')}`); continue; }
-      if (step.vary !== undefined && !(step.vary && typeof step.vary === 'object' && !Array.isArray(step.vary) && Object.keys(step.vary).length > 0 && Object.entries(step.vary).every(([k, h]) => (k === '$text' ? h === 'hex64' : h === 'random' || (typeof h === 'number' && h > 0))))) { problems.push(`${where}：vary 要写成 { 字段路径: 'random' 或一个正数 }，文本应答体写 { $text: 'hex64' }`); continue; }
+      if (step.vary !== undefined && !(step.vary && typeof step.vary === 'object' && !Array.isArray(step.vary) && Object.keys(step.vary).length > 0 && Object.entries(step.vary).every(([k, h]) => (k === '$text' ? h === 'hex64' : k.startsWith('$header:') ? /^\$header:[a-z0-9-]+$/.test(k) && h === 'random' : h === 'random' || (typeof h === 'number' && h > 0))))) { problems.push(`${where}：vary 要写成 { 字段路径: 'random' 或一个正数 }，文本应答体写 { $text: 'hex64' }，响应头写 { '$header:小写头名': 'random' }`); continue; }
       if (step.compare !== undefined && step.compare !== 'status' && step.compare !== 'head' && !(Array.isArray(step.compare) && step.compare.length > 0 && step.compare.every((x) => typeof x === 'string' && x))) { problems.push(`${where}：compare 只能是 'status'、'head'，或者一组字段的路径`); continue; }
       if (step.route === undefined) continue;
       if (!covered.has(step.route)) { problems.push(`${where}：route 不在 routes 里：${step.route}`); continue; }
@@ -327,6 +327,20 @@ export function applyVary(body, vary) {
 }
 
 /**
+ * 响应头里每次都不一样的值：vary 写 { '$header:小写头名': 'random' }，换成只留类型和长度的占位（和应答体的 'random' 一样）。
+ * 比如打包下载：gzip 的字节随包里的时刻变，Content-Length 的位数、X-Package-Sha256 的长度不变，有没有这个头照样比。
+ */
+export function applyHeaderVary(headers, vary) {
+  const out = { ...(headers ?? {}) };
+  for (const [key, how] of Object.entries(vary ?? {})) {
+    if (!key.startsWith('$header:') || how !== 'random') continue;
+    const name = key.slice('$header:'.length);
+    if (name in out) out[name] = `<每个实例随机·${typeof out[name]}·${String(out[name]).length}>`;
+  }
+  return out;
+}
+
+/**
  * 应答体要验的东西：请求上写 verify，值是下面的名字。验的结果记成 verified，和别的一样录下来比。
  * vary 把签名换成了只留长度的占位，签名坏了但长度不变时看不出来；这里在换之前先验。
  *   'a2a-card'：A2A 签名卡片，用卡片里的公钥验签名（和 server 用的是同一个库）。
@@ -349,6 +363,7 @@ export async function loadVerifiers(names) {
 export function shapeOf(step, raw) {
   if (step.compare === 'status') return { status: raw.status };
   // 'head'：状态码、内容类型、响应头照比，响应体不录（打包出来的二进制里带着随时间变的字节，比如 tar 头里的修改时刻）
+  if (step.vary && Object.keys(step.vary).some((k) => k.startsWith('$header:'))) raw = { ...raw, headers: applyHeaderVary(raw.headers, step.vary) };
   if (step.compare === 'head') { const { body: _body, ...head } = steadyResponse(raw); return head; }
   let verified;
   if (step.verify) {
@@ -609,6 +624,10 @@ async function selftest() {
   check(compareStep(recorded, answer({ type: 'text/html' })).join().includes('内容类型'), '比较：内容类型变了，报出来');
   check(compareStep({ response: { status: 200, type: 'a', headers: {}, body: { a: 1, b: 2 } } }, { status: 200, type: 'a', headers: {}, body: { b: 2, a: 1 } }).join().includes('顺序'), '比较：字段顺序变了，报出来');
   check(compareStep({ ...recorded, compare: 'status' }, { status: 200, type: 'x', body: 'y' }).length === 0, '比较：只比状态码的请求不看响应头和响应体');
+  const hv = { compare: 'head', vary: { '$header:x-package-sha256': 'random', '$header:content-length': 'random' } };
+  const hvRec = { ...hv, response: shapeOf(hv, answer({ headers: { ...heads, 'x-package-sha256': 'a'.repeat(64), 'content-length': '4134' } })) };
+  check(compareStep(hvRec, shapeOf(hv, answer({ headers: { ...heads, 'x-package-sha256': 'b'.repeat(64), 'content-length': '4135' } }))).length === 0 && compareStep(hvRec, shapeOf(hv, answer({ headers: { ...heads, 'x-package-sha256': 'b'.repeat(63), 'content-length': '4135' } }))).join().includes('x-package-sha256') && compareStep(hvRec, shapeOf(hv, answer({ headers: { ...heads, 'content-length': '4135' } }))).join().includes('x-package-sha256') && compareStep(hvRec, shapeOf(hv, answer({ headers: { ...heads, vary: 'Cookie', 'x-package-sha256': 'b'.repeat(64), 'content-length': '4135' } }))).join().includes('响应头.vary'), 'vary：响应头点名的值只比类型和长度；长度变了、头没了、别的头变了都算差异');
+  check(checkCassette(withSteps([a, b, c, { id: 'v', vary: { '$header:X-Big': 'random' }, request: { method: 'GET', path: '/api/x' } }]), known).some((p) => p.includes('vary')) && checkCassette(withSteps([a, b, c, { id: 'v', vary: { '$header:etag': 7 }, request: { method: 'GET', path: '/api/x' } }]), known).some((p) => p.includes('vary')), 'vary：响应头只收小写头名和 random，写错了静态检查拦下');
   const headStep = { compare: 'head' };
   const headRec = { ...headStep, response: shapeOf(headStep, answer()) };
   check(!('body' in headRec.response) && compareStep(headRec, shapeOf(headStep, answer({ body: 'tar 头里的时刻变了' }))).length === 0 && compareStep(headRec, shapeOf(headStep, answer({ headers: { ...heads, vary: 'Origin, Cookie' } }))).join().includes('响应头.vary') && compareStep(headRec, shapeOf(headStep, answer({ type: 'text/html' }))).join().includes('内容类型') && compareStep(headRec, shapeOf(headStep, answer({ status: 500 }))).join().includes('200 → 500'), '比较：只比头的请求（head）不录响应体；响应体变了不算差异，响应头、内容类型、状态码变了都算');
