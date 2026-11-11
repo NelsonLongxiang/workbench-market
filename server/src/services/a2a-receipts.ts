@@ -9,6 +9,11 @@ import { db } from '../db.ts';
 
 export type SentTask = { task_id: string; kind: 'delivery' | 'answer'; event_id: string; delivery_id: number; peer_root: string; peer_zone: string };
 
+/** 这个根地址是不是我们投递过的对端（来信分流按「声称的来源」预取名片用，和查不查得到投递无关） */
+export function knownPeerRoot(root: string): boolean {
+  return root !== '' && Boolean(db.prepare('SELECT 1 FROM a2a_sent_tasks WHERE peer_root = ? LIMIT 1').get(root));
+}
+
 export function recordSentTask(r: { taskId: string; kind?: 'delivery' | 'answer'; eventId: string; deliveryId: number; peerRoot: string; peerZone: string }): void {
   db.prepare('INSERT OR IGNORE INTO a2a_sent_tasks (task_id, kind, event_id, delivery_id, peer_root, peer_zone) VALUES (?, ?, ?, ?, ?, ?)')
     .run(r.taskId, r.kind ?? 'delivery', r.eventId, r.deliveryId, r.peerRoot, r.peerZone);

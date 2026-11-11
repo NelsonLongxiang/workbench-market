@@ -777,6 +777,7 @@
     "idx_a2a_roster_changes_at ON a2a_roster_changes: CREATE INDEX idx_a2a_roster_changes_at ON a2a_roster_changes (id)",
     "idx_a2a_run_ctx ON a2a_run_ctx: CREATE INDEX idx_a2a_run_ctx ON a2a_run_ctx (context_id)",
     "idx_a2a_sent_tasks_delivery ON a2a_sent_tasks: CREATE INDEX idx_a2a_sent_tasks_delivery ON a2a_sent_tasks (delivery_id)",
+    "idx_a2a_sent_tasks_peer_root ON a2a_sent_tasks: CREATE INDEX idx_a2a_sent_tasks_peer_root ON a2a_sent_tasks (peer_root)",
     "idx_a2a_sig_seen_exp ON a2a_sig_seen: CREATE INDEX idx_a2a_sig_seen_exp ON a2a_sig_seen (expires_at)",
     "idx_app_bindings_slug ON app_bindings: CREATE INDEX idx_app_bindings_slug ON app_bindings (app_slug, revoked_at)",
     "idx_app_data_idem ON app_data: CREATE UNIQUE INDEX idx_app_data_idem ON app_data (app_slug, idempotency_key) WHERE idempotency_key <> ''",
