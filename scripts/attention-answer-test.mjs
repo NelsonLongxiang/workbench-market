@@ -137,18 +137,23 @@ try {
   /** 比较时去掉每一行里必然不同的：自增 id、时间、指向各自那一条的外键 */
   const strip = (rows, drop = []) => rows.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !['id', 'at', 'created_at', 'updated_at', 'decided_at', 'reviewed_at', 'published_at', 'last_seen', ...drop].includes(k))));
   const same = (a, b) => show(a) === show(b);
+  // 新入口和原路由各调一次是两次独立的写：时间列可能跨秒。比对这两份时把时间列抹成占位符，别的字段照旧逐字段比。
+  // 「同一轮再答返回第一次的结果」那几处仍用 same（必须逐字节相同，时间也不能变）
+  const TIME_KEYS = new Set(['at', 'created_at', 'updated_at', 'decided_at', 'reviewed_at', 'published_at', 'last_seen']);
+  const untimed = (x) => JSON.parse(JSON.stringify(x ?? null, (k, v) => (TIME_KEYS.has(k) ? '<时间>' : v)));
+  const sameApart = (a, b) => same(untimed(a), untimed(b));
 
   // ---------- 一、新入口和旧入口逐字段相同 ----------
   {
     const n = await answer('change-requests', S.cr.rejectNew, 'reject', { reviewed_by: 'alice' });
     const o = await call('POST', `/api/change-requests/${S.cr.rejectOld}/reject`, ADMIN, { reviewed_by: 'alice' });
     const rows = (id) => strip(q('SELECT * FROM change_requests WHERE id = ?', id), ['slug']);
-    check(n.status === o.status && same({ ...n.body.result, id: 0 }, { ...o.body, id: 0 }) && same(rows(S.cr.rejectNew), rows(S.cr.rejectOld)) && rows(S.cr.rejectNew)[0].status === 'rejected',
+    check(n.status === o.status && sameApart({ ...n.body.result, id: 0 }, { ...o.body, id: 0 }) && same(rows(S.cr.rejectNew), rows(S.cr.rejectOld)) && rows(S.cr.rejectNew)[0].status === 'rejected',
       '变更申请·拒绝：状态码、应答、申请那一行（状态、审核人）逐字段相同', show({ n, o, rows: [rows(S.cr.rejectNew), rows(S.cr.rejectOld)] }));
     const na = await answer('change-requests', S.cr.approveNew, 'approve', { reviewed_by: 'alice' });
     const oa = await call('POST', `/api/change-requests/${S.cr.approveOld}/approve`, ADMIN, { reviewed_by: 'alice' });
     const norm = (b) => JSON.parse(JSON.stringify(b).replaceAll(String(S.cr.approveNew), 'X').replaceAll(String(S.cr.approveOld), 'X').replaceAll('approveNew', 'Y').replaceAll('approveOld', 'Y'));
-    check(na.status === oa.status && na.status >= 400 && same(norm(na.body.result), norm(oa.body)) && same(rows(S.cr.approveNew), rows(S.cr.approveOld)),
+    check(na.status === oa.status && na.status >= 400 && sameApart(norm(na.body.result), norm(oa.body)) && same(rows(S.cr.approveNew), rows(S.cr.approveOld)),
       `变更申请·批准失败（台不存在）：原路由的失败（${oa.status}）原样交回，不吞；申请那一行两边一样没变`, show({ na, oa }));
     check(q('SELECT 1 FROM attention_answers WHERE source = ? AND source_id = ?', 'change-requests', String(S.cr.approveNew)).length === 0, '失败的那次不记账：还可以再答');
   }
@@ -158,7 +163,7 @@ try {
     const req = (id) => strip(q('SELECT * FROM mcp_access_requests WHERE id = ?', id), ['session_id']);
     const grants = (name) => q('SELECT grants FROM mcp_sessions WHERE name = ?', name)[0].grants;
     const norm = (b) => JSON.parse(JSON.stringify(b).replace(/"(id|session_id)":\d+/g, '"$1":0').replace(/session-(new|old)/g, 'session-X'));
-    check(n.status === o.status && n.status === 200 && same(norm(n.body.result), norm(o.body)) && same(req(S.mcp.new), req(S.mcp.old)) && grants('session-new') === grants('session-old') && req(S.mcp.new)[0].decided_by.length > 0,
+    check(n.status === o.status && n.status === 200 && sameApart(norm(n.body.result), norm(o.body)) && same(req(S.mcp.new), req(S.mcp.old)) && grants('session-new') === grants('session-old') && req(S.mcp.new)[0].decided_by.length > 0,
       'MCP 权限申请·批准：应答、申请那一行（状态、批准人、备注）、会话的授权逐字段相同', show({ n, o, rows: [req(S.mcp.new), req(S.mcp.old)] }));
   }
   {
@@ -168,7 +173,7 @@ try {
     const o = await call('PUT', `/api/workbenches/${S.board}/vars/answer.2`, ADMIN, answerBody('可以', today, null));
     const v = (k) => strip(q('SELECT * FROM workbench_vars WHERE workbench_id = ? AND key = ?', S.board, k), ['key']);
     const audit = (k) => strip(q('SELECT * FROM workbench_var_audit WHERE workbench_id = ? AND key = ?', S.board, k), ['key']);
-    check(n.status === o.status && same({ ...n.body.result, key: '' }, { ...o.body, key: '' }) && same(v('answer.1'), v('answer.2')) && same(audit('answer.1'), audit('answer.2')) && v('answer.1')[0]?.owner === 'odoo:root-admin',
+    check(n.status === o.status && sameApart({ ...n.body.result, key: '' }, { ...o.body, key: '' }) && same(v('answer.1'), v('answer.2')) && same(audit('answer.1'), audit('answer.2')) && v('answer.1')[0]?.owner === 'odoo:root-admin',
       '待属主看板·答复：常量那一行（作者是属主本人）、审计那一行、应答逐字段相同', show({ n, o, v: [v('answer.1'), v('answer.2')], a: [audit('answer.1'), audit('answer.2')] }));
   }
   {
@@ -177,7 +182,7 @@ try {
     const ident = (e) => strip(q('SELECT * FROM principal_identities WHERE provider = ? AND external_id = ?', 'synthetic', e), ['external_id', 'external_key', 'principal_id']);
     const princ = (p) => strip(q('SELECT * FROM principals WHERE id = ?', p), ['id_key']).map((r) => ({ ...r, id: undefined }));
     const norm = (b) => JSON.parse(JSON.stringify(b).replace(/bound-[xy]/g, 'bound-Z').replace(/ext-(new|old)/g, 'ext-Z'));
-    check(n.status === o.status && n.status === 200 && same(norm(n.body.result), norm(o.body)) && same(ident('ext-new'), ident('ext-old')) && ident('ext-new').length === 1 && same(princ('user:bound-x'), princ('user:bound-y')),
+    check(n.status === o.status && n.status === 200 && sameApart(norm(n.body.result), norm(o.body)) && same(ident('ext-new'), ident('ext-old')) && ident('ext-new').length === 1 && same(princ('user:bound-x'), princ('user:bound-y')),
       '待对接·绑定：外部身份那一行、新建的主体、应答逐字段相同', show({ n: norm(n.body.result), o: norm(o.body), i: [ident('ext-new'), ident('ext-old')], p: [princ('user:bound-x'), princ('user:bound-y')] }));
   }
   {
@@ -189,14 +194,14 @@ try {
     const lg = (ev) => strip(q("SELECT actor, action, detail FROM workbench_event_log WHERE event_id = ? AND action IN ('recorded', 'held', 'queued', 'released', 'cancelled') ORDER BY id", ev));
     const st = (ev) => q('SELECT state FROM work_items WHERE id = ?', itemOf(ev))[0]?.state;
     const norm = (b) => JSON.parse(JSON.stringify(b).replace(/wbe-[0-9a-f]{16}/g, 'wbe-X').replace(/"(id|delivery_id)":\d+/g, '"$1":0'));
-    check(n.status === o.status && n.status === 200 && same(norm(n.body.result), norm(o.body)) && same(dl(S.release.new), dl(S.release.old)) && same(lg(S.release.new), lg(S.release.old)) && st(S.release.new) === 'delivered' && st(S.release.old) === 'delivered',
+    check(n.status === o.status && n.status === 200 && sameApart(norm(n.body.result), norm(o.body)) && same(dl(S.release.new), dl(S.release.old)) && same(lg(S.release.new), lg(S.release.old)) && st(S.release.new) === 'delivered' && st(S.release.old) === 'delivered',
       '事项·放行（转给工作台事件的放行）：投递、事件日志（谁放行的）、事项状态、应答逐字段相同', show({ n, o, logs: [lg(S.release.new), lg(S.release.old)] }));
     const nw = await answer('work-items', itemOf(S.withdraw.new), 'withdraw');
     const ow = await call('POST', `/api/task-center/tasks/${S.withdrawTask.old}/withdraw`, ADMIN, {});
     const task = (id) => strip(q('SELECT status FROM tasks WHERE id = ?', id));
     const tev = (id) => strip(q('SELECT type, actor, actor_kind, payload_json FROM task_events WHERE task_id = ? ORDER BY id', id));
     const normW = (b) => JSON.parse(JSON.stringify(b).replace(/"id":\d+/g, '"id":0'));
-    check(nw.status === ow.status && nw.status === 200 && same(normW(nw.body.result), normW(ow.body)) && same(task(S.withdrawTask.new), task(S.withdrawTask.old)) && same(tev(S.withdrawTask.new), tev(S.withdrawTask.old)) && same(dl(S.withdraw.new), dl(S.withdraw.old)) && st(S.withdraw.new) === 'cancelled' && st(S.withdraw.old) === 'cancelled',
+    check(nw.status === ow.status && nw.status === 200 && sameApart(normW(nw.body.result), normW(ow.body)) && same(task(S.withdrawTask.new), task(S.withdrawTask.old)) && same(tev(S.withdrawTask.new), tev(S.withdrawTask.old)) && same(dl(S.withdraw.new), dl(S.withdraw.old)) && st(S.withdraw.new) === 'cancelled' && st(S.withdraw.old) === 'cancelled',
       '事项·撤回（转给任务中心的撤回）：任务状态、任务事件（谁撤回的）、投递、事项状态、应答逐字段相同', show({ nw, ow, tev: [tev(S.withdrawTask.new), tev(S.withdrawTask.old)] }));
   }
 
