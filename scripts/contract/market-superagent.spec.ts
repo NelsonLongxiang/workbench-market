@@ -105,6 +105,8 @@ describe('契约联调：市场 × superagent 宿主', () => {
     if (!MARKET_TREE) throw new Error('MARKET_TREE 未设')
     const results: Array<{ step: string; result: '过' | '不过' | '未验'; detail: string }> = []
     const rec = (step: string, ok: boolean | null, detail = ''): void => { const result = ok === null ? '未验' : ok ? '过' : '不过'; results.push({ step, result, detail: detail.slice(0, 600) }); console.log(`[${result}] ${step}${detail ? ' — ' + detail.slice(0, 400) : ''}`) }
+    // 「收到」要是采信：市场对不采信的回执也回 200（"receipt":"not-accepted"），只看状态码分不出来
+    const recorded = (e: { reply?: string } | undefined): boolean => /"receipt":"recorded"/.test(String(e?.reply ?? ''))
     const children: ChildProcess[] = [], servers: Server[] = []
     const seen: Array<{ method: string; url: string; headers: Record<string, string>; body: any; status?: number; reply?: string }> = []
     let mlog = ''
@@ -233,7 +235,7 @@ describe('契约联调：市场 × superagent 宿主', () => {
       const ticket1 = accepted.results?.[0]?.ticket_id as string | undefined
       rec('路由接单（宿主建工单）', ticket1 !== undefined, JSON.stringify(accepted).slice(0, 200))
       const ack = await until(() => fromHost(`ack-${T1.task}`).find(e => e.status !== undefined), 40_000)
-      rec('确认：市场收到 ack-<task>，宿主签名被接受', ack?.status !== undefined && ack.status < 300, ack ? `${ack.status} ${ack.reply} 头：${Object.keys(ack.headers).join(',')}` : '没收到')
+      rec('确认：市场收到 ack-<task>，宿主签名被接受', ack?.status !== undefined && ack.status < 300 && recorded(ack), ack ? `${ack.status} ${ack.reply} 头：${Object.keys(ack.headers).join(',')}` : '没收到')
       rec('确认：信封 disposition=acknowledged、idempotencyKey=<task>、onBehalfOf=canvas 地址', ack !== undefined && /"disposition":"acknowledged"/.test(String(ack.body?.message)) && String(ack.body?.message).includes(`"idempotencyKey":"${T1.task}"`) && String(ack.body?.message).includes(`"onBehalfOf":"${canvasAddress}"`), String(ack?.body?.message ?? '').slice(0, 300))
       rec('确认：带 Sig3（body 绑定）', ack !== undefined && 'x-a2a-caller-sig3' in ack.headers, Object.keys(ack?.headers ?? {}).join(','))
       await sleep(500)
@@ -245,7 +247,7 @@ describe('契约联调：市场 × superagent 宿主', () => {
       if (ticket1 === undefined) throw new Error('路由没接下单，后面的成员步骤没法走')
       const progress = await m.tool('a2a_ticket_report', m.M, { ticket_id: ticket1, state: 'progress', summary: '正在核对第一步' })
       const prog = await until(() => fromHost(`progress-${T1.task}-`).find(e => e.status !== undefined), 20_000)
-      rec('进展：市场收到 progress-<task>-<n>', prog?.status !== undefined && prog.status < 300, prog ? `${prog.status} ${prog.reply}` : `没收到（成员汇报 ${JSON.stringify(progress).slice(0, 120)}）`)
+      rec('进展：市场收到 progress-<task>-<n>', prog?.status !== undefined && prog.status < 300 && recorded(prog), prog ? `${prog.status} ${prog.reply}` : `没收到（成员汇报 ${JSON.stringify(progress).slice(0, 120)}）`)
       await sleep(300)
       rec('进展后市场事项状态 = progress（或保持 accepted）', ['progress', 'accepted'].includes(itemState(T1.eventId)?.state), JSON.stringify(itemState(T1.eventId)))
 
@@ -257,7 +259,7 @@ describe('契约联调：市场 × superagent 宿主', () => {
       rec('路由把提问转给市场（superagent_reply attention）', relayed.ok === true, JSON.stringify(relayed).slice(0, 200))
       const att = await until(() => [...fromHost(`attention-${T1.task}-`), ...fromHost(`receipt-${T1.task}`).filter(e => /"disposition":"attention"/.test(String(e.body?.message)))].find(e => e.status !== undefined), 30_000)
       const followups = () => seen.filter(e => typeof e.body?.task_id === 'string' && e.body.task_id.startsWith('a2a-') && e.body.context_id === `wb:task-center:${String(runSeq)}`)
-      rec('提问：市场收到 attention-<task>-<qid>（带 question）', att !== undefined && att.body.task_id.startsWith(`attention-${T1.task}-`) && (att.status ?? 999) < 300 && /"question":\{/.test(String(att.body?.message)), att ? `${att.body.task_id} ${att.status} ${String(att.body?.message).slice(0, 200)}` : `没收到；跟进 ${followups().length} 条`)
+      rec('提问：市场收到 attention-<task>-<qid>（带 question）', att !== undefined && att.body.task_id.startsWith(`attention-${T1.task}-`) && (att.status ?? 999) < 300 && recorded(att) && /"question":\{/.test(String(att.body?.message)), att ? `${att.body.task_id} ${att.status} ${String(att.body?.message).slice(0, 200)}` : `没收到；跟进 ${followups().length} 条`)
       await sleep(300)
       const afterAsk = itemState(T1.eventId)
       // 迁移表定的是 ask → blocked（在问你）
@@ -290,7 +292,7 @@ describe('契约联调：市场 × superagent 宿主', () => {
       const resultSent = await m.tool('superagent_reply', m.R, { purpose: 'result', ticket_id: ticket1, text: '做完了：结论一句话' })
       rec('路由发结果（superagent_reply result）', resultSent.ok === true, JSON.stringify(resultSent).slice(0, 200))
       const res1 = await until(() => fromHost(`receipt-${T1.task}`).find(e => /"disposition":"result"/.test(String(e.body?.message)) && e.status !== undefined), 40_000)
-      rec('结果：市场收到 receipt-<task> outcome=completed，签名被接受', res1 !== undefined && (res1.status ?? 999) < 300 && /"outcome":"completed"/.test(String(res1.body?.message)), res1 ? `${res1.status} ${String(res1.body?.message).slice(0, 200)}` : '没收到')
+      rec('结果：市场收到 receipt-<task> outcome=completed，签名被接受', res1 !== undefined && (res1.status ?? 999) < 300 && recorded(res1) && /"outcome":"completed"/.test(String(res1.body?.message)), res1 ? `${res1.status} ${String(res1.body?.message).slice(0, 200)}` : '没收到')
       await sleep(500)
       rec('结果后市场事项状态 = ready（completed 回执推到待验收）', itemState(T1.eventId)?.state === 'ready', JSON.stringify(itemState(T1.eventId)))
       rec('结果结清原派工（市场记了终局回执）', q('SELECT * FROM a2a_inbound_receipts WHERE task_id = ? AND class = ?', T1.task, 'final').some((r: any) => r.outcome === 'completed'), JSON.stringify(q('SELECT * FROM a2a_inbound_receipts WHERE task_id = ?', T1.task)))
@@ -314,7 +316,7 @@ describe('契约联调：市场 × superagent 宿主', () => {
         else await m.tool('a2a_ticket_report', m.M, { ticket_id: tk, state: how, summary: `结局 ${label}` })
         const marketTookAny = seen.some(e => typeof e.body?.task_id === 'string' && /^(ack|receipt|attention|progress)-/.test(e.body.task_id) && (e.status ?? 999) < 300)
         const r = await until(() => fromHost(`receipt-${t.task}`).find(e => /"disposition":"result"/.test(String(e.body?.message)) && e.status !== undefined), 420_000, 1000)
-        rec(`结局 ${label}：市场收到 receipt-<task> outcome=${expect}`, r !== undefined && (r.status ?? 999) < 300 && String(r.body?.message).includes(`"outcome":"${expect}"`), r ? `${r.status} ${String(r.body?.message).slice(0, 200)}` : '没收到（宿主的结束回执有 5 分钟宽限）')
+        rec(`结局 ${label}：市场收到 receipt-<task> outcome=${expect}`, r !== undefined && (r.status ?? 999) < 300 && recorded(r) && String(r.body?.message).includes(`"outcome":"${expect}"`), r ? `${r.status} ${String(r.body?.message).slice(0, 200)}` : '没收到（宿主的结束回执有 5 分钟宽限）')
         await sleep(500)
         const st = itemState(t.eventId)
         rec(`结局 ${label}：市场事项状态 ∈ {${expectState}}`, expectState.split('|').includes(st?.state), JSON.stringify(st))

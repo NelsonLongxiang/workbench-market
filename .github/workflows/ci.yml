@@ -542,10 +542,12 @@ jobs:
           done
           echo "server failed to boot" >&2; exit 1
   # 契约联调：上游 a2a-net 的 superagent 宿主当对端（宿主自己从 process face 签发确认、进展、提问、结果回执），市场在回环上收。
-  # 改入站（回执、进展、跟进、验签）的 PR 都要过它。上游钉提交，preview.13 发布后升到它的发布提交。
+  # 改入站（回执、进展、跟进、验签）的 PR 都要过它。上游钉 next/0.8 的 f458294（#610 合并提交：preview.13 之上修掉了对 bots.a2a 里远端成员误发 superagent-member）。
   upstream-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -559,7 +561,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: NelsonLongxiang/dsh-open-a2a-net
-          ref: 62c58bc08f66f9248f2077458bd7e27addee62bf
+          ref: f458294bd6352be7a90c4d20b1fb84c6e1843dbb
           path: dsh-open-a2a-net-contract
       - name: 上游依赖与构建（缓存键带钉住的提交）
         uses: actions/cache@v4
@@ -567,7 +569,7 @@ jobs:
           path: |
             dsh-open-a2a-net-contract/node_modules
             dsh-open-a2a-net-contract/lib
-          key: upstream-contract-62c58bc08f66f9248f2077458bd7e27addee62bf-${{ hashFiles('dsh-open-a2a-net-contract/pnpm-lock.yaml') }}
+          key: upstream-contract-f458294bd6352be7a90c4d20b1fb84c6e1843dbb-${{ hashFiles('dsh-open-a2a-net-contract/pnpm-lock.yaml') }}
       - name: 装上游依赖并构建
         working-directory: dsh-open-a2a-net-contract
         run: |
