@@ -212,6 +212,55 @@ try {
     ok('提问回执·没签名 → 不采信', !r.text.includes('"receipt":"recorded"') && state(Q2.ev)?.state === 'delivered', r.text.slice(0, 200));
   }
 
+  console.log('二之三、进展回执 progress-<task>-<n>（PR-A）');
+  {
+    const P = seedEvent();
+    r = await receipt(P.task, '接下', { idempotencyKey: P.task, disposition: 'acknowledged' }, P.ctx, { inbound: `ack-${P.task}` });
+    const penv = (n, state, extra = {}) => ({ idempotencyKey: P.task, disposition: 'progress', by: { seat: 'lab/a1b2c3d4', name: '成员甲' },
+      progress: { n, state, summary: `第 ${n} 步：${state}`, at: '2026-11-11T08:00:00.000Z' }, tickets: [{ id: 't1', title: '拆出来的一件', seat: 'lab/a1b2c3d4', state: 'working' }, { id: '', state: 'working' }, { id: 't2', state: 'bogus' }], ...extra });
+    const before = state(P.ev)?.state;
+    r = await receipt(P.task, '第 1 步', penv(1, 'working'), P.ctx, { inbound: `progress-${P.task}-1` });
+    let pit = (await api('GET', `/api/work-items/wi_${P.ev}`)).body ?? {};
+    ok('progress-<task>-1 → 采信，事项状态不动（不结清、不推状态）', r.status === 200 && r.text.includes('"receipt":"recorded"') && state(P.ev)?.state === before && before === 'accepted', `${r.text} ${before} ${JSON.stringify(state(P.ev))}`);
+    ok('……事项读接口带「正在处理」提示：步号、状态、摘要、by', pit.progress?.n === 1 && pit.progress.state === 'working' && pit.progress.summary === '第 1 步：working' && pit.progress.by?.seat === 'lab/a1b2c3d4', JSON.stringify(pit.progress));
+    ok('……子项取信封 tickets，坏的逐个丢', JSON.stringify(pit.progress?.tickets) === JSON.stringify([{ id: 't1', title: '拆出来的一件', seat: 'lab/a1b2c3d4', state: 'working' }]), JSON.stringify(pit.progress?.tickets));
+    ok('……事项日志记一行只记录的 note progress', q("SELECT COUNT(*) AS c FROM work_item_log WHERE item_id = ? AND fact = 'note' AND json_extract(detail, '$.note') = 'progress' AND rejected = ''", `wi_${P.ev}`)[0].c === 1);
+    r = await receipt(P.task, '第 2 步', penv(2, 'waiting', { tickets: [] }), P.ctx, { inbound: `progress-${P.task}-2` });
+    pit = (await api('GET', `/api/work-items/wi_${P.ev}`)).body ?? {};
+    ok('第 2 步 → 提示换成最新一步，子项以最新一步的全量为准（空）', r.status === 200 && pit.progress?.n === 2 && pit.progress.state === 'waiting' && pit.progress.tickets.length === 0, JSON.stringify(pit.progress));
+    r = await receipt(P.task, '第 2 步', penv(2, 'waiting'), P.ctx, { inbound: `progress-${P.task}-2` });
+    ok('同一步号再来 → 409 重放，不重复记', r.status === 409 && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE delivery_id = ? AND action = 'receipt:progress'", P.delivery)[0].c === 2, r.text);
+    const P2 = seedEvent();
+    const bad = [
+      ['认不得的 state', { ...penv(1, 'working'), idempotencyKey: P2.task, progress: { n: 1, state: 'sleeping', at: '2026-11-11T08:00:00.000Z' } }, `progress-${P2.task}-1`],
+      ['信封步号和任务号里的不一致', { ...penv(9, 'working'), idempotencyKey: P2.task }, `progress-${P2.task}-2`],
+      ['disposition 不是 progress', { ...penv(3, 'working'), idempotencyKey: P2.task, disposition: 'acknowledged' }, `progress-${P2.task}-3`],
+      ['disposition 是 result（想借进展的格结清）', { ...penv(4, 'working'), idempotencyKey: P2.task, disposition: 'result', outcome: 'completed' }, `progress-${P2.task}-4`],
+      ['没有 progress', { idempotencyKey: P2.task, disposition: 'progress' }, `progress-${P2.task}-5`],
+      ['idempotencyKey 是别的任务号', penv(6, 'working'), `progress-${P2.task}-6`],
+      ['步号是 0', { ...penv(0, 'working'), idempotencyKey: P2.task }, `progress-${P2.task}-0`],
+      ['步号带前导 0', { ...penv(7, 'working'), idempotencyKey: P2.task }, `progress-${P2.task}-07`],
+    ];
+    for (const [label, env, inbound] of bad) {
+      const rr = await receipt(P2.task, '进展', env, P2.ctx, { inbound });
+      ok(`进展回执·${label} → 不采信，事项不动`, !rr.text.includes('"receipt":"recorded"') && state(P2.ev)?.state === 'delivered', rr.text.slice(0, 160));
+    }
+    ok('……这些都没占格、没留提示', q('SELECT COUNT(*) AS c FROM a2a_inbound_questions WHERE task_id = ?', P2.task)[0].c === 0 && (await api('GET', `/api/work-items/wi_${P2.ev}`)).body?.progress === null);
+    r = await receipt(P2.task, '进展', { ...penv(8, 'working'), idempotencyKey: P2.task }, P2.ctx, { inbound: `progress-${P2.task}-8`, signer: evil });
+    ok('进展回执·别的宿主签的 → 不采信', !r.text.includes('"receipt":"recorded"'), r.text.slice(0, 160));
+    r = await receipt(P2.task, '进展', { ...penv(8, 'working'), idempotencyKey: P2.task }, P2.ctx, { inbound: `progress-${P2.task}-8`, unsigned: true });
+    ok('进展回执·没签名 → 不采信', !r.text.includes('"receipt":"recorded"'), r.text.slice(0, 160));
+    r = await receipt(P.task, '做完了', { outcome: 'completed', idempotencyKey: P.task, disposition: 'result' }, P.ctx);
+    ok('之后的结果照常走 receipt-<task> → 等验收（进展没占终局槽）', r.status === 200 && r.text.includes('"receipt":"recorded"') && state(P.ev)?.state === 'ready', r.text);
+    // 每个任务最多 200 步
+    const C = seedEvent();
+    const capBefore = (await (await fetch(BASE + '/api/health')).json()).a2a?.refused?.counts?.['progress:over-cap'] ?? 0;
+    for (let k = 1; k <= 200; k++) await receipt(C.task, '步', { idempotencyKey: C.task, disposition: 'progress', progress: { n: k, state: 'working', at: '2026-11-11T08:00:00.000Z' } }, C.ctx, { inbound: `progress-${C.task}-${k}` });
+    r = await receipt(C.task, '步', { idempotencyKey: C.task, disposition: 'progress', progress: { n: 201, state: 'working', at: '2026-11-11T08:00:00.000Z' } }, C.ctx, { inbound: `progress-${C.task}-201` });
+    ok('同一任务第 201 步 → 照常应答、不记，公开计数 progress:over-cap +1', r.status === 200 && r.text.includes('"receipt":"over-cap"') && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE delivery_id = ? AND action = 'receipt:progress'", C.delivery)[0].c === 200
+      && ((await (await fetch(BASE + '/api/health')).json()).a2a?.refused?.counts?.['progress:over-cap'] ?? 0) === capBefore + 1, r.text.slice(0, 160));
+  }
+
   console.log('三、席位发来的消息（跟进）：落在事项对话里，不进「关注」');
   const fu = (ctx, text, inbound) => JSON.stringify({ team: 'market/12345678', message: text, caller_session: 'lab/canvas/ops', context_id: ctx, wait: false, task_id: inbound });
   const attentionSources = async () => ((await api('GET', '/api/attention')).body?.items ?? []).map((x) => x.source);

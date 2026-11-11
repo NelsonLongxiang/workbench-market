@@ -12,6 +12,7 @@
 import { deliveryTarget, eventDispatched, inReplyTx, queueReply } from './services/a2a-replies.ts';
 import { followupById, followupsOfEvent, markFollowupReplied, markFollowupsRead, unreadFollowupsOfEvent, type FollowupRow } from './services/a2a-followups.ts';
 import { itemIdForEvent } from './services/work-item.ts';
+import { latestProgressOfEvent } from './services/a2a-receipts.ts';
 import { kickWorkbenchEvents, logDeliveryFact } from './workbench-events.ts';
 
 export const SEAT_REPLY_MAX = 4000;
@@ -68,4 +69,23 @@ export function replySeatMessage(item: { id: string; source_ref?: string | null 
   if (queued === null) return { status: 409, body: { error: 'seat_message_not_open' } };
   if (queued) kickWorkbenchEvents();
   return { status: 200, body: { ok: true, item_id: item.id, sent: queued, reason: queued ? 'queued' : dispatched ? 'not_queued' : 'event_not_dispatched' } };
+}
+
+export type SeatProgress = { n: number; state: string; summary: string; at: string; ahead?: number; by?: unknown; tickets: unknown[]; received_at: string };
+
+/**
+ * 阶段七 PR-A：席位最近一步进展（progress-<task>-<n>），给事项页做「正在处理」的轻提示和子项（tickets，以最近一步的全量为准）。
+ * 只是提示：不改事项状态；事项结束之后不再给。
+ */
+export function seatProgressOf(item: { id: string; source_ref?: string | null; state?: string }): SeatProgress | null {
+  const ev = eventOfItem(item);
+  if (!ev || ['done', 'failed', 'dropped', 'cancelled'].includes(item.state ?? '')) return null;
+  const p = latestProgressOfEvent(ev);
+  const step = p?.detail.progress as { n?: unknown; state?: unknown; summary?: unknown; at?: unknown; ahead?: unknown } | undefined;
+  if (!p || !step || typeof step.n !== 'number' || typeof step.state !== 'string') return null;
+  return {
+    n: step.n, state: step.state, summary: typeof step.summary === 'string' ? step.summary : '', at: typeof step.at === 'string' ? step.at : '',
+    ...(typeof step.ahead === 'number' ? { ahead: step.ahead } : {}), ...(p.detail.by ? { by: p.detail.by } : {}),
+    tickets: Array.isArray(p.detail.tickets) ? p.detail.tickets : [], received_at: p.at,
+  };
 }
