@@ -8,6 +8,8 @@
  *   公钥变了：不自动接受——key_changed、新指纹记成待确认、钉住的不变；进「关注」（管理员看得到，匿名看不到）；
  *             指纹对不上的确认被拒；对得上的才换，回到 active
  *   停用、重新启用：停用要写理由；停用期间看到新公钥也保持停用；重新启用回到停用前该有的状态
+ *   停用是粘住的：没钉公钥就被停用的对端，名片取到了（管理员刷新、再登记同一个根地址）也保持停用，只把看到的公钥钉上；
+ *             只有管理员显式重新启用才离开停用
  *   待登记的对端名片取到之后：钉公钥、改成 active
  *   canDeliver：active、待登记能发；key_changed、停用、没登记的不能，原因分得开
  *   健康：最近投递成功、失败（时间和原因）、回执、在途数、名片取到时间，都从现有的表算出来
@@ -185,6 +187,30 @@ try {
     D.state.down = false;
     const r = await inst.call('POST', `/api/a2a/peers/${d.id}/refresh`);
     check(r.body?.peer?.status === 'active' && r.body.peer.key_fingerprint === fp(D.state.key) && r.body.peer.registered_by === 'system:migration', '待登记的对端名片取到之后：钉公钥、改成 active（登记人保留）', show(r.body?.peer));
+  }
+
+  // ---------- 停用是粘住的：没钉公钥就被停用的对端，名片取到了也不复活 ----------
+  {
+    const E = await fakePeer('team-e'); peers.push(E);
+    E.state.down = true;
+    const ins = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', `
+      const { db } = await import(${JSON.stringify(at('server/src/db.ts'))});
+      db.prepare("INSERT INTO a2a_peers (id, root_url, status, registered_by, registered_at, updated_at) VALUES ('peer_e00000000000', ?, 'pending_registration', 'system:migration', 'x', 'x')").run(${JSON.stringify(E.root)});
+      console.log('OK');`], { env: ENV(data), encoding: 'utf8' });
+    if (!ins.stdout.includes('OK')) throw new Error('造待登记的 E 失败：' + ins.stderr.slice(-500));
+    const off = await inst.call('POST', '/api/a2a/peers/peer_e00000000000/disable', { reason: '合成：对端被停用' });
+    check(off.body?.peer?.status === 'disabled' && off.body.peer.key_fingerprint === '', '停用一个还没钉公钥的待登记对端', show(off.body?.peer));
+    E.state.down = false;
+    const ref = await inst.call('POST', '/api/a2a/peers/peer_e00000000000/refresh');
+    check(ref.body?.peer?.status === 'disabled' && ref.body.peer.disabled_reason === '合成：对端被停用' && ref.body.peer.key_fingerprint === fp(E.state.key),
+      '名片能取到了、管理员点刷新：保持停用（只把看到的公钥钉上）', show(ref.body?.peer));
+    const reg = await inst.call('POST', '/api/a2a/peers', { root_url: E.root });
+    check(reg.body?.peer?.status === 'disabled' && reg.body.peer.disabled_reason === '合成：对端被停用', '再登记同一个根地址：保持停用', show(reg.body?.peer));
+    E.state.key = generateKeyPairSync('ed25519');
+    const ref2 = await inst.call('POST', '/api/a2a/peers/peer_e00000000000/refresh');
+    check(ref2.body?.peer?.status === 'disabled' && ref2.body.peer.pending_fingerprint === fp(E.state.key), '停用期间公钥又变了：保持停用，新指纹记成待确认', show(ref2.body?.peer));
+    const on = await inst.call('POST', '/api/a2a/peers/peer_e00000000000/enable', {});
+    check(on.body?.peer?.status === 'key_changed' && on.body.peer.disabled_reason === '', '只有管理员显式重新启用才离开停用（看到过新公钥的回到 key_changed 等确认）', show(on.body?.peer));
   }
   await inst.stop(); inst = null;
 

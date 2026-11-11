@@ -4,7 +4,7 @@
  *   POST /api/a2a/peers                       登记 { root_url }：取一次名片、验签、钉住公钥
  *   POST /api/a2a/peers/:id/refresh           再取一次名片（排查、重试待登记的；公钥变了改成 key_changed，不自动接受）
  *   POST /api/a2a/peers/:id/confirm-key       确认新公钥 { fingerprint }：带上看到的指纹，和待确认的对得上才换
- *   POST /api/a2a/peers/:id/disable           停用 { reason }（投递挂起）
+ *   POST /api/a2a/peers/:id/disable           停用 { reason }（粘住：只有 enable 能解；对投递的拦截由阶段七接上 canDeliver 后生效）
  *   POST /api/a2a/peers/:id/enable            重新启用
  * SQL 在 services/a2a-peers.ts。app 是 HTTP 服务，不是 Express 应用本身。
  */

@@ -187,11 +187,11 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
     }),
     provide({
       source: 'a2a-peers', label: '对端公钥待确认',
-      // 对端名片上的公钥变了：不自动接受，投递挂起，等管理员在「对端」页对过指纹再确认。只有管理员看得到
+      // 对端名片上的公钥变了：不自动接受（钉住的还是旧公钥），等管理员对过指纹再确认。只有管理员看得到。投递、入站的拦截由阶段七接上 canDeliver 后生效，标题里不说已挂起
       list: (req) => passes(deps.adminGuard, req)
         ? svc<A2aPeerService>('a2aPeers').list({ status: 'key_changed' }).map((p) => item({
           source: 'a2a-peers', source_id: p.id, category: 'grant',
-          title: `对端 ${p.root_url}（${p.zone || '未知域'}）的名片公钥变了：旧 ${p.key_fingerprint.slice(0, 19)}… → 新 ${p.pending_fingerprint.slice(0, 19)}…，投递已挂起`,
+          title: `对端 ${p.root_url}（${p.zone || '未知域'}）的名片公钥变了：旧 ${p.key_fingerprint.slice(0, 19)}… → 新 ${p.pending_fingerprint.slice(0, 19)}…，核对指纹后确认`,
           waiting_for: p.root_url, since: p.updated_at, answers: [], link: `/a2a-peers?peer=${p.id}`,
         }))
         : null,

@@ -3,7 +3,10 @@
  *
  *   · 登记：取一次名片（不跟随重定向、5 秒超时、64 KiB 上限）、用上游 verifyCard 验签，钉住完整公钥和指纹。
  *   · 名片上的公钥变了（noteCardSeen / 管理员刷新）：不自动接受。状态改成 key_changed、新公钥记进 pending_*，等管理员确认；
- *     这期间投递挂起（canDeliver 为假，由投递那边处理成挂起，不判死），入站只认钉住的旧公钥。
+ *     canDeliver 对它答「不能发」；停用的也一样。注意：目前这里只提供登记表、canDeliver 和管理接口，投递、入站都还没有调用方来查——
+ *     投递前问 canDeliver（挂起不判死）、入站只认钉住的公钥，由阶段七在后续改动里接上；接上之前，状态对投递和入站没有效果。
+ *   · 停用是粘住的：只有管理员显式 enable 才回到 active（或按情况回到 key_changed、pending_registration）；
+ *     刷新、再登记、升级回填、绑定时就地登记等自动路径都不会把停用的行改回去。
  *   · 升级回填：从现有绑定和投递用到的根地址建对端行（registered_by = system:migration）。取得到名片的钉住公钥、active；
  *     取不到的记成 pending_registration（不挡投递，页面上标出来）。已有的行不动：重跑结果相同。
  *   · 健康：只读算出来，不新造探活——投递（成功、失败、在途）、回执、名片最近一次取到的时间。
@@ -102,7 +105,7 @@ export class A2aPeerService extends Service {
     return db.prepare('SELECT * FROM a2a_peers WHERE root_url = ?').get(root) as PeerRow | undefined;
   }
 
-  /** 投递前问：对这个根地址能不能发。active、pending_registration 能；key_changed、disabled、没登记的不能（投递那边挂起，不判死） */
+  /** 投递前问：对这个根地址能不能发。active、pending_registration 能；key_changed、disabled、没登记的不能（投递那边应挂起，不判死；调用方由阶段七接上） */
   canDeliver(url: string): CanDeliver {
     const p = this.byRoot(url);
     if (!p) return { ok: false, reason: 'peer_unknown' };
@@ -140,18 +143,23 @@ export class A2aPeerService extends Service {
   /**
    * 名片被取到了（登记、刷新、投递前取卡都调它）：记下最近取到的时间。公钥和钉住的不一样——不自动接受：
    * 状态改成 key_changed、新公钥记进 pending_*；一样的话，之前挂着的 pending 清掉。pending_registration 的补钉公钥、改成 active。
+   * 停用是粘住的：停用的行在这里只记下看到的公钥（没钉过的钉上，钉过而不同的记进 pending_*），状态一律保持 disabled；
+   * 只有管理员显式 enable 才离开停用，enable 按钉没钉、有没有待确认回到对应的状态。
    */
   noteCardSeen(url: string, card: SeenCard): PeerRow | undefined {
     const p = this.byRoot(url);
     if (!p) return undefined;
     const t = now(), fp = keyFingerprint(card.publicKey);
+    const disabled = p.status === 'disabled';
     if (p.status === 'pending_registration' || p.public_key === '') {
-      db.prepare(`UPDATE a2a_peers SET zone = ?, name = ?, public_key = ?, key_fingerprint = ?, card_capabilities = ?, card_version = ?, status = 'active',
-        card_fetched_at = ?, card_error = '', updated_at = ? WHERE id = ?`).run(card.team, card.name ?? '', card.publicKey, fp, capsText(card.capabilities), versionOf(card.capabilities), t, t, p.id);
+      // 没钉过公钥的：钉上。停用的保持停用（条件更新：并发的 disable 赢）
+      db.prepare(`UPDATE a2a_peers SET zone = ?, name = ?, public_key = ?, key_fingerprint = ?, card_capabilities = ?, card_version = ?, status = ?,
+        card_fetched_at = ?, card_error = '', updated_at = ? WHERE id = ? AND status = ?`)
+        .run(card.team, card.name ?? '', card.publicKey, fp, capsText(card.capabilities), versionOf(card.capabilities), disabled ? 'disabled' : 'active', t, t, p.id, p.status);
     } else if (fp !== p.key_fingerprint) {
       // 停用的保持停用（只记下看到的新公钥）；别的改成 key_changed 等确认
       db.prepare(`UPDATE a2a_peers SET status = ?, pending_public_key = ?, pending_fingerprint = ?, card_fetched_at = ?, card_error = '', updated_at = ? WHERE id = ?`)
-        .run(p.status === 'disabled' ? 'disabled' : 'key_changed', card.publicKey, fp, t, t, p.id);
+        .run(disabled ? 'disabled' : 'key_changed', card.publicKey, fp, t, t, p.id);
     } else {
       db.prepare(`UPDATE a2a_peers SET zone = ?, name = ?, card_capabilities = ?, card_version = ?, pending_public_key = '', pending_fingerprint = '',
         status = ?, card_fetched_at = ?, card_error = '', updated_at = ? WHERE id = ?`)

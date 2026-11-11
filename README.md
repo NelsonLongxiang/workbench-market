@@ -361,7 +361,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   a2a-followups.ts（席位发来的消息（跟进）的登记：收下、按投递与对端计数、事项对话里的未读、看过、回复）
   a2a-handles.ts（市场 A2A 会话句柄 `market/<node8>` 的唯一性：生成时避开已占用的，存量撞车的不上卡、入站失败关闭）
   a2a-idempotency.ts（`/a2a/direct` 幂等登记：task_id → 指纹 sha256，30 分钟窗口，落库，重启后同一 task_id 仍判 replay / conflict；只存摘要不存原文）
-  a2a-peers.ts（对端登记表：Cordis 服务 `a2aPeers`·一个节点一行·登记时取名片验签钉住公钥·公钥变了改成 key_changed 等管理员确认、不自动接受·canDeliver 给投递用·按对端算健康·升级回填从现有绑定和投递建对端行）
+  a2a-peers.ts（对端登记表：Cordis 服务 `a2aPeers`·一个节点一行·登记时取名片验签钉住公钥·公钥变了改成 key_changed 等管理员确认、不自动接受·停用是粘住的、只有管理员重新启用能解·canDeliver 供投递查（调用方阶段七接上，接上前对投递、入站没有效果）·按对端算健康·升级回填从现有绑定和投递建对端行）
   a2a-receipts.ts（回执入站的登记：我们发出的任务号 → 事件、投递、对端；采信过的回执按任务号去重；签名只认一次）
   a2a-replies.ts（市场回给团队的消息的发送状态：答复、来信回复、跟进回执；时间由代码生成后写入）
   a2a-stats.ts（A2A 出站积压的聚合读数：两张出站表按状态计数、最老待发、最近回执时长）
