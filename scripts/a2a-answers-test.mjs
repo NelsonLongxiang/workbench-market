@@ -138,6 +138,14 @@ try {
   ok('对方对新任务回 acknowledged → 事项已接手', r.status === 200 && state(a.ev)?.state === 'accepted', `${r.text} ${JSON.stringify(state(a.ev))}`);
   r = await receipt(answerTask, '做完了', { outcome: 'completed', idempotencyKey: answerTask, disposition: 'result' }, a.ctx);
   ok('……再回 completed → 等验收', r.status === 200 && state(a.ev)?.state === 'ready', r.text);
+  {
+    const it2 = (await api('GET', `/api/work-items/wi_${a.ev}`)).body ?? {};
+    const m2 = (it2.messages ?? []).find((x) => x.text === '做完了');
+    ok('答复任务的结果回执 → 正文落成事项对话里的一条未读席位消息（状态仍按映射表：等验收）', m2 && m2.status === 'unread' && it2.unread >= 1 && state(a.ev)?.state === 'ready', JSON.stringify(it2.messages ?? null));
+    const before = q('SELECT COUNT(*) AS c FROM workbench_event_followups WHERE event_id = ?', a.ev)[0].c;
+    const rr = await receipt(answerTask, '再来一条', { outcome: 'completed', idempotencyKey: answerTask, disposition: 'result' }, a.ctx);
+    ok('……同一答复任务的结果回执重放 → 409，不重复落消息', rr.status === 409 && q('SELECT COUNT(*) AS c FROM workbench_event_followups WHERE event_id = ?', a.ev)[0].c === before, rr.text);
+  }
   r = await answer(a.delivery, '再答一次');
   ok('同一提问答两次 → 第二次不再发（已经不在等）', r.status !== 200 || r.body?.sent !== true, JSON.stringify(r.body));
   ok('……答复表里这次提问只有一行', q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE kind = 'answer' AND delivery_id = ?", a.delivery)[0].c === 1);
@@ -180,6 +188,7 @@ try {
     ok('答复发回：qid = 问题 id（不是任务号）', r.status === 200 && r.body?.sent === true && qe.answer?.qid === 'q1', JSON.stringify(qe));
     r = await receipt(Q.task, '发 apps 仓库了', { outcome: 'completed', idempotencyKey: Q.task, disposition: 'result' }, Q.ctx);
     ok('之后的结果仍走 receipt-<task>，采信 → 等验收（问题没占掉终局槽）', r.status === 200 && r.text.includes('"receipt":"recorded"') && state(Q.ev)?.state === 'ready', `${r.text} ${JSON.stringify(state(Q.ev))}`);
+    ok('……原工单（投递任务）的结果回执不落成席位消息（只有人发出的消息的回话才是）', q('SELECT COUNT(*) AS c FROM workbench_event_followups WHERE event_id = ?', Q.ev)[0].c === 0);
     // 对抗：形状不对的一律只记录、不采信、不占槽
     const Q2 = seedEvent();
     const bad = [

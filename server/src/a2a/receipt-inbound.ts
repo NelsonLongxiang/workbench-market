@@ -153,6 +153,14 @@ function envelopeOf(message: string): Record<string, unknown> {
   } catch { return {}; }
 }
 
+/** 回执头那一行里任务号之后的话（席位的回话），最多 4000 字 */
+function replyTextOf(message: string, taskId: string, fallback: string): { text: string; truncated: boolean } {
+  const first = message.split('\n', 1)[0] ?? '';
+  const prefix = `[A2A receipt] task ${taskId}`;
+  const raw = (first.startsWith(prefix) ? first.slice(prefix.length) : fallback).replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
+  return { text: raw.slice(0, FOLLOWUP_TEXT_MAX), truncated: raw.length > FOLLOWUP_TEXT_MAX };
+}
+
 /** 摘要：去掉控制字符，最多 500 字 */
 function cleanSummary(s: string): string {
   return s.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 500);
@@ -219,6 +227,14 @@ export async function handleInboundReceipt(req: Req, deps: { audiences: () => st
       summary, disposition: disposition.slice(0, 32), ...(outcome !== '' ? { outcome: outcome.slice(0, 32) } : {}), task: sent.task_id,
       ...(question ? { qid, question } : {}), ...attribution,
     });
+    // 答复 / 回复类任务（人发出的消息）：席位的结果回执就是它的回话，正文落成事项对话里的一条未读席位消息。
+    // 状态仍按映射表走（上面那一行事件日志）；这里只多存一份正文给人看，不回执（它本身就是回执）
+    if (sent.kind === 'answer' && cls === 'final' && disposition === 'result') {
+      const reply = replyTextOf(message, parsed.taskId, parsed.summary ?? '');
+      recordFollowup({ eventId: sent.event_id, deliveryId: sent.delivery_id, peerZone: sent.peer_zone, inboundTask, contextId: typeof body.context_id === 'string' ? body.context_id.slice(0, 256) : '',
+        sender: attribution.by?.name || attribution.by?.seat || (typeof body.caller_session === 'string' ? body.caller_session.slice(0, 200) : '') || sent.peer_zone,
+        text: reply.text, truncated: reply.truncated, status: 'open', now });
+    }
     return true;
   });
   if (!fresh) {
