@@ -19,7 +19,8 @@ export function sqlTime(ms = Date.now()): string {
 
 /** 提问那一行事件日志：回执里的提问记着它答的那个任务号（qid 用它） */
 export function askTaskOf(askLogId: number): string {
-  const row = db.prepare("SELECT json_extract(detail, '$.task') AS task FROM workbench_event_log WHERE id = ?").get(askLogId) as { task: string | null } | undefined;
+  // 提问回执（attention-<task>-<qid>）答的是那个问题：qid 用信封里的问题 id；旧式（receipt-<task> 上的 attention）用任务号
+  const row = db.prepare("SELECT COALESCE(json_extract(detail, '$.qid'), json_extract(detail, '$.task')) AS task FROM workbench_event_log WHERE id = ?").get(askLogId) as { task: string | null } | undefined;
   return row?.task ?? '';
 }
 

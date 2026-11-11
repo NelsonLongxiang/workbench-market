@@ -24,6 +24,16 @@ export function claimReceipt(taskId: string, cls: 'ack' | 'final', disposition: 
   return Number(r.changes) === 1;
 }
 
+/** 提问回执（attention-<task>-<qid>）占（任务号、问题 id）这一格；占到了返回 true。时间由代码生成后传入 */
+export function claimQuestion(taskId: string, qid: string, now = Date.now()): boolean {
+  const at = new Date(now).toISOString().slice(0, 23).replace('T', ' ');
+  const r = db.prepare('INSERT OR IGNORE INTO a2a_inbound_questions (task_id, qid, received_at) VALUES (?, ?, ?)').run(taskId, qid, at);
+  return Number(r.changes) === 1;
+}
+export function questionRecorded(taskId: string, qid: string): boolean {
+  return Boolean(db.prepare('SELECT 1 FROM a2a_inbound_questions WHERE task_id = ? AND qid = ?').get(taskId, qid));
+}
+
 /** 这条（任务号、接单 / 终局）回执记过了吗 */
 export function receiptRecorded(taskId: string, cls: 'ack' | 'final'): boolean {
   return Boolean(db.prepare('SELECT 1 FROM a2a_inbound_receipts WHERE task_id = ? AND class = ?').get(taskId, cls));

@@ -317,6 +317,14 @@ CREATE TABLE IF NOT EXISTS a2a_inbound_receipts (
   received_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (task_id, class)
 );
+-- 阶段七 R2：提问回执（attention-<task>-<qid>，preview.13 起）。不占接单 / 终局的槽：同一任务可以有多个问题，按（任务号、问题 id）去重。
+-- 时间由代码生成后写入。
+CREATE TABLE IF NOT EXISTS a2a_inbound_questions (
+  task_id TEXT NOT NULL,
+  qid TEXT NOT NULL,
+  received_at TEXT NOT NULL,
+  PRIMARY KEY (task_id, qid)
+);
 CREATE TABLE IF NOT EXISTS mcp_sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL UNIQUE,

@@ -5,6 +5,11 @@
       "fp_sha256 TEXT NOT NULL",
       "created_at INTEGER NOT NULL"
     ],
+    "a2a_inbound_questions": [
+      "task_id TEXT NOT NULL PK",
+      "qid TEXT NOT NULL PK",
+      "received_at TEXT NOT NULL"
+    ],
     "a2a_inbound_receipts": [
       "task_id TEXT NOT NULL PK",
       "class TEXT NOT NULL PK",

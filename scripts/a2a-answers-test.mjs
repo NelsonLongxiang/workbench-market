@@ -160,6 +160,48 @@ try {
   ok('……退避重试、5 次后 dead，事件日志有 reply-retry 与 reply-dead', row?.status === 'dead' && row.attempts === 5 && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE delivery_id = ? AND action = 'reply-retry'", f.delivery)[0].c === 4 && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE delivery_id = ? AND action = 'reply-dead'", f.delivery)[0].c === 1, JSON.stringify(row));
   lab.fail = false;
 
+  console.log('二之二、提问回执 attention-<task>-<qid>（preview.13 起）');
+  {
+    const Q = seedEvent();
+    const qenv = (qid, extra = {}) => ({ idempotencyKey: Q.task, disposition: 'attention', question: { id: qid, text: '发哪个仓库？', options: ['apps', 'market'] }, by: { seat: 'lab/a1b2c3d4', name: '成员甲' }, ...extra });
+    r = await receipt(Q.task, '发哪个仓库？', qenv('q1'), Q.ctx, { inbound: `attention-${Q.task}-q1` });
+    ok('attention-<task>-<qid> + question → 采信，事项在问你', r.status === 200 && r.text.includes('"receipt":"recorded"') && state(Q.ev)?.state === 'blocked', r.text);
+    const qa = (await seatAsks()).find((x) => x.source_id === String(Q.delivery));
+    ok('……「关注」里显示问题和选项', qa && qa.title.includes('发哪个仓库？') && qa.title.includes('可选：apps / market'), JSON.stringify(qa));
+    ok('……不占终局的槽（a2a_inbound_receipts 里没有 final）', q("SELECT COUNT(*) AS c FROM a2a_inbound_receipts WHERE task_id = ? AND class = 'final'", Q.task)[0].c === 0);
+    ok('……事件日志记下问题 id、question 与 by（只记录）', (() => { const d = JSON.parse(q("SELECT detail FROM workbench_event_log WHERE delivery_id = ? AND action = 'receipt:attention'", Q.delivery)[0]?.detail ?? '{}'); return d.qid === 'q1' && d.question?.options?.length === 2 && d.by?.seat === 'lab/a1b2c3d4'; })());
+    r = await receipt(Q.task, '发哪个仓库？', qenv('q1'), Q.ctx, { inbound: `attention-${Q.task}-q1` });
+    ok('同一个问题 id 再来 → 409 重放，不重复记', r.status === 409 && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE delivery_id = ? AND action = 'receipt:attention'", Q.delivery)[0].c === 1, r.text);
+    lab.got.length = 0;
+    r = await answer(Q.delivery, '发 apps');
+    await waitFor(() => lab.got.some((g) => String(g.body.task_id ?? '').startsWith(`${Q.ev}.d${Q.delivery}.q`)));
+    const qs = lab.got.find((g) => String(g.body.task_id ?? '').startsWith(`${Q.ev}.d${Q.delivery}.q`));
+    let qe = {}; try { qe = JSON.parse(qs?.body?.message ?? '{}'); } catch {}
+    ok('答复发回：qid = 问题 id（不是任务号）', r.status === 200 && r.body?.sent === true && qe.answer?.qid === 'q1', JSON.stringify(qe));
+    r = await receipt(Q.task, '发 apps 仓库了', { outcome: 'completed', idempotencyKey: Q.task, disposition: 'result' }, Q.ctx);
+    ok('之后的结果仍走 receipt-<task>，采信 → 等验收（问题没占掉终局槽）', r.status === 200 && r.text.includes('"receipt":"recorded"') && state(Q.ev)?.state === 'ready', `${r.text} ${JSON.stringify(state(Q.ev))}`);
+    // 对抗：形状不对的一律只记录、不采信、不占槽
+    const Q2 = seedEvent();
+    const bad = [
+      ['问题 id 和任务号里的不一致', qenv('qX'), `attention-${Q2.task}-q2`],
+      ['没有 question', { idempotencyKey: Q2.task, disposition: 'attention' }, `attention-${Q2.task}-q3`],
+      ['question.text 为空', qenv('q4', { question: { id: 'q4', text: '  ' } }), `attention-${Q2.task}-q4`],
+      ['disposition 不是 attention', qenv('q5', { disposition: 'result', outcome: 'completed' }), `attention-${Q2.task}-q5`],
+      ['idempotencyKey 是别的任务号', qenv('q6', { idempotencyKey: Q.task }), `attention-${Q2.task}-q6`],
+      ['问题 id 带非法字符', qenv('q 7'), `attention-${Q2.task}-q 7`],
+      ['问题 id 超过 24 个字符', qenv('q'.repeat(25)), `attention-${Q2.task}-${'q'.repeat(25)}`],
+    ];
+    for (const [label, env, inbound] of bad) {
+      const rr = await receipt(Q2.task, '问', env, Q2.ctx, { inbound });
+      ok(`提问回执·${label} → 不采信，事项不动`, !rr.text.includes('"receipt":"recorded"') && state(Q2.ev)?.state === 'delivered', rr.text.slice(0, 200));
+    }
+    ok('……这些都没占问题格', q('SELECT COUNT(*) AS c FROM a2a_inbound_questions WHERE task_id = ?', Q2.task)[0].c === 0);
+    r = await receipt(Q2.task, '问', qenv('q8'), Q2.ctx, { inbound: `attention-${Q2.task}-q8`, signer: evil });
+    ok('提问回执·别的宿主签的 → 不采信', !r.text.includes('"receipt":"recorded"') && state(Q2.ev)?.state === 'delivered', r.text.slice(0, 200));
+    r = await receipt(Q2.task, '问', qenv('q9'), Q2.ctx, { inbound: `attention-${Q2.task}-q9`, unsigned: true });
+    ok('提问回执·没签名 → 不采信', !r.text.includes('"receipt":"recorded"') && state(Q2.ev)?.state === 'delivered', r.text.slice(0, 200));
+  }
+
   console.log('三、席位发来的消息（跟进）：落在事项对话里，不进「关注」');
   const fu = (ctx, text, inbound) => JSON.stringify({ team: 'market/12345678', message: text, caller_session: 'lab/canvas/ops', context_id: ctx, wait: false, task_id: inbound });
   const attentionSources = async () => ((await api('GET', '/api/attention')).body?.items ?? []).map((x) => x.source);

@@ -12,6 +12,8 @@ export type OpenSeatAsk = {
   /** 提问那一行事件日志：v1 的 decision:ask，或阶段七 R3 席位回执的 receipt:attention */
   ask_log_id: number; ask_kind: 'decision' | 'receipt';
   question: string; asked_by: string; asked_at: string;
+  /** 提问回执带的选项（JSON 数组字符串；没有是 '[]'） */
+  options: string;
   source: string; workbench: string; item: string;
 };
 
@@ -29,7 +31,8 @@ const OPEN_ASK_SQL = `
          CASE a.action WHEN 'receipt:attention' THEN 'receipt' ELSE 'decision' END AS ask_kind,
          CASE a.action WHEN 'receipt:attention' THEN COALESCE(json_extract(a.detail, '$.summary'), '') ELSE COALESCE(json_extract(a.detail, '$.reason'), d.decision_reason) END AS question,
          CASE a.action WHEN 'receipt:attention' THEN a.actor ELSE d.decided_by END AS asked_by,
-         CASE a.action WHEN 'receipt:attention' THEN a.at ELSE d.decided_at END AS asked_at
+         CASE a.action WHEN 'receipt:attention' THEN a.at ELSE d.decided_at END AS asked_at,
+         CASE a.action WHEN 'receipt:attention' THEN COALESCE(json_extract(a.detail, '$.question.options'), '[]') ELSE '[]' END AS options
     FROM workbench_event_deliveries d
     JOIN workbench_event_log a ON a.id = (SELECT MAX(g.id) FROM workbench_event_log g WHERE g.delivery_id = d.id AND g.action IN ${ASK_ACTIONS})
    WHERE NOT EXISTS (SELECT 1 FROM workbench_event_log c WHERE c.delivery_id = d.id AND c.id > a.id AND c.action IN ${CLOSING_ACTIONS})
