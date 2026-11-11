@@ -59,7 +59,7 @@ function openRepo(root) {
 const RE = {
   route: /\b(?:app|router|r|api)\.(?:get|post|put|patch|delete)\(\s*['"`\/\[]/g,
   // 路由注册（含 .all 和 vault-api 那种 route('get', …) 的写法）；报了动作的是路径后面紧跟 { action: … }
-  routeCall: /\b(?:app|router|r|api)\.(?:get|post|put|patch|delete|all)\(\s*['"`\/\[]|(?<![.\w])route\(\s*['"](?:get|post|put|patch|delete|all)['"]\s*,/g,
+  routeCall: /\b(?:app|router|r|api)\.(?:get|post|put|patch|delete|all)\(\s*['"`\/\[]|\bexpressApp\(\)\s*\.(?:get|post|put|patch|delete|all)\(|(?<![.\w])route\(\s*['"](?:get|post|put|patch|delete|all)['"]\s*,/g,
   routeAction: /\b(?:app|router|r|api)\.(?:get|post|put|patch|delete|all)\(\s*(?:'[^'\n]*'|"[^"\n]*"|`[^`\n]*`|\/(?:\\.|[^\/\n])+\/[a-z]*)\s*,\s*\{\s*action\s*:/g,
   sql: /\bdb\.(?:prepare|exec)\(/g,
   create: /CREATE (?:VIRTUAL )?TABLE(?: IF NOT EXISTS)?\s+[A-Za-z0-9_]+/g,
@@ -75,6 +75,16 @@ const RE = {
   testLike: /(?:-|_)(?:test|smoke|mutation)s?\.(?:mjs|js|py|sh)$/,
   runnable: /\.(?:mjs|js|py|sh)$/,
 };
+/** 每个文件里没报动作的路由注册（正则计数：路由注册减去路径后面紧跟 { action: … } 的） */
+function unregisteredBySource(repo) {
+  const files = {};
+  for (const f of repo.server()) {
+    const text = repo.read(f);
+    const n = count(text, RE.routeCall) - count(text, RE.routeAction);
+    if (n > 0) files[f] = n;
+  }
+  return files;
+}
 const outsideServices = (f) => f !== 'server/src/db.ts' && !f.startsWith('server/src/services/');
 
 // 身份的具体实现只许待在登录提供方目录里；目录之外的 server 文件都算核心。
@@ -178,22 +188,38 @@ const RULES = [
   {
     id: 'routes-without-action', what: '没报动作的路由', target: 0, proposed: 'budget',
     // 经 HTTP 服务注册的路由没报动作根本注册不上；这里数的是还直接挂在 Express 上的存量（搬进域模块时补）。
-    // 正则计数：每个文件的路由注册减去报了动作的。权威的全量在 surfaces/actions.json 的（未登记）行
+    // 正则计数：每个文件的路由注册减去报了动作的。换个写法绕开正则的，由下一项拿动作快照对账兜住
     measure: (repo) => {
-      const files = {};
-      for (const f of repo.server()) {
-        const text = repo.read(f);
-        const n = count(text, RE.routeCall) - count(text, RE.routeAction);
-        if (n > 0) files[f] = n;
-      }
-      let snapshot = '';
-      try { snapshot = `；动作快照里（未登记）${count(repo.read('surfaces/actions.json'), /（未登记）",?$/gm)} 条`; } catch { /* 还没有快照 */ }
-      return { total: sum(files), files, note: `${Object.keys(files).length} 个文件${snapshot}` };
+      const files = unregisteredBySource(repo);
+      return { total: sum(files), files, note: `${Object.keys(files).length} 个文件` };
     },
     sample: {
       clean: { 'server/src/routes/a.ts': "app.get('/api/a', { action: 'a.read', kind: 'read' }, h);\napp.post(\n  '/api/a',\n  { action: 'a.create', kind: 'admin' },\n  h,\n);\napp.get(/^\\/x\\/.*$/, { action: 'x.read', kind: 'read' }, h);\n" },
       dirty: { 'server/src/foo.ts': "app.get('/api/x', h);\napp.all('/api/y', h);\nroute('post', '/api/z', h);\n" }, expect: 3,
     },
+    cases: [
+      { label: '域模块经 expressApp() 直接挂在 Express 上，也算没报动作', files: { 'server/src/routes/a.ts': "app.get('/api/a', { action: 'a.read', kind: 'read' }, h);\napp.expressApp().get('/api/zz-raw', h);\nhttp.expressApp()\n  .post('/api/zz-raw2', h);\n" }, expect: 2 },
+    ],
+  },
+  {
+    id: 'actions-snapshot-agrees', what: '源码数出的没报动作的路由与动作快照里（未登记）的条数之差', target: 0, proposed: 'redline',
+    // 动作快照（surfaces/actions.json，由「对外的面」那一项保证和运行中的实例一致）是权威的全量：
+    // 正则数不到的写法（比如先把 Express 应用存进变量再挂路由），快照里照样多出一条（未登记），两边一对就对不上
+    measure: (repo) => {
+      if (!repo.exists('surfaces/actions.json')) return { total: 1, items: ['没有 surfaces/actions.json'] };
+      const snapshot = count(repo.read('surfaces/actions.json'), / -> （未登记）",?$/gm);
+      const source = sum(unregisteredBySource(repo));
+      const diff = Math.abs(snapshot - source);
+      return { total: diff, items: diff ? [`动作快照里（未登记）${snapshot} 条，源码数出 ${source} 条：有路由换了写法绕开了计数，或者快照没更新`] : [], note: diff ? `快照 ${snapshot} 条，源码 ${source} 条` : `两边都是 ${source} 条` };
+    },
+    sample: {
+      clean: { 'server/src/a.ts': "app.get('/api/a', h);\n", 'surfaces/actions.json': '{\n  "apps": [[\n    "GET /api/a  -> （未登记）"\n  ]]\n}\n' },
+      dirty: { 'server/src/a.ts': "app.get('/api/a', h);\n", 'surfaces/actions.json': '{\n  "apps": [[\n    "GET /api/a  -> （未登记）",\n    "GET /api/zz-raw  -> （未登记）"\n  ]]\n}\n' }, expect: 1,
+    },
+    cases: [
+      { label: '先把 Express 应用存进变量再挂：源码数不到，快照里多一条，对不上', files: { 'server/src/routes/a.ts': "const raw = app.expressApp();\nraw.get('/api/zz-raw', h);\n", 'surfaces/actions.json': '{\n  "apps": [[\n    "GET /api/zz-raw  -> （未登记）"\n  ]]\n}\n' }, expect: 1 },
+      { label: '说明文字里写到（未登记）不算一条', files: { 'server/src/a.ts': "app.get('/api/a', h);\n", 'surfaces/actions.json': '{\n  "note": "存量记（未登记）",\n  "apps": [[\n    "GET /api/a  -> （未登记）"\n  ]]\n}\n' }, expect: 0 },
+    ],
   },
   {
     id: 'sql-outside-services', what: 'services/ 与 db.ts 之外的 SQL 调用点', target: 0, proposed: 'budget',

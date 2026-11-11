@@ -23,14 +23,25 @@
       "what": "没报动作的路由",
       "target": 0,
       "baseline": {
-        "total": 131,
+        "total": 123,
         "files": {
-          "server/src/index.ts": 101,
+          "server/src/index.ts": 93,
           "server/src/login-gate.ts": 4,
           "server/src/vault-api.ts": 17,
           "server/src/workbench-events.ts": 4,
           "server/src/workbench-vars.ts": 5
         }
+      }
+    },
+    {
+      "id": "actions-snapshot-agrees",
+      "tier": "redline",
+      "proposed": "redline",
+      "what": "源码数出的没报动作的路由与动作快照里（未登记）的条数之差",
+      "target": 0,
+      "baseline": {
+        "total": 0,
+        "items": []
       }
     },
     {
