@@ -15,7 +15,7 @@ import { adminActive, apiFetch, subscribeAdminToken } from '../admin-token';
 import { OUTCOME, VERDICT, answerChoices, answerRoute, describe, type AttentionItem, type LogRow } from '../attention-view';
 import { getMe, getWorkItem, postAskAnswer, postCreatorDecision, postSeatMessageReply, postSeatMessagesRead } from '../api';
 import SectionBoundary from '../components/SectionBoundary';
-import { rowActor, seatSummary, showProgress, subitemsOf, ticketStateLabel } from '../work-item-view';
+import { rowActor, seatLine, showProgress, subitemsOf, ticketStateLabel } from '../work-item-view';
 import { teamLabel } from '../people';
 import { VIEWER_NONE, actorLabel, groupTimeline, isCreator, seatLabel, type Viewer, askerLabel, textOf, who, PROGRESS_STATE, TERMINAL, canOf, stateLabel, askIdOf, creatorLabel, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
 
@@ -246,7 +246,8 @@ export default function WorkItem() {
   const can = canOf(pending, (x) => answerChoices(admin, x));
   // 「你」指这件事本来该找的人：答复、验收找建立人；放行找有放行权限的人（can.release）
   const viewer: Viewer = { mine: isCreator(login, item?.creator_principal), can, creator: who(item?.creator_principal || item?.created_by).replace(/^(user|human):/, '') };
-  const hint = item ? stateHint(item.state, item.seat, asks ? openAsks === 0 && asks.length > 0 : lastAskAnswered(data?.log ?? []), viewer) : null;
+  // 建立人能不能在这一页答：详情带了提问列表（建立人答复的入口开了），或者「关注」给了他答法
+  const hint = item ? stateHint(item.state, item.seat, asks ? openAsks === 0 && asks.length > 0 : lastAskAnswered(data?.log ?? []), viewer, asks !== undefined || can.answer) : null;
   const progress = data?.progress ?? null;
   const tickets = subitemsOf(data?.subitems, progress);
   // 结果：事项的 outputs 列（现在还没人写）加上日志里回执带来的产物，去重
@@ -266,7 +267,7 @@ export default function WorkItem() {
             <Flex vertical gap="small">
               {hint && <Alert type={hint.type} showIcon message={hint.text} data-testid="work-item-hint" />}
               <Descriptions column={2} size="small" items={[
-                { key: 'seat', label: '承接', children: seatSummary(item.seat, tickets) || <Typography.Text type="secondary">还没有席位接手</Typography.Text> },
+                { key: 'seat', label: '承接', children: seatLine(item, tickets, teamLabel) || '—' },
                 { key: 'team', label: '派给', children: teamLabel(item.target_team) || '—' },
                 { key: 'by', label: '建立人', children: creatorLabel(item.created_by, item.creator_principal) },
                 { key: 'obj', label: '对象 / 阶段', children: [item.object, item.phase].filter(Boolean).join(' / ') || '—' },
