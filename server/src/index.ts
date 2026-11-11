@@ -40,6 +40,7 @@ import { registerLoginFlowRoutes } from './routes/login-flows.ts';
 import { registerWorkbenchRoutes } from './routes/workbenches.ts';
 import { registerSopPageRoutes } from './routes/sop-page.ts';
 import { registerLoginEventRoutes } from './routes/login-events.ts';
+import { registerChangeRequestRoutes } from './routes/change-requests.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import type { ChangeRequestService } from './services/change-request.ts';
@@ -1167,46 +1168,7 @@ function executeSkillDelete(slug: string): void {
   db.prepare('DELETE FROM skill_versions WHERE skill_id = ?').run(row.id);
   db.prepare('DELETE FROM skills WHERE id = ?').run(row.id);
 }
-app.get('/api/change-requests', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const status = typeof req.query.status === 'string' ? req.query.status : '';
-  const rows = status
-    ? svc<ChangeRequestService>('changeRequest').listByStatus(status)
-    : svc<ChangeRequestService>('changeRequest').listAll();
-  res.json(rows.map((r: any) => ({ ...r, payload: JSON.parse(r.payload || '{}') })));
-});
-app.post('/api/change-requests/:id/approve', wrap(async (req, res) => {
-  if (!adminGuard(req, res)) return; // K11：口令无效→401（adminGuard 已回）
-  const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
-  if (!reviewedBy) bad('批准必填 reviewed_by（K11——人审语义）'); // K11
-  const id = Number(req.params.id);
-  const r = svc<ChangeRequestService>('changeRequest').byId(id) as any;
-  if (!r) throw new HttpError(404, `change_request not found: ${id}`);
-  if (r.status !== 'pending') bad(`请求已处理（status=${r.status}）——不可重复批准`); // 幂等
-  // 执行体（v3 契约形状：kind×op 四象限·与一步式 REST 同构）
-  if (r.kind === 'app' && r.op === 'rollback') {
-    await activateAppVersion(r.slug, r.target_version);
-  } else if (r.kind === 'app' && r.op === 'delete') {
-    await deleteAppCascade(r.slug);
-  } else if (r.kind === 'skill' && r.op === 'rollback') {
-    await executeSkillRollback(r.slug, Number(r.target_version), reviewedBy);
-  } else if (r.kind === 'skill' && r.op === 'delete') {
-    executeSkillDelete(r.slug);
-  } else { bad(`未知 kind×op: ${r.kind}/${r.op}`); }
-  svc<ChangeRequestService>('changeRequest').markApproved(reviewedBy, id);
-  res.json({ ok: true, id, status: 'approved', executed: `${r.kind}/${r.op}`, reviewed_by: reviewedBy });
-}));
-app.post('/api/change-requests/:id/reject', wrap(async (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
-  if (!reviewedBy) bad('拒绝必填 reviewed_by（K11）');
-  const id = Number(req.params.id);
-  const r = svc<ChangeRequestService>('changeRequest').byId(id) as any;
-  if (!r) throw new HttpError(404, `change_request not found: ${id}`);
-  if (r.status !== 'pending') bad(`请求已处理（status=${r.status}）`);
-  svc<ChangeRequestService>('changeRequest').markRejected(reviewedBy, id);
-  res.json({ ok: true, id, status: 'rejected', reviewed_by: reviewedBy });
-}));
+registerChangeRequestRoutes(http, { adminGuard, wrap, bad, activateAppVersion, deleteAppCascade, executeSkillRollback, executeSkillDelete });
 
 app.post('/api/apps/:slug/activate', wrap(async (req, res) => {
   if (req.params.slug === 'task-center') {
