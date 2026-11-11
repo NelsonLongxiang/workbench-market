@@ -41,7 +41,7 @@ import { identity, IDENTITY_UNAVAILABLE, sourceDown } from '../identity.ts';
 import { COCKPIT_ID_MAX, isCreator, STATES, type WorkItemService, type WorkItemState } from '../services/work-item.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import { answerItemAsk, creatorAnswer } from '../attention-answers.ts';
-import { markSeatMessagesRead, replySeatMessage, seatAsksOf, seatMessagesOf, seatProgressOf, SEAT_REPLY_MAX } from '../seat-messages.ts';
+import { markSeatMessagesRead, replySeatMessage, seatAsksOf, seatMessagesOf, seatProgressOf, seatSubitemsOf, SEAT_REPLY_MAX } from '../seat-messages.ts';
 import { principalsAdmin } from './principals.ts';
 import { askAnswerRole, canOf, canSee, creatorOf, itemRoles, turnOf, VIEW_ALL_ACTION, VIEW_ALL_KIND, VIEWS, viewScopes, workItemViewer, writerVerdict, type ItemRole, type ViewName } from '../work-item-access.ts';
 import { arrangeTask } from '../task-center.ts';
@@ -180,7 +180,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       const item = items.get(id);
       if (!item || !canSee(item, viewer)) return void res.status(404).json({ error: 'work_item_not_found' });
       // 只增：这个人能做什么（can）、是不是轮到他（turn）、建立人是谁（creator）。判断都在 work-item-access.ts，和各动作接口同一处
-      res.json({ item, log: items.log(id), ...seatMessagesOf(item), progress: seatProgressOf(item), asks: seatAsksOf(item), can: canOf(item, viewer), turn: turnOf(item, viewer), creator: creatorOf(item) });
+      res.json({ item, log: items.log(id), ...seatMessagesOf(item), progress: seatProgressOf(item), subitems: seatSubitemsOf(item), asks: seatAsksOf(item), can: canOf(item, viewer), turn: turnOf(item, viewer), creator: creatorOf(item) });
     })().catch(next);
   });
 

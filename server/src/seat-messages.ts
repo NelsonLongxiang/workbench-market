@@ -136,3 +136,14 @@ export function seatAsksOf(item: { id: string; source_ref?: string | null }): It
     };
   });
 }
+
+/**
+ * 子项（拆单 dsh-open-a2a-net#618）：最近一步进展里 tickets 的全量快照，按子工单列出标题、承接、状态、结局。
+ * 和 progress 不同，事项结束之后照样给——整件「没办成」而正文是「部分完成」时，页面靠它列出哪些子项完成、哪些失败。没有进展时是 []。
+ */
+export function seatSubitemsOf(item: { id: string; source_ref?: string | null }): SeatProgress['tickets'] {
+  const ev = eventOfItem(item);
+  if (!ev) return [];
+  const p = latestProgressOfEvent(ev);
+  return p && Array.isArray(p.detail.tickets) ? p.detail.tickets as SeatProgress['tickets'] : [];
+}
