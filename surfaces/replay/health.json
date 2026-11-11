@@ -202,7 +202,7 @@
                   { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null }
                 ]
               },
-              "work_items_backfill": { "state": "done", "version": 3, "phase": "full", "cursor": 0, "batches": 1, "events": 0, "from": 0 },
+              "work_items_backfill": { "state": "done", "version": 6, "phase": "full", "cursor": 0, "batches": 1, "events": 0, "from": 0 },
               "a2a": {
                 "inbound": { "signature": "accept", "body_signature": "accept" },
                 "outbound": { "origin_claim_v1": "on" },
@@ -254,7 +254,7 @@
                   { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null }
                 ]
               },
-              "work_items_backfill": { "state": "done", "version": 3, "phase": "full", "cursor": 0, "batches": 1, "events": 0, "from": 0 }
+              "work_items_backfill": { "state": "done", "version": 6, "phase": "full", "cursor": 0, "batches": 1, "events": 0, "from": 0 }
             }
           }
         }
