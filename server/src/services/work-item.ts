@@ -137,7 +137,7 @@ export type WorkItemRow = {
 };
 export type WorkItemLogRow = {
   seq: number; item_id: string; fact: string; fact_source: string; fact_id: string; from_state: WorkItemState; to_state: WorkItemState;
-  actor: string; detail: string; at: string;
+  actor: string; detail: string; at: string; rejected: '' | 'not_allowed' | 'terminal';
 };
 
 const KINDS: readonly Fact['kind'][] = ['submit', 'release', 'withdraw', 'delivery', 'eval', 'report', 'ask', 'receipt', 'verify', 'return', 'answer', 'note'];
@@ -302,7 +302,18 @@ export class WorkItemService extends Service {
     }
     for (let i = 0; i < rows.length; i++) {
       const fact = factFromEventLog(event, rows, i);
-      if (fact) this.applyLocked(itemId, normalize(fact));
+      if (!fact) continue;
+      // 一个投递在事件层只有一栏决定：再问一次、或作出决定，它先前的提问就不再等答复（事件层也不再算）。
+      // 先把这个投递之前的提问都记一行答复合上，再应用这一条。已经合上的，答复按「答过」返回、不再写
+      if ((fact.kind === 'eval' || fact.kind === 'ask') && rows[i].delivery_id !== null) {
+        for (const asked of rows.slice(0, i).filter((r) => r.delivery_id === rows[i].delivery_id && r.action === 'decision:ask')) {
+          this.applyLocked(itemId, {
+            kind: 'answer', source: EVENT_FACT_SOURCE, id: `${rows[i].id}:closes-ask:${asked.id}`, ask_id: String(asked.id), actor: rows[i].actor,
+            answer: fact.kind === 'ask' ? '（同一个接单节点又问了一次，这条提问换成新的那条）' : '（同一个接单节点随后作出了决定，这条提问不再等答复）',
+          });
+        }
+      }
+      this.applyLocked(itemId, normalize(fact));
     }
   }
 
@@ -350,8 +361,8 @@ export class WorkItemService extends Service {
   private applyLocked(itemId: string, fact: Fact): ApplyResult {
     const item = db.prepare('SELECT state, open_asks FROM work_items WHERE id = ?').get(itemId) as { state: WorkItemState; open_asks: string } | undefined;
     if (!item) return { ok: false, reason: 'unknown_item' };
-    const seen = db.prepare("SELECT from_state, to_state, json_extract(detail, '$.rejected') AS rejected FROM work_item_log WHERE item_id = ? AND fact_source = ? AND fact_id = ?")
-      .get(itemId, fact.source, fact.id) as { from_state: WorkItemState; to_state: WorkItemState; rejected: 'not_allowed' | 'terminal' | null } | undefined;
+    const seen = db.prepare('SELECT from_state, to_state, rejected FROM work_item_log WHERE item_id = ? AND fact_source = ? AND fact_id = ?')
+      .get(itemId, fact.source, fact.id) as { from_state: WorkItemState; to_state: WorkItemState; rejected: '' | 'not_allowed' | 'terminal' } | undefined;
     // 同一条事实再来：照第一次的结果答（第一次被拒的，还是被拒），不再写
     if (seen?.rejected) return { ok: false, reason: seen.rejected, state: item.state, duplicate: true };
     if (seen) return { ok: true, state: item.state, from: seen.from_state, duplicate: true };
@@ -381,13 +392,15 @@ export class WorkItemService extends Service {
    */
   private rejectLocked(itemId: string, state: WorkItemState, fact: Fact, reason: 'not_allowed' | 'terminal'): ApplyResult {
     const { kind, source, id, actor, ...detail } = fact;
-    this.writeLog(itemId, fact, state, state, { ...detail, rejected: reason, note: '收到，未采信' });
+    this.writeLog(itemId, fact, state, state, { ...detail, note: '收到，未采信' }, reason);
     return { ok: false, reason, state };
   }
 
-  private writeLog(itemId: string, fact: Fact, from: WorkItemState, to: WorkItemState, detail: object): void {
-    db.prepare(`INSERT INTO work_item_log (item_id, fact, fact_source, fact_id, from_state, to_state, actor, detail)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(itemId, fact.kind, fact.source, fact.id, from, to, fact.actor ?? '', JSON.stringify(detail));
+  /** rejected 只由事项服务自己给；调用方事实里夹的同名字段从 detail 里剥掉，不进日志 */
+  private writeLog(itemId: string, fact: Fact, from: WorkItemState, to: WorkItemState, detail: object, rejected: '' | 'not_allowed' | 'terminal' = ''): void {
+    const { rejected: _drop, ...clean } = detail as Record<string, unknown>;
+    db.prepare(`INSERT INTO work_item_log (item_id, fact, fact_source, fact_id, from_state, to_state, actor, detail, rejected)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(itemId, fact.kind, fact.source, fact.id, from, to, fact.actor ?? '', JSON.stringify(clean), rejected);
   }
 
   /** 只记录、不改状态：写一行 from = to 的日志，更新摘要字段。 */
@@ -395,10 +408,10 @@ export class WorkItemService extends Service {
     const { kind, source, id, actor, ...detail } = fact;
     if (kind === 'answer') {
       const askId = String(fact.ask_id); // RECORDS 那一行已要求它是非空字符串
-      // 被拒的提问、被拒的答复都留了一行（带 rejected），不算问过、不算答过
-      const asked = db.prepare("SELECT 1 FROM work_item_log WHERE item_id = ? AND fact = 'ask' AND fact_id = ? AND json_extract(detail, '$.rejected') IS NULL").get(itemId, askId);
+      // 被拒的提问、被拒的答复都留了一行（rejected 列不空），不算问过、不算答过
+      const asked = db.prepare("SELECT 1 FROM work_item_log WHERE item_id = ? AND fact = 'ask' AND fact_id = ? AND rejected = ''").get(itemId, askId);
       if (!asked) return this.rejectLocked(itemId, item.state, fact, 'not_allowed');
-      const first = db.prepare("SELECT from_state FROM work_item_log WHERE item_id = ? AND fact = 'answer' AND json_extract(detail, '$.ask_id') = ? AND json_extract(detail, '$.rejected') IS NULL ORDER BY seq LIMIT 1")
+      const first = db.prepare("SELECT from_state FROM work_item_log WHERE item_id = ? AND fact = 'answer' AND json_extract(detail, '$.ask_id') = ? AND rejected = '' ORDER BY seq LIMIT 1")
         .get(itemId, askId) as { from_state: WorkItemState } | undefined;
       // 同一条提问再答一次：返回第一次的结果，不再写
       if (first) return { ok: true, state: item.state, from: first.from_state, duplicate: true, recorded: true };

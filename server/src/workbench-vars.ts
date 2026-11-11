@@ -242,6 +242,8 @@ export function createWorkbenchVars(deps: WorkbenchVarsDeps) {
     };
 
   return {
+    /** 读门（和 GET /api/workbenches/:id/vars 同一个）：「关注」的待属主看板复用它判可见性 */
+    authorizeRead: (req: express.Request, res: express.Response, scope: Scope) => authorize(req, res, scope, false),
     /** 沙箱页面（Origin: null）凭本台令牌跨源读写：预检只回允许头；实际请求令牌对了才发 ACAO */
     cors(req: express.Request, res: express.Response, next: express.NextFunction) {
       const m = PATH_RE.exec(String(req.url ?? '').split('?')[0]);

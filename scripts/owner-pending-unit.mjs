@@ -1,14 +1,28 @@
 #!/usr/bin/env node
-/** 待属主看板纯逻辑单测：看板台按 URL 路径找、config.owner 只认作者本人、事项只认登记身份、答复只认属主、来源不符点名不丢、状态排序。 */
-import { answerBody, bjDate, buildBoard, configRevisionBody, findBoardWorkbench, parseConfig } from '../web/src/owner-pending.ts';
+/** 待属主看板纯逻辑单测：看板台按 URL 路径找、config.owner 只认作者本人、事项只认登记身份、答复只认属主、来源不符点名不丢、状态排序。
+ *  前端（web/src/owner-pending.ts）和服务端（server/src/owner-pending.ts，「关注」用）两份实现各跑一遍：
+ *  先跑共用的用例表 scripts/owner-pending-cases.json（结果逐字段相同），再跑下面这些按含义写的断言。 */
+import { readFileSync } from 'node:fs';
+import * as webImpl from '../web/src/owner-pending.ts';
+import * as serverImpl from '../server/src/owner-pending.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
+const { cases } = JSON.parse(readFileSync(new URL('./owner-pending-cases.json', import.meta.url), 'utf8'));
+for (const [label, impl] of [['前端', webImpl], ['服务端', serverImpl]]) {
+  console.log(`— ${label}：用例表 ${cases.length} 条`);
+  for (const c of cases) {
+    const got = impl[c.fn](...c.args.map((a) => (a === null && c.fn === 'parseConfig' ? undefined : a))) ?? null;
+    ok(`${label}·${c.name}`, JSON.stringify(got) === JSON.stringify(c.expect), JSON.stringify(got).slice(0, 300));
+  }
+}
+for (const [label, { answerBody, bjDate, buildBoard, configRevisionBody, findBoardWorkbench, parseConfig }] of [['前端', webImpl], ['服务端', serverImpl]]) {
+console.log(`— ${label}：按含义的断言`);
 const v = (key, value, owner, extra = {}) => ({ key, kind: 'const', value, revision: 1, owner, updated_by: owner, updated_at: '2026-11-05 08:00:00', ...extra });
 const BASE = 'http://market.example:9800';
 
 // 看板台
-ok('按路径找到唯一看板台（忽略主机与末尾斜杠）', JSON.stringify(findBoardWorkbench([{ id: 3, url: 'http://other/' }, { id: 7, url: 'http://10.0.0.1:9800/owner-pending/' }], BASE)) === '{"id":7}');
+ok('按路径找到唯一看板台（忽略主机与末尾斜杠）', JSON.stringify(findBoardWorkbench([{ id: 3, url: 'http://other/' }, { id: 7, url: 'http://board.example:9800/owner-pending/' }], BASE)) === '{"id":7}');
 ok('相对地址也认', JSON.stringify(findBoardWorkbench([{ id: 5, url: '/owner-pending' }], BASE)) === '{"id":5}');
 ok('没有看板台报错', 'error' in findBoardWorkbench([{ id: 3, url: 'http://x/owner-pending-old' }], BASE));
 const two = findBoardWorkbench([{ id: 1, url: '/owner-pending' }, { id: 2, url: 'http://y/owner-pending' }], BASE);
@@ -74,6 +88,8 @@ ok('改答复带 override 与期望 revision', b2.override === true && b2.revisi
 const rb = configRevisionBody({ ownerLogin: 'boss', writers: ['mcp:owner-board'], revision: 4 }, [' mcp:owner-board', 'mcp:owner-board-2', '', 'mcp:owner-board']);
 ok('修订体：owner_login 不变、去重、override + 当前 revision + reason', rb.kind === 'const' && rb.override === true && rb.revision === 4 && rb.value.owner_login === 'boss' && JSON.stringify(rb.value.writers) === '["mcp:owner-board","mcp:owner-board-2"]' && /属主修订/.test(rb.reason), JSON.stringify(rb));
 ok('修订体：坏写法或空列表报错', 'error' in configRevisionBody(C, ['owner-board']) && 'error' in configRevisionBody(C, ['  ']));
+
+}
 
 console.log(`\nowner-pending-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);
