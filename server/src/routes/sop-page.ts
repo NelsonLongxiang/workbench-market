@@ -12,6 +12,7 @@ import { svc } from '../context.ts';
 import type { SopService } from '../services/sop.ts';
 import type { AppRow } from '../db.ts';
 import type { renderSopRunner as renderSopRunnerRaw } from '../sop-runner.ts';
+import { isInsideRoot } from '../path-inside.ts';
 
 type SopManifest = Parameters<typeof renderSopRunnerRaw>[0];
 
@@ -54,7 +55,7 @@ export function registerSopPageRoutes(app: HttpService, deps: SopPageDeps): void
     let rel = posix.normalize(rest);
     if (rel === '.' || rel.startsWith('/') || rel.startsWith('..')) return res.status(400).json({ error: '路径非法' });
     const abs = join(root, rel);
-    if (!abs.startsWith(root)) return res.status(400).json({ error: '路径非法' });
+    if (!isInsideRoot(root, abs)) return res.status(400).json({ error: '路径非法' });
     if (!existsSync(abs)) return res.status(404).json({ error: `file not found: ${rel}` });
     // #198（裁 A）：自产台入口/子页面注入按台令牌——sandbox 页面凭它调本台 data/files
     if (/\.html?$/i.test(rel)) {

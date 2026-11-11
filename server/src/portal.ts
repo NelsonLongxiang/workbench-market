@@ -15,6 +15,7 @@ import type { WorkbenchService } from './services/workbench.ts';
 import type { CookieService } from './services/cookie.ts';
 import { clientIp } from './login-gate.ts';
 import { loginRelay } from './identity.ts';
+import { isInsideRoot } from './path-inside.ts';
 
 
 export const goPrefix = /^\/go\/(\d+)(.*)$/;
@@ -67,7 +68,7 @@ export function installPortal(
         let rel = posix.normalize(rest);
         if (rel === '.' || rel.startsWith('/') || rel.startsWith('..')) return res.status(400).json({ error: '路径非法' });
         const abs = join(root, rel);
-        if (!abs.startsWith(root)) return res.status(400).json({ error: '路径非法' });
+        if (!isInsideRoot(root, abs)) return res.status(400).json({ error: '路径非法' });
         if (!existsSync(abs)) return res.status(404).json({ error: `file not found: ${rel}` });
         return res.sendFile(abs);
       }

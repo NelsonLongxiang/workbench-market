@@ -90,6 +90,7 @@ import type { IncomingMessage } from 'node:http';
 import { noteA2aError, type A2aErrorKey } from './a2a/errors.ts';
 import { a2aHealth } from './a2a/health.ts';
 import { cardCooldownMs, createDirectSigVerifier, directSigBodyMode, directSigMode, shownRefusal, type DirectSigMode, type SigRefusal } from './a2a-direct-sig.ts';
+import { isInsideRoot } from './path-inside.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const http = svc<HttpService>('http'); // HTTP 服务持有 Express 应用；域模块经它注册路由（注册可撤销）
@@ -2171,7 +2172,7 @@ function serveApp(req: express.Request, res: express.Response) {
   if (rel === '.' || rel.startsWith('/') || rel.startsWith('..')) return res.status(400).json({ error: '路径非法' });
   if (rel.endsWith('/')) rel += 'index.html';
   const abs = join(root, rel);
-  if (!abs.startsWith(root)) return res.status(400).json({ error: '路径非法' });
+  if (!isInsideRoot(root, abs)) return res.status(400).json({ error: '路径非法' });
   res.setHeader('X-App-Version', `v${ver}`);
   if (!existsSync(abs)) {
     // #94 P2（L6）：冷版本回读——物化已 prune·版本链在——经 layerfs 服务取该版 Commit 文件集
