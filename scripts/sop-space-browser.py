@@ -73,7 +73,8 @@ with sync_playwright() as p:
     cp.locator('[data-testid=wm-me]').click()  # 新外壳：口令在用户卡弹出层里
     cp.locator('.wm-me-pop button', has_text='口令').click()
     cp.locator('.ant-popover input[type=password]').last.fill(cfg['token'])
-    cp.locator('.ant-popover button', has_text='保').last.click(); cp.wait_for_timeout(300)
+    cp.locator('.ant-popover button', has_text='保').last.click()
+    cp.wait_for_selector('[data-testid=nav-admin]', timeout=10000)  # 口令核对过、存好了，侧栏才出现「设置 / 管理」
     cp.evaluate(f"history.pushState({{}}, '', '/sops/{SLUG}/runs/{RID}'); dispatchEvent(new PopStateEvent('popstate'))")
     cp.wait_for_selector('.wm-run-body .ant-steps')
     body = cp.locator('.wm-run-body').inner_text()

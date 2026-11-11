@@ -15,6 +15,12 @@ def ok(name, cond, extra=''):
 def go_frames(page):
     return page.locator(f'iframe[src="/go/{wid}/"]').count()
 
+def slow(page):
+    """本机模拟慢 runner：WM_BROWSER_CPU_THROTTLE=6 把页面 CPU 放慢 6 倍，动画和取数的先后就和 CI 上接近。缺省不放慢。"""
+    import os
+    rate = float(os.environ.get('WM_BROWSER_CPU_THROTTLE', '0') or 0)
+    if rate > 1: page.context.new_cdp_session(page).send('Emulation.setCPUThrottlingRate', {'rate': rate})
+
 def open_me(page):
     # 新外壳（#571）：口令、登录身份都在侧栏底部用户卡的弹出层里。
     # 开没开看用户卡自己的 aria-expanded，不看弹出层「可见」：弹出层刚开始放大动画时尺寸是 0，
@@ -23,7 +29,9 @@ def open_me(page):
     if me.get_attribute('aria-expanded') != 'true':
         me.click()
     page.locator('[data-testid=wm-me][aria-expanded=true]').wait_for()
-    page.locator('.wm-me-pop').first.wait_for(state='visible')
+    # 等放大动画走完再往下（动画起点那一帧尺寸是 0）
+    page.wait_for_function("""() => { const e = document.querySelector('.wm-me-pop'); if (!e) return false; const r = e.getBoundingClientRect(); const h = e.closest('.ant-popover');
+      return !!h && r.width > 0 && r.height > 0 && ![...h.classList].some(c => /-(appear|enter|leave)(-|$)/.test(c)) && !h.classList.contains('ant-popover-hidden'); }""")
 
 def set_token(page):
     open_me(page)
@@ -42,6 +50,7 @@ with sync_playwright() as p:
         print('业务面管理（属主 2026-11-02：口令即可，不再限控制面）')
         c = b.new_context()
         page = c.new_page()
+        slow(page)
         page.goto(base + f'/use/{wid}'); page.wait_for_timeout(1200)
         ok('未设口令：使用页照常内嵌 /go/', go_frames(page) == 1)
         page.goto(base + f'/cockpit/{cfg["cockpit"]}'); page.wait_for_timeout(1200)
