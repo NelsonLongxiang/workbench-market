@@ -127,6 +127,7 @@ try {
   const r0 = await decide(S.mine2, { answer: 'return' });
   const r = await decide(S.mine2, { answer: 'return', reason: '差异没标' });
   check(r0.status === 400 && r.status === 200 && state(S.mine2) === 'progress', '退回要写理由；写了：ready → progress', show({ r0, r }));
+  check(r.body?.result?.sent === false && r.body?.result?.reason === 'not_from_event', 'R2：不是从工作台事件来的事项（没有可发回的团队）被打回：记 return，不发（sent:false）', show(r.body));
   {
     const a1 = await decide(S.again, { answer: 'return', reason: '再看看' });
     const f = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', `
