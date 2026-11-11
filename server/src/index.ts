@@ -664,6 +664,11 @@ app.post('/api/workbenches/:id/check', wrap(async (req, res) => {
   res.json(await checkOne(row));
 }));
 
+// 台驱逐冷却（与 a2a-net peer 驱逐冷却同名不同物·命名区分，direct-53caaed3）：
+// 连续 down 的台进入 24h 冷却窗，窗内每窗只探一次（防 flapping）。up 即清零；内存态（重启清零，保守）。
+const EVICT_COOLDOWN_MS = Number(process.env.A2A_EVICT_COOLDOWN_MS) > 0 ? Number(process.env.A2A_EVICT_COOLDOWN_MS) : 24 * 3_600_000; // 测试可加速
+const downSince = new Map<number, number>();
+const lastProbeAt = new Map<number, number>();
 app.post('/api/check-all', wrap(async (_req, res) => {
   const settings = getSettings();
   const limit = Math.max(1, Number(settings.health_concurrency) || 8);
@@ -4697,11 +4702,6 @@ process.on('unhandledRejection', (r) => { console.error('[fatal] unhandledReject
 // ---------- 定期巡检 ----------
 let timer: ReturnType<typeof setTimeout> | null = null;
 let checking = false;
-// 台驱逐冷却（与 a2a-net peer 驱逐冷却同名不同物·命名区分，direct-53caaed3）：
-// 连续 down 的台进入 24h 冷却窗，窗内每窗只探一次（防 flapping）。up 即清零；内存态（重启清零，保守）。
-const EVICT_COOLDOWN_MS = Number(process.env.A2A_EVICT_COOLDOWN_MS) > 0 ? Number(process.env.A2A_EVICT_COOLDOWN_MS) : 24 * 3_600_000; // 测试可加速
-const downSince = new Map<number, number>();
-const lastProbeAt = new Map<number, number>();
 async function patrol(): Promise<void> {
   if (checking) return;
   checking = true;
