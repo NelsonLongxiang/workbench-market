@@ -305,6 +305,8 @@ jobs:
         run: node scripts/workbench-events-admin-identity-test.mjs
       - name: 「关注」的答（阶段八 8d：每个转发的来源新入口和旧入口状态、留痕、应答逐字段相同·无权的人被拒方式一样·重复答返回第一次的结果·并发答一个生效·转发只走写死的表、身份原样、请求体不透传·席位提问的答复和事项的验收退回）
         run: node scripts/attention-answer-test.mjs
+      - name: 审核进「关注」（变更申请当场批：和旧入口同一处判断·审核人取认出来的管理员·不通过要理由·detail 只给看内容所需的最少字段、删除标不可恢复、不出文件内容·员工看不到也答不了·统一待办条目带 kind）
+        run: node scripts/attention-review-test.mjs
       - name: 建立人验收自己的事项（阶段八 8e，放宽访问的对抗组：别人的事项、冒用显示名、夹带建立人、停用的建立人、跨站、未登录、不在等验收、送别的事实、来源未验证都拒·退回后再进等验收能再答·管理员照旧·启动自检一行）
         run: node scripts/work-item-creator-test.mjs
       - name: 提需求的人（阶段八 8f-1：建录入时经身份服务认出的人记在录入上，发布时当事项的建立人·发布的人只留痕、不顶替·请求体自报不认·认不出照样放行·不带内容的提交计数）

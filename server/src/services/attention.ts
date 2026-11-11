@@ -41,6 +41,10 @@ export type AttentionItem = {
   phase: string;
   /** 原件在旧页面上的链接（站内路径） */
   link: string;
+  /** 审核卡片当场办所需的最少内容（变更申请：要动什么、从第几版到第几版、谁为什么申请、删除连带几个版本几个文件、不可恢复） */
+  detail?: Record<string, unknown>;
+  /** 统一待办条目是哪一类：task（任务中心任务）、sop-run（SOP 执行）、ygl、a2a、other。前端据此不把它们放进「等你审核」 */
+  kind?: string;
 };
 
 /**

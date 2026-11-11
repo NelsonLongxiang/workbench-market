@@ -343,7 +343,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   attention-sources.ts（「关注」要用、来源里还没有现成函数的只读查询：席位未答的提问）
   attention.ts（「关注」：Cordis 服务 `attention`·各来源注册提供方、可撤销·汇总当前这个人的条目和各类条数）
   binding.ts（A2A 人工绑定）
-  change-request.ts（人审变更请求）
+  change-request.ts（人审变更请求；detailOf 给审核卡片看内容所需的最少字段：版本从几到几、目标版本说明、删除连带几个版本几个文件、不可恢复）
   grant.ts（授予：Cordis 服务 `grants`·草稿→待核→生效→撤销或过期只能往前走·不能给自己授予·管理员级只有属主能放行·决定类只给人·到期自动失效·每步留痕）
   login-session.ts（市场会话与登录 state：Cordis 服务 `loginSessions`·绝对期限·注销与停用即失效·state 一次性并绑浏览器）
   principal.ts（主体与外部身份：Cordis 服务 `principals`·把登录认出的人对到主体·停用与恢复）
@@ -359,7 +359,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   attention.ts（「关注」的读 /api/attention：当前这个人在七个来源里等他处理的条目和条数）
   auth-viewer.ts（登录探测 /api/auth/viewer）
   bindings.ts（A2A 人工绑定 /api/bindings 和退役的旧面）
-  change-requests.ts（人审变更请求 /api/change-requests：列表、批准、拒绝）
+  change-requests.ts（人审变更请求 /api/change-requests：列表、批准、拒绝；批准、拒绝的判断和执行收在 changeRequestReview 一处，「关注」的审核卡片当场批也调它，审核人取认出来的管理员、不通过要写理由）
   cockpits.ts（驾驶舱 /api/cockpits）
   content-observation.ts（门户观测状态 /api/content/observation）
   cookies.ts（Cookie 池 /api/cookies）

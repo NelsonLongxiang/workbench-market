@@ -22,7 +22,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1251", "etag": "W/\"4e3-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1506", "etag": "W/\"5e2-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -35,7 +35,8 @@
                   "title": "台回滚 replay-app（回放用）",
                   "waiting_for": "mcp:replay",
                   "since": "YYYY-MM-DD hh:mm:ss",
-                  "link": "/reviews?request=1"
+                  "link": "/reviews?request=1",
+                  "detail": { "kind": "app", "op": "rollback", "slug": "replay-app", "title": "", "exists": false, "current_version": null, "target_version": 1, "target_changelog": "", "requested_by": "mcp:replay", "reason": "回放用", "created_at": "YYYY-MM-DD hh:mm:ss", "irreversible": false }
                 },
                 {
                   "answers": ["bind"],
@@ -73,7 +74,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1251", "etag": "W/\"4e3-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1506", "etag": "W/\"5e2-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -86,7 +87,8 @@
                   "title": "台回滚 replay-app（回放用）",
                   "waiting_for": "mcp:replay",
                   "since": "YYYY-MM-DD hh:mm:ss",
-                  "link": "/reviews?request=1"
+                  "link": "/reviews?request=1",
+                  "detail": { "kind": "app", "op": "rollback", "slug": "replay-app", "title": "", "exists": false, "current_version": null, "target_version": 1, "target_changelog": "", "requested_by": "mcp:replay", "reason": "回放用", "created_at": "YYYY-MM-DD hh:mm:ss", "irreversible": false }
                 },
                 {
                   "answers": ["bind"],
@@ -241,7 +243,7 @@
             "method": "POST",
             "path": "/api/attention/answer",
             "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "not-the-token" },
-            "json": { "source": "change-requests", "source_id": "1", "answer": "reject", "input": { "reviewed_by": "回放" } }
+            "json": { "source": "change-requests", "source_id": "1", "answer": "reject", "input": { "reviewed_by": "回放", "reason": "回放：不通过的理由" } }
           },
           "response": {
             "status": 403,
@@ -259,7 +261,7 @@
             "method": "POST",
             "path": "/api/attention/answer",
             "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "cross-site" },
-            "json": { "source": "change-requests", "source_id": "1", "answer": "reject", "input": { "reviewed_by": "回放" } }
+            "json": { "source": "change-requests", "source_id": "1", "answer": "reject", "input": { "reviewed_by": "回放", "reason": "回放：不通过的理由" } }
           },
           "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
         },
@@ -316,13 +318,31 @@
             "method": "POST",
             "path": "/api/attention/answer",
             "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" },
-            "json": { "source": "change-requests", "source_id": "999", "answer": "reject", "input": { "reviewed_by": "回放" } }
+            "json": { "source": "change-requests", "source_id": "999", "answer": "reject", "input": { "reviewed_by": "回放", "reason": "回放：不通过的理由" } }
           },
           "response": {
             "status": 404,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "error": "attention_item_not_found" }
+          }
+        },
+        {
+          "id": "answer-reject-no-reason",
+          "route": "POST /api/attention/answer",
+          "class": "invalid",
+          "what": "不通过不写理由：400（reason_required），申请不动",
+          "request": {
+            "method": "POST",
+            "path": "/api/attention/answer",
+            "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" },
+            "json": { "source": "change-requests", "source_id": "1", "answer": "reject", "input": { "reviewed_by": "回放" } }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "117", "etag": "W/\"75-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "source": "change-requests", "source_id": "1", "answer": "reject", "duplicate": false, "result": { "error": "reason_required" } }
           }
         },
         {
@@ -334,13 +354,13 @@
             "method": "POST",
             "path": "/api/attention/answer",
             "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" },
-            "json": { "source": "change-requests", "source_id": "1", "answer": "reject", "input": { "reviewed_by": "回放" } }
+            "json": { "source": "change-requests", "source_id": "1", "answer": "reject", "input": { "reviewed_by": "回放", "reason": "回放：不通过的理由" } }
           },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "151", "etag": "W/\"97-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "source": "change-requests", "source_id": "1", "answer": "reject", "duplicate": false, "result": { "ok": true, "id": 1, "status": "rejected", "reviewed_by": "回放" } }
+            "headers": { "cache-control": "private, no-store", "content-length": "156", "etag": "W/\"9c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "source": "change-requests", "source_id": "1", "answer": "reject", "duplicate": false, "result": { "ok": true, "id": 1, "status": "rejected", "reviewed_by": "admin-token" } }
           }
         },
         {
@@ -352,13 +372,13 @@
             "method": "POST",
             "path": "/api/attention/answer",
             "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" },
-            "json": { "source": "change-requests", "source_id": "1", "answer": "reject", "input": { "reviewed_by": "另一个人" } }
+            "json": { "source": "change-requests", "source_id": "1", "answer": "reject", "input": { "reviewed_by": "另一个人", "reason": "回放：不通过的理由" } }
           },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "150", "etag": "W/\"96-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "source": "change-requests", "source_id": "1", "answer": "reject", "duplicate": true, "result": { "ok": true, "id": 1, "status": "rejected", "reviewed_by": "回放" } }
+            "headers": { "cache-control": "private, no-store", "content-length": "155", "etag": "W/\"9b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "source": "change-requests", "source_id": "1", "answer": "reject", "duplicate": true, "result": { "ok": true, "id": 1, "status": "rejected", "reviewed_by": "admin-token" } }
           }
         }
       ]
