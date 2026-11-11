@@ -66,7 +66,7 @@ const receipt = (task, summary, env, ctx, opts = {}) => { const raw = receiptRaw
 
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
   cwd: 'server',
-  env: { ...process.env, DATA_DIR: DATA, PORT: String(PM), WM_CONTROL_PORT: '0', NODE_ENV: 'test', MCP_GATEWAY: 'off', ADMIN_TOKEN: 'ans-admin', MARKET_PUBLIC_URL: BASE, WM_A2A_DIRECT_SIG: '', WM_LOGIN_GATE: '', A2A_OUTBOX_BACKOFF_SCALE: '0.0001' },
+  env: { ...process.env, DATA_DIR: DATA, PORT: String(PM), WM_CONTROL_PORT: '0', NODE_ENV: 'test', MCP_GATEWAY: 'off', ADMIN_TOKEN: 'ans-admin', MARKET_PUBLIC_URL: BASE, WM_A2A_DIRECT_SIG: '', WM_LOGIN_GATE: '', A2A_OUTBOX_BACKOFF_SCALE: '0.0001', WM_A2A_FOLLOWUP_RATE_10MIN: '80' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let out = '';
@@ -231,11 +231,23 @@ try {
   const capRows = q("SELECT status, COUNT(*) AS c FROM workbench_event_followups WHERE delivery_id = ? GROUP BY status", cap.delivery);
   ok('同一投递第 51 条 → over-cap：只记日志、不进「关注」', JSON.stringify(capRows) === JSON.stringify([{ status: 'open', c: 50 }, { status: 'over-cap', c: 1 }]) && !(await letters()).some((x) => x.title.includes('第 50 条')), JSON.stringify(capRows));
   ok('……超限的也照常回执、公开计数 followup:over-cap +1', q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE kind = 'followup-receipt' AND delivery_id = ?", cap.delivery)[0].c === 51 && ((await (await fetch(BASE + '/api/health')).json()).a2a?.refused?.counts?.['followup:over-cap'] ?? 0) === capHealthBefore + 1);
-  // 对端 10 分钟超过 60 条：不收、不回执、计数
+  // 对端 10 分钟超过限频（测试里设 80）：合法跟进全部拿到结清回执，超出的不存正文、不进「关注」、只计数
   const rate = seedEvent();
-  let limited = null;
-  for (let i = 0; i < 5; i++) { const rr = fu(rate.ctx, `频 ${i}`, `a2a-rate${i}`); const res = await post(rr, signed(lab, rr)); if (res.text.includes('rate limited')) { limited = `a2a-rate${i}`; break; } }
-  ok('同一对端 10 分钟超过 60 条 → 不收、不回执', limited !== null && noRec(limited), String(limited));
+  const rateHealthBefore = (await (await fetch(BASE + '/api/health')).json()).a2a?.refused?.counts?.['followup:rate-limited'] ?? 0;
+  const lettersBefore = (await letters()).length;
+  let firstLimited = -1;
+  for (let i = 0; i < 90; i++) { const rr = fu(rate.ctx, `频 ${i}`, `a2a-rate${String(i).padStart(3, '0')}`); const res = await post(rr, signed(lab, rr)); if (firstLimited < 0 && res.text.includes('"rate_limited":true')) firstLimited = i; if (firstLimited >= 0 && i >= firstLimited + 4) break; }
+  const rateRows = q("SELECT status, COUNT(*) AS c, MAX(LENGTH(text)) AS n FROM workbench_event_followups WHERE delivery_id = ? GROUP BY status ORDER BY status", rate.delivery);
+  const limitedRow = rateRows.find((x) => x.status === 'rate-limited');
+  ok('一台宿主短时间发来超过阈值的合法跟进 → 超出的记成 rate-limited、不存正文', firstLimited >= 0 && limitedRow?.c === 5 && limitedRow.n === 0, JSON.stringify({ firstLimited, rateRows }));
+  ok('……全部拿到结清回执（每条一行 receipt-<跟进任务号>）', firstLimited >= 0 && q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE kind = 'followup-receipt' AND delivery_id = ?", rate.delivery)[0].c === firstLimited + 5);
+  await waitFor(() => lab.got.some((g) => g.body.task_id === `receipt-a2a-rate${String(firstLimited + 4).padStart(3, '0')}`), 15000);
+  ok('……超出的那几条，回执真的发到了对端', [0, 1, 2, 3, 4].every((k) => lab.got.some((g) => g.body.task_id === `receipt-a2a-rate${String(firstLimited + k).padStart(3, '0')}`)));
+  ok('……超出的不进「关注」，公开计数 followup:rate-limited +5，事件日志记 followup-rate-limited 5 行', (await letters()).length - lettersBefore === firstLimited
+    && ((await (await fetch(BASE + '/api/health')).json()).a2a?.refused?.counts?.['followup:rate-limited'] ?? 0) === rateHealthBefore + 5
+    && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE delivery_id = ? AND action = 'followup-rate-limited'", rate.delivery)[0].c === 5);
+  // 验签不过的仍然不收不回执（那不是我们欠的）——限频不改变这一条
+  { const rr = fu(rate.ctx, '伪造', 'a2a-rate-forged'); await post(rr, signed(evil, rr)); ok('限频之下，验签不过的仍不收、不回执', noRec('a2a-rate-forged')); }
   ok('跟进回执的积压在健康块里有数', typeof (await (await fetch(BASE + '/api/health')).json()).a2a?.outbox?.followup_receipts?.pending === 'number');
 } catch (e) {
   ok('运行', false, String(e?.stack ?? e));
@@ -243,6 +255,12 @@ try {
   child.kill();
   lab.server.close();
   evil.server.close();
+}
+// 限频阈值不合法 → 拒绝启动
+for (const bad of ['0', 'abc', '100001']) {
+  const bp = await port();
+  const code = await new Promise((res) => { const c = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], { cwd: 'server', env: { ...process.env, DATA_DIR: DATA, PORT: String(bp), WM_CONTROL_PORT: '0', NODE_ENV: 'test', MCP_GATEWAY: 'off', WM_A2A_FOLLOWUP_RATE_10MIN: bad }, stdio: 'ignore' }); const t = setTimeout(() => { c.kill(); res('timeout'); }, 30000); c.on('exit', (x) => { clearTimeout(t); res(x); }); });
+  ok(`WM_A2A_FOLLOWUP_RATE_10MIN=${bad} → 拒绝启动`, code === 1, String(code));
 }
 console.log(`\n${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

@@ -40,6 +40,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_A2A_DIRECT_SIG`（`POST /a2a/direct` 入站签名·缺省 `accept`=签名可选：带了 OriginClaim Sig2 就验，取卡或验签这一步验不过（没登记取卡地址、取不到卡、卡上身份不对、签名对不上卡）按未签名走绑定准入——不比不带签名更宽也不更严，格式、时间戳、受众、身份不符、重放照旧 401；`require`=没签名或验不过一律 401；`off`=不验；`WM_LOGIN_GATE=enforce` 时强制 `require`；其它值拒绝启动。公钥只从调用方绑定上登记的 `notify_url` 取卡，不跟随重定向）
 - `WM_A2A_DIRECT_SIG_BODY`（缺省 `accept`；`require`=只认同时签了 body 摘要的 `X-WM-Body-Sha256`/`X-WM-Body-Sig`，现有 DSH 节点只发 Sig2，打开前对端要先升级；其它值拒绝启动）
 - `WM_A2A_CARD_COOLDOWN_S`（`/a2a/direct` 入站验签取卡的冷却秒数·缺省 30·只收 1～3600 的整数，否则拒绝启动；验签失败触发的重取卡按登记地址在冷却期内只发一次，对方换钥匙冷却过后生效）
+- `WM_A2A_FOLLOWUP_RATE_10MIN`（席位跟进每个对端 10 分钟内存正文的条数上限·缺省 300·只收 1～100000 的整数，否则拒绝启动；超出的不存正文、只计数，结清回执照回）
 - `A2A_ORIGIN_CLAIM_UNBOUND`（v1 未绑定调用方签名兼容窗：`off`=停发 `X-A2A-Caller-Sig`，缺省继续发；v1 不绑路由，未升级对端上可被剥 Sig2 重放，全舰队升级后应设 `off`）
 - `WM_A2A_MEMBER_PROVENANCE`（缺省 `on`：市场名片声明 `canvasMemberProvenance`——a2a-net 0.8 起，对钉了公钥的画布成员只往声明了它的宿主转发，不声明则席位的回执到不了市场；声明即承诺：名片只列本节点自己服务、互不重复的句柄 `market/<8 hex>`，发给它们的消息只在本节点投递、查无或有歧义一律 404，句柄只由本节点密钥签发；`off`=不声明，名片与之前完全相同；其它值拒绝启动）
 - `LAYERFS_SERVICE_URL`/`LAYERFS_SERVICE_TOKEN`（LayerFS·缺一即禁用）

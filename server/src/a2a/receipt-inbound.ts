@@ -127,7 +127,7 @@ function cleanSummary(s: string): string {
 /**
  * /a2a/direct 的回执分支。不是我们认的回执返回 null（调用方照原路走）；认了的返回应答。
  */
-export async function handleInboundReceipt(req: Req, deps: { audiences: () => string[]; now?: () => number }): Promise<{ status: number; body: Record<string, unknown> } | null> {
+export async function handleInboundReceipt(req: Req, deps: { audiences: () => string[]; now?: () => number; followupRate?: number }): Promise<{ status: number; body: Record<string, unknown> } | null> {
   const body = (req.body ?? {}) as Record<string, unknown>;
   const message = typeof body.message === 'string' ? body.message : '';
   if (message === '') return null;
@@ -192,10 +192,20 @@ export async function handleInboundReceipt(req: Req, deps: { audiences: () => st
   };
 }
 
-/** 跟进正文最多留这么多字（超长截断并标记）；每次投递最多收这么多条进「关注」；每个对端 10 分钟最多这么多条 */
+/** 跟进正文最多留这么多字（超长截断并标记）；每次投递最多收这么多条进「关注」 */
 export const FOLLOWUP_TEXT_MAX = 4000;
 export const FOLLOWUP_PER_DELIVERY = 50;
-export const FOLLOWUP_PER_PEER_10MIN = 60;
+/** 每个对端 10 分钟内存正文的跟进条数上限，缺省 300；可配（WM_A2A_FOLLOWUP_RATE_10MIN） */
+export const FOLLOWUP_RATE_DEFAULT = 300;
+
+/** 限频阈值；不设为 300，只收 1～100000 的整数，否则返回 null（调用方拒绝启动） */
+export function followupRateLimit(env: NodeJS.ProcessEnv = process.env): number | null {
+  const raw = String(env.WM_A2A_FOLLOWUP_RATE_10MIN ?? '');
+  if (raw === '') return FOLLOWUP_RATE_DEFAULT;
+  if (!/^\d{1,6}$/.test(raw)) return null;
+  const n = Number(raw);
+  return n >= 1 && n <= 100_000 ? n : null;
+}
 
 /**
  * 阶段七 R2：席位发来的跟进（同 context 的普通 A2A 任务，任务号 a2a-…；过渡期里成员的提问和通知都这样来）。
@@ -203,10 +213,12 @@ export const FOLLOWUP_PER_PEER_10MIN = 60;
  * 签名方就是那次投递的宿主（同回执：只认 Sig3、callerUrl 源等于投递根地址、验过的签名只认一次）。任何一条不成立返回 null，照原路走。
  * 收下后只做三件事：记进事项（事件日志一行 followup，事项只记录不改状态）、进「关注」（席位来信，人回复或点知道了）、
  * 排一条结清它的回执（只用跟进的任务号）。绝不触发执行、派发或状态迁移。
- * 正文截到 4000 字并标记；每次投递超过 50 条的只记日志（不进「关注」）并计数；同一对端 10 分钟超过 60 条的只计数、不收、不回执
- * （对方的出站排队会因此挡住，这正是限频要的效果）。同一条（对方的任务号）只收一次。
+ * 正文截到 4000 字并标记；每次投递超过 50 条的只记日志（不进「关注」）并计数；同一对端 10 分钟超过限频（缺省 300）的不存正文、
+ * 不进「关注」、只计数并记一行 rate-limited。两种都照常回执：对端是验过签名的宿主，每条跟进都欠着一条回执、出站槽只有几个，
+ * 不回执会把它的出站占死，后面的回执和提问都发不出来。验签不过、context 不是我们的仍然不收不回执（那不是我们欠的）。
+ * 同一条（对方的任务号）只收一次。
  */
-async function handleFollowup(req: Req, body: Record<string, unknown>, message: string, deps: { audiences: () => string[]; now?: () => number }): Promise<{ status: number; body: Record<string, unknown> } | null> {
+async function handleFollowup(req: Req, body: Record<string, unknown>, message: string, deps: { audiences: () => string[]; now?: () => number; followupRate?: number }): Promise<{ status: number; body: Record<string, unknown> } | null> {
   const contextId = typeof body.context_id === 'string' ? body.context_id : '';
   const inboundTask = typeof body.task_id === 'string' ? body.task_id : '';
   const zone = header(req, 'x-a2a-caller');
@@ -222,25 +234,26 @@ async function handleFollowup(req: Req, body: Record<string, unknown>, message: 
     return null;
   }
   if (followupOf(sent.delivery_id, inboundTask)) return reply();
-  if (followupsOfPeerSince(sent.peer_zone, now - 10 * 60_000) >= FOLLOWUP_PER_PEER_10MIN) {
-    noteA2aError('followup:rate-limited');
-    return { status: 200, body: { routed: false, delivered: false, task_id: inboundTask, context_id: contextId, task_status: 'TASK_STATE_FAILED', error: 'follow-up rate limited', code: -32000 } };
-  }
-  const truncated = message.length > FOLLOWUP_TEXT_MAX;
-  const text = message.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ').slice(0, FOLLOWUP_TEXT_MAX);
-  const overCap = followupsOfDelivery(sent.delivery_id) >= FOLLOWUP_PER_DELIVERY;
+  const limited = followupsOfPeerSince(sent.peer_zone, now - 10 * 60_000) >= (deps.followupRate ?? FOLLOWUP_RATE_DEFAULT);
+  const truncated = !limited && message.length > FOLLOWUP_TEXT_MAX;
+  const text = limited ? '' : message.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ').slice(0, FOLLOWUP_TEXT_MAX);
+  const overCap = !limited && followupsOfDelivery(sent.delivery_id) >= FOLLOWUP_PER_DELIVERY;
+  const status = limited ? 'rate-limited' : overCap ? 'over-cap' : 'open';
   const sender = typeof body.caller_session === 'string' && body.caller_session !== '' ? body.caller_session.slice(0, 200) : '';
   const target = deliveryTarget(sent.delivery_id);
   inReceiptTx(() => {
-    const id = recordFollowup({ eventId: sent.event_id, deliveryId: sent.delivery_id, peerZone: sent.peer_zone, inboundTask, contextId, sender, text, truncated, status: overCap ? 'over-cap' : 'open', now });
+    const id = recordFollowup({ eventId: sent.event_id, deliveryId: sent.delivery_id, peerZone: sent.peer_zone, inboundTask, contextId, sender, text, truncated, status, now });
     if (id === null) return;
-    logDeliveryFact(sent.event_id, sent.delivery_id, `receiver:${sent.peer_zone}`, 'followup', { text: text.slice(0, 500), inbound: inboundTask, followup: id, ...(truncated ? { truncated: true } : {}), ...(overCap ? { over_cap: true } : {}) });
+    logDeliveryFact(sent.event_id, sent.delivery_id, `receiver:${sent.peer_zone}`, limited ? 'followup-rate-limited' : 'followup', limited
+      ? { inbound: inboundTask, followup: id }
+      : { text: text.slice(0, 500), inbound: inboundTask, followup: id, ...(truncated ? { truncated: true } : {}), ...(overCap ? { over_cap: true } : {}) });
     // 结清这条跟进：回执发给发来跟进的那一方（它的会话），任务号只用跟进的
     queueReply({ kind: 'followup-receipt', eventId: sent.event_id, deliveryId: sent.delivery_id, ref: id, qid: inboundTask, fixedTask: `receipt-${inboundTask}`,
       team: sender || (target?.team ?? ''), callerSession: typeof body.team === 'string' && body.team !== '' ? body.team.slice(0, 128) : (target?.caller_session ?? ''),
       contextId, targetUrl: sent.peer_root, message: '', now });
   });
   if (overCap) noteA2aError('followup:over-cap');
+  if (limited) noteA2aError('followup:rate-limited');
   kickWorkbenchEvents();
-  return reply(overCap ? { over_cap: true } : {});
+  return reply(overCap ? { over_cap: true } : limited ? { rate_limited: true } : {});
 }

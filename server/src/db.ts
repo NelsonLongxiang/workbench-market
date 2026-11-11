@@ -263,7 +263,7 @@ CREATE TABLE IF NOT EXISTS a2a_sent_tasks (
 CREATE INDEX IF NOT EXISTS idx_a2a_sent_tasks_delivery ON a2a_sent_tasks (delivery_id);
 -- 收到并采信的回执：同一任务号的接单回执（acknowledged）一条、终局回执（attention / result）一条，按 idempotencyKey 去重
 -- 阶段七 R2：席位发来的跟进（同 context 的普通 A2A 任务，任务号 a2a-…）。签名方是我们投递到的那台宿主、context 是我们发出的，才收下。
--- 每条进「关注」（席位来信），人回复或点「知道了」；超过每次投递的上限的只记日志（status=over-cap）。时间由代码生成后写入。
+-- 每条进「关注」（席位来信），人回复或点「知道了」；超过每次投递的上限的只记日志（status=over-cap）；超过对端限频的不存正文（status=rate-limited），两种都照常回执。时间由代码生成后写入。
 CREATE TABLE IF NOT EXISTS workbench_event_followups (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   event_id TEXT NOT NULL,
@@ -274,7 +274,7 @@ CREATE TABLE IF NOT EXISTS workbench_event_followups (
   sender TEXT NOT NULL DEFAULT '',
   text TEXT NOT NULL DEFAULT '',
   truncated INTEGER NOT NULL DEFAULT 0,
-  status TEXT NOT NULL CHECK (status IN ('open','replied','acknowledged','over-cap')),
+  status TEXT NOT NULL CHECK (status IN ('open','replied','acknowledged','over-cap','rate-limited')),
   handled_by TEXT NOT NULL DEFAULT '',
   handled_at TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,

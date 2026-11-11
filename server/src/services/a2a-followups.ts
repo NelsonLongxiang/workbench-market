@@ -4,14 +4,14 @@
 import { db } from '../db.ts';
 import { sqlTime } from './a2a-replies.ts';
 
-export type FollowupStatus = 'open' | 'replied' | 'acknowledged' | 'over-cap';
+export type FollowupStatus = 'open' | 'replied' | 'acknowledged' | 'over-cap' | 'rate-limited';
 export type FollowupRow = {
   id: number; event_id: string; delivery_id: number; peer_zone: string; inbound_task: string; context_id: string; sender: string;
   text: string; truncated: number; status: FollowupStatus; created_at: string;
 };
 
 /** 收下一条跟进；同一投递上同一任务号只记一次（重复返回 null） */
-export function recordFollowup(r: { eventId: string; deliveryId: number; peerZone: string; inboundTask: string; contextId: string; sender: string; text: string; truncated: boolean; status: 'open' | 'over-cap'; now?: number }): number | null {
+export function recordFollowup(r: { eventId: string; deliveryId: number; peerZone: string; inboundTask: string; contextId: string; sender: string; text: string; truncated: boolean; status: 'open' | 'over-cap' | 'rate-limited'; now?: number }): number | null {
   const info = db.prepare(`INSERT OR IGNORE INTO workbench_event_followups (event_id, delivery_id, peer_zone, inbound_task, context_id, sender, text, truncated, status, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(r.eventId, r.deliveryId, r.peerZone, r.inboundTask, r.contextId, r.sender, r.text, r.truncated ? 1 : 0, r.status, sqlTime(r.now));
@@ -27,7 +27,7 @@ export function followupById(id: number): FollowupRow | undefined {
 
 /** 这次投递收下了几条（不含超限只记日志的） */
 export function followupsOfDelivery(deliveryId: number): number {
-  return Number((db.prepare("SELECT COUNT(*) AS n FROM workbench_event_followups WHERE delivery_id = ? AND status <> 'over-cap'").get(deliveryId) as { n: number }).n);
+  return Number((db.prepare("SELECT COUNT(*) AS n FROM workbench_event_followups WHERE delivery_id = ? AND status NOT IN ('over-cap', 'rate-limited')").get(deliveryId) as { n: number }).n);
 }
 
 /** 这个对端最近一段时间发来了几条（限频用） */

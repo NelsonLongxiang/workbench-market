@@ -90,7 +90,7 @@ import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, me
 import type { IncomingMessage } from 'node:http';
 import { noteA2aError, type A2aErrorKey } from './a2a/errors.ts';
 import { a2aHealth } from './a2a/health.ts';
-import { handleInboundReceipt } from './a2a/receipt-inbound.ts';
+import { followupRateLimit, handleInboundReceipt } from './a2a/receipt-inbound.ts';
 import { cardCooldownMs, createDirectSigVerifier, directSigBodyMode, directSigMode, shownRefusal, type DirectSigMode, type SigRefusal } from './a2a-direct-sig.ts';
 import { isInsideRoot } from './path-inside.ts';
 
@@ -172,6 +172,12 @@ if (loginGate.enforced && A2A_DIRECT_SIG_RAW !== 'require') console.warn(`[a2a-d
 const A2A_CARD_COOLDOWN_MS = cardCooldownMs();
 if (A2A_CARD_COOLDOWN_MS === null) {
   console.error('[a2a-direct-sig] 拒绝启动：WM_A2A_CARD_COOLDOWN_S 只接受 1～3600 的整数或不设');
+  process.exit(1);
+}
+// 席位跟进按对端限频（WM_A2A_FOLLOWUP_RATE_10MIN，缺省 300，1～100000）：超出的不存正文、只计数，结清回执照回；值不合法拒绝启动
+const A2A_FOLLOWUP_RATE = followupRateLimit();
+if (A2A_FOLLOWUP_RATE === null) {
+  console.error('[a2a] 拒绝启动：WM_A2A_FOLLOWUP_RATE_10MIN 只接受 1～100000 的整数或不设');
   process.exit(1);
 }
 /** 取卡或验签这一步的失败：只有调用方在绑定上登记了取卡地址时才可能区分，对外不能露出来 */
@@ -2476,7 +2482,7 @@ registerBindingRoutes(http, { adminGuard, getApp });
 app.post('/a2a/direct', express.json({ limit: '600kb' }), async (req, res) => {
   const rawBytes = Number(req.headers['content-length'] ?? 0) || JSON.stringify(req.body ?? {}).length;
   // 阶段七 R3：A2A 回执的窄分流——正文是回执、任务号是我们发出的、签名方是当初投递到的那台宿主，三条都成立才走这里；否则照原路，应答不变
-  const inboundReceipt = await handleInboundReceipt(req, { audiences: () => [marketPublicUrl()] });
+  const inboundReceipt = await handleInboundReceipt(req, { audiences: () => [marketPublicUrl()], followupRate: A2A_FOLLOWUP_RATE });
   if (inboundReceipt) { res.status(inboundReceipt.status).json(inboundReceipt.body); return; }
   // 入站签名（WM_A2A_DIRECT_SIG）：签名身份对上 caller_session 才进下面的绑定准入
   if (A2A_DIRECT_SIG !== 'off') {
