@@ -46,3 +46,24 @@ export function settingsForPublic(settings: Record<string, string>): Record<stri
   for (const k of PUBLIC_KEYS) if (k in settings) out[k] = settings[k];
   return out;
 }
+
+/**
+ * 启动时的自检：拿真实的设置跑一遍两级出口，凭据类的值（和 MCP 上游 headers 的值）出现在任何一级里就算漏了。
+ * 返回漏了的键名（不带值）；空数组是没漏。views 留给测试换成故意漏的出口
+ */
+export function settingsViewsLeak(
+  settings: Record<string, string>,
+  views: readonly ((s: Record<string, string>) => Record<string, string>)[] = [settingsForPublic, settingsForAdmin],
+): string[] {
+  const secrets: [string, string][] = Object.entries(settings).filter(([k, v]) => isSecretKey(k) && v.length >= 4).map(([k, v]) => [k, v]);
+  try {
+    const ups = JSON.parse(settings.mcp_upstreams || '[]');
+    if (Array.isArray(ups)) for (const u of ups) for (const v of Object.values((u?.headers ?? {}) as Record<string, unknown>)) if (typeof v === 'string' && v.length >= 4 && v !== '****') secrets.push(['mcp_upstreams.headers', v]);
+  } catch { /* 不是 JSON：出口也给空 */ }
+  const leaked = new Set<string>();
+  for (const view of views) {
+    const out = JSON.stringify(view(settings));
+    for (const [k, v] of secrets) if (out.includes(v)) leaked.add(k);
+  }
+  return [...leaked].sort();
+}

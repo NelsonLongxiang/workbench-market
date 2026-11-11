@@ -3,7 +3,8 @@
  * 设置的读（对抗组）：设置表里埋金丝雀（凭据类的值、内网地址、上游 headers），看各种身份从各个出口拿到什么。
  *   · 别人（远程匿名、登录的员工、口令错的、带有效口令的跨站）：只拿到白名单（巡检参数、巡检状态和开关），内网地址和凭据都没有；
  *   · 管理员（口令、同源）：全部设置，凭据类的值只说有没有（****），上游 headers 的值掩掉，管理口令哈希没有；
- *   · 导出（掩码的匿名可拿、带 reveal 的只给管理员）和改设置的应答：凭据类的值都不出。
+ *   · 导出（掩码的匿名可拿、带 reveal 的只给管理员）和改设置的应答：凭据类的值都不出；
+ *   · 启动自检带着金丝雀重起记 pass，抓得到故意漏的出口；服务端的日志里没有任何一个凭据类的值。
  * 只在本机起隔离实例，身份来源是合成的（identity-fake-preload），不访问任何外部系统。
  *   node scripts/settings-read-smoke.mjs              测本仓库
  *   node scripts/settings-read-smoke.mjs --root DIR   测另一棵目录树
@@ -47,14 +48,26 @@ try {
   const env = {};
   for (const k of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP']) if (process.env[k]) env[k] = process.env[k];
   Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'off', ADMIN_TOKEN, REDIS_URL: '', IDENTITY_SEAM_ROOT: ROOT });
-  child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
   const base = `http://127.0.0.1:${port}`;
-  let ready = false;
-  for (const deadline = Date.now() + 40000; !ready && Date.now() < deadline && child.exitCode === null;) {
-    try { ready = (await fetch(`${base}/api/health`)).status === 200; } catch { /* 还没起来 */ }
-    if (!ready) await sleep(200);
-  }
-  if (!ready) throw new Error('隔离实例没起来');
+  let log = '';
+  const start = async () => {
+    child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.on('data', (d) => { log += String(d); });
+    child.stderr.on('data', (d) => { log += String(d); });
+    let ready = false;
+    for (const deadline = Date.now() + 40000; !ready && Date.now() < deadline && child.exitCode === null;) {
+      try { ready = (await fetch(`${base}/api/health`)).status === 200; } catch { /* 还没起来 */ }
+      if (!ready) await sleep(200);
+    }
+    if (!ready) throw new Error(`隔离实例没起来：${log.trim().split('\n').slice(-3).join(' | ')}`);
+  };
+  const stop = async () => {
+    if (!child || child.exitCode !== null || child.signalCode !== null) return;
+    child.kill('SIGTERM');
+    await new Promise((r) => { const t = setTimeout(r, 3000); child.once('exit', () => { clearTimeout(t); r(); }); });
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  };
+  await start(); // 第一次起：建库
   const call = async (method, path, headers = {}, body) => {
     const h = { ...headers };
     if (body !== undefined) h['content-type'] = 'application/json';
@@ -78,6 +91,21 @@ try {
       put.run('mcp_upstreams', JSON.stringify([{ prefix: 'up', url: 'http://canary-upstream.invalid/mcp', headers: { Authorization: `Bearer ${SECRETS[3]}` } }]));
       put.run('run_upload_require_token', '1');
     } finally { db.close(); }
+  }
+  // 带着金丝雀重起：启动自检拿真实的设置跑一遍两级出口
+  await stop();
+  log = '';
+  await start();
+  {
+    const line = log.split('\n').find((l) => l.includes('"id":"settings.no-secret-values"'));
+    check(!!line && line.includes('"verdict":"pass"'), '启动自检（设置的出口）：带着凭据类的值重起，两级出口都不带出值，记一行 pass', line ?? '没有这一行');
+    // 故意漏的出口：自检要抓得到（只报键名，不报值）
+    const { settingsViewsLeak, settingsForAdmin } = await import(pathToFileURL(join(ROOT, 'server/src/settings-view.ts')).href);
+    const sample = { layerfs_service_token: 'CANARY-UNIT-TOKEN-99', health_concurrency: '4' };
+    const leakyView = (x) => ({ ...settingsForAdmin(x), debug: x.layerfs_service_token });
+    const caught = settingsViewsLeak(sample, [leakyView]);
+    const clean = settingsViewsLeak(sample);
+    check(JSON.stringify(caught) === '["layerfs_service_token"]' && clean.length === 0, '启动自检抓得到故意把凭据带出去的出口（只报键名）；真正的两级出口都不漏', JSON.stringify({ caught, clean }));
   }
   const leaksSecret = (t) => SECRETS.some((x) => t.includes(x));
   const leaksAddress = (t) => ADDRESSES.some((x) => t.includes(x));
@@ -113,6 +141,8 @@ try {
     check(masked.status === 200 && !leaksSecret(masked.text) && reveal.status === 200 && !leaksSecret(reveal.text) && put.status === 200 && !leaksSecret(put.text) && put.json?.health_concurrency === '3',
       '导出（匿名的掩码导出、管理员的 reveal 导出）和改设置的应答：凭据类的值都不出', show({ masked: masked.status, reveal: reveal.status, put: put.status }));
   }
+  // ---------- 四、日志里不出金丝雀 ----------
+  check(!SECRETS.some((x) => log.includes(x)), '整个过程（启动、各身份读、导出、改设置）服务端的日志里没有任何一个凭据类的值', SECRETS.filter((x) => log.includes(x)).join('、'));
 } catch (e) {
   fail++;
   console.log(`  ✗ 没跑完：${e?.stack ?? e}`);

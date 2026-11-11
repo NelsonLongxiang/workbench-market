@@ -42,6 +42,7 @@ import { compareConfig, mountJudgmentCompare } from './judgment-compare.ts';
 import { registerAttentionRoutes } from './routes/attention.ts';
 import { registerWorkItemRoutes } from './routes/work-items.ts';
 import { registerSettingsRoutes } from './routes/settings.ts';
+import { settingsViewsLeak } from './settings-view.ts';
 import { registerAdminTokenRoutes } from './routes/admin-token.ts';
 import { registerBindingRoutes } from './routes/bindings.ts';
 import { registerExportImportRoutes } from './routes/export-import.ts';
@@ -2291,6 +2292,12 @@ registerAdminTokenRoutes(http, { adminTokenCheck, odooAdminReqs, dbAdminTokenSet
 // 设置的出口分两级（settings-view.ts）：管理员看全部、凭据类的值只说有没有；别人只看白名单。导出用管理员那一级。
 // 内部读取走 getSettings()/mcpUpstreams() 直读 DB，不受影响。管理员口令哈希出口一律剔除（评审 #27）。
 
+// 启动自检（设置的出口）：拿真实的设置跑一遍两级出口，凭据类的值漏进任何一级就拒绝启动。只记键名，不记值
+{
+  const leaked = settingsViewsLeak(getSettings());
+  console.log(JSON.stringify({ source: 'self-check', id: 'settings.no-secret-values', verdict: leaked.length ? 'fail' : 'pass', ...(leaked.length ? { keys: leaked } : {}), at: new Date().toISOString() }));
+  if (leaked.length) { console.error(`[settings] 拒绝启动：设置的出口会带出凭据类的值（${leaked.join('、')}）`); process.exit(1); }
+}
 registerSettingsRoutes(http, { armPatrol, adminRead: async (req) => { if (!browserMarked(req) && rawLoopback(req)) return true; await markOdooAdmin(req); return adminHeaderOk(req); } }); // 本机命令行也看全部（写设置它本来就能过写请求总门）
 
 registerExportImportRoutes(http, { listWorkbenches, maskForApi, URL_POLICY, admitOrDeny, restSubject, markAdmin: markOdooAdmin, adminGuard });
