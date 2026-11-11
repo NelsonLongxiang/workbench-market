@@ -113,7 +113,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "22399", "etag": "W/\"577f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "22705", "etag": "W/\"58b1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -465,8 +465,8 @@
                   "post": {
                     "tags": ["tools"],
                     "operationId": "app_data_list",
-                    "summary": "读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读，与 GET 同权。",
-                    "description": "读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读，与 GET 同权。",
+                    "summary": "读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读；可以按台授权（app_data_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。",
+                    "description": "读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读；可以按台授权（app_data_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。",
                     "x-category": "read",
                     "x-granted": true,
                     "requestBody": {
@@ -499,8 +499,8 @@
                   "post": {
                     "tags": ["tools"],
                     "operationId": "app_files_list",
-                    "summary": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读，与 GET 同权。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二",
-                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读，与 GET 同权。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。",
+                    "summary": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /ap",
+                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。",
                     "x-category": "read",
                     "x-granted": true,
                     "requestBody": {
@@ -673,7 +673,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "22399", "etag": "W/\"577f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "22705", "etag": "W/\"58b1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -1025,8 +1025,8 @@
                   "post": {
                     "tags": ["tools"],
                     "operationId": "app_data_list",
-                    "summary": "读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读，与 GET 同权。",
-                    "description": "读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读，与 GET 同权。",
+                    "summary": "读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读；可以按台授权（app_data_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。",
+                    "description": "读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读；可以按台授权（app_data_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。",
                     "x-category": "read",
                     "x-granted": true,
                     "requestBody": {
@@ -1059,8 +1059,8 @@
                   "post": {
                     "tags": ["tools"],
                     "operationId": "app_files_list",
-                    "summary": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读，与 GET 同权。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二",
-                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读，与 GET 同权。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。",
+                    "summary": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /ap",
+                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。",
                     "x-category": "read",
                     "x-granted": true,
                     "requestBody": {
@@ -1239,7 +1239,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "12742", "etag": "W/\"31c6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "12990", "etag": "W/\"32be-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "gateway": "on",
               "session": "replay-none",
@@ -1261,9 +1261,9 @@
                 { "name": "sop_run_list", "description": "列 SOP 执行记录（可按 slug/status 过滤；按更新时间倒序，limit 缺省 50、最大 200，offset 翻页：回满 limit 条就继续取下一页）。", "category": "read", "granted": false },
                 { "name": "sop_run_sandbox", "description": "派发 SOP 步骤到 VM sandbox 容器执行（LayerFS）——返回 commit_hash（交付物=LayerFS Commit 引用）+ exit_code/stdout_tail/stderr_tail/duration_ms。bridge 不可达时 retryable。", "category": "write", "granted": false },
                 { "name": "sop_run_finish", "description": "归档 run（热态全量沉淀 SQLite，Redis 条目平滑淘汰）。", "category": "write", "granted": false },
-                { "name": "app_data_list", "description": "读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读，与 GET 同权。", "category": "read", "granted": false },
+                { "name": "app_data_list", "description": "读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读；可以按台授权（app_data_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。", "category": "read", "granted": false, "scopable": true },
                 { "name": "app_data_submit", "description": "向自产台写一条表单数据（与台页面 POST /api/apps/<slug>/data 同一条写入链：1MB 上限、按台的 data-contract.json 校验、写入后照常推送事件）。不符合契约时返回 400 与逐条 violations。附件先用 app_files_upload 上传，再把返回的 id 放进 data.file_ids。带 idempotency_key 重试不会重复写：同键同内容返回原记录（duplicate=true），同键不同内容 409。", "category": "write", "granted": false },
-                { "name": "app_files_list", "description": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读，与 GET 同权。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。", "category": "read", "granted": false },
+                { "name": "app_files_list", "description": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。", "category": "read", "granted": false, "scopable": true },
                 { "name": "app_files_upload", "description": "向自产台上传文件（base64 内容·原始 ≤100MB/个，base64 约 ≤134MB）——agent 侧交付物直接入台文件面（与 REST multipart 同表同链、同一套按内容的类型检查）。返回 id/url/mime/size/sha256/note。建议同时传 size（原始字节数）或 sha256：有的 MCP 客户端会把过长的参数截短（常见截在 64KB），带上它们服务端才能发现并拒收残缺文件；base64 恰好 65536 字符又没带时按疑似截断拒收。上传前可用 app_files_list 的 quota 查剩余文件数与上限。超过几十 KB 的文件优先用 REST 上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>，请求体为原始字节（同一会话令牌，不经 base64；入口见 access_info 的 rest_base 与 openapi_url）。", "category": "write", "granted": false },
                 { "name": "workbench_vars_get", "description": "读某工作台的看板变量/常量：带 key 取单个（含 revision），不带 key 列全部（可按 prefix 过滤）。各台按 workbench id 隔离，自产台/SOP 台/外部台通用。", "category": "read", "granted": false, "scopable": true },
                 { "name": "workbench_vars_set", "description": "写某工作台的看板变量（JSON 值）。新建可不带 revision（或 revision=0 表示仅在不存在时创建）；改已存在的键必须带当前 revision，不符返回 revision 冲突与当前值。kind=const 写入后不能直接改：谁写的谁维护——新建常量的会话是作者，作者本人带 override=true 与 reason 可修订；别人的常量改不了（作者缺失时由部署机本机命令行兜底）。作者本人修订时带 owner=\"*\" 可把常量设成公共：之后任何 MCP 会话或 Odoo 登录带 override 与 reason 都能修订，台令牌仍不能写。", "category": "write", "granted": false, "scopable": true },
@@ -1280,7 +1280,7 @@
                 { "name": "design_standard", "description": "读取工作台 design token 标准与页面模式（只读·唯一事实源 DESIGN.md + design-system/workbench-market/PATTERNS.md）：part=tokens 取结构化 token（颜色/字号/间距/圆角/阴影/动效/组件）；guide 取 DESIGN.md 各节规则；patterns 取菜单与目录、页面骨架、SOP 交付空间、列表、数据看板；all（缺省）全给。section 按标题关键词只取命中章节。返回含 version 与两份源文件 sha256。", "category": "read", "granted": false }
               ],
               "requests": [],
-              "how_to_request": "access_request {tools: [工具名], reason: 用途}；只要一张台时写 工具@台id（目前 workbench_vars_get / workbench_vars_set 支持）；管理员在「MCP 网关」页「权限申请」批准后立即生效（并入现有授权）",
+              "how_to_request": "access_request {tools: [工具名], reason: 用途}；只要一张台时写 工具@台id（目前 workbench_vars_get / workbench_vars_set / app_data_list / app_files_list 支持）；管理员在「MCP 网关」页「权限申请」批准后立即生效（并入现有授权）",
               "openapi_url": "https://market.example/openapi.json",
               "rest_base": "https://market.example/api/mcp-rest",
               "rest_hint": "同一个会话令牌（Authorization: Bearer）可按 REST 调用：大文件上传 PUT {rest_base}/apps/<slug>/files/<文件名>（请求体为原始字节），下载 GET {rest_base}/apps/<slug>/files/<id>（支持 Range）；完整接口见 openapi_url"
@@ -2298,7 +2298,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "58342", "etag": "W/\"e3e6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "58648", "etag": "W/\"e518-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -2983,8 +2983,8 @@
                   "post": {
                     "tags": ["tools"],
                     "operationId": "app_data_list",
-                    "summary": "读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读，与 GET 同权。",
-                    "description": "读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读，与 GET 同权。",
+                    "summary": "读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读；可以按台授权（app_data_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。",
+                    "description": "读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读；可以按台授权（app_data_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。",
                     "x-category": "read",
                     "x-granted": true,
                     "requestBody": {
@@ -3052,8 +3052,8 @@
                   "post": {
                     "tags": ["tools"],
                     "operationId": "app_files_list",
-                    "summary": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读，与 GET 同权。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二",
-                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读，与 GET 同权。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。",
+                    "summary": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /ap",
+                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。",
                     "x-category": "read",
                     "x-granted": true,
                     "requestBody": {
@@ -3658,7 +3658,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "22399", "etag": "W/\"577f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "22705", "etag": "W/\"58b1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -4010,8 +4010,8 @@
                   "post": {
                     "tags": ["tools"],
                     "operationId": "app_data_list",
-                    "summary": "读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读，与 GET 同权。",
-                    "description": "读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读，与 GET 同权。",
+                    "summary": "读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读；可以按台授权（app_data_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。",
+                    "description": "读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读；可以按台授权（app_data_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。",
                     "x-category": "read",
                     "x-granted": true,
                     "requestBody": {
@@ -4044,8 +4044,8 @@
                   "post": {
                     "tags": ["tools"],
                     "operationId": "app_files_list",
-                    "summary": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读，与 GET 同权。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二",
-                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读，与 GET 同权。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。",
+                    "summary": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /ap",
+                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。",
                     "x-category": "read",
                     "x-granted": true,
                     "requestBody": {

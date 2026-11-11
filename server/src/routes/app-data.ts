@@ -5,6 +5,9 @@
  * 八条在 index.ts 里分七段，中间只夹着分页参数、数据契约、上传落盘与类型核对这些函数和常量，没有别的路由或中间件，
  * 在原来最后一段（下载）的位置注册，路由的挂载顺序不变。
  * 提交数据和上传文件不经写总门（台的匿名提交面）；删数据、改备注、删文件有管理员守卫。
+ * 读（数据列表、文件列表、下载）要本台的台令牌（X-App-Token，属于路径里的台）、管理员（口令或管理员登录，同源）或本机命令行；
+ * 下载另认登录门签给本台页面的查看凭证（wm_av，沙箱页的下载链接和图片带不了头）。都不满足 403，先于查台，台在不在应答一样。
+ * WM_APP_DATA_READ=warn 时照旧放行，只按路由和调用方类别计数、留痕（上线过渡用）。
  *
  * app 是 HTTP 服务，不是 Express 应用本身：注册的写法和 Express 一样，路由挂在调用那一刻的位置，注册可以撤销。
  * index.ts 里还在用的（数据写入核心和文件入库核心也给 MCP 工具用）经第二个参数传进来；处理函数照旧用原来的名字。
@@ -19,6 +22,35 @@ import { dataDir, type AppRow } from '../db.ts';
 import type { AppDataService } from '../services/app-data.ts';
 import { HttpError } from '../errors.ts';
 import { hasLoginCredential } from '../request-person.ts';
+
+/** 读台数据与附件的守卫模式：enforce 拒绝（缺省），warn 只告警计数（上线过渡） */
+export type AppDataReadMode = 'enforce' | 'warn';
+/** 启动时读一次 WM_APP_DATA_READ：没设或空是 enforce，别的值抛错（装配方拒绝启动） */
+export function appDataReadMode(raw: string | undefined): AppDataReadMode {
+  const v = (raw ?? '').trim();
+  if (v === '' || v === 'enforce') return 'enforce';
+  if (v === 'warn') return 'warn';
+  throw new Error(`WM_APP_DATA_READ 只能是 enforce 或 warn（缺省 enforce），现在是 ${JSON.stringify(v)}`);
+}
+
+/** 读守卫要用的判定，由装配方给（台令牌、管理员认定、本机命令行、登录门的查看凭证都在 index.ts / login-gate.ts） */
+export interface AppDataReadDeps {
+  mode: AppDataReadMode;
+  /** 带来的台令牌是不是这个台的（常量时间比较） */
+  appTokenOk: (slug: string, presented: string) => boolean;
+  /** 管理员：口令或管理员登录，且同源（会先做管理员认定） */
+  adminOk: (req: express.Request) => Promise<boolean>;
+  /** 本机命令行：回环直连、不带浏览器标记、没有反代头 */
+  cliOk: (req: express.Request) => boolean;
+  /** 登录门签给这个台的页面的查看凭证（只认下载） */
+  viewCapOk: (slug: string, cap: string) => boolean;
+}
+
+/** 告警模式的计数：按路由 × 调用方类别。不记正文、不记凭据 */
+const warnCounts = new Map<string, number>();
+export function appDataReadWarnCounts(): Record<string, number> { return Object.fromEntries(warnCounts); }
+
+const READ_DENIED = { error: 'app_read_denied', message: '读台的数据和附件要本台的台令牌、管理员或本机命令行' };
 
 type AppFileInput = { path: string; size: number; name: string; reportedMime: string; createdBy: string; note: string; sha256?: string };
 
@@ -35,10 +67,37 @@ export interface AppDataDeps {
   appFileStoreCore: (slug: string, f: AppFileInput) => object;
   adminGuard: (req: express.Request, res: express.Response) => boolean;
   bad: (msg: string) => never;
+  read: AppDataReadDeps;
 }
 
 export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void {
-  const { getApp, submitAppData, pageLimit, pageBeforeId, appFilesQuota, APP_FILES_MAX, upload, fixFileName, appFileStoreCore, adminGuard, bad } = deps;
+  const { getApp, submitAppData, pageLimit, pageBeforeId, appFilesQuota, APP_FILES_MAX, upload, fixFileName, appFileStoreCore, adminGuard, bad, read } = deps;
+
+  /** 读守卫：先于查台。放行返回 true；拒绝时已回 403 */
+  async function readAllowed(req: express.Request, res: express.Response, route: string, download: boolean): Promise<boolean> {
+    const slug = String(req.params.slug ?? '');
+    const presented = req.headers['x-app-token'];
+    const token = typeof presented === 'string' ? presented.trim() : '';
+    if (token && read.appTokenOk(slug, token)) return true;
+    if (read.cliOk(req)) return true;
+    if (download && typeof req.query.wm_av === 'string' && read.viewCapOk(slug, req.query.wm_av)) return true;
+    if (await read.adminOk(req)) return true;
+    // 拒绝或告警：调用方类别只分这几种，不记凭据本身
+    const caller = token ? 'other-token' : req.headers['x-admin-token'] !== undefined ? 'admin-token-rejected' : hasLoginCredential(req) ? 'login-not-admin' : 'anonymous';
+    if (read.mode === 'warn') {
+      const key = `${route}|${caller}`;
+      const n = (warnCounts.get(key) ?? 0) + 1;
+      warnCounts.set(key, n);
+      if (n === 1 || n % 100 === 0) console.warn(JSON.stringify({ source: 'app-data-read', event: 'would-deny', route, caller, count: n, at: new Date().toISOString() }));
+      return true;
+    }
+    res.status(403).set('Cache-Control', 'no-store').json(READ_DENIED);
+    return false;
+  }
+  /** 读路由：先过守卫再执行；处理函数里抛的错交给统一出口 */
+  const guardedRead = (route: string, download: boolean, fn: express.RequestHandler): express.RequestHandler => (req, res, next) => {
+    readAllowed(req, res, route, download).then((ok) => { if (ok) { try { fn(req, res, next); } catch (e) { next(e); } } }, next);
+  };
   app.post('/api/apps/:slug/data', { action: 'app-data.submit', kind: 'write' }, (req, res) => {
     const a = getApp(req.params.slug);
     const b = req.body ?? {};
@@ -55,7 +114,7 @@ export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void
     res.status(out.status).json(out.body);
   });
 
-  app.get('/api/apps/:slug/data', { action: 'app-data.list', kind: 'read' }, (req, res) => {
+  app.get('/api/apps/:slug/data', { action: 'app-data.list', kind: 'read' }, guardedRead('GET /api/apps/:slug/data', false, (req, res) => {
     const a = getApp(req.params.slug);
     const limit = pageLimit(req.query.limit);
     const beforeId = pageBeforeId(req.query.before_id);
@@ -67,7 +126,7 @@ export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void
     }));
     const has_more = rows.length === limit;
     res.json({ slug: a.slug, items, count: items.length, has_more, next_before_id: has_more ? items[items.length - 1].id : null });
-  });
+  }));
 
   app.post('/api/apps/:slug/files', { action: 'app-data.upload', kind: 'write' }, (req, res, next) => {
     try { getApp(req.params.slug); } catch (e) { return next(e); }
@@ -90,7 +149,7 @@ export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void
     });
   });
 
-  app.get('/api/apps/:slug/files', { action: 'app-data.files', kind: 'read' }, (req, res) => {
+  app.get('/api/apps/:slug/files', { action: 'app-data.files', kind: 'read' }, guardedRead('GET /api/apps/:slug/files', false, (req, res) => {
     const a = getApp(req.params.slug);
     const limit = pageLimit(req.query.limit);
     const beforeId = pageBeforeId(req.query.before_id);
@@ -99,7 +158,7 @@ export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void
       : svc<AppDataService>('appData').filePage(a.slug, 0, limit);
     const items = (rows as any[]).map((r) => ({ ...r, url: `/api/apps/${a.slug}/files/${r.id}` }));
     res.json({ slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null, quota: appFilesQuota(a.slug) });
-  });
+  }));
 
   // #132 P0①：note 更新面（PATCH）
   app.patch('/api/apps/:slug/files/:id', { action: 'app-data.file-note', kind: 'admin' }, (req, res) => {
@@ -135,7 +194,7 @@ export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void
     res.json({ ok: true, id: Number(req.params.id), deleted: 'soft' });
   });
 
-  app.get('/api/apps/:slug/files/:id', { action: 'app-data.download', kind: 'read' }, (req, res) => {
+  app.get('/api/apps/:slug/files/:id', { action: 'app-data.download', kind: 'read' }, guardedRead('GET /api/apps/:slug/files/:id', true, (req, res) => {
     const a = getApp(req.params.slug);
     const row = svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug) as any;
     if (!row) throw new HttpError(404, `file not found: ${req.params.id}`);
@@ -152,5 +211,5 @@ export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void
     res.setHeader('content-disposition', `${disp}; filename*=UTF-8''${encodeURIComponent(row.original_name || 'file')}`);
     res.setHeader('x-content-type-options', 'nosniff');
     createReadStream(abs).pipe(res);
-  });
+  }));
 }

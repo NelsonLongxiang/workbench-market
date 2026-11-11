@@ -1328,6 +1328,132 @@
               "quota": { "files_used": 6, "files_max": 8, "files_left": 2, "max_file_bytes": 104857600, "mcp_max_base64_chars": 139810136 }
             }
           }
+        },
+        {
+          "id": "read-guard-data-anonymous",
+          "route": "GET /api/apps/:slug/data",
+          "class": "unauthorized",
+          "what": "读要台令牌、管理员或本机命令行：远程匿名不带令牌 403",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/data", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "115", "etag": "W/\"73-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "app_read_denied", "message": "读台的数据和附件要本台的台令牌、管理员或本机命令行" }
+          }
+        },
+        {
+          "id": "read-guard-data-missing-app",
+          "route": "GET /api/apps/:slug/data",
+          "class": "unauthorized",
+          "what": "守卫先于查台：台不存在也是同样的 403",
+          "request": { "method": "GET", "path": "/api/apps/replay-no-such-app/data", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "115", "etag": "W/\"73-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "app_read_denied", "message": "读台的数据和附件要本台的台令牌、管理员或本机命令行" }
+          }
+        },
+        {
+          "id": "read-guard-data-staff-filter",
+          "route": "GET /api/apps/:slug/data",
+          "class": "unauthorized",
+          "what": "翻页参数不改变结论：远程匿名带 limit/before_id 照样 403",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/data?limit=1&before_id=999", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "115", "etag": "W/\"73-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "app_read_denied", "message": "读台的数据和附件要本台的台令牌、管理员或本机命令行" }
+          }
+        },
+        {
+          "id": "read-guard-data-cross-site-admin",
+          "route": "GET /api/apps/:slug/data",
+          "class": "unauthorized",
+          "what": "带有效口令的跨站请求：不算管理员，403",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/data", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "115", "etag": "W/\"73-<指纹>\"", "x-powered-by": "Express" },
+            "body": { "error": "app_read_denied", "message": "读台的数据和附件要本台的台令牌、管理员或本机命令行" }
+          }
+        },
+        {
+          "id": "read-guard-data-admin",
+          "route": "GET /api/apps/:slug/data",
+          "class": "normal",
+          "what": "远程带管理口令（同源）：200",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/data", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1445", "etag": "W/\"5a5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "replay-data",
+              "items": [
+                { "id": 18, "data": { "submitter_ticket": "fake.ticket", "n": 21 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 17, "data": { "n": 20 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 16, "data": { "n": 13 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 15, "data": { "n": 12 }, "created_by": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 14, "data": [1, 2], "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 13, "data": {}, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 12, "data": { "data": null, "x": 1 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 11, "data": { "n": 11 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 10, "data": { "idempotency_key": "k1", "n": 70 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 9, "data": { "n": 8 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 8, "data": { "n": 6 }, "created_by": "agent", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 7, "data": { "n": 5, "created_by": "  someone  " }, "created_by": "someone", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 6, "data": { "n": 9 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 5, "data": { "n": 9 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 2, "data": {}, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+              ],
+              "count": 15,
+              "has_more": false,
+              "next_before_id": null
+            }
+          }
+        },
+        {
+          "id": "read-guard-files-anonymous",
+          "route": "GET /api/apps/:slug/files",
+          "class": "unauthorized",
+          "what": "文件列表：远程匿名不带令牌 403",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "115", "etag": "W/\"73-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "app_read_denied", "message": "读台的数据和附件要本台的台令牌、管理员或本机命令行" }
+          }
+        },
+        {
+          "id": "read-guard-download-anonymous",
+          "route": "GET /api/apps/:slug/files/:id",
+          "class": "unauthorized",
+          "what": "下载：远程匿名不带令牌、不带查看凭证 403",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files/1", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "115", "etag": "W/\"73-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "app_read_denied", "message": "读台的数据和附件要本台的台令牌、管理员或本机命令行" }
+          }
+        },
+        {
+          "id": "read-guard-download-forged-view-cap",
+          "route": "GET /api/apps/:slug/files/:id",
+          "class": "unauthorized",
+          "what": "下载：伪造的查看凭证 wm_av 不认，403",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files/1?wm_av=forged.00000000000000000000000000000000", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "115", "etag": "W/\"73-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "app_read_denied", "message": "读台的数据和附件要本台的台令牌、管理员或本机命令行" }
+          }
         }
       ]
     },

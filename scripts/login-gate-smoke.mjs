@@ -155,9 +155,15 @@ try {
     const https = await req(B, 'POST', '/api/auth/login', { ...REMOTE, 'x-forwarded-proto': 'https' }, { token: ADMIN });
     ok('G2 https（X-Forwarded-Proto）时 cookie 带 Secure', https.status === 200 && /;\s*Secure/i.test(cookieOf(https)));
   }
-  for (const p of ['/api/apps', `/api/apps/gate-app/files/${fileId}`, '/api/workbenches', '/sop/gate-sop/']) {
+  for (const p of ['/api/apps', '/api/workbenches', '/sop/gate-sop/']) {
     const r = await req(B, 'GET', p, C);
     ok(`G2 登录后 ${p} → 200`, r.status === 200, `${r.status}`);
+  }
+  {
+    // 台的附件：过了登录门还要台令牌或管理员——登录 cookie 本身不算管理员，带上口令头才行
+    const bare = await req(B, 'GET', `/api/apps/gate-app/files/${fileId}`, C);
+    const admin = await req(B, 'GET', `/api/apps/gate-app/files/${fileId}`, { ...C, 'x-admin-token': ADMIN });
+    ok('G2 登录后读台的附件：只有登录 cookie 403，带口令头 200', bare.status === 403 && admin.status === 200, `${bare.status}/${admin.status}`);
   }
   {
     const r = await req(B, 'GET', '/', CP);

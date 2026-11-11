@@ -103,7 +103,7 @@ try {
     });
     ok('远程 IP 控制面写仍 403', rw.status === 403, `status=${rw.status}`);
     const rg = await fetch(`http://${lanIp}:${PORT}/api/apps/appdata-smoke/data?limit=1`);
-    ok('远程 IP 读数据放行 200', rg.status === 200, `status=${rg.status}`);
+    ok('远程 IP 不带台令牌读数据 403（读要台令牌、管理员或本机命令行）', rg.status === 403, `status=${rg.status}`);
   } else {
     console.log(`  · 跳过远程面三项（LAN ${lanIp}:${PORT} 不可达）`);
   }

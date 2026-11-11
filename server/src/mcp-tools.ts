@@ -138,7 +138,7 @@ export const MCP_TOOLS: McpToolDef[] = [
   {
     name: 'app_data_list',
     category: 'read',
-    description: '读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读，与 GET 同权。',
+    description: '读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读；可以按台授权（app_data_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -169,7 +169,7 @@ export const MCP_TOOLS: McpToolDef[] = [
   {
     name: 'app_files_list',
     category: 'read',
-    description: '读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读，与 GET 同权。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。',
+    description: '读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。',
     inputSchema: {
       type: 'object',
       properties: {

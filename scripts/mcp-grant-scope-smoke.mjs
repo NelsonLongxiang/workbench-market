@@ -72,13 +72,13 @@ try {
   ok('grants 收 工具@台', r.status === 200 && JSON.stringify(r.body?.grants) === JSON.stringify([`workbench_vars_set@${A}`, `workbench_vars_get@${A}`]), JSON.stringify(r.body));
   r = await call('PUT', `/api/mcp/sessions/${s.id}/grants`, { grants: ['workbench_vars_set@999999'] }, AT);
   ok('台不存在 400', r.status === 400 && String(r.body?.error).includes('台不存在'), JSON.stringify(r.body));
-  r = await call('PUT', `/api/mcp/sessions/${s.id}/grants`, { grants: [`app_data_list@${A}`] }, AT);
+  r = await call('PUT', `/api/mcp/sessions/${s.id}/grants`, { grants: [`app_files_upload@${A}`] }, AT);
   ok('不支持按台的工具 400', r.status === 400 && String(r.body?.error).includes('暂不支持按台授权'), JSON.stringify(r.body));
   r = await call('PUT', `/api/mcp/sessions/${s.id}/grants`, { grants: [`no_such_tool@${A}`] }, AT);
   ok('未知工具@台 400', r.status === 400 && String(r.body?.error).includes('未知工具名'), JSON.stringify(r.body));
   ok('非法保存不改动原授权', JSON.stringify(await grantsOf(s.id)) === JSON.stringify([`workbench_vars_set@${A}`, `workbench_vars_get@${A}`]));
   const tools = (await call('GET', '/api/mcp/tools', null, AT)).body ?? [];
-  ok('/api/mcp/tools 标出可按台授权的工具', tools.filter((t) => t.scopable).map((t) => t.name).sort().join() === 'workbench_vars_get,workbench_vars_set');
+  ok('/api/mcp/tools 标出可按台授权的工具', tools.filter((t) => t.scopable).map((t) => t.name).sort().join() === 'app_data_list,app_files_list,workbench_vars_get,workbench_vars_set');
 
   // ============ 台内可调、台外拒绝（MCP 与 REST） ============
   ok('tools/list 列出限定到台的工具', (await listNames(s.token)).includes('workbench_vars_set'));
@@ -106,7 +106,7 @@ try {
   let info = await tool(s.token, 'access_info');
   const setItem = (info.payload?.catalog ?? []).find((t) => t.name === 'workbench_vars_set');
   ok('access_info 标出限定的台', setItem?.granted === true && JSON.stringify(setItem?.granted_workbenches) === JSON.stringify([A]) && setItem?.scopable === true, JSON.stringify(setItem));
-  r = await tool(s.token, 'access_request', { tools: [`app_data_list@${A}`], reason: '试' });
+  r = await tool(s.token, 'access_request', { tools: [`app_files_upload@${A}`], reason: '试' });
   ok('申请不支持按台的工具@台拒绝', r.isError && r.text.includes('暂不支持按台申请'), r.text.slice(0, 120));
   r = await tool(s.token, 'access_request', { tools: ['workbench_vars_set@999999'], reason: '试' });
   ok('申请不存在的台拒绝', r.isError && r.text.includes('台不存在'), r.text.slice(0, 120));
