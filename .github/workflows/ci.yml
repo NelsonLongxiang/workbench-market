@@ -140,6 +140,21 @@ jobs:
           echo "::endgroup::"
           echo "单测与对抗组退出码 $rc；变异测试退出码 $mutation"
           [ "$rc" -eq 0 ] && [ "$mutation" -eq 0 ]
+  upgrade-smoke:
+    # 线上发布分支的库换成这份代码启动两次（自检、只加不改、幂等、回填），再退回发布分支能读能写；全程合成数据、只听回环
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: 升级冒烟（基线 origin/release/prod-hotfix-1 → 本 PR）
+        run: node scripts/upgrade-smoke.mjs
   tsc-and-syntax:
     runs-on: ubuntu-latest
     steps:
