@@ -55,6 +55,9 @@ import { registerMcpRoutes } from './routes/mcp.ts';
 import { registerRemoteAllowRoutes } from './routes/remote-allow.ts';
 import { registerAppRoutes, registerAppLifecycleRoutes } from './routes/apps.ts';
 import { registerAppDataRoutes } from './routes/app-data.ts';
+import { registerSopRunFileRoutes } from './routes/sop-run-files.ts';
+import { registerSopRunControlRoutes } from './routes/sop-run-control.ts';
+import { registerSopRunAccessRoutes } from './routes/sop-run-access.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import type { ChangeRequestService } from './services/change-request.ts';
@@ -1683,128 +1686,7 @@ function runFileWriteGate(req: express.Request, runId: number): void {
     if (presented !== expected) throw new HttpError(403, '上传令牌不符（run 不匹配或已过期）');
   }
 }
-/** 引用已有文件：同一 SOP 其他 run 的文件（按 run_id+file_id，要带源 run 的读凭证；管理员免），或按 sha256 找同 SOP 里已上传的同内容文件（只限管理员）。
- *  逐条给结果（linked / duplicate / failed + 原因），失败的不影响已成功的；引用行与源文件共用一份存储，不占上传配额。 */
-app.post('/api/sop/runs/:id(\\d+)/files/refs', wrap(async (req, res) => {
-  const runId = Number(req.params.id);
-  await markOdooAdmin(req);
-  runFileWriteGate(req, runId);
-  const target = sopRunRow(runId);
-  // 先核目标 run 的读授权：结果会回显文件名（duplicate / linked），没有读权的人不能借引用逐个试出本 run 的文件（执行页本就持有自己 run 的读能力）
-  const admin = adminHeaderOk(req);
-  const targetAuth = await authorizeRunRead({ adminOk: admin, cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, runId);
-  if (!targetAuth.authorized) return res.status(403).set('Cache-Control', 'no-store').json({ error: 'run read authorization required', hint: '带上本 run 的 X-Run-Read-Capability，或已授权会话、管理员' });
-  const items = Array.isArray(req.body?.items) ? req.body.items : null;
-  if (!items || !items.length) bad('items 必须是非空数组：[{ run_id, file_id, read_capability? } | { sha256 }]');
-  if (items.length > RUN_REF_BATCH_MAX) bad(`单次最多 ${RUN_REF_BATCH_MAX} 条，请分批关联`);
-  const createdBy = typeof req.body?.created_by === 'string' ? req.body.created_by.trim().slice(0, 128) : '';
-  const results: { index: number; status: 'linked' | 'duplicate' | 'failed'; id?: number; source_file_id?: number; name?: string; reason?: string }[] = [];
-  for (const [index, it] of items.entries()) {
-    try {
-      let src: any;
-      if (it && typeof it.sha256 === 'string') {
-        if (!admin) throw new HttpError(403, '按 sha256 引用只限管理员');
-        if (!/^[0-9a-f]{64}$/.test(it.sha256)) throw new HttpError(400, 'sha256 须为 64 位小写十六进制');
-        src = svc<SopService>('sop').runFileBySha(target.sop_slug, it.sha256);
-        if (!src) throw new HttpError(404, '同一 SOP 里没有这个 sha256 的已上传文件');
-      } else {
-        const sr = Number(it?.run_id), sf = Number(it?.file_id);
-        if (!Number.isInteger(sr) || !Number.isInteger(sf) || sr <= 0 || sf <= 0) throw new HttpError(400, '需要 run_id 与 file_id（正整数），或 sha256');
-        // 先核源 run 读授权，再查文件：不让无权者借 404 / 403 判断某文件属不属于那个 run（本 run 已在请求开头核过）
-        if (sr !== runId) {
-          const auth = await authorizeRunRead({ adminOk: admin, cap: typeof it.read_capability === 'string' ? it.read_capability : '', cookieHeader: req.headers.cookie }, sr);
-          if (!auth.authorized) throw new HttpError(403, `没有 run ${sr} 的读授权（带上它的 read_capability）`);
-        }
-        src = svc<SopService>('sop').runFileWithRun(sf);
-        if (!src || src.run_id !== sr) throw new HttpError(404, `run ${sr} 里没有文件 ${sf}`);
-        if (src.sop_slug !== target.sop_slug) throw new HttpError(403, '只能引用同一 SOP 的文件');
-      }
-      const rootId = Number(src.ref_of) || Number(src.id);
-      const have = (svc<SopService>('sop').runFiles(runId) as { id: number; ref_of: number }[]).find((f) => f.id === rootId || f.ref_of === rootId);
-      if (have) { results.push({ index, status: 'duplicate', id: have.id, source_file_id: rootId, name: src.original_name }); continue; }
-      if (runFileQuota(runId).ref_left_count <= 0) throw new HttpError(413, `该 run 引用数已达上限（${RUN_REF_MAX_COUNT}）`);
-      if (!existsSync(join(dataDir, src.storage_path))) throw new HttpError(410, '源文件已不在存储里');
-      const r = svc<SopService>('sop').runFileInsert({ runId, name: src.original_name, mime: src.mime, size: src.size, storagePath: src.storage_path, createdBy, sha256: src.sha256 || '', refOf: rootId }) as unknown as { lastInsertRowid: number | bigint };
-      try { db.prepare("INSERT INTO sop_run_file_audit (run_id, name, size, sha256, source) VALUES (?, ?, ?, ?, ?)").run(runId, src.original_name, src.size, src.sha256 || '', `ref:${rootId}`); } catch { /* 审计失败不阻 */ }
-      results.push({ index, status: 'linked', id: Number(r.lastInsertRowid), source_file_id: rootId, name: src.original_name });
-    } catch (e) {
-      results.push({ index, status: 'failed', reason: e instanceof HttpError ? e.message : '关联失败' });
-    }
-  }
-  const linked = results.filter((x) => x.status !== 'failed').length;
-  res.status(linked ? 200 : 422).json({ run_id: runId, results, linked, failed: results.length - linked, quota: runFileQuota(runId) });
-}));
-
-app.post('/api/sop/runs/:id/files', (req, res, next) => {
-  // ── P0 安全（总工 direct-c2b55f91）：上传面鉴权三件 ──
-  // ①run-scoped upload token（header X-Run-Upload-Token；admin 口令=人工作业一步式）
-  // ②配额（数≤20·单≤100MB[multer]·总量≤200MB→413）③写审计（sop_run_file_audit 同链）
-  try {
-    if (!/^\d+$/.test(String(req.params.id))) throw new HttpError(404, `run not found: ${req.params.id}`);
-    const row = sopRunRow(Number(req.params.id));
-    if (row.status !== 'running') throw new HttpError(409, `run ${req.params.id} 已 ${row.status}，不可再上传`);
-    // #150 开关（属主反馈·业务直传恢复）：settings run_upload_require_token='1' 才要令牌；缺省关闭=旧 T1 直传语义
-    const strict = (() => { try { const r = db.prepare("SELECT value FROM settings WHERE key = 'run_upload_require_token'").get() as { value?: string } | undefined; return String(r?.value ?? '') === '1'; } catch { return false; } })();
-    const adminOk = adminHeaderOk(req);
-    if (strict && !adminOk) { // #150 开关：严格模式才要令牌（缺省=旧 T1 直传）
-      const presented = String(req.headers['x-run-upload-token'] ?? '').trim();
-      const expected = String((row as any).upload_token ?? '');
-      if (!expected) throw new HttpError(403, '该 run 无上传令牌（旧 run 上传面已关闭）');
-      if (!presented) throw new HttpError(401, '缺少 X-Run-Upload-Token（Runner 页内嵌令牌·人工作业用 admin 口令）');   // T023 修订签 A1：缺令牌=401（错令牌=403·白名单外=400）
-      if (presented !== expected) throw new HttpError(403, '上传令牌不符（run 不匹配或已过期）');
-    }
-    // 配额只算本 run 自己上传的；引用已有文件（ref_of）不另占存储，单独限数
-    const q = runFileQuota(Number(req.params.id));
-    if (q.upload_count >= RUN_UPLOAD_MAX_COUNT) throw new HttpError(413, `该 run 文件数已达上限（${RUN_UPLOAD_MAX_COUNT}）；历史资料可以引用已有文件，不必重传`);
-    if (q.upload_bytes >= RUN_UPLOAD_MAX_BYTES) throw new HttpError(413, '该 run 文件总量已达上限（200MB）；历史资料可以引用已有文件，不必重传');
-  } catch (e) { return next(e); }
-  runUpload.single('file')(req, res, (err: any) => {
-    if (err) {
-      if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: '文件超 100MB 上限' });
-      return res.status(400).json({ error: `上传失败：${err.message}` });
-    }
-    try {
-      const runId = Number(req.params.id);
-      if (!req.file) bad('缺少 file 字段（multipart/form-data）');
-      const createdBy = typeof req.body?.created_by === 'string' ? req.body.created_by.trim().slice(0, 128) : '';
-      const rel = req.file.path.replace(dataDir, '').split(pathSep).join('/').replace(/^\/+/, '');
-      const originalName = fixFileName(req.file.originalname);
-      const kind = checkUploadKind(res, req.file, originalName);
-      if (!kind) return;
-      const sha = sha256Hex(readFileSync(req.file.path));
-      const r = svc<SopService>('sop').runFileInsert({ runId, name: originalName, mime: kind.mime, size: req.file.size, storagePath: rel, createdBy, sha256: sha }) as unknown as { lastInsertRowid: number | bigint };
-      try { db.prepare("INSERT INTO sop_run_file_audit (run_id, name, size, sha256, source) VALUES (?, ?, ?, ?, ?)").run(runId, originalName, req.file.size, sha, String(req.headers['x-run-upload-token'] ? 'token' : 'admin')); } catch { /* 审计失败不阻 */ }
-      res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), run_id: runId, name: originalName, mime: kind.mime, size: req.file.size, sha256: sha, url: `/api/sop/runs/${runId}/files/${Number(r.lastInsertRowid)}`, quota: runFileQuota(runId) });
-    } catch (e) { next(e); }
-  });
-});
-app.get('/api/sop/runs/:id/files', wrap(async (req, res) => {
-  if (!/^\d+$/.test(String(req.params.id))) throw new HttpError(404, `run not found: ${req.params.id}`);
-  const runId = Number(req.params.id);
-  sopRunRow(runId); // 404 语义与 run 一致
-  const auth = await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, runId);
-  if (!auth.authorized) return res.status(403).set('Cache-Control', 'no-store').json({ error: 'run read authorization required', hint: '创建响应的 read_capability（X-Run-Read-Capability 头）或已授权会话' });
-  // 旧文件没记 sha256 的先补算（流式、按存储路径一次补齐），执行页文件清单选上就带 sha，第一次完成不会因缺 sha 失败
-  const rows = svc<SopService>('sop').runFiles(runId) as any[];
-  for (const f of rows.filter((x) => !x.sha256)) f.sha256 = await ensureRunFileSha({ storage_path: (svc<SopService>('sop').runFileById(runId, f.id) as any)?.storage_path ?? '', sha256: '' });
-  const items = rows.map((f) => ({ ...f, url: `/api/sop/runs/${runId}/files/${f.id}` }));
-  res.json({ run_id: runId, items, count: items.length, quota: runFileQuota(runId) });
-}));
-app.get('/api/sop/runs/:id/files/:fileId', wrap(async (req, res) => {
-  if (!/^\d+$/.test(String(req.params.id)) || !/^\d+$/.test(String(req.params.fileId))) throw new HttpError(404, 'file not found');
-  const runId = Number(req.params.id);
-  const auth = await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, runId);
-  if (!auth.authorized) return res.status(403).set('Cache-Control', 'no-store').json({ error: 'run read authorization required', hint: '创建响应的 read_capability（X-Run-Read-Capability 头）或已授权会话' });
-  const row = svc<SopService>('sop').runFileById(runId, Number(req.params.fileId)) as any;
-  if (!row) throw new HttpError(404, `file not found: ${req.params.fileId}`);
-  const abs = join(dataDir, row.storage_path);
-  if (!existsSync(abs)) throw new HttpError(404, 'stored file missing on disk');
-  res.setHeader('content-type', row.mime || 'application/octet-stream');
-  res.setHeader('content-length', String(row.size));
-  res.setHeader('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(row.original_name || 'file')}`);
-  res.setHeader('x-content-type-options', 'nosniff');
-  createReadStream(abs).pipe(res);
-}));
+registerSopRunFileRoutes(http, { wrap, markOdooAdmin, runFileWriteGate, sopRunRow, adminHeaderOk, runReadCapHeader, bad, RUN_REF_BATCH_MAX, RUN_REF_MAX_COUNT, RUN_UPLOAD_MAX_COUNT, RUN_UPLOAD_MAX_BYTES, runFileQuota, runUpload, fixFileName, checkUploadKind, sha256Hex, ensureRunFileSha });
 
 // ---------- Cookie 池（监督席派单 direct-5fbb2176：web 型外部台 cookie 认证） ----------
 registerCookieRoutes(http);
@@ -1813,36 +1695,7 @@ registerCookieRoutes(http);
 
 // ---------- 19a 任务发布面（监督席 direct-58d60ed6，主人已批）----------
 // 零新概念：给已有 run 写派单来源（复用 a2a_run_ctx），使其入待验收列表（dispatched=1）
-app.post('/api/sop/runs/:id/assign', wrap(async (req, res) => {
-  if (!/^\d+$/.test(String(req.params.id))) throw new HttpError(404, `run not found: ${req.params.id}`);
-  const runId = Number(req.params.id);
-  const row = sopRunRow(runId);
-  if (row.status !== 'running') throw new HttpError(409, `run ${runId} 已 ${row.status}，不可指派`);
-  const node = String(req.body?.node ?? '').trim();
-  if (!/^[a-z][a-z0-9-]*\/[a-z0-9][a-z0-9_-]{0,63}$/i.test(node)) bad('node 形态：<zone>/<id8>，如 dsh/1a2b3c4d');
-  const existed = svc<SopService>('sop').ctxSourceByRun(runId);
-  if (existed) throw new HttpError(409, `run ${runId} 已有派单来源，不可重复指派`);
-  svc<SopService>('sop').ctxRegisterFull({ contextId: `task-${runId}`, runId, taskId: `task-${runId}`, caller: node, team: '', receiptStatus: '' });
-  res.status(201).json({ ok: true, run_id: runId, node, task_id: `task-${runId}` });
-}));
-
-// 8f：建任务中心的录入就是「提需求」：经身份服务认出提需求的人记在 run 上（发布时事项的建立人取它），并记一笔不带内容的计数。
-// 认不出照旧放行；请求体里的 started_by 是自填的，只用于显示。别的 SOP 的 run 照旧，不认人
-app.post('/api/sop/runs', wrap(async (req, res) => {
-  const slug = String(req.body?.slug ?? '');
-  const intake = slug.trim().toLowerCase() === 'task-center';
-  const who = intake ? await requestPerson(req) : null;
-  const out = sopRunStartCore(slug, String(req.body?.started_by ?? ''), who?.principal ?? null);
-  if (who) countSubmission('task-center.intake', who.hasCredential, who.principal !== null);
-  res.status(201).json(out);
-}));
-
-app.get('/api/sop/runs/active', wrap(async (_req, res) => {
-  // #338: a nonempty Redis set is not proof that it contains every running row.
-  // SQLite creates/status-transitions every run, including unsaved and task-center runs.
-  const rows = svc<SopService>('sop').runsRunning() as unknown as SopRunRow[];
-  res.json(rows);
-}));
+registerSopRunControlRoutes(http, { wrap, sopRunRow, bad, sopRunStartCore });
 
 registerStatsRoutes(http);
 registerContentObservationRoutes(http, { adminGuard, portalObserver });
@@ -2618,39 +2471,7 @@ function sameOriginGuard(req: express.Request, res: express.Response): boolean {
 registerTaskIntakeRoutes(http, { sameOriginGuard, adminGuard });
 registerWorkbenchEventRoutes(app, { admin: adminGuard, sameOrigin: (req) => sameOriginGuard(req, undefined as never) });
 registerTaskReadRoutes(http, { wrap, adminHeaderOk, runReadCapHeader });
-// #309 phase2：run 私有读授权管理面（播种 grant／重签 cap／撤销；adminGuard——运维持权人经权威映射操作，不猜归属）
-app.put('/api/sop/runs/:id(\\d+)/read-grants', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const id = Number(req.params.id);
-  sopRunRow(id);
-  const subject = typeof req.body?.subject === 'string' ? req.body.subject.trim() : '';
-  if (!/^(user|mcp):[A-Za-z0-9_.@-]{1,128}$/.test(subject)) bad('subject 形如 user:<Odoo登录名> 或 mcp:<会话名>');
-  const role = typeof req.body?.role === 'string' && req.body.role ? req.body.role.slice(0, 32) : 'reader';
-  const expiresAt = typeof req.body?.expires_at === 'string' && req.body.expires_at ? req.body.expires_at.slice(0, 19) : null;
-  runReadGrantCreate(id, subject, role, expiresAt, 'admin');
-  res.status(201).json({ ok: true, run_id: id, subject, role, expires_at: expiresAt });
-});
-app.post('/api/sop/runs/:id(\\d+)/read-grants/revoke', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const id = Number(req.params.id);
-  const subject = typeof req.body?.subject === 'string' ? req.body.subject.trim() : '';
-  if (!subject) bad('subject 必填');
-  const n = runReadGrantRevoke(id, subject);
-  res.json({ ok: true, run_id: id, subject, revoked: n });
-});
-app.post('/api/sop/runs/:id(\\d+)/read-caps', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const id = Number(req.params.id);
-  sopRunRow(id);
-  const cap = issueRunReadCap(id);
-  res.status(201).json({ ok: true, run_id: id, read_capability: cap, note: '明文仅此一次出现——请立即分发保管' });
-});
-app.post('/api/sop/runs/:id(\\d+)/read-caps/revoke', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const id = Number(req.params.id);
-  const n = runReadCapRevokeAll(id);
-  res.json({ ok: true, run_id: id, revoked_caps: n });
-});
+registerSopRunAccessRoutes(http, { adminGuard, sopRunRow, bad });
 registerTaskControlRoutes(http, { readActiveManifest, sameOriginGuard, adminGuard });
 
 

@@ -1,4 +1,5 @@
-/** SOP 域（sop_runs ×10 + sop_bindings ×5 + a2a_run_ctx ×3）：SQL 原文自 index.ts 搬入（S1）。 */
+/** SOP 域（sop_runs ×10 + sop_bindings ×5 + a2a_run_ctx ×3）：SQL 原文自 index.ts 搬入（S1）；run 文件上传与引用路由里的两句随阶段三第十五批搬入。 */
+import type { SQLInputValue } from 'node:sqlite';
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
 
@@ -169,5 +170,14 @@ export class SopService extends Service {
   }
   ctxRegister(contextId: string, runId: number) {
     return db.prepare('INSERT INTO a2a_run_ctx (context_id, run_id) VALUES (?, ?)').run(contextId, runId);
+  }
+  // ---- run 交付文件：上传、引用两条路由里的 SQL（阶段三第十五批原文搬入）----
+  /** 上传是否要本 run 的上传令牌（设置 run_upload_require_token='1'） */
+  runUploadRequireToken() {
+    return db.prepare("SELECT value FROM settings WHERE key = 'run_upload_require_token'").get();
+  }
+  /** run 文件的写审计（上传记 token / admin，引用记 ref:<源文件 id>） */
+  runFileAudit(runId: SQLInputValue, name: SQLInputValue, size: SQLInputValue, sha256: SQLInputValue, source: SQLInputValue) {
+    return db.prepare("INSERT INTO sop_run_file_audit (run_id, name, size, sha256, source) VALUES (?, ?, ?, ?, ?)").run(runId, name, size, sha256, source);
   }
 }

@@ -1,0 +1,405 @@
+{
+  "domain": "sop-run-access",
+  "what": "SOP run 的私有读授权管理面：按主体授权、撤销，重签读能力、撤销全部读能力，共 4 条路由，只给管理员。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["PUT /api/sop/runs/:id(\\d+)/read-grants", "POST /api/sop/runs/:id(\\d+)/read-grants/revoke", "POST /api/sop/runs/:id(\\d+)/read-caps", "POST /api/sop/runs/:id(\\d+)/read-caps/revoke"],
+  "exempt": [{ "route": "POST /api/sop/runs/:id(\\d+)/read-caps/revoke", "class": "invalid", "why": "撤销全部读能力不读请求体，也不查 run 在不在（没有这个 run 照样回 0）", "shown_by": "open/cap-revoke-missing-run" }],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "登录门关，管理口令由环境给（合成值）。预先写进库一个已发布的 SOP 和一个进行中的 run；另经开 run 的路由开一个 run，存下读能力，用来看重签和撤销的效果（读文件列表只比状态码）。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "seed": [
+        {
+          "table": "apps",
+          "row": { "slug": "replay-sop", "title": "回放 replay-sop", "kind": "sop", "status": "published", "active_version": 1, "created_by": "seed", "created_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" }
+        },
+        { "table": "sop_runs", "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "running", "started_by": "seed", "data": "{}", "started_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01", "finished_at": "" } }
+      ],
+      "seed_files": [{ "path": "apps/replay-sop/v1/sop.yaml", "content": "title: 回放 replay-sop\ncode: RP\nsteps:\n  - key: a\n    title: 第一步\n    body: <p>一</p>\n  - key: b\n    title: 第二步\n" }],
+      "steps": [
+        {
+          "id": "setup-a",
+          "what": "布置：开一个 replay-sop 的 run，存下 id、读能力、上传令牌",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/sop/runs", "headers": {}, "json": { "slug": "replay-sop" } },
+          "save": { "a": "id", "acap": "read_capability", "atok": "upload_token" },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "grant-no-token",
+          "route": "PUT /api/sop/runs/:id(\\d+)/read-grants",
+          "class": "unauthorized",
+          "what": "本机不带口令：403（路由自己的守卫）",
+          "request": { "method": "PUT", "path": "/api/sop/runs/1/read-grants", "headers": {}, "json": { "subject": "user:alice" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "grant-cross",
+          "route": "PUT /api/sop/runs/:id(\\d+)/read-grants",
+          "class": "unauthorized",
+          "what": "带口令但跨站：403",
+          "request": { "method": "PUT", "path": "/api/sop/runs/1/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": { "subject": "user:alice" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "grant-missing-run",
+          "route": "PUT /api/sop/runs/:id(\\d+)/read-grants",
+          "class": "invalid",
+          "what": "没有这个 run：404",
+          "request": { "method": "PUT", "path": "/api/sop/runs/999/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:alice" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run not found: 999" } }
+        },
+        {
+          "id": "grant-bad-subject",
+          "route": "PUT /api/sop/runs/:id(\\d+)/read-grants",
+          "class": "invalid",
+          "what": "subject 不是 user:/mcp: 开头：400",
+          "request": { "method": "PUT", "path": "/api/sop/runs/1/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "alice" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "67", "etag": "W/\"43-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "subject 形如 user:<Odoo登录名> 或 mcp:<会话名>" }
+          }
+        },
+        {
+          "id": "grant-long-subject",
+          "route": "PUT /api/sop/runs/:id(\\d+)/read-grants",
+          "class": "invalid",
+          "what": "subject 名字 129 个字符：400",
+          "request": {
+            "method": "PUT",
+            "path": "/api/sop/runs/1/read-grants",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "subject": "user:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "67", "etag": "W/\"43-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "subject 形如 user:<Odoo登录名> 或 mcp:<会话名>" }
+          }
+        },
+        {
+          "id": "grant-no-subject",
+          "route": "PUT /api/sop/runs/:id(\\d+)/read-grants",
+          "class": "invalid",
+          "what": "没有 subject：400",
+          "request": { "method": "PUT", "path": "/api/sop/runs/1/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "67", "etag": "W/\"43-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "subject 形如 user:<Odoo登录名> 或 mcp:<会话名>" }
+          }
+        },
+        {
+          "id": "grant",
+          "route": "PUT /api/sop/runs/:id(\\d+)/read-grants",
+          "class": "normal",
+          "what": "授 user:alice：role 缺省 reader，expires_at 缺省 null；subject 两头空白去掉",
+          "request": { "method": "PUT", "path": "/api/sop/runs/1/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "  user:alice  " } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "79", "etag": "W/\"4f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "run_id": 1, "subject": "user:alice", "role": "reader", "expires_at": null }
+          }
+        },
+        {
+          "id": "grant-mcp",
+          "route": "PUT /api/sop/runs/:id(\\d+)/read-grants",
+          "class": "normal",
+          "what": "mcp:会话名；role 40 个字符截到 32；expires_at 截到 19 个字符",
+          "request": {
+            "method": "PUT",
+            "path": "/api/sop/runs/1/read-grants",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "subject": "mcp:replay-sess", "role": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr", "expires_at": "2031-01-01T00:00:00.000Z" }
+          },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "127", "etag": "W/\"7f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "run_id": 1, "subject": "mcp:replay-sess", "role": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr", "expires_at": "YYYY-MM-DDThh:mm:ss" }
+          }
+        },
+        {
+          "id": "grant-empty-role",
+          "route": "PUT /api/sop/runs/:id(\\d+)/read-grants",
+          "class": "normal",
+          "what": "role 是空串、expires_at 是空串：取缺省",
+          "request": { "method": "PUT", "path": "/api/sop/runs/1/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:bob", "role": "", "expires_at": "" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "77", "etag": "W/\"4d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "run_id": 1, "subject": "user:bob", "role": "reader", "expires_at": null }
+          }
+        },
+        {
+          "id": "revoke-no-token",
+          "route": "POST /api/sop/runs/:id(\\d+)/read-grants/revoke",
+          "class": "unauthorized",
+          "what": "本机不带口令：403（路由自己的守卫）",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/read-grants/revoke", "headers": {}, "json": { "subject": "user:alice" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "revoke-no-subject",
+          "route": "POST /api/sop/runs/:id(\\d+)/read-grants/revoke",
+          "class": "invalid",
+          "what": "没有 subject：400",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/read-grants/revoke", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "subject 必填" } }
+        },
+        {
+          "id": "revoke-blank-subject",
+          "route": "POST /api/sop/runs/:id(\\d+)/read-grants/revoke",
+          "class": "invalid",
+          "what": "subject 是空白：400",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/read-grants/revoke", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "  " } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "subject 必填" } }
+        },
+        {
+          "id": "revoke",
+          "route": "POST /api/sop/runs/:id(\\d+)/read-grants/revoke",
+          "class": "normal",
+          "what": "撤 user:alice：revoked 1",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/read-grants/revoke", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:alice" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "57", "etag": "W/\"39-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "run_id": 1, "subject": "user:alice", "revoked": 1 }
+          }
+        },
+        {
+          "id": "revoke-again",
+          "route": "POST /api/sop/runs/:id(\\d+)/read-grants/revoke",
+          "class": "normal",
+          "what": "再撤：revoked 0",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/read-grants/revoke", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:alice" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "57", "etag": "W/\"39-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "run_id": 1, "subject": "user:alice", "revoked": 0 }
+          }
+        },
+        {
+          "id": "revoke-missing-run",
+          "route": "POST /api/sop/runs/:id(\\d+)/read-grants/revoke",
+          "class": "normal",
+          "what": "没有这个 run 也不报错：revoked 0",
+          "request": { "method": "POST", "path": "/api/sop/runs/999/read-grants/revoke", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:alice" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "59", "etag": "W/\"3b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "run_id": 999, "subject": "user:alice", "revoked": 0 }
+          }
+        },
+        {
+          "id": "cap-no-token",
+          "route": "POST /api/sop/runs/:id(\\d+)/read-caps",
+          "class": "unauthorized",
+          "what": "本机不带口令：403（路由自己的守卫）",
+          "request": { "method": "POST", "path": "/api/sop/runs/{{a}}/read-caps", "headers": {}, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "cap-cross",
+          "route": "POST /api/sop/runs/:id(\\d+)/read-caps",
+          "class": "unauthorized",
+          "what": "带口令但跨站：403",
+          "request": { "method": "POST", "path": "/api/sop/runs/{{a}}/read-caps", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": {} },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "cap-missing-run",
+          "route": "POST /api/sop/runs/:id(\\d+)/read-caps",
+          "class": "invalid",
+          "what": "没有这个 run：404",
+          "request": { "method": "POST", "path": "/api/sop/runs/999/read-caps", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run not found: 999" } }
+        },
+        {
+          "id": "cap",
+          "route": "POST /api/sop/runs/:id(\\d+)/read-caps",
+          "class": "normal",
+          "what": "重签一份读能力：明文只出现这一次（每个实例随机）",
+          "vary": { "read_capability": "random" },
+          "request": { "method": "POST", "path": "/api/sop/runs/{{a}}/read-caps", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "save": { "a2cap": "read_capability" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "168", "etag": "W/\"a8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "run_id": 2, "read_capability": "<每个实例随机·string·64>", "note": "明文仅此一次出现——请立即分发保管" }
+          }
+        },
+        {
+          "id": "read-with-new-cap",
+          "what": "布置：新的读能力能读",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/api/sop/runs/{{a}}/files", "headers": { "x-run-read-capability": "{{a2cap}}" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "read-with-old-cap",
+          "what": "布置：创建时的读能力也还能读",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/api/sop/runs/{{a}}/files", "headers": { "x-run-read-capability": "{{acap}}" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "cap-revoke-no-token",
+          "route": "POST /api/sop/runs/:id(\\d+)/read-caps/revoke",
+          "class": "unauthorized",
+          "what": "本机不带口令：403（路由自己的守卫）",
+          "request": { "method": "POST", "path": "/api/sop/runs/{{a}}/read-caps/revoke", "headers": {}, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "cap-revoke",
+          "route": "POST /api/sop/runs/:id(\\d+)/read-caps/revoke",
+          "class": "normal",
+          "what": "撤掉这个 run 的全部读能力：revoked_caps 2",
+          "request": { "method": "POST", "path": "/api/sop/runs/{{a}}/read-caps/revoke", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "run_id": 2, "revoked_caps": 2 } }
+        },
+        {
+          "id": "read-after-revoke-old",
+          "what": "撤掉之后创建时的读能力：403",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/api/sop/runs/{{a}}/files", "headers": { "x-run-read-capability": "{{acap}}" } },
+          "response": { "status": 403 }
+        },
+        {
+          "id": "read-after-revoke-new",
+          "what": "撤掉之后重签的读能力：403",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/api/sop/runs/{{a}}/files", "headers": { "x-run-read-capability": "{{a2cap}}" } },
+          "response": { "status": 403 }
+        },
+        {
+          "id": "cap-revoke-again",
+          "route": "POST /api/sop/runs/:id(\\d+)/read-caps/revoke",
+          "class": "normal",
+          "what": "再撤：0",
+          "request": { "method": "POST", "path": "/api/sop/runs/{{a}}/read-caps/revoke", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "run_id": 2, "revoked_caps": 0 } }
+        },
+        {
+          "id": "cap-revoke-missing-run",
+          "route": "POST /api/sop/runs/:id(\\d+)/read-caps/revoke",
+          "class": "normal",
+          "what": "没有这个 run 也不报错：0",
+          "request": { "method": "POST", "path": "/api/sop/runs/999/read-caps/revoke", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "run_id": 999, "revoked_caps": 0 } }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce），管理口令由环境给（合成值）。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "seed": [
+        {
+          "table": "apps",
+          "row": { "slug": "replay-sop", "title": "回放 replay-sop", "kind": "sop", "status": "published", "active_version": 1, "created_by": "seed", "created_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" }
+        },
+        { "table": "sop_runs", "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "running", "started_by": "seed", "data": "{}", "started_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01", "finished_at": "" } }
+      ],
+      "seed_files": [{ "path": "apps/replay-sop/v1/sop.yaml", "content": "title: 回放 replay-sop\ncode: RP\nsteps:\n  - key: a\n    title: 第一步\n    body: <p>一</p>\n  - key: b\n    title: 第二步\n" }],
+      "steps": [
+        {
+          "id": "gated-grant-anonymous",
+          "route": "PUT /api/sop/runs/:id(\\d+)/read-grants",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "PUT", "path": "/api/sop/runs/1/read-grants", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "subject": "user:alice" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-revoke-anonymous",
+          "route": "POST /api/sop/runs/:id(\\d+)/read-grants/revoke",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/read-grants/revoke", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "subject": "user:alice" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-cap-anonymous",
+          "route": "POST /api/sop/runs/:id(\\d+)/read-caps",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/read-caps", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-cap-revoke-anonymous",
+          "route": "POST /api/sop/runs/:id(\\d+)/read-caps/revoke",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/read-caps/revoke", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-grant-with-token",
+          "route": "PUT /api/sop/runs/:id(\\d+)/read-grants",
+          "class": "normal",
+          "what": "远程带口令授权",
+          "request": { "method": "PUT", "path": "/api/sop/runs/1/read-grants", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:alice" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "79", "etag": "W/\"4f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "run_id": 1, "subject": "user:alice", "role": "reader", "expires_at": null }
+          }
+        }
+      ]
+    }
+  ]
+}
