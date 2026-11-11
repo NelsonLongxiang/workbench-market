@@ -23,6 +23,7 @@ import { WorkbenchVarsService } from './services/workbench-vars.ts';
 import { PrincipalService } from './services/principal.ts';
 import { BindingService } from './services/binding.ts';
 import { LoginSessionService } from './services/login-session.ts';
+import { WorkItemService } from './services/work-item.ts';
 import { HttpService } from './http.ts';
 
 /** 数据库连接服务：唯一持有 db 的地方（其余服务经注入取用）。 */
@@ -39,7 +40,7 @@ export const ctx = root;
 // 八域 + db + http + 主体：全部注册（顺序不影响语义，Cordis 按名解析）。http 持有 Express 应用，域模块经它注册路由。
 // 主体目录（principals）装在同一个根上：身份服务认人时按名字取它，取不到就不认任何人。
 // ctx.plugin 异步装配，等全部就绪再交出模块——否则 index.ts 的 listen 回调里 svc() 取到 undefined（#32）
-await Promise.all([DbService, WorkbenchService, SopService, AppService, AppDataService, McpService, CookieService, CockpitService, SettingService, SkillService, SandboxService, WorkbenchVarsService, PrincipalService, LoginSessionService, BindingService, HttpService].map((P) => ctx.plugin(P)));
+await Promise.all([DbService, WorkbenchService, SopService, AppService, AppDataService, McpService, CookieService, CockpitService, SettingService, SkillService, SandboxService, WorkbenchVarsService, PrincipalService, LoginSessionService, BindingService, WorkItemService, HttpService].map((P) => ctx.plugin(P)));
 
 /** 便捷取用：`svc<WorkbenchService>('workbench')` */
 export function svc<T>(name: string): T {

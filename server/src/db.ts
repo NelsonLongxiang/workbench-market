@@ -638,6 +638,79 @@ for (const [table, column] of [['principals', 'id_key'], ['principal_identities'
     throw new Error(`[db] 拒绝启动：${table} 表缺 ${column} 列（是开发分支早先版本建的，从没发布过）。删掉 principals、principal_identities 两张表再启动`);
   }
 }
+// 阶段八 8a：事项与事项日志（见 services/work-item.ts）。
+//   work_items：一件要办的事的索引。只存 id 和摘要，原件各回各家（投递在 workbench_event_deliveries，run 在 sop_runs）。
+//     state 只由事项服务按迁移表推进；object、phase 是观测层给的不透明标识，只存、只按它筛。
+//   work_item_log：只增不改。每条事实一行，(item_id, fact_source, fact_id) 唯一——同一条事实送两次只记一次。
+//     改写、删除、用 INSERT OR REPLACE 覆盖，在库这一层都被触发器拒绝。
+//   work_items 不删除、不覆盖、不改 id；state 只能改成日志里最近一行的 to_state（拦的是「状态和日志对不上」：
+//     先插一行日志再改状态是能过的，但那一行会永久留在只增不改的日志里）。
+// IF NOT EXISTS 幂等，旧库启动即补表。
+db.exec(`
+CREATE TABLE IF NOT EXISTS work_items (
+  id TEXT PRIMARY KEY CHECK (id <> ''),
+  title TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_by TEXT NOT NULL CHECK (created_by GLOB '?*:?*'),
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('task-center','app-data','agent','cockpit')),
+  source_ref TEXT NOT NULL DEFAULT '',
+  context TEXT NOT NULL DEFAULT '{}',
+  event_id INTEGER,
+  task_ids TEXT NOT NULL DEFAULT '[]',
+  target_team TEXT NOT NULL DEFAULT '',
+  seat TEXT NOT NULL DEFAULT '',
+  eval TEXT NOT NULL DEFAULT '' CHECK (eval IN ('','accept','stop','ignore','unavailable')),
+  eval_reason TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL DEFAULT 'draft' CHECK (state IN ('draft','held','delivered','accepted','progress','waiting','ready','blocked','done','failed','dropped','cancelled')),
+  progress_summary TEXT NOT NULL DEFAULT '',
+  progress_at TEXT NOT NULL DEFAULT '',
+  open_asks TEXT NOT NULL DEFAULT '[]',
+  receipt_outcome TEXT NOT NULL DEFAULT '',
+  receipt_at TEXT NOT NULL DEFAULT '',
+  outputs TEXT NOT NULL DEFAULT '{}',
+  evidence TEXT NOT NULL DEFAULT '[]',
+  object TEXT NOT NULL DEFAULT '',
+  phase TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_work_items_state ON work_items (state, updated_at);
+CREATE INDEX IF NOT EXISTS idx_work_items_object ON work_items (object, phase);
+CREATE INDEX IF NOT EXISTS idx_work_items_source ON work_items (source_kind, source_ref);
+CREATE TABLE IF NOT EXISTS work_item_log (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id TEXT NOT NULL REFERENCES work_items (id),
+  fact TEXT NOT NULL CHECK (fact <> ''),
+  fact_source TEXT NOT NULL CHECK (fact_source <> ''),
+  fact_id TEXT NOT NULL CHECK (fact_id <> ''),
+  from_state TEXT NOT NULL,
+  to_state TEXT NOT NULL,
+  actor TEXT NOT NULL DEFAULT '',
+  detail TEXT NOT NULL DEFAULT '{}',
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (item_id, fact_source, fact_id)
+);
+CREATE INDEX IF NOT EXISTS idx_work_item_log_item ON work_item_log (item_id, seq);
+CREATE TRIGGER IF NOT EXISTS work_item_log_no_update BEFORE UPDATE ON work_item_log
+  BEGIN SELECT RAISE(ABORT, 'work_item_log 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS work_item_log_no_delete BEFORE DELETE ON work_item_log
+  BEGIN SELECT RAISE(ABORT, 'work_item_log 只增不改'); END;
+-- INSERT OR REPLACE 删旧行时不触发 DELETE 触发器（除非开了 recursive_triggers），所以键已存在的插入一律拦下
+CREATE TRIGGER IF NOT EXISTS work_item_log_no_replace BEFORE INSERT ON work_item_log
+  WHEN EXISTS (SELECT 1 FROM work_item_log WHERE seq = NEW.seq)
+    OR EXISTS (SELECT 1 FROM work_item_log WHERE item_id = NEW.item_id AND fact_source = NEW.fact_source AND fact_id = NEW.fact_id)
+  BEGIN SELECT RAISE(ABORT, 'work_item_log 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS work_items_state_follows_log BEFORE UPDATE OF state ON work_items
+  WHEN NEW.state IS NOT OLD.state AND NEW.state IS NOT (SELECT to_state FROM work_item_log WHERE item_id = NEW.id ORDER BY seq DESC LIMIT 1)
+  BEGIN SELECT RAISE(ABORT, 'work_items.state 只能经事项服务推进'); END;
+CREATE TRIGGER IF NOT EXISTS work_items_no_delete BEFORE DELETE ON work_items
+  BEGIN SELECT RAISE(ABORT, '事项不删除'); END;
+CREATE TRIGGER IF NOT EXISTS work_items_no_replace BEFORE INSERT ON work_items WHEN EXISTS (SELECT 1 FROM work_items WHERE id = NEW.id)
+  BEGIN SELECT RAISE(ABORT, '事项不删除，也不能用同一个 id 覆盖'); END;
+CREATE TRIGGER IF NOT EXISTS work_items_no_rekey BEFORE UPDATE OF id ON work_items WHEN NEW.id IS NOT OLD.id
+  BEGIN SELECT RAISE(ABORT, '事项不删除，id 也不能改'); END;
+CREATE TRIGGER IF NOT EXISTS work_items_start_draft BEFORE INSERT ON work_items WHEN NEW.state <> 'draft'
+  BEGIN SELECT RAISE(ABORT, '事项一律从 draft 开始'); END;
+`);
 // #337: a durable monotonic generation invalidates stale Redis snapshots, including same-value writes.
 {
   const cols = db.prepare('PRAGMA table_info(sop_runs)').all() as { name: string }[];
