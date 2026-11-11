@@ -1,14 +1,22 @@
 #!/usr/bin/env node
 /** 事项详情页的纯函数单测（web/src/work-item-view.ts）：提示条、进展一行字、结果解析与链接、关注条目对到事项。 */
-import { askIdOf, creatorLabel, groupRejected, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint } from '../web/src/work-item-view.ts';
+import { CAN_NONE, canOf, stateLabel, askIdOf, creatorLabel, groupRejected, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint } from '../web/src/work-item-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
 
-ok('提示：在等放行要说清是管理员放行', stateHint('held', '')?.text.includes('放行') && stateHint('held', '').type === 'warning');
-ok('提示：在问你、等验收、已转交各有一句', stateHint('blocked', 's')?.type === 'warning' && stateHint('ready', 's')?.type === 'success' && !!stateHint('delivered', ''));
+ok('提示：在等放行，不说「你」', stateHint('held', '')?.text.startsWith('在等放行') && !stateHint('held', '').text.includes('你'));
+ok('提示：能放行的人看「等你过目」', stateHint('held', '', false, { ...CAN_NONE, release: true })?.text.startsWith('等你过目'));
+ok('提示：能答的看「在问你」，不能答的看「在等答复」', stateHint('blocked', '', false, { ...CAN_NONE, answer: true })?.text.startsWith('席位在问你') && stateHint('blocked', '')?.text.startsWith('席位在等答复'));
+ok('提示：能验收的看「等你验收」，别人只说等建立人验收', stateHint('ready', '', false, { ...CAN_NONE, verify: true })?.text.includes('等你验收') && !stateHint('ready', '').text.includes('你'));
+ok('状态叫法：中性叫法不带「你」，草稿叫未派发、对方放弃单独一种', ['draft','held','delivered','accepted','progress','waiting','blocked','ready','done','failed','dropped','cancelled'].every((s) => !stateLabel(s).includes('你')) && stateLabel('draft') === '未派发' && stateLabel('dropped') === '对方放弃了' && stateLabel('cancelled') === '已撤回');
+ok('状态叫法：该动手的人才带「你」', stateLabel('held', { ...CAN_NONE, release: true }) === '等你过目' && stateLabel('blocked', { ...CAN_NONE, answer: true }) === '在问你' && stateLabel('ready', { ...CAN_NONE, verify: true }) === '等你验收' && stateLabel('ready', { ...CAN_NONE, answer: true }) === '等验收');
+const pa = (source, category, answers) => ({ source, source_id: '1', category, title: '', waiting_for: '', since: '', answers, object: '', phase: '', link: '/work-items/wi_a' });
+const choicesNonAdmin = (x) => (x.source === 'work-items' && x.category === 'accept' ? x.answers : []);
+ok('能做什么：取自看的人在「关注」里的条目和答法', JSON.stringify(canOf([pa('work-items', 'accept', ['verify', 'return']), pa('seat-asks', 'ask', ['answer'])], choicesNonAdmin)) === '{"release":false,"answer":true,"verify":true}' && JSON.stringify(canOf([pa('work-items', 'glance', ['release', 'withdraw'])], choicesNonAdmin)) === '{"release":false,"answer":false,"verify":false}' && canOf([pa('work-items', 'glance', ['release'])], (x) => x.answers).release);
+ok('提示：在等答复、等验收、已转交各有一句', stateHint('blocked', 's')?.type === 'warning' && stateHint('ready', 's')?.type === 'success' && !!stateHint('delivered', ''));
 ok('提示：已接手但没有席位时说明，有席位就不提示', !!stateHint('accepted', '') && stateHint('accepted', 'seat_a') === null);
-ok('提示：在问你但最近的提问已答复，说在等席位', stateHint('blocked', '', true)?.type === 'info' && stateHint('blocked', '', true).text.includes('已经答复'));
+ok('提示：最近的提问已答复，说在等席位', stateHint('blocked', '', true)?.type === 'info' && stateHint('blocked', '', true).text.includes('已经答复'));
 ok('最近的提问答过没有：答复在提问之后才算，被拒的不算', lastAskAnswered([{ fact: 'ask' }, { fact: 'answer' }]) && !lastAskAnswered([{ fact: 'answer' }, { fact: 'ask' }]) && !lastAskAnswered([{ fact: 'ask' }, { fact: 'answer', rejected: 'terminal' }]) && !lastAskAnswered([]));
 ok('提示：终态和进行中不出提示', ['done', 'failed', 'dropped', 'cancelled', 'progress', 'waiting'].every((s) => stateHint(s, 'x') === null));
 

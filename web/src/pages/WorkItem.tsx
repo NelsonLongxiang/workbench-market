@@ -14,16 +14,16 @@ import RelTime from '../components/RelTime';
 import { adminActive, apiFetch, subscribeAdminToken } from '../admin-token';
 import { answerChoices, answerRoute, describe, type AttentionItem, type LogRow } from '../attention-view';
 import { getWorkItem, postAskAnswer, postCreatorDecision, postSeatMessageReply, postSeatMessagesRead } from '../api';
-import { PROGRESS_STATE, TERMINAL, askIdOf, creatorLabel, groupRejected, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
+import { CAN_NONE, PROGRESS_STATE, TERMINAL, canOf, stateLabel, type Can, askIdOf, creatorLabel, groupRejected, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
 
 type Item = { id: string; title: string; state: string; created_by: string; creator_principal?: string | null; created_at: string; updated_at: string; source_kind: string; source_ref: string; target_team: string; seat: string; eval: string; eval_reason: string; progress_summary: string; receipt_outcome: string; object: string; phase: string; open_asks: string; outputs: string; evidence: string };
 
-export const STATE: Record<string, { label: string; color: string }> = {
-  draft: { label: '草稿', color: 'default' }, held: { label: '搁置', color: 'default' }, delivered: { label: '已转交', color: 'blue' },
-  accepted: { label: '已接手', color: 'cyan' }, progress: { label: '在办', color: 'geekblue' }, waiting: { label: '在等', color: 'orange' },
-  blocked: { label: '在问你', color: 'gold' }, ready: { label: '等你验收', color: 'green' }, done: { label: '已办结', color: 'success' },
-  failed: { label: '没办成', color: 'error' }, dropped: { label: '放弃', color: 'default' }, cancelled: { label: '已撤回', color: 'default' },
+/** 状态的颜色和中性叫法（不带「你」；列表页也用它）。详情页按看的人能做什么另取叫法：stateLabel */
+const STATE_COLOR: Record<string, string> = {
+  draft: 'default', held: 'default', delivered: 'blue', accepted: 'cyan', progress: 'geekblue', waiting: 'orange',
+  blocked: 'gold', ready: 'green', done: 'success', failed: 'error', dropped: 'default', cancelled: 'default',
 };
+export const STATE: Record<string, { label: string; color: string }> = Object.fromEntries(Object.entries(STATE_COLOR).map(([k, color]) => [k, { label: stateLabel(k), color }]));
 const FACT: Record<string, string> = {
   create: '建立', submit: '提交', release: '放行', withdraw: '撤回', delivery: '投递结果', eval: '接单判断', report: '进展上报', ask: '席位问了',
   receipt: '回执', verify: '验收', return: '退回', answer: '答复', note: '备注',
@@ -100,7 +100,7 @@ function AskRow({ itemId, ask, onDone }: { itemId: string; ask: SeatAsk; onDone:
     if (!body) return;
     setBusy(true);
     try {
-      const { status, body: r } = await postAskAnswer(itemId, ask.id, body);
+      const { status, body: r } = await postAskAnswer(itemId, String(ask.id), body);
       if (status === 401) throw Error('请先登录');
       if (status === 404 && !r.error) throw Error('你不能答这件事项上的提问');
       if (status < 200 || status >= 300) throw Error(ASK_ERROR[r.error ?? ''] ?? r.error ?? '答复失败');
@@ -195,7 +195,7 @@ function LogLine({ row, askIds }: { row: LogRow; askIds?: Set<string> }) {
     {describe(row) && <div>{describe(row)}</div>}
   </div>;
 }
-const stateTag = (s: string) => <Tag color={STATE[s]?.color ?? 'default'}>{STATE[s]?.label ?? s}</Tag>;
+const stateTag = (s: string, can: Can = CAN_NONE) => <Tag color={STATE[s]?.color ?? 'default'}>{stateLabel(s, can)}</Tag>;
 
 export default function WorkItem() {
   const { id = '' } = useParams();
@@ -235,11 +235,13 @@ export default function WorkItem() {
   // 详情带了 asks（阶段七）就以它为准：在这里答，「关注」里的同一条提问不再重复列
   const shownPending = asks ? pending.filter((p) => p.source !== 'seat-asks') : pending;
   const openAsks = asks ? asks.filter((a) => a.status === 'open').length : 0;
-  const hint = item ? stateHint(item.state, item.seat, asks ? openAsks === 0 && asks.length > 0 : lastAskAnswered(data?.log ?? [])) : null;
+  const can = canOf(pending, (x) => answerChoices(admin, x));
+  const hint = item ? stateHint(item.state, item.seat, asks ? openAsks === 0 && asks.length > 0 : lastAskAnswered(data?.log ?? []), can) : null;
   const progress = data?.progress ?? null;
   // 结果：事项的 outputs 列（现在还没人写）加上日志里回执带来的产物，去重
   const timeline = (data?.log ?? []).filter((r) => !hiddenInTimeline(r));
-  const askIds = new Set((asks ?? []).map((a) => a.id));
+  // 提问号在 asks 里是数字、在日志的 fact_id / detail.ask_id 里是字符串：统一成字符串再比
+  const askIds = new Set((asks ?? []).map((a) => String(a.id)));
   const outputs = mergeArtifacts(parseArtifacts(item?.outputs), artifactsFromLog(data?.log ?? []));
   const evidence = parseArtifacts(item?.evidence);
   return <WmPage title={item?.title ?? '事项'} detail={item?.title} onBack={() => navigate('/work-items')}
@@ -248,7 +250,7 @@ export default function WorkItem() {
     {item && <Row gutter={16}>
       <Col span={16}>
         <Flex vertical gap="middle">
-          <Card title={<Space>{stateTag(item.state)}<span>{item.title}</span></Space>} data-testid="work-item-summary">
+          <Card title={<Space>{stateTag(item.state, can)}<span>{item.title}</span></Space>} data-testid="work-item-summary">
             <Flex vertical gap="small">
               {hint && <Alert type={hint.type} showIcon message={hint.text} data-testid="work-item-hint" />}
               <Descriptions column={2} size="small" items={[
@@ -262,7 +264,7 @@ export default function WorkItem() {
             </Flex>
           </Card>
           {asks && asks.length > 0 && <Card size="small" title={<Space>席位提问{openAsks > 0 && <Badge count={openAsks} title="在等你答复" />}</Space>} data-testid="seat-asks">
-            <List size="small" dataSource={asks} rowKey="id" renderItem={(a) => <AskRow itemId={id} ask={a} onDone={() => void load()} />} />
+            <List size="small" dataSource={asks} rowKey={(a) => String(a.id)} renderItem={(a) => <AskRow itemId={id} ask={a} onDone={() => void load()} />} />
           </Card>}
           {shownPending.length > 0 && <Card size="small" title={<Space>等你处理<Badge count={shownPending.length} /></Space>} data-testid="work-item-pending">
             <Flex vertical gap="middle">{shownPending.map((p) => <PendingAction key={`${p.source}:${p.source_id}`} item={p} admin={admin} onDone={() => void load()} />)}</Flex>

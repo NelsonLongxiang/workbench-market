@@ -1,15 +1,47 @@
 /** 事项详情页的纯函数：不碰 React，scripts/work-item-detail-ui-unit.mjs 直接测。 */
 import type { AttentionItem } from './attention-view';
 
-/** 一句话说清事项现在卡在哪、该谁动：页面顶上的提示条。终态和正常进行中不出提示。 */
-export function stateHint(state: string, seat: string, askAnswered = false): { type: 'info' | 'warning' | 'success'; text: string } | null {
+/** 看的人对这件事项能做什么：取自 /api/attention 里链接到这件事项、而且这个人确实有答法的条目（各来源的守卫决定给谁看、给什么答法），
+ *  不按角色名猜。release：能放行（过目）；answer：能答席位的提问；verify：能验收 */
+export type Can = { release: boolean; answer: boolean; verify: boolean };
+export const CAN_NONE: Can = { release: false, answer: false, verify: false };
+export function canOf(pending: AttentionItem[], choicesOf: (x: AttentionItem) => string[]): Can {
+  const has = (pred: (x: AttentionItem) => boolean, ans?: string) => pending.some((x) => pred(x) && (ans ? choicesOf(x).includes(ans) : choicesOf(x).length > 0 || x.source === 'seat-asks'));
+  return {
+    release: has((x) => x.source === 'work-items' && x.category === 'glance', 'release'),
+    // 「关注」只把提问给能答的人看（管理员，和事项的建立人本人）：看得到这条就能答
+    answer: has((x) => x.source === 'seat-asks'),
+    verify: has((x) => x.source === 'work-items' && x.category === 'accept', 'verify'),
+  };
+}
+
+/** 状态叫法（原型的人话）。带「你」的说法只给确实该动手的人：能放行的看「等你过目」，能答的看「在问你」，能验收的看「等你验收」 */
+const STATE_LABEL: Record<string, string> = {
+  draft: '未派发', held: '等放行', delivered: '已转交', accepted: '已接手', progress: '在办', waiting: '在等', blocked: '在等答复',
+  ready: '等验收', done: '已办结', failed: '没办成', dropped: '对方放弃了', cancelled: '已撤回',
+};
+export function stateLabel(state: string, can: Can = CAN_NONE): string {
+  if (state === 'held' && can.release) return '等你过目';
+  if (state === 'blocked' && can.answer) return '在问你';
+  if (state === 'ready' && can.verify) return '等你验收';
+  return STATE_LABEL[state] ?? state;
+}
+
+/** 一句话说清事项现在卡在哪、该谁动：页面顶上的提示条。终态和正常进行中不出提示。同样只在看的人该动手时说「你」 */
+export function stateHint(state: string, seat: string, askAnswered = false, can: Can = CAN_NONE): { type: 'info' | 'warning' | 'success'; text: string } | null {
   switch (state) {
     case 'draft': return { type: 'info', text: '这件事项还没提交，没有派给任何团队。' };
-    case 'held': return { type: 'warning', text: '在等放行：管理员在「关注」里放行之后，才会派给团队。' };
+    case 'held': return can.release
+      ? { type: 'warning', text: '等你过目：你放行之后，才会派给团队。' }
+      : { type: 'warning', text: '在等放行：有放行权限的人放行之后，才会派给团队。' };
     case 'delivered': return { type: 'info', text: '已经转交，在等团队接手。' };
     case 'accepted': return seat ? null : { type: 'info', text: '团队已经接手，还没说是哪个席位在做。' };
-    case 'blocked': return askAnswered ? { type: 'info', text: '你已经答复，在等席位接着做。' } : { type: 'warning', text: '席位在问你：答复之后它才能接着做。' };
-    case 'ready': return { type: 'success', text: '做完了，等建立人验收：通过就办完，退回就接着改。' };
+    case 'blocked':
+      if (askAnswered) return { type: 'info', text: '提问已经答复，在等席位接着做。' };
+      return can.answer ? { type: 'warning', text: '席位在问你：你答复之后它才能接着做。' } : { type: 'warning', text: '席位在等答复：答复之后它才能接着做。' };
+    case 'ready': return can.verify
+      ? { type: 'success', text: '做完了，等你验收：通过就办结，打回就接着改。' }
+      : { type: 'success', text: '做完了，等建立人验收。' };
     default: return null;
   }
 }
@@ -22,7 +54,7 @@ export function lastAskAnswered(log: { fact: string; rejected?: string }[]): boo
 }
 
 /** 席位提问（阶段七：详情应答的 asks，按时间先后）。open 在等答复；answered 已答；closed 没人答、被后来的提问、接单或结果合上 */
-export type SeatAsk = { id: string; question: string; options: string[]; default?: string; status: 'open' | 'answered' | 'closed'; answer?: string; answered_by?: string; answered_at?: string; asked_by: string; at: string };
+export type SeatAsk = { id: string | number; question: string; options: string[]; default?: string; status: 'open' | 'answered' | 'closed'; answer?: string; answered_by?: string; answered_at?: string; asked_by: string; at: string };
 
 /** 答复的请求体：选了选项就只给 answer（以它为准），否则给自由文本；都没有返回 null（不该提交） */
 export function askAnswerBody(choice: string, text: string): { answer: string } | { text: string } | null {
