@@ -386,8 +386,21 @@ body { background: var(--wm-color-page); }
   background: var(--wm-color-surface); border: 1px solid var(--wm-color-border); border-radius: var(--wm-radius-lg); box-shadow: var(--wm-shadow-1);
 }
 .wm-page { display: flex; flex-direction: column; min-height: 100%; }
+/* 窄屏（手机）：侧栏变成顶上一条，主入口横排可滑动；我的驾驶舱收起，主区占满宽度 */
+@media (max-width: 767px) {
+  .wm-app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .wm-side { flex-direction: row; align-items: center; overflow-x: auto; overflow-y: hidden; padding: var(--wm-space-2); gap: var(--wm-space-1); }
+  .wm-side nav { display: flex; gap: var(--wm-space-1); }
+  .wm-side nav[aria-label="我的驾驶舱"], .wm-nav-sec { display: none; }
+  .wm-brand { padding: 0 var(--wm-space-2) 0 0; }
+  .wm-brand b { display: none; }
+  .wm-nav-item { width: auto; flex: none; white-space: nowrap; }
+  .wm-side-foot { margin: 0 0 0 auto; padding: 0; flex-direction: row; }
+  .wm-me-name { display: none; }
+  .wm-main { margin: 0 var(--wm-space-2) var(--wm-space-2); }
+}
 .wm-top {
-  position: sticky; top: 0; z-index: 5; height: 52px; flex: none; display: flex; align-items: center; gap: var(--wm-space-3);
+  position: sticky; top: 0; z-index: 5; box-sizing: border-box; height: 52px; flex: none; display: flex; align-items: center; gap: var(--wm-space-3);
   padding: 0 var(--wm-space-4) 0 var(--wm-space-6); border-bottom: 1px solid var(--wm-color-border); background: var(--wm-color-surface);
 }
 .wm-top-title { font-size: var(--wm-font-size-body); }
@@ -395,7 +408,7 @@ body { background: var(--wm-color-page); }
 .wm-top-crumb a { color: var(--wm-color-text-secondary); }
 .wm-top-crumb b { color: var(--wm-color-text); }
 .wm-top-sep { margin: 0 var(--wm-space-2); }
-.wm-top-sub { font-size: var(--wm-font-size-caption); }
+.wm-top-sub { font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); }
 .wm-top-actions { margin-left: auto; display: flex; align-items: center; gap: var(--wm-space-2); }
 .wm-page-body { width: 100%; max-width: 1040px; margin: 0 auto; padding: var(--wm-space-8) var(--wm-space-8) var(--wm-space-12); }
 .wm-page-body-wide { max-width: 1280px; }

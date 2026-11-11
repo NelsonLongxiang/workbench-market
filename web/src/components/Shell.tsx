@@ -25,7 +25,8 @@ export default function Shell({ admin, footer, children }: { admin: boolean; foo
   const [login, setLogin] = useState<string | null>(null);
   // 角标随换页、换身份刷新；驾驶舱和登录身份只在进来时读一次
   useEffect(() => { void getAttentionCount().then(setPending); }, [pathname, admin]);
-  useEffect(() => { api.listCockpits().then(setCockpits, () => setCockpits(null)); }, [admin]);
+  // 接口给的不是数组（出错、被拦、形状不对）就不显示这一块，别让侧栏把整页带崩
+  useEffect(() => { api.listCockpits().then((x) => setCockpits(Array.isArray(x) ? x : null), () => setCockpits(null)); }, [admin]);
   useEffect(() => { void getAuthMe().then((m) => setLogin(m?.authenticated ? m.login ?? null : null)); }, []);
 
   const groups = NAV_GROUPS.filter((g) => !g.admin && !g.hidden);

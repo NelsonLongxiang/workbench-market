@@ -1,5 +1,5 @@
 """#320 数据看板浏览器回归；由 scripts/sider-menu-browser.mjs 起合成实例后调用，参数为配置 JSON 路径。
-总览：12 列栅格、卡片宽度只取 3/4/6/12、卡片内不嵌套卡片、列表卡 ≤5 行 + 查看全部、趋势卡 ≤5 个系列与行、指标卡可跳转、
+原来的总览（新外壳里在 /overview，/ 是全景）：12 列栅格、卡片宽度只取 3/4/6/12、卡片内不嵌套卡片、列表卡 ≤5 行 + 查看全部、趋势卡 ≤5 个系列与行、指标卡可跳转、
 数据过期时卡片头显示「数据截至」；驾驶舱：旧布局（宽 5/7）读时吸附到 4 档、不丢面板、只读页不发布局写、接口数据不变。"""
 import json, sys, urllib.request
 from playwright.sync_api import sync_playwright
@@ -19,7 +19,7 @@ with sync_playwright() as p:
     ctx.route(M + '/api/tasks', lambda r: r.continue_(headers={**r.request.headers, 'x-admin-token': cfg['token']}))
     pg = ctx.new_page(); pg.set_default_timeout(10000)
     pg.clock.install()
-    pg.goto(M + '/'); pg.wait_for_selector('.wm-dash-grid .wm-dash-list li')
+    pg.goto(M + '/overview'); pg.wait_for_selector('.wm-dash-grid .wm-dash-list li')
     cols = pg.evaluate("getComputedStyle(document.querySelector('.wm-dash-grid')).gridTemplateColumns.split(' ').length")
     check('总览是 12 列栅格', cols == 12, cols)
     spans = pg.evaluate("[...document.querySelectorAll('.wm-dash-grid > .wm-dash-card')].map(e=>e.dataset.span)")
@@ -39,10 +39,10 @@ with sync_playwright() as p:
     check('拉取失败超过两个刷新周期 → 卡片头显示「数据截至 HH:mm」', pg.locator('.wm-dash-stale').count() >= 1 and '数据截至' in pg.locator('.wm-dash-stale').first.inner_text())
     pg.unroute('**/api/summary')
     pg2 = ctx.new_page(); pg2.set_default_timeout(10000)
-    pg2.goto(M + '/'); pg2.wait_for_selector('.wm-stat-card')
+    pg2.goto(M + '/overview'); pg2.wait_for_selector('.wm-stat-card')
     pg2.locator('.wm-stat-card', has_text='工作台总数').click(); pg2.wait_for_url(M + '/market')
     check('指标卡点击跳到对应列表页', True)
-    pg2.set_viewport_size({'width': 375, 'height': 800}); pg2.goto(M + '/'); pg2.wait_for_selector('.wm-dash-grid')
+    pg2.set_viewport_size({'width': 375, 'height': 800}); pg2.goto(M + '/overview'); pg2.wait_for_selector('.wm-dash-grid')
     w = pg2.evaluate("[...document.querySelectorAll('.wm-dash-grid > .wm-dash-card')].map(e=>Math.round(e.getBoundingClientRect().width))")
     gw = pg2.evaluate("Math.round(document.querySelector('.wm-dash-grid').getBoundingClientRect().width)")
     check('手机宽度下卡片单列占满', all(abs(x - gw) <= 2 for x in w), (w, gw))

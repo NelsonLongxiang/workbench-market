@@ -58,9 +58,10 @@ with sync_playwright() as p:
         if frame: check_app('③ 内嵌沙箱页', app_result(frame))
         # ④ SPA 顶栏身份与退出；会话失效后接口 401 去登录页
         page.goto(base + '/market')
+        page.locator('[data-testid=wm-me]').click()  # 新外壳（#571）：登录身份和退出在用户卡弹出层里
         chip = page.get_by_text('管理员口令登录')
         chip.wait_for(timeout=15000)
-        ok('④ 顶栏显示登录身份', chip.is_visible())
+        ok('④ 用户卡显示登录身份', chip.is_visible())
         ctx.clear_cookies()
         page.evaluate("() => { history.pushState({}, '', '/sops'); dispatchEvent(new PopStateEvent('popstate')); }")
         page.wait_for_url(re.compile(r'/login\?next='), timeout=15000)
@@ -68,6 +69,7 @@ with sync_playwright() as p:
         login(page, tok)
         page.wait_for_url(base + '/sops', timeout=10000)
         ok('④ 重新登录后回到 /sops', page.url == base + '/sops')
+        page.locator('[data-testid=wm-me]').click()
         page.get_by_role('button', name=re.compile('退\\s*出')).click()
         page.wait_for_url(re.compile(r'/login$'), timeout=10000)
         ok('④ 点「退出」回登录页且 cookie 已清', 'wm_login' not in {c['name'] for c in ctx.cookies()})

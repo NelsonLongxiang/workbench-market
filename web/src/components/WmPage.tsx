@@ -2,7 +2,7 @@
  *  右边页面的操作；下面是内容区，居中、有最大宽度。页面名缺省取菜单里的名字（nav.tsx 是唯一来源）。 */
 import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Button, Spin, Typography } from 'antd';
+import { Button, Spin } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import { findNav } from '../nav';
 
@@ -43,7 +43,7 @@ export default function WmPage({ title, subTitle, content, extra, detail, trail,
           {tail.map((t, i) => <span key={i}><span className="wm-top-sep">/</span>{t.to && i < tail.length - 1 ? <Link to={t.to}>{t.title}</Link> : <b>{t.title}</b>}</span>)}
         </span> : <b className="wm-top-title">{title ?? name}</b>}
         {tags}
-        {subTitle && <Typography.Text type="secondary" className="wm-top-sub">{subTitle}</Typography.Text>}
+        {subTitle && <span className="wm-top-sub">{subTitle}</span>}
         <span className="wm-top-actions">{extra}</span>
       </div>
       <div className={wide ? 'wm-page-body wm-page-body-wide' : 'wm-page-body'}>
