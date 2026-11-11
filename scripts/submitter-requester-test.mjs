@@ -90,7 +90,7 @@ try {
     const pub = await publish(run.body?.id, ADMIN, 'beta');
     const it = itemOf(pub.body?.event_id), rec = recordedOf(pub.body?.event_id);
     check(run.status === 201 && requesterOf(run.body.id) === 'user:alpha', 'alpha 登录着建录入：run 上记下提需求的人 alpha', show({ run: run.status, p: requesterOf(run.body?.id) }));
-    check(pub.status === 201 && it?.creator_principal === 'user:alpha' && it?.created_by === 'human:beta', '口令发布、published_by 自填 beta：事项的建立人主体是 alpha（自填的只进显示名）', show({ pub: pub.status, it }));
+    check(pub.status === 201 && it?.creator_principal === 'user:alpha' && it?.created_by === 'user:alpha', '口令发布、published_by 自填 beta：事项的建立人主体是 alpha，显示的建立人也是认出来的 alpha（自填的 beta 不进事项）', show({ pub: pub.status, it }));
     check(rec.requester === 'user:alpha' && rec.publisher === undefined && rec.principal === undefined, '事件 recorded 里记提需求的人；口令发布认不出发布人，不记', show(rec));
     const mine = await call('GET', `/api/work-items/${it?.id}`, ALPHA), theirs = await call('GET', `/api/work-items/${it?.id}`, BETA);
     check(mine.status === 200 && theirs.status === 404, '这件事项 alpha 读得到，自填进显示名的 beta 读不到', show({ mine: mine.status, theirs: theirs.status }));

@@ -45,6 +45,11 @@ export type AttentionItem = {
   detail?: Record<string, unknown>;
   /** 统一待办条目是哪一类：task（任务中心任务）、sop-run（SOP 执行）、ygl、a2a、other。前端据此不把它们放进「等你审核」 */
   kind?: string;
+  /** 是不是轮到看的这个人（只增）：事项的验收、席位的提问轮到建立人；过目放行轮到有放行权限的人（和事项详情的 turn 同一个函数）。
+   *  别的来源本来就只给负责的人看，一律为真。为假就是「你能代办的别人的事」 */
+  mine?: boolean;
+  /** 事项和席位提问条目上的建立人（只增）：主体和显示名，没有显示名是 null；建立人空着是 null */
+  creator?: { principal: string; display_name: string | null } | null;
 };
 
 /**

@@ -42,6 +42,7 @@ import type { PrincipalService } from '../services/principal.ts';
 import { creatorAnswer } from '../attention-answers.ts';
 import { markSeatMessagesRead, replySeatMessage, seatMessagesOf, seatProgressOf, SEAT_REPLY_MAX } from '../seat-messages.ts';
 import { principalsAdmin } from './principals.ts';
+import { canOf, creatorOf, turnOf, workItemViewer, writerVerdict } from '../work-item-access.ts';
 
 export type WorkItemRouteDeps = {
   markOdooAdmin: (req: express.Request) => Promise<void>;
@@ -128,7 +129,9 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       }
       const item = items.get(id);
       if (!item) return void res.status(404).json({ error: 'work_item_not_found' });
-      res.json({ item, log: items.log(id), ...seatMessagesOf(item), progress: seatProgressOf(item) });
+      // 只增：这个人能做什么（can）、是不是轮到他（turn）、建立人是谁（creator）。判断都在 work-item-access.ts，和各动作接口同一处
+      const viewer = await workItemViewer(req, deps);
+      res.json({ item, log: items.log(id), ...seatMessagesOf(item), progress: seatProgressOf(item), can: canOf(item, viewer), turn: turnOf(item, viewer), creator: creatorOf(item) });
     })().catch(next);
   });
 
@@ -137,25 +140,17 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
    * 判不过就已经写好应答并返回 null：没登录 401，看不到 404，主体没启用 403。
    */
   async function seatWriter(req: express.Request, res: express.Response, id: string): Promise<{ actor: string; item: NonNullable<ReturnType<WorkItemService['get']>> } | null> {
-    await deps.markOdooAdmin(req);
+    const viewer = await workItemViewer(req, deps);
+    const verdict = writerVerdict(viewer, id);
     const items = svc<WorkItemService>('workItems');
-    if (deps.adminGuard(req, silentRes())) {
-      const item = items.get(id);
-      if (!item) { res.status(404).json({ error: 'work_item_not_found' }); return null; }
-      return { actor: (principalsAdmin ? await principalsAdmin(req, silentRes()) : null) || 'admin', item };
-    }
-    const cookie = String(req.headers.cookie ?? '');
-    if (!cookie) { res.status(401).json({ error: 'work_items_auth_required' }); return null; }
-    const who = await identity().resolveViewer(cookie);
-    if (!who.ok) { res.status(401).json({ error: 'work_items_auth_required' }); return null; }
-    const verdict = items.creatorCheck(id, who.viewer.sub);
+    if (verdict === 'unauthenticated') { res.status(401).json({ error: 'work_items_auth_required' }); return null; }
     if (verdict === 'not_found') { res.status(404).json({ error: 'work_item_not_found' }); return null; }
-    const principal = svc<PrincipalService>('principals').get(who.viewer.sub) as { kind?: string; status?: string } | undefined;
-    if (!principal || principal.kind !== 'person' || principal.status !== 'active') { res.status(403).json({ error: 'work_items_principal_not_active' }); return null; }
+    if (verdict === 'inactive') { res.status(403).json({ error: 'work_items_principal_not_active' }); return null; }
     if (verdict === 'not_eligible') { res.status(403).json({ error: 'work_item_creator_not_eligible' }); return null; }
     const item = items.get(id);
     if (!item) { res.status(404).json({ error: 'work_item_not_found' }); return null; }
-    return { actor: who.viewer.sub, item };
+    if (verdict === 'admin') return { actor: (principalsAdmin ? await principalsAdmin(req, silentRes()) : null) || 'admin', item };
+    return { actor: viewer.principal!, item };
   }
 
   app.post('/api/work-items/:id/messages/read', { action: 'work-items.messages-read', kind: 'write', statusNotVerdict: SEAT_WRITER_DECIDES }, (req, res, next) => {

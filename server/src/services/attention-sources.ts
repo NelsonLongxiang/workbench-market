@@ -61,6 +61,12 @@ export function pendingAskOfDelivery(deliveryId: number): { event_id: string; as
   return row ?? null;
 }
 
+/** 一个事件上还在等答复的提问（按投递）：和 pendingAskOfDelivery 同一个定义，事项详情的 can.answer、turn.answer 用 */
+export function pendingAsksOfEvent(eventId: string): number[] {
+  if (!tableExists('workbench_events')) return [];
+  return (db.prepare(`SELECT o.delivery_id FROM (${OPEN_ASK_SQL}${NOT_ANSWERED}) o WHERE o.event_id = ?`).all(eventId) as { delivery_id: number }[]).map((r) => Number(r.delivery_id));
+}
+
 /**
  * 一个投递当前这一轮提问（答没答过都算）：「关注」记账分轮用——答完之后键不变，重复答才认得出；再问一次是新的一轮。
  */

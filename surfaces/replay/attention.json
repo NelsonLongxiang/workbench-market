@@ -22,13 +22,14 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1577", "etag": "W/\"629-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1601", "etag": "W/\"641-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
                   "answers": ["approve", "reject"],
                   "object": "",
                   "phase": "",
+                  "mine": true,
                   "source": "change-requests",
                   "source_id": "1",
                   "category": "review",
@@ -42,6 +43,7 @@
                   "answers": ["bind"],
                   "object": "",
                   "phase": "",
+                  "mine": true,
                   "source": "principal-pending",
                   "source_id": "replay:synthetic-pending",
                   "category": "grant",
@@ -75,13 +77,14 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1577", "etag": "W/\"629-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1601", "etag": "W/\"641-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
                   "answers": ["approve", "reject"],
                   "object": "",
                   "phase": "",
+                  "mine": true,
                   "source": "change-requests",
                   "source_id": "1",
                   "category": "review",
@@ -95,6 +98,7 @@
                   "answers": ["bind"],
                   "object": "",
                   "phase": "",
+                  "mine": true,
                   "source": "principal-pending",
                   "source_id": "replay:synthetic-pending",
                   "category": "grant",
@@ -128,13 +132,14 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1058", "etag": "W/\"422-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1070", "etag": "W/\"42e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
                   "answers": ["bind"],
                   "object": "",
                   "phase": "",
+                  "mine": true,
                   "source": "principal-pending",
                   "source_id": "replay:synthetic-pending",
                   "category": "grant",
