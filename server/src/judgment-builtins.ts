@@ -28,9 +28,7 @@ export const ANONYMOUS_ACTIONS: readonly string[] = [
   'admin-token.state',
   'admin.whoami',
   'agent-card.read',
-  'app-data.download',
-  'app-data.files',
-  'app-data.list',
+  // 台数据与附件的三个读（app-data.list、files、download）不列：放不放行看台令牌，路由声明了「状态码不代表授权」（#548）
   'app-data.submit',
   'app-data.upload',
   'app.list',

@@ -95,6 +95,8 @@ export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void
     return false;
   }
   /** 读路由：先过守卫再执行；处理函数里抛的错交给统一出口 */
+  /** 台数据与附件的读：放不放行看台令牌（不是登录身份），401、403、200 都不拿来和统一判定比 */
+  const APP_READ_DECIDES = '台数据与附件的读按台令牌或管理员判：带台令牌的匿名也能读，403 不是登录身份的结论';
   const guardedRead = (route: string, download: boolean, fn: express.RequestHandler): express.RequestHandler => (req, res, next) => {
     readAllowed(req, res, route, download).then((ok) => { if (ok) { try { fn(req, res, next); } catch (e) { next(e); } } }, next);
   };
@@ -114,7 +116,7 @@ export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void
     res.status(out.status).json(out.body);
   });
 
-  app.get('/api/apps/:slug/data', { action: 'app-data.list', kind: 'read' }, guardedRead('GET /api/apps/:slug/data', false, (req, res) => {
+  app.get('/api/apps/:slug/data', { action: 'app-data.list', kind: 'read', statusNotVerdict: APP_READ_DECIDES }, guardedRead('GET /api/apps/:slug/data', false, (req, res) => {
     const a = getApp(req.params.slug);
     const limit = pageLimit(req.query.limit);
     const beforeId = pageBeforeId(req.query.before_id);
@@ -149,7 +151,7 @@ export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void
     });
   });
 
-  app.get('/api/apps/:slug/files', { action: 'app-data.files', kind: 'read' }, guardedRead('GET /api/apps/:slug/files', false, (req, res) => {
+  app.get('/api/apps/:slug/files', { action: 'app-data.files', kind: 'read', statusNotVerdict: APP_READ_DECIDES }, guardedRead('GET /api/apps/:slug/files', false, (req, res) => {
     const a = getApp(req.params.slug);
     const limit = pageLimit(req.query.limit);
     const beforeId = pageBeforeId(req.query.before_id);
@@ -194,7 +196,7 @@ export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void
     res.json({ ok: true, id: Number(req.params.id), deleted: 'soft' });
   });
 
-  app.get('/api/apps/:slug/files/:id', { action: 'app-data.download', kind: 'read' }, guardedRead('GET /api/apps/:slug/files/:id', true, (req, res) => {
+  app.get('/api/apps/:slug/files/:id', { action: 'app-data.download', kind: 'read', statusNotVerdict: APP_READ_DECIDES }, guardedRead('GET /api/apps/:slug/files/:id', true, (req, res) => {
     const a = getApp(req.params.slug);
     const row = svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug) as any;
     if (!row) throw new HttpError(404, `file not found: ${req.params.id}`);
