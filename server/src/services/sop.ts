@@ -32,6 +32,10 @@ export class SopService extends Service {
   runStatusData(id: number) {
     return db.prepare('SELECT status, data FROM sop_runs WHERE id = ?').get(id);
   }
+  /** /a2a/direct 开 run 时回给对端的上传令牌（创建者即得） */
+  runUploadToken(id: number) {
+    return db.prepare('SELECT upload_token FROM sop_runs WHERE id = ?').get(id);
+  }
   runSaveData(id: number, data: string) {
     return db.prepare("UPDATE sop_runs SET data = ?, updated_at = datetime('now') WHERE id = ?").run(data, id);
   }

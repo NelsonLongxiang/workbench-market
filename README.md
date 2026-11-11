@@ -398,6 +398,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   task-center.ts（任务中心：任务、事件、总开关、状态迁移）
   work-item.ts（事项与事项日志：Cordis 服务 `workItems`·按迁移表推进状态的唯一入口 `apply`·日志只增不改；听 workbench-events 每写一行事件日志发的 `workbench-event/logged`，在来源的事务里用保存点推进事项，出错不影响来源、按事实种类计数；`backfill()` 从事件表和事件日志补建存量事项，可重跑；建事项时标题取任务中心的任务标题（取不到退到来源坐标）、派给取投递的目标团队，存量里还是自动缺省值的启动时补上；建立人主体 `creator_principal` 只取发布时经身份服务认出、来源已验证的人，认不出就空着，「是不是他的」只认它（`isCreator`），`created_by` 只用于显示（认出提需求人时就是他的主体，认不出才用事件上自填的名字；不拿发布人顶替））
 server/src/routes/    按域分的路由模块，各带一个注册函数（一个文件一行，按文件名排序）：
+  a2a-direct.ts（A2A 入站 /a2a/direct：POST 收对端投递（回执分流、入站签名、绑定准入），GET 一律 404）
   a2a-peers.ts（对端登记表 /api/a2a/peers：列出和健康、登记、刷新名片、确认新公钥、停用、重新启用，只有管理员能用）
   admin-token.ts（管理口令 /api/admin/whoami、/api/admin-token）
   agent-card.ts（A2A 签名卡片 /.well-known/agent-card.json）
