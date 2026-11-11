@@ -377,6 +377,16 @@ try {
       rr = rosterRaw(LABFP, at5, { host: LABFP, at: at5, seats: [{ seat: 'lab/d6d6d6d6', name: '正常再报', team: 'lab/canvas/other', role: 'router', online: true }] }, 'roster-lab-5');
       r = await post(rr, signed(lab, rr));
       ok('……之后这台正常再报一版 → recorded（没被将来的时间卡住）', r.text.includes('"roster":"recorded"') && labRow()?.reported_at === at5 && labRow()?.peer_zone === 'lab', `${r.text.slice(0, 120)} ${JSON.stringify(labRow())}`);
+      // 节点键必须是签名方自己公钥的指纹：报一个表里还没有、也不是自己指纹的节点键 → 不收，不能抢先占住
+      const other = 'f0e1d2c3';
+      rr = rosterRaw(other, at5, { host: other, at: at5, seats: [{ seat: 'evil/e8e8e8e8', name: '抢占的', team: 'evil/canvas/t', role: 'router', online: true }] }, 'roster-evil-2');
+      r = await post(rr, signed(evil, rr));
+      ok('对抗：签名方报一个不是自己公钥指纹、表里还没有的节点键 → 不收，表里不多出这一行', r.text.includes('"roster":"not-accepted"') && q('SELECT COUNT(*) AS c FROM a2a_rosters WHERE host = ?', other)[0].c === 0 && other !== fpOf(evil.key), r.text.slice(0, 120));
+      // 上限是收到时间加签名时间窗（5 分钟）：现在 + 10 分钟也不收
+      const soon = new Date(Date.now() + 10 * 60_000).toISOString();
+      rr = rosterRaw(LABFP, soon, { host: LABFP, at: soon, seats: [{ seat: 'lab/f9f9f9f9', name: '十分钟后', team: 'lab/canvas/team', role: 'member', online: true }] }, 'roster-lab-soon');
+      r = await post(rr, signed(lab, rr));
+      ok('对抗：报的时间是现在 + 10 分钟（超过签名时间窗）→ 不收', r.text.includes('"roster":"not-accepted"') && labRow()?.reported_at === at5, `${r.text.slice(0, 120)} ${JSON.stringify(labRow())}`);
       // 凑出指纹相同的公钥、换个根地址来报（这里直接用同一把钥匙模拟撞键）→ 这个节点键已经由别的根地址报过，不收
       const twin = await peer('twin', lab.key);
       seedEvent({ zone: 'twin', root: twin.url });
