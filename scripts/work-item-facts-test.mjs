@@ -188,7 +188,7 @@ try {
       const eventId = build(SCENARIOS['撤回后对方仍接单 → 撤回（接单留一行被拒记录）']);
       items.backfill();
       const log = items.log(itemIdForEvent(eventId)), last = log.at(-1), d = JSON.parse(last.detail);
-      check(items.get(itemIdForEvent(eventId)).state === 'cancelled' && last.fact === 'eval' && last.from_state === 'cancelled' && last.to_state === 'cancelled' && d.rejected === 'terminal' && d.note === '收到，未采信',
+      check(items.get(itemIdForEvent(eventId)).state === 'cancelled' && last.fact === 'eval' && last.from_state === 'cancelled' && last.to_state === 'cancelled' && last.rejected === 'terminal' && d.note === '收到，未采信',
         '终态之后来的接单：状态不动，日志多一行「收到，未采信」带原因 terminal', show(last));
       const n = log.length;
       items.backfill();

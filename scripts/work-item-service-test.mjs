@@ -155,10 +155,10 @@ try {
     return it.id;
   };
   const logCount = (id) => items.log(id).length;
-  /** 按 f8d07a9：形式良好但被拒的事实留一行 from = to 的日志，detail 带原因；同一条再送一次，不再多一行。返回不对的地方（空串 = 对） */
+  /** 按 f8d07a9：形式良好但被拒的事实留一行 from = to 的日志，原因记在单独的 rejected 列（不在调用方能写的 detail 里）；同一条再送一次，不再多一行。返回不对的地方（空串 = 对） */
   const rejectedOnce = (id, f, r, state, before, reason) => {
     const last = items.log(id).at(-1), d = JSON.parse(last.detail);
-    if (!(r.ok === false && r.reason === reason && items.get(id).state === state && logCount(id) === before + 1 && last.fact === f.kind && last.fact_id === f.id && last.from_state === state && last.to_state === state && d.rejected === reason))
+    if (!(r.ok === false && r.reason === reason && items.get(id).state === state && logCount(id) === before + 1 && last.fact === f.kind && last.fact_id === f.id && last.from_state === state && last.to_state === state && last.rejected === reason && d.rejected === undefined))
       return `应被拒（${reason}）并留一行，得到 ${show(r)}，日志 ${before} → ${logCount(id)}，最后一行 ${show(last)}`;
     const again = items.apply(id, { ...f });
     if (!(again.ok === false && again.reason === reason && again.duplicate && logCount(id) === before + 1 && items.get(id).state === state)) return `被拒的那条再送一次，不该再多一行：${show(again)}，日志 ${logCount(id)}`;
@@ -320,6 +320,24 @@ try {
     check(/不删除/.test(throws(() => db.prepare('UPDATE OR REPLACE work_items SET id = ? WHERE id = ?').run(id, other.id))) && items.get(id)?.state === 'progress' && items.get(other.id), '改 id 撞上另一个事项（UPDATE OR REPLACE 会顶掉它）：被库拒绝');
     const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(items)).filter((m) => /state/i.test(m) && m !== 'constructor');
     check(methods.length === 0, '服务上没有带 state 字样的方法（唯一的改状态入口是 apply）', show(methods));
+  }
+
+  // ---------- 六·补、调用方伪造被拒标记（8b 验收提的加固）----------
+  {
+    const id = reach('accepted');
+    const forged = fact('report·progress', { rejected: 'terminal', detail: { rejected: 'terminal' } });
+    const r = items.apply(id, forged), last = items.log(id).at(-1);
+    check(r.ok && r.state === 'progress' && last.rejected === '' && JSON.parse(last.detail).rejected === undefined, '事实里夹一个 rejected 字段：照常推进，日志的 rejected 列是空的，detail 里也不留这个键', show({ r, last }));
+    const again = items.apply(id, { ...forged });
+    check(again.ok === true && again.duplicate === true, '再送一次：按成功的重复答，不会被读成「第一次被拒」', show(again));
+    const askF = fact('ask', { rejected: 'not_allowed' });
+    items.apply(id, askF);
+    const ans = items.apply(id, fact('answer·答一条没问过的提问', { ask_id: askF.id }));
+    check(ans.ok && ans.recorded && !ans.duplicate, '提问里夹 rejected 字段：仍算问过，答复照常接受', show(ans));
+    const real = reach('done'), rf = fact('report·progress');
+    items.apply(real, rf);
+    const back = items.apply(real, { ...rf, rejected: '' });
+    check(back.ok === false && back.reason === 'terminal' && back.duplicate === true, '反过来：真被拒的那条，再送时夹 rejected 为空也改不了第一次的结果', show(back));
   }
 
   // ---------- 七、事实的形状 ----------

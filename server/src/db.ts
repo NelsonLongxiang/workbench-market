@@ -718,6 +718,21 @@ CREATE TRIGGER IF NOT EXISTS work_items_no_rekey BEFORE UPDATE OF id ON work_ite
 CREATE TRIGGER IF NOT EXISTS work_items_start_draft BEFORE INSERT ON work_items WHEN NEW.state <> 'draft'
   BEGIN SELECT RAISE(ABORT, '事项一律从 draft 开始'); END;
 `);
+// 阶段八 8c 前：被拒的事实（f8d07a9）原因记在 work_item_log 单独的 rejected 列，不再放调用方能写的 detail 里。
+//   旧库补列，并把 8b 写在 detail.rejected 里的原因搬过来（那时只有事项服务自己写日志，detail.rejected 都是真的）。
+//   日志只增不改：搬的这一次在同一个事务里先拿掉改写触发器、改完立刻装回；补列之后不会再走这段。
+if (!(db.prepare('PRAGMA table_info(work_item_log)').all() as { name: string }[]).some((c) => c.name === 'rejected')) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.exec(`ALTER TABLE work_item_log ADD COLUMN rejected TEXT NOT NULL DEFAULT '' CHECK (rejected IN ('', 'not_allowed', 'terminal'));
+DROP TRIGGER IF EXISTS work_item_log_no_update;
+UPDATE work_item_log SET rejected = json_extract(detail, '$.rejected'), detail = json_remove(detail, '$.rejected')
+  WHERE json_extract(detail, '$.rejected') IN ('not_allowed', 'terminal');
+CREATE TRIGGER work_item_log_no_update BEFORE UPDATE ON work_item_log
+  BEGIN SELECT RAISE(ABORT, 'work_item_log 只增不改'); END;`);
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+}
 // #337: a durable monotonic generation invalidates stale Redis snapshots, including same-value writes.
 {
   const cols = db.prepare('PRAGMA table_info(sop_runs)').all() as { name: string }[];

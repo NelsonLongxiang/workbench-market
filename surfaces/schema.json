@@ -467,7 +467,8 @@
       "to_state TEXT NOT NULL",
       "actor TEXT NOT NULL DEFAULT ''",
       "detail TEXT NOT NULL DEFAULT '{}'",
-      "at TEXT NOT NULL DEFAULT datetime('now')"
+      "at TEXT NOT NULL DEFAULT datetime('now')",
+      "rejected TEXT NOT NULL DEFAULT ''"
     ],
     "work_items": [
       "id TEXT PK",
