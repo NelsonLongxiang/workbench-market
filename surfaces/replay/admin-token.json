@@ -1,0 +1,657 @@
+{
+  "domain": "admin-token",
+  "what": "管理口令：/api/admin/whoami 和 /api/admin-token 的 4 条路由（查自己是不是管理员、口令状态、设置、清除）。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。口令都是合成的；库里只存加盐哈希，任何应答里都没有。",
+  "routes": ["GET /api/admin/whoami", "GET /api/admin-token/state", "PUT /api/admin-token", "DELETE /api/admin-token"],
+  "exempt": [
+    { "route": "GET /api/admin/whoami", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体；口令不对只是回「不是管理员」，没有会被拒的输入", "shown_by": "open/whoami-junk-query" },
+    { "route": "GET /api/admin-token/state", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入", "shown_by": "open/state-fresh-local" }
+  ],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "缺省配置：登录门关，环境没给口令。走一遍首次设置、改、清。",
+      "env": {},
+      "steps": [
+        {
+          "id": "state-fresh-local",
+          "route": "GET /api/admin-token/state",
+          "class": "normal",
+          "what": "新库、本机：口令来源是「没有」，本机可以首次设置",
+          "request": { "method": "GET", "path": "/api/admin-token/state" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "source": "none", "settable": true } }
+        },
+        {
+          "id": "state-fresh-remote",
+          "route": "GET /api/admin-token/state",
+          "class": "normal",
+          "what": "新库、远程：不能首次设置",
+          "request": { "method": "GET", "path": "/api/admin-token/state", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "source": "none", "settable": false } }
+        },
+        {
+          "id": "state-fresh-browser",
+          "route": "GET /api/admin-token/state",
+          "class": "normal",
+          "what": "新库、本机但带浏览器标记、Origin 不是本站：不算本机，不能首次设置",
+          "request": { "method": "GET", "path": "/api/admin-token/state", "headers": { "sec-fetch-site": "same-origin", "origin": "https://elsewhere.example" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "x-powered-by": "Express" }, "body": { "source": "none", "settable": false } }
+        },
+        {
+          "id": "whoami-fresh",
+          "route": "GET /api/admin/whoami",
+          "class": "normal",
+          "what": "新库：谁都不是管理员",
+          "request": { "method": "GET", "path": "/api/admin/whoami" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "admin": false, "via": null, "login": null }
+          }
+        },
+        {
+          "id": "whoami-fresh-token",
+          "route": "GET /api/admin/whoami",
+          "class": "normal",
+          "what": "新库、带了口令：库里没有口令，照样不是",
+          "request": { "method": "GET", "path": "/api/admin/whoami", "headers": { "x-admin-token": "replay-first-token" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "admin": false, "via": null, "login": null }
+          }
+        },
+        {
+          "id": "whoami-junk-query",
+          "route": "GET /api/admin/whoami",
+          "class": "normal",
+          "what": "这条路由不读查询串",
+          "request": { "method": "GET", "path": "/api/admin/whoami?as=admin&x[]=1" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "admin": false, "via": null, "login": null }
+          }
+        },
+        {
+          "id": "first-remote",
+          "route": "PUT /api/admin-token",
+          "class": "unauthorized",
+          "what": "首次设置、远程：拒",
+          "request": { "method": "PUT", "path": "/api/admin-token", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "token": "replay-first-token" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "85", "etag": "W/\"55-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "首次设置口令仅限本机命令行/本机页面，或 Odoo 管理员" } }
+        },
+        {
+          "id": "first-cross-origin",
+          "route": "PUT /api/admin-token",
+          "class": "unauthorized",
+          "what": "首次设置、浏览器从别的站点发来：拒",
+          "request": { "method": "PUT", "path": "/api/admin-token", "headers": { "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": { "token": "replay-first-token" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "85", "etag": "W/\"55-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "首次设置口令仅限本机命令行/本机页面，或 Odoo 管理员" } }
+        },
+        {
+          "id": "first-other-origin",
+          "route": "PUT /api/admin-token",
+          "class": "unauthorized",
+          "what": "首次设置、本机但 Origin 是别的主机：拒",
+          "request": { "method": "PUT", "path": "/api/admin-token", "headers": { "origin": "https://elsewhere.example" }, "json": { "token": "replay-first-token" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "85", "etag": "W/\"55-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "首次设置口令仅限本机命令行/本机页面，或 Odoo 管理员" } }
+        },
+        {
+          "id": "first-browser-marked",
+          "route": "PUT /api/admin-token",
+          "class": "unauthorized",
+          "what": "首次设置、本机但带浏览器标记、没有 Origin：不算本机命令行，拒",
+          "request": { "method": "PUT", "path": "/api/admin-token", "headers": { "sec-fetch-site": "same-origin" }, "json": { "token": "replay-first-token" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "85", "etag": "W/\"55-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "首次设置口令仅限本机命令行/本机页面，或 Odoo 管理员" } }
+        },
+        {
+          "id": "too-short",
+          "route": "PUT /api/admin-token",
+          "class": "invalid",
+          "what": "口令 3 个字符",
+          "request": { "method": "PUT", "path": "/api/admin-token", "json": { "token": "abc" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "口令长度 4–128" } }
+        },
+        {
+          "id": "too-long",
+          "route": "PUT /api/admin-token",
+          "class": "invalid",
+          "what": "口令 129 个字符",
+          "request": { "method": "PUT", "path": "/api/admin-token", "json": { "token": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "口令长度 4–128" } }
+        },
+        {
+          "id": "not-string",
+          "route": "PUT /api/admin-token",
+          "class": "invalid",
+          "what": "口令是数字",
+          "request": { "method": "PUT", "path": "/api/admin-token", "json": { "token": 12345 } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "口令长度 4–128" } }
+        },
+        {
+          "id": "no-token",
+          "route": "PUT /api/admin-token",
+          "class": "invalid",
+          "what": "没给口令",
+          "request": { "method": "PUT", "path": "/api/admin-token", "json": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "口令长度 4–128" } }
+        },
+        {
+          "id": "malformed-json",
+          "route": "PUT /api/admin-token",
+          "class": "invalid",
+          "what": "请求体不是合法 JSON",
+          "request": { "method": "PUT", "path": "/api/admin-token", "headers": { "content-type": "application/json" }, "text": "{" },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "请求体不是合法 JSON" } }
+        },
+        {
+          "id": "too-short-remote",
+          "route": "PUT /api/admin-token",
+          "class": "invalid",
+          "what": "口令太短、而且是远程：先报长度",
+          "request": { "method": "PUT", "path": "/api/admin-token", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "token": "abc" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "口令长度 4–128" } }
+        },
+        {
+          "id": "first-local",
+          "route": "PUT /api/admin-token",
+          "class": "normal",
+          "what": "首次设置、本机命令行：4 个字符也收",
+          "request": { "method": "PUT", "path": "/api/admin-token", "json": { "token": "abcd" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "99", "etag": "W/\"63-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "source": "db", "note": "口令已设置并立即生效（库存 sha256，不可取回）" }
+          }
+        },
+        {
+          "id": "state-db",
+          "route": "GET /api/admin-token/state",
+          "class": "normal",
+          "what": "设了之后：来源是库，可以改",
+          "request": { "method": "GET", "path": "/api/admin-token/state" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "source": "db", "settable": true } }
+        },
+        {
+          "id": "state-db-remote",
+          "route": "GET /api/admin-token/state",
+          "class": "normal",
+          "what": "设了之后、远程：可以改（凭旧口令）",
+          "request": { "method": "GET", "path": "/api/admin-token/state", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "source": "db", "settable": true } }
+        },
+        {
+          "id": "whoami-with-token",
+          "route": "GET /api/admin/whoami",
+          "class": "normal",
+          "what": "带对的口令：是管理员，经口令",
+          "request": { "method": "GET", "path": "/api/admin/whoami", "headers": { "x-admin-token": "abcd" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "admin": true, "via": "token", "login": null }
+          }
+        },
+        {
+          "id": "whoami-wrong-token",
+          "route": "GET /api/admin/whoami",
+          "class": "normal",
+          "what": "带错的口令：不是",
+          "request": { "method": "GET", "path": "/api/admin/whoami", "headers": { "x-admin-token": "abce" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "admin": false, "via": null, "login": null }
+          }
+        },
+        {
+          "id": "whoami-remote-token",
+          "route": "GET /api/admin/whoami",
+          "class": "normal",
+          "what": "远程带对的口令：是",
+          "request": { "method": "GET", "path": "/api/admin/whoami", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "abcd" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "admin": true, "via": "token", "login": null }
+          }
+        },
+        {
+          "id": "change-no-current",
+          "route": "PUT /api/admin-token",
+          "class": "unauthorized",
+          "what": "改口令、本机、不带当前口令：拒（改的时候本机也要当前口令）",
+          "request": { "method": "PUT", "path": "/api/admin-token", "json": { "token": "replay-first-token" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "109", "etag": "W/\"6d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "修改口令需先在请求头带上当前口令（X-Admin-Token），或用 Odoo 管理员登录" }
+          }
+        },
+        {
+          "id": "change-wrong-current",
+          "route": "PUT /api/admin-token",
+          "class": "unauthorized",
+          "what": "改口令、带错的当前口令：拒",
+          "request": { "method": "PUT", "path": "/api/admin-token", "headers": { "x-admin-token": "abce" }, "json": { "token": "replay-first-token" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "109", "etag": "W/\"6d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "修改口令需先在请求头带上当前口令（X-Admin-Token），或用 Odoo 管理员登录" }
+          }
+        },
+        {
+          "id": "change-current-cross-origin",
+          "route": "PUT /api/admin-token",
+          "class": "unauthorized",
+          "what": "改口令、带对的当前口令但浏览器从别的站点发来：拒",
+          "request": { "method": "PUT", "path": "/api/admin-token", "headers": { "x-admin-token": "abcd", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": { "token": "replay-first-token" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "109", "etag": "W/\"6d-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "修改口令需先在请求头带上当前口令（X-Admin-Token），或用 Odoo 管理员登录" } }
+        },
+        {
+          "id": "change-with-current",
+          "route": "PUT /api/admin-token",
+          "class": "normal",
+          "what": "改口令、带对的当前口令",
+          "request": { "method": "PUT", "path": "/api/admin-token", "headers": { "x-admin-token": "abcd" }, "json": { "token": "replay-first-token" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "99", "etag": "W/\"63-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "source": "db", "note": "口令已设置并立即生效（库存 sha256，不可取回）" }
+          }
+        },
+        {
+          "id": "old-token-gone",
+          "route": "GET /api/admin/whoami",
+          "class": "normal",
+          "what": "旧口令不再管用",
+          "request": { "method": "GET", "path": "/api/admin/whoami", "headers": { "x-admin-token": "abcd" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "admin": false, "via": null, "login": null }
+          }
+        },
+        {
+          "id": "new-token-works",
+          "route": "GET /api/admin/whoami",
+          "class": "normal",
+          "what": "新口令管用",
+          "request": { "method": "GET", "path": "/api/admin/whoami", "headers": { "x-admin-token": "replay-first-token" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "admin": true, "via": "token", "login": null }
+          }
+        },
+        {
+          "id": "change-remote-with-current",
+          "route": "PUT /api/admin-token",
+          "class": "normal",
+          "what": "远程改口令、带对的当前口令",
+          "request": { "method": "PUT", "path": "/api/admin-token", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-first-token" }, "json": { "token": "replay-second-token" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "99", "etag": "W/\"63-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "source": "db", "note": "口令已设置并立即生效（库存 sha256，不可取回）" }
+          }
+        },
+        {
+          "id": "delete-no-token",
+          "route": "DELETE /api/admin-token",
+          "class": "unauthorized",
+          "what": "清口令、本机、不带口令：拒",
+          "request": { "method": "DELETE", "path": "/api/admin-token" },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "需当前口令或 Odoo 管理员登录" } }
+        },
+        {
+          "id": "delete-wrong-token",
+          "route": "DELETE /api/admin-token",
+          "class": "unauthorized",
+          "what": "清口令、带错的口令：拒",
+          "request": { "method": "DELETE", "path": "/api/admin-token", "headers": { "x-admin-token": "replay-first-token" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "需当前口令或 Odoo 管理员登录" } }
+        },
+        {
+          "id": "delete-cross-origin",
+          "route": "DELETE /api/admin-token",
+          "class": "unauthorized",
+          "what": "清口令、带对的口令但浏览器从别的站点发来：拒",
+          "request": { "method": "DELETE", "path": "/api/admin-token", "headers": { "x-admin-token": "replay-second-token", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "需当前口令或 Odoo 管理员登录" } }
+        },
+        {
+          "id": "delete-with-token",
+          "route": "DELETE /api/admin-token",
+          "class": "normal",
+          "what": "清口令、带对的口令",
+          "request": { "method": "DELETE", "path": "/api/admin-token", "headers": { "x-admin-token": "replay-second-token" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "source": "none" } }
+        },
+        {
+          "id": "state-after-delete",
+          "route": "GET /api/admin-token/state",
+          "class": "normal",
+          "what": "清了之后：回到「没有」",
+          "request": { "method": "GET", "path": "/api/admin-token/state" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "source": "none", "settable": true } }
+        },
+        {
+          "id": "whoami-after-delete",
+          "route": "GET /api/admin/whoami",
+          "class": "normal",
+          "what": "清了之后：刚才的口令不再管用",
+          "request": { "method": "GET", "path": "/api/admin/whoami", "headers": { "x-admin-token": "replay-second-token" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "admin": false, "via": null, "login": null }
+          }
+        },
+        {
+          "id": "delete-when-none",
+          "route": "DELETE /api/admin-token",
+          "class": "unauthorized",
+          "what": "库里已经没有口令再清：要当前口令，拒",
+          "request": { "method": "DELETE", "path": "/api/admin-token", "headers": { "x-admin-token": "replay-second-token" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "需当前口令或 Odoo 管理员登录" } }
+        }
+      ]
+    },
+    {
+      "name": "env",
+      "what": "口令由启动环境给（ADMIN_TOKEN，合成值）：页面不能改也不能清。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "steps": [
+        {
+          "id": "state-env",
+          "route": "GET /api/admin-token/state",
+          "class": "normal",
+          "what": "口令来自启动环境：来源是 env，页面不能改",
+          "request": { "method": "GET", "path": "/api/admin-token/state" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "source": "env", "settable": false } }
+        },
+        {
+          "id": "whoami-env-token",
+          "route": "GET /api/admin/whoami",
+          "class": "normal",
+          "what": "带环境里的口令：是管理员",
+          "request": { "method": "GET", "path": "/api/admin/whoami", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "admin": true, "via": "token", "login": null }
+          }
+        },
+        {
+          "id": "put-env",
+          "route": "PUT /api/admin-token",
+          "class": "invalid",
+          "what": "口令来自环境：页面不可改，400",
+          "request": { "method": "PUT", "path": "/api/admin-token", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "token": "replay-first-token" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "100", "etag": "W/\"64-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "口令由启动环境 ADMIN_TOKEN 提供，页面不可改（改环境变量并重启）" }
+          }
+        },
+        {
+          "id": "put-env-bad-length",
+          "route": "PUT /api/admin-token",
+          "class": "invalid",
+          "what": "口令来自环境、新口令长度也不对：先报来自环境",
+          "request": { "method": "PUT", "path": "/api/admin-token", "json": { "token": "a" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "100", "etag": "W/\"64-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "口令由启动环境 ADMIN_TOKEN 提供，页面不可改（改环境变量并重启）" }
+          }
+        },
+        {
+          "id": "delete-env",
+          "route": "DELETE /api/admin-token",
+          "class": "invalid",
+          "what": "口令来自环境：页面不可清，400",
+          "request": { "method": "DELETE", "path": "/api/admin-token", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "66", "etag": "W/\"42-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "口令来自启动环境，需清环境变量并重启" } }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce），管理口令由环境给（合成值）。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "steps": [
+        {
+          "id": "whoami-anonymous",
+          "route": "GET /api/admin/whoami",
+          "class": "unauthorized",
+          "what": "登录门开着，远程匿名",
+          "request": { "method": "GET", "path": "/api/admin/whoami", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "state-anonymous",
+          "route": "GET /api/admin-token/state",
+          "class": "unauthorized",
+          "what": "登录门开着，远程匿名",
+          "request": { "method": "GET", "path": "/api/admin-token/state", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "whoami-browser-anonymous",
+          "route": "GET /api/admin/whoami",
+          "class": "unauthorized",
+          "what": "登录门开着，本机带浏览器标记",
+          "request": { "method": "GET", "path": "/api/admin/whoami", "headers": { "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "state-wrong-token",
+          "route": "GET /api/admin-token/state",
+          "class": "unauthorized",
+          "what": "登录门开着，口令不对",
+          "request": { "method": "GET", "path": "/api/admin-token/state", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "not-the-token" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "whoami-with-token",
+          "route": "GET /api/admin/whoami",
+          "class": "normal",
+          "what": "登录门开着，远程带口令",
+          "request": { "method": "GET", "path": "/api/admin/whoami", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "admin": true, "via": "token", "login": null }
+          }
+        },
+        {
+          "id": "state-with-token",
+          "route": "GET /api/admin-token/state",
+          "class": "normal",
+          "what": "登录门开着，远程带口令",
+          "request": { "method": "GET", "path": "/api/admin-token/state", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "source": "env", "settable": false } }
+        },
+        {
+          "id": "put-anonymous",
+          "route": "PUT /api/admin-token",
+          "class": "unauthorized",
+          "what": "登录门开着，远程匿名改口令",
+          "request": { "method": "PUT", "path": "/api/admin-token", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "token": "replay-first-token" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "delete-anonymous",
+          "route": "DELETE /api/admin-token",
+          "class": "unauthorized",
+          "what": "登录门开着，远程匿名清口令",
+          "request": { "method": "DELETE", "path": "/api/admin-token", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "odoo-admin",
+      "what": "登录提供方换成假的（测试夹具，不访问外部系统）：Odoo 管理员的会话也算管理员，能首次设置、改、清口令；普通员工不算。",
+      "env": {},
+      "fixtures": ["identity-fake"],
+      "steps": [
+        {
+          "id": "whoami-odoo-admin-remote",
+          "route": "GET /api/admin/whoami",
+          "class": "normal",
+          "what": "远程、Odoo 管理员的会话：是管理员，经 Odoo，带登录名",
+          "request": { "method": "GET", "path": "/api/admin/whoami", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "session_id=fake-internal-admin-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "48", "etag": "W/\"30-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "admin": true, "via": "odoo", "login": "root-admin" }
+          }
+        },
+        {
+          "id": "whoami-odoo-staff-remote",
+          "route": "GET /api/admin/whoami",
+          "class": "normal",
+          "what": "远程、普通员工的会话：不是",
+          "request": { "method": "GET", "path": "/api/admin/whoami", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "admin": false, "via": null, "login": null }
+          }
+        },
+        {
+          "id": "state-odoo-admin-remote",
+          "route": "GET /api/admin-token/state",
+          "class": "normal",
+          "what": "远程、Odoo 管理员：新库也可以首次设置",
+          "request": { "method": "GET", "path": "/api/admin-token/state", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "session_id=fake-internal-admin-0001" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "source": "none", "settable": true } }
+        },
+        {
+          "id": "state-odoo-staff-remote",
+          "route": "GET /api/admin-token/state",
+          "class": "normal",
+          "what": "远程、普通员工：不能",
+          "request": { "method": "GET", "path": "/api/admin-token/state", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "source": "none", "settable": false } }
+        },
+        {
+          "id": "first-odoo-staff-remote",
+          "route": "PUT /api/admin-token",
+          "class": "unauthorized",
+          "what": "远程、普通员工首次设置：拒",
+          "request": { "method": "PUT", "path": "/api/admin-token", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "token": "replay-first-token" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "85", "etag": "W/\"55-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "首次设置口令仅限本机命令行/本机页面，或 Odoo 管理员" } }
+        },
+        {
+          "id": "first-odoo-admin-remote",
+          "route": "PUT /api/admin-token",
+          "class": "normal",
+          "what": "远程、Odoo 管理员首次设置：可以",
+          "request": { "method": "PUT", "path": "/api/admin-token", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "session_id=fake-internal-admin-0001" }, "json": { "token": "replay-first-token" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "99", "etag": "W/\"63-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "source": "db", "note": "口令已设置并立即生效（库存 sha256，不可取回）" }
+          }
+        },
+        {
+          "id": "change-odoo-admin-remote",
+          "route": "PUT /api/admin-token",
+          "class": "normal",
+          "what": "远程、Odoo 管理员不带当前口令也能改",
+          "request": { "method": "PUT", "path": "/api/admin-token", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "session_id=fake-internal-admin-0001" }, "json": { "token": "replay-second-token" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "99", "etag": "W/\"63-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "source": "db", "note": "口令已设置并立即生效（库存 sha256，不可取回）" }
+          }
+        },
+        {
+          "id": "whoami-token-and-odoo",
+          "route": "GET /api/admin/whoami",
+          "class": "normal",
+          "what": "同时带口令和 Odoo 管理员会话：口令优先，login 不填",
+          "request": { "method": "GET", "path": "/api/admin/whoami", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-second-token", "cookie": "session_id=fake-internal-admin-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "admin": true, "via": "token", "login": null }
+          }
+        },
+        {
+          "id": "delete-odoo-staff-remote",
+          "route": "DELETE /api/admin-token",
+          "class": "unauthorized",
+          "what": "远程、普通员工清口令：拒",
+          "request": { "method": "DELETE", "path": "/api/admin-token", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "需当前口令或 Odoo 管理员登录" } }
+        },
+        {
+          "id": "delete-odoo-admin-remote",
+          "route": "DELETE /api/admin-token",
+          "class": "normal",
+          "what": "远程、Odoo 管理员清口令：可以",
+          "request": { "method": "DELETE", "path": "/api/admin-token", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "session_id=fake-internal-admin-0001" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "source": "none" } }
+        }
+      ]
+    }
+  ]
+}
