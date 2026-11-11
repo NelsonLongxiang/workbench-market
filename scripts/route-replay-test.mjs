@@ -34,6 +34,8 @@ import { createRequire } from 'node:module';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
+import { gunzipSync } from 'node:zlib';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -134,7 +136,7 @@ export function checkCassette(cassette, known, moduleRouteCount = null, answered
       if (!method || !path.startsWith('/')) { problems.push(`${where}：request 要有 method 和以 / 开头的 path`); continue; }
       if (step.request.raw !== undefined && step.request.raw !== true) { problems.push(`${where}：request.raw 只能写 true（路径原样发出去）`); continue; }
       if (step.verify !== undefined && !(step.verify in VERIFIERS)) { problems.push(`${where}：verify 只能是 ${Object.keys(VERIFIERS).join('、')}`); continue; }
-      if (step.vary !== undefined && !(step.vary && typeof step.vary === 'object' && !Array.isArray(step.vary) && Object.keys(step.vary).length > 0 && Object.entries(step.vary).every(([k, h]) => (k === '$text' ? h === 'hex64' : h === 'random' || (typeof h === 'number' && h > 0))))) { problems.push(`${where}：vary 要写成 { 字段路径: 'random' 或一个正数 }，文本应答体写 { $text: 'hex64' }`); continue; }
+      if (step.vary !== undefined && !(step.vary && typeof step.vary === 'object' && !Array.isArray(step.vary) && Object.keys(step.vary).length > 0 && Object.entries(step.vary).every(([k, h]) => (k === '$text' ? h === 'hex64' : k.startsWith('$header:') ? /^\$header:[a-z0-9-]+$/.test(k) && h === 'random' : h === 'random' || (typeof h === 'number' && h > 0))))) { problems.push(`${where}：vary 要写成 { 字段路径: 'random' 或一个正数 }，文本应答体写 { $text: 'hex64' }，响应头写 { '$header:小写头名': 'random' }`); continue; }
       if (step.compare !== undefined && step.compare !== 'status' && !(Array.isArray(step.compare) && step.compare.length > 0 && step.compare.every((x) => typeof x === 'string' && x))) { problems.push(`${where}：compare 只能是 'status'，或者一组字段的路径`); continue; }
       if (step.route === undefined) continue;
       if (!covered.has(step.route)) { problems.push(`${where}：route 不在 routes 里：${step.route}`); continue; }
@@ -236,6 +238,38 @@ const pick = (value, path) => String(path).split('.').reduce((v, key) => (v == n
  * 路径原样发出去：request 上写 raw: true。fetch（WHATWG URL）发之前会把路径里的 .、..（连 %2e%2e 也算）规范掉，
  * 反斜杠也会换成斜杠，防穿越的拦截就收不到这种请求。原样发用 node:http，路径一个字不改；应答整理成和 fetch 一样的形状。
  */
+/**
+ * 打包的应答体（tar、tar.gz）：字节里带着随时间变的东西（tar 头的修改时刻、跟着它变的校验和），不能逐字比，也不能丢掉不比。
+ * 规范化之后记下来比：gzip 先解压；每个 512 字节的 tar 头块里，修改时刻（偏移 136–147）和校验和（148–155）换成 '?'，其余字节照旧。
+ * 条目是文本（UTF-8 能原样往返）的，内容里的时间照应答体的规矩换成占位（占位和原来一样长，大小、偏移都不变），
+ *   比如技能包里市场生成的 .wm-skill.json 带着版本的发布时刻（SQLite 的 datetime('now')，回放定的时钟管不到）。
+ * 记：规范化之后整个 tar 的长度和 sha256（头块里任何别的字节变了都看得出来）、每个条目的路径、大小、类型和内容的 sha256（哪一项变了一眼看出）。
+ * 不是 tar、tar.gz 的应答返回 null，照旧按文本或 JSON 比。
+ */
+export function archiveBody(type, buf) {
+  const gz = /application\/(x-)?gzip/i.test(type);
+  if (!gz && !/application\/(x-)?tar\b/i.test(type)) return null;
+  let tar;
+  try { tar = Buffer.from(gz ? gunzipSync(buf) : buf); } catch (e) { return { archive: gz ? 'tar.gz' : 'tar', error: `解不开：${String(e?.message ?? e).slice(0, 80)}` }; }
+  const sha = (b) => createHash('sha256').update(b).digest('hex');
+  const str = (b) => b.toString('utf8').replace(/\0[\s\S]*$/, '');
+  const entries = [];
+  for (let off = 0; off + 512 <= tar.length;) {
+    const head = tar.subarray(off, off + 512);
+    if (head.every((x) => x === 0)) break;
+    const name = str(head.subarray(0, 100)), prefix = str(head.subarray(345, 500));
+    const size = parseInt(str(head.subarray(124, 136)).trim() || '0', 8) || 0;
+    const kind = String.fromCharCode(head[156] || 0x30);
+    head.fill(0x3f, 136, 156); // 修改时刻和校验和
+    const content = tar.subarray(off + 512, off + 512 + size);
+    const text = content.toString('utf8');
+    if (Buffer.from(text, 'utf8').equals(content)) { const masked = Buffer.from(maskTime(text), 'utf8'); if (masked.length === content.length) masked.copy(content); }
+    entries.push({ path: prefix ? `${prefix}/${name}` : name, size, type: kind, sha256: sha(content) });
+    off += 512 + Math.ceil(size / 512) * 512;
+  }
+  return { archive: gz ? 'tar.gz' : 'tar', length: tar.length, normalized_sha256: sha(tar), entries };
+}
+
 function sendRaw(base, request, path, headers, body) {
   const url = new URL(base);
   return new Promise((resolve, reject) => {
@@ -243,12 +277,13 @@ function sendRaw(base, request, path, headers, body) {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => {
-        const text = Buffer.concat(chunks).toString('utf8');
+        const buf = Buffer.concat(chunks);
+        const text = buf.toString('utf8');
         const type = String(res.headers['content-type'] ?? '');
         const others = {};
         for (const [name, value] of Object.entries(res.headers)) if (name !== 'content-type' && name !== 'set-cookie') others[name] = Array.isArray(value) ? value.join(', ') : value;
         if (res.headers['set-cookie']?.length) others['set-cookie'] = res.headers['set-cookie'];
-        let parsed = text;
+        let parsed = archiveBody(type, buf) ?? text;
         if (/json/i.test(type)) { try { parsed = JSON.parse(text); } catch { /* 按文本比 */ } }
         resolve({ status: res.statusCode, type, headers: others, body: parsed });
       });
@@ -267,14 +302,15 @@ async function send(base, request, vars) {
   if (request.raw === true) return sendRaw(base, request, fill(request.path, vars), headers, body);
   // 不跟着跳转走：3xx 本身和它的 Location 就是要比的应答
   const res = await fetch(base + fill(request.path, vars), { method: request.method, headers, body, redirect: 'manual', signal: AbortSignal.timeout(15000) });
-  const text = await res.text();
+  const buf = Buffer.from(await res.arrayBuffer());
+  const text = buf.toString('utf8');
   const type = res.headers.get('content-type') ?? '';
   // 内容类型单独记在 type 里；Set-Cookie 可以有好几条，一条一条记，不拼成一行
   const others = {};
   for (const [name, value] of res.headers) if (name !== 'content-type' && name !== 'set-cookie') others[name] = value;
   const cookies = res.headers.getSetCookie();
   if (cookies.length) others['set-cookie'] = cookies;
-  let parsed = text;
+  let parsed = archiveBody(type, buf) ?? text; // 打包的应答体规范化之后比（见 archiveBody）
   if (/json/i.test(type)) { try { parsed = JSON.parse(text); } catch { /* 说是 JSON 但解析不了：按文本比 */ } }
   return { status: res.status, type, headers: others, body: parsed };
 }
@@ -327,6 +363,20 @@ export function applyVary(body, vary) {
 }
 
 /**
+ * 响应头里每次都不一样的值：vary 写 { '$header:小写头名': 'random' }，换成只留类型和长度的占位（和应答体的 'random' 一样）。
+ * 比如打包下载：gzip 的字节随包里的时刻变，Content-Length 的位数、X-Package-Sha256 的长度不变，有没有这个头照样比。
+ */
+export function applyHeaderVary(headers, vary) {
+  const out = { ...(headers ?? {}) };
+  for (const [key, how] of Object.entries(vary ?? {})) {
+    if (!key.startsWith('$header:') || how !== 'random') continue;
+    const name = key.slice('$header:'.length);
+    if (name in out) out[name] = `<每个实例随机·${typeof out[name]}·${String(out[name]).length}>`;
+  }
+  return out;
+}
+
+/**
  * 应答体要验的东西：请求上写 verify，值是下面的名字。验的结果记成 verified，和别的一样录下来比。
  * vary 把签名换成了只留长度的占位，签名坏了但长度不变时看不出来；这里在换之前先验。
  *   'a2a-card'：A2A 签名卡片，用卡片里的公钥验签名（和 server 用的是同一个库）。
@@ -348,6 +398,7 @@ export async function loadVerifiers(names) {
 
 export function shapeOf(step, raw) {
   if (step.compare === 'status') return { status: raw.status };
+  if (step.vary && Object.keys(step.vary).some((k) => k.startsWith('$header:'))) raw = { ...raw, headers: applyHeaderVary(raw.headers, step.vary) };
   let verified;
   if (step.verify) {
     const check = loadedVerifiers[step.verify];
@@ -607,6 +658,34 @@ async function selftest() {
   check(compareStep(recorded, answer({ type: 'text/html' })).join().includes('内容类型'), '比较：内容类型变了，报出来');
   check(compareStep({ response: { status: 200, type: 'a', headers: {}, body: { a: 1, b: 2 } } }, { status: 200, type: 'a', headers: {}, body: { b: 2, a: 1 } }).join().includes('顺序'), '比较：字段顺序变了，报出来');
   check(compareStep({ ...recorded, compare: 'status' }, { status: 200, type: 'x', body: 'y' }).length === 0, '比较：只比状态码的请求不看响应头和响应体');
+  const hv = { vary: { '$header:x-package-sha256': 'random', '$header:content-length': 'random' } };
+  const hvRec = { ...hv, response: shapeOf(hv, answer({ headers: { ...heads, 'x-package-sha256': 'a'.repeat(64), 'content-length': '4134' } })) };
+  check(compareStep(hvRec, shapeOf(hv, answer({ headers: { ...heads, 'x-package-sha256': 'b'.repeat(64), 'content-length': '4135' } }))).length === 0 && compareStep(hvRec, shapeOf(hv, answer({ headers: { ...heads, 'x-package-sha256': 'b'.repeat(63), 'content-length': '4135' } }))).join().includes('x-package-sha256') && compareStep(hvRec, shapeOf(hv, answer({ headers: { ...heads, 'content-length': '4135' } }))).join().includes('x-package-sha256') && compareStep(hvRec, shapeOf(hv, answer({ headers: { ...heads, vary: 'Cookie', 'x-package-sha256': 'b'.repeat(64), 'content-length': '4135' } }))).join().includes('响应头.vary'), 'vary：响应头点名的值只比类型和长度；长度变了、头没了、别的头变了都算差异');
+  check(checkCassette(withSteps([a, b, c, { id: 'v', vary: { '$header:X-Big': 'random' }, request: { method: 'GET', path: '/api/x' } }]), known).some((p) => p.includes('vary')) && checkCassette(withSteps([a, b, c, { id: 'v', vary: { '$header:etag': 7 }, request: { method: 'GET', path: '/api/x' } }]), known).some((p) => p.includes('vary')), 'vary：响应头只收小写头名和 random，写错了静态检查拦下');
+  // 打包的应答体：自己拼一个 tar（头块写名字、大小、修改时刻、校验和），看规范化之后什么算差异
+  const mkTar = (files, mtime) => {
+    const parts = [];
+    for (const f of files) {
+      const h = Buffer.alloc(512, 0); const body = Buffer.from(f.content);
+      h.write(f.path, 0); h.write('0000644\0', 100); h.write(body.length.toString(8).padStart(11, '0') + '\0', 124);
+      h.write(mtime.toString(8).padStart(11, '0') + '\0', 136); h.write(' '.repeat(8), 148); h.write('0', 156); h.write('ustar\0', 257);
+      let sum = 0; for (const x of h) sum += x; h.write(sum.toString(8).padStart(6, '0') + '\0 ', 148);
+      parts.push(h, body, Buffer.alloc((512 - (body.length % 512)) % 512, 0));
+    }
+    parts.push(Buffer.alloc(1024, 0)); return Buffer.concat(parts);
+  };
+  const FILES = [{ path: 'demo/SKILL.md', content: '# demo\n' }, { path: 'demo/run.sh', content: 'echo hi\n' }];
+  const t1 = archiveBody('application/x-tar', mkTar(FILES, 1000)), t2 = archiveBody('application/x-tar', mkTar(FILES, 2000));
+  const tByte = archiveBody('application/x-tar', mkTar([FILES[0], { ...FILES[1], content: 'echo ho\n' }], 1000));
+  const tPath = archiveBody('application/x-tar', mkTar([{ ...FILES[0], path: 'ns:demo/SKILL.md' }, FILES[1]], 1000));
+  const g1 = archiveBody('application/gzip', (await import('node:zlib')).gzipSync(mkTar(FILES, 1000))), g2 = archiveBody('application/gzip', (await import('node:zlib')).gzipSync(mkTar(FILES, 3000), { level: 1 }));
+  check(JSON.stringify(t1) === JSON.stringify(t2) && t1.entries.length === 2 && t1.entries[0].path === 'demo/SKILL.md' && t1.entries[0].size === 7, '打包的应答体：只有 tar 头里的修改时刻不同（校验和跟着变），规范化之后一样');
+  check(t1.normalized_sha256 !== tByte.normalized_sha256 && t1.entries[1].sha256 !== tByte.entries[1].sha256 && t1.normalized_sha256 !== tPath.normalized_sha256 && t1.entries[0].path !== tPath.entries[0].path, '打包的应答体：一个文件改一个字节、条目的路径（目录前缀）变了，都算差异');
+  check(JSON.stringify(g1.entries) === JSON.stringify(t1.entries) && g1.normalized_sha256 === t1.normalized_sha256 && g1.archive === 'tar.gz' && JSON.stringify(g1.entries) === JSON.stringify(g2.entries) && g1.normalized_sha256 === g2.normalized_sha256, '打包的应答体：tar.gz 先解压再规范化；压缩级别、里面的时刻不同照样一样');
+  const meta = (at) => [{ path: 'demo/.wm-skill.json', content: JSON.stringify({ published_at: at, v: 1 }) }, FILES[1]];
+  const m1 = archiveBody('application/x-tar', mkTar(meta('2026-11-11 07:00:01'), 1000)), m2 = archiveBody('application/x-tar', mkTar(meta('2026-11-11 07:00:59'), 1000)), m3 = archiveBody('application/x-tar', mkTar([{ ...meta('2026-11-11 07:00:01')[0], content: JSON.stringify({ published_at: '2026-11-11 07:00:01', v: 2 }) }, FILES[1]], 1000));
+  check(JSON.stringify(m1) === JSON.stringify(m2) && m1.entries[0].sha256 !== m3.entries[0].sha256 && m1.normalized_sha256 !== m3.normalized_sha256, '打包的应答体：文本条目里的时间换成占位（发布时刻不同算一样），别的字变了照样算差异');
+  check(archiveBody('application/json', Buffer.from('{}')) === null && archiveBody('text/plain', Buffer.from('x')) === null && archiveBody('application/gzip', Buffer.from('不是 gzip')).error, '打包的应答体：别的内容类型不管；说是 gzip 却解不开，记下来（照样比）');
   check(compareStep({}, answer()).join().includes('还没录过'), '比较：没录过的请求算差异');
   // verify
   await loadVerifiers(['a2a-card']);

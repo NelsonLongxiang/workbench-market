@@ -1,5 +1,6 @@
 /** 技能市场服务域（P0-a-2 建立 · P0-b 扩发布面）：数据访问收口，方法不做业务裁决。 */
 import { Service } from '@deepseek-ai/cordis';
+import type { SQLInputValue } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { db } from '../db.ts';
 
@@ -97,5 +98,34 @@ export class SkillService extends Service {
   }
   ledgerRevoke(id: number) {
     return db.prepare("UPDATE install_ledger SET status = 'revoked' WHERE id = ?").run(id);
+  }
+
+  // ---- 以下原文自 index.ts 的 /api/skills 路由（下载、迁移、摘要上报）搬入：同语句、同参数、同结果形状 ----
+  /** 下载票（库里只存票号的 sha256） */
+  ticketByKey(key: string) {
+    return db.prepare('SELECT * FROM skill_download_tickets WHERE id = ?').get(key);
+  }
+  /** 用满之后再来：记一次拒绝 */
+  ticketDenied(key: string) {
+    return db.prepare('UPDATE skill_download_tickets SET denied = denied + 1 WHERE id = ?').run(key);
+  }
+  ticketDownloaded(key: string) {
+    return db.prepare("UPDATE skill_download_tickets SET downloads = downloads + 1, last_download_at = datetime('now') WHERE id = ?").run(key);
+  }
+  /** 迁移：推 LayerFS 失败 */
+  versionShadowPublishFailed(id: number) {
+    return db.prepare("UPDATE skill_versions SET shadow_status='failed', shadow_error='LayerFS publish failed; retry migrate-layerfs' WHERE id=? AND commit_id=''").run(id);
+  }
+  /** 迁移：推上去了，读回的摘要对不上 */
+  versionShadowFailed(error: string, id: number) {
+    return db.prepare("UPDATE skill_versions SET shadow_status='failed', shadow_error=? WHERE id=? AND commit_id=''").run(error, id);
+  }
+  versionMigrated(commitId: string, id: number) {
+    return db.prepare("UPDATE skill_versions SET commit_id = ?, shadow_status='succeeded', shadow_error='' WHERE id = ?").run(commitId, id);
+  }
+  /** skillId 是技能行里取出来的原值（和原来直接交给 prepare 一样） */
+  digestReportInsert(skillId: SQLInputValue, version: number, digest: string, expected: string, matchResult: number, reportedBy: string) {
+    return db.prepare('INSERT INTO skill_digest_reports (skill_id, version, digest, expected, match_result, reported_by) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(skillId, version, digest, expected, matchResult, reportedBy);
   }
 }
