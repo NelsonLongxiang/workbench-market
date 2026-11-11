@@ -253,8 +253,11 @@ try {
     const doneId = reach('done'), dl = items.log(doneId).at(-1);
     items.apply(doneId, { kind: dl.fact, source: dl.fact_source, id: dl.fact_id, seat: '成员甲 · lab/a1b2c3d4' });
     check(items.get(doneId).seat === '成员甲 · lab/a1b2c3d4', '终态事项承接还空着：回填再核时同一条事实带 seat 来，补上', show(items.get(doneId).seat));
-    items.apply(doneId, { kind: dl.fact, source: dl.fact_source, id: dl.fact_id, seat: '晚到 · lab/ffffffff' });
-    check(items.get(doneId).seat === '成员甲 · lab/a1b2c3d4', '终态之后已有承接：同一条事实带别的 seat 再来，不改', show(items.get(doneId).seat));
+    items.apply(doneId, { kind: dl.fact, source: dl.fact_source, id: dl.fact_id, seat: 'lab/ffffffff' });
+    check(items.get(doneId).seat === 'lab/ffffffff', '回填重放历史事实：按顺序最后一条为准，不先写先占（终态事项也一样）', show(items.get(doneId).seat));
+    // 对照：终态之后才到的新回执（只记录那条路）不改承接
+    items.apply(doneId, { kind: 'receipt', source: 'seat-test', id: 'late-1', outcome: 'completed', seat: 'lab/99999999' });
+    check(items.get(doneId).seat === 'lab/ffffffff', '对照：终态之后才到的新回执不改承接', show(items.get(doneId).seat));
   }
 
   // ---------- 四·补、答复（只记录）：答一条真问过、还没答过的提问 ----------

@@ -337,21 +337,26 @@ try {
     ok('……提问的 by 是 router 也不写', seatOf(S1.ev) === '', seatOf(S1.ev));
     const S2 = seedEvent();
     await receipt(S2.task, '接下', { idempotencyKey: S2.task, disposition: 'acknowledged', by: { seat: 'lab/c0c0c0c0', name: '成员丙', role: 'member' } }, S2.ctx, { inbound: `ack-${S2.task}` });
-    ok('by.role=member → 确认回执也写承接', seatOf(S2.ev) === '成员丙 · lab/c0c0c0c0', seatOf(S2.ev));
+    ok('by.role=member → 确认回执也写承接（只存句柄）', seatOf(S2.ev) === 'lab/c0c0c0c0', seatOf(S2.ev));
     const S2o = seedEvent();
     await receipt(S2o.task, '进展', { idempotencyKey: S2o.task, disposition: 'progress', progress: { n: 1, state: 'working', at: '2026-11-11T08:00:00.000Z' }, by: { seat: 'lab/e0e0e0e0', name: '观察者戊', role: 'observer' } }, S2o.ctx, { inbound: `progress-${S2o.task}-1` });
-    ok('by.role=observer → 也写承接', seatOf(S2o.ev) === '观察者戊 · lab/e0e0e0e0', seatOf(S2o.ev));
+    ok('by.role=observer → 也写承接', seatOf(S2o.ev) === 'lab/e0e0e0e0', seatOf(S2o.ev));
     const S2x = seedEvent();
     await receipt(S2x.task, '问', { idempotencyKey: S2x.task, disposition: 'attention', question: { id: 'qx', text: '问' }, by: { seat: 'lab/f0f0f0f0', name: '认不出', role: 'boss' } }, S2x.ctx, { inbound: `attention-${S2x.task}-qx` });
-    ok('by.role 认不出的值 → 丢掉 role，按过渡规则（提问取 by）', seatOf(S2x.ev) === '认不出 · lab/f0f0f0f0', seatOf(S2x.ev));
+    ok('by.role 认不出的值 → 丢掉 role，按过渡规则（提问取 by）', seatOf(S2x.ev) === 'lab/f0f0f0f0', seatOf(S2x.ev));
     const S3 = seedEvent();
     await receipt(S3.task, '问', { idempotencyKey: S3.task, disposition: 'attention', question: { id: 'q1', text: '问' }, by: { seat: 'lab/d0d0d0d0', name: '成员丁' } }, S3.ctx, { inbound: `attention-${S3.task}-q1` });
-    ok('过渡期：提问的 by（没有 role）写承接', seatOf(S3.ev) === '成员丁 · lab/d0d0d0d0', seatOf(S3.ev));
+    ok('过渡期：提问的 by（没有 role）写承接', seatOf(S3.ev) === 'lab/d0d0d0d0', seatOf(S3.ev));
     // Z4：没有 role 的进展，tickets 第一项已结束（别人的 seat）、第二项在做 → 承接取第二项
     const S4 = seedEvent();
     await receipt(S4.task, '进展', { idempotencyKey: S4.task, disposition: 'progress', progress: { n: 1, state: 'working', at: '2026-11-11T08:00:00.000Z' },
       tickets: [{ id: 't1', seat: 'lab/11111111', state: 'ended', outcome: 'completed' }, { id: 't2', seat: 'lab/22222222', state: 'working' }] }, S4.ctx, { inbound: `progress-${S4.task}-1` });
     ok('Z4：进展里 tickets 第一项已结束、第二项在做 → 承接取在做的那一项', seatOf(S4.ev) === 'lab/22222222', seatOf(S4.ev));
+    // 排队的子项（queued）还没派给成员，seat 可能是总工：不取
+    const S5 = seedEvent();
+    await receipt(S5.task, '进展', { idempotencyKey: S5.task, disposition: 'progress', progress: { n: 1, state: 'queued', ahead: 1, at: '2026-11-11T08:00:00.000Z' },
+      tickets: [{ id: 't1', seat: 'lab/00000000', state: 'queued' }] }, S5.ctx, { inbound: `progress-${S5.task}-1` });
+    ok('进展里只有排队的子项（seat 是总工）→ 不写承接', seatOf(S5.ev) === '', seatOf(S5.ev));
     // 一个事件投给两个团队：A 接手（by member A），B 回 rejected（by B）——只记录，承接仍是 A
     const M2 = seedEvent();
     const { taskB } = (() => { const d = db(); try {
@@ -363,7 +368,7 @@ try {
     } finally { d.close(); } })();
     await receipt(M2.task, '接下', { idempotencyKey: M2.task, disposition: 'acknowledged', by: { seat: 'lab/aaaaaaaa', name: 'A 成员', role: 'member' } }, M2.ctx, { inbound: `ack-${M2.task}` });
     r = await receipt(taskB, '不接', { outcome: 'rejected', idempotencyKey: taskB, disposition: 'result', by: { seat: 'lab/bbbbbbbb', name: 'B 成员', role: 'member' } }, M2.ctx, { inbound: `receipt-${taskB}` });
-    ok('别的团队「说不干了」（rejected，只记录）→ 承接仍是接手的团队', r.status === 200 && state(M2.ev)?.state === 'accepted' && seatOf(M2.ev) === 'A 成员 · lab/aaaaaaaa', `${seatOf(M2.ev)} ${JSON.stringify(state(M2.ev))}`);
+    ok('别的团队「说不干了」（rejected，只记录）→ 承接仍是接手的团队', r.status === 200 && state(M2.ev)?.state === 'accepted' && seatOf(M2.ev) === 'lab/aaaaaaaa', `${seatOf(M2.ev)} ${JSON.stringify(state(M2.ev))}`);
   }
 
   console.log('二之四、来信分流先验格式再查库');
