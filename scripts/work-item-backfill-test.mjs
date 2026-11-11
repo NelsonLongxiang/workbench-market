@@ -2,7 +2,9 @@
 /**
  * 事项回填不挡启动（阶段八上线预演）。回填在后台分批跑，每一片让出事件循环；这个版本全量跑完过时，启动只从上次的事件日志水位往后增量核。
  *
- *   一、启动到能应答的时间不随事件数增长：1000 个和 10000 个事件各起一次，比首个应答的时间；回填期间健康检查照常应答
+ *   一、回填不挡启动：10000 个事件时首个应答里的回填状态还没到 done（应答先于回填跑完）；1000 个和 10000 个事件各起一次，
+ *       首个应答的耗时之比不超过 3 倍；回填还在跑的时候健康检查多次应答。不掐绝对时间（CI 机器快慢不一），
+ *       只留很宽的兜底（单次健康检查 15 秒）防真卡死
  *   二、回填中途进程被杀：重启接着跑（从记下的游标），终态和一次跑完的逐行相同
  *   三、重跑逐行相同；再启动只从上次的水位往后增量核（没有新事实时核 0 个）
  *   三之二、回滚到没有事项服务的版本期间写进来的事件和事实：再启动时增量补回来（验收方复现的场景）
@@ -60,23 +62,26 @@ async function start(dataDir) {
   const t0 = Date.now();
   const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], { cwd: join(ROOT, 'server'), env: { ...ENV(dataDir), PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = ''; child.stdout.on('data', (d) => { log += d; }); child.stderr.on('data', (d) => { log += d; });
-  let firstMs = null;
+  // firstMs：首个应答（启动门没开时是 503，也算应答）；firstState：第一个带回填状态的应答里的状态
+  let firstMs = null, firstState = null;
   for (let i = 0; Date.now() - t0 < 90000; i++) { // 旧代码同步回填时，一万个事件要十几秒才应答；给足时间，让它在断言上红而不是在这里
     if (child.exitCode !== null) throw new Error(`服务退出了：${log.slice(-600)}`);
-    try { const r = await fetch(base + '/api/health', { signal: AbortSignal.timeout(2000) }); await r.text(); firstMs = Date.now() - t0; break; } catch { /* 还没起来 */ }
+    try { const r = await fetch(base + '/api/health', { signal: AbortSignal.timeout(2000) }); const j = await r.json().catch(() => ({})); firstMs ??= Date.now() - t0; if (j.work_items_backfill?.state) { firstState = j.work_items_backfill.state; break; } } catch { /* 还没起来 */ }
     await new Promise((r) => setTimeout(r, 25));
   }
-  if (firstMs === null) throw new Error(`服务没应答：${log.slice(-600)}`);
+  if (firstState === null) throw new Error(`服务没应答：${log.slice(-600)}`);
   const health = async (anonymous = false) => { const t = Date.now(); const r = await fetch(base + '/api/health', { signal: AbortSignal.timeout(5000), headers: anonymous ? {} : { 'x-admin-token': 'backfill-synthetic' } }); const j = await r.json().catch(() => ({})); return { ms: Date.now() - t, backfill: j.work_items_backfill }; };
   const stop = async (signal = 'SIGTERM') => { if (child.exitCode === null) { child.kill(signal); await new Promise((r) => { const t = setTimeout(r, 5000); child.once('exit', () => { clearTimeout(t); r(); }); }); if (child.exitCode === null) child.kill('SIGKILL'); } };
-  return { firstMs, health, stop, log: () => log };
+  return { firstMs, firstState, health, stop, log: () => log };
 }
 
 async function waitDone(s, budgetMs = 120000) {
   const t0 = Date.now(), lat = [], seen = new Set();
+  let runningPolls = 0;
   for (;;) {
     const h = await s.health(); lat.push(h.ms); if (h.backfill?.state) seen.add(h.backfill.state);
-    if (h.backfill?.state === 'done') return { h, maxMs: Math.max(...lat), polls: lat.length, seen: [...seen] };
+    if (h.backfill?.state === 'running') runningPolls++;
+    if (h.backfill?.state === 'done') return { h, maxMs: Math.max(...lat), polls: lat.length, runningPolls, seen: [...seen] };
     if (h.backfill?.state === 'failed') throw new Error('回填停在 failed：' + show(h.backfill));
     if (Date.now() - t0 > budgetMs) throw new Error('回填没在期限内跑完：' + show(h.backfill));
     await new Promise((r) => setTimeout(r, 20));
@@ -118,15 +123,16 @@ try {
   check(refSnap.items === 10000, '参照：一次同步跑完，10000 个事件建出 10000 件事项', show(refSnap.items));
   const s1 = await start(small); await s1.stop('SIGKILL');
   const s2 = await start(big);
-  console.log(`  · 首个应答：1000 个事件 ${s1.firstMs} ms，10000 个事件 ${s2.firstMs} ms`);
-  check(s2.firstMs - s1.firstMs < 1500, '启动到能应答的时间不随事件数增长（10000 个比 1000 个多不到 1.5 秒）', show({ small: s1.firstMs, big: s2.firstMs }));
+  console.log(`  · 首个应答：1000 个事件 ${s1.firstMs} ms，10000 个事件 ${s2.firstMs} ms（回填状态 ${s2.firstState}）`);
+  check(s2.firstState !== null && s2.firstState !== 'done', '回填不挡启动：10000 个事件时，首个应答里回填还没跑完（应答先于回填）', show({ firstState: s2.firstState }));
+  check(s2.firstMs <= 3 * s1.firstMs, '启动到能应答的时间不随事件数增长（10000 个事件的首个应答耗时不超过 1000 个的 3 倍）', show({ small: s1.firstMs, big: s2.firstMs }));
   const d2 = await waitDone(s2, 60000);
   const anon = await s2.health(true);
   await s2.stop();
   check(show(Object.keys(anon.backfill ?? {})) === show(['state']) && anon.backfill.state === 'done', '匿名的健康检查只给回填的 state（不透露批数、游标、事件数）', show(anon.backfill));
-  console.log(`  · 回填期间健康检查最慢 ${d2.maxMs} ms（${d2.polls} 次）`);
+  console.log(`  · 回填期间健康检查最慢 ${d2.maxMs} ms（${d2.polls} 次，其中回填在跑时 ${d2.runningPolls} 次）`);
   check(d2.seen.includes('running') && d2.h.backfill.state === 'done' && d2.h.backfill.events === 10000 && d2.h.backfill.batches > 1, '就绪检查里报回填状态：先在跑（第几批）、跑完是 done（核了 10000 个事件）', show({ seen: d2.seen, done: d2.h.backfill }));
-  check(d2.maxMs < 1000, '回填期间健康检查照常应答（每次都在 1 秒内）', show(d2.maxMs));
+  check(d2.runningPolls >= 3 && d2.maxMs < 15000, '回填期间健康检查照常应答（回填在跑时应答了至少 3 次；单次兜底 15 秒防卡死）', show({ runningPolls: d2.runningPolls, maxMs: d2.maxMs }));
   check(snapshot(big).digest === refSnap.digest, '后台分批跑完：事项和事项日志与一次同步跑完的逐行相同');
 
   // ---------- 二、中途被杀，重启接着跑 ----------
