@@ -251,8 +251,10 @@ try {
     const again2 = items.apply(sid, { ...noted, seat: '成员甲 · lab/a1b2c3d4' });
     check(again2.duplicate && items.get(sid).seat === '成员甲 · lab/a1b2c3d4' && logCount(sid) === n2, '同一条事实再来、这次带了承接席位：补上 seat，日志不加行', show({ again2, seat: items.get(sid).seat }));
     const doneId = reach('done'), dl = items.log(doneId).at(-1);
+    items.apply(doneId, { kind: dl.fact, source: dl.fact_source, id: dl.fact_id, seat: '成员甲 · lab/a1b2c3d4' });
+    check(items.get(doneId).seat === '成员甲 · lab/a1b2c3d4', '终态事项承接还空着：回填再核时同一条事实带 seat 来，补上', show(items.get(doneId).seat));
     items.apply(doneId, { kind: dl.fact, source: dl.fact_source, id: dl.fact_id, seat: '晚到 · lab/ffffffff' });
-    check(items.get(doneId).seat === '', '终态之后同一条事实带 seat 再来：不改承接', show(items.get(doneId).seat));
+    check(items.get(doneId).seat === '成员甲 · lab/a1b2c3d4', '终态之后已有承接：同一条事实带别的 seat 再来，不改', show(items.get(doneId).seat));
   }
 
   // ---------- 四·补、答复（只记录）：答一条真问过、还没答过的提问 ----------
