@@ -153,7 +153,7 @@ const TEXT_FACTS = [
   ["evidence/e2e_test.py", "token=8sKZ"],
   ["server/src/portal.ts", "goWid"],
   ["evidence/e2e_test.py", "redir-relative"],
-  ["server/src/index.ts", "issue #5"],
+  ["server/src/routes/settings.ts", "issue #5"],
   ["server/src/index.ts", "issue #6"],
   ["server/src/index.ts", "issue #7"],
   ["scripts/import-smoke.mjs", "e2e-import-probe"],

@@ -32,6 +32,7 @@ import { registerSummaryRoutes } from './routes/summary.ts';
 import { registerContentObservationRoutes } from './routes/content-observation.ts';
 import { registerAuthViewerRoutes } from './routes/auth-viewer.ts';
 import { registerPrincipalRoutes } from './routes/principals.ts';
+import { registerSettingsRoutes } from './routes/settings.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import { SkillService } from './services/skill.ts';
@@ -3021,20 +3022,7 @@ function maskUpstreamsSetting(settings: Record<string, string>): Record<string, 
   }
 }
 
-app.get('/api/settings', (_req, res) => { res.json(maskUpstreamsSetting(getSettings())); });
-
-app.put('/api/settings', (req, res) => {
-  const b = req.body ?? {};
-  if (typeof b !== 'object' || b === null) bad('body 必须是 {key: value} 对象');
-  const allowed = ['health_interval_seconds', 'health_timeout_ms', 'health_concurrency', 'a2a_peers', 'mcp_upstreams', 'dispatch_sorting_enabled', 'run_upload_require_token']; // #19 ②a 分拣开关+#150 上传令牌开关
-  const upd = svc<SettingService>('setting').upsertStmt();
-  for (const [k, v] of Object.entries(b)) {
-    if (!allowed.includes(k)) continue;
-    upd.run(k, String(v));
-  }
-  armPatrol(); // issue #5：改巡检设置即重挂定时器（幂等 clearTimeout 开头），不必重启服务
-  res.json(maskUpstreamsSetting(getSettings()));
-});
+registerSettingsRoutes(http, { maskUpstreamsSetting, armPatrol });
 
 app.get('/api/export', (req, res) => {
   // compliance 二期首项：导出默认脱敏（compliance 范围 kb ab3279b84a 的「导出面」——
