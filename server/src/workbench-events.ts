@@ -9,6 +9,8 @@ import { db } from './db.ts';
 import { a2aKeyPath, a2aSendOutbound, marketPublicUrl, sopNode8 } from './a2a.ts';
 import { MAX_ROUTE_BODY_BYTES } from '@nelsonlongxiang/dsh-open-a2a-net/transport-caps';
 import { root } from './root-context.ts';
+import { recordSentTask } from './services/a2a-receipts.ts';
+import { peerCard, peerRoot } from './a2a/peer-card.ts';
 
 /** 8b：每写一行事件日志，在同一个事务里多发一个事件（事项服务听它）。这张表和它的写法都不变。 */
 export type WorkbenchEventLogged = { id: number; event_id: string; delivery_id: number | null; action: string };
@@ -85,6 +87,10 @@ CREATE TRIGGER IF NOT EXISTS wbe_events_no_delete BEFORE DELETE ON workbench_eve
 const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
 function sqliteUtcIn(ms: number): string {
   return new Date(Date.now() + ms + 1_000).toISOString().slice(0, 19).replace('T', ' ');
+}
+/** 阶段七 R3：入站回执经它写事件日志（同一个 log()，事项服务照常听到）。调用方负责事务。 */
+export function logDeliveryFact(eventId: string, deliveryId: number, actor: string, action: string, detail: Record<string, unknown> = {}): void {
+  log(eventId, deliveryId, actor, action, detail);
 }
 function log(eventId: string, deliveryId: number | null, actor: string, action: string, detail: Record<string, unknown> = {}): void {
   const info = db.prepare('INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, ?, ?, ?)').run(eventId, deliveryId, actor, action, JSON.stringify(detail));
@@ -263,6 +269,9 @@ async function attemptDelivery(row: DeliveryRow): Promise<void> {
   const taskId = `${row.event_id}.d${row.id}.a${attempt}`;
   const body = JSON.stringify({ team: row.target_team, message: row.message, caller_session: row.caller_session, context_id: row.context_id, wait: false, task_id: taskId });
   if (Buffer.byteLength(body, 'utf8') > MAX_ROUTE_BODY_BYTES) return settle(row, 'dead', 'payload exceeds the direct-route transport cap', attempt);
+  // 阶段七 R3：发出之前记下这个任务号和对端是谁（名片 team 与根地址）；回执只认这台宿主的签名。取不到名片也照发，回执届时只记「收到未采信」
+  const peer = await peerCard(row.target_url).catch(() => null);
+  recordSentTask({ taskId, eventId: row.event_id, deliveryId: row.id, peerRoot: peerRoot(row.target_url), peerZone: peer?.team ?? '' });
   let out: any;
   try {
     out = await a2aSendOutbound(a2aKeyPath(), { baseUrl: row.target_url, team: row.target_team }, row.message, row.context_id, row.caller_session, { taskId, async: true });
