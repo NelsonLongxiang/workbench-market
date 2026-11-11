@@ -378,6 +378,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   admin-token.ts（管理口令 /api/admin/whoami、/api/admin-token）
   agent-card.ts（A2A 签名卡片 /.well-known/agent-card.json）
   app-data.ts（自产台的数据与文件 /api/apps/:slug/data、/files：提交、列表、软删，上传、改备注、下载；提交和上传是匿名提交面，不经写总门）
+  apps-static.ts（自产台静态托管 GET /apps/<slug>/…：只是注册那一行，处理函数 serveApp（活跃版本或 ?version、CSP sandbox、注入本台令牌、LayerFS 冷回读）门户也用，留在 index.ts）
   apps.ts（自产台与 SOP 台的登记和生命周期 /api/apps：列表、单个台、task-center 直接发布、从 GitHub 同步、迁进 LayerFS、回滚、删台；台的数据与文件另成一域）
   attention.ts（「关注」的读 /api/attention：当前这个人在七个来源里等他处理的条目和条数）
   auth-viewer.ts（登录探测 /api/auth/viewer）

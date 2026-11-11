@@ -60,6 +60,7 @@ import { registerAppDataRoutes, appDataReadMode, type AppDataReadMode } from './
 import { registerSopRunFileRoutes } from './routes/sop-run-files.ts';
 import { registerSopRunLifecycleRoutes } from './routes/sop-run-lifecycle.ts';
 import { registerMcpRestRoutes } from './routes/mcp-rest.ts';
+import { registerAppsStaticRoutes } from './routes/apps-static.ts';
 import { registerHealthRoutes } from './routes/health.ts';
 import { registerMcpProtocolRoutes } from './routes/mcp-protocol.ts';
 import { registerSopRunControlRoutes } from './routes/sop-run-control.ts';
@@ -2251,8 +2252,7 @@ function serveApp(req: express.Request, res: express.Response) {
   }
   res.sendFile(abs);
 }
-// 必须在 web/dist SPA fallback 之前注册
-app.get(/^\/apps\/[a-z0-9][a-z0-9-]*(\/.*)?$/, serveApp);
+registerAppsStaticRoutes(http, { serveApp });
 // #321 设计 token 的固定路径（自产台 <link> 引入）：/design/tokens@<主版本>.css 推荐（主版本内名字稳定、值可变，按需重新验证），
 // /design/tokens@<完整版本>.css 精确钉版本（内容不变，可长缓存）；其他版本 404，不猜
 registerDesignTokenRoutes(http);

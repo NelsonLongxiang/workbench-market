@@ -96,7 +96,7 @@
       "POST /api/sop/runs/:id(\\d+)/finish  -> sop-run.finish  write",
       "GET /api/sop/runs/:id(\\d+)/upgrade-preflight  -> sop-run.upgrade-preflight  read  （状态码不代表授权：按 run 的凭据：读能力、主体读授权由 run 授权判）",
       "POST /api/sop/runs/:id(\\d+)/upgrade  -> sop-run.upgrade  admin",
-      "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/  -> （未登记）",
+      "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/  -> app.page  read",
       "GET /^\\/design\\/tokens@[0-9.]+\\.css$/  -> design-token.read  read",
       "GET /api/summary  -> summary.read  read",
       "GET /api/types  -> type.list  read",
