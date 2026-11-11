@@ -11,7 +11,7 @@ type ResolveViewer = (cookieHeader:string,source?:string)=>Promise<ViewerResult>
 type Deps = {db:DatabaseSync; odooOrigin:string; marketOrigin:string; frozenYaml:(slug:string,version:number)=>string; viewer?:ResolveViewer; now?:()=>number};
 type Binding = {run_id:number; target_id:number; sop_version:number; owner_subject:string; assignee_subject:string; acl_revision:number; manifest_sha256:string; revoked:number};
 type Scope = {targetId:number;runId:number;step:string};
-type Record = Scope & {action:'read'|'save'|'upload'|'finish';version:number;subject:string;session:string;epoch:number;aclRevision:number;expires:number};
+type CapRecord = Scope & {action:'read'|'save'|'upload'|'finish';version:number;subject:string;session:string;epoch:number;aclRevision:number;expires:number};
 const positive = (n:number) => Number.isSafeInteger(n)&&n>0;
 export class SopWriteError extends Error { status:number;code:string;constructor(status:number,code:string){super(code);this.status=status;this.code=code;} }
 const deny = () => { throw new SopWriteError(403,'sop_run_access_denied'); };
@@ -24,7 +24,7 @@ export function createSopRunAccess(deps:Deps) {
   db.exec('CREATE TABLE IF NOT EXISTS sop_run_access (run_id INTEGER PRIMARY KEY, target_id INTEGER NOT NULL, sop_version INTEGER NOT NULL, owner_subject TEXT NOT NULL, assignee_subject TEXT NOT NULL, acl_revision INTEGER NOT NULL, manifest_sha256 TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0)');
   db.exec('CREATE TABLE IF NOT EXISTS sop_run_revisions (run_id INTEGER PRIMARY KEY, revision INTEGER NOT NULL, data_sha256 TEXT NOT NULL)');
   db.exec('CREATE TABLE IF NOT EXISTS sop_channel_files (id TEXT PRIMARY KEY,run_id INTEGER NOT NULL,step TEXT NOT NULL,field_key TEXT NOT NULL,request_id TEXT NOT NULL,mime TEXT NOT NULL,size INTEGER NOT NULL,body BLOB NOT NULL,UNIQUE(run_id,step,request_id))');
-  const secret=randomBytes(32), records=new Map<string,Record>(), sessions=new Map<string,{epoch:number;generation:number;subject:string|null}>();
+  const secret=randomBytes(32), records=new Map<string,CapRecord>(), sessions=new Map<string,{epoch:number;generation:number;subject:string|null}>();
   const mac=(s:string)=>createHmac('sha256',secret).update(s).digest('base64url');
   const cookieKey=(cookie:string) => {
     const parts=cookie.split(';').map(x=>x.trim()).filter(x=>x.startsWith('session_id='));
