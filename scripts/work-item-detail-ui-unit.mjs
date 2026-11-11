@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 事项详情页的纯函数单测（web/src/work-item-view.ts）：提示条、进展一行字、结果解析与链接、关注条目对到事项。 */
-import { artifactHref, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint } from '../web/src/work-item-view.ts';
+import { artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint } from '../web/src/work-item-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -15,12 +15,15 @@ ok('提示：终态和进行中不出提示', ['done', 'failed', 'dropped', 'can
 ok('进展：第几步 · 状态 · 前面还有几件', progressLine({ n: 2, state: 'queued', summary: '', at: '', ahead: 3, tickets: [], received_at: '' }) === '第 2 步 · 排队中 · 前面还有 3 件');
 ok('进展：没有排队数、不认识的状态原样', progressLine({ n: 1, state: 'odd', summary: '', at: '', tickets: [], received_at: '' }) === '第 1 步 · odd');
 
-ok('结果：空的给空数组', parseArtifacts('').length === 0 && parseArtifacts(null).length === 0 && parseArtifacts('  ').length === 0);
-const arr = parseArtifacts(JSON.stringify([{ kind: 'file', id: 'f1', title: 'out.txt', url: '/apps/x/files/f1' }, 'plain', { kind: 'table' }, { id: 7 }, null]));
-ok('结果：JSON 数组逐项取，没 id 没 url 的丢掉', JSON.stringify(arr) === JSON.stringify([{ kind: 'file', id: 'f1', title: 'out.txt', url: '/apps/x/files/f1' }, { kind: 'text', id: 'plain' }, { kind: 'item', id: '7' }]), JSON.stringify(arr));
-ok('结果：不是 JSON 的字符串整体当一条', JSON.stringify(parseArtifacts('见附件')) === '[{"kind":"text","id":"见附件"}]');
-ok('链接：同源路径和 http(s) 给链接', artifactHref({ kind: 'file', id: 'a', url: '/apps/x' }) === '/apps/x' && artifactHref({ kind: 'file', id: 'a', url: 'https://example.org/a' }) === 'https://example.org/a');
-ok('链接：别的协议、协议相对地址、没有 url 都不给链接', artifactHref({ kind: 'f', id: 'a', url: 'javascript:alert(1)' }) === null && artifactHref({ kind: 'f', id: 'a', url: '//evil.example/a' }) === null && artifactHref({ kind: 'f', id: 'a' }) === null);
+ok('结果：缺省值和坏的都按空读', parseArtifacts('{}').length === 0 && parseArtifacts('[]').length === 0 && parseArtifacts('').length === 0 && parseArtifacts(null).length === 0 && parseArtifacts('坏').length === 0);
+const arr = parseArtifacts(JSON.stringify([{ kind: 'file', id: 'f1', title: 't', url: 'https://example.org/x' }, 'plain', { kind: 'table' }, { kind: '', id: 'x' }, { kind: 'sop-run', id: 'demo/7' }]));
+ok('结果：只认 kind、id 都是非空字符串的项，url、title 一律丢掉', JSON.stringify(arr) === '[{"kind":"file","id":"f1"},{"kind":"sop-run","id":"demo/7"}]', JSON.stringify(arr));
+ok('结果：最多 16 项', parseArtifacts(JSON.stringify(Array.from({ length: 20 }, (_, i) => ({ kind: 'file', id: 'f' + i })))).length === 16);
+const fromLog = artifactsFromLog([{ fact: 'receipt', detail: JSON.stringify({ artifacts: [{ kind: 'table', id: 'out' }] }) }, { fact: 'receipt', rejected: 'terminal', detail: JSON.stringify({ artifacts: [{ kind: 'file', id: 'late' }] }) }, { fact: 'report', detail: JSON.stringify({ artifacts: [{ kind: 'file', id: 'no' }] }) }, { fact: 'receipt', detail: '{坏' }]);
+ok('日志里的产物：只取被采信的回执行', JSON.stringify(fromLog) === '[{"kind":"table","id":"out"}]', JSON.stringify(fromLog));
+ok('合并：按 kind + id 去重、保持先后', JSON.stringify(mergeArtifacts([{ kind: 'file', id: 'a' }], [{ kind: 'file', id: 'a' }, { kind: 'table', id: 'a' }])) === '[{"kind":"file","id":"a"},{"kind":"table","id":"a"}]');
+ok('链接：sop-run 拼成本站 /sops/<slug>/runs/<runId>', artifactHref({ kind: 'sop-run', id: 'demo-space/42' }) === '/sops/demo-space/runs/42');
+ok('链接：table、file、不认得的 kind、形状不对的 sop-run 都不给链接', [{ kind: 'table', id: 't' }, { kind: 'file', id: 'f' }, { kind: 'x', id: 'y' }, { kind: 'sop-run', id: '../etc/1' }, { kind: 'sop-run', id: 'demo/0' }, { kind: 'sop-run', id: 'https://evil.example/1' }].every((a) => artifactHref(a) === null));
 
 ok('答复请求体：选了选项只给 answer，否则给去空白的文本，都没有给 null', JSON.stringify(askAnswerBody('甲', '也写了')) === '{"answer":"甲"}' && JSON.stringify(askAnswerBody('', ' 中文 ')) === '{"text":"中文"}' && askAnswerBody('', '  ') === null);
 ok('初始选择：缺省项在选项里才预选', initialChoice({ options: ['甲', '乙'], default: '乙' }) === '乙' && initialChoice({ options: ['甲'], default: '丙' }) === '' && initialChoice({ options: [] }) === '');

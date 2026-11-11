@@ -47,35 +47,51 @@ export function progressLine(p: SeatProgress): string {
   return [`第 ${p.n} 步`, PROGRESS_STATE[p.state] ?? p.state, typeof p.ahead === 'number' && p.ahead > 0 ? `前面还有 ${p.ahead} 件` : ''].filter(Boolean).join(' · ');
 }
 
-export type Artifact = { kind: string; id: string; title?: string; url?: string };
+/** 产物标识（结果 / 依据）：和回执信封的 artifacts 同一个形状——只有 kind、id，只存标识，不存正文、url、标题。 */
+export type Artifact = { kind: string; id: string };
+const MAX_ARTIFACTS = 16;
+const okStr = (x: unknown): x is string => typeof x === 'string' && x.trim() !== '' && x.length <= 200;
 
-/** 结果和依据（item.outputs / item.evidence）：服务端存的是字符串，多半是 JSON 数组。
- *  认得出的数组逐项取 kind / id / title / url；单个字符串项当一条；不是 JSON 的非空字符串整体当一条；空的返回空数组。 */
-export function parseArtifacts(raw: string | null | undefined): Artifact[] {
-  const s = (raw ?? '').trim();
-  if (!s) return [];
-  let v: unknown;
-  try { v = JSON.parse(s); } catch { return [{ kind: 'text', id: s }]; }
-  const list = Array.isArray(v) ? v : [v];
+/** 从一个值里取产物标识：只认数组里 kind、id 都是非空字符串（≤200 字）的项，别的字段（url、title……）一律不认，最多 16 项 */
+export function artifactsOf(v: unknown): Artifact[] {
+  if (!Array.isArray(v)) return [];
   const out: Artifact[] = [];
-  for (const x of list) {
-    if (typeof x === 'string' && x.trim()) out.push({ kind: 'text', id: x.trim() });
-    else if (x && typeof x === 'object') {
-      const o = x as Record<string, unknown>;
-      const id = typeof o.id === 'string' || typeof o.id === 'number' ? String(o.id) : '';
-      const url = typeof o.url === 'string' ? o.url : undefined;
-      if (!id && !url) continue;
-      out.push({ kind: typeof o.kind === 'string' ? o.kind : 'item', id, ...(typeof o.title === 'string' ? { title: o.title } : {}), ...(url ? { url } : {}) });
-    }
+  for (const x of v) {
+    if (out.length >= MAX_ARTIFACTS) break;
+    const o = x as Record<string, unknown> | null;
+    if (o && typeof o === 'object' && okStr(o.kind) && okStr(o.id)) out.push({ kind: o.kind, id: o.id });
   }
   return out;
 }
 
-/** 产出能点的链接：只认同源路径（/ 开头、不是 //）和 http(s)；别的协议一律不给链接，只显示文字 */
+/** item.outputs / item.evidence：服务端存的 JSON 字符串（缺省 '{}' / '[]'，都按空读）；坏的当空 */
+export function parseArtifacts(raw: string | null | undefined): Artifact[] {
+  try { return artifactsOf(JSON.parse(raw || '[]')); } catch { return []; }
+}
+
+/** 日志里回执行带来的产物（detail.artifacts）：被拒的行不算 */
+export function artifactsFromLog(log: { fact: string; detail: string; rejected?: string }[]): Artifact[] {
+  const out: Artifact[] = [];
+  for (const r of log) {
+    if (r.fact !== 'receipt' || r.rejected) continue;
+    try { out.push(...artifactsOf((JSON.parse(r.detail || '{}') as { artifacts?: unknown }).artifacts)); } catch { /* 坏的 detail 当空 */ }
+  }
+  return out;
+}
+
+/** 几处来的产物合在一起，按 kind + id 去重，保持先后 */
+export function mergeArtifacts(...lists: Artifact[][]): Artifact[] {
+  const seen = new Set<string>(); const out: Artifact[] = [];
+  for (const a of lists.flat()) { const k = a.kind + '\u0000' + a.id; if (!seen.has(k)) { seen.add(k); out.push(a); } }
+  return out;
+}
+
+/** 产物的本站链接：只按 kind 拼本站路径，不跟随数据里的任何地址（标识来自对端回执）。
+ *  sop-run 的 id 是 <slug>/<runId> → /sops/<slug>/runs/<runId>；table、file 还没有详情页，不认得的 kind 也只显示 */
 export function artifactHref(a: Artifact): string | null {
-  const u = a.url ?? '';
-  if (/^\/(?!\/)/.test(u) || /^https?:\/\//i.test(u)) return u;
-  return null;
+  if (a.kind !== 'sop-run') return null;
+  const m = /^([A-Za-z0-9][A-Za-z0-9_-]{0,99})\/([1-9]\d{0,15})$/.exec(a.id);
+  return m ? `/sops/${m[1]}/runs/${m[2]}` : null;
 }
 
 /** 「关注」里属于这件事项的条目（席位提问、等验收、过目放行……）：按条目的 link 对上事项页 */

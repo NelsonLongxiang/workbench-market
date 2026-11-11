@@ -6,7 +6,7 @@
  *  答复走和「关注」页同一套入口；你看不到的这里也没有。
  *  日志只增不改：每条事实一行；被拒的（表里没有、终态之后才到）也留一行「收到，未采信」，带原因。 */
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Alert, App, Badge, Button, Card, Col, Descriptions, Empty, Flex, Input, List, Radio, Row, Segmented, Space, Tag, Timeline, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import WmPage from '../components/WmPage';
@@ -14,7 +14,7 @@ import RelTime from '../components/RelTime';
 import { adminActive, apiFetch, subscribeAdminToken } from '../admin-token';
 import { answerChoices, answerRoute, describe, type AttentionItem, type LogRow } from '../attention-view';
 import { getWorkItem, postAskAnswer, postCreatorDecision, postSeatMessageReply, postSeatMessagesRead } from '../api';
-import { PROGRESS_STATE, artifactHref, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
+import { PROGRESS_STATE, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
 
 type Item = { id: string; title: string; state: string; created_by: string; created_at: string; updated_at: string; source_kind: string; source_ref: string; target_team: string; seat: string; eval: string; eval_reason: string; progress_summary: string; receipt_outcome: string; object: string; phase: string; open_asks: string; outputs: string; evidence: string };
 
@@ -169,11 +169,10 @@ function SeatMessages({ itemId, messages, onChanged }: { itemId: string; message
 
 function Artifacts({ list, empty }: { list: Artifact[]; empty: string }) {
   if (!list.length) return <Typography.Text type="secondary">{empty}</Typography.Text>;
-  return <List size="small" dataSource={list} renderItem={(a, i) => {
+  return <List size="small" dataSource={list} rowKey={(a) => `${a.kind}:${a.id}`} renderItem={(a) => {
     const href = artifactHref(a);
-    const label = a.title || a.id || a.url || '';
-    return <List.Item key={i} data-testid="artifact">
-      <Space size={6}>{a.kind !== 'text' && a.kind !== 'item' && <Tag>{a.kind}</Tag>}{href ? <Typography.Link href={href} target="_blank" rel="noreferrer">{label}</Typography.Link> : <Typography.Text>{label}</Typography.Text>}</Space>
+    return <List.Item data-testid="artifact">
+      <Space size={6}><Tag>{a.kind}</Tag>{href ? <Link to={href}>{a.id}</Link> : <Typography.Text className="wm-mono">{a.id}</Typography.Text>}</Space>
     </List.Item>;
   }} />;
 }
@@ -218,7 +217,8 @@ export default function WorkItem() {
   const openAsks = asks ? asks.filter((a) => a.status === 'open').length : 0;
   const hint = item ? stateHint(item.state, item.seat, asks ? openAsks === 0 && asks.length > 0 : lastAskAnswered(data?.log ?? [])) : null;
   const progress = data?.progress ?? null;
-  const outputs = parseArtifacts(item?.outputs);
+  // 结果：事项的 outputs 列（现在还没人写）加上日志里回执带来的产物，去重
+  const outputs = mergeArtifacts(parseArtifacts(item?.outputs), artifactsFromLog(data?.log ?? []));
   const evidence = parseArtifacts(item?.evidence);
   return <WmPage title={item?.title ?? '事项'} detail={item?.title} onBack={() => navigate('/work-items')}
     extra={<Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>刷新</Button>}>
