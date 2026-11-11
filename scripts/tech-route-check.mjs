@@ -56,6 +56,23 @@ function openRepo(root) {
   return { root, read, walk, server, perFile, exists: (p) => existsSync(join(root, p)) };
 }
 
+/** README「## 目录」代码块里列出的路径：顶格一行是目录（`server/src/routes/  说明`），其下缩进两格的行开头是其中的文件或子目录 */
+function readmeTreePaths(readme) {
+  const at = readme.indexOf('## 目录');
+  if (at < 0) return [];
+  const block = /```\n([\s\S]*?)```/.exec(readme.slice(at));
+  if (!block) return [];
+  const out = [];
+  let dir = null;
+  for (const line of block[1].split('\n')) {
+    const head = /^([\w.-]+(?:\/[\w.-]+)*\/)(?:\s|$)/.exec(line);
+    if (head) { dir = head[1]; continue; }
+    const entry = /^ {2}([\w.-]+\/?)(?=[（\s]|$)/.exec(line);
+    if (entry && dir) out.push(dir + entry[1]);
+  }
+  return out;
+}
+
 const RE = {
   route: /\b(?:app|router|r|api)\.(?:get|post|put|patch|delete)\(\s*['"`\/\[]/g,
   // 路由注册（含 .all 和 vault-api 那种 route('get', …) 的写法）；报了动作的是路径后面紧跟 { action: … }
@@ -281,13 +298,16 @@ const RULES = [
   {
     id: 'readme-stale-paths', what: 'README 提到但已不存在的文件', target: 0, proposed: 'budget',
     measure: (repo) => {
-      const seen = new Set([...repo.read('README.md').matchAll(RE.readmePath)].map((m) => m[1]));
+      const readme = repo.read('README.md');
+      const seen = new Set([...readme.matchAll(RE.readmePath)].map((m) => m[1]));
+      // 目录块（「## 目录」下的代码块）是一个文件一行：顶格的一行写目录，下面缩进两格的每行开头是这个目录里的一个文件或子目录
+      for (const p of readmeTreePaths(readme)) seen.add(p);
       const items = [...seen].filter((p) => !repo.exists(p)).sort();
       return { total: items.length, items, note: `核对了 ${seen.size} 个路径` };
     },
     sample: {
-      clean: { 'README.md': '见 `scripts/a.mjs`、`scripts/b.json`、`web/src/C.tsx`。\n', 'scripts/a.mjs': '', 'scripts/b.json': '{}', 'web/src/C.tsx': '' },
-      dirty: { 'README.md': '见 `scripts/gone.mjs`。\n' }, expect: 1,
+      clean: { 'README.md': '见 `scripts/a.mjs`、`scripts/b.json`、`web/src/C.tsx`。\n## 目录\n\n```\nserver/src/      （一个文件一行）\n  foo.ts（说明）\n  bar.ts  说明\n  vault/（子目录）\n```\n', 'scripts/a.mjs': '', 'scripts/b.json': '{}', 'web/src/C.tsx': '', 'server/src/foo.ts': '', 'server/src/bar.ts': '', 'server/src/vault/x.ts': '' },
+      dirty: { 'README.md': '见 `scripts/gone.mjs`。\n## 目录\n\n```\nserver/src/routes/    路由（一个文件一行）：\n  gone.ts（说明）\n```\n' }, expect: 2,
     },
   },
   {
