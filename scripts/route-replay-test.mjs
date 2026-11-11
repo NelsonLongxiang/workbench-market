@@ -26,6 +26,8 @@
  *
  * 场景可以带 seed：实例起好之后、第一条请求之前往库里写几行（经 HTTP 建不出来的前提，比如一个已有的主体）。
  * 每一项是 { table, row }：表名、列名只收小写字母、数字和下划线（不以数字开头）；不收任意 SQL。
+ * 场景还可以带 seed_files：同一时刻往实例的数据目录里放几个文件（比如自产台已经物化好的版本目录，经 HTTP 只能靠外部服务建出来）。
+ * 每一项是 { path, content }：path 是数据目录下的相对路径，每一段只收小写字母、数字、点、下划线和连字符，且不以点开头；content 是文本。
  */
 import { spawn } from './owned-script-fixture.mjs';
 import { createServer, request as httpRequest } from 'node:http';
@@ -50,7 +52,13 @@ const FIXTURES = {
   'identity-fake': { preload: join(HERE, 'identity-fake-preload.mjs'), env: { IDENTITY_SEAM_ROOT: ROOT } },
   // 本机起一个假飞书、建一个放好合成应用凭证的临时凭据库，飞书登录指过去（scripts/feishu-fake-preload.mjs）
   'feishu-fake': { preload: join(HERE, 'feishu-fake-preload.mjs'), env: { IDENTITY_SEAM_ROOT: ROOT } },
+  // 本机起一个假 GitHub，预先放好几个仓库，自产台同步指过去（scripts/github-fake-preload.mjs）
+  'github-fake': { preload: join(HERE, 'github-fake-preload.mjs'), env: {} },
+  // 本机起一个假 LayerFS（commit 号按内容算，每次一样），台的影子发布、迁移、冷版本重建、删远端指过去（scripts/layerfs-fake-preload.mjs）
+  'layerfs-fake': { preload: join(HERE, 'layerfs-fake-preload.mjs'), env: {} },
 };
+/** seed_files 的路径：数据目录下的相对路径，每一段小写字母、数字、点、下划线、连字符，不以点开头（所以没有 .. 也没有隐藏文件） */
+const SEED_FILE_PATH = /^[a-z0-9_-][a-z0-9._-]*(?:\/[a-z0-9_-][a-z0-9._-]*)*$/;
 const CLASSES = ['unauthorized', 'invalid', 'normal'];
 const CLASS_NAME = { unauthorized: '未授权', invalid: '参数非法', normal: '正常' };
 // 和 scripts/tech-route-check.mjs 数路由的写法一样，另外多认 all：体检不数它，但它在运行时是一条路由（快照里记成 ALL）
@@ -112,6 +120,15 @@ export function checkCassette(cassette, known, moduleRouteCount = null, answered
       const cols = item?.row && typeof item.row === 'object' && !Array.isArray(item.row) ? Object.keys(item.row) : [];
       if (!/^[a-z_][a-z0-9_]*$/.test(String(item?.table ?? '')) || cols.length === 0 || cols.some((c) => !/^[a-z_][a-z0-9_]*$/.test(c)) || Object.values(item.row).some((v) => v !== null && typeof v === 'object')) {
         problems.push(`${scenario?.name}：seed 的每一项要是 { table, row }，表名和列名只收小写字母、数字和下划线（不以数字开头），值不能是对象`);
+      }
+    }
+  }
+  for (const scenario of scenarios) {
+    if (scenario?.seed_files === undefined) continue;
+    if (!Array.isArray(scenario.seed_files)) { problems.push(`${scenario?.name}：seed_files 要是数组`); continue; }
+    for (const item of scenario.seed_files) {
+      if (!SEED_FILE_PATH.test(String(item?.path ?? '')) || String(item.path).length > 200 || typeof item?.content !== 'string') {
+        problems.push(`${scenario?.name}：seed_files 的每一项要是 { path, content }，path 是数据目录下的相对路径（每一段小写字母、数字、点、下划线、连字符，不以点开头），content 是文本`);
       }
     }
   }
@@ -508,7 +525,15 @@ export async function runSteps(steps, sendRequest, record = false) {
 
 // ---------- 隔离实例 ----------
 
-async function freePort() {
+/** 系统随机给的空闲端口。起实例的 owned-script-fixture 只收 1～65534，探到 65535 就再探（最多 20 次）。 */
+export async function freePort(pick = probeOnce) {
+  for (let i = 0; i < 20; i++) {
+    const port = await pick();
+    if (port >= 1 && port <= 65534) return port;
+  }
+  throw new Error('探了 20 次都没拿到 65534 以内的空闲端口');
+}
+async function probeOnce() {
   const probe = createServer();
   await new Promise((r) => probe.listen(0, '127.0.0.1', r));
   const { port } = probe.address();
@@ -599,6 +624,15 @@ function seedInstance(dataDir, seed) {
   } finally { db.close(); }
 }
 
+/** 场景的 seed_files：往实例的数据目录里放几个文件。checkCassette 已经核过路径，只会落在数据目录里面 */
+function seedFiles(dataDir, files) {
+  for (const { path, content } of files ?? []) {
+    const abs = join(dataDir, path);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, content, 'utf8');
+  }
+}
+
 // ---------- 读写请求集 ----------
 
 const LINE = 240;
@@ -626,7 +660,7 @@ function canonical(cassette) {
     scenarios: cassette.scenarios.map((s) => order({
       ...s,
       steps: s.steps.map((step) => order({ ...step, request: order(step.request, ['method', 'path', 'raw', 'headers', 'json', 'text']) }, ['id', 'route', 'class', 'what', 'compare', 'vary', 'verify', 'request', 'save', 'response'])),
-    }, ['name', 'what', 'env', 'clock', 'fixtures', 'seed', 'steps'])),
+    }, ['name', 'what', 'env', 'clock', 'fixtures', 'seed', 'seed_files', 'steps'])),
   }, ['domain', 'what', 'routes', 'exempt', 'scenarios']);
 }
 
@@ -665,6 +699,13 @@ async function selftest() {
     const bad = [{ table: 'x; DROP TABLE y', row: { a: 1 } }, { table: 'principals', row: {} }, { table: 'principals', row: { 'id = 1 --': 1 } }, { table: 'principals', row: { id: { $x: 1 } } }, { row: { id: 1 } }]
       .every((item) => checkCassette(seeded([item]), known, 1).some((p) => p.includes('seed')));
     check(good && bad && checkCassette(seeded('x'), known, 1).some((p) => p.includes('seed 要是数组')), '请求集：seed 只收 { table, row }，表名、列名只收小写字母、数字和下划线，值不能是对象');
+  }
+  {
+    const withFiles = (seed_files) => ({ ...full, scenarios: full.scenarios.map((sc) => ({ ...sc, seed_files })) });
+    const good = checkCassette(withFiles([{ path: 'apps/x-1/v1/index.html', content: '<div></div>' }, { path: 'a_b/c.d', content: '' }]), known, 1).length === 0;
+    const bad = [{ path: '../etc/passwd', content: '' }, { path: 'apps/../x', content: '' }, { path: '/abs', content: '' }, { path: 'a//b', content: '' }, { path: '.hidden', content: '' }, { path: 'a/.git/x', content: '' }, { path: 'A/b', content: '' }, { path: 'a\\b', content: '' }, { path: 'a/b', content: 1 }, { content: '' }, { path: 'x'.repeat(201), content: '' }]
+      .every((item) => checkCassette(withFiles([item]), known, 1).some((p) => p.includes('seed_files')));
+    check(good && bad && checkCassette(withFiles({}), known, 1).some((p) => p.includes('seed_files 要是数组')), '请求集：seed_files 只收 { path, content }，路径只能落在数据目录里（没有 ..、绝对路径、隐藏段、反斜杠），内容是文本');
   }
   check(checkCassette(withSteps([a, b, c, step('d', 'GET /api/x', 'normal', 'GET', '/api/other', 200)]), known).some((p) => p.includes('打不到')), '覆盖检查：请求没打在它声明的路由上，失败');
   check(countRouteCalls("app.get('/a', h);\n  app.all('/b', h);\n  r.post(`/c`, h);\n  app.use(x); app.set('etag', false);") === 3, '数路由：get、post、all 都算一条，use 和 set 不算');
@@ -866,6 +907,12 @@ async function selftest() {
   const always = starter(9, true);
   let gaveUp = false; try { await withPortRetry(always, 3, () => {}); } catch { gaveUp = true; }
   check(gaveUp && always.calls() === 3, '起实例：三次都被占，报错，不再试');
+  {
+    const seq = [65535, 65535, 41000]; let calls = 0;
+    const got = await freePort(async () => seq[calls++]);
+    let gaveUp = false; try { await freePort(async () => 65535); } catch { gaveUp = true; }
+    check(got === 41000 && calls === 3 && gaveUp && (await freePort()) <= 65534, '起实例：探到 65535 就再探（起实例的夹具只收 65534 以内），一直探不到就报错');
+  }
   const broken = starter(9, false);
   let failedFast = false; try { await withPortRetry(broken, 3, () => {}); } catch { failedFast = true; }
   check(failedFast && broken.calls() === 1, '起实例：别的原因起不来，不重试，直接报');
@@ -874,6 +921,8 @@ async function selftest() {
   let badClock = false; try { launchPlan('tomorrow'); } catch { badClock = true; }
   const faked = launchPlan(undefined, ['identity-fake']); const both = launchPlan('2030-01-01T00:00:00Z', ['identity-fake']);
   let badFixture = false; try { launchPlan(undefined, ['nope']); } catch { badFixture = true; }
+  const services = launchPlan(undefined, ['github-fake', 'layerfs-fake']);
+  check(services.args.filter((x) => x === '--import').length === 2 && services.args.some((x) => x.endsWith('/github-fake-preload.mjs')) && services.args.some((x) => x.endsWith('/layerfs-fake-preload.mjs')), '夹具：假 GitHub、假 LayerFS 可以一起带上');
   check(faked.args.filter((x) => x === '--import').length === 1 && faked.env.IDENTITY_SEAM_ROOT === ROOT && both.args.filter((x) => x === '--import').length === 2 && both.args.at(-1) === 'src/index.ts' && badFixture && checkCassette(withSteps([a, b, c], { scenarios: [{ name: 's', fixtures: ['nope'], steps: [a, b, c] }] }), known).some((p) => p.includes('fixtures')), '夹具：场景可以带上假的登录提供方，和定时钟一起用；没有的夹具名起不来，静态检查也拦下');
   check(!plain.args.includes('--import') && Object.keys(plain.env).length === 0 && timed.args.includes('--import') && timed.args.at(-1) === 'src/index.ts' && timed.env.WM_REPLAY_CLOCK === '2030-01-01T00:00:00Z' && badClock, '定时钟：场景没写 clock 就照常起；写了才带上预加载；写得不是时刻直接报错');
   check(checkCassette(withSteps([a, b, c], { scenarios: [{ name: 's', clock: 'tomorrow', steps: [a, b, c] }] }), known).some((p) => p.includes('clock')) && checkCassette(withSteps([a, b, c], { scenarios: [{ name: 's', clock: '2030-01-01T00:00:00Z', steps: [a, b, c] }] }), known).length === 0, '定时钟：请求集里 clock 写得不对，静态检查就拦下');
@@ -883,6 +932,20 @@ async function selftest() {
   const refusedOutsideTest = spawnSync(process.execPath, ['--import', pathToFileURL(CLOCK_PRELOAD).href, '-e', 'console.log(1)'], { env: { PATH: process.env.PATH, NODE_ENV: 'production', WM_REPLAY_CLOCK: '2030-01-01T00:00:00Z' }, encoding: 'utf8' });
   const refusedBadClock = spawnSync(process.execPath, ['--import', pathToFileURL(CLOCK_PRELOAD).href, '-e', 'console.log(1)'], { env: { PATH: process.env.PATH, NODE_ENV: 'test' }, encoding: 'utf8' });
   check(refusedOutsideTest.status === 1 && refusedOutsideTest.stdout === '' && refusedBadClock.status === 1 && refusedBadClock.stdout === '', '定时钟：不是测试环境、或者没给时刻，预加载让进程直接退出，不带着假的时钟起来');
+  // 假 GitHub、假 LayerFS：测试环境里起得来、把地址交给进程，commit 号每次一样；别的环境直接退出
+  const servicesProbe = `const a = process.env.WM_GITHUB_API, l = process.env.LAYERFS_SERVICE_URL, t = process.env.LAYERFS_SERVICE_TOKEN;
+const h = { authorization: 'Bearer ' + t, 'content-type': 'application/json' };
+const head = await (await fetch(a + '/repos/replay/app/commits/main')).json();
+const pub = () => fetch(l + '/v1/projects/p/branches/release/publish', { method: 'POST', headers: h, body: JSON.stringify({ files: [{ path: 'a', content: 'b' }] }) }).then((r) => r.json());
+const one = await pub(), two = await pub();
+console.log(JSON.stringify([/^http:\\/\\/127\\.0\\.0\\.1:\\d+$/.test(a), /^http:\\/\\/127\\.0\\.0\\.1:\\d+$/.test(l), head.sha, one.commit_id === two.commit_id, one.changed, two.changed, (await fetch(l + '/v1/projects/p', { method: 'DELETE' })).status]));
+process.exit(0);`;
+  const runServices = (env) => spawnSync(process.execPath, ['--import', pathToFileURL(FIXTURES['github-fake'].preload).href, '--import', pathToFileURL(FIXTURES['layerfs-fake'].preload).href, '--input-type=module', '-e', servicesProbe], { env: { PATH: process.env.PATH, ...env }, encoding: 'utf8' });
+  const [svcA, svcB] = [runServices({ NODE_ENV: 'test' }), runServices({ NODE_ENV: 'test' })];
+  const svcOut = svcA.stdout.trim();
+  check(svcA.status === 0 && svcOut === svcB.stdout.trim() && /^\[true,true,"[0-9a-f]{40}",true,true,false,401\]$/.test(svcOut), `夹具：假 GitHub、假 LayerFS 起在回环地址上，main 头的 commit 号和 LayerFS 的 commit 号每次一样，令牌不对 401 ${svcOut || svcA.stderr.trim().split('\n').at(-1)}`);
+  const refusedServices = ['github-fake', 'layerfs-fake'].map((name) => spawnSync(process.execPath, ['--import', pathToFileURL(FIXTURES[name].preload).href, '-e', 'console.log(1)'], { env: { PATH: process.env.PATH, NODE_ENV: 'production' }, encoding: 'utf8' }));
+  check(refusedServices.every((r) => r.status === 1 && r.stdout === ''), '夹具：假 GitHub、假 LayerFS 不是测试环境就让进程直接退出');
   console.log(failed ? `===== 录制回放自检：${failed} 项失败 =====` : '===== 录制回放自检：全过 =====');
   return failed ? 1 : 0;
 }
@@ -919,7 +982,7 @@ async function main() {
     for (const scenario of cassette.scenarios) {
       const instance = await boot(`${domain}-${scenario.name}`, scenario.env ?? {}, scenario.clock, scenario.fixtures ?? []);
       let results;
-      try { seedInstance(instance.data, scenario.seed); results = await runSteps(scenario.steps, (request, vars) => send(instance.base, request, vars).then((r) => ({ ...r, selfPort: new URL(instance.base).port })), record); }
+      try { seedInstance(instance.data, scenario.seed); seedFiles(instance.data, scenario.seed_files); results = await runSteps(scenario.steps, (request, vars) => send(instance.base, request, vars).then((r) => ({ ...r, selfPort: new URL(instance.base).port })), record); }
       catch (err) { throw new Error(`${domain}/${scenario.name}/${err.message}`); }
       finally { await instance.stop(); }
       total += results.length;

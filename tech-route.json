@@ -10,9 +10,9 @@
       "what": "index.ts 里的路由数",
       "target": 0,
       "baseline": {
-        "total": 57,
+        "total": 50,
         "files": {
-          "server/src/index.ts": 57
+          "server/src/index.ts": 50
         }
       }
     },
@@ -23,9 +23,9 @@
       "what": "没报动作的路由",
       "target": 0,
       "baseline": {
-        "total": 87,
+        "total": 80,
         "files": {
-          "server/src/index.ts": 57,
+          "server/src/index.ts": 50,
           "server/src/login-gate.ts": 4,
           "server/src/vault-api.ts": 17,
           "server/src/workbench-events.ts": 4,
@@ -51,12 +51,12 @@
       "what": "services/ 与 db.ts 之外的 SQL 调用点",
       "target": 0,
       "baseline": {
-        "total": 164,
+        "total": 161,
         "files": {
           "server/src/a2a-direct-sig.ts": 3,
           "server/src/a2a.ts": 6,
           "server/src/endpoint-stats.ts": 3,
-          "server/src/index.ts": 32,
+          "server/src/index.ts": 29,
           "server/src/layerfs-shadow.ts": 11,
           "server/src/portal-observation.ts": 3,
           "server/src/sop-read-auth.ts": 6,
