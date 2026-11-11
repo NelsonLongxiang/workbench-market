@@ -11,6 +11,7 @@ import { createServer } from 'node:net';
 import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
 import { spawn } from './owned-script-fixture.mjs';
 import { SESSIONS } from './identity-fake-provider.mjs';
 import { APP, PEOPLE, contactEvent, signedEvent, startFakeFeishu } from './feishu-fake.mjs';
@@ -200,6 +201,22 @@ try {
     check(first.status === 200 && again.status === 200 && after === 'active', '同一个事件号重放（哪怕重新签名）：回 200 但不再处理——恢复之后不会被同一个事件再停用一次', show({ first: first.status, again: again.status, after }));
   }
   {
+    // 停用这一步出错（用触发器在库里故意让「停用 carol」失败）：只回固定的 503，内部原因不回给对方；
+    // 事件号和停用一起撤回——飞书重推同一个事件时照常处理，不会被当成重复跳过
+    const side = new DatabaseSync(join(open.data, 'workbench-market.db'));
+    side.exec("CREATE TRIGGER smoke_fail_disable BEFORE UPDATE OF status ON principals WHEN NEW.id = 'user:carol' AND NEW.status = 'disabled' BEGIN SELECT RAISE(ABORT, 'synthetic-injected-failure'); END");
+    const failed = await post(open, signedEvent(contactEvent('contact.user.deleted_v3', 'carol', { eventId: 'evt-retry-after-failure' })));
+    const during = await statusOf(open, 'user:carol');
+    side.exec('DROP TRIGGER smoke_fail_disable');
+    side.close();
+    const retried = await post(open, signedEvent(contactEvent('contact.user.deleted_v3', 'carol', { eventId: 'evt-retry-after-failure' })));
+    const after = await statusOf(open, 'user:carol');
+    check(failed.status === 503 && failed.json?.error === 'event_unavailable' && !/synthetic-injected|trigger|SQLITE/i.test(failed.text) && during === 'active'
+      && retried.status === 200 && after === 'disabled',
+      '停用出错：回固定的 503、不带内部原因；事件号一起撤回，飞书重推同一个事件时照常停用', show({ failed: [failed.status, failed.text.slice(0, 120)], during, retried: retried.status, after }));
+    await restore(open, 'user:carol');
+  }
+  {
     // URL 校验：回 challenge；Token 不对不回
     const ok = await post(open, signedEvent({ challenge: 'synthetic-challenge-1', token: APP.verificationToken, type: 'url_verification' }));
     const bad = await post(open, signedEvent({ challenge: 'synthetic-challenge-2', token: 'attacker-token', type: 'url_verification' }));
@@ -248,9 +265,10 @@ try {
     const states = { bob: await statusOf(recon, 'user:bob'), dave: await statusOf(recon, 'user:dave'), alpha: await statusOf(recon, 'user:alpha'), carol: await statusOf(recon, 'user:carol') };
     const bobSession = (await recon.call('GET', '/api/auth/viewer', { cookies: { wm_session: s } })).status;
     const line = recon.log().split('\n').filter((l) => l.includes('"event":"reconcile"'));
+    const listsDave = line.length === 1 && line[0].includes(`"unknown_ids":["${PEOPLE.dave.union_id}"]`);
     check(staff.status === 403 && r.status === 200 && r.json?.checked === 4 && show(r.json?.disabled) === show(['user:bob']) && r.json?.unknown === 1
-      && states.bob === 'disabled' && states.dave === 'active' && states.alpha === 'active' && states.carol === 'active' && bobSession !== 200 && line.length === 1,
-      '对账：事件没到的离职（bob）被补上、会话立即失效；查不到的（dave）不停用、计入 unknown；在职的不动；不是管理员不能手动触发；留一行痕', show({ staff: staff.status, r: r.json, states, bobSession }));
+      && states.bob === 'disabled' && states.dave === 'active' && states.alpha === 'active' && states.carol === 'active' && bobSession !== 200 && listsDave,
+      '对账：事件没到的离职（bob）被补上、会话立即失效；查不到的（dave）不停用、计入 unknown；在职的不动；不是管理员不能手动触发；留一行痕，查不清的 union_id 列在痕里给人工复核', show({ staff: staff.status, r: r.json, states, bobSession }));
     // 取不到 tenant_access_token：一个也不停用
     await restore(recon, 'user:bob');
     fake.mode('tenantTokenFail');
