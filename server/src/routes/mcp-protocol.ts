@@ -28,7 +28,7 @@ export interface McpProtocolDeps {
 export function registerMcpProtocolRoutes(app: HttpService, deps: McpProtocolDeps): void {
   const { mcpGatewaySession, mcpAudit, mcpRestInfo, mcpPublicOrigin, MCP_KNOWN_PROTOCOLS, MCP_PROTOCOL, mcpAggregatedTools, mcpToolGranted, mcpInvokeTool } = deps;
   // /mcp 网关化（MCP_GATEWAY=on）：Bearer 有效→会话；无效/缺失/吊销→401+WWW-Authenticate（含 initialize，无兼容期）
-  app.post('/mcp', { action: 'mcp.rpc', kind: 'write' }, async (req, res) => {
+  app.post('/mcp', { action: 'mcp.rpc', kind: 'write', statusNotVerdict: 'MCP 会话令牌与工具授权由网关判，不是登录身份的结论' }, async (req, res) => {
     const msg = req.body ?? {};
     const fail = (code: number, message: string) => res.json({ jsonrpc: '2.0', id: msg.id ?? null, error: { code, message } });
 
