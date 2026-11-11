@@ -55,6 +55,7 @@ import { registerMcpRoutes } from './routes/mcp.ts';
 import { registerRemoteAllowRoutes } from './routes/remote-allow.ts';
 import { registerAppRoutes, registerAppLifecycleRoutes } from './routes/apps.ts';
 import { registerAppDataRoutes } from './routes/app-data.ts';
+import { registerSopRunAccessRoutes } from './routes/sop-run-access.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import type { ChangeRequestService } from './services/change-request.ts';
@@ -2618,39 +2619,7 @@ function sameOriginGuard(req: express.Request, res: express.Response): boolean {
 registerTaskIntakeRoutes(http, { sameOriginGuard, adminGuard });
 registerWorkbenchEventRoutes(app, { admin: adminGuard, sameOrigin: (req) => sameOriginGuard(req, undefined as never) });
 registerTaskReadRoutes(http, { wrap, adminHeaderOk, runReadCapHeader });
-// #309 phase2：run 私有读授权管理面（播种 grant／重签 cap／撤销；adminGuard——运维持权人经权威映射操作，不猜归属）
-app.put('/api/sop/runs/:id(\\d+)/read-grants', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const id = Number(req.params.id);
-  sopRunRow(id);
-  const subject = typeof req.body?.subject === 'string' ? req.body.subject.trim() : '';
-  if (!/^(user|mcp):[A-Za-z0-9_.@-]{1,128}$/.test(subject)) bad('subject 形如 user:<Odoo登录名> 或 mcp:<会话名>');
-  const role = typeof req.body?.role === 'string' && req.body.role ? req.body.role.slice(0, 32) : 'reader';
-  const expiresAt = typeof req.body?.expires_at === 'string' && req.body.expires_at ? req.body.expires_at.slice(0, 19) : null;
-  runReadGrantCreate(id, subject, role, expiresAt, 'admin');
-  res.status(201).json({ ok: true, run_id: id, subject, role, expires_at: expiresAt });
-});
-app.post('/api/sop/runs/:id(\\d+)/read-grants/revoke', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const id = Number(req.params.id);
-  const subject = typeof req.body?.subject === 'string' ? req.body.subject.trim() : '';
-  if (!subject) bad('subject 必填');
-  const n = runReadGrantRevoke(id, subject);
-  res.json({ ok: true, run_id: id, subject, revoked: n });
-});
-app.post('/api/sop/runs/:id(\\d+)/read-caps', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const id = Number(req.params.id);
-  sopRunRow(id);
-  const cap = issueRunReadCap(id);
-  res.status(201).json({ ok: true, run_id: id, read_capability: cap, note: '明文仅此一次出现——请立即分发保管' });
-});
-app.post('/api/sop/runs/:id(\\d+)/read-caps/revoke', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const id = Number(req.params.id);
-  const n = runReadCapRevokeAll(id);
-  res.json({ ok: true, run_id: id, revoked_caps: n });
-});
+registerSopRunAccessRoutes(http, { adminGuard, sopRunRow, bad });
 registerTaskControlRoutes(http, { readActiveManifest, sameOriginGuard, adminGuard });
 
 
