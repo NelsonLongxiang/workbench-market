@@ -262,6 +262,24 @@ CREATE TABLE IF NOT EXISTS a2a_sent_tasks (
 );
 CREATE INDEX IF NOT EXISTS idx_a2a_sent_tasks_delivery ON a2a_sent_tasks (delivery_id);
 -- 收到并采信的回执：同一任务号的接单回执（acknowledged）一条、终局回执（attention / result）一条，按 idempotencyKey 去重
+-- 阶段七 R2：人在「关注」里答复席位回执里的提问后，答复作为同一 context 的新任务发回那个团队。这里只放发送状态；
+-- 发送复用事件投递的发送函数（a2aSendOutbound）、退避（1m/5m/15m/1h，5 次后 dead）与签名。唯一 outbox 那一步并进 a2a_outbox_items（kind=answer）。
+CREATE TABLE IF NOT EXISTS workbench_event_answers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL,
+  delivery_id INTEGER NOT NULL,
+  ask_log_id INTEGER NOT NULL,
+  qid TEXT NOT NULL DEFAULT '',
+  message TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sent','dead')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  sent_at TEXT NOT NULL DEFAULT '',
+  UNIQUE (delivery_id, ask_log_id)
+);
+CREATE INDEX IF NOT EXISTS idx_wbe_answers_due ON workbench_event_answers (status, next_at);
 CREATE TABLE IF NOT EXISTS a2a_inbound_receipts (
   task_id TEXT NOT NULL,
   class TEXT NOT NULL CHECK (class IN ('ack','final')),

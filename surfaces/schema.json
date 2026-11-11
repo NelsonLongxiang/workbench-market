@@ -572,6 +572,20 @@
       "updated_at TEXT NOT NULL DEFAULT datetime('now')",
       "creator_principal TEXT"
     ],
+    "workbench_event_answers": [
+      "id INTEGER PK",
+      "event_id TEXT NOT NULL",
+      "delivery_id INTEGER NOT NULL",
+      "ask_log_id INTEGER NOT NULL",
+      "qid TEXT NOT NULL DEFAULT ''",
+      "message TEXT NOT NULL DEFAULT ''",
+      "status TEXT NOT NULL DEFAULT 'pending'",
+      "attempts INTEGER NOT NULL DEFAULT 0",
+      "next_at TEXT NOT NULL DEFAULT datetime('now')",
+      "last_error TEXT NOT NULL DEFAULT ''",
+      "created_at TEXT NOT NULL DEFAULT datetime('now')",
+      "sent_at TEXT NOT NULL DEFAULT ''"
+    ],
     "workbench_event_deliveries": [
       "id INTEGER PK",
       "event_id TEXT NOT NULL",
@@ -704,6 +718,7 @@
     "idx_sso_tickets_source ON sso_tickets: CREATE INDEX idx_sso_tickets_source ON sso_tickets(source, exp)",
     "idx_task_source_subject ON task_source_read_grants: CREATE INDEX idx_task_source_subject ON task_source_read_grants(subject, source, revoked_at)",
     "idx_tasks_intake_run ON tasks: CREATE UNIQUE INDEX idx_tasks_intake_run ON tasks(intake_run_id) WHERE intake_run_id IS NOT NULL",
+    "idx_wbe_answers_due ON workbench_event_answers: CREATE INDEX idx_wbe_answers_due ON workbench_event_answers (status, next_at)",
     "idx_wbe_deliveries_due ON workbench_event_deliveries: CREATE INDEX idx_wbe_deliveries_due ON workbench_event_deliveries(status, next_at)",
     "idx_work_item_log_item ON work_item_log: CREATE INDEX idx_work_item_log_item ON work_item_log (item_id, seq)",
     "idx_work_items_object ON work_items: CREATE INDEX idx_work_items_object ON work_items (object, phase)",

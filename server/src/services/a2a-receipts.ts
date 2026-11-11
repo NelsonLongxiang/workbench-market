@@ -48,3 +48,23 @@ export function inReceiptTx<T>(fn: () => T): T {
   try { const out = fn(); db.exec('RELEASE a2a_receipt_in'); return out; }
   catch (e) { db.exec('ROLLBACK TO a2a_receipt_in'); db.exec('RELEASE a2a_receipt_in'); throw e; }
 }
+
+/**
+ * 阶段七 R2：跟进消息归到哪次投递——同一 context（我们的事件 context）里、发给同一个对端 zone、且这次投递已经采信过回执的
+ * 最近一个任务号。找不到返回 undefined（跟进不认）。
+ */
+export function sentTaskForFollowup(contextId: string, zone: string): SentTask | undefined {
+  return db.prepare(`SELECT s.task_id, s.kind, s.event_id, s.delivery_id, s.peer_root, s.peer_zone
+    FROM a2a_sent_tasks s JOIN workbench_events e ON e.event_id = s.event_id
+    WHERE e.context_id = ? AND s.peer_zone = ? AND s.peer_zone <> ''
+      AND EXISTS (SELECT 1 FROM a2a_inbound_receipts r JOIN a2a_sent_tasks t ON t.task_id = r.task_id WHERE t.delivery_id = s.delivery_id)
+    ORDER BY s.created_at DESC, s.rowid DESC LIMIT 1`).get(contextId, zone) as SentTask | undefined;
+}
+
+/** 这条跟进（对方的任务号）记过了吗；这次投递记了多少条跟进 */
+export function followupSeen(deliveryId: number, inboundTask: string): boolean {
+  return Boolean(db.prepare("SELECT 1 FROM workbench_event_log WHERE delivery_id = ? AND action = 'followup' AND json_extract(detail, '$.inbound') = ?").get(deliveryId, inboundTask));
+}
+export function followupCount(deliveryId: number): number {
+  return Number((db.prepare("SELECT COUNT(*) AS n FROM workbench_event_log WHERE delivery_id = ? AND action = 'followup'").get(deliveryId) as { n: number }).n);
+}

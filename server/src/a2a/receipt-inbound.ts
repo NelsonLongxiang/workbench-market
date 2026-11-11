@@ -19,7 +19,7 @@ import { createPublicKey, verify as edVerify } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import { parseA2aReceipt } from '../a2a.ts';
 import { audiencesOf, bodyDigest, originOf, SIG_SKEW_MS } from '../a2a-direct-sig.ts';
-import { claimReceipt, claimSignatureOnce, inReceiptTx, receiptRecorded, sentTask, untrustedReceiptCount, type SentTask } from '../services/a2a-receipts.ts';
+import { claimReceipt, claimSignatureOnce, followupCount, followupSeen, inReceiptTx, receiptRecorded, sentTask, sentTaskForFollowup, untrustedReceiptCount, type SentTask } from '../services/a2a-receipts.ts';
 import { logDeliveryFact } from '../workbench-events.ts';
 import { noteA2aError } from './errors.ts';
 import { peerCard } from './peer-card.ts';
@@ -116,7 +116,7 @@ export async function handleInboundReceipt(req: Req, deps: { audiences: () => st
   const message = typeof body.message === 'string' ? body.message : '';
   if (message === '') return null;
   const parsed = parseA2aReceipt(message);
-  if (!parsed) return null;
+  if (!parsed) return handleFollowup(req, body, message, deps);
   const sent = sentTask(parsed.taskId);
   if (!sent) return null;
   const now = deps.now?.() ?? Date.now();
@@ -172,4 +172,33 @@ export async function handleInboundReceipt(req: Req, deps: { audiences: () => st
     status: 200,
     body: { routed: true, delivered: true, team: typeof body.team === 'string' ? body.team.slice(0, 128) : '', task_id: inboundTask, context_id: typeof body.context_id === 'string' ? body.context_id.slice(0, 256) : '', task_status: 'TASK_STATE_DELIVERED', receipt: 'recorded' },
   };
+}
+
+const FOLLOWUP_CAP = 50;
+
+/**
+ * 阶段七 R2：席位在回执之后发来的自由文本跟进（superagent：一个任务只有一条正式回执，之后的消息是同一 context 的新任务）。
+ * 窄分流，三条都成立才认：context 是我们某个事件的 context、发给声明的那个对端 zone 的那次投递已经采信过回执、签名方是那台宿主（同回执，只认 Sig3）。
+ * 认了只在事件日志记一行 followup（正文前 500 字，只用于显示），事项只记录、不改状态；同一条（对方的任务号）只记一次，每次投递最多 50 条。
+ * 任何一条不成立都返回 null，照原路走。
+ */
+async function handleFollowup(req: Req, body: Record<string, unknown>, message: string, deps: { audiences: () => string[]; now?: () => number }): Promise<{ status: number; body: Record<string, unknown> } | null> {
+  const contextId = typeof body.context_id === 'string' ? body.context_id : '';
+  const inboundTask = typeof body.task_id === 'string' ? body.task_id.slice(0, 128) : '';
+  const zone = header(req, 'x-a2a-caller');
+  if (contextId === '' || inboundTask === '' || zone === '') return null;
+  const sent = sentTaskForFollowup(contextId, zone);
+  if (!sent) return null;
+  const verdict = await verifyReceiptSigner(req, req.rawBody ?? Buffer.alloc(0), sent, deps.audiences(), deps.now?.() ?? Date.now());
+  const reply = { routed: true, delivered: true, team: typeof body.team === 'string' ? body.team.slice(0, 128) : '', task_id: inboundTask, context_id: contextId.slice(0, 256), task_status: 'TASK_STATE_DELIVERED', followup: 'recorded' };
+  if (!verdict.ok) {
+    // 同一条跟进原样重发：签名是真的、已经记过——照样回已记，不重复记
+    if (verdict.reason === 'replay' && verdict.genuine === true && followupSeen(sent.delivery_id, inboundTask)) return { status: 200, body: reply };
+    return null;
+  }
+  inReceiptTx(() => {
+    if (followupSeen(sent.delivery_id, inboundTask) || followupCount(sent.delivery_id) >= FOLLOWUP_CAP) return;
+    logDeliveryFact(sent.event_id, sent.delivery_id, `receiver:${sent.peer_zone}`, 'followup', { text: cleanSummary(message), inbound: inboundTask });
+  });
+  return { status: 200, body: reply };
 }

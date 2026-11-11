@@ -32,8 +32,8 @@ export function byWaited(items: AttentionItem[]): AttentionItem[] {
 export function describe(row: Pick<LogRow, 'detail'>): string {
   let d: Record<string, unknown> = {};
   try { d = JSON.parse(row.detail || '{}'); } catch { /* 坏的 detail 当空 */ }
-  const note = d.note === 'unrouted' ? '没有目标团队' : d.note === 'untrusted' ? '提交方未验证，收到但未采信' : d.note === 'undispatched' ? '只通知、不派发，未派发' : '';
-  const bits = [d.question, d.answer, d.summary, d.reason, note, d.verdict && `判断：${d.verdict}`, d.status && `状态：${d.status}`, d.outcome && `结果：${d.outcome}`, d.late ? '晚到' : ''];
+  const note = d.note === 'unrouted' ? '没有目标团队' : d.note === 'untrusted' ? '提交方未验证，收到但未采信' : d.note === 'undispatched' ? '只通知、不派发，未派发' : d.note === 'followup' ? '席位的跟进说明' : '';
+  const bits = [d.question, d.answer, d.summary, d.reason, d.note === 'followup' ? d.text : '', note, d.verdict && `判断：${d.verdict}`, d.status && `状态：${d.status}`, d.outcome && `结果：${d.outcome}`, d.late ? '晚到' : ''];
   return bits.filter((x): x is string => typeof x === 'string' && x !== '').join(' · ');
 }
 

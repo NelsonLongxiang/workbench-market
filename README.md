@@ -247,6 +247,7 @@ GET              /api/health/ready              就绪：含 LayerFS 探测（�
 server/src/      （一个文件一行，按文件名排序；新文件只插一行）
   a2a-direct-sig.ts（/a2a/direct 入站签名校验：只从登记地址取卡·防重放·WM_A2A_DIRECT_SIG）
   a2a.ts（卡片/绑定/direct 准入）
+  a2a/answer-outbound.ts（人在「关注」里答复席位回执里的提问后，把答复作为同一 context 的新任务发回那个团队：复用事件投递的发送函数、退避与签名，新任务号登记对端，对方对它的回执照常回到同一事项）
   a2a/errors.ts（A2A 拒收原因表：错误码 → 中文原因与处理办法·公开计数的桶，对外同答的原因并桶）
   a2a/health.ts（`/api/health` 的 `a2a` 块：开关生效值、名片有效期、幂等窗口、出站积压、拒收计数·只出计数不出团队与地址·读数缓存 5 秒）
   a2a/peer-card.ts（对端名片：按投递的根地址取名片、上游 verifyCard 验签；投递时记下对端是谁、回执到达时用同一张名片验签名·不跟随重定向、5 秒、64 KiB）
@@ -310,6 +311,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   workbench-vars.ts（#336 工作台变量与常量：按台隔离、revision 乐观锁、常量保护）
 server/src/login-providers/  登录提供方插件（身份的具体实现只放这里，核心不引用）：index.ts（清单：这个部署装哪些提供方） feishu/index.ts（飞书登录方式：授权码流程，向 `identity` 登记一个登录方式，凭证从凭据库取） odoo/index.ts（Odoo 提供方的插件入口：向 `identity` 登记、提供 `loginRelay`） odoo/odoo-viewer.ts（Odoo 查看人现查） odoo/odoo-session.ts（门户 Odoo 会话可信源判定与剥除、登录回调票据） odoo/odoo-login-proxy.ts（可选同源 Odoo 登录中继 WM_ODOO_LOGIN_PROXY：只放行登录面，不代理 Odoo 应用） odoo/odoo-browser-origin.ts（只给浏览器用的 Odoo 登录地址 WM_ODOO_BROWSER_URL：登录一跳送到可信内网地址，身份与代理目标不变）
 server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·cookie·setting·mcp（域服务）；其余一个文件一行，按文件名排序：
+  a2a-answers.ts（答复席位提问的发送状态：排队、到期、已发、重试、dead；只通知的事件不发）
   a2a-idempotency.ts（`/a2a/direct` 幂等登记：task_id → 指纹 sha256，30 分钟窗口，落库，重启后同一 task_id 仍判 replay / conflict；只存摘要不存原文）
   a2a-receipts.ts（回执入站的登记：我们发出的任务号 → 事件、投递、对端；采信过的回执按任务号去重；签名只认一次）
   a2a-stats.ts（A2A 出站积压的聚合读数：两张出站表按状态计数、最老待发、最近回执时长）
