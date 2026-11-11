@@ -75,7 +75,8 @@ export function cardWording(category: string, admin: boolean): { label: string; 
   const proxy = admin && (category === 'ask' || category === 'accept');
   const LABEL: Record<string, [string, string]> = { ask: ['在问你', '在问建立人'], accept: ['等你验收', '等建立人验收'], glance: ['等你过目', '等你过目'], review: ['等你审核', '等你审核'], grant: ['待你核准', '待你核准'] };
   const l = LABEL[category];
-  return { label: l ? l[proxy ? 1 : 0] : category, proxy };
+  // 不认识的类别（服务端以后会加：卡住的事、团队待认领、负责人缺位……）先写中性的「等你处理」，不把代号露出来（规范 14 第十节）
+  return { label: l ? l[proxy ? 1 : 0] : '等你处理', proxy };
 }
 
 /** 问候：按本地时间段 */
