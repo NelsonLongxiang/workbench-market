@@ -18,6 +18,7 @@ node scripts/tech-route-check.mjs    # 路线体检：结构数字对照 tech-ro
 node scripts/surface-snapshot.mjs     # 对外面的快照：改了路由、MCP 工具或表结构后，加 --write 重新生成
 node scripts/route-replay-test.mjs    # 路由录制回放：对同一组请求重放，状态码、响应头和响应体要和录下来的一样（有意改了行为加 --record 重录）
 node scripts/upgrade-smoke.mjs        # 升级冒烟：线上发布分支的库换成本检出的代码启动、再退回去，全程合成数据（--base 换基线）
+A2A_UPSTREAM_DIR=<上游检出> node scripts/contract-upstream-test.mjs  # 契约联调：上游 a2a-net 的 superagent 宿主当对端（夹具 scripts/contract/market-superagent.spec.ts，拷进上游 tests/mesh/ 跑；只听回环、临时目录、合成数据；NODE_ENV=production 或设了 DATA_DIR 拒绝运行；CI 的 upstream-contract job）
 ```
 
 浏览器回归（`scripts/*-browser.mjs` 等）要用 Python Playwright，版本与 CI 一致。一般交给 CI 或共用测试环境跑。解释器由 `scripts/python-bin.mjs` 统一选取，顺序是：`PYTHON` 环境变量 → 仓库根的 `.venv` → 系统 `python3`，不用在命令前手写解释器路径。想在自己机器上跑的话（可选），建一次 `.venv` 即可：
