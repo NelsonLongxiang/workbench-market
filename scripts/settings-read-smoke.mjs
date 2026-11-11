@@ -6,7 +6,7 @@
  *
  *   别人（远程匿名、登录的非管理员 beta、口令错的、带有效口令的跨站，登录门开着时的 beta）：只给巡检参数和开关；
  *   管理员（口令、Odoo 管理员同源）：全部设置，凭据类的值只给 ****，上游 headers 掩掉；
- *   掩码导出、带 reveal 的导出、改设置的应答：都不带凭据类的值；服务端日志里没有任何一个凭据类的值。
+ *   掩码导出里的设置和设置读同口径；掩码导出、带 reveal 的导出、改设置的应答：都不带凭据类的值；服务端日志里没有任何一个凭据类的值。
  *
  *   node scripts/settings-read-smoke.mjs
  */
@@ -28,7 +28,7 @@ let pass = 0, fail = 0;
 const check = (ok, label, detail = '') => { if (ok) pass++; else fail++; console.log(`  ${ok ? '✓' : '✗'} ${label}${ok || !detail ? '' : `（${detail}）`}`); };
 const show = (o) => JSON.stringify(o);
 const leaksSecret = (t) => SECRETS.some((x) => t.includes(x));
-const leaksAddress = (t) => ADDRESSES.some((x) => t.includes(x));
+const leaksAddress = (t) => ADDRESSES.some((x) => t.includes(x)) || t.includes('CANARY-FUTURE-PLAIN-85');
 
 // Odoo 替身：session_id 前缀决定身份；其余路径 404
 const odoo = createServer((req, res) => {
@@ -91,6 +91,7 @@ async function boot(tag, extra = {}) {
       put.run('a2a_peers', JSON.stringify([{ node: 'peer', url: 'http://canary-peer.invalid' }]));
       put.run('mcp_upstreams', JSON.stringify([{ prefix: 'up', url: 'http://canary-upstream.invalid/mcp', headers: { Authorization: `Bearer ${SECRETS[3]}` } }]));
       put.run('run_upload_require_token', '1');
+      put.run('some_future_setting', 'CANARY-FUTURE-PLAIN-85'); // 名字不像凭据的新键：管理员看得到，别人（含导出）看不到
     } finally { db.close(); }
   }
   await halt();
@@ -111,6 +112,7 @@ async function boot(tag, extra = {}) {
 }
 
 const onlyPublic = (r) => r.status === 200 && !leaksSecret(r.text) && !leaksAddress(r.text) && Object.keys(r.json ?? {}).every((k) => PUBLIC.includes(k));
+const exportOnlyPublic = (r) => r.status === 200 && r.json?.masked === 1 && !leaksSecret(r.text) && !leaksAddress(r.text) && Object.keys(r.json?.settings ?? {}).every((k) => PUBLIC.includes(k)) && r.json?.settings?.run_upload_require_token === '1';
 
 try {
   // ---------- 一、登录门关着 ----------
@@ -139,6 +141,18 @@ try {
     const put = await srv.call('PUT', '/api/settings', { headers: { 'x-admin-token': ADMIN_TOKEN }, body: { health_concurrency: 3 } });
     check(masked.status === 200 && !leaksSecret(masked.text) && reveal.status === 200 && !leaksSecret(reveal.text) && put.status === 200 && !leaksSecret(put.text),
       '掩码导出（匿名可拿）、reveal 导出、改设置的应答：都不带凭据类的值', show({ masked: masked.status, reveal: reveal.status, put: put.status }));
+    const ex = {
+      anonymous: await srv.call('GET', '/api/export', { headers: REMOTE }),
+      beta: await srv.call('GET', '/api/export', { headers: { ...REMOTE, ...same }, session: BETA_SID }),
+      wrongToken: await srv.call('GET', '/api/export', { headers: { ...REMOTE, 'x-admin-token': 'wrong' } }),
+      crossSite: await srv.call('GET', '/api/export', { headers: { ...REMOTE, 'x-admin-token': ADMIN_TOKEN, origin: 'https://elsewhere.example', 'sec-fetch-site': 'cross-site' } }),
+    };
+    const exBad = Object.entries(ex).filter(([, r]) => !exportOnlyPublic(r)).map(([k, r]) => [k, r.status, Object.keys(r.json?.settings ?? {})]);
+    const exAdmin = await srv.call('GET', '/api/export', { headers: { ...REMOTE, 'x-admin-token': ADMIN_TOKEN } });
+    const es = exAdmin.json?.settings ?? {};
+    check(exBad.length === 0 && exAdmin.status === 200 && !leaksSecret(exAdmin.text) && es.layerfs_service_url === 'http://canary-layerfs.invalid:9000' && es.layerfs_service_token === '****' && es.some_future_setting === 'CANARY-FUTURE-PLAIN-85',
+      '掩码导出里的设置和设置读同口径：别人（远程匿名、登录的非管理员 beta、口令错的、带有效口令的跨站）只拿巡检参数和开关，内网地址、上游、名字不像凭据的新键都没有；管理员拿全部（凭据只给 ****）',
+      show({ exBad, admin: exAdmin.status, adminKeys: Object.keys(es) }));
     check(!leaksSecret(srv.log()), '登录门关着：整个过程服务端的日志里没有任何一个凭据类的值', SECRETS.filter((x) => srv.log().includes(x)).join('、'));
     await srv.stop();
   }
@@ -149,8 +163,9 @@ try {
     const beta = await srv.call('GET', '/api/settings', { headers: { ...REMOTE, ...same }, session: BETA_SID });
     const anon = await srv.call('GET', '/api/settings', { headers: REMOTE });
     const admin = await srv.call('GET', '/api/settings', { headers: { ...REMOTE, ...same }, session: ADMIN_SID });
-    check(onlyPublic(beta) && anon.status === 401 && !leaksSecret(anon.text) && admin.status === 200 && admin.json?.layerfs_service_token === '****',
-      '登录门开着：登录的非管理员 beta 读设置只有巡检参数和开关；远程匿名被登录门先拦 401；Odoo 管理员看全部（凭据只给 ****）', show({ beta: beta.status, betaKeys: Object.keys(beta.json ?? {}), anon: anon.status, admin: admin.status }));
+    const betaExport = await srv.call('GET', '/api/export', { headers: { ...REMOTE, ...same }, session: BETA_SID });
+    check(onlyPublic(beta) && exportOnlyPublic(betaExport) && anon.status === 401 && !leaksSecret(anon.text) && admin.status === 200 && admin.json?.layerfs_service_token === '****',
+      '登录门开着：登录的非管理员 beta 读设置、读掩码导出都只有巡检参数和开关；远程匿名被登录门先拦 401；Odoo 管理员看全部（凭据只给 ****）', show({ betaExport: betaExport.status, betaExportKeys: Object.keys(betaExport.json?.settings ?? {}), beta: beta.status, betaKeys: Object.keys(beta.json ?? {}), anon: anon.status, admin: admin.status }));
     check(!leaksSecret(srv.log()), '登录门开着：服务端的日志里没有任何一个凭据类的值');
     await srv.stop();
   }

@@ -3215,14 +3215,18 @@ function maskUpstreamsSetting(settings: Record<string, string>): Record<string, 
   }
 }
 
+// 管理员（口令或管理员登录，同源）和本机命令行看全部（凭据类的值只说有没有）；别人只看巡检参数和开关。设置读与掩码导出共用
+async function settingsForReader(req: express.Request): Promise<Record<string, string>> {
+  const cli = !browserMarked(req) && rawLoopback(req);
+  if (!cli) await markOdooAdmin(req);
+  const all = maskUpstreamsSetting(getSettings());
+  return cli || adminHeaderOk(req) ? all : Object.fromEntries(SETTINGS_PUBLIC_KEYS.filter((k) => k in all).map((k) => [k, all[k]]));
+}
 app.get('/api/settings', (req, res, next) => {
   (async () => {
-    // 管理员（口令或管理员登录，同源）和本机命令行看全部（凭据类的值只说有没有）；别人只看巡检参数和开关
-    const cli = !browserMarked(req) && rawLoopback(req);
-    if (!cli) await markOdooAdmin(req);
-    const all = maskUpstreamsSetting(getSettings());
+    const view = await settingsForReader(req);
     res.set('Cache-Control', 'private, no-store');
-    res.json(cli || adminHeaderOk(req) ? all : Object.fromEntries(SETTINGS_PUBLIC_KEYS.filter((k) => k in all).map((k) => [k, all[k]])));
+    res.json(view);
   })().catch(next);
 });
 
@@ -3252,6 +3256,8 @@ async function exportHandler(req: express.Request, res: express.Response): Promi
     if (!adminGuard(req, res)) return;
     res.set('Cache-Control', 'no-store');
   }
+  // 设置和 GET /api/settings 同口径：别人只拿巡检参数和开关（取真值的已过管理员门，拿全部）；导入不读 settings
+  const settingsView = reveal ? maskUpstreamsSetting(getSettings()) : await settingsForReader(req);
   res.json({
     format: 'workbench-market/export@1',
     exported_at: new Date().toISOString(),
@@ -3260,7 +3266,7 @@ async function exportHandler(req: express.Request, res: express.Response): Promi
     types: svc<WorkbenchService>('workbench').types(),
     // 评审 #24：上游 MCP 凭据（headers）与 auth.value 同口径——掩码导出不会带真凭据，
     // 导入侧亦不覆盖 mcp_upstreams（掩码值跳过），凭据需在页面重填。
-    settings: maskUpstreamsSetting(getSettings()),
+    settings: settingsView,
   });
 }
 
