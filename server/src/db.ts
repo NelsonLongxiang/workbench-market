@@ -1130,6 +1130,31 @@ CREATE TABLE IF NOT EXISTS attention_answers (
   PRIMARY KEY (source, source_id)
 );
 `);
+// 部门（管理员维护；以后从 Odoo 同步的写进同一套表，source 分来源）。部门标识就是授予范围 dept:<标识> 里的那个名字，只有这一套。
+//   departments：标识、名称、职能代号（和生命周期阶段的负责部门对上，可空；非空时唯一）、负责人（主体，可空）、来源、改动的时间和人。
+//   department_members：部门和主体的归属（一个主体可在多个部门）。时间由代码给（毫秒），不在 SQL 里取。
+db.exec(`
+CREATE TABLE IF NOT EXISTS departments (
+  id TEXT PRIMARY KEY CHECK (id <> ''),
+  name TEXT NOT NULL CHECK (name <> ''),
+  function_code TEXT NOT NULL DEFAULT '',
+  lead_principal TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'odoo')),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_departments_function_code ON departments (function_code) WHERE function_code <> '';
+CREATE TABLE IF NOT EXISTS department_members (
+  department_id TEXT NOT NULL,
+  principal_id TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'odoo')),
+  created_at INTEGER NOT NULL,
+  created_by TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (department_id, principal_id)
+);
+CREATE INDEX IF NOT EXISTS idx_department_members_principal ON department_members (principal_id);
+`);
 // 阶段八 8d：待对接清单的「出现序号」。同一条外部身份绑定后又出现在清单里，是新的一轮待决；「关注」的记账按它分轮，
 //   不靠时间（只到秒，同一秒里又出现就分不开）。每次新插入一行（主体服务是 upsert，只在真的新进清单时插入）取一个全局只增的号：
 //   号来自一张 AUTOINCREMENT 表，删掉旧号不会回退。只加这一列和取号，清单本身的写法不变。

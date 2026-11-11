@@ -242,6 +242,23 @@
       "created_at INTEGER NOT NULL",
       "updated_at INTEGER NOT NULL"
     ],
+    "department_members": [
+      "department_id TEXT NOT NULL PK",
+      "principal_id TEXT NOT NULL PK",
+      "source TEXT NOT NULL DEFAULT 'manual'",
+      "created_at INTEGER NOT NULL",
+      "created_by TEXT NOT NULL DEFAULT ''"
+    ],
+    "departments": [
+      "id TEXT PK",
+      "name TEXT NOT NULL",
+      "function_code TEXT NOT NULL DEFAULT ''",
+      "lead_principal TEXT NOT NULL DEFAULT ''",
+      "source TEXT NOT NULL DEFAULT 'manual'",
+      "created_at INTEGER NOT NULL",
+      "updated_at INTEGER NOT NULL",
+      "updated_by TEXT NOT NULL DEFAULT ''"
+    ],
     "endpoint_stats": [
       "endpoint TEXT NOT NULL PK",
       "day TEXT NOT NULL PK",
@@ -817,6 +834,8 @@
     "idx_bindings_node ON bindings: CREATE INDEX idx_bindings_node ON bindings (agent_node, revoked_at)",
     "idx_bindings_target ON bindings: CREATE INDEX idx_bindings_target ON bindings (target_type, target_slug, revoked_at)",
     "idx_change_requests_status ON change_requests: CREATE INDEX idx_change_requests_status ON change_requests (status, created_at)",
+    "idx_department_members_principal ON department_members: CREATE INDEX idx_department_members_principal ON department_members (principal_id)",
+    "idx_departments_function_code ON departments: CREATE UNIQUE INDEX idx_departments_function_code ON departments (function_code) WHERE function_code <> ''",
     "idx_grant_events_grant ON grant_events: CREATE INDEX idx_grant_events_grant ON grant_events (grant_id, seq)",
     "idx_grants_principal ON grants: CREATE INDEX idx_grants_principal ON grants (principal_id, status)",
     "idx_login_states_expires ON login_states: CREATE INDEX idx_login_states_expires ON login_states (expires_at)",
