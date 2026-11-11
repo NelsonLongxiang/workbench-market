@@ -61,7 +61,7 @@ export function resultText(r: Created): string {
 const ERR: Record<string, string> = {
   title_required: '写一个标题', title_too_long: `标题最多 ${LIMITS.title} 字`, intent_required: '写一下要做什么', deliverable_required: '写一下要交什么',
   team_required: '选一个团队', team_not_assignable: '这个团队现在不能派，换一个', object_invalid: '「挂在哪条线」写得不对', phase_invalid: '「哪一步」写得不对',
-  due_invalid: '期限的日期不对', review_invalid: '「先给我过目」的值不对', idempotency_key_invalid: '页面出了点问题，刷新后再试',
+  due_invalid: '期限的日期不对', review_invalid: '「先过目再派出去」的值不对', idempotency_key_invalid: '页面出了点问题，刷新后再试',
 };
 export function errorText(status: number, body: { error?: string; window?: string; limit?: number } | null): string {
   if (status === 0) return '连不上服务器，检查网络后再点一次（不会重复安排）';

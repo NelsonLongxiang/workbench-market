@@ -1,4 +1,4 @@
-/** 「安排一件事」（原型首页「在这里安排一件事」）：交给哪个团队、挂在哪条线哪一步、要做什么、交什么、期限、先给我过目。
+/** 「安排一件事」（原型首页「在这里安排一件事」）：交给哪个团队、挂在哪条线哪一步、要做什么、交什么、期限、先过目再派出去。
  *  团队只列 GET /api/work-items/teams 给的；建好直接跳到这件事的详情。常用模板没有接口，先不放。
  *  状态：读团队中 / 没有可派的团队 / 不能安排（未登录、无权限）/ 服务没上线或出错，都在抽屉里说清楚。 */
 import { useEffect, useRef, useState } from 'react';
@@ -92,7 +92,9 @@ export default function ArrangeDrawer({ open, onClose, lines = [], stages = [], 
         <Form.Item label="期限（可不填）" validateStatus={errors.due ? 'error' : ''} help={errors.due}>
           <DatePicker className="wm-full" placeholder="不限" onChange={(d) => set('due', d ? d.format('YYYY-MM-DD') : '')} />
         </Form.Item>
-        <Form.Item label="先给我过目" extra={form.review ? '派出去之前先停一下，等管理员放行。' : '直接派出去。管理员没开直派的话，照样会先停下等放行。'}>
+        {/* 规范 14 第十节第 3 条：开关叫「先过目再派出去」，下面一行写谁来过目。现在放行的是管理员；
+            过目归团队负责人、「交给谁」分组之后（交给团队锁定为开，交给自己的 AI 员工缺省关），这一行按接口给的换 */}
+        <Form.Item label="先过目再派出去" extra={form.review ? '派出去之前先停一下，等管理员放行。' : '直接派出去。管理员没开直派的话，照样会先停下等放行。'}>
           <Switch checked={form.review} onChange={(v) => set('review', v)} />
         </Form.Item>
         {failure && <Alert type="error" showIcon message={failure} data-testid="arrange-failure" />}
