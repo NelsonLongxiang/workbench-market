@@ -1,9 +1,10 @@
 /** v69.3 criterion111: real route callback + SQLite transactions, generator/extractor on copies. No listener. */
 import assert from 'node:assert/strict';import vm from 'node:vm';import{createRequire}from'node:module';
 import{readFileSync,writeFileSync,mkdirSync,cpSync,symlinkSync}from'node:fs';import{resolve,join}from'node:path';import{execFileSync}from'node:child_process';import{DatabaseSync}from'node:sqlite';
-const root=resolve('.'),ts=createRequire(new URL('../web/package.json',import.meta.url))('typescript'),source=readFileSync('server/src/index.ts','utf8');
-const ast=ts.createSourceFile('index.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
-const route=ast.statements.find(s=>ts.isExpressionStatement(s)&&ts.isCallExpression(s.expression)&&s.expression.expression.getText(ast)==='app.post'&&s.expression.arguments[0]?.text==='/api/import');assert.ok(route,'actual import route');
+const root=resolve('.'),ts=createRequire(new URL('../web/package.json',import.meta.url))('typescript'),ROUTE_FILE='server/src/routes/export-import.ts',source=readFileSync(ROUTE_FILE,'utf8');
+const ast=ts.createSourceFile('export-import.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
+// 路由搬进了域模块：app.post('/api/import', …) 在注册函数里面，往下找
+let route;(function find(n){if(!route&&ts.isExpressionStatement(n)&&ts.isCallExpression(n.expression)&&n.expression.expression.getText(ast)==='app.post'&&n.expression.arguments[0]?.text==='/api/import')route=n;else ts.forEachChild(n,find)})(ast);assert.ok(route,'actual import route');
 const callback=route.expression.arguments[1].getText(ast);
 let checks=0;const check=(name,fn)=>{fn();checks++;console.log('PASS '+name)};
 function fixture(text=callback){const db=new DatabaseSync(':memory:');db.exec("CREATE TABLE workbenches(id INTEGER PRIMARY KEY,name TEXT,url TEXT);CREATE TABLE types(key TEXT PRIMARY KEY,name TEXT);CREATE TABLE cockpits(id INTEGER PRIMARY KEY,layout_config TEXT);INSERT INTO workbenches VALUES(1,'existing','http://fixture.invalid/old');INSERT INTO types VALUES('web','Web');INSERT INTO cockpits VALUES(1,'[]')");let inject=false;
@@ -31,9 +32,9 @@ const material=readFileSync(join(out,'verify/material.md'),'utf8').trim().split(
 check('current material v69.6 (criterion111 text kept from v69.3)',()=>{const v=JSON.parse(readFileSync(join(out,'verify/material-version.json')));assert.equal(v.version,'v69.6');assert.equal(v.supersedes,'v69.5');assert.deepEqual(v.changed_criteria,[41,42,50,51,58])});
 check('175 material-candidate-review anchors exact',()=>{assert.equal(material.length,175);for(let i=0;i<175;i++){assert.equal(candidates[i].source_clause,material[i]);assert.equal(candidates[i].anchor.quote,material[i]);assert.equal(reviews[i].source_clause,material[i])}assert.ok(material[110].includes('masked_import_value'));assert.ok(!material[110].includes('跳过'))});
 execFileSync(process.execPath,['scripts/make-submission.mjs','--source-db',join(out,'synthetic-data/workbench-market.db'),'--target-mode','isolated','--isolated-root',out],{cwd:out,stdio:'pipe'});
-function fact(){const snap=new DatabaseSync(join(out,'tmp/verify-snap.sqlite'),{readOnly:true});try{return snap.prepare('SELECT present FROM verifier_text_facts WHERE path=? AND needle=?').get('server/src/index.ts','masked_import_value')?.present}finally{snap.close()}}
+function fact(){const snap=new DatabaseSync(join(out,'tmp/verify-snap.sqlite'),{readOnly:true});try{return snap.prepare('SELECT present FROM verifier_text_facts WHERE path=? AND needle=?').get(ROUTE_FILE,'masked_import_value')?.present}finally{snap.close()}}
 check('real snapshot extraction new error code fact present',()=>assert.equal(fact(),1));
-writeFileSync(join(out,'server/src/index.ts'),source.replaceAll('masked_import_value','removed_mask_code'));
+writeFileSync(join(out,ROUTE_FILE),source.replaceAll('masked_import_value','removed_mask_code'));
 execFileSync(process.execPath,['scripts/make-submission.mjs','--source-db',join(out,'synthetic-data/workbench-market.db'),'--target-mode','isolated','--isolated-root',out],{cwd:out,stdio:'pipe'});
 check('removing code fact yields present0, never hand-filled',()=>assert.equal(fact(),0));
 writeFileSync(join(out,'result.json'),JSON.stringify({checks,production_data_used:false,network_connections:0,scope:'route callback with SQLite and material/extraction copies; not formal175 or real HTTP E2E'},null,2));console.log(JSON.stringify({checks,evidence:out}));
