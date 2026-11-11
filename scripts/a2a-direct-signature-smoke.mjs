@@ -147,11 +147,11 @@ try {
   r = await direct(tampered, bodyHeaders(orig, { signedBody: orig, claimDigest: b64u(Buffer.from(orig)) }));
   ok('篡改 body（摘要头没改）→ 401 bad-body-digest', refused(r, 'bad-body-digest'), show(r));
   r = await direct(tampered, bodyHeaders(orig, { signedBody: orig, claimDigest: b64u(Buffer.from(tampered)) }));
-  ok('篡改 body 且改了摘要头 → 401 bad-sig', refused(r, 'bad-sig'), show(r));
+  ok('篡改 body 且改了摘要头 → 401（内部 bad-sig，对外与取不到卡同答 no-card）', refused(r, 'no-card'), show(r));
   r = await direct(start(OK), routeHeaders({ method: 'PUT' }));
-  ok('签 PUT 发 POST → 401 bad-sig', refused(r, 'bad-sig'), show(r));
+  ok('签 PUT 发 POST → 401（内部 bad-sig，对外与取不到卡同答 no-card）', refused(r, 'no-card'), show(r));
   r = await direct(start(OK), routeHeaders({ url: BASE + '/a2a/log' }));
-  ok('签 /a2a/log 发 /a2a/direct → 401 bad-sig', refused(r, 'bad-sig'), show(r));
+  ok('签 /a2a/log 发 /a2a/direct → 401（内部 bad-sig，对外与取不到卡同答 no-card）', refused(r, 'no-card'), show(r));
   r = await direct(start(OK), routeHeaders({ url: 'http://10.9.9.9:13080/a2a/direct' }));
   ok('签给别的主机 → 401 wrong-audience', refused(r, 'wrong-audience'), show(r));
   r = await direct(start(OK), routeHeaders({ ts: Date.now() - 6 * 60_000 }));
@@ -161,9 +161,9 @@ try {
   r = await direct(start('otherz/aaaa1111'), routeHeaders());
   ok('签名身份 peerz ≠ caller_session 的 zone → 401 identity-mismatch', refused(r, 'identity-mismatch'), show(r));
   r = await direct(start(OK), routeHeaders({ key: otherKey }));
-  ok('别的钥匙签 → 401 bad-sig', refused(r, 'bad-sig'), show(r));
+  ok('别的钥匙签 → 401（内部 bad-sig，对外与取不到卡同答 no-card）', refused(r, 'no-card'), show(r));
   r = await direct(start(EVIL), routeHeaders({ caller: 'evilz' }));
-  ok('签名身份对、登记地址上的卡也是它，但钥匙对不上 → 401 bad-sig', refused(r, 'bad-sig'), show(r));
+  ok('签名身份对、登记地址上的卡也是它，但钥匙对不上 → 401（内部 bad-sig，对外与取不到卡同答 no-card）', refused(r, 'no-card'), show(r));
   r = await direct(start(BADCARD), routeHeaders());
   ok('登记地址上的卡片签名无效 → 401 no-card', refused(r, 'no-card'), show(r));
   ok('坏卡确实取过一次', hits.bad >= 1);
@@ -172,7 +172,7 @@ try {
   ok('登记地址 302 → 不跟随 → 401 no-card', refused(r, 'no-card'), show(r));
   ok('取卡不跟随重定向（落地地址零访问）', hits.redirect >= 1 && hits.redirectTarget === before);
   r = await direct(start(OK), { ...routeHeaders(), 'X-A2A-Caller-Url': PEER + '/evil' });
-  ok('改 X-A2A-Caller-Url 指向别的卡 → 401 bad-sig（只取登记地址，且 url 在签名里）', refused(r, 'bad-sig'), show(r));
+  ok('改 X-A2A-Caller-Url 指向别的卡 → 401（内部 bad-sig，对外与取不到卡同答 no-card）（只取登记地址，且 url 在签名里）', refused(r, 'no-card'), show(r));
   const replayLater = { raw: start(OK) }; replayLater.h = routeHeaders();
   ok('重启前用掉一个签名', delivered(await direct(replayLater.raw, replayLater.h)));
   await halt();

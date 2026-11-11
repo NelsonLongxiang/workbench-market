@@ -38,6 +38,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `A2A_API_KEY`/`A2A_STATE_URL`（A2A 外部面）
 - `WM_A2A_DIRECT_SIG`（`POST /a2a/direct` 入站签名·缺省 `accept`=带了 OriginClaim Sig2 就验、没带照旧走绑定准入；`require`=没签名或验不过一律 401；`off`=不验；`WM_LOGIN_GATE=enforce` 时强制 `require`；其它值拒绝启动。公钥只从调用方绑定上登记的 `notify_url` 取卡，不跟随重定向）
 - `WM_A2A_DIRECT_SIG_BODY`（缺省 `accept`；`require`=只认同时签了 body 摘要的 `X-WM-Body-Sha256`/`X-WM-Body-Sig`，现有 DSH 节点只发 Sig2，打开前对端要先升级；其它值拒绝启动）
+- `WM_A2A_CARD_COOLDOWN_S`（`/a2a/direct` 入站验签取卡的冷却秒数·缺省 30·只收 1～3600 的整数，否则拒绝启动；验签失败触发的重取卡按登记地址在冷却期内只发一次，对方换钥匙冷却过后生效）
 - `A2A_ORIGIN_CLAIM_UNBOUND`（v1 未绑定调用方签名兼容窗：`off`=停发 `X-A2A-Caller-Sig`，缺省继续发；v1 不绑路由，未升级对端上可被剥 Sig2 重放，全舰队升级后应设 `off`）
 - `LAYERFS_SERVICE_URL`/`LAYERFS_SERVICE_TOKEN`（LayerFS·缺一即禁用）
 - `LAYERFS_SERVICE_TOKEN_FILE`（LayerFS 令牌文件·设了就以文件为准，不回落到库里或环境变量里的令牌；内容不足 32 字节拒绝启动）

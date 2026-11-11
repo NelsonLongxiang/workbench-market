@@ -86,7 +86,7 @@ import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, a2
 import type { IncomingMessage } from 'node:http';
 import { noteA2aError, type A2aErrorKey } from './a2a/errors.ts';
 import { a2aHealth } from './a2a/health.ts';
-import { createDirectSigVerifier, directSigBodyMode, directSigMode, type DirectSigMode } from './a2a-direct-sig.ts';
+import { cardCooldownMs, createDirectSigVerifier, directSigBodyMode, directSigMode, shownRefusal, type DirectSigMode, type SigRefusal } from './a2a-direct-sig.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const http = svc<HttpService>('http'); // HTTP 服务持有 Express 应用；域模块经它注册路由（注册可撤销）
@@ -149,7 +149,13 @@ if (!A2A_DIRECT_SIG_RAW || !A2A_DIRECT_SIG_BODY) {
 }
 const A2A_DIRECT_SIG: DirectSigMode = loginGate.enforced ? 'require' : A2A_DIRECT_SIG_RAW;
 if (loginGate.enforced && A2A_DIRECT_SIG_RAW !== 'require') console.warn(`[a2a-direct-sig] WM_A2A_DIRECT_SIG=${A2A_DIRECT_SIG_RAW} 被忽略：WM_LOGIN_GATE=enforce 时 /a2a/direct 强制 require`);
-const directSig = createDirectSigVerifier({ audiences: () => [marketPublicUrl()], bodyMode: A2A_DIRECT_SIG_BODY });
+// 验签失败触发的强制重取卡按来源冷却（WM_A2A_CARD_COOLDOWN_S，缺省 30，1～3600）；值不合法拒绝启动
+const A2A_CARD_COOLDOWN_MS = cardCooldownMs();
+if (A2A_CARD_COOLDOWN_MS === null) {
+  console.error('[a2a-direct-sig] 拒绝启动：WM_A2A_CARD_COOLDOWN_S 只接受 1～3600 的整数或不设');
+  process.exit(1);
+}
+const directSig = createDirectSigVerifier({ audiences: () => [marketPublicUrl()], bodyMode: A2A_DIRECT_SIG_BODY, refreshCooldownMs: A2A_CARD_COOLDOWN_MS });
 app.use(loginGate.middleware);
 loginRelay().install(app); // narrow same-origin Odoo login, before any body parser
 // Explicit opt-in only; no default content listener, no live configuration writes.
@@ -2515,8 +2521,8 @@ app.post('/a2a/direct', express.json({ limit: '600kb' }), async (req, res) => {
     if (reason !== '') {
       console.warn(JSON.stringify({ source: 'a2a-direct-sig', refused: reason }));
       noteA2aError(`sig:${reason}` as A2aErrorKey);
-      // 对外把「没登记」与「取不到卡」并成一种，不泄露绑定是否存在
-      const shown = reason === 'unregistered' ? 'no-card' : reason;
+      // 对外把取卡这一步的几种失败（没登记、取不到卡、卡上身份不对、签名对不上卡）并成一种，不泄露绑定是否存在；内部日志照旧分开
+      const shown = shownRefusal(reason as SigRefusal);
       res.status(401).json({ error: `untrusted-origin: signature verification failed (${shown}) — sign with OriginClaim Sig2 (X-A2A-Caller/-Url/-Ts/-Aud/-Sig2) using the card key published at the address registered on your binding`, code: -32000, task_status: 'TASK_STATE_FAILED' });
       return;
     }
