@@ -95,7 +95,8 @@ async function exportSurfaces() {
   const data = join(ROOT, 'tmp', `surface-snapshot-${process.pid}`);
   rmSync(data, { recursive: true, force: true });
   mkdirSync(data, { recursive: true });
-  cleanups.push(() => rmSync(data, { recursive: true, force: true }));
+  // 实例确认退出之后才删（见 finally）；删不掉只警告，不改结果
+  cleanups.push(() => { try { rmSync(data, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch (e) { console.warn(`⚠ 临时目录没删干净（不影响结果）：${data}：${e?.code ?? e}`); } });
   const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', pathToFileURL(join(HERE, 'surface-recorder.mjs')).href, 'src/index.ts'], {
     cwd: join(ROOT, 'server'),
     env: { PATH: process.env.PATH, HOME: process.env.HOME, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data },
@@ -124,8 +125,12 @@ async function exportSurfaces() {
     });
     return { routes: { note: ENV_NOTE, apps }, tools, schema: readSchema(join(data, 'workbench-market.db')) };
   } finally {
+    // 先请它退出；3 秒不退就强杀，并且等到它真的退出，再删数据目录
+    const exited = () => child.exitCode !== null || child.signalCode !== null;
+    const waitExit = (ms) => new Promise((r) => { if (exited()) r(); else { const t = setTimeout(r, ms); child.once('exit', () => { clearTimeout(t); r(); }); } });
     child.kill('SIGTERM');
-    await new Promise((r) => { if (child.exitCode !== null) r(); else { child.once('exit', r); setTimeout(r, 3000); } });
+    await waitExit(3000);
+    if (!exited()) { child.kill('SIGKILL'); await waitExit(5000); }
     cleanupAll();
   }
 }

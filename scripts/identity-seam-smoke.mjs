@@ -84,9 +84,12 @@ async function boot(name, extraEnv = {}, dataOf = null) {
     try { ready = (await fetch(`${base}/api/health`)).status === 200; } catch { /* 还没起来 */ }
     if (!ready) await new Promise((r) => setTimeout(r, 200));
   }
+  // 先请它退出；3 秒不退就强杀，并且等到它真的退出——不留孤儿实例往数据目录里写
+  const exited = () => child.exitCode !== null || child.signalCode !== null;
+  const waitExit = (ms) => new Promise((r) => { if (exited()) r(); else { const t = setTimeout(r, ms); child.once('exit', () => { clearTimeout(t); r(); }); } });
   const stop = async () => {
-    child.kill('SIGTERM');
-    await new Promise((r) => { if (child.exitCode !== null) r(); else { child.once('exit', r); setTimeout(r, 3000); } });
+    if (!exited()) { child.kill('SIGTERM'); await waitExit(3000); }
+    if (!exited()) { child.kill('SIGKILL'); await waitExit(5000); }
   };
   if (!ready) {
     await stop();

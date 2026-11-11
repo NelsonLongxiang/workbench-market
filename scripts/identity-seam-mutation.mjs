@@ -15,7 +15,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
@@ -277,10 +277,37 @@ function plant(name, mutant) {
   return tree;
 }
 
+// 每一套在自己的进程组里跑（detached）。套件结束之后（包括超时、自己崩了、没收好它起的实例），把整组收掉，
+// 确认都退出了再删副本：不然实例还在往副本里写，删目录会撞上（ENOTEMPTY）
+const groups = new Set();
+const groupAlive = (pgid) => { try { process.kill(-pgid, 0); return true; } catch { return false; } };
+async function reap(pgid) {
+  try { process.kill(-pgid, 'SIGKILL'); } catch { /* 组里已经没有进程了 */ }
+  for (let i = 0; i < 100 && groupAlive(pgid); i++) await new Promise((r) => setTimeout(r, 50));
+  if (groupAlive(pgid)) console.warn(`  ⚠ 进程组 ${pgid} 5 秒内没退干净（不影响结果）`);
+  groups.delete(pgid);
+}
+process.on('exit', () => { for (const g of groups) { try { process.kill(-g, 'SIGKILL'); } catch { /* 已退出 */ } } });
+/** 删副本：带重试；还是删不掉只打一行警告，不把检查全过的结果改成失败 */
+function removeTree(dir) {
+  try { rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
+  catch (e) { console.warn(`  ⚠ 临时目录没删干净（不影响结果）：${dir}：${e?.code ?? e?.message ?? e}`); }
+}
+
 // 跑的是副本里的脚本：夹具也在副本里，改坏夹具的变体才作数
 const run = (script, tree) => new Promise((done) => {
-  execFile(process.execPath, [join(tree, 'scripts', script), '--root', tree], { cwd: tree, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, timeout: 5 * 60 * 1000 },
-    (err, stdout, stderr) => done({ status: err ? (typeof err.code === 'number' ? err.code : null) : 0, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') }));
+  const child = spawn(process.execPath, [join(tree, 'scripts', script), '--root', tree], { cwd: tree, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+  groups.add(child.pid);
+  const out = [], err = [];
+  child.stdout.on('data', (b) => out.push(b));
+  child.stderr.on('data', (b) => err.push(b));
+  // 超时：整组杀掉（不只是套件本身）
+  const timer = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* 已退出 */ } }, 5 * 60 * 1000);
+  child.on('close', (code) => {
+    clearTimeout(timer);
+    const r = { status: typeof code === 'number' ? code : null, stdout: Buffer.concat(out).toString('utf8'), stderr: Buffer.concat(err).toString('utf8') };
+    reap(child.pid).then(() => done(r));
+  });
 });
 const failedLines = (r) => r.stdout.split('\n').filter((l) => l.trim().startsWith('✗')).map((l) => l.trim().slice(2).split('（')[0].split(' → ')[0]);
 /** 脚本自己没跑成（实例没起来、超时、崩了），不是「有检查没过」：这种不算变红 */
@@ -300,7 +327,7 @@ const tailOf = (r) => (r.stdout + r.stderr).trim().split('\n').slice(-8).join('\
 
 let bad = 0;
 const note = (ok, text, detail = '') => { if (!ok) bad++; console.log(`  ${ok ? '✓' : '✗'} ${text}`); if (!ok && detail) console.log(detail); };
-rmSync(OUT, { recursive: true, force: true });
+removeTree(OUT);
 try {
   // 绿：没改过的副本，两套都过。先证明「抄一份」这件事本身不会把测试弄红。
   const clean = plant('unchanged', null);
@@ -308,13 +335,13 @@ try {
     const r = await runTwice(script, clean);
     note(r.status === 0, `没改过的副本：${script} 通过`, r.status === 0 ? '' : tailOf(r));
   }
-  rmSync(clean, { recursive: true, force: true });
+  removeTree(clean);
   // 红：每个变体，指定的每一套都必须失败，并且是因为有检查没过（不是脚本自己没跑成）
   const results = await pool(SELECTED, JOBS, async (m) => {
     const tree = plant(m.id, m);
     const runs = [];
     for (const script of m.suites) runs.push({ script, r: await runTwice(script, tree) });
-    rmSync(tree, { recursive: true, force: true });
+    removeTree(tree);
     return { m, runs };
   });
   for (const { m, runs } of results) {
@@ -325,7 +352,7 @@ try {
     }
   }
 } finally {
-  rmSync(OUT, { recursive: true, force: true });
+  removeTree(OUT);
 }
 console.log(bad ? `identity-seam-mutation: ${bad} 处不符合预期（有变体没被抓住，或者没改过的副本不绿）` : `identity-seam-mutation: ${SELECTED.length} 个变体全部被抓住，没改过的副本全绿${ONLY ? `（只跑了点名的，共 ${MUTANTS.length} 个）` : ''}`);
 process.exit(bad ? 1 : 0);
