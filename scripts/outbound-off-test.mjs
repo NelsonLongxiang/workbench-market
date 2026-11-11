@@ -126,6 +126,8 @@ ins('bindings', { target_type: 'sop', target_slug: 'task-center', agent_node: 's
 ins('workbench_events', { event_id: 'wbe-0000000000000001', source: 'app-data', workbench: 'syn-form', item: 'item:1', context_id: 'ctx-1', submitter_kind: 'human', submitter: 'h', data_sha256: '0'.repeat(64), dispatch: 1, routed: 'target' });
 ins('workbench_event_deliveries', { event_id: 'wbe-0000000000000001', target_team: 'syn/1a2b3c4d', target_url: U, caller_session: 'market/synthetic', status: 'pending', message: '{}', attempts: 0, next_at: '2000-01-01 00:00:00' });
 ins('a2a_outbox', { run_id: 1, task_id: 't', context_id: 'c', target_url: U, payload: '{}', status: 'pending', attempts: 0, next_at: '2000-01-01 00:00:00' });
+// 人的答复发回席位（阶段七 R2）：一条到期的答复，目标是假网络
+ins('workbench_event_replies', { kind: 'answer', event_id: 'wbe-0000000000000001', delivery_id: 1, ref: 1, qid: 'q1', team: 'syn/1a2b3c4d', caller_session: 'market/synthetic', context_id: 'ctx-1', target_url: U, message: JSON.stringify({ text: '合成答复', by: 'user:alpha' }), status: 'pending', attempts: 0, next_at: '2000-01-01 00:00:00', created_at: '2000-01-01 00:00:00' });
 for (const [k, v] of [['health_interval_seconds', '10'], ['mcp_upstreams', JSON.stringify([{ prefix: 'syn', url: U + '/mcp', enabled: true }])], ['sandbox_bridge_url', U]]) db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(k, v);
 db.prepare('INSERT INTO remote_allow_state (snapshot) VALUES (?)').run('[]');
 console.log('SEEDED ' + wid);`;
@@ -193,8 +195,9 @@ async function instanceLayer(dir, off) {
   const db = new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true });
   const deliveries = db.prepare('SELECT status, attempts FROM workbench_event_deliveries ORDER BY id').all();
   const outbox = db.prepare('SELECT status, attempts FROM a2a_outbox ORDER BY id').all();
+  const replies = db.prepare('SELECT status, attempts FROM workbench_event_replies ORDER BY id').all();
   db.close();
-  return { boot: true, seen, hits, anon, ready, adm, deliveries, outbox };
+  return { boot: true, seen, hits, anon, ready, adm, deliveries, outbox, replies };
 }
 
 rmSync(OUT, { recursive: true, force: true });
@@ -223,6 +226,7 @@ try {
     check(off.hits.checkAll === 503, 'check-all 拒绝探活（503），不把副本里的台都记成离线', show(off.hits.checkAll));
     check(off.deliveries.length >= 2 && off.deliveries.every((d) => d.status === 'pending' && d.attempts === 0), `投递全部仍是 pending、attempts 都是 0（${off.deliveries.length} 条，含刚提交的）`, show(off.deliveries));
     check(off.outbox.every((o) => o.status === 'pending' && o.attempts === 0), '回执 outbox 仍是 pending、attempts 0', show(off.outbox));
+    check(off.replies.length === 1 && off.replies.every((o) => o.status === 'pending' && o.attempts === 0), '人的答复发回席位（阶段七 R2）仍是 pending、attempts 0', show(off.replies));
     check(show(off.anon?.outbound) === '{"mode":"off"}' && show(off.ready?.outbound) === '{"mode":"off"}', '健康检查、就绪检查匿名都能看到 outbound: off（不给计数）', show([off.anon?.outbound, off.ready?.outbound]));
     const row = off.anon?.self_probe?.rows?.find((r) => r.id === 'market.outbound.disconnected');
     check(row?.verdict === 'pass' && off.anon?.self_probe?.passed === true, '启动自检里有「对外已断开」这一行，并且通过', show(row));
@@ -232,7 +236,7 @@ try {
   }
   const on = await instanceLayer(join(OUT, 'i-on'), false);
   if (!on.boot) check(false, '对照实例起来了', on.log);
-  else check(on.seen.tcp > 0 && (on.deliveries.some((d) => d.attempts > 0 || d.status !== 'pending') || on.outbox.some((o) => o.attempts > 0)) && on.anon?.outbound === undefined,
+  else check(on.seen.tcp > 0 && (on.deliveries.some((d) => d.attempts > 0 || d.status !== 'pending') || on.outbox.some((o) => o.attempts > 0)) && on.replies.some((o) => o.attempts > 0 || o.status !== 'pending') && on.anon?.outbound === undefined,
     '对照（不开开关）：假网络收到连接、投递或回执被试过、健康检查里没有 outbound——本测试看得见实例的出站', show({ seen: on.seen, d: on.deliveries, o: on.outbox }));
 
   console.log('== 非法值');
