@@ -12,6 +12,8 @@ import type { AttentionService } from '../services/attention.ts';
 import { installAttentionProviders, type AttentionDeps } from '../attention-providers.ts';
 
 export type AttentionRouteDeps = AttentionDeps & {
+  /** 按需认定管理员登录（会话登录的管理员）：汇总之前认定一次，每个来源的守卫看到的是同一个结论，和提供方的先后无关 */
+  markOdooAdmin: (req: express.Request) => Promise<void>;
   /** 跨站或别的站的页面来的请求：拒（index.ts 里和 /api/tasks 同一个判断） */
   crossOriginDenied: (req: express.Request) => boolean;
 };
@@ -22,7 +24,8 @@ export function registerAttentionRoutes(app: HttpService, deps: AttentionRouteDe
     res.set('Cache-Control', 'private, no-store');
     res.vary('Cookie'); res.vary('X-Admin-Token');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'attention_cross_origin_denied' });
-    svc<AttentionService>('attention').collect(req)
+    deps.markOdooAdmin(req)
+      .then(() => svc<AttentionService>('attention').collect(req))
       .then((view) => res.json({ ...view, generated_at: new Date().toISOString() }))
       .catch(next);
   });

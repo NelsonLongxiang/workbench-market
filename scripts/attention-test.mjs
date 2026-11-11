@@ -133,6 +133,7 @@ try {
   const SAME = { 'sec-fetch-site': 'same-origin' };
   const VIEWERS = {
     管理员: { ...SAME, 'x-admin-token': ADMIN_TOKEN },
+    '管理员（会话登录）': { ...SAME, cookie: `session_id=${SESSIONS.admin}` },
     'alpha（内部员工）': { ...SAME, cookie: `session_id=${SESSIONS.alpha}` },
     'beta（内部员工）': { ...SAME, cookie: `session_id=${SESSIONS.beta}` },
     远程匿名: { ...SAME, 'x-forwarded-for': '198.51.100.7' },

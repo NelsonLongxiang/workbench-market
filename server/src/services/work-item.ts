@@ -303,10 +303,15 @@ export class WorkItemService extends Service {
     for (let i = 0; i < rows.length; i++) {
       const fact = factFromEventLog(event, rows, i);
       if (!fact) continue;
-      // 同一个投递先提问、后作出决定（v1 允许）：这条提问不再等答复。先记一行答复把它合上，再应用决定
-      if (fact.kind === 'eval' && rows[i].delivery_id !== null) {
-        const asked = rows.slice(0, i).filter((r) => r.delivery_id === rows[i].delivery_id && r.action === 'decision:ask').at(-1);
-        if (asked) this.applyLocked(itemId, { kind: 'answer', source: EVENT_FACT_SOURCE, id: `${rows[i].id}:closes-ask`, ask_id: String(asked.id), actor: rows[i].actor, answer: '（同一个接单节点随后作出了决定，这条提问不再等答复）' });
+      // 一个投递在事件层只有一栏决定：再问一次、或作出决定，它先前的提问就不再等答复（事件层也不再算）。
+      // 先把这个投递之前的提问都记一行答复合上，再应用这一条。已经合上的，答复按「答过」返回、不再写
+      if ((fact.kind === 'eval' || fact.kind === 'ask') && rows[i].delivery_id !== null) {
+        for (const asked of rows.slice(0, i).filter((r) => r.delivery_id === rows[i].delivery_id && r.action === 'decision:ask')) {
+          this.applyLocked(itemId, {
+            kind: 'answer', source: EVENT_FACT_SOURCE, id: `${rows[i].id}:closes-ask:${asked.id}`, ask_id: String(asked.id), actor: rows[i].actor,
+            answer: fact.kind === 'ask' ? '（同一个接单节点又问了一次，这条提问换成新的那条）' : '（同一个接单节点随后作出了决定，这条提问不再等答复）',
+          });
+        }
       }
       this.applyLocked(itemId, normalize(fact));
     }
