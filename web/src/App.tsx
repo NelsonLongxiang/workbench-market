@@ -103,7 +103,7 @@ export default function App() {
   }
 
   return (
-    <Shell admin={admin} footer={<div className="wm-side-tools"><AdminTokenBadge /><LoginChip />{surface !== 'control' && <ViewerChip />}</div>}>
+    <Shell admin={admin} footer={<><LoginChip />{surface !== 'control' && <ViewerChip />}<AdminTokenBadge /></>}>
       <Routes>
         <Route path="/" element={<NotYet spec={NOT_YET.home} />} />
         <Route path="/overview" element={<Dashboard />} />
