@@ -22,7 +22,7 @@ const preload=String.raw`import net from'node:net';import{registerHooks}from'nod
 const listen=net.Server.prototype.listen;
 net.Server.prototype.listen=function(...a){if(typeof a[0]==='number'){if(typeof a[1]==='string')a[1]='127.0.0.1';else a.splice(1,0,'127.0.0.1')}return listen.apply(this,a)};
 const mutation=process.env.WM_SYNTHETIC_PROBE_MUTATION;
-registerHooks({load(url,ctx,next){const loaded=next(url,ctx);if(!mutation||!url.endsWith(mutation==='handler-error'?'/server/src/routes/workbenches.ts':mutation==='export-reveal'?'/server/src/routes/export-import.ts':'/server/src/index.ts'))return loaded;let s=String(loaded.source);
+registerHooks({load(url,ctx,next){const loaded=next(url,ctx);if(!mutation||!url.endsWith(mutation==='handler-error'?'/server/src/routes/workbenches.ts':mutation==='export-reveal'?'/server/src/routes/export-import.ts':mutation==='mcp-timeout'||mutation==='hold-probe'?'/server/src/routes/mcp-protocol.ts':'/server/src/index.ts'))return loaded;let s=String(loaded.source);
 const replace=(from,to)=>{if(!s.includes(from))throw Error('mutation anchor missing: '+mutation);s=s.replace(from,to);};
 if(mutation==='login-gate')replace('app.use(loginGate.middleware);','app.use((_q,_s,n)=>n());');
 if(mutation==='login-gate-apps')replace('app.use(loginGate.middleware);',"app.use((q,s,n)=>q.path.startsWith('/apps/')?n():loginGate.middleware(q,s,n));");
@@ -35,7 +35,7 @@ if(mutation==='app-data-read')replace('  cliOk: (req) => !browserMarked(req) && 
 if(mutation==='unsigned-login-event')replace('registerLoginEventRoutes(http);',"app.post('/login/:flow/events', (_q, s) => s.status(200).json({}));");
 if(mutation==='forged-login-callback')replace('registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionTtlMs: SESSION_TTL_MIN * 60_000 });',"app.get('/login/:flow/callback', (_q, s) => s.redirect(302, '/tasks'));");
 if(mutation==='principals-admin-read')replace('registerPrincipalRoutes(http, { markOdooAdmin, adminGuard, adminActor });','registerPrincipalRoutes(http, { markOdooAdmin, adminGuard: () => true, adminActor });');
-if(mutation==='mcp-timeout'||mutation==='hold-probe'){const a="app.post('/mcp', async (req, res) => {";replace(a,a+(mutation==='mcp-timeout'?"if(req.headers['x-wm-self-probe'])return;":"if(req.headers['x-wm-self-probe'])await new Promise(r=>setTimeout(r,500));"));}
+if(mutation==='mcp-timeout'||mutation==='hold-probe'){const a="app.post('/mcp', { action: 'mcp.rpc', kind: 'write' }, async (req, res) => {";replace(a,a+(mutation==='mcp-timeout'?"if(req.headers['x-wm-self-probe'])return;":"if(req.headers['x-wm-self-probe'])await new Promise(r=>setTimeout(r,500));"));}
 if(mutation==='handler-error'){const a="app.post('/api/workbenches', { action: 'workbench.create', kind: 'admin', statusNotVerdict: 'URL 准入：地址不许登记时回 403，是登记规则不是授权' }, (req, res) => {";replace(a,a+"if(req.headers['x-wm-self-probe'])throw Error(process.env.ADMIN_TOKEN);");}
 return{...loaded,source:s};}});`;
 async function runCase(label,{off=false,control=false,occupied=false,unset=false,mutation='',expectFailure=false,nodeEnv='production',gate=''}={}){
