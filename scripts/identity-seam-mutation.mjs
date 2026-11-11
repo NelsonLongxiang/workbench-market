@@ -23,8 +23,9 @@ const OUT = join(ROOT, 'tmp', `identity-mutation-${process.pid}`);
 const jobsArg = process.argv.indexOf('--jobs');
 const JOBS = Math.max(1, Number(jobsArg >= 0 ? process.argv[jobsArg + 1] : 3) || 3);
 
-const CONTRACT = 'identity-contract-test.mjs', SMOKE = 'identity-seam-smoke.mjs', SERVICE = 'principal-service-test.mjs', FOLD = 'principal-fold-test.mjs';
+const CONTRACT = 'identity-contract-test.mjs', SMOKE = 'identity-seam-smoke.mjs', SERVICE = 'principal-service-test.mjs', FOLD = 'principal-fold-test.mjs', FEISHU = 'feishu-login-smoke.mjs';
 const IDENTITY = 'server/src/identity.ts';
+const SESSIONS_SVC = 'server/src/services/login-session.ts', FLOWS = 'server/src/routes/login-flows.ts', FEISHU_PLUGIN = 'server/src/login-providers/feishu/index.ts';
 const PRINCIPAL = 'server/src/services/principal.ts', ROUTES = 'server/src/routes/principals.ts', DB = 'server/src/db.ts', GATE = 'server/src/login-gate.ts';
 
 const INDEX = 'server/src/index.ts';
@@ -71,16 +72,16 @@ const MUTANTS = [
   { id: 'any-viewer-is-admin', what: '管理员认定：认得出人就当管理员', file: INDEX, suites: [SMOKE],
     find: 'return who.ok && who.viewer.admin ? who.viewer.login : null;', replace: 'return who.ok ? who.viewer.login : null;' },
   { id: 'relay-admin-uses-cache', what: '管理员认定：登录中继开着也用缓存（提供方那边登出了还当管理员）', file: INDEX, suites: [SMOKE],
-    find: "const who = process.env.WM_ODOO_LOGIN_PROXY === '1' ? await identity().resolveViewer(cookieHeader) : await odooAdminViewer(cookieHeader);", replace: 'const who = await odooAdminViewer(cookieHeader);' },
+    find: "const who = loginRelay().relayLogin() ? await identity().resolveViewer(cookieHeader) : await odooAdminViewer(cookieHeader);", replace: 'const who = await odooAdminViewer(cookieHeader);' },
   { id: 'relay-gate-uses-cache', what: '登录门：要求现查时装配方照样给缓存的', file: INDEX, suites: [SMOKE],
     find: 'const who = fresh ? await identity().resolveViewer(cookie) : await loginGateViewer(cookie);', replace: 'const who = await loginGateViewer(cookie);' },
   { id: 'gate-admits-unrecognized', what: '登录门：认不出也放进来', file: INDEX, suites: [SMOKE],
-    find: 'return who.ok ? { login: who.viewer.login, admin: who.viewer.admin } : null;', replace: "return { login: who.ok ? who.viewer.login : 'guest', admin: false };" },
+    find: "return who.ok ? { login: who.viewer.login, admin: who.viewer.admin, ...(who.via === 'session' ? { via: 'session' as const } : {}) } : null;", replace: "return { login: who.ok ? who.viewer.login : 'guest', admin: false };" },
   { id: 'gate-falls-back-to-guest', what: '登录门：认人的结果是空的就补一个访客', file: GATE, suites: [SMOKE],
-    find: "try { return await deps.odooViewer(cookie, process.env.WM_ODOO_LOGIN_PROXY === '1'); } catch { return null; }",
-    replace: "try { return (await deps.odooViewer(cookie, process.env.WM_ODOO_LOGIN_PROXY === '1')) ?? { login: 'guest', admin: false }; } catch { return null; }" },
+    find: 'try { return await deps.odooViewer(cookie, loginRelay().relayLogin()); } catch { return null; }',
+    replace: "try { return (await deps.odooViewer(cookie, loginRelay().relayLogin())) ?? { login: 'guest', admin: false }; } catch { return null; }" },
   { id: 'gate-never-asks-fresh', what: '登录门：登录中继开着也不要求现查', file: GATE, suites: [SMOKE],
-    find: "try { return await deps.odooViewer(cookie, process.env.WM_ODOO_LOGIN_PROXY === '1'); } catch { return null; }", replace: 'try { return await deps.odooViewer(cookie, false); } catch { return null; }' },
+    find: 'try { return await deps.odooViewer(cookie, loginRelay().relayLogin()); } catch { return null; }', replace: 'try { return await deps.odooViewer(cookie, false); } catch { return null; }' },
   { id: 'run-read-ignores-grant', what: 'run 私有读：认得出人就给，不看授权', file: 'server/src/sop-read-auth.ts', suites: [SMOKE],
     find: 'if (viewer.ok && runGrantActive(runId, viewer.viewer.sub)) return', replace: 'if (viewer.ok) return' },
   { id: 'run-read-keyed-by-login', what: 'run 私有读：拿登录名拼主体去查授权，不用目录给的主体标识', file: 'server/src/sop-read-auth.ts', suites: [SMOKE],
@@ -120,7 +121,7 @@ const MUTANTS = [
     find: '          if (cache.size > max) cache.clear();\n', replace: '' },
   // —— 主体服务和两张表 ——
   { id: 'status-not-checked', what: '主体服务：不看主体停没停用', file: PRINCIPAL, suites: [SERVICE, SMOKE],
-    find: "b.status === 'active' ? { ok: true, principal: b.id } : { ok: false, reason: 'disabled' }", replace: '{ ok: true, principal: b.id }' },
+    find: "(b.kind !== 'person' ? { ok: false, reason: 'unbound' } : b.status === 'active' ? { ok: true, principal: b.id } : { ok: false, reason: 'disabled' })", replace: "(b.kind !== 'person' ? { ok: false, reason: 'unbound' } : { ok: true, principal: b.id })" },
   { id: 'non-person-can-log-in', what: '主体服务：绑在席位上的外部身份也能登录', file: PRINCIPAL, suites: [SERVICE],
     find: "b.kind !== 'person' ? { ok: false, reason: 'unbound' } : ", replace: '' },
   { id: 'squatted-id-claimed', what: '主体服务：标识被占着就把外部身份绑上去（外来账号顶替已有主体）', file: PRINCIPAL, suites: [SERVICE, SMOKE],
@@ -131,7 +132,7 @@ const MUTANTS = [
   { id: 'disable-is-a-no-op', what: '主体服务：停用其实没改状态', file: PRINCIPAL, suites: [SERVICE, SMOKE],
     find: '.run(status, text(by, 256), text(reason, 500), id, status).changes === 1;', replace: ".run('active', text(by, 256), text(reason, 500), id, status).changes === 1;" },
   { id: 'identity-shape-not-checked', what: '主体服务：不校外部身份的形状', file: PRINCIPAL, suites: [SERVICE],
-    find: "    if (!providerOk(provider) || !externalIdOk(externalId)) throw new Error('外部身份的形状不对');\n", replace: '' },
+    find: "    if (!providerOk(provider) || !externalIdOk(externalId)) throw new Error('外部身份的形状不对');\n    // 登录认出来的只能是人", replace: '    // 登录认出来的只能是人' },
   { id: 'half-built-principal', what: '主体服务：建了主体却没建外部身份', file: PRINCIPAL, suites: [SERVICE, SMOKE],
     find: "        db.prepare('INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES (?, ?, ?, ?)').run(provider, externalId, externalKey, id);\n", replace: '' },
   // —— 等价写法：比较按规范化之后的值（验收 M1）——
@@ -193,6 +194,41 @@ const MUTANTS = [
     find: "    if (self && principals().principalOf(provider, externalId) === self) throw new HttpError(409, '不能解绑自己名下的外部身份');\n", replace: '' },
   { id: 'bind-open', what: '绑定不要管理员', file: ROUTES, suites: [SMOKE],
     find: "    const actor = await admin(req, res);\n    if (!actor) return;\n    const { provider, externalId } = identityOf(req.body);\n    const target", replace: "    const actor = 'nobody';\n    const { provider, externalId } = identityOf(req.body);\n    const target" },
+  // —— 飞书登录和市场会话（5b）——
+  { id: 'state-not-bound-to-browser', what: 'state 不核对浏览器半边（回调链接换个浏览器也能用）', file: SESSIONS_SVC, suites: [FEISHU],
+    find: " || !sameHex(row.browser_sha256, sha(browser))) return null;\n    const taken = db.prepare('DELETE FROM login_states WHERE state_sha256 = ? AND browser_sha256 = ? AND flow = ? AND expires_at > ? RETURNING next').get(sha(state), sha(browser), flow, now)",
+    replace: ") return null;\n    const taken = db.prepare('DELETE FROM login_states WHERE state_sha256 = ? AND ? <> \\'\\' AND flow = ? AND expires_at > ? RETURNING next').get(sha(state), sha(browser), flow, now)" },
+  { id: 'state-reusable', what: 'state 核对之后不作废（可以重放）', file: SESSIONS_SVC, suites: [FEISHU],
+    find: "db.prepare('DELETE FROM login_states WHERE state_sha256 = ? AND browser_sha256 = ? AND flow = ? AND expires_at > ? RETURNING next')", replace: "db.prepare('SELECT next FROM login_states WHERE state_sha256 = ? AND ? <> \\'\\' AND flow = ? AND expires_at > ?')" },
+  { id: 'next-not-sanitized', what: 'next 不过防外跳', file: FLOWS, suites: [FEISHU],
+    find: '    const next = safeNext(req.query.next);', replace: "    const next = String(req.query.next ?? '/');" },
+  { id: 'union-shape-unchecked', what: '飞书给的 union_id 不校形状（缺失、被篡改照样认）', file: FEISHU_PLUGIN, suites: [FEISHU],
+    find: "    if (typeof unionId !== 'string' || !UNION_ID.test(unionId)) return fail(502, '飞书返回的用户标识缺失或形状不对');", replace: "    if (typeof unionId !== 'string' || !unionId) return fail(502, '飞书返回的用户标识缺失或形状不对');" },
+  { id: 'tenant-unchecked', what: '配了租户也不核对', file: FEISHU_PLUGIN, suites: [FEISHU],
+    find: "    if (config.tenant && data.tenant_key !== config.tenant) return fail(403, '不是本组织的飞书账号');\n", replace: '' },
+  { id: 'auto-bind-default-on', what: '按邮箱自动对上缺省就开着', file: FEISHU_PLUGIN, suites: [FEISHU],
+    find: "    autoBind: autoBind === 'on',", replace: "    autoBind: autoBind !== 'off'," },
+  { id: 'session-ignores-status', what: '会话不看主体停没停用', file: SESSIONS_SVC, suites: [FEISHU],
+    find: " AND p.status = 'active' AND p.kind = 'person'`", replace: "`" },
+  { id: 'session-ignores-expiry', what: '会话不看期限', file: SESSIONS_SVC, suites: [FEISHU],
+    find: 'WHERE s.token_sha256 = ? AND s.revoked_at IS NULL AND s.expires_at > ? AND', replace: 'WHERE s.token_sha256 = ? AND s.revoked_at IS NULL AND ? > 0 AND' },
+  { id: 'logout-keeps-session', what: '注销不注销市场会话', file: GATE, suites: [FEISHU],
+    find: '      const marketSession = identityService().endSession(cookie);', replace: '      const marketSession = false;' },
+  { id: 'disable-keeps-sessions', what: '停用不注销这个人的会话（恢复之后旧会话复活）', file: ROUTES, suites: [FEISHU],
+    find: "    if (status === 'disabled') svc<LoginSessionService>('loginSessions').revokeAllFor(id);", replace: '' },
+  { id: 'secret-to-userinfo', what: '应用密钥也发给取用户信息那一步', file: FEISHU_PLUGIN, suites: [FEISHU],
+    find: "{ method: 'GET', headers: { authorization: `Bearer ${accessToken}` } }", replace: "{ method: 'GET', headers: { authorization: `Bearer ${accessToken}`, 'x-app-secret': cred.secret } }" },
+  { id: 'odoo-before-session', what: '两种会话都带着时先认 Odoo（优先顺序反了）', file: IDENTITY, suites: [FEISHU],
+    find: "      const fromSession = this.sessionViewer(cookieHeader); // 市场会话不进缓存，每次现查\n      if (fromSession?.ok) { this.noteMismatch(cookieHeader, fromSession.viewer); return fromSession; }\n      const credential = this.credentialOf(cookieHeader);",
+    replace: "      const credential = this.credentialOf(cookieHeader);\n      if (!credential) { const fromSession = this.sessionViewer(cookieHeader); if (fromSession?.ok) return fromSession; }" },
+  { id: 'mismatch-not-logged', what: '两种会话认出不同的人时不留痕', file: IDENTITY, suites: [FEISHU],
+    find: "        if (other.ok && other.viewer.sub !== session.sub) {", replace: '        if (false) {' },
+  { id: 'pending-kept-forever', what: '待对接清单不清过期的', file: PRINCIPAL, suites: [FEISHU],
+    find: "export const PENDING_DAYS = 30;", replace: 'export const PENDING_DAYS = 3650;' },
+  { id: 'disabled-page-differs', what: '停用的人看到的等待页和没对到主体的不一样（透露这个人被停用了）', file: FLOWS, suites: [FEISHU],
+    find: "      return page(res, 403, '等管理员处理', '你的账号现在还不能登录本站，请联系管理员。');", replace: "      return page(res, 403, '等管理员处理', admitted.reason === 'disabled' ? '账号已停用。' : '你的账号现在还不能登录本站，请联系管理员。');" },
+  { id: 'auto-bind-over-existing', what: '自动对上时不管那个人是不是已经有别的飞书身份', file: PRINCIPAL, suites: [FEISHU],
+    find: ' && !held && !already) {', replace: ' && !held) {' },
   // —— 夹具：假提供方不该在测试环境之外装得上 ——
   { id: 'fixture-preload-guard-removed', what: '预加载不看环境', file: PRELOAD, suites: [CONTRACT, SMOKE],
     find: "if (process.env.NODE_ENV !== 'test') {", replace: 'if (false) {' },
@@ -258,7 +294,7 @@ rmSync(OUT, { recursive: true, force: true });
 try {
   // 绿：没改过的副本，两套都过。先证明「抄一份」这件事本身不会把测试弄红。
   const clean = plant('unchanged', null);
-  for (const script of [CONTRACT, SERVICE, FOLD, SMOKE]) {
+  for (const script of [CONTRACT, SERVICE, FOLD, SMOKE, FEISHU]) {
     const r = await runTwice(script, clean);
     note(r.status === 0, `没改过的副本：${script} 通过`, r.status === 0 ? '' : tailOf(r));
   }

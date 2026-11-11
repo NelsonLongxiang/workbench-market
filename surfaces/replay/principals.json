@@ -1,8 +1,11 @@
 {
   "domain": "principals",
-  "what": "主体管理：/api/principals 的 5 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
-  "routes": ["GET /api/principals", "POST /api/principals/disable", "POST /api/principals/restore", "POST /api/principals/bind", "POST /api/principals/unbind"],
-  "exempt": [{ "route": "GET /api/principals", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/list-junk-query" }],
+  "what": "主体管理：/api/principals 的 7 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /api/principals", "POST /api/principals/disable", "POST /api/principals/restore", "POST /api/principals/bind", "POST /api/principals/unbind", "GET /api/principals/pending", "POST /api/principals/bind-batch"],
+  "exempt": [
+    { "route": "GET /api/principals", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/list-junk-query" },
+    { "route": "GET /api/principals/pending", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入", "shown_by": "open/pending" }
+  ],
   "scenarios": [
     {
       "name": "open",
@@ -522,6 +525,103 @@
                   "created_at": "YYYY-MM-DD hh:mm:ss",
                   "identities": [{ "provider": "odoo", "external_id": "synthetic-b", "created_at": "YYYY-MM-DD hh:mm:ss" }]
                 }
+              ]
+            }
+          }
+        },
+        {
+          "id": "pending-remote-anon",
+          "route": "GET /api/principals/pending",
+          "class": "unauthorized",
+          "what": "远程、没有口令：看不到",
+          "request": { "method": "GET", "path": "/api/principals/pending", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "pending",
+          "route": "GET /api/principals/pending",
+          "class": "normal",
+          "what": "待对接清单（新库是空的）",
+          "request": { "method": "GET", "path": "/api/principals/pending" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "14", "etag": "W/\"e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "pending": [] }
+          }
+        },
+        {
+          "id": "batch-remote-anon",
+          "route": "POST /api/principals/bind-batch",
+          "class": "unauthorized",
+          "what": "远程、没有口令：不能成批对接",
+          "request": { "method": "POST", "path": "/api/principals/bind-batch", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "items": [{ "provider": "feishu", "external_id": "on_batch0001", "principal": "user:synthetic-a" }] } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "batch-empty",
+          "route": "POST /api/principals/bind-batch",
+          "class": "invalid",
+          "what": "items 是空的",
+          "request": { "method": "POST", "path": "/api/principals/bind-batch", "json": { "items": [] } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "48", "etag": "W/\"30-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "items 必须是 1～500 条的数组" }
+          }
+        },
+        {
+          "id": "batch-not-array",
+          "route": "POST /api/principals/bind-batch",
+          "class": "invalid",
+          "what": "items 不是数组",
+          "request": { "method": "POST", "path": "/api/principals/bind-batch", "json": { "items": "x" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "48", "etag": "W/\"30-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "items 必须是 1～500 条的数组" }
+          }
+        },
+        {
+          "id": "batch",
+          "route": "POST /api/principals/bind-batch",
+          "class": "normal",
+          "what": "成批：逐条给结果（绑上、目标不存在、形状不对）",
+          "request": {
+            "method": "POST",
+            "path": "/api/principals/bind-batch",
+            "json": {
+              "items": [
+                { "provider": "feishu", "external_id": "on_batch0001", "principal": "user:synthetic-a" },
+                { "provider": "feishu", "external_id": "on_batch0002", "principal": "user:nobody" },
+                { "provider": "Bad!", "external_id": "x", "principal": "user:synthetic-a" }
+              ],
+              "reason": "合成"
+            }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "366", "etag": "W/\"16e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "bound": 1,
+              "results": [
+                { "index": 0, "ok": true, "created": false, "principal": "user:synthetic-a" },
+                { "index": 1, "ok": false, "status": 404, "error": "目标主体不存在；要新建一个人，带上 create: true", "reason": "missing" },
+                { "index": 2, "ok": false, "status": 400, "error": "provider 必须是提供方的名字（小写字母、数字、连字符、下划线）" }
               ]
             }
           }

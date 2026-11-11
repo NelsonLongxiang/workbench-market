@@ -218,7 +218,8 @@ export async function unloadShipped(treeRoot) {
   const { root } = await import(at('server/src/root-context.ts'));
   const contract = await import(at('server/src/identity.ts')); // 装配在这一步做完：自带的提供方已经装上
   const { loginProviders } = await import(at('server/src/login-providers/index.ts'));
-  for (const plugin of loginProviders) {
+  // 只卸身份来源那一个（Odoo）；发会话的登录方式（飞书）不是提供方，留着——测试要两种登录并存
+  for (const plugin of loginProviders.filter((p) => p.name === 'login-provider-odoo')) {
     for (const fiber of [...(root.registry.get(plugin)?.fibers ?? [])]) await fiber.dispose();
   }
   return { root, identity: contract.identity, loginRelay: contract.loginRelay };

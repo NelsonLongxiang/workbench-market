@@ -25,7 +25,7 @@
  * 请求只打全局中间件或本域路由会应答的路径。落空的路径由最后的兜底应答，兜底随有没有 web/dist 而不同，不放进来。
  *
  * 场景可以带 seed：实例起好之后、第一条请求之前往库里写几行（经 HTTP 建不出来的前提，比如一个已有的主体）。
- * 每一项是 { table, row }：表名只收小写字母和下划线，row 的键是列名；不收任意 SQL。
+ * 每一项是 { table, row }：表名、列名只收小写字母、数字和下划线（不以数字开头）；不收任意 SQL。
  */
 import { spawn } from './owned-script-fixture.mjs';
 import { createServer } from 'node:http';
@@ -46,6 +46,8 @@ const CLOCK_PRELOAD = join(HERE, 'replay-clock-preload.mjs');
 const FIXTURES = {
   // 登录提供方换成假的（scripts/identity-fake-provider.mjs）：认人只看 session_id 的值，不访问任何外部系统
   'identity-fake': { preload: join(HERE, 'identity-fake-preload.mjs'), env: { IDENTITY_SEAM_ROOT: ROOT } },
+  // 本机起一个假飞书、建一个放好合成应用凭证的临时凭据库，飞书登录指过去（scripts/feishu-fake-preload.mjs）
+  'feishu-fake': { preload: join(HERE, 'feishu-fake-preload.mjs'), env: { IDENTITY_SEAM_ROOT: ROOT } },
 };
 const CLASSES = ['unauthorized', 'invalid', 'normal'];
 const CLASS_NAME = { unauthorized: '未授权', invalid: '参数非法', normal: '正常' };
@@ -106,8 +108,8 @@ export function checkCassette(cassette, known, moduleRouteCount = null, answered
     if (!Array.isArray(scenario.seed)) { problems.push(`${scenario?.name}：seed 要是数组`); continue; }
     for (const item of scenario.seed) {
       const cols = item?.row && typeof item.row === 'object' && !Array.isArray(item.row) ? Object.keys(item.row) : [];
-      if (!/^[a-z_]+$/.test(String(item?.table ?? '')) || cols.length === 0 || cols.some((c) => !/^[a-z_]+$/.test(c)) || Object.values(item.row).some((v) => v !== null && typeof v === 'object')) {
-        problems.push(`${scenario?.name}：seed 的每一项要是 { table, row }，表名和列名只收小写字母和下划线，值不能是对象`);
+      if (!/^[a-z_][a-z0-9_]*$/.test(String(item?.table ?? '')) || cols.length === 0 || cols.some((c) => !/^[a-z_][a-z0-9_]*$/.test(c)) || Object.values(item.row).some((v) => v !== null && typeof v === 'object')) {
+        problems.push(`${scenario?.name}：seed 的每一项要是 { table, row }，表名和列名只收小写字母、数字和下划线（不以数字开头），值不能是对象`);
       }
     }
   }
@@ -525,7 +527,7 @@ async function selftest() {
     const good = checkCassette(seeded([{ table: 'principals', row: { id: 'user:x', kind: 'person' } }]), known, 1).length === 0;
     const bad = [{ table: 'x; DROP TABLE y', row: { a: 1 } }, { table: 'principals', row: {} }, { table: 'principals', row: { 'id = 1 --': 1 } }, { table: 'principals', row: { id: { $x: 1 } } }, { row: { id: 1 } }]
       .every((item) => checkCassette(seeded([item]), known, 1).some((p) => p.includes('seed')));
-    check(good && bad && checkCassette(seeded('x'), known, 1).some((p) => p.includes('seed 要是数组')), '请求集：seed 只收 { table, row }，表名、列名只收小写字母和下划线，值不能是对象');
+    check(good && bad && checkCassette(seeded('x'), known, 1).some((p) => p.includes('seed 要是数组')), '请求集：seed 只收 { table, row }，表名、列名只收小写字母、数字和下划线，值不能是对象');
   }
   check(checkCassette(withSteps([a, b, c, step('d', 'GET /api/x', 'normal', 'GET', '/api/other', 200)]), known).some((p) => p.includes('打不到')), '覆盖检查：请求没打在它声明的路由上，失败');
   check(countRouteCalls("app.get('/a', h);\n  app.all('/b', h);\n  r.post(`/c`, h);\n  app.use(x); app.set('etag', false);") === 3, '数路由：get、post、all 都算一条，use 和 set 不算');
