@@ -44,11 +44,11 @@ if (errors) {
   const missingUsed = used.filter((k) => !(k in A2A_ERRORS));
   ok(`a2a.ts 记的 ${used.length} 个键都在表里（另有幂等判定 replay / conflict）`, used.length >= 9 && missingUsed.length === 0 && usedVerdict && 'replay' in A2A_ERRORS && 'conflict' in A2A_ERRORS, missingUsed.join(','));
   ok('对外同答 404 的两种原因共用一个公开桶', A2A_ERRORS['unknown-team'].public === A2A_ERRORS['not-admitted'].public);
-  ok('对外同答 no-card 的两种原因共用一个公开桶', A2A_ERRORS['sig:unregistered'].public === A2A_ERRORS['sig:no-card'].public);
+  ok('对外同答 no-card 的四种原因（没登记、取不到卡、卡上身份不对、签名对不上卡）共用一个公开桶', ['sig:unregistered', 'sig:not-derivable', 'sig:bad-sig'].every((k) => A2A_ERRORS[k].public === A2A_ERRORS['sig:no-card'].public));
   const pubs = new Map();
   for (const [k, v] of entries) { if (!pubs.has(v.public)) pubs.set(v.public, []); pubs.get(v.public).push(k); }
   const merged = [...pubs.entries()].filter(([, ks]) => ks.length > 1).map(([p, ks]) => `${p}=${ks.join('+')}`).sort();
-  ok('只有这两处并桶，其余一个原因一个桶', JSON.stringify(merged) === JSON.stringify(['not-found=unknown-team+not-admitted', 'sig:no-card=sig:unregistered+sig:no-card']), JSON.stringify(merged));
+  ok('只有这两处并桶，其余一个原因一个桶', JSON.stringify(merged) === JSON.stringify(['not-found=unknown-team+not-admitted', 'sig:no-card=sig:unregistered+sig:no-card+sig:not-derivable+sig:bad-sig']), JSON.stringify(merged));
 }
 {
   let stats = null;

@@ -228,6 +228,8 @@ jobs:
         run: node scripts/a2a-direct-signature-smoke.mjs
       - name: Signed A2A direct and outbox reject redirects (#349, synthetic loopback only)
         run: node scripts/a2a-bound-redirect-test.mjs
+      - name: /a2a/direct 入站签名拒收的对外应答统一；取卡冷却（逐字节相同·冷却期内只取一次卡·换钥匙冷却后生效·非法开关拒启动）
+        run: node scripts/a2a-direct-sig-uniform-test.mjs
       - name: /a2a/direct 幂等登记落库（重启后同一 task_id 仍判 replay / conflict·30 分钟窗口边界·只存摘要·未绑定来源不占用 id）
         run: node scripts/a2a-idempotency-test.mjs
       - name: A2A 错误码表与 /api/health 的 a2a 块（每个原因有中文原因与处理办法·拒收计数·出站积压·公开计数并桶不泄露 SOP 是否存在）

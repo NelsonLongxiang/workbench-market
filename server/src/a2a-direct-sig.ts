@@ -7,7 +7,9 @@
  * 不绑定形式（v1，只签 [caller, callerUrl, ts]）不绑路由，这里一律不认。
  * 上游信封不签 body，所以另认一个市场扩展：X-WM-Body-Sha256（原始 body 的 sha256，base64url）+ X-WM-Body-Sig 签
  *   JSON.stringify(['wm-a2a-direct-body/1', caller, callerUrl, ts, audience, METHOD, path, bodySha256])。
- * 带了 body 签名就只验它（篡改 body 必拒）；WM_A2A_DIRECT_SIG_BODY=require 时只认它（缺省 accept：现有 DSH 节点只发 Sig2）。
+ * 带了 body 签名就只验它（require 下篡改 body 必拒；accept 下取卡或验签失败按未签名处理，见 index.ts）；
+ * WM_A2A_DIRECT_SIG_BODY=require 时只认它（缺省 accept：现有 DSH 节点只发 Sig2）。
+ * 对外：取卡或验签这一步的几种失败一律显示成 no-card（shownRefusal）。
  *
  * 公钥来源：只取市场侧人工登记的绑定地址（bindings.notify_url，agent_node = caller_session），
  * 绝不用请求里的 X-A2A-Caller-Url 或任何自带公钥。取卡不跟随重定向、5 秒超时、64 KiB 上限；卡片按官方 verifyCard 验签。
@@ -39,8 +41,25 @@ export const SIG_SKEW_MS = 5 * 60_000;
 export const ORIGIN_CLAIM_BOUND_TAG = 'a2a-origin-claim/2';
 export const BODY_SIG_TAG = 'wm-a2a-direct-body/1';
 const CARD_TTL_MS = 10 * 60_000;
-/** 签名验不过时最多这么久重取一次卡（密钥轮换），防止拿坏签名放大成对端取卡流量 */
-const CARD_REFRESH_MS = 30_000;
+/** 签名验不过时最多这么久重取一次卡（密钥轮换），防止拿坏签名放大成对端取卡流量；可配（WM_A2A_CARD_COOLDOWN_S） */
+export const CARD_REFRESH_MS_DEFAULT = 30_000;
+
+/** 取卡冷却秒数；不设为 30，只收 1～3600 的整数，否则返回 null（调用方拒绝启动） */
+export function cardCooldownMs(env: NodeJS.ProcessEnv = process.env): number | null {
+  const raw = String(env.WM_A2A_CARD_COOLDOWN_S ?? '');
+  if (raw === '') return CARD_REFRESH_MS_DEFAULT;
+  if (!/^\d{1,4}$/.test(raw)) return null;
+  const n = Number(raw);
+  return n >= 1 && n <= 3600 ? n * 1000 : null;
+}
+
+/**
+ * 对外显示的拒收原因：取卡这一步的几种失败（没登记取卡地址 / 取不到或验不过卡 / 卡上的身份不是它 / 签名对不上卡）
+ * 一律对外显示成 no-card。内部日志照旧分开记。
+ */
+export function shownRefusal(reason: SigRefusal): SigRefusal {
+  return reason === 'unregistered' || reason === 'not-derivable' || reason === 'bad-sig' ? 'no-card' : reason;
+}
 const CARD_TIMEOUT_MS = 5000;
 const CARD_MAX_BYTES = 64 * 1024;
 const MAX_SOURCES = 3;
@@ -98,7 +117,10 @@ export function createDirectSigVerifier(deps: {
   fetchText?: (url: string) => Promise<string>;
   now?: () => number;
   bodyMode?: DirectSigBodyMode;
+  /** 验签失败触发的强制重取卡，按来源（登记地址）冷却这么久；缺省 30 秒 */
+  refreshCooldownMs?: number;
 }) {
+  const refreshCooldownMs = deps.refreshCooldownMs ?? CARD_REFRESH_MS_DEFAULT;
   const now = deps.now ?? Date.now;
   const cards = new Map<string, CacheEntry>();
 
@@ -132,7 +154,7 @@ export function createDirectSigVerifier(deps: {
     const t = now();
     const usable = hit && hit.card && t - hit.at < CARD_TTL_MS && hit.card.expiresAt > t;
     if (usable && !fresh) return hit.card;
-    if (hit && t - hit.at < CARD_REFRESH_MS) return usable ? hit.card : null; // 刚取过：不再打对端
+    if (hit && t - hit.at < refreshCooldownMs) return usable ? hit.card : null; // 冷却期内：不再打对端（坏签名放大不了对端取卡流量）
     let card: Card | null = null;
     try {
       const url = source.replace(/\/+$/, '') + '/.well-known/agent-card.json';
