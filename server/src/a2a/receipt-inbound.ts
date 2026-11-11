@@ -24,6 +24,7 @@ import { followupOf, followupsOfDelivery, followupsOfPeerSince, recordFollowup }
 import { deliveryTarget, queueReply } from '../services/a2a-replies.ts';
 import { kickWorkbenchEvents, logDeliveryFact } from '../workbench-events.ts';
 import { noteA2aError } from './errors.ts';
+import { deliveredPeerZone, recordRoster, type RosterSeat } from '../services/a2a-roster.ts';
 import { peerCard } from './peer-card.ts';
 
 export const ORIGIN_CLAIM_BODY_TAG = 'a2a-origin-claim/3';
@@ -200,6 +201,7 @@ export async function handleInboundReceipt(req: Req, deps: { audiences: () => st
   const body = (req.body ?? {}) as Record<string, unknown>;
   const message = typeof body.message === 'string' ? body.message : '';
   if (message === '') return null;
+  if (message.startsWith('[A2A roster] ')) return handleRoster(req, message, deps);
   const parsed = parseA2aReceipt(message);
   if (!parsed) return handleFollowup(req, body, message, deps);
   const origin = receiptOrigin(parsed.taskId, typeof body.task_id === 'string' ? body.task_id : '');
@@ -347,4 +349,44 @@ async function handleFollowup(req: Req, body: Record<string, unknown>, message: 
   if (limited) noteA2aError('followup:rate-limited');
   kickWorkbenchEvents();
   return reply(overCap ? { over_cap: true } : limited ? { rate_limited: true } : {});
+}
+
+/** 名册里每台宿主最多收这么多席位、正文最多这么长 */
+export const ROSTER_SEATS_MAX = 64;
+const ROSTER_TEXT_MAX = 64 * 1024;
+
+/**
+ * 阶段七：团队名册入站（dsh-open-a2a-net#604 P3）。普通 direct 消息，不欠回执、不占槽：
+ *   首行 `[A2A roster] <宿主指纹前 8 位> <ISO 时间>`，第二行 JSON { host, at, seats:[{ seat, name, team, role, online, active, queued, lastActiveAt }] }。
+ * 三条都成立才收，否则返回 null 照原路走：
+ *   · 签名方是我们投递过的宿主：声称的来源是投递过的根地址，X-A2A-Caller 等于投递时记下的区；Sig3 必验（同回执，验过的签名只认一次）；
+ *   · 首行的指纹和 JSON 的 host 对得上、时间合法；
+ *   · 席位只认这台宿主自己区里的：seat 是 <区>/<8 hex>、team 是 <区>/canvas/<名>，区都等于签名方的区；别的逐个丢。
+ * 名册只当信息（团队页、把句柄显示成名字、在岗数），不授予任何东西；同一台宿主以新替旧（按它报的时间），旧的、重复的回 stale。
+ */
+async function handleRoster(req: Req, message: string, deps: { audiences: () => string[]; now?: () => number }): Promise<{ status: number; body: Record<string, unknown> } | null> {
+  if (message.length > ROSTER_TEXT_MAX) return null;
+  const nl = message.indexOf('\n');
+  const head = /^\[A2A roster\] ([0-9a-f]{8}) (\S{10,40})$/.exec(nl < 0 ? message : message.slice(0, nl));
+  if (!head) return null;
+  const root = originOf(header(req, 'x-a2a-caller-url'));
+  const zone = deliveredPeerZone(root);
+  if (!zone) return null;
+  const now = deps.now?.() ?? Date.now();
+  const verdict = await verifyReceiptSigner(req, req.rawBody ?? Buffer.alloc(0), { task_id: '', kind: 'delivery', event_id: '', delivery_id: 0, peer_root: root, peer_zone: zone }, deps.audiences(), now);
+  if (!verdict.ok) return null;
+  let doc: Record<string, unknown> = {};
+  try { const o = JSON.parse(message.slice(nl + 1).split('\n', 1)[0] ?? ''); if (o && typeof o === 'object' && !Array.isArray(o)) doc = o as Record<string, unknown>; } catch { /* 坏的当空 */ }
+  const host = typeof doc.host === 'string' ? doc.host.slice(0, 128) : '';
+  const at = typeof doc.at === 'string' && !Number.isNaN(Date.parse(doc.at)) ? new Date(Date.parse(doc.at)).toISOString() : '';
+  if (!host.startsWith(head[1]) || at === '') return { status: 200, body: { routed: true, delivered: true, task_status: 'TASK_STATE_DELIVERED', roster: 'not-accepted' } };
+  const str = (x: unknown, n = 200) => (typeof x === 'string' ? x.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, n) : '');
+  const int = (x: unknown) => (typeof x === 'number' && Number.isSafeInteger(x) && x >= 0 ? x : 0);
+  const seats: RosterSeat[] = (Array.isArray(doc.seats) ? doc.seats : []).filter((x): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x))
+    .map((x) => ({ seat: str(x.seat, 64), name: str(x.name), team: str(x.team, 128), role: (['router', 'member', 'observer'].includes(String(x.role)) ? x.role : '') as RosterSeat['role'],
+      online: x.online === true, queued: int(x.queued), last_active_at: typeof x.lastActiveAt === 'string' && !Number.isNaN(Date.parse(x.lastActiveAt)) ? new Date(Date.parse(x.lastActiveAt)).toISOString() : '' }))
+    .filter((x) => /^[a-z0-9-]+\/[0-9a-f]{8}$/i.test(x.seat) && x.seat.split('/')[0] === zone && (x.team === '' || (x.team.split('/')[0] === zone && /^[a-z0-9-]+\/canvas\/[^/]+$/i.test(x.team))))
+    .slice(0, ROSTER_SEATS_MAX);
+  const outcome = recordRoster({ host, peerRoot: root, peerZone: zone, reportedAt: at, seats, now });
+  return { status: 200, body: { routed: true, delivered: true, task_status: 'TASK_STATE_DELIVERED', roster: outcome, seats: seats.length } };
 }

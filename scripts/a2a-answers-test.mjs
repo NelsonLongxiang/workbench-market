@@ -278,6 +278,54 @@ try {
       && ((await (await fetch(BASE + '/api/health')).json()).a2a?.refused?.counts?.['progress:over-cap'] ?? 0) === capBefore + 1, r.text.slice(0, 160));
   }
 
+  console.log('二之五、团队名册（[A2A roster]）');
+  {
+    const R0 = seedEvent();   // lab 是投递过的宿主（区 lab）
+    const rosterRaw = (fp, at, doc, task) => JSON.stringify({ team: 'market/12345678', message: `[A2A roster] ${fp} ${at}\n${JSON.stringify(doc)}`, caller_session: 'dsh-host-1a2b', context_id: '', wait: false, task_id: task });
+    const at1 = '2026-11-11T09:00:00.000Z';
+    const seats = [
+      { seat: 'lab/a1a1a1a1', name: '成员甲', team: 'lab/canvas/team', role: 'member', online: true, active: 9, queued: 2, lastActiveAt: at1 },
+      { seat: 'lab/00000000', name: '总工', team: 'lab/canvas/team', role: 'router', online: true, active: 0, queued: 0 },
+      { seat: 'lab/b2b2b2b2', name: '成员乙', team: 'lab/canvas/team', role: 'boss', online: false },
+      { seat: 'other/c3c3c3c3', name: '别的区的席位', team: 'lab/canvas/team', role: 'member', online: true },
+      { seat: 'lab/d4d4d4d4', name: '挂在别的区团队上', team: 'other/canvas/x', role: 'member', online: true },
+      { seat: 'lab/not-hex!', name: '句柄不合形状', team: 'lab/canvas/team', role: 'member', online: true },
+    ];
+    // 在办件数从事项现算：把一件没结束的事项的承接设成成员甲
+    await receipt(R0.task, '接下', { idempotencyKey: R0.task, disposition: 'acknowledged' }, R0.ctx, { inbound: `ack-${R0.task}` });
+    { const d = db(); try { d.prepare('UPDATE work_items SET seat = ? WHERE id = ?').run('lab/a1a1a1a1', `wi_${R0.ev}`); } finally { d.close(); } }
+    let raw = rosterRaw('abcdef01', at1, { host: 'abcdef0123456789', at: at1, seats }, 'roster-abcdef01-1');
+    r = await post(raw, signed(lab, raw));
+    ok('名册：投递过的宿主、Sig3 → 收下（roster recorded），席位只留本区、句柄合形状的', r.status === 200 && r.text.includes('"roster":"recorded"') && r.text.includes('"seats":3'), r.text);
+    const t1 = await api('GET', '/api/a2a/teams');
+    const team = (t1.body?.teams ?? []).find((t) => t.team === 'lab/canvas/team');
+    const sa = team?.seats?.find((x) => x.seat === 'lab/a1a1a1a1');
+    ok('读接口：团队、名字、在岗数；席位的名字、角色（认不出的置空）、在岗', team && team.name === 'team' && team.peer_zone === 'lab' && team.seats_online === 2 && team.seats.length === 3
+      && team.seats.find((x) => x.seat === 'lab/b2b2b2b2')?.role === '' && sa?.name === '成员甲' && sa?.role === 'member', JSON.stringify(t1.body));
+    ok('……在办件数从事项现算（不用宿主报的 9）', sa?.active === 1 && sa?.queued === 2, JSON.stringify(sa));
+    raw = rosterRaw('abcdef01', '2026-11-11T08:00:00.000Z', { host: 'abcdef0123456789', at: '2026-11-11T08:00:00.000Z', seats: [{ seat: 'lab/e5e5e5e5', name: '旧的', team: 'lab/canvas/team', role: 'member', online: true }] }, 'roster-abcdef01-0');
+    r = await post(raw, signed(lab, raw));
+    ok('更早的名册 → stale，不覆盖', r.text.includes('"roster":"stale"') && !(await api('GET', '/api/a2a/teams')).body?.teams?.some((t) => t.seats.some((x) => x.seat === 'lab/e5e5e5e5')), r.text);
+    raw = rosterRaw('99999999', at1, { host: 'abcdef0123456789', at: at1, seats }, 'roster-99999999-1');
+    r = await post(raw, signed(lab, raw));
+    ok('首行指纹和 JSON 的 host 对不上 → 不采信', r.text.includes('"roster":"not-accepted"'), r.text);
+    const before = JSON.stringify((await api('GET', '/api/a2a/teams')).body);
+    for (const [label, h] of [['没签名', {}], ['别的宿主签', signed(evil, rosterRaw('abcdef01', '2026-11-11T10:00:00.000Z', { host: 'abcdef0123456789', at: '2026-11-11T10:00:00.000Z', seats }, 'roster-abcdef01-2'))]]) {
+      const rr = rosterRaw('abcdef01', '2026-11-11T10:00:00.000Z', { host: 'abcdef0123456789', at: '2026-11-11T10:00:00.000Z', seats: [{ seat: 'lab/f6f6f6f6', name: '冒充的', team: 'lab/canvas/team', role: 'member', online: true }] }, 'roster-abcdef01-3');
+      const res = await post(rr, label === '没签名' ? {} : signed(evil, rr));
+      ok(`名册·${label} → 不收（照原路走），名册不变`, !res.text.includes('"roster":') && JSON.stringify((await api('GET', '/api/a2a/teams')).body) === before, res.text.slice(0, 120));
+    }
+    { const stranger = await peer('stranger2');
+      const rr = rosterRaw('abcdef02', at1, { host: 'abcdef0299999999', at: at1, seats: [{ seat: 'stranger2/a7a7a7a7', name: '没投递过', team: 'stranger2/canvas/t', role: 'member', online: true }] }, 'roster-abcdef02-1');
+      const res = await post(rr, signed(stranger, rr));
+      ok('名册·签名方是没投递过的宿主 → 不收', !res.text.includes('"roster":') && JSON.stringify((await api('GET', '/api/a2a/teams')).body) === before, res.text.slice(0, 120));
+      stranger.server.close(); }
+    const anon = await fetch(BASE + '/api/a2a/teams');
+    ok('读接口：没登录 401', anon.status === 401);
+    const cross = await fetch(BASE + '/api/a2a/teams', { headers: { 'x-admin-token': 'ans-admin', 'sec-fetch-site': 'cross-site' } });
+    ok('读接口：跨站 403', cross.status === 403);
+  }
+
   console.log('三、席位发来的消息（跟进）：落在事项对话里，不进「关注」');
   const fu = (ctx, text, inbound) => JSON.stringify({ team: 'market/12345678', message: text, caller_session: 'lab/canvas/ops', context_id: ctx, wait: false, task_id: inbound });
   const attentionSources = async () => ((await api('GET', '/api/attention')).body?.items ?? []).map((x) => x.source);

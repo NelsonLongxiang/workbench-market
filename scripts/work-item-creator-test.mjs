@@ -208,6 +208,10 @@ try {
     const other = await call('POST', `/api/work-items/${S.crossSite}/messages/1/delete`, ALPHA, {});
     check(other.status === 403, '同一前缀下别的子路径（messages/1/delete）：写请求总门照旧拦', show(other));
   }
+  {
+    const tm = await call('GET', '/api/a2a/teams', ALPHA), tf = await call('GET', '/api/a2a/teams', { ...SAME, cookie: `session_id=${SESSIONS.forged}` });
+    check(tm.status === 200 && Array.isArray(tm.body?.teams) && tf.status === 401, '团队名册：登录的员工能读（只有席位信息）；提供方不认的会话 401', show({ tm: tm.status, tf: tf.status }));
+  }
   // ---------- 建立人主体：「是不是他的」只认它 ----------
   const attentionIds = async (headers) => { const r = await call('GET', '/api/attention', headers); return { status: r.status, ids: (r.body?.items ?? []).filter((x) => x.source === 'work-items').map((x) => x.source_id) }; };
   const ADMIN = { ...SAME, 'x-admin-token': ADMIN_TOKEN };

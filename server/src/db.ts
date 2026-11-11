@@ -317,6 +317,16 @@ CREATE TABLE IF NOT EXISTS a2a_inbound_receipts (
   received_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (task_id, class)
 );
+-- 阶段七：团队名册（dsh-open-a2a-net#604 P3，[A2A roster]）。每台宿主一行全量快照，以新替旧（按宿主报的时间）；
+-- 只认我们投递过的宿主、Sig3、席位只认签名这台宿主自己区里的。只当信息，不授予任何东西。时间由代码生成后写入。
+CREATE TABLE IF NOT EXISTS a2a_rosters (
+  host TEXT PRIMARY KEY,
+  peer_root TEXT NOT NULL,
+  peer_zone TEXT NOT NULL,
+  reported_at TEXT NOT NULL,
+  received_at TEXT NOT NULL,
+  seats TEXT NOT NULL DEFAULT '[]'
+);
 -- 阶段七 R2：提问回执（attention-<task>-<qid>，preview.13 起）。不占接单 / 终局的槽：同一任务可以有多个问题，按（任务号、问题 id）去重。
 -- 时间由代码生成后写入。
 CREATE TABLE IF NOT EXISTS a2a_inbound_questions (

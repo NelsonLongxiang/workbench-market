@@ -52,6 +52,14 @@
       "card_fetched_at TEXT NOT NULL DEFAULT ''",
       "card_error TEXT NOT NULL DEFAULT ''"
     ],
+    "a2a_rosters": [
+      "host TEXT PK",
+      "peer_root TEXT NOT NULL",
+      "peer_zone TEXT NOT NULL",
+      "reported_at TEXT NOT NULL",
+      "received_at TEXT NOT NULL",
+      "seats TEXT NOT NULL DEFAULT '[]'"
+    ],
     "a2a_run_ctx": [
       "id INTEGER PK",
       "context_id TEXT NOT NULL",
