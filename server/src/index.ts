@@ -44,9 +44,11 @@ import { registerSopPageRoutes } from './routes/sop-page.ts';
 import { registerLoginEventRoutes } from './routes/login-events.ts';
 import { registerChangeRequestRoutes } from './routes/change-requests.ts';
 import { registerSopStateRoutes, registerSopSpaceRoutes } from './routes/sops.ts';
+import { registerTaskIntakeRoutes, registerTaskReadRoutes, registerTaskControlRoutes } from './routes/task-center.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import type { ChangeRequestService } from './services/change-request.ts';
+import type { TaskCenterService } from './services/task-center.ts';
 import { SkillService } from './services/skill.ts';
 import type { AppService } from './services/app.ts';
 import type { AppDataService } from './services/app-data.ts';
@@ -2996,41 +2998,10 @@ function sameOriginGuard(req: express.Request, res: express.Response): boolean {
   try { return new URL(origin).host === host; } catch { return false; }
 }
 
-/** 任务状态迁移：每次变化恰一条事件（BEGIN IMMEDIATE 串行段·#159 C23 只增不改） */
-function applyTaskTransition<T = void>(taskId: number, action: 'created' | 'toggled' | 'published' | 'withdrawn', actor: string, patch: Record<string, unknown> = {}, inTx?: () => T): T | undefined {
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    if (Object.keys(patch).length) {
-      const sets = Object.keys(patch).map((k) => k + ' = @' + k).join(', ');
-      db.prepare('UPDATE tasks SET ' + sets + ", updated_at = datetime('now') WHERE id = @___id").run({ ...patch, ___id: taskId });
-    }
-    db.prepare("INSERT INTO task_events (task_id, type, actor, actor_kind, payload_json) VALUES (?, ?, ?, 'human', ?)").run(taskId, action, actor, JSON.stringify(patch));
-    const out = inTx?.(); // 同一事务里的附带写（撤回时取消未发出的投递）
-    db.exec('COMMIT');
-    return out;
-  } catch (e) { db.exec('ROLLBACK'); throw e; }
-}
-
 // ---- 任务中心 8 端点（读开放·写删人审·C13 元台只能人工面） ----
-app.post('/api/task-center/tasks', (req, res) => {
-  if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' }); // C10
-  if (!adminGuard(req, res)) return; // C9 无口令 401/403
-  res.status(201).json(publishTaskIntake(req.body ?? {}));
-  kickWorkbenchEvents(); // 工作台事件 v1：发布同事务已记 human 事件，这里立即试投
-});
+registerTaskIntakeRoutes(http, { sameOriginGuard, adminGuard });
 registerWorkbenchEventRoutes(app, { admin: adminGuard, sameOrigin: (req) => sameOriginGuard(req, undefined as never) });
-app.get('/api/task-center/tasks', (req, res) => { // 读开放
-  res.json(db.prepare('SELECT * FROM tasks ORDER BY id DESC').all().map(taskListView)); // #309 phase2：列表同样不带 payload_json 私有副本
-});
-app.get('/api/task-center/tasks/:id', wrap(async (req, res) => {
-  const hit = db.prepare('SELECT * FROM tasks WHERE id = ?').get(Number(req.params.id));
-  if (!hit) throw new HttpError(404, 'task not found');
-  const events = db.prepare('SELECT id, type, actor, actor_kind, at, payload_json FROM task_events WHERE task_id = ? ORDER BY id').all(hit.id).map((e: any) => ({...e, action: e.type, detail: JSON.parse(e.payload_json)}));
-  // #309 phase2：详情复制的录入数据与全量投影需 run 级读授权；未授权只回元数据（payload_json 是私有副本）
-  const auth = hit.intake_run_id ? await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, hit.intake_run_id) : { authorized: false };
-  if (auth.authorized) return res.json({ ...taskView(hit), events });
-  res.set('Cache-Control', 'no-store').json({ ...taskListView(hit), events, private_read: 'authorization-required' });
-}));
+registerTaskReadRoutes(http, { wrap, adminHeaderOk, runReadCapHeader });
 // #309 phase2：run 私有读授权管理面（播种 grant／重签 cap／撤销；adminGuard——运维持权人经权威映射操作，不猜归属）
 app.put('/api/sop/runs/:id(\\d+)/read-grants', (req, res) => {
   if (!adminGuard(req, res)) return;
@@ -3064,72 +3035,7 @@ app.post('/api/sop/runs/:id(\\d+)/read-caps/revoke', (req, res) => {
   const n = runReadCapRevokeAll(id);
   res.json({ ok: true, run_id: id, revoked_caps: n });
 });
-app.get('/api/task-center/policy', (req, res) => { // C7 读开放
-  res.json(taskCenterPolicy());
-});
-app.get('/api/task-center/template', (req, res) => { // C17 六固定步骤
-  const current = readActiveManifest('task-center');
-  res.json({ version: current?.app.active_version, steps: current?.manifest.steps ?? taskCenterSteps });
-});
-app.put('/api/task-center/policy', (req, res) => {
-  if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
-  if (!adminGuard(req, res)) return;
-  const body = req.body ?? {};
-  if (typeof body.agent_dispatch_enabled !== 'boolean') throw new HttpError(400, 'agent_dispatch_enabled 必须是布尔值');
-  const enabled = body.agent_dispatch_enabled;
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    const changed = taskCenterPolicy().agent_dispatch_enabled !== enabled;
-    db.prepare("UPDATE task_center_policy SET value=? WHERE key='center_switch'").run(enabled ? 'on' : 'off');
-    if (changed) db.prepare("INSERT INTO task_center_events(actor,action,detail) VALUES('human:admin','policy_changed',?)").run(JSON.stringify({agent_dispatch_enabled:enabled}));
-    db.exec('COMMIT');
-  } catch(e) { db.exec('ROLLBACK'); throw e; }
-  res.json({ ok: true, ...taskCenterPolicy() });
-});
-app.patch('/api/task-center/tasks/:id/switch', (req, res) => { // 任务级锁
-  if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
-  if (!adminGuard(req, res)) return;
-  const hit = db.prepare('SELECT id, enabled FROM tasks WHERE id = ?').get(Number(req.params.id));
-  if (!hit) throw new HttpError(404, 'task not found');
-  const nv = hit.enabled ? 0 : 1;
-  applyTaskTransition(hit.id, 'toggled', 'human:' + String((req as express.Request & { adminActor?: string }).adminActor ?? 'human'), { enabled: nv });
-  res.json({ ok: true, enabled: nv === 1 });
-});
-
-// #159 M3 B3（决策 #010）：发布冻结 + 撤回 + agent 派发开关（C2-C6/C8/C11/C18-C22·监督席两对齐）
-app.post('/api/task-center/tasks/:id/publish', (req, res) => {
-  if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
-  if (!adminGuard(req, res)) return;
-  const hit = db.prepare('SELECT * FROM tasks WHERE id = ?').get(Number(req.params.id)) as any;
-  if (!hit) throw new HttpError(404, 'task not found');
-  if (hit.status === 'published') throw new HttpError(409, '已发布不可再写（#159 C11）');
-  if (hit.status === 'withdrawn') throw new HttpError(409, '已撤回任务不可发布');
-  throw new HttpError(409, '旧草稿不得绕过录入 run 发布；请完成 task-center 录入后统一发布');
-
-});
-app.post('/api/task-center/tasks/:id/withdraw', (req, res) => {
-  if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
-  if (!adminGuard(req, res)) return;
-  const hit = db.prepare('SELECT * FROM tasks WHERE id = ?').get(Number(req.params.id)) as any;
-  if (!hit) throw new HttpError(404, 'task not found');
-  if (hit.status !== 'published') throw new HttpError(409, '仅已发布可撤回');
-  const actor = 'human:' + String((req as express.Request & { adminActor?: string }).adminActor ?? 'admin');
-  // 工作台事件 v1：撤回与取消未发出的投递同一事务；正在发送的那次如实报 in_flight
-  const c = applyTaskTransition(hit.id, 'withdrawn', actor, { status: 'withdrawn' }, () => cancelTaskCenterDeliveries(hit.id, actor));
-  res.json({ ok: true, id: hit.id, status: 'withdrawn', cancelled_deliveries: c?.cancelled ?? 0, in_flight_deliveries: c?.in_flight ?? 0 });
-});
-app.patch('/api/task-center/tasks/:id/agent-dispatch', (req, res) => { // 监督席对齐②：任务级 agent 派发开关（默认关·与任务锁语义对齐）
-  if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' });
-  if (!adminGuard(req, res)) return;
-  const hit = db.prepare('SELECT * FROM tasks WHERE id = ?').get(Number(req.params.id)) as any;
-  if (!hit) throw new HttpError(404, 'task not found');
-  if (hit.status !== 'published') throw new HttpError(409, '仅已发布任务可变更开关');
-  if (req.body?.enabled !== undefined && typeof req.body.enabled !== 'boolean') throw new HttpError(400, 'enabled 必须是布尔值');
-  const enabled = req.body?.enabled ?? !Boolean(hit.agent_dispatch_enabled);
-  const actor = 'human:' + String((req as express.Request & { adminActor?: string }).adminActor ?? 'admin');
-  if (enabled !== Boolean(hit.agent_dispatch_enabled)) applyTaskTransition(hit.id, 'toggled', actor, { agent_dispatch_enabled: enabled ? 1 : 0 });
-  res.json({ ok: true, ...taskView(db.prepare('SELECT * FROM tasks WHERE id=?').get(hit.id)) });
-});
+registerTaskControlRoutes(http, { readActiveManifest, sameOriginGuard, adminGuard });
 
 
 
