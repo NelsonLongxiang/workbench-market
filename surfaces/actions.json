@@ -75,7 +75,7 @@
       "GET /api/work-items/:id  -> work-item.read  read",
       "POST /api/work-items/:id/messages/read  -> work-items.messages-read  write  （状态码不代表授权：按事项的建立人判：建立人本人或管理员，是事项上的规则不是角色授权）",
       "POST /api/work-items/:id/messages/:mid/reply  -> work-items.messages-reply  write  （状态码不代表授权：按事项的建立人判：建立人本人或管理员，是事项上的规则不是角色授权）",
-      "POST /api/work-items/:id/decision  -> work-items.accept  decide",
+      "POST /api/work-items/:id/decision  -> work-items.accept  decide  （状态码不代表授权：按事项的建立人判：只有建立人本人能验收、退回自己的事项，是事项上的规则不是角色授权）",
       "POST /api/skills/:slug/install  -> skill.install  admin",
       "GET /api/skills/:slug/verify  -> skill.verify  read",
       "POST /api/skills/:slug/install/:ledgerId/revoke  -> skill.install-revoke  admin",

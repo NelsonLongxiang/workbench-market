@@ -60,6 +60,8 @@ function silentRes(): express.Response {
 
 /** 席位消息的已读与回复：建立人本人或管理员能做，是事项上的规则（判定这一步还不知道落在哪件事项上），401、403、404 不拿来和统一判定比 */
 const SEAT_WRITER_DECIDES = '按事项的建立人判：建立人本人或管理员，是事项上的规则不是角色授权';
+/** 建立人验收、退回自己的事项：只有这件事项的建立人本人能答，是事项上的规则；判定这一步还不知道落在哪件事项上 */
+const CREATOR_DECIDES = '按事项的建立人判：只有建立人本人能验收、退回自己的事项，是事项上的规则不是角色授权';
 
 export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps): void {
   // 列表：GET /api/work-items?state=&object=&phase=&limit=&cursor=。可见范围和详情同一个判断（管理员看全部，别人只看自己是建立人的），
@@ -188,7 +190,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
   });
 
   // 动作类别是「决定」：建立人替自己的事项拍板
-  app.post('/api/work-items/:id/decision', { action: 'work-items.accept', kind: 'decide' }, (req, res, next) => {
+  app.post('/api/work-items/:id/decision', { action: 'work-items.accept', kind: 'decide', statusNotVerdict: CREATOR_DECIDES }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
     const id = String(req.params.id ?? '');
