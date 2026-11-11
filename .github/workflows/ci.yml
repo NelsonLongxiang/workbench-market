@@ -13,6 +13,8 @@ jobs:
   browser-security:
     # #292 M4 真实浏览器反例：有口令不嵌 /go/、跳出清口令、登录弹窗不复制口令且无 opener（bfcache 未命中记 SKIP）
     runs-on: ubuntu-latest
+    env:
+      PLAYWRIGHT_VERSION: '1.57.0'
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -26,10 +28,85 @@ jobs:
         with:
           python-version: '3.12'
       - run: pnpm install --frozen-lockfile
-      - name: Playwright（Python）+ Chromium
+      # 装环境和跑测试分开：装环境只依赖外网（PyPI、Playwright 的浏览器下载、apt 软件源），带重试与缓存；
+      # 失败时标「装环境失败」。浏览器版本由 Playwright 版本决定，缓存键带上它，升级就换键。
+      # 缓存先取后存：存放在装环境之后单独一步，后面的测试红了也照样存
+      - name: 装环境：取 Playwright 浏览器缓存
+        id: pw-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-browsers-${{ runner.os }}-${{ env.ImageOS }}-${{ env.PLAYWRIGHT_VERSION }}-chromium
+      - name: 装环境：取系统依赖的 apt 包缓存
+        id: apt-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/playwright-apt
+          key: playwright-apt-${{ env.ImageOS }}-${{ env.ImageVersion }}-${{ env.PLAYWRIGHT_VERSION }}
+      - name: 装环境：Playwright（Python）+ Chromium 与系统依赖
+        id: browser-env
         run: |
-          python -m pip install playwright==1.57.0
-          python -m playwright install --with-deps chromium
+          set -euo pipefail
+          fail() { echo "::error title=装环境失败（不是测试失败）::$1"; exit 1; }
+          # 至少四次，间隔 15、30、60 秒
+          retry() {
+            local n=1 max=4 wait=15
+            until "$@"; do
+              if [ "$n" -ge "$max" ]; then return 1; fi
+              echo "::warning title=装环境重试::第 $n 次没成（$(echo "$*" | cut -c1-80)），${wait} 秒后重试"
+              sleep "$wait"; n=$((n + 1)); wait=$((wait * 2))
+            done
+          }
+          retry python -m pip install --retries 5 "playwright==${PLAYWRIGHT_VERSION}" \
+            || fail "pip 装 playwright==${PLAYWRIGHT_VERSION} 四次都没成"
+          # 命中缓存时浏览器已经在 ~/.cache/ms-playwright 里，install 认出来就不下载
+          retry python -m playwright install chromium || fail "下载 Chromium 四次都没成"
+
+          # 系统依赖：清单取 Playwright 自己的（install-deps --dry-run），只装镜像里没有的；都有就不碰 apt
+          pkgs=$(python -m playwright install-deps --dry-run chromium | sed -nE 's/.*--no-install-recommends (.*)$/\1/p' | tr -d '"') || pkgs=""
+          if [ -z "$pkgs" ]; then
+            echo "取不到依赖清单，退回 Playwright 自己装（带重试）"
+            retry python -m playwright install-deps chromium || fail "install-deps 四次都没成（多半是 apt 软件源连不上）"
+          else
+            missing=""
+            for p in $pkgs; do
+              dpkg-query -W -f='${db:Status-Status}' "$p" 2>/dev/null | grep -qx installed || missing="$missing $p"
+            done
+            if [ -z "$missing" ]; then
+              echo "系统依赖镜像里都有（$(echo $pkgs | wc -w | tr -d " ") 个包），不碰 apt"
+            else
+              echo "镜像里缺：$missing"
+              debs="$HOME/.cache/playwright-apt"
+              mkdir -p "$debs/partial"
+              aptopt=(-o Dir::Cache::archives="$debs" -o APT::Keep-Downloaded-Packages=true -o Acquire::Retries=3)
+              # 先只用缓存里的包装（不联网）；不够再联网
+              if compgen -G "$debs/*.deb" >/dev/null \
+                && sudo apt-get install -y --no-install-recommends --no-download "${aptopt[@]}" $missing; then
+                echo "用缓存里的 apt 包装好了"
+              else
+                retry sudo apt-get update -o Acquire::Retries=3 || fail "apt-get update 四次都没成（多半是软件源解析不了）"
+                retry sudo apt-get install -y --no-install-recommends "${aptopt[@]}" $missing \
+                  || fail "apt-get install 四次都没成：$missing"
+              fi
+              sudo chown -R "$(id -u):$(id -g)" "$debs"
+            fi
+          fi
+
+          # 装好的浏览器能起来，才算装环境成功
+          python -c 'from playwright.sync_api import sync_playwright; p = sync_playwright().start(); b = p.chromium.launch(); print("Chromium", b.version); b.close(); p.stop()' \
+            || fail "Chromium 起不来（缺系统依赖？）"
+      - name: 装环境：存 Playwright 浏览器缓存
+        if: steps.browser-env.outcome == 'success' && steps.pw-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ steps.pw-cache.outputs.cache-primary-key }}
+      - name: 装环境：存系统依赖的 apt 包缓存
+        if: steps.browser-env.outcome == 'success' && steps.apt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/playwright-apt
+          key: ${{ steps.apt-cache.outputs.cache-primary-key }}
       - run: pnpm --filter web build
       - name: Odoo same-host login and logout (synthetic HTTP and Chromium)
         run: |
@@ -112,6 +189,14 @@ jobs:
           A2A_CARD_SRC: ${{ github.workspace }}/dsh-open-a2a-net/src/card.ts
           YGL_HOME: ${{ runner.temp }}/decoy-ygl-home
         run: node scripts/e2e-full-run.mjs --control-off
+      - name: 失败归因
+        if: failure()
+        run: |
+          if [ "${{ steps.browser-env.outcome }}" = "success" ]; then
+            echo "::error title=测试失败::浏览器环境装好了（装环境一步成功），失败在后面的测试步骤里，看标红的那一步"
+          else
+            echo "::error title=装环境失败（不是测试失败）::浏览器环境没装好（装环境一步：${{ steps.browser-env.outcome }}），后面的测试没跑；多半是外网原因，隔一会儿重跑"
+          fi
   # 身份接缝与主体：从 tsc-and-syntax 拆出来并行跑（这一步最长，单独一个 job 不拖别的检查）。
   # job 里再并行一层：变异测试（最慢）和单测、对抗组同时跑；单测与对抗组的输出先进日志，跑完再打出来。
   identity-seam:
