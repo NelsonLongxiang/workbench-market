@@ -45,6 +45,9 @@ function reasonOf(v: unknown): string {
   return v;
 }
 
+/** 这组路由的管理门（本机命令行，或管理员登录 + 管理门），注册之后可取用：「关注」的待对接清单复用它判可见性 */
+export let principalsAdmin: ((req: express.Request, res: express.Response) => Promise<string | null>) | null = null;
+
 export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDeps): void {
   /** 是管理员就返回「谁」（留痕里的写法）；不是就已经回了 403，返回 null */
   async function admin(req: express.Request, res: express.Response): Promise<string | null> {
@@ -52,6 +55,7 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
     await deps.markOdooAdmin(req);
     return deps.adminGuard(req, res) ? deps.adminActor(req) : null;
   }
+  principalsAdmin = admin;
   const route = (fn: (req: express.Request, res: express.Response) => Promise<unknown>): express.RequestHandler =>
     (req, res, next) => { fn(req, res).catch(next); };
 
