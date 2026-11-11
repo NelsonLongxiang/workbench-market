@@ -38,10 +38,10 @@ const REPLY_ERROR: Record<string, string> = { text_required: '先写点什么', 
 
 /** 等你处理的：答法、要填的东西和「关注」页一致（各来源自己定，入口原样转交） */
 const CATEGORY: Record<string, { label: string; color: string }> = { ask: { label: '席位提问', color: 'gold' }, accept: { label: '等验收', color: 'green' }, glance: { label: '过目', color: 'default' }, review: { label: '审核', color: 'blue' }, grant: { label: '授权', color: 'purple' } };
-const ANSWER: Record<string, string> = { answer: '答复', verify: '验收通过', return: '退回', release: '放行', withdraw: '撤回' };
+const ANSWER: Record<string, string> = { answer: '答复', verify: '验收通过', return: '打回重做', release: '派出去', withdraw: '撤回' };
 const FIELDS: Record<string, Record<string, { key: string; label: string; required: boolean }>> = {
   'seat-asks': { answer: { key: 'text', label: '你的答复（会发回提问的席位）', required: true } },
-  'work-items': { return: { key: 'reason', label: '退回理由（席位会照这个改）', required: true } },
+  'work-items': { return: { key: 'reason', label: '打回的理由（席位会照这个改）', required: true } },
 };
 
 function PendingAction({ item, admin, onDone }: { item: AttentionItem; admin: boolean; onDone: () => void }) {

@@ -23,7 +23,7 @@ const fromLog = artifactsFromLog([{ fact: 'receipt', detail: JSON.stringify({ ar
 ok('日志里的产物：只取被采信的回执行', JSON.stringify(fromLog) === '[{"kind":"table","id":"out"}]', JSON.stringify(fromLog));
 ok('合并：按 kind + id 去重、保持先后', JSON.stringify(mergeArtifacts([{ kind: 'file', id: 'a' }], [{ kind: 'file', id: 'a' }, { kind: 'table', id: 'a' }])) === '[{"kind":"file","id":"a"},{"kind":"table","id":"a"}]');
 ok('链接：sop-run 拼成本站 /sops/<slug>/runs/<runId>', artifactHref({ kind: 'sop-run', id: 'demo-space/42' }) === '/sops/demo-space/runs/42');
-ok('链接：table、file、不认得的 kind、形状不对的 sop-run 都不给链接', [{ kind: 'table', id: 't' }, { kind: 'file', id: 'f' }, { kind: 'x', id: 'y' }, { kind: 'sop-run', id: '../etc/1' }, { kind: 'sop-run', id: 'demo/0' }, { kind: 'sop-run', id: 'https://evil.example/1' }].every((a) => artifactHref(a) === null));
+ok('链接：table、file、不认得的 kind、形状不对的 sop-run 都不给链接', [{ kind: 'table', id: 't' }, { kind: 'file', id: 'f' }, { kind: 'x', id: 'y' }, { kind: 'sop-run', id: '../etc/1' }, { kind: 'sop-run', id: 'demo/0' }, { kind: 'sop-run', id: 'https://evil.example/1' }, { kind: 'sop-run', id: 'Demo_Space/3' }].every((a) => artifactHref(a) === null));
 
 ok('答复请求体：选了选项只给 answer，否则给去空白的文本，都没有给 null', JSON.stringify(askAnswerBody('甲', '也写了')) === '{"answer":"甲"}' && JSON.stringify(askAnswerBody('', ' 中文 ')) === '{"text":"中文"}' && askAnswerBody('', '  ') === null);
 ok('初始选择：缺省项在选项里才预选', initialChoice({ options: ['甲', '乙'], default: '乙' }) === '乙' && initialChoice({ options: ['甲'], default: '丙' }) === '' && initialChoice({ options: [] }) === '');

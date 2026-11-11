@@ -90,7 +90,8 @@ export function mergeArtifacts(...lists: Artifact[][]): Artifact[] {
  *  sop-run 的 id 是 <slug>/<runId> → /sops/<slug>/runs/<runId>；table、file 还没有详情页，不认得的 kind 也只显示 */
 export function artifactHref(a: Artifact): string | null {
   if (a.kind !== 'sop-run') return null;
-  const m = /^([A-Za-z0-9][A-Za-z0-9_-]{0,99})\/([1-9]\d{0,15})$/.exec(a.id);
+  // slug 和服务端 SLUG_RE 一致：小写字母数字和连字符，最长 64
+  const m = /^([a-z0-9][a-z0-9-]{0,63})\/([1-9]\d{0,15})$/.exec(a.id);
   return m ? `/sops/${m[1]}/runs/${m[2]}` : null;
 }
 
