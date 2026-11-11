@@ -1,0 +1,1242 @@
+{
+  "domain": "sop-run-files",
+  "what": "SOP run 的交付文件：上传、列表、下载、引用已有文件，共 4 条路由。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["POST /api/sop/runs/:id(\\d+)/files/refs", "POST /api/sop/runs/:id/files", "GET /api/sop/runs/:id/files", "GET /api/sop/runs/:id/files/:fileId"],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "登录门关，管理口令由环境给（合成值），上传缺省不要令牌。预先写进库两个已发布的 SOP、三个 run（一个进行中没有上传令牌、一个已完成、一个在另一个 SOP）、三个文件（一个没记 sha、一个磁盘上没有、一个在另一个 SOP 的 run）。另经开 run 的路由开三个 run（两个同 SOP、一个另一个 SOP），存下读能力。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "seed": [
+        {
+          "table": "apps",
+          "row": { "slug": "replay-sop", "title": "回放 replay-sop", "kind": "sop", "status": "published", "active_version": 1, "created_by": "seed", "created_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" }
+        },
+        {
+          "table": "apps",
+          "row": { "slug": "replay-sop2", "title": "回放 replay-sop2", "kind": "sop", "status": "published", "active_version": 1, "created_by": "seed", "created_at": "2025-01-01 00:00:02", "updated_at": "2025-01-01 00:00:02" }
+        },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "running", "started_by": "seed", "data": "{}", "started_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01", "finished_at": "", "upload_token": "" }
+        },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "finished", "started_by": "seed", "data": "{}", "started_at": "2025-01-01 00:00:02", "updated_at": "2025-01-01 00:00:02", "finished_at": "2025-01-01 00:00:03" }
+        },
+        { "table": "sop_runs", "row": { "sop_slug": "replay-sop2", "sop_version": 1, "status": "running", "started_by": "seed", "data": "{}", "started_at": "2025-01-01 00:00:03", "updated_at": "2025-01-01 00:00:03", "finished_at": "" } },
+        {
+          "table": "sop_run_files",
+          "row": { "run_id": 1, "original_name": "old.txt", "mime": "text/plain", "size": 23, "storage_path": "run-files/seed/old.txt", "created_by": "seed", "created_at": "2025-01-01 00:00:01", "sha256": "", "ref_of": 0 }
+        },
+        {
+          "table": "sop_run_files",
+          "row": { "run_id": 1, "original_name": "lost.txt", "mime": "text/plain", "size": 3, "storage_path": "run-files/seed/lost.txt", "created_by": "seed", "created_at": "2025-01-01 00:00:02", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "ref_of": 0 }
+        },
+        {
+          "table": "sop_run_files",
+          "row": { "run_id": 3, "original_name": "other-sop.txt", "mime": "text/plain", "size": 23, "storage_path": "run-files/seed/old.txt", "created_by": "seed", "created_at": "2025-01-01 00:00:03", "sha256": "", "ref_of": 0 }
+        }
+      ],
+      "seed_files": [
+        { "path": "apps/replay-sop/v1/sop.yaml", "content": "title: 回放 replay-sop\ncode: RP\nsteps:\n  - key: a\n    title: 第一步\n    body: <p>一</p>\n  - key: b\n    title: 第二步\n" },
+        { "path": "apps/replay-sop2/v1/sop.yaml", "content": "title: 回放 replay-sop2\ncode: RP\nsteps:\n  - key: a\n    title: 第一步\n    body: <p>一</p>\n  - key: b\n    title: 第二步\n" },
+        { "path": "run-files/seed/old.txt", "content": "旧文件，没记 sha\n" }
+      ],
+      "steps": [
+        {
+          "id": "setup-a",
+          "what": "布置：开一个 replay-sop 的 run，存下 id、读能力、上传令牌",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/sop/runs", "headers": {}, "json": { "slug": "replay-sop" } },
+          "save": { "a": "id", "acap": "read_capability", "atok": "upload_token" },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "setup-b",
+          "what": "布置：开一个 replay-sop 的 run，存下 id、读能力、上传令牌",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/sop/runs", "headers": {}, "json": { "slug": "replay-sop" } },
+          "save": { "b": "id", "bcap": "read_capability", "btok": "upload_token" },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "setup-c",
+          "what": "布置：开一个 replay-sop2 的 run，存下 id、读能力、上传令牌",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/sop/runs", "headers": {}, "json": { "slug": "replay-sop2" } },
+          "save": { "c": "id", "ccap": "read_capability", "ctok": "upload_token" },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "upload-text-id",
+          "route": "POST /api/sop/runs/:id/files",
+          "class": "invalid",
+          "what": "id 不是数：404",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/abc/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"x.txt\"\r\nContent-Type: text/plain\r\n\r\nx\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run not found: abc" } }
+        },
+        {
+          "id": "upload-missing",
+          "route": "POST /api/sop/runs/:id/files",
+          "class": "invalid",
+          "what": "没有这个 run：404",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/999/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"x.txt\"\r\nContent-Type: text/plain\r\n\r\nx\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run not found: 999" } }
+        },
+        {
+          "id": "upload-finished",
+          "route": "POST /api/sop/runs/:id/files",
+          "class": "invalid",
+          "what": "run 已完成：409（先于落盘）",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/2/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"x.txt\"\r\nContent-Type: text/plain\r\n\r\nx\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "48", "etag": "W/\"30-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run 2 已 finished，不可再上传" } }
+        },
+        {
+          "id": "upload-no-file",
+          "route": "POST /api/sop/runs/:id/files",
+          "class": "invalid",
+          "what": "只有 created_by 没有 file：400",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/{{a}}/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"created_by\"\r\n\r\nx\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "55", "etag": "W/\"37-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "缺少 file 字段（multipart/form-data）" } }
+        },
+        {
+          "id": "upload-wrong-field",
+          "route": "POST /api/sop/runs/:id/files",
+          "class": "invalid",
+          "what": "文件放在别的字段名里：上传失败 400",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/{{a}}/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"upload\"; filename=\"x.txt\"\r\nContent-Type: text/plain\r\n\r\nx\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "48", "etag": "W/\"30-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "上传失败：Unexpected file field" } }
+        },
+        {
+          "id": "upload-two-files",
+          "route": "POST /api/sop/runs/:id/files",
+          "class": "invalid",
+          "what": "两个 file：上传失败 400",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/{{a}}/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"x.txt\"\r\nContent-Type: text/plain\r\n\r\nx\n\r\n--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"y.txt\"\r\nContent-Type: text/plain\r\n\r\ny\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "上传失败：Too many files" } }
+        },
+        {
+          "id": "upload-mismatch",
+          "route": "POST /api/sop/runs/:id/files",
+          "class": "invalid",
+          "what": "叫 x.png、内容是文本：415",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/{{a}}/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"x.png\"\r\nContent-Type: image/png\r\n\r\nplain\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": {
+            "status": 415,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "115", "etag": "W/\"73-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "文件类型不符：扩展名 .png 但内容没有该格式的文件头", "name": "x.png", "detected": null }
+          }
+        },
+        {
+          "id": "upload-remote-anonymous",
+          "route": "POST /api/sop/runs/:id/files",
+          "class": "normal",
+          "what": "远程匿名也能上传：run 的上传面不经写总门（缺省不要令牌，严格模式见 strict 场景）",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/{{a}}/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW", "x-forwarded-for": "198.51.100.7" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"x.txt\"\r\nContent-Type: text/plain\r\n\r\nx\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "401", "etag": "W/\"191-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "id": 4,
+              "run_id": 4,
+              "name": "x.txt",
+              "mime": "text/plain; charset=utf-8",
+              "size": 2,
+              "sha256": "73cb3858a687a8494ca3323053016282f3dad39d42cf62ca4e79dda2aac7d9ac",
+              "url": "/api/sop/runs/4/files/4",
+              "quota": { "upload_count": 1, "upload_bytes": 2, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 19, "upload_left_bytes": 209715198, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+            }
+          }
+        },
+        {
+          "id": "upload-a",
+          "route": "POST /api/sop/runs/:id/files",
+          "class": "normal",
+          "what": "传到 run A：201，回 sha256、url、配额；created_by 两头空白去掉",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/{{a}}/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"created_by\"\r\n\r\n  uploader  \r\n--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.txt\"\r\nContent-Type: text/plain\r\n\r\nA 的文件\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "save": { "fa": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "403", "etag": "W/\"193-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "id": 5,
+              "run_id": 4,
+              "name": "a.txt",
+              "mime": "text/plain; charset=utf-8",
+              "size": 12,
+              "sha256": "c3100ed03e2aa693646dc4cff9ef67f7ce9a78bcd08eecce9636e43c1a18a646",
+              "url": "/api/sop/runs/4/files/5",
+              "quota": { "upload_count": 2, "upload_bytes": 14, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 18, "upload_left_bytes": 209715186, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+            }
+          }
+        },
+        {
+          "id": "upload-a-chinese",
+          "route": "POST /api/sop/runs/:id/files",
+          "class": "normal",
+          "what": "中文文件名",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/{{a}}/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"报表.csv\"\r\nContent-Type: text/csv\r\n\r\na,b\n1,2\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "405", "etag": "W/\"195-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "id": 6,
+              "run_id": 4,
+              "name": "报表.csv",
+              "mime": "text/csv; charset=utf-8",
+              "size": 8,
+              "sha256": "492d5ea496056f1a6a6592241032fab764c321596317930b4fa0e1e8bc3b7470",
+              "url": "/api/sop/runs/4/files/6",
+              "quota": { "upload_count": 3, "upload_bytes": 22, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 17, "upload_left_bytes": 209715178, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+            }
+          }
+        },
+        {
+          "id": "upload-b",
+          "route": "POST /api/sop/runs/:id/files",
+          "class": "normal",
+          "what": "传到 run B（同一个 SOP）",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/{{b}}/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"b.txt\"\r\nContent-Type: text/plain\r\n\r\nB 的文件\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "save": { "fb": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "403", "etag": "W/\"193-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "id": 7,
+              "run_id": 5,
+              "name": "b.txt",
+              "mime": "text/plain; charset=utf-8",
+              "size": 12,
+              "sha256": "f810df0cb56b70f7dde7d11167acecb0136c8a8d8512b63b84aabad626d3ae8e",
+              "url": "/api/sop/runs/5/files/7",
+              "quota": { "upload_count": 1, "upload_bytes": 12, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 19, "upload_left_bytes": 209715188, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+            }
+          }
+        },
+        {
+          "id": "upload-c",
+          "route": "POST /api/sop/runs/:id/files",
+          "class": "normal",
+          "what": "传到 run C（另一个 SOP）",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/{{c}}/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"c.txt\"\r\nContent-Type: text/plain\r\n\r\nC 的文件\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "save": { "fc": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "403", "etag": "W/\"193-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "id": 8,
+              "run_id": 6,
+              "name": "c.txt",
+              "mime": "text/plain; charset=utf-8",
+              "size": 12,
+              "sha256": "460dd73668a7238f8ff6ad4a851ae058db13132d4790e84be13423a8fe565c51",
+              "url": "/api/sop/runs/6/files/8",
+              "quota": { "upload_count": 1, "upload_bytes": 12, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 19, "upload_left_bytes": 209715188, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+            }
+          }
+        },
+        {
+          "id": "list-text-id",
+          "route": "GET /api/sop/runs/:id/files",
+          "class": "invalid",
+          "what": "id 不是数：404",
+          "request": { "method": "GET", "path": "/api/sop/runs/abc/files", "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run not found: abc" } }
+        },
+        {
+          "id": "list-missing",
+          "route": "GET /api/sop/runs/:id/files",
+          "class": "invalid",
+          "what": "没有这个 run：404（先于读授权）",
+          "request": { "method": "GET", "path": "/api/sop/runs/999/files", "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run not found: 999" } }
+        },
+        {
+          "id": "list-no-cap",
+          "route": "GET /api/sop/runs/:id/files",
+          "class": "unauthorized",
+          "what": "不带读能力：403",
+          "request": { "method": "GET", "path": "/api/sop/runs/{{a}}/files", "headers": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "133", "etag": "W/\"85-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "run read authorization required", "hint": "创建响应的 read_capability（X-Run-Read-Capability 头）或已授权会话" }
+          }
+        },
+        {
+          "id": "list-wrong-cap",
+          "route": "GET /api/sop/runs/:id/files",
+          "class": "unauthorized",
+          "what": "读能力不对：403",
+          "request": { "method": "GET", "path": "/api/sop/runs/{{a}}/files", "headers": { "x-run-read-capability": "nope" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "133", "etag": "W/\"85-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "run read authorization required", "hint": "创建响应的 read_capability（X-Run-Read-Capability 头）或已授权会话" }
+          }
+        },
+        {
+          "id": "list-other-cap",
+          "route": "GET /api/sop/runs/:id/files",
+          "class": "unauthorized",
+          "what": "拿 run B 的读能力读 run A：403",
+          "request": { "method": "GET", "path": "/api/sop/runs/{{a}}/files", "headers": { "x-run-read-capability": "{{bcap}}" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "133", "etag": "W/\"85-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "run read authorization required", "hint": "创建响应的 read_capability（X-Run-Read-Capability 头）或已授权会话" }
+          }
+        },
+        {
+          "id": "list-cap",
+          "route": "GET /api/sop/runs/:id/files",
+          "class": "normal",
+          "what": "带 run A 的读能力：200，带 url 和配额",
+          "request": { "method": "GET", "path": "/api/sop/runs/{{a}}/files", "headers": { "x-run-read-capability": "{{acap}}" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "991", "etag": "W/\"3df-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "run_id": 4,
+              "items": [
+                { "id": 4, "original_name": "x.txt", "mime": "text/plain; charset=utf-8", "size": 2, "sha256": "73cb3858a687a8494ca3323053016282f3dad39d42cf62ca4e79dda2aac7d9ac", "ref_of": 0, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/sop/runs/4/files/4" },
+                { "id": 5, "original_name": "a.txt", "mime": "text/plain; charset=utf-8", "size": 12, "sha256": "c3100ed03e2aa693646dc4cff9ef67f7ce9a78bcd08eecce9636e43c1a18a646", "ref_of": 0, "created_by": "uploader", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/sop/runs/4/files/5" },
+                { "id": 6, "original_name": "报表.csv", "mime": "text/csv; charset=utf-8", "size": 8, "sha256": "492d5ea496056f1a6a6592241032fab764c321596317930b4fa0e1e8bc3b7470", "ref_of": 0, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/sop/runs/4/files/6" }
+              ],
+              "count": 3,
+              "quota": { "upload_count": 3, "upload_bytes": 22, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 17, "upload_left_bytes": 209715178, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+            }
+          }
+        },
+        {
+          "id": "list-admin-seed",
+          "route": "GET /api/sop/runs/:id/files",
+          "class": "normal",
+          "what": "管理员读种子 run 1：没记 sha 的旧文件现算补上；磁盘上没有的照列",
+          "request": { "method": "GET", "path": "/api/sop/runs/1/files", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "716", "etag": "W/\"2cc-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "run_id": 1,
+              "items": [
+                { "id": 1, "original_name": "old.txt", "mime": "text/plain", "size": 23, "sha256": "88b44bb4f741743b5226d57d5bf368d66cb90d1ed237bf2db4e4b2e48573a6b1", "ref_of": 0, "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/sop/runs/1/files/1" },
+                { "id": 2, "original_name": "lost.txt", "mime": "text/plain", "size": 3, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "ref_of": 0, "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/sop/runs/1/files/2" }
+              ],
+              "count": 2,
+              "quota": { "upload_count": 2, "upload_bytes": 26, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 18, "upload_left_bytes": 209715174, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+            }
+          }
+        },
+        {
+          "id": "raw-list-dotdot",
+          "route": "GET /api/sop/runs/:id/files",
+          "class": "invalid",
+          "what": "原样发：id 是 ..",
+          "request": { "method": "GET", "path": "/api/sop/runs/../files", "raw": true, "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run not found: .." } }
+        },
+        {
+          "id": "download-text-ids",
+          "route": "GET /api/sop/runs/:id/files/:fileId",
+          "class": "invalid",
+          "what": "fileId 不是数：404（先于读授权）",
+          "request": { "method": "GET", "path": "/api/sop/runs/{{a}}/files/abc", "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "file not found" } }
+        },
+        {
+          "id": "download-no-cap",
+          "route": "GET /api/sop/runs/:id/files/:fileId",
+          "class": "unauthorized",
+          "what": "不带读能力：403",
+          "request": { "method": "GET", "path": "/api/sop/runs/{{a}}/files/{{fa}}", "headers": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "133", "etag": "W/\"85-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "run read authorization required", "hint": "创建响应的 read_capability（X-Run-Read-Capability 头）或已授权会话" }
+          }
+        },
+        {
+          "id": "download-cap",
+          "route": "GET /api/sop/runs/:id/files/:fileId",
+          "class": "normal",
+          "what": "带读能力下载：一律 attachment、nosniff",
+          "request": { "method": "GET", "path": "/api/sop/runs/{{a}}/files/{{fa}}", "headers": { "x-run-read-capability": "{{acap}}" } },
+          "response": {
+            "status": 200,
+            "type": "text/plain; charset=utf-8",
+            "headers": { "content-disposition": "attachment; filename*=UTF-8''a.txt", "content-length": "12", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": "A 的文件\n"
+          }
+        },
+        {
+          "id": "download-other-run-file",
+          "route": "GET /api/sop/runs/:id/files/:fileId",
+          "class": "invalid",
+          "what": "run B 的文件挂在 run A 下面：404",
+          "request": { "method": "GET", "path": "/api/sop/runs/{{a}}/files/{{fb}}", "headers": { "x-run-read-capability": "{{acap}}" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "file not found: 7" } }
+        },
+        {
+          "id": "download-missing",
+          "route": "GET /api/sop/runs/:id/files/:fileId",
+          "class": "invalid",
+          "what": "没有这个文件：404",
+          "request": { "method": "GET", "path": "/api/sop/runs/{{a}}/files/999", "headers": { "x-run-read-capability": "{{acap}}" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "file not found: 999" } }
+        },
+        {
+          "id": "download-lost",
+          "route": "GET /api/sop/runs/:id/files/:fileId",
+          "class": "invalid",
+          "what": "库里有、磁盘上没有：404",
+          "request": { "method": "GET", "path": "/api/sop/runs/1/files/2", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "stored file missing on disk" } }
+        },
+        {
+          "id": "download-admin-old",
+          "route": "GET /api/sop/runs/:id/files/:fileId",
+          "class": "normal",
+          "what": "管理员下载种子 run 1 的旧文件",
+          "request": { "method": "GET", "path": "/api/sop/runs/1/files/1", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "text/plain",
+            "headers": { "content-disposition": "attachment; filename*=UTF-8''old.txt", "content-length": "23", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": "旧文件，没记 sha\n"
+          }
+        },
+        {
+          "id": "raw-download-encoded-slash",
+          "route": "GET /api/sop/runs/:id/files/:fileId",
+          "class": "invalid",
+          "what": "原样发：fileId 是 1%2f..",
+          "request": { "method": "GET", "path": "/api/sop/runs/{{a}}/files/1%2f..", "raw": true, "headers": { "x-run-read-capability": "{{acap}}" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "file not found" } }
+        },
+        {
+          "id": "raw-download-long",
+          "route": "GET /api/sop/runs/:id/files/:fileId",
+          "class": "invalid",
+          "what": "原样发：fileId 是 4000 个 9",
+          "request": {
+            "method": "GET",
+            "path": "/api/sop/runs/{{a}}/files/9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+            "raw": true,
+            "headers": { "x-run-read-capability": "{{acap}}" }
+          },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "4028", "etag": "W/\"fbc-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "file not found: 9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999" }
+          }
+        },
+        {
+          "id": "refs-missing",
+          "route": "POST /api/sop/runs/:id(\\d+)/files/refs",
+          "class": "invalid",
+          "what": "没有这个 run：404",
+          "request": { "method": "POST", "path": "/api/sop/runs/999/files/refs", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "items": [{ "run_id": 1, "file_id": 1 }] } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run not found: 999" } }
+        },
+        {
+          "id": "refs-finished",
+          "route": "POST /api/sop/runs/:id(\\d+)/files/refs",
+          "class": "invalid",
+          "what": "run 已完成：409",
+          "request": { "method": "POST", "path": "/api/sop/runs/2/files/refs", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "items": [{ "run_id": 1, "file_id": 1 }] } },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run 2 已 finished，不可再关联文件" } }
+        },
+        {
+          "id": "refs-no-auth",
+          "route": "POST /api/sop/runs/:id(\\d+)/files/refs",
+          "class": "unauthorized",
+          "what": "没有本 run 的读能力、也不是管理员：403",
+          "request": { "method": "POST", "path": "/api/sop/runs/{{a}}/files/refs", "headers": {}, "json": { "items": [{ "run_id": "{{b}}", "file_id": "{{fb}}" }] } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "125", "etag": "W/\"7d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "run read authorization required", "hint": "带上本 run 的 X-Run-Read-Capability，或已授权会话、管理员" }
+          }
+        },
+        {
+          "id": "refs-remote-anonymous",
+          "route": "POST /api/sop/runs/:id(\\d+)/files/refs",
+          "class": "unauthorized",
+          "what": "远程匿名：写总门",
+          "request": { "method": "POST", "path": "/api/sop/runs/{{a}}/files/refs", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "items": [] } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "125", "etag": "W/\"7d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "run read authorization required", "hint": "带上本 run 的 X-Run-Read-Capability，或已授权会话、管理员" }
+          }
+        },
+        {
+          "id": "refs-no-items",
+          "route": "POST /api/sop/runs/:id(\\d+)/files/refs",
+          "class": "invalid",
+          "what": "没有 items：400",
+          "request": { "method": "POST", "path": "/api/sop/runs/{{a}}/files/refs", "headers": { "x-run-read-capability": "{{acap}}" }, "json": {} },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "94", "etag": "W/\"5e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "items 必须是非空数组：[{ run_id, file_id, read_capability? } | { sha256 }]" }
+          }
+        },
+        {
+          "id": "refs-empty-items",
+          "route": "POST /api/sop/runs/:id(\\d+)/files/refs",
+          "class": "invalid",
+          "what": "items 是空数组：400",
+          "request": { "method": "POST", "path": "/api/sop/runs/{{a}}/files/refs", "headers": { "x-run-read-capability": "{{acap}}" }, "json": { "items": [] } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "94", "etag": "W/\"5e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "items 必须是非空数组：[{ run_id, file_id, read_capability? } | { sha256 }]" }
+          }
+        },
+        {
+          "id": "refs-too-many",
+          "route": "POST /api/sop/runs/:id(\\d+)/files/refs",
+          "class": "invalid",
+          "what": "items 201 条：400",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/{{a}}/files/refs",
+            "headers": { "x-run-read-capability": "{{acap}}" },
+            "json": {
+              "items": [
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {},
+                {}
+              ]
+            }
+          },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "50", "etag": "W/\"32-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "单次最多 200 条，请分批关联" } }
+        },
+        {
+          "id": "refs-all-failed",
+          "route": "POST /api/sop/runs/:id(\\d+)/files/refs",
+          "class": "invalid",
+          "what": "全部失败：422，逐条给原因（缺 id、run_id 是 0、源 run 没读权、文件不在源 run、别的 SOP、非管理员按 sha）",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/{{a}}/files/refs",
+            "headers": { "x-run-read-capability": "{{acap}}" },
+            "json": {
+              "items": [
+                { "run_id": "x" },
+                { "run_id": 0, "file_id": "{{fb}}" },
+                { "run_id": "{{b}}", "file_id": "{{fb}}" },
+                { "run_id": "{{b}}", "file_id": "{{fa}}", "read_capability": "{{bcap}}" },
+                { "run_id": "{{c}}", "file_id": "{{fc}}", "read_capability": "{{ccap}}" },
+                { "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+                "plain"
+              ],
+              "created_by": "x"
+            }
+          },
+          "response": {
+            "status": 422,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "851", "etag": "W/\"353-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "run_id": 4,
+              "results": [
+                { "index": 0, "status": "failed", "reason": "需要 run_id 与 file_id（正整数），或 sha256" },
+                { "index": 1, "status": "failed", "reason": "需要 run_id 与 file_id（正整数），或 sha256" },
+                { "index": 2, "status": "failed", "reason": "没有 run 5 的读授权（带上它的 read_capability）" },
+                { "index": 3, "status": "failed", "reason": "run 5 里没有文件 5" },
+                { "index": 4, "status": "failed", "reason": "只能引用同一 SOP 的文件" },
+                { "index": 5, "status": "failed", "reason": "按 sha256 引用只限管理员" },
+                { "index": 6, "status": "failed", "reason": "需要 run_id 与 file_id（正整数），或 sha256" }
+              ],
+              "linked": 0,
+              "failed": 7,
+              "quota": { "upload_count": 3, "upload_bytes": 22, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 17, "upload_left_bytes": 209715178, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+            }
+          }
+        },
+        {
+          "id": "refs-link",
+          "route": "POST /api/sop/runs/:id(\\d+)/files/refs",
+          "class": "normal",
+          "what": "带源 run 的读能力引用 run B 的文件：linked；同一批里再引一次是 duplicate；created_by 两头空白去掉",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/{{a}}/files/refs",
+            "headers": { "x-run-read-capability": "{{acap}}" },
+            "json": { "items": [{ "run_id": "{{b}}", "file_id": "{{fb}}", "read_capability": "{{bcap}}" }, { "run_id": "{{b}}", "file_id": "{{fb}}", "read_capability": "{{bcap}}" }], "created_by": "  linker  " }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "397", "etag": "W/\"18d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "run_id": 4,
+              "results": [{ "index": 0, "status": "linked", "id": 9, "source_file_id": 7, "name": "b.txt" }, { "index": 1, "status": "duplicate", "id": 9, "source_file_id": 7, "name": "b.txt" }],
+              "linked": 2,
+              "failed": 0,
+              "quota": { "upload_count": 3, "upload_bytes": 22, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 17, "upload_left_bytes": 209715178, "ref_count": 1, "ref_max_count": 2000, "ref_left_count": 1999 }
+            }
+          }
+        },
+        {
+          "id": "refs-self",
+          "route": "POST /api/sop/runs/:id(\\d+)/files/refs",
+          "class": "normal",
+          "what": "引用本 run 自己的文件（不再核源 run 的读权）：duplicate",
+          "request": { "method": "POST", "path": "/api/sop/runs/{{a}}/files/refs", "headers": { "x-run-read-capability": "{{acap}}" }, "json": { "items": [{ "run_id": "{{a}}", "file_id": "{{fa}}" }] } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "326", "etag": "W/\"146-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "run_id": 4,
+              "results": [{ "index": 0, "status": "duplicate", "id": 5, "source_file_id": 5, "name": "a.txt" }],
+              "linked": 1,
+              "failed": 0,
+              "quota": { "upload_count": 3, "upload_bytes": 22, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 17, "upload_left_bytes": 209715178, "ref_count": 1, "ref_max_count": 2000, "ref_left_count": 1999 }
+            }
+          }
+        },
+        {
+          "id": "refs-admin-sha",
+          "route": "POST /api/sop/runs/:id(\\d+)/files/refs",
+          "class": "normal",
+          "what": "管理员按 sha256：先读过种子 run 1 的列表，旧文件的 sha 已补上，按它引用：linked；sha 形状不对、找不到的逐条失败",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/{{a}}/files/refs",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": {
+              "items": [{ "sha256": "88b44bb4f741743b5226d57d5bf368d66cb90d1ed237bf2db4e4b2e48573a6b1" }, { "sha256": "NOT-HEX" }, { "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" }, { "run_id": 1, "file_id": 2 }]
+            }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "569", "etag": "W/\"239-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "run_id": 4,
+              "results": [
+                { "index": 0, "status": "linked", "id": 10, "source_file_id": 1, "name": "old.txt" },
+                { "index": 1, "status": "failed", "reason": "sha256 须为 64 位小写十六进制" },
+                { "index": 2, "status": "failed", "reason": "同一 SOP 里没有这个 sha256 的已上传文件" },
+                { "index": 3, "status": "failed", "reason": "源文件已不在存储里" }
+              ],
+              "linked": 1,
+              "failed": 3,
+              "quota": { "upload_count": 3, "upload_bytes": 22, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 17, "upload_left_bytes": 209715178, "ref_count": 2, "ref_max_count": 2000, "ref_left_count": 1998 }
+            }
+          }
+        },
+        {
+          "id": "list-after-refs",
+          "route": "GET /api/sop/runs/:id/files",
+          "class": "normal",
+          "what": "引用之后：引用行带 ref_of，配额里的 ref_count 变了，上传配额不变",
+          "request": { "method": "GET", "path": "/api/sop/runs/{{a}}/files", "headers": { "x-run-read-capability": "{{acap}}" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1482", "etag": "W/\"5ca-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "run_id": 4,
+              "items": [
+                { "id": 4, "original_name": "x.txt", "mime": "text/plain; charset=utf-8", "size": 2, "sha256": "73cb3858a687a8494ca3323053016282f3dad39d42cf62ca4e79dda2aac7d9ac", "ref_of": 0, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/sop/runs/4/files/4" },
+                { "id": 5, "original_name": "a.txt", "mime": "text/plain; charset=utf-8", "size": 12, "sha256": "c3100ed03e2aa693646dc4cff9ef67f7ce9a78bcd08eecce9636e43c1a18a646", "ref_of": 0, "created_by": "uploader", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/sop/runs/4/files/5" },
+                { "id": 6, "original_name": "报表.csv", "mime": "text/csv; charset=utf-8", "size": 8, "sha256": "492d5ea496056f1a6a6592241032fab764c321596317930b4fa0e1e8bc3b7470", "ref_of": 0, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/sop/runs/4/files/6" },
+                { "id": 9, "original_name": "b.txt", "mime": "text/plain; charset=utf-8", "size": 12, "sha256": "f810df0cb56b70f7dde7d11167acecb0136c8a8d8512b63b84aabad626d3ae8e", "ref_of": 7, "created_by": "linker", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/sop/runs/4/files/9" },
+                { "id": 10, "original_name": "old.txt", "mime": "text/plain", "size": 23, "sha256": "88b44bb4f741743b5226d57d5bf368d66cb90d1ed237bf2db4e4b2e48573a6b1", "ref_of": 1, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/sop/runs/4/files/10" }
+              ],
+              "count": 5,
+              "quota": { "upload_count": 3, "upload_bytes": 22, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 17, "upload_left_bytes": 209715178, "ref_count": 2, "ref_max_count": 2000, "ref_left_count": 1998 }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "strict",
+      "what": "同上，另把设置 run_upload_require_token 置 1：上传和引用都要本 run 的上传令牌（管理员免）。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "seed": [
+        {
+          "table": "apps",
+          "row": { "slug": "replay-sop", "title": "回放 replay-sop", "kind": "sop", "status": "published", "active_version": 1, "created_by": "seed", "created_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" }
+        },
+        {
+          "table": "apps",
+          "row": { "slug": "replay-sop2", "title": "回放 replay-sop2", "kind": "sop", "status": "published", "active_version": 1, "created_by": "seed", "created_at": "2025-01-01 00:00:02", "updated_at": "2025-01-01 00:00:02" }
+        },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "running", "started_by": "seed", "data": "{}", "started_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01", "finished_at": "", "upload_token": "" }
+        },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "finished", "started_by": "seed", "data": "{}", "started_at": "2025-01-01 00:00:02", "updated_at": "2025-01-01 00:00:02", "finished_at": "2025-01-01 00:00:03" }
+        },
+        { "table": "sop_runs", "row": { "sop_slug": "replay-sop2", "sop_version": 1, "status": "running", "started_by": "seed", "data": "{}", "started_at": "2025-01-01 00:00:03", "updated_at": "2025-01-01 00:00:03", "finished_at": "" } },
+        {
+          "table": "sop_run_files",
+          "row": { "run_id": 1, "original_name": "old.txt", "mime": "text/plain", "size": 23, "storage_path": "run-files/seed/old.txt", "created_by": "seed", "created_at": "2025-01-01 00:00:01", "sha256": "", "ref_of": 0 }
+        },
+        {
+          "table": "sop_run_files",
+          "row": { "run_id": 1, "original_name": "lost.txt", "mime": "text/plain", "size": 3, "storage_path": "run-files/seed/lost.txt", "created_by": "seed", "created_at": "2025-01-01 00:00:02", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "ref_of": 0 }
+        },
+        {
+          "table": "sop_run_files",
+          "row": { "run_id": 3, "original_name": "other-sop.txt", "mime": "text/plain", "size": 23, "storage_path": "run-files/seed/old.txt", "created_by": "seed", "created_at": "2025-01-01 00:00:03", "sha256": "", "ref_of": 0 }
+        },
+        { "table": "settings", "row": { "key": "run_upload_require_token", "value": "1" } }
+      ],
+      "seed_files": [
+        { "path": "apps/replay-sop/v1/sop.yaml", "content": "title: 回放 replay-sop\ncode: RP\nsteps:\n  - key: a\n    title: 第一步\n    body: <p>一</p>\n  - key: b\n    title: 第二步\n" },
+        { "path": "apps/replay-sop2/v1/sop.yaml", "content": "title: 回放 replay-sop2\ncode: RP\nsteps:\n  - key: a\n    title: 第一步\n    body: <p>一</p>\n  - key: b\n    title: 第二步\n" },
+        { "path": "run-files/seed/old.txt", "content": "旧文件，没记 sha\n" }
+      ],
+      "steps": [
+        {
+          "id": "setup-a",
+          "what": "布置：开一个 replay-sop 的 run，存下 id、读能力、上传令牌",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/sop/runs", "headers": {}, "json": { "slug": "replay-sop" } },
+          "save": { "a": "id", "acap": "read_capability", "atok": "upload_token" },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "strict-no-token",
+          "route": "POST /api/sop/runs/:id/files",
+          "class": "unauthorized",
+          "what": "严格模式、不带上传令牌：401",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/{{a}}/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"x.txt\"\r\nContent-Type: text/plain\r\n\r\nx\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "95", "etag": "W/\"5f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "缺少 X-Run-Upload-Token（Runner 页内嵌令牌·人工作业用 admin 口令）" }
+          }
+        },
+        {
+          "id": "strict-wrong-token",
+          "route": "POST /api/sop/runs/:id/files",
+          "class": "unauthorized",
+          "what": "上传令牌不对：403",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/{{a}}/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW", "x-run-upload-token": "nope" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"x.txt\"\r\nContent-Type: text/plain\r\n\r\nx\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "61", "etag": "W/\"3d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "上传令牌不符（run 不匹配或已过期）" } }
+        },
+        {
+          "id": "strict-seed-no-token",
+          "route": "POST /api/sop/runs/:id/files",
+          "class": "unauthorized",
+          "what": "种子 run 1 没有上传令牌：403（旧 run 上传面已关闭）",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/1/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW", "x-run-upload-token": "nope" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"x.txt\"\r\nContent-Type: text/plain\r\n\r\nx\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "67", "etag": "W/\"43-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "该 run 无上传令牌（旧 run 上传面已关闭）" } }
+        },
+        {
+          "id": "strict-token",
+          "route": "POST /api/sop/runs/:id/files",
+          "class": "normal",
+          "what": "带对的上传令牌：201",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/{{a}}/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW", "x-run-upload-token": "{{atok}}" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"t.txt\"\r\nContent-Type: text/plain\r\n\r\n带令牌\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "403", "etag": "W/\"193-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "id": 4,
+              "run_id": 4,
+              "name": "t.txt",
+              "mime": "text/plain; charset=utf-8",
+              "size": 10,
+              "sha256": "207de8e16cb13f3750d1b59e417db0215a469b8047c388d0881c08d9b043d862",
+              "url": "/api/sop/runs/4/files/4",
+              "quota": { "upload_count": 1, "upload_bytes": 10, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 19, "upload_left_bytes": 209715190, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+            }
+          }
+        },
+        {
+          "id": "strict-admin",
+          "route": "POST /api/sop/runs/:id/files",
+          "class": "normal",
+          "what": "管理员不要令牌：201",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/{{a}}/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW", "x-admin-token": "replay-synthetic-admin" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"m.txt\"\r\nContent-Type: text/plain\r\n\r\n管理员\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "403", "etag": "W/\"193-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "id": 5,
+              "run_id": 4,
+              "name": "m.txt",
+              "mime": "text/plain; charset=utf-8",
+              "size": 10,
+              "sha256": "fc73ef706b8271f103e14c09ca694cb524c8ce1c29adac321568782ae1052daf",
+              "url": "/api/sop/runs/4/files/5",
+              "quota": { "upload_count": 2, "upload_bytes": 20, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 18, "upload_left_bytes": 209715180, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+            }
+          }
+        },
+        {
+          "id": "strict-refs-no-token",
+          "route": "POST /api/sop/runs/:id(\\d+)/files/refs",
+          "class": "unauthorized",
+          "what": "引用也走同一个写入门：不带令牌 401",
+          "request": { "method": "POST", "path": "/api/sop/runs/{{a}}/files/refs", "headers": { "x-run-read-capability": "{{acap}}" }, "json": { "items": [{ "run_id": 1, "file_id": 1 }] } },
+          "response": { "status": 401, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "缺少 X-Run-Upload-Token" } }
+        },
+        {
+          "id": "strict-refs-token",
+          "route": "POST /api/sop/runs/:id(\\d+)/files/refs",
+          "class": "invalid",
+          "what": "带令牌和读能力：过了写入门；源 run 1 没有读权，全部失败 422",
+          "request": { "method": "POST", "path": "/api/sop/runs/{{a}}/files/refs", "headers": { "x-run-read-capability": "{{acap}}", "x-run-upload-token": "{{atok}}" }, "json": { "items": [{ "run_id": 1, "file_id": 1 }] } },
+          "response": {
+            "status": 422,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "353", "etag": "W/\"161-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "run_id": 4,
+              "results": [{ "index": 0, "status": "failed", "reason": "没有 run 1 的读授权（带上它的 read_capability）" }],
+              "linked": 0,
+              "failed": 1,
+              "quota": { "upload_count": 2, "upload_bytes": 20, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 18, "upload_left_bytes": 209715180, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce），管理口令由环境给（合成值）。同样的种子。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "seed": [
+        {
+          "table": "apps",
+          "row": { "slug": "replay-sop", "title": "回放 replay-sop", "kind": "sop", "status": "published", "active_version": 1, "created_by": "seed", "created_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" }
+        },
+        {
+          "table": "apps",
+          "row": { "slug": "replay-sop2", "title": "回放 replay-sop2", "kind": "sop", "status": "published", "active_version": 1, "created_by": "seed", "created_at": "2025-01-01 00:00:02", "updated_at": "2025-01-01 00:00:02" }
+        },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "running", "started_by": "seed", "data": "{}", "started_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01", "finished_at": "", "upload_token": "" }
+        },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "finished", "started_by": "seed", "data": "{}", "started_at": "2025-01-01 00:00:02", "updated_at": "2025-01-01 00:00:02", "finished_at": "2025-01-01 00:00:03" }
+        },
+        { "table": "sop_runs", "row": { "sop_slug": "replay-sop2", "sop_version": 1, "status": "running", "started_by": "seed", "data": "{}", "started_at": "2025-01-01 00:00:03", "updated_at": "2025-01-01 00:00:03", "finished_at": "" } },
+        {
+          "table": "sop_run_files",
+          "row": { "run_id": 1, "original_name": "old.txt", "mime": "text/plain", "size": 23, "storage_path": "run-files/seed/old.txt", "created_by": "seed", "created_at": "2025-01-01 00:00:01", "sha256": "", "ref_of": 0 }
+        },
+        {
+          "table": "sop_run_files",
+          "row": { "run_id": 1, "original_name": "lost.txt", "mime": "text/plain", "size": 3, "storage_path": "run-files/seed/lost.txt", "created_by": "seed", "created_at": "2025-01-01 00:00:02", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "ref_of": 0 }
+        },
+        {
+          "table": "sop_run_files",
+          "row": { "run_id": 3, "original_name": "other-sop.txt", "mime": "text/plain", "size": 23, "storage_path": "run-files/seed/old.txt", "created_by": "seed", "created_at": "2025-01-01 00:00:03", "sha256": "", "ref_of": 0 }
+        }
+      ],
+      "seed_files": [
+        { "path": "apps/replay-sop/v1/sop.yaml", "content": "title: 回放 replay-sop\ncode: RP\nsteps:\n  - key: a\n    title: 第一步\n    body: <p>一</p>\n  - key: b\n    title: 第二步\n" },
+        { "path": "apps/replay-sop2/v1/sop.yaml", "content": "title: 回放 replay-sop2\ncode: RP\nsteps:\n  - key: a\n    title: 第一步\n    body: <p>一</p>\n  - key: b\n    title: 第二步\n" },
+        { "path": "run-files/seed/old.txt", "content": "旧文件，没记 sha\n" }
+      ],
+      "steps": [
+        {
+          "id": "gated-upload-anonymous",
+          "route": "POST /api/sop/runs/:id/files",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/1/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW", "x-forwarded-for": "198.51.100.7" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"x.txt\"\r\nContent-Type: text/plain\r\n\r\nx\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-list-anonymous",
+          "route": "GET /api/sop/runs/:id/files",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "GET", "path": "/api/sop/runs/1/files", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-list-with-token",
+          "route": "GET /api/sop/runs/:id/files",
+          "class": "normal",
+          "what": "远程带口令：200",
+          "request": { "method": "GET", "path": "/api/sop/runs/1/files", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "716", "etag": "W/\"2cc-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "run_id": 1,
+              "items": [
+                { "id": 1, "original_name": "old.txt", "mime": "text/plain", "size": 23, "sha256": "88b44bb4f741743b5226d57d5bf368d66cb90d1ed237bf2db4e4b2e48573a6b1", "ref_of": 0, "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/sop/runs/1/files/1" },
+                { "id": 2, "original_name": "lost.txt", "mime": "text/plain", "size": 3, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "ref_of": 0, "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/sop/runs/1/files/2" }
+              ],
+              "count": 2,
+              "quota": { "upload_count": 2, "upload_bytes": 26, "upload_max_count": 20, "upload_max_bytes": 209715200, "upload_left_count": 18, "upload_left_bytes": 209715174, "ref_count": 0, "ref_max_count": 2000, "ref_left_count": 2000 }
+            }
+          }
+        },
+        {
+          "id": "gated-download-anonymous",
+          "route": "GET /api/sop/runs/:id/files/:fileId",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "GET", "path": "/api/sop/runs/1/files/1", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-refs-anonymous",
+          "route": "POST /api/sop/runs/:id(\\d+)/files/refs",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/files/refs", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "items": [] } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        }
+      ]
+    }
+  ]
+}
