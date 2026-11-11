@@ -73,8 +73,10 @@ try {
   /** 建一个任务中心录入：headers 决定是谁建的；填完、完成用 fillAs（默认同一个人） */
   const intake = async (headers, extra = {}, fillAs = headers) => {
     const r = await call('POST', '/api/sop/runs', headers, { slug: 'task-center', ...extra });
-    for (const [k, v] of Object.entries({ title: '提需求的人', intent: '对抗', deliverable: '一行' })) await call('PUT', `/api/sop/runs/${r.body?.id}`, fillAs, { stepKey: k, value: v });
-    await call('POST', `/api/sop/runs/${r.body?.id}/finish`, fillAs, {});
+    // 和执行页一样：保存、完成带上开建时拿到的这个 run 的写凭据
+    const w = { ...fillAs, 'x-run-upload-token': String(r.body?.upload_token ?? '') };
+    for (const [k, v] of Object.entries({ title: '提需求的人', intent: '对抗', deliverable: '一行' })) await call('PUT', `/api/sop/runs/${r.body?.id}`, w, { stepKey: k, value: v });
+    await call('POST', `/api/sop/runs/${r.body?.id}/finish`, w, {});
     return r;
   };
   const publish = (runId, headers, by = 'someone-else') => call('POST', '/api/task-center/tasks', headers, { intake_run_id: runId, published_by: by });

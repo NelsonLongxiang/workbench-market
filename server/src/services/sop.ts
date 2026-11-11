@@ -25,6 +25,10 @@ export class SopService extends Service {
   runByIdRunning(id: number) {
     return runMetadata(db.prepare('SELECT * FROM sop_runs WHERE id = ? AND status = ?').get(id, 'running'));
   }
+  /** run 的写凭据：状态和上传令牌（开建时发给开建的一方、派单时发给派单方）。没有这个 run 为 undefined */
+  runWriteCredential(id: number): { status: string; upload_token: string } | undefined {
+    return db.prepare('SELECT status, upload_token FROM sop_runs WHERE id = ?').get(id) as { status: string; upload_token: string } | undefined;
+  }
   runStatusData(id: number) {
     return db.prepare('SELECT status, data FROM sop_runs WHERE id = ?').get(id);
   }

@@ -32,6 +32,7 @@ if(mutation==='browser-write')replace("  if (p.startsWith('/api/')) {","  if (fa
 if(mutation==='export-reveal')replace("      if (!adminGuard(req, res)) return;\n      res.set('Cache-Control', 'no-store');","      res.set('Cache-Control', 'no-store');");
 if(mutation==='grants-admin-read')replace("registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor });","registerGrantRoutes(http, { markOdooAdmin, adminGuard: () => true, adminActor });");
 if(mutation==='app-data-read')replace('  cliOk: (req) => !browserMarked(req) && rawLoopback(req),','  cliOk: () => true,');
+if(mutation==='sop-run-write')replace('adminActor, writeMode: SOP_RUN_WRITE });',"adminActor, writeMode: 'warn' });");
 if(mutation==='unsigned-login-event')replace('registerLoginEventRoutes(http);',"app.post('/login/:flow/events', (_q, s) => s.status(200).json({}));");
 if(mutation==='forged-login-callback')replace('registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionTtlMs: SESSION_TTL_MIN * 60_000 });',"app.get('/login/:flow/callback', (_q, s) => s.redirect(302, '/tasks'));");
 if(mutation==='principals-admin-read')replace('registerPrincipalRoutes(http, { markOdooAdmin, adminGuard, adminActor });','registerPrincipalRoutes(http, { markOdooAdmin, adminGuard: () => true, adminActor });');
@@ -72,6 +73,7 @@ async function runCase(label,{off=false,control=false,occupied=false,unset=false
    if(mutation==='export-reveal')check(label+' only the export reveal row fails',so.includes('"id":"market.export.reveal-anonymous"')&&so.split('"verdict":"fail"').length===2);
    if(mutation==='grants-admin-read')check(label+' only the grant list row fails',so.includes('"id":"market.grants.admin-read"')&&so.split('"verdict":"fail"').length===2);
    if(mutation==='app-data-read')check(label+' only the app data read row fails',so.includes('"id":"market.app-data.anonymous-read"')&&so.split('"verdict":"fail"').length===2);
+   if(mutation==='sop-run-write')check(label+' only the run write row fails',so.includes('"id":"market.sop-run.anonymous-write"')&&so.split('"verdict":"fail"').length===2);
    if(mutation==='unsigned-login-event')check(label+' only the unsigned login event row fails',so.includes('"id":"market.login-flow.unsigned-event"')&&so.split('"verdict":"fail"').length===2);
    if(mutation==='forged-login-callback')check(label+' only the forged login callback row fails',so.includes('"id":"market.login-flow.forged-callback"')&&so.split('"verdict":"fail"').length===2);
    if(mutation==='principals-admin-read')check(label+' only the principal list row fails',so.includes('"id":"market.principals.admin-read","surface":"market","method":"GET","path":"/api/principals","verdict":"fail"')&&so.split('"verdict":"fail"').length===2);
@@ -122,6 +124,7 @@ await runCase('unsigned-login-event-regression',{mutation:'unsigned-login-event'
 await runCase('export-reveal-regression',{mutation:'export-reveal',expectFailure:true});
 await runCase('grants-admin-read-regression',{mutation:'grants-admin-read',expectFailure:true});
 await runCase('app-data-read-regression',{mutation:'app-data-read',expectFailure:true});
+await runCase('sop-run-write-regression',{mutation:'sop-run-write',expectFailure:true});
 await runCase('probe-timeout',{mutation:'mcp-timeout',expectFailure:true});
 await runCase('probe-handler-error',{mutation:'handler-error',expectFailure:true});
 await runCase('login-gate-enforce',{gate:'enforce',control:true});
