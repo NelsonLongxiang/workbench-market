@@ -367,6 +367,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   a2a-idempotency.ts（`/a2a/direct` 幂等登记：task_id → 指纹 sha256，30 分钟窗口，落库，重启后同一 task_id 仍判 replay / conflict；只存摘要不存原文）
   a2a-peers.ts（对端登记表：Cordis 服务 `a2aPeers`·一个节点一行·登记时取名片验签钉住公钥·公钥变了改成 key_changed 等管理员确认、不自动接受·停用是粘住的、只有管理员重新启用能解·canDeliver 供投递查（调用方阶段七接上，接上前对投递、入站没有效果）·按对端算健康·升级回填从现有绑定和投递建对端行）
   a2a-receipts.ts（回执入站的登记：我们发出的任务号 → 事件、投递、对端；采信过的回执按任务号去重；签名只认一次）
+  a2a-roster.ts（团队名册：每台宿主一行、席位按「节点 + 团队 + 句柄」一行，以新替旧；入库时算出变化（新团队、新成员、成员消失、团队消失、换总工）记进 a2a_roster_changes；在办件数从事项现算；只当信息）
   a2a-replies.ts（市场回给团队的消息的发送状态：答复、来信回复、跟进回执；时间由代码生成后写入）
   a2a-stats.ts（A2A 出站积压的聚合读数：两张出站表按状态计数、最老待发、最近回执时长）
   attention-sources.ts（「关注」要用、来源里还没有现成函数的只读查询：席位未答的提问）
@@ -421,6 +422,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   task-center.ts（任务中心 /api/task-center：录入发布、任务、总开关、模板、任务锁、撤回、派发开关；录入发布：事项的建立人是提需求的人——建录入时经身份服务认出、记在录入上的那个，没有就空着；发布的人认得出就只留痕）
   tasks.ts（统一待办 /api/tasks 与 ygl 项目读授权的授予、撤销）
   types.ts（类型管理 /api/types）
+  a2a-roster.ts（团队名册的读 GET /api/a2a/teams：登录即可读，只有席位信息（团队、席位名、角色、在岗、在办件数从事项现算），不含事项内容；名册只当信息，判定一律不看它）
   work-items.ts（事项列表 /api/work-items：按 state、object、phase 筛，按更新时间倒序游标翻页，带可见范围里按状态的计数和每件的最后一条进展；可见范围和详情同一个判断，看不到的不出现也不计数。事项的读 /api/work-items/:id：事项和它的日志，事项页的时间线照着渲染；管理员看全部、登录的人只看自己建立的。建立人验收、退回 POST /api/work-items/:id/decision：不经管理门（写请求总门只对这一条子路径放行），经身份服务认人、主体须是启用的人、同源，事项服务判是不是建立人和能不能由建立人答，只收验收、退回，只对等验收的事项；建立人只认事项上的建立人主体，空着的只有管理员能看、能处理）
   workbenches.ts（工作台 /api/workbenches、/api/check-all）
 web/src/        pages/（Dashboard/Market/Sops/Types/Settings/UseWorkbench/Cockpit/McpGateways/Tasks/Skills/SopSpace/SopRunDetail/Vault/Reviews/OwnerPending/Attention/WorkItem） work-item-view.ts（事项详情页的提示、进展、结果解析，纯函数） components/ admin-token.ts（统一口令注入）
