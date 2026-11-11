@@ -42,6 +42,7 @@ import { registerSopPageRoutes } from './routes/sop-page.ts';
 import { registerLoginEventRoutes } from './routes/login-events.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
+import type { ChangeRequestService } from './services/change-request.ts';
 import { SkillService } from './services/skill.ts';
 import type { AppService } from './services/app.ts';
 import type { AppDataService } from './services/app-data.ts';
@@ -1170,8 +1171,8 @@ app.get('/api/change-requests', (req, res) => {
   if (!adminGuard(req, res)) return;
   const status = typeof req.query.status === 'string' ? req.query.status : '';
   const rows = status
-    ? db.prepare('SELECT * FROM change_requests WHERE status = ? ORDER BY id DESC LIMIT 100').all(status)
-    : db.prepare('SELECT * FROM change_requests ORDER BY id DESC LIMIT 100').all();
+    ? svc<ChangeRequestService>('changeRequest').listByStatus(status)
+    : svc<ChangeRequestService>('changeRequest').listAll();
   res.json(rows.map((r: any) => ({ ...r, payload: JSON.parse(r.payload || '{}') })));
 });
 app.post('/api/change-requests/:id/approve', wrap(async (req, res) => {
@@ -1179,7 +1180,7 @@ app.post('/api/change-requests/:id/approve', wrap(async (req, res) => {
   const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
   if (!reviewedBy) bad('批准必填 reviewed_by（K11——人审语义）'); // K11
   const id = Number(req.params.id);
-  const r = db.prepare('SELECT * FROM change_requests WHERE id = ?').get(id) as any;
+  const r = svc<ChangeRequestService>('changeRequest').byId(id) as any;
   if (!r) throw new HttpError(404, `change_request not found: ${id}`);
   if (r.status !== 'pending') bad(`请求已处理（status=${r.status}）——不可重复批准`); // 幂等
   // 执行体（v3 契约形状：kind×op 四象限·与一步式 REST 同构）
@@ -1192,7 +1193,7 @@ app.post('/api/change-requests/:id/approve', wrap(async (req, res) => {
   } else if (r.kind === 'skill' && r.op === 'delete') {
     executeSkillDelete(r.slug);
   } else { bad(`未知 kind×op: ${r.kind}/${r.op}`); }
-  db.prepare("UPDATE change_requests SET status='approved', reviewed_by=?, reviewed_at=datetime('now') WHERE id=?").run(reviewedBy, id);
+  svc<ChangeRequestService>('changeRequest').markApproved(reviewedBy, id);
   res.json({ ok: true, id, status: 'approved', executed: `${r.kind}/${r.op}`, reviewed_by: reviewedBy });
 }));
 app.post('/api/change-requests/:id/reject', wrap(async (req, res) => {
@@ -1200,10 +1201,10 @@ app.post('/api/change-requests/:id/reject', wrap(async (req, res) => {
   const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
   if (!reviewedBy) bad('拒绝必填 reviewed_by（K11）');
   const id = Number(req.params.id);
-  const r = db.prepare('SELECT * FROM change_requests WHERE id = ?').get(id) as any;
+  const r = svc<ChangeRequestService>('changeRequest').byId(id) as any;
   if (!r) throw new HttpError(404, `change_request not found: ${id}`);
   if (r.status !== 'pending') bad(`请求已处理（status=${r.status}）`);
-  db.prepare("UPDATE change_requests SET status='rejected', reviewed_by=?, reviewed_at=datetime('now') WHERE id=?").run(reviewedBy, id);
+  svc<ChangeRequestService>('changeRequest').markRejected(reviewedBy, id);
   res.json({ ok: true, id, status: 'rejected', reviewed_by: reviewedBy });
 }));
 
