@@ -27,9 +27,10 @@ rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 
 console.log('三、开关');
-{
-  const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], { cwd: 'server', env: { ...process.env, DATA_DIR: DATA, PORT: '0', WM_CONTROL_PORT: '0', NODE_ENV: 'test', MCP_GATEWAY: 'off', WM_A2A_CARD_COOLDOWN_S: 'soon' }, encoding: 'utf8', timeout: 30000 });
-  ok('WM_A2A_CARD_COOLDOWN_S 非法值拒绝启动', r.status !== 0 && /WM_A2A_CARD_COOLDOWN_S/.test(r.stderr + r.stdout), `status=${r.status}`);
+for (const bad of ['soon', '0', '00', '3601', '-1', '1.5', ' 30']) {
+  const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], { cwd: 'server', env: { ...process.env, DATA_DIR: DATA, PORT: '0', WM_CONTROL_PORT: '0', NODE_ENV: 'test', MCP_GATEWAY: 'off', WM_A2A_CARD_COOLDOWN_S: bad }, encoding: 'utf8', timeout: 30000 });
+  // 收下的值会一直跑到超时（status 为 null），所以要求明确以 1 退出并说出原因
+  ok(`WM_A2A_CARD_COOLDOWN_S=${JSON.stringify(bad)} 拒绝启动（0 等于关掉冷却，也拒）`, r.status === 1 && /WM_A2A_CARD_COOLDOWN_S/.test(r.stderr + r.stdout), `status=${r.status}`);
 }
 
 // 对方节点的名片服务：zone dsh；可以换钥匙、可以改成别的 team；数取卡次数
