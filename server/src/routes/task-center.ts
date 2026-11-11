@@ -1,6 +1,7 @@
 /**
  * 任务中心的路由：/api/task-center 的录入发布、任务列表与详情、总开关、录入模板、任务锁、旧的发布接口、撤回、agent 派发开关。
- * 原样搬自 index.ts，一个字没改，只多了两格缩进。
+ * 原样搬自 index.ts，一个字没改，只多了两格缩进。搬过来之后有意改过的：
+ *   · 8e：录入发布经身份服务认出发布的人，把主体记进事件（publisherOf），事项的建立人主体只取这个。应答不变。
  * 它们在 index.ts 里分在三处，中间夹着别的路由的注册（工作台事件的路由、执行记录的读授权路由），
  * 所以分三个注册函数，各在原来的位置调用，和别的路由的先后不变。
  *
@@ -11,6 +12,8 @@ import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import type { TaskCenterService } from '../services/task-center.ts';
+import type { PrincipalService } from '../services/principal.ts';
+import { identity } from '../identity.ts';
 import { HttpError } from '../errors.ts';
 import { publishTaskIntake, taskCenterSteps, taskView, taskListView, taskCenterPolicy } from '../task-center.ts';
 import { cancelTaskCenterDeliveries, kickWorkbenchEvents } from '../workbench-events.ts';
@@ -41,13 +44,30 @@ export interface TaskControlDeps {
   adminGuard: Guard;
 }
 
+/** 发布请求是谁：只经身份服务认（会话 cookie），主体要是启用的人；认不出、出错都是 null（不挡发布，只是不记建立人主体） */
+async function publisherOf(req: express.Request): Promise<string | null> {
+  const cookie = String(req.headers.cookie ?? '');
+  if (!cookie || !identity().credentialOf(cookie)) return null;
+  try {
+    const who = await identity().resolveViewer(cookie);
+    if (!who.ok) return null;
+    const p = svc<PrincipalService>('principals').get(who.viewer.sub) as { kind?: string; status?: string } | null;
+    return p && p.kind === 'person' && p.status === 'active' ? who.viewer.sub : null;
+  } catch { return null; }
+}
+
 export function registerTaskIntakeRoutes(app: HttpService, deps: TaskIntakeDeps): void {
   const { sameOriginGuard, adminGuard } = deps;
-  app.post('/api/task-center/tasks', { action: 'task-center.publish', kind: 'admin' }, (req, res) => {
+  app.post('/api/task-center/tasks', { action: 'task-center.publish', kind: 'admin' }, (req, res, next) => {
     if (!sameOriginGuard(req, res)) return res.status(403).json({ error: '跨源拒绝' }); // C10
     if (!adminGuard(req, res)) return; // C9 无口令 401/403
-    res.status(201).json(publishTaskIntake(req.body ?? {}));
-    kickWorkbenchEvents(); // 工作台事件 v1：发布同事务已记 human 事件，这里立即试投
+    (async () => {
+      // 8e：发布的人经身份服务认出来（会话登录、主体是启用的人）才记下主体，事项的建立人主体只取这个；
+      // 口令、本机命令行发布认不出人，留空。请求体里的 published_by 是自填的，只用于显示
+      const publisherPrincipal = await publisherOf(req);
+      res.status(201).json(publishTaskIntake(req.body ?? {}, { publisherPrincipal }));
+      kickWorkbenchEvents(); // 工作台事件 v1：发布同事务已记 human 事件，这里立即试投
+    })().catch(next);
   });
 }
 
