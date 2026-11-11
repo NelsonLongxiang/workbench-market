@@ -46,8 +46,21 @@ try {
   const events = await import(at('server/src/workbench-events.ts'));
   const { WorkItemService, factFromEventLog, itemIdForEvent } = await import(at('server/src/services/work-item.ts'));
   events.initWorkbenchEvents();
+  // 存量：服务装上之前就有的事件（上线前的老数据）。装上时应当回填出事项
+  const legacy = 'wbe-legacy0000000001';
+  db.prepare("INSERT INTO workbench_events (event_id, source, workbench, item, context_id, submitter_kind, submitter, form_version, data_sha256, dispatch, routed) VALUES (?, 'task-center', 'task-center', 'task:0', 'wb:task-center:0', 'human', 'human:legacy', 1, ?, 1, 'default')").run(legacy, 'z'.repeat(64));
+  const legacyDelivery = Number(db.prepare("INSERT INTO workbench_event_deliveries (event_id, target_team, target_url, caller_session, status) VALUES (?, 'team-a', 'http://peer.synthetic.invalid', 'market/test', 'sent')").run(legacy).lastInsertRowid);
+  for (const [d, action] of [[null, 'recorded'], [legacyDelivery, 'queued'], [legacyDelivery, 'sent'], [legacyDelivery, 'decision:accept']])
+    db.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, 'market', ?, '{}')").run(legacy, d, action);
+  const logged = [];
+  const realError = console.error;
+  console.error = (...a) => { logged.push(a.join(' ')); realError(...a); };
+  const realLog = console.log;
+  console.log = (...a) => { if (String(a[0]).startsWith('[work-items]')) logged.push(a.join(' ')); realLog(...a); };
   await root.plugin(WorkItemService);
   const items = root.get('workItems');
+  check(items.get('wi_' + legacy)?.state === 'accepted', '先有存量事件、再装服务：装上时回填出事项，追到「已接手」', show(items.get('wi_' + legacy)?.state));
+  check(logged.some((l) => l.includes('[work-items] 回填') && l.includes('补建 1 个事项')), '装上时的回填在日志里留一行（补建了几个）', show(logged));
   const realOnLogged = items.onLogged.bind(items);
   const listen = (on) => { items.onLogged = on ? realOnLogged : () => {}; };
 
@@ -105,6 +118,8 @@ try {
     '搁置后撤回 → 撤回': { steps: [['held', 'team-a'], ['held', 'team-b'], ['cancelled', 'team-a'], ['cancelled', 'team-b']], expect: 'cancelled' },
     '排队中没发出就撤回 → 撤回': { steps: [['queued', 'team-a'], ['queued', 'team-b'], ['cancelled', 'team-a'], ['cancelled', 'team-b']], expect: 'cancelled' },
     '接单后另一个 dead → 已接手': { steps: [['queued', 'team-a'], ['queued', 'team-b'], ['sent', 'team-a'], ['decision:accept', 'team-a'], ['dead', 'team-b']], expect: 'accepted' },
+    '一个团队先提问再拒接 → 没办成': { steps: [['queued', 'team-a'], ['sent', 'team-a'], ['decision:ask', 'team-a', { reason: '哪个店？' }], ['decision:decline', 'team-a']], teams: ['team-a'], expect: 'failed' },
+    '两个团队：一个提问、另一个拒接、提问的也拒接 → 没办成': { steps: [['queued', 'team-a'], ['queued', 'team-b'], ['sent', 'team-a'], ['sent', 'team-b'], ['decision:ask', 'team-a'], ['decision:decline', 'team-b'], ['decision:decline', 'team-a', { reason: '做不了' }]], expect: 'failed' },
     '只有提问 → 在问你': { steps: [['queued', 'team-a'], ['sent', 'team-a'], ['decision:ask', 'team-a']], teams: ['team-a'], expect: 'blocked' },
     '全部 dead → 没办成': { steps: [['queued', 'team-a'], ['queued', 'team-b'], ['dead', 'team-a'], ['dead', 'team-b']], expect: 'failed' },
     '未路由 → 草稿': { steps: [], routed: 'unrouted', expect: 'draft' },
@@ -170,6 +185,7 @@ try {
     check(wrong.length === 0, `${Object.keys(SCENARIOS).length} 个场景 × 正放、打乱、重复、漏一次再回填、只跑回填：终态是规格下的那个，事项和事项日志逐行相同`, wrong.slice(0, 4).join('；'));
     check(lag.length === 0 && laggedCount >= 6, `对照：最后一行会写日志的 ${laggedCount} 个场景里，漏掉那一次确实让事项落后了（回填之前和正放不同）`, show(lag));
     check(Object.values(items.failureCounts()).reduce((a, b) => a + b, 0) >= Object.keys(SCENARIOS).length, '监听器出错按事实种类计数', show(items.failureCounts()));
+    check(logged.some((l) => /没推进到事项.*累计 \d+ 次/.test(l)), '计数打进日志：每次出错的那一行带着这种事实的累计次数', show(logged.filter((l) => l.includes('没推进')).slice(0, 2)));
   }
 
   // ---------- 三、未验证来源 ----------

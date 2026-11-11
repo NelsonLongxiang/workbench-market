@@ -80,10 +80,11 @@ const SPEC = {
   'delivery·dead': to('failed', 'delivered'),
   // 附录 8b：先问后接
   'eval·accept': to('accepted', 'delivered', 'blocked'),
-  'eval·stop 带理由': to('failed', 'delivered'),
+  // 8b 复验补：先问后拒
+  'eval·stop 带理由': to('failed', 'delivered', 'blocked'),
   'eval·stop 带理由·还有别的投递活着': {},
-  'eval·ignore 带理由': to('failed', 'delivered'),
-  'eval·unavailable 带理由': to('failed', 'delivered'),
+  'eval·ignore 带理由': to('failed', 'delivered', 'blocked'),
+  'eval·unavailable 带理由': to('failed', 'delivered', 'blocked'),
   // 附录 8a 补定：原地重复的上报（progress→progress、waiting→waiting、blocked 时又来提问）算合法
   'report·progress': to('progress', 'accepted', 'waiting', 'blocked', 'progress'),
   'report·waiting': to('waiting', 'accepted', 'progress', 'waiting'),

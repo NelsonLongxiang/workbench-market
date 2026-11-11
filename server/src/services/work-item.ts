@@ -87,6 +87,8 @@ export const TRANSITIONS: readonly Row[] = [
   // 补定（规格附录 8b）：接单前就可以提问，成对补两行
   { from: ['delivered'], fact: 'ask', when: () => true, to: 'blocked', note: '接单前提问：已转交时来提问' },
   { from: ['blocked'], fact: 'eval', when: is('verdict', 'accept'), to: 'accepted', note: '先问后接：在问你时来接单' },
+  // 8b 复验补：先问后拒——没有别的投递活着时，在问你时来拒接 → 没办成（还有活着的，走只记录的表）
+  { from: ['blocked'], fact: 'eval', when: (f) => ['stop', 'ignore', 'unavailable'].includes(f.verdict ?? '') && hasReason(f) && f.others_alive !== true, to: 'failed', note: '先问后拒：在问你时来拒接' },
   // 实现时补定（8b）：排了队、一次都没发出去就撤回，等同于还没转交
   { from: ['delivered'], fact: 'withdraw', when: is('none_sent', true), to: 'cancelled', note: '排队中还没发出就撤回' },
   { from: NON_TERMINAL, fact: 'report', when: is('status', 'failed'), to: 'failed', note: '席位 report：failed' },
@@ -238,6 +240,13 @@ export class WorkItemService extends Service {
     super(ctx, 'workItems');
     // 8b：workbench-events 每写一行事件日志就发一个事件（在它自己的事务里）。随插件卸载自动撤销。
     ctx.on('workbench-event/logged', (row: { event_id: string; action: string }) => this.onLogged(row));
+    // 装上时回填一次：上线前的存量事件建出事项，上次运行时监听器漏掉的也补上。出错不挡启动
+    try {
+      const r = this.backfill();
+      console.log(`[work-items] 回填：核对 ${r.events} 个事件，补建 ${r.created} 个事项`);
+    } catch (e) {
+      console.error(`[work-items] 启动时回填没做完（不影响启动，下次启动或手动 backfill() 再补）：${(e as Error)?.message ?? e}`);
+    }
   }
 
   /** 监听器出错不影响来源：回滚自己的保存点、打日志、按事实种类计数；漏掉的由回填补上。 */
@@ -251,8 +260,9 @@ export class WorkItemService extends Service {
       this.syncEvent(row.event_id);
     } catch (e) {
       const key = String(row?.action ?? 'unknown');
-      this.failures.set(key, (this.failures.get(key) ?? 0) + 1);
-      console.error(`[work-items] 事件 ${row?.event_id} 的事实（${key}）没推进到事项，回填可以补上：${(e as Error)?.message ?? e}`);
+      const count = (this.failures.get(key) ?? 0) + 1;
+      this.failures.set(key, count);
+      console.error(`[work-items] 事件 ${row?.event_id} 的事实（${key}）没推进到事项（这种事实累计 ${count} 次），下次启动的回填会补上：${(e as Error)?.message ?? e}`);
     }
   }
 
@@ -262,10 +272,14 @@ export class WorkItemService extends Service {
   }
 
   /** 回填：从现有的事件表和事件日志把存量事项建出来、追到最新。可以重复跑，结果相同。 */
-  backfill(): { events: number } {
+  backfill(): { events: number; created: number } {
+    // 新库上事件表可能还没建（任务中心初始化时才建）：那就没有可回填的
+    if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workbench_events'").get()) return { events: 0, created: 0 };
+    const count = () => (db.prepare('SELECT COUNT(*) AS n FROM work_items').get() as { n: number }).n;
+    const before = count();
     const ids = db.prepare('SELECT event_id FROM workbench_events ORDER BY id').all() as { event_id: string }[];
     for (const { event_id } of ids) this.syncEvent(event_id);
-    return { events: ids.length };
+    return { events: ids.length, created: count() - before };
   }
 
   private syncLocked(eventId: string): void {
