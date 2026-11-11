@@ -3644,7 +3644,7 @@ app.post('/api/mcp/access-requests/:id/approve', (req, res, next) => {
   const actor = adminActor(req);
   void mcpRegisteredNames().then((registered) => {
     const mcp = svc<McpService>('mcp');
-    db.exec('BEGIN IMMEDIATE');
+    mcp.accessTxBegin();
     try {
       const r = mcp.accessRequestById(id) as AccessRequestRow | undefined;
       if (!r) throw new HttpError(404, `access request not found: ${id}`);
@@ -3662,10 +3662,10 @@ app.post('/api/mcp/access-requests/:id/approve', (req, res, next) => {
       mcp.sessionGrants(sess.id, JSON.stringify(after));
       mcp.accessRequestDecide(id, 'approved', actor, note);
       mcp.grantAuditInsert(sess.id, id, 'access_request_approve', actor, JSON.stringify(before), JSON.stringify(after), note);
-      db.exec('COMMIT');
+      mcp.accessTxCommit();
       res.json({ ok: true, id, status: 'approved', session: sess.name, added, grants: after, dropped, kept_unavailable: keptUnavailable });
     } catch (e) {
-      db.exec('ROLLBACK');
+      mcp.accessTxRollback();
       next(e);
     }
   }).catch(next);
@@ -3677,7 +3677,7 @@ app.post('/api/mcp/access-requests/:id/reject', (req, res) => {
   const note = String(req.body?.note ?? '').trim().slice(0, ACCESS_REASON_MAX);
   const actor = adminActor(req);
   const mcp = svc<McpService>('mcp');
-  db.exec('BEGIN IMMEDIATE');
+  mcp.accessTxBegin();
   try {
     const r = mcp.accessRequestById(id) as AccessRequestRow | undefined;
     if (!r) throw new HttpError(404, `access request not found: ${id}`);
@@ -3686,9 +3686,9 @@ app.post('/api/mcp/access-requests/:id/reject', (req, res) => {
     const grants = sess?.grants || '[]';
     mcp.accessRequestDecide(id, 'rejected', actor, note);
     mcp.grantAuditInsert(r.session_id, id, 'access_request_reject', actor, grants, grants, note); // 驳回不动 grants
-    db.exec('COMMIT');
+    mcp.accessTxCommit();
   } catch (e) {
-    db.exec('ROLLBACK');
+    mcp.accessTxRollback();
     throw e;
   }
   res.json({ ok: true, id, status: 'rejected' });
