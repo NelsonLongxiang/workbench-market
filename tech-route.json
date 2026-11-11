@@ -188,12 +188,11 @@
       "what": "server 的类型错误（带空值检查，其余宽松）",
       "target": 0,
       "baseline": {
-        "total": 44,
+        "total": 42,
         "files": {
           "server/src/index.ts": 38,
           "server/src/portal.ts": 2,
-          "server/src/services/workbench.ts": 2,
-          "server/src/sop-read-auth.ts": 2
+          "server/src/services/workbench.ts": 2
         }
       }
     },
@@ -245,22 +244,21 @@
       "target": 0,
       "note": "落点还没建好：配置改成插件 Config 之后开预算档",
       "baseline": {
-        "total": 87,
+        "total": 80,
         "files": {
           "server/src/a2a.ts": 5,
           "server/src/db.ts": 2,
           "server/src/eval.ts": 2,
           "server/src/github-source.ts": 2,
-          "server/src/index.ts": 31,
-          "server/src/login-gate.ts": 5,
+          "server/src/index.ts": 30,
+          "server/src/login-gate.ts": 2,
+          "server/src/login-providers/odoo/index.ts": 2,
           "server/src/login-providers/odoo/odoo-browser-origin.ts": 2,
           "server/src/login-providers/odoo/odoo-login-proxy.ts": 2,
           "server/src/login-providers/odoo/odoo-session.ts": 5,
           "server/src/mcp-stdio-upstream.ts": 1,
-          "server/src/portal.ts": 4,
           "server/src/redis.ts": 2,
           "server/src/routes/admin-token.ts": 4,
-          "server/src/routes/auth-viewer.ts": 1,
           "server/src/services/sandbox.ts": 2,
           "server/src/sop-read-auth.ts": 1,
           "server/src/tasks.ts": 8,
@@ -277,11 +275,12 @@
       "target": 0,
       "note": "落点还没建好：定时器服务装进上下文之后开预算档",
       "baseline": {
-        "total": 6,
+        "total": 7,
         "files": {
           "server/src/endpoint-stats.ts": 1,
           "server/src/index.ts": 2,
           "server/src/login-gate.ts": 1,
+          "server/src/routes/login-events.ts": 1,
           "server/src/vault-api.ts": 1,
           "server/src/workbench-events.ts": 1
         }
@@ -364,8 +363,7 @@
       "what": "这次改动的文件里的隐私命中",
       "target": 0,
       "baseline": {
-        "total": 0,
-        "items": []
+        "total": 0
       }
     },
     {
