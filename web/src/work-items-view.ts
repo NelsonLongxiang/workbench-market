@@ -95,3 +95,34 @@ export type View = { key: 'mine' | 'all'; label: string; count: number };
 export function viewsFor(seesAll: boolean, total: number): View[] {
   return [seesAll ? { key: 'all', label: '全部', count: total } : { key: 'mine', label: '我安排的', count: total }];
 }
+
+/** 名册（GET /api/a2a/teams）拍平成「句柄 → 名字」；形状不对的项跳过，没有名字的不收 */
+export function rosterNames(teams: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!Array.isArray(teams)) return out;
+  for (const t of teams) {
+    const seats = t && typeof t === 'object' && Array.isArray((t as { seats?: unknown }).seats) ? (t as { seats: unknown[] }).seats : [];
+    for (const x of seats) {
+      const o = x as { seat?: unknown; name?: unknown } | null;
+      if (o && typeof o.seat === 'string' && typeof o.name === 'string' && o.name.trim()) out[o.seat] = o.name.trim();
+    }
+  }
+  return out;
+}
+
+/** 列表行里的席位只写名字（句柄在详情里才带）：事项上是「名字 · 句柄」取名字；只有句柄时查名册，查不到才显示句柄 */
+export function seatNameOnly(seat: string, roster: Record<string, string> = {}): string {
+  const s = (seat || '').trim();
+  if (!s || s === '-') return '';
+  const k = s.lastIndexOf(' · ');
+  if (k > 0) return s.slice(0, k);
+  return roster[s] ?? s;
+}
+
+/** 行首圆标里的那个字：名字的第一个字；只有句柄（<区>/<编号>）时取编号的第一个字符；没有席位给空串（页面画一个空圆） */
+export function avatarChar(name: string): string {
+  const s = (name || '').trim();
+  if (!s) return '';
+  const tail = s.includes('/') ? s.slice(s.lastIndexOf('/') + 1) : s;
+  return [...(tail || s)][0].toUpperCase();
+}

@@ -150,3 +150,12 @@ export async function postAskAnswer(id: string, qid: string, input: { answer?: s
 export async function getMe(): Promise<{ authenticated?: boolean; login?: string | null; via?: string | null } | null> {
   try { const r = await fetch('/api/auth/me', { cache: 'no-store', credentials: 'same-origin' }); return r.ok ? await r.json() : null; } catch { return null; }
 }
+
+/** 席位名册（阶段七 #581）：登录的人能读，只当显示用（句柄换名字）。读不到给空，页面照旧显示句柄 */
+export async function getRosterTeams(): Promise<unknown[]> {
+  try {
+    const r = await fetch('/api/a2a/teams', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    const j = r.ok ? await r.json() as { teams?: unknown } : null;
+    return Array.isArray(j?.teams) ? j.teams : [];
+  } catch { return []; }
+}

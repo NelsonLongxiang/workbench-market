@@ -421,3 +421,4 @@ body { background: var(--wm-color-page); }
 .wm-view.on { border-color: transparent; background: var(--wm-color-primary-subtle); color: var(--wm-color-primary); font-weight: var(--wm-font-weight-body-strong); }
 .wm-view i { font-style: normal; font-size: var(--wm-font-size-caption); font-variant-numeric: tabular-nums; }
 .wm-view-group { margin-left: auto; display: inline-flex; align-items: center; gap: var(--wm-space-2); }
+.wm-avatar-none { background: transparent; border: 1px dashed var(--wm-color-border-strong); }

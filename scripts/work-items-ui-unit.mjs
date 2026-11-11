@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 事项列表页的纯函数单测（web/src/work-items-view.ts）：状态归组、组的计数、按对象分组、行的说明、翻页去重。 */
-import { STATE_GROUPS, appendPage, byObject, byState, groupCount, groupOf, rowLine, rowTime, seatOrWaiting, viewsFor } from '../web/src/work-items-view.ts';
+import { STATE_GROUPS, appendPage, byObject, byState, groupCount, groupOf, rowLine, rowTime, seatOrWaiting, viewsFor, avatarChar, rosterNames, seatNameOnly } from '../web/src/work-items-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -37,5 +37,11 @@ ok('翻页去重：同一行只留一份，用后到的', merged.map((x) => `${x
   ok('行的时间：进展时间是空串时用更新时间', rowTime({ last_progress: { actor: '', fact: '', text: '', at: '' }, updated_at: 'U' }) === 'U' && rowTime({ last_progress: { actor: '', fact: '', text: '', at: 'A' }, updated_at: 'U' }) === 'A' && rowTime({ last_progress: null, updated_at: 'U' }) === 'U');
 }
 ok('视角：只给接口现在给得出的那一个——管理员「全部」，别人「我安排的」，件数是可见范围的总数', viewsFor(true, 22).map((v) => `${v.key}:${v.label}:${v.count}`).join() === 'all:全部:22' && viewsFor(false, 3).map((v) => `${v.key}:${v.label}:${v.count}`).join() === 'mine:我安排的:3');
+{
+  const roster = rosterNames([{ team: 'zone/canvas/t', seats: [{ seat: 'zone/98b94be9', name: '小运' }, { seat: 'zone/00', name: '' }, null, { name: 'x' }] }, 'bad']);
+  ok('名册拍平成句柄 → 名字；没名字、形状不对的不收', roster['zone/98b94be9'] === '小运' && Object.keys(roster).length === 1 && Object.keys(rosterNames(null)).length === 0);
+  ok('列表里的席位只写名字：带名字的取名字，只有句柄查名册，查不到显示句柄', seatNameOnly('小采 · zone/a1', roster) === '小采' && seatNameOnly('zone/98b94be9', roster) === '小运' && seatNameOnly('zone/ffff', roster) === 'zone/ffff' && seatNameOnly('-', roster) === '' && seatNameOnly('') === '');
+  ok('圆标的字：名字第一个字；句柄取编号第一个字符；没有席位为空', avatarChar('小采') === '小' && avatarChar('zone/98b94be9') === '9' && avatarChar('alpha') === 'A' && avatarChar('') === '');
+}
 console.log(`\nwork-items-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);
