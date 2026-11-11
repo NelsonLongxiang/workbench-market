@@ -398,6 +398,8 @@ data/           SQLite 数据文件（git 忽略）
 
 路由正在按域从 `server/src/index.ts` 搬进 `server/src/routes/<域>.ts`，终点是 `index.ts` 只做装配。域模块导出一个注册函数，`index.ts` 在这组路由原来的位置调用它，所以挂载顺序不变。注册经 HTTP 服务（`server/src/http.ts`）：路由还是挂在同一个 Express 应用上，处理函数原样传入；每次注册都能撤销，由插件注册的随插件卸载一起撤销（`scripts/http-service-test.mjs`）。搬一个域是纯移动，下面的路由快照和录制回放都必须零差异。
 
+周期任务的定时器挂在上下文的 effect 上：在 `root.effect(() => { …; return () => clearInterval(t); }, '名字')` 里建，返回清掉它的函数，上下文卸载时一起停。`scripts/timers-unload-test.mjs` 起一个最小实例、卸载根上下文，核对 `index.ts` 之外的周期定时器一个不剩、进程自己退出。体检的「裸的 setInterval」只数代码里不在 `.effect(` 括号里的调用（注释、字符串、模板正文里的浏览器脚本不算），按文件记预算。
+
 经 HTTP 服务注册的每条路由都要报上动作：`http.post('/api/x', { action: 'x.create', kind: 'admin' }, handler)`。动作名写成 `<域>.<动词>`，类别四种：`read` 读、`write` 写、`decide` 决定、`admin` 管理。没报、形状不对、同一个动作报了两种类别，都注册不上（启动失败）。这一步只登记，不判定，每条路由原有的守卫不变。还直接挂在 Express 上的存量路由没有动作，搬进域模块时补；体检的「没报动作的路由」按文件记预算，只减不增；它是正则计数，另有一条红线拿它和动作快照里「未登记」的条数对账，换个写法绕开计数（比如经 `expressApp()` 或先存进变量再挂）两边就对不上，直接失败。扩展目录给扩展的仍是 Express 应用本身，扩展的路由也不带动作。
 
 对外的面有四份快照，放在 `surfaces/`：路由（带挂载顺序）、动作（`actions.json`：和路由一行对一行，「方法 路径 -> 动作 类别」，存量记「未登记」；MCP 工具沿用工具自己的类别）、MCP 工具、表结构，由 `scripts/surface-snapshot.mjs` 从一个隔离实例里导出。动作清单和路由对不上，导出直接报错。改了面就加 `--write` 重新生成，把快照和代码一起提交。

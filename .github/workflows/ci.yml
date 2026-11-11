@@ -315,6 +315,8 @@ jobs:
         run: node --disable-warning=ExperimentalWarning scripts/app-html-unit.mjs
       - name: HTTP 服务单测（经服务注册与直接注册的路由栈逐行相同·注册可撤销·同一路径只撤一条·随插件卸载·撤销时在途请求不受影响）
         run: node scripts/http-service-test.mjs
+      - name: 周期定时器随上下文停（index.ts 之外带周期定时器的模块起来之后都在跑；卸载根上下文之后一个不剩；把 unref 换成空操作，子进程照样自己退出）
+        run: node scripts/timers-unload-test.mjs
       - name: 路由录制回放（搬路由之前录下的应答，对同一组请求重放，状态码、响应头、响应体必须零差异；每条路由都有未授权、参数非法、正常三类，按录下来的应答核对；自检先红后绿）
         run: node scripts/route-replay-test.mjs --selftest && node scripts/route-replay-test.mjs
       - name: Startup security self-probe (#326, loopback synthetic only)

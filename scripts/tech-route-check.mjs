@@ -82,7 +82,6 @@ const RE = {
   create: /CREATE (?:VIRTUAL )?TABLE(?: IF NOT EXISTS)?\s+[A-Za-z0-9_]+/g,
   alter: /ALTER TABLE\s+[A-Za-z0-9_]+/g,
   env: /\bprocess\.env\.[A-Z0-9_]+/g,
-  interval: /\bsetInterval\(/g,
   fetch: /\bfetch\(/g,
   express: /from\s+['"]express['"]/,
   a2a: /from\s+['"]@nelsonlongxiang\/dsh-open-a2a-net[^'"]*['"]/,
@@ -92,6 +91,58 @@ const RE = {
   testLike: /(?:-|_)(?:test|smoke|mutation)s?\.(?:mjs|js|py|sh)$/,
   runnable: /\.(?:mjs|js|py|sh)$/,
 };
+/**
+ * 数裸的周期定时器：代码里的 setInterval( 调用，减去挂在 .effect( 参数里的（随上下文卸载一起停）。
+ * 这一项不用正则直接数：要分得出代码和注释、字符串、模板字符串的正文（登录页这类内嵌的浏览器脚本不是服务端定时器），
+ * 也要知道调用落没落在 .effect( 的括号里。只做最小的词法扫描（注释、三种引号、模板里的 ${}、正则字面量），不解析语法。
+ */
+function bareIntervals(text) {
+  let n = 0, i = 0, prev = '';
+  const parens = [], braces = [];
+  let state = 'code';
+  const effectDepth = () => parens.filter((p) => p === 'effect').length;
+  const regexCanStart = () => prev === '' || /[(,=:[!&|?{};+\-*%<>~^]/.test(prev) || /\b(?:return|typeof|case|in|of|void|delete)$/.test(text.slice(Math.max(0, i - 8), i));
+  while (i < text.length) {
+    const c = text[i];
+    if (state === 'line') { if (c === '\n') state = 'code'; i++; continue; }
+    if (state === 'block') { if (c === '*' && text[i + 1] === '/') { state = 'code'; i += 2; } else i++; continue; }
+    if (state === "'" || state === '"') { if (c === '\\') i += 2; else { if (c === state || c === '\n') state = 'code'; i++; } continue; }
+    if (state === 'regex') {
+      if (c === '\\') i += 2;
+      else if (c === '[') { state = 'class'; i++; }
+      else { if (c === '/' || c === '\n') state = 'code'; i++; }
+      continue;
+    }
+    if (state === 'class') { if (c === '\\') i += 2; else { if (c === ']') state = 'regex'; i++; } continue; }
+    if (state === 'tmpl') {
+      if (c === '\\') i += 2;
+      else if (c === '`') { state = 'code'; prev = '`'; i++; }
+      else if (c === '$' && text[i + 1] === '{') { braces.push('tmpl'); state = 'code'; prev = '{'; i += 2; }
+      else i++;
+      continue;
+    }
+    // 代码
+    if (c === '/' && text[i + 1] === '/') { state = 'line'; i += 2; continue; }
+    if (c === '/' && text[i + 1] === '*') { state = 'block'; i += 2; continue; }
+    if (c === "'" || c === '"') { state = c; i++; continue; }
+    if (c === '`') { state = 'tmpl'; i++; continue; }
+    if (c === '/' && regexCanStart()) { state = 'regex'; i++; continue; }
+    if (c === '{') braces.push('brace');
+    else if (c === '}') { if (braces.pop() === 'tmpl') { state = 'tmpl'; i++; continue; } }
+    else if (c === '(') parens.push(/\.effect\s*$/.test(text.slice(Math.max(0, i - 12), i)) ? 'effect' : 'paren');
+    else if (c === ')') parens.pop();
+    else if (c === 's' && text.startsWith('setInterval', i) && /^\s*\(/.test(text.slice(i + 11, i + 20))) {
+      const before = text.slice(Math.max(0, i - 11), i);
+      const bare = !/[\w$]$/.test(before) && (!/\.$/.test(before) || /globalThis\.$/.test(before));
+      if (bare && effectDepth() === 0) n++;
+      i += 11; prev = 'l'; continue;
+    }
+    if (!/\s/.test(c)) prev = c;
+    i++;
+  }
+  return n;
+}
+
 /** 每个文件里没报动作的路由注册（正则计数：路由注册减去路径后面紧跟 { action: … } 的） */
 function unregisteredBySource(repo) {
   const files = {};
@@ -320,9 +371,19 @@ const RULES = [
     sample: { clean: { 'server/src/foo.ts': 'const port = config.port;\n' }, dirty: { 'server/src/foo.ts': 'const port = process.env.PORT;\n' }, expect: 1 },
   },
   {
-    id: 'timers-in-context', what: '裸的 setInterval', target: 0, proposed: 'budget',
-    measure: (repo) => { const files = repo.perFile(repo.server(), RE.interval); return { total: sum(files), files, note: `${Object.keys(files).length} 个文件` }; },
-    sample: { clean: { 'server/src/foo.ts': 'ctx.timer.setInterval;\n' }, dirty: { 'server/src/foo.ts': 'setInterval(() => {}, 1000);\n' }, expect: 1 },
+    id: 'timers-in-context', what: '裸的 setInterval（不在 .effect( 里的）', target: 0, proposed: 'budget',
+    measure: (repo) => { const files = keep(Object.fromEntries(repo.server().map((f) => [f, bareIntervals(repo.read(f))]))); return { total: sum(files), files, note: `${Object.keys(files).length} 个文件` }; },
+    sample: {
+      clean: { 'server/src/foo.ts': "root.effect(() => {\n  const t = setInterval(() => { tick(); }, 5_000);\n  return () => { clearInterval(t); };\n}, 'foo.tick');\n" },
+      dirty: { 'server/src/foo.ts': 'setInterval(() => {}, 1000);\n' }, expect: 1,
+    },
+    cases: [
+      { label: '注释、字符串、模板正文里的不算', expect: 0, files: { 'server/src/foo.ts': "// setInterval(x)\n/* setInterval(y) */\nconst a = 'setInterval(z)';\nconst page = `<script>timer=setInterval(function(){},1500)</script>`;\n" } },
+      { label: '模板里 ${} 中的代码算', expect: 1, files: { 'server/src/foo.ts': 'const a = `${setInterval(f, 1000)}`;\n' } },
+      { label: '.effect( 括号里嵌套函数中的不算，括号关上之后的算', expect: 1, files: { 'server/src/foo.ts': "ctx.effect(() => { function go() { return setInterval(f, 1000); } const t = go(); return () => clearInterval(t); }, 'x');\nsetInterval(g, 1000);\n" } },
+      { label: '别的函数名里的、成员调用不算，globalThis 上的算', expect: 1, files: { 'server/src/foo.ts': 'mySetInterval(f, 1);\nctx.timer.setInterval(f, 1);\nglobalThis.setInterval(f, 1);\n' } },
+      { label: '正则字面量里的引号不打乱扫描', expect: 1, files: { 'server/src/foo.ts': "const q = /['\"`]/g;\nsetInterval(f, 1000);\n" } },
+    ],
   },
   {
     id: 'identity-in-core', what: '核心里直接引用身份具体实现的文件', target: 0, proposed: 'budget',

@@ -269,20 +269,15 @@
     },
     {
       "id": "timers-in-context",
-      "tier": "count",
+      "tier": "budget",
       "proposed": "budget",
-      "what": "裸的 setInterval",
+      "what": "裸的 setInterval（不在 .effect( 里的）",
       "target": 0,
-      "note": "落点还没建好：定时器服务装进上下文之后开预算档",
+      "note": "落点是根上下文（或插件上下文）的 effect：建定时器、返回清掉它的函数，卸载时一起停（scripts/timers-unload-test.mjs）。剩下的两处在 index.ts，搬最后两批时收",
       "baseline": {
-        "total": 7,
+        "total": 2,
         "files": {
-          "server/src/endpoint-stats.ts": 1,
-          "server/src/index.ts": 2,
-          "server/src/login-gate.ts": 1,
-          "server/src/routes/login-events.ts": 1,
-          "server/src/vault-api.ts": 1,
-          "server/src/workbench-events.ts": 1
+          "server/src/index.ts": 2
         }
       }
     },
