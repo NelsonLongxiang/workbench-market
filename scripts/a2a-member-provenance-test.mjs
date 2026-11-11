@@ -187,7 +187,7 @@ try {
   boot({ WM_A2A_MEMBER_PROVENANCE: 'off', WM_A2A_PROGRESS_RECEIPTS: 'off' });
   if (!(await ready())) throw new Error('off 未就绪');
   const c4 = await card();
-  ok('两个开关都 off：capabilities 与之前完全相同（不声明 canvasMemberProvenance、progressReceipts）', JSON.stringify(c4.capabilities) === JSON.stringify({ sop: true, bindings: 'human-only', stage: 'P1-readonly' }), JSON.stringify(c4.capabilities));
+  ok('两个开关都 off：capabilities 与之前完全相同（不声明 canvasMemberProvenance、progressReceipts；reworkReturns 照常声明）', JSON.stringify(c4.capabilities) === JSON.stringify({ sop: true, bindings: 'human-only', stage: 'P1-readonly', reworkReturns: true }), JSON.stringify(c4.capabilities));
   ok('off：名片验签过', verifyCard(c4, Date.now()).ok === true);
   // 已知的存量差异：开关关着时不比 zone，别的 zone 前缀 + 存在的 node8 仍被承接（与之前逐字节相同）
   r = await call('POST', '/a2a/direct', { team: `other/${(c4.sessionTeams ?? [])[0]?.team?.split('/')[1]}`, message: JSON.stringify({ sop: { action: 'start' } }), caller_session: 'dsh/1a2b3c4d', task_id: 'prov-off-1' });

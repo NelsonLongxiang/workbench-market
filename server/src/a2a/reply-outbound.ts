@@ -21,12 +21,17 @@ export function answerEnvelope(row: Pick<ReplyRow, 'event_id' | 'context_id' | '
 }
 
 /**
- * 打回重做的正文：第一行按上游建议写明「[打回重做] 原事项《标题》（原任务 <task>）：理由」（总工只看正文），
- * 第二行信封 kind=return、return.of = 原任务号（宿主以后认 reworkReturns 时用）
+ * 打回重做的正文（上游 dsh-open-a2a-net#627 N1、N5）：
+ *   第一行签名派工行 `[A2A dispatch] {"rework":{"of":"<原任务号>"}}`——宿主认它（Sig3 + 钉住公钥的远端成员 + 名片声明 reworkReturns）
+ *     就不经总工、直接开一张新工单「打回重做：<原单标题>」，交给上次做原单的成员；范围是去掉派工行之后的正文。
+ *   第二行给人和总工看的「[打回重做] 原事项《标题》（原任务 <task>）：理由」——不认派工行的宿主把整段当普通请求，总工照这一行判。
+ * 理由和标题都压成一行：人写的字只能落在第二行，拼不出派工行、回执头或第三行。
+ * 不再带市场自己的 JSON 信封：宿主把派工行之后的正文整段当范围，信封只会混进范围里。
  */
-export function returnMessage(row: Pick<ReplyRow, 'event_id' | 'context_id'>, r: { text: string; by: string; return: { of: string; title: string } }): string {
+export function returnMessage(r: { text: string; return: { of: string; title: string } }): string {
+  const dispatch = `[A2A dispatch] ${JSON.stringify({ rework: { of: r.return.of } })}`;
   const line = `[打回重做] 原事项《${String(r.return.title).replace(/\s+/g, ' ').slice(0, 200)}》（原任务 ${r.return.of}）：${r.text.replace(/\s+/g, ' ')}`;
-  return `${line}\n${JSON.stringify({ type: 'workbench-event', v: ANSWER_ENVELOPE_VERSION, kind: 'return', event_id: row.event_id, context_id: row.context_id, return: { of: r.return.of, reason: r.text, by: r.by } })}`;
+  return `${dispatch}\n${line}`;
 }
 
 /** 结清一条跟进的回执正文：只用跟进的任务号 */
@@ -48,7 +53,7 @@ async function sendOne(row: ReplyRow, now: () => number): Promise<void> {
       return;
     }
     // 打回重做和答复走同一条路（同 context 的新任务），正文不同
-    message = answer.return && typeof answer.return.of === 'string' ? returnMessage(row, answer as { text: string; by: string; return: { of: string; title: string } }) : answerEnvelope(row, answer);
+    message = answer.return && typeof answer.return.of === 'string' ? returnMessage(answer as { text: string; return: { of: string; title: string } }) : answerEnvelope(row, answer);
     const peer = await peerCard(row.target_url).catch(() => null);
     recordSentTask({ taskId, kind: 'answer', eventId: row.event_id, deliveryId: row.delivery_id, peerRoot: peerRoot(row.target_url), peerZone: peer?.team ?? '' });
   }

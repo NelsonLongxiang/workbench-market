@@ -132,8 +132,8 @@ const DIRECT: Record<string, Record<string, (req: Req, id: string, input: Input,
     verify: async (_req, id, _input, actor) => applied(id, { kind: 'verify', source: 'attention', id: randomUUID(), actor }),
     /**
      * 打回重做：在事项上记一笔 return（ready → progress），同一个保存点里把打回作为同一 context 的新任务发回做这件事的团队
-     * （和答复一个办法；只对派出去的事件发）。正文开头按上游建议写明「[打回重做] 原事项《…》（原任务 <task>）：理由」——
-     * superagent 不解析信封、总工只看正文；信封带 kind:'return' 和原任务号 return.of，宿主以后认 reworkReturns 时直接用。
+     * （和答复一个办法；只对派出去的事件发）。正文第一行是签名派工行 [A2A dispatch] {"rework":{"of":"<原任务号>"}}（上游 #627：
+     * 名片声明 reworkReturns 的远端成员发的，宿主直接开新工单交给上次做的成员），第二行「[打回重做] 原事项《…》（原任务 <task>）：理由」给总工看。
      * 重做的回执照常回到这件事项：新任务的 ack、进展、completed（推回等验收）。
      */
     return: async (_req, id, input, actor) => {
