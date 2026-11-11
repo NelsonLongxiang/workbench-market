@@ -51,6 +51,7 @@ import { registerLoginFlowRoutes } from './routes/login-flows.ts';
 import { registerWorkbenchRoutes } from './routes/workbenches.ts';
 import { registerSopPageRoutes } from './routes/sop-page.ts';
 import { registerLoginEventRoutes } from './routes/login-events.ts';
+import { registerTaskRoutes } from './routes/tasks.ts';
 import { registerChangeRequestRoutes } from './routes/change-requests.ts';
 import { registerSopStateRoutes, registerSopSpaceRoutes } from './routes/sops.ts';
 import { registerTaskIntakeRoutes, registerTaskReadRoutes, registerTaskControlRoutes } from './routes/task-center.ts';
@@ -1780,33 +1781,8 @@ function odooLoginUrl(req: express.Request, returnPath: string): string | null {
   return pick ? `/go/${pick.id}/?return=${encodeURIComponent(returnPath)}` : null;
 }
 
-// ---------- 统一待办（omni-inbox · 总工程师设计 9c5557c1c0）：只读聚合 ----------
-app.get('/api/tasks', wrap(async (req, res) => {
-  res.set('Cache-Control', 'private, no-store');
-  res.vary('Cookie'); res.vary('X-Admin-Token');
-  if (req.headers['sec-fetch-site'] === 'cross-site' || (req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req))) return res.status(403).json({ error: 'tasks_cross_origin_denied' });
-  const access = await tasksReadAccess(adminHeaderOk(req), String(req.headers.cookie ?? ''));
-  if (!access.ok) return res.status(access.http).json({ error: access.error, ...(access.http === 401 ? { login_url: odooLoginUrl(req, '/tasks') } : {}) });
-  const payload = await collectTasks(svc<SopService>('sop') as never, access.scope);
-  if (!extensionTaskSourceKeys().length) return res.json(payload);
-  // 扩展来源自己按查看人判权（ctx.odoo.resolveViewer）；宿主不拿管理员身份替查看人取数
-  const ext = await collectExtensionTasks(req);
-  for (const [k, m] of Object.entries(ext.sources)) {
-    ext.sources[k] = { ...m, ...(m.ok === false && m.error ? { error: `${k}_source_unavailable` } : {}), ...(m.auth_required ? { login_url: odooLoginUrl(req, '/tasks') } : {}) };
-  }
-  res.json({ ...payload, tasks: [...payload.tasks, ...ext.tasks], sources: { ...payload.sources, ...ext.sources } });
-}));
-app.put('/api/tasks/read-grants', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  if (!createTaskSourceGrant(req.body)) return res.status(400).json({ error: 'invalid_task_source_grant' });
-  res.status(201).json({ ok: true });
-});
-app.post('/api/tasks/read-grants/revoke', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const n = revokeTaskSourceGrant(req.body);
-  if (n === null) return res.status(400).json({ error: 'invalid_task_source_grant' });
-  res.json({ ok: true, revoked: n });
-});
+// ---------- 统一待办（omni-inbox · 总工程师设计 9c5557c1c0）：只读聚合；路由在域模块里 ----------
+registerTaskRoutes(http, { wrap, adminGuard, adminHeaderOk, devOriginOk, odooLoginUrl });
 
 // #275 登录探测：弹窗送 Odoo 登录后，前端轮询这里拿 200 即回原页面（Odoo 19 无法跨源回跳，回程在市场源完成）；顶栏用户 chip 同源
 registerAuthViewerRoutes(http, { wrap, odooLoginUrl });
@@ -2578,10 +2554,8 @@ import { evalCandidates } from './eval.ts'; // #178 评估模型客户端
 import { renderSopRunner as renderSopRunnerRaw } from './sop-runner.ts';
 import { loadTokensCss } from './design-tokens-css.ts';
 import { sqliteSsoTicketStore } from './sso-ticket-store.ts';
-import { collectTasks } from './tasks.ts';
 import { closeYglUpstreams, yglHomeProblem, yglUpstreamRpc } from './mcp-stdio-upstream.ts';
-import { tasksReadAccess, createTaskSourceGrant, revokeTaskSourceGrant } from './tasks-read-access.ts';
-import { collectExtensionTasks, extensionTaskSourceKeys, loadExtensions } from './extensions.ts';
+import { loadExtensions } from './extensions.ts';
 import { authorizeRunRead, issueRunReadCap, runReadGrantCreate, runReadGrantRevoke, runReadCapRevokeAll } from './sop-read-auth.ts';
 import { endpointStatsMiddleware } from './endpoint-stats.ts';
 import { fetchMainFiles, normalizeSource, SourceError, SOURCE_BRANCH } from './github-source.ts';
