@@ -54,7 +54,13 @@
           "row": { "title": "早先发布的", "status": "published", "intake_run_id": 5, "template_version": 1, "payload_json": "{\"title\":{\"value\":\"早先发布的\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"一份报告\"}}", "material_sha256": "seed-sha", "published_at": "2029-12-31 00:00:00", "published_by": "seed", "created_by": "seed", "enabled": 1 }
         },
         { "table": "tasks", "row": { "title": "库里的第五个", "status": "draft", "created_by": "seed" } },
-        { "table": "task_events", "row": { "task_id": 2, "type": "published", "actor": "human:seed", "payload_json": "{\"note\":\"库里的\"}" } }
+        { "table": "task_events", "row": { "task_id": 2, "type": "published", "actor": "human:seed", "payload_json": "{\"note\":\"库里的\"}" } },
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-seed-0000000001", "source": "task-center", "workbench": "task-center", "item": "task:2", "context_id": "ctx-seed", "submitter_kind": "human", "submitter": "seed", "data_sha256": "seed", "dispatch": 0, "routed": "default" }
+        },
+        { "table": "workbench_event_deliveries", "row": { "event_id": "wbe-seed-0000000001", "target_team": "seed-team-a", "target_url": "http://127.0.0.1:9/a2a", "caller_session": "seed", "status": "held" } },
+        { "table": "workbench_event_deliveries", "row": { "event_id": "wbe-seed-0000000001", "target_team": "seed-team-b", "target_url": "http://127.0.0.1:9/a2a", "caller_session": "seed", "status": "sent" } }
       ],
       "steps": [
         {
@@ -770,13 +776,13 @@
           "id": "withdraw",
           "route": "POST /api/task-center/tasks/:id/withdraw",
           "class": "normal",
-          "what": "撤回已发布的任务：没有要取消的投递",
+          "what": "撤回已发布的任务：库里给它的一条工作台事件挂了两条投递，held 的那条取消，已发出的那条不动（取消 1）",
           "request": { "method": "POST", "path": "/api/task-center/tasks/2/withdraw", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "89", "etag": "W/\"59-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "ok": true, "id": 2, "status": "withdrawn", "cancelled_deliveries": 0, "in_flight_deliveries": 0 }
+            "body": { "ok": true, "id": 2, "status": "withdrawn", "cancelled_deliveries": 1, "in_flight_deliveries": 0 }
           }
         },
         {
@@ -951,6 +957,41 @@
           }
         },
         {
+          "id": "publish-v2",
+          "what": "布置现场：给 task-center 补发 v2（借发布的路由，只比状态码）",
+          "compare": "status",
+          "request": {
+            "method": "POST",
+            "path": "/api/apps",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "slug": "task-center", "kind": "sop", "changelog": "回放：v2", "patch": { "set": [{ "path": "docs/v2.txt", "content": "第二版\n" }] } }
+          },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "template-v2",
+          "route": "GET /api/task-center/template",
+          "class": "normal",
+          "what": "补发之后录入模板的版本是 2",
+          "request": { "method": "GET", "path": "/api/task-center/template" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "752", "etag": "W/\"2f0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "version": 2,
+              "steps": [
+                { "key": "title", "title": "任务标题", "body": "<label>任务标题<textarea data-field=\"value\"></textarea></label>" },
+                { "key": "intent", "title": "任务意图", "body": "<label>任务意图<textarea data-field=\"value\"></textarea></label>" },
+                { "key": "references", "title": "基准材料", "body": "<label>基准材料<textarea data-field=\"value\"></textarea></label>" },
+                { "key": "deliverable", "title": "提交物要求", "body": "<label>提交物要求<textarea data-field=\"value\"></textarea></label>" },
+                { "key": "target", "title": "目标 SOP 台", "body": "<label>目标 SOP 台<textarea data-field=\"value\"></textarea></label>" },
+                { "key": "due", "title": "截止日期", "body": "<label>截止日期<textarea data-field=\"value\"></textarea></label>" }
+              ]
+            }
+          }
+        },
+        {
           "id": "list-final",
           "route": "GET /api/task-center/tasks",
           "class": "normal",
@@ -1026,7 +1067,13 @@
           "row": { "title": "早先发布的", "status": "published", "intake_run_id": 5, "template_version": 1, "payload_json": "{\"title\":{\"value\":\"早先发布的\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"一份报告\"}}", "material_sha256": "seed-sha", "published_at": "2029-12-31 00:00:00", "published_by": "seed", "created_by": "seed", "enabled": 1 }
         },
         { "table": "tasks", "row": { "title": "库里的第五个", "status": "draft", "created_by": "seed" } },
-        { "table": "task_events", "row": { "task_id": 2, "type": "published", "actor": "human:seed", "payload_json": "{\"note\":\"库里的\"}" } }
+        { "table": "task_events", "row": { "task_id": 2, "type": "published", "actor": "human:seed", "payload_json": "{\"note\":\"库里的\"}" } },
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-seed-0000000001", "source": "task-center", "workbench": "task-center", "item": "task:2", "context_id": "ctx-seed", "submitter_kind": "human", "submitter": "seed", "data_sha256": "seed", "dispatch": 0, "routed": "default" }
+        },
+        { "table": "workbench_event_deliveries", "row": { "event_id": "wbe-seed-0000000001", "target_team": "seed-team-a", "target_url": "http://127.0.0.1:9/a2a", "caller_session": "seed", "status": "held" } },
+        { "table": "workbench_event_deliveries", "row": { "event_id": "wbe-seed-0000000001", "target_team": "seed-team-b", "target_url": "http://127.0.0.1:9/a2a", "caller_session": "seed", "status": "sent" } }
       ],
       "steps": [
         {
@@ -1170,7 +1217,13 @@
           "row": { "title": "早先发布的", "status": "published", "intake_run_id": 5, "template_version": 1, "payload_json": "{\"title\":{\"value\":\"早先发布的\"},\"intent\":{\"value\":\"验证录入发布\"},\"deliverable\":{\"value\":\"一份报告\"}}", "material_sha256": "seed-sha", "published_at": "2029-12-31 00:00:00", "published_by": "seed", "created_by": "seed", "enabled": 1 }
         },
         { "table": "tasks", "row": { "title": "库里的第五个", "status": "draft", "created_by": "seed" } },
-        { "table": "task_events", "row": { "task_id": 2, "type": "published", "actor": "human:seed", "payload_json": "{\"note\":\"库里的\"}" } }
+        { "table": "task_events", "row": { "task_id": 2, "type": "published", "actor": "human:seed", "payload_json": "{\"note\":\"库里的\"}" } },
+        {
+          "table": "workbench_events",
+          "row": { "event_id": "wbe-seed-0000000001", "source": "task-center", "workbench": "task-center", "item": "task:2", "context_id": "ctx-seed", "submitter_kind": "human", "submitter": "seed", "data_sha256": "seed", "dispatch": 0, "routed": "default" }
+        },
+        { "table": "workbench_event_deliveries", "row": { "event_id": "wbe-seed-0000000001", "target_team": "seed-team-a", "target_url": "http://127.0.0.1:9/a2a", "caller_session": "seed", "status": "held" } },
+        { "table": "workbench_event_deliveries", "row": { "event_id": "wbe-seed-0000000001", "target_team": "seed-team-b", "target_url": "http://127.0.0.1:9/a2a", "caller_session": "seed", "status": "sent" } }
       ],
       "steps": [
         {
