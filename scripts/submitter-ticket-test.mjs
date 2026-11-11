@@ -174,11 +174,11 @@ try {
     await call('POST', '/api/principals/restore', ADMIN, { id: 'user:beta', reason: '对抗：恢复' });
   }
   {
-    const r = await submit({ data: { n: 2 }, submitter_principal: 'user:beta', submitter_via: 'ticket', requester: 'user:beta', created_by: 'user:beta' });
+    const r = await submit({ data: { n: 2, submitter_principal: 'user:beta', submitter_via: 'ticket' }, submitter_principal: 'user:beta', submitter_via: 'ticket', requester: 'user:beta', created_by: 'user:beta' });
     const e = eventOf(r.body?.id), m = e ? JSON.parse(q('SELECT message FROM workbench_event_deliveries WHERE event_id = ?', e.event_id)[0]?.message || '{}') : {};
     const rec = e ? JSON.parse(q("SELECT detail FROM workbench_event_log WHERE event_id = ? AND action = 'recorded'", e.event_id)[0]?.detail ?? '{}') : {};
     check(r.status === 201 && row(r.body?.id)?.submitter_principal === null && !('submitter_principal' in m) && !('submitter_via' in m) && rec.requester === undefined && rec.via === undefined,
-      '请求体自己带 submitter_principal、submitter_via、requester：不认，也不透传进信封', show({ m: Object.keys(m), rec }));
+      '请求体（信封外层和 data 里）自己带 submitter_principal、submitter_via、requester：不认，也不透传进信封外层', show({ m: Object.keys(m), rec }));
   }
   // ---------- 历史版本预览不出票 ----------
   {
