@@ -45,56 +45,77 @@ jobs:
           key: playwright-apt-${{ env.ImageOS }}-${{ env.ImageVersion }}-${{ env.PLAYWRIGHT_VERSION }}
       - name: 装环境：Playwright（Python）+ Chromium 与系统依赖
         id: browser-env
+        timeout-minutes: 12
         run: |
           set -euo pipefail
           fail() { echo "::error title=装环境失败（不是测试失败）::$1"; exit 1; }
-          # 至少四次，间隔 15、30、60 秒
+          # retry 次数 命令…：间隔 15、30、60 秒
           retry() {
-            local n=1 max=4 wait=15
+            local max=$1 n=1 wait=15; shift
             until "$@"; do
               if [ "$n" -ge "$max" ]; then return 1; fi
               echo "::warning title=装环境重试::第 $n 次没成（$(echo "$*" | cut -c1-80)），${wait} 秒后重试"
               sleep "$wait"; n=$((n + 1)); wait=$((wait * 2))
             done
           }
-          retry python -m pip install --retries 5 "playwright==${PLAYWRIGHT_VERSION}" \
+          retry 4 python -m pip install --retries 5 "playwright==${PLAYWRIGHT_VERSION}" \
             || fail "pip 装 playwright==${PLAYWRIGHT_VERSION} 四次都没成"
           # 命中缓存时浏览器已经在 ~/.cache/ms-playwright 里，install 认出来就不下载
-          retry python -m playwright install chromium || fail "下载 Chromium 四次都没成"
+          retry 4 python -m playwright install chromium || fail "下载 Chromium 四次都没成"
 
-          # 系统依赖：清单取 Playwright 自己的（install-deps --dry-run），只装镜像里没有的；都有就不碰 apt
-          pkgs=$(python -m playwright install-deps --dry-run chromium | sed -nE 's/.*--no-install-recommends (.*)$/\1/p' | tr -d '"') || pkgs=""
-          if [ -z "$pkgs" ]; then
-            echo "取不到依赖清单，退回 Playwright 自己装（带重试）"
-            retry python -m playwright install-deps chromium || fail "install-deps 四次都没成（多半是 apt 软件源连不上）"
-          else
-            missing=""
-            for p in $pkgs; do
-              dpkg-query -W -f='${db:Status-Status}' "$p" 2>/dev/null | grep -qx installed || missing="$missing $p"
-            done
-            if [ -z "$missing" ]; then
-              echo "系统依赖镜像里都有（$(echo $pkgs | wc -w | tr -d " ") 个包），不碰 apt"
-            else
-              echo "镜像里缺：$missing"
-              debs="$HOME/.cache/playwright-apt"
-              mkdir -p "$debs/partial"
-              aptopt=(-o Dir::Cache::archives="$debs" -o APT::Keep-Downloaded-Packages=true -o Acquire::Retries=3)
-              # 先只用缓存里的包装（不联网）；不够再联网
-              if compgen -G "$debs/*.deb" >/dev/null \
-                && sudo apt-get install -y --no-install-recommends --no-download "${aptopt[@]}" $missing; then
-                echo "用缓存里的 apt 包装好了"
-              else
-                retry sudo apt-get update -o Acquire::Retries=3 || fail "apt-get update 四次都没成（多半是软件源解析不了）"
-                retry sudo apt-get install -y --no-install-recommends "${aptopt[@]}" $missing \
-                  || fail "apt-get install 四次都没成：$missing"
-              fi
-              sudo chown -R "$(id -u):$(id -g)" "$debs"
-            fi
+          # 两个都要能起：无头壳（Python 测试默认用它）和完整的 Chromium（CHROME_BIN 指的就是它）
+          probe() {
+            python -c 'from playwright.sync_api import sync_playwright
+          with sync_playwright() as p:
+              for channel in (None, "chromium"):
+                  b = p.chromium.launch(channel=channel) if channel else p.chromium.launch()
+                  print("能起：", channel or "chromium-headless-shell", b.version)
+                  b.close()'
+          }
+          # 先不碰 apt：镜像里的系统库够浏览器起来就到此为止
+          if probe; then
+            echo "Chromium 在镜像自带的系统库上能起来，不装系统依赖，不碰 apt"
+            exit 0
           fi
 
-          # 装好的浏览器能起来，才算装环境成功
-          python -c 'from playwright.sync_api import sync_playwright; p = sync_playwright().start(); b = p.chromium.launch(); print("Chromium", b.version); b.close(); p.stop()' \
-            || fail "Chromium 起不来（缺系统依赖？）"
+          echo "Chromium 起不来，补系统依赖。清单取 Playwright 自己的（install-deps --dry-run），只装镜像里没有的"
+          pkgs=$(python -m playwright install-deps --dry-run chromium | sed -nE 's/.*--no-install-recommends (.*)$/\1/p' | tr -d '"') || pkgs=""
+          [ -n "$pkgs" ] || fail "取不到 Playwright 的系统依赖清单，Chromium 又起不来"
+          missing=""
+          for p in $pkgs; do
+            dpkg-query -W -f='${db:Status-Status}' "$p" 2>/dev/null | grep -qx installed || missing="$missing $p"
+          done
+          echo "镜像里缺：${missing:-（都有，但还是起不来）}"
+          debs="$HOME/.cache/playwright-apt"
+          mkdir -p "$debs/partial"
+          # 每次 apt 最多 4 分钟；DNS 解析不了时不要每个源都等满
+          aptget() { sudo timeout 240 apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=15 \
+                    -o Dir::Cache::archives="$debs" -o APT::Keep-Downloaded-Packages=true "$@"; }
+          install_missing() { aptget update && aptget install -y --no-install-recommends $missing; }
+          # 换源：GitHub 的镜像经 mirror+file 列表取包，归档和安全更新都先走同一个源；两类都换成 $1
+          use_mirror() {
+            echo "换源到 $1"
+            for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+              [ -f "$f" ] || continue
+              sudo sed -i -E "s#mirror\+file:[^ ]*#$1#g; s#https?://[A-Za-z0-9.-]*ubuntu\.com/ubuntu/?#$1#g" "$f"
+            done
+          }
+          if [ -n "$missing" ]; then
+            if compgen -G "$debs/*.deb" >/dev/null && aptget install -y --no-install-recommends --no-download $missing; then
+              echo "用缓存里的 apt 包装好了（没联网）"
+            elif retry 2 install_missing; then
+              echo "从镜像默认的源装好了"
+            else
+              ok=""
+              for m in http://archive.ubuntu.com/ubuntu/ http://mirrors.edge.kernel.org/ubuntu/; do
+                use_mirror "$m"
+                if retry 2 install_missing; then ok=1; echo "从 $m 装好了"; break; fi
+              done
+              [ -n "$ok" ] || fail "默认源和两个备用源都装不上：$missing"
+            fi
+            sudo chown -R "$(id -u):$(id -g)" "$debs"
+          fi
+          probe || fail "补了系统依赖，Chromium 还是起不来"
       - name: 装环境：存 Playwright 浏览器缓存
         if: steps.browser-env.outcome == 'success' && steps.pw-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
