@@ -354,9 +354,10 @@ const cookieVaryOk = (h) => !!h && typeof h === 'object' && !Array.isArray(h) &&
 /**
  * 响应头里每次都不一样的那几个字节（跳转地址里的随机端口和随机参数、cookie 的随机值），按请求上的 vary 点名遮：
  *   $location: ['port', 'query:state']：跳转地址（Location 头，以及「Found. Redirecting to …」那样把地址写进正文的）里，
- *     回环地址 127.0.0.1 后面的端口（含编码在参数里的 %3A）换成占位；点名的查询参数的值换成只留长度的占位。主机、路径、别的参数照比。
+ *     回环地址 127.0.0.1 后面的端口（含编码在参数里的 %3A）换成占位：是这个实例自己的端口写 <市场端口>，别的写 <别的端口>
+ *     （回调地址写死成别的端口看得出来）；点名的查询参数的值换成只留长度的占位。主机、路径、别的参数照比。
  *   $cookies: { 名字: ['value', 'max-age'] }：Set-Cookie 里这个名字的 cookie，值换成只留长度的占位（空值不换，清除照样看得出），
- *     Max-Age 的数字换成占位（有没有 Max-Age 照比）。cookie 的名字、Path、HttpOnly、SameSite、Secure 这些属性照比。
+ *     Max-Age 按分钟四舍五入（599 秒和 600 秒都记「约 10 分」，改成一小时看得出；有没有 Max-Age 照比）。cookie 的名字、Path、HttpOnly、SameSite、Secure 这些属性照比。
  * 别的头、别的 cookie 一律原样比。
  */
 export function applyRedirectCookieVary(raw, vary) {
@@ -367,7 +368,7 @@ export function applyRedirectCookieVary(raw, vary) {
     const mask = (text) => {
       let out = String(text);
       for (const part of vary.$location) {
-        if (part === 'port') out = out.replace(/127\.0\.0\.1(:|%3A)\d{1,5}/gi, (_m, sep) => `127.0.0.1${sep}<端口>`);
+        if (part === 'port') out = out.replace(/127\.0\.0\.1(:|%3A)(\d{1,5})/gi, (_m, sep, port) => `127.0.0.1${sep}<${raw.selfPort !== undefined && port === String(raw.selfPort) ? '市场端口' : '别的端口'}>`);
         else {
           const name = part.slice('query:'.length);
           out = out.replace(new RegExp(`([?&]${name}=)([^&#\\s"]*)`, 'g'), (_m, head, value) => `${head}<每个实例随机·${value.length}>`);
@@ -386,7 +387,7 @@ export function applyRedirectCookieVary(raw, vary) {
       if (!m || !parts) return line;
       let value = m[2], rest = m[3];
       if (parts.includes('value') && value !== '') value = `<每个实例随机·${value.length}>`;
-      if (parts.includes('max-age')) rest = rest.replace(/(;\s*Max-Age=)\d+/i, '$1<数>');
+      if (parts.includes('max-age')) rest = rest.replace(/(;\s*Max-Age=)(\d+)/i, (_m, head, n) => `${head}<约${Math.round(Number(n) / 60)}分>`);
       return `${m[1]}=${value}${rest}`;
     });
   }
@@ -764,14 +765,14 @@ async function selftest() {
   // $location、$cookies：只遮点名的那几个字节
   const loc = 'http://127.0.0.1:61234/authorize?client_id=c1&redirect_uri=http%3A%2F%2F127.0.0.1%3A61200%2Fcb&state=abcdefgh';
   const lv = { $location: ['port', 'query:state'], $cookies: { st: ['value', 'max-age'], sess: ['value'] } };
-  const hraw = (o = {}) => ({ status: 302, type: 'text/plain', headers: { location: o.location ?? loc, 'set-cookie': o.cookies ?? ['st=AAAA; Max-Age=599; Path=/cb; HttpOnly; SameSite=Lax', 'sess=BBBBBB; Max-Age=43200; Path=/; HttpOnly; SameSite=Lax', 'other=x; Path=/'] }, body: `Found. Redirecting to ${o.location ?? loc}` });
+  const hraw = (o = {}) => ({ status: 302, type: 'text/plain', selfPort: o.selfPort ?? '61200', headers: { location: o.location ?? loc, 'set-cookie': o.cookies ?? ['st=AAAA; Max-Age=599; Path=/cb; HttpOnly; SameSite=Lax', 'sess=BBBBBB; Max-Age=43200; Path=/; HttpOnly; SameSite=Lax', 'other=x; Path=/'] }, body: `Found. Redirecting to ${o.location ?? loc}` });
   const ls = { vary: lv };
   const hrec = { ...ls, response: shapeOf(ls, hraw()) };
-  check(hrec.response.headers.location === 'http://127.0.0.1:<端口>/authorize?client_id=c1&redirect_uri=http%3A%2F%2F127.0.0.1%3A<端口>%2Fcb&state=<每个实例随机·8>' && hrec.response.body.endsWith('state=<每个实例随机·8>')
-    && hrec.response.headers['set-cookie'][0] === 'st=<每个实例随机·4>; Max-Age=<数>; Path=/cb; HttpOnly; SameSite=Lax' && hrec.response.headers['set-cookie'][1] === 'sess=<每个实例随机·6>; Max-Age=43200; Path=/; HttpOnly; SameSite=Lax' && hrec.response.headers['set-cookie'][2] === 'other=x; Path=/',
-    '$location、$cookies：端口、state、cookie 的值和点名的 Max-Age 换成占位，别的原样');
-  const same = hraw({ location: loc.replace('61234', '5000').replace('61200', '5001').replace('abcdefgh', 'zyxwvuts'), cookies: ['st=CCCC; Max-Age=600; Path=/cb; HttpOnly; SameSite=Lax', 'sess=DDDDDD; Max-Age=43200; Path=/; HttpOnly; SameSite=Lax', 'other=x; Path=/'] });
-  check(compareStep(hrec, shapeOf(ls, same)).length === 0, '$location、$cookies：只是端口、随机值、Max-Age 的数变了：零差异');
+  check(hrec.response.headers.location === 'http://127.0.0.1:<别的端口>/authorize?client_id=c1&redirect_uri=http%3A%2F%2F127.0.0.1%3A<市场端口>%2Fcb&state=<每个实例随机·8>' && hrec.response.body.endsWith('state=<每个实例随机·8>')
+    && hrec.response.headers['set-cookie'][0] === 'st=<每个实例随机·4>; Max-Age=<约10分>; Path=/cb; HttpOnly; SameSite=Lax' && hrec.response.headers['set-cookie'][1] === 'sess=<每个实例随机·6>; Max-Age=43200; Path=/; HttpOnly; SameSite=Lax' && hrec.response.headers['set-cookie'][2] === 'other=x; Path=/',
+    '$location、$cookies：端口分市场自己的和别的、state、cookie 的值换成占位，点名的 Max-Age 按分钟取整，别的原样');
+  const same = hraw({ selfPort: '5001', location: loc.replace('61234', '5000').replace('61200', '5001').replace('abcdefgh', 'zyxwvuts'), cookies: ['st=CCCC; Max-Age=600; Path=/cb; HttpOnly; SameSite=Lax', 'sess=DDDDDD; Max-Age=43200; Path=/; HttpOnly; SameSite=Lax', 'other=x; Path=/'] });
+  check(compareStep(hrec, shapeOf(ls, same)).length === 0, '$location、$cookies：只是端口号、随机值变了，Max-Age 差一秒（599/600）：零差异');
   const redHeaders = {
     '跳转到别的路径': hraw({ location: loc.replace('/authorize', '/elsewhere') }),
     '跳转到别的主机': hraw({ location: loc.replace('127.0.0.1:61234', 'evil.invalid') }),
@@ -781,6 +782,8 @@ async function selftest() {
     '换 cookie 名': hraw({ cookies: ['st2=AAAA; Max-Age=599; Path=/cb; HttpOnly; SameSite=Lax', 'sess=BBBBBB; Max-Age=43200; Path=/; HttpOnly; SameSite=Lax', 'other=x; Path=/'] }),
     '没有 Max-Age 了': hraw({ cookies: ['st=AAAA; Path=/cb; HttpOnly; SameSite=Lax', 'sess=BBBBBB; Max-Age=43200; Path=/; HttpOnly; SameSite=Lax', 'other=x; Path=/'] }),
     '没点名的 Max-Age 变了': hraw({ cookies: ['st=AAAA; Max-Age=599; Path=/cb; HttpOnly; SameSite=Lax', 'sess=BBBBBB; Max-Age=60; Path=/; HttpOnly; SameSite=Lax', 'other=x; Path=/'] }),
+    '回调地址写死成别的端口': hraw({ location: loc.replace('127.0.0.1%3A61200', '127.0.0.1%3A61999') }),
+    'Max-Age 从 10 分钟变成一小时': hraw({ cookies: ['st=AAAA; Max-Age=3599; Path=/cb; HttpOnly; SameSite=Lax', 'sess=BBBBBB; Max-Age=43200; Path=/; HttpOnly; SameSite=Lax', 'other=x; Path=/'] }),
     '值的长度变了': hraw({ cookies: ['st=AAAAA; Max-Age=599; Path=/cb; HttpOnly; SameSite=Lax', 'sess=BBBBBB; Max-Age=43200; Path=/; HttpOnly; SameSite=Lax', 'other=x; Path=/'] }),
   };
   const silent = Object.entries(redHeaders).filter(([, r]) => compareStep(hrec, shapeOf(ls, r)).length === 0).map(([k]) => k);
@@ -916,7 +919,7 @@ async function main() {
     for (const scenario of cassette.scenarios) {
       const instance = await boot(`${domain}-${scenario.name}`, scenario.env ?? {}, scenario.clock, scenario.fixtures ?? []);
       let results;
-      try { seedInstance(instance.data, scenario.seed); results = await runSteps(scenario.steps, (request, vars) => send(instance.base, request, vars), record); }
+      try { seedInstance(instance.data, scenario.seed); results = await runSteps(scenario.steps, (request, vars) => send(instance.base, request, vars).then((r) => ({ ...r, selfPort: new URL(instance.base).port })), record); }
       catch (err) { throw new Error(`${domain}/${scenario.name}/${err.message}`); }
       finally { await instance.stop(); }
       total += results.length;
