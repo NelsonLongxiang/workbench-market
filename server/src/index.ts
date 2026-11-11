@@ -55,6 +55,7 @@ import { registerMcpRoutes } from './routes/mcp.ts';
 import { registerRemoteAllowRoutes } from './routes/remote-allow.ts';
 import { registerAppRoutes, registerAppLifecycleRoutes } from './routes/apps.ts';
 import { registerAppDataRoutes } from './routes/app-data.ts';
+import { registerSopRunControlRoutes } from './routes/sop-run-control.ts';
 import { registerSopRunAccessRoutes } from './routes/sop-run-access.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
@@ -1814,36 +1815,7 @@ registerCookieRoutes(http);
 
 // ---------- 19a 任务发布面（监督席 direct-58d60ed6，主人已批）----------
 // 零新概念：给已有 run 写派单来源（复用 a2a_run_ctx），使其入待验收列表（dispatched=1）
-app.post('/api/sop/runs/:id/assign', wrap(async (req, res) => {
-  if (!/^\d+$/.test(String(req.params.id))) throw new HttpError(404, `run not found: ${req.params.id}`);
-  const runId = Number(req.params.id);
-  const row = sopRunRow(runId);
-  if (row.status !== 'running') throw new HttpError(409, `run ${runId} 已 ${row.status}，不可指派`);
-  const node = String(req.body?.node ?? '').trim();
-  if (!/^[a-z][a-z0-9-]*\/[a-z0-9][a-z0-9_-]{0,63}$/i.test(node)) bad('node 形态：<zone>/<id8>，如 dsh/1a2b3c4d');
-  const existed = svc<SopService>('sop').ctxSourceByRun(runId);
-  if (existed) throw new HttpError(409, `run ${runId} 已有派单来源，不可重复指派`);
-  svc<SopService>('sop').ctxRegisterFull({ contextId: `task-${runId}`, runId, taskId: `task-${runId}`, caller: node, team: '', receiptStatus: '' });
-  res.status(201).json({ ok: true, run_id: runId, node, task_id: `task-${runId}` });
-}));
-
-// 8f：建任务中心的录入就是「提需求」：经身份服务认出提需求的人记在 run 上（发布时事项的建立人取它），并记一笔不带内容的计数。
-// 认不出照旧放行；请求体里的 started_by 是自填的，只用于显示。别的 SOP 的 run 照旧，不认人
-app.post('/api/sop/runs', wrap(async (req, res) => {
-  const slug = String(req.body?.slug ?? '');
-  const intake = slug.trim().toLowerCase() === 'task-center';
-  const who = intake ? await requestPerson(req) : null;
-  const out = sopRunStartCore(slug, String(req.body?.started_by ?? ''), who?.principal ?? null);
-  if (who) countSubmission('task-center.intake', who.hasCredential, who.principal !== null);
-  res.status(201).json(out);
-}));
-
-app.get('/api/sop/runs/active', wrap(async (_req, res) => {
-  // #338: a nonempty Redis set is not proof that it contains every running row.
-  // SQLite creates/status-transitions every run, including unsaved and task-center runs.
-  const rows = svc<SopService>('sop').runsRunning() as unknown as SopRunRow[];
-  res.json(rows);
-}));
+registerSopRunControlRoutes(http, { wrap, sopRunRow, bad, sopRunStartCore });
 
 registerStatsRoutes(http);
 registerContentObservationRoutes(http, { adminGuard, portalObserver });
