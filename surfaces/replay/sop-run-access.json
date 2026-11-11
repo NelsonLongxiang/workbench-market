@@ -318,6 +318,19 @@
           "what": "没有这个 run 也不报错：0",
           "request": { "method": "POST", "path": "/api/sop/runs/999/read-caps/revoke", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
           "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "run_id": 999, "revoked_caps": 0 } }
+        },
+        {
+          "id": "grant-empty-name",
+          "route": "PUT /api/sop/runs/:id(\\d+)/read-grants",
+          "class": "invalid",
+          "what": "subject 是 'user:'（冒号后为空）：400",
+          "request": { "method": "PUT", "path": "/api/sop/runs/1/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "67", "etag": "W/\"43-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "subject 形如 user:<Odoo登录名> 或 mcp:<会话名>" }
+          }
         }
       ]
     },
