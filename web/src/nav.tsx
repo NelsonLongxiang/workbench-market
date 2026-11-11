@@ -4,6 +4,7 @@ import { WEB_EXTENSIONS } from './extensions';
 import {
   AppstoreOutlined,
   CarryOutOutlined,
+  BellOutlined,
   ClusterOutlined,
   DashboardOutlined,
   ExperimentOutlined,
@@ -22,6 +23,7 @@ export interface NavGroup { key: string; name: string; admin?: boolean; pages: N
 const BASE_GROUPS: NavGroup[] = [
   { key: '/g/work', name: '工作', pages: [
     { path: '/', name: '总览', icon: <DashboardOutlined /> },
+    { path: '/attention', name: '关注', icon: <BellOutlined /> },
     { path: '/tasks', name: '统一待办', icon: <CarryOutOutlined /> },
     { path: '/cockpit', name: '驾驶舱', icon: <LayoutOutlined /> },
   ] },

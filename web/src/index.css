@@ -41,6 +41,7 @@ body {
 .wm-prewrap { white-space: pre-wrap; }
 .wm-break { word-break: break-all; }
 .wm-w-full { width: 100%; }
+.wm-reading { width: 100%; max-width: 960px; } /* 一次读一件事的页面（「关注」、事项页）：桌面宽屏下不铺满 */
 .wm-mt-1 { margin-top: var(--wm-space-1); }
 .wm-mt-3 { margin-top: var(--wm-space-3); }
 .wm-mb-1 { margin-bottom: var(--wm-space-1); }

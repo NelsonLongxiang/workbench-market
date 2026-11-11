@@ -1,0 +1,132 @@
+{
+  "domain": "work-items",
+  "what": "事项的读（阶段八 8d）：/api/work-items/:id 的 1 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /api/work-items/:id"],
+  "exempt": [],
+  "scenarios": [
+    {
+      "name": "admin",
+      "what": "管理口令由环境给（合成值，只在隔离实例里用）；库里先放一件 alpha 建的事项（草稿）和它的第一行日志。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "seed": [
+        { "table": "work_items", "row": { "id": "wi_replay_alpha", "title": "回放用事项", "created_by": "user:alpha", "source_kind": "agent" } },
+        { "table": "work_item_log", "row": { "item_id": "wi_replay_alpha", "fact": "create", "fact_source": "market", "fact_id": "wi_replay_alpha", "from_state": "draft", "to_state": "draft", "actor": "user:alpha" } }
+      ],
+      "steps": [
+        {
+          "id": "admin",
+          "route": "GET /api/work-items/:id",
+          "class": "normal",
+          "what": "管理员：看得到事项和它的日志",
+          "request": { "method": "GET", "path": "/api/work-items/wi_replay_alpha", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "686", "etag": "W/\"2ae-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "item": { "id": "wi_replay_alpha", "title": "回放用事项", "created_at": "YYYY-MM-DD hh:mm:ss", "created_by": "user:alpha", "source_kind": "agent", "source_ref": "", "context": "{}", "event_id": null, "task_ids": "[]", "target_team": "", "seat": "", "eval": "", "eval_reason": "", "state": "draft", "progress_summary": "", "progress_at": "", "open_asks": "[]", "receipt_outcome": "", "receipt_at": "", "outputs": "{}", "evidence": "[]", "object": "", "phase": "", "updated_at": "YYYY-MM-DD hh:mm:ss" },
+              "log": [
+                { "seq": 1, "item_id": "wi_replay_alpha", "fact": "create", "fact_source": "market", "fact_id": "wi_replay_alpha", "from_state": "draft", "to_state": "draft", "actor": "user:alpha", "detail": "{}", "at": "YYYY-MM-DD hh:mm:ss", "rejected": "" }
+              ]
+            }
+          }
+        },
+        {
+          "id": "missing",
+          "route": "GET /api/work-items/:id",
+          "class": "invalid",
+          "what": "管理员：没有这件事项，404",
+          "request": { "method": "GET", "path": "/api/work-items/wi_no_such_item", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_item_not_found" }
+          }
+        },
+        {
+          "id": "bad-id",
+          "route": "GET /api/work-items/:id",
+          "class": "invalid",
+          "what": "id 不是事项 id 的样子：400",
+          "request": { "method": "GET", "path": "/api/work-items/not-an-item", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_item_id_invalid" }
+          }
+        },
+        {
+          "id": "anonymous-remote",
+          "route": "GET /api/work-items/:id",
+          "class": "unauthorized",
+          "what": "远程匿名：没登录，401",
+          "request": { "method": "GET", "path": "/api/work-items/wi_replay_alpha", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "cross-site",
+          "route": "GET /api/work-items/:id",
+          "class": "unauthorized",
+          "what": "跨站请求：拒",
+          "request": { "method": "GET", "path": "/api/work-items/wi_replay_alpha", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "cross-site" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_cross_origin_denied" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "creator",
+      "what": "登录提供方换成假的：alpha 是建立人，beta 不是。",
+      "env": {},
+      "fixtures": ["identity-fake"],
+      "seed": [
+        { "table": "work_items", "row": { "id": "wi_replay_alpha", "title": "回放用事项", "created_by": "user:alpha", "source_kind": "agent" } },
+        { "table": "work_item_log", "row": { "item_id": "wi_replay_alpha", "fact": "create", "fact_source": "market", "fact_id": "wi_replay_alpha", "from_state": "draft", "to_state": "draft", "actor": "user:alpha" } }
+      ],
+      "steps": [
+        {
+          "id": "creator",
+          "route": "GET /api/work-items/:id",
+          "class": "normal",
+          "what": "建立人 alpha：看得到自己建的事项",
+          "request": { "method": "GET", "path": "/api/work-items/wi_replay_alpha", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "686", "etag": "W/\"2ae-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "item": { "id": "wi_replay_alpha", "title": "回放用事项", "created_at": "YYYY-MM-DD hh:mm:ss", "created_by": "user:alpha", "source_kind": "agent", "source_ref": "", "context": "{}", "event_id": null, "task_ids": "[]", "target_team": "", "seat": "", "eval": "", "eval_reason": "", "state": "draft", "progress_summary": "", "progress_at": "", "open_asks": "[]", "receipt_outcome": "", "receipt_at": "", "outputs": "{}", "evidence": "[]", "object": "", "phase": "", "updated_at": "YYYY-MM-DD hh:mm:ss" },
+              "log": [
+                { "seq": 1, "item_id": "wi_replay_alpha", "fact": "create", "fact_source": "market", "fact_id": "wi_replay_alpha", "from_state": "draft", "to_state": "draft", "actor": "user:alpha", "detail": "{}", "at": "YYYY-MM-DD hh:mm:ss", "rejected": "" }
+              ]
+            }
+          }
+        },
+        {
+          "id": "other",
+          "route": "GET /api/work-items/:id",
+          "class": "invalid",
+          "what": "别人 beta：不说有没有这件事项，404",
+          "request": { "method": "GET", "path": "/api/work-items/wi_replay_alpha", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_item_not_found" }
+          }
+        }
+      ]
+    }
+  ]
+}

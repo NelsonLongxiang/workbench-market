@@ -21,6 +21,8 @@ import { WEB_EXTENSIONS } from './extensions';
 import { Badge, Button as AButton, Input as AInput, Popover, Result, Tag } from 'antd';
 import Tasks from './pages/Tasks';
 import Reviews from './pages/Reviews';
+import Attention from './pages/Attention';
+import WorkItem from './pages/WorkItem';
 import SkillsPage from './pages/Skills';
 import ViewerChip from './components/ViewerChip';
 import LoginChip from './components/LoginChip';
@@ -169,6 +171,8 @@ export default function App() {
         <Route path="/sops/:slug" element={<SopSpace />} />
         <Route path="/sops/:slug/runs/:id" element={<SopRunDetail />} />
         <Route path="/tasks" element={<Tasks />} />
+        <Route path="/attention" element={<Attention />} />
+        <Route path="/work-items/:id" element={<WorkItem />} />
         <Route path="/reviews" element={<Reviews />} />
         {WEB_EXTENSIONS.flatMap((e) => (e.routes ?? []).map((r) => <Route key={`${e.name}:${r.path}`} path={r.path} element={r.element} />))}
         <Route path="/owner-pending" element={<OwnerPending />} />

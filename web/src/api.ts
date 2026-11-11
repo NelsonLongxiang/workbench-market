@@ -89,3 +89,11 @@ export async function downloadAuthed(url: string, filename: string): Promise<voi
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(href), 1000);
 }
+
+/** 事项和它的日志（阶段八 8d 事项页）。不走 apiFetch：没登录（401）、看不到（404）由页面自己说，不弹管理员口令。
+ *  带上口令头：管理员用口令时也能看全部。 */
+export async function getWorkItem(id: string): Promise<{ status: number; body: unknown }> {
+  const token = getAdminToken();
+  const res = await fetch(`/api/work-items/${encodeURIComponent(id)}`, { headers: token ? { 'X-Admin-Token': token } : {} });
+  return { status: res.status, body: await res.json().catch(() => ({})) };
+}
