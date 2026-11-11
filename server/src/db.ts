@@ -1009,6 +1009,35 @@ for (const [column, ddl] of [
 ] as const) {
   if (!(db.prepare('PRAGMA table_info(work_item_backfill)').all() as { name: string }[]).some((c) => c.name === column)) db.exec(`ALTER TABLE work_item_backfill ADD COLUMN ${ddl}`);
 }
+// 对端登记表：一个节点（DSH 实例，经 a2a 插件接入）一行。登记时取一次名片、验签，钉住完整公钥；名片上的公钥变了不自动接受，
+//   状态改成 key_changed、新公钥记在 pending_*，等管理员确认。status：active = 正常；pending_registration = 升级回填时取不到名片
+//   （不挡投递，页面上标出来）；key_changed = 等管理员确认新公钥（投递挂起）；disabled = 停用（投递挂起）。
+//   registered_by 是登记人（升级回填建出来的记 system:migration）。时间都由代码生成后传进来；id 由代码生成（不用自增）。
+db.exec(`
+CREATE TABLE IF NOT EXISTS a2a_peers (
+  id TEXT PRIMARY KEY,
+  root_url TEXT NOT NULL UNIQUE,
+  zone TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL DEFAULT '',
+  public_key TEXT NOT NULL DEFAULT '',
+  key_fingerprint TEXT NOT NULL DEFAULT '',
+  card_capabilities TEXT NOT NULL DEFAULT '{}',
+  card_version TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL CHECK (status IN ('active', 'pending_registration', 'key_changed', 'disabled')),
+  pending_public_key TEXT NOT NULL DEFAULT '',
+  pending_fingerprint TEXT NOT NULL DEFAULT '',
+  registered_by TEXT NOT NULL,
+  registered_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  disabled_by TEXT NOT NULL DEFAULT '',
+  disabled_at TEXT NOT NULL DEFAULT '',
+  disabled_reason TEXT NOT NULL DEFAULT '',
+  card_fetched_at TEXT NOT NULL DEFAULT '',
+  card_error TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_a2a_peers_status ON a2a_peers (status);
+CREATE INDEX IF NOT EXISTS idx_a2a_peers_registered_by ON a2a_peers (registered_by);
+`);
 // 阶段八 8d：「关注」的答复记账。每个（来源、来源里的 id）一行：第一次答成功就记下应答，同一条再答返回这一份；
 //   pending 表示正有人在答（并发的第二个人被告知正在处理）；答失败就删掉这一行，可以再答。原件的状态和留痕在来源自己那里。
 db.exec(`

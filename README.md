@@ -361,6 +361,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   a2a-followups.ts（席位发来的消息（跟进）的登记：收下、按投递与对端计数、事项对话里的未读、看过、回复）
   a2a-handles.ts（市场 A2A 会话句柄 `market/<node8>` 的唯一性：生成时避开已占用的，存量撞车的不上卡、入站失败关闭）
   a2a-idempotency.ts（`/a2a/direct` 幂等登记：task_id → 指纹 sha256，30 分钟窗口，落库，重启后同一 task_id 仍判 replay / conflict；只存摘要不存原文）
+  a2a-peers.ts（对端登记表：Cordis 服务 `a2aPeers`·一个节点一行·登记时取名片验签钉住公钥·公钥变了改成 key_changed 等管理员确认、不自动接受·停用是粘住的、只有管理员重新启用能解·canDeliver 供投递查（调用方阶段七接上，接上前对投递、入站没有效果）·按对端算健康·升级回填从现有绑定和投递建对端行）
   a2a-receipts.ts（回执入站的登记：我们发出的任务号 → 事件、投递、对端；采信过的回执按任务号去重；签名只认一次）
   a2a-replies.ts（市场回给团队的消息的发送状态：答复、来信回复、跟进回执；时间由代码生成后写入）
   a2a-stats.ts（A2A 出站积压的聚合读数：两张出站表按状态计数、最老待发、最近回执时长）
@@ -377,6 +378,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   task-center.ts（任务中心：任务、事件、总开关、状态迁移）
   work-item.ts（事项与事项日志：Cordis 服务 `workItems`·按迁移表推进状态的唯一入口 `apply`·日志只增不改；听 workbench-events 每写一行事件日志发的 `workbench-event/logged`，在来源的事务里用保存点推进事项，出错不影响来源、按事实种类计数；`backfill()` 从事件表和事件日志补建存量事项，可重跑；建事项时标题取任务中心的任务标题（取不到退到来源坐标）、派给取投递的目标团队，存量里还是自动缺省值的启动时补上；建立人主体 `creator_principal` 只取发布时经身份服务认出、来源已验证的人，认不出就空着，「是不是他的」只认它（`isCreator`），`created_by` 只用于显示）
 server/src/routes/    按域分的路由模块，各带一个注册函数（一个文件一行，按文件名排序）：
+  a2a-peers.ts（对端登记表 /api/a2a/peers：列出和健康、登记、刷新名片、确认新公钥、停用、重新启用，只有管理员能用）
   admin-token.ts（管理口令 /api/admin/whoami、/api/admin-token）
   agent-card.ts（A2A 签名卡片 /.well-known/agent-card.json）
   app-data.ts（自产台的数据与文件 /api/apps/:slug/data、/files：提交、列表、软删，上传、改备注、下载；提交和上传是匿名提交面，不经写总门）
