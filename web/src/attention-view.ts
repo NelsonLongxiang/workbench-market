@@ -30,7 +30,7 @@ export function byWaited(items: AttentionItem[]): AttentionItem[] {
 
 /** 日志里的取值换成人话（接单判断、上报的状态、回执的结果）；不认得的原样 */
 export const VERDICT: Record<string, string> = { accept: '接了', stop: '不做了', ignore: '不接', unavailable: '接不了' };
-export const REPORT_STATUS: Record<string, string> = { progress: '在办', waiting: '在等', blocked: '卡住了，要人答复', ready: '做完了', failed: '没办成', dropped: '对方放弃了' };
+export const REPORT_STATUS: Record<string, string> = { progress: '在办', waiting: '在等', blocked: '在等答复', ready: '做完了', failed: '没办成', dropped: '对方放弃了' };
 export const OUTCOME: Record<string, string> = { completed: '做完了', acknowledged: '收到了', failed: '没办成', rejected: '拒了', abandoned: '放弃了', dead: '投递失败' };
 
 /** 一行事项日志的一句话说明：从 detail 里挑人看得懂的几样 */
