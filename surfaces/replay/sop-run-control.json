@@ -298,6 +298,20 @@
           "what": "原样发：id 是 ..",
           "request": { "method": "POST", "path": "/api/sop/runs/../assign", "raw": true, "headers": {}, "json": { "node": "dsh/1a2b3c4d" } },
           "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run not found: .." } }
+        },
+        {
+          "id": "create-intake-leading-space",
+          "route": "POST /api/sop/runs",
+          "class": "normal",
+          "what": "slug 写成 ' task-center'（前导空白）：去空白之后按 task-center 的录入走（认人），201",
+          "vary": { "upload_token": "random", "read_capability": "random" },
+          "request": { "method": "POST", "path": "/api/sop/runs", "headers": {}, "json": { "slug": " task-center", "started_by": "eve" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "256", "etag": "W/\"100-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 8, "slug": "task-center", "version": 1, "status": "running", "started_by": "eve", "data": {}, "upload_token": "<每个实例随机·string·64>", "read_capability": "<每个实例随机·string·64>" }
+          }
         }
       ]
     },

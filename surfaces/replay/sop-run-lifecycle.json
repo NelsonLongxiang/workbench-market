@@ -1,0 +1,1347 @@
+{
+  "domain": "sop-run-lifecycle",
+  "what": "SOP run 的列表、读、写一步、完成、升级预检、升级，共 6 条路由。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /api/sop/runs", "GET /api/sop/runs/:id(\\d+)", "PUT /api/sop/runs/:id(\\d+)", "POST /api/sop/runs/:id(\\d+)/finish", "GET /api/sop/runs/:id(\\d+)/upgrade-preflight", "POST /api/sop/runs/:id(\\d+)/upgrade"],
+  "exempt": [{ "route": "GET /api/sop/runs", "class": "invalid", "why": "列表的查询参数给什么都不拒（不认识的当没有过滤条件）", "shown_by": "open/list-array-slug" }],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "登录门关，管理口令由环境给（合成值），没配 Redis。预先写进库两个 SOP（replay-sop 有 v1、v2 两版并放好 sop.yaml，当前 v2；v1 的第一步 name 必填）、七个 run（v1 进行中带旧字段数据、已完成、有派单来源、task-center、已是 v2、另一个 SOP、给完成用的），一条派单来源（没有回执地址）。列表只在写之前读，种子的时间写死且互不相同。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "seed": [
+        { "table": "apps", "row": { "slug": "replay-sop", "title": "回放 SOP", "kind": "sop", "status": "published", "active_version": 2, "created_by": "seed", "created_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" } },
+        { "table": "app_versions", "row": { "app_id": 2, "version": 1, "file_count": 1, "total_bytes": 100, "created_by": "seed", "changelog": "v1", "created_at": "2025-01-01 00:00:01" } },
+        { "table": "app_versions", "row": { "app_id": 2, "version": 2, "file_count": 1, "total_bytes": 120, "created_by": "seed", "changelog": "v2", "created_at": "2025-01-01 00:00:02" } },
+        { "table": "apps", "row": { "slug": "replay-other", "title": "另一个 SOP", "kind": "sop", "status": "published", "active_version": 1, "created_by": "seed", "created_at": "2025-01-01 00:00:02", "updated_at": "2025-01-01 00:00:02" } },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "running", "started_by": "alice", "data": "{\"b\":{\"old\":\"x\"}}", "started_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01", "finished_at": "" }
+        },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "finished", "started_by": "bob", "data": "{\"a\":{\"name\":\"done\"}}", "started_at": "2025-01-01 00:00:02", "updated_at": "2025-01-01 00:00:02", "finished_at": "2025-01-01 00:00:03" }
+        },
+        { "table": "sop_runs", "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "running", "started_by": "carol", "data": "{}", "started_at": "2025-01-01 00:00:03", "updated_at": "2025-01-01 00:00:03", "finished_at": "" } },
+        { "table": "sop_runs", "row": { "sop_slug": "task-center", "sop_version": 1, "status": "running", "started_by": "dave", "data": "{}", "started_at": "2025-01-01 00:00:04", "updated_at": "2025-01-01 00:00:04", "finished_at": "" } },
+        { "table": "sop_runs", "row": { "sop_slug": "replay-sop", "sop_version": 2, "status": "running", "started_by": "erin", "data": "{}", "started_at": "2025-01-01 00:00:05", "updated_at": "2025-01-01 00:00:05", "finished_at": "" } },
+        { "table": "sop_runs", "row": { "sop_slug": "replay-other", "sop_version": 1, "status": "running", "started_by": "frank", "data": "{}", "started_at": "2025-01-01 00:00:06", "updated_at": "2025-01-01 00:00:06", "finished_at": "" } },
+        { "table": "sop_runs", "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "running", "started_by": "gina", "data": "{}", "started_at": "2025-01-01 00:00:07", "updated_at": "2025-01-01 00:00:07", "finished_at": "" } },
+        { "table": "a2a_run_ctx", "row": { "context_id": "task-3", "run_id": 3, "task_id": "task-3", "caller": "dsh/1a2b3c4d", "team": "", "receipt_status": "" } }
+      ],
+      "seed_files": [
+        { "path": "apps/replay-sop/v1/sop.yaml", "content": "title: 回放 SOP\nsteps:\n  - key: a\n    title: 第一步\n    body: <input data-field=\"name\" required>\n  - key: b\n    title: 第二步\n    body: <input data-field=\"old\">\n" },
+        { "path": "apps/replay-sop/v2/sop.yaml", "content": "title: 回放 SOP\nsteps:\n  - key: a\n    title: 第一步\n    body: <input data-field=\"name\" required><input data-field=\"code\" pattern=\"^[A-Z]+$\">\n  - key: c\n    title: 新的一步\n    body: <input data-field=\"extra\">\n" },
+        { "path": "apps/replay-other/v1/sop.yaml", "content": "title: 另一个\nsteps:\n  - key: a\n    title: 一\n" }
+      ],
+      "steps": [
+        {
+          "id": "list",
+          "route": "GET /api/sop/runs",
+          "class": "normal",
+          "what": "全部 run：按更新时间倒序，只回元数据（steps 是数据里的步数）",
+          "request": { "method": "GET", "path": "/api/sop/runs", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1321", "etag": "W/\"529-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 7,
+                "sop_slug": "replay-sop",
+                "sop_version": 1,
+                "status": "running",
+                "started_by": "gina",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "",
+                "steps": 0
+              },
+              {
+                "id": 6,
+                "sop_slug": "replay-other",
+                "sop_version": 1,
+                "status": "running",
+                "started_by": "frank",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "",
+                "steps": 0
+              },
+              {
+                "id": 5,
+                "sop_slug": "replay-sop",
+                "sop_version": 2,
+                "status": "running",
+                "started_by": "erin",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "",
+                "steps": 0
+              },
+              {
+                "id": 4,
+                "sop_slug": "task-center",
+                "sop_version": 1,
+                "status": "running",
+                "started_by": "dave",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "",
+                "steps": 0
+              },
+              {
+                "id": 3,
+                "sop_slug": "replay-sop",
+                "sop_version": 1,
+                "status": "running",
+                "started_by": "carol",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "",
+                "steps": 0
+              },
+              {
+                "id": 2,
+                "sop_slug": "replay-sop",
+                "sop_version": 1,
+                "status": "finished",
+                "started_by": "bob",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "YYYY-MM-DD hh:mm:ss",
+                "steps": 1
+              },
+              {
+                "id": 1,
+                "sop_slug": "replay-sop",
+                "sop_version": 1,
+                "status": "running",
+                "started_by": "alice",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "",
+                "steps": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "list-slug",
+          "route": "GET /api/sop/runs",
+          "class": "normal",
+          "what": "slug=replay-sop",
+          "request": { "method": "GET", "path": "/api/sop/runs?slug=replay-sop", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "947", "etag": "W/\"3b3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 7,
+                "sop_slug": "replay-sop",
+                "sop_version": 1,
+                "status": "running",
+                "started_by": "gina",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "",
+                "steps": 0
+              },
+              {
+                "id": 5,
+                "sop_slug": "replay-sop",
+                "sop_version": 2,
+                "status": "running",
+                "started_by": "erin",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "",
+                "steps": 0
+              },
+              {
+                "id": 3,
+                "sop_slug": "replay-sop",
+                "sop_version": 1,
+                "status": "running",
+                "started_by": "carol",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "",
+                "steps": 0
+              },
+              {
+                "id": 2,
+                "sop_slug": "replay-sop",
+                "sop_version": 1,
+                "status": "finished",
+                "started_by": "bob",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "YYYY-MM-DD hh:mm:ss",
+                "steps": 1
+              },
+              {
+                "id": 1,
+                "sop_slug": "replay-sop",
+                "sop_version": 1,
+                "status": "running",
+                "started_by": "alice",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "",
+                "steps": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "list-status",
+          "route": "GET /api/sop/runs",
+          "class": "normal",
+          "what": "status=finished",
+          "request": { "method": "GET", "path": "/api/sop/runs?status=finished", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "205", "etag": "W/\"cd-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 2,
+                "sop_slug": "replay-sop",
+                "sop_version": 1,
+                "status": "finished",
+                "started_by": "bob",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "YYYY-MM-DD hh:mm:ss",
+                "steps": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "list-both",
+          "route": "GET /api/sop/runs",
+          "class": "normal",
+          "what": "slug 和 status 一起",
+          "request": { "method": "GET", "path": "/api/sop/runs?slug=replay-sop&status=running", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "743", "etag": "W/\"2e7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 7,
+                "sop_slug": "replay-sop",
+                "sop_version": 1,
+                "status": "running",
+                "started_by": "gina",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "",
+                "steps": 0
+              },
+              {
+                "id": 5,
+                "sop_slug": "replay-sop",
+                "sop_version": 2,
+                "status": "running",
+                "started_by": "erin",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "",
+                "steps": 0
+              },
+              {
+                "id": 3,
+                "sop_slug": "replay-sop",
+                "sop_version": 1,
+                "status": "running",
+                "started_by": "carol",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "",
+                "steps": 0
+              },
+              {
+                "id": 1,
+                "sop_slug": "replay-sop",
+                "sop_version": 1,
+                "status": "running",
+                "started_by": "alice",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "",
+                "steps": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "list-unknown",
+          "route": "GET /api/sop/runs",
+          "class": "normal",
+          "what": "没有这个 SOP：空数组",
+          "request": { "method": "GET", "path": "/api/sop/runs?slug=nope", "headers": {} },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": [] }
+        },
+        {
+          "id": "list-dispatched-off",
+          "route": "GET /api/sop/runs",
+          "class": "normal",
+          "what": "dispatched=1 但分拣开关没开：空数组",
+          "request": { "method": "GET", "path": "/api/sop/runs?dispatched=1", "headers": {} },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": [] }
+        },
+        {
+          "id": "list-dispatched-zero",
+          "route": "GET /api/sop/runs",
+          "class": "normal",
+          "what": "dispatched=0：照常列全部",
+          "request": { "method": "GET", "path": "/api/sop/runs?dispatched=0&status=finished", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "205", "etag": "W/\"cd-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 2,
+                "sop_slug": "replay-sop",
+                "sop_version": 1,
+                "status": "finished",
+                "started_by": "bob",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "YYYY-MM-DD hh:mm:ss",
+                "steps": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "list-array-slug",
+          "route": "GET /api/sop/runs",
+          "class": "normal",
+          "what": "slug 给了两个（成了数组）：不当过滤条件",
+          "request": { "method": "GET", "path": "/api/sop/runs?slug=a&slug=b&status=finished", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "205", "etag": "W/\"cd-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 2,
+                "sop_slug": "replay-sop",
+                "sop_version": 1,
+                "status": "finished",
+                "started_by": "bob",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "YYYY-MM-DD hh:mm:ss",
+                "steps": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "get-meta",
+          "route": "GET /api/sop/runs/:id(\\d+)",
+          "class": "normal",
+          "what": "不带读能力：只回元数据（没有 data，带 private_read）",
+          "request": { "method": "GET", "path": "/api/sop/runs/1", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "242", "etag": "W/\"f2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 1,
+              "sop_slug": "replay-sop",
+              "sop_version": 1,
+              "status": "running",
+              "started_by": "alice",
+              "started_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "finished_at": "",
+              "steps": 1,
+              "receipt": "none",
+              "private_read": "authorization-required"
+            }
+          }
+        },
+        {
+          "id": "get-admin",
+          "route": "GET /api/sop/runs/:id(\\d+)",
+          "class": "normal",
+          "what": "管理员：回完整数据和回执状态",
+          "request": { "method": "GET", "path": "/api/sop/runs/1", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "217", "etag": "W/\"d9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 1,
+              "sop_slug": "replay-sop",
+              "sop_version": 1,
+              "status": "running",
+              "started_by": "alice",
+              "started_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "finished_at": "",
+              "data": { "b": { "old": "x" } },
+              "receipt": "none"
+            }
+          }
+        },
+        {
+          "id": "get-finished",
+          "route": "GET /api/sop/runs/:id(\\d+)",
+          "class": "normal",
+          "what": "已完成的 run（管理员）",
+          "request": { "method": "GET", "path": "/api/sop/runs/2", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "239", "etag": "W/\"ef-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 2,
+              "sop_slug": "replay-sop",
+              "sop_version": 1,
+              "status": "finished",
+              "started_by": "bob",
+              "started_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "finished_at": "YYYY-MM-DD hh:mm:ss",
+              "data": { "a": { "name": "done" } },
+              "receipt": "none"
+            }
+          }
+        },
+        {
+          "id": "get-dispatched",
+          "route": "GET /api/sop/runs/:id(\\d+)",
+          "class": "normal",
+          "what": "有派单来源、没有回执地址：receipt none",
+          "request": { "method": "GET", "path": "/api/sop/runs/3", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "202", "etag": "W/\"ca-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 3, "sop_slug": "replay-sop", "sop_version": 1, "status": "running", "started_by": "carol", "started_at": "YYYY-MM-DD hh:mm:ss", "updated_at": "YYYY-MM-DD hh:mm:ss", "finished_at": "", "data": {}, "receipt": "none" }
+          }
+        },
+        {
+          "id": "get-missing",
+          "route": "GET /api/sop/runs/:id(\\d+)",
+          "class": "invalid",
+          "what": "没有这个 run：404",
+          "request": { "method": "GET", "path": "/api/sop/runs/999", "headers": {} },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "run not found: 999" }
+          }
+        },
+        {
+          "id": "get-wrong-cap",
+          "route": "GET /api/sop/runs/:id(\\d+)",
+          "class": "normal",
+          "what": "读能力不对：照样只回元数据",
+          "request": { "method": "GET", "path": "/api/sop/runs/1", "headers": { "x-run-read-capability": "nope" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "242", "etag": "W/\"f2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 1,
+              "sop_slug": "replay-sop",
+              "sop_version": 1,
+              "status": "running",
+              "started_by": "alice",
+              "started_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "finished_at": "",
+              "steps": 1,
+              "receipt": "none",
+              "private_read": "authorization-required"
+            }
+          }
+        },
+        {
+          "id": "raw-get-long",
+          "route": "GET /api/sop/runs/:id(\\d+)",
+          "class": "invalid",
+          "what": "原样发：id 是 4000 个 9",
+          "request": {
+            "method": "GET",
+            "path": "/api/sop/runs/9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+            "raw": true,
+            "headers": {}
+          },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "run not found: Infinity" }
+          }
+        },
+        {
+          "id": "save-remote-anonymous",
+          "route": "PUT /api/sop/runs/:id(\\d+)",
+          "class": "normal",
+          "what": "远程匿名也能写一步：执行页的写不经写总门（公开入口）",
+          "request": { "method": "PUT", "path": "/api/sop/runs/1", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "stepKey": "a", "value": { "name": "x" } } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "53", "etag": "W/\"35-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 1, "stepKey": "a", "persisted": "sqlite" }
+          }
+        },
+        {
+          "id": "save-cross",
+          "route": "PUT /api/sop/runs/:id(\\d+)",
+          "class": "normal",
+          "what": "跨站也收（同上）",
+          "request": { "method": "PUT", "path": "/api/sop/runs/1", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": { "stepKey": "a", "value": { "name": "x" } } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "53", "etag": "W/\"35-<指纹>\"", "x-powered-by": "Express" }, "body": { "ok": true, "id": 1, "stepKey": "a", "persisted": "sqlite" } }
+        },
+        {
+          "id": "save-no-key",
+          "route": "PUT /api/sop/runs/:id(\\d+)",
+          "class": "invalid",
+          "what": "没有 stepKey：400",
+          "request": { "method": "PUT", "path": "/api/sop/runs/1", "headers": {}, "json": { "value": 1 } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "stepKey 必填" } }
+        },
+        {
+          "id": "save-blank-key",
+          "route": "PUT /api/sop/runs/:id(\\d+)",
+          "class": "invalid",
+          "what": "stepKey 是空白：400",
+          "request": { "method": "PUT", "path": "/api/sop/runs/1", "headers": {}, "json": { "stepKey": "   ", "value": 1 } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "stepKey 必填" } }
+        },
+        {
+          "id": "save-bad-key",
+          "route": "PUT /api/sop/runs/:id(\\d+)",
+          "class": "invalid",
+          "what": "stepKey 有空格：400",
+          "request": { "method": "PUT", "path": "/api/sop/runs/1", "headers": {}, "json": { "stepKey": "a b", "value": 1 } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "46", "etag": "W/\"2e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "stepKey 仅允许字母/数字/_/-" } }
+        },
+        {
+          "id": "save-missing",
+          "route": "PUT /api/sop/runs/:id(\\d+)",
+          "class": "invalid",
+          "what": "没有这个 run：404",
+          "request": { "method": "PUT", "path": "/api/sop/runs/999", "headers": {}, "json": { "stepKey": "a", "value": 1 } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run not found: 999" } }
+        },
+        {
+          "id": "save-finished",
+          "route": "PUT /api/sop/runs/:id(\\d+)",
+          "class": "invalid",
+          "what": "已完成：409",
+          "request": { "method": "PUT", "path": "/api/sop/runs/2", "headers": {}, "json": { "stepKey": "a", "value": 1 } },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "45", "etag": "W/\"2d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run 2 已 finished，不可再写" } }
+        },
+        {
+          "id": "save",
+          "route": "PUT /api/sop/runs/:id(\\d+)",
+          "class": "normal",
+          "what": "本机写一步（没配 Redis：直写 SQLite）；stepKey 两头空白去掉",
+          "request": { "method": "PUT", "path": "/api/sop/runs/7", "headers": {}, "json": { "stepKey": "  a  ", "value": { "name": "" } } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "53", "etag": "W/\"35-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 7, "stepKey": "a", "persisted": "sqlite" }
+          }
+        },
+        {
+          "id": "save-number-key",
+          "route": "PUT /api/sop/runs/:id(\\d+)",
+          "class": "normal",
+          "what": "stepKey 是数 5：转成字符串 \"5\"",
+          "request": { "method": "PUT", "path": "/api/sop/runs/7", "headers": {}, "json": { "stepKey": 5, "value": 1 } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "53", "etag": "W/\"35-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 7, "stepKey": "5", "persisted": "sqlite" }
+          }
+        },
+        {
+          "id": "save-null",
+          "route": "PUT /api/sop/runs/:id(\\d+)",
+          "class": "normal",
+          "what": "没有 value：存 null",
+          "request": { "method": "PUT", "path": "/api/sop/runs/7", "headers": {}, "json": { "stepKey": "z" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "53", "etag": "W/\"35-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 7, "stepKey": "z", "persisted": "sqlite" }
+          }
+        },
+        {
+          "id": "save-task-center",
+          "route": "PUT /api/sop/runs/:id(\\d+)",
+          "class": "normal",
+          "what": "task-center 的 run 直写 SQLite",
+          "request": { "method": "PUT", "path": "/api/sop/runs/4", "headers": {}, "json": { "stepKey": "title", "value": "一个任务" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "57", "etag": "W/\"39-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 4, "stepKey": "title", "persisted": "sqlite" }
+          }
+        },
+        {
+          "id": "get-after-save",
+          "route": "GET /api/sop/runs/:id(\\d+)",
+          "class": "normal",
+          "what": "写过之后读（管理员）",
+          "request": { "method": "GET", "path": "/api/sop/runs/7", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "231", "etag": "W/\"e7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 7,
+              "sop_slug": "replay-sop",
+              "sop_version": 1,
+              "status": "running",
+              "started_by": "gina",
+              "started_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "finished_at": "",
+              "data": { "5": 1, "a": { "name": "" }, "z": null },
+              "receipt": "none"
+            }
+          }
+        },
+        {
+          "id": "finish-remote-anonymous",
+          "route": "POST /api/sop/runs/:id(\\d+)/finish",
+          "class": "invalid",
+          "what": "远程匿名也能点完成（公开入口）：这里卡在字段校验，400",
+          "request": { "method": "POST", "path": "/api/sop/runs/7/finish", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "105", "etag": "W/\"69-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "有 1 个字段未通过校验，未完成：a.name：必填", "violations": ["a.name：必填"] }
+          }
+        },
+        {
+          "id": "finish-missing",
+          "route": "POST /api/sop/runs/:id(\\d+)/finish",
+          "class": "invalid",
+          "what": "没有这个 run：404",
+          "request": { "method": "POST", "path": "/api/sop/runs/999/finish", "headers": {}, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run not found: 999" } }
+        },
+        {
+          "id": "finish-finished",
+          "route": "POST /api/sop/runs/:id(\\d+)/finish",
+          "class": "invalid",
+          "what": "已完成：409",
+          "request": { "method": "POST", "path": "/api/sop/runs/2/finish", "headers": {}, "json": {} },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run 2 已 finished" } }
+        },
+        {
+          "id": "finish-violations",
+          "route": "POST /api/sop/runs/:id(\\d+)/finish",
+          "class": "invalid",
+          "what": "按 run 所用版本（v1）的字段规则：name 必填是空串，400 带 violations，run 仍进行中",
+          "request": { "method": "POST", "path": "/api/sop/runs/7/finish", "headers": {}, "json": {} },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "105", "etag": "W/\"69-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "有 1 个字段未通过校验，未完成：a.name：必填", "violations": ["a.name：必填"] }
+          }
+        },
+        {
+          "id": "save-fix",
+          "route": "PUT /api/sop/runs/:id(\\d+)",
+          "class": "normal",
+          "what": "补上 name",
+          "request": { "method": "PUT", "path": "/api/sop/runs/7", "headers": {}, "json": { "stepKey": "a", "value": { "name": "填好了" } } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "53", "etag": "W/\"35-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 7, "stepKey": "a", "persisted": "sqlite" }
+          }
+        },
+        {
+          "id": "finish",
+          "route": "POST /api/sop/runs/:id(\\d+)/finish",
+          "class": "normal",
+          "what": "完成：回步数",
+          "request": { "method": "POST", "path": "/api/sop/runs/7/finish", "headers": {}, "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "48", "etag": "W/\"30-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "id": 7,
+              "status": "finished",
+              "steps": 3
+            }
+          }
+        },
+        {
+          "id": "finish-again",
+          "route": "POST /api/sop/runs/:id(\\d+)/finish",
+          "class": "invalid",
+          "what": "再完成：409",
+          "request": { "method": "POST", "path": "/api/sop/runs/7/finish", "headers": {}, "json": {} },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run 7 已 finished" } }
+        },
+        {
+          "id": "finish-task-center",
+          "route": "POST /api/sop/runs/:id(\\d+)/finish",
+          "class": "normal",
+          "what": "task-center 的 run 不按字段规则校验",
+          "request": { "method": "POST", "path": "/api/sop/runs/4/finish", "headers": {}, "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "48", "etag": "W/\"30-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "id": 4,
+              "status": "finished",
+              "steps": 1
+            }
+          }
+        },
+        {
+          "id": "get-after-finish",
+          "route": "GET /api/sop/runs/:id(\\d+)",
+          "class": "normal",
+          "what": "完成之后读（管理员）",
+          "request": { "method": "GET", "path": "/api/sop/runs/7", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "260", "etag": "W/\"104-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 7,
+              "sop_slug": "replay-sop",
+              "sop_version": 1,
+              "status": "finished",
+              "started_by": "gina",
+              "started_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "finished_at": "YYYY-MM-DD hh:mm:ss",
+              "data": { "5": 1, "a": { "name": "填好了" }, "z": null },
+              "receipt": "none"
+            }
+          }
+        },
+        {
+          "id": "preflight-no-auth",
+          "route": "GET /api/sop/runs/:id(\\d+)/upgrade-preflight",
+          "class": "unauthorized",
+          "what": "不带读能力：403",
+          "request": { "method": "GET", "path": "/api/sop/runs/1/upgrade-preflight", "headers": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "43", "etag": "W/\"2b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "run read authorization required" }
+          }
+        },
+        {
+          "id": "preflight-missing",
+          "route": "GET /api/sop/runs/:id(\\d+)/upgrade-preflight",
+          "class": "invalid",
+          "what": "没有这个 run（管理员）：404",
+          "request": { "method": "GET", "path": "/api/sop/runs/999/upgrade-preflight", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "run not found: 999" }
+          }
+        },
+        {
+          "id": "preflight",
+          "route": "GET /api/sop/runs/:id(\\d+)/upgrade-preflight",
+          "class": "normal",
+          "what": "管理员预检 run 1（v1 → v2）：旧版、当前版规则各核一遍，字段增减，无处安放的数据",
+          "request": { "method": "GET", "path": "/api/sop/runs/1/upgrade-preflight", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "258", "etag": "W/\"102-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "run_id": 1,
+              "sop_slug": "replay-sop",
+              "from_version": 1,
+              "to_version": 2,
+              "up_to_date": false,
+              "old_rules_readable": true,
+              "violations_now": [],
+              "violations_after": [],
+              "fields_added": ["a.code", "c.extra"],
+              "fields_removed": ["b.old"],
+              "data_without_field": ["b"],
+              "history": []
+            }
+          }
+        },
+        {
+          "id": "preflight-up-to-date",
+          "route": "GET /api/sop/runs/:id(\\d+)/upgrade-preflight",
+          "class": "normal",
+          "what": "run 5 已是当前版：up_to_date",
+          "request": { "method": "GET", "path": "/api/sop/runs/5/upgrade-preflight", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "263", "etag": "W/\"107-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "run_id": 5,
+              "sop_slug": "replay-sop",
+              "from_version": 2,
+              "to_version": 2,
+              "up_to_date": true,
+              "old_rules_readable": true,
+              "violations_now": ["a.name：必填"],
+              "violations_after": ["a.name：必填"],
+              "fields_added": [],
+              "fields_removed": [],
+              "data_without_field": [],
+              "history": []
+            }
+          }
+        },
+        {
+          "id": "preflight-task-center",
+          "route": "GET /api/sop/runs/:id(\\d+)/upgrade-preflight",
+          "class": "invalid",
+          "what": "task-center 的 run：400",
+          "request": { "method": "GET", "path": "/api/sop/runs/4/upgrade-preflight", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "47", "etag": "W/\"2f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "任务中心记录不走 SOP 版本" }
+          }
+        },
+        {
+          "id": "preflight-finished",
+          "route": "GET /api/sop/runs/:id(\\d+)/upgrade-preflight",
+          "class": "invalid",
+          "what": "已完成的 run：409",
+          "request": { "method": "GET", "path": "/api/sop/runs/2/upgrade-preflight", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "63", "etag": "W/\"3f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "run 2 已 finished，只能升级进行中的记录" }
+          }
+        },
+        {
+          "id": "upgrade-remote-anonymous",
+          "route": "POST /api/sop/runs/:id(\\d+)/upgrade",
+          "class": "unauthorized",
+          "what": "远程匿名：写总门 403",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/upgrade", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "reason": "x" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "upgrade-browser-no-token",
+          "route": "POST /api/sop/runs/:id(\\d+)/upgrade",
+          "class": "unauthorized",
+          "what": "本机但是浏览器（带 sec-fetch 标记）、不带口令：写总门先拦，403",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/upgrade", "headers": { "sec-fetch-site": "same-origin", "sec-fetch-mode": "cors" }, "json": { "reason": "x" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "upgrade-no-reason",
+          "route": "POST /api/sop/runs/:id(\\d+)/upgrade",
+          "class": "invalid",
+          "what": "本机命令行、没写 reason：400",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/upgrade", "headers": {}, "json": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "49", "etag": "W/\"31-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "升级要写 reason（记入审计）" } }
+        },
+        {
+          "id": "upgrade-blank-reason",
+          "route": "POST /api/sop/runs/:id(\\d+)/upgrade",
+          "class": "invalid",
+          "what": "reason 是空白：400",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/upgrade", "headers": {}, "json": { "reason": "   " } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "49", "etag": "W/\"31-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "升级要写 reason（记入审计）" } }
+        },
+        {
+          "id": "upgrade-up-to-date",
+          "route": "POST /api/sop/runs/:id(\\d+)/upgrade",
+          "class": "invalid",
+          "what": "run 5 已是当前版：409",
+          "request": { "method": "POST", "path": "/api/sop/runs/5/upgrade", "headers": {}, "json": { "reason": "试一下" } },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run 5 已是当前版本 v2" } }
+        },
+        {
+          "id": "upgrade-wrong-expected",
+          "route": "POST /api/sop/runs/:id(\\d+)/upgrade",
+          "class": "invalid",
+          "what": "expected_version 和当前版不一致：409",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/upgrade", "headers": {}, "json": { "reason": "试一下", "expected_version": 3 } },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "79", "etag": "W/\"4f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "当前版本已是 v2，与预检时的 v3 不同，请重新预检" } }
+        },
+        {
+          "id": "upgrade-task-center",
+          "route": "POST /api/sop/runs/:id(\\d+)/upgrade",
+          "class": "invalid",
+          "what": "task-center 的 run：400",
+          "request": { "method": "POST", "path": "/api/sop/runs/4/upgrade", "headers": {}, "json": { "reason": "试一下" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "47", "etag": "W/\"2f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "任务中心记录不走 SOP 版本" } }
+        },
+        {
+          "id": "upgrade-missing",
+          "route": "POST /api/sop/runs/:id(\\d+)/upgrade",
+          "class": "invalid",
+          "what": "没有这个 run：404",
+          "request": { "method": "POST", "path": "/api/sop/runs/999/upgrade", "headers": {}, "json": { "reason": "试一下" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run not found: 999" } }
+        },
+        {
+          "id": "upgrade-expected-trailing",
+          "route": "POST /api/sop/runs/:id(\\d+)/upgrade",
+          "class": "invalid",
+          "what": "expected_version 是 '2x'：Number 认不出，409（换成 parseInt 会当 2 放过去）",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/upgrade", "headers": {}, "json": { "reason": "试一下", "expected_version": "2x" } },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "当前版本已是 v2，与预检时的 v2x 不同，请重新预检" } }
+        },
+        {
+          "id": "upgrade",
+          "route": "POST /api/sop/runs/:id(\\d+)/upgrade",
+          "class": "normal",
+          "what": "本机命令行升级 run 1 到 v2：reason 两头空白去掉、截 200；审计记 cli",
+          "request": {
+            "method": "POST",
+            "path": "/api/sop/runs/1/upgrade",
+            "headers": {},
+            "json": { "reason": "  因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因  ", "expected_version": "2" }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "284", "etag": "W/\"11c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "run_id": 1,
+              "sop_slug": "replay-sop",
+              "from_version": 1,
+              "to_version": 2,
+              "up_to_date": false,
+              "old_rules_readable": true,
+              "violations_now": [],
+              "violations_after": [],
+              "fields_added": ["a.code", "c.extra"],
+              "fields_removed": ["b.old"],
+              "data_without_field": ["b"],
+              "history": [],
+              "upgraded": true
+            }
+          }
+        },
+        {
+          "id": "upgrade-again",
+          "route": "POST /api/sop/runs/:id(\\d+)/upgrade",
+          "class": "invalid",
+          "what": "再升级：已是当前版 409",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/upgrade", "headers": {}, "json": { "reason": "再来" } },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run 1 已是当前版本 v2" } }
+        },
+        {
+          "id": "upgrade-admin",
+          "route": "POST /api/sop/runs/:id(\\d+)/upgrade",
+          "class": "normal",
+          "what": "远程管理员升级 run 3：审计记管理员",
+          "request": { "method": "POST", "path": "/api/sop/runs/3/upgrade", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "reason": "管理员升级" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "315", "etag": "W/\"13b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "run_id": 3,
+              "sop_slug": "replay-sop",
+              "from_version": 1,
+              "to_version": 2,
+              "up_to_date": false,
+              "old_rules_readable": true,
+              "violations_now": ["a.name：必填"],
+              "violations_after": ["a.name：必填"],
+              "fields_added": ["a.code", "c.extra"],
+              "fields_removed": ["b.old"],
+              "data_without_field": [],
+              "history": [],
+              "upgraded": true
+            }
+          }
+        },
+        {
+          "id": "preflight-after-upgrade",
+          "route": "GET /api/sop/runs/:id(\\d+)/upgrade-preflight",
+          "class": "normal",
+          "what": "升级之后的预检：up_to_date，history 里一条 cli 的审计",
+          "request": { "method": "GET", "path": "/api/sop/runs/1/upgrade-preflight", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "933", "etag": "W/\"3a5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "run_id": 1,
+              "sop_slug": "replay-sop",
+              "from_version": 2,
+              "to_version": 2,
+              "up_to_date": true,
+              "old_rules_readable": true,
+              "violations_now": [],
+              "violations_after": [],
+              "fields_added": [],
+              "fields_removed": [],
+              "data_without_field": ["b"],
+              "history": [
+                { "from_version": 1, "to_version": 2, "actor": "cli", "reason": "因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因", "violations": 0, "at": "YYYY-MM-DD hh:mm:ss" }
+              ]
+            }
+          }
+        },
+        {
+          "id": "preflight-after-admin-upgrade",
+          "route": "GET /api/sop/runs/:id(\\d+)/upgrade-preflight",
+          "class": "normal",
+          "what": "管理员升级的 run 3：history 里记的是管理员",
+          "request": { "method": "GET", "path": "/api/sop/runs/3/upgrade-preflight", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "387", "etag": "W/\"183-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "run_id": 3,
+              "sop_slug": "replay-sop",
+              "from_version": 2,
+              "to_version": 2,
+              "up_to_date": true,
+              "old_rules_readable": true,
+              "violations_now": ["a.name：必填"],
+              "violations_after": ["a.name：必填"],
+              "fields_added": [],
+              "fields_removed": [],
+              "data_without_field": [],
+              "history": [{ "from_version": 1, "to_version": 2, "actor": "admin-token", "reason": "管理员升级", "violations": 1, "at": "YYYY-MM-DD hh:mm:ss" }]
+            }
+          }
+        },
+        {
+          "id": "get-after-upgrade",
+          "route": "GET /api/sop/runs/:id(\\d+)",
+          "class": "normal",
+          "what": "升级之后读：sop_version 是 2，数据没动",
+          "request": { "method": "GET", "path": "/api/sop/runs/1", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "234", "etag": "W/\"ea-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 1,
+              "sop_slug": "replay-sop",
+              "sop_version": 2,
+              "status": "running",
+              "started_by": "alice",
+              "started_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "finished_at": "",
+              "data": { "b": { "old": "x" }, "a": { "name": "x" } },
+              "receipt": "none"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "dispatch",
+      "what": "同上，另把设置 dispatch_sorting_enabled 置 1（agent 分拣投递开着）。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "seed": [
+        { "table": "apps", "row": { "slug": "replay-sop", "title": "回放 SOP", "kind": "sop", "status": "published", "active_version": 2, "created_by": "seed", "created_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" } },
+        { "table": "app_versions", "row": { "app_id": 2, "version": 1, "file_count": 1, "total_bytes": 100, "created_by": "seed", "changelog": "v1", "created_at": "2025-01-01 00:00:01" } },
+        { "table": "app_versions", "row": { "app_id": 2, "version": 2, "file_count": 1, "total_bytes": 120, "created_by": "seed", "changelog": "v2", "created_at": "2025-01-01 00:00:02" } },
+        { "table": "apps", "row": { "slug": "replay-other", "title": "另一个 SOP", "kind": "sop", "status": "published", "active_version": 1, "created_by": "seed", "created_at": "2025-01-01 00:00:02", "updated_at": "2025-01-01 00:00:02" } },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "running", "started_by": "alice", "data": "{\"b\":{\"old\":\"x\"}}", "started_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01", "finished_at": "" }
+        },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "finished", "started_by": "bob", "data": "{\"a\":{\"name\":\"done\"}}", "started_at": "2025-01-01 00:00:02", "updated_at": "2025-01-01 00:00:02", "finished_at": "2025-01-01 00:00:03" }
+        },
+        { "table": "sop_runs", "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "running", "started_by": "carol", "data": "{}", "started_at": "2025-01-01 00:00:03", "updated_at": "2025-01-01 00:00:03", "finished_at": "" } },
+        { "table": "sop_runs", "row": { "sop_slug": "task-center", "sop_version": 1, "status": "running", "started_by": "dave", "data": "{}", "started_at": "2025-01-01 00:00:04", "updated_at": "2025-01-01 00:00:04", "finished_at": "" } },
+        { "table": "sop_runs", "row": { "sop_slug": "replay-sop", "sop_version": 2, "status": "running", "started_by": "erin", "data": "{}", "started_at": "2025-01-01 00:00:05", "updated_at": "2025-01-01 00:00:05", "finished_at": "" } },
+        { "table": "sop_runs", "row": { "sop_slug": "replay-other", "sop_version": 1, "status": "running", "started_by": "frank", "data": "{}", "started_at": "2025-01-01 00:00:06", "updated_at": "2025-01-01 00:00:06", "finished_at": "" } },
+        { "table": "sop_runs", "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "running", "started_by": "gina", "data": "{}", "started_at": "2025-01-01 00:00:07", "updated_at": "2025-01-01 00:00:07", "finished_at": "" } },
+        { "table": "a2a_run_ctx", "row": { "context_id": "task-3", "run_id": 3, "task_id": "task-3", "caller": "dsh/1a2b3c4d", "team": "", "receipt_status": "" } },
+        { "table": "settings", "row": { "key": "dispatch_sorting_enabled", "value": "1" } }
+      ],
+      "seed_files": [
+        { "path": "apps/replay-sop/v1/sop.yaml", "content": "title: 回放 SOP\nsteps:\n  - key: a\n    title: 第一步\n    body: <input data-field=\"name\" required>\n  - key: b\n    title: 第二步\n    body: <input data-field=\"old\">\n" },
+        { "path": "apps/replay-sop/v2/sop.yaml", "content": "title: 回放 SOP\nsteps:\n  - key: a\n    title: 第一步\n    body: <input data-field=\"name\" required><input data-field=\"code\" pattern=\"^[A-Z]+$\">\n  - key: c\n    title: 新的一步\n    body: <input data-field=\"extra\">\n" },
+        { "path": "apps/replay-other/v1/sop.yaml", "content": "title: 另一个\nsteps:\n  - key: a\n    title: 一\n" }
+      ],
+      "steps": [
+        {
+          "id": "dispatched-on",
+          "route": "GET /api/sop/runs",
+          "class": "normal",
+          "what": "分拣开关开着：dispatched=1 只列有派单来源、进行中的",
+          "request": { "method": "GET", "path": "/api/sop/runs?dispatched=1", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "187", "etag": "W/\"bb-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 3,
+                "sop_slug": "replay-sop",
+                "sop_version": 1,
+                "status": "running",
+                "started_by": "carol",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "",
+                "steps": 0
+              }
+            ]
+          }
+        },
+        {
+          "id": "dispatched-on-ignores-filters",
+          "route": "GET /api/sop/runs",
+          "class": "normal",
+          "what": "dispatched=1 时 slug、status 不起作用",
+          "request": { "method": "GET", "path": "/api/sop/runs?dispatched=1&status=finished", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "187", "etag": "W/\"bb-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 3,
+                "sop_slug": "replay-sop",
+                "sop_version": 1,
+                "status": "running",
+                "started_by": "carol",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "",
+                "steps": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "dev-origin",
+      "what": "开了 web dev 来源例外（WM_DEV_ORIGIN=1），管理口令由环境给（合成值）。同样的种子。",
+      "env": { "WM_DEV_ORIGIN": "1", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "seed": [
+        { "table": "apps", "row": { "slug": "replay-sop", "title": "回放 SOP", "kind": "sop", "status": "published", "active_version": 2, "created_by": "seed", "created_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" } },
+        { "table": "app_versions", "row": { "app_id": 2, "version": 1, "file_count": 1, "total_bytes": 100, "created_by": "seed", "changelog": "v1", "created_at": "2025-01-01 00:00:01" } },
+        { "table": "app_versions", "row": { "app_id": 2, "version": 2, "file_count": 1, "total_bytes": 120, "created_by": "seed", "changelog": "v2", "created_at": "2025-01-01 00:00:02" } },
+        { "table": "apps", "row": { "slug": "replay-other", "title": "另一个 SOP", "kind": "sop", "status": "published", "active_version": 1, "created_by": "seed", "created_at": "2025-01-01 00:00:02", "updated_at": "2025-01-01 00:00:02" } },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "running", "started_by": "alice", "data": "{\"b\":{\"old\":\"x\"}}", "started_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01", "finished_at": "" }
+        },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "finished", "started_by": "bob", "data": "{\"a\":{\"name\":\"done\"}}", "started_at": "2025-01-01 00:00:02", "updated_at": "2025-01-01 00:00:02", "finished_at": "2025-01-01 00:00:03" }
+        },
+        { "table": "sop_runs", "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "running", "started_by": "carol", "data": "{}", "started_at": "2025-01-01 00:00:03", "updated_at": "2025-01-01 00:00:03", "finished_at": "" } },
+        { "table": "sop_runs", "row": { "sop_slug": "task-center", "sop_version": 1, "status": "running", "started_by": "dave", "data": "{}", "started_at": "2025-01-01 00:00:04", "updated_at": "2025-01-01 00:00:04", "finished_at": "" } },
+        { "table": "sop_runs", "row": { "sop_slug": "replay-sop", "sop_version": 2, "status": "running", "started_by": "erin", "data": "{}", "started_at": "2025-01-01 00:00:05", "updated_at": "2025-01-01 00:00:05", "finished_at": "" } },
+        { "table": "sop_runs", "row": { "sop_slug": "replay-other", "sop_version": 1, "status": "running", "started_by": "frank", "data": "{}", "started_at": "2025-01-01 00:00:06", "updated_at": "2025-01-01 00:00:06", "finished_at": "" } },
+        { "table": "sop_runs", "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "running", "started_by": "gina", "data": "{}", "started_at": "2025-01-01 00:00:07", "updated_at": "2025-01-01 00:00:07", "finished_at": "" } },
+        { "table": "a2a_run_ctx", "row": { "context_id": "task-3", "run_id": 3, "task_id": "task-3", "caller": "dsh/1a2b3c4d", "team": "", "receipt_status": "" } }
+      ],
+      "seed_files": [
+        { "path": "apps/replay-sop/v1/sop.yaml", "content": "title: 回放 SOP\nsteps:\n  - key: a\n    title: 第一步\n    body: <input data-field=\"name\" required>\n  - key: b\n    title: 第二步\n    body: <input data-field=\"old\">\n" },
+        { "path": "apps/replay-sop/v2/sop.yaml", "content": "title: 回放 SOP\nsteps:\n  - key: a\n    title: 第一步\n    body: <input data-field=\"name\" required><input data-field=\"code\" pattern=\"^[A-Z]+$\">\n  - key: c\n    title: 新的一步\n    body: <input data-field=\"extra\">\n" },
+        { "path": "apps/replay-other/v1/sop.yaml", "content": "title: 另一个\nsteps:\n  - key: a\n    title: 一\n" }
+      ],
+      "steps": [
+        {
+          "id": "dev-upgrade-admin",
+          "route": "POST /api/sop/runs/:id(\\d+)/upgrade",
+          "class": "unauthorized",
+          "what": "开了 dev 来源例外：本机页面在 5173 带口令——写总门放行，但路由自己的判定要同源的管理员或不带浏览器标记的命令行，都不是，403",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/upgrade", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "http://localhost:5173", "sec-fetch-site": "same-site" }, "json": { "reason": "页面上升级" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "access-control-allow-origin": "http://localhost:5173", "content-length": "56", "etag": "W/\"38-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "升级 run 只限管理员或本机命令行" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce），管理口令由环境给（合成值）。同样的种子。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "seed": [
+        { "table": "apps", "row": { "slug": "replay-sop", "title": "回放 SOP", "kind": "sop", "status": "published", "active_version": 2, "created_by": "seed", "created_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" } },
+        { "table": "app_versions", "row": { "app_id": 2, "version": 1, "file_count": 1, "total_bytes": 100, "created_by": "seed", "changelog": "v1", "created_at": "2025-01-01 00:00:01" } },
+        { "table": "app_versions", "row": { "app_id": 2, "version": 2, "file_count": 1, "total_bytes": 120, "created_by": "seed", "changelog": "v2", "created_at": "2025-01-01 00:00:02" } },
+        { "table": "apps", "row": { "slug": "replay-other", "title": "另一个 SOP", "kind": "sop", "status": "published", "active_version": 1, "created_by": "seed", "created_at": "2025-01-01 00:00:02", "updated_at": "2025-01-01 00:00:02" } },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "running", "started_by": "alice", "data": "{\"b\":{\"old\":\"x\"}}", "started_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01", "finished_at": "" }
+        },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "finished", "started_by": "bob", "data": "{\"a\":{\"name\":\"done\"}}", "started_at": "2025-01-01 00:00:02", "updated_at": "2025-01-01 00:00:02", "finished_at": "2025-01-01 00:00:03" }
+        },
+        { "table": "sop_runs", "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "running", "started_by": "carol", "data": "{}", "started_at": "2025-01-01 00:00:03", "updated_at": "2025-01-01 00:00:03", "finished_at": "" } },
+        { "table": "sop_runs", "row": { "sop_slug": "task-center", "sop_version": 1, "status": "running", "started_by": "dave", "data": "{}", "started_at": "2025-01-01 00:00:04", "updated_at": "2025-01-01 00:00:04", "finished_at": "" } },
+        { "table": "sop_runs", "row": { "sop_slug": "replay-sop", "sop_version": 2, "status": "running", "started_by": "erin", "data": "{}", "started_at": "2025-01-01 00:00:05", "updated_at": "2025-01-01 00:00:05", "finished_at": "" } },
+        { "table": "sop_runs", "row": { "sop_slug": "replay-other", "sop_version": 1, "status": "running", "started_by": "frank", "data": "{}", "started_at": "2025-01-01 00:00:06", "updated_at": "2025-01-01 00:00:06", "finished_at": "" } },
+        { "table": "sop_runs", "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "running", "started_by": "gina", "data": "{}", "started_at": "2025-01-01 00:00:07", "updated_at": "2025-01-01 00:00:07", "finished_at": "" } },
+        { "table": "a2a_run_ctx", "row": { "context_id": "task-3", "run_id": 3, "task_id": "task-3", "caller": "dsh/1a2b3c4d", "team": "", "receipt_status": "" } }
+      ],
+      "seed_files": [
+        { "path": "apps/replay-sop/v1/sop.yaml", "content": "title: 回放 SOP\nsteps:\n  - key: a\n    title: 第一步\n    body: <input data-field=\"name\" required>\n  - key: b\n    title: 第二步\n    body: <input data-field=\"old\">\n" },
+        { "path": "apps/replay-sop/v2/sop.yaml", "content": "title: 回放 SOP\nsteps:\n  - key: a\n    title: 第一步\n    body: <input data-field=\"name\" required><input data-field=\"code\" pattern=\"^[A-Z]+$\">\n  - key: c\n    title: 新的一步\n    body: <input data-field=\"extra\">\n" },
+        { "path": "apps/replay-other/v1/sop.yaml", "content": "title: 另一个\nsteps:\n  - key: a\n    title: 一\n" }
+      ],
+      "steps": [
+        {
+          "id": "gated-list-anonymous",
+          "route": "GET /api/sop/runs",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "GET", "path": "/api/sop/runs", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-list-with-token",
+          "route": "GET /api/sop/runs",
+          "class": "normal",
+          "what": "远程带口令：200",
+          "request": { "method": "GET", "path": "/api/sop/runs?status=finished", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "205", "etag": "W/\"cd-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 2,
+                "sop_slug": "replay-sop",
+                "sop_version": 1,
+                "status": "finished",
+                "started_by": "bob",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "YYYY-MM-DD hh:mm:ss",
+                "steps": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "gated-get-anonymous",
+          "route": "GET /api/sop/runs/:id(\\d+)",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "GET", "path": "/api/sop/runs/1", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-save-anonymous",
+          "route": "PUT /api/sop/runs/:id(\\d+)",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "PUT", "path": "/api/sop/runs/1", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "stepKey": "a", "value": 1 } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-finish-anonymous",
+          "route": "POST /api/sop/runs/:id(\\d+)/finish",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/finish", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-preflight-anonymous",
+          "route": "GET /api/sop/runs/:id(\\d+)/upgrade-preflight",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "GET", "path": "/api/sop/runs/1/upgrade-preflight", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-upgrade-anonymous",
+          "route": "POST /api/sop/runs/:id(\\d+)/upgrade",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/upgrade", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "reason": "x" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        }
+      ]
+    }
+  ]
+}

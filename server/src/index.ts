@@ -56,6 +56,7 @@ import { registerRemoteAllowRoutes } from './routes/remote-allow.ts';
 import { registerAppRoutes, registerAppLifecycleRoutes } from './routes/apps.ts';
 import { registerAppDataRoutes } from './routes/app-data.ts';
 import { registerSopRunFileRoutes } from './routes/sop-run-files.ts';
+import { registerSopRunLifecycleRoutes } from './routes/sop-run-lifecycle.ts';
 import { registerSopRunControlRoutes } from './routes/sop-run-control.ts';
 import { registerSopRunAccessRoutes } from './routes/sop-run-access.ts';
 import type { WorkbenchService } from './services/workbench.ts';
@@ -2077,41 +2078,6 @@ function ustarTar(files: { path: string; content: string | Buffer }[], opts: { p
 
 registerSkillRoutes(http, { adminGuard, wrap, bad, resolveSnap, skillPublishCore, skillTicketKey, skillVersionDir, skillPackage, skillPkgDir, SKILL_DL_MAX, executeSkillRollback, executeSkillDelete, layerfsPublish, LAYERFS_SKILLS_PROJECT, layerfsServiceBase, rebuildWmSkills, ustarTar });
 
-app.get('/api/sop/runs', (req, res) => {
-  // P4（F7）：待验收列表 = running 且有派单来源（a2a_run_ctx 有 callback/task_id），不含人自己开的
-  if (req.query.dispatched === '1') {
-    // #19 ②a：agent 分拣投递「默认关闭」——settings 开关 dispatch_sorting_enabled（'1'=开·缺省关）
-    const ds = getSettings() as Record<string, unknown>;
-    if (ds['dispatch_sorting_enabled'] !== '1' && ds['dispatch_sorting_enabled'] !== 1) return res.json([]);
-    const rows = svc<SopService>('sop').runsDispatched() as unknown as SopRunRow[];
-    return res.json(rows);
-  }
-  const slug = typeof req.query.slug === 'string' ? req.query.slug : '';
-  const status = typeof req.query.status === 'string' ? req.query.status : '';
-  const where: string[] = [];
-  const args: unknown[] = [];
-  if (slug) { where.push('sop_slug = ?'); args.push(slug); }
-  if (status) { where.push('status = ?'); args.push(status); }
-  const sql = `SELECT * FROM sop_runs ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY updated_at DESC LIMIT 200`;
-  res.json(svc<SopService>('sop').runsQuery(sql, args) as unknown as SopRunRow[]);
-});
-
-// 异步路由一律经 wrap：Express 4 不接 async 抛出的错，404/409 会变成未处理的 Promise 拒绝让进程退出
-app.get('/api/sop/runs/:id(\\d+)', wrap(async (req, res) => {
-  const id = Number(req.params.id);
-  const auth = await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, id);
-  if (auth.authorized) return res.json(await sopRunGetCore(id));
-  res.set('Cache-Control', 'no-store').json(sopRunGetMeta(id)); // #309 phase2：未授权只回元数据，不回私有 data
-}));
-
-app.put('/api/sop/runs/:id(\\d+)', wrap(async (req, res) => {
-  res.json(await sopRunStepSaveCore(Number(req.params.id), String(req.body?.stepKey ?? ''), req.body?.value));
-}));
-
-app.post('/api/sop/runs/:id(\\d+)/finish', wrap(async (req, res) => {
-  res.json(await sopRunFinishCore(Number(req.params.id)));
-}));
-
 // ---------- #437③ 进行中的 run 升级到当前 SOP 版本（预检 + 人确认 + 审计） ----------
 /** 每步的 data-field 名（含没有规则的字段），用来列出升级后新增、失效的字段 */
 function sopStepFields(manifest: SopManifest): Map<string, Set<string>> {
@@ -2154,34 +2120,7 @@ async function sopRunUpgradePlan(id: number) {
     },
   };
 }
-app.get('/api/sop/runs/:id(\\d+)/upgrade-preflight', wrap(async (req, res) => {
-  const id = Number(req.params.id);
-  await markOdooAdmin(req); // 只用 Odoo 登录的管理员能升级，也要能打开预检（GET 不经写门，不会预先认定）
-  const auth = await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, id);
-  if (!auth.authorized) return res.status(403).set('Cache-Control', 'no-store').json({ error: 'run read authorization required' });
-  res.set('Cache-Control', 'no-store').json((await sopRunUpgradePlan(id)).preflight);
-}));
-/** 升级要人确认：管理员（口令或 Odoo 管理员）或本机命令行，写明 reason；不在升级里改字段值，只换校验所用的版本 */
-app.post('/api/sop/runs/:id(\\d+)/upgrade', wrap(async (req, res) => {
-  const cli = !browserMarked(req) && rawLoopback(req);
-  if (!cli && !adminHeaderOk(req)) throw new HttpError(403, '升级 run 只限管理员或本机命令行');
-  const id = Number(req.params.id);
-  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 200) : '';
-  if (!reason) bad('升级要写 reason（记入审计）');
-  const expected = req.body?.expected_version;
-  const out = await runCheckpoints.serial(id, async () => {
-    const plan = await sopRunUpgradePlan(id);
-    if (plan.preflight.up_to_date) throw new HttpError(409, `run ${id} 已是当前版本 v${plan.target}`);
-    if (expected !== undefined && Number(expected) !== plan.target) throw new HttpError(409, `当前版本已是 v${plan.target}，与预检时的 v${expected} 不同，请重新预检`);
-    // 未落盘的缓冲与热态一并写回 SQLite，和换版本同一次写入；旧热态的校验点含版本号，之后自然失效、从 SQLite 回填
-    const json = JSON.stringify(plan.data);
-    if (!svc<SopService>('sop').runUpgrade(id, plan.row.sop_version, plan.target, json).changes) throw new HttpError(409, `run ${id} 状态或版本已变，请重新预检`);
-    runCheckpoints.forget(id);
-    svc<SopService>('sop').runUpgradeAudit({ runId: id, from: plan.row.sop_version, to: plan.target, actor: cli ? 'cli' : adminActor(req), reason, violations: plan.preflight.violations_after.length });
-    return { ok: true, ...plan.preflight, upgraded: true };
-  });
-  res.json(out);
-}));
+registerSopRunLifecycleRoutes(http, { wrap, adminHeaderOk, runReadCapHeader, sopRunGetCore, sopRunGetMeta, sopRunStepSaveCore, sopRunFinishCore, markOdooAdmin, sopRunUpgradePlan, bad, runCheckpoints, adminActor });
 
 // ---------- 自产台静态托管：GET /apps/:slug/* → DATA_DIR/apps/<slug>/v<active>/* ----------
 function serveApp(req: express.Request, res: express.Response) {
