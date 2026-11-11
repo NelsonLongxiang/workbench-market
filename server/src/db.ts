@@ -1155,6 +1155,66 @@ CREATE TABLE IF NOT EXISTS department_members (
 );
 CREATE INDEX IF NOT EXISTS idx_department_members_principal ON department_members (principal_id);
 `);
+// 团队与分配（规范 14 第 1 步）。团队、席位是节点名册里的事实（a2a_roster_seats，市场只读）；这三张表是公司的安排，只在市场里。
+//   键和名册一致：团队 (host, team)，host 是节点公钥指纹的前 8 位十六进制（小写）；席位以 (host, seat_id) 为主，seat_id 空的旧节点退回 (host, team, seat)。
+//   teams：团队的登记——认领了没有、挂在哪个部门。没认领的团队不一定有行（名册里出现了、还没人认领）。
+//   team_leads：另外指定的负责人（部门负责人自动是团队负责人，读的时候从部门表推，不存）。移除不删行，记结束时间。
+//   seat_assignments：成员分配给谁，起止时间；同一席位同时只有一条生效（两个部分唯一索引）。按时间点能查「那时这个成员归谁」。
+//   team_events：每次认领、退回、换部门、加减负责人、分配、收回一行，只增不改。时间都由代码给（毫秒）。
+db.exec(`
+CREATE TABLE IF NOT EXISTS teams (
+  host TEXT NOT NULL CHECK (length(host) = 8), -- 只有 0-9a-f 由代码核（不用 SQLite 特有的写法）
+  team TEXT NOT NULL,
+  department_id TEXT NOT NULL DEFAULT '',
+  claimed INTEGER NOT NULL DEFAULT 0 CHECK (claimed IN (0, 1)),
+  claimed_by TEXT NOT NULL DEFAULT '',
+  claimed_at INTEGER,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (host, team),
+  CHECK (claimed = 0 OR department_id <> '')
+);
+CREATE TABLE IF NOT EXISTS team_leads (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  host TEXT NOT NULL,
+  team TEXT NOT NULL,
+  principal_id TEXT NOT NULL CHECK (principal_id <> ''),
+  added_by TEXT NOT NULL,
+  added_at INTEGER NOT NULL,
+  ended_by TEXT,
+  ended_at INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_team_leads_active ON team_leads (host, team, principal_id) WHERE ended_at IS NULL;
+CREATE TABLE IF NOT EXISTS seat_assignments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  host TEXT NOT NULL,
+  team TEXT NOT NULL,
+  seat TEXT NOT NULL,
+  seat_id TEXT NOT NULL DEFAULT '',
+  principal_id TEXT NOT NULL CHECK (principal_id <> ''),
+  assigned_by TEXT NOT NULL,
+  assigned_at INTEGER NOT NULL,
+  ended_by TEXT,
+  ended_at INTEGER,
+  CHECK (ended_at IS NULL OR ended_at >= assigned_at)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_seat_assign_active_id ON seat_assignments (host, seat_id) WHERE ended_at IS NULL AND seat_id <> '';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_seat_assign_active_handle ON seat_assignments (host, team, seat) WHERE ended_at IS NULL AND seat_id = '';
+CREATE INDEX IF NOT EXISTS idx_seat_assign_principal ON seat_assignments (principal_id, ended_at);
+CREATE TABLE IF NOT EXISTS team_events (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  host TEXT NOT NULL,
+  team TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('claim','release','department','lead-add','lead-remove','assign','unassign')),
+  seat TEXT NOT NULL DEFAULT '',
+  seat_id TEXT NOT NULL DEFAULT '',
+  principal_id TEXT NOT NULL DEFAULT '',
+  detail TEXT NOT NULL DEFAULT '',
+  actor TEXT NOT NULL,
+  actor_principal TEXT,
+  at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_team_events_team ON team_events (host, team, seq);
+`);
 // 阶段八 8d：待对接清单的「出现序号」。同一条外部身份绑定后又出现在清单里，是新的一轮待决；「关注」的记账按它分轮，
 //   不靠时间（只到秒，同一秒里又出现就分不开）。每次新插入一行（主体服务是 upsert，只在真的新进清单时插入）取一个全局只增的号：
 //   号来自一张 AUTOINCREMENT 表，删掉旧号不会回退。只加这一列和取号，清单本身的写法不变。

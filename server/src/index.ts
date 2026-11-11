@@ -53,6 +53,7 @@ import { registerA2aDirectRoutes } from './routes/a2a-direct.ts';
 import { registerA2aOutboundRoutes } from './routes/a2a-outbound.ts';
 import { registerExportImportRoutes } from './routes/export-import.ts';
 import { registerDepartmentRoutes } from './routes/departments.ts';
+import { registerTeamRoutes } from './routes/teams.ts';
 import { registerLoginFlowRoutes } from './routes/login-flows.ts';
 import { registerWorkbenchRoutes } from './routes/workbenches.ts';
 import { registerSopPageRoutes } from './routes/sop-page.ts';
@@ -402,6 +403,8 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/messages\/(read|[1-9]\d{0,15}\/reply)$/,
   // 「安排一件事」：登录的人直接建事项（路由内经身份服务认人，只认启用的人；只此一条路径，不带子路径）
   /^\/api\/work-items$/,
+  // 团队：成员的分配、收回由团队的负责人做（路由内认人、核同源、判是不是负责人或管理员；只此两条）
+  /^\/api\/teams\/(assign|unassign)$/,
   // MCP 工具 REST 开放：与 /mcp 同口径，凭会话令牌在路由内鉴权，不认管理口令
   /^\/api\/mcp-rest\/(tools\/[^/]+|apps\/[a-z0-9-]{1,64}\/files(\/[^/]+)?)$/,
 ];
@@ -1861,6 +1864,7 @@ registerAuthViewerRoutes(http, { wrap, odooLoginUrl });
 registerPrincipalRoutes(http, { markOdooAdmin, adminGuard, adminActor });
 registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor }); // 阶段六 6b：角色声明与授予（只建结构，不接判定）
 registerDepartmentRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 部门：登录的人读、管理员写
+registerTeamRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 团队与分配（规范 14 第 1 步）：登录的人按可见范围读；认领、负责人是管理员，分配是负责人
 registerAttentionRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
 registerWorkItemRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8d：事项页的时间线
 registerRosterRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段七：团队名册的读（登录即可读，只有席位信息）
