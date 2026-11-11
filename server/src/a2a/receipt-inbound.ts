@@ -25,6 +25,7 @@ import { deliveryTarget, queueReply } from '../services/a2a-replies.ts';
 import { kickWorkbenchEvents, logDeliveryFact } from '../workbench-events.ts';
 import { noteA2aError } from './errors.ts';
 import { deliveredPeerZone, recordRoster, type RosterSeat } from '../services/a2a-roster.ts';
+import { cleanArtifacts } from '../services/work-item.ts';
 import { peerCard } from './peer-card.ts';
 
 export const ORIGIN_CLAIM_BODY_TAG = 'a2a-origin-claim/3';
@@ -159,11 +160,9 @@ function attributionOf(envelope: Record<string, unknown>): { by?: { seat: string
     // role（上游只增：router 总工 / member 成员 / observer 观察者），别的值丢掉
     out.by = { seat: str(r.seat), ...(str(r.name) ? { name: str(r.name) } : {}), ...(str(r.team) ? { team: str(r.team) } : {}), ...(r.role === 'router' || r.role === 'member' || r.role === 'observer' ? { role: r.role } : {}) };
   }
-  if (Array.isArray(envelope.artifacts)) {
-    const list = envelope.artifacts.filter((a): a is Record<string, unknown> => !!a && typeof a === 'object' && !Array.isArray(a))
-      .map((a) => ({ kind: str(a.kind), id: str(a.id) })).filter((a) => a.kind !== '' && a.id !== '').slice(0, 16);
-    if (list.length) out.artifacts = list;
-  }
+  // 产物的清洗只有一处定义（事项服务的 cleanArtifacts，事项的 outputs 用同一个）
+  const list = cleanArtifacts(envelope.artifacts);
+  if (list.length) out.artifacts = list;
   return out;
 }
 
