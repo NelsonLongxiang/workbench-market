@@ -128,7 +128,7 @@ let judgmentEnforce: EnforceConfig = { domains: null };
   mountJudgmentCompare(app, cfg, compareDeps, actorOf);
   // 阶段六 6d：判定切换的开关（WM_JUDGMENT_ENFORCE，缺省空 = 不切）。要在注册任何路由之前装门；写法不对、比对没开：拒绝启动
   let enforce: EnforceConfig;
-  try { enforce = enforceConfig(process.env, cfg.on); } catch (e) { console.error(`[judgment] 拒绝启动：${(e as Error).message}`); process.exit(1); }
+  try { enforce = enforceConfig(cfg.on); } catch (e) { console.error(`[judgment] 拒绝启动：${(e as Error).message}`); process.exit(1); }
   judgmentEnforce = enforce;
   if (enforce.domains) {
     http.setGate(enforceGate(enforce, actorOf, compareDeps.facts));

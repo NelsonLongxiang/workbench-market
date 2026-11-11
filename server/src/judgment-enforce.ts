@@ -34,7 +34,7 @@ export type EnforceConfig = { domains: ReadonlySet<string> | 'all' | null };
 const DOMAIN_RE = /^[a-z][a-z0-9-]{0,31}$/;
 
 /** 读开关。写法不对、比对没开：抛错（调用方拒绝启动） */
-export function enforceConfig(env: NodeJS.ProcessEnv, compareOn: boolean): EnforceConfig {
+export function enforceConfig(compareOn: boolean, env: NodeJS.ProcessEnv = process.env): EnforceConfig {
   const raw = String(env.WM_JUDGMENT_ENFORCE ?? '').trim();
   if (raw === '') return { domains: null };
   if (!compareOn) throw new Error('WM_JUDGMENT_ENFORCE 要和 WM_JUDGMENT_COMPARE=on 一起开（迁移授予和反向比对都靠它）');
@@ -88,7 +88,7 @@ export function enforceGate(config: EnforceConfig, actorOf: ActorOf, facts: () =
       const record = () => {
         enforcedDenials.add(req);
         try {
-          compare().enforced({ route: `${req.method} ${String(route?.path ?? '')}`, action: spec.action, actorKind: actor.type === 'builtin' ? actor.name : actor.kind, verdict: result.verdict, rule: result.rule });
+          compare().enforced({ route: `${req.method} ${String(route?.path ?? '')}`, action: spec.action, actorKind: actor.type === 'builtin' ? actor.name : actor.kind, verdict: result.verdict === 'ask' ? 'ask' : 'deny', rule: result.rule });
         } catch { /* 记不了也照样拒 */ }
       };
       // 读的路：GET、HEAD，类别是读或管理（管理面的读），处理函数没有副作用
