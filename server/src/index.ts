@@ -1623,8 +1623,9 @@ async function postReceipt(targetUrl: string, row: { run_id: number; task_id: st
   };
   const url = `${targetUrl.replace(/\/+$/, '')}/a2a/direct`;
   // OriginClaim：回执同样带绑定形式信封（#64 关窗后未签名的回执会被对端拒收）
+  const bodyText = JSON.stringify(body);
   const r = await fetch(url, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', ...marketOriginClaim(a2aKeyPath(), { url, method: 'POST' }) }, body: JSON.stringify(body),
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...marketOriginClaim(a2aKeyPath(), { url, method: 'POST', body: bodyText }) }, body: bodyText,
     signal: AbortSignal.timeout(10_000), redirect: 'manual',
   });
   if (r.status >= 300 && r.status < 400) {
