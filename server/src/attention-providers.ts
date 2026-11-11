@@ -139,8 +139,13 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
         const access = await tasksReadAccess(deps.adminHeaderOk(req), String(req.headers.cookie ?? ''));
         if (!access.ok) return null;
         const payload = await collectTasks(sop() as never, access.scope);
+        // 同一件事在「等你拍板」里只出现一次，以事项为准：任务中心的任务已经有对应事项的（安排的、旧录入路径发布的都算），
+        // 统一待办那一条不再列。只在「关注」聚合这里剔，/api/tasks 本身不变
+        const taskIdOf = (id: string) => { const m = /^market:task-([1-9]\d{0,15})$/.exec(id); return m ? Number(m[1]) : null; };
+        const withItems = svc<WorkItemService>('workItems').taskIdsWithItems(payload.tasks.map((t) => taskIdOf(t.id)).filter((n): n is number => n !== null));
         return payload.tasks
           .filter((t) => t.status !== 'done' && !TASKS_DEDUPED_PREFIXES.some((p) => t.id.startsWith(p)))
+          .filter((t) => { const n = taskIdOf(t.id); return n === null || !withItems.has(n); })
           .map((t) => item({
             source: 'tasks', source_id: t.id, category: 'review', title: t.title, waiting_for: t.source,
             since: '', answers: [], link: t.link ?? '/tasks', object: t.project ?? '', // 统一待办的信封没有「什么时候开始」

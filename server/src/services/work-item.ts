@@ -699,6 +699,17 @@ export class WorkItemService extends Service {
     return { items, counts, total: Object.values(counts).reduce((a, b) => a + b, 0), next: more && tail ? { updated_at: tail.updated_at, id: tail.id } : null };
   }
 
+  /**
+   * 这些任务中心任务里，哪些已经有对应的事项（任务发布时记的事件建出了事项）。「关注」聚合统一待办时剔掉它们：
+   * 同一件事在「等你拍板」里只出现一次，以事项为准（事项的过目、验收是它的入口）。
+   */
+  taskIdsWithItems(taskIds: number[]): Set<number> {
+    if (!taskIds.length) return new Set();
+    const rows = db.prepare(`SELECT e.item AS item FROM workbench_events e JOIN work_items w ON w.event_id = e.id
+      WHERE e.source = 'task-center' AND e.item IN (${taskIds.map(() => '?').join(', ')})`).all(...taskIds.map((n) => `task:${n}`)) as { item: string }[];
+    return new Set(rows.map((r) => Number(r.item.slice(5))));
+  }
+
   /** 唯一的改状态入口。 */
   apply(itemId: string, fact: Fact): ApplyResult {
     if (factProblem(fact)) return { ok: false, reason: 'bad_fact' };

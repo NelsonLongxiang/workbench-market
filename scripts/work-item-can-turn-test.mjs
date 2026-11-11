@@ -69,7 +69,8 @@ for (const e of [held, held2, asked]) items.syncEvent(e.event);
 const ready = (n) => { const it = items.create({ title: '待验收 ' + n, created_by: 'user:alpha', creator_principal: 'user:alpha', source_kind: 'agent' });
   for (const [k, x] of [['submit', { dispatch_open: true }], ['eval', { verdict: 'accept' }], ['report', { status: 'progress' }], ['report', { status: 'ready' }]]) items.apply(it.id, { kind: k, source: 'seed', id: it.id + ':' + k + ':' + (x.status ?? x.verdict ?? ''), ...x });
   return it.id; };
-console.log('SEEDED ' + JSON.stringify({ held, held2, asked, m1, m2, m3, readyA: ready('a'), readyB: ready('b') }));
+const loose = Number(db.prepare("INSERT INTO tasks (title, status, published_at, published_by) VALUES ('没有事件的任务', 'published', '2026-01-01 00:00:00', 'x')").run().lastInsertRowid);
+console.log('SEEDED ' + JSON.stringify({ held, held2, asked, m1, m2, m3, loose, readyA: ready('a'), readyB: ready('b') }));
 process.exit(0);
 `;
 
@@ -113,6 +114,16 @@ try {
   {
     const d = await detail(S.asked.item, '建立人');
     check(show(d.creator) === show({ principal: 'user:alpha', display_name: 'Synthetic alpha' }) && d.item?.created_by === 'user:alpha', '详情的 creator：主体和显示名；任务中心来的事项显示的建立人是认出来的提需求人（不是自填的发布名 human:root-admin）', show({ c: d.creator, by: d.item?.created_by }));
+  }
+
+  // ---------- 「等你拍板」里同一件只出现一次，以事项为准 ----------
+  {
+    const att = (await call('GET', '/api/attention', WHO.管理员)).body?.items ?? [];
+    const taskIds = att.filter((x) => x.source === 'tasks').map((x) => x.source_id);
+    const inbox = ((await call('GET', '/api/tasks', WHO.管理员)).body?.tasks ?? []).map((x) => x.id);
+    check(!taskIds.includes(`market:task-${S.held.task}`) && att.some((x) => x.source === 'work-items' && x.source_id === S.held.item) && taskIds.includes(`market:task-${S.loose}`),
+      '「关注」里有事项的任务只出现一次（事项那一条），统一待办那一条剔掉；没有事项的任务照旧列', show(taskIds));
+    check(inbox.includes(`market:task-${S.held.task}`), '/api/tasks 本身不变：有事项的任务照旧列着', show(inbox));
   }
 
   // ---------- release（不能的先验，能的最后做） ----------
