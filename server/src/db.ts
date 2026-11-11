@@ -320,7 +320,8 @@ CREATE TABLE IF NOT EXISTS a2a_inbound_receipts (
 -- 阶段七：团队名册（dsh-open-a2a-net#604 P3，[A2A roster]）。只认我们投递过的宿主、Sig3、席位只认签名这台宿主自己区里的；只当信息，不授予任何东西。
 -- a2a_rosters 每台宿主一行（来源、报的时间）；a2a_roster_seats 每个席位一行，键是「节点（宿主指纹）+ 团队 + 席位句柄」（14 号文档：团队登记、
 -- 负责人、分配建在它上面）；每次全量快照以新替旧（按宿主报的时间）。a2a_roster_changes 记入库时算出的变化（新团队、新成员、成员消失、
--- 团队消失、换总工），给上层做通知和「等你拍板」。seat_id 是宿主给成员位的稳定 id（上游 B1 起，句柄随会话变、它不变；旧节点不带就是空）。
+-- 团队消失、换总工），给上层做通知和「等你拍板」。host 是验过签的那把节点公钥的指纹（sha256 前 8 位十六进制，上游 canvasOwnerFingerprint），
+-- 正文里报的 host 只拿来核对；同一个 host 只认第一次报它的根地址。seat_id 是宿主给成员位的稳定 id（上游 B1 起，句柄随会话变、它不变；旧节点不带就是空）。
 -- 时间由代码生成后写入。
 CREATE TABLE IF NOT EXISTS a2a_rosters (
   host TEXT PRIMARY KEY,

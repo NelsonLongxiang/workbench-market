@@ -29,11 +29,13 @@ type SeatRow = { team: string; seat: string; role: string };
 const routerOf = (rows: readonly SeatRow[], team: string) => rows.filter((r) => r.team === team && r.role === 'router').map((r) => r.seat).sort()[0] ?? '';
 
 /** 记下一台宿主的名册：比已有的新才替换（宿主报的时间），替换时算出变化；返回 'recorded' 或 'stale' */
-export function recordRoster(r: { host: string; peerRoot: string; peerZone: string; reportedAt: string; seats: RosterSeat[]; now?: number }): 'recorded' | 'stale' {
+export function recordRoster(r: { host: string; peerRoot: string; peerZone: string; reportedAt: string; seats: RosterSeat[]; now?: number }): 'recorded' | 'stale' | 'host-conflict' {
   const at = sqlTime(r.now);
   db.exec('SAVEPOINT a2a_roster');
   try {
-    const prev = db.prepare('SELECT reported_at FROM a2a_rosters WHERE host = ?').get(r.host) as { reported_at: string } | undefined;
+    const prev = db.prepare('SELECT reported_at, peer_root FROM a2a_rosters WHERE host = ?').get(r.host) as { reported_at: string; peer_root: string } | undefined;
+    // 节点键只有 8 位十六进制，能凑出撞键的公钥：已经由别的根地址报过的节点键，换个根地址来报一律不收（不覆盖、不记变化）
+    if (prev && prev.peer_root !== r.peerRoot) { db.exec('RELEASE a2a_roster'); return 'host-conflict'; }
     if (prev && !(r.reportedAt > prev.reported_at)) { db.exec('RELEASE a2a_roster'); return 'stale'; }
     db.prepare(`INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(host) DO UPDATE SET peer_root = excluded.peer_root, peer_zone = excluded.peer_zone, reported_at = excluded.reported_at, received_at = excluded.received_at`)

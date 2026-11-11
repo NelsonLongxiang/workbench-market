@@ -14,7 +14,7 @@
 import { spawn } from './owned-script-fixture.mjs';
 import { createServer } from 'node:http';
 import { createServer as netServer } from 'node:net';
-import { createHash, generateKeyPairSync, sign as edSign } from 'node:crypto';
+import { createHash, createPublicKey, generateKeyPairSync, sign as edSign } from 'node:crypto';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -29,8 +29,8 @@ rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 
 // 对端：提供签名名片；收市场发来的 /a2a/direct（答复新任务），可设成一直失败
-async function peer(zone) {
-  const key = generateKeyPairSync('ed25519').privateKey;
+async function peer(zone, reuseKey) {
+  const key = reuseKey ?? generateKeyPairSync('ed25519').privateKey;
   const p = await port();
   const peerObj = { zone, key, url: `http://127.0.0.1:${p}`, got: [], fail: false };
   peerObj.server = createServer((req, res) => {
@@ -281,6 +281,9 @@ try {
   console.log('二之五、团队名册（[A2A roster]）');
   {
     const R0 = seedEvent();   // lab 是投递过的宿主（区 lab）
+    // 节点键 = 节点公钥的 canvasOwnerFingerprint（sha256 前 8 位十六进制，上游 roster.ts 的 host）
+    const fpOf = (key) => createHash('sha256').update(createPublicKey(key).export({ type: 'spki', format: 'der' })).digest('hex').slice(0, 8);
+    const LABFP = fpOf(lab.key);
     const rosterRaw = (fp, at, doc, task) => JSON.stringify({ team: 'market/12345678', message: `[A2A roster] ${fp} ${at}\n${JSON.stringify(doc)}`, caller_session: 'dsh-host-1a2b', context_id: '', wait: false, task_id: task });
     const at1 = '2026-11-11T09:00:00.000Z';
     const seats = [
@@ -294,7 +297,7 @@ try {
     // 在办件数从事项现算：把一件没结束的事项的承接设成成员甲
     await receipt(R0.task, '接下', { idempotencyKey: R0.task, disposition: 'acknowledged' }, R0.ctx, { inbound: `ack-${R0.task}` });
     { const d = db(); try { d.prepare('UPDATE work_items SET seat = ? WHERE id = ?').run('lab/a1a1a1a1', `wi_${R0.ev}`); } finally { d.close(); } }
-    let raw = rosterRaw('abcdef01', at1, { host: 'abcdef0123456789', at: at1, seats }, 'roster-abcdef01-1');
+    let raw = rosterRaw(LABFP, at1, { host: LABFP, at: at1, seats }, 'roster-abcdef01-1');
     r = await post(raw, signed(lab, raw));
     ok('名册：投递过的宿主、Sig3 → 收下（roster recorded），席位只留本区、句柄合形状的', r.status === 200 && r.text.includes('"roster":"recorded"') && r.text.includes('"seats":3'), r.text);
     const t1 = await api('GET', '/api/a2a/teams');
@@ -303,14 +306,14 @@ try {
     ok('读接口：团队、名字、在岗数；席位的名字、角色（认不出的置空）、在岗', team && team.name === 'team' && team.peer_zone === 'lab' && team.seats_online === 2 && team.seats.length === 3
       && team.seats.find((x) => x.seat === 'lab/b2b2b2b2')?.role === '' && sa?.name === '成员甲' && sa?.role === 'member', JSON.stringify(t1.body));
     ok('……在办件数从事项现算（不用宿主报的 9）；稳定的 seat_id 照收（没带的是空）', sa?.active === 1 && sa?.queued === 2 && sa?.seat_id === 'seat-a1' && team.seats.find((x) => x.seat === 'lab/00000000')?.seat_id === '', JSON.stringify(sa));
-    raw = rosterRaw('abcdef01', '2026-11-11T08:00:00.000Z', { host: 'abcdef0123456789', at: '2026-11-11T08:00:00.000Z', seats: [{ seat: 'lab/e5e5e5e5', name: '旧的', team: 'lab/canvas/team', role: 'member', online: true }] }, 'roster-abcdef01-0');
+    raw = rosterRaw(LABFP, '2026-11-11T08:00:00.000Z', { host: LABFP, at: '2026-11-11T08:00:00.000Z', seats: [{ seat: 'lab/e5e5e5e5', name: '旧的', team: 'lab/canvas/team', role: 'member', online: true }] }, 'roster-abcdef01-0');
     r = await post(raw, signed(lab, raw));
     ok('更早的名册 → stale，不覆盖', r.text.includes('"roster":"stale"') && !(await api('GET', '/api/a2a/teams')).body?.teams?.some((t) => t.seats.some((x) => x.seat === 'lab/e5e5e5e5')), r.text);
     // 名册变化：第一次收到 → 团队、席位都记 added；再来一版更新的 → 成员消失、新成员、换总工、新团队、团队消失
-    const changes = () => q('SELECT kind, team, seat, detail FROM a2a_roster_changes WHERE host = ? ORDER BY id', 'abcdef0123456789');
+    const changes = () => q('SELECT kind, team, seat, detail FROM a2a_roster_changes WHERE host = ? ORDER BY id', LABFP);
     ok('名册变化：第一次收到 → team-added 一条、seat-added 三条', JSON.stringify(changes().map((c) => c.kind)) === JSON.stringify(['team-added', 'seat-added', 'seat-added', 'seat-added']), JSON.stringify(changes()));
     const at2 = '2026-11-11T09:30:00.000Z';
-    raw = rosterRaw('abcdef01', at2, { host: 'abcdef0123456789', at: at2, seats: [
+    raw = rosterRaw(LABFP, at2, { host: LABFP, at: at2, seats: [
       { seat: 'lab/a1a1a1a1', name: '成员甲', team: 'lab/canvas/team', role: 'router', online: true },
       { seat: 'lab/00000000', name: '原总工', team: 'lab/canvas/team', role: 'member', online: true },
       { seat: 'lab/c5c5c5c5', name: '新来的', team: 'lab/canvas/team', role: 'member', online: true },
@@ -324,28 +327,28 @@ try {
     const rc = changes().find((c) => c.kind === 'router-changed');
     ok('……换总工的记录写明从谁到谁', JSON.parse(rc?.detail ?? '{}').from === 'lab/00000000' && JSON.parse(rc?.detail ?? '{}').to === 'lab/a1a1a1a1', rc?.detail);
     const at3 = '2026-11-11T10:00:00.000Z';
-    raw = rosterRaw('abcdef01', at3, { host: 'abcdef0123456789', at: at3, seats: [{ seat: 'lab/d6d6d6d6', name: '另一个团队的', team: 'lab/canvas/other', role: 'router', online: true }] }, 'roster-abcdef01-5');
+    raw = rosterRaw(LABFP, at3, { host: LABFP, at: at3, seats: [{ seat: 'lab/d6d6d6d6', name: '另一个团队的', team: 'lab/canvas/other', role: 'router', online: true }] }, 'roster-abcdef01-5');
     await post(raw, signed(lab, raw));
     ok('名册变化：整个团队不在了 → 三条 seat-removed、一条 team-removed', JSON.stringify(changes().slice(9).map((c) => c.kind)) === JSON.stringify(['seat-removed', 'seat-removed', 'seat-removed', 'team-removed']), JSON.stringify(changes().slice(9)));
-    ok('席位的键是「节点 + 团队 + 句柄」：表里按这三项一行', q('SELECT COUNT(*) AS c FROM a2a_roster_seats WHERE host = ?', 'abcdef0123456789')[0].c === 1);
+    ok('席位的键是「节点 + 团队 + 句柄」：表里按这三项一行', q('SELECT COUNT(*) AS c FROM a2a_roster_seats WHERE host = ?', LABFP)[0].c === 1);
     // 键只有一种写法：节点、句柄、团队的区和 canvas 段转小写再存（画布名原样）；只差大小写的两个席位算同一个
     const at4 = '2026-11-11T10:30:00.000Z';
-    raw = rosterRaw('abcdef01', at4, { host: 'ABCDEF0123456789', at: at4, seats: [
+    raw = rosterRaw(LABFP, at4, { host: LABFP.toUpperCase(), at: at4, seats: [
       { seat: 'LAB/D6D6D6D6', name: '大写的', team: 'LAB/Canvas/other', role: 'router', online: true },
       { seat: 'lab/d6d6d6d6', name: '只差大小写', team: 'lab/canvas/other', role: 'router', online: true },
       { seat: 'Lab/E7E7E7E7', name: '画布名带大写', team: 'Lab/CANVAS/MixedName', role: 'member', online: true },
     ] }, 'roster-abcdef01-6');
     r = await post(raw, signed(lab, raw));
-    const lower = q('SELECT host, team, seat FROM a2a_roster_seats WHERE lower(host) = ? ORDER BY team, seat', 'abcdef0123456789');
+    const lower = q('SELECT host, team, seat FROM a2a_roster_seats WHERE lower(host) = ? ORDER BY team, seat', LABFP);
     ok('名册的键统一小写：host、句柄、团队的区和 canvas 段转小写（画布名原样），只差大小写的席位并成一行', r.text.includes('"roster":"recorded"')
-      && JSON.stringify(lower) === JSON.stringify([{ host: 'abcdef0123456789', team: 'lab/canvas/MixedName', seat: 'lab/e7e7e7e7' }, { host: 'abcdef0123456789', team: 'lab/canvas/other', seat: 'lab/d6d6d6d6' }])
+      && JSON.stringify(lower) === JSON.stringify([{ host: LABFP, team: 'lab/canvas/MixedName', seat: 'lab/e7e7e7e7' }, { host: LABFP, team: 'lab/canvas/other', seat: 'lab/d6d6d6d6' }])
       && q('SELECT COUNT(*) AS c FROM a2a_rosters WHERE host <> lower(host)')[0].c === 0, `${r.text.slice(0, 120)} ${JSON.stringify(lower)}`);
-    raw = rosterRaw('99999999', at1, { host: 'abcdef0123456789', at: at1, seats }, 'roster-99999999-1');
+    raw = rosterRaw('99999999', at1, { host: LABFP, at: at1, seats }, 'roster-99999999-1');
     r = await post(raw, signed(lab, raw));
     ok('首行指纹和 JSON 的 host 对不上 → 不采信', r.text.includes('"roster":"not-accepted"'), r.text);
     const before = JSON.stringify((await api('GET', '/api/a2a/teams')).body);
-    for (const [label, h] of [['没签名', {}], ['别的宿主签', signed(evil, rosterRaw('abcdef01', '2026-11-11T10:00:00.000Z', { host: 'abcdef0123456789', at: '2026-11-11T10:00:00.000Z', seats }, 'roster-abcdef01-2'))]]) {
-      const rr = rosterRaw('abcdef01', '2026-11-11T10:00:00.000Z', { host: 'abcdef0123456789', at: '2026-11-11T10:00:00.000Z', seats: [{ seat: 'lab/f6f6f6f6', name: '冒充的', team: 'lab/canvas/team', role: 'member', online: true }] }, 'roster-abcdef01-3');
+    for (const [label, h] of [['没签名', {}], ['别的宿主签', signed(evil, rosterRaw(LABFP, '2026-11-11T10:00:00.000Z', { host: LABFP, at: '2026-11-11T10:00:00.000Z', seats }, 'roster-abcdef01-2'))]]) {
+      const rr = rosterRaw(LABFP, '2026-11-11T10:00:00.000Z', { host: LABFP, at: '2026-11-11T10:00:00.000Z', seats: [{ seat: 'lab/f6f6f6f6', name: '冒充的', team: 'lab/canvas/team', role: 'member', online: true }] }, 'roster-abcdef01-3');
       const res = await post(rr, label === '没签名' ? {} : signed(evil, rr));
       ok(`名册·${label} → 不收（照原路走），名册不变`, !res.text.includes('"roster":') && JSON.stringify((await api('GET', '/api/a2a/teams')).body) === before, res.text.slice(0, 120));
     }
@@ -354,6 +357,35 @@ try {
       const res = await post(rr, signed(stranger, rr));
       ok('名册·签名方是没投递过的宿主 → 不收', !res.text.includes('"roster":') && JSON.stringify((await api('GET', '/api/a2a/teams')).body) === before, res.text.slice(0, 120));
       stranger.server.close(); }
+    // 对抗：节点键只认验过签的那把公钥
+    {
+      const labRow = () => q('SELECT peer_zone, peer_root, reported_at FROM a2a_rosters WHERE host = ?', LABFP)[0];
+      const labSeats = () => JSON.stringify(q('SELECT team, seat FROM a2a_roster_seats WHERE host = ? ORDER BY team, seat', LABFP));
+      const changeCount = () => q('SELECT COUNT(*) AS c FROM a2a_roster_changes WHERE host = ?', LABFP)[0].c;
+      const [row0, seats0, ch0] = [JSON.stringify(labRow()), labSeats(), changeCount()];
+      seedEvent({ zone: 'evil', root: evil.url });
+      const far = '2099-01-01T00:00:00.000Z';
+      // 别的投递过的宿主用自己的 Sig3，正文和首行都冒用 lab 的节点键，时间写在很远的将来
+      let rr = rosterRaw(LABFP, far, { host: LABFP, at: far, seats: [{ seat: 'evil/e7e7e7e7', name: '顶替的', team: 'evil/canvas/t', role: 'router', online: true }] }, 'roster-evil-1');
+      r = await post(rr, signed(evil, rr));
+      ok('对抗：别的宿主签名、冒用这台的节点键 → 不收；这台的来源、席位、变化记录都不动', r.text.includes('"roster":"not-accepted"') && JSON.stringify(labRow()) === row0 && labSeats() === seats0 && changeCount() === ch0, `${r.text.slice(0, 120)} ${JSON.stringify(labRow())}`);
+      // 这台自己报的时间也不能在将来：超过收到时间加签名时间窗的不收
+      rr = rosterRaw(LABFP, far, { host: LABFP, at: far, seats: [{ seat: 'lab/f8f8f8f8', name: '将来的', team: 'lab/canvas/team', role: 'member', online: true }] }, 'roster-lab-far');
+      r = await post(rr, signed(lab, rr));
+      ok('对抗：报的时间远在将来（2099）→ 不收', r.text.includes('"roster":"not-accepted"') && JSON.stringify(labRow()) === row0, r.text.slice(0, 120));
+      const at5 = new Date().toISOString();
+      rr = rosterRaw(LABFP, at5, { host: LABFP, at: at5, seats: [{ seat: 'lab/d6d6d6d6', name: '正常再报', team: 'lab/canvas/other', role: 'router', online: true }] }, 'roster-lab-5');
+      r = await post(rr, signed(lab, rr));
+      ok('……之后这台正常再报一版 → recorded（没被将来的时间卡住）', r.text.includes('"roster":"recorded"') && labRow()?.reported_at === at5 && labRow()?.peer_zone === 'lab', `${r.text.slice(0, 120)} ${JSON.stringify(labRow())}`);
+      // 凑出指纹相同的公钥、换个根地址来报（这里直接用同一把钥匙模拟撞键）→ 这个节点键已经由别的根地址报过，不收
+      const twin = await peer('twin', lab.key);
+      seedEvent({ zone: 'twin', root: twin.url });
+      const at6 = new Date(Date.now() + 1000).toISOString();
+      rr = rosterRaw(LABFP, at6, { host: LABFP, at: at6, seats: [{ seat: 'twin/a9a9a9a9', name: '撞键的', team: 'twin/canvas/t', role: 'router', online: true }] }, 'roster-twin-1');
+      r = await post(rr, signed(twin, rr));
+      ok('对抗：指纹相同、根地址不同的宿主来报 → host-conflict，不覆盖', r.text.includes('"roster":"host-conflict"') && labRow()?.peer_root === lab.url && labRow()?.peer_zone === 'lab' && !labSeats().includes('twin/'), `${r.text.slice(0, 120)} ${JSON.stringify(labRow())}`);
+      twin.server.close();
+    }
     const anon = await fetch(BASE + '/api/a2a/teams');
     ok('读接口：没登录 401', anon.status === 401);
     const cross = await fetch(BASE + '/api/a2a/teams', { headers: { 'x-admin-token': 'ans-admin', 'sec-fetch-site': 'cross-site' } });

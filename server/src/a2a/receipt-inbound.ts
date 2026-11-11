@@ -15,7 +15,7 @@
  * 同一任务号的接单回执、终局回执各认一次（idempotencyKey 去重），重复的回 409 -32003 replay；不采信的回执不占这两个槽。
  * 日志里只放摘要（≤500 字）、disposition、outcome、任务号；签名、头、令牌一概不进。
  */
-import { createPublicKey, verify as edVerify } from 'node:crypto';
+import { createHash, createPublicKey, verify as edVerify } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import { parseA2aReceipt } from '../a2a.ts';
 import { audiencesOf, bodyDigest, originOf, SIG_SKEW_MS } from '../a2a-direct-sig.ts';
@@ -49,7 +49,7 @@ function verifies(publicKey: string, canonical: string, sig: string): boolean {
 }
 
 /** 签名方是不是当初投递到的那台宿主 */
-export async function verifyReceiptSigner(req: Req, raw: Buffer, sent: SentTask, audiences: string[], now = Date.now()): Promise<{ ok: true } | { ok: false; reason: ReceiptRefusal; genuine?: boolean }> {
+export async function verifyReceiptSigner(req: Req, raw: Buffer, sent: SentTask, audiences: string[], now = Date.now()): Promise<{ ok: true; publicKey: string } | { ok: false; reason: ReceiptRefusal; genuine?: boolean }> {
   if (sent.peer_zone === '' || sent.peer_root === '') return { ok: false, reason: 'no-peer-recorded' };
   const caller = header(req, 'x-a2a-caller');
   const callerUrl = header(req, 'x-a2a-caller-url');
@@ -85,7 +85,7 @@ export async function verifyReceiptSigner(req: Req, raw: Buffer, sent: SentTask,
       if (!claimSignatureOnce(sig, keepUntil, now)) return { ok: false, reason: 'replay', genuine: true };
       // 同一请求里出现的其它形式的签名（Sig2、v1 Sig）一并记为已用：防合法请求先到之后剥掉 Sig3 换正文重放
       for (const other of [sig2, header(req, 'x-a2a-caller-sig')]) if (other !== '') claimSignatureOnce(other, keepUntil, now);
-      return { ok: true };
+      return { ok: true, publicKey: card.publicKey }; // 验过签的那把公钥：名册拿它的指纹当节点键
     }
   }
   return { ok: false, reason: sawCard ? 'bad-sig' : 'no-card' };
@@ -377,12 +377,16 @@ async function handleRoster(req: Req, message: string, deps: { audiences: () => 
   if (!verdict.ok) return null;
   let doc: Record<string, unknown> = {};
   try { const o = JSON.parse(message.slice(nl + 1).split('\n', 1)[0] ?? ''); if (o && typeof o === 'object' && !Array.isArray(o)) doc = o as Record<string, unknown>; } catch { /* 坏的当空 */ }
+  // 节点键取自验过签的那把公钥：上游的 host 就是节点公钥的 canvasOwnerFingerprint（sha256 前 8 位十六进制）。
+  // 正文里的 host、首行的指纹都只拿来核对，对不上就不收——别的宿主用自己的签名报不了这台宿主的名册。
+  const signerFp = createHash('sha256').update(Buffer.from(verdict.publicKey, 'base64')).digest('hex').slice(0, 8);
   // 名册的键全系统只有一种写法：节点、席位句柄、团队的区和 canvas 段都转小写再比、再存（画布名原样留着）
   const host = typeof doc.host === 'string' ? doc.host.slice(0, 128).toLowerCase() : '';
   const lzone = zone.toLowerCase();
   const teamKey = (t: string) => { const m = /^([a-z0-9-]+)\/canvas\/([^/]+)$/i.exec(t); return m ? `${m[1].toLowerCase()}/canvas/${m[2]}` : t; };
   const at = typeof doc.at === 'string' && !Number.isNaN(Date.parse(doc.at)) ? new Date(Date.parse(doc.at)).toISOString() : '';
-  if (!host.startsWith(head[1]) || at === '') return { status: 200, body: { routed: true, delivered: true, task_status: 'TASK_STATE_DELIVERED', roster: 'not-accepted' } };
+  // 报的时间不能晚于收到时间加签名时间窗：写一个远在将来的时间，会让这台宿主之后正常报的名册全判成过期
+  if (host !== signerFp || head[1] !== signerFp || at === '' || Date.parse(at) > now + SIG_SKEW_MS) return { status: 200, body: { routed: true, delivered: true, task_status: 'TASK_STATE_DELIVERED', roster: 'not-accepted' } };
   const str = (x: unknown, n = 200) => (typeof x === 'string' ? x.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, n) : '');
   const int = (x: unknown) => (typeof x === 'number' && Number.isSafeInteger(x) && x >= 0 ? x : 0);
   const seats: RosterSeat[] = (Array.isArray(doc.seats) ? doc.seats : []).filter((x): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x))
