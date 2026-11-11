@@ -49,12 +49,6 @@ function silentRes(): express.Response {
   return res as unknown as express.Response;
 }
 const passes = (guard: (req: express.Request, res: express.Response) => boolean, req: express.Request) => guard(req, silentRes());
-/**
- * 路由在汇总之前认定过一次会话登录的管理员（index.ts 的 markOdooAdmin，按请求对象记）。
- * 旧接口里有的路径进路由前会认定（ADMIN_IDENTITY_PATHS），有的不会；不会的那几个来源，守卫要看一个
- * 没被认定过的请求，可见性才和旧接口一样：同样的请求头，换一个对象（原型指回这次请求）。
- */
-const unmarked = (req: express.Request): express.Request => Object.create(req) as express.Request;
 
 const item = (x: Omit<AttentionItem, 'object' | 'phase' | 'answers'> & Partial<Pick<AttentionItem, 'object' | 'phase' | 'answers'>>): AttentionItem =>
   ({ answers: [], object: '', phase: '', ...x });
@@ -91,8 +85,8 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
     }),
     provide({
       source: 'seat-asks', label: '席位的提问',
-      // 旧接口 /api/workbench-events 不在 ADMIN_IDENTITY_PATHS 里：会话登录的管理员在那里不算管理员，这里也不算
-      list: (req) => passes(deps.adminGuard, unmarked(req))
+      // 旧接口 /api/workbench-events 在 ADMIN_IDENTITY_PATHS 里，会话登录的管理员在那里也算管理员
+      list: (req) => passes(deps.adminGuard, req)
         ? openSeatAsks().map((a) => item({
           source: 'seat-asks', source_id: String(a.delivery_id), category: 'ask',
           title: `${a.target_team} 问：${a.decision_reason || '（没写问题）'}`,

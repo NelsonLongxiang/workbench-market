@@ -146,7 +146,7 @@ GET              /api/health/ready              就绪：含 LayerFS 探测（�
 
 **管理员**（属主 2026-11-02 裁定，撤销 #292 M1「管理写只认控制面」）：满足任一即为管理员——
 - **管理员口令**：请求头 `X-Admin-Token`。`设置` 页或顶栏钥匙图标输入（口令只存本标签页 `sessionStorage`，离开页面即清）；库存**加盐**哈希 `salt$sha256(salt+口令)`，settings/导出出口一律剔除该键。优先级：启动环境 `ADMIN_TOKEN` > 页面设置值 > 无。首次设置限本机（CLI 或本机同源页面）或 Odoo 管理员；改/清要带当前口令或 Odoo 管理员。
-- **Odoo 管理员登录**：浏览器带着 Odoo 会话（`session_id`）访问时，服务端向 `WM_ODOO_URL` 现查 `get_session_info`，内部员工且 `is_admin=true` 即为管理员，不需另输口令；结论按会话哈希缓存 30 秒（Odoo 侧撤权最迟 30 秒生效）。`GET /api/admin/whoami` 返回当前身份（`via: token|odoo|null`），顶栏显示「Odoo 管理员 · 登录名」。
+- **Odoo 管理员登录**：浏览器带着 Odoo 会话（`session_id`）访问时，服务端向 `WM_ODOO_URL` 现查 `get_session_info`，内部员工且 `is_admin=true` 即为管理员，不需另输口令；结论按会话哈希缓存 30 秒（Odoo 侧撤权最迟 30 秒生效）。`GET /api/admin/whoami` 返回当前身份（`via: token|odoo|null`），顶栏显示「Odoo 管理员 · 登录名」。要管理员的读面（变更申请、MCP 会话与权限申请、凭据库、统一待办、绑定、工作台事件的列表和详情 `/api/workbench-events` 等）进路由前先这样认定，所以 Odoo 管理员和口令管理员看到的一样。
 - 浏览器发来的管理写（带 `Origin` 或 `Sec-Fetch-Site`）在业务面即可做，但必须同源：跨源 `Origin` 或 `Sec-Fetch-Site: cross-site` 一律 403（Odoo 会话 cookie 是环境凭据，防跨站借用）。
 - 持口令时使用页/驾驶舱不内嵌 `/go/`、离开市场页面即抹掉口令（#292 M4 止血保留）。
 - **可选独立管理端口**：`WM_CONTROL_PORT` 显式给端口才开（缺省不开）；开了时它不提供 `/go/`、`/sop/`、`/apps/`、`/mcp`、`/openapi.json`、`/api/mcp-rest/*`、`/a2a/*`（404），响应带 `frame-ancestors 'none'` 与 `X-Frame-Options: DENY`，管理写规则与业务面相同。
