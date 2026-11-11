@@ -122,6 +122,11 @@ try {
   const mm = asks.filter((x) => x.source_id === String(m.delivery));
   ok('v1 提问之后又来回执提问 → 只列最近那条（回执里的）', mm.length === 1 && mm[0].title.includes('回执里的提问'), JSON.stringify(mm));
   ok('……两边条数仍相等（事项上旧提问已被新提问合上）', asks.length === openAsksTotal(), `${asks.length} vs ${openAsksTotal()}`);
+  {
+    const ia = (await api('GET', `/api/work-items/wi_${m.ev}`)).body?.asks ?? [];
+    ok('事项详情的提问列表：v1 的 decision:ask 和回执里的提问都在、按时间先后、各一条；旧的被新提问合上（closed），新的在等（open）',
+      ia.length === 2 && ia[0].question === 'v1 的提问' && ia[0].status === 'closed' && ia[1].question === '回执里的提问' && ia[1].status === 'open' && ia[1].options.length === 0, JSON.stringify(ia));
+  }
 
   console.log('二、答复发回');
   r = await answer(a.delivery, '发 apps 仓库');

@@ -134,6 +134,7 @@
       "GET /api/work-items/teams  <- <anonymous>",
       "POST /api/work-items  <- <anonymous>",
       "GET /api/work-items/:id  <- <anonymous>",
+      "POST /api/work-items/:id/asks/:qid/answer  <- <anonymous>",
       "POST /api/work-items/:id/messages/read  <- <anonymous>",
       "POST /api/work-items/:id/messages/:mid/reply  <- <anonymous>",
       "POST /api/work-items/:id/decision  <- <anonymous>",
