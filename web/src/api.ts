@@ -115,3 +115,16 @@ export async function postCreatorDecision(id: string, answer: string, reason: st
   const res = await fetch(`/api/work-items/${encodeURIComponent(id)}/decision`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answer, reason }) });
   return { status: res.status, body: await res.json().catch(() => ({})) };
 }
+
+/** 答席位提问（阶段七：建立人能答自己事项上的提问）：带选项的给 answer（必须是选项之一），否则给 text。
+ *  管理员带口令；建立人本人凭登录。不走 apiFetch：没登录、看不到由页面自己说，不弹管理员口令。 */
+export async function postAskAnswer(id: string, qid: string, input: { answer?: string; text?: string }): Promise<{ status: number; body: { duplicate?: boolean; result?: { ok?: boolean; sent?: boolean; reason?: string; message?: string; error?: string }; error?: string; options?: string[] } }> {
+  const token = getAdminToken();
+  const res = await fetch(`/api/work-items/${encodeURIComponent(id)}/asks/${encodeURIComponent(qid)}/answer`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { 'X-Admin-Token': token } : {}) }, body: JSON.stringify(input) });
+  return { status: res.status, body: await res.json().catch(() => ({})) };
+}
+
+/** 当前登录身份（登录门的 /api/auth/me）：拿不到就是 null，不弹口令 */
+export async function getMe(): Promise<{ authenticated?: boolean; login?: string | null; via?: string | null } | null> {
+  try { const r = await fetch('/api/auth/me', { cache: 'no-store', credentials: 'same-origin' }); return r.ok ? await r.json() : null; } catch { return null; }
+}
