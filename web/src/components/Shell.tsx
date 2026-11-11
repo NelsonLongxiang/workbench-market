@@ -6,7 +6,8 @@ import { Link, useLocation } from 'react-router-dom';
 import { Dropdown, Popover } from 'antd';
 import { HistoryOutlined, PlusOutlined, SettingOutlined } from '@ant-design/icons';
 import { NAV_GROUPS, findNav } from '../nav';
-import { api, getAttentionCount, getMe } from '../api';
+import { api, getAttentionCount } from '../api';
+import { getMe } from '../me';
 import type { Cockpit } from '../types';
 
 function NavItem({ to, icon, name, on, count }: { to: string; icon: ReactNode; name: string; on: boolean; count?: number | null }) {
@@ -47,12 +48,12 @@ export default function Shell({ admin, footer, children }: { admin: boolean; foo
             : cockpits.slice(0, 8).map((c) => <Link key={c.id} to={`/cockpit/${c.id}`} className={pathname === `/cockpit/${c.id}` ? 'wm-nav-sub on' : 'wm-nav-sub'}>{c.name}</Link>)}
         </nav>}
         <div className="wm-side-foot">
-          {admin && adminPages.length > 0 && <Dropdown placement="topLeft" menu={{ items: adminPages.map((p) => ({ key: p.path, icon: p.icon, label: <Link to={p.path}>{p.name}</Link> })) }}>
+          {admin && adminPages.length > 0 && <Dropdown placement="topLeft" trigger={['click', 'hover']} menu={{ items: adminPages.map((p) => ({ key: p.path, icon: p.icon, label: <Link to={p.path}>{p.name}</Link> })) }}>
             <button type="button" className={current && adminPages.some((p) => p.path === current.page.path) ? 'wm-nav-item on' : 'wm-nav-item'} data-testid="nav-admin">
               <span className="wm-nav-icon"><SettingOutlined /></span><span>设置 / 管理</span>
             </button>
           </Dropdown>}
-          {legacyPages.length > 0 && <Dropdown placement="topLeft" menu={{ items: legacyPages.map((p) => ({ key: p.path, label: <Link to={p.path}>{p.name}</Link> })) }}>
+          {legacyPages.length > 0 && <Dropdown placement="topLeft" trigger={['click', 'hover']} menu={{ items: legacyPages.map((p) => ({ key: p.path, label: <Link to={p.path}>{p.name}</Link> })) }}>
             <button type="button" className={current && legacyPages.some((p) => p.path === current.page.path) ? 'wm-nav-item wm-nav-quiet on' : 'wm-nav-item wm-nav-quiet'} data-testid="nav-legacy">
               <span className="wm-nav-icon"><HistoryOutlined /></span><span>旧版页面</span>
             </button>
