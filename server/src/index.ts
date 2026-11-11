@@ -42,6 +42,7 @@ import { compareConfig, mountJudgmentCompare } from './judgment-compare.ts';
 import { registerAttentionRoutes } from './routes/attention.ts';
 import { registerWorkItemRoutes } from './routes/work-items.ts';
 import { registerSettingsRoutes } from './routes/settings.ts';
+import { settingsViewsLeak } from './settings-view.ts';
 import { registerAdminTokenRoutes } from './routes/admin-token.ts';
 import { registerBindingRoutes } from './routes/bindings.ts';
 import { registerExportImportRoutes } from './routes/export-import.ts';
@@ -2288,32 +2289,20 @@ registerTypeRoutes(http);
 /** 首次设口令（库里还没有口令）：本机直连（CLI 或本机同源页面），或 Odoo 管理员；改/清口令：带当前口令或 Odoo 管理员 */
 registerAdminTokenRoutes(http, { adminTokenCheck, odooAdminReqs, dbAdminTokenSet, dbAdminTokenOk, hashAdminToken, browserSameSite, devOriginOk });
 
-// 评审 #24：settings 出口把 mcp_upstreams.headers 的值掩成 ****（键名保留）——
-// 内部读取走 mcpUpstreams() 直读 DB，不受影响；导出同样脱敏（与 auth.value 口径一致）。
-// 评审 #27：管理员口令哈希（admin_token_sha256）同表存放，出口一律剔除——远程 GET 无口令可读，
-// 无盐 sha256 + 短口令可离线爆破；口令只经 /api/admin-token 设置与校验，不随设置/导出外流。
-function maskUpstreamsSetting(settings: Record<string, string>): Record<string, string> {
-  const { [ADMIN_TOKEN_KEY]: _adminHash, ...all } = settings;
-  const raw = all.mcp_upstreams;
-  if (!raw) return all;
-  try {
-    const arr = JSON.parse(raw);
-    if (!Array.isArray(arr)) return { ...all, mcp_upstreams: '' };
-    const masked = arr.map((u: any) => ({
-      ...u,
-      headers: u?.headers && typeof u.headers === 'object'
-        ? Object.fromEntries(Object.keys(u.headers).map((k) => [k, '****']))
-        : {},
-    }));
-    return { ...all, mcp_upstreams: JSON.stringify(masked) };
-  } catch {
-    return { ...all, mcp_upstreams: '' };
-  }
+// 设置的出口分两级（settings-view.ts）：管理员看全部、凭据类的值只说有没有；别人只看白名单。导出用管理员那一级。
+// 内部读取走 getSettings()/mcpUpstreams() 直读 DB，不受影响。管理员口令哈希出口一律剔除（评审 #27）。
+
+// 启动自检（设置的出口）：拿真实的设置跑一遍两级出口，凭据类的值漏进任何一级就拒绝启动。只记键名，不记值
+{
+  const leaked = settingsViewsLeak(getSettings());
+  console.log(JSON.stringify({ source: 'self-check', id: 'settings.no-secret-values', verdict: leaked.length ? 'fail' : 'pass', ...(leaked.length ? { keys: leaked } : {}), at: new Date().toISOString() }));
+  if (leaked.length) { console.error(`[settings] 拒绝启动：设置的出口会带出凭据类的值（${leaked.join('、')}）`); process.exit(1); }
 }
+// 设置读的分级：管理员（口令或管理员登录，同源）与本机命令行看全部（凭据类的值只说有没有），别人只看巡检参数和开关。设置读与导出共用
+const settingsAdminRead = async (req: express.Request): Promise<boolean> => { if (!browserMarked(req) && rawLoopback(req)) return true; await markOdooAdmin(req); return adminHeaderOk(req); };
+registerSettingsRoutes(http, { armPatrol, adminRead: settingsAdminRead }); // 本机命令行也看全部（写设置它本来就能过写请求总门）
 
-registerSettingsRoutes(http, { maskUpstreamsSetting, armPatrol });
-
-registerExportImportRoutes(http, { listWorkbenches, maskForApi, maskUpstreamsSetting, URL_POLICY, admitOrDeny, restSubject, markAdmin: markOdooAdmin, adminGuard });
+registerExportImportRoutes(http, { listWorkbenches, maskForApi, URL_POLICY, admitOrDeny, restSubject, markAdmin: markOdooAdmin, adminGuard, settingsAdminRead });
 
 // ---------- 凭据库（融合 dsh-vault）：读写全部过 vaultGuard ----------
 // 与 adminGuard 同口径，只多认一种浏览器形态：同源 GET 不带 Origin（只有 Sec-Fetch-Site: same-origin），
