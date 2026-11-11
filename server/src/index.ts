@@ -1606,6 +1606,8 @@ app.post('/api/sops/:slug/deprecate', (req, res) => {
 });
 
 // ---------- SOP Runner：GET /sop/:slug/ → 内置执行页（读活跃版本 sop.yaml 服务端渲染）----------
+/** #321：执行页内联 DESIGN.md 生成的 --wm-* 变量，与市场前端同色同字号 */
+const renderSopRunner = (manifest: Parameters<typeof renderSopRunnerRaw>[0], app: Parameters<typeof renderSopRunnerRaw>[1]) => renderSopRunnerRaw(manifest, app, loadTokensCss()?.css ?? '');
 
 
 // /sop/:slug/ 根 → Runner；/sop/:slug/<path> → 版本目录静态文件（附件）
@@ -3364,8 +3366,6 @@ import { evalCandidates } from './eval.ts'; // #178 评估模型客户端
 
 import { renderSopRunner as renderSopRunnerRaw } from './sop-runner.ts';
 import { loadTokensCss } from './design-tokens-css.ts';
-/** #321：执行页内联 DESIGN.md 生成的 --wm-* 变量，与市场前端同色同字号 */
-const renderSopRunner = (manifest: Parameters<typeof renderSopRunnerRaw>[0], app: Parameters<typeof renderSopRunnerRaw>[1]) => renderSopRunnerRaw(manifest, app, loadTokensCss()?.css ?? '');
 import { sqliteSsoTicketStore } from './sso-ticket-store.ts';
 import { collectTasks } from './tasks.ts';
 import { closeYglUpstreams, yglHomeProblem, yglUpstreamRpc } from './mcp-stdio-upstream.ts';
