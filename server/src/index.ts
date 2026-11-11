@@ -80,6 +80,8 @@ import { startRedis, redisHealthy, redisConfigured, runStateRestore, runStateRea
 import { createRunCheckpoints } from './sop-state-checkpoints.ts';
 import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
 import type { IncomingMessage } from 'node:http';
+import { noteA2aError, type A2aErrorKey } from './a2a/errors.ts';
+import { a2aHealth } from './a2a/health.ts';
 import { createDirectSigVerifier, directSigBodyMode, directSigMode, type DirectSigMode } from './a2a-direct-sig.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -2616,6 +2618,7 @@ function healthBase(): Record<string, unknown> {
 app.get('/api/health', (_req, res) => {
   const result = healthBase();
   if (process.env.LAYERFS_SERVICE_URL && layerfsProbe) result.layerfs = layerfsProbe.status; // 只回缓存的上次结果，不触发探测
+  result.a2a = a2aHealth({ directSig: A2A_DIRECT_SIG, directSigBody: A2A_DIRECT_SIG_BODY! }); // 阶段七第 5 步：只出开关、计数和时长
   res.json(result);
 });
 app.get('/api/health/ready', async (_req, res) => {
@@ -2801,6 +2804,7 @@ app.post('/a2a/direct', express.json({ limit: '600kb' }), async (req, res) => {
     } else if (A2A_DIRECT_SIG === 'require') reason = presence === 'unbound' ? 'unbound-only' : 'absent';
     if (reason !== '') {
       console.warn(JSON.stringify({ source: 'a2a-direct-sig', refused: reason }));
+      noteA2aError(`sig:${reason}` as A2aErrorKey);
       // 对外把「没登记」与「取不到卡」并成一种，不泄露绑定是否存在
       const shown = reason === 'unregistered' ? 'no-card' : reason;
       res.status(401).json({ error: `untrusted-origin: signature verification failed (${shown}) — sign with OriginClaim Sig2 (X-A2A-Caller/-Url/-Ts/-Aud/-Sig2) using the card key published at the address registered on your binding`, code: -32000, task_status: 'TASK_STATE_FAILED' });
