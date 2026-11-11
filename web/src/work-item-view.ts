@@ -36,6 +36,13 @@ export function initialChoice(a: Pick<SeatAsk, 'options' | 'default'>): string {
   return a.default && a.options.includes(a.default) ? a.default : '';
 }
 
+/** 时间线里提问、答复那一行对应哪条提问（详情 asks 的 id）：提问行是自己的 fact_id，答复行是 detail.ask_id */
+export function askIdOf(r: { fact: string; fact_id?: string; detail: string }): string | null {
+  if (r.fact === 'ask') return r.fact_id || null;
+  if (r.fact !== 'answer') return null;
+  try { const a = (JSON.parse(r.detail || '{}') as { ask_id?: unknown }).ask_id; return typeof a === 'string' || typeof a === 'number' ? String(a) : null; } catch { return null; }
+}
+
 /** 终态：结束了，对话不再收回复 */
 export const TERMINAL = ['done', 'failed', 'dropped', 'cancelled'];
 
@@ -84,7 +91,7 @@ export function progressLine(p: SeatProgress): string {
 }
 
 /** 产物标识（结果 / 依据）：和回执信封的 artifacts 同一个形状——只有 kind、id，只存标识，不存正文、url、标题。 */
-export type Artifact = { kind: string; id: string };
+export type Artifact = { kind: string; id: string; title?: string | null; submitted_by?: string | null; at?: string | null };
 const MAX_ARTIFACTS = 16;
 const okStr = (x: unknown): x is string => typeof x === 'string' && x.trim() !== '' && x.length <= 200;
 
@@ -95,7 +102,10 @@ export function artifactsOf(v: unknown): Artifact[] {
   for (const x of v) {
     if (out.length >= MAX_ARTIFACTS) break;
     const o = x as Record<string, unknown> | null;
-    if (o && typeof o === 'object' && okStr(o.kind) && okStr(o.id)) out.push({ kind: o.kind, id: o.id });
+    if (o && typeof o === 'object' && okStr(o.kind) && okStr(o.id)) {
+      // title、submitted_by、at：#555 约定的三项，可能为 null（旧数据、对端没给）；只当文字显示
+      out.push({ kind: o.kind, id: o.id, title: okStr(o.title) ? o.title : null, submitted_by: okStr(o.submitted_by) ? o.submitted_by : null, at: typeof o.at === 'string' && o.at.length <= 40 ? o.at : null });
+    }
   }
   return out;
 }

@@ -14,18 +14,18 @@ import RelTime from '../components/RelTime';
 import { adminActive, apiFetch, subscribeAdminToken } from '../admin-token';
 import { answerChoices, answerRoute, describe, type AttentionItem, type LogRow } from '../attention-view';
 import { getWorkItem, postAskAnswer, postCreatorDecision, postSeatMessageReply, postSeatMessagesRead } from '../api';
-import { PROGRESS_STATE, TERMINAL, creatorLabel, groupRejected, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
+import { PROGRESS_STATE, TERMINAL, askIdOf, creatorLabel, groupRejected, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
 
 type Item = { id: string; title: string; state: string; created_by: string; creator_principal?: string | null; created_at: string; updated_at: string; source_kind: string; source_ref: string; target_team: string; seat: string; eval: string; eval_reason: string; progress_summary: string; receipt_outcome: string; object: string; phase: string; open_asks: string; outputs: string; evidence: string };
 
 export const STATE: Record<string, { label: string; color: string }> = {
   draft: { label: '草稿', color: 'default' }, held: { label: '搁置', color: 'default' }, delivered: { label: '已转交', color: 'blue' },
-  accepted: { label: '已接手', color: 'cyan' }, progress: { label: '进行中', color: 'geekblue' }, waiting: { label: '在等外部', color: 'orange' },
-  blocked: { label: '在问你', color: 'gold' }, ready: { label: '等验收', color: 'green' }, done: { label: '办完', color: 'success' },
-  failed: { label: '没办成', color: 'error' }, dropped: { label: '放弃', color: 'default' }, cancelled: { label: '撤回', color: 'default' },
+  accepted: { label: '已接手', color: 'cyan' }, progress: { label: '在办', color: 'geekblue' }, waiting: { label: '在等', color: 'orange' },
+  blocked: { label: '在问你', color: 'gold' }, ready: { label: '等你验收', color: 'green' }, done: { label: '已办结', color: 'success' },
+  failed: { label: '没办成', color: 'error' }, dropped: { label: '放弃', color: 'default' }, cancelled: { label: '已撤回', color: 'default' },
 };
 const FACT: Record<string, string> = {
-  create: '建立', submit: '提交', release: '放行', withdraw: '撤回', delivery: '投递结果', eval: '接单判断', report: '进展上报', ask: '提问',
+  create: '建立', submit: '提交', release: '放行', withdraw: '撤回', delivery: '投递结果', eval: '接单判断', report: '进展上报', ask: '席位问了',
   receipt: '回执', verify: '验收', return: '退回', answer: '答复', note: '备注',
 };
 type SeatMessage = { id: number; sender: string; peer: string; text: string; truncated: boolean; at: string; status: 'unread' | 'read' | 'replied' | 'over-cap' };
@@ -109,7 +109,7 @@ function AskRow({ itemId, ask, onDone }: { itemId: string; ask: SeatAsk; onDone:
     } catch (e) { void message.error(e instanceof Error ? e.message : '答复失败'); }
     finally { setBusy(false); }
   };
-  return <List.Item data-testid="seat-ask">
+  return <List.Item data-testid="seat-ask" id={`ask-${ask.id}`}>
     <Flex vertical gap="small" className="wm-w-full">
       <Space wrap size={6}>
         <Typography.Text strong>{ask.question || '（没写问题）'}</Typography.Text>
@@ -172,16 +172,22 @@ function Artifacts({ list, empty }: { list: Artifact[]; empty: string }) {
   return <List size="small" dataSource={list} rowKey={(a) => `${a.kind}:${a.id}`} renderItem={(a) => {
     const href = artifactHref(a);
     return <List.Item data-testid="artifact">
-      <Space size={6}><Tag>{a.kind}</Tag>{href ? <Link to={href}>{a.id}</Link> : <Typography.Text className="wm-mono">{a.id}</Typography.Text>}</Space>
+      <Flex vertical gap={2}>
+        <Space size={6}><Tag>{a.kind}</Tag>{href ? <Link to={href}>{a.title || a.id}</Link> : <Typography.Text className={a.title ? undefined : 'wm-mono'}>{a.title || a.id}</Typography.Text>}</Space>
+        {(a.submitted_by || a.at) && <Space size={6}>{a.submitted_by && <Typography.Text type="secondary" className="wm-caption">{a.submitted_by} 交的</Typography.Text>}{a.at && <RelTime value={a.at} />}</Space>}
+      </Flex>
     </List.Item>;
   }} />;
 }
 
 const REJECTED: Record<string, string> = { not_allowed: '这时候不该有这条事实', terminal: '事项已经结束之后才到' };
-function LogLine({ row }: { row: LogRow }) {
+function LogLine({ row, askIds }: { row: LogRow; askIds?: Set<string> }) {
+  const ask = askIdOf(row);
+  const jump = ask && askIds?.has(ask) && !(row.fact_id ?? '').includes(':closes-ask:') ? ask : null;
   return <div data-testid="timeline-row">
     <Space wrap size={4}>
       <Typography.Text strong>{timelineLabel(row, FACT)}</Typography.Text>
+      {jump && <Typography.Link data-testid="timeline-ask-link" onClick={() => document.getElementById(`ask-${jump}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>看这条提问</Typography.Link>}
       {row.from_state !== row.to_state ? <>{stateTag(row.from_state)}→{stateTag(row.to_state)}</> : null}
       {row.rejected && <Tag color="default">收到，未采信：{REJECTED[row.rejected] ?? row.rejected}</Tag>}
     </Space>
@@ -233,6 +239,7 @@ export default function WorkItem() {
   const progress = data?.progress ?? null;
   // 结果：事项的 outputs 列（现在还没人写）加上日志里回执带来的产物，去重
   const timeline = (data?.log ?? []).filter((r) => !hiddenInTimeline(r));
+  const askIds = new Set((asks ?? []).map((a) => a.id));
   const outputs = mergeArtifacts(parseArtifacts(item?.outputs), artifactsFromLog(data?.log ?? []));
   const evidence = parseArtifacts(item?.evidence);
   return <WmPage title={item?.title ?? '事项'} detail={item?.title} onBack={() => navigate('/work-items')}
@@ -276,8 +283,8 @@ export default function WorkItem() {
           </Card>
           <Card title="时间线" size="small">
             {timeline.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有记录" /> : <Timeline items={groupRejected(timeline).map((g) => g.kind === 'rejected'
-              ? { key: `rej-${g.rows[0].seq}`, color: 'gray', children: <details data-testid="timeline-rejected"><summary><Typography.Text type="secondary">{g.rows.length} 条收到、未采信的记录（{REJECTED[g.rows[0].rejected] ?? g.rows[0].rejected}）</Typography.Text></summary>{g.rows.map((row) => <LogLine key={row.seq} row={row} />)}</details> }
-              : { key: g.row.seq, color: g.row.rejected ? 'gray' : g.row.from_state !== g.row.to_state ? 'blue' : 'green', children: <LogLine row={g.row} /> })} />}
+              ? { key: `rej-${g.rows[0].seq}`, color: 'gray', children: <details data-testid="timeline-rejected"><summary><Typography.Text type="secondary">{g.rows.length} 条收到、未采信的记录（{REJECTED[g.rows[0].rejected] ?? g.rows[0].rejected}）</Typography.Text></summary>{g.rows.map((row) => <LogLine key={row.seq} row={row} askIds={askIds} />)}</details> }
+              : { key: g.row.seq, color: g.row.rejected ? 'gray' : g.row.from_state !== g.row.to_state ? 'blue' : 'green', children: <LogLine row={g.row} askIds={askIds} /> })} />}
           </Card>
         </Flex>
       </Col>
@@ -289,7 +296,7 @@ export default function WorkItem() {
               <Artifacts list={outputs} empty={item.receipt_outcome ? '没有附产出；回执的内容在对话和时间线里' : '还没有产出'} />
             </Flex>
           </Card>
-          <Card size="small" title={`依据${evidence.length ? ` ${evidence.length}` : ''}`}><Artifacts list={evidence} empty="还没有依据" /></Card>
+          {evidence.length > 0 && <Card size="small" title={`依据 ${evidence.length}`}><Artifacts list={evidence} empty="" /></Card>}
           <Card size="small" title="细节">
             <Descriptions column={1} size="small" items={[
               { key: 'id', label: '事项号', children: <Typography.Text copyable className="wm-num">{item.id}</Typography.Text> },

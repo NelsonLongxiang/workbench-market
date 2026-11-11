@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 事项详情页的纯函数单测（web/src/work-item-view.ts）：提示条、进展一行字、结果解析与链接、关注条目对到事项。 */
-import { creatorLabel, groupRejected, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint } from '../web/src/work-item-view.ts';
+import { askIdOf, creatorLabel, groupRejected, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint } from '../web/src/work-item-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -17,11 +17,13 @@ ok('进展：没有排队数、不认识的状态原样', progressLine({ n: 1, s
 
 ok('结果：缺省值和坏的都按空读', parseArtifacts('{}').length === 0 && parseArtifacts('[]').length === 0 && parseArtifacts('').length === 0 && parseArtifacts(null).length === 0 && parseArtifacts('坏').length === 0);
 const arr = parseArtifacts(JSON.stringify([{ kind: 'file', id: 'f1', title: 't', url: 'https://example.org/x' }, 'plain', { kind: 'table' }, { kind: '', id: 'x' }, { kind: 'sop-run', id: 'demo/7' }]));
-ok('结果：只认 kind、id 都是非空字符串的项，url、title 一律丢掉', JSON.stringify(arr) === '[{"kind":"file","id":"f1"},{"kind":"sop-run","id":"demo/7"}]', JSON.stringify(arr));
+ok('结果：只认 kind、id 都是非空字符串的项，url 丢掉；title、submitted_by、at 缺的是 null', JSON.stringify(arr) === '[{"kind":"file","id":"f1","title":"t","submitted_by":null,"at":null},{"kind":"sop-run","id":"demo/7","title":null,"submitted_by":null,"at":null}]', JSON.stringify(arr));
+ok('结果：带齐三项的照取', JSON.stringify(parseArtifacts(JSON.stringify([{ kind: 'file', id: 'f', title: 'out.txt', submitted_by: 'team/a1', at: '2026-11-11 08:00:00' }]))) === '[{"kind":"file","id":"f","title":"out.txt","submitted_by":"team/a1","at":"2026-11-11 08:00:00"}]');
+ok('时间线对到提问：提问行取 fact_id，答复行取 detail.ask_id，别的行没有', askIdOf({ fact: 'ask', fact_id: '41', detail: '' }) === '41' && askIdOf({ fact: 'answer', detail: '{"ask_id":"41"}' }) === '41' && askIdOf({ fact: 'answer', detail: '{"ask_id":41}' }) === '41' && askIdOf({ fact: 'note', fact_id: '41', detail: '' }) === null);
 ok('结果：最多 16 项', parseArtifacts(JSON.stringify(Array.from({ length: 20 }, (_, i) => ({ kind: 'file', id: 'f' + i })))).length === 16);
 const fromLog = artifactsFromLog([{ fact: 'receipt', detail: JSON.stringify({ artifacts: [{ kind: 'table', id: 'out' }] }) }, { fact: 'receipt', rejected: 'terminal', detail: JSON.stringify({ artifacts: [{ kind: 'file', id: 'late' }] }) }, { fact: 'report', detail: JSON.stringify({ artifacts: [{ kind: 'file', id: 'no' }] }) }, { fact: 'receipt', detail: '{坏' }]);
-ok('日志里的产物：只取被采信的回执行', JSON.stringify(fromLog) === '[{"kind":"table","id":"out"}]', JSON.stringify(fromLog));
-ok('合并：按 kind + id 去重、保持先后', JSON.stringify(mergeArtifacts([{ kind: 'file', id: 'a' }], [{ kind: 'file', id: 'a' }, { kind: 'table', id: 'a' }])) === '[{"kind":"file","id":"a"},{"kind":"table","id":"a"}]');
+ok('日志里的产物：只取被采信的回执行，三项按 null', JSON.stringify(fromLog) === '[{"kind":"table","id":"out","title":null,"submitted_by":null,"at":null}]', JSON.stringify(fromLog));
+ok('合并：按 kind + id 去重、保持先后、先到的为准', JSON.stringify(mergeArtifacts([{ kind: 'file', id: 'a', title: 'first' }], [{ kind: 'file', id: 'a', title: 'second' }, { kind: 'table', id: 'a' }])) === '[{"kind":"file","id":"a","title":"first"},{"kind":"table","id":"a"}]');
 ok('链接：sop-run 拼成本站 /sops/<slug>/runs/<runId>', artifactHref({ kind: 'sop-run', id: 'demo-space/42' }) === '/sops/demo-space/runs/42');
 ok('链接：table、file、不认得的 kind、形状不对的 sop-run 都不给链接', [{ kind: 'table', id: 't' }, { kind: 'file', id: 'f' }, { kind: 'x', id: 'y' }, { kind: 'sop-run', id: '../etc/1' }, { kind: 'sop-run', id: 'demo/0' }, { kind: 'sop-run', id: 'https://evil.example/1' }, { kind: 'sop-run', id: 'Demo_Space/3' }].every((a) => artifactHref(a) === null));
 
