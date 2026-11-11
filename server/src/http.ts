@@ -110,6 +110,17 @@ export class HttpService extends Service {
     return [...this.registered.values(), ...this.refined.map((v) => v.entry)].map((a) => ({ ...a }));
   }
 
+  /** Express 路由栈现在的各层（只读快照）：扩展加载前后对比用，点出没经这里注册、没报动作的路由 */
+  stackLayers(): readonly unknown[] {
+    return [...routerOf(this.held.app).stack];
+  }
+
+  /** 这一层是不是经这里注册、报了动作的路由 */
+  declaredLayer(layer: unknown): RegisteredAction | undefined {
+    const hit = this.registered.get(layer as Layer);
+    return hit ? { ...hit } : undefined;
+  }
+
   /**
    * 注册一条路由：`http.route('get', '/api/x', { action: 'x.read', kind: 'read' }, handler)`。处理函数同 Express。
    * 挂在调用方的作用域上，返回撤销函数。没报动作、动作不合形状、同一个动作和已登记的类别不同：抛错，注册不上。

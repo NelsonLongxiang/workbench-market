@@ -6,6 +6,10 @@
  *   - web/index.tsx（可选）：前端页面与菜单项，由 web/vite.config.ts 在构建期并入（见 web/src/extensions.ts）。
  * 两者都没有的子目录、加载或 register 失败都**拒绝启动**并点名扩展与原因，不静默跳过。
  * 扩展不 import 本仓库模块：需要的宿主能力都经 ctx 给出（版本见 EXTENSION_API_VERSION）。
+ *
+ * 路由：经 ctx.routes.add 注册，报上动作（<扩展名>.<动词>）、类别和「谁能调」，和核心路由一样进动作清单。
+ * 直接用 ctx.app（或别处拿到的 Express 应用）挂的照旧能跑，但每个扩展 register 前后对比路由栈，没报动作的逐条点名、计数；
+ * WM_EXTENSION_ROUTES=enforce 时有这样的路由就拒绝启动。register 之后才挂的路由点不出来。
  */
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
@@ -13,8 +17,72 @@ import { pathToFileURL } from 'node:url';
 import type { Express, Request, Response, NextFunction } from 'express';
 import type { TaskEnvelope, SourceMeta } from './tasks.ts';
 import type { Viewer } from './identity.ts';
+import type { ActionKind, HttpService } from './http.ts';
 
+/** 1 版。ctx.routes 是后来加的、只增不改的能力：扩展按有没有 ctx.routes 判断，不靠版本号（版本号不变，按 1 写死的旧扩展照常加载） */
 export const EXTENSION_API_VERSION = 1;
+
+/**
+ * 扩展路由「谁能调」：只能从市场已有的口径里选，不能自造更宽的。
+ *   anonymous 登录门关着时匿名也能调（和核心的开放读面、匿名提交面同类）；member 登录认出来的人；admin 管理员；owner 只有属主
+ */
+export type ExtensionWho = 'anonymous' | 'member' | 'admin' | 'owner';
+export const EXTENSION_WHO: readonly ExtensionWho[] = ['anonymous', 'member', 'admin', 'owner'];
+export type ExtensionRouteMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
+export interface ExtensionRouteSpec { action: string; kind: ActionKind; who: ExtensionWho; statusNotVerdict?: string }
+export interface ExtensionRouteRecord { extension: string; method: ExtensionRouteMethod; path: string; action: string; kind: ActionKind; who: ExtensionWho; statusNotVerdict?: string }
+export interface ExtensionUndeclared { extension: string; type: 'route' | 'middleware'; method: string; path: string }
+/** 扩展路由的模式：warn 点名计数（缺省），enforce 有没报动作的扩展路由就拒绝启动（6d 切换时打开） */
+export type ExtensionRoutesMode = 'warn' | 'enforce';
+export function extensionRoutesMode(raw: string | undefined): ExtensionRoutesMode {
+  const v = (raw ?? '').trim();
+  if (v === '' || v === 'warn') return 'warn';
+  if (v === 'enforce') return 'enforce';
+  throw new Error(`WM_EXTENSION_ROUTES 只能是 warn 或 enforce（缺省 warn），现在是 ${JSON.stringify(v)}`);
+}
+
+const extRoutes: ExtensionRouteRecord[] = [];
+const extUndeclared: ExtensionUndeclared[] = [];
+/** 扩展经 ctx.routes.add 报的路由和动作（快照 --extensions 和判定读它） */
+export function extensionRoutes(): ExtensionRouteRecord[] { return extRoutes.map((r) => ({ ...r })); }
+/** 扩展没报动作的路由和中间件（register 前后对比路由栈点出来的） */
+export function extensionUndeclared(): ExtensionUndeclared[] { return extUndeclared.map((r) => ({ ...r })); }
+/** 一个动作是不是扩展报的；是的话给出它声明的类别和谁能调 */
+export function extensionAction(action: string): ExtensionRouteRecord | undefined { return extRoutes.find((r) => r.action === action); }
+
+const WRITE_METHODS = new Set(['post', 'put', 'patch', 'delete']);
+/** 扩展注册一条路由前的检查：都在注册之前做，不合格抛错（加载失败，拒绝启动并点名） */
+function checkExtensionRoute(name: string, method: string, path: unknown, spec: ExtensionRouteSpec): void {
+  const where = `扩展 ${name} 的 ${String(method).toUpperCase()} ${String(path)}`;
+  if (!['get', 'post', 'put', 'patch', 'delete'].includes(method)) throw new Error(`${where}：方法只能是 get / post / put / patch / delete`);
+  if (typeof path !== 'string') throw new Error(`${where}：路径要是字符串（不收正则和数组）`);
+  const ownPath = path === `/api/${name}` || path.startsWith(`/api/${name}/`) || path === `/${name}` || path.startsWith(`/${name}/`);
+  if (!ownPath) throw new Error(`${where}：路径只能在 /api/${name}/… 或 /${name}/… 下，不能挂到宿主或别的扩展的命名空间`);
+  if (!spec || typeof spec !== 'object') throw new Error(`${where}：第三个参数要是 { action, kind, who }`);
+  // 和核心一样只有一个点：<扩展名>.<动词>，动词里要分段用连字符（lifecycle.board-read）
+  if (typeof spec.action !== 'string' || !spec.action.startsWith(`${name}.`) || !/^[a-z0-9][a-z0-9-]*\.[a-z0-9][a-z0-9-]*$/.test(spec.action)) {
+    throw new Error(`${where}：动作名要以「${name}.」开头，写成 ${name}.<动词>（动词里分段用连字符，比如 ${name}.board-read）`);
+  }
+  if (!EXTENSION_WHO.includes(spec.who)) throw new Error(`${where}：who 只能是 ${EXTENSION_WHO.join(' / ')}（市场已有的口径）`);
+  if (WRITE_METHODS.has(method) && spec.kind === 'read') throw new Error(`${where}：${method.toUpperCase()} 是会写的方法，不能报成 read`);
+  if (spec.kind === 'admin' && spec.who !== 'admin' && spec.who !== 'owner') throw new Error(`${where}：管理类只能给 admin 或 owner`);
+  if (spec.who === 'anonymous' && spec.kind !== 'read' && spec.kind !== 'write') throw new Error(`${where}：who=anonymous 只能配 read 或 write`);
+  if (spec.statusNotVerdict !== undefined && (typeof spec.statusNotVerdict !== 'string' || !spec.statusNotVerdict.trim() || spec.statusNotVerdict.length > 120)) {
+    throw new Error(`${where}：statusNotVerdict 要写原因（1～120 字）`);
+  }
+  const same = extRoutes.find((r) => r.action === spec.action);
+  if (same && (same.who !== spec.who || same.kind !== spec.kind)) throw new Error(`${where}：动作 ${spec.action} 在 ${same.method.toUpperCase()} ${same.path} 报的是 ${same.kind}/${same.who}，同一个动作要一致`);
+}
+
+/**
+ * 启动收尾时核对：扩展名（也就是它的动作前缀）不能和核心动作的域重名，否则扩展的动作会和核心的混在一起。
+ * 核心路由有的在扩展之后才注册，所以在全部注册完之后再核一次。不合格抛错（调用方拒绝启动）
+ */
+export function assertExtensionNamespaces(coreActions: readonly { action: string }[]): void {
+  const extNames = new Set(extRoutes.map((r) => r.extension));
+  const core = new Set(coreActions.map((a) => a.action).filter((a) => !extRoutes.some((r) => r.action === a)).map((a) => a.split('.')[0]));
+  for (const n of extNames) if (core.has(n)) throw new Error(`扩展名 ${n} 和核心动作的域重名：改扩展目录名（它也是动作前缀）`);
+}
 const SERVER_ENTRIES = ['server.ts', 'server.mjs', 'server.js'];
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -34,8 +102,10 @@ export interface ExtensionContext {
   apiVersion: typeof EXTENSION_API_VERSION;
   name: string;
   dir: string;
-  /** 挂路由用；挂在宿主的身份/写门之后、SPA 回落之前 */
+  /** 挂路由用；挂在宿主的身份/写门之后、SPA 回落之前。新写的路由请用 routes.add（报动作）；直接挂的会被点名为「没报动作」 */
   app: Express;
+  /** 注册一条报了动作的路由：路径在 /api/<扩展名>/… 或 /<扩展名>/… 下，动作名 <扩展名>.<动词>，who 从市场已有口径里选。返回撤销函数 */
+  routes: { add: (method: ExtensionRouteMethod, path: string, spec: ExtensionRouteSpec, ...handlers: ((req: Request, res: Response, next: NextFunction) => unknown)[]) => () => void };
   /** 包 async 路由：抛错交给宿主统一的错误处理 */
   wrap: (fn: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response, next: NextFunction) => void;
   /** 管理员门（口令或 Odoo 管理员）：未通过时已写好响应并返回 false */
@@ -56,7 +126,11 @@ export interface ExtensionContext {
   warn: (msg: string) => void;
 }
 
-export type ExtensionHost = Omit<ExtensionContext, 'apiVersion' | 'name' | 'dir' | 'log' | 'warn' | 'tasks'>;
+export type ExtensionHost = Omit<ExtensionContext, 'apiVersion' | 'name' | 'dir' | 'log' | 'warn' | 'tasks' | 'routes'> & {
+  /** 经它注册扩展的路由、对比路由栈 */
+  http: HttpService;
+  routesMode: ExtensionRoutesMode;
+};
 
 const BUILTIN_SOURCES = new Set(['ygl-trees', 'market', 'a2a']);
 const taskSources: TaskSource[] = [];
@@ -114,14 +188,40 @@ export async function loadExtensions(dirRaw: string | undefined, host: Extension
     let mod: { register?: unknown };
     try { mod = await import(pathToFileURL(entry).href); } catch (e) { throw new Error(`扩展 ${name} 加载失败（${entry}）：${String((e as Error)?.message ?? e).slice(0, 300)}`); }
     if (typeof mod.register !== 'function') throw new Error(`扩展 ${name} 未导出 register(ctx)：${entry}`);
+    const { http, routesMode, ...shared } = host;
     const ctx: ExtensionContext = {
-      ...host, apiVersion: EXTENSION_API_VERSION, name, dir: extDir,
+      ...shared, apiVersion: EXTENSION_API_VERSION, name, dir: extDir,
       tasks: { addSource: (src) => addTaskSource(name, src) },
+      routes: {
+        add: (method, path, spec, ...handlers) => {
+          checkExtensionRoute(name, method, path, spec);
+          const revoke = http.route(method, path, { action: spec.action, kind: spec.kind }, ...(handlers as never[]));
+          const record: ExtensionRouteRecord = { extension: name, method, path, action: spec.action, kind: spec.kind, who: spec.who, ...(spec.statusNotVerdict ? { statusNotVerdict: spec.statusNotVerdict } : {}) };
+          extRoutes.push(record);
+          return () => { revoke(); const i = extRoutes.indexOf(record); if (i >= 0) extRoutes.splice(i, 1); };
+        },
+      },
       log: (m) => console.log(`[ext:${name}] ${m}`),
       warn: (m) => console.warn(`[ext:${name}] ${m}`),
     };
+    const before = new Set(http.stackLayers());
     try { await (mod.register as (c: ExtensionContext) => unknown)(ctx); } catch (e) { throw new Error(`扩展 ${name} 的 register 失败：${String((e as Error)?.message ?? e).slice(0, 300)}`); }
+    // register 前后对比路由栈：新增的层里，没经 routes.add 报动作的逐条点名（经 req.app 等别处拿到的应用挂的也点得出）
+    for (const layer of http.stackLayers()) {
+      if (before.has(layer) || http.declaredLayer(layer)) continue;
+      const l = layer as { route?: { path?: unknown; methods?: Record<string, boolean> }; regexp?: unknown; name?: string };
+      const item: ExtensionUndeclared = l.route
+        ? { extension: name, type: 'route', method: Object.keys(l.route.methods ?? {}).join(',').toUpperCase() || 'ALL', path: String(l.route.path) }
+        : { extension: name, type: 'middleware', method: 'USE', path: String(l.regexp ?? l.name ?? '') };
+      extUndeclared.push(item);
+      console.warn(JSON.stringify({ source: 'extensions', event: item.type === 'route' ? 'route-undeclared' : 'middleware-added', extension: name, method: item.method, path: item.path }));
+    }
     loaded.push(name);
+  }
+  const undeclaredRoutes = extUndeclared.filter((u) => u.type === 'route');
+  if (undeclaredRoutes.length) {
+    console.warn(`[extensions] 扩展路由没报动作：${undeclaredRoutes.length} 条（${[...new Set(undeclaredRoutes.map((u) => u.extension))].join('、')}）；改用 ctx.routes.add 报上动作`);
+    if (host.routesMode === 'enforce') throw new Error(`WM_EXTENSION_ROUTES=enforce：有 ${undeclaredRoutes.length} 条扩展路由没报动作（${undeclaredRoutes.slice(0, 5).map((u) => `${u.extension} ${u.method} ${u.path}`).join('；')}）`);
   }
   return loaded;
 }

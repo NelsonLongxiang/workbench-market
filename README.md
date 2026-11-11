@@ -77,6 +77,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_FEISHU_AUTO_BIND_EMAIL`（`on`=没对到主体的人按飞书企业邮箱自动对到已有主体·缺省关·打开时必须配 `WM_FEISHU_TENANT_KEY`，否则拒绝启动）；见「主体」一节
 - `WM_TRUSTED_PROXIES`（可信反代·逗号分隔的 IP/CIDR·这些对端写入的 `X-Real-IP`/`X-Forwarded-For` 最右项才算来源 IP，用于登录门限频与审计、Odoo 登录票据按来源限额；回环恒可信；容器部署要写上 docker 网桥网关或反代网段；非法项拒绝启动）
 - `WM_EXTENSIONS_DIR`（扩展挂载点·绝对路径·缺省不加载任何扩展·见「扩展」）
+- `WM_EXTENSION_ROUTES`（扩展路由没报动作时怎么办·缺省 `warn`：照旧能跑，启动日志逐条点名并计数；`enforce`：有没报动作的扩展路由就拒绝启动，阶段六切换判定时打开；其它值拒绝启动·见「扩展」）
 - `YGL_MAX_PROJECTS`（统一待办读 ygl-trees 的 active 项目数上限·缺省 200·超出部分在 `degraded_projects` 报 cap-exceeded）
 - `YGL_TOTAL_BUDGET_MS`（ygl-trees 源总预算·缺省 8000·超预算未读的报 budget-exhausted；两项非整数或越界都回落缺省）。内容面（Draft，默认关闭）：`WM_CONTENT_PORT`（显式内容端口，缺省/0不启）
 - `WM_CONTENT_IP`（显式绑定非通配IP）
@@ -567,7 +568,15 @@ UI：`/tasks` 页（源/状态过滤·扩展条目可标「仅查看」）· 总
 - `ctx`（`server/src/extensions.ts`，`apiVersion` 1）：`app`/`wrap` 挂路由（在身份与写门之后、SPA 回落之前）；`adminGuard`；`odoo.url`/`resolveViewer`/`loginUrl`/`addReturnPath`（登记需要身份的页面作登录回跳）；`tasks.addSource`；`remoteWrite.allowExact`（业务写面：远程浏览器 POST 该精确路径不经管理写门、由扩展自己判身份，只收 `/api/<非宿主命名空间>/…`，进 S3 豁免面快照）。
 - 前端扩展从 `@wm/host` 取宿主组件（`WmPage`、`useOdooPopupLogin`、`odooLoginHref`）；`react`、`antd` 等按宿主的一份解析。
 - 镜像：`deploy/Dockerfile.market` 有一个空的 `wm-extensions` 阶段，部署方用同名构建上下文覆盖它（compose `build.additional_contexts`），并传构建参数 `WM_EXTENSIONS_DIR=/opt/wm-extensions`；运行时同样设 `WM_EXTENSIONS_DIR`。
-- 冒烟：`node scripts/extensions-smoke.mjs`。
+- **路由报动作**：新写的路由用 `ctx.routes.add(method, path, { action, kind, who, statusNotVerdict? }, handler)`，经 HTTP 服务注册，和核心路由一样报动作。
+  - 动作名 `<扩展名>.<动词>`（只有一个点，动词里分段用连字符，比如 `lifecycle.board-read`）；扩展名不能和核心动作的域重名（全部路由注册完之后核对）。
+  - 路径只能在 `/api/<扩展名>/…` 或 `/<扩展名>/…` 下，只收字符串。
+  - 类别和方法要对得上：POST、PUT、PATCH、DELETE 不能报 `read`。处理函数实际写不写库没法在注册时看出来，报窄只有方法这一道检查，其余靠评审。
+  - `who`（谁能调）只能从市场已有的口径里选：`anonymous`（登录门关着时匿名也能调）、`member`（登录认出来的人）、`admin`、`owner`；管理类只能给 `admin`/`owner`，`anonymous` 只能配 `read`/`write`。判定（阶段六）照它算，扩展不改核心的内置清单。
+  - 不合格都在注册时抛错，拒绝启动并点名扩展。旧扩展按 `ctx.routes` 有没有来判断能不能用（`apiVersion` 不变）。
+- **直接挂的**：经 `ctx.app`（或别处拿到的 Express 应用）挂的路由照旧能跑，但每个扩展 `register` 前后对比路由栈，没报动作的逐条点名（日志 `source: extensions`、`event: route-undeclared`；中间件另记 `middleware-added`）并合计。`WM_EXTENSION_ROUTES=enforce` 时有这样的路由就拒绝启动（阶段六切换判定时打开）。`register` 之后才挂的路由点不出来。
+- **扩展的面**：`node scripts/surface-snapshot.mjs --extensions <扩展目录> [--out <文件>]` 带扩展起实例，只导出扩展那一节（报了动作的路由和没报的），缺省打到标准输出；不写 `surfaces/`、不进核心快照和体检预算，部署方放进自己的私有仓库。
+- 冒烟：`node scripts/extensions-smoke.mjs`、`node scripts/extension-routes-smoke.mjs`。
 
 ## 鉴权边界与代理相对路径（#132 ⑨⑩）
 

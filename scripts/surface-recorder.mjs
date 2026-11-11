@@ -69,7 +69,13 @@ function actionsOf(stack, depth = 0) {
 // 父进程没了（被打断、被杀），实例自己退出，不留孤儿。
 process.on('disconnect', () => process.exit(0));
 
-process.on('message', (msg) => {
+process.on('message', async (msg) => {
   if (msg !== 'wm-surface-dump') return;
-  process.send?.({ wmSurface: apps.map((app) => dump(app._router?.stack)), wmActions: apps.map((app) => actionsOf(app._router?.stack)) });
+  // 扩展报的路由和没报动作的（只在带扩展起实例时才有）：和实例用的是同一份模块，读它登记的
+  let wmExtensions = { routes: [], undeclared: [] };
+  try {
+    const ext = await import(pathToFileURL(join(process.cwd(), 'src/extensions.ts')).href);
+    wmExtensions = { routes: ext.extensionRoutes?.() ?? [], undeclared: ext.extensionUndeclared?.() ?? [] };
+  } catch { /* 没有这个模块的旧代码：留空 */ }
+  process.send?.({ wmSurface: apps.map((app) => dump(app._router?.stack)), wmActions: apps.map((app) => actionsOf(app._router?.stack)), wmExtensions });
 });
