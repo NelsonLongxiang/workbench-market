@@ -7,14 +7,14 @@
  *  日志只增不改：每条事实一行；被拒的（表里没有、终态之后才到）也留一行「收到，未采信」，带原因。 */
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Alert, App, Badge, Button, Card, Col, Descriptions, Empty, Flex, Input, List, Row, Segmented, Space, Tag, Timeline, Typography } from 'antd';
+import { Alert, App, Badge, Button, Card, Col, Descriptions, Empty, Flex, Input, List, Radio, Row, Segmented, Space, Tag, Timeline, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import WmPage from '../components/WmPage';
 import RelTime from '../components/RelTime';
 import { adminActive, apiFetch, subscribeAdminToken } from '../admin-token';
 import { answerChoices, answerRoute, describe, type AttentionItem, type LogRow } from '../attention-view';
-import { getWorkItem, postCreatorDecision, postSeatMessageReply, postSeatMessagesRead } from '../api';
-import { PROGRESS_STATE, artifactHref, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatProgress } from '../work-item-view';
+import { getWorkItem, postAskAnswer, postCreatorDecision, postSeatMessageReply, postSeatMessagesRead } from '../api';
+import { PROGRESS_STATE, artifactHref, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
 
 type Item = { id: string; title: string; state: string; created_by: string; created_at: string; updated_at: string; source_kind: string; source_ref: string; target_team: string; seat: string; eval: string; eval_reason: string; progress_summary: string; receipt_outcome: string; object: string; phase: string; open_asks: string; outputs: string; evidence: string };
 
@@ -29,7 +29,7 @@ const FACT: Record<string, string> = {
   receipt: '回执', verify: '验收', return: '退回', answer: '答复', note: '备注',
 };
 type SeatMessage = { id: number; sender: string; peer: string; text: string; truncated: boolean; at: string; status: 'unread' | 'read' | 'replied' | 'over-cap' };
-type Data = { item: Item; log: LogRow[]; messages?: SeatMessage[]; unread?: number; progress?: SeatProgress | null };
+type Data = { item: Item; log: LogRow[]; messages?: SeatMessage[]; unread?: number; progress?: SeatProgress | null; asks?: SeatAsk[] };
 const MSG_STATUS: Record<SeatMessage['status'], { label: string; color: string }> = {
   unread: { label: '未读', color: 'blue' }, read: { label: '看过', color: 'default' }, replied: { label: '已回复', color: 'green' }, 'over-cap': { label: '超出上限', color: 'default' },
 };
@@ -82,6 +82,55 @@ function PendingAction({ item, admin, onDone }: { item: AttentionItem; admin: bo
         </Space>
       </>}
   </Flex>;
+}
+
+const ASK_ERROR: Record<string, string> = {
+  text_required: '选一个答法，或者写一句', answer_not_an_option: '这个答法不在选项里', seat_ask_not_pending: '这条提问已经不在等答复了（可能别人刚答过）',
+  seat_ask_not_found: '这条提问不在这件事项上', seat_ask_id_invalid: '提问号不对', work_items_cross_origin_denied: '请从市场页面里操作（跨站请求被拒）',
+  work_items_principal_not_active: '你的账号还没启用，不能答复',
+};
+
+function AskRow({ itemId, ask, onDone }: { itemId: string; ask: SeatAsk; onDone: () => void }) {
+  const { message } = App.useApp();
+  const [choice, setChoice] = useState(initialChoice(ask));
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const body = askAnswerBody(choice, text);
+  const submit = async () => {
+    if (!body) return;
+    setBusy(true);
+    try {
+      const { status, body: r } = await postAskAnswer(itemId, ask.id, body);
+      if (status === 401) throw Error('请先登录');
+      if (status === 404 && !r.error) throw Error('你不能答这件事项上的提问');
+      if (status < 200 || status >= 300) throw Error(ASK_ERROR[r.error ?? ''] ?? r.error ?? '答复失败');
+      void message.success(r.duplicate ? '这条已经答过了' : r.result?.sent ? '已答复，发回了席位' : '已答复');
+      setText(''); onDone();
+    } catch (e) { void message.error(e instanceof Error ? e.message : '答复失败'); }
+    finally { setBusy(false); }
+  };
+  return <List.Item data-testid="seat-ask">
+    <Flex vertical gap="small" className="wm-w-full">
+      <Space wrap size={6}>
+        <Typography.Text strong>{ask.question || '（没写问题）'}</Typography.Text>
+        {ask.status === 'answered' && <Tag color="green">已答复</Tag>}
+        {ask.status === 'closed' && <Tag>已合上</Tag>}
+        <Typography.Text type="secondary">{ask.asked_by}</Typography.Text><RelTime value={ask.at} />
+      </Space>
+      {ask.status === 'answered' && <Typography.Text>答：{ask.answer}<Typography.Text type="secondary">（{ask.answered_by}{ask.answered_at ? ' · ' : ''}</Typography.Text>{ask.answered_at && <RelTime value={ask.answered_at} />}<Typography.Text type="secondary">）</Typography.Text></Typography.Text>}
+      {ask.status === 'closed' && <Typography.Text type="secondary">没人答，后来的提问、接单或结果把它合上了。</Typography.Text>}
+      {ask.status === 'open' && <>
+        {ask.options.length > 0 && <Radio.Group value={choice} onChange={(e) => setChoice(String(e.target.value))} optionType="button" buttonStyle="solid" data-testid="seat-ask-options"
+          options={ask.options.map((o) => ({ label: o === ask.default ? `${o}（缺省）` : o, value: o }))} />}
+        <Input.TextArea aria-label="答复" autoSize={{ minRows: 1, maxRows: 6 }} maxLength={4000} value={text} disabled={!!choice}
+          placeholder={ask.options.length ? (choice ? '已选了答法；要自己写，先取消选择' : '或者自己写一句') : '写下你的答复（会发回提问的席位）'} onChange={(e) => setText(e.target.value)} />
+        <Space>
+          <Button type="primary" loading={busy} disabled={!body} onClick={() => void submit()}>答复</Button>
+          {choice && <Button onClick={() => setChoice('')}>取消选择</Button>}
+        </Space>
+      </>}
+    </Flex>
+  </List.Item>;
 }
 
 function SeatMessages({ itemId, messages, onChanged }: { itemId: string; messages: SeatMessage[]; onChanged: () => void }) {
@@ -163,7 +212,11 @@ export default function WorkItem() {
   useEffect(() => { void load(); }, [load]);
 
   const item = data?.item;
-  const hint = item ? stateHint(item.state, item.seat, lastAskAnswered(data?.log ?? [])) : null;
+  const asks = data?.asks;
+  // 详情带了 asks（阶段七）就以它为准：在这里答，「关注」里的同一条提问不再重复列
+  const shownPending = asks ? pending.filter((p) => p.source !== 'seat-asks') : pending;
+  const openAsks = asks ? asks.filter((a) => a.status === 'open').length : 0;
+  const hint = item ? stateHint(item.state, item.seat, asks ? openAsks === 0 && asks.length > 0 : lastAskAnswered(data?.log ?? [])) : null;
   const progress = data?.progress ?? null;
   const outputs = parseArtifacts(item?.outputs);
   const evidence = parseArtifacts(item?.evidence);
@@ -186,8 +239,11 @@ export default function WorkItem() {
               ]} />
             </Flex>
           </Card>
-          {pending.length > 0 && <Card size="small" title={<Space>等你处理<Badge count={pending.length} /></Space>} data-testid="work-item-pending">
-            <Flex vertical gap="middle">{pending.map((p) => <PendingAction key={`${p.source}:${p.source_id}`} item={p} admin={admin} onDone={() => void load()} />)}</Flex>
+          {asks && asks.length > 0 && <Card size="small" title={<Space>席位提问{openAsks > 0 && <Badge count={openAsks} title="在等你答复" />}</Space>} data-testid="seat-asks">
+            <List size="small" dataSource={asks} rowKey="id" renderItem={(a) => <AskRow itemId={id} ask={a} onDone={() => void load()} />} />
+          </Card>}
+          {shownPending.length > 0 && <Card size="small" title={<Space>等你处理<Badge count={shownPending.length} /></Space>} data-testid="work-item-pending">
+            <Flex vertical gap="middle">{shownPending.map((p) => <PendingAction key={`${p.source}:${p.source_id}`} item={p} admin={admin} onDone={() => void load()} />)}</Flex>
           </Card>}
           {progress && <Card size="small" title="正在处理" data-testid="work-item-progress">
             <Flex vertical gap="small">

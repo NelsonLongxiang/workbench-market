@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 事项详情页的纯函数单测（web/src/work-item-view.ts）：提示条、进展一行字、结果解析与链接、关注条目对到事项。 */
-import { artifactHref, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint } from '../web/src/work-item-view.ts';
+import { artifactHref, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint } from '../web/src/work-item-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -21,6 +21,9 @@ ok('结果：JSON 数组逐项取，没 id 没 url 的丢掉', JSON.stringify(ar
 ok('结果：不是 JSON 的字符串整体当一条', JSON.stringify(parseArtifacts('见附件')) === '[{"kind":"text","id":"见附件"}]');
 ok('链接：同源路径和 http(s) 给链接', artifactHref({ kind: 'file', id: 'a', url: '/apps/x' }) === '/apps/x' && artifactHref({ kind: 'file', id: 'a', url: 'https://example.org/a' }) === 'https://example.org/a');
 ok('链接：别的协议、协议相对地址、没有 url 都不给链接', artifactHref({ kind: 'f', id: 'a', url: 'javascript:alert(1)' }) === null && artifactHref({ kind: 'f', id: 'a', url: '//evil.example/a' }) === null && artifactHref({ kind: 'f', id: 'a' }) === null);
+
+ok('答复请求体：选了选项只给 answer，否则给去空白的文本，都没有给 null', JSON.stringify(askAnswerBody('甲', '也写了')) === '{"answer":"甲"}' && JSON.stringify(askAnswerBody('', ' 中文 ')) === '{"text":"中文"}' && askAnswerBody('', '  ') === null);
+ok('初始选择：缺省项在选项里才预选', initialChoice({ options: ['甲', '乙'], default: '乙' }) === '乙' && initialChoice({ options: ['甲'], default: '丙' }) === '' && initialChoice({ options: [] }) === '');
 
 const att = (source, link) => ({ source, source_id: '1', category: 'ask', title: '', waiting_for: '', since: '', answers: [], object: '', phase: '', link });
 const mine = pendingFor([att('seat-asks', '/work-items/wi_a'), att('work-items', '/work-items/wi_b'), att('work-items', '/work-items/wi_a'), att('x', '/other')], 'wi_a');

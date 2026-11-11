@@ -21,6 +21,21 @@ export function lastAskAnswered(log: { fact: string; rejected?: string }[]): boo
   return ask >= 0 && answer > ask;
 }
 
+/** 席位提问（阶段七：详情应答的 asks，按时间先后）。open 在等答复；answered 已答；closed 没人答、被后来的提问、接单或结果合上 */
+export type SeatAsk = { id: string; question: string; options: string[]; default?: string; status: 'open' | 'answered' | 'closed'; answer?: string; answered_by?: string; answered_at?: string; asked_by: string; at: string };
+
+/** 答复的请求体：选了选项就只给 answer（以它为准），否则给自由文本；都没有返回 null（不该提交） */
+export function askAnswerBody(choice: string, text: string): { answer: string } | { text: string } | null {
+  if (choice) return { answer: choice };
+  const t = text.trim();
+  return t ? { text: t } : null;
+}
+
+/** 提问区的初始选择：有缺省选项且确实在选项里就预选它 */
+export function initialChoice(a: Pick<SeatAsk, 'options' | 'default'>): string {
+  return a.default && a.options.includes(a.default) ? a.default : '';
+}
+
 /** 进展回执的步骤状态（阶段七 #551） */
 export const PROGRESS_STATE: Record<string, string> = { queued: '排队中', working: '正在处理', waiting: '在等', blocked: '卡住了' };
 
