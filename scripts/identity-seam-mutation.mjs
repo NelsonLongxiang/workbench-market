@@ -23,9 +23,9 @@ const OUT = join(ROOT, 'tmp', `identity-mutation-${process.pid}`);
 const jobsArg = process.argv.indexOf('--jobs');
 const JOBS = Math.max(1, Number(jobsArg >= 0 ? process.argv[jobsArg + 1] : 3) || 3);
 
-const CONTRACT = 'identity-contract-test.mjs', SMOKE = 'identity-seam-smoke.mjs', SERVICE = 'principal-service-test.mjs', FOLD = 'principal-fold-test.mjs', FEISHU = 'feishu-login-smoke.mjs', OFFBOARD = 'feishu-offboard-smoke.mjs', GRANTS = 'grants-smoke.mjs';
+const CONTRACT = 'identity-contract-test.mjs', SMOKE = 'identity-seam-smoke.mjs', SERVICE = 'principal-service-test.mjs', FOLD = 'principal-fold-test.mjs', FEISHU = 'feishu-login-smoke.mjs', OFFBOARD = 'feishu-offboard-smoke.mjs', GRANTS = 'grants-smoke.mjs', JUDGE = 'judgment-compare-smoke.mjs', ZERO = 'judgment-compare-zero-test.mjs', SWEEP = 'judgment-compare-sweep-test.mjs';
 const IDENTITY = 'server/src/identity.ts';
-const SESSIONS_SVC = 'server/src/services/login-session.ts', FLOWS = 'server/src/routes/login-flows.ts', EVENTS = 'server/src/routes/login-events.ts', GRANT_SVC = 'server/src/services/grant.ts', GRANT_ROUTES = 'server/src/routes/grants.ts', ROLES = 'server/src/roles.ts', FEISHU_PLUGIN = 'server/src/login-providers/feishu/index.ts';
+const SESSIONS_SVC = 'server/src/services/login-session.ts', FLOWS = 'server/src/routes/login-flows.ts', EVENTS = 'server/src/routes/login-events.ts', GRANT_SVC = 'server/src/services/grant.ts', GRANT_ROUTES = 'server/src/routes/grants.ts', ROLES = 'server/src/roles.ts', COMPARE = 'server/src/judgment-compare.ts', BUILTINS_FILE = 'server/src/judgment-builtins.ts', JUDGE_FILE = 'server/src/judgment.ts', GRANT_SVC2 = 'server/src/services/grant.ts', FEISHU_PLUGIN = 'server/src/login-providers/feishu/index.ts';
 const PRINCIPAL = 'server/src/services/principal.ts', ROUTES = 'server/src/routes/principals.ts', DB = 'server/src/db.ts', GATE = 'server/src/login-gate.ts';
 
 const INDEX = 'server/src/index.ts';
@@ -328,6 +328,45 @@ const MUTANTS = [
     find: "    if (platformIds.has(r.id) || platformNames.has(r.name)) fail(", replace: "    if (false) fail(" },
   { id: 'roles-unknown-action-ok', what: '角色引用不存在的动作也放行', file: ROLES, suites: [GRANTS],
     find: '    for (const p of r.permissions) for (const a of p.actions ?? []) if (!catalog.has(a)) fail(', replace: '    for (const p of r.permissions) for (const a of p.actions ?? []) if (false) fail(' },
+  // —— 判定的并行比对（6c）——
+  { id: 'compare-default-on', what: '比对缺省开', file: COMPARE, suites: [JUDGE],
+    find: "return { on: raw === 'on', out: out || null, tagSteps: env.NODE_ENV === 'test' };", replace: "return { on: raw !== 'off', out: out || null, tagSteps: env.NODE_ENV === 'test' };" },
+  { id: 'compare-judges-404', what: '404 也判（把藏起来的「没权限」当成允许或拒绝）', file: COMPARE, suites: [JUDGE],
+    find: "  if (status === 404) return 'skip-404';\n", replace: '' },
+  { id: 'compare-uncertain-as-allow', what: '400 这类当成允许', file: COMPARE, suites: [JUDGE],
+    find: "  if (status >= 200 && status < 400) return 'allow';", replace: "  if (status >= 200 && status < 500) return 'allow';" },
+  { id: 'compare-migrates-again', what: '迁移不看迁没迁过（撤掉的会被补回来）', file: GRANT_SVC2, suites: [JUDGE],
+    find: "      if (db.prepare(\"SELECT 1 FROM grants WHERE principal_id = ? AND role = ? AND source = 'migration'\").get(principal, role)) { db.exec('ROLLBACK'); return null; }", replace: "      if (db.prepare(\"SELECT 1 FROM grants WHERE principal_id = ? AND role = ? AND source = 'migration' AND status = 'active'\").get(principal, role)) { db.exec('ROLLBACK'); return null; }" },
+  { id: 'compare-records-real-path', what: '比对记录记实际路径（带查询串和 id）', file: COMPARE, suites: [JUDGE],
+    find: '    const pattern = `${req.method} ${String(route.path)}`;', replace: '    const pattern = `${req.method} ${req.originalUrl}`;' },
+  { id: 'compare-error-uncaught', what: '判定出错不接住（抛到进程里）', file: COMPARE, suites: [JUDGE],
+    find: "    const result = judge({ actor, action: spec.action, kind: spec.kind, declared: true });", replace: "    let result; try { result = judge({ actor, action: spec.action, kind: spec.kind, declared: true }); } catch (e) { setImmediate(() => { throw e; }); return; }" },
+  { id: 'compare-actor-after-response', what: '身份在应答之后才认（改口令的请求认错人）', file: COMPARE, suites: [JUDGE],
+    find: "    const { actor, admin } = await actorAtStart;", replace: "    const { actor, admin } = await actorOf(req);" },
+  // —— 判定比对的登记（6c 第二轮）：改了放行范围却没改登记，零不一致门槛就红 ——
+  { id: 'builtin-anon-missing-read', what: '匿名清单漏了一个今天开放的读面', file: BUILTINS_FILE, suites: [ZERO, SWEEP],
+    find: "  'setting.read',\n  'skill.list',\n", replace: "  'setting.read',\n" },
+  // —— 6c 验收 M1：按身份 × 路由铺满才抓得到的清单漂移 ——
+  { id: 'local-page-own-list', what: '本机页面另抄一份短清单，不由匿名的推出来', file: BUILTINS_FILE, suites: [SWEEP],
+    find: "    actions: [...new Set([...ANONYMOUS_ACTIONS, 'admin-token.first-set'])].sort(),", replace: "    actions: ['admin-token.first-set', 'admin-token.state', 'agent-card.read', 'design-token.read']," },
+  { id: 'anonymous-floor-dropped', what: '登录的人判不过时不按匿名兜底（匿名能提交台数据，员工反而不能）', file: JUDGE_FILE, suites: [SWEEP],
+    find: "  if (ANONYMOUS_ACTIONS.includes(action)) return { verdict: 'allow', rule: 'anonymous-floor' };\n", replace: '' },
+  { id: 'narrowed-observation-dropped', what: '门户观测状态不再只认口令（迁移出来的 admin 能读）', file: BUILTINS_FILE, suites: [SWEEP],
+    find: "  { action: 'content.observation', only: ['admin-token'],", replace: "  { action: 'content.observation-off', only: ['admin-token']," },
+  { id: 'revoke-migration-for-admins', what: '整批撤销迁移授予放给管理口令（处理函数只认属主）', file: BUILTINS_FILE, suites: [SWEEP],
+    find: "  { action: 'grant.revoke-migration', only: ['owner', 'local-cli'],", replace: "  { action: 'grant.revoke-migration', only: ['owner', 'local-cli', 'admin-token']," },
+  { id: 'builtin-cli-extra', what: '本机命令行清单多列了一个今天要口令的管理面', file: BUILTINS_FILE, suites: [ZERO],
+    find: "      'attention.read',\n      'cockpit.create',\n", replace: "      'attention.read',\n      'binding.list',\n      'cockpit.create',\n" },
+  { id: 'acts-for-owner-dropped', what: '去掉「口令代属主行事」的登记', file: BUILTINS_FILE, suites: [ZERO],
+    find: "      'attention.answer',\n      'change-request.approve',\n      'change-request.reject',\n      'mcp.access-approve',\n      'mcp.access-reject',\n", replace: '' },
+  { id: 'integrity-not-separate', what: '被完整性门拦下的不单列，拿去和判定比', file: COMPARE, suites: [ZERO, JUDGE],
+    find: "    if (old === 'deny' && crossMarked(req)) {", replace: "    if (false && old === 'deny' && crossMarked(req)) {" },
+  { id: 'not-verdict-ignored', what: '不看「状态码不代表授权」的声明', file: COMPARE, suites: [ZERO, JUDGE],
+    find: "    if (spec.statusNotVerdict) {", replace: "    if (false && spec.statusNotVerdict) {" },
+  { id: 'refine-ignored', what: '不看路由按请求细分的动作', file: COMPARE, suites: [ZERO, JUDGE],
+    find: "    const refined = declared?.refine?.find(", replace: "    const refined = undefined && declared?.refine?.find(" },
+  { id: 'local-page-any-origin', what: '本机页面不看 Origin 是不是本站', file: COMPARE, suites: [ZERO],
+    find: "      if (sameSiteOrigin(req)) return { actor: { type: 'builtin', name: 'local-page' }, admin: false };", replace: "      return { actor: { type: 'builtin', name: 'local-page' }, admin: false };" },
   // —— 夹具：假提供方不该在测试环境之外装得上 ——
   { id: 'fixture-preload-guard-removed', what: '预加载不看环境', file: PRELOAD, suites: [CONTRACT, SMOKE],
     find: "if (process.env.NODE_ENV !== 'test') {", replace: 'if (false) {' },
@@ -420,7 +459,7 @@ removeTree(OUT);
 try {
   // 绿：没改过的副本，两套都过。先证明「抄一份」这件事本身不会把测试弄红。
   const clean = plant('unchanged', null);
-  for (const script of [CONTRACT, SERVICE, FOLD, SMOKE, FEISHU, OFFBOARD, GRANTS]) {
+  for (const script of [CONTRACT, SERVICE, FOLD, SMOKE, FEISHU, OFFBOARD, GRANTS, JUDGE, ZERO]) {
     const r = await runTwice(script, clean);
     note(r.status === 0, `没改过的副本：${script} 通过`, r.status === 0 ? '' : tailOf(r));
   }
