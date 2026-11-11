@@ -10,7 +10,7 @@
       "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
       "clock": "2030-01-01T00:00:00Z",
       "seed": [
-        { "table": "apps", "row": { "slug": "other-sop", "title": "库里的 SOP", "kind": "sop", "status": "draft", "active_version": 1 } },
+        { "table": "apps", "row": { "slug": "other-sop", "title": "库里的 SOP", "kind": "sop", "status": "draft", "active_version": 1, "created_at": "2099-01-01 00:00:00", "updated_at": "2099-01-01 00:00:00" } },
         { "table": "apps", "row": { "slug": "plain-app", "title": "库里的普通台", "kind": "app", "status": "active" } },
         { "table": "app_versions", "row": { "app_id": 2, "version": 1, "changelog": "库里的版本", "created_by": "seed" } },
         { "table": "sop_runs", "row": { "sop_slug": "task-center", "sop_version": 1, "started_by": "seed", "status": "finished" } },
@@ -794,6 +794,63 @@
           }
         },
         {
+          "id": "list-remote-anonymous",
+          "route": "GET /api/sops",
+          "class": "normal",
+          "what": "登录门关着：远程匿名读列表（放在 task-center 状态变更之前：列表按 updated_at 排，只到秒，最后写的必须是 id 大的那一行，先后才定得住）",
+          "vary": { "1.a2a_node8": "random" },
+          "request": { "method": "GET", "path": "/api/sops", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1182", "etag": "W/\"49e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 2,
+                "slug": "other-sop",
+                "title": "库里的 SOP",
+                "description": "",
+                "created_by": "",
+                "active_version": 1,
+                "status": "published",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "layerfs_project": "",
+                "source_repo": "",
+                "source_path": "",
+                "kind": "sop",
+                "code": "",
+                "a2a_node8": "",
+                "versions": [
+                  { "id": 2, "app_id": 2, "version": 1, "file_count": 0, "total_bytes": 0, "created_by": "seed", "changelog": "库里的版本\n[publish] 第一次上架", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "pending", "shadow_error": "", "commit_id": "", "source_commit": "" }
+                ],
+                "workbench_id": 2
+              },
+              {
+                "id": 1,
+                "slug": "task-center",
+                "title": "任务中心",
+                "description": "人工发布录入任务",
+                "created_by": "system:seed",
+                "active_version": 1,
+                "status": "published",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "layerfs_project": "",
+                "source_repo": "",
+                "source_path": "",
+                "kind": "sop",
+                "code": "",
+                "a2a_node8": "<每个实例随机·string·8>",
+                "versions": [
+                  { "id": 1, "app_id": 1, "version": 1, "file_count": 1, "total_bytes": 1004, "created_by": "system:seed", "changelog": "内置任务录入模板 v1", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "pending", "shadow_error": "", "commit_id": "", "source_commit": "" }
+                ],
+                "workbench_id": 1
+              }
+            ]
+          }
+        },
+        {
           "id": "tc-pub-no-token",
           "route": "POST /api/sops/:slug/publish",
           "class": "unauthorized",
@@ -1018,63 +1075,6 @@
           }
         },
         {
-          "id": "list-remote-anonymous",
-          "route": "GET /api/sops",
-          "class": "normal",
-          "what": "登录门关着：远程匿名读列表",
-          "vary": { "1.a2a_node8": "random" },
-          "request": { "method": "GET", "path": "/api/sops", "headers": { "x-forwarded-for": "198.51.100.7" } },
-          "response": {
-            "status": 200,
-            "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "2094", "etag": "W/\"82e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": [
-              {
-                "id": 2,
-                "slug": "other-sop",
-                "title": "库里的 SOP",
-                "description": "",
-                "created_by": "",
-                "active_version": 1,
-                "status": "published",
-                "created_at": "YYYY-MM-DD hh:mm:ss",
-                "updated_at": "YYYY-MM-DD hh:mm:ss",
-                "layerfs_project": "",
-                "source_repo": "",
-                "source_path": "",
-                "kind": "sop",
-                "code": "",
-                "a2a_node8": "",
-                "versions": [
-                  { "id": 2, "app_id": 2, "version": 1, "file_count": 0, "total_bytes": 0, "created_by": "seed", "changelog": "库里的版本\n[publish] 第一次上架", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "pending", "shadow_error": "", "commit_id": "", "source_commit": "" }
-                ],
-                "workbench_id": 2
-              },
-              {
-                "id": 1,
-                "slug": "task-center",
-                "title": "任务中心",
-                "description": "人工发布录入任务",
-                "created_by": "system:seed",
-                "active_version": 1,
-                "status": "published",
-                "created_at": "YYYY-MM-DD hh:mm:ss",
-                "updated_at": "YYYY-MM-DD hh:mm:ss",
-                "layerfs_project": "",
-                "source_repo": "",
-                "source_path": "",
-                "kind": "sop",
-                "code": "",
-                "a2a_node8": "<每个实例随机·string·8>",
-                "versions": [
-                  { "id": 1, "app_id": 1, "version": 1, "file_count": 1, "total_bytes": 1004, "created_by": "system:seed", "changelog": "内置任务录入模板 v1\n[publish] 长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "pending", "shadow_error": "", "commit_id": "", "source_commit": "" }
-                ],
-                "workbench_id": 1
-              }
-            ]
-          }
-        },
-        {
           "id": "tl-remote-anonymous",
           "route": "GET /api/sops/:slug/timeline",
           "class": "normal",
@@ -1102,7 +1102,7 @@
       "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
       "clock": "2030-01-01T00:00:00Z",
       "seed": [
-        { "table": "apps", "row": { "slug": "other-sop", "title": "库里的 SOP", "kind": "sop", "status": "draft", "active_version": 1 } },
+        { "table": "apps", "row": { "slug": "other-sop", "title": "库里的 SOP", "kind": "sop", "status": "draft", "active_version": 1, "created_at": "2099-01-01 00:00:00", "updated_at": "2099-01-01 00:00:00" } },
         { "table": "apps", "row": { "slug": "plain-app", "title": "库里的普通台", "kind": "app", "status": "active" } },
         { "table": "app_versions", "row": { "app_id": 2, "version": 1, "changelog": "库里的版本", "created_by": "seed" } },
         { "table": "sop_runs", "row": { "sop_slug": "task-center", "sop_version": 1, "started_by": "seed", "status": "finished" } },
