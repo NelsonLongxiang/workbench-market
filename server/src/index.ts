@@ -50,6 +50,7 @@ import { registerTaskIntakeRoutes, registerTaskReadRoutes, registerTaskControlRo
 import { registerSkillRoutes } from './routes/skills.ts';
 import { registerMcpRoutes } from './routes/mcp.ts';
 import { registerRemoteAllowRoutes } from './routes/remote-allow.ts';
+import { registerAppRoutes, registerAppLifecycleRoutes } from './routes/apps.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import type { ChangeRequestService } from './services/change-request.ts';
@@ -812,12 +813,6 @@ function syncWorkbenchRegistration(a: AppRow): number {
   return Number(r.lastInsertRowid);
 }
 
-app.get('/api/apps', (_req, res) => {
-  // /api/apps = 全部台（app+sop）；/api/sops 才是 kind='sop' 过滤——S2 批量替换期间两口径装反过一次
-  const rows = svc<AppService>('app').all() as unknown as AppRow[];
-  res.json(rows.map(appDetail));
-});
-
 // ---------- SOP 台：混合源（sop.yaml）解析与校验 ----------
 interface SopStep { key: string; title: string; body?: string }
 interface SopManifest { title: string; code?: string; description?: string; steps: SopStep[] }
@@ -1019,19 +1014,6 @@ function publishLockGuard(slug: string, who: string, force: boolean): { ok: true
 /** 属主 2026-11-02 来源收敛：自产台与 SOP 台只接受 GitHub 仓库 main 分支，直接传文件/patch 的发布一律拒（task-center 内置元台除外，仍只认管理员人工面） */
 const DIRECT_PUBLISH_CLOSED = '自产台与 SOP 台只接受 GitHub 仓库 main 分支：把文件合进仓库 main，再调 POST /api/apps/<slug>/sync（首次须带 source_repo，可选 source_path；本机 CLI 或管理员）或 MCP app_sync';
 
-app.post('/api/apps', (req, res) => {
-  const b = (req.body ?? {}) as Record<string, unknown>;
-  if (String(b.slug ?? '').trim().toLowerCase() !== 'task-center') return res.status(410).json({ error: DIRECT_PUBLISH_CLOSED });
-  if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
-  if (!adminGuard(req,res)) return;
-  // #165 回归修（E2E 红）：锁身份=客户端会话（X-Market-Client/admin 摘要），**不用 created_by**（元数据·同操作者带/不带误判两会话→合法发布 409）
-  const who = String(req.headers['x-market-client'] ?? '').trim() || (adminTokenCheck(req.headers['x-admin-token']) ? 'admin-session' : 'loopback-anon');
-  const gate = publishLockGuard('task-center', who, b.force === true || b.force === 'true');
-  if (!gate.ok) return res.status(409).json({ error: gate.hint });
-  const r = publishAppBody(b);
-  res.status(r.status).json(r.body);
-});
-
 /** 从 GitHub main 头同步一版。给了 source_repo 即（重新）绑定来源——只走 REST（本机 CLI 或管理员）；不给则按已绑定来源重拉（MCP app_sync 只能这样）。
  *  main 头与活跃版同一 commit 且来源未变 → 不出新版本（unchanged:true）。 */
 async function syncAppFromGithub(slug: string, b: any, who: string): Promise<{ status: number; body: object }> {
@@ -1062,67 +1044,7 @@ async function syncAppFromGithub(slug: string, b: any, who: string): Promise<{ s
   return { status: out.status, body: { ...out.body, source: { ...src, branch: SOURCE_BRANCH, commit: pulled.commit } } };
 }
 
-// 写总门已把关：本机 CLI 或管理员（口令 / Odoo 管理员），与原 POST /api/apps 同口径
-app.post('/api/apps/:slug/sync', wrap(async (req, res) => {
-  const b = (req.body ?? {}) as Record<string, unknown>;
-  // #165：锁身份=客户端会话，不用 created_by（元数据·同操作者带/不带会被当成两个会话误报 409）
-  const who = String(req.headers['x-market-client'] ?? '').trim() || (isAdmin(req) ? 'admin-session' : 'loopback-anon');
-  const slug = String(req.params.slug ?? '').trim().toLowerCase();
-  const gate = publishLockGuard(slug, who, b.force === true);
-  if (!gate.ok) return res.status(409).json({ error: gate.hint });
-  const r = await syncAppFromGithub(slug, b, who);
-  res.status(r.status).json(r.body);
-}));
-
-// #94 P1 迁移端点：现有版本依次导成该台项目的 Commit（三门禁复验·异常留档·幂等·sha256 对账）
-app.post('/api/apps/:slug/migrate-layerfs', wrap(async (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const a = getApp(req.params.slug);
-  const vs = svc<AppService>('app').versions(a.id) as any[];
-  const results: any[] = [];
-  let prevBytes = 0;
-  for (const v of vs.sort((x: any, y: any) => x.version - y.version)) {
-    const dir = join(appsRoot, a.slug, `v${v.version}`);
-    if (!existsSync(dir)) { results.push({ version: v.version, result: 'anomaly', reason: '物化目录缺失' }); continue; }
-    // 读物化文件
-    const files: { path: string; content: string }[] = [];
-    (function walk(d: string, rel = '') { for (const e of readdirSync(d, { withFileTypes: true })) { const fp = join(d, e.name); if (e.isDirectory()) walk(fp, rel + e.name + '/'); else files.push({ path: rel + e.name, content: readFileSync(fp, 'utf8') }); } })(dir);
-    // 三门禁复验（评审席复查裁定）
-    if (files.some((f) => f.content === '')) { results.push({ version: v.version, result: 'anomaly', reason: '空 content（门禁复验拒迁·留档）' }); prevBytes = v.total_bytes; continue; }
-    if (prevBytes > 0 && v.total_bytes < prevBytes * 0.5) { results.push({ version: v.version, result: 'anomaly', reason: `体积骤降（${prevBytes}→${v.total_bytes}·>50%·门禁拒迁）` }); prevBytes = v.total_bytes; continue; }
-    const html = files.filter((f) => /\.html?$/.test(f.path));
-    for (const h of html) {
-      const open = (h.content.match(/<div/g) ?? []).length; const close = (h.content.match(/<\/div>/g) ?? []).length;
-      if (open !== close) { results.push({ version: v.version, result: 'anomaly', reason: `div 配对失败（${open}开/${close}闭）` }); break; }
-    }
-    if (results.at(-1)?.version === v.version && results.at(-1)?.result === 'anomaly') { prevBytes = v.total_bytes; continue; }
-    // 幂等：已有 commit_id 跳过
-    if (v.commit_id) { results.push({ version: v.version, result: 'skip', commit_id: v.commit_id }); prevBytes = v.total_bytes; continue; }
-    if (layerfsReservedSlug(a.slug)) { results.push({ version: v.version, result: 'error', reason: 'slug 是系统保留名，不迁入 LayerFS' }); continue; }
-    const out = await layerfsPublish(layerfsProjectName(a.slug), files, `[migrate] v${v.version}`);
-    if (!out) { svc<AppService>('app').versionMigrateFailed(v.id); results.push({ version: v.version, result: 'error', reason: 'layerfs 服务不可达（影子失败语义·可重跑）' }); prevBytes = v.total_bytes; continue; }
-    svc<AppService>('app').versionMigrated(out.commit_id, v.id);
-    svc<AppService>('app').setLayerfsProject(a.slug, a.slug);
-    // sha256 对账（物化 vs 服务 commit——经服务回读）
-    const { base, token } = layerfsServiceBase();
-    let shaMatch = false;
-    try {
-      const fr = await fetch(base.replace(/\/+$/, '') + '/v1/projects/' + encodeURIComponent(layerfsProjectName(a.slug)) + '/branches/release/commits/' + encodeURIComponent(out.commit_id) + '/files', { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-      const fj = await fr.json() as { files: { path: string; content: string }[] };
-      const { createHash: ch } = await import('node:crypto');
-      const h1 = ch('sha256').update(JSON.stringify(files.map((f) => [f.path, ch('sha256').update(f.content, 'utf8').digest('hex')]))).digest('hex');
-      const h2 = ch('sha256').update(JSON.stringify(fj.files.map((f) => [f.path, ch('sha256').update(f.content, 'utf8').digest('hex')]))).digest('hex');
-      shaMatch = h1 === h2;
-    } catch { shaMatch = false; }
-    results.push({ version: v.version, result: 'migrated', commit_id: out.commit_id, changed: out.changed, sha256_match: shaMatch });
-    prevBytes = v.total_bytes;
-  }
-  res.json({ slug: a.slug, layerfs_project: a.slug, results });
-}));
-
-app.get('/api/apps/:slug', (req, res) => {
-  res.json(appDetail(getApp(req.params.slug)));
-});
+registerAppRoutes(http, { appDetail, getApp, DIRECT_PUBLISH_CLOSED, sameOriginGuard, adminGuard, adminTokenCheck, publishLockGuard, publishAppBody, wrap, isAdmin, syncAppFromGithub, appsRoot, layerfsReservedSlug, layerfsPublish, layerfsProjectName, layerfsServiceBase });
 
 // 版本回滚：activate 指定历史版本为当前生效快照（文件不动，只切换指针）；REST 与 MCP 共用
 async function activateAppVersion(slug: string, vRaw: unknown): Promise<object> {
@@ -1183,29 +1105,7 @@ function executeSkillDelete(slug: string): void {
 }
 registerChangeRequestRoutes(http, { adminGuard, wrap, bad, activateAppVersion, deleteAppCascade, executeSkillRollback, executeSkillDelete });
 
-app.post('/api/apps/:slug/activate', wrap(async (req, res) => {
-  if (req.params.slug === 'task-center') {
-    if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
-    if (!adminGuard(req,res)) return;
-  }
-  // #94 v3 S1（L14）：回滚经人审——一步式=口令+reviewed_by（缺 reviewed_by 不执行）
-  const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
-  if (!reviewedBy) bad('回滚需 reviewed_by（人审门——一步式直调必填；或经 MCP change_request_create 提请求）');
-  const out = await activateAppVersion(req.params.slug, req.body?.version);
-  res.json({ ...out, reviewed_by: reviewedBy });
-}));
-
-app.delete('/api/apps/:slug', wrap(async (req, res) => {
-  if (req.params.slug === 'task-center') {
-    if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
-    if (!adminGuard(req,res)) return;
-  }
-  // #94 v3 S1（L14）：删除经人审——一步式=口令+reviewed_by
-  const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
-  if (!reviewedBy) bad('删除需 reviewed_by（人审门——一步式直调必填；或经 MCP change_request_create 提请求）');
-  await deleteAppCascade(req.params.slug);
-  res.json({ ok: true, deleted: req.params.slug, reviewed_by: reviewedBy });
-}));
+registerAppLifecycleRoutes(http, { sameOriginGuard, adminGuard, wrap, bad, activateAppVersion, deleteAppCascade });
 
 /** #94 v3 S1：台删除级联体（一步式 REST 与人审批准共用一个执行体——单一事实源） */
 /** #94 P1 影子双写：经 layerfs 服务发布 Commit（契约 v0 §2.1·Bearer）——失败不阻（warn·commit_id 留空） */
