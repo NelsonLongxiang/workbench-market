@@ -1,18 +1,35 @@
 /** 事项详情页的纯函数：不碰 React，scripts/work-item-detail-ui-unit.mjs 直接测。 */
 import type { AttentionItem } from './attention-view';
 
-/** 看的人对这件事项能做什么：取自 /api/attention 里链接到这件事项、而且这个人确实有答法的条目（各来源的守卫决定给谁看、给什么答法），
- *  不按角色名猜。release：能放行（过目）；answer：能答席位的提问；verify：能验收 */
+/** 看的人对这件事项能做什么、是不是轮到他：直接取事项详情应答里的 can、turn（#587，和动作接口同一处判断），
+ *  页面不再比对登录名、不看是不是管理员、也不绕道「关注」去猜。
+ *  can：现在能不能做；turn：是不是轮到他。can 真而 turn 假 = 能代办。 */
 export type Can = { release: boolean; answer: boolean; verify: boolean };
 export const CAN_NONE: Can = { release: false, answer: false, verify: false };
-export function canOf(pending: AttentionItem[], choicesOf: (x: AttentionItem) => string[]): Can {
-  const has = (pred: (x: AttentionItem) => boolean, ans?: string) => pending.some((x) => pred(x) && (ans ? choicesOf(x).includes(ans) : choicesOf(x).length > 0 || x.source === 'seat-asks'));
-  return {
-    release: has((x) => x.source === 'work-items' && x.category === 'glance', 'release'),
-    // 「关注」只把提问给能答的人看（管理员，和事项的建立人本人）：看得到这条就能答
-    answer: has((x) => x.source === 'seat-asks'),
-    verify: has((x) => x.source === 'work-items' && x.category === 'accept', 'verify'),
-  };
+export type Turn = { release: boolean; answer: boolean; verify: boolean };
+export const TURN_NONE: Turn = { release: false, answer: false, verify: false };
+const flags = (v: unknown): Can => {
+  const o = v && typeof v === 'object' ? v as Record<string, unknown> : {};
+  return { release: o.release === true, answer: o.answer === true, verify: o.verify === true };
+};
+/** 从详情应答取：字段缺了或形状不对一律当「不能、没轮到」，页面就只给中性说法、不给按钮 */
+export function viewerOf(d: { can?: unknown; turn?: unknown; creator?: unknown } | null | undefined, fallbackCreator = ''): Viewer & { turn: Turn; reply: boolean | null } {
+  const can = flags(d?.can), turn = flags(d?.turn);
+  const c = d?.creator && typeof d.creator === 'object' ? d.creator as Record<string, unknown> : null;
+  const name = (c && typeof c.display_name === 'string' && c.display_name.trim()) || (c && typeof c.principal === 'string' ? c.principal.replace(/^(user|human):/, '') : '') || fallbackCreator;
+  const rc = d?.can && typeof d.can === 'object' ? (d.can as Record<string, unknown>).reply : undefined;
+  return { mine: turn.answer || turn.verify, can, turn, creator: name, reply: typeof rc === 'boolean' ? rc : null };
+}
+
+/** 「等你处理」的一条在这一页能点哪些答法：按 can 筛——验收、打回要 can.verify；放行、撤回要 can.release；答复要 can.answer；
+ *  别的答法照条目给的（来源自己的守卫已经决定了给谁看） */
+const NEEDS_CAN: Record<string, keyof Can> = { verify: 'verify', return: 'verify', release: 'release', withdraw: 'release', answer: 'answer' };
+export function choicesFor(item: Pick<AttentionItem, 'answers'>, can: Can): string[] {
+  return item.answers.filter((a) => (NEEDS_CAN[a] ? can[NEEDS_CAN[a]] : true));
+}
+/** 这一条走哪个入口：轮到本人的验收、打回（条目的 mine 为真）走建立人入口；其余（代办）走答复入口 */
+export function routeFor(item: Pick<AttentionItem, 'source' | 'category'> & { mine?: unknown }): 'creator' | 'attention' {
+  return item.mine === true && item.source === 'work-items' && item.category === 'accept' ? 'creator' : 'attention';
 }
 
 /** 状态叫法（原型的人话）。中性叫法不带「你」；时间线、列表用它 */
@@ -22,45 +39,45 @@ const STATE_LABEL: Record<string, string> = {
 };
 
 /** 看的人和这件事的关系：mine = 这件事本来该找的人（答复、验收找建立人）；can = 有权限能代办的；creator = 建立人的显示名 */
-export type Viewer = { mine: boolean; can: Can; creator: string };
+export type Viewer = { mine: boolean; can: Can; creator: string; turn?: Turn };
 export const VIEWER_NONE: Viewer = { mine: false, can: CAN_NONE, creator: '' };
 
 /** 「你」指这件事本来该找的那个人，不是所有有权限的人：
  *  答复、验收找建立人——建立人看「在问你」「等你验收」，别人看「在问 alpha」「等 alpha 验收」（有权限的可以代办）；
  *  放行找有放行权限的人——他们看「等你过目」，别人看「等放行」。没有 viewer 时给中性叫法 */
+/** 轮到谁：有 turn 用 turn；没有（旧的调用、单测里的简写）退回 mine 和 can.release */
+const turnOfViewer = (v: Viewer): Turn => v.turn ?? { release: v.can.release, answer: v.mine, verify: v.mine };
+
 export function stateLabel(state: string, viewer: Viewer = VIEWER_NONE): string {
   const name = viewer.creator;
-  if (state === 'held') return viewer.can.release ? '等你过目' : '等放行';
-  if (state === 'blocked') return viewer.mine ? '在问你' : name ? `在问 ${name}` : STATE_LABEL.blocked;
-  if (state === 'ready') return viewer.mine ? '等你验收' : name ? `等 ${name} 验收` : STATE_LABEL.ready;
+  const t = turnOfViewer(viewer);
+  if (state === 'held') return t.release ? '等你过目' : '等放行';
+  if (state === 'blocked') return t.answer ? '在问你' : name ? `在问 ${name}` : STATE_LABEL.blocked;
+  if (state === 'ready') return t.verify ? '等你验收' : name ? `等 ${name} 验收` : STATE_LABEL.ready;
   return STATE_LABEL[state] ?? state;
 }
 
 /** 一句话说清事项现在卡在哪、该谁动：页面顶上的提示条。终态和正常进行中不出提示 */
 export function stateHint(state: string, seat: string, askAnswered = false, viewer: Viewer = VIEWER_NONE, canAnswerHere = true): { type: 'info' | 'warning' | 'success'; text: string } | null {
   const name = viewer.creator || '建立人';
+  const t = turnOfViewer(viewer);
   switch (state) {
     case 'draft': return { type: 'info', text: '这件事项还没提交，没有派给任何团队。' };
-    case 'held': return viewer.can.release
+    case 'held': return t.release
       ? { type: 'warning', text: '等你过目：你放行之后，才会派给团队。' }
-      : { type: 'warning', text: '在等放行：有放行权限的人放行之后，才会派给团队。' };
+      : { type: 'warning', text: viewer.can.release ? '在等放行；你可以代为放行。' : '在等放行：放行之后，才会派给团队。' };
     case 'delivered': return { type: 'info', text: '已经转交，在等团队接手。' };
     case 'accepted': return seat ? null : { type: 'info', text: '团队已经接手，还没说是哪个席位在做。' };
     case 'blocked':
       if (askAnswered) return { type: 'info', text: '提问已经答复，在等席位接着做。' };
       // 建立人在这一页答不了的时候（服务端还没开建立人答复的入口），不说「你答复之后」——他没地方答
-      if (viewer.mine) return { type: 'warning', text: canAnswerHere ? '席位在问你：你答复之后它才能接着做。' : '席位在问你。这里还不能直接答复，先请管理员代答。' };
+      if (t.answer) return { type: 'warning', text: canAnswerHere ? '席位在问你：你答复之后它才能接着做。' : '席位在问你。这里还不能直接答复，先请管理员代答。' };
       return { type: 'warning', text: viewer.can.answer ? `席位在问 ${name}；你可以代答。` : `席位在问 ${name}，等 ${name} 答复。` };
     case 'ready':
-      if (viewer.mine) return { type: 'success', text: '做完了，等你验收：通过就办结，打回就接着改。' };
+      if (t.verify) return { type: 'success', text: '做完了，等你验收：通过就办结，打回就接着改。' };
       return { type: 'success', text: viewer.can.verify ? `做完了，等 ${name} 验收；你可以代为验收。` : `做完了，等 ${name} 验收。` };
     default: return null;
   }
-}
-
-/** 看的人是不是建立人：现在用登录名对建立人主体（user:<登录名>）判断；阶段八给出「是不是轮到这个人」的字段后换过去 */
-export function isCreator(login: string | null | undefined, creatorPrincipal: string | null | undefined): boolean {
-  return !!login && !!creatorPrincipal && creatorPrincipal.replace(/^user:/, '') === login;
 }
 
 /** 席位：服务端给「名字 · 句柄」或只有句柄；显示成「名字（句柄）」 */
