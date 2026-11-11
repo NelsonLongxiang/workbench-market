@@ -488,6 +488,11 @@ function listLoosened(root, list) {
   if (r.status !== 0) return null;
   let main;
   try { main = JSON.parse(r.stdout); } catch { return null; }
+  return diffLists(main, list);
+}
+
+/** 两份清单比较：list 相对 main 放宽了什么。 */
+function diffLists(main, list) {
   const rank = { count: 0, budget: 1, redline: 2 };
   const before = new Map((main.rules || []).map((x) => [x.id, x]));
   const now = new Map((list.rules || []).map((x) => [x.id, x]));
@@ -497,6 +502,14 @@ function listLoosened(root, list) {
     if (!a) { out.push(`${id} 被删掉`); continue; }
     if (rank[a.tier] < rank[b.tier]) out.push(`${id} 档位放宽（${TIER[b.tier]} → ${TIER[a.tier]}）`);
     if (a.baseline?.total > b.baseline?.total) out.push(`${id} 基线变大（${b.baseline.total} → ${a.baseline.total}）`);
+    if ((a.tier || 'count') !== 'count') {
+      // 预算档、红线档按文件（条目）比：总数不变或变小，也可能是把额度挪给了别的文件
+      const grown = [];
+      const bf = b.baseline?.files || {}, bi = new Set(b.baseline?.items || []);
+      for (const [f, n] of Object.entries(a.baseline?.files || {})) if (n > (bf[f] ?? 0)) grown.push(f in bf ? `${f} ${bf[f]} → ${n}` : `${f} 新增 ${n}`);
+      for (const it of a.baseline?.items || []) if (!bi.has(it)) grown.push(`${it} 新增`);
+      if (grown.length) out.push(`${id} 按文件放宽 ${grown.length} 处（${grown.slice(0, 3).join('、')}${grown.length > 3 ? ' 等' : ''}）`);
+    }
     if ((a.target ?? Infinity) > (b.target ?? Infinity)) out.push(`${id} 目标放宽`);
   }
   const key = (w) => `${w.rule} ${w.item}`;
@@ -630,6 +643,17 @@ function selftest() {
   const budgetAfter = tightenBaseline({ total: 5, files: { 'a.ts': 5 } }, moved, 'budget');
   check(budgetAfter.total === 3 && !('c.ts' in budgetAfter.files), '收紧：预算档的新文件不收进基线（它是违规，要豁免或先修）');
   check(tightenBaseline({ total: 2, items: ['x', 'y'] }, { total: 2, items: ['y', 'z'] }, 'count').total === 2, '收紧：计数档按条目记时，新条目按实际记');
+  // 「清单变化」：预算档按文件挪额度、计数档按文件重记
+  const listOf = (tier, files) => ({ rules: [{ id: 'x', tier, target: 0, baseline: { total: sum(files), files } }], waivers: [], tests: {} });
+  const movedOut = diffLists(listOf('budget', { 'a.ts': 3 }), listOf('budget', { 'a.ts': 2, 'c.ts': 1 }));
+  check(movedOut.some((x) => x.includes('c.ts')), `清单变化：预算档总数不变、额度从旧文件挪到新文件，点名新文件（得到 ${JSON.stringify(movedOut)}）`);
+  const shifted = diffLists(listOf('budget', { 'a.ts': 2, 'b.ts': 2 }), listOf('budget', { 'a.ts': 1, 'b.ts': 3 }));
+  check(shifted.some((x) => x.includes('b.ts')) && !shifted.some((x) => x.includes('a.ts')), `清单变化：预算档在已有文件之间挪额度，点名变大的文件（得到 ${JSON.stringify(shifted)}）`);
+  const itemsAdded = diffLists({ rules: [{ id: 'x', tier: 'redline', target: 0, baseline: { total: 1, items: ['p'] } }] }, { rules: [{ id: 'x', tier: 'redline', target: 0, baseline: { total: 1, items: ['q'] } }] });
+  check(itemsAdded.some((x) => x.includes('q')), `清单变化：红线档换了一个条目，点名新条目（得到 ${JSON.stringify(itemsAdded)}）`);
+  const recounted = diffLists(listOf('count', { 'a.ts': 3 }), listOf('count', { 'a.ts': 2, 'c.ts': 1 }));
+  check(recounted.length === 0, `清单变化：计数档按文件重记、总数不变，不点名（得到 ${JSON.stringify(recounted)}）`);
+  check(diffLists(listOf('budget', { 'a.ts': 3 }), listOf('budget', { 'a.ts': 2 })).length === 0, '清单变化：预算档只是变小，不点名');
   const good = { rules: RULES.map((r) => ({ id: r.id, tier: 'count', baseline: { total: 0 } })), waivers: [], tests: {} };
   const broken = (patch) => listProblems({ ...good, ...patch }).length > 0;
   check(listProblems(good).length === 0, '清单校验：完整的清单没有问题');
