@@ -369,6 +369,87 @@
           "what": "库里已经没有口令再清：要当前口令，拒",
           "request": { "method": "DELETE", "path": "/api/admin-token", "headers": { "x-admin-token": "replay-second-token" } },
           "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "需当前口令或 Odoo 管理员登录" } }
+        },
+        {
+          "id": "set-max-length",
+          "route": "PUT /api/admin-token",
+          "class": "normal",
+          "what": "首次设置、本机：128 个字符正好收",
+          "request": { "method": "PUT", "path": "/api/admin-token", "json": { "token": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "99", "etag": "W/\"63-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "source": "db", "note": "口令已设置并立即生效（库存 sha256，不可取回）" }
+          }
+        },
+        {
+          "id": "change-cross-site-only",
+          "route": "PUT /api/admin-token",
+          "class": "unauthorized",
+          "what": "改口令、带对的当前口令，只带了 sec-fetch-site: cross-site（没有 Origin）：拒",
+          "request": {
+            "method": "PUT",
+            "path": "/api/admin-token",
+            "headers": { "x-admin-token": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy", "sec-fetch-site": "cross-site" },
+            "json": { "token": "replay-first-token" }
+          },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "109", "etag": "W/\"6d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "修改口令需先在请求头带上当前口令（X-Admin-Token），或用 Odoo 管理员登录" }
+          }
+        },
+        {
+          "id": "change-other-origin-only",
+          "route": "PUT /api/admin-token",
+          "class": "unauthorized",
+          "what": "改口令、带对的当前口令，只带了别的主机的 Origin（没有 sec-fetch-site）：拒",
+          "request": {
+            "method": "PUT",
+            "path": "/api/admin-token",
+            "headers": { "x-admin-token": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy", "origin": "https://elsewhere.example" },
+            "json": { "token": "replay-first-token" }
+          },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "109", "etag": "W/\"6d-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "修改口令需先在请求头带上当前口令（X-Admin-Token），或用 Odoo 管理员登录" } }
+        },
+        {
+          "id": "delete-cross-site-only",
+          "route": "DELETE /api/admin-token",
+          "class": "unauthorized",
+          "what": "清口令、带对的口令，只带了 sec-fetch-site: cross-site：拒",
+          "request": {
+            "method": "DELETE",
+            "path": "/api/admin-token",
+            "headers": { "x-admin-token": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy", "sec-fetch-site": "cross-site" }
+          },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "需当前口令或 Odoo 管理员登录" } }
+        },
+        {
+          "id": "delete-other-origin-only",
+          "route": "DELETE /api/admin-token",
+          "class": "unauthorized",
+          "what": "清口令、带对的口令，只带了别的主机的 Origin：拒",
+          "request": {
+            "method": "DELETE",
+            "path": "/api/admin-token",
+            "headers": { "x-admin-token": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy", "origin": "https://elsewhere.example" }
+          },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "需当前口令或 Odoo 管理员登录" } }
+        },
+        {
+          "id": "whoami-max-length",
+          "route": "GET /api/admin/whoami",
+          "class": "normal",
+          "what": "128 个字符的口令管用（上面几条都没改成）",
+          "request": { "method": "GET", "path": "/api/admin/whoami", "headers": { "x-admin-token": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "admin": true, "via": "token", "login": null }
+          }
         }
       ]
     },
