@@ -31,9 +31,12 @@
       "clock": "2030-01-01T00:00:00Z",
       "seed": [
         { "table": "skills", "row": { "slug": "other", "name": "库里的技能（没有版本）", "layer": 1, "layer_name": "基础", "description": "种子", "source": "seed" } },
+        { "table": "skills", "row": { "slug": "legacy", "name": "库里的旧技能", "layer": 2, "layer_name": "旧层", "description": "种子", "source": "seed" } },
+        { "table": "skill_versions", "row": { "skill_id": 2, "version": 1, "tree_digest": "seed-legacy-digest", "snapshot_path": "/var/legacy/skills/legacy/v1", "commit_id": "seed-commit" } },
         { "table": "role_bundles", "row": { "pack_id": "pack-a", "member_name": "回放成员", "bundle_version": 1, "roster_digest": "seed-digest", "skill_slugs": "[\"demo\",\"other\"]" } },
         { "table": "skill_download_tickets", "row": { "id": "ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb", "slug": "demo", "version": 1, "issued_to": "seed", "expires_at": 4102444800000 } },
         { "table": "skill_download_tickets", "row": { "id": "a0fab1377f49a759b57f63318262ebe89fabfc990e8e93ceac2984561482b9d4", "slug": "demo", "version": 1, "issued_to": "seed", "expires_at": 1000 } },
+        { "table": "skill_download_tickets", "row": { "id": "3608bca1e44ea6c4d268eb6db02260269892c0b42b86bbf1e77a6fa16c3c9282", "slug": "demo", "version": 1, "issued_to": "seed", "expires_at": 4102444800000 } },
         { "table": "skill_download_tickets", "row": { "id": "52b6419d27bd7f547cee3b92f8c17a908b8a49601ecbec161e5030de1dfe9e0a", "slug": "demo", "version": 1, "issued_to": "seed", "expires_at": 4102444800000, "downloads": 5 } }
       ],
       "steps": [
@@ -46,8 +49,11 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "229", "etag": "W/\"e5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": [{ "slug": "other", "name": "库里的技能（没有版本）", "layer": 1, "layer_name": "基础", "family_parent": "", "description": "种子", "legacy": false, "versions": 0, "active_version": null, "is_installed": false, "current_version": null }]
+            "headers": { "content-length": "440", "etag": "W/\"1b8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "slug": "other", "name": "库里的技能（没有版本）", "layer": 1, "layer_name": "基础", "family_parent": "", "description": "种子", "legacy": false, "versions": 0, "active_version": null, "is_installed": false, "current_version": null },
+              { "slug": "legacy", "name": "库里的旧技能", "layer": 2, "layer_name": "旧层", "family_parent": "", "description": "种子", "legacy": false, "versions": 1, "active_version": 1, "is_installed": false, "current_version": null }
+            ]
           }
         },
         {
@@ -280,7 +286,7 @@
             "status": 409,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "90", "etag": "W/\"5a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "内容 digest 已存在（skill_version #1）——不可变锚拒重复发布" }
+            "body": { "error": "内容 digest 已存在（skill_version #2）——不可变锚拒重复发布" }
           }
         },
         {
@@ -329,8 +335,8 @@
               "slug": "demo",
               "active_version": 2,
               "versions": [
-                { "id": 2, "skill_id": 2, "version": 2, "changelog": "第二版", "breaking": 0, "tree_digest": "bb1bbdfe0780cf6eb027bc17d6a1a2e40ad7c91320cc401e5a836d609641a7d8", "file_count": 3, "total_bytes": 29, "snapshot_path": "skill-snapshots/demo/v2", "reviewed_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "skipped", "shadow_error": "含非 UTF-8（二进制）文件 bin/blob.dat：LayerFS 契约只收文本，不推影子", "commit_id": "", "active": true },
-                { "id": 1, "skill_id": 2, "version": 1, "changelog": "第一版", "breaking": 0, "tree_digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "file_count": 2, "total_bytes": 34, "snapshot_path": "skill-snapshots/demo/v1", "reviewed_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "failed", "shadow_error": "LayerFS publish failed; retry migrate-layerfs", "commit_id": "", "active": false }
+                { "id": 3, "skill_id": 3, "version": 2, "changelog": "第二版", "breaking": 0, "tree_digest": "bb1bbdfe0780cf6eb027bc17d6a1a2e40ad7c91320cc401e5a836d609641a7d8", "file_count": 3, "total_bytes": 29, "snapshot_path": "skill-snapshots/demo/v2", "reviewed_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "skipped", "shadow_error": "含非 UTF-8（二进制）文件 bin/blob.dat：LayerFS 契约只收文本，不推影子", "commit_id": "", "active": true },
+                { "id": 2, "skill_id": 3, "version": 1, "changelog": "第一版", "breaking": 0, "tree_digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "file_count": 2, "total_bytes": 34, "snapshot_path": "skill-snapshots/demo/v1", "reviewed_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "failed", "shadow_error": "LayerFS publish failed; retry migrate-layerfs", "commit_id": "", "active": false }
               ]
             }
           }
@@ -352,9 +358,10 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "628", "etag": "W/\"274-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "839", "etag": "W/\"347-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               { "slug": "other", "name": "库里的技能（没有版本）", "layer": 1, "layer_name": "基础", "family_parent": "", "description": "种子", "legacy": false, "versions": 0, "active_version": null, "is_installed": false, "current_version": null },
+              { "slug": "legacy", "name": "库里的旧技能", "layer": 2, "layer_name": "旧层", "family_parent": "", "description": "种子", "legacy": false, "versions": 1, "active_version": 1, "is_installed": false, "current_version": null },
               { "slug": "demo", "name": "demo", "layer": 5, "layer_name": "AI 原生运营", "family_parent": "", "description": "", "legacy": false, "versions": 2, "active_version": 2, "is_installed": false, "current_version": null },
               { "slug": "ns:tool", "name": "tool", "layer": 5, "layer_name": "AI 原生运营", "family_parent": "", "description": "", "legacy": false, "versions": 1, "active_version": 1, "is_installed": false, "current_version": null }
             ]
@@ -495,6 +502,19 @@
           }
         },
         {
+          "id": "install-legacy-abs",
+          "route": "POST /api/skills/:slug/install",
+          "class": "normal",
+          "what": "钉装库里的旧技能：它的版本行存的是绝对路径，应答照样给相对路径",
+          "request": { "method": "POST", "path": "/api/skills/legacy/install", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "137", "etag": "W/\"89-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "slug": "legacy", "version": 1, "ledger_id": 4, "expected_digest": "seed-legacy-digest", "installed_path": "skill-snapshots/legacy/v1" }
+          }
+        },
+        {
           "id": "install-bogus-path",
           "route": "POST /api/skills/:slug/install",
           "class": "normal",
@@ -504,7 +524,7 @@
             "status": 201,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "187", "etag": "W/\"bb-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "ok": true, "slug": "ns:tool", "version": 1, "ledger_id": 4, "expected_digest": "17d1a55621084b7a3d30c538b2cf59483184ab166e6a2f2726f696782fcc4e84", "installed_path": "skill-snapshots/ns%3Atool/v1" }
+            "body": { "ok": true, "slug": "ns:tool", "version": 1, "ledger_id": 5, "expected_digest": "17d1a55621084b7a3d30c538b2cf59483184ab166e6a2f2726f696782fcc4e84", "installed_path": "skill-snapshots/ns%3Atool/v1" }
           }
         },
         {
@@ -604,9 +624,10 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "620", "etag": "W/\"26c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "827", "etag": "W/\"33b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               { "slug": "other", "name": "库里的技能（没有版本）", "layer": 1, "layer_name": "基础", "family_parent": "", "description": "种子", "legacy": false, "versions": 0, "active_version": null, "is_installed": false, "current_version": null },
+              { "slug": "legacy", "name": "库里的旧技能", "layer": 2, "layer_name": "旧层", "family_parent": "", "description": "种子", "legacy": false, "versions": 1, "active_version": 1, "is_installed": true, "current_version": 1 },
               { "slug": "demo", "name": "demo", "layer": 5, "layer_name": "AI 原生运营", "family_parent": "", "description": "", "legacy": false, "versions": 2, "active_version": 2, "is_installed": true, "current_version": 2 },
               { "slug": "ns:tool", "name": "tool", "layer": 5, "layer_name": "AI 原生运营", "family_parent": "", "description": "", "legacy": false, "versions": 1, "active_version": 1, "is_installed": true, "current_version": 1 }
             ]
@@ -639,6 +660,14 @@
           "class": "invalid",
           "what": "摘要上报：version 不是整数，400",
           "request": { "method": "POST", "path": "/api/skills/demo/report-digest", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "version": "x", "digest": "{{d1}}" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "57", "etag": "W/\"39-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "version 正整数 + digest 64 位十六进制" } }
+        },
+        {
+          "id": "report-short-digest",
+          "route": "POST /api/skills/:slug/report-digest",
+          "class": "invalid",
+          "what": "摘要上报：digest 是十六进制但不够 64 位，400",
+          "request": { "method": "POST", "path": "/api/skills/demo/report-digest", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "version": 1, "digest": "abc" } },
           "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "57", "etag": "W/\"39-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "version 正整数 + digest 64 位十六进制" } }
         },
         {
@@ -698,6 +727,75 @@
           }
         },
         {
+          "id": "dl-2",
+          "route": "GET /api/skills/dl/:ticket",
+          "class": "normal",
+          "what": "同一张票第 2 次",
+          "compare": "head",
+          "vary": { "$header:content-length": "random", "$header:x-package-sha256": "random" },
+          "request": { "method": "GET", "path": "/api/skills/dl/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+          "response": {
+            "status": 200,
+            "type": "application/gzip",
+            "headers": { "cache-control": "no-store", "content-disposition": "attachment; filename=\"demo-v1.tar.gz\"", "content-length": "<每个实例随机·string·4>", "referrer-policy": "no-referrer", "vary": "Origin", "x-expected-digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "x-package-sha256": "<每个实例随机·string·64>", "x-powered-by": "Express" }
+          }
+        },
+        {
+          "id": "dl-3",
+          "route": "GET /api/skills/dl/:ticket",
+          "class": "normal",
+          "what": "同一张票第 3 次",
+          "compare": "head",
+          "vary": { "$header:content-length": "random", "$header:x-package-sha256": "random" },
+          "request": { "method": "GET", "path": "/api/skills/dl/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+          "response": {
+            "status": 200,
+            "type": "application/gzip",
+            "headers": { "cache-control": "no-store", "content-disposition": "attachment; filename=\"demo-v1.tar.gz\"", "content-length": "<每个实例随机·string·4>", "referrer-policy": "no-referrer", "vary": "Origin", "x-expected-digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "x-package-sha256": "<每个实例随机·string·64>", "x-powered-by": "Express" }
+          }
+        },
+        {
+          "id": "dl-4",
+          "route": "GET /api/skills/dl/:ticket",
+          "class": "normal",
+          "what": "同一张票第 4 次",
+          "compare": "head",
+          "vary": { "$header:content-length": "random", "$header:x-package-sha256": "random" },
+          "request": { "method": "GET", "path": "/api/skills/dl/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+          "response": {
+            "status": 200,
+            "type": "application/gzip",
+            "headers": { "cache-control": "no-store", "content-disposition": "attachment; filename=\"demo-v1.tar.gz\"", "content-length": "<每个实例随机·string·4>", "referrer-policy": "no-referrer", "vary": "Origin", "x-expected-digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "x-package-sha256": "<每个实例随机·string·64>", "x-powered-by": "Express" }
+          }
+        },
+        {
+          "id": "dl-5",
+          "route": "GET /api/skills/dl/:ticket",
+          "class": "normal",
+          "what": "同一张票第 5 次（上限）",
+          "compare": "head",
+          "vary": { "$header:content-length": "random", "$header:x-package-sha256": "random" },
+          "request": { "method": "GET", "path": "/api/skills/dl/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+          "response": {
+            "status": 200,
+            "type": "application/gzip",
+            "headers": { "cache-control": "no-store", "content-disposition": "attachment; filename=\"demo-v1.tar.gz\"", "content-length": "<每个实例随机·string·4>", "referrer-policy": "no-referrer", "vary": "Origin", "x-expected-digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "x-package-sha256": "<每个实例随机·string·64>", "x-powered-by": "Express" }
+          }
+        },
+        {
+          "id": "dl-6",
+          "route": "GET /api/skills/dl/:ticket",
+          "class": "invalid",
+          "what": "同一张票第 6 次：用满了，404",
+          "request": { "method": "GET", "path": "/api/skills/dl/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "111", "etag": "W/\"6f-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "下载链接无效、已过期（10 分钟有效）或已用满 5 次，请重新调 skill_download" }
+          }
+        },
+        {
           "id": "dl-expired",
           "route": "GET /api/skills/dl/:ticket",
           "class": "invalid",
@@ -740,7 +838,7 @@
           "id": "dl-bad-format",
           "route": "GET /api/skills/dl/:ticket",
           "class": "invalid",
-          "what": "下载：票号不是 64 位十六进制，404",
+          "what": "下载：票号不是 64 位十六进制（库里恰好有一张按它的 sha256 存的票），照样 404：先查格式再查库",
           "request": { "method": "GET", "path": "/api/skills/dl/xyz" },
           "response": {
             "status": 404,
@@ -883,6 +981,19 @@
           "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "version not found: 99" } }
         },
         {
+          "id": "activate-v-string",
+          "route": "POST /api/skills/:slug/activate",
+          "class": "normal",
+          "what": "回滚：version 给的是字符串 \"1\"，按数字认",
+          "request": { "method": "POST", "path": "/api/skills/demo/activate", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "version": "1", "reviewed_by": "回放" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "188", "etag": "W/\"bc-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "slug": "demo", "active_version": 1, "previous_version": 2, "latest_version": 2, "tree_digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "reviewed_by": "回放" }
+          }
+        },
+        {
           "id": "activate",
           "route": "POST /api/skills/:slug/activate",
           "class": "normal",
@@ -892,7 +1003,7 @@
             "status": 200,
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "197", "etag": "W/\"c5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "ok": true, "slug": "demo", "active_version": 1, "previous_version": 2, "latest_version": 2, "tree_digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "reviewed_by": "回放审批人" }
+            "body": { "ok": true, "slug": "demo", "active_version": 1, "previous_version": 1, "latest_version": 2, "tree_digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "reviewed_by": "回放审批人" }
           }
         },
         {
@@ -909,8 +1020,8 @@
               "slug": "demo",
               "active_version": 1,
               "versions": [
-                { "id": 2, "skill_id": 2, "version": 2, "changelog": "第二版", "breaking": 0, "tree_digest": "bb1bbdfe0780cf6eb027bc17d6a1a2e40ad7c91320cc401e5a836d609641a7d8", "file_count": 3, "total_bytes": 29, "snapshot_path": "skill-snapshots/demo/v2", "reviewed_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "skipped", "shadow_error": "含非 UTF-8（二进制）文件 bin/blob.dat：LayerFS 契约只收文本，不推影子", "commit_id": "", "active": false },
-                { "id": 1, "skill_id": 2, "version": 1, "changelog": "第一版", "breaking": 0, "tree_digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "file_count": 2, "total_bytes": 34, "snapshot_path": "skill-snapshots/demo/v1", "reviewed_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "failed", "shadow_error": "LayerFS publish failed; retry migrate-layerfs", "commit_id": "", "active": true }
+                { "id": 3, "skill_id": 3, "version": 2, "changelog": "第二版", "breaking": 0, "tree_digest": "bb1bbdfe0780cf6eb027bc17d6a1a2e40ad7c91320cc401e5a836d609641a7d8", "file_count": 3, "total_bytes": 29, "snapshot_path": "skill-snapshots/demo/v2", "reviewed_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "skipped", "shadow_error": "含非 UTF-8（二进制）文件 bin/blob.dat：LayerFS 契约只收文本，不推影子", "commit_id": "", "active": false },
+                { "id": 2, "skill_id": 3, "version": 1, "changelog": "第一版", "breaking": 0, "tree_digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "file_count": 2, "total_bytes": 34, "snapshot_path": "skill-snapshots/demo/v1", "reviewed_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "failed", "shadow_error": "LayerFS publish failed; retry migrate-layerfs", "commit_id": "", "active": true }
               ]
             }
           }
@@ -950,6 +1061,19 @@
           "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "skill not found: nope" } }
         },
         {
+          "id": "migrate-legacy",
+          "route": "POST /api/skills/:slug/migrate-layerfs",
+          "class": "normal",
+          "what": "迁移库里的旧技能：它的版本已经有 commit_id，跳过（幂等），不去找快照",
+          "request": { "method": "POST", "path": "/api/skills/legacy/migrate-layerfs", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "131", "etag": "W/\"83-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "slug": "legacy", "project": "wm-skills", "branch": "skill/legacy", "results": [{ "version": 1, "result": "skip", "commit_id": "seed-commit" }] }
+          }
+        },
+        {
           "id": "migrate",
           "route": "POST /api/skills/:slug/migrate-layerfs",
           "class": "normal",
@@ -981,8 +1105,8 @@
               "slug": "demo",
               "active_version": 1,
               "versions": [
-                { "id": 2, "skill_id": 2, "version": 2, "changelog": "第二版", "breaking": 0, "tree_digest": "bb1bbdfe0780cf6eb027bc17d6a1a2e40ad7c91320cc401e5a836d609641a7d8", "file_count": 3, "total_bytes": 29, "snapshot_path": "skill-snapshots/demo/v2", "reviewed_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "skipped", "shadow_error": "含非 UTF-8（二进制）文件 bin/blob.dat：LayerFS 契约只收文本，不推影子", "commit_id": "", "active": false },
-                { "id": 1, "skill_id": 2, "version": 1, "changelog": "第一版", "breaking": 0, "tree_digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "file_count": 2, "total_bytes": 34, "snapshot_path": "skill-snapshots/demo/v1", "reviewed_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "failed", "shadow_error": "LayerFS publish failed; retry migrate-layerfs", "commit_id": "", "active": true }
+                { "id": 3, "skill_id": 3, "version": 2, "changelog": "第二版", "breaking": 0, "tree_digest": "bb1bbdfe0780cf6eb027bc17d6a1a2e40ad7c91320cc401e5a836d609641a7d8", "file_count": 3, "total_bytes": 29, "snapshot_path": "skill-snapshots/demo/v2", "reviewed_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "skipped", "shadow_error": "含非 UTF-8（二进制）文件 bin/blob.dat：LayerFS 契约只收文本，不推影子", "commit_id": "", "active": false },
+                { "id": 2, "skill_id": 3, "version": 1, "changelog": "第一版", "breaking": 0, "tree_digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "file_count": 2, "total_bytes": 34, "snapshot_path": "skill-snapshots/demo/v1", "reviewed_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "failed", "shadow_error": "LayerFS publish failed; retry migrate-layerfs", "commit_id": "", "active": true }
               ]
             }
           }
@@ -1073,9 +1197,10 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "423", "etag": "W/\"1a7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "630", "etag": "W/\"276-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               { "slug": "other", "name": "库里的技能（没有版本）", "layer": 1, "layer_name": "基础", "family_parent": "", "description": "种子", "legacy": false, "versions": 0, "active_version": null, "is_installed": false, "current_version": null },
+              { "slug": "legacy", "name": "库里的旧技能", "layer": 2, "layer_name": "旧层", "family_parent": "", "description": "种子", "legacy": false, "versions": 1, "active_version": 1, "is_installed": true, "current_version": 1 },
               { "slug": "demo", "name": "demo", "layer": 5, "layer_name": "AI 原生运营", "family_parent": "", "description": "", "legacy": false, "versions": 2, "active_version": 1, "is_installed": true, "current_version": 2 }
             ]
           }
@@ -1089,9 +1214,10 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "423", "etag": "W/\"1a7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "630", "etag": "W/\"276-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               { "slug": "other", "name": "库里的技能（没有版本）", "layer": 1, "layer_name": "基础", "family_parent": "", "description": "种子", "legacy": false, "versions": 0, "active_version": null, "is_installed": false, "current_version": null },
+              { "slug": "legacy", "name": "库里的旧技能", "layer": 2, "layer_name": "旧层", "family_parent": "", "description": "种子", "legacy": false, "versions": 1, "active_version": 1, "is_installed": true, "current_version": 1 },
               { "slug": "demo", "name": "demo", "layer": 5, "layer_name": "AI 原生运营", "family_parent": "", "description": "", "legacy": false, "versions": 2, "active_version": 1, "is_installed": true, "current_version": 2 }
             ]
           }
@@ -1157,9 +1283,12 @@
       "clock": "2030-01-01T00:00:00Z",
       "seed": [
         { "table": "skills", "row": { "slug": "other", "name": "库里的技能（没有版本）", "layer": 1, "layer_name": "基础", "description": "种子", "source": "seed" } },
+        { "table": "skills", "row": { "slug": "legacy", "name": "库里的旧技能", "layer": 2, "layer_name": "旧层", "description": "种子", "source": "seed" } },
+        { "table": "skill_versions", "row": { "skill_id": 2, "version": 1, "tree_digest": "seed-legacy-digest", "snapshot_path": "/var/legacy/skills/legacy/v1", "commit_id": "seed-commit" } },
         { "table": "role_bundles", "row": { "pack_id": "pack-a", "member_name": "回放成员", "bundle_version": 1, "roster_digest": "seed-digest", "skill_slugs": "[\"demo\",\"other\"]" } },
         { "table": "skill_download_tickets", "row": { "id": "ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb", "slug": "demo", "version": 1, "issued_to": "seed", "expires_at": 4102444800000 } },
         { "table": "skill_download_tickets", "row": { "id": "a0fab1377f49a759b57f63318262ebe89fabfc990e8e93ceac2984561482b9d4", "slug": "demo", "version": 1, "issued_to": "seed", "expires_at": 1000 } },
+        { "table": "skill_download_tickets", "row": { "id": "3608bca1e44ea6c4d268eb6db02260269892c0b42b86bbf1e77a6fa16c3c9282", "slug": "demo", "version": 1, "issued_to": "seed", "expires_at": 4102444800000 } },
         { "table": "skill_download_tickets", "row": { "id": "52b6419d27bd7f547cee3b92f8c17a908b8a49601ecbec161e5030de1dfe9e0a", "slug": "demo", "version": 1, "issued_to": "seed", "expires_at": 4102444800000, "downloads": 5 } }
       ],
       "steps": [
@@ -1185,8 +1314,11 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "229", "etag": "W/\"e5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": [{ "slug": "other", "name": "库里的技能（没有版本）", "layer": 1, "layer_name": "基础", "family_parent": "", "description": "种子", "legacy": false, "versions": 0, "active_version": null, "is_installed": false, "current_version": null }]
+            "headers": { "content-length": "440", "etag": "W/\"1b8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "slug": "other", "name": "库里的技能（没有版本）", "layer": 1, "layer_name": "基础", "family_parent": "", "description": "种子", "legacy": false, "versions": 0, "active_version": null, "is_installed": false, "current_version": null },
+              { "slug": "legacy", "name": "库里的旧技能", "layer": 2, "layer_name": "旧层", "family_parent": "", "description": "种子", "legacy": false, "versions": 1, "active_version": 1, "is_installed": false, "current_version": null }
+            ]
           }
         },
         {
