@@ -1399,6 +1399,74 @@
           }
         }
       ]
+    },
+    {
+      "name": "dev-origin",
+      "what": "开发源放行（WM_DEV_ORIGIN=1）：本机前端开发服务器的 Origin 在写请求总门和管理员守卫那里都放行，task-center 的发布和废弃只剩它自己的同源检查。管理口令由环境给（合成值）。",
+      "env": { "WM_DEV_ORIGIN": "1", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "steps": [
+        {
+          "id": "dev-tc-pub-origin",
+          "route": "POST /api/sops/:slug/publish",
+          "class": "unauthorized",
+          "what": "开发源放行（WM_DEV_ORIGIN=1）：本机、带口令、Origin 是 http://localhost:5173 的 task-center 发布——写请求总门和管理员守卫都按开发源放行，只剩 task-center 自己的同源检查拦下：403 跨源拒绝",
+          "request": { "method": "POST", "path": "/api/sops/task-center/publish", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "http://localhost:5173" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "access-control-allow-origin": "http://localhost:5173", "content-length": "24", "etag": "W/\"18-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "跨源拒绝" }
+          }
+        },
+        {
+          "id": "dev-tc-dep-origin",
+          "route": "POST /api/sops/:slug/deprecate",
+          "class": "unauthorized",
+          "what": "同上，task-center 的废弃：403 跨源拒绝",
+          "request": { "method": "POST", "path": "/api/sops/task-center/deprecate", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "http://localhost:5173" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "access-control-allow-origin": "http://localhost:5173", "content-length": "24", "etag": "W/\"18-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "跨源拒绝" }
+          }
+        },
+        {
+          "id": "dev-tc-dep-no-origin",
+          "route": "POST /api/sops/:slug/deprecate",
+          "class": "normal",
+          "what": "对照：同样的配置、本机带口令、不带 Origin 的废弃：照常",
+          "vary": { "a2a_node8": "random" },
+          "request": { "method": "POST", "path": "/api/sops/task-center/deprecate", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "610", "etag": "W/\"262-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 1,
+              "slug": "task-center",
+              "title": "任务中心",
+              "description": "人工发布录入任务",
+              "created_by": "system:seed",
+              "active_version": 1,
+              "status": "deprecated",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "layerfs_project": "",
+              "source_repo": "",
+              "source_path": "",
+              "kind": "sop",
+              "code": "",
+              "a2a_node8": "<每个实例随机·string·8>",
+              "versions": [
+                { "id": 1, "app_id": 1, "version": 1, "file_count": 1, "total_bytes": 1004, "created_by": "system:seed", "changelog": "内置任务录入模板 v1", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "pending", "shadow_error": "", "commit_id": "", "source_commit": "" }
+              ],
+              "workbench_id": 1
+            }
+          }
+        }
+      ]
     }
   ]
 }
