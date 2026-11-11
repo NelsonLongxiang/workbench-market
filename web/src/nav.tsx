@@ -3,17 +3,12 @@ import type { ReactNode } from 'react';
 import { WEB_EXTENSIONS } from './extensions';
 import {
   AppstoreOutlined,
-  BarChartOutlined,
   BookOutlined,
-  CarryOutOutlined,
-  BellOutlined,
   ClusterOutlined,
   DashboardOutlined,
-  ExperimentOutlined,
   InboxOutlined,
   LayoutOutlined,
   LockOutlined,
-  OrderedListOutlined,
   ProfileOutlined,
   SafetyOutlined,
   SafetyCertificateOutlined,
@@ -23,11 +18,11 @@ import {
 
 export interface NavPage { path: string; name: string; icon: ReactNode }
 /** key 只当菜单键用，不对应路由 */
-export interface NavGroup { key: string; name: string; admin?: boolean; pages: NavPage[] }
+export interface NavGroup { key: string; name: string; admin?: boolean; /** 不进侧栏，只给页面名、面包屑用（弃用中的旧入口） */ hidden?: boolean; pages: NavPage[] }
 
 /** 入口按原型排（产品化 3fbfd0b）：主入口一列，顺序是 全景、事项、驾驶舱、团队、谁能做什么、工作台市场、经验库。
- *  旧入口不删，先收进「更多」：关注的内容会并进全景的「等你拍板」，统一待办并进事项，SOP 交付空间和技能市场并进工作台市场的分类，
- *  并好之前从这里还能进。原来的总览挪到 /overview。 */
+ *  属主 2026-11-11：原来的 UI 弃用，按原型重新长。旧入口（关注、统一待办、SOP 交付空间、技能市场、原来的总览 /overview）不再进侧栏，
+ *  路由先保留、能直接打开；各自的功能并进新页面后逐个下线。 */
 const BASE_GROUPS: NavGroup[] = [
   { key: '/g/main', name: '工作', pages: [
     { path: '/', name: '全景', icon: <DashboardOutlined /> },
@@ -38,12 +33,13 @@ const BASE_GROUPS: NavGroup[] = [
     { path: '/market', name: '工作台市场', icon: <AppstoreOutlined /> },
     { path: '/knowledge', name: '经验库', icon: <BookOutlined /> },
   ] },
-  { key: '/g/more', name: '更多', pages: [
-    { path: '/attention', name: '关注', icon: <BellOutlined /> },
-    { path: '/tasks', name: '统一待办', icon: <CarryOutOutlined /> },
-    { path: '/sops', name: 'SOP 交付空间', icon: <OrderedListOutlined /> },
-    { path: '/skills', name: '技能市场', icon: <ExperimentOutlined /> },
-    { path: '/overview', name: '原来的总览', icon: <BarChartOutlined /> },
+  { key: '/g/legacy', name: '旧入口', hidden: true, pages: [
+    { path: '/attention', name: '关注', icon: null },
+    { path: '/tasks', name: '统一待办', icon: null },
+    { path: '/sops', name: 'SOP 交付空间', icon: null },
+    { path: '/skills', name: '技能市场', icon: null },
+    { path: '/overview', name: '原来的总览', icon: null },
+    { path: '/reviews', name: '审核', icon: null },
   ] },
   { key: '/g/admin', name: '管理', admin: true, pages: [
     { path: '/owner-pending', name: '待属主看板', icon: <InboxOutlined /> },
@@ -59,7 +55,7 @@ function withExtensions(base: NavGroup[]): NavGroup[] {
   const groups = base.map((g) => ({ ...g, pages: [...g.pages] }));
   for (const { group, page } of WEB_EXTENSIONS.flatMap((e) => e.nav ?? [])) {
     let g = groups.find((x) => x.key === group.key);
-    if (!g) { g = { key: group.key, name: group.name ?? group.key, pages: [] }; groups.splice(groups.findIndex((x) => x.admin), 0, g); }
+    if (!g) { g = { key: group.key, name: group.name ?? group.key, pages: [] }; groups.splice(groups.findIndex((x) => x.hidden || x.admin), 0, g); }
     g.pages.push(page);
   }
   return groups;

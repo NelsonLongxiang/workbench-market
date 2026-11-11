@@ -21,7 +21,7 @@ export const DESIGN_TOKENS = {
     "danger": "#DC2626",
     "danger-text": "#B91C1C",
     "danger-bg": "#FEF2F2",
-    "nav-bg": "#FFFFFF",
+    "nav-bg": "#F6F7F9",
     "nav-text": "#5A6577",
     "nav-text-active": "#1E3A5F",
     "nav-item-active-bg": "#EEF2F7",

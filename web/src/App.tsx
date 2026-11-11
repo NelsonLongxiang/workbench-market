@@ -1,8 +1,7 @@
 import React from 'react';
-import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { ProLayout } from '@ant-design/pro-components';
-import { KeyOutlined, AppstoreOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
-import { findNav, NAV_GROUPS } from './nav';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import Shell from './components/Shell';
+import { KeyOutlined } from '@ant-design/icons';
 import Dashboard from './pages/Dashboard';
 import Market from './pages/Market';
 import Types from './pages/Types';
@@ -18,28 +17,15 @@ import Vault from './pages/Vault';
 import { adminActive, adminTokenPresent, checkAdminToken, getAdminToken, odooAdmin, refreshAdminIdentity, setAdminToken, subscribeAdminToken } from './admin-token';
 import { marketOnly, marketUrl, onSurface, surface } from './surface';
 import { WEB_EXTENSIONS } from './extensions';
-import { Badge, Button as AButton, Input as AInput, Popover, Result, Tag } from 'antd';
+import { Button as AButton, Input as AInput, Popover, Result, Tag } from 'antd';
 import Tasks from './pages/Tasks';
 import Reviews from './pages/Reviews';
 import Attention from './pages/Attention';
 import WorkItem from './pages/WorkItem';
 import NotYet, { NOT_YET } from './pages/NotYet';
-import { getAttentionCount } from './api';
 import SkillsPage from './pages/Skills';
 import ViewerChip from './components/ViewerChip';
 import LoginChip from './components/LoginChip';
-import { DESIGN_TOKENS as T } from './design-tokens';
-
-/** #316 菜单分组（数据在 nav.tsx，扩展可加组）：一级是分组标题，二级才是页面；「管理」组仅持管理员口令时显示、默认折叠。
- *  页面路由不变，旧书签照用。 */
-const ADMIN_GROUP = NAV_GROUPS.find((g) => g.admin)!.key;
-const WORK_GROUPS = NAV_GROUPS.filter((g) => !g.admin).map((g) => g.key);
-function menuRoutes(admin: boolean) {
-  return {
-    path: '/',
-    routes: NAV_GROUPS.filter((g) => admin || !g.admin).map((g) => ({ path: g.key, name: g.name, routes: g.pages })),
-  };
-}
 
 /** #292 M1：控制面上的业务页跳回业务面同 path */
 function MarketOnlyRedirect() {
@@ -104,12 +90,6 @@ export default function App() {
   const location = useLocation();
   const admin = React.useSyncExternalStore(subscribeAdminToken, adminActive);
   React.useEffect(() => { void refreshAdminIdentity(); }, []);
-  // 「全景」上的角标：等你拍板的条数（就是「关注」里给你的条目数）；读不到不显示
-  const [pending, setPending] = React.useState<number | null>(null);
-  React.useEffect(() => { void getAttentionCount().then(setPending); }, [location.pathname, admin]);
-  // 管理组默认折叠：初始只展开四个日常分组；当前页在管理组时也展开它
-  const [openKeys, setOpenKeys] = React.useState<string[]>(() =>
-    findNav(location.pathname)?.group.admin ? [...WORK_GROUPS, ADMIN_GROUP] : WORK_GROUPS);
 
   if (surface === 'control' && marketOnly(location.pathname)) return <MarketOnlyRedirect />;
 
@@ -123,49 +103,7 @@ export default function App() {
   }
 
   return (
-    <ProLayout
-      headerRender={() => <AdminTokenBadge />}
-      title="工作台市场"
-      logo={<AppstoreOutlined style={{ fontSize: 26, color: T.colors.primary }} />}
-      layout="side"
-      fixSiderbar
-      fixedHeader
-      route={menuRoutes(admin)}
-      openKeys={openKeys}
-      menu={{ autoClose: false }}
-      onOpenChange={(keys) => setOpenKeys((keys || []) as string[])}
-      location={{ pathname: location.pathname }}
-      // #316 子菜单模式下 ProLayout 只给一级显示图标；二级页面的专属图标在这里自己渲染
-      menuItemRender={(item, dom) => (item.path ? <Link to={item.path} className="wm-menu-link">{item.icon}{dom}{item.path === '/' && pending ? <Badge count={pending} size="small" className="wm-ml-auto" data-testid="nav-pending" /> : null}</Link> : dom)}
-      menuHeaderRender={() => (
-        // 品牌行：nav-text-active（深蓝）600 + 字距，和原型的品牌行一致
-        <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 4px' }}>
-          <AppstoreOutlined style={{ fontSize: 22, color: T.colors.primary }} />
-          <span className="wm-strong" style={{ color: T.colors['nav-text-active'], fontSize: 16, letterSpacing: '0.02em', whiteSpace: 'nowrap' }}>
-            工作台市场
-          </span>
-        </Link>
-      )}
-      menuFooterRender={() => <AdminTokenBadge />}
-      collapsedButtonRender={(collapsed) => (
-        <span className="wm-sider-collapse">{collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}</span>
-      )}
-      token={{
-        sider: {
-          // 侧栏取 DESIGN.md 的 nav-* token（产品化原型起是浅色：白底、灰字、选中浅底深字）
-          colorMenuBackground: T.colors['nav-bg'],
-          colorTextMenu: T.colors['nav-text'],
-          colorTextMenuSelected: T.colors['nav-text-active'],
-          colorBgMenuItemSelected: T.colors['nav-item-active-bg'],
-          colorTextMenuActive: T.colors['nav-text-active'],
-          colorTextMenuItemHover: T.colors['nav-text-active'],
-          colorTextMenuTitle: T.colors['nav-text'],
-        },
-      }}
-      contentStyle={{ padding: 16, paddingTop: 12 }}
-    >
-      {/* #279 当前用户：侧栏布局不渲染 headerRender，所以在内容区顶部右侧放一行，所有页面（含扩展页面）都能看到 */}
-      <div className="wm-mb-1" style={{ display: 'flex', justifyContent: 'flex-end', minHeight: 24 }}><LoginChip />{surface !== 'control' && <ViewerChip />}</div>
+    <Shell admin={admin} footer={<div className="wm-side-tools"><AdminTokenBadge /><LoginChip />{surface !== 'control' && <ViewerChip />}</div>}>
       <Routes>
         <Route path="/" element={<NotYet spec={NOT_YET.home} />} />
         <Route path="/overview" element={<Dashboard />} />
@@ -192,6 +130,6 @@ export default function App() {
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </ProLayout>
+    </Shell>
   );
 }

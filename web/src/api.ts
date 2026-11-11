@@ -126,3 +126,8 @@ export async function getAttentionCount(): Promise<number | null> {
     return typeof j.counts?.total === 'number' ? j.counts.total : null;
   } catch { return null; }
 }
+
+/** 当前登录身份（登录门的 /api/auth/me）：拿不到就是 null，不弹口令 */
+export async function getMe(): Promise<{ authenticated?: boolean; login?: string | null; via?: string | null } | null> {
+  try { const r = await fetch('/api/auth/me', { cache: 'no-store', credentials: 'same-origin' }); return r.ok ? await r.json() : null; } catch { return null; }
+}
