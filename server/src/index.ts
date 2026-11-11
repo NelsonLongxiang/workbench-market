@@ -84,7 +84,8 @@ import { AdmissionError, admitUrl, analyzeUrl, auditAllow, auditDeny, checkHealt
 import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, redisConfigured, runStateRestore, runStateRead, runStateRetire, type RunStateRead } from './redis.ts';
 import { createRunCheckpoints } from './sop-state-checkpoints.ts';
-import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
+import { duplicateNode8s } from './services/a2a-handles.ts';
+import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, memberProvenanceMode, setMemberProvenance, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
 import type { IncomingMessage } from 'node:http';
 import { noteA2aError, type A2aErrorKey } from './a2a/errors.ts';
 import { a2aHealth } from './a2a/health.ts';
@@ -144,6 +145,18 @@ if (loginGate.enforced) console.log('[login-gate] enforce：无身份的请求�
   if (tp.entries.length) console.log(`[trusted-proxies] 认这些对端写入的 X-Real-IP/X-Forwarded-For：${tp.entries.join(', ')}（回环恒可信）`);
 }
 const A2A_DIRECT_SIG_RAW = directSigMode();
+// 名片是否声明 canvasMemberProvenance（WM_A2A_MEMBER_PROVENANCE=on|off，缺省 on）；值不合法拒绝启动
+const A2A_MEMBER_PROVENANCE = memberProvenanceMode();
+if (!A2A_MEMBER_PROVENANCE) {
+  console.error('[a2a] 拒绝启动：WM_A2A_MEMBER_PROVENANCE 只接受 on / off / 不设');
+  process.exit(1);
+}
+setMemberProvenance(A2A_MEMBER_PROVENANCE === 'on');
+{ // 存量句柄撞车（随机 node8 碰上）：声明打开时这些句柄不上卡、入站 404；启动时告警，提醒管理员处理
+  const dups = duplicateNode8s();
+  if (dups.size > 0) console.warn(`[a2a] ${dups.size} 个 A2A 会话句柄被不止一个台占用（${[...dups].map((d) => `${MARKET_TEAM}/${d}`).join('、')}）：${A2A_MEMBER_PROVENANCE === 'on' ? '已不上卡、入站一律 404' : '开关关着，入站仍按第一个台承接'}；请给其中的台重新生成句柄`);
+}
+console.log(`[a2a] 名片${A2A_MEMBER_PROVENANCE === 'on' ? '声明' : '不声明'} canvasMemberProvenance（WM_A2A_MEMBER_PROVENANCE=${A2A_MEMBER_PROVENANCE}）`);
 const A2A_DIRECT_SIG_BODY = directSigBodyMode();
 if (!A2A_DIRECT_SIG_RAW || !A2A_DIRECT_SIG_BODY) {
   console.error('[a2a-direct-sig] 拒绝启动：WM_A2A_DIRECT_SIG 只接受 require / accept / off / 不设，WM_A2A_DIRECT_SIG_BODY 只接受 require / accept / 不设');

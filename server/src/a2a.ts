@@ -15,11 +15,29 @@ import { formatReceipt, parseReceipt } from '@nelsonlongxiang/dsh-open-a2a-net/r
 import { MAX_ROUTE_BODY_BYTES } from '@nelsonlongxiang/dsh-open-a2a-net/transport-caps';
 import { A2aClient } from '@nelsonlongxiang/dsh-open-a2a-net/a2a-client';
 import { dataDir, db } from './db.ts';
+import { duplicateNode8s, node8Taken } from './services/a2a-handles.ts';
 import { claimA2aTask } from './services/a2a-idempotency.ts';
 import { noteA2aError } from './a2a/errors.ts';
 
 export const MARKET_TEAM = process.env.MARKET_TEAM || 'market';
 export const CARD_TTL_MS = 45 * 3600 * 1000; // 45h ≤ 上游 48h 预算
+
+/**
+ * 名片是否声明 canvasMemberProvenance（a2a-net 0.8 起，对钉了公钥的画布成员只往声明了它的宿主转发——
+ * 不声明，席位的回执在对方宿主那一跳就停了）。声明即承诺，市场逐条兑现（测试 scripts/a2a-member-provenance-test.mjs）：
+ *   ① 名片 sessionTeams 只列本节点自己服务的句柄，形如 <team>/<8 hex>，同一句柄只对应一个台（存量重复的不上卡）；
+ *   ② 发给这些句柄的消息只在本节点投递，绝不转给别的宿主；查无或有歧义一律 404（失败关闭），不解释 @<fp> 后缀；
+ *   ③ 句柄只由本节点密钥签发：出站的 OriginClaim 用本名片的密钥签，别的密钥签不出能被验过的「market」消息；
+ *   ④ 换钥即换身份：密钥只在 DATA_DIR 首启生成一次，不轮换、不迁移。
+ * 开关 WM_A2A_MEMBER_PROVENANCE（缺省 on；off 时名片不声明、行为与之前逐字节相同），启动时由 index.ts 读一次并设进来。
+ */
+let memberProvenance = true;
+export function memberProvenanceMode(env: NodeJS.ProcessEnv = process.env): 'on' | 'off' | null {
+  const raw = String(env.WM_A2A_MEMBER_PROVENANCE ?? '');
+  if (raw === '' || raw === 'on') return 'on';
+  return raw === 'off' ? 'off' : null;
+}
+export function setMemberProvenance(on: boolean): void { memberProvenance = on; }
 
 let cachedKey: KeyObject | null = null;
 
@@ -68,10 +86,15 @@ export function parseA2aReceipt(message: string): ReturnType<typeof parseReceipt
 export const A2A_DIRECT_MAX_BYTES = MAX_ROUTE_BODY_BYTES;
 
 /** SOP 的 a2a 节点短 id：随机 8 hex，一次生成持久化（apps.a2a_node8）——禁 slug 推导（修订 3 防抢注）。 */
-export function sopNode8(slug: string): string {
+export function sopNode8(slug: string, gen: () => string = () => randomBytes(4).toString('hex')): string {
   const row = db.prepare('SELECT a2a_node8 FROM apps WHERE slug = ?').get(slug) as { a2a_node8?: string } | undefined;
   if (row?.a2a_node8) return row.a2a_node8;
-  const id8 = randomBytes(4).toString('hex');
+  // 句柄唯一（canvasMemberProvenance 的前提）：避开已占用的；连撞 16 次说明生成器坏了，宁可失败也不发重复句柄
+  let id8 = gen();
+  for (let i = 0; node8Taken(id8); i++) {
+    if (i >= 16) throw new Error('a2a node8 生成连续撞车，拒绝发出重复句柄');
+    id8 = gen();
+  }
   db.prepare('UPDATE apps SET a2a_node8 = ? WHERE slug = ?').run(id8, slug);
   return id8;
 }
@@ -100,7 +123,8 @@ export function buildAgentCard(keyPath: string): Record<string, unknown> {
       WHERE a.kind = 'sop' AND a.status = 'published'
       ORDER BY a.slug`
   ).all() as { slug: string; title: string; description: string; a2a_node8: string }[];
-  const sessionTeams = rows.map((r) => ({
+  const dup = memberProvenance ? duplicateNode8s() : new Set<string>();
+  const sessionTeams = rows.filter((r) => !dup.has(r.a2a_node8)).map((r) => ({
     team: `${MARKET_TEAM}/${r.a2a_node8 || sopNode8(r.slug)}`,
     name: r.slug,
     description: r.description || r.title,
@@ -112,7 +136,7 @@ export function buildAgentCard(keyPath: string): Record<string, unknown> {
     if (Array.isArray(parsed)) peers = parsed.filter((x) => typeof x === 'string');
   } catch { /* 配置坏值忽略 */ }
   const core = {
-    capabilities: { sop: true, bindings: 'human-only', stage: 'P1-readonly' },
+    capabilities: { sop: true, bindings: 'human-only', stage: 'P1-readonly', ...(memberProvenance ? { canvasMemberProvenance: true } : {}) },
     expiresAt: now + CARD_TTL_MS,
     name: 'workbench-market',
     session: MARKET_TEAM,
@@ -172,6 +196,8 @@ export async function a2aDirectHandle(body: any, rawBytes: number, runOps: {
   if (!tm) { noteA2aError('unknown-team'); return { httpStatus: 404, body: { error: 'not found' } }; }
   const sop = db.prepare('SELECT slug, status FROM apps WHERE kind = ? AND a2a_node8 = ?').get('sop', tm[2]) as { slug: string; status: string } | undefined;
   if (!sop) { noteA2aError('unknown-team'); return { httpStatus: 404, body: { error: 'not found' } }; }
+  // canvasMemberProvenance 义务②：只承接本 zone 的句柄；句柄有歧义（存量随机撞车）时失败关闭。两者都与查无同答
+  if (memberProvenance && (tm[1] !== MARKET_TEAM || duplicateNode8s().has(tm[2]))) { noteA2aError('unknown-team'); return { httpStatus: 404, body: { error: 'not found' } }; }
 
   // 准入（市场侧）：caller 必须精确匹配一条有效绑定（修订 1：DSH 侧 canvas 那半是前置）
   if (caller === '') {
