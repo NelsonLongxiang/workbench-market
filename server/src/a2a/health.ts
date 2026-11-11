@@ -10,6 +10,12 @@ import { CARD_TTL_MS, originClaimV1Enabled } from '../a2a.ts';
 import { A2A_IDEM_TTL_MS } from '../services/a2a-idempotency.ts';
 import { eventDeliveryStats, receiptOutboxStats } from '../services/a2a-stats.ts';
 import { a2aErrorCounts } from './errors.ts';
+import { pendingFollowupReceipts } from '../services/a2a-replies.ts';
+
+/** 阶段七 R2：还没发出去的跟进回执（发不出去会一直重试）：条数与最多试了几次；表还没建时为 null */
+function followupReceiptsSafe(): { pending: number; max_attempts: number } | null {
+  try { return pendingFollowupReceipts(); } catch { return null; }
+}
 
 export interface A2aHealthConfig {
   /** 生效的入站签名模式（登录门 enforce 时已强制成 require） */
@@ -22,7 +28,7 @@ let cached: { at: number; outbox: unknown } | null = null;
 
 function outbox(now: number): unknown {
   if (cached && now - cached.at < CACHE_MS) return cached.outbox;
-  const value = { receipts: receiptOutboxStats(now), events: eventDeliveryStats() };
+  const value = { receipts: receiptOutboxStats(now), events: eventDeliveryStats(), followup_receipts: followupReceiptsSafe() };
   cached = { at: now, outbox: value };
   return value;
 }

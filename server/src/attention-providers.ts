@@ -26,6 +26,11 @@ import { listVars, workbenchScope } from './workbench-vars.ts';
 import { principalsAdmin } from './routes/principals.ts';
 import { buildBoard, findBoardWorkbench, parseConfig, BOARD_PATH, type BoardVar } from './owner-pending.ts';
 import { openSeatAsks } from './services/attention-sources.ts';
+
+/** 提问回执带的选项，接在问题后面给人看（答复仍是自由文本） */
+function optionsHint(json: string): string {
+  try { const o = JSON.parse(json) as unknown; return Array.isArray(o) && o.length ? `（可选：${o.filter((x) => typeof x === 'string').join(' / ')}）` : ''; } catch { return ''; }
+}
 import { withAnswers } from './attention-answers.ts';
 import type { AttentionItem, AttentionProvider, AttentionService } from './services/attention.ts';
 import type { ChangeRequestService } from './services/change-request.ts';
@@ -92,8 +97,8 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
       list: (req) => passes(deps.adminGuard, req)
         ? openSeatAsks().map((a) => item({
           source: 'seat-asks', source_id: String(a.delivery_id), category: 'ask',
-          title: `${a.target_team} 问：${a.decision_reason || '（没写问题）'}`,
-          waiting_for: a.decided_by ? `receiver:${a.decided_by}` : a.target_team, since: a.decided_at, answers: ['answer'],
+          title: `${a.target_team} 问：${a.question || '（没写问题）'}${optionsHint(a.options)}`,
+          waiting_for: a.ask_kind === 'receipt' ? (a.asked_by || a.target_team) : a.asked_by ? `receiver:${a.asked_by}` : a.target_team, since: a.asked_at, answers: ['answer'],
           link: `/work-items/wi_${a.event_id}`,
         }))
         : null,

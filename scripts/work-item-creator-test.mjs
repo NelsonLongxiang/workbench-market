@@ -162,6 +162,40 @@ try {
     const res = await decide('not-an-item', { answer: 'verify' });
     check(res.status === 403, 'id 不是事项 id 的样子：写请求总门照旧拦（只放 wi_ 开头的这一条子路径）', show(res));
   }
+  // ---------- 阶段七 R2：事项对话里的席位消息（看过、回复）——和验收入口同一个口径再加管理员 ----------
+  {
+    const read = (id, headers) => call('POST', `/api/work-items/${id}/messages/read`, headers, {});
+    const reply = (id, mid, headers, text = '回一句') => call('POST', `/api/work-items/${id}/messages/${mid}/reply`, headers, { text });
+    const ADMIN_H = { ...SAME, 'x-admin-token': ADMIN_TOKEN };
+    const cases = [
+      ['别人的事项（alpha 看过 beta 的）', () => read(S.theirs, ALPHA), 404, 'work_item_not_found'],
+      ['别人的事项（alpha 回复 beta 的）', () => reply(S.theirs, 1, ALPHA), 404, 'work_item_not_found'],
+      ['跨站请求', () => read(S.crossSite, { ...ALPHA, 'sec-fetch-site': 'cross-site' }), 403, 'work_items_cross_origin_denied'],
+      ['别的站的页面', () => reply(S.crossSite, 1, { ...ALPHA, origin: 'https://elsewhere.example' }), 403, 'work_items_cross_origin_denied'],
+      ['未登录（远程匿名）看过', () => read(S.crossSite, { ...SAME, 'x-forwarded-for': '198.51.100.7' }), 401, 'work_items_auth_required'],
+      ['未登录（远程匿名）回复', () => reply(S.crossSite, 1, { ...SAME, 'x-forwarded-for': '198.51.100.7' }), 401, 'work_items_auth_required'],
+      ['提供方不认的会话', () => reply(S.crossSite, 1, { ...SAME, cookie: `session_id=${SESSIONS.forged}` }), 401, 'work_items_auth_required'],
+      ['被停用的建立人', () => reply(S.betaOwn, 1, BETA), [401, 403], null],
+      ['来源未验证的事项（建立人是 alpha 本人也不行）', () => reply(S.unverified, 1, ALPHA), 403, 'work_item_creator_not_eligible'],
+      ['建立人不是人（席位）', () => read(S.bySeat, ALPHA), 404, 'work_item_not_found'],
+      ['消息编号不是正整数（写请求总门只放数字编号，先拦）', () => reply(S.crossSite, '0x1', ALPHA), 403, null],
+      ['回复正文为空', () => reply(S.crossSite, 1, ALPHA, '  '), 400, 'text_required'],
+      ['这件事项上没有这条消息（编号是别的事项的也一样）', () => reply(S.crossSite, 1, ALPHA), 404, 'seat_message_not_found'],
+    ];
+    for (const [label, run, st, err] of cases) {
+      const res = await run();
+      const sts = Array.isArray(st) ? st : [st];
+      check(sts.includes(res.status) && (!err || res.body?.error === err), `席位消息入口·${label}：被拒（${res.status} ${res.body?.error ?? ''}）`, show(res));
+    }
+    const own = await read(S.crossSite, ALPHA);
+    check(own.status === 200 && own.body?.marked === 0, '建立人本人对自己的事项「看过」：200（没有消息，标了 0 条）', show(own));
+    const adm = await read(S.theirs, ADMIN_H);
+    check(adm.status === 200, '管理员对任何事项「看过」：200', show(adm));
+    const notItem = await call('POST', '/api/work-items/not-an-item/messages/read', ALPHA, {});
+    check(notItem.status === 403, '路径不是事项 id 的样子：写请求总门照旧拦', show(notItem));
+    const other = await call('POST', `/api/work-items/${S.crossSite}/messages/1/delete`, ALPHA, {});
+    check(other.status === 403, '同一前缀下别的子路径（messages/1/delete）：写请求总门照旧拦', show(other));
+  }
   // ---------- 建立人主体：「是不是他的」只认它 ----------
   const attentionIds = async (headers) => { const r = await call('GET', '/api/attention', headers); return { status: r.status, ids: (r.body?.items ?? []).filter((x) => x.source === 'work-items').map((x) => x.source_id) }; };
   const ADMIN = { ...SAME, 'x-admin-token': ADMIN_TOKEN };
@@ -228,6 +262,7 @@ try {
   }
   // ---------- 启动自检 ----------
   check(/"id":"market\.work-items\.creator-decision-anonymous"[^}]*"verdict":"pass"/.test(log), '启动自检有一行：远程匿名打这个入口必须 401，而且过了');
+  check(/"id":"market\.work-items\.seat-reply-anonymous"[^}]*"verdict":"pass"/.test(log), '启动自检有一行：远程匿名回复席位消息必须 401，而且过了');
 } catch (e) {
   fail++;
   console.log(`  ✗ 跑不下去：${e?.stack ?? e}`);

@@ -1,0 +1,363 @@
+#!/usr/bin/env node
+/**
+ * 阶段七 R2：席位回执里的提问进「关注」，人答复后作为同一 context 的新任务发回那个团队，对方对新任务的回执推进同一个事项；
+ * 提问之后对方发来的自由文本跟进记进事项日志（只记录）。
+ *
+ * 一、提问进「关注」：receipt:attention 出现在席位提问里，问题 = 回执摘要；事件层未答提问数 = 事项未答提问总数。
+ *    同一投递先 v1 decision:ask、后回执提问：只列最近的那条；答了之后两边都合上。
+ * 二、答复发回：记答复与排发送一起成功；对端收到同一 context 的新任务（kind=answer，qid = 提问所答的任务号，带签名）；
+ *    新任务号登记了对端；对方对新任务回 acknowledged / completed → 事项已接手 / 等验收。
+ *    只通知的事件（dispatch:false）不发；同一提问答两次只发一次；对端一直失败 → 退避重试、5 次后 dead。
+ * 三、跟进：同一 context、同一对端、Sig3 签名 → 记一行 followup，状态不动；同一条只记一次；
+ *    没签名、别的 zone、没有采信过回执的投递、别的 context → 照原路，不记。
+ */
+import { spawn } from './owned-script-fixture.mjs';
+import { createServer } from 'node:http';
+import { createServer as netServer } from 'node:net';
+import { createHash, generateKeyPairSync, sign as edSign } from 'node:crypto';
+import { mkdirSync, rmSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { signCard } from '@nelsonlongxiang/dsh-open-a2a-net/card';
+
+let pass = 0, fail = 0;
+const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
+const port = async () => { const s = netServer(); await new Promise((r) => s.listen(0, '127.0.0.1', r)); const p = s.address().port; await new Promise((r) => s.close(r)); return p; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const DATA = resolve('tmp/a2a-answers');
+rmSync(DATA, { recursive: true, force: true });
+mkdirSync(DATA, { recursive: true });
+
+// 对端：提供签名名片；收市场发来的 /a2a/direct（答复新任务），可设成一直失败
+async function peer(zone) {
+  const key = generateKeyPairSync('ed25519').privateKey;
+  const p = await port();
+  const peerObj = { zone, key, url: `http://127.0.0.1:${p}`, got: [], fail: false };
+  peerObj.server = createServer((req, res) => {
+    if (req.url === '/.well-known/agent-card.json') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify(signCard({ capabilities: {}, expiresAt: Date.now() + 3600_000, name: zone, session: zone, team: zone }, key)));
+    }
+    let b = ''; req.on('data', (c) => { b += c; }); req.on('end', () => {
+      let j = {}; try { j = JSON.parse(b); } catch {}
+      peerObj.got.push({ headers: req.headers, body: j });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(peerObj.fail ? { error: 'down', code: -32000, task_status: 'TASK_STATE_FAILED' } : { routed: true, delivered: true, task_status: 'TASK_STATE_DELIVERED', task_id: j.task_id, context_id: j.context_id }));
+    });
+  });
+  await new Promise((r) => peerObj.server.listen(p, '127.0.0.1', r));
+  return peerObj;
+}
+const lab = await peer('lab');
+const evil = await peer('evil');
+
+const PM = await port();
+const BASE = `http://127.0.0.1:${PM}`;
+const sign = (key, text) => edSign(undefined, Buffer.from(text, 'utf8'), key).toString('base64');
+function signed(signer, raw, opts = {}) {
+  const caller = opts.caller ?? signer.zone, callerUrl = signer.url, ts = Date.now(), aud = BASE;
+  const digest = createHash('sha256').update(raw).digest('base64url');
+  return { 'X-A2A-Caller': caller, 'X-A2A-Caller-Url': callerUrl, 'X-A2A-Caller-Ts': String(ts), 'X-A2A-Caller-Aud': aud, 'X-A2A-Body-Sha256': digest,
+    'X-A2A-Caller-Sig3': sign(signer.key, JSON.stringify(['a2a-origin-claim/3', caller, callerUrl, ts, aud, 'POST', '/a2a/direct', digest])) };
+}
+const post = async (raw, headers) => { const r = await fetch(BASE + '/a2a/direct', { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: raw }); return { status: r.status, text: await r.text() }; };
+const receiptRaw = (task, summary, env, ctx, inbound) => JSON.stringify({ team: 'market/12345678', message: `[A2A receipt] task ${task} ${summary}\n${JSON.stringify(env)}`, caller_session: 'superagent-team/a1b2c3d4e5f60718', context_id: ctx, wait: false, task_id: inbound ?? `receipt-${task}` });
+const receipt = (task, summary, env, ctx, opts = {}) => { const raw = receiptRaw(task, summary, env, ctx, opts.inbound); return post(raw, opts.unsigned ? {} : signed(opts.signer ?? lab, raw)); };
+
+const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
+  cwd: 'server',
+  env: { ...process.env, DATA_DIR: DATA, PORT: String(PM), WM_CONTROL_PORT: '0', NODE_ENV: 'test', MCP_GATEWAY: 'off', ADMIN_TOKEN: 'ans-admin', MARKET_PUBLIC_URL: BASE, WM_A2A_DIRECT_SIG: '', WM_LOGIN_GATE: '', A2A_OUTBOX_BACKOFF_SCALE: '0.0001', WM_A2A_FOLLOWUP_RATE_10MIN: '80' },
+  stdio: ['ignore', 'pipe', 'pipe'],
+});
+let out = '';
+child.stdout.on('data', (d) => { out += d; });
+child.stderr.on('data', (d) => { out += d; });
+async function ready() { const end = Date.now() + 30000; while (Date.now() < end) { try { if ((await fetch(BASE + '/api/health')).status === 200) return true; } catch {} await sleep(250); } return false; }
+const ADMIN = { 'x-admin-token': 'ans-admin', 'sec-fetch-site': 'same-origin' };
+const api = async (method, path, body) => { const r = await fetch(BASE + path, { method, headers: { ...ADMIN, ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined }); let j = null; try { j = await r.json(); } catch {} return { status: r.status, body: j }; };
+const db = () => { const d = new DatabaseSync(join(DATA, 'workbench-market.db')); d.exec('PRAGMA busy_timeout = 5000'); return d; };
+const q = (sql, ...a) => { const d = db(); try { return d.prepare(sql).all(...a); } finally { d.close(); } };
+let n = 0;
+function seedEvent({ dispatch = 1, zone = 'lab', root = lab.url } = {}) {
+  n++;
+  const ev = `wbe-${(0xa00 + n).toString(16).padStart(16, '0')}`;
+  const ctx = `wb:task-center:${1000 + n}`;
+  const d = db();
+  try {
+    d.prepare("INSERT INTO workbench_events (event_id, source, workbench, item, context_id, submitter_kind, submitter, form_version, data_sha256, dispatch, routed) VALUES (?, 'task-center', 'task-center', ?, ?, 'human', 'human:alice', 1, ?, ?, 'default')").run(ev, `task:${1000 + n}`, ctx, 'x'.repeat(64), dispatch);
+    d.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, NULL, 'market', 'recorded', '{}')").run(ev);
+    const delivery = Number(d.prepare("INSERT INTO workbench_event_deliveries (event_id, target_team, target_url, caller_session, status, sent_at) VALUES (?, 'superagent-team/a1b2c3d4e5f60718', ?, 'market/12345678', 'sent', datetime('now'))").run(ev, lab.url).lastInsertRowid);
+    for (const action of ['queued', 'sent']) d.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, 'market', ?, '{}')").run(ev, delivery, action);
+    const task = `${ev}.d${delivery}.a1`;
+    d.prepare('INSERT INTO a2a_sent_tasks (task_id, kind, event_id, delivery_id, peer_root, peer_zone) VALUES (?, ?, ?, ?, ?, ?)').run(task, 'delivery', ev, delivery, root, zone);
+    return { ev, ctx, task, delivery };
+  } finally { d.close(); }
+}
+const state = (ev) => q('SELECT state, open_asks FROM work_items WHERE id = ?', `wi_${ev}`)[0] ?? null;
+const seatAsks = async () => ((await api('GET', '/api/attention')).body?.items ?? []).filter((x) => x.source === 'seat-asks');
+const answer = async (deliveryId, text) => { const r = await api('POST', '/api/attention/answer', { source: 'seat-asks', source_id: String(deliveryId), answer: 'answer', input: { text } }); return { status: r.status, body: r.body?.result ?? r.body }; };
+async function waitFor(fn, ms = 8000) { const end = Date.now() + ms; while (Date.now() < end) { if (await fn()) return true; await sleep(150); } return false; }
+
+try {
+  if (!(await ready())) throw new Error('实例未就绪：' + out.slice(-600));
+  for (let i = 0; i < 40; i++) { if (q("SELECT 1 FROM sqlite_master WHERE name = 'workbench_events'").length) break; await sleep(250); }
+
+  console.log('一、提问进「关注」');
+  const a = seedEvent();
+  let r = await receipt(a.task, '发哪个仓库？', { idempotencyKey: a.task, disposition: 'attention' }, a.ctx);
+  ok('attention 回执 → 采信，事项在问你', r.status === 200 && state(a.ev)?.state === 'blocked', r.text);
+  let asks = await seatAsks();
+  const mine = asks.find((x) => x.source_id === String(a.delivery));
+  ok('「关注」里出现这条席位提问，问题 = 回执摘要', mine && mine.title.includes('发哪个仓库？') && mine.answers.includes('answer'), JSON.stringify(asks));
+  const openAsksTotal = () => q('SELECT open_asks FROM work_items').reduce((s, x) => s + JSON.parse(x.open_asks).length, 0);
+  ok('事件层未答提问数 = 事项未答提问总数', asks.length === openAsksTotal(), `${asks.length} vs ${openAsksTotal()}`);
+
+  // 同一投递先 v1 decision:ask，后回执提问：只列最近的那条
+  const m = seedEvent();
+  { const d = db(); d.prepare("UPDATE workbench_event_deliveries SET decision = 'ask', decision_reason = 'v1 的提问', decided_by = 'router', decided_at = datetime('now') WHERE id = ?").run(m.delivery); d.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, 'receiver:router', 'decision:ask', ?)").run(m.ev, m.delivery, JSON.stringify({ reason: 'v1 的提问', ref: '' })); d.close(); }
+  await receipt(m.task, '回执里的提问', { idempotencyKey: m.task, disposition: 'attention' }, m.ctx);
+  asks = await seatAsks();
+  const mm = asks.filter((x) => x.source_id === String(m.delivery));
+  ok('v1 提问之后又来回执提问 → 只列最近那条（回执里的）', mm.length === 1 && mm[0].title.includes('回执里的提问'), JSON.stringify(mm));
+  ok('……两边条数仍相等（事项上旧提问已被新提问合上）', asks.length === openAsksTotal(), `${asks.length} vs ${openAsksTotal()}`);
+
+  console.log('二、答复发回');
+  r = await answer(a.delivery, '发 apps 仓库');
+  ok('答复 → 200，sent=true（已排发送）', r.status === 200 && r.body?.sent === true && r.body?.reason === 'queued', JSON.stringify(r.body));
+  ok('……「关注」里这条不再等', !(await seatAsks()).some((x) => x.source_id === String(a.delivery)));
+  ok('……两边条数仍相等', (await seatAsks()).length === openAsksTotal());
+  await waitFor(() => lab.got.some((g) => String(g.body.task_id ?? '').startsWith(`${a.ev}.d${a.delivery}.q`)));
+  const sentToPeer = lab.got.find((g) => String(g.body.task_id ?? '').startsWith(`${a.ev}.d${a.delivery}.q`));
+  let env = {}; try { env = JSON.parse(sentToPeer?.body?.message ?? '{}'); } catch {}
+  ok('对端收到同一 context 的新任务', sentToPeer && sentToPeer.body.context_id === a.ctx && sentToPeer.body.team === 'superagent-team/a1b2c3d4e5f60718', JSON.stringify(sentToPeer?.body ?? null).slice(0, 200));
+  ok('……信封 kind=answer、qid = 提问所答的任务号、正文与答复人', env.kind === 'answer' && env.v === 2 && env.answer?.qid === a.task && env.answer?.text === '发 apps 仓库' && typeof env.answer?.by === 'string' && env.answer.by !== '', JSON.stringify(env));
+  ok('……带 OriginClaim 签名', typeof sentToPeer?.headers['x-a2a-caller-sig2'] === 'string');
+  const answerTask = sentToPeer?.body?.task_id ?? '';
+  ok('……新任务号登记了对端（kind=answer）', q('SELECT kind, peer_zone, delivery_id FROM a2a_sent_tasks WHERE task_id = ?', answerTask)[0]?.peer_zone === 'lab', answerTask);
+  r = await receipt(answerTask, '接下', { idempotencyKey: answerTask, disposition: 'acknowledged' }, a.ctx, { inbound: `ack-${answerTask}` });
+  ok('对方对新任务回 acknowledged → 事项已接手', r.status === 200 && state(a.ev)?.state === 'accepted', `${r.text} ${JSON.stringify(state(a.ev))}`);
+  r = await receipt(answerTask, '做完了', { outcome: 'completed', idempotencyKey: answerTask, disposition: 'result' }, a.ctx);
+  ok('……再回 completed → 等验收', r.status === 200 && state(a.ev)?.state === 'ready', r.text);
+  {
+    const it2 = (await api('GET', `/api/work-items/wi_${a.ev}`)).body ?? {};
+    const m2 = (it2.messages ?? []).find((x) => x.text === '做完了');
+    ok('答复任务的结果回执 → 正文落成事项对话里的一条未读席位消息（状态仍按映射表：等验收）', m2 && m2.status === 'unread' && it2.unread >= 1 && state(a.ev)?.state === 'ready', JSON.stringify(it2.messages ?? null));
+    const before = q('SELECT COUNT(*) AS c FROM workbench_event_followups WHERE event_id = ?', a.ev)[0].c;
+    const rr = await receipt(answerTask, '再来一条', { outcome: 'completed', idempotencyKey: answerTask, disposition: 'result' }, a.ctx);
+    ok('……同一答复任务的结果回执重放 → 409，不重复落消息', rr.status === 409 && q('SELECT COUNT(*) AS c FROM workbench_event_followups WHERE event_id = ?', a.ev)[0].c === before, rr.text);
+  }
+  r = await answer(a.delivery, '再答一次');
+  ok('同一提问答两次 → 第二次不再发（已经不在等）', r.status !== 200 || r.body?.sent !== true, JSON.stringify(r.body));
+  ok('……答复表里这次提问只有一行', q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE kind = 'answer' AND delivery_id = ?", a.delivery)[0].c === 1);
+
+  // 只通知的事件：事项不收提问（停在草稿），「关注」里也不列；答复表没有行
+  const nd = seedEvent({ dispatch: 0 });
+  await receipt(nd.task, '只通知的事件也问了', { idempotencyKey: nd.task, disposition: 'attention' }, nd.ctx);
+  ok('只通知的事件（dispatch:false）里的回执提问 → 「关注」不列，两边条数仍相等', !(await seatAsks()).some((x) => x.source_id === String(nd.delivery)) && (await seatAsks()).length === openAsksTotal());
+  r = await answer(nd.delivery, '答');
+  ok('……硬答 → 不在列表里被拒，不排发送', r.status >= 400 && q('SELECT COUNT(*) AS c FROM workbench_event_replies WHERE delivery_id = ?', nd.delivery)[0].c === 0, JSON.stringify(r.body));
+
+  // 对端一直失败 → 5 次后 dead
+  const f = seedEvent();
+  await receipt(f.task, '问一句', { idempotencyKey: f.task, disposition: 'attention' }, f.ctx);
+  lab.fail = true;
+  r = await answer(f.delivery, '答复');
+  ok('对端一直失败：答复照样记下、已排发送', r.status === 200 && r.body?.sent === true);
+  await waitFor(() => q("SELECT status FROM workbench_event_replies WHERE kind = 'answer' AND delivery_id = ?", f.delivery)[0]?.status === 'dead', 20000);
+  const row = q("SELECT status, attempts FROM workbench_event_replies WHERE kind = 'answer' AND delivery_id = ?", f.delivery)[0];
+  ok('……退避重试、5 次后 dead，事件日志有 reply-retry 与 reply-dead', row?.status === 'dead' && row.attempts === 5 && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE delivery_id = ? AND action = 'reply-retry'", f.delivery)[0].c === 4 && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE delivery_id = ? AND action = 'reply-dead'", f.delivery)[0].c === 1, JSON.stringify(row));
+  lab.fail = false;
+
+  console.log('二之二、提问回执 attention-<task>-<qid>（preview.13 起）');
+  {
+    const Q = seedEvent();
+    const qenv = (qid, extra = {}) => ({ idempotencyKey: Q.task, disposition: 'attention', question: { id: qid, text: '发哪个仓库？', options: ['apps', 'market'] }, by: { seat: 'lab/a1b2c3d4', name: '成员甲' }, ...extra });
+    r = await receipt(Q.task, '发哪个仓库？', qenv('q1'), Q.ctx, { inbound: `attention-${Q.task}-q1` });
+    ok('attention-<task>-<qid> + question → 采信，事项在问你', r.status === 200 && r.text.includes('"receipt":"recorded"') && state(Q.ev)?.state === 'blocked', r.text);
+    const qa = (await seatAsks()).find((x) => x.source_id === String(Q.delivery));
+    ok('……「关注」里显示问题和选项', qa && qa.title.includes('发哪个仓库？') && qa.title.includes('可选：apps / market'), JSON.stringify(qa));
+    ok('……不占终局的槽（a2a_inbound_receipts 里没有 final）', q("SELECT COUNT(*) AS c FROM a2a_inbound_receipts WHERE task_id = ? AND class = 'final'", Q.task)[0].c === 0);
+    ok('……事件日志记下问题 id、question 与 by（只记录）', (() => { const d = JSON.parse(q("SELECT detail FROM workbench_event_log WHERE delivery_id = ? AND action = 'receipt:attention'", Q.delivery)[0]?.detail ?? '{}'); return d.qid === 'q1' && d.question?.options?.length === 2 && d.by?.seat === 'lab/a1b2c3d4'; })());
+    r = await receipt(Q.task, '发哪个仓库？', qenv('q1'), Q.ctx, { inbound: `attention-${Q.task}-q1` });
+    ok('同一个问题 id 再来 → 409 重放，不重复记', r.status === 409 && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE delivery_id = ? AND action = 'receipt:attention'", Q.delivery)[0].c === 1, r.text);
+    lab.got.length = 0;
+    r = await answer(Q.delivery, '发 apps');
+    await waitFor(() => lab.got.some((g) => String(g.body.task_id ?? '').startsWith(`${Q.ev}.d${Q.delivery}.q`)));
+    const qs = lab.got.find((g) => String(g.body.task_id ?? '').startsWith(`${Q.ev}.d${Q.delivery}.q`));
+    let qe = {}; try { qe = JSON.parse(qs?.body?.message ?? '{}'); } catch {}
+    ok('答复发回：qid = 问题 id（不是任务号）', r.status === 200 && r.body?.sent === true && qe.answer?.qid === 'q1', JSON.stringify(qe));
+    r = await receipt(Q.task, '发 apps 仓库了', { outcome: 'completed', idempotencyKey: Q.task, disposition: 'result' }, Q.ctx);
+    ok('之后的结果仍走 receipt-<task>，采信 → 等验收（问题没占掉终局槽）', r.status === 200 && r.text.includes('"receipt":"recorded"') && state(Q.ev)?.state === 'ready', `${r.text} ${JSON.stringify(state(Q.ev))}`);
+    ok('……原工单（投递任务）的结果回执不落成席位消息（只有人发出的消息的回话才是）', q('SELECT COUNT(*) AS c FROM workbench_event_followups WHERE event_id = ?', Q.ev)[0].c === 0);
+    // 对抗：形状不对的一律只记录、不采信、不占槽
+    const Q2 = seedEvent();
+    const bad = [
+      ['问题 id 和任务号里的不一致', qenv('qX', { idempotencyKey: Q2.task }), `attention-${Q2.task}-q2`],
+      ['S11：任务号是 q1、question.id 是 q2', qenv('q2', { idempotencyKey: Q2.task }), `attention-${Q2.task}-q1`],
+      ['没有 question', { idempotencyKey: Q2.task, disposition: 'attention' }, `attention-${Q2.task}-q3`],
+      ['question.text 为空', qenv('q4', { idempotencyKey: Q2.task, question: { id: 'q4', text: '  ' } }), `attention-${Q2.task}-q4`],
+      ['disposition 不是 attention', qenv('q5', { idempotencyKey: Q2.task, disposition: 'result', outcome: 'completed' }), `attention-${Q2.task}-q5`],
+      ['idempotencyKey 是别的任务号', qenv('q6', { idempotencyKey: Q.task }), `attention-${Q2.task}-q6`],
+      ['问题 id 带非法字符', qenv('q 7', { idempotencyKey: Q2.task }), `attention-${Q2.task}-q 7`],
+      ['问题 id 超过 24 个字符', qenv('q'.repeat(25), { idempotencyKey: Q2.task }), `attention-${Q2.task}-${'q'.repeat(25)}`],
+    ];
+    for (const [label, env, inbound] of bad) {
+      const rr = await receipt(Q2.task, '问', env, Q2.ctx, { inbound });
+      ok(`提问回执·${label} → 不采信，事项不动`, !rr.text.includes('"receipt":"recorded"') && state(Q2.ev)?.state === 'delivered', rr.text.slice(0, 200));
+    }
+    ok('……这些都没占问题格', q('SELECT COUNT(*) AS c FROM a2a_inbound_questions WHERE task_id = ?', Q2.task)[0].c === 0);
+    r = await receipt(Q2.task, '问', qenv('q8'), Q2.ctx, { inbound: `attention-${Q2.task}-q8`, signer: evil });
+    ok('提问回执·别的宿主签的 → 不采信', !r.text.includes('"receipt":"recorded"') && state(Q2.ev)?.state === 'delivered', r.text.slice(0, 200));
+    r = await receipt(Q2.task, '问', qenv('q9'), Q2.ctx, { inbound: `attention-${Q2.task}-q9`, unsigned: true });
+    ok('提问回执·没签名 → 不采信', !r.text.includes('"receipt":"recorded"') && state(Q2.ev)?.state === 'delivered', r.text.slice(0, 200));
+  }
+
+  console.log('三、席位发来的消息（跟进）：落在事项对话里，不进「关注」');
+  const fu = (ctx, text, inbound) => JSON.stringify({ team: 'market/12345678', message: text, caller_session: 'lab/canvas/ops', context_id: ctx, wait: false, task_id: inbound });
+  const attentionSources = async () => ((await api('GET', '/api/attention')).body?.items ?? []).map((x) => x.source);
+  const itemOf = async (ev) => (await api('GET', `/api/work-items/wi_${ev}`)).body ?? {};
+  const msgReply = (ev, mid, text) => api('POST', `/api/work-items/wi_${ev}/messages/${mid}/reply`, { text });
+  const msgRead = (ev) => api('POST', `/api/work-items/wi_${ev}/messages/read`, {});
+  const runs = () => q('SELECT COUNT(*) AS c FROM sop_runs')[0].c;
+  const L = seedEvent();
+  const runsBefore = runs();
+  lab.got.length = 0;
+  let raw = fu(L.ctx, '成员问：发哪个仓库？', 'a2a-follow0001');
+  r = await post(raw, signed(lab, raw));
+  ok('同一 context、同一对端、Sig3 → 收下（200 followup recorded），事项状态不动', r.status === 200 && r.text.includes('"followup":"recorded"') && state(L.ev)?.state === 'delivered', `${r.text} ${JSON.stringify(state(L.ev))}`);
+  let it = await itemOf(L.ev);
+  const mineL = (it.messages ?? []).find((x) => x.text.includes('发哪个仓库'));
+  ok('……落在事项对话里：一条未读席位消息（发信方、正文），事项带未读数', mineL && mineL.status === 'unread' && mineL.sender === 'lab/canvas/ops' && it.unread === 1, JSON.stringify(it.messages ?? null));
+  ok('……不进「关注」（没有席位来信这个来源）', !(await attentionSources()).includes('seat-letters'));
+  ok('……事项日志里是只记录的 note followup', q("SELECT COUNT(*) AS c FROM work_item_log WHERE item_id = ? AND fact = 'note' AND json_extract(detail, '$.note') = 'followup'", `wi_${L.ev}`)[0].c === 1);
+  await waitFor(() => lab.got.some((g) => g.body.task_id === 'receipt-a2a-follow0001'));
+  const rc = lab.got.find((g) => g.body.task_id === 'receipt-a2a-follow0001');
+  const rcLines = String(rc?.body?.message ?? '').split('\n');
+  ok('立即回一条结清它的回执：任务号 receipt-<跟进任务号>，发给来信的一方，同一 context', rc && rc.body.team === 'lab/canvas/ops' && rc.body.context_id === L.ctx, JSON.stringify(rc?.body ?? null).slice(0, 200));
+  ok('……回执头与信封只用跟进的任务号（不用原任务号）', rcLines[0] === '[A2A receipt] task a2a-follow0001 已转给人' && JSON.stringify(JSON.parse(rcLines[1] ?? '{}')) === JSON.stringify({ outcome: 'completed', idempotencyKey: 'a2a-follow0001', disposition: 'result' }) && !String(rc?.body?.message).includes(L.task), JSON.stringify(rcLines));
+  // #542 之后出站带 Sig2 + Sig3（body 绑定）
+  ok('……带 OriginClaim 签名（Sig2 + Sig3 + 正文摘要头）', typeof rc?.headers['x-a2a-caller-sig2'] === 'string' && typeof rc?.headers['x-a2a-caller-sig3'] === 'string' && typeof rc?.headers['x-a2a-body-sha256'] === 'string', JSON.stringify(Object.keys(rc?.headers ?? {})));
+  r = await post(raw, signed(lab, raw));
+  ok('同一条（对方的任务号）再发 → 不重复记、不重复回执', r.status === 200 && q("SELECT COUNT(*) AS c FROM workbench_event_followups WHERE delivery_id = ?", L.delivery)[0].c === 1 && q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE kind = 'followup-receipt' AND delivery_id = ?", L.delivery)[0].c === 1);
+  // 回复：同一 context 的新任务发回那个团队
+  lab.got.length = 0;
+  r = await msgReply(L.ev, mineL.id, '发 apps 仓库');
+  it = await itemOf(L.ev);
+  ok('在事项对话里回复 → 200 sent=true，这条标成已回复、不再算未读', r.status === 200 && r.body?.sent === true && it.messages.find((x) => x.id === mineL.id)?.status === 'replied' && it.unread === 0, JSON.stringify(r.body));
+  r = await msgReply(L.ev, mineL.id, '再回一次');
+  ok('……同一条再回复 → 409，不再发', r.status === 409 && q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE kind = 'followup-reply' AND ref = ?", mineL.id)[0].c === 1, JSON.stringify(r.body));
+  await waitFor(() => lab.got.some((g) => String(g.body.task_id ?? '').startsWith(`${L.ev}.d${L.delivery}.q`)));
+  const rp = lab.got.find((g) => String(g.body.task_id ?? '').startsWith(`${L.ev}.d${L.delivery}.q`));
+  let renv = {}; try { renv = JSON.parse(rp?.body?.message ?? '{}'); } catch {}
+  ok('……对端收到同一 context 的新任务，qid = 来信的任务号、正文是回复', rp && rp.body.context_id === L.ctx && renv.kind === 'answer' && renv.answer?.qid === 'a2a-follow0001' && renv.answer?.text === '发 apps 仓库', JSON.stringify(rp?.body ?? null).slice(0, 200));
+  ok('……事项日志记一行 note followup-reply', q("SELECT COUNT(*) AS c FROM work_item_log WHERE item_id = ? AND fact = 'note' AND json_extract(detail, '$.note') = 'followup-reply'", `wi_${L.ev}`)[0].c === 1);
+  // 看过
+  raw = fu(L.ctx, '通知：已开工', 'a2a-follow0002');
+  await post(raw, signed(lab, raw));
+  ok('又来一条 → 事项未读数 1', (await itemOf(L.ev)).unread === 1);
+  r = await msgRead(L.ev);
+  it = await itemOf(L.ev);
+  const notice = it.messages.find((x) => x.text.includes('已开工'));
+  ok('看过 → 标成已读、未读数 0，不发任何东西，事项日志记一行 note followup-read', r.status === 200 && r.body?.marked === 1 && notice?.status === 'read' && it.unread === 0
+    && q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE kind = 'followup-reply' AND ref = ?", notice?.id)[0].c === 0
+    && q("SELECT COUNT(*) AS c FROM work_item_log WHERE item_id = ? AND fact = 'note' AND json_extract(detail, '$.note') = 'followup-read'", `wi_${L.ev}`)[0].c === 1, JSON.stringify(r.body));
+  r = await msgRead(L.ev);
+  ok('……再看一次 → 标了 0 条，不重复记', r.status === 200 && r.body?.marked === 0 && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE event_id = ? AND action = 'followup-read'", L.ev)[0].c === 1, JSON.stringify(r.body));
+  r = await msgReply(L.ev, notice?.id, '看过的也能回');
+  ok('……看过的消息仍可回复', r.status === 200 && r.body?.sent === true, JSON.stringify(r.body));
+  // 消息编号是别的事项的 → 404
+  r = await msgReply(a.ev, notice?.id, '串到别的事项');
+  ok('拿别的事项的消息编号来回复 → 404，不发', r.status === 404 && r.body?.error === 'seat_message_not_found', JSON.stringify(r.body));
+  // S9：回复超过 4000 字 → 400，不发、不改状态
+  raw = fu(L.ctx, '再问一句', 'a2a-follow0003');
+  await post(raw, signed(lab, raw));
+  const s9 = (await itemOf(L.ev)).messages.find((x) => x.text === '再问一句');
+  r = await msgReply(L.ev, s9?.id, '长'.repeat(4001));
+  ok('S9：4001 字的回复 → 400 text_too_long，这条仍未读、不发', r.status === 400 && r.body?.error === 'text_too_long' && (await itemOf(L.ev)).messages.find((x) => x.id === s9?.id)?.status === 'unread'
+    && q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE kind = 'followup-reply' AND ref = ?", s9?.id)[0].c === 0, JSON.stringify(r.body));
+  r = await msgReply(L.ev, s9?.id, '长'.repeat(4000));
+  ok('……正好 4000 字 → 200', r.status === 200, JSON.stringify(r.body));
+  // S15：跟进里夹带别处的回调地址 → 结清回执仍只投到记下的对端根地址
+  {
+    const elsewhere = await peer('elsewhere');
+    lab.got.length = 0;
+    const raw15 = JSON.stringify({ team: 'market/12345678', message: '带了别处回调的跟进', caller_session: 'lab/canvas/ops', context_id: L.ctx, wait: false, task_id: 'a2a-follow0015', callback: elsewhere.url, callback_url: elsewhere.url, reply_to: elsewhere.url, target_url: elsewhere.url });
+    r = await post(raw15, signed(lab, raw15));
+    await waitFor(() => lab.got.some((g) => g.body.task_id === 'receipt-a2a-follow0015'));
+    const row15 = q("SELECT target_url FROM workbench_event_replies WHERE kind = 'followup-receipt' AND fixed_task = 'receipt-a2a-follow0015'")[0];
+    ok('S15：跟进带别处的 callback → 结清回执只投到记下的对端根地址，别处收不到', r.text.includes('"followup":"recorded"') && row15?.target_url === lab.url && lab.got.some((g) => g.body.task_id === 'receipt-a2a-follow0015') && elsewhere.got.length === 0, JSON.stringify({ row15, elsewhere: elsewhere.got.length }));
+    elsewhere.server.close();
+  }
+  ok('来信全程没开 run、没改事项状态', runs() === runsBefore && state(L.ev)?.state === 'delivered');
+
+  console.log('三（续）、对抗组');
+  const noRec = (inbound) => q('SELECT COUNT(*) AS c FROM workbench_event_followups WHERE inbound_task = ?', inbound)[0].c === 0 && q('SELECT COUNT(*) AS c FROM workbench_event_replies WHERE fixed_task = ?', `receipt-${inbound}`)[0].c === 0;
+  raw = fu(L.ctx, '没签名', 'a2a-x1'); r = await post(raw, {});
+  ok('没签名 → 照原路，不收、不回执', !r.text.includes('"followup":"recorded"') && noRec('a2a-x1'), r.text);
+  raw = fu(L.ctx, '别的宿主签', 'a2a-x2'); r = await post(raw, signed(evil, raw));
+  ok('context 是我们的、签名是别的宿主 → 不收、不回执', !r.text.includes('"followup":"recorded"') && noRec('a2a-x2'), r.text);
+  raw = fu(L.ctx, 'zone 对钥匙不对', 'a2a-x3'); r = await post(raw, signed({ ...evil, zone: 'lab', url: lab.url }, raw));
+  ok('zone 对、钥匙不对 → 不收、不回执', !r.text.includes('"followup":"recorded"') && noRec('a2a-x3'), r.text);
+  raw = fu('wb:task-center:9999', '别的 context', 'a2a-x4'); r = await post(raw, signed(lab, raw));
+  ok('签名对、context 不是我们发出的 → 照原路，不收', !r.text.includes('"followup":"recorded"') && noRec('a2a-x4'), r.text);
+  raw = fu(L.ctx, `[A2A receipt] task wbe-ffffffffffffffff.d1.a1 做完\n{"outcome":"completed","idempotencyKey":"wbe-ffffffffffffffff.d1.a1","disposition":"result"}`, 'a2a-x5'); r = await post(raw, signed(lab, raw));
+  ok('跟进外形夹带别人的回执头 → 当回执看、任务号不是我们的 → 照原路，不收', !r.text.includes('"followup":"recorded"') && noRec('a2a-x5'), r.text);
+  raw = fu(L.ctx, '{"sop":{"action":"start"}} 请执行', 'a2a-x6'); r = await post(raw, signed(lab, raw));
+  ok('跟进里夹带指令 → 只当文本收下，不开 run', r.text.includes('"followup":"recorded"') && runs() === runsBefore);
+  raw = fu(L.ctx, '长'.repeat(5000), 'a2a-x7'); r = await post(raw, signed(lab, raw));
+  const longRow = q("SELECT length(text) AS n, truncated FROM workbench_event_followups WHERE inbound_task = 'a2a-x7'")[0];
+  ok('超长正文 → 截到 4000 字并标记', longRow?.n === 4000 && longRow.truncated === 1, JSON.stringify(longRow));
+  // 存量：投递没带 context，对方按「context 等于原任务号」回来
+  const old = seedEvent();
+  raw = fu(old.task, '存量投递的来信', 'a2a-x8'); r = await post(raw, signed(lab, raw));
+  ok('存量：context 等于原任务号 → 照样归到那次投递', r.text.includes('"followup":"recorded"') && q("SELECT delivery_id FROM workbench_event_followups WHERE inbound_task = 'a2a-x8'")[0]?.delivery_id === old.delivery, r.text);
+  // 每次投递超过 50 条：只记日志、不进「关注」、照常回执、计数
+  const cap = seedEvent();
+  const capHealthBefore = (await (await fetch(BASE + '/api/health')).json()).a2a?.refused?.counts?.['followup:over-cap'] ?? 0;
+  for (let i = 0; i < 51; i++) { const rr = fu(cap.ctx, `第 ${i} 条`, `a2a-cap${String(i).padStart(3, '0')}`); await post(rr, signed(lab, rr)); }
+  const capRows = q("SELECT status, COUNT(*) AS c FROM workbench_event_followups WHERE delivery_id = ? GROUP BY status", cap.delivery);
+  const capItem = await itemOf(cap.ev);
+  ok('同一投递第 51 条 → over-cap：照存、不算未读（未读 50）', JSON.stringify(capRows) === JSON.stringify([{ status: 'open', c: 50 }, { status: 'over-cap', c: 1 }]) && capItem.unread === 50 && capItem.messages.find((x) => x.text === '第 50 条')?.status === 'over-cap', JSON.stringify(capRows));
+  r = await msgReply(cap.ev, capItem.messages.find((x) => x.text === '第 50 条')?.id, '回超限的');
+  ok('……超限的那条不能回复（409）', r.status === 409, JSON.stringify(r.body));
+  ok('……超限的也照常回执、公开计数 followup:over-cap +1', q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE kind = 'followup-receipt' AND delivery_id = ?", cap.delivery)[0].c === 51 && ((await (await fetch(BASE + '/api/health')).json()).a2a?.refused?.counts?.['followup:over-cap'] ?? 0) === capHealthBefore + 1);
+  // 对端 10 分钟超过限频（测试里设 80）：合法跟进全部拿到结清回执，超出的不存正文、不进「关注」、只计数
+  const rate = seedEvent();
+  const rateHealthBefore = (await (await fetch(BASE + '/api/health')).json()).a2a?.refused?.counts?.['followup:rate-limited'] ?? 0;
+  let firstLimited = -1;
+  for (let i = 0; i < 90; i++) { const rr = fu(rate.ctx, `频 ${i}`, `a2a-rate${String(i).padStart(3, '0')}`); const res = await post(rr, signed(lab, rr)); if (firstLimited < 0 && res.text.includes('"rate_limited":true')) firstLimited = i; if (firstLimited >= 0 && i >= firstLimited + 4) break; }
+  const rateRows = q("SELECT status, COUNT(*) AS c, MAX(LENGTH(text)) AS n FROM workbench_event_followups WHERE delivery_id = ? GROUP BY status ORDER BY status", rate.delivery);
+  const limitedRow = rateRows.find((x) => x.status === 'rate-limited');
+  ok('一台宿主短时间发来超过阈值的合法跟进 → 超出的记成 rate-limited、不存正文', firstLimited >= 0 && limitedRow?.c === 5 && limitedRow.n === 0, JSON.stringify({ firstLimited, rateRows }));
+  ok('……全部拿到结清回执（每条一行 receipt-<跟进任务号>）', firstLimited >= 0 && q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE kind = 'followup-receipt' AND delivery_id = ?", rate.delivery)[0].c === firstLimited + 5);
+  await waitFor(() => lab.got.some((g) => g.body.task_id === `receipt-a2a-rate${String(firstLimited + 4).padStart(3, '0')}`), 15000);
+  ok('……超出的那几条，回执真的发到了对端', [0, 1, 2, 3, 4].every((k) => lab.got.some((g) => g.body.task_id === `receipt-a2a-rate${String(firstLimited + k).padStart(3, '0')}`)));
+  {
+    // S7：限频只计数的那条不能回复（404：它不在对话里）
+    const limitedId = q("SELECT id FROM workbench_event_followups WHERE delivery_id = ? AND status = 'rate-limited' ORDER BY id LIMIT 1", rate.delivery)[0]?.id;
+    const rr = await msgReply(rate.ev, limitedId, '回限频的');
+    ok('S7：限频只计数的消息不能回复 → 404，不发', typeof limitedId === 'number' && rr.status === 404 && rr.body?.error === 'seat_message_not_found'
+      && q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE kind = 'followup-reply' AND ref = ?", limitedId)[0].c === 0, JSON.stringify(rr.body));
+  }
+  const rateItem = await itemOf(rate.ev);
+  ok('……超出的不进事项对话（对话里只有存了正文的），公开计数 followup:rate-limited +5，事件日志记 followup-rate-limited 5 行', rateItem.messages.length === firstLimited && rateItem.unread === firstLimited
+    && ((await (await fetch(BASE + '/api/health')).json()).a2a?.refused?.counts?.['followup:rate-limited'] ?? 0) === rateHealthBefore + 5
+    && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE delivery_id = ? AND action = 'followup-rate-limited'", rate.delivery)[0].c === 5);
+  // 验签不过的仍然不收不回执（那不是我们欠的）——限频不改变这一条
+  { const rr = fu(rate.ctx, '伪造', 'a2a-rate-forged'); await post(rr, signed(evil, rr)); ok('限频之下，验签不过的仍不收、不回执', noRec('a2a-rate-forged')); }
+  ok('跟进回执的积压在健康块里有数', typeof (await (await fetch(BASE + '/api/health')).json()).a2a?.outbox?.followup_receipts?.pending === 'number');
+} catch (e) {
+  ok('运行', false, String(e?.stack ?? e));
+} finally {
+  child.kill();
+  lab.server.close();
+  evil.server.close();
+}
+// 限频阈值不合法 → 拒绝启动
+for (const bad of ['0', 'abc', '100001']) {
+  const bp = await port();
+  const code = await new Promise((res) => { const c = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], { cwd: 'server', env: { ...process.env, DATA_DIR: DATA, PORT: String(bp), WM_CONTROL_PORT: '0', NODE_ENV: 'test', MCP_GATEWAY: 'off', WM_A2A_FOLLOWUP_RATE_10MIN: bad }, stdio: 'ignore' }); const t = setTimeout(() => { c.kill(); res('timeout'); }, 30000); c.on('exit', (x) => { clearTimeout(t); res(x); }); });
+  ok(`WM_A2A_FOLLOWUP_RATE_10MIN=${bad} → 拒绝启动`, code === 1, String(code));
+}
+console.log(`\n${pass} 过 / ${fail} 败`);
+process.exit(fail ? 1 : 0);

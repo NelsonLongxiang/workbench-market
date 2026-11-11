@@ -20,7 +20,9 @@ import { identity } from './identity.ts';
 import { forward } from './attention-forward.ts';
 import { answerBody, findBoardWorkbench } from './owner-pending.ts';
 import { principalsAdmin } from './routes/principals.ts';
-import { pendingAskOfDelivery, pendingPrincipalAppearance } from './services/attention-sources.ts';
+import { currentAskOfDelivery, pendingAskOfDelivery, pendingPrincipalAppearance } from './services/attention-sources.ts';
+import { askTaskOf, deliveryTarget, eventDispatched, inReplyTx, queueReply } from './services/a2a-replies.ts';
+import { kickWorkbenchEvents, logDeliveryFact } from './workbench-events.ts';
 import { listVars, workbenchScope } from './workbench-vars.ts';
 import type { AnswerOutcome, AttentionProvider, AttentionService } from './services/attention.ts';
 import type { HttpService } from './http.ts';
@@ -127,9 +129,10 @@ const DIRECT: Record<string, Record<string, (req: Req, id: string, input: Input,
   },
   'seat-asks': {
     /**
-     * 答席位的提问：在事项上记答复，合上这条提问。按 06，回答要作为同一事项的后续事件（kind: "answer"）发回原团队；
-     * 但 06 的兼容规则说 v1 接收方不认识它、不发，而市场今天的接单节点都是 v1（还没有 report 端点来协商 v2）。
-     * 所以现在只记不发，应答里写明 sent:false 和原因；有了 v2 之后在这里补发。
+     * 答席位的提问：在事项上记答复，合上这条提问。
+     *   · v1（decision:ask，接单节点凭回复令牌回写的提问）：照旧只记不发——v1 接单节点不认识回答事件。
+     *   · 阶段七 R2（receipt:attention，席位 A2A 回执里的提问）：记答复的同时排一条答复任务，作为同一 context 的新任务发回那个团队
+     *     （superagent 的约定）；只通知的事件（dispatch:false）没有回写通道，不发。记答复和排发送在同一个保存点里。
      */
     answer: async (_req, id, input, actor) => {
       const answer = text(input.text);
@@ -137,9 +140,27 @@ const DIRECT: Record<string, Record<string, (req: Req, id: string, input: Input,
       if (!/^[1-9]\d{0,15}$/.test(id)) return { status: 400, body: { error: 'attention_id_invalid' } };
       const ask = pendingAskOfDelivery(Number(id));
       if (!ask) return { status: 409, body: { error: 'seat_ask_not_pending' } };
-      const out = svc<WorkItemService>('workItems').apply(itemIdForEvent(ask.event_id), { kind: 'answer', source: 'attention', id: randomUUID(), actor, ask_id: String(ask.ask_log_id), answer });
-      if (!out.ok) return { status: 409, body: { error: `work_item_${out.reason}`, state: out.state ?? null } };
-      return { status: 200, body: { ok: true, item_id: itemIdForEvent(ask.event_id), state: out.state, sent: false, reason: 'receiver_is_v1', message: '答复记在事项上；对方是 v1 接单节点，按 06 的兼容规则不发回答事件' } };
+      const itemId = itemIdForEvent(ask.event_id);
+      const fact = { kind: 'answer' as const, source: 'attention', id: randomUUID(), actor, ask_id: String(ask.ask_log_id), answer };
+      if (ask.ask_kind !== 'receipt') {
+        const out = svc<WorkItemService>('workItems').apply(itemId, fact);
+        if (!out.ok) return { status: 409, body: { error: `work_item_${out.reason}`, state: out.state ?? null } };
+        return { status: 200, body: { ok: true, item_id: itemId, state: out.state, sent: false, reason: 'receiver_is_v1', message: '答复记在事项上；对方是 v1 接单节点，按 06 的兼容规则不发回答事件' } };
+      }
+      const dispatched = eventDispatched(ask.event_id);
+      const target = deliveryTarget(Number(id));
+      const result = inReplyTx(() => {
+        const out = svc<WorkItemService>('workItems').apply(itemId, fact);
+        if (!out.ok) return { out, queued: false };
+        const queued = dispatched && !!target && queueReply({ kind: 'answer', eventId: ask.event_id, deliveryId: Number(id), ref: ask.ask_log_id, qid: askTaskOf(ask.ask_log_id),
+          team: target.team, callerSession: target.caller_session, contextId: target.context_id, targetUrl: target.target_url, message: JSON.stringify({ text: answer, by: actor }) }) !== null;
+        return { out, queued };
+      });
+      if (!result.out.ok) return { status: 409, body: { error: `work_item_${result.out.reason}`, state: result.out.state ?? null } };
+      if (result.queued) kickWorkbenchEvents();
+      return { status: 200, body: dispatched
+        ? { ok: true, item_id: itemId, state: result.out.state, sent: result.queued, reason: result.queued ? 'queued' : 'already_queued', message: '答复记在事项上，并作为同一 context 的新任务发回那个团队' }
+        : { ok: true, item_id: itemId, state: result.out.state, sent: false, reason: 'event_not_dispatched', message: '答复记在事项上；这个事件只通知、不派发，没有回写通道，不发' } };
     },
   },
 };
@@ -161,7 +182,7 @@ function applied(id: string, fact: Parameters<WorkItemService['apply']>[1]): Ans
  */
 function keyOf(source: string, sourceId: string): string {
   if (source === 'seat-asks' && /^[1-9]\d{0,15}$/.test(sourceId)) {
-    const ask = pendingAskOfDelivery(Number(sourceId));
+    const ask = currentAskOfDelivery(Number(sourceId));
     return ask ? `${sourceId}:${ask.ask_log_id}` : sourceId;
   }
   if (source === 'work-items') {

@@ -90,7 +90,7 @@ import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, me
 import type { IncomingMessage } from 'node:http';
 import { noteA2aError, type A2aErrorKey } from './a2a/errors.ts';
 import { a2aHealth } from './a2a/health.ts';
-import { handleInboundReceipt } from './a2a/receipt-inbound.ts';
+import { followupRateLimit, handleInboundReceipt } from './a2a/receipt-inbound.ts';
 import { cardCooldownMs, createDirectSigVerifier, directSigBodyMode, directSigMode, shownRefusal, type DirectSigMode, type SigRefusal } from './a2a-direct-sig.ts';
 import { isInsideRoot } from './path-inside.ts';
 
@@ -172,6 +172,12 @@ if (loginGate.enforced && A2A_DIRECT_SIG_RAW !== 'require') console.warn(`[a2a-d
 const A2A_CARD_COOLDOWN_MS = cardCooldownMs();
 if (A2A_CARD_COOLDOWN_MS === null) {
   console.error('[a2a-direct-sig] 拒绝启动：WM_A2A_CARD_COOLDOWN_S 只接受 1～3600 的整数或不设');
+  process.exit(1);
+}
+// 席位跟进按对端限频（WM_A2A_FOLLOWUP_RATE_10MIN，缺省 300，1～100000）：超出的不存正文、只计数，结清回执照回；值不合法拒绝启动
+const A2A_FOLLOWUP_RATE = followupRateLimit();
+if (A2A_FOLLOWUP_RATE === null) {
+  console.error('[a2a] 拒绝启动：WM_A2A_FOLLOWUP_RATE_10MIN 只接受 1～100000 的整数或不设');
   process.exit(1);
 }
 /** 取卡或验签这一步的失败：只有调用方在绑定上登记了取卡地址时才可能区分，对外不能露出来 */
@@ -337,6 +343,8 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/workbench-events\/wbe-[0-9a-f]{16}\/decision$/,
   // 阶段八 8e：建立人本人验收、退回自己的事项（路由内经身份服务认人、事项服务判是不是建立人；只此一条子路径）
   /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/decision$/,
+  // 阶段七 R2：事项对话里的席位消息——看过、回复（路由内认人：管理员或建立人本人；只此两条子路径）
+  /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/messages\/(read|[1-9]\d{0,15}\/reply)$/,
   // MCP 工具 REST 开放：与 /mcp 同口径，凭会话令牌在路由内鉴权，不认管理口令
   /^\/api\/mcp-rest\/(tools\/[^/]+|apps\/[a-z0-9-]{1,64}\/files(\/[^/]+)?)$/,
 ];
@@ -2476,7 +2484,7 @@ registerBindingRoutes(http, { adminGuard, getApp });
 app.post('/a2a/direct', express.json({ limit: '600kb' }), async (req, res) => {
   const rawBytes = Number(req.headers['content-length'] ?? 0) || JSON.stringify(req.body ?? {}).length;
   // 阶段七 R3：A2A 回执的窄分流——正文是回执、任务号是我们发出的、签名方是当初投递到的那台宿主，三条都成立才走这里；否则照原路，应答不变
-  const inboundReceipt = await handleInboundReceipt(req, { audiences: () => [marketPublicUrl()] });
+  const inboundReceipt = await handleInboundReceipt(req, { audiences: () => [marketPublicUrl()], followupRate: A2A_FOLLOWUP_RATE });
   if (inboundReceipt) { res.status(inboundReceipt.status).json(inboundReceipt.body); return; }
   // 入站签名（WM_A2A_DIRECT_SIG）：签名身份对上 caller_session 才进下面的绑定准入
   if (A2A_DIRECT_SIG !== 'off') {

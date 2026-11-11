@@ -98,6 +98,18 @@ export async function getWorkItem(id: string): Promise<{ status: number; body: u
   return { status: res.status, body: await res.json().catch(() => ({})) };
 }
 
+/** 事项对话里的席位消息（阶段七 R2）：看过、回复。管理员带口令；建立人本人凭登录 */
+export async function postSeatMessagesRead(id: string): Promise<{ status: number; body: { marked?: number; error?: string } }> {
+  const token = getAdminToken();
+  const res = await fetch(`/api/work-items/${encodeURIComponent(id)}/messages/read`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { 'X-Admin-Token': token } : {}) }, body: '{}' });
+  return { status: res.status, body: await res.json().catch(() => ({})) };
+}
+export async function postSeatMessageReply(id: string, messageId: number, text: string): Promise<{ status: number; body: { sent?: boolean; reason?: string; error?: string } }> {
+  const token = getAdminToken();
+  const res = await fetch(`/api/work-items/${encodeURIComponent(id)}/messages/${messageId}/reply`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { 'X-Admin-Token': token } : {}) }, body: JSON.stringify({ text }) });
+  return { status: res.status, body: await res.json().catch(() => ({})) };
+}
+
 /** 建立人本人验收、退回自己的事项（阶段八 8e）。不走 apiFetch：没登录、被拒由页面自己说，不弹管理员口令 */
 export async function postCreatorDecision(id: string, answer: string, reason: string): Promise<{ status: number; body: { duplicate?: boolean; result?: { error?: string }; error?: string } }> {
   const res = await fetch(`/api/work-items/${encodeURIComponent(id)}/decision`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answer, reason }) });

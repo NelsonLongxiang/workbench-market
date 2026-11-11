@@ -55,7 +55,9 @@ export type Fact = {
   question?: string;
   ask_id?: string;
   answer?: string;
-  note?: 'unrouted' | 'untrusted' | 'undispatched';
+  note?: 'unrouted' | 'untrusted' | 'undispatched' | 'followup' | 'followup-reply' | 'followup-read';
+  /** 阶段七 R2：note=followup 时席位发来的跟进原文（前 500 字），只用于显示，不参与任何判断 */
+  text?: string;
   others_alive?: boolean;
   /** 阶段七 R3：同一事件里有别的投递还活着或已经接手（回执的拒绝、放弃只在没有时才推终态） */
   others_engaged?: boolean;
@@ -136,6 +138,8 @@ export const RECORDS: readonly { from: readonly WorkItemState[]; fact: Fact['kin
   { from: ['accepted', 'progress', 'waiting', 'blocked', 'ready'], fact: 'delivery', when: is('outcome', 'dead'), note: '已有团队接手之后，别的投递 dead' },
   // 8b：未路由、未采信
   { from: NON_TERMINAL, fact: 'note', when: (f) => f.note === 'unrouted' || f.note === 'untrusted' || f.note === 'undispatched', note: '未路由 / 收到但未采信 / 未派发' },
+  // 阶段七 R2：席位在回执之后发来的自由文本跟进——只记录；终态之后对方也可能再说明一句，一并收下
+  { from: [...NON_TERMINAL, ...TERMINAL], fact: 'note', when: (f) => f.note === 'followup' || f.note === 'followup-reply' || f.note === 'followup-read', note: '席位发来的消息、人的回复、人看过（只记录）' },
 ];
 
 export type ApplyResult =
@@ -278,6 +282,9 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
   else if (row.action === 'released') fact = { ...base, kind: 'release' };
   else if (row.action === 'cancelled') fact = { ...base, kind: 'withdraw', none_sent: !rows.slice(0, i + 1).some((r) => r.action === 'sent' || r.action === 'sent-after-withdraw') };
   else if (row.action === 'receipt:untrusted' || row.action === 'receipt:unaccepted') fact = { ...base, kind: 'note', note: 'untrusted' };
+  else if (row.action === 'followup') fact = { ...base, kind: 'note', note: 'followup', text: typeof detail.text === 'string' ? detail.text : '' };
+  else if (row.action === 'followup-replied') fact = { ...base, kind: 'note', note: 'followup-reply', text: typeof detail.text === 'string' ? detail.text : '' };
+  else if (row.action === 'followup-read') fact = { ...base, kind: 'note', note: 'followup-read' };
   else if (row.action === 'receipt:attention') fact = { ...base, kind: 'ask', question: typeof detail.summary === 'string' ? detail.summary : '' };
   else if (row.action === 'dead' || row.action.startsWith('decision:') || row.action === 'receipt:acknowledged' || RECEIPT_OUTCOME_ACTIONS.includes(row.action)) {
     const status = new Map<number, DeliveryStatus>();
@@ -305,7 +312,7 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
  * 版本没变时每次启动只做增量：从上次记下的事件日志水位往后核（没装事项服务的进程——比如回滚到旧版本期间——
  * 写进来的事件和事实，靠它补回来）。监听器漏过事实（dirty）也从头全量核。
  */
-export const BACKFILL_VERSION = 1;
+export const BACKFILL_VERSION = 2; // 2：阶段七 R2 加了跟进、回复、看过的映射（#546）
 /** 后台回填每一片最多占用事件循环的时长（毫秒），之后让出，好让请求得到应答 */
 const BACKFILL_SLICE_MS = 25;
 /** 每次取的行数（一片里可以取好几次） */

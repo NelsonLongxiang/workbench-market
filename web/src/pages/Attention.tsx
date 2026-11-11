@@ -15,7 +15,7 @@ type View = { items: Item[]; counts: { total: number; by_category: Record<Catego
 
 const CATEGORY: Record<Category, string> = { ask: '提问', review: '审核', accept: '验收', glance: '过目', grant: '授权' };
 const CATEGORY_COLOR: Record<Category, string> = { ask: 'gold', review: 'blue', accept: 'green', glance: 'default', grant: 'purple' };
-const ANSWER: Record<string, string> = { approve: '批准', reject: '拒绝', answer: '答复', bind: '对接', verify: '验收通过', return: '退回', release: '放行', withdraw: '撤回' };
+const ANSWER: Record<string, string> = { approve: '批准', reject: '拒绝', answer: '答复', bind: '对接', verify: '验收通过', return: '退回', release: '放行', withdraw: '撤回', reply: '回复', ack: '知道了' };
 /** 每种答法要填的东西（和来源旧页面要的一样；入口把它们原样交给来源） */
 type Field = { key: string; label: string; kind?: 'text' | 'textarea' | 'check'; required?: boolean };
 const FIELDS: Record<string, Record<string, Field[]>> = {

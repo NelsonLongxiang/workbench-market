@@ -24,6 +24,16 @@ export function claimReceipt(taskId: string, cls: 'ack' | 'final', disposition: 
   return Number(r.changes) === 1;
 }
 
+/** 提问回执（attention-<task>-<qid>）占（任务号、问题 id）这一格；占到了返回 true。时间由代码生成后传入 */
+export function claimQuestion(taskId: string, qid: string, now = Date.now()): boolean {
+  const at = new Date(now).toISOString().slice(0, 23).replace('T', ' ');
+  const r = db.prepare('INSERT OR IGNORE INTO a2a_inbound_questions (task_id, qid, received_at) VALUES (?, ?, ?)').run(taskId, qid, at);
+  return Number(r.changes) === 1;
+}
+export function questionRecorded(taskId: string, qid: string): boolean {
+  return Boolean(db.prepare('SELECT 1 FROM a2a_inbound_questions WHERE task_id = ? AND qid = ?').get(taskId, qid));
+}
+
 /** 这条（任务号、接单 / 终局）回执记过了吗 */
 export function receiptRecorded(taskId: string, cls: 'ack' | 'final'): boolean {
   return Boolean(db.prepare('SELECT 1 FROM a2a_inbound_receipts WHERE task_id = ? AND class = ?').get(taskId, cls));
@@ -47,4 +57,18 @@ export function inReceiptTx<T>(fn: () => T): T {
   db.exec('SAVEPOINT a2a_receipt_in');
   try { const out = fn(); db.exec('RELEASE a2a_receipt_in'); return out; }
   catch (e) { db.exec('ROLLBACK TO a2a_receipt_in'); db.exec('RELEASE a2a_receipt_in'); throw e; }
+}
+
+/**
+ * 阶段七 R2：跟进（a2a-<hash>，和原任务号没有字面关系）只靠 context 归到投递：我们某个事件的 context、发给的对端 zone 等于签名方的
+ * 最近一个任务号。存量没带 context 的投递，对方按「context 等于原任务号」回来：再按任务号找一次。找不到返回 undefined（跟进不认）。
+ */
+export function sentTaskForFollowup(contextId: string, zone: string): SentTask | undefined {
+  const byContext = db.prepare(`SELECT s.task_id, s.kind, s.event_id, s.delivery_id, s.peer_root, s.peer_zone
+    FROM a2a_sent_tasks s JOIN workbench_events e ON e.event_id = s.event_id
+    WHERE e.context_id = ? AND s.peer_zone = ? AND s.peer_zone <> ''
+    ORDER BY s.created_at DESC, s.rowid DESC LIMIT 1`).get(contextId, zone) as SentTask | undefined;
+  if (byContext) return byContext;
+  const byTask = sentTask(contextId);
+  return byTask && byTask.peer_zone === zone && byTask.peer_zone !== '' ? byTask : undefined;
 }

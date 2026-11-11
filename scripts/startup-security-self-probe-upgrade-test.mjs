@@ -12,7 +12,7 @@ app.post('/mcp',async(_q,r)=>{await hold;r.status(401).set('WWW-Authenticate','B
 app.post('/api/workbenches',(q,r)=>r.status(q.headers.origin?403:400).end());
 app.get('/api/principals',(_q,r)=>r.status(403).end());
 app.get('/api/export',(_q,r)=>r.status(403).end());
-app.post('/api/work-items/:id/decision',(_q,r)=>r.status(401).end());
+app.post('/api/work-items/:id/decision',(_q,r)=>r.status(401).end());app.post('/api/work-items/:id/messages/:mid/reply',(_q,r)=>r.status(401).end());
 app.get('/api/grants',(_q,r)=>r.status(403).end());
 app.get('/login/feishu/callback',(_q,r)=>r.status(400).end());
 app.post('/login/feishu/events',(_q,r)=>r.status(401).end());
