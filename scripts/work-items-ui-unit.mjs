@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 事项列表页的纯函数单测（web/src/work-items-view.ts）：状态归组、组的计数、按对象分组、行的说明、翻页去重。 */
-import { STATE_GROUPS, appendPage, byObject, byState, groupCount, groupOf, rowLine } from '../web/src/work-items-view.ts';
+import { STATE_GROUPS, appendPage, byObject, byState, groupCount, groupOf, rowLine, seatOrWaiting } from '../web/src/work-items-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -22,11 +22,16 @@ ok('按对象分组：按对象标识排，没关联对象的放最后', objs.ma
 const r = row('x', 'progress', { object: 'ob_1', phase: 'st_2', seat: 'seat_a', last_progress: { actor: 'seat_a', fact: 'report', text: '做到一半', at: '2026-11-11 01:00:00' } });
 ok('行说明（按状态）：对象·阶段 · 席位 · 最后进展', rowLine(r, 'state') === 'ob_1·st_2 · seat_a · seat_a：做到一半', rowLine(r, 'state'));
 ok('行说明（按对象）：省掉位置，阶段另作标签', rowLine(r, 'object') === 'seat_a · seat_a：做到一半', rowLine(r, 'object'));
-ok('行说明：没派的写「还没派」，空的对象阶段不占格', rowLine(row('y', 'draft'), 'state') === '还没派');
+ok('行说明：没派出去的写「还没派出去」，空的对象阶段不占格', rowLine(row('y', 'draft'), 'state') === '还没派出去');
 ok('行说明：最后进展没有文字就不显示', rowLine(row('z', 'held', { seat: 's', last_progress: { actor: 'a', fact: 'create', text: '', at: '' } }), 'state') === 's');
 
 const merged = appendPage([row('a', 'progress'), row('b', 'ready')], [row('b', 'done'), row('c', 'done')]);
 ok('翻页去重：同一行只留一份，用后到的', merged.map((x) => `${x.id}:${x.state}`).join() === 'a:progress,b:done,c:done', JSON.stringify(merged.map((x) => x.id)));
 
+{
+  const who = { seat: (x) => x.includes(' · ') ? x.replace(' · ', '（') + '）' : x, actor: (x) => x.replace(/^receiver:/, '') };
+  ok('没席位时分开说：没派出去 / 派了还没说哪个席位 / 结束了不写', seatOrWaiting({ seat: null, state: 'held' }) === '还没派出去' && seatOrWaiting({ seat: '', state: 'delivered' }) === '还没说是哪个席位' && seatOrWaiting({ seat: '-', state: 'progress' }) === '还没说是哪个席位' && seatOrWaiting({ seat: null, state: 'done' }) === '');
+  ok('行说明里的席位、进展的谁按页面给的写法', rowLine({ id: 'a', title: '', state: 'progress', object: 'o1', phase: 'p1', seat: '小采 · zone/a1', last_progress: { actor: 'receiver:dsh', fact: 'progress', text: '在比价', at: '' }, updated_at: '' }, 'state', who) === 'o1·p1 · 小采（zone/a1） · dsh：在比价');
+}
 console.log(`\nwork-items-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

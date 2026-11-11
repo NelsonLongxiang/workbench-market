@@ -55,12 +55,25 @@ export function byObject(rows: WorkItemListRow[]): { object: string; rows: WorkI
     .map(([object, rs]) => ({ object, rows: rs }));
 }
 
-/** 行的第二行说明：位置（对象·阶段；按对象分组时整段省掉，阶段另作标签显示）· 席位（没有就「还没派」）· 最后一条进展 */
-export function rowLine(r: WorkItemListRow, mode: 'state' | 'object'): string {
+/** 「谁」怎么写由页面传进来（people.ts 的 seatLabel / actorLabel，和详情页同一套）；这里只管拼。
+ *  这个文件由 Node 直接加载做单测，只能引类型，所以不直接 import people.ts */
+export type Who = { seat: (s: string) => string; actor: (s: string) => string };
+const PLAIN: Who = { seat: (s) => s, actor: (s) => s };
+
+/** 没有席位时的说法：还没派出去（草稿、等放行）和派出去了还没席位接手，分开说 */
+export function seatOrWaiting(r: Pick<WorkItemListRow, 'seat' | 'state'>, who: Who = PLAIN): string {
+  const s = r.seat && r.seat !== '-' ? who.seat(r.seat) : '';
+  if (s) return s;
+  return ['draft', 'held'].includes(r.state) ? '还没派出去' : ['done', 'failed', 'dropped', 'cancelled'].includes(r.state) ? '' : '还没说是哪个席位';
+}
+
+/** 行的第二行说明：位置（对象·阶段；按对象分组时整段省掉，阶段另作标签显示）· 席位 · 最后一条进展 */
+export function rowLine(r: WorkItemListRow, mode: 'state' | 'object', who: Who = PLAIN): string {
   const place = mode === 'state' ? [objectName(r.object), phaseName(r.phase)].filter(Boolean).join('·') : '';
-  const seat = seatName(r.seat) || '还没派';
+  const seat = seatOrWaiting(r, who);
   const lp = r.last_progress;
-  const last = lp && lp.text ? `${lp.actor ? `${lp.actor}：` : ''}${lp.text}` : '';
+  const actor = lp?.actor ? who.actor(lp.actor) : '';
+  const last = lp && lp.text ? `${actor ? `${actor}：` : ''}${lp.text}` : '';
   return [place, seat, last].filter(Boolean).join(' · ');
 }
 

@@ -9,7 +9,11 @@ import WmPage from '../components/WmPage';
 import RelTime from '../components/RelTime';
 import { api } from '../api';
 import { STATE } from './WorkItem';
-import { STATE_GROUPS, appendPage, byObject, byState, groupCount, objectName, phaseName, rowLine, type WorkItemListRow } from '../work-items-view';
+import { STATE_GROUPS, appendPage, byObject, byState, groupCount, objectName, phaseName, rowLine, type Who, type WorkItemListRow } from '../work-items-view';
+import { actorLabel, seatLabel } from '../people';
+
+/** 「谁」的写法同事项详情（people.ts）：席位「名字（句柄）」，来源标记去前缀 */
+const WHO: Who = { seat: (s) => seatLabel(s), actor: (s) => actorLabel(s, '') };
 
 type Mode = 'state' | 'object';
 const MODE_KEY = 'wm-work-items-mode';
@@ -29,7 +33,7 @@ function Row({ r, mode }: { r: WorkItemListRow; mode: Mode }) {
         <Link to={`/work-items/${encodeURIComponent(r.id)}`}>{r.title || r.id}</Link>
         {unread > 0 ? <Badge count={unread} title={`${unread} 条未读的席位消息`} data-testid="work-item-unread" /> : null}
       </Space>}
-      description={<Typography.Text type="secondary" ellipsis={{ tooltip: true }}>{rowLine(r, mode)}</Typography.Text>} />
+      description={<Typography.Text type="secondary" ellipsis={{ tooltip: true }}>{rowLine(r, mode, WHO)}</Typography.Text>} />
   </List.Item>;
 }
 
