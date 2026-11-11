@@ -292,4 +292,13 @@ export class TeamService extends Service {
     }
     return out.sort((a, b) => (a.host + a.team).localeCompare(b.host + b.team));
   }
+
+  /**
+   * 要人拍板的团队（「等你拍板」的聚合在读时调这个，不另写判断）：待认领、负责人缺位、不在名册。
+   * 和团队页同一个推导（allViews → status），正常的不出现。按 host、team 排序。
+   */
+  needingAttention(): { host: string; team: string; status: Exclude<TeamStatus, 'active'>; department: { id: string; name: string } | null; leads: Lead[] }[] {
+    return this.allViews().filter((t) => t.status !== 'active')
+      .map((t) => ({ host: t.host, team: t.team, status: t.status as Exclude<TeamStatus, 'active'>, department: t.department, leads: t.leads }));
+  }
 }
