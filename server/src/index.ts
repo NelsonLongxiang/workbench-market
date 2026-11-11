@@ -2333,6 +2333,8 @@ workbenchVars.mount(app); // #336 /api/workbenches/:id/vars
 // 两者都是公开端点，LayerFS 探测结果缓存 10 秒、同一时刻只发一次，匿名请求打不穿到 LayerFS。
 const LAYERFS_PROBE_TTL_MS = 10_000;
 let layerfsProbe: { at: number; status: 'healthy' | 'unhealthy' | 'unreachable' } | null = null;
+/** 上次 LayerFS 探测的缓存结果（还没探过是 null）。/api/health 只读这个、不触发探测；这个值会在就绪探测时更新，所以按调用取，不按值传 */
+function layerfsProbeCached(): typeof layerfsProbe { return layerfsProbe; }
 let layerfsProbing: Promise<'healthy' | 'unhealthy' | 'unreachable'> | null = null;
 function layerfsReadiness(): Promise<'healthy' | 'unhealthy' | 'unreachable'> {
   if (layerfsProbe && Date.now() - layerfsProbe.at < LAYERFS_PROBE_TTL_MS) return Promise.resolve(layerfsProbe.status);
@@ -2360,7 +2362,8 @@ function healthBase(req?: express.Request): Record<string, unknown> {
 }
 app.get('/api/health', (req, res) => {
   const result = healthBase(req);
-  if (process.env.LAYERFS_SERVICE_URL && layerfsProbe) result.layerfs = layerfsProbe.status; // 只回缓存的上次结果，不触发探测
+  const probed = layerfsProbeCached();
+  if (process.env.LAYERFS_SERVICE_URL && probed) result.layerfs = probed.status; // 只回缓存的上次结果，不触发探测
   result.a2a = a2aHealth({ directSig: A2A_DIRECT_SIG, directSigBody: A2A_DIRECT_SIG_BODY! }); // 阶段七第 5 步：只出开关、计数和时长
   res.json(result);
 });
