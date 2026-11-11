@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 事项详情页的纯函数单测（web/src/work-item-view.ts）：提示条、进展一行字、结果解析与链接、关注条目对到事项。 */
-import { VIEWER_NONE, actorLabel, groupTimeline, isCreator, seatLabel, askerLabel, textOf, who, CAN_NONE, canOf, stateLabel, askIdOf, creatorLabel, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, rowActor, seatSummary, showProgress, subitemsOf, ticketStateLabel } from '../web/src/work-item-view.ts';
+import { VIEWER_NONE, actorLabel, groupTimeline, isCreator, seatLabel, askerLabel, textOf, who, CAN_NONE, canOf, stateLabel, askIdOf, creatorLabel, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, rowActor, seatLine, seatSummary, showProgress, subitemsOf, ticketStateLabel } from '../web/src/work-item-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -72,6 +72,21 @@ ok('子项状态说中文：结束了按结局说', ticketStateLabel('ended', 'c
 ok('「正在处理」只在还在做时给：结束了、等验收不给', showProgress('progress') && !showProgress('ready') && !showProgress('done') && !showProgress('failed'));
 ok('时间线的谁：用回执的 by（名字（席位）），不用事项当前承接', rowActor({ actor: 'receiver:dsh', detail: JSON.stringify({ by: { seat: 'zone/26b40ae2', name: '总工' } }) }) === '总工（zone/26b40ae2）');
 ok('时间线的谁：by 是字符串、没有 by 时只去前缀', rowActor({ actor: 'receiver:dsh', detail: JSON.stringify({ by: 'zone/26b40ae2' }) }) === 'zone/26b40ae2' && rowActor({ actor: 'receiver:dsh', detail: '{}' }) === 'dsh' && rowActor({ actor: 'market', detail: 'bad' }) === '市场');
+
+// 验收会话留的小修（stage1-accept、stage3-accept）
+{
+  const done = [{ id: 't1', title: 'A', seat: '小采 · zone/a1', state: 'ended', outcome: 'completed' }, { id: 't2', title: 'B', seat: 'zone/b2', state: 'ended', outcome: 'failed' }];
+  const team = (t) => t.replace(/^[^/]+\/canvas\//, '');
+  ok('承接：有席位照常；拆单在做写几个成员在做', seatLine({ seat: '小采 · zone/a1', state: 'progress' }, []) === '小采（zone/a1）' && seatLine({ seat: '', state: 'progress' }, [{ id: 'x', title: '', seat: 'zone/a1', state: 'working' }, { id: 'y', title: '', seat: 'zone/b2', state: 'waiting' }]) === '2 个成员在做：zone/a1、zone/b2');
+  ok('承接：拆单结束后写几个成员做过，不写「还没有席位接手」', seatLine({ seat: '-', state: 'failed' }, done) === '2 个成员做过：小采（zone/a1）、zone/b2' && seatLine({ seat: '', state: 'done' }, [done[0]]) === '小采（zone/a1） 做过');
+  ok('承接：结束了又一个都不知道就留空（页面显示 —）', seatLine({ seat: '', state: 'cancelled' }, []) === '');
+  ok('承接：团队接了还没报席位，写「××接了，还没说是哪个席位」，团队显示团队名', seatLine({ seat: '', state: 'accepted', target_team: 'zone/canvas/team-a' }, [], team) === 'team-a 接了，还没说是哪个席位' && seatLine({ seat: '', state: 'ready', target_team: '' }, []) === '团队接了，还没说是哪个席位');
+  ok('承接：还没派出去、已转交还没接手，分开说', seatLine({ seat: '', state: 'held', target_team: 'zone/canvas/team-a' }, [], team) === '还没派出去' && seatLine({ seat: '', state: 'draft' }, []) === '还没派出去' && seatLine({ seat: '', state: 'delivered', target_team: 'zone/canvas/team-a' }, [], team) === '已转交给 team-a，还没接手');
+}
+{
+  const mine = { mine: true, can: { release: false, answer: false, verify: false }, creator: 'alpha' };
+  ok('在问你：建立人在这一页答不了时，不说「你答复之后」', stateHint('blocked', 's', false, mine, false).text === '席位在问你。这里还不能直接答复，先请管理员代答。' && stateHint('blocked', 's', false, mine, true).text.includes('你答复之后') && stateHint('blocked', 's', false, mine).text.includes('你答复之后'));
+}
 
 console.log(`\nwork-item-detail-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);
