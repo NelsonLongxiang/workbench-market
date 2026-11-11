@@ -50,10 +50,9 @@ export const ANONYMOUS_ACTIONS: readonly string[] = [
   'sop-run.file-refs',
   'sop-run.file-upload',
   'sop-run.files',
-  'sop-run.finish',
+  // 保存一步、完成（sop-run.save、finish）不列：放不放行看 run 的写凭据，路由声明了「状态码不代表授权」（#554）
   'sop-run.list',
   'sop-run.read',
-  'sop-run.save',
   'sop-run.start',
   'sop-run.upgrade-preflight',
   'sop.list',

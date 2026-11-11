@@ -17,6 +17,28 @@ import { HttpError } from '../errors.ts';
 import { authorizeRunRead } from '../sop-read-auth.ts';
 import { browserMarked, rawLoopback } from '../surfaces.ts';
 import type { createRunCheckpoints } from '../sop-state-checkpoints.ts';
+import { createHash, timingSafeEqual } from 'node:crypto';
+import { hasLoginCredential } from '../request-person.ts';
+
+/** run 写守卫的模式：enforce 拒绝（缺省），warn 只告警计数（上线过渡） */
+export type SopRunWriteMode = 'enforce' | 'warn';
+/** 启动时读一次 WM_SOP_RUN_WRITE：没设或空是 enforce，别的值抛错（装配方拒绝启动） */
+/** 保存一步、完成：放不放行看这个 run 的写凭据（不是登录身份），401、403 不拿来和统一判定比 */
+const RUN_WRITE_DECIDES = '按 run 的写凭据判：上传令牌（run 还在执行）、管理员或本机命令行，403 不是登录身份的结论';
+
+export function sopRunWriteMode(raw: string | undefined): SopRunWriteMode {
+  const v = (raw ?? '').trim();
+  if (v === '' || v === 'enforce') return 'enforce';
+  if (v === 'warn') return 'warn';
+  throw new Error(`WM_SOP_RUN_WRITE 只能是 enforce 或 warn（缺省 enforce），现在是 ${JSON.stringify(v)}`);
+}
+/** 告警模式的计数：按路由 × 调用方类别。不记正文、不记凭据和 run 号 */
+const writeWarnCounts = new Map<string, number>();
+export function sopRunWriteWarnCounts(): Record<string, number> { return Object.fromEntries(writeWarnCounts); }
+const WRITE_DENIED = { error: 'run_write_denied', message: '写 run 要这个 run 的上传令牌（X-Run-Upload-Token）、管理员或本机命令行' };
+/** 比较用的摘要：两边都先摘要成等长，不让长度和 run 在不在影响比较的路径 */
+const digest = (s: string) => createHash('sha256').update(s, 'utf8').digest();
+const NO_RUN = digest('\u0000no-run\u0000');
 
 type UpgradePlan = { row: SopRunRow; data: Record<string, unknown>; target: number; preflight: Record<string, any> & { up_to_date: boolean; violations_after: unknown[] } };
 
@@ -32,12 +54,14 @@ export interface SopRunLifecycleDeps {
   markOdooAdmin: (req: express.Request) => Promise<void>;
   sopRunUpgradePlan: (id: number) => Promise<UpgradePlan>;
   bad: (msg: string) => never;
+  /** 写守卫：模式（WM_SOP_RUN_WRITE） */
+  writeMode: SopRunWriteMode;
   runCheckpoints: ReturnType<typeof createRunCheckpoints>;
   adminActor: (req: express.Request) => string;
 }
 
 export function registerSopRunLifecycleRoutes(app: HttpService, deps: SopRunLifecycleDeps): void {
-  const { wrap, adminHeaderOk, runReadCapHeader, sopRunGetCore, sopRunGetMeta, sopRunStepSaveCore, sopRunFinishCore, markOdooAdmin, sopRunUpgradePlan, bad, runCheckpoints, adminActor } = deps;
+  const { wrap, adminHeaderOk, runReadCapHeader, sopRunGetCore, sopRunGetMeta, sopRunStepSaveCore, sopRunFinishCore, markOdooAdmin, sopRunUpgradePlan, bad, runCheckpoints, adminActor, writeMode } = deps;
   app.get('/api/sop/runs', { action: 'sop-run.list', kind: 'read' }, (req, res) => {
     // P4（F7）：待验收列表 = running 且有派单来源（a2a_run_ctx 有 callback/task_id），不含人自己开的
     if (req.query.dispatched === '1') {
@@ -60,11 +84,40 @@ export function registerSopRunLifecycleRoutes(app: HttpService, deps: SopRunLife
     res.set('Cache-Control', 'no-store').json(sopRunGetMeta(id)); // #309 phase2：未授权只回元数据，不回私有 data
   }));
 
-  app.put('/api/sop/runs/:id(\\d+)', { action: 'sop-run.save', kind: 'write' }, wrap(async (req, res) => {
+  /**
+   * 写 run（保存一步、完成）：要这个 run 的上传令牌（开建或被派单的一方，run 还在执行）、管理员（同源）或本机命令行。
+   * 不按 started_by 推权，读授权也不推出写权。都不满足 403，先于查 run 的存在：run 在不在、令牌对不对，走同样的路径、给同样的应答
+   */
+  async function writeAllowed(req: express.Request, res: express.Response, route: string): Promise<boolean> {
+    const id = Number(req.params.id);
+    const presented = req.headers['x-run-upload-token'];
+    const token = typeof presented === 'string' ? presented.trim() : '';
+    const cred = svc<SopService>('sop').runWriteCredential(id);
+    const want = cred && cred.status === 'running' && cred.upload_token ? digest(cred.upload_token) : NO_RUN;
+    const tokenOk = timingSafeEqual(digest(token), want) && want !== NO_RUN && token.length > 0;
+    if (tokenOk) return true;
+    if (!browserMarked(req) && rawLoopback(req)) return true; // 本机命令行
+    await markOdooAdmin(req);
+    if (adminHeaderOk(req)) return true;
+    const caller = token ? 'other-token' : req.headers['x-admin-token'] !== undefined ? 'admin-token-rejected' : hasLoginCredential(req) ? 'login-not-admin' : 'anonymous';
+    if (writeMode === 'warn') {
+      const key = `${route}|${caller}`;
+      const n = (writeWarnCounts.get(key) ?? 0) + 1;
+      writeWarnCounts.set(key, n);
+      if (n === 1 || n % 100 === 0) console.warn(JSON.stringify({ source: 'sop-run-write', event: 'would-deny', route, caller, count: n, at: new Date().toISOString() }));
+      return true;
+    }
+    res.status(403).set('Cache-Control', 'no-store').json(WRITE_DENIED);
+    return false;
+  }
+
+  app.put('/api/sop/runs/:id(\\d+)', { action: 'sop-run.save', kind: 'write', statusNotVerdict: RUN_WRITE_DECIDES }, wrap(async (req, res) => {
+    if (!(await writeAllowed(req, res, 'PUT /api/sop/runs/:id'))) return;
     res.json(await sopRunStepSaveCore(Number(req.params.id), String(req.body?.stepKey ?? ''), req.body?.value));
   }));
 
-  app.post('/api/sop/runs/:id(\\d+)/finish', { action: 'sop-run.finish', kind: 'write' }, wrap(async (req, res) => {
+  app.post('/api/sop/runs/:id(\\d+)/finish', { action: 'sop-run.finish', kind: 'write', statusNotVerdict: RUN_WRITE_DECIDES }, wrap(async (req, res) => {
+    if (!(await writeAllowed(req, res, 'POST /api/sop/runs/:id/finish'))) return;
     res.json(await sopRunFinishCore(Number(req.params.id)));
   }));
 

@@ -60,7 +60,7 @@ import { registerRemoteAllowRoutes } from './routes/remote-allow.ts';
 import { registerAppRoutes, registerAppLifecycleRoutes } from './routes/apps.ts';
 import { registerAppDataRoutes, appDataReadMode, type AppDataReadMode } from './routes/app-data.ts';
 import { registerSopRunFileRoutes } from './routes/sop-run-files.ts';
-import { registerSopRunLifecycleRoutes } from './routes/sop-run-lifecycle.ts';
+import { registerSopRunLifecycleRoutes, sopRunWriteMode, type SopRunWriteMode } from './routes/sop-run-lifecycle.ts';
 import { registerMcpRestRoutes } from './routes/mcp-rest.ts';
 import { registerAppsStaticRoutes } from './routes/apps-static.ts';
 import { registerHealthRoutes } from './routes/health.ts';
@@ -125,6 +125,11 @@ const APP_DATA_READ: AppDataReadMode = (() => {
   try { return appDataReadMode(process.env.WM_APP_DATA_READ); } catch (e) { console.error(`[app-data] 拒绝启动：${(e as Error).message}`); process.exit(1); }
 })();
 if (APP_DATA_READ === 'warn') console.warn('[app-data] WM_APP_DATA_READ=warn：没有台令牌、不是管理员的读照旧放行，只计数留痕（上线过渡用，过渡完设回 enforce）');
+// 写 run 的守卫（WM_SOP_RUN_WRITE=enforce|warn，缺省 enforce）：启动时读一次，不合法拒绝启动
+const SOP_RUN_WRITE: SopRunWriteMode = (() => {
+  try { return sopRunWriteMode(process.env.WM_SOP_RUN_WRITE); } catch (e) { console.error(`[sop-run] 拒绝启动：${(e as Error).message}`); process.exit(1); }
+})();
+if (SOP_RUN_WRITE === 'warn') console.warn('[sop-run] WM_SOP_RUN_WRITE=warn：没带写凭据的保存、完成照旧放行，只计数留痕（上线过渡用，过渡完设回 enforce）');
 // 市场会话的绝对期限（WM_SESSION_TTL_MIN，分钟，缺省 720 = 12 小时，范围 15～10080）：启动时读一次，不合法拒绝启动。不续期
 const SESSION_TTL_MIN = (() => {
   const raw = String(process.env.WM_SESSION_TTL_MIN ?? '').trim();
@@ -2180,7 +2185,7 @@ async function sopRunUpgradePlan(id: number) {
     },
   };
 }
-registerSopRunLifecycleRoutes(http, { wrap, adminHeaderOk, runReadCapHeader, sopRunGetCore, sopRunGetMeta, sopRunStepSaveCore, sopRunFinishCore, markOdooAdmin, sopRunUpgradePlan, bad, runCheckpoints, adminActor });
+registerSopRunLifecycleRoutes(http, { wrap, adminHeaderOk, runReadCapHeader, sopRunGetCore, sopRunGetMeta, sopRunStepSaveCore, sopRunFinishCore, markOdooAdmin, sopRunUpgradePlan, bad, runCheckpoints, adminActor, writeMode: SOP_RUN_WRITE });
 
 // ---------- 自产台静态托管：GET /apps/:slug/* → DATA_DIR/apps/<slug>/v<active>/* ----------
 function serveApp(req: express.Request, res: express.Response) {
@@ -3574,7 +3579,7 @@ const goServer = registerSurface(app, 'market', PORT, () => {
 const controlServer = SURFACE_PORTS.control ? registerSurface(app, 'control', SURFACE_PORTS.control) : undefined;
 if (contentCfg && contentRuntime) listenContentSurface(app, contentCfg, contentRuntime, () => startupSecurity.snapshot().passed);
 
-void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ }).then((result) => {
+void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE }).then((result) => {
   if (!result.passed) return refuseUnsafeStartup();
   startRedis();
   armPatrol();
