@@ -29,7 +29,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 
 ## 启动安全自检（#326）
 
-市场/控制面监听后先运行固定匿名回环自检，完成前 HTTP 和 WebSocket 业务入口均关闭；`GET /api/health` 返回 503，`self_probe.passed=false/at=null`。固定行里有一行管主体管理面：远程匿名 GET `/api/principals` 必须被拒（登录门关着 403，开着由登录门先拦 401）；一行管登录回调：远程匿名拿编出来的 state 打 `/login/feishu/callback` 必须 400（不跳转、不发会话）；一行管失效通知：远程匿名、不带签名向 `/login/feishu/events` 发事件必须 401。`WM_LOGIN_GATE=enforce` 时另加四行：远程匿名 GET `/`、`/apps/<台>/` 必须 302 到登录页、`/api/apps` 必须 401（浏览器写那一行改为期望登录门的 401），外加远程无签名 `POST /a2a/direct` 必须 401。强制行通过后才开放业务并启动后台巡检，health 可回读逐行结果。任一强制行失败或超时只关闭本进程监听并非零退出，不杀宿主或父进程；只有 `NODE_ENV=development/test` 的显式 `MCP_GATEWAY=off` 才把两条 MCP 行变成 warning，生产/未设/空/未知模式配 off 两行均 fail 并拒绝启动；控制面关闭则对应行 skip，不能视为完整认证验证。
+市场/控制面监听后先运行固定匿名回环自检，完成前 HTTP 和 WebSocket 业务入口均关闭；`GET /api/health` 返回 503，`self_probe.passed=false/at=null`。固定行里有一行管主体管理面：远程匿名 GET `/api/principals` 必须被拒（登录门关着 403，开着由登录门先拦 401）；一行管登录回调：远程匿名拿编出来的 state 打 `/login/feishu/callback` 必须 400（不跳转、不发会话）；一行管失效通知：远程匿名、不带签名向 `/login/feishu/events` 发事件必须 401；一行管导出真值：远程匿名带 `reveal=1` 导出必须被拒（登录门关着 403，开着由登录门先拦 401）。`WM_LOGIN_GATE=enforce` 时另加四行：远程匿名 GET `/`、`/apps/<台>/` 必须 302 到登录页、`/api/apps` 必须 401（浏览器写那一行改为期望登录门的 401），外加远程无签名 `POST /a2a/direct` 必须 401。强制行通过后才开放业务并启动后台巡检，health 可回读逐行结果。任一强制行失败或超时只关闭本进程监听并非零退出，不杀宿主或父进程；只有 `NODE_ENV=development/test` 的显式 `MCP_GATEWAY=off` 才把两条 MCP 行变成 warning，生产/未设/空/未知模式配 off 两行均 fail 并拒绝启动；控制面关闭则对应行 skip，不能视为完整认证验证。
 
 自检只使用固定 127.0.0.1、实际监听端口和固定路径，不发送 Cookie、Bearer 或管理员口令。拒绝写探针使用空的非法 name/url，并以无 Origin 的 400 校验对照证明不落业务库；自检审计只标 `source=self-probe` 的状态/行名，不存请求或响应正文，也不计入采纳流量。**后续安全修复必须往自检表增加对应行及正反测试**，不能仅凭配置值宣称生效。详见 [启动自检契约](docs/startup-security-self-probe.md)。本功能不替代 #309/#324 等各自的授权修复或现网上线验收。
 
@@ -115,7 +115,7 @@ GET              /api/vault/entries/:id/totp    当前动态验证码 + 剩余�
 GET              /api/vault/trash · POST …/:id/restore · DELETE /api/vault/trash/:id   回收站 / 恢复 / 永久删除（只对回收站内条目）
 POST             /api/vault/generate|strength   生成密码或口令短语 / 强度评估（POST，密码不进 URL）
 GET              /api/vault/health|history      安全体检（复用项不回明文）/ 活动记录（新→旧 200 条）
-GET              /api/export                    全量导出
+GET              /api/export                    全量导出（缺省掩码；?reveal=1 取真值要管理员：口令或管理员登录，浏览器来的要同源，否则 403）
 POST             /api/import?mode=merge|replace 导入
 GET              /api/health                    存活：版本与运行时长（不发外部请求；配了 LayerFS 时回缓存的上次就绪结果）
 GET              /api/health/ready              就绪：含 LayerFS 探测（结果缓存 10 秒），不健康 503

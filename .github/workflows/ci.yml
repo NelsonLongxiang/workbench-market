@@ -145,7 +145,7 @@ jobs:
           node scripts/tech-route-check.mjs --strict
           node scripts/privacy-gate.mjs --selftest
       - name: 身份接缝与主体（契约单测·主体服务单测·主体标识规范化（NFKC_Casefold）全部码位对照 Unicode 属性、成批过主体服务·飞书登录与市场会话对抗组（本机假飞书：state 伪造与重放、next 外跳、换令牌失败、用户标识缺失或被篡改、停用注销过期即失效）·离职即时失效对抗组（通讯录事件验签与重放、对账补漏）·假提供方对抗组：缺省/登录门/登录中继/中继加登录门四个实例上的拒绝例与合法对照，停用一个主体各入口立即不认、恢复立即照常·夹具只在测试环境可用·变异测试逐个改坏必须变红；不访问任何外部系统）
-        run: node scripts/identity-contract-test.mjs && node scripts/principal-service-test.mjs && node scripts/principal-fold-test.mjs && node scripts/identity-seam-smoke.mjs && node scripts/feishu-login-smoke.mjs && node scripts/feishu-offboard-smoke.mjs && node scripts/identity-seam-mutation.mjs
+        run: node scripts/identity-contract-test.mjs && node scripts/principal-service-test.mjs && node scripts/principal-fold-test.mjs && node scripts/identity-seam-smoke.mjs && node scripts/feishu-login-smoke.mjs && node scripts/feishu-offboard-smoke.mjs && node scripts/export-reveal-smoke.mjs && node scripts/identity-seam-mutation.mjs
       - name: 事项服务单测（阶段八 8a：第三节状态表含补定的原地行逐行正例、表外迁移逐个反例·只记录的答复与回执·终态之后只收晚到回执·同一条事实只记一次·事项日志改写删除在库这一层被拒；8b：事件日志→事项的映射·正放打乱重复终态相同·监听器漏一次回填补上·未验证来源不推进·回填两遍逐行相同·来源回滚事项也没有）
         run: node scripts/work-item-service-test.mjs && node scripts/work-item-facts-test.mjs && node scripts/work-item-migration-test.mjs
       - name: 「关注」的读（阶段八 8c：提供方随插件卸载撤销·七个来源都出现·每个看的人每个来源的可见性和条数等于旧接口·事项验收只给建立人和管理员、过目只给管理员·事件层未答提问 = 事项 open_asks·跨站拒）

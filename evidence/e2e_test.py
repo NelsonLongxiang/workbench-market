@@ -891,7 +891,10 @@ with sync_playwright() as p:
         assert not ex_leak, f'导出泄漏明文 token: {ex_leak[:2]}'
         au_leak = [w['name'] for w in exp['workbenches'] if (w.get('auth') or {}).get('value') not in (None, '', '****')]
         assert not au_leak, f'导出泄漏明文 auth: {au_leak[:2]}'
-        expr = page.request.fetch(BASE + '/api/export?reveal=1').json()
+        # 取真值要求管理员：不带口令 403、正文里没有真值（不降级成掩码）；带口令（同源、没有跨站标记）才拿得到
+        rno = page.request.fetch(BASE + '/api/export?reveal=1')
+        assert rno.status == 403 and 'startup-tok' not in rno.text(), f'不带口令的 reveal 导出没被拒: {rno.status}'
+        expr = page.request.fetch(BASE + '/api/export?reveal=1', headers={'x-admin-token': ADMIN_TOKEN}).json()
         assert expr.get('masked') == 0 and any('token=startup-tok' in w['url'] for w in expr['workbenches']), 'reveal 导出未含真值'
         # 导入掩码行整批拒（#258 D：不 skip 后报成功，掩码永不落库）
         bad_payload = {'workbenches': [{'name': 'E2E MaskImport', 'url': 'http://127.0.0.1:9901/x?token=****', 'type': 'web'}], 'types': []}
