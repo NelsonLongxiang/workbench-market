@@ -338,6 +338,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   grants.ts（角色与授予的管理接口 /api/roles、/api/grants：起草、提交、放行、撤销）
   login-events.ts（离职即时失效：/login/<方式>/events 失效通知、每日对账）
   login-flows.ts（登录方式 /login/<方式> 与回调：state、next、对到主体、发市场会话）
+  mcp-rest.ts（MCP 内嵌的 REST /api/mcp-rest、/openapi.json：OpenAPI 文档、工具调用、台文件上传（原始字节、multipart）列表下载（Range、ETag）、台数据、SOP run 与附件；认证是 MCP 会话令牌，授权映射到工具 grants）
   mcp.ts（MCP 网关控制面 /api/mcp：上游、会话、授权、工具目录、调用记录、权限申请的批准与驳回）
   principals.ts（主体管理 /api/principals：列出、停用、恢复、对一次外部身份、待对接清单，只有管理员能用）
   principals.ts（主体管理 /api/principals：列出、停用、恢复，只有管理员能用）
