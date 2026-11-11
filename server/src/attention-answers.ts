@@ -23,7 +23,7 @@ import { answerBody, findBoardWorkbench } from './owner-pending.ts';
 import { principalsAdmin } from './routes/principals.ts';
 import { changeRequestReview } from './routes/change-requests.ts';
 import { HttpError } from './errors.ts';
-import { currentAskOfDelivery, pendingAskOfDelivery, pendingPrincipalAppearance } from './services/attention-sources.ts';
+import { askLogRow, currentAskOfDelivery, pendingAskOfDelivery, pendingPrincipalAppearance } from './services/attention-sources.ts';
 import { askTaskOf, deliveryTarget, eventDispatched, inReplyTx, queueReply } from './services/a2a-replies.ts';
 import { kickWorkbenchEvents, logDeliveryFact } from './workbench-events.ts';
 import { listVars, workbenchScope } from './workbench-vars.ts';
@@ -246,6 +246,35 @@ export async function creatorAnswer(id: string, principal: string, answer: strin
     if (st !== 'ready') return { status: 409, body: { error: 'work_item_not_ready', state: st ?? null } };
     return DIRECT['work-items'][answer](undefined as unknown as Req, id, input, principal);
   });
+}
+
+/**
+ * 阶段七：回答一件事项上的一条席位提问（入口 POST /api/work-items/:id/asks/:qid/answer，管理员或建立人本人，认人在路由里）。
+ *   · qid 是提问那一行事件日志的 id（事项详情 asks[].id）；它必须属于这件事项、且是那次投递当前在等的提问；
+ *   · 请求体 { answer?, text? }：带选项的提问，answer 必须是选项之一；text 是自由文本；两者都给时以 answer 为准；
+ *     别的字段一概不看。答复作为同一 context 的新任务发回（v1 接单节点照旧只记不发）；
+ *   · 和「关注」里管理员的答复共用一本账（同一个去重键）：两个人同时答，一个生效、另一个拿到已处理（第一次的结果，或正在处理的 409）。
+ */
+export async function answerItemAsk(itemId: string, askLogId: number, actor: string, body: Record<string, unknown>): Promise<AnswerOutcome & { duplicate?: boolean }> {
+  const row = askLogRow(askLogId);
+  if (!row || itemIdForEvent(row.event_id) !== itemId) return { status: 404, body: { error: 'seat_ask_not_found' } };
+  let detail: { question?: { options?: unknown } } = {};
+  try { detail = JSON.parse(row.detail || '{}'); } catch { /* 坏的 detail 当没有选项 */ }
+  const options = Array.isArray(detail.question?.options) ? (detail.question!.options as unknown[]).filter((o): o is string => typeof o === 'string') : [];
+  const picked = typeof body.answer === 'string' ? body.answer.trim() : '';
+  if (picked !== '' && options.length > 0 && !options.includes(picked)) return { status: 400, body: { error: 'answer_not_an_option', options } };
+  const answer = (picked !== '' ? picked : typeof body.text === 'string' ? body.text.trim() : '').slice(0, 4000);
+  if (!answer) return { status: 400, body: { error: 'text_required' } };
+  const attention = svc<AttentionService>('attention');
+  const key = `${row.delivery_id}:${row.id}`;
+  const pending = pendingAskOfDelivery(row.delivery_id);
+  if (!pending || pending.ask_log_id !== row.id) {
+    // 不在等了：答过的按同一本账返回第一次的结果；没答过（被后来的提问或接单、结果合上了）就是已合上
+    if (attention.answered('seat-asks', key)) return attention.once('seat-asks', key, 'answer', actor, async () => ({ status: 409, body: { error: 'seat_ask_not_pending' } }));
+    return { status: 409, body: { error: 'seat_ask_not_pending' } };
+  }
+  return attention.once('seat-asks', key, 'answer', actor, async () =>
+    DIRECT['seat-asks'].answer(undefined as unknown as Req, String(row.delivery_id), { text: answer }, actor));
 }
 
 /** 这个来源有哪些答法（换算表和直接实现的并起来）：入口拿它核答法 */

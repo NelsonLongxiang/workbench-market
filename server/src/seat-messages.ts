@@ -13,6 +13,7 @@ import { deliveryTarget, eventDispatched, inReplyTx, queueReply } from './servic
 import { followupById, followupsOfEvent, markFollowupReplied, markFollowupsRead, unreadFollowupsOfEvent, type FollowupRow } from './services/a2a-followups.ts';
 import { itemIdForEvent } from './services/work-item.ts';
 import { latestProgressOfEvent } from './services/a2a-receipts.ts';
+import { asksOfEvent } from './services/attention-sources.ts';
 import { kickWorkbenchEvents, logDeliveryFact } from './workbench-events.ts';
 
 export const SEAT_REPLY_MAX = 4000;
@@ -101,4 +102,31 @@ export function seatProgressOf(item: { id: string; source_ref?: string | null; s
     ...(typeof step.ahead === 'number' ? { ahead: step.ahead } : {}), ...(p.detail.by ? { by: p.detail.by } : {}),
     tickets: Array.isArray(p.detail.tickets) ? p.detail.tickets : [], received_at: p.at,
   };
+}
+
+export type ItemAsk = { id: number; question: string; options: string[]; default?: string; status: 'open' | 'answered' | 'closed'; answer?: string; answered_by?: string; answered_at?: string; asked_by: string; at: string };
+
+/**
+ * 事项详情的提问列表（v1 的 decision:ask 和席位回执的提问都在里面，同一条只出现一次，按时间先后）：
+ *   · id：提问那一行事件日志的 id，答复入口 POST /api/work-items/:id/asks/:qid/answer 用它；
+ *   · status：open（投递当前在等它）、answered（事项上记了答复，带 answer、answered_by、answered_at）、
+ *     closed（没答，被后来的提问、接单或结果合上了）；
+ *   · options、default 只在席位回执带了结构化提问时有。可见范围和事项详情一致（在路由里判）。
+ */
+export function seatAsksOf(item: { id: string; source_ref?: string | null }): ItemAsk[] {
+  const ev = eventOfItem(item);
+  if (!ev) return [];
+  return asksOfEvent(ev, item.id).map((r) => {
+    let d: { summary?: unknown; reason?: unknown; question?: { text?: unknown; options?: unknown; default?: unknown } } = {};
+    try { d = JSON.parse(r.detail || '{}'); } catch { /* 坏的 detail 当空 */ }
+    const text = typeof d.question?.text === 'string' ? d.question.text : typeof d.summary === 'string' ? d.summary : typeof d.reason === 'string' ? d.reason : '';
+    const options = Array.isArray(d.question?.options) ? (d.question!.options as unknown[]).filter((o): o is string => typeof o === 'string') : [];
+    const dflt = typeof d.question?.default === 'string' ? d.question.default : undefined;
+    const status: ItemAsk['status'] = r.answer !== null ? 'answered' : r.pending ? 'open' : 'closed';
+    return {
+      id: r.id, question: text, options, ...(dflt !== undefined ? { default: dflt } : {}), status,
+      ...(r.answer !== null ? { answer: String(r.answer), answered_by: r.answered_by ?? '', answered_at: r.answered_at ?? '' } : {}),
+      asked_by: r.actor, at: r.at,
+    };
+  });
 }

@@ -115,12 +115,16 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
     }),
     provide({
       source: 'seat-asks', label: '席位的提问',
-      // 旧接口 /api/workbench-events 在 ADMIN_IDENTITY_PATHS 里，会话登录的管理员在那里也算管理员
+      // 旧接口 /api/workbench-events 在 ADMIN_IDENTITY_PATHS 里，会话登录的管理员在那里也算管理员。
+      // 阶段七：建立人本人只看到自己事项上的提问（判断同 8e：creatorCheck 按主体标识，且事项可由建立人处理；建立人主体为空的只有管理员看得到），
+      // 在事项页或 POST /api/work-items/:id/asks/:qid/answer 回答
       list: async (req) => {
-        if (!passes(deps.adminGuard, req)) return null;
-        const viewer = await attentionViewer(req, true);
+        const admin = passes(deps.adminGuard, req);
+        const viewer = await attentionViewer(req, admin);
+        if (!admin && !viewer.principal) return null;
         const items = svc<WorkItemService>('workItems');
-        return openSeatAsks().map((a) => {
+        const mineOk = (eventId: string) => admin || items.creatorCheck(`wi_${eventId}`, viewer.principal!) === 'ok';
+        return openSeatAsks().filter((a) => mineOk(a.event_id)).map((a) => {
           const w = items.get(`wi_${a.event_id}`);
           return item({
             source: 'seat-asks', source_id: String(a.delivery_id), category: 'ask',
