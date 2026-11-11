@@ -36,3 +36,11 @@ export function describe(row: Pick<LogRow, 'detail'>): string {
   const bits = [d.question, d.answer, d.summary, d.reason, note, d.verdict && `判断：${d.verdict}`, d.status && `状态：${d.status}`, d.outcome && `结果：${d.outcome}`, d.late ? '晚到' : ''];
   return bits.filter((x): x is string => typeof x === 'string' && x !== '').join(' · ');
 }
+
+/**
+ * 这个人在「关注」里能不能直接答：答复入口和别的 /api 写一样先过写请求总门，只有管理员过得去。
+ * 不是管理员的，不给答法和提交按钮，只留「在原页面处理」（免得点下去被告知「需要管理员」）。
+ */
+export function answerChoices(admin: boolean, answers: string[]): string[] {
+  return admin ? answers : [];
+}

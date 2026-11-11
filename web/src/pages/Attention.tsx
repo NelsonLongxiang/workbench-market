@@ -1,12 +1,12 @@
 /** 「关注」页（阶段八 8d）：等你处理的条目从各来源汇到一处，一次处理一条。
  *  数据来自 GET /api/attention（每个来源用它旧接口自己的守卫：你在旧页面看不到的，这里也没有）。
  *  答复走 POST /api/attention/answer，分发回来源自己的处理；答复入口还没上线时（404），提示去原页面处理。 */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Alert, App, Button, Card, Checkbox, Descriptions, Empty, Input, Segmented, Space, Tag, Typography } from 'antd';
 import { LeftOutlined, RightOutlined, ReloadOutlined } from '@ant-design/icons';
-import { apiFetch } from '../admin-token';
+import { adminActive, apiFetch, subscribeAdminToken } from '../admin-token';
 import WmPage from '../components/WmPage';
-import { byWaited, waited, type AttentionItem, type Category } from '../attention-view';
+import { answerChoices, byWaited, waited, type AttentionItem, type Category } from '../attention-view';
 
 type Item = AttentionItem;
 type SourceMeta = { label: string; visible: boolean; count: number; error?: string };
@@ -37,6 +37,7 @@ export default function Attention() {
   const [input, setInput] = useState<Record<string, string | boolean>>({});
   const [busy, setBusy] = useState(false);
   const [notLive, setNotLive] = useState(false);
+  const admin = useSyncExternalStore(subscribeAdminToken, adminActive);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -55,6 +56,7 @@ export default function Attention() {
   const cur = list[at];
   useEffect(() => { setAnswer(''); setInput({}); }, [cur?.source, cur?.source_id]);
 
+  const choices = cur ? answerChoices(admin, cur.answers) : [];
   const fields = cur && answer ? FIELDS[cur.source]?.[answer] ?? [] : [];
   const missing = fields.some((f) => f.required && !String(input[f.key] ?? '').trim());
   const submit = async () => {
@@ -95,14 +97,14 @@ export default function Attention() {
           { key: 'obj', label: '对象 / 阶段', children: [cur.object, cur.phase].filter(Boolean).join(' / ') || '—' },
         ]} />
         <Space direction="vertical" className="wm-w-full wm-mt-3">
-          {cur.answers.length > 0 && <Segmented value={answer} options={cur.answers.map((a) => ({ label: ANSWER[a] ?? a, value: a }))} onChange={(v) => setAnswer(String(v))} />}
+          {choices.length > 0 && <Segmented value={answer} options={choices.map((a) => ({ label: ANSWER[a] ?? a, value: a }))} onChange={(v) => setAnswer(String(v))} />}
           {fields.map((f) => f.kind === 'check'
             ? <Checkbox key={f.key} checked={input[f.key] === true} onChange={(e) => setInput({ ...input, [f.key]: e.target.checked })}>{f.label}</Checkbox>
             : f.kind === 'textarea'
               ? <Input.TextArea key={f.key} aria-label={f.label} placeholder={f.label} autoSize={{ minRows: 2, maxRows: 6 }} value={String(input[f.key] ?? '')} onChange={(e) => setInput({ ...input, [f.key]: e.target.value })} />
               : <Input key={f.key} aria-label={f.label} placeholder={f.label} value={String(input[f.key] ?? '')} onChange={(e) => setInput({ ...input, [f.key]: e.target.value })} />)}
           <Space>
-            {cur.answers.length > 0 && <Button type="primary" disabled={!answer || missing} loading={busy} onClick={() => void submit()}>{answer ? ANSWER[answer] ?? answer : '选一种答法'}</Button>}
+            {choices.length > 0 && <Button type="primary" disabled={!answer || missing} loading={busy} onClick={() => void submit()}>{answer ? ANSWER[answer] ?? answer : '选一种答法'}</Button>}
             {cur.link && !cur.link.startsWith('/api/') && <Typography.Link href={cur.link}>在原页面处理</Typography.Link>}
           </Space>
         </Space>

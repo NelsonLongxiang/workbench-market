@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 「关注」页、事项页的纯函数单测（阶段八 8d，web/src/attention-view.ts）：等了多久、排序、日志一行的说明。 */
-import { byWaited, describe, waited } from '../web/src/attention-view.ts';
+import { answerChoices, byWaited, describe, waited } from '../web/src/attention-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -16,6 +16,9 @@ ok('日志说明：提问、答复、进展、判断', describe({ detail: '{"que
 ok('日志说明：未路由、未采信、晚到', describe({ detail: '{"note":"unrouted"}' }) === '没有目标团队' && describe({ detail: '{"note":"untrusted"}' }) === '提交方未验证，收到但未采信' && describe({ detail: '{"outcome":"done","late":true}' }) === '结果：done · 晚到');
 ok('日志说明：被拒那一行的固定备注不重复显示（原因另有标签）', describe({ detail: '{"note":"收到，未采信"}' }) === '');
 ok('日志说明：坏的 detail 当空，不抛', describe({ detail: '{坏' }) === '' && describe({ detail: '' }) === '');
+
+ok('不是管理员：不给答法和提交按钮（答复入口先过写请求总门，点下去只会被告知需要管理员），只留「在原页面处理」', answerChoices(false, ['verify', 'return']).length === 0 && answerChoices(false, []).length === 0);
+ok('管理员：答法照条目给的列出', JSON.stringify(answerChoices(true, ['approve', 'reject'])) === '["approve","reject"]');
 
 console.log(`\nattention-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);
