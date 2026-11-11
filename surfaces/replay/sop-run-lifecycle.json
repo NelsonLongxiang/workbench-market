@@ -488,23 +488,28 @@
         {
           "id": "save-remote-anonymous",
           "route": "PUT /api/sop/runs/:id(\\d+)",
-          "class": "normal",
-          "what": "远程匿名也能写一步：执行页的写不经写总门（公开入口）",
+          "class": "unauthorized",
+          "what": "写 run 要上传令牌、管理员或本机命令行：远程匿名不带令牌保存 403",
           "request": { "method": "PUT", "path": "/api/sop/runs/1", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "stepKey": "a", "value": { "name": "x" } } },
           "response": {
-            "status": 200,
+            "status": 403,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "53", "etag": "W/\"35-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "ok": true, "id": 1, "stepKey": "a", "persisted": "sqlite" }
+            "headers": { "cache-control": "no-store", "content-length": "132", "etag": "W/\"84-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "run_write_denied", "message": "写 run 要这个 run 的上传令牌（X-Run-Upload-Token）、管理员或本机命令行" }
           }
         },
         {
           "id": "save-cross",
           "route": "PUT /api/sop/runs/:id(\\d+)",
-          "class": "normal",
-          "what": "跨站也收（同上）",
+          "class": "unauthorized",
+          "what": "带有效口令的跨站保存：不算管理员，也没有上传令牌，403",
           "request": { "method": "PUT", "path": "/api/sop/runs/1", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": { "stepKey": "a", "value": { "name": "x" } } },
-          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "53", "etag": "W/\"35-<指纹>\"", "x-powered-by": "Express" }, "body": { "ok": true, "id": 1, "stepKey": "a", "persisted": "sqlite" } }
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "132", "etag": "W/\"84-<指纹>\"", "x-powered-by": "Express" },
+            "body": { "error": "run_write_denied", "message": "写 run 要这个 run 的上传令牌（X-Run-Upload-Token）、管理员或本机命令行" }
+          }
         },
         {
           "id": "save-no-key",
@@ -625,14 +630,14 @@
         {
           "id": "finish-remote-anonymous",
           "route": "POST /api/sop/runs/:id(\\d+)/finish",
-          "class": "invalid",
-          "what": "远程匿名也能点完成（公开入口）：这里卡在字段校验，400",
+          "class": "unauthorized",
+          "what": "远程匿名不带上传令牌完成：403（先于数据校验）",
           "request": { "method": "POST", "path": "/api/sop/runs/7/finish", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
           "response": {
-            "status": 400,
+            "status": 403,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "105", "etag": "W/\"69-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "有 1 个字段未通过校验，未完成：a.name：必填", "violations": ["a.name：必填"] }
+            "headers": { "cache-control": "no-store", "content-length": "132", "etag": "W/\"84-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "run_write_denied", "message": "写 run 要这个 run 的上传令牌（X-Run-Upload-Token）、管理员或本机命令行" }
           }
         },
         {
@@ -780,7 +785,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "258", "etag": "W/\"102-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "292", "etag": "W/\"124-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "run_id": 1,
               "sop_slug": "replay-sop",
@@ -788,8 +793,8 @@
               "to_version": 2,
               "up_to_date": false,
               "old_rules_readable": true,
-              "violations_now": [],
-              "violations_after": [],
+              "violations_now": ["a.name：必填"],
+              "violations_after": ["a.name：必填"],
               "fields_added": ["a.code", "c.extra"],
               "fields_removed": ["b.old"],
               "data_without_field": ["b"],
@@ -945,7 +950,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "284", "etag": "W/\"11c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "318", "etag": "W/\"13e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "run_id": 1,
@@ -954,8 +959,8 @@
               "to_version": 2,
               "up_to_date": false,
               "old_rules_readable": true,
-              "violations_now": [],
-              "violations_after": [],
+              "violations_now": ["a.name：必填"],
+              "violations_after": ["a.name：必填"],
               "fields_added": ["a.code", "c.extra"],
               "fields_removed": ["b.old"],
               "data_without_field": ["b"],
@@ -1009,7 +1014,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "933", "etag": "W/\"3a5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "967", "etag": "W/\"3c7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "run_id": 1,
               "sop_slug": "replay-sop",
@@ -1017,13 +1022,13 @@
               "to_version": 2,
               "up_to_date": true,
               "old_rules_readable": true,
-              "violations_now": [],
-              "violations_after": [],
+              "violations_now": ["a.name：必填"],
+              "violations_after": ["a.name：必填"],
               "fields_added": [],
               "fields_removed": [],
               "data_without_field": ["b"],
               "history": [
-                { "from_version": 1, "to_version": 2, "actor": "cli", "reason": "因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因", "violations": 0, "at": "YYYY-MM-DD hh:mm:ss" }
+                { "from_version": 1, "to_version": 2, "actor": "cli", "reason": "因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因因", "violations": 1, "at": "YYYY-MM-DD hh:mm:ss" }
               ]
             }
           }
@@ -1063,7 +1068,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "234", "etag": "W/\"ea-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "217", "etag": "W/\"d9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "id": 1,
               "sop_slug": "replay-sop",
@@ -1073,7 +1078,7 @@
               "started_at": "YYYY-MM-DD hh:mm:ss",
               "updated_at": "YYYY-MM-DD hh:mm:ss",
               "finished_at": "",
-              "data": { "b": { "old": "x" }, "a": { "name": "x" } },
+              "data": { "b": { "old": "x" } },
               "receipt": "none"
             }
           }

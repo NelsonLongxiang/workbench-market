@@ -1,0 +1,1008 @@
+{
+  "domain": "mcp-protocol",
+  "what": "MCP 协议入口 /mcp（无状态 StreamableHTTP）：POST 收 JSON-RPC（initialize、ping、tools/list、tools/call），GET、DELETE 回 405，共 3 条路由。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["POST /mcp", "GET /mcp", "DELETE /mcp"],
+  "exempt": [
+    { "route": "POST /mcp", "class": "invalid", "why": "协议层错误照 JSON-RPC 规范回 200 带 error 对象（-32600、-32601、-32602），没有 4xx", "shown_by": "open/invalid-request" },
+    { "route": "GET /mcp", "class": "normal", "why": "无状态，GET 一律 405", "shown_by": "open/get" },
+    { "route": "DELETE /mcp", "class": "normal", "why": "没有会话可终止，DELETE 一律 405", "shown_by": "open/delete" },
+    { "route": "GET /mcp", "class": "unauthorized", "why": "不看身份，谁来都 405：管理员口令、会话令牌、登录的非管理员、匿名、跨站、远程、登录门开着，应答逐字节相同（工具核）", "shown_by": "gated/gated-get" },
+    { "route": "DELETE /mcp", "class": "unauthorized", "why": "同上（DELETE 也不经写总门）", "shown_by": "gated/gated-delete" }
+  ],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "网关开着（MCP_GATEWAY=on），入口地址用合成的 MARKET_PUBLIC_URL=https://market.example。预先写进库三个会话（授了 app_data_list 的、没有授权的、已吊销的，令牌是合成值）和一个有一行数据的自产台。",
+      "env": { "MCP_GATEWAY": "on", "ADMIN_TOKEN": "replay-synthetic-admin", "MARKET_PUBLIC_URL": "https://market.example" },
+      "seed": [
+        { "table": "mcp_sessions", "row": { "name": "replay-agent", "token_sha256": "ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb", "grants": "[\"app_data_list\"]" } },
+        { "table": "mcp_sessions", "row": { "name": "replay-none", "token_sha256": "a0fab1377f49a759b57f63318262ebe89fabfc990e8e93ceac2984561482b9d4", "grants": "[]" } },
+        { "table": "mcp_sessions", "row": { "name": "replay-revoked", "token_sha256": "52b6419d27bd7f547cee3b92f8c17a908b8a49601ecbec161e5030de1dfe9e0a", "grants": "[\"app_data_list\"]", "revoked_at": "2029-12-31 00:00:00" } },
+        { "table": "apps", "row": { "slug": "replay-data", "title": "数据台", "kind": "app", "status": "active", "active_version": 1, "created_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" } },
+        { "table": "app_data", "row": { "app_slug": "replay-data", "data": "{\"n\":1}", "created_by": "seed", "created_at": "2025-01-01 00:00:01" } }
+      ],
+      "steps": [
+        {
+          "id": "no-token",
+          "route": "POST /mcp",
+          "class": "unauthorized",
+          "what": "不带会话令牌：401（initialize 也一样，没有兼容期）",
+          "request": { "method": "POST", "path": "/mcp", "headers": {}, "json": { "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18" } } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "125", "etag": "W/\"7d-<指纹>\"", "vary": "Origin", "www-authenticate": "Bearer realm=\"workbench-market mcp\"", "x-powered-by": "Express" },
+            "body": { "error": "unauthorized: valid session token required", "hint": "会话与令牌由管理员经 /api/mcp/sessions 创建分发" }
+          }
+        },
+        {
+          "id": "revoked",
+          "route": "POST /mcp",
+          "class": "unauthorized",
+          "what": "已吊销的会话：401",
+          "request": { "method": "POST", "path": "/mcp", "headers": { "authorization": "Bearer cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" }, "json": { "jsonrpc": "2.0", "id": 1, "method": "ping" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "125", "etag": "W/\"7d-<指纹>\"", "vary": "Origin", "www-authenticate": "Bearer realm=\"workbench-market mcp\"", "x-powered-by": "Express" },
+            "body": { "error": "unauthorized: valid session token required", "hint": "会话与令牌由管理员经 /api/mcp/sessions 创建分发" }
+          }
+        },
+        {
+          "id": "bad-token",
+          "route": "POST /mcp",
+          "class": "unauthorized",
+          "what": "令牌形状不对：401",
+          "request": { "method": "POST", "path": "/mcp", "headers": { "authorization": "Bearer nope" }, "json": { "jsonrpc": "2.0", "id": 1, "method": "ping" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "125", "etag": "W/\"7d-<指纹>\"", "vary": "Origin", "www-authenticate": "Bearer realm=\"workbench-market mcp\"", "x-powered-by": "Express" },
+            "body": { "error": "unauthorized: valid session token required", "hint": "会话与令牌由管理员经 /api/mcp/sessions 创建分发" }
+          }
+        },
+        {
+          "id": "invalid-request",
+          "route": "POST /mcp",
+          "class": "normal",
+          "what": "不是 JSON-RPC 2.0：200 带 error -32600（协议层错误照 JSON-RPC 规范回 200）",
+          "request": { "method": "POST", "path": "/mcp", "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "json": { "jsonrpc": "1.0", "id": 1, "method": "ping" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "76", "etag": "W/\"4c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "jsonrpc": "2.0", "id": 1, "error": { "code": -32600, "message": "Invalid Request" } }
+          }
+        },
+        {
+          "id": "invalid-no-method",
+          "route": "POST /mcp",
+          "class": "normal",
+          "what": "没有 method：-32600",
+          "request": { "method": "POST", "path": "/mcp", "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "json": { "jsonrpc": "2.0", "id": 2 } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "76", "etag": "W/\"4c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "jsonrpc": "2.0", "id": 2, "error": { "code": -32600, "message": "Invalid Request" } }
+          }
+        },
+        {
+          "id": "invalid-array",
+          "route": "POST /mcp",
+          "class": "normal",
+          "what": "请求体是数组（批量）：-32600，id 为 null",
+          "request": { "method": "POST", "path": "/mcp", "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "json": [{ "jsonrpc": "2.0", "id": 1, "method": "ping" }] },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "79", "etag": "W/\"4f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "jsonrpc": "2.0", "id": null, "error": { "code": -32600, "message": "Invalid Request" } }
+          }
+        },
+        {
+          "id": "notification",
+          "route": "POST /mcp",
+          "class": "normal",
+          "what": "没有 id 的通知：202，没有应答体",
+          "request": { "method": "POST", "path": "/mcp", "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "json": { "jsonrpc": "2.0", "method": "notifications/initialized" } },
+          "response": { "status": 202, "type": "", "headers": { "content-length": "0", "vary": "Origin", "x-powered-by": "Express" }, "body": "" }
+        },
+        {
+          "id": "notification-null-id",
+          "route": "POST /mcp",
+          "class": "normal",
+          "what": "id 是 null：也当通知，202",
+          "request": { "method": "POST", "path": "/mcp", "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "json": { "jsonrpc": "2.0", "id": null, "method": "ping" } },
+          "response": { "status": 202, "type": "", "headers": { "content-length": "0", "vary": "Origin", "x-powered-by": "Express" }, "body": "" }
+        },
+        {
+          "id": "initialize",
+          "route": "POST /mcp",
+          "class": "normal",
+          "what": "initialize：认得的协议版本照回；带 REST 入口（MARKET_PUBLIC_URL）",
+          "request": {
+            "method": "POST",
+            "path": "/mcp",
+            "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+            "json": { "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18" } }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "757", "etag": "W/\"2f5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "jsonrpc": "2.0",
+              "id": 1,
+              "result": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": { "tools": {} },
+                "serverInfo": { "name": "workbench-market", "version": "0.1.0", "title": "工作台市场" },
+                "instructions": "缺工具先调 access_info。大文件上传下载与资源读取可用同一会话令牌走 REST：https://market.example/api/mcp-rest（OpenAPI：https://market.example/openapi.json）",
+                "openapi_url": "https://market.example/openapi.json",
+                "rest_base": "https://market.example/api/mcp-rest",
+                "rest_hint": "同一个会话令牌（Authorization: Bearer）可按 REST 调用：大文件上传 PUT {rest_base}/apps/<slug>/files/<文件名>（请求体为原始字节），下载 GET {rest_base}/apps/<slug>/files/<id>（支持 Range）；完整接口见 openapi_url"
+              }
+            }
+          }
+        },
+        {
+          "id": "initialize-unknown-version",
+          "route": "POST /mcp",
+          "class": "normal",
+          "what": "不认得的协议版本：回缺省版本",
+          "request": {
+            "method": "POST",
+            "path": "/mcp",
+            "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+            "json": { "jsonrpc": "2.0", "id": "a", "method": "initialize", "params": { "protocolVersion": "1999-01-01" } }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "759", "etag": "W/\"2f7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "jsonrpc": "2.0",
+              "id": "a",
+              "result": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": { "tools": {} },
+                "serverInfo": { "name": "workbench-market", "version": "0.1.0", "title": "工作台市场" },
+                "instructions": "缺工具先调 access_info。大文件上传下载与资源读取可用同一会话令牌走 REST：https://market.example/api/mcp-rest（OpenAPI：https://market.example/openapi.json）",
+                "openapi_url": "https://market.example/openapi.json",
+                "rest_base": "https://market.example/api/mcp-rest",
+                "rest_hint": "同一个会话令牌（Authorization: Bearer）可按 REST 调用：大文件上传 PUT {rest_base}/apps/<slug>/files/<文件名>（请求体为原始字节），下载 GET {rest_base}/apps/<slug>/files/<id>（支持 Range）；完整接口见 openapi_url"
+              }
+            }
+          }
+        },
+        {
+          "id": "initialize-no-params",
+          "route": "POST /mcp",
+          "class": "normal",
+          "what": "没有 params：回缺省版本",
+          "request": { "method": "POST", "path": "/mcp", "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "json": { "jsonrpc": "2.0", "id": 3, "method": "initialize" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "757", "etag": "W/\"2f5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "jsonrpc": "2.0",
+              "id": 3,
+              "result": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": { "tools": {} },
+                "serverInfo": { "name": "workbench-market", "version": "0.1.0", "title": "工作台市场" },
+                "instructions": "缺工具先调 access_info。大文件上传下载与资源读取可用同一会话令牌走 REST：https://market.example/api/mcp-rest（OpenAPI：https://market.example/openapi.json）",
+                "openapi_url": "https://market.example/openapi.json",
+                "rest_base": "https://market.example/api/mcp-rest",
+                "rest_hint": "同一个会话令牌（Authorization: Bearer）可按 REST 调用：大文件上传 PUT {rest_base}/apps/<slug>/files/<文件名>（请求体为原始字节），下载 GET {rest_base}/apps/<slug>/files/<id>（支持 Range）；完整接口见 openapi_url"
+              }
+            }
+          }
+        },
+        {
+          "id": "ping",
+          "route": "POST /mcp",
+          "class": "normal",
+          "what": "ping：空结果",
+          "request": { "method": "POST", "path": "/mcp", "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "json": { "jsonrpc": "2.0", "id": 4, "method": "ping" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "jsonrpc": "2.0", "id": 4, "result": {} } }
+        },
+        {
+          "id": "tools-list",
+          "route": "POST /mcp",
+          "class": "normal",
+          "what": "tools/list：只列被授权的和免授权的",
+          "request": { "method": "POST", "path": "/mcp", "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "json": { "jsonrpc": "2.0", "id": 5, "method": "tools/list" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1888", "etag": "W/\"760-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "jsonrpc": "2.0",
+              "id": 5,
+              "result": {
+                "tools": [
+                  {
+                    "name": "access_info",
+                    "description": "查本会话的权限：会话名、已授权工具、完整工具目录（本地 + 上游聚合，每项带 category=read/write/admin 与 granted）、本会话提过的权限申请及状态。任何已认证会话都能调，不受授权限制——调用工具被拒或 tools/list 里找不到想要的工具时先调它。",
+                    "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false }
+                  },
+                  {
+                    "name": "access_request",
+                    "description": "申请把目录里的工具授权给本会话（管理员在「MCP 网关」页批准后立即生效，批准是并入现有授权，不会收走已有工具）。tools 必须是 access_info 目录里的工具名；reason 必填（≤500 字），写清要做什么。同一组工具已有待批申请时返回那条，不重复建；每会话每小时最多 10 条。会话不能自己批准。",
+                    "inputSchema": {
+                      "type": "object",
+                      "properties": { "tools": { "type": "array", "items": { "type": "string" }, "description": "要申请的工具名（来自 access_info 目录）" }, "reason": { "type": "string", "description": "用途说明（必填·≤500 字）" } },
+                      "required": ["tools", "reason"],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "name": "app_data_list",
+                    "description": "读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读；可以按台授权（app_data_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。",
+                    "inputSchema": {
+                      "type": "object",
+                      "properties": {
+                        "slug": { "type": "string", "description": "自产台 slug" },
+                        "limit": { "type": "integer", "description": "条数（默认 50，上限 200）" },
+                        "before_id": { "type": "integer", "description": "游标：只取 id 小于它的记录（翻页用上一页的 next_before_id）" }
+                      },
+                      "required": ["slug"],
+                      "additionalProperties": false
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "tools-list-none",
+          "route": "POST /mcp",
+          "class": "normal",
+          "what": "没有授权的会话：只有免授权的工具",
+          "request": { "method": "POST", "path": "/mcp", "headers": { "authorization": "Bearer bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }, "json": { "jsonrpc": "2.0", "id": 6, "method": "tools/list" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1232", "etag": "W/\"4d0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "jsonrpc": "2.0",
+              "id": 6,
+              "result": {
+                "tools": [
+                  {
+                    "name": "access_info",
+                    "description": "查本会话的权限：会话名、已授权工具、完整工具目录（本地 + 上游聚合，每项带 category=read/write/admin 与 granted）、本会话提过的权限申请及状态。任何已认证会话都能调，不受授权限制——调用工具被拒或 tools/list 里找不到想要的工具时先调它。",
+                    "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false }
+                  },
+                  {
+                    "name": "access_request",
+                    "description": "申请把目录里的工具授权给本会话（管理员在「MCP 网关」页批准后立即生效，批准是并入现有授权，不会收走已有工具）。tools 必须是 access_info 目录里的工具名；reason 必填（≤500 字），写清要做什么。同一组工具已有待批申请时返回那条，不重复建；每会话每小时最多 10 条。会话不能自己批准。",
+                    "inputSchema": {
+                      "type": "object",
+                      "properties": { "tools": { "type": "array", "items": { "type": "string" }, "description": "要申请的工具名（来自 access_info 目录）" }, "reason": { "type": "string", "description": "用途说明（必填·≤500 字）" } },
+                      "required": ["tools", "reason"],
+                      "additionalProperties": false
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "call-no-name",
+          "route": "POST /mcp",
+          "class": "normal",
+          "what": "tools/call 没有 name：-32602",
+          "request": { "method": "POST", "path": "/mcp", "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "json": { "jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {} } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "79", "etag": "W/\"4f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "jsonrpc": "2.0", "id": 7, "error": { "code": -32602, "message": "params.name 必填" } }
+          }
+        },
+        {
+          "id": "call-not-granted",
+          "route": "POST /mcp",
+          "class": "normal",
+          "what": "没授权的工具：-32601（和未知工具同文案，不泄露存在性）",
+          "request": {
+            "method": "POST",
+            "path": "/mcp",
+            "headers": { "authorization": "Bearer bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+            "json": { "jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": { "name": "app_data_list", "arguments": { "slug": "replay-data" } } }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "89", "etag": "W/\"59-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "jsonrpc": "2.0", "id": 8, "error": { "code": -32601, "message": "Method not found: tools/call" } }
+          }
+        },
+        {
+          "id": "call-unknown",
+          "route": "POST /mcp",
+          "class": "normal",
+          "what": "未知工具：-32601",
+          "request": {
+            "method": "POST",
+            "path": "/mcp",
+            "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+            "json": { "jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": { "name": "no_such_tool", "arguments": {} } }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "89", "etag": "W/\"59-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "jsonrpc": "2.0", "id": 9, "error": { "code": -32601, "message": "Method not found: tools/call" } }
+          }
+        },
+        {
+          "id": "call",
+          "route": "POST /mcp",
+          "class": "normal",
+          "what": "调 app_data_list：结果序列化成 text content",
+          "request": {
+            "method": "POST",
+            "path": "/mcp",
+            "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+            "json": { "jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": { "name": "app_data_list", "arguments": { "slug": "replay-data" } } }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "358", "etag": "W/\"166-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "jsonrpc": "2.0",
+              "id": 10,
+              "result": {
+                "content": [
+                  { "type": "text", "text": "{\n  \"slug\": \"replay-data\",\n  \"items\": [\n    {\n      \"id\": 1,\n      \"data\": {\n        \"n\": 1\n      },\n      \"created_by\": \"seed\",\n      \"created_at\": \"YYYY-MM-DD hh:mm:ss\"\n    }\n  ],\n  \"count\": 1,\n  \"has_more\": false,\n  \"next_before_id\": null\n}" }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "call-error",
+          "route": "POST /mcp",
+          "class": "normal",
+          "what": "工具执行失败：isError，文案带状态码",
+          "request": {
+            "method": "POST",
+            "path": "/mcp",
+            "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+            "json": { "jsonrpc": "2.0", "id": 11, "method": "tools/call", "params": { "name": "app_data_list", "arguments": { "slug": "nope" } } }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "123", "etag": "W/\"7b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "jsonrpc": "2.0", "id": 11, "result": { "content": [{ "type": "text", "text": "执行失败：app not found: nope" }], "isError": true } }
+          }
+        },
+        {
+          "id": "call-exempt",
+          "route": "POST /mcp",
+          "class": "normal",
+          "what": "免授权的工具 access_info：没有授权的会话也能调",
+          "request": {
+            "method": "POST",
+            "path": "/mcp",
+            "headers": { "authorization": "Bearer bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+            "json": { "jsonrpc": "2.0", "id": 12, "method": "tools/call", "params": { "name": "access_info", "arguments": {} } }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "15285", "etag": "W/\"3bb5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "jsonrpc": "2.0",
+              "id": 12,
+              "result": {
+                "content": [
+                  { "type": "text", "text": "{\n  \"gateway\": \"on\",\n  \"session\": \"replay-none\",\n  \"granted_tools\": [\n    \"access_info\",\n    \"access_request\"\n  ],\n  \"catalog\": [\n    {\n      \"name\": \"access_info\",\n      \"description\": \"查本会话的权限：会话名、已授权工具、完整工具目录（本地 + 上游聚合，每项带 category=read/write/admin 与 granted）、本会话提过的权限申请及状态。任何已认证会话都能调，不受授权限制——调用工具被拒或 tools/list 里找不到想要的工具时先调它。\",\n      \"category\": \"read\",\n      \"granted\": true,\n      \"always_allowed\": true\n    },\n    {\n      \"name\": \"access_request\",\n      \"description\": \"申请把目录里的工具授权给本会话（管理员在「MCP 网关」页批准后立即生效，批准是并入现有授权，不会收走已有工具）。tools 必须是 access_info 目录里的工具名；reason 必填（≤500 字），写清要做什么。同一组工具已有待批申请时返回那条，不重复建；每会话每小时最多 10 条。会话不能自己批准。\",\n      \"category\": \"write\",\n      \"granted\": true,\n      \"always_allowed\": true\n    },\n    {\n      \"name\": \"workbench_list\",\n      \"description\": \"列出市场中的工作台（可按关键词/类型/状态过滤），返回 id/名称/类型/状态/延迟/地址/分类/启用——找台的入口。\",\n      \"category\": \"read\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"workbench_summary\",\n      \"description\": \"市场总览统计：总数/启用/在线/离线/未探测/平均延迟/分类聚合。\",\n      \"category\": \"read\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"workbench_check\",\n      \"description\": \"立即健康探测并回写状态：传 id 探测单个台；all=true 并发探测全部启用台。\",\n      \"category\": \"write\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"use_url\",\n      \"description\": \"取某工作台的访问入口：portal（/go/<id>/ 同源代理，自动带凭据/剥禁嵌头）与 direct 直连地址。\",\n      \"category\": \"read\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"app_sync\",\n      \"description\": \"从 GitHub 仓库 main 分支同步自产台/SOP 台（属主 2026-11-02 来源收敛：自产台只接受仓库 main，不再收直接上传的文件）。先把改动合进该台登记的仓库 main，再调本工具；市场拉 main 头生成新版本并记下 commit。只能重拉已登记来源的台，绑定或改来源须本机 CLI 或管理员走 REST POST /api/apps/<slug>/sync。\",\n      \"category\": \"admin\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"change_request_create\",\n      \"description\": \"#94 v3 S1 人审门：创建台或技能的回滚/删除请求（K10——批准前状态不变·批准经 REST 口令面）。\",\n      \"category\": \"write\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"change_requests\",\n      \"description\": \"#94 v3 S1：列人审请求（默认 pending）\",\n      \"category\": \"read\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"sop_publish\",\n      \"description\": \"SOP 台上架：draft/deprecated → published（首次入册市场；note 记入当前版本 changelog）。\",\n      \"category\": \"admin\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"sop_run_start\",\n      \"description\": \"开一次 SOP 执行 run（钉当前版本；仅 published）——agent 更新持久化执行数据的入口，不触发版本发布。\",\n      \"category\": \"write\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"sop_run_step_save\",\n      \"description\": \"更新 run 的持久化数据（stepKey→value 任意键值；与人在 Runner 页填数据同一条链：Redis 热写+30s checkpoint 沉淀 SQLite）。\",\n      \"category\": \"write\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"sop_run_get\",\n      \"description\": \"读 run 详情（热读优先，miss 回 SQLite 真源）——恢复执行现场。\",\n      \"category\": \"read\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"sop_run_list\",\n      \"description\": \"列 SOP 执行记录（可按 slug/status 过滤；按更新时间倒序，limit 缺省 50、最大 200，offset 翻页：回满 limit 条就继续取下一页）。\",\n      \"category\": \"read\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"sop_run_sandbox\",\n      \"description\": \"派发 SOP 步骤到 VM sandbox 容器执行（LayerFS）——返回 commit_hash（交付物=LayerFS Commit 引用）+ exit_code/stdout_tail/stderr_tail/duration_ms。bridge 不可达时 retryable。\",\n      \"category\": \"write\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"sop_run_finish\",\n      \"description\": \"归档 run（热态全量沉淀 SQLite，Redis 条目平滑淘汰）。\",\n      \"category\": \"write\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"app_data_list\",\n      \"description\": \"读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读；可以按台授权（app_data_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。\",\n      \"category\": \"read\",\n      \"granted\": false,\n      \"scopable\": true\n    },\n    {\n      \"name\": \"app_data_submit\",\n      \"description\": \"向自产台写一条表单数据（与台页面 POST /api/apps/<slug>/data 同一条写入链：1MB 上限、按台的 data-contract.json 校验、写入后照常推送事件）。不符合契约时返回 400 与逐条 violations。附件先用 app_files_upload 上传，再把返回的 id 放进 data.file_ids。带 idempotency_key 重试不会重复写：同键同内容返回原记录（duplicate=true），同键不同内容 409。\",\n      \"category\": \"write\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"app_files_list\",\n      \"description\": \"读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。\",\n      \"category\": \"read\",\n      \"granted\": false,\n      \"scopable\": true\n    },\n    {\n      \"name\": \"app_files_upload\",\n      \"description\": \"向自产台上传文件（base64 内容·原始 ≤100MB/个，base64 约 ≤134MB）——agent 侧交付物直接入台文件面（与 REST multipart 同表同链、同一套按内容的类型检查）。返回 id/url/mime/size/sha256/note。建议同时传 size（原始字节数）或 sha256：有的 MCP 客户端会把过长的参数截短（常见截在 64KB），带上它们服务端才能发现并拒收残缺文件；base64 恰好 65536 字符又没带时按疑似截断拒收。上传前可用 app_files_list 的 quota 查剩余文件数与上限。超过几十 KB 的文件优先用 REST 上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>，请求体为原始字节（同一会话令牌，不经 base64；入口见 access_info 的 rest_base 与 openapi_url）。\",\n      \"category\": \"write\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"workbench_vars_get\",\n      \"description\": \"读某工作台的看板变量/常量：带 key 取单个（含 revision），不带 key 列全部（可按 prefix 过滤）。各台按 workbench id 隔离，自产台/SOP 台/外部台通用。\",\n      \"category\": \"read\",\n      \"granted\": false,\n      \"scopable\": true\n    },\n    {\n      \"name\": \"workbench_vars_set\",\n      \"description\": \"写某工作台的看板变量（JSON 值）。新建可不带 revision（或 revision=0 表示仅在不存在时创建）；改已存在的键必须带当前 revision，不符返回 revision 冲突与当前值。kind=const 写入后不能直接改：谁写的谁维护——新建常量的会话是作者，作者本人带 override=true 与 reason 可修订；别人的常量改不了（作者缺失时由部署机本机命令行兜底）。作者本人修订时带 owner=\\\"*\\\" 可把常量设成公共：之后任何 MCP 会话或 Odoo 登录带 override 与 reason 都能修订，台令牌仍不能写。\",\n      \"category\": \"write\",\n      \"granted\": false,\n      \"scopable\": true\n    },\n    {\n      \"name\": \"workbench_register\",\n      \"description\": \"登记外部工作台入册（agent 发现内网新服务时自主登记；门户/市场即刻可用）。凭据不接受——需人工经市场页配置（安全边界）。\",\n      \"category\": \"admin\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"workbench_update\",\n      \"description\": \"更新工作台配置（name/category/tags/description/enabled/health_path/sort/url）。不接受 auth——凭据变更人工操作；掩码 url 回传视为未变更。\",\n      \"category\": \"admin\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"workbench_unregister\",\n      \"description\": \"解除工作台注册（不删服务本体；驾驶舱面板引用联动清理）。\",\n      \"category\": \"admin\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"skills_list\",\n      \"description\": \"列出市场技能（可按 layer 1-5 过滤：1业务角色/2开发运维/3工作流/4架构设计/5AI原生运营），返回 slug/name/layer/族/版本数/active_version/current_version——市场技能目录入口。两个版本字段别混：active_version＝市场当前版本（回滚指针，不带版本号的取装/导出/下载/安装计划都取它，未回滚即最新版）；current_version＝本机钉装记录里的版本（未钉装为 null）。\",\n      \"category\": \"read\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"skill_versions\",\n      \"description\": \"查某技能版本链（newest-first）：version/changelog/breaking/tree_digest/snapshot_path/reviewed_by——版本不可变审计面；active=true 的是市场当前版本（active_version，回滚指针；回滚只移这个指针，不新增版本）。\",\n      \"category\": \"read\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"skill_file_put\",\n      \"description\": \"技能上传第一步：一次上传一个文件（不收压缩包），暂存在市场上，返回 sha256。文本文件 content 直接给；二进制文件（图片/字体/模板）content 给 base64 并带 encoding:\\\"base64\\\"。单文件上限 10MB。同内容重复上传幂等并续期，暂存 24 小时后清掉。全部文件传完后调 skill_publish 按 sha256 引用成版。\",\n      \"category\": \"admin\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"skill_publish\",\n      \"description\": \"技能上传第二步（发版/更新）：用 skill_file_put 返回的 sha256 列出整棵文件树，一次成版。slug 不存在时建技能并发 v1，已存在时发新版本 N+1（旧版本不变）。有文件没上传或暂存已过期时报 400 并点名路径。SKILL.md 的 name/description/argument-hint 自动同步到技能信息。同一技能已有内容完全相同的版本时报 409。审计人记为本会话。\",\n      \"category\": \"admin\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"skill_download\",\n      \"description\": \"获取技能（安装/更新）：签发某版本（缺省市场当前版本 active_version：回滚后即回滚到的版本，未回滚即最新）的技能包下载链接，10 分钟有效、至多下载 5 次，过期或用满重新调用。包是 .tar.gz，顶层目录 package_dir（slug 的 : 换成 .），内含技能文件、清单 .wm-skill.json（逐文件 sha256 与整版 tree_digest）和校验脚本 .wm-skill-verify.mjs。安装步骤（经用户同意后执行）：下载到临时目录，先核对整包 sha256 等于应答的 package_sha256（不等就停，不解压）；解压后核对 .wm-skill-verify.mjs 的 sha256 等于应答的 verify_script_sha256（不等就停，不执行它）；再运行 `node <package_dir>/.wm-skill-verify.mjs --install --expect <应答的 tree_digest>`——包里清单的指纹与 --expect 不符、或文件与清单不一致、有符号链接/硬链接/设备文件、清单路径或目录名不合规，就整包拒绝、什么都不动；一致则把 ~/.workbench-market/skills/<package_dir> 的旧版本移进 ~/.workbench-market/skills/.backups/<package_dir>/（每个技能最多留 3 个），再整体换上新版本。返回里的 install_command 是这套步骤的一行 shell 写法。之后随时运行 verify_command 可列出本地被改动的文件。没设 MARKET_PUBLIC_URL 且请求主机不规范时不签发。\",\n      \"category\": \"read\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"skill_install_plan\",\n      \"description\": \"生成安装计划（薄分发：不自动落盘）——返回目标版本 digest（expected sha256 钉装锚）+ 快照路径 + 手工安装指引。\",\n      \"category\": \"read\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"skill_search\",\n      \"description\": \"语义搜技能：只描述需求（自然语言），评估模型按 P(true) 打分返回 ≤3 个置信度严格 >0.7 的技能（降序）。只读；不可用时**报错不降级**。\",\n      \"category\": \"read\",\n      \"granted\": false\n    },\n    {\n      \"name\": \"design_standard\",\n      \"description\": \"读取工作台 design token 标准与页面模式（只读·唯一事实源 DESIGN.md + design-system/workbench-market/PATTERNS.md）：part=tokens 取结构化 token（颜色/字号/间距/圆角/阴影/动效/组件）；guide 取 DESIGN.md 各节规则；patterns 取菜单与目录、页面骨架、SOP 交付空间、列表、数据看板；all（缺省）全给。section 按标题关键词只取命中章节。返回含 version 与两份源文件 sha256。\",\n      \"category\": \"read\",\n      \"granted\": false\n    }\n  ],\n  \"requests\": [],\n  \"how_to_request\": \"access_request {tools: [工具名], reason: 用途}；只要一张台时写 工具@台id（目前 workbench_vars_get / workbench_vars_set / app_data_list / app_files_list 支持）；管理员在「MCP 网关」页「权限申请」批准后立即生效（并入现有授权）\",\n  \"openapi_url\": \"https://market.example/openapi.json\",\n  \"rest_base\": \"https://market.example/api/mcp-rest\",\n  \"rest_hint\": \"同一个会话令牌（Authorization: Bearer）可按 REST 调用：大文件上传 PUT {rest_base}/apps/<slug>/files/<文件名>（请求体为原始字节），下载 GET {rest_base}/apps/<slug>/files/<id>（支持 Range）；完整接口见 openapi_url\"\n}" }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "unknown-method",
+          "route": "POST /mcp",
+          "class": "normal",
+          "what": "未知方法：-32601",
+          "request": { "method": "POST", "path": "/mcp", "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "json": { "jsonrpc": "2.0", "id": 13, "method": "resources/list" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "94", "etag": "W/\"5e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "jsonrpc": "2.0", "id": 13, "error": { "code": -32601, "message": "Method not found: resources/list" } }
+          }
+        },
+        {
+          "id": "write-no-token",
+          "route": "POST /mcp",
+          "class": "unauthorized",
+          "what": "不带令牌调写工具 app_data_submit：401，不执行",
+          "request": { "method": "POST", "path": "/mcp", "headers": {}, "json": { "jsonrpc": "2.0", "id": 14, "method": "tools/call", "params": { "name": "app_data_submit", "arguments": { "slug": "replay-data", "data": { "probe": 1 } } } } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "125", "etag": "W/\"7d-<指纹>\"", "vary": "Origin", "www-authenticate": "Bearer realm=\"workbench-market mcp\"", "x-powered-by": "Express" },
+            "body": { "error": "unauthorized: valid session token required", "hint": "会话与令牌由管理员经 /api/mcp/sessions 创建分发" }
+          }
+        },
+        {
+          "id": "read-back",
+          "what": "经 REST 再读台数据：没有匿名写入的那一行",
+          "request": { "method": "GET", "path": "/api/mcp-rest/apps/replay-data/data", "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "160", "etag": "W/\"a0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "slug": "replay-data", "items": [{ "id": 1, "data": { "n": 1 }, "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss" }], "count": 1, "has_more": false, "next_before_id": null }
+          }
+        },
+        {
+          "id": "get",
+          "route": "GET /mcp",
+          "class": "invalid",
+          "what": "GET /mcp：405（无状态，不开服务端会话流）",
+          "request": { "method": "GET", "path": "/mcp", "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } },
+          "response": {
+            "status": 405,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "stateless StreamableHTTP：仅支持 POST（无服务端会话流）" }
+          }
+        },
+        {
+          "id": "delete",
+          "route": "DELETE /mcp",
+          "class": "invalid",
+          "what": "DELETE /mcp：405（没有会话可终止）",
+          "request": { "method": "DELETE", "path": "/mcp", "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } },
+          "response": { "status": 405, "type": "application/json; charset=utf-8", "headers": { "content-length": "45", "etag": "W/\"2d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "无会话可终止（stateless）" } }
+        },
+        {
+          "id": "get-no-token",
+          "route": "GET /mcp",
+          "class": "invalid",
+          "what": "GET /mcp 不带令牌：照样 405（不看会话）",
+          "request": { "method": "GET", "path": "/mcp", "headers": {} },
+          "response": {
+            "status": 405,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "stateless StreamableHTTP：仅支持 POST（无服务端会话流）" }
+          }
+        },
+        {
+          "id": "get-cross",
+          "route": "GET /mcp",
+          "class": "invalid",
+          "what": "GET 跨站：照样 405",
+          "request": { "method": "GET", "path": "/mcp", "headers": { "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" } },
+          "response": { "status": 405, "type": "application/json; charset=utf-8", "headers": { "content-length": "80", "etag": "W/\"50-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "stateless StreamableHTTP：仅支持 POST（无服务端会话流）" } }
+        },
+        {
+          "id": "get-remote",
+          "route": "GET /mcp",
+          "class": "invalid",
+          "what": "GET 远程匿名：照样 405",
+          "request": { "method": "GET", "path": "/mcp", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 405,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "stateless StreamableHTTP：仅支持 POST（无服务端会话流）" }
+          }
+        },
+        {
+          "id": "delete-remote",
+          "route": "DELETE /mcp",
+          "class": "invalid",
+          "what": "DELETE 远程匿名：照样 405（不经写总门）",
+          "request": { "method": "DELETE", "path": "/mcp", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": { "status": 405, "type": "application/json; charset=utf-8", "headers": { "content-length": "45", "etag": "W/\"2d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "无会话可终止（stateless）" } }
+        },
+        {
+          "id": "get-admin",
+          "route": "GET /mcp",
+          "class": "invalid",
+          "what": "GET 带管理员口令：照样 405",
+          "request": { "method": "GET", "path": "/mcp", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 405,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "stateless StreamableHTTP：仅支持 POST（无服务端会话流）" }
+          }
+        },
+        {
+          "id": "delete-admin",
+          "route": "DELETE /mcp",
+          "class": "invalid",
+          "what": "DELETE 带管理员口令：照样 405",
+          "request": { "method": "DELETE", "path": "/mcp", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 405, "type": "application/json; charset=utf-8", "headers": { "content-length": "45", "etag": "W/\"2d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "无会话可终止（stateless）" } }
+        },
+        {
+          "id": "delete-cross",
+          "route": "DELETE /mcp",
+          "class": "invalid",
+          "what": "DELETE 跨站：照样 405",
+          "request": { "method": "DELETE", "path": "/mcp", "headers": { "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" } },
+          "response": { "status": 405, "type": "application/json; charset=utf-8", "headers": { "content-length": "45", "etag": "W/\"2d-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "无会话可终止（stateless）" } }
+        }
+      ]
+    },
+    {
+      "name": "gateway-off",
+      "what": "网关关着（MCP_GATEWAY=off，回放实例的缺省）。同样的种子。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin", "MARKET_PUBLIC_URL": "https://market.example" },
+      "seed": [
+        { "table": "mcp_sessions", "row": { "name": "replay-agent", "token_sha256": "ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb", "grants": "[\"app_data_list\"]" } },
+        { "table": "mcp_sessions", "row": { "name": "replay-none", "token_sha256": "a0fab1377f49a759b57f63318262ebe89fabfc990e8e93ceac2984561482b9d4", "grants": "[]" } },
+        { "table": "mcp_sessions", "row": { "name": "replay-revoked", "token_sha256": "52b6419d27bd7f547cee3b92f8c17a908b8a49601ecbec161e5030de1dfe9e0a", "grants": "[\"app_data_list\"]", "revoked_at": "2029-12-31 00:00:00" } },
+        { "table": "apps", "row": { "slug": "replay-data", "title": "数据台", "kind": "app", "status": "active", "active_version": 1, "created_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" } },
+        { "table": "app_data", "row": { "app_slug": "replay-data", "data": "{\"n\":1}", "created_by": "seed", "created_at": "2025-01-01 00:00:01" } }
+      ],
+      "steps": [
+        {
+          "id": "off-ping",
+          "route": "POST /mcp",
+          "class": "normal",
+          "what": "网关关着（MCP_GATEWAY=off）：不带令牌也能用",
+          "request": { "method": "POST", "path": "/mcp", "headers": {}, "json": { "jsonrpc": "2.0", "id": 1, "method": "ping" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "jsonrpc": "2.0", "id": 1, "result": {} } }
+        },
+        {
+          "id": "off-tools-list",
+          "route": "POST /mcp",
+          "class": "normal",
+          "what": "网关关着：tools/list 列全部",
+          "request": { "method": "POST", "path": "/mcp", "headers": {}, "json": { "jsonrpc": "2.0", "id": 2, "method": "tools/list" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "20992", "etag": "W/\"5200-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "jsonrpc": "2.0",
+              "id": 2,
+              "result": {
+                "tools": [
+                  {
+                    "name": "access_info",
+                    "description": "查本会话的权限：会话名、已授权工具、完整工具目录（本地 + 上游聚合，每项带 category=read/write/admin 与 granted）、本会话提过的权限申请及状态。任何已认证会话都能调，不受授权限制——调用工具被拒或 tools/list 里找不到想要的工具时先调它。",
+                    "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false }
+                  },
+                  {
+                    "name": "access_request",
+                    "description": "申请把目录里的工具授权给本会话（管理员在「MCP 网关」页批准后立即生效，批准是并入现有授权，不会收走已有工具）。tools 必须是 access_info 目录里的工具名；reason 必填（≤500 字），写清要做什么。同一组工具已有待批申请时返回那条，不重复建；每会话每小时最多 10 条。会话不能自己批准。",
+                    "inputSchema": {
+                      "type": "object",
+                      "properties": { "tools": { "type": "array", "items": { "type": "string" }, "description": "要申请的工具名（来自 access_info 目录）" }, "reason": { "type": "string", "description": "用途说明（必填·≤500 字）" } },
+                      "required": ["tools", "reason"],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "name": "workbench_list",
+                    "description": "列出市场中的工作台（可按关键词/类型/状态过滤），返回 id/名称/类型/状态/延迟/地址/分类/启用——找台的入口。",
+                    "inputSchema": {
+                      "type": "object",
+                      "properties": {
+                        "q": { "type": "string", "description": "关键词（名称/地址/描述子串，不区分大小写）" },
+                        "type": { "type": "string", "description": "类型 key，如 web / ollama / market-app" },
+                        "status": { "type": "string", "enum": ["up", "down", "unknown"] }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  { "name": "workbench_summary", "description": "市场总览统计：总数/启用/在线/离线/未探测/平均延迟/分类聚合。", "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false } },
+                  {
+                    "name": "workbench_check",
+                    "description": "立即健康探测并回写状态：传 id 探测单个台；all=true 并发探测全部启用台。",
+                    "inputSchema": { "type": "object", "properties": { "id": { "type": "integer", "description": "工作台 id" }, "all": { "type": "boolean", "description": "探测全部启用台" } }, "additionalProperties": false }
+                  },
+                  {
+                    "name": "use_url",
+                    "description": "取某工作台的访问入口：portal（/go/<id>/ 同源代理，自动带凭据/剥禁嵌头）与 direct 直连地址。",
+                    "inputSchema": { "type": "object", "properties": { "id": { "type": "integer" } }, "required": ["id"], "additionalProperties": false }
+                  },
+                  {
+                    "name": "app_sync",
+                    "description": "从 GitHub 仓库 main 分支同步自产台/SOP 台（属主 2026-11-02 来源收敛：自产台只接受仓库 main，不再收直接上传的文件）。先把改动合进该台登记的仓库 main，再调本工具；市场拉 main 头生成新版本并记下 commit。只能重拉已登记来源的台，绑定或改来源须本机 CLI 或管理员走 REST POST /api/apps/<slug>/sync。",
+                    "inputSchema": {
+                      "type": "object",
+                      "properties": { "slug": { "type": "string", "description": "已登记 GitHub 来源的台" }, "changelog": { "type": "string", "description": "本版说明（缺省为 [github] 仓库@main 短 sha）" }, "force": { "type": "boolean", "description": "体积骤降 >50% 时显式确认" } },
+                      "required": ["slug"],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "name": "change_request_create",
+                    "description": "#94 v3 S1 人审门：创建台或技能的回滚/删除请求（K10——批准前状态不变·批准经 REST 口令面）。",
+                    "inputSchema": {
+                      "type": "object",
+                      "properties": {
+                        "kind": { "type": "string", "enum": ["app", "skill"] },
+                        "op": { "type": "string", "enum": ["rollback", "delete"] },
+                        "slug": { "type": "string" },
+                        "target_version": { "type": "integer", "description": "op=rollback 时必填：要回滚到的版本号" },
+                        "reason": { "type": "string" },
+                        "requested_by": { "type": "string" }
+                      },
+                      "required": ["kind", "op", "slug"]
+                    }
+                  },
+                  { "name": "change_requests", "description": "#94 v3 S1：列人审请求（默认 pending）", "inputSchema": { "type": "object", "properties": { "status": { "type": "string", "enum": ["pending", "approved", "rejected"] } } } },
+                  {
+                    "name": "sop_publish",
+                    "description": "SOP 台上架：draft/deprecated → published（首次入册市场；note 记入当前版本 changelog）。",
+                    "inputSchema": { "type": "object", "properties": { "slug": { "type": "string" }, "note": { "type": "string", "description": "发布说明（可选）" } }, "required": ["slug"], "additionalProperties": false }
+                  },
+                  {
+                    "name": "sop_run_start",
+                    "description": "开一次 SOP 执行 run（钉当前版本；仅 published）——agent 更新持久化执行数据的入口，不触发版本发布。",
+                    "inputSchema": { "type": "object", "properties": { "slug": { "type": "string" }, "started_by": { "type": "string", "description": "执行者标识（如 agent 会话名）" } }, "required": ["slug"], "additionalProperties": false }
+                  },
+                  {
+                    "name": "sop_run_step_save",
+                    "description": "更新 run 的持久化数据（stepKey→value 任意键值；与人在 Runner 页填数据同一条链：Redis 热写+30s checkpoint 沉淀 SQLite）。",
+                    "inputSchema": {
+                      "type": "object",
+                      "properties": { "run_id": { "type": "integer" }, "step_key": { "type": "string", "description": "字母/数字/_/-（不必是 sop.yaml 里的步骤——数据面哑存储）" }, "value": { "description": "任意 JSON 值" } },
+                      "required": ["run_id", "step_key"],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "name": "sop_run_get",
+                    "description": "读 run 详情（热读优先，miss 回 SQLite 真源）——恢复执行现场。",
+                    "inputSchema": {
+                      "type": "object",
+                      "properties": { "run_id": { "type": "integer" }, "read_capability": { "type": "string", "description": "#309 phase2 机器迁移：创建 run 时 sop_run_start/A2A start 响应返回的 run 级读能力（一次性明文）。无有效能力或授权时只回元数据（不含 data）。" } },
+                      "required": ["run_id"],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "name": "sop_run_list",
+                    "description": "列 SOP 执行记录（可按 slug/status 过滤；按更新时间倒序，limit 缺省 50、最大 200，offset 翻页：回满 limit 条就继续取下一页）。",
+                    "inputSchema": {
+                      "type": "object",
+                      "properties": { "slug": { "type": "string" }, "status": { "type": "string", "enum": ["running", "finished"] }, "limit": { "type": "integer", "minimum": 1, "maximum": 200 }, "offset": { "type": "integer", "minimum": 0 } },
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "name": "sop_run_sandbox",
+                    "description": "派发 SOP 步骤到 VM sandbox 容器执行（LayerFS）——返回 commit_hash（交付物=LayerFS Commit 引用）+ exit_code/stdout_tail/stderr_tail/duration_ms。bridge 不可达时 retryable。",
+                    "inputSchema": {
+                      "type": "object",
+                      "properties": {
+                        "run_id": { "type": "number", "description": "SOP run id" },
+                        "script": { "type": "string", "description": "执行的 JS 脚本" },
+                        "image_tag": { "type": "string", "description": "容器镜像（缺省 node:22-slim）" },
+                        "timeout_ms": { "type": "number", "description": "超时毫秒（缺省 300000）" }
+                      },
+                      "required": ["run_id"]
+                    }
+                  },
+                  {
+                    "name": "sop_run_finish",
+                    "description": "归档 run（热态全量沉淀 SQLite，Redis 条目平滑淘汰）。",
+                    "inputSchema": { "type": "object", "properties": { "run_id": { "type": "integer" } }, "required": ["run_id"], "additionalProperties": false }
+                  },
+                  {
+                    "name": "app_data_list",
+                    "description": "读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读；可以按台授权（app_data_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。",
+                    "inputSchema": {
+                      "type": "object",
+                      "properties": {
+                        "slug": { "type": "string", "description": "自产台 slug" },
+                        "limit": { "type": "integer", "description": "条数（默认 50，上限 200）" },
+                        "before_id": { "type": "integer", "description": "游标：只取 id 小于它的记录（翻页用上一页的 next_before_id）" }
+                      },
+                      "required": ["slug"],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "name": "app_data_submit",
+                    "description": "向自产台写一条表单数据（与台页面 POST /api/apps/<slug>/data 同一条写入链：1MB 上限、按台的 data-contract.json 校验、写入后照常推送事件）。不符合契约时返回 400 与逐条 violations。附件先用 app_files_upload 上传，再把返回的 id 放进 data.file_ids。带 idempotency_key 重试不会重复写：同键同内容返回原记录（duplicate=true），同键不同内容 409。",
+                    "inputSchema": {
+                      "type": "object",
+                      "properties": {
+                        "slug": { "type": "string", "description": "自产台 slug" },
+                        "data": { "type": "object", "description": "记录内容（JSON 对象·≤1MB）" },
+                        "created_by": { "type": "string", "description": "提交者标识（≤128 字符·缺省为 mcp:<会话名>）" },
+                        "idempotency_key": { "type": "string", "description": "幂等键（1–128 个字母/数字/_ . : -）" }
+                      },
+                      "required": ["slug", "data"],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "name": "app_files_list",
+                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。",
+                    "inputSchema": {
+                      "type": "object",
+                      "properties": { "slug": { "type": "string" }, "limit": { "type": "integer", "description": "条数（默认 50，上限 200）" }, "before_id": { "type": "integer" } },
+                      "required": ["slug"],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "name": "app_files_upload",
+                    "description": "向自产台上传文件（base64 内容·原始 ≤100MB/个，base64 约 ≤134MB）——agent 侧交付物直接入台文件面（与 REST multipart 同表同链、同一套按内容的类型检查）。返回 id/url/mime/size/sha256/note。建议同时传 size（原始字节数）或 sha256：有的 MCP 客户端会把过长的参数截短（常见截在 64KB），带上它们服务端才能发现并拒收残缺文件；base64 恰好 65536 字符又没带时按疑似截断拒收。上传前可用 app_files_list 的 quota 查剩余文件数与上限。超过几十 KB 的文件优先用 REST 上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>，请求体为原始字节（同一会话令牌，不经 base64；入口见 access_info 的 rest_base 与 openapi_url）。",
+                    "inputSchema": {
+                      "type": "object",
+                      "properties": {
+                        "slug": { "type": "string" },
+                        "name": { "type": "string", "description": "原始文件名（含扩展名）" },
+                        "content_base64": { "type": "string", "description": "文件内容 base64（≤100MB 原始）" },
+                        "size": { "type": "integer", "description": "原始字节数（建议带：与收到的内容不符即拒收，防客户端截断）" },
+                        "sha256": { "type": "string", "description": "原始内容 sha256（64 位十六进制，建议带：不符即拒收）" },
+                        "mime": { "type": "string", "description": "MIME（缺省 application/octet-stream）" },
+                        "note": { "type": "string", "description": "备注（≤500 字·可 PATCH 更新）" },
+                        "created_by": { "type": "string", "description": "创建者标识（≤128 字符）" }
+                      },
+                      "required": ["slug", "name", "content_base64"],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "name": "workbench_vars_get",
+                    "description": "读某工作台的看板变量/常量：带 key 取单个（含 revision），不带 key 列全部（可按 prefix 过滤）。各台按 workbench id 隔离，自产台/SOP 台/外部台通用。",
+                    "inputSchema": {
+                      "type": "object",
+                      "properties": { "id": { "type": "integer", "description": "工作台 id" }, "key": { "type": "string", "description": "变量键（缺省=列全部）" }, "prefix": { "type": "string", "description": "列举时按键前缀过滤" } },
+                      "required": ["id"],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "name": "workbench_vars_set",
+                    "description": "写某工作台的看板变量（JSON 值）。新建可不带 revision（或 revision=0 表示仅在不存在时创建）；改已存在的键必须带当前 revision，不符返回 revision 冲突与当前值。kind=const 写入后不能直接改：谁写的谁维护——新建常量的会话是作者，作者本人带 override=true 与 reason 可修订；别人的常量改不了（作者缺失时由部署机本机命令行兜底）。作者本人修订时带 owner=\"*\" 可把常量设成公共：之后任何 MCP 会话或 Odoo 登录带 override 与 reason 都能修订，台令牌仍不能写。",
+                    "inputSchema": {
+                      "type": "object",
+                      "properties": {
+                        "id": { "type": "integer", "description": "工作台 id" },
+                        "key": { "type": "string", "description": "字母/数字/下划线开头，字母/数字/_ . : -，≤128 字符" },
+                        "value": { "description": "任意 JSON 值（≤64KB）" },
+                        "kind": { "type": "string", "enum": ["var", "const"], "description": "缺省 var；新建时给 const 即锁定" },
+                        "revision": { "type": "integer", "description": "期望的当前 revision（乐观锁）" },
+                        "reason": { "type": "string", "description": "变更说明（记入审计，≤200 字；修订常量时必填）" },
+                        "override": { "type": "boolean", "description": "修订常量时给 true（作者本人，或公共常量的任一会话）" },
+                        "owner": { "type": "string", "enum": ["*"], "description": "只接受 \"*\"：作者本人把自己的常量设成公共（须同时带 override 与 reason）" }
+                      },
+                      "required": ["id", "key", "value"],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "name": "workbench_register",
+                    "description": "登记外部工作台入册（agent 发现内网新服务时自主登记；门户/市场即刻可用）。凭据不接受——需人工经市场页配置（安全边界）。",
+                    "inputSchema": {
+                      "type": "object",
+                      "properties": {
+                        "name": { "type": "string" },
+                        "url": { "type": "string", "description": "http(s) 地址（自产台走 GitHub main 同步 app_sync）" },
+                        "type": { "type": "string", "description": "类型 key，默认 web" },
+                        "category": { "type": "string" },
+                        "description": { "type": "string" },
+                        "tags": { "type": "array", "items": { "type": "string" } },
+                        "enabled": { "type": "boolean" },
+                        "health_path": { "type": "string" },
+                        "sort": { "type": "integer" }
+                      },
+                      "required": ["name", "url"],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "name": "workbench_update",
+                    "description": "更新工作台配置（name/category/tags/description/enabled/health_path/sort/url）。不接受 auth——凭据变更人工操作；掩码 url 回传视为未变更。",
+                    "inputSchema": {
+                      "type": "object",
+                      "properties": {
+                        "id": { "type": "integer" },
+                        "name": { "type": "string" },
+                        "url": { "type": "string" },
+                        "category": { "type": "string" },
+                        "description": { "type": "string" },
+                        "tags": { "type": "array", "items": { "type": "string" } },
+                        "enabled": { "type": "boolean" },
+                        "health_path": { "type": "string" },
+                        "sort": { "type": "integer" }
+                      },
+                      "required": ["id"],
+                      "additionalProperties": false
+                    }
+                  },
+                  { "name": "workbench_unregister", "description": "解除工作台注册（不删服务本体；驾驶舱面板引用联动清理）。", "inputSchema": { "type": "object", "properties": { "id": { "type": "integer" } }, "required": ["id"], "additionalProperties": false } },
+                  {
+                    "name": "skills_list",
+                    "description": "列出市场技能（可按 layer 1-5 过滤：1业务角色/2开发运维/3工作流/4架构设计/5AI原生运营），返回 slug/name/layer/族/版本数/active_version/current_version——市场技能目录入口。两个版本字段别混：active_version＝市场当前版本（回滚指针，不带版本号的取装/导出/下载/安装计划都取它，未回滚即最新版）；current_version＝本机钉装记录里的版本（未钉装为 null）。",
+                    "inputSchema": { "type": "object", "properties": { "layer": { "type": "number", "description": "分层过滤 1-5（缺省全量）" }, "q": { "type": "string", "description": "名称/描述关键词" } } }
+                  },
+                  {
+                    "name": "skill_versions",
+                    "description": "查某技能版本链（newest-first）：version/changelog/breaking/tree_digest/snapshot_path/reviewed_by——版本不可变审计面；active=true 的是市场当前版本（active_version，回滚指针；回滚只移这个指针，不新增版本）。",
+                    "inputSchema": { "type": "object", "properties": { "slug": { "type": "string", "description": "技能 slug（如 agents:brand）" } }, "required": ["slug"] }
+                  },
+                  {
+                    "name": "skill_file_put",
+                    "description": "技能上传第一步：一次上传一个文件（不收压缩包），暂存在市场上，返回 sha256。文本文件 content 直接给；二进制文件（图片/字体/模板）content 给 base64 并带 encoding:\"base64\"。单文件上限 10MB。同内容重复上传幂等并续期，暂存 24 小时后清掉。全部文件传完后调 skill_publish 按 sha256 引用成版。",
+                    "inputSchema": { "type": "object", "properties": { "content": { "type": "string" }, "encoding": { "type": "string", "enum": ["utf8", "base64"], "description": "缺省 utf8" } }, "required": ["content"], "additionalProperties": false }
+                  },
+                  {
+                    "name": "skill_publish",
+                    "description": "技能上传第二步（发版/更新）：用 skill_file_put 返回的 sha256 列出整棵文件树，一次成版。slug 不存在时建技能并发 v1，已存在时发新版本 N+1（旧版本不变）。有文件没上传或暂存已过期时报 400 并点名路径。SKILL.md 的 name/description/argument-hint 自动同步到技能信息。同一技能已有内容完全相同的版本时报 409。审计人记为本会话。",
+                    "inputSchema": {
+                      "type": "object",
+                      "properties": {
+                        "slug": { "type": "string", "description": "小写字母数字开头·仅 [a-z0-9:_-]·≤64 字符" },
+                        "files": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": { "path": { "type": "string", "description": "相对路径（/ 分隔，不许绝对路径或 . / .. 段）" }, "sha256": { "type": "string", "description": "skill_file_put 返回的 sha256" } },
+                            "required": ["path", "sha256"],
+                            "additionalProperties": false
+                          }
+                        },
+                        "changelog": { "type": "string", "description": "本版说明（≤2000 字）" }
+                      },
+                      "required": ["slug", "files"],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "name": "skill_download",
+                    "description": "获取技能（安装/更新）：签发某版本（缺省市场当前版本 active_version：回滚后即回滚到的版本，未回滚即最新）的技能包下载链接，10 分钟有效、至多下载 5 次，过期或用满重新调用。包是 .tar.gz，顶层目录 package_dir（slug 的 : 换成 .），内含技能文件、清单 .wm-skill.json（逐文件 sha256 与整版 tree_digest）和校验脚本 .wm-skill-verify.mjs。安装步骤（经用户同意后执行）：下载到临时目录，先核对整包 sha256 等于应答的 package_sha256（不等就停，不解压）；解压后核对 .wm-skill-verify.mjs 的 sha256 等于应答的 verify_script_sha256（不等就停，不执行它）；再运行 `node <package_dir>/.wm-skill-verify.mjs --install --expect <应答的 tree_digest>`——包里清单的指纹与 --expect 不符、或文件与清单不一致、有符号链接/硬链接/设备文件、清单路径或目录名不合规，就整包拒绝、什么都不动；一致则把 ~/.workbench-market/skills/<package_dir> 的旧版本移进 ~/.workbench-market/skills/.backups/<package_dir>/（每个技能最多留 3 个），再整体换上新版本。返回里的 install_command 是这套步骤的一行 shell 写法。之后随时运行 verify_command 可列出本地被改动的文件。没设 MARKET_PUBLIC_URL 且请求主机不规范时不签发。",
+                    "inputSchema": { "type": "object", "properties": { "slug": { "type": "string" }, "version": { "type": "integer", "description": "缺省市场当前版本 active_version（回滚指针，未回滚即最新版）" } }, "required": ["slug"], "additionalProperties": false }
+                  },
+                  {
+                    "name": "skill_install_plan",
+                    "description": "生成安装计划（薄分发：不自动落盘）——返回目标版本 digest（expected sha256 钉装锚）+ 快照路径 + 手工安装指引。",
+                    "inputSchema": { "type": "object", "properties": { "slug": { "type": "string" }, "version": { "type": "number", "description": "缺省市场当前版本 active_version（回滚指针，未回滚即最新版）" } }, "required": ["slug"] }
+                  },
+                  {
+                    "name": "skill_search",
+                    "description": "语义搜技能：只描述需求（自然语言），评估模型按 P(true) 打分返回 ≤3 个置信度严格 >0.7 的技能（降序）。只读；不可用时**报错不降级**。",
+                    "inputSchema": {
+                      "type": "object",
+                      "properties": {
+                        "need": { "type": "string", "description": "需求描述（1–2000 字·自然语言）" },
+                        "layer": { "type": "integer", "description": "可选层过滤 1..5（缺省全层）" },
+                        "top_n": { "type": "integer", "description": "预筛 top-N（总工决策 #007 C 案·缺省 30·无硬上限·全并列不截断）" }
+                      },
+                      "required": ["need"],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "name": "design_standard",
+                    "description": "读取工作台 design token 标准与页面模式（只读·唯一事实源 DESIGN.md + design-system/workbench-market/PATTERNS.md）：part=tokens 取结构化 token（颜色/字号/间距/圆角/阴影/动效/组件）；guide 取 DESIGN.md 各节规则；patterns 取菜单与目录、页面骨架、SOP 交付空间、列表、数据看板；all（缺省）全给。section 按标题关键词只取命中章节。返回含 version 与两份源文件 sha256。",
+                    "inputSchema": {
+                      "type": "object",
+                      "properties": { "part": { "type": "string", "enum": ["all", "tokens", "guide", "patterns"], "description": "取哪部分（缺省 all）" }, "section": { "type": "string", "description": "按章节标题关键词过滤，如「数据看板」「Colors」" } },
+                      "additionalProperties": false
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "faked",
+      "what": "登录提供方换成假的（scripts/identity-fake-provider.mjs）：带非管理员会话 alpha 的 cookie，看 GET、DELETE 对登录的非管理员也一样。",
+      "env": { "MCP_GATEWAY": "on", "ADMIN_TOKEN": "replay-synthetic-admin", "MARKET_PUBLIC_URL": "https://market.example" },
+      "fixtures": ["identity-fake"],
+      "seed": [
+        { "table": "mcp_sessions", "row": { "name": "replay-agent", "token_sha256": "ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb", "grants": "[\"app_data_list\"]" } },
+        { "table": "mcp_sessions", "row": { "name": "replay-none", "token_sha256": "a0fab1377f49a759b57f63318262ebe89fabfc990e8e93ceac2984561482b9d4", "grants": "[]" } },
+        { "table": "mcp_sessions", "row": { "name": "replay-revoked", "token_sha256": "52b6419d27bd7f547cee3b92f8c17a908b8a49601ecbec161e5030de1dfe9e0a", "grants": "[\"app_data_list\"]", "revoked_at": "2029-12-31 00:00:00" } },
+        { "table": "apps", "row": { "slug": "replay-data", "title": "数据台", "kind": "app", "status": "active", "active_version": 1, "created_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" } },
+        { "table": "app_data", "row": { "app_slug": "replay-data", "data": "{\"n\":1}", "created_by": "seed", "created_at": "2025-01-01 00:00:01" } }
+      ],
+      "steps": [
+        {
+          "id": "login-get",
+          "route": "GET /mcp",
+          "class": "invalid",
+          "what": "登录的非管理员（假的登录提供方认出的 alpha）GET：照样 405",
+          "request": { "method": "GET", "path": "/mcp", "headers": { "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 405,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "stateless StreamableHTTP：仅支持 POST（无服务端会话流）" }
+          }
+        },
+        {
+          "id": "login-delete",
+          "route": "DELETE /mcp",
+          "class": "invalid",
+          "what": "登录的非管理员 DELETE：照样 405",
+          "request": { "method": "DELETE", "path": "/mcp", "headers": { "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": { "status": 405, "type": "application/json; charset=utf-8", "headers": { "content-length": "45", "etag": "W/\"2d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "无会话可终止（stateless）" } }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce，网关强制开）。同样的种子。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin", "MARKET_PUBLIC_URL": "https://market.example" },
+      "seed": [
+        { "table": "mcp_sessions", "row": { "name": "replay-agent", "token_sha256": "ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb", "grants": "[\"app_data_list\"]" } },
+        { "table": "mcp_sessions", "row": { "name": "replay-none", "token_sha256": "a0fab1377f49a759b57f63318262ebe89fabfc990e8e93ceac2984561482b9d4", "grants": "[]" } },
+        { "table": "mcp_sessions", "row": { "name": "replay-revoked", "token_sha256": "52b6419d27bd7f547cee3b92f8c17a908b8a49601ecbec161e5030de1dfe9e0a", "grants": "[\"app_data_list\"]", "revoked_at": "2029-12-31 00:00:00" } },
+        { "table": "apps", "row": { "slug": "replay-data", "title": "数据台", "kind": "app", "status": "active", "active_version": 1, "created_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" } },
+        { "table": "app_data", "row": { "app_slug": "replay-data", "data": "{\"n\":1}", "created_by": "seed", "created_at": "2025-01-01 00:00:01" } }
+      ],
+      "steps": [
+        {
+          "id": "gated-anonymous",
+          "route": "POST /mcp",
+          "class": "unauthorized",
+          "what": "登录门开着（网关强制开）：远程不带令牌 401",
+          "request": { "method": "POST", "path": "/mcp", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "jsonrpc": "2.0", "id": 1, "method": "ping" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "125", "etag": "W/\"7d-<指纹>\"", "vary": "Origin", "www-authenticate": "Bearer realm=\"workbench-market mcp\"", "x-powered-by": "Express" },
+            "body": { "error": "unauthorized: valid session token required", "hint": "会话与令牌由管理员经 /api/mcp/sessions 创建分发" }
+          }
+        },
+        {
+          "id": "gated-token",
+          "route": "POST /mcp",
+          "class": "normal",
+          "what": "远程带会话令牌：照常",
+          "request": {
+            "method": "POST",
+            "path": "/mcp",
+            "headers": { "x-forwarded-for": "198.51.100.7", "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+            "json": { "jsonrpc": "2.0", "id": 2, "method": "ping" }
+          },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "jsonrpc": "2.0", "id": 2, "result": {} } }
+        },
+        {
+          "id": "gated-get",
+          "route": "GET /mcp",
+          "class": "invalid",
+          "what": "GET /mcp 远程匿名、登录门开着：照样 405（登录门对 /mcp 不拦，不看身份）",
+          "request": { "method": "GET", "path": "/mcp", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 405,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "stateless StreamableHTTP：仅支持 POST（无服务端会话流）" }
+          }
+        },
+        {
+          "id": "gated-delete",
+          "route": "DELETE /mcp",
+          "class": "invalid",
+          "what": "DELETE /mcp 远程匿名、登录门开着：照样 405",
+          "request": { "method": "DELETE", "path": "/mcp", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": { "status": 405, "type": "application/json; charset=utf-8", "headers": { "content-length": "45", "etag": "W/\"2d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "无会话可终止（stateless）" } }
+        }
+      ]
+    }
+  ]
+}

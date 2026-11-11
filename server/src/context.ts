@@ -30,6 +30,7 @@ import { GrantService } from './services/grant.ts';
 import { JudgmentCompareService } from './services/judgment-compare.ts';
 import { WorkItemService } from './services/work-item.ts';
 import { AttentionService } from './services/attention.ts';
+import { A2aPeerService } from './services/a2a-peers.ts';
 import { HttpService } from './http.ts';
 
 /** 数据库连接服务：唯一持有 db 的地方（其余服务经注入取用）。 */
@@ -69,6 +70,7 @@ await Promise.all([
   RemoteAllowService,
   WorkItemService,
   AttentionService,
+  A2aPeerService,
   HttpService
 ].map((P) => ctx.plugin(P)));
 

@@ -1,0 +1,433 @@
+{
+  "domain": "a2a-peers",
+  "what": "对端登记表：/api/a2a/peers 的 6 条路由，只给管理员。库里预先放两个对端：一个 active（升级回填建的），一个公钥变了等确认。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /api/a2a/peers", "POST /api/a2a/peers", "POST /api/a2a/peers/:id/refresh", "POST /api/a2a/peers/:id/confirm-key", "POST /api/a2a/peers/:id/disable", "POST /api/a2a/peers/:id/enable"],
+  "exempt": [{ "route": "POST /api/a2a/peers", "class": "normal", "why": "正常登记要取一张真的签名名片：回放环境里没有能出示名片的对端。正常登记由 scripts/a2a-peers-test.mjs 起假对端来测", "shown_by": "open/reg-bad-root" }],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "登录门关；管理口令由环境给合成值。远程匿名用转发头表示。定了时钟。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "seed": [
+        {
+          "table": "a2a_peers",
+          "row": { "id": "peer_aaaaaaaaaaaa", "root_url": "http://127.0.0.1:9", "zone": "team-a", "name": "a-node", "public_key": "QUFB", "key_fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "card_capabilities": "{\"version\":\"1.0\"}", "card_version": "1.0", "status": "active", "registered_by": "system:migration", "registered_at": "2030-01-01T00:00:00.000Z", "updated_at": "2030-01-01T00:00:00.000Z" }
+        },
+        {
+          "table": "a2a_peers",
+          "row": { "id": "peer_bbbbbbbbbbbb", "root_url": "http://127.0.0.1:10", "zone": "team-b", "name": "b-node", "public_key": "QkJC", "key_fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "pending_public_key": "Q0ND", "pending_fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "status": "key_changed", "registered_by": "admin-token", "registered_at": "2030-01-01T00:00:00.000Z", "updated_at": "2030-01-01T00:00:00.000Z" }
+        }
+      ],
+      "steps": [
+        {
+          "id": "list-anon",
+          "route": "GET /api/a2a/peers",
+          "class": "unauthorized",
+          "what": "远程匿名列出：被管理门拒",
+          "request": { "method": "GET", "path": "/api/a2a/peers", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "list-bad-status",
+          "route": "GET /api/a2a/peers",
+          "class": "invalid",
+          "what": "status 不认识：400",
+          "request": { "method": "GET", "path": "/api/a2a/peers?status=bogus", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "83", "etag": "W/\"53-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "status 只能是 active / pending_registration / key_changed / disabled" }
+          }
+        },
+        {
+          "id": "list",
+          "route": "GET /api/a2a/peers",
+          "class": "normal",
+          "what": "带口令列出：两个对端（只给指纹，不给完整公钥）和各自的健康",
+          "request": { "method": "GET", "path": "/api/a2a/peers", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "1307", "etag": "W/\"51b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": "peer_bbbbbbbbbbbb",
+                "root_url": "http://127.0.0.1:10",
+                "zone": "team-b",
+                "name": "b-node",
+                "key_fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "card_version": "",
+                "status": "key_changed",
+                "pending_fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "registered_by": "admin-token",
+                "registered_at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "updated_at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "disabled_by": "",
+                "disabled_at": "",
+                "disabled_reason": "",
+                "card_fetched_at": "",
+                "card_error": "",
+                "card_capabilities": {},
+                "health": { "last_sent_at": "", "last_failure_at": "", "last_failure_reason": "", "last_receipt_at": "", "in_flight": 0, "card_fetched_at": "" }
+              },
+              {
+                "id": "peer_aaaaaaaaaaaa",
+                "root_url": "http://127.0.0.1:9",
+                "zone": "team-a",
+                "name": "a-node",
+                "key_fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "card_version": "1.0",
+                "status": "active",
+                "pending_fingerprint": "",
+                "registered_by": "system:migration",
+                "registered_at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "updated_at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "disabled_by": "",
+                "disabled_at": "",
+                "disabled_reason": "",
+                "card_fetched_at": "",
+                "card_error": "",
+                "card_capabilities": { "version": "1.0" },
+                "health": { "last_sent_at": "", "last_failure_at": "", "last_failure_reason": "", "last_receipt_at": "", "in_flight": 0, "card_fetched_at": "" }
+              }
+            ]
+          }
+        },
+        {
+          "id": "list-migration",
+          "route": "GET /api/a2a/peers",
+          "class": "normal",
+          "what": "按 registered_by 筛：只剩升级回填建出来的那个",
+          "request": { "method": "GET", "path": "/api/a2a/peers?registered_by=system%3Amigration", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "627", "etag": "W/\"273-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": "peer_aaaaaaaaaaaa",
+                "root_url": "http://127.0.0.1:9",
+                "zone": "team-a",
+                "name": "a-node",
+                "key_fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "card_version": "1.0",
+                "status": "active",
+                "pending_fingerprint": "",
+                "registered_by": "system:migration",
+                "registered_at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "updated_at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "disabled_by": "",
+                "disabled_at": "",
+                "disabled_reason": "",
+                "card_fetched_at": "",
+                "card_error": "",
+                "card_capabilities": { "version": "1.0" },
+                "health": { "last_sent_at": "", "last_failure_at": "", "last_failure_reason": "", "last_receipt_at": "", "in_flight": 0, "card_fetched_at": "" }
+              }
+            ]
+          }
+        },
+        {
+          "id": "reg-anon",
+          "route": "POST /api/a2a/peers",
+          "class": "unauthorized",
+          "what": "远程匿名登记：被拒",
+          "request": { "method": "POST", "path": "/api/a2a/peers", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "root_url": "http://127.0.0.1:9" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "reg-bad-root",
+          "route": "POST /api/a2a/peers",
+          "class": "invalid",
+          "what": "根地址不是 http(s)：400",
+          "request": { "method": "POST", "path": "/api/a2a/peers", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "root_url": "ftp://elsewhere.invalid" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "76", "etag": "W/\"4c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "根地址必须是 http(s)://主机[:端口]", "reason": "bad_root" }
+          }
+        },
+        {
+          "id": "refresh-anon",
+          "route": "POST /api/a2a/peers/:id/refresh",
+          "class": "unauthorized",
+          "what": "远程匿名刷新：被拒",
+          "request": { "method": "POST", "path": "/api/a2a/peers/peer_aaaaaaaaaaaa/refresh", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "refresh-unknown",
+          "route": "POST /api/a2a/peers/:id/refresh",
+          "class": "invalid",
+          "what": "没有这个对端：404",
+          "request": { "method": "POST", "path": "/api/a2a/peers/peer_000000000000/refresh", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "peer not found" }
+          }
+        },
+        {
+          "id": "confirm-anon",
+          "route": "POST /api/a2a/peers/:id/confirm-key",
+          "class": "unauthorized",
+          "what": "远程匿名确认新公钥：被拒",
+          "request": { "method": "POST", "path": "/api/a2a/peers/peer_bbbbbbbbbbbb/confirm-key", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "confirm-bad-fp",
+          "route": "POST /api/a2a/peers/:id/confirm-key",
+          "class": "invalid",
+          "what": "指纹形状不对：400",
+          "request": { "method": "POST", "path": "/api/a2a/peers/peer_bbbbbbbbbbbb/confirm-key", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "fingerprint": "abc" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "93", "etag": "W/\"5d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "fingerprint 必须是页面上看到的新指纹（sha256:<64 位十六进制>）" }
+          }
+        },
+        {
+          "id": "confirm-mismatch",
+          "route": "POST /api/a2a/peers/:id/confirm-key",
+          "class": "invalid",
+          "what": "指纹和待确认的对不上：409",
+          "request": {
+            "method": "POST",
+            "path": "/api/a2a/peers/peer_bbbbbbbbbbbb/confirm-key",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+          },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "122", "etag": "W/\"7a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "指纹和待确认的新公钥对不上（可能又变了，先刷新再看）", "reason": "fingerprint_mismatch" }
+          }
+        },
+        {
+          "id": "confirm",
+          "route": "POST /api/a2a/peers/:id/confirm-key",
+          "class": "normal",
+          "what": "指纹对得上：换成新公钥，回到 active",
+          "request": {
+            "method": "POST",
+            "path": "/api/a2a/peers/peer_bbbbbbbbbbbb/confirm-key",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "622", "etag": "W/\"26e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "peer": {
+                "id": "peer_bbbbbbbbbbbb",
+                "root_url": "http://127.0.0.1:10",
+                "zone": "team-b",
+                "name": "b-node",
+                "key_fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "card_version": "",
+                "status": "active",
+                "pending_fingerprint": "",
+                "registered_by": "admin-token",
+                "registered_at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "updated_at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "disabled_by": "",
+                "disabled_at": "",
+                "disabled_reason": "",
+                "card_fetched_at": "",
+                "card_error": "",
+                "card_capabilities": {},
+                "health": { "last_sent_at": "", "last_failure_at": "", "last_failure_reason": "", "last_receipt_at": "", "in_flight": 0, "card_fetched_at": "" }
+              }
+            }
+          }
+        },
+        {
+          "id": "disable-anon",
+          "route": "POST /api/a2a/peers/:id/disable",
+          "class": "unauthorized",
+          "what": "远程匿名停用：被拒",
+          "request": { "method": "POST", "path": "/api/a2a/peers/peer_aaaaaaaaaaaa/disable", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "reason": "x" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "disable-no-reason",
+          "route": "POST /api/a2a/peers/:id/disable",
+          "class": "invalid",
+          "what": "停用不写理由：400",
+          "request": { "method": "POST", "path": "/api/a2a/peers/peer_aaaaaaaaaaaa/disable", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "69", "etag": "W/\"45-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "reason 必填（停用要写理由），不超过 500 字" }
+          }
+        },
+        {
+          "id": "disable",
+          "route": "POST /api/a2a/peers/:id/disable",
+          "class": "normal",
+          "what": "写了理由：停用",
+          "request": { "method": "POST", "path": "/api/a2a/peers/peer_aaaaaaaaaaaa/disable", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "reason": "合成：节点下线" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "702", "etag": "W/\"2be-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "peer": {
+                "id": "peer_aaaaaaaaaaaa",
+                "root_url": "http://127.0.0.1:9",
+                "zone": "team-a",
+                "name": "a-node",
+                "key_fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "card_version": "1.0",
+                "status": "disabled",
+                "pending_fingerprint": "",
+                "registered_by": "system:migration",
+                "registered_at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "updated_at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "disabled_by": "admin-token",
+                "disabled_at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "disabled_reason": "合成：节点下线",
+                "card_fetched_at": "",
+                "card_error": "",
+                "card_capabilities": { "version": "1.0" },
+                "health": { "last_sent_at": "", "last_failure_at": "", "last_failure_reason": "", "last_receipt_at": "", "in_flight": 0, "card_fetched_at": "" }
+              }
+            }
+          }
+        },
+        {
+          "id": "enable-anon",
+          "route": "POST /api/a2a/peers/:id/enable",
+          "class": "unauthorized",
+          "what": "远程匿名重新启用：被拒",
+          "request": { "method": "POST", "path": "/api/a2a/peers/peer_aaaaaaaaaaaa/enable", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "enable-unknown",
+          "route": "POST /api/a2a/peers/:id/enable",
+          "class": "invalid",
+          "what": "id 不是对端 id 的样子：404",
+          "request": { "method": "POST", "path": "/api/a2a/peers/nope/enable", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "peer not found" }
+          }
+        },
+        {
+          "id": "enable",
+          "route": "POST /api/a2a/peers/:id/enable",
+          "class": "normal",
+          "what": "重新启用：回到 active",
+          "request": { "method": "POST", "path": "/api/a2a/peers/peer_aaaaaaaaaaaa/enable", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "644", "etag": "W/\"284-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "peer": {
+                "id": "peer_aaaaaaaaaaaa",
+                "root_url": "http://127.0.0.1:9",
+                "zone": "team-a",
+                "name": "a-node",
+                "key_fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "card_version": "1.0",
+                "status": "active",
+                "pending_fingerprint": "",
+                "registered_by": "system:migration",
+                "registered_at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "updated_at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "disabled_by": "",
+                "disabled_at": "",
+                "disabled_reason": "",
+                "card_fetched_at": "",
+                "card_error": "",
+                "card_capabilities": { "version": "1.0" },
+                "health": { "last_sent_at": "", "last_failure_at": "", "last_failure_reason": "", "last_receipt_at": "", "in_flight": 0, "card_fetched_at": "" }
+              }
+            }
+          }
+        },
+        {
+          "id": "refresh",
+          "route": "POST /api/a2a/peers/:id/refresh",
+          "class": "normal",
+          "what": "刷新名片：取不到（回环上没人听），状态不动，记下原因",
+          "request": { "method": "POST", "path": "/api/a2a/peers/peer_aaaaaaaaaaaa/refresh", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "697", "etag": "W/\"2b9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "peer": {
+                "id": "peer_aaaaaaaaaaaa",
+                "root_url": "http://127.0.0.1:9",
+                "zone": "team-a",
+                "name": "a-node",
+                "key_fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "card_version": "1.0",
+                "status": "active",
+                "pending_fingerprint": "",
+                "registered_by": "system:migration",
+                "registered_at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "updated_at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "disabled_by": "",
+                "disabled_at": "",
+                "disabled_reason": "",
+                "card_fetched_at": "",
+                "card_error": "取不到 http://127.0.0.1:9 的名片：fetch failed",
+                "card_capabilities": { "version": "1.0" },
+                "health": { "last_sent_at": "", "last_failure_at": "", "last_failure_reason": "", "last_receipt_at": "", "in_flight": 0, "card_fetched_at": "" }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

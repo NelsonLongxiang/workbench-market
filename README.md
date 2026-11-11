@@ -64,6 +64,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_ODOO_LOGIN_PROXY`（`1`=市场同域 Odoo 登录中继·上游固定为 `WM_ODOO_URL`·见 [docs/odoo-login-relay.md](docs/odoo-login-relay.md)）
 - `WM_SESSION_TTL_MIN`（市场会话的绝对期限，分钟·缺省 720＝12 小时·范围 15～10080·不续期·不合法拒绝启动）
 - `WM_APP_DATA_READ`（台数据与附件的读守卫·缺省 `enforce`：`GET /api/apps/<台>/data`、`/files`、`/files/<id>` 要本台的台令牌、管理员（同源）或本机命令行，下载另认本台页面的查看凭证，都不满足 403；`warn`＝上线过渡用，照旧放行，只按路由和调用方类别计数留痕（日志 `source: app-data-read`），过渡完设回 `enforce`；其它值拒绝启动）
+- `WM_SOP_RUN_WRITE`（SOP run 的写守卫·缺省 `enforce`：保存一步 `PUT /api/sop/runs/<id>`、完成 `POST …/finish` 要这个 run 的上传令牌 `X-Run-Upload-Token`（run 还在执行）、管理员（同源）或本机命令行，都不满足 403，不分登录门开没开；`warn`＝上线过渡用，照旧放行，只按路由和调用方类别计数留痕（日志 `source: sop-run-write`），过渡完设回 `enforce`；其它值拒绝启动）
 - `WM_ROLES_FILE`（组织角色的外部声明文件·绝对路径·JSON `{"roles":[…]}`·设了就以它为准，不设用仓库里的通用初始集合·平台内置角色不能被覆盖，同名、循环包含、引用不存在的动作、范围写法不对都拒绝启动）
 - `WM_JUDGMENT_COMPARE`（判定的并行比对·`on` 打开·缺省 `off`·别的值拒绝启动·打开时每个请求应答结束之后算新判定、和旧守卫的结论比，不改应答，并给第一次见到的人迁移 `member`、身份来源说是管理员的迁移 `admin`（来源记 migration）·只在 CI 和出报告用的实例里开，不在生产上开）
 - `WM_JUDGMENT_COMPARE_OUT`（比对打开时每比一次追加一行 JSON 的文件·绝对路径·可选·给出报告的脚本汇总）
@@ -94,6 +95,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - 一行管失效通知：远程匿名、不带签名向 `/login/feishu/events` 发事件必须 401；
 - 一行管授予管理面：远程匿名 GET `/api/grants` 必须被拒（登录门关着 403，开着由登录门先拦 401）；
 - 一行管台数据的读：远程匿名不带台令牌 GET `/api/apps/<台>/data` 必须被拒（登录门关着 403，开着由登录门先拦 401；`WM_APP_DATA_READ=warn` 时这一行不跑）；
+- 一行管写 run：远程匿名不带 run 的写凭据 PUT `/api/sop/runs/<编出来的号>` 必须被拒（登录门关着 403，开着由登录门先拦 401；`WM_SOP_RUN_WRITE=warn` 时这一行不跑）；
 - 另有一行进程内的自检管设置的出口（`settings.no-secret-values`，不发请求）：启动时拿真实的设置跑一遍两级出口，凭据类的值漏进任何一级就拒绝启动（只记键名）；
 - 一行管导出真值：远程匿名带 `reveal=1` 导出必须被拒（登录门关着 403，开着由登录门先拦 401）。`WM_LOGIN_GATE=enforce` 时另加四行：远程匿名 GET `/`、`/apps/<台>/` 必须 302 到登录页、`/api/apps` 必须 401（浏览器写那一行改为期望登录门的 401），外加远程无签名 `POST /a2a/direct` 必须 401。强制行通过后才开放业务并启动后台巡检，health 可回读逐行结果。任一强制行失败或超时只关闭本进程监听并非零退出，不杀宿主或父进程；
 
@@ -361,6 +363,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   a2a-followups.ts（席位发来的消息（跟进）的登记：收下、按投递与对端计数、事项对话里的未读、看过、回复）
   a2a-handles.ts（市场 A2A 会话句柄 `market/<node8>` 的唯一性：生成时避开已占用的，存量撞车的不上卡、入站失败关闭）
   a2a-idempotency.ts（`/a2a/direct` 幂等登记：task_id → 指纹 sha256，30 分钟窗口，落库，重启后同一 task_id 仍判 replay / conflict；只存摘要不存原文）
+  a2a-peers.ts（对端登记表：Cordis 服务 `a2aPeers`·一个节点一行·登记时取名片验签钉住公钥·公钥变了改成 key_changed 等管理员确认、不自动接受·停用是粘住的、只有管理员重新启用能解·canDeliver 供投递查（调用方阶段七接上，接上前对投递、入站没有效果）·按对端算健康·升级回填从现有绑定和投递建对端行）
   a2a-receipts.ts（回执入站的登记：我们发出的任务号 → 事件、投递、对端；采信过的回执按任务号去重；签名只认一次）
   a2a-replies.ts（市场回给团队的消息的发送状态：答复、来信回复、跟进回执；时间由代码生成后写入）
   a2a-stats.ts（A2A 出站积压的聚合读数：两张出站表按状态计数、最老待发、最近回执时长）
@@ -377,9 +380,11 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   task-center.ts（任务中心：任务、事件、总开关、状态迁移）
   work-item.ts（事项与事项日志：Cordis 服务 `workItems`·按迁移表推进状态的唯一入口 `apply`·日志只增不改；听 workbench-events 每写一行事件日志发的 `workbench-event/logged`，在来源的事务里用保存点推进事项，出错不影响来源、按事实种类计数；`backfill()` 从事件表和事件日志补建存量事项，可重跑；建事项时标题取任务中心的任务标题（取不到退到来源坐标）、派给取投递的目标团队，存量里还是自动缺省值的启动时补上；建立人主体 `creator_principal` 只取发布时经身份服务认出、来源已验证的人，认不出就空着，「是不是他的」只认它（`isCreator`），`created_by` 只用于显示）
 server/src/routes/    按域分的路由模块，各带一个注册函数（一个文件一行，按文件名排序）：
+  a2a-peers.ts（对端登记表 /api/a2a/peers：列出和健康、登记、刷新名片、确认新公钥、停用、重新启用，只有管理员能用）
   admin-token.ts（管理口令 /api/admin/whoami、/api/admin-token）
   agent-card.ts（A2A 签名卡片 /.well-known/agent-card.json）
   app-data.ts（自产台的数据与文件 /api/apps/:slug/data、/files：提交、列表、软删，上传、改备注、下载；提交和上传是匿名提交面，不经写总门）
+  apps-static.ts（自产台静态托管 GET /apps/<slug>/…：只是注册那一行，处理函数 serveApp（活跃版本或 ?version、CSP sandbox、注入本台令牌、LayerFS 冷回读）门户也用，留在 index.ts）
   apps.ts（自产台与 SOP 台的登记和生命周期 /api/apps：列表、单个台、task-center 直接发布、从 GitHub 同步、迁进 LayerFS、回滚、删台；台的数据与文件另成一域）
   attention.ts（「关注」的读 /api/attention：当前这个人在七个来源里等他处理的条目和条数）
   auth-viewer.ts（登录探测 /api/auth/viewer）
@@ -391,8 +396,10 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   design-tokens.ts（设计 token 固定路径 /design/tokens@<版本>.css）
   export-import.ts（导出与导入 /api/export、/api/import）
   grants.ts（角色与授予的管理接口 /api/roles、/api/grants：起草、提交、放行、撤销）
+  health.ts（健康与就绪 /api/health、/api/health/ready：只回缓存的 LayerFS 结果、配了 LayerFS 才探；带 A2A 的开关、计数和时长；公开）
   login-events.ts（离职即时失效：/login/<方式>/events 失效通知、每日对账）
   login-flows.ts（登录方式 /login/<方式> 与回调：state、next、对到主体、发市场会话）
+  mcp-protocol.ts（MCP 协议入口 /mcp（无状态 StreamableHTTP）：POST 收 JSON-RPC（initialize、ping、tools/list、tools/call），GET、DELETE 回 405；认证是 MCP 会话令牌）
   mcp-rest.ts（MCP 内嵌的 REST /api/mcp-rest、/openapi.json：OpenAPI 文档、工具调用、台文件上传（原始字节、multipart）列表下载（Range、ETag）、台数据、SOP run 与附件；认证是 MCP 会话令牌，授权映射到工具 grants）
   mcp.ts（MCP 网关控制面 /api/mcp：上游、会话、授权、工具目录、调用记录、权限申请的批准与驳回）
   principals.ts（主体管理 /api/principals：列出、停用、恢复、对一次外部身份、待对接清单，只有管理员能用）
@@ -544,6 +551,8 @@ UI：`/tasks` 页（源/状态过滤·扩展条目可标「仅查看」）· 总
 |---|---|---|
 | REST `/api/apps`（发布） | `X-Admin-Token` 必带（远程写另经 T1 豁免面清单） | 开放（GET） |
 | REST `/api/apps/:slug/data`、`/files` | 提交、上传开放（台的匿名提交面）；删、改备注要管理员 | 本台的台令牌、管理员（同源）或本机命令行；下载另认本台页面的查看凭证（`WM_APP_DATA_READ`） |
+| REST `/api/sop/runs`（开建） | 开放：开建的人在应答里拿到这个 run 的上传令牌和读凭证 | — |
+| REST `/api/sop/runs/:id`（保存一步）、`…/finish`（完成） | **这个 run 的 `X-Run-Upload-Token`**（run 还在执行）、管理员（同源）或本机命令行，先于查 run，不满足 403（`WM_SOP_RUN_WRITE`）；执行页自己带上；换了浏览器、本地没存令牌的旧 run 只能管理员处理 | — |
 | REST `/api/sop/runs/:id/files`、`…/files/refs` | **run-scoped `X-Run-Upload-Token`**（启动响应/派单回执取）或管理员口令；refs 另逐条核源 run 读凭证 | 开放 |
 | MCP REST `/openapi.json`、`/api/mcp-rest/*` | 与 `/mcp` 同一套：只认 `Authorization: Bearer <会话令牌>`，不走浏览器登录与管理口令 | 同左 |
 | MCP `/mcp` | 无独立口令——网关模式下按会话 `grants` 工具白名单授权（`Authorization: Bearer <token>`）；`access_info` / `access_request` 免授权，缺权限的会话据此看目录、提申请 | 同左 |

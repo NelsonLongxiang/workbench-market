@@ -45,6 +45,7 @@ import { registerSettingsRoutes } from './routes/settings.ts';
 import { settingsViewsLeak } from './settings-view.ts';
 import { registerAdminTokenRoutes } from './routes/admin-token.ts';
 import { registerBindingRoutes } from './routes/bindings.ts';
+import { registerA2aPeerRoutes } from './routes/a2a-peers.ts';
 import { registerExportImportRoutes } from './routes/export-import.ts';
 import { registerLoginFlowRoutes } from './routes/login-flows.ts';
 import { registerWorkbenchRoutes } from './routes/workbenches.ts';
@@ -59,8 +60,11 @@ import { registerRemoteAllowRoutes } from './routes/remote-allow.ts';
 import { registerAppRoutes, registerAppLifecycleRoutes } from './routes/apps.ts';
 import { registerAppDataRoutes, appDataReadMode, type AppDataReadMode } from './routes/app-data.ts';
 import { registerSopRunFileRoutes } from './routes/sop-run-files.ts';
-import { registerSopRunLifecycleRoutes } from './routes/sop-run-lifecycle.ts';
+import { registerSopRunLifecycleRoutes, sopRunWriteMode, type SopRunWriteMode } from './routes/sop-run-lifecycle.ts';
 import { registerMcpRestRoutes } from './routes/mcp-rest.ts';
+import { registerAppsStaticRoutes } from './routes/apps-static.ts';
+import { registerHealthRoutes } from './routes/health.ts';
+import { registerMcpProtocolRoutes } from './routes/mcp-protocol.ts';
 import { registerSopRunControlRoutes } from './routes/sop-run-control.ts';
 import { registerSopRunAccessRoutes } from './routes/sop-run-access.ts';
 import type { WorkbenchService } from './services/workbench.ts';
@@ -121,6 +125,11 @@ const APP_DATA_READ: AppDataReadMode = (() => {
   try { return appDataReadMode(process.env.WM_APP_DATA_READ); } catch (e) { console.error(`[app-data] 拒绝启动：${(e as Error).message}`); process.exit(1); }
 })();
 if (APP_DATA_READ === 'warn') console.warn('[app-data] WM_APP_DATA_READ=warn：没有台令牌、不是管理员的读照旧放行，只计数留痕（上线过渡用，过渡完设回 enforce）');
+// 写 run 的守卫（WM_SOP_RUN_WRITE=enforce|warn，缺省 enforce）：启动时读一次，不合法拒绝启动
+const SOP_RUN_WRITE: SopRunWriteMode = (() => {
+  try { return sopRunWriteMode(process.env.WM_SOP_RUN_WRITE); } catch (e) { console.error(`[sop-run] 拒绝启动：${(e as Error).message}`); process.exit(1); }
+})();
+if (SOP_RUN_WRITE === 'warn') console.warn('[sop-run] WM_SOP_RUN_WRITE=warn：没带写凭据的保存、完成照旧放行，只计数留痕（上线过渡用，过渡完设回 enforce）');
 // 市场会话的绝对期限（WM_SESSION_TTL_MIN，分钟，缺省 720 = 12 小时，范围 15～10080）：启动时读一次，不合法拒绝启动。不续期
 const SESSION_TTL_MIN = (() => {
   const raw = String(process.env.WM_SESSION_TTL_MIN ?? '').trim();
@@ -435,7 +444,7 @@ async function markOdooAdmin(req: express.Request): Promise<void> {
   if (login) odooAdminReqs.set(req, login);
 }
 // 管理读面（GET 也走 adminGuard/vaultGuard 的）与口令/身份端点：进路由前先认定
-const ADMIN_IDENTITY_PATHS = /^\/api\/(admin\/whoami|admin-token(\/|$)|mcp\/(sessions|upstreams|tools|calls|access-requests)(\/|$)|change-requests(\/|$)|bindings(\/|$)|remote-allow\/diff|vault\/|tasks(\/|$)|workbench-events(\/|$))/; // tasks：统一待办读面同样认 Odoo 管理员（与口令管理员同为全量）；workbench-events：工作台事件的列表、详情也认（「关注」的席位提问同口径）
+const ADMIN_IDENTITY_PATHS = /^\/api\/(admin\/whoami|admin-token(\/|$)|mcp\/(sessions|upstreams|tools|calls|access-requests)(\/|$)|change-requests(\/|$)|bindings(\/|$)|a2a\/peers(\/|$)|remote-allow\/diff|vault\/|tasks(\/|$)|workbench-events(\/|$))/; // a2a/peers：对端登记表的管理接口，会话登录的管理员也算管理员（和绑定同口径）；tasks：统一待办读面同样认 Odoo 管理员（与口令管理员同为全量）；workbench-events：工作台事件的列表、详情也认（「关注」的席位提问同口径）
 app.use(async (req, _res, next) => {
   if (ADMIN_IDENTITY_PATHS.test(req.path.toLowerCase())) await markOdooAdmin(req);
   next();
@@ -2176,7 +2185,7 @@ async function sopRunUpgradePlan(id: number) {
     },
   };
 }
-registerSopRunLifecycleRoutes(http, { wrap, adminHeaderOk, runReadCapHeader, sopRunGetCore, sopRunGetMeta, sopRunStepSaveCore, sopRunFinishCore, markOdooAdmin, sopRunUpgradePlan, bad, runCheckpoints, adminActor });
+registerSopRunLifecycleRoutes(http, { wrap, adminHeaderOk, runReadCapHeader, sopRunGetCore, sopRunGetMeta, sopRunStepSaveCore, sopRunFinishCore, markOdooAdmin, sopRunUpgradePlan, bad, runCheckpoints, adminActor, writeMode: SOP_RUN_WRITE });
 
 // ---------- 自产台静态托管：GET /apps/:slug/* → DATA_DIR/apps/<slug>/v<active>/* ----------
 function serveApp(req: express.Request, res: express.Response) {
@@ -2250,8 +2259,7 @@ function serveApp(req: express.Request, res: express.Response) {
   }
   res.sendFile(abs);
 }
-// 必须在 web/dist SPA fallback 之前注册
-app.get(/^\/apps\/[a-z0-9][a-z0-9-]*(\/.*)?$/, serveApp);
+registerAppsStaticRoutes(http, { serveApp });
 // #321 设计 token 的固定路径（自产台 <link> 引入）：/design/tokens@<主版本>.css 推荐（主版本内名字稳定、值可变，按需重新验证），
 // /design/tokens@<完整版本>.css 精确钉版本（内容不变，可长缓存）；其他版本 404，不猜
 registerDesignTokenRoutes(http);
@@ -2322,6 +2330,8 @@ workbenchVars.mount(app); // #336 /api/workbenches/:id/vars
 // 两者都是公开端点，LayerFS 探测结果缓存 10 秒、同一时刻只发一次，匿名请求打不穿到 LayerFS。
 const LAYERFS_PROBE_TTL_MS = 10_000;
 let layerfsProbe: { at: number; status: 'healthy' | 'unhealthy' | 'unreachable' } | null = null;
+/** 上次 LayerFS 探测的缓存结果（还没探过是 null）。/api/health 只读这个、不触发探测；这个值会在就绪探测时更新，所以按调用取，不按值传 */
+function layerfsProbeCached(): typeof layerfsProbe { return layerfsProbe; }
 let layerfsProbing: Promise<'healthy' | 'unhealthy' | 'unreachable'> | null = null;
 function layerfsReadiness(): Promise<'healthy' | 'unhealthy' | 'unreachable'> {
   if (layerfsProbe && Date.now() - layerfsProbe.at < LAYERFS_PROBE_TTL_MS) return Promise.resolve(layerfsProbe.status);
@@ -2347,20 +2357,7 @@ function healthBase(req?: express.Request): Record<string, unknown> {
   } catch { /* 事项服务没装上 */ }
   return { ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, self_probe: startupSecurity.snapshot(), work_items_backfill: backfill };
 }
-app.get('/api/health', (req, res) => {
-  const result = healthBase(req);
-  if (process.env.LAYERFS_SERVICE_URL && layerfsProbe) result.layerfs = layerfsProbe.status; // 只回缓存的上次结果，不触发探测
-  result.a2a = a2aHealth({ directSig: A2A_DIRECT_SIG, directSigBody: A2A_DIRECT_SIG_BODY! }); // 阶段七第 5 步：只出开关、计数和时长
-  res.json(result);
-});
-app.get('/api/health/ready', async (req, res) => {
-  const result = healthBase(req);
-  if (process.env.LAYERFS_SERVICE_URL) {
-    result.layerfs = await layerfsReadiness();
-    if (result.layerfs !== 'healthy') { result.ok = false; return res.status(503).json(result); }
-  }
-  res.json(result);
-});
+registerHealthRoutes(http, { healthBase, layerfsProbeCached, layerfsReadiness, A2A_DIRECT_SIG, A2A_DIRECT_SIG_BODY });
 loginGate.mount(app); // /login、/api/auth/login|logout|me（解析器之后、SPA 回落之前）
 registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionTtlMs: SESSION_TTL_MIN * 60_000 });
 registerLoginEventRoutes(http); // /login/<方式>/events：离职、停用的失效通知；每天一次对账 // /login/<方式>、/login/<方式>/callback：飞书等发市场会话的登录
@@ -2484,6 +2481,7 @@ registerRemoteAllowRoutes(http, { adminGuard, lastAllowDiff });
 registerSopSpaceRoutes(http, { getApp, adminHeaderOk, bad, appsRoot, parseSopManifest });
 
 registerBindingRoutes(http, { adminGuard, getApp });
+registerA2aPeerRoutes(http, { adminGuard, adminActor }); // 对端登记表：只给管理员
 
 // （旧双面绑定 CRUD 已删——统一面 /api/bindings 承接，410 过渡件在上）
 
@@ -3226,84 +3224,7 @@ async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, 
   }
 }
 
-// /mcp 网关化（MCP_GATEWAY=on）：Bearer 有效→会话；无效/缺失/吊销→401+WWW-Authenticate（含 initialize，无兼容期）
-app.post('/mcp', async (req, res) => {
-  const msg = req.body ?? {};
-  const fail = (code: number, message: string) => res.json({ jsonrpc: '2.0', id: msg.id ?? null, error: { code, message } });
-
-  // 网关会话判定 + 审计
-  const sess = mcpGatewaySession(req, res);
-  if (sess === undefined) return;
-  const audit = (method: string, tool: string, ok: boolean, error: string, durationMs: number, args: unknown) =>
-    mcpAudit(sess, 'mcp', method, tool, ok, error, durationMs, args);
-  const t0 = Date.now();
-
-  if (typeof msg !== 'object' || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') {
-    audit('invalid', '', false, 'Invalid Request', 0, msg);
-    return fail(-32600, 'Invalid Request');
-  }
-  if (msg.id === undefined || msg.id === null) return res.status(202).end(); // notification（含 notifications/initialized）——stateless 无会话态需要跟踪
-  try {
-    if (msg.method === 'initialize') {
-      const want = typeof msg.params?.protocolVersion === 'string' ? msg.params.protocolVersion : '';
-      audit('initialize', '', true, '', Date.now() - t0, msg.params);
-      const rest = mcpRestInfo(mcpPublicOrigin(req));
-      return res.json({
-        jsonrpc: '2.0', id: msg.id,
-        result: {
-          protocolVersion: MCP_KNOWN_PROTOCOLS.includes(want) ? want : MCP_PROTOCOL,
-          capabilities: { tools: {} },
-          serverInfo: { name: 'workbench-market', version: '0.1.0', title: '工作台市场' },
-          instructions: `缺工具先调 access_info。大文件上传下载与资源读取可用同一会话令牌走 REST：${rest.rest_base}（OpenAPI：${rest.openapi_url}）`,
-          ...rest,
-        },
-      });
-    }
-    if (msg.method === 'ping') {
-      audit('ping', '', true, '', Date.now() - t0, null);
-      return res.json({ jsonrpc: '2.0', id: msg.id, result: {} });
-    }
-    if (msg.method === 'tools/list') {
-      const all = await mcpAggregatedTools(); // 本地 + 上游（P2 聚合）
-      // 按授权过滤；access_info / access_request 始终列出（缺权限时靠它们看目录、提申请）
-      const tools = all.filter((t) => mcpToolGranted(sess, t.name))
-        .map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
-      audit('tools/list', '', true, '', Date.now() - t0, null);
-      return res.json({ jsonrpc: '2.0', id: msg.id, result: { tools } });
-    }
-    if (msg.method === 'tools/call') {
-      if (typeof msg.params?.name !== 'string') {
-        audit('tools/call', '', false, 'params.name 必填', Date.now() - t0, msg.params);
-        return fail(-32602, 'params.name 必填');
-      }
-      // 未授权与不存在同应答——不泄露存在性
-      const toolName = msg.params.name;
-      const r = await mcpInvokeTool(sess, toolName, msg.params?.arguments, 'mcp', mcpPublicOrigin(req), t0);
-      if (r.kind === 'not_granted') return fail(-32601, `Method not found: ${msg.method}`); // 与未知工具同文案族
-      if (r.kind === 'ok') {
-        // 上游结果已是 MCP 形状（{content,isError?}）→ 原样透传（下游客户端语义无损）；
-        // 本地工具结果是业务对象 → 序列化为 text content。
-        const out = r.out;
-        if (r.upstream && out && typeof out === 'object' && Array.isArray((out as any).content)) {
-          return res.json({ jsonrpc: '2.0', id: msg.id, result: out });
-        }
-        return res.json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }] } });
-      }
-      // 工具执行失败按 MCP 规范走 isError（协议层错误才用 JSON-RPC error）
-      // 带具名字段的错误（如数据契约 violations）把状态码与字段原样附在后面，agent 能逐条改
-      const e = r.error;
-      const detail = e instanceof HttpError && e.extra ? `\n${JSON.stringify({ status: e.status, ...e.extra })}` : '';
-      return res.json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: `执行失败：${e?.message || e}${detail}` }], isError: true } });
-    }
-    audit(msg.method, '', false, 'Method not found', Date.now() - t0, msg.params);
-    return fail(-32601, `Method not found: ${msg.method}`);
-  } catch (e: any) {
-    audit(msg.method, '', false, 'Internal error', Date.now() - t0, msg.params);
-    return fail(-32603, `Internal error: ${e?.message || e}`);
-  }
-});
-app.get('/mcp', (_req, res) => res.status(405).json({ error: 'stateless StreamableHTTP：仅支持 POST（无服务端会话流）' }));
-app.delete('/mcp', (_req, res) => res.status(405).json({ error: '无会话可终止（stateless）' }));
+registerMcpProtocolRoutes(http, { mcpGatewaySession, mcpAudit, mcpRestInfo, mcpPublicOrigin, MCP_KNOWN_PROTOCOLS, MCP_PROTOCOL, mcpAggregatedTools, mcpToolGranted, mcpInvokeTool });
 
 // ---------- MCP 工具的 OpenAPI REST 开放：不说 MCP 协议的客户端用同一个会话令牌按 REST 调同一批工具 ----------
 // 认证、授权、审计、上游转发全走上面的共用链（mcpGatewaySession / mcpInvokeTool），只换应答形状。
@@ -3658,7 +3579,7 @@ const goServer = registerSurface(app, 'market', PORT, () => {
 const controlServer = SURFACE_PORTS.control ? registerSurface(app, 'control', SURFACE_PORTS.control) : undefined;
 if (contentCfg && contentRuntime) listenContentSurface(app, contentCfg, contentRuntime, () => startupSecurity.snapshot().passed);
 
-void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ }).then((result) => {
+void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE }).then((result) => {
   if (!result.passed) return refuseUnsafeStartup();
   startRedis();
   armPatrol();
