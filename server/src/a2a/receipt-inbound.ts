@@ -19,7 +19,7 @@ import { createPublicKey, verify as edVerify } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import { parseA2aReceipt } from '../a2a.ts';
 import { audiencesOf, bodyDigest, originOf, SIG_SKEW_MS } from '../a2a-direct-sig.ts';
-import { claimQuestion, claimReceipt, claimSignatureOnce, inReceiptTx, questionRecorded, receiptRecorded, sentTask, sentTaskForFollowup, untrustedReceiptCount, type SentTask } from '../services/a2a-receipts.ts';
+import { claimQuestion, claimReceipt, claimSignatureOnce, inReceiptTx, progressSteps, questionRecorded, receiptRecorded, sentTask, sentTaskForFollowup, untrustedReceiptCount, type SentTask } from '../services/a2a-receipts.ts';
 import { followupOf, followupsOfDelivery, followupsOfPeerSince, recordFollowup } from '../services/a2a-followups.ts';
 import { deliveryTarget, queueReply } from '../services/a2a-replies.ts';
 import { kickWorkbenchEvents, logDeliveryFact } from '../workbench-events.ts';
@@ -95,17 +95,19 @@ export async function verifyReceiptSigner(req: Req, raw: Buffer, sent: SentTask,
  *   回执头 `[A2A receipt] task <task>` 里的 <task> 是我们发出的任务号；入站 task_id 是 ack-<task>（接单回执，不结清）
  *   或 receipt-<task>（终局回执：提问或结果）；信封 idempotencyKey 等于 <task>（在调用方核）。
  *   提问 attention-<task>-<qid>（preview.13 起，qid 是 1～24 个 [A-Za-z0-9._:-]）：不结清原工单，同一任务可以有多个问题。
- *   之后对方加的 progress-<task>-<n> 在这里加一类。
+ *   进展 progress-<task>-<n>（n 从 1 起的整数）：不结清原工单、不推状态，只记录并更新「正在处理」的提示。
  * 不是我们发出的任务号返回 null（调用方照原路走）；入站任务号对不上字面规则的，slot 为 other（只记录，不采信）。
  */
 export const QUESTION_ID = /^[A-Za-z0-9._:-]{1,24}$/;
-export function receiptOrigin(headerTask: string, inboundTask: string): { sent: SentTask; slot: 'ack' | 'receipt' | 'question' | 'other'; qid?: string } | null {
+export function receiptOrigin(headerTask: string, inboundTask: string): { sent: SentTask; slot: 'ack' | 'receipt' | 'question' | 'progress' | 'other'; qid?: string; n?: number } | null {
   const sent = sentTask(headerTask);
   if (!sent) return null;
   if (inboundTask === `ack-${headerTask}`) return { sent, slot: 'ack' };
   if (inboundTask === `receipt-${headerTask}`) return { sent, slot: 'receipt' };
   const prefix = `attention-${headerTask}-`;
   if (inboundTask.startsWith(prefix) && QUESTION_ID.test(inboundTask.slice(prefix.length))) return { sent, slot: 'question', qid: inboundTask.slice(prefix.length) };
+  const step = inboundTask.startsWith(`progress-${headerTask}-`) ? inboundTask.slice(`progress-${headerTask}-`.length) : '';
+  if (/^[1-9]\d{0,8}$/.test(step)) return { sent, slot: 'progress', n: Number(step) };
   return { sent, slot: 'other' };
 }
 
@@ -119,6 +121,31 @@ function questionOf(v: unknown, qid: string): { id: string; text: string; option
   const options = Array.isArray(q.options) ? q.options.filter((o): o is string => typeof o === 'string' && o.trim() !== '').slice(0, 6).map((o) => cleanSummary(o).slice(0, 200)) : [];
   const dflt = typeof q.default === 'string' ? cleanSummary(q.default).slice(0, 200) : '';
   return { id: qid, text, ...(options.length ? { options } : {}), ...(dflt ? { default: dflt } : {}) };
+}
+
+/** 进展的状态（上游 PROGRESS_STATES）；不认得的只记录 */
+export const PROGRESS_STATES = ['queued', 'working', 'waiting', 'blocked'] as const;
+/** 每个任务最多记这么多步进展（上游每分钟最多一步）；超出的照常应答、不记、计数 */
+export const PROGRESS_PER_TASK = 200;
+const TICKET_STATES = [...PROGRESS_STATES, 'ended'];
+
+/** 信封里的 progress 与 tickets：n 必须等于任务号里的步号、state 认得；tickets 最多 16 个、坏的逐个丢 */
+function progressOf(envelope: Record<string, unknown>, n: number): { summary: string; step: { n: number; state: string; summary: string; at: string; ahead?: number }; tickets?: { id: string; title: string; seat?: string; state: string; outcome?: string }[] } | null {
+  const p = envelope.progress;
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
+  const r = p as Record<string, unknown>;
+  if (r.n !== n || typeof r.state !== 'string' || !(PROGRESS_STATES as readonly string[]).includes(r.state)) return null;
+  const summary = typeof r.summary === 'string' ? cleanSummary(r.summary) : '';
+  const at = typeof r.at === 'string' && !Number.isNaN(Date.parse(r.at)) ? r.at.slice(0, 40) : '';
+  const ahead = typeof r.ahead === 'number' && Number.isSafeInteger(r.ahead) && r.ahead >= 0 ? r.ahead : undefined;
+  const str = (x: unknown) => (typeof x === 'string' ? cleanSummary(x).slice(0, 200) : '');
+  const tickets = Array.isArray(envelope.tickets)
+    ? envelope.tickets.filter((t): t is Record<string, unknown> => !!t && typeof t === 'object' && !Array.isArray(t))
+      .map((t) => ({ id: str(t.id), title: str(t.title), seat: str(t.seat), state: str(t.state), outcome: str(t.outcome) }))
+      .filter((t) => t.id !== '' && TICKET_STATES.includes(t.state)).slice(0, 16)
+      .map((t) => ({ id: t.id, title: t.title, ...(t.seat ? { seat: t.seat } : {}), state: t.state, ...(t.outcome ? { outcome: t.outcome } : {}) }))
+    : undefined;
+  return { summary, step: { n, state: r.state, summary, at, ...(ahead !== undefined ? { ahead } : {}) }, ...(tickets ? { tickets } : {}) };
 }
 
 /** 信封里的 by（谁做的）和 artifacts（产物编号）：只记录、只显示，不授予任何东西。坏的值逐个丢 */
@@ -177,12 +204,14 @@ export async function handleInboundReceipt(req: Req, deps: { audiences: () => st
   if (!parsed) return handleFollowup(req, body, message, deps);
   const origin = receiptOrigin(parsed.taskId, typeof body.task_id === 'string' ? body.task_id : '');
   if (!origin) return null;
-  const { sent, slot, qid = '' } = origin;
+  const { sent, slot, qid = '', n: stepN = 0 } = origin;
+  // 去重格：提问按问题 id，进展按「#步号」（# 不在问题 id 的字符集里，两类不会撞）
+  const stepKey = slot === 'question' ? qid : slot === 'progress' ? `#${stepN}` : '';
   const now = deps.now?.() ?? Date.now();
   const verdict = await verifyReceiptSigner(req, req.rawBody ?? Buffer.alloc(0), sent, deps.audiences(), now);
   const envelope = envelopeOf(message);
   const disposition = typeof envelope.disposition === 'string' ? envelope.disposition : '';
-  if (!verdict.ok && verdict.reason === 'replay' && verdict.genuine === true && (slot === 'question' ? questionRecorded(sent.task_id, qid) : receiptRecorded(sent.task_id, disposition === 'acknowledged' ? 'ack' : 'final'))) {
+  if (!verdict.ok && verdict.reason === 'replay' && verdict.genuine === true && (stepKey !== '' ? questionRecorded(sent.task_id, stepKey) : receiptRecorded(sent.task_id, disposition === 'acknowledged' ? 'ack' : 'final'))) {
     // 同一条合法回执原样重发：签名是真的、这条回执已经记过——幂等返回，不重复推进
     noteA2aError('receipt:replay');
     return { status: 409, body: { error: 'duplicate receipt for this task', code: -32003, task_id: typeof body.task_id === 'string' ? body.task_id.slice(0, 128) : '', replay: true } };
@@ -200,15 +229,18 @@ export async function handleInboundReceipt(req: Req, deps: { audiences: () => st
   let action: string;
   let cls: 'ack' | 'final' | 'question' = 'final';
   const question = slot === 'question' ? questionOf(envelope.question, qid) : null;
+  const progress = slot === 'progress' ? progressOf(envelope, stepN) : null;
   if (key !== parsed.taskId) action = 'receipt:unaccepted';
   // 提问骑在 attention-<task>-<qid> 上：disposition 必须是 attention、信封带同一个问题 id 的 question；不占终局的槽
   else if (slot === 'question') { if (disposition === 'attention' && question) { action = 'receipt:attention'; cls = 'question'; } else action = 'receipt:unaccepted'; }
+  // 进展骑在 progress-<task>-<n> 上：disposition=progress、progress.n 等于任务号里的步号、state 认得；不认得的只记录
+  else if (slot === 'progress') { if (disposition === 'progress' && progress) { action = 'receipt:progress'; cls = 'question'; } else action = 'receipt:unaccepted'; }
   // 接单回执只能骑在 ack-<task> 上，终局回执（提问、结果）只能骑在 receipt-<task> 上；对不上的只记录
   else if (disposition === 'acknowledged' && slot === 'ack') { action = 'receipt:acknowledged'; cls = 'ack'; }
   else if (disposition === 'attention' && slot === 'receipt') action = 'receipt:attention';
   else if (disposition === 'result' && slot === 'receipt' && (RESULT_OUTCOMES as readonly string[]).includes(outcome)) action = `receipt:${outcome}`;
   else action = 'receipt:unaccepted';
-  const summary = question ? cleanSummary(question.text) : cleanSummary(parsed.summary ?? '');
+  const summary = question ? cleanSummary(question.text) : progress ? progress.summary : cleanSummary(parsed.summary ?? '');
   const attribution = attributionOf(envelope);
   const inboundTask = typeof body.task_id === 'string' ? body.task_id.slice(0, 128) : '';
   if (action === 'receipt:unaccepted') {
@@ -221,11 +253,15 @@ export async function handleInboundReceipt(req: Req, deps: { audiences: () => st
     }
     return { status: 200, body: { routed: true, delivered: true, team: typeof body.team === 'string' ? body.team.slice(0, 128) : '', task_id: inboundTask, context_id: typeof body.context_id === 'string' ? body.context_id.slice(0, 256) : '', task_status: 'TASK_STATE_DELIVERED', receipt: 'not-accepted' } };
   }
+  if (action === 'receipt:progress' && !questionRecorded(sent.task_id, stepKey) && progressSteps(sent.task_id) >= PROGRESS_PER_TASK) {
+    noteA2aError('progress:over-cap');
+    return { status: 200, body: { routed: true, delivered: true, team: typeof body.team === 'string' ? body.team.slice(0, 128) : '', task_id: inboundTask, context_id: typeof body.context_id === 'string' ? body.context_id.slice(0, 256) : '', task_status: 'TASK_STATE_DELIVERED', receipt: 'over-cap' } };
+  }
   const fresh = inReceiptTx(() => {
-    if (cls === 'question' ? !claimQuestion(sent.task_id, qid, now) : !claimReceipt(sent.task_id, cls, disposition.slice(0, 32), outcome.slice(0, 32))) return false;
+    if (cls === 'question' ? !claimQuestion(sent.task_id, stepKey, now) : !claimReceipt(sent.task_id, cls, disposition.slice(0, 32), outcome.slice(0, 32))) return false;
     logDeliveryFact(sent.event_id, sent.delivery_id, `receiver:${sent.peer_zone}`, action, {
       summary, disposition: disposition.slice(0, 32), ...(outcome !== '' ? { outcome: outcome.slice(0, 32) } : {}), task: sent.task_id,
-      ...(question ? { qid, question } : {}), ...attribution,
+      ...(question ? { qid, question } : {}), ...(progress ? { progress: progress.step, ...(progress.tickets ? { tickets: progress.tickets } : {}) } : {}), ...attribution,
     });
     // 答复 / 回复类任务（人发出的消息）：席位的结果回执就是它的回话，正文落成事项对话里的一条未读席位消息。
     // 状态仍按映射表走（上面那一行事件日志）；这里只多存一份正文给人看，不回执（它本身就是回执）

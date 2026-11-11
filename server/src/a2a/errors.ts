@@ -9,7 +9,7 @@
 export type A2aErrorKey =
   | 'payload-too-large' | 'missing-fields' | 'unknown-team' | 'anonymous' | 'not-admitted'
   | 'replay' | 'conflict' | 'sop-not-published' | 'read-only-binding' | 'no-run-for-context'
-  | 'callback-mismatch' | 'receipt:replay' | 'receipt:unaccepted' | 'followup:over-cap' | 'followup:rate-limited'
+  | 'callback-mismatch' | 'receipt:replay' | 'receipt:unaccepted' | 'followup:over-cap' | 'followup:rate-limited' | 'progress:over-cap'
   | 'sig:absent' | 'sig:unbound-only' | 'sig:body-sig-required' | 'sig:bad-shape' | 'sig:bad-ts' | 'sig:wrong-audience'
   | 'sig:identity-mismatch' | 'sig:unregistered' | 'sig:no-card' | 'sig:not-derivable' | 'sig:bad-body-digest' | 'sig:bad-sig' | 'sig:replay';
 
@@ -41,6 +41,7 @@ export const A2A_ERRORS: Record<A2aErrorKey, A2aErrorInfo> = {
   'receipt:unaccepted': { code: null, http: 200, public: 'receipt:unaccepted', reason: '回执签名验过了，但内容市场不采信：disposition 或 outcome 不在约定的词表里（expired / sync_completed / unknown 也不采信），或 idempotencyKey 和回执头的任务号不一致。只记录，不改事项状态。', fix: '结果回执的 outcome 用 completed / failed / rejected / abandoned 之一，idempotencyKey 填回执所答的那个任务号。' },
   'followup:over-cap': { code: null, http: 200, public: 'followup:over-cap', reason: '席位发来的消息（跟进）超过每次投递 50 条的上限：照常回执、照存进事项对话，但不再算未读。', fix: '请席位把多条消息合并。' },
   'followup:rate-limited': { code: -32000, http: 200, public: 'followup:rate-limited', reason: '同一对端 10 分钟内发来的跟进超过限频（WM_A2A_FOLLOWUP_RATE_10MIN，缺省 300）：照常回执，但不存正文、只计数。', fix: '请对端降低跟进频率；或调高限频。' },
+  'progress:over-cap': { code: null, http: 200, public: 'progress:over-cap', reason: '同一任务收到的进展超过 200 步：照常应答，但不再记录。', fix: '对端每分钟最多一步，正常不会到；到了说明对端的进展节流坏了。' },
   'sig:absent': { code: -32000, http: 401, public: 'sig:absent', reason: '入站签名设为必验，请求没带签名。', fix: SIG_FIX },
   'sig:unbound-only': { code: -32000, http: 401, public: 'sig:unbound-only', reason: '只带了不绑路由的旧签名（v1），这里不认。', fix: SIG_FIX },
   'sig:body-sig-required': { code: -32000, http: 401, public: 'sig:body-sig-required', reason: '要求同时签 body 摘要（X-WM-Body-Sha256 / X-WM-Body-Sig），请求只签了路由。', fix: '升级调用方，同时发 body 签名。' },

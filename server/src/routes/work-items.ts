@@ -23,7 +23,7 @@ import { identity } from '../identity.ts';
 import { isCreator, type WorkItemService } from '../services/work-item.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import { creatorAnswer } from '../attention-answers.ts';
-import { markSeatMessagesRead, replySeatMessage, seatMessagesOf, SEAT_REPLY_MAX } from '../seat-messages.ts';
+import { markSeatMessagesRead, replySeatMessage, seatMessagesOf, seatProgressOf, SEAT_REPLY_MAX } from '../seat-messages.ts';
 import { principalsAdmin } from './principals.ts';
 
 export type WorkItemRouteDeps = {
@@ -61,7 +61,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       }
       const item = items.get(id);
       if (!item) return void res.status(404).json({ error: 'work_item_not_found' });
-      res.json({ item, log: items.log(id), ...seatMessagesOf(item) });
+      res.json({ item, log: items.log(id), ...seatMessagesOf(item), progress: seatProgressOf(item) });
     })().catch(next);
   });
 

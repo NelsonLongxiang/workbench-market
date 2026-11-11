@@ -30,6 +30,10 @@ export function claimQuestion(taskId: string, qid: string, now = Date.now()): bo
   const r = db.prepare('INSERT OR IGNORE INTO a2a_inbound_questions (task_id, qid, received_at) VALUES (?, ?, ?)').run(taskId, qid, at);
   return Number(r.changes) === 1;
 }
+/** 这个任务收下了几步进展（去重格里以 # 开头的） */
+export function progressSteps(taskId: string): number {
+  return Number((db.prepare("SELECT COUNT(*) AS n FROM a2a_inbound_questions WHERE task_id = ? AND qid LIKE '#%'").get(taskId) as { n: number }).n);
+}
 export function questionRecorded(taskId: string, qid: string): boolean {
   return Boolean(db.prepare('SELECT 1 FROM a2a_inbound_questions WHERE task_id = ? AND qid = ?').get(taskId, qid));
 }
@@ -71,4 +75,11 @@ export function sentTaskForFollowup(contextId: string, zone: string): SentTask |
   if (byContext) return byContext;
   const byTask = sentTask(contextId);
   return byTask && byTask.peer_zone === zone && byTask.peer_zone !== '' ? byTask : undefined;
+}
+
+/** 一个事件上最近一步被采信的进展（事件日志里的 receipt:progress），给事项页的「正在处理」提示和子项 */
+export function latestProgressOfEvent(eventId: string): { at: string; detail: Record<string, unknown> } | null {
+  const row = db.prepare("SELECT at, detail FROM workbench_event_log WHERE event_id = ? AND action = 'receipt:progress' ORDER BY id DESC LIMIT 1").get(eventId) as { at: string; detail: string } | undefined;
+  if (!row) return null;
+  try { return { at: row.at, detail: JSON.parse(row.detail) as Record<string, unknown> }; } catch { return null; }
 }
