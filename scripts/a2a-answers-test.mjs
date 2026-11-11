@@ -252,8 +252,25 @@ try {
     ok('进展回执·没签名 → 不采信', !r.text.includes('"receipt":"recorded"'), r.text.slice(0, 160));
     r = await receipt(P.task, '做完了', { outcome: 'completed', idempotencyKey: P.task, disposition: 'result' }, P.ctx);
     ok('之后的结果照常走 receipt-<task> → 等验收（进展没占终局槽）', r.status === 200 && r.text.includes('"receipt":"recorded"') && state(P.ev)?.state === 'ready', r.text);
+    // P7：tickets 最多 16 个；P13：摘要去控制字符、截到 500 字
+    {
+      const many = Array.from({ length: 20 }, (_, k) => ({ id: `t${k}`, state: 'working' }));
+      const longSummary = 'a\u0001b\u0007' + '长'.repeat(600);
+      r = await receipt(P.task, '第 3 步', { ...penv(3, 'working'), tickets: many, progress: { n: 3, state: 'working', summary: longSummary, at: '2026-11-11T08:00:00.000Z' } }, P.ctx, { inbound: `progress-${P.task}-3` });
+      const p3 = (await api('GET', `/api/work-items/wi_${P.ev}`)).body?.progress ?? {};
+      ok('P7：给 20 个 tickets，读接口只给 16 个（前 16 个）', r.status === 200 && Array.isArray(p3.tickets) && p3.tickets.length === 16 && p3.tickets[15]?.id === 't15', JSON.stringify(p3.tickets?.length));
+      ok('P13：进展摘要去掉控制字符、截到 500 字', typeof p3.summary === 'string' && p3.summary.length === 500 && !/[\u0000-\u001f\u007f]/.test(p3.summary) && p3.summary.startsWith('a b '), JSON.stringify(p3.summary?.slice(0, 20)));
+    }
+    // P8：事项结束之后不再给进展
+    r = await api('POST', '/api/attention/answer', { source: 'work-items', source_id: `wi_${P.ev}`, answer: 'verify', input: {} });
+    const pDone = (await api('GET', `/api/work-items/wi_${P.ev}`)).body ?? {};
+    ok('P8：事项验收办完（终态）之后，读接口的 progress 为 null（日志里的进展还在）', r.status === 200 && state(P.ev)?.state === 'done' && pDone.progress === null
+      && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE delivery_id = ? AND action = 'receipt:progress'", P.delivery)[0].c === 3, JSON.stringify({ st: state(P.ev), p: pDone.progress, r: r.body }));
     // 每个任务最多 200 步
     const C = seedEvent();
+    // P10：200 步的计数只数进展，不把同一任务的提问算进去——先来两个提问
+    for (const qq of ['qa', 'qb']) await receipt(C.task, '问', { idempotencyKey: C.task, disposition: 'attention', question: { id: qq, text: '问一句' } }, C.ctx, { inbound: `attention-${C.task}-${qq}` });
+    ok('P10：同一任务先收下两个提问', q('SELECT COUNT(*) AS c FROM a2a_inbound_questions WHERE task_id = ? AND qid NOT LIKE ?', C.task, '#%')[0].c === 2);
     const capBefore = (await (await fetch(BASE + '/api/health')).json()).a2a?.refused?.counts?.['progress:over-cap'] ?? 0;
     for (let k = 1; k <= 200; k++) await receipt(C.task, '步', { idempotencyKey: C.task, disposition: 'progress', progress: { n: k, state: 'working', at: '2026-11-11T08:00:00.000Z' } }, C.ctx, { inbound: `progress-${C.task}-${k}` });
     r = await receipt(C.task, '步', { idempotencyKey: C.task, disposition: 'progress', progress: { n: 201, state: 'working', at: '2026-11-11T08:00:00.000Z' } }, C.ctx, { inbound: `progress-${C.task}-201` });
