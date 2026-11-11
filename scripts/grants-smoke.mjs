@@ -241,6 +241,31 @@ try {
       '属主身份跟着授予走：owner 授予撤销之后，同一个人再放行管理员级的授予 403', show({ revoked: revoked.status, afterRevoke: afterRevoke.status }));
   }
 
+  // ---------- 三之二、属主身份看期限：owner 授予一过期立即不是属主（不等周期任务标过期） ----------
+  {
+    const pending = await draft({ principal: 'user:beta', role: 'admin' }, { headers: token });
+    await step(pending.json?.grant?.id, 'submit', { headers: token });
+    const d = await draft({ principal: 'user:root-admin', role: 'owner', expires_at: Date.now() + 1500 });
+    await step(d.json?.grant?.id, 'submit');
+    const a = await step(d.json?.grant?.id, 'approve');
+    await sleep(1700);
+    // 中间不列授予（列的时候会顺手把到期的标成过期，那就测不到「现比期限」了）
+    const after = await step(pending.json?.grant?.id, 'approve', asRoot);
+    const one = await srv.call('GET', `/api/grants/${d.json?.grant?.id}`, { headers: token });
+    check(a.status === 200 && after.status === 403 && after.json?.error === 'owner_required' && one.json?.grant?.status === 'active',
+      '属主身份现比期限：owner 授予过了期限（库里还标着生效）就立即不是属主，放行管理员级的授予 403', show({ approveOwner: a.status, after: after.status, stillMarked: one.json?.grant?.status }));
+  }
+  // ---------- 三之三、带浏览器标记的本机请求不算本机命令行（不是属主，也不是管理员） ----------
+  {
+    const local = { origin: `http://${srv.host}`, 'sec-fetch-site': 'same-origin' };
+    const list = await srv.call('GET', '/api/grants', { headers: local });
+    const roles = await srv.call('GET', '/api/roles', { headers: { 'sec-fetch-site': 'same-origin' } });
+    const one = await srv.call('GET', '/api/grants/1', { headers: { origin: 'http://attacker.invalid' } });
+    const cli = await srv.call('GET', '/api/grants');
+    check(list.status === 403 && roles.status === 403 && one.status === 403 && cli.status === 200,
+      '本机浏览器（带 Origin 或 Sec-Fetch-Site）不带口令：列授予、看角色、看一条都 403；对照：本机命令行 200', show({ list: list.status, roles: roles.status, one: one.status, cli: cli.status }));
+  }
+
   // ---------- 四、没有在职责任人的非人主体 ----------
   {
     const orphan = await draft({ principal: 'seat:orphan', role: 'member' });
