@@ -36,7 +36,6 @@ export function installPortal(
   // SSO 回调票据核对时按注册表现查台地址（已停用的台不算）
   loginRelay().useTargetLookup((id) => { const w = wbById(id); return w && w.enabled !== false && w.enabled !== 0 && typeof w.url === 'string' ? w.url : null; });
   const browserOrigin = loginRelay().browserOrigin(); // 显式配置的浏览器登录地址：非法即拒启动（在监听之前）
-  if (browserOrigin && process.env.WM_ODOO_LOGIN_PROXY === '1') console.warn('[portal] WM_ODOO_LOGIN_PROXY=1 时同域中继优先，WM_ODOO_BROWSER_URL 对中继覆盖的 Odoo 台不生效');
   const goPrefix = /^\/go\/(\d+)(.*)$/;
 
   // id 校验 + 404（在代理前拦截，避免 router 内抛错变 500）
@@ -123,7 +122,7 @@ export function installPortal(
         if (!sid || ret) {
           // 浏览器登录地址（WM_ODOO_BROWSER_URL）：上游是容器名等浏览器解析不了的内部地址时，只把「登录这一跳」送到显式配置的可信地址；
           // 当前主机名对不上（host-only 会话 cookie 带不回来）或 https 入口要降级到 http 时一律 503。同域中继开着时由中继处理，这里不介入。
-          const relayOn = process.env.WM_ODOO_LOGIN_PROXY === '1' && u.origin === new URL(loginRelay().sourceUrl()).origin;
+          const relayOn = loginRelay().relayLogin() && u.origin === new URL(loginRelay().sourceUrl()).origin;
           const secureLogin = req.secure || String(req.headers['x-forwarded-proto'] ?? '').split(',').some((p) => p.trim().toLowerCase() === 'https');
           const loginOrigin = relayOn ? u.origin : loginRelay().browserLoginOrigin(u.origin, String(req.headers.host ?? ''), browserOrigin, secureLogin);
           if (!loginOrigin) return res.status(503).set('Cache-Control', 'no-store').json({ error: 'odoo_browser_host_mismatch' });
@@ -133,7 +132,7 @@ export function installPortal(
             // 回程交给市场页轮询 /api/auth/viewer（弹窗流，#275）。
             // Optional same-origin login relay keeps LAN and public visitors on their
             // current authority; the upstream is still the fixed WM_ODOO_URL.
-            const odooLogin = process.env.WM_ODOO_LOGIN_PROXY === '1' && u.origin === new URL(loginRelay().sourceUrl()).origin
+            const odooLogin = loginRelay().relayLogin() && u.origin === new URL(loginRelay().sourceUrl()).origin
               ? `/web/login?redirect=${encodeURIComponent(ret)}`
               : `${loginOrigin}/web/login`;
             res.setHeader('Cache-Control', 'no-store');
@@ -145,7 +144,7 @@ export function installPortal(
           }
           // 同域登录中继开着且目标就是部署配置的 Odoo：留在当前主机登录（上游主机名可能是容器名，浏览器解析不了），
           // 回跳是本台的 SSO 回调（相对路径）；state 由服务端签成一次性票据，中继只放行持有效票据的回调
-          const relay = process.env.WM_ODOO_LOGIN_PROXY === '1' && u.origin === new URL(loginRelay().sourceUrl()).origin;
+          const relay = loginRelay().relayLogin() && u.origin === new URL(loginRelay().sourceUrl()).origin;
           const ticket = relay ? loginRelay().issueCallback(Number(m[1]), u.origin, clientIp(req)) : null;
           if (relay && !ticket) { res.setHeader('Retry-After', '600'); return res.status(429).type('text').send('Odoo 登录尝试过于频繁，请稍后再试'); }
           const state = ticket ?? randomUUID();
@@ -256,7 +255,7 @@ export function installPortal(
         proxyReq.setHeader('accept-encoding', 'identity');
         const rq = req as typeof req & { goAuth?: string; goOrigin?: string; goCookies?: string; goHost?: string; goSsoSid?: string };
         // SSO v1 白名单单键：Odoo 台只透 session_id（覆写 Cookie 头·评审注①——其他站 cookie 不泄入）
-        if (rq.goSsoSid) proxyReq.setHeader('cookie', `session_id=${rq.goSsoSid}`);
+        if (rq.goSsoSid) proxyReq.setHeader('cookie', `${loginRelay().sessionCookieName()}=${rq.goSsoSid}`);
         if (rq.goAuth) proxyReq.setHeader('authorization', rq.goAuth);
         if (rq.goOrigin) proxyReq.setHeader('origin', rq.goOrigin);
         if (rq.goOrigin) proxyReq.setHeader('referer', rq.goOrigin + '/'); // #170 P7 不泄：Referer 只到目标源，不携带 /go/<id>/ 市场路径

@@ -164,7 +164,12 @@ export const directoryPlugin = (directory) => ({
 });
 
 /** 假的登录中继：不给任何地址转会话，不开任何登录面。 */
+const fakeEntries = (cookieHeader) => String(cookieHeader ?? '').split(';').map((s) => s.trim()).filter((s) => s.startsWith('session_id='));
 export const fakeRelay = {
+  relayLogin: () => process.env.WM_ODOO_LOGIN_PROXY === '1', // 对抗组按这个开关起「中继」实例，核心走中继那一支
+  sessionCookieName: () => 'session_id',
+  sessionEntries: fakeEntries,
+  soleSession: (cookieHeader) => { const all = fakeEntries(cookieHeader); return all.length === 1 && /^session_id=[A-Za-z0-9_.=-]{16,512}$/.test(all[0]) ? all[0] : ''; },
   sourceUrl: () => 'http://identity-source.invalid',
   legacyConfig: () => null,
   sessionOf,

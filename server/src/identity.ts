@@ -290,6 +290,14 @@ export interface LoginRelay {
   /** 还在用已弃用的旧配置名吗：只设了旧名、新旧都设了、没用旧名。只用于启动提示 */
   legacyConfig(): 'only-old' | 'both' | null;
 
+  /** 同域登录中继开着没有（部署配置）。核心不再自己读这家登录的开关 */
+  relayLogin(): boolean;
+  /** 业务台会话的 cookie 名。核心不再写死它 */
+  sessionCookieName(): string;
+  /** 请求 Cookie 头里业务台会话的各项，原样（`名=值`），按出现顺序；同名多项都在 */
+  sessionEntries(cookieHeader: string): string[];
+  /** 恰好一项、而且值的形状合格时返回那一项（`名=值`），否则空串。严格的入口（内容面、SOP 字段通道）用它，不继承「多项取第一项」的旧歧义 */
+  soleSession(cookieHeader: string): string;
   /** 请求里的业务台会话（只取不验）；没有为空串 */
   sessionOf(cookieHeader: string): string;
   /** 就地剥掉转发请求里的业务台会话 */

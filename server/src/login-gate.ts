@@ -195,7 +195,7 @@ export function createLoginGate(deps: Deps) {
     if (!identityService().credentialOf(cookie)) return null;
     // Relay mode supports explicit Odoo logout: do not keep a stale positive identity
     // after the upstream session has been revoked. 其余情况提供方的回答可以用缓存的（缓存在身份服务里，主体状态不进缓存）。
-    try { return await deps.odooViewer(cookie, process.env.WM_ODOO_LOGIN_PROXY === '1'); } catch { return null; }
+    try { return await deps.odooViewer(cookie, loginRelay().relayLogin()); } catch { return null; }
   }
 
   // ---------- 身份 ----------
@@ -382,7 +382,7 @@ export function createLoginGate(deps: Deps) {
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('X-Frame-Options', 'DENY');
       res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
-      const canOdooLogout = process.env.WM_ODOO_LOGIN_PROXY === '1' && String(req.headers.cookie ?? '').split(';').some(s => s.trim().startsWith('session_id='));
+      const canOdooLogout = loginRelay().relayLogin() && loginRelay().sessionEntries(String(req.headers.cookie ?? '')).length > 0;
       res.type('html').send(loginPage(safeNext(req.query.next), deps.odooLoginHref(req), deps.tokensCss(), deps.mode, canOdooLogout));
     });
     app.post('/api/auth/login', (req, res) => {
@@ -404,8 +404,9 @@ export function createLoginGate(deps: Deps) {
       res.setHeader('Cache-Control', 'no-store');
       if (!sameOrigin(req)) return res.status(403).json({ error: '跨源登出被拒绝' });
       const cookie = String(req.headers.cookie ?? '');
-      const sessions = cookie.split(';').map(s => s.trim()).filter(s => s.startsWith('session_id='));
-      const relay = process.env.WM_ODOO_LOGIN_PROXY === '1';
+      const sessions = loginRelay().sessionEntries(cookie);
+      const relay = loginRelay().relayLogin();
+      const sessionCookie = loginRelay().sessionCookieName();
       if (relay && sessions.length) {
         // A browser must make an explicit same-origin JSON request to terminate Odoo.
         let originOk = false;
@@ -419,10 +420,10 @@ export function createLoginGate(deps: Deps) {
       }
       res.clearCookie(LOGIN_COOKIE, { httpOnly: true, sameSite: 'lax', path: '/', secure: secure(req) });
       if (!relay) return res.json({ ok: true, odoo_session: !!loginRelay().sessionOf(cookie) });
-      res.clearCookie('session_id', { httpOnly: true, sameSite: 'lax', path: '/', secure: secure(req) });
+      res.clearCookie(sessionCookie, { httpOnly: true, sameSite: 'lax', path: '/', secure: secure(req) });
       if (!sessions.length) return res.json({ ok: true, odoo_session: false, browser_session_cleared: true });
       if (sessions.length !== 1) return res.status(409).json({ ok: false, error: 'Odoo 会话不唯一，无法确认服务器端已注销', browser_session_cleared: true, odoo_session_revoked: false });
-      const sid = sessions[0].slice('session_id='.length);
+      const sid = sessions[0].slice(sessionCookie.length + 1);
       const done = await loginRelay().revokeSession(sid);
       return res.status(done ? 200 : 502).json({ ok: done, odoo_session: true, browser_session_cleared: true, odoo_session_revoked: done, ...(!done ? { error: '已清除浏览器会话，但无法确认 Odoo 服务器端注销' } : {}) });
     });

@@ -23,7 +23,19 @@ const provider: LoginProvider = {
   resolveViewer: (cookieHeader, source) => resolveOdooViewer(cookieHeader, source),
 };
 
+/** Odoo 的会话 cookie 名，和它的值能是什么样子（只用于严格入口的形状检查） */
+const SESSION_COOKIE = 'session_id';
+const SESSION_VALUE = /^[A-Za-z0-9_.=-]{16,512}$/;
+const sessionEntries = (cookieHeader: string): string[] => String(cookieHeader ?? '').split(';').map((s) => s.trim()).filter((s) => s.startsWith(`${SESSION_COOKIE}=`));
+
 const relay: LoginRelay = {
+  relayLogin: () => process.env.WM_ODOO_LOGIN_PROXY === '1',
+  sessionCookieName: () => SESSION_COOKIE,
+  sessionEntries,
+  soleSession: (cookieHeader) => {
+    const all = sessionEntries(cookieHeader);
+    return all.length === 1 && SESSION_VALUE.test(all[0].slice(SESSION_COOKIE.length + 1)) ? all[0] : '';
+  },
   sourceUrl: odooUrl,
   legacyConfig: odooUrlDeprecated,
   sessionOf: odooSessionOf,
@@ -37,7 +49,12 @@ const relay: LoginRelay = {
   useTargetLookup: setSsoTargetLookup,
   issueCallback: issueSsoCallback,
   consumeCallback: consumeSsoCallback,
-  browserOrigin: odooBrowserOrigin,
+  browserOrigin: () => {
+    const configured = odooBrowserOrigin();
+    // 原来写在 portal.ts 里的启动提示，挪到提供方自己说（核心不再知道这家登录的配置名）；门户启动时只调这一次
+    if (configured && process.env.WM_ODOO_LOGIN_PROXY === '1') console.warn('[portal] WM_ODOO_LOGIN_PROXY=1 时同域中继优先，WM_ODOO_BROWSER_URL 对中继覆盖的 Odoo 台不生效');
+    return configured;
+  },
   browserLoginOrigin,
   install: installOdooLoginProxy,
   publicRoute: (method, pathname) => odooLoginProxyRoute(method, pathname),

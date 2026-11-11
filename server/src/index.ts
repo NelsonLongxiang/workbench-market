@@ -131,7 +131,7 @@ if (contentCfg) {
 const contentRuntime = contentCfg ? createContentSurface(contentCfg, {
   async viewer(cookie) {
     // Reject duplicate SID instead of inheriting the legacy first-cookie ambiguity.
-    const values = cookie.split(';').map(s => s.trim()).filter(s => s.startsWith('session_id='));
+    const values = loginRelay().sessionEntries(cookie);
     if (values.length !== 1) return null;
     const result = await identity().resolveViewer(values[0], process.env.WM_CONTENT_ODOO_ORIGIN);
     return result.ok ? { subject: result.viewer.sub + ':' + result.viewer.uid, internal: true } : null;
@@ -334,7 +334,7 @@ async function odooAdminOf(cookieHeader: string): Promise<string | null> {
   if (!identity().credentialOf(cookieHeader)) return null;
   try {
     // Explicit relay logout revokes Odoo sessions; never reuse a stale admin verdict.
-    const who = process.env.WM_ODOO_LOGIN_PROXY === '1' ? await identity().resolveViewer(cookieHeader) : await odooAdminViewer(cookieHeader);
+    const who = loginRelay().relayLogin() ? await identity().resolveViewer(cookieHeader) : await odooAdminViewer(cookieHeader);
     return who.ok && who.viewer.admin ? who.viewer.login : null;
   } catch { return null; }
 }
@@ -2181,7 +2181,7 @@ registerContentObservationRoutes(http, { adminGuard, portalObserver });
 function odooLoginUrl(req: express.Request, returnPath: string): string | null {
   // 同域登录中继开着：登录入口就是本机 /web/login（中继只放行登录面、上游固定为 WM_ODOO_URL、redirect 只认白名单回跳页），
   // 不再依赖库里登记了 Odoo 台——否则部署方只能手工插一条假工作台才有登录入口
-  if (process.env.WM_ODOO_LOGIN_PROXY === '1' && loginRelay().sourceUrl()) return `/web/login?redirect=${encodeURIComponent(returnPath)}`;
+  if (loginRelay().relayLogin() && loginRelay().sourceUrl()) return `/web/login?redirect=${encodeURIComponent(returnPath)}`;
   let host = '';
   try { host = new URL(`http://${String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').split(',')[0].trim()}`).hostname.toLowerCase(); } catch { host = ''; }
   const odoo = listWorkbenches().filter((w) => w.enabled && /^https?:\/\//i.test(w.url) && loginRelay().isSessionTarget(w.url));

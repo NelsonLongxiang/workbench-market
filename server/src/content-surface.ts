@@ -10,6 +10,7 @@ import { isIP } from 'node:net';
 import { gunzipSync, brotliDecompressSync, inflateSync } from 'node:zlib';
 import { createContentAccess, contentLaunchPage, type ContentTarget } from './content-access.ts';
 import { registerSurface, surfaceOf } from './surfaces.ts';
+import { loginRelay } from './identity.ts';
 import { STATIC_TARGET, readStaticContent, type StaticContentTarget } from './content-static.ts';
 
 type Viewer = { subject: string; internal: true };
@@ -125,10 +126,9 @@ export function createContentSurface(config: Config, deps: Deps) {
     const target = match ? byId.get(Number(match[1])) : null;
     if (!target || !['GET', 'HEAD'].includes(req.method) || String(req.headers.host ?? '') !== new URL(config.marketOrigin).host) { res.status(404).end(); return; }
     sweep(); if (viewers.size >= 2048) { res.status(503).end(); return; }
-    // Strict adapter parses only a single session_id; never uses target/upstream auth.
+    // Strict adapter takes only a single well-formed session entry (shape owned by the login provider); never uses target/upstream auth.
     let who: Viewer | null = null;
-    const sid = String(req.headers.cookie ?? '').split(';').map(s => s.trim()).filter(s => s.startsWith('session_id='));
-    const cookie = sid.length === 1 && /^session_id=[A-Za-z0-9_.=-]{16,512}$/.test(sid[0]) ? sid[0] : '';
+    const cookie = loginRelay().soleSession(String(req.headers.cookie ?? ''));
     try { who = await deps.viewer(cookie); } catch { /* fail closed */ }
     if (!who || who.internal !== true) {
       res.status(401).type('html').send('<!doctype html><meta charset="utf-8"><title>Login required</title><p>请先在可信入口登录，再返回此工作台启动页。</p><a href="/tasks" rel="noopener noreferrer">前往可信登录入口</a>'); return;
