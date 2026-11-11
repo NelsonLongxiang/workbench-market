@@ -202,6 +202,42 @@ try {
       await receipt(Q.task, '晚到的提问', { idempotencyKey: Q.task, disposition: 'attention', question: { id: 'q3', text: '晚到的提问' } }, Q.ctx, { inbound: `attention-${Q.task}-q3` });
       ok('办完（done）之后晚到的接单回执、新提问：不再补关旧提问，事项日志不多出 rejected 的合上行', v.status === 200 && state(Q.ev)?.state === 'done' && closes() === before, `${before} → ${closes()} ${JSON.stringify(state(Q.ev))}`);
     }
+    const closesOf = (ev) => q("SELECT COUNT(*) AS c FROM work_item_log WHERE item_id = ? AND fact = 'answer' AND fact_id LIKE '%:closes-ask:%'", `wi_${ev}`)[0].c;
+    // B1：提问还开着时事项结束（另一次投递的结果把事项推到办完），之后这次投递晚到一条接单回执 → 不尝试补关（只靠「事项已结束」这一道挡）
+    {
+      const B = seedEvent();
+      const d2 = (() => { const d = db(); try {
+        const id2 = Number(d.prepare("INSERT INTO workbench_event_deliveries (event_id, target_team, target_url, caller_session, status, sent_at) VALUES (?, 'other-team/c1c2c3c4c5c6c7c8', ?, 'market/12345678', 'sent', datetime('now'))").run(B.ev, lab.url).lastInsertRowid);
+        for (const action of ['queued', 'sent']) d.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, 'market', ?, '{}')").run(B.ev, id2, action);
+        const t = `${B.ev}.d${id2}.a1`;
+        d.prepare('INSERT INTO a2a_sent_tasks (task_id, kind, event_id, delivery_id, peer_root, peer_zone) VALUES (?, ?, ?, ?, ?, ?)').run(t, 'delivery', B.ev, id2, lab.url, 'lab');
+        return t;
+      } finally { d.close(); } })();
+      await receipt(B.task, '问', { idempotencyKey: B.task, disposition: 'attention', question: { id: 'b1', text: '问' } }, B.ctx, { inbound: `attention-${B.task}-b1` });
+      await receipt(d2, '做完了', { outcome: 'completed', idempotencyKey: d2, disposition: 'result' }, B.ctx, { inbound: `receipt-${d2}` });
+      await api('POST', '/api/attention/answer', { source: 'work-items', source_id: `wi_${B.ev}`, answer: 'verify', input: {} });
+      const before = closesOf(B.ev);
+      await receipt(B.task, '晚到的接单', { idempotencyKey: B.task, disposition: 'acknowledged' }, B.ctx, { inbound: `ack-${B.task}` });
+      ok('B1：提问还开着时事项办完，之后同一投递晚到接单回执 → 不尝试补关（不多合上行、也不多被拒的行）', state(B.ev)?.state === 'done' && closesOf(B.ev) === before, `${before} → ${closesOf(B.ev)} ${JSON.stringify(state(B.ev))}`);
+    }
+    // B2：提问没被事项收下（只通知的事件，事项停在草稿），同一投递接连来两条合上类回执 → 只尝试一次（只靠「已有过答复」这一道挡）
+    {
+      const N = seedEvent({ dispatch: 0 });
+      await receipt(N.task, '问', { idempotencyKey: N.task, disposition: 'attention', question: { id: 'b2', text: '问' } }, N.ctx, { inbound: `attention-${N.task}-b2` });
+      await receipt(N.task, '接下', { idempotencyKey: N.task, disposition: 'acknowledged' }, N.ctx, { inbound: `ack-${N.task}` });
+      const once = closesOf(N.ev);
+      await receipt(N.task, '做完了', { outcome: 'completed', idempotencyKey: N.task, disposition: 'result' }, N.ctx);
+      ok('B2：同一条提问已经被尝试合上过（被拒也算），之后再来合上类回执 → 不再尝试', once >= 1 && closesOf(N.ev) === once, `${once} → ${closesOf(N.ev)}`);
+    }
+    // B2·人先答了：事项未结束，人答了提问，之后同一投递来接单回执 → 不给它补合上的答复
+    {
+      const H = seedEvent();
+      await receipt(H.task, '问', { idempotencyKey: H.task, disposition: 'attention', question: { id: 'b3', text: '问' } }, H.ctx, { inbound: `attention-${H.task}-b3` });
+      await answer(H.delivery, '人答了');
+      const before = closesOf(H.ev);
+      await receipt(H.task, '接下', { idempotencyKey: H.task, disposition: 'acknowledged' }, H.ctx, { inbound: `ack-${H.task}` });
+      ok('B2：人先答了提问，之后同一投递来接单回执 → 不再补合上的答复', closesOf(H.ev) === before && state(H.ev)?.state !== 'blocked', `${before} → ${closesOf(H.ev)} ${JSON.stringify(state(H.ev))}`);
+    }
     ok('……原工单（投递任务）的结果回执不落成席位消息（只有人发出的消息的回话才是）', q('SELECT COUNT(*) AS c FROM workbench_event_followups WHERE event_id = ?', Q.ev)[0].c === 0);
     // 对抗：形状不对的一律只记录、不采信、不占槽
     const Q2 = seedEvent();
