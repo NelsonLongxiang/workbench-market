@@ -33,7 +33,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `ADMIN_TOKEN`（控制面口令·可设置页改）
 - `MCP_GATEWAY`（#284 起**缺省开**：未设/空/`on`=会话令牌网关；只有显式 `off` 且 `NODE_ENV=development/test` 才允许关闭并启动告警；生产/未设/空/未知运行模式配 off 由启动自检拒绝，其它网关值也拒绝启动）
 - `REDIS_URL`（SOP 状态层·缺省读 `DATA_DIR/redis.url`·无则降级 SQLite）
-- `MARKET_TEAM`（A2A team 默认 `market`）
+- `MARKET_TEAM`（A2A team 默认 `market`；名片的 team、会话句柄 `<MARKET_TEAM>/<node8>` 和工作台事件出站的 caller_session 都用它）
 - `MARKET_PUBLIC_URL`（对外基址·A2A 卡片与 MCP `skill_download` 下载链接用；生产建议设成 https 地址——没设时下载链接取请求主机，主机名不规范就不签发）
 - `A2A_API_KEY`/`A2A_STATE_URL`（A2A 外部面）
 - `WM_A2A_DIRECT_SIG`（`POST /a2a/direct` 入站签名·缺省 `accept`=签名可选：带了 OriginClaim Sig2 就验，取卡或验签这一步验不过（没登记取卡地址、取不到卡、卡上身份不对、签名对不上卡）按未签名走绑定准入——不比不带签名更宽也不更严，格式、时间戳、受众、身份不符、重放照旧 401；`require`=没签名或验不过一律 401；`off`=不验；`WM_LOGIN_GATE=enforce` 时强制 `require`；其它值拒绝启动。公钥只从调用方绑定上登记的 `notify_url` 取卡，不跟随重定向）

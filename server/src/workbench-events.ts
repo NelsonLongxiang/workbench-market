@@ -6,7 +6,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type express from 'express';
 import { db } from './db.ts';
-import { a2aKeyPath, a2aSendOutbound, marketPublicUrl, sopNode8 } from './a2a.ts';
+import { a2aKeyPath, a2aSendOutbound, MARKET_TEAM, marketPublicUrl, sopNode8 } from './a2a.ts';
 import { MAX_ROUTE_BODY_BYTES } from '@nelsonlongxiang/dsh-open-a2a-net/transport-caps';
 import { root } from './root-context.ts';
 
@@ -172,7 +172,7 @@ export function recordTaskCenterEvent(task: { id: number; data: Record<string, u
   };
   const fields: Record<string, unknown> = { id: task.id };
   for (const key of ['title', 'intent', 'references', 'deliverable', 'target', 'due']) fields[key] = task.stepValue(key) ?? '';
-  return recordEvent(core, targets, routed, !(task.agentDispatch && task.centerOn), `market/${sopNode8('task-center')}`, (eventId, createdAt) => ({
+  return recordEvent(core, targets, routed, !(task.agentDispatch && task.centerOn), `${MARKET_TEAM}/${sopNode8('task-center')}`, (eventId, createdAt) => ({
     type: 'workbench-event', v: WORKBENCH_EVENT_VERSION, event_id: eventId, source: core.source, workbench: core.workbench, item: core.item,
     context_id: contextId, submitter_kind: core.submitterKind, submitter: core.submitter, form_version: core.formVersion,
     data_sha256: core.dataSha256, created_at: createdAt, dispatch: true, task: fields,
@@ -201,7 +201,7 @@ export function recordAppDataEvent(item: { slug: string; id: number; data: unkno
   let eventId = '';
   db.exec('BEGIN IMMEDIATE');
   try {
-    eventId = recordEvent(core, targets, 'target', false, `market/${sopNode8(item.slug)}`, (id) => ({
+    eventId = recordEvent(core, targets, 'target', false, `${MARKET_TEAM}/${sopNode8(item.slug)}`, (id) => ({
       type: 'app-data-submitted', slug: item.slug, id: item.id, data: item.data, created_at: item.createdAt,
       hint: '经 MCP app_data_list（slug + before_id 增量）读取；真源在 app_data',
       v: WORKBENCH_EVENT_VERSION, event_id: id, source: core.source, workbench: core.workbench, item: core.item, context_id: contextId,
