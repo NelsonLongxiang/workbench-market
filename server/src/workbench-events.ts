@@ -3,6 +3,7 @@
 //   · 「是不是人提交的」在这里判（submitter_kind）；a2a 只负责送达和来源签名。
 //   · 「接不接」由接单节点判，凭投递里的 reply token 回写；GitHub issue 是工作记录。
 //   · 每个事件必有下文：unrouted，或每个投递落到 sent / dead / cancelled；held 是等人确认，不是终态。
+import { outboundOff, noteBlocked } from './outbound-gate.ts';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type express from 'express';
 import { db } from './db.ts';
@@ -290,6 +291,8 @@ async function attemptDelivery(row: DeliveryRow): Promise<void> {
 let ticking = false;
 let kickAgain = false;
 export async function workbenchEventTick(): Promise<void> {
+  // 对外断开（预发）：整轮跳过——不发、不加 attempts、不判死，在途的保持 pending，开关打开以后原样接着投
+  if (outboundOff()) { noteBlocked('event-delivery'); return; }
   if (ticking) { kickAgain = true; return; }
   ticking = true;
   try {

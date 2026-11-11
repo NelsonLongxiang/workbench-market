@@ -8,7 +8,7 @@ export const isStartupProbeRequest = (req: IncomingMessage): boolean => internal
 type Row = { id: string; surface: 'market' | 'control'; method: string; path: string; verdict: 'pass' | 'fail' | 'warn' | 'skip'; status: number | null; reason: string | null };
 type State = { passed: boolean; failed: string[]; at: string | null; rows: Row[] };
 type Target = { port: number; surface: 'market' | 'control' };
-type Options = { market: Server; control?: Server; gatewayOn: boolean; nodeEnv?: string; loginGate?: 'enforce' | 'off'; appDataRead?: 'enforce' | 'warn'; sopRunWrite?: 'enforce' | 'warn' };
+type Options = { market: Server; control?: Server; gatewayOn: boolean; nodeEnv?: string; loginGate?: 'enforce' | 'off'; appDataRead?: 'enforce' | 'warn'; sopRunWrite?: 'enforce' | 'warn'; outbound?: () => Promise<{ ok: boolean; reason: string | null }> };
 /** Login-gate rows impersonate a remote anonymous browser behind a same-host proxy, so the local-CLI exemption cannot apply. */
 const REMOTE_ANON = { 'x-forwarded-for': '192.0.2.1', accept: 'text/html' };
 
@@ -83,7 +83,7 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
     });
   }
 
-  async function execute({ market, control, gatewayOn, nodeEnv, loginGate = 'off', appDataRead = 'enforce', sopRunWrite = 'enforce' }: Options): Promise<State> {
+  async function execute({ market, control, gatewayOn, nodeEnv, loginGate = 'off', appDataRead = 'enforce', sopRunWrite = 'enforce', outbound }: Options): Promise<State> {
     const [m, c] = await Promise.all([listener(market), listener(control)]);
     if (c) c.surface = 'control';
     const table = [
@@ -146,6 +146,13 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       }
       state.rows.push(row);
       log({ source: 'self-probe', ...row }); // allowlisted fields only, no headers, body, marker or raw error
+    }
+    // 对外断开（WM_OUTBOUND=off）时加一行：真的去连一个不可路由的地址，确认在连之前就被闸拦下。不过就拒绝启动
+    if (outbound) {
+      const g = await outbound();
+      const row: Row = { id: 'market.outbound.disconnected', surface: 'market', method: 'CONNECT', path: '192.0.2.1:9', verdict: g.ok ? 'pass' : 'fail', status: null, reason: g.ok ? 'outbound-off' : g.reason };
+      state.rows.push(row);
+      log({ source: 'self-probe', ...row });
     }
     state = { passed: state.rows.every(r => r.verdict !== 'fail'), failed: state.rows.filter(r => r.verdict === 'fail').map(r => r.id), at: new Date().toISOString(), rows: state.rows };
     return snapshot();

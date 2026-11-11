@@ -1,5 +1,6 @@
 /** 沙箱域（第十域 · LayerFS 步骤 4）：market-bridge 派发——VM sandbox 容器执行 + Commit 入 Store。
  *  边界（技术审定）：bridge 是唯一通道（9800 不直连 Docker）；Commit 不可变性=Store CAS，市场只存引用。 */
+import { outboundOff, noteBlocked } from '../outbound-gate.ts';
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
 
@@ -17,6 +18,7 @@ export class SandboxService extends Service {
    *  返回 { ok, commit_hash, exit_code, stdout_tail, stderr_tail, duration_ms }（技术审三态错误面） */
   async dispatch(r: { runId: number; script: string; imageTag?: string; timeoutMs?: number }): Promise<Record<string, unknown>> {
     const base = this.bridgeUrl();
+    if (outboundOff()) { noteBlocked('sandbox'); throw new Error('对外已断开（WM_OUTBOUND=off）：沙箱桥不可用'); } // 库里随副本带来的桥地址一律按关处理
     if (!base) throw new Error('sandbox bridge 未配置（settings.sandbox_bridge_url 或 env SANDBOX_BRIDGE_URL）');
     // #94 S0⑥：bridge 请求带 Bearer（settings.sandbox_bridge_token ?? env SANDBOX_BRIDGE_TOKEN——契约 §1 鉴权）
     const tokenRow = db.prepare("SELECT value FROM settings WHERE key = 'sandbox_bridge_token'").get() as { value?: string } | undefined;

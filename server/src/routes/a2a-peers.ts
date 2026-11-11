@@ -13,6 +13,15 @@ import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import { HttpError, bad } from '../errors.ts';
 import { PeerRegisterError, type A2aPeerService, type PeerRow, type PeerStatus } from '../services/a2a-peers.ts';
+import { noteBlocked, outboundOff } from '../outbound-gate.ts';
+
+/** 对外断开（WM_OUTBOUND=off）时，要取名片的两个入口直接说明，不去取、不改行（不写 card_error） */
+function outboundDenied(res: express.Response, kind: string): boolean {
+  if (!outboundOff()) return false;
+  noteBlocked(kind);
+  res.status(503).json({ error: '对外已断开（WM_OUTBOUND=off），不取名片', reason: 'outbound_off' });
+  return true;
+}
 
 export interface A2aPeerDeps {
   adminGuard: (req: express.Request, res: express.Response) => boolean;
@@ -55,6 +64,7 @@ export function registerA2aPeerRoutes(app: HttpService, deps: A2aPeerDeps): void
   app.post('/api/a2a/peers', { action: 'a2a-peer.register', kind: 'admin' }, wrap(async (req, res) => {
     res.set('Cache-Control', 'private, no-store');
     if (!adminGuard(req, res)) return;
+    if (outboundDenied(res, 'peer-register')) return;
     const root = typeof req.body?.root_url === 'string' ? req.body.root_url : '';
     try {
       const out = await peers().register(root, adminActor(req));
@@ -68,6 +78,8 @@ export function registerA2aPeerRoutes(app: HttpService, deps: A2aPeerDeps): void
   app.post('/api/a2a/peers/:id/refresh', { action: 'a2a-peer.refresh', kind: 'admin' }, wrap(async (req, res) => {
     res.set('Cache-Control', 'private, no-store');
     if (!adminGuard(req, res)) return;
+    peerOf(req);
+    if (outboundDenied(res, 'peer-refresh')) return;
     const p = await peers().refresh(peerOf(req).id);
     res.json({ ok: true, peer: view(p!) });
   }));
