@@ -57,6 +57,13 @@ const VARIANTS = {
   verify: { kind: 'verify', actor: 'user:alice' },
   return: { kind: 'return', actor: 'user:alice' },
   'answer·没带 ask_id': { kind: 'answer', answer: '店铺 A' },
+  // 8b 补的写法
+  'withdraw·一次都没发出去': { kind: 'withdraw', none_sent: true },
+  'eval·stop 带理由·还有别的投递活着': { kind: 'eval', verdict: 'stop', reason: '不接', others_alive: true },
+  'delivery·dead·还有别的投递活着': { kind: 'delivery', outcome: 'dead', others_alive: true },
+  'note·未路由': { kind: 'note', note: 'unrouted' },
+  'note·未采信': { kind: 'note', note: 'untrusted' },
+  'note·写错的备注': { kind: 'note', note: 'whatever' },
   'answer·答一条没问过的提问': { kind: 'answer', ask_id: 'no-such-ask', answer: '店铺 A' },
 };
 
@@ -68,16 +75,22 @@ const SPEC = {
   'submit·开关全开': to('delivered', 'draft', 'held'),
   release: to('delivered', 'draft', 'held'),
   withdraw: to('cancelled', 'draft', 'held'),
+  // 8b 实现时补定：排了队、一次都没发出去就撤回
+  'withdraw·一次都没发出去': to('cancelled', 'draft', 'held', 'delivered'),
   'delivery·dead': to('failed', 'delivered'),
-  'eval·accept': to('accepted', 'delivered'),
-  'eval·stop 带理由': to('failed', 'delivered'),
-  'eval·ignore 带理由': to('failed', 'delivered'),
-  'eval·unavailable 带理由': to('failed', 'delivered'),
+  // 附录 8b：先问后接
+  'eval·accept': to('accepted', 'delivered', 'blocked'),
+  // 8b 复验补：先问后拒
+  'eval·stop 带理由': to('failed', 'delivered', 'blocked'),
+  'eval·stop 带理由·还有别的投递活着': {},
+  'eval·ignore 带理由': to('failed', 'delivered', 'blocked'),
+  'eval·unavailable 带理由': to('failed', 'delivered', 'blocked'),
   // 附录 8a 补定：原地重复的上报（progress→progress、waiting→waiting、blocked 时又来提问）算合法
   'report·progress': to('progress', 'accepted', 'waiting', 'blocked', 'progress'),
   'report·waiting': to('waiting', 'accepted', 'progress', 'waiting'),
   'report·blocked': to('blocked', 'accepted', 'progress', 'waiting'),
-  ask: to('blocked', 'accepted', 'progress', 'waiting', 'blocked'),
+  // 附录 8b：接单前就可以提问
+  ask: to('blocked', 'delivered', 'accepted', 'progress', 'waiting', 'blocked'),
   'report·ready': to('ready', 'progress', 'waiting', 'blocked'),
   verify: to('done', 'ready'),
   return: to('progress', 'ready'),
@@ -88,7 +101,19 @@ const SPEC = {
 
 /** 附录 8a 补定的「只记录」：状态不变、记一行日志。回执（outcome 不是 failed）在 ready 和任一终态都接受，终态之后的标「晚到」。
  *  answer 要答一条真问过的提问，单独在第四节之后测。 */
-const RECORD = { 'receipt·done': ['ready', 'done', 'failed', 'dropped', 'cancelled'] };
+const AFTER_ACCEPT = ['accepted', 'progress', 'waiting', 'ready'];
+const RECORD = {
+  'receipt·done': ['ready', 'done', 'failed', 'dropped', 'cancelled'],
+  // 附录 8b：一个事件投给多个团队——已有团队接手之后别的团队的决定、别的投递 dead；还有别的投递活着时的拒接和 dead
+  'eval·accept': AFTER_ACCEPT, 'eval·stop 带理由': AFTER_ACCEPT, 'eval·ignore 带理由': AFTER_ACCEPT, 'eval·unavailable 带理由': AFTER_ACCEPT,
+  'eval·stop 没理由': AFTER_ACCEPT, 'eval·stop 理由是空白': AFTER_ACCEPT,
+  'eval·stop 带理由·还有别的投递活着': ['delivered', 'blocked', ...AFTER_ACCEPT],
+  'delivery·dead': ['accepted', 'progress', 'waiting', 'blocked', 'ready'],
+  'delivery·dead·还有别的投递活着': ['delivered', 'accepted', 'progress', 'waiting', 'blocked', 'ready'],
+  // 附录 8b：未路由、收到但未采信
+  'note·未路由': ['draft', 'held', 'delivered', 'accepted', 'progress', 'waiting', 'ready', 'blocked'],
+  'note·未采信': ['draft', 'held', 'delivered', 'accepted', 'progress', 'waiting', 'ready', 'blocked'],
+};
 
 /** 走到某个状态的合法路径（每步都是表里的一行） */
 const PATH = {
@@ -130,6 +155,15 @@ try {
     return it.id;
   };
   const logCount = (id) => items.log(id).length;
+  /** 按 f8d07a9：形式良好但被拒的事实留一行 from = to 的日志，detail 带原因；同一条再送一次，不再多一行。返回不对的地方（空串 = 对） */
+  const rejectedOnce = (id, f, r, state, before, reason) => {
+    const last = items.log(id).at(-1), d = JSON.parse(last.detail);
+    if (!(r.ok === false && r.reason === reason && items.get(id).state === state && logCount(id) === before + 1 && last.fact === f.kind && last.fact_id === f.id && last.from_state === state && last.to_state === state && d.rejected === reason))
+      return `应被拒（${reason}）并留一行，得到 ${show(r)}，日志 ${before} → ${logCount(id)}，最后一行 ${show(last)}`;
+    const again = items.apply(id, { ...f });
+    if (!(again.ok === false && again.reason === reason && again.duplicate && logCount(id) === before + 1 && items.get(id).state === state)) return `被拒的那条再送一次，不该再多一行：${show(again)}，日志 ${logCount(id)}`;
+    return '';
+  };
 
   // ---------- 一、新建 ----------
   {
@@ -150,7 +184,8 @@ try {
         const id = reach(state);
         const before = logCount(id);
         const expect = SPEC[name]?.[state] ?? null;
-        const r = items.apply(id, fact(name));
+        const sent = fact(name);
+        const r = items.apply(id, sent);
         const now = items.get(id).state, after = logCount(id);
         if (RECORD[name]?.includes(state)) {
           recorded++;
@@ -164,12 +199,12 @@ try {
             wrong.push(`${state} + ${name}：应到 ${expect}，得到 ${show(r)}，表里是 ${now}，日志 ${before} → ${after}`);
         } else {
           refused++;
-          if (!(r.ok === false && r.reason === 'not_allowed' && now === state && after === before))
-            wrong.push(`${state} + ${name}：表里没有，应被拒，得到 ${show(r)}，表里是 ${now}，日志 ${before} → ${after}`);
+          const bad = rejectedOnce(id, sent, r, state, before, 'not_allowed');
+          if (bad) wrong.push(`${state} + ${name}：表里没有，${bad}`);
         }
       }
     }
-    check(wrong.length === 0, `第三节的表（含补定的原地行）逐行做正例（${allowed} 例到了对的状态、各写一行日志），只记录的回执 ${recorded} 例状态不变、记一行，表外的迁移逐个做反例（${refused} 例被拒、状态和日志都不动）`, wrong.slice(0, 6).join('；'));
+    check(wrong.length === 0, `第三节的表（含补定的原地行）逐行做正例（${allowed} 例到了对的状态、各写一行日志），只记录的事实 ${recorded} 例状态不变、记一行，表外的迁移逐个做反例（${refused} 例被拒：状态不动，按 f8d07a9 留一行「收到，未采信」带原因，再送一次不再多一行）`, wrong.slice(0, 6).join('；'));
   }
 
   // ---------- 三、终态之后不再接受任何事实 ----------
@@ -180,15 +215,16 @@ try {
       for (const name of Object.keys(VARIANTS)) {
         const id = reach(state);
         const before = logCount(id);
-        const r = items.apply(id, fact(name));
+        const sent = fact(name);
+        const r = items.apply(id, sent);
         if (RECORD[name]?.includes(state)) {
           const last = items.log(id).at(-1);
           if (!(r.ok && r.recorded && r.late && items.get(id).state === state && logCount(id) === before + 1 && last.to_state === state && JSON.parse(last.detail).late === true)) wrong.push(`${state} + ${name}：应作为晚到的回执记一行，得到 ${show(r)}`);
           else lateOk++;
-        } else if (!(r.ok === false && r.reason === 'terminal' && items.get(id).state === state && logCount(id) === before)) wrong.push(`${state} + ${name}：${show(r)}`);
+        } else { const bad = rejectedOnce(id, sent, r, state, before, 'terminal'); if (bad) wrong.push(`${state} + ${name}：${bad}`); }
       }
     }
-    check(wrong.length === 0, `四个终态 × ${Object.keys(VARIANTS).length} 种事实：只有不是 failed 的回执能进来（${lateOk} 例，日志标「晚到」、状态不变），其余全部被拒，状态和日志都不动`, wrong.slice(0, 6).join('；'));
+    check(wrong.length === 0, `四个终态 × ${Object.keys(VARIANTS).length} 种事实：只有不是 failed 的回执能进来（${lateOk} 例，日志标「晚到」、状态不变），其余全部被拒：状态不动，日志留一行带原因 terminal，再送一次不再多一行`, wrong.slice(0, 6).join('；'));
   }
 
   // ---------- 四、同一条事实送两次 ----------
@@ -223,13 +259,22 @@ try {
     const again = items.apply(id, fact('answer·答一条没问过的提问', { ask_id: askF.id, actor: 'user:bob', answer: '店铺 B' }));
     check(again.ok && again.duplicate && again.recorded && logCount(id) === n, '同一条提问再答一次（换一个人、换一个答案）：返回第一次的结果，不再记', show(again));
     const stranger = reach('accepted'), other = fact('ask'); items.apply(stranger, other);
-    const cross = items.apply(id, fact('answer·答一条没问过的提问', { ask_id: other.id }));
-    check(cross.ok === false && cross.reason === 'not_allowed' && logCount(id) === n, '答的是别的事项的提问：拒绝', show(cross));
+    const crossF = fact('answer·答一条没问过的提问', { ask_id: other.id });
+    const cross = items.apply(id, crossF);
+    const crossBad = rejectedOnce(id, crossF, cross, 'blocked', n, 'not_allowed');
+    check(crossBad === '', '答的是别的事项的提问：拒绝，留一行被拒记录', crossBad);
     const notAsk = items.apply(id, fact('answer·答一条没问过的提问', { ask_id: items.log(id).find((l) => l.fact === 'eval').fact_id }));
     check(notAsk.ok === false && notAsk.reason === 'not_allowed', '答的 id 是一条事实、但不是提问：拒绝', show(notAsk));
+    const h = reach('held'), hAsk = fact('ask');
+    items.apply(h, hAsk);
+    const hN = logCount(h), hAnsF = fact('answer·答一条没问过的提问', { ask_id: hAsk.id });
+    const hAns = items.apply(h, hAnsF);
+    const hBad = rejectedOnce(h, hAnsF, hAns, 'held', hN, 'not_allowed');
+    check(hBad === '', '答一条被拒的提问（held 时来的 ask 被拒、只留了一行被拒记录）：不算问过，答复也被拒', hBad);
     const t = reach('blocked'), tAsk = fact('ask'); items.apply(t, tAsk); items.apply(t, fact('report·failed'));
-    const late = items.apply(t, fact('answer·答一条没问过的提问', { ask_id: tAsk.id }));
-    check(late.ok === false && late.reason === 'terminal' && JSON.parse(items.get(t).open_asks).length === 1, '终态之后答提问：拒绝（终态之后只开回执这一个口子）', show(late));
+    const lateF = fact('answer·答一条没问过的提问', { ask_id: tAsk.id }), lateN = logCount(t);
+    const late = items.apply(t, lateF);
+    check(rejectedOnce(t, lateF, late, 'failed', lateN, 'terminal') === '' && JSON.parse(items.get(t).open_asks).length === 1, '终态之后答提问：拒绝（终态之后只开回执这一个口子）', show(late));
     const dropped = reach('accepted');
     items.apply(dropped, fact('report·dropped 带回执', { receipt: { outcome: 'x' } }));
     const atDrop = items.get(dropped);

@@ -35,9 +35,12 @@ export type SourceKind = typeof SOURCE_KINDS[number];
  *   verify    人在关注队列里验收
  *   return    人退回
  *   answer    人答了席位的提问；ask_id 是那条 ask 事实的 id
+ *   note      只记录的备注：note = 'unrouted'（没有目标团队）/ 'untrusted'（提交方未验证，收到但未采信）
+ *
+ * 8b 接来源时补的标记：others_alive（同一事件还有别的投递活着）、none_sent（这个事件的投递一次都没发出去）。
  */
 export type Fact = {
-  kind: 'submit' | 'release' | 'withdraw' | 'delivery' | 'eval' | 'report' | 'ask' | 'receipt' | 'verify' | 'return' | 'answer';
+  kind: 'submit' | 'release' | 'withdraw' | 'delivery' | 'eval' | 'report' | 'ask' | 'receipt' | 'verify' | 'return' | 'answer' | 'note';
   source: string;
   id: string;
   actor?: string;
@@ -51,6 +54,10 @@ export type Fact = {
   question?: string;
   ask_id?: string;
   answer?: string;
+  note?: 'unrouted' | 'untrusted';
+  others_alive?: boolean;
+  none_sent?: boolean;
+  action?: string;
 };
 
 type Row = { from: readonly WorkItemState[]; fact: Fact['kind']; when: (f: Fact) => boolean; to: WorkItemState; note: string };
@@ -77,6 +84,13 @@ export const TRANSITIONS: readonly Row[] = [
   { from: ['progress'], fact: 'report', when: is('status', 'progress'), to: 'progress', note: '原地：progress 时又报 progress' },
   { from: ['waiting'], fact: 'report', when: is('status', 'waiting'), to: 'waiting', note: '原地：waiting 时又报 waiting' },
   { from: ['blocked'], fact: 'ask', when: () => true, to: 'blocked', note: '原地：blocked 时又来一个提问' },
+  // 补定（规格附录 8b）：接单前就可以提问，成对补两行
+  { from: ['delivered'], fact: 'ask', when: () => true, to: 'blocked', note: '接单前提问：已转交时来提问' },
+  { from: ['blocked'], fact: 'eval', when: is('verdict', 'accept'), to: 'accepted', note: '先问后接：在问你时来接单' },
+  // 8b 复验补：先问后拒——没有别的投递活着时，在问你时来拒接 → 没办成（还有活着的，走只记录的表）
+  { from: ['blocked'], fact: 'eval', when: (f) => ['stop', 'ignore', 'unavailable'].includes(f.verdict ?? '') && hasReason(f) && f.others_alive !== true, to: 'failed', note: '先问后拒：在问你时来拒接' },
+  // 实现时补定（8b）：排了队、一次都没发出去就撤回，等同于还没转交
+  { from: ['delivered'], fact: 'withdraw', when: is('none_sent', true), to: 'cancelled', note: '排队中还没发出就撤回' },
   { from: NON_TERMINAL, fact: 'report', when: is('status', 'failed'), to: 'failed', note: '席位 report：failed' },
   { from: NON_TERMINAL, fact: 'receipt', when: is('outcome', 'failed'), to: 'failed', note: '终态回执 outcome=failed' },
   { from: NON_TERMINAL, fact: 'report', when: (f) => f.status === 'dropped' && typeof f.receipt?.outcome === 'string' && f.receipt.outcome !== '', to: 'dropped', note: '席位 report：dropped（同时有回执）' },
@@ -97,11 +111,18 @@ export function nextState(state: WorkItemState, fact: Fact): WorkItemState | nul
 export const RECORDS: readonly { from: readonly WorkItemState[]; fact: Fact['kind']; when: (f: Fact) => boolean; note: string }[] = [
   { from: NON_TERMINAL, fact: 'answer', when: (f) => typeof f.ask_id === 'string' && f.ask_id !== '', note: '人答了席位的提问' },
   { from: ['ready', ...TERMINAL], fact: 'receipt', when: (f) => typeof f.outcome === 'string' && f.outcome !== '' && f.outcome !== 'failed', note: '回执（outcome 不是 failed）' },
+  // 8b：一个事件投给多个团队
+  { from: ['accepted', 'progress', 'waiting', 'ready'], fact: 'eval', when: (f) => ['accept', 'stop', 'ignore', 'unavailable'].includes(f.verdict ?? ''), note: '已有团队接手之后，别的团队再来接或拒' },
+  { from: ['delivered', 'blocked'], fact: 'eval', when: (f) => ['stop', 'ignore', 'unavailable'].includes(f.verdict ?? '') && f.others_alive === true, note: '一个团队拒接，还有别的投递活着' },
+  { from: ['delivered'], fact: 'delivery', when: (f) => f.outcome === 'dead' && f.others_alive === true, note: '一个投递 dead，还有别的投递活着' },
+  { from: ['accepted', 'progress', 'waiting', 'blocked', 'ready'], fact: 'delivery', when: is('outcome', 'dead'), note: '已有团队接手之后，别的投递 dead' },
+  // 8b：未路由、未采信
+  { from: NON_TERMINAL, fact: 'note', when: (f) => f.note === 'unrouted' || f.note === 'untrusted', note: '未路由 / 收到但未采信' },
 ];
 
 export type ApplyResult =
   | { ok: true; state: WorkItemState; from: WorkItemState; duplicate: boolean; recorded?: boolean; late?: boolean }
-  | { ok: false; reason: 'bad_fact' | 'unknown_item' | 'terminal' | 'not_allowed'; state?: WorkItemState };
+  | { ok: false; reason: 'bad_fact' | 'unknown_item' | 'terminal' | 'not_allowed'; state?: WorkItemState; duplicate?: boolean };
 
 export type NewWorkItem = {
   title: string; created_by: string; source_kind: SourceKind; source_ref?: string;
@@ -119,7 +140,7 @@ export type WorkItemLogRow = {
   actor: string; detail: string; at: string;
 };
 
-const KINDS: readonly Fact['kind'][] = ['submit', 'release', 'withdraw', 'delivery', 'eval', 'report', 'ask', 'receipt', 'verify', 'return', 'answer'];
+const KINDS: readonly Fact['kind'][] = ['submit', 'release', 'withdraw', 'delivery', 'eval', 'report', 'ask', 'receipt', 'verify', 'return', 'answer', 'note'];
 const text = (v: unknown, max: number) => typeof v === 'string' && v.trim() !== '' && v.length <= max;
 const MAX_DETAIL = 16 * 1024;
 
@@ -132,9 +153,157 @@ function factProblem(fact: Fact): string {
   return '';
 }
 
+/** 回执的 outcome 不分大小写（8a 验收提出、8b 定）：入口统一去空白、转小写。 */
+function normalize(fact: Fact): Fact {
+  const f = { ...fact };
+  if (typeof f.outcome === 'string') f.outcome = f.outcome.trim().toLowerCase();
+  if (f.receipt && typeof f.receipt.outcome === 'string') f.receipt = { ...f.receipt, outcome: f.receipt.outcome.trim().toLowerCase() };
+  return f;
+}
+
+/**
+ * 事务：已经在来源的事务里（8b 的监听器就是），用保存点，和来源同生同灭；不在事务里，自己开一个。
+ * fn 返回 false 表示没有要留下的改动，回滚。
+ */
+let savepoints = 0;
+function inTx<T>(fn: () => T, keep: (out: T) => boolean = () => true): T {
+  if (db.isTransaction) {
+    const name = `work_item_${++savepoints}`;
+    db.exec(`SAVEPOINT ${name}`);
+    try {
+      const out = fn();
+      if (!keep(out)) db.exec(`ROLLBACK TO ${name}`);
+      db.exec(`RELEASE ${name}`);
+      return out;
+    } catch (e) { db.exec(`ROLLBACK TO ${name}`); db.exec(`RELEASE ${name}`); throw e; }
+  }
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const out = fn();
+    db.exec(keep(out) ? 'COMMIT' : 'ROLLBACK');
+    return out;
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+}
+
+// ---------- 8b：从 workbench-events 的事实推进事项 ----------
+
+export const EVENT_FACT_SOURCE = 'workbench-events';
+/** 一个事件对应一个事项；id 由事件 id 定，回填和实时建出来的是同一个。 */
+export const itemIdForEvent = (eventId: string) => `wi_${eventId}`;
+
+export type EventRow = {
+  id: number; event_id: string; source: string; workbench: string; item: string; context_id: string;
+  submitter_kind: 'human' | 'agent' | 'unverified'; submitter: string; routed: string; created_at: string;
+};
+export type EventLogRow = { id: number; delivery_id: number | null; actor: string; action: string; detail: string };
+
+type DeliveryStatus = 'held' | 'pending' | 'sent' | 'dead' | 'cancelled' | 'accepted' | 'declined';
+const DELIVERY_AFTER: Record<string, DeliveryStatus> = {
+  held: 'held', queued: 'pending', released: 'pending', retry: 'pending', sent: 'sent', 'sent-after-withdraw': 'sent',
+  dead: 'dead', cancelled: 'cancelled', 'decision:accept': 'accepted', 'decision:decline': 'declined',
+};
+const ALIVE: readonly DeliveryStatus[] = ['held', 'pending', 'sent'];
+
+/**
+ * 事件日志的第 i 行对到哪条事实（null = 不是事实，例如 sent、retry）。纯函数，只看这一行和它之前的行：
+ * 实时和回填按同一份来源日志算，结果一样。
+ *   · held / queued → submit（开关没全开 / 全开）；released → release；cancelled → withdraw（none_sent：一次都没发出去）
+ *   · dead → delivery（others_alive：同一事件还有别的投递活着）
+ *   · decision:accept → eval accept；decision:decline → eval stop（理由为空记「未写理由」）；decision:ask → ask
+ *   · 提交方未验证的事件：本来是事实的，都只记「收到但未采信」
+ */
+export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], i: number): Fact | null {
+  const row = rows[i];
+  const detail = (() => { try { return JSON.parse(row.detail || '{}') as Record<string, unknown>; } catch { return {}; } })();
+  const base = { source: EVENT_FACT_SOURCE, id: String(row.id), actor: row.actor, action: row.action };
+  let fact: Fact | null = null;
+  if (row.action === 'held' || row.action === 'queued') fact = { ...base, kind: 'submit', dispatch_open: row.action === 'queued' };
+  else if (row.action === 'released') fact = { ...base, kind: 'release' };
+  else if (row.action === 'cancelled') fact = { ...base, kind: 'withdraw', none_sent: !rows.slice(0, i + 1).some((r) => r.action === 'sent' || r.action === 'sent-after-withdraw') };
+  else if (row.action === 'dead' || row.action.startsWith('decision:')) {
+    const status = new Map<number, DeliveryStatus>();
+    for (const r of rows.slice(0, i)) if (r.delivery_id !== null && DELIVERY_AFTER[r.action]) status.set(r.delivery_id, DELIVERY_AFTER[r.action]);
+    const others_alive = [...status].some(([d, st]) => d !== row.delivery_id && ALIVE.includes(st));
+    if (row.action === 'dead') fact = { ...base, kind: 'delivery', outcome: 'dead', others_alive };
+    else if (row.action === 'decision:accept') fact = { ...base, kind: 'eval', verdict: 'accept', others_alive };
+    else if (row.action === 'decision:decline') {
+      const reason = typeof detail.reason === 'string' && detail.reason.trim() !== '' ? detail.reason : '未写理由';
+      fact = { ...base, kind: 'eval', verdict: 'stop', reason, others_alive };
+    } else if (row.action === 'decision:ask') fact = { ...base, kind: 'ask', question: typeof detail.reason === 'string' ? detail.reason : '' };
+  }
+  if (fact && event.submitter_kind === 'unverified') return { ...base, kind: 'note', note: 'untrusted' };
+  return fact;
+}
+
 export class WorkItemService extends Service {
   constructor(ctx: any) {
     super(ctx, 'workItems');
+    // 8b：workbench-events 每写一行事件日志就发一个事件（在它自己的事务里）。随插件卸载自动撤销。
+    ctx.on('workbench-event/logged', (row: { event_id: string; action: string }) => this.onLogged(row));
+    // 装上时回填一次：上线前的存量事件建出事项，上次运行时监听器漏掉的也补上。出错不挡启动
+    try {
+      const r = this.backfill();
+      console.log(`[work-items] 回填：核对 ${r.events} 个事件，补建 ${r.created} 个事项`);
+    } catch (e) {
+      console.error(`[work-items] 启动时回填没做完（不影响启动，下次启动或手动 backfill() 再补）：${(e as Error)?.message ?? e}`);
+    }
+  }
+
+  /** 监听器出错不影响来源：回滚自己的保存点、打日志、按事实种类计数；漏掉的由回填补上。 */
+  private readonly failures = new Map<string, number>();
+  failureCounts(): Record<string, number> {
+    return Object.fromEntries(this.failures);
+  }
+
+  onLogged(row: { event_id: string; action: string }): void {
+    try {
+      this.syncEvent(row.event_id);
+    } catch (e) {
+      const key = String(row?.action ?? 'unknown');
+      const count = (this.failures.get(key) ?? 0) + 1;
+      this.failures.set(key, count);
+      console.error(`[work-items] 事件 ${row?.event_id} 的事实（${key}）没推进到事项（这种事实累计 ${count} 次），下次启动的回填会补上：${(e as Error)?.message ?? e}`);
+    }
+  }
+
+  /** 按来源日志把这个事件的事项追到最新：没有就建，已经应用过的事实按（来源、id）跳过。可以重复跑。 */
+  syncEvent(eventId: string): void {
+    inTx(() => this.syncLocked(eventId));
+  }
+
+  /** 回填：从现有的事件表和事件日志把存量事项建出来、追到最新。可以重复跑，结果相同。 */
+  backfill(): { events: number; created: number } {
+    // 新库上事件表可能还没建（任务中心初始化时才建）：那就没有可回填的
+    if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workbench_events'").get()) return { events: 0, created: 0 };
+    const count = () => (db.prepare('SELECT COUNT(*) AS n FROM work_items').get() as { n: number }).n;
+    const before = count();
+    const ids = db.prepare('SELECT event_id FROM workbench_events ORDER BY id').all() as { event_id: string }[];
+    for (const { event_id } of ids) this.syncEvent(event_id);
+    return { events: ids.length, created: count() - before };
+  }
+
+  private syncLocked(eventId: string): void {
+    const event = db.prepare('SELECT id, event_id, source, workbench, item, context_id, submitter_kind, submitter, routed, created_at FROM workbench_events WHERE event_id = ?')
+      .get(eventId) as EventRow | undefined;
+    if (!event) return;
+    const rows = db.prepare('SELECT id, delivery_id, actor, action, detail FROM workbench_event_log WHERE event_id = ? ORDER BY id').all(eventId) as EventLogRow[];
+    const recorded = rows.find((r) => r.action === 'recorded');
+    if (!recorded) return;
+    const itemId = itemIdForEvent(eventId);
+    if (!this.get(itemId)) {
+      const who = String(event.submitter ?? '').replace(/\s+/g, '_').slice(0, 200);
+      const createdBy = event.submitter_kind !== 'unverified' && /^[^:\s]+:\S/.test(who) ? who : `${event.submitter_kind}:${who || 'unknown'}`;
+      this.insertItem(itemId, {
+        title: `${event.source} · ${event.workbench} · ${event.item}`.slice(0, 500), created_by: createdBy,
+        source_kind: event.source as SourceKind, source_ref: event.event_id, event_id: event.id,
+        context: { workbench: event.workbench, item: event.item, context_id: event.context_id, submitter_kind: event.submitter_kind },
+      }, { source: EVENT_FACT_SOURCE, id: String(recorded.id) }, event.created_at);
+      if (event.routed === 'unrouted') this.applyLocked(itemId, { kind: 'note', note: 'unrouted', source: EVENT_FACT_SOURCE, id: `${recorded.id}:unrouted`, actor: 'market' });
+    }
+    for (let i = 0; i < rows.length; i++) {
+      const fact = factFromEventLog(event, rows, i);
+      if (fact) this.applyLocked(itemId, normalize(fact));
+    }
   }
 
   /** 新建一件事项：一律从 draft 开始，第一行日志是「建立」。 */
@@ -143,17 +312,17 @@ export class WorkItemService extends Service {
     if (!/^[^:\s]+:\S/.test(String(input.created_by ?? ''))) throw new Error('created_by 要是主体标识（如 user:<名>）');
     if (!SOURCE_KINDS.includes(input.source_kind)) throw new Error('不认识的来源类别');
     const id = `wi_${randomUUID().replace(/-/g, '')}`;
-    db.exec('BEGIN IMMEDIATE');
-    try {
-      db.prepare(`INSERT INTO work_items (id, title, created_by, source_kind, source_ref, context, event_id, target_team, seat, object, phase)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-        id, input.title, input.created_by, input.source_kind, input.source_ref ?? '', JSON.stringify(input.context ?? {}),
-        input.event_id ?? null, input.target_team ?? '', input.seat ?? '', input.object ?? '', input.phase ?? '');
-      db.prepare(`INSERT INTO work_item_log (item_id, fact, fact_source, fact_id, from_state, to_state, actor, detail)
-        VALUES (?, 'create', 'market', ?, 'draft', 'draft', ?, '{}')`).run(id, id, input.created_by);
-      db.exec('COMMIT');
-    } catch (e) { db.exec('ROLLBACK'); throw e; }
+    inTx(() => this.insertItem(id, input, { source: 'market', id }));
     return this.get(id)!;
+  }
+
+  private insertItem(id: string, input: NewWorkItem, by: { source: string; id: string }, createdAt?: string): void {
+    db.prepare(`INSERT INTO work_items (id, title, created_by, source_kind, source_ref, context, event_id, target_team, seat, object, phase, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))`).run(
+      id, input.title, input.created_by, input.source_kind, input.source_ref ?? '', JSON.stringify(input.context ?? {}),
+      input.event_id ?? null, input.target_team ?? '', input.seat ?? '', input.object ?? '', input.phase ?? '', createdAt ?? null, createdAt ?? null);
+    db.prepare(`INSERT INTO work_item_log (item_id, fact, fact_source, fact_id, from_state, to_state, actor, detail)
+      VALUES (?, 'create', ?, ?, 'draft', 'draft', ?, '{}')`).run(id, by.source, by.id, input.created_by);
   }
 
   get(id: string): WorkItemRow | undefined {
@@ -174,27 +343,25 @@ export class WorkItemService extends Service {
   /** 唯一的改状态入口。 */
   apply(itemId: string, fact: Fact): ApplyResult {
     if (factProblem(fact)) return { ok: false, reason: 'bad_fact' };
-    db.exec('BEGIN IMMEDIATE');
-    try {
-      const out = this.applyLocked(itemId, fact);
-      db.exec(out.ok && !out.duplicate ? 'COMMIT' : 'ROLLBACK');
-      return out;
-    } catch (e) { db.exec('ROLLBACK'); throw e; }
+    // 被拒的（not_allowed、terminal）也写了一行留痕，要提交；形式不对的、重复的什么都没写
+    return inTx(() => this.applyLocked(itemId, normalize(fact)), (out) => !out.duplicate && (out.ok || out.reason === 'not_allowed' || out.reason === 'terminal'));
   }
 
   private applyLocked(itemId: string, fact: Fact): ApplyResult {
     const item = db.prepare('SELECT state, open_asks FROM work_items WHERE id = ?').get(itemId) as { state: WorkItemState; open_asks: string } | undefined;
     if (!item) return { ok: false, reason: 'unknown_item' };
-    const seen = db.prepare('SELECT from_state, to_state FROM work_item_log WHERE item_id = ? AND fact_source = ? AND fact_id = ?')
-      .get(itemId, fact.source, fact.id) as { from_state: WorkItemState; to_state: WorkItemState } | undefined;
+    const seen = db.prepare("SELECT from_state, to_state, json_extract(detail, '$.rejected') AS rejected FROM work_item_log WHERE item_id = ? AND fact_source = ? AND fact_id = ?")
+      .get(itemId, fact.source, fact.id) as { from_state: WorkItemState; to_state: WorkItemState; rejected: 'not_allowed' | 'terminal' | null } | undefined;
+    // 同一条事实再来：照第一次的结果答（第一次被拒的，还是被拒），不再写
+    if (seen?.rejected) return { ok: false, reason: seen.rejected, state: item.state, duplicate: true };
     if (seen) return { ok: true, state: item.state, from: seen.from_state, duplicate: true };
 
     // 只记录的事实：查第二张表。终态之后只有回执能走到这里。
     const record = RECORDS.find((r) => r.fact === fact.kind && r.from.includes(item.state) && r.when(fact));
     if (record) return this.recordLocked(itemId, item, fact);
-    if (TERMINAL.includes(item.state)) return { ok: false, reason: 'terminal', state: item.state };
+    if (TERMINAL.includes(item.state)) return this.rejectLocked(itemId, item.state, fact, 'terminal');
     const to = nextState(item.state, fact);
-    if (!to) return { ok: false, reason: 'not_allowed', state: item.state };
+    if (!to) return this.rejectLocked(itemId, item.state, fact, 'not_allowed');
 
     const { kind, source, id, actor, ...detail } = fact;
     this.writeLog(itemId, fact, item.state, to, detail);
@@ -208,6 +375,16 @@ export class WorkItemService extends Service {
     return { ok: true, state: to, from: item.state, duplicate: false };
   }
 
+  /**
+   * 被拒的事实也留痕（规格 f8d07a9）：状态不动，记一行 from = to「收到，未采信」，带原因。
+   * 按事实自己的（来源、id）写，所以同一条再来时按去重答第一次的结果，不会每次同步都重试一遍。
+   */
+  private rejectLocked(itemId: string, state: WorkItemState, fact: Fact, reason: 'not_allowed' | 'terminal'): ApplyResult {
+    const { kind, source, id, actor, ...detail } = fact;
+    this.writeLog(itemId, fact, state, state, { ...detail, rejected: reason, note: '收到，未采信' });
+    return { ok: false, reason, state };
+  }
+
   private writeLog(itemId: string, fact: Fact, from: WorkItemState, to: WorkItemState, detail: object): void {
     db.prepare(`INSERT INTO work_item_log (item_id, fact, fact_source, fact_id, from_state, to_state, actor, detail)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(itemId, fact.kind, fact.source, fact.id, from, to, fact.actor ?? '', JSON.stringify(detail));
@@ -218,9 +395,10 @@ export class WorkItemService extends Service {
     const { kind, source, id, actor, ...detail } = fact;
     if (kind === 'answer') {
       const askId = String(fact.ask_id); // RECORDS 那一行已要求它是非空字符串
-      const asked = db.prepare("SELECT 1 FROM work_item_log WHERE item_id = ? AND fact = 'ask' AND fact_id = ?").get(itemId, askId);
-      if (!asked) return { ok: false, reason: 'not_allowed', state: item.state };
-      const first = db.prepare("SELECT from_state FROM work_item_log WHERE item_id = ? AND fact = 'answer' AND json_extract(detail, '$.ask_id') = ? ORDER BY seq LIMIT 1")
+      // 被拒的提问、被拒的答复都留了一行（带 rejected），不算问过、不算答过
+      const asked = db.prepare("SELECT 1 FROM work_item_log WHERE item_id = ? AND fact = 'ask' AND fact_id = ? AND json_extract(detail, '$.rejected') IS NULL").get(itemId, askId);
+      if (!asked) return this.rejectLocked(itemId, item.state, fact, 'not_allowed');
+      const first = db.prepare("SELECT from_state FROM work_item_log WHERE item_id = ? AND fact = 'answer' AND json_extract(detail, '$.ask_id') = ? AND json_extract(detail, '$.rejected') IS NULL ORDER BY seq LIMIT 1")
         .get(itemId, askId) as { from_state: WorkItemState } | undefined;
       // 同一条提问再答一次：返回第一次的结果，不再写
       if (first) return { ok: true, state: item.state, from: first.from_state, duplicate: true, recorded: true };

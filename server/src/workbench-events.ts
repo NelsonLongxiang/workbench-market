@@ -8,6 +8,15 @@ import type express from 'express';
 import { db } from './db.ts';
 import { a2aKeyPath, a2aSendOutbound, marketPublicUrl, sopNode8 } from './a2a.ts';
 import { MAX_ROUTE_BODY_BYTES } from '@nelsonlongxiang/dsh-open-a2a-net/transport-caps';
+import { root } from './root-context.ts';
+
+/** 8b：每写一行事件日志，在同一个事务里多发一个事件（事项服务听它）。这张表和它的写法都不变。 */
+export type WorkbenchEventLogged = { id: number; event_id: string; delivery_id: number | null; action: string };
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    'workbench-event/logged'(row: WorkbenchEventLogged): void;
+  }
+}
 
 export const WORKBENCH_EVENT_VERSION = 1;
 const DECISIONS = new Set(['accept', 'decline', 'ask']);
@@ -78,7 +87,10 @@ function sqliteUtcIn(ms: number): string {
   return new Date(Date.now() + ms + 1_000).toISOString().slice(0, 19).replace('T', ' ');
 }
 function log(eventId: string, deliveryId: number | null, actor: string, action: string, detail: Record<string, unknown> = {}): void {
-  db.prepare('INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, ?, ?, ?)').run(eventId, deliveryId, actor, action, JSON.stringify(detail));
+  const info = db.prepare('INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, ?, ?, ?)').run(eventId, deliveryId, actor, action, JSON.stringify(detail));
+  // 听的一方出什么错都不影响这里：它自己回滚、计数，漏掉的由回填补上
+  try { root.emit('workbench-event/logged', { id: Number(info.lastInsertRowid), event_id: eventId, delivery_id: deliveryId, action }); }
+  catch (e) { console.error(`[workbench-events] 发事件日志事件失败（不影响本次写入）：${(e as Error)?.message ?? e}`); }
 }
 
 interface Target { agent_node: string; notify_url: string }
