@@ -57,7 +57,7 @@ export function byObject(rows: WorkItemListRow[]): { object: string; rows: WorkI
 
 /** 「谁」怎么写由页面传进来（people.ts 的 seatLabel / actorLabel，和详情页同一套）；这里只管拼。
  *  这个文件由 Node 直接加载做单测，只能引类型，所以不直接 import people.ts */
-export type Who = { seat: (s: string) => string; actor: (s: string) => string };
+export type Who = { seat: (s: string) => string; /** seat：这件事的承接席位，来源标记 receiver:<区> 用它顶上 */ actor: (s: string, seat: string) => string };
 const PLAIN: Who = { seat: (s) => s, actor: (s) => s };
 
 /** 没有席位时的说法：还没派出去（草稿、等放行）和派出去了还没席位接手，分开说 */
@@ -72,10 +72,16 @@ export function rowLine(r: WorkItemListRow, mode: 'state' | 'object', who: Who =
   const place = mode === 'state' ? [objectName(r.object), phaseName(r.phase)].filter(Boolean).join('·') : '';
   const seat = seatOrWaiting(r, who);
   const lp = r.last_progress;
-  const actor = lp?.actor ? who.actor(lp.actor) : '';
-  const last = lp && lp.text ? `${actor ? `${actor}：` : ''}${lp.text}` : '';
+  // 说话的就是承接席位时不重复写一遍名字
+  const actor = lp?.actor ? who.actor(lp.actor, r.seat ?? '') : '';
+  const raw = r.seat ?? '';
+  const sameAsSeat = !!actor && [seat, raw, ...raw.split(' · ')].includes(actor);
+  const last = lp && lp.text ? `${actor && !sameAsSeat ? `${actor}：` : ''}${lp.text}` : '';
   return [place, seat, last].filter(Boolean).join(' · ');
 }
+
+/** 行右边的时间：最后一条进展的时间，没有（或是空串）就用事项的更新时间 */
+export const rowTime = (r: Pick<WorkItemListRow, 'last_progress' | 'updated_at'>): string => r.last_progress?.at || r.updated_at;
 
 /** 追加下一页：按 id 去重（翻页期间有事项变化时，同一行可能在两页都出现），后到的覆盖先到的 */
 export function appendPage(prev: WorkItemListRow[], next: WorkItemListRow[]): WorkItemListRow[] {

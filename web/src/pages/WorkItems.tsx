@@ -9,11 +9,11 @@ import WmPage from '../components/WmPage';
 import RelTime from '../components/RelTime';
 import { api } from '../api';
 import { STATE } from './WorkItem';
-import { STATE_GROUPS, appendPage, byObject, byState, groupCount, objectName, phaseName, rowLine, type Who, type WorkItemListRow } from '../work-items-view';
+import { STATE_GROUPS, appendPage, byObject, byState, groupCount, objectName, phaseName, rowLine, rowTime, type Who, type WorkItemListRow } from '../work-items-view';
 import { actorLabel, seatLabel } from '../people';
 
 /** 「谁」的写法同事项详情（people.ts）：席位「名字（句柄）」，来源标记去前缀 */
-const WHO: Who = { seat: (s) => seatLabel(s), actor: (s) => actorLabel(s, '') };
+const WHO: Who = { seat: (s) => seatLabel(s), actor: (s, seat) => actorLabel(s, seat) };
 
 type Mode = 'state' | 'object';
 const MODE_KEY = 'wm-work-items-mode';
@@ -26,7 +26,7 @@ function Row({ r, mode }: { r: WorkItemListRow; mode: Mode }) {
     extra={<Space size="middle" align="center">
       {mode === 'object' && phaseName(r.phase) ? <Tag>{phaseName(r.phase)}</Tag> : null}
       <Tag color={st?.color ?? 'default'}>{st?.label ?? r.state}</Tag>
-      <RelTime value={r.last_progress?.at ?? r.updated_at} />
+      <RelTime value={rowTime(r)} />
     </Space>}>
     <List.Item.Meta
       title={<Space size={6}>
