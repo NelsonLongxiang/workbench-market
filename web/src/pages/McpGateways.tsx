@@ -4,6 +4,7 @@ import { KeyOutlined, PlusOutlined } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
 import WmPage from '../components/WmPage';
+import AlsoInAttention from '../components/AlsoInAttention';
 import RelTime from '../components/RelTime';
 import { adminActive, apiFetch, checkAdminToken, odooAdmin, setAdminToken, subscribeAdminToken } from '../admin-token';
 import { api } from '../api';
@@ -318,6 +319,7 @@ export default function McpGateways() {
 
   return (
     <WmPage subTitle="会话 · 令牌 · 授权 · 权限申请 · 审计（默认拒绝）">
+      <AlsoInAttention what="待批的权限申请" />
       <Typography.Paragraph type="secondary" className="wm-caption">
         令牌只经创建响应出现一次（库存 sha256）；新会话授权为空=默认拒绝；吊销即时生效。
         401 拒绝不进审计只计数。激活需服务端 ADMIN_TOKEN+MCP_GATEWAY=on。

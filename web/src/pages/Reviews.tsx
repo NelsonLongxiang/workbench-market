@@ -3,6 +3,7 @@ import { Alert, App, Button, Card, Descriptions, Empty, Form, Input, Modal, Spac
 import { useSearchParams } from 'react-router-dom';
 import { adminActive, apiFetch, getAdminToken, subscribeAdminToken } from '../admin-token';
 import WmPage from '../components/WmPage';
+import AlsoInAttention from '../components/AlsoInAttention';
 
 type Review = { id: number; kind: string; slug: string; op: string; target_version: number | null; status: string; reason: string; requested_by: string; reviewed_by: string; created_at: string };
 const labels: Record<string, string> = { pending: '待人审', approved: '已批准', rejected: '已拒绝' };
@@ -50,6 +51,7 @@ export default function Reviews() {
   };
   const selected = request ? rows.filter(row => String(row.id) === request) : rows;
   return <WmPage title="变更人审">
+    <AlsoInAttention what="待人审的变更申请" />
     {!admin ? <Alert type="info" showIcon message="请先确认管理员身份" description="在顶栏输入管理员口令，或用 Odoo 管理员账号登录，之后自动读取申请。" />
       : <Space direction="vertical" style={{ width: '100%' }}>
         <Alert type="warning" showIcon message="批准会实际执行回滚或删除" description="核对申请对象、目标版本和理由；已处理申请不可重复执行。" />

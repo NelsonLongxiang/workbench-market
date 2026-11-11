@@ -3,6 +3,7 @@ import { Alert, App, Button, Form, Input, Modal, Space, Table, Tag, Tooltip, Typ
 import { adminActive, apiFetch, loginRequired, odooAdmin, redirectToLogin, subscribeAdminToken } from '../admin-token';
 import { api } from '../api';
 import WmPage from '../components/WmPage';
+import AlsoInAttention from '../components/AlsoInAttention';
 import { answerBody, buildBoard, configRevisionBody, findBoardWorkbench, parseConfig, type Anomaly, type BoardConfig, type BoardRow, type BoardVar } from '../owner-pending';
 
 const STATUS: Record<BoardRow['status'], { text: string; color: string }> = {
@@ -131,6 +132,7 @@ export default function OwnerPending() {
   ];
 
   return <WmPage>
+    <AlsoInAttention what="待你答复的事项" />
     <Space direction="vertical" style={{ width: '100%' }}>
       <Typography.Text type="secondary" className="wm-caption">
         本页答复由属主本人的 Odoo 登录写入，可作为属主对该事项的答复；涉及生产或不可逆动作的授权，仍须在授权登记表里引用本条答复登记后才生效。
