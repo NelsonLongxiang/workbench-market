@@ -7,9 +7,10 @@
  *   · 数据集名、列名、别名只认白名单写法，而且必须是已定义的；拼进语句的只有这些核对过的名字（加固定前缀或双引号），值一律走参数。
  *   · 没有连表、没有子查询、没有任意表达式。
  *   · 行数有硬上限；数据集本身的行数也有上限（见 BENCH_LIMITS），所以一次查询的代价有界。
- * 两种库都认的写法：排序写明 NULLS LAST；「包含」随库不同，收在 containsExpr 里。
+ * 两种库都认的写法：排序写明 NULLS LAST。「包含」随库不同，这里不写：由调用方把 db.ts 台库一段里的写法递进来（opts.contains）。
+ * 这个文件运行时不引用 db.ts（只引用类型），所以引用它不会顺带打开主库。
  */
-import type { BenchColumnType, BenchDialect } from './db.ts';
+import type { BenchColumnType } from './db.ts';
 
 export const BENCH_LIMITS = {
   datasets: 50, columns: 60, keyColumns: 8, rows: 50_000, rowsPerWrite: 5_000, textChars: 10_000,
@@ -29,13 +30,14 @@ export type OutColumn = { name: string; type: BenchColumnType; label: string; ro
 export type QueryPlan = { dataset: string; columns: OutColumn[]; params: string[]; sql: string; args: unknown[]; limit: number };
 
 export class BenchError extends Error {
-  code: 'invalid' | 'not_found' | 'conflict' | 'limit' | 'unsupported';
+  /** internal：库或运行环境报了意料之外的错。说明文字是固定的一句，原始的错只放在 cause 里，不对外 */
+  code: 'invalid' | 'not_found' | 'conflict' | 'limit' | 'unsupported' | 'internal';
   http: number;
   details: string[];
-  constructor(code: BenchError['code'], message: string, details: string[] = []) {
-    super(message);
+  constructor(code: BenchError['code'], message: string, details: string[] = [], cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause });
     this.code = code;
-    this.http = code === 'not_found' ? 404 : code === 'conflict' ? 409 : code === 'limit' ? 413 : 400;
+    this.http = code === 'not_found' ? 404 : code === 'conflict' ? 409 : code === 'limit' ? 413 : code === 'internal' ? 500 : 400;
     this.details = details;
   }
 }
@@ -97,13 +99,15 @@ export function decodeValue(type: BenchColumnType, v: unknown): unknown {
   return String(v);
 }
 
-const OPS: Record<string, string> = {
-  '=': 'eq', eq: 'eq', '!=': 'ne', ne: 'ne', '>': 'gt', gt: 'gt', '>=': 'gte', gte: 'gte', '<': 'lt', lt: 'lt', '<=': 'lte', lte: 'lte',
-  in: 'in', is_null: 'is_null', not_null: 'not_null', contains: 'contains', prefix: 'prefix',
-};
-const CMP: Record<string, string> = { eq: '=', ne: '<>', gt: '>', gte: '>=', lt: '<', lte: '<=' };
+// 用 Map 查，不用对象下标：对象下标会把 constructor、toString 这些原型上的名字也当成「有」
+const OPS = new Map<string, string>([
+  ['=', 'eq'], ['eq', 'eq'], ['!=', 'ne'], ['ne', 'ne'], ['>', 'gt'], ['gt', 'gt'], ['>=', 'gte'], ['gte', 'gte'], ['<', 'lt'], ['lt', 'lt'], ['<=', 'lte'], ['lte', 'lte'],
+  ['in', 'in'], ['is_null', 'is_null'], ['not_null', 'not_null'], ['contains', 'contains'], ['prefix', 'prefix'],
+]);
+const CMP = new Map<string, string>([['eq', '='], ['ne', '<>'], ['gt', '>'], ['gte', '>='], ['lt', '<'], ['lte', '<=']]);
 const FNS = ['count', 'count_distinct', 'sum', 'avg', 'min', 'max'];
-const containsExpr = (d: BenchDialect, col: string) => (d === 'sqlite' ? `instr(${col}, ?) > 0` : `strpos(${col}, ?) > 0`);
+/** 没给「包含」的写法时占位用：这样的语句只用来核对，拿去执行会被库拒绝，不会悄悄算出别的结果 */
+const CONTAINS_UNSET = (col: string) => `bench_contains_unset(${col}, ?)`;
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const onlyKeys = (o: Record<string, unknown>, allowed: string[], where: string) => {
@@ -115,12 +119,12 @@ const onlyKeys = (o: Record<string, unknown>, allowed: string[], where: string) 
  * 核对一份查询描述并翻成语句。
  * params：筛选栏当前的值（$名字 引用它）；某个参数没给或为空，这条筛选就不生效（相当于「全部」）。
  * 不给 params（保存视图描述时核对用）：所有 $ 引用都当作没给，只收集引用了哪些名字。
+ * contains：「包含」在所用的库上怎么写（db.ts 的 benchContainsExpr）；要执行语句就必须给，只核对可以不给。
  */
-export function planQuery(spec: unknown, datasets: Map<string, DatasetDef>, opts: { params?: Record<string, unknown>; dialect?: BenchDialect } = {}): QueryPlan {
+export function planQuery(spec: unknown, datasets: Map<string, DatasetDef>, opts: { params?: Record<string, unknown>; contains?: (col: string) => string } = {}): QueryPlan {
   if (!isObj(spec)) invalid('查询描述须为对象');
   const q = spec as Record<string, unknown>;
   onlyKeys(q, ['dataset', 'select', 'filter', 'group', 'measures', 'sort', 'limit', 'offset'], '查询描述');
-  const dialect = opts.dialect ?? 'sqlite';
   if (typeof q.dataset !== 'string' || !NAME_RE.test(q.dataset)) invalid('dataset 须为数据集名');
   const ds = datasets.get(q.dataset as string);
   if (!ds) throw new BenchError('not_found', `没有数据集 ${String(q.dataset)}`);
@@ -146,8 +150,8 @@ export function planQuery(spec: unknown, datasets: Map<string, DatasetDef>, opts
     const fo = f as Record<string, unknown>;
     onlyKeys(fo, ['col', 'op', 'value', 'values'], at);
     const c = colOf(fo.col, at), col = physCol(c.name);
-    const op = OPS[String(fo.op ?? '')];
-    if (!op) invalid(`${at}：不认识的比较符 ${String(fo.op)}`);
+    const op = typeof fo.op === 'string' ? OPS.get(fo.op) : undefined;
+    if (!op) return invalid(`${at}：不认识的比较符 ${String(fo.op).slice(0, 40)}`);
     if (op === 'is_null' || op === 'not_null') { where.push(`${col} IS ${op === 'is_null' ? '' : 'NOT '}NULL`); return; }
     // 取值：字面值，或 $名字 引用筛选栏
     let raw: unknown = op === 'in' && fo.values !== undefined ? fo.values : fo.value, fromParam = false;
@@ -155,7 +159,7 @@ export function planQuery(spec: unknown, datasets: Map<string, DatasetDef>, opts
       const name = raw.slice(1);
       if (!NAME_RE.test(name)) invalid(`${at}：参数名写法不对`);
       if (!paramNames.includes(name)) paramNames.push(name);
-      raw = opts.params ? opts.params[name] : undefined;
+      raw = opts.params && Object.hasOwn(opts.params, name) ? opts.params[name] : undefined; // 只认参数自己带的键
       fromParam = true;
       if (raw === undefined || raw === null || raw === '' || (Array.isArray(raw) && raw.length === 0)) return; // 没给：这条筛选不生效
     } else if (raw === undefined) invalid(`${at}：缺 value`);
@@ -173,10 +177,12 @@ export function planQuery(spec: unknown, datasets: Map<string, DatasetDef>, opts
     } else if (op === 'contains' || op === 'prefix') {
       if (!['text', 'date', 'datetime'].includes(c.type) || (op === 'contains' && c.type !== 'text')) invalid(`${at}：${op} 只用于文本列${op === 'prefix' ? '、日期列和时间列' : ''}`);
       if (typeof raw !== 'string' || !raw || raw.length > 200) invalid(`${at}：取值须为 1～200 个字符的文本`);
-      if (op === 'contains') { where.push(containsExpr(dialect, col)); args.push(raw); }
+      if (op === 'contains') { where.push((opts.contains ?? CONTAINS_UNSET)(col)); args.push(raw); }
       else { where.push(`substr(${col}, 1, ?) = ?`); args.push((raw as string).length, raw); }
     } else {
-      where.push(`${col} ${CMP[op]} ?`);
+      const cmp = CMP.get(op);
+      if (!cmp) return invalid(`${at}：不认识的比较符 ${String(fo.op).slice(0, 40)}`);
+      where.push(`${col} ${cmp} ?`);
       args.push(one(raw));
     }
   });

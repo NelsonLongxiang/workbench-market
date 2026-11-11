@@ -1232,6 +1232,9 @@ export function benchSqlType(d: BenchDialect, t: BenchColumnType): string {
   return 'TEXT';
 }
 
+/** 「这一列的文本里包含某段文本」（区分大小写）：两种库的函数名不同。列名由调用方先核对，值走参数 */
+export const benchContainsExpr = (d: BenchDialect, col: string) => (d === 'sqlite' ? `instr(${col}, ?) > 0` : `strpos(${col}, ?) > 0`);
+
 /** 台库里固定的几张表（第 1 版）。数据集自己的表按列定义另建，见 benchDatasetCreate */
 export function benchStoreSchema(d: BenchDialect): string[] {
   const big = d === 'sqlite' ? 'INTEGER' : 'BIGINT';
@@ -1247,7 +1250,7 @@ export function benchStoreSchema(d: BenchDialect): string[] {
       version INTEGER PRIMARY KEY, content TEXT NOT NULL, sha256 TEXT NOT NULL, author TEXT NOT NULL, note TEXT NOT NULL, at ${big} NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS bs_snapshots (
       id ${benchAutoId(d)}, dataset TEXT NOT NULL, dataset_version INTEGER NOT NULL, reason TEXT NOT NULL,
-      row_count INTEGER NOT NULL, content TEXT NOT NULL, author TEXT NOT NULL, at ${big} NOT NULL)`,
+      row_count INTEGER NOT NULL, content TEXT NOT NULL, content_sha256 TEXT NOT NULL, author TEXT NOT NULL, at ${big} NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS bs_writes (
       id ${benchAutoId(d)}, dataset TEXT NOT NULL, op TEXT NOT NULL, idem_key TEXT UNIQUE, body_sha256 TEXT NOT NULL,
       row_count INTEGER NOT NULL, actor TEXT NOT NULL, at ${big} NOT NULL, result TEXT NOT NULL)`,

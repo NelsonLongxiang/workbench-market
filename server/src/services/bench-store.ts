@@ -13,6 +13,9 @@
  *
  * 一个台的所有读写排成一队，一次只跑一个：单连接上写到一半的内容不会被别的读看见，两个写也不会交错。
  * 这一层不判权限：谁能调，由上面的入口判。现在还没有对外的入口。
+ *
+ * 出错只有一种形态：BenchError。库或运行环境报了意料之外的错，对外是固定的一句「内部错误」，原始的错放在 cause 里给日志用——
+ * 库的报错原文里有表名、列名和语句片段，不往外带。
  */
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
@@ -20,7 +23,7 @@ import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   dataDir, BENCH_STORE_SCHEMA_VERSION, benchStoreSchema, benchDatasetCreate, benchDatasetAddColumn, benchDatasetDropColumn,
-  benchDatasetKeyIndex, benchDatasetDropIndex, type BenchDialect,
+  benchDatasetKeyIndex, benchDatasetDropIndex, benchContainsExpr, type BenchDialect,
 } from '../db.ts';
 import { isInsideRoot } from '../path-inside.ts';
 import {
@@ -60,7 +63,10 @@ class SqliteConn implements Conn {
   private cache = new Map<string, ReturnType<DatabaseSync['prepare']>>();
   constructor(file: string) {
     this.db = new DatabaseSync(file);
-    this.db.exec('PRAGMA journal_mode = WAL');
+    try { this.db.exec('PRAGMA journal_mode = WAL'); } catch (e) {
+      try { this.db.close(); } catch { /* 没开成 */ }
+      throw e;
+    }
   }
   private stmt(sql: string) {
     let s = this.cache.get(sql);
@@ -88,6 +94,7 @@ function canonical(v: unknown): string {
   return JSON.stringify(v ?? null);
 }
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+const asBenchError = (e: unknown): BenchError => (e instanceof BenchError ? e : new BenchError('internal', '台库内部错误', [], e));
 
 function checkCtx(ctx: WriteCtx, noteRequired = false): { actor: string; at: number; note: string } {
   if (!ctx || typeof ctx.actor !== 'string' || !ctx.actor.trim() || ctx.actor.length > 128) throw new BenchError('invalid', '缺操作者（actor，128 个字符以内）');
@@ -177,12 +184,15 @@ export class BenchStore {
   private conn: Conn;
   private chain: Promise<unknown> = Promise.resolve();
   private pending: BenchChange[] = [];
+  private closed = false;
 
   constructor(slug: string, conn: Conn) { this.slug = slug; this.conn = conn; }
 
-  /** 这个台的读写排成一队 */
+  /** 这个台的读写排成一队。已经关掉的句柄一律拒绝：台被删了或库被关了之后，手里还拿着旧句柄的调用方要重新取 */
   private serial<T>(fn: () => Promise<T>): Promise<T> {
-    const r = this.chain.then(() => fn(), () => fn());
+    if (this.closed) return Promise.reject(new BenchError('conflict', `台库 ${this.slug} 已经关闭，重新取一次再用`));
+    const run = async () => { try { return await fn(); } catch (e) { throw asBenchError(e); } };
+    const r = this.chain.then(run, run);
     this.chain = r.catch(() => undefined);
     return r;
   }
@@ -279,7 +289,7 @@ export class BenchStore {
         }
       }
       let snapshotId: number | undefined;
-      if (removed.length && old.row_count > 0) snapshotId = await this.takeSnapshot(old, 'before-drop-column', c);
+      if (removed.length && old.row_count > 0) snapshotId = (await this.takeSnapshot(old, 'before-drop-column', c)).id;
       if (keyChanged) await this.conn.run(benchDatasetDropIndex(idx));
       for (const x of removed) await this.conn.run(benchDatasetDropColumn(tbl, physCol(x.name)));
       for (const x of added) await this.conn.run(benchDatasetAddColumn(d, tbl, physCol(x.name), x.type));
@@ -338,13 +348,24 @@ export class BenchStore {
     const rows = await this.conn.all(`SELECT ${ds.columns.map((c) => `${physCol(c.name)} AS "${c.name}"`).join(', ')} FROM ${physTable(ds.name)} ORDER BY rid`);
     return rows.map((r) => Object.fromEntries(ds.columns.map((c) => [c.name, decodeValue(c.type, r[c.name])])));
   }
-  private async takeSnapshot(ds: DatasetDef, reason: string, c: { actor: string; at: number }): Promise<number> {
+  /**
+   * 给数据集留一份快照。内容和这个数据集最近的一份快照一样就不再存，返回那一份的编号（reused）：
+   * 快照个数有上限、旧的先清，不改变数据的操作不该把还用得上的那几份挤掉。
+   */
+  private async takeSnapshot(ds: DatasetDef, reason: string, c: { actor: string; at: number }): Promise<{ id: number; reused: boolean }> {
     const rows = await this.rowsOf(ds);
-    const r = await this.conn.all('INSERT INTO bs_snapshots (dataset, dataset_version, reason, row_count, content, author, at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id',
-      [ds.name, ds.version, reason, rows.length, JSON.stringify({ columns: ds.columns, key: ds.key, rows }), c.actor, c.at]);
+    let content: string;
+    try { content = JSON.stringify({ columns: ds.columns, key: ds.key, rows }); } catch (e) {
+      throw new BenchError('limit', `数据集 ${ds.name} 太大，留不下快照；这次操作没有执行`, [], e);
+    }
+    const sum = sha256(content);
+    const last = await this.conn.all('SELECT id, content_sha256 FROM bs_snapshots WHERE dataset = ? ORDER BY id DESC LIMIT 1', [ds.name]);
+    if (last.length && last[0].content_sha256 === sum) return { id: Number(last[0].id), reused: true };
+    const r = await this.conn.all('INSERT INTO bs_snapshots (dataset, dataset_version, reason, row_count, content, content_sha256, author, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
+      [ds.name, ds.version, reason, rows.length, content, sum, c.actor, c.at]);
     const keep = await this.conn.all('SELECT id FROM bs_snapshots WHERE dataset = ? ORDER BY id DESC LIMIT ?', [ds.name, BENCH_LIMITS.snapshots]);
     if (keep.length === BENCH_LIMITS.snapshots) await this.conn.run('DELETE FROM bs_snapshots WHERE dataset = ? AND id < ?', [ds.name, Number(keep[keep.length - 1].id)]);
-    return Number(r[0].id);
+    return { id: Number(r[0].id), reused: false };
   }
 
   /** 整份替换：给全部行，原子切换；原来有数据就先留一份快照（上一代） */
@@ -352,7 +373,7 @@ export class BenchStore {
     return this.tx(async () => {
       const ds = await this.need(name), checked = checkRows(ds, rows, 'full', BENCH_LIMITS.rows);
       return this.logged(ds, 'replace', rows, ctx, async (c) => {
-        const snapshot_id = ds.row_count > 0 ? await this.takeSnapshot(ds, 'replace', c) : undefined;
+        const snapshot_id = ds.row_count > 0 ? (await this.takeSnapshot(ds, 'replace', c)).id : undefined;
         await this.conn.run(`DELETE FROM ${physTable(ds.name)}`);
         await this.insert(ds, checked);
         return { dataset: ds.name, op: 'replace', rows: checked.length, row_count: 0, snapshot_id };
@@ -388,7 +409,7 @@ export class BenchStore {
       });
     });
   }
-  /** 按主键删行；破坏性操作，原来有数据就先留快照 */
+  /** 按主键删行；破坏性操作，删之前先留快照。给的主键一行也没对上：什么都不删，也不留快照 */
   deleteRows(name: string, keys: unknown, ctx: WriteCtx) {
     return this.tx(async () => {
       const ds = await this.need(name);
@@ -406,9 +427,13 @@ export class BenchStore {
       });
       if (errs.length) throw new BenchError('invalid', `有 ${errs.length} 处不合格，未删除`, errs.slice(0, 50));
       return this.logged(ds, 'delete', keys, ctx, async (c) => {
-        const snapshot_id = ds.row_count > 0 ? await this.takeSnapshot(ds, 'before-delete', c) : undefined;
+        const tbl = physTable(ds.name), cond = ds.key.map((kc) => `${physCol(kc)} = ?`).join(' AND ');
+        let hit = false;
+        for (const v of vals) { if ((await this.conn.all(`SELECT 1 AS x FROM ${tbl} WHERE ${cond} LIMIT 1`, v)).length) { hit = true; break; } }
+        if (!hit) return { dataset: ds.name, op: 'delete', rows: keys.length, row_count: 0, deleted: 0 };
+        const snapshot_id = (await this.takeSnapshot(ds, 'before-delete', c)).id;
         let deleted = 0;
-        for (const v of vals) deleted += await this.conn.run(`DELETE FROM ${physTable(ds.name)} WHERE ${ds.key.map((kc) => `${physCol(kc)} = ?`).join(' AND ')}`, v);
+        for (const v of vals) deleted += await this.conn.run(`DELETE FROM ${tbl} WHERE ${cond}`, v);
         return { dataset: ds.name, op: 'delete', rows: keys.length, row_count: 0, deleted, snapshot_id };
       });
     });
@@ -418,9 +443,9 @@ export class BenchStore {
   snapshot(name: string, ctx: WriteCtx) {
     return this.tx(async () => {
       const c = checkCtx(ctx), ds = await this.need(name);
-      const id = await this.takeSnapshot(ds, 'manual', c);
-      await this.change('dataset.snapshot', ds.name, ds.version, ds.version, { ...c, note: c.note || `快照 #${id}` });
-      return { id, dataset: ds.name, row_count: ds.row_count };
+      const { id, reused } = await this.takeSnapshot(ds, 'manual', c);
+      if (!reused) await this.change('dataset.snapshot', ds.name, ds.version, ds.version, { ...c, note: c.note || `快照 #${id}` });
+      return { id, dataset: ds.name, row_count: ds.row_count, unchanged: reused };
     });
   }
   snapshots(name: string) {
@@ -441,7 +466,7 @@ export class BenchStore {
       const usable = snap.columns.filter((x) => ds.columns.some((y) => y.name === x.name && y.type === x.type)).map((x) => x.name);
       const dropped = snap.columns.map((x) => x.name).filter((x) => !usable.includes(x));
       const checked = checkRows(ds, snap.rows.map((r) => Object.fromEntries(usable.map((k) => [k, r[k]]))), 'full', BENCH_LIMITS.rows);
-      const backup = ds.row_count > 0 ? await this.takeSnapshot(ds, 'before-restore', c) : undefined;
+      const backup = ds.row_count > 0 ? (await this.takeSnapshot(ds, 'before-restore', c)).id : undefined;
       await this.conn.run(`DELETE FROM ${physTable(ds.name)}`);
       await this.insert(ds, checked);
       await this.conn.run('UPDATE bs_datasets SET row_count = ?, updated_at = ?, updated_by = ? WHERE name = ?', [checked.length, c.at, c.actor, ds.name]);
@@ -454,7 +479,7 @@ export class BenchStore {
   /** 按查询描述读；params 是筛选栏当前的值 */
   query(spec: unknown, params: Record<string, unknown> = {}) {
     return this.serial(async () => {
-      const plan = planQuery(spec, await this.load(), { params, dialect: this.conn.dialect });
+      const plan = planQuery(spec, await this.load(), { params, contains: (col) => benchContainsExpr(this.conn.dialect, col) });
       const rows = await this.conn.all(plan.sql, plan.args);
       const truncated = rows.length > plan.limit;
       return {
@@ -558,12 +583,19 @@ export class BenchStore {
       await this.conn.backupTo(file);
     });
   }
-  /** 等排着的读写都跑完再关 */
-  close(): Promise<void> { return this.serial(async () => { this.conn.close(); }); }
+  /** 等排着的读写都跑完再关；从调用这一刻起不再接新的读写。关过的再关一次没有效果 */
+  close(): Promise<void> {
+    if (this.closed) return this.chain.then(() => undefined);
+    const r = this.serial(async () => { this.conn.close(); });
+    this.closed = true;
+    return r;
+  }
 }
 
 // —— 打开、关闭、删除 ——
 const open = new Map<string, Promise<BenchStore>>();
+/** 正在删的台：删完之前不许再取，否则新开的连接会落在马上要被删掉的文件上 */
+const removing = new Map<string, Promise<void>>();
 function fileOf(slug: string): string {
   if (typeof slug !== 'string' || !BENCH_SLUG_RE.test(slug)) throw new BenchError('invalid', '台的标识写法不对');
   const file = join(ROOT, `${slug}.sqlite`);
@@ -572,19 +604,29 @@ function fileOf(slug: string): string {
 }
 /** 这个台有没有库（没有的不会因为问一句就建出来） */
 export function benchStoreExists(slug: string): boolean { return existsSync(fileOf(slug)); }
-/** 取一个台的库；第一次用时建出来 */
-export function benchStore(slug: string): Promise<BenchStore> {
+/** 取一个台的库；第一次用时建出来。这个台正在删的时候拒绝，等删完再取 */
+export async function benchStore(slug: string): Promise<BenchStore> {
   const file = fileOf(slug);
+  if (removing.has(slug)) throw new BenchError('conflict', `台 ${slug} 正在删除，稍后再试`);
   let p = open.get(slug);
   if (!p) {
-    p = (async () => {
-      mkdirSync(ROOT, { recursive: true });
-      const s = new BenchStore(slug, new SqliteConn(file));
-      await s.init();
-      return s;
+    const opening = (async () => {
+      let conn: Conn | null = null;
+      try {
+        mkdirSync(ROOT, { recursive: true });
+        conn = new SqliteConn(file);
+        const s = new BenchStore(slug, conn);
+        await s.init();
+        return s;
+      } catch (e) {
+        try { conn?.close(); } catch { /* 没开成或已经关了 */ }
+        throw asBenchError(e);
+      }
     })();
-    p.catch(() => open.delete(slug));
-    open.set(slug, p);
+    // 没开成的不留在表里；但只摘自己这一条，不碰后来的人放进去的
+    opening.catch(() => { if (open.get(slug) === opening) open.delete(slug); });
+    open.set(slug, opening);
+    p = opening;
   }
   return p;
 }
@@ -594,10 +636,22 @@ export async function closeBenchStores(): Promise<void> {
   open.clear();
   for (const p of all) { try { await (await p).close(); } catch { /* 没开成的不用关 */ } }
 }
-/** 删掉一个台的库（删台时用）：先关，再删文件 */
+/**
+ * 删掉一个台的库（删台时用）：等排着的读写跑完、关掉连接，再删文件。
+ * 从调用这一刻到删完，这个台取不到（benchStore 拒绝）；之前拿到的句柄关掉之后也不能再用。删完可以重新建，是空的。
+ * 同一个台同时删两次，等的是同一次。
+ */
 export async function removeBenchStore(slug: string): Promise<void> {
-  const file = fileOf(slug), p = open.get(slug);
-  open.delete(slug);
-  if (p) { try { await (await p).close(); } catch { /* 没开成的不用关 */ } }
-  for (const f of [file, `${file}-wal`, `${file}-shm`]) rmSync(f, { force: true });
+  const file = fileOf(slug);
+  let job = removing.get(slug);
+  if (!job) {
+    job = (async () => {
+      const p = open.get(slug);
+      if (p) { try { await (await p).close(); } catch { /* 没开成的不用关 */ } }
+      if (open.get(slug) === p) open.delete(slug);
+      for (const f of [file, `${file}-wal`, `${file}-shm`]) rmSync(f, { force: true });
+    })().finally(() => { removing.delete(slug); });
+    removing.set(slug, job);
+  }
+  return job;
 }

@@ -4,7 +4,7 @@
  *  的逐行校验、幂等键、上限；快照与退回；查询描述（筛选、分组、聚合、排序、参数、截断）和注入形态的名字与取值；
  *  视图描述的核对、版本、并发保存不覆盖、回退只移指针、差异；一个台的读写排队；台与台隔离；标识不能逃出目录；关掉重开数据还在；
  *  库比代码新时拒绝打开；备份副本。 */
-import { mkdirSync, mkdtempSync, rmSync, existsSync, readdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -112,8 +112,27 @@ try {
   ok('S2 退回之前把当时的数据也留了快照（退错了能再退回来）', Number.isInteger(back.snapshot_id));
   e = await refused(() => s.restore(987654, ctx()));
   ok('S3 没有这份快照', e?.code === 'not_found');
-  for (let i = 0; i < BENCH_LIMITS.snapshots + 3; i++) await s.snapshot('runs', ctx());
+  for (let i = 0; i < BENCH_LIMITS.snapshots + 3; i++) { await s.upsert('runs', [{ id: 1, done: 1000 + i }], ctx()); await s.snapshot('runs', ctx()); }
   ok('S4 快照个数有上限，旧的先清', (await s.snapshots('runs')).length === BENCH_LIMITS.snapshots);
+  const sameA = await s.snapshot('runs', ctx()), sameB = await s.snapshot('runs', ctx());
+  ok('S5 内容和最近一份相同：不再存一份，返回原来那份', sameA.id === sameB.id && (await s.snapshots('runs')).length === BENCH_LIMITS.snapshots);
+  // 验收第一轮复现的挤出：整份替换留下的上一代，不该被「一行也没删到」的删除挤掉
+  await s.defineDataset({ name: 'keep', columns: [{ name: 'id', type: 'integer' }, { name: 'v', type: 'text' }], key: ['id'] }, ctx());
+  await s.replace('keep', [{ id: 1, v: 'good' }, { id: 2, v: 'good' }], ctx());
+  const goodSnap = (await s.replace('keep', [{ id: 9, v: 'bad' }], ctx())).snapshot_id;
+  let noop;
+  for (let i = 0; i < BENCH_LIMITS.snapshots + 2; i++) noop = await s.deleteRows('keep', [{ id: 777 + i }], ctx());
+  ok('S6 一行也没删到：不留快照', noop.deleted === 0 && noop.snapshot_id === undefined && noop.row_count === 1, noop);
+  ok('S6 不改变数据的删除不占快照名额：替换前那份还在', (await s.snapshots('keep')).some((x) => x.id === goodSnap), await s.snapshots('keep'));
+  await s.restore(goodSnap, ctx());
+  ok('S6 替换前的数据找得回来', (await s.query({ dataset: 'keep', sort: [{ col: 'id' }] })).rows.map((x) => `${x.id}${x.v}`).join() === '1good,2good');
+  e = await refused(() => s.deleteRows('keep', [{ v: 'good' }], ctx()));
+  ok('S7 删行的键个数对、名字不对也被拒', e?.code === 'invalid', e);
+  // 快照序列化不下来（数据集大到一定程度会这样）：说清是超限，后面的破坏性操作不执行
+  const realStringify = JSON.stringify;
+  JSON.stringify = (v, ...a) => { if (v && typeof v === 'object' && Array.isArray(v.rows) && Array.isArray(v.columns)) throw new RangeError('Invalid string length'); return realStringify(v, ...a); };
+  try { e = await refused(() => s.replace('keep', [{ id: 5, v: 'x' }], ctx())); } finally { JSON.stringify = realStringify; }
+  ok('S8 快照留不下来：报超限，替换没有执行', e?.code === 'limit' && (await s.query({ dataset: 'keep' })).rows.length === 2, e);
 
   // —— 改列定义 ——
   console.log('改列定义');
@@ -180,6 +199,12 @@ try {
     e = await refused(() => s.query(spec));
     ok(`Q6 不合格的查询被拒：${why}`, e?.code === 'invalid' || e?.code === 'not_found', e);
   }
+  for (const op of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf']) {
+    e = await refused(() => s.query({ dataset: 'runs', filter: [{ col: 'id', op, value: 1 }] }));
+    ok(`Q6 对象原型上的名字不是比较符：${op}`, e?.code === 'invalid', e);
+  }
+  e = await refused(async () => { q = await s.query({ dataset: 'runs', filter: [{ col: 'status', op: '=', value: '$constructor' }] }, {}); });
+  ok('Q6 参数名撞上对象原型上的名字：当作没给', e === null && q.rows.length === 4, e ?? q.rows.length);
   ok('Q6 被拒之后数据还在', (await s.query({ dataset: 'runs' })).rows.length === 4);
   const plan = planQuery({ dataset: 'runs', filter: [{ col: 'status', op: '=', value: 'x' }, { col: 'id', op: 'in', values: [1, 2] }], group: ['status'], measures: [{ as: 'n', fn: 'count' }] }, new Map((await s.datasets()).map((d) => [d.name, d])), { params: {} });
   ok('Q7 语句里只有核对过的名字，值全在参数里', !plan.sql.includes("'") && plan.args.slice(0, 3).join() === 'x,1,2' && /^SELECT c_status AS "status", COUNT\(\*\) AS "n" FROM ds_runs WHERE /.test(plan.sql), plan.sql);
@@ -269,6 +294,8 @@ try {
   bdb.close();
   ok('I5 备份目标已存在时拒绝覆盖', (await refused(() => s.backupTo(copy)))?.code === 'conflict');
   await closeBenchStores();
+  e = await refused(() => s.query({ dataset: 'runs' }));
+  ok('I6 关库之前拿到的句柄：明确拒绝，不是库的原始报错', e?.code === 'conflict', e);
   const s2 = await benchStore('demo');
   ok('I6 关掉重开：数据、生效版本、历史都还在', (await s2.query({ dataset: 'runs' })).rows.length === 4 && (await s2.getView()).version === 4 && (await s2.viewVersions()).length === 4);
   await closeBenchStores();
@@ -279,6 +306,36 @@ try {
   ok('I7 库的结构比这份代码新：拒绝打开，不动它', e?.code === 'unsupported');
   await removeBenchStore('other');
   ok('I8 删台：库文件没了', !existsSync(join(DATA, 'bench-stores', 'other.sqlite')));
+  // 验收第一轮复现的交错：删台的过程中又取这个台
+  const race = await benchStore('race');
+  await race.defineDataset({ name: 't', columns: [{ name: 'n', type: 'integer' }] }, ctx());
+  const rm = removeBenchStore('race');
+  e = await refused(() => benchStore('race'));
+  ok('I9 删台期间取同一个台被拒', e?.code === 'conflict', e);
+  await rm;
+  ok('I9 删完文件没了', !existsSync(join(DATA, 'bench-stores', 'race.sqlite')));
+  e = await refused(() => race.append('t', [{ n: 1 }], ctx()));
+  ok('I9 删台之前拿到的句柄不能再写', e?.code === 'conflict' && !existsSync(join(DATA, 'bench-stores', 'race.sqlite')), e);
+  const fresh = await benchStore('race');
+  ok('I9 删完之后可以重新建，是空的', (await fresh.datasets()).length === 0);
+  // 库报了意料之外的错（这里是背着服务把表删了）：对外只说内部错误，不带库的原文
+  await fresh.defineDataset({ name: 'gone', columns: [{ name: 'n', type: 'integer' }] }, ctx());
+  await closeBenchStores();
+  const raw2 = new DatabaseSync(join(DATA, 'bench-stores', 'race.sqlite'));
+  raw2.exec('DROP TABLE ds_gone');
+  raw2.close();
+  e = await refused(async () => (await benchStore('race')).query({ dataset: 'gone' }));
+  ok('I10 库出了意料之外的错：回内部错误，不带库的报错原文', e?.code === 'internal' && !/ds_gone|no such table|SQLITE/i.test(e.message), e);
+  writeFileSync(join(DATA, 'bench-stores', 'broken.sqlite'), 'this is plain text, not a database file. '.repeat(200));
+  e = await refused(() => benchStore('broken'));
+  ok('I11 库文件坏了：回内部错误，不带库的报错原文', e?.code === 'internal' && !/not a database|SQLITE/i.test(e.message), e);
+  await removeBenchStore('broken');
+  ok('I11 开不成的台可以删掉重建', (await (await benchStore('broken')).datasets()).length === 0);
+  const twice = await benchStore('twice');
+  await twice.defineDataset({ name: 't', columns: [{ name: 'n', type: 'integer' }] }, ctx());
+  await Promise.all([removeBenchStore('twice'), removeBenchStore('twice')]);
+  ok('I12 同一个台同时删两次：都完成，文件没了', !existsSync(join(DATA, 'bench-stores', 'twice.sqlite')));
+  ok('I12 之后能重新建，是空的', (await (await benchStore('twice')).datasets()).length === 0);
 } finally {
   onBenchChange(null);
   await closeBenchStores();
