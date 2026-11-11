@@ -1,4 +1,4 @@
-/** 台域（apps ×11 + app_versions ×8）：SQL 原文自 index.ts 搬入（S1）。 */
+/** 台域（apps ×11 + app_versions ×9）：SQL 原文自 index.ts 搬入（S1）。 */
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
 
@@ -55,6 +55,10 @@ export class AppService extends Service {
   }
   versionsMax(appId: number) {
     return db.prepare('SELECT MAX(version) AS v FROM app_versions WHERE app_id = ?').get(appId);
+  }
+  /** 治理时间线的版本链：新的在前（原文自 /api/sops/:slug/timeline） */
+  versionLog(appId: number) {
+    return db.prepare('SELECT version, changelog, created_by, created_at FROM app_versions WHERE app_id = ? ORDER BY version DESC').all(appId);
   }
   versionExists(appId: number, version: number) {
     return db.prepare('SELECT version FROM app_versions WHERE app_id = ? AND version = ?').get(appId, version);
