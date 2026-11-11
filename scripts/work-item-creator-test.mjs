@@ -7,6 +7,10 @@
  *         退回之后再进 ready 能再验收；同一轮再答返回第一次的结果；管理员照旧经「关注」的答复入口验收
  *   对抗：别人的事项、冒用显示名（事项建立人写成显示名、请求里夹带建立人）、被停用的建立人、跨站、不在「等验收」、
  *         未登录、拿这个入口送别的事实（release、withdraw、report……）、建立人不是人（席位）、来源未验证——全部被拒、事项不动
+ *   建立人主体（「是不是他的」只认它）：
+ *         自报的建立人名是别人的登录名——那个人看不到、答不了；建立人主体空着——对非管理员，「关注」、事项页、验收入口一致地都没有它；
+ *         同一个登录名改绑到另一个主体之后，不再是建立人；任务中心发布：会话登录的管理员发布记下他的主体，口令发布留空；
+ *         回填重复跑结果相同
  *   启动自检：远程匿名打这个入口必须 401
  *
  *   node scripts/work-item-creator-test.mjs              测本仓库
@@ -39,7 +43,8 @@ const { WorkItemService } = await import(at('server/src/services/work-item.ts'))
 await root.plugin(WorkItemService);
 const items = root.get('workItems');
 const ready = (by, n, extra = {}) => {
-  const it = items.create({ title: '待验收 ' + n, created_by: by, source_kind: 'agent', ...extra });
+  // 建立人主体默认和显示名一致（就是那个人建的）；对抗用例在 extra 里另给
+  const it = items.create({ title: '待验收 ' + n, created_by: by, creator_principal: /^user:\\S+$/.test(by) ? by : null, source_kind: 'agent', ...extra });
   for (const [k, x] of [['submit', { dispatch_open: true }], ['eval', { verdict: 'accept' }], ['report', { status: 'progress' }], ['report', { status: 'ready' }]]) items.apply(it.id, { kind: k, source: 'seed', id: it.id + ':' + k + ':' + (x.status ?? ''), ...x });
   return it.id;
 };
@@ -47,8 +52,14 @@ const out = {
   mine: ready('user:alpha', 1), mine2: ready('user:alpha', 2), again: ready('user:alpha', 3), crossSite: ready('user:alpha', 4), facts: ready('user:alpha', 5),
   theirs: ready('user:beta', 6), betaOwn: ready('user:beta', 7), byName: ready('user:Synthetic alpha', 8), bySeat: ready('seat:checker', 9),
   unverified: ready('user:alpha', 10, { context: { submitter_kind: 'unverified' } }), adminOne: ready('user:alpha', 11),
+  // 自报的建立人名是 alpha 的登录名，主体却不是 alpha：一条没有主体，一条主体是 beta
+  claimsAlpha: ready('human:alpha', 12), claimsAlphaIsBeta: ready('user:alpha', 13, { creator_principal: 'user:beta' }),
+  // 建立人主体空着（显示名就是 alpha）
+  noPrincipal: ready('user:alpha', 14, { creator_principal: null }),
+  // 改绑之前是 alpha 建的
+  beforeRebind: ready('user:alpha', 15),
 };
-const notReady = items.create({ title: '还在进行', created_by: 'user:alpha', source_kind: 'agent' });
+const notReady = items.create({ title: '还在进行', created_by: 'user:alpha', creator_principal: 'user:alpha', source_kind: 'agent' });
 for (const [k, x] of [['submit', { dispatch_open: true }], ['eval', { verdict: 'accept' }], ['report', { status: 'progress' }]]) items.apply(notReady.id, { kind: k, source: 'seed', id: notReady.id + ':' + k, ...x });
 out.notReady = notReady.id;
 console.log('SEEDED ' + JSON.stringify(out));
@@ -150,6 +161,70 @@ try {
     // id 不是事项 id 的样子：写请求总门只对「/api/work-items/wi_…/decision」放行，别的路径照旧要管理员
     const res = await decide('not-an-item', { answer: 'verify' });
     check(res.status === 403, 'id 不是事项 id 的样子：写请求总门照旧拦（只放 wi_ 开头的这一条子路径）', show(res));
+  }
+  // ---------- 建立人主体：「是不是他的」只认它 ----------
+  const attentionIds = async (headers) => { const r = await call('GET', '/api/attention', headers); return { status: r.status, ids: (r.body?.items ?? []).filter((x) => x.source === 'work-items').map((x) => x.source_id) }; };
+  const ADMIN = { ...SAME, 'x-admin-token': ADMIN_TOKEN };
+  /** 对这个人：「关注」里有没有、事项页能不能读、验收入口能不能答——三处要一致 */
+  const threeWays = async (id, headers) => {
+    const n = logs(id);
+    const list = await attentionIds(headers);
+    const page = await call('GET', `/api/work-items/${id}`, headers);
+    const answer = await decide(id, { answer: 'verify' }, headers);
+    return { listed: list.ids.includes(id), page: page.status, answer: answer.status, answerError: answer.body?.result?.error ?? answer.body?.error, untouched: untouched(id, n), list: list.status };
+  };
+  {
+    const a = await threeWays(S.claimsAlpha, ALPHA);
+    check(!a.listed && a.page === 404 && a.answer === 404 && a.answerError === 'work_item_not_found' && a.untouched, '自报的建立人名是 alpha 的登录名、没有建立人主体：alpha 在「关注」里看不到、事项页 404、验收 404，事项不动', show(a));
+    const b = await threeWays(S.claimsAlphaIsBeta, ALPHA);
+    check(!b.listed && b.page === 404 && b.answer === 404 && b.untouched, '显示名写成 user:alpha、建立人主体是 beta：alpha 看不到、答不了', show(b));
+  }
+  {
+    const alpha = await threeWays(S.noPrincipal, ALPHA);
+    check(alpha.list === 200 && !alpha.listed && alpha.page === 404 && alpha.answer === 404 && alpha.untouched, '建立人主体空着：对非管理员，「关注」不列、事项页 404、验收入口 404——三处一致', show(alpha));
+    const adminList = await attentionIds(ADMIN);
+    const adminPage = await call('GET', `/api/work-items/${S.noPrincipal}`, ADMIN);
+    check(adminList.ids.includes(S.noPrincipal) && adminPage.status === 200 && adminPage.body?.item?.creator_principal === null, '建立人主体空着：管理员看得到（「关注」列出、事项页能读）', show({ adminList: adminList.ids.includes(S.noPrincipal), page: adminPage.status }));
+  }
+  // ---------- 任务中心发布：建立人主体只取身份服务认出来的人 ----------
+  {
+    const run = async () => {
+      const r = await call('POST', '/api/sop/runs', {}, { slug: 'task-center' });
+      for (const [k, v] of Object.entries({ title: '建立人主体', intent: '对抗', deliverable: '一行' })) await call('PUT', `/api/sop/runs/${r.body.id}`, {}, { stepKey: k, value: v });
+      await call('POST', `/api/sop/runs/${r.body.id}/finish`, {}, {});
+      return r.body.id;
+    };
+    const item = (eventId) => { const c = db(); try { return c.prepare('SELECT id, created_by, creator_principal FROM work_items WHERE id = ?').get(`wi_${eventId}`); } finally { c.close(); } };
+    const bySession = await call('POST', '/api/task-center/tasks', { ...SAME, cookie: `session_id=${SESSIONS.admin}` }, { intake_run_id: await run(), published_by: 'alpha' });
+    const byToken = await call('POST', '/api/task-center/tasks', ADMIN, { intake_run_id: await run(), published_by: 'alpha' });
+    const s = bySession.body?.event_id ? item(bySession.body.event_id) : null, t = byToken.body?.event_id ? item(byToken.body.event_id) : null;
+    const adminPrincipal = (() => { const c = db(); try { return c.prepare("SELECT id FROM principals WHERE id = 'user:root-admin'").get()?.id ?? null; } finally { c.close(); } })();
+    check(bySession.status === 201 && s && s.creator_principal === adminPrincipal && adminPrincipal !== null && s.created_by === 'human:alpha', '会话登录的管理员发布（published_by 自填 alpha）：建立人主体记的是认出来的管理员，不是自填的名字', show({ bySession, s }));
+    check(byToken.status === 201 && t && t.creator_principal === null && t.created_by === 'human:alpha', '口令发布（认不出人）：建立人主体留空，自填的 alpha 只进显示名', show({ byToken, t }));
+    const page = t ? await call('GET', `/api/work-items/${t.id}`, ALPHA) : { status: 0 };
+    check(page.status === 404, '自填 alpha 的那件事项：alpha 读不到（404）', show(page));
+  }
+  // ---------- 回填重复跑，结果相同 ----------
+  {
+    const snapshot = () => { const c = db(); try { return show(c.prepare('SELECT id, creator_principal FROM work_items ORDER BY id').all()); } finally { c.close(); } };
+    const before = snapshot();
+    const f = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', `
+      const at = (p) => ${JSON.stringify(pathToFileURL(ROOT).href)} + '/' + p;
+      const { root } = await import(at('server/src/root-context.ts'));
+      const { WorkItemService } = await import(at('server/src/services/work-item.ts'));
+      await root.plugin(WorkItemService);
+      const items = root.get('workItems'); items.backfill(); items.backfill();
+      console.log('DONE');`], { env, encoding: 'utf8' });
+    check(f.stdout.includes('DONE') && snapshot() === before, '回填再跑两遍：每件事项的建立人主体都不变（确定不了的照旧空着）', f.stderr.slice(-300));
+  }
+  // ---------- 改绑：同一个登录名、换了主体，就不是建立人 ----------
+  {
+    const c = db(); const provider = c.prepare("SELECT provider FROM principal_identities WHERE principal_id = 'user:alpha'").get()?.provider; c.close();
+    const off = await call('POST', '/api/principals/unbind', ADMIN, { provider, external_id: 'alpha', reason: '对抗：改绑' });
+    const on = await call('POST', '/api/principals/bind', ADMIN, { provider, external_id: 'alpha', principal: 'user:alpha-rebound', create: true, reason: '对抗：改绑' });
+    const who = await call('GET', '/api/admin/whoami', ALPHA);
+    const a = await threeWays(S.beforeRebind, ALPHA);
+    check(off.status === 200 && on.status === 200 && !a.listed && a.page === 404 && a.answer === 404 && a.untouched, '同一个登录名 alpha 改绑到另一个主体之后：原来 alpha 建的事项看不到、答不了', show({ off: off.status, on: on.status, who: who.body, a }));
   }
   // ---------- 启动自检 ----------
   check(/"id":"market\.work-items\.creator-decision-anonymous"[^}]*"verdict":"pass"/.test(log), '启动自检有一行：远程匿名打这个入口必须 401，而且过了');

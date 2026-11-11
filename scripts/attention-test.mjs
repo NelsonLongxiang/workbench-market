@@ -82,7 +82,7 @@ db.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, actio
 db.prepare("UPDATE workbench_event_deliveries SET status = 'sent', decision = 'accept', decided_by = 'carol', decided_at = datetime('now') WHERE id = ?").run(d2);
 items.syncEvent(askThenAccept);
 // 事项：ready 的，alpha 建两条、beta 建一条
-const toReady = (by, n) => { const it = items.create({ title: '待验收 ' + n, created_by: by, source_kind: 'agent' }); for (const [k, x] of [['submit', { dispatch_open: true }], ['eval', { verdict: 'accept' }], ['report', { status: 'progress' }], ['report', { status: 'ready' }]]) items.apply(it.id, { kind: k, source: 'seed', id: it.id + ':' + k + ':' + (x.status ?? ''), ...x }); };
+const toReady = (by, n) => { const it = items.create({ title: '待验收 ' + n, created_by: by, creator_principal: by, source_kind: 'agent' }); for (const [k, x] of [['submit', { dispatch_open: true }], ['eval', { verdict: 'accept' }], ['report', { status: 'progress' }], ['report', { status: 'ready' }]]) items.apply(it.id, { kind: k, source: 'seed', id: it.id + ':' + k + ':' + (x.status ?? ''), ...x }); };
 toReady('user:alpha', 1); toReady('user:alpha', 2); toReady('user:beta', 3);
 console.log('SEEDED');
 `;
