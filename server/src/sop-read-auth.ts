@@ -61,8 +61,8 @@ export function runReadGrantCreate(runId: number, subject: string, role: string,
   db.prepare('INSERT INTO sop_run_read_grants (run_id, subject, role, expires_at, granted_by) VALUES (?, ?, ?, ?, ?)').run(runId, subject, role, expiresAt, grantedBy);
 }
 export function runReadGrantRevoke(runId: number, subject: string): number {
-  return db.prepare("UPDATE sop_run_read_grants SET revoked_at = datetime('now') WHERE run_id = ? AND subject = ? AND revoked_at = ''").run(runId, subject).changes;
+  return Number(db.prepare("UPDATE sop_run_read_grants SET revoked_at = datetime('now') WHERE run_id = ? AND subject = ? AND revoked_at = ''").run(runId, subject).changes);
 }
 export function runReadCapRevokeAll(runId: number): number {
-  return db.prepare("UPDATE sop_run_read_caps SET revoked_at = datetime('now') WHERE run_id = ? AND revoked_at = ''").run(runId).changes;
+  return Number(db.prepare("UPDATE sop_run_read_caps SET revoked_at = datetime('now') WHERE run_id = ? AND revoked_at = ''").run(runId).changes);
 }
