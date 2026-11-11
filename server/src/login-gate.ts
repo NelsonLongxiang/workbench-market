@@ -43,9 +43,9 @@ type Deps = {
   adminTokenCheck: (provided: string | undefined) => boolean;
   /** 当前口令的指纹（env 口令或库存哈希）；无口令时空串。签进 cookie：口令一换，旧 cookie 全部失效 */
   adminTokenFingerprint: () => string;
-  /** Odoo 内部员工（未配置 Odoo、门户账号、会话无效、主体停用一律 null）。
+  /** Odoo 内部员工（未配置 Odoo、门户账号、会话无效一律 null）。登录是成功的、卡在主体那一步（停用了或还没对到主体）回 { held: true }。
    *  fresh=true 每次都问提供方；false 时提供方的回答可以用缓存的（期限由装配方定）。主体停没停用总是现查，这里不再自己缓存 */
-  odooViewer: (cookieHeader: string, fresh: boolean) => Promise<{ login: string; admin: boolean; via?: 'session' } | null>;
+  odooViewer: (cookieHeader: string, fresh: boolean) => Promise<{ login: string; admin: boolean; via?: 'session' } | { held: true } | null>;
   /** 登录页上列出的登录方式（发市场会话的那几种，比如飞书）：名字和按钮上的字 */
   loginFlows?: () => { name: string; label: string }[];
   appToken: (slug: string) => string;
@@ -87,6 +87,16 @@ export function safeNext(v: unknown): string {
     if (u.origin !== 'http://wm.invalid' || bad(out) || /^\/(login|api\/)/i.test(u.pathname)) return '/';
     return out;
   } catch { return '/'; }
+}
+
+/**
+ * 等管理员处理的页：登录成功了，但停用了、还没对到主体、或者不是本组织的人。几种情况同一页、同一个状态码，逐字节相同，
+ * 不透露系统里有没有这个人、是不是被停用了；也不叫人重新登录（重登没用），不给回登录页的链接。页上不带任何数据。
+ * 登录方式的回调（routes/login-flows.ts）和登录门共用这一份
+ */
+export function holdPage(res: express.Response): void {
+  res.status(403).set({ 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'" })
+    .type('html').send('<!doctype html><meta charset="utf-8"><title>等管理员处理</title><h1>等管理员处理</h1><p>登录成功了，但你的账号还需要管理员处理，处理好之前用不了本站。请联系管理员。</p>');
 }
 
 /** 想要页面的请求（浏览器导航）：给 302；其余给 401 JSON */
@@ -193,7 +203,7 @@ export function createLoginGate(deps: Deps) {
   const viewCaps = new WeakMap<IncomingMessage, { slug: string; cap: string; base: string }>();
 
   // ---------- Odoo 内部员工 ----------
-  async function odooOf(cookie: string): Promise<{ login: string; admin: boolean; via?: 'session' } | null> {
+  async function odooOf(cookie: string): Promise<{ login: string; admin: boolean; via?: 'session' } | { held: true } | null> {
     if (!identityService().hasCredential(cookie)) return null;
     // Relay mode supports explicit Odoo logout: do not keep a stale positive identity
     // after the upstream session has been revoked. 其余情况提供方的回答可以用缓存的（缓存在身份服务里，主体状态不进缓存）。
@@ -202,6 +212,8 @@ export function createLoginGate(deps: Deps) {
 
   // ---------- 身份 ----------
   const identities = new WeakMap<IncomingMessage, Identity | null>();
+  /** 登录成功、卡在主体那一步的请求：没有身份（照旧什么都不给），只是要页面时给等待页而不是登录页 */
+  const held = new WeakSet<IncomingMessage>();
   async function identity(req: IncomingMessage): Promise<Identity | null> {
     if (identities.has(req)) return identities.get(req)!;
     let id: Identity | null = null;
@@ -210,7 +222,8 @@ export function createLoginGate(deps: Deps) {
     else if (verifyCookie(cookieValue(req))) id = { via: 'cookie', login: null, admin: false };
     else {
       const who = await odooOf(String(req.headers.cookie ?? ''));
-      if (who) id = { via: who.via === 'session' ? 'session' : 'odoo', login: who.login, admin: who.admin };
+      if (who && 'held' in who) held.add(req);
+      else if (who) id = { via: who.via === 'session' ? 'session' : 'odoo', login: who.login, admin: who.admin };
     }
     identities.set(req, id);
     return id;
@@ -309,7 +322,10 @@ export function createLoginGate(deps: Deps) {
       if (await runCapOk(req, p)) return next(); // 派单方凭按 run 凭据直连 REST（路由内照旧判同一凭据）
       const fm = (req.method === 'GET' || req.method === 'HEAD') ? APP_FILE_RE.exec(p) : null;
       if (fm && typeof req.query.wm_av === 'string' && capOk(fm[1], req.query.wm_av)) return next(); // 沙箱页 <img src> / 下载链接
+      // Odoo 登录入口本身照旧放行：同一个人有两个 Odoo 账号时，管理员会让他换已经接上的那个账号登录
       if (odooRelay(req, p)) return next();
+      // 登录成功、卡在主体那一步的人要页面：给等待页，说清楚是等管理员处理，不送回登录页。接口照旧 401
+      if (held.has(req) && wantsPage(req) && !p.startsWith('/api/')) return holdPage(res);
       return block(req, res);
     } catch (e) {
       return next(e);

@@ -120,7 +120,8 @@ const loginGate = createLoginGate({
   odooViewer: async (cookie, fresh) => {
     if (!identity().configured() && !identity().hasSession(cookie)) return null; // 没配身份来源时，只有市场会话还可能认得出人
     const who = fresh ? await identity().resolveViewer(cookie) : await loginGateViewer(cookie); // 只认内部员工（门户账号 403）
-    return who.ok ? { login: who.viewer.login, admin: who.viewer.admin, ...(who.via === 'session' ? { via: 'session' as const } : {}) } : null;
+    if (!who.ok) return who.held ? { held: true as const } : null; // 登录成功、卡在主体那一步：登录门给等待页
+    return { login: who.viewer.login, admin: who.viewer.admin, ...(who.via === 'session' ? { via: 'session' as const } : {}) };
   },
   loginFlows: () => identity().flows(),
   appToken: (slug) => wmAppToken(slug),

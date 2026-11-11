@@ -165,15 +165,15 @@
             "type": "text/html; charset=utf-8",
             "headers": {
               "cache-control": "no-store",
-              "content-length": "210",
+              "content-length": "218",
               "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
-              "etag": "W/\"d2-<指纹>\"",
+              "etag": "W/\"da-<指纹>\"",
               "set-cookie": ["wm_login_state=; Path=/login/feishu/callback; Expires=<时间>; HttpOnly; SameSite=Lax"],
               "vary": "Origin",
               "x-frame-options": "DENY",
               "x-powered-by": "Express"
             },
-            "body": "<!doctype html><meta charset=\"utf-8\"><title>等管理员处理</title><h1>等管理员处理</h1><p>你的账号现在还不能登录本站，请联系管理员。</p><p><a href=\"/login\">回到登录页</a></p>"
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>等管理员处理</title><h1>等管理员处理</h1><p>登录成功了，但你的账号还需要管理员处理，处理好之前用不了本站。请联系管理员。</p>"
           }
         },
         {

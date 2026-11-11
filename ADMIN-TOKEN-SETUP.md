@@ -53,6 +53,8 @@
 
 `WM_LOGIN_GATE=enforce` 后，没有身份的请求一律拦截：浏览器页面 302 到 `/login?next=<原地址>`（只收同站相对路径），API 回 401 `{"error":"login_required"}`（响应头 `X-WM-Login-Required: 1`，前端据此整页去登录页）。缺省 `off`：行为与以前完全一样。其它值拒绝启动。`GET /api/health` 的 `login_gate` 字段报当前状态。
 
+登录是成功的（提供方认出了人）、却停用了或还没对到主体的人：浏览器页面不跳登录页，给一张「等管理员处理」的页（403，停用和没对到同一页，不说是哪一种，不带数据）；API 照旧 401。他也会出现在待对接清单里（停用的除外），管理员照 README「主体」一节处理。
+
 认的身份（任一即可）：本机命令行（回环直连、无浏览器标记、无反代头）；有效的 `X-Admin-Token` 头；登录页输入管理员口令后签发的 cookie；Odoo 内部员工会话（需配 `WM_ODOO_URL`，只认 `is_internal_user`，门户账号不行）。
 
 - **登录 cookie**：`wm_login`，HMAC 签名（密钥 `DATA_DIR/.wm-login-gate.key`，权限 600，首次启动自动生成），HttpOnly、SameSite=Lax、12 小时；https（或反代带 `X-Forwarded-Proto: https`）时加 Secure。cookie 里不含口令；**口令一轮换，所有已发 cookie 立即失效**。登出（顶栏「退出」/ `POST /api/auth/logout`）清 cookie 并作废这一枚（作废名单在进程内，重启后只靠 cookie 自身到期）。
