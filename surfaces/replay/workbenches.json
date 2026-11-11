@@ -2375,6 +2375,48 @@
           }
         },
         {
+          "id": "put-fraction",
+          "route": "PUT /api/workbenches/:id",
+          "class": "invalid",
+          "what": "id 是小数（{{a}}.5）：404，不截成整数",
+          "request": { "method": "PUT", "path": "/api/workbenches/{{a}}.5", "json": { "name": "x" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench not found: 5.5" } }
+        },
+        {
+          "id": "put-hex",
+          "route": "PUT /api/workbenches/:id",
+          "class": "normal",
+          "what": "id 写成 0x5：按数字认",
+          "request": { "method": "PUT", "path": "/api/workbenches/0x5", "json": { "icon": "h" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "428", "etag": "W/\"1ac-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 5,
+              "name": "回放·甲改",
+              "url": "http://127.0.0.1:9/c",
+              "type": "web",
+              "icon": "h",
+              "description": "回传",
+              "category": "甲",
+              "tags": ["x", "2"],
+              "enabled": true,
+              "health_path": "",
+              "last_status": "unknown",
+              "last_checked_at": "",
+              "last_latency_ms": null,
+              "last_http_code": null,
+              "last_error": "",
+              "sort": 3,
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "cookie_set_id": -3,
+              "auth": { "type": "basic", "value": "synthetic-basic" }
+            }
+          }
+        },
+        {
           "id": "put-missing",
           "route": "PUT /api/workbenches/:id",
           "class": "invalid",
@@ -2602,6 +2644,40 @@
           }
         },
         {
+          "id": "create-disabled",
+          "route": "POST /api/workbenches",
+          "class": "normal",
+          "what": "新建一个 enabled=false 的台（全部探测不该探它）",
+          "request": { "method": "POST", "path": "/api/workbenches", "json": { "name": "回放·停用", "url": "http://127.0.0.1:9/off", "enabled": false } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "376", "etag": "W/\"178-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 10,
+              "name": "回放·停用",
+              "url": "http://127.0.0.1:9/off",
+              "type": "web",
+              "icon": "",
+              "description": "",
+              "category": "",
+              "tags": [],
+              "enabled": false,
+              "health_path": "",
+              "last_status": "unknown",
+              "last_checked_at": "",
+              "last_latency_ms": null,
+              "last_http_code": null,
+              "last_error": "",
+              "sort": 0,
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "cookie_set_id": 0,
+              "auth": null
+            }
+          }
+        },
+        {
           "id": "check-all",
           "route": "POST /api/check-all",
           "class": "normal",
@@ -2656,6 +2732,14 @@
           "compare": "status",
           "request": { "method": "PUT", "path": "/api/workbenches/{{e}}/vars/replay_key", "json": { "value": "v" } },
           "response": { "status": 201 }
+        },
+        {
+          "id": "delete-fraction",
+          "route": "DELETE /api/workbenches/:id",
+          "class": "invalid",
+          "what": "id 是小数（9.5）：404，不截成整数（截了就删掉了 9，下一条会变）",
+          "request": { "method": "DELETE", "path": "/api/workbenches/9.5" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "workbench not found: 9.5" } }
         },
         {
           "id": "delete",
@@ -2803,7 +2887,7 @@
           "request": { "method": "GET", "path": "/api/workbenches" },
           "response": {
             "status": 200,
-            "picked": { "0.id": 1, "0.name": "任务中心", "0.url": "/sop/task-center/", "0.last_status": "up", "0.last_error": "", "0.enabled": true, "1.id": 2, "1.name": "库里·幽灵自产台", "1.url": "/apps/ghost/", "1.last_status": "down", "1.last_error": "自产台不存在：ghost", "1.enabled": true, "2.id": 3, "2.name": "库里·坏 health_path", "2.url": "http://127.0.0.1:9/h", "2.last_status": "down", "2.last_error": "health_path 被拒：health_path 绝对 URL 必须与登记 URL 同 origin", "2.enabled": true, "3.id": 4, "3.name": "库里·残缺地址", "3.url": "http://", "3.last_status": "down", "3.last_error": "非法 URL：http://", "3.enabled": true, "4.id": 7, "4.name": "回放·SOP", "4.url": "/sop/task-center/", "4.last_status": "up", "4.last_error": "", "4.enabled": true, "5.id": 8, "5.name": "回放·长凭据", "5.url": "http://127.0.0.1:9/a", "5.last_status": "down", "5.last_error": "fetch failed", "5.enabled": true, "6.id": 5, "6.name": "回放·甲改", "6.url": "http://127.0.0.1:9/c", "6.last_status": "down", "6.last_error": "fetch failed", "6.enabled": true, "7.id": 6, "7.name": "回放·乙", "7.url": "http://127.0.0.1:9/b?token=****&x=1", "7.last_status": "down", "7.last_error": "fetch failed", "7.enabled": true }
+            "picked": { "0.id": 1, "0.name": "任务中心", "0.url": "/sop/task-center/", "0.last_status": "up", "0.last_error": "", "0.enabled": true, "1.id": 2, "1.name": "库里·幽灵自产台", "1.url": "/apps/ghost/", "1.last_status": "down", "1.last_error": "自产台不存在：ghost", "1.enabled": true, "2.id": 3, "2.name": "库里·坏 health_path", "2.url": "http://127.0.0.1:9/h", "2.last_status": "down", "2.last_error": "health_path 被拒：health_path 绝对 URL 必须与登记 URL 同 origin", "2.enabled": true, "3.id": 4, "3.name": "库里·残缺地址", "3.url": "http://", "3.last_status": "down", "3.last_error": "非法 URL：http://", "3.enabled": true, "4.id": 7, "4.name": "回放·SOP", "4.url": "/sop/task-center/", "4.last_status": "up", "4.last_error": "", "4.enabled": true, "5.id": 8, "5.name": "回放·长凭据", "5.url": "http://127.0.0.1:9/a", "5.last_status": "down", "5.last_error": "fetch failed", "5.enabled": true, "6.id": 10, "6.name": "回放·停用", "6.url": "http://127.0.0.1:9/off", "6.last_status": "unknown", "6.last_error": "", "6.enabled": false, "7.id": 5, "7.name": "回放·甲改", "7.url": "http://127.0.0.1:9/c", "7.last_status": "down", "7.last_error": "fetch failed", "7.enabled": true, "8.id": 6, "8.name": "回放·乙", "8.url": "http://127.0.0.1:9/b?token=****&x=1", "8.last_status": "down", "8.last_error": "fetch failed", "8.enabled": true }
           }
         }
       ]
