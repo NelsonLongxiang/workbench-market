@@ -19,7 +19,7 @@ import { browserMarked, rawLoopback } from '../surfaces.ts';
 import { HttpError } from '../errors.ts';
 import { MCP_TOOLS } from '../mcp-tools.ts';
 import { identity } from '../identity.ts';
-import { buildRoles, checkShape, orgRolesFromConfig, PLATFORM_ROLES, type ActionCatalog, type Kind, type Permission, type RoleDecl } from '../roles.ts';
+import { BLOCKS, buildRoles, checkShape, MATRIX_KINDS, matrixSummary, orgRolesFromConfig, PLATFORM_ROLES, roleMatrix, type ActionCatalog, type Kind, type Permission, type RoleDecl } from '../roles.ts';
 import type { CustomRoleService } from '../services/custom-role.ts';
 import { unknownBuiltinActions } from '../judgment-builtins.ts';
 import type { PrincipalService } from '../services/principal.ts';
@@ -146,6 +146,21 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
       roles: grants().roles().map(({ id, name, includes, permissions, platform, custom, adminLevel, decides }) => ({ id, name, includes: includes ?? [], permissions, platform, custom, admin_level: adminLevel, decides })),
       // 自定义角色全部（含待属主放行的新角色和改动）
       custom: customRoles().list(),
+    });
+  }));
+
+  // 「谁能做什么」的角色矩阵：角色 × 七大块 × 看/做/拍板/管理，服务端从角色定义算，前端不自己拼
+  app.get('/api/roles/matrix', { action: 'role.matrix', kind: 'admin' }, route(async (req, res) => {
+    if (!(await actorOf(req, res))) return;
+    const roles = grants().roles();
+    const order = (r: { platform: boolean }) => (r.platform ? 0 : 1);
+    res.set('Cache-Control', 'no-store').json({
+      blocks: BLOCKS.map(({ key, name }) => ({ key, name })),
+      kinds: MATRIX_KINDS,
+      roles: [...roles].sort((a, b) => order(a) - order(b)).map((r) => {
+        const cells = roleMatrix(r.id, r.closure, catalogAtLoad);
+        return { id: r.id, name: r.name, preset: r.platform, custom: r.custom, cells, summary: matrixSummary(cells) };
+      }),
     });
   }));
 

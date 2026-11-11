@@ -57,6 +57,73 @@ export function unclassifiedDomains(actions: Iterable<string>): string[] {
   return [...new Set([...actions].map(domainOf))].filter((d) => !known.has(d)).sort();
 }
 
+/**
+ * 界面上的七大块（「谁能做什么」的角色矩阵按它分行）：每个动作的域归且只归一块，每块里的域要么全是系统的、要么全是业务的。
+ * 矩阵由服务端从角色定义算（roleMatrix），前端不自己拼
+ */
+export const BLOCKS: readonly { key: string; name: string; domains: readonly string[] }[] = [
+  { key: 'overview', name: '全景', domains: ['cockpit', 'summary'] },
+  { key: 'work', name: '事项与对话', domains: ['change-request', 'sop', 'sop-run', 'task-center', 'work-item', 'work-items'] },
+  { key: 'attention', name: '关注', domains: ['attention'] },
+  { key: 'bench-data', name: '工作台数据', domains: ['app-data', 'mcp-rest', 'mcp-tool'] },
+  { key: 'team', name: '团队与 AI 员工', domains: ['binding', 'principal'] },
+  { key: 'access', name: '权限与角色', domains: ['admin', 'admin-token', 'grant', 'judgment', 'role'] },
+  { key: 'system', name: '系统与节点', domains: ['agent-card', 'app', 'auth', 'content', 'cookie', 'design-token', 'login', 'market', 'mcp', 'remote-allow', 'setting', 'skill', 'sso', 'stats', 'type', 'workbench'] },
+];
+export const MATRIX_KINDS: readonly { key: Kind; name: string }[] = [
+  { key: 'read', name: '看' }, { key: 'write', name: '做' }, { key: 'decide', name: '拍板' }, { key: 'admin', name: '管理' },
+];
+/** 格子：all 全部；scoped 范围内（范围由授予给）；some 部分动作；self 只限自己的；none 不能；na 这一块没有这一类动作 */
+export type Cell = 'all' | 'scoped' | 'some' | 'self' | 'none' | 'na';
+const RANK: Record<Cell, number> = { na: -1, none: 0, self: 1, some: 2, scoped: 3, all: 4 };
+/** 范围由授予给的预设：部门负责人、AI 员工、访客（矩阵里显示「范围内」） */
+export const SCOPED_PRESETS: readonly string[] = ['dept-lead', 'ai-staff', 'guest'];
+
+/** 一个角色（展开之后的权限）在七大块 × 四类上的格子 */
+export function roleMatrix(roleId: string, closure: readonly Permission[], catalog: ActionCatalog): Record<string, Record<Kind, Cell>> {
+  const out: Record<string, Record<Kind, Cell>> = {};
+  for (const b of BLOCKS) {
+    const row = { read: 'none', write: 'none', decide: 'none', admin: 'none' } as Record<Kind, Cell>;
+    // 这一块里有哪几类动作（按动作清单）：没有的那一类格子是 na，不说能不能
+    const present = new Set<Kind>();
+    for (const [a, k] of catalog) if (b.domains.includes(domainOf(a))) present.add(k);
+    for (const p of closure) {
+      const wide: Cell = p.scope === 'self' ? 'self' : (p.scope !== undefined && p.scope !== '*') || SCOPED_PRESETS.includes(roleId) ? 'scoped' : 'all';
+      for (const k of p.kinds ?? []) {
+        if (p.domains && !p.domains.some((d) => b.domains.includes(d))) continue;
+        if (RANK[wide] > RANK[row[k]]) row[k] = wide;
+      }
+      for (const a of p.actions ?? []) {
+        const k = catalog.get(a);
+        if (!k || !b.domains.includes(domainOf(a))) continue;
+        const cell: Cell = wide === 'all' ? 'some' : wide;
+        if (RANK[cell] > RANK[row[k]]) row[k] = cell;
+      }
+    }
+    for (const k of KINDS) if (!present.has(k)) row[k] = 'na';
+    out[b.key] = row;
+  }
+  return out;
+}
+
+/** 卡片上的四句白话：能看什么、能做什么、能拍什么板、不能做什么（从格子生成） */
+export function matrixSummary(cells: Record<string, Record<Kind, Cell>>): { see: string; do: string; decide: string; cannot: string } {
+  const WORD: Record<Cell, string> = { all: '全部', scoped: '范围内', some: '部分', self: '只限自己的', none: '', na: '' };
+  const has = (c: Cell) => c !== 'none' && c !== 'na';
+  const line = (k: Kind) => {
+    const parts = BLOCKS.filter((b) => has(cells[b.key][k])).map((b) => `${b.name}（${WORD[cells[b.key][k]]}）`);
+    return parts.length ? parts.join('、') : '无';
+  };
+  const cannot = MATRIX_KINDS.filter((k) => BLOCKS.every((b) => !has(cells[b.key][k.key]))).map((k) => k.name);
+  const noBlocks = BLOCKS.filter((b) => MATRIX_KINDS.every((k) => !has(cells[b.key][k.key]))).map((b) => b.name);
+  return {
+    see: `能看：${line('read')}`,
+    do: `能做：${line('write')}；能管：${line('admin')}`,
+    decide: `能拍板：${line('decide')}`,
+    cannot: [cannot.length ? `一律不能${cannot.join('、')}` : '', noBlocks.length ? `碰不到${noBlocks.join('、')}` : ''].filter(Boolean).join('；') || '没有整块碰不到的',
+  };
+}
+
 /** 普通员工能写的：提需求、补充说明——开建 run、保存一步、完成、交附件，往台里提交数据和文件 */
 export const MEMBER_WRITE_ACTIONS: readonly string[] = [
   'app-data.submit', 'app-data.upload', 'sop-run.file-refs', 'sop-run.file-upload', 'sop-run.finish', 'sop-run.save', 'sop-run.start',

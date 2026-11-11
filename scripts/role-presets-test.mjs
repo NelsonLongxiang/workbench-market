@@ -53,6 +53,29 @@ try {
   check(loose.length === 0 && both.length === 0, '每个已登记动作的域都归了类（系统或业务），没有两边都算的', show({ loose, both }));
   check(roles.domainOf('app-data.list') === 'app-data' && roles.domainOf('app_data_list') === 'mcp-tool', '动作的域：点号前面那段；MCP 工具都算 mcp-tool（业务）');
 
+  // ---------- 一之二、七大块的矩阵 ----------
+  {
+    const all = [...roles.SYSTEM_DOMAINS, ...roles.BUSINESS_DOMAINS];
+    const owners = Object.fromEntries(all.map((d) => [d, roles.BLOCKS.filter((b) => b.domains.includes(d)).map((b) => b.key)]));
+    const bad = Object.entries(owners).filter(([, bs]) => bs.length !== 1);
+    const stray = roles.BLOCKS.flatMap((b) => b.domains.filter((d) => !all.includes(d)));
+    const mixed = roles.BLOCKS.filter((b) => !(b.domains.every((d) => roles.SYSTEM_DOMAINS.includes(d)) || b.domains.every((d) => roles.BUSINESS_DOMAINS.includes(d)))).map((b) => b.key);
+    check(bad.length === 0 && stray.length === 0 && mixed.length === 0, '七大块：每个动作的域归且只归一块；每块要么全是系统的、要么全是业务的', show({ bad, stray, mixed }));
+    const cell = (id) => { const r = grants.roles().find((x) => x.id === id); return roles.roleMatrix(id, r.closure, catalog); };
+    const admin = cell('admin'), mgmt = cell('management'), emp = cell('member'), lead = cell('dept-lead'), ai = cell('ai-staff'), owner = cell('owner');
+    const picks = {
+      adminBenchRead: admin['bench-data'].read, adminSystemRead: admin.system.read, adminBenchAdmin: admin['bench-data'].admin, adminWorkDecide: admin.work.decide,
+      mgmtAccessAdmin: mgmt.access.admin, mgmtWorkDecide: mgmt.work.decide, empWorkWrite: emp.work.write, empWorkDecide: emp.work.decide, empSystemWrite: emp.system.write,
+      leadWorkRead: lead.work.read, aiDecideAny: roles.BLOCKS.some((b) => !['none', 'na'].includes(ai[b.key].decide)), ownerAll: roles.BLOCKS.every((b) => Object.values(owner[b.key]).every((c) => c === 'all' || c === 'na')), overviewDecide: owner.overview.decide,
+    };
+    check(picks.adminBenchRead === 'none' && picks.adminSystemRead === 'all' && picks.adminBenchAdmin === 'all' && picks.adminWorkDecide === 'none'
+      && picks.mgmtAccessAdmin === 'none' && picks.mgmtWorkDecide === 'all' && picks.empWorkWrite === 'some' && picks.empWorkDecide === 'self' && picks.empSystemWrite === 'none'
+      && picks.leadWorkRead === 'scoped' && picks.aiDecideAny === false && picks.ownerAll === true && picks.overviewDecide === 'na',
+      '矩阵（服务端从定义算）：系统管理员看不到工作台数据、系统全部、各处能管、不拍业务的板；管理层不管权限；普通员工事项只能做部分、拍板只限自己的；部门负责人范围内；AI 员工哪里都不能拍板；属主全部；这一块没有这一类动作的格子是 na（全景没有可拍板的）', show(picks));
+    const sum = roles.matrixSummary(admin);
+    check(/工作台数据/.test(sum.cannot) === false && /能看：/.test(sum.see) && !/工作台数据/.test(sum.see), '卡片的四句白话从格子生成：系统管理员的「能看」里没有工作台数据', show(sum));
+  }
+
   // ---------- 二、判定里各自能做什么 ----------
   const now = Date.now();
   const insert = (id, kind = 'person', owner = '') => db.prepare('INSERT INTO principals (id, id_key, kind, owner) VALUES (?, ?, ?, ?)').run(id, id.toLowerCase(), kind, owner);

@@ -1,6 +1,6 @@
 {
   "domain": "grants",
-  "what": "角色与授予：/api/roles、/api/grants 的 14 条路由（含自定义角色的复制、改、删、属主放行、导出）。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "what": "角色与授予：/api/roles、/api/grants 的 15 条路由（含角色矩阵、自定义角色的复制、改、删、属主放行、导出）。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
   "routes": [
     "GET /api/roles",
     "GET /api/grants",
@@ -15,12 +15,14 @@
     "PUT /api/roles/:id",
     "DELETE /api/roles/:id",
     "POST /api/roles/:id/approve",
-    "GET /api/roles/export"
+    "GET /api/roles/export",
+    "GET /api/roles/matrix"
   ],
   "exempt": [
     { "route": "GET /api/roles", "class": "invalid", "why": "这条路由不读任何参数，没有会被拒的输入", "shown_by": "open/roles-cli" },
     { "route": "GET /api/judgment/compare", "class": "invalid", "why": "这条路由不读任何参数，没有会被拒的输入", "shown_by": "open/compare-cli" },
-    { "route": "GET /api/roles/export", "class": "invalid", "why": "这条路由不读任何参数，没有会被拒的输入", "shown_by": "open/role-export" }
+    { "route": "GET /api/roles/export", "class": "invalid", "why": "这条路由不读任何参数，没有会被拒的输入", "shown_by": "open/role-export" },
+    { "route": "GET /api/roles/matrix", "class": "invalid", "why": "这条路由不读任何参数，没有会被拒的输入", "shown_by": "open/roles-matrix" }
   ],
   "scenarios": [
     {
@@ -114,6 +116,173 @@
                 { "id": "dept-member", "name": "部门成员", "includes": [], "permissions": [{ "kinds": ["read", "write"] }], "platform": false, "custom": false, "admin_level": false, "decides": false }
               ],
               "custom": []
+            }
+          }
+        },
+        {
+          "id": "roles-matrix-remote-anon",
+          "route": "GET /api/roles/matrix",
+          "class": "unauthorized",
+          "what": "远程匿名读角色矩阵：403",
+          "request": { "method": "GET", "path": "/api/roles/matrix", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "roles-matrix",
+          "route": "GET /api/roles/matrix",
+          "class": "normal",
+          "what": "角色 × 七大块 × 看/做/拍板/管理（服务端从定义算）",
+          "request": { "method": "GET", "path": "/api/roles/matrix", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "8454", "etag": "W/\"2106-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "blocks": [
+                { "key": "overview", "name": "全景" },
+                { "key": "work", "name": "事项与对话" },
+                { "key": "attention", "name": "关注" },
+                { "key": "bench-data", "name": "工作台数据" },
+                { "key": "team", "name": "团队与 AI 员工" },
+                { "key": "access", "name": "权限与角色" },
+                { "key": "system", "name": "系统与节点" }
+              ],
+              "kinds": [{ "key": "read", "name": "看" }, { "key": "write", "name": "做" }, { "key": "decide", "name": "拍板" }, { "key": "admin", "name": "管理" }],
+              "roles": [
+                {
+                  "id": "owner",
+                  "name": "属主",
+                  "preset": true,
+                  "custom": false,
+                  "cells": {
+                    "overview": { "read": "all", "write": "na", "decide": "na", "admin": "all" },
+                    "work": { "read": "all", "write": "all", "decide": "all", "admin": "all" },
+                    "attention": { "read": "all", "write": "na", "decide": "all", "admin": "na" },
+                    "bench-data": { "read": "all", "write": "all", "decide": "na", "admin": "all" },
+                    "team": { "read": "na", "write": "na", "decide": "na", "admin": "all" },
+                    "access": { "read": "all", "write": "na", "decide": "na", "admin": "all" },
+                    "system": { "read": "all", "write": "all", "decide": "all", "admin": "all" }
+                  },
+                  "summary": { "see": "能看：全景（全部）、事项与对话（全部）、关注（全部）、工作台数据（全部）、权限与角色（全部）、系统与节点（全部）", "do": "能做：事项与对话（全部）、工作台数据（全部）、系统与节点（全部）；能管：全景（全部）、事项与对话（全部）、工作台数据（全部）、团队与 AI 员工（全部）、权限与角色（全部）、系统与节点（全部）", "decide": "能拍板：事项与对话（全部）、关注（全部）、系统与节点（全部）", "cannot": "没有整块碰不到的" }
+                },
+                {
+                  "id": "admin",
+                  "name": "系统管理员",
+                  "preset": true,
+                  "custom": false,
+                  "cells": {
+                    "overview": { "read": "none", "write": "na", "decide": "na", "admin": "all" },
+                    "work": { "read": "none", "write": "none", "decide": "none", "admin": "all" },
+                    "attention": { "read": "none", "write": "na", "decide": "none", "admin": "na" },
+                    "bench-data": { "read": "none", "write": "none", "decide": "na", "admin": "all" },
+                    "team": { "read": "na", "write": "na", "decide": "na", "admin": "all" },
+                    "access": { "read": "all", "write": "na", "decide": "na", "admin": "all" },
+                    "system": { "read": "all", "write": "all", "decide": "none", "admin": "all" }
+                  },
+                  "summary": { "see": "能看：权限与角色（全部）、系统与节点（全部）", "do": "能做：系统与节点（全部）；能管：全景（全部）、事项与对话（全部）、工作台数据（全部）、团队与 AI 员工（全部）、权限与角色（全部）、系统与节点（全部）", "decide": "能拍板：无", "cannot": "一律不能拍板；碰不到关注" }
+                },
+                {
+                  "id": "management",
+                  "name": "管理层",
+                  "preset": true,
+                  "custom": false,
+                  "cells": {
+                    "overview": { "read": "all", "write": "na", "decide": "na", "admin": "none" },
+                    "work": { "read": "all", "write": "all", "decide": "all", "admin": "none" },
+                    "attention": { "read": "all", "write": "na", "decide": "all", "admin": "na" },
+                    "bench-data": { "read": "all", "write": "all", "decide": "na", "admin": "none" },
+                    "team": { "read": "na", "write": "na", "decide": "na", "admin": "none" },
+                    "access": { "read": "all", "write": "na", "decide": "na", "admin": "none" },
+                    "system": { "read": "all", "write": "all", "decide": "all", "admin": "none" }
+                  },
+                  "summary": { "see": "能看：全景（全部）、事项与对话（全部）、关注（全部）、工作台数据（全部）、权限与角色（全部）、系统与节点（全部）", "do": "能做：事项与对话（全部）、工作台数据（全部）、系统与节点（全部）；能管：无", "decide": "能拍板：事项与对话（全部）、关注（全部）、系统与节点（全部）", "cannot": "一律不能管理；碰不到团队与 AI 员工" }
+                },
+                {
+                  "id": "dept-lead",
+                  "name": "部门负责人",
+                  "preset": true,
+                  "custom": false,
+                  "cells": {
+                    "overview": { "read": "scoped", "write": "na", "decide": "na", "admin": "none" },
+                    "work": { "read": "scoped", "write": "scoped", "decide": "scoped", "admin": "none" },
+                    "attention": { "read": "scoped", "write": "na", "decide": "scoped", "admin": "na" },
+                    "bench-data": { "read": "scoped", "write": "scoped", "decide": "na", "admin": "none" },
+                    "team": { "read": "na", "write": "na", "decide": "na", "admin": "none" },
+                    "access": { "read": "scoped", "write": "na", "decide": "na", "admin": "none" },
+                    "system": { "read": "scoped", "write": "scoped", "decide": "scoped", "admin": "none" }
+                  },
+                  "summary": { "see": "能看：全景（范围内）、事项与对话（范围内）、关注（范围内）、工作台数据（范围内）、权限与角色（范围内）、系统与节点（范围内）", "do": "能做：事项与对话（范围内）、工作台数据（范围内）、系统与节点（范围内）；能管：无", "decide": "能拍板：事项与对话（范围内）、关注（范围内）、系统与节点（范围内）", "cannot": "一律不能管理；碰不到团队与 AI 员工" }
+                },
+                {
+                  "id": "member",
+                  "name": "普通员工",
+                  "preset": true,
+                  "custom": false,
+                  "cells": {
+                    "overview": { "read": "all", "write": "na", "decide": "na", "admin": "none" },
+                    "work": { "read": "all", "write": "some", "decide": "self", "admin": "none" },
+                    "attention": { "read": "all", "write": "na", "decide": "self", "admin": "na" },
+                    "bench-data": { "read": "all", "write": "some", "decide": "na", "admin": "none" },
+                    "team": { "read": "na", "write": "na", "decide": "na", "admin": "none" },
+                    "access": { "read": "all", "write": "na", "decide": "na", "admin": "none" },
+                    "system": { "read": "all", "write": "none", "decide": "self", "admin": "none" }
+                  },
+                  "summary": { "see": "能看：全景（全部）、事项与对话（全部）、关注（全部）、工作台数据（全部）、权限与角色（全部）、系统与节点（全部）", "do": "能做：事项与对话（部分）、工作台数据（部分）；能管：无", "decide": "能拍板：事项与对话（只限自己的）、关注（只限自己的）、系统与节点（只限自己的）", "cannot": "一律不能管理；碰不到团队与 AI 员工" }
+                },
+                {
+                  "id": "guest",
+                  "name": "访客",
+                  "preset": true,
+                  "custom": false,
+                  "cells": {
+                    "overview": { "read": "none", "write": "na", "decide": "na", "admin": "none" },
+                    "work": { "read": "none", "write": "none", "decide": "none", "admin": "none" },
+                    "attention": { "read": "none", "write": "na", "decide": "none", "admin": "na" },
+                    "bench-data": { "read": "none", "write": "none", "decide": "na", "admin": "none" },
+                    "team": { "read": "na", "write": "na", "decide": "na", "admin": "none" },
+                    "access": { "read": "none", "write": "na", "decide": "na", "admin": "none" },
+                    "system": { "read": "none", "write": "none", "decide": "none", "admin": "none" }
+                  },
+                  "summary": { "see": "能看：无", "do": "能做：无；能管：无", "decide": "能拍板：无", "cannot": "一律不能看、做、拍板、管理；碰不到全景、事项与对话、关注、工作台数据、团队与 AI 员工、权限与角色、系统与节点" }
+                },
+                {
+                  "id": "ai-staff",
+                  "name": "AI 员工",
+                  "preset": true,
+                  "custom": false,
+                  "cells": {
+                    "overview": { "read": "scoped", "write": "na", "decide": "na", "admin": "none" },
+                    "work": { "read": "scoped", "write": "scoped", "decide": "none", "admin": "none" },
+                    "attention": { "read": "scoped", "write": "na", "decide": "none", "admin": "na" },
+                    "bench-data": { "read": "scoped", "write": "scoped", "decide": "na", "admin": "none" },
+                    "team": { "read": "na", "write": "na", "decide": "na", "admin": "none" },
+                    "access": { "read": "scoped", "write": "na", "decide": "na", "admin": "none" },
+                    "system": { "read": "scoped", "write": "scoped", "decide": "none", "admin": "none" }
+                  },
+                  "summary": { "see": "能看：全景（范围内）、事项与对话（范围内）、关注（范围内）、工作台数据（范围内）、权限与角色（范围内）、系统与节点（范围内）", "do": "能做：事项与对话（范围内）、工作台数据（范围内）、系统与节点（范围内）；能管：无", "decide": "能拍板：无", "cannot": "一律不能拍板、管理；碰不到团队与 AI 员工" }
+                },
+                {
+                  "id": "dept-member",
+                  "name": "部门成员",
+                  "preset": false,
+                  "custom": false,
+                  "cells": {
+                    "overview": { "read": "all", "write": "na", "decide": "na", "admin": "none" },
+                    "work": { "read": "all", "write": "all", "decide": "none", "admin": "none" },
+                    "attention": { "read": "all", "write": "na", "decide": "none", "admin": "na" },
+                    "bench-data": { "read": "all", "write": "all", "decide": "na", "admin": "none" },
+                    "team": { "read": "na", "write": "na", "decide": "na", "admin": "none" },
+                    "access": { "read": "all", "write": "na", "decide": "na", "admin": "none" },
+                    "system": { "read": "all", "write": "all", "decide": "none", "admin": "none" }
+                  },
+                  "summary": { "see": "能看：全景（全部）、事项与对话（全部）、关注（全部）、工作台数据（全部）、权限与角色（全部）、系统与节点（全部）", "do": "能做：事项与对话（全部）、工作台数据（全部）、系统与节点（全部）；能管：无", "decide": "能拍板：无", "cannot": "一律不能拍板、管理；碰不到团队与 AI 员工" }
+                }
+              ]
             }
           }
         },

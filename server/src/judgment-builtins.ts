@@ -135,6 +135,7 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       'role.delete',
       'role.export',
       'role.list',
+      'role.matrix',
       'role.update',
       'setting.read',
       'setting.update',

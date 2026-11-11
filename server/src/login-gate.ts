@@ -46,6 +46,8 @@ type Deps = {
   /** Odoo 内部员工（未配置 Odoo、门户账号、会话无效一律 null）。登录是成功的、卡在主体那一步（停用了或还没对到主体）回 { held: true }。
    *  fresh=true 每次都问提供方；false 时提供方的回答可以用缓存的（期限由装配方定）。主体停没停用总是现查，这里不再自己缓存 */
   odooViewer: (cookieHeader: string, fresh: boolean) => Promise<{ login: string; admin: boolean; via?: 'session' } | { held: true } | null>;
+  /** /api/auth/me 附带的「我是谁」：主体、显示名、当前生效授予的角色（侧栏用户卡用）。不给就只回原来的几项 */
+  profile?: (req: express.Request) => Promise<{ principal: string | null; display_name: string | null; roles: { id: string; name: string; scope: string; preset: boolean; expires_at: number | null }[] }>;
   /** 登录页上列出的登录方式（发市场会话的那几种，比如飞书）：名字和按钮上的字 */
   loginFlows?: () => { name: string; label: string }[];
   appToken: (slug: string) => string;
@@ -455,7 +457,10 @@ export function createLoginGate(deps: Deps) {
         res.setHeader('Cache-Control', 'private, no-store');
         res.vary('Cookie');
         const id = await identity(req);
-        res.json({ gate: deps.mode, authenticated: !!id, via: id?.via ?? null, login: id?.login ?? null });
+        // 只有认出了人（Odoo、市场会话）才有主体和角色；口令、本机命令行、没登录：principal 为 null、roles 为空
+        const person = id && (id.via === 'odoo' || id.via === 'session');
+        const extra = person && deps.profile ? await deps.profile(req) : { principal: null, display_name: null, roles: [] };
+        res.json({ gate: deps.mode, authenticated: !!id, via: id?.via ?? null, login: id?.login ?? null, ...extra });
       } catch (e) { next(e); }
     });
   }
