@@ -147,7 +147,7 @@ export const RECORDS: readonly { from: readonly WorkItemState[]; fact: Fact['kin
 ];
 
 export type ApplyResult =
-  | { ok: true; state: WorkItemState; from: WorkItemState; duplicate: boolean; recorded?: boolean; late?: boolean }
+  | { ok: true; state: WorkItemState; from: WorkItemState; duplicate: boolean; recorded?: boolean; late?: boolean; seatFilled?: boolean }
   | { ok: false; reason: 'bad_fact' | 'unknown_item' | 'terminal' | 'not_allowed'; state?: WorkItemState; duplicate?: boolean };
 
 export type NewWorkItem = {
@@ -297,14 +297,36 @@ const ALIVE: readonly DeliveryStatus[] = ['held', 'pending', 'sent'];
  *   · decision:accept → eval accept；decision:decline → eval stop（理由为空记「未写理由」）；decision:ask → ask
  *   · 提交方未验证的事件：本来是事实的，都只记「收到但未采信」
  */
+/**
+ * 承接席位：事项上只显示实际干活的成员，不显示总工。上游宿主取 by 的规则是「工单有成员就填成员，否则填总工」，
+ * 所以确认、还没派给成员的进展里的 by 可能是总工。按上游的口径（A2A团队构建优化 2026-11-11）：
+ *   · by.role（上游只增字段，dsh-open-a2a-net#611）是 member 或 observer 的，任何一类在做的回执都取；是 router 的一律不取；
+ *   · 没有 role 时（过渡期）：只取提问（attention）和做完（completed）结果的 by，确认和进展的 by 不取；
+ *   · 进展里 tickets 中还没结束那一项的 seat 一直是成员，可以取；
+ *   · 说不干了的结果（failed / rejected / abandoned）不改承接——可能是别的团队，也不再是「在做」。
+ * 返回「名字 · 句柄」或句柄；取不到返回 ''。
+ */
+export function seatOfReceipt(action: string, detail: Record<string, unknown>): string {
+  const by = detail.by && typeof detail.by === 'object' ? detail.by as { seat?: unknown; name?: unknown; role?: unknown } : null;
+  const show = (seat: unknown, name: unknown) => typeof seat === 'string' && seat !== '' ? (typeof name === 'string' && name !== '' ? `${name} · ${seat}` : seat).slice(0, 300) : '';
+  const working = action === 'receipt:acknowledged' || action === 'receipt:attention' || action === 'receipt:progress' || action === 'receipt:completed';
+  if (!working || !by && action !== 'receipt:progress') return '';
+  if (by?.role === 'router') return action === 'receipt:progress' ? ticketSeat(detail) : '';
+  if (by?.role === 'member' || by?.role === 'observer') return show(by.seat, by.name);
+  if (action === 'receipt:attention' || action === 'receipt:completed') return show(by?.seat, by?.name);
+  return action === 'receipt:progress' ? ticketSeat(detail) : '';
+}
+function ticketSeat(detail: Record<string, unknown>): string {
+  const t = Array.isArray(detail.tickets) ? (detail.tickets as { seat?: unknown; state?: unknown }[]).find((x) => x && x.state !== 'ended' && typeof x.seat === 'string' && x.seat !== '') : undefined;
+  return typeof t?.seat === 'string' ? t.seat.slice(0, 300) : '';
+}
+
 export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], i: number): Fact | null {
   const row = rows[i];
   const detail = (() => { try { return JSON.parse(row.detail || '{}') as Record<string, unknown>; } catch { return {}; } })();
   const base = { source: EVENT_FACT_SOURCE, id: String(row.id), actor: row.actor, action: row.action };
   let fact: Fact | null = null;
-  // 回执信封里的 by（receipt-inbound 已按上游上限截过）：确认、提问、进展、结果都可能带，带了就记成承接席位
-  const by = detail.by && typeof detail.by === 'object' ? detail.by as { seat?: unknown; name?: unknown } : null;
-  const seat = by && typeof by.seat === 'string' && by.seat !== '' ? (typeof by.name === 'string' && by.name !== '' ? `${by.name} · ${by.seat}` : by.seat).slice(0, 300) : '';
+  const seat = seatOfReceipt(row.action, detail);
   // 8f-2：dispatch:false 的事件（只通知、不派发）没有回写通道，排上的投递不映射成「已转交」：停在草稿，日志记一行「未派发」。
   // 事实 id 和原来那条 submit 相同：存量里已经应用过的照旧按（来源、id）跳过，回填重跑结果不变
   if ((row.action === 'held' || row.action === 'queued') && Number(event.dispatch) === 0) return { ...base, kind: 'note', note: 'undispatched' };
@@ -334,7 +356,7 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
     }
   }
   if (fact && event.submitter_kind === 'unverified') return { ...base, kind: 'note', note: 'untrusted' };
-  if (fact && seat !== '' && row.action.startsWith('receipt:') && row.action !== 'receipt:untrusted' && row.action !== 'receipt:unaccepted') fact = { ...fact, seat };
+  if (fact && seat !== '') fact = { ...fact, seat };
   return fact;
 }
 
@@ -343,7 +365,7 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
  * 版本没变时每次启动只做增量：从上次记下的事件日志水位往后核（没装事项服务的进程——比如回滚到旧版本期间——
  * 写进来的事件和事实，靠它补回来）。监听器漏过事实（dirty）也从头全量核。
  */
-export const BACKFILL_VERSION = 4; // 2：阶段七 R2 加了跟进、回复、看过的映射（#546）；3：进展回执的映射（PR-A）；4：回执的 by 记成承接席位
+export const BACKFILL_VERSION = 5; // 2：阶段七 R2 加了跟进、回复、看过的映射（#546）；3：进展回执的映射（PR-A）；4：回执的 by 记成承接席位；5：承接只取成员、重复事实补写承接（4 已被试联实例用过）
 /** 后台回填每一片最多占用事件循环的时长（毫秒），之后让出，好让请求得到应答 */
 const BACKFILL_SLICE_MS = 25;
 /** 每次取的行数（一片里可以取好几次） */
@@ -727,7 +749,7 @@ export class WorkItemService extends Service {
   apply(itemId: string, fact: Fact): ApplyResult {
     if (factProblem(fact)) return { ok: false, reason: 'bad_fact' };
     // 被拒的（not_allowed、terminal）也写了一行留痕，要提交；形式不对的、重复的什么都没写
-    return inTx(() => this.applyLocked(itemId, normalize(fact)), (out) => !out.duplicate && (out.ok || out.reason === 'not_allowed' || out.reason === 'terminal'));
+    return inTx(() => this.applyLocked(itemId, normalize(fact)), (out) => (!out.duplicate && (out.ok || out.reason === 'not_allowed' || out.reason === 'terminal')) || (out.ok && out.seatFilled === true));
   }
 
   private applyLocked(itemId: string, fact: Fact): ApplyResult {
@@ -737,7 +759,13 @@ export class WorkItemService extends Service {
       .get(itemId, fact.source, fact.id) as { from_state: WorkItemState; to_state: WorkItemState; rejected: '' | 'not_allowed' | 'terminal' } | undefined;
     // 同一条事实再来：照第一次的结果答（第一次被拒的，还是被拒），不再写
     if (seen?.rejected) return { ok: false, reason: seen.rejected, state: item.state, duplicate: true };
-    if (seen) return { ok: true, state: item.state, from: seen.from_state, duplicate: true };
+    if (seen) {
+      // 回填按版本号从头再核时，存量里已经应用过的事实照第一次的结果答；承接席位是后来才从事实里取的，这里补上
+      // （只是显示用的一列，按日志顺序重放，最后一条取得到席位的回执为准；终态之后不改）
+      const seatFilled = typeof fact.seat === 'string' && fact.seat !== '' && !TERMINAL.includes(item.state)
+        && Number(db.prepare('UPDATE work_items SET seat = ? WHERE id = ? AND seat <> ?').run(fact.seat, itemId, fact.seat).changes) === 1;
+      return { ok: true, state: item.state, from: seen.from_state, duplicate: true, ...(seatFilled ? { seatFilled: true } : {}) };
+    }
 
     // 只记录的事实：查第二张表。终态之后只有回执能走到这里。
     const record = RECORDS.find((r) => r.fact === fact.kind && r.from.includes(item.state) && r.when(fact));

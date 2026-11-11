@@ -243,6 +243,16 @@ try {
     const again = items.apply(term, { kind: 'verify', source: dupLog.fact_source, id: dupLog.fact_id });
     check(again.ok && again.duplicate && items.get(term).state === 'done', '终态之后再送一遍进终态的那条事实：按重复返回，不报拒绝', show(again));
     check(/UNIQUE|只增不改/i.test(throws(() => db.prepare("INSERT INTO work_item_log (item_id, fact, fact_source, fact_id, from_state, to_state) VALUES (?, 'report', 'test', ?, 'progress', 'progress')").run(id, f.id))), '库这一层也拦着：同一条事实写不进第二行');
+    // 阶段七：承接席位是后来才从事实里取的——回填按新版本号从头再核时，已应用过的事实（第一次没带 seat）再来带了 seat，要补上
+    const sid = reach('accepted');
+    const noted = { kind: 'note', note: 'progress', source: 'seat-test', id: 'p1', text: '在做' };
+    items.apply(sid, noted);
+    const n2 = logCount(sid);
+    const again2 = items.apply(sid, { ...noted, seat: '成员甲 · lab/a1b2c3d4' });
+    check(again2.duplicate && items.get(sid).seat === '成员甲 · lab/a1b2c3d4' && logCount(sid) === n2, '同一条事实再来、这次带了承接席位：补上 seat，日志不加行', show({ again2, seat: items.get(sid).seat }));
+    const doneId = reach('done'), dl = items.log(doneId).at(-1);
+    items.apply(doneId, { kind: dl.fact, source: dl.fact_source, id: dl.fact_id, seat: '晚到 · lab/ffffffff' });
+    check(items.get(doneId).seat === '', '终态之后同一条事实带 seat 再来：不改承接', show(items.get(doneId).seat));
   }
 
   // ---------- 四·补、答复（只记录）：答一条真问过、还没答过的提问 ----------
