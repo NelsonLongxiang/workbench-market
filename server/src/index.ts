@@ -54,6 +54,7 @@ import { registerSkillRoutes } from './routes/skills.ts';
 import { registerMcpRoutes } from './routes/mcp.ts';
 import { registerRemoteAllowRoutes } from './routes/remote-allow.ts';
 import { registerAppRoutes, registerAppLifecycleRoutes } from './routes/apps.ts';
+import { registerAppDataRoutes } from './routes/app-data.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import type { ChangeRequestService } from './services/change-request.ts';
@@ -1260,36 +1261,6 @@ function submitAppData(a: AppRow, input: { data: unknown; createdBy?: unknown; i
   return { status: 201, body: { ok: true, id: itemId, slug: a.slug, created_at: createdAt } };
 }
 
-app.post('/api/apps/:slug/data', (req, res) => {
-  const a = getApp(req.params.slug);
-  const b = req.body ?? {};
-  // 兼容 {data: {...}} 或直接 {...} 两种形态；幂等键只认信封字段或 Idempotency-Key 头（直接形态的字段都算数据）
-  const envelope = b.data !== undefined && b.data !== null;
-  const out = submitAppData(a, {
-    data: envelope ? b.data : b,
-    createdBy: b.created_by,
-    idempotencyKey: req.get('idempotency-key') ?? (envelope ? b.idempotency_key : undefined),
-    // 8f-2：提交人票据只认信封字段（直接形态的字段都算数据）
-    submitterTicket: envelope ? b.submitter_ticket : undefined,
-    channel: { name: 'app-data.rest', hasCredential: hasLoginCredential(req) },
-  });
-  res.status(out.status).json(out.body);
-});
-
-app.get('/api/apps/:slug/data', (req, res) => {
-  const a = getApp(req.params.slug);
-  const limit = pageLimit(req.query.limit);
-  const beforeId = pageBeforeId(req.query.before_id);
-  const rows = beforeId > 0
-    ? svc<AppDataService>('appData').dataPage(a.slug, beforeId, limit)
-    : svc<AppDataService>('appData').dataPage(a.slug, 0, limit);
-  const items = (rows as { id: number; data: string; created_by: string; created_at: string }[]).map((r) => ({
-    id: r.id, data: JSON.parse(r.data || '{}'), created_by: r.created_by, created_at: r.created_at,
-  }));
-  const has_more = rows.length === limit;
-  res.json({ slug: a.slug, items, count: items.length, has_more, next_before_id: has_more ? items[items.length - 1].id : null });
-});
-
 // ---------- 自产台文件提交面（所有资源类型文件，单文件 100MB 上限） ----------
 // multipart/form-data：字段 file（单文件）+ 可选 note/created_by。
 // 落盘 DATA_DIR/uploads/<slug>/<YYYYMM>/<id>-<safeName>；元数据入 app_files；GET 列表 + 下载。
@@ -1368,89 +1339,7 @@ const upload = multer({
 });
 
 
-app.post('/api/apps/:slug/files', (req, res, next) => {
-  try { getApp(req.params.slug); } catch (e) { return next(e); }
-  // 先查文件数再收文件，满了不落盘
-  if (appFilesQuota(req.params.slug).files_left <= 0) return res.status(413).json({ error: `该台文件数已达上限（${APP_FILES_MAX}）`, quota: appFilesQuota(req.params.slug) });
-  upload.single('file')(req, res, (err: any) => {
-    if (err) {
-      if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: '文件超 100MB 上限' });
-      return res.status(400).json({ error: `上传失败：${err.message}` });
-    }
-    try {
-      const a = getApp(req.params.slug);
-      if (!req.file) bad('缺少 file 字段（multipart/form-data）');
-      const created_by = typeof req.body?.created_by === 'string' ? req.body.created_by.trim().slice(0, 128) : '';
-      const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 500) : '';
-      res.status(201).json(appFileStoreCore(a.slug, { path: req.file.path, size: req.file.size, name: fixFileName(req.file.originalname), reportedMime: req.file.mimetype || '', createdBy: created_by, note }));
-    } catch (e) {
-      next(e);
-    }
-  });
-});
-
-app.get('/api/apps/:slug/files', (req, res) => {
-  const a = getApp(req.params.slug);
-  const limit = pageLimit(req.query.limit);
-  const beforeId = pageBeforeId(req.query.before_id);
-  const rows = beforeId > 0
-    ? svc<AppDataService>('appData').filePage(a.slug, beforeId, limit)
-    : svc<AppDataService>('appData').filePage(a.slug, 0, limit);
-  const items = (rows as any[]).map((r) => ({ ...r, url: `/api/apps/${a.slug}/files/${r.id}` }));
-  res.json({ slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null, quota: appFilesQuota(a.slug) });
-});
-
-// #132 P0①：note 更新面（PATCH）
-app.patch('/api/apps/:slug/files/:id', (req, res) => {
-  if (!adminGuard(req, res)) return; // #193 F3：写面人审（读开放·写删人审）
-  if (!adminGuard(req, res)) return; // #193 F3：写面人审（读开放·写删人审）
-  const a = getApp(req.params.slug);
-  const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 500) : undefined;
-  if (note === undefined) bad('note 必填（字符串）');
-  const hit = svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug) as any;
-  if (!hit) throw new HttpError(404, `file not found: ${req.params.id}`);
-  svc<AppDataService>('appData').fileUpdateNote(Number(req.params.id), a.slug, note);
-  res.json({ ok: true, id: Number(req.params.id), note });
-});
-
-// #132 P0③：软删面（deleted_at 置位·原行保审计·列表过滤）
-app.delete('/api/apps/:slug/files/:id', (req, res) => {
-  if (!adminGuard(req, res)) return; // #193 F3
-  if (!adminGuard(req, res)) return; // #193 F3
-  const a = getApp(req.params.slug);
-  const hit = svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug) as any;
-  if (!hit) throw new HttpError(404, `file not found: ${req.params.id}`);
-  const _fd = svc<AppDataService>('appData').fileSoftDelete(Number(req.params.id), a.slug) as { changes?: number };
-  if (Number(_fd?.changes ?? 0) === 0) throw new HttpError(404, `file not found: ${req.params.id}`); // #193 F5：幂等假绿修（不存在→404）
-  res.json({ ok: true, id: Number(req.params.id), deleted: 'soft' });
-});
-app.delete('/api/apps/:slug/data/:id', (req, res) => {
-  if (!adminGuard(req, res)) return; // #193 F3
-  if (!adminGuard(req, res)) return; // #193 F3
-  const a = getApp(req.params.slug);
-  const _dd = svc<AppDataService>('appData').dataSoftDelete(Number(req.params.id), a.slug) as { changes?: number };
-  if (Number(_dd?.changes ?? 0) === 0) throw new HttpError(404, `data not found: ${req.params.id}`); // #193 F5
-  res.json({ ok: true, id: Number(req.params.id), deleted: 'soft' });
-});
-
-app.get('/api/apps/:slug/files/:id', (req, res) => {
-  const a = getApp(req.params.slug);
-  const row = svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug) as any;
-  if (!row) throw new HttpError(404, `file not found: ${req.params.id}`);
-  const abs = join(dataDir, row.storage_path);
-  if (!existsSync(abs)) throw new HttpError(404, 'stored file missing on disk');
-  res.setHeader('content-type', row.mime || 'application/octet-stream');
-  res.setHeader('content-length', String(row.size));
-  // 附件下载语义（原始文件名）——inline 由 mime 决定，避免 XSS：非白名单 mime 强制 attachment
-  const inlineOk = /^(image\/(png|jpeg|webp|gif)|application\/pdf|text\/(plain|csv|markdown))$/.test(row.mime); // hotfix：effMime 未定义（#134 stash 舞连带残留）
-  // #215 族修（属主实测「点下载变新标签页访问二进制」）：存储 mime 存错（xlsx 存 text/plain）时 inline 白名单误放——按扩展名强制 attachment
-  // 仅二进制容器/归档扩展名强制 attachment（xlsx 存伪 mime 的 #215 防 XSS 线）；png/jpeg/webp/gif/pdf/csv 是 README 契约白名单 inline 面，不在此列
-  const BIN_EXT = /\.(xlsx|xls|docx|doc|zip|rar|7z|gz|tar|7z|bz2|xz)$/i.test(row.original_name || '');
-  const disp = (inlineOk && !BIN_EXT) ? 'inline' : 'attachment';
-  res.setHeader('content-disposition', `${disp}; filename*=UTF-8''${encodeURIComponent(row.original_name || 'file')}`);
-  res.setHeader('x-content-type-options', 'nosniff');
-  createReadStream(abs).pipe(res);
-});
+registerAppDataRoutes(http, { getApp, submitAppData, pageLimit, pageBeforeId, appFilesQuota, APP_FILES_MAX, upload, fixFileName, appFileStoreCore, adminGuard, bad });
 
 // ---------- SOP 台：状态机（draft → published → deprecated）+ 执行 Runner + 分层持久化 ----------
 function sopTransition(slug: string, from: string[], to: string, label: string): AppRow {

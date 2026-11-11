@@ -1,0 +1,1514 @@
+{
+  "domain": "app-data",
+  "what": "自产台的数据与文件：数据的提交、列表、软删，文件的上传、列表、改备注、下载、软删，共 8 条路由（台的登记与生命周期在 apps 域）。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": [
+    "POST /api/apps/:slug/data",
+    "GET /api/apps/:slug/data",
+    "POST /api/apps/:slug/files",
+    "GET /api/apps/:slug/files",
+    "PATCH /api/apps/:slug/files/:id",
+    "DELETE /api/apps/:slug/files/:id",
+    "DELETE /api/apps/:slug/data/:id",
+    "GET /api/apps/:slug/files/:id"
+  ],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "登录门关，管理口令由环境给（合成值），每台文件数上限 8（WM_APP_FILES_MAX）。预先写进库三个台（一个放好了数据契约）、四行数据（一行 data 是空串、一行已软删、一行是别的台的）、七个文件（放好对应的磁盘文件，一个磁盘上没有、一个已软删、一个是别的台的）。定了时钟。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin", "WM_APP_FILES_MAX": "8" },
+      "clock": "2030-01-01T00:00:00Z",
+      "seed": [
+        { "table": "apps", "row": { "slug": "replay-data", "title": "数据台", "kind": "app", "status": "active", "active_version": 1, "created_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" } },
+        { "table": "apps", "row": { "slug": "replay-other", "title": "另一个台", "kind": "app", "status": "active", "active_version": 1, "created_at": "2025-01-01 00:00:02", "updated_at": "2025-01-01 00:00:02" } },
+        { "table": "apps", "row": { "slug": "replay-contract", "title": "带数据契约的台", "kind": "app", "status": "active", "active_version": 1, "created_at": "2025-01-01 00:00:03", "updated_at": "2025-01-01 00:00:03" } },
+        { "table": "app_data", "row": { "app_slug": "replay-data", "data": "{\"n\":1}", "created_by": "seed", "created_at": "2025-01-01 00:00:01" } },
+        { "table": "app_data", "row": { "app_slug": "replay-data", "data": "", "created_by": "", "created_at": "2025-01-01 00:00:02" } },
+        { "table": "app_data", "row": { "app_slug": "replay-data", "data": "{\"n\":3}", "created_by": "seed", "created_at": "2025-01-01 00:00:03", "deleted_at": "2025-01-01 00:00:04" } },
+        { "table": "app_data", "row": { "app_slug": "replay-other", "data": "{\"other\":true}", "created_by": "seed", "created_at": "2025-01-01 00:00:04" } },
+        {
+          "table": "app_files",
+          "row": { "app_slug": "replay-data", "original_name": "a.txt", "mime": "text/plain", "size": 22, "storage_path": "uploads/seed/a.txt", "created_by": "seed", "note": "种子", "created_at": "2025-01-01 00:00:01" }
+        },
+        { "table": "app_files", "row": { "app_slug": "replay-data", "original_name": "b.xlsx", "mime": "text/plain", "size": 20, "storage_path": "uploads/seed/b.xlsx", "created_by": "seed", "created_at": "2025-01-01 00:00:02" } },
+        { "table": "app_files", "row": { "app_slug": "replay-data", "original_name": "gone.txt", "mime": "text/plain", "size": 3, "storage_path": "uploads/seed/missing.txt", "created_by": "seed", "created_at": "2025-01-01 00:00:03" } },
+        {
+          "table": "app_files",
+          "row": { "app_slug": "replay-data", "original_name": "old.txt", "mime": "text/plain", "size": 22, "storage_path": "uploads/seed/a.txt", "created_by": "seed", "created_at": "2025-01-01 00:00:04", "deleted_at": "2025-01-01 00:00:05" }
+        },
+        { "table": "app_files", "row": { "app_slug": "replay-other", "original_name": "o.txt", "mime": "text/plain", "size": 22, "storage_path": "uploads/seed/a.txt", "created_by": "seed", "created_at": "2025-01-01 00:00:05" } },
+        { "table": "app_files", "row": { "app_slug": "replay-data", "original_name": "pic.png", "mime": "image/png", "size": 35, "storage_path": "uploads/seed/pic.png", "created_by": "seed", "created_at": "2025-01-01 00:00:06" } },
+        { "table": "app_files", "row": { "app_slug": "replay-data", "original_name": "evil.html", "mime": "text/html", "size": 26, "storage_path": "uploads/seed/evil.html", "created_by": "seed", "created_at": "2025-01-01 00:00:07" } }
+      ],
+      "seed_files": [
+        { "path": "uploads/seed/a.txt", "content": "第一行\nsecond line\n" },
+        { "path": "uploads/seed/b.xlsx", "content": "pretend spreadsheet\n" },
+        { "path": "uploads/seed/pic.png", "content": "not really a png but stored as one\n" },
+        { "path": "uploads/seed/evil.html", "content": "<script>alert(1)</script>\n" },
+        { "path": "apps/replay-contract/v1/index.html", "content": "<div>契约台</div>\n" },
+        { "path": "apps/replay-contract/v1/data-contract.json", "content": "{\"version\":1,\"type_fields\":[\"type\"],\"unknown_types\":\"allow\",\"types\":{\"order\":{\"required\":[\"qty\"],\"enum\":{\"unit\":[\"个\",\"箱\"]}}}}" }
+      ],
+      "steps": [
+        {
+          "id": "data",
+          "route": "GET /api/apps/:slug/data",
+          "class": "normal",
+          "what": "数据列表：按 id 倒序；data 是空串的取 {}；软删的不列；别的台的不列",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/data", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "230", "etag": "W/\"e6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "replay-data",
+              "items": [{ "id": 2, "data": {}, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" }, { "id": 1, "data": { "n": 1 }, "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss" }],
+              "count": 2,
+              "has_more": false,
+              "next_before_id": null
+            }
+          }
+        },
+        {
+          "id": "data-limit-1",
+          "route": "GET /api/apps/:slug/data",
+          "class": "normal",
+          "what": "limit=1：has_more、next_before_id",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/data?limit=1", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "147", "etag": "W/\"93-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "slug": "replay-data", "items": [{ "id": 2, "data": {}, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" }], "count": 1, "has_more": true, "next_before_id": 2 }
+          }
+        },
+        {
+          "id": "data-before",
+          "route": "GET /api/apps/:slug/data",
+          "class": "normal",
+          "what": "before_id=2：从 id 1 起",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/data?before_id=2", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "160", "etag": "W/\"a0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "slug": "replay-data", "items": [{ "id": 1, "data": { "n": 1 }, "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss" }], "count": 1, "has_more": false, "next_before_id": null }
+          }
+        },
+        {
+          "id": "data-before-negative",
+          "route": "GET /api/apps/:slug/data",
+          "class": "normal",
+          "what": "before_id=-5：当 0，从头起",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/data?before_id=-5", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "230", "etag": "W/\"e6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "replay-data",
+              "items": [{ "id": 2, "data": {}, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" }, { "id": 1, "data": { "n": 1 }, "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss" }],
+              "count": 2,
+              "has_more": false,
+              "next_before_id": null
+            }
+          }
+        },
+        {
+          "id": "data-limit-empty",
+          "route": "GET /api/apps/:slug/data",
+          "class": "normal",
+          "what": "limit 是空串：取缺省 50",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/data?limit=", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "230", "etag": "W/\"e6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "replay-data",
+              "items": [{ "id": 2, "data": {}, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" }, { "id": 1, "data": { "n": 1 }, "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss" }],
+              "count": 2,
+              "has_more": false,
+              "next_before_id": null
+            }
+          }
+        },
+        {
+          "id": "data-limit-big",
+          "route": "GET /api/apps/:slug/data",
+          "class": "normal",
+          "what": "limit=500：封顶 200",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/data?limit=500", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "230", "etag": "W/\"e6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "replay-data",
+              "items": [{ "id": 2, "data": {}, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" }, { "id": 1, "data": { "n": 1 }, "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss" }],
+              "count": 2,
+              "has_more": false,
+              "next_before_id": null
+            }
+          }
+        },
+        {
+          "id": "data-limit-fraction",
+          "route": "GET /api/apps/:slug/data",
+          "class": "invalid",
+          "what": "limit=1.5：400",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/data?limit=1.5", "headers": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "46", "etag": "W/\"2e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "limit 必须是 1-200 的正整数" } }
+        },
+        {
+          "id": "data-limit-zero",
+          "route": "GET /api/apps/:slug/data",
+          "class": "invalid",
+          "what": "limit=0：400",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/data?limit=0", "headers": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "46", "etag": "W/\"2e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "limit 必须是 1-200 的正整数" } }
+        },
+        {
+          "id": "data-limit-text",
+          "route": "GET /api/apps/:slug/data",
+          "class": "invalid",
+          "what": "limit=abc：400",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/data?limit=abc", "headers": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "46", "etag": "W/\"2e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "limit 必须是 1-200 的正整数" } }
+        },
+        {
+          "id": "data-before-text",
+          "route": "GET /api/apps/:slug/data",
+          "class": "invalid",
+          "what": "before_id=x：400",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/data?before_id=x", "headers": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "before_id 必须是整数" } }
+        },
+        {
+          "id": "data-missing-app",
+          "route": "GET /api/apps/:slug/data",
+          "class": "invalid",
+          "what": "没有这个台：404",
+          "request": { "method": "GET", "path": "/api/apps/nope/data", "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "app not found: nope" } }
+        },
+        {
+          "id": "data-upper-slug",
+          "route": "GET /api/apps/:slug/data",
+          "class": "invalid",
+          "what": "大写 slug 不转小写：404",
+          "request": { "method": "GET", "path": "/api/apps/REPLAY-DATA/data", "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "app not found: REPLAY-DATA" } }
+        },
+        {
+          "id": "data-other-app",
+          "route": "GET /api/apps/:slug/data",
+          "class": "normal",
+          "what": "另一个台：只有它自己的一行",
+          "request": { "method": "GET", "path": "/api/apps/replay-other/data", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "168", "etag": "W/\"a8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "slug": "replay-other", "items": [{ "id": 4, "data": { "other": true }, "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss" }], "count": 1, "has_more": false, "next_before_id": null }
+          }
+        },
+        {
+          "id": "raw-data-dotdot",
+          "route": "GET /api/apps/:slug/data",
+          "class": "invalid",
+          "what": "原样发：slug 是 ..",
+          "request": { "method": "GET", "path": "/api/apps/../data", "raw": true, "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "app not found: .." } }
+        },
+        {
+          "id": "post-remote-anonymous",
+          "route": "POST /api/apps/:slug/data",
+          "class": "normal",
+          "what": "远程匿名也收：台的数据提交面不经写总门（匿名提交，created_by 自填）",
+          "request": { "method": "POST", "path": "/api/apps/replay-data/data", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "data": { "n": 9 } } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "79", "etag": "W/\"4f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 5, "slug": "replay-data", "created_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
+          }
+        },
+        {
+          "id": "post-cross",
+          "route": "POST /api/apps/:slug/data",
+          "class": "normal",
+          "what": "跨站也收（同上；沙箱里的台页面源是 null）",
+          "request": { "method": "POST", "path": "/api/apps/replay-data/data", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": { "data": { "n": 9 } } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "79", "etag": "W/\"4f-<指纹>\"", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 6, "slug": "replay-data", "created_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
+          }
+        },
+        {
+          "id": "post-missing-app",
+          "route": "POST /api/apps/:slug/data",
+          "class": "invalid",
+          "what": "没有这个台：404",
+          "request": { "method": "POST", "path": "/api/apps/nope/data", "headers": {}, "json": { "data": { "n": 9 } } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "app not found: nope" } }
+        },
+        {
+          "id": "post-direct",
+          "route": "POST /api/apps/:slug/data",
+          "class": "normal",
+          "what": "直接形态：整个请求体是数据（created_by 也在数据里），created_by 两头空白去掉",
+          "request": { "method": "POST", "path": "/api/apps/replay-data/data", "headers": {}, "json": { "n": 5, "created_by": "  someone  " } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "79", "etag": "W/\"4f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 7, "slug": "replay-data", "created_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
+          }
+        },
+        {
+          "id": "post-envelope",
+          "route": "POST /api/apps/:slug/data",
+          "class": "normal",
+          "what": "信封形态：data、created_by、idempotency_key",
+          "request": { "method": "POST", "path": "/api/apps/replay-data/data", "headers": {}, "json": { "data": { "n": 6 }, "created_by": "agent", "idempotency_key": "k1" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "79", "etag": "W/\"4f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 8, "slug": "replay-data", "created_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
+          }
+        },
+        {
+          "id": "post-envelope-again",
+          "route": "POST /api/apps/:slug/data",
+          "class": "normal",
+          "what": "同一个幂等键、同一份内容：200 duplicate，回第一次的 id",
+          "request": { "method": "POST", "path": "/api/apps/replay-data/data", "headers": {}, "json": { "data": { "n": 6 }, "created_by": "agent", "idempotency_key": "k1" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "91", "etag": "W/\"5b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 8, "slug": "replay-data", "created_at": "YYYY-MM-DD hh:mm:ss", "duplicate": true }
+          }
+        },
+        {
+          "id": "post-envelope-conflict",
+          "route": "POST /api/apps/:slug/data",
+          "class": "invalid",
+          "what": "同一个幂等键、另一份内容：409",
+          "request": { "method": "POST", "path": "/api/apps/replay-data/data", "headers": {}, "json": { "data": { "n": 7 }, "idempotency_key": "k1" } },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "59", "etag": "W/\"3b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "idempotency_key 已用于另一份内容", "id": 8 } }
+        },
+        {
+          "id": "post-header-key",
+          "route": "POST /api/apps/:slug/data",
+          "class": "normal",
+          "what": "幂等键在 Idempotency-Key 头里（直接形态也认）",
+          "request": { "method": "POST", "path": "/api/apps/replay-data/data", "headers": { "idempotency-key": "k2" }, "json": { "n": 8 } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "79", "etag": "W/\"4f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 9, "slug": "replay-data", "created_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
+          }
+        },
+        {
+          "id": "post-header-key-again",
+          "route": "POST /api/apps/:slug/data",
+          "class": "normal",
+          "what": "同一个头、同一份内容：duplicate",
+          "request": { "method": "POST", "path": "/api/apps/replay-data/data", "headers": { "idempotency-key": "k2" }, "json": { "n": 8 } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "91", "etag": "W/\"5b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 9, "slug": "replay-data", "created_at": "YYYY-MM-DD hh:mm:ss", "duplicate": true }
+          }
+        },
+        {
+          "id": "post-header-beats-envelope",
+          "route": "POST /api/apps/:slug/data",
+          "class": "normal",
+          "what": "头和信封都给了：认头（k1，内容同第一次）→ duplicate",
+          "request": { "method": "POST", "path": "/api/apps/replay-data/data", "headers": { "idempotency-key": "k1" }, "json": { "data": { "n": 6 }, "idempotency_key": "other-key" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "91", "etag": "W/\"5b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 8, "slug": "replay-data", "created_at": "YYYY-MM-DD hh:mm:ss", "duplicate": true }
+          }
+        },
+        {
+          "id": "post-direct-key-is-data",
+          "route": "POST /api/apps/:slug/data",
+          "class": "normal",
+          "what": "直接形态里的 idempotency_key 字段算数据，不当幂等键",
+          "request": { "method": "POST", "path": "/api/apps/replay-data/data", "headers": {}, "json": { "idempotency_key": "k1", "n": 70 } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 10, "slug": "replay-data", "created_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
+          }
+        },
+        {
+          "id": "post-bad-key",
+          "route": "POST /api/apps/:slug/data",
+          "class": "invalid",
+          "what": "幂等键有空格：400",
+          "request": { "method": "POST", "path": "/api/apps/replay-data/data", "headers": {}, "json": { "data": { "n": 1 }, "idempotency_key": "bad key" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "70", "etag": "W/\"46-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "idempotency_key 只能是 1–128 个字母/数字/_ . : -" }
+          }
+        },
+        {
+          "id": "post-empty-key",
+          "route": "POST /api/apps/:slug/data",
+          "class": "normal",
+          "what": "幂等键是空串：当没有",
+          "request": { "method": "POST", "path": "/api/apps/replay-data/data", "headers": {}, "json": { "data": { "n": 11 }, "idempotency_key": "" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 11, "slug": "replay-data", "created_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
+          }
+        },
+        {
+          "id": "post-null-data",
+          "route": "POST /api/apps/:slug/data",
+          "class": "normal",
+          "what": "data 是 null：不算信封，整个请求体是数据",
+          "request": { "method": "POST", "path": "/api/apps/replay-data/data", "headers": {}, "json": { "data": null, "x": 1 } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 12, "slug": "replay-data", "created_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
+          }
+        },
+        {
+          "id": "post-empty-body",
+          "route": "POST /api/apps/:slug/data",
+          "class": "normal",
+          "what": "空对象：数据是 {}",
+          "request": { "method": "POST", "path": "/api/apps/replay-data/data", "headers": {}, "json": {} },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 13, "slug": "replay-data", "created_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
+          }
+        },
+        {
+          "id": "post-array",
+          "route": "POST /api/apps/:slug/data",
+          "class": "normal",
+          "what": "请求体是数组：数据是数组",
+          "request": { "method": "POST", "path": "/api/apps/replay-data/data", "headers": {}, "json": [1, 2] },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 14, "slug": "replay-data", "created_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
+          }
+        },
+        {
+          "id": "post-long-creator",
+          "route": "POST /api/apps/:slug/data",
+          "class": "normal",
+          "what": "created_by 200 个字符：截到 128",
+          "request": {
+            "method": "POST",
+            "path": "/api/apps/replay-data/data",
+            "headers": {},
+            "json": {
+              "data": { "n": 12 },
+              "created_by": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 15, "slug": "replay-data", "created_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
+          }
+        },
+        {
+          "id": "post-number-creator",
+          "route": "POST /api/apps/:slug/data",
+          "class": "normal",
+          "what": "created_by 是数：当空",
+          "request": { "method": "POST", "path": "/api/apps/replay-data/data", "headers": {}, "json": { "data": { "n": 13 }, "created_by": 42 } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 16, "slug": "replay-data", "created_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
+          }
+        },
+        {
+          "id": "post-fake-ticket",
+          "route": "POST /api/apps/:slug/data",
+          "class": "normal",
+          "what": "信封里带一张验不过的提交人票据：当没带，照样 201（不回原因）",
+          "request": { "method": "POST", "path": "/api/apps/replay-data/data", "headers": {}, "json": { "data": { "n": 20 }, "submitter_ticket": "fake.ticket" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 17, "slug": "replay-data", "created_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
+          }
+        },
+        {
+          "id": "post-direct-ticket-is-data",
+          "route": "POST /api/apps/:slug/data",
+          "class": "normal",
+          "what": "直接形态里的 submitter_ticket 字段算数据，不当票据",
+          "request": { "method": "POST", "path": "/api/apps/replay-data/data", "headers": {}, "json": { "submitter_ticket": "fake.ticket", "n": 21 } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 18, "slug": "replay-data", "created_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
+          }
+        },
+        {
+          "id": "post-contract-violation",
+          "route": "POST /api/apps/:slug/data",
+          "class": "invalid",
+          "what": "带数据契约的台：order 缺 qty、unit 不在枚举里，400 带 violations",
+          "request": { "method": "POST", "path": "/api/apps/replay-contract/data", "headers": {}, "json": { "type": "order", "unit": "吨" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "132", "etag": "W/\"84-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "提交不符合本台数据契约", "violations": ["order.qty 必填", "order.unit 取值不在允许范围（个、箱）"] }
+          }
+        },
+        {
+          "id": "post-contract-ok",
+          "route": "POST /api/apps/:slug/data",
+          "class": "normal",
+          "what": "合约内：201",
+          "request": { "method": "POST", "path": "/api/apps/replay-contract/data", "headers": {}, "json": { "type": "order", "qty": 2, "unit": "箱" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "84", "etag": "W/\"54-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 19, "slug": "replay-contract", "created_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
+          }
+        },
+        {
+          "id": "data-after-posts",
+          "route": "GET /api/apps/:slug/data",
+          "class": "normal",
+          "what": "写过之后的列表：新的在前，duplicate 没有多出行",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/data?limit=20", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1524", "etag": "W/\"5f4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "replay-data",
+              "items": [
+                { "id": 18, "data": { "submitter_ticket": "fake.ticket", "n": 21 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 17, "data": { "n": 20 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 16, "data": { "n": 13 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 15, "data": { "n": 12 }, "created_by": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 14, "data": [1, 2], "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 13, "data": {}, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 12, "data": { "data": null, "x": 1 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 11, "data": { "n": 11 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 10, "data": { "idempotency_key": "k1", "n": 70 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 9, "data": { "n": 8 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 8, "data": { "n": 6 }, "created_by": "agent", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 7, "data": { "n": 5, "created_by": "  someone  " }, "created_by": "someone", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 6, "data": { "n": 9 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 5, "data": { "n": 9 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 2, "data": {}, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 1, "data": { "n": 1 }, "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss" }
+              ],
+              "count": 16,
+              "has_more": false,
+              "next_before_id": null
+            }
+          }
+        },
+        {
+          "id": "data-after-posts-limit-2",
+          "route": "GET /api/apps/:slug/data",
+          "class": "normal",
+          "what": "limit=2：next_before_id 是这一页最后一条的 id",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/data?limit=2", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "265", "etag": "W/\"109-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "replay-data",
+              "items": [{ "id": 18, "data": { "submitter_ticket": "fake.ticket", "n": 21 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" }, { "id": 17, "data": { "n": 20 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" }],
+              "count": 2,
+              "has_more": true,
+              "next_before_id": 17
+            }
+          }
+        },
+        {
+          "id": "data-delete-no-token",
+          "route": "DELETE /api/apps/:slug/data/:id",
+          "class": "unauthorized",
+          "what": "本机不带口令：403（路由自己的守卫）",
+          "request": { "method": "DELETE", "path": "/api/apps/replay-data/data/1", "headers": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "data-delete-cross",
+          "route": "DELETE /api/apps/:slug/data/:id",
+          "class": "unauthorized",
+          "what": "带口令但跨站：403",
+          "request": { "method": "DELETE", "path": "/api/apps/replay-data/data/1", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "data-delete-missing",
+          "route": "DELETE /api/apps/:slug/data/:id",
+          "class": "invalid",
+          "what": "没有这一行：404",
+          "request": { "method": "DELETE", "path": "/api/apps/replay-data/data/999", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "data not found: 999" } }
+        },
+        {
+          "id": "data-delete-other-app",
+          "route": "DELETE /api/apps/:slug/data/:id",
+          "class": "invalid",
+          "what": "别的台的行：404",
+          "request": { "method": "DELETE", "path": "/api/apps/replay-data/data/4", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "data not found: 4" } }
+        },
+        {
+          "id": "data-delete-text",
+          "route": "DELETE /api/apps/:slug/data/:id",
+          "class": "invalid",
+          "what": "id 不是数：404",
+          "request": { "method": "DELETE", "path": "/api/apps/replay-data/data/abc", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "data not found: abc" } }
+        },
+        {
+          "id": "data-delete-soft-deleted",
+          "route": "DELETE /api/apps/:slug/data/:id",
+          "class": "invalid",
+          "what": "已软删的行：404",
+          "request": { "method": "DELETE", "path": "/api/apps/replay-data/data/3", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "data not found: 3" } }
+        },
+        {
+          "id": "data-delete-hex",
+          "route": "DELETE /api/apps/:slug/data/:id",
+          "class": "normal",
+          "what": "id 写成 0x1：Number 认成 1，删掉 id 1",
+          "request": { "method": "DELETE", "path": "/api/apps/replay-data/data/0x1", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "id": 1, "deleted": "soft" } }
+        },
+        {
+          "id": "data-delete-again",
+          "route": "DELETE /api/apps/:slug/data/:id",
+          "class": "invalid",
+          "what": "再删 1：404",
+          "request": { "method": "DELETE", "path": "/api/apps/replay-data/data/1", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "data not found: 1" } }
+        },
+        {
+          "id": "raw-data-delete-encoded-slash",
+          "route": "DELETE /api/apps/:slug/data/:id",
+          "class": "invalid",
+          "what": "原样发：id 是 2%2f..",
+          "request": { "method": "DELETE", "path": "/api/apps/replay-data/data/2%2f..", "raw": true, "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "data not found: 2/.." } }
+        },
+        {
+          "id": "data-after-delete",
+          "route": "GET /api/apps/:slug/data",
+          "class": "normal",
+          "what": "删掉之后列表里没有 id 1",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/data?limit=20", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1445", "etag": "W/\"5a5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "replay-data",
+              "items": [
+                { "id": 18, "data": { "submitter_ticket": "fake.ticket", "n": 21 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 17, "data": { "n": 20 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 16, "data": { "n": 13 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 15, "data": { "n": 12 }, "created_by": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 14, "data": [1, 2], "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 13, "data": {}, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 12, "data": { "data": null, "x": 1 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 11, "data": { "n": 11 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 10, "data": { "idempotency_key": "k1", "n": 70 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 9, "data": { "n": 8 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 8, "data": { "n": 6 }, "created_by": "agent", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 7, "data": { "n": 5, "created_by": "  someone  " }, "created_by": "someone", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 6, "data": { "n": 9 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 5, "data": { "n": 9 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 2, "data": {}, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+              ],
+              "count": 15,
+              "has_more": false,
+              "next_before_id": null
+            }
+          }
+        },
+        {
+          "id": "files",
+          "route": "GET /api/apps/:slug/files",
+          "class": "normal",
+          "what": "文件列表：按 id 倒序、带 url 和容量（WM_APP_FILES_MAX=8）；软删的、别的台的不列",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1038", "etag": "W/\"40e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "replay-data",
+              "items": [
+                { "id": 7, "original_name": "evil.html", "mime": "text/html", "size": 26, "note": "", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/7" },
+                { "id": 6, "original_name": "pic.png", "mime": "image/png", "size": 35, "note": "", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/6" },
+                { "id": 3, "original_name": "gone.txt", "mime": "text/plain", "size": 3, "note": "", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/3" },
+                { "id": 2, "original_name": "b.xlsx", "mime": "text/plain", "size": 20, "note": "", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/2" },
+                { "id": 1, "original_name": "a.txt", "mime": "text/plain", "size": 22, "note": "种子", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/1" }
+              ],
+              "count": 5,
+              "has_more": false,
+              "next_before_id": null,
+              "quota": { "files_used": 5, "files_max": 8, "files_left": 3, "max_file_bytes": 104857600, "mcp_max_base64_chars": 139810136 }
+            }
+          }
+        },
+        {
+          "id": "files-limit-2",
+          "route": "GET /api/apps/:slug/files",
+          "class": "normal",
+          "what": "limit=2：has_more、next_before_id",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files?limit=2", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "527", "etag": "W/\"20f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "replay-data",
+              "items": [
+                { "id": 7, "original_name": "evil.html", "mime": "text/html", "size": 26, "note": "", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/7" },
+                { "id": 6, "original_name": "pic.png", "mime": "image/png", "size": 35, "note": "", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/6" }
+              ],
+              "count": 2,
+              "has_more": true,
+              "next_before_id": 6,
+              "quota": { "files_used": 5, "files_max": 8, "files_left": 3, "max_file_bytes": 104857600, "mcp_max_base64_chars": 139810136 }
+            }
+          }
+        },
+        {
+          "id": "files-before",
+          "route": "GET /api/apps/:slug/files",
+          "class": "normal",
+          "what": "before_id=3",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files?before_id=3", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "534", "etag": "W/\"216-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "replay-data",
+              "items": [
+                { "id": 2, "original_name": "b.xlsx", "mime": "text/plain", "size": 20, "note": "", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/2" },
+                { "id": 1, "original_name": "a.txt", "mime": "text/plain", "size": 22, "note": "种子", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/1" }
+              ],
+              "count": 2,
+              "has_more": false,
+              "next_before_id": null,
+              "quota": { "files_used": 5, "files_max": 8, "files_left": 3, "max_file_bytes": 104857600, "mcp_max_base64_chars": 139810136 }
+            }
+          }
+        },
+        {
+          "id": "files-limit-negative",
+          "route": "GET /api/apps/:slug/files",
+          "class": "invalid",
+          "what": "limit=-1：400",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files?limit=-1", "headers": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "46", "etag": "W/\"2e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "limit 必须是 1-200 的正整数" } }
+        },
+        {
+          "id": "files-before-fraction",
+          "route": "GET /api/apps/:slug/files",
+          "class": "invalid",
+          "what": "before_id=1.5：400",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files?before_id=1.5", "headers": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "before_id 必须是整数" } }
+        },
+        {
+          "id": "files-missing-app",
+          "route": "GET /api/apps/:slug/files",
+          "class": "invalid",
+          "what": "没有这个台：404",
+          "request": { "method": "GET", "path": "/api/apps/nope/files", "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "app not found: nope" } }
+        },
+        {
+          "id": "files-other-app",
+          "route": "GET /api/apps/:slug/files",
+          "class": "normal",
+          "what": "另一个台",
+          "request": { "method": "GET", "path": "/api/apps/replay-other/files", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "363", "etag": "W/\"16b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "replay-other",
+              "items": [{ "id": 5, "original_name": "o.txt", "mime": "text/plain", "size": 22, "note": "", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-other/files/5" }],
+              "count": 1,
+              "has_more": false,
+              "next_before_id": null,
+              "quota": { "files_used": 1, "files_max": 8, "files_left": 7, "max_file_bytes": 104857600, "mcp_max_base64_chars": 139810136 }
+            }
+          }
+        },
+        {
+          "id": "upload-remote-anonymous",
+          "route": "POST /api/apps/:slug/files",
+          "class": "normal",
+          "what": "远程匿名也收：文件提交面同样不经写总门",
+          "request": {
+            "method": "POST",
+            "path": "/api/apps/replay-data/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW", "x-forwarded-for": "198.51.100.7" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"x.txt\"\r\nContent-Type: text/plain\r\n\r\nx\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "146", "etag": "W/\"92-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 8, "slug": "replay-data", "name": "x.txt", "mime": "text/plain; charset=utf-8", "size": 2, "note": "", "url": "/api/apps/replay-data/files/8" }
+          }
+        },
+        {
+          "id": "upload-missing-app",
+          "route": "POST /api/apps/:slug/files",
+          "class": "invalid",
+          "what": "没有这个台：404（先查台，不收文件）",
+          "request": {
+            "method": "POST",
+            "path": "/api/apps/nope/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"x.txt\"\r\nContent-Type: text/plain\r\n\r\nx\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "app not found: nope" } }
+        },
+        {
+          "id": "upload-no-file",
+          "route": "POST /api/apps/:slug/files",
+          "class": "invalid",
+          "what": "只有 note 没有 file：400",
+          "request": {
+            "method": "POST",
+            "path": "/api/apps/replay-data/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"note\"\r\n\r\n只有备注\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "55", "etag": "W/\"37-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "缺少 file 字段（multipart/form-data）" } }
+        },
+        {
+          "id": "upload-json",
+          "route": "POST /api/apps/:slug/files",
+          "class": "invalid",
+          "what": "不是 multipart：400 缺少 file",
+          "request": { "method": "POST", "path": "/api/apps/replay-data/files", "headers": {}, "json": { "file": "x" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "55", "etag": "W/\"37-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "缺少 file 字段（multipart/form-data）" } }
+        },
+        {
+          "id": "upload-wrong-field",
+          "route": "POST /api/apps/:slug/files",
+          "class": "invalid",
+          "what": "文件放在别的字段名里：上传失败 400",
+          "request": {
+            "method": "POST",
+            "path": "/api/apps/replay-data/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"upload\"; filename=\"x.txt\"\r\nContent-Type: text/plain\r\n\r\nx\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "48", "etag": "W/\"30-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "上传失败：Unexpected file field" } }
+        },
+        {
+          "id": "upload-two-files",
+          "route": "POST /api/apps/:slug/files",
+          "class": "invalid",
+          "what": "两个 file：上传失败 400",
+          "request": {
+            "method": "POST",
+            "path": "/api/apps/replay-data/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"x.txt\"\r\nContent-Type: text/plain\r\n\r\nx\n\r\n--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"y.txt\"\r\nContent-Type: text/plain\r\n\r\ny\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "上传失败：Too many files" } }
+        },
+        {
+          "id": "upload-mismatch",
+          "route": "POST /api/apps/:slug/files",
+          "class": "invalid",
+          "what": "叫 x.png、内容是文本：415，落盘的删掉",
+          "request": {
+            "method": "POST",
+            "path": "/api/apps/replay-data/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"x.png\"\r\nContent-Type: image/png\r\n\r\nplain text\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": {
+            "status": 415,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "115", "etag": "W/\"73-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "文件类型不符：扩展名 .png 但内容没有该格式的文件头", "name": "x.png", "detected": null }
+          }
+        },
+        {
+          "id": "upload-executable",
+          "route": "POST /api/apps/:slug/files",
+          "class": "invalid",
+          "what": "内容以 MZ 开头（可执行文件）：415",
+          "request": {
+            "method": "POST",
+            "path": "/api/apps/replay-data/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"run.txt\"\r\nContent-Type: text/plain\r\n\r\nMZ\u0000this is not text\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": {
+            "status": 415,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "112", "etag": "W/\"70-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "文件类型不符：内容是可执行文件", "name": "run.txt", "detected": "application/x-executable" }
+          }
+        },
+        {
+          "id": "upload",
+          "route": "POST /api/apps/:slug/files",
+          "class": "normal",
+          "what": "上传 notes.txt：201，note、created_by 两头空白去掉",
+          "request": {
+            "method": "POST",
+            "path": "/api/apps/replay-data/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"note\"\r\n\r\n  一份说明  \r\n--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"created_by\"\r\n\r\n  uploader  \r\n--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"notes.txt\"\r\nContent-Type: text/plain\r\n\r\n上传的说明\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "163", "etag": "W/\"a3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 9, "slug": "replay-data", "name": "notes.txt", "mime": "text/plain; charset=utf-8", "size": 16, "note": "一份说明", "url": "/api/apps/replay-data/files/9" }
+          }
+        },
+        {
+          "id": "upload-chinese-name",
+          "route": "POST /api/apps/:slug/files",
+          "class": "normal",
+          "what": "中文文件名：multipart 里按 UTF-8 发，原样还原",
+          "request": {
+            "method": "POST",
+            "path": "/api/apps/replay-data/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"报表.csv\"\r\nContent-Type: text/csv\r\n\r\na,b\n1,2\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "151", "etag": "W/\"97-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 10, "slug": "replay-data", "name": "报表.csv", "mime": "text/csv; charset=utf-8", "size": 8, "note": "", "url": "/api/apps/replay-data/files/10" }
+          }
+        },
+        {
+          "id": "upload-quota-full",
+          "route": "POST /api/apps/:slug/files",
+          "class": "invalid",
+          "what": "文件数到上限（8）：413，带容量，不落盘",
+          "request": {
+            "method": "POST",
+            "path": "/api/apps/replay-data/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"z.txt\"\r\nContent-Type: text/plain\r\n\r\nz\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": {
+            "status": 413,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "160", "etag": "W/\"a0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "该台文件数已达上限（8）", "quota": { "files_used": 8, "files_max": 8, "files_left": 0, "max_file_bytes": 104857600, "mcp_max_base64_chars": 139810136 } }
+          }
+        },
+        {
+          "id": "files-after-upload",
+          "route": "GET /api/apps/:slug/files",
+          "class": "normal",
+          "what": "上传之后的列表：files_left 为 0",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files?limit=20", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1596", "etag": "W/\"63c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "replay-data",
+              "items": [
+                { "id": 10, "original_name": "报表.csv", "mime": "text/csv; charset=utf-8", "size": 8, "note": "", "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/10" },
+                { "id": 9, "original_name": "notes.txt", "mime": "text/plain; charset=utf-8", "size": 16, "note": "一份说明", "created_by": "uploader", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/9" },
+                { "id": 8, "original_name": "x.txt", "mime": "text/plain; charset=utf-8", "size": 2, "note": "", "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/8" },
+                { "id": 7, "original_name": "evil.html", "mime": "text/html", "size": 26, "note": "", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/7" },
+                { "id": 6, "original_name": "pic.png", "mime": "image/png", "size": 35, "note": "", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/6" },
+                { "id": 3, "original_name": "gone.txt", "mime": "text/plain", "size": 3, "note": "", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/3" },
+                { "id": 2, "original_name": "b.xlsx", "mime": "text/plain", "size": 20, "note": "", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/2" },
+                { "id": 1, "original_name": "a.txt", "mime": "text/plain", "size": 22, "note": "种子", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/1" }
+              ],
+              "count": 8,
+              "has_more": false,
+              "next_before_id": null,
+              "quota": { "files_used": 8, "files_max": 8, "files_left": 0, "max_file_bytes": 104857600, "mcp_max_base64_chars": 139810136 }
+            }
+          }
+        },
+        {
+          "id": "note-no-token",
+          "route": "PATCH /api/apps/:slug/files/:id",
+          "class": "unauthorized",
+          "what": "本机不带口令：403（路由自己的守卫）",
+          "request": { "method": "PATCH", "path": "/api/apps/replay-data/files/1", "headers": {}, "json": { "note": "x" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "note-cross",
+          "route": "PATCH /api/apps/:slug/files/:id",
+          "class": "unauthorized",
+          "what": "带口令但跨站：403",
+          "request": { "method": "PATCH", "path": "/api/apps/replay-data/files/1", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": { "note": "x" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "note-missing-note",
+          "route": "PATCH /api/apps/:slug/files/:id",
+          "class": "invalid",
+          "what": "没有 note：400",
+          "request": { "method": "PATCH", "path": "/api/apps/replay-data/files/1", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "note 必填（字符串）" } }
+        },
+        {
+          "id": "note-number",
+          "route": "PATCH /api/apps/:slug/files/:id",
+          "class": "invalid",
+          "what": "note 是数：400",
+          "request": { "method": "PATCH", "path": "/api/apps/replay-data/files/1", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "note": 5 } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "note 必填（字符串）" } }
+        },
+        {
+          "id": "note-missing-file",
+          "route": "PATCH /api/apps/:slug/files/:id",
+          "class": "invalid",
+          "what": "没有这个文件：404",
+          "request": { "method": "PATCH", "path": "/api/apps/replay-data/files/999", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "note": "x" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "file not found: 999" } }
+        },
+        {
+          "id": "note-deleted-file",
+          "route": "PATCH /api/apps/:slug/files/:id",
+          "class": "invalid",
+          "what": "已软删的文件：404",
+          "request": { "method": "PATCH", "path": "/api/apps/replay-data/files/4", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "note": "x" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "file not found: 4" } }
+        },
+        {
+          "id": "note-other-app",
+          "route": "PATCH /api/apps/:slug/files/:id",
+          "class": "invalid",
+          "what": "别的台的文件：404",
+          "request": { "method": "PATCH", "path": "/api/apps/replay-data/files/5", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "note": "x" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "file not found: 5" } }
+        },
+        {
+          "id": "note-text-id",
+          "route": "PATCH /api/apps/:slug/files/:id",
+          "class": "invalid",
+          "what": "id 不是数（note 合法）：404",
+          "request": { "method": "PATCH", "path": "/api/apps/replay-data/files/abc", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "note": "x" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "file not found: abc" } }
+        },
+        {
+          "id": "note",
+          "route": "PATCH /api/apps/:slug/files/:id",
+          "class": "normal",
+          "what": "改备注：两头空白去掉",
+          "request": { "method": "PATCH", "path": "/api/apps/replay-data/files/1", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "note": "  新备注  " } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "id": 1, "note": "新备注" } }
+        },
+        {
+          "id": "note-empty",
+          "route": "PATCH /api/apps/:slug/files/:id",
+          "class": "normal",
+          "what": "note 是空串：照改",
+          "request": { "method": "PATCH", "path": "/api/apps/replay-data/files/2", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "note": "" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "28", "etag": "W/\"1c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "id": 2, "note": "" } }
+        },
+        {
+          "id": "note-long",
+          "route": "PATCH /api/apps/:slug/files/:id",
+          "class": "normal",
+          "what": "note 600 个字符：截到 500",
+          "request": {
+            "method": "PATCH",
+            "path": "/api/apps/replay-data/files/6",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "note": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn" }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "528", "etag": "W/\"210-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 6, "note": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn" }
+          }
+        },
+        {
+          "id": "download",
+          "route": "GET /api/apps/:slug/files/:id",
+          "class": "normal",
+          "what": "下载 a.txt：text/plain 在白名单里，inline；带 nosniff",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files/1", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "text/plain",
+            "headers": { "content-disposition": "inline; filename*=UTF-8''a.txt", "content-length": "22", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": "第一行\nsecond line\n"
+          }
+        },
+        {
+          "id": "download-xlsx",
+          "route": "GET /api/apps/:slug/files/:id",
+          "class": "normal",
+          "what": "b.xlsx 存成 text/plain：扩展名是二进制容器，强制 attachment",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files/2", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "text/plain",
+            "headers": { "content-disposition": "attachment; filename*=UTF-8''b.xlsx", "content-length": "20", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": "pretend spreadsheet\n"
+          }
+        },
+        {
+          "id": "download-png",
+          "route": "GET /api/apps/:slug/files/:id",
+          "class": "normal",
+          "what": "pic.png：image/png，inline",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files/6", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "image/png",
+            "headers": { "content-disposition": "inline; filename*=UTF-8''pic.png", "content-length": "35", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": "not really a png but stored as one\n"
+          }
+        },
+        {
+          "id": "download-html",
+          "route": "GET /api/apps/:slug/files/:id",
+          "class": "normal",
+          "what": "evil.html：text/html 不在白名单，attachment",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files/7", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "text/html",
+            "headers": { "content-disposition": "attachment; filename*=UTF-8''evil.html", "content-length": "26", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": "<script>alert(1)</script>\n"
+          }
+        },
+        {
+          "id": "download-chinese",
+          "route": "GET /api/apps/:slug/files/:id",
+          "class": "normal",
+          "what": "刚传的中文文件名：filename* 按 UTF-8 编码",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files/10", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "text/csv; charset=utf-8",
+            "headers": { "content-disposition": "attachment; filename*=UTF-8''%E6%8A%A5%E8%A1%A8.csv", "content-length": "8", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": "a,b\n1,2\n"
+          }
+        },
+        {
+          "id": "download-missing-on-disk",
+          "route": "GET /api/apps/:slug/files/:id",
+          "class": "invalid",
+          "what": "库里有、磁盘上没有：404",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files/3", "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "stored file missing on disk" } }
+        },
+        {
+          "id": "download-deleted",
+          "route": "GET /api/apps/:slug/files/:id",
+          "class": "invalid",
+          "what": "已软删：404",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files/4", "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "file not found: 4" } }
+        },
+        {
+          "id": "download-other-app",
+          "route": "GET /api/apps/:slug/files/:id",
+          "class": "invalid",
+          "what": "别的台的文件：404",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files/5", "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "file not found: 5" } }
+        },
+        {
+          "id": "download-missing",
+          "route": "GET /api/apps/:slug/files/:id",
+          "class": "invalid",
+          "what": "没有这个文件：404",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files/999", "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "file not found: 999" } }
+        },
+        {
+          "id": "download-text-id",
+          "route": "GET /api/apps/:slug/files/:id",
+          "class": "invalid",
+          "what": "id 不是数：404",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files/abc", "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "file not found: abc" } }
+        },
+        {
+          "id": "raw-download-dotdot",
+          "route": "GET /api/apps/:slug/files/:id",
+          "class": "invalid",
+          "what": "原样发：id 是 ..",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files/..", "raw": true, "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "file not found: .." } }
+        },
+        {
+          "id": "raw-download-encoded-slash",
+          "route": "GET /api/apps/:slug/files/:id",
+          "class": "invalid",
+          "what": "原样发：id 是 1%2f..%2f2",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files/1%2f..%2f2", "raw": true, "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "file not found: 1/../2" } }
+        },
+        {
+          "id": "raw-download-long",
+          "route": "GET /api/apps/:slug/files/:id",
+          "class": "invalid",
+          "what": "原样发：id 是 4000 个 9",
+          "request": {
+            "method": "GET",
+            "path": "/api/apps/replay-data/files/9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+            "raw": true,
+            "headers": {}
+          },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "4028", "etag": "W/\"fbc-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "file not found: 9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999" }
+          }
+        },
+        {
+          "id": "file-delete-no-token",
+          "route": "DELETE /api/apps/:slug/files/:id",
+          "class": "unauthorized",
+          "what": "本机不带口令：403（路由自己的守卫）",
+          "request": { "method": "DELETE", "path": "/api/apps/replay-data/files/1", "headers": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "file-delete-cross",
+          "route": "DELETE /api/apps/:slug/files/:id",
+          "class": "unauthorized",
+          "what": "带口令但跨站：403",
+          "request": { "method": "DELETE", "path": "/api/apps/replay-data/files/1", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "file-delete-missing",
+          "route": "DELETE /api/apps/:slug/files/:id",
+          "class": "invalid",
+          "what": "没有这个文件：404",
+          "request": { "method": "DELETE", "path": "/api/apps/replay-data/files/999", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "file not found: 999" } }
+        },
+        {
+          "id": "file-delete-other-app",
+          "route": "DELETE /api/apps/:slug/files/:id",
+          "class": "invalid",
+          "what": "别的台的文件：404",
+          "request": { "method": "DELETE", "path": "/api/apps/replay-data/files/5", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "file not found: 5" } }
+        },
+        {
+          "id": "file-delete-text",
+          "route": "DELETE /api/apps/:slug/files/:id",
+          "class": "invalid",
+          "what": "id 不是数：404",
+          "request": { "method": "DELETE", "path": "/api/apps/replay-data/files/abc", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "file not found: abc" } }
+        },
+        {
+          "id": "file-delete",
+          "route": "DELETE /api/apps/:slug/files/:id",
+          "class": "normal",
+          "what": "软删 a.txt",
+          "request": { "method": "DELETE", "path": "/api/apps/replay-data/files/1", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "id": 1, "deleted": "soft" } }
+        },
+        {
+          "id": "file-delete-binary",
+          "route": "DELETE /api/apps/:slug/files/:id",
+          "class": "normal",
+          "what": "id 写成 0b10：Number 认成 2，软删 b.xlsx（parseInt 会是 0）",
+          "request": { "method": "DELETE", "path": "/api/apps/replay-data/files/0b10", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "id": 2, "deleted": "soft" } }
+        },
+        {
+          "id": "file-delete-again",
+          "route": "DELETE /api/apps/:slug/files/:id",
+          "class": "invalid",
+          "what": "再删：404",
+          "request": { "method": "DELETE", "path": "/api/apps/replay-data/files/1", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "file not found: 1" } }
+        },
+        {
+          "id": "download-after-delete",
+          "route": "GET /api/apps/:slug/files/:id",
+          "class": "invalid",
+          "what": "删掉之后下载：404",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files/1", "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "file not found: 1" } }
+        },
+        {
+          "id": "files-after-delete",
+          "route": "GET /api/apps/:slug/files",
+          "class": "normal",
+          "what": "删掉之后的列表：没有 a.txt、b.xlsx，容量空出两个",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files?limit=20", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1757", "etag": "W/\"6dd-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "replay-data",
+              "items": [
+                { "id": 10, "original_name": "报表.csv", "mime": "text/csv; charset=utf-8", "size": 8, "note": "", "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/10" },
+                { "id": 9, "original_name": "notes.txt", "mime": "text/plain; charset=utf-8", "size": 16, "note": "一份说明", "created_by": "uploader", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/9" },
+                { "id": 8, "original_name": "x.txt", "mime": "text/plain; charset=utf-8", "size": 2, "note": "", "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/8" },
+                { "id": 7, "original_name": "evil.html", "mime": "text/html", "size": 26, "note": "", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/7" },
+                { "id": 6, "original_name": "pic.png", "mime": "image/png", "size": 35, "note": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/6" },
+                { "id": 3, "original_name": "gone.txt", "mime": "text/plain", "size": 3, "note": "", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/3" }
+              ],
+              "count": 6,
+              "has_more": false,
+              "next_before_id": null,
+              "quota": { "files_used": 6, "files_max": 8, "files_left": 2, "max_file_bytes": 104857600, "mcp_max_base64_chars": 139810136 }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce），管理口令由环境给（合成值）。同样的种子。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "seed": [
+        { "table": "apps", "row": { "slug": "replay-data", "title": "数据台", "kind": "app", "status": "active", "active_version": 1, "created_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" } },
+        { "table": "apps", "row": { "slug": "replay-other", "title": "另一个台", "kind": "app", "status": "active", "active_version": 1, "created_at": "2025-01-01 00:00:02", "updated_at": "2025-01-01 00:00:02" } },
+        { "table": "apps", "row": { "slug": "replay-contract", "title": "带数据契约的台", "kind": "app", "status": "active", "active_version": 1, "created_at": "2025-01-01 00:00:03", "updated_at": "2025-01-01 00:00:03" } },
+        { "table": "app_data", "row": { "app_slug": "replay-data", "data": "{\"n\":1}", "created_by": "seed", "created_at": "2025-01-01 00:00:01" } },
+        { "table": "app_data", "row": { "app_slug": "replay-data", "data": "", "created_by": "", "created_at": "2025-01-01 00:00:02" } },
+        { "table": "app_data", "row": { "app_slug": "replay-data", "data": "{\"n\":3}", "created_by": "seed", "created_at": "2025-01-01 00:00:03", "deleted_at": "2025-01-01 00:00:04" } },
+        { "table": "app_data", "row": { "app_slug": "replay-other", "data": "{\"other\":true}", "created_by": "seed", "created_at": "2025-01-01 00:00:04" } },
+        {
+          "table": "app_files",
+          "row": { "app_slug": "replay-data", "original_name": "a.txt", "mime": "text/plain", "size": 22, "storage_path": "uploads/seed/a.txt", "created_by": "seed", "note": "种子", "created_at": "2025-01-01 00:00:01" }
+        },
+        { "table": "app_files", "row": { "app_slug": "replay-data", "original_name": "b.xlsx", "mime": "text/plain", "size": 20, "storage_path": "uploads/seed/b.xlsx", "created_by": "seed", "created_at": "2025-01-01 00:00:02" } },
+        { "table": "app_files", "row": { "app_slug": "replay-data", "original_name": "gone.txt", "mime": "text/plain", "size": 3, "storage_path": "uploads/seed/missing.txt", "created_by": "seed", "created_at": "2025-01-01 00:00:03" } },
+        {
+          "table": "app_files",
+          "row": { "app_slug": "replay-data", "original_name": "old.txt", "mime": "text/plain", "size": 22, "storage_path": "uploads/seed/a.txt", "created_by": "seed", "created_at": "2025-01-01 00:00:04", "deleted_at": "2025-01-01 00:00:05" }
+        },
+        { "table": "app_files", "row": { "app_slug": "replay-other", "original_name": "o.txt", "mime": "text/plain", "size": 22, "storage_path": "uploads/seed/a.txt", "created_by": "seed", "created_at": "2025-01-01 00:00:05" } },
+        { "table": "app_files", "row": { "app_slug": "replay-data", "original_name": "pic.png", "mime": "image/png", "size": 35, "storage_path": "uploads/seed/pic.png", "created_by": "seed", "created_at": "2025-01-01 00:00:06" } },
+        { "table": "app_files", "row": { "app_slug": "replay-data", "original_name": "evil.html", "mime": "text/html", "size": 26, "storage_path": "uploads/seed/evil.html", "created_by": "seed", "created_at": "2025-01-01 00:00:07" } }
+      ],
+      "seed_files": [
+        { "path": "uploads/seed/a.txt", "content": "第一行\nsecond line\n" },
+        { "path": "uploads/seed/b.xlsx", "content": "pretend spreadsheet\n" },
+        { "path": "uploads/seed/pic.png", "content": "not really a png but stored as one\n" },
+        { "path": "uploads/seed/evil.html", "content": "<script>alert(1)</script>\n" },
+        { "path": "apps/replay-contract/v1/index.html", "content": "<div>契约台</div>\n" },
+        { "path": "apps/replay-contract/v1/data-contract.json", "content": "{\"version\":1,\"type_fields\":[\"type\"],\"unknown_types\":\"allow\",\"types\":{\"order\":{\"required\":[\"qty\"],\"enum\":{\"unit\":[\"个\",\"箱\"]}}}}" }
+      ],
+      "steps": [
+        {
+          "id": "gated-data-anonymous",
+          "route": "GET /api/apps/:slug/data",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/data", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-data-with-token",
+          "route": "GET /api/apps/:slug/data",
+          "class": "normal",
+          "what": "远程带口令：200",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/data", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "230", "etag": "W/\"e6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "replay-data",
+              "items": [{ "id": 2, "data": {}, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" }, { "id": 1, "data": { "n": 1 }, "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss" }],
+              "count": 2,
+              "has_more": false,
+              "next_before_id": null
+            }
+          }
+        },
+        {
+          "id": "gated-post-anonymous",
+          "route": "POST /api/apps/:slug/data",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "POST", "path": "/api/apps/replay-data/data", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "n": 1 } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-files-anonymous",
+          "route": "GET /api/apps/:slug/files",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-upload-anonymous",
+          "route": "POST /api/apps/:slug/files",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": {
+            "method": "POST",
+            "path": "/api/apps/replay-data/files",
+            "headers": { "content-type": "multipart/form-data; boundary=replayBoundary7MA4YWxkTrZu0gW", "x-forwarded-for": "198.51.100.7" },
+            "text": "--replayBoundary7MA4YWxkTrZu0gW\r\nContent-Disposition: form-data; name=\"file\"; filename=\"x.txt\"\r\nContent-Type: text/plain\r\n\r\nx\n\r\n--replayBoundary7MA4YWxkTrZu0gW--\r\n"
+          },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-note-anonymous",
+          "route": "PATCH /api/apps/:slug/files/:id",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "PATCH", "path": "/api/apps/replay-data/files/1", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "note": "x" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-file-delete-anonymous",
+          "route": "DELETE /api/apps/:slug/files/:id",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "DELETE", "path": "/api/apps/replay-data/files/1", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-data-delete-anonymous",
+          "route": "DELETE /api/apps/:slug/data/:id",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "DELETE", "path": "/api/apps/replay-data/data/1", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-download-anonymous",
+          "route": "GET /api/apps/:slug/files/:id",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files/1", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-download-with-token",
+          "route": "GET /api/apps/:slug/files/:id",
+          "class": "normal",
+          "what": "远程带口令：200",
+          "request": { "method": "GET", "path": "/api/apps/replay-data/files/1", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "text/plain",
+            "headers": { "content-disposition": "inline; filename*=UTF-8''a.txt", "content-length": "22", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": "第一行\nsecond line\n"
+          }
+        }
+      ]
+    }
+  ]
+}
