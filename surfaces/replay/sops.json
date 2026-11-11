@@ -1,0 +1,1113 @@
+{
+  "domain": "sops",
+  "what": "SOP 台：列表、发布、废弃（状态机）、定义（步骤骨架）、治理时间线，共 5 条路由。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /api/sops", "POST /api/sops/:slug/publish", "POST /api/sops/:slug/deprecate", "GET /api/sops/:slug/definition", "GET /api/sops/:slug/timeline"],
+  "exempt": [{ "route": "GET /api/sops", "class": "invalid", "why": "列表不读请求里的任何东西，没有会被拒的输入", "shown_by": "open/list" }],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "登录门关，读面开放；本机命令行免口令（task-center 的状态机和看草稿的定义除外，要管理口令，由环境给合成值）。预先写进库：一个 SOP 草稿和它一行没物化的版本、一个普通台、两条执行记录、四条 A2A 回执（经 HTTP 建不出第二个 SOP，回执只能经 A2A 产生）。定了时钟。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "seed": [
+        { "table": "apps", "row": { "slug": "other-sop", "title": "库里的 SOP", "kind": "sop", "status": "draft", "active_version": 1 } },
+        { "table": "apps", "row": { "slug": "plain-app", "title": "库里的普通台", "kind": "app", "status": "active" } },
+        { "table": "app_versions", "row": { "app_id": 2, "version": 1, "changelog": "库里的版本", "created_by": "seed" } },
+        { "table": "sop_runs", "row": { "sop_slug": "task-center", "sop_version": 1, "started_by": "seed", "status": "finished" } },
+        { "table": "sop_runs", "row": { "sop_slug": "other-sop", "sop_version": 1, "started_by": "seed" } },
+        { "table": "a2a_run_ctx", "row": { "context_id": "ctx-1", "run_id": 1, "task_id": "t-1", "caller": "dsh/aaaa1111", "receipt_status": "" } },
+        { "table": "a2a_run_ctx", "row": { "context_id": "ctx-2", "run_id": 1, "task_id": "t-2", "caller": "dsh/bbbb2222", "receipt_status": "acked" } },
+        { "table": "a2a_run_ctx", "row": { "context_id": "ctx-3", "run_id": 1, "task_id": "", "caller": "dsh/cccc3333" } },
+        { "table": "a2a_run_ctx", "row": { "context_id": "ctx-4", "run_id": 2, "task_id": "t-4", "caller": "dsh/dddd4444" } }
+      ],
+      "steps": [
+        {
+          "id": "list",
+          "route": "GET /api/sops",
+          "class": "normal",
+          "what": "列表：只有 SOP 台（task-center 和库里的 other-sop），不含普通台",
+          "vary": { "1.a2a_node8": "random" },
+          "request": { "method": "GET", "path": "/api/sops" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1154", "etag": "W/\"482-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 2,
+                "slug": "other-sop",
+                "title": "库里的 SOP",
+                "description": "",
+                "created_by": "",
+                "active_version": 1,
+                "status": "draft",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "layerfs_project": "",
+                "source_repo": "",
+                "source_path": "",
+                "kind": "sop",
+                "code": "",
+                "a2a_node8": "",
+                "versions": [
+                  { "id": 2, "app_id": 2, "version": 1, "file_count": 0, "total_bytes": 0, "created_by": "seed", "changelog": "库里的版本", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "pending", "shadow_error": "", "commit_id": "", "source_commit": "" }
+                ],
+                "workbench_id": null
+              },
+              {
+                "id": 1,
+                "slug": "task-center",
+                "title": "任务中心",
+                "description": "人工发布录入任务",
+                "created_by": "system:seed",
+                "active_version": 1,
+                "status": "published",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "layerfs_project": "",
+                "source_repo": "",
+                "source_path": "",
+                "kind": "sop",
+                "code": "",
+                "a2a_node8": "<每个实例随机·string·8>",
+                "versions": [
+                  { "id": 1, "app_id": 1, "version": 1, "file_count": 1, "total_bytes": 1004, "created_by": "system:seed", "changelog": "内置任务录入模板 v1", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "pending", "shadow_error": "", "commit_id": "", "source_commit": "" }
+                ],
+                "workbench_id": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "def-task-center",
+          "route": "GET /api/sops/:slug/definition",
+          "class": "normal",
+          "what": "定义：已上架，只回步骤的 key 和标题",
+          "request": { "method": "GET", "path": "/api/sops/task-center/definition" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "384", "etag": "W/\"180-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "task-center",
+              "version": 1,
+              "active_version": 1,
+              "status": "published",
+              "title": "任务中心",
+              "code": "",
+              "description": "",
+              "steps": [
+                { "key": "title", "title": "任务标题" },
+                { "key": "intent", "title": "任务意图" },
+                { "key": "references", "title": "基准材料" },
+                { "key": "deliverable", "title": "提交物要求" },
+                { "key": "target", "title": "目标 SOP 台" },
+                { "key": "due", "title": "截止日期" }
+              ]
+            }
+          }
+        },
+        {
+          "id": "def-version-empty",
+          "route": "GET /api/sops/:slug/definition",
+          "class": "normal",
+          "what": "?version= 空串：当没给，取活跃版本",
+          "request": { "method": "GET", "path": "/api/sops/task-center/definition?version=" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "384", "etag": "W/\"180-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "task-center",
+              "version": 1,
+              "active_version": 1,
+              "status": "published",
+              "title": "任务中心",
+              "code": "",
+              "description": "",
+              "steps": [
+                { "key": "title", "title": "任务标题" },
+                { "key": "intent", "title": "任务意图" },
+                { "key": "references", "title": "基准材料" },
+                { "key": "deliverable", "title": "提交物要求" },
+                { "key": "target", "title": "目标 SOP 台" },
+                { "key": "due", "title": "截止日期" }
+              ]
+            }
+          }
+        },
+        {
+          "id": "def-version-1",
+          "route": "GET /api/sops/:slug/definition",
+          "class": "normal",
+          "what": "?version=1：读这一版",
+          "request": { "method": "GET", "path": "/api/sops/task-center/definition?version=1" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "384", "etag": "W/\"180-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "task-center",
+              "version": 1,
+              "active_version": 1,
+              "status": "published",
+              "title": "任务中心",
+              "code": "",
+              "description": "",
+              "steps": [
+                { "key": "title", "title": "任务标题" },
+                { "key": "intent", "title": "任务意图" },
+                { "key": "references", "title": "基准材料" },
+                { "key": "deliverable", "title": "提交物要求" },
+                { "key": "target", "title": "目标 SOP 台" },
+                { "key": "due", "title": "截止日期" }
+              ]
+            }
+          }
+        },
+        {
+          "id": "def-version-text",
+          "route": "GET /api/sops/:slug/definition",
+          "class": "invalid",
+          "what": "?version=abc：400",
+          "request": { "method": "GET", "path": "/api/sops/task-center/definition?version=abc" },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "version 必须是正整数" } }
+        },
+        {
+          "id": "def-version-zero",
+          "route": "GET /api/sops/:slug/definition",
+          "class": "invalid",
+          "what": "?version=0：400",
+          "request": { "method": "GET", "path": "/api/sops/task-center/definition?version=0" },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "version 必须是正整数" } }
+        },
+        {
+          "id": "def-version-fraction",
+          "route": "GET /api/sops/:slug/definition",
+          "class": "invalid",
+          "what": "?version=1.5：400",
+          "request": { "method": "GET", "path": "/api/sops/task-center/definition?version=1.5" },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "version 必须是正整数" } }
+        },
+        {
+          "id": "def-version-missing",
+          "route": "GET /api/sops/:slug/definition",
+          "class": "invalid",
+          "what": "?version=99：版本不存在 404",
+          "request": { "method": "GET", "path": "/api/sops/task-center/definition?version=99" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "版本不存在: v99" } }
+        },
+        {
+          "id": "def-not-sop",
+          "route": "GET /api/sops/:slug/definition",
+          "class": "invalid",
+          "what": "普通台不是 SOP：404",
+          "request": { "method": "GET", "path": "/api/sops/plain-app/definition" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "SOP not found: plain-app" } }
+        },
+        {
+          "id": "def-no-such",
+          "route": "GET /api/sops/:slug/definition",
+          "class": "invalid",
+          "what": "没有这个台：404",
+          "request": { "method": "GET", "path": "/api/sops/no-such-sop/definition" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "app not found: no-such-sop" } }
+        },
+        {
+          "id": "def-draft-anonymous",
+          "route": "GET /api/sops/:slug/definition",
+          "class": "unauthorized",
+          "what": "草稿：不带口令看不了定义（403，no-store）",
+          "request": { "method": "GET", "path": "/api/sops/other-sop/definition" },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "68", "etag": "W/\"44-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "SOP other-sop 状态为 draft，定义仅管理员可见" }
+          }
+        },
+        {
+          "id": "def-draft-admin",
+          "route": "GET /api/sops/:slug/definition",
+          "class": "invalid",
+          "what": "草稿：带口令能看，但活跃版本是库里写的 v1、目录没物化：404 version_not_materialized",
+          "request": { "method": "GET", "path": "/api/sops/other-sop/definition", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "100", "etag": "W/\"64-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "v1 未物化（冷版本），无法读取步骤定义", "code": "version_not_materialized" }
+          }
+        },
+        {
+          "id": "def-draft-admin-v0",
+          "route": "GET /api/sops/:slug/definition",
+          "class": "invalid",
+          "what": "草稿、带口令、?version=0：400",
+          "request": { "method": "GET", "path": "/api/sops/other-sop/definition?version=0", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "version 必须是正整数" } }
+        },
+        {
+          "id": "tl-task-center",
+          "route": "GET /api/sops/:slug/timeline",
+          "class": "normal",
+          "what": "时间线：版本链、执行记录、A2A 回执（回执状态空的记 pending；task_id 空的、别的 SOP 的不算）",
+          "request": { "method": "GET", "path": "/api/sops/task-center/timeline" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "434", "etag": "W/\"1b2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "task-center",
+              "versions": [{ "version": 1, "changelog": "内置任务录入模板 v1", "created_by": "system:seed", "created_at": "YYYY-MM-DD hh:mm:ss" }],
+              "runs": [{ "id": 1, "status": "finished", "started_by": "seed", "started_at": "YYYY-MM-DD hh:mm:ss", "finished_at": "" }],
+              "receipts": [{ "task_id": "t-1", "caller": "dsh/aaaa1111", "receipt_status": "pending", "run_id": 1 }, { "task_id": "t-2", "caller": "dsh/bbbb2222", "receipt_status": "acked", "run_id": 1 }]
+            }
+          }
+        },
+        {
+          "id": "tl-other-sop",
+          "route": "GET /api/sops/:slug/timeline",
+          "class": "normal",
+          "what": "时间线：库里的 other-sop（草稿也能看时间线）",
+          "request": { "method": "GET", "path": "/api/sops/other-sop/timeline" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "334", "etag": "W/\"14e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "other-sop",
+              "versions": [{ "version": 1, "changelog": "库里的版本", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss" }],
+              "runs": [{ "id": 2, "status": "running", "started_by": "seed", "started_at": "YYYY-MM-DD hh:mm:ss", "finished_at": "" }],
+              "receipts": [{ "task_id": "t-4", "caller": "dsh/dddd4444", "receipt_status": "pending", "run_id": 2 }]
+            }
+          }
+        },
+        {
+          "id": "tl-not-sop",
+          "route": "GET /api/sops/:slug/timeline",
+          "class": "invalid",
+          "what": "普通台：404",
+          "request": { "method": "GET", "path": "/api/sops/plain-app/timeline" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "SOP not found: plain-app" } }
+        },
+        {
+          "id": "tl-no-such",
+          "route": "GET /api/sops/:slug/timeline",
+          "class": "invalid",
+          "what": "没有这个台：404",
+          "request": { "method": "GET", "path": "/api/sops/no-such-sop/timeline" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "app not found: no-such-sop" } }
+        },
+        {
+          "id": "pub-not-sop",
+          "route": "POST /api/sops/:slug/publish",
+          "class": "invalid",
+          "what": "发布普通台：400 不是 SOP 台",
+          "request": { "method": "POST", "path": "/api/sops/plain-app/publish", "json": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "plain-app 不是 SOP 台" } }
+        },
+        {
+          "id": "pub-no-such",
+          "route": "POST /api/sops/:slug/publish",
+          "class": "invalid",
+          "what": "发布不存在的台：404",
+          "request": { "method": "POST", "path": "/api/sops/no-such-sop/publish", "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "app not found: no-such-sop" } }
+        },
+        {
+          "id": "pub-already",
+          "route": "POST /api/sops/:slug/publish",
+          "class": "invalid",
+          "what": "已上架的再发布：409 状态机拒绝",
+          "request": { "method": "POST", "path": "/api/sops/task-center/publish", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "82", "etag": "W/\"52-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "状态机拒绝：当前 published，发布 仅允许 draft/deprecated" }
+          }
+        },
+        {
+          "id": "dep-draft",
+          "route": "POST /api/sops/:slug/deprecate",
+          "class": "invalid",
+          "what": "草稿直接废弃：409 状态机拒绝",
+          "request": { "method": "POST", "path": "/api/sops/other-sop/deprecate", "json": {} },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "71", "etag": "W/\"47-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "状态机拒绝：当前 draft，废弃 仅允许 published" } }
+        },
+        {
+          "id": "dep-not-sop",
+          "route": "POST /api/sops/:slug/deprecate",
+          "class": "invalid",
+          "what": "废弃普通台：400",
+          "request": { "method": "POST", "path": "/api/sops/plain-app/deprecate", "json": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "plain-app 不是 SOP 台" } }
+        },
+        {
+          "id": "dep-no-such",
+          "route": "POST /api/sops/:slug/deprecate",
+          "class": "invalid",
+          "what": "废弃不存在的台：404",
+          "request": { "method": "POST", "path": "/api/sops/no-such-sop/deprecate", "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "app not found: no-such-sop" } }
+        },
+        {
+          "id": "pub-other",
+          "route": "POST /api/sops/:slug/publish",
+          "class": "normal",
+          "what": "发布草稿 other-sop（非 task-center 不要口令，本机写）：上架、入册",
+          "request": { "method": "POST", "path": "/api/sops/other-sop/publish", "json": { "note": "  第一次上架  " } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "570", "etag": "W/\"23a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 2,
+              "slug": "other-sop",
+              "title": "库里的 SOP",
+              "description": "",
+              "created_by": "",
+              "active_version": 1,
+              "status": "published",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "layerfs_project": "",
+              "source_repo": "",
+              "source_path": "",
+              "kind": "sop",
+              "code": "",
+              "a2a_node8": "",
+              "versions": [
+                { "id": 2, "app_id": 2, "version": 1, "file_count": 0, "total_bytes": 0, "created_by": "seed", "changelog": "库里的版本\n[publish] 第一次上架", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "pending", "shadow_error": "", "commit_id": "", "source_commit": "" }
+              ],
+              "workbench_id": 2
+            }
+          }
+        },
+        {
+          "id": "tl-other-after-publish",
+          "route": "GET /api/sops/:slug/timeline",
+          "class": "normal",
+          "what": "发布说明记进当前版本的 changelog（去掉两头空白、加 [publish] 前缀）",
+          "request": { "method": "GET", "path": "/api/sops/other-sop/timeline" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "361", "etag": "W/\"169-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "other-sop",
+              "versions": [{ "version": 1, "changelog": "库里的版本\n[publish] 第一次上架", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss" }],
+              "runs": [{ "id": 2, "status": "running", "started_by": "seed", "started_at": "YYYY-MM-DD hh:mm:ss", "finished_at": "" }],
+              "receipts": [{ "task_id": "t-4", "caller": "dsh/dddd4444", "receipt_status": "pending", "run_id": 2 }]
+            }
+          }
+        },
+        {
+          "id": "wb-after-publish",
+          "what": "发布即入册：市场里有了 /sop/other-sop/ 这一行（借工作台的路由，只比地址和启用）",
+          "compare": ["0.url", "0.enabled", "1.url"],
+          "request": { "method": "GET", "path": "/api/workbenches?q=other-sop" },
+          "response": { "status": 200, "picked": { "0.url": "/sop/other-sop/", "0.enabled": true } }
+        },
+        {
+          "id": "dep-other",
+          "route": "POST /api/sops/:slug/deprecate",
+          "class": "normal",
+          "what": "废弃 other-sop：市场行停用",
+          "request": { "method": "POST", "path": "/api/sops/other-sop/deprecate", "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "571", "etag": "W/\"23b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 2,
+              "slug": "other-sop",
+              "title": "库里的 SOP",
+              "description": "",
+              "created_by": "",
+              "active_version": 1,
+              "status": "deprecated",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "layerfs_project": "",
+              "source_repo": "",
+              "source_path": "",
+              "kind": "sop",
+              "code": "",
+              "a2a_node8": "",
+              "versions": [
+                { "id": 2, "app_id": 2, "version": 1, "file_count": 0, "total_bytes": 0, "created_by": "seed", "changelog": "库里的版本\n[publish] 第一次上架", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "pending", "shadow_error": "", "commit_id": "", "source_commit": "" }
+              ],
+              "workbench_id": 2
+            }
+          }
+        },
+        {
+          "id": "wb-after-deprecate",
+          "what": "废弃之后市场行 enabled=false（借工作台的路由）",
+          "compare": ["0.url", "0.enabled", "1.url"],
+          "request": { "method": "GET", "path": "/api/workbenches?q=other-sop" },
+          "response": { "status": 200, "picked": { "0.url": "/sop/other-sop/", "0.enabled": false } }
+        },
+        {
+          "id": "dep-again",
+          "route": "POST /api/sops/:slug/deprecate",
+          "class": "invalid",
+          "what": "已废弃的再废弃：409",
+          "request": { "method": "POST", "path": "/api/sops/other-sop/deprecate", "json": {} },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "76", "etag": "W/\"4c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "状态机拒绝：当前 deprecated，废弃 仅允许 published" } }
+        },
+        {
+          "id": "pub-other-again",
+          "route": "POST /api/sops/:slug/publish",
+          "class": "normal",
+          "what": "废弃之后重新上架：市场行恢复启用；note 不是字符串不记",
+          "request": { "method": "POST", "path": "/api/sops/other-sop/publish", "json": { "note": 5 } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "570", "etag": "W/\"23a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 2,
+              "slug": "other-sop",
+              "title": "库里的 SOP",
+              "description": "",
+              "created_by": "",
+              "active_version": 1,
+              "status": "published",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "layerfs_project": "",
+              "source_repo": "",
+              "source_path": "",
+              "kind": "sop",
+              "code": "",
+              "a2a_node8": "",
+              "versions": [
+                { "id": 2, "app_id": 2, "version": 1, "file_count": 0, "total_bytes": 0, "created_by": "seed", "changelog": "库里的版本\n[publish] 第一次上架", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "pending", "shadow_error": "", "commit_id": "", "source_commit": "" }
+              ],
+              "workbench_id": 2
+            }
+          }
+        },
+        {
+          "id": "wb-after-republish",
+          "what": "重新上架之后 enabled=true（借工作台的路由）",
+          "compare": ["0.url", "0.enabled", "1.url"],
+          "request": { "method": "GET", "path": "/api/workbenches?q=other-sop" },
+          "response": { "status": 200, "picked": { "0.url": "/sop/other-sop/", "0.enabled": true } }
+        },
+        {
+          "id": "pub-blank-note",
+          "route": "POST /api/sops/:slug/publish",
+          "class": "invalid",
+          "what": "已上架、带空白 note：409（先判状态）",
+          "request": { "method": "POST", "path": "/api/sops/other-sop/publish", "json": { "note": "   " } },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "82", "etag": "W/\"52-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "状态机拒绝：当前 published，发布 仅允许 draft/deprecated" }
+          }
+        },
+        {
+          "id": "list-after",
+          "route": "GET /api/sops",
+          "class": "normal",
+          "what": "发布、废弃之后的列表",
+          "vary": { "1.a2a_node8": "random" },
+          "request": { "method": "GET", "path": "/api/sops" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1182", "etag": "W/\"49e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 2,
+                "slug": "other-sop",
+                "title": "库里的 SOP",
+                "description": "",
+                "created_by": "",
+                "active_version": 1,
+                "status": "published",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "layerfs_project": "",
+                "source_repo": "",
+                "source_path": "",
+                "kind": "sop",
+                "code": "",
+                "a2a_node8": "",
+                "versions": [
+                  { "id": 2, "app_id": 2, "version": 1, "file_count": 0, "total_bytes": 0, "created_by": "seed", "changelog": "库里的版本\n[publish] 第一次上架", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "pending", "shadow_error": "", "commit_id": "", "source_commit": "" }
+                ],
+                "workbench_id": 2
+              },
+              {
+                "id": 1,
+                "slug": "task-center",
+                "title": "任务中心",
+                "description": "人工发布录入任务",
+                "created_by": "system:seed",
+                "active_version": 1,
+                "status": "published",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "layerfs_project": "",
+                "source_repo": "",
+                "source_path": "",
+                "kind": "sop",
+                "code": "",
+                "a2a_node8": "<每个实例随机·string·8>",
+                "versions": [
+                  { "id": 1, "app_id": 1, "version": 1, "file_count": 1, "total_bytes": 1004, "created_by": "system:seed", "changelog": "内置任务录入模板 v1", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "pending", "shadow_error": "", "commit_id": "", "source_commit": "" }
+                ],
+                "workbench_id": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "tc-pub-no-token",
+          "route": "POST /api/sops/:slug/publish",
+          "class": "unauthorized",
+          "what": "task-center 的发布：本机不带口令也要管理员，403",
+          "request": { "method": "POST", "path": "/api/sops/task-center/publish", "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "tc-dep-no-token",
+          "route": "POST /api/sops/:slug/deprecate",
+          "class": "unauthorized",
+          "what": "task-center 的废弃：本机不带口令，403",
+          "request": { "method": "POST", "path": "/api/sops/task-center/deprecate", "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "tc-dep-cross",
+          "route": "POST /api/sops/:slug/deprecate",
+          "class": "unauthorized",
+          "what": "task-center 的废弃：带口令但浏览器从别的站点发来，403",
+          "request": { "method": "POST", "path": "/api/sops/task-center/deprecate", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": {} },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "tc-dep",
+          "route": "POST /api/sops/:slug/deprecate",
+          "class": "normal",
+          "what": "task-center 带口令废弃",
+          "vary": { "a2a_node8": "random" },
+          "request": { "method": "POST", "path": "/api/sops/task-center/deprecate", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "610", "etag": "W/\"262-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 1,
+              "slug": "task-center",
+              "title": "任务中心",
+              "description": "人工发布录入任务",
+              "created_by": "system:seed",
+              "active_version": 1,
+              "status": "deprecated",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "layerfs_project": "",
+              "source_repo": "",
+              "source_path": "",
+              "kind": "sop",
+              "code": "",
+              "a2a_node8": "<每个实例随机·string·8>",
+              "versions": [
+                { "id": 1, "app_id": 1, "version": 1, "file_count": 1, "total_bytes": 1004, "created_by": "system:seed", "changelog": "内置任务录入模板 v1", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "pending", "shadow_error": "", "commit_id": "", "source_commit": "" }
+              ],
+              "workbench_id": 1
+            }
+          }
+        },
+        {
+          "id": "def-deprecated-anonymous",
+          "route": "GET /api/sops/:slug/definition",
+          "class": "unauthorized",
+          "what": "废弃之后不带口令看不了定义",
+          "request": { "method": "GET", "path": "/api/sops/task-center/definition" },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "75", "etag": "W/\"4b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "SOP task-center 状态为 deprecated，定义仅管理员可见" }
+          }
+        },
+        {
+          "id": "def-deprecated-admin",
+          "route": "GET /api/sops/:slug/definition",
+          "class": "normal",
+          "what": "废弃之后带口令照常看定义",
+          "request": { "method": "GET", "path": "/api/sops/task-center/definition", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "385", "etag": "W/\"181-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "task-center",
+              "version": 1,
+              "active_version": 1,
+              "status": "deprecated",
+              "title": "任务中心",
+              "code": "",
+              "description": "",
+              "steps": [
+                { "key": "title", "title": "任务标题" },
+                { "key": "intent", "title": "任务意图" },
+                { "key": "references", "title": "基准材料" },
+                { "key": "deliverable", "title": "提交物要求" },
+                { "key": "target", "title": "目标 SOP 台" },
+                { "key": "due", "title": "截止日期" }
+              ]
+            }
+          }
+        },
+        {
+          "id": "tc-pub-long-note",
+          "route": "POST /api/sops/:slug/publish",
+          "class": "normal",
+          "what": "task-center 带口令重新上架，note 300 个字",
+          "vary": { "a2a_node8": "random" },
+          "request": {
+            "method": "POST",
+            "path": "/api/sops/task-center/publish",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "note": "长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长" }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1521", "etag": "W/\"5f1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 1,
+              "slug": "task-center",
+              "title": "任务中心",
+              "description": "人工发布录入任务",
+              "created_by": "system:seed",
+              "active_version": 1,
+              "status": "published",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "layerfs_project": "",
+              "source_repo": "",
+              "source_path": "",
+              "kind": "sop",
+              "code": "",
+              "a2a_node8": "<每个实例随机·string·8>",
+              "versions": [
+                { "id": 1, "app_id": 1, "version": 1, "file_count": 1, "total_bytes": 1004, "created_by": "system:seed", "changelog": "内置任务录入模板 v1\n[publish] 长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "pending", "shadow_error": "", "commit_id": "", "source_commit": "" }
+              ],
+              "workbench_id": 1
+            }
+          }
+        },
+        {
+          "id": "tl-long-note",
+          "route": "GET /api/sops/:slug/timeline",
+          "class": "normal",
+          "what": "时间线里的 changelog 截到 200 个字",
+          "request": { "method": "GET", "path": "/api/sops/task-center/timeline" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "980", "etag": "W/\"3d4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "task-center",
+              "versions": [
+                { "version": 1, "changelog": "内置任务录入模板 v1\n[publish] 长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长", "created_by": "system:seed", "created_at": "YYYY-MM-DD hh:mm:ss" }
+              ],
+              "runs": [{ "id": 1, "status": "finished", "started_by": "seed", "started_at": "YYYY-MM-DD hh:mm:ss", "finished_at": "" }],
+              "receipts": [{ "task_id": "t-1", "caller": "dsh/aaaa1111", "receipt_status": "pending", "run_id": 1 }, { "task_id": "t-2", "caller": "dsh/bbbb2222", "receipt_status": "acked", "run_id": 1 }]
+            }
+          }
+        },
+        {
+          "id": "pub-remote-anonymous",
+          "route": "POST /api/sops/:slug/publish",
+          "class": "unauthorized",
+          "what": "带转发头、没有口令的写（非 task-center 也拦）",
+          "request": { "method": "POST", "path": "/api/sops/other-sop/publish", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "dep-remote-anonymous",
+          "route": "POST /api/sops/:slug/deprecate",
+          "class": "unauthorized",
+          "what": "带转发头、没有口令的废弃",
+          "request": { "method": "POST", "path": "/api/sops/other-sop/deprecate", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "dep-cross-origin",
+          "route": "POST /api/sops/:slug/deprecate",
+          "class": "unauthorized",
+          "what": "浏览器从别的站点发来的废弃（非 task-center）",
+          "request": { "method": "POST", "path": "/api/sops/other-sop/deprecate", "headers": { "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "list-remote-anonymous",
+          "route": "GET /api/sops",
+          "class": "normal",
+          "what": "登录门关着：远程匿名读列表",
+          "vary": { "1.a2a_node8": "random" },
+          "request": { "method": "GET", "path": "/api/sops", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2094", "etag": "W/\"82e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 2,
+                "slug": "other-sop",
+                "title": "库里的 SOP",
+                "description": "",
+                "created_by": "",
+                "active_version": 1,
+                "status": "published",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "layerfs_project": "",
+                "source_repo": "",
+                "source_path": "",
+                "kind": "sop",
+                "code": "",
+                "a2a_node8": "",
+                "versions": [
+                  { "id": 2, "app_id": 2, "version": 1, "file_count": 0, "total_bytes": 0, "created_by": "seed", "changelog": "库里的版本\n[publish] 第一次上架", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "pending", "shadow_error": "", "commit_id": "", "source_commit": "" }
+                ],
+                "workbench_id": 2
+              },
+              {
+                "id": 1,
+                "slug": "task-center",
+                "title": "任务中心",
+                "description": "人工发布录入任务",
+                "created_by": "system:seed",
+                "active_version": 1,
+                "status": "published",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "layerfs_project": "",
+                "source_repo": "",
+                "source_path": "",
+                "kind": "sop",
+                "code": "",
+                "a2a_node8": "<每个实例随机·string·8>",
+                "versions": [
+                  { "id": 1, "app_id": 1, "version": 1, "file_count": 1, "total_bytes": 1004, "created_by": "system:seed", "changelog": "内置任务录入模板 v1\n[publish] 长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "pending", "shadow_error": "", "commit_id": "", "source_commit": "" }
+                ],
+                "workbench_id": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "tl-remote-anonymous",
+          "route": "GET /api/sops/:slug/timeline",
+          "class": "normal",
+          "what": "登录门关着：远程匿名读时间线",
+          "request": { "method": "GET", "path": "/api/sops/task-center/timeline", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "980", "etag": "W/\"3d4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "task-center",
+              "versions": [
+                { "version": 1, "changelog": "内置任务录入模板 v1\n[publish] 长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长", "created_by": "system:seed", "created_at": "YYYY-MM-DD hh:mm:ss" }
+              ],
+              "runs": [{ "id": 1, "status": "finished", "started_by": "seed", "started_at": "YYYY-MM-DD hh:mm:ss", "finished_at": "" }],
+              "receipts": [{ "task_id": "t-1", "caller": "dsh/aaaa1111", "receipt_status": "pending", "run_id": 1 }, { "task_id": "t-2", "caller": "dsh/bbbb2222", "receipt_status": "acked", "run_id": 1 }]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce），管理口令由环境给（合成值）。预先写进库同样的东西。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "seed": [
+        { "table": "apps", "row": { "slug": "other-sop", "title": "库里的 SOP", "kind": "sop", "status": "draft", "active_version": 1 } },
+        { "table": "apps", "row": { "slug": "plain-app", "title": "库里的普通台", "kind": "app", "status": "active" } },
+        { "table": "app_versions", "row": { "app_id": 2, "version": 1, "changelog": "库里的版本", "created_by": "seed" } },
+        { "table": "sop_runs", "row": { "sop_slug": "task-center", "sop_version": 1, "started_by": "seed", "status": "finished" } },
+        { "table": "sop_runs", "row": { "sop_slug": "other-sop", "sop_version": 1, "started_by": "seed" } },
+        { "table": "a2a_run_ctx", "row": { "context_id": "ctx-1", "run_id": 1, "task_id": "t-1", "caller": "dsh/aaaa1111", "receipt_status": "" } },
+        { "table": "a2a_run_ctx", "row": { "context_id": "ctx-2", "run_id": 1, "task_id": "t-2", "caller": "dsh/bbbb2222", "receipt_status": "acked" } },
+        { "table": "a2a_run_ctx", "row": { "context_id": "ctx-3", "run_id": 1, "task_id": "", "caller": "dsh/cccc3333" } },
+        { "table": "a2a_run_ctx", "row": { "context_id": "ctx-4", "run_id": 2, "task_id": "t-4", "caller": "dsh/dddd4444" } }
+      ],
+      "steps": [
+        {
+          "id": "gated-list-anonymous",
+          "route": "GET /api/sops",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名列表",
+          "request": { "method": "GET", "path": "/api/sops", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-list-with-token",
+          "route": "GET /api/sops",
+          "class": "normal",
+          "what": "登录门开着：远程带口令列表",
+          "vary": { "1.a2a_node8": "random" },
+          "request": { "method": "GET", "path": "/api/sops", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1154", "etag": "W/\"482-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 2,
+                "slug": "other-sop",
+                "title": "库里的 SOP",
+                "description": "",
+                "created_by": "",
+                "active_version": 1,
+                "status": "draft",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "layerfs_project": "",
+                "source_repo": "",
+                "source_path": "",
+                "kind": "sop",
+                "code": "",
+                "a2a_node8": "",
+                "versions": [
+                  { "id": 2, "app_id": 2, "version": 1, "file_count": 0, "total_bytes": 0, "created_by": "seed", "changelog": "库里的版本", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "pending", "shadow_error": "", "commit_id": "", "source_commit": "" }
+                ],
+                "workbench_id": null
+              },
+              {
+                "id": 1,
+                "slug": "task-center",
+                "title": "任务中心",
+                "description": "人工发布录入任务",
+                "created_by": "system:seed",
+                "active_version": 1,
+                "status": "published",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "layerfs_project": "",
+                "source_repo": "",
+                "source_path": "",
+                "kind": "sop",
+                "code": "",
+                "a2a_node8": "<每个实例随机·string·8>",
+                "versions": [
+                  { "id": 1, "app_id": 1, "version": 1, "file_count": 1, "total_bytes": 1004, "created_by": "system:seed", "changelog": "内置任务录入模板 v1", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "pending", "shadow_error": "", "commit_id": "", "source_commit": "" }
+                ],
+                "workbench_id": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "gated-def-anonymous",
+          "route": "GET /api/sops/:slug/definition",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名看定义",
+          "request": { "method": "GET", "path": "/api/sops/task-center/definition", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-def-with-token",
+          "route": "GET /api/sops/:slug/definition",
+          "class": "normal",
+          "what": "登录门开着：远程带口令看定义",
+          "request": { "method": "GET", "path": "/api/sops/task-center/definition", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "384", "etag": "W/\"180-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "task-center",
+              "version": 1,
+              "active_version": 1,
+              "status": "published",
+              "title": "任务中心",
+              "code": "",
+              "description": "",
+              "steps": [
+                { "key": "title", "title": "任务标题" },
+                { "key": "intent", "title": "任务意图" },
+                { "key": "references", "title": "基准材料" },
+                { "key": "deliverable", "title": "提交物要求" },
+                { "key": "target", "title": "目标 SOP 台" },
+                { "key": "due", "title": "截止日期" }
+              ]
+            }
+          }
+        },
+        {
+          "id": "gated-tl-anonymous",
+          "route": "GET /api/sops/:slug/timeline",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名看时间线",
+          "request": { "method": "GET", "path": "/api/sops/task-center/timeline", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-tl-with-token",
+          "route": "GET /api/sops/:slug/timeline",
+          "class": "normal",
+          "what": "登录门开着：远程带口令看时间线",
+          "request": { "method": "GET", "path": "/api/sops/task-center/timeline", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "434", "etag": "W/\"1b2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "task-center",
+              "versions": [{ "version": 1, "changelog": "内置任务录入模板 v1", "created_by": "system:seed", "created_at": "YYYY-MM-DD hh:mm:ss" }],
+              "runs": [{ "id": 1, "status": "finished", "started_by": "seed", "started_at": "YYYY-MM-DD hh:mm:ss", "finished_at": "" }],
+              "receipts": [{ "task_id": "t-1", "caller": "dsh/aaaa1111", "receipt_status": "pending", "run_id": 1 }, { "task_id": "t-2", "caller": "dsh/bbbb2222", "receipt_status": "acked", "run_id": 1 }]
+            }
+          }
+        },
+        {
+          "id": "gated-pub-anonymous",
+          "route": "POST /api/sops/:slug/publish",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名发布",
+          "request": { "method": "POST", "path": "/api/sops/other-sop/publish", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-pub-with-token",
+          "route": "POST /api/sops/:slug/publish",
+          "class": "normal",
+          "what": "登录门开着：远程带口令发布草稿",
+          "request": { "method": "POST", "path": "/api/sops/other-sop/publish", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "543", "etag": "W/\"21f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 2,
+              "slug": "other-sop",
+              "title": "库里的 SOP",
+              "description": "",
+              "created_by": "",
+              "active_version": 1,
+              "status": "published",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "layerfs_project": "",
+              "source_repo": "",
+              "source_path": "",
+              "kind": "sop",
+              "code": "",
+              "a2a_node8": "",
+              "versions": [
+                { "id": 2, "app_id": 2, "version": 1, "file_count": 0, "total_bytes": 0, "created_by": "seed", "changelog": "库里的版本", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "pending", "shadow_error": "", "commit_id": "", "source_commit": "" }
+              ],
+              "workbench_id": 2
+            }
+          }
+        },
+        {
+          "id": "gated-dep-anonymous",
+          "route": "POST /api/sops/:slug/deprecate",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名废弃",
+          "request": { "method": "POST", "path": "/api/sops/other-sop/deprecate", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-dep-with-token",
+          "route": "POST /api/sops/:slug/deprecate",
+          "class": "normal",
+          "what": "登录门开着：远程带口令废弃",
+          "request": { "method": "POST", "path": "/api/sops/other-sop/deprecate", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "544", "etag": "W/\"220-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "id": 2,
+              "slug": "other-sop",
+              "title": "库里的 SOP",
+              "description": "",
+              "created_by": "",
+              "active_version": 1,
+              "status": "deprecated",
+              "created_at": "YYYY-MM-DD hh:mm:ss",
+              "updated_at": "YYYY-MM-DD hh:mm:ss",
+              "layerfs_project": "",
+              "source_repo": "",
+              "source_path": "",
+              "kind": "sop",
+              "code": "",
+              "a2a_node8": "",
+              "versions": [
+                { "id": 2, "app_id": 2, "version": 1, "file_count": 0, "total_bytes": 0, "created_by": "seed", "changelog": "库里的版本", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "pending", "shadow_error": "", "commit_id": "", "source_commit": "" }
+              ],
+              "workbench_id": 2
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
