@@ -107,7 +107,7 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
         ? openFollowups().map((f) => item({
           source: 'seat-letters', source_id: String(f.id), category: 'letter',
           title: `${f.sender || f.peer_zone} 来信：${f.text.slice(0, 200)}${f.truncated ? '（已截断）' : ''}`,
-          waiting_for: `receiver:${f.peer_zone}`, since: f.created_at, answers: ['ack'],
+          waiting_for: `receiver:${f.peer_zone}`, since: f.created_at, answers: ['reply', 'ack'],
           link: `/work-items/wi_${f.event_id}`,
         }))
         : null,

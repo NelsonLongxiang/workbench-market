@@ -22,7 +22,7 @@ const FIELDS: Record<string, Record<string, Field[]>> = {
   'change-requests': { approve: [{ key: 'reviewed_by', label: '审核人', required: true }], reject: [{ key: 'reviewed_by', label: '审核人', required: true }] },
   'mcp-access': { approve: [{ key: 'note', label: '备注' }], reject: [{ key: 'note', label: '拒绝理由' }] },
   'seat-asks': { answer: [{ key: 'text', label: '答复', kind: 'textarea', required: true }] },
-  'seat-letters': { ack: [] },
+  'seat-letters': { reply: [{ key: 'text', label: '回复', kind: 'textarea', required: true }], ack: [] },
   'owner-pending': { answer: [{ key: 'summary', label: '答复', kind: 'textarea', required: true }] },
   'principal-pending': { bind: [{ key: 'principal', label: '对到哪个主体（user:<名>）', required: true }, { key: 'create', label: '这个主体还没有，就新建', kind: 'check' }, { key: 'reason', label: '理由', required: true }] },
   'work-items': { return: [{ key: 'reason', label: '退回理由', kind: 'textarea', required: true }] },
