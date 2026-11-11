@@ -4,13 +4,13 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
 import { Alert, Badge, Button, Card, Collapse, Empty, Flex, List, Segmented, Space, Tag, Typography } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined, RobotOutlined } from '@ant-design/icons';
 import WmPage from '../components/WmPage';
 import RelTime from '../components/RelTime';
-import { api, getRosterTeams } from '../api';
+import { api, getLifecycleNameSources, getRosterTeams } from '../api';
 import { adminActive, subscribeAdminToken } from '../admin-token';
 import { STATE } from './WorkItem';
-import { STATE_GROUPS, appendPage, byObject, byState, groupCount, objectName, phaseName, rowLine, rowTime, viewsFor, avatarChar, rosterNames, seatNameOnly, type Who, type WorkItemListRow } from '../work-items-view';
+import { STATE_GROUPS, appendPage, byObject, byState, groupCount, objectName, phaseName, rowLine, rowTime, viewsFor, avatarChar, lifecycleNames, rosterNames, seatNameOnly, NO_NAMES, type Names, type Who, type WorkItemListRow } from '../work-items-view';
 import { actorLabel } from '../people';
 
 /** 列表行里「谁」只写名字（句柄在详情里才带）：席位查名册；来源标记 receiver:<区> 用承接席位顶上，别的去前缀 */
@@ -23,23 +23,23 @@ type Mode = 'state' | 'object';
 const MODE_KEY = 'wm-work-items-mode';
 const savedMode = (): Mode => { try { return localStorage.getItem(MODE_KEY) === 'object' ? 'object' : 'state'; } catch { return 'state'; } };
 
-function Row({ r, mode, who }: { r: WorkItemListRow; mode: Mode; who: Who }) {
+function Row({ r, mode, who, names }: { r: WorkItemListRow; mode: Mode; who: Who; names: Names }) {
   const seat = who.seat(r.seat ?? '');
   const st = STATE[r.state];
   const unread = Number(r.unread) || 0;
   return <List.Item data-testid="work-item-row"
     extra={<Space size="middle" align="center">
-      {mode === 'object' && phaseName(r.phase) ? <Tag>{phaseName(r.phase)}</Tag> : null}
+      {mode === 'object' && phaseName(r.phase, names) ? <Tag>{phaseName(r.phase, names)}</Tag> : null}
       <Tag color={st?.color ?? 'default'}>{st?.label ?? r.state}</Tag>
       <RelTime value={rowTime(r)} />
     </Space>}>
     <List.Item.Meta
-      avatar={<span className={seat ? 'wm-avatar' : 'wm-avatar wm-avatar-none'} title={seat || '还没有席位'} aria-hidden="true">{avatarChar(seat)}</span>}
+      avatar={<span className={seat ? 'wm-avatar' : 'wm-avatar wm-avatar-none'} title={seat || '还没有席位'} aria-hidden="true">{avatarChar(seat) || (seat ? <RobotOutlined /> : null)}</span>}
       title={<Space size={6}>
         <Link to={`/work-items/${encodeURIComponent(r.id)}`}>{r.title || r.id}</Link>
         {unread > 0 ? <Badge count={unread} title={`${unread} 条未读的席位消息`} data-testid="work-item-unread" /> : null}
       </Space>}
-      description={<Typography.Text type="secondary" ellipsis={{ tooltip: true }}>{rowLine(r, mode, who)}</Typography.Text>} />
+      description={<Typography.Text type="secondary" ellipsis={{ tooltip: true }}>{rowLine(r, mode, who, names)}</Typography.Text>} />
   </List.Item>;
 }
 
@@ -48,10 +48,10 @@ function Count({ n, urgent }: { n: number; urgent?: boolean }) {
   return urgent && n > 0 ? <Badge count={n} /> : <Typography.Text type="secondary" className="wm-num">{n}</Typography.Text>;
 }
 
-function Rows({ rows, mode, empty, total, who }: { rows: WorkItemListRow[]; mode: Mode; empty: string; total?: number; who: Who }) {
+function Rows({ rows, mode, empty, total, who, names }: { rows: WorkItemListRow[]; mode: Mode; empty: string; total?: number; who: Who; names: Names }) {
   if (!rows.length) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={total ? `还没加载到（共 ${total} 件，往下点「加载更多」）` : empty} />;
   return <>
-    <List size="small" dataSource={rows} rowKey="id" renderItem={(r) => <Row r={r} mode={mode} who={who} />} />
+    <List size="small" dataSource={rows} rowKey="id" renderItem={(r) => <Row r={r} mode={mode} who={who} names={names} />} />
     {total !== undefined && total > rows.length ? <Typography.Text type="secondary" className="wm-caption">已加载 {rows.length} / 共 {total} 件</Typography.Text> : null}
   </>;
 }
@@ -70,6 +70,8 @@ export default function WorkItems() {
   const [roster, setRoster] = useState<Record<string, string>>({});
   useEffect(() => { void getRosterTeams().then((t) => setRoster(rosterNames(t))); }, []);
   const who = useMemo(() => whoFor(roster), [roster]);
+  const [names, setNames] = useState<Names>(NO_NAMES);
+  useEffect(() => { void getLifecycleNameSources().then((x) => setNames(lifecycleNames(x.types, x.objects))); }, []);
 
   const fetchPage = useCallback(async (after: string | null) => {
     setLoading(true); setError('');
@@ -104,15 +106,15 @@ export default function WorkItems() {
       {loaded && total > 0 && mode === 'state' ? STATE_GROUPS.map((g) => {
         const n = groupCount(counts, g.key);
         const head = <Space size={6}><span>{g.title}</span><Count n={n} urgent={g.key === 'decide'} /></Space>;
-        const body = <Rows rows={grouped[g.key]} mode="state" empty={g.empty} total={n} who={who} />;
+        const body = <Rows rows={grouped[g.key]} mode="state" empty={g.empty} total={n} who={who} names={names} />;
         return g.collapsed
           ? <Collapse key={g.key} data-testid={`work-items-group-${g.key}`} items={[{ key: g.key, label: head, children: body }]} />
           : <Card key={g.key} size="small" title={head} data-testid={`work-items-group-${g.key}`}>{body}</Card>;
       }) : null}
       {loaded && total > 0 && mode === 'object' ? byObject(rows).map((g) => (
         <Card key={g.object || '-'} size="small" data-testid="work-items-object"
-          title={<Space size={6}><span>{g.object ? objectName(g.object) : '没关联对象'}</span><Count n={g.rows.length} /></Space>}>
-          <Rows rows={g.rows} mode="object" empty="这条线上现在没有事项" who={who} />
+          title={<Space size={6}><span>{g.object ? objectName(g.object, names) : '没关联对象'}</span><Count n={g.rows.length} /></Space>}>
+          <Rows rows={g.rows} mode="object" empty="这条线上现在没有事项" who={who} names={names} />
         </Card>
       )) : null}
       {loaded && cursor ? <Flex justify="center">

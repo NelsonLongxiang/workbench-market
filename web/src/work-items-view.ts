@@ -29,10 +29,46 @@ export function groupCount(counts: Record<string, number>, key: string): number 
   return g ? g.states.reduce((n, s) => n + (Number(counts[s]) || 0), 0) : 0;
 }
 
-/** 显示名的映射：对象、阶段之后从观测层取，席位之后从席位名册取；现在没有来源，返回原值，空值返回空串（页面就不显示那一格） */
-export const objectName = (id: string | null | undefined): string => id ?? '';
-export const phaseName = (id: string | null | undefined): string => id ?? '';
-export const seatName = (id: string | null | undefined): string => id ?? '';
+/** 对象（哪条线）、阶段的显示名：从生命周期读接口取（和全景同一处）。代号不露给人：
+ *  线没有名字写「未命名的线」；阶段查不到名字就不写这一格 */
+export type Names = { objects: Record<string, string>; stages: Record<string, string> };
+export const NO_NAMES: Names = { objects: {}, stages: {} };
+export const UNNAMED_LINE = '未命名的线';
+export const objectName = (id: string | null | undefined, names: Names = NO_NAMES): string => (id ? names.objects[id] || UNNAMED_LINE : '');
+export const phaseName = (code: string | null | undefined, names: Names = NO_NAMES): string => (code ? names.stages[code] || '' : '');
+
+/** 把生命周期的阶段码表和对象列表拍平成名字表；形状不对的项跳过，没有名字的不收 */
+export function lifecycleNames(types: unknown, objects: unknown): Names {
+  const out: Names = { objects: {}, stages: {} };
+  for (const t of Array.isArray(types) ? types : []) {
+    const st = t && typeof t === 'object' && Array.isArray((t as { stages?: unknown }).stages) ? (t as { stages: unknown[] }).stages : [];
+    for (const x of st) { const o = x as { code?: unknown; name?: unknown } | null; if (o && typeof o.code === 'string' && typeof o.name === 'string' && o.name.trim()) out.stages[o.code] = o.name.trim(); }
+  }
+  for (const x of Array.isArray(objects) ? objects : []) { const o = x as { id?: unknown; name?: unknown } | null; if (o && typeof o.id === 'string' && typeof o.name === 'string' && o.name.trim()) out.objects[o.id] = o.name.trim(); }
+  return out;
+}
+
+/** 最后一条进展怎么写成一句人话。节点给的原文像「completed：工单「…」已结束（completed）：【…结果回执】正文…」：
+ *  开头的结局代号换成中文（做完了、没办成……），去掉节点自带的套话和代号，只留正文的头一句；清不出正文就只写结局。 */
+const RESULT: Record<string, string> = { completed: '做完了', acknowledged: '收到了', failed: '没办成', rejected: '拒了', abandoned: '放弃了', dead: '投递失败', cancelled: '取消了', canceled: '取消了' };
+const CODES = Object.keys(RESULT).join('|');
+export function progressSummary(text: string, max = 40): string {
+  let t = (text || '').trim();
+  let result = '';
+  const m = new RegExp(`^(${CODES})\\s*[：:]\\s*`).exec(t);
+  if (m) { result = RESULT[m[1]]; t = t.slice(m[0].length); }
+  else if (new RegExp(`^(${CODES})$`).test(t)) return RESULT[t];
+  t = t.replace(/^工单「[^」]*」\s*已结束\s*/, '')
+    .replace(new RegExp(`[（(]\\s*(${CODES})\\s*[）)]`, 'g'), '')
+    .replace(/^[：:，,\s]+/, '')
+    .replace(/^(【[^】]*】\s*)+/, '')
+    .replace(/^[：:，,\s]+/, '');
+  let first = t.split(/[。\n；;！!？?]/)[0].trim();
+  if ([...first].length > max) first = [...first].slice(0, max).join('') + '…';
+  // 清完还剩代号、括号这类东西就不要正文了
+  if (new RegExp(`\\b(${CODES})\\b`).test(first) || /[【】]/.test(first)) first = '';
+  return [result, first].filter(Boolean).join(' · ');
+}
 
 /** 按状态分组：每组里保持服务端给的先后（最近变化的在前） */
 export function byState(rows: WorkItemListRow[]): Record<string, WorkItemListRow[]> {
@@ -68,15 +104,16 @@ export function seatOrWaiting(r: Pick<WorkItemListRow, 'seat' | 'state'>, who: W
 }
 
 /** 行的第二行说明：位置（对象·阶段；按对象分组时整段省掉，阶段另作标签显示）· 席位 · 最后一条进展 */
-export function rowLine(r: WorkItemListRow, mode: 'state' | 'object', who: Who = PLAIN): string {
-  const place = mode === 'state' ? [objectName(r.object), phaseName(r.phase)].filter(Boolean).join('·') : '';
+export function rowLine(r: WorkItemListRow, mode: 'state' | 'object', who: Who = PLAIN, names: Names = NO_NAMES): string {
+  const place = mode === 'state' ? [objectName(r.object, names), phaseName(r.phase, names)].filter(Boolean).join(' · ') : '';
   const seat = seatOrWaiting(r, who);
   const lp = r.last_progress;
   // 说话的就是承接席位时不重复写一遍名字
   const actor = lp?.actor ? who.actor(lp.actor, r.seat ?? '') : '';
   const raw = r.seat ?? '';
   const sameAsSeat = !!actor && [seat, raw, ...raw.split(' · ')].includes(actor);
-  const last = lp && lp.text ? `${actor && !sameAsSeat ? `${actor}：` : ''}${lp.text}` : '';
+  const said = lp ? progressSummary(lp.text) : '';
+  const last = said ? `${actor && !sameAsSeat ? `${actor}：` : ''}${said}` : '';
   return [place, seat, last].filter(Boolean).join(' · ');
 }
 
@@ -119,10 +156,10 @@ export function seatNameOnly(seat: string, roster: Record<string, string> = {}):
   return roster[s] ?? s;
 }
 
-/** 行首圆标里的那个字：名字的第一个字；只有句柄（<区>/<编号>）时取编号的第一个字符；没有席位给空串（页面画一个空圆） */
+/** 行首圆标里的那个字：名字的第一个字 */
 export function avatarChar(name: string): string {
   const s = (name || '').trim();
-  if (!s) return '';
-  const tail = s.includes('/') ? s.slice(s.lastIndexOf('/') + 1) : s;
-  return [...(tail || s)][0].toUpperCase();
+  // 只有句柄（<区>/<编号>）时没有有意义的字：返回空串，页面放一个中性的席位图标
+  if (!s || s.includes('/')) return '';
+  return [...s][0].toUpperCase();
 }
