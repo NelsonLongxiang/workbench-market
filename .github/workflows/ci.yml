@@ -189,6 +189,8 @@ jobs:
           node scripts/privacy-gate.mjs --selftest
       - name: 事项服务单测（阶段八 8a：第三节状态表含补定的原地行逐行正例、表外迁移逐个反例·只记录的答复与回执·终态之后只收晚到回执·同一条事实只记一次·事项日志改写删除在库这一层被拒；8b：事件日志→事项的映射·正放打乱重复终态相同·监听器漏一次回填补上·未验证来源不推进·回填两遍逐行相同·来源回滚事项也没有）
         run: node scripts/work-item-service-test.mjs && node scripts/work-item-facts-test.mjs && node scripts/work-item-migration-test.mjs
+      - name: 事项回填不挡启动（后台分批、每片让出事件循环；启动到能应答不随事件数增长·中途被杀重启接着跑、终态同一次跑完·重跑逐行相同、版本没变跳过·回填期间进来的事实不丢不重复）
+        run: node scripts/work-item-backfill-test.mjs
       - name: 「关注」的读（阶段八 8c：提供方随插件卸载撤销·七个来源都出现·每个看的人每个来源的可见性和条数等于旧接口·事项验收只给建立人和管理员、过目只给管理员·事件层未答提问 = 事项 open_asks·跨站拒）
         run: node scripts/attention-test.mjs
       - name: 工作台事件的读面认会话登录的管理员（放宽访问的对抗：管理员认定的路由集合钉成表、只多工作台事件四条·会话管理员能看·非管理员、匿名、不认的会话、错口令照旧 403·停用的主体和早在名单里的读面同一个结果·决定端点只认回复令牌）

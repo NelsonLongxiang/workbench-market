@@ -61,6 +61,7 @@ import { registerMcpRestRoutes } from './routes/mcp-rest.ts';
 import { registerSopRunControlRoutes } from './routes/sop-run-control.ts';
 import { registerSopRunAccessRoutes } from './routes/sop-run-access.ts';
 import type { WorkbenchService } from './services/workbench.ts';
+import type { WorkItemService } from './services/work-item.ts';
 import type { SopService } from './services/sop.ts';
 import type { ChangeRequestService } from './services/change-request.ts';
 import type { TaskCenterService } from './services/task-center.ts';
@@ -2319,7 +2320,10 @@ function layerfsReadiness(): Promise<'healthy' | 'unhealthy' | 'unreachable'> {
   return layerfsProbing;
 }
 function healthBase(): Record<string, unknown> {
-  return { ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, self_probe: startupSecurity.snapshot() };
+  // 事项回填的状态只报告（没跑、在跑到第几批、已完成），不因为它没跑完而报不就绪
+  let backfill: unknown = null;
+  try { backfill = svc<WorkItemService>('workItems').backfillStatus(); } catch { /* 事项服务没装上 */ }
+  return { ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, self_probe: startupSecurity.snapshot(), work_items_backfill: backfill };
 }
 app.get('/api/health', (_req, res) => {
   const result = healthBase();

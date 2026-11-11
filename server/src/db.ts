@@ -876,6 +876,20 @@ CREATE TABLE IF NOT EXISTS submitter_ticket_counts (
   PRIMARY KEY (day, outcome)
 );
 `);
+// 事项回填的进度（单行）：回填在后台分批跑，不挡启动。version 是代码里的回填版本号（services/work-item.ts 的 BACKFILL_VERSION），
+//   status：running = 跑到一半（cursor 是已核完的最后一个事件行号，重启接着跑）；done = 这个版本完整跑完过（下次启动跳过）；
+//   stale = 监听器漏过事实，下次启动整套重跑。时间由代码生成后传进来（不用 SQLite 特有的取时间写法，以后要支持 PostgreSQL）。
+db.exec(`
+CREATE TABLE IF NOT EXISTS work_item_backfill (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  version INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('running', 'done', 'stale')),
+  cursor INTEGER NOT NULL DEFAULT 0 CHECK (cursor >= 0),
+  batches INTEGER NOT NULL DEFAULT 0,
+  events INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+);
+`);
 // 阶段八 8d：「关注」的答复记账。每个（来源、来源里的 id）一行：第一次答成功就记下应答，同一条再答返回这一份；
 //   pending 表示正有人在答（并发的第二个人被告知正在处理）；答失败就删掉这一行，可以再答。原件的状态和留痕在来源自己那里。
 db.exec(`

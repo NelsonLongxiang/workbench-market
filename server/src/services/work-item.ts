@@ -300,18 +300,96 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
   return fact;
 }
 
+/**
+ * 回填版本号：迁移表、事实映射、建事项的规则改了，就加一。库里记着「这个版本完整跑完过」时，启动不再全量核对；
+ * 版本号变了、上次没跑完、或者监听器漏过事实，才重跑。
+ */
+export const BACKFILL_VERSION = 1;
+/** 后台回填每一片最多占用事件循环的时长（毫秒），之后让出，好让请求得到应答 */
+const BACKFILL_SLICE_MS = 25;
+/** 每次从事件表取的行数（一片里可以取好几次） */
+const BACKFILL_FETCH = 50;
+
+export type BackfillStatus = {
+  /** pending = 还没开始；running = 在跑；done = 这个版本完整跑完；failed = 这一轮出错停下（下次启动接着跑） */
+  state: 'pending' | 'running' | 'done' | 'failed';
+  version: number;
+  /** 已核完的最后一个事件行号；batches = 跑到第几批；events = 这一轮已核对的事件数 */
+  cursor: number; batches: number; events: number;
+  /** 这一轮从哪个事件行号之后开始（0 = 从头；上次跑到一半就是那时记下的游标） */
+  from?: number;
+  /** 跳过时说明原因：库里记着这个版本已完整跑完 */
+  skipped?: boolean;
+};
+
 export class WorkItemService extends Service {
   constructor(ctx: any) {
     super(ctx, 'workItems');
     // 8b：workbench-events 每写一行事件日志就发一个事件（在它自己的事务里）。随插件卸载自动撤销。
     ctx.on('workbench-event/logged', (row: { event_id: string; action: string }) => this.onLogged(row));
-    // 装上时回填一次：上线前的存量事件建出事项，上次运行时监听器漏掉的也补上。出错不挡启动
-    try {
-      const r = this.backfill();
-      console.log(`[work-items] 回填：核对 ${r.events} 个事件，补建 ${r.created} 个事项`);
-    } catch (e) {
-      console.error(`[work-items] 启动时回填没做完（不影响启动，下次启动或手动 backfill() 再补）：${(e as Error)?.message ?? e}`);
+    // 回填不挡启动：在后台分批跑（每一片让出事件循环），期间事项照常可读、随回填逐步补齐。随插件卸载停下
+    ctx.effect(() => {
+      let stopped = false;
+      const timer = setImmediate(() => { if (!stopped) this.runBackground(() => stopped); });
+      return () => { stopped = true; clearImmediate(timer); };
+    }, 'workItems.backfill');
+  }
+
+  private progress: BackfillStatus = { state: 'pending', version: BACKFILL_VERSION, cursor: 0, batches: 0, events: 0 };
+  /** 就绪检查里报的回填状态（不影响就绪与否） */
+  backfillStatus(): BackfillStatus {
+    return { ...this.progress };
+  }
+
+  private readBackfillMark(): { version: number; status: string; cursor: number; batches: number; events: number } | undefined {
+    return db.prepare('SELECT version, status, cursor, batches, events FROM work_item_backfill WHERE id = 1').get() as never;
+  }
+  private saveBackfillMark(status: 'running' | 'done' | 'stale', cursor: number, batches: number, events: number): void {
+    // 时间由代码生成后传进 SQL；ON CONFLICT … DO UPDATE 两种库都认
+    db.prepare(`INSERT INTO work_item_backfill (id, version, status, cursor, batches, events, updated_at) VALUES (1, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (id) DO UPDATE SET version = excluded.version, status = excluded.status, cursor = excluded.cursor, batches = excluded.batches, events = excluded.events, updated_at = excluded.updated_at`)
+      .run(BACKFILL_VERSION, status, cursor, batches, events, new Date().toISOString());
+  }
+
+  /**
+   * 后台回填：库里记着这个版本已完整跑完就跳过；上次跑到一半（同一个版本）就从游标接着跑；否则从头核。
+   * 每一片最多占 BACKFILL_SLICE_MS，游标在每一片结束时记下；进程中途被杀，重启接着跑，终态与一次跑完相同
+   * （每个事件的事实按（来源、id）去重，重核不会多写）。期间新来的事实由监听器实时应用，回填再核到同一条时跳过。
+   */
+  private runBackground(stopped: () => boolean): void {
+    const row = this.readBackfillMark();
+    if (row && row.version === BACKFILL_VERSION && row.status === 'done') {
+      this.progress = { state: 'done', version: BACKFILL_VERSION, cursor: row.cursor, batches: row.batches, events: row.events, skipped: true };
+      return;
     }
+    const resume = row && row.version === BACKFILL_VERSION && row.status === 'running';
+    let cursor = resume ? row.cursor : 0, batches = resume ? row.batches : 0, events = resume ? row.events : 0;
+    this.saveBackfillMark('running', cursor, batches, events);
+    const from = cursor;
+    this.progress = { state: 'running', version: BACKFILL_VERSION, cursor, batches, events, from };
+    const slice = () => {
+      if (stopped()) return;
+      try {
+        const t0 = Date.now();
+        let finished = false;
+        do {
+          // 新库上事件表可能还没建（任务中心初始化时才建）：那就没有可回填的
+          const hasTable = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workbench_events'").get();
+          const ids = hasTable ? db.prepare('SELECT id, event_id FROM workbench_events WHERE id > ? ORDER BY id LIMIT ?').all(cursor, BACKFILL_FETCH) as { id: number; event_id: string }[] : [];
+          if (ids.length === 0) { finished = true; break; }
+          for (const { id, event_id } of ids) { this.syncEvent(event_id); cursor = id; events++; }
+        } while (Date.now() - t0 < BACKFILL_SLICE_MS);
+        batches++;
+        this.saveBackfillMark(finished ? 'done' : 'running', cursor, batches, events);
+        this.progress = { state: finished ? 'done' : 'running', version: BACKFILL_VERSION, cursor, batches, events, from };
+        if (finished) { console.log(`[work-items] 后台回填完成：核对 ${events} 个事件，${batches} 批`); return; }
+        setImmediate(slice);
+      } catch (e) {
+        this.progress = { ...this.progress, state: 'failed' };
+        console.error(`[work-items] 后台回填停在事件行号 ${cursor} 之后（不影响服务，下次启动接着跑，或手动 backfill()）：${(e as Error)?.message ?? e}`);
+      }
+    };
+    slice();
   }
 
   /** 监听器出错不影响来源：回滚自己的保存点、打日志、按事实种类计数；漏掉的由回填补上。 */
@@ -328,6 +406,8 @@ export class WorkItemService extends Service {
       const count = (this.failures.get(key) ?? 0) + 1;
       this.failures.set(key, count);
       console.error(`[work-items] 事件 ${row?.event_id} 的事实（${key}）没推进到事项（这种事实累计 ${count} 次），下次启动的回填会补上：${(e as Error)?.message ?? e}`);
+      // 漏过事实：记下，下次启动整套重跑（不再因为「这个版本跑完过」而跳过）
+      try { db.prepare("UPDATE work_item_backfill SET status = 'stale', updated_at = ? WHERE id = 1 AND status = 'done'").run(new Date().toISOString()); } catch { /* 记不下也不影响来源 */ }
     }
   }
 
@@ -336,7 +416,8 @@ export class WorkItemService extends Service {
     inTx(() => this.syncLocked(eventId));
   }
 
-  /** 回填：从现有的事件表和事件日志把存量事项建出来、追到最新。可以重复跑，结果相同。 */
+  /** 回填（手动入口，同步跑完）：从现有的事件表和事件日志把存量事项建出来、追到最新。可以重复跑，结果相同。
+   *  跑完记下「这个版本完整跑完过」。 */
   backfill(): { events: number; created: number } {
     // 新库上事件表可能还没建（任务中心初始化时才建）：那就没有可回填的
     if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workbench_events'").get()) return { events: 0, created: 0 };
@@ -344,6 +425,9 @@ export class WorkItemService extends Service {
     const before = count();
     const ids = db.prepare('SELECT event_id FROM workbench_events ORDER BY id').all() as { event_id: string }[];
     for (const { event_id } of ids) this.syncEvent(event_id);
+    const last = (db.prepare('SELECT MAX(id) AS m FROM workbench_events').get() as { m: number | null }).m ?? 0;
+    this.saveBackfillMark('done', last, 1, ids.length);
+    if (this.progress.state !== 'running') this.progress = { state: 'done', version: BACKFILL_VERSION, cursor: last, batches: 1, events: ids.length };
     return { events: ids.length, created: count() - before };
   }
 
