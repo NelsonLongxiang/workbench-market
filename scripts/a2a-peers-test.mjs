@@ -42,10 +42,10 @@ const fp = (key) => 'sha256:' + createHash('sha256').update(Buffer.from(encodePu
 
 /** 一个假对端：出示签名名片；key 可以换；tamper 为真时出示改过一个字的名片；down 为真时 404 */
 async function fakePeer(team) {
-  const state = { key: generateKeyPairSync('ed25519'), tamper: false, down: false, version: '1.0', posts: 0 };
+  const state = { key: generateKeyPairSync('ed25519'), tamper: false, down: false, version: '1.0', posts: 0, paths: [] };
   const server = createServer((req, res) => {
     if (req.method === 'POST') { // 市场出站投递：记一次，回一个已投递
-      state.posts++; req.resume();
+      state.posts++; state.paths.push(req.url); req.resume();
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ routed: true, delivered: true, task_status: 'TASK_STATE_DELIVERED', task_id: 'peer-1', text: 'ok' }));
     }
@@ -234,6 +234,14 @@ try {
     const okB = B.state.posts;
     const sb = await send(B.root + '/', undefined);
     check(sb.status === 200 && sb.body?.ok === true && sb.body.target === B.root && B.state.posts === okB + 1, 'send：已登记的 active 对端发得出（发往登记的根地址）', show(sb));
+    // 同一对端、请求里的地址带路径或尾部差异：按根查表，发往登记的根（/a2a/direct），不是请求里的原串（/x/a2a/direct）
+    const variants = [B.root + '/x', B.root + '/x/', B.root + '//'];
+    const vOut = [];
+    for (const t of variants) { const before = B.state.paths.length; const r = await send(t, undefined); vOut.push({ t, status: r.status, target: r.body?.target, paths: B.state.paths.slice(before) }); }
+    check(vOut.every((v) => v.status === 200 && v.target === B.root && v.paths.length === 1 && v.paths[0] === '/a2a/direct'),
+      'send：同一对端、地址带路径（/x、/x/）、尾部多斜杠 → 都发往登记的根的 /a2a/direct，应答 target 是登记的根', show(vOut));
+    const upBefore = B.state.posts, up = await send(B.root.replace('http://', 'HTTP://'), undefined);
+    check(up.status === 400 && B.state.posts === upBefore, 'send：协议写成大写的地址过不了格式校验（400），不发', show(up));
     // 没登记的：不发
     const G = await fakePeer('team-g'); peers.push(G);
     const sg = await send(G.root, undefined);
