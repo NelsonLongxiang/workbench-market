@@ -220,6 +220,32 @@ try {
     const m2 = lab.got.find((g) => isReturnMsg(g));
     const d2 = dispatchOf(m2?.body?.message);
     ok('R3：两次 completed 之后再打回 → 原任务号是最近一次 completed 的（重做任务）', d2.rework?.of === redo, JSON.stringify(d2));
+    // L3：两次打回——第一次打回之后、第二次打回之前派出的任务（这里是重做 T1 上一个提问的答复 A1），在第二次打回之后晚到 completed → 只记录
+    {
+      const Y = seedEvent();
+      await receipt(Y.task, '接下', { idempotencyKey: Y.task, disposition: 'acknowledged' }, Y.ctx, { inbound: `ack-${Y.task}` });
+      await receipt(Y.task, '交付', { outcome: 'completed', idempotencyKey: Y.task, disposition: 'result' }, Y.ctx);
+      lab.got.length = 0;
+      await retAns(Y.ev, '第一次打回');
+      await waitFor(() => lab.got.some((g) => isReturnMsg(g)));
+      const T1 = lab.got.find((g) => isReturnMsg(g))?.body?.task_id ?? '';
+      await receipt(T1, '问', { idempotencyKey: T1, disposition: 'attention', question: { id: 'y1', text: '改哪一段？' } }, Y.ctx, { inbound: `attention-${T1}-y1` });
+      lab.got.length = 0;
+      await answer(Y.delivery, '第二段');
+      await waitFor(() => lab.got.some((g) => String(g.body.task_id ?? '').startsWith(`${Y.ev}.d${Y.delivery}.q`)));
+      const A1 = lab.got.find((g) => String(g.body.task_id ?? '').startsWith(`${Y.ev}.d${Y.delivery}.q`))?.body?.task_id ?? '';
+      r = await receipt(T1, '改好了', { outcome: 'completed', idempotencyKey: T1, disposition: 'result' }, Y.ctx);
+      ok('（准备）第一次打回后的重做 T1 completed → 等验收', state(Y.ev)?.state === 'ready' && T1 !== '' && A1 !== '', JSON.stringify({ s: state(Y.ev), T1, A1 }));
+      lab.got.length = 0;
+      await retAns(Y.ev, '第二次打回');
+      await waitFor(() => lab.got.some((g) => isReturnMsg(g)));
+      const T2 = lab.got.find((g) => isReturnMsg(g))?.body?.task_id ?? '';
+      r = await receipt(A1, '旧答复的结果', { outcome: 'completed', idempotencyKey: A1, disposition: 'result' }, Y.ctx);
+      ok('L3：第一次打回后、第二次打回前派出的任务（A1）在第二次打回后晚到 completed → 只记录（late-result），事项仍在进行中', r.status === 200 && state(Y.ev)?.state === 'progress'
+        && q("SELECT COUNT(*) AS c FROM work_item_log WHERE item_id = ? AND fact = 'note' AND json_extract(detail, '$.note') = 'late-result'", `wi_${Y.ev}`)[0].c === 1, `${r.text.slice(0, 80)} ${JSON.stringify(state(Y.ev))}`);
+      r = await receipt(T2, '再改好了', { outcome: 'completed', idempotencyKey: T2, disposition: 'result' }, Y.ctx);
+      ok('……第二次打回后的重做 T2 completed → 回到等验收', r.status === 200 && state(Y.ev)?.state === 'ready', `${r.text.slice(0, 80)} ${JSON.stringify(state(Y.ev))}`);
+    }
     // R4：没有 completed、派过两次 → 取最近一次派工（直接查发给谁的函数）
     const R4 = seedEvent();
     const t2 = (() => { const d = db(); try {
