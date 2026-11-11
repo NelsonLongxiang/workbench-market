@@ -745,6 +745,26 @@ CREATE TRIGGER IF NOT EXISTS work_items_creator_principal_once BEFORE UPDATE OF 
   WHEN OLD.creator_principal IS NOT NULL AND NEW.creator_principal IS NOT OLD.creator_principal
   BEGIN SELECT RAISE(ABORT, '事项的建立人主体一经记下不再改'); END;
 `);
+// 阶段八 8f：提需求的人。建录入（task-center 的 run）时经身份服务认出的主体记在 run 上，发布时事项的建立人主体取它；
+//   认不出就空着，不拿发布的人顶替。一经记下不再改。
+if (!(db.prepare('PRAGMA table_info(sop_runs)').all() as { name: string }[]).some((c) => c.name === 'requester_principal')) {
+  db.exec("ALTER TABLE sop_runs ADD COLUMN requester_principal TEXT CHECK (requester_principal IS NULL OR requester_principal GLOB 'user:?*')");
+}
+// 阶段八 8f：「人提需求」的提交计数。只有通道、有没有登录凭据、认没认出人三个维度和次数，按天（UTC）累计；不存任何提交内容。
+//   用来看各通道的提交里有多少能认出提交人（生产上直接查这张表）。
+db.exec(`
+CREATE TRIGGER IF NOT EXISTS sop_runs_requester_once BEFORE UPDATE OF requester_principal ON sop_runs
+  WHEN OLD.requester_principal IS NOT NULL AND NEW.requester_principal IS NOT OLD.requester_principal
+  BEGIN SELECT RAISE(ABORT, '录入的提需求人一经记下不再改'); END;
+CREATE TABLE IF NOT EXISTS submission_counts (
+  day TEXT NOT NULL CHECK (day GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+  channel TEXT NOT NULL CHECK (channel IN ('task-center.intake', 'task-center.publish', 'app-data.rest', 'app-data.tool')),
+  has_credential INTEGER NOT NULL CHECK (has_credential IN (0, 1)),
+  resolved INTEGER NOT NULL CHECK (resolved IN (0, 1)),
+  n INTEGER NOT NULL DEFAULT 0 CHECK (n >= 0),
+  PRIMARY KEY (day, channel, has_credential, resolved)
+);
+`);
 // 阶段八 8d：「关注」的答复记账。每个（来源、来源里的 id）一行：第一次答成功就记下应答，同一条再答返回这一份；
 //   pending 表示正有人在答（并发的第二个人被告知正在处理）；答失败就删掉这一行，可以再答。原件的状态和留痕在来源自己那里。
 db.exec(`

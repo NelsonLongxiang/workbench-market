@@ -59,7 +59,8 @@ export function canonicalTaskData(value: unknown): string {
   return JSON.stringify(sorted(value));
 }
 export class TaskIntakeError extends Error { status: number; constructor(status: number,message: string){super(message);this.status=status;} }
-/** publisherPrincipal：发布请求经身份服务认出来的人（路由给；认不出就不给）。published_by 是请求体里自填的，只用于显示 */
+/** publisherPrincipal：发布请求经身份服务认出来的人（路由给；认不出就不给），只留痕。
+ *  事项的建立人取录入 run 上记的提需求人（requester_principal），没有就空着，不拿发布的人顶替。published_by 是请求体里自填的，只用于显示 */
 export function publishTaskIntake(body: any, opts: { publisherPrincipal?: string | null } = {}) {
   const runId=body?.intake_run_id;
   if (!Number.isSafeInteger(runId)||runId<=0) throw new TaskIntakeError(400,'intake_run_id 必填（正整数）');
@@ -84,7 +85,7 @@ export function publishTaskIntake(body: any, opts: { publisherPrincipal?: string
     const id=Number(info.lastInsertRowid);
     db.prepare("INSERT INTO task_events(task_id,type,actor,actor_kind,payload_json) VALUES(?,'published',?,'human',?)").run(id,actor,JSON.stringify({intake_run_id:runId,template_version:run.sop_version,material_sha256:hash}));
     // 工作台事件 v1：人工发布即 human 事件，与发布同一事务（不会出现发布了却没有事件）
-    const event_id=recordTaskCenterEvent({id,data,stepValue,publishedBy:by,publisherPrincipal:opts.publisherPrincipal??null,templateVersion:run.sop_version,materialSha256:hash,agentDispatch:body.agent_dispatch===true,centerOn:taskCenterPolicy().agent_dispatch_enabled});
+    const event_id=recordTaskCenterEvent({id,data,stepValue,publishedBy:by,requesterPrincipal:typeof run.requester_principal==='string'?run.requester_principal:null,publisherPrincipal:opts.publisherPrincipal??null,templateVersion:run.sop_version,materialSha256:hash,agentDispatch:body.agent_dispatch===true,centerOn:taskCenterPolicy().agent_dispatch_enabled});
     db.exec('COMMIT');
     return {ok:true,id,status:'published',intake_run_id:runId,template_version:run.sop_version,material_sha256:hash,event_id};
   } catch(e) {db.exec('ROLLBACK');throw e;}

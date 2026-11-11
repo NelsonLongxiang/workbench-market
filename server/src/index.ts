@@ -2,6 +2,8 @@ import express from 'express';
 import { createStartupSecurityProbe, isStartupProbeRequest } from './startup-security-self-probe.ts';
 import { createLoginGate, loginGateMode, trustedProxies } from './login-gate.ts';
 import { identity, loginRelay } from './identity.ts';
+import { requestPerson, hasLoginCredential } from './request-person.ts';
+import { countSubmission } from './services/submission-counts.ts';
 import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
 import { recordAppDataEvent, cancelTaskCenterDeliveries, kickWorkbenchEvents, startWorkbenchEventWorker, registerWorkbenchEventRoutes } from './workbench-events.ts';
 import cors from 'cors';
@@ -1312,7 +1314,7 @@ function appDataContract(a: AppRow): DataContract | null {
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9_.:-]{1,128}$/;
 /** 台数据写入核心：REST POST /api/apps/:slug/data 与 MCP app_data_submit 共用——1MB 上限、数据契约、幂等键、写入后推事件。
  *  违约不抛错，回 status 400 + violations，由两个入口各自原样交出去。 */
-function submitAppData(a: AppRow, input: { data: unknown; createdBy?: unknown; idempotencyKey?: unknown }): { status: number; body: Record<string, unknown> } {
+function submitAppData(a: AppRow, input: { data: unknown; createdBy?: unknown; idempotencyKey?: unknown; channel: { name: 'app-data.rest' | 'app-data.tool'; hasCredential: boolean } }): { status: number; body: Record<string, unknown> } {
   const data = input.data;
   const json = JSON.stringify(data);
   if (json === undefined) bad('data 必填');
@@ -1340,6 +1342,8 @@ function submitAppData(a: AppRow, input: { data: unknown; createdBy?: unknown; i
   // 工作台事件 v1：推送改走事件投递队列（退避重试、终态 sent/dead 可查），信封带 event_id 与 submitter_kind。
   // 提交面匿名、created_by 自填 → submitter_kind 恒 unverified、dispatch:false（只通知不派发）。
   // 联合评审① C：统一绑定表——notify 方向行（授 admits 不触发推送·方向独立性铁律）
+  // 8f：不带内容的提交计数。台的提交今天认不出人（8f-2 的票据之前），resolved 恒为否
+  countSubmission(input.channel.name, input.channel.hasCredential, false);
   try {
     if (recordAppDataEvent({ slug: a.slug, id: itemId, data, json, createdBy: created_by, createdAt })) kickWorkbenchEvents();
   } catch (err) { console.error(`[app-notify] event record failed ${a.slug}: ${String(err).slice(0, 120)}`); }
@@ -1355,6 +1359,7 @@ app.post('/api/apps/:slug/data', (req, res) => {
     data: envelope ? b.data : b,
     createdBy: b.created_by,
     idempotencyKey: req.get('idempotency-key') ?? (envelope ? b.idempotency_key : undefined),
+    channel: { name: 'app-data.rest', hasCredential: hasLoginCredential(req) },
   });
   res.status(out.status).json(out.body);
 });
@@ -1604,14 +1609,14 @@ function mergeRunData(row: SopRunRow, stepKey: string, value: unknown): string {
 }
 
 /** 开 run（钉当前版本；仅 published） */
-function sopRunStartCore(slugRaw: string, startedByRaw: string): { id: number; slug: string; version: number; status: string; data: Record<string, unknown>; read_capability: string } {
+function sopRunStartCore(slugRaw: string, startedByRaw: string, requester: string | null = null): { id: number; slug: string; version: number; status: string; data: Record<string, unknown>; read_capability: string } {
   const slug = slugRaw.trim().toLowerCase();
   if (!slug) bad('slug 必填');
   const hit = readActiveManifest(slug);
   if (!hit) throw new HttpError(404, `SOP not found: ${slug}`);
   if (hit.app.status !== 'published') throw new HttpError(409, `SOP 状态为 ${hit.app.status}，仅 published 可执行`);
   const started_by = startedByRaw.trim();
-  const r = svc<SopService>('sop').runCreate(slug, hit.app.active_version, started_by) as unknown as { lastInsertRowid: number | bigint };
+  const r = svc<SopService>('sop').runCreate(slug, hit.app.active_version, started_by, slug === 'task-center' ? requester : null) as unknown as { lastInsertRowid: number | bigint };
   const id = Number(r.lastInsertRowid);
   // P0：run-scoped 上传令牌（启动签发·Runner 页内嵌·files POST 必带）
   const uploadToken = randomBytes(32).toString('hex');
@@ -2020,10 +2025,16 @@ app.post('/api/sop/runs/:id/assign', wrap(async (req, res) => {
   res.status(201).json({ ok: true, run_id: runId, node, task_id: `task-${runId}` });
 }));
 
-app.post('/api/sop/runs', (req, res) => {
-  const out = sopRunStartCore(String(req.body?.slug ?? ''), String(req.body?.started_by ?? ''));
+// 8f：建任务中心的录入就是「提需求」：经身份服务认出提需求的人记在 run 上（发布时事项的建立人取它），并记一笔不带内容的计数。
+// 认不出照旧放行；请求体里的 started_by 是自填的，只用于显示。别的 SOP 的 run 照旧，不认人
+app.post('/api/sop/runs', wrap(async (req, res) => {
+  const slug = String(req.body?.slug ?? '');
+  const intake = slug.trim().toLowerCase() === 'task-center';
+  const who = intake ? await requestPerson(req) : null;
+  const out = sopRunStartCore(slug, String(req.body?.started_by ?? ''), who?.principal ?? null);
+  if (who) countSubmission('task-center.intake', who.hasCredential, who.principal !== null);
   res.status(201).json(out);
-});
+}));
 
 app.get('/api/sop/runs/active', wrap(async (_req, res) => {
   // #338: a nonempty Redis set is not proof that it contains every running row.
@@ -3195,7 +3206,8 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       // 与 REST POST /api/apps/:slug/data 同一核心（契约校验、幂等、事件推送）；违约 → 400 + violations 原样
       const a = getApp(String(args?.slug ?? ''));
       if (args?.data === undefined || args?.data === null) bad('data 必填');
-      const out = submitAppData(a, { data: args.data, createdBy: args?.created_by ?? subject, idempotencyKey: args?.idempotency_key });
+      // 工具调用凭的是会话令牌（席位、agent），不看 cookie
+      const out = submitAppData(a, { data: args.data, createdBy: args?.created_by ?? subject, idempotencyKey: args?.idempotency_key, channel: { name: 'app-data.tool', hasCredential: false } });
       if (out.status >= 400) throw new HttpError(out.status, String(out.body.error), { violations: out.body.violations });
       return { ...out.body, status: out.status };
     }
