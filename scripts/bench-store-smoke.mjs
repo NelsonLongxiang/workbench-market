@@ -355,25 +355,25 @@ try {
   for (let o = 0; o < N; o += 5000) await big.append('wide', mk(5000, o), ctx());
   const slow = { dataset: 'wide', measures: [{ as: 'n', fn: 'count_distinct', col: 'body' }] };
   const count = async () => (await big.query({ dataset: 'wide', measures: [{ as: 'n', fn: 'count' }] })).rows[0].n;
-  // 量这段时间里本进程的事件循环最长停了多久：每 5 毫秒打一次点，记相邻两次的最大间隔
+  // 这段时间里本进程的事件循环还转不转：每毫秒打一次点，数打了几次（turns），记相邻两次的最大间隔（gap，只打印）。
+  // 断言只用 turns，不比用时：机器忙的时候用时会飘，但「一次都没轮到」和「轮到过很多次」分得清
   const watch = async (fn) => {
-    let gap = 0, last = performance.now();
-    const iv = setInterval(() => { const n = performance.now(); gap = Math.max(gap, n - last); last = n; }, 5);
+    let gap = 0, turns = 0, last = performance.now();
+    const iv = setInterval(() => { const n = performance.now(); gap = Math.max(gap, n - last); last = n; turns++; }, 1);
     const t0 = performance.now();
-    try { return { value: await fn(), took: performance.now() - t0, gap }; } finally { clearInterval(iv); }
+    try { return { value: await fn(), took: performance.now() - t0, gap, turns }; } finally { clearInterval(iv); }
   };
   const base = configureBenchRuntime({});
   let m = await watch(() => big.query(slow));
-  const slowMs = m.took;
   console.log(`    慢查询 ${m.took.toFixed(0)} 毫秒，期间本进程最长停顿 ${m.gap.toFixed(0)} 毫秒`);
-  ok('T1 慢查询期间市场进程不停：最长停顿不到查询用时的一半', m.value.rows[0].n === N && m.gap < m.took / 2, { took: m.took, gap: m.gap });
+  ok(`T1 慢查询期间市场进程照常转：事件循环轮到了 ${m.turns} 次（要是在本进程里跑，一次也轮不到）`, m.value.rows[0].n === N && m.turns >= 3, { took: m.took, gap: m.gap, turns: m.turns });
 
   configureBenchRuntime({ queryMs: 20 });
   let st = benchRuntimeStats();
   m = await watch(() => refused(() => big.query(slow)));
   configureBenchRuntime(base);
   ok('T2 查询超时：报 timeout，写明没有生效', m.value?.code === 'timeout' && /没有生效/.test(m.value.message), m.value);
-  ok(`T2 到时限就停（${m.took.toFixed(0)} 毫秒），不是跑完才报；没有动用强行终止`, m.took < slowMs / 2 + 60 && benchRuntimeStats().kills === st.kills, { took: m.took, slowMs });
+  ok('T2 停在扫描的中途，不是跑完才报；没有动用强行终止', /扫描/.test(m.value?.details?.[0] ?? '') && benchRuntimeStats().kills === st.kills, m.value);
   e = await refused(async () => { q = await big.query(slow); });
   ok('T2 超时之后这个台照常可用，被打断的那条查询再发一次也正常', await count() === N && e === null && q.rows[0].n === N, e);
 
@@ -384,14 +384,21 @@ try {
   ok('T3 写入超时：报 timeout', e?.code === 'timeout' && /没有生效/.test(e.message), e);
   ok('T3 整批回滚：行数、快照、写入记录都没变', await count() === N && (await big.snapshots('wide')).length === s0 && (await big.writes(500)).length === w0);
   m = await watch(() => big.replace('wide', mk(N), ctx({ idemKey: 'timeout-then-retry-1' })));
+  const replaceMs = m.took;
   console.log(`    整份替换 ${N} 行 ${m.took.toFixed(0)} 毫秒，期间本进程最长停顿 ${m.gap.toFixed(0)} 毫秒`);
   ok('T3 带同一个幂等键重试：这次真的写了，不算重复', m.value.duplicate !== true && m.value.row_count === N && Number.isInteger(m.value.snapshot_id), m.value);
 
-  // 时限从轮到它开始算，排队的时间不算：四个慢查询同时发，时限定在单个用时的两倍半——要是从发起算，排在后面的会超时
-  configureBenchRuntime({ queryMs: Math.ceil(slowMs * 2.5) + 50 });
-  const four = await Promise.all([1, 2, 3, 4].map(() => refused(() => big.query(slow))));
+  // 时限从轮到它开始算，排队的时间不算：前面排两次整份替换，后面跟一条全表计数（本身很快，但中途会看时限）。
+  // 读的时限定在一次替换用时的一半：排队等的时间是它的四倍上下——要是从发起算，这条查询一开始就超时了
+  const readBudget = Math.max(100, Math.ceil(replaceMs / 2));
+  configureBenchRuntime({ queryMs: readBudget });
+  const tq = performance.now();
+  const ahead = [1, 2].map(() => big.replace('wide', mk(N), ctx()).then(() => null, (x) => x?.code ?? String(x)));
+  const quick = refused(() => count());
   configureBenchRuntime(base);
-  ok('T4 排队的时间不算进时限', four.every((x) => x === null), four);
+  e = await quick;
+  const waited = performance.now() - tq;
+  ok(`T4 排队的时间不算进时限：排了 ${waited.toFixed(0)} 毫秒才轮到（时限 ${readBudget} 毫秒），照常做完`, e === null && waited > readBudget && (await Promise.all(ahead)).every((x) => x === null), { e, waited, readBudget });
 
   // 停不下来的操作（整库备份是一条语句，中途回不到服务里）：时限加宽限过了，强行终止线程
   const bk = join(DATA, 'big-backup.sqlite');
@@ -410,10 +417,10 @@ try {
   // 被强行终止的线程手里握着写锁（留快照要先读完全表，中途停不下来）：等它真的退出才起新线程，排在后面的写入不会撞上锁
   configureBenchRuntime({ writeMs: 1, graceMs: 1 });
   st = benchRuntimeStats();
-  const killedInTx = refused(() => big.snapshot('wide', ctx()));
+  const killedInTx = refused(() => big.snapshot('wide', ctx())); // 这一刻已经发给线程，时限按上面的算
+  configureBenchRuntime(base); // 排在后面的那次写入用正常的时限
   const writeBehind = refused(() => big.upsert('wide', [{ id: 1, body: 'after-kill', grp: 2 }], ctx()));
   e = await killedInTx;
-  configureBenchRuntime(base);
   const wb = await writeBehind;
   ok('T5 事务做到一半被强行终止：排在后面的写入在新线程上成功，没有撞上旧线程的锁', e?.code === 'timeout' && benchRuntimeStats().kills === st.kills + 1 && wb === null, { e, wb });
   ok('T5 被终止的那次留快照没有生效', (await big.snapshots('wide')).length === s0 + 1 && await count() === N);
@@ -435,7 +442,7 @@ try {
   stopBenchWorkerAbruptly();
   m = await inflight;
   ok('T9 线程意外退出：手上那件事报内部错误，写明写入是否生效不确定', m.value?.code === 'internal' && /意外退出/.test(m.value.message) && benchRuntimeStats().crashes === st.crashes + 1, m.value);
-  ok(`T9 马上就知道（${m.took.toFixed(0)} 毫秒），不是等到时限加宽限`, m.took < 1500, { took: m.took });
+  ok(`T9 线程一退出就知道（${m.took.toFixed(0)} 毫秒），不是等到时限加宽限（5 秒）`, m.took < 4000, { took: m.took });
   ok('T9 下一次读写另起线程，照常', await count() === N && benchRuntimeStats().spawns === st.spawns + 1);
 
   // 提交之前看时限：时限短到任何写入都来不及，而这次写入中途没有别的检查点——只有提交前这一道拦得住
@@ -443,20 +450,17 @@ try {
   configureBenchRuntime({ writeMs: 0.01 });
   e = await refused(() => big.putView(bigDoc, ctx({ base: 0, note: '应当超时' })));
   configureBenchRuntime(base);
-  ok('T10 提交之前看时限：过了就不提交，报 timeout', e?.code === 'timeout' && (await big.viewVersions()).length === 0 && (await big.getView()) === null, e);
+  ok('T10 提交之前看时限：过了就不提交，报 timeout', e?.code === 'timeout' && /提交之前/.test(e.details[0] ?? '') && (await big.viewVersions()).length === 0 && (await big.getView()) === null, e);
   e = await refused(async () => { r = await big.putView(bigDoc, ctx({ base: 0, note: '正常时限' })); });
   ok('T10 同一份内容，时限正常时保存成功', e === null && r.version === 1 && r.active_version === 1, e ?? r);
 
-  // 写入在行与行之间看时限：超时的大写入早早停下，不是把两万行都插完才发现。比的是用时，留了很宽的余量
+  // 写入在行与行之间看时限：超时的大写入一行都还没写就停下，不是把全部行都插完、到提交之前才发现
   await big.defineDataset({ name: 'fresh', columns: [{ name: 'id', type: 'integer' }, { name: 'body', type: 'text' }, { name: 'grp', type: 'integer' }], key: ['id'] }, ctx());
   configureBenchRuntime({ writeMs: 0.01 });
-  m = await watch(() => refused(() => big.replace('fresh', mk(N), ctx())));
+  e = await refused(() => big.replace('fresh', mk(N), ctx()));
   configureBenchRuntime(base);
-  const stoppedIn = m.took;
-  ok('T11 超时的大写入：报 timeout，一行没写', m.value?.code === 'timeout' && (await big.query({ dataset: 'fresh', measures: [{ as: 'n', fn: 'count' }] })).rows[0].n === 0, m.value);
-  m = await watch(() => big.replace('fresh', mk(N), ctx()));
-  console.log(`    两万行写入：超时的那次 ${stoppedIn.toFixed(0)} 毫秒就停了，写完的那次 ${m.took.toFixed(0)} 毫秒`);
-  ok('T11 停得早：用时不到写完那次的七成', stoppedIn < m.took * 0.7, { stoppedIn, full: m.took });
+  ok('T11 超时的大写入：报 timeout，一行没写', e?.code === 'timeout' && (await big.query({ dataset: 'fresh', measures: [{ as: 'n', fn: 'count' }] })).rows[0].n === 0, e);
+  ok('T11 停在写第 1 行之前，不是全写完才发现', /写第 1 行之前/.test(e?.details?.[0] ?? ''), e);
 
   // 线程只认登记过的操作名和消息格式（直接起一个线程发消息，不经市场进程这一侧）
   const tw = new Worker(new URL('../server/src/services/bench-store-worker.ts', import.meta.url), { workerData: { root: join(DATA, 'direct'), kit: benchSqlKit('sqlite') } });

@@ -61,8 +61,8 @@ interface Conn {
   run(sql: string, params?: unknown[]): Promise<number>;
   /** 定这一次读写的时限：at 是到期的时刻（performance.now 的刻度，Infinity 是不限），budget 是给了多少毫秒（报错时用） */
   setDeadline(at: number, budget: number): void;
-  /** 过了时限就抛 timeout；没过什么都不做 */
-  check(): void;
+  /** 过了时限就抛 timeout；没过什么都不做。where 是停在哪一步，放进报错的细目里（调用方排查用，也让「停在了哪」可验） */
+  check(where: string): void;
   begin(): Promise<void>;
   commit(): Promise<void>;
   rollback(): Promise<void>;
@@ -80,15 +80,15 @@ class SqliteConn implements Conn {
     try {
       this.db.exec('PRAGMA journal_mode = WAL');
       // 扫描守卫（db.ts 的 scanGuard 模板引用它）：库每扫过若干行回到这里看一眼时限，过了就抛错，语句当场停下
-      this.db.function('bench_tick', { deterministic: false }, () => { this.check(); return 1; });
+      this.db.function('bench_tick', { deterministic: false }, () => { this.check('扫描数据的中途'); return 1; });
     } catch (e) {
       try { this.db.close(); } catch { /* 没开成 */ }
       throw e;
     }
   }
   setDeadline(at: number, budget: number) { this.deadline = at; this.budget = budget; }
-  check() {
-    if (performance.now() > this.deadline) throw new BenchError('timeout', `台库操作超过时限（${this.budget} 毫秒），已中止；这一次没有生效`);
+  check(where: string) {
+    if (performance.now() > this.deadline) throw new BenchError('timeout', `台库操作超过时限（${this.budget} 毫秒），已中止；这一次没有生效`, [`停在：${where}`]);
   }
   /**
    * 出过错的语句不再复用：逐行取到一半被打断（超时、结果太大）的语句，下一次再用会先报一次上回的错。
@@ -260,7 +260,7 @@ export class BenchStoreCore {
       this.pending = [];
       let r: T;
       // 提交之前再看一次时限：过了就不提交。这样「报了超时」和「没有生效」是同一回事
-      try { r = await fn(); this.conn.check(); await this.conn.commit(); } catch (e) {
+      try { r = await fn(); this.conn.check('提交之前'); await this.conn.commit(); } catch (e) {
         await this.conn.rollback();
         this.pending = [];
         if (!(e instanceof BenchError) && /unique|duplicate/i.test(String((e as Error)?.message ?? ''))) throw new BenchError('conflict', '主键重复：已有同主键的行');
@@ -404,7 +404,7 @@ export class BenchStoreCore {
     const tbl = physTable(ds.name);
     let n = 0;
     for (const r of rows) {
-      if ((n++ & 63) === 0) this.conn.check(); // 行与行之间看时限
+      if ((n++ & 63) === 0) this.conn.check(`写第 ${n} 行之前`); // 行与行之间看时限
       await this.conn.run(`INSERT INTO ${tbl} (${r.cols.map(physCol).join(', ')}) VALUES (${r.cols.map(() => '?').join(', ')})`, r.vals);
     }
   }
@@ -465,7 +465,7 @@ export class BenchStoreCore {
         const before = Number((await this.conn.all(`SELECT COUNT(*) AS n FROM ${tbl}`))[0].n);
         let n = 0;
         for (const r of checked) {
-          if ((n++ & 63) === 0) this.conn.check();
+          if ((n++ & 63) === 0) this.conn.check(`写第 ${n} 行之前`);
           const rest = r.cols.filter((x) => !ds.key.includes(x));
           await this.conn.run(`INSERT INTO ${tbl} (${r.cols.map(physCol).join(', ')}) VALUES (${r.cols.map(() => '?').join(', ')}) ON CONFLICT (${keyCols}) DO `
             + (rest.length ? `UPDATE SET ${rest.map((x) => `${physCol(x)} = excluded.${physCol(x)}`).join(', ')}` : 'NOTHING'), r.vals);
@@ -496,14 +496,14 @@ export class BenchStoreCore {
         const tbl = physTable(ds.name), cond = ds.key.map((kc) => `${physCol(kc)} = ?`).join(' AND ');
         let hit = false, n = 0;
         for (const v of vals) {
-          if ((n++ & 63) === 0) this.conn.check();
+          if ((n++ & 63) === 0) this.conn.check('核对要删的行');
           if ((await this.conn.all(`SELECT 1 AS x FROM ${tbl} WHERE ${cond} LIMIT 1`, v)).length) { hit = true; break; }
         }
         if (!hit) return { dataset: ds.name, op: 'delete', rows: keys.length, row_count: 0, deleted: 0 };
         const snapshot_id = (await this.takeSnapshot(ds, 'before-delete', c)).id;
         let deleted = 0;
         for (const v of vals) {
-          if ((n++ & 63) === 0) this.conn.check();
+          if ((n++ & 63) === 0) this.conn.check('删行的中途');
           deleted += await this.conn.run(`DELETE FROM ${tbl} WHERE ${cond}`, v);
         }
         return { dataset: ds.name, op: 'delete', rows: keys.length, row_count: 0, deleted, snapshot_id };
@@ -662,7 +662,7 @@ export class BenchStoreCore {
       // 先写到旁边的临时文件，写完、没超时，再改名：目标文件要么没有，要么是完整的
       const tmp = `${file}.partial`;
       rmSync(tmp, { force: true });
-      try { await this.conn.backupTo(tmp); this.conn.check(); renameSync(tmp, file); } catch (e) { rmSync(tmp, { force: true }); throw e; }
+      try { await this.conn.backupTo(tmp); this.conn.check('备份写完之后'); renameSync(tmp, file); } catch (e) { rmSync(tmp, { force: true }); throw e; }
     });
   }
   /** 等排着的读写都跑完再关；从调用这一刻起不再接新的读写。关过的再关一次没有效果 */
