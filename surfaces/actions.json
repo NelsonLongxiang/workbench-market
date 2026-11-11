@@ -492,6 +492,7 @@
   },
   "domains": {
     "system": [
+      "a2a",
       "a2a-peer",
       "admin",
       "admin-token",
@@ -560,6 +561,7 @@
             "admin"
           ],
           "domains": [
+            "a2a",
             "a2a-peer",
             "admin",
             "admin-token",
