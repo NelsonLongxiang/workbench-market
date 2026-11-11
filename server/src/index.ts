@@ -46,6 +46,7 @@ import { settingsViewsLeak } from './settings-view.ts';
 import { registerAdminTokenRoutes } from './routes/admin-token.ts';
 import { registerBindingRoutes } from './routes/bindings.ts';
 import { registerA2aPeerRoutes } from './routes/a2a-peers.ts';
+import { registerA2aDirectRoutes } from './routes/a2a-direct.ts';
 import { registerExportImportRoutes } from './routes/export-import.ts';
 import { registerLoginFlowRoutes } from './routes/login-flows.ts';
 import { registerWorkbenchRoutes } from './routes/workbenches.ts';
@@ -94,12 +95,11 @@ import { parse as parseYaml } from 'yaml';
 import { startRedis, redisHealthy, redisConfigured, runStateRestore, runStateRead, runStateRetire, type RunStateRead } from './redis.ts';
 import { createRunCheckpoints } from './sop-state-checkpoints.ts';
 import { duplicateNode8s } from './services/a2a-handles.ts';
-import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, memberProvenanceMode, setMemberProvenance, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
+import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, memberProvenanceMode, setMemberProvenance, a2aSendOutbound, formatA2aReceipt, marketOriginClaim, marketPublicUrl, MARKET_TEAM } from './a2a.ts';
 import type { IncomingMessage } from 'node:http';
-import { noteA2aError, type A2aErrorKey } from './a2a/errors.ts';
 import { a2aHealth } from './a2a/health.ts';
-import { followupRateLimit, handleInboundReceipt } from './a2a/receipt-inbound.ts';
-import { cardCooldownMs, createDirectSigVerifier, directSigBodyMode, directSigMode, shownRefusal, type DirectSigMode, type SigRefusal } from './a2a-direct-sig.ts';
+import { followupRateLimit } from './a2a/receipt-inbound.ts';
+import { cardCooldownMs, createDirectSigVerifier, directSigBodyMode, directSigMode, type DirectSigMode } from './a2a-direct-sig.ts';
 import { isInsideRoot } from './path-inside.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -2465,86 +2465,7 @@ registerA2aPeerRoutes(http, { adminGuard, adminActor }); // 对端登记表：�
 // /a2a/direct（P2）：准入开放——有效绑定 + 同 context 续 run + 上游幂等族 + 512KiB + DELIVERED 形状。
 // 查无 SOP 仍 404 不泄露；无绑定/draft/mode 不足 → 200 TASK_STATE_FAILED -32000（对齐上游 admission 形状）。
 // ADMIN_TOKEN 未设置时绑定面休眠（主人裁定：内网信任模型）——direct 对无绑定的 SOP 自然全拒。
-app.post('/a2a/direct', express.json({ limit: '600kb' }), async (req, res) => {
-  const rawBytes = Number(req.headers['content-length'] ?? 0) || JSON.stringify(req.body ?? {}).length;
-  // 阶段七 R3：A2A 回执的窄分流——正文是回执、任务号是我们发出的、签名方是当初投递到的那台宿主，三条都成立才走这里；否则照原路，应答不变
-  const inboundReceipt = await handleInboundReceipt(req, { audiences: () => [marketPublicUrl()], followupRate: A2A_FOLLOWUP_RATE });
-  if (inboundReceipt) { res.status(inboundReceipt.status).json(inboundReceipt.body); return; }
-  // 入站签名（WM_A2A_DIRECT_SIG）：签名身份对上 caller_session 才进下面的绑定准入
-  if (A2A_DIRECT_SIG !== 'off') {
-    const caller = typeof req.body?.caller_session === 'string' ? req.body.caller_session : '';
-    const presence = directSig.presence(req);
-    let reason = '';
-    if (presence === 'signed') {
-      const v = await directSig.verify(req, (req as unknown as { rawBody?: Buffer }).rawBody ?? Buffer.alloc(0), caller);
-      // accept：取卡或验签这一步失败（没登记、取不到卡、卡上身份不对、签名对不上卡）一律按未签名的老路走——
-      // 不比不带签名的请求更宽、也不更严。内部日志照旧记原因
-      if (!v.ok && A2A_DIRECT_SIG === 'accept' && FETCH_STEP_REFUSALS.has(v.reason)) console.warn(JSON.stringify({ source: 'a2a-direct-sig', unverified: v.reason, fallback: 'unsigned' }));
-      else if (!v.ok) reason = v.reason;
-    } else if (A2A_DIRECT_SIG === 'require') reason = presence === 'unbound' ? 'unbound-only' : 'absent';
-    if (reason !== '') {
-      console.warn(JSON.stringify({ source: 'a2a-direct-sig', refused: reason }));
-      noteA2aError(`sig:${reason}` as A2aErrorKey);
-      // 对外把取卡这一步的几种失败（没登记、取不到卡、卡上身份不对、签名对不上卡）并成一种，不泄露绑定是否存在；内部日志照旧分开
-      const shown = shownRefusal(reason as SigRefusal);
-      res.status(401).json({ error: `untrusted-origin: signature verification failed (${shown}) — sign with OriginClaim Sig2 (X-A2A-Caller/-Url/-Ts/-Aud/-Sig2) using the card key published at the address registered on your binding`, code: -32000, task_status: 'TASK_STATE_FAILED' });
-      return;
-    }
-  }
-  // run 操作桥（P2 note 写入走 sop_runs 的哑数据面：step_key=note-<ts> 追加不覆盖）
-  const runOps = {
-    start: (slug: string, startedBy: string): { id: number; read_capability: string } => { const r = sopRunStartCore(slug, startedBy); return { id: r.id, read_capability: r.read_capability }; },
-    uploadToken: (id: number): string => String((svc<SopService>('sop').runUploadToken(id) as { upload_token?: string } | undefined)?.upload_token ?? ''), // P0：派单回执带令牌（创建者即得）
-    saveNote: (runId: number, text: string): Promise<void> => runCheckpoints.serial(runId, async () => {
-      const row = sopRunRow(runId);
-      if (row.status !== 'running') throw new HttpError(409, 'run ' + runId + ' 已 ' + row.status + '，不可再写');
-      const data = row.sop_slug === 'task-center' ? storedRunData(row) : (await runLiveData(row, false, true)).data; // #448: a note is a write too
-      const notes = Array.isArray(data['a2a-notes']) ? data['a2a-notes'] as unknown[] : [];
-      notes.push({ at: new Date().toISOString(), text });
-      data['a2a-notes'] = notes;
-      if (row.sop_slug === 'task-center') {
-        svc<SopService>('sop').runUpdateData(runId, JSON.stringify(data));
-        runCheckpoints.forget(runId); // pure SQLite path must never retain a stale note snapshot
-      } else {
-        runCheckpoints.remember(runId, data, true); // delivered note requires SQLite success before cache publication
-        await runStateRestore(runId, { slug: row.sop_slug, version: row.sop_version, status: row.status, started_by: row.started_by, updated_at: Date.now() }, data, runCacheCheckpoint(sopRunRow(runId)));
-      }
-    }),
-    statusOf: (runId: number): { status: string; steps: number } | null => {
-      const row = svc<SopService>('sop').runStatusData(runId) as { status: string; data: string } | undefined;
-      if (!row) return null;
-      let n = 0;
-      try { n = Object.keys(JSON.parse(row.data || '{}')).length; } catch { n = 0; }
-      return { status: row.status, steps: n };
-    },
-    ctxBind: (contextId: string): number | null => {
-      const hit = svc<SopService>('sop').ctxRunId(contextId) as { run_id: number } | undefined;
-      return hit ? hit.run_id : null;
-    },
-    ctxRegister: (contextId: string, runId: number): void => {
-      svc<SopService>('sop').ctxRegister(contextId, runId);
-    },
-    ctxRegisterSource: (r: { contextId: string; runId: number; taskId: string; caller: string; team: string; receiptStatus: string }): void => {
-      svc<SopService>('sop').ctxRegisterSource(r);
-    },
-    bindingCallback: (slug: string, caller: string): string => {
-      const b = svc<SopService>('sop').bindingByNodeFull(slug, caller) as { callback_url?: string } | undefined;
-      return b?.callback_url ?? '';
-    },
-    ctxAttachCallback: (runId: number, callbackUrl: string): void => {
-      svc<SopService>('sop').ctxSetCallback(runId, callbackUrl);
-    },
-  };
-  try {
-    const out = await a2aDirectHandle(req.body, rawBytes, runOps);
-    res.status(out.httpStatus).json(out.body);
-  } catch (e: any) {
-    res.status(200).json({ error: `direct handler failed: ${String(e?.message ?? e)}`, code: -32000, task_status: 'TASK_STATE_FAILED' });
-  }
-});
-app.get('/a2a/direct', (_req, res) => {
-  res.status(404).json({ error: 'not found' });
-});
+registerA2aDirectRoutes(http, { A2A_DIRECT_SIG, A2A_FOLLOWUP_RATE, FETCH_STEP_REFUSALS, directSig, sopRunStartCore, runCheckpoints, sopRunRow, storedRunData, runLiveData, runStateRestore, runCacheCheckpoint });
 
 // ---------- 统一门户：/go/:id/* 反向代理到对应工作台 ----------
 // 所有注册工作台挂到 9800 同域路径下：一个端口号 + 同源（CORS 消失）+
