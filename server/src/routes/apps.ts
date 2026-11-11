@@ -73,7 +73,7 @@ export function registerAppRoutes(app: HttpService, deps: AppDeps): void {
   });
 
   // 写总门已把关：本机 CLI 或管理员（口令 / Odoo 管理员），与原 POST /api/apps 同口径
-  app.post('/api/apps/:slug/sync', { action: 'app.sync', kind: 'admin' }, wrap(async (req, res) => {
+  app.post('/api/apps/:slug/sync', { action: 'app.sync', kind: 'admin', statusNotVerdict: '任务中心元台不从仓库同步时回 403，是台的规则不是授权' }, wrap(async (req, res) => {
     const b = (req.body ?? {}) as Record<string, unknown>;
     // #165：锁身份=客户端会话，不用 created_by（元数据·同操作者带/不带会被当成两个会话误报 409）
     const who = String(req.headers['x-market-client'] ?? '').trim() || (isAdmin(req) ? 'admin-session' : 'loopback-anon');
@@ -137,7 +137,7 @@ export function registerAppRoutes(app: HttpService, deps: AppDeps): void {
 
 export function registerAppLifecycleRoutes(app: HttpService, deps: AppLifecycleDeps): void {
   const { sameOriginGuard, adminGuard, wrap, bad, activateAppVersion, deleteAppCascade } = deps;
-  app.post('/api/apps/:slug/activate', { action: 'app.rollback', kind: 'admin' }, wrap(async (req, res) => {
+  app.post('/api/apps/:slug/activate', { action: 'app.rollback', kind: 'admin', refine: [{ action: 'app.rollback-task-center', kind: 'admin', why: '任务中心元台切版本要管理员（别的台只过写请求总门）', when: (req) => req.params.slug === 'task-center' }] }, wrap(async (req, res) => {
     if (req.params.slug === 'task-center') {
       if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
       if (!adminGuard(req,res)) return;
@@ -149,7 +149,7 @@ export function registerAppLifecycleRoutes(app: HttpService, deps: AppLifecycleD
     res.json({ ...out, reviewed_by: reviewedBy });
   }));
 
-  app.delete('/api/apps/:slug', { action: 'app.delete', kind: 'admin' }, wrap(async (req, res) => {
+  app.delete('/api/apps/:slug', { action: 'app.delete', kind: 'admin', refine: [{ action: 'app.delete-task-center', kind: 'admin', why: '删任务中心元台要管理员（别的台只过写请求总门）', when: (req) => req.params.slug === 'task-center' }] }, wrap(async (req, res) => {
     if (req.params.slug === 'task-center') {
       if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
       if (!adminGuard(req,res)) return;

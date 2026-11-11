@@ -791,6 +791,50 @@ CREATE TRIGGER IF NOT EXISTS grant_events_no_delete BEFORE DELETE ON grant_event
 CREATE TRIGGER IF NOT EXISTS grant_events_no_replace BEFORE INSERT ON grant_events WHEN EXISTS (SELECT 1 FROM grant_events WHERE seq = NEW.seq)
   BEGIN SELECT RAISE(ABORT, 'grant_events 只增不改'); END;
 `);
+// 阶段六 6c：授予的来源（manual 人起草的；migration 迁移出来的，能整批列出、整批撤销）。建好不能改
+try { const gCols = db.prepare('PRAGMA table_info(grants)').all() as { name: string }[]; if (!gCols.some((c) => c.name === 'source')) db.exec("ALTER TABLE grants ADD COLUMN source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual','migration'))"); } catch (e) { console.warn('[db] grants 补 source 列失败：', (e as Error).message); }
+db.exec(`
+CREATE TRIGGER IF NOT EXISTS grants_source_fixed BEFORE UPDATE OF source ON grants WHEN NEW.source IS NOT OLD.source
+  BEGIN SELECT RAISE(ABORT, '授予的来源建好就不能改'); END;
+`);
+// 阶段六 6c：判定的并行比对（开关 WM_JUDGMENT_COMPARE，缺省关）的记账，放在单独的库文件 judgment-compare.db 里：
+//   比对攒批、在应答之后异步写，不和业务库抢锁（测试自己开旁路连接改业务库时也不会撞上）。只在比对打开时才建。
+//   只记路由模式、动作、身份类别、两边结论、命中的规则，不记请求体、查询串、凭据，也不记路径里的 id。
+//   judgment_tally：每条路由每种结果的计数（一致、不一致、不确定、404 不判、没报动作、状态码不代表授权、被完整性门拦下、出错、溢出）。
+//   judgment_mismatches：不一致按「路由模式、身份类别、两边结论、命中规则」合并计数，留一个主体标识和一条授予做样例；最多 1000 种。
+let compareDb: DatabaseSync | null = null;
+export function judgmentCompareDb(): DatabaseSync {
+  if (compareDb) return compareDb;
+  const handle = new DatabaseSync(join(dataDir, 'judgment-compare.db'));
+  handle.exec(`
+PRAGMA journal_mode = WAL;
+CREATE TABLE IF NOT EXISTS judgment_tally (
+  route TEXT NOT NULL,
+  action TEXT NOT NULL DEFAULT '',
+  outcome TEXT NOT NULL CHECK (outcome IN ('agree','mismatch','uncertain','skip-404','unregistered','not-verdict','integrity-blocked','error','overflow')),
+  count INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (route, outcome)
+);
+CREATE TABLE IF NOT EXISTS judgment_mismatches (
+  key TEXT PRIMARY KEY,
+  route TEXT NOT NULL,
+  domain TEXT NOT NULL,
+  action TEXT NOT NULL,
+  actor_kind TEXT NOT NULL,
+  old TEXT NOT NULL,
+  new TEXT NOT NULL,
+  rule TEXT NOT NULL,
+  status INTEGER NOT NULL,
+  principal_sample TEXT NOT NULL DEFAULT '',
+  grant_sample INTEGER,
+  count INTEGER NOT NULL DEFAULT 0,
+  first_at INTEGER NOT NULL,
+  last_at INTEGER NOT NULL
+);
+`);
+  compareDb = handle;
+  return handle;
+}
 // 这两张表只在本分支的早先版本里有过没有规范化列的形状（从没发布过）。碰上就拒绝启动，说清楚怎么办：
 // 带着它跑，新来的人一律认不出（503），不如一开始就停下
 for (const [table, column] of [['principals', 'id_key'], ['principal_identities', 'external_key']]) {

@@ -58,6 +58,9 @@ function silentRes(): express.Response {
   return res as unknown as express.Response;
 }
 
+/** 席位消息的已读与回复：建立人本人或管理员能做，是事项上的规则（判定这一步还不知道落在哪件事项上），401、403、404 不拿来和统一判定比 */
+const SEAT_WRITER_DECIDES = '按事项的建立人判：建立人本人或管理员，是事项上的规则不是角色授权';
+
 export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps): void {
   // 列表：GET /api/work-items?state=&object=&phase=&limit=&cursor=。可见范围和详情同一个判断（管理员看全部，别人只看自己是建立人的），
   // 看不到的不出现也不计数。按 updated_at、id 倒序，游标翻页（limit 缺省 100、上限 200）；另带可见范围里按状态的计数
@@ -153,7 +156,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
     return { actor: who.viewer.sub, item };
   }
 
-  app.post('/api/work-items/:id/messages/read', { action: 'work-items.messages-read', kind: 'write' }, (req, res, next) => {
+  app.post('/api/work-items/:id/messages/read', { action: 'work-items.messages-read', kind: 'write', statusNotVerdict: SEAT_WRITER_DECIDES }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
     const id = String(req.params.id ?? '');
@@ -165,7 +168,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
     })().catch(next);
   });
 
-  app.post('/api/work-items/:id/messages/:mid/reply', { action: 'work-items.messages-reply', kind: 'write' }, (req, res, next) => {
+  app.post('/api/work-items/:id/messages/:mid/reply', { action: 'work-items.messages-reply', kind: 'write', statusNotVerdict: SEAT_WRITER_DECIDES }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
     const id = String(req.params.id ?? '');

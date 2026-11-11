@@ -37,6 +37,8 @@ import { registerContentObservationRoutes } from './routes/content-observation.t
 import { registerAuthViewerRoutes } from './routes/auth-viewer.ts';
 import { registerPrincipalRoutes } from './routes/principals.ts';
 import { loadRoleDeclarations, registerGrantRoutes } from './routes/grants.ts';
+import { installBuiltinJudge } from './judgment.ts';
+import { compareConfig, mountJudgmentCompare } from './judgment-compare.ts';
 import { registerAttentionRoutes } from './routes/attention.ts';
 import { registerWorkItemRoutes } from './routes/work-items.ts';
 import { registerSettingsRoutes } from './routes/settings.ts';
@@ -99,6 +101,13 @@ const http = svc<HttpService>('http'); // HTTP 服务持有 Express 应用；域
 const app = http.expressApp(); // 全局中间件、监听和还没搬走的路由，照旧直接用应用本身
 const startupSecurity = createStartupSecurityProbe();
 app.use(startupSecurity.middleware); // #326: before parsers, content dispatch and every business route
+// 阶段六 6c：判定事件的内置监听器（六步）；并行比对（WM_JUDGMENT_COMPARE，缺省关）在应答结束之后算新结论、和旧结论比，不改应答
+installBuiltinJudge();
+{
+  let cfg: ReturnType<typeof compareConfig>;
+  try { cfg = compareConfig(); } catch (e) { console.error(`[judgment] 拒绝启动：${(e as Error).message}`); process.exit(1); }
+  mountJudgmentCompare(app, cfg, { adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), skip: isStartupProbeRequest, facts: () => ({ adminTokenSet: !!process.env.ADMIN_TOKEN || dbAdminTokenSet() }) });
+}
 // 全站登录门（WM_LOGIN_GATE=enforce|off，缺省 off）：紧跟启动自检门，早于内容分发、解析器、静态资源、SPA 回落和各路由。
 // 依赖都是函数声明或请求期才取的值（提升/闭包），这里只建不调。值不合法拒绝启动（同 MCP_GATEWAY #284）
 const LOGIN_GATE_MODE = loginGateMode();

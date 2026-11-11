@@ -65,6 +65,8 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_SESSION_TTL_MIN`（市场会话的绝对期限，分钟·缺省 720＝12 小时·范围 15～10080·不续期·不合法拒绝启动）
 - `WM_APP_DATA_READ`（台数据与附件的读守卫·缺省 `enforce`：`GET /api/apps/<台>/data`、`/files`、`/files/<id>` 要本台的台令牌、管理员（同源）或本机命令行，下载另认本台页面的查看凭证，都不满足 403；`warn`＝上线过渡用，照旧放行，只按路由和调用方类别计数留痕（日志 `source: app-data-read`），过渡完设回 `enforce`；其它值拒绝启动）
 - `WM_ROLES_FILE`（组织角色的外部声明文件·绝对路径·JSON `{"roles":[…]}`·设了就以它为准，不设用仓库里的通用初始集合·平台内置角色不能被覆盖，同名、循环包含、引用不存在的动作、范围写法不对都拒绝启动）
+- `WM_JUDGMENT_COMPARE`（判定的并行比对·`on` 打开·缺省 `off`·别的值拒绝启动·打开时每个请求应答结束之后算新判定、和旧守卫的结论比，不改应答，并给第一次见到的人迁移 `member`、身份来源说是管理员的迁移 `admin`（来源记 migration）·只在 CI 和出报告用的实例里开，不在生产上开）
+- `WM_JUDGMENT_COMPARE_OUT`（比对打开时每比一次追加一行 JSON 的文件·绝对路径·可选·给出报告的脚本汇总）
 - `WM_FEISHU_LOGIN`（`on`=打开飞书登录·缺省关）
 - `WM_FEISHU_AUTHORIZE_URL` / `WM_FEISHU_TOKEN_URL` / `WM_FEISHU_USERINFO_URL`（飞书授权页、换令牌、取用户信息的地址·缺省取飞书开放平台文档里的·只收 https）
 - `WM_FEISHU_TENANT_TOKEN_URL` / `WM_FEISHU_CONTACT_USER_URL`（对账用：取 tenant_access_token、按 union_id 查人的地址·缺省同上）
@@ -247,6 +249,23 @@ GET              /api/health/ready              就绪：含 LayerFS 探测（�
 - **离职即时失效**：飞书事件订阅的请求地址填 `<MARKET_PUBLIC_URL>/login/feishu/events`，订阅「员工离职」`contact.user.deleted_v3` 和「员工信息被修改」`contact.user.updated_v3`，并配 Encrypt Key。Encrypt Key、Verification Token 放在凭据库同一条（`WM_FEISHU_VAULT_ENTRY`）的自定义字段 `encrypt_key`、`verification_token` 里。照飞书文档验签（时间戳 5 分钟内、`X-Lark-Signature`）、解密、核对 Token 和 App ID；验不过 401。同一个事件号只处理一次（多实例共用、保留 7 天）；记事件号和停用在同一个事务里，停用出错事件号一起撤回，飞书重推时照常处理。处理出错只回固定的 503（`event_unavailable`），内部原因只进日志。离职、被修改成离职、冻结、退出的人：停用他绑着的主体，每个入口立即不认，会话一并注销；还没对到主体的从待对接清单里删掉。配了租户时别的租户的事件不处理。
 - **每日对账**：每天一次把绑在启用的人身上的飞书身份交给飞书查（`tenant_access_token` 加按 union_id 查人），状态明确说离职、冻结、退出的才停用；飞书出错、查不到的一个也不停用，只计数留痕。管理员可以手动跑一次：`POST /api/principals/reconcile`，请求体 `{"flow":"feishu"}`。**补不上的情形**：飞书那边直接删掉的人，如果「员工离职」事件也丢了，按 union_id 查回来是「不存在」，对账按查不清处理、不停用，每天留痕里的 `unknown` 会一直算上他。`unknown` 不为 0 就要人工复核：留痕的 `unknown_ids` 列出查不清的 union_id（最多 100 个），对着飞书通讯录核对，确认离开了由管理员手动停用（`POST /api/principals/disable`）。
 - **角色与授予**（阶段六 6b，只建结构，不接判定，不改变任何人能做什么）：角色是声明——平台四个内置角色（`owner` 属主＝读写决定管理、`admin` 管理员＝读写管理、`member` 成员＝读、`guest` 访客＝空），组织角色用仓库里的通用初始集合（`dept-member` 部门成员＝读写、`dept-lead` 部门负责人＝部门成员加决定），或者 `WM_ROLES_FILE` 指的外部声明文件。权限按动作或按类别写，范围通常不写、由授予给（`*`、`domain:`、`bench:`、`sop:`、`tool:`、`self`，另预留 `object:` 只存只比相等）。授予是数据：`/api/grants` 起草→提交→放行→撤销，状态只能往前走、每步留痕；不能给自己授予；管理员级的只有属主（本机命令行，或持有生效的 `owner` 授予的人）能放行；不是人的主体要有在职的责任人；决定类权限不给不是人的主体；到期自动失效。
+- **判定与并行比对**（阶段六 6c，不改变任何人能做什么）：
+  - 判定是 Cordis 事件 `judgment/judge`，按 bail 派发。内置监听器照六步判：主体停用→拒；动作没声明→拒；决定类而做的不是人→先问人；有覆盖的授予→允许，席位还要责任人也有；其余→拒。企业规则是另外的插件，挂在它前面。
+  - 管理口令、本机命令行、本机页面、匿名是内置身份（`server/src/judgment-builtins.ts`）：权限按动作逐条列出，列的就是旧守卫今天放行的那些，进 `surfaces/actions.json` 的快照。管理口令另照管理员角色算，五个决定类动作登记为「代属主行事」。本机页面由匿名的清单推出来；登录认出来的人判不过时按匿名的清单兜底（匿名能做的，登录的人也能做）；少数比管理员更严的动作单独收窄（只有列出的身份能做）。
+  - 旧行为里不合理的地方登记在 [docs/judgment-legacy-differences.md](docs/judgment-legacy-differences.md)，以后单独改。
+  - 路由可以声明「状态码不代表授权」（`statusNotVerdict`，写原因）和按请求细分的动作（`refine`，比如带 `reveal=1` 的导出、任务中心台的发布），都进快照。
+  - `WM_JUDGMENT_COMPARE=on` 时，每个请求应答结束之后算新结论，和旧守卫的结论比：
+    - 401/403 是拒、2xx/3xx 是允许、404 不判、其余记「不确定」；
+    - 声明了状态码不代表授权的不比；
+    - 带跨站或别的站标记又被拒的记「被完整性门拦下」：同源门在判定之外、之前，切换时原样保留；
+    - 只比报了动作的路由。
+  - 比对记录：
+    - 不一致按路由模式、身份类别、两边结论、命中规则合并计数，最多 1000 种；
+    - 不记请求体、查询串、凭据和路径里的 id；
+    - 记账攒批，应答之后异步写进单独的库文件 `judgment-compare.db`（不和业务库抢锁），写失败只计数；
+    - 判定出错只计数，不影响应答。
+  - 结果看 `GET /api/judgment/compare`。`scripts/judgment-compare-report.mjs` 把回放和 CI 脚本在比对打开时跑一遍，按域×原因出报告。零不一致的门槛有两道，都在 CI 里：`scripts/judgment-compare-zero-test.mjs` 跑全量回放；`scripts/judgment-compare-sweep-test.mjs` 让六种身份把每条 GET 打一遍、写面挑代表。
+  - 迁移出来的授予来源记 migration：`GET /api/grants?source=migration` 列出，`POST /api/grants/revoke-migration`（只有属主）整批撤销。
 - 管不到的：按 run 发的读凭据、自产台查看凭证是不记名的，各有各的期限和吊销，不随主体停用失效；已经建立的 WebSocket 连接不会被掐断，新的请求和新的连接立即拒绝。停用是按登录名对的：身份来源那边把登录名改了，就是另一个人。
 - **读要凭据**：`GET /api/apps/<slug>/data`、`/files`、`/files/<id>` 要本台的台令牌（`X-App-Token`，服务端出台页面时注入）、管理员（口令或管理员登录，同源）或本机命令行；沙箱页的下载链接和图片带不了头，认登录门签给本台页面的查看凭证（`wm_av`）。不满足一律 403，先于查台。远程 agent 读台数据走 MCP（`app_data_list`、`app_files_list`，可按台授权）。设计上，能打开某个台页面的人就能读这个台的数据（台令牌在页面里）；「谁能打开哪个台」和按人读另行设计。
 
@@ -296,6 +315,9 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   http.ts  HTTP 服务（Cordis 服务 http）：持有 Express 应用；域模块经它注册路由，每条报上动作名和类别，注册可撤销
   identity.ts（身份契约：核心只经它认人·Cordis 服务 `identity` 认人与 whoami、`loginRelay` 业务台登录中继的窄接口·`/api/auth/viewer`·提供方认出的人要对到主体上才算数，主体停用即不认）
   index.ts（REST+静态+巡检装配）
+  judgment-builtins.ts（内置身份：管理口令、本机命令行、本机页面、匿名，权限按动作逐条列出，进快照）
+  judgment-compare.ts（判定的并行比对：WM_JUDGMENT_COMPARE 打开时比新旧结论、记不一致）
+  judgment.ts（判定：Cordis 事件 `judgment/judge`，内置监听器照六步判）
   layerfs-shadow.ts（LayerFS 影子发布结果持久化：只回写 commit_id 为空的版本行，失败标记后可重试）
   login-gate.ts（全站登录门 WM_LOGIN_GATE：enforce 时页面 302 登录、API 401）
   mcp-tools.ts（MCP 工具注册表）
@@ -345,6 +367,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   binding.ts（A2A 人工绑定）
   change-request.ts（人审变更请求）
   grant.ts（授予：Cordis 服务 `grants`·草稿→待核→生效→撤销或过期只能往前走·不能给自己授予·管理员级只有属主能放行·决定类只给人·到期自动失效·每步留痕）
+  judgment-compare.ts（判定比对的记账：Cordis 服务 `judgmentCompare`·按路由计数·不一致合并计数、有上限）
   login-session.ts（市场会话与登录 state：Cordis 服务 `loginSessions`·绝对期限·注销与停用即失效·state 一次性并绑浏览器）
   principal.ts（主体与外部身份：Cordis 服务 `principals`·把登录认出的人对到主体·停用与恢复）
   remote-allow.ts（远程写豁免面的快照）

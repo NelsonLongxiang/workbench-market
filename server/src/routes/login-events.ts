@@ -84,7 +84,7 @@ export function registerLoginEventRoutes(app: HttpService): void {
   const route = (fn: (req: express.Request, res: express.Response) => Promise<unknown>): express.RequestHandler =>
     (req, res, next) => { fn(req, res).catch(next); };
 
-  app.post('/login/:flow/events', { action: 'login.event', kind: 'write' }, route(async (req, res) => {
+  app.post('/login/:flow/events', { action: 'login.event', kind: 'write', statusNotVerdict: '验签：签名、来源不对回 401，由登录方式插件判，不看身份' }, route(async (req, res) => {
     res.set('Cache-Control', 'no-store');
     const flow = String(req.params.flow);
     if (!FLOW_RE.test(flow) || !identity().flowCapabilities(flow).events) return res.status(401).json({ error: 'event_unauthorized' });

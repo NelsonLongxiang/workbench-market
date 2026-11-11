@@ -46,7 +46,7 @@ export function registerAdminTokenRoutes(app: HttpService, deps: AdminTokenDeps)
     });
   });
 
-  app.put('/api/admin-token', { action: 'admin-token.set', kind: 'admin' }, (req, res) => {
+  app.put('/api/admin-token', { action: 'admin-token.set', kind: 'admin', refine: [{ action: 'admin-token.first-set', kind: 'admin', why: '还没设过口令时的首次设置（只限本机，见存量差异清单）', when: (_req, facts) => !facts.adminTokenSet }] }, (req, res) => {
     if (process.env.ADMIN_TOKEN) return res.status(400).json({ error: '口令由启动环境 ADMIN_TOKEN 提供，页面不可改（改环境变量并重启）' });
     const token = typeof req.body?.token === 'string' ? req.body.token : '';
     if (token.length < 4 || token.length > 128) return res.status(400).json({ error: '口令长度 4–128' });

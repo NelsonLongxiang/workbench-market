@@ -107,6 +107,7 @@ async function exportSurfaces() {
   const { MCP_TOOLS } = await import(pathToFileURL(join(ROOT, 'server/src/mcp-tools.ts')).href);
   const tools = MCP_TOOLS.map((t) => `${t.name}  ${t.category}${t.exempt ? '  exempt' : ''}`).sort();
   const toolActions = MCP_TOOLS.map((t) => `${t.name}  ${t.category}`).sort();
+  const { BUILTINS, NARROWED, unknownBuiltinActions } = await import(pathToFileURL(join(ROOT, 'server/src/judgment-builtins.ts')).href);
 
   if (claimStub()) cleanups.push(releaseStub);
   const port = await freePort();
@@ -144,7 +145,13 @@ async function exportSurfaces() {
     const apps = dumped.wmSurface, actionApps = dumped.wmActions ?? [];
     const misaligned = alignActions(apps, actionApps);
     if (misaligned.length) throw new Error(`动作清单和路由快照对不上：${misaligned.slice(0, 5).join('；')}`);
-    return { routes: { note: ENV_NOTE, apps }, actions: { note: ACTIONS_NOTE, apps: actionApps, tools: toolActions }, tools, schema: readSchema(join(data, 'workbench-market.db')) };
+    // 内置身份（judgment-builtins.ts）清单里的动作都要在：路由报的（含细分的）或 MCP 工具名。对不上导出失败
+    const known = new Set(MCP_TOOLS.map((t) => t.name));
+    for (const line of actionApps.flat()) for (const m of String(line).matchAll(/(?:-> |；细分：)([a-z][a-z0-9-]*\.[a-z][a-z0-9-]*)  /g)) known.add(m[1]);
+    const unknown = unknownBuiltinActions((a) => known.has(a));
+    if (unknown.length) throw new Error(`内置身份引用了动作清单里没有的动作：${unknown.join('、')}`);
+    const builtins = { identities: BUILTINS.map((b) => ({ name: b.name, label: b.label, ...(b.role ? { role: b.role } : {}), actions: [...b.actions], actsForOwner: [...b.actsForOwner] })), narrowed: NARROWED.map((n) => ({ action: n.action, only: [...n.only], why: n.why })) };
+    return { routes: { note: ENV_NOTE, apps }, actions: { note: ACTIONS_NOTE, apps: actionApps, tools: toolActions, builtins }, tools, schema: readSchema(join(data, 'workbench-market.db')) };
   } finally {
     // 先请它退出；3 秒不退就强杀，并且等到它真的退出，再删数据目录
     const exited = () => child.exitCode !== null || child.signalCode !== null;

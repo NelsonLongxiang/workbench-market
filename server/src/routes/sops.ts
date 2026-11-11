@@ -45,7 +45,7 @@ export function registerSopStateRoutes(app: HttpService, deps: SopStateDeps): vo
     res.json(rows.map(appDetail));
   });
 
-  app.post('/api/sops/:slug/publish', { action: 'sop.publish', kind: 'admin' }, (req, res) => {
+  app.post('/api/sops/:slug/publish', { action: 'sop.publish', kind: 'admin', refine: [{ action: 'sop.publish-task-center', kind: 'admin', why: '任务中心这个 SOP 台的发布要管理员（别的只过写请求总门）', when: (req) => req.params.slug === 'task-center' }] }, (req, res) => {
     if (req.params.slug === 'task-center') {
       if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
       if (!adminGuard(req,res)) return;
@@ -58,7 +58,7 @@ export function registerSopStateRoutes(app: HttpService, deps: SopStateDeps): vo
     res.json(appDetail(getApp(a.slug)));
   });
 
-  app.post('/api/sops/:slug/deprecate', { action: 'sop.deprecate', kind: 'admin' }, (req, res) => {
+  app.post('/api/sops/:slug/deprecate', { action: 'sop.deprecate', kind: 'admin', refine: [{ action: 'sop.deprecate-task-center', kind: 'admin', why: '任务中心这个 SOP 台的下架要管理员（别的只过写请求总门）', when: (req) => req.params.slug === 'task-center' }] }, (req, res) => {
     if (req.params.slug === 'task-center') {
       if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
       if (!adminGuard(req,res)) return;
@@ -76,7 +76,7 @@ export function registerSopSpaceRoutes(app: HttpService, deps: SopSpaceDeps): vo
   /** #318 SOP 交付空间「定义」与单次记录的步骤骨架：只回步骤 key / 标题，不回步骤正文 HTML。
    *  可见性同 Runner（issue #11）：published 公开；draft / deprecated 只给管理员。
    *  ?version=N 读该版本（单次记录按 run 的 sop_version 取）；版本目录已冷存时 404，不猜。 */
-  app.get('/api/sops/:slug/definition', { action: 'sop.definition', kind: 'read' }, (req, res) => {
+  app.get('/api/sops/:slug/definition', { action: 'sop.definition', kind: 'read', statusNotVerdict: '按资源状态：草稿、已下架的定义只给管理员看，别人 403' }, (req, res) => {
     const a = getApp(req.params.slug);
     if (a.kind !== 'sop') throw new HttpError(404, `SOP not found: ${req.params.slug}`);
     if (a.status !== 'published' && !adminHeaderOk(req)) return res.status(403).set('Cache-Control', 'no-store').json({ error: `SOP ${a.slug} 状态为 ${a.status}，定义仅管理员可见` });

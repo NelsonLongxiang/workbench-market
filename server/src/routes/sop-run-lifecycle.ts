@@ -68,7 +68,7 @@ export function registerSopRunLifecycleRoutes(app: HttpService, deps: SopRunLife
     res.json(await sopRunFinishCore(Number(req.params.id)));
   }));
 
-  app.get('/api/sop/runs/:id(\\d+)/upgrade-preflight', { action: 'sop-run.upgrade-preflight', kind: 'read' }, wrap(async (req, res) => {
+  app.get('/api/sop/runs/:id(\\d+)/upgrade-preflight', { action: 'sop-run.upgrade-preflight', kind: 'read', statusNotVerdict: '按 run 的凭据：读能力、主体读授权由 run 授权判' }, wrap(async (req, res) => {
     const id = Number(req.params.id);
     await markOdooAdmin(req); // 只用 Odoo 登录的管理员能升级，也要能打开预检（GET 不经写门，不会预先认定）
     const auth = await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, id);
