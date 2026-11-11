@@ -133,7 +133,7 @@ export function checkCassette(cassette, known, moduleRouteCount = null, answered
       const path = String(step?.request?.path ?? '');
       if (!method || !path.startsWith('/')) { problems.push(`${where}：request 要有 method 和以 / 开头的 path`); continue; }
       if (step.verify !== undefined && !(step.verify in VERIFIERS)) { problems.push(`${where}：verify 只能是 ${Object.keys(VERIFIERS).join('、')}`); continue; }
-      if (step.vary !== undefined && !(step.vary && typeof step.vary === 'object' && !Array.isArray(step.vary) && Object.keys(step.vary).length > 0 && Object.values(step.vary).every((h) => h === 'random' || (typeof h === 'number' && h > 0)))) { problems.push(`${where}：vary 要写成 { 字段路径: 'random' 或一个正数 }`); continue; }
+      if (step.vary !== undefined && !(step.vary && typeof step.vary === 'object' && !Array.isArray(step.vary) && Object.keys(step.vary).length > 0 && Object.entries(step.vary).every(([k, h]) => (k === '$text' ? h === 'hex64' : h === 'random' || (typeof h === 'number' && h > 0))))) { problems.push(`${where}：vary 要写成 { 字段路径: 'random' 或一个正数 }，文本应答体写 { $text: 'hex64' }`); continue; }
       if (step.compare !== undefined && step.compare !== 'status' && !(Array.isArray(step.compare) && step.compare.length > 0 && step.compare.every((x) => typeof x === 'string' && x))) { problems.push(`${where}：compare 只能是 'status'，或者一组字段的路径`); continue; }
       if (step.route === undefined) continue;
       if (!covered.has(step.route)) { problems.push(`${where}：route 不在 routes 里：${step.route}`); continue; }
@@ -277,9 +277,12 @@ export function differences(before, after, path = '响应体', out = []) {
  * 应答体里每次都不一样、又不是时间的字段：请求上写 vary，按字段的路径点名。
  *   'random'：每个实例随机生成的值（密钥、签名）。换成占位，只留类型和长度，有没有这个字段照样比。
  *   一个正数 n：由「现在」算出来、带毫秒的数。往下取整到 n 的倍数再比（定了时钟，起实例到发请求只差几秒）。
+ *   文本的应答体（比如注入了台令牌的 HTML）：写 { $text: 'hex64' }，正文里每一段独立的 64 位十六进制
+ *   （每个实例随机的密钥算出来的令牌）换成占位，别的字照常比。
  * 别的字段照常比，响应头也照常比。
  */
 export function applyVary(body, vary) {
+  if (vary && typeof body === 'string') return vary.$text === 'hex64' ? body.replace(/(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])/g, '<每个实例随机·hex64>') : body;
   if (!vary || body === null || typeof body !== 'object') return body;
   const out = structuredClone(body);
   for (const [path, how] of Object.entries(vary)) {
@@ -589,6 +592,10 @@ async function selftest() {
   const card = { publicKey: 'abcd', signature: 'xyz12', expiresAt: 1893456123456, name: 'm', nested: { k: 'q' } };
   const varied = applyVary(card, { publicKey: 'random', signature: 'random', expiresAt: 60000, 'nested.k': 'random', gone: 'random' });
   check(varied.publicKey === '<每个实例随机·string·4>' && varied.signature === '<每个实例随机·string·5>' && varied.expiresAt === 1893456120000 && varied.name === 'm' && varied.nested.k === '<每个实例随机·string·1>' && !('gone' in varied) && card.publicKey === 'abcd', 'vary：随机的值换成占位、留类型和长度；带毫秒的数往下取整；别的字段不动；不改原对象');
+  const html = '<meta name="t" content="' + 'a'.repeat(64) + '"><script>x="' + 'b'.repeat(64) + '";y="' + 'c'.repeat(65) + '";</script>';
+  const maskedHtml = applyVary(html, { $text: 'hex64' });
+  check(maskedHtml === '<meta name="t" content="<每个实例随机·hex64>"><script>x="<每个实例随机·hex64>";y="' + 'c'.repeat(65) + '";</script>' && applyVary(html, { other: 'random' }) === html && compareStep({ response: steadyResponse({ status: 200, type: 'text/html', headers: {}, body: maskedHtml }) }, shapeOf({ vary: { $text: 'hex64' } }, { status: 200, type: 'text/html', headers: {}, body: html.replace('a'.repeat(64), 'd'.repeat(64)) })).length === 0 && compareStep({ response: steadyResponse({ status: 200, type: 'text/html', headers: {}, body: maskedHtml }) }, shapeOf({ vary: { $text: 'hex64' } }, { status: 200, type: 'text/html', headers: {}, body: html.replace('x=', 'z=') })).length === 1, 'vary：文本应答体里独立的 64 位十六进制换成占位（65 位的不动）；令牌换了不算差异，别的字变了算');
+  check(checkCassette(withSteps([a, b, c, { id: 'v', vary: { $text: 'random' }, request: { method: 'GET', path: '/api/x' } }]), known).some((p) => p.includes('vary')), 'vary：$text 只收 hex64，写错了静态检查拦下');
   const vstep = { vary: { signature: 'random' } };
   const vrec = { ...vstep, response: shapeOf(vstep, { status: 200, type: 'a', headers: {}, body: { signature: 'aaaa', name: 'm' } }) };
   check(compareStep(vrec, shapeOf(vstep, { status: 200, type: 'a', headers: {}, body: { signature: 'bbbb', name: 'm' } })).length === 0 && compareStep(vrec, shapeOf(vstep, { status: 200, type: 'a', headers: {}, body: { signature: 'bbbbb', name: 'm' } })).length === 1 && compareStep(vrec, shapeOf(vstep, { status: 200, type: 'a', headers: {}, body: { name: 'm' } })).length === 1 && compareStep(vrec, shapeOf(vstep, { status: 200, type: 'a', headers: {}, body: { signature: 'bbbb', name: 'n' } })).length === 1, 'vary：随机字段换了值不算差异；长度变了、字段没了、别的字段变了都算');
