@@ -17,6 +17,7 @@ import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
 import { verifyMarketCard } from '../a2a.ts';
 import { originOf } from '../a2a-direct-sig.ts';
+import { noteBlocked, outboundOff } from '../outbound-gate.ts';
 
 export type PeerStatus = 'active' | 'pending_registration' | 'key_changed' | 'disabled';
 export type PeerRow = {
@@ -81,6 +82,8 @@ export class A2aPeerService extends Service {
       let stopped = false;
       const timer = setImmediate(() => {
         if (stopped) return;
+        // 对外断开（WM_OUTBOUND=off）：不取名片、不建行——否则副本里的对端会被都记成待登记，card_error 写成「对外已断开」
+        if (outboundOff()) { noteBlocked('peer-migrate'); return; }
         this.migrate(() => stopped).catch((e) => console.error(`[a2a-peers] 升级回填没跑完（不影响服务，下次启动再跑）：${(e as Error)?.message ?? e}`));
       });
       return () => { stopped = true; clearImmediate(timer); };

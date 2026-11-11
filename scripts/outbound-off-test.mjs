@@ -130,6 +130,9 @@ ins('a2a_outbox', { run_id: 1, task_id: 't', context_id: 'c', target_url: U, pay
 ins('workbench_event_replies', { kind: 'answer', event_id: 'wbe-0000000000000001', delivery_id: 1, ref: 1, qid: 'q1', team: 'syn/1a2b3c4d', caller_session: 'market/synthetic', context_id: 'ctx-1', target_url: U, message: JSON.stringify({ text: '合成答复', by: 'user:alpha' }), status: 'pending', attempts: 0, next_at: '2000-01-01 00:00:00', created_at: '2000-01-01 00:00:00' });
 for (const [k, v] of [['health_interval_seconds', '10'], ['mcp_upstreams', JSON.stringify([{ prefix: 'syn', url: U + '/mcp', enabled: true }])], ['sandbox_bridge_url', U]]) db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(k, v);
 db.prepare('INSERT INTO remote_allow_state (snapshot) VALUES (?)').run('[]');
+// 对端登记表（#553）：一个已登记的对端（刷新要去取它的名片），再一条通知绑定指向另一个根地址（localhost:端口，升级回填会去取卡）
+ins('a2a_peers', { id: 'peer_0a1b2c3d4e5f', root_url: U, zone: 'syn', name: 'syn', public_key: 'AAAA', key_fingerprint: 'sha256:' + '0'.repeat(64), status: 'active', registered_by: 'seed', registered_at: '2000-01-01T00:00:00.000Z', updated_at: '2000-01-01T00:00:00.000Z' });
+ins('bindings', { target_type: 'app', target_slug: 'syn-form', agent_node: 'syn2/1a2b3c4d', direction: 'notify', mode: 'read', notify_url: U.replace('127.0.0.1', 'localhost') + '/a2a', created_by: 'mcp:synthetic' });
 console.log('SEEDED ' + wid);`;
   const f = join(dataDir, '..', 'seed.mjs'); writeFileSync(f, code);
   const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', f], { cwd: ROOT, env: { PATH: process.env.PATH, HOME: dataDir, DATA_DIR: dataDir }, encoding: 'utf8' });
@@ -183,6 +186,9 @@ async function instanceLayer(dir, off) {
     { 'x-a2a-caller': 'syn', 'x-a2a-caller-url': net.url, 'x-a2a-caller-ts': String(Date.now()), 'x-a2a-caller-aud': I.base, 'x-a2a-caller-sig2': 'AAAA' })).status;
   hits.odooViewer = (await I.call('GET', '/api/auth/viewer', undefined, { cookie: 'session_id=0123456789abcdef0123456789abcdef' })).status;
   hits.appSync = (await I.call('POST', '/api/apps/syn-form/sync', {}, A)).status;
+  const reg = await I.call('POST', '/api/a2a/peers', { root_url: net.url.replace('127.0.0.1', 'localhost') }, A);
+  const ref = await I.call('POST', '/api/a2a/peers/peer_0a1b2c3d4e5f/refresh', {}, A);
+  hits.peerRegister = reg.status; hits.peerRegisterReason = reg.body?.reason ?? null; hits.peerRefresh = ref.status; hits.peerRefreshReason = ref.body?.reason ?? null;
   await sleep(11000); // 两轮 worker（5 秒一轮）+ 巡检间隔 10 秒
   const anon = (await I.call('GET', '/api/health')).body;
   const ready = (await I.call('GET', '/api/health/ready')).body;
@@ -196,8 +202,9 @@ async function instanceLayer(dir, off) {
   const deliveries = db.prepare('SELECT status, attempts FROM workbench_event_deliveries ORDER BY id').all();
   const outbox = db.prepare('SELECT status, attempts FROM a2a_outbox ORDER BY id').all();
   const replies = db.prepare('SELECT status, attempts FROM workbench_event_replies ORDER BY id').all();
+  const peers = db.prepare('SELECT root_url, status, card_error, card_fetched_at FROM a2a_peers ORDER BY root_url').all().map((r) => ({ ...r }));
   db.close();
-  return { boot: true, seen, hits, anon, ready, adm, deliveries, outbox, replies };
+  return { boot: true, seen, hits, anon, ready, adm, deliveries, outbox, replies, peers };
 }
 
 rmSync(OUT, { recursive: true, force: true });
@@ -226,6 +233,8 @@ try {
     check(off.hits.checkAll === 503, 'check-all 拒绝探活（503），不把副本里的台都记成离线', show(off.hits.checkAll));
     check(off.deliveries.length >= 2 && off.deliveries.every((d) => d.status === 'pending' && d.attempts === 0), `投递全部仍是 pending、attempts 都是 0（${off.deliveries.length} 条，含刚提交的）`, show(off.deliveries));
     check(off.outbox.every((o) => o.status === 'pending' && o.attempts === 0), '回执 outbox 仍是 pending、attempts 0', show(off.outbox));
+    check(off.hits.peerRegister === 503 && off.hits.peerRegisterReason === 'outbound_off' && off.hits.peerRefresh === 503 && off.hits.peerRefreshReason === 'outbound_off', '对端登记表：管理员登记、刷新都答 503 outbound_off，不去取名片', show(off.hits));
+    check(off.peers.length === 1 && off.peers[0].card_error === '' && off.peers[0].card_fetched_at === '', '对端登记表：启动回填不取卡、不建行；已登记的那一行不被改（没写 card_error）', show(off.peers));
     check(off.replies.length === 1 && off.replies.every((o) => o.status === 'pending' && o.attempts === 0), '人的答复发回席位（阶段七 R2）仍是 pending、attempts 0', show(off.replies));
     check(show(off.anon?.outbound) === '{"mode":"off"}' && show(off.ready?.outbound) === '{"mode":"off"}', '健康检查、就绪检查匿名都能看到 outbound: off（不给计数）', show([off.anon?.outbound, off.ready?.outbound]));
     const row = off.anon?.self_probe?.rows?.find((r) => r.id === 'market.outbound.disconnected');
@@ -236,7 +245,7 @@ try {
   }
   const on = await instanceLayer(join(OUT, 'i-on'), false);
   if (!on.boot) check(false, '对照实例起来了', on.log);
-  else check(on.seen.tcp > 0 && (on.deliveries.some((d) => d.attempts > 0 || d.status !== 'pending') || on.outbox.some((o) => o.attempts > 0)) && on.replies.some((o) => o.attempts > 0 || o.status !== 'pending') && on.anon?.outbound === undefined,
+  else check(on.seen.tcp > 0 && (on.deliveries.some((d) => d.attempts > 0 || d.status !== 'pending') || on.outbox.some((o) => o.attempts > 0)) && on.replies.some((o) => o.attempts > 0 || o.status !== 'pending') && on.peers.length > 1 && on.anon?.outbound === undefined,
     '对照（不开开关）：假网络收到连接、投递或回执被试过、健康检查里没有 outbound——本测试看得见实例的出站', show({ seen: on.seen, d: on.deliveries, o: on.outbox }));
 
   console.log('== 非法值');
