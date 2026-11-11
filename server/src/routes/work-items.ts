@@ -7,14 +7,16 @@
  * 跨站、别的站的页面来的请求拒。
  *
  * 事项上的 outputs（结果）和 evidence（依据）：字符串字段，内容约定是 JSON 数组，每项只有 { kind, id } 两个键。
- * 这个形状和回执信封里的 artifacts 是同一个（a2a 回执入站的 attributionOf：kind、id 都是非空字符串，各 ≤200 字，最多 16 项）。
+ * 这个形状和回执信封里的 artifacts 是同一个，清洗规则只有一处（kind、id 都是非空字符串，各 ≤200 字，最多 16 项）。
  *   · 只存标识，不存正文、不存 url、不存标题（evidence 只存标识，见 02 号文档）。页面按 kind 自己拼本站的链接，不跟随数据里的地址。
- *   · 认得的 kind：sop-run（id 写成 <SOP slug>/<run id>，链到 /sops/<slug>/runs/<run id>）、table（台数据）、file（文件）。
+ *   · 上游没有定死 kind 的取值表；目前约定 sop-run（id 写成 <SOP slug>/<run id>，链到 /sops/<slug>/runs/<run id>）、
+ *     table（台数据）、file（文件），别的值原样存。id 是市场里的标识，对端不校验存不存在。
  *     table、file 现在还没有对应的详情页，页面先只显示 kind 和 id，不出链接；不认得的 kind 一样只显示。
  *   · 能不能点开，由目标页面按看的人自己的权限判。这里只给标识，不因为事项里写了编号就把目标内容带出来。
  *   · 老库里 outputs 的缺省值是 '{}'，当空数组读。
- *   · 目前还没有地方写这两列：回执带来的 artifacts 记在事项日志那一行的 detail 里。把回执结果的 artifacts 写进 outputs，
- *     和阶段七说定之后在事项服务里接上，形状照上面。
+ *   · 谁写：采信的回执（进展、只记录、终局都算）带了 artifacts，事项服务应用这条事实时并进 outputs，按 kind+id 去重，
+ *     上限 16（阶段七接上，清洗函数在事项服务里只留一处）。接上之前 outputs 是空的，artifacts 只在事项日志那一行的 detail 里。
+ *     evidence 目前没有写入方。
  *
  * 8e：POST /api/work-items/:id/decision——建立人本人验收、退回自己的事项。这一个入口不经管理门
  * （index.ts 的写请求总门对它放行，只放这一条路径）；认人、同源、主体是不是启用的人在这里判，
