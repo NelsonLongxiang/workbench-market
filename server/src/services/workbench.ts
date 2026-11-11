@@ -142,4 +142,14 @@ export class WorkbenchService extends Service {
   typeIdByKey(key: string) {
     return db.prepare('SELECT id FROM types WHERE key = ?').get(key);
   }
+  /** 导入的整批写入用一个事务（db.exec 原文自 index.ts 的 POST /api/import 搬入） */
+  importBegin() {
+    db.exec('BEGIN IMMEDIATE');
+  }
+  importCommit() {
+    db.exec('COMMIT');
+  }
+  importRollback() {
+    db.exec('ROLLBACK');
+  }
 }

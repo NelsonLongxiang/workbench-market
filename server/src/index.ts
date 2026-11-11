@@ -3043,7 +3043,7 @@ app.post('/api/import', (req, res) => {
   });
   const svcWb = svc<WorkbenchService>('workbench');
   const inserted: { id: number; key: string | null; allowlisted: boolean }[] = [];
-  db.exec('BEGIN IMMEDIATE');
+  svcWb.importBegin();
   try {
     if (mode === 'replace') {
       svcWb.deleteAll();
@@ -3073,9 +3073,9 @@ app.post('/api/import', (req, res) => {
         svc<CockpitService>('cockpit').setLayout(c.id, JSON.stringify(kept));
       }
     }
-    db.exec('COMMIT');
+    svcWb.importCommit();
   } catch (e) {
-    db.exec('ROLLBACK');
+    svcWb.importRollback();
     console.error('[import] 事务回滚：', (e as Error)?.message ?? e);
     throw new HttpError(500, 'import_failed', { message: '导入写入失败，已整体回滚（原数据未变）' });
   }
