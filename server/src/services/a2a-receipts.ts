@@ -24,6 +24,11 @@ export function claimReceipt(taskId: string, cls: 'ack' | 'final', disposition: 
   return Number(r.changes) === 1;
 }
 
+/** 这条（任务号、接单 / 终局）回执记过了吗 */
+export function receiptRecorded(taskId: string, cls: 'ack' | 'final'): boolean {
+  return Boolean(db.prepare('SELECT 1 FROM a2a_inbound_receipts WHERE task_id = ? AND class = ?').get(taskId, cls));
+}
+
 /** 验过的签名只认一次（落库到有效期结束） */
 export function claimSignatureOnce(sig: string, expiresAt: number, now = Date.now()): boolean {
   db.prepare('DELETE FROM a2a_sig_seen WHERE expires_at < ?').run(now);
