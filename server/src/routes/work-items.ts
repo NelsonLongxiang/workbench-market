@@ -6,9 +6,14 @@
  *   别的一律 404（不说有没有这件事项）；没登录 401。
  * 跨站、别的站的页面来的请求拒。
  *
- * 事项上的 outputs（结果）和 evidence（依据）：字符串字段，内容约定是 JSON 数组，每项只有 { kind, id } 两个键。
- * 这个形状和回执信封里的 artifacts 是同一个，清洗规则只有一处（kind、id 都是非空字符串，各 ≤200 字，最多 16 项）。
- *   · 只存标识，不存正文、不存 url、不存标题（evidence 只存标识，见 02 号文档）。页面按 kind 自己拼本站的链接，不跟随数据里的地址。
+ * 事项上的 outputs（结果）和 evidence（依据）：字符串字段，内容约定是 JSON 数组。
+ *   evidence 每项只有 { kind, id }；outputs 每项是 { kind, id, title, submitted_by, at }：
+ *     kind、id   和回执信封里的 artifacts 同一个形状，清洗规则只有一处（非空字符串，各 ≤200 字，最多 16 项）
+ *     title      对端给的文件名或一句说明，清洗同进展摘要、≤200 字，只当显示文字；上游 artifacts 现在没有这个键，先一直是 null
+ *     submitted_by  这条回执信封里的 by.seat（≤200 字）；对端自报，只显示、不授予任何东西；by.name 是显示名，不当身份用
+ *     at         市场采信这条回执、写事件日志那一刻的时间（服务端生成，YYYY-MM-DD hh:mm:ss），不用对端报的时间
+ *   按 kind+id 去重，第一次交的那条为准；后来才带上的 title 补上。旧数据、对端没给的，title、submitted_by、at 是 null，不回填。
+ *   · 只存标识和显示文字，不存正文、不存 url（evidence 只存标识，见 02 号文档）。页面按 kind 自己拼本站的链接，不跟随数据里的地址。
  *   · 上游没有定死 kind 的取值表；目前约定 sop-run（id 写成 <SOP slug>/<run id>，链到 /sops/<slug>/runs/<run id>）、
  *     table（台数据）、file（文件），别的值原样存。id 是市场里的标识，对端不校验存不存在。
  *     table、file 现在还没有对应的详情页，页面先只显示 kind 和 id，不出链接；不认得的 kind 一样只显示。
