@@ -60,6 +60,7 @@
       "POST /api/principals/bind-batch  -> principal.bind-batch  admin",
       "POST /api/principals/reconcile  -> principal.reconcile  admin",
       "POST /api/principals/unbind  -> principal.unbind  admin",
+      "GET /api/attention  -> attention.read  read",
       "POST /api/skills/:slug/install  -> （未登记）",
       "GET /api/skills/:slug/verify  -> （未登记）",
       "POST /api/skills/:slug/install/:ledgerId/revoke  -> （未登记）",
