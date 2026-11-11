@@ -48,7 +48,11 @@ for (const f of readdirSync(WORK).filter((n) => n.endsWith('.jsonl'))) {
 }
 const domainOf = (l) => (l.action ? l.action.split('.')[0] : (String(l.route).split(' ')[1] ?? '').split('/').filter(Boolean).slice(0, 2).join('/'));
 const count = (pred) => lines.filter(pred).length;
-const totals = Object.fromEntries(['agree', 'mismatch', 'uncertain', 'skip-404', 'unregistered', 'not-verdict', 'integrity-blocked', 'error'].map((o) => [o, count((l) => l.outcome === o)]));
+const OUTCOMES = ['agree', 'mismatch', 'uncertain', 'skip-404', 'unregistered', 'not-verdict', 'integrity-blocked', 'enforced-deny', 'error'];
+const totals = Object.fromEntries(OUTCOMES.map((o) => [o, count((l) => l.outcome === o)]));
+// 按域汇总（6d 每一波看自己那几个域）：域 × 结果
+const byDomain = new Map();
+for (const l of lines) { const d = domainOf(l) || '(无)'; const row = byDomain.get(d) ?? Object.fromEntries(OUTCOMES.map((o) => [o, 0])); if (l.outcome in row) row[l.outcome]++; byDomain.set(d, row); }
 const reasonOf = (l) => (l.old === 'allow' ? `旧允许·新${l.new === 'ask' ? '先问人' : '拒绝'}·${l.rule}` : `旧拒绝·新允许·${l.rule}`);
 const mism = lines.filter((l) => l.outcome === 'mismatch');
 const byReason = new Map();
@@ -70,6 +74,10 @@ for (const l of lines.filter((x) => x.outcome === 'unregistered')) unreg.set(dom
 const md = [];
 md.push('# 判定并行比对报告', '', `比对的请求：${lines.length} 次（来源：${runs.length} 个脚本，回放的每条请求带了录制里的位置）。`, '');
 md.push('| 结果 | 次数 |', '|---|---|', ...Object.entries(totals).map(([k, v]) => `| ${k} | ${v} |`), '');
+md.push('## 按域', '', '没报动作的路由按路径前两段算。enforced-deny 是切换开关（WM_JUDGMENT_ENFORCE）在处理之前拒掉的。', '');
+md.push(`| 域 | ${OUTCOMES.join(' | ')} |`, `|---|${OUTCOMES.map(() => '---').join('|')}|`);
+for (const [d, row] of [...byDomain.entries()].sort(([a], [b]) => a.localeCompare(b))) md.push(`| ${d} | ${OUTCOMES.map((o) => row[o] || '').join(' | ')} |`);
+md.push('');
 md.push('## 不一致：原因 × 域', '');
 if (byReason.size === 0) md.push('没有。');
 else {

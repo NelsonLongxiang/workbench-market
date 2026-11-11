@@ -16,6 +16,9 @@
  *     快照把它导出成 surfaces/actions.json，和路由快照一行对一行。
  *   · 这一步只登记，不判定：现在每条路由原有的守卫写法保持不变。判定在 6c。
  * 还直接挂在 Express 应用上的存量路由没有动作，搬进域模块时补；在那之前体检按文件记预算，只减不增。
+ *
+ * 判定切换（阶段六 6d）：开关 WM_JUDGMENT_ENFORCE 设了的时候，启动时在注册任何路由之前装一道门（setGate），
+ * 之后每条经它注册的路由在自己的处理函数前面多这一道（judgment-enforce.ts）。开关缺省空，不装门，路由和以前完全一样。
  */
 import express from 'express';
 import { Service, type Context } from '@deepseek-ai/cordis';
@@ -95,6 +98,8 @@ export class HttpService extends Service {
   private readonly registered = new Map<Layer, RegisteredAction>();
   /** 细分的动作（refine），按路由那一层记，撤销时一起去掉 */
   private refined: { layer: Layer; entry: RegisteredAction }[] = [];
+  /** 判定切换的门（只在开关设了的时候有）：按路由报的动作造一个处理函数，放在原来的前面 */
+  private gate: ((spec: ActionSpec) => Handler) | null = null;
 
   constructor(ctx: Context) {
     super(ctx, 'http');
@@ -103,6 +108,13 @@ export class HttpService extends Service {
   /** Express 应用本身：全局中间件、监听、还没搬走的路由用它。域模块不直接用它，经下面的方法注册路由。 */
   expressApp(): express.Express {
     return this.held.app;
+  }
+
+  /** 装判定切换的门。要在注册任何路由之前装（之后注册的才都带门）；装过一次不能再换 */
+  setGate(gate: (spec: ActionSpec) => Handler): void {
+    if (this.registered.size) throw new Error('http：判定切换的门要在注册任何路由之前装');
+    if (this.gate) throw new Error('http：判定切换的门已经装过了');
+    this.gate = gate;
   }
 
   /** 现在登记着的动作，按注册顺序 */
@@ -138,7 +150,8 @@ export class HttpService extends Service {
       }
     }
     const revoke = this.ctx.effect(() => {
-      (app as unknown as Record<RouteMethod, (path: RoutePath, ...handlers: Handler[]) => unknown>)[method](path, ...handlers);
+      const chain = this.gate ? [this.gate(declared), ...handlers] : handlers;
+      (app as unknown as Record<RouteMethod, (path: RoutePath, ...handlers: Handler[]) => unknown>)[method](path, ...chain);
       // Express 每注册一条路由，就往栈尾压一层；记下这一层，撤销时只摘它
       const stack = routerOf(app).stack;
       const layer = stack[stack.length - 1];

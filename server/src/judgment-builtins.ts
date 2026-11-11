@@ -236,3 +236,9 @@ export function unknownBuiltinActions(known: (action: string) => boolean): strin
   for (const n of NARROWED) if (!known(n.action)) out.push(`narrowed: ${n.action}`);
   return out;
 }
+
+/**
+ * 「暂不切」（阶段六 6d）：判定切换的开关里写了这个域，这几个动作仍然按旧守卫。每条写原因；
+ * 进快照（surfaces/actions.json 的 builtins.notSwitched），改它要过评审。现在一条都没有。
+ */
+export const NOT_SWITCHED: readonly { action: string; why: string }[] = [];

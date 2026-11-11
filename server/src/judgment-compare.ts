@@ -80,11 +80,11 @@ function oldVerdict(status: number): 'allow' | 'deny' | 'skip-404' | 'uncertain'
   return 'uncertain';
 }
 
-export function mountJudgmentCompare(app: express.Express, config: CompareConfig, deps: CompareDeps): void {
-  if (!config.on) return;
+/** 谁在请求（比对和切换开关共用一个口径）：先后顺序见文件头 */
+export type ActorOf = (req: express.Request) => Promise<{ actor: JudgedActor; admin: boolean }>;
+export function actorResolver(deps: Pick<CompareDeps, 'adminTokenOk'>): ActorOf {
   const resolve = identity().cachedResolver({ ttlMs: 60_000, max: 1000 });
-
-  async function actorOf(req: express.Request): Promise<{ actor: JudgedActor; admin: boolean }> {
+  return async function actorOf(req: express.Request): Promise<{ actor: JudgedActor; admin: boolean }> {
     if (deps.adminTokenOk(req)) return { actor: { type: 'builtin', name: 'admin-token' }, admin: false };
     const cookie = String(req.headers.cookie ?? '');
     if (cookie) {
@@ -100,7 +100,27 @@ export function mountJudgmentCompare(app: express.Express, config: CompareConfig
       if (sameSiteOrigin(req)) return { actor: { type: 'builtin', name: 'local-page' }, admin: false };
     }
     return { actor: { type: 'builtin', name: 'anonymous' }, admin: false };
+  };
+}
+
+/** 迁移：第一次见到一个启用的人，给他一条 member；身份来源说他是管理员，再给 admin（同一个人同一个角色只迁一次） */
+export function migrateOnSight(actor: JudgedActor, admin: boolean): void {
+  if (actor.type === 'principal' && actor.kind === 'person' && actor.status === 'active') {
+    grants().migrate(actor.id, 'member', '迁移：首次见到的人，默认成员');
+    // 身份来源说是管理员的：今天什么都能看、能管，迁成系统管理员加管理层两条（等于今天的原样，各自能撤）；
+    // 6d 之前由属主决定每个人留哪条（存量差异清单 F）
+    if (admin) {
+      grants().migrate(actor.id, 'admin', '迁移：身份来源说是管理员（系统管理）');
+      grants().migrate(actor.id, 'management', '迁移：身份来源说是管理员（今天也看、改、拍板全公司的业务）');
+    }
   }
+}
+
+/** 切换开关拒掉的请求（旧守卫没跑）：开关自己记进 judgment_enforced，这里不再比 */
+export const enforcedDenials = new WeakSet<express.Request>();
+
+export function mountJudgmentCompare(app: express.Express, config: CompareConfig, deps: CompareDeps, actorOf: ActorOf = actorResolver(deps)): void {
+  if (!config.on) return;
 
   const stepOf = (req: express.Request): string | undefined => {
     if (!config.tagSteps) return undefined;
@@ -121,6 +141,7 @@ export function mountJudgmentCompare(app: express.Express, config: CompareConfig
     const refined = declared?.refine?.find((r) => { try { return r.when(req, facts); } catch { return false; } });
     const spec = declared && refined ? { ...declared, action: refined.action, kind: refined.kind } : declared;
     if (!spec) { compare().tally(pattern, '', 'unregistered'); write({ route: pattern, outcome: 'unregistered' , step: stepOf(req) }); return; }
+    if (enforcedDenials.has(req)) { write({ route: pattern, action: spec.action, outcome: 'enforced-deny', status: res.statusCode, step: stepOf(req) }); return; }
     if (spec.statusNotVerdict) { compare().tally(pattern, spec.action, 'not-verdict'); write({ route: pattern, action: spec.action, outcome: 'not-verdict', status: res.statusCode, step: stepOf(req) }); return; }
     const old = oldVerdict(res.statusCode);
     if (old === 'deny' && crossMarked(req)) { compare().tally(pattern, spec.action, 'integrity-blocked'); write({ route: pattern, action: spec.action, outcome: 'integrity-blocked', status: res.statusCode, step: stepOf(req) }); return; }
@@ -131,15 +152,7 @@ export function mountJudgmentCompare(app: express.Express, config: CompareConfig
     }
     // 身份在请求进来时就开始认（这里才等结果）：请求本身可能改了口令、注销了会话，事后再认会认错人
     const { actor, admin } = await actorAtStart;
-    if (actor.type === 'principal' && actor.kind === 'person' && actor.status === 'active') {
-      grants().migrate(actor.id, 'member', '迁移：首次见到的人，默认成员');
-      // 身份来源说是管理员的：今天什么都能看、能管，迁成系统管理员加管理层两条（等于今天的原样，各自能撤）；
-      // 6d 之前由属主决定每个人留哪条（存量差异清单 F）
-      if (admin) {
-        grants().migrate(actor.id, 'admin', '迁移：身份来源说是管理员（系统管理）');
-        grants().migrate(actor.id, 'management', '迁移：身份来源说是管理员（今天也看、改、拍板全公司的业务）');
-      }
-    }
+    migrateOnSight(actor, admin);
     const result = judge({ actor, action: spec.action, kind: spec.kind, declared: true });
     const now = result.verdict === 'allow' ? 'allow' : 'deny';
     const actorKind = actor.type === 'builtin' ? actor.name : actor.kind;
