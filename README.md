@@ -39,6 +39,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_A2A_DIRECT_SIG`（`POST /a2a/direct` 入站签名·缺省 `accept`=带了 OriginClaim Sig2 就验、没带照旧走绑定准入；`require`=没签名或验不过一律 401；`off`=不验；`WM_LOGIN_GATE=enforce` 时强制 `require`；其它值拒绝启动。公钥只从调用方绑定上登记的 `notify_url` 取卡，不跟随重定向）
 - `WM_A2A_DIRECT_SIG_BODY`（缺省 `accept`；`require`=只认同时签了 body 摘要的 `X-WM-Body-Sha256`/`X-WM-Body-Sig`，现有 DSH 节点只发 Sig2，打开前对端要先升级；其它值拒绝启动）
 - `A2A_ORIGIN_CLAIM_UNBOUND`（v1 未绑定调用方签名兼容窗：`off`=停发 `X-A2A-Caller-Sig`，缺省继续发；v1 不绑路由，未升级对端上可被剥 Sig2 重放，全舰队升级后应设 `off`）
+- `WM_A2A_MEMBER_PROVENANCE`（缺省 `on`：市场名片声明 `canvasMemberProvenance`——a2a-net 0.8 起，对钉了公钥的画布成员只往声明了它的宿主转发，不声明则席位的回执到不了市场；声明即承诺：名片只列本节点自己服务、互不重复的句柄 `market/<8 hex>`，发给它们的消息只在本节点投递、查无或有歧义一律 404，句柄只由本节点密钥签发；`off`=不声明，名片与之前完全相同；其它值拒绝启动）
 - `LAYERFS_SERVICE_URL`/`LAYERFS_SERVICE_TOKEN`（LayerFS·缺一即禁用）
 - `LAYERFS_SERVICE_TOKEN_FILE`（LayerFS 令牌文件·设了就以文件为准，不回落到库里或环境变量里的令牌；内容不足 32 字节拒绝启动）
 - `AI_GATEWAY_API_KEY`（`skill_search` 评估模型令牌·缺=工具报错不降级）
@@ -308,6 +309,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   workbench-vars.ts（#336 工作台变量与常量：按台隔离、revision 乐观锁、常量保护）
 server/src/login-providers/  登录提供方插件（身份的具体实现只放这里，核心不引用）：index.ts（清单：这个部署装哪些提供方） feishu/index.ts（飞书登录方式：授权码流程，向 `identity` 登记一个登录方式，凭证从凭据库取） odoo/index.ts（Odoo 提供方的插件入口：向 `identity` 登记、提供 `loginRelay`） odoo/odoo-viewer.ts（Odoo 查看人现查） odoo/odoo-session.ts（门户 Odoo 会话可信源判定与剥除、登录回调票据） odoo/odoo-login-proxy.ts（可选同源 Odoo 登录中继 WM_ODOO_LOGIN_PROXY：只放行登录面，不代理 Odoo 应用） odoo/odoo-browser-origin.ts（只给浏览器用的 Odoo 登录地址 WM_ODOO_BROWSER_URL：登录一跳送到可信内网地址，身份与代理目标不变）
 server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·cookie·setting·mcp（域服务）；其余一个文件一行，按文件名排序：
+  a2a-handles.ts（市场 A2A 会话句柄 `market/<node8>` 的唯一性：生成时避开已占用的，存量撞车的不上卡、入站失败关闭）
   a2a-idempotency.ts（`/a2a/direct` 幂等登记：task_id → 指纹 sha256，30 分钟窗口，落库，重启后同一 task_id 仍判 replay / conflict；只存摘要不存原文）
   a2a-stats.ts（A2A 出站积压的聚合读数：两张出站表按状态计数、最老待发、最近回执时长）
   attention-sources.ts（「关注」要用、来源里还没有现成函数的只读查询：席位未答的提问）
