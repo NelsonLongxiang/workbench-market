@@ -8,7 +8,7 @@ import type { HttpService } from '../http.ts';
 import { loadTokensCss, resolveTokensPath } from '../design-tokens-css.ts';
 
 export function registerDesignTokenRoutes(app: HttpService): void {
-  app.get(/^\/design\/tokens@[0-9.]+\.css$/, (req, res) => {
+  app.get(/^\/design\/tokens@[0-9.]+\.css$/, { action: 'design-token.read', kind: 'read' }, (req, res) => {
     const t = loadTokensCss();
     const kind = t ? resolveTokensPath(req.path, t) : null;
     if (!t || !kind) return res.status(404).type('text').send(t ? `只提供 tokens@${t.major}.css 与 tokens@${t.version}.css\n` : 'design tokens 不可用\n');

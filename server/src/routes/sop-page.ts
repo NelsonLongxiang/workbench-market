@@ -27,7 +27,7 @@ export interface SopPageDeps {
 export function registerSopPageRoutes(app: HttpService, deps: SopPageDeps): void {
   const { readActiveManifest, renderSopRunner, appsRoot, wmAppToken, wmWorkbenchIdFor } = deps;
   // /sop/:slug/ 根 → Runner；/sop/:slug/<path> → 版本目录静态文件（附件）
-  app.get(/^\/sop\/[a-z0-9][a-z0-9-]*(\/.*)?$/, (req, res) => {
+  app.get(/^\/sop\/[a-z0-9][a-z0-9-]*(\/.*)?$/, { action: 'sop.page', kind: 'read' }, (req, res) => {
     const m = /^\/sop\/([a-z0-9][a-z0-9-]*)\/?(.*)$/.exec(req.path ?? '');
     if (!m) return res.status(404).json({ error: 'not found' });
     const rest = m[2] || '';

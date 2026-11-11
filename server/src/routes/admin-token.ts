@@ -33,20 +33,20 @@ export function registerAdminTokenRoutes(app: HttpService, deps: AdminTokenDeps)
     return requireCurrent ? dbAdminTokenOk(req.headers['x-admin-token']) : isLoopbackReq(req);
   }
 
-  app.get('/api/admin/whoami', (req, res) => {
+  app.get('/api/admin/whoami', { action: 'admin.whoami', kind: 'read' }, (req, res) => {
     const viaToken = adminTokenCheck(req.headers['x-admin-token']);
     const odoo = odooAdminReqs.get(req) ?? null;
     res.set('Cache-Control', 'no-store').json({ admin: viaToken || !!odoo, via: viaToken ? 'token' : odoo ? 'odoo' : null, login: viaToken ? null : odoo });
   });
 
-  app.get('/api/admin-token/state', (req, res) => {
+  app.get('/api/admin-token/state', { action: 'admin-token.state', kind: 'read' }, (req, res) => {
     res.json({
       source: process.env.ADMIN_TOKEN ? 'env' : (dbAdminTokenSet() ? 'db' : 'none'),
       settable: !process.env.ADMIN_TOKEN && (dbAdminTokenSet() || isLoopbackReq(req) || odooAdminReqs.has(req)), // env 未设时：已有口令可凭旧口令改；首次由本机或 Odoo 管理员设
     });
   });
 
-  app.put('/api/admin-token', (req, res) => {
+  app.put('/api/admin-token', { action: 'admin-token.set', kind: 'admin' }, (req, res) => {
     if (process.env.ADMIN_TOKEN) return res.status(400).json({ error: '口令由启动环境 ADMIN_TOKEN 提供，页面不可改（改环境变量并重启）' });
     const token = typeof req.body?.token === 'string' ? req.body.token : '';
     if (token.length < 4 || token.length > 128) return res.status(400).json({ error: '口令长度 4–128' });
@@ -58,7 +58,7 @@ export function registerAdminTokenRoutes(app: HttpService, deps: AdminTokenDeps)
     res.json({ ok: true, source: 'db', note: '口令已设置并立即生效（库存 sha256，不可取回）' });
   });
 
-  app.delete('/api/admin-token', (req, res) => {
+  app.delete('/api/admin-token', { action: 'admin-token.clear', kind: 'admin' }, (req, res) => {
     if (process.env.ADMIN_TOKEN) return res.status(400).json({ error: '口令来自启动环境，需清环境变量并重启' });
     if (!adminTokenWritable(req, true)) return res.status(403).json({ error: '需当前口令或 Odoo 管理员登录' });
     svc<SettingService>('setting').delete(ADMIN_TOKEN_KEY);

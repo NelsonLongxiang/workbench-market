@@ -40,12 +40,12 @@ export interface SopSpaceDeps {
 
 export function registerSopStateRoutes(app: HttpService, deps: SopStateDeps): void {
   const { appDetail, getApp, sameOriginGuard, adminGuard, sopTransition } = deps;
-  app.get('/api/sops', (_req, res) => {
+  app.get('/api/sops', { action: 'sop.list', kind: 'read' }, (_req, res) => {
     const rows = svc<AppService>('app').sops() as unknown as AppRow[];
     res.json(rows.map(appDetail));
   });
 
-  app.post('/api/sops/:slug/publish', (req, res) => {
+  app.post('/api/sops/:slug/publish', { action: 'sop.publish', kind: 'admin' }, (req, res) => {
     if (req.params.slug === 'task-center') {
       if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
       if (!adminGuard(req,res)) return;
@@ -58,7 +58,7 @@ export function registerSopStateRoutes(app: HttpService, deps: SopStateDeps): vo
     res.json(appDetail(getApp(a.slug)));
   });
 
-  app.post('/api/sops/:slug/deprecate', (req, res) => {
+  app.post('/api/sops/:slug/deprecate', { action: 'sop.deprecate', kind: 'admin' }, (req, res) => {
     if (req.params.slug === 'task-center') {
       if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
       if (!adminGuard(req,res)) return;
@@ -76,7 +76,7 @@ export function registerSopSpaceRoutes(app: HttpService, deps: SopSpaceDeps): vo
   /** #318 SOP 交付空间「定义」与单次记录的步骤骨架：只回步骤 key / 标题，不回步骤正文 HTML。
    *  可见性同 Runner（issue #11）：published 公开；draft / deprecated 只给管理员。
    *  ?version=N 读该版本（单次记录按 run 的 sop_version 取）；版本目录已冷存时 404，不猜。 */
-  app.get('/api/sops/:slug/definition', (req, res) => {
+  app.get('/api/sops/:slug/definition', { action: 'sop.definition', kind: 'read' }, (req, res) => {
     const a = getApp(req.params.slug);
     if (a.kind !== 'sop') throw new HttpError(404, `SOP not found: ${req.params.slug}`);
     if (a.status !== 'published' && !adminHeaderOk(req)) return res.status(403).set('Cache-Control', 'no-store').json({ error: `SOP ${a.slug} 状态为 ${a.status}，定义仅管理员可见` });
@@ -90,7 +90,7 @@ export function registerSopSpaceRoutes(app: HttpService, deps: SopSpaceDeps): vo
     res.json({ slug: a.slug, version, active_version: a.active_version, status: a.status, title: m.title, code: m.code ?? a.code ?? '', description: m.description ?? '', steps: m.steps.map(({ key, title }) => ({ key, title })) });
   });
 
-  app.get('/api/sops/:slug/timeline', (req, res) => {
+  app.get('/api/sops/:slug/timeline', { action: 'sop.timeline', kind: 'read' }, (req, res) => {
     const a = getApp(req.params.slug);
     if (a.kind !== 'sop') throw new HttpError(404, `SOP not found: ${req.params.slug}`);
     const versions = (svc<AppService>('app').versionLog(a.id) as Array<{ version: number; changelog: string; created_by: string; created_at: string }>).map(v => ({ ...v, changelog: (v.changelog || '').slice(0, 200) }));

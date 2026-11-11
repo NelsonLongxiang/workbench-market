@@ -25,7 +25,7 @@ function maskKey(v: string): string {
 
 export function registerBindingRoutes(app: HttpService, deps: BindingDeps): void {
   const { adminGuard, getApp } = deps;
-  app.get('/api/bindings', (req, res) => {
+  app.get('/api/bindings', { action: 'binding.list', kind: 'admin' }, (req, res) => {
     if (!adminGuard(req, res)) return;
     const type = req.query.type === 'app' ? 'app' : 'sop';
     const slug = String(req.query.slug ?? '').trim();
@@ -34,7 +34,7 @@ export function registerBindingRoutes(app: HttpService, deps: BindingDeps): void
     res.json(rows.map((r: { remote_api_key: string }) => ({ ...r, remote_api_key: maskKey(r.remote_api_key) })));
   });
 
-  app.post('/api/bindings', (req, res) => {
+  app.post('/api/bindings', { action: 'binding.create', kind: 'admin' }, (req, res) => {
     if (!adminGuard(req, res)) return;
     const b = req.body ?? {};
     const targetType = b.target_type === 'app' ? 'app' : 'sop';
@@ -68,7 +68,7 @@ export function registerBindingRoutes(app: HttpService, deps: BindingDeps): void
     res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), target_type: targetType, target_slug: slug, agent_node: node, direction, mode, notify_url: notifyUrl, remote_api_key: maskKey(remoteKey) });
   });
 
-  app.delete('/api/bindings/:id', (req, res) => {
+  app.delete('/api/bindings/:id', { action: 'binding.delete', kind: 'admin' }, (req, res) => {
     if (!adminGuard(req, res)) return;
     const id = Number(req.params.id);
     const hit = svc<BindingService>('binding').activeId(id) as { id: number } | undefined;
@@ -78,18 +78,18 @@ export function registerBindingRoutes(app: HttpService, deps: BindingDeps): void
   });
 
   // 旧面 410 过渡（评审注 B：一版 Location 指新面，下一版 404）——UI/脚本切换缓冲
-  app.all('/api/sops/:slug/bindings', (req, res) => {
+  app.all('/api/sops/:slug/bindings', { action: 'binding.legacy', kind: 'admin' }, (req, res) => {
     const loc = `/api/bindings?type=sop&slug=${encodeURIComponent(String(req.params.slug ?? ''))}`;
     res.set('Location', loc).status(410).json({ error: '绑定面已统一：GET/POST /api/bindings（direction 显式必填）', location: loc });
   });
-  app.all('/api/sops/:slug/bindings/:id', (req, res) => {
+  app.all('/api/sops/:slug/bindings/:id', { action: 'binding.legacy', kind: 'admin' }, (req, res) => {
     res.set('Location', '/api/bindings').status(410).json({ error: '绑定面已统一：DELETE /api/bindings/:id', location: '/api/bindings' });
   });
-  app.all('/api/apps/:slug/bindings', (req, res) => {
+  app.all('/api/apps/:slug/bindings', { action: 'binding.legacy', kind: 'admin' }, (req, res) => {
     const loc = `/api/bindings?type=app&slug=${encodeURIComponent(String(req.params.slug ?? ''))}`;
     res.set('Location', loc).status(410).json({ error: '绑定面已统一：GET/POST /api/bindings（direction 显式必填）', location: loc });
   });
-  app.all('/api/apps/:slug/bindings/:id', (req, res) => {
+  app.all('/api/apps/:slug/bindings/:id', { action: 'binding.legacy', kind: 'admin' }, (req, res) => {
     res.set('Location', '/api/bindings').status(410).json({ error: '绑定面已统一：DELETE /api/bindings/:id', location: '/api/bindings' });
   });
 }

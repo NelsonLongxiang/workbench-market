@@ -17,6 +17,34 @@
       }
     },
     {
+      "id": "routes-without-action",
+      "tier": "budget",
+      "proposed": "budget",
+      "what": "没报动作的路由",
+      "target": 0,
+      "baseline": {
+        "total": 123,
+        "files": {
+          "server/src/index.ts": 93,
+          "server/src/login-gate.ts": 4,
+          "server/src/vault-api.ts": 17,
+          "server/src/workbench-events.ts": 4,
+          "server/src/workbench-vars.ts": 5
+        }
+      }
+    },
+    {
+      "id": "actions-snapshot-agrees",
+      "tier": "redline",
+      "proposed": "redline",
+      "what": "源码数出的没报动作的路由与动作快照里（未登记）的条数之差",
+      "target": 0,
+      "baseline": {
+        "total": 0,
+        "items": []
+      }
+    },
+    {
       "id": "sql-outside-services",
       "tier": "budget",
       "proposed": "budget",
@@ -380,7 +408,7 @@
       "id": "surface-snapshots",
       "tier": "redline",
       "proposed": "redline",
-      "what": "与快照不一致的对外面（路由、MCP 工具、表结构）",
+      "what": "与快照不一致的对外面（路由、动作、MCP 工具、表结构）",
       "target": 0,
       "baseline": {
         "total": 0,

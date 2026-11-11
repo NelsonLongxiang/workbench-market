@@ -27,7 +27,7 @@ function silentRes(): express.Response {
 }
 
 export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps): void {
-  app.get('/api/work-items/:id', (req, res, next) => {
+  app.get('/api/work-items/:id', { action: 'work-item.read', kind: 'read' }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     res.vary('Cookie'); res.vary('X-Admin-Token');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });

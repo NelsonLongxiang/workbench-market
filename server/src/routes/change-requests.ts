@@ -24,7 +24,7 @@ export interface ChangeRequestDeps {
 
 export function registerChangeRequestRoutes(app: HttpService, deps: ChangeRequestDeps): void {
   const { adminGuard, wrap, bad, activateAppVersion, deleteAppCascade, executeSkillRollback, executeSkillDelete } = deps;
-  app.get('/api/change-requests', (req, res) => {
+  app.get('/api/change-requests', { action: 'change-request.list', kind: 'admin' }, (req, res) => {
     if (!adminGuard(req, res)) return;
     const status = typeof req.query.status === 'string' ? req.query.status : '';
     const rows = status
@@ -32,7 +32,7 @@ export function registerChangeRequestRoutes(app: HttpService, deps: ChangeReques
       : svc<ChangeRequestService>('changeRequest').listAll();
     res.json(rows.map((r: any) => ({ ...r, payload: JSON.parse(r.payload || '{}') })));
   });
-  app.post('/api/change-requests/:id/approve', wrap(async (req, res) => {
+  app.post('/api/change-requests/:id/approve', { action: 'change-request.approve', kind: 'decide' }, wrap(async (req, res) => {
     if (!adminGuard(req, res)) return; // K11：口令无效→401（adminGuard 已回）
     const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
     if (!reviewedBy) bad('批准必填 reviewed_by（K11——人审语义）'); // K11
@@ -53,7 +53,7 @@ export function registerChangeRequestRoutes(app: HttpService, deps: ChangeReques
     svc<ChangeRequestService>('changeRequest').markApproved(reviewedBy, id);
     res.json({ ok: true, id, status: 'approved', executed: `${r.kind}/${r.op}`, reviewed_by: reviewedBy });
   }));
-  app.post('/api/change-requests/:id/reject', wrap(async (req, res) => {
+  app.post('/api/change-requests/:id/reject', { action: 'change-request.reject', kind: 'decide' }, wrap(async (req, res) => {
     if (!adminGuard(req, res)) return;
     const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
     if (!reviewedBy) bad('拒绝必填 reviewed_by（K11）');

@@ -46,12 +46,12 @@ function validatePanels(raw: unknown): PanelConfig[] {
 }
 
 export function registerCockpitRoutes(app: HttpService): void {
-  app.get('/api/cockpits', (_req, res) => {
+  app.get('/api/cockpits', { action: 'cockpit.list', kind: 'read' }, (_req, res) => {
     const rows = svc<CockpitService>('cockpit').list() as unknown as CockpitRow[];
     res.json(rows.map(rowToCockpit));
   });
 
-  app.post('/api/cockpits', (req, res) => {
+  app.post('/api/cockpits', { action: 'cockpit.create', kind: 'admin' }, (req, res) => {
     const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
     if (!name) bad('name 不能为空');
     const description = String(req.body?.description ?? '');
@@ -60,11 +60,11 @@ export function registerCockpitRoutes(app: HttpService): void {
     res.status(201).json(rowToCockpit(getCockpit(Number(r.lastInsertRowid))));
   });
 
-  app.get('/api/cockpits/:id', (req, res) => {
+  app.get('/api/cockpits/:id', { action: 'cockpit.read', kind: 'read' }, (req, res) => {
     res.json(rowToCockpit(getCockpit(Number(req.params.id))));
   });
 
-  app.put('/api/cockpits/:id', (req, res) => {
+  app.put('/api/cockpits/:id', { action: 'cockpit.update', kind: 'admin' }, (req, res) => {
     const cur = getCockpit(Number(req.params.id));
     const name = req.body?.name !== undefined ? String(req.body.name).trim() : cur.name;
     if (!name) bad('name 不能为空');
@@ -74,7 +74,7 @@ export function registerCockpitRoutes(app: HttpService): void {
     res.json(rowToCockpit(getCockpit(cur.id)));
   });
 
-  app.delete('/api/cockpits/:id', (req, res) => {
+  app.delete('/api/cockpits/:id', { action: 'cockpit.delete', kind: 'admin' }, (req, res) => {
     const cur = getCockpit(Number(req.params.id));
     svc<CockpitService>('cockpit').delete(cur.id);
     res.json({ ok: true });

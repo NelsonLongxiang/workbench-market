@@ -1,6 +1,7 @@
 /**
  * 快照用的预加载钩子：只在 scripts/surface-snapshot.mjs 起的隔离实例里用（node --import）。
- * 记下进程里建出来的 Express 应用；父进程经 IPC 发来 'wm-surface-dump' 时，把每个应用的层按挂载顺序回传。
+ * 记下进程里建出来的 Express 应用；父进程经 IPC 发来 'wm-surface-dump' 时，把每个应用的层按挂载顺序回传，
+ * 同时回传每条路由报的动作（经 HTTP 服务注册时记在路由对象的 wmAction 上；直接挂在应用上的存量路由没有）。
  * 不改任何行为：只是在应用初始化时多记一个引用。
  */
 import { METHODS } from 'node:http';
@@ -46,10 +47,28 @@ function dump(stack, depth = 0) {
   return lines;
 }
 
+/** 每条路由一行，和 dump 里的路由行一一对应（同一个顺序、同样的方法和路径）：方法 路径 -> 动作 类别，没报的记（未登记） */
+function actionsOf(stack, depth = 0) {
+  const pad = '  '.repeat(depth);
+  const lines = [];
+  for (const layer of stack || []) {
+    if (layer.route) {
+      const every = EVERY_METHOD.every((m) => layer.route.methods[m]);
+      const methods = every ? 'ALL' : Object.keys(layer.route.methods).filter((m) => layer.route.methods[m]).map((m) => m.toUpperCase()).sort().join(',');
+      const path = Array.isArray(layer.route.path) ? layer.route.path.map(String).join(' | ') : String(layer.route.path);
+      const a = layer.route.wmAction;
+      lines.push(`${pad}${methods} ${path}  -> ${a ? `${a.action}  ${a.kind}` : '（未登记）'}`);
+    } else if (layer.handle?.stack) {
+      lines.push(...actionsOf(layer.handle.stack, depth + 1));
+    }
+  }
+  return lines;
+}
+
 // 父进程没了（被打断、被杀），实例自己退出，不留孤儿。
 process.on('disconnect', () => process.exit(0));
 
 process.on('message', (msg) => {
   if (msg !== 'wm-surface-dump') return;
-  process.send?.({ wmSurface: apps.map((app) => dump(app._router?.stack)) });
+  process.send?.({ wmSurface: apps.map((app) => dump(app._router?.stack)), wmActions: apps.map((app) => actionsOf(app._router?.stack)) });
 });

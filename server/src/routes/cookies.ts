@@ -35,7 +35,7 @@ function maskCookies(cookies: CookieExport[]): CookieExport[] {
 }
 
 export function registerCookieRoutes(app: HttpService): void {
-  app.post('/api/cookies', (req, res) => {
+  app.post('/api/cookies', { action: 'cookie.create', kind: 'admin' }, (req, res) => {
     const b = req.body ?? {};
     const label = typeof b.label === 'string' ? b.label.trim() : '';
     if (!label) bad('label 必填（如「DSH-3080 生产」）');
@@ -53,7 +53,7 @@ export function registerCookieRoutes(app: HttpService): void {
     res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), label, cookie_count: clean.length, active: info.active, cookies: maskCookies(clean) });
   });
 
-  app.get('/api/cookies', (_req, res) => {
+  app.get('/api/cookies', { action: 'cookie.list', kind: 'read' }, (_req, res) => {
     const rows = svc<CookieService>('cookie').all() as unknown as CookieRow[];
     res.json(rows.map((r) => {
       let cookies: CookieExport[] = [];
@@ -68,7 +68,7 @@ export function registerCookieRoutes(app: HttpService): void {
     }));
   });
 
-  app.delete('/api/cookies/:id', (req, res) => {
+  app.delete('/api/cookies/:id', { action: 'cookie.delete', kind: 'admin' }, (req, res) => {
     const id = Number(req.params.id);
     const r = svc<CookieService>('cookie').delete(id);
     if (!r.changes) throw new HttpError(404, `cookie set not found: ${id}`);

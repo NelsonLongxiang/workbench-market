@@ -19,9 +19,9 @@ export interface SettingsDeps {
 
 export function registerSettingsRoutes(app: HttpService, deps: SettingsDeps): void {
   const { maskUpstreamsSetting, armPatrol } = deps;
-  app.get('/api/settings', (_req, res) => { res.json(maskUpstreamsSetting(getSettings())); });
+  app.get('/api/settings', { action: 'setting.read', kind: 'read' }, (_req, res) => { res.json(maskUpstreamsSetting(getSettings())); });
 
-  app.put('/api/settings', (req, res) => {
+  app.put('/api/settings', { action: 'setting.update', kind: 'admin' }, (req, res) => {
     const b = req.body ?? {};
     if (typeof b !== 'object' || b === null) bad('body 必须是 {key: value} 对象');
     const allowed = ['health_interval_seconds', 'health_timeout_ms', 'health_concurrency', 'a2a_peers', 'mcp_upstreams', 'dispatch_sorting_enabled', 'run_upload_require_token']; // #19 ②a 分拣开关+#150 上传令牌开关

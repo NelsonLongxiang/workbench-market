@@ -55,7 +55,7 @@ export function registerLoginFlowRoutes(app: HttpService, deps: LoginFlowRouteDe
   const route = (fn: (req: express.Request, res: express.Response) => Promise<unknown>): express.RequestHandler =>
     (req, res, next) => { fn(req, res).catch(next); };
 
-  app.get('/login/:flow', route(async (req, res) => {
+  app.get('/login/:flow', { action: 'login.begin', kind: 'write' }, route(async (req, res) => {
     const flow = String(req.params.flow);
     if (!FLOW_RE.test(flow) || !identity().flows().some((f) => f.name === flow)) return page(res, 404, '没有这个登录方式', '请回到登录页选一种可用的登录方式。');
     const next = safeNext(req.query.next);
@@ -67,7 +67,7 @@ export function registerLoginFlowRoutes(app: HttpService, deps: LoginFlowRouteDe
     res.set('Cache-Control', 'no-store').redirect(302, begun.location);
   }));
 
-  app.get('/login/:flow/callback', route(async (req, res) => {
+  app.get('/login/:flow/callback', { action: 'login.callback', kind: 'write' }, route(async (req, res) => {
     const flow = String(req.params.flow);
     res.clearCookie(STATE_COOKIE, { httpOnly: true, sameSite: 'lax', secure: secure(req), path: `/login/${flow}/callback` });
     if (!FLOW_RE.test(flow)) return page(res, 404, '没有这个登录方式', '请回到登录页重新登录。');

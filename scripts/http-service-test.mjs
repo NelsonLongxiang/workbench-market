@@ -10,6 +10,8 @@
  *   H7 同一路径上有好几条路由（本仓最常见的形状：GET、POST 同一个路径）：撤哪条就只摘哪条，同路径的其余几条不动
  *   H8 撤销函数是普通函数：不带 then，调用后不返回东西
  *   H9 同一个处理函数挂在几条路由上：撤一条只摘那一层，不是按处理函数认的
+ *   H10 动作登记（6a）：没报动作、动作名或类别不合形状、同一个动作报了两种类别，都注册不上（抛错，栈不变）；
+ *       登记的动作记在路由上、能列出来，撤销和插件卸载时一起去掉
  */
 import { createRequire } from 'node:module';
 import { once } from 'node:events';
@@ -61,25 +63,27 @@ async function serve(app) {
 function named(req, res) { res.json({ route: 'named', id: req.params.id ?? null }); }
 function guard(_req, _res, next) { next(); }
 const tail = (_req, res) => res.status(404).json({ error: 'fell-through' });
+/** 测试里通用的一个动作声明（6a 起经服务注册都要报动作） */
+const A = { action: 'test.do', kind: 'read' };
 
 try {
   // ---------- H1：和直接注册逐行相同 ----------
   {
     const { http, app } = await fresh();
     const twin = express();
-    const build = (target, routes) => {
+    const build = (target, routes, S) => {
       target.use((_req, res, next) => { res.setHeader('x-before', '1'); next(); });
-      routes.get('/a', (_req, res) => res.json({ route: 'a' }));
+      routes.get('/a', ...S, (_req, res) => res.json({ route: 'a' }));
       target.get('/direct', (_req, res) => res.json({ route: 'direct' }));
-      routes.post('/b/:id', guard, named);
-      routes.put('/b/:id(\\d+)', named);
-      routes.patch(['/c', '/d'], named);
-      routes.delete(/^\/re\/\d+$/, named);
-      routes.all('/any', guard, named);
+      routes.post('/b/:id', ...S, guard, named);
+      routes.put('/b/:id(\\d+)', ...S, named);
+      routes.patch(['/c', '/d'], ...S, named);
+      routes.delete(/^\/re\/\d+$/, ...S, named);
+      routes.all('/any', ...S, guard, named);
       target.use(tail);
     };
-    build(app, http);
-    build(twin, twin);
+    build(app, http, [A]);
+    build(twin, twin, []);
     const mine = dump(app), theirs = dump(twin);
     ok('H1 经服务注册和直接注册，路由栈逐行相同（顺序、方法、路径、处理函数个数与名字）', mine.join('\n') === theirs.join('\n'), `\n${mine.join('\n')}\n--- 直接注册 ---\n${theirs.join('\n')}`);
     ok('H1 服务没有多挂东西：Express 自带 2 层 + 1 层中间件 + 7 条路由 + 1 层兜底，共 11 层', mine.length === 11, String(mine.length));
@@ -95,9 +99,9 @@ try {
   // ---------- H2：撤销 ----------
   {
     const { http, app } = await fresh();
-    const revokeA = http.get('/a', (_req, res) => res.json({ route: 'a' }));
+    const revokeA = http.get('/a', A, (_req, res) => res.json({ route: 'a' }));
     app.get('/direct', (_req, res) => res.json({ route: 'direct' }));
-    http.post('/b/:id', named);
+    http.post('/b/:id', A, named);
     app.use(tail);
     const call = await serve(app);
     const before = dump(app);
@@ -111,7 +115,7 @@ try {
     ok('H2 别的路由不受影响', (await call('GET', '/direct')).body.route === 'direct' && (await call('POST', '/b/9')).body.id === '9');
     let threw = false; try { revokeA(); revokeA(); } catch { threw = true; }
     ok('H2 撤销两次不出错，栈不再变', !threw && dump(app).join('\n') === after.join('\n'));
-    http.get('/a', (_req, res) => res.json({ route: 'a-again' }));
+    http.get('/a', A, (_req, res) => res.json({ route: 'a-again' }));
     const again = dump(app);
     ok('H2 再注册是挂在栈尾（调用那一刻的位置），所以排在兜底后面、到不了', again[again.length - 1].startsWith('GET /a ') && (await call('GET', '/a')).status === 404);
   }
@@ -119,10 +123,10 @@ try {
   // ---------- H3：随插件卸载 ----------
   {
     const { ctx, http, app } = await fresh();
-    http.get('/root', (_req, res) => res.json({ owner: 'root' }));
-    const one = ctx.plugin({ name: 'one', inject: ['http'], apply(c) { c.http.get('/one/a', (_req, res) => res.json({ owner: 'one' })); c.http.put('/one/b', named); } });
+    http.get('/root', A, (_req, res) => res.json({ owner: 'root' }));
+    const one = ctx.plugin({ name: 'one', inject: ['http'], apply(c) { c.http.get('/one/a', A, (_req, res) => res.json({ owner: 'one' })); c.http.put('/one/b', A, named); } });
     await one;
-    const two = ctx.plugin({ name: 'two', inject: ['http'], apply(c) { c.http.get('/two', (_req, res) => res.json({ owner: 'two' })); } });
+    const two = ctx.plugin({ name: 'two', inject: ['http'], apply(c) { c.http.get('/two', A, (_req, res) => res.json({ owner: 'two' })); } });
     await two;
     app.use(tail);
     const call = await serve(app);
@@ -143,8 +147,8 @@ try {
     let entered, release;
     const inside = new Promise((r) => { entered = r; });
     const gate = new Promise((r) => { release = r; });
-    const revokeEarly = http.get('/early', (_req, res) => res.json({ route: 'early' }));
-    http.get('/slow', async (_req, _res, next) => { entered(); await gate; next(); });
+    const revokeEarly = http.get('/early', A, (_req, res) => res.json({ route: 'early' }));
+    http.get('/slow', A, async (_req, _res, next) => { entered(); await gate; next(); });
     app.use((_req, res) => res.json({ reached: 'tail' }));
     const call = await serve(app);
     const pending = call('GET', '/slow');
@@ -161,10 +165,10 @@ try {
     const { http, app } = await fresh();
     const say = (who) => (_req, res) => res.json({ who });
     const first = say('get-1'), second = say('get-2'), post = say('post'), put = say('put');
-    const revokeFirst = http.get('/same', first);
-    const revokePost = http.post('/same', post);
-    const revokeSecond = http.get('/same', second); // 同一方法、同一路径再注册一次：排在后面，前一条在的时候轮不到它
-    http.put('/same', put);
+    const revokeFirst = http.get('/same', A, first);
+    const revokePost = http.post('/same', A, post);
+    const revokeSecond = http.get('/same', A, second); // 同一方法、同一路径再注册一次：排在后面，前一条在的时候轮不到它
+    http.put('/same', A, put);
     app.use(tail);
     const call = await serve(app);
     const handlers = () => app._router.stack.filter((l) => l.route).map((l) => l.route.stack[0].handle);
@@ -182,7 +186,7 @@ try {
   // ---------- H8：撤销函数是普通函数 ----------
   {
     const { http, app } = await fresh();
-    const revoke = http.get('/plain', (_req, res) => res.json({ route: 'plain' }));
+    const revoke = http.get('/plain', A, (_req, res) => res.json({ route: 'plain' }));
     app.use(tail);
     // Cordis 的 effect 交回来的东西带 then：谁要是在异步的注册函数里写了 await http.get(...)，拿到的会是另一个函数
     const awaited = await revoke;
@@ -196,9 +200,9 @@ try {
   {
     const { http, app } = await fresh();
     function shared(req, res) { res.json({ method: req.method, path: req.path }); }
-    const revokeA = http.get('/alias-a', shared);
-    http.get('/alias-b', shared);
-    http.post('/alias-a', guard, shared);
+    const revokeA = http.get('/alias-a', A, shared);
+    http.get('/alias-b', A, shared);
+    http.post('/alias-a', A, guard, shared);
     app.use(tail);
     const call = await serve(app);
     const before = dump(app);
@@ -208,12 +212,54 @@ try {
     ok('H9 被撤的那条落到兜底，另外两条照常应答', (await call('GET', '/alias-a')).body.error === 'fell-through' && (await call('GET', '/alias-b')).body.path === '/alias-b' && (await call('POST', '/alias-a')).body.method === 'POST');
   }
 
+  // ---------- H10：动作登记 ----------
+  {
+    const { ctx, http, app } = await fresh();
+    const before = dump(app);
+    const refused = (fn) => { try { fn(); return ''; } catch (e) { return String(e?.message ?? e); } };
+    const h = (_req, res) => res.json({ ok: true });
+    const noSpec = refused(() => http.get('/x', h));
+    ok('H10 没报动作（第二个参数是处理函数）：注册不上', noSpec.includes('没有报动作'), noSpec);
+    const badNames = ['', 'nodot', 'Upper.case', 'a.b.c', 'x.', '.x', 'a b.c', 'a.b ', '中文.读', 'a_b.c', `${'a'.repeat(33)}.b`];
+    const nameRefusals = badNames.map((action) => refused(() => http.get('/x', { action, kind: 'read' }, h)));
+    ok(`H10 动作名不合 <域>.<动词> 的形状（${badNames.length} 种）：都注册不上`, nameRefusals.every((m) => m.includes('动作名')), JSON.stringify(nameRefusals));
+    const badKinds = [undefined, '', 'Read', 'execute', 'delete', 1, null];
+    const kindRefusals = badKinds.map((kind) => refused(() => http.post('/x', { action: 'x.do', kind }, h)));
+    ok(`H10 类别不是 read/write/decide/admin（${badKinds.length} 种）：都注册不上`, kindRefusals.every((m) => m.includes('动作类别')), JSON.stringify(kindRefusals));
+    const otherShapes = [null, 'x.read', ['x.read', 'read'], 42].map((spec) => refused(() => http.get('/x', spec, h)));
+    ok('H10 动作声明不是对象（null、字符串、数组、数字）：注册不上', otherShapes.every((m) => m.includes('没有报动作') || m.includes('动作名')), JSON.stringify(otherShapes));
+    ok('H10 注册不上的都没在栈里留下东西', dump(app).join('\n') === before.join('\n') && http.actions().length === 0);
+
+    const revokeRead = http.get('/items', { action: 'item.read', kind: 'read' }, h);
+    http.get('/items/:id', { action: 'item.read', kind: 'read' }, h);
+    const clash = refused(() => http.post('/items', { action: 'item.read', kind: 'write' }, h));
+    ok('H10 同一个动作在别处报的是 read，这里报 write：注册不上，栈里只多了前两条', clash.includes('item.read') && dump(app).filter((l) => l.startsWith('POST /items')).length === 0, clash);
+    http.post('/items', { action: 'item.create', kind: 'admin' }, h);
+    http.all('/legacy', { action: 'item.legacy', kind: 'admin' }, h);
+    const listed = http.actions().map((a) => `${a.method} ${a.path} ${a.action} ${a.kind}`);
+    ok('H10 actions() 按注册顺序列出每条路由的方法、路径、动作、类别', listed.join('|') === 'get /items item.read read|get /items/:id item.read read|post /items item.create admin|all /legacy item.legacy admin', listed.join('|'));
+    const layer = app._router.stack.find((l) => l.route?.path === '/items' && l.route.methods.post);
+    const spec = layer?.route.wmAction;
+    ok('H10 动作记在路由对象上，只读、不可枚举（快照的录制钩子读它）', spec?.action === 'item.create' && spec.kind === 'admin' && Object.isFrozen(spec) && !Object.keys(layer.route).includes('wmAction'));
+    const call = await serve(app);
+    ok('H10 报了动作的路由照常应答（动作只登记，不判定）', (await call('GET', '/items')).body.ok === true && (await call('POST', '/items')).body.ok === true && (await call('DELETE', '/legacy')).body.ok === true);
+    revokeRead();
+    ok('H10 撤销一条：它的动作从清单里去掉，同名动作的另一条还在', http.actions().filter((a) => a.action === 'item.read').map((a) => a.path).join() === '/items/:id');
+    const plugin = ctx.plugin({ name: 'p', inject: ['http'], apply(c) { c.http.put('/p', { action: 'plugin.update', kind: 'write' }, h); } });
+    await plugin;
+    const withPlugin = http.actions().some((a) => a.action === 'plugin.update');
+    await plugin.dispose();
+    ok('H10 插件卸载：它报的动作一起从清单里去掉', withPlugin && !http.actions().some((a) => a.action === 'plugin.update'));
+    http.put('/p2', { action: 'plugin.update', kind: 'admin' }, h);
+    ok('H10 报这个动作的路由都撤了以后，同名动作可以按新的类别重新登记', http.actions().some((a) => a.action === 'plugin.update' && a.kind === 'admin'));
+  }
+
   // ---------- H5、H6 ----------
   {
     const { http, app } = await fresh();
     app.use(tail);
     const before = dump(app);
-    let message = ''; try { http.get('/setting-like'); } catch (e) { message = String(e?.message ?? e); }
+    let message = ''; try { http.get('/setting-like', A); } catch (e) { message = String(e?.message ?? e); }
     ok('H5 不带处理函数的注册直接报错，栈不变', message.includes('没有处理函数') && dump(app).join('\n') === before.join('\n'), message);
     ok('H6 expressApp() 是 Express 应用本身：是函数、有 handle、不是代理、每次拿到同一个', typeof app === 'function' && typeof app.handle === 'function' && !types.isProxy(app) && http.expressApp() === app);
   }

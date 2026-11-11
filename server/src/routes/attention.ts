@@ -20,7 +20,7 @@ export type AttentionRouteDeps = AttentionDeps & {
 
 export function registerAttentionRoutes(app: HttpService, deps: AttentionRouteDeps): void {
   installAttentionProviders(svc<AttentionService>('attention'), deps);
-  app.get('/api/attention', (req, res, next) => {
+  app.get('/api/attention', { action: 'attention.read', kind: 'read' }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     res.vary('Cookie'); res.vary('X-Admin-Token');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'attention_cross_origin_denied' });

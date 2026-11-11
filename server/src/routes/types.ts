@@ -12,11 +12,11 @@ import { HttpError, bad } from '../errors.ts';
 import { checkTypeHealthPath } from '../url-admission.ts';
 
 export function registerTypeRoutes(app: HttpService): void {
-  app.get('/api/types', (_req, res) => {
+  app.get('/api/types', { action: 'type.list', kind: 'read' }, (_req, res) => {
     res.json(svc<WorkbenchService>('workbench').types());
   });
 
-  app.post('/api/types', (req, res) => {
+  app.post('/api/types', { action: 'type.create', kind: 'admin' }, (req, res) => {
     const b = req.body ?? {};
     if (typeof b.key !== 'string' || !/^[a-z0-9][a-z0-9-]*$/.test(b.key)) bad('key 必须是小写字母/数字/连字符');
     if (typeof b.name !== 'string' || !b.name.trim()) bad('name 不能为空');
@@ -32,7 +32,7 @@ export function registerTypeRoutes(app: HttpService): void {
     res.status(201).json(svc<WorkbenchService>('workbench').typeById(Number(r.lastInsertRowid)));
   });
 
-  app.put('/api/types/:id', (req, res) => {
+  app.put('/api/types/:id', { action: 'type.update', kind: 'admin' }, (req, res) => {
     const id = Number(req.params.id);
     const cur = svc<WorkbenchService>('workbench').typeById(id) as unknown as TypeRow | undefined;
     if (!cur) throw new HttpError(404, `type not found: ${id}`);
@@ -54,7 +54,7 @@ export function registerTypeRoutes(app: HttpService): void {
     res.json(svc<WorkbenchService>('workbench').typeById(id));
   });
 
-  app.delete('/api/types/:id', (req, res) => {
+  app.delete('/api/types/:id', { action: 'type.delete', kind: 'admin' }, (req, res) => {
     const id = Number(req.params.id);
     const cur = svc<WorkbenchService>('workbench').typeById(id) as unknown as TypeRow | undefined;
     if (!cur) throw new HttpError(404, `type not found: ${id}`);
