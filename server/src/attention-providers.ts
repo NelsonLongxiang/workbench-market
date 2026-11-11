@@ -11,7 +11,6 @@
  *   change-requests   GET /api/change-requests?status=pending  adminGuard（取数用 changeRequest 服务，和旧接口同一个函数）  审核
  *   mcp-access        GET /api/mcp/access-requests?status=pending adminGuard                 授权
  *   seat-asks         GET /api/workbench-events（决定是 ask 的）adminGuard                    提问
- *   seat-letters      阶段七 R2：席位来信（跟进，过渡期里提问和通知都这样来）adminGuard          席位来信
  *   tasks             GET /api/tasks（统一待办）                tasksReadAccess(adminHeaderOk) 审核
  *   owner-pending     GET /api/workbenches/:id/vars（看板台）  vars 接口的读门                提问
  *   principal-pending GET /api/principals/pending              主体路由的管理门               授权
@@ -27,7 +26,6 @@ import { listVars, workbenchScope } from './workbench-vars.ts';
 import { principalsAdmin } from './routes/principals.ts';
 import { buildBoard, findBoardWorkbench, parseConfig, BOARD_PATH, type BoardVar } from './owner-pending.ts';
 import { openSeatAsks } from './services/attention-sources.ts';
-import { openFollowups } from './services/a2a-followups.ts';
 import { withAnswers } from './attention-answers.ts';
 import type { AttentionItem, AttentionProvider, AttentionService } from './services/attention.ts';
 import type { ChangeRequestService } from './services/change-request.ts';
@@ -97,18 +95,6 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           title: `${a.target_team} 问：${a.question || '（没写问题）'}`,
           waiting_for: a.ask_kind === 'receipt' ? (a.asked_by || a.target_team) : a.asked_by ? `receiver:${a.asked_by}` : a.target_team, since: a.asked_at, answers: ['answer'],
           link: `/work-items/wi_${a.event_id}`,
-        }))
-        : null,
-    }),
-    provide({
-      // 阶段七 R2：席位来信（跟进）。和席位的提问同一道守卫（同属工作台事件的读面）
-      source: 'seat-letters', label: '席位来信',
-      list: (req) => passes(deps.adminGuard, req)
-        ? openFollowups().map((f) => item({
-          source: 'seat-letters', source_id: String(f.id), category: 'letter',
-          title: `${f.sender || f.peer_zone} 来信：${f.text.slice(0, 200)}${f.truncated ? '（已截断）' : ''}`,
-          waiting_for: `receiver:${f.peer_zone}`, since: f.created_at, answers: ['reply', 'ack'],
-          link: `/work-items/wi_${f.event_id}`,
         }))
         : null,
     }),

@@ -13,8 +13,8 @@ type Item = AttentionItem;
 type SourceMeta = { label: string; visible: boolean; count: number; error?: string };
 type View = { items: Item[]; counts: { total: number; by_category: Record<Category, number> }; sources: Record<string, SourceMeta> };
 
-const CATEGORY: Record<Category, string> = { ask: '提问', review: '审核', accept: '验收', glance: '过目', grant: '授权', letter: '席位来信' };
-const CATEGORY_COLOR: Record<Category, string> = { ask: 'gold', review: 'blue', accept: 'green', glance: 'default', grant: 'purple', letter: 'cyan' };
+const CATEGORY: Record<Category, string> = { ask: '提问', review: '审核', accept: '验收', glance: '过目', grant: '授权' };
+const CATEGORY_COLOR: Record<Category, string> = { ask: 'gold', review: 'blue', accept: 'green', glance: 'default', grant: 'purple' };
 const ANSWER: Record<string, string> = { approve: '批准', reject: '拒绝', answer: '答复', bind: '对接', verify: '验收通过', return: '退回', release: '放行', withdraw: '撤回', reply: '回复', ack: '知道了' };
 /** 每种答法要填的东西（和来源旧页面要的一样；入口把它们原样交给来源） */
 type Field = { key: string; label: string; kind?: 'text' | 'textarea' | 'check'; required?: boolean };
@@ -22,7 +22,6 @@ const FIELDS: Record<string, Record<string, Field[]>> = {
   'change-requests': { approve: [{ key: 'reviewed_by', label: '审核人', required: true }], reject: [{ key: 'reviewed_by', label: '审核人', required: true }] },
   'mcp-access': { approve: [{ key: 'note', label: '备注' }], reject: [{ key: 'note', label: '拒绝理由' }] },
   'seat-asks': { answer: [{ key: 'text', label: '答复', kind: 'textarea', required: true }] },
-  'seat-letters': { reply: [{ key: 'text', label: '回复', kind: 'textarea', required: true }], ack: [] },
   'owner-pending': { answer: [{ key: 'summary', label: '答复', kind: 'textarea', required: true }] },
   'principal-pending': { bind: [{ key: 'principal', label: '对到哪个主体（user:<名>）', required: true }, { key: 'create', label: '这个主体还没有，就新建', kind: 'check' }, { key: 'reason', label: '理由', required: true }] },
   'work-items': { return: [{ key: 'reason', label: '退回理由', kind: 'textarea', required: true }] },

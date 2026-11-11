@@ -22,7 +22,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1327", "etag": "W/\"52f-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1251", "etag": "W/\"4e3-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -50,12 +50,11 @@
                   "link": "/api/principals/pending"
                 }
               ],
-              "counts": { "total": 2, "by_category": { "ask": 0, "review": 1, "accept": 0, "glance": 0, "grant": 1, "letter": 0 }, "by_source": { "change-requests": 1, "principal-pending": 1 } },
+              "counts": { "total": 2, "by_category": { "ask": 0, "review": 1, "accept": 0, "glance": 0, "grant": 1 }, "by_source": { "change-requests": 1, "principal-pending": 1 } },
               "sources": {
                 "change-requests": { "label": "变更申请", "visible": true, "count": 1 },
                 "mcp-access": { "label": "MCP 权限申请", "visible": true, "count": 0 },
                 "seat-asks": { "label": "席位的提问", "visible": true, "count": 0 },
-                "seat-letters": { "label": "席位来信", "visible": true, "count": 0 },
                 "tasks": { "label": "任务中心收件（统一待办）", "visible": true, "count": 0 },
                 "owner-pending": { "label": "待属主看板", "visible": true, "count": 0 },
                 "principal-pending": { "label": "待对接清单", "visible": true, "count": 1 },
@@ -74,7 +73,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1327", "etag": "W/\"52f-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1251", "etag": "W/\"4e3-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -102,12 +101,11 @@
                   "link": "/api/principals/pending"
                 }
               ],
-              "counts": { "total": 2, "by_category": { "ask": 0, "review": 1, "accept": 0, "glance": 0, "grant": 1, "letter": 0 }, "by_source": { "change-requests": 1, "principal-pending": 1 } },
+              "counts": { "total": 2, "by_category": { "ask": 0, "review": 1, "accept": 0, "glance": 0, "grant": 1 }, "by_source": { "change-requests": 1, "principal-pending": 1 } },
               "sources": {
                 "change-requests": { "label": "变更申请", "visible": true, "count": 1 },
                 "mcp-access": { "label": "MCP 权限申请", "visible": true, "count": 0 },
                 "seat-asks": { "label": "席位的提问", "visible": true, "count": 0 },
-                "seat-letters": { "label": "席位来信", "visible": true, "count": 0 },
                 "tasks": { "label": "任务中心收件（统一待办）", "visible": true, "count": 0 },
                 "owner-pending": { "label": "待属主看板", "visible": true, "count": 0 },
                 "principal-pending": { "label": "待对接清单", "visible": true, "count": 1 },
@@ -126,7 +124,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1063", "etag": "W/\"427-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "986", "etag": "W/\"3da-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -142,12 +140,11 @@
                   "link": "/api/principals/pending"
                 }
               ],
-              "counts": { "total": 1, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 1, "letter": 0 }, "by_source": { "principal-pending": 1 } },
+              "counts": { "total": 1, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 1 }, "by_source": { "principal-pending": 1 } },
               "sources": {
                 "change-requests": { "label": "变更申请", "visible": false, "count": 0 },
                 "mcp-access": { "label": "MCP 权限申请", "visible": false, "count": 0 },
                 "seat-asks": { "label": "席位的提问", "visible": false, "count": 0 },
-                "seat-letters": { "label": "席位来信", "visible": false, "count": 0 },
                 "tasks": { "label": "任务中心收件（统一待办）", "visible": false, "count": 0 },
                 "owner-pending": { "label": "待属主看板", "visible": true, "count": 0 },
                 "principal-pending": { "label": "待对接清单", "visible": true, "count": 1 },
@@ -166,15 +163,14 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "752", "etag": "W/\"2f0-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "675", "etag": "W/\"2a3-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [],
-              "counts": { "total": 0, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 0, "letter": 0 }, "by_source": {} },
+              "counts": { "total": 0, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 0 }, "by_source": {} },
               "sources": {
                 "change-requests": { "label": "变更申请", "visible": false, "count": 0 },
                 "mcp-access": { "label": "MCP 权限申请", "visible": false, "count": 0 },
                 "seat-asks": { "label": "席位的提问", "visible": false, "count": 0 },
-                "seat-letters": { "label": "席位来信", "visible": false, "count": 0 },
                 "tasks": { "label": "任务中心收件（统一待办）", "visible": false, "count": 0 },
                 "owner-pending": { "label": "待属主看板", "visible": false, "count": 0 },
                 "principal-pending": { "label": "待对接清单", "visible": false, "count": 0 },
@@ -193,15 +189,14 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "752", "etag": "W/\"2f0-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "675", "etag": "W/\"2a3-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [],
-              "counts": { "total": 0, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 0, "letter": 0 }, "by_source": {} },
+              "counts": { "total": 0, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 0 }, "by_source": {} },
               "sources": {
                 "change-requests": { "label": "变更申请", "visible": false, "count": 0 },
                 "mcp-access": { "label": "MCP 权限申请", "visible": false, "count": 0 },
                 "seat-asks": { "label": "席位的提问", "visible": false, "count": 0 },
-                "seat-letters": { "label": "席位来信", "visible": false, "count": 0 },
                 "tasks": { "label": "任务中心收件（统一待办）", "visible": false, "count": 0 },
                 "owner-pending": { "label": "待属主看板", "visible": false, "count": 0 },
                 "principal-pending": { "label": "待对接清单", "visible": false, "count": 0 },

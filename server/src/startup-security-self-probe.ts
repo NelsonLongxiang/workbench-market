@@ -93,6 +93,8 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, log = (row: unkno
       // 导出真值：远程匿名带 reveal=1 拿不到真值。登录门关着时由路由的管理员门拒（403，不降级成掩码），开着时登录门先拦（401）
       // 建立人验收入口（8e）：它不经写请求总门，远程匿名来必须 401（登录门开着时登录门先拦，也是 401）
       { id: 'market.work-items.creator-decision-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/work-items/wi_selfprobe/decision', body: '{"answer":"verify"}', origin: true, headers: REMOTE_ANON, status: 401 },
+      // 阶段七 R2：事项对话里回复席位消息的入口同样经写请求总门放行、路由内认人，远程匿名来必须 401
+      { id: 'market.work-items.seat-reply-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/work-items/wi_selfprobe/messages/1/reply', body: '{"text":"selfprobe"}', origin: true, headers: REMOTE_ANON, status: 401 },
       { id: 'market.export.reveal-anonymous', target: m, surface: 'market', method: 'GET', path: '/api/export?reveal=1', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 },
       // 授予管理面：远程匿名列不出授予（GET 不经写请求总门，拒的是路由自己的管理门；登录门开着时登录门先拦 401）
       { id: 'market.grants.admin-read', target: m, surface: 'market', method: 'GET', path: '/api/grants', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 },

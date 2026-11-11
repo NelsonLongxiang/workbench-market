@@ -1,6 +1,6 @@
 /** 「关注」页和事项页共用的纯函数（阶段八 8d）：不碰 React，scripts/attention-ui-unit.mjs 直接测。 */
 
-export type Category = 'ask' | 'review' | 'accept' | 'glance' | 'grant' | 'letter';
+export type Category = 'ask' | 'review' | 'accept' | 'glance' | 'grant';
 export type AttentionItem = { source: string; source_id: string; category: Category; title: string; waiting_for: string; since: string; answers: string[]; object: string; phase: string; link: string };
 export type LogRow = { seq: number; fact: string; fact_source: string; fact_id: string; from_state: string; to_state: string; actor: string; detail: string; at: string; rejected: '' | 'not_allowed' | 'terminal' };
 
@@ -32,7 +32,7 @@ export function byWaited(items: AttentionItem[]): AttentionItem[] {
 export function describe(row: Pick<LogRow, 'detail'>): string {
   let d: Record<string, unknown> = {};
   try { d = JSON.parse(row.detail || '{}'); } catch { /* 坏的 detail 当空 */ }
-  const note = d.note === 'unrouted' ? '没有目标团队' : d.note === 'untrusted' ? '提交方未验证，收到但未采信' : d.note === 'undispatched' ? '只通知、不派发，未派发' : d.note === 'followup' ? '席位来信' : d.note === 'followup-reply' ? '人回复了席位来信' : d.note === 'followup-ack' ? '人看过这封来信（知道了）' : '';
+  const note = d.note === 'unrouted' ? '没有目标团队' : d.note === 'untrusted' ? '提交方未验证，收到但未采信' : d.note === 'undispatched' ? '只通知、不派发，未派发' : d.note === 'followup' ? '席位发来的消息' : d.note === 'followup-reply' ? '人回复了席位的消息' : d.note === 'followup-read' ? '人看过席位的消息' : '';
   const bits = [d.question, d.answer, d.summary, d.reason, (d.note === 'followup' || d.note === 'followup-reply') ? d.text : '', note, d.verdict && `判断：${d.verdict}`, d.status && `状态：${d.status}`, d.outcome && `结果：${d.outcome}`, d.late ? '晚到' : ''];
   return bits.filter((x): x is string => typeof x === 'string' && x !== '').join(' · ');
 }

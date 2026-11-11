@@ -22,7 +22,6 @@ import { answerBody, findBoardWorkbench } from './owner-pending.ts';
 import { principalsAdmin } from './routes/principals.ts';
 import { currentAskOfDelivery, pendingAskOfDelivery, pendingPrincipalAppearance } from './services/attention-sources.ts';
 import { askTaskOf, deliveryTarget, eventDispatched, inReplyTx, queueReply } from './services/a2a-replies.ts';
-import { closeFollowup, followupById } from './services/a2a-followups.ts';
 import { kickWorkbenchEvents, logDeliveryFact } from './workbench-events.ts';
 import { listVars, workbenchScope } from './workbench-vars.ts';
 import type { AnswerOutcome, AttentionProvider, AttentionService } from './services/attention.ts';
@@ -162,42 +161,6 @@ const DIRECT: Record<string, Record<string, (req: Req, id: string, input: Input,
       return { status: 200, body: dispatched
         ? { ok: true, item_id: itemId, state: result.out.state, sent: result.queued, reason: result.queued ? 'queued' : 'already_queued', message: '答复记在事项上，并作为同一 context 的新任务发回那个团队' }
         : { ok: true, item_id: itemId, state: result.out.state, sent: false, reason: 'event_not_dispatched', message: '答复记在事项上；这个事件只通知、不派发，没有回写通道，不发' } };
-    },
-  },
-  'seat-letters': {
-    /**
-     * 阶段七 R2：席位来信（跟进）。过渡期里成员的提问和通知都作为跟进发来，市场分不出是哪种，都给人看：
-     *   reply：回复作为同一 context 的新任务发回那个团队（只通知的事件没有回写通道，不发），这条来信合上；
-     *   ack：知道了，合上。
-     * 两种都在事件日志记一行（事项只记录），回复和合上在同一个保存点里。
-     */
-    reply: async (_req, id, input, actor) => {
-      const answer = text(input.text);
-      if (!answer) return { status: 400, body: { error: 'text_required' } };
-      const f = /^[1-9]\d{0,15}$/.test(id) ? followupById(Number(id)) : undefined;
-      if (!f || f.status !== 'open') return { status: 409, body: { error: 'seat_letter_not_open' } };
-      const target = deliveryTarget(f.delivery_id);
-      const dispatched = eventDispatched(f.event_id);
-      const queued = inReplyTx(() => {
-        if (!closeFollowup(f.id, 'replied', actor)) return null;
-        const q = dispatched && !!target && queueReply({ kind: 'followup-reply', eventId: f.event_id, deliveryId: f.delivery_id, ref: f.id, qid: f.inbound_task,
-          team: target.team, callerSession: target.caller_session, contextId: f.context_id, targetUrl: target.target_url, message: JSON.stringify({ text: answer, by: actor }) }) !== null;
-        logDeliveryFact(f.event_id, f.delivery_id, actor, 'followup-replied', { followup: f.id, text: answer.slice(0, 500), sent: q });
-        return q;
-      });
-      if (queued === null) return { status: 409, body: { error: 'seat_letter_not_open' } };
-      if (queued) kickWorkbenchEvents();
-      return { status: 200, body: { ok: true, item_id: itemIdForEvent(f.event_id), sent: queued, reason: queued ? 'queued' : dispatched ? 'not_queued' : 'event_not_dispatched' } };
-    },
-    ack: async (_req, id, _input, actor) => {
-      const f = /^[1-9]\d{0,15}$/.test(id) ? followupById(Number(id)) : undefined;
-      if (!f || f.status !== 'open') return { status: 409, body: { error: 'seat_letter_not_open' } };
-      const ok = inReplyTx(() => {
-        if (!closeFollowup(f.id, 'acknowledged', actor)) return false;
-        logDeliveryFact(f.event_id, f.delivery_id, actor, 'followup-acknowledged', { followup: f.id });
-        return true;
-      });
-      return ok ? { status: 200, body: { ok: true, item_id: itemIdForEvent(f.event_id) } } : { status: 409, body: { error: 'seat_letter_not_open' } };
     },
   },
 };

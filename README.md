@@ -270,9 +270,10 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   a2a/health.ts（`/api/health` 的 `a2a` 块：开关生效值、名片有效期、幂等窗口、出站积压、拒收计数·只出计数不出团队与地址·读数缓存 5 秒）
   a2a/peer-card.ts（对端名片：按投递的根地址取名片、上游 verifyCard 验签；投递时记下对端是谁、回执到达时用同一张名片验签名·不跟随重定向、5 秒、64 KiB）
   a2a/receipt-inbound.ts（席位的 A2A 回执入站：`/a2a/direct` 在签名校验和准入之前的窄分流——正文是回执、任务号是我们发出的、签名方是当初投递到的那台宿主，三条都成立才采信并写事件日志，事项照常推进；否则照原路，应答不变）
-  a2a/reply-outbound.ts（市场回给团队的消息：人的答复与来信回复作为同一 context 的新任务发回；收下跟进后在 receipt-<跟进任务号> 上回结清回执（只用跟进的任务号，发不出去一直重试）；复用事件投递的发送函数、退避与签名）
+  a2a/reply-outbound.ts（市场回给团队的消息：人的答复与对席位消息的回复作为同一 context 的新任务发回；收下跟进后在 receipt-<跟进任务号> 上回结清回执（只用跟进的任务号，发不出去一直重试）；复用事件投递的发送函数、退避与签名）
   app-data-contract.ts（自产台数据契约：必填/枚举/格式/条件规则（含条件格式）/数组对象逐元素，POST 数据时服务端权威校验）
   app-html.ts（出自产台页面 HTML：注入按台令牌，认得出的人在当前上架版本上再注入提交人票据；出票抛错页面照常不带票据，别的出错回到原样页面并计数）
+  seat-messages.ts（事项对话里的席位消息：跟进不进「关注」，在事项页列出、带未读数；看过标已读、回复作为同一 context 的新任务发回）
   attention-answers.ts（「关注」各来源的答法：转给原路由的换算表——路径固定、id 核形状后编码、请求体只取这种答法要的字段；席位提问的答复、事项的验收和退回直接实现）
   attention-forward.ts（进程内把答复转给原路由：全局中间件和原路由的守卫照走，身份头原样、来源地址照抄，应答原样交回）
   attention-providers.ts（「关注」的七个提供方：各来源用旧接口自己的守卫判可见性，只读地取数；阶段三搬完再挪回各域）
@@ -331,7 +332,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   workbench-vars.ts（#336 工作台变量与常量：按台隔离、revision 乐观锁、常量保护）
 server/src/login-providers/  登录提供方插件（身份的具体实现只放这里，核心不引用）：index.ts（清单：这个部署装哪些提供方） feishu/index.ts（飞书登录方式：授权码流程，向 `identity` 登记一个登录方式，凭证从凭据库取） odoo/index.ts（Odoo 提供方的插件入口：向 `identity` 登记、提供 `loginRelay`） odoo/odoo-viewer.ts（Odoo 查看人现查） odoo/odoo-session.ts（门户 Odoo 会话可信源判定与剥除、登录回调票据） odoo/odoo-login-proxy.ts（可选同源 Odoo 登录中继 WM_ODOO_LOGIN_PROXY：只放行登录面，不代理 Odoo 应用） odoo/odoo-browser-origin.ts（只给浏览器用的 Odoo 登录地址 WM_ODOO_BROWSER_URL：登录一跳送到可信内网地址，身份与代理目标不变）
 server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·cookie·setting·mcp（域服务）；其余一个文件一行，按文件名排序：
-  a2a-followups.ts（席位来信（跟进）的登记：收下、按投递与对端计数、「关注」里待处理的、回复或知道了合上）
+  a2a-followups.ts（席位发来的消息（跟进）的登记：收下、按投递与对端计数、事项对话里的未读、看过、回复）
   a2a-handles.ts（市场 A2A 会话句柄 `market/<node8>` 的唯一性：生成时避开已占用的，存量撞车的不上卡、入站失败关闭）
   a2a-idempotency.ts（`/a2a/direct` 幂等登记：task_id → 指纹 sha256，30 分钟窗口，落库，重启后同一 task_id 仍判 replay / conflict；只存摘要不存原文）
   a2a-receipts.ts（回执入站的登记：我们发出的任务号 → 事件、投递、对端；采信过的回执按任务号去重；签名只认一次）
