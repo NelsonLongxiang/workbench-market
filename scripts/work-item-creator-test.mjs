@@ -289,6 +289,12 @@ try {
       } finally { c.close(); }
     };
     const mineA = seedAsk('user:alpha'), theirsA = seedAsk('user:beta'), noPrinA = seedAsk(null), raceA = seedAsk('user:alpha'), rebindA = seedAsk('user:alpha'), seqA = seedAsk('user:alpha'), closedA = seedAsk('user:alpha');
+    // twiceA：同一投递先问 q1、再问 q2（q1 被 q2 合上）
+    const twiceA = seedAsk('user:alpha');
+    { const c = new DatabaseSync(join(data, 'workbench-market.db')); c.exec('PRAGMA busy_timeout = 5000'); try {
+      const ev = twiceA.item.slice(3);
+      twiceA.q2 = Number(c.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, 'receiver:lab', 'receipt:attention', ?)").run(ev, twiceA.delivery, JSON.stringify({ summary: '第二个问题', disposition: 'attention', task: `${ev}.d${twiceA.delivery}.a1`, qid: 'q2', question: { id: 'q2', text: '第二个问题' } })).lastInsertRowid);
+    } finally { c.close(); } }
     // closedA：提问之后来了接单回执，这条提问被合上（没人答）
     { const c = new DatabaseSync(join(data, 'workbench-market.db')); c.exec('PRAGMA busy_timeout = 5000'); try {
       const ev = closedA.item.slice(3);
@@ -365,6 +371,13 @@ try {
     { const before = answered(closedA), sb = sentAnswers(closedA);
       const r3 = await ans(closedA, ALPHA, { answer: '中文' });
       check(r3.status === 409 && (r3.body?.result?.error ?? r3.body?.error) === 'seat_ask_not_pending' && answered(closedA) === before && sentAnswers(closedA) === sb, 'A3：已合上的提问再答：409 seat_ask_not_pending，不记答复、不发回', show(r3)); }
+    // A3·同一投递再问：用被合上的 q1 的编号答 → 409，不能被记成对 q2 的答复
+    { const before = answered(twiceA), sb = sentAnswers(twiceA);
+      const r3b = await ans(twiceA, ALPHA, { text: '答的是 q1' });
+      const askList = (await call('GET', `/api/work-items/${twiceA.item}`, ALPHA)).body?.asks ?? [];
+      const q2 = askList.find((x) => x.id === twiceA.q2), q1 = askList.find((x) => x.id === twiceA.qid);
+      check(r3b.status === 409 && (r3b.body?.result?.error ?? r3b.body?.error) === 'seat_ask_not_pending' && q2?.status === 'open' && q1?.status === 'closed' && answered(twiceA) === before && sentAnswers(twiceA) === sb,
+        'A3：同一投递先问 q1、再问 q2，用 q1 的编号答：409，q2 仍在等，不记不发', show({ r3b, q1, q2 })); }
     // A8：管理员先在「关注」里答，建立人再在事项入口答同一条 → 只生效一次、只发一条
     { const a1 = await call('POST', '/api/attention/answer', ADMIN_H, { source: 'seat-asks', source_id: String(seqA.delivery), answer: 'answer', input: { text: '管理员答' } });
       const a2 = await ans(seqA, ALPHA, { answer: '英文' });
