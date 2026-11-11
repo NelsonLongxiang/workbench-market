@@ -37,7 +37,8 @@ export function registerAttentionRoutes(app: HttpService, deps: AttentionRouteDe
    * 请求体：{ source, source_id, answer, input }。input 里只有这一种答法要的字段会被用到。
    * 写请求先过 index.ts 的写请求总门（和别的 /api 写一样要管理员）。
    */
-  app.post('/api/attention/answer', (req, res, next) => {
+  // 动作类别是「决定」：替人拍板的入口（批准、拒绝、验收、对接……），不是普通的写
+  app.post('/api/attention/answer', { action: 'attention.answer', kind: 'decide' }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'attention_cross_origin_denied' });
     const b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body as Record<string, unknown> : {};
