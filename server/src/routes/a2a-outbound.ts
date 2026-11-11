@@ -3,7 +3,7 @@
  *   GET  /api/a2a/state  本节点的 A2A 身份概况（团队、名片的会话与句柄、密钥在不在、有效绑定数）——只给管理员（L15）。
  *        名片本身照旧经 /.well-known/agent-card.json 公开，不受影响。
  *   POST /api/a2a/send   以市场身份向对端发一条 direct 消息——只给管理员，且目标只许是对端登记表里状态为 active 的对端（L16）：
- *        没登记、待登记、待确认新公钥、停用的一律拒（403），不发；发往登记表里的根地址（不是请求里的原串）。
+ *        没登记、待登记、待确认新公钥、停用的一律拒（409：目标不合要求，不是授权结论；管理门的 403 才是），不发；发往登记表里的根地址（不是请求里的原串）。
  *        请求体 { target_url, team, message, context_id? }。
  * 原来这两条注册在前端回落和 404 兜底之后：带前端产物（web/dist）的实例里谁来都是 404，只有不带前端的实例走得到。
  * 现在注册在兜底之前，同时收紧，不出现「先放开再收」的窗口。
@@ -43,8 +43,8 @@ export function registerA2aOutboundRoutes(app: HttpService, deps: A2aOutboundRou
     if (!message) throw new HttpError(400, 'message 必填');
     // 只发给对端登记表里正常（active）的对端：不是任意地址
     const peer = svc<A2aPeerService>('a2aPeers').byRoot(target);
-    if (!peer) return void res.status(403).json({ error: 'a2a_send_peer_not_registered', message: '目标不在对端登记表里；先登记（POST /api/a2a/peers）' });
-    if (peer.status !== 'active') return void res.status(403).json({ error: 'a2a_send_peer_not_active', status: peer.status, message: '目标对端不是正常状态（待登记、待确认新公钥或已停用），不发' });
+    if (!peer) return void res.status(409).json({ error: 'a2a_send_peer_not_registered', message: '目标不在对端登记表里；先登记（POST /api/a2a/peers）' });
+    if (peer.status !== 'active') return void res.status(409).json({ error: 'a2a_send_peer_not_active', status: peer.status, message: '目标对端不是正常状态（待登记、待确认新公钥或已停用），不发' });
     try {
       // 发往登记表里的根地址，不用请求里的原串：查表用的是规范后的根，发也只发到这个根
       const out = await deps.send({ baseUrl: peer.root_url, team }, message, typeof req.body?.context_id === 'string' ? req.body.context_id : undefined);

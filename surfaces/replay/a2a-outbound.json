@@ -135,11 +135,11 @@
         {
           "id": "send-unregistered",
           "route": "POST /api/a2a/send",
-          "class": "unauthorized",
-          "what": "目标不在对端登记表：403，不发",
+          "class": "invalid",
+          "what": "目标不在对端登记表：409，不发",
           "request": { "method": "POST", "path": "/api/a2a/send", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "target_url": "http://127.0.0.1:12", "team": "syn/0a0b0c0d", "message": "合成" } },
           "response": {
-            "status": 403,
+            "status": 409,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "error": "a2a_send_peer_not_registered", "message": "目标不在对端登记表里；先登记（POST /api/a2a/peers）" }
@@ -148,11 +148,11 @@
         {
           "id": "send-key-changed",
           "route": "POST /api/a2a/send",
-          "class": "unauthorized",
-          "what": "目标公钥待确认：403，不发",
+          "class": "invalid",
+          "what": "目标公钥待确认：409，不发",
           "request": { "method": "POST", "path": "/api/a2a/send", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "target_url": "http://127.0.0.1:10", "team": "syn/0a0b0c0d", "message": "合成" } },
           "response": {
-            "status": 403,
+            "status": 409,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "159", "etag": "W/\"9f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "error": "a2a_send_peer_not_active", "status": "key_changed", "message": "目标对端不是正常状态（待登记、待确认新公钥或已停用），不发" }
@@ -161,11 +161,11 @@
         {
           "id": "send-disabled",
           "route": "POST /api/a2a/send",
-          "class": "unauthorized",
-          "what": "目标已停用：403，不发",
+          "class": "invalid",
+          "what": "目标已停用：409，不发",
           "request": { "method": "POST", "path": "/api/a2a/send", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "target_url": "http://127.0.0.1:11/a2a/direct", "team": "syn/0a0b0c0d", "message": "合成" } },
           "response": {
-            "status": 403,
+            "status": 409,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "156", "etag": "W/\"9c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "error": "a2a_send_peer_not_active", "status": "disabled", "message": "目标对端不是正常状态（待登记、待确认新公钥或已停用），不发" }

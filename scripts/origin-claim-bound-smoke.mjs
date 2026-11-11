@@ -70,7 +70,7 @@ try {
     body: JSON.stringify({ target_url: peerBase, team: 'dsh/6a6b6c6d', message: 'origin-claim probe' }),
   });
   const early = await send();
-  check('没登记的对端：403，不发', () => { assert.equal(early.status, 403); assert.equal(seen.length, 0); });
+  check('没登记的对端：409，不发', () => { assert.equal(early.status, 409); assert.equal(seen.length, 0); });
   const reg = await fetch(base + '/api/a2a/peers', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': 'oc-test' }, body: JSON.stringify({ root_url: peerBase }) });
   check('登记对端 201', () => assert.equal(reg.status, 201, logs.slice(-400)));
   const sent = await fetch(base + '/api/a2a/send', {

@@ -245,7 +245,7 @@ try {
     // 没登记的：不发
     const G = await fakePeer('team-g'); peers.push(G);
     const sg = await send(G.root, undefined);
-    check(sg.status === 403 && sg.body?.error === 'a2a_send_peer_not_registered' && G.state.posts === 0, 'send：没登记的对端 403，一次都不发', show(sg));
+    check(sg.status === 409 && sg.body?.error === 'a2a_send_peer_not_registered' && G.state.posts === 0, 'send：没登记的对端 409，一次都不发', show(sg));
     // 公钥待确认（A）、停用（C）、待登记（H）：不发
     const offC = await inst.call('POST', `/api/a2a/peers/${byRoot(await list(), C.root).id}/disable`, { reason: '合成：停用后不许出站' });
     const H = await fakePeer('team-h'); peers.push(H);
@@ -256,8 +256,8 @@ try {
     if (!insH.stdout.includes('OK')) throw new Error('造待登记的 H 失败：' + insH.stderr.slice(-500));
     const [aPosts, cPosts] = [A.state.posts, C.state.posts];
     const sa = await send(A.root, undefined), sc = await send(C.root, undefined), sh = await send(H.root, undefined);
-    check(offC.body?.peer?.status === 'disabled' && sa.status === 403 && sa.body?.status === 'key_changed' && sc.status === 403 && sc.body?.status === 'disabled' && sh.status === 403 && sh.body?.status === 'pending_registration',
-      'send：公钥待确认、停用、待登记的对端都 403', show({ sa: sa.body, sc: sc.body, sh: sh.body }));
+    check(offC.body?.peer?.status === 'disabled' && sa.status === 409 && sa.body?.status === 'key_changed' && sc.status === 409 && sc.body?.status === 'disabled' && sh.status === 409 && sh.body?.status === 'pending_registration',
+      'send：公钥待确认、停用、待登记的对端都 409（目标不合要求，不是授权结论）', show({ sa: sa.body, sc: sc.body, sh: sh.body }));
     check(A.state.posts === aPosts && C.state.posts === cPosts && H.state.posts === 0, 'send：被拒的对端一次都没收到', show({ a: A.state.posts - aPosts, c: C.state.posts - cPosts, h: H.state.posts }));
     // 谁能调：匿名、本机 CLI 不带口令、错口令、跨站带口令都不行（以前本机 CLI 免口令就能发给任意地址）
     const bPosts = B.state.posts;
@@ -268,7 +268,7 @@ try {
     const tricky = [`${G.root}#@${B.root.slice(7)}`, `${G.root}?x=${B.root}`, `http://user@${G.root.slice(7)}`];
     const outs = [];
     for (const t of tricky) outs.push(await send(t, undefined));
-    check(outs.every((r) => r.status === 403) && G.state.posts === 0 && B.state.posts === bPosts, 'send：带片段、查询串、userinfo 的地址按真正的主机查表（没登记就不发）', show(outs.map((r) => r.status)));
+    check(outs.every((r) => r.status === 409) && G.state.posts === 0 && B.state.posts === bPosts, 'send：带片段、查询串、userinfo 的地址按真正的主机查表（没登记就不发）', show(outs.map((r) => r.status)));
     const badTarget = await send('ftp://x.invalid', undefined);
     check(badTarget.status === 400, 'send：不是 http(s) 的地址 400', show(badTarget));
   }
