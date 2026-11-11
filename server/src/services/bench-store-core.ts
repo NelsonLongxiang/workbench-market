@@ -47,7 +47,7 @@ export const BENCH_METHODS = new Map<string, 'read' | 'write'>([
 ]);
 
 export type WriteCtx = { actor: string; at: number; idemKey?: string; note?: string };
-export type WriteResult = { dataset: string; op: string; rows: number; row_count: number; snapshot_id?: number; inserted?: number; updated?: number; deleted?: number; duplicate?: boolean };
+export type WriteResult = { dataset: string; op: string; rows: number; row_count: number; data_bytes?: number; snapshot_id?: number; inserted?: number; updated?: number; deleted?: number; duplicate?: boolean };
 export type DatasetInput = { name: string; title?: string; columns: { name: string; type: string; label?: string; required?: boolean }[]; key?: string[] };
 export type ViewVersion = { version: number; sha256: string; author: string; note: string; at: number; active: boolean };
 export type BenchChange = { kind: string; bench: string; target: string; from: number; to: number; actor: string; at: number };
@@ -175,16 +175,33 @@ function normalizeDataset(input: DatasetInput): { name: string; title: string; c
 }
 
 type CheckedRow = { cols: string[]; vals: (string | number | null)[] };
+/** 三道数据量上限（字节）；默认取 BENCH_LIMITS，测试可以给小的 */
+export type BenchCaps = { datasetBytes: number; storeBytes: number; writeBytes: number };
+const mb = (n: number) => `${(n / 1_000_000).toFixed(n < 10_000_000 ? 2 : 0)} MB`;
+/** 一格占多少字节：文本按 UTF-8 字节数，数字和布尔算 8，空算 1。和 measure() 里库那一侧的算法是同一个 */
+const cellBytes = (v: string | number | null) => (typeof v === 'string' ? Buffer.byteLength(v, 'utf8') : v === null ? 1 : 8);
+
+/**
+ * 写入的行可以是已经解析好的数组，也可以是原始字节（JSON 文本，UTF-8）。
+ * 给字节的好处：大的请求体不用在市场进程里解析，原样递过来在这里解析；大小也在解析之前就能卡住。
+ */
+function decodeInput(input: unknown, maxBytes: number): unknown {
+  if (!(input instanceof Uint8Array)) return input;
+  if (input.byteLength > maxBytes) throw new BenchError('limit', `这次写入有 ${mb(input.byteLength)}，超过一次写入的上限 ${mb(maxBytes)}`);
+  let text: string;
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(input); } catch { throw new BenchError('invalid', '写入的内容不是合法的 UTF-8 文本'); }
+  try { return JSON.parse(text) as unknown; } catch { throw new BenchError('invalid', '写入的内容不是合法的 JSON'); }
+}
 /**
  * 逐行按列定义核对。full：每行都落全部列（没给的可空列记空）；partial：只落给了的列，但主键列和必填列必须给。
  * 不合格整批拒收，逐条说明（最多列 50 条）。
  */
-function checkRows(ds: DatasetDef, rows: unknown, mode: 'full' | 'partial', max: number): CheckedRow[] {
+function checkRows(ds: DatasetDef, rows: unknown, mode: 'full' | 'partial', max: number, maxBytes: number): CheckedRow[] {
   if (!Array.isArray(rows)) throw new BenchError('invalid', 'rows 须为数组');
   if (rows.length > max) throw new BenchError('limit', `一次最多 ${max} 行（收到 ${rows.length} 行）`);
   const byName = new Map(ds.columns.map((c) => [c.name, c]));
   const errs: string[] = [], out: CheckedRow[] = [];
-  let total = 0;
+  let total = 0, bytes = 0;
   const push = (m: string) => { total++; if (errs.length < 50) errs.push(m); };
   rows.forEach((row, i) => {
     const at = `第 ${i + 1} 行`;
@@ -198,6 +215,7 @@ function checkRows(ds: DatasetDef, rows: unknown, mode: 'full' | 'partial', max:
       if ('error' in r) { push(`${at} 列 ${c.name}：${r.error}`); continue; }
       if (r.value === null && c.required) { push(`${at} 列 ${c.name}：必填`); continue; }
       cols.push(c.name); vals.push(r.value);
+      bytes += cellBytes(r.value);
     }
     out.push({ cols, vals });
   });
@@ -210,6 +228,7 @@ function checkRows(ds: DatasetDef, rows: unknown, mode: 'full' | 'partial', max:
     });
   }
   if (total) throw new BenchError('invalid', `有 ${total} 处不合格，整批未写入`, total > errs.length ? [...errs, `……只列前 ${errs.length} 条`] : errs);
+  if (bytes > maxBytes) throw new BenchError('limit', `这次写入有 ${mb(bytes)}，超过一次写入的上限 ${mb(maxBytes)}，整批未写入`);
   return out;
 }
 
@@ -222,8 +241,9 @@ export class BenchStoreCore {
   private pending: BenchChange[] = [];
   private closed = false;
   private budgetMs = 0;
+  private caps: BenchCaps;
 
-  constructor(slug: string, conn: Conn, kit: BenchSqlKit, emit: (c: BenchChange) => void) { this.slug = slug; this.conn = conn; this.kit = kit; this.emit = emit; }
+  constructor(slug: string, conn: Conn, kit: BenchSqlKit, emit: (c: BenchChange) => void, caps: BenchCaps) { this.slug = slug; this.conn = conn; this.kit = kit; this.emit = emit; this.caps = caps; }
 
   private sqlType(t: string): string {
     const hit = this.kit.types.find(([k]) => k === t);
@@ -298,10 +318,10 @@ export class BenchStoreCore {
 
   // —— 数据集 ——
   private async load(): Promise<Map<string, DatasetDef>> {
-    const rows = await this.conn.all('SELECT name, title, version, columns, key_cols, row_count, created_at, updated_at, updated_by FROM bs_datasets ORDER BY name');
+    const rows = await this.conn.all('SELECT name, title, version, columns, key_cols, row_count, data_bytes, created_at, updated_at, updated_by FROM bs_datasets ORDER BY name');
     return new Map(rows.map((r) => [String(r.name), {
       name: String(r.name), title: String(r.title), version: Number(r.version), columns: JSON.parse(String(r.columns)), key: JSON.parse(String(r.key_cols)),
-      row_count: Number(r.row_count), created_at: Number(r.created_at), updated_at: Number(r.updated_at), updated_by: String(r.updated_by),
+      row_count: Number(r.row_count), data_bytes: Number(r.data_bytes), created_at: Number(r.created_at), updated_at: Number(r.updated_at), updated_by: String(r.updated_by),
     } as DatasetDef]));
   }
   private async need(name: string): Promise<DatasetDef> {
@@ -324,7 +344,7 @@ export class BenchStoreCore {
         if (all.size >= BENCH_LIMITS.datasets) throw new BenchError('limit', `数据集个数已到上限 ${BENCH_LIMITS.datasets}`);
         await this.conn.run(fill(this.kit.createTable, { table: tbl, columns: def.columns.map((x) => `, ${physCol(x.name)} ${this.sqlType(x.type)}`).join('') }));
         if (def.key.length) await this.conn.run(fill(this.kit.keyIndex, { index: idx, table: tbl, cols: def.key.map(physCol).join(', ') }));
-        await this.conn.run('INSERT INTO bs_datasets (name, title, version, columns, key_cols, row_count, created_at, updated_at, updated_by) VALUES (?, ?, 1, ?, ?, 0, ?, ?, ?)',
+        await this.conn.run('INSERT INTO bs_datasets (name, title, version, columns, key_cols, row_count, data_bytes, created_at, updated_at, updated_by) VALUES (?, ?, 1, ?, ?, 0, 0, ?, ?, ?)',
           [def.name, def.title, JSON.stringify(def.columns), JSON.stringify(def.key), c.at, c.at, c.actor]);
         await this.conn.run('INSERT INTO bs_dataset_versions (dataset, version, title, columns, key_cols, author, note, at) VALUES (?, 1, ?, ?, ?, ?, ?, ?)',
           [def.name, def.title, JSON.stringify(def.columns), JSON.stringify(def.key), c.actor, c.note, c.at]);
@@ -364,6 +384,13 @@ export class BenchStoreCore {
         [def.title, version, JSON.stringify(def.columns), JSON.stringify(def.key), c.at, c.actor, def.name]);
       await this.conn.run('INSERT INTO bs_dataset_versions (dataset, version, title, columns, key_cols, author, note, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         [def.name, version, def.title, JSON.stringify(def.columns), JSON.stringify(def.key), c.actor, c.note, c.at]);
+      // 列定义的历史只留最近若干版
+      await this.conn.run('DELETE FROM bs_dataset_versions WHERE dataset = ? AND version <= ?', [def.name, version - BENCH_LIMITS.datasetVersions]);
+      // 加了列、删了列，数据量跟着变：重量一遍
+      if (added.length || removed.length) {
+        const bytes = await this.account({ ...old, columns: def.columns });
+        await this.conn.run('UPDATE bs_datasets SET data_bytes = ? WHERE name = ?', [bytes, def.name]);
+      }
       await this.change('dataset.define', def.name, old.version, version, c);
       return { name: def.name, version, created: false, unchanged: false, added: added.map((x) => x.name), removed: removed.map((x) => x.name), snapshot_id: snapshotId };
     });
@@ -392,13 +419,35 @@ export class BenchStoreCore {
     const n = await this.conn.all(`SELECT COUNT(*) AS n FROM ${physTable(ds.name)}`);
     res.row_count = Number(n[0].n);
     if (res.row_count > BENCH_LIMITS.rows) throw new BenchError('limit', `数据集 ${ds.name} 写入后有 ${res.row_count} 行，超过上限 ${BENCH_LIMITS.rows}，整批未写入`);
-    await this.conn.run('UPDATE bs_datasets SET row_count = ?, updated_at = ?, updated_by = ? WHERE name = ?', [res.row_count, c.at, c.actor, ds.name]);
+    res.data_bytes = await this.account(ds);
+    await this.conn.run('UPDATE bs_datasets SET row_count = ?, data_bytes = ?, updated_at = ?, updated_by = ? WHERE name = ?', [res.row_count, res.data_bytes, c.at, c.actor, ds.name]);
     await this.conn.run('INSERT INTO bs_writes (dataset, op, idem_key, body_sha256, row_count, actor, at, result) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       [ds.name, op, ctx.idemKey ?? null, body, res.rows, c.actor, c.at, JSON.stringify(res)]);
     const max = await this.conn.all('SELECT MAX(id) AS m FROM bs_writes');
     await this.conn.run('DELETE FROM bs_writes WHERE id <= ?', [Number(max[0].m ?? 0) - BENCH_LIMITS.writeLog]);
     this.pending.push({ kind: `data.${op}`, bench: this.slug, target: ds.name, from: ds.version, to: ds.version, actor: c.actor, at: c.at });
     return res;
+  }
+  /** 量这个数据集现在占多少字节（一次扫描；算法和 cellBytes 是同一个，octet_length 两种库都有） */
+  private async measure(ds: Pick<DatasetDef, 'name' | 'columns'>): Promise<number> {
+    const parts = ds.columns.map((c) => {
+      const col = physCol(c.name);
+      return c.type === 'text' || c.type === 'date' || c.type === 'datetime' ? `COALESCE(octet_length(${col}), 1)` : `CASE WHEN ${col} IS NULL THEN 1 ELSE 8 END`;
+    });
+    const r = await this.conn.all(`SELECT COALESCE(SUM(${parts.join(' + ')}), 0) AS n FROM ${physTable(ds.name)}`);
+    return Number(r[0].n);
+  }
+  /**
+   * 写完之后量一遍并卡上限：单个数据集、这个台的在用数据合计。超了抛错，由事务整批回滚。
+   * 只拦「变大」的写入：已经超了的（上限后来调小了）还能删行、换成更小的一份，不会被卡死。
+   */
+  private async account(ds: Pick<DatasetDef, 'name' | 'columns' | 'data_bytes'>): Promise<number> {
+    const bytes = await this.measure(ds);
+    if (bytes <= ds.data_bytes) return bytes;
+    if (bytes > this.caps.datasetBytes) throw new BenchError('limit', `数据集 ${ds.name} 写入后有 ${mb(bytes)}，超过单个数据集的上限 ${mb(this.caps.datasetBytes)}，整批未写入`);
+    const others = Number((await this.conn.all('SELECT COALESCE(SUM(data_bytes), 0) AS n FROM bs_datasets WHERE name <> ?', [ds.name]))[0].n);
+    if (others + bytes > this.caps.storeBytes) throw new BenchError('limit', `这个台的数据写入后合计 ${mb(others + bytes)}，超过单台的上限 ${mb(this.caps.storeBytes)}，整批未写入`);
+    return bytes;
   }
   private async insert(ds: DatasetDef, rows: CheckedRow[]): Promise<void> {
     const tbl = physTable(ds.name);
@@ -408,13 +457,15 @@ export class BenchStoreCore {
       await this.conn.run(`INSERT INTO ${tbl} (${r.cols.map(physCol).join(', ')}) VALUES (${r.cols.map(() => '?').join(', ')})`, r.vals);
     }
   }
-  private async rowsOf(ds: DatasetDef): Promise<Record<string, unknown>[]> {
+  /** 数据集的全部行，每行是按列定义的次序排的一个数组（快照就这样存：不在每一行里重复列名） */
+  private async rowsOf(ds: DatasetDef): Promise<unknown[][]> {
     const rows = await this.conn.all(`SELECT ${ds.columns.map((c) => `${physCol(c.name)} AS "${c.name}"`).join(', ')} FROM ${physTable(ds.name)} ORDER BY rid`);
-    return rows.map((r) => Object.fromEntries(ds.columns.map((c) => [c.name, decodeValue(c.type, r[c.name])])));
+    return rows.map((r) => ds.columns.map((c) => decodeValue(c.type, r[c.name])));
   }
   /**
    * 给数据集留一份快照。内容和这个数据集最近的一份快照一样就不再存，返回那一份的编号（reused）：
    * 快照个数有上限、旧的先清，不改变数据的操作不该把还用得上的那几份挤掉。
+   * 最近一次整份替换留下的那一份（上一代）不参与淘汰：替换之后又删了多少次行，替换前的数据都还退得回去，直到下一次整份替换。
    */
   private async takeSnapshot(ds: DatasetDef, reason: string, c: { actor: string; at: number }): Promise<{ id: number; reused: boolean }> {
     const rows = await this.rowsOf(ds);
@@ -423,19 +474,25 @@ export class BenchStoreCore {
       throw new BenchError('limit', `数据集 ${ds.name} 太大，留不下快照；这次操作没有执行`, [], e);
     }
     const sum = sha256(content);
-    const last = await this.conn.all('SELECT id, content_sha256 FROM bs_snapshots WHERE dataset = ? ORDER BY id DESC LIMIT 1', [ds.name]);
-    if (last.length && last[0].content_sha256 === sum) return { id: Number(last[0].id), reused: true };
+    const last = await this.conn.all('SELECT id, reason, content_sha256 FROM bs_snapshots WHERE dataset = ? ORDER BY id DESC LIMIT 1', [ds.name]);
+    if (last.length && last[0].content_sha256 === sum) {
+      // 沿用的这一份现在是「替换前的上一代」了：改记成替换留下的，它才受上面那条保护
+      if (reason === 'replace' && last[0].reason !== 'replace') await this.conn.run('UPDATE bs_snapshots SET reason = ? WHERE id = ?', ['replace', Number(last[0].id)]);
+      return { id: Number(last[0].id), reused: true };
+    }
     const r = await this.conn.all('INSERT INTO bs_snapshots (dataset, dataset_version, reason, row_count, content, content_sha256, author, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
       [ds.name, ds.version, reason, rows.length, content, sum, c.actor, c.at]);
-    const keep = await this.conn.all('SELECT id FROM bs_snapshots WHERE dataset = ? ORDER BY id DESC LIMIT ?', [ds.name, BENCH_LIMITS.snapshots]);
-    if (keep.length === BENCH_LIMITS.snapshots) await this.conn.run('DELETE FROM bs_snapshots WHERE dataset = ? AND id < ?', [ds.name, Number(keep[keep.length - 1].id)]);
+    const all = await this.conn.all('SELECT id, reason FROM bs_snapshots WHERE dataset = ? ORDER BY id DESC', [ds.name]);
+    const pinned = all.find((x) => x.reason === 'replace');
+    const others = all.filter((x) => x !== pinned);
+    for (const x of others.slice(BENCH_LIMITS.snapshots - (pinned ? 1 : 0))) await this.conn.run('DELETE FROM bs_snapshots WHERE id = ?', [Number(x.id)]);
     return { id: Number(r[0].id), reused: false };
   }
 
-  /** 整份替换：给全部行，原子切换；原来有数据就先留一份快照（上一代） */
-  replace(name: string, rows: unknown, ctx: WriteCtx) {
+  /** 整份替换：给全部行，原子切换；原来有数据就先留一份快照（上一代）。行可以给数组，也可以给原始字节（见 decodeInput） */
+  replace(name: string, input: unknown, ctx: WriteCtx) {
     return this.tx(async () => {
-      const ds = await this.need(name), checked = checkRows(ds, rows, 'full', BENCH_LIMITS.rows);
+      const ds = await this.need(name), rows = decodeInput(input, this.caps.datasetBytes), checked = checkRows(ds, rows, 'full', BENCH_LIMITS.rows, this.caps.datasetBytes);
       return this.logged(ds, 'replace', rows, ctx, async (c) => {
         const snapshot_id = ds.row_count > 0 ? (await this.takeSnapshot(ds, 'replace', c)).id : undefined;
         await this.conn.run(`DELETE FROM ${physTable(ds.name)}`);
@@ -445,9 +502,9 @@ export class BenchStoreCore {
     });
   }
   /** 只追加；有主键时和已有的行撞了就整批拒收 */
-  append(name: string, rows: unknown, ctx: WriteCtx) {
+  append(name: string, input: unknown, ctx: WriteCtx) {
     return this.tx(async () => {
-      const ds = await this.need(name), checked = checkRows(ds, rows, 'full', BENCH_LIMITS.rowsPerWrite);
+      const ds = await this.need(name), rows = decodeInput(input, this.caps.writeBytes), checked = checkRows(ds, rows, 'full', BENCH_LIMITS.rowsPerWrite, this.caps.writeBytes);
       return this.logged(ds, 'append', rows, ctx, async () => {
         await this.insert(ds, checked);
         return { dataset: ds.name, op: 'append', rows: checked.length, row_count: 0, inserted: checked.length };
@@ -455,11 +512,11 @@ export class BenchStoreCore {
     });
   }
   /** 按主键有则改、无则加；每行给主键列和必填列，其余给了哪些列就改哪些列 */
-  upsert(name: string, rows: unknown, ctx: WriteCtx) {
+  upsert(name: string, input: unknown, ctx: WriteCtx) {
     return this.tx(async () => {
       const ds = await this.need(name);
       if (!ds.key.length) throw new BenchError('invalid', `数据集 ${ds.name} 没有主键，不能按主键更新`);
-      const checked = checkRows(ds, rows, 'partial', BENCH_LIMITS.rowsPerWrite);
+      const rows = decodeInput(input, this.caps.writeBytes), checked = checkRows(ds, rows, 'partial', BENCH_LIMITS.rowsPerWrite, this.caps.writeBytes);
       return this.logged(ds, 'upsert', rows, ctx, async () => {
         const tbl = physTable(ds.name), keyCols = ds.key.map(physCol).join(', ');
         const before = Number((await this.conn.all(`SELECT COUNT(*) AS n FROM ${tbl}`))[0].n);
@@ -476,9 +533,9 @@ export class BenchStoreCore {
     });
   }
   /** 按主键删行；破坏性操作，删之前先留快照。给的主键一行也没对上：什么都不删，也不留快照 */
-  deleteRows(name: string, keys: unknown, ctx: WriteCtx) {
+  deleteRows(name: string, input: unknown, ctx: WriteCtx) {
     return this.tx(async () => {
-      const ds = await this.need(name);
+      const ds = await this.need(name), keys = decodeInput(input, this.caps.writeBytes);
       if (!ds.key.length) throw new BenchError('invalid', `数据集 ${ds.name} 没有主键，不能按主键删行`);
       if (!Array.isArray(keys) || !keys.length) throw new BenchError('invalid', 'keys 须为非空数组');
       if (keys.length > BENCH_LIMITS.rowsPerWrite) throw new BenchError('limit', `一次最多 ${BENCH_LIMITS.rowsPerWrite} 行`);
@@ -534,14 +591,16 @@ export class BenchStoreCore {
       const s = Number.isSafeInteger(snapshotId) ? await this.conn.all('SELECT id, dataset, content FROM bs_snapshots WHERE id = ?', [snapshotId]) : [];
       if (!s.length) throw new BenchError('not_found', `没有快照 #${String(snapshotId)}`);
       const ds = await this.need(String(s[0].dataset));
-      const snap = JSON.parse(String(s[0].content)) as { columns: ColumnDef[]; rows: Record<string, unknown>[] };
-      const usable = snap.columns.filter((x) => ds.columns.some((y) => y.name === x.name && y.type === x.type)).map((x) => x.name);
-      const dropped = snap.columns.map((x) => x.name).filter((x) => !usable.includes(x));
-      const checked = checkRows(ds, snap.rows.map((r) => Object.fromEntries(usable.map((k) => [k, r[k]]))), 'full', BENCH_LIMITS.rows);
+      const snap = JSON.parse(String(s[0].content)) as { columns: ColumnDef[]; rows: unknown[][] };
+      // 快照里的行是数组，次序是留快照时的列定义；现在还在、类型没变的列才放回去
+      const cols = snap.columns.map((x, i) => ({ name: x.name, i, usable: ds.columns.some((y) => y.name === x.name && y.type === x.type) }));
+      const usable = cols.filter((x) => x.usable), dropped = cols.filter((x) => !x.usable).map((x) => x.name);
+      const checked = checkRows(ds, snap.rows.map((r) => Object.fromEntries(usable.map((u) => [u.name, r[u.i]]))), 'full', BENCH_LIMITS.rows, Infinity);
       const backup = ds.row_count > 0 ? (await this.takeSnapshot(ds, 'before-restore', c)).id : undefined;
       await this.conn.run(`DELETE FROM ${physTable(ds.name)}`);
       await this.insert(ds, checked);
-      await this.conn.run('UPDATE bs_datasets SET row_count = ?, updated_at = ?, updated_by = ? WHERE name = ?', [checked.length, c.at, c.actor, ds.name]);
+      const bytes = await this.account(ds);
+      await this.conn.run('UPDATE bs_datasets SET row_count = ?, data_bytes = ?, updated_at = ?, updated_by = ? WHERE name = ?', [checked.length, bytes, c.at, c.actor, ds.name]);
       await this.change('dataset.restore', ds.name, ds.version, ds.version, { ...c, note: c.note || `退回快照 #${snapshotId}` });
       return { dataset: ds.name, restored_from: snapshotId, row_count: checked.length, dropped_columns: dropped, snapshot_id: backup };
     });
@@ -691,8 +750,13 @@ export class BenchHost {
   /** 正在删的台：删完之前不许再取，否则新开的连接会落在马上要被删掉的文件上 */
   private removing = new Map<string, Promise<void>>();
   private fired: BenchChange[] = [];
+  private caps: BenchCaps;
 
-  constructor(root: string, kit: BenchSqlKit) { this.root = root; this.kit = kit; }
+  /** caps：三道数据量上限，不给的取默认（BENCH_LIMITS）；测试用小的 */
+  constructor(root: string, kit: BenchSqlKit, caps: Partial<BenchCaps> = {}) {
+    this.root = root; this.kit = kit;
+    this.caps = { datasetBytes: caps.datasetBytes ?? BENCH_LIMITS.datasetBytes, storeBytes: caps.storeBytes ?? BENCH_LIMITS.storeBytes, writeBytes: caps.writeBytes ?? BENCH_LIMITS.writeBytes };
+  }
 
   /** 取走从上次取到现在提交了的变更 */
   takeChanges(): BenchChange[] { const f = this.fired; this.fired = []; return f; }
@@ -708,7 +772,7 @@ export class BenchHost {
         try {
           mkdirSync(this.root, { recursive: true });
           conn = new SqliteConn(file);
-          const s = new BenchStoreCore(slug, conn, this.kit, (c) => { this.fired.push(c); });
+          const s = new BenchStoreCore(slug, conn, this.kit, (c) => { this.fired.push(c); }, this.caps);
           await s.init();
           return s;
         } catch (e) {
