@@ -294,6 +294,8 @@ export interface OutboundTarget { baseUrl: string; team: string }
 
 /** OriginClaim 绑定形式（v2）的域标签——与上游 src/origin-claim.ts ORIGIN_CLAIM_BOUND_TAG 一致，v1 签名永远验不成 v2。 */
 export const ORIGIN_CLAIM_BOUND_TAG = 'a2a-origin-claim/2';
+/** body 绑定形式（v3）的域标签——与上游 src/origin-claim.ts ORIGIN_CLAIM_BODY_TAG 一致 */
+export const ORIGIN_CLAIM_BODY_TAG = 'a2a-origin-claim/3';
 
 /** v1 不绑定签名是否还发（A2A_ORIGIN_CLAIM_UNBOUND=off 停发）；/api/health 的 a2a 块也读它 */
 export function originClaimV1Enabled(): boolean {
@@ -307,7 +309,7 @@ export function originClaimV1Enabled(): boolean {
  * - 不绑定形式（v1）：X-A2A-Caller-Sig 签 [caller, callerUrl, ts]，未升级的对端在开窗期间仍认。默认两种同时带，A2A_ORIGIN_CLAIM_UNBOUND=off 停发 v1。
  * 钉住的 0.6.25 A2aClient 调 originClaim() 不给目标，所以签名放在 fetch 适配层（那里有 url 与 method）。
  */
-export function originClaimHeaders(privateKey: KeyObject, zone: string, baseUrl: string, target: { url: string; method: string }, ts = Date.now()): Record<string, string> {
+export function originClaimHeaders(privateKey: KeyObject, zone: string, baseUrl: string, target: { url: string; method: string; body?: string | Uint8Array }, ts = Date.now()): Record<string, string> {
   const sign = (text: string): string => edSign(undefined, Buffer.from(text, 'utf8'), privateKey).toString('base64');
   const headers: Record<string, string> = { 'X-A2A-Caller': zone, 'X-A2A-Caller-Url': baseUrl, 'X-A2A-Caller-Ts': String(ts) };
   // v1 只为未升级对端保留；全舰队关窗后设 A2A_ORIGIN_CLAIM_UNBOUND=off 停发（v1 不绑路由，未升级对端上可被剥 Sig2 重放）
@@ -321,6 +323,13 @@ export function originClaimHeaders(privateKey: KeyObject, zone: string, baseUrl:
   if (audience !== '') {
     headers['X-A2A-Caller-Aud'] = audience;
     headers['X-A2A-Caller-Sig2'] = sign(JSON.stringify([ORIGIN_CLAIM_BOUND_TAG, zone, baseUrl, ts, audience, target.method.toUpperCase(), path]));
+    // body 绑定形式（v3，上游 a2a-origin-claim/3）：带正文的请求再签一份连正文摘要的，对端宿主间要求 Sig2 与 Sig3 都带。
+    // 摘要按真正发出去的字节算（不重新序列化）
+    if (target.body !== undefined) {
+      const digest = createHash('sha256').update(target.body).digest('base64url');
+      headers['X-A2A-Body-Sha256'] = digest;
+      headers['X-A2A-Caller-Sig3'] = sign(JSON.stringify([ORIGIN_CLAIM_BODY_TAG, zone, baseUrl, ts, audience, target.method.toUpperCase(), path, digest]));
+    }
   }
   return headers;
 }
@@ -331,7 +340,7 @@ export function marketPublicUrl(): string {
 }
 
 /** 带市场 OriginClaim 信封的出站请求头（回执 outbox 等不走 A2aClient 的出站用） */
-export function marketOriginClaim(keyPath: string, target: { url: string; method: string }): Record<string, string> {
+export function marketOriginClaim(keyPath: string, target: { url: string; method: string; body?: string | Uint8Array }): Record<string, string> {
   return originClaimHeaders(loadOrCreateKey(keyPath), MARKET_TEAM, marketPublicUrl(), target);
 }
 
@@ -345,7 +354,7 @@ export async function a2aSendOutbound(keyPath: string, target: OutboundTarget, m
     schedule: (cb: () => void, ms: number) => { const t = setTimeout(cb, ms); return () => clearTimeout(t); },
     fetch: async (url: string, init?: RequestInit) => {
       // The claim is bound to this origin/method/path: never forward it or the payload to Location.
-      const r = await fetch(url, { ...init, redirect: 'manual', headers: { ...(init?.headers as Record<string, string> | undefined), ...originClaimHeaders(priv, MARKET_TEAM, base, { url, method: String(init?.method ?? 'GET') }) } });
+      const r = await fetch(url, { ...init, redirect: 'manual', headers: { ...(init?.headers as Record<string, string> | undefined), ...originClaimHeaders(priv, MARKET_TEAM, base, { url, method: String(init?.method ?? 'GET'), ...(typeof init?.body === 'string' ? { body: init.body } : {}) }) } });
       if (r.status >= 300 && r.status < 400) {
         await r.body?.cancel();
         throw new Error('A2A redirect rejected: HTTP ' + r.status);
