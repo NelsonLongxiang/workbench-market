@@ -25,6 +25,7 @@
 | 环境变量 | 启动时读一次并校验，同时写进 README | 在用到的地方直接读 `process.env` |
 | 周期任务 | 能随所属模块一起停掉的定时器 | 裸的 `setInterval` |
 | 认人 | 经身份服务：`server/src/identity.ts` 的 `identity()`、`loginRelay()` | 引用 `server/src/login-providers/` 里面的文件 |
+| 缓存认人的结果 | 用 `identity().cachedResolver()`：缓存的只有登录提供方的回答，主体停没停用每次现查 | 自己把 `resolveViewer()` 的结果存起来（停用和恢复就不是立即生效了） |
 | 测试脚本 | 接进 CI；确实进不了的，在 `tech-route.json` 的 `tests` 里写明理由 | 写了不跑 |
 | 运行时依赖 | 先登记进 `tech-route.json` 的 `deps` | 顺手加 |
 

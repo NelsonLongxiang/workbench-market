@@ -190,6 +190,25 @@
       "last_used_at TEXT NOT NULL DEFAULT ''",
       "created_at TEXT NOT NULL DEFAULT datetime('now')"
     ],
+    "principal_identities": [
+      "provider TEXT NOT NULL PK",
+      "external_id TEXT NOT NULL PK",
+      "external_key TEXT NOT NULL",
+      "principal_id TEXT NOT NULL",
+      "created_at TEXT NOT NULL DEFAULT datetime('now')"
+    ],
+    "principals": [
+      "id TEXT PK",
+      "id_key TEXT NOT NULL",
+      "kind TEXT NOT NULL",
+      "display_name TEXT NOT NULL DEFAULT ''",
+      "owner TEXT NOT NULL DEFAULT ''",
+      "status TEXT NOT NULL DEFAULT 'active'",
+      "status_changed_at TEXT NOT NULL DEFAULT ''",
+      "status_changed_by TEXT NOT NULL DEFAULT ''",
+      "status_reason TEXT NOT NULL DEFAULT ''",
+      "created_at TEXT NOT NULL DEFAULT datetime('now')"
+    ],
     "remote_allow_state": [
       "id INTEGER PK",
       "snapshot TEXT NOT NULL",
@@ -516,6 +535,8 @@
     "idx_mcp_access_requests_status ON mcp_access_requests: CREATE INDEX idx_mcp_access_requests_status ON mcp_access_requests (status, id)",
     "idx_mcp_calls_session ON mcp_calls: CREATE INDEX idx_mcp_calls_session ON mcp_calls (session_name, at)",
     "idx_mcp_grant_audit_session ON mcp_grant_audit: CREATE INDEX idx_mcp_grant_audit_session ON mcp_grant_audit (session_id, id)",
+    "idx_principal_identities_principal ON principal_identities: CREATE INDEX idx_principal_identities_principal ON principal_identities (principal_id)",
+    "idx_principals_status ON principals: CREATE INDEX idx_principals_status ON principals (status, id)",
     "idx_sdr_skill ON skill_digest_reports: CREATE INDEX idx_sdr_skill ON skill_digest_reports (skill_id, version)",
     "idx_skill_versions_domain_digest ON skill_versions: CREATE UNIQUE INDEX idx_skill_versions_domain_digest ON skill_versions(skill_id, tree_digest)",
     "idx_skills_family ON skills: CREATE INDEX idx_skills_family ON skills(family_parent)",

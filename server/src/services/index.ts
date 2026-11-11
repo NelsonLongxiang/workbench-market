@@ -15,3 +15,4 @@ export { SettingService } from './setting.ts';
 export { SkillService } from './skill.ts';
 export { SandboxService } from './sandbox.ts';
 export { WorkbenchVarsService } from './workbench-vars.ts';
+export { PrincipalService } from './principal.ts';

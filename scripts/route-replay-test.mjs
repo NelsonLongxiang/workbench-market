@@ -23,6 +23,9 @@
  *   · 类别按录下来的应答核对，不是标了就算：未授权是 401 或 403，参数非法是其余的 4xx，正常是 2xx 或 3xx；
  *   · 确实没有某一类的路由（比如不读任何参数，就没有会被拒的输入），在 exempt 里写明理由，并指给一条打在这条路由上、照常应答的请求。
  * 请求只打全局中间件或本域路由会应答的路径。落空的路径由最后的兜底应答，兜底随有没有 web/dist 而不同，不放进来。
+ *
+ * 场景可以带 seed：实例起好之后、第一条请求之前往库里写几行（经 HTTP 建不出来的前提，比如一个已有的主体）。
+ * 每一项是 { table, row }：表名只收小写字母和下划线，row 的键是列名；不收任意 SQL。
  */
 import { spawn } from './owned-script-fixture.mjs';
 import { createServer } from 'node:http';
@@ -30,6 +33,7 @@ import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -97,6 +101,16 @@ export function checkCassette(cassette, known, moduleRouteCount = null, answered
   if (!cassette?.domain) problems.push('缺 domain');
   if (routes.length === 0) problems.push('routes 是空的');
   if (scenarios.length === 0) problems.push('scenarios 是空的');
+  for (const scenario of scenarios) {
+    if (scenario?.seed === undefined) continue;
+    if (!Array.isArray(scenario.seed)) { problems.push(`${scenario?.name}：seed 要是数组`); continue; }
+    for (const item of scenario.seed) {
+      const cols = item?.row && typeof item.row === 'object' && !Array.isArray(item.row) ? Object.keys(item.row) : [];
+      if (!/^[a-z_]+$/.test(String(item?.table ?? '')) || cols.length === 0 || cols.some((c) => !/^[a-z_]+$/.test(c)) || Object.values(item.row).some((v) => v !== null && typeof v === 'object')) {
+        problems.push(`${scenario?.name}：seed 的每一项要是 { table, row }，表名和列名只收小写字母和下划线，值不能是对象`);
+      }
+    }
+  }
   for (const route of routes) {
     const [method, ...rest] = String(route).split(' ');
     if (!known.some((k) => k.path === rest.join(' ') && k.methods.includes(method))) problems.push(`路由不在 surfaces/routes.json 里：${route}`);
@@ -427,7 +441,20 @@ async function bootOnce(tag, env, clock, fixtures) {
     await stop();
     throw Object.assign(new Error(`隔离实例没起来（${tag}）：${stderr.trim().split('\n').slice(-3).join(' | ') || '没有输出'}`), { portBusy: stderr.includes('EADDRINUSE') });
   }
-  return { base, stop };
+  return { base, stop, data: join(root, 'data') };
+}
+
+/** 场景的 seed：往实例的库里写几行。checkCassette 已经核过形状，这里表名、列名都只会是小写字母和下划线 */
+function seedInstance(dataDir, seed) {
+  if (!seed?.length) return;
+  const db = new DatabaseSync(join(dataDir, 'workbench-market.db'));
+  try {
+    db.exec('PRAGMA busy_timeout=5000');
+    for (const { table, row } of seed) {
+      const cols = Object.keys(row);
+      db.prepare(`INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map((c) => row[c]));
+    }
+  } finally { db.close(); }
 }
 
 // ---------- 读写请求集 ----------
@@ -457,7 +484,7 @@ function canonical(cassette) {
     scenarios: cassette.scenarios.map((s) => order({
       ...s,
       steps: s.steps.map((step) => order({ ...step, request: order(step.request, ['method', 'path', 'headers', 'json', 'text']) }, ['id', 'route', 'class', 'what', 'compare', 'vary', 'verify', 'request', 'save', 'response'])),
-    }, ['name', 'what', 'env', 'clock', 'fixtures', 'steps'])),
+    }, ['name', 'what', 'env', 'clock', 'fixtures', 'seed', 'steps'])),
   }, ['domain', 'what', 'routes', 'exempt', 'scenarios']);
 }
 
@@ -490,6 +517,13 @@ async function selftest() {
   check(checkCassette(withSteps([b, c]), known).some((p) => p.includes('缺 未授权')), '覆盖检查：少一类，点名缺哪一类');
   check(checkCassette({ ...full, routes: ['GET /api/x', 'GET /api/gone'] }, known).some((p) => p.includes('/api/gone')), '覆盖检查：路由不在快照里，点名');
   check(checkCassette(full, known, 2).some((p) => p.includes('注册了 2 条')), '覆盖检查：域模块里的路由比列出来的多，失败');
+  {
+    const seeded = (seed) => ({ ...full, scenarios: full.scenarios.map((sc) => ({ ...sc, seed })) });
+    const good = checkCassette(seeded([{ table: 'principals', row: { id: 'user:x', kind: 'person' } }]), known, 1).length === 0;
+    const bad = [{ table: 'x; DROP TABLE y', row: { a: 1 } }, { table: 'principals', row: {} }, { table: 'principals', row: { 'id = 1 --': 1 } }, { table: 'principals', row: { id: { $x: 1 } } }, { row: { id: 1 } }]
+      .every((item) => checkCassette(seeded([item]), known, 1).some((p) => p.includes('seed')));
+    check(good && bad && checkCassette(seeded('x'), known, 1).some((p) => p.includes('seed 要是数组')), '请求集：seed 只收 { table, row }，表名、列名只收小写字母和下划线，值不能是对象');
+  }
   check(checkCassette(withSteps([a, b, c, step('d', 'GET /api/x', 'normal', 'GET', '/api/other', 200)]), known).some((p) => p.includes('打不到')), '覆盖检查：请求没打在它声明的路由上，失败');
   check(countRouteCalls("app.get('/a', h);\n  app.all('/b', h);\n  r.post(`/c`, h);\n  app.use(x); app.set('etag', false);") === 3, '数路由：get、post、all 都算一条，use 和 set 不算');
   const anyKnown = snapshotRoutes({ apps: [['ALL /api/w/:id  <- <anonymous>']] });
@@ -672,7 +706,7 @@ async function main() {
     for (const scenario of cassette.scenarios) {
       const instance = await boot(`${domain}-${scenario.name}`, scenario.env ?? {}, scenario.clock, scenario.fixtures ?? []);
       let results;
-      try { results = await runSteps(scenario.steps, (request, vars) => send(instance.base, request, vars), record); }
+      try { seedInstance(instance.data, scenario.seed); results = await runSteps(scenario.steps, (request, vars) => send(instance.base, request, vars), record); }
       catch (err) { throw new Error(`${domain}/${scenario.name}/${err.message}`); }
       finally { await instance.stop(); }
       total += results.length;

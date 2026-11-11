@@ -10,8 +10,12 @@
  * 服务不照单全收提供方的回答，一律朝认不出人的方向收：
  *   没装提供方、提供方抛错、到点没回答、回答的形状不对 → 认不出（不放行）；管理员标记不是 true → 不是管理员。
  *
- * 不碰数据库：登录门、SOP 字段通道这类不开库的模块也引用这里。
+ * 提供方认出的人，还要对到一个主体上才算数（主体目录，契约见下，实现在 services/principal.ts）：
+ *   主体停用了、对不到主体、目录没装上或出错 → 一样认不出。所以「停用一个主体」对每个经这里认人的入口同时生效。
+ *
+ * 不碰数据库：登录门、SOP 字段通道这类不开库的模块也引用这里。主体目录按名字现取，本文件不引用它的实现。
  */
+import { createHash } from 'node:crypto';
 import { Service, type Context } from '@deepseek-ai/cordis';
 import type { Express } from 'express';
 import { root } from './root-context.ts';
@@ -21,12 +25,12 @@ import { loginProviders } from './login-providers/index.ts';
 
 /**
  * 查看者：一次请求被认成的那个人。
- * login 是提供方那边的登录名；sub 是主体标识，现在固定是 `user:<login>`；name 只用于显示；
+ * login 是提供方那边的登录名；sub 是主体标识（主体目录给的，人是 `user:<名>`；经现有登录认出的人，名就是登录名）；name 只用于显示；
  * admin 是提供方说的「是不是管理员」，缺了按 false。
  */
 export interface Viewer { login: string; uid: number; sub: string; name: string | null; admin: boolean }
 
-/** 认人的结果。认不出时 http 是该回给调用方的状态：401 没登录或会话失效，403 不是内部账号，502 身份来源不可达，503 没配置身份来源 */
+/** 认人的结果。认不出时 http 是该回给调用方的状态：401 没登录或会话失效，403 不是内部账号、主体已停用或对不到主体，502 身份来源不可达，503 没配置身份来源或主体目录不可用 */
 export type ViewerResult = { ok: true; viewer: Viewer } | { ok: false; http: number; error: string };
 
 /** whoami 的应答（GET /api/auth/viewer 原样用它） */
@@ -49,7 +53,28 @@ export interface LoginProvider {
   resolveViewer(cookieHeader: string, source?: string): Promise<ViewerResult>;
 }
 
+// ---------- 主体目录 ----------
+
+/** 提供方认出的外部身份：提供方的名字，加对方的用户标识（现有登录是登录名） */
+export interface ExternalIdentity { provider: string; externalId: string; displayName: string | null }
+
+/**
+ * 把外部身份对到主体上的结果。两种对不上都不认：
+ *   disabled 主体停用了；unbound 这个外部身份没绑定主体，按它的名字新建又会撞上一个已有的主体（不自动认领，要管理员对一次）。
+ */
+export type Admission = { ok: true; principal: string } | { ok: false; reason: 'disabled' | 'unbound' };
+
+/** 主体目录：「谁」的那一张表。实现要开库，是 Cordis 服务 `principals`（services/principal.ts）；这里只有契约 */
+export interface PrincipalDirectory {
+  /** 把提供方认出的人对到主体：见过的取出来；没见过的建一个（人，标识 `user:<对方的用户标识>`）。每次现查，不缓存 */
+  admit(identity: ExternalIdentity): Admission;
+}
+
 const NO_PROVIDER = '未配置身份来源';
+const NO_DIRECTORY = '主体目录没有装上，不认任何人';
+const DIRECTORY_FAILED = '主体目录不可用';
+const DISABLED = '主体已停用';
+const UNBOUND = '这个登录还没有对到主体，请管理员处理';
 const UNAVAILABLE = '身份来源不可用';
 const UNRECOGNIZED = '身份来源的回答无法识别，按认不出处理';
 /** 提供方没有自报期限时的底线。比自带提供方自己的 5 秒超时长，不会抢在它前面 */
@@ -57,6 +82,8 @@ const DEFAULT_DEADLINE_MS = 10_000;
 const MAX_DEADLINE_MS = 60_000;
 
 const loginOk = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 128 && v === v.trim() && !/[\x00-\x1f\x7f]/.test(v);
+/** 人的主体标识：`user:` 加一个名，名的形状和登录名同一把尺 */
+const personIdOk = (v: unknown): v is string => typeof v === 'string' && v.startsWith('user:') && loginOk(v.slice(5));
 const deadlineOk = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 1 && v <= MAX_DEADLINE_MS;
 const unrecognized = (): ViewerResult => ({ ok: false, http: 502, error: UNRECOGNIZED });
 
@@ -137,13 +164,90 @@ export class IdentityService extends Service {
     try { const c = this.provider?.credentialOf(cookieHeader); return typeof c === 'string' ? c : ''; } catch { return ''; }
   }
 
-  /** 把请求带来的 cookie 认成查看者。从不抛错，也不会一直等：认不出、提供方出错、到点没回答，都是 ok:false */
-  async resolveViewer(cookieHeader: string, source?: string): Promise<ViewerResult> {
+  /** 提供方这一层：问提供方，把回答收成契约的形状。认出来的人还没有对到主体，不能直接交出去 */
+  private async recognize(cookieHeader: string, source?: string): Promise<{ provider: LoginProvider | null; result: ViewerResult }> {
     const provider = this.provider;
-    if (!provider) return { ok: false, http: 503, error: NO_PROVIDER };
+    if (!provider) return { provider: null, result: { ok: false, http: 503, error: NO_PROVIDER } };
     let answer: unknown;
-    try { answer = await within(Promise.resolve(provider.resolveViewer(cookieHeader, source)), this.deadlineMs); } catch { return { ok: false, http: 502, error: UNAVAILABLE }; }
-    return checked(answer);
+    try { answer = await within(Promise.resolve(provider.resolveViewer(cookieHeader, source)), this.deadlineMs); } catch { return { provider, result: { ok: false, http: 502, error: UNAVAILABLE } }; }
+    return { provider, result: checked(answer) };
+  }
+
+  /** 把请求带来的 cookie 认成查看者。从不抛错，也不会一直等：认不出、提供方出错、到点没回答、主体停用或对不上，都是 ok:false */
+  async resolveViewer(cookieHeader: string, source?: string): Promise<ViewerResult> {
+    const { provider, result } = await this.recognize(cookieHeader, source);
+    return this.settled(provider, result);
+  }
+
+  /** 提供方这一层的结果，过了主体目录才交出去。认得出的人只有这一个出口 */
+  private settled(provider: LoginProvider | null, result: ViewerResult): ViewerResult {
+    if (!result.ok) return { ...result }; // 副本：调用方改它，改不到缓存里的那一份
+    if (!provider) return { ok: false, http: 503, error: NO_PROVIDER };
+    return this.admitted(provider.name, result.viewer);
+  }
+
+  /**
+   * 带缓存的认人：不想每个请求都去问提供方的调用方用它（登录门、管理员认定）。调用方各建各的，期限和容量自己定。
+   * 缓存的只有提供方那一层的回答（认得出、认不出都留），按凭据的哈希分，最多留 ttlMs 毫秒；
+   * 主体那一步不进缓存，每次现查——所以停用和恢复都立即生效，调用方不用、也不该自己再缓存认人的结果。
+   */
+  cachedResolver(options: { ttlMs: number; max: number }): (cookieHeader: string) => Promise<ViewerResult> {
+    const ttlMs = options?.ttlMs, max = options?.max;
+    if (typeof ttlMs !== 'number' || !Number.isFinite(ttlMs) || ttlMs < 1 || ttlMs > 300_000 || !Number.isInteger(max) || max < 1) {
+      throw new Error('cachedResolver：ttlMs 要是 1～300000 的毫秒数，max 要是正整数');
+    }
+    const cache = new Map<string, { at: number; provider: LoginProvider; result: ViewerResult }>();
+    return async (cookieHeader: string): Promise<ViewerResult> => {
+      const credential = this.credentialOf(cookieHeader);
+      if (!credential) return this.resolveViewer(cookieHeader);
+      const key = createHash('sha256').update(credential).digest('hex');
+      const hit = cache.get(key);
+      let provider: LoginProvider | null, result: ViewerResult;
+      // 换了提供方，旧回答作废
+      if (hit && hit.provider === this.provider && Date.now() - hit.at < ttlMs) ({ provider, result } = hit);
+      else {
+        ({ provider, result } = await this.recognize(cookieHeader));
+        if (provider) {
+          if (cache.size > max) cache.clear();
+          cache.set(key, { at: Date.now(), provider, result });
+        }
+      }
+      return this.settled(provider, result);
+    };
+  }
+
+  /** 主体目录（Cordis 服务 `principals`）。没装上、形状不对，都当没有 */
+  private directory(): PrincipalDirectory | null {
+    const d = this.ctx.get('principals') as PrincipalDirectory | undefined;
+    return d && typeof d.admit === 'function' ? d : null;
+  }
+
+  /**
+   * 提供方认出的人，对到主体上才算数。查看者的 sub 用目录给的主体标识，不用提供方自己写的。
+   * 目录的回答同样不照单全收：停用、对不上、没装上、抛错、形状不对，都是认不出。
+   */
+  private admitted(provider: string, viewer: Viewer): ViewerResult {
+    let answer: unknown;
+    try {
+      const directory = this.directory();
+      if (!directory) return { ok: false, http: 503, error: NO_DIRECTORY };
+      answer = directory.admit({ provider, externalId: viewer.login, displayName: viewer.name });
+    } catch { return { ok: false, http: 503, error: DIRECTORY_FAILED }; }
+    try {
+      const a = answer as { ok?: unknown; principal?: unknown; reason?: unknown } | null | undefined;
+      if (a !== null && a !== undefined) {
+        const ok = a.ok;
+        if (ok === true) {
+          const principal = a.principal;
+          if (personIdOk(principal)) return { ok: true, viewer: { ...viewer, sub: principal } };
+        } else if (ok === false) {
+          const reason = a.reason;
+          if (reason === 'disabled') return { ok: false, http: 403, error: DISABLED };
+          if (reason === 'unbound') return { ok: false, http: 403, error: UNBOUND };
+        }
+      }
+    } catch { /* 读回答的时候抛错：按不可用 */ }
+    return { ok: false, http: 503, error: DIRECTORY_FAILED };
   }
 
   /** 我是谁：登录探测和顶栏用户 chip 读它 */

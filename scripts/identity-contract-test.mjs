@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * 身份契约的单测：身份服务对提供方的回答怎么收。进程内，不开数据库，不起服务，不访问任何外部系统。
- * 登录提供方换成假的（scripts/identity-fake-provider.mjs）。
+ * 身份契约的单测：身份服务对提供方的回答怎么收，认出来的人怎么对到主体上。进程内，不开数据库，不起服务，不访问任何外部系统。
+ * 登录提供方换成假的，主体目录用内存版（都在 scripts/identity-fake-provider.mjs）。
  *
  *   node scripts/identity-contract-test.mjs              测本仓库
  *   node scripts/identity-contract-test.mjs --root DIR   测另一棵目录树（变异测试用）
@@ -9,7 +9,7 @@
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { DEADLINE_MS, SESSIONS, fakePlugin, fakeProvider, swapInFake } from './identity-fake-provider.mjs';
+import { DEADLINE_MS, SESSIONS, directoryPlugin, fakePlugin, fakeProvider, memoryDirectory, onceSession, swapInFake } from './identity-fake-provider.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = process.argv.indexOf('--root');
@@ -40,6 +40,11 @@ check(typeof shipped.loginRelay().sessionOf === 'function' && shipped.loginRelay
 const tree = await swapInFake(ROOT);
 const id = tree.identity;
 check(id().providerName() === 'fake' && id().configured() === true, '换提供方不用改核心：卸掉自带的插件，装上假的');
+// 不开库，主体目录用内存版。没有目录，身份服务不认任何人（见「二之二」）
+const directory = memoryDirectory();
+let directoryFiber = tree.root.plugin(directoryPlugin(directory));
+await directoryFiber;
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
 const deny = async (label, sid, http) => {
   let r, threw = null;
@@ -123,6 +128,173 @@ const viewerOf = async (sid) => { const r = await id().resolveViewer(cookie(sid)
 
 // 凭据：只取不验
 check(id().credentialOf(cookie(SESSIONS.alpha)) === SESSIONS.alpha && id().credentialOf('other=1') === '', 'credentialOf：取出会话，没有就是空串');
+
+// ---------- 二之二、主体目录：提供方认出的人，对到主体上才算数 ----------
+{
+  const c = cookie(SESSIONS.beta);
+  const before = await id().resolveViewer(c);
+  check(before.ok === true && before.viewer.sub === 'user:beta', '对照：beta 认得出，主体是 user:beta', show(before));
+  directory.disable('user:beta');
+  const off = await id().resolveViewer(c);
+  check(off.ok === false && off.http === 403 && off.error === '主体已停用' && before.ok === true, '主体停用 → 认不出（403，主体已停用）', show(off));
+  const who = await id().whoami(c);
+  check(who.http === 403 && who.body.ok === false && who.body.auth_required === false && !('viewer' in who.body), 'whoami 主体停用 → 403，不带查看者，不让人去重新登录', show(who));
+  const other = await id().resolveViewer(cookie(SESSIONS.alpha));
+  check(other.ok === true && other.viewer.login === 'alpha', '对照：停用 beta 不影响 alpha', show(other));
+  directory.restore('user:beta');
+  const back = await id().resolveViewer(c);
+  check(back.ok === true && back.viewer.sub === 'user:beta' && off.ok === false, '恢复之后 → 照常认得出', show(back));
+}
+{
+  // 主体标识用目录给的，不用提供方自己写的：把 no-flag 这个登录预先绑到另一个主体上
+  directory.bind('fake', 'no-flag', 'user:renamed');
+  const r = await id().resolveViewer(cookie(SESSIONS.noAdminFlag));
+  check(r.ok === true && r.viewer.login === 'no-flag' && r.viewer.sub === 'user:renamed', '查看者的主体标识用目录给的（登录名 no-flag，主体 user:renamed）', show(r));
+}
+{
+  // 标识被别的主体占着、这个外部身份却没绑定：不自动认领（用一个还没被认过的登录）
+  directory.occupy('user:occupied');
+  const r = await id().resolveViewer(cookie(onceSession('occupied', true)));
+  check(r.ok === false && r.http === 403 && /没有对到主体/.test(r.error), '标识已被占用、外部身份没绑定 → 不认领（403）', show(r));
+}
+{
+  // 认不出的人不去问目录：目录里不会多出没被认出的人
+  const asked = directory.admitted, size = directory.size;
+  for (const sid of [SESSIONS.forged, SESSIONS.unreachable, SESSIONS.portal, SESSIONS.impersonate, SESSIONS.malformed]) await id().resolveViewer(cookie(sid));
+  check(directory.admitted === asked && directory.size === size, '提供方没认出来的，不问目录、不建主体', `问了 ${directory.admitted - asked} 次`);
+}
+{
+  // 目录的回答同样不照单全收：只有 ok:true 加一个人的主体标识才放行
+  const garbage = [
+    ['null', () => null], ['undefined', () => undefined], ['一个字符串', () => 'yes'], ['空对象', () => ({})],
+    ['ok:true 却没有主体', () => ({ ok: true })], ['主体是数字', () => ({ ok: true, principal: 5 })], ['主体是空串', () => ({ ok: true, principal: '' })],
+    ['主体不是人（seat:）', () => ({ ok: true, principal: 'seat:alpha' })], ['主体只有前缀', () => ({ ok: true, principal: 'user:' })], ['主体的名前面带空格', () => ({ ok: true, principal: 'user: alpha' })],
+    ['ok 是字符串 "true"', () => ({ ok: 'true', principal: 'user:alpha' })], ['ok 是 1', () => ({ ok: 1, principal: 'user:alpha' })],
+    ['ok:false 却没有原因', () => ({ ok: false })], ['ok:false、原因不认识', () => ({ ok: false, reason: 'whatever' })],
+    ['ok 一读就抛错', () => ({ get ok() { throw new Error('synthetic'); } })], ['principal 一读就抛错', () => ({ ok: true, get principal() { throw new Error('synthetic'); } })],
+  ];
+  const leaked = [];
+  for (const [label, answer] of garbage) {
+    directory.answerWith(answer);
+    let r, threw = null;
+    try { r = await id().resolveViewer(cookie(SESSIONS.alpha)); } catch (e) { threw = e; }
+    if (threw || r?.ok !== false || r.http !== 503) leaked.push(`${label}：${threw ? `抛错 ${threw.message}` : show(r)}`);
+  }
+  check(leaked.length === 0, `目录的回答形状不对（${garbage.length} 种）→ 一律认不出（503），服务自己不抛`, leaked.join('；'));
+  directory.answerWith(() => ({ ok: false, reason: 'disabled' }));
+  const disabled = await id().resolveViewer(cookie(SESSIONS.alpha));
+  directory.answerWith(() => ({ ok: false, reason: 'unbound' }));
+  const unbound = await id().resolveViewer(cookie(SESSIONS.alpha));
+  check(disabled.ok === false && disabled.http === 403 && unbound.ok === false && unbound.http === 403, '目录说停用、说对不上 → 403', show([disabled, unbound]));
+  directory.answerWith(null);
+  directory.failWith(new Error('synthetic directory failure'));
+  const down = await id().resolveViewer(cookie(SESSIONS.admin)).catch((e) => ({ threw: String(e?.message ?? e) }));
+  check(down.ok === false && down.http === 503, '目录抛错 → 认不出（503），管理员会话也一样，服务自己不抛', show(down));
+  directory.failWith(null);
+  const ok = await id().resolveViewer(cookie(SESSIONS.alpha));
+  check(ok.ok === true && ok.viewer.sub === 'user:alpha', '对照：目录正常时照常认得出', show(ok));
+}
+{
+  // 没装目录：谁都不认。装回去才认
+  await directoryFiber.dispose();
+  const none = await id().resolveViewer(cookie(SESSIONS.admin));
+  const who = await id().whoami(cookie(SESSIONS.admin));
+  check(none.ok === false && none.http === 503 && who.http === 503 && who.body.ok === false, '主体目录没装上 → 不认任何人（503），管理员会话也一样', show([none, who]));
+  // 装了一个形状不对的东西：照样当没有
+  const bogus = tree.root.plugin({ name: 'principal-directory-bogus', apply(ctx) { ctx.provide('principals', { admit: 'not-a-function' }); } });
+  await bogus;
+  const wrong = await id().resolveViewer(cookie(SESSIONS.admin));
+  check(wrong.ok === false && wrong.http === 503, '装上的目录形状不对 → 照样不认', show(wrong));
+  await bogus.dispose();
+  directoryFiber = tree.root.plugin(directoryPlugin(directory));
+  await directoryFiber;
+  const back = await id().resolveViewer(cookie(SESSIONS.admin));
+  check(back.ok === true && back.viewer.admin === true && none.ok === false, '对照：目录装回去，照常认得出', show(back));
+}
+
+// ---------- 二之三、带缓存的认人：提供方的回答可以留一会儿，主体那一步每次现查 ----------
+{
+  const original = fakeProvider.resolveViewer;
+  let asked = 0;
+  fakeProvider.resolveViewer = (...args) => { asked++; return original(...args); };
+  try {
+    const TTL = 400;
+    const cached = id().cachedResolver({ ttlMs: TTL, max: 2 });
+    const c = cookie(onceSession('cache-a', true));
+    let n = asked;
+    const first = await cached(c), second = await cached(c);
+    check(first.ok === true && second.ok === true && second.viewer.login === 'cache-a' && second.viewer.admin === true && asked - n === 1, '缓存期内同一个会话：提供方只被问一次', `问了 ${asked - n} 次：${show(second)}`);
+    const live = await id().resolveViewer(c);
+    check(live.ok === false && live.http === 401, '对照：不带缓存的认人每次现查（这个会话提供方只认第一次）', show(live));
+    // 主体那一步不进缓存
+    const admitted = directory.admitted;
+    await cached(c);
+    check(directory.admitted === admitted + 1, '缓存命中也照样问主体目录');
+    directory.disable('user:cache-a');
+    n = asked;
+    const off = await cached(c);
+    check(off.ok === false && off.http === 403 && asked === n, '缓存命中时主体已停用 → 立即认不出（不等缓存过期，也不用重问提供方）', show(off));
+    directory.restore('user:cache-a');
+    const back = await cached(c);
+    check(back.ok === true && back.viewer.login === 'cache-a' && asked === n, '恢复 → 立即认得出（停用时的拒绝没有进缓存）', show(back));
+    {
+      // 停用期间才第一次来的会话：提供方认得出，目录不认。这一次的拒绝不进缓存——恢复之后不用等缓存过期
+      const later = cookie(onceSession('cache-a', false)); // 同一个登录名的另一个会话，缓存里还没有它
+      directory.disable('user:cache-a');
+      const during = await cached(later);
+      directory.restore('user:cache-a');
+      const after = await cached(later);
+      check(during.ok === false && during.http === 403 && after.ok === true && after.viewer.login === 'cache-a', '停用期间第一次来的会话：当时不认；恢复之后立即认得出（缓存的是提供方的回答，不是目录的结论）', show([during, after]));
+    }
+    // 交出去的是副本
+    back.viewer.login = 'root-admin'; back.viewer.sub = 'user:root-admin';
+    const again = await cached(c);
+    check(again.ok === true && again.viewer.login === 'cache-a' && again.viewer.sub === 'user:cache-a', '调用方改了拿到的查看者，改不到缓存里的那一份', show(again));
+    // 认不出也留着，同样是副本
+    n = asked;
+    const no1 = await cached(cookie(SESSIONS.forged));
+    no1.ok = true; no1.http = 200;
+    const no2 = await cached(cookie(SESSIONS.forged));
+    check(no2.ok === false && no2.http === 401 && asked - n === 1, '认不出的回答也留着（提供方只被问一次），调用方改不到缓存', `问了 ${asked - n} 次：${show(no2)}`);
+    // 没有凭据不缓存
+    n = asked;
+    await cached('other=1'); await cached('other=1');
+    check(asked - n === 2, '没有凭据的请求不进缓存');
+    // 过期
+    await sleep(TTL + 60);
+    n = asked;
+    const expired = await cached(c);
+    check(expired.ok === false && expired.http === 401 && asked - n === 1, '过了期限 → 重新问提供方（这个会话已经失效）', show(expired));
+    // 容量：超过 max 就清空，不会无限长
+    const small = id().cachedResolver({ ttlMs: 60_000, max: 2 });
+    n = asked;
+    for (const sid of [SESSIONS.alpha, SESSIONS.beta, SESSIONS.admin, SESSIONS.portal]) await small(cookie(sid));
+    await small(cookie(SESSIONS.alpha));
+    check(asked - n === 5, '缓存有容量：放满之后清空，最早的那个要重新问', `问了 ${asked - n} 次`);
+    // 各建各的，互不相干
+    const one = id().cachedResolver({ ttlMs: 60_000, max: 10 }), two = id().cachedResolver({ ttlMs: 60_000, max: 10 });
+    n = asked;
+    await one(cookie(SESSIONS.alpha)); await two(cookie(SESSIONS.alpha)); await one(cookie(SESSIONS.alpha)); await two(cookie(SESSIONS.alpha));
+    check(asked - n === 2, '两个带缓存的认人各有各的缓存', `问了 ${asked - n} 次`);
+    // 换了提供方，旧回答作废
+    const kept = id().cachedResolver({ ttlMs: 60_000, max: 10 });
+    const before = await kept(cookie(SESSIONS.admin));
+    await tree.fiber.dispose();
+    const off2 = id().register({ name: 'other', configured: () => true, credentialOf: fakeProvider.credentialOf, resolveViewer: async () => ({ ok: false, http: 401, error: '另一个提供方不认这个会话' }) });
+    const after = await kept(cookie(SESSIONS.admin));
+    check(before.ok === true && before.viewer.admin === true && after.ok === false && after.http === 401, '换了提供方：旧提供方的回答作废，不拿来放行', show(after));
+    off2();
+    tree.fiber = tree.root.plugin(fakePlugin);
+    await tree.fiber;
+    // 参数写得不对，建不出来
+    let rejected = 0;
+    const bad = [undefined, {}, { ttlMs: 0, max: 10 }, { ttlMs: -1, max: 10 }, { ttlMs: 300_001, max: 10 }, { ttlMs: '30000', max: 10 }, { ttlMs: NaN, max: 10 }, { ttlMs: 1000, max: 0 }, { ttlMs: 1000, max: 1.5 }, { ttlMs: 1000 }];
+    for (const o of bad) { try { id().cachedResolver(o); } catch { rejected++; } }
+    check(rejected === bad.length, '带缓存的认人：期限或容量写得不对就建不出来', `${rejected}/${bad.length}`);
+  } finally {
+    fakeProvider.resolveViewer = original;
+  }
+}
 
 // ---------- 三、登记的规矩 ----------
 {
