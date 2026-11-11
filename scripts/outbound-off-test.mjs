@@ -151,6 +151,7 @@ const ROUTES = [
   ['Redis', (l) => l.startsWith('raw:"*')],
   ['通知绑定', (l) => /^POST \/notify\/|^POST \/a2a\/a2a\/direct @localhost/.test(l)],
   ['事件投递', (l) => l.startsWith('POST /deliver/')],
+  ['A2A 出站管理面（/api/a2a/send，#594 注册到兜底之前后才走得到）', (l) => /^POST \/a2a\/direct @127\.0\.0\.1:/.test(l)],
   ['回执 outbox', (l) => l.startsWith('POST /outbox/')],
   ['人的答复发回', (l) => l.startsWith('POST /reply/')],
   ['探活（巡检、check-all）', (l) => /^GET \/ @127\.0\.0\.1:/.test(l)],
