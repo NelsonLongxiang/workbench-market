@@ -20,7 +20,7 @@ import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import { identity } from '../identity.ts';
-import { isCreator, type WorkItemService } from '../services/work-item.ts';
+import { isCreator, STATES, type WorkItemService, type WorkItemState } from '../services/work-item.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import { creatorAnswer } from '../attention-answers.ts';
 import { markSeatMessagesRead, replySeatMessage, seatMessagesOf, seatProgressOf, SEAT_REPLY_MAX } from '../seat-messages.ts';
@@ -42,6 +42,51 @@ function silentRes(): express.Response {
 }
 
 export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps): void {
+  // 列表：GET /api/work-items?state=&object=&phase=&limit=&cursor=。可见范围和详情同一个判断（管理员看全部，别人只看自己是建立人的），
+  // 看不到的不出现也不计数。按 updated_at、id 倒序，游标翻页（limit 缺省 100、上限 200）；另带可见范围里按状态的计数
+  app.get('/api/work-items', { action: 'work-items.list', kind: 'read' }, (req, res, next) => {
+    res.set('Cache-Control', 'private, no-store');
+    res.vary('Cookie'); res.vary('X-Admin-Token');
+    if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
+    const q = req.query as Record<string, unknown>;
+    const str = (k: string) => (typeof q[k] === 'string' ? q[k] as string : undefined);
+    const state = str('state');
+    if (state !== undefined && !(STATES as readonly string[]).includes(state)) return void res.status(400).json({ error: 'work_items_state_invalid' });
+    for (const k of ['object', 'phase']) if (str(k) !== undefined && str(k)!.length > 200) return void res.status(400).json({ error: `work_items_${k}_invalid` });
+    const limitRaw = str('limit');
+    const limit = limitRaw === undefined ? 100 : /^\d{1,3}$/.test(limitRaw) ? Number(limitRaw) : NaN;
+    if (!(limit >= 1 && limit <= 200)) return void res.status(400).json({ error: 'work_items_limit_invalid' });
+    let after: { updated_at: string; id: string } | undefined;
+    const cursor = str('cursor');
+    if (cursor !== undefined) {
+      try {
+        const c = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { u?: unknown; i?: unknown };
+        if (typeof c.u !== 'string' || typeof c.i !== 'string' || !ITEM_ID.test(c.i) || c.u.length > 40) throw new Error('bad');
+        after = { updated_at: c.u, id: c.i };
+      } catch { return void res.status(400).json({ error: 'work_items_cursor_invalid' }); }
+    }
+    (async () => {
+      await deps.markOdooAdmin(req);
+      let viewer: string | null = null;
+      if (!deps.adminGuard(req, silentRes())) {
+        const cookie = String(req.headers.cookie ?? '');
+        if (!cookie) return void res.status(401).json({ error: 'work_items_auth_required' });
+        const who = await identity().resolveViewer(cookie);
+        if (!who.ok) return void res.status(401).json({ error: 'work_items_auth_required' });
+        viewer = who.viewer.sub;
+      }
+      const page = svc<WorkItemService>('workItems').page({ viewer, state: state as WorkItemState | undefined, object: str('object'), phase: str('phase'), limit, after });
+      res.json({
+        items: page.items.map((w) => ({
+          id: w.id, title: w.title, state: w.state, object: w.object, phase: w.phase, seat: w.seat,
+          last_progress: w.last_log, updated_at: w.updated_at,
+        })),
+        counts: page.counts, total: page.total,
+        next_cursor: page.next ? Buffer.from(JSON.stringify({ u: page.next.updated_at, i: page.next.id }), 'utf8').toString('base64url') : null,
+      });
+    })().catch(next);
+  });
+
   app.get('/api/work-items/:id', { action: 'work-item.read', kind: 'read' }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     res.vary('Cookie'); res.vary('X-Admin-Token');
