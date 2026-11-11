@@ -10,7 +10,7 @@
  *      · 幂等：第二次启动后表结构逐字节相同、各表行数相同；
  *      · 回填：事项数等于事件数，第二次启动「补建 0 个」。
  *   3. 回滚：再用基线的代码指向升级后的数据目录启动——自检全过，读、写（新建工作台、台数据提交、开录入）、凭据库都正常。
- *   4. 再上线：本检出的代码再启动一次，自检全过。
+ *   4. 再上线：本检出的代码再启动一次，自检全过；回滚期间基线写进来的事件也建出了事项。
  *
  * 只在本机回环地址上起实例；HOME、DSH_HOME、YGL_HOME 都指到临时目录；不访问任何外部系统。
  *
@@ -109,6 +109,10 @@ async function call(base, method, path, body, headers = H) {
   return { status: r.status, body: json };
 }
 const selfProbe = async (base) => (await call(base, 'GET', '/api/health')).body?.self_probe ?? null;
+/** 事项回填若在后台跑（/api/health 报 work_items_backfill.state），等它停下再看库，最多 30 秒；同步回填的版本不报这个字段，直接返回 */
+async function waitBackfill(base) {
+  for (let i = 0; i < 150; i++) { const st = (await call(base, 'GET', '/api/health')).body?.work_items_backfill?.state; if (st === undefined || st === null || st === 'done' || st === 'failed') return; await new Promise((r) => setTimeout(r, 200)); }
+}
 
 // ---------- 库的读法 ----------
 function schemaOf(file) {
@@ -256,6 +260,7 @@ try {
   const summary = await call(s.base, 'GET', '/api/summary');
   check(summary.status === 200 && summary.body?.total === before.counts.workbenches, `原有工作台都读得出来（${summary.body?.total}）`, JSON.stringify(summary.body).slice(0, 120));
   const evs = await call(s.base, 'GET', '/api/workbench-events?limit=200');
+  await waitBackfill(s.base);
   check(evs.status === 200 && Array.isArray(evs.body) && evs.body.length === report.seed.events && Array.isArray(baseEvents) && evs.body.length === baseEvents.length, `原有工作台事件都读得出来（${Array.isArray(evs.body) ? evs.body.length : evs.status}）`);
   {
     const v = await call(s.base, 'POST', '/api/vault/unlock', { password: VAULT_PASSWORD });
@@ -287,6 +292,7 @@ try {
     `回填：每个事件建出一个事项（${after1.counts.work_items ?? '没有事项表'} / ${before.counts.workbench_events}）`);
   s = await startServer(HEAD, DATA, 'head-2'); servers.push(s);
   const probe2 = await selfProbe(s.base);
+  await waitBackfill(s.base);
   await stopServer(s);
   const after2 = schemaOf(DB);
   check(s.ok && probe2?.passed === true, '第二次启动：照常起来，自检全过');
@@ -313,7 +319,12 @@ try {
   // 4. 再上线
   s = await startServer(HEAD, DATA, 'reforward'); servers.push(s);
   check(s.ok && (await selfProbe(s.base))?.passed === true, '再上线：本检出的代码再启动，自检全过');
+  // 回滚期间基线写进来的事件（它不认识事项），再上线后也要有事项。回填若在后台跑，等它报完成（最多 30 秒）
+  await waitBackfill(s.base);
   await stopServer(s);
+  const after3 = schemaOf(DB);
+  check(after3.counts.workbench_events > before.counts.workbench_events && after3.counts.work_items === after3.counts.workbench_events,
+    `再上线：回滚期间新增的事件也建出了事项（事件 ${before.counts.workbench_events} → ${after3.counts.workbench_events}，事项 ${after3.counts.work_items}）`);
 } catch (e) {
   fail++;
   console.log(`  ✗ 跑不下去：${e?.stack ?? e}`);
@@ -321,7 +332,7 @@ try {
   for (const s of servers) await stopServer(s);
 }
 // 每条检查都无条件执行；条数对不上，说明有一段没跑到（上面已经记过 ✗ 的「跑不下去」除外）
-const EXPECTED = 21;
+const EXPECTED = 22;
 const ran = pass + fail;
 if (ran !== EXPECTED) { fail++; console.log(`  ✗ 检查条数对不上：记了 ${ran} 条，应为 ${EXPECTED} 条`); }
 const line = `${pass} 通过 / ${fail} 失败`;
