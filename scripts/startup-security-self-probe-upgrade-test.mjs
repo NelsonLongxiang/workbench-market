@@ -11,6 +11,7 @@ app.use(probe.middleware);app.use(express.json());
 app.post('/mcp',async(_q,r)=>{await hold;r.status(401).set('WWW-Authenticate','Bearer').end()});
 app.post('/api/workbenches',(q,r)=>r.status(q.headers.origin?403:400).end());
 app.get('/api/principals',(_q,r)=>r.status(403).end());
+app.get('/login/feishu/callback',(_q,r)=>r.status(400).end());
 let fallback=0;app.get('/business',(_q,r)=>{fallback++;r.json({ok:true})});
 const market=createServer(app);await new Promise(r=>market.listen(0,'127.0.0.1',r));
 const reserved=reserve();await new Promise(r=>reserved.listen(0,'127.0.0.1',r));const cp=reserved.address().port;await new Promise(r=>reserved.close(r));

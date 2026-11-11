@@ -29,6 +29,7 @@ if(mutation==='login-gate-apps')replace('app.use(loginGate.middleware);',"app.us
 if(mutation==='a2a-direct-unsigned')replace("  if (A2A_DIRECT_SIG !== 'off') {","  if (false) {");
 if(mutation==='mcp-auth')replace('  if (!MCP_GATEWAY_ON) return null;','  if (true || !MCP_GATEWAY_ON) return null;');
 if(mutation==='browser-write')replace("  if (p.startsWith('/api/')) {","  if (false && p.startsWith('/api/')) {");
+if(mutation==='forged-login-callback')replace('registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionTtlMs: SESSION_TTL_MIN * 60_000 });',"app.get('/login/:flow/callback', (_q, s) => s.redirect(302, '/tasks'));");
 if(mutation==='principals-admin-read')replace('registerPrincipalRoutes(http, { markOdooAdmin, adminGuard, adminActor });','registerPrincipalRoutes(http, { markOdooAdmin, adminGuard: () => true, adminActor });');
 if(mutation==='mcp-timeout'||mutation==='hold-probe'){const a="app.post('/mcp', async (req, res) => {";replace(a,a+(mutation==='mcp-timeout'?"if(req.headers['x-wm-self-probe'])return;":"if(req.headers['x-wm-self-probe'])await new Promise(r=>setTimeout(r,500));"));}
 if(mutation==='handler-error'){const a="app.post('/api/workbenches', (req, res) => {";replace(a,a+"if(req.headers['x-wm-self-probe'])throw Error(process.env.ADMIN_TOKEN);");}
@@ -64,6 +65,7 @@ async function runCase(label,{off=false,control=false,occupied=false,unset=false
    check(label+' log identifies failed self-probe row',so.includes('"source":"self-probe"')&&so.includes('"verdict":"fail"'));
    if(mutation==='login-gate')check(label+' every login-gate row is named failed',['page','app','api'].every(k=>so.includes('"id":"market.login-gate.'+k+'","surface":"market","method":"GET","path":"'+({page:'/',app:'/apps/wm-self-probe/',api:'/api/apps'})[k]+'","verdict":"fail"')));
    if(mutation==='login-gate-apps')check(label+' only the leaking /apps row fails',so.includes('"id":"market.login-gate.app","surface":"market","method":"GET","path":"/apps/wm-self-probe/","verdict":"fail"')&&so.includes('"id":"market.login-gate.page","surface":"market","method":"GET","path":"/","verdict":"pass"'));
+   if(mutation==='forged-login-callback')check(label+' only the forged login callback row fails',so.includes('"id":"market.login-flow.forged-callback"')&&so.split('"verdict":"fail"').length===2);
    if(mutation==='principals-admin-read')check(label+' only the principal list row fails',so.includes('"id":"market.principals.admin-read","surface":"market","method":"GET","path":"/api/principals","verdict":"fail"')&&so.split('"verdict":"fail"').length===2);
    let closed=false;try{await fetch('http://127.0.0.1:'+port+'/api/health',{signal:AbortSignal.timeout(300)})}catch{closed=true}
    check(label+' failure closes only the owned listener',closed);
@@ -107,6 +109,7 @@ await runCase('startup-ingress',{mutation:'hold-probe'});
 await runCase('mcp-auth-regression',{mutation:'mcp-auth',expectFailure:true});
 await runCase('browser-write-regression',{mutation:'browser-write',expectFailure:true});
 await runCase('principals-admin-read-regression',{mutation:'principals-admin-read',expectFailure:true});
+await runCase('forged-login-callback-regression',{mutation:'forged-login-callback',expectFailure:true});
 await runCase('probe-timeout',{mutation:'mcp-timeout',expectFailure:true});
 await runCase('probe-handler-error',{mutation:'handler-error',expectFailure:true});
 await runCase('login-gate-enforce',{gate:'enforce',control:true});

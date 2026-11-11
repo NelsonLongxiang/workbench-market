@@ -190,6 +190,29 @@ function totpPeriod(secret: string): number {
   try { return parseTotpSecret(secret).periodSeconds || 30; } catch { return 30; }
 }
 
+/**
+ * 服务端内部读一条应用凭证（登录插件取飞书应用的标识和密钥用），不经 HTTP，不交给浏览器。
+ *   · 按标题精确匹配一个没被删除的条目；同名有多条就不取（说不清是哪一条）。
+ *   · 标识取 username，密钥取 password、secret、apiKey 里第一个非空的。
+ *   · 库锁着、又没配服务端主密码（DSH_VAULT_PASSWORD_FILE / DSH_VAULT_PASSWORD），或者任何别的错：返回 null，调用方按不可用处理。
+ *   · 读一次记一条 read 审计（和页面上读完整条目同一种）。
+ */
+export async function vaultCredential(title: string): Promise<{ id: string; secret: string } | null> {
+  try {
+    const o = await unlocked(false);
+    const hits = o.store.list().filter((e) => e.title === title && !e.deletedAt);
+    if (hits.length !== 1) return null;
+    const e = hits[0];
+    const id = typeof e.username === 'string' ? e.username.trim() : '';
+    const secret = [e.password, e.secret, e.apiKey].find((v) => typeof v === 'string' && v.length > 0) ?? '';
+    if (!id || !secret) return null;
+    o.store.audit('read', e.id, e.title);
+    return { id, secret };
+  } catch {
+    return null;
+  }
+}
+
 export function mountVault(app: express.Express, guard: Guard, serverPasswordSurface: (req: express.Request) => boolean = () => true): void {
   const controlOnly = (req: express.Request) => serverPasswordSource() !== '' && !serverPasswordSurface(req);
   const route = (method: 'get' | 'post' | 'put' | 'delete', path: string, fn: (req: express.Request, res: express.Response) => Promise<unknown>) => {

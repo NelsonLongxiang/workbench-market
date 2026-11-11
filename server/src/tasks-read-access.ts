@@ -8,7 +8,7 @@ export async function tasksReadAccess(adminOk: boolean, cookie: string): Promise
   { ok: true; scope: TasksReadScope } | { ok: false; http: number; error: string }
 > {
   if (adminOk) return { ok: true, scope: { subject: 'admin', admin: true, yglProjects: 'all', marketRunIds: 'all', a2a: true } };
-  if (loginRelay().sessionEntries(cookie).length === 0) return { ok: false, http: 401, error: 'tasks_auth_required' };
+  if (loginRelay().sessionEntries(cookie).length === 0 && !identity().hasSession(cookie)) return { ok: false, http: 401, error: 'tasks_auth_required' };
   const who = await identity().resolveViewer(cookie);
   if (!who.ok) return { ok: false, http: who.http >= 500 ? 503 : who.http, error: who.http >= 500 ? 'tasks_identity_unavailable' : who.http === 403 ? 'tasks_internal_user_required' : 'tasks_auth_required' };
   const subject = who.viewer.sub;

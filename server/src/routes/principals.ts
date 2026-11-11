@@ -14,6 +14,7 @@ import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import type { PrincipalService } from '../services/principal.ts';
+import type { LoginSessionService } from '../services/login-session.ts';
 import { identity } from '../identity.ts';
 import { browserMarked, rawLoopback } from '../surfaces.ts';
 import { HttpError } from '../errors.ts';
@@ -53,6 +54,13 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
   const route = (fn: (req: express.Request, res: express.Response) => Promise<unknown>): express.RequestHandler =>
     (req, res, next) => { fn(req, res).catch(next); };
 
+  /** 等管理员对接的清单：登录方式认出了人，却还没对到主体（对上之后自动从清单里消失） */
+  app.get('/api/principals/pending', route(async (req, res) => {
+    res.set('Cache-Control', 'private, no-store');
+    if (!(await admin(req, res))) return;
+    res.json({ pending: principals().pending() });
+  }));
+
   app.get('/api/principals', route(async (req, res) => {
     res.set('Cache-Control', 'private, no-store');
     if (!(await admin(req, res))) return;
@@ -72,6 +80,8 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
     }
     const out = principals().setStatus(id, status, actor, reason);
     if (!out) throw new HttpError(404, `principal not found: ${id}`);
+    // 停用：这个人的市场会话全部注销（认人时本来就连着主体状态查，停用已经立即生效；注销是让恢复之后也要重新登录）
+    if (status === 'disabled') svc<LoginSessionService>('loginSessions').revokeAllFor(id);
     if (out.changed) console.log(JSON.stringify({ source: 'principals', event: status === 'disabled' ? 'disable' : 'restore', id, by: actor, at: new Date().toISOString() }));
     res.json({ ok: true, changed: out.changed, principal: out.principal });
   });
@@ -110,6 +120,37 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
     if (!out.ok) { const [status, message] = BIND_REFUSED[out.reason]; return res.status(status).json({ error: message, reason: out.reason, ...(out.principal ? { principal: out.principal } : {}) }); }
     console.log(JSON.stringify({ source: 'principals', event: 'bind', provider, external_id: externalId, id: target, created: out.created, by: actor, reason, at: new Date().toISOString() }));
     res.json({ ok: true, created: out.created, principal: out.principal });
+  }));
+
+  /**
+   * 成批对接（第一次上线时是一批人）：items 是若干条「外部身份 → 主体」，每条和单条绑定的规则一样，逐条给结果；
+   * 一条不成不影响别的条。一次最多 500 条。
+   */
+  app.post('/api/principals/bind-batch', route(async (req, res) => {
+    res.set('Cache-Control', 'private, no-store');
+    const actor = await admin(req, res);
+    if (!actor) return;
+    const items = req.body?.items;
+    if (!Array.isArray(items) || items.length === 0 || items.length > 500) throw new HttpError(400, 'items 必须是 1～500 条的数组');
+    const reason = reasonOf(req.body?.reason);
+    const self = selfOf(actor);
+    const results = items.map((item: any, index: number) => {
+      try {
+        const { provider, externalId } = identityOf(item);
+        const target = principalId(item?.principal);
+        if (!target.startsWith('user:')) throw new HttpError(400, 'principal 必须是人（user:<名>）');
+        const displayName = item?.display_name === undefined || item?.display_name === null ? null : typeof item.display_name === 'string' && item.display_name.length <= 256 ? item.display_name : (() => { throw new HttpError(400, 'display_name 必须是不超过 256 个字符的字符串'); })();
+        if (self === target) return { index, ok: false, status: 409, error: '不能往自己身上绑外部身份' };
+        const out = principals().bindIdentity({ provider, externalId, principal: target, create: item?.create === true, displayName });
+        if (!out.ok) { const [status, message] = BIND_REFUSED[out.reason]; return { index, ok: false, status, error: message, reason: out.reason, ...(out.principal ? { principal: out.principal } : {}) }; }
+        console.log(JSON.stringify({ source: 'principals', event: 'bind', provider, external_id: externalId, id: target, created: out.created, by: actor, reason, batch: true, at: new Date().toISOString() }));
+        return { index, ok: true, created: out.created, principal: target };
+      } catch (e) {
+        if (e instanceof HttpError) return { index, ok: false, status: e.status, error: e.message };
+        return { index, ok: false, status: 400, error: '这一条的形状不对' };
+      }
+    });
+    res.json({ ok: true, bound: results.filter((r: { ok: boolean }) => r.ok).length, results });
   }));
 
   /** 解绑一条外部身份。不能动自己名下的绑定 */

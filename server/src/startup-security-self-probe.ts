@@ -90,6 +90,9 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, log = (row: unkno
       // 主体管理面：远程匿名浏览器列不出主体。登录门关着时由路由自己的管理门拒（403），开着时登录门先拦（401）。
       // 不带任何凭据，所以这一行不会去问登录提供方，也不读主体表
       { id: 'market.principals.admin-read', target: m, surface: 'market', method: 'GET', path: '/api/principals', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 },
+      // 登录回调：拿一个编出来的 state（形状合格、库里没有）来，必须 400、不跳转、不发会话。登录门开不开都一样（回调本来就放行）；
+      // 不管配没配登录方式，这条路由都在
+      { id: 'market.login-flow.forged-callback', target: m, surface: 'market', method: 'GET', path: '/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x', headers: REMOTE_ANON, status: 400 },
       // Login gate (enforce only): fixed synthetic slug, so a bypass shows up as 404/200 instead of the login redirect
       ...(loginGate === 'enforce' ? [
         { id: 'market.login-gate.page', target: m, surface: 'market', method: 'GET', path: '/', headers: REMOTE_ANON, status: 302, login: true },

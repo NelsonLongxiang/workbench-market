@@ -594,6 +594,43 @@ CREATE TABLE IF NOT EXISTS principal_identities (
 );
 CREATE INDEX IF NOT EXISTS idx_principal_identities_principal ON principal_identities (principal_id);
 `);
+// 阶段五 5b：市场自己的会话，和登录过程中的 state。
+//   login_states：发起登录时签一个 state（只存哈希），绑着这次登录要回到的站内地址和发起它的浏览器（browser_sha256 是浏览器那一半的哈希）。
+//     一次性：回调核对时原子地取出并删除；有期限；按来源限额（见 services/login-session.ts）。
+//   principal_pending：等管理员对接的清单。只放认人需要的最少信息（对方的用户标识、显示名、企业邮箱）和最近一次来的时间；
+//     保留 30 天，过期清掉（见 services/principal.ts）。
+//   market_sessions：登录之后发给浏览器的会话（cookie 里是随机值，库里只存哈希）。绝对期限，不续期；
+//     注销即 revoked_at；主体停用由认人时现查主体状态管住。provider/external_id 记着这次是凭哪条外部身份进来的（留痕用）。
+db.exec(`
+CREATE TABLE IF NOT EXISTS login_states (
+  state_sha256 TEXT PRIMARY KEY,
+  flow TEXT NOT NULL,
+  next TEXT NOT NULL DEFAULT '/',
+  browser_sha256 TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_login_states_expires ON login_states (expires_at);
+CREATE TABLE IF NOT EXISTS market_sessions (
+  token_sha256 TEXT PRIMARY KEY,
+  principal_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  revoked_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_market_sessions_principal ON market_sessions (principal_id, expires_at);
+CREATE TABLE IF NOT EXISTS principal_pending (
+  provider TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  display_name TEXT NOT NULL DEFAULT '',
+  email TEXT NOT NULL DEFAULT '',
+  last_seen TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (provider, external_id)
+);
+`);
 // 这两张表只在本分支的早先版本里有过没有规范化列的形状（从没发布过）。碰上就拒绝启动，说清楚怎么办：
 // 带着它跑，新来的人一律认不出（503），不如一开始就停下
 for (const [table, column] of [['principals', 'id_key'], ['principal_identities', 'external_key']]) {
