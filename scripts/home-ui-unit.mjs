@@ -3,7 +3,7 @@
  *  数据形状照生命周期只读接口（/api/lifecycle/stages、objects）；全是合成值。 */
 import { cleanWho, seatLabel, teamLabel } from '../web/src/people.ts';
 import { answerChoices, groupCards } from '../web/src/attention-view.ts';
-import { cardWording, splitAskTitle, buildRows, splitRows, daysLabel, filterAttention, greeting, objectLabel, panoramaType, stageColumns, summaryLine, toggleFocus } from '../web/src/home-view.ts';
+import { cardWording, splitAskTitle, buildRows, splitRows, daysLabel, filterAttention, greeting, objectLabel, panoramaType, stageColumns, summaryLine, decideLine, toggleFocus } from '../web/src/home-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -54,5 +54,6 @@ ok('卡片的谁：receiver:<区> 有承接时显示承接席位「名字（句�
 ok('等你拍板：建立人看到的席位提问算能当场办', groupCards([{ source: 'seat-asks', source_id: 'q', category: 'ask', title: '', waiting_for: '', since: '', answers: ['answer'], object: '', phase: '', link: '' }], (x) => answerChoices(false, x)).now.length === 1);
 ok('筛选要同时看线和这一步：同一条线两个阶段各一条，点其中一格只剩那一条', (() => { const two = [att('a', 'st_1'), att('a', 'st_2')]; const r1 = filterAttention(two, { object: 'a', stage: 'st_1' }); const r2 = filterAttention(two, { object: 'a', stage: 'st_2' }); return r1.length === 1 && r1[0].phase === 'st_1' && r2.length === 1 && r2[0].phase === 'st_2' && filterAttention(two, { object: 'b', stage: 'st_1' }).length === 0; })());
 ok('不认识的类别写中性的「等你处理」，不露代号', cardWording('stuck', false).label === '等你处理' && cardWording('team-unclaimed', true).label === '等你处理' && !cardWording('stuck', true).proxy);
+ok('总结只数能当场办的，要到别处处理的另说一句', summaryLine(buildRows(pd, [obj('a', 'st_1')], []), 2, 2) === '公司现在有 1 条线在走，有 2 件等你拍板。另有 2 件要到别处处理。' && decideLine(0, 3) === '眼下没有要你当场拍板的，另有 3 件要到别处处理。' && decideLine(0, 0) === '眼下没有要你拍板的。' && decideLine(4, 0) === '有 4 件等你拍板。');
 console.log(`\nhome-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

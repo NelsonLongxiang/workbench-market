@@ -11,7 +11,7 @@ import DecisionCard from '../components/DecisionCard';
 import { adminActive, subscribeAdminToken } from '../admin-token';
 import { ATTENTION_CHANGED, getAttention, getAuthMe, getLifecycle } from '../api';
 import { answerChoices, groupCards, type AttentionItem } from '../attention-view';
-import { buildRows, splitRows, daysLabel, filterAttention, greeting, panoramaType, stageColumns, summaryLine, toggleFocus, type Focus, type LcObject, type LcType } from '../home-view';
+import { buildRows, splitRows, daysLabel, filterAttention, greeting, panoramaType, stageColumns, summaryLine, decideLine, toggleFocus, type Focus, type LcObject, type LcType } from '../home-view';
 
 const MAX_PAGES = 10;
 
@@ -58,6 +58,8 @@ export default function Home() {
   const cols = type ? stageColumns(type) : [];
   const rows = useMemo(() => (type ? buildRows(type, objects, attention) : []), [type, objects, attention]);
   const { active, ended } = splitRows(rows);
+  // 总结句按全部条目算（不随点格筛选变）：能当场办的才算「等你拍板」
+  const all = groupCards(attention, (x) => answerChoices(admin, x));
   const cards = filterAttention(attention, focus);
   const { now, elsewhere } = groupCards(cards, (x) => answerChoices(admin, x));
   const card = (a: AttentionItem) => <DecisionCard key={`${a.source}:${a.source_id}`} item={a} admin={admin} onDone={() => undefined} />;
@@ -68,7 +70,7 @@ export default function Home() {
     <div className="wm-home">
       <h1 className="wm-home-hi" data-testid="home-greeting">{greeting(new Date().getHours(), name)}</h1>
       <Typography.Paragraph type="secondary" className="wm-home-sum" data-testid="home-summary">
-        {lcState === 'ok' ? summaryLine(rows, attention.length) : attention.length ? `有 ${attention.length} 件事等你拍板。` : '眼下没有要你拍板的。'}
+        {lcState === 'ok' ? summaryLine(rows, all.now.length, all.elsewhere.length) : decideLine(all.now.length, all.elsewhere.length)}
       </Typography.Paragraph>
 
       {lcState === 'loading' && <Skeleton active paragraph={{ rows: 4 }} />}

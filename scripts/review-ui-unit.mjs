@@ -28,7 +28,7 @@ ok('只认变更申请来源、认得的 kind 和 op', changeDetailOf(cr(rollbac
   ok('对象已经不在了：名字用 slug，提醒这条办不成', c.title === '回滚工作台「demo-app」到第 3 版' && c.lines[0] === '回到第 3 版（修了导出）' && c.warn.includes('已经不在了'), JSON.stringify(c));
 }
 ok('没写回到哪一版时照实说', changeCard(changeDetailOf(cr({ ...rollback, target_version: null, target_changelog: '' }))).lines[0] === '现在是第 5 版，没写要回到哪一版');
-ok('答法叫法：变更申请叫通过 / 不通过，别的来源用通用叫法', reviewAnswerLabel('change-requests', 'approve') === '通过' && reviewAnswerLabel('change-requests', 'reject') === '不通过' && reviewAnswerLabel('mcp-access', 'approve') === null);
+ok('答法叫法：按钮上写清后果——通过并删除 / 通过并回滚；读不出时只写通过；不通过；别的来源用通用叫法', reviewAnswerLabel('change-requests', 'approve', cr(del)) === '通过并删除' && reviewAnswerLabel('change-requests', 'approve', cr(rollback)) === '通过并回滚' && reviewAnswerLabel('change-requests', 'approve', cr(null)) === '通过' && reviewAnswerLabel('change-requests', 'approve') === '通过' && reviewAnswerLabel('change-requests', 'reject') === '不通过' && reviewAnswerLabel('mcp-access', 'approve') === null);
 ok('不通过必须写理由，最多 500 字', REVIEW_NEEDS['change-requests'].reject.key === 'reason' && REVIEW_NEEDS['change-requests'].reject.max === 500 && !REVIEW_NEEDS['change-requests'].approve);
 ok('确认：通过删除要确认并写清删什么', (confirmText(cr(del), 'approve') ?? '').includes('4 个版本、17 个文件'));
 ok('确认：通过回滚、不通过都不用确认', confirmText(cr(rollback), 'approve') === null && confirmText(cr(del), 'reject') === null && confirmText(cr(rollback), 'reject') === null);

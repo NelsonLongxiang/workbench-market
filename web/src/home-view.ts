@@ -53,11 +53,18 @@ export function splitRows(rows: Row[]): { active: Row[]; ended: Row[] } {
 export const daysLabel = (d: number | null): string => (d === null || d === undefined ? '天数未知' : `已 ${d} 天`);
 
 /** 一句总结：几条线在走（只数进行中的）、几件等你拍板（「关注」里给你的条数）；有待定的格子时指一句「红色标出来的格子」 */
-export function summaryLine(rows: Row[], pendingTotal: number): string {
+export function summaryLine(rows: Row[], pendingTotal: number, elsewhere = 0): string {
   const going = rows.filter((r) => !r.terminal).length;
   const spots = rows.reduce((n, r) => n + r.cells.filter((c) => c.pending > 0).length, 0);
-  if (!pendingTotal) return `公司现在有 ${going} 条线在走，眼下没有要你拍板的。`;
-  return `公司现在有 ${going} 条线在走，有 ${pendingTotal} 件等你拍板${spots ? '——红色标出来的格子就是' : ''}。`;
+  const head = `公司现在有 ${going} 条线在走，`;
+  return `${head}${decideLine(pendingTotal, elsewhere, spots > 0)}`;
+}
+
+/** 等你拍板的那半句：只数能当场办的；要到别处处理的另说一句（协调裁定）。全景表读不到时页面单用这一句 */
+export function decideLine(now: number, elsewhere: number, redCells = false): string {
+  const more = elsewhere > 0 ? `另有 ${elsewhere} 件要到别处处理。` : '';
+  if (!now) return elsewhere > 0 ? `眼下没有要你当场拍板的，${more}` : '眼下没有要你拍板的。';
+  return `有 ${now} 件等你拍板${redCells ? '——红色标出来的格子就是' : ''}。${more}`;
 }
 
 /** 席位提问卡的标题是「<团队> 问：<问题>（可选：a / b）」：拆成问题本身和选项；不是这个样子的原样返回、没有选项 */

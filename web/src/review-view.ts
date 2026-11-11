@@ -51,9 +51,13 @@ export function changeCard(d: ChangeDetail): { title: string; lines: string[]; w
 }
 
 /** 答法的叫法：变更申请叫「通过 / 不通过」；别的来源用卡片通用的叫法（返回 null） */
-export function reviewAnswerLabel(source: string, answer: string): string | null {
-  if (source === 'change-requests') return answer === 'approve' ? '通过' : answer === 'reject' ? '不通过' : null;
-  return null;
+export function reviewAnswerLabel(source: string, answer: string, item?: { source: string; detail?: unknown }): string | null {
+  if (source !== 'change-requests') return null;
+  if (answer === 'reject') return '不通过';
+  if (answer !== 'approve') return null;
+  // 按钮上就写清后果：通过并删除 / 通过并回滚；读不出是哪一种时只写「通过」（点了会先确认）
+  const d = item ? changeDetailOf(item) : null;
+  return d ? (d.op === 'delete' ? '通过并删除' : '通过并回滚') : '通过';
 }
 
 /** 这一步要不要先填一句：变更申请不通过必须写理由（≤500 字，会记在申请上） */

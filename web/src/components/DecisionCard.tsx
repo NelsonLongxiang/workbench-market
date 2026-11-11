@@ -73,7 +73,7 @@ export default function DecisionCard({ item, admin, onDone }: { item: AttentionI
       ? [seat && `承接 ${seatLabel(seat)}`, detail.team && `派给 ${teamLabel(detail.team)}`].filter(Boolean).join(' · ')
       : cleanWho(item.waiting_for, seat);
   const wording = cardWording(item.category, admin);
-  const label = (a: string) => (wording.proxy && PROXY[a]) || reviewAnswerLabel(item.source, a) || ANSWER[a] || a;
+  const label = (a: string) => (wording.proxy && PROXY[a]) || reviewAnswerLabel(item.source, a, item) || ANSWER[a] || a;
   const send = async (answer: string, input: Record<string, string>) => {
     setBusy(true);
     try {
