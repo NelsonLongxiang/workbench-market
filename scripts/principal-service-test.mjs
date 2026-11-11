@@ -165,6 +165,12 @@ try {
     // 只撞外部身份、不撞主体标识：other 提供方下 a.lice 绑在 user:alice 上，再来 A.LICE（主体标识 user:A.LICE 没人占）
     const dotted = admit({ provider: 'other', externalId: 'A.LICE', displayName: null });
     check(dotted.ok === false && dotted.reason === 'unbound' && principals.get('user:A.LICE') === null, '同一个提供方下外部身份只差大小写（主体标识没撞）：不认、不建', show(dotted));
+    // 大写的 ẞ（验收 M1′）：ß 的完整折叠是 ss，ẞ 先折成 ß 还要再折一次
+    const st = admit({ provider: 'fake', externalId: 'strasse', displayName: null });
+    principals.setStatus('user:strasse', 'disabled', 'cli', '');
+    const sharp = ['stra\u1e9ee', 'STRA\u1e9eE', 'stra\u00dfe', 'STRASSE'].map((v) => [v, admit({ provider: 'fake', externalId: v, displayName: null })]);
+    principals.setStatus('user:strasse', 'active', 'cli', '');
+    check(st.ok === true && sharp.every(([, a]) => a.ok === false) && principals.list().filter((p) => p.id.startsWith('user:stra')).length === 1, '停用 strasse 之后：straẞe、STRAẞE、straße、STRASSE 都不认，不另建主体', JSON.stringify(sharp));
     // 对照：真的不一样的名照常建
     const bob2 = admit({ provider: 'fake', externalId: 'alice2', displayName: null });
     check(bob2.ok === true && bob2.principal === 'user:alice2', '对照：alice2 是另一个人，照常建');

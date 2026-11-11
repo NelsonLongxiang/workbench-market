@@ -51,6 +51,8 @@ export const SESSIONS = {
   alphaUpper: 'fake-alpha-upper-case-01', // 登录名 Alpha
   alphaWide: 'fake-alpha-full-width-01', // 登录名是全角的 ａｌｐｈａ
   alphaZeroWidth: 'fake-alpha-zero-width-01', // 登录名 al<零宽空格>pha
+  strasse: 'fake-strasse-lowercase-01', // 登录名 strasse
+  strasseCapitalSharpS: 'fake-strasse-capital-sharp-s', // 同一个 uid，登录名 stra<大写 ẞ>e（验收 M1′）
 };
 
 /** 「只认第一次」的会话：login 是认出来的登录名；admin 为真时第一次的回答自称管理员 */
@@ -90,6 +92,8 @@ const ANSWERS = {
   [SESSIONS.alphaUpper]: () => viewer('Alpha', 11, { admin: false }),
   [SESSIONS.alphaWide]: () => viewer('\uff41\uff4c\uff50\uff48\uff41', 11, { admin: false }),
   [SESSIONS.alphaZeroWidth]: () => viewer('al\u200bpha', 11, { admin: false }),
+  [SESSIONS.strasse]: () => viewer('strasse', 41, { admin: false }),
+  [SESSIONS.strasseCapitalSharpS]: () => viewer('stra\u1e9ee', 41, { admin: false }),
   [SESSIONS.flipLogin]: () => { let reads = 0; return { ok: true, viewer: { get login() { reads++; return reads <= 2 ? 'alpha' : 'root-admin'; }, uid: 11, sub: 'user:alpha', name: null, admin: false } }; },
 };
 

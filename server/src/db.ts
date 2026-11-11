@@ -594,6 +594,13 @@ CREATE TABLE IF NOT EXISTS principal_identities (
 );
 CREATE INDEX IF NOT EXISTS idx_principal_identities_principal ON principal_identities (principal_id);
 `);
+// 这两张表只在本分支的早先版本里有过没有规范化列的形状（从没发布过）。碰上就拒绝启动，说清楚怎么办：
+// 带着它跑，新来的人一律认不出（503），不如一开始就停下
+for (const [table, column] of [['principals', 'id_key'], ['principal_identities', 'external_key']]) {
+  if (!(db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column)) {
+    throw new Error(`[db] 拒绝启动：${table} 表缺 ${column} 列（是开发分支早先版本建的，从没发布过）。删掉 principals、principal_identities 两张表再启动`);
+  }
+}
 // #337: a durable monotonic generation invalidates stale Redis snapshots, including same-value writes.
 {
   const cols = db.prepare('PRAGMA table_info(sop_runs)').all() as { name: string }[];

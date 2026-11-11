@@ -23,7 +23,7 @@ const OUT = join(ROOT, 'tmp', `identity-mutation-${process.pid}`);
 const jobsArg = process.argv.indexOf('--jobs');
 const JOBS = Math.max(1, Number(jobsArg >= 0 ? process.argv[jobsArg + 1] : 3) || 3);
 
-const CONTRACT = 'identity-contract-test.mjs', SMOKE = 'identity-seam-smoke.mjs', SERVICE = 'principal-service-test.mjs';
+const CONTRACT = 'identity-contract-test.mjs', SMOKE = 'identity-seam-smoke.mjs', SERVICE = 'principal-service-test.mjs', FOLD = 'principal-fold-test.mjs';
 const IDENTITY = 'server/src/identity.ts';
 const PRINCIPAL = 'server/src/services/principal.ts', ROUTES = 'server/src/routes/principals.ts', DB = 'server/src/db.ts', GATE = 'server/src/login-gate.ts';
 
@@ -139,13 +139,21 @@ const MUTANTS = [
     find: "      else if (db.prepare('SELECT 1 FROM principal_identities WHERE provider = ? AND external_key = ?').get(provider, externalKey)) out = { ok: false, reason: 'unbound' };\n", replace: '' },
   { id: 'principal-key-collision-ignored', what: '主体服务：主体标识按原值比，不按规范化之后的值', file: PRINCIPAL, suites: [SERVICE, SMOKE],
     find: "get(idKey)) out = { ok: false, reason: 'unbound' };", replace: "get(idKey) && false) out = { ok: false, reason: 'unbound' };" },
-  { id: 'key-no-case-fold', what: '规范化不折叠大小写', file: PRINCIPAL, suites: [SERVICE, SMOKE],
-    find: ".toUpperCase().toLowerCase()", replace: '' },
-  { id: 'key-no-nfkc', what: '规范化不做 NFKC（全角半角算两个）', file: PRINCIPAL, suites: [SERVICE, SMOKE],
-    find: "return value.normalize('NFKC').replace(/\\p{Default_Ignorable_Code_Point}/gu, '').toUpperCase().toLowerCase().normalize('NFKC');",
-    replace: "return value.replace(/\\p{Default_Ignorable_Code_Point}/gu, '').toUpperCase().toLowerCase();" },
-  { id: 'key-keeps-ignorables', what: '规范化不去零宽一类的字符', file: PRINCIPAL, suites: [SERVICE, SMOKE],
-    find: ".replace(/\\p{Default_Ignorable_Code_Point}/gu, '')", replace: '' },
+  { id: 'fold-lower-only', what: '规范化：大小写只转小写，不做完整折叠（ß、ẞ、ς、ſ 漏网）', file: PRINCIPAL, suites: [FOLD, SERVICE, SMOKE],
+    find: '  if (!CWCF.test(c)) f = c;\n  else {', replace: '  if (true) f = c.toLowerCase();\n  else {' },
+  { id: 'fold-one-case-round', what: '规范化：只转一轮大写再小写（ẞ 漏网，验收 M1′ 那种；外层迭代到不动点会把它补回来，所以只有成批测试抓得到这一层）', file: PRINCIPAL, suites: [FOLD],
+    find: '  if (!CWCF.test(c)) f = c;\n  else {', replace: '  if (true) f = c.toUpperCase().toLowerCase();\n  else {' },
+  { id: 'fold-no-casefold-guard', what: '规范化：不看 Changes_When_Casefolded，切罗基文折反方向', file: PRINCIPAL, suites: [FOLD],
+    find: '  if (!CWCF.test(c)) f = c;\n', replace: '  if (false) f = c;\n' },
+  { id: 'fold-no-full-expansion', what: '规范化：不用完整折叠的展开（ß 不折成 ss）', file: PRINCIPAL, suites: [FOLD],
+    find: '    if ([...full].length > 1) f = full;\n', replace: '    if (false) f = full;\n' },
+  { id: 'fold-turkic-dotless-i', what: '规范化：土耳其语的 ı 也折成 i（把不同的人算成撞上）', file: PRINCIPAL, suites: [FOLD],
+    find: '  if (!CWCF.test(c)) f = c;\n', replace: "  if (c === '\\u0131') f = 'i';\n  else if (!CWCF.test(c)) f = c;\n" },
+  { id: 'key-no-nfkc', what: '规范化：不做 NFKC（全角半角、连字算两个）', file: PRINCIPAL, suites: [FOLD, SERVICE, SMOKE],
+    find: "[...s.normalize('NFD').normalize('NFKC').replace(IGNORABLE, '')].map(caseFoldChar).join('').normalize('NFKC').replace(IGNORABLE, '')",
+    replace: "[...s.normalize('NFD').replace(IGNORABLE, '')].map(caseFoldChar).join('').normalize('NFC').replace(IGNORABLE, '')" },
+  { id: 'key-keeps-ignorables', what: '规范化：不去零宽一类的字符', file: PRINCIPAL, suites: [FOLD, SERVICE, SMOKE],
+    find: "const IGNORABLE = /\\p{Default_Ignorable_Code_Point}/gu;", replace: 'const IGNORABLE = /(?!)/gu;' },
   { id: 'principal-key-not-unique', what: '表：主体标识的规范化值不唯一', file: DB, suites: [SERVICE],
     find: "  id_key TEXT NOT NULL UNIQUE CHECK (id_key <> ''),", replace: "  id_key TEXT NOT NULL CHECK (id_key <> '')," },
   { id: 'identity-key-not-unique', what: '表：外部身份的规范化值不唯一', file: DB, suites: [SERVICE],
@@ -237,7 +245,7 @@ rmSync(OUT, { recursive: true, force: true });
 try {
   // 绿：没改过的副本，两套都过。先证明「抄一份」这件事本身不会把测试弄红。
   const clean = plant('unchanged', null);
-  for (const script of [CONTRACT, SERVICE, SMOKE]) {
+  for (const script of [CONTRACT, SERVICE, FOLD, SMOKE]) {
     const r = await runTwice(script, clean);
     note(r.status === 0, `没改过的副本：${script} 通过`, r.status === 0 ? '' : tailOf(r));
   }

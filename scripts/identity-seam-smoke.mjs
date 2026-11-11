@@ -363,9 +363,18 @@ async function principalChecks(srv, tag, relay) {
     await setStatus(srv, 'restore', 'user:alpha');
     const ids = (await principalsOf(srv) ?? []).map((p) => p.id);
     const extra = ids.filter((id) => id !== 'user:alpha' && id.toLowerCase().normalize('NFKC').replace(/\u200b/g, '') === 'user:alpha');
-    const leaked = seen.filter(([, , o]) => !refusedEverywhere(o)).map(([label, state, o]) => `${label}/${state}：${show(o)}`);
+    // 大写的 ẞ（验收 M1′）：strasse 先登录建主体、停用，再用 straẞe 来
+    const s1 = await observe(srv, SESSIONS.strasse);
+    await setStatus(srv, 'disable', 'user:strasse');
+    const sharp = await observe(srv, SESSIONS.strasseCapitalSharpS);
+    await setStatus(srv, 'restore', 'user:strasse');
+    const sharpActive = await observe(srv, SESSIONS.strasseCapitalSharpS);
+    if (!(s1.viewer === 200 && refusedEverywhere(sharp) && refusedEverywhere(sharpActive))) seen.push(['大写 ẞ', 'disabled/active', { s1: s1.viewer, sharp, sharpActive }]);
+    const sharpIds = (await principalsOf(srv) ?? []).map((p) => p.id).filter((id) => id.startsWith('user:stra'));
+    if (sharpIds.length !== 1) extra.push(...sharpIds);
+    const leaked = seen.filter(([, , o]) => !o || o.viewer === undefined || !refusedEverywhere(o)).map(([label, state, o]) => `${label}/${state}：${show(o)}`);
     check(leaked.length === 0 && extra.length === 0 && stillOff.viewer === 403 && fine(await observe(srv, SESSIONS.alpha), 'alpha'),
-      `${tag}主体⑫·登录名只差大小写、全角、夹零宽字符：不另建主体；alpha 启用和停用时都不认（停用绕不过去）；对照：alpha 恢复后照常`, `${leaked.join('；')} 多出来的主体：${show(extra)}`);
+      `${tag}主体⑫·登录名只差大小写（含大写 ẞ）、全角、夹零宽字符：不另建主体；启用和停用时都不认（停用绕不过去）；对照：alpha 恢复后照常`, `${leaked.join('；')} 多出来的主体：${show(extra)}`);
   }
   // ⑪ 授权跟着主体走，不跟着登录名走：把 beta 这个外部身份改绑到 alpha 的主体上，它就是 user:alpha，读得到授权给 user:alpha 的 run 私有值
   {

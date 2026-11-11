@@ -5,7 +5,7 @@
  *   · 见过的外部身份：取出它的主体。主体停用了就不认。
  *   · 没见过的：建一个人（标识 `user:<对方的用户标识>`）和这条外部身份，同一个事务。
  *   · 标识已经被别的主体占着、却没有绑定这个外部身份：不自动认领（那等于让一个外来账号顶替已有的主体），不认。
- *   · 「占着」按规范化之后的值算（comparisonKey）：只差大小写、全角半角、夹零宽字符的写法算撞上，同样不认、不另建。
+ *   · 「占着」按规范化之后的值算（comparisonKey，即 Unicode 的 NFKC_Casefold）：只差大小写、全角半角、夹零宽字符的写法算撞上，同样不认、不另建。
  *     只拒不并——两个写法到底是不是同一个人，这里判断不了，交给管理员。
  * 停用和恢复是本地动作，改的是 status 这一列；每个入口认人时现查，所以立即生效。
  *
@@ -26,11 +26,62 @@ export type PrincipalIdentity = { provider: string; external_id: string; created
 export type PrincipalView = PrincipalRow & { identities: PrincipalIdentity[] };
 
 /**
- * 比较用的规范化值：NFKC（全角半角、兼容字符归一），去掉默认可忽略的字符（零宽空格、零宽连接符、软连字符……），
- * 大小写折叠（先转大写再转小写：ß 和 SS 归到一处），再 NFKC 一次。只用来判「是不是撞上了」，原值照存。
+ * 比较用的规范化值：Unicode 的 NFKC_Casefold（NFKC_CF）。
+ *
+ * 出处：Unicode 标准第 3.13 节的「兼容大小写无关匹配」（D146、D147：NFKC(toCasefold(NFKC(NFD(X))))），
+ * 加上去掉 Default_Ignorable_Code_Point——两者合起来就是 Unicode 派生属性 NFKC_Casefold 的定义（UAX #15、UAX #31 用它做标识符的大小写无关比较）。
+ * 为什么是这一种：
+ *   · 大小写要用「完整折叠」（CaseFolding.txt 的 C+F），ß、ẞ、SS、ss 才归到一处；只转小写或只做简单折叠都会漏。
+ *   · 要带兼容规范化（NFKC），全角、连字、数学字母这些写法才归到一处；NFC 不管这些。
+ *   · 不用土耳其语那一类（T）：默认折叠里 İ、ı 和 i 不相等，按语言改规则会让同一个名字在不同部署里比出不同结果。
+ *   · 迭代到不动点：一轮的结果再做一轮不变才算数（全部码位实测一轮即收敛，这里是兜底）。
+ *
+ * JS 没有现成的完整折叠函数，toCasefold 这样拼出来，每一步都对着 Node 自带的 Unicode 数据：
+ *   · 哪些字符折叠会变：属性 Changes_When_Casefolded（由 CaseFolding.txt 派生）；不变的原样保留。
+ *   · 会变的：取「先转大写再转小写」；结果是一个字符时，要求它和原字符在 /iu 下等价才用
+ *     （ECMA-262 规定 /iu 的等价就是 CaseFolding.txt 的简单折叠 C+S），不等价就取同一类里的大写形式（切罗基文）。
+ *     结果是多个字符时就是完整折叠的展开（ß → ss，ﬁ → fi），直接用。
+ * 核对（scripts/principal-fold-test.mjs，全部 1,112,064 个码位）：折出来会不会变，和 Changes_When_Casefolded、
+ * Changes_When_NFKC_Casefolded 两个属性逐个一致；每个码位都是不动点。
+ *
+ * 只用来判「撞没撞」，原值照存。折不出来（不收敛、规范化之后是空的）就抛错，调用方按不可用处理，不放行。
  */
+const CWCF = /^\p{Changes_When_Casefolded}$/u;
+const IGNORABLE = /\p{Default_Ignorable_Code_Point}/gu;
+const foldCache = new Map<string, string>();
+const escapeChar = (c: string): string => c.replace(/[\\^$.*+?()[\]{}|/-]/g, '\\$&');
+const simplyEqual = (a: string, b: string): boolean => new RegExp(`^${escapeChar(a)}$`, 'iu').test(b);
+
+/** 一个码位的完整大小写折叠（CaseFolding.txt 的 C+F），拼法见上 */
+export function caseFoldChar(c: string): string {
+  const hit = foldCache.get(c);
+  if (hit !== undefined) return hit;
+  let f: string;
+  if (!CWCF.test(c)) f = c;
+  else {
+    const full = c.toUpperCase().toLowerCase(), up = c.toUpperCase(), lo = c.toLowerCase();
+    if ([...full].length > 1) f = full;
+    else if (full !== c && simplyEqual(c, full)) f = full;
+    else if (lo !== c && [...lo].length > 1) f = lo;
+    else if (up !== c && [...up].length === 1 && simplyEqual(c, up)) f = up;
+    else throw new Error(`折叠不出 U+${c.codePointAt(0)!.toString(16)}`);
+  }
+  if (foldCache.size > 10_000) foldCache.clear();
+  foldCache.set(c, f);
+  return f;
+}
+
+const nfkcCasefoldOnce = (s: string): string =>
+  [...s.normalize('NFD').normalize('NFKC').replace(IGNORABLE, '')].map(caseFoldChar).join('').normalize('NFKC').replace(IGNORABLE, '');
+
 export function comparisonKey(value: string): string {
-  return value.normalize('NFKC').replace(/\p{Default_Ignorable_Code_Point}/gu, '').toUpperCase().toLowerCase().normalize('NFKC');
+  let x = value;
+  for (let i = 0; i < 8; i++) {
+    const y = nfkcCasefoldOnce(x);
+    if (y === x) return x;
+    x = y;
+  }
+  throw new Error('规范化不收敛');
 }
 
 /** 列表和详情交出去的列：比较用的规范化值不交出去 */
