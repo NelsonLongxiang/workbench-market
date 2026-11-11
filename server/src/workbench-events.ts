@@ -308,8 +308,12 @@ export function kickWorkbenchEvents(): void {
 }
 export function startWorkbenchEventWorker(): void {
   if (!process.env.MARKET_PUBLIC_URL) console.warn('[workbench-events] MARKET_PUBLIC_URL 未设：派发信封里的 reply.url 与 OriginClaim 的 callerUrl 都是回环地址，远程接单节点回写不了决定、对端也取不到市场卡片');
-  const timer = setInterval(() => { void workbenchEventTick(); }, 5_000);
-  timer.unref?.();
+  // 挂在根上下文的 effect 上，卸载时一起停
+  root.effect(() => {
+    const timer = setInterval(() => { void workbenchEventTick(); }, 5_000);
+    timer.unref?.();
+    return () => { clearInterval(timer); };
+  }, 'workbench-events.worker(5s)');
 }
 
 // ---------- HTTP 面 ----------

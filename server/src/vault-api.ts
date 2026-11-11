@@ -18,6 +18,7 @@ import { stat } from 'node:fs/promises';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { join } from 'node:path';
 import { dataDir } from './db.ts';
+import { root } from './root-context.ts';
 import { defaultVaultPath, openVault, type VaultEntry, type VaultEntryPatch, type VaultEntrySummary, type VaultStore } from './vault/store.ts';
 import { parseTotpSecret, totp } from './vault/totp.ts';
 import { generatePassphrase, generatePassword } from './vault/password.ts';
@@ -112,8 +113,12 @@ function idleExpired(o: Open | null): boolean {
 
 const lockNow = () => serial(async () => { const cur = open; open = null; await retire(cur); });
 
-/** 主动闲置上锁：不等下一次请求（没人来时主密码与明文条目也不能一直留在内存） */
-setInterval(() => { if (idleExpired(open)) void serial(async () => { if (idleExpired(open)) { const cur = open; open = null; await retire(cur); } }); }, Math.max(1000, Math.min(30_000, idleMs() / 4 || 30_000))).unref();
+/** 主动闲置上锁：不等下一次请求（没人来时主密码与明文条目也不能一直留在内存）。挂在根上下文的 effect 上，卸载时一起停 */
+root.effect(() => {
+  const idleTimer = setInterval(() => { if (idleExpired(open)) void serial(async () => { if (idleExpired(open)) { const cur = open; open = null; await retire(cur); } }); }, Math.max(1000, Math.min(30_000, idleMs() / 4 || 30_000)));
+  idleTimer.unref();
+  return () => { clearInterval(idleTimer); };
+}, 'vault.idle-lock');
 
 /** 取已解锁的库；闲置超时先上锁；文件被外部改过就重开。touch=false：取验证码这类被动轮询不算活动 */
 function unlocked(touch = true): Promise<Open> {
