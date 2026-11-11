@@ -171,4 +171,53 @@ export class PrincipalService extends Service implements PrincipalDirectory {
     const principal = this.get(id);
     return principal ? { changed, principal } : null;
   }
+
+  /**
+   * 管理员对一次：把一条外部身份绑到一个人身上。
+   *   · 外部身份已经绑在别处（原值，或者规范化之后等价的写法）：不改，回 conflict，要先解绑——不让一步就把别人的身份挪走；
+   *   · create 为真时目标主体不存在就新建一个人（标识按规范化之后不能和已有的撞）；不为真时目标必须已经在；
+   *   · 只能绑到人身上，而且这个人是启用的。
+   * 返回 bound（绑上了）或者说明为什么没绑。不抛错的情形都在返回值里；入参形状不对才抛。
+   */
+  bindIdentity(input: { provider: string; externalId: string; principal: string; create?: boolean; displayName?: string | null }):
+    { ok: true; principal: PrincipalView; created: boolean } | { ok: false; reason: 'conflict' | 'missing' | 'not-person' | 'disabled' | 'taken'; principal?: string } {
+    const { provider, externalId, principal } = input ?? ({} as never);
+    if (!providerOk(provider) || !externalIdOk(externalId) || typeof principal !== 'string' || !/^user:./.test(principal) || !externalIdOk(principal.slice(5))) throw new Error('绑定的形状不对');
+    const externalKey = comparisonKey(externalId), idKey = comparisonKey(principal);
+    if (!externalKey) throw new Error('外部身份规范化之后是空的');
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const out = ((): ReturnType<PrincipalService['bindIdentity']> => {
+        const held = db.prepare('SELECT principal_id FROM principal_identities WHERE provider = ? AND (external_id = ? OR external_key = ?)').get(provider, externalId, externalKey) as { principal_id: string } | undefined;
+        if (held) return { ok: false, reason: 'conflict', principal: held.principal_id };
+        let target = db.prepare('SELECT id, kind, status FROM principals WHERE id = ?').get(principal) as Bound | undefined;
+        let created = false;
+        if (!target) {
+          if (!input.create) return { ok: false, reason: 'missing' };
+          const clash = db.prepare('SELECT id FROM principals WHERE id_key = ?').get(idKey) as { id: string } | undefined;
+          if (clash) return { ok: false, reason: 'taken', principal: clash.id };
+          db.prepare("INSERT INTO principals (id, id_key, kind, display_name) VALUES (?, ?, 'person', ?)").run(principal, idKey, text(input.displayName, 256));
+          target = { id: principal, kind: 'person', status: 'active' };
+          created = true;
+        }
+        if (target.kind !== 'person') return { ok: false, reason: 'not-person' };
+        if (target.status !== 'active') return { ok: false, reason: 'disabled' };
+        db.prepare('INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES (?, ?, ?, ?)').run(provider, externalId, externalKey, principal);
+        return { ok: true, principal: this.get(principal)!, created };
+      })();
+      db.exec(out.ok ? 'COMMIT' : 'ROLLBACK');
+      return out;
+    } catch (e) {
+      try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ }
+      throw e;
+    }
+  }
+
+  /** 解绑一条外部身份（按原值精确匹配）。返回它原来绑在谁身上；没有这一条为 null */
+  unbindIdentity(provider: string, externalId: string): string | null {
+    if (!providerOk(provider) || !externalIdOk(externalId)) throw new Error('外部身份的形状不对');
+    const row = db.prepare('DELETE FROM principal_identities WHERE provider = ? AND external_id = ? RETURNING principal_id').get(provider, externalId) as { principal_id: string } | undefined;
+    return row?.principal_id ?? null;
+  }
+
 }

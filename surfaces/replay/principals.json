@@ -1,7 +1,7 @@
 {
   "domain": "principals",
-  "what": "主体管理：/api/principals 的 3 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
-  "routes": ["GET /api/principals", "POST /api/principals/disable", "POST /api/principals/restore"],
+  "what": "主体管理：/api/principals 的 5 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /api/principals", "POST /api/principals/disable", "POST /api/principals/restore", "POST /api/principals/bind", "POST /api/principals/unbind"],
   "exempt": [{ "route": "GET /api/principals", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/list-junk-query" }],
   "scenarios": [
     {
@@ -296,6 +296,231 @@
                   "status_reason": "",
                   "created_at": "YYYY-MM-DD hh:mm:ss",
                   "identities": [{ "provider": "odoo", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "bind-remote-anon",
+          "route": "POST /api/principals/bind",
+          "class": "unauthorized",
+          "what": "远程、没有口令：绑不了",
+          "request": { "method": "POST", "path": "/api/principals/bind", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "provider": "odoo", "external_id": "synthetic-b", "principal": "user:synthetic-a" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "bind-bad-provider",
+          "route": "POST /api/principals/bind",
+          "class": "invalid",
+          "what": "提供方名字不合格",
+          "request": { "method": "POST", "path": "/api/principals/bind", "json": { "provider": "Odoo!", "external_id": "synthetic-b", "principal": "user:synthetic-a" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "99", "etag": "W/\"63-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "provider 必须是提供方的名字（小写字母、数字、连字符、下划线）" }
+          }
+        },
+        {
+          "id": "bind-not-person",
+          "route": "POST /api/principals/bind",
+          "class": "invalid",
+          "what": "只能绑到人身上",
+          "request": { "method": "POST", "path": "/api/principals/bind", "json": { "provider": "odoo", "external_id": "synthetic-b", "principal": "seat:synthetic-seat" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "50", "etag": "W/\"32-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "principal 必须是人（user:<名>）" }
+          }
+        },
+        {
+          "id": "bind-conflict",
+          "route": "POST /api/principals/bind",
+          "class": "invalid",
+          "what": "已经绑着的外部身份（等价写法）不能直接改绑",
+          "request": { "method": "POST", "path": "/api/principals/bind", "json": { "provider": "odoo", "external_id": "SYNTHETIC-A", "principal": "user:synthetic-c", "create": true } },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "150", "etag": "W/\"96-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "这个外部身份（或者它的等价写法）已经绑在一个主体上，先解绑", "reason": "conflict", "principal": "user:synthetic-a" }
+          }
+        },
+        {
+          "id": "bind-missing",
+          "route": "POST /api/principals/bind",
+          "class": "invalid",
+          "what": "目标不存在、没带 create",
+          "request": { "method": "POST", "path": "/api/principals/bind", "json": { "provider": "odoo", "external_id": "synthetic-b", "principal": "user:nobody" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "95", "etag": "W/\"5f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "目标主体不存在；要新建一个人，带上 create: true", "reason": "missing" }
+          }
+        },
+        {
+          "id": "bind",
+          "route": "POST /api/principals/bind",
+          "class": "normal",
+          "what": "把另一条外部身份绑到已有的人身上",
+          "request": { "method": "POST", "path": "/api/principals/bind", "json": { "provider": "feishu", "external_id": "on_synthetic0001", "principal": "user:synthetic-a", "reason": "合成" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "449", "etag": "W/\"1c1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "created": false,
+              "principal": {
+                "id": "user:synthetic-a",
+                "kind": "person",
+                "display_name": "Synthetic A",
+                "owner": "",
+                "status": "active",
+                "status_changed_at": "YYYY-MM-DD hh:mm:ss",
+                "status_changed_by": "cli",
+                "status_reason": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "identities": [{ "provider": "feishu", "external_id": "on_synthetic0001", "created_at": "YYYY-MM-DD hh:mm:ss" }, { "provider": "odoo", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+              }
+            }
+          }
+        },
+        {
+          "id": "bind-create",
+          "route": "POST /api/principals/bind",
+          "class": "normal",
+          "what": "新建一个人并绑上",
+          "request": { "method": "POST", "path": "/api/principals/bind", "json": { "provider": "odoo", "external_id": "synthetic-b", "principal": "user:synthetic-b", "create": true, "display_name": "Synthetic B" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "336", "etag": "W/\"150-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "created": true,
+              "principal": {
+                "id": "user:synthetic-b",
+                "kind": "person",
+                "display_name": "Synthetic B",
+                "owner": "",
+                "status": "active",
+                "status_changed_at": "",
+                "status_changed_by": "",
+                "status_reason": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "identities": [{ "provider": "odoo", "external_id": "synthetic-b", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+              }
+            }
+          }
+        },
+        {
+          "id": "unbind-remote-anon",
+          "route": "POST /api/principals/unbind",
+          "class": "unauthorized",
+          "what": "远程、没有口令：解绑不了",
+          "request": { "method": "POST", "path": "/api/principals/unbind", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "provider": "feishu", "external_id": "on_synthetic0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "unbind-bad-id",
+          "route": "POST /api/principals/unbind",
+          "class": "invalid",
+          "what": "标识两头有空白",
+          "request": { "method": "POST", "path": "/api/principals/unbind", "json": { "provider": "feishu", "external_id": " on_synthetic0001" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "134", "etag": "W/\"86-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "external_id 必须是对方的用户标识（非空、不超过 128 个字符、两头没有空白、没有控制字符）" }
+          }
+        },
+        {
+          "id": "unbind-missing",
+          "route": "POST /api/principals/unbind",
+          "class": "invalid",
+          "what": "没有这一条",
+          "request": { "method": "POST", "path": "/api/principals/unbind", "json": { "provider": "feishu", "external_id": "on_nobody" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "48", "etag": "W/\"30-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "identity not found: feishu/on_nobody" }
+          }
+        },
+        {
+          "id": "unbind",
+          "route": "POST /api/principals/unbind",
+          "class": "normal",
+          "what": "解绑",
+          "request": { "method": "POST", "path": "/api/principals/unbind", "json": { "provider": "feishu", "external_id": "on_synthetic0001", "reason": "合成" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "45", "etag": "W/\"2d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "unbound_from": "user:synthetic-a" }
+          }
+        },
+        {
+          "id": "list-after-bind",
+          "route": "GET /api/principals",
+          "class": "normal",
+          "what": "列表里看得到绑定的结果",
+          "request": { "method": "GET", "path": "/api/principals" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "880", "etag": "W/\"370-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "principals": [
+                {
+                  "id": "seat:synthetic-seat",
+                  "kind": "seat",
+                  "display_name": "",
+                  "owner": "user:synthetic-a",
+                  "status": "disabled",
+                  "status_changed_at": "YYYY-MM-DD hh:mm:ss",
+                  "status_changed_by": "cli",
+                  "status_reason": "",
+                  "created_at": "YYYY-MM-DD hh:mm:ss",
+                  "identities": []
+                },
+                {
+                  "id": "user:synthetic-a",
+                  "kind": "person",
+                  "display_name": "Synthetic A",
+                  "owner": "",
+                  "status": "active",
+                  "status_changed_at": "YYYY-MM-DD hh:mm:ss",
+                  "status_changed_by": "cli",
+                  "status_reason": "",
+                  "created_at": "YYYY-MM-DD hh:mm:ss",
+                  "identities": [{ "provider": "odoo", "external_id": "synthetic-a", "created_at": "YYYY-MM-DD hh:mm:ss" }]
+                },
+                {
+                  "id": "user:synthetic-b",
+                  "kind": "person",
+                  "display_name": "Synthetic B",
+                  "owner": "",
+                  "status": "active",
+                  "status_changed_at": "",
+                  "status_changed_by": "",
+                  "status_reason": "",
+                  "created_at": "YYYY-MM-DD hh:mm:ss",
+                  "identities": [{ "provider": "odoo", "external_id": "synthetic-b", "created_at": "YYYY-MM-DD hh:mm:ss" }]
                 }
               ]
             }

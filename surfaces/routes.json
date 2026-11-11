@@ -68,6 +68,8 @@
       "GET /api/principals  <- <anonymous>",
       "POST /api/principals/disable  <- <anonymous>",
       "POST /api/principals/restore  <- <anonymous>",
+      "POST /api/principals/bind  <- <anonymous>",
+      "POST /api/principals/unbind  <- <anonymous>",
       "POST /api/skills/:slug/install  <- <anonymous>",
       "GET /api/skills/:slug/verify  <- <anonymous>",
       "POST /api/skills/:slug/install/:ledgerId/revoke  <- <anonymous>",
