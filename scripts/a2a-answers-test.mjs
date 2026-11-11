@@ -193,6 +193,7 @@ try {
     const Q2 = seedEvent();
     const bad = [
       ['问题 id 和任务号里的不一致', qenv('qX'), `attention-${Q2.task}-q2`],
+      ['S11：任务号是 q1、question.id 是 q2', qenv('q2'), `attention-${Q2.task}-q1`],
       ['没有 question', { idempotencyKey: Q2.task, disposition: 'attention' }, `attention-${Q2.task}-q3`],
       ['question.text 为空', qenv('q4', { question: { id: 'q4', text: '  ' } }), `attention-${Q2.task}-q4`],
       ['disposition 不是 attention', qenv('q5', { disposition: 'result', outcome: 'completed' }), `attention-${Q2.task}-q5`],
@@ -234,8 +235,8 @@ try {
   const rcLines = String(rc?.body?.message ?? '').split('\n');
   ok('立即回一条结清它的回执：任务号 receipt-<跟进任务号>，发给来信的一方，同一 context', rc && rc.body.team === 'lab/canvas/ops' && rc.body.context_id === L.ctx, JSON.stringify(rc?.body ?? null).slice(0, 200));
   ok('……回执头与信封只用跟进的任务号（不用原任务号）', rcLines[0] === '[A2A receipt] task a2a-follow0001 已转给人' && JSON.stringify(JSON.parse(rcLines[1] ?? '{}')) === JSON.stringify({ outcome: 'completed', idempotencyKey: 'a2a-follow0001', disposition: 'result' }) && !String(rc?.body?.message).includes(L.task), JSON.stringify(rcLines));
-  // Sig3 由 #542（出站补 body 绑定签名）带上；这条分支在它之前，先钉 Sig2，#542 合并后变基时把 Sig3 也钉上
-  ok('……带 OriginClaim 签名（Sig2）', typeof rc?.headers['x-a2a-caller-sig2'] === 'string');
+  // #542 之后出站带 Sig2 + Sig3（body 绑定）
+  ok('……带 OriginClaim 签名（Sig2 + Sig3 + 正文摘要头）', typeof rc?.headers['x-a2a-caller-sig2'] === 'string' && typeof rc?.headers['x-a2a-caller-sig3'] === 'string' && typeof rc?.headers['x-a2a-body-sha256'] === 'string', JSON.stringify(Object.keys(rc?.headers ?? {})));
   r = await post(raw, signed(lab, raw));
   ok('同一条（对方的任务号）再发 → 不重复记、不重复回执', r.status === 200 && q("SELECT COUNT(*) AS c FROM workbench_event_followups WHERE delivery_id = ?", L.delivery)[0].c === 1 && q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE kind = 'followup-receipt' AND delivery_id = ?", L.delivery)[0].c === 1);
   // 回复：同一 context 的新任务发回那个团队
@@ -267,6 +268,26 @@ try {
   // 消息编号是别的事项的 → 404
   r = await msgReply(a.ev, notice?.id, '串到别的事项');
   ok('拿别的事项的消息编号来回复 → 404，不发', r.status === 404 && r.body?.error === 'seat_message_not_found', JSON.stringify(r.body));
+  // S9：回复超过 4000 字 → 400，不发、不改状态
+  raw = fu(L.ctx, '再问一句', 'a2a-follow0003');
+  await post(raw, signed(lab, raw));
+  const s9 = (await itemOf(L.ev)).messages.find((x) => x.text === '再问一句');
+  r = await msgReply(L.ev, s9?.id, '长'.repeat(4001));
+  ok('S9：4001 字的回复 → 400 text_too_long，这条仍未读、不发', r.status === 400 && r.body?.error === 'text_too_long' && (await itemOf(L.ev)).messages.find((x) => x.id === s9?.id)?.status === 'unread'
+    && q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE kind = 'followup-reply' AND ref = ?", s9?.id)[0].c === 0, JSON.stringify(r.body));
+  r = await msgReply(L.ev, s9?.id, '长'.repeat(4000));
+  ok('……正好 4000 字 → 200', r.status === 200, JSON.stringify(r.body));
+  // S15：跟进里夹带别处的回调地址 → 结清回执仍只投到记下的对端根地址
+  {
+    const elsewhere = await peer('elsewhere');
+    lab.got.length = 0;
+    const raw15 = JSON.stringify({ team: 'market/12345678', message: '带了别处回调的跟进', caller_session: 'lab/canvas/ops', context_id: L.ctx, wait: false, task_id: 'a2a-follow0015', callback_url: elsewhere.url, reply_to: elsewhere.url, target_url: elsewhere.url });
+    r = await post(raw15, signed(lab, raw15));
+    await waitFor(() => lab.got.some((g) => g.body.task_id === 'receipt-a2a-follow0015'));
+    const row15 = q("SELECT target_url FROM workbench_event_replies WHERE kind = 'followup-receipt' AND fixed_task = 'receipt-a2a-follow0015'")[0];
+    ok('S15：跟进带别处的 callback → 结清回执只投到记下的对端根地址，别处收不到', r.text.includes('"followup":"recorded"') && row15?.target_url === lab.url && lab.got.some((g) => g.body.task_id === 'receipt-a2a-follow0015') && elsewhere.got.length === 0, JSON.stringify({ row15, elsewhere: elsewhere.got.length }));
+    elsewhere.server.close();
+  }
   ok('来信全程没开 run、没改事项状态', runs() === runsBefore && state(L.ev)?.state === 'delivered');
 
   console.log('三（续）、对抗组');
@@ -311,6 +332,13 @@ try {
   ok('……全部拿到结清回执（每条一行 receipt-<跟进任务号>）', firstLimited >= 0 && q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE kind = 'followup-receipt' AND delivery_id = ?", rate.delivery)[0].c === firstLimited + 5);
   await waitFor(() => lab.got.some((g) => g.body.task_id === `receipt-a2a-rate${String(firstLimited + 4).padStart(3, '0')}`), 15000);
   ok('……超出的那几条，回执真的发到了对端', [0, 1, 2, 3, 4].every((k) => lab.got.some((g) => g.body.task_id === `receipt-a2a-rate${String(firstLimited + k).padStart(3, '0')}`)));
+  {
+    // S7：限频只计数的那条不能回复（404：它不在对话里）
+    const limitedId = q("SELECT id FROM workbench_event_followups WHERE delivery_id = ? AND status = 'rate-limited' ORDER BY id LIMIT 1", rate.delivery)[0]?.id;
+    const rr = await msgReply(rate.ev, limitedId, '回限频的');
+    ok('S7：限频只计数的消息不能回复 → 404，不发', typeof limitedId === 'number' && rr.status === 404 && rr.body?.error === 'seat_message_not_found'
+      && q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE kind = 'followup-reply' AND ref = ?", limitedId)[0].c === 0, JSON.stringify(rr.body));
+  }
   const rateItem = await itemOf(rate.ev);
   ok('……超出的不进事项对话（对话里只有存了正文的），公开计数 followup:rate-limited +5，事件日志记 followup-rate-limited 5 行', rateItem.messages.length === firstLimited && rateItem.unread === firstLimited
     && ((await (await fetch(BASE + '/api/health')).json()).a2a?.refused?.counts?.['followup:rate-limited'] ?? 0) === rateHealthBefore + 5
