@@ -200,13 +200,15 @@ export const builtin = (name: BuiltinName): BuiltinIdentity => BUILTINS.find((b)
 
 /**
  * 比角色和清单更严的动作：只有列出的这几种身份能做，别的哪怕有覆盖它的授予（比如迁移出来的 admin）、照管理员角色算，也拒绝。
- * owner 是有范围 * 的属主授予的主体；其余是内置身份的名字。进快照（surfaces/actions.json 的 builtins.narrowed）
+ * owner 是有范围 * 的属主授予的主体；person 是任何启用的人（主体的 kind 是 person；停用的在第一步就拒了）；其余是内置身份的名字。
+ * 进快照（surfaces/actions.json 的 builtins.narrowed）
  */
-export type NarrowedAction = { action: string; only: readonly ('owner' | BuiltinName)[]; why: string };
+export type NarrowedAction = { action: string; only: readonly ('owner' | 'person' | BuiltinName)[]; why: string };
 export const NARROWED: readonly NarrowedAction[] = [
   { action: 'content.observation', only: ['admin-token'], why: '门户观测状态今天只认管理口令，身份来源的管理员、本机命令行都不认（存量差异清单 E）' },
   { action: 'grant.revoke-migration', only: ['owner', 'local-cli'], why: '整批撤销迁移出来的授予只有属主能做（本机命令行在授予管理面上算属主），比管理员严' },
   { action: 'role.approve', only: ['owner', 'local-cli'], why: '带管理类或决定类权限的自定义角色只有属主能放行（本机命令行在授予管理面上算属主），比管理员严' },
+  { action: 'work-items.create', only: ['person'], why: '「安排一件事」只认人：建立人就是提需求的本人。任何启用的人都能安排（不靠角色给写权限）；管理口令、本机命令行、席位都不是人，一律不能' },
 ];
 export const narrowed = (action: string): NarrowedAction | undefined => NARROWED.find((n) => n.action === action);
 

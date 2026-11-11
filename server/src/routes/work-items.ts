@@ -126,13 +126,14 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
     return who.viewer.sub;
   }
 
-  // 「安排一件事」能派给的团队：绑在任务中心上的通知绑定（和建事项时的校验同一个函数）。登录的人能读。名册落地前 name 就是团队标识
+  // 「安排一件事」能派给的团队：绑在任务中心上的通知绑定（和建事项时的校验同一个函数）。管理员和登录的人能读。名册落地前 name 就是团队标识
   app.get('/api/work-items/teams', { action: 'work-items.teams', kind: 'read' }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
-    res.vary('Cookie');
+    res.vary('Cookie'); res.vary('X-Admin-Token');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
     (async () => {
-      if (!(await person(req, res))) return;
+      await deps.markOdooAdmin(req);
+      if (!deps.adminGuard(req, silentRes()) && !(await person(req, res))) return;
       res.json({ teams: assignableTeams().map((t) => ({ team: t.agent_node, name: t.agent_node })) });
     })().catch(next);
   });

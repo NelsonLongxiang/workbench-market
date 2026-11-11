@@ -5,7 +5,8 @@
  *   可派团队：只列绑在任务中心上的通知绑定（别的台的、撤销了的不列）；建事项时用同一个函数核，列表外的 400
  *   建出来：事项的建立人是本人（请求体自报的建立人、提需求人一概不认），标题取任务标题，派给是选中的团队，object、phase 带上；
  *          投递只有选中的那一个团队；别人看不到
- *   先过目：缺省 held；review:false 而中心总开关没开、或员工直派开关没开，照样 held 带原因；两个都开才直接派出
+ *   先过目：缺省 held（开关都开、不带 review 也是）；review:false 而中心总开关没开、或员工直派开关没开，照样 held 带原因；两个都开才直接派出
+ *   「关注」：安排出来的那件只算一次（事项的等你过目），统一待办里不再有它；旧录入路径的任务和 /api/tasks 本身不变
  *   幂等：同一个人同一个键再发回同一件（duplicate）；键相同、请求体不同 409；别人用同一个键是另一件
  *   限流：按设置（管理员可调）每人每分钟几件，超了 429；重放不算新的一件、也不被限流挡
  *   拒绝：没登录、提供方不认的会话、只带管理口令 401；主体停用 403；跨站 403；坏参数 400
@@ -76,6 +77,8 @@ try {
 
   // ---------- 可派的团队 ----------
   {
+    const asAdmin = await call('GET', '/api/work-items/teams', ADMIN);
+    check(asAdmin.status === 200 && asAdmin.body?.teams?.length === 2, '可派团队：管理员也能读', show(asAdmin));
     const t = await call('GET', '/api/work-items/teams', ALPHA);
     check(t.status === 200 && show(t.body?.teams?.map((x) => x.team)) === show(['dsh/canvas/team-a', 'dsh/canvas/team-b']), '可派团队：只列绑在任务中心上的通知绑定（别的台的、撤销了的不列）', show(t.body));
     const anon = await call('GET', '/api/work-items/teams', { 'x-forwarded-for': '198.51.100.7' });
@@ -97,6 +100,22 @@ try {
     check(show(deliveries(b.event_id)) === show([{ target_team: 'dsh/canvas/team-a', status: 'held' }]), '投递只有选中的那一个团队，等放行（held）', show(deliveries(b.event_id)));
     const other = await call('GET', `/api/work-items/${b.item_id}`, BETA);
     check(other.status === 404, '别人看不到这一件（404）', show(other.status));
+  }
+
+  // ---------- 「关注」里同一件不算两次 ----------
+  {
+    // 旧的录入发布路径建出来的任务（kind 是「录入」）：照旧在统一待办里
+    const old = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '-e', `
+      const { DatabaseSync } = require('node:sqlite'); const d = new DatabaseSync(${JSON.stringify(join(data, 'workbench-market.db'))});
+      console.log('OLD ' + d.prepare("INSERT INTO tasks (title, kind, status, published_at, published_by) VALUES ('旧路径的任务', '录入', 'published', '2026-01-01 00:00:00', 'x')").run().lastInsertRowid);`], { encoding: 'utf8' });
+    const oldId = /OLD (\d+)/.exec(old.stdout)?.[1];
+    const att = (await call('GET', '/api/attention', ADMIN)).body?.items ?? [];
+    const taskItems = att.filter((x) => x.source === 'tasks' && x.source_id.startsWith('market:task-'));
+    const glance = att.filter((x) => x.source === 'work-items' && x.source_id === first.body?.item_id);
+    check(glance.length === 1 && !taskItems.some((x) => x.source_id === `market:task-${first.body?.task_id}`) && taskItems.some((x) => x.source_id === `market:task-${oldId}`),
+      '「关注」里安排出来的那件只出现一次（事项的等你过目）；统一待办里不再有它，旧录入路径的任务照旧在', show({ oldId, glance: glance.length, tasks: taskItems.map((x) => x.source_id) }));
+    const inbox = (await call('GET', '/api/tasks', ADMIN)).body?.tasks ?? [];
+    check(inbox.some((x) => x.id === `market:task-${first.body?.task_id}`), '统一待办接口本身（/api/tasks）不变：安排出来的任务照旧列着', show(inbox.map((x) => x.id)));
   }
 
   // ---------- 幂等 ----------
@@ -141,6 +160,11 @@ try {
     check(sw.status === 200 && direct.status === 201 && direct.body?.held === false && !('reason' in direct.body) && ds.length === 1 && ds[0].target_team === 'dsh/canvas/team-b' && ds[0].status !== 'held',
       '两个开关都开、review:false：直接派出（投递不是 held）', show({ sw: sw.status, b: direct.body, ds }));
     check(reviewed.body?.held === true && !('reason' in reviewed.body), '开关都开但 review:true（要先过目）：照样 held', show(reviewed.body));
+    const noReview = await call('POST', '/api/work-items', ALPHA, form());
+    check(noReview.status === 201 && noReview.body?.held === true && !('reason' in noReview.body), '开关都开、请求不带 review：缺省先过目，照样 held', show(noReview.body));
+    await call('PUT', '/api/task-center/policy', ADMIN, { agent_dispatch_enabled: false });
+    const centerOff = await call('POST', '/api/work-items', ALPHA, form({ review: false }));
+    check(centerOff.status === 201 && centerOff.body?.held === true && centerOff.body.reason === 'review_required_by_policy', '中心总开关关、员工直派开着、review:false：照样 held，带原因', show(centerOff.body));
     const staffSet = await call('PUT', '/api/settings', ALPHA, { staff_direct_dispatch: 'on' });
     check(staffSet.status === 403 || staffSet.status === 401, '员工自己改不了员工直派开关（设置只给管理员写）', show(staffSet.status));
     await call('PUT', '/api/settings', ADMIN, { staff_direct_dispatch: 'off' });
