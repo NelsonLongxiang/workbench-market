@@ -1,7 +1,7 @@
 {
   "domain": "work-items",
-  "what": "事项：/api/work-items/:id 的读（8d）和 /api/work-items/:id/decision 建立人验收、退回（8e）两条路由；阶段七 R2 的事项对话里席位消息的看过（messages/read）、回复（messages/:mid/reply）两条。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
-  "routes": ["GET /api/work-items/:id", "POST /api/work-items/:id/decision", "POST /api/work-items/:id/messages/read", "POST /api/work-items/:id/messages/:mid/reply"],
+  "what": "事项列表 /api/work-items 的读；事项：/api/work-items/:id 的读（8d）和 /api/work-items/:id/decision 建立人验收、退回（8e）两条路由；阶段七 R2 的事项对话里席位消息的看过（messages/read）、回复（messages/:mid/reply）两条。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /api/work-items", "GET /api/work-items/:id", "POST /api/work-items/:id/decision", "POST /api/work-items/:id/messages/read", "POST /api/work-items/:id/messages/:mid/reply"],
   "exempt": [
     { "route": "POST /api/work-items/:id/decision", "class": "normal", "why": "正常应答要一件「等验收」的事项：今天没有 HTTP 入口能把事项推到等验收，seed 只能插草稿。正常的验收、退回由 scripts/work-item-creator-test.mjs 起实例、经事项服务造 ready 来测", "shown_by": "creator/decide-not-ready" },
     { "route": "POST /api/work-items/:id/messages/:mid/reply", "class": "normal", "why": "正常回复要一件从工作台事件来的事项和一条签过名的席位跟进：seed 造不出验过签名的跟进。正常回复、发回、看过之后再回复由 scripts/a2a-answers-test.mjs 起实例、经入站造跟进来测", "shown_by": "creator/reply-no-message" }
@@ -289,6 +289,415 @@
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "error": "work_items_auth_required" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "list",
+      "what": "列表：三个人的事项和一件建立人主体空着的；管理员看全部，别人只看自己的，看不到的不出现也不计数",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "fixtures": ["identity-fake"],
+      "seed": [
+        {
+          "table": "work_items",
+          "row": { "id": "wi_list_alpha_1", "title": "alpha 的草稿", "created_by": "user:alpha", "source_kind": "agent", "state": "draft", "object": "po:1", "phase": "p1", "seat": "", "created_at": "2026-01-01 00:00:01", "updated_at": "2026-01-01 00:00:01", "creator_principal": "user:alpha" }
+        },
+        {
+          "table": "work_item_log",
+          "row": { "item_id": "wi_list_alpha_1", "fact": "create", "fact_source": "market", "fact_id": "wi_list_alpha_1", "from_state": "draft", "to_state": "draft", "actor": "user:alpha", "at": "2026-01-01 00:00:01" }
+        },
+        {
+          "table": "work_items",
+          "row": { "id": "wi_list_alpha_2", "title": "alpha 在办", "created_by": "user:alpha", "source_kind": "agent", "state": "draft", "object": "po:2", "phase": "p1", "seat": "seat:checker", "created_at": "2026-01-01 00:00:02", "updated_at": "2026-01-01 00:00:02", "creator_principal": "user:alpha" }
+        },
+        {
+          "table": "work_item_log",
+          "row": { "item_id": "wi_list_alpha_2", "fact": "create", "fact_source": "market", "fact_id": "wi_list_alpha_2", "from_state": "draft", "to_state": "draft", "actor": "user:alpha", "at": "2026-01-01 00:00:02" }
+        },
+        {
+          "table": "work_item_log",
+          "row": { "item_id": "wi_list_alpha_2", "fact": "report", "fact_source": "seed", "fact_id": "wi_list_alpha_2:r", "from_state": "draft", "to_state": "draft", "actor": "seat:checker", "detail": "{\"summary\":\"对账做到第三步\"}", "at": "2026-01-01 00:00:03" }
+        },
+        {
+          "table": "work_items",
+          "row": { "id": "wi_list_alpha_3", "title": "alpha 的另一件", "created_by": "user:alpha", "source_kind": "agent", "state": "draft", "object": "po:1", "phase": "p1", "seat": "", "created_at": "2026-01-01 00:00:02", "updated_at": "2026-01-01 00:00:02", "creator_principal": "user:alpha" }
+        },
+        {
+          "table": "work_item_log",
+          "row": { "item_id": "wi_list_alpha_3", "fact": "create", "fact_source": "market", "fact_id": "wi_list_alpha_3", "from_state": "draft", "to_state": "draft", "actor": "user:alpha", "at": "2026-01-01 00:00:02" }
+        },
+        {
+          "table": "work_items",
+          "row": { "id": "wi_list_beta_1", "title": "beta 的", "created_by": "user:beta", "source_kind": "agent", "state": "draft", "object": "po:1", "phase": "p1", "seat": "", "created_at": "2026-01-01 00:00:04", "updated_at": "2026-01-01 00:00:04", "creator_principal": "user:beta" }
+        },
+        {
+          "table": "work_item_log",
+          "row": { "item_id": "wi_list_beta_1", "fact": "create", "fact_source": "market", "fact_id": "wi_list_beta_1", "from_state": "draft", "to_state": "draft", "actor": "user:beta", "at": "2026-01-01 00:00:04" }
+        },
+        {
+          "table": "work_items",
+          "row": { "id": "wi_list_nobody", "title": "没有建立人", "created_by": "human:somebody", "source_kind": "agent", "state": "draft", "object": "po:1", "phase": "p1", "seat": "", "created_at": "2026-01-01 00:00:05", "updated_at": "2026-01-01 00:00:05" }
+        },
+        {
+          "table": "work_item_log",
+          "row": { "item_id": "wi_list_nobody", "fact": "create", "fact_source": "market", "fact_id": "wi_list_nobody", "from_state": "draft", "to_state": "draft", "actor": "human:somebody", "at": "2026-01-01 00:00:05" }
+        }
+      ],
+      "steps": [
+        {
+          "id": "list-admin",
+          "route": "GET /api/work-items",
+          "class": "normal",
+          "what": "管理员看全部 5 件（含建立人主体空着的），按 updated_at、id 倒序；计数覆盖全部",
+          "request": { "method": "GET", "path": "/api/work-items", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "1384", "etag": "W/\"568-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "items": [
+                {
+                  "id": "wi_list_nobody",
+                  "title": "没有建立人",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "last_progress": { "actor": "human:somebody", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                },
+                {
+                  "id": "wi_list_beta_1",
+                  "title": "beta 的",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "last_progress": { "actor": "user:beta", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                },
+                {
+                  "id": "wi_list_alpha_3",
+                  "title": "alpha 的另一件",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                },
+                {
+                  "id": "wi_list_alpha_2",
+                  "title": "alpha 在办",
+                  "state": "draft",
+                  "object": "po:2",
+                  "phase": "p1",
+                  "seat": "seat:checker",
+                  "last_progress": { "actor": "seat:checker", "fact": "report", "text": "对账做到第三步", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                },
+                {
+                  "id": "wi_list_alpha_1",
+                  "title": "alpha 的草稿",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                }
+              ],
+              "counts": { "draft": 5, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
+              "total": 5,
+              "next_cursor": null
+            }
+          }
+        },
+        {
+          "id": "list-admin-page",
+          "route": "GET /api/work-items",
+          "class": "normal",
+          "what": "管理员 limit=2：两件加下一页游标",
+          "request": { "method": "GET", "path": "/api/work-items?limit=2", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "712", "etag": "W/\"2c8-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "items": [
+                {
+                  "id": "wi_list_nobody",
+                  "title": "没有建立人",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "last_progress": { "actor": "human:somebody", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                },
+                {
+                  "id": "wi_list_beta_1",
+                  "title": "beta 的",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "last_progress": { "actor": "user:beta", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                }
+              ],
+              "counts": { "draft": 5, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
+              "total": 5,
+              "next_cursor": "eyJ1IjoiMjAyNi0wMS0wMSAwMDowMDowNCIsImkiOiJ3aV9saXN0X2JldGFfMSJ9"
+            }
+          }
+        },
+        {
+          "id": "list-admin-cursor",
+          "route": "GET /api/work-items",
+          "class": "normal",
+          "what": "从游标往后翻：同一时间的按 id 倒序接着走，不重不漏",
+          "request": { "method": "GET", "path": "/api/work-items?limit=2&cursor=eyJ1IjoiMjAyNi0wMS0wMSAwMDowMDowMiIsImkiOiJ3aV9saXN0X2FscGhhXzMifQ", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "688", "etag": "W/\"2b0-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "items": [
+                {
+                  "id": "wi_list_alpha_2",
+                  "title": "alpha 在办",
+                  "state": "draft",
+                  "object": "po:2",
+                  "phase": "p1",
+                  "seat": "seat:checker",
+                  "last_progress": { "actor": "seat:checker", "fact": "report", "text": "对账做到第三步", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                },
+                {
+                  "id": "wi_list_alpha_1",
+                  "title": "alpha 的草稿",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                }
+              ],
+              "counts": { "draft": 5, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
+              "total": 5,
+              "next_cursor": null
+            }
+          }
+        },
+        {
+          "id": "list-alpha",
+          "route": "GET /api/work-items",
+          "class": "normal",
+          "what": "alpha 只看到自己是建立人的 3 件；beta 的、没有建立人的不出现也不计数；带进展那件的最后一条是进展（seed 只能插草稿，状态都是 draft）",
+          "request": { "method": "GET", "path": "/api/work-items", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "924", "etag": "W/\"39c-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "items": [
+                {
+                  "id": "wi_list_alpha_3",
+                  "title": "alpha 的另一件",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                },
+                {
+                  "id": "wi_list_alpha_2",
+                  "title": "alpha 在办",
+                  "state": "draft",
+                  "object": "po:2",
+                  "phase": "p1",
+                  "seat": "seat:checker",
+                  "last_progress": { "actor": "seat:checker", "fact": "report", "text": "对账做到第三步", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                },
+                {
+                  "id": "wi_list_alpha_1",
+                  "title": "alpha 的草稿",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "last_progress": { "actor": "user:alpha", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                }
+              ],
+              "counts": { "draft": 3, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
+              "total": 3,
+              "next_cursor": null
+            }
+          }
+        },
+        {
+          "id": "list-alpha-state",
+          "route": "GET /api/work-items",
+          "class": "normal",
+          "what": "alpha 按 state=done 筛：列表空；计数不受 state 筛选影响（草稿还是 3）",
+          "request": { "method": "GET", "path": "/api/work-items?state=done", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "191", "etag": "W/\"bf-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "items": [], "counts": { "draft": 3, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 }, "total": 3, "next_cursor": null }
+          }
+        },
+        {
+          "id": "list-beta-object",
+          "route": "GET /api/work-items",
+          "class": "normal",
+          "what": "beta 按 object=po:1 筛：只算自己的 1 件（alpha 的、没有建立人的同一对象都不计数）",
+          "request": { "method": "GET", "path": "/api/work-items?object=po%3A1", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "414", "etag": "W/\"19e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "items": [
+                {
+                  "id": "wi_list_beta_1",
+                  "title": "beta 的",
+                  "state": "draft",
+                  "object": "po:1",
+                  "phase": "p1",
+                  "seat": "",
+                  "last_progress": { "actor": "user:beta", "fact": "create", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss"
+                }
+              ],
+              "counts": { "draft": 1, "held": 0, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
+              "total": 1,
+              "next_cursor": null
+            }
+          }
+        },
+        {
+          "id": "list-anonymous",
+          "route": "GET /api/work-items",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "GET", "path": "/api/work-items", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "list-local-page",
+          "route": "GET /api/work-items",
+          "class": "unauthorized",
+          "what": "本机浏览器页面没登录：401（不放行本机页面）",
+          "request": { "method": "GET", "path": "/api/work-items", "headers": { "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "list-forged",
+          "route": "GET /api/work-items",
+          "class": "unauthorized",
+          "what": "提供方不认的会话：401",
+          "request": { "method": "GET", "path": "/api/work-items", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-forged-session-0001" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "list-cross-site",
+          "route": "GET /api/work-items",
+          "class": "unauthorized",
+          "what": "跨站：403",
+          "request": { "method": "GET", "path": "/api/work-items", "headers": { "sec-fetch-site": "cross-site", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_cross_origin_denied" }
+          }
+        },
+        {
+          "id": "list-bad-state",
+          "route": "GET /api/work-items",
+          "class": "invalid",
+          "what": "不认的 state：400",
+          "request": { "method": "GET", "path": "/api/work-items?state=bogus", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_state_invalid" }
+          }
+        },
+        {
+          "id": "list-bad-limit",
+          "route": "GET /api/work-items",
+          "class": "invalid",
+          "what": "limit 超上限：400",
+          "request": { "method": "GET", "path": "/api/work-items?limit=201", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_limit_invalid" }
+          }
+        },
+        {
+          "id": "list-zero-limit",
+          "route": "GET /api/work-items",
+          "class": "invalid",
+          "what": "limit=0：400",
+          "request": { "method": "GET", "path": "/api/work-items?limit=0", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_limit_invalid" }
+          }
+        },
+        {
+          "id": "list-bad-cursor",
+          "route": "GET /api/work-items",
+          "class": "invalid",
+          "what": "游标解不开：400",
+          "request": { "method": "GET", "path": "/api/work-items?cursor=%25%25", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_cursor_invalid" }
+          }
+        },
+        {
+          "id": "list-cursor-bad-id",
+          "route": "GET /api/work-items",
+          "class": "invalid",
+          "what": "游标里的 id 不像事项 id：400",
+          "request": { "method": "GET", "path": "/api/work-items?cursor=eyJ1IjoieCIsImkiOiIxLjUifQ", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "work_items_cursor_invalid" }
           }
         }
       ]
