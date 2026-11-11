@@ -97,6 +97,10 @@ try {
   r = await call('POST', '/a2a/direct', { team: `other/${ha.split('/')[1]}`, message: JSON.stringify({ sop: { action: 'start' } }), caller_session: 'dsh/1a2b3c4d', task_id: 'prov-4' });
   ok('别的 zone 前缀 + 存在的 node8 + 有绑定的调用方 → 404', r.status === 404 && JSON.stringify(r.body) === JSON.stringify({ error: 'not found' }), JSON.stringify(r.body));
   ok('……计进公开桶 not-found（与查无同桶）', (await refusedCounts())['not-found'] === (nb['not-found'] ?? 0) + 1);
+  for (const zone of ['marke', 'market-x', 'MARKET']) {
+    r = await call('POST', '/a2a/direct', { team: `${zone}/${ha.split('/')[1]}`, message: JSON.stringify({ sop: { action: 'start' } }), caller_session: 'dsh/1a2b3c4d', task_id: `prov-z-${zone}` });
+    ok(`zone 是 ${zone}（前缀、后缀、大小写不同）+ 存在的 node8 → 404（zone 精确相等）`, r.status === 404, JSON.stringify(r.body));
+  }
   ok('以上都没有转给别的宿主（配置的 peer 收到 0 次请求）', peerHits === 0, `hits=${peerHits}`);
 
   // 存量撞车：把 prov-b 的 node8 改成和 prov-a 一样
@@ -163,6 +167,17 @@ try {
     ok('别的钥匙算出的成员不同（发不出这个成员）', refs1.every((r) => r !== `${r.split('@')[0]}@${canvasOwnerFingerprint(otherPub)}`));
   }
 
+  console.log('存量空句柄');
+  {
+    // 两个已发布、带准入绑定的 SOP，node8 都是空的（存量）：不能当成撞车，应各自生成句柄并上卡
+    const d = db(); d.prepare("UPDATE apps SET a2a_node8 = '' WHERE slug IN ('prov-a', 'prov-b')").run(); d.close();
+    const c5 = await card();
+    const hs = (c5.sessionTeams ?? []).map((t) => t.team);
+    ok('两个空 node8 的存量 SOP → 各自生成句柄、都上卡、互不相同', hs.length === 2 && new Set(hs).size === 2 && hs.every((h) => /^market\/[0-9a-f]{8}$/.test(h)), JSON.stringify(hs));
+    r = await call('POST', '/a2a/direct', { team: hs[0], message: JSON.stringify({ sop: { action: 'start' } }), caller_session: 'dsh/1a2b3c4d', task_id: 'prov-empty-1' });
+    ok('……新生成的句柄能投递', r.status === 200 && r.body?.task_status === 'TASK_STATE_DELIVERED', JSON.stringify(r.body).slice(0, 120));
+  }
+
   console.log('开关 off');
   await stop();
   boot({ WM_A2A_MEMBER_PROVENANCE: 'off' });
@@ -171,7 +186,7 @@ try {
   ok('off：capabilities 与之前完全相同', JSON.stringify(c4.capabilities) === JSON.stringify({ sop: true, bindings: 'human-only', stage: 'P1-readonly' }), JSON.stringify(c4.capabilities));
   ok('off：名片验签过', verifyCard(c4, Date.now()).ok === true);
   // 已知的存量差异：开关关着时不比 zone，别的 zone 前缀 + 存在的 node8 仍被承接（与之前逐字节相同）
-  r = await call('POST', '/a2a/direct', { team: `other/${handles[0].split('/')[1]}`, message: JSON.stringify({ sop: { action: 'start' } }), caller_session: 'dsh/1a2b3c4d', task_id: 'prov-off-1' });
+  r = await call('POST', '/a2a/direct', { team: `other/${(c4.sessionTeams ?? [])[0]?.team?.split('/')[1]}`, message: JSON.stringify({ sop: { action: 'start' } }), caller_session: 'dsh/1a2b3c4d', task_id: 'prov-off-1' });
   ok('off：别的 zone 前缀 + 存在的 node8 仍被承接（存量行为，PR 里如实写明）', r.status === 200 && r.body?.task_status === 'TASK_STATE_DELIVERED', JSON.stringify(r.body).slice(0, 160));
 } catch (e) {
   ok('运行', false, String(e?.stack ?? e));
