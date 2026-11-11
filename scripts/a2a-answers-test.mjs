@@ -328,6 +328,18 @@ try {
     await post(raw, signed(lab, raw));
     ok('名册变化：整个团队不在了 → 三条 seat-removed、一条 team-removed', JSON.stringify(changes().slice(9).map((c) => c.kind)) === JSON.stringify(['seat-removed', 'seat-removed', 'seat-removed', 'team-removed']), JSON.stringify(changes().slice(9)));
     ok('席位的键是「节点 + 团队 + 句柄」：表里按这三项一行', q('SELECT COUNT(*) AS c FROM a2a_roster_seats WHERE host = ?', 'abcdef0123456789')[0].c === 1);
+    // 键只有一种写法：节点、句柄、团队的区和 canvas 段转小写再存（画布名原样）；只差大小写的两个席位算同一个
+    const at4 = '2026-11-11T10:30:00.000Z';
+    raw = rosterRaw('abcdef01', at4, { host: 'ABCDEF0123456789', at: at4, seats: [
+      { seat: 'LAB/D6D6D6D6', name: '大写的', team: 'LAB/Canvas/other', role: 'router', online: true },
+      { seat: 'lab/d6d6d6d6', name: '只差大小写', team: 'lab/canvas/other', role: 'router', online: true },
+      { seat: 'Lab/E7E7E7E7', name: '画布名带大写', team: 'Lab/CANVAS/MixedName', role: 'member', online: true },
+    ] }, 'roster-abcdef01-6');
+    r = await post(raw, signed(lab, raw));
+    const lower = q('SELECT host, team, seat FROM a2a_roster_seats WHERE lower(host) = ? ORDER BY team, seat', 'abcdef0123456789');
+    ok('名册的键统一小写：host、句柄、团队的区和 canvas 段转小写（画布名原样），只差大小写的席位并成一行', r.text.includes('"roster":"recorded"')
+      && JSON.stringify(lower) === JSON.stringify([{ host: 'abcdef0123456789', team: 'lab/canvas/MixedName', seat: 'lab/e7e7e7e7' }, { host: 'abcdef0123456789', team: 'lab/canvas/other', seat: 'lab/d6d6d6d6' }])
+      && q('SELECT COUNT(*) AS c FROM a2a_rosters WHERE host <> lower(host)')[0].c === 0, `${r.text.slice(0, 120)} ${JSON.stringify(lower)}`);
     raw = rosterRaw('99999999', at1, { host: 'abcdef0123456789', at: at1, seats }, 'roster-99999999-1');
     r = await post(raw, signed(lab, raw));
     ok('首行指纹和 JSON 的 host 对不上 → 不采信', r.text.includes('"roster":"not-accepted"'), r.text);

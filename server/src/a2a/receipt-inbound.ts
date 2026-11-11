@@ -377,16 +377,19 @@ async function handleRoster(req: Req, message: string, deps: { audiences: () => 
   if (!verdict.ok) return null;
   let doc: Record<string, unknown> = {};
   try { const o = JSON.parse(message.slice(nl + 1).split('\n', 1)[0] ?? ''); if (o && typeof o === 'object' && !Array.isArray(o)) doc = o as Record<string, unknown>; } catch { /* 坏的当空 */ }
-  const host = typeof doc.host === 'string' ? doc.host.slice(0, 128) : '';
+  // 名册的键全系统只有一种写法：节点、席位句柄、团队的区和 canvas 段都转小写再比、再存（画布名原样留着）
+  const host = typeof doc.host === 'string' ? doc.host.slice(0, 128).toLowerCase() : '';
+  const lzone = zone.toLowerCase();
+  const teamKey = (t: string) => { const m = /^([a-z0-9-]+)\/canvas\/([^/]+)$/i.exec(t); return m ? `${m[1].toLowerCase()}/canvas/${m[2]}` : t; };
   const at = typeof doc.at === 'string' && !Number.isNaN(Date.parse(doc.at)) ? new Date(Date.parse(doc.at)).toISOString() : '';
   if (!host.startsWith(head[1]) || at === '') return { status: 200, body: { routed: true, delivered: true, task_status: 'TASK_STATE_DELIVERED', roster: 'not-accepted' } };
   const str = (x: unknown, n = 200) => (typeof x === 'string' ? x.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, n) : '');
   const int = (x: unknown) => (typeof x === 'number' && Number.isSafeInteger(x) && x >= 0 ? x : 0);
   const seats: RosterSeat[] = (Array.isArray(doc.seats) ? doc.seats : []).filter((x): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x))
-    .map((x) => ({ seat: str(x.seat, 64), seat_id: /^[A-Za-z0-9._:-]{1,64}$/.test(String(x.seatId ?? '')) ? String(x.seatId) : '', name: str(x.name), team: str(x.team, 128), role: (['router', 'member', 'observer'].includes(String(x.role)) ? x.role : '') as RosterSeat['role'],
+    .map((x) => ({ seat: str(x.seat, 64).toLowerCase(), seat_id: /^[A-Za-z0-9._:-]{1,64}$/.test(String(x.seatId ?? '')) ? String(x.seatId) : '', name: str(x.name), team: teamKey(str(x.team, 128)), role: (['router', 'member', 'observer'].includes(String(x.role)) ? x.role : '') as RosterSeat['role'],
       online: x.online === true, queued: int(x.queued), last_active_at: typeof x.lastActiveAt === 'string' && !Number.isNaN(Date.parse(x.lastActiveAt)) ? new Date(Date.parse(x.lastActiveAt)).toISOString() : '' }))
-    .filter((x) => /^[a-z0-9-]+\/[0-9a-f]{8}$/i.test(x.seat) && x.seat.split('/')[0] === zone && (x.team === '' || (x.team.split('/')[0] === zone && /^[a-z0-9-]+\/canvas\/[^/]+$/i.test(x.team))))
+    .filter((x) => /^[a-z0-9-]+\/[0-9a-f]{8}$/.test(x.seat) && x.seat.split('/')[0] === lzone && (x.team === '' || (x.team.split('/')[0] === lzone && /^[a-z0-9-]+\/canvas\/[^/]+$/.test(x.team))))
     .slice(0, ROSTER_SEATS_MAX);
-  const outcome = recordRoster({ host, peerRoot: root, peerZone: zone, reportedAt: at, seats, now });
+  const outcome = recordRoster({ host, peerRoot: root, peerZone: lzone, reportedAt: at, seats, now });
   return { status: 200, body: { routed: true, delivered: true, task_status: 'TASK_STATE_DELIVERED', roster: outcome, seats: seats.length } };
 }
