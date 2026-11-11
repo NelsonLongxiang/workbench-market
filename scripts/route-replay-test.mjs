@@ -28,7 +28,7 @@
  * 每一项是 { table, row }：表名、列名只收小写字母、数字和下划线（不以数字开头）；不收任意 SQL。
  */
 import { spawn } from './owned-script-fixture.mjs';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -132,8 +132,9 @@ export function checkCassette(cassette, known, moduleRouteCount = null, answered
       const method = String(step?.request?.method ?? '');
       const path = String(step?.request?.path ?? '');
       if (!method || !path.startsWith('/')) { problems.push(`${where}：request 要有 method 和以 / 开头的 path`); continue; }
+      if (step.request.raw !== undefined && step.request.raw !== true) { problems.push(`${where}：request.raw 只能写 true（路径原样发出去）`); continue; }
       if (step.verify !== undefined && !(step.verify in VERIFIERS)) { problems.push(`${where}：verify 只能是 ${Object.keys(VERIFIERS).join('、')}`); continue; }
-      if (step.vary !== undefined && !(step.vary && typeof step.vary === 'object' && !Array.isArray(step.vary) && Object.keys(step.vary).length > 0 && Object.values(step.vary).every((h) => h === 'random' || (typeof h === 'number' && h > 0)))) { problems.push(`${where}：vary 要写成 { 字段路径: 'random' 或一个正数 }`); continue; }
+      if (step.vary !== undefined && !(step.vary && typeof step.vary === 'object' && !Array.isArray(step.vary) && Object.keys(step.vary).length > 0 && Object.entries(step.vary).every(([k, h]) => (k === '$text' ? h === 'hex64' : h === 'random' || (typeof h === 'number' && h > 0))))) { problems.push(`${where}：vary 要写成 { 字段路径: 'random' 或一个正数 }，文本应答体写 { $text: 'hex64' }`); continue; }
       if (step.compare !== undefined && step.compare !== 'status' && !(Array.isArray(step.compare) && step.compare.length > 0 && step.compare.every((x) => typeof x === 'string' && x))) { problems.push(`${where}：compare 只能是 'status'，或者一组字段的路径`); continue; }
       if (step.route === undefined) continue;
       if (!covered.has(step.route)) { problems.push(`${where}：route 不在 routes 里：${step.route}`); continue; }
@@ -231,11 +232,39 @@ export function steadyResponse(raw) {
 
 const pick = (value, path) => String(path).split('.').reduce((v, key) => (v == null ? undefined : v[key]), value);
 
+/**
+ * 路径原样发出去：request 上写 raw: true。fetch（WHATWG URL）发之前会把路径里的 .、..（连 %2e%2e 也算）规范掉，
+ * 反斜杠也会换成斜杠，防穿越的拦截就收不到这种请求。原样发用 node:http，路径一个字不改；应答整理成和 fetch 一样的形状。
+ */
+function sendRaw(base, request, path, headers, body) {
+  const url = new URL(base);
+  return new Promise((resolve, reject) => {
+    const req = httpRequest({ host: url.hostname, port: url.port, method: request.method, path, headers: { ...headers, ...(body !== undefined ? { 'content-length': Buffer.byteLength(body) } : {}) }, timeout: 15000 }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        const type = String(res.headers['content-type'] ?? '');
+        const others = {};
+        for (const [name, value] of Object.entries(res.headers)) if (name !== 'content-type' && name !== 'set-cookie') others[name] = Array.isArray(value) ? value.join(', ') : value;
+        if (res.headers['set-cookie']?.length) others['set-cookie'] = res.headers['set-cookie'];
+        let parsed = text;
+        if (/json/i.test(type)) { try { parsed = JSON.parse(text); } catch { /* 按文本比 */ } }
+        resolve({ status: res.statusCode, type, headers: others, body: parsed });
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('原样发路径：超时')));
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
 async function send(base, request, vars) {
   const headers = fill(request.headers ?? {}, vars);
   let body;
   if ('json' in request) { body = JSON.stringify(fill(request.json, vars)); if (!Object.keys(headers).some((h) => h.toLowerCase() === 'content-type')) headers['content-type'] = 'application/json'; }
   else if ('text' in request) body = fill(request.text, vars);
+  if (request.raw === true) return sendRaw(base, request, fill(request.path, vars), headers, body);
   // 不跟着跳转走：3xx 本身和它的 Location 就是要比的应答
   const res = await fetch(base + fill(request.path, vars), { method: request.method, headers, body, redirect: 'manual', signal: AbortSignal.timeout(15000) });
   const text = await res.text();
@@ -277,9 +306,12 @@ export function differences(before, after, path = '响应体', out = []) {
  * 应答体里每次都不一样、又不是时间的字段：请求上写 vary，按字段的路径点名。
  *   'random'：每个实例随机生成的值（密钥、签名）。换成占位，只留类型和长度，有没有这个字段照样比。
  *   一个正数 n：由「现在」算出来、带毫秒的数。往下取整到 n 的倍数再比（定了时钟，起实例到发请求只差几秒）。
+ *   文本的应答体（比如注入了台令牌的 HTML）：写 { $text: 'hex64' }，正文里每一段独立的 64 位十六进制
+ *   （每个实例随机的密钥算出来的令牌）换成占位，别的字照常比。
  * 别的字段照常比，响应头也照常比。
  */
 export function applyVary(body, vary) {
+  if (vary && typeof body === 'string') return vary.$text === 'hex64' ? body.replace(/(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])/g, '<每个实例随机·hex64>') : body;
   if (!vary || body === null || typeof body !== 'object') return body;
   const out = structuredClone(body);
   for (const [path, how] of Object.entries(vary)) {
@@ -488,7 +520,7 @@ function canonical(cassette) {
     ...cassette,
     scenarios: cassette.scenarios.map((s) => order({
       ...s,
-      steps: s.steps.map((step) => order({ ...step, request: order(step.request, ['method', 'path', 'headers', 'json', 'text']) }, ['id', 'route', 'class', 'what', 'compare', 'vary', 'verify', 'request', 'save', 'response'])),
+      steps: s.steps.map((step) => order({ ...step, request: order(step.request, ['method', 'path', 'raw', 'headers', 'json', 'text']) }, ['id', 'route', 'class', 'what', 'compare', 'vary', 'verify', 'request', 'save', 'response'])),
     }, ['name', 'what', 'env', 'clock', 'fixtures', 'seed', 'steps'])),
   }, ['domain', 'what', 'routes', 'exempt', 'scenarios']);
 }
@@ -589,6 +621,10 @@ async function selftest() {
   const card = { publicKey: 'abcd', signature: 'xyz12', expiresAt: 1893456123456, name: 'm', nested: { k: 'q' } };
   const varied = applyVary(card, { publicKey: 'random', signature: 'random', expiresAt: 60000, 'nested.k': 'random', gone: 'random' });
   check(varied.publicKey === '<每个实例随机·string·4>' && varied.signature === '<每个实例随机·string·5>' && varied.expiresAt === 1893456120000 && varied.name === 'm' && varied.nested.k === '<每个实例随机·string·1>' && !('gone' in varied) && card.publicKey === 'abcd', 'vary：随机的值换成占位、留类型和长度；带毫秒的数往下取整；别的字段不动；不改原对象');
+  const html = '<meta name="t" content="' + 'a'.repeat(64) + '"><script>x="' + 'b'.repeat(64) + '";y="' + 'c'.repeat(65) + '";</script>';
+  const maskedHtml = applyVary(html, { $text: 'hex64' });
+  check(maskedHtml === '<meta name="t" content="<每个实例随机·hex64>"><script>x="<每个实例随机·hex64>";y="' + 'c'.repeat(65) + '";</script>' && applyVary(html, { other: 'random' }) === html && compareStep({ response: steadyResponse({ status: 200, type: 'text/html', headers: {}, body: maskedHtml }) }, shapeOf({ vary: { $text: 'hex64' } }, { status: 200, type: 'text/html', headers: {}, body: html.replace('a'.repeat(64), 'd'.repeat(64)) })).length === 0 && compareStep({ response: steadyResponse({ status: 200, type: 'text/html', headers: {}, body: maskedHtml }) }, shapeOf({ vary: { $text: 'hex64' } }, { status: 200, type: 'text/html', headers: {}, body: html.replace('x=', 'z=') })).length === 1, 'vary：文本应答体里独立的 64 位十六进制换成占位（65 位的不动）；令牌换了不算差异，别的字变了算');
+  check(checkCassette(withSteps([a, b, c, { id: 'v', vary: { $text: 'random' }, request: { method: 'GET', path: '/api/x' } }]), known).some((p) => p.includes('vary')), 'vary：$text 只收 hex64，写错了静态检查拦下');
   const vstep = { vary: { signature: 'random' } };
   const vrec = { ...vstep, response: shapeOf(vstep, { status: 200, type: 'a', headers: {}, body: { signature: 'aaaa', name: 'm' } }) };
   check(compareStep(vrec, shapeOf(vstep, { status: 200, type: 'a', headers: {}, body: { signature: 'bbbb', name: 'm' } })).length === 0 && compareStep(vrec, shapeOf(vstep, { status: 200, type: 'a', headers: {}, body: { signature: 'bbbbb', name: 'm' } })).length === 1 && compareStep(vrec, shapeOf(vstep, { status: 200, type: 'a', headers: {}, body: { name: 'm' } })).length === 1 && compareStep(vrec, shapeOf(vstep, { status: 200, type: 'a', headers: {}, body: { signature: 'bbbb', name: 'n' } })).length === 1, 'vary：随机字段换了值不算差异；长度变了、字段没了、别的字段变了都算');
@@ -615,6 +651,7 @@ async function selftest() {
   const wire = createServer((req, res) => {
     if (req.url === '/moved') { res.setHeader('Set-Cookie', ['sid=abc; Path=/; Expires=Wed, 21 Oct 2026 07:28:00 GMT; HttpOnly', 'theme=dark; Path=/']); res.writeHead(302, { Location: '/landing', 'Cache-Control': 'no-store' }); res.end(); return; }
     if (req.url === '/landing') { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end('followed'); return; }
+    if (req.url.startsWith('/echo/')) { res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify({ url: req.url, x: req.headers['x-echo'] ?? null })); return; }
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', ETag: 'W/"2f-AAAAAAAAAAAAAAAAAAAAAAAAAAA"' });
     res.end(JSON.stringify({ at: '2026-01-02 03:04:05', echo: req.headers['x-echo'] ?? null }));
   });
@@ -627,7 +664,14 @@ async function selftest() {
     const json = steadyResponse(await send(base, { method: 'GET', path: '/json', headers: { 'x-echo': '{{v}}' } }, { v: 'hi' }));
     check(json.type === 'application/json; charset=utf-8' && !('content-type' in json.headers) && !('date' in json.headers) && !('connection' in json.headers), '发请求：内容类型记在 type 里；Date、Connection 不录');
     check(json.headers.etag === 'W/"2f-<指纹>"' && json.body.at === 'YYYY-MM-DD hh:mm:ss' && json.body.echo === 'hi', '发请求：请求头里的变量代入了；应答里的时间和 ETag 的后半段换成了占位');
+    const odd = '/echo/a/../b/%2e%2e/c%2f..%2fd/..\\e//f';
+    const viaFetch = await send(base, { method: 'GET', path: odd }, {});
+    const viaRaw = await send(base, { method: 'GET', path: odd, raw: true, headers: { 'x-echo': '{{v}}' } }, { v: 'hi' });
+    check(viaFetch.body.url !== odd && viaRaw.body.url === odd && viaRaw.body.x === 'hi' && viaRaw.status === 200 && viaRaw.type === 'application/json; charset=utf-8' && !('content-type' in viaRaw.headers), '原样发路径：fetch 把 ..、%2e%2e、反斜杠规范掉了，raw 一个字不改地发到服务端；请求头的变量照样代入，应答整理成同样的形状');
+    const rawMoved = steadyResponse(await send(base, { method: 'GET', path: '/moved', raw: true }, {}));
+    check(rawMoved.status === 302 && rawMoved.headers.location === '/landing' && rawMoved.headers['set-cookie']?.length === 2 && rawMoved.headers['set-cookie'][0] === 'sid=abc; Path=/; Expires=<时间>; HttpOnly', '原样发路径：不跟跳转，Set-Cookie 一条一条录');
   } finally { wire.closeAllConnections(); wire.close(); }
+  check(checkCassette(withSteps([a, b, c, { id: 'r', request: { method: 'GET', path: '/api/x', raw: 'yes' } }]), known).some((p) => p.includes('raw')) && checkCassette(withSteps([a, b, c, { id: 'r', request: { method: 'GET', path: '/api/x', raw: true } }]), known).length === 0, '原样发路径：raw 只收 true，写别的静态检查拦下');
   const sample = { a: [{ id: 1, name: 'x' }], b: {}, c: [] };
   check(JSON.stringify(JSON.parse(render(sample))) === JSON.stringify(sample), '写文件：写出来的是同一份 JSON');
   // 整条链路，发请求的一段换成假的：建一个、读它、读一个不存在的

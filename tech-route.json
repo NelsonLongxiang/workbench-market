@@ -10,9 +10,9 @@
       "what": "index.ts 里的路由数",
       "target": 0,
       "baseline": {
-        "total": 109,
+        "total": 101,
         "files": {
-          "server/src/index.ts": 109
+          "server/src/index.ts": 101
         }
       }
     },
