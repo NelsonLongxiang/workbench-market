@@ -2298,9 +2298,11 @@ registerAdminTokenRoutes(http, { adminTokenCheck, odooAdminReqs, dbAdminTokenSet
   console.log(JSON.stringify({ source: 'self-check', id: 'settings.no-secret-values', verdict: leaked.length ? 'fail' : 'pass', ...(leaked.length ? { keys: leaked } : {}), at: new Date().toISOString() }));
   if (leaked.length) { console.error(`[settings] 拒绝启动：设置的出口会带出凭据类的值（${leaked.join('、')}）`); process.exit(1); }
 }
-registerSettingsRoutes(http, { armPatrol, adminRead: async (req) => { if (!browserMarked(req) && rawLoopback(req)) return true; await markOdooAdmin(req); return adminHeaderOk(req); } }); // 本机命令行也看全部（写设置它本来就能过写请求总门）
+// 设置读的分级：管理员（口令或管理员登录，同源）与本机命令行看全部（凭据类的值只说有没有），别人只看巡检参数和开关。设置读与导出共用
+const settingsAdminRead = async (req: express.Request): Promise<boolean> => { if (!browserMarked(req) && rawLoopback(req)) return true; await markOdooAdmin(req); return adminHeaderOk(req); };
+registerSettingsRoutes(http, { armPatrol, adminRead: settingsAdminRead }); // 本机命令行也看全部（写设置它本来就能过写请求总门）
 
-registerExportImportRoutes(http, { listWorkbenches, maskForApi, URL_POLICY, admitOrDeny, restSubject, markAdmin: markOdooAdmin, adminGuard });
+registerExportImportRoutes(http, { listWorkbenches, maskForApi, URL_POLICY, admitOrDeny, restSubject, markAdmin: markOdooAdmin, adminGuard, settingsAdminRead });
 
 // ---------- 凭据库（融合 dsh-vault）：读写全部过 vaultGuard ----------
 // 与 adminGuard 同口径，只多认一种浏览器形态：同源 GET 不带 Origin（只有 Sec-Fetch-Site: same-origin），

@@ -90,6 +90,7 @@ try {
       put.run('a2a_peers', JSON.stringify([{ node: 'peer', url: 'http://canary-peer.invalid' }]));
       put.run('mcp_upstreams', JSON.stringify([{ prefix: 'up', url: 'http://canary-upstream.invalid/mcp', headers: { Authorization: `Bearer ${SECRETS[3]}` } }]));
       put.run('run_upload_require_token', '1');
+      put.run('some_future_setting', 'CANARY-FUTURE-PLAIN-75'); // 名字不像凭据的新键：管理员看得到，别人（含导出）看不到
     } finally { db.close(); }
   }
   // 带着金丝雀重起：启动自检拿真实的设置跑一遍两级出口
@@ -108,7 +109,8 @@ try {
     check(JSON.stringify(caught) === '["layerfs_service_token"]' && clean.length === 0, '启动自检抓得到故意把凭据带出去的出口（只报键名）；真正的两级出口都不漏', JSON.stringify({ caught, clean }));
   }
   const leaksSecret = (t) => SECRETS.some((x) => t.includes(x));
-  const leaksAddress = (t) => ADDRESSES.some((x) => t.includes(x));
+  const leaksAddress = (t) => ADDRESSES.some((x) => t.includes(x)) || t.includes('CANARY-FUTURE-PLAIN-75');
+  const PUBLIC = ['health_interval_seconds', 'health_timeout_ms', 'health_concurrency', 'dispatch_sorting_enabled', 'run_upload_require_token', 'patrol_armed_at'];
 
   // ---------- 一、别人只拿到白名单 ----------
   {
@@ -140,6 +142,22 @@ try {
     const put = await call('PUT', '/api/settings', { 'x-admin-token': ADMIN_TOKEN }, { health_concurrency: 3 });
     check(masked.status === 200 && !leaksSecret(masked.text) && reveal.status === 200 && !leaksSecret(reveal.text) && put.status === 200 && !leaksSecret(put.text) && put.json?.health_concurrency === '3',
       '导出（匿名的掩码导出、管理员的 reveal 导出）和改设置的应答：凭据类的值都不出', show({ masked: masked.status, reveal: reveal.status, put: put.status }));
+  }
+  // ---------- 三之二、导出里的设置和设置读同口径：别人只拿巡检参数和开关 ----------
+  {
+    const who = {
+      anonymous: await call('GET', '/api/export', REMOTE),
+      staff: await call('GET', '/api/export', { ...REMOTE, cookie: `session_id=${SESSIONS.alpha}` }),
+      wrongToken: await call('GET', '/api/export', { ...REMOTE, 'x-admin-token': 'wrong' }),
+      crossSite: await call('GET', '/api/export', { ...REMOTE, 'x-admin-token': ADMIN_TOKEN, origin: 'https://elsewhere.example', 'sec-fetch-site': 'cross-site' }),
+    };
+    const bad = Object.entries(who).filter(([, r]) => r.status !== 200 || r.json?.masked !== 1 || leaksSecret(r.text) || leaksAddress(r.text)
+      || Object.keys(r.json?.settings ?? {}).some((k) => !PUBLIC.includes(k)) || r.json?.settings?.run_upload_require_token !== '1');
+    const admin = await call('GET', '/api/export', { ...REMOTE, 'x-admin-token': ADMIN_TOKEN });
+    const s = admin.json?.settings ?? {};
+    check(bad.length === 0 && admin.status === 200 && !leaksSecret(admin.text) && s.layerfs_service_url === 'http://canary-layerfs.invalid:9000' && s.layerfs_service_token === '****' && s.some_future_setting === 'CANARY-FUTURE-PLAIN-75',
+      '掩码导出里的设置和设置读同口径：别人（远程匿名、登录的员工、口令错的、带有效口令的跨站）只拿巡检参数和开关，内网地址、上游、名字不像凭据的新键都没有；管理员拿全部（凭据只给 ****）',
+      show({ bad: bad.map(([k, r]) => [k, r.status, Object.keys(r.json?.settings ?? {})]), admin: admin.status, adminKeys: Object.keys(s) }));
   }
   // ---------- 四、日志里不出金丝雀 ----------
   check(!SECRETS.some((x) => log.includes(x)), '整个过程（启动、各身份读、导出、改设置）服务端的日志里没有任何一个凭据类的值', SECRETS.filter((x) => log.includes(x)).join('、'));
