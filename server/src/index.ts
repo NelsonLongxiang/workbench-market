@@ -53,6 +53,7 @@ import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import type { ChangeRequestService } from './services/change-request.ts';
 import type { TaskCenterService } from './services/task-center.ts';
+import type { RemoteAllowService } from './services/remote-allow.ts';
 import { SkillService } from './services/skill.ts';
 import type { AppService } from './services/app.ts';
 import type { AppDataService } from './services/app-data.ts';
@@ -2860,7 +2861,7 @@ registerSsoRoutes(http);
 
 app.get('/api/remote-allow/diff', (req, res) => {
   if (!adminGuard(req, res)) return;
-  res.json({ ...lastAllowDiff, snapshot_count: (db.prepare('SELECT COUNT(*) AS n FROM remote_allow_state').get() as { n: number }).n });
+  res.json({ ...lastAllowDiff, snapshot_count: (svc<RemoteAllowService>('remoteAllow').snapshotCount() as { n: number }).n });
 });
 
 registerSopSpaceRoutes(http, { getApp, adminHeaderOk, bad, appsRoot, parseSopManifest });

@@ -19,4 +19,5 @@ export { PrincipalService } from './principal.ts';
 export { BindingService } from './binding.ts';
 export { ChangeRequestService } from './change-request.ts';
 export { TaskCenterService } from './task-center.ts';
+export { RemoteAllowService } from './remote-allow.ts';
 export { LoginSessionService } from './login-session.ts';
