@@ -189,8 +189,5 @@ async function denial(source: string, req: Req, deps: AnswerDeps): Promise<Answe
   if (source === 'principal-pending' && principalsAdmin) { const c = capturing(); await principalsAdmin(req, c.res); return c.out(); }
   if (source === 'owner-pending') { const c = capturing(); await deps.varsAuthorizeRead(req, c.res, { id: 0, cls: 'external', slug: null }); return c.out(); }
   if (source === 'work-items') return { status: 401, body: { error: 'work_items_auth_required' } };
-  // 席位的提问：旧接口 /api/workbench-events 不认会话登录的管理员，列表那边看的是没认定过的请求，拒绝也照它来
-  // （#513 把旧接口补上之后，列表和这里的 Object.create 一起去掉）
-  if (source === 'seat-asks') return guardDenial(deps.adminGuard, Object.create(req) as Req);
   return guardDenial(deps.adminGuard, req);
 }

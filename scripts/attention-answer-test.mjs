@@ -199,11 +199,12 @@ try {
     check(n.status === o.status && n.status === 403 && same(n.body, o.body) && q('SELECT status FROM change_requests WHERE id = ?', S.cr.dup)[0].status === 'pending', `${who}从新入口答：被拒的方式（状态码、正文）和旧入口一样，申请没动`, show({ n, o }));
   }
   {
-    // 过得了写请求总门、但这个来源看不到：入口自己回旧入口无权时那个拒绝（同一个守卫写出来的）
-    const oldList = await call('GET', '/api/workbench-events', ADMIN);
-    const n = await answer('seat-asks', S.ask.delivery, 'answer', { text: 'x' }, ADMIN);
-    if (oldList.status === 403) check(n.status === 403 && same(n.body, oldList.body), '看不到这个来源的人从新入口答：状态码、正文和旧入口无权时一样', show({ n, oldList }));
-    else check(n.status !== 403, '（工作台事件列表已认会话管理员：这一例不适用，只确认没有被拒）', show(n));
+    // 过得了写请求总门、但这个来源看不到：本机命令行（回环直连、不带浏览器标记）不过写门，但变更申请的管理门不认它。
+    // 入口自己回旧入口无权时那个拒绝（同一个守卫写出来的）
+    const oldList = await call('GET', '/api/change-requests', {});
+    const n = await answer('change-requests', S.cr.dup, 'reject', { reviewed_by: 'cli' }, {});
+    check(oldList.status === 403 && n.status === 403 && same(n.body, oldList.body) && q('SELECT status FROM change_requests WHERE id = ?', S.cr.dup)[0].status === 'pending',
+      '看不到这个来源的人（本机命令行之于变更申请）从新入口答：状态码、正文和旧入口无权时一样，没转、没动', show({ n, oldList }));
   }
   {
     const r = await answer('change-requests', 999999, 'reject', { reviewed_by: 'alice' });
