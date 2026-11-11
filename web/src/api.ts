@@ -123,3 +123,8 @@ export async function postAskAnswer(id: string, qid: string, input: { answer?: s
   const res = await fetch(`/api/work-items/${encodeURIComponent(id)}/asks/${encodeURIComponent(qid)}/answer`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { 'X-Admin-Token': token } : {}) }, body: JSON.stringify(input) });
   return { status: res.status, body: await res.json().catch(() => ({})) };
 }
+
+/** 当前登录身份（登录门的 /api/auth/me）：拿不到就是 null，不弹口令 */
+export async function getMe(): Promise<{ authenticated?: boolean; login?: string | null; via?: string | null } | null> {
+  try { const r = await fetch('/api/auth/me', { cache: 'no-store', credentials: 'same-origin' }); return r.ok ? await r.json() : null; } catch { return null; }
+}

@@ -12,10 +12,10 @@ import { ReloadOutlined } from '@ant-design/icons';
 import WmPage from '../components/WmPage';
 import RelTime from '../components/RelTime';
 import { adminActive, apiFetch, subscribeAdminToken } from '../admin-token';
-import { answerChoices, answerRoute, describe, type AttentionItem, type LogRow } from '../attention-view';
-import { getWorkItem, postAskAnswer, postCreatorDecision, postSeatMessageReply, postSeatMessagesRead } from '../api';
+import { OUTCOME, VERDICT, answerChoices, answerRoute, describe, type AttentionItem, type LogRow } from '../attention-view';
+import { getMe, getWorkItem, postAskAnswer, postCreatorDecision, postSeatMessageReply, postSeatMessagesRead } from '../api';
 import SectionBoundary from '../components/SectionBoundary';
-import { askerLabel, textOf, who, CAN_NONE, PROGRESS_STATE, TERMINAL, canOf, stateLabel, type Can, askIdOf, creatorLabel, groupRejected, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
+import { VIEWER_NONE, actorLabel, groupTimeline, isCreator, seatLabel, type Viewer, askerLabel, textOf, who, PROGRESS_STATE, TERMINAL, canOf, stateLabel, askIdOf, creatorLabel, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
 
 type Item = { id: string; title: string; state: string; created_by: string; creator_principal?: string | null; created_at: string; updated_at: string; source_kind: string; source_ref: string; target_team: string; seat: string; eval: string; eval_reason: string; progress_summary: string; receipt_outcome: string; object: string; phase: string; open_asks: string; outputs: string; evidence: string };
 
@@ -45,7 +45,10 @@ const FIELDS: Record<string, Record<string, { key: string; label: string; requir
   'work-items': { return: { key: 'reason', label: '打回的理由（席位会照这个改）', required: true } },
 };
 
-function PendingAction({ item, admin, onDone }: { item: AttentionItem; admin: boolean; onDone: () => void }) {
+/** 替建立人办的答法：管理员代答、代为验收、代为打回 */
+const PROXY: Record<string, string> = { answer: '代答', verify: '代为验收', return: '代为打回' };
+function PendingAction({ item, admin, proxy, onDone }: { item: AttentionItem; admin: boolean; proxy: boolean; onDone: () => void }) {
+  const label = (a: string) => (proxy && PROXY[a]) || ANSWER[a] || a;
   const { message } = App.useApp();
   const choices = answerChoices(admin, item);
   const [answer, setAnswer] = useState(choices.length === 1 ? choices[0] : '');
@@ -76,10 +79,10 @@ function PendingAction({ item, admin, onDone }: { item: AttentionItem; admin: bo
     {choices.length === 0
       ? <Typography.Text type="secondary">这一条要管理员处理，你这里只能看。</Typography.Text>
       : <>
-        {choices.length > 1 && <Segmented value={answer} onChange={(v) => setAnswer(String(v))} options={choices.map((a) => ({ label: ANSWER[a] ?? a, value: a }))} />}
+        {choices.length > 1 && <Segmented value={answer} onChange={(v) => setAnswer(String(v))} options={choices.map((a) => ({ label: label(a), value: a }))} />}
         {field && <Input.TextArea aria-label={field.label} placeholder={field.label} autoSize={{ minRows: 2, maxRows: 6 }} maxLength={4000} value={text} onChange={(e) => setText(e.target.value)} />}
         <Space>
-          <Button type="primary" loading={busy} disabled={!answer || (!!field?.required && !text.trim())} onClick={() => void submit()}>{answer ? ANSWER[answer] ?? answer : '选一种答法'}</Button>
+          <Button type="primary" loading={busy} disabled={!answer || (!!field?.required && !text.trim())} onClick={() => void submit()}>{answer ? label(answer) : '选一种答法'}</Button>
         </Space>
       </>}
   </Flex>;
@@ -91,7 +94,7 @@ const ASK_ERROR: Record<string, string> = {
   work_items_principal_not_active: '你的账号还没启用，不能答复',
 };
 
-function AskRow({ itemId, ask, seat, onDone }: { itemId: string; ask: SeatAsk; seat: string; onDone: () => void }) {
+function AskRow({ itemId, ask, seat, proxy, onDone }: { itemId: string; ask: SeatAsk; seat: string; proxy: boolean; onDone: () => void }) {
   const { message } = App.useApp();
   const [choice, setChoice] = useState(initialChoice(ask));
   const [text, setText] = useState('');
@@ -126,7 +129,7 @@ function AskRow({ itemId, ask, seat, onDone }: { itemId: string; ask: SeatAsk; s
         <Input.TextArea aria-label="答复" autoSize={{ minRows: 1, maxRows: 6 }} maxLength={4000} value={text} disabled={!!choice}
           placeholder={ask.options.length ? (choice ? '已选了答法；要自己写，先取消选择' : '或者自己写一句') : '写下你的答复（会发回提问的席位）'} onChange={(e) => setText(e.target.value)} />
         <Space>
-          <Button type="primary" loading={busy} disabled={!body} onClick={() => void submit()}>答复</Button>
+          <Button type="primary" loading={busy} disabled={!body} onClick={() => void submit()}>{proxy ? '代答' : '答复'}</Button>
           {choice && <Button onClick={() => setChoice('')}>取消选择</Button>}
         </Space>
       </>}
@@ -182,7 +185,7 @@ function Artifacts({ list, empty }: { list: Artifact[]; empty: string }) {
 }
 
 const REJECTED: Record<string, string> = { not_allowed: '这时候不该有这条事实', terminal: '事项已经结束之后才到' };
-function LogLine({ row, askIds }: { row: LogRow; askIds?: Set<string> }) {
+function LogLine({ row, askIds, seat }: { row: LogRow; askIds?: Set<string>; seat: string }) {
   const ask = askIdOf(row);
   const jump = ask && askIds?.has(ask) && !(row.fact_id ?? '').includes(':closes-ask:') ? ask : null;
   return <div data-testid="timeline-row">
@@ -192,11 +195,11 @@ function LogLine({ row, askIds }: { row: LogRow; askIds?: Set<string> }) {
       {row.from_state !== row.to_state ? <>{stateTag(row.from_state)}→{stateTag(row.to_state)}</> : null}
       {row.rejected && <Tag color="default">收到，未采信：{REJECTED[row.rejected] ?? row.rejected}</Tag>}
     </Space>
-    <div><Typography.Text type="secondary">{row.at} · {row.actor || row.fact_source}</Typography.Text></div>
+    <div><Typography.Text type="secondary">{row.at} · {actorLabel(row.actor || row.fact_source, seat)}</Typography.Text></div>
     {describe(row) && <div>{describe(row)}</div>}
   </div>;
 }
-const stateTag = (s: string, can: Can = CAN_NONE) => <Tag color={STATE[s]?.color ?? 'default'}>{stateLabel(s, can)}</Tag>;
+const stateTag = (s: string, viewer: Viewer = VIEWER_NONE) => <Tag color={STATE[s]?.color ?? 'default'}>{stateLabel(s, viewer)}</Tag>;
 
 export default function WorkItem() {
   const { id = '' } = useParams();
@@ -204,6 +207,8 @@ export default function WorkItem() {
   const admin = useSyncExternalStore(subscribeAdminToken, adminActive);
   const [data, setData] = useState<Data | null>(null);
   const [pending, setPending] = useState<AttentionItem[]>([]);
+  const [login, setLogin] = useState<string | null>(null);
+  useEffect(() => { void getMe().then((m) => setLogin(m?.authenticated ? m.login ?? null : null)); }, []);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const load = useCallback(async () => {
@@ -237,7 +242,9 @@ export default function WorkItem() {
   const shownPending = asks ? pending.filter((p) => p.source !== 'seat-asks') : pending;
   const openAsks = asks ? asks.filter((a) => a.status === 'open').length : 0;
   const can = canOf(pending, (x) => answerChoices(admin, x));
-  const hint = item ? stateHint(item.state, item.seat, asks ? openAsks === 0 && asks.length > 0 : lastAskAnswered(data?.log ?? []), can) : null;
+  // 「你」指这件事本来该找的人：答复、验收找建立人；放行找有放行权限的人（can.release）
+  const viewer: Viewer = { mine: isCreator(login, item?.creator_principal), can, creator: who(item?.creator_principal || item?.created_by).replace(/^(user|human):/, '') };
+  const hint = item ? stateHint(item.state, item.seat, asks ? openAsks === 0 && asks.length > 0 : lastAskAnswered(data?.log ?? []), viewer) : null;
   const progress = data?.progress ?? null;
   const tickets = Array.isArray(progress?.tickets) ? progress.tickets : [];
   // 结果：事项的 outputs 列（现在还没人写）加上日志里回执带来的产物，去重
@@ -253,15 +260,15 @@ export default function WorkItem() {
       <Col span={16}>
         <Flex vertical gap="middle">
           <SectionBoundary name="摘要">
-          <Card title={<Space>{stateTag(item.state, can)}<span>{item.title}</span></Space>} data-testid="work-item-summary">
+          <Card title={stateTag(item.state, viewer)} data-testid="work-item-summary">
             <Flex vertical gap="small">
               {hint && <Alert type={hint.type} showIcon message={hint.text} data-testid="work-item-hint" />}
               <Descriptions column={2} size="small" items={[
-                { key: 'seat', label: '承接', children: who(item.seat) || <Typography.Text type="secondary">还没有席位接手</Typography.Text> },
+                { key: 'seat', label: '承接', children: seatLabel(who(item.seat)) || <Typography.Text type="secondary">还没有席位接手</Typography.Text> },
                 { key: 'team', label: '派给', children: item.target_team || '—' },
                 { key: 'by', label: '建立人', children: creatorLabel(item.created_by, item.creator_principal) },
                 { key: 'obj', label: '对象 / 阶段', children: [item.object, item.phase].filter(Boolean).join(' / ') || '—' },
-                { key: 'eval', label: '接单判断', children: item.eval ? `${item.eval}${item.eval_reason ? `（${item.eval_reason}）` : ''}` : '—' },
+                { key: 'eval', label: '接单判断', children: item.eval ? `${VERDICT[item.eval] ?? item.eval}${item.eval_reason ? `（${item.eval_reason}）` : ''}` : '—' },
                 { key: 'at', label: '最近变化', children: <RelTime value={item.updated_at} /> },
               ]} />
             </Flex>
@@ -269,12 +276,12 @@ export default function WorkItem() {
           </SectionBoundary>
           <SectionBoundary name="席位提问">
           {asks && asks.length > 0 && <Card size="small" title={<Space>席位提问{openAsks > 0 && <Badge count={openAsks} title="在等你答复" />}</Space>} data-testid="seat-asks">
-            <List size="small" dataSource={asks} rowKey={(a) => String(a.id)} renderItem={(a) => <AskRow itemId={id} ask={a} seat={who(item.seat)} onDone={() => void load()} />} />
+            <List size="small" dataSource={asks} rowKey={(a) => String(a.id)} renderItem={(a) => <AskRow itemId={id} ask={a} seat={who(item.seat)} proxy={!viewer.mine} onDone={() => void load()} />} />
           </Card>}
           </SectionBoundary>
           <SectionBoundary name="等你处理">
           {shownPending.length > 0 && <Card size="small" title={<Space>等你处理<Badge count={shownPending.length} /></Space>} data-testid="work-item-pending">
-            <Flex vertical gap="middle">{shownPending.map((p) => <PendingAction key={`${p.source}:${p.source_id}`} item={p} admin={admin} onDone={() => void load()} />)}</Flex>
+            <Flex vertical gap="middle">{shownPending.map((p) => <PendingAction key={`${p.source}:${p.source_id}`} item={p} admin={admin} proxy={!viewer.mine && (p.source === 'seat-asks' || p.category === 'accept')} onDone={() => void load()} />)}</Flex>
           </Card>}
           </SectionBoundary>
           <SectionBoundary name="正在处理">
@@ -297,9 +304,11 @@ export default function WorkItem() {
           </SectionBoundary>
           <SectionBoundary name="时间线">
           <Card title="时间线" size="small">
-            {timeline.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有记录" /> : <Timeline items={groupRejected(timeline).map((g) => g.kind === 'rejected'
-              ? { key: `rej-${g.rows[0].seq}`, color: 'gray', children: <details data-testid="timeline-rejected"><summary><Typography.Text type="secondary">{g.rows.length} 条收到、未采信的记录（{REJECTED[g.rows[0].rejected] ?? g.rows[0].rejected}）</Typography.Text></summary>{g.rows.map((row) => <LogLine key={row.seq} row={row} askIds={askIds} />)}</details> }
-              : { key: g.row.seq, color: g.row.rejected ? 'gray' : g.row.from_state !== g.row.to_state ? 'blue' : 'green', children: <LogLine row={g.row} askIds={askIds} /> })} />}
+            {timeline.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有记录" /> : <Timeline items={groupTimeline(timeline).map((g) => g.kind === 'row'
+              ? { key: g.row.seq, color: g.row.rejected ? 'gray' : g.row.from_state !== g.row.to_state ? 'blue' : 'green', children: <LogLine row={g.row} askIds={askIds} seat={who(item.seat)} /> }
+              : { key: `${g.kind}-${g.rows[0].seq}`, color: g.kind === 'rejected' ? 'gray' : 'green', children: <details data-testid={g.kind === 'rejected' ? 'timeline-rejected' : 'timeline-progress'}><summary><Typography.Text type="secondary">{g.kind === 'rejected'
+                ? `${g.rows.length} 条收到、未采信的记录（${REJECTED[g.rows[0].rejected] ?? g.rows[0].rejected}）`
+                : `席位报了 ${g.rows.length} 次进展（最新一次在「正在处理」里）`}</Typography.Text></summary>{g.rows.map((row) => <LogLine key={row.seq} row={row} askIds={askIds} seat={who(item.seat)} />)}</details> })} />}
           </Card>
           </SectionBoundary>
         </Flex>
@@ -309,7 +318,7 @@ export default function WorkItem() {
           <SectionBoundary name="结果">
           <Card size="small" title={`结果${outputs.length ? ` ${outputs.length}` : ''}`} data-testid="work-item-outputs">
             <Flex vertical gap="small">
-              {item.receipt_outcome && <Space size={6}><Typography.Text type="secondary">回执</Typography.Text><Tag>{item.receipt_outcome}</Tag></Space>}
+              {item.receipt_outcome && <Space size={6}><Typography.Text type="secondary">回执</Typography.Text><Tag>{OUTCOME[item.receipt_outcome] ?? item.receipt_outcome}</Tag></Space>}
               <Artifacts list={outputs} empty={item.receipt_outcome ? '没有附产出；回执的内容在对话和时间线里' : '还没有产出'} />
             </Flex>
           </Card>

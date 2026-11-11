@@ -15,35 +15,68 @@ export function canOf(pending: AttentionItem[], choicesOf: (x: AttentionItem) =>
   };
 }
 
-/** 状态叫法（原型的人话）。带「你」的说法只给确实该动手的人：能放行的看「等你过目」，能答的看「在问你」，能验收的看「等你验收」 */
+/** 状态叫法（原型的人话）。中性叫法不带「你」；时间线、列表用它 */
 const STATE_LABEL: Record<string, string> = {
   draft: '未派发', held: '等放行', delivered: '已转交', accepted: '已接手', progress: '在办', waiting: '在等', blocked: '在等答复',
   ready: '等验收', done: '已办结', failed: '没办成', dropped: '对方放弃了', cancelled: '已撤回',
 };
-export function stateLabel(state: string, can: Can = CAN_NONE): string {
-  if (state === 'held' && can.release) return '等你过目';
-  if (state === 'blocked' && can.answer) return '在问你';
-  if (state === 'ready' && can.verify) return '等你验收';
+
+/** 看的人和这件事的关系：mine = 这件事本来该找的人（答复、验收找建立人）；can = 有权限能代办的；creator = 建立人的显示名 */
+export type Viewer = { mine: boolean; can: Can; creator: string };
+export const VIEWER_NONE: Viewer = { mine: false, can: CAN_NONE, creator: '' };
+
+/** 「你」指这件事本来该找的那个人，不是所有有权限的人：
+ *  答复、验收找建立人——建立人看「在问你」「等你验收」，别人看「在问 alpha」「等 alpha 验收」（有权限的可以代办）；
+ *  放行找有放行权限的人——他们看「等你过目」，别人看「等放行」。没有 viewer 时给中性叫法 */
+export function stateLabel(state: string, viewer: Viewer = VIEWER_NONE): string {
+  const name = viewer.creator;
+  if (state === 'held') return viewer.can.release ? '等你过目' : '等放行';
+  if (state === 'blocked') return viewer.mine ? '在问你' : name ? `在问 ${name}` : STATE_LABEL.blocked;
+  if (state === 'ready') return viewer.mine ? '等你验收' : name ? `等 ${name} 验收` : STATE_LABEL.ready;
   return STATE_LABEL[state] ?? state;
 }
 
-/** 一句话说清事项现在卡在哪、该谁动：页面顶上的提示条。终态和正常进行中不出提示。同样只在看的人该动手时说「你」 */
-export function stateHint(state: string, seat: string, askAnswered = false, can: Can = CAN_NONE): { type: 'info' | 'warning' | 'success'; text: string } | null {
+/** 一句话说清事项现在卡在哪、该谁动：页面顶上的提示条。终态和正常进行中不出提示 */
+export function stateHint(state: string, seat: string, askAnswered = false, viewer: Viewer = VIEWER_NONE): { type: 'info' | 'warning' | 'success'; text: string } | null {
+  const name = viewer.creator || '建立人';
   switch (state) {
     case 'draft': return { type: 'info', text: '这件事项还没提交，没有派给任何团队。' };
-    case 'held': return can.release
+    case 'held': return viewer.can.release
       ? { type: 'warning', text: '等你过目：你放行之后，才会派给团队。' }
       : { type: 'warning', text: '在等放行：有放行权限的人放行之后，才会派给团队。' };
     case 'delivered': return { type: 'info', text: '已经转交，在等团队接手。' };
     case 'accepted': return seat ? null : { type: 'info', text: '团队已经接手，还没说是哪个席位在做。' };
     case 'blocked':
       if (askAnswered) return { type: 'info', text: '提问已经答复，在等席位接着做。' };
-      return can.answer ? { type: 'warning', text: '席位在问你：你答复之后它才能接着做。' } : { type: 'warning', text: '席位在等答复：答复之后它才能接着做。' };
-    case 'ready': return can.verify
-      ? { type: 'success', text: '做完了，等你验收：通过就办结，打回就接着改。' }
-      : { type: 'success', text: '做完了，等建立人验收。' };
+      if (viewer.mine) return { type: 'warning', text: '席位在问你：你答复之后它才能接着做。' };
+      return { type: 'warning', text: viewer.can.answer ? `席位在问 ${name}；你可以代答。` : `席位在问 ${name}，等 ${name} 答复。` };
+    case 'ready':
+      if (viewer.mine) return { type: 'success', text: '做完了，等你验收：通过就办结，打回就接着改。' };
+      return { type: 'success', text: viewer.can.verify ? `做完了，等 ${name} 验收；你可以代为验收。` : `做完了，等 ${name} 验收。` };
     default: return null;
   }
+}
+
+/** 看的人是不是建立人：现在用登录名对建立人主体（user:<登录名>）判断；阶段八给出「是不是轮到这个人」的字段后换过去 */
+export function isCreator(login: string | null | undefined, creatorPrincipal: string | null | undefined): boolean {
+  return !!login && !!creatorPrincipal && creatorPrincipal.replace(/^user:/, '') === login;
+}
+
+/** 席位：服务端给「名字 · 句柄」或只有句柄；显示成「名字（句柄）」 */
+export function seatLabel(seat: string): string {
+  const s = (seat || '').trim();
+  const k = s.lastIndexOf(' · ');
+  return k > 0 ? `${s.slice(0, k)}（${s.slice(k + 3)}）` : s;
+}
+
+/** 日志行的「谁」：去掉 receiver:/human:/user:/seat: 这类前缀；receiver:<区> 是对端席位，有承接就用承接的名字；系统来源换成人话 */
+const SOURCE: Record<string, string> = { market: '市场', attention: '关注', 'admin-token': '管理员', admin: '管理员', seed: '系统' };
+export function actorLabel(raw: unknown, seat: string): string {
+  const s = who(raw);
+  if (!s) return '';
+  if (/^receiver:/.test(s)) return seat ? seatLabel(seat) : s.replace(/^receiver:/, '');
+  if (SOURCE[s]) return SOURCE[s];
+  return s.replace(/^(human|user|seat):/, '');
 }
 
 /** 最近一个提问答过没有：日志里最后一条「答复」在最后一条「提问」之后（日志按 seq 递增） */
@@ -87,9 +120,7 @@ export function who(v: unknown): string {
 }
 /** 提问人：服务端给的 asked_by 常是来源标记（receiver:<区>），人看不懂；是这种时换成事项的承接席位，没有承接就去掉前缀 */
 export function askerLabel(askedBy: unknown, seat: string): string {
-  const raw = who(askedBy);
-  if (/^receiver:/.test(raw)) return seat || raw.replace(/^receiver:/, '');
-  return raw;
+  return actorLabel(askedBy, seat);
 }
 /** 对端给的一段文字：字符串、数字照用，别的给空串 */
 export function textOf(v: unknown): string {
@@ -111,7 +142,14 @@ type TimelineRow = { fact: string; fact_id?: string; detail: string; rejected?: 
 /** 时间线这一行叫什么：系统替旧提问补的「答复」（接单节点又问了一次、发来了结果、作出了决定，旧提问就合上）叫「提问作废」，不当成有人答了 */
 export function timelineLabel(r: TimelineRow, facts: Record<string, string>): string {
   if (r.fact === 'answer' && (r.fact_id ?? '').includes(':closes-ask:')) return '提问作废';
+  if (isProgressNote(r)) return '进展';
   return facts[r.fact] ?? r.fact;
+}
+
+/** 席位的进展回执在日志里记成一行备注（note=progress） */
+export function isProgressNote(r: { fact: string; detail: string }): boolean {
+  if (r.fact !== 'note') return false;
+  try { return (JSON.parse(r.detail || '{}') as { note?: unknown }).note === 'progress'; } catch { return false; }
 }
 
 /** 不进时间线的行：人看过席位的消息（看一眼不是事项上的事实） */
@@ -120,13 +158,15 @@ export function hiddenInTimeline(r: TimelineRow): boolean {
   try { return (JSON.parse(r.detail || '{}') as { note?: unknown }).note === 'followup-read'; } catch { return false; }
 }
 
-/** 连续的被拒行（终态之后才到、这时候不该有）收成一组，免得一串「收到，未采信」刷屏；单独一条不收 */
-export function groupRejected<T extends { rejected?: string }>(rows: T[]): ({ kind: 'row'; row: T } | { kind: 'rejected'; rows: T[] })[] {
-  const out: ({ kind: 'row'; row: T } | { kind: 'rejected'; rows: T[] })[] = [];
+/** 时间线收组：连续两条以上的被拒行（终态之后才到、这时候不该有）收成一组，连续两条以上的进展收成一组；单独一条不收 */
+export type TimelineGroup<T> = { kind: 'row'; row: T } | { kind: 'rejected' | 'progress'; rows: T[] };
+export function groupTimeline<T extends { fact: string; detail: string; rejected?: string }>(rows: T[]): TimelineGroup<T>[] {
+  const keyOf = (r: T): 'rejected' | 'progress' | null => (r.rejected ? 'rejected' : isProgressNote(r) ? 'progress' : null);
+  const out: TimelineGroup<T>[] = [];
   for (const r of rows) {
-    const last = out[out.length - 1];
-    if (r.rejected && last && last.kind === 'rejected') { last.rows.push(r); continue; }
-    if (r.rejected && last && last.kind === 'row' && last.row.rejected) { out[out.length - 1] = { kind: 'rejected', rows: [last.row, r] }; continue; }
+    const k = keyOf(r), last = out[out.length - 1];
+    if (k && last && last.kind === k) { last.rows.push(r); continue; }
+    if (k && last && last.kind === 'row' && keyOf(last.row) === k) { out[out.length - 1] = { kind: k, rows: [last.row, r] }; continue; }
     out.push({ kind: 'row', row: r });
   }
   return out;

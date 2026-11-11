@@ -1,16 +1,24 @@
 #!/usr/bin/env node
 /** 事项详情页的纯函数单测（web/src/work-item-view.ts）：提示条、进展一行字、结果解析与链接、关注条目对到事项。 */
-import { askerLabel, textOf, who, CAN_NONE, canOf, stateLabel, askIdOf, creatorLabel, groupRejected, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint } from '../web/src/work-item-view.ts';
+import { VIEWER_NONE, actorLabel, groupTimeline, isCreator, seatLabel, askerLabel, textOf, who, CAN_NONE, canOf, stateLabel, askIdOf, creatorLabel, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint } from '../web/src/work-item-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
 
+const V = (o) => ({ ...VIEWER_NONE, creator: 'alpha', ...o, can: { ...CAN_NONE, ...(o?.can ?? {}) } });
+ok('「你」指本来该找的人：建立人看在问你 / 等你验收，管理员看在问 alpha / 等 alpha 验收', stateLabel('blocked', V({ mine: true })) === '在问你' && stateLabel('blocked', V({ can: { answer: true } })) === '在问 alpha' && stateLabel('ready', V({ mine: true })) === '等你验收' && stateLabel('ready', V({ can: { verify: true } })) === '等 alpha 验收');
+ok('放行：有放行权限的看等你过目，别人看等放行', stateLabel('held', V({ can: { release: true } })) === '等你过目' && stateLabel('held', V({ mine: true })) === '等放行');
+ok('中性叫法（时间线、列表）不带「你」，草稿叫未派发、对方放弃单列', ['draft','held','delivered','accepted','progress','waiting','blocked','ready','done','failed','dropped','cancelled'].every((s) => !stateLabel(s).includes('你')) && stateLabel('draft') === '未派发' && stateLabel('dropped') === '对方放弃了' && stateLabel('blocked') === '在等答复');
+ok('提示条：建立人「席位在问你」，能代答的管理员「你可以代答」，无关的人只说在等谁', stateHint('blocked', '', false, V({ mine: true })).text.startsWith('席位在问你') && stateHint('blocked', '', false, V({ can: { answer: true } })).text.includes('你可以代答') && !stateHint('blocked', '', false, V({})).text.includes('你'));
+ok('提示条：验收同理', stateHint('ready', '', false, V({ mine: true })).text.includes('等你验收') && stateHint('ready', '', false, V({ can: { verify: true } })).text.includes('你可以代为验收') && !stateHint('ready', '', false, V({})).text.includes('你'));
+ok('是不是建立人：登录名对 user:<登录名>', isCreator('alpha', 'user:alpha') && !isCreator('root-admin', 'user:alpha') && !isCreator(null, 'user:alpha') && !isCreator('alpha', null));
+ok('席位：名字 · 句柄 显示成 名字（句柄），只有句柄照用', seatLabel('成员一 · dsh/d6f79e90') === '成员一（dsh/d6f79e90）' && seatLabel('dsh/d6f79e90') === 'dsh/d6f79e90' && seatLabel('') === '');
+ok('日志的谁：去前缀、对端席位换承接名字、系统来源说人话', actorLabel('receiver:dsh', '成员一 · dsh/x') === '成员一（dsh/x）' && actorLabel('human:root-admin', '') === 'root-admin' && actorLabel('market', '') === '市场' && actorLabel('admin-token', '') === '管理员' && actorLabel('user:alpha', '') === 'alpha');
+const tg = groupTimeline([{ seq: 1, fact: 'ask', detail: '' }, { seq: 2, fact: 'note', detail: '{"note":"progress"}' }, { seq: 3, fact: 'note', detail: '{"note":"progress"}' }, { seq: 4, fact: 'note', detail: '{"note":"progress"}' }, { seq: 5, fact: 'note', detail: '{"note":"progress"}' }, { seq: 6, fact: 'answer', detail: '', rejected: 'terminal' }, { seq: 7, fact: 'answer', detail: '', rejected: 'terminal' }]).map((g) => g.kind === 'row' ? g.row.seq : g.kind + ':' + g.rows.map((r) => r.seq).join('+'));
+ok('时间线收组：连续进展收一组、连续被拒收一组', JSON.stringify(tg) === '[1,"progress:2+3+4+5","rejected:6+7"]', JSON.stringify(tg));
+ok('时间线：进展备注叫「进展」', timelineLabel({ fact: 'note', detail: '{"note":"progress"}' }, { note: '备注' }) === '进展');
 ok('提示：在等放行，不说「你」', stateHint('held', '')?.text.startsWith('在等放行') && !stateHint('held', '').text.includes('你'));
-ok('提示：能放行的人看「等你过目」', stateHint('held', '', false, { ...CAN_NONE, release: true })?.text.startsWith('等你过目'));
-ok('提示：能答的看「在问你」，不能答的看「在等答复」', stateHint('blocked', '', false, { ...CAN_NONE, answer: true })?.text.startsWith('席位在问你') && stateHint('blocked', '')?.text.startsWith('席位在等答复'));
-ok('提示：能验收的看「等你验收」，别人只说等建立人验收', stateHint('ready', '', false, { ...CAN_NONE, verify: true })?.text.includes('等你验收') && !stateHint('ready', '').text.includes('你'));
-ok('状态叫法：中性叫法不带「你」，草稿叫未派发、对方放弃单独一种', ['draft','held','delivered','accepted','progress','waiting','blocked','ready','done','failed','dropped','cancelled'].every((s) => !stateLabel(s).includes('你')) && stateLabel('draft') === '未派发' && stateLabel('dropped') === '对方放弃了' && stateLabel('cancelled') === '已撤回');
-ok('状态叫法：该动手的人才带「你」', stateLabel('held', { ...CAN_NONE, release: true }) === '等你过目' && stateLabel('blocked', { ...CAN_NONE, answer: true }) === '在问你' && stateLabel('ready', { ...CAN_NONE, verify: true }) === '等你验收' && stateLabel('ready', { ...CAN_NONE, answer: true }) === '等验收');
+ok('提示：能放行的人看「等你过目」', stateHint('held', '', false, V({ can: { release: true } }))?.text.startsWith('等你过目'));
 const pa = (source, category, answers) => ({ source, source_id: '1', category, title: '', waiting_for: '', since: '', answers, object: '', phase: '', link: '/work-items/wi_a' });
 const choicesNonAdmin = (x) => (x.source === 'work-items' && x.category === 'accept' ? x.answers : []);
 ok('能做什么：取自看的人在「关注」里的条目和答法', JSON.stringify(canOf([pa('work-items', 'accept', ['verify', 'return']), pa('seat-asks', 'ask', ['answer'])], choicesNonAdmin)) === '{"release":false,"answer":true,"verify":true}' && JSON.stringify(canOf([pa('work-items', 'glance', ['release', 'withdraw'])], choicesNonAdmin)) === '{"release":false,"answer":false,"verify":false}' && canOf([pa('work-items', 'glance', ['release'])], (x) => x.answers).release);
@@ -41,13 +49,13 @@ ok('初始选择：缺省项在选项里才预选', initialChoice({ options: ['�
 ok('建立人：以 creator_principal 为准，和发布人不同时注明', creatorLabel('human:root-admin', 'user:alpha') === 'alpha · 由 root-admin 发布' && creatorLabel('user:alpha', 'user:alpha') === 'alpha' && creatorLabel('human:alice', null) === 'alice' && creatorLabel('', '') === '—');
 ok('时间线：系统合上旧提问的答复叫「提问作废」，真答复照旧', timelineLabel({ fact: 'answer', fact_id: '9:closes-ask:3', detail: '' }, { answer: '答复' }) === '提问作废' && timelineLabel({ fact: 'answer', fact_id: 'u1', detail: '' }, { answer: '答复' }) === '答复');
 ok('时间线：看过消息的备注不进时间线，别的备注照进', hiddenInTimeline({ fact: 'note', detail: '{"note":"followup-read","late":true}' }) && !hiddenInTimeline({ fact: 'note', detail: '{"note":"followup"}' }) && !hiddenInTimeline({ fact: 'note', detail: '{坏' }));
-const gr = groupRejected([{ seq: 1 }, { seq: 2, rejected: 'terminal' }, { seq: 3 }, { seq: 4, rejected: 'terminal' }, { seq: 5, rejected: 'terminal' }, { seq: 6, rejected: 'terminal' }]).map((g) => g.kind === 'row' ? g.row.seq : g.rows.map((r) => r.seq).join('+'));
-ok('时间线：连续两条以上的被拒行收成一组，单独一条不收', JSON.stringify(gr) === '[1,2,3,"4+5+6"]', JSON.stringify(gr));
+const gr = groupTimeline([{ seq: 1, fact: 'x', detail: '' }, { seq: 2, fact: 'x', detail: '', rejected: 'terminal' }, { seq: 3, fact: 'x', detail: '' }, { seq: 4, fact: 'x', detail: '', rejected: 'terminal' }, { seq: 5, fact: 'x', detail: '', rejected: 'terminal' }]).map((g) => g.kind === 'row' ? g.row.seq : g.rows.map((r) => r.seq).join('+'));
+ok('时间线：单独一条被拒行不收组，连续的才收', JSON.stringify(gr) === '[1,2,3,"4+5"]', JSON.stringify(gr));
 
 ok('对端给的「谁」：字符串照用，对象取 name、没有取 seat，别的给空串，永远是字符串', who('seat_a') === 'seat_a' && who({ seat: 'dsh/d6f79e90', name: '成员一' }) === '成员一' && who({ seat: 'dsh/d6f79e90' }) === 'dsh/d6f79e90' && who({ role: 'x' }) === '' && who(null) === '' && who(['a']) === '');
 ok('对端给的文字：字符串和数字照用，对象给空串', textOf('a') === 'a' && textOf(3) === '3' && textOf({ a: 1 }) === '' && textOf(undefined) === '');
 
-ok('提问人：来源标记 receiver:<区> 换成承接席位，没有承接就去前缀；别的照用', askerLabel('receiver:dsh', '成员一 · dsh/d6f79e90') === '成员一 · dsh/d6f79e90' && askerLabel('receiver:dsh', '') === 'dsh' && askerLabel('seat:a', 'x') === 'seat:a' && askerLabel({ name: '成员二' }, 'x') === '成员二');
+ok('提问人：来源标记 receiver:<区> 换成承接席位，没有承接就去前缀；别的照用', askerLabel('receiver:dsh', '成员一 · dsh/d6f79e90') === '成员一（dsh/d6f79e90）' && askerLabel('receiver:dsh', '') === 'dsh' && askerLabel('seat:a', 'x') === 'a' && askerLabel({ name: '成员二' }, 'x') === '成员二');
 
 const att = (source, link) => ({ source, source_id: '1', category: 'ask', title: '', waiting_for: '', since: '', answers: [], object: '', phase: '', link });
 const mine = pendingFor([att('seat-asks', '/work-items/wi_a'), att('work-items', '/work-items/wi_b'), att('work-items', '/work-items/wi_a'), att('x', '/other')], 'wi_a');

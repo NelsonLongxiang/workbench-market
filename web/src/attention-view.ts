@@ -28,12 +28,17 @@ export function byWaited(items: AttentionItem[]): AttentionItem[] {
     .map((e) => e.x);
 }
 
+/** 日志里的取值换成人话（接单判断、上报的状态、回执的结果）；不认得的原样 */
+export const VERDICT: Record<string, string> = { accept: '接了', stop: '不做了', ignore: '不接', unavailable: '接不了' };
+export const REPORT_STATUS: Record<string, string> = { progress: '在办', waiting: '在等', blocked: '卡住了，要人答复', ready: '做完了', failed: '没办成', dropped: '对方放弃了' };
+export const OUTCOME: Record<string, string> = { completed: '做完了', acknowledged: '收到了', failed: '没办成', rejected: '拒了', abandoned: '放弃了', dead: '投递失败' };
+
 /** 一行事项日志的一句话说明：从 detail 里挑人看得懂的几样 */
 export function describe(row: Pick<LogRow, 'detail'>): string {
   let d: Record<string, unknown> = {};
   try { d = JSON.parse(row.detail || '{}'); } catch { /* 坏的 detail 当空 */ }
   const note = d.note === 'unrouted' ? '没有目标团队' : d.note === 'untrusted' ? '提交方未验证，收到但未采信' : d.note === 'undispatched' ? '只通知、不派发，未派发' : d.note === 'followup' ? '席位发来的消息' : d.note === 'followup-reply' ? '人回复了席位的消息' : d.note === 'followup-read' ? '人看过席位的消息' : d.note === 'progress' ? '席位的进展' : '';
-  const bits = [d.question, d.answer, d.summary, d.reason, (d.note === 'followup' || d.note === 'followup-reply' || d.note === 'progress') ? d.text : '', note, d.verdict && `判断：${d.verdict}`, d.status && `状态：${d.status}`, d.outcome && `结果：${d.outcome}`, d.late ? '晚到' : ''];
+  const bits = [d.question, d.answer, d.summary, d.reason, (d.note === 'followup' || d.note === 'followup-reply' || d.note === 'progress') ? d.text : '', note, typeof d.verdict === 'string' && `判断：${VERDICT[d.verdict] ?? d.verdict}`, typeof d.status === 'string' && `状态：${REPORT_STATUS[d.status] ?? d.status}`, typeof d.outcome === 'string' && `结果：${OUTCOME[d.outcome] ?? d.outcome}`, d.late ? '晚到' : ''];
   return bits.filter((x): x is string => typeof x === 'string' && x !== '').join(' · ');
 }
 
