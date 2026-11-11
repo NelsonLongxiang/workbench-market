@@ -876,6 +876,32 @@ CREATE TABLE IF NOT EXISTS submitter_ticket_counts (
   PRIMARY KEY (day, outcome)
 );
 `);
+// 事项回填的进度（单行）：回填在后台分批跑，不挡启动。version 是代码里的回填版本号（services/work-item.ts 的 BACKFILL_VERSION），
+//   status：running = 跑到一半（phase 是全量还是增量，cursor 是那一阶段的游标，重启接着跑）；done = 跑完；
+//   stale = 这一轮期间监听器漏过事实，下次启动从头全量核。log_mark 是上次跑完时事件日志的水位：版本没变时，启动从它往后增量核
+//   （不在场的进程写进来的事件和事实靠它补回来）。dirty = 监听器漏过事实，下次启动从头全量核。时间由代码生成后传进来（不用 SQLite 特有的取时间写法，以后要支持 PostgreSQL）。
+db.exec(`
+CREATE TABLE IF NOT EXISTS work_item_backfill (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  version INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('running', 'done', 'stale')),
+  phase TEXT NOT NULL DEFAULT 'full' CHECK (phase IN ('full', 'incremental')),
+  cursor INTEGER NOT NULL DEFAULT 0 CHECK (cursor >= 0),
+  batches INTEGER NOT NULL DEFAULT 0,
+  events INTEGER NOT NULL DEFAULT 0,
+  log_mark INTEGER NOT NULL DEFAULT 0 CHECK (log_mark >= 0),
+  dirty INTEGER NOT NULL DEFAULT 0 CHECK (dirty IN (0, 1)),
+  updated_at TEXT NOT NULL
+);
+`);
+// 开发中间版本建过只有前几列的这张表：缺的列补上（幂等，和别的表的补列一样）
+for (const [column, ddl] of [
+  ['phase', "phase TEXT NOT NULL DEFAULT 'full' CHECK (phase IN ('full', 'incremental'))"],
+  ['log_mark', 'log_mark INTEGER NOT NULL DEFAULT 0 CHECK (log_mark >= 0)'],
+  ['dirty', 'dirty INTEGER NOT NULL DEFAULT 0 CHECK (dirty IN (0, 1))'],
+] as const) {
+  if (!(db.prepare('PRAGMA table_info(work_item_backfill)').all() as { name: string }[]).some((c) => c.name === column)) db.exec(`ALTER TABLE work_item_backfill ADD COLUMN ${ddl}`);
+}
 // 阶段八 8d：「关注」的答复记账。每个（来源、来源里的 id）一行：第一次答成功就记下应答，同一条再答返回这一份；
 //   pending 表示正有人在答（并发的第二个人被告知正在处理）；答失败就删掉这一行，可以再答。原件的状态和留痕在来源自己那里。
 db.exec(`

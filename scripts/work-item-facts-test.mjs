@@ -59,8 +59,10 @@ try {
   console.log = (...a) => { if (String(a[0]).startsWith('[work-items]')) logged.push(a.join(' ')); realLog(...a); };
   await root.plugin(WorkItemService);
   const items = root.get('workItems');
-  check(items.get('wi_' + legacy)?.state === 'accepted', '先有存量事件、再装服务：装上时回填出事项，追到「已接手」', show(items.get('wi_' + legacy)?.state));
-  check(logged.some((l) => l.includes('[work-items] 回填') && l.includes('补建 1 个事项')), '装上时的回填在日志里留一行（补建了几个）', show(logged));
+  // 回填不挡启动：装上之后在后台分批跑，等它跑完再看
+  for (let i = 0; i < 400 && items.backfillStatus().state !== 'done'; i++) await new Promise((r) => setImmediate(r));
+  check(items.get('wi_' + legacy)?.state === 'accepted', '先有存量事件、再装服务：后台回填出事项，追到「已接手」', show(items.get('wi_' + legacy)?.state));
+  check(logged.some((l) => l.includes('[work-items] 后台回填完成') && l.includes('核对 1 个事件')), '后台回填跑完在日志里留一行（核对了几个事件）', show(logged));
   const realOnLogged = items.onLogged.bind(items);
   const listen = (on) => { items.onLogged = on ? realOnLogged : () => {}; };
 
