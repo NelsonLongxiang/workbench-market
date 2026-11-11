@@ -55,7 +55,9 @@ export type Fact = {
   question?: string;
   ask_id?: string;
   answer?: string;
-  note?: 'unrouted' | 'untrusted' | 'undispatched';
+  note?: 'unrouted' | 'untrusted' | 'undispatched' | 'followup' | 'followup-reply' | 'followup-ack';
+  /** 阶段七 R2：note=followup 时席位发来的跟进原文（前 500 字），只用于显示，不参与任何判断 */
+  text?: string;
   others_alive?: boolean;
   /** 阶段七 R3：同一事件里有别的投递还活着或已经接手（回执的拒绝、放弃只在没有时才推终态） */
   others_engaged?: boolean;
@@ -136,6 +138,8 @@ export const RECORDS: readonly { from: readonly WorkItemState[]; fact: Fact['kin
   { from: ['accepted', 'progress', 'waiting', 'blocked', 'ready'], fact: 'delivery', when: is('outcome', 'dead'), note: '已有团队接手之后，别的投递 dead' },
   // 8b：未路由、未采信
   { from: NON_TERMINAL, fact: 'note', when: (f) => f.note === 'unrouted' || f.note === 'untrusted' || f.note === 'undispatched', note: '未路由 / 收到但未采信 / 未派发' },
+  // 阶段七 R2：席位在回执之后发来的自由文本跟进——只记录；终态之后对方也可能再说明一句，一并收下
+  { from: [...NON_TERMINAL, ...TERMINAL], fact: 'note', when: (f) => f.note === 'followup' || f.note === 'followup-reply' || f.note === 'followup-ack', note: '席位来信、人的回复、知道了（只记录）' },
 ];
 
 export type ApplyResult =
@@ -278,6 +282,9 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
   else if (row.action === 'released') fact = { ...base, kind: 'release' };
   else if (row.action === 'cancelled') fact = { ...base, kind: 'withdraw', none_sent: !rows.slice(0, i + 1).some((r) => r.action === 'sent' || r.action === 'sent-after-withdraw') };
   else if (row.action === 'receipt:untrusted' || row.action === 'receipt:unaccepted') fact = { ...base, kind: 'note', note: 'untrusted' };
+  else if (row.action === 'followup') fact = { ...base, kind: 'note', note: 'followup', text: typeof detail.text === 'string' ? detail.text : '' };
+  else if (row.action === 'followup-replied') fact = { ...base, kind: 'note', note: 'followup-reply', text: typeof detail.text === 'string' ? detail.text : '' };
+  else if (row.action === 'followup-acknowledged') fact = { ...base, kind: 'note', note: 'followup-ack' };
   else if (row.action === 'receipt:attention') fact = { ...base, kind: 'ask', question: typeof detail.summary === 'string' ? detail.summary : '' };
   else if (row.action === 'dead' || row.action.startsWith('decision:') || row.action === 'receipt:acknowledged' || RECEIPT_OUTCOME_ACTIONS.includes(row.action)) {
     const status = new Map<number, DeliveryStatus>();

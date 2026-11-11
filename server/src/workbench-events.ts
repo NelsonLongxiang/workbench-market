@@ -11,6 +11,7 @@ import { MAX_ROUTE_BODY_BYTES } from '@nelsonlongxiang/dsh-open-a2a-net/transpor
 import { root } from './root-context.ts';
 import { recordSentTask } from './services/a2a-receipts.ts';
 import { peerCard, peerRoot } from './a2a/peer-card.ts';
+import { replyTick } from './a2a/reply-outbound.ts';
 
 /** 8b：每写一行事件日志，在同一个事务里多发一个事件（事项服务听它）。这张表和它的写法都不变。 */
 export type WorkbenchEventLogged = { id: number; event_id: string; delivery_id: number | null; action: string };
@@ -22,11 +23,11 @@ declare module '@deepseek-ai/cordis' {
 
 export const WORKBENCH_EVENT_VERSION = 1;
 const DECISIONS = new Set(['accept', 'decline', 'ask']);
-const BACKOFF_MS = [60_000, 300_000, 900_000, 3_600_000]; // 与 SOP 回执 outbox 同一退避：1m/5m/15m/1h，5 次后 dead
-const MAX_ATTEMPTS = 5;
+export const BACKOFF_MS = [60_000, 300_000, 900_000, 3_600_000]; // 与 SOP 回执 outbox 同一退避：1m/5m/15m/1h，5 次后 dead
+export const MAX_ATTEMPTS = 5;
 const EVENT_ID = /^wbe-[0-9a-f]{16}$/;
 /** 对端判为不可重试的线码：-32001 载荷超限、-32002 同 task_id 不同载荷、-32003 同 task_id 重放（每次尝试的 task_id 都唯一，出现即异常） */
-const TERMINAL_CODES = new Set([-32001, -32002, -32003]);
+export const TERMINAL_CODES = new Set([-32001, -32002, -32003]);
 const REPLY_TTL_DAYS = 7; // reply token 自送达起 7 天有效（ask 之后也不例外）
 const WORKER_CONCURRENCY = 8;
 
@@ -85,7 +86,7 @@ CREATE TRIGGER IF NOT EXISTS wbe_events_no_delete BEFORE DELETE ON workbench_eve
 }
 
 const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
-function sqliteUtcIn(ms: number): string {
+export function sqliteUtcIn(ms: number): string {
   return new Date(Date.now() + ms + 1_000).toISOString().slice(0, 19).replace('T', ' ');
 }
 /** 阶段七 R3：入站回执经它写事件日志（同一个 log()，事项服务照常听到）。调用方负责事务。 */
@@ -220,7 +221,7 @@ export function recordAppDataEvent(item: { slug: string; id: number; data: unkno
 
 // ---------- 投递 worker ----------
 interface DeliveryRow { id: number; event_id: string; target_team: string; target_url: string; caller_session: string; message: string; attempts: number; context_id: string; source: string; item: string }
-function backoffScale(): number {
+export function backoffScale(): number {
   const v = Number(process.env.A2A_OUTBOX_BACKOFF_SCALE);
   return Number.isFinite(v) && v > 0 ? v : 1;
 }
@@ -299,6 +300,8 @@ export async function workbenchEventTick(): Promise<void> {
       for (let i = 0; i < due.length; i += WORKER_CONCURRENCY) {
         await Promise.allSettled(due.slice(i, i + WORKER_CONCURRENCY).map((row) => deliver(row).catch((e) => console.error(`[workbench-events] delivery ${row.id} failed: ${String(e).slice(0, 120)}`))));
       }
+      // 阶段七 R2：回给团队的消息（答复、来信回复、跟进回执），同一个 worker、同一套发送与退避
+      await replyTick();
     } while (kickAgain);
   } finally { ticking = false; }
 }

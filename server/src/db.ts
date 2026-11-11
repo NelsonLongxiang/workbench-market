@@ -262,6 +262,53 @@ CREATE TABLE IF NOT EXISTS a2a_sent_tasks (
 );
 CREATE INDEX IF NOT EXISTS idx_a2a_sent_tasks_delivery ON a2a_sent_tasks (delivery_id);
 -- 收到并采信的回执：同一任务号的接单回执（acknowledged）一条、终局回执（attention / result）一条，按 idempotencyKey 去重
+-- 阶段七 R2：席位发来的跟进（同 context 的普通 A2A 任务，任务号 a2a-…）。签名方是我们投递到的那台宿主、context 是我们发出的，才收下。
+-- 每条进「关注」（席位来信），人回复或点「知道了」；超过每次投递的上限的只记日志（status=over-cap）。时间由代码生成后写入。
+CREATE TABLE IF NOT EXISTS workbench_event_followups (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL,
+  delivery_id INTEGER NOT NULL,
+  peer_zone TEXT NOT NULL,
+  inbound_task TEXT NOT NULL,
+  context_id TEXT NOT NULL,
+  sender TEXT NOT NULL DEFAULT '',
+  text TEXT NOT NULL DEFAULT '',
+  truncated INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL CHECK (status IN ('open','replied','acknowledged','over-cap')),
+  handled_by TEXT NOT NULL DEFAULT '',
+  handled_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  UNIQUE (delivery_id, inbound_task)
+);
+CREATE INDEX IF NOT EXISTS idx_wbe_followups_status ON workbench_event_followups (status, id);
+CREATE INDEX IF NOT EXISTS idx_wbe_followups_zone ON workbench_event_followups (peer_zone, created_at);
+-- 阶段七 R2：市场回给团队的消息，只放发送状态。kind：
+--   answer          人答复席位回执里的提问 → 同 context 的新任务（每次尝试一个任务号）
+--   followup-reply  人回复席位来信 → 同 context 的新任务（每次尝试一个任务号）
+--   followup-receipt 收下跟进后结清它的回执：任务号固定为 receipt-<跟进任务号>，只用跟进的任务号；发不出去一直重试（不判 dead）
+-- 发送复用事件投递的 a2aSendOutbound（Sig2 + Sig3）、退避与终止码。唯一 outbox 那一步并进 a2a_outbox_items。时间由代码生成后写入。
+CREATE TABLE IF NOT EXISTS workbench_event_replies (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL CHECK (kind IN ('answer','followup-reply','followup-receipt')),
+  event_id TEXT NOT NULL,
+  delivery_id INTEGER NOT NULL,
+  ref INTEGER NOT NULL,
+  qid TEXT NOT NULL DEFAULT '',
+  fixed_task TEXT NOT NULL DEFAULT '',
+  team TEXT NOT NULL,
+  caller_session TEXT NOT NULL,
+  context_id TEXT NOT NULL,
+  target_url TEXT NOT NULL,
+  message TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sent','dead')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_at TEXT NOT NULL,
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  sent_at TEXT NOT NULL DEFAULT '',
+  UNIQUE (kind, delivery_id, ref)
+);
+CREATE INDEX IF NOT EXISTS idx_wbe_replies_due ON workbench_event_replies (status, next_at);
 CREATE TABLE IF NOT EXISTS a2a_inbound_receipts (
   task_id TEXT NOT NULL,
   class TEXT NOT NULL CHECK (class IN ('ack','final')),

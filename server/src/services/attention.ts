@@ -22,7 +22,7 @@ declare module '@deepseek-ai/cordis' {
 }
 
 /** 类别：提问、审核、验收、过目、授权 */
-export const CATEGORIES = ['ask', 'review', 'accept', 'glance', 'grant'] as const;
+export const CATEGORIES = ['ask', 'review', 'accept', 'glance', 'grant', 'letter'] as const;
 export type Category = typeof CATEGORIES[number];
 
 /** 每条的统一形状 */

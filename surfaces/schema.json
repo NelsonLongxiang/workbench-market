@@ -604,6 +604,21 @@
       "decided_at TEXT NOT NULL DEFAULT ''",
       "created_at TEXT NOT NULL DEFAULT datetime('now')"
     ],
+    "workbench_event_followups": [
+      "id INTEGER PK",
+      "event_id TEXT NOT NULL",
+      "delivery_id INTEGER NOT NULL",
+      "peer_zone TEXT NOT NULL",
+      "inbound_task TEXT NOT NULL",
+      "context_id TEXT NOT NULL",
+      "sender TEXT NOT NULL DEFAULT ''",
+      "text TEXT NOT NULL DEFAULT ''",
+      "truncated INTEGER NOT NULL DEFAULT 0",
+      "status TEXT NOT NULL",
+      "handled_by TEXT NOT NULL DEFAULT ''",
+      "handled_at TEXT NOT NULL DEFAULT ''",
+      "created_at TEXT NOT NULL"
+    ],
     "workbench_event_log": [
       "id INTEGER PK",
       "event_id TEXT NOT NULL",
@@ -612,6 +627,26 @@
       "actor TEXT NOT NULL",
       "action TEXT NOT NULL",
       "detail TEXT NOT NULL DEFAULT '{}'"
+    ],
+    "workbench_event_replies": [
+      "id INTEGER PK",
+      "kind TEXT NOT NULL",
+      "event_id TEXT NOT NULL",
+      "delivery_id INTEGER NOT NULL",
+      "ref INTEGER NOT NULL",
+      "qid TEXT NOT NULL DEFAULT ''",
+      "fixed_task TEXT NOT NULL DEFAULT ''",
+      "team TEXT NOT NULL",
+      "caller_session TEXT NOT NULL",
+      "context_id TEXT NOT NULL",
+      "target_url TEXT NOT NULL",
+      "message TEXT NOT NULL DEFAULT ''",
+      "status TEXT NOT NULL DEFAULT 'pending'",
+      "attempts INTEGER NOT NULL DEFAULT 0",
+      "next_at TEXT NOT NULL",
+      "last_error TEXT NOT NULL DEFAULT ''",
+      "created_at TEXT NOT NULL",
+      "sent_at TEXT NOT NULL DEFAULT ''"
     ],
     "workbench_events": [
       "id INTEGER PK",
@@ -717,6 +752,9 @@
     "idx_task_source_subject ON task_source_read_grants: CREATE INDEX idx_task_source_subject ON task_source_read_grants(subject, source, revoked_at)",
     "idx_tasks_intake_run ON tasks: CREATE UNIQUE INDEX idx_tasks_intake_run ON tasks(intake_run_id) WHERE intake_run_id IS NOT NULL",
     "idx_wbe_deliveries_due ON workbench_event_deliveries: CREATE INDEX idx_wbe_deliveries_due ON workbench_event_deliveries(status, next_at)",
+    "idx_wbe_followups_status ON workbench_event_followups: CREATE INDEX idx_wbe_followups_status ON workbench_event_followups (status, id)",
+    "idx_wbe_followups_zone ON workbench_event_followups: CREATE INDEX idx_wbe_followups_zone ON workbench_event_followups (peer_zone, created_at)",
+    "idx_wbe_replies_due ON workbench_event_replies: CREATE INDEX idx_wbe_replies_due ON workbench_event_replies (status, next_at)",
     "idx_work_item_log_item ON work_item_log: CREATE INDEX idx_work_item_log_item ON work_item_log (item_id, seq)",
     "idx_work_items_object ON work_items: CREATE INDEX idx_work_items_object ON work_items (object, phase)",
     "idx_work_items_source ON work_items: CREATE INDEX idx_work_items_source ON work_items (source_kind, source_ref)",

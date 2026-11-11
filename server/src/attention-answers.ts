@@ -20,7 +20,10 @@ import { identity } from './identity.ts';
 import { forward } from './attention-forward.ts';
 import { answerBody, findBoardWorkbench } from './owner-pending.ts';
 import { principalsAdmin } from './routes/principals.ts';
-import { pendingAskOfDelivery, pendingPrincipalAppearance } from './services/attention-sources.ts';
+import { currentAskOfDelivery, pendingAskOfDelivery, pendingPrincipalAppearance } from './services/attention-sources.ts';
+import { inReplyTx } from './services/a2a-replies.ts';
+import { closeFollowup, followupById } from './services/a2a-followups.ts';
+import { logDeliveryFact } from './workbench-events.ts';
 import { listVars, workbenchScope } from './workbench-vars.ts';
 import type { AnswerOutcome, AttentionProvider, AttentionService } from './services/attention.ts';
 import type { HttpService } from './http.ts';
@@ -127,9 +130,10 @@ const DIRECT: Record<string, Record<string, (req: Req, id: string, input: Input,
   },
   'seat-asks': {
     /**
-     * 答席位的提问：在事项上记答复，合上这条提问。按 06，回答要作为同一事项的后续事件（kind: "answer"）发回原团队；
-     * 但 06 的兼容规则说 v1 接收方不认识它、不发，而市场今天的接单节点都是 v1（还没有 report 端点来协商 v2）。
-     * 所以现在只记不发，应答里写明 sent:false 和原因；有了 v2 之后在这里补发。
+     * 答席位的提问：在事项上记答复，合上这条提问。
+     *   · v1（decision:ask，接单节点凭回复令牌回写的提问）：照旧只记不发——v1 接单节点不认识回答事件。
+     *   · 阶段七 R2（receipt:attention，席位 A2A 回执里的提问）：记答复的同时排一条答复任务，作为同一 context 的新任务发回那个团队
+     *     （superagent 的约定）；只通知的事件（dispatch:false）没有回写通道，不发。记答复和排发送在同一个保存点里。
      */
     answer: async (_req, id, input, actor) => {
       const answer = text(input.text);
@@ -137,9 +141,33 @@ const DIRECT: Record<string, Record<string, (req: Req, id: string, input: Input,
       if (!/^[1-9]\d{0,15}$/.test(id)) return { status: 400, body: { error: 'attention_id_invalid' } };
       const ask = pendingAskOfDelivery(Number(id));
       if (!ask) return { status: 409, body: { error: 'seat_ask_not_pending' } };
-      const out = svc<WorkItemService>('workItems').apply(itemIdForEvent(ask.event_id), { kind: 'answer', source: 'attention', id: randomUUID(), actor, ask_id: String(ask.ask_log_id), answer });
+      const itemId = itemIdForEvent(ask.event_id);
+      const fact = { kind: 'answer' as const, source: 'attention', id: randomUUID(), actor, ask_id: String(ask.ask_log_id), answer };
+      if (ask.ask_kind !== 'receipt') {
+        const out = svc<WorkItemService>('workItems').apply(itemId, fact);
+        if (!out.ok) return { status: 409, body: { error: `work_item_${out.reason}`, state: out.state ?? null } };
+        return { status: 200, body: { ok: true, item_id: itemId, state: out.state, sent: false, reason: 'receiver_is_v1', message: '答复记在事项上；对方是 v1 接单节点，按 06 的兼容规则不发回答事件' } };
+      }
+      // 阶段七 R2 第二段（答复作为同 context 的新任务发回）之前：回执里的提问也先只记不发
+      const out = svc<WorkItemService>('workItems').apply(itemId, fact);
       if (!out.ok) return { status: 409, body: { error: `work_item_${out.reason}`, state: out.state ?? null } };
-      return { status: 200, body: { ok: true, item_id: itemIdForEvent(ask.event_id), state: out.state, sent: false, reason: 'receiver_is_v1', message: '答复记在事项上；对方是 v1 接单节点，按 06 的兼容规则不发回答事件' } };
+      return { status: 200, body: { ok: true, item_id: itemId, state: out.state, sent: false, reason: 'not_yet', message: '答复记在事项上；发回团队在下一步接上' } };
+    },
+  },
+  'seat-letters': {
+    /**
+     * 阶段七 R2：席位来信（跟进）。过渡期里成员的提问和通知都作为跟进发来，市场分不出是哪种，都给人看：
+     *   ack：知道了，合上（事件日志记一行，事项只记录）。回复在下一步接上。
+     */
+    ack: async (_req, id, _input, actor) => {
+      const f = /^[1-9]\d{0,15}$/.test(id) ? followupById(Number(id)) : undefined;
+      if (!f || f.status !== 'open') return { status: 409, body: { error: 'seat_letter_not_open' } };
+      const ok = inReplyTx(() => {
+        if (!closeFollowup(f.id, 'acknowledged', actor)) return false;
+        logDeliveryFact(f.event_id, f.delivery_id, actor, 'followup-acknowledged', { followup: f.id });
+        return true;
+      });
+      return ok ? { status: 200, body: { ok: true, item_id: itemIdForEvent(f.event_id) } } : { status: 409, body: { error: 'seat_letter_not_open' } };
     },
   },
 };
@@ -161,7 +189,7 @@ function applied(id: string, fact: Parameters<WorkItemService['apply']>[1]): Ans
  */
 function keyOf(source: string, sourceId: string): string {
   if (source === 'seat-asks' && /^[1-9]\d{0,15}$/.test(sourceId)) {
-    const ask = pendingAskOfDelivery(Number(sourceId));
+    const ask = currentAskOfDelivery(Number(sourceId));
     return ask ? `${sourceId}:${ask.ask_log_id}` : sourceId;
   }
   if (source === 'work-items') {

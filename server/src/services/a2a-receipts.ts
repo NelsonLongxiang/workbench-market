@@ -48,3 +48,17 @@ export function inReceiptTx<T>(fn: () => T): T {
   try { const out = fn(); db.exec('RELEASE a2a_receipt_in'); return out; }
   catch (e) { db.exec('ROLLBACK TO a2a_receipt_in'); db.exec('RELEASE a2a_receipt_in'); throw e; }
 }
+
+/**
+ * 阶段七 R2：跟进（a2a-<hash>，和原任务号没有字面关系）只靠 context 归到投递：我们某个事件的 context、发给的对端 zone 等于签名方的
+ * 最近一个任务号。存量没带 context 的投递，对方按「context 等于原任务号」回来：再按任务号找一次。找不到返回 undefined（跟进不认）。
+ */
+export function sentTaskForFollowup(contextId: string, zone: string): SentTask | undefined {
+  const byContext = db.prepare(`SELECT s.task_id, s.kind, s.event_id, s.delivery_id, s.peer_root, s.peer_zone
+    FROM a2a_sent_tasks s JOIN workbench_events e ON e.event_id = s.event_id
+    WHERE e.context_id = ? AND s.peer_zone = ? AND s.peer_zone <> ''
+    ORDER BY s.created_at DESC, s.rowid DESC LIMIT 1`).get(contextId, zone) as SentTask | undefined;
+  if (byContext) return byContext;
+  const byTask = sentTask(contextId);
+  return byTask && byTask.peer_zone === zone && byTask.peer_zone !== '' ? byTask : undefined;
+}
