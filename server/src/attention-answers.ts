@@ -26,7 +26,7 @@ import { benchMcpDecider } from './routes/bench-views.ts';
 import { sopRunAcceptance } from './routes/sop-run-lifecycle.ts';
 import { HttpError } from './errors.ts';
 import { askLogRow, currentAskOfDelivery, pendingAskOfDelivery, pendingPrincipalAppearance } from './services/attention-sources.ts';
-import { askTaskOf, deliveryTarget, eventDispatched, inReplyTx, queueReply } from './services/a2a-replies.ts';
+import { askTaskOf, deliveryTarget, eventDispatched, inReplyTx, queueReply, returnTargetOfEvent } from './services/a2a-replies.ts';
 import { kickWorkbenchEvents, logDeliveryFact } from './workbench-events.ts';
 import { listVars, workbenchScope } from './workbench-vars.ts';
 import type { AnswerOutcome, AttentionProvider, AttentionService } from './services/attention.ts';
@@ -144,10 +144,33 @@ const DIRECT: Record<string, Record<string, (req: Req, id: string, input: Input,
   },
   'work-items': {
     verify: async (_req, id, _input, actor, actingFor) => applied(id, { kind: 'verify', source: 'attention', id: randomUUID(), actor, ...(actingFor ? { acting_for: actingFor } : {}) }),
+    /**
+     * 打回重做：在事项上记一笔 return（ready → progress），同一个保存点里把打回作为同一 context 的新任务发回做这件事的团队
+     * （和答复一个办法；只对派出去的事件发）。正文开头按上游建议写明「[打回重做] 原事项《…》（原任务 <task>）：理由」——
+     * superagent 不解析信封、总工只看正文；信封带 kind:'return' 和原任务号 return.of，宿主以后认 reworkReturns 时直接用。
+     * 重做的回执照常回到这件事项：新任务的 ack、进展、completed（推回等验收）。
+     */
     return: async (_req, id, input, actor, actingFor) => {
       const reason = text(input.reason, 500);
       if (!reason) return { status: 400, body: { error: 'reason_required' } };
-      return applied(id, { kind: 'return', source: 'attention', id: randomUUID(), actor, reason, ...(actingFor ? { acting_for: actingFor } : {}) });
+      const items = svc<WorkItemService>('workItems');
+      const it = items.get(id);
+      const ev = it && /^wbe-[0-9a-f]{16}$/.test(it.source_ref) && itemIdForEvent(it.source_ref) === id ? it.source_ref : null;
+      const result = inReplyTx(() => {
+        const out = items.apply(id, { kind: 'return', source: 'attention', id: randomUUID(), actor, reason, ...(actingFor ? { acting_for: actingFor } : {}) });
+        if (!out.ok || !ev || !eventDispatched(ev)) return { out, queued: false };
+        const to = returnTargetOfEvent(ev);
+        const target = to ? deliveryTarget(to.delivery_id) : undefined;
+        if (!to || !target) return { out, queued: false };
+        const seq = items.lastEntrySeq(id, ['progress']) ?? 0;
+        const queued = queueReply({ kind: 'answer', eventId: ev, deliveryId: to.delivery_id, ref: -seq, qid: to.task, team: target.team, callerSession: target.caller_session,
+          contextId: target.context_id, targetUrl: target.target_url, message: JSON.stringify({ text: reason, by: actor, return: { of: to.task, title: it!.title } }) }) !== null;
+        if (queued) logDeliveryFact(ev, to.delivery_id, actor, 'return-sent', { of: to.task, reason: reason.slice(0, 500) });
+        return { out, queued };
+      });
+      if (!result.out.ok) return { status: 409, body: { error: `work_item_${result.out.reason}`, state: result.out.state ?? null } };
+      if (result.queued) kickWorkbenchEvents();
+      return { status: 200, body: { ok: true, item_id: id, state: result.out.state, sent: result.queued, reason: result.queued ? 'queued' : ev ? 'not_queued' : 'not_from_event' } };
     },
   },
   'sop-runs': {
