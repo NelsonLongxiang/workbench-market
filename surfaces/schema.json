@@ -147,6 +147,24 @@
       "installed_by TEXT NOT NULL DEFAULT ''",
       "status TEXT NOT NULL DEFAULT 'installed'"
     ],
+    "login_states": [
+      "state_sha256 TEXT PK",
+      "flow TEXT NOT NULL",
+      "next TEXT NOT NULL DEFAULT '/'",
+      "browser_sha256 TEXT NOT NULL",
+      "source TEXT NOT NULL DEFAULT ''",
+      "created_at INTEGER NOT NULL",
+      "expires_at INTEGER NOT NULL"
+    ],
+    "market_sessions": [
+      "token_sha256 TEXT PK",
+      "principal_id TEXT NOT NULL",
+      "provider TEXT NOT NULL",
+      "external_id TEXT NOT NULL",
+      "created_at INTEGER NOT NULL",
+      "expires_at INTEGER NOT NULL",
+      "revoked_at INTEGER"
+    ],
     "mcp_access_requests": [
       "id INTEGER PK",
       "session_id INTEGER NOT NULL",
@@ -196,6 +214,13 @@
       "external_key TEXT NOT NULL",
       "principal_id TEXT NOT NULL",
       "created_at TEXT NOT NULL DEFAULT datetime('now')"
+    ],
+    "principal_pending": [
+      "provider TEXT NOT NULL PK",
+      "external_id TEXT NOT NULL PK",
+      "display_name TEXT NOT NULL DEFAULT ''",
+      "email TEXT NOT NULL DEFAULT ''",
+      "last_seen TEXT NOT NULL DEFAULT datetime('now')"
     ],
     "principals": [
       "id TEXT PK",
@@ -531,6 +556,8 @@
     "idx_bindings_node ON bindings: CREATE INDEX idx_bindings_node ON bindings (agent_node, revoked_at)",
     "idx_bindings_target ON bindings: CREATE INDEX idx_bindings_target ON bindings (target_type, target_slug, revoked_at)",
     "idx_change_requests_status ON change_requests: CREATE INDEX idx_change_requests_status ON change_requests (status, created_at)",
+    "idx_login_states_expires ON login_states: CREATE INDEX idx_login_states_expires ON login_states (expires_at)",
+    "idx_market_sessions_principal ON market_sessions: CREATE INDEX idx_market_sessions_principal ON market_sessions (principal_id, expires_at)",
     "idx_mcp_access_requests_session ON mcp_access_requests: CREATE INDEX idx_mcp_access_requests_session ON mcp_access_requests (session_id, created_at)",
     "idx_mcp_access_requests_status ON mcp_access_requests: CREATE INDEX idx_mcp_access_requests_status ON mcp_access_requests (status, id)",
     "idx_mcp_calls_session ON mcp_calls: CREATE INDEX idx_mcp_calls_session ON mcp_calls (session_name, at)",

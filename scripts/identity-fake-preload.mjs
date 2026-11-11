@@ -12,5 +12,7 @@ if (process.env.NODE_ENV !== 'test') {
   console.error('[identity-fake-preload] 拒绝加载：这是测试夹具，只在 NODE_ENV=test 下可用');
   process.exit(1);
 }
-const { swapInFake } = await import('./identity-fake-provider.mjs');
-await swapInFake(process.env.IDENTITY_SEAM_ROOT || join(dirname(fileURLToPath(import.meta.url)), '..'));
+const { swapInFake, untrustedFlowPlugin } = await import('./identity-fake-provider.mjs');
+const tree = await swapInFake(process.env.IDENTITY_SEAM_ROOT || join(dirname(fileURLToPath(import.meta.url)), '..'));
+// 点名才装：一个打开了按邮箱自动对上、却从不确认邮箱来自本组织的假登录方式（测核心那一道「邮箱可信」检查）
+if (process.env.IDENTITY_FAKE_UNTRUSTED_FLOW === '1') await tree.root.plugin(untrustedFlowPlugin);

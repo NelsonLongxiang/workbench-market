@@ -84,6 +84,9 @@ export function comparisonKey(value: string): string {
   throw new Error('规范化不收敛');
 }
 
+/** 待对接清单保留几天：过了这么久没再来的清掉 */
+export const PENDING_DAYS = 30;
+
 /** 列表和详情交出去的列：比较用的规范化值不交出去 */
 const COLUMNS = 'id, kind, display_name, owner, status, status_changed_at, status_changed_by, status_reason, created_at';
 
@@ -171,4 +174,111 @@ export class PrincipalService extends Service implements PrincipalDirectory {
     const principal = this.get(id);
     return principal ? { changed, principal } : null;
   }
+
+  /**
+   * 管理员对一次：把一条外部身份绑到一个人身上。
+   *   · 外部身份已经绑在别处（原值，或者规范化之后等价的写法）：不改，回 conflict，要先解绑——不让一步就把别人的身份挪走；
+   *   · create 为真时目标主体不存在就新建一个人（标识按规范化之后不能和已有的撞）；不为真时目标必须已经在；
+   *   · 只能绑到人身上，而且这个人是启用的。
+   * 返回 bound（绑上了）或者说明为什么没绑。不抛错的情形都在返回值里；入参形状不对才抛。
+   */
+  bindIdentity(input: { provider: string; externalId: string; principal: string; create?: boolean; displayName?: string | null }):
+    { ok: true; principal: PrincipalView; created: boolean } | { ok: false; reason: 'conflict' | 'missing' | 'not-person' | 'disabled' | 'taken'; principal?: string } {
+    const { provider, externalId, principal } = input ?? ({} as never);
+    if (!providerOk(provider) || !externalIdOk(externalId) || typeof principal !== 'string' || !/^user:./.test(principal) || !externalIdOk(principal.slice(5))) throw new Error('绑定的形状不对');
+    const externalKey = comparisonKey(externalId), idKey = comparisonKey(principal);
+    if (!externalKey) throw new Error('外部身份规范化之后是空的');
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const out = ((): ReturnType<PrincipalService['bindIdentity']> => {
+        const held = db.prepare('SELECT principal_id FROM principal_identities WHERE provider = ? AND (external_id = ? OR external_key = ?)').get(provider, externalId, externalKey) as { principal_id: string } | undefined;
+        if (held) return { ok: false, reason: 'conflict', principal: held.principal_id };
+        let target = db.prepare('SELECT id, kind, status FROM principals WHERE id = ?').get(principal) as Bound | undefined;
+        let created = false;
+        if (!target) {
+          if (!input.create) return { ok: false, reason: 'missing' };
+          const clash = db.prepare('SELECT id FROM principals WHERE id_key = ?').get(idKey) as { id: string } | undefined;
+          if (clash) return { ok: false, reason: 'taken', principal: clash.id };
+          db.prepare("INSERT INTO principals (id, id_key, kind, display_name) VALUES (?, ?, 'person', ?)").run(principal, idKey, text(input.displayName, 256));
+          target = { id: principal, kind: 'person', status: 'active' };
+          created = true;
+        }
+        if (target.kind !== 'person') return { ok: false, reason: 'not-person' };
+        if (target.status !== 'active') return { ok: false, reason: 'disabled' };
+        db.prepare('INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES (?, ?, ?, ?)').run(provider, externalId, externalKey, principal);
+        db.prepare('DELETE FROM principal_pending WHERE provider = ? AND external_id = ?').run(provider, externalId);
+        return { ok: true, principal: this.get(principal)!, created };
+      })();
+      db.exec(out.ok ? 'COMMIT' : 'ROLLBACK');
+      return out;
+    } catch (e) {
+      try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ }
+      throw e;
+    }
+  }
+
+  /** 解绑一条外部身份（按原值精确匹配）。返回它原来绑在谁身上；没有这一条为 null */
+  unbindIdentity(provider: string, externalId: string): string | null {
+    if (!providerOk(provider) || !externalIdOk(externalId)) throw new Error('外部身份的形状不对');
+    const row = db.prepare('DELETE FROM principal_identities WHERE provider = ? AND external_id = ? RETURNING principal_id').get(provider, externalId) as { principal_id: string } | undefined;
+    return row?.principal_id ?? null;
+  }
+
+
+  /** 登录方式用：只认已经绑定的外部身份（原值精确匹配），没绑定的不新建，回 unbound */
+  admitBound(identity: { provider: string; externalId: string }): Admission {
+    const provider = identity?.provider, externalId = identity?.externalId;
+    if (!providerOk(provider) || !externalIdOk(externalId)) throw new Error('外部身份的形状不对');
+    const b = this.boundTo(provider, externalId);
+    if (!b || b.kind !== 'person') return { ok: false, reason: 'unbound' };
+    return b.status === 'active' ? { ok: true, principal: b.id } : { ok: false, reason: 'disabled' };
+  }
+
+  /**
+   * 按邮箱自动对上（登录方式的开关打开时才调）：在 against 这个提供方的外部身份里找规范化之后和邮箱相等的，
+   * 恰好一条、它的主体是启用的人、那个主体还没有这个提供方的别的身份、这条新身份（含等价写法）还没绑在任何地方，才绑上；
+   * 否则回 unbound，不绑（调用方照「等管理员对接」走）。
+   */
+  bindByEmail(input: { provider: string; externalId: string; email: string; against: string }): Admission {
+    const { provider, externalId, email, against } = input ?? ({} as never);
+    if (!providerOk(provider) || !externalIdOk(externalId) || !providerOk(against) || typeof email !== 'string' || !email.includes('@') || email.length > 320) return { ok: false, reason: 'unbound' };
+    const emailKey = comparisonKey(email.trim()), externalKey = comparisonKey(externalId);
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const hits = db.prepare(`SELECT p.id AS id, p.kind AS kind, p.status AS status FROM principal_identities i JOIN principals p ON p.id = i.principal_id
+        WHERE i.provider = ? AND i.external_key = ?`).all(against, emailKey) as Bound[];
+      const held = db.prepare('SELECT 1 FROM principal_identities WHERE provider = ? AND (external_id = ? OR external_key = ?)').get(provider, externalId, externalKey);
+      let out: Admission = { ok: false, reason: 'unbound' };
+      const already = hits.length === 1 ? db.prepare('SELECT 1 FROM principal_identities WHERE principal_id = ? AND provider = ?').get(hits[0].id, provider) : null;
+      if (hits.length === 1 && hits[0].kind === 'person' && hits[0].status === 'active' && !held && !already) {
+        db.prepare('INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES (?, ?, ?, ?)').run(provider, externalId, externalKey, hits[0].id);
+        db.prepare('DELETE FROM principal_pending WHERE provider = ? AND external_id = ?').run(provider, externalId);
+        out = { ok: true, principal: hits[0].id };
+      }
+      db.exec('COMMIT');
+      return out;
+    } catch (e) {
+      try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ }
+      throw e;
+    }
+  }
+
+  /**
+   * 记一笔「等管理员对接」：登录方式认出了人，却还没对到主体。只记认人需要的最少信息（对方的用户标识、显示名、企业邮箱）
+   * 和最近一次来的时间；同一个人再来只更新这几样。保留 PENDING_DAYS 天，过期的随手清掉。
+   */
+  notePending(input: { provider: string; externalId: string; displayName: string | null; email: string | null }): void {
+    if (!providerOk(input?.provider) || !externalIdOk(input?.externalId)) return;
+    db.prepare(`DELETE FROM principal_pending WHERE last_seen < datetime('now', '-${PENDING_DAYS} days')`).run();
+    db.prepare(`INSERT INTO principal_pending (provider, external_id, display_name, email) VALUES (?, ?, ?, ?)
+      ON CONFLICT(provider, external_id) DO UPDATE SET display_name = excluded.display_name, email = excluded.email, last_seen = datetime('now')`)
+      .run(input.provider, input.externalId, text(input.displayName, 256), text(input.email, 320));
+  }
+
+  /** 等管理员对接的清单，最近来过的在前。过期的先清掉，不交出去 */
+  pending(): { provider: string; external_id: string; display_name: string; email: string; last_seen: string }[] {
+    db.prepare(`DELETE FROM principal_pending WHERE last_seen < datetime('now', '-${PENDING_DAYS} days')`).run();
+    return db.prepare('SELECT provider, external_id, display_name, email, last_seen FROM principal_pending ORDER BY last_seen DESC, provider, external_id LIMIT 500').all() as never;
+  }
+
 }

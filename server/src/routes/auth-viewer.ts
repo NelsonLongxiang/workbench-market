@@ -7,7 +7,7 @@
  */
 import type express from 'express';
 import type { HttpService } from '../http.ts';
-import { identity } from '../identity.ts';
+import { identity, loginRelay } from '../identity.ts';
 
 /** 从 index.ts 传进来的：异步处理函数的包装、登录入口地址（别的路由也用）。 */
 export interface AuthViewerDeps {
@@ -21,6 +21,6 @@ export function registerAuthViewerRoutes(app: HttpService, deps: AuthViewerDeps)
     const r = await identity().whoami(String(req.headers.cookie ?? ''));
     res.setHeader('Cache-Control', 'private, no-store');
     // #279：未登录时带登录入口（顶栏 chip 复用 #277 弹窗流；中继页只认白名单 return，这里固定 /tasks）
-    res.status(r.http).json(r.http === 401 ? { ...r.body, login_url: odooLoginUrl(req, '/tasks') } : (r.http === 200 || r.http === 403) && process.env.WM_ODOO_LOGIN_PROXY === '1' ? { ...r.body, odoo_logout_supported: true } : r.body);
+    res.status(r.http).json(r.http === 401 ? { ...r.body, login_url: odooLoginUrl(req, '/tasks') } : (r.http === 200 || r.http === 403) && loginRelay().relayLogin() ? { ...r.body, odoo_logout_supported: true } : r.body);
   }));
 }

@@ -91,7 +91,9 @@ async function boot(name, extraEnv = {}, dataOf = null) {
   if (!ready) {
     await stop();
     // 启动自检有行没过，实例自己拒绝启动：这是一项检查没过（不安全的启动被拦下了），不是脚本没跑成
-    const refused = [...log.matchAll(/"source":"self-probe","id":"([^"]+)"[^}]*"verdict":"fail"/g)].map((m) => m[1]);
+    // 只认「应答不对」的那种失败；超时、面没在听是机器忙或者端口的事，按没跑成处理（变异测试会重跑一次），不能算成一项检查没过
+    const rows = [...log.matchAll(/"source":"self-probe","id":"([^"]+)"[^}]*"verdict":"fail"[^}]*"reason":"([^"]*)"/g)];
+    const refused = rows.filter((m) => m[2] === 'unexpected-status-or-challenge').map((m) => m[1]);
     const error = new Error(`隔离实例 ${name} 没起来：${log.trim().split('\n').slice(-4).join(' | ') || '没有输出'}`);
     if (refused.length) error.selfProbe = [...new Set(refused)];
     throw error;
@@ -375,6 +377,31 @@ async function principalChecks(srv, tag, relay) {
     const leaked = seen.filter(([, , o]) => !o || o.viewer === undefined || !refusedEverywhere(o)).map(([label, state, o]) => `${label}/${state}：${show(o)}`);
     check(leaked.length === 0 && extra.length === 0 && stillOff.viewer === 403 && fine(await observe(srv, SESSIONS.alpha), 'alpha'),
       `${tag}主体⑫·登录名只差大小写（含大写 ẞ）、全角、夹零宽字符：不另建主体；启用和停用时都不认（停用绕不过去）；对照：alpha 恢复后照常`, `${leaked.join('；')} 多出来的主体：${show(extra)}`);
+  }
+  // ⑬ 管理员对一次外部身份：只有管理员能做；不能动自己名下的；解绑立即不认；绑上之后登录就是那个主体
+  {
+    const bindReq = (body, by = TOKEN, sid = null) => srv.call('POST', '/api/principals/bind', sid, body, by);
+    const unbindReq = (body, by = TOKEN, sid = null) => srv.call('POST', '/api/principals/unbind', sid, body, by);
+    const [anon, staff, cross] = await Promise.all([
+      bindReq({ provider: 'fake', external_id: 'beta', principal: 'user:alpha' }, {}), bindReq({ provider: 'fake', external_id: 'beta', principal: 'user:alpha' }, {}, SESSIONS.alpha),
+      unbindReq({ provider: 'fake', external_id: 'beta' }, { ...TOKEN, 'sec-fetch-site': 'cross-site', origin: 'http://attacker.invalid' })]);
+    const toSelf = await bindReq({ provider: 'fake', external_id: 'someone-new', principal: 'user:root-admin', create: false }, {}, SESSIONS.admin);
+    const unbindSelf = await unbindReq({ provider: 'fake', external_id: 'root-admin' }, {}, SESSIONS.admin);
+    const steal = await bindReq({ provider: 'fake', external_id: 'beta', principal: 'user:alpha' });
+    const betaStill = await observe(srv, SESSIONS.beta);
+    check(anon.status === 403 && staff.status === 403 && cross.status === 403 && toSelf.status === 409 && unbindSelf.status === 409 && steal.status === 409 && steal.json?.reason === 'conflict' && fine(betaStill, 'beta'),
+      `${tag}主体⑬·对一次外部身份：没登录、普通员工、跨站的请求 403；管理员往自己身上绑、解绑自己的 409；已经绑着的不能直接改绑（409），beta 照常`, show({ anon: anon.status, staff: staff.status, cross: cross.status, toSelf: toSelf.status, unbindSelf: unbindSelf.status, steal: steal.status }));
+    const off = await unbindReq({ provider: 'fake', external_id: 'beta', reason: '合成：改绑' });
+    const unbound = await observe(srv, SESSIONS.beta);
+    const moved = await bindReq({ provider: 'fake', external_id: 'beta', principal: 'user:alpha', reason: '合成：改绑' });
+    const asAlpha = await srv.call('GET', '/api/auth/viewer', SESSIONS.beta);
+    await unbindReq({ provider: 'fake', external_id: 'beta' });
+    const back = await bindReq({ provider: 'fake', external_id: 'beta', principal: 'user:beta' });
+    const betaBack = await observe(srv, SESSIONS.beta);
+    const lines = srv.log().split('\n').filter((l) => l.includes('"source":"principals"') && (l.includes('"event":"bind"') || l.includes('"event":"unbind"')));
+    check(off.status === 200 && off.json?.unbound_from === 'user:beta' && unbound.viewer === 403 && unbound.tasks === 403 && unbound.ext === false
+      && moved.status === 200 && asAlpha.json?.viewer?.sub === 'user:alpha' && asAlpha.json?.viewer?.login === 'beta' && back.status === 200 && fine(betaBack, 'beta') && lines.length === 4 && lines.every((l) => l.includes('"by":"admin-token"')),
+      `${tag}主体⑬·解绑 beta → 立即不认（403）；绑到 alpha 上 → 从 beta 登录就是 user:alpha；绑回去 → 照常；每次绑定、解绑写一行日志`, show({ off: off.status, unbound: unbound.viewer, moved: moved.status, sub: asAlpha.json?.viewer?.sub, back: back.status, lines: lines.length }));
   }
   // ⑪ 授权跟着主体走，不跟着登录名走：把 beta 这个外部身份改绑到 alpha 的主体上，它就是 user:alpha，读得到授权给 user:alpha 的 run 私有值
   {

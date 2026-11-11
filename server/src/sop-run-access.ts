@@ -27,9 +27,9 @@ export function createSopRunAccess(deps:Deps) {
   const secret=randomBytes(32), records=new Map<string,CapRecord>(), sessions=new Map<string,{epoch:number;generation:number;subject:string|null}>();
   const mac=(s:string)=>createHmac('sha256',secret).update(s).digest('base64url');
   const cookieKey=(cookie:string) => {
-    const parts=cookie.split(';').map(x=>x.trim()).filter(x=>x.startsWith('session_id='));
-    if(parts.length!==1 || !/^session_id=[A-Za-z0-9_.=-]{16,512}$/.test(parts[0])) return deny();
-    return {cookie:parts[0],key:mac(parts[0])}; // reference is process-local and never projected
+    const sole=loginRelay().soleSession(cookie); // exactly one well-formed session entry, shape owned by the login provider
+    if(!sole) return deny();
+    return {cookie:sole,key:mac(sole)}; // reference is process-local and never projected
   };
   const binding=(runId:number)=>db.prepare('SELECT * FROM sop_run_access WHERE run_id=?').get(runId) as Binding|undefined;
   function metadata(runId:number,targetId:number) {

@@ -176,6 +176,50 @@ try {
     check(bob2.ok === true && bob2.principal === 'user:alice2', '对照：alice2 是另一个人，照常建');
   }
 
+  // ---------- 四之三、管理员对一次：绑定与解绑 ----------
+  {
+    const bind = (x) => { try { return principals.bindIdentity(x); } catch (e) { return { threw: String(e?.message ?? e) }; } };
+    // 变体写法先登录、把本人挡在外面：Kim 先来建了 user:Kim，kim 本人被拒。
+    // 等价写法在同一个提供方下只能有一条，所以先解绑旧的那条，再把新写法绑到原来那个主体上（同一个账号改了大小写），或者绑到一个新的人身上
+    const squat = principals.admit({ provider: 'fake', externalId: 'Kim', displayName: null });
+    const blocked = principals.admit({ provider: 'fake', externalId: 'kim', displayName: null });
+    const direct = bind({ provider: 'fake', externalId: 'kim', principal: 'user:Kim' });
+    const taken = bind({ provider: 'other', externalId: 'kim', principal: 'user:kim', create: true });
+    const was = principals.unbindIdentity('fake', 'Kim');
+    const moved = bind({ provider: 'fake', externalId: 'kim', principal: 'user:Kim' });
+    const after = principals.admit({ provider: 'fake', externalId: 'kim', displayName: null });
+    const oldSpelling = principals.admit({ provider: 'fake', externalId: 'Kim', displayName: null });
+    check(squat.ok && blocked.ok === false && direct.ok === false && direct.reason === 'conflict' && taken.ok === false && taken.reason === 'taken' && taken.principal === 'user:Kim'
+      && was === 'user:Kim' && moved.ok === true && moved.created === false && after.ok === true && after.principal === 'user:Kim' && oldSpelling.ok === false,
+      '变体写法挡住了本人：直接绑等价写法 conflict、新建等价标识 taken；先解绑旧写法再绑新写法，本人登录对到原来的主体，旧写法不再认', JSON.stringify({ squat, blocked, direct, taken, was, moved, after, oldSpelling }));
+    const fresh = bind({ provider: 'other', externalId: 'kim-2', principal: 'user:kim.real', create: true, displayName: 'Kim (real)' });
+    check(fresh.ok === true && fresh.created === true && principals.get('user:kim.real').display_name === 'Kim (real)' && principals.admit({ provider: 'other', externalId: 'kim-2', displayName: null }).principal === 'user:kim.real',
+      '绑到一个新的人身上（create）：新建并绑上，从那条身份登录对到它', JSON.stringify(fresh));
+    // 已经绑在别人身上（原值或等价写法）：不改，要先解绑
+    const steal = bind({ provider: 'fake', externalId: 'kim', principal: 'user:alice' });
+    const stealVariant = bind({ provider: 'fake', externalId: 'KIM', principal: 'user:alice' });
+    check(steal.ok === false && steal.reason === 'conflict' && steal.principal === 'user:Kim' && stealVariant.ok === false && stealVariant.reason === 'conflict'
+      && principals.admit({ provider: 'fake', externalId: 'kim', displayName: null }).principal === 'user:Kim', '绑在别人身上的外部身份（含等价写法）：不能直接改绑（conflict），原来的绑定不动', JSON.stringify({ steal, stealVariant }));
+    // 目标的各种不行
+    principals.setStatus('user:alice', 'disabled', 'cli', '');
+    const toDisabled = bind({ provider: 'other', externalId: 'alice-feishu', principal: 'user:alice' });
+    principals.setStatus('user:alice', 'active', 'cli', '');
+    const toMissing = bind({ provider: 'other', externalId: 'ghost', principal: 'user:nobody-here' });
+    const toSeat = bind({ provider: 'other', externalId: 'x1', principal: 'seat:robot' });
+    const shapes = [{}, { provider: 'Bad', externalId: 'x', principal: 'user:a' }, { provider: 'p', externalId: ' x', principal: 'user:a' }, { provider: 'p', externalId: 'x', principal: 'alice' }, { provider: 'p', externalId: 'x', principal: 'user:' }].map(bind);
+    check(toDisabled.reason === 'disabled' && toMissing.reason === 'missing' && toSeat.threw && shapes.every((x) => x.threw) && principals.get('user:nobody-here') === null,
+      '绑到停用的人 disabled、不存在的人 missing（不带 create 不新建）、不是人或形状不对抛错', JSON.stringify({ toDisabled, toMissing, toSeat, shapes }));
+    // 一个人可以有多条外部身份：飞书那一条绑到已有的 alice 上
+    const feishu = bind({ provider: 'feishu', externalId: 'on_0123456789abcdef', principal: 'user:alice' });
+    const viaFeishu = principals.admit({ provider: 'feishu', externalId: 'on_0123456789abcdef', displayName: null });
+    check(feishu.ok === true && feishu.created === false && viaFeishu.ok === true && viaFeishu.principal === 'user:alice' && principals.get('user:alice').identities.some((i) => i.provider === 'feishu'),
+      '把另一个提供方的身份绑到已有的人身上：从那边登录对到同一个主体', JSON.stringify({ feishu, viaFeishu }));
+    // 解绑：立即不认；再来就是没见过的身份，按规则走
+    const unbound = principals.unbindIdentity('feishu', 'on_0123456789abcdef');
+    const none = principals.unbindIdentity('feishu', 'on_0123456789abcdef');
+    check(unbound === 'user:alice' && none === null && !principals.get('user:alice').identities.some((i) => i.provider === 'feishu'), '解绑：返回原来绑在谁身上，再解一次说没有');
+  }
+
   // ---------- 五、入参的形状 ----------
   {
     const bad = [null, undefined, {}, { provider: 'fake' }, { provider: '', externalId: 'x' }, { provider: 'Fake', externalId: 'x' }, { provider: 'fa ke', externalId: 'x' }, { provider: 5, externalId: 'x' },

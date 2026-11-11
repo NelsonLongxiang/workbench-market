@@ -1,0 +1,189 @@
+{
+  "domain": "login-flows",
+  "what": "登录方式：/login/<方式> 和 /login/<方式>/callback 的 2 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /login/:flow", "GET /login/:flow/callback"],
+  "exempt": [{ "route": "GET /login/:flow", "class": "unauthorized", "why": "发起登录本来就是给还没登录的人用的，不查身份，没有未授权这一类", "shown_by": "feishu/start" }],
+  "scenarios": [
+    {
+      "name": "off",
+      "what": "缺省配置：飞书登录没打开。",
+      "env": {},
+      "steps": [
+        {
+          "id": "start-unknown",
+          "route": "GET /login/:flow",
+          "class": "invalid",
+          "what": "没有这个登录方式",
+          "request": { "method": "GET", "path": "/login/feishu?next=/tasks" },
+          "response": {
+            "status": 404,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "210", "content-security-policy": "default-src 'none'; frame-ancestors 'none'", "etag": "W/\"d2-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>没有这个登录方式</title><h1>没有这个登录方式</h1><p>请回到登录页选一种可用的登录方式。</p><p><a href=\"/login\">回到登录页</a></p>"
+          }
+        },
+        {
+          "id": "start-bad-name",
+          "route": "GET /login/:flow",
+          "class": "invalid",
+          "what": "名字不合格",
+          "request": { "method": "GET", "path": "/login/Feishu!?next=/" },
+          "response": {
+            "status": 404,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "210", "content-security-policy": "default-src 'none'; frame-ancestors 'none'", "etag": "W/\"d2-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>没有这个登录方式</title><h1>没有这个登录方式</h1><p>请回到登录页选一种可用的登录方式。</p><p><a href=\"/login\">回到登录页</a></p>"
+          }
+        },
+        {
+          "id": "callback-forged",
+          "route": "GET /login/:flow/callback",
+          "class": "invalid",
+          "what": "state 是编的",
+          "request": { "method": "GET", "path": "/login/feishu/callback?state=replaystate-alice-0000000000000000000000000&code=x" },
+          "response": {
+            "status": 400,
+            "type": "text/html; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "204",
+              "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
+              "etag": "W/\"cc-<指纹>\"",
+              "set-cookie": ["wm_login_state=; Path=/login/feishu/callback; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin",
+              "x-frame-options": "DENY",
+              "x-powered-by": "Express"
+            },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>登录请求无效或已过期</title><h1>登录请求无效或已过期</h1><p>请回到登录页重新登录。</p><p><a href=\"/login\">回到登录页</a></p>"
+          }
+        }
+      ]
+    },
+    {
+      "name": "feishu",
+      "what": "飞书登录打开，指向本机的假飞书（夹具 feishu-fake）。库里预先放好两个 state（只存哈希）、alice 的飞书身份绑在 user:alice 上；bob 没对到主体。",
+      "env": {},
+      "fixtures": ["feishu-fake"],
+      "seed": [
+        { "table": "principals", "row": { "id": "user:alice", "id_key": "user:alice", "kind": "person", "display_name": "Synthetic Alice" } },
+        { "table": "principal_identities", "row": { "provider": "feishu", "external_id": "on_616c6963652e2e2e2e2e2e2e2e2e2e2e", "external_key": "on_616c6963652e2e2e2e2e2e2e2e2e2e2e", "principal_id": "user:alice" } },
+        {
+          "table": "login_states",
+          "row": { "state_sha256": "7da0cebb461e8cb090113bcc9f355225f3f9d9ba03a43826c776eafeae658748", "flow": "feishu", "next": "/tasks", "browser_sha256": "45a9fa3eb94153b4103e6b69a0553de16777344cf4091d9e74b42130377d1660", "source": "seed", "created_at": 0, "expires_at": 4102444800000 }
+        },
+        {
+          "table": "login_states",
+          "row": { "state_sha256": "97c2af2d97f9153712264517b915ad749dbe012d8a13f2b9c0bf6c310744ce65", "flow": "feishu", "next": "/", "browser_sha256": "45a9fa3eb94153b4103e6b69a0553de16777344cf4091d9e74b42130377d1660", "source": "seed", "created_at": 0, "expires_at": 4102444800000 }
+        }
+      ],
+      "steps": [
+        {
+          "id": "start",
+          "route": "GET /login/:flow",
+          "class": "normal",
+          "what": "发起：302 去假飞书的授权页（state 每次随机，只比状态码）",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/login/feishu?next=/tasks" },
+          "response": { "status": 302 }
+        },
+        {
+          "id": "start-next-outside",
+          "route": "GET /login/:flow",
+          "class": "normal",
+          "what": "next 是外站：照样发起，回来时落到 /（只比状态码）",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/login/feishu?next=//evil.invalid/x" },
+          "response": { "status": 302 }
+        },
+        {
+          "id": "start-unknown",
+          "route": "GET /login/:flow",
+          "class": "invalid",
+          "what": "没有这个登录方式",
+          "request": { "method": "GET", "path": "/login/wechat?next=/" },
+          "response": {
+            "status": 404,
+            "type": "text/html; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "210", "content-security-policy": "default-src 'none'; frame-ancestors 'none'", "etag": "W/\"d2-<指纹>\"", "vary": "Origin", "x-frame-options": "DENY", "x-powered-by": "Express" },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>没有这个登录方式</title><h1>没有这个登录方式</h1><p>请回到登录页选一种可用的登录方式。</p><p><a href=\"/login\">回到登录页</a></p>"
+          }
+        },
+        {
+          "id": "callback-wrong-browser",
+          "route": "GET /login/:flow/callback",
+          "class": "invalid",
+          "what": "state 对、浏览器半边不对",
+          "request": { "method": "GET", "path": "/login/feishu/callback?state=replaystate-alice-0000000000000000000000000&code=replay-code-alice", "headers": { "cookie": "wm_login_state=other-browser-000000000000000000000000000" } },
+          "response": {
+            "status": 400,
+            "type": "text/html; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "204",
+              "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
+              "etag": "W/\"cc-<指纹>\"",
+              "set-cookie": ["wm_login_state=; Path=/login/feishu/callback; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin",
+              "x-frame-options": "DENY",
+              "x-powered-by": "Express"
+            },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>登录请求无效或已过期</title><h1>登录请求无效或已过期</h1><p>请回到登录页重新登录。</p><p><a href=\"/login\">回到登录页</a></p>"
+          }
+        },
+        {
+          "id": "callback-bob",
+          "route": "GET /login/:flow/callback",
+          "class": "unauthorized",
+          "what": "bob 还没对到主体：等管理员处理（403）",
+          "request": { "method": "GET", "path": "/login/feishu/callback?state=replaystate-bob-000000000000000000000000000&code=replay-code-bob", "headers": { "cookie": "wm_login_state=replaybrowser-00000000000000000000000000000" } },
+          "response": {
+            "status": 403,
+            "type": "text/html; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "210",
+              "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
+              "etag": "W/\"d2-<指纹>\"",
+              "set-cookie": ["wm_login_state=; Path=/login/feishu/callback; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin",
+              "x-frame-options": "DENY",
+              "x-powered-by": "Express"
+            },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>等管理员处理</title><h1>等管理员处理</h1><p>你的账号现在还不能登录本站，请联系管理员。</p><p><a href=\"/login\">回到登录页</a></p>"
+          }
+        },
+        {
+          "id": "callback-alice",
+          "route": "GET /login/:flow/callback",
+          "class": "normal",
+          "what": "alice：发市场会话，302 回 /tasks（会话值每次随机，只比状态码）",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/login/feishu/callback?state=replaystate-alice-0000000000000000000000000&code=replay-code-alice", "headers": { "cookie": "wm_login_state=replaybrowser-00000000000000000000000000000" } },
+          "response": { "status": 302 }
+        },
+        {
+          "id": "callback-replay",
+          "route": "GET /login/:flow/callback",
+          "class": "invalid",
+          "what": "同一个 state 再用一次",
+          "request": { "method": "GET", "path": "/login/feishu/callback?state=replaystate-alice-0000000000000000000000000&code=replay-code-alice", "headers": { "cookie": "wm_login_state=replaybrowser-00000000000000000000000000000" } },
+          "response": {
+            "status": 400,
+            "type": "text/html; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "204",
+              "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
+              "etag": "W/\"cc-<指纹>\"",
+              "set-cookie": ["wm_login_state=; Path=/login/feishu/callback; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin",
+              "x-frame-options": "DENY",
+              "x-powered-by": "Express"
+            },
+            "body": "<!doctype html><meta charset=\"utf-8\"><title>登录请求无效或已过期</title><h1>登录请求无效或已过期</h1><p>请回到登录页重新登录。</p><p><a href=\"/login\">回到登录页</a></p>"
+          }
+        }
+      ]
+    }
+  ]
+}

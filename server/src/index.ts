@@ -36,6 +36,7 @@ import { registerSettingsRoutes } from './routes/settings.ts';
 import { registerAdminTokenRoutes } from './routes/admin-token.ts';
 import { registerBindingRoutes } from './routes/bindings.ts';
 import { registerExportImportRoutes } from './routes/export-import.ts';
+import { registerLoginFlowRoutes } from './routes/login-flows.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import { SkillService } from './services/skill.ts';
@@ -73,6 +74,13 @@ if (!LOGIN_GATE_MODE) {
   console.error('[login-gate] 拒绝启动：WM_LOGIN_GATE 只接受 enforce / off / 不设（当前值无法识别，不按关处理）');
   process.exit(1);
 }
+// 市场会话的绝对期限（WM_SESSION_TTL_MIN，分钟，缺省 720 = 12 小时，范围 15～10080）：启动时读一次，不合法拒绝启动。不续期
+const SESSION_TTL_MIN = (() => {
+  const raw = String(process.env.WM_SESSION_TTL_MIN ?? '').trim();
+  const n = raw === '' ? 720 : /^[0-9]{1,5}$/.test(raw) ? Number(raw) : NaN;
+  if (!Number.isInteger(n) || n < 15 || n > 10080) { console.error('[session] 拒绝启动：WM_SESSION_TTL_MIN 只接受 15～10080 的整数（分钟）'); process.exit(1); }
+  return n;
+})();
 const loginGateViewer = identity().cachedResolver({ ttlMs: 30_000, max: 2000 }); // 提供方的回答最多留 30 秒；主体停没停用每次现查
 const loginGate = createLoginGate({
   mode: LOGIN_GATE_MODE,
@@ -82,10 +90,11 @@ const loginGate = createLoginGate({
     ? createHash('sha256').update('env|' + process.env.ADMIN_TOKEN, 'utf8').digest('hex')
     : String((svc<SettingService>('setting').get(ADMIN_TOKEN_KEY) as { value: string } | undefined)?.value ?? ''),
   odooViewer: async (cookie, fresh) => {
-    if (!identity().configured()) return null;
+    if (!identity().configured() && !identity().hasSession(cookie)) return null; // 没配身份来源时，只有市场会话还可能认得出人
     const who = fresh ? await identity().resolveViewer(cookie) : await loginGateViewer(cookie); // 只认内部员工（门户账号 403）
-    return who.ok ? { login: who.viewer.login, admin: who.viewer.admin } : null;
+    return who.ok ? { login: who.viewer.login, admin: who.viewer.admin, ...(who.via === 'session' ? { via: 'session' as const } : {}) } : null;
   },
+  loginFlows: () => identity().flows(),
   appToken: (slug) => wmAppToken(slug),
   varsAppTokenOk: (req) => workbenchVars.appTokenWrite(req),
   runCapOk: async (kind, runId, presented) => {
@@ -131,7 +140,7 @@ if (contentCfg) {
 const contentRuntime = contentCfg ? createContentSurface(contentCfg, {
   async viewer(cookie) {
     // Reject duplicate SID instead of inheriting the legacy first-cookie ambiguity.
-    const values = cookie.split(';').map(s => s.trim()).filter(s => s.startsWith('session_id='));
+    const values = loginRelay().sessionEntries(cookie);
     if (values.length !== 1) return null;
     const result = await identity().resolveViewer(values[0], process.env.WM_CONTENT_ODOO_ORIGIN);
     return result.ok ? { subject: result.viewer.sub + ':' + result.viewer.uid, internal: true } : null;
@@ -334,7 +343,7 @@ async function odooAdminOf(cookieHeader: string): Promise<string | null> {
   if (!identity().credentialOf(cookieHeader)) return null;
   try {
     // Explicit relay logout revokes Odoo sessions; never reuse a stale admin verdict.
-    const who = process.env.WM_ODOO_LOGIN_PROXY === '1' ? await identity().resolveViewer(cookieHeader) : await odooAdminViewer(cookieHeader);
+    const who = loginRelay().relayLogin() ? await identity().resolveViewer(cookieHeader) : await odooAdminViewer(cookieHeader);
     return who.ok && who.viewer.admin ? who.viewer.login : null;
   } catch { return null; }
 }
@@ -2181,7 +2190,7 @@ registerContentObservationRoutes(http, { adminGuard, portalObserver });
 function odooLoginUrl(req: express.Request, returnPath: string): string | null {
   // 同域登录中继开着：登录入口就是本机 /web/login（中继只放行登录面、上游固定为 WM_ODOO_URL、redirect 只认白名单回跳页），
   // 不再依赖库里登记了 Odoo 台——否则部署方只能手工插一条假工作台才有登录入口
-  if (process.env.WM_ODOO_LOGIN_PROXY === '1' && loginRelay().sourceUrl()) return `/web/login?redirect=${encodeURIComponent(returnPath)}`;
+  if (loginRelay().relayLogin() && loginRelay().sourceUrl()) return `/web/login?redirect=${encodeURIComponent(returnPath)}`;
   let host = '';
   try { host = new URL(`http://${String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').split(',')[0].trim()}`).hostname.toLowerCase(); } catch { host = ''; }
   const odoo = listWorkbenches().filter((w) => w.enabled && /^https?:\/\//i.test(w.url) && loginRelay().isSessionTarget(w.url));
@@ -3041,6 +3050,7 @@ app.get('/api/health/ready', async (_req, res) => {
   res.json(result);
 });
 loginGate.mount(app); // /login、/api/auth/login|logout|me（解析器之后、SPA 回落之前）
+registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionTtlMs: SESSION_TTL_MIN * 60_000 }); // /login/<方式>、/login/<方式>/callback：飞书等发市场会话的登录
 
 // ---------- A2A 网络接入（GH #17 P1：签名卡片 + 人工绑定，只读暴露） ----------
 // 卡片：canonical/签名与上游 card.ts（裁判钉 75a3ebd）逐字节一致；sessionTeams 只列

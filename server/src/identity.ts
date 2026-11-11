@@ -31,7 +31,7 @@ import { loginProviders } from './login-providers/index.ts';
 export interface Viewer { login: string; uid: number; sub: string; name: string | null; admin: boolean }
 
 /** 认人的结果。认不出时 http 是该回给调用方的状态：401 没登录或会话失效，403 不是内部账号、主体已停用或对不到主体，502 身份来源不可达，503 没配置身份来源或主体目录不可用 */
-export type ViewerResult = { ok: true; viewer: Viewer } | { ok: false; http: number; error: string };
+export type ViewerResult = { ok: true; viewer: Viewer; via?: 'session' } | { ok: false; http: number; error: string };
 
 /** whoami 的应答（GET /api/auth/viewer 原样用它） */
 export type Whoami = { http: number; body: Record<string, unknown> };
@@ -124,6 +124,79 @@ function checked(answer: unknown): ViewerResult {
 }
 
 /** 身份服务（Cordis 服务名 `identity`）。字段不用 # 私有：Cordis 交出来的服务是一层代理 */
+// ---------- 市场自己的会话 ----------
+
+/** 市场会话的 cookie 名：市场自己的，不是哪一家登录的 */
+export const SESSION_COOKIE = 'wm_session';
+
+/** 会话存储：实现要开库，是 Cordis 服务 `loginSessions`（services/login-session.ts）；这里只有契约 */
+export interface SessionStore {
+  /** 这个会话现在还算不算数（在、没注销、没过期、主体是启用的人）；算数才返回 */
+  lookupSession(token: unknown): { principal: string; provider: string; externalId: string; displayName: string } | null;
+  /** 注销：立即失效 */
+  revokeSession(token: unknown): boolean;
+}
+
+/** 请求里的市场会话（同名多个按没有） */
+function sessionTokenOf(cookieHeader: string): string {
+  const hits = String(cookieHeader ?? '').split(';').map((x) => x.trim()).filter((x) => x.startsWith(`${SESSION_COOKIE}=`));
+  return hits.length === 1 ? hits[0].slice(SESSION_COOKIE.length + 1) : '';
+}
+
+// ---------- 登录方式（发会话的那一种登录，比如飞书） ----------
+
+/**
+ * 登录方式认出的人：对方的用户标识（飞书是 union_id），加显示名和对方给的企业邮箱（可能没有）。
+ * emailTrusted：插件确认了这个人来自本组织（比如核对过租户），邮箱才可以拿来自动对到已有的主体；不确定就是 false。
+ * outsider：插件确认这个人不是本组织的（比如租户不符）。这样的人只进待对接清单并留痕，拿不到会话，哪怕他的身份被绑过
+ */
+export type FlowIdentity = { externalId: string; displayName: string | null; email: string | null; emailTrusted: boolean; outsider: boolean };
+export type FlowBegin = { ok: true; location: string } | { ok: false; http: number; error: string };
+export type FlowComplete = { ok: true; identity: FlowIdentity } | { ok: false; http: number; error: string };
+
+/**
+ * 登录方式：插件实现它，登记到 identity 服务后面。只管和对方打交道的两步：
+ *   begin    发起：给出把浏览器送去对方授权页的地址（state、回调地址由核心给）；
+ *   complete 回调：拿回调带回来的参数去对方那边换出「这是谁」。
+ * state 的签发和核销、回到哪里（next）、对到主体、发会话、cookie，都是核心的事（routes/login-flows.ts），插件不碰。
+ */
+export interface LoginFlow {
+  /** 名字：路径 /login/<name>，也是外部身份表里的提供方名。小写字母、数字、连字符 */
+  readonly name: string;
+  /** 登录页按钮上的字 */
+  readonly label: string;
+  /** 配置齐了没有（只看配置，不去对方那边） */
+  available(): boolean;
+  /** 没对到主体的人，要不要按对方给的企业邮箱自动对到已有的主体上（显式开关，缺省关；见 routes/login-flows.ts） */
+  readonly autoBindByEmail?: boolean;
+  begin(input: { state: string; callbackUrl: string }): Promise<FlowBegin>;
+  complete(query: Record<string, string>, input: { callbackUrl: string }): Promise<FlowComplete>;
+}
+
+const FLOW_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
+/** 登录方式最多等对方这么久（发起、回调各算一次）。对方慢到这个地步，按不可用处理，不放行 */
+const FLOW_DEADLINE_MS = 15_000;
+const FLOW_UNAVAILABLE = '登录方式暂时不可用';
+const flowFail = (http: number, error: string) => ({ ok: false as const, http, error });
+/** 插件交回来的「这是谁」同样不照单全收：标识要合乎外部身份的形状，显示名、邮箱只收字符串 */
+function checkedFlowIdentity(answer: unknown): FlowComplete {
+  try {
+    const a = answer as { ok?: unknown; identity?: { externalId?: unknown; displayName?: unknown; email?: unknown; emailTrusted?: unknown }; http?: unknown; error?: unknown } | null | undefined;
+    if (a?.ok === true) {
+      const i = a.identity, externalId = i?.externalId, displayName = i?.displayName, email = i?.email;
+      if (!loginOk(externalId)) return flowFail(502, '登录方式交回的用户标识形状不对');
+      const emailTrusted = (i as { emailTrusted?: unknown }).emailTrusted, outsider = (i as { outsider?: unknown }).outsider;
+      // 拿不准的一律朝不放行的方向：emailTrusted 只认 true；outsider 只要不是 false 就当外人
+      return { ok: true, identity: { externalId, displayName: typeof displayName === 'string' ? displayName.slice(0, 256) : null, email: typeof email === 'string' && email.length <= 320 ? email : null, emailTrusted: emailTrusted === true && outsider === false, outsider: outsider !== false } };
+    }
+    if (a?.ok === false) {
+      const http = a.http, error = a.error;
+      if (typeof http === 'number' && Number.isInteger(http) && http >= 400 && http <= 599 && typeof error === 'string') return flowFail(http, error.slice(0, 200));
+    }
+  } catch { /* 读回答时抛错 */ }
+  return flowFail(502, FLOW_UNAVAILABLE);
+}
+
 export class IdentityService extends Service {
   private provider: LoginProvider | null = null;
   private deadlineMs = DEFAULT_DEADLINE_MS;
@@ -154,6 +227,47 @@ export class IdentityService extends Service {
     return this.provider?.name ?? null;
   }
 
+  private readonly flowsByName = new Map<string, LoginFlow>();
+
+  /** 登录方式插件登记自己，返回撤销函数。名字不能重复 */
+  registerFlow(flow: LoginFlow): () => void {
+    if (!flow || typeof flow.name !== 'string' || !FLOW_NAME.test(flow.name) || typeof flow.label !== 'string' || !flow.label
+      || typeof flow.available !== 'function' || typeof flow.begin !== 'function' || typeof flow.complete !== 'function') {
+      throw new Error('登录方式不符合契约：要有 name（小写字母、数字、连字符）、label、available()、begin()、complete()');
+    }
+    if (this.flowsByName.has(flow.name)) throw new Error(`登录方式 ${flow.name} 已经登记过了`);
+    this.flowsByName.set(flow.name, flow);
+    return () => { if (this.flowsByName.get(flow.name) === flow) this.flowsByName.delete(flow.name); };
+  }
+
+  /** 登记着、而且配置齐了的登录方式（登录页列按钮用） */
+  flows(): { name: string; label: string }[] {
+    const out: { name: string; label: string }[] = [];
+    for (const f of this.flowsByName.values()) { try { if (f.available() === true) out.push({ name: f.name, label: f.label }); } catch { /* 当没配 */ } }
+    return out;
+  }
+
+  /** 发起一个登录方式。没登记、没配齐、出错、到点没回答，都是 ok:false，不抛错 */
+  async beginFlow(name: string, input: { state: string; callbackUrl: string }): Promise<FlowBegin> {
+    const flow = this.flowsByName.get(name);
+    try { if (!flow || flow.available() !== true) return flowFail(404, '没有这个登录方式'); } catch { return flowFail(404, '没有这个登录方式'); }
+    try {
+      const a = await within(Promise.resolve(flow.begin(input)), FLOW_DEADLINE_MS) as { ok?: unknown; location?: unknown };
+      const location = a?.ok === true ? a.location : null;
+      if (typeof location === 'string' && /^https?:\/\//.test(location)) return { ok: true, location };
+    } catch { /* 下面按不可用 */ }
+    return flowFail(502, FLOW_UNAVAILABLE);
+  }
+
+  /** 回调：拿回调参数去对方那边认人。同样从不抛错，形状不对按认不出 */
+  async completeFlow(name: string, query: Record<string, string>, input: { callbackUrl: string }): Promise<FlowComplete> {
+    const flow = this.flowsByName.get(name);
+    try { if (!flow || flow.available() !== true) return flowFail(404, '没有这个登录方式'); } catch { return flowFail(404, '没有这个登录方式'); }
+    let answer: unknown;
+    try { answer = await within(Promise.resolve(flow.complete(query, input)), FLOW_DEADLINE_MS); } catch { return flowFail(502, FLOW_UNAVAILABLE); }
+    return checkedFlowIdentity(answer);
+  }
+
   /** 有没有配置身份来源。没装提供方、提供方答不上来，都算没有 */
   configured(): boolean {
     try { return this.provider?.configured() === true; } catch { return false; }
@@ -162,6 +276,72 @@ export class IdentityService extends Service {
   /** 请求带来的身份凭据（只取不验）。核心用它判断「值不值得去认人」和做缓存键，不用它认人 */
   credentialOf(cookieHeader: string): string {
     try { const c = this.provider?.credentialOf(cookieHeader); return typeof c === 'string' ? c : ''; } catch { return ''; }
+  }
+
+  /** 请求里带没带市场会话（只看有没有，不验） */
+  hasSession(cookieHeader: string): boolean {
+    return sessionTokenOf(cookieHeader) !== '';
+  }
+
+  /** 请求里有没有任何一种身份凭据：市场会话，或者身份来源的凭据。「值不值得去认人」用它 */
+  hasCredential(cookieHeader: string): boolean {
+    return sessionTokenOf(cookieHeader) !== '' || this.credentialOf(cookieHeader) !== '';
+  }
+
+  /** 会话存储（Cordis 服务 `loginSessions`）。没装上、形状不对，都当没有 */
+  private sessionStore(): SessionStore | null {
+    const s = this.ctx.get('loginSessions') as SessionStore | undefined;
+    return s && typeof s.lookupSession === 'function' && typeof s.revokeSession === 'function' ? s : null;
+  }
+
+  /**
+   * 市场会话认出的人。每次现查（会话在、没注销、没过期，主体是启用的人），不进任何缓存：停用、注销立即生效。
+   * 会话发出去的时候已经对到了主体，所以查看者的主体标识直接用会话记着的。管理员标记一律 false（角色和授予是阶段六的事）。
+   */
+  private sessionViewer(cookieHeader: string): ViewerResult | null {
+    const token = sessionTokenOf(cookieHeader);
+    if (!token) return null;
+    let rec: ReturnType<SessionStore['lookupSession']> = null;
+    try { rec = this.sessionStore()?.lookupSession(token) ?? null; } catch { rec = null; }
+    if (!rec || !personIdOk(rec.principal)) return null;
+    return { ok: true, via: 'session', viewer: { login: rec.principal.slice(5), uid: 0, sub: rec.principal, name: rec.displayName || null, admin: false } };
+  }
+
+  private readonly mismatchSeen = new Set<string>();
+
+  /**
+   * 两种会话同时带着、而且认出的不是同一个主体：按市场会话算，但留一行痕（两边各认成谁）。
+   * 不拖慢这次请求（后台去问身份来源）；同一对会话在本进程里只记一次。
+   */
+  private noteMismatch(cookieHeader: string, session: Viewer): void {
+    const credential = this.credentialOf(cookieHeader);
+    if (!credential) return;
+    const key = createHash('sha256').update(`${sessionTokenOf(cookieHeader)}\u0000${credential}`).digest('hex');
+    if (this.mismatchSeen.has(key)) return;
+    if (this.mismatchSeen.size > 5000) this.mismatchSeen.clear();
+    this.mismatchSeen.add(key);
+    void (async () => {
+      try {
+        const { provider, result } = await this.recognize(cookieHeader);
+        if (!provider || !result.ok) return;
+        const other = this.admitted(provider.name, result.viewer);
+        if (other.ok && other.viewer.sub !== session.sub) {
+          console.log(JSON.stringify({ source: 'identity', event: 'session-mismatch', session: session.sub, other: other.viewer.sub, provider: provider.name, at: new Date().toISOString() }));
+        }
+      } catch { /* 只是留痕，出错不影响认人 */ }
+    })();
+  }
+
+  /** 注销请求里的市场会话；返回它原来是不是有效的 */
+  endSession(cookieHeader: string): boolean {
+    const token = sessionTokenOf(cookieHeader);
+    if (!token) return false;
+    try { return this.sessionStore()?.revokeSession(token) === true; } catch { return false; }
+  }
+
+  /** 这个登录方式要不要按邮箱自动对上主体 */
+  flowAutoBindsByEmail(name: string): boolean {
+    try { return this.flowsByName.get(name)?.autoBindByEmail === true; } catch { return false; }
   }
 
   /** 提供方这一层：问提供方，把回答收成契约的形状。认出来的人还没有对到主体，不能直接交出去 */
@@ -175,6 +355,8 @@ export class IdentityService extends Service {
 
   /** 把请求带来的 cookie 认成查看者。从不抛错，也不会一直等：认不出、提供方出错、到点没回答、主体停用或对不上，都是 ok:false */
   async resolveViewer(cookieHeader: string, source?: string): Promise<ViewerResult> {
+    // 市场会话优先：有效就按它认，不再问身份来源（显式指定了身份来源地址的调用方除外，比如内容面）
+    if (source === undefined) { const fromSession = this.sessionViewer(cookieHeader); if (fromSession?.ok) { this.noteMismatch(cookieHeader, fromSession.viewer); return fromSession; } }
     const { provider, result } = await this.recognize(cookieHeader, source);
     return this.settled(provider, result);
   }
@@ -198,6 +380,8 @@ export class IdentityService extends Service {
     }
     const cache = new Map<string, { at: number; provider: LoginProvider; result: ViewerResult }>();
     return async (cookieHeader: string): Promise<ViewerResult> => {
+      const fromSession = this.sessionViewer(cookieHeader); // 市场会话不进缓存，每次现查
+      if (fromSession?.ok) { this.noteMismatch(cookieHeader, fromSession.viewer); return fromSession; }
       const credential = this.credentialOf(cookieHeader);
       if (!credential) return this.resolveViewer(cookieHeader);
       const key = createHash('sha256').update(credential).digest('hex');
@@ -253,6 +437,8 @@ export class IdentityService extends Service {
   /** 我是谁：登录探测和顶栏用户 chip 读它 */
   async whoami(cookieHeader: string): Promise<Whoami> {
     const who = await this.resolveViewer(cookieHeader);
+    // 市场会话认出的人：不看身份来源有没有配置
+    if (who.ok && who.via === 'session') return { http: 200, body: { ok: true, viewer: { ...who.viewer, kind: '人' }, roles: null } };
     // 没配置身份来源时登录也没用，所以不带 auth_required；说法用提供方自己的
     if (!this.configured()) return { http: 503, body: { ok: false, error: who.ok === false ? who.error : NO_PROVIDER } };
     if (who.ok === false) return { http: who.http, body: { ok: false, error: who.error, auth_required: who.http === 401 } };
@@ -290,6 +476,14 @@ export interface LoginRelay {
   /** 还在用已弃用的旧配置名吗：只设了旧名、新旧都设了、没用旧名。只用于启动提示 */
   legacyConfig(): 'only-old' | 'both' | null;
 
+  /** 同域登录中继开着没有（部署配置）。核心不再自己读这家登录的开关 */
+  relayLogin(): boolean;
+  /** 业务台会话的 cookie 名。核心不再写死它 */
+  sessionCookieName(): string;
+  /** 请求 Cookie 头里业务台会话的各项，原样（`名=值`），按出现顺序；同名多项都在 */
+  sessionEntries(cookieHeader: string): string[];
+  /** 恰好一项、而且值的形状合格时返回那一项（`名=值`），否则空串。严格的入口（内容面、SOP 字段通道）用它，不继承「多项取第一项」的旧歧义 */
+  soleSession(cookieHeader: string): string;
   /** 请求里的业务台会话（只取不验）；没有为空串 */
   sessionOf(cookieHeader: string): string;
   /** 就地剥掉转发请求里的业务台会话 */
