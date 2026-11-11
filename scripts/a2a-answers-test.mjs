@@ -215,7 +215,8 @@ try {
   console.log('二之三、进展回执 progress-<task>-<n>（PR-A）');
   {
     const P = seedEvent();
-    r = await receipt(P.task, '接下', { idempotencyKey: P.task, disposition: 'acknowledged' }, P.ctx, { inbound: `ack-${P.task}` });
+    r = await receipt(P.task, '接下', { idempotencyKey: P.task, disposition: 'acknowledged', by: { seat: 'lab/00000000', name: '总工' } }, P.ctx, { inbound: `ack-${P.task}` });
+    ok('确认回执带 by → 事项的承接席位记下（名字 · 句柄）', q('SELECT seat FROM work_items WHERE id = ?', `wi_${P.ev}`)[0]?.seat === '总工 · lab/00000000', JSON.stringify(q('SELECT seat FROM work_items WHERE id = ?', `wi_${P.ev}`)));
     const penv = (n, state, extra = {}) => ({ idempotencyKey: P.task, disposition: 'progress', by: { seat: 'lab/a1b2c3d4', name: '成员甲' },
       progress: { n, state, summary: `第 ${n} 步：${state}`, at: '2026-11-11T08:00:00.000Z' }, tickets: [{ id: 't1', title: '拆出来的一件', seat: 'lab/a1b2c3d4', state: 'working' }, { id: '', state: 'working' }, { id: 't2', state: 'bogus' }], ...extra });
     const before = state(P.ev)?.state;
@@ -223,6 +224,7 @@ try {
     let pit = (await api('GET', `/api/work-items/wi_${P.ev}`)).body ?? {};
     ok('progress-<task>-1 → 采信，事项状态不动（不结清、不推状态）', r.status === 200 && r.text.includes('"receipt":"recorded"') && state(P.ev)?.state === before && before === 'accepted', `${r.text} ${before} ${JSON.stringify(state(P.ev))}`);
     ok('……事项读接口带「正在处理」提示：步号、状态、摘要、by', pit.progress?.n === 1 && pit.progress.state === 'working' && pit.progress.summary === '第 1 步：working' && pit.progress.by?.seat === 'lab/a1b2c3d4', JSON.stringify(pit.progress));
+    ok('……进展带成员的 by → 承接席位换成成员（读接口的 item.seat 也是）', pit.item?.seat === '成员甲 · lab/a1b2c3d4', JSON.stringify(pit.item?.seat));
     ok('……子项取信封 tickets，坏的逐个丢', JSON.stringify(pit.progress?.tickets) === JSON.stringify([{ id: 't1', title: '拆出来的一件', seat: 'lab/a1b2c3d4', state: 'working' }]), JSON.stringify(pit.progress?.tickets));
     ok('……事项日志记一行只记录的 note progress', q("SELECT COUNT(*) AS c FROM work_item_log WHERE item_id = ? AND fact = 'note' AND json_extract(detail, '$.note') = 'progress' AND rejected = ''", `wi_${P.ev}`)[0].c === 1);
     r = await receipt(P.task, '第 2 步', penv(2, 'waiting', { tickets: [] }), P.ctx, { inbound: `progress-${P.task}-2` });

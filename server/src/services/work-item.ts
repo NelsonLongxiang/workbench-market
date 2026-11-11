@@ -63,6 +63,8 @@ export type Fact = {
   others_engaged?: boolean;
   none_sent?: boolean;
   action?: string;
+  /** 阶段七：回执信封里的 by（谁在做）——「名字 · 句柄」或句柄；带了就更新事项的 seat（承接席位），只用于显示 */
+  seat?: string;
 };
 
 type Row = { from: readonly WorkItemState[]; fact: Fact['kind']; when: (f: Fact) => boolean; to: WorkItemState; note: string };
@@ -300,6 +302,9 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
   const detail = (() => { try { return JSON.parse(row.detail || '{}') as Record<string, unknown>; } catch { return {}; } })();
   const base = { source: EVENT_FACT_SOURCE, id: String(row.id), actor: row.actor, action: row.action };
   let fact: Fact | null = null;
+  // 回执信封里的 by（receipt-inbound 已按上游上限截过）：确认、提问、进展、结果都可能带，带了就记成承接席位
+  const by = detail.by && typeof detail.by === 'object' ? detail.by as { seat?: unknown; name?: unknown } : null;
+  const seat = by && typeof by.seat === 'string' && by.seat !== '' ? (typeof by.name === 'string' && by.name !== '' ? `${by.name} · ${by.seat}` : by.seat).slice(0, 300) : '';
   // 8f-2：dispatch:false 的事件（只通知、不派发）没有回写通道，排上的投递不映射成「已转交」：停在草稿，日志记一行「未派发」。
   // 事实 id 和原来那条 submit 相同：存量里已经应用过的照旧按（来源、id）跳过，回填重跑结果不变
   if ((row.action === 'held' || row.action === 'queued') && Number(event.dispatch) === 0) return { ...base, kind: 'note', note: 'undispatched' };
@@ -330,6 +335,7 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
     }
   }
   if (fact && event.submitter_kind === 'unverified') return { ...base, kind: 'note', note: 'untrusted' };
+  if (fact && seat !== '' && row.action.startsWith('receipt:') && row.action !== 'receipt:untrusted' && row.action !== 'receipt:unaccepted') fact = { ...fact, seat };
   return fact;
 }
 
@@ -338,7 +344,7 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
  * 版本没变时每次启动只做增量：从上次记下的事件日志水位往后核（没装事项服务的进程——比如回滚到旧版本期间——
  * 写进来的事件和事实，靠它补回来）。监听器漏过事实（dirty）也从头全量核。
  */
-export const BACKFILL_VERSION = 3; // 2：阶段七 R2 加了跟进、回复、看过的映射（#546）；3：进展回执的映射（PR-A）
+export const BACKFILL_VERSION = 4; // 2：阶段七 R2 加了跟进、回复、看过的映射（#546）；3：进展回执的映射（PR-A）；4：回执的 by 记成承接席位
 /** 后台回填每一片最多占用事件循环的时长（毫秒），之后让出，好让请求得到应答 */
 const BACKFILL_SLICE_MS = 25;
 /** 每次取的行数（一片里可以取好几次） */
@@ -737,6 +743,7 @@ export class WorkItemService extends Service {
     this.writeLog(itemId, fact, item.state, to, detail);
     const set: string[] = ['state = ?', "updated_at = datetime('now')"], args: (string | number | null)[] = [to];
     if (kind === 'eval') { set.push('eval = ?', 'eval_reason = ?'); args.push(fact.verdict ?? '', fact.reason ?? ''); }
+    if (typeof fact.seat === 'string' && fact.seat !== '') { set.push('seat = ?'); args.push(fact.seat); }
     if (kind === 'report' && typeof fact.summary === 'string') { set.push('progress_summary = ?', "progress_at = datetime('now')"); args.push(fact.summary); }
     if (kind === 'ask') { const asks = JSON.parse(item.open_asks || '[]'); asks.push({ id, source, question: fact.question ?? '' }); set.push('open_asks = ?'); args.push(JSON.stringify(asks)); }
     const receipt = kind === 'receipt' ? fact.outcome : fact.receipt?.outcome;
@@ -783,6 +790,8 @@ export class WorkItemService extends Service {
     this.writeLog(itemId, fact, item.state, item.state, late ? { ...detail, late: true } : detail);
     // 摘要只在原来没有回执时填：晚到的回执不覆盖终态时记下的那一份（全量在日志里）
     db.prepare("UPDATE work_items SET receipt_outcome = ?, receipt_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND receipt_outcome = ''").run(fact.outcome ?? '', itemId);
+    // 承接席位：进展、只记录的回执带了 by 也更新（成员换人时）；终态之后晚到的不改
+    if (!late && typeof fact.seat === 'string' && fact.seat !== '') db.prepare('UPDATE work_items SET seat = ? WHERE id = ?').run(fact.seat, itemId);
     return { ok: true, state: item.state, from: item.state, duplicate: false, recorded: true, late };
   }
 }
