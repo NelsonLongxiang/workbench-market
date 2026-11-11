@@ -16,7 +16,7 @@ export interface ContentObservationDeps {
 
 export function registerContentObservationRoutes(app: HttpService, deps: ContentObservationDeps): void {
   const { adminGuard, portalObserver } = deps;
-  app.get('/api/content/observation', (req, res) => {
+  app.get('/api/content/observation', { action: 'content.observation', kind: 'admin' }, (req, res) => {
     if (!adminGuard(req, res)) return;
     res.setHeader('Cache-Control', 'no-store');
     res.json(portalObserver ? { ...portalObserver.status(), counts: portalObserver.counts() } : { enabled: false, coverageVerified: false });

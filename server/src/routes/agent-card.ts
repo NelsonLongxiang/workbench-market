@@ -8,7 +8,7 @@ import type { HttpService } from '../http.ts';
 import { buildAgentCard, a2aKeyPath } from '../a2a.ts';
 
 export function registerAgentCardRoutes(app: HttpService): void {
-  app.get('/.well-known/agent-card.json', (_req, res) => {
+  app.get('/.well-known/agent-card.json', { action: 'agent-card.read', kind: 'read' }, (_req, res) => {
     res.json(buildAgentCard(a2aKeyPath()));
   });
 }

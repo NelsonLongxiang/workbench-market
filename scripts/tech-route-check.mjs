@@ -58,6 +58,9 @@ function openRepo(root) {
 
 const RE = {
   route: /\b(?:app|router|r|api)\.(?:get|post|put|patch|delete)\(\s*['"`\/\[]/g,
+  // 路由注册（含 .all 和 vault-api 那种 route('get', …) 的写法）；报了动作的是路径后面紧跟 { action: … }
+  routeCall: /\b(?:app|router|r|api)\.(?:get|post|put|patch|delete|all)\(\s*['"`\/\[]|(?<![.\w])route\(\s*['"](?:get|post|put|patch|delete|all)['"]\s*,/g,
+  routeAction: /\b(?:app|router|r|api)\.(?:get|post|put|patch|delete|all)\(\s*(?:'[^'\n]*'|"[^"\n]*"|`[^`\n]*`|\/(?:\\.|[^\/\n])+\/[a-z]*)\s*,\s*\{\s*action\s*:/g,
   sql: /\bdb\.(?:prepare|exec)\(/g,
   create: /CREATE (?:VIRTUAL )?TABLE(?: IF NOT EXISTS)?\s+[A-Za-z0-9_]+/g,
   alter: /ALTER TABLE\s+[A-Za-z0-9_]+/g,
@@ -170,6 +173,26 @@ const RULES = [
     sample: {
       clean: { 'server/src/index.ts': "import './routes.ts';\n" },
       dirty: { 'server/src/index.ts': "app.get('/api/x', h);\napp.post(\"/api/y\", h);\n" }, expect: 2,
+    },
+  },
+  {
+    id: 'routes-without-action', what: '没报动作的路由', target: 0, proposed: 'budget',
+    // 经 HTTP 服务注册的路由没报动作根本注册不上；这里数的是还直接挂在 Express 上的存量（搬进域模块时补）。
+    // 正则计数：每个文件的路由注册减去报了动作的。权威的全量在 surfaces/actions.json 的（未登记）行
+    measure: (repo) => {
+      const files = {};
+      for (const f of repo.server()) {
+        const text = repo.read(f);
+        const n = count(text, RE.routeCall) - count(text, RE.routeAction);
+        if (n > 0) files[f] = n;
+      }
+      let snapshot = '';
+      try { snapshot = `；动作快照里（未登记）${count(repo.read('surfaces/actions.json'), /（未登记）",?$/gm)} 条`; } catch { /* 还没有快照 */ }
+      return { total: sum(files), files, note: `${Object.keys(files).length} 个文件${snapshot}` };
+    },
+    sample: {
+      clean: { 'server/src/routes/a.ts': "app.get('/api/a', { action: 'a.read', kind: 'read' }, h);\napp.post(\n  '/api/a',\n  { action: 'a.create', kind: 'admin' },\n  h,\n);\napp.get(/^\\/x\\/.*$/, { action: 'x.read', kind: 'read' }, h);\n" },
+      dirty: { 'server/src/foo.ts': "app.get('/api/x', h);\napp.all('/api/y', h);\nroute('post', '/api/z', h);\n" }, expect: 3,
     },
   },
   {
@@ -389,7 +412,7 @@ const RULES = [
     },
   },
   {
-    id: 'surface-snapshots', what: '与快照不一致的对外面（路由、MCP 工具、表结构）', target: 0, proposed: 'redline',
+    id: 'surface-snapshots', what: '与快照不一致的对外面（路由、动作、MCP 工具、表结构）', target: 0, proposed: 'redline',
     measure: (repo) => {
       if (flag('--no-boot')) return { total: 0, skipped: '按 --no-boot 跳过' };
       if (!repo.exists('server/node_modules')) return { total: 0, skipped: '没装依赖（起不了隔离实例）' };
@@ -397,7 +420,7 @@ const RULES = [
       if (!r) return { total: 0, skipped: '没有 scripts/surface-snapshot.mjs' };
       let out;
       try { out = JSON.parse(r.stdout); } catch { return { total: 1, items: [`快照脚本没跑成：${(r.stderr || r.stdout).trim().split('\n').pop()?.slice(0, 160) || '没有输出'}`] }; }
-      return { total: out.changed.length, items: out.changed, note: `${out.counts.routes} 条路由、${out.counts.tools} 个工具、${out.counts.tables} 张表` };
+      return { total: out.changed.length, items: out.changed, note: `${out.counts.routes} 条路由（${out.counts.actions ?? 0} 条报了动作）、${out.counts.tools} 个工具、${out.counts.tables} 张表` };
     },
   },
 ];

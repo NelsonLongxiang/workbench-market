@@ -34,7 +34,7 @@ export interface WorkbenchDeps {
 
 export function registerWorkbenchRoutes(app: HttpService, deps: WorkbenchDeps): void {
   const { wrap, listWorkbenches, maskForApi, restSubject, workbenchCreateCore, workbenchUpdateCore, workbenchDeleteCore, checkOne, downSince, lastProbeAt, EVICT_COOLDOWN_MS } = deps;
-  app.get('/api/workbenches', (req, res) => {
+  app.get('/api/workbenches', { action: 'workbench.list', kind: 'read' }, (req, res) => {
     const { q, category, type, status } = req.query;
     let list = listWorkbenches();
     if (q) { const s = String(q).toLowerCase(); list = list.filter((w) => w.name.toLowerCase().includes(s) || w.url.toLowerCase().includes(s) || (w.description || '').toLowerCase().includes(s)); }
@@ -45,14 +45,14 @@ export function registerWorkbenchRoutes(app: HttpService, deps: WorkbenchDeps): 
     res.json(list.map(maskForApi));
   });
 
-  app.post('/api/workbenches', (req, res) => {
+  app.post('/api/workbenches', { action: 'workbench.create', kind: 'admin' }, (req, res) => {
     const ctx: WriteCtx = { subject: restSubject(req) };
     const w = workbenchCreateCore(req.body, ctx);
     if (ctx.auditOk === false) res.setHeader('X-WM-Audit-State', 'degraded');
     res.status(201).json(w);
   });
 
-  app.get('/api/workbenches/:id', (req, res) => {
+  app.get('/api/workbenches/:id', { action: 'workbench.read', kind: 'read' }, (req, res) => {
     const row = svc<WorkbenchService>('workbench').byId(Number(req.params.id)) as unknown as WorkbenchRow | undefined;
     if (!row) throw new HttpError(404, `workbench not found: ${req.params.id}`);
     // 与列表同策略掩码（issue #2/#3：auth.value 同为无认证出口的明文凭据向量）；
@@ -60,24 +60,24 @@ export function registerWorkbenchRoutes(app: HttpService, deps: WorkbenchDeps): 
     res.json(maskForApi(rowToWorkbench(row)));
   });
 
-  app.put('/api/workbenches/:id', (req, res) => {
+  app.put('/api/workbenches/:id', { action: 'workbench.update', kind: 'admin' }, (req, res) => {
     const ctx: WriteCtx = { subject: restSubject(req) };
     const w = workbenchUpdateCore(Number(req.params.id), req.body, ctx);
     if (ctx.auditOk === false) res.setHeader('X-WM-Audit-State', 'degraded');
     res.json(w);
   });
 
-  app.delete('/api/workbenches/:id', (req, res) => {
+  app.delete('/api/workbenches/:id', { action: 'workbench.delete', kind: 'admin' }, (req, res) => {
     res.json(workbenchDeleteCore(Number(req.params.id)));
   });
 
-  app.post('/api/workbenches/:id/check', wrap(async (req, res) => {
+  app.post('/api/workbenches/:id/check', { action: 'workbench.check', kind: 'write' }, wrap(async (req, res) => {
     const row = svc<WorkbenchService>('workbench').byId(Number(req.params.id)) as unknown as WorkbenchRow | undefined;
     if (!row) throw new HttpError(404, `workbench not found: ${req.params.id}`);
     res.json(await checkOne(row));
   }));
 
-  app.post('/api/check-all', wrap(async (_req, res) => {
+  app.post('/api/check-all', { action: 'workbench.check-all', kind: 'write' }, wrap(async (_req, res) => {
     const settings = getSettings();
     const limit = Math.max(1, Number(settings.health_concurrency) || 8);
     const rows = svc<WorkbenchService>('workbench').enabled() as unknown as WorkbenchRow[];

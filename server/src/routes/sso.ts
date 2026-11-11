@@ -7,7 +7,7 @@
 import type { HttpService } from '../http.ts';
 
 export function registerSsoRoutes(app: HttpService): void {
-  app.get('/sso/callback', (req, res) => {
+  app.get('/sso/callback', { action: 'sso.callback', kind: 'write' }, (req, res) => {
     const redirect = String(req.query.redirect ?? '');
     const state = String(req.query.state ?? '');
     if (!redirect || !state) return res.status(400).json({ error: 'redirect 和 state 必填（Odoo 登录回跳统一入口）' });

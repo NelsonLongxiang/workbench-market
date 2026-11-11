@@ -13,7 +13,7 @@ export interface SummaryDeps {
 
 export function registerSummaryRoutes(app: HttpService, deps: SummaryDeps): void {
   const { summaryPayload } = deps;
-  app.get('/api/summary', (_req, res) => {
+  app.get('/api/summary', { action: 'summary.read', kind: 'read' }, (_req, res) => {
     res.json(summaryPayload());
   });
 }

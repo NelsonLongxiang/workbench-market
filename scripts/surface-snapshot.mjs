@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * 对外面的快照：路由（带挂载顺序，和每条路由前面挂的守卫）、MCP 工具、表结构。
+ * 对外面的快照：路由（带挂载顺序，和每条路由前面挂的守卫）、动作（每条路由报的动作名和类别，和路由一行对一行）、MCP 工具、表结构。
  * 起一个隔离实例（临时数据目录、在回环上探到的空闲端口、固定的最小环境变量），从运行中的进程里导出，
- * 再和 surfaces/ 下已提交的三份比较。改了面（加路由、加工具、改表）就跑一次 --write，
+ * 再和 surfaces/ 下已提交的四份比较。动作清单和路由快照对不上（行数、顺序、方法、路径）直接报错。改了面（加路由、加工具、改表）就跑一次 --write，
  * 连同代码一起提交：PR 里看得见面变了什么。
  *
  *   node scripts/surface-snapshot.mjs             比较；不一致退出 1，并列出差异
@@ -25,7 +25,24 @@ const flag = (name) => argv.includes(name);
 const quiet = flag('--json');
 const say = (text) => { if (!quiet) console.log(text); };
 
-const FILES = { routes: 'routes.json', tools: 'mcp-tools.json', schema: 'schema.json' };
+const FILES = { routes: 'routes.json', actions: 'actions.json', tools: 'mcp-tools.json', schema: 'schema.json' };
+const ACTIONS_NOTE = '动作清单（阶段六 6a）：apps 和 routes.json 的路由行一一对应，「方法 路径 -> 动作 类别」；还直接挂在 Express 上的存量路由记（未登记），搬进域模块时补。tools 是 MCP 工具，类别沿用工具自己的（read 读、write 写、admin 管理）。';
+
+/** 路由行和动作行的「方法 路径」部分（带缩进）：两边要一一对上 */
+const routeKey = (line) => line.split('  <- ')[0];
+const actionKey = (line) => line.split('  -> ')[0];
+/** 动作清单和路由快照对不对得上：返回对不上的地方（空数组就是对上了） */
+export function alignActions(routeApps, actionApps) {
+  const problems = [];
+  if (routeApps.length !== actionApps.length) problems.push(`应用个数不同：路由 ${routeApps.length}，动作 ${actionApps.length}`);
+  routeApps.forEach((lines, i) => {
+    const routes = lines.filter((l) => !l.trim().startsWith('USE ')).map(routeKey);
+    const actions = (actionApps[i] ?? []).map(actionKey);
+    if (routes.length !== actions.length) problems.push(`第 ${i + 1} 个应用：路由 ${routes.length} 条，动作 ${actions.length} 条`);
+    routes.forEach((r, j) => { if (actions[j] !== r) problems.push(`第 ${i + 1} 个应用第 ${j + 1} 条：路由「${r.trim()}」对着动作「${String(actions[j] ?? '（没有）').trim()}」`); });
+  });
+  return problems;
+}
 const ENV_NOTE = '隔离实例：MCP_GATEWAY=off、NODE_ENV=test、WM_CONTROL_PORT=0，不带任何别的配置，按前端已构建的形态导出。随配置才挂的路由、用到才建的表不在其中。';
 // 有没有 web/dist 会差三层（静态托管、页面兜底、404）。快照取「前端已构建」的形态：没构建时临时放一个占位目录，导出完就删。
 const WEB_DIST = join(ROOT, 'web', 'dist');
@@ -85,10 +102,11 @@ function readSchema(file) {
   } finally { db.close(); }
 }
 
-/** 起隔离实例，导出三份面。 */
+/** 起隔离实例，导出四份面。 */
 async function exportSurfaces() {
   const { MCP_TOOLS } = await import(pathToFileURL(join(ROOT, 'server/src/mcp-tools.ts')).href);
   const tools = MCP_TOOLS.map((t) => `${t.name}  ${t.category}${t.exempt ? '  exempt' : ''}`).sort();
+  const toolActions = MCP_TOOLS.map((t) => `${t.name}  ${t.category}`).sort();
 
   if (claimStub()) cleanups.push(releaseStub);
   const port = await freePort();
@@ -118,12 +136,15 @@ async function exportSurfaces() {
       const why = lines.find((l) => /Error|错误|拒绝/.test(l)) || lines.slice(0, 2).join(' ') || '没有输出';
       throw new Error(`隔离实例没起来：${why.slice(0, 200)}`);
     }
-    const apps = await new Promise((resolveDump, reject) => {
+    const dumped = await new Promise((resolveDump, reject) => {
       const timer = setTimeout(() => reject(new Error('实例没有回传路由（10 秒超时）')), 10000);
-      child.on('message', (msg) => { if (msg?.wmSurface) { clearTimeout(timer); resolveDump(msg.wmSurface); } });
+      child.on('message', (msg) => { if (msg?.wmSurface) { clearTimeout(timer); resolveDump(msg); } });
       child.send('wm-surface-dump');
     });
-    return { routes: { note: ENV_NOTE, apps }, tools, schema: readSchema(join(data, 'workbench-market.db')) };
+    const apps = dumped.wmSurface, actionApps = dumped.wmActions ?? [];
+    const misaligned = alignActions(apps, actionApps);
+    if (misaligned.length) throw new Error(`动作清单和路由快照对不上：${misaligned.slice(0, 5).join('；')}`);
+    return { routes: { note: ENV_NOTE, apps }, actions: { note: ACTIONS_NOTE, apps: actionApps, tools: toolActions }, tools, schema: readSchema(join(data, 'workbench-market.db')) };
   } finally {
     // 先请它退出；3 秒不退就强杀，并且等到它真的退出，再删数据目录
     const exited = () => child.exitCode !== null || child.signalCode !== null;
@@ -157,6 +178,12 @@ function selftest() {
   check(diffLines(base, 'a\nc\n').removed.join() === 'b', '少了一行：点名少掉的');
   check(diffLines(base, 'b\na\nc\n').reordered, '只换了顺序：报顺序变了');
   check(diffLines('a\na\n', 'a\n').removed.length === 1, '重复的行按次数算');
+  const routes = [['USE /  <- query', 'GET /a  <- h', 'POST /a  <- g, h', 'USE /x  <- router', '  GET /b  <- h']];
+  check(alignActions(routes, [['GET /a  -> a.read  read', 'POST /a  -> a.create  admin', '  GET /b  -> （未登记）']]).length === 0, '动作和路由一一对上：没有问题');
+  check(alignActions(routes, [['GET /a  -> a.read  read', '  GET /b  -> （未登记）']]).length > 0, '少了一条动作：报对不上');
+  check(alignActions(routes, [['POST /a  -> a.create  admin', 'GET /a  -> a.read  read', '  GET /b  -> （未登记）']]).length > 0, '顺序不同：报对不上');
+  check(alignActions(routes, [['GET /a  -> a.read  read', 'POST /a  -> a.create  admin', 'GET /b  -> （未登记）']]).length > 0, '缩进（挂载层级）不同：报对不上');
+  check(alignActions(routes, []).length > 0, '没有动作清单：报对不上');
   console.log(failed ? `===== 快照自检：${failed} 项失败 =====` : '===== 快照自检：全过 =====');
   return failed ? 1 : 0;
 }
@@ -166,13 +193,14 @@ async function main() {
   const fresh = await exportSurfaces();
   const counts = {
     routes: fresh.routes.apps.flat().filter((line) => !line.trim().startsWith('USE ')).length,
+    actions: fresh.actions.apps.flat().filter((line) => !line.endsWith('（未登记）')).length,
     tools: fresh.tools.length,
     tables: Object.keys(fresh.schema.tables).length,
   };
   if (flag('--write')) {
     mkdirSync(OUT, { recursive: true });
     for (const [key, name] of Object.entries(FILES)) writeFileSync(join(OUT, name), render(fresh[key]));
-    say(`已写入 surfaces/：${counts.routes} 条路由、${counts.tools} 个工具、${counts.tables} 张表`);
+    say(`已写入 surfaces/：${counts.routes} 条路由（${counts.actions} 条报了动作）、${counts.tools} 个工具、${counts.tables} 张表`);
     return 0;
   }
   const changed = [];
@@ -191,7 +219,7 @@ async function main() {
   }
   if (quiet) { console.log(JSON.stringify({ changed, counts })); return 0; }
   say(changed.length ? '\n面变了：确认是有意的，就跑 node scripts/surface-snapshot.mjs --write，连同代码一起提交。'
-    : `✓ 三份快照与当前的面一致：${counts.routes} 条路由、${counts.tools} 个工具、${counts.tables} 张表`);
+    : `✓ 四份快照与当前的面一致：${counts.routes} 条路由（${counts.actions} 条报了动作）、${counts.tools} 个工具、${counts.tables} 张表`);
   return changed.length ? 1 : 0;
 }
 

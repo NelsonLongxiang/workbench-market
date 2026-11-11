@@ -18,7 +18,7 @@
 
 | 新增的东西 | 写在哪 | 不要 |
 |---|---|---|
-| 路由 | `server/src/routes/<域>.ts`，自带注册函数，经 HTTP 服务（`http`）注册 | 写进 `server/src/index.ts` |
+| 路由 | `server/src/routes/<域>.ts`，自带注册函数，经 HTTP 服务（`http`）注册，报上动作名和类别（`{ action: '<域>.<动词>', kind }`） | 写进 `server/src/index.ts`；直接挂在 Express 上 |
 | 登录方式 | `server/src/login-providers/` 下的一个插件，登记进那里的清单 | 改核心 |
 | SQL | `server/src/services/` 里对应域的服务 | 写在路由处理函数或别的模块里 |
 | 表、列 | `server/src/db.ts`（幂等迁移） | 在别的文件里建表、改表 |
@@ -47,7 +47,7 @@ pnpm check                           # web 类型检查 + server 语法检查
 被拦住的时候：
 
 - 先把东西放到上表说的地方。
-- 改了路由、MCP 工具或表结构：跑 `node scripts/surface-snapshot.mjs --write`，把 `surfaces/` 和代码一起提交。
+- 改了路由、动作、MCP 工具或表结构：跑 `node scripts/surface-snapshot.mjs --write`，把 `surfaces/` 和代码一起提交。
 - 把路由从 `index.ts` 搬进 `server/src/routes/`：纯移动。搬之前先写好这个域的请求集并录下应答（`node scripts/route-replay-test.mjs --record <域>`，单独提交），搬完之后路由快照和录制回放都必须零差异。
 - 有意改了已搬走的路由的行为：跑 `node scripts/route-replay-test.mjs --record`，把 `surfaces/replay/` 和代码一起提交。
 - 类型错误超了：体检表下面贴着 tsc 的原始报错行，照着改。量法是带空值检查、其余宽松。

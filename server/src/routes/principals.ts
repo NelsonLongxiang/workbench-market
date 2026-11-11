@@ -60,13 +60,13 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
     (req, res, next) => { fn(req, res).catch(next); };
 
   /** 等管理员对接的清单：登录方式认出了人，却还没对到主体（对上之后自动从清单里消失） */
-  app.get('/api/principals/pending', route(async (req, res) => {
+  app.get('/api/principals/pending', { action: 'principal.list-pending', kind: 'admin' }, route(async (req, res) => {
     res.set('Cache-Control', 'private, no-store');
     if (!(await admin(req, res))) return;
     res.json({ pending: principals().pending() });
   }));
 
-  app.get('/api/principals', route(async (req, res) => {
+  app.get('/api/principals', { action: 'principal.list', kind: 'admin' }, route(async (req, res) => {
     res.set('Cache-Control', 'private, no-store');
     if (!(await admin(req, res))) return;
     res.json({ principals: principals().list() });
@@ -90,8 +90,8 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
     if (out.changed) console.log(JSON.stringify({ source: 'principals', event: status === 'disabled' ? 'disable' : 'restore', id, by: actor, at: new Date().toISOString() }));
     res.json({ ok: true, changed: out.changed, principal: out.principal });
   });
-  app.post('/api/principals/disable', setStatus('disabled'));
-  app.post('/api/principals/restore', setStatus('active'));
+  app.post('/api/principals/disable', { action: 'principal.disable', kind: 'admin' }, setStatus('disabled'));
+  app.post('/api/principals/restore', { action: 'principal.restore', kind: 'admin' }, setStatus('active'));
 
   /** 发请求的管理员自己是哪个主体（管理员登录才有；口令和本机命令行不是主体） */
   const selfOf = (actor: string): string | null => (actor.startsWith('odoo:') ? principals().principalOf(identity().providerName() ?? '', actor.slice(5)) : null);
@@ -110,7 +110,7 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
   };
 
   /** 管理员对一次：把一条外部身份绑到一个人身上（可以同时新建这个人）。不能动自己名下的绑定 */
-  app.post('/api/principals/bind', route(async (req, res) => {
+  app.post('/api/principals/bind', { action: 'principal.bind', kind: 'admin' }, route(async (req, res) => {
     res.set('Cache-Control', 'private, no-store');
     const actor = await admin(req, res);
     if (!actor) return;
@@ -131,7 +131,7 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
    * 成批对接（第一次上线时是一批人）：items 是若干条「外部身份 → 主体」，每条和单条绑定的规则一样，逐条给结果；
    * 一条不成不影响别的条。一次最多 500 条。
    */
-  app.post('/api/principals/bind-batch', route(async (req, res) => {
+  app.post('/api/principals/bind-batch', { action: 'principal.bind-batch', kind: 'admin' }, route(async (req, res) => {
     res.set('Cache-Control', 'private, no-store');
     const actor = await admin(req, res);
     if (!actor) return;
@@ -159,7 +159,7 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
   }));
 
   /** 手动跑一次对账（平时每天一次）：把绑在启用的人身上的某个登录方式的外部身份交给对方去查，离职、被停用的停用 */
-  app.post('/api/principals/reconcile', route(async (req, res) => {
+  app.post('/api/principals/reconcile', { action: 'principal.reconcile', kind: 'admin' }, route(async (req, res) => {
     res.set('Cache-Control', 'private, no-store');
     const actor = await admin(req, res);
     if (!actor) return;
@@ -171,7 +171,7 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
   }));
 
   /** 解绑一条外部身份。不能动自己名下的绑定 */
-  app.post('/api/principals/unbind', route(async (req, res) => {
+  app.post('/api/principals/unbind', { action: 'principal.unbind', kind: 'admin' }, route(async (req, res) => {
     res.set('Cache-Control', 'private, no-store');
     const actor = await admin(req, res);
     if (!actor) return;

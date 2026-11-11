@@ -8,5 +8,5 @@ import type { HttpService } from '../http.ts';
 import { statsPayload } from '../endpoint-stats.ts';
 
 export function registerStatsRoutes(app: HttpService): void {
-  app.get('/api/stats', (_req, res) => { res.json(statsPayload()); });
+  app.get('/api/stats', { action: 'stats.read', kind: 'read' }, (_req, res) => { res.json(statsPayload()); });
 }
