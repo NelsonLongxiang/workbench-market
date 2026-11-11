@@ -112,7 +112,7 @@ GET              /api/vault/entries/:id/totp    当前动态验证码 + 剩余�
 GET              /api/vault/trash · POST …/:id/restore · DELETE /api/vault/trash/:id   回收站 / 恢复 / 永久删除（只对回收站内条目）
 POST             /api/vault/generate|strength   生成密码或口令短语 / 强度评估（POST，密码不进 URL）
 GET              /api/vault/health|history      安全体检（复用项不回明文）/ 活动记录（新→旧 200 条）
-GET              /api/export                    全量导出
+GET              /api/export                    全量导出（缺省掩码；?reveal=1 取真值要管理员：口令或 Odoo 管理员登录，浏览器来的要同源，否则 403）
 POST             /api/import?mode=merge|replace 导入
 GET              /api/health                    存活：版本与运行时长（不发外部请求；配了 LayerFS 时回缓存的上次就绪结果）
 GET              /api/health/ready              就绪：含 LayerFS 探测（结果缓存 10 秒），不健康 503

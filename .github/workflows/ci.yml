@@ -1,7 +1,7 @@
 name: CI
 on:
   pull_request:
-    branches: [main]
+    branches: [main, 'release/**']
 jobs:
   odoo-operator-synthetic:
     runs-on: windows-latest
@@ -184,7 +184,7 @@ jobs:
       - name: 来源收敛（自产台/SOP 台只接受 GitHub 仓库 main·直接发布 410·sync 记 commit·替身仓库）
         run: node scripts/github-source-smoke.mjs
       - name: 导入导出（独立实例：replace 语义·内部路径行·掩码整批拒）
-        run: node scripts/import-smoke.mjs
+        run: node scripts/import-smoke.mjs && node scripts/export-reveal-smoke.mjs
       - name: MCP 网关缺省开（#284·未设/空/on 匿名 401·off 告警·坏值拒启）
         run: node scripts/gateway-default-smoke.mjs && node scripts/gateway-smoke.mjs
       - name: ygl-trees 作为 MCP 上游（#474：stdio 子进程·配置校验·环境不含口令·命令执行关闭·按会话授权·超时重启）
