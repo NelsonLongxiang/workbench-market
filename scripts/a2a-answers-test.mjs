@@ -155,6 +155,31 @@ try {
   ok('同一提问答两次 → 第二次不再发（已经不在等）', r.status !== 200 || r.body?.sent !== true, JSON.stringify(r.body));
   ok('……答复表里这次提问只有一行', q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE kind = 'answer' AND delivery_id = ?", a.delivery)[0].c === 1);
 
+  // 打回重做：等验收时打回 → 记一笔 return（回到进行中），同时作为同一 context 的新任务发回做这件事的团队；重做的 completed 推回等验收
+  {
+    lab.got.length = 0;
+    r = await api('POST', '/api/attention/answer', { source: 'work-items', source_id: `wi_${a.ev}`, answer: 'return', input: { reason: '请换一句更短的，不超过十个字。' } });
+    const rb = r.body?.result ?? r.body;
+    ok('打回 → 200，事项回到进行中，sent=true（已排发送）', r.status === 200 && rb?.state === 'progress' && rb?.sent === true && state(a.ev)?.state === 'progress', JSON.stringify(r.body));
+    await waitFor(() => lab.got.some((g) => String(g.body.message ?? '').startsWith('[打回重做]')));
+    const rt = lab.got.find((g) => String(g.body.message ?? '').startsWith('[打回重做]'));
+    const lines = String(rt?.body?.message ?? '').split('\n');
+    let renv = {}; try { renv = JSON.parse(lines[1] ?? '{}'); } catch {}
+    ok('……对端收到同一 context 的新任务：正文开头写明打回、原事项、原任务号与理由；信封 kind=return、return.of = 原任务号',
+      rt && rt.body.context_id === a.ctx && lines[0].includes(`（原任务 ${answerTask}）`) && lines[0].endsWith('请换一句更短的，不超过十个字。') && renv.kind === 'return' && renv.return?.of === answerTask && renv.return?.reason === '请换一句更短的，不超过十个字。',
+      JSON.stringify(rt?.body ?? null).slice(0, 300));
+    const redoTask = rt?.body?.task_id ?? '';
+    ok('……新任务登记了对端（重做的回执能回到这件事项），事件日志记一行 return-sent', q('SELECT kind FROM a2a_sent_tasks WHERE task_id = ?', redoTask)[0]?.kind === 'answer'
+      && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE event_id = ? AND action = 'return-sent'", a.ev)[0].c === 1, redoTask);
+    r = await receipt(redoTask, '接下重做', { idempotencyKey: redoTask, disposition: 'acknowledged' }, a.ctx, { inbound: `ack-${redoTask}` });
+    r = await receipt(redoTask, '改好了', { outcome: 'completed', idempotencyKey: redoTask, disposition: 'result' }, a.ctx);
+    ok('……重做的 completed 回执 → 回到等验收', r.status === 200 && state(a.ev)?.state === 'ready', `${r.text} ${JSON.stringify(state(a.ev))}`);
+    // 只通知的事件（没派出去）：打回只记在事项上，不发
+    const nd2 = seedEvent({ dispatch: 0 });
+    r = await api('POST', '/api/attention/answer', { source: 'work-items', source_id: `wi_${nd2.ev}`, answer: 'return', input: { reason: '理由' } });
+    ok('只通知的事件：打回不发回（事项不在等验收时照旧被拒），答复表没有行', q('SELECT COUNT(*) AS c FROM workbench_event_replies WHERE event_id = ?', nd2.ev)[0].c === 0, JSON.stringify(r.body));
+  }
+
   // 只通知的事件：事项不收提问（停在草稿），「关注」里也不列；答复表没有行
   const nd = seedEvent({ dispatch: 0 });
   await receipt(nd.task, '只通知的事件也问了', { idempotencyKey: nd.task, disposition: 'attention' }, nd.ctx);
