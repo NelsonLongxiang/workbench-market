@@ -8,7 +8,7 @@
  * 切了的域，每条报了动作的路由在自己的处理函数前面多一道门：
  *   · 新判定放行：交给原来的处理函数。旧守卫照旧再判一遍，并行比对照旧拿它的结论比（反向比对）。
  *     新的放、旧的拒，记成不一致：说明旧守卫还不能拿掉。
- *   · 新判定拒绝或转提议（ask）：在这里回 403，原来的处理函数不跑。这一次记进 judgment_enforced（路由模式、身份类别、
+ *   · 新判定拒绝或转提议（ask）：在这里回 403（没认出人、路由又声明了旧守卫回 401 的，回 401），原来的处理函数不跑。这一次记进 judgment_enforced（路由模式、身份类别、
  *     结论、命中的规则），不和旧结论比。应答体是统一的 { error: 'judgment_denied' | 'judgment_ask', action }，
  *     旧守卫各自的写法不再出现。
  *   · 不受开关影响、照旧按各自规则的：声明了「状态码不代表授权」的路由、没报动作的存量路由、「暂不切」清单里的动作。
@@ -75,8 +75,10 @@ export function enforceGate(config: EnforceConfig, actorOf: ActorOf, facts: () =
       try {
         compare().enforced({ route: `${req.method} ${String(route?.path ?? '')}`, action: spec.action, actorKind: actor.type === 'builtin' ? actor.name : actor.kind, verdict: result.verdict, rule: result.rule });
       } catch { /* 记不了也照样拒 */ }
+      // 没认出人的：路由声明了旧守卫回 401 的照 401，其余 403（和旧守卫的状态码一致）
+      const unknownPerson = actor.type === 'builtin' && (actor.name === 'anonymous' || actor.name === 'local-page');
       res.set('Cache-Control', 'no-store');
-      res.status(403).json({ error: result.verdict === 'ask' ? 'judgment_ask' : 'judgment_denied', action: spec.action });
+      res.status(unknownPerson && declared.unauthenticated === 401 ? 401 : 403).json({ error: result.verdict === 'ask' ? 'judgment_ask' : 'judgment_denied', action: spec.action });
     }).catch(next);
   };
 }

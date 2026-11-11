@@ -45,6 +45,11 @@ export type ActionSpec = {
    * 按顺序取第一个 when 成立的，取不到用上面的动作。when 只看请求和请求进来时的事实，不改请求。逐条写原因，进快照。
    */
   readonly refine?: readonly ActionRefinement[];
+  /**
+   * 没认出人（匿名、本机页面）时，这条路由的旧守卫回 401 而不是 403（阶段六 6d）。判定切换的开关拒绝这类请求时照这个回，
+   * 状态码和旧守卫一致（启动自检、客户端都按状态码判）。不写就是 403。
+   */
+  readonly unauthenticated?: 401;
 };
 /** 请求进来时的事实（判定比对在请求进来时取，请求本身可能改掉它们） */
 export type RequestFacts = { adminTokenSet: boolean };
@@ -78,6 +83,8 @@ function checkSpec(method: RouteMethod, path: RoutePath, spec: unknown): ActionS
   if (typeof kind !== 'string' || !(ACTION_KINDS as readonly string[]).includes(kind)) throw new Error(`http：${where} 的动作类别「${String(kind)}」不对，只能是 ${ACTION_KINDS.join('、')}`);
   const snv = (spec as { statusNotVerdict?: unknown }).statusNotVerdict;
   if (snv !== undefined && (typeof snv !== 'string' || !snv.trim() || snv.length > 120 || /[\x00-\x1f\x7f]/.test(snv))) throw new Error(`http：${where} 的 statusNotVerdict 要写一句原因（1～120 个字符）`);
+  const unauth = (spec as { unauthenticated?: unknown }).unauthenticated;
+  if (unauth !== undefined && unauth !== 401) throw new Error(`http：${where} 的 unauthenticated 只能写 401`);
   const refine = (spec as { refine?: unknown }).refine;
   if (refine !== undefined) {
     if (!Array.isArray(refine) || refine.length === 0) throw new Error(`http：${where} 的 refine 要是非空数组`);
@@ -88,7 +95,7 @@ function checkSpec(method: RouteMethod, path: RoutePath, spec: unknown): ActionS
       if (typeof r.when !== 'function') throw new Error(`http：${where} 细分的动作 ${r.action} 要有 when`);
     }
   }
-  return Object.freeze({ action, kind: kind as ActionKind, ...(snv !== undefined ? { statusNotVerdict: snv as string } : {}), ...(refine !== undefined ? { refine: Object.freeze([...(refine as ActionRefinement[])]) } : {}) });
+  return Object.freeze({ action, kind: kind as ActionKind, ...(snv !== undefined ? { statusNotVerdict: snv as string } : {}), ...(unauth !== undefined ? { unauthenticated: 401 as const } : {}), ...(refine !== undefined ? { refine: Object.freeze([...(refine as ActionRefinement[])]) } : {}) });
 }
 
 export class HttpService extends Service {
