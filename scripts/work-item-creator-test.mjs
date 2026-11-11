@@ -232,7 +232,12 @@ try {
         return { item: `wi_${ev}`, delivery, qid };
       } finally { c.close(); }
     };
-    const mineA = seedAsk('user:alpha'), theirsA = seedAsk('user:beta'), noPrinA = seedAsk(null), raceA = seedAsk('user:alpha'), rebindA = seedAsk('user:alpha');
+    const mineA = seedAsk('user:alpha'), theirsA = seedAsk('user:beta'), noPrinA = seedAsk(null), raceA = seedAsk('user:alpha'), rebindA = seedAsk('user:alpha'), seqA = seedAsk('user:alpha'), closedA = seedAsk('user:alpha');
+    // closedA：提问之后来了接单回执，这条提问被合上（没人答）
+    { const c = new DatabaseSync(join(data, 'workbench-market.db')); c.exec('PRAGMA busy_timeout = 5000'); try {
+      const ev = closedA.item.slice(3);
+      c.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, 'receiver:lab', 'receipt:acknowledged', ?)").run(ev, closedA.delivery, JSON.stringify({ summary: '接下', disposition: 'acknowledged', task: `${ev}.d${closedA.delivery}.a1` }));
+    } finally { c.close(); } }
     const bf = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', `
       const at = (p) => ${JSON.stringify(pathToFileURL(ROOT).href)} + '/' + p;
       const { root } = await import(at('server/src/root-context.ts'));
@@ -243,7 +248,7 @@ try {
     const st = (a) => { const c = db(); try { return c.prepare('SELECT state, creator_principal FROM work_items WHERE id = ?').get(a.item); } finally { c.close(); } };
     check(bf.stdout.includes('DONE') && st(mineA)?.state === 'blocked' && st(mineA)?.creator_principal === 'user:alpha' && st(noPrinA)?.creator_principal === null, '造数据：事项服务按正常路径建出「在问你」的事项（建立人主体取自 recorded）', show({ out: bf.stdout.slice(-200), err: bf.stderr.slice(-300), mine: st(mineA), noPrin: st(noPrinA) }));
     const ADMIN_H = { ...SAME, 'x-admin-token': ADMIN_TOKEN };
-    const asks = async (headers) => { const r = await call('GET', '/api/attention', headers); return { status: r.status, ids: (r.body?.items ?? []).filter((x) => x.source === 'seat-asks').map((x) => x.source_id), count: r.body?.sources?.['seat-asks']?.count ?? null }; };
+    const asks = async (headers) => { const r = await call('GET', '/api/attention', headers); return { status: r.status, ids: (r.body?.items ?? []).filter((x) => x.source === 'seat-asks').map((x) => x.source_id), count: r.body?.sources?.['seat-asks']?.count ?? null, visible: r.body?.sources?.['seat-asks']?.visible ?? null }; };
     const ans = (a, headers, body = { answer: '中文' }) => call('POST', `/api/work-items/${a.item}/asks/${a.qid}/answer`, headers, body);
     const answered = (a) => { const c = db(); try { return c.prepare("SELECT COUNT(*) AS n FROM work_item_log WHERE item_id = ? AND fact = 'answer' AND rejected = ''").get(a.item).n; } finally { c.close(); } };
     const sentAnswers = (a) => { const c = db(); try { return c.prepare("SELECT COUNT(*) AS n FROM workbench_event_replies WHERE kind = 'answer' AND delivery_id = ?").get(a.delivery).n; } finally { c.close(); } };
@@ -254,7 +259,9 @@ try {
     const ad = await asks(ADMIN_H);
     check([mineA, theirsA, noPrinA].every((a) => ad.ids.includes(String(a.delivery))), '「关注」：管理员照旧看全部', show(ad.ids));
     const lb = await asks({ ...SAME, cookie: `session_id=${SESSIONS.forged}` });
-    check(!lb.ids.includes(String(mineA.delivery)), '「关注」：提供方不认的会话看不到', show(lb));
+    check(lb.ids.length === 0 && lb.visible === false && lb.count === 0, 'A5「关注」：提供方不认的会话——席位的提问不可见、0 条', show(lb));
+    const lan = await asks({ ...SAME, 'x-forwarded-for': '198.51.100.7' });
+    check(lan.ids.length === 0 && lan.visible === false && lan.count === 0, 'A5「关注」：远程匿名——席位的提问不可见、0 条', show(lan));
 
     const denials = [
       ['别人的事项（alpha 答 beta 的）', () => ans(theirsA, ALPHA), 404, 'work_item_not_found', theirsA],
@@ -298,6 +305,14 @@ try {
     const again = await ans(mineA, ALPHA, { text: '英文' });
     check(again.status === 200 && again.body?.duplicate === true && answered(mineA) === 1 && sentAnswers(mineA) === 1, '……再答一次：返回第一次的结果，不再发', show(again));
 
+    // A3：已合上（没人答、被接单回执合上）的提问再答 → 409，不记不发
+    { const before = answered(closedA), sb = sentAnswers(closedA);
+      const r3 = await ans(closedA, ALPHA, { answer: '中文' });
+      check(r3.status === 409 && (r3.body?.result?.error ?? r3.body?.error) === 'seat_ask_not_pending' && answered(closedA) === before && sentAnswers(closedA) === sb, 'A3：已合上的提问再答：409 seat_ask_not_pending，不记答复、不发回', show(r3)); }
+    // A8：管理员先在「关注」里答，建立人再在事项入口答同一条 → 只生效一次、只发一条
+    { const a1 = await call('POST', '/api/attention/answer', ADMIN_H, { source: 'seat-asks', source_id: String(seqA.delivery), answer: 'answer', input: { text: '管理员答' } });
+      const a2 = await ans(seqA, ALPHA, { answer: '英文' });
+      check(a1.status === 200 && a2.status === 200 && a2.body?.duplicate === true && answered(seqA) === 1 && sentAnswers(seqA) === 1, 'A8：管理员和建立人先后答同一条：第二次拿到第一次的结果（duplicate），只生效一次、只发一条', show({ a1: a1.status, a2: a2.body })); }
     // 同一提问两个人同时答（管理员经「关注」、建立人经事项入口）：一个生效，另一个被告知已处理
     const [x, y] = await Promise.all([
       call('POST', '/api/attention/answer', ADMIN_H, { source: 'seat-asks', source_id: String(raceA.delivery), answer: 'answer', input: { text: '管理员答' } }),
