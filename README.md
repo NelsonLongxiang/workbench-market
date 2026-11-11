@@ -382,6 +382,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   admin-token.ts（管理口令 /api/admin/whoami、/api/admin-token）
   agent-card.ts（A2A 签名卡片 /.well-known/agent-card.json）
   app-data.ts（自产台的数据与文件 /api/apps/:slug/data、/files：提交、列表、软删，上传、改备注、下载；提交和上传是匿名提交面，不经写总门）
+  apps-static.ts（自产台静态托管 GET /apps/<slug>/…：只是注册那一行，处理函数 serveApp（活跃版本或 ?version、CSP sandbox、注入本台令牌、LayerFS 冷回读）门户也用，留在 index.ts）
   apps.ts（自产台与 SOP 台的登记和生命周期 /api/apps：列表、单个台、task-center 直接发布、从 GitHub 同步、迁进 LayerFS、回滚、删台；台的数据与文件另成一域）
   attention.ts（「关注」的读 /api/attention：当前这个人在七个来源里等他处理的条目和条数）
   auth-viewer.ts（登录探测 /api/auth/viewer）
@@ -393,8 +394,10 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   design-tokens.ts（设计 token 固定路径 /design/tokens@<版本>.css）
   export-import.ts（导出与导入 /api/export、/api/import）
   grants.ts（角色与授予的管理接口 /api/roles、/api/grants：起草、提交、放行、撤销）
+  health.ts（健康与就绪 /api/health、/api/health/ready：只回缓存的 LayerFS 结果、配了 LayerFS 才探；带 A2A 的开关、计数和时长；公开）
   login-events.ts（离职即时失效：/login/<方式>/events 失效通知、每日对账）
   login-flows.ts（登录方式 /login/<方式> 与回调：state、next、对到主体、发市场会话）
+  mcp-protocol.ts（MCP 协议入口 /mcp（无状态 StreamableHTTP）：POST 收 JSON-RPC（initialize、ping、tools/list、tools/call），GET、DELETE 回 405；认证是 MCP 会话令牌）
   mcp-rest.ts（MCP 内嵌的 REST /api/mcp-rest、/openapi.json：OpenAPI 文档、工具调用、台文件上传（原始字节、multipart）列表下载（Range、ETag）、台数据、SOP run 与附件；认证是 MCP 会话令牌，授权映射到工具 grants）
   mcp.ts（MCP 网关控制面 /api/mcp：上游、会话、授权、工具目录、调用记录、权限申请的批准与驳回）
   principals.ts（主体管理 /api/principals：列出、停用、恢复、对一次外部身份、待对接清单，只有管理员能用）

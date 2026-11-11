@@ -39,6 +39,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { SESSIONS as FAKE_SESSIONS } from './identity-fake-provider.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
@@ -171,6 +172,8 @@ export function checkCassette(cassette, known, moduleRouteCount = null, answered
     }
   }
   const exempted = new Set();
+  // 一律回同一个 4xx 的路由（豁免了正常）：它没有照常应答的请求，豁免未授权、参数非法时 shown_by 指给一条打在它上面、回那个固定应答的请求
+  const neverNormal = new Set((Array.isArray(cassette?.exempt) ? cassette.exempt : []).filter((x) => x?.class === 'normal').map((x) => x.route));
   for (const item of Array.isArray(cassette?.exempt) ? cassette.exempt : []) {
     const label = `豁免 ${item?.route} 的「${CLASS_NAME[item?.class] ?? item?.class}」`;
     if (!covered.has(item?.route)) { problems.push(`${label}：route 不在 routes 里`); continue; }
@@ -179,16 +182,54 @@ export function checkCassette(cassette, known, moduleRouteCount = null, answered
     const shown = seen.get(item.shown_by);
     // 豁免未授权、参数非法：指给一条照常应答的请求（证明这条路由确实应答）。
     // 豁免正常（退役的路由，一律回 4xx）：指给一条打在这条路由上的请求，它不能是正常的（证明确实不照常应答）。
-    const wantNormal = item.class !== 'normal';
+    // 这条路由同时豁免了正常（一律回同一个 4xx）：豁免未授权、参数非法时指给一条回那个固定应答的请求（证明谁来都一样）。
+    const wantNormal = item.class !== 'normal' && !neverNormal.has(item.route);
     if (!shown || shown.route !== item.route || (wantNormal ? shown.class !== 'normal' : !CLASSES.includes(shown.class) || shown.class === 'normal')) { problems.push(`${label}：shown_by 要指给一条打在这条路由上的请求（写成 场景名/请求 id）：豁免未授权、参数非法时那条要照常应答；豁免正常时那条不能照常应答`); continue; }
     if (covered.get(item.route).has(item.class)) { problems.push(`${label}：这条路由有这一类的请求，豁免是多余的`); continue; }
     exempted.add(`${item.route}\n${item.class}`);
+  }
+  for (const route of fixedAnswerRoutes(cassette)) {
+    const { steps, kinds, answers } = fixedAnswerEvidence(cassette, route);
+    const label = `${route}：豁免了正常和未授权（或参数非法），要证明谁来都一样`;
+    for (const kind of FIXED_KINDS) if (!kinds[kind].length) problems.push(`${label}：缺一条${FIXED_KIND_NAME[kind]}的请求`);
+    if (answered && answers.size > 1) problems.push(`${label}：打在这条路由上的 ${steps.length} 条请求应答不全相同（${[...answers.keys()].map((k) => k.slice(0, 60)).join(' / ')}）`);
   }
   for (const [route, classes] of covered) {
     const missing = CLASSES.filter((c) => !classes.has(c) && !exempted.has(`${route}\n${c}`));
     if (missing.length) problems.push(`${route} 缺 ${missing.map((c) => CLASS_NAME[c]).join('、')} 的请求${answered ? '（按录下来的应答算）' : ''}`);
   }
   return problems;
+}
+
+/** 同时豁免了正常和未授权（或参数非法）的路由：谁来都回同一个固定应答，工具要自己核这一点。 */
+export function fixedAnswerRoutes(cassette) {
+  const ex = Array.isArray(cassette?.exempt) ? cassette.exempt : [];
+  const never = new Set(ex.filter((x) => x?.class === 'normal').map((x) => x.route));
+  return [...new Set(ex.filter((x) => never.has(x?.route) && (x.class === 'unauthorized' || x.class === 'invalid')).map((x) => x.route))];
+}
+const FIXED_KINDS = ['admin', 'anonymous', 'login'];
+const FIXED_KIND_NAME = { admin: '带管理员凭据（x-admin-token）', anonymous: '匿名（不带口令、cookie、authorization）', login: '登录的非管理员（identity-fake 夹具、非管理员会话的 cookie）' };
+const NON_ADMIN_SESSIONS = new Set([FAKE_SESSIONS.alpha, FAKE_SESSIONS.beta]);
+/** 一条请求是哪种身份：带 x-admin-token 是管理员；带 identity-fake 非管理员会话的 cookie（场景装了这个夹具）是登录的非管理员；三样都不带是匿名。 */
+export function requestKind(request, fixtures = []) {
+  const h = Object.fromEntries(Object.entries(request?.headers ?? {}).map(([k, v]) => [k.toLowerCase(), String(v)]));
+  if (h['x-admin-token']) return 'admin';
+  const sid = /(?:^|;\s*)session_id=([^;]+)/.exec(h.cookie ?? '')?.[1];
+  if (sid && !h.authorization && fixtures.includes('identity-fake') && NON_ADMIN_SESSIONS.has(sid)) return 'login';
+  if (!h.cookie && !h.authorization) return 'anonymous';
+  return 'other';
+}
+/** 打在这条路由上的全部请求：按身份分好，应答按「状态码 + 响应体」归类（只有一类才算谁来都一样）。 */
+export function fixedAnswerEvidence(cassette, route) {
+  const steps = [], kinds = { admin: [], anonymous: [], login: [], other: [] }, answers = new Map();
+  for (const scenario of cassette?.scenarios ?? []) for (const step of scenario?.steps ?? []) {
+    if (step?.route !== route) continue;
+    const where = `${scenario.name}/${step.id}`;
+    steps.push(where);
+    kinds[requestKind(step.request, scenario.fixtures ?? [])].push(where);
+    if (step.response) { const key = `${step.response.status} ${JSON.stringify(step.response.body ?? null)}`; answers.set(key, [...(answers.get(key) ?? []), where]); }
+  }
+  return { steps, kinds, answers };
 }
 
 /** 每条路由三类各有几条，豁免的写「豁免」。请求集合格之后才调用，所以标的类别已经和应答对过。 */
@@ -735,6 +776,23 @@ async function selftest() {
   check(checkCassette(withSteps([a, c], { exempt: exempt({ shown_by: 's/nope' }) }), known).some((p) => p.includes('shown_by')) && checkCassette(withSteps([a, c], { exempt: exempt({ shown_by: 's/a' }) }), known).some((p) => p.includes('shown_by')), '豁免：没指给请求，或者指的那条不是照常应答的，不认');
   check(checkCassette(withSteps([a, b], { exempt: exempt({ class: 'normal', shown_by: 's/b', why: '退役的路由，一律回 4xx' }) }), known).length === 0 && checkCassette(withSteps([a, b, c], { exempt: exempt({ class: 'normal', shown_by: 's/c', why: 'x' }) }), known).some((p) => p.includes('shown_by') || p.includes('多余')), '豁免：退役的路由可以豁免正常这一类（指给一条不照常应答的请求）；有正常请求的不行');
   check(checkCassette(withSteps([a, b, c], { exempt: exempt({ class: 'weird' }) }), known).some((p) => p.includes('class 只能是')), '豁免：class 写错，不认');
+  {
+    // 一律回同一个 4xx 的路由（比如 GET /mcp 一律 405）：豁免了正常之后可以再豁免未授权，但工具自己核「谁来都一样」——
+    // 打在这条路由上的全部请求应答逐字节相同，且至少各有一条带管理员凭据、匿名、登录的非管理员
+    const ans = (body = { error: '405' }) => ({ status: 405, body });
+    const s405 = (id, headers, body) => ({ id, route: 'GET /api/x', class: 'invalid', request: { method: 'GET', path: '/api/x', headers }, response: ans(body) });
+    const admin = s405('admin', { 'x-admin-token': 't' }), anon = s405('anon', {}), login = s405('login', { cookie: `session_id=${FAKE_SESSIONS.alpha}` });
+    const fixed = [{ route: 'GET /api/x', class: 'normal', why: '一律 405', shown_by: 's/anon' }, { route: 'GET /api/x', class: 'unauthorized', why: '谁来都 405', shown_by: 's/anon' }];
+    const scen = (steps, fixtures = ['identity-fake']) => ({ domain: 'x', routes: ['GET /api/x'], exempt: fixed, scenarios: [{ name: 's', fixtures, steps }] });
+    const okFixed = checkCassette(scen([admin, anon, login]), known).length === 0;
+    const differs = checkCassette(scen([s405('admin', { 'x-admin-token': 't' }, { error: 'admin sees more' }), anon, login]), known).some((p) => p.includes('应答不全相同'));
+    const noLogin = checkCassette(scen([admin, anon, login], []), known).some((p) => p.includes('登录的非管理员'));
+    const noAdmin = checkCassette(scen([anon, login]), known).some((p) => p.includes('管理员凭据'));
+    const strictOld = checkCassette(withSteps([b, c], { exempt: [fixed[1]] }), known).some((p) => p.includes('shown_by'));
+    check(okFixed && differs && noLogin && noAdmin && strictOld, '豁免：一律回同一个 4xx 的路由豁免了正常和未授权，工具核谁来都一样——管理员和匿名应答不同、缺登录的非管理员、缺管理员都报错；没豁免正常的照旧要指给照常应答的请求');
+    check(requestKind({ headers: { 'X-Admin-Token': 'x' } }) === 'admin' && requestKind({ headers: {} }) === 'anonymous' && requestKind({ headers: { cookie: `session_id=${FAKE_SESSIONS.alpha}` } }, ['identity-fake']) === 'login'
+      && requestKind({ headers: { cookie: `session_id=${FAKE_SESSIONS.admin}` } }, ['identity-fake']) === 'other' && requestKind({ headers: { cookie: `session_id=${FAKE_SESSIONS.alpha}` } }) === 'other', '身份：口令是管理员；非管理员会话的 cookie 要装了 identity-fake 才算登录的非管理员；管理员会话的 cookie 不算');
+  }
   check(checkCassette(withSteps([a, b, c], { exempt: exempt() }), known).some((p) => p.includes('多余')), '豁免：这条路由其实有这一类的请求，豁免是多余的，失败');
   check(coverage(open).join() === 'GET /api/x：未授权 1，参数非法 豁免，正常 1' && coverage(full).join() === 'GET /api/x：未授权 1，参数非法 1，正常 1', '覆盖：每条路由三类各几条，豁免的写豁免');
   check(fill({ path: '/api/x/{{id}}', n: [1, '{{id}}'] }, { id: 7 }).path === '/api/x/7' && fill(['{{id}}'], { id: 7 })[0] === '7', '变量：路径和请求体里都能代入');
@@ -983,6 +1041,12 @@ async function main() {
     if (!record) {
       // 豁免总是打印出来：它是「这条路由没有这一类」的声明，要一直看得见
       for (const item of cassette.exempt ?? []) console.log(`（豁免）${domain}：${item.route} 没有「${CLASS_NAME[item.class]}」——${item.why}（见 ${item.shown_by}）`);
+      for (const route of fixedAnswerRoutes(cassette)) {
+        const { steps, kinds, answers } = fixedAnswerEvidence(cassette, route);
+        const classes = (cassette.exempt ?? []).filter((x) => x.route === route).map((x) => CLASS_NAME[x.class]).join('、');
+        const [answer] = [...answers.keys()];
+        console.log(`（固定应答）${domain}：${route} 豁免了${classes}——${steps.length} 条请求应答都是 ${String(answer).slice(0, 120)}（管理员 ${kinds.admin.length}、匿名 ${kinds.anonymous.length}、登录的非管理员 ${kinds.login.length} 条，见 ${[kinds.admin[0], kinds.anonymous[0], kinds.login[0]].join('、')}）`);
+      }
       if (only) for (const line of coverage(cassette)) console.log(`（覆盖，按录下来的应答算）${line}`);
     }
     for (const scenario of cassette.scenarios) {
