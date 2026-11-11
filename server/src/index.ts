@@ -33,6 +33,7 @@ import { registerContentObservationRoutes } from './routes/content-observation.t
 import { registerAuthViewerRoutes } from './routes/auth-viewer.ts';
 import { registerPrincipalRoutes } from './routes/principals.ts';
 import { registerSettingsRoutes } from './routes/settings.ts';
+import { registerAdminTokenRoutes } from './routes/admin-token.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import { SkillService } from './services/skill.ts';
@@ -2958,46 +2959,7 @@ registerTypeRoutes(http);
 // ---------- 设置 / 导入导出 ----------
 // ---------- 管理员口令手动设置（本机引导：首次无口令时允许从 loopback 设置） ----------
 /** 首次设口令（库里还没有口令）：本机直连（CLI 或本机同源页面），或 Odoo 管理员；改/清口令：带当前口令或 Odoo 管理员 */
-function isLoopbackReq(req: express.Request): boolean {
-  return rawLoopback(req) && (!browserMarked(req) || originIsThisSurface(req));
-}
-function adminTokenWritable(req: express.Request, requireCurrent: boolean): boolean {
-  if (!browserSameSite(req) || (req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req))) return false;
-  if (odooAdminReqs.has(req)) return true;
-  return requireCurrent ? dbAdminTokenOk(req.headers['x-admin-token']) : isLoopbackReq(req);
-}
-
-app.get('/api/admin/whoami', (req, res) => {
-  const viaToken = adminTokenCheck(req.headers['x-admin-token']);
-  const odoo = odooAdminReqs.get(req) ?? null;
-  res.set('Cache-Control', 'no-store').json({ admin: viaToken || !!odoo, via: viaToken ? 'token' : odoo ? 'odoo' : null, login: viaToken ? null : odoo });
-});
-
-app.get('/api/admin-token/state', (req, res) => {
-  res.json({
-    source: process.env.ADMIN_TOKEN ? 'env' : (dbAdminTokenSet() ? 'db' : 'none'),
-    settable: !process.env.ADMIN_TOKEN && (dbAdminTokenSet() || isLoopbackReq(req) || odooAdminReqs.has(req)), // env 未设时：已有口令可凭旧口令改；首次由本机或 Odoo 管理员设
-  });
-});
-
-app.put('/api/admin-token', (req, res) => {
-  if (process.env.ADMIN_TOKEN) return res.status(400).json({ error: '口令由启动环境 ADMIN_TOKEN 提供，页面不可改（改环境变量并重启）' });
-  const token = typeof req.body?.token === 'string' ? req.body.token : '';
-  if (token.length < 4 || token.length > 128) return res.status(400).json({ error: '口令长度 4–128' });
-  const hasExisting = dbAdminTokenSet();
-  if (!adminTokenWritable(req, hasExisting)) {
-    return res.status(403).json({ error: hasExisting ? '修改口令需先在请求头带上当前口令（X-Admin-Token），或用 Odoo 管理员登录' : '首次设置口令仅限本机命令行/本机页面，或 Odoo 管理员' });
-  }
-  svc<SettingService>('setting').put(ADMIN_TOKEN_KEY, hashAdminToken(token));
-  res.json({ ok: true, source: 'db', note: '口令已设置并立即生效（库存 sha256，不可取回）' });
-});
-
-app.delete('/api/admin-token', (req, res) => {
-  if (process.env.ADMIN_TOKEN) return res.status(400).json({ error: '口令来自启动环境，需清环境变量并重启' });
-  if (!adminTokenWritable(req, true)) return res.status(403).json({ error: '需当前口令或 Odoo 管理员登录' });
-  svc<SettingService>('setting').delete(ADMIN_TOKEN_KEY);
-  res.json({ ok: true, source: 'none' });
-});
+registerAdminTokenRoutes(http, { adminTokenCheck, odooAdminReqs, dbAdminTokenSet, dbAdminTokenOk, hashAdminToken, browserSameSite, devOriginOk });
 
 // 评审 #24：settings 出口把 mcp_upstreams.headers 的值掩成 ****（键名保留）——
 // 内部读取走 mcpUpstreams() 直读 DB，不受影响；导出同样脱敏（与 auth.value 口径一致）。
