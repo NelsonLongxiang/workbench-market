@@ -55,7 +55,7 @@ with sync_playwright() as p:
     pg.goto(M + '/'); pg.wait_for_selector(SIDE)
     pg.locator('[data-testid=wm-me]').click()
     pop = pg.locator('.wm-me-pop'); pop.wait_for()
-    check('用户卡点开是弹出层，口令在里面', pop.is_visible() and pop.locator('button', has_text='口令').count() == 1)
+    check('用户卡点开是弹出层（aria-expanded 为真），口令在里面', pop.is_visible() and pg.locator('[data-testid=wm-me]').get_attribute('aria-expanded') == 'true' and pop.locator('button', has_text='口令').count() == 1)
     pop.locator('button', has_text='口令').click()
     pg.locator('.ant-popover input[type=password]').last.fill(TOK)
     pg.locator('.ant-popover button', has_text='保').last.click()

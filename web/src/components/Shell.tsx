@@ -23,6 +23,7 @@ export default function Shell({ admin, footer, children }: { admin: boolean; foo
   const [pending, setPending] = useState<number | null>(null);
   const [cockpits, setCockpits] = useState<Cockpit[] | null>(null);
   const [login, setLogin] = useState<string | null>(null);
+  const [meOpen, setMeOpen] = useState(false);
   // 角标随换页、换身份刷新；驾驶舱和登录身份只在进来时读一次
   useEffect(() => { void getAttentionCount().then(setPending); }, [pathname, admin]);
   // 接口给的不是数组（出错、被拦、形状不对）就不显示这一块，别让侧栏把整页带崩
@@ -51,8 +52,8 @@ export default function Shell({ admin, footer, children }: { admin: boolean; foo
               <span className="wm-nav-icon"><SettingOutlined /></span><span>设置 / 管理</span>
             </button>
           </Dropdown>}
-          <Popover placement="topLeft" trigger="click" content={<div className="wm-me-pop">{footer}</div>}>
-            <button type="button" className="wm-me" data-testid="wm-me">
+          <Popover placement="topLeft" trigger="click" open={meOpen} onOpenChange={setMeOpen} content={<div className="wm-me-pop">{footer}</div>}>
+            <button type="button" className="wm-me" data-testid="wm-me" aria-haspopup="dialog" aria-expanded={meOpen}>
               <span className="wm-avatar">{(login ?? '?').slice(0, 1).toUpperCase()}</span>
               <span className="wm-me-name">{login ?? '未登录'}</span>
             </button>
