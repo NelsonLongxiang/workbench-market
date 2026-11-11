@@ -1,0 +1,473 @@
+{
+  "domain": "apps-static",
+  "what": "自产台静态托管 GET /apps/<slug>/…：按活跃版本（或 ?version=N）出物化目录里的文件，CSP sandbox；HTML 注入本台令牌；目录不在时按 commit 从 LayerFS 冷回读。1 条路由（处理函数 serveApp 门户也用，留在 index.ts）。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/"],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "登录门关，不配 LayerFS。预先写进库一个自产台（活跃 v2；v1、v2 放好物化目录，v3 只有库里一行），台令牌每个实例随机（HTML 里的 hex64 换占位）。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "seed": [
+        { "table": "apps", "row": { "slug": "replay-static", "title": "静态台", "kind": "app", "status": "active", "active_version": 2, "created_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" } },
+        { "table": "app_versions", "row": { "app_id": 2, "version": 1, "file_count": 1, "total_bytes": 10, "created_by": "seed", "created_at": "2025-01-01 00:00:01" } },
+        { "table": "app_versions", "row": { "app_id": 2, "version": 2, "file_count": 4, "total_bytes": 10, "created_by": "seed", "created_at": "2025-01-01 00:00:02" } },
+        { "table": "app_versions", "row": { "app_id": 2, "version": 3, "file_count": 1, "total_bytes": 10, "created_by": "seed", "created_at": "2025-01-01 00:00:03" } },
+        { "table": "apps", "row": { "slug": "2nd-app", "title": "数字开头的台", "kind": "app", "status": "active", "active_version": 1, "created_at": "2025-01-01 00:00:04", "updated_at": "2025-01-01 00:00:04" } },
+        { "table": "app_versions", "row": { "app_id": 3, "version": 1, "file_count": 1, "total_bytes": 10, "created_by": "seed", "created_at": "2025-01-01 00:00:04" } },
+        { "table": "apps", "row": { "slug": "UPPER-APP", "title": "大写", "kind": "app", "status": "active", "active_version": 1, "created_at": "2025-01-01 00:00:05", "updated_at": "2025-01-01 00:00:05" } },
+        { "table": "app_versions", "row": { "app_id": 4, "version": 1, "file_count": 1, "total_bytes": 10, "created_by": "seed", "created_at": "2025-01-01 00:00:05", "commit_id": "c0000000000000up" } },
+        { "table": "apps", "row": { "slug": "-dash-app", "title": "连字符开头", "kind": "app", "status": "active", "active_version": 1, "created_at": "2025-01-01 00:00:06", "updated_at": "2025-01-01 00:00:06" } },
+        { "table": "app_versions", "row": { "app_id": 5, "version": 1, "file_count": 1, "total_bytes": 10, "created_by": "seed", "created_at": "2025-01-01 00:00:06" } }
+      ],
+      "seed_files": [
+        { "path": "apps/replay-static/v1/index.html", "content": "<!doctype html>\n<html><head><title>第一版</title></head><body><div>第一版</div></body></html>\n" },
+        { "path": "apps/replay-static/v2/index.html", "content": "<!doctype html>\n<html><head><title>第二版</title></head><body><div>第二版</div></body></html>\n" },
+        { "path": "apps/replay-static/v2/app.js", "content": "console.log(\"v2\");\n" },
+        { "path": "apps/replay-static/v2/style.css", "content": "body { color: #333; }\n" },
+        { "path": "apps/replay-static/v2/sub/index.html", "content": "<!doctype html>\n<html><head><title>子目录</title></head><body><div>子目录</div></body></html>\n" },
+        { "path": "apps/replay-static/v2/data.json", "content": "{\"a\":1}\n" },
+        { "path": "apps/2nd-app/v1/app.js", "content": "console.log(\"2nd\");\n" },
+        { "path": "apps/-dash-app/v1/app.js", "content": "console.log(\"dash\");\n" }
+      ],
+      "steps": [
+        {
+          "id": "index",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "normal",
+          "what": "台首页：CSP sandbox、X-App-Version；HTML 里注入本台令牌（每个实例随机，hex64 换占位）和卡片编号",
+          "vary": { "$text": "hex64" },
+          "request": { "method": "GET", "path": "/apps/replay-static/", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "content-length": "368", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"170-<指纹>\"", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
+            "body": "<!doctype html>\n<html><head><meta name=\"wm-app-token\" content=\"<每个实例随机·hex64>\"><script>window.WM_APP_TOKEN=\"<每个实例随机·hex64>\";window.WM_APP_SLUG=\"replay-static\";window.WM_WORKBENCH_ID=null;</script><title>第二版</title></head><body><div>第二版</div></body></html>\n"
+          }
+        },
+        {
+          "id": "no-slash",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "normal",
+          "what": "不带结尾斜杠：同样回首页",
+          "vary": { "$text": "hex64" },
+          "request": { "method": "GET", "path": "/apps/replay-static", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "content-length": "368", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"170-<指纹>\"", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
+            "body": "<!doctype html>\n<html><head><meta name=\"wm-app-token\" content=\"<每个实例随机·hex64>\"><script>window.WM_APP_TOKEN=\"<每个实例随机·hex64>\";window.WM_APP_SLUG=\"replay-static\";window.WM_WORKBENCH_ID=null;</script><title>第二版</title></head><body><div>第二版</div></body></html>\n"
+          }
+        },
+        {
+          "id": "js",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "normal",
+          "what": "脚本原样发（不注入）",
+          "request": { "method": "GET", "path": "/apps/replay-static/app.js", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/javascript; charset=UTF-8",
+            "headers": { "accept-ranges": "bytes", "cache-control": "public, max-age=0", "content-length": "19", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"13-<指纹>\"", "last-modified": "<时间>", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
+            "body": "console.log(\"v2\");\n"
+          }
+        },
+        {
+          "id": "css",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "normal",
+          "what": "样式表",
+          "request": { "method": "GET", "path": "/apps/replay-static/style.css", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "text/css; charset=UTF-8",
+            "headers": { "accept-ranges": "bytes", "cache-control": "public, max-age=0", "content-length": "22", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"16-<指纹>\"", "last-modified": "<时间>", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
+            "body": "body { color: #333; }\n"
+          }
+        },
+        {
+          "id": "json",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "normal",
+          "what": "JSON 文件",
+          "request": { "method": "GET", "path": "/apps/replay-static/data.json", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=UTF-8",
+            "headers": { "accept-ranges": "bytes", "cache-control": "public, max-age=0", "content-length": "8", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"8-<指纹>\"", "last-modified": "<时间>", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
+            "body": { "a": 1 }
+          }
+        },
+        {
+          "id": "sub-dir",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "normal",
+          "what": "子目录以斜杠结尾：补 index.html",
+          "vary": { "$text": "hex64" },
+          "request": { "method": "GET", "path": "/apps/replay-static/sub/", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "content-length": "368", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"170-<指纹>\"", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
+            "body": "<!doctype html>\n<html><head><meta name=\"wm-app-token\" content=\"<每个实例随机·hex64>\"><script>window.WM_APP_TOKEN=\"<每个实例随机·hex64>\";window.WM_APP_SLUG=\"replay-static\";window.WM_WORKBENCH_ID=null;</script><title>子目录</title></head><body><div>子目录</div></body></html>\n"
+          }
+        },
+        {
+          "id": "version-1",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "normal",
+          "what": "?version=1：历史版本（预览）",
+          "vary": { "$text": "hex64" },
+          "request": { "method": "GET", "path": "/apps/replay-static/?version=1", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "content-length": "368", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"170-<指纹>\"", "vary": "Origin", "x-app-version": "v1", "x-powered-by": "Express" },
+            "body": "<!doctype html>\n<html><head><meta name=\"wm-app-token\" content=\"<每个实例随机·hex64>\"><script>window.WM_APP_TOKEN=\"<每个实例随机·hex64>\";window.WM_APP_SLUG=\"replay-static\";window.WM_WORKBENCH_ID=null;</script><title>第一版</title></head><body><div>第一版</div></body></html>\n"
+          }
+        },
+        {
+          "id": "version-99",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "normal",
+          "what": "?version=99 没有这一版：回落活跃版",
+          "vary": { "$text": "hex64" },
+          "request": { "method": "GET", "path": "/apps/replay-static/?version=99", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "content-length": "368", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"170-<指纹>\"", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
+            "body": "<!doctype html>\n<html><head><meta name=\"wm-app-token\" content=\"<每个实例随机·hex64>\"><script>window.WM_APP_TOKEN=\"<每个实例随机·hex64>\";window.WM_APP_SLUG=\"replay-static\";window.WM_WORKBENCH_ID=null;</script><title>第二版</title></head><body><div>第二版</div></body></html>\n"
+          }
+        },
+        {
+          "id": "version-text",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "normal",
+          "what": "?version=abc：回落活跃版",
+          "vary": { "$text": "hex64" },
+          "request": { "method": "GET", "path": "/apps/replay-static/?version=abc", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=utf-8",
+            "headers": { "content-length": "368", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"170-<指纹>\"", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
+            "body": "<!doctype html>\n<html><head><meta name=\"wm-app-token\" content=\"<每个实例随机·hex64>\"><script>window.WM_APP_TOKEN=\"<每个实例随机·hex64>\";window.WM_APP_SLUG=\"replay-static\";window.WM_WORKBENCH_ID=null;</script><title>第二版</title></head><body><div>第二版</div></body></html>\n"
+          }
+        },
+        {
+          "id": "version-3-cold",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "invalid",
+          "what": "?version=3：库里有这一版但目录不在、也没有 commit：404（冷版本无锚）",
+          "request": { "method": "GET", "path": "/apps/replay-static/missing.js?version=3", "headers": {} },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "56", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"38-<指纹>\"", "vary": "Origin", "x-app-version": "v3", "x-powered-by": "Express" },
+            "body": { "error": "file not found (cold, no commit): missing.js" }
+          }
+        },
+        {
+          "id": "missing-file",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "invalid",
+          "what": "活跃版里没有的文件、带扩展名：404",
+          "request": { "method": "GET", "path": "/apps/replay-static/nope.js", "headers": {} },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "53", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"35-<指纹>\"", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
+            "body": { "error": "file not found (cold, no commit): nope.js" }
+          }
+        },
+        {
+          "id": "missing-route",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "normal",
+          "what": "没有扩展名的路径（前端路由）：回落 index.html 原样（不注入令牌）",
+          "request": { "method": "GET", "path": "/apps/replay-static/some/route", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "text/html; charset=UTF-8",
+            "headers": { "accept-ranges": "bytes", "cache-control": "public, max-age=0", "content-length": "100", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"64-<指纹>\"", "last-modified": "<时间>", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
+            "body": "<!doctype html>\n<html><head><title>第二版</title></head><body><div>第二版</div></body></html>\n"
+          }
+        },
+        {
+          "id": "digit-slug",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "normal",
+          "what": "slug 以数字开头（2nd-app）：路径规则收",
+          "request": { "method": "GET", "path": "/apps/2nd-app/app.js", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/javascript; charset=UTF-8",
+            "headers": { "accept-ranges": "bytes", "cache-control": "public, max-age=0", "content-length": "20", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"14-<指纹>\"", "last-modified": "<时间>", "vary": "Origin", "x-app-version": "v1", "x-powered-by": "Express" },
+            "body": "console.log(\"2nd\");\n"
+          }
+        },
+        {
+          "id": "missing-app",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "invalid",
+          "what": "没有这个台：404",
+          "request": { "method": "GET", "path": "/apps/nope/", "headers": {} },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "31", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "app not found: nope" }
+          }
+        },
+        {
+          "id": "raw-dotdot",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "invalid",
+          "what": "原样发：../ 往上走，400",
+          "request": { "method": "GET", "path": "/apps/replay-static/../../etc/passwd", "raw": true, "headers": {} },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "24", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"18-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "路径非法" }
+          }
+        },
+        {
+          "id": "raw-encoded-dotdot",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "invalid",
+          "what": "原样发：%2e%2e%2f 解码后往上走，400",
+          "request": { "method": "GET", "path": "/apps/replay-static/%2e%2e%2f%2e%2e%2fsecret", "raw": true, "headers": {} },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "24", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"18-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "路径非法" }
+          }
+        },
+        {
+          "id": "raw-encoded-slash",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "invalid",
+          "what": "原样发：..%2f 解码后往上走，400",
+          "request": { "method": "GET", "path": "/apps/replay-static/..%2fv1%2findex.html", "raw": true, "headers": {} },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "24", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"18-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "路径非法" }
+          }
+        },
+        {
+          "id": "raw-bad-encoding",
+          "what": "原样发：%E0%A4%A——在路由之前 Express 解码失败，500（不是处理函数里的 400；现状，录下来）",
+          "request": { "method": "GET", "path": "/apps/replay-static/%E0%A4%A", "raw": true, "headers": {} },
+          "response": { "status": 500, "type": "application/json; charset=utf-8", "headers": { "content-length": "46", "etag": "W/\"2e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "Failed to decode param '/%E0%A4%A'" } }
+        },
+        {
+          "id": "raw-double-slash",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "invalid",
+          "what": "原样发：双斜杠开头的相对路径，400",
+          "request": { "method": "GET", "path": "/apps/replay-static//etc/passwd", "raw": true, "headers": {} },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "24", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"18-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "路径非法" }
+          }
+        },
+        {
+          "id": "raw-backslash",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "invalid",
+          "what": "原样发：%5c..%5c（反斜杠不当分隔符），找不到 404",
+          "request": { "method": "GET", "path": "/apps/replay-static/%5c..%5cv1%5cindex.html", "raw": true, "headers": {} },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "66", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"42-<指纹>\"", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
+            "body": { "error": "file not found (cold, no commit): \\..\\v1\\index.html" }
+          }
+        },
+        {
+          "id": "outside-upper",
+          "what": "slug 有大写（UPPER-APP，库里有、版本带 commit、目录不在）：不在路径规则内，落到兜底 404（兜底随有没有 web/dist 而不同，只比状态码）；规则放宽的话会去冷回读，没配 LayerFS 回 502",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/apps/UPPER-APP/app.js", "headers": {} },
+          "response": { "status": 404 }
+        },
+        {
+          "id": "outside-dash",
+          "what": "slug 以连字符开头（-dash-app，库里有、文件也在）：同上，404，只比状态码",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/apps/-dash-app/app.js", "headers": {} },
+          "response": { "status": 404 }
+        },
+        {
+          "id": "raw-long",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "invalid",
+          "what": "原样发：4000 个字符的文件名，404",
+          "request": {
+            "method": "GET",
+            "path": "/apps/replay-static/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.js",
+            "raw": true,
+            "headers": {}
+          },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "4049", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"fd1-<指纹>\"", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
+            "body": { "error": "file not found (cold, no commit): aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.js" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "cold",
+      "what": "LayerFS 指向假的。预先写进库一个四版的自产台并放好物化目录；布置：迁进 LayerFS、切到 v4（v1 的目录随之清掉），再按 ?version=1 冷回读。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "fixtures": ["layerfs-fake"],
+      "seed": [
+        { "table": "apps", "row": { "slug": "replay-cold", "title": "冷版本台", "kind": "app", "status": "active", "active_version": 4, "created_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" } },
+        { "table": "app_versions", "row": { "app_id": 2, "version": 1, "file_count": 2, "total_bytes": 100, "created_by": "seed", "created_at": "2025-01-01 00:00:01" } },
+        { "table": "app_versions", "row": { "app_id": 2, "version": 2, "file_count": 2, "total_bytes": 100, "created_by": "seed", "created_at": "2025-01-01 00:00:02" } },
+        { "table": "app_versions", "row": { "app_id": 2, "version": 3, "file_count": 2, "total_bytes": 100, "created_by": "seed", "created_at": "2025-01-01 00:00:03" } },
+        { "table": "app_versions", "row": { "app_id": 2, "version": 4, "file_count": 2, "total_bytes": 100, "created_by": "seed", "created_at": "2025-01-01 00:00:04" } }
+      ],
+      "seed_files": [
+        { "path": "apps/replay-cold/v1/index.html", "content": "<!doctype html>\n<html><head><title>冷 v1</title></head><body><div>冷 v1</div></body></html>\n" },
+        { "path": "apps/replay-cold/v1/a.js", "content": "console.log(1);\n" },
+        { "path": "apps/replay-cold/v2/index.html", "content": "<!doctype html>\n<html><head><title>冷 v2</title></head><body><div>冷 v2</div></body></html>\n" },
+        { "path": "apps/replay-cold/v2/a.js", "content": "console.log(2);\n" },
+        { "path": "apps/replay-cold/v3/index.html", "content": "<!doctype html>\n<html><head><title>冷 v3</title></head><body><div>冷 v3</div></body></html>\n" },
+        { "path": "apps/replay-cold/v3/a.js", "content": "console.log(3);\n" },
+        { "path": "apps/replay-cold/v4/index.html", "content": "<!doctype html>\n<html><head><title>冷 v4</title></head><body><div>冷 v4</div></body></html>\n" },
+        { "path": "apps/replay-cold/v4/a.js", "content": "console.log(4);\n" }
+      ],
+      "steps": [
+        {
+          "id": "setup-migrate",
+          "what": "布置：迁进 LayerFS（只比状态码）",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/apps/replay-cold/migrate-layerfs", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "setup-activate",
+          "what": "布置：切到 v4，v1 的目录随之清掉（只比状态码）",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/apps/replay-cold/activate", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "version": 4, "reviewed_by": "r" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "cold-file",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "normal",
+          "what": "v1 的目录已清：从 LayerFS 按 commit 回读这个文件",
+          "request": { "method": "GET", "path": "/apps/replay-cold/a.js?version=1", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "",
+            "headers": { "content-length": "16", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "vary": "Origin", "x-app-version": "v1", "x-powered-by": "Express" },
+            "body": "console.log(1);\n"
+          }
+        },
+        {
+          "id": "cold-route",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "normal",
+          "what": "没有扩展名：回读 commit 里的 index.html",
+          "request": { "method": "GET", "path": "/apps/replay-cold/some/route?version=1", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "",
+            "headers": { "content-length": "94", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "vary": "Origin", "x-app-version": "v1", "x-powered-by": "Express" },
+            "body": "<!doctype html>\n<html><head><title>冷 v1</title></head><body><div>冷 v1</div></body></html>\n"
+          }
+        },
+        {
+          "id": "cold-missing",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "invalid",
+          "what": "commit 里没有这个文件：404",
+          "request": { "method": "GET", "path": "/apps/replay-cold/nope.js?version=1", "headers": {} },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "45", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"2d-<指纹>\"", "vary": "Origin", "x-app-version": "v1", "x-powered-by": "Express" },
+            "body": { "error": "file not found in commit: nope.js" }
+          }
+        },
+        {
+          "id": "warm",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "normal",
+          "what": "活跃版 v4 照常从磁盘出",
+          "request": { "method": "GET", "path": "/apps/replay-cold/a.js", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/javascript; charset=UTF-8",
+            "headers": { "accept-ranges": "bytes", "cache-control": "public, max-age=0", "content-length": "16", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"10-<指纹>\"", "last-modified": "<时间>", "vary": "Origin", "x-app-version": "v4", "x-powered-by": "Express" },
+            "body": "console.log(4);\n"
+          }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce）。同 open 的种子。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "seed": [
+        { "table": "apps", "row": { "slug": "replay-static", "title": "静态台", "kind": "app", "status": "active", "active_version": 2, "created_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" } },
+        { "table": "app_versions", "row": { "app_id": 2, "version": 1, "file_count": 1, "total_bytes": 10, "created_by": "seed", "created_at": "2025-01-01 00:00:01" } },
+        { "table": "app_versions", "row": { "app_id": 2, "version": 2, "file_count": 4, "total_bytes": 10, "created_by": "seed", "created_at": "2025-01-01 00:00:02" } },
+        { "table": "app_versions", "row": { "app_id": 2, "version": 3, "file_count": 1, "total_bytes": 10, "created_by": "seed", "created_at": "2025-01-01 00:00:03" } },
+        { "table": "apps", "row": { "slug": "2nd-app", "title": "数字开头的台", "kind": "app", "status": "active", "active_version": 1, "created_at": "2025-01-01 00:00:04", "updated_at": "2025-01-01 00:00:04" } },
+        { "table": "app_versions", "row": { "app_id": 3, "version": 1, "file_count": 1, "total_bytes": 10, "created_by": "seed", "created_at": "2025-01-01 00:00:04" } },
+        { "table": "apps", "row": { "slug": "UPPER-APP", "title": "大写", "kind": "app", "status": "active", "active_version": 1, "created_at": "2025-01-01 00:00:05", "updated_at": "2025-01-01 00:00:05" } },
+        { "table": "app_versions", "row": { "app_id": 4, "version": 1, "file_count": 1, "total_bytes": 10, "created_by": "seed", "created_at": "2025-01-01 00:00:05", "commit_id": "c0000000000000up" } },
+        { "table": "apps", "row": { "slug": "-dash-app", "title": "连字符开头", "kind": "app", "status": "active", "active_version": 1, "created_at": "2025-01-01 00:00:06", "updated_at": "2025-01-01 00:00:06" } },
+        { "table": "app_versions", "row": { "app_id": 5, "version": 1, "file_count": 1, "total_bytes": 10, "created_by": "seed", "created_at": "2025-01-01 00:00:06" } }
+      ],
+      "seed_files": [
+        { "path": "apps/replay-static/v1/index.html", "content": "<!doctype html>\n<html><head><title>第一版</title></head><body><div>第一版</div></body></html>\n" },
+        { "path": "apps/replay-static/v2/index.html", "content": "<!doctype html>\n<html><head><title>第二版</title></head><body><div>第二版</div></body></html>\n" },
+        { "path": "apps/replay-static/v2/app.js", "content": "console.log(\"v2\");\n" },
+        { "path": "apps/replay-static/v2/style.css", "content": "body { color: #333; }\n" },
+        { "path": "apps/replay-static/v2/sub/index.html", "content": "<!doctype html>\n<html><head><title>子目录</title></head><body><div>子目录</div></body></html>\n" },
+        { "path": "apps/replay-static/v2/data.json", "content": "{\"a\":1}\n" },
+        { "path": "apps/2nd-app/v1/app.js", "content": "console.log(\"2nd\");\n" },
+        { "path": "apps/-dash-app/v1/app.js", "content": "console.log(\"dash\");\n" }
+      ],
+      "steps": [
+        {
+          "id": "gated-anonymous",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名看台页面，401",
+          "request": { "method": "GET", "path": "/apps/replay-static/", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-anonymous-asset",
+          "route": "GET /^\\/apps\\/[a-z0-9][a-z0-9-]*(\\/.*)?$/",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名取脚本，401",
+          "request": { "method": "GET", "path": "/apps/replay-static/app.js", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        }
+      ]
+    }
+  ]
+}
