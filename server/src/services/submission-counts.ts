@@ -6,6 +6,16 @@ import { db } from '../db.ts';
 
 export type SubmissionChannel = 'task-center.intake' | 'task-center.publish' | 'app-data.rest' | 'app-data.tool';
 
+/** 8f-2：提交人票据验得过（valid）、验不过（invalid）各记一笔；出台页面时出了错、回到原样页面（page_fallback）也记一笔 */
+export function countSubmitterTicket(outcome: 'valid' | 'invalid' | 'page_fallback'): void {
+  try {
+    db.prepare(`INSERT INTO submitter_ticket_counts (day, outcome, n) VALUES (?, ?, 1)
+      ON CONFLICT (day, outcome) DO UPDATE SET n = n + 1`).run(new Date().toISOString().slice(0, 10), outcome);
+  } catch (e) {
+    console.error(`[submission-counts] 票据计数没记上（不影响提交）：${(e as Error)?.message ?? e}`);
+  }
+}
+
 export function countSubmission(channel: SubmissionChannel, hasCredential: boolean, resolved: boolean): void {
   try {
     db.prepare(`INSERT INTO submission_counts (day, channel, has_credential, resolved, n) VALUES (?, ?, ?, ?, 1)

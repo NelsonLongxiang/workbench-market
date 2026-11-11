@@ -8,7 +8,8 @@ export class AppDataService extends Service {
   }
 
   dataInsertStmt() {
-    return db.prepare('INSERT INTO app_data (app_slug, data, created_by, idempotency_key) VALUES (?, ?, ?, ?)');
+    // 8f-2：最后一个参数是验过票据的提交人主体，没有就 null
+    return db.prepare('INSERT INTO app_data (app_slug, data, created_by, idempotency_key, submitter_principal) VALUES (?, ?, ?, ?, ?)');
   }
   dataByIdempotencyKey(slug: string, key: string) {
     return db.prepare('SELECT id, data, created_at FROM app_data WHERE app_slug = ? AND idempotency_key = ?').get(slug, key);

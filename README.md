@@ -248,6 +248,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   a2a-direct-sig.ts（/a2a/direct 入站签名校验：只从登记地址取卡·防重放·WM_A2A_DIRECT_SIG）
   a2a.ts（卡片/绑定/direct 准入）
   app-data-contract.ts（自产台数据契约：必填/枚举/格式/条件规则（含条件格式）/数组对象逐元素，POST 数据时服务端权威校验）
+  app-html.ts（出自产台页面 HTML：注入按台令牌，认得出的人在当前上架版本上再注入提交人票据；出票抛错页面照常不带票据，别的出错回到原样页面并计数）
   attention-answers.ts（「关注」各来源的答法：转给原路由的换算表——路径固定、id 核形状后编码、请求体只取这种答法要的字段；席位提问的答复、事项的验收和退回直接实现）
   attention-forward.ts（进程内把答复转给原路由：全局中间件和原路由的守卫照走，身份头原样、来源地址照抄，应答原样交回）
   attention-providers.ts（「关注」的七个提供方：各来源用旧接口自己的守卫判可见性，只读地取数；阶段三搬完再挪回各域）
@@ -293,6 +294,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   sop-types.ts（SOP 类型）
   sso-ticket-store.ts（门户 SSO 回调一次性票据的 SQLite 存储：重启不丢、多实例原子取出）
   startup-security-self-probe.ts（#326 启动匿名安全面自检与门闩）
+  submitter-ticket.ts  提交人票据：出台页面 HTML 时给认得出的启用的人一张票据（服务端密钥签名，绑主体、台、两小时，不续期），台页面提交时放在信封的 submitter_ticket 里带回，验过才在这个台的提交上记下这个人；别的入口一律不认；启动自检失败就关掉（不出、不认）
   surfaces.ts（#292 M1 业务面/控制面多端口监听·按 localPort 判面·浏览器标记与回环判定）
   task-center.ts（任务中心元台种子+收件发布）
   tasks-read-access.ts（#324 待办身份与来源授权）
@@ -312,7 +314,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   login-session.ts（市场会话与登录 state：Cordis 服务 `loginSessions`·绝对期限·注销与停用即失效·state 一次性并绑浏览器）
   principal.ts（主体与外部身份：Cordis 服务 `principals`·把登录认出的人对到主体·停用与恢复）
   remote-allow.ts（远程写豁免面的快照）
-  submission-counts.ts（「人提需求」的提交计数：只记通道、有没有登录凭据、认没认出人，按天累计次数，不存内容）
+  submission-counts.ts（「人提需求」的提交计数：只记通道、有没有登录凭据、认没认出人，按天累计次数，不存内容；提交人票据验得过、验不过的次数）
   task-center.ts（任务中心：任务、事件、总开关、状态迁移）
   work-item.ts（事项与事项日志：Cordis 服务 `workItems`·按迁移表推进状态的唯一入口 `apply`·日志只增不改；听 workbench-events 每写一行事件日志发的 `workbench-event/logged`，在来源的事务里用保存点推进事项，出错不影响来源、按事实种类计数；`backfill()` 从事件表和事件日志补建存量事项，可重跑；建立人主体 `creator_principal` 只取发布时经身份服务认出、来源已验证的人，认不出就空着，「是不是他的」只认它（`isCreator`），`created_by` 只用于显示）
 server/src/routes/    按域分的路由模块，各带一个注册函数（一个文件一行，按文件名排序）：

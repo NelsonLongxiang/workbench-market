@@ -3,7 +3,9 @@ import { createStartupSecurityProbe, isStartupProbeRequest } from './startup-sec
 import { createLoginGate, loginGateMode, trustedProxies } from './login-gate.ts';
 import { identity, loginRelay } from './identity.ts';
 import { requestPerson, hasLoginCredential } from './request-person.ts';
-import { countSubmission } from './services/submission-counts.ts';
+import { countSubmission, countSubmitterTicket } from './services/submission-counts.ts';
+import { serveAppHtml } from './app-html.ts';
+import { initSubmitterTickets, issueSubmitterTicket, selfCheckSubmitterTickets, submitterFromTicket } from './submitter-ticket.ts';
 import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
 import { recordAppDataEvent, cancelTaskCenterDeliveries, kickWorkbenchEvents, startWorkbenchEventWorker, registerWorkbenchEventRoutes } from './workbench-events.ts';
 import cors from 'cors';
@@ -659,6 +661,8 @@ startWorkbenchEventWorker(); // 工作台事件 v1（人提交 → 事件 → �
 // #198（监督席裁 A·P11 回归修复）：自产台按台令牌——CSP sandbox 下页面源为 null，
 // 交付空间模式（页面调本台 data/files）靠「Origin: null + X-App-Token 匹配 slug」放行 CORS。
 const APP_TOKEN_KEY_FILE = join(dataDir, '.wm-app-token.key');
+initSubmitterTickets(dataDir); // 8f-2：提交人票据的密钥（单独一把，不和台令牌共用）
+selfCheckSubmitterTickets(); // 8f-2 启动自检：验不对就关掉票据（不出、不认）
 let _appTokenKey = '';
 // 登录门首次 enforce：按台令牌永久有效，开门之前它在公网页面上谁都拿得到；登录门又对带令牌的 data/files 直接放行，
 // 所以首次 enforce 启动时换一把新密钥（旧令牌全部作废），写记号 .wm-app-token.gate 后不再重复。原子替换、权限 600、日志不记密钥。
@@ -1218,7 +1222,7 @@ function appDataContract(a: AppRow): DataContract | null {
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9_.:-]{1,128}$/;
 /** 台数据写入核心：REST POST /api/apps/:slug/data 与 MCP app_data_submit 共用——1MB 上限、数据契约、幂等键、写入后推事件。
  *  违约不抛错，回 status 400 + violations，由两个入口各自原样交出去。 */
-function submitAppData(a: AppRow, input: { data: unknown; createdBy?: unknown; idempotencyKey?: unknown; channel: { name: 'app-data.rest' | 'app-data.tool'; hasCredential: boolean } }): { status: number; body: Record<string, unknown> } {
+function submitAppData(a: AppRow, input: { data: unknown; createdBy?: unknown; idempotencyKey?: unknown; submitterTicket?: unknown; channel: { name: 'app-data.rest' | 'app-data.tool'; hasCredential: boolean } }): { status: number; body: Record<string, unknown> } {
   const data = input.data;
   const json = JSON.stringify(data);
   if (json === undefined) bad('data 必填');
@@ -1238,18 +1242,20 @@ function submitAppData(a: AppRow, input: { data: unknown; createdBy?: unknown; i
     if (violations.length) return { status: 400, body: { error: '提交不符合本台数据契约', violations } };
   }
   const created_by = typeof input.createdBy === 'string' ? input.createdBy.trim().slice(0, 128) : '';
+  // 8f-2：台页面在信封里带回的提交人票据。验得过、主体仍启用才记下这个人；验不过当没带（照样收、留空），不把原因回给调用方
+  const submitter = input.channel.name === 'app-data.rest' ? submitterFromTicket(input.submitterTicket, a.slug) : null;
   const r = svc<AppDataService>('appData').dataInsertStmt()
-    .run(a.slug, json, created_by, key) as unknown as { lastInsertRowid: number | bigint };
+    .run(a.slug, json, created_by, key, submitter) as unknown as { lastInsertRowid: number | bigint };
   const itemId = Number(r.lastInsertRowid);
   const createdAt = new Date().toISOString();
   // 属主裁 C（2026-10-26）：提交即推送——绑定 agent 异步收通知（不阻塞 201）。
   // 工作台事件 v1：推送改走事件投递队列（退避重试、终态 sent/dead 可查），信封带 event_id 与 submitter_kind。
   // 提交面匿名、created_by 自填 → submitter_kind 恒 unverified、dispatch:false（只通知不派发）。
   // 联合评审① C：统一绑定表——notify 方向行（授 admits 不触发推送·方向独立性铁律）
-  // 8f：不带内容的提交计数。台的提交今天认不出人（8f-2 的票据之前），resolved 恒为否
-  countSubmission(input.channel.name, input.channel.hasCredential, false);
+  // 8f：不带内容的提交计数。台的提交只凭票据认人（8f-2）
+  countSubmission(input.channel.name, input.channel.hasCredential, submitter !== null);
   try {
-    if (recordAppDataEvent({ slug: a.slug, id: itemId, data, json, createdBy: created_by, createdAt })) kickWorkbenchEvents();
+    if (recordAppDataEvent({ slug: a.slug, id: itemId, data, json, createdBy: created_by, createdAt, submitterPrincipal: submitter })) kickWorkbenchEvents();
   } catch (err) { console.error(`[app-notify] event record failed ${a.slug}: ${String(err).slice(0, 120)}`); }
   return { status: 201, body: { ok: true, id: itemId, slug: a.slug, created_at: createdAt } };
 }
@@ -1263,6 +1269,8 @@ app.post('/api/apps/:slug/data', (req, res) => {
     data: envelope ? b.data : b,
     createdBy: b.created_by,
     idempotencyKey: req.get('idempotency-key') ?? (envelope ? b.idempotency_key : undefined),
+    // 8f-2：提交人票据只认信封字段（直接形态的字段都算数据）
+    submitterTicket: envelope ? b.submitter_ticket : undefined,
     channel: { name: 'app-data.rest', hasCredential: hasLoginCredential(req) },
   });
   res.status(out.status).json(out.body);
@@ -2487,13 +2495,19 @@ function serveApp(req: express.Request, res: express.Response) {
   }
   // #198（裁 A）：自产台 HTML 注入按台令牌——sandbox 页面凭它调本台 data/files（P11 回归修复）
   if (/\.html?$/i.test(rel)) {
-    try {
-      const tok = wmAppToken(m[1]);
-      const raw = readFileSync(abs, 'utf8');
-      const inject = `<meta name="wm-app-token" content="${tok}"><script>window.WM_APP_TOKEN="${tok}";window.WM_APP_SLUG="${m[1]}";window.WM_WORKBENCH_ID=${wmWorkbenchIdFor(`/apps/${m[1]}/`)};</script>`;
-      const out = /<head[^>]*>/i.test(raw) ? raw.replace(/<head([^>]*)>/i, (mm) => mm + inject) : inject + raw;
-      return res.type('html').send(loginGate.rewriteAppHtml(req, out)); // 登录门：本台绝对地址补查看凭证（off 时原样）
-    } catch { /* 读取失败回落原样 */ }
+    let raw: string;
+    try { raw = readFileSync(abs, 'utf8'); } catch { return res.sendFile(abs); /* 读取失败回落原样 */ }
+    // 8f-2：认得出看页面的是启用的人，就给一张只能在这个台的提交上记下他的票据（只有当前上架的版本出票）。
+    // 出票抛错页面照常、不带票据；别的出错回到原样页面并计数（app-html.ts）
+    void serveAppHtml(req, res, { raw, abs, slug: m[1], current: ver === a.active_version }, {
+      person: async (r) => (await requestPerson(r)).principal,
+      appToken: wmAppToken,
+      workbenchId: (slug) => String(wmWorkbenchIdFor(`/apps/${slug}/`)),
+      issueTicket: issueSubmitterTicket,
+      rewrite: (r, html) => loginGate.rewriteAppHtml(r, html),
+      countFallback: () => countSubmitterTicket('page_fallback'),
+    });
+    return;
   }
   res.sendFile(abs);
 }
