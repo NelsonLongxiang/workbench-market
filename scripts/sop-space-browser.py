@@ -71,6 +71,7 @@ with sync_playwright() as p:
     cp = b.new_page(viewport={'width': 1280, 'height': 800}, accept_downloads=True); cp.set_default_timeout(10000)
     cp.goto(C + '/sops'); cp.wait_for_selector('[data-testid=wm-side]')
     cp.locator('[data-testid=wm-me]').click()  # 新外壳：口令在用户卡弹出层里
+    cp.locator('[data-testid=wm-me][aria-expanded=true]').wait_for()
     cp.locator('.wm-me-pop button', has_text='口令').click()
     cp.locator('.ant-popover input[type=password]').last.fill(cfg['token'])
     cp.locator('.ant-popover button', has_text='保').last.click()
