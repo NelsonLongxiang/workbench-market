@@ -50,6 +50,7 @@ async function ready() { const end = Date.now() + 30000; while (Date.now() < end
 const card = async () => (await fetch(BASE + '/.well-known/agent-card.json')).json();
 async function call(method, path, body, headers = {}) { const r = await fetch(BASE + path, { method, headers: { 'Content-Type': 'application/json', ...headers }, body: body ? JSON.stringify(body) : undefined }); let j = null; try { j = await r.json(); } catch {} return { status: r.status, body: j }; }
 const db = () => new DatabaseSync(join(DATA, 'workbench-market.db'));
+const refusedCounts = async () => (await (await fetch(BASE + '/api/health')).json()).a2a?.refused?.counts ?? {};
 
 // 「别的宿主」：市场若把消息转出去，这里会收到
 let peerHits = 0;
@@ -91,8 +92,11 @@ try {
   ok('查无的句柄 → 404', r.status === 404);
   r = await call('POST', '/a2a/direct', { team: `${ha}@0123abcd`, message: 'x', caller_session: 'dsh/1a2b3c4d', task_id: 'prov-3' });
   ok('带 @<fp> 后缀 → 404（不解释后缀）', r.status === 404);
-  r = await call('POST', '/a2a/direct', { team: 'other/0badc0de', message: 'x', caller_session: 'dsh/1a2b3c4d', task_id: 'prov-4' });
-  ok('别的 zone 的句柄 → 404', r.status === 404);
+  // 别的 zone 前缀 + 一个本节点存在的 node8 + 有绑定的调用方：声明打开时只承接本 zone
+  const nb = await refusedCounts();
+  r = await call('POST', '/a2a/direct', { team: `other/${ha.split('/')[1]}`, message: JSON.stringify({ sop: { action: 'start' } }), caller_session: 'dsh/1a2b3c4d', task_id: 'prov-4' });
+  ok('别的 zone 前缀 + 存在的 node8 + 有绑定的调用方 → 404', r.status === 404 && JSON.stringify(r.body) === JSON.stringify({ error: 'not found' }), JSON.stringify(r.body));
+  ok('……计进公开桶 not-found（与查无同桶）', (await refusedCounts())['not-found'] === (nb['not-found'] ?? 0) + 1);
   ok('以上都没有转给别的宿主（配置的 peer 收到 0 次请求）', peerHits === 0, `hits=${peerHits}`);
 
   // 存量撞车：把 prov-b 的 node8 改成和 prov-a 一样
@@ -100,8 +104,15 @@ try {
   { const d = db(); d.prepare("UPDATE apps SET a2a_node8 = ? WHERE slug = 'prov-b'").run(node8a); d.close(); }
   const c2 = await card();
   ok('句柄撞车 → 不上卡', !(c2.sessionTeams ?? []).some((t) => t.team === ha), JSON.stringify(c2.sessionTeams));
+  const nb2 = await refusedCounts();
   r = await call('POST', '/a2a/direct', { team: ha, message: JSON.stringify({ sop: { action: 'start' } }), caller_session: 'dsh/1a2b3c4d', task_id: 'prov-5' });
   ok('句柄撞车 → 入站 404（有歧义，失败关闭）', r.status === 404, JSON.stringify(r.body));
+  ok('……计进公开桶 not-found', (await refusedCounts())['not-found'] === (nb2['not-found'] ?? 0) + 1);
+  // 带着撞车重启：启动时告警
+  await stop();
+  boot();
+  if (!(await ready())) throw new Error('撞车重启未就绪');
+  ok('存量撞车 → 启动时告警', /个 A2A 会话句柄被不止一个台占用/.test(out) && out.includes(ha), out.split('\n').filter((l) => l.includes('[a2a]')).join(' | '));
   { const d = db(); d.prepare("UPDATE apps SET a2a_node8 = ? WHERE slug = 'prov-b'").run(handles[1].split('/')[1]); d.close(); }
 
   console.log('③ 句柄只由本节点密钥签发');
@@ -132,12 +143,25 @@ try {
   }
 
   console.log('④ 换钥即换身份：重启后不变');
+  { const d = db(); d.prepare("UPDATE apps SET a2a_node8 = ? WHERE slug = 'prov-b'").run(handles[1].split('/')[1]); d.close(); }
   await stop();
   boot();
   if (!(await ready())) throw new Error('重启未就绪');
   const c3 = await card();
   ok('重启后公钥不变', c3.publicKey === c1.publicKey);
   ok('重启后句柄不变', JSON.stringify((c3.sessionTeams ?? []).map((t) => t.team).sort()) === JSON.stringify([...handles].sort()));
+  // 上游裁判（#334）：成员 = 句柄@名片公钥指纹（a2a-net src/canvas-id.ts 的 canvasOwnerFingerprint）
+  {
+    const fpSrc = process.env.A2A_MEMBER_FP_SRC ?? resolve('..', 'dsh-open-a2a-net-provenance', 'src', 'canvas-id.ts');
+    const { canvasOwnerFingerprint } = await import(pathToFileURL(fpSrc).href);
+    const QUALIFIED = /^([^/\s@]+\/[0-9a-f]{8})@([0-9a-f]{8})$/;
+    const refs1 = handles.map((h) => `${h}@${canvasOwnerFingerprint(c1.publicKey)}`);
+    const refs3 = (c3.sessionTeams ?? []).map((t) => `${t.team}@${canvasOwnerFingerprint(c3.publicKey)}`);
+    ok('按上游指纹算出的成员（句柄@fp8）格式合法', refs1.every((r) => QUALIFIED.test(r)), JSON.stringify(refs1));
+    ok('重启后成员不变（同一把钥匙）', JSON.stringify([...refs1].sort()) === JSON.stringify([...refs3].sort()));
+    const otherPub = generateKeyPairSync('ed25519').publicKey.export({ format: 'der', type: 'spki' }).toString('base64');
+    ok('别的钥匙算出的成员不同（发不出这个成员）', refs1.every((r) => r !== `${r.split('@')[0]}@${canvasOwnerFingerprint(otherPub)}`));
+  }
 
   console.log('开关 off');
   await stop();
@@ -146,6 +170,9 @@ try {
   const c4 = await card();
   ok('off：capabilities 与之前完全相同', JSON.stringify(c4.capabilities) === JSON.stringify({ sop: true, bindings: 'human-only', stage: 'P1-readonly' }), JSON.stringify(c4.capabilities));
   ok('off：名片验签过', verifyCard(c4, Date.now()).ok === true);
+  // 已知的存量差异：开关关着时不比 zone，别的 zone 前缀 + 存在的 node8 仍被承接（与之前逐字节相同）
+  r = await call('POST', '/a2a/direct', { team: `other/${handles[0].split('/')[1]}`, message: JSON.stringify({ sop: { action: 'start' } }), caller_session: 'dsh/1a2b3c4d', task_id: 'prov-off-1' });
+  ok('off：别的 zone 前缀 + 存在的 node8 仍被承接（存量行为，PR 里如实写明）', r.status === 200 && r.body?.task_status === 'TASK_STATE_DELIVERED', JSON.stringify(r.body).slice(0, 160));
 } catch (e) {
   ok('运行', false, String(e?.stack ?? e));
 } finally {
