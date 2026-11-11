@@ -23,6 +23,8 @@ export type GrantStatus = 'draft' | 'pending' | 'active' | 'revoked' | 'expired'
 export type GrantRow = {
   id: number; principal_id: string; role: string; scope: string; expires_at: number | null; reason: string; status: GrantStatus;
   created_by: string; created_by_principal: string | null; approved_by: string | null; approved_by_principal: string | null; created_at: number; updated_at: number;
+  /** manual 人起草的；migration 迁移出来的（阶段六 6c） */
+  source: 'manual' | 'migration';
 };
 export type GrantEvent = { seq: number; grant_id: number; event: string; from_status: string | null; to_status: string; actor: string; actor_principal: string | null; reason: string; at: number };
 /** 做这一步的是谁：留痕写法（cli、admin-token、odoo:<登录名>）、对到的主体（没有为 null）、是不是属主 */
@@ -52,10 +54,11 @@ export class GrantService extends Service {
     return { ...row, events };
   }
 
-  list(filter: { principal?: string; status?: GrantStatus } = {}): GrantRow[] {
+  list(filter: { principal?: string; status?: GrantStatus; source?: 'manual' | 'migration' } = {}): GrantRow[] {
     const where: string[] = [], args: string[] = [];
     if (filter.principal) { where.push('principal_id = ?'); args.push(filter.principal); }
     if (filter.status) { where.push('status = ?'); args.push(filter.status); }
+    if (filter.source) { where.push('source = ?'); args.push(filter.source); }
     return db.prepare(`SELECT * FROM grants ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC LIMIT 500`).all(...args) as GrantRow[];
   }
 
@@ -154,6 +157,44 @@ export class GrantService extends Service {
     if (!reason.trim()) return refuse(400, 'reason_required', '撤销要写理由');
     if (!db.prepare('SELECT 1 FROM grants WHERE id = ?').get(id)) return refuse(404, 'grant_missing', `授予 ${id} 不存在`);
     return this.move(id, ['draft', 'pending', 'active'], 'revoked', 'revoke', actor, reason, now);
+  }
+
+  /**
+   * 迁移（阶段六 6c，只在比对用的实例上跑）：给一个启用的人一条生效的授予，来源记 migration，放行人记 system:migration（系统的属主级动作）。
+   * 同一个人、同一个角色迁移过一次（不管后来撤没撤）就不再迁：可以重复跑，结果相同；人撤掉的不会被迁移补回来。
+   * 起草、提交、放行三步照样各记一行痕。返回新建的授予，没建为 null。
+   */
+  migrate(principal: string, role: string, reason: string, now = Date.now()): GrantRow | null {
+    if (!this.roleViews.has(role)) return null;
+    const p = db.prepare('SELECT kind, status FROM principals WHERE id = ?').get(principal) as { kind: string; status: string } | undefined;
+    if (!p || p.kind !== 'person' || p.status !== 'active') return null;
+    const actor = { by: 'system:migration', principal: null };
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      if (db.prepare("SELECT 1 FROM grants WHERE principal_id = ? AND role = ? AND source = 'migration'").get(principal, role)) { db.exec('ROLLBACK'); return null; }
+      const id = Number(db.prepare("INSERT INTO grants (principal_id, role, scope, expires_at, reason, created_by, created_by_principal, created_at, updated_at, source) VALUES (?, ?, '*', NULL, ?, ?, NULL, ?, ?, 'migration')")
+        .run(principal, role, text(reason, 500), actor.by, now, now).lastInsertRowid);
+      const ev = db.prepare('INSERT INTO grant_events (grant_id, event, from_status, to_status, actor, actor_principal, reason, at) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)');
+      ev.run(id, 'draft', null, 'draft', actor.by, text(reason, 500), now);
+      db.prepare("UPDATE grants SET status = 'pending', updated_at = ? WHERE id = ?").run(now, id);
+      ev.run(id, 'submit', 'draft', 'pending', actor.by, '', now);
+      db.prepare("UPDATE grants SET status = 'active', approved_by = ?, updated_at = ? WHERE id = ?").run(actor.by, now, id);
+      ev.run(id, 'approve', 'pending', 'active', actor.by, '', now);
+      db.exec('COMMIT');
+      return db.prepare('SELECT * FROM grants WHERE id = ?').get(id) as GrantRow;
+    } catch (e) {
+      try { db.exec('ROLLBACK'); } catch { /* 事务已经不在了 */ }
+      throw e;
+    }
+  }
+
+  /** 迁移出来、还没撤销或过期的授予整批撤销（要写理由），返回撤了几条 */
+  revokeMigrated(actor: Actor, reason: string, now = Date.now()): Result<{ revoked: number }> {
+    if (!reason.trim()) return refuse(400, 'reason_required', '撤销要写理由');
+    const ids = db.prepare("SELECT id FROM grants WHERE source = 'migration' AND status IN ('draft','pending','active') ORDER BY id").all() as { id: number }[];
+    let revoked = 0;
+    for (const { id } of ids) if (this.move(id, ['draft', 'pending', 'active'], 'revoked', 'revoke', actor, reason, now).ok) revoked++;
+    return { ok: true, revoked };
   }
 
   /** 把到期的生效授予标成过期，返回标了几条（周期任务调；判断生效时本来就现比期限） */

@@ -45,7 +45,7 @@ export function registerWorkbenchRoutes(app: HttpService, deps: WorkbenchDeps): 
     res.json(list.map(maskForApi));
   });
 
-  app.post('/api/workbenches', { action: 'workbench.create', kind: 'admin' }, (req, res) => {
+  app.post('/api/workbenches', { action: 'workbench.create', kind: 'admin', statusNotVerdict: 'URL 准入：地址不许登记时回 403，是登记规则不是授权' }, (req, res) => {
     const ctx: WriteCtx = { subject: restSubject(req) };
     const w = workbenchCreateCore(req.body, ctx);
     if (ctx.auditOk === false) res.setHeader('X-WM-Audit-State', 'degraded');
@@ -60,7 +60,7 @@ export function registerWorkbenchRoutes(app: HttpService, deps: WorkbenchDeps): 
     res.json(maskForApi(rowToWorkbench(row)));
   });
 
-  app.put('/api/workbenches/:id', { action: 'workbench.update', kind: 'admin' }, (req, res) => {
+  app.put('/api/workbenches/:id', { action: 'workbench.update', kind: 'admin', statusNotVerdict: 'URL 准入：改成不许登记的地址时回 403，是登记规则不是授权' }, (req, res) => {
     const ctx: WriteCtx = { subject: restSubject(req) };
     const w = workbenchUpdateCore(Number(req.params.id), req.body, ctx);
     if (ctx.auditOk === false) res.setHeader('X-WM-Audit-State', 'degraded');

@@ -12,13 +12,14 @@
  *         同一个登录名改绑到另一个主体之后，不再是建立人；任务中心发布：录入是匿名建的，发布的人认得出也不当建立人（8f），口令发布留空；
  *         回填重复跑结果相同
  *   启动自检：远程匿名打这个入口必须 401
+ *   判定比对开着：建立人验收成功的请求记成「状态码不代表授权」，不出现不一致
  *
  *   node scripts/work-item-creator-test.mjs              测本仓库
  *   node scripts/work-item-creator-test.mjs --root DIR   测另一棵目录树（变异测试用）
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
-import { mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
@@ -71,7 +72,9 @@ let child = null, log = '';
 try {
   const data = join(OUT, 'data'), home = join(OUT, 'home');
   for (const d of [data, home, join(OUT, 'ext')]) mkdirSync(d, { recursive: true });
-  const env = { PATH: process.env.PATH, HOME: home, DATA_DIR: data, NODE_ENV: 'test', ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'on', WM_CONTROL_PORT: '0', IDENTITY_SEAM_ROOT: ROOT, WM_EXTENSIONS_DIR: join(OUT, 'ext'), MARKET_PUBLIC_URL: 'http://market.synthetic.invalid' };
+  const compareOut = join(OUT, 'judgment-compare.jsonl');
+  // 并行比对开着：建立人验收成功的那一步也记下来，看新判定和旧结论对不对得上
+  const env = { WM_JUDGMENT_COMPARE: 'on', WM_JUDGMENT_COMPARE_OUT: compareOut, PATH: process.env.PATH, HOME: home, DATA_DIR: data, NODE_ENV: 'test', ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'on', WM_CONTROL_PORT: '0', IDENTITY_SEAM_ROOT: ROOT, WM_EXTENSIONS_DIR: join(OUT, 'ext'), MARKET_PUBLIC_URL: 'http://market.synthetic.invalid' };
   const seeded = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', SEED], { env, encoding: 'utf8' });
   const m = /SEEDED (.*)/.exec(seeded.stdout);
   if (!m) throw new Error(`造数据失败：${seeded.stderr.slice(-800)}`);
@@ -106,6 +109,15 @@ try {
   check(v.status === 200 && v.body?.result?.state === 'done' && state(S.mine) === 'done', '建立人本人验收自己 ready 的事项：done', show(v));
   const v2 = await decide(S.mine, { answer: 'verify' });
   check(v2.status === 200 && v2.body?.duplicate === true && show(v2.body.result) === show(v.body.result), '同一轮再验收一次：返回第一次的结果', show(v2));
+  {
+    // 判定比对：建立人（不是管理员）验收成功是事项上的规则，路由声明了「状态码不代表授权」，记 not-verdict，不出现不一致
+    await new Promise((r) => setTimeout(r, 300));
+    const lines = existsSync(compareOut) ? readFileSync(compareOut, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+    const decided = lines.filter((l) => l.route === 'POST /api/work-items/:id/decision' && l.status === 200);
+    const mismatches = lines.filter((l) => l.outcome === 'mismatch');
+    check(decided.length >= 2 && decided.every((l) => l.outcome === 'not-verdict') && mismatches.length === 0,
+      '判定比对：建立人验收成功的请求记成「状态码不代表授权」，整个过程没有不一致', show({ decided: decided.map((l) => l.outcome), mismatches }));
+  }
   const r0 = await decide(S.mine2, { answer: 'return' });
   const r = await decide(S.mine2, { answer: 'return', reason: '差异没标' });
   check(r0.status === 400 && r.status === 200 && state(S.mine2) === 'progress', '退回要写理由；写了：ready → progress', show({ r0, r }));

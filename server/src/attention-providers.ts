@@ -60,6 +60,16 @@ const passes = (guard: (req: express.Request, res: express.Response) => boolean,
 const item = (x: Omit<AttentionItem, 'object' | 'phase' | 'answers'> & Partial<Pick<AttentionItem, 'object' | 'phase' | 'answers'>>): AttentionItem =>
   ({ answers: [], object: '', phase: '', ...x });
 
+/** 统一待办条目是哪一类（只增的 kind 字段，前端据此不把它们放进「等你审核」）：它们不是审核，没有当场的答法 */
+export const TASK_KINDS = ['task', 'sop-run', 'ygl', 'a2a', 'other'] as const;
+function taskKind(t: { id: string; source: string }): (typeof TASK_KINDS)[number] {
+  if (t.id.startsWith('market:task-')) return 'task';
+  if (t.id.startsWith('market:run-')) return 'sop-run';
+  if (t.source === 'ygl-trees') return 'ygl';
+  if (t.source === 'a2a') return 'a2a';
+  return 'other';
+}
+
 /** 统一待办里，别的提供方已经单独列出的那几类（按「来源:id」前缀剔掉，同一条不出现两次） */
 export const TASKS_DEDUPED_PREFIXES = ['change-request:'] as const;
 
@@ -72,10 +82,11 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
       source: 'change-requests', label: '变更申请',
       list: (req) => passes(deps.adminGuard, req)
         // 和旧接口 GET /api/change-requests?status=pending 同一个服务函数（阶段三已收进 changeRequest 服务）
-        ? (svc<ChangeRequestService>('changeRequest').listByStatus('pending') as { id: number; kind: string; slug: string; op: string; reason: string; requested_by: string; created_at: string }[]).map((r) => item({
+        ? (svc<ChangeRequestService>('changeRequest').listByStatus('pending') as { id: number; kind: string; slug: string; op: string; target_version: number | null; reason: string; requested_by: string; created_at: string }[]).map((r) => item({
           source: 'change-requests', source_id: String(r.id), category: 'review',
           title: `${r.kind === 'skill' ? '技能' : '台'}${r.op === 'delete' ? '删除' : '回滚'} ${r.slug}${r.reason ? `（${String(r.reason).slice(0, 60)}）` : ''}`,
           waiting_for: r.requested_by, since: r.created_at, answers: ['approve', 'reject'], link: `/reviews?request=${r.id}`,
+          detail: svc<ChangeRequestService>('changeRequest').detailOf(r),
         }))
         : null,
     }),
@@ -114,6 +125,7 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
           .map((t) => item({
             source: 'tasks', source_id: t.id, category: 'review', title: t.title, waiting_for: t.source,
             since: '', answers: [], link: t.link ?? '/tasks', object: t.project ?? '', // 统一待办的信封没有「什么时候开始」
+            kind: taskKind(t),
           }));
       },
     }),

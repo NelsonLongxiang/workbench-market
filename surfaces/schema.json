@@ -153,7 +153,9 @@
       "status TEXT NOT NULL DEFAULT 'pending'",
       "reviewed_by TEXT NOT NULL DEFAULT ''",
       "reviewed_at TEXT NOT NULL DEFAULT ''",
-      "created_at TEXT NOT NULL DEFAULT datetime('now')"
+      "created_at TEXT NOT NULL DEFAULT datetime('now')",
+      "review_note TEXT NOT NULL DEFAULT ''",
+      "reviewed_by_principal TEXT NOT NULL DEFAULT ''"
     ],
     "cockpits": [
       "id INTEGER PK",
@@ -198,7 +200,8 @@
       "approved_by TEXT",
       "approved_by_principal TEXT",
       "created_at INTEGER NOT NULL",
-      "updated_at INTEGER NOT NULL"
+      "updated_at INTEGER NOT NULL",
+      "source TEXT NOT NULL DEFAULT 'manual'"
     ],
     "install_ledger": [
       "id INTEGER PK",
@@ -778,6 +781,7 @@
     "grants_forward_only ON grants: CREATE TRIGGER grants_forward_only BEFORE UPDATE OF status ON grants WHEN NOT ((OLD.status = 'draft' AND NEW.status IN ('pending','revoked')) OR (OLD.status = 'pending' AND NEW.status IN ('active','revoked')) OR (OLD.status = 'active' AND NEW.status IN ('revoked','expired'))) BEGIN SELECT RAISE(ABORT, '授予的状态只能按 草稿→待核→生效→撤销或过期 往前走'); END",
     "grants_no_delete ON grants: CREATE TRIGGER grants_no_delete BEFORE DELETE ON grants BEGIN SELECT RAISE(ABORT, '授予不删除'); END",
     "grants_no_replace ON grants: CREATE TRIGGER grants_no_replace BEFORE INSERT ON grants WHEN EXISTS (SELECT 1 FROM grants WHERE id = NEW.id) BEGIN SELECT RAISE(ABORT, '授予不删除，也不能用同一个 id 覆盖'); END",
+    "grants_source_fixed ON grants: CREATE TRIGGER grants_source_fixed BEFORE UPDATE OF source ON grants WHEN NEW.source IS NOT OLD.source BEGIN SELECT RAISE(ABORT, '授予的来源建好就不能改'); END",
     "grants_start_draft ON grants: CREATE TRIGGER grants_start_draft BEFORE INSERT ON grants WHEN NEW.status <> 'draft' OR NEW.approved_by IS NOT NULL OR NEW.approved_by_principal IS NOT NULL BEGIN SELECT RAISE(ABORT, '授予一律从草稿开始'); END",
     "principal_pending_appearance ON principal_pending: CREATE TRIGGER principal_pending_appearance AFTER INSERT ON principal_pending BEGIN INSERT INTO principal_pending_seq (id) VALUES (NULL); UPDATE principal_pending SET appearance = last_insert_rowid() WHERE provider = NEW.provider AND external_id = NEW.external_id; DELETE FROM principal_pending_seq WHERE id < last_insert_rowid(); END",
     "sop_runs_cache_revision ON sop_runs: CREATE TRIGGER sop_runs_cache_revision AFTER UPDATE OF data, status ON sop_runs BEGIN UPDATE sop_runs SET cache_revision = OLD.cache_revision + 1 WHERE id = NEW.id; END",

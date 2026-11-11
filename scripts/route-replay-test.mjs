@@ -499,13 +499,15 @@ export function compareStep(step, actual) {
  * 回放：返回每条请求的差异。某一条发不出去（比如它要用的变量前面没存下来），算这一条的差异，后面的照跑。
  * 录制：把应答写进 step.response；发不出去、或要存的值没取到，直接报错，不写出半份录制。
  */
-export async function runSteps(steps, sendRequest, record = false) {
+export async function runSteps(steps, sendRequest, record = false, stepTag = null) {
   const vars = {};
   const results = [];
   for (const step of steps) {
     let actual;
     try {
-      const raw = await sendRequest(step.request, vars);
+      // 判定比对出报告时，每条请求带上它是哪条录制里的哪个请求（只在报告模式下）
+      const tagged = stepTag && JUDGMENT_ENV.WM_JUDGMENT_COMPARE ? { ...step.request, headers: { ...(step.request.headers ?? {}), 'x-replay-step': `${stepTag}/${step.id}` } } : step.request;
+      const raw = await sendRequest(tagged, vars);
       for (const [name, path] of Object.entries(step.save ?? {})) {
         const value = pick(raw.body, path);
         if (value !== undefined && value !== null) vars[name] = value;
@@ -574,6 +576,10 @@ export function launchPlan(clock, fixtures = []) {
   return { args: ['--disable-warning=ExperimentalWarning', ...imports, 'src/index.ts'], env };
 }
 
+// 判定并行比对的报告（scripts/judgment-compare-report.mjs）：外面设了 WM_JUDGMENT_COMPARE 和输出文件，就带给每个实例，
+// 每条请求另带一个 x-replay-step 头（域/场景/请求），比对的输出里就知道是哪条录制里的哪个请求。没设时什么都不变。
+const JUDGMENT_ENV = process.env.WM_JUDGMENT_COMPARE === 'on' && process.env.WM_JUDGMENT_COMPARE_OUT
+  ? { WM_JUDGMENT_COMPARE: 'on', WM_JUDGMENT_COMPARE_OUT: process.env.WM_JUDGMENT_COMPARE_OUT } : {};
 async function bootOnce(tag, env, clock, fixtures) {
   const plan = launchPlan(clock, fixtures);
   const port = await freePort();
@@ -583,7 +589,7 @@ async function bootOnce(tag, env, clock, fixtures) {
   mkdirSync(join(root, 'home'), { recursive: true });
   const child = spawn(process.execPath, plan.args, {
     cwd: join(ROOT, 'server'),
-    env: { PATH: process.env.PATH, HOME: join(root, 'home'), MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: join(root, 'data'), ...env, ...plan.env },
+    env: { PATH: process.env.PATH, HOME: join(root, 'home'), MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: join(root, 'data'), ...env, ...plan.env, ...JUDGMENT_ENV },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stderr = '';
@@ -982,7 +988,7 @@ async function main() {
     for (const scenario of cassette.scenarios) {
       const instance = await boot(`${domain}-${scenario.name}`, scenario.env ?? {}, scenario.clock, scenario.fixtures ?? []);
       let results;
-      try { seedInstance(instance.data, scenario.seed); seedFiles(instance.data, scenario.seed_files); results = await runSteps(scenario.steps, (request, vars) => send(instance.base, request, vars).then((r) => ({ ...r, selfPort: new URL(instance.base).port })), record); }
+      try { seedInstance(instance.data, scenario.seed); seedFiles(instance.data, scenario.seed_files); results = await runSteps(scenario.steps, (request, vars) => send(instance.base, request, vars).then((r) => ({ ...r, selfPort: new URL(instance.base).port })), record, `${domain}/${scenario.name}`); }
       catch (err) { throw new Error(`${domain}/${scenario.name}/${err.message}`); }
       finally { await instance.stop(); }
       total += results.length;

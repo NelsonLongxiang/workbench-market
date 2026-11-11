@@ -61,7 +61,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "4273", "etag": "W/\"10b1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "4273", "etag": "W/\"10b1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "format": "workbench-market/export@1",
               "exported_at": "YYYY-MM-DDThh:mm:ss.fffZ",
@@ -348,7 +348,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "4273", "etag": "W/\"10b1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "4273", "etag": "W/\"10b1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "format": "workbench-market/export@1",
               "exported_at": "YYYY-MM-DDThh:mm:ss.fffZ",
@@ -468,7 +468,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "4273", "etag": "W/\"10b1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "4159", "etag": "W/\"103f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "format": "workbench-market/export@1",
               "exported_at": "YYYY-MM-DDThh:mm:ss.fffZ",
@@ -575,7 +575,7 @@
                 { "id": 9, "key": "market-app", "name": "市场自产台", "icon": "🧩", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "市场内置静态托管（POST /api/apps 发布），服务存活即在线", "created_at": "YYYY-MM-DD hh:mm:ss" },
                 { "id": 10, "key": "replay-type", "name": "回放类型", "icon": "", "default_port": 8080, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
               ],
-              "settings": { "health_interval_seconds": "0", "health_timeout_ms": "5000", "health_concurrency": "8", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ", "mcp_upstreams": "[{\"name\":\"up\",\"url\":\"http://127.0.0.1:9/mcp\",\"headers\":{\"Authorization\":\"****\"}}]" }
+              "settings": { "health_interval_seconds": "0", "health_timeout_ms": "5000", "health_concurrency": "8", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
             }
           }
         },
@@ -946,7 +946,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "4273", "etag": "W/\"10b1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "4273", "etag": "W/\"10b1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "format": "workbench-market/export@1",
               "exported_at": "YYYY-MM-DDThh:mm:ss.fffZ",
@@ -1479,7 +1479,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "2776", "etag": "W/\"ad8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "2776", "etag": "W/\"ad8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "format": "workbench-market/export@1",
               "exported_at": "YYYY-MM-DDThh:mm:ss.fffZ",

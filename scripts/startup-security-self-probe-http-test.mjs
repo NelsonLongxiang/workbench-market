@@ -36,7 +36,7 @@ if(mutation==='unsigned-login-event')replace('registerLoginEventRoutes(http);',"
 if(mutation==='forged-login-callback')replace('registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionTtlMs: SESSION_TTL_MIN * 60_000 });',"app.get('/login/:flow/callback', (_q, s) => s.redirect(302, '/tasks'));");
 if(mutation==='principals-admin-read')replace('registerPrincipalRoutes(http, { markOdooAdmin, adminGuard, adminActor });','registerPrincipalRoutes(http, { markOdooAdmin, adminGuard: () => true, adminActor });');
 if(mutation==='mcp-timeout'||mutation==='hold-probe'){const a="app.post('/mcp', async (req, res) => {";replace(a,a+(mutation==='mcp-timeout'?"if(req.headers['x-wm-self-probe'])return;":"if(req.headers['x-wm-self-probe'])await new Promise(r=>setTimeout(r,500));"));}
-if(mutation==='handler-error'){const a="app.post('/api/workbenches', { action: 'workbench.create', kind: 'admin' }, (req, res) => {";replace(a,a+"if(req.headers['x-wm-self-probe'])throw Error(process.env.ADMIN_TOKEN);");}
+if(mutation==='handler-error'){const a="app.post('/api/workbenches', { action: 'workbench.create', kind: 'admin', statusNotVerdict: 'URL 准入：地址不许登记时回 403，是登记规则不是授权' }, (req, res) => {";replace(a,a+"if(req.headers['x-wm-self-probe'])throw Error(process.env.ADMIN_TOKEN);");}
 return{...loaded,source:s};}});`;
 async function runCase(label,{off=false,control=false,occupied=false,unset=false,mutation='',expectFailure=false,nodeEnv='production',gate=''}={}){
  const dir=join(out,label);mkdirSync(dir,{recursive:true});const port=await spare();let cp=control?await spare():0;

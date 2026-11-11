@@ -20,8 +20,11 @@ import { HttpError } from '../errors.ts';
 import { MCP_TOOLS } from '../mcp-tools.ts';
 import { identity } from '../identity.ts';
 import { buildRoles, orgRolesFromConfig, type ActionCatalog, type Kind } from '../roles.ts';
+import { unknownBuiltinActions } from '../judgment-builtins.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import type { Actor, GrantService, GrantStatus, Refusal } from '../services/grant.ts';
+import type { JudgmentCompareService } from '../services/judgment-compare.ts';
+import { compareConfig } from '../judgment-compare.ts';
 
 export type GrantRouteDeps = {
   markOdooAdmin: (req: express.Request) => Promise<void>;
@@ -51,7 +54,11 @@ let rolesSource: 'file' | 'initial' | null = null;
  */
 export function loadRoleDeclarations(http: HttpService): void {
   const config = orgRolesFromConfig();
-  const views = buildRoles(config.roles, actionCatalog(http));
+  const catalog = actionCatalog(http);
+  const views = buildRoles(config.roles, catalog);
+  // 内置身份清单（judgment-builtins.ts）是代码、过评审；清单里的动作都要在，由快照导出把关（surface-snapshot 对不上就失败），这里只提醒
+  const unknown = unknownBuiltinActions((a) => catalog.has(a));
+  if (unknown.length) console.warn(`[grants] 内置身份引用了动作清单里没有的动作（只影响判定比对）：${unknown.join('、')}`);
   grants().setRoles(views);
   rolesSource = config.source;
   console.log(JSON.stringify({ source: 'grants', event: 'roles-loaded', from: config.source, roles: [...views.keys()], at: new Date().toISOString() }));
@@ -97,8 +104,10 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
     const principal = req.query.principal === undefined ? undefined : str(req.query.principal, 'principal', 160);
     const status = req.query.status === undefined ? undefined : str(req.query.status, 'status', 16);
     if (status !== undefined && !(STATUSES as readonly string[]).includes(status)) throw new HttpError(400, `status 只能是 ${STATUSES.join('、')}`);
+    const source = req.query.source === undefined ? undefined : str(req.query.source, 'source', 16);
+    if (source !== undefined && source !== 'manual' && source !== 'migration') throw new HttpError(400, 'source 只能是 manual、migration');
     grants().expireDue();
-    res.json({ grants: grants().list({ principal, status: status as GrantStatus | undefined }) });
+    res.json({ grants: grants().list({ principal, status: status as GrantStatus | undefined, source: source as 'manual' | 'migration' | undefined }) });
   }));
 
   app.get('/api/grants/:id', { action: 'grant.read', kind: 'admin' }, route(async (req, res) => {
@@ -138,6 +147,26 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
     if (!actor) return;
     const b = (req.body ?? {}) as Record<string, unknown>;
     send(res, grants().revoke(idOf(req), actor, str(b.reason ?? '', 'reason', 500)), 'revoke', actor);
+  }));
+
+  // 迁移出来的授予整批撤销（阶段六 6c）：只有属主能做，要写理由，每条照样留痕
+  app.post('/api/grants/revoke-migration', { action: 'grant.revoke-migration', kind: 'admin' }, route(async (req, res) => {
+    const actor = await actorOf(req, res);
+    if (!actor) return;
+    if (!actor.owner) return res.status(403).json({ error: 'owner_required', message: '迁移出来的授予只有属主能整批撤销' });
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const r = grants().revokeMigrated(actor, str(b.reason ?? '', 'reason', 500));
+    if (!r.ok) return res.status(r.http).json({ error: r.code, message: r.message });
+    console.log(JSON.stringify({ source: 'grants', event: 'revoke-migration', revoked: r.revoked, by: actor.by, at: new Date().toISOString() }));
+    res.json({ revoked: r.revoked });
+  }));
+
+  // 判定并行比对的结果（阶段六 6c）：开关关着时照样回，只是空的
+  const compareOn = compareConfig().on;
+  app.get('/api/judgment/compare', { action: 'judgment.report', kind: 'admin' }, route(async (req, res) => {
+    if (!(await actorOf(req, res))) return;
+    // 关着时不碰比对的库文件（也不建）
+    res.set('Cache-Control', 'no-store').json(compareOn ? { on: true, ...svc<JudgmentCompareService>('judgmentCompare').report() } : { on: false, tally: [], mismatches: [], writeFailures: 0, dropped: 0 });
   }));
 
   // 到期的标成过期：挂在根上下文的 effect 上，卸载时一起停

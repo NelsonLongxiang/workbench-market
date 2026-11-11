@@ -18,7 +18,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "128", "etag": "W/\"80-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "128", "etag": "W/\"80-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "health_interval_seconds": "0", "health_timeout_ms": "5000", "health_concurrency": "8", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
           }
         },
@@ -31,7 +31,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "128", "etag": "W/\"80-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "128", "etag": "W/\"80-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "health_interval_seconds": "0", "health_timeout_ms": "5000", "health_concurrency": "8", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
           }
         },
@@ -172,7 +172,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "492", "etag": "W/\"1ec-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "492", "etag": "W/\"1ec-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "health_interval_seconds": "120", "health_timeout_ms": "3000", "health_concurrency": "null", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ", "dispatch_sorting_enabled": "[object Object]", "run_upload_require_token": "false", "mcp_upstreams": "[{\"name\":\"up-a\",\"url\":\"http://127.0.0.1:9/mcp\",\"headers\":{\"Authorization\":\"****\",\"X-Extra\":\"****\"}},{\"name\":\"up-b\",\"url\":\"http://127.0.0.1:9/mcp2\",\"headers\":{}},{\"name\":\"up-c\",\"url\":\"http://127.0.0.1:9/mcp3\",\"headers\":{}}]" }
           }
         },
@@ -231,7 +231,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "232", "etag": "W/\"e8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "232", "etag": "W/\"e8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "health_interval_seconds": "120", "health_timeout_ms": "3000", "health_concurrency": "null", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ", "dispatch_sorting_enabled": "[object Object]", "run_upload_require_token": "false", "mcp_upstreams": "" }
           }
         },
@@ -257,15 +257,15 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "229", "etag": "W/\"e5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "health_interval_seconds": "120", "health_timeout_ms": "3000", "health_concurrency": "6", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ", "dispatch_sorting_enabled": "[object Object]", "run_upload_require_token": "false", "mcp_upstreams": "" }
+            "headers": { "cache-control": "private, no-store", "content-length": "210", "etag": "W/\"d2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "health_interval_seconds": "120", "health_timeout_ms": "3000", "health_concurrency": "6", "dispatch_sorting_enabled": "[object Object]", "run_upload_require_token": "false", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
           }
         },
         {
           "id": "head",
           "what": "HEAD 走同一条 GET 路由，没有响应体",
           "request": { "method": "HEAD", "path": "/api/settings" },
-          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "229", "etag": "W/\"e5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": "" }
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "cache-control": "private, no-store", "content-length": "229", "etag": "W/\"e5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": "" }
         }
       ]
     },
@@ -322,7 +322,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "128", "etag": "W/\"80-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "128", "etag": "W/\"80-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "health_interval_seconds": "0", "health_timeout_ms": "5000", "health_concurrency": "8", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
           }
         },

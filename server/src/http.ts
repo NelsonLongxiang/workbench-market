@@ -30,7 +30,22 @@ export type RouteMethod = 'get' | 'post' | 'put' | 'patch' | 'delete' | 'all';
 export type ActionKind = 'read' | 'write' | 'decide' | 'admin';
 export const ACTION_KINDS: readonly ActionKind[] = ['read', 'write', 'decide', 'admin'];
 /** 一条路由报上的动作：`<域>.<动词>` 和类别 */
-export type ActionSpec = { readonly action: string; readonly kind: ActionKind };
+export type ActionSpec = {
+  readonly action: string; readonly kind: ActionKind;
+  /**
+   * 这条路由回的 401/403 不是授权结论（阶段六 6c）：比如资源状态（已下架）、URL 准入、验签、「你是谁」。
+   * 写一句原因；判定的并行比对不拿这条路由的状态码当旧结论比，单列计数。逐条路由声明，不按前缀一揽子声明。
+   */
+  readonly statusNotVerdict?: string;
+  /**
+   * 同一条路由上按请求细分的动作（阶段六 6c）：比如带 reveal=1 的导出要管理员、某一个台的发布要管理员。
+   * 按顺序取第一个 when 成立的，取不到用上面的动作。when 只看请求和请求进来时的事实，不改请求。逐条写原因，进快照。
+   */
+  readonly refine?: readonly ActionRefinement[];
+};
+/** 请求进来时的事实（判定比对在请求进来时取，请求本身可能改掉它们） */
+export type RequestFacts = { adminTokenSet: boolean };
+export type ActionRefinement = { readonly action: string; readonly kind: ActionKind; readonly why: string; readonly when: (req: express.Request, facts: RequestFacts) => boolean };
 /** 登记过的一条：哪条路由、什么动作 */
 export type RegisteredAction = { method: RouteMethod; path: string; action: string; kind: ActionKind };
 export const ACTION_RE = /^[a-z][a-z0-9-]{0,31}\.[a-z][a-z0-9-]{0,47}$/;
@@ -58,7 +73,19 @@ function checkSpec(method: RouteMethod, path: RoutePath, spec: unknown): ActionS
   const { action, kind } = spec as { action?: unknown; kind?: unknown };
   if (typeof action !== 'string' || !ACTION_RE.test(action)) throw new Error(`http：${where} 的动作名「${String(action)}」不对，要写成 <域>.<动词>`);
   if (typeof kind !== 'string' || !(ACTION_KINDS as readonly string[]).includes(kind)) throw new Error(`http：${where} 的动作类别「${String(kind)}」不对，只能是 ${ACTION_KINDS.join('、')}`);
-  return Object.freeze({ action, kind: kind as ActionKind });
+  const snv = (spec as { statusNotVerdict?: unknown }).statusNotVerdict;
+  if (snv !== undefined && (typeof snv !== 'string' || !snv.trim() || snv.length > 120 || /[\x00-\x1f\x7f]/.test(snv))) throw new Error(`http：${where} 的 statusNotVerdict 要写一句原因（1～120 个字符）`);
+  const refine = (spec as { refine?: unknown }).refine;
+  if (refine !== undefined) {
+    if (!Array.isArray(refine) || refine.length === 0) throw new Error(`http：${where} 的 refine 要是非空数组`);
+    for (const r of refine as { action?: unknown; kind?: unknown; why?: unknown; when?: unknown }[]) {
+      if (typeof r?.action !== 'string' || !ACTION_RE.test(r.action)) throw new Error(`http：${where} 细分的动作名「${String(r?.action)}」不对`);
+      if (typeof r.kind !== 'string' || !(ACTION_KINDS as readonly string[]).includes(r.kind)) throw new Error(`http：${where} 细分的动作类别「${String(r.kind)}」不对`);
+      if (typeof r.why !== 'string' || !r.why.trim() || r.why.length > 120) throw new Error(`http：${where} 细分的动作 ${r.action} 要写一句原因`);
+      if (typeof r.when !== 'function') throw new Error(`http：${where} 细分的动作 ${r.action} 要有 when`);
+    }
+  }
+  return Object.freeze({ action, kind: kind as ActionKind, ...(snv !== undefined ? { statusNotVerdict: snv as string } : {}), ...(refine !== undefined ? { refine: Object.freeze([...(refine as ActionRefinement[])]) } : {}) });
 }
 
 export class HttpService extends Service {
@@ -66,6 +93,8 @@ export class HttpService extends Service {
   private readonly held = { app: express() };
   /** 现在挂着的每条路由报的动作（撤销时一起去掉） */
   private readonly registered = new Map<Layer, RegisteredAction>();
+  /** 细分的动作（refine），按路由那一层记，撤销时一起去掉 */
+  private refined: { layer: Layer; entry: RegisteredAction }[] = [];
 
   constructor(ctx: Context) {
     super(ctx, 'http');
@@ -78,7 +107,7 @@ export class HttpService extends Service {
 
   /** 现在登记着的动作，按注册顺序 */
   actions(): RegisteredAction[] {
-    return [...this.registered.values()].map((a) => ({ ...a }));
+    return [...this.registered.values(), ...this.refined.map((v) => v.entry)].map((a) => ({ ...a }));
   }
 
   /**
@@ -90,9 +119,11 @@ export class HttpService extends Service {
     const declared = checkSpec(method, path, spec);
     // 不带处理函数的 app.get(x) 在 Express 里是读配置项，不是注册路由
     if (handlers.length === 0) throw new Error(`http：${method.toUpperCase()} ${describe(path)} 没有处理函数`);
-    for (const other of this.registered.values()) {
-      if (other.action === declared.action && other.kind !== declared.kind) {
-        throw new Error(`http：${method.toUpperCase()} ${describe(path)} 报的动作 ${declared.action} 是 ${declared.kind}，${other.method.toUpperCase()} ${other.path} 报的同一个动作是 ${other.kind}`);
+    for (const mine of [declared, ...(declared.refine ?? [])]) {
+      for (const other of [...this.registered.values(), ...this.refined.map((v) => v.entry)]) {
+        if (other.action === mine.action && other.kind !== mine.kind) {
+          throw new Error(`http：${method.toUpperCase()} ${describe(path)} 报的动作 ${mine.action} 是 ${mine.kind}，${other.method.toUpperCase()} ${other.path} 报的同一个动作是 ${other.kind}`);
+        }
       }
     }
     const revoke = this.ctx.effect(() => {
@@ -103,11 +134,13 @@ export class HttpService extends Service {
       if (!layer?.route || layer.route.path !== path) throw new Error(`http：注册 ${method.toUpperCase()} ${describe(path)} 之后，栈尾不是这条路由`);
       Object.defineProperty(layer.route, ACTION_KEY, { value: declared, enumerable: false });
       this.registered.set(layer, { method, path: describe(path), action: declared.action, kind: declared.kind });
+      for (const r of declared.refine ?? []) this.refined.push({ layer, entry: { method, path: describe(path), action: r.action, kind: r.kind } });
       return () => {
         // 换一个新数组，不在原数组上删：正在处理中的请求拿着的是旧数组，下标不会错位
         const router = routerOf(app);
         router.stack = router.stack.filter((l) => l !== layer);
         this.registered.delete(layer);
+        this.refined = this.refined.filter((v) => v.layer !== layer);
       };
     }, `ctx.http.${method}(${describe(path)})`);
     return () => { void revoke(); };

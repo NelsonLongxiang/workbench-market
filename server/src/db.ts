@@ -521,6 +521,14 @@ try { const avCols = db.prepare('PRAGMA table_info(app_versions)').all() as any[
 try { const avCols = db.prepare('PRAGMA table_info(app_versions)').all() as any[]; if (!avCols.some((c) => c.name === 'commit_id')) db.exec("ALTER TABLE app_versions ADD COLUMN commit_id TEXT NOT NULL DEFAULT ''"); if (!avCols.some((c) => c.name === 'shadow_status')) db.exec("ALTER TABLE app_versions ADD COLUMN shadow_status TEXT NOT NULL DEFAULT 'pending'"); if (!avCols.some((c) => c.name === 'shadow_error')) db.exec("ALTER TABLE app_versions ADD COLUMN shadow_error TEXT NOT NULL DEFAULT ''"); db.exec("UPDATE app_versions SET shadow_status='succeeded', shadow_error='' WHERE commit_id <> '' AND shadow_status='pending'"); } catch { /* 列已在 */ }
 // S1 表形状迁移（PR#103 旧形状 kind=app_rollback… → v3 契约 kind×op·表新落地零产数据直接重建）
 try { const crCols = db.prepare("PRAGMA table_info(change_requests)").all() as any[]; if (crCols.length > 0 && !crCols.some((c) => c.name === 'op')) { db.exec('DROP TABLE change_requests'); db.exec("CREATE TABLE change_requests (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  kind TEXT NOT NULL CHECK (kind IN ('app','skill')),\n  slug TEXT NOT NULL,\n  op TEXT NOT NULL CHECK (op IN ('rollback','delete')),\n  target_version INTEGER,\n  reason TEXT NOT NULL DEFAULT '',\n  source TEXT NOT NULL DEFAULT 'mcp',\n  requested_by TEXT NOT NULL DEFAULT '',\n  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),\n  reviewed_by TEXT NOT NULL DEFAULT '',\n  reviewed_at TEXT NOT NULL DEFAULT '',\n  created_at TEXT NOT NULL DEFAULT (datetime('now'))\n)"); } } catch { /* 无表 */ }
+// 审核进「关注」：不通过的理由（review_note）、经身份认出来的审核人（reviewed_by_principal，reviewed_by 是旧入口自填的名字，只做显示）。幂等补列
+for (const [column, ddl] of [
+  ['review_note', "review_note TEXT NOT NULL DEFAULT ''"],
+  ['reviewed_by_principal', "reviewed_by_principal TEXT NOT NULL DEFAULT ''"],
+] as const) {
+  const cols = db.prepare('PRAGMA table_info(change_requests)').all() as { name: string }[];
+  if (cols.length > 0 && !cols.some((c) => c.name === column)) db.exec(`ALTER TABLE change_requests ADD COLUMN ${ddl}`);
+}
 // #94 S0⑥（K9）幂等迁移：拆全局 digest 唯一索引（域级复合索引由 DDL 建）
 try { db.exec('DROP INDEX IF EXISTS idx_skill_versions_digest'); } catch { /* 旧库无此索引 */ }
 
@@ -791,6 +799,50 @@ CREATE TRIGGER IF NOT EXISTS grant_events_no_delete BEFORE DELETE ON grant_event
 CREATE TRIGGER IF NOT EXISTS grant_events_no_replace BEFORE INSERT ON grant_events WHEN EXISTS (SELECT 1 FROM grant_events WHERE seq = NEW.seq)
   BEGIN SELECT RAISE(ABORT, 'grant_events 只增不改'); END;
 `);
+// 阶段六 6c：授予的来源（manual 人起草的；migration 迁移出来的，能整批列出、整批撤销）。建好不能改
+try { const gCols = db.prepare('PRAGMA table_info(grants)').all() as { name: string }[]; if (!gCols.some((c) => c.name === 'source')) db.exec("ALTER TABLE grants ADD COLUMN source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual','migration'))"); } catch (e) { console.warn('[db] grants 补 source 列失败：', (e as Error).message); }
+db.exec(`
+CREATE TRIGGER IF NOT EXISTS grants_source_fixed BEFORE UPDATE OF source ON grants WHEN NEW.source IS NOT OLD.source
+  BEGIN SELECT RAISE(ABORT, '授予的来源建好就不能改'); END;
+`);
+// 阶段六 6c：判定的并行比对（开关 WM_JUDGMENT_COMPARE，缺省关）的记账，放在单独的库文件 judgment-compare.db 里：
+//   比对攒批、在应答之后异步写，不和业务库抢锁（测试自己开旁路连接改业务库时也不会撞上）。只在比对打开时才建。
+//   只记路由模式、动作、身份类别、两边结论、命中的规则，不记请求体、查询串、凭据，也不记路径里的 id。
+//   judgment_tally：每条路由每种结果的计数（一致、不一致、不确定、404 不判、没报动作、状态码不代表授权、被完整性门拦下、出错、溢出）。
+//   judgment_mismatches：不一致按「路由模式、身份类别、两边结论、命中规则」合并计数，留一个主体标识和一条授予做样例；最多 1000 种。
+let compareDb: DatabaseSync | null = null;
+export function judgmentCompareDb(): DatabaseSync {
+  if (compareDb) return compareDb;
+  const handle = new DatabaseSync(join(dataDir, 'judgment-compare.db'));
+  handle.exec(`
+PRAGMA journal_mode = WAL;
+CREATE TABLE IF NOT EXISTS judgment_tally (
+  route TEXT NOT NULL,
+  action TEXT NOT NULL DEFAULT '',
+  outcome TEXT NOT NULL CHECK (outcome IN ('agree','mismatch','uncertain','skip-404','unregistered','not-verdict','integrity-blocked','error','overflow')),
+  count INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (route, outcome)
+);
+CREATE TABLE IF NOT EXISTS judgment_mismatches (
+  key TEXT PRIMARY KEY,
+  route TEXT NOT NULL,
+  domain TEXT NOT NULL,
+  action TEXT NOT NULL,
+  actor_kind TEXT NOT NULL,
+  old TEXT NOT NULL,
+  new TEXT NOT NULL,
+  rule TEXT NOT NULL,
+  status INTEGER NOT NULL,
+  principal_sample TEXT NOT NULL DEFAULT '',
+  grant_sample INTEGER,
+  count INTEGER NOT NULL DEFAULT 0,
+  first_at INTEGER NOT NULL,
+  last_at INTEGER NOT NULL
+);
+`);
+  compareDb = handle;
+  return handle;
+}
 // 这两张表只在本分支的早先版本里有过没有规范化列的形状（从没发布过）。碰上就拒绝启动，说清楚怎么办：
 // 带着它跑，新来的人一律认不出（503），不如一开始就停下
 for (const [table, column] of [['principals', 'id_key'], ['principal_identities', 'external_key']]) {

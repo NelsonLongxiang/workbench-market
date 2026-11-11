@@ -57,7 +57,8 @@ function actionsOf(stack, depth = 0) {
       const methods = every ? 'ALL' : Object.keys(layer.route.methods).filter((m) => layer.route.methods[m]).map((m) => m.toUpperCase()).sort().join(',');
       const path = Array.isArray(layer.route.path) ? layer.route.path.map(String).join(' | ') : String(layer.route.path);
       const a = layer.route.wmAction;
-      lines.push(`${pad}${methods} ${path}  -> ${a ? `${a.action}  ${a.kind}` : '（未登记）'}`);
+      const refine = a?.refine ? a.refine.map((r) => `；细分：${r.action}  ${r.kind}（${r.why}）`).join('') : '';
+      lines.push(`${pad}${methods} ${path}  -> ${a ? `${a.action}  ${a.kind}${a.statusNotVerdict ? `  （状态码不代表授权：${a.statusNotVerdict}）` : ''}${refine}` : '（未登记）'}`);
     } else if (layer.handle?.stack) {
       lines.push(...actionsOf(layer.handle.stack, depth + 1));
     }

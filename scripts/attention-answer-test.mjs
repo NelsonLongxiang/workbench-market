@@ -93,13 +93,13 @@ try {
     // 换算表本身：id 先核形状再编码；请求体只有这一种答法要的字段（入口另有「在不在列表里」一道，这里单独钉住表）
     const { forwardRoute } = await import(at('server/src/attention-answers.ts'));
     const badIds = ['1/../../attention/answer', '1?x=1', '0x1', '1 ', '%2e%2e', '-1', ''];
-    const through = badIds.filter((id) => { const r = forwardRoute('change-requests', 'approve', id, {}); return !r || !('error' in r); });
-    const ok = forwardRoute('change-requests', 'reject', '12', { reviewed_by: ' alice ', status: 'approved', path: '/x' });
+    const through = badIds.filter((id) => { const r = forwardRoute('mcp-access', 'approve', id, {}); return !r || !('error' in r); });
+    const ok = forwardRoute('mcp-access', 'reject', '12', { note: ' n ', status: 'approved', path: '/x' });
     const bind = forwardRoute('principal-pending', 'bind', 'synthetic:a/b?c', { principal: 'user:x', create: true, reason: 'r', display_name: 'd', provider: 'evil' });
-    check(through.length === 0 && ok.path === '/api/change-requests/12/reject' && ok.method === 'POST' && show(ok.body) === show({ reviewed_by: 'alice' })
+    check(through.length === 0 && ok.path === '/api/mcp/access-requests/12/reject' && ok.method === 'POST' && show(ok.body) === show({ note: 'n' })
       && bind.path === '/api/principals/bind' && show(Object.keys(bind.body).sort()) === show(['create', 'external_id', 'principal', 'provider', 'reason']) && bind.body.provider === 'synthetic' && bind.body.external_id === 'a/b?c'
-      && forwardRoute('change-requests', 'delete', '1', {}) === null && forwardRoute('mcp-access', 'approve', '../1', {}).error,
-      '换算表：坏 id 一律拒；路径固定、id 编码；请求体只取这一种答法的字段（夹带的 status、path、display_name、provider 都不进去）；表外的答法没有', show({ through, ok, bind }));
+      && forwardRoute('mcp-access', 'delete', '1', {}) === null && forwardRoute('mcp-access', 'approve', '../1', {}).error && forwardRoute('change-requests', 'approve', '1', {}) === null,
+      '换算表：坏 id 一律拒；路径固定、id 编码；请求体只取这一种答法的字段（夹带的 status、path、display_name、provider 都不进去）；表外的答法没有；变更申请不再转发（直接调同一处判断）', show({ through, ok, bind }));
   }
 
   const data = join(OUT, 'data'), home = join(OUT, 'home');
@@ -145,13 +145,17 @@ try {
 
   // ---------- 一、新入口和旧入口逐字段相同 ----------
   {
-    const n = await answer('change-requests', S.cr.rejectNew, 'reject', { reviewed_by: 'alice' });
-    const o = await call('POST', `/api/change-requests/${S.cr.rejectOld}/reject`, ADMIN, { reviewed_by: 'alice' });
+    // 新入口：审核人是认出来的管理员（odoo:root-admin），自报的 reviewed_by 不收；不通过要写理由。旧入口照旧收 reviewed_by（这里填同一个人）、理由可选
+    const n = await answer('change-requests', S.cr.rejectNew, 'reject', { reviewed_by: 'alice', reason: '合成理由' });
+    const o = await call('POST', `/api/change-requests/${S.cr.rejectOld}/reject`, ADMIN, { reviewed_by: 'odoo:root-admin', reason: '合成理由' });
     const rows = (id) => strip(q('SELECT * FROM change_requests WHERE id = ?', id), ['slug']);
-    check(n.status === o.status && sameApart({ ...n.body.result, id: 0 }, { ...o.body, id: 0 }) && same(rows(S.cr.rejectNew), rows(S.cr.rejectOld)) && rows(S.cr.rejectNew)[0].status === 'rejected',
-      '变更申请·拒绝：状态码、应答、申请那一行（状态、审核人）逐字段相同', show({ n, o, rows: [rows(S.cr.rejectNew), rows(S.cr.rejectOld)] }));
+    check(n.status === o.status && sameApart({ ...n.body.result, id: 0 }, { ...o.body, id: 0 }) && same(rows(S.cr.rejectNew), rows(S.cr.rejectOld)) && rows(S.cr.rejectNew)[0].status === 'rejected'
+      && rows(S.cr.rejectNew)[0].reviewed_by === 'odoo:root-admin' && rows(S.cr.rejectNew)[0].reviewed_by_principal === 'odoo:root-admin' && rows(S.cr.rejectNew)[0].review_note === '合成理由',
+      '变更申请·拒绝：和旧入口同一处判断——状态码、应答、申请那一行（状态、审核人、认出来的审核人、理由）逐字段相同；自报的 reviewed_by 不收', show({ n, o, rows: [rows(S.cr.rejectNew), rows(S.cr.rejectOld)] }));
+    const noReason = await answer('change-requests', S.cr.dup, 'reject', { reviewed_by: 'alice' });
+    check(noReason.status === 400 && noReason.body?.result?.error === 'reason_required' && q('SELECT status FROM change_requests WHERE id = ?', S.cr.dup)[0].status === 'pending', '新入口不通过不写理由：400，申请不动', show(noReason));
     const na = await answer('change-requests', S.cr.approveNew, 'approve', { reviewed_by: 'alice' });
-    const oa = await call('POST', `/api/change-requests/${S.cr.approveOld}/approve`, ADMIN, { reviewed_by: 'alice' });
+    const oa = await call('POST', `/api/change-requests/${S.cr.approveOld}/approve`, ADMIN, { reviewed_by: 'odoo:root-admin' });
     const norm = (b) => JSON.parse(JSON.stringify(b).replaceAll(String(S.cr.approveNew), 'X').replaceAll(String(S.cr.approveOld), 'X').replaceAll('approveNew', 'Y').replaceAll('approveOld', 'Y'));
     check(na.status === oa.status && na.status >= 400 && sameApart(norm(na.body.result), norm(oa.body)) && same(rows(S.cr.approveNew), rows(S.cr.approveOld)),
       `变更申请·批准失败（台不存在）：原路由的失败（${oa.status}）原样交回，不吞；申请那一行两边一样没变`, show({ na, oa }));
@@ -230,12 +234,12 @@ try {
 
   // ---------- 三、重复答、并发答 ----------
   {
-    const a = await answer('change-requests', S.cr.dup, 'reject', { reviewed_by: 'alice' });
-    const b = await answer('change-requests', S.cr.dup, 'reject', { reviewed_by: 'bob' });
-    const row = q('SELECT status, reviewed_by FROM change_requests WHERE id = ?', S.cr.dup)[0];
-    check(a.status === 200 && !a.body.duplicate && b.status === 200 && b.body.duplicate === true && same(b.body.result, a.body.result) && row.reviewed_by === 'alice',
-      '同一条答两次：第二次返回第一次的结果（duplicate），不再生效（审核人还是第一次的）', show({ a, b, row }));
-    const [r1, r2] = await Promise.all([answer('change-requests', S.cr.race, 'reject', { reviewed_by: 'p1' }), answer('change-requests', S.cr.race, 'reject', { reviewed_by: 'p2' })]);
+    const a = await answer('change-requests', S.cr.dup, 'reject', { reason: '第一次' });
+    const b = await answer('change-requests', S.cr.dup, 'reject', { reason: '第二次' });
+    const row = q('SELECT status, reviewed_by, review_note FROM change_requests WHERE id = ?', S.cr.dup)[0];
+    check(a.status === 200 && !a.body.duplicate && b.status === 200 && b.body.duplicate === true && same(b.body.result, a.body.result) && row.review_note === '第一次',
+      '同一条答两次：第二次返回第一次的结果（duplicate），不再生效（理由还是第一次的）', show({ a, b, row }));
+    const [r1, r2] = await Promise.all([answer('change-requests', S.cr.race, 'reject', { reason: 'p1' }), answer('change-requests', S.cr.race, 'reject', { reason: 'p2' })]);
     const done = [r1, r2].filter((r) => r.status === 200 && !r.body.duplicate), told = [r1, r2].filter((r) => r.status === 409 || r.body?.duplicate === true);
     const who = q('SELECT reviewed_by FROM change_requests WHERE id = ?', S.cr.race)[0].reviewed_by;
     check(done.length === 1 && told.length === 1 && who === done[0].body.result.reviewed_by, '两个人同时答：一个生效，另一个被告知已处理（正在处理或已答过）', show({ r1, r2, who }));
@@ -245,11 +249,11 @@ try {
   {
     const bad = ['1/../../attention/answer', '1?x=1', '../principals/bind', '0x1', '1 ', '%2e%2e'];
     const rs = [];
-    for (const id of bad) rs.push(await answer('change-requests', id, 'reject', { reviewed_by: 'alice' }));
+    for (const id of bad) rs.push(await answer('change-requests', id, 'reject', { reason: '合成' }));
     check(rs.every((r) => r.status === 404 || r.status === 400), '路径只来自写死的表：id 不是数字（含 ..、查询串、编码过的路径）就到不了任何路由', show(rs.map((r) => r.status)));
-    const e = await answer('change-requests', S.cr.extra, 'reject', { reviewed_by: 'alice', status: 'approved', reviewed_at: 'x' }, ADMIN, { path: '/api/principals/bind', method: 'PUT' });
+    const e = await answer('change-requests', S.cr.extra, 'reject', { reason: '合成', reviewed_by: 'alice', status: 'approved', reviewed_at: 'x' }, ADMIN, { path: '/api/principals/bind', method: 'PUT' });
     const row = q('SELECT status, reviewed_by FROM change_requests WHERE id = ?', S.cr.extra)[0];
-    check(e.status === 200 && row.status === 'rejected' && row.reviewed_by === 'alice', '请求体只由答法换算：input 里多带的字段、外层多带的 path 和 method 都不起作用', show({ e, row }));
+    check(e.status === 200 && row.status === 'rejected' && row.reviewed_by === 'odoo:root-admin', '请求体只取这一种答法的字段：input 里多带的 status、reviewed_at、自报的 reviewed_by，外层多带的 path 和 method 都不起作用', show({ e, row }));
     const b2 = await answer('principal-pending', 'synthetic:ext-extra', 'bind', { principal: 'user:bound-e', create: true, reason: '对接', display_name: '夹带的名字' });
     const p = q('SELECT display_name FROM principals WHERE id = ?', 'user:bound-e')[0];
     check(b2.status === 200 && p && p.display_name !== '夹带的名字', '绑定时夹带 display_name：不透传给原路由', show({ b2, p }));
@@ -330,18 +334,18 @@ try {
     c2.prepare("INSERT INTO attention_answers (source, source_id, answer, state, at) VALUES ('change-requests', ?, 'reject', 'pending', datetime('now', '-10 minutes'))").run(String(S.cr.ttl));
     c2.prepare("INSERT INTO attention_answers (source, source_id, answer, state) VALUES ('change-requests', ?, 'reject', 'pending')").run(String(S.cr.fresh));
     c2.close();
-    const t1 = await answer('change-requests', S.cr.ttl, 'reject', { reviewed_by: 'alice' });
-    const t2 = await answer('change-requests', S.cr.fresh, 'reject', { reviewed_by: 'alice' });
+    const t1 = await answer('change-requests', S.cr.ttl, 'reject', { reason: '合成' });
+    const t2 = await answer('change-requests', S.cr.fresh, 'reject', { reason: '合成' });
     check(t1.status === 200 && !t1.body.duplicate && t2.status === 409 && t2.body.result.error === 'attention_answer_in_progress', '占位有期限：过了期限的占位不再挡人；没过期的照旧回「正在处理」', show({ t1: t1.status, t2 }));
 
     // 进程在答的途中被杀：占位留在库里；重启之后清掉，能再答
     const c3 = rw();
     c3.prepare("INSERT INTO attention_answers (source, source_id, answer, state) VALUES ('change-requests', ?, 'reject', 'pending')").run(String(S.cr.crash));
     c3.close();
-    const stuck = await answer('change-requests', S.cr.crash, 'reject', { reviewed_by: 'alice' });
+    const stuck = await answer('change-requests', S.cr.crash, 'reject', { reason: '合成' });
     await kill();
     await boot();
-    const after = await answer('change-requests', S.cr.crash, 'reject', { reviewed_by: 'alice' });
+    const after = await answer('change-requests', S.cr.crash, 'reject', { reason: '合成' });
     check(stuck.status === 409 && after.status === 200 && after.body.duplicate === false && q('SELECT status FROM change_requests WHERE id = ?', S.cr.crash)[0].status === 'rejected' && log.includes('启动时清掉'),
       '占位后进程被杀：重启时清掉残留的占位（日志里留一行），这一条能再答', show({ stuck: stuck.status, after: after.status }));
   }
