@@ -242,6 +242,13 @@ CREATE TABLE IF NOT EXISTS a2a_sig_seen (
   expires_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_a2a_sig_seen_exp ON a2a_sig_seen (expires_at);
+-- /a2a/direct 幂等登记：task_id → 指纹 sha256，30 分钟窗口（落库，重启后同一 task_id 仍判 replay / conflict）
+CREATE TABLE IF NOT EXISTS a2a_idempotency (
+  task_id TEXT PRIMARY KEY,
+  fp_sha256 TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_a2a_idempotency_at ON a2a_idempotency (created_at);
 CREATE TABLE IF NOT EXISTS mcp_sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL UNIQUE,
