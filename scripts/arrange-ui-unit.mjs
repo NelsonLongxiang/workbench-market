@@ -9,7 +9,7 @@ const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ 
 const teams = [{ team: 'zone/canvas/purchase', name: 'zone/canvas/purchase' }, { team: 'zone/t1', name: '采购部' }];
 const good = { ...EMPTY_FORM, title: '比价', intent: '三家报价比一比', deliverable: '一张比价表', team: 'zone/t1' };
 
-ok('团队：name 等于 team 时只写一遍；有名字时「名字（句柄）」', teamOption(teams[0]) === 'zone/canvas/purchase' && teamOption(teams[1]) === '采购部（zone/t1）');
+ok('团队：画布团队显示名字、有名字写名字、进程团队没名字写句柄（同 people.ts）', teamOption(teams[0]) === 'purchase' && teamOption(teams[1]) === '采购部' && teamOption({ team: 'zone/98b94be9', name: 'zone/98b94be9' }) === 'zone/98b94be9');
 ok('校验：填齐了没有错', Object.keys(validate(good, teams)).length === 0);
 {
   const e = validate(EMPTY_FORM, teams);

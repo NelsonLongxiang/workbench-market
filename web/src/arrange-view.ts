@@ -6,8 +6,13 @@ export type ArrangeForm = { title: string; intent: string; deliverable: string; 
 export const EMPTY_FORM: ArrangeForm = { title: '', intent: '', deliverable: '', team: '', object: '', phase: '', review: true, due: '' };
 export const LIMITS = { title: 200, intent: 4000, deliverable: 2000, object: 200, phase: 200 } as const;
 
-/** 团队怎么显示：名册落地前 name 就等于 team，这时不重复写两遍 */
-export const teamOption = (t: Team): string => (t.name && t.name !== t.team ? `${t.name}（${t.team}）` : t.team);
+/** 团队怎么显示：有名字就写名字；名册落地前 name 就等于 team，这时按 people.ts 的 teamLabel 同一规则：
+ *  画布团队（<区>/canvas/<名字>）显示名字，进程团队没有名字显示句柄。（这里不 import people.ts：单测由 Node 直接加载，只能引类型） */
+export const teamOption = (t: Team): string => {
+  if (t.name && t.name !== t.team) return t.name;
+  const m = /^[^/]+\/canvas\/(.+)$/.exec(t.team || '');
+  return m ? m[1] : t.team;
+};
 
 /** 提交前在页面上先挡一遍（服务端照样会验）：键是表单字段，值是一句人话 */
 export function validate(f: ArrangeForm, teams: Team[]): Partial<Record<keyof ArrangeForm, string>> {
