@@ -1725,7 +1725,7 @@ app.post('/api/sop/runs/:id(\\d+)/files/refs', wrap(async (req, res) => {
       if (runFileQuota(runId).ref_left_count <= 0) throw new HttpError(413, `该 run 引用数已达上限（${RUN_REF_MAX_COUNT}）`);
       if (!existsSync(join(dataDir, src.storage_path))) throw new HttpError(410, '源文件已不在存储里');
       const r = svc<SopService>('sop').runFileInsert({ runId, name: src.original_name, mime: src.mime, size: src.size, storagePath: src.storage_path, createdBy, sha256: src.sha256 || '', refOf: rootId }) as unknown as { lastInsertRowid: number | bigint };
-      try { db.prepare("INSERT INTO sop_run_file_audit (run_id, name, size, sha256, source) VALUES (?, ?, ?, ?, ?)").run(runId, src.original_name, src.size, src.sha256 || '', `ref:${rootId}`); } catch { /* 审计失败不阻 */ }
+      try { svc<SopService>('sop').runFileAudit(runId, src.original_name, src.size, src.sha256 || '', `ref:${rootId}`); } catch { /* 审计失败不阻 */ }
       results.push({ index, status: 'linked', id: Number(r.lastInsertRowid), source_file_id: rootId, name: src.original_name });
     } catch (e) {
       results.push({ index, status: 'failed', reason: e instanceof HttpError ? e.message : '关联失败' });
@@ -1744,7 +1744,7 @@ app.post('/api/sop/runs/:id/files', (req, res, next) => {
     const row = sopRunRow(Number(req.params.id));
     if (row.status !== 'running') throw new HttpError(409, `run ${req.params.id} 已 ${row.status}，不可再上传`);
     // #150 开关（属主反馈·业务直传恢复）：settings run_upload_require_token='1' 才要令牌；缺省关闭=旧 T1 直传语义
-    const strict = (() => { try { const r = db.prepare("SELECT value FROM settings WHERE key = 'run_upload_require_token'").get() as { value?: string } | undefined; return String(r?.value ?? '') === '1'; } catch { return false; } })();
+    const strict = (() => { try { const r = svc<SopService>('sop').runUploadRequireToken() as { value?: string } | undefined; return String(r?.value ?? '') === '1'; } catch { return false; } })();
     const adminOk = adminHeaderOk(req);
     if (strict && !adminOk) { // #150 开关：严格模式才要令牌（缺省=旧 T1 直传）
       const presented = String(req.headers['x-run-upload-token'] ?? '').trim();
@@ -1773,7 +1773,7 @@ app.post('/api/sop/runs/:id/files', (req, res, next) => {
       if (!kind) return;
       const sha = sha256Hex(readFileSync(req.file.path) as unknown as string);
       const r = svc<SopService>('sop').runFileInsert({ runId, name: originalName, mime: kind.mime, size: req.file.size, storagePath: rel, createdBy, sha256: sha }) as unknown as { lastInsertRowid: number | bigint };
-      try { db.prepare("INSERT INTO sop_run_file_audit (run_id, name, size, sha256, source) VALUES (?, ?, ?, ?, ?)").run(runId, originalName, req.file.size, sha, String(req.headers['x-run-upload-token'] ? 'token' : 'admin')); } catch { /* 审计失败不阻 */ }
+      try { svc<SopService>('sop').runFileAudit(runId, originalName, req.file.size, sha, String(req.headers['x-run-upload-token'] ? 'token' : 'admin')); } catch { /* 审计失败不阻 */ }
       res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), run_id: runId, name: originalName, mime: kind.mime, size: req.file.size, sha256: sha, url: `/api/sop/runs/${runId}/files/${Number(r.lastInsertRowid)}`, quota: runFileQuota(runId) });
     } catch (e) { next(e); }
   });
