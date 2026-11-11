@@ -16,3 +16,4 @@ export { SkillService } from './skill.ts';
 export { SandboxService } from './sandbox.ts';
 export { WorkbenchVarsService } from './workbench-vars.ts';
 export { PrincipalService } from './principal.ts';
+export { BindingService } from './binding.ts';

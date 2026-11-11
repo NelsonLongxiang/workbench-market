@@ -42,6 +42,7 @@ import type { AppDataService } from './services/app-data.ts';
 import type { CookieService } from './services/cookie.ts';
 import type { CockpitService } from './services/cockpit.ts';
 import { ADMIN_TOKEN_KEY, type SettingService } from './services/setting.ts';
+import type { BindingService } from './services/binding.ts';
 import { recordLayerFsShadowOutcome, recordLayerFsSkillShadowOutcome } from './layerfs-shadow.ts';
 import { db, getSettings, dataDir, rowToWorkbench, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow, type SopRunRow } from './db.ts';
 (globalThis as any).__wmDb = db; // #94 v3 S1：tasks.ts 直读 change_requests 桥
@@ -3417,7 +3418,7 @@ app.get('/api/bindings', (req, res) => {
   const type = req.query.type === 'app' ? 'app' : 'sop';
   const slug = String(req.query.slug ?? '').trim();
   if (!slug) bad('slug 必填：/api/bindings?type=(sop|app)&slug=x');
-  const rows = db.prepare("SELECT id, target_type, target_slug, agent_node, direction, mode, notify_url, remote_api_key, revoked_at, created_by, created_at FROM bindings WHERE target_type = ? AND target_slug = ? ORDER BY id DESC").all(type, slug);
+  const rows = svc<BindingService>('binding').listFor(type, slug);
   res.json(rows.map((r: { remote_api_key: string }) => ({ ...r, remote_api_key: maskKey(r.remote_api_key) })));
 });
 
@@ -3445,23 +3446,22 @@ app.post('/api/bindings', (req, res) => {
   if ((direction === 'notify' || direction === 'both') && notifyUrl === '') bad('notify 向绑定必须携带 notify_url');
   if (targetType === 'sop') sopNode8(slug); // 确保节点短 id 已生成（上卡用）
   // natural key 命中 → upsert（重绑=刷新字段并复活撤销态·绑定管理语义），首绑/重绑皆 201
-  const existing = db.prepare("SELECT id FROM bindings WHERE target_type = ? AND target_slug = ? AND agent_node = ? AND direction = ?").get(targetType, slug, node, direction) as { id: number } | undefined;
+  const existing = svc<BindingService>('binding').idByNaturalKey(targetType, slug, node, direction) as { id: number } | undefined;
   if (existing) {
-    db.prepare("UPDATE bindings SET mode = ?, notify_url = ?, remote_api_key = ?, revoked_at = '', created_by = 'admin', created_at = datetime('now') WHERE id = ?").run(mode, notifyUrl, remoteKey, existing.id);
+    svc<BindingService>('binding').refresh(mode, notifyUrl, remoteKey, existing.id);
     res.status(201).json({ ok: true, id: existing.id, upserted: true, target_type: targetType, target_slug: slug, agent_node: node, direction, mode, notify_url: notifyUrl, remote_api_key: maskKey(remoteKey) });
     return;
   }
-  const r = db.prepare('INSERT INTO bindings (target_type, target_slug, agent_node, direction, mode, notify_url, remote_api_key, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(targetType, slug, node, direction, mode, notifyUrl, remoteKey, 'admin') as unknown as { lastInsertRowid: number | bigint };
+  const r = svc<BindingService>('binding').insert(targetType, slug, node, direction, mode, notifyUrl, remoteKey, 'admin') as unknown as { lastInsertRowid: number | bigint };
   res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), target_type: targetType, target_slug: slug, agent_node: node, direction, mode, notify_url: notifyUrl, remote_api_key: maskKey(remoteKey) });
 });
 
 app.delete('/api/bindings/:id', (req, res) => {
   if (!adminGuard(req, res)) return;
   const id = Number(req.params.id);
-  const hit = db.prepare("SELECT id FROM bindings WHERE id = ? AND revoked_at = ''").get(id) as { id: number } | undefined;
+  const hit = svc<BindingService>('binding').activeId(id) as { id: number } | undefined;
   if (!hit) throw new HttpError(404, `binding not found: ${id}`);
-  db.prepare("UPDATE bindings SET revoked_at = datetime('now') WHERE id = ?").run(id);
+  svc<BindingService>('binding').revoke(id);
   res.json({ ok: true, revoked: id });
 });
 
