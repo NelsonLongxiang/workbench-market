@@ -82,18 +82,42 @@
           "route": "GET /login/:flow",
           "class": "normal",
           "what": "发起：302 去假飞书的授权页（state 每次随机，只比状态码）",
-          "compare": "status",
+          "vary": { "$location": ["port", "query:state"], "$cookies": { "wm_login_state": ["value", "max-age"] } },
           "request": { "method": "GET", "path": "/login/feishu?next=/tasks" },
-          "response": { "status": 302 }
+          "response": {
+            "status": 302,
+            "type": "text/plain; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "274",
+              "location": "http://127.0.0.1:<别的端口>/open-apis/authen/v1/authorize?client_id=cli_synthetic0000001&app_id=cli_synthetic0000001&redirect_uri=http%3A%2F%2F127.0.0.1%3A<市场端口>%2Flogin%2Ffeishu%2Fcallback&response_type=code&state=<每个实例随机·43>",
+              "set-cookie": ["wm_login_state=<每个实例随机·43>; Max-Age=<约10分>; Path=/login/feishu/callback; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin, Accept",
+              "x-powered-by": "Express"
+            },
+            "body": "Found. Redirecting to http://127.0.0.1:<别的端口>/open-apis/authen/v1/authorize?client_id=cli_synthetic0000001&app_id=cli_synthetic0000001&redirect_uri=http%3A%2F%2F127.0.0.1%3A<市场端口>%2Flogin%2Ffeishu%2Fcallback&response_type=code&state=<每个实例随机·43>"
+          }
         },
         {
           "id": "start-next-outside",
           "route": "GET /login/:flow",
           "class": "normal",
           "what": "next 是外站：照样发起，回来时落到 /（只比状态码）",
-          "compare": "status",
+          "vary": { "$location": ["port", "query:state"], "$cookies": { "wm_login_state": ["value", "max-age"] } },
           "request": { "method": "GET", "path": "/login/feishu?next=//evil.invalid/x" },
-          "response": { "status": 302 }
+          "response": {
+            "status": 302,
+            "type": "text/plain; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "274",
+              "location": "http://127.0.0.1:<别的端口>/open-apis/authen/v1/authorize?client_id=cli_synthetic0000001&app_id=cli_synthetic0000001&redirect_uri=http%3A%2F%2F127.0.0.1%3A<市场端口>%2Flogin%2Ffeishu%2Fcallback&response_type=code&state=<每个实例随机·43>",
+              "set-cookie": ["wm_login_state=<每个实例随机·43>; Max-Age=<约10分>; Path=/login/feishu/callback; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin, Accept",
+              "x-powered-by": "Express"
+            },
+            "body": "Found. Redirecting to http://127.0.0.1:<别的端口>/open-apis/authen/v1/authorize?client_id=cli_synthetic0000001&app_id=cli_synthetic0000001&redirect_uri=http%3A%2F%2F127.0.0.1%3A<市场端口>%2Flogin%2Ffeishu%2Fcallback&response_type=code&state=<每个实例随机·43>"
+          }
         },
         {
           "id": "start-unknown",
@@ -157,9 +181,21 @@
           "route": "GET /login/:flow/callback",
           "class": "normal",
           "what": "alice：发市场会话，302 回 /tasks（会话值每次随机，只比状态码）",
-          "compare": "status",
+          "vary": { "$cookies": { "wm_session": ["value", "max-age"] } },
           "request": { "method": "GET", "path": "/login/feishu/callback?state=replaystate-alice-0000000000000000000000000&code=replay-code-alice", "headers": { "cookie": "wm_login_state=replaybrowser-00000000000000000000000000000" } },
-          "response": { "status": 302 }
+          "response": {
+            "status": 302,
+            "type": "text/plain; charset=utf-8",
+            "headers": {
+              "cache-control": "no-store",
+              "content-length": "28",
+              "location": "/tasks",
+              "set-cookie": ["wm_login_state=; Path=/login/feishu/callback; Expires=<时间>; HttpOnly; SameSite=Lax", "wm_session=<每个实例随机·43>; Max-Age=<约720分>; Path=/; Expires=<时间>; HttpOnly; SameSite=Lax"],
+              "vary": "Origin, Accept",
+              "x-powered-by": "Express"
+            },
+            "body": "Found. Redirecting to /tasks"
+          }
         },
         {
           "id": "callback-replay",
