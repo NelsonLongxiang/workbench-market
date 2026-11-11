@@ -1,7 +1,9 @@
 /** 「关注」页和事项页共用的纯函数（阶段八 8d）：不碰 React，scripts/attention-ui-unit.mjs 直接测。 */
 
 export type Category = 'ask' | 'review' | 'accept' | 'glance' | 'grant';
-export type AttentionItem = { source: string; source_id: string; category: Category; title: string; waiting_for: string; since: string; answers: string[]; object: string; phase: string; link: string };
+export type AttentionItem = { source: string; source_id: string; category: Category; title: string; waiting_for: string; since: string; answers: string[]; object: string; phase: string; link: string;
+  /** 只增的字段（#580）：变更申请带 detail（要动什么、影响多大）；统一待办带 kind（任务、SOP 执行……，它们不是审核） */
+  detail?: unknown; kind?: string };
 export type LogRow = { seq: number; fact: string; fact_source: string; fact_id: string; from_state: string; to_state: string; actor: string; detail: string; at: string; rejected: '' | 'not_allowed' | 'terminal' };
 
 /** since 是 SQLite UTC「YYYY-MM-DD HH:MM:SS」或 ISO；认不出返回 NaN */
