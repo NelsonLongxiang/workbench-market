@@ -42,7 +42,7 @@ const SCOPE_RE = /^(\*|self|(domain|bench|sop|tool):[\x21-\x7e]{1,128}|object:[\
  * 不在这里的都算业务——新长出来的域默认是业务，系统管理员默认看不到
  */
 export const SYSTEM_DOMAINS: readonly string[] = [
-  'admin', 'admin-token', 'agent-card', 'app', 'auth', 'binding', 'content', 'cookie', 'design-token', 'grant', 'judgment', 'login',
+  'a2a-peer', 'admin', 'admin-token', 'agent-card', 'app', 'auth', 'binding', 'content', 'cookie', 'design-token', 'grant', 'health', 'judgment', 'login',
   'market', 'mcp', 'principal', 'remote-allow', 'role', 'setting', 'skill', 'sso', 'stats', 'type', 'workbench',
 ];
 /** 明确算业务的域。和 SYSTEM_DOMAINS 一起要盖住全部已登记动作的域（扩展的动作另算，都是业务） */
@@ -68,7 +68,7 @@ export const BLOCKS: readonly { key: string; name: string; domains: readonly str
   { key: 'bench-data', name: '工作台数据', domains: ['app-data', 'mcp-rest', 'mcp-tool'] },
   { key: 'team', name: '团队与 AI 员工', domains: ['binding', 'principal'] },
   { key: 'access', name: '权限与角色', domains: ['admin', 'admin-token', 'grant', 'judgment', 'role'] },
-  { key: 'system', name: '系统与节点', domains: ['agent-card', 'app', 'auth', 'content', 'cookie', 'design-token', 'login', 'market', 'mcp', 'remote-allow', 'setting', 'skill', 'sso', 'stats', 'type', 'workbench'] },
+  { key: 'system', name: '系统与节点', domains: ['a2a-peer', 'agent-card', 'app', 'auth', 'content', 'cookie', 'design-token', 'health', 'login', 'market', 'mcp', 'remote-allow', 'setting', 'skill', 'sso', 'stats', 'type', 'workbench'] },
 ];
 export const MATRIX_KINDS: readonly { key: Kind; name: string }[] = [
   { key: 'read', name: '看' }, { key: 'write', name: '做' }, { key: 'decide', name: '拍板' }, { key: 'admin', name: '管理' },

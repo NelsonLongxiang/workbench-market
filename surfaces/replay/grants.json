@@ -54,7 +54,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1768", "etag": "W/\"6e8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "1788", "etag": "W/\"6fc-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "source": "initial",
               "roles": [
@@ -67,6 +67,7 @@
                     {
                       "kinds": ["read", "write", "admin"],
                       "domains": [
+                        "a2a-peer",
                         "admin",
                         "admin-token",
                         "agent-card",
@@ -77,6 +78,7 @@
                         "cookie",
                         "design-token",
                         "grant",
+                        "health",
                         "judgment",
                         "login",
                         "market",

@@ -492,6 +492,7 @@
   },
   "domains": {
     "system": [
+      "a2a-peer",
       "admin",
       "admin-token",
       "agent-card",
@@ -502,6 +503,7 @@
       "cookie",
       "design-token",
       "grant",
+      "health",
       "judgment",
       "login",
       "market",
@@ -557,6 +559,7 @@
             "admin"
           ],
           "domains": [
+            "a2a-peer",
             "admin",
             "admin-token",
             "agent-card",
@@ -567,6 +570,7 @@
             "cookie",
             "design-token",
             "grant",
+            "health",
             "judgment",
             "login",
             "market",
