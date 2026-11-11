@@ -48,6 +48,7 @@ import { registerChangeRequestRoutes } from './routes/change-requests.ts';
 import { registerSopStateRoutes, registerSopSpaceRoutes } from './routes/sops.ts';
 import { registerTaskIntakeRoutes, registerTaskReadRoutes, registerTaskControlRoutes } from './routes/task-center.ts';
 import { registerSkillRoutes } from './routes/skills.ts';
+import { registerMcpRoutes } from './routes/mcp.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import type { ChangeRequestService } from './services/change-request.ts';
@@ -3360,45 +3361,6 @@ async function mcpRegisteredNames(): Promise<Set<string>> {
   return new Set((await mcpAggregatedTools()).map((t) => t.name));
 }
 
-app.get('/api/mcp/upstreams', (req, res, next) => {
-  if (!adminGuard(req, res)) return;
-  // 先走一遍聚合（有缓存时不打上游），让每个上游都带上可达状态
-  void mcpAggregatedTools().then(() => {
-    res.json(mcpUpstreams().map((u) => {
-      const h = upstreamHealth.get(u.prefix);
-      return { prefix: u.prefix, kind: u.kind ?? 'http', url: u.url ?? '', ygl_home: u.ygl_home, enabled: u.enabled !== false, headers: Object.keys(u.headers ?? {}), toolCallTimeoutMs: u.toolCallTimeoutMs ?? 15000,
-        reachable: h ? h.reachable : null, tools: h?.tools ?? 0, last_error: h?.last_error ?? '', last_ok_at: h?.last_ok_at ?? '', last_checked_at: h?.last_checked_at ?? '' };
-    }));
-  }).catch(next);
-});
-
-app.put('/api/mcp/upstreams', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const arr = req.body?.upstreams;
-  if (!Array.isArray(arr)) bad('upstreams 必须是数组（整体替换语义）');
-  const clean: McpUpstream[] = [];
-  for (const u of arr) {
-    if (!u || typeof u.prefix !== 'string' || !MCP_UPSTREAM_PREFIX_RE.test(u.prefix)) bad(`prefix 规范：[a-z][a-z0-9]{0,15}——${JSON.stringify(u?.prefix)}`);
-    if (clean.some((x) => x.prefix === u.prefix)) bad(`上游前缀重复：${u.prefix}`);
-    if (u.kind !== undefined && u.kind !== 'ygl-trees') bad(`上游 ${u.prefix} 的 kind 只能是 ygl-trees 或不写`);
-    if (u.kind === 'ygl-trees') {
-      // 只认服务端自己解析的 ygl-trees 入口，配置里不能写命令、参数或环境变量
-      if (u.url !== undefined || u.headers !== undefined || u.command !== undefined || u.args !== undefined || u.env !== undefined) bad(`上游 ${u.prefix}（ygl-trees）只接受 prefix、ygl_home、enabled、toolCallTimeoutMs`);
-      const why = yglHomeProblem(u.ygl_home);
-      if (why) bad(`上游 ${u.prefix}：${why}`);
-      clean.push({ prefix: u.prefix, kind: 'ygl-trees', ygl_home: u.ygl_home, url: '', enabled: u.enabled !== false, toolCallTimeoutMs: Number(u.toolCallTimeoutMs) || 30000 });
-      continue;
-    }
-    if (typeof u.url !== 'string' || !/^https?:\/\//.test(u.url)) bad(`上游 ${u.prefix} 的 url 必须是 http(s)://`);
-    if (u.headers !== undefined && (typeof u.headers !== 'object' || u.headers === null || Object.values(u.headers).some((v) => typeof v !== 'string'))) bad(`上游 ${u.prefix} 的 headers 必须是字符串映射`);
-    clean.push({ prefix: u.prefix, url: u.url, headers: u.headers ?? {}, enabled: u.enabled !== false, toolCallTimeoutMs: Number(u.toolCallTimeoutMs) || 15000 });
-  }
-  svc<SettingService>('setting').upsertStmt().run('mcp_upstreams', JSON.stringify(clean));
-  upstreamToolCache.clear();
-  closeYglUpstreams();
-  res.json({ ok: true, upstreams: clean.map((u) => ({ prefix: u.prefix, kind: u.kind ?? 'http', url: u.url, ygl_home: u.ygl_home, enabled: u.enabled !== false })) });
-});
-
 
 // #284 缺省开（fail closed）：未设/空/on 均开网关，只有显式 MCP_GATEWAY=off 才关并在启动时告警；
 // 其它值拒绝启动（防拼写错误静默放开）。重启漏带环境变量不再把 /mcp 退回匿名可调。
@@ -3427,35 +3389,6 @@ function mcpSessionByToken(token: string): { id: number; name: string; grants: s
   return { id: row.id, name: row.name, grants };
 }
 
-// 控制面（全部 X-Admin-Token 常量时间 + Origin 空或同源；MCP 零会话/令牌/授权写工具——人工锁）
-app.post('/api/mcp/sessions', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const name = typeof req.body?.name === 'string' ? req.body.name.trim().toLowerCase() : '';
-  if (!MCP_SESSION_NAME_RE.test(name)) bad('name 规范：小写字母开头，小写字母/数字/连字符，≤64 字符');
-  const dup = svc<McpService>('mcp').sessionByName(name);
-  if (dup) bad(`会话名已存在: ${name}`);
-  // mcp/ 命名空间独立于 dsh/<id8>（A2A 自报身份不混用；关联靠人登记 a2a_node 字段，仅关联不授权）
-  const token = randomBytes(32).toString('hex');
-  const r = svc<McpService>('mcp').sessionCreateStmt()
-    .run(name, sha256Hex(token), '[]') as unknown as { lastInsertRowid: number | bigint }; // 新会话授权空=默认拒绝
-  res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), name, token, grants: [], note: 'token 仅此一次出现——库存 sha256 无取回接口，请立即分发保管' });
-});
-
-app.get('/api/mcp/sessions', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const rows = svc<McpService>('mcp').sessions();
-  res.json(rows.map((r: any) => ({ ...r, grants: JSON.parse(r.grants || '[]') })));
-});
-
-app.delete('/api/mcp/sessions/:id', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const id = Number(req.params.id);
-  const hit = svc<McpService>('mcp').sessionById(id);
-  if (!hit) throw new HttpError(404, `session not found: ${id}`);
-  svc<McpService>('mcp').sessionRevoke(id); // 软吊销立即生效留审计
-  res.json({ ok: true, revoked: id });
-});
-
 /** grants 校验口径（#379，整体替换与批准申请共用）：注册表里有的保留；不在注册表的，只有 held 里已有的才不报错——
  *  所属上游已配置但暂不可达 → 保留（kept_unavailable）；其余（工具已下线/改名）→ 剔除（dropped）。held 之外的未知名 400。 */
 function resolveGrants(raw: unknown[], held: string[], registered: Set<string>): { saved: string[]; dropped: string[]; keptUnavailable: string[] } {
@@ -3481,45 +3414,6 @@ function resolveGrants(raw: unknown[], held: string[], registered: Set<string>):
   }
   return { saved, dropped, keptUnavailable };
 }
-
-app.put('/api/mcp/sessions/:id/grants', (req, res, next) => {
-  if (!adminGuard(req, res)) return;
-  const id = Number(req.params.id);
-  const sess = svc<McpService>('mcp').sessionById(id);
-  if (!sess) throw new HttpError(404, `session not found: ${id}`);
-  const raw = req.body?.grants;
-  if (!Array.isArray(raw)) bad('grants 必须是工具名数组（整体替换语义）');
-  // 注册表 = 本地工具 + 上游聚合工具（P2：taste__rules 等也可授权）
-  // #379：会话已持有、但当前注册表里没有的名字不再让整次保存 400——
-  //   所属上游已配置但暂不可达 → 保留（上游恢复后照常生效，不被无声挤掉）；其余（工具已下线/改名）→ 剔除并在 dropped 里列明。
-  //   新加的未知名字仍然 400（防拼写错误）。
-  let held: string[] = [];
-  try { held = JSON.parse(String((sess as { grants?: string }).grants || '[]')); } catch { held = []; }
-  void mcpRegisteredNames().then((registered) => {
-    try {
-      const { saved, dropped, keptUnavailable } = resolveGrants(raw, held, registered);
-      svc<McpService>('mcp').sessionGrants(id, JSON.stringify(saved));
-      res.json({ ok: true, id, grants: saved, dropped, kept_unavailable: keptUnavailable });
-    } catch (e) {
-      next(e);
-    }
-  }).catch(next);
-});
-
-app.get('/api/mcp/tools', (req, res, next) => {
-  if (!adminGuard(req, res)) return;
-  // 本地 + 上游聚合面（上游不可达时只列本地，不报错）
-  void mcpAggregatedTools()
-    .then((tools) => res.json(tools.map((t) => ({ name: t.name, description: t.description, category: t.category, ...(MCP_SCOPED_TOOLS.has(t.name) ? { scopable: true } : {}), ...(t.exempt ? { always_allowed: true } : {}) }))))
-    .catch(next);
-});
-
-app.get('/api/mcp/calls', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const limit = Math.min(Number(req.query.limit) || 200, 1000);
-  const rows = svc<McpService>('mcp').calls(limit);
-  res.json(rows);
-});
 
 // ---------- MCP 权限自助：access_info / access_request（免 grants）+ 管理员审批面 ----------
 // 会话只能看和申请；批准、驳回只走下面的管理员 REST（adminGuard：口令或 Odoo 管理员），会话令牌不是管理身份，自己批不了。
@@ -3627,72 +3521,7 @@ function accessRequestId(req: express.Request): number {
   return id;
 }
 
-app.get('/api/mcp/access-requests', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const status = typeof req.query.status === 'string' ? req.query.status : '';
-  if (status && !ACCESS_STATUSES.includes(status)) bad('status 只能是 pending / approved / rejected');
-  const limit = pageLimit(req.query.limit, 200, 1000);
-  const rows = svc<McpService>('mcp').accessRequests(status, limit) as (AccessRequestRow & { session_name: string | null; session_revoked_at: string | null })[];
-  res.json(rows.map((r) => ({ ...r, tools: parseToolList(r.tools), session_revoked: !!r.session_revoked_at || r.session_name === null })));
-});
-
-// 批准 = 申请的工具并入会话 grants（并集）+ 改申请状态 + 审计行，同一事务；已吊销会话不能批
-app.post('/api/mcp/access-requests/:id/approve', (req, res, next) => {
-  if (!adminGuard(req, res)) return;
-  const id = accessRequestId(req);
-  const note = String(req.body?.note ?? '').trim().slice(0, ACCESS_REASON_MAX);
-  const actor = adminActor(req);
-  void mcpRegisteredNames().then((registered) => {
-    const mcp = svc<McpService>('mcp');
-    mcp.accessTxBegin();
-    try {
-      const r = mcp.accessRequestById(id) as AccessRequestRow | undefined;
-      if (!r) throw new HttpError(404, `access request not found: ${id}`);
-      if (r.status !== 'pending') throw new HttpError(409, `申请已处理（${r.status}），不能再批准`);
-      const sess = mcp.sessionFull(r.session_id) as { id: number; name: string; grants: string; revoked_at: string } | undefined;
-      if (!sess || sess.revoked_at) throw new HttpError(409, '会话已吊销，不能批准（可驳回）');
-      const tools = parseToolList(r.tools);
-      const before = parseToolList(sess.grants);
-      // 与 PUT grants 同一口径（resolveGrants）：申请的工具当作「已持有」参与判定——上游暂不可达的保留，已下线的剔除；
-      // 申请的工具若被剔除就整单 409（不做部分批准），原有授权里已下线的名字顺带按同口径清掉
-      const { saved: after, dropped, keptUnavailable } = resolveGrants([...before, ...tools], [...before, ...tools], registered);
-      const gone = tools.filter((t) => dropped.includes(t));
-      if (gone.length) throw new HttpError(409, `已不可用（工具已下线，或 工具@台 的台已删除）：${gone.join(', ')}（请驳回后让会话重新申请）`);
-      const added = tools.filter((t) => !before.includes(t));
-      mcp.sessionGrants(sess.id, JSON.stringify(after));
-      mcp.accessRequestDecide(id, 'approved', actor, note);
-      mcp.grantAuditInsert(sess.id, id, 'access_request_approve', actor, JSON.stringify(before), JSON.stringify(after), note);
-      mcp.accessTxCommit();
-      res.json({ ok: true, id, status: 'approved', session: sess.name, added, grants: after, dropped, kept_unavailable: keptUnavailable });
-    } catch (e) {
-      mcp.accessTxRollback();
-      next(e);
-    }
-  }).catch(next);
-});
-
-app.post('/api/mcp/access-requests/:id/reject', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const id = accessRequestId(req);
-  const note = String(req.body?.note ?? '').trim().slice(0, ACCESS_REASON_MAX);
-  const actor = adminActor(req);
-  const mcp = svc<McpService>('mcp');
-  mcp.accessTxBegin();
-  try {
-    const r = mcp.accessRequestById(id) as AccessRequestRow | undefined;
-    if (!r) throw new HttpError(404, `access request not found: ${id}`);
-    if (r.status !== 'pending') throw new HttpError(409, `申请已处理（${r.status}），不能再驳回`);
-    const sess = mcp.sessionFull(r.session_id) as { grants: string } | undefined;
-    const grants = sess?.grants || '[]';
-    mcp.accessRequestDecide(id, 'rejected', actor, note);
-    mcp.grantAuditInsert(r.session_id, id, 'access_request_reject', actor, grants, grants, note); // 驳回不动 grants
-    mcp.accessTxCommit();
-  } catch (e) {
-    mcp.accessTxRollback();
-    throw e;
-  }
-  res.json({ ok: true, id, status: 'rejected' });
-});
+registerMcpRoutes(http, { adminGuard, bad, sha256Hex, MCP_UPSTREAM_PREFIX_RE, MCP_SESSION_NAME_RE, MCP_SCOPED_TOOLS, ACCESS_STATUSES, ACCESS_REASON_MAX, upstreamHealth, upstreamToolCache, mcpUpstreams, mcpAggregatedTools, mcpRegisteredNames, resolveGrants, pageLimit, parseToolList, adminActor, accessRequestId });
 
 // ---------- /mcp 与 REST（/api/mcp-rest/*）共用：会话认定、审计、tools/call ----------
 type McpChannel = 'mcp' | 'rest';
