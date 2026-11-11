@@ -1,0 +1,396 @@
+{
+  "domain": "sop-run-control",
+  "what": "SOP run 的开建、指派与进行中列表：POST /api/sop/runs、POST /api/sop/runs/:id/assign、GET /api/sop/runs/active，共 3 条路由。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["POST /api/sop/runs", "GET /api/sop/runs/active", "POST /api/sop/runs/:id/assign"],
+  "exempt": [{ "route": "GET /api/sop/runs/active", "class": "invalid", "why": "进行中列表不读请求里的任何东西", "shown_by": "open/active-seed" }],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "登录门关，管理口令由环境给（合成值）。预先写进库一个已发布的 SOP（放好 sop.yaml）、一个 draft 的 SOP，两个 run（一个进行中、一个已完成，时间写死）。进行中列表按更新时间排，只在 HTTP 开过一个 run 时读，不会因为同一秒换序。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "seed": [
+        {
+          "table": "apps",
+          "row": { "slug": "replay-sop", "title": "回放 replay-sop", "kind": "sop", "status": "published", "active_version": 1, "created_by": "seed", "created_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" }
+        },
+        {
+          "table": "apps",
+          "row": { "slug": "replay-draft", "title": "回放 replay-draft", "kind": "sop", "status": "draft", "active_version": 1, "created_by": "seed", "created_at": "2025-01-01 00:00:02", "updated_at": "2025-01-01 00:00:02" }
+        },
+        { "table": "sop_runs", "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "running", "started_by": "seed", "data": "{}", "started_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01", "finished_at": "" } },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "finished", "started_by": "seed", "data": "{}", "started_at": "2025-01-01 00:00:02", "updated_at": "2025-01-01 00:00:02", "finished_at": "2025-01-01 00:00:03" }
+        }
+      ],
+      "seed_files": [
+        { "path": "apps/replay-sop/v1/sop.yaml", "content": "title: 回放 replay-sop\ncode: RP\nsteps:\n  - key: a\n    title: 第一步\n    body: <p>一</p>\n  - key: b\n    title: 第二步\n" },
+        { "path": "apps/replay-draft/v1/sop.yaml", "content": "title: 回放 replay-draft\ncode: RP\nsteps:\n  - key: a\n    title: 第一步\n    body: <p>一</p>\n  - key: b\n    title: 第二步\n" }
+      ],
+      "steps": [
+        {
+          "id": "active-seed",
+          "route": "GET /api/sop/runs/active",
+          "class": "normal",
+          "what": "进行中列表：只有种子里进行中的 run 1（只回元数据，不回 data 和令牌）",
+          "request": { "method": "GET", "path": "/api/sop/runs/active", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "186", "etag": "W/\"ba-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 1,
+                "sop_slug": "replay-sop",
+                "sop_version": 1,
+                "status": "running",
+                "started_by": "seed",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "",
+                "steps": 0
+              }
+            ]
+          }
+        },
+        {
+          "id": "create-no-slug",
+          "route": "POST /api/sop/runs",
+          "class": "invalid",
+          "what": "没有 slug：400",
+          "vary": { "upload_token": "random", "read_capability": "random" },
+          "request": { "method": "POST", "path": "/api/sop/runs", "headers": {}, "json": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "23", "etag": "W/\"17-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "slug 必填" } }
+        },
+        {
+          "id": "create-blank-slug",
+          "route": "POST /api/sop/runs",
+          "class": "invalid",
+          "what": "slug 是空白：400",
+          "vary": { "upload_token": "random", "read_capability": "random" },
+          "request": { "method": "POST", "path": "/api/sop/runs", "headers": {}, "json": { "slug": "   " } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "23", "etag": "W/\"17-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "slug 必填" } }
+        },
+        {
+          "id": "create-unknown",
+          "route": "POST /api/sop/runs",
+          "class": "invalid",
+          "what": "没有这个 SOP：404",
+          "vary": { "upload_token": "random", "read_capability": "random" },
+          "request": { "method": "POST", "path": "/api/sop/runs", "headers": {}, "json": { "slug": "nope" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "SOP not found: nope" } }
+        },
+        {
+          "id": "create-draft",
+          "route": "POST /api/sop/runs",
+          "class": "invalid",
+          "what": "SOP 还是 draft：409",
+          "vary": { "upload_token": "random", "read_capability": "random" },
+          "request": { "method": "POST", "path": "/api/sop/runs", "headers": {}, "json": { "slug": "replay-draft" } },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "57", "etag": "W/\"39-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "SOP 状态为 draft，仅 published 可执行" } }
+        },
+        {
+          "id": "create",
+          "route": "POST /api/sop/runs",
+          "class": "normal",
+          "what": "slug 写成 ' Replay-SOP '：去空白、转小写；started_by 两头空白去掉；回上传令牌和读能力（每个实例随机）",
+          "vary": { "upload_token": "random", "read_capability": "random" },
+          "request": { "method": "POST", "path": "/api/sop/runs", "headers": {}, "json": { "slug": " Replay-SOP ", "started_by": "  alice  " } },
+          "save": { "r": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "257", "etag": "W/\"101-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 3, "slug": "replay-sop", "version": 1, "status": "running", "started_by": "alice", "data": {}, "upload_token": "<每个实例随机·string·64>", "read_capability": "<每个实例随机·string·64>" }
+          }
+        },
+        {
+          "id": "active-after-create",
+          "route": "GET /api/sop/runs/active",
+          "class": "normal",
+          "what": "开了一个之后：新的在前（更新时间最新）",
+          "request": { "method": "GET", "path": "/api/sop/runs/active", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "372", "etag": "W/\"174-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 3,
+                "sop_slug": "replay-sop",
+                "sop_version": 1,
+                "status": "running",
+                "started_by": "alice",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "",
+                "steps": 0
+              },
+              {
+                "id": 1,
+                "sop_slug": "replay-sop",
+                "sop_version": 1,
+                "status": "running",
+                "started_by": "seed",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "",
+                "steps": 0
+              }
+            ]
+          }
+        },
+        {
+          "id": "create-remote-anonymous",
+          "route": "POST /api/sop/runs",
+          "class": "normal",
+          "what": "远程匿名也能开 run：开 run 不经写总门（执行页是公开入口）",
+          "vary": { "upload_token": "random", "read_capability": "random" },
+          "request": { "method": "POST", "path": "/api/sop/runs", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "slug": "replay-sop" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "252", "etag": "W/\"fc-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 4, "slug": "replay-sop", "version": 1, "status": "running", "started_by": "", "data": {}, "upload_token": "<每个实例随机·string·64>", "read_capability": "<每个实例随机·string·64>" }
+          }
+        },
+        {
+          "id": "create-intake",
+          "route": "POST /api/sop/runs",
+          "class": "normal",
+          "what": "task-center 的录入：经身份服务认人（这里认不出），照样放行",
+          "vary": { "upload_token": "random", "read_capability": "random" },
+          "request": { "method": "POST", "path": "/api/sop/runs", "headers": {}, "json": { "slug": "task-center", "started_by": "bob" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "256", "etag": "W/\"100-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 5, "slug": "task-center", "version": 1, "status": "running", "started_by": "bob", "data": {}, "upload_token": "<每个实例随机·string·64>", "read_capability": "<每个实例随机·string·64>" }
+          }
+        },
+        {
+          "id": "create-number-starter",
+          "route": "POST /api/sop/runs",
+          "class": "normal",
+          "what": "started_by 是数：转成字符串",
+          "vary": { "upload_token": "random", "read_capability": "random" },
+          "request": { "method": "POST", "path": "/api/sop/runs", "headers": {}, "json": { "slug": "replay-sop", "started_by": 5 } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "253", "etag": "W/\"fd-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 6, "slug": "replay-sop", "version": 1, "status": "running", "started_by": "5", "data": {}, "upload_token": "<每个实例随机·string·64>", "read_capability": "<每个实例随机·string·64>" }
+          }
+        },
+        {
+          "id": "create-no-starter",
+          "route": "POST /api/sop/runs",
+          "class": "normal",
+          "what": "没有 started_by：空串",
+          "vary": { "upload_token": "random", "read_capability": "random" },
+          "request": { "method": "POST", "path": "/api/sop/runs", "headers": {}, "json": { "slug": "replay-sop" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "252", "etag": "W/\"fc-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": 7, "slug": "replay-sop", "version": 1, "status": "running", "started_by": "", "data": {}, "upload_token": "<每个实例随机·string·64>", "read_capability": "<每个实例随机·string·64>" }
+          }
+        },
+        {
+          "id": "assign-text-id",
+          "route": "POST /api/sop/runs/:id/assign",
+          "class": "invalid",
+          "what": "id 不是数：404",
+          "request": { "method": "POST", "path": "/api/sop/runs/abc/assign", "headers": {}, "json": { "node": "dsh/1a2b3c4d" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run not found: abc" } }
+        },
+        {
+          "id": "assign-missing",
+          "route": "POST /api/sop/runs/:id/assign",
+          "class": "invalid",
+          "what": "没有这个 run：404",
+          "request": { "method": "POST", "path": "/api/sop/runs/999/assign", "headers": {}, "json": { "node": "dsh/1a2b3c4d" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run not found: 999" } }
+        },
+        {
+          "id": "assign-finished",
+          "route": "POST /api/sop/runs/:id/assign",
+          "class": "invalid",
+          "what": "run 已完成：409",
+          "request": { "method": "POST", "path": "/api/sop/runs/2/assign", "headers": {}, "json": { "node": "dsh/1a2b3c4d" } },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "45", "etag": "W/\"2d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run 2 已 finished，不可指派" } }
+        },
+        {
+          "id": "assign-bad-node",
+          "route": "POST /api/sop/runs/:id/assign",
+          "class": "invalid",
+          "what": "node 不是 <zone>/<id>：400",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/assign", "headers": {}, "json": { "node": "nope" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "57", "etag": "W/\"39-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "node 形态：<zone>/<id8>，如 dsh/1a2b3c4d" } }
+        },
+        {
+          "id": "assign-no-node",
+          "route": "POST /api/sop/runs/:id/assign",
+          "class": "invalid",
+          "what": "没有 node：400",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/assign", "headers": {}, "json": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "57", "etag": "W/\"39-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "node 形态：<zone>/<id8>，如 dsh/1a2b3c4d" } }
+        },
+        {
+          "id": "assign-remote-anonymous",
+          "route": "POST /api/sop/runs/:id/assign",
+          "class": "unauthorized",
+          "what": "远程匿名：写总门 403",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/assign", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "node": "dsh/1a2b3c4d" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "assign-cross",
+          "route": "POST /api/sop/runs/:id/assign",
+          "class": "unauthorized",
+          "what": "带口令但跨站：403",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/assign", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": { "node": "dsh/1a2b3c4d" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "assign-upper",
+          "route": "POST /api/sop/runs/:id/assign",
+          "class": "normal",
+          "what": "node 大写也收（不区分大小写）",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/assign", "headers": {}, "json": { "node": "DSH/1A2B3C4D" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "63", "etag": "W/\"3f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "run_id": 1, "node": "DSH/1A2B3C4D", "task_id": "task-1" }
+          }
+        },
+        {
+          "id": "assign-again",
+          "route": "POST /api/sop/runs/:id/assign",
+          "class": "invalid",
+          "what": "已有派单来源：409",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/assign", "headers": {}, "json": { "node": "dsh/1a2b3c4d" } },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "57", "etag": "W/\"39-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run 1 已有派单来源，不可重复指派" } }
+        },
+        {
+          "id": "assign-trim",
+          "route": "POST /api/sop/runs/:id/assign",
+          "class": "normal",
+          "what": "node 两头空白去掉",
+          "request": { "method": "POST", "path": "/api/sop/runs/{{r}}/assign", "headers": {}, "json": { "node": "  dsh/abcdef01  " } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "63", "etag": "W/\"3f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "run_id": 3, "node": "dsh/abcdef01", "task_id": "task-3" }
+          }
+        },
+        {
+          "id": "raw-assign-dotdot",
+          "route": "POST /api/sop/runs/:id/assign",
+          "class": "invalid",
+          "what": "原样发：id 是 ..",
+          "request": { "method": "POST", "path": "/api/sop/runs/../assign", "raw": true, "headers": {}, "json": { "node": "dsh/1a2b3c4d" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "run not found: .." } }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce），管理口令由环境给（合成值）。同样的种子。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "seed": [
+        {
+          "table": "apps",
+          "row": { "slug": "replay-sop", "title": "回放 replay-sop", "kind": "sop", "status": "published", "active_version": 1, "created_by": "seed", "created_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" }
+        },
+        {
+          "table": "apps",
+          "row": { "slug": "replay-draft", "title": "回放 replay-draft", "kind": "sop", "status": "draft", "active_version": 1, "created_by": "seed", "created_at": "2025-01-01 00:00:02", "updated_at": "2025-01-01 00:00:02" }
+        },
+        { "table": "sop_runs", "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "running", "started_by": "seed", "data": "{}", "started_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01", "finished_at": "" } },
+        {
+          "table": "sop_runs",
+          "row": { "sop_slug": "replay-sop", "sop_version": 1, "status": "finished", "started_by": "seed", "data": "{}", "started_at": "2025-01-01 00:00:02", "updated_at": "2025-01-01 00:00:02", "finished_at": "2025-01-01 00:00:03" }
+        }
+      ],
+      "seed_files": [
+        { "path": "apps/replay-sop/v1/sop.yaml", "content": "title: 回放 replay-sop\ncode: RP\nsteps:\n  - key: a\n    title: 第一步\n    body: <p>一</p>\n  - key: b\n    title: 第二步\n" },
+        { "path": "apps/replay-draft/v1/sop.yaml", "content": "title: 回放 replay-draft\ncode: RP\nsteps:\n  - key: a\n    title: 第一步\n    body: <p>一</p>\n  - key: b\n    title: 第二步\n" }
+      ],
+      "steps": [
+        {
+          "id": "gated-active-anonymous",
+          "route": "GET /api/sop/runs/active",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "GET", "path": "/api/sop/runs/active", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-active-with-token",
+          "route": "GET /api/sop/runs/active",
+          "class": "normal",
+          "what": "远程带口令：200",
+          "request": { "method": "GET", "path": "/api/sop/runs/active", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "186", "etag": "W/\"ba-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 1,
+                "sop_slug": "replay-sop",
+                "sop_version": 1,
+                "status": "running",
+                "started_by": "seed",
+                "started_at": "YYYY-MM-DD hh:mm:ss",
+                "updated_at": "YYYY-MM-DD hh:mm:ss",
+                "finished_at": "",
+                "steps": 0
+              }
+            ]
+          }
+        },
+        {
+          "id": "gated-create-anonymous",
+          "route": "POST /api/sop/runs",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "vary": { "upload_token": "random", "read_capability": "random" },
+          "request": { "method": "POST", "path": "/api/sop/runs", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "slug": "replay-sop" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-assign-anonymous",
+          "route": "POST /api/sop/runs/:id/assign",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "request": { "method": "POST", "path": "/api/sop/runs/1/assign", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "node": "dsh/1a2b3c4d" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        }
+      ]
+    }
+  ]
+}
