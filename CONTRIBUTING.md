@@ -53,7 +53,7 @@ pnpm check                           # web 类型检查 + server 语法检查
 - 类型错误超了：体检表下面贴着 tsc 的原始报错行，照着改。量法是带空值检查、其余宽松。
 - 带着存量搬家：预算按文件记，把 `index.ts` 里的 SQL 原样挪到新文件会被当成新增。先把 SQL 收进 `services/`，或者走豁免。
 - 确实要破例：在 `tech-route.json` 的 `waivers` 里加一条，五项都要写：规则、哪一项、理由、谁批的、到哪天（`YYYY-MM-DD`）。缺一项体检直接报错；过期不算。
-- 数字变小了：合并之后跑 `node scripts/tech-route-check.mjs --tighten`，把基线收紧。不收紧的话，空出来的额度会被别的 PR 用回去。
+- 数字变小了：合并之后跑 `node scripts/tech-route-check.mjs --tighten`，把基线收紧。不收紧的话，空出来的额度会被别的 PR 用回去。预算档和红线档只减不增；计数档按实际重记，代码挪进的新文件也记进去，总数不会低于实际。
 
 体检的限度，心里要有数：
 
