@@ -176,6 +176,22 @@ try {
     check(!answered.can.answer && !answeredC.turn.answer, '答过之后没有在等的提问：管理员 can.answer、建立人 turn.answer 都是 false', show({ can: answered.can, turn: answeredC.turn }));
   }
 
+  // ---------- canOf 单元：非建立人的登录员工（详情对他是 404，这里直接对函数验） ----------
+  {
+    const unit = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', `
+      // 引 work-item-access.ts 会带上 context.ts，它把各服务都装上（和服务进程一样）；事项从同一个库里读
+      const { canOf, turnOf } = await import(${JSON.stringify(at('server/src/work-item-access.ts'))});
+      const { svc } = await import(${JSON.stringify(at('server/src/context.ts'))});
+      const items = svc('workItems');
+      const beta = { admin: false, principal: 'user:beta', person: true, actor: 'user:beta' };
+      const out = {};
+      for (const id of ${JSON.stringify([S.held2.item, S.asked.item, S.readyB])}) { const w = items.get(id); out[id] = { state: w.state, can: canOf(w, beta), turn: turnOf(w, beta) }; }
+      console.log('UNIT ' + JSON.stringify(out)); process.exit(0);`], { env: { ...process.env, DATA_DIR: data, NODE_ENV: 'test' }, encoding: 'utf8' });
+    const u = JSON.parse(/UNIT (.*)/.exec(unit.stdout)?.[1] ?? 'null');
+    const allFalse = (o) => o && Object.values(o).every((v) => v === false);
+    check(u && Object.values(u).every((x) => allFalse(x.can) && allFalse(x.turn)), 'canOf、turnOf 单元：非建立人的登录员工对别人的事项（held、在问、已验收）一项都不能、都不轮到', show(u ?? unit.stderr.slice(0, 600)));
+  }
+
   // ---------- 结束了的事项 ----------
   {
     const w = await call('POST', '/api/attention/answer', WHO.管理员, { source: 'work-items', source_id: S.held2.item, answer: 'withdraw' });
