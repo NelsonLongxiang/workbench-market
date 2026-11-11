@@ -183,7 +183,7 @@ GET              /api/health/ready              就绪：含 LayerFS 探测（�
 派单 run 完成时向**绑定上人填的 `callback_url`** 投递回执（`[A2A receipt] task <id>` + 上游 `receipt.ts` 信封，outcome=completed、幂等键 `run-<id>-finished`）；
 自报 callback 与绑定不一致 → 不投递且 `receipt=rejected:callback-mismatch`；人自己开的 run 不回执。outbox 退避 1m/5m/15m/1h、5 次后 dead（`A2A_OUTBOX_BACKOFF_SCALE` 可加速）；`GET /api/sop/runs/:id` 返回 `receipt`（none/pending/sent/dead/rejected:*）。
 
-唯一 outbox 双写期（阶段七第 3 步）：回执的每次写同时镜像进 `a2a_outbox_items`（kind=`run-receipt`，ref=run id），读和投递仍走 `a2a_outbox`。部署方每日跑一次对账 `node scripts/a2a-outbox-reconcile.mjs <数据目录>`（只读；零差异退出 0、有差异 1、库不存在或新表没建 2），切读之前必须零差异。
+唯一 outbox 双写期（阶段七第 3 步）：回执的每次写同时镜像进 `a2a_outbox_items`（kind=`run-receipt`，ref=run id）；工作台事件投递的每次状态变化也镜像进去（kind=`event-delivery`，ref=投递 id，只有传输字段，接单决定留在原表；held 的不进，放行时在放行的同一事务里入队）。读和投递仍走旧表。部署方每日跑一次对账 `node scripts/a2a-outbox-reconcile.mjs <数据目录>`（只读；回执与非 held 的投递分别逐行逐字段比，held 的单独列出；零差异退出 0、有差异 1、库不存在或新表没建 2），切读之前必须零差异。
 
 ### A2A peer 宿主（上游实现承载，2026-10-23 主人裁定）
 
@@ -306,7 +306,7 @@ server/src/login-providers/  登录提供方插件（身份的具体实现只放
 server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·cookie·setting·mcp（域服务）；其余一个文件一行，按文件名排序：
   a2a-idempotency.ts（`/a2a/direct` 幂等登记：task_id → 指纹 sha256，30 分钟窗口，落库，重启后同一 task_id 仍判 replay / conflict；只存摘要不存原文）
   a2a-outbox-reconcile.ts（双写期对账：两表逐行逐字段比，不引用 db.ts，可只读打开生产库）
-  a2a-outbox.ts（唯一 outbox 双写期：回执照旧写 `a2a_outbox`，同一保存点里镜像进 `a2a_outbox_items`；镜像失败只记日志不挡旧写，启动时整表同步补齐）
+  a2a-outbox.ts（唯一 outbox 双写期：回执与事件投递照旧写各自的表，同一事务里镜像进 `a2a_outbox_items`；held 的投递不进；镜像失败只记日志不挡旧写，启动时整表同步补齐）
   a2a-stats.ts（A2A 出站积压的聚合读数：两张出站表按状态计数、最老待发、最近回执时长）
   attention-sources.ts（「关注」要用、来源里还没有现成函数的只读查询：席位未答的提问）
   attention.ts（「关注」：Cordis 服务 `attention`·各来源注册提供方、可撤销·汇总当前这个人的条目和各类条数）

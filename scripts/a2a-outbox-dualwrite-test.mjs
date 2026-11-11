@@ -113,7 +113,7 @@ if (mods) {
   db.prepare("UPDATE a2a_outbox_items SET attempts = 7 WHERE kind = 'run-receipt' AND ref = '14'").run();
   c = cli(DATA, '--json');
   let parsed = null; try { parsed = JSON.parse(c.out); } catch { /* 非 JSON */ }
-  ok('有差异退出 1，--json 列出字段', c.status === 1 && parsed?.mismatched?.[0]?.ref === '14' && parsed.mismatched[0].fields.join() === 'attempts', c.out);
+  ok('有差异退出 1，--json 列出字段', c.status === 1 && parsed?.receipts?.mismatched?.[0]?.ref === '14' && parsed.receipts.mismatched[0].fields.join() === 'attempts' && parsed.events?.ok === true, c.out);
   c = cli(join(DATA, 'nope'));
   ok('库不存在退出 2', c.status === 2, c.out);
   const bare = resolve('tmp/a2a-outbox-bare');

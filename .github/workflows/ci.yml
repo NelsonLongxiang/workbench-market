@@ -230,6 +230,10 @@ jobs:
         run: node scripts/a2a-health-test.mjs
       - name: 唯一 outbox 双写期（回执四个写都镜像·对账抓得到改/删/多·镜像失败不挡旧写·启动整表同步补齐·对账脚本只读与退出码）
         run: node scripts/a2a-outbox-dualwrite-test.mjs
+      - name: 唯一 outbox 双写期·事件投递（事件层冒烟后对账一一对上·held 不进·放行与入队同一事务（两步之间被杀）·启动整表同步）
+        env:
+          A2A_ORIGIN_SRC: ${{ github.workspace }}/dsh-open-a2a-net/src/origin-claim.ts
+        run: node scripts/a2a-outbox-events-test.mjs
       - name: 工作台事件层 v1（人提交→事件→团队接单：held/release·自动派发·退避重试/dead·决定端点·unrouted·表单 unverified·只增日志；对端上游裁判按关窗验）
         env:
           A2A_ORIGIN_SRC: ${{ github.workspace }}/dsh-open-a2a-net/src/origin-claim.ts

@@ -250,6 +250,7 @@ CREATE TABLE IF NOT EXISTS a2a_idempotency (
 );
 CREATE INDEX IF NOT EXISTS idx_a2a_idempotency_at ON a2a_idempotency (created_at);
 -- 唯一 outbox（阶段七第 3 步）：所有出站一张表、一个 worker。现在是双写期：回执（kind=run-receipt，ref=run_id）照旧写 a2a_outbox，
+-- 事件投递（kind=event-delivery，ref=投递 id；held 的不进来，放行时入队）照旧写 workbench_event_deliveries，
 -- 同一事务里镜像到这里；切读之前对账必须零差异（scripts/a2a-outbox-reconcile.mjs）。
 CREATE TABLE IF NOT EXISTS a2a_outbox_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -257,6 +258,7 @@ CREATE TABLE IF NOT EXISTS a2a_outbox_items (
   ref TEXT NOT NULL CHECK (ref <> ''),
   target_url TEXT NOT NULL,
   team TEXT NOT NULL DEFAULT '',
+  caller TEXT NOT NULL DEFAULT '',
   task_id TEXT NOT NULL DEFAULT '',
   context_id TEXT NOT NULL DEFAULT '',
   payload TEXT NOT NULL,

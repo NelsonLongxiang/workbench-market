@@ -25,6 +25,7 @@
       "ref TEXT NOT NULL",
       "target_url TEXT NOT NULL",
       "team TEXT NOT NULL DEFAULT ''",
+      "caller TEXT NOT NULL DEFAULT ''",
       "task_id TEXT NOT NULL DEFAULT ''",
       "context_id TEXT NOT NULL DEFAULT ''",
       "payload TEXT NOT NULL",

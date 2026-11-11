@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * 唯一 outbox 双写期对账（阶段七第 3 步）：旧表 a2a_outbox 与新表 a2a_outbox_items（kind=run-receipt）逐行比。
+ * 唯一 outbox 双写期对账（阶段七第 3 步）：回执（a2a_outbox）与事件投递（workbench_event_deliveries 里非 held 的行）
+ * 分别和新表 a2a_outbox_items 逐行逐字段比；held 的投递单独计数并列出。
  * 只读打开库，不触发迁移。零差异退出 0，有差异退出 1，打开失败退出 2。切读前必须零差异；部署方每日跑一次。
  *
  *   node scripts/a2a-outbox-reconcile.mjs [数据目录]      # 缺省取 DATA_DIR，再缺省 server/data
@@ -9,7 +10,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { join, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
-import { reconcileReceiptOutbox } from '../server/src/services/a2a-outbox-reconcile.ts';
+import { reconcileDeliveryOutbox, reconcileReceiptOutbox } from '../server/src/services/a2a-outbox-reconcile.ts';
 
 const args = process.argv.slice(2);
 const json = args.includes('--json');
@@ -22,14 +23,19 @@ try {
   h.exec('PRAGMA busy_timeout = 2000');
 } catch (e) { console.error(`打不开库：${e?.message ?? e}`); process.exit(2); }
 let r;
-try { r = reconcileReceiptOutbox(h); } catch (e) { console.error(`对账失败（新表可能还没建，先用新版本起一次服务）：${e?.message ?? e}`); process.exit(2); } finally { h.close(); }
+try { const receipts = reconcileReceiptOutbox(h); const events = reconcileDeliveryOutbox(h); r = { receipts, events, ok: receipts.ok && events.ok }; } catch (e) { console.error(`对账失败（新表可能还没建，先用新版本起一次服务）：${e?.message ?? e}`); process.exit(2); } finally { h.close(); }
 if (json) console.log(JSON.stringify(r));
 else {
-  console.log(`回执 outbox 对账：旧表 ${r.old_rows} 行，新表 ${r.new_rows} 行`);
-  console.log(`  按状态  旧 ${JSON.stringify(r.by_status.old)}  新 ${JSON.stringify(r.by_status.new)}`);
-  if (r.missing.length) console.log(`  新表缺 ${r.missing.length} 行：run ${r.missing.slice(0, 20).join(', ')}${r.missing.length > 20 ? ' …' : ''}`);
-  if (r.extra.length) console.log(`  新表多 ${r.extra.length} 行：ref ${r.extra.slice(0, 20).join(', ')}${r.extra.length > 20 ? ' …' : ''}`);
-  for (const m of r.mismatched.slice(0, 20)) console.log(`  run ${m.ref} 字段不同：${m.fields.join(', ')}`);
+  const show = (name, x) => {
+    console.log(`${name}：旧表 ${x.old_rows} 行，新表 ${x.new_rows} 行`);
+    console.log(`  按状态  旧 ${JSON.stringify(x.by_status.old)}  新 ${JSON.stringify(x.by_status.new)}`);
+    if (x.missing.length) console.log(`  新表缺 ${x.missing.length} 行：${x.missing.slice(0, 20).join(', ')}${x.missing.length > 20 ? ' …' : ''}`);
+    if (x.extra.length) console.log(`  新表多 ${x.extra.length} 行：${x.extra.slice(0, 20).join(', ')}${x.extra.length > 20 ? ' …' : ''}`);
+    for (const m of x.mismatched.slice(0, 20)) console.log(`  ${m.ref} 字段不同：${m.fields.join(', ')}`);
+  };
+  show('回执 outbox（a2a_outbox ↔ run-receipt）', r.receipts);
+  show('事件投递（非 held 的投递 ↔ event-delivery）', r.events);
+  console.log(`  等放行（held，不在 outbox 里是预期）：${r.events.held.count} 行${r.events.held.count ? `：${r.events.held.refs.slice(0, 20).join(', ')}${r.events.held.count > 20 ? ' …' : ''}` : ''}`);
   console.log(r.ok ? '零差异' : '有差异');
 }
 process.exit(r.ok ? 0 : 1);

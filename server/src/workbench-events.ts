@@ -9,6 +9,7 @@ import { db } from './db.ts';
 import { a2aKeyPath, a2aSendOutbound, marketPublicUrl, sopNode8 } from './a2a.ts';
 import { MAX_ROUTE_BODY_BYTES } from '@nelsonlongxiang/dsh-open-a2a-net/transport-caps';
 import { root } from './root-context.ts';
+import { mirrorDelivery, syncDeliveryMirror, withDeliveryMirror } from './services/a2a-outbox.ts';
 
 /** 8b：每写一行事件日志，在同一个事务里多发一个事件（事项服务听它）。这张表和它的写法都不变。 */
 export type WorkbenchEventLogged = { id: number; event_id: string; delivery_id: number | null; action: string };
@@ -80,6 +81,7 @@ CREATE TRIGGER IF NOT EXISTS wbe_log_no_update BEFORE UPDATE ON workbench_event_
 CREATE TRIGGER IF NOT EXISTS wbe_log_no_delete BEFORE DELETE ON workbench_event_log BEGIN SELECT RAISE(ABORT,'workbench event log append only'); END;
 CREATE TRIGGER IF NOT EXISTS wbe_events_no_delete BEFORE DELETE ON workbench_events BEGIN SELECT RAISE(ABORT,'workbench events are never deleted'); END;
 `);
+  syncDeliveryMirror(); // 阶段七唯一 outbox 双写期：投递表整表同步进 a2a_outbox_items
 }
 
 const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
@@ -147,6 +149,7 @@ function recordEvent(core: EventCore, targets: Target[], routed: 'target' | 'def
     }
     const info = db.prepare('INSERT INTO workbench_event_deliveries (event_id, target_team, target_url, caller_session, status, message, reply_token_sha256) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(eventId, t.agent_node, t.notify_url, callerSession, held ? 'held' : 'pending', JSON.stringify(message), token === '' ? '' : sha256(token));
+    mirrorDelivery(Number(info.lastInsertRowid)); // 双写：pending 的入队，held 的不进
     log(eventId, Number(info.lastInsertRowid), 'market', held ? 'held' : 'queued', { target_team: t.agent_node });
   }
   return eventId;
@@ -214,7 +217,7 @@ function backoffScale(): number {
 const inFlight = new Set<number>();
 /** attempts = 已尝试次数（含成功的那次）。只从 pending 落定，别的状态不覆盖。 */
 function settle(row: DeliveryRow, status: 'sent' | 'dead' | 'cancelled', error = '', attempts = row.attempts): void {
-  const r = db.prepare("UPDATE workbench_event_deliveries SET status = ?, message = '', attempts = ?, last_error = ?, sent_at = CASE WHEN ? = 'sent' THEN datetime('now') ELSE sent_at END WHERE id = ? AND status = 'pending'").run(status, attempts, error.slice(0, 300), status, row.id);
+  const r = withDeliveryMirror(() => db.prepare("UPDATE workbench_event_deliveries SET status = ?, message = '', attempts = ?, last_error = ?, sent_at = CASE WHEN ? = 'sent' THEN datetime('now') ELSE sent_at END WHERE id = ? AND status = 'pending'").run(status, attempts, error.slice(0, 300), status, row.id), row.id);
   if (Number(r.changes) === 0) return; // 已被别处落定（不应发生：撤回跳过在途行）
   // 发送途中任务被撤回：接单方确实收到了，如实记 sent，另记一条，供撤回方追查
   const action = status === 'sent' && taskWithdrawn(row.source, row.item) ? 'sent-after-withdraw' : status;
@@ -237,6 +240,7 @@ export function cancelTaskCenterDeliveries(taskId: number, actor: string): { can
   for (const r of rows) {
     if (inFlight.has(r.id)) { in_flight++; continue; }
     db.prepare("UPDATE workbench_event_deliveries SET status = 'cancelled', message = '' WHERE id = ?").run(r.id);
+    mirrorDelivery(r.id);
     log(r.event_id, r.id, actor, 'cancelled', { reason: 'task withdrawn' });
     cancelled++;
   }
@@ -266,7 +270,7 @@ async function attemptDelivery(row: DeliveryRow): Promise<void> {
   if (typeof out?.code === 'number' && TERMINAL_CODES.has(out.code)) return settle(row, 'dead', `${out.code}: ${error}`, attempt);
   if (attempt >= MAX_ATTEMPTS) return settle(row, 'dead', error, attempt);
   const delay = (BACKOFF_MS[Math.min(attempt - 1, BACKOFF_MS.length - 1)] ?? 3_600_000) * backoffScale();
-  db.prepare("UPDATE workbench_event_deliveries SET attempts = ?, next_at = ?, last_error = ? WHERE id = ? AND status = 'pending'").run(attempt, sqliteUtcIn(delay), error.slice(0, 300), row.id);
+  withDeliveryMirror(() => db.prepare("UPDATE workbench_event_deliveries SET attempts = ?, next_at = ?, last_error = ? WHERE id = ? AND status = 'pending'").run(attempt, sqliteUtcIn(delay), error.slice(0, 300), row.id), row.id);
   log(row.event_id, row.id, 'market', 'retry', { attempts: attempt, error: error.slice(0, 300) });
 }
 let ticking = false;
@@ -330,6 +334,7 @@ export function registerWorkbenchEventRoutes(app: express.Express, guards: { adm
       released = db.prepare("SELECT id FROM workbench_event_deliveries WHERE event_id = ? AND status = 'held'").all(eventId) as { id: number }[];
       for (const r of released) {
         db.prepare("UPDATE workbench_event_deliveries SET status = 'pending', next_at = datetime('now') WHERE id = ?").run(r.id);
+        mirrorDelivery(r.id); // 放行即入队，和状态变化同一事务
         log(eventId, r.id, 'human:admin', 'released');
       }
       db.exec('COMMIT');
