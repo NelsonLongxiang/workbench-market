@@ -51,12 +51,25 @@ export function markSeatMessagesRead(item: { id: string; source_ref?: string | n
 
 export type ReplyOutcome = { status: number; body: Record<string, unknown> };
 
-/** 回复一条席位消息：消息必须属于这件事项；超限只记日志的不能回复；已回复过的不再回复 */
-export function replySeatMessage(item: { id: string; source_ref?: string | null }, messageId: number, text: string, actor: string): ReplyOutcome {
+/** 一条消息现在能不能回复（只有这一处）：没回复过（open、acknowledged）；超限只记日志的不能回复 */
+const replyable = (f: FollowupRow): boolean => f.status === 'open' || f.status === 'acknowledged';
+/** 事项结束了（办完、没办成、放弃、撤回）就不再回复席位消息 */
+const ENDED = ['done', 'failed', 'dropped', 'cancelled'];
+
+/** 这件事项上现在能回复的消息（事项详情的 can.reply 用，和回复接口同一个判断） */
+export function replyableMessages(item: { id: string; source_ref?: string | null; state?: string }): FollowupRow[] {
+  const ev = eventOfItem(item);
+  if (!ev || (item.state !== undefined && ENDED.includes(item.state))) return [];
+  return followupsOfEvent(ev).filter(replyable);
+}
+
+/** 回复一条席位消息：消息必须属于这件事项；超限只记日志的不能回复；已回复过的不再回复；事项结束了不能回复 */
+export function replySeatMessage(item: { id: string; source_ref?: string | null; state?: string }, messageId: number, text: string, actor: string): ReplyOutcome {
   const ev = eventOfItem(item);
   const f = Number.isSafeInteger(messageId) && messageId > 0 ? followupById(messageId) : undefined;
   if (!ev || !f || f.event_id !== ev || f.status === 'rate-limited') return { status: 404, body: { error: 'seat_message_not_found' } };
-  if (f.status !== 'open' && f.status !== 'acknowledged') return { status: 409, body: { error: 'seat_message_not_open', status: f.status } };
+  if (!replyable(f)) return { status: 409, body: { error: 'seat_message_not_open', status: f.status } };
+  if (item.state !== undefined && ENDED.includes(item.state)) return { status: 409, body: { error: 'work_item_ended', state: item.state } };
   const target = deliveryTarget(f.delivery_id);
   const dispatched = eventDispatched(f.event_id);
   const queued = inReplyTx(() => {

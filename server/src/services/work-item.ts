@@ -567,7 +567,9 @@ export class WorkItemService extends Service {
     if (existing) this.fillDerived(existing, event);
     if (!existing) {
       const who = String(event.submitter ?? '').replace(/\s+/g, '_').slice(0, 200);
-      const createdBy = event.submitter_kind !== 'unverified' && /^[^:\s]+:\S/.test(who) ? who : `${event.submitter_kind}:${who || 'unknown'}`;
+      // 显示用的建立人：认出来的提需求人优先（和建立人主体同一个人），认不出才用事件上自填的名字。
+      // 不拿发布的人顶替（8f：发布的人只留痕，不当建立人，显示也不当）。以前任务中心来的都是 human:<自填的 published_by>。只影响新建的事项
+      const createdBy = creator ?? (event.submitter_kind !== 'unverified' && /^[^:\s]+:\S/.test(who) ? who : `${event.submitter_kind}:${who || 'unknown'}`);
       const derived = derivedOf(event);
       this.insertItem(itemId, {
         title: derived.title, target_team: derived.target_team, created_by: createdBy, creator_principal: creator,

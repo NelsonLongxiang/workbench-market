@@ -236,6 +236,18 @@ function settle(row: DeliveryRow, status: 'sent' | 'dead' | 'cancelled', error =
   log(row.event_id, row.id, 'market', action, error === '' ? {} : { error: error.slice(0, 300) });
 }
 /** 任务中心事件对应的任务已撤回？（撤回后不再派发） */
+/**
+ * 放行之前的判断（只有这一处）：事件在、任务没撤回。放行接口和事项详情的 can.release、turn.release 都用它
+ * （「有没有 held 的投递」接口在事务里数；事项那边看事项状态是不是 held，两者同进同退）。
+ * 能放行返回 null；不能返回旧接口的应答。
+ */
+export function releaseBlock(eventId: string): { status: number; body: Record<string, unknown> } | null {
+  const ev = db.prepare('SELECT source, item FROM workbench_events WHERE event_id = ?').get(eventId) as { source: string; item: string } | undefined;
+  if (!ev) return { status: 404, body: { error: 'event not found' } };
+  if (taskWithdrawn(ev.source, ev.item)) return { status: 409, body: { error: '任务已撤回，不再派发', event_id: eventId } };
+  return null;
+}
+
 function taskWithdrawn(source: string, item: string): boolean {
   if (source !== 'task-center') return false;
   const id = Number(item.replace(/^task:/, ''));
@@ -325,7 +337,9 @@ function eventView(e: any) {
   return { ...e, dispatch: e.dispatch === 1, deliveries };
 }
 
-export function registerWorkbenchEventRoutes(app: express.Express, guards: { admin: (req: express.Request, res: express.Response) => boolean; sameOrigin: (req: express.Request) => boolean }): void {
+export function registerWorkbenchEventRoutes(app: express.Express, guards: { admin: (req: express.Request, res: express.Response) => boolean; sameOrigin: (req: express.Request) => boolean;
+  /** 放行的人（留痕里的写法）：本机命令行 cli，口令 admin-token，会话登录的管理员 odoo:<登录名>。以前写死成 human:admin */
+  actor: (req: express.Request) => string }): void {
   // 列表 / 详情：管理员读（含目标团队与地址；reply token 永不出现在读面）
   app.get('/api/workbench-events', (req, res) => {
     if (!guards.admin(req, res)) return;
@@ -345,16 +359,16 @@ export function registerWorkbenchEventRoutes(app: express.Express, guards: { adm
     if (!guards.sameOrigin(req)) return res.status(403).json({ error: '跨源拒绝' });
     if (!guards.admin(req, res)) return;
     const eventId = req.params.eventId;
-    const ev = db.prepare('SELECT source, item FROM workbench_events WHERE event_id = ?').get(eventId) as { source: string; item: string } | undefined;
-    if (!ev) return res.status(404).json({ error: 'event not found' });
-    if (taskWithdrawn(ev.source, ev.item)) return res.status(409).json({ error: '任务已撤回，不再派发', event_id: eventId });
+    const blocked = releaseBlock(eventId);
+    if (blocked) return res.status(blocked.status).json(blocked.body);
+    const who = guards.actor(req);
     db.exec('BEGIN IMMEDIATE');
     let released: { id: number }[] = [];
     try {
       released = db.prepare("SELECT id FROM workbench_event_deliveries WHERE event_id = ? AND status = 'held'").all(eventId) as { id: number }[];
       for (const r of released) {
         db.prepare("UPDATE workbench_event_deliveries SET status = 'pending', next_at = datetime('now') WHERE id = ?").run(r.id);
-        log(eventId, r.id, 'human:admin', 'released');
+        log(eventId, r.id, who, 'released');
       }
       db.exec('COMMIT');
     } catch (e) { db.exec('ROLLBACK'); throw e; }

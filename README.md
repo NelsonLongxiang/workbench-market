@@ -356,6 +356,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   url-admission.ts（#258 R3 业务 URL 登记准入单核·WM_REGISTER_URL_ALLOWLIST）
   vault-api.ts（凭据库 REST 面）
   vault/（dsh-vault 存储层引入件·见其 README）
+  work-item-access.ts（事项上这个人能做什么、是不是轮到他：canOf、turnOf、creatorOf，事项详情和「关注」共用；每一项和对应动作接口同一处判断（放行 releaseBlock、对话写入和验收 writerVerdict、回复 replyableMessages、提问 pendingAsksOfEvent））
   workbench-events.ts（工作台事件层 v1：人提交→事件→团队接单→决定回写）
   workbench-vars.ts（#336 工作台变量与常量：按台隔离、revision 乐观锁、常量保护）
 server/src/login-providers/  登录提供方插件（身份的具体实现只放这里，核心不引用）：index.ts（清单：这个部署装哪些提供方） feishu/index.ts（飞书登录方式：授权码流程，向 `identity` 登记一个登录方式，凭证从凭据库取） odoo/index.ts（Odoo 提供方的插件入口：向 `identity` 登记、提供 `loginRelay`） odoo/odoo-viewer.ts（Odoo 查看人现查） odoo/odoo-session.ts（门户 Odoo 会话可信源判定与剥除、登录回调票据） odoo/odoo-login-proxy.ts（可选同源 Odoo 登录中继 WM_ODOO_LOGIN_PROXY：只放行登录面，不代理 Odoo 应用） odoo/odoo-browser-origin.ts（只给浏览器用的 Odoo 登录地址 WM_ODOO_BROWSER_URL：登录一跳送到可信内网地址，身份与代理目标不变）

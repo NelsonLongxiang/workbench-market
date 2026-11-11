@@ -25,7 +25,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "760", "etag": "W/\"2f8-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "940", "etag": "W/\"3ac-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "item": { "id": "wi_replay_alpha", "title": "回放用事项", "created_at": "YYYY-MM-DD hh:mm:ss", "created_by": "user:alpha", "source_kind": "agent", "source_ref": "", "context": "{}", "event_id": null, "task_ids": "[]", "target_team": "", "seat": "", "eval": "", "eval_reason": "", "state": "draft", "progress_summary": "", "progress_at": "", "open_asks": "[]", "receipt_outcome": "", "receipt_at": "", "outputs": "{}", "evidence": "[]", "object": "", "phase": "", "updated_at": "YYYY-MM-DD hh:mm:ss", "creator_principal": "user:alpha" },
               "log": [
@@ -33,7 +33,10 @@
               ],
               "messages": [],
               "unread": 0,
-              "progress": null
+              "progress": null,
+              "can": { "release": false, "answer": false, "verify": false, "reply": false },
+              "turn": { "release": false, "answer": false, "verify": false },
+              "creator": { "principal": "user:alpha", "display_name": null }
             }
           }
         },
@@ -110,7 +113,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "760", "etag": "W/\"2f8-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "953", "etag": "W/\"3b9-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "item": { "id": "wi_replay_alpha", "title": "回放用事项", "created_at": "YYYY-MM-DD hh:mm:ss", "created_by": "user:alpha", "source_kind": "agent", "source_ref": "", "context": "{}", "event_id": null, "task_ids": "[]", "target_team": "", "seat": "", "eval": "", "eval_reason": "", "state": "draft", "progress_summary": "", "progress_at": "", "open_asks": "[]", "receipt_outcome": "", "receipt_at": "", "outputs": "{}", "evidence": "[]", "object": "", "phase": "", "updated_at": "YYYY-MM-DD hh:mm:ss", "creator_principal": "user:alpha" },
               "log": [
@@ -118,7 +121,10 @@
               ],
               "messages": [],
               "unread": 0,
-              "progress": null
+              "progress": null,
+              "can": { "release": false, "answer": false, "verify": false, "reply": false },
+              "turn": { "release": false, "answer": false, "verify": false },
+              "creator": { "principal": "user:alpha", "display_name": "Synthetic alpha" }
             }
           }
         },
