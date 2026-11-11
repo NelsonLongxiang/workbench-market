@@ -224,6 +224,8 @@ jobs:
         run: node scripts/a2a-direct-signature-smoke.mjs
       - name: Signed A2A direct and outbox reject redirects (#349, synthetic loopback only)
         run: node scripts/a2a-bound-redirect-test.mjs
+      - name: /a2a/direct 幂等登记落库（重启后同一 task_id 仍判 replay / conflict·30 分钟窗口边界·只存摘要·未绑定来源不占用 id）
+        run: node scripts/a2a-idempotency-test.mjs
       - name: 工作台事件层 v1（人提交→事件→团队接单：held/release·自动派发·退避重试/dead·决定端点·unrouted·表单 unverified·只增日志；对端上游裁判按关窗验）
         env:
           A2A_ORIGIN_SRC: ${{ github.workspace }}/dsh-open-a2a-net/src/origin-claim.ts

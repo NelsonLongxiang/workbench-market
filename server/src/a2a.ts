@@ -15,6 +15,7 @@ import { formatReceipt, parseReceipt } from '@nelsonlongxiang/dsh-open-a2a-net/r
 import { MAX_ROUTE_BODY_BYTES } from '@nelsonlongxiang/dsh-open-a2a-net/transport-caps';
 import { A2aClient } from '@nelsonlongxiang/dsh-open-a2a-net/a2a-client';
 import { dataDir, db } from './db.ts';
+import { claimA2aTask } from './services/a2a-idempotency.ts';
 
 export const MARKET_TEAM = process.env.MARKET_TEAM || 'market';
 export const CARD_TTL_MS = 45 * 3600 * 1000; // 45h ≤ 上游 48h 预算
@@ -131,25 +132,8 @@ export interface A2aDirectResult {
   body: Record<string, unknown>;
 }
 
-/** 进程内幂等窗：task_id → payload 指纹（上游 idempotencyStore 同语义：replay=-32003 / conflict=-32002） */
-const idemStore = new Map<string, string>();
-const IDEM_TTL_MS = 30 * 60 * 1000;
-const idemAt = new Map<string, number>();
-
 export function a2aDirectFingerprint(team: string, caller: string, message: string): string {
   return `${team}\u0000${caller}\u0000${message}`;
-}
-
-function idemClaim(taskId: string, fp: string): 'fresh' | 'replay' | 'conflict' {
-  const now = Date.now();
-  for (const [k, t] of idemAt) if (now - t > IDEM_TTL_MS) { idemStore.delete(k); idemAt.delete(k); }
-  const prev = idemStore.get(taskId);
-  if (prev === undefined) {
-    idemStore.set(taskId, fp);
-    idemAt.set(taskId, now);
-    return 'fresh';
-  }
-  return prev === fp ? 'replay' : 'conflict';
 }
 
 /**
@@ -200,8 +184,8 @@ export async function a2aDirectHandle(body: any, rawBytes: number, runOps: {
     return { httpStatus: 404, body: { error: 'not found' } };
   }
 
-  // 幂等（上游族：replay -32003 / conflict -32002；在准入后、执行前）
-  const verdict = idemClaim(taskId, a2aDirectFingerprint(team, caller, message));
+  // 幂等（上游族：replay -32003 / conflict -32002；在准入后、执行前；登记落库，见 services/a2a-idempotency.ts）
+  const verdict = claimA2aTask(taskId, a2aDirectFingerprint(team, caller, message));
   if (verdict !== 'fresh') {
     const replay = verdict === 'replay';
     return {
