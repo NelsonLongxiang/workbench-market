@@ -2,6 +2,9 @@
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
 
+/** 管理员口令的加盐哈希在 settings 表里的键。设置出口一律剔除这一项，口令只经 /api/admin-token 设置与校验。 */
+export const ADMIN_TOKEN_KEY = 'admin_token_sha256';
+
 export class SettingService extends Service {
   constructor(ctx: any) {
     super(ctx, 'setting');

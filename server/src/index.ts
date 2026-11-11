@@ -32,6 +32,8 @@ import { registerSummaryRoutes } from './routes/summary.ts';
 import { registerContentObservationRoutes } from './routes/content-observation.ts';
 import { registerAuthViewerRoutes } from './routes/auth-viewer.ts';
 import { registerPrincipalRoutes } from './routes/principals.ts';
+import { registerSettingsRoutes } from './routes/settings.ts';
+import { registerAdminTokenRoutes } from './routes/admin-token.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import { SkillService } from './services/skill.ts';
@@ -39,7 +41,7 @@ import type { AppService } from './services/app.ts';
 import type { AppDataService } from './services/app-data.ts';
 import type { CookieService } from './services/cookie.ts';
 import type { CockpitService } from './services/cockpit.ts';
-import type { SettingService } from './services/setting.ts';
+import { ADMIN_TOKEN_KEY, type SettingService } from './services/setting.ts';
 import { recordLayerFsShadowOutcome, recordLayerFsSkillShadowOutcome } from './layerfs-shadow.ts';
 import { db, getSettings, dataDir, rowToWorkbench, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow, type SopRunRow } from './db.ts';
 (globalThis as any).__wmDb = db; // #94 v3 S1：tasks.ts 直读 change_requests 桥
@@ -2957,46 +2959,7 @@ registerTypeRoutes(http);
 // ---------- 设置 / 导入导出 ----------
 // ---------- 管理员口令手动设置（本机引导：首次无口令时允许从 loopback 设置） ----------
 /** 首次设口令（库里还没有口令）：本机直连（CLI 或本机同源页面），或 Odoo 管理员；改/清口令：带当前口令或 Odoo 管理员 */
-function isLoopbackReq(req: express.Request): boolean {
-  return rawLoopback(req) && (!browserMarked(req) || originIsThisSurface(req));
-}
-function adminTokenWritable(req: express.Request, requireCurrent: boolean): boolean {
-  if (!browserSameSite(req) || (req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req))) return false;
-  if (odooAdminReqs.has(req)) return true;
-  return requireCurrent ? dbAdminTokenOk(req.headers['x-admin-token']) : isLoopbackReq(req);
-}
-
-app.get('/api/admin/whoami', (req, res) => {
-  const viaToken = adminTokenCheck(req.headers['x-admin-token']);
-  const odoo = odooAdminReqs.get(req) ?? null;
-  res.set('Cache-Control', 'no-store').json({ admin: viaToken || !!odoo, via: viaToken ? 'token' : odoo ? 'odoo' : null, login: viaToken ? null : odoo });
-});
-
-app.get('/api/admin-token/state', (req, res) => {
-  res.json({
-    source: process.env.ADMIN_TOKEN ? 'env' : (dbAdminTokenSet() ? 'db' : 'none'),
-    settable: !process.env.ADMIN_TOKEN && (dbAdminTokenSet() || isLoopbackReq(req) || odooAdminReqs.has(req)), // env 未设时：已有口令可凭旧口令改；首次由本机或 Odoo 管理员设
-  });
-});
-
-app.put('/api/admin-token', (req, res) => {
-  if (process.env.ADMIN_TOKEN) return res.status(400).json({ error: '口令由启动环境 ADMIN_TOKEN 提供，页面不可改（改环境变量并重启）' });
-  const token = typeof req.body?.token === 'string' ? req.body.token : '';
-  if (token.length < 4 || token.length > 128) return res.status(400).json({ error: '口令长度 4–128' });
-  const hasExisting = dbAdminTokenSet();
-  if (!adminTokenWritable(req, hasExisting)) {
-    return res.status(403).json({ error: hasExisting ? '修改口令需先在请求头带上当前口令（X-Admin-Token），或用 Odoo 管理员登录' : '首次设置口令仅限本机命令行/本机页面，或 Odoo 管理员' });
-  }
-  svc<SettingService>('setting').put(ADMIN_TOKEN_KEY, hashAdminToken(token));
-  res.json({ ok: true, source: 'db', note: '口令已设置并立即生效（库存 sha256，不可取回）' });
-});
-
-app.delete('/api/admin-token', (req, res) => {
-  if (process.env.ADMIN_TOKEN) return res.status(400).json({ error: '口令来自启动环境，需清环境变量并重启' });
-  if (!adminTokenWritable(req, true)) return res.status(403).json({ error: '需当前口令或 Odoo 管理员登录' });
-  svc<SettingService>('setting').delete(ADMIN_TOKEN_KEY);
-  res.json({ ok: true, source: 'none' });
-});
+registerAdminTokenRoutes(http, { adminTokenCheck, odooAdminReqs, dbAdminTokenSet, dbAdminTokenOk, hashAdminToken, browserSameSite, devOriginOk });
 
 // 评审 #24：settings 出口把 mcp_upstreams.headers 的值掩成 ****（键名保留）——
 // 内部读取走 mcpUpstreams() 直读 DB，不受影响；导出同样脱敏（与 auth.value 口径一致）。
@@ -3021,20 +2984,7 @@ function maskUpstreamsSetting(settings: Record<string, string>): Record<string, 
   }
 }
 
-app.get('/api/settings', (_req, res) => { res.json(maskUpstreamsSetting(getSettings())); });
-
-app.put('/api/settings', (req, res) => {
-  const b = req.body ?? {};
-  if (typeof b !== 'object' || b === null) bad('body 必须是 {key: value} 对象');
-  const allowed = ['health_interval_seconds', 'health_timeout_ms', 'health_concurrency', 'a2a_peers', 'mcp_upstreams', 'dispatch_sorting_enabled', 'run_upload_require_token']; // #19 ②a 分拣开关+#150 上传令牌开关
-  const upd = svc<SettingService>('setting').upsertStmt();
-  for (const [k, v] of Object.entries(b)) {
-    if (!allowed.includes(k)) continue;
-    upd.run(k, String(v));
-  }
-  armPatrol(); // issue #5：改巡检设置即重挂定时器（幂等 clearTimeout 开头），不必重启服务
-  res.json(maskUpstreamsSetting(getSettings()));
-});
+registerSettingsRoutes(http, { maskUpstreamsSetting, armPatrol });
 
 app.get('/api/export', (req, res) => {
   // compliance 二期首项：导出默认脱敏（compliance 范围 kb ab3279b84a 的「导出面」——
@@ -3193,7 +3143,6 @@ registerAgentCardRoutes(http);
 // 人工绑定 API（读写都要 ADMIN_TOKEN + Origin 空或同源——服务端校验跨源，CORS 白名单管不住执行）
 // 管理员口令存储（主人要求「页面手动设置」）：settings.admin_token_sha256（不可逆），
 // 优先级 env ADMIN_TOKEN > 库内值 > 无（未设一律 403）。DB 仅存 sha256，明文不落库。
-const ADMIN_TOKEN_KEY = 'admin_token_sha256';
 function dbAdminTokenSet(): boolean {
   return !!svc<SettingService>('setting').has(ADMIN_TOKEN_KEY);
 }

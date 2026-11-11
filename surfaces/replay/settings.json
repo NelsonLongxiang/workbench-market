@@ -1,0 +1,379 @@
+{
+  "domain": "settings",
+  "what": "设置：/api/settings 的 2 条路由。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。应答里上游的 headers 值一律是掩码、口令哈希一律剔除；请求里的上游密钥是合成的。",
+  "routes": ["GET /api/settings", "PUT /api/settings"],
+  "exempt": [{ "route": "GET /api/settings", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/junk-query" }],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "缺省配置：登录门关，没设管理口令（中途由本机设一个）。",
+      "env": {},
+      "steps": [
+        {
+          "id": "fresh",
+          "route": "GET /api/settings",
+          "class": "normal",
+          "what": "新库的设置（缺省值）",
+          "request": { "method": "GET", "path": "/api/settings" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "128", "etag": "W/\"80-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "health_interval_seconds": "0", "health_timeout_ms": "5000", "health_concurrency": "8", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
+          }
+        },
+        {
+          "id": "junk-query",
+          "route": "GET /api/settings",
+          "class": "normal",
+          "what": "这条路由不读查询串：带畸形参数照常应答",
+          "request": { "method": "GET", "path": "/api/settings?key=x&k[]=1" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "128", "etag": "W/\"80-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "health_interval_seconds": "0", "health_timeout_ms": "5000", "health_concurrency": "8", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
+          }
+        },
+        {
+          "id": "remote-anonymous",
+          "route": "PUT /api/settings",
+          "class": "unauthorized",
+          "what": "带转发头、没有口令的写",
+          "request": { "method": "PUT", "path": "/api/settings", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "health_concurrency": 9 } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "cross-origin-browser",
+          "route": "PUT /api/settings",
+          "class": "unauthorized",
+          "what": "浏览器从别的站点发来的写",
+          "request": { "method": "PUT", "path": "/api/settings", "headers": { "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": { "health_concurrency": 9 } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "malformed-json",
+          "route": "PUT /api/settings",
+          "class": "invalid",
+          "what": "请求体不是合法 JSON",
+          "request": { "method": "PUT", "path": "/api/settings", "headers": { "content-type": "application/json" }, "text": "{not json" },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "请求体不是合法 JSON" } }
+        },
+        {
+          "id": "scalar-json",
+          "route": "PUT /api/settings",
+          "class": "invalid",
+          "what": "请求体是 JSON 的字符串，不是对象：解析器只收对象和数组",
+          "request": { "method": "PUT", "path": "/api/settings", "headers": { "content-type": "application/json" }, "text": "\"x\"" },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "请求体不是合法 JSON" } }
+        },
+        {
+          "id": "known-keys",
+          "route": "PUT /api/settings",
+          "class": "normal",
+          "what": "改几个认识的键：数字存成字符串；不认识的键（包括口令哈希那个键）不收",
+          "request": {
+            "method": "PUT",
+            "path": "/api/settings",
+            "json": { "health_interval_seconds": 120, "health_timeout_ms": "3000", "health_concurrency": 4, "dispatch_sorting_enabled": true, "run_upload_require_token": false, "unknown_key": "x", "admin_token_sha256": "should-not-store" }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "199", "etag": "W/\"c7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "health_interval_seconds": "120", "health_timeout_ms": "3000", "health_concurrency": "4", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ", "dispatch_sorting_enabled": "true", "run_upload_require_token": "false" }
+          }
+        },
+        {
+          "id": "odd-values",
+          "route": "PUT /api/settings",
+          "class": "normal",
+          "what": "值的类型不对：照样转成字符串存（null 存成 \"null\"，对象存成 \"[object Object]\"）",
+          "request": { "method": "PUT", "path": "/api/settings", "json": { "health_concurrency": null, "dispatch_sorting_enabled": { "a": 1 } } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "213", "etag": "W/\"d5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "health_interval_seconds": "120", "health_timeout_ms": "3000", "health_concurrency": "null", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ", "dispatch_sorting_enabled": "[object Object]", "run_upload_require_token": "false" }
+          }
+        },
+        {
+          "id": "empty-object",
+          "route": "PUT /api/settings",
+          "class": "normal",
+          "what": "空对象：什么都不改，照样回全部设置",
+          "request": { "method": "PUT", "path": "/api/settings", "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "213", "etag": "W/\"d5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "health_interval_seconds": "120", "health_timeout_ms": "3000", "health_concurrency": "null", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ", "dispatch_sorting_enabled": "[object Object]", "run_upload_require_token": "false" }
+          }
+        },
+        {
+          "id": "array-body",
+          "route": "PUT /api/settings",
+          "class": "normal",
+          "what": "请求体是数组：按下标当键，都不认识，什么都不改",
+          "request": { "method": "PUT", "path": "/api/settings", "json": ["health_concurrency", 3] },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "213", "etag": "W/\"d5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "health_interval_seconds": "120", "health_timeout_ms": "3000", "health_concurrency": "null", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ", "dispatch_sorting_enabled": "[object Object]", "run_upload_require_token": "false" }
+          }
+        },
+        {
+          "id": "no-body",
+          "route": "PUT /api/settings",
+          "class": "normal",
+          "what": "没有请求体：什么都不改",
+          "request": { "method": "PUT", "path": "/api/settings" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "213", "etag": "W/\"d5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "health_interval_seconds": "120", "health_timeout_ms": "3000", "health_concurrency": "null", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ", "dispatch_sorting_enabled": "[object Object]", "run_upload_require_token": "false" }
+          }
+        },
+        {
+          "id": "upstreams",
+          "route": "PUT /api/settings",
+          "class": "normal",
+          "what": "设上游：应答里 headers 的值都掩成 ****（键名保留）；没有 headers 的给空对象；headers 不是对象的也给空对象",
+          "request": {
+            "method": "PUT",
+            "path": "/api/settings",
+            "json": { "mcp_upstreams": "[{\"name\":\"up-a\",\"url\":\"http://127.0.0.1:9/mcp\",\"headers\":{\"Authorization\":\"Bearer synthetic-secret\",\"X-Extra\":\"v\"}},{\"name\":\"up-b\",\"url\":\"http://127.0.0.1:9/mcp2\"},{\"name\":\"up-c\",\"url\":\"http://127.0.0.1:9/mcp3\",\"headers\":\"not-an-object\"}]" }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "492", "etag": "W/\"1ec-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "health_interval_seconds": "120", "health_timeout_ms": "3000", "health_concurrency": "null", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ", "dispatch_sorting_enabled": "[object Object]", "run_upload_require_token": "false", "mcp_upstreams": "[{\"name\":\"up-a\",\"url\":\"http://127.0.0.1:9/mcp\",\"headers\":{\"Authorization\":\"****\",\"X-Extra\":\"****\"}},{\"name\":\"up-b\",\"url\":\"http://127.0.0.1:9/mcp2\",\"headers\":{}},{\"name\":\"up-c\",\"url\":\"http://127.0.0.1:9/mcp3\",\"headers\":{}}]" }
+          }
+        },
+        {
+          "id": "after-upstreams",
+          "route": "GET /api/settings",
+          "class": "normal",
+          "what": "读出来同样是掩码",
+          "request": { "method": "GET", "path": "/api/settings" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "492", "etag": "W/\"1ec-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "health_interval_seconds": "120", "health_timeout_ms": "3000", "health_concurrency": "null", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ", "dispatch_sorting_enabled": "[object Object]", "run_upload_require_token": "false", "mcp_upstreams": "[{\"name\":\"up-a\",\"url\":\"http://127.0.0.1:9/mcp\",\"headers\":{\"Authorization\":\"****\",\"X-Extra\":\"****\"}},{\"name\":\"up-b\",\"url\":\"http://127.0.0.1:9/mcp2\",\"headers\":{}},{\"name\":\"up-c\",\"url\":\"http://127.0.0.1:9/mcp3\",\"headers\":{}}]" }
+          }
+        },
+        {
+          "id": "upstreams-not-array",
+          "route": "PUT /api/settings",
+          "class": "normal",
+          "what": "上游设成对象（不是数组）：读出来是空串",
+          "request": { "method": "PUT", "path": "/api/settings", "json": { "mcp_upstreams": "{\"name\":\"x\"}" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "232", "etag": "W/\"e8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "health_interval_seconds": "120", "health_timeout_ms": "3000", "health_concurrency": "null", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ", "dispatch_sorting_enabled": "[object Object]", "run_upload_require_token": "false", "mcp_upstreams": "" }
+          }
+        },
+        {
+          "id": "upstreams-broken",
+          "route": "PUT /api/settings",
+          "class": "normal",
+          "what": "上游设成坏 JSON：读出来是空串",
+          "request": { "method": "PUT", "path": "/api/settings", "json": { "mcp_upstreams": "[not json" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "232", "etag": "W/\"e8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "health_interval_seconds": "120", "health_timeout_ms": "3000", "health_concurrency": "null", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ", "dispatch_sorting_enabled": "[object Object]", "run_upload_require_token": "false", "mcp_upstreams": "" }
+          }
+        },
+        {
+          "id": "upstreams-empty",
+          "route": "PUT /api/settings",
+          "class": "normal",
+          "what": "上游设成空串：原样",
+          "request": { "method": "PUT", "path": "/api/settings", "json": { "mcp_upstreams": "" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "232", "etag": "W/\"e8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "health_interval_seconds": "120", "health_timeout_ms": "3000", "health_concurrency": "null", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ", "dispatch_sorting_enabled": "[object Object]", "run_upload_require_token": "false", "mcp_upstreams": "" }
+          }
+        },
+        {
+          "id": "set-admin-token",
+          "what": "布置现场：本机设一个管理口令（借管理口令的路由，只比状态码）。口令的哈希和设置存在同一张表",
+          "compare": "status",
+          "request": { "method": "PUT", "path": "/api/admin-token", "json": { "token": "replay-local-token" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "hash-not-exposed",
+          "route": "GET /api/settings",
+          "class": "normal",
+          "what": "设了口令之后读设置：口令哈希那一项剔除，不外流",
+          "request": { "method": "GET", "path": "/api/settings" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "232", "etag": "W/\"e8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "health_interval_seconds": "120", "health_timeout_ms": "3000", "health_concurrency": "null", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ", "dispatch_sorting_enabled": "[object Object]", "run_upload_require_token": "false", "mcp_upstreams": "" }
+          }
+        },
+        {
+          "id": "remote-with-token",
+          "route": "PUT /api/settings",
+          "class": "normal",
+          "what": "带转发头、带刚设的口令：可以写",
+          "request": { "method": "PUT", "path": "/api/settings", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-local-token" }, "json": { "health_concurrency": 6 } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "229", "etag": "W/\"e5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "health_interval_seconds": "120", "health_timeout_ms": "3000", "health_concurrency": "6", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ", "dispatch_sorting_enabled": "[object Object]", "run_upload_require_token": "false", "mcp_upstreams": "" }
+          }
+        },
+        {
+          "id": "remote-anonymous-read",
+          "route": "GET /api/settings",
+          "class": "normal",
+          "what": "带转发头的匿名读：登录门关着时读面开放；看到的也没有口令哈希",
+          "request": { "method": "GET", "path": "/api/settings", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "229", "etag": "W/\"e5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "health_interval_seconds": "120", "health_timeout_ms": "3000", "health_concurrency": "6", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ", "dispatch_sorting_enabled": "[object Object]", "run_upload_require_token": "false", "mcp_upstreams": "" }
+          }
+        },
+        {
+          "id": "head",
+          "what": "HEAD 走同一条 GET 路由，没有响应体",
+          "request": { "method": "HEAD", "path": "/api/settings" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "229", "etag": "W/\"e5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": "" }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce），管理口令由环境给（合成值）。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "steps": [
+        {
+          "id": "get-anonymous",
+          "route": "GET /api/settings",
+          "class": "unauthorized",
+          "what": "远程匿名",
+          "request": { "method": "GET", "path": "/api/settings", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "get-wrong-token",
+          "route": "GET /api/settings",
+          "class": "unauthorized",
+          "what": "口令不对",
+          "request": { "method": "GET", "path": "/api/settings", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "not-the-token" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "get-browser-anonymous",
+          "route": "GET /api/settings",
+          "class": "unauthorized",
+          "what": "本机但带浏览器标记：不算命令行",
+          "request": { "method": "GET", "path": "/api/settings", "headers": { "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "get-with-token",
+          "route": "GET /api/settings",
+          "class": "normal",
+          "what": "远程带口令",
+          "request": { "method": "GET", "path": "/api/settings", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "128", "etag": "W/\"80-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "health_interval_seconds": "0", "health_timeout_ms": "5000", "health_concurrency": "8", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
+          }
+        },
+        {
+          "id": "put-anonymous",
+          "route": "PUT /api/settings",
+          "class": "unauthorized",
+          "what": "远程匿名",
+          "request": { "method": "PUT", "path": "/api/settings", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "health_concurrency": 9 } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "put-token-cross-origin",
+          "route": "PUT /api/settings",
+          "class": "unauthorized",
+          "what": "口令对，但浏览器从别的站点发来",
+          "request": {
+            "method": "PUT",
+            "path": "/api/settings",
+            "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" },
+            "json": { "health_concurrency": 9 }
+          },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "put-with-token-malformed",
+          "route": "PUT /api/settings",
+          "class": "invalid",
+          "what": "远程带口令，请求体不是合法 JSON",
+          "request": { "method": "PUT", "path": "/api/settings", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin", "content-type": "application/json" }, "text": "{" },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "请求体不是合法 JSON" } }
+        },
+        {
+          "id": "put-with-token",
+          "route": "PUT /api/settings",
+          "class": "normal",
+          "what": "远程带口令",
+          "request": { "method": "PUT", "path": "/api/settings", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "health_concurrency": 5 } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "128", "etag": "W/\"80-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "health_interval_seconds": "0", "health_timeout_ms": "5000", "health_concurrency": "5", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
+          }
+        }
+      ]
+    }
+  ]
+}
