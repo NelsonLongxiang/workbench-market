@@ -3013,7 +3013,7 @@ app.get('/api/task-center/tasks/:id', wrap(async (req, res) => {
   if (!hit) throw new HttpError(404, 'task not found');
   const events = svc<TaskCenterService>('taskCenter').events(hit.id).map((e: any) => ({...e, action: e.type, detail: JSON.parse(e.payload_json)}));
   // #309 phase2：详情复制的录入数据与全量投影需 run 级读授权；未授权只回元数据（payload_json 是私有副本）
-  const auth = hit.intake_run_id ? await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, hit.intake_run_id) : { authorized: false };
+  const auth = hit.intake_run_id ? await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, hit.intake_run_id as number) : { authorized: false };
   if (auth.authorized) return res.json({ ...taskView(hit), events });
   res.set('Cache-Control', 'no-store').json({ ...taskListView(hit), events, private_read: 'authorization-required' });
 }));
@@ -3078,7 +3078,7 @@ app.patch('/api/task-center/tasks/:id/switch', (req, res) => { // 任务级锁
   const hit = svc<TaskCenterService>('taskCenter').switchState(Number(req.params.id));
   if (!hit) throw new HttpError(404, 'task not found');
   const nv = hit.enabled ? 0 : 1;
-  svc<TaskCenterService>('taskCenter').applyTransition(hit.id, 'toggled', 'human:' + String((req as express.Request & { adminActor?: string }).adminActor ?? 'human'), { enabled: nv });
+  svc<TaskCenterService>('taskCenter').applyTransition(hit.id as number, 'toggled', 'human:' + String((req as express.Request & { adminActor?: string }).adminActor ?? 'human'), { enabled: nv });
   res.json({ ok: true, enabled: nv === 1 });
 });
 
