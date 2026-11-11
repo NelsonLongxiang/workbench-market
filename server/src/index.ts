@@ -2086,12 +2086,7 @@ app.get('/api/sop/runs', (req, res) => {
   }
   const slug = typeof req.query.slug === 'string' ? req.query.slug : '';
   const status = typeof req.query.status === 'string' ? req.query.status : '';
-  const where: string[] = [];
-  const args: unknown[] = [];
-  if (slug) { where.push('sop_slug = ?'); args.push(slug); }
-  if (status) { where.push('status = ?'); args.push(status); }
-  const sql = `SELECT * FROM sop_runs ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY updated_at DESC LIMIT 200`;
-  res.json(svc<SopService>('sop').runsQuery(sql, args) as unknown as SopRunRow[]);
+  res.json(svc<SopService>('sop').runsFiltered(slug, status) as unknown as SopRunRow[]);
 });
 
 // 异步路由一律经 wrap：Express 4 不接 async 抛出的错，404/409 会变成未处理的 Promise 拒绝让进程退出

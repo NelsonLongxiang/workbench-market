@@ -94,6 +94,15 @@ export class SopService extends Service {
   runsQuery(sql: string, args: unknown[]) {
     return db.prepare(sql).all(...(args as never[])).map(runMetadata);
   }
+  /** run 列表按 SOP、状态过滤（空串即不过滤），按更新时间倒序最多 200 条（SQL 原文自 GET /api/sop/runs 搬入，阶段三第十六批） */
+  runsFiltered(slug: string, status: string) {
+    const where: string[] = [];
+    const args: unknown[] = [];
+    if (slug) { where.push('sop_slug = ?'); args.push(slug); }
+    if (status) { where.push('status = ?'); args.push(status); }
+    const sql = `SELECT * FROM sop_runs ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY updated_at DESC LIMIT 200`;
+    return this.runsQuery(sql, args);
+  }
   // ---- P4 交付物（product/run-delivery F1-F4） ----
   runFileInsert(r: { runId: number; name: string; mime: string; size: number; storagePath: string; createdBy: string; sha256?: string; refOf?: number }) {
     return db.prepare('INSERT INTO sop_run_files (run_id, original_name, mime, size, storage_path, created_by, sha256, ref_of) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
