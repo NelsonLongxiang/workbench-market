@@ -17,7 +17,7 @@ export interface AuthViewerDeps {
 
 export function registerAuthViewerRoutes(app: HttpService, deps: AuthViewerDeps): void {
   const { wrap, odooLoginUrl } = deps;
-  app.get('/api/auth/viewer', { action: 'auth.viewer', kind: 'read' }, wrap(async (req, res) => {
+  app.get('/api/auth/viewer', { action: 'auth.viewer', kind: 'read', statusNotVerdict: '回答「你是谁」：没登录 401、门户账号 403，是认人的结果不是授权' }, wrap(async (req, res) => {
     const r = await identity().whoami(String(req.headers.cookie ?? ''));
     res.setHeader('Cache-Control', 'private, no-store');
     // #279：未登录时带登录入口（顶栏 chip 复用 #277 弹窗流；中继页只认白名单 return，这里固定 /tasks）

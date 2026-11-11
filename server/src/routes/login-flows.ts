@@ -67,7 +67,7 @@ export function registerLoginFlowRoutes(app: HttpService, deps: LoginFlowRouteDe
     res.set('Cache-Control', 'no-store').redirect(302, begun.location);
   }));
 
-  app.get('/login/:flow/callback', { action: 'login.callback', kind: 'write' }, route(async (req, res) => {
+  app.get('/login/:flow/callback', { action: 'login.callback', kind: 'write', statusNotVerdict: '登录回调：外人、别的租户回 403，是登录方式的结论不是授权' }, route(async (req, res) => {
     const flow = String(req.params.flow);
     res.clearCookie(STATE_COOKIE, { httpOnly: true, sameSite: 'lax', secure: secure(req), path: `/login/${flow}/callback` });
     if (!FLOW_RE.test(flow)) return page(res, 404, '没有这个登录方式', '请回到登录页重新登录。');

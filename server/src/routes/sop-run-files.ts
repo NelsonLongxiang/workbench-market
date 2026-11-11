@@ -45,7 +45,7 @@ export function registerSopRunFileRoutes(app: HttpService, deps: SopRunFilesDeps
   const { wrap, markOdooAdmin, runFileWriteGate, sopRunRow, adminHeaderOk, runReadCapHeader, bad, RUN_REF_BATCH_MAX, RUN_REF_MAX_COUNT, RUN_UPLOAD_MAX_COUNT, RUN_UPLOAD_MAX_BYTES, runFileQuota, runUpload, fixFileName, checkUploadKind, sha256Hex, ensureRunFileSha } = deps;
   /** 引用已有文件：同一 SOP 其他 run 的文件（按 run_id+file_id，要带源 run 的读凭证；管理员免），或按 sha256 找同 SOP 里已上传的同内容文件（只限管理员）。
    *  逐条给结果（linked / duplicate / failed + 原因），失败的不影响已成功的；引用行与源文件共用一份存储，不占上传配额。 */
-  app.post('/api/sop/runs/:id(\\d+)/files/refs', { action: 'sop-run.file-refs', kind: 'write' }, wrap(async (req, res) => {
+  app.post('/api/sop/runs/:id(\\d+)/files/refs', { action: 'sop-run.file-refs', kind: 'write', statusNotVerdict: '按 run 的凭据：上传令牌、对源 run 的读授权由 run 授权判，不是谁能做什么' }, wrap(async (req, res) => {
     const runId = Number(req.params.id);
     await markOdooAdmin(req);
     runFileWriteGate(req, runId);
@@ -95,7 +95,7 @@ export function registerSopRunFileRoutes(app: HttpService, deps: SopRunFilesDeps
     res.status(linked ? 200 : 422).json({ run_id: runId, results, linked, failed: results.length - linked, quota: runFileQuota(runId) });
   }));
 
-  app.post('/api/sop/runs/:id/files', { action: 'sop-run.file-upload', kind: 'write' }, (req, res, next) => {
+  app.post('/api/sop/runs/:id/files', { action: 'sop-run.file-upload', kind: 'write', statusNotVerdict: '按 run 的凭据：上传令牌由 run 授权判，run 不在执行时也拒' }, (req, res, next) => {
     // ── P0 安全（总工 direct-c2b55f91）：上传面鉴权三件 ──
     // ①run-scoped upload token（header X-Run-Upload-Token；admin 口令=人工作业一步式）
     // ②配额（数≤20·单≤100MB[multer]·总量≤200MB→413）③写审计（sop_run_file_audit 同链）
@@ -138,7 +138,7 @@ export function registerSopRunFileRoutes(app: HttpService, deps: SopRunFilesDeps
       } catch (e) { next(e); }
     });
   });
-  app.get('/api/sop/runs/:id/files', { action: 'sop-run.files', kind: 'read' }, wrap(async (req, res) => {
+  app.get('/api/sop/runs/:id/files', { action: 'sop-run.files', kind: 'read', statusNotVerdict: '按 run 的凭据：读能力、主体读授权由 run 授权判' }, wrap(async (req, res) => {
     if (!/^\d+$/.test(String(req.params.id))) throw new HttpError(404, `run not found: ${req.params.id}`);
     const runId = Number(req.params.id);
     sopRunRow(runId); // 404 语义与 run 一致
@@ -150,7 +150,7 @@ export function registerSopRunFileRoutes(app: HttpService, deps: SopRunFilesDeps
     const items = rows.map((f) => ({ ...f, url: `/api/sop/runs/${runId}/files/${f.id}` }));
     res.json({ run_id: runId, items, count: items.length, quota: runFileQuota(runId) });
   }));
-  app.get('/api/sop/runs/:id/files/:fileId', { action: 'sop-run.file-download', kind: 'read' }, wrap(async (req, res) => {
+  app.get('/api/sop/runs/:id/files/:fileId', { action: 'sop-run.file-download', kind: 'read', statusNotVerdict: '按 run 的凭据：读能力、主体读授权由 run 授权判' }, wrap(async (req, res) => {
     if (!/^\d+$/.test(String(req.params.id)) || !/^\d+$/.test(String(req.params.fileId))) throw new HttpError(404, 'file not found');
     const runId = Number(req.params.id);
     const auth = await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, runId);

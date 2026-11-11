@@ -33,7 +33,7 @@ export interface ExportImportDeps {
 
 export function registerExportImportRoutes(app: HttpService, deps: ExportImportDeps): void {
   const { listWorkbenches, maskForApi, maskUpstreamsSetting, URL_POLICY, admitOrDeny, restSubject, markAdmin, adminGuard } = deps;
-  app.get('/api/export', { action: 'market.export', kind: 'admin' }, (req, res, next) => { exportHandler(req, res).catch(next); });
+  app.get('/api/export', { action: 'market.export', kind: 'read', refine: [{ action: 'market.export-reveal', kind: 'admin', why: '带 reveal=1 取真值要管理员', when: (req) => req.query.reveal === '1' }] }, (req, res, next) => { exportHandler(req, res).catch(next); });
   async function exportHandler(req: express.Request, res: express.Response): Promise<void> {
     // compliance 二期首项：导出默认脱敏（compliance 范围 kb ab3279b84a 的「导出面」——
     // 无认证导出曾是最大凭据泄漏向量）。?reveal=1 显式取真值（备份/迁移用途），
@@ -62,7 +62,7 @@ export function registerExportImportRoutes(app: HttpService, deps: ExportImportD
   const importErr = (status: number, code: string, row_index: number | null, message: string): never => {
     throw new HttpError(status, code, { message, ...(row_index === null ? {} : { row_index }) });
   };
-  app.post('/api/import', { action: 'market.import', kind: 'admin' }, (req, res) => {
+  app.post('/api/import', { action: 'market.import', kind: 'admin', statusNotVerdict: 'URL 准入：导入的行里有不许登记的地址时回 403，是登记规则不是授权' }, (req, res) => {
     const b = req.body ?? {};
     if (!Array.isArray(b.workbenches)) importErr(400, 'invalid_import', null, '导入文件缺少 workbenches 数组');
     if (b.types !== undefined && !Array.isArray(b.types)) importErr(400, 'invalid_import', null, 'types 必须是数组');

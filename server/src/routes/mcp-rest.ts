@@ -59,11 +59,14 @@ export interface McpRestDeps {
   sopRunRow: (id: number) => SopRunRow;
 }
 
+/** 这一域只认网关的 MCP 会话令牌和工具授权（不是登录身份）：401、403 是会话的结论，不和统一判定比 */
+const MCP_SESSION_DECIDES = 'MCP 会话令牌与工具授权由网关判，不是登录身份的结论';
+
 export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void {
   const { wrap, serveMcpOpenApi, mcpGatewaySession, mcpAudit, mcpRegisteredNames, MCP_REST_DENIED_HINT, mcpInvokeTool, mcpPublicOrigin, mcpRestSession, mcpToolAllowsApp, mcpRestRun, bad, getApp, appFilesQuota, APP_FILES_MAX, UPLOAD_MAX, uploadMonthDir, uploadFileName, appFileStoreCore, MCP_REST_BASE, upload, fixFileName, fileSha256, sendStoredFile, restFileItem, mcpRestRunReadable, runIdParam, sopRunRow, runReadCapHeader } = deps;
-  app.get('/openapi.json', { action: 'mcp-rest.openapi', kind: 'read' }, serveMcpOpenApi);
-  app.get('/api/mcp-rest/openapi.json', { action: 'mcp-rest.openapi', kind: 'read' }, serveMcpOpenApi);
-  app.post('/api/mcp-rest/tools/:name', { action: 'mcp-rest.tool-call', kind: 'write' }, wrap(async (req, res) => {
+  app.get('/openapi.json', { action: 'mcp-rest.openapi', kind: 'read', statusNotVerdict: MCP_SESSION_DECIDES }, serveMcpOpenApi);
+  app.get('/api/mcp-rest/openapi.json', { action: 'mcp-rest.openapi', kind: 'read', statusNotVerdict: MCP_SESSION_DECIDES }, serveMcpOpenApi);
+  app.post('/api/mcp-rest/tools/:name', { action: 'mcp-rest.tool-call', kind: 'write', statusNotVerdict: MCP_SESSION_DECIDES }, wrap(async (req, res) => {
     const t0 = Date.now();
     const sess = mcpGatewaySession(req, res);
     if (sess === undefined) return;
@@ -90,7 +93,7 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
   }));
 
   // 上传（原始字节）：PUT /api/mcp-rest/apps/<slug>/files/<文件名>，请求体即文件内容，边收边算 sha256 边落盘，不整包进内存
-  app.put('/api/mcp-rest/apps/:slug/files/:name', { action: 'mcp-rest.file-upload', kind: 'write' }, wrap(async (req, res) => {
+  app.put('/api/mcp-rest/apps/:slug/files/:name', { action: 'mcp-rest.file-upload', kind: 'write', statusNotVerdict: MCP_SESSION_DECIDES }, wrap(async (req, res) => {
     res.setHeader('connection', 'close'); // 提前拒绝（401/403/404/413）时不再读剩余请求体
     const sess = mcpRestSession(req, res, 'app_files_upload', 'file_upload');
     if (sess === undefined) return;
@@ -129,7 +132,7 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
     });
   }));
   // 上传（multipart）：POST /api/mcp-rest/apps/<slug>/files，字段 file + 可选 note/created_by——与浏览器上传同一个 multer 与入库核心
-  app.post('/api/mcp-rest/apps/:slug/files', { action: 'mcp-rest.file-upload', kind: 'write' }, wrap(async (req, res) => {
+  app.post('/api/mcp-rest/apps/:slug/files', { action: 'mcp-rest.file-upload', kind: 'write', statusNotVerdict: MCP_SESSION_DECIDES }, wrap(async (req, res) => {
     res.setHeader('connection', 'close'); // 同上
     const sess = mcpRestSession(req, res, 'app_files_upload', 'file_upload');
     if (sess === undefined) return;
@@ -150,7 +153,7 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
     });
   }));
   // 列文件（倒序游标分页 + quota）：与 app_files_list 工具同一结果，url 指向 REST 下载
-  app.get('/api/mcp-rest/apps/:slug/files', { action: 'mcp-rest.files', kind: 'read' }, wrap(async (req, res) => {
+  app.get('/api/mcp-rest/apps/:slug/files', { action: 'mcp-rest.files', kind: 'read', statusNotVerdict: MCP_SESSION_DECIDES }, wrap(async (req, res) => {
     const sess = mcpRestSession(req, res, 'app_files_list', 'files_list');
     if (sess === undefined) return;
     const r = await mcpInvokeTool(sess, 'app_files_list', { slug: req.params.slug, limit: req.query.limit, before_id: req.query.before_id }, 'rest', mcpPublicOrigin(req));
@@ -159,7 +162,7 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
     res.json({ ...out, items: out.items.map((it) => ({ ...restFileItem(out.slug, it), download_url: it.url })) });
   }));
   // 下载：二进制 + Range + ETag(sha256)
-  app.get('/api/mcp-rest/apps/:slug/files/:id', { action: 'mcp-rest.file-download', kind: 'read' }, wrap(async (req, res) => {
+  app.get('/api/mcp-rest/apps/:slug/files/:id', { action: 'mcp-rest.file-download', kind: 'read', statusNotVerdict: MCP_SESSION_DECIDES }, wrap(async (req, res) => {
     const sess = mcpRestSession(req, res, 'app_files_list', 'file_download');
     if (sess === undefined) return;
     // 只授权了 app_files_list@台 的会话：台外的文件不给（先于查台，台在不在应答一样）
@@ -176,7 +179,7 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
     });
   }));
   // 读台数据（倒序游标分页）：与 app_data_list 工具同一结果
-  app.get('/api/mcp-rest/apps/:slug/data', { action: 'mcp-rest.data', kind: 'read' }, wrap(async (req, res) => {
+  app.get('/api/mcp-rest/apps/:slug/data', { action: 'mcp-rest.data', kind: 'read', statusNotVerdict: MCP_SESSION_DECIDES }, wrap(async (req, res) => {
     const sess = mcpRestSession(req, res, 'app_data_list', 'data_list');
     if (sess === undefined) return;
     const r = await mcpInvokeTool(sess, 'app_data_list', { slug: req.params.slug, limit: req.query.limit, before_id: req.query.before_id }, 'rest', mcpPublicOrigin(req));
@@ -185,7 +188,7 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
   }));
 
   // SOP run 元数据：与 sop_run_get 工具同一结果（未获 run 读授权时只有元数据）
-  app.get('/api/mcp-rest/sop/runs/:id', { action: 'mcp-rest.sop-run', kind: 'read' }, wrap(async (req, res) => {
+  app.get('/api/mcp-rest/sop/runs/:id', { action: 'mcp-rest.sop-run', kind: 'read', statusNotVerdict: MCP_SESSION_DECIDES }, wrap(async (req, res) => {
     const sess = mcpRestSession(req, res, 'sop_run_get', 'sop_run_get');
     if (sess === undefined) return;
     const runId = runIdParam(req.params.id);
@@ -194,7 +197,7 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
     if (r.kind !== 'ok') throw (r as any).error ?? new HttpError(403, MCP_REST_DENIED_HINT);
     res.json(r.out);
   }));
-  app.get('/api/mcp-rest/sop/runs/:id/files', { action: 'mcp-rest.sop-run-files', kind: 'read' }, wrap(async (req, res) => {
+  app.get('/api/mcp-rest/sop/runs/:id/files', { action: 'mcp-rest.sop-run-files', kind: 'read', statusNotVerdict: MCP_SESSION_DECIDES }, wrap(async (req, res) => {
     const sess = mcpRestSession(req, res, 'sop_run_get', 'sop_run_files');
     if (sess === undefined) return;
     const runId = runIdParam(req.params.id);
@@ -205,7 +208,7 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
       res.json({ run_id: runId, items, count: items.length });
     });
   }));
-  app.get('/api/mcp-rest/sop/runs/:id/files/:fileId', { action: 'mcp-rest.sop-run-file-download', kind: 'read' }, wrap(async (req, res) => {
+  app.get('/api/mcp-rest/sop/runs/:id/files/:fileId', { action: 'mcp-rest.sop-run-file-download', kind: 'read', statusNotVerdict: MCP_SESSION_DECIDES }, wrap(async (req, res) => {
     const sess = mcpRestSession(req, res, 'sop_run_get', 'sop_run_file_download');
     if (sess === undefined) return;
     const runId = runIdParam(req.params.id);
