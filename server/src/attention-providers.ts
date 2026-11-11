@@ -15,6 +15,7 @@
  *   owner-pending     GET /api/workbenches/:id/vars（看板台）  vars 接口的读门                提问
  *   principal-pending GET /api/principals/pending              主体路由的管理门               授权
  *   work-items        没有旧接口：验收 = ready（建立人、管理员）；过目 = held（管理员）  验收 / 过目
+ *   a2a-peers         GET /api/a2a/peers（对端名片的公钥变了、等确认的）adminGuard           授权
  *                     建立人只认事项上的建立人主体（isCreator，和建立人验收入口、事项页同一个函数）；建立人主体空着的只有管理员看得到
  */
 import type express from 'express';
@@ -39,6 +40,7 @@ import type { SopService } from './services/sop.ts';
 import type { PrincipalService } from './services/principal.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import { isCreator, type WorkItemService } from './services/work-item.ts';
+import type { A2aPeerService } from './services/a2a-peers.ts';
 
 export type AttentionDeps = {
   /** index.ts 的管理门（变更申请、MCP 权限申请、工作台事件用的就是它） */
@@ -182,6 +184,17 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
         }
         return out;
       },
+    }),
+    provide({
+      source: 'a2a-peers', label: '对端公钥待确认',
+      // 对端名片上的公钥变了：不自动接受，投递挂起，等管理员在「对端」页对过指纹再确认。只有管理员看得到
+      list: (req) => passes(deps.adminGuard, req)
+        ? svc<A2aPeerService>('a2aPeers').list({ status: 'key_changed' }).map((p) => item({
+          source: 'a2a-peers', source_id: p.id, category: 'grant',
+          title: `对端 ${p.root_url}（${p.zone || '未知域'}）的名片公钥变了：旧 ${p.key_fingerprint.slice(0, 19)}… → 新 ${p.pending_fingerprint.slice(0, 19)}…，投递已挂起`,
+          waiting_for: p.root_url, since: p.updated_at, answers: [], link: `/a2a-peers?peer=${p.id}`,
+        }))
+        : null,
     }),
   ];
 }

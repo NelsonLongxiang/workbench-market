@@ -45,6 +45,7 @@ import { registerSettingsRoutes } from './routes/settings.ts';
 import { settingsViewsLeak } from './settings-view.ts';
 import { registerAdminTokenRoutes } from './routes/admin-token.ts';
 import { registerBindingRoutes } from './routes/bindings.ts';
+import { registerA2aPeerRoutes } from './routes/a2a-peers.ts';
 import { registerExportImportRoutes } from './routes/export-import.ts';
 import { registerLoginFlowRoutes } from './routes/login-flows.ts';
 import { registerWorkbenchRoutes } from './routes/workbenches.ts';
@@ -2484,6 +2485,7 @@ registerRemoteAllowRoutes(http, { adminGuard, lastAllowDiff });
 registerSopSpaceRoutes(http, { getApp, adminHeaderOk, bad, appsRoot, parseSopManifest });
 
 registerBindingRoutes(http, { adminGuard, getApp });
+registerA2aPeerRoutes(http, { adminGuard, adminActor }); // 对端登记表：只给管理员
 
 // （旧双面绑定 CRUD 已删——统一面 /api/bindings 承接，410 过渡件在上）
 
