@@ -73,7 +73,12 @@ async function boot(name, extraEnv = {}, { expectFail = false } = {}) {
     if (!exited()) { child.kill('SIGTERM'); await waitExit(3000); }
     if (!exited()) { child.kill('SIGKILL'); await waitExit(5000); }
   };
-  if (!ready) { await stop(); if (expectFail) return { failed: true, code: child.exitCode, log }; throw new Error(`隔离实例 ${name} 没起来：${log.trim().split('\n').slice(-4).join(' | ') || '没有输出'}`); }
+  if (!ready) {
+    // 拒绝启动要是进程自己退出、退出码非 0、端口从没听过；被我们杀掉的、以 0 退出的都不算
+    const selfExit = child.exitCode, listening = await fetch(`${base}/api/health`).then(() => true, () => false);
+    await stop();
+    if (expectFail) return { failed: true, code: selfExit, refused: selfExit !== null && selfExit !== 0 && !listening, log };
+    throw new Error(`隔离实例 ${name} 没起来：${log.trim().split('\n').slice(-4).join(' | ') || '没有输出'}`); }
   if (expectFail) { await stop(); return { failed: false, log }; }
   const call = async (method, path, { headers = {}, body, session } = {}) => {
     const h = { ...headers };
@@ -392,15 +397,21 @@ try {
       emptyPermission: { roles: [{ id: 'a', name: '甲', permissions: [{}] }] },
     };
     const refused = {};
-    for (const [k, doc] of Object.entries(bad)) refused[k] = (await boot(`bad-${k}`, { WM_ROLES_FILE: rolesFile(`bad-${k}`, doc) }, { expectFail: true })).failed;
-    refused.relativePath = (await boot('bad-relative', { WM_ROLES_FILE: 'roles.json' }, { expectFail: true })).failed;
-    refused.missingFile = (await boot('bad-missing', { WM_ROLES_FILE: join(OUT, 'no-such-roles.json') }, { expectFail: true })).failed;
-    refused.notJson = (await boot('bad-json', { WM_ROLES_FILE: rolesFile('bad-json', '{ roles: ') }, { expectFail: true })).failed;
+    const codes = {};
+    const tryBoot = async (k, file) => {
+      const r = await boot(`bad-${k}`, { WM_ROLES_FILE: file }, { expectFail: true });
+      codes[k] = r.code;
+      refused[k] = r.failed && r.refused === true && r.log.includes('[grants] 拒绝启动');
+    };
+    for (const [k, doc] of Object.entries(bad)) await tryBoot(k, rolesFile(`bad-${k}`, doc));
+    await tryBoot('relativePath', 'roles.json');
+    await tryBoot('missingFile', join(OUT, 'no-such-roles.json'));
+    await tryBoot('notJson', rolesFile('bad-json', '{ roles: '));
     const fine = (await boot('fine-initial', {}, { expectFail: true })).failed;
     const missed = Object.entries(refused).filter(([, v]) => !v).map(([k]) => k);
     check(missed.length === 0 && fine === false,
-      `角色声明不合格拒绝启动（${Object.keys(refused).length} 种：和平台角色同 id、同名，循环包含，包含不存在的角色，引用不存在的动作，类别、范围写法不对，不认识的键，id 重复，空权限，相对路径，文件不存在，不是 JSON）；对照：不设外部文件用初始集合，照常启动`,
-      show({ missed, fine }));
+      `角色声明不合格拒绝启动：进程自己以非 0 退出、留一行「拒绝启动」、端口没听过（${Object.keys(refused).length} 种：和平台角色同 id、同名，循环包含，包含不存在的角色，引用不存在的动作，类别、范围写法不对，不认识的键，id 重复，空权限，相对路径，文件不存在，不是 JSON）；对照：不设外部文件用初始集合，照常启动`,
+      show({ missed, codes, fine }));
   }
 } catch (e) {
   fail++;

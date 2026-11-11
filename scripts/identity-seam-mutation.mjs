@@ -295,6 +295,8 @@ const MUTANTS = [
     find: "WHERE principal_id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?) ORDER BY id\").all(principal, now)", replace: "WHERE principal_id = ? AND status = 'active' AND ? IS NOT NULL ORDER BY id\").all(principal, now)" },
   { id: 'grant-browser-local-is-cli', what: '带浏览器标记的本机请求也当本机命令行（属主）', file: GRANT_ROUTES, suites: [GRANTS],
     find: 'if (!browserMarked(req) && rawLoopback(req)) return { by: \'cli\'', replace: 'if (rawLoopback(req)) return { by: \'cli\'' },
+  { id: 'roles-refusal-exits-zero', what: '角色声明不合格时只抛错不退出（被全局兜底接住，进程以 0 结束）', file: INDEX, suites: [GRANTS],
+    find: "  console.error(`[grants] 拒绝启动：${String((e as Error)?.message ?? e)}`);\n  process.exit(1);\n", replace: '  throw e;\n' },
   { id: 'grant-no-responsible-unchecked', what: '非人主体不查在职责任人', file: GRANT_SVC, suites: [GRANTS],
     find: "      if (!o || o.kind !== 'person' || o.status !== 'active') return refuse(422, 'no_responsible',", replace: "      if (!o) return refuse(422, 'no_responsible'," },
   { id: 'grant-decide-to-seat', what: '决定类权限也授予给非人主体', file: GRANT_SVC, suites: [GRANTS],

@@ -4037,7 +4037,11 @@ app.post('/api/a2a/send', wrap(async (req, res) => {
 if (getApp('task-center').status === 'published') syncWorkbenchRegistration(getApp('task-center'));
 const SURFACE_PORTS = surfacePorts();
 // 阶段六 6b：所有路由都注册完之后、开始监听之前读角色声明并校验（动作清单要齐）；不合格抛错，拒绝启动
-loadRoleDeclarations(http);
+try { loadRoleDeclarations(http); } catch (e) {
+  // 这里已经在全局 uncaughtException 兜底之后：不显式退出的话进程会以 0 结束，看上去像正常退出
+  console.error(`[grants] 拒绝启动：${String((e as Error)?.message ?? e)}`);
+  process.exit(1);
+}
 const goServer = registerSurface(app, 'market', PORT, () => {
   // #258 breaking：旧开关不再放行任何公网登记，只做兼容检测告警
   if (process.env.ALLOW_PUBLIC_NET === '1') console.warn('[R3] ALLOW_PUBLIC_NET=1: legacy flag no longer grants public registration; use WM_REGISTER_URL_ALLOWLIST exact entries.');
