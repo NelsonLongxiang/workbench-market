@@ -188,6 +188,15 @@ try {
     ok('答复发回：qid = 问题 id（不是任务号）', r.status === 200 && r.body?.sent === true && qe.answer?.qid === 'q1', JSON.stringify(qe));
     r = await receipt(Q.task, '发 apps 仓库了', { outcome: 'completed', idempotencyKey: Q.task, disposition: 'result' }, Q.ctx);
     ok('之后的结果仍走 receipt-<task>，采信 → 等验收（问题没占掉终局槽）', r.status === 200 && r.text.includes('"receipt":"recorded"') && state(Q.ev)?.state === 'ready', `${r.text} ${JSON.stringify(state(Q.ev))}`);
+    // 办完之后晚到的接单回执、新提问：不再把旧提问再补关一遍（之前每条晚到的各留一行 rejected=terminal）
+    {
+      const closes = () => q("SELECT COUNT(*) AS c FROM work_item_log WHERE item_id = ? AND fact = 'answer' AND fact_id LIKE '%:closes-ask:%'", `wi_${Q.ev}`)[0].c;
+      const v = await api('POST', '/api/attention/answer', { source: 'work-items', source_id: `wi_${Q.ev}`, answer: 'verify', input: {} });
+      const before = closes();
+      await receipt(Q.task, '晚到的接单', { idempotencyKey: Q.task, disposition: 'acknowledged' }, Q.ctx, { inbound: `ack-${Q.task}` });
+      await receipt(Q.task, '晚到的提问', { idempotencyKey: Q.task, disposition: 'attention', question: { id: 'q3', text: '晚到的提问' } }, Q.ctx, { inbound: `attention-${Q.task}-q3` });
+      ok('办完（done）之后晚到的接单回执、新提问：不再补关旧提问，事项日志不多出 rejected 的合上行', v.status === 200 && state(Q.ev)?.state === 'done' && closes() === before, `${before} → ${closes()} ${JSON.stringify(state(Q.ev))}`);
+    }
     ok('……原工单（投递任务）的结果回执不落成席位消息（只有人发出的消息的回话才是）', q('SELECT COUNT(*) AS c FROM workbench_event_followups WHERE event_id = ?', Q.ev)[0].c === 0);
     // 对抗：形状不对的一律只记录、不采信、不占槽
     const Q2 = seedEvent();
@@ -448,9 +457,10 @@ try {
   r = await msgRead(L.ev);
   it = await itemOf(L.ev);
   const notice = it.messages.find((x) => x.text.includes('已开工'));
-  ok('看过 → 标成已读、未读数 0，不发任何东西，事项日志记一行 note followup-read', r.status === 200 && r.body?.marked === 1 && notice?.status === 'read' && it.unread === 0
+  ok('看过 → 标成已读、未读数 0，不发任何东西；「看过」只记在事件日志里，不进事项时间线', r.status === 200 && r.body?.marked === 1 && notice?.status === 'read' && it.unread === 0
+    && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE event_id = ? AND action = 'followup-read'", L.ev)[0].c === 1
     && q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE kind = 'followup-reply' AND ref = ?", notice?.id)[0].c === 0
-    && q("SELECT COUNT(*) AS c FROM work_item_log WHERE item_id = ? AND fact = 'note' AND json_extract(detail, '$.note') = 'followup-read'", `wi_${L.ev}`)[0].c === 1, JSON.stringify(r.body));
+    && q("SELECT COUNT(*) AS c FROM work_item_log WHERE item_id = ? AND fact = 'note' AND json_extract(detail, '$.note') = 'followup-read'", `wi_${L.ev}`)[0].c === 0, JSON.stringify(r.body));
   r = await msgRead(L.ev);
   ok('……再看一次 → 标了 0 条，不重复记', r.status === 200 && r.body?.marked === 0 && q("SELECT COUNT(*) AS c FROM workbench_event_log WHERE event_id = ? AND action = 'followup-read'", L.ev)[0].c === 1, JSON.stringify(r.body));
   r = await msgReply(L.ev, notice?.id, '看过的也能回');
