@@ -85,8 +85,8 @@ function hostRuntime(boot:any,html:string,capability:string,endpoint:string,vali
     try{const form=new FormData();form.append('binding',JSON.stringify({targetId:boot.targetId,runId:boot.runId,step:boot.step,version:boot.version,field:f.key,request_id:m.request_id}));form.append('file',m.file,'upload.bin');
       const response=await fetch(uploadEndpoint,{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'X-Sop-Upload-Capability':uploadCapability},signal:uploadController.signal,body:form});
       if(closed||locked||!current())return;if(!response.ok){uploadErrors.add(f.key);result(false,'upload_failed');reply(false,'','upload_failed');set('invalid');return;}
-      const result=await response.json();if(closed||locked||!current())return;if(!result||result.ok!==true||result.field!==f.key||typeof result.id!=='string'||!/^f_[a-f0-9]{48}$/.test(result.id)||result.size!==m.file.size||result.mime!==m.file.type){stop('invalid_response');return;}
-      (uploaded[f.key]??=[]).push(result.id);if(latestUpload.get(f.key)===m.request_id)uploadErrors.delete(f.key);reply(true,result.id,'uploaded');set(invalidFields.size||uploadErrors.size?'invalid':saving?'saving':Object.keys(pending).length?'dirty':'uploaded');
+      const body=await response.json();if(closed||locked||!current())return;if(!body||body.ok!==true||body.field!==f.key||typeof body.id!=='string'||!/^f_[a-f0-9]{48}$/.test(body.id)||body.size!==m.file.size||body.mime!==m.file.type){stop('invalid_response');return;}
+      (uploaded[f.key]??=[]).push(body.id);if(latestUpload.get(f.key)===m.request_id)uploadErrors.delete(f.key);reply(true,body.id,'uploaded');set(invalidFields.size||uploadErrors.size?'invalid':saving?'saving':Object.keys(pending).length?'dirty':'uploaded');
     }catch{if(!closed&&!locked){uploadErrors.add(f.key);result(false,'upload_failed');reply(false,'','upload_failed');set('invalid');}}finally{clearTimeout(timeout);uploading=false;}
   }
   const handshake=(event:MessageEvent)=>{if(closed||consumed||!loaded||!current()||event.source!==frameWindow||event.origin!=='null')return;const m=event.data;
