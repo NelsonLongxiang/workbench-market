@@ -392,6 +392,10 @@ try {
     const U = seedEvent();
     await receipt(U.task, '做完了', { outcome: 'completed', idempotencyKey: U.task, disposition: 'result', artifacts: [{ kind: 'table', id: 'stolen' }] }, U.ctx, { signer: evil });
     ok('没采信的回执（别的宿主签的）带的产物不进 outputs', outs(U.ev).length === 0, JSON.stringify(outs(U.ev)));
+    // A11：签名对、但形状不对、不采信的回执（receipt-<task> 上的 disposition 不认识）带的产物也不进
+    const V = seedEvent();
+    r = await receipt(V.task, '奇怪的回执', { idempotencyKey: V.task, disposition: 'bogus', artifacts: [{ kind: 'table', id: 'not-accepted' }] }, V.ctx);
+    ok('A11：签名对但未采信的回执（receipt:unaccepted）带的产物不进 outputs', r.text.includes('"receipt":"not-accepted"') && outs(V.ev).length === 0, `${r.text.slice(0, 100)} ${JSON.stringify(outs(V.ev))}`);
   }
 
   console.log('二之四、来信分流先验格式再查库');
