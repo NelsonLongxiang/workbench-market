@@ -182,7 +182,7 @@ export function recordTaskCenterEvent(task: { id: number; data: Record<string, u
  * SSO v2 覆盖到这里之前一律 unverified、dispatch:false——只通知，不派发，不要决定。
  * 旧字段（type/slug/id/data/created_at/hint）原样保留，现有接收方不受影响。
  */
-export function recordAppDataEvent(item: { slug: string; id: number; data: unknown; json: string; createdBy: string; createdAt: string }): string | null {
+export function recordAppDataEvent(item: { slug: string; id: number; data: unknown; json: string; createdBy: string; createdAt: string; submitterPrincipal?: string | null }): string | null {
   const targets = notifyTargets('app', item.slug);
   if (targets.length === 0) return null; // 无通知绑定：不建事件（数据真源在 app_data，人类事件判据不涉及 unverified）
   const contextId = `wb:${item.slug}:${item.id}`;
@@ -190,6 +190,9 @@ export function recordAppDataEvent(item: { slug: string; id: number; data: unkno
     source: 'app-data', workbench: item.slug, item: `item:${item.id}`, contextId, submitterKind: 'unverified',
     submitter: item.createdBy, formVersion: null, dataSha256: sha256(item.json), dispatch: false,
   };
+  // 8f-2：带了验得过的提交人票据——提交方是认出来的人：submitter_kind 记 human、submitter 记主体，提需求的人记进 recorded。
+  // 只通知、不派发（dispatch:false）照旧
+  if (item.submitterPrincipal) { core.submitterKind = 'human'; core.submitter = item.submitterPrincipal; core.requester = item.submitterPrincipal; }
   let eventId = '';
   db.exec('BEGIN IMMEDIATE');
   try {

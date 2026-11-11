@@ -765,6 +765,19 @@ CREATE TABLE IF NOT EXISTS submission_counts (
   PRIMARY KEY (day, channel, has_credential, resolved)
 );
 `);
+// 阶段八 8f-2：台的提交带了有效的提交人票据时，记下提交人（主体标识，可空）。读数据的接口都按列名取，不带出这一列。
+if (!(db.prepare('PRAGMA table_info(app_data)').all() as { name: string }[]).some((c) => c.name === 'submitter_principal')) {
+  db.exec("ALTER TABLE app_data ADD COLUMN submitter_principal TEXT CHECK (submitter_principal IS NULL OR submitter_principal GLOB 'user:?*')");
+}
+// 阶段八 8f-2：提交人票据验得过、验不过的次数，按天累计。不记票据、不记原因、不记是谁
+db.exec(`
+CREATE TABLE IF NOT EXISTS submitter_ticket_counts (
+  day TEXT NOT NULL CHECK (day GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+  outcome TEXT NOT NULL CHECK (outcome IN ('valid', 'invalid')),
+  n INTEGER NOT NULL DEFAULT 0 CHECK (n >= 0),
+  PRIMARY KEY (day, outcome)
+);
+`);
 // 阶段八 8d：「关注」的答复记账。每个（来源、来源里的 id）一行：第一次答成功就记下应答，同一条再答返回这一份；
 //   pending 表示正有人在答（并发的第二个人被告知正在处理）；答失败就删掉这一行，可以再答。原件的状态和留痕在来源自己那里。
 db.exec(`

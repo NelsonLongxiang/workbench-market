@@ -45,7 +45,8 @@
       "created_by TEXT NOT NULL DEFAULT ''",
       "created_at TEXT NOT NULL DEFAULT datetime('now')",
       "deleted_at TEXT NOT NULL DEFAULT ''",
-      "idempotency_key TEXT NOT NULL DEFAULT ''"
+      "idempotency_key TEXT NOT NULL DEFAULT ''",
+      "submitter_principal TEXT"
     ],
     "app_files": [
       "id INTEGER PK",
@@ -417,6 +418,11 @@
       "channel TEXT NOT NULL PK",
       "has_credential INTEGER NOT NULL PK",
       "resolved INTEGER NOT NULL PK",
+      "n INTEGER NOT NULL DEFAULT 0"
+    ],
+    "submitter_ticket_counts": [
+      "day TEXT NOT NULL PK",
+      "outcome TEXT NOT NULL PK",
       "n INTEGER NOT NULL DEFAULT 0"
     ],
     "task_center_events": [
