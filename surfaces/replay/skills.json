@@ -1,0 +1,1409 @@
+{
+  "domain": "skills",
+  "what": "技能市场：列表、角色包、发布、版本、导出、下载、钉装、校验、撤销、摘要上报、回滚、删除、迁移到 LayerFS，和重建 wm-skills，共 14 条路由。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。导出和下载回的是 tar、tar.gz，tar 头里的修改时刻随时间变，只比头。",
+  "routes": [
+    "POST /api/skills/:slug/install",
+    "GET /api/skills/:slug/verify",
+    "POST /api/skills/:slug/install/:ledgerId/revoke",
+    "GET /api/skills/role-packs",
+    "GET /api/skills",
+    "POST /api/skills/:slug/versions",
+    "GET /api/skills/dl/:ticket",
+    "POST /api/skills/:slug/activate",
+    "DELETE /api/skills/:slug",
+    "POST /api/skills/:slug/migrate-layerfs",
+    "POST /api/admin/rebuild-wm-skills",
+    "GET /api/skills/:slug/export",
+    "POST /api/skills/:slug/report-digest",
+    "GET /api/skills/:slug/versions"
+  ],
+  "exempt": [
+    { "route": "GET /api/skills", "class": "invalid", "why": "列表不读请求里的任何东西", "shown_by": "open/list-initial" },
+    { "route": "GET /api/skills/dl/:ticket", "class": "unauthorized", "why": "下载靠票号本身授权（只给 MCP 会话签发、10 分钟、最多 5 次），登录门放行，没有身份检查", "shown_by": "open/dl" },
+    { "route": "GET /api/skills/role-packs", "class": "invalid", "why": "角色包清单不读请求里的任何东西", "shown_by": "open/role-packs" },
+    { "route": "POST /api/admin/rebuild-wm-skills", "class": "invalid", "why": "重建不读请求里的任何东西；没配 LayerFS 时回 502（open/rebuild-unconfigured），不是 4xx", "shown_by": "layerfs-down/down-rebuild" }
+  ],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "登录门关，读面开放；写只给管理员（本机也要口令），管理口令由环境给合成值。不配 LayerFS。预先写进库：一个没有版本的技能、一个角色包、三张下载票（有效的、过期的、用满的；库里只存票号的 sha256，票号经 HTTP 只能从 MCP 的 skill_download 签发）。定了时钟。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "seed": [
+        { "table": "skills", "row": { "slug": "other", "name": "库里的技能（没有版本）", "layer": 1, "layer_name": "基础", "description": "种子", "source": "seed" } },
+        { "table": "role_bundles", "row": { "pack_id": "pack-a", "member_name": "回放成员", "bundle_version": 1, "roster_digest": "seed-digest", "skill_slugs": "[\"demo\",\"other\"]" } },
+        { "table": "skill_download_tickets", "row": { "id": "ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb", "slug": "demo", "version": 1, "issued_to": "seed", "expires_at": 4102444800000 } },
+        { "table": "skill_download_tickets", "row": { "id": "a0fab1377f49a759b57f63318262ebe89fabfc990e8e93ceac2984561482b9d4", "slug": "demo", "version": 1, "issued_to": "seed", "expires_at": 1000 } },
+        { "table": "skill_download_tickets", "row": { "id": "52b6419d27bd7f547cee3b92f8c17a908b8a49601ecbec161e5030de1dfe9e0a", "slug": "demo", "version": 1, "issued_to": "seed", "expires_at": 4102444800000, "downloads": 5 } }
+      ],
+      "steps": [
+        {
+          "id": "list-initial",
+          "route": "GET /api/skills",
+          "class": "normal",
+          "what": "技能列表：起始（种子里的技能，没有版本的也列）",
+          "request": { "method": "GET", "path": "/api/skills" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "229", "etag": "W/\"e5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [{ "slug": "other", "name": "库里的技能（没有版本）", "layer": 1, "layer_name": "基础", "family_parent": "", "description": "种子", "legacy": false, "versions": 0, "active_version": null, "is_installed": false, "current_version": null }]
+          }
+        },
+        {
+          "id": "role-packs",
+          "route": "GET /api/skills/role-packs",
+          "class": "normal",
+          "what": "角色包展开清单：skill_slugs 解析成数组",
+          "request": { "method": "GET", "path": "/api/skills/role-packs" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "131", "etag": "W/\"83-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [{ "pack_id": "pack-a", "member_name": "回放成员", "bundle_version": 1, "skill_slugs": ["demo", "other"], "roster_digest": "seed-digest" }]
+          }
+        },
+        {
+          "id": "pub-no-token",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "unauthorized",
+          "what": "发布：本机不带口令，403",
+          "request": { "method": "POST", "path": "/api/skills/demo/versions", "headers": {}, "json": { "files": [{ "path": "SKILL.md", "content": "# demo\n回放用的技能\n" }, { "path": "scripts/run.sh", "content": "echo hi\n" }] } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "pub-cross",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "unauthorized",
+          "what": "发布：带口令但跨站，403",
+          "request": {
+            "method": "POST",
+            "path": "/api/skills/demo/versions",
+            "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" },
+            "json": { "files": [{ "path": "SKILL.md", "content": "# demo\n回放用的技能\n" }, { "path": "scripts/run.sh", "content": "echo hi\n" }] }
+          },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "pub-remote-anonymous",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "unauthorized",
+          "what": "发布：带转发头没有口令，403",
+          "request": {
+            "method": "POST",
+            "path": "/api/skills/demo/versions",
+            "headers": { "x-forwarded-for": "198.51.100.7" },
+            "json": { "files": [{ "path": "SKILL.md", "content": "# demo\n回放用的技能\n" }, { "path": "scripts/run.sh", "content": "echo hi\n" }] }
+          },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "pub-bad-slug",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "invalid",
+          "what": "发布：slug 有大写，400",
+          "request": {
+            "method": "POST",
+            "path": "/api/skills/Demo/versions",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "files": [{ "path": "SKILL.md", "content": "# demo\n回放用的技能\n" }, { "path": "scripts/run.sh", "content": "echo hi\n" }] }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "84", "etag": "W/\"54-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "slug 非法（小写字母数字开头·仅 [a-z0-9:_-]·≤64 字符）" }
+          }
+        },
+        {
+          "id": "pub-no-files",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "invalid",
+          "what": "发布：没有 files，400",
+          "request": { "method": "POST", "path": "/api/skills/demo/versions", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "files 必须为非空 [{path, content}]" } }
+        },
+        {
+          "id": "pub-empty-files",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "invalid",
+          "what": "发布：files 是空数组，400",
+          "request": { "method": "POST", "path": "/api/skills/demo/versions", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "files": [] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "files 必须为非空 [{path, content}]" } }
+        },
+        {
+          "id": "pub-file-no-path",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "invalid",
+          "what": "发布：文件没有 path，400",
+          "request": { "method": "POST", "path": "/api/skills/demo/versions", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "files": [{ "content": "x" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "40", "etag": "W/\"28-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "files 项须 {path, content}" } }
+        },
+        {
+          "id": "pub-file-content-number",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "invalid",
+          "what": "发布：content 不是字符串，400",
+          "request": { "method": "POST", "path": "/api/skills/demo/versions", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "files": [{ "path": "a", "content": 1 }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "40", "etag": "W/\"28-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "files 项须 {path, content}" } }
+        },
+        {
+          "id": "pub-bad-encoding",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "invalid",
+          "what": "发布：encoding 不认识，400",
+          "request": { "method": "POST", "path": "/api/skills/demo/versions", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "files": [{ "path": "a", "content": "x", "encoding": "hex" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "46", "etag": "W/\"2e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "encoding 只收 utf8 或 base64: a" } }
+        },
+        {
+          "id": "pub-bad-base64",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "invalid",
+          "what": "发布：base64 不合法，400",
+          "request": { "method": "POST", "path": "/api/skills/demo/versions", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "files": [{ "path": "a", "content": "abc", "encoding": "base64" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "content 不是合法 base64: a" } }
+        },
+        {
+          "id": "pub-long-path",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "invalid",
+          "what": "发布：path 201 个字符，400",
+          "request": {
+            "method": "POST",
+            "path": "/api/skills/demo/versions",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": {
+              "files": [
+                { "path": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "content": "x" }
+              ]
+            }
+          },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "path 过长（>200）" } }
+        },
+        {
+          "id": "pub-backslash",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "invalid",
+          "what": "发布：path 有反斜杠，400",
+          "request": { "method": "POST", "path": "/api/skills/demo/versions", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "files": [{ "path": "a\\b", "content": "x" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "47", "etag": "W/\"2f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "path 非法（禁反斜杠）: a\\b" } }
+        },
+        {
+          "id": "pub-absolute",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "invalid",
+          "what": "发布：绝对路径，400",
+          "request": { "method": "POST", "path": "/api/skills/demo/versions", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "files": [{ "path": "/etc/x", "content": "x" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "path 非法（禁绝对路径）: /etc/x" } }
+        },
+        {
+          "id": "pub-drive",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "invalid",
+          "what": "发布：盘符路径，400",
+          "request": { "method": "POST", "path": "/api/skills/demo/versions", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "files": [{ "path": "C:x", "content": "x" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "49", "etag": "W/\"31-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "path 非法（禁绝对路径）: C:x" } }
+        },
+        {
+          "id": "pub-dotdot",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "invalid",
+          "what": "发布：path 有 .. 段，400",
+          "request": { "method": "POST", "path": "/api/skills/demo/versions", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "files": [{ "path": "a/../b", "content": "x" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "path 非法（空/. / .. 段）: a/../b" } }
+        },
+        {
+          "id": "pub-empty-seg",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "invalid",
+          "what": "发布：path 有空段，400",
+          "request": { "method": "POST", "path": "/api/skills/demo/versions", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "files": [{ "path": "a//b", "content": "x" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "49", "etag": "W/\"31-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "path 非法（空/. / .. 段）: a//b" } }
+        },
+        {
+          "id": "pub-reserved",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "invalid",
+          "what": "发布：保留名 .wm-skill.json，400",
+          "request": { "method": "POST", "path": "/api/skills/demo/versions", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "files": [{ "path": ".wm-skill.json", "content": "x" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "path .wm-skill.json 是技能包保留名（市场打包时生成）" } }
+        },
+        {
+          "id": "pub-duplicate",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "invalid",
+          "what": "发布：同一个 path 两次，400",
+          "request": { "method": "POST", "path": "/api/skills/demo/versions", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "files": [{ "path": "a", "content": "x" }, { "path": "a", "content": "y" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "50", "etag": "W/\"32-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "path 重复: a（同名两义拒收）" } }
+        },
+        {
+          "id": "pub-v1",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "normal",
+          "what": "发布 demo 第一版（两个文本文件），changelog",
+          "request": {
+            "method": "POST",
+            "path": "/api/skills/demo/versions",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "files": [{ "path": "SKILL.md", "content": "# demo\n回放用的技能\n" }, { "path": "scripts/run.sh", "content": "echo hi\n" }], "changelog": "第一版" }
+          },
+          "save": { "d1": "tree_digest" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "192", "etag": "W/\"c0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "slug": "demo", "version": 1, "tree_digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "file_count": 2, "total_bytes": 34, "snapshot_path": "skill-snapshots/demo/v1" }
+          }
+        },
+        {
+          "id": "pub-same",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "invalid",
+          "what": "同样的内容再发一次：409 不可变锚拒重复",
+          "request": {
+            "method": "POST",
+            "path": "/api/skills/demo/versions",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "files": [{ "path": "SKILL.md", "content": "# demo\n回放用的技能\n" }, { "path": "scripts/run.sh", "content": "echo hi\n" }] }
+          },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "90", "etag": "W/\"5a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "内容 digest 已存在（skill_version #1）——不可变锚拒重复发布" }
+          }
+        },
+        {
+          "id": "pub-v2",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "normal",
+          "what": "发布第二版（带一个 base64 的二进制文件）",
+          "request": {
+            "method": "POST",
+            "path": "/api/skills/demo/versions",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "files": [{ "path": "SKILL.md", "content": "# demo\n第二版\n" }, { "path": "scripts/run.sh", "content": "echo hi\n" }, { "path": "bin/blob.dat", "content": "AAEC/w==", "encoding": "base64" }], "changelog": "第二版" }
+          },
+          "save": { "d2": "tree_digest" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "192", "etag": "W/\"c0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "slug": "demo", "version": 2, "tree_digest": "bb1bbdfe0780cf6eb027bc17d6a1a2e40ad7c91320cc401e5a836d609641a7d8", "file_count": 3, "total_bytes": 29, "snapshot_path": "skill-snapshots/demo/v2" }
+          }
+        },
+        {
+          "id": "pub-colon",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "normal",
+          "what": "slug 带冒号（ns:tool）",
+          "request": { "method": "POST", "path": "/api/skills/ns:tool/versions", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "files": [{ "path": "README.md", "content": "# tool\n" }] } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "199", "etag": "W/\"c7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "slug": "ns:tool", "version": 1, "tree_digest": "17d1a55621084b7a3d30c538b2cf59483184ab166e6a2f2726f696782fcc4e84", "file_count": 1, "total_bytes": 7, "snapshot_path": "skill-snapshots/ns%3Atool/v1" }
+          }
+        },
+        {
+          "id": "versions",
+          "route": "GET /api/skills/:slug/versions",
+          "class": "normal",
+          "what": "版本列表：v1、v2，当前是 2；快照路径相对化",
+          "request": { "method": "GET", "path": "/api/skills/demo/versions" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "884", "etag": "W/\"374-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "demo",
+              "active_version": 2,
+              "versions": [
+                { "id": 2, "skill_id": 2, "version": 2, "changelog": "第二版", "breaking": 0, "tree_digest": "bb1bbdfe0780cf6eb027bc17d6a1a2e40ad7c91320cc401e5a836d609641a7d8", "file_count": 3, "total_bytes": 29, "snapshot_path": "skill-snapshots/demo/v2", "reviewed_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "skipped", "shadow_error": "含非 UTF-8（二进制）文件 bin/blob.dat：LayerFS 契约只收文本，不推影子", "commit_id": "", "active": true },
+                { "id": 1, "skill_id": 2, "version": 1, "changelog": "第一版", "breaking": 0, "tree_digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "file_count": 2, "total_bytes": 34, "snapshot_path": "skill-snapshots/demo/v1", "reviewed_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "failed", "shadow_error": "LayerFS publish failed; retry migrate-layerfs", "commit_id": "", "active": false }
+              ]
+            }
+          }
+        },
+        {
+          "id": "versions-missing",
+          "route": "GET /api/skills/:slug/versions",
+          "class": "invalid",
+          "what": "版本列表：没有这个技能，404",
+          "request": { "method": "GET", "path": "/api/skills/nope/versions" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "skill not found: nope" } }
+        },
+        {
+          "id": "list-after-publish",
+          "route": "GET /api/skills",
+          "class": "normal",
+          "what": "发布之后的列表：版本数、当前版本",
+          "request": { "method": "GET", "path": "/api/skills" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "628", "etag": "W/\"274-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "slug": "other", "name": "库里的技能（没有版本）", "layer": 1, "layer_name": "基础", "family_parent": "", "description": "种子", "legacy": false, "versions": 0, "active_version": null, "is_installed": false, "current_version": null },
+              { "slug": "demo", "name": "demo", "layer": 5, "layer_name": "AI 原生运营", "family_parent": "", "description": "", "legacy": false, "versions": 2, "active_version": 2, "is_installed": false, "current_version": null },
+              { "slug": "ns:tool", "name": "tool", "layer": 5, "layer_name": "AI 原生运营", "family_parent": "", "description": "", "legacy": false, "versions": 1, "active_version": 1, "is_installed": false, "current_version": null }
+            ]
+          }
+        },
+        {
+          "id": "export",
+          "route": "GET /api/skills/:slug/export",
+          "class": "normal",
+          "what": "导出：缺省当前版本（v2）；文件名、X-Expected-Digest",
+          "compare": "head",
+          "request": { "method": "GET", "path": "/api/skills/demo/export" },
+          "response": {
+            "status": 200,
+            "type": "application/x-tar",
+            "headers": { "content-disposition": "attachment; filename=\"demo-v2.tar\"", "content-length": "4096", "vary": "Origin", "x-expected-digest": "bb1bbdfe0780cf6eb027bc17d6a1a2e40ad7c91320cc401e5a836d609641a7d8", "x-powered-by": "Express" }
+          }
+        },
+        {
+          "id": "export-v1",
+          "route": "GET /api/skills/:slug/export",
+          "class": "normal",
+          "what": "导出：?version=1",
+          "compare": "head",
+          "request": { "method": "GET", "path": "/api/skills/demo/export?version=1" },
+          "response": {
+            "status": 200,
+            "type": "application/x-tar",
+            "headers": { "content-disposition": "attachment; filename=\"demo-v1.tar\"", "content-length": "3072", "vary": "Origin", "x-expected-digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "x-powered-by": "Express" }
+          }
+        },
+        {
+          "id": "export-v-missing",
+          "route": "GET /api/skills/:slug/export",
+          "class": "invalid",
+          "what": "导出：版本不存在，404",
+          "compare": "head",
+          "request": { "method": "GET", "path": "/api/skills/demo/export?version=99" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" } }
+        },
+        {
+          "id": "export-v-text",
+          "route": "GET /api/skills/:slug/export",
+          "class": "invalid",
+          "what": "导出：?version=abc，404",
+          "compare": "head",
+          "request": { "method": "GET", "path": "/api/skills/demo/export?version=abc" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" } }
+        },
+        {
+          "id": "export-missing",
+          "route": "GET /api/skills/:slug/export",
+          "class": "invalid",
+          "what": "导出：没有这个技能，404",
+          "compare": "head",
+          "request": { "method": "GET", "path": "/api/skills/nope/export" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" } }
+        },
+        {
+          "id": "export-colon",
+          "route": "GET /api/skills/:slug/export",
+          "class": "normal",
+          "what": "导出：带冒号的 slug，文件名里冒号换成下划线",
+          "compare": "head",
+          "request": { "method": "GET", "path": "/api/skills/ns:tool/export" },
+          "response": {
+            "status": 200,
+            "type": "application/x-tar",
+            "headers": { "content-disposition": "attachment; filename=\"ns_tool-v1.tar\"", "content-length": "2048", "vary": "Origin", "x-expected-digest": "17d1a55621084b7a3d30c538b2cf59483184ab166e6a2f2726f696782fcc4e84", "x-powered-by": "Express" }
+          }
+        },
+        {
+          "id": "install-no-token",
+          "route": "POST /api/skills/:slug/install",
+          "class": "unauthorized",
+          "what": "钉装：本机不带口令，403",
+          "request": { "method": "POST", "path": "/api/skills/demo/install", "headers": {}, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "install-missing",
+          "route": "POST /api/skills/:slug/install",
+          "class": "invalid",
+          "what": "钉装：没有这个技能，404",
+          "request": { "method": "POST", "path": "/api/skills/nope/install", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "skill not found: nope" } }
+        },
+        {
+          "id": "install-v-missing",
+          "route": "POST /api/skills/:slug/install",
+          "class": "invalid",
+          "what": "钉装：版本 99，404",
+          "request": { "method": "POST", "path": "/api/skills/demo/install", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "version": 99 } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "21", "etag": "W/\"15-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "无版本" } }
+        },
+        {
+          "id": "install",
+          "route": "POST /api/skills/:slug/install",
+          "class": "normal",
+          "what": "钉装：缺省当前版本（v2），返回相对路径",
+          "request": { "method": "POST", "path": "/api/skills/demo/install", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "installed_by": "回放" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "179", "etag": "W/\"b3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "slug": "demo", "version": 2, "ledger_id": 1, "expected_digest": "bb1bbdfe0780cf6eb027bc17d6a1a2e40ad7c91320cc401e5a836d609641a7d8", "installed_path": "skill-snapshots/demo/v2" }
+          }
+        },
+        {
+          "id": "install-v1",
+          "route": "POST /api/skills/:slug/install",
+          "class": "normal",
+          "what": "钉装：version=1（数字）",
+          "request": { "method": "POST", "path": "/api/skills/demo/install", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "version": 1 } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "179", "etag": "W/\"b3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "slug": "demo", "version": 1, "ledger_id": 2, "expected_digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "installed_path": "skill-snapshots/demo/v1" }
+          }
+        },
+        {
+          "id": "install-v-string",
+          "route": "POST /api/skills/:slug/install",
+          "class": "normal",
+          "what": "钉装：version 是字符串 \"1\"：不认，取当前版本",
+          "request": { "method": "POST", "path": "/api/skills/demo/install", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "version": "1" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "179", "etag": "W/\"b3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "slug": "demo", "version": 2, "ledger_id": 3, "expected_digest": "bb1bbdfe0780cf6eb027bc17d6a1a2e40ad7c91320cc401e5a836d609641a7d8", "installed_path": "skill-snapshots/demo/v2" }
+          }
+        },
+        {
+          "id": "install-bogus-path",
+          "route": "POST /api/skills/:slug/install",
+          "class": "normal",
+          "what": "钉装另一个技能：installed_path 指向不存在的目录",
+          "request": { "method": "POST", "path": "/api/skills/ns:tool/install", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "installed_path": "nowhere/at/all" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "187", "etag": "W/\"bb-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "slug": "ns:tool", "version": 1, "ledger_id": 4, "expected_digest": "17d1a55621084b7a3d30c538b2cf59483184ab166e6a2f2726f696782fcc4e84", "installed_path": "skill-snapshots/ns%3Atool/v1" }
+          }
+        },
+        {
+          "id": "verify",
+          "route": "GET /api/skills/:slug/verify",
+          "class": "normal",
+          "what": "校验：第一条钉装的快照摘要和登记一致",
+          "request": { "method": "GET", "path": "/api/skills/demo/verify" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "183", "etag": "W/\"b7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "expected": "bb1bbdfe0780cf6eb027bc17d6a1a2e40ad7c91320cc401e5a836d609641a7d8", "actual": "bb1bbdfe0780cf6eb027bc17d6a1a2e40ad7c91320cc401e5a836d609641a7d8", "checked_files": 3 }
+          }
+        },
+        {
+          "id": "verify-none",
+          "route": "GET /api/skills/:slug/verify",
+          "class": "normal",
+          "what": "校验：没钉装过的技能：ok=null",
+          "request": { "method": "GET", "path": "/api/skills/other/verify" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": null, "note": "无钉装记录（未安装）" } }
+        },
+        {
+          "id": "verify-unreadable",
+          "what": "校验：钉装的路径读不了：500，不回显路径（500 不归三类，按应答原样录）",
+          "request": { "method": "GET", "path": "/api/skills/ns:tool/verify" },
+          "response": { "status": 500, "type": "application/json; charset=utf-8", "headers": { "content-length": "83", "etag": "W/\"53-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "钉装快照不可读（路径已隐藏·请重新安装后再校验）" } }
+        },
+        {
+          "id": "verify-missing",
+          "route": "GET /api/skills/:slug/verify",
+          "class": "invalid",
+          "what": "校验：没有这个技能，404",
+          "request": { "method": "GET", "path": "/api/skills/nope/verify" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "skill not found: nope" } }
+        },
+        {
+          "id": "revoke-no-token",
+          "route": "POST /api/skills/:slug/install/:ledgerId/revoke",
+          "class": "unauthorized",
+          "what": "撤销：本机不带口令，403",
+          "request": { "method": "POST", "path": "/api/skills/demo/install/1/revoke", "headers": {}, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "revoke-other-skill",
+          "route": "POST /api/skills/:slug/install/:ledgerId/revoke",
+          "class": "invalid",
+          "what": "撤销：别的技能的钉装记录（4 是 ns:tool 的），404 不泄露",
+          "request": { "method": "POST", "path": "/api/skills/demo/install/4/revoke", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "ledger not found: 4" } }
+        },
+        {
+          "id": "revoke-not-number",
+          "route": "POST /api/skills/:slug/install/:ledgerId/revoke",
+          "class": "invalid",
+          "what": "撤销：ledgerId 不是数，404",
+          "request": { "method": "POST", "path": "/api/skills/demo/install/abc/revoke", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "ledger not found: NaN" } }
+        },
+        {
+          "id": "revoke-missing-skill",
+          "route": "POST /api/skills/:slug/install/:ledgerId/revoke",
+          "class": "invalid",
+          "what": "撤销：没有这个技能，404",
+          "request": { "method": "POST", "path": "/api/skills/nope/install/1/revoke", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "skill not found: nope" } }
+        },
+        {
+          "id": "revoke",
+          "route": "POST /api/skills/:slug/install/:ledgerId/revoke",
+          "class": "normal",
+          "what": "撤销钉装 1",
+          "request": { "method": "POST", "path": "/api/skills/demo/install/1/revoke", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "44", "etag": "W/\"2c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "ledger_id": 1, "status": "revoked" } }
+        },
+        {
+          "id": "revoke-again",
+          "route": "POST /api/skills/:slug/install/:ledgerId/revoke",
+          "class": "invalid",
+          "what": "再撤销一次：404",
+          "request": { "method": "POST", "path": "/api/skills/demo/install/1/revoke", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "ledger not found: 1" } }
+        },
+        {
+          "id": "list-after-revoke",
+          "route": "GET /api/skills",
+          "class": "normal",
+          "what": "撤销之后的列表：仍有钉装（2、3），current_version 是第一条还在的",
+          "request": { "method": "GET", "path": "/api/skills" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "620", "etag": "W/\"26c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "slug": "other", "name": "库里的技能（没有版本）", "layer": 1, "layer_name": "基础", "family_parent": "", "description": "种子", "legacy": false, "versions": 0, "active_version": null, "is_installed": false, "current_version": null },
+              { "slug": "demo", "name": "demo", "layer": 5, "layer_name": "AI 原生运营", "family_parent": "", "description": "", "legacy": false, "versions": 2, "active_version": 2, "is_installed": true, "current_version": 2 },
+              { "slug": "ns:tool", "name": "tool", "layer": 5, "layer_name": "AI 原生运营", "family_parent": "", "description": "", "legacy": false, "versions": 1, "active_version": 1, "is_installed": true, "current_version": 1 }
+            ]
+          }
+        },
+        {
+          "id": "report-no-token",
+          "route": "POST /api/skills/:slug/report-digest",
+          "class": "unauthorized",
+          "what": "摘要上报：本机不带口令，403",
+          "request": { "method": "POST", "path": "/api/skills/demo/report-digest", "headers": {}, "json": { "version": 1, "digest": "{{d1}}" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "report-missing",
+          "route": "POST /api/skills/:slug/report-digest",
+          "class": "invalid",
+          "what": "摘要上报：没有这个技能，404",
+          "request": { "method": "POST", "path": "/api/skills/nope/report-digest", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "version": 1, "digest": "{{d1}}" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "skill not found: nope" } }
+        },
+        {
+          "id": "report-bad-version",
+          "route": "POST /api/skills/:slug/report-digest",
+          "class": "invalid",
+          "what": "摘要上报：version 不是整数，400",
+          "request": { "method": "POST", "path": "/api/skills/demo/report-digest", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "version": "x", "digest": "{{d1}}" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "57", "etag": "W/\"39-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "version 正整数 + digest 64 位十六进制" } }
+        },
+        {
+          "id": "report-bad-digest",
+          "route": "POST /api/skills/:slug/report-digest",
+          "class": "invalid",
+          "what": "摘要上报：digest 不是 64 位十六进制，400",
+          "request": { "method": "POST", "path": "/api/skills/demo/report-digest", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "version": 1, "digest": "XYZ" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "57", "etag": "W/\"39-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "version 正整数 + digest 64 位十六进制" } }
+        },
+        {
+          "id": "report-v-missing",
+          "route": "POST /api/skills/:slug/report-digest",
+          "class": "invalid",
+          "what": "摘要上报：版本 99，404",
+          "request": { "method": "POST", "path": "/api/skills/demo/report-digest", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "version": 99, "digest": "{{d1}}" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "version not found: 99" } }
+        },
+        {
+          "id": "report-match",
+          "route": "POST /api/skills/:slug/report-digest",
+          "class": "normal",
+          "what": "摘要上报：和登记一致",
+          "request": { "method": "POST", "path": "/api/skills/demo/report-digest", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "version": 1, "digest": "{{d1}}", "reported_by": "回放" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "142", "etag": "W/\"8e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "slug": "demo", "version": 1, "match": true, "drift": false, "expected": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35" }
+          }
+        },
+        {
+          "id": "report-drift",
+          "route": "POST /api/skills/:slug/report-digest",
+          "class": "normal",
+          "what": "摘要上报：不一致，drift=true",
+          "request": { "method": "POST", "path": "/api/skills/demo/report-digest", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "version": 2, "digest": "0000000000000000000000000000000000000000000000000000000000000000" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "142", "etag": "W/\"8e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "slug": "demo", "version": 2, "match": false, "drift": true, "expected": "bb1bbdfe0780cf6eb027bc17d6a1a2e40ad7c91320cc401e5a836d609641a7d8" }
+          }
+        },
+        {
+          "id": "dl",
+          "route": "GET /api/skills/dl/:ticket",
+          "class": "normal",
+          "what": "下载：有效的票，tar.gz；只比头（Content-Disposition、X-Expected-Digest、X-Package-Sha256、no-store、no-referrer）；gzip 的字节随包里的时刻变，Content-Length 和 X-Package-Sha256 只比长度",
+          "compare": "head",
+          "vary": { "$header:content-length": "random", "$header:x-package-sha256": "random" },
+          "request": { "method": "GET", "path": "/api/skills/dl/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+          "response": {
+            "status": 200,
+            "type": "application/gzip",
+            "headers": { "cache-control": "no-store", "content-disposition": "attachment; filename=\"demo-v1.tar.gz\"", "content-length": "<每个实例随机·string·4>", "referrer-policy": "no-referrer", "vary": "Origin", "x-expected-digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "x-package-sha256": "<每个实例随机·string·64>", "x-powered-by": "Express" }
+          }
+        },
+        {
+          "id": "dl-expired",
+          "route": "GET /api/skills/dl/:ticket",
+          "class": "invalid",
+          "what": "下载：过期的票，404（和不存在同一应答）",
+          "request": { "method": "GET", "path": "/api/skills/dl/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "111", "etag": "W/\"6f-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "下载链接无效、已过期（10 分钟有效）或已用满 5 次，请重新调 skill_download" }
+          }
+        },
+        {
+          "id": "dl-maxed",
+          "route": "GET /api/skills/dl/:ticket",
+          "class": "invalid",
+          "what": "下载：用满 5 次的票，404",
+          "request": { "method": "GET", "path": "/api/skills/dl/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "111", "etag": "W/\"6f-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "下载链接无效、已过期（10 分钟有效）或已用满 5 次，请重新调 skill_download" }
+          }
+        },
+        {
+          "id": "dl-unknown",
+          "route": "GET /api/skills/dl/:ticket",
+          "class": "invalid",
+          "what": "下载：没签发过的票号，404",
+          "request": { "method": "GET", "path": "/api/skills/dl/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "111", "etag": "W/\"6f-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "下载链接无效、已过期（10 分钟有效）或已用满 5 次，请重新调 skill_download" }
+          }
+        },
+        {
+          "id": "dl-bad-format",
+          "route": "GET /api/skills/dl/:ticket",
+          "class": "invalid",
+          "what": "下载：票号不是 64 位十六进制，404",
+          "request": { "method": "GET", "path": "/api/skills/dl/xyz" },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "111", "etag": "W/\"6f-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "下载链接无效、已过期（10 分钟有效）或已用满 5 次，请重新调 skill_download" }
+          }
+        },
+        {
+          "id": "raw-dl-dotdot",
+          "route": "GET /api/skills/dl/:ticket",
+          "class": "invalid",
+          "what": "原样发：票号是 ..，404",
+          "request": { "method": "GET", "path": "/api/skills/dl/..", "raw": true },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "111", "etag": "W/\"6f-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "下载链接无效、已过期（10 分钟有效）或已用满 5 次，请重新调 skill_download" }
+          }
+        },
+        {
+          "id": "raw-dl-encoded-slash",
+          "route": "GET /api/skills/dl/:ticket",
+          "class": "invalid",
+          "what": "原样发：票号里有 %2f，404",
+          "request": { "method": "GET", "path": "/api/skills/dl/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa%2f..%2faaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "raw": true },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "111", "etag": "W/\"6f-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "下载链接无效、已过期（10 分钟有效）或已用满 5 次，请重新调 skill_download" }
+          }
+        },
+        {
+          "id": "raw-dl-long",
+          "route": "GET /api/skills/dl/:ticket",
+          "class": "invalid",
+          "what": "原样发：票号 4000 个字符，404",
+          "request": { "method": "GET", "path": "/api/skills/dl/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "raw": true },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "111", "etag": "W/\"6f-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "下载链接无效、已过期（10 分钟有效）或已用满 5 次，请重新调 skill_download" }
+          }
+        },
+        {
+          "id": "raw-versions-dotdot",
+          "route": "GET /api/skills/:slug/versions",
+          "class": "invalid",
+          "what": "原样发：:slug 是 ..，404",
+          "request": { "method": "GET", "path": "/api/skills/../versions", "raw": true },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "skill not found: .." } }
+        },
+        {
+          "id": "raw-versions-encoded-slash",
+          "route": "GET /api/skills/:slug/versions",
+          "class": "invalid",
+          "what": "原样发：:slug 是 demo%2f..%2fx，404",
+          "request": { "method": "GET", "path": "/api/skills/demo%2f..%2fx/versions", "raw": true },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "skill not found: demo/../x" } }
+        },
+        {
+          "id": "raw-versions-backslash",
+          "route": "GET /api/skills/:slug/versions",
+          "class": "invalid",
+          "what": "原样发：:slug 有反斜杠，404",
+          "request": { "method": "GET", "path": "/api/skills/demo\\x/versions", "raw": true },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "skill not found: demo\\x" } }
+        },
+        {
+          "id": "raw-export-encoded-dots",
+          "route": "GET /api/skills/:slug/export",
+          "class": "invalid",
+          "what": "原样发：:slug 是 %2e%2e，404",
+          "compare": "head",
+          "request": { "method": "GET", "path": "/api/skills/%2e%2e/export", "raw": true },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" } }
+        },
+        {
+          "id": "raw-pub-long",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "invalid",
+          "what": "原样发：发布的 :slug 4000 个字符，400 slug 非法",
+          "request": {
+            "method": "POST",
+            "path": "/api/skills/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/versions",
+            "raw": true,
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "files": [{ "path": "SKILL.md", "content": "# demo\n回放用的技能\n" }, { "path": "scripts/run.sh", "content": "echo hi\n" }] }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "84", "etag": "W/\"54-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "slug 非法（小写字母数字开头·仅 [a-z0-9:_-]·≤64 字符）" }
+          }
+        },
+        {
+          "id": "activate-no-token",
+          "route": "POST /api/skills/:slug/activate",
+          "class": "unauthorized",
+          "what": "回滚：本机不带口令，403",
+          "request": { "method": "POST", "path": "/api/skills/demo/activate", "headers": {}, "json": { "version": 1, "reviewed_by": "回放" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "activate-no-reviewer",
+          "route": "POST /api/skills/:slug/activate",
+          "class": "invalid",
+          "what": "回滚：没有 reviewed_by，400",
+          "request": { "method": "POST", "path": "/api/skills/demo/activate", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "version": 1 } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "126", "etag": "W/\"7e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "技能回滚需 reviewed_by（人审门——一步式直调必填；或经 MCP change_request_create 提请求）" }
+          }
+        },
+        {
+          "id": "activate-missing",
+          "route": "POST /api/skills/:slug/activate",
+          "class": "invalid",
+          "what": "回滚：没有这个技能，404",
+          "request": { "method": "POST", "path": "/api/skills/nope/activate", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "version": 1, "reviewed_by": "回放" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "skill not found: nope" } }
+        },
+        {
+          "id": "activate-v-missing",
+          "route": "POST /api/skills/:slug/activate",
+          "class": "invalid",
+          "what": "回滚：版本 99，404",
+          "request": { "method": "POST", "path": "/api/skills/demo/activate", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "version": 99, "reviewed_by": "回放" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "version not found: 99" } }
+        },
+        {
+          "id": "activate",
+          "route": "POST /api/skills/:slug/activate",
+          "class": "normal",
+          "what": "回滚到 v1：reviewed_by 去掉两头空白记下",
+          "request": { "method": "POST", "path": "/api/skills/demo/activate", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "version": 1, "reviewed_by": "  回放审批人  " } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "197", "etag": "W/\"c5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "slug": "demo", "active_version": 1, "previous_version": 2, "latest_version": 2, "tree_digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "reviewed_by": "回放审批人" }
+          }
+        },
+        {
+          "id": "versions-after-activate",
+          "route": "GET /api/skills/:slug/versions",
+          "class": "normal",
+          "what": "回滚之后当前版本是 1",
+          "request": { "method": "GET", "path": "/api/skills/demo/versions" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "884", "etag": "W/\"374-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "demo",
+              "active_version": 1,
+              "versions": [
+                { "id": 2, "skill_id": 2, "version": 2, "changelog": "第二版", "breaking": 0, "tree_digest": "bb1bbdfe0780cf6eb027bc17d6a1a2e40ad7c91320cc401e5a836d609641a7d8", "file_count": 3, "total_bytes": 29, "snapshot_path": "skill-snapshots/demo/v2", "reviewed_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "skipped", "shadow_error": "含非 UTF-8（二进制）文件 bin/blob.dat：LayerFS 契约只收文本，不推影子", "commit_id": "", "active": false },
+                { "id": 1, "skill_id": 2, "version": 1, "changelog": "第一版", "breaking": 0, "tree_digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "file_count": 2, "total_bytes": 34, "snapshot_path": "skill-snapshots/demo/v1", "reviewed_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "failed", "shadow_error": "LayerFS publish failed; retry migrate-layerfs", "commit_id": "", "active": true }
+              ]
+            }
+          }
+        },
+        {
+          "id": "export-after-activate",
+          "route": "GET /api/skills/:slug/export",
+          "class": "normal",
+          "what": "回滚之后导出缺省是 v1",
+          "compare": "head",
+          "request": { "method": "GET", "path": "/api/skills/demo/export" },
+          "response": {
+            "status": 200,
+            "type": "application/x-tar",
+            "headers": { "content-disposition": "attachment; filename=\"demo-v1.tar\"", "content-length": "3072", "vary": "Origin", "x-expected-digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "x-powered-by": "Express" }
+          }
+        },
+        {
+          "id": "migrate-no-token",
+          "route": "POST /api/skills/:slug/migrate-layerfs",
+          "class": "unauthorized",
+          "what": "迁移：本机不带口令，403",
+          "request": { "method": "POST", "path": "/api/skills/demo/migrate-layerfs", "headers": {}, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "migrate-missing",
+          "route": "POST /api/skills/:slug/migrate-layerfs",
+          "class": "invalid",
+          "what": "迁移：没有这个技能，404",
+          "request": { "method": "POST", "path": "/api/skills/nope/migrate-layerfs", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "skill not found: nope" } }
+        },
+        {
+          "id": "migrate",
+          "route": "POST /api/skills/:slug/migrate-layerfs",
+          "class": "normal",
+          "what": "迁移：没配 LayerFS，每个版本记失败（含二进制的那一版留档不迁）",
+          "request": { "method": "POST", "path": "/api/skills/demo/migrate-layerfs", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "287", "etag": "W/\"11f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "demo",
+              "project": "wm-skills",
+              "branch": "skill/demo",
+              "results": [{ "version": 1, "result": "error", "reason": "layerfs 服务不可达（可重跑）" }, { "version": 2, "result": "anomaly", "reason": "含非 UTF-8（二进制）文件 bin/blob.dat：LayerFS 契约只收文本，留档不迁" }]
+            }
+          }
+        },
+        {
+          "id": "versions-after-migrate",
+          "route": "GET /api/skills/:slug/versions",
+          "class": "normal",
+          "what": "迁移之后版本列表的影子状态",
+          "request": { "method": "GET", "path": "/api/skills/demo/versions" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "884", "etag": "W/\"374-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "slug": "demo",
+              "active_version": 1,
+              "versions": [
+                { "id": 2, "skill_id": 2, "version": 2, "changelog": "第二版", "breaking": 0, "tree_digest": "bb1bbdfe0780cf6eb027bc17d6a1a2e40ad7c91320cc401e5a836d609641a7d8", "file_count": 3, "total_bytes": 29, "snapshot_path": "skill-snapshots/demo/v2", "reviewed_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "skipped", "shadow_error": "含非 UTF-8（二进制）文件 bin/blob.dat：LayerFS 契约只收文本，不推影子", "commit_id": "", "active": false },
+                { "id": 1, "skill_id": 2, "version": 1, "changelog": "第一版", "breaking": 0, "tree_digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "file_count": 2, "total_bytes": 34, "snapshot_path": "skill-snapshots/demo/v1", "reviewed_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "shadow_status": "failed", "shadow_error": "LayerFS publish failed; retry migrate-layerfs", "commit_id": "", "active": true }
+              ]
+            }
+          }
+        },
+        {
+          "id": "rebuild-no-token",
+          "route": "POST /api/admin/rebuild-wm-skills",
+          "class": "unauthorized",
+          "what": "重建：本机不带口令，403",
+          "request": { "method": "POST", "path": "/api/admin/rebuild-wm-skills", "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "rebuild-cross",
+          "route": "POST /api/admin/rebuild-wm-skills",
+          "class": "unauthorized",
+          "what": "重建：带口令但跨站，403",
+          "request": { "method": "POST", "path": "/api/admin/rebuild-wm-skills", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": {} },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "rebuild-unconfigured",
+          "what": "重建：没配 LayerFS，502（这条路由没有 2xx 和 4xx 的应答，写了豁免）",
+          "request": { "method": "POST", "path": "/api/admin/rebuild-wm-skills", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 502, "type": "application/json; charset=utf-8", "headers": { "content-length": "56", "etag": "W/\"38-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "layerfs 服务未配置——重建不可用" } }
+        },
+        {
+          "id": "delete-no-token",
+          "route": "DELETE /api/skills/:slug",
+          "class": "unauthorized",
+          "what": "删除：本机不带口令，403",
+          "request": { "method": "DELETE", "path": "/api/skills/ns:tool", "headers": {}, "json": { "reviewed_by": "回放" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "delete-no-reviewer",
+          "route": "DELETE /api/skills/:slug",
+          "class": "invalid",
+          "what": "删除：没有 reviewed_by，400",
+          "request": { "method": "DELETE", "path": "/api/skills/ns:tool", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "技能删除需 reviewed_by（人审门）" } }
+        },
+        {
+          "id": "delete-missing",
+          "route": "DELETE /api/skills/:slug",
+          "class": "invalid",
+          "what": "删除：没有这个技能，404",
+          "request": { "method": "DELETE", "path": "/api/skills/nope", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "回放" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "skill not found: nope" } }
+        },
+        {
+          "id": "delete",
+          "route": "DELETE /api/skills/:slug",
+          "class": "normal",
+          "what": "删除 ns:tool：版本、钉装记录、技能行一并删",
+          "request": { "method": "DELETE", "path": "/api/skills/ns:tool", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "回放" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "deleted": "ns:tool", "reviewed_by": "回放" }
+          }
+        },
+        {
+          "id": "versions-after-delete",
+          "route": "GET /api/skills/:slug/versions",
+          "class": "invalid",
+          "what": "删除之后版本列表 404",
+          "request": { "method": "GET", "path": "/api/skills/ns:tool/versions" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "skill not found: ns:tool" } }
+        },
+        {
+          "id": "list-final",
+          "route": "GET /api/skills",
+          "class": "normal",
+          "what": "最后的列表",
+          "request": { "method": "GET", "path": "/api/skills" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "423", "etag": "W/\"1a7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "slug": "other", "name": "库里的技能（没有版本）", "layer": 1, "layer_name": "基础", "family_parent": "", "description": "种子", "legacy": false, "versions": 0, "active_version": null, "is_installed": false, "current_version": null },
+              { "slug": "demo", "name": "demo", "layer": 5, "layer_name": "AI 原生运营", "family_parent": "", "description": "", "legacy": false, "versions": 2, "active_version": 1, "is_installed": true, "current_version": 2 }
+            ]
+          }
+        },
+        {
+          "id": "list-remote-anonymous",
+          "route": "GET /api/skills",
+          "class": "normal",
+          "what": "登录门关着：远程匿名读列表",
+          "request": { "method": "GET", "path": "/api/skills", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "423", "etag": "W/\"1a7-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "slug": "other", "name": "库里的技能（没有版本）", "layer": 1, "layer_name": "基础", "family_parent": "", "description": "种子", "legacy": false, "versions": 0, "active_version": null, "is_installed": false, "current_version": null },
+              { "slug": "demo", "name": "demo", "layer": 5, "layer_name": "AI 原生运营", "family_parent": "", "description": "", "legacy": false, "versions": 2, "active_version": 1, "is_installed": true, "current_version": 2 }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "layerfs-down",
+      "what": "LayerFS 配成一个连不上的本机地址（LAYERFS_SERVICE_URL，端口 9 没人听）：重建能走完。管理口令由环境给（合成值）。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin", "LAYERFS_SERVICE_URL": "http://127.0.0.1:9" },
+      "clock": "2030-01-01T00:00:00Z",
+      "steps": [
+        {
+          "id": "down-pub",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "normal",
+          "what": "布置：发布一个技能（影子推送连不上，后台记失败，这里不读版本列表）",
+          "request": {
+            "method": "POST",
+            "path": "/api/skills/ldemo/versions",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "files": [{ "path": "SKILL.md", "content": "# demo\n回放用的技能\n" }, { "path": "scripts/run.sh", "content": "echo hi\n" }] }
+          },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "194", "etag": "W/\"c2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "slug": "ldemo", "version": 1, "tree_digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "file_count": 2, "total_bytes": 34, "snapshot_path": "skill-snapshots/ldemo/v1" }
+          }
+        },
+        {
+          "id": "down-rebuild",
+          "route": "POST /api/admin/rebuild-wm-skills",
+          "class": "normal",
+          "what": "重建：LayerFS 连不上，删项目失败、每个技能清掉旧的 commit_id、一个都没重推；照样 200",
+          "request": { "method": "POST", "path": "/api/admin/rebuild-wm-skills", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "69", "etag": "W/\"45-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "deleted_project": false, "republished": 0, "cleared_stale": 1 }
+          }
+        },
+        {
+          "id": "down-rebuild-again",
+          "route": "POST /api/admin/rebuild-wm-skills",
+          "class": "normal",
+          "what": "再重建一次：结果一样",
+          "request": { "method": "POST", "path": "/api/admin/rebuild-wm-skills", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "69", "etag": "W/\"45-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "deleted_project": false, "republished": 0, "cleared_stale": 1 }
+          }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce），管理口令由环境给（合成值）。预先写进库同样的东西。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "seed": [
+        { "table": "skills", "row": { "slug": "other", "name": "库里的技能（没有版本）", "layer": 1, "layer_name": "基础", "description": "种子", "source": "seed" } },
+        { "table": "role_bundles", "row": { "pack_id": "pack-a", "member_name": "回放成员", "bundle_version": 1, "roster_digest": "seed-digest", "skill_slugs": "[\"demo\",\"other\"]" } },
+        { "table": "skill_download_tickets", "row": { "id": "ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb", "slug": "demo", "version": 1, "issued_to": "seed", "expires_at": 4102444800000 } },
+        { "table": "skill_download_tickets", "row": { "id": "a0fab1377f49a759b57f63318262ebe89fabfc990e8e93ceac2984561482b9d4", "slug": "demo", "version": 1, "issued_to": "seed", "expires_at": 1000 } },
+        { "table": "skill_download_tickets", "row": { "id": "52b6419d27bd7f547cee3b92f8c17a908b8a49601ecbec161e5030de1dfe9e0a", "slug": "demo", "version": 1, "issued_to": "seed", "expires_at": 4102444800000, "downloads": 5 } }
+      ],
+      "steps": [
+        {
+          "id": "gated-list-anonymous",
+          "route": "GET /api/skills",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名列表",
+          "request": { "method": "GET", "path": "/api/skills", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-list-with-token",
+          "route": "GET /api/skills",
+          "class": "normal",
+          "what": "登录门开着：远程带口令列表",
+          "request": { "method": "GET", "path": "/api/skills", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "229", "etag": "W/\"e5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [{ "slug": "other", "name": "库里的技能（没有版本）", "layer": 1, "layer_name": "基础", "family_parent": "", "description": "种子", "legacy": false, "versions": 0, "active_version": null, "is_installed": false, "current_version": null }]
+          }
+        },
+        {
+          "id": "gated-role-packs-anonymous",
+          "route": "GET /api/skills/role-packs",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名角色包",
+          "request": { "method": "GET", "path": "/api/skills/role-packs", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-role-packs-with-token",
+          "route": "GET /api/skills/role-packs",
+          "class": "normal",
+          "what": "登录门开着：远程带口令角色包",
+          "request": { "method": "GET", "path": "/api/skills/role-packs", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "131", "etag": "W/\"83-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [{ "pack_id": "pack-a", "member_name": "回放成员", "bundle_version": 1, "skill_slugs": ["demo", "other"], "roster_digest": "seed-digest" }]
+          }
+        },
+        {
+          "id": "gated-versions-anonymous",
+          "route": "GET /api/skills/:slug/versions",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名版本列表",
+          "request": { "method": "GET", "path": "/api/skills/other/versions", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-verify-anonymous",
+          "route": "GET /api/skills/:slug/verify",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名校验",
+          "request": { "method": "GET", "path": "/api/skills/other/verify", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-export-anonymous",
+          "route": "GET /api/skills/:slug/export",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名导出",
+          "compare": "head",
+          "request": { "method": "GET", "path": "/api/skills/other/export", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": { "status": 401, "type": "application/json; charset=utf-8", "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" } }
+        },
+        {
+          "id": "gated-dl-anonymous",
+          "route": "GET /api/skills/dl/:ticket",
+          "class": "invalid",
+          "what": "登录门开着：远程匿名下载——下载靠票号本身授权，登录门放行，没签发过的票照样 404",
+          "request": { "method": "GET", "path": "/api/skills/dl/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "111", "etag": "W/\"6f-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "下载链接无效、已过期（10 分钟有效）或已用满 5 次，请重新调 skill_download" }
+          }
+        },
+        {
+          "id": "gated-pub-anonymous",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名发布",
+          "request": {
+            "method": "POST",
+            "path": "/api/skills/demo/versions",
+            "headers": { "x-forwarded-for": "198.51.100.7" },
+            "json": { "files": [{ "path": "SKILL.md", "content": "# demo\n回放用的技能\n" }, { "path": "scripts/run.sh", "content": "echo hi\n" }] }
+          },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-pub-with-token",
+          "route": "POST /api/skills/:slug/versions",
+          "class": "normal",
+          "what": "登录门开着：远程带口令发布",
+          "request": {
+            "method": "POST",
+            "path": "/api/skills/gdemo/versions",
+            "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" },
+            "json": { "files": [{ "path": "SKILL.md", "content": "# demo\n回放用的技能\n" }, { "path": "scripts/run.sh", "content": "echo hi\n" }] }
+          },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "194", "etag": "W/\"c2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "slug": "gdemo", "version": 1, "tree_digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "file_count": 2, "total_bytes": 34, "snapshot_path": "skill-snapshots/gdemo/v1" }
+          }
+        },
+        {
+          "id": "gated-install-anonymous",
+          "route": "POST /api/skills/:slug/install",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名钉装",
+          "request": { "method": "POST", "path": "/api/skills/gdemo/install", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-revoke-anonymous",
+          "route": "POST /api/skills/:slug/install/:ledgerId/revoke",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名撤销",
+          "request": { "method": "POST", "path": "/api/skills/gdemo/install/1/revoke", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-report-anonymous",
+          "route": "POST /api/skills/:slug/report-digest",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名摘要上报",
+          "request": { "method": "POST", "path": "/api/skills/gdemo/report-digest", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "version": 1, "digest": "0000000000000000000000000000000000000000000000000000000000000000" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-activate-anonymous",
+          "route": "POST /api/skills/:slug/activate",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名回滚",
+          "request": { "method": "POST", "path": "/api/skills/gdemo/activate", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "version": 1, "reviewed_by": "x" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-migrate-anonymous",
+          "route": "POST /api/skills/:slug/migrate-layerfs",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名迁移",
+          "request": { "method": "POST", "path": "/api/skills/gdemo/migrate-layerfs", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-rebuild-anonymous",
+          "route": "POST /api/admin/rebuild-wm-skills",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名重建",
+          "request": { "method": "POST", "path": "/api/admin/rebuild-wm-skills", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-delete-anonymous",
+          "route": "DELETE /api/skills/:slug",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名删除",
+          "request": { "method": "DELETE", "path": "/api/skills/gdemo", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "reviewed_by": "x" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-delete-with-token",
+          "route": "DELETE /api/skills/:slug",
+          "class": "normal",
+          "what": "登录门开着：远程带口令删除",
+          "request": { "method": "DELETE", "path": "/api/skills/gdemo", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "x" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "47", "etag": "W/\"2f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "deleted": "gdemo", "reviewed_by": "x" }
+          }
+        }
+      ]
+    }
+  ]
+}
