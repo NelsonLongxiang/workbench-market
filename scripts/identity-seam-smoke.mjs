@@ -518,9 +518,9 @@ async function meChecks(srv, tag) {
   const tok = await srv.call('GET', '/api/auth/me', null, undefined, TOKEN);
   const role = me1.json?.roles?.find((r) => r.id === 'member');
   check(me0.json?.principal === 'user:beta' && me0.json?.display_name === 'Synthetic beta' && Array.isArray(me0.json?.roles) && me0.json.login === 'beta'
-    && role?.name === '普通员工' && role?.preset === true && role?.scope === '*' && role?.expires_at === null
+    && role?.name === '普通员工' && role?.preset === true && role?.scope === '*' && role?.expires_at === null && role?.source === 'manual' && role?.approved_by === 'cli'
     && tok.json?.authenticated === true && tok.json?.principal === null && tok.json?.display_name === null && Array.isArray(tok.json?.roles) && tok.json.roles.length === 0,
-    `${tag}/api/auth/me：认出了人带主体、显示名和当前生效的角色（键、中文名、范围、是不是预设）；口令没有主体、角色为空；原来的字段不变`, show({ me0: me0.json, role, tok: tok.json }));
+    `${tag}/api/auth/me：认出了人带主体、显示名和当前生效的角色（键、中文名、范围、是不是预设、来源、放行人）；口令没有主体、角色为空；原来的字段不变`, show({ me0: me0.json, role, tok: tok.json }));
 }
 
 /** 开着内容面的实例：内容面启动页现查认人，停用的主体拿不到票据 */
