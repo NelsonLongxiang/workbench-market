@@ -5,7 +5,8 @@
  *   1. 用基线的代码在临时目录起一个实例，经它自己的接口建凭据库，再用它自己的库模块灌一份有代表性的合成数据，停掉。
  *   2. 用本检出的代码指向同一个数据目录启动两次：
  *      · 能起来、启动自检全过；原有数据读得出来（总览、事件、凭据库）；
- *      · 表结构只加不改（不删表、不删列、不改列）；
+ *      · 表结构只加不改（不删表、不删列、不改列；基线的索引、触发器、视图都还在，定义逐字相同）；
+ *      · 原有的行内容没被改（每张表按基线的列给原有行算摘要；基线自己每次启动都会动的表先量出来、排除）；
  *      · 幂等：第二次启动后表结构逐字节相同、各表行数相同；
  *      · 回填：事项数等于事件数，第二次启动「补建 0 个」。
  *   3. 回滚：再用基线的代码指向升级后的数据目录启动——自检全过，读、写（新建工作台、台数据提交、开录入）、凭据库都正常。
@@ -17,6 +18,8 @@
  *   node scripts/upgrade-smoke.mjs --base <git 引用>        换一个基线（标签、分支、提交都行）
  *   node scripts/upgrade-smoke.mjs --head <目录>            要验的代码换成另一个目录（缺省本检出；那个目录要装好依赖）
  *   node scripts/upgrade-smoke.mjs --keep                  跑完保留临时目录（排查用）
+ *
+ * 每条检查都无条件执行：前提不成立就记 ✗，不会悄悄跳过；末尾再核对一遍条数。
  *
  * 退出码：0 全过；1 有检查不过；2 准备阶段出错（取不到基线、装不上依赖）。
  */
@@ -100,7 +103,8 @@ async function stopServer(s) {
 }
 const H = { 'x-admin-token': ADMIN, 'sec-fetch-site': 'same-origin' };
 async function call(base, method, path, body, headers = H) {
-  const r = await fetch(base + path, { method, headers: { ...headers, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) }, body: body !== undefined ? JSON.stringify(body) : undefined });
+  let r;
+  try { r = await fetch(base + path, { method, headers: { ...headers, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) }, body: body !== undefined ? JSON.stringify(body) : undefined }); } catch (e) { return { status: 0, body: { error: String(e?.cause?.code ?? e) } }; }
   let json = null; try { json = await r.json(); } catch { /* 不是 JSON */ }
   return { status: r.status, body: json };
 }
@@ -114,7 +118,23 @@ function schemaOf(file) {
     const cols = Object.fromEntries(tables.map((t) => [t, db.prepare(`PRAGMA table_info("${t}")`).all().map((c) => ({ name: c.name, decl: `${c.type}|${c.notnull}|${c.dflt_value}|${c.pk}` }))]));
     const objects = db.prepare("SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name").all();
     const counts = Object.fromEntries(tables.map((t) => [t, db.prepare(`SELECT COUNT(*) AS n FROM "${t}"`).get().n]));
-    return { tables, cols, objects: JSON.stringify(objects), counts };
+    // 索引、触发器、视图按名字记定义（sqlite_ 开头的自动索引没有定义，随表走）
+    const named = Object.fromEntries(objects.filter((o) => o.type !== 'table').map((o) => [o.name, `${o.type}|${o.tbl_name}|${o.sql}`]));
+    return { tables, cols, objects: JSON.stringify(objects), counts, named };
+  } finally { db.close(); }
+}
+/** 原有行的内容：只取 cols 里的列（基线的列）、按 rowid 取前 limits[t] 行（基线时的行数） */
+function rowDigests(file, cols, limits) {
+  const db = new DatabaseSync(file, { readOnly: true });
+  try {
+    const out = {};
+    for (const [t, cs] of Object.entries(cols)) {
+      const sel = cs.map((c) => `"${c.name}"`).join(', ');
+      let rows;
+      try { rows = db.prepare(`SELECT ${sel} FROM "${t}" ORDER BY rowid LIMIT ?`).all(limits[t]); } catch { rows = db.prepare(`SELECT ${sel} FROM "${t}"`).all(); }
+      out[t] = rows.map((r) => JSON.parse(JSON.stringify(r, (_k, v) => (typeof v === 'bigint' ? String(v) : v))));
+    }
+    return out;
   } finally { db.close(); }
 }
 
@@ -199,6 +219,7 @@ try {
   const unlock = await call(s.base, 'POST', '/api/vault/unlock', { password: VAULT_PASSWORD });
   let vaultEntries = 0;
   if (unlock.status === 200) for (let i = 1; i <= 2; i++) if ((await call(s.base, 'POST', '/api/vault/entries', { title: `合成条目${i}`, username: `syn-${i}`, password: `syn-pass-${i}-not-real`, url: `https://example.invalid/${i}` })).status < 300) vaultEntries++;
+  check(vaultEntries === 2, `基线上建好凭据库、写进 2 条（${unlock.status}，${vaultEntries} 条）`);
   await stopServer(s);
   const seedFile = join(OUT, 'seed.mjs'); writeFileSync(seedFile, SEED(baseTree));
   const seeded = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', seedFile], { cwd: baseTree, env: sandboxEnv({ DATA_DIR: DATA }), encoding: 'utf8' });
@@ -210,6 +231,21 @@ try {
   const baseEvents = (await call(s.base, 'GET', '/api/workbench-events?limit=200')).body;
   await stopServer(s);
   const before = schemaOf(DB);
+  const digestBase = rowDigests(DB, before.cols, before.counts);
+  // 基线自己隔一秒再起一次：它每次启动都会改的列（比如启动时重写的时间戳）、每次都会重排的表，不拿来判迁移
+  await new Promise((r) => setTimeout(r, 1100));
+  s = await startServer(baseTree, DATA, 'base-3'); servers.push(s); await stopServer(s);
+  const digestBase2 = rowDigests(DB, before.cols, before.counts);
+  const volatileTables = [], volatileCols = {};
+  for (const t of Object.keys(digestBase)) {
+    const a = digestBase[t], b = digestBase2[t];
+    if (a.length !== b.length) { volatileTables.push(t); continue; }
+    const ks = new Set();
+    a.forEach((r, i) => Object.keys(r).forEach((k) => { if (JSON.stringify(r[k]) !== JSON.stringify(b[i][k])) ks.add(k); }));
+    if (ks.size) volatileCols[t] = ks;
+  }
+  const project = (t, r) => JSON.stringify(Object.fromEntries(Object.entries(r).filter(([k]) => !volatileCols[t]?.has(k))));
+  const volatileNote = [...volatileTables.map((t) => `${t}（整表）`), ...Object.entries(volatileCols).map(([t, ks]) => `${t}.${[...ks].join('/')}`)].join('、') || '无';
 
   // 2. 本检出：启动两次
   s = await startServer(HEAD, DATA, 'head-1'); servers.push(s);
@@ -221,47 +257,56 @@ try {
   check(summary.status === 200 && summary.body?.total === before.counts.workbenches, `原有工作台都读得出来（${summary.body?.total}）`, JSON.stringify(summary.body).slice(0, 120));
   const evs = await call(s.base, 'GET', '/api/workbench-events?limit=200');
   check(evs.status === 200 && Array.isArray(evs.body) && evs.body.length === report.seed.events && Array.isArray(baseEvents) && evs.body.length === baseEvents.length, `原有工作台事件都读得出来（${Array.isArray(evs.body) ? evs.body.length : evs.status}）`);
-  if (vaultEntries) {
+  {
     const v = await call(s.base, 'POST', '/api/vault/unlock', { password: VAULT_PASSWORD });
-    check(v.status === 200 && v.body?.count === vaultEntries, `凭据库照原主密码解得开，条目数不变（${v.body?.count}）`, JSON.stringify(v.body).slice(0, 120));
+    check(v.status === 200 && vaultEntries > 0 && v.body?.count === vaultEntries, `凭据库照原主密码解得开，条目数不变（${v.body?.count} / ${vaultEntries}）`, JSON.stringify(v.body).slice(0, 120));
   }
-  const backfill1 = /回填：核对 (\d+) 个事件，补建 (\d+) 个事项/.exec(s.log());
   await stopServer(s);
   const after1 = schemaOf(DB);
   const droppedTables = before.tables.filter((t) => !after1.tables.includes(t));
   const changedCols = [];
   for (const t of before.tables) for (const c of before.cols[t]) { const now = after1.cols[t]?.find((x) => x.name === c.name); if (!now) changedCols.push(`${t}.${c.name} 被删`); else if (now.decl !== c.decl) changedCols.push(`${t}.${c.name}：${c.decl} → ${now.decl}`); }
   check(droppedTables.length === 0 && changedCols.length === 0, `表结构只加不改（新增 ${after1.tables.length - before.tables.length} 张表）`, [...droppedTables.map((t) => `删了表 ${t}`), ...changedCols].join('；'));
+  const objChanged = Object.keys(before.named).filter((n) => after1.named[n] !== before.named[n]);
+  check(objChanged.length === 0, `基线的索引、触发器、视图都还在、定义逐字相同（${Object.keys(before.named).length} 个）`, objChanged.map((n) => `${n}：${after1.named[n] ? '定义变了' : '没了'}`).join('；'));
+  const digestAfter = rowDigests(DB, before.cols, before.counts);
+  const rowsChanged = [];
+  for (const t of Object.keys(digestBase)) {
+    if (volatileTables.includes(t)) continue;
+    const a = digestBase[t], b = digestAfter[t];
+    const i = a.findIndex((r, k) => !b[k] || project(t, r) !== project(t, b[k]));
+    if (i < 0) continue;
+    if (!b[i]) { rowsChanged.push(`${t} 第 ${i + 1} 行没了`); continue; }
+    rowsChanged.push(`${t} 第 ${i + 1} 行：` + Object.keys(a[i]).filter((k) => !volatileCols[t]?.has(k) && JSON.stringify(a[i][k]) !== JSON.stringify(b[i][k])).map((k) => `${k} ${JSON.stringify(a[i][k])} → ${JSON.stringify(b[i][k])}`).join('，'));
+  }
+  check(rowsChanged.length === 0, `原有行的内容没被改（${Object.keys(digestBase).length - volatileTables.length} 张表逐行逐列；基线自己每次启动都会动的不算：${volatileNote}）`, rowsChanged.join('；').slice(0, 1200));
   const lostRows = before.tables.filter((t) => (after1.counts[t] ?? 0) < before.counts[t]);
   check(lostRows.length === 0, '原有各表的行数没有变少', lostRows.map((t) => `${t} ${before.counts[t]} → ${after1.counts[t]}`).join('；'));
-  if ('work_items' in after1.counts) {
-    // 日志那一行只作佐证（写法以后可能改），判据是表里的数
-    check(after1.counts.work_items === before.counts.workbench_events && (!backfill1 || Number(backfill1[2]) === before.counts.workbench_events),
-      `回填：每个事件建出一个事项（${after1.counts.work_items} / ${before.counts.workbench_events}）`, backfill1 ? backfill1[0] : '');
-  }
+  // 判据是表里的数，不看日志的写法
+  check(after1.counts.work_items === before.counts.workbench_events && before.counts.workbench_events > 0,
+    `回填：每个事件建出一个事项（${after1.counts.work_items ?? '没有事项表'} / ${before.counts.workbench_events}）`);
   s = await startServer(HEAD, DATA, 'head-2'); servers.push(s);
   const probe2 = await selfProbe(s.base);
-  const backfill2 = /回填：核对 (\d+) 个事件，补建 (\d+) 个事项/.exec(s.log());
   await stopServer(s);
   const after2 = schemaOf(DB);
   check(s.ok && probe2?.passed === true, '第二次启动：照常起来，自检全过');
   check(after2.objects === after1.objects, '幂等：第二次启动后表结构逐字节相同');
   const countDiff = Object.keys(after2.counts).filter((t) => after2.counts[t] !== after1.counts[t]);
   check(countDiff.length === 0, '幂等：第二次启动后各表行数相同', countDiff.map((t) => `${t} ${after1.counts[t]} → ${after2.counts[t]}`).join('；'));
-  if (backfill2) check(Number(backfill2[2]) === 0, '幂等：第二次启动回填补建 0 个', backfill2[0]);
+  check(after2.counts.work_items === after1.counts.work_items && after2.counts.work_item_log === after1.counts.work_item_log && after1.counts.work_items !== undefined, `幂等：第二次启动没有再补建事项（${after2.counts.work_items}）`);
   report.head = { new_tables: after1.tables.filter((t) => !before.tables.includes(t)), self_probe_rows: probe1?.rows?.length ?? 0, boot_ms: servers.filter((x) => x.label.startsWith('head')).map((x) => x.ms) };
 
   // 3. 回滚到基线
   s = await startServer(baseTree, DATA, 'rollback'); servers.push(s);
   check(s.ok && (await selfProbe(s.base))?.passed === true, '回滚：基线的代码在升级后的库上照常启动，自检全过', s.ok ? '' : String(s.log).slice(-600));
-  if (s.ok) {
+  {
     const rs = await call(s.base, 'GET', '/api/summary');
     check(rs.status === 200 && rs.body?.total === before.counts.workbenches, '回滚：原有数据读得出来');
     const w = await call(s.base, 'POST', '/api/workbenches', { name: '回滚后新建', url: 'http://127.0.0.1:18555/', type: 'web' });
     const d = await call(s.base, 'POST', '/api/apps/syn-form/data', { data: { after: 'rollback' } }, { 'sec-fetch-site': 'same-origin' });
     const r = await call(s.base, 'POST', '/api/sop/runs', { slug: 'task-center', started_by: 'upgrade-smoke' }, { 'sec-fetch-site': 'same-origin' });
     check(w.status === 201 && d.status === 201 && r.status === 201, `回滚：照常能写（新建工作台 ${w.status}、台数据 ${d.status}、开录入 ${r.status}）`);
-    if (vaultEntries) { const v = await call(s.base, 'POST', '/api/vault/unlock', { password: VAULT_PASSWORD }); check(v.status === 200 && v.body?.count === vaultEntries, '回滚：凭据库照常解得开'); }
+    const v = await call(s.base, 'POST', '/api/vault/unlock', { password: VAULT_PASSWORD }); check(v.status === 200 && vaultEntries > 0 && v.body?.count === vaultEntries, '回滚：凭据库照常解得开');
   }
   await stopServer(s);
 
@@ -275,6 +320,10 @@ try {
 } finally {
   for (const s of servers) await stopServer(s);
 }
+// 每条检查都无条件执行；条数对不上，说明有一段没跑到（上面已经记过 ✗ 的「跑不下去」除外）
+const EXPECTED = 21;
+const ran = pass + fail;
+if (ran !== EXPECTED) { fail++; console.log(`  ✗ 检查条数对不上：记了 ${ran} 条，应为 ${EXPECTED} 条`); }
 const line = `${pass} 通过 / ${fail} 失败`;
 console.log(`\n[upgrade-smoke] ${JSON.stringify(report)}\n${line}`);
 if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## 升级冒烟\n\n基线 \`${BASE_REF}\`（${baseSha.slice(0, 10)}）→ 本检出：${line}\n`);
