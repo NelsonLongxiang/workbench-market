@@ -36,6 +36,42 @@ export function initialChoice(a: Pick<SeatAsk, 'options' | 'default'>): string {
   return a.default && a.options.includes(a.default) ? a.default : '';
 }
 
+/** 终态：结束了，对话不再收回复 */
+export const TERMINAL = ['done', 'failed', 'dropped', 'cancelled'];
+
+const bare = (p: string) => p.replace(/^(user|human|seat):/, '');
+/** 建立人：以 creator_principal（真正提需求的人）为准；和 created_by（谁把它建进系统的）不同时注明谁发布的 */
+export function creatorLabel(createdBy: string, creatorPrincipal?: string | null): string {
+  const by = bare(createdBy || ''), who = bare(creatorPrincipal || '');
+  if (!who) return by || '—';
+  return by && by !== who ? `${who} · 由 ${by} 发布` : who;
+}
+
+type TimelineRow = { fact: string; fact_id?: string; detail: string; rejected?: string };
+/** 时间线这一行叫什么：系统替旧提问补的「答复」（接单节点又问了一次、发来了结果、作出了决定，旧提问就合上）叫「提问作废」，不当成有人答了 */
+export function timelineLabel(r: TimelineRow, facts: Record<string, string>): string {
+  if (r.fact === 'answer' && (r.fact_id ?? '').includes(':closes-ask:')) return '提问作废';
+  return facts[r.fact] ?? r.fact;
+}
+
+/** 不进时间线的行：人看过席位的消息（看一眼不是事项上的事实） */
+export function hiddenInTimeline(r: TimelineRow): boolean {
+  if (r.fact !== 'note') return false;
+  try { return (JSON.parse(r.detail || '{}') as { note?: unknown }).note === 'followup-read'; } catch { return false; }
+}
+
+/** 连续的被拒行（终态之后才到、这时候不该有）收成一组，免得一串「收到，未采信」刷屏；单独一条不收 */
+export function groupRejected<T extends { rejected?: string }>(rows: T[]): ({ kind: 'row'; row: T } | { kind: 'rejected'; rows: T[] })[] {
+  const out: ({ kind: 'row'; row: T } | { kind: 'rejected'; rows: T[] })[] = [];
+  for (const r of rows) {
+    const last = out[out.length - 1];
+    if (r.rejected && last && last.kind === 'rejected') { last.rows.push(r); continue; }
+    if (r.rejected && last && last.kind === 'row' && last.row.rejected) { out[out.length - 1] = { kind: 'rejected', rows: [last.row, r] }; continue; }
+    out.push({ kind: 'row', row: r });
+  }
+  return out;
+}
+
 /** 进展回执的步骤状态（阶段七 #551） */
 export const PROGRESS_STATE: Record<string, string> = { queued: '排队中', working: '正在处理', waiting: '在等', blocked: '卡住了' };
 

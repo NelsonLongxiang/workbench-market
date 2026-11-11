@@ -14,9 +14,9 @@ import RelTime from '../components/RelTime';
 import { adminActive, apiFetch, subscribeAdminToken } from '../admin-token';
 import { answerChoices, answerRoute, describe, type AttentionItem, type LogRow } from '../attention-view';
 import { getWorkItem, postAskAnswer, postCreatorDecision, postSeatMessageReply, postSeatMessagesRead } from '../api';
-import { PROGRESS_STATE, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
+import { PROGRESS_STATE, TERMINAL, creatorLabel, groupRejected, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
 
-type Item = { id: string; title: string; state: string; created_by: string; created_at: string; updated_at: string; source_kind: string; source_ref: string; target_team: string; seat: string; eval: string; eval_reason: string; progress_summary: string; receipt_outcome: string; object: string; phase: string; open_asks: string; outputs: string; evidence: string };
+type Item = { id: string; title: string; state: string; created_by: string; creator_principal?: string | null; created_at: string; updated_at: string; source_kind: string; source_ref: string; target_team: string; seat: string; eval: string; eval_reason: string; progress_summary: string; receipt_outcome: string; object: string; phase: string; open_asks: string; outputs: string; evidence: string };
 
 export const STATE: Record<string, { label: string; color: string }> = {
   draft: { label: '草稿', color: 'default' }, held: { label: '搁置', color: 'default' }, delivered: { label: '已转交', color: 'blue' },
@@ -133,7 +133,7 @@ function AskRow({ itemId, ask, onDone }: { itemId: string; ask: SeatAsk; onDone:
   </List.Item>;
 }
 
-function SeatMessages({ itemId, messages, onChanged }: { itemId: string; messages: SeatMessage[]; onChanged: () => void }) {
+function SeatMessages({ itemId, messages, closed, onChanged }: { itemId: string; messages: SeatMessage[]; closed: boolean; onChanged: () => void }) {
   const { message } = App.useApp();
   const [drafts, setDrafts] = useState<Record<number, string>>({});
   const [busy, setBusy] = useState<number | null>(null);
@@ -153,18 +153,18 @@ function SeatMessages({ itemId, messages, onChanged }: { itemId: string; message
     finally { setBusy(null); }
   };
   if (!messages.length) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="席位还没发来消息" />;
-  return <List itemLayout="vertical" size="small" dataSource={messages} rowKey="id" renderItem={(m) => <List.Item data-testid="seat-message">
+  return <>{closed && <Typography.Text type="secondary" data-testid="seat-messages-closed">事项已经结束，不能再回复。</Typography.Text>}<List itemLayout="vertical" size="small" dataSource={messages} rowKey="id" renderItem={(m) => <List.Item data-testid="seat-message">
     <Space wrap size={4}>
       <Typography.Text strong>{m.sender || m.peer}</Typography.Text>
       <Tag color={MSG_STATUS[m.status].color}>{MSG_STATUS[m.status].label}</Tag>
       <RelTime value={m.at} />
     </Space>
     <Typography.Paragraph className="wm-m-0 wm-prewrap" ellipsis={{ rows: 6, expandable: 'collapsible', symbol: (open) => (open ? '收起' : '展开全文') }}>{m.text}{m.truncated ? '（已截断）' : ''}</Typography.Paragraph>
-    {(m.status === 'unread' || m.status === 'read') && <Space.Compact block>
+    {!closed && (m.status === 'unread' || m.status === 'read') && <Space.Compact block>
       <Input.TextArea aria-label="回复" autoSize={{ minRows: 1, maxRows: 6 }} maxLength={4000} placeholder="回复这条消息（发回这个团队）" value={drafts[m.id] ?? ''} onChange={(e) => setDrafts((d) => ({ ...d, [m.id]: e.target.value }))} />
       <Button type="primary" loading={busy === m.id} disabled={!(drafts[m.id] ?? '').trim()} onClick={() => void reply(m)}>回复</Button>
     </Space.Compact>}
-  </List.Item>} />;
+  </List.Item>} /></>;
 }
 
 function Artifacts({ list, empty }: { list: Artifact[]; empty: string }) {
@@ -178,6 +178,17 @@ function Artifacts({ list, empty }: { list: Artifact[]; empty: string }) {
 }
 
 const REJECTED: Record<string, string> = { not_allowed: '这时候不该有这条事实', terminal: '事项已经结束之后才到' };
+function LogLine({ row }: { row: LogRow }) {
+  return <div data-testid="timeline-row">
+    <Space wrap size={4}>
+      <Typography.Text strong>{timelineLabel(row, FACT)}</Typography.Text>
+      {row.from_state !== row.to_state ? <>{stateTag(row.from_state)}→{stateTag(row.to_state)}</> : null}
+      {row.rejected && <Tag color="default">收到，未采信：{REJECTED[row.rejected] ?? row.rejected}</Tag>}
+    </Space>
+    <div><Typography.Text type="secondary">{row.at} · {row.actor || row.fact_source}</Typography.Text></div>
+    {describe(row) && <div>{describe(row)}</div>}
+  </div>;
+}
 const stateTag = (s: string) => <Tag color={STATE[s]?.color ?? 'default'}>{STATE[s]?.label ?? s}</Tag>;
 
 export default function WorkItem() {
@@ -198,7 +209,10 @@ export default function WorkItem() {
       const d = body as Data;
       setData(d);
       // 打开就算看过：有未读才标（不是待决，只是提示）；标不了（没权限写）不影响看
-      if ((d.unread ?? 0) > 0) void postSeatMessagesRead(id).catch(() => undefined);
+      // 标成功就把本页的未读也改成看过（不用等下次刷新）
+      if ((d.unread ?? 0) > 0) void postSeatMessagesRead(id).then(({ status }) => {
+        if (status === 200) setData((cur) => cur && cur.item.id === d.item.id ? { ...cur, unread: 0, messages: (cur.messages ?? []).map((m) => (m.status === 'unread' ? { ...m, status: 'read' } : m)) } : cur);
+      }).catch(() => undefined);
       // 等你处理的：读不到（没登录、来源守卫不给）就当没有，事项本身照看
       try {
         const r = await apiFetch('/api/attention');
@@ -218,6 +232,7 @@ export default function WorkItem() {
   const hint = item ? stateHint(item.state, item.seat, asks ? openAsks === 0 && asks.length > 0 : lastAskAnswered(data?.log ?? [])) : null;
   const progress = data?.progress ?? null;
   // 结果：事项的 outputs 列（现在还没人写）加上日志里回执带来的产物，去重
+  const timeline = (data?.log ?? []).filter((r) => !hiddenInTimeline(r));
   const outputs = mergeArtifacts(parseArtifacts(item?.outputs), artifactsFromLog(data?.log ?? []));
   const evidence = parseArtifacts(item?.evidence);
   return <WmPage title={item?.title ?? '事项'} detail={item?.title} onBack={() => navigate('/work-items')}
@@ -232,7 +247,7 @@ export default function WorkItem() {
               <Descriptions column={2} size="small" items={[
                 { key: 'seat', label: '承接', children: item.seat || <Typography.Text type="secondary">还没有席位接手</Typography.Text> },
                 { key: 'team', label: '派给', children: item.target_team || '—' },
-                { key: 'by', label: '建立人', children: item.created_by },
+                { key: 'by', label: '建立人', children: creatorLabel(item.created_by, item.creator_principal) },
                 { key: 'obj', label: '对象 / 阶段', children: [item.object, item.phase].filter(Boolean).join(' / ') || '—' },
                 { key: 'eval', label: '接单判断', children: item.eval ? `${item.eval}${item.eval_reason ? `（${item.eval_reason}）` : ''}` : '—' },
                 { key: 'at', label: '最近变化', children: <RelTime value={item.updated_at} /> },
@@ -257,22 +272,12 @@ export default function WorkItem() {
           </Card>}
           <Card size="small" data-testid="seat-messages"
             title={<Space>对话{(data?.unread ?? 0) > 0 && <Badge count={data?.unread} title="未读的席位消息" />}</Space>}>
-            <SeatMessages itemId={id} messages={data?.messages ?? []} onChanged={() => void load()} />
+            <SeatMessages itemId={id} messages={data?.messages ?? []} closed={TERMINAL.includes(item.state)} onChanged={() => void load()} />
           </Card>
           <Card title="时间线" size="small">
-            {data!.log.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有记录" /> : <Timeline items={data!.log.map((row) => ({
-              key: row.seq,
-              color: row.rejected ? 'gray' : row.from_state !== row.to_state ? 'blue' : 'green',
-              children: <div data-testid="timeline-row">
-                <Space wrap size={4}>
-                  <Typography.Text strong>{FACT[row.fact] ?? row.fact}</Typography.Text>
-                  {row.from_state !== row.to_state ? <>{stateTag(row.from_state)}→{stateTag(row.to_state)}</> : null}
-                  {row.rejected && <Tag color="default">收到，未采信：{REJECTED[row.rejected] ?? row.rejected}</Tag>}
-                </Space>
-                <div><Typography.Text type="secondary">{row.at} · {row.actor || row.fact_source}</Typography.Text></div>
-                {describe(row) && <div>{describe(row)}</div>}
-              </div>,
-            }))} />}
+            {timeline.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有记录" /> : <Timeline items={groupRejected(timeline).map((g) => g.kind === 'rejected'
+              ? { key: `rej-${g.rows[0].seq}`, color: 'gray', children: <details data-testid="timeline-rejected"><summary><Typography.Text type="secondary">{g.rows.length} 条收到、未采信的记录（{REJECTED[g.rows[0].rejected] ?? g.rows[0].rejected}）</Typography.Text></summary>{g.rows.map((row) => <LogLine key={row.seq} row={row} />)}</details> }
+              : { key: g.row.seq, color: g.row.rejected ? 'gray' : g.row.from_state !== g.row.to_state ? 'blue' : 'green', children: <LogLine row={g.row} /> })} />}
           </Card>
         </Flex>
       </Col>
@@ -281,7 +286,7 @@ export default function WorkItem() {
           <Card size="small" title={`结果${outputs.length ? ` ${outputs.length}` : ''}`} data-testid="work-item-outputs">
             <Flex vertical gap="small">
               {item.receipt_outcome && <Space size={6}><Typography.Text type="secondary">回执</Typography.Text><Tag>{item.receipt_outcome}</Tag></Space>}
-              <Artifacts list={outputs} empty="还没有产出" />
+              <Artifacts list={outputs} empty={item.receipt_outcome ? '没有附产出；回执的内容在对话和时间线里' : '还没有产出'} />
             </Flex>
           </Card>
           <Card size="small" title={`依据${evidence.length ? ` ${evidence.length}` : ''}`}><Artifacts list={evidence} empty="还没有依据" /></Card>

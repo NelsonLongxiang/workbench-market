@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 事项详情页的纯函数单测（web/src/work-item-view.ts）：提示条、进展一行字、结果解析与链接、关注条目对到事项。 */
-import { artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint } from '../web/src/work-item-view.ts';
+import { creatorLabel, groupRejected, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint } from '../web/src/work-item-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -27,6 +27,12 @@ ok('链接：table、file、不认得的 kind、形状不对的 sop-run 都不�
 
 ok('答复请求体：选了选项只给 answer，否则给去空白的文本，都没有给 null', JSON.stringify(askAnswerBody('甲', '也写了')) === '{"answer":"甲"}' && JSON.stringify(askAnswerBody('', ' 中文 ')) === '{"text":"中文"}' && askAnswerBody('', '  ') === null);
 ok('初始选择：缺省项在选项里才预选', initialChoice({ options: ['甲', '乙'], default: '乙' }) === '乙' && initialChoice({ options: ['甲'], default: '丙' }) === '' && initialChoice({ options: [] }) === '');
+
+ok('建立人：以 creator_principal 为准，和发布人不同时注明', creatorLabel('human:root-admin', 'user:alpha') === 'alpha · 由 root-admin 发布' && creatorLabel('user:alpha', 'user:alpha') === 'alpha' && creatorLabel('human:alice', null) === 'alice' && creatorLabel('', '') === '—');
+ok('时间线：系统合上旧提问的答复叫「提问作废」，真答复照旧', timelineLabel({ fact: 'answer', fact_id: '9:closes-ask:3', detail: '' }, { answer: '答复' }) === '提问作废' && timelineLabel({ fact: 'answer', fact_id: 'u1', detail: '' }, { answer: '答复' }) === '答复');
+ok('时间线：看过消息的备注不进时间线，别的备注照进', hiddenInTimeline({ fact: 'note', detail: '{"note":"followup-read","late":true}' }) && !hiddenInTimeline({ fact: 'note', detail: '{"note":"followup"}' }) && !hiddenInTimeline({ fact: 'note', detail: '{坏' }));
+const gr = groupRejected([{ seq: 1 }, { seq: 2, rejected: 'terminal' }, { seq: 3 }, { seq: 4, rejected: 'terminal' }, { seq: 5, rejected: 'terminal' }, { seq: 6, rejected: 'terminal' }]).map((g) => g.kind === 'row' ? g.row.seq : g.rows.map((r) => r.seq).join('+'));
+ok('时间线：连续两条以上的被拒行收成一组，单独一条不收', JSON.stringify(gr) === '[1,2,3,"4+5+6"]', JSON.stringify(gr));
 
 const att = (source, link) => ({ source, source_id: '1', category: 'ask', title: '', waiting_for: '', since: '', answers: [], object: '', phase: '', link });
 const mine = pendingFor([att('seat-asks', '/work-items/wi_a'), att('work-items', '/work-items/wi_b'), att('work-items', '/work-items/wi_a'), att('x', '/other')], 'wi_a');
