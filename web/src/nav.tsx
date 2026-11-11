@@ -21,8 +21,8 @@ export interface NavPage { path: string; name: string; icon: ReactNode }
 export interface NavGroup { key: string; name: string; admin?: boolean; /** 不进侧栏，只给页面名、面包屑用（弃用中的旧入口） */ hidden?: boolean; pages: NavPage[] }
 
 /** 入口按原型排（产品化 3fbfd0b）：主入口一列，顺序是 全景、事项、驾驶舱、团队、谁能做什么、工作台市场、经验库。
- *  属主 2026-11-11：原来的 UI 弃用，按原型重新长。旧入口（关注、统一待办、SOP 交付空间、技能市场、原来的总览 /overview）不再进侧栏，
- *  路由先保留、能直接打开；各自的功能并进新页面后逐个下线。 */
+ *  属主 2026-11-11：原来的 UI 弃用，按原型重新长；旧版页面直接弃用，不再给任何入口。下面的隐藏组只留页面名给还没删的旧路由用，
+ *  旧页面代码的删除单独成 PR。 */
 const BASE_GROUPS: NavGroup[] = [
   { key: '/g/main', name: '工作', pages: [
     { path: '/', name: '全景', icon: <DashboardOutlined /> },

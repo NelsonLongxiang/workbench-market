@@ -4,7 +4,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Dropdown, Popover } from 'antd';
-import { HistoryOutlined, PlusOutlined, SettingOutlined } from '@ant-design/icons';
+import { PlusOutlined, SettingOutlined } from '@ant-design/icons';
 import { NAV_GROUPS, findNav } from '../nav';
 import { api, getAttentionCount, getAuthMe } from '../api';
 import type { Cockpit } from '../types';
@@ -30,8 +30,6 @@ export default function Shell({ admin, footer, children }: { admin: boolean; foo
 
   const groups = NAV_GROUPS.filter((g) => !g.admin && !g.hidden);
   const adminPages = NAV_GROUPS.filter((g) => g.admin).flatMap((g) => g.pages);
-  // 旧版页面：还没并进新页面的旧功能，人人都点得到；每并掉一个就从 nav.tsx 的隐藏组里删一个，空了整个菜单就不出现
-  const legacyPages = NAV_GROUPS.filter((g) => g.hidden).flatMap((g) => g.pages);
   return (
     <div className="wm-app">
       <aside className="wm-side" data-testid="wm-side">
@@ -50,11 +48,6 @@ export default function Shell({ admin, footer, children }: { admin: boolean; foo
           {admin && adminPages.length > 0 && <Dropdown placement="topLeft" trigger={['click', 'hover']} menu={{ items: adminPages.map((p) => ({ key: p.path, icon: p.icon, label: <Link to={p.path}>{p.name}</Link> })) }}>
             <button type="button" className={current && adminPages.some((p) => p.path === current.page.path) ? 'wm-nav-item on' : 'wm-nav-item'} data-testid="nav-admin">
               <span className="wm-nav-icon"><SettingOutlined /></span><span>设置 / 管理</span>
-            </button>
-          </Dropdown>}
-          {legacyPages.length > 0 && <Dropdown placement="topLeft" trigger={['click', 'hover']} menu={{ items: legacyPages.map((p) => ({ key: p.path, label: <Link to={p.path}>{p.name}</Link> })) }}>
-            <button type="button" className={current && legacyPages.some((p) => p.path === current.page.path) ? 'wm-nav-item wm-nav-quiet on' : 'wm-nav-item wm-nav-quiet'} data-testid="nav-legacy">
-              <span className="wm-nav-icon"><HistoryOutlined /></span><span>旧版页面</span>
             </button>
           </Dropdown>}
           <Popover placement="topLeft" trigger="click" content={<div className="wm-me-pop">{footer}</div>}>

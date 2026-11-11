@@ -376,7 +376,6 @@ body { background: var(--wm-color-page); }
 .wm-me { display: flex; align-items: center; gap: var(--wm-space-2); padding: var(--wm-space-1) var(--wm-space-2); width: 100%; border: 0; border-radius: var(--wm-radius-md); background: transparent; cursor: pointer; font: inherit; text-align: left; }
 .wm-me:hover { background: var(--wm-color-nav-item-active-bg); }
 .wm-me-pop { display: flex; flex-direction: column; align-items: flex-start; gap: var(--wm-space-2); min-width: 220px; }
-.wm-nav-quiet { height: 32px; font-size: var(--wm-font-size-caption); }
 .wm-avatar {
   width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; flex: none;
   background: var(--wm-color-primary-subtle); color: var(--wm-color-primary); font-weight: var(--wm-font-weight-body-strong); font-size: var(--wm-font-size-caption);
