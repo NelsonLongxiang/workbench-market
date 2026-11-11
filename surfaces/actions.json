@@ -150,7 +150,7 @@
       "POST /api/task-center/tasks/:id/withdraw  -> task-center.withdraw  admin",
       "PATCH /api/task-center/tasks/:id/agent-dispatch  -> task-center.dispatch-toggle  admin",
       "GET /sso/callback  -> sso.callback  write",
-      "GET /api/remote-allow/diff  -> （未登记）",
+      "GET /api/remote-allow/diff  -> remote-allow.diff  admin",
       "GET /api/sops/:slug/definition  -> sop.definition  read",
       "GET /api/sops/:slug/timeline  -> sop.timeline  read",
       "GET /api/bindings  -> binding.list  admin",

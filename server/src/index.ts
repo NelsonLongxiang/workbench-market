@@ -49,6 +49,7 @@ import { registerSopStateRoutes, registerSopSpaceRoutes } from './routes/sops.ts
 import { registerTaskIntakeRoutes, registerTaskReadRoutes, registerTaskControlRoutes } from './routes/task-center.ts';
 import { registerSkillRoutes } from './routes/skills.ts';
 import { registerMcpRoutes } from './routes/mcp.ts';
+import { registerRemoteAllowRoutes } from './routes/remote-allow.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import type { ChangeRequestService } from './services/change-request.ts';
@@ -2859,10 +2860,7 @@ registerTaskControlRoutes(http, { readActiveManifest, sameOriginGuard, adminGuar
 // /sso/callback?redirect=/go/N/&state=xxx → 内域校验 → 302 目标台（会话 cookie 由浏览器自持 Odoo 域·此处只管回跳安全）
 registerSsoRoutes(http);
 
-app.get('/api/remote-allow/diff', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  res.json({ ...lastAllowDiff, snapshot_count: (svc<RemoteAllowService>('remoteAllow').snapshotCount() as { n: number }).n });
-});
+registerRemoteAllowRoutes(http, { adminGuard, lastAllowDiff });
 
 registerSopSpaceRoutes(http, { getApp, adminHeaderOk, bad, appsRoot, parseSopManifest });
 
