@@ -91,6 +91,16 @@
       "code TEXT NOT NULL DEFAULT ''",
       "a2a_node8 TEXT NOT NULL DEFAULT ''"
     ],
+    "attention_answers": [
+      "source TEXT NOT NULL PK",
+      "source_id TEXT NOT NULL PK",
+      "answer TEXT NOT NULL",
+      "state TEXT NOT NULL",
+      "status INTEGER NOT NULL DEFAULT 0",
+      "body TEXT NOT NULL DEFAULT ''",
+      "answered_by TEXT NOT NULL DEFAULT ''",
+      "at TEXT NOT NULL DEFAULT datetime('now')"
+    ],
     "bindings": [
       "id INTEGER PK",
       "target_type TEXT NOT NULL",
@@ -225,7 +235,11 @@
       "external_id TEXT NOT NULL PK",
       "display_name TEXT NOT NULL DEFAULT ''",
       "email TEXT NOT NULL DEFAULT ''",
-      "last_seen TEXT NOT NULL DEFAULT datetime('now')"
+      "last_seen TEXT NOT NULL DEFAULT datetime('now')",
+      "appearance INTEGER NOT NULL DEFAULT 0"
+    ],
+    "principal_pending_seq": [
+      "id INTEGER PK"
     ],
     "principals": [
       "id TEXT PK",
@@ -633,6 +647,7 @@
     "uq_bindings_natural ON bindings: CREATE UNIQUE INDEX uq_bindings_natural ON bindings (target_type, target_slug, agent_node, direction)"
   ],
   "triggers": [
+    "principal_pending_appearance ON principal_pending: CREATE TRIGGER principal_pending_appearance AFTER INSERT ON principal_pending BEGIN INSERT INTO principal_pending_seq (id) VALUES (NULL); UPDATE principal_pending SET appearance = last_insert_rowid() WHERE provider = NEW.provider AND external_id = NEW.external_id; DELETE FROM principal_pending_seq WHERE id < last_insert_rowid(); END",
     "sop_runs_cache_revision ON sop_runs: CREATE TRIGGER sop_runs_cache_revision AFTER UPDATE OF data, status ON sop_runs BEGIN UPDATE sop_runs SET cache_revision = OLD.cache_revision + 1 WHERE id = NEW.id; END",
     "sop_runs_hot_pending_clear ON sop_runs: CREATE TRIGGER sop_runs_hot_pending_clear AFTER UPDATE OF data ON sop_runs WHEN NEW.hot_pending <> 0 BEGIN UPDATE sop_runs SET hot_pending = 0 WHERE id = NEW.id; END",
     "task_events_no_delete ON task_events: CREATE TRIGGER task_events_no_delete BEFORE DELETE ON task_events BEGIN SELECT RAISE(ABORT,'task events append only'); END",

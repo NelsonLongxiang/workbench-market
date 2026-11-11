@@ -61,6 +61,7 @@
       "POST /api/principals/reconcile  -> principal.reconcile  admin",
       "POST /api/principals/unbind  -> principal.unbind  admin",
       "GET /api/attention  -> attention.read  read",
+      "POST /api/attention/answer  -> attention.answer  decide",
       "GET /api/work-items/:id  -> work-item.read  read",
       "POST /api/skills/:slug/install  -> （未登记）",
       "GET /api/skills/:slug/verify  -> （未登记）",

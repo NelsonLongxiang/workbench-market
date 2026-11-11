@@ -340,6 +340,14 @@ export class WorkItemService extends Service {
     return db.prepare('SELECT * FROM work_items WHERE id = ?').get(id) as WorkItemRow | undefined;
   }
 
+  /** 事项最近一次「进入」这几个状态之一的那一行日志的 seq（状态真的变过去的那一行）；没进过返回 null。
+   *  「关注」记账用它分开每一轮待决：退回之后再进 ready 是新的一轮 */
+  lastEntrySeq(id: string, states: readonly WorkItemState[]): number | null {
+    const row = db.prepare(`SELECT seq FROM work_item_log WHERE item_id = ? AND from_state <> to_state AND to_state IN (${states.map(() => '?').join(', ')}) ORDER BY seq DESC LIMIT 1`)
+      .get(id, ...states) as { seq: number } | undefined;
+    return row?.seq ?? null;
+  }
+
   log(id: string): WorkItemLogRow[] {
     return db.prepare('SELECT * FROM work_item_log WHERE item_id = ? ORDER BY seq').all(id) as WorkItemLogRow[];
   }

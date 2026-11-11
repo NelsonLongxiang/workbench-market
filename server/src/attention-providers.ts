@@ -25,6 +25,7 @@ import { listVars, workbenchScope } from './workbench-vars.ts';
 import { principalsAdmin } from './routes/principals.ts';
 import { buildBoard, findBoardWorkbench, parseConfig, BOARD_PATH, type BoardVar } from './owner-pending.ts';
 import { openSeatAsks } from './services/attention-sources.ts';
+import { withAnswers } from './attention-answers.ts';
 import type { AttentionItem, AttentionProvider, AttentionService } from './services/attention.ts';
 import type { ChangeRequestService } from './services/change-request.ts';
 import type { McpService } from './services/mcp.ts';
@@ -58,7 +59,8 @@ export const TASKS_DEDUPED_PREFIXES = ['change-request:'] as const;
 
 export function installAttentionProviders(attention: AttentionService, deps: AttentionDeps): Array<() => void> {
   const sop = () => svc<SopService>('sop');
-  const provide = (p: AttentionProvider<express.Request>) => attention.provide(p);
+  // 8d：答法和「看不到时怎么拒」挂在提供方上（attention-answers.ts），这里只多包一层
+  const provide = (p: AttentionProvider<express.Request>) => attention.provide(withAnswers(p, deps));
   return [
     provide({
       source: 'change-requests', label: '变更申请',

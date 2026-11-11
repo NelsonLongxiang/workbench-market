@@ -733,6 +733,36 @@ CREATE TRIGGER work_item_log_no_update BEFORE UPDATE ON work_item_log
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
 }
+// 阶段八 8d：「关注」的答复记账。每个（来源、来源里的 id）一行：第一次答成功就记下应答，同一条再答返回这一份；
+//   pending 表示正有人在答（并发的第二个人被告知正在处理）；答失败就删掉这一行，可以再答。原件的状态和留痕在来源自己那里。
+db.exec(`
+CREATE TABLE IF NOT EXISTS attention_answers (
+  source TEXT NOT NULL CHECK (source <> ''),
+  source_id TEXT NOT NULL CHECK (source_id <> ''),
+  answer TEXT NOT NULL CHECK (answer <> ''),
+  state TEXT NOT NULL CHECK (state IN ('pending', 'done')),
+  status INTEGER NOT NULL DEFAULT 0,
+  body TEXT NOT NULL DEFAULT '',
+  answered_by TEXT NOT NULL DEFAULT '',
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (source, source_id)
+);
+`);
+// 阶段八 8d：待对接清单的「出现序号」。同一条外部身份绑定后又出现在清单里，是新的一轮待决；「关注」的记账按它分轮，
+//   不靠时间（只到秒，同一秒里又出现就分不开）。每次新插入一行（主体服务是 upsert，只在真的新进清单时插入）取一个全局只增的号：
+//   号来自一张 AUTOINCREMENT 表，删掉旧号不会回退。只加这一列和取号，清单本身的写法不变。
+if (!(db.prepare('PRAGMA table_info(principal_pending)').all() as { name: string }[]).some((c) => c.name === 'appearance')) {
+  db.exec('ALTER TABLE principal_pending ADD COLUMN appearance INTEGER NOT NULL DEFAULT 0');
+}
+db.exec(`
+CREATE TABLE IF NOT EXISTS principal_pending_seq (id INTEGER PRIMARY KEY AUTOINCREMENT);
+CREATE TRIGGER IF NOT EXISTS principal_pending_appearance AFTER INSERT ON principal_pending
+  BEGIN
+    INSERT INTO principal_pending_seq (id) VALUES (NULL);
+    UPDATE principal_pending SET appearance = last_insert_rowid() WHERE provider = NEW.provider AND external_id = NEW.external_id;
+    DELETE FROM principal_pending_seq WHERE id < last_insert_rowid();
+  END;
+`);
 // #337: a durable monotonic generation invalidates stale Redis snapshots, including same-value writes.
 {
   const cols = db.prepare('PRAGMA table_info(sop_runs)').all() as { name: string }[];
