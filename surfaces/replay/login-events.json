@@ -1,0 +1,132 @@
+{
+  "domain": "login-events",
+  "what": "离职即时失效：/login/<方式>/events 的 1 条路由（对账的手动触发在 principals 域）。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["POST /login/:flow/events"],
+  "exempt": [],
+  "scenarios": [
+    {
+      "name": "off",
+      "what": "缺省配置：飞书登录没打开。",
+      "env": {},
+      "steps": [
+        {
+          "id": "unsigned",
+          "route": "POST /login/:flow/events",
+          "class": "unauthorized",
+          "what": "没打开飞书登录、不带签名：401",
+          "request": { "method": "POST", "path": "/login/feishu/events", "json": { "schema": "2.0" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "event_unauthorized" }
+          }
+        },
+        {
+          "id": "not-json",
+          "route": "POST /login/:flow/events",
+          "class": "invalid",
+          "what": "请求体不是 JSON：全局解析器拒绝（400）",
+          "request": { "method": "POST", "path": "/login/feishu/events", "headers": { "content-type": "application/json" }, "text": "not json" },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "请求体不是合法 JSON" } }
+        }
+      ]
+    },
+    {
+      "name": "feishu",
+      "what": "飞书登录打开、指向本机的假飞书（夹具 feishu-fake），时钟定在 2030-01-01（事件的时间戳要在 5 分钟内）。carol 的飞书身份绑在 user:carol 上。",
+      "env": {},
+      "clock": "2030-01-01T00:00:00Z",
+      "fixtures": ["feishu-fake"],
+      "seed": [
+        { "table": "principals", "row": { "id": "user:carol", "id_key": "user:carol", "kind": "person", "display_name": "Synthetic Carol" } },
+        { "table": "principal_identities", "row": { "provider": "feishu", "external_id": "on_6361726f6c2e2e2e2e2e2e2e2e2e2e2e", "external_key": "on_6361726f6c2e2e2e2e2e2e2e2e2e2e2e", "principal_id": "user:carol" } }
+      ],
+      "steps": [
+        {
+          "id": "unsigned",
+          "route": "POST /login/:flow/events",
+          "class": "unauthorized",
+          "what": "不带签名：401",
+          "request": { "method": "POST", "path": "/login/feishu/events", "json": { "schema": "2.0" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "event_unauthorized" }
+          }
+        },
+        {
+          "id": "bad-token",
+          "route": "POST /login/:flow/events",
+          "class": "unauthorized",
+          "what": "签名对、Verification Token 不对：401",
+          "request": {
+            "method": "POST",
+            "path": "/login/feishu/events",
+            "headers": { "content-type": "application/json", "x-lark-request-timestamp": "1893456000", "x-lark-request-nonce": "replay-nonce-4", "x-lark-signature": "520c1474776da5c7babe942d6dd2b3555eb85629148a61d26cd545602298b19e" },
+            "text": "{\"encrypt\":\"gey9DhYHDA6qZCU24VihFWgKQL2lyWJ5RWIp1iMR3LH/Zg7vY5av62JDC+4SpH6bjldiuPObmt+EChfhgDeckDpAWrwlT69DwM+U+CgEaUM=\"}"
+          },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "event_unauthorized" }
+          }
+        },
+        {
+          "id": "url-verification",
+          "route": "POST /login/:flow/events",
+          "class": "normal",
+          "what": "URL 校验：回 challenge",
+          "request": {
+            "method": "POST",
+            "path": "/login/feishu/events",
+            "headers": { "content-type": "application/json", "x-lark-request-timestamp": "1893456000", "x-lark-request-nonce": "replay-nonce-1", "x-lark-signature": "f57b36a707b7b8015f5e5c2a521dcab9fb2990e09300bb630117564f11d93273" },
+            "text": "{\"encrypt\":\"P82GYXtmOAddmH4aFsqxgeAkRTxCOlPR96TRAEQFz7Bfw3FlBZXkdFfG9lFikQajJSgH7hjQTgdQwItpVxoqTI43uh82xn+eNzdjCnmFqBeGJyYyNU0hCZuTildCX4kWIfs3bkb78AA7yTZIhKHUdA31+aS/9JeLlINlAdmsEhw=\"}"
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "challenge": "replay-challenge" }
+          }
+        },
+        {
+          "id": "deleted",
+          "route": "POST /login/:flow/events",
+          "class": "normal",
+          "what": "员工离职：200，carol 停用",
+          "request": {
+            "method": "POST",
+            "path": "/login/feishu/events",
+            "headers": { "content-type": "application/json", "x-lark-request-timestamp": "1893456000", "x-lark-request-nonce": "replay-nonce-2", "x-lark-signature": "20568f49e1b9638e413e62dab11d6ab6ee2dd816f681f3ea1541eeb0544837aa" },
+            "text": "{\"encrypt\":\"nKGplmTobAaBLfOzT0qBK+tHCkpL2FeGsW6z2+xB2tcg91w63RGiO2FOyVHCdCd6kMvZlJOqjlBzs5y9ojHo0+ADF8wSOaU3Da68cRZq5Z7mtSNxekECTaE9s7vUjzIEHA/B8BogdeyFvBAT4kG+IKIt/p9GPC4pNt/V6yun2zkReOKO95n2nhiUpHEEl+IhWcqNMuL8shtWd20X4CvZgzzTSJoIxEpvVqenwiZHedJEQ1fKI3vQF96xPHRzPl0gvA1v3uhDH5iyTLyWVLYAIWaxTS7OOoNkXbusVrNDdEYRl/qteVzwSzlW3+NUbBCskA58Ym7+boaJnlXNQ2u5TpB/+A7XmH3gACxfi0pugSa1VHDb8bdf6GcytADfRwnUXEFnTWEX8KEZW1DmUuLV76GSIiklaNVIKOeEiGxbMLAlpW+M7g9edA5l2MfNtsTK/QnzqnUXwuJvH+VYYOJweFbh9VT0gIBTZlqejLbpMifcwZPBr28tql7I0hQx7WoY0ZFBRFkd+XCNifglUR398Xr9Ey+0L9N7Gq1GkJ3sgcaDRuuzaq6Qmb/MQ6wpQb/8AtBI/ODby2vt1tSI8w+kxf6aHyIMLgC7sbTAZiHNbkwIfp5M1EDcs/7JB0slEKEqJjc4+zBp1XBun0FpFihfcg==\"}"
+          },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "cache-control": "no-store", "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": {} }
+        },
+        {
+          "id": "deleted-replay",
+          "route": "POST /login/:flow/events",
+          "class": "normal",
+          "what": "同一个请求重放：200，不再处理",
+          "request": {
+            "method": "POST",
+            "path": "/login/feishu/events",
+            "headers": { "content-type": "application/json", "x-lark-request-timestamp": "1893456000", "x-lark-request-nonce": "replay-nonce-2", "x-lark-signature": "20568f49e1b9638e413e62dab11d6ab6ee2dd816f681f3ea1541eeb0544837aa" },
+            "text": "{\"encrypt\":\"nKGplmTobAaBLfOzT0qBK+tHCkpL2FeGsW6z2+xB2tcg91w63RGiO2FOyVHCdCd6kMvZlJOqjlBzs5y9ojHo0+ADF8wSOaU3Da68cRZq5Z7mtSNxekECTaE9s7vUjzIEHA/B8BogdeyFvBAT4kG+IKIt/p9GPC4pNt/V6yun2zkReOKO95n2nhiUpHEEl+IhWcqNMuL8shtWd20X4CvZgzzTSJoIxEpvVqenwiZHedJEQ1fKI3vQF96xPHRzPl0gvA1v3uhDH5iyTLyWVLYAIWaxTS7OOoNkXbusVrNDdEYRl/qteVzwSzlW3+NUbBCskA58Ym7+boaJnlXNQ2u5TpB/+A7XmH3gACxfi0pugSa1VHDb8bdf6GcytADfRwnUXEFnTWEX8KEZW1DmUuLV76GSIiklaNVIKOeEiGxbMLAlpW+M7g9edA5l2MfNtsTK/QnzqnUXwuJvH+VYYOJweFbh9VT0gIBTZlqejLbpMifcwZPBr28tql7I0hQx7WoY0ZFBRFkd+XCNifglUR398Xr9Ey+0L9N7Gq1GkJ3sgcaDRuuzaq6Qmb/MQ6wpQb/8AtBI/ODby2vt1tSI8w+kxf6aHyIMLgC7sbTAZiHNbkwIfp5M1EDcs/7JB0slEKEqJjc4+zBp1XBun0FpFihfcg==\"}"
+          },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "cache-control": "no-store", "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": {} }
+        },
+        {
+          "id": "not-json",
+          "route": "POST /login/:flow/events",
+          "class": "invalid",
+          "what": "请求体不是 JSON：400",
+          "request": { "method": "POST", "path": "/login/feishu/events", "headers": { "content-type": "application/json" }, "text": "not json" },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "请求体不是合法 JSON" } }
+        }
+      ]
+    }
+  ]
+}

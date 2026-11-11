@@ -171,7 +171,20 @@ export interface LoginFlow {
   readonly autoBindByEmail?: boolean;
   begin(input: { state: string; callbackUrl: string }): Promise<FlowBegin>;
   complete(query: Record<string, string>, input: { callbackUrl: string }): Promise<FlowComplete>;
+  /**
+   * 失效通知（可选）：对方推来的事件（比如飞书通讯录变更）。插件自己验签、解密、核对来源，交回应答，
+   * 以及这次该停用的外部身份（离职、被停用）和事件号（核心按它防重放）。验不过就交回 4xx，不交 offboard。
+   */
+  handleEvent?(input: { headers: Record<string, string>; rawBody: Buffer }): Promise<FlowEvent>;
+  /**
+   * 对账（可选）：拿一批外部身份去对方那边查，交回已经离职或被停用的（gone）和查不清的（unknown）。
+   * 只凭确切的证据算 gone；对方出错、查不到都算 unknown，不停用任何人。
+   */
+  checkMembers?(externalIds: string[]): Promise<{ gone: string[]; unknown: string[] }>;
 }
+
+/** 失效通知的结果：http、body 原样回给对方；offboard 是该停用的外部身份；eventId 给核心防重放 */
+export type FlowEvent = { http: number; body: unknown; eventId?: string; offboard?: string[] };
 
 const FLOW_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
 /** 登录方式最多等对方这么久（发起、回调各算一次）。对方慢到这个地步，按不可用处理，不放行 */
@@ -257,6 +270,48 @@ export class IdentityService extends Service {
       if (typeof location === 'string' && /^https?:\/\//.test(location)) return { ok: true, location };
     } catch { /* 下面按不可用 */ }
     return flowFail(502, FLOW_UNAVAILABLE);
+  }
+
+  /** 这个登录方式能不能收失效通知、能不能对账 */
+  flowCapabilities(name: string): { events: boolean; reconcile: boolean } {
+    const flow = this.flowsByName.get(name);
+    try { if (!flow || flow.available() !== true) return { events: false, reconcile: false }; } catch { return { events: false, reconcile: false }; }
+    return { events: typeof flow.handleEvent === 'function', reconcile: typeof flow.checkMembers === 'function' };
+  }
+
+  /**
+   * 失效通知：交给插件验签、解析。从不抛错；插件出错、到点没回答、交回的形状不对，都按 503、不停用任何人。
+   * offboard 里只留合乎外部身份形状的；事件号只收短的可见字符。
+   */
+  async flowEvent(name: string, input: { headers: Record<string, string>; rawBody: Buffer }): Promise<FlowEvent> {
+    const flow = this.flowsByName.get(name);
+    const none: FlowEvent = { http: 404, body: { error: 'no_such_flow' } };
+    try { if (!flow || flow.available() !== true || typeof flow.handleEvent !== 'function') return none; } catch { return none; }
+    try {
+      const a = await within(Promise.resolve(flow.handleEvent(input)), FLOW_DEADLINE_MS) as FlowEvent;
+      const http = a?.http;
+      if (typeof http !== 'number' || !Number.isInteger(http) || http < 200 || http > 599) throw new Error('bad');
+      const offboard = http === 200 && Array.isArray(a.offboard) ? a.offboard.filter((x) => loginOk(x)).slice(0, 1000) : [];
+      const eventId = typeof a.eventId === 'string' && /^[\x21-\x7e]{1,128}$/.test(a.eventId) ? a.eventId : undefined;
+      return { http, body: a.body ?? {}, ...(eventId ? { eventId } : {}), offboard };
+    } catch {
+      return { http: 503, body: { error: 'event_unavailable' } };
+    }
+  }
+
+  /** 对账：交给插件查。出错、到点没回答、形状不对：什么都不算 gone */
+  async flowCheckMembers(name: string, externalIds: string[]): Promise<{ gone: string[]; unknown: string[] }> {
+    const flow = this.flowsByName.get(name);
+    try { if (!flow || flow.available() !== true || typeof flow.checkMembers !== 'function') return { gone: [], unknown: externalIds }; } catch { return { gone: [], unknown: externalIds }; }
+    try {
+      const a = await within(Promise.resolve(flow.checkMembers(externalIds)), 10 * 60_000);
+      const asked = new Set(externalIds);
+      const gone = Array.isArray(a?.gone) ? a.gone.filter((x) => typeof x === 'string' && asked.has(x)) : [];
+      const unknown = Array.isArray(a?.unknown) ? a.unknown.filter((x) => typeof x === 'string' && asked.has(x)) : [];
+      return { gone: [...new Set(gone)], unknown: [...new Set(unknown)] };
+    } catch {
+      return { gone: [], unknown: externalIds };
+    }
   }
 
   /** 回调：拿回调参数去对方那边认人。同样从不抛错，形状不对按认不出 */

@@ -193,11 +193,11 @@ function totpPeriod(secret: string): number {
 /**
  * 服务端内部读一条应用凭证（登录插件取飞书应用的标识和密钥用），不经 HTTP，不交给浏览器。
  *   · 按标题精确匹配一个没被删除的条目；同名有多条就不取（说不清是哪一条）。
- *   · 标识取 username，密钥取 password、secret、apiKey 里第一个非空的。
+ *   · 标识取 username，密钥取 password、secret、apiKey 里第一个非空的；自定义字段（只收字符串值）一并交出（飞书事件的 Encrypt Key 等）。
  *   · 库锁着、又没配服务端主密码（DSH_VAULT_PASSWORD_FILE / DSH_VAULT_PASSWORD），或者任何别的错：返回 null，调用方按不可用处理。
  *   · 读一次记一条 read 审计（和页面上读完整条目同一种）。
  */
-export async function vaultCredential(title: string): Promise<{ id: string; secret: string } | null> {
+export async function vaultCredential(title: string): Promise<{ id: string; secret: string; fields: Record<string, string> } | null> {
   try {
     const o = await unlocked(false);
     const hits = o.store.list().filter((e) => e.title === title && !e.deletedAt);
@@ -207,7 +207,9 @@ export async function vaultCredential(title: string): Promise<{ id: string; secr
     const secret = [e.password, e.secret, e.apiKey].find((v) => typeof v === 'string' && v.length > 0) ?? '';
     if (!id || !secret) return null;
     o.store.audit('read', e.id, e.title);
-    return { id, secret };
+    const fields: Record<string, string> = {};
+    for (const [k, v] of Object.entries((e as { fields?: Record<string, unknown> }).fields ?? {})) if (typeof v === 'string') fields[k] = v;
+    return { id, secret, fields };
   } catch {
     return null;
   }

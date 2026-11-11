@@ -7,9 +7,28 @@
  * 测试用的把手：as(人) 选下一次授权页上「同意」的是谁；mode(名) 让某一步出错（见 MODES）；calls 记下每个请求，用来核对密钥只发给了换令牌那一步。
  */
 import { createServer } from 'node:http';
-import { randomBytes } from 'node:crypto';
+import { createCipheriv, createHash, randomBytes } from 'node:crypto';
 
-export const APP = { id: 'cli_synthetic0000001', secret: 'synthetic-app-secret-do-not-log', tenant: 'tenant_synthetic' };
+export const APP = { id: 'cli_synthetic0000001', secret: 'synthetic-app-secret-do-not-log', tenant: 'tenant_synthetic', encryptKey: 'synthetic-encrypt-key-0001', verificationToken: 'synthetic-verification-token' };
+
+/**
+ * 照飞书事件订阅的规则做一个推送：明文 JSON 用 AES-256-CBC 加密（密钥 sha256(Encrypt Key)，前 16 字节 IV），
+ * 再按 sha256(时间戳 + nonce + Encrypt Key + 请求体) 签名。返回 { body, headers }，原样 POST 给市场。
+ */
+export function signedEvent(payload, { encryptKey = APP.encryptKey, timestamp = Math.floor(Date.now() / 1000), nonce = randomBytes(8).toString('hex'), tamper = null, plain = false } = {}) {
+  const iv = randomBytes(16);
+  const c = createCipheriv('aes-256-cbc', createHash('sha256').update(encryptKey).digest(), iv);
+  // plain：不加密、明文发（签名照样对）。市场要求配 Encrypt Key，明文事件不处理
+  const body = plain ? JSON.stringify(payload) : JSON.stringify({ encrypt: Buffer.concat([iv, c.update(JSON.stringify(payload), 'utf8'), c.final()]).toString('base64') });
+  const signature = createHash('sha256').update(Buffer.concat([Buffer.from(`${timestamp}${nonce}${encryptKey}`, 'utf8'), Buffer.from(body, 'utf8')])).digest('hex');
+  const sent = tamper ? tamper(body) : body;
+  return { body: sent, headers: { 'content-type': 'application/json', 'x-lark-request-timestamp': String(timestamp), 'x-lark-request-nonce': nonce, 'x-lark-signature': signature } };
+}
+
+/** 一个 schema 2.0 的通讯录事件 */
+export function contactEvent(type, person, { eventId = randomBytes(8).toString('hex'), status = {}, tenant = APP.tenant, appId = APP.id, token = APP.verificationToken } = {}) {
+  return { schema: '2.0', header: { event_id: eventId, event_type: type, create_time: String(Date.now()), token, app_id: appId, tenant_key: tenant }, event: { object: { union_id: PEOPLE[person].union_id, open_id: `ou_${PEOPLE[person].union_id.slice(3)}`, name: PEOPLE[person].name, status: { is_frozen: false, is_resigned: false, is_activated: true, is_exited: false, is_unjoin: false, ...status } } } };
+}
 
 const hex32 = (seed) => [...Buffer.from(seed.padEnd(16, '.').slice(0, 16))].map((b) => b.toString(16).padStart(2, '0')).join('');
 /** 合成的人。union_id 照飞书的形状：on_ 加 32 位十六进制 */
@@ -33,11 +52,14 @@ export const MODES = {
   unionTampered: '用户信息里的 union_id 形状不对（被篡改）',
   unionInjected: 'union_id 里塞了别的东西',
   otherTenant: '别的租户的人',
+  tenantTokenFail: '对账时取 tenant_access_token 失败',
 };
 
 /** fixedCodes：预先登记的授权码（录制回放用：它没法走一遍授权页）。这些码不核对 redirect_uri，一样一次性 */
 export async function startFakeFeishu({ fixedCodes = {} } = {}) {
   let who = 'alice', mode = 'normal';
+  /** 对账用：每个人在通讯录里的状态（缺省都在职）；gone(人) 把他改成离职，broken(人) 让查他时出错 */
+  const directory = new Map(), broken = new Set();
   const codes = new Map(Object.entries(fixedCodes).map(([code, person]) => [code, { person, redirect: null, at: Date.now() + 365 * 86_400_000 }])), tokens = new Map(), calls = [];
   const server = createServer((req, res) => {
     const u = new URL(req.url, 'http://127.0.0.1');
@@ -83,6 +105,19 @@ export async function startFakeFeishu({ fixedCodes = {} } = {}) {
         if (mode === 'otherTenant') data.tenant_key = 'tenant_other';
         return send(200, { code: 0, msg: 'success', data });
       }
+      if (req.method === 'POST' && u.pathname === '/open-apis/auth/v3/tenant_access_token/internal') {
+        let b; try { b = JSON.parse(body); } catch { b = {}; }
+        if (mode === 'tenantTokenFail' || b.app_id !== APP.id || b.app_secret !== APP.secret) return send(400, { code: 10014, msg: 'app secret invalid (synthetic)' });
+        return send(200, { code: 0, msg: 'ok', tenant_access_token: 't-synthetic-tenant-token', expire: 7200 });
+      }
+      const m = /^\/open-apis\/contact\/v3\/users\/([^/]+)$/.exec(u.pathname);
+      if (req.method === 'GET' && m) {
+        if (req.headers.authorization !== 'Bearer t-synthetic-tenant-token') return send(400, { code: 99991663, msg: 'invalid token (synthetic)' });
+        const unionId = decodeURIComponent(m[1]);
+        const person = Object.keys(PEOPLE).find((k) => PEOPLE[k].union_id === unionId);
+        if (!person || broken.has(person)) return send(400, { code: 41050, msg: 'no user authority (synthetic)' });
+        return send(200, { code: 0, msg: 'success', data: { user: { union_id: unionId, name: PEOPLE[person].name, status: { is_frozen: false, is_resigned: false, is_activated: true, is_exited: false, is_unjoin: false, ...(directory.get(person) ?? {}) } } } });
+      }
       send(404, { code: 404, msg: 'not found (synthetic)' });
     });
   });
@@ -90,7 +125,10 @@ export async function startFakeFeishu({ fixedCodes = {} } = {}) {
   const url = `http://127.0.0.1:${server.address().port}`;
   return {
     url,
-    env: { WM_FEISHU_LOGIN: 'on', WM_FEISHU_AUTHORIZE_URL: `${url}/open-apis/authen/v1/authorize`, WM_FEISHU_TOKEN_URL: `${url}/open-apis/authen/v2/oauth/token`, WM_FEISHU_USERINFO_URL: `${url}/open-apis/authen/v1/user_info` },
+    env: { WM_FEISHU_LOGIN: 'on', WM_FEISHU_AUTHORIZE_URL: `${url}/open-apis/authen/v1/authorize`, WM_FEISHU_TOKEN_URL: `${url}/open-apis/authen/v2/oauth/token`, WM_FEISHU_USERINFO_URL: `${url}/open-apis/authen/v1/user_info`, WM_FEISHU_TENANT_TOKEN_URL: `${url}/open-apis/auth/v3/tenant_access_token/internal`, WM_FEISHU_CONTACT_USER_URL: `${url}/open-apis/contact/v3/users/` },
+    /** 对账用：把这个人在通讯录里的状态改掉（比如 { is_resigned: true }）；broken 让查他时出错 */
+    setStatus(person, status) { directory.set(person, status); },
+    breakLookup(person) { broken.add(person); },
     as(person) { who = person; },
     mode(name) { if (!(name in MODES)) throw new Error(`没有这种模式：${name}`); mode = name; },
     calls,
