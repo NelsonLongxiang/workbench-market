@@ -69,6 +69,24 @@ export class LoginSessionService extends Service {
     return db.prepare('INSERT OR IGNORE INTO login_events_seen (flow, event_id, seen_at) VALUES (?, ?, ?)').run(flow, eventId, now).changes === 1;
   }
 
+  /**
+   * 一个事件只处理一次，而且「记下事件号」和「处理」在同一个事务里，同生共死：
+   * 处理出错，事件号一起撤回，对方重推时照常处理（不会被当成重复跳过）；见过的事件不调 work。
+   * work 里只能做本库的同步写（停用、注销会话），不能等别的东西。
+   */
+  once<T>(flow: string, eventId: string, work: () => T, now = Date.now()): { seen: true } | { seen: false; result: T } {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      if (!this.firstSeen(flow, eventId, now)) { db.exec('ROLLBACK'); return { seen: true }; }
+      const result = work();
+      db.exec('COMMIT');
+      return { seen: false, result };
+    } catch (e) {
+      try { db.exec('ROLLBACK'); } catch { /* 事务已经不在了 */ }
+      throw e;
+    }
+  }
+
   // ---------- 市场会话 ----------
 
   /** 发一个会话。principal 必须是启用的人（调用方已经对到主体）；返回放进 cookie 的值和到期时刻 */
