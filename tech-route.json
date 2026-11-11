@@ -160,17 +160,14 @@
       "what": "server 的类型错误（带空值检查，其余宽松）",
       "target": 0,
       "baseline": {
-        "total": 93,
+        "total": 89,
         "files": {
-          "server/src/context.ts": 1,
           "server/src/index.ts": 62,
           "server/src/portal.ts": 2,
           "server/src/services/workbench.ts": 2,
           "server/src/sop-field-channel.ts": 1,
           "server/src/sop-field-rules.ts": 20,
-          "server/src/sop-read-auth.ts": 2,
-          "server/src/sop-readonly-assembly.ts": 1,
-          "server/src/sop-run-access.ts": 2
+          "server/src/sop-read-auth.ts": 2
         }
       }
     },
