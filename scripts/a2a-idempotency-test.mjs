@@ -47,6 +47,9 @@ console.log('一、服务层');
     claimA2aTask('t-secret', 'team\u0000dsh/x\u0000机密原文-不该落库', T0 + A2A_IDEM_TTL_MS + 5);
     const rows = db.prepare('SELECT * FROM a2a_idempotency').all();
     ok('过期行在下次登记时清掉（t-2 已过窗口，t-1 新登记还在）', !rows.some((r) => r.task_id === 't-2') && rows.some((r) => r.task_id === 't-1'), JSON.stringify(rows));
+    // 孤代理：utf8 编码会把两者都变成 U+FFFD；指纹必须仍然不同（旧的 Map 比原串，判 conflict）
+    ok('只差一个孤代理的两条消息 → fresh 然后 conflict', claimA2aTask('t-sur', 'team\u0000dsh/x\u0000msg\ud800', T0 + A2A_IDEM_TTL_MS + 6) === 'fresh' && claimA2aTask('t-sur', 'team\u0000dsh/x\u0000msg\udc00', T0 + A2A_IDEM_TTL_MS + 7) === 'conflict');
+    ok('……同一个孤代理串重发仍是 replay', claimA2aTask('t-sur', 'team\u0000dsh/x\u0000msg\ud800', T0 + A2A_IDEM_TTL_MS + 8) === 'replay');
     const raw = JSON.stringify(db.prepare('SELECT * FROM a2a_idempotency').all());
     ok('库里不存消息原文，只存 sha256', !raw.includes('机密原文') && /"fp_sha256":"[0-9a-f]{64}"/.test(raw), raw.slice(0, 200));
   }
@@ -113,6 +116,13 @@ try {
 
   r = await call('POST', '/a2a/direct', { team, message: START, caller_session: CALLER, task_id: 'idem-1', context_id: 'ctx-idem-1' });
   ok('重启后同 payload → 409 -32003 replay', r.status === 409 && r.body?.code === -32003 && r.body?.replay === true, JSON.stringify(r.body).slice(0, 160));
+  // 孤代理经 JSON 的 \\uXXXX 转义合法；两条只差一个孤代理的消息必须判 conflict
+  const sur = (c) => `{"team":${JSON.stringify(team)},"caller_session":${JSON.stringify(CALLER)},"task_id":"idem-sur","context_id":"ctx-sur","message":"free text \\u${c}"}`;
+  let rs = await fetch(BASE + '/a2a/direct', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: sur('d800') });
+  ok('孤代理 U+D800 → DELIVERED', rs.status === 200, String(rs.status));
+  rs = await fetch(BASE + '/a2a/direct', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: sur('dc00') });
+  const rsb = await rs.json().catch(() => null);
+  ok('同 id 换成 U+DC00 → 409 -32002 conflict（不是 replay）', rs.status === 409 && rsb?.code === -32002 && rsb?.replay === false, JSON.stringify(rsb));
   r = await call('POST', '/a2a/direct', { team, message: JSON.stringify({ sop: { action: 'start', text: 'variant' } }), caller_session: CALLER, task_id: 'idem-1', context_id: 'ctx-idem-2' });
   ok('重启后异 payload → 409 -32002 conflict', r.status === 409 && r.body?.code === -32002 && r.body?.replay === false, JSON.stringify(r.body).slice(0, 160));
 
