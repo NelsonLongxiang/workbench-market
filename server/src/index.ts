@@ -1771,7 +1771,7 @@ app.post('/api/sop/runs/:id/files', (req, res, next) => {
       const originalName = fixFileName(req.file.originalname);
       const kind = checkUploadKind(res, req.file, originalName);
       if (!kind) return;
-      const sha = sha256Hex(readFileSync(req.file.path));
+      const sha = sha256Hex(readFileSync(req.file.path) as unknown as string);
       const r = svc<SopService>('sop').runFileInsert({ runId, name: originalName, mime: kind.mime, size: req.file.size, storagePath: rel, createdBy, sha256: sha }) as unknown as { lastInsertRowid: number | bigint };
       try { db.prepare("INSERT INTO sop_run_file_audit (run_id, name, size, sha256, source) VALUES (?, ?, ?, ?, ?)").run(runId, originalName, req.file.size, sha, String(req.headers['x-run-upload-token'] ? 'token' : 'admin')); } catch { /* 审计失败不阻 */ }
       res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), run_id: runId, name: originalName, mime: kind.mime, size: req.file.size, sha256: sha, url: `/api/sop/runs/${runId}/files/${Number(r.lastInsertRowid)}`, quota: runFileQuota(runId) });
