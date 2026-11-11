@@ -2,13 +2,18 @@
  * 角色声明（阶段六 6b）：角色和权限是声明，人写人审，改动走提交；谁有哪个角色是数据（授予，见 services/grant.ts）。
  *
  * 两层：
- *   · 平台四个内置角色，写死在这里，不能被覆盖：owner 属主、admin 管理员、member 成员、guest 访客。
- *   · 组织角色：仓库里带一份通用的初始集合（dept-member 部门成员、dept-lead 部门负责人）；
+ *   · 平台的七个内置预设，写死在这里，不能被覆盖、不能改（要调整就复制成自定义角色，见 services/custom-role.ts）：
+ *     owner 属主、admin 系统管理员、management 管理层、dept-lead 部门负责人、member 普通员工、guest 访客、ai-staff AI 员工。
+ *     id 沿用阶段六 6b 的（admin、member、dept-lead 只改了显示名或升为内置），已有的授予不用动。
+ *   · 组织角色：仓库里带一份通用的初始集合（dept-member 部门成员）；
  *     配了外部声明文件（WM_ROLES_FILE，JSON）就以它为准，初始集合不再用。外部文件放在仓库外，由部署方维护。
  *
- * 一个角色：{ id, name, includes?: [角色 id], permissions: [{ actions?: [动作], kinds?: [类别], scope?: 范围 }] }
+ * 一个角色：{ id, name, includes?: [角色 id], permissions: [{ actions?: [动作], kinds?: [类别], domains?: [动作的域], scope?: 范围 }] }
  *   · id 是 ASCII（小写字母开头，字母、数字、连字符）；name 是给人看的名字。
  *   · 权限按动作列，或者按类别（read、write、decide、admin）整类给；两样可以都写。
+ *   · domains 把按类别给的那部分圈在这几个动作的域里（动作名点号前面那段；MCP 工具名都算 mcp-tool 域）。
+ *     域分两张清单：SYSTEM_DOMAINS（系统）和 BUSINESS_DOMAINS（业务），每个已登记动作的域都要在其中一张里，
+ *     两边都不算的导出快照时报错。系统管理员只有系统域的读写——新长出来的域默认是业务，系统管理员默认看不到。
  *   · 范围通常不写，由授予给；写了的只能比授予更窄（授予时核对）。
  *
  * 范围的写法（库里和声明文件里都是 ASCII，中文只在界面和文档里）：
@@ -23,29 +28,68 @@ import { isAbsolute } from 'node:path';
 
 export type Kind = 'read' | 'write' | 'decide' | 'admin';
 export const KINDS: readonly Kind[] = ['read', 'write', 'decide', 'admin'];
-export type Permission = { actions?: string[]; kinds?: Kind[]; scope?: string };
+export type Permission = { actions?: string[]; kinds?: Kind[]; domains?: string[]; scope?: string };
 export type RoleDecl = { id: string; name: string; includes?: string[]; permissions: Permission[] };
 /** 一个角色展开 includes 之后的全部权限 */
-export type RoleView = RoleDecl & { platform: boolean; closure: Permission[]; adminLevel: boolean; decides: boolean };
+export type RoleView = RoleDecl & { platform: boolean; custom: boolean; closure: Permission[]; adminLevel: boolean; decides: boolean };
 
 const ROLE_ID_RE = /^[a-z][a-z0-9-]{0,47}$/;
 const ACTION_RE = /^[a-z][a-z0-9-]{0,31}\.[a-z][a-z0-9-]{0,47}$|^[a-z][a-z0-9_]{0,63}$/; // <域>.<动词>，或 MCP 工具名
 const SCOPE_RE = /^(\*|self|(domain|bench|sop|tool):[\x21-\x7e]{1,128}|object:[\x21-\x7e]{1,256})$/;
 
-/** 平台内置角色：不能被外部声明覆盖 */
+/**
+ * 动作的域：系统那几块（人、角色、授予、设置、MCP 网关、工作台登记、连接、登录……）。进快照（surfaces/actions.json 的 domains），改它要过评审。
+ * 不在这里的都算业务——新长出来的域默认是业务，系统管理员默认看不到
+ */
+export const SYSTEM_DOMAINS: readonly string[] = [
+  'admin', 'admin-token', 'agent-card', 'app', 'auth', 'binding', 'content', 'cookie', 'design-token', 'grant', 'judgment', 'login',
+  'market', 'mcp', 'principal', 'remote-allow', 'role', 'setting', 'skill', 'sso', 'stats', 'type', 'workbench',
+];
+/** 明确算业务的域。和 SYSTEM_DOMAINS 一起要盖住全部已登记动作的域（扩展的动作另算，都是业务） */
+export const BUSINESS_DOMAINS: readonly string[] = [
+  'app-data', 'attention', 'change-request', 'cockpit', 'mcp-rest', 'mcp-tool', 'sop', 'sop-run', 'summary', 'task-center', 'work-item', 'work-items',
+];
+/** 动作的域：点号前面那段；MCP 工具名（没有点）都算 mcp-tool */
+export const domainOf = (action: string): string => (action.includes('.') ? action.slice(0, action.indexOf('.')) : 'mcp-tool');
+/** 已登记的动作里，域两边都不算的（导出快照时用；空数组就是都分好了） */
+export function unclassifiedDomains(actions: Iterable<string>): string[] {
+  const known = new Set([...SYSTEM_DOMAINS, ...BUSINESS_DOMAINS]);
+  return [...new Set([...actions].map(domainOf))].filter((d) => !known.has(d)).sort();
+}
+
+/** 普通员工能写的：提需求、补充说明——开建 run、保存一步、完成、交附件，往台里提交数据和文件 */
+export const MEMBER_WRITE_ACTIONS: readonly string[] = [
+  'app-data.submit', 'app-data.upload', 'sop-run.file-refs', 'sop-run.file-upload', 'sop-run.finish', 'sop-run.save', 'sop-run.start',
+];
+
+/**
+ * 平台的七个内置预设：不能被外部声明覆盖，不能改，只能复制成自定义角色。
+ * 这些定义在阶段六切换（6d）之前不生效：放不放行照旧由各处的旧守卫决定，判定只算结论、和旧的比
+ */
 export const PLATFORM_ROLES: readonly RoleDecl[] = [
   { id: 'owner', name: '属主', permissions: [{ kinds: ['read', 'write', 'decide', 'admin'] }] },
-  // 决定类只认人，不放进管理员的缺省权限：要决定权的由授予另加
-  { id: 'admin', name: '管理员', permissions: [{ kinds: ['read', 'write', 'admin'] }] },
-  { id: 'member', name: '成员', permissions: [{ kinds: ['read'] }] },
-  // 访客只靠点名的资源范围授予
+  // 系统管理员：系统域的读写管；各处的「管理」类动作（台的切版本、删数据这类）也给；业务数据的读写没有；不拍业务的板
+  { id: 'admin', name: '系统管理员', permissions: [{ kinds: ['read', 'write', 'admin'], domains: [...SYSTEM_DOMAINS] }, { kinds: ['admin'] }] },
+  // 管理层：全公司的读、写、决定；不管系统
+  { id: 'management', name: '管理层', permissions: [{ kinds: ['read', 'write', 'decide'] }] },
+  // 部门负责人：读、写、决定，部门是哪个由授予的范围（domain:<部门>）给
+  { id: 'dept-lead', name: '部门负责人', permissions: [{ kinds: ['read', 'write', 'decide'] }] },
+  // 普通员工：看；写只给提需求、补充说明那几个；决定只给自己的事（验收、答复自己提的）
+  { id: 'member', name: '普通员工', permissions: [{ kinds: ['read'] }, { actions: [...MEMBER_WRITE_ACTIONS] }, { kinds: ['decide'], scope: 'self' }] },
+  // 访客只靠点名的资源范围授予，而且授予必须有期限（services/grant.ts）
   { id: 'guest', name: '访客', permissions: [] },
+  // AI 员工：只授予非人主体（席位），读写范围由授予给（责任范围）；决定类永远不给（决定只认人）
+  { id: 'ai-staff', name: 'AI 员工', permissions: [{ kinds: ['read', 'write'] }] },
 ];
+
+/** 只能授予非人主体的预设、只能授予人的预设 */
+export const NON_PERSON_ONLY_ROLES: readonly string[] = ['ai-staff'];
+/** 访客：授予必须有期限 */
+export const EXPIRY_REQUIRED_ROLES: readonly string[] = ['guest'];
 
 /** 通用的组织角色初始集合（名字通用，不含业务）。部门是哪个，由授予的范围（domain:<部门>）给 */
 export const INITIAL_ORG_ROLES: readonly RoleDecl[] = [
   { id: 'dept-member', name: '部门成员', permissions: [{ kinds: ['read', 'write'] }] },
-  { id: 'dept-lead', name: '部门负责人', includes: ['dept-member'], permissions: [{ kinds: ['decide'] }] },
 ];
 
 /** 范围的写法对不对 */
@@ -61,7 +105,7 @@ export type ActionCatalog = Map<string, Kind>;
 
 function fail(msg: string): never { throw new Error(`角色声明：${msg}`); }
 
-function checkShape(raw: unknown, where: string): RoleDecl {
+export function checkShape(raw: unknown, where: string): RoleDecl {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail(`${where} 不是对象`);
   const r = raw as Record<string, unknown>;
   for (const k of Object.keys(r)) if (!['id', 'name', 'includes', 'permissions'].includes(k)) fail(`${where} 有不认识的键 ${k}`);
@@ -73,12 +117,14 @@ function checkShape(raw: unknown, where: string): RoleDecl {
   const permissions = (r.permissions as unknown[]).map((p, i) => {
     if (!p || typeof p !== 'object' || Array.isArray(p)) fail(`${id} 的第 ${i + 1} 条权限不是对象`);
     const q = p as Record<string, unknown>;
-    for (const k of Object.keys(q)) if (!['actions', 'kinds', 'scope'].includes(k)) fail(`${id} 的第 ${i + 1} 条权限有不认识的键 ${k}`);
+    for (const k of Object.keys(q)) if (!['actions', 'kinds', 'domains', 'scope'].includes(k)) fail(`${id} 的第 ${i + 1} 条权限有不认识的键 ${k}`);
+    if (q.domains !== undefined && (!Array.isArray(q.domains) || q.domains.length === 0 || q.domains.some((d) => typeof d !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/.test(d)))) fail(`${id} 的第 ${i + 1} 条权限的 domains 要是动作域的数组`);
+    if (q.domains !== undefined && !(q.kinds as unknown[] | undefined)?.length) fail(`${id} 的第 ${i + 1} 条权限写了 domains，要和 kinds 一起用（圈的是按类别给的那部分）`);
     if (q.actions !== undefined && (!Array.isArray(q.actions) || q.actions.some((a) => typeof a !== 'string' || !ACTION_RE.test(a)))) fail(`${id} 的第 ${i + 1} 条权限的 actions 写法不对`);
     if (q.kinds !== undefined && (!Array.isArray(q.kinds) || q.kinds.some((k) => !(KINDS as readonly unknown[]).includes(k)))) fail(`${id} 的第 ${i + 1} 条权限的 kinds 只能是 ${KINDS.join('、')}`);
     if (!(q.actions as unknown[] | undefined)?.length && !(q.kinds as unknown[] | undefined)?.length) fail(`${id} 的第 ${i + 1} 条权限既没有 actions 也没有 kinds`);
     if (q.scope !== undefined && !scopeOk(q.scope)) fail(`${id} 的第 ${i + 1} 条权限的范围「${String(q.scope)}」写法不对`);
-    return { ...(q.actions ? { actions: [...q.actions as string[]] } : {}), ...(q.kinds ? { kinds: [...q.kinds as Kind[]] } : {}), ...(q.scope !== undefined ? { scope: q.scope as string } : {}) };
+    return { ...(q.actions ? { actions: [...q.actions as string[]] } : {}), ...(q.kinds ? { kinds: [...q.kinds as Kind[]] } : {}), ...(q.domains ? { domains: [...q.domains as string[]] } : {}), ...(q.scope !== undefined ? { scope: q.scope as string } : {}) };
   });
   return { id, name: r.name, ...(r.includes ? { includes: [...r.includes as string[]] } : {}), permissions };
 }
@@ -98,14 +144,17 @@ export function readRolesFile(path: string): unknown[] {
  * 校验并展开：平台角色 + 组织角色（外部的，或者初始集合）。任何一处不合格就抛错（调用方拒绝启动）。
  * catalog 给了就核对引用的动作都在里面，并据此判断管理员级、决定类（按动作的类别）。
  */
-export function buildRoles(orgRaw: readonly unknown[], catalog: ActionCatalog): Map<string, RoleView> {
+export function buildRoles(orgRaw: readonly unknown[], catalog: ActionCatalog, customIds: ReadonlySet<string> = new Set()): Map<string, RoleView> {
   const platform = PLATFORM_ROLES.map((r) => checkShape(r, `平台角色 ${r.id}`));
   const org = orgRaw.map((r, i) => checkShape(r, `第 ${i + 1} 个组织角色`));
   const platformIds = new Set(platform.map((r) => r.id)), platformNames = new Set(platform.map((r) => r.name));
   const all = new Map<string, RoleDecl>();
   for (const r of platform) all.set(r.id, r);
   for (const r of org) {
-    if (platformIds.has(r.id) || platformNames.has(r.name)) fail(`组织角色 ${r.id}（${r.name}）和平台内置角色同名，平台角色不能被覆盖`);
+    if (platformIds.has(r.id) || platformNames.has(r.name)) {
+      fail(`组织角色 ${r.id}（${r.name}）和平台内置预设同名（内置预设的 id：${[...platformIds].join('、')}；名字：${[...platformNames].join('、')}），平台的预设不能被覆盖。`
+        + `改法：在声明文件（WM_ROLES_FILE）里把这个角色改个 id 和名字，或者删掉它改用内置预设（存量授予引用的是 id，改了 id 要同时迁授予）`);
+    }
     if (all.has(r.id)) fail(`角色 id 重复：${r.id}`);
     all.set(r.id, r);
   }
@@ -133,7 +182,7 @@ export function buildRoles(orgRaw: readonly unknown[], catalog: ActionCatalog): 
     const closure = expand(r.id, []);
     const kindsIn = new Set<Kind>();
     for (const p of closure) { for (const k of p.kinds ?? []) kindsIn.add(k); for (const a of p.actions ?? []) { const k = catalog.get(a); if (k) kindsIn.add(k); } }
-    views.set(r.id, { ...r, platform: platformIds.has(r.id), closure, adminLevel: r.id === 'owner' || r.id === 'admin' || kindsIn.has('admin'), decides: kindsIn.has('decide') });
+    views.set(r.id, { ...r, platform: platformIds.has(r.id), custom: customIds.has(r.id), closure, adminLevel: r.id === 'owner' || r.id === 'admin' || kindsIn.has('admin'), decides: kindsIn.has('decide') });
   }
   return views;
 }

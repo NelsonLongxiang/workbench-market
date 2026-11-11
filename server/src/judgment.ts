@@ -24,7 +24,7 @@
 import { root } from './root-context.ts';
 import { svc } from './context.ts';
 import type { GrantService, GrantRow } from './services/grant.ts';
-import type { Kind, Permission } from './roles.ts';
+import { domainOf, type Kind, type Permission } from './roles.ts';
 import { ANONYMOUS_ACTIONS, builtin, narrowed, type BuiltinName } from './judgment-builtins.ts';
 
 /** 做这件事的是谁 */
@@ -47,7 +47,8 @@ const grants = () => svc<GrantService>('grants');
 function permits(closure: Permission[], action: string, kind: Kind): { covers: boolean; scoped: boolean } {
   let scoped = false;
   for (const p of closure) {
-    const hit = (p.kinds ?? []).includes(kind) || (p.actions ?? []).includes(action);
+    // 按类别给的，写了 domains 就只算这几个域里的动作
+    const hit = ((p.kinds ?? []).includes(kind) && (!p.domains || p.domains.includes(domainOf(action)))) || (p.actions ?? []).includes(action);
     if (!hit) continue;
     if (p.scope === undefined || p.scope === '*') return { covers: true, scoped: false };
     scoped = true;
@@ -94,8 +95,10 @@ export function judgeBuiltin(input: JudgeInput): JudgeResult {
     // 3. 决定类：只有登记为「代属主行事」的放行，别的转提议
     if (kind === 'decide') return b.actsForOwner.includes(action) ? { verdict: 'allow', rule: `acts-for-owner:${b.name}` } : { verdict: 'ask', rule: 'decide-non-person' };
     if (b.actions.includes(action)) return { verdict: 'allow', rule: `builtin:${b.name}` };
-    const role = b.role ? grants().roles().find((r) => r.id === b.role) : undefined;
-    if (role && permits(role.closure, action, kind).covers) return { verdict: 'allow', rule: `builtin:${b.name}:${b.role}` };
+    for (const id of b.roles ?? []) {
+      const role = grants().roles().find((r) => r.id === id);
+      if (role && permits(role.closure, action, kind).covers) return { verdict: 'allow', rule: `builtin:${b.name}:${id}` };
+    }
     return { verdict: 'deny', rule: `builtin:${b.name}:not-listed` };
   }
   // 3. 决定类，做的不是人：转提议

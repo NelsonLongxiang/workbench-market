@@ -133,7 +133,12 @@ export function mountJudgmentCompare(app: express.Express, config: CompareConfig
     const { actor, admin } = await actorAtStart;
     if (actor.type === 'principal' && actor.kind === 'person' && actor.status === 'active') {
       grants().migrate(actor.id, 'member', '迁移：首次见到的人，默认成员');
-      if (admin) grants().migrate(actor.id, 'admin', '迁移：身份来源说是管理员');
+      // 身份来源说是管理员的：今天什么都能看、能管，迁成系统管理员加管理层两条（等于今天的原样，各自能撤）；
+      // 6d 之前由属主决定每个人留哪条（存量差异清单 F）
+      if (admin) {
+        grants().migrate(actor.id, 'admin', '迁移：身份来源说是管理员（系统管理）');
+        grants().migrate(actor.id, 'management', '迁移：身份来源说是管理员（今天也看、改、拍板全公司的业务）');
+      }
     }
     const result = judge({ actor, action: spec.action, kind: spec.kind, declared: true });
     const now = result.verdict === 'allow' ? 'allow' : 'deny';

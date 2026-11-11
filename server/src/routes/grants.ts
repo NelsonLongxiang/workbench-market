@@ -19,7 +19,8 @@ import { browserMarked, rawLoopback } from '../surfaces.ts';
 import { HttpError } from '../errors.ts';
 import { MCP_TOOLS } from '../mcp-tools.ts';
 import { identity } from '../identity.ts';
-import { buildRoles, orgRolesFromConfig, type ActionCatalog, type Kind } from '../roles.ts';
+import { buildRoles, checkShape, orgRolesFromConfig, PLATFORM_ROLES, type ActionCatalog, type Kind, type Permission, type RoleDecl } from '../roles.ts';
+import type { CustomRoleService } from '../services/custom-role.ts';
 import { unknownBuiltinActions } from '../judgment-builtins.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import type { Actor, GrantService, GrantStatus, Refusal } from '../services/grant.ts';
@@ -48,6 +49,49 @@ function actionCatalog(http: HttpService): ActionCatalog {
 
 /** 声明来自哪里（外部文件还是初始集合）；loadRoleDeclarations 之后才有 */
 let rolesSource: 'file' | 'initial' | null = null;
+/** 启动时读到的组织角色声明和动作清单：自定义角色改动之后重建角色表要用 */
+let declared: readonly unknown[] = [];
+let catalogAtLoad: ActionCatalog = new Map();
+const customRoles = () => svc<CustomRoleService>('customRoles');
+
+/** 已经被占用的角色 id 和名字：平台预设、声明文件（或初始集合）里的；except 是正在改的那个自定义角色 */
+function takenNames(except?: string): { ids: Set<string>; names: Set<string> } {
+  const ids = new Set<string>(), names = new Set<string>();
+  for (const r of [...PLATFORM_ROLES, ...(declared as RoleDecl[])]) { ids.add(r.id); names.add(r.name); }
+  for (const r of customRoles().list()) if (r.id !== except) { ids.add(r.id); names.add(r.name); }
+  return { ids, names };
+}
+
+/**
+ * 重建角色表：平台预设 + 声明文件（或初始集合）+ 生效的自定义角色。声明文件里的优先：声明文件用了同一个 id 或名字的自定义角色不加载（留一行痕）
+ */
+function rebuildRoles(): void {
+  const fromDecl = new Set<string>(), declNames = new Set<string>();
+  for (const r of [...PLATFORM_ROLES, ...(declared as RoleDecl[])]) { fromDecl.add(r.id); declNames.add(r.name); }
+  const usable: RoleDecl[] = [];
+  for (const c of customRoles().activeDecls()) {
+    if (fromDecl.has(c.id) || declNames.has(c.name)) { console.warn(JSON.stringify({ source: 'grants', event: 'custom-role-shadowed', id: c.id, at: new Date().toISOString() })); continue; }
+    usable.push(c);
+  }
+  grants().setRoles(buildRoles([...declared, ...usable], catalogAtLoad, new Set(usable.map((r) => r.id))));
+}
+
+/** 校验一个自定义角色（和声明文件同一套）：不合格抛 422。返回它展开之后的样子（管理员级、带不带决定） */
+function checkCustom(candidate: RoleDecl, except?: string): { adminLevel: boolean; decides: boolean } {
+  const { ids, names } = takenNames(except);
+  if (ids.has(candidate.id)) throw new HttpError(409, `角色 id ${candidate.id} 已经有了（内置预设、声明文件或别的自定义角色）`);
+  if (names.has(candidate.name)) throw new HttpError(409, `角色名字「${candidate.name}」已经有了（内置预设、声明文件或别的自定义角色）`);
+  try {
+    const shaped = checkShape(candidate, `自定义角色 ${candidate.id}`);
+    const others = customRoles().activeDecls().filter((r) => r.id !== except && r.id !== candidate.id);
+    const views = buildRoles([...declared, ...others, shaped], catalogAtLoad);
+    const v = views.get(shaped.id)!;
+    return { adminLevel: v.adminLevel, decides: v.decides };
+  } catch (e) {
+    if (e instanceof HttpError) throw e;
+    throw new HttpError(422, String((e as Error).message));
+  }
+}
 
 /**
  * 读角色声明（只读一次）、校验、交给授予服务。要在所有路由都注册完之后调（动作清单要齐）；不合格抛错，启动失败。
@@ -55,13 +99,14 @@ let rolesSource: 'file' | 'initial' | null = null;
 export function loadRoleDeclarations(http: HttpService): void {
   const config = orgRolesFromConfig();
   const catalog = actionCatalog(http);
-  const views = buildRoles(config.roles, catalog);
+  buildRoles(config.roles, catalog); // 声明本身先单独校验：不合格就拒绝启动，不让库里的自定义角色掺进报错
+  declared = config.roles; catalogAtLoad = catalog;
   // 内置身份清单（judgment-builtins.ts）是代码、过评审；清单里的动作都要在，由快照导出把关（surface-snapshot 对不上就失败），这里只提醒
   const unknown = unknownBuiltinActions((a) => catalog.has(a));
   if (unknown.length) console.warn(`[grants] 内置身份引用了动作清单里没有的动作（只影响判定比对）：${unknown.join('、')}`);
-  grants().setRoles(views);
+  rebuildRoles();
   rolesSource = config.source;
-  console.log(JSON.stringify({ source: 'grants', event: 'roles-loaded', from: config.source, roles: [...views.keys()], at: new Date().toISOString() }));
+  console.log(JSON.stringify({ source: 'grants', event: 'roles-loaded', from: config.source, roles: grants().roles().map((r) => r.id), at: new Date().toISOString() }));
 }
 
 function str(v: unknown, name: string, max: number): string {
@@ -96,7 +141,96 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
 
   app.get('/api/roles', { action: 'role.list', kind: 'admin' }, route(async (req, res) => {
     if (!(await actorOf(req, res))) return;
-    res.json({ source: rolesSource, roles: grants().roles().map(({ id, name, includes, permissions, platform, adminLevel, decides }) => ({ id, name, includes: includes ?? [], permissions, platform, admin_level: adminLevel, decides })) });
+    res.json({
+      source: rolesSource,
+      roles: grants().roles().map(({ id, name, includes, permissions, platform, custom, adminLevel, decides }) => ({ id, name, includes: includes ?? [], permissions, platform, custom, admin_level: adminLevel, decides })),
+      // 自定义角色全部（含待属主放行的新角色和改动）
+      custom: customRoles().list(),
+    });
+  }));
+
+  // ---------- 自定义角色：复制、改、删、属主放行、导出 ----------
+  const roleIdOf = (req: express.Request): string => {
+    const id = String(req.params.id ?? '');
+    if (!/^[a-z][a-z0-9-]{0,47}$/.test(id)) throw new HttpError(404, `角色 ${id} 不存在`);
+    return id;
+  };
+  const lockedRole = (id: string): string | null => (PLATFORM_ROLES.some((r) => r.id === id) ? '内置预设不能改，只能复制成自定义角色再改'
+    : (declared as RoleDecl[]).some((r) => r.id === id) ? '声明文件里的角色改动走提交，不在界面上改' : null);
+  const logRole = (event: string, id: string, actor: Actor, extra: Record<string, unknown> = {}) =>
+    console.log(JSON.stringify({ source: 'grants', event, role: id, by: actor.by, ...extra, at: new Date().toISOString() }));
+
+  app.post('/api/roles/:id/copy', { action: 'role.copy', kind: 'admin' }, route(async (req, res) => {
+    const actor = await actorOf(req, res);
+    if (!actor) return;
+    const from = grants().roles().find((r) => r.id === roleIdOf(req));
+    if (!from) throw new HttpError(404, `角色 ${req.params.id} 不存在`);
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const candidate: RoleDecl = { id: str(b.id, 'id', 48), name: str(b.name, 'name', 64), permissions: from.closure.map((p) => ({ ...p })) };
+    const shape = checkCustom(candidate);
+    // 会带来管理类或决定类权限的：不是属主建的，先待属主放行
+    const pending = (shape.adminLevel || shape.decides) && !actor.owner;
+    const role = customRoles().create({ id: candidate.id, name: candidate.name, basedOn: from.id, permissions: candidate.permissions, pending }, actor);
+    if (!pending) rebuildRoles();
+    logRole('role-copy', role.id, actor, { from: from.id, status: role.status });
+    res.status(201).json({ role, pending });
+  }));
+
+  app.put('/api/roles/:id', { action: 'role.update', kind: 'admin', statusNotVerdict: '内置预设、声明文件里的角色锁住不让改，回 403，是角色本身的规则' }, route(async (req, res) => {
+    const actor = await actorOf(req, res);
+    if (!actor) return;
+    const id = roleIdOf(req);
+    const locked = lockedRole(id);
+    if (locked) return res.status(403).json({ error: 'role_locked', message: locked });
+    const cur = customRoles().get(id);
+    if (!cur) throw new HttpError(404, `角色 ${id} 不存在`);
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const next = { name: b.name === undefined ? cur.name : str(b.name, 'name', 64), permissions: (b.permissions ?? cur.permissions) as Permission[] };
+    const shape = checkCustom({ id, name: next.name, permissions: next.permissions }, id);
+    // 从 AI 员工复制出来的不许带决定类：决定只认人
+    if (cur.based_on === 'ai-staff' && shape.decides) return res.status(422).json({ error: 'decide_non_person', message: '从 AI 员工复制出来的角色不能带决定类权限（决定只认人）' });
+    const propose = (shape.adminLevel || shape.decides) && !actor.owner;
+    const role = customRoles().update(id, { name: next.name, permissions: checkShape({ id, ...next }, `自定义角色 ${id}`).permissions }, propose, actor);
+    if (!propose) rebuildRoles();
+    logRole(propose ? 'role-propose' : 'role-update', id, actor);
+    res.json({ role, pending: propose, affected_grants: customRoles().grantsUsing(id) });
+  }));
+
+  app.delete('/api/roles/:id', { action: 'role.delete', kind: 'admin', statusNotVerdict: '内置预设、声明文件里的角色锁住不让删，回 403，是角色本身的规则' }, route(async (req, res) => {
+    const actor = await actorOf(req, res);
+    if (!actor) return;
+    const id = roleIdOf(req);
+    const locked = lockedRole(id);
+    if (locked) return res.status(403).json({ error: 'role_locked', message: locked });
+    if (!customRoles().get(id)) throw new HttpError(404, `角色 ${id} 不存在`);
+    const using = customRoles().grantsUsing(id);
+    if (using.length) return res.status(409).json({ error: 'role_in_use', message: `还有 ${using.length} 条授予在用这个角色，先撤销它们`, grants: using });
+    customRoles().delete(id, actor);
+    rebuildRoles();
+    logRole('role-delete', id, actor);
+    res.json({ ok: true, id });
+  }));
+
+  app.post('/api/roles/:id/approve', { action: 'role.approve', kind: 'admin' }, route(async (req, res) => {
+    const actor = await actorOf(req, res);
+    if (!actor) return;
+    if (!actor.owner) return res.status(403).json({ error: 'owner_required', message: '带管理类或决定类权限的自定义角色只有属主能放行' });
+    const id = roleIdOf(req);
+    const cur = customRoles().get(id);
+    if (!cur) throw new HttpError(404, `角色 ${id} 不存在`);
+    if (cur.status === 'active' && !cur.proposed) return res.status(409).json({ error: 'nothing_pending', message: `角色 ${id} 没有待放行的东西` });
+    const target = cur.proposed ?? { name: cur.name, permissions: cur.permissions };
+    checkCustom({ id, ...target }, id); // 放行的时候再核一次：动作清单可能变了
+    const role = customRoles().approve(id, actor);
+    rebuildRoles();
+    logRole('role-approve', id, actor);
+    res.json({ role, affected_grants: customRoles().grantsUsing(id) });
+  }));
+
+  app.get('/api/roles/export', { action: 'role.export', kind: 'admin' }, route(async (req, res) => {
+    if (!(await actorOf(req, res))) return;
+    // 声明文件的格式（{ roles: [...] }）：方便评审、备份，或者改成声明文件走提交（声明文件里的优先）
+    res.set('Cache-Control', 'no-store').json({ roles: customRoles().activeDecls() });
   }));
 
   app.get('/api/grants', { action: 'grant.list', kind: 'admin' }, route(async (req, res) => {

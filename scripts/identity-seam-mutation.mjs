@@ -24,7 +24,7 @@ const jobsArg = process.argv.indexOf('--jobs');
 // 并行跑的套数：每一套自己还要起好几个隔离实例，CI 机器上开满核数会让实例的启动自检超时（拒绝启动，按没跑成算）。上限 2
 const JOBS = Math.min(2, Math.max(1, Number(jobsArg >= 0 ? process.argv[jobsArg + 1] : 2) || 2));
 
-const CONTRACT = 'identity-contract-test.mjs', SMOKE = 'identity-seam-smoke.mjs', SERVICE = 'principal-service-test.mjs', FOLD = 'principal-fold-test.mjs', FEISHU = 'feishu-login-smoke.mjs', OFFBOARD = 'feishu-offboard-smoke.mjs', GRANTS = 'grants-smoke.mjs', JUDGE = 'judgment-compare-smoke.mjs', ZERO = 'judgment-compare-zero-test.mjs', SWEEP = 'judgment-compare-sweep-test.mjs';
+const CONTRACT = 'identity-contract-test.mjs', SMOKE = 'identity-seam-smoke.mjs', SERVICE = 'principal-service-test.mjs', FOLD = 'principal-fold-test.mjs', FEISHU = 'feishu-login-smoke.mjs', OFFBOARD = 'feishu-offboard-smoke.mjs', GRANTS = 'grants-smoke.mjs', JUDGE = 'judgment-compare-smoke.mjs', ZERO = 'judgment-compare-zero-test.mjs', SWEEP = 'judgment-compare-sweep-test.mjs', PRESETS = 'role-presets-test.mjs', CUSTOM = 'custom-roles-smoke.mjs';
 const IDENTITY = 'server/src/identity.ts';
 const SESSIONS_SVC = 'server/src/services/login-session.ts', FLOWS = 'server/src/routes/login-flows.ts', EVENTS = 'server/src/routes/login-events.ts', GRANT_SVC = 'server/src/services/grant.ts', GRANT_ROUTES = 'server/src/routes/grants.ts', ROLES = 'server/src/roles.ts', COMPARE = 'server/src/judgment-compare.ts', BUILTINS_FILE = 'server/src/judgment-builtins.ts', JUDGE_FILE = 'server/src/judgment.ts', GRANT_SVC2 = 'server/src/services/grant.ts', FEISHU_PLUGIN = 'server/src/login-providers/feishu/index.ts';
 const PRINCIPAL = 'server/src/services/principal.ts', ROUTES = 'server/src/routes/principals.ts', DB = 'server/src/db.ts', GATE = 'server/src/login-gate.ts';
@@ -326,7 +326,7 @@ const MUTANTS = [
   { id: 'grant-not-expired', what: '到期的不标过期', file: GRANT_SVC, suites: [GRANTS],
     find: "    for (const { id } of due) if (this.move(id, ['active'], 'expired', 'expire',", replace: "    for (const { id } of due.slice(0, 0)) if (this.move(id, ['active'], 'expired', 'expire'," },
   { id: 'roles-platform-overridable', what: '外部声明能覆盖平台角色（同名不拒）', file: ROLES, suites: [GRANTS],
-    find: "    if (platformIds.has(r.id) || platformNames.has(r.name)) fail(", replace: "    if (false) fail(" },
+    find: "    if (platformIds.has(r.id) || platformNames.has(r.name)) {\n", replace: "    if (false) {\n" },
   { id: 'roles-unknown-action-ok', what: '角色引用不存在的动作也放行', file: ROLES, suites: [GRANTS],
     find: '    for (const p of r.permissions) for (const a of p.actions ?? []) if (!catalog.has(a)) fail(', replace: '    for (const p of r.permissions) for (const a of p.actions ?? []) if (false) fail(' },
   // —— 判定的并行比对（6c）——
@@ -350,12 +350,35 @@ const MUTANTS = [
   // —— 6c 验收 M1：按身份 × 路由铺满才抓得到的清单漂移 ——
   { id: 'local-page-own-list', what: '本机页面另抄一份短清单，不由匿名的推出来', file: BUILTINS_FILE, suites: [SWEEP],
     find: "    actions: [...new Set([...ANONYMOUS_ACTIONS, 'admin-token.first-set'])].sort(),", replace: "    actions: ['admin-token.first-set', 'admin-token.state', 'agent-card.read', 'design-token.read']," },
-  { id: 'anonymous-floor-dropped', what: '登录的人判不过时不按匿名兜底（匿名能提交台数据，员工反而不能）', file: JUDGE_FILE, suites: [SWEEP],
+  { id: 'anonymous-floor-dropped', what: '登录的人判不过时不按匿名兜底（匿名能做的，只有访客授予的人反而不能）', file: JUDGE_FILE, suites: [PRESETS],
     find: "  if (ANONYMOUS_ACTIONS.includes(action)) return { verdict: 'allow', rule: 'anonymous-floor' };\n", replace: '' },
   { id: 'narrowed-observation-dropped', what: '门户观测状态不再只认口令（迁移出来的 admin 能读）', file: BUILTINS_FILE, suites: [SWEEP],
     find: "  { action: 'content.observation', only: ['admin-token'],", replace: "  { action: 'content.observation-off', only: ['admin-token']," },
   { id: 'revoke-migration-for-admins', what: '整批撤销迁移授予放给管理口令（处理函数只认属主）', file: BUILTINS_FILE, suites: [SWEEP],
     find: "  { action: 'grant.revoke-migration', only: ['owner', 'local-cli'],", replace: "  { action: 'grant.revoke-migration', only: ['owner', 'local-cli', 'admin-token']," },
+  // —— 角色预设：两处有意的改变、迁移和口令的原样、授予的规则、自定义角色的放行 ——
+  { id: 'sysadmin-sees-business', what: '系统管理员的读写不圈在系统域里（默认看得到业务数据）', file: ROLES, suites: [PRESETS],
+    find: "permissions: [{ kinds: ['read', 'write', 'admin'], domains: [...SYSTEM_DOMAINS] }, { kinds: ['admin'] }] },", replace: "permissions: [{ kinds: ['read', 'write', 'admin'] }] }," },
+  { id: 'management-has-admin', what: '管理层也有管理类', file: ROLES, suites: [PRESETS],
+    find: "{ id: 'management', name: '管理层', permissions: [{ kinds: ['read', 'write', 'decide'] }] },", replace: "{ id: 'management', name: '管理层', permissions: [{ kinds: ['read', 'write', 'decide', 'admin'] }] }," },
+  { id: 'token-sysadmin-only', what: '管理口令只照系统管理员算（今天口令能看的业务数据，新判定拒绝）', file: BUILTINS_FILE, suites: [PRESETS, SWEEP],
+    find: "roles: ['admin', 'management'],", replace: "roles: ['admin']," },
+  { id: 'migration-sysadmin-only', what: '现有管理员只迁成系统管理员（今天看得到的业务数据，新判定拒绝）', file: COMPARE, suites: [JUDGE],
+    find: "        grants().migrate(actor.id, 'management', ", replace: "        void (actor.id, 'management', " },
+  { id: 'guest-without-expiry', what: '访客的授予可以没有期限', file: GRANT_SVC, suites: [PRESETS],
+    find: "    if (EXPIRY_REQUIRED_ROLES.includes(g.role) && (g.expires_at === null || g.expires_at === undefined)) return refuse(", replace: "    if (false) return refuse(" },
+  { id: 'ai-staff-to-person', what: 'AI 员工也能授予人', file: GRANT_SVC, suites: [PRESETS],
+    find: "    if (NON_PERSON_ONLY_ROLES.includes(g.role) && p.kind === 'person') return refuse(", replace: "    if (false) return refuse(" },
+  { id: 'domain-unclassified', what: '业务域清单漏了一个域（两边都不算）', file: ROLES, suites: [PRESETS],
+    find: "'sop-run', 'summary', 'task-center',", replace: "'sop-run', 'task-center'," },
+  { id: 'custom-approve-by-admin', what: '自定义角色的放行不核属主（口令管理员也能放行）', file: GRANT_ROUTES, suites: [CUSTOM],
+    find: "    if (!actor.owner) return res.status(403).json({ error: 'owner_required', message: '带管理类或决定类权限的自定义角色只有属主能放行' });\n", replace: '' },
+  { id: 'custom-pending-skipped', what: '口令管理员建带决定类的自定义角色直接生效（不等属主放行）', file: GRANT_ROUTES, suites: [CUSTOM],
+    find: "    const pending = (shape.adminLevel || shape.decides) && !actor.owner;", replace: "    const pending = false;" },
+  { id: 'custom-ai-decide', what: '从 AI 员工复制出来的能加决定类', file: GRANT_ROUTES, suites: [CUSTOM],
+    find: "    if (cur.based_on === 'ai-staff' && shape.decides) return res", replace: "    if (false) return res" },
+  { id: 'custom-delete-in-use', what: '有授予在用的自定义角色也能删', file: GRANT_ROUTES, suites: [CUSTOM],
+    find: "    if (using.length) return res.status(409)", replace: "    if (false) return res.status(409)" },
   { id: 'builtin-cli-extra', what: '本机命令行清单多列了一个今天要口令的管理面', file: BUILTINS_FILE, suites: [ZERO],
     find: "      'attention.read',\n      'cockpit.create',\n", replace: "      'attention.read',\n      'binding.list',\n      'cockpit.create',\n" },
   { id: 'acts-for-owner-dropped', what: '去掉「口令代属主行事」的登记', file: BUILTINS_FILE, suites: [ZERO],

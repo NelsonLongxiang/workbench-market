@@ -1,6 +1,6 @@
 {
   "domain": "grants",
-  "what": "角色与授予：/api/roles、/api/grants 的 9 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "what": "角色与授予：/api/roles、/api/grants 的 14 条路由（含自定义角色的复制、改、删、属主放行、导出）。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
   "routes": [
     "GET /api/roles",
     "GET /api/grants",
@@ -10,14 +10,24 @@
     "POST /api/grants/:id/approve",
     "POST /api/grants/:id/revoke",
     "POST /api/grants/revoke-migration",
-    "GET /api/judgment/compare"
+    "GET /api/judgment/compare",
+    "POST /api/roles/:id/copy",
+    "PUT /api/roles/:id",
+    "DELETE /api/roles/:id",
+    "POST /api/roles/:id/approve",
+    "GET /api/roles/export"
   ],
-  "exempt": [{ "route": "GET /api/roles", "class": "invalid", "why": "这条路由不读任何参数，没有会被拒的输入", "shown_by": "open/roles-cli" }, { "route": "GET /api/judgment/compare", "class": "invalid", "why": "这条路由不读任何参数，没有会被拒的输入", "shown_by": "open/compare-cli" }],
+  "exempt": [
+    { "route": "GET /api/roles", "class": "invalid", "why": "这条路由不读任何参数，没有会被拒的输入", "shown_by": "open/roles-cli" },
+    { "route": "GET /api/judgment/compare", "class": "invalid", "why": "这条路由不读任何参数，没有会被拒的输入", "shown_by": "open/compare-cli" },
+    { "route": "GET /api/roles/export", "class": "invalid", "why": "这条路由不读任何参数，没有会被拒的输入", "shown_by": "open/role-export" }
+  ],
   "scenarios": [
     {
       "name": "open",
       "what": "缺省配置：登录门关，没设管理口令，没配外部声明文件（用初始集合）。本机命令行（回环直连、不带浏览器标记和转发头）算管理员，也是属主；带转发头的按远程处理。库里预先放一个人。",
-      "env": {},
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
       "seed": [{ "table": "principals", "row": { "id": "user:synthetic-a", "id_key": "user:synthetic-a", "kind": "person" } }],
       "steps": [
         {
@@ -42,17 +52,68 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "895", "etag": "W/\"37f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "1768", "etag": "W/\"6e8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "source": "initial",
               "roles": [
-                { "id": "owner", "name": "属主", "includes": [], "permissions": [{ "kinds": ["read", "write", "decide", "admin"] }], "platform": true, "admin_level": true, "decides": true },
-                { "id": "admin", "name": "管理员", "includes": [], "permissions": [{ "kinds": ["read", "write", "admin"] }], "platform": true, "admin_level": true, "decides": false },
-                { "id": "member", "name": "成员", "includes": [], "permissions": [{ "kinds": ["read"] }], "platform": true, "admin_level": false, "decides": false },
-                { "id": "guest", "name": "访客", "includes": [], "permissions": [], "platform": true, "admin_level": false, "decides": false },
-                { "id": "dept-member", "name": "部门成员", "includes": [], "permissions": [{ "kinds": ["read", "write"] }], "platform": false, "admin_level": false, "decides": false },
-                { "id": "dept-lead", "name": "部门负责人", "includes": ["dept-member"], "permissions": [{ "kinds": ["decide"] }], "platform": false, "admin_level": false, "decides": true }
-              ]
+                { "id": "owner", "name": "属主", "includes": [], "permissions": [{ "kinds": ["read", "write", "decide", "admin"] }], "platform": true, "custom": false, "admin_level": true, "decides": true },
+                {
+                  "id": "admin",
+                  "name": "系统管理员",
+                  "includes": [],
+                  "permissions": [
+                    {
+                      "kinds": ["read", "write", "admin"],
+                      "domains": [
+                        "admin",
+                        "admin-token",
+                        "agent-card",
+                        "app",
+                        "auth",
+                        "binding",
+                        "content",
+                        "cookie",
+                        "design-token",
+                        "grant",
+                        "judgment",
+                        "login",
+                        "market",
+                        "mcp",
+                        "principal",
+                        "remote-allow",
+                        "role",
+                        "setting",
+                        "skill",
+                        "sso",
+                        "stats",
+                        "type",
+                        "workbench"
+                      ]
+                    },
+                    { "kinds": ["admin"] }
+                  ],
+                  "platform": true,
+                  "custom": false,
+                  "admin_level": true,
+                  "decides": false
+                },
+                { "id": "management", "name": "管理层", "includes": [], "permissions": [{ "kinds": ["read", "write", "decide"] }], "platform": true, "custom": false, "admin_level": false, "decides": true },
+                { "id": "dept-lead", "name": "部门负责人", "includes": [], "permissions": [{ "kinds": ["read", "write", "decide"] }], "platform": true, "custom": false, "admin_level": false, "decides": true },
+                {
+                  "id": "member",
+                  "name": "普通员工",
+                  "includes": [],
+                  "permissions": [{ "kinds": ["read"] }, { "actions": ["app-data.submit", "app-data.upload", "sop-run.file-refs", "sop-run.file-upload", "sop-run.finish", "sop-run.save", "sop-run.start"] }, { "kinds": ["decide"], "scope": "self" }],
+                  "platform": true,
+                  "custom": false,
+                  "admin_level": false,
+                  "decides": true
+                },
+                { "id": "guest", "name": "访客", "includes": [], "permissions": [], "platform": true, "custom": false, "admin_level": false, "decides": false },
+                { "id": "ai-staff", "name": "AI 员工", "includes": [], "permissions": [{ "kinds": ["read", "write"] }], "platform": true, "custom": false, "admin_level": false, "decides": false },
+                { "id": "dept-member", "name": "部门成员", "includes": [], "permissions": [{ "kinds": ["read", "write"] }], "platform": false, "custom": false, "admin_level": false, "decides": false }
+              ],
+              "custom": []
             }
           }
         },
@@ -420,6 +481,281 @@
             "headers": { "cache-control": "no-store", "content-length": "69", "etag": "W/\"45-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "on": false, "tally": [], "mismatches": [], "writeFailures": 0, "dropped": 0 }
           }
+        },
+        {
+          "id": "role-copy-remote-anon",
+          "route": "POST /api/roles/:id/copy",
+          "class": "unauthorized",
+          "what": "远程匿名复制角色：403",
+          "request": { "method": "POST", "path": "/api/roles/dept-lead/copy", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "id": "my-lead", "name": "我的负责人" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "role-copy-missing",
+          "route": "POST /api/roles/:id/copy",
+          "class": "invalid",
+          "what": "复制不存在的角色：404",
+          "request": { "method": "POST", "path": "/api/roles/no-such/copy", "headers": {}, "json": { "id": "x-one", "name": "甲" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "角色 no-such 不存在" } }
+        },
+        {
+          "id": "role-copy-clash",
+          "route": "POST /api/roles/:id/copy",
+          "class": "invalid",
+          "what": "新角色的 id 和内置预设重名：409",
+          "request": { "method": "POST", "path": "/api/roles/member/copy", "headers": {}, "json": { "id": "member", "name": "复制的员工" } },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "98", "etag": "W/\"62-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "角色 id member 已经有了（内置预设、声明文件或别的自定义角色）" } }
+        },
+        {
+          "id": "role-copy",
+          "route": "POST /api/roles/:id/copy",
+          "class": "normal",
+          "what": "本机命令行（属主）复制普通员工：201，直接生效",
+          "vary": { "role.created_at": 60000, "role.updated_at": 60000 },
+          "request": { "method": "POST", "path": "/api/roles/member/copy", "headers": {}, "json": { "id": "staff-plus", "name": "加强版员工" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "426", "etag": "W/\"1aa-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "role": {
+                "id": "staff-plus",
+                "name": "加强版员工",
+                "based_on": "member",
+                "permissions": [{ "kinds": ["read"] }, { "actions": ["app-data.submit", "app-data.upload", "sop-run.file-refs", "sop-run.file-upload", "sop-run.finish", "sop-run.save", "sop-run.start"] }, { "kinds": ["decide"], "scope": "self" }],
+                "status": "active",
+                "proposed": null,
+                "proposed_by": null,
+                "created_by": "cli",
+                "created_at": 1893456000000,
+                "updated_at": 1893456000000
+              },
+              "pending": false
+            }
+          }
+        },
+        {
+          "id": "role-update-remote-anon",
+          "route": "PUT /api/roles/:id",
+          "class": "unauthorized",
+          "what": "远程匿名改角色：403",
+          "request": { "method": "PUT", "path": "/api/roles/staff-plus", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "name": "改名" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "role-update-preset",
+          "route": "PUT /api/roles/:id",
+          "class": "unauthorized",
+          "what": "改内置预设：403（只能复制）",
+          "request": { "method": "PUT", "path": "/api/roles/member", "headers": {}, "json": { "name": "改名" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "96", "etag": "W/\"60-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "role_locked", "message": "内置预设不能改，只能复制成自定义角色再改" }
+          }
+        },
+        {
+          "id": "role-update-bad",
+          "route": "PUT /api/roles/:id",
+          "class": "invalid",
+          "what": "权限写法不对（类别不认识）：422",
+          "request": { "method": "PUT", "path": "/api/roles/staff-plus", "headers": {}, "json": { "permissions": [{ "kinds": ["execute"] }] } },
+          "response": {
+            "status": 422,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "105", "etag": "W/\"69-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "角色声明：staff-plus 的第 1 条权限的 kinds 只能是 read、write、decide、admin" }
+          }
+        },
+        {
+          "id": "role-update",
+          "route": "PUT /api/roles/:id",
+          "class": "normal",
+          "what": "改自定义角色：200，带上会影响的授予",
+          "vary": { "role.created_at": 60000, "role.updated_at": 60000 },
+          "request": { "method": "PUT", "path": "/api/roles/staff-plus", "headers": {}, "json": { "name": "加强版员工", "permissions": [{ "kinds": ["read"] }, { "actions": ["sop-run.start"] }] } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "301", "etag": "W/\"12d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "role": {
+                "id": "staff-plus",
+                "name": "加强版员工",
+                "based_on": "member",
+                "permissions": [{ "kinds": ["read"] }, { "actions": ["sop-run.start"] }],
+                "status": "active",
+                "proposed": null,
+                "proposed_by": null,
+                "created_by": "cli",
+                "created_at": 1893456000000,
+                "updated_at": 1893456000000
+              },
+              "pending": false,
+              "affected_grants": []
+            }
+          }
+        },
+        {
+          "id": "role-copy-pending",
+          "route": "POST /api/roles/:id/copy",
+          "class": "normal",
+          "what": "口令管理员（不是属主）复制管理层（带决定类）：201，待属主放行",
+          "vary": { "role.created_at": 60000, "role.updated_at": 60000 },
+          "request": { "method": "POST", "path": "/api/roles/management/copy", "headers": { "x-forwarded-for": "192.0.2.10", "x-admin-token": "replay-synthetic-admin" }, "json": { "id": "mgmt-copy", "name": "管理层副本" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "278", "etag": "W/\"116-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "role": {
+                "id": "mgmt-copy",
+                "name": "管理层副本",
+                "based_on": "management",
+                "permissions": [{ "kinds": ["read", "write", "decide"] }],
+                "status": "pending",
+                "proposed": null,
+                "proposed_by": null,
+                "created_by": "admin-token",
+                "created_at": 1893456000000,
+                "updated_at": 1893456000000
+              },
+              "pending": true
+            }
+          }
+        },
+        {
+          "id": "role-approve-remote-anon",
+          "route": "POST /api/roles/:id/approve",
+          "class": "unauthorized",
+          "what": "远程匿名放行：403",
+          "request": { "method": "POST", "path": "/api/roles/mgmt-copy/approve", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "role-approve-token",
+          "route": "POST /api/roles/:id/approve",
+          "class": "unauthorized",
+          "what": "口令管理员放行：403（只有属主能）",
+          "request": { "method": "POST", "path": "/api/roles/mgmt-copy/approve", "headers": { "x-forwarded-for": "192.0.2.10", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "108", "etag": "W/\"6c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "owner_required", "message": "带管理类或决定类权限的自定义角色只有属主能放行" }
+          }
+        },
+        {
+          "id": "role-approve-nothing",
+          "route": "POST /api/roles/:id/approve",
+          "class": "invalid",
+          "what": "没有待放行的东西：409",
+          "request": { "method": "POST", "path": "/api/roles/staff-plus/approve", "headers": {} },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "82", "etag": "W/\"52-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "nothing_pending", "message": "角色 staff-plus 没有待放行的东西" }
+          }
+        },
+        {
+          "id": "role-approve",
+          "route": "POST /api/roles/:id/approve",
+          "class": "normal",
+          "what": "本机命令行（属主）放行：200",
+          "vary": { "role.created_at": 60000, "role.updated_at": 60000 },
+          "request": { "method": "POST", "path": "/api/roles/mgmt-copy/approve", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "283", "etag": "W/\"11b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "role": {
+                "id": "mgmt-copy",
+                "name": "管理层副本",
+                "based_on": "management",
+                "permissions": [{ "kinds": ["read", "write", "decide"] }],
+                "status": "active",
+                "proposed": null,
+                "proposed_by": null,
+                "created_by": "admin-token",
+                "created_at": 1893456000000,
+                "updated_at": 1893456000000
+              },
+              "affected_grants": []
+            }
+          }
+        },
+        {
+          "id": "role-export-remote-anon",
+          "route": "GET /api/roles/export",
+          "class": "unauthorized",
+          "what": "远程匿名导出：403",
+          "request": { "method": "GET", "path": "/api/roles/export", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "role-export",
+          "route": "GET /api/roles/export",
+          "class": "normal",
+          "what": "导出生效的自定义角色（声明文件的格式）：200",
+          "request": { "method": "GET", "path": "/api/roles/export", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "217", "etag": "W/\"d9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "roles": [{ "id": "mgmt-copy", "name": "管理层副本", "permissions": [{ "kinds": ["read", "write", "decide"] }] }, { "id": "staff-plus", "name": "加强版员工", "permissions": [{ "kinds": ["read"] }, { "actions": ["sop-run.start"] }] }] }
+          }
+        },
+        {
+          "id": "role-delete-remote-anon",
+          "route": "DELETE /api/roles/:id",
+          "class": "unauthorized",
+          "what": "远程匿名删角色：403",
+          "request": { "method": "DELETE", "path": "/api/roles/staff-plus", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "role-delete-missing",
+          "route": "DELETE /api/roles/:id",
+          "class": "invalid",
+          "what": "删不存在的角色：404",
+          "request": { "method": "DELETE", "path": "/api/roles/no-such", "headers": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "角色 no-such 不存在" } }
+        },
+        {
+          "id": "role-delete",
+          "route": "DELETE /api/roles/:id",
+          "class": "normal",
+          "what": "删没人用的自定义角色：200",
+          "request": { "method": "DELETE", "path": "/api/roles/staff-plus", "headers": {} },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "id": "staff-plus" } }
         }
       ]
     }

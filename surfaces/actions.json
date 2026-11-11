@@ -61,6 +61,11 @@
       "POST /api/principals/reconcile  -> principal.reconcile  admin",
       "POST /api/principals/unbind  -> principal.unbind  admin",
       "GET /api/roles  -> role.list  admin",
+      "POST /api/roles/:id/copy  -> role.copy  admin",
+      "PUT /api/roles/:id  -> role.update  admin  （状态码不代表授权：内置预设、声明文件里的角色锁住不让改，回 403，是角色本身的规则）",
+      "DELETE /api/roles/:id  -> role.delete  admin  （状态码不代表授权：内置预设、声明文件里的角色锁住不让删，回 403，是角色本身的规则）",
+      "POST /api/roles/:id/approve  -> role.approve  admin",
+      "GET /api/roles/export  -> role.export  admin",
       "GET /api/grants  -> grant.list  admin",
       "GET /api/grants/:id  -> grant.read  admin",
       "POST /api/grants  -> grant.create  admin",
@@ -251,7 +256,10 @@
       {
         "name": "admin-token",
         "label": "管理口令（应急管理员）",
-        "role": "admin",
+        "roles": [
+          "admin",
+          "management"
+        ],
         "actions": [],
         "actsForOwner": [
           "attention.answer",
@@ -310,7 +318,12 @@
           "principal.reconcile",
           "principal.restore",
           "principal.unbind",
+          "role.approve",
+          "role.copy",
+          "role.delete",
+          "role.export",
           "role.list",
+          "role.update",
           "setting.read",
           "setting.update",
           "skill.download",
@@ -464,7 +477,186 @@
           "local-cli"
         ],
         "why": "整批撤销迁移出来的授予只有属主能做（本机命令行在授予管理面上算属主），比管理员严"
+      },
+      {
+        "action": "role.approve",
+        "only": [
+          "owner",
+          "local-cli"
+        ],
+        "why": "带管理类或决定类权限的自定义角色只有属主能放行（本机命令行在授予管理面上算属主），比管理员严"
       }
     ]
-  }
+  },
+  "domains": {
+    "system": [
+      "admin",
+      "admin-token",
+      "agent-card",
+      "app",
+      "auth",
+      "binding",
+      "content",
+      "cookie",
+      "design-token",
+      "grant",
+      "judgment",
+      "login",
+      "market",
+      "mcp",
+      "principal",
+      "remote-allow",
+      "role",
+      "setting",
+      "skill",
+      "sso",
+      "stats",
+      "type",
+      "workbench"
+    ],
+    "business": [
+      "app-data",
+      "attention",
+      "change-request",
+      "cockpit",
+      "mcp-rest",
+      "mcp-tool",
+      "sop",
+      "sop-run",
+      "summary",
+      "task-center",
+      "work-item",
+      "work-items"
+    ]
+  },
+  "presets": [
+    {
+      "id": "owner",
+      "name": "属主",
+      "permissions": [
+        {
+          "kinds": [
+            "read",
+            "write",
+            "decide",
+            "admin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "admin",
+      "name": "系统管理员",
+      "permissions": [
+        {
+          "kinds": [
+            "read",
+            "write",
+            "admin"
+          ],
+          "domains": [
+            "admin",
+            "admin-token",
+            "agent-card",
+            "app",
+            "auth",
+            "binding",
+            "content",
+            "cookie",
+            "design-token",
+            "grant",
+            "judgment",
+            "login",
+            "market",
+            "mcp",
+            "principal",
+            "remote-allow",
+            "role",
+            "setting",
+            "skill",
+            "sso",
+            "stats",
+            "type",
+            "workbench"
+          ]
+        },
+        {
+          "kinds": [
+            "admin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "management",
+      "name": "管理层",
+      "permissions": [
+        {
+          "kinds": [
+            "read",
+            "write",
+            "decide"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dept-lead",
+      "name": "部门负责人",
+      "permissions": [
+        {
+          "kinds": [
+            "read",
+            "write",
+            "decide"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "member",
+      "name": "普通员工",
+      "permissions": [
+        {
+          "kinds": [
+            "read"
+          ]
+        },
+        {
+          "actions": [
+            "app-data.submit",
+            "app-data.upload",
+            "sop-run.file-refs",
+            "sop-run.file-upload",
+            "sop-run.finish",
+            "sop-run.save",
+            "sop-run.start"
+          ]
+        },
+        {
+          "kinds": [
+            "decide"
+          ],
+          "scope": "self"
+        }
+      ]
+    },
+    {
+      "id": "guest",
+      "name": "访客",
+      "permissions": []
+    },
+    {
+      "id": "ai-staff",
+      "name": "AI 员工",
+      "permissions": [
+        {
+          "kinds": [
+            "read",
+            "write"
+          ]
+        }
+      ]
+    }
+  ]
 }

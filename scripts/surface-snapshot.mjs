@@ -108,6 +108,7 @@ async function exportSurfaces() {
   const tools = MCP_TOOLS.map((t) => `${t.name}  ${t.category}${t.exempt ? '  exempt' : ''}`).sort();
   const toolActions = MCP_TOOLS.map((t) => `${t.name}  ${t.category}`).sort();
   const { BUILTINS, NARROWED, unknownBuiltinActions } = await import(pathToFileURL(join(ROOT, 'server/src/judgment-builtins.ts')).href);
+  const { PLATFORM_ROLES, SYSTEM_DOMAINS, BUSINESS_DOMAINS, unclassifiedDomains } = await import(pathToFileURL(join(ROOT, 'server/src/roles.ts')).href);
 
   if (claimStub()) cleanups.push(releaseStub);
   const port = await freePort();
@@ -150,8 +151,13 @@ async function exportSurfaces() {
     for (const line of actionApps.flat()) for (const m of String(line).matchAll(/(?:-> |；细分：)([a-z][a-z0-9-]*\.[a-z][a-z0-9-]*)  /g)) known.add(m[1]);
     const unknown = unknownBuiltinActions((a) => known.has(a));
     if (unknown.length) throw new Error(`内置身份引用了动作清单里没有的动作：${unknown.join('、')}`);
-    const builtins = { identities: BUILTINS.map((b) => ({ name: b.name, label: b.label, ...(b.role ? { role: b.role } : {}), actions: [...b.actions], actsForOwner: [...b.actsForOwner] })), narrowed: NARROWED.map((n) => ({ action: n.action, only: [...n.only], why: n.why })) };
-    return { routes: { note: ENV_NOTE, apps }, actions: { note: ACTIONS_NOTE, apps: actionApps, tools: toolActions, builtins }, tools, schema: readSchema(join(data, 'workbench-market.db')) };
+    const builtins = { identities: BUILTINS.map((b) => ({ name: b.name, label: b.label, ...(b.roles ? { roles: [...b.roles] } : {}), actions: [...b.actions], actsForOwner: [...b.actsForOwner] })), narrowed: NARROWED.map((n) => ({ action: n.action, only: [...n.only], why: n.why })) };
+    // 每个已登记动作的域要么在系统域清单里、要么明确算业务：两边都不算的导出失败（新长出来的域要有人决定它算哪边）
+    const loose = unclassifiedDomains(known);
+    if (loose.length) throw new Error(`动作的域没有归类（server/src/roles.ts 的 SYSTEM_DOMAINS 或 BUSINESS_DOMAINS）：${loose.join('、')}`);
+    const domains = { system: [...SYSTEM_DOMAINS], business: [...BUSINESS_DOMAINS] };
+    const presets = PLATFORM_ROLES.map((r) => ({ id: r.id, name: r.name, ...(r.includes ? { includes: [...r.includes] } : {}), permissions: r.permissions.map((p) => ({ ...p })) }));
+    return { routes: { note: ENV_NOTE, apps }, actions: { note: ACTIONS_NOTE, apps: actionApps, tools: toolActions, builtins, domains, presets }, tools, schema: readSchema(join(data, 'workbench-market.db')) };
   } finally {
     // 先请它退出；3 秒不退就强杀，并且等到它真的退出，再删数据目录
     const exited = () => child.exitCode !== null || child.signalCode !== null;

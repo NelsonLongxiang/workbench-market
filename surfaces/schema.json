@@ -220,6 +220,28 @@
       "cookies_json TEXT NOT NULL DEFAULT '[]'",
       "created_at TEXT NOT NULL DEFAULT datetime('now')"
     ],
+    "custom_role_events": [
+      "seq INTEGER NOT NULL PK",
+      "role_id TEXT NOT NULL",
+      "event TEXT NOT NULL",
+      "actor TEXT NOT NULL",
+      "actor_principal TEXT",
+      "before TEXT",
+      "after TEXT",
+      "at INTEGER NOT NULL"
+    ],
+    "custom_roles": [
+      "id TEXT PK",
+      "name TEXT NOT NULL",
+      "based_on TEXT NOT NULL",
+      "permissions TEXT NOT NULL",
+      "status TEXT NOT NULL",
+      "proposed TEXT",
+      "proposed_by TEXT",
+      "created_by TEXT NOT NULL",
+      "created_at INTEGER NOT NULL",
+      "updated_at INTEGER NOT NULL"
+    ],
     "endpoint_stats": [
       "endpoint TEXT NOT NULL PK",
       "day TEXT NOT NULL PK",
