@@ -2319,20 +2319,24 @@ function layerfsReadiness(): Promise<'healthy' | 'unhealthy' | 'unreachable'> {
   })().finally(() => { layerfsProbing = null; });
   return layerfsProbing;
 }
-function healthBase(): Record<string, unknown> {
-  // 事项回填的状态只报告（没跑、在跑到第几批、已完成），不因为它没跑完而报不就绪
+function healthBase(req?: express.Request): Record<string, unknown> {
+  // 事项回填的状态只报告（没跑、在跑到第几批、已完成），不因为它没跑完而报不就绪。
+  // 匿名只给 state；批数、游标、核过的事件数会透露事件量，只给带管理口令的请求
   let backfill: unknown = null;
-  try { backfill = svc<WorkItemService>('workItems').backfillStatus(); } catch { /* 事项服务没装上 */ }
+  try {
+    const b = svc<WorkItemService>('workItems').backfillStatus();
+    backfill = req && adminTokenCheck(req.headers['x-admin-token'] as string | undefined) ? b : { state: b.state };
+  } catch { /* 事项服务没装上 */ }
   return { ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, self_probe: startupSecurity.snapshot(), work_items_backfill: backfill };
 }
-app.get('/api/health', (_req, res) => {
-  const result = healthBase();
+app.get('/api/health', (req, res) => {
+  const result = healthBase(req);
   if (process.env.LAYERFS_SERVICE_URL && layerfsProbe) result.layerfs = layerfsProbe.status; // 只回缓存的上次结果，不触发探测
   result.a2a = a2aHealth({ directSig: A2A_DIRECT_SIG, directSigBody: A2A_DIRECT_SIG_BODY! }); // 阶段七第 5 步：只出开关、计数和时长
   res.json(result);
 });
-app.get('/api/health/ready', async (_req, res) => {
-  const result = healthBase();
+app.get('/api/health/ready', async (req, res) => {
+  const result = healthBase(req);
   if (process.env.LAYERFS_SERVICE_URL) {
     result.layerfs = await layerfsReadiness();
     if (result.layerfs !== 'healthy') { result.ok = false; return res.status(503).json(result); }

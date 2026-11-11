@@ -536,9 +536,12 @@
       "id INTEGER PK",
       "version INTEGER NOT NULL",
       "status TEXT NOT NULL",
+      "phase TEXT NOT NULL DEFAULT 'full'",
       "cursor INTEGER NOT NULL DEFAULT 0",
       "batches INTEGER NOT NULL DEFAULT 0",
       "events INTEGER NOT NULL DEFAULT 0",
+      "log_mark INTEGER NOT NULL DEFAULT 0",
+      "dirty INTEGER NOT NULL DEFAULT 0",
       "updated_at TEXT NOT NULL"
     ],
     "work_item_log": [
