@@ -23,6 +23,9 @@ import { hasLoginCredential } from '../request-person.ts';
 /** run 写守卫的模式：enforce 拒绝（缺省），warn 只告警计数（上线过渡） */
 export type SopRunWriteMode = 'enforce' | 'warn';
 /** 启动时读一次 WM_SOP_RUN_WRITE：没设或空是 enforce，别的值抛错（装配方拒绝启动） */
+/** 保存一步、完成：放不放行看这个 run 的写凭据（不是登录身份），401、403 不拿来和统一判定比 */
+const RUN_WRITE_DECIDES = '按 run 的写凭据判：上传令牌（run 还在执行）、管理员或本机命令行，403 不是登录身份的结论';
+
 export function sopRunWriteMode(raw: string | undefined): SopRunWriteMode {
   const v = (raw ?? '').trim();
   if (v === '' || v === 'enforce') return 'enforce';
@@ -108,12 +111,12 @@ export function registerSopRunLifecycleRoutes(app: HttpService, deps: SopRunLife
     return false;
   }
 
-  app.put('/api/sop/runs/:id(\\d+)', { action: 'sop-run.save', kind: 'write' }, wrap(async (req, res) => {
+  app.put('/api/sop/runs/:id(\\d+)', { action: 'sop-run.save', kind: 'write', statusNotVerdict: RUN_WRITE_DECIDES }, wrap(async (req, res) => {
     if (!(await writeAllowed(req, res, 'PUT /api/sop/runs/:id'))) return;
     res.json(await sopRunStepSaveCore(Number(req.params.id), String(req.body?.stepKey ?? ''), req.body?.value));
   }));
 
-  app.post('/api/sop/runs/:id(\\d+)/finish', { action: 'sop-run.finish', kind: 'write' }, wrap(async (req, res) => {
+  app.post('/api/sop/runs/:id(\\d+)/finish', { action: 'sop-run.finish', kind: 'write', statusNotVerdict: RUN_WRITE_DECIDES }, wrap(async (req, res) => {
     if (!(await writeAllowed(req, res, 'POST /api/sop/runs/:id/finish'))) return;
     res.json(await sopRunFinishCore(Number(req.params.id)));
   }));
