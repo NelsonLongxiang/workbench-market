@@ -145,8 +145,12 @@ function sessionTokenOf(cookieHeader: string): string {
 
 // ---------- 登录方式（发会话的那一种登录，比如飞书） ----------
 
-/** 登录方式认出的人：对方的用户标识（飞书是 union_id），加显示名和对方给的企业邮箱（可能没有） */
-export type FlowIdentity = { externalId: string; displayName: string | null; email: string | null };
+/**
+ * 登录方式认出的人：对方的用户标识（飞书是 union_id），加显示名和对方给的企业邮箱（可能没有）。
+ * emailTrusted：插件确认了这个人来自本组织（比如核对过租户），邮箱才可以拿来自动对到已有的主体；不确定就是 false。
+ * outsider：插件确认这个人不是本组织的（比如租户不符）。这样的人只进待对接清单并留痕，拿不到会话，哪怕他的身份被绑过
+ */
+export type FlowIdentity = { externalId: string; displayName: string | null; email: string | null; emailTrusted: boolean; outsider: boolean };
 export type FlowBegin = { ok: true; location: string } | { ok: false; http: number; error: string };
 export type FlowComplete = { ok: true; identity: FlowIdentity } | { ok: false; http: number; error: string };
 
@@ -177,11 +181,13 @@ const flowFail = (http: number, error: string) => ({ ok: false as const, http, e
 /** 插件交回来的「这是谁」同样不照单全收：标识要合乎外部身份的形状，显示名、邮箱只收字符串 */
 function checkedFlowIdentity(answer: unknown): FlowComplete {
   try {
-    const a = answer as { ok?: unknown; identity?: { externalId?: unknown; displayName?: unknown; email?: unknown }; http?: unknown; error?: unknown } | null | undefined;
+    const a = answer as { ok?: unknown; identity?: { externalId?: unknown; displayName?: unknown; email?: unknown; emailTrusted?: unknown }; http?: unknown; error?: unknown } | null | undefined;
     if (a?.ok === true) {
       const i = a.identity, externalId = i?.externalId, displayName = i?.displayName, email = i?.email;
       if (!loginOk(externalId)) return flowFail(502, '登录方式交回的用户标识形状不对');
-      return { ok: true, identity: { externalId, displayName: typeof displayName === 'string' ? displayName.slice(0, 256) : null, email: typeof email === 'string' && email.length <= 320 ? email : null } };
+      const emailTrusted = (i as { emailTrusted?: unknown }).emailTrusted, outsider = (i as { outsider?: unknown }).outsider;
+      // 拿不准的一律朝不放行的方向：emailTrusted 只认 true；outsider 只要不是 false 就当外人
+      return { ok: true, identity: { externalId, displayName: typeof displayName === 'string' ? displayName.slice(0, 256) : null, email: typeof email === 'string' && email.length <= 320 ? email : null, emailTrusted: emailTrusted === true && outsider === false, outsider: outsider !== false } };
     }
     if (a?.ok === false) {
       const http = a.http, error = a.error;

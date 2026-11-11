@@ -211,6 +211,25 @@ export const fakePlugin = {
   },
 };
 
+/**
+ * 假登录方式 untrusted：打开了按邮箱自动对上，但交回的身份一律 emailTrusted=false（插件没法确认邮箱来自本组织）。
+ * 发起时把浏览器送去一个不存在的本机地址（只用来带回 state）；回调里的 who、email 就是认出来的人和邮箱。
+ * 核心那一道「只用可信邮箱自动对上」的检查，只有它测得到：真的飞书插件在前面已经按租户拒了。
+ */
+export const untrustedFlowPlugin = {
+  name: 'login-flow-untrusted-fake',
+  inject: ['identity'],
+  apply(ctx) {
+    assertTestEnv();
+    const flow = {
+      name: 'untrusted', label: '不可信的假登录', autoBindByEmail: true, available: () => true,
+      async begin({ state, callbackUrl }) { return { ok: true, location: `http://127.0.0.1:9/authorize?state=${encodeURIComponent(state)}&redirect_uri=${encodeURIComponent(callbackUrl)}` }; },
+      async complete(query) { return { ok: true, identity: { externalId: String(query.who ?? ''), displayName: null, email: String(query.email ?? ''), emailTrusted: false, outsider: false } }; },
+    };
+    ctx.effect(() => ctx.get('identity').registerFlow(flow), 'identity.registerFlow(untrusted)');
+  },
+};
+
 /** 在 treeRoot 这棵目录树的上下文里卸掉自带的提供方。返回这棵树的 { root, identity, loginRelay }。 */
 export async function unloadShipped(treeRoot) {
   assertTestEnv();

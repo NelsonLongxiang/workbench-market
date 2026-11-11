@@ -164,6 +164,8 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
     if (self && principals().principalOf(provider, externalId) === self) throw new HttpError(409, '不能解绑自己名下的外部身份');
     const was = principals().unbindIdentity(provider, externalId);
     if (!was) throw new HttpError(404, `identity not found: ${provider}/${externalId}`);
+    // 凭这条身份发出的会话一并注销（查会话时本来就核对这条身份还绑没绑着；注销是让重新绑回去之后也要重新登录）
+    svc<LoginSessionService>('loginSessions').revokeForIdentity(provider, externalId);
     console.log(JSON.stringify({ source: 'principals', event: 'unbind', provider, external_id: externalId, id: was, by: actor, reason, at: new Date().toISOString() }));
     res.json({ ok: true, unbound_from: was });
   }));

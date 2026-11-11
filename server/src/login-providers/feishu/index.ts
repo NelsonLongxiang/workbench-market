@@ -11,7 +11,7 @@
  *   WM_FEISHU_USERINFO_URL        取用户信息，缺省同上
  *   WM_FEISHU_VAULT_ENTRY         应用的标识和密钥在凭据库里的条目名（缺省 feishu-login）：username 是 App ID，password 是 App Secret
  *   WM_FEISHU_TENANT_KEY          可选：只认这个租户的人（用户信息里的 tenant_key 必须相等）
- *   WM_FEISHU_AUTO_BIND_EMAIL=on  没对到主体的人，按飞书给的企业邮箱自动对到已有的主体上（缺省关；规则见 routes/login-flows.ts）
+ *   WM_FEISHU_AUTO_BIND_EMAIL=on  没对到主体的人，按飞书给的企业邮箱自动对到已有的主体上（缺省关；必须同时配 WM_FEISHU_TENANT_KEY；规则见 routes/login-flows.ts）
  * 三个地址只收 https；本机回环的 http 只给测试用（本机起的假飞书）。应用的密钥只发给换令牌的那个地址。
  *
  * 从 identity.ts 只引用类型：那边在装配时引用本插件，带值的引用会绕成环。凭据库在用到时才引入（引入它会开库）。
@@ -46,6 +46,8 @@ function readConfig(env: NodeJS.ProcessEnv) {
   if (autoBind !== '' && autoBind !== 'on' && autoBind !== 'off') throw new Error('[feishu] 拒绝启动：WM_FEISHU_AUTO_BIND_EMAIL 只接受 on / off / 不设');
   const tenant = String(env.WM_FEISHU_TENANT_KEY ?? '').trim();
   if (tenant && !/^[A-Za-z0-9_-]{1,64}$/.test(tenant)) throw new Error('[feishu] 拒绝启动：WM_FEISHU_TENANT_KEY 不合法');
+  // 按邮箱自动对上要能确认邮箱来自本组织：没配租户就打开自动对上，拒绝启动
+  if (autoBind === 'on' && !tenant) throw new Error('[feishu] 拒绝启动：WM_FEISHU_AUTO_BIND_EMAIL=on 时必须配 WM_FEISHU_TENANT_KEY（只认本组织的企业邮箱）');
   return {
     on: mode === 'on',
     authorize: endpoint('WM_FEISHU_AUTHORIZE_URL', env.WM_FEISHU_AUTHORIZE_URL, DEFAULTS.authorize),
@@ -120,13 +122,17 @@ const flow: LoginFlow = {
     const data = info && info.status === 200 && info.body?.code === 0 ? info.body.data : null;
     const unionId = data?.union_id;
     if (typeof unionId !== 'string' || !UNION_ID.test(unionId)) return fail(502, '飞书返回的用户标识缺失或形状不对');
-    if (config.tenant && data.tenant_key !== config.tenant) return fail(403, '不是本组织的飞书账号');
+    // 配了租户而租户不符：不直接报错，交回身份并标成外人——核心只把它记进待对接清单、留痕，不给会话
+    const outsider = Boolean(config.tenant) && data.tenant_key !== config.tenant;
     return {
       ok: true,
       identity: {
         externalId: unionId,
         displayName: typeof data.name === 'string' ? data.name : null,
         email: typeof data.enterprise_email === 'string' && data.enterprise_email ? data.enterprise_email : null,
+        // 只有配了租户、而且核对过（上面不相等已经回 403），企业邮箱才算本组织的
+        emailTrusted: Boolean(config.tenant) && !outsider,
+        outsider,
       },
     };
   },

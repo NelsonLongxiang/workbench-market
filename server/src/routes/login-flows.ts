@@ -78,8 +78,15 @@ export function registerLoginFlowRoutes(app: HttpService, deps: LoginFlowRouteDe
     const done = await identity().completeFlow(flow, query, { callbackUrl: callbackUrl(flow) });
     if (!done.ok) return page(res, done.http >= 500 ? 502 : done.http, '登录没有完成', done.http === 401 ? '没有同意授权。' : done.http === 403 ? '这个账号不能登录本站。' : '没能从登录方式那边确认你是谁，请稍后再试。');
     const who = done.identity;
+    if (who.outsider) {
+      // 不是本组织的人（插件说的，比如飞书租户不符）：只进待对接清单并留痕，不对主体、不自动绑定、不发会话——哪怕他的身份被绑过
+      principals().notePending({ provider: flow, externalId: who.externalId, displayName: who.displayName, email: who.email });
+      console.log(JSON.stringify({ source: 'login', event: 'outsider', flow, external_id: who.externalId, at: new Date().toISOString() }));
+      return page(res, 403, '等管理员处理', '你的账号现在还不能登录本站，请联系管理员。');
+    }
     let admitted = principals().admitBound({ provider: flow, externalId: who.externalId });
-    if (admitted.ok === false && admitted.reason === 'unbound' && who.email && identity().flowAutoBindsByEmail(flow)) {
+    // 自动对上只用插件确认过来自本组织的邮箱（emailTrusted），别的组织的人哪怕邮箱相同也不绑
+    if (admitted.ok === false && admitted.reason === 'unbound' && who.email && who.emailTrusted && identity().flowAutoBindsByEmail(flow)) {
       admitted = principals().bindByEmail({ provider: flow, externalId: who.externalId, email: who.email, against: identity().providerName() ?? '' });
       if (admitted.ok) console.log(JSON.stringify({ source: 'principals', event: 'bind', provider: flow, external_id: who.externalId, id: admitted.principal, by: 'auto:email', at: new Date().toISOString() }));
     }

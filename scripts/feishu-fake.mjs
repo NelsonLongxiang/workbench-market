@@ -18,6 +18,7 @@ export const PEOPLE = {
   bob: { name: 'Synthetic Bob', union_id: `on_${hex32('bob')}`, enterprise_email: 'bob@synthetic.invalid' },
   carol: { name: 'Synthetic Carol', union_id: `on_${hex32('carol')}`, enterprise_email: '' },
   dave: { name: 'Synthetic Dave', union_id: `on_${hex32('dave')}`, enterprise_email: 'dave@synthetic.invalid' },
+  frank: { name: 'Synthetic Frank', union_id: `on_${hex32('frank')}`, enterprise_email: 'carol-mail@synthetic.invalid' }, // 邮箱和本地某个登录名相同，测跨租户用
 };
 
 /** 让某一步出错 */

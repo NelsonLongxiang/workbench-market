@@ -214,6 +214,72 @@ try {
     check(forged.status !== 200 && junk.status !== 200, '伪造的会话值、形状不对的会话值：不认', show({ forged, junk }));
   }
 
+  {
+    // 解绑：凭这条身份发出的会话立即不认；重新绑回去，旧会话也不复活。另一条路径（直接从库里删掉绑定、不经解绑接口）也一样立即不认
+    const b = browser(open);
+    await feishuLogin(b, fake, 'alice');
+    const token = b.jar.get('wm_session');
+    const before = await whoami(b);
+    const off = await ops.req('POST', '/api/principals/unbind', { headers: admin, body: { provider: 'feishu', external_id: PEOPLE.alice.union_id } });
+    const during = await whoami(browser(open), { wm_session: token });
+    const tasks = await browser(open).req('GET', '/api/tasks', { cookies: { wm_session: token } });
+    const back = await ops.req('POST', '/api/principals/bind', { headers: admin, body: { provider: 'feishu', external_id: PEOPLE.alice.union_id, principal: 'user:alpha' } });
+    const revived = await whoami(browser(open), { wm_session: token });
+    const c = browser(open); await feishuLogin(c, fake, 'alice');
+    const fresh = await whoami(c);
+    const sql = (q, ...a) => { const db = new DatabaseSync(join(open.data, 'workbench-market.db')); try { db.exec('PRAGMA busy_timeout=5000'); return db.prepare(q).run(...a); } finally { db.close(); } };
+    sql("DELETE FROM principal_identities WHERE provider = 'feishu' AND external_id = ?", PEOPLE.alice.union_id);
+    const dropped = await whoami(c);
+    sql("INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES ('feishu', ?, ?, 'user:alpha')", PEOPLE.alice.union_id, PEOPLE.alice.union_id);
+    const restored = await whoami(c);
+    // 改绑到别的主体：旧会话不能变成新主体
+    const c2 = browser(open); await feishuLogin(c2, fake, 'alice');
+    const oldToken = c2.jar.get('wm_session');
+    await ops.req('POST', '/api/principals/unbind', { headers: admin, body: { provider: 'feishu', external_id: PEOPLE.alice.union_id } });
+    const toBeta = await ops.req('POST', '/api/principals/bind', { headers: admin, body: { provider: 'feishu', external_id: PEOPLE.alice.union_id, principal: 'user:beta-feishu', create: true } });
+    const moved = await whoami(browser(open), { wm_session: oldToken });
+    await ops.req('POST', '/api/principals/unbind', { headers: admin, body: { provider: 'feishu', external_id: PEOPLE.alice.union_id } });
+    await ops.req('POST', '/api/principals/bind', { headers: admin, body: { provider: 'feishu', external_id: PEOPLE.alice.union_id, principal: 'user:alpha' } });
+    check(toBeta.status === 200 && moved.status !== 200 && moved.sub === null, '改绑到别的主体：旧会话不能变成新主体（不认）', show({ toBeta: toBeta.status, moved }));
+    check(before.status === 200 && off.status === 200 && during.status !== 200 && tasks.status !== 200 && back.status === 200 && revived.status !== 200 && fresh.status === 200 && dropped.status !== 200 && restored.status === 200,
+      '解绑：凭这条身份发出的会话立即不认（whoami、待办都不给）；重新绑回去，旧会话也不复活，重新登录才行；直接从库里删掉绑定（不经解绑接口）也立即不认', show({ before: before.status, during, tasks: tasks.status, revived, fresh: fresh.status, dropped, restored: restored.status }));
+  }
+  {
+    // 登录门开着：解绑之后旧会话立刻进不来（接口 401、/api/auth/me 说没登录、管理员认定不成立）
+    const g = browser(gated); await feishuLogin(g, fake, 'alice');
+    const token = g.jar.get('wm_session');
+    const inside = await g.req('GET', '/api/apps');
+    await browser(gated).req('POST', '/api/principals/unbind', { headers: admin, body: { provider: 'feishu', external_id: PEOPLE.alice.union_id } });
+    const old = (path) => browser(gated).req('GET', path, { cookies: { wm_session: token } });
+    const [apps, me, adm, viewer] = await Promise.all([old('/api/apps'), old('/api/auth/me'), old('/api/admin/whoami'), old('/api/auth/viewer')]);
+    await browser(gated).req('POST', '/api/principals/bind', { headers: admin, body: { provider: 'feishu', external_id: PEOPLE.alice.union_id, principal: 'user:alpha' } });
+    check(inside.status === 200 && apps.status === 401 && me.json?.authenticated === false && adm.status === 401 && viewer.status === 401,
+      '登录门开着：解绑之后旧会话立刻进不来（接口 401、/api/auth/me 说没登录、管理员认定、whoami 都拿不到）', show({ inside: inside.status, apps: apps.status, me: me.json?.authenticated, adm: adm.status, viewer: viewer.status }));
+  }
+  {
+    // 回调地址按 MARKET_PUBLIC_URL 拼，不信请求自带的转发主机
+    fake.as('alice');
+    const r = await browser(open).req('GET', '/login/feishu?next=/', { headers: { 'x-forwarded-host': 'evil.invalid', 'x-forwarded-proto': 'https' } });
+    const redirect = r.location ? new URL(r.location).searchParams.get('redirect_uri') : null;
+    check(redirect === `${open.base}/login/feishu/callback`, '回调地址按部署配置的对外地址拼，请求里带别的转发主机也不变', show({ redirect }));
+  }
+  {
+    // 库里只存会话令牌的摘要
+    const b = browser(open); await feishuLogin(b, fake, 'alice');
+    const token = b.jar.get('wm_session');
+    const db = new DatabaseSync(join(open.data, 'workbench-market.db'), { readOnly: true });
+    let raw; try { raw = db.prepare('SELECT COUNT(*) AS n FROM market_sessions WHERE token_sha256 = ? OR principal_id = ? OR external_id = ?').get(token, token, token).n; } finally { db.close(); }
+    check(typeof token === 'string' && token.length === 43 && raw === 0 && (await whoami(b)).status === 200, '会话令牌在库里只存摘要：哪一列里都找不到原值', show({ raw }));
+  }
+  {
+    // 停用的人来登录：不进待对接清单（等待页一样，但清单里不该出现已有主体的人）
+    await ops.req('POST', '/api/principals/disable', { headers: admin, body: { id: 'user:alpha' } });
+    await feishuLogin(browser(open), fake, 'alice');
+    const listed = ((await ops.req('GET', '/api/principals/pending', { headers: admin })).json?.pending ?? []).some((p) => p.external_id === PEOPLE.alice.union_id);
+    await ops.req('POST', '/api/principals/restore', { headers: admin, body: { id: 'user:alpha' } });
+    check(!listed, '停用的人来登录：看到的是同一页，但不会被列进待对接清单', show({ listed }));
+  }
+
   // ---------- 三、state、回调、next ----------
   {
     const calls = fake.calls.length;
@@ -315,15 +381,23 @@ try {
     const tenant = await boot('tenant', fake, { WM_FEISHU_TENANT_KEY: 'tenant_synthetic' });
     await browser(tenant).req('POST', '/api/principals/bind', { headers: admin, body: { provider: 'feishu', external_id: PEOPLE.alice.union_id, principal: 'user:alice', create: true } });
     fake.mode('otherTenant');
-    const b = browser(tenant); const r = await feishuLogin(b, fake, 'alice');
+    const b = browser(tenant); const r = await feishuLogin(b, fake, 'alice'); // alice 的身份绑过 user:alice，换成别的租户来
     fake.mode('normal');
+    const pendingOther = ((await browser(tenant).req('GET', '/api/principals/pending', { headers: admin })).json?.pending ?? []).some((p) => p.external_id === PEOPLE.alice.union_id);
+    const outsiderLine = tenant.log().split('\n').filter((l) => l.includes('"event":"outsider"'));
+    const unboundPage = (await feishuLogin(browser(tenant), fake, 'bob')).cb;
     const b2 = browser(tenant); const ok = await feishuLogin(b2, fake, 'alice');
-    check(r.cb?.status === 403 && !b.jar.has('wm_session') && ok.cb?.status === 302 && b2.jar.has('wm_session'), '配了租户：别的租户的人 403、不发会话；对照：本租户的人照常', show({ other: r.cb?.status, own: ok.cb?.status }));
+    check(r.cb?.status === 403 && !b.jar.has('wm_session') && r.cb.text === unboundPage?.text && pendingOther && outsiderLine.length === 1 && ok.cb?.status === 302 && b2.jar.has('wm_session'),
+      '配了租户：别的租户的人哪怕身份被绑过也拿不到会话，只进待对接清单并留一行痕，看到的是同一张等待页；对照：本租户的人照常', show({ other: r.cb?.status, pendingOther, lines: outsiderLine.length, own: ok.cb?.status }));
+    // 配了租户、但没打开按邮箱自动对上：本租户的人邮箱对得上也不自动绑（开关缺省关）
+    await browser(tenant).req('POST', '/api/principals/bind', { headers: admin, body: { provider: 'fake', external_id: 'dave@synthetic.invalid', principal: 'user:dave-t', create: true } });
+    const d = browser(tenant); const dl = await feishuLogin(d, fake, 'dave');
+    check(dl.cb?.status === 403 && !d.jar.has('wm_session'), '配了租户、没打开自动对上：本租户的人企业邮箱对得上也不自动绑（开关缺省关）', show({ dave: dl.cb?.status }));
     await tenant.stop();
   }
   {
     // 按邮箱自动对上：缺省关；打开之后，企业邮箱和 Odoo 登录名（规范化之后）恰好对上一个启用的人才绑
-    const auto = await boot('auto', fake, { WM_FEISHU_AUTO_BIND_EMAIL: 'on' });
+    const auto = await boot('auto', fake, { WM_FEISHU_AUTO_BIND_EMAIL: 'on', WM_FEISHU_TENANT_KEY: 'tenant_synthetic' });
     const mk = (srv) => browser(srv).req('POST', '/api/principals/bind', { headers: admin, body: { provider: 'fake', external_id: 'DAVE@synthetic.invalid', principal: 'user:dave', create: true } }); // 身份来源的外部身份（这里身份来源是假提供方，名叫 fake）
     await mk(auto); await mk(open);
     const a = browser(auto); const ra = await feishuLogin(a, fake, 'dave');
@@ -342,6 +416,27 @@ try {
     const b2 = browser(auto); const disabled = await feishuLogin(b2, fake, 'bob');
     check(already.cb?.status === 403 && !a2.jar.has('wm_session') && disabled.cb?.status === 403 && !b2.jar.has('wm_session') && already.cb.text === disabled.cb.text,
       '自动对上也有不绑的时候：那个主体已经绑了另一个飞书身份、那个主体停用了——都不绑，照「等管理员处理」走（同一页）', show({ already: already.cb?.status, disabled: disabled.cb?.status }));
+    // 别的租户的人、企业邮箱和本地某人的登录名相同：插件按租户拒（403），不绑、不进清单
+    await mkAuto({ provider: 'fake', external_id: 'carol-mail@synthetic.invalid', principal: 'user:carol-odoo', create: true });
+    fake.mode('otherTenant');
+    const x = browser(auto); const cross = await feishuLogin(x, fake, 'frank');
+    fake.mode('normal');
+    const pendingCross = ((await browser(auto).req('GET', '/api/principals/pending', { headers: admin })).json?.pending ?? []).some((p) => p.external_id === PEOPLE.frank.union_id);
+    const crossBound = ((await browser(auto).req('GET', '/api/principals', { headers: admin })).json?.principals ?? []).some((p) => p.identities.some((i) => i.external_id === PEOPLE.frank.union_id));
+    check(cross.cb?.status === 403 && !x.jar.has('wm_session') && pendingCross && !crossBound, '打开了自动对上：别的租户的人（企业邮箱和本地登录名相同）403，不自动绑、不发会话，只进待对接清单', show({ cross: cross.cb?.status, pendingCross, crossBound }));
+    // 核心那一道：登录方式交回的邮箱没说来自本组织（emailTrusted=false），哪怕这个登录方式打开了自动对上、邮箱对得上，也不绑
+    const u = await boot('untrusted-flow', fake, { IDENTITY_FAKE_UNTRUSTED_FLOW: '1' });
+    await browser(u).req('POST', '/api/principals/bind', { headers: admin, body: { provider: 'fake', external_id: 'erin@synthetic.invalid', principal: 'user:erin', create: true } });
+    const ub = browser(u);
+    const st = await ub.req('GET', '/login/untrusted?next=/');
+    const state = st.location ? new URL(st.location).searchParams.get('state') : '';
+    const cb = await ub.req('GET', `/login/untrusted/callback?state=${encodeURIComponent(state)}&who=outsider-0001&email=${encodeURIComponent('ERIN@synthetic.invalid')}`);
+    const boundUntrusted = ((await browser(u).req('GET', '/api/principals', { headers: admin })).json?.principals ?? []).find((p) => p.id === 'user:erin')?.identities.some((i) => i.provider === 'untrusted');
+    check(st.status === 302 && cb.status === 403 && !ub.jar.has('wm_session') && !boundUntrusted, '核心这一道：登录方式交回的邮箱没确认来自本组织，哪怕打开了自动对上、邮箱对得上，也不绑、不发会话', show({ start: st.status, cb: cb.status, boundUntrusted }));
+    await u.stop();
+    // 打开自动对上却没配租户：拒绝启动
+    const noTenant = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], { cwd: join(ROOT, 'server'), env: { PATH: process.env.PATH, HOME: join(OUT, 'nt-home'), NODE_ENV: 'test', IDENTITY_SEAM_ROOT: ROOT, DATA_DIR: join(OUT, 'nt-data'), PORT: '0', WM_CONTROL_PORT: '0', MCP_GATEWAY: 'on', WM_FEISHU_LOGIN: 'on', WM_FEISHU_AUTO_BIND_EMAIL: 'on' }, encoding: 'utf8', timeout: 30000 });
+    check(noTenant.status !== 0 && /WM_FEISHU_TENANT_KEY/.test(noTenant.stderr), '打开按邮箱自动对上、却没配租户：拒绝启动并说明', `status=${noTenant.status} ${String(noTenant.stderr).trim().split('\n').filter((l) => l.includes('feishu')).slice(0, 1)}`);
     await auto.stop();
   }
   {

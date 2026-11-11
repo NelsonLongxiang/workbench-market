@@ -9,7 +9,8 @@
  *
  * 市场会话：
  *   · cookie 里是随机值，库里只存哈希。绝对期限，不续期；注销就记下 revoked_at，立即失效。
- *   · 认人时现查，而且和主体表连着查：主体停用（或者不是人了）就查不到，会话立即失效，不用一条条去吊销。
+ *   · 认人时现查，而且和主体表、外部身份表连着查：主体停用（或者不是人了）、发会话时凭的那条外部身份已经不绑在这个主体上，
+ *     都查不到，会话立即失效——以后任何停用、解绑、改绑的路径都管得住，不用一条条去吊销。
  */
 import { Service } from '@deepseek-ai/cordis';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -77,6 +78,7 @@ export class LoginSessionService extends Service {
     if (typeof token !== 'string' || !TOKEN_RE.test(token)) return null;
     const row = db.prepare(`SELECT s.principal_id AS principal, s.provider AS provider, s.external_id AS externalId, p.display_name AS displayName, s.created_at AS createdAt, s.expires_at AS expiresAt
       FROM market_sessions s JOIN principals p ON p.id = s.principal_id
+      JOIN principal_identities i ON i.provider = s.provider AND i.external_id = s.external_id AND i.principal_id = s.principal_id
       WHERE s.token_sha256 = ? AND s.revoked_at IS NULL AND s.expires_at > ? AND p.status = 'active' AND p.kind = 'person'`).get(sha(token), now) as SessionRecord | undefined;
     return row ?? null;
   }
@@ -84,6 +86,11 @@ export class LoginSessionService extends Service {
   /** 注销一个主体的全部会话（停用时调）：恢复之后要重新登录，旧会话不会活过来。返回注销了几个 */
   revokeAllFor(principal: string, now = Date.now()): number {
     return Number(db.prepare('UPDATE market_sessions SET revoked_at = ? WHERE principal_id = ? AND revoked_at IS NULL AND expires_at > ?').run(now, principal, now).changes);
+  }
+
+  /** 注销凭某一条外部身份发出的全部会话（解绑时调）：重新绑回去之后，旧会话也不复活。返回注销了几个 */
+  revokeForIdentity(provider: string, externalId: string, now = Date.now()): number {
+    return Number(db.prepare('UPDATE market_sessions SET revoked_at = ? WHERE provider = ? AND external_id = ? AND revoked_at IS NULL AND expires_at > ?').run(now, provider, externalId, now).changes);
   }
 
   /** 注销一个会话：立即失效。返回它原来是不是有效的 */
