@@ -214,12 +214,15 @@ export function isCreator(item: Pick<WorkItemRow, 'creator_principal'> | undefin
 /**
  * 8e/8f：从事件确定建立人的主体。只认事件层自己写的「recorded」那一行里记下的提需求人（requester：建录入时经身份服务认出来的），
  * 不认发布人（publisher，只留痕）；8e 那一版记的 principal 是发布人，也不认。
- * 而且事件的提交方是已验证的；别的一律 null。不按提交方自填的名字去猜，也不去对主体表。
+ * 认的是「服务端验过之后写下的 requester」：事件的提交方是已验证的，或者 recorded 里写着 via:"ticket"
+ * （8f-2：台页面带回的提交人票据由服务端验过；对外的 submitter_kind 照旧是 unverified，不拿它来判断）。别的一律 null。
+ * 判断只读主体字段；不按提交方自填的名字（submitter）去猜，也不去对主体表。
  */
 export function creatorPrincipalOf(event: Pick<EventRow, 'submitter_kind'>, recorded: EventLogRow | undefined): string | null {
-  if (!recorded || recorded.actor !== 'market' || event.submitter_kind === 'unverified') return null;
+  if (!recorded || recorded.actor !== 'market') return null;
   let detail: Record<string, unknown> = {};
   try { detail = JSON.parse(recorded.detail || '{}') as Record<string, unknown>; } catch { return null; }
+  if (event.submitter_kind === 'unverified' && detail?.via !== 'ticket') return null;
   const p = detail?.requester;
   return typeof p === 'string' && PERSON_PRINCIPAL.test(p) ? p : null;
 }
@@ -327,7 +330,7 @@ export class WorkItemService extends Service {
       this.insertItem(itemId, {
         title: `${event.source} · ${event.workbench} · ${event.item}`.slice(0, 500), created_by: createdBy, creator_principal: creator,
         source_kind: event.source as SourceKind, source_ref: event.event_id, event_id: event.id,
-        context: { workbench: event.workbench, item: event.item, context_id: event.context_id, submitter_kind: event.submitter_kind },
+        context: { workbench: event.workbench, item: event.item, context_id: event.context_id, submitter_kind: event.submitter_kind, ...(creator && event.submitter_kind === 'unverified' ? { submitter_via: 'ticket' } : {}) },
       }, { source: EVENT_FACT_SOURCE, id: String(recorded.id) }, event.created_at);
       if (event.routed === 'unrouted') this.applyLocked(itemId, { kind: 'note', note: 'unrouted', source: EVENT_FACT_SOURCE, id: `${recorded.id}:unrouted`, actor: 'market' });
     }
@@ -381,9 +384,13 @@ export class WorkItemService extends Service {
   creatorCheck(id: string, principal: string): 'ok' | 'not_found' | 'not_eligible' {
     const item = this.get(id);
     if (!item || !isCreator(item, principal)) return 'not_found';
-    let submitterKind = '';
-    try { submitterKind = String((JSON.parse(item.context || '{}') as { submitter_kind?: unknown }).submitter_kind ?? ''); } catch { /* 坏的 context 当没写 */ }
-    if (submitterKind === 'unverified') return 'not_eligible';
+    let submitterKind = '', via = '';
+    try {
+      const c = JSON.parse(item.context || '{}') as { submitter_kind?: unknown; submitter_via?: unknown };
+      submitterKind = String(c.submitter_kind ?? ''); via = String(c.submitter_via ?? '');
+    } catch { /* 坏的 context 当没写 */ }
+    // 来源未验证、又不是服务端验过票据认出的人：只能由管理员处理
+    if (submitterKind === 'unverified' && via !== 'ticket') return 'not_eligible';
     return 'ok';
   }
 

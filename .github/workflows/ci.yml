@@ -186,6 +186,8 @@ jobs:
         run: node scripts/submitter-requester-test.mjs
       - name: 提交人票据（阶段八 8f-2：出台页面时给认得出的人一张绑人、绑台、两小时的票据·顶层和 iframe 都给·不许缓存、不串人·提交时验签、验期、验台、现查主体·别的台、过期、改字节、停用、自报、拿去打别的入口一律不认·不进日志和库·启动自检失败即关）
         run: node scripts/submitter-ticket-test.mjs
+      - name: 出自产台页面的单测（阶段八 8f-2：出票抛错页面照常不带票据·认人抛错当认不出·拼页面抛错回到原样页面并计数·历史版本不出票）
+        run: node --disable-warning=ExperimentalWarning scripts/app-html-unit.mjs
       - name: HTTP 服务单测（经服务注册与直接注册的路由栈逐行相同·注册可撤销·同一路径只撤一条·随插件卸载·撤销时在途请求不受影响）
         run: node scripts/http-service-test.mjs
       - name: 路由录制回放（搬路由之前录下的应答，对同一组请求重放，状态码、响应头、响应体必须零差异；每条路由都有未授权、参数非法、正常三类，按录下来的应答核对；自检先红后绿）

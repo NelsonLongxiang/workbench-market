@@ -769,11 +769,11 @@ CREATE TABLE IF NOT EXISTS submission_counts (
 if (!(db.prepare('PRAGMA table_info(app_data)').all() as { name: string }[]).some((c) => c.name === 'submitter_principal')) {
   db.exec("ALTER TABLE app_data ADD COLUMN submitter_principal TEXT CHECK (submitter_principal IS NULL OR submitter_principal GLOB 'user:?*')");
 }
-// 阶段八 8f-2：提交人票据验得过、验不过的次数，按天累计。不记票据、不记原因、不记是谁
+// 阶段八 8f-2：提交人票据验得过、验不过的次数，出台页面回落到原样页面的次数，按天累计。不记票据、不记原因、不记是谁
 db.exec(`
 CREATE TABLE IF NOT EXISTS submitter_ticket_counts (
   day TEXT NOT NULL CHECK (day GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
-  outcome TEXT NOT NULL CHECK (outcome IN ('valid', 'invalid')),
+  outcome TEXT NOT NULL CHECK (outcome IN ('valid', 'invalid', 'page_fallback')),
   n INTEGER NOT NULL DEFAULT 0 CHECK (n >= 0),
   PRIMARY KEY (day, outcome)
 );

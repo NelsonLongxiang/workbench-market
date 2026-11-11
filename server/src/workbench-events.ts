@@ -128,6 +128,8 @@ interface EventCore {
    *  都只记在事件层自己写的「recorded」那一行里，不进发给接收方的信封 */
   requester?: string | null;
   publisher?: string | null;
+  /** 8f-2：requester 是怎么认出来的。'ticket' = 台页面带回的提交人票据，服务端验过（对外的 submitter_kind 照旧 unverified） */
+  via?: 'ticket';
 }
 
 /** 写事件行 + 每个目标一行投递。调用方负责事务。返回 event_id。 */
@@ -136,7 +138,7 @@ function recordEvent(core: EventCore, targets: Target[], routed: 'target' | 'def
   const createdAt = new Date().toISOString();
   db.prepare('INSERT INTO workbench_events (event_id, source, workbench, item, context_id, submitter_kind, submitter, form_version, data_sha256, dispatch, routed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(eventId, core.source, core.workbench, core.item, core.contextId, core.submitterKind, core.submitter, core.formVersion, core.dataSha256, core.dispatch ? 1 : 0, routed);
-  log(eventId, null, 'market', 'recorded', { source: core.source, routed, submitter_kind: core.submitterKind, targets: targets.length, ...(core.requester ? { requester: core.requester } : {}), ...(core.publisher ? { publisher: core.publisher } : {}) });
+  log(eventId, null, 'market', 'recorded', { source: core.source, routed, submitter_kind: core.submitterKind, targets: targets.length, ...(core.requester ? { requester: core.requester } : {}), ...(core.via ? { via: core.via } : {}), ...(core.publisher ? { publisher: core.publisher } : {}) });
   const envelope = envelopeOf(eventId, createdAt);
   for (const t of targets) {
     let token = '';
@@ -190,9 +192,12 @@ export function recordAppDataEvent(item: { slug: string; id: number; data: unkno
     source: 'app-data', workbench: item.slug, item: `item:${item.id}`, contextId, submitterKind: 'unverified',
     submitter: item.createdBy, formVersion: null, dataSha256: sha256(item.json), dispatch: false,
   };
-  // 8f-2：带了验得过的提交人票据——提交方是认出来的人：submitter_kind 记 human、submitter 记主体，提需求的人记进 recorded。
+  // 8f-2：带了验得过的提交人票据。对外不升级信任：submitter_kind 照旧 unverified、submitter 照旧是自填的显示名（和今天逐字节相同），
+  // 信封只多两个字段 submitter_principal、submitter_via:"ticket"。市场内部：提需求的人记进 recorded（via:ticket），事项的建立人取它。
+  // 判断「是谁」只读主体字段（submitter_principal、recorded.requester）；submitter（user:<id>、human:<名>）是显示用的存量，不拿来判断。
   // 只通知、不派发（dispatch:false）照旧
-  if (item.submitterPrincipal) { core.submitterKind = 'human'; core.submitter = item.submitterPrincipal; core.requester = item.submitterPrincipal; }
+  const ticketed = item.submitterPrincipal ? { submitter_principal: item.submitterPrincipal, submitter_via: 'ticket' as const } : {};
+  if (item.submitterPrincipal) { core.requester = item.submitterPrincipal; core.via = 'ticket'; }
   let eventId = '';
   db.exec('BEGIN IMMEDIATE');
   try {
@@ -200,7 +205,7 @@ export function recordAppDataEvent(item: { slug: string; id: number; data: unkno
       type: 'app-data-submitted', slug: item.slug, id: item.id, data: item.data, created_at: item.createdAt,
       hint: '经 MCP app_data_list（slug + before_id 增量）读取；真源在 app_data',
       v: WORKBENCH_EVENT_VERSION, event_id: id, source: core.source, workbench: core.workbench, item: core.item, context_id: contextId,
-      submitter_kind: core.submitterKind, submitter: core.submitter, data_sha256: core.dataSha256, dispatch: false,
+      submitter_kind: core.submitterKind, submitter: core.submitter, ...ticketed, data_sha256: core.dataSha256, dispatch: false,
     }));
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }

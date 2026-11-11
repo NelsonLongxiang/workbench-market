@@ -114,12 +114,22 @@ try {
   const itemOf = (eventId) => q('SELECT creator_principal FROM work_items WHERE id = ?', `wi_${eventId}`)[0];
   {
     const t0 = tickets();
-    const plain = await submit({ data: { n: 0 } });
+    const plain = await submit({ data: { n: 0 }, created_by: 'beta' });
     const ok = await submit({ data: { n: 1 }, created_by: 'beta', submitter_ticket: tA });
     const r = row(ok.body?.id), ev = eventOf(ok.body?.id), it = ev ? itemOf(ev.event_id) : null;
     const rec = ev ? JSON.parse(q("SELECT detail FROM workbench_event_log WHERE event_id = ? AND action = 'recorded'", ev.event_id)[0]?.detail ?? '{}') : {};
     check(ok.status === 201 && r?.submitter_principal === 'user:alpha' && r?.created_by === 'beta', '有效票据：数据行记下提交人 alpha；请求体自填的 beta 只进显示名', show({ s: ok.status, r }));
-    check(ev?.submitter_kind === 'human' && ev?.submitter === 'user:alpha' && rec.requester === 'user:alpha' && it?.creator_principal === 'user:alpha', '事件的提交方记成认出来的人，事项的建立人是 alpha', show({ ev, rec, it }));
+    check(ev?.submitter_kind === 'unverified' && ev?.submitter === 'beta' && rec.requester === 'user:alpha' && rec.via === 'ticket' && it?.creator_principal === 'user:alpha', '对外不升级信任：事件的提交方照旧 unverified、显示名照旧；市场内部 recorded 记下提需求的人（via:ticket），事项的建立人是 alpha', show({ ev, rec, it }));
+    // 发给接收方的信封：不带票据的和今天逐字节相同的那一份对照；带票据的只多两个字段
+    const env = (id) => { const e = eventOf(id); const m = e ? q('SELECT message FROM workbench_event_deliveries WHERE event_id = ?', e.event_id)[0]?.message : ''; try { return JSON.parse(m || '{}'); } catch { return {}; } };
+    const eOk = env(ok.body?.id), ePlain = env(plain.body?.id);
+    const extra = Object.keys(eOk).filter((k) => !(k in ePlain)).sort();
+    check(eOk.submitter_kind === 'unverified' && eOk.submitter === ePlain.submitter && eOk.submitter_principal === 'user:alpha' && eOk.submitter_via === 'ticket' && show(extra) === show(['submitter_principal', 'submitter_via']) && !('submitter_principal' in ePlain) && !('submitter_via' in ePlain),
+      '信封：submitter_kind 照旧 unverified，只多 submitter_principal、submitter_via:"ticket" 两个字段；不带票据的信封没有这两个字段', show({ extra, kind: eOk.submitter_kind, p: eOk.submitter_principal, via: eOk.submitter_via }));
+    // 对外 kind 是 unverified，市场内部的建立人照样认：alpha 能读这件事项，验收入口按「不在等验收」拒（不是「来源未验证」）
+    const page = await call('GET', `/api/work-items/wi_${ev?.event_id}`, { ...SAME, ...cookieOf('alpha') });
+    const dec = await call('POST', `/api/work-items/wi_${ev?.event_id}/decision`, { ...SAME, ...cookieOf('alpha') }, { answer: 'verify' });
+    check(page.status === 200 && dec.status === 409 && (dec.body?.result?.error ?? dec.body?.error) === 'work_item_not_ready', '对外 kind 仍是 unverified 时建立人照样记上：alpha 读得到事项，验收入口认他是建立人（只因不在等验收而拒）', show({ page: page.status, dec: dec.status, err: dec.body?.result?.error ?? dec.body?.error }));
     check(plain.status === 201 && show(Object.keys(plain.body ?? {}).sort()) === show(Object.keys(ok.body ?? {}).sort()), '带不带票据，应答的字段一样', show({ plain: plain.body, ok: ok.body }));
     const plainEv = eventOf(plain.body?.id);
     check(row(plain.body?.id)?.submitter_principal === null && plainEv?.submitter_kind === 'unverified', '不带票据：和今天一样（留空、unverified）', show(plainEv));
@@ -164,8 +174,19 @@ try {
     await call('POST', '/api/principals/restore', ADMIN, { id: 'user:beta', reason: '对抗：恢复' });
   }
   {
-    const r = await submit({ data: { n: 2 }, submitter_principal: 'user:beta', requester: 'user:beta', created_by: 'user:beta' });
-    check(r.status === 201 && row(r.body?.id)?.submitter_principal === null, '请求体自报 submitter_principal、requester：不认');
+    const r = await submit({ data: { n: 2 }, submitter_principal: 'user:beta', submitter_via: 'ticket', requester: 'user:beta', created_by: 'user:beta' });
+    const e = eventOf(r.body?.id), m = e ? JSON.parse(q('SELECT message FROM workbench_event_deliveries WHERE event_id = ?', e.event_id)[0]?.message || '{}') : {};
+    const rec = e ? JSON.parse(q("SELECT detail FROM workbench_event_log WHERE event_id = ? AND action = 'recorded'", e.event_id)[0]?.detail ?? '{}') : {};
+    check(r.status === 201 && row(r.body?.id)?.submitter_principal === null && !('submitter_principal' in m) && !('submitter_via' in m) && rec.requester === undefined && rec.via === undefined,
+      '请求体自己带 submitter_principal、submitter_via、requester：不认，也不透传进信封', show({ m: Object.keys(m), rec }));
+  }
+  // ---------- 历史版本预览不出票 ----------
+  {
+    const pr = await ghPublish(base, gh, { slug: 'tka', title: 'tka', files: [{ path: 'index.html', content: '<html><head><title>v2</title></head><body>ok2</body></html>' }] }, { 'X-Admin-Token': ADMIN_TOKEN });
+    const cur = await call('GET', '/apps/tka/', { 'sec-fetch-dest': 'document', ...cookieOf('alpha') });
+    const old = await call('GET', '/apps/tka/?version=1', { 'sec-fetch-dest': 'document', ...cookieOf('alpha') });
+    check([200, 201].includes(pr.status) && cur.headers.get('x-app-version') === 'v2' && ticketIn(cur.text) && old.status === 200 && old.headers.get('x-app-version') === 'v1' && !ticketIn(old.text) && !/no-store/.test(old.headers.get('cache-control') ?? ''),
+      '历史版本预览（?version=1）：照常出页面，不出票；当前上架的版本照常出票', show({ pr: pr.status, cur: cur.headers.get('x-app-version'), old: old.headers.get('x-app-version'), oldTicket: Boolean(ticketIn(old.text)) }));
   }
   // ---------- 票据拿去打别的入口 ----------
   {

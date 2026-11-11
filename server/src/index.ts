@@ -3,7 +3,8 @@ import { createStartupSecurityProbe, isStartupProbeRequest } from './startup-sec
 import { createLoginGate, loginGateMode, trustedProxies } from './login-gate.ts';
 import { identity, loginRelay } from './identity.ts';
 import { requestPerson, hasLoginCredential } from './request-person.ts';
-import { countSubmission } from './services/submission-counts.ts';
+import { countSubmission, countSubmitterTicket } from './services/submission-counts.ts';
+import { serveAppHtml } from './app-html.ts';
 import { initSubmitterTickets, issueSubmitterTicket, selfCheckSubmitterTickets, submitterFromTicket } from './submitter-ticket.ts';
 import { initializeTaskCenter, publishTaskIntake, taskCenterSteps, TaskIntakeError, taskView, taskListView, taskCenterPolicy } from './task-center.ts';
 import { recordAppDataEvent, cancelTaskCenterDeliveries, kickWorkbenchEvents, startWorkbenchEventWorker, registerWorkbenchEventRoutes } from './workbench-events.ts';
@@ -2494,18 +2495,15 @@ function serveApp(req: express.Request, res: express.Response) {
   if (/\.html?$/i.test(rel)) {
     let raw: string;
     try { raw = readFileSync(abs, 'utf8'); } catch { return res.sendFile(abs); /* 读取失败回落原样 */ }
-    const slug = m[1];
-    // 8f-2：认得出看页面的是启用的人，就给一张只能在这个台的提交上记下他的票据。认人只经身份服务；出错当认不出
-    void requestPerson(req).catch(() => ({ hasCredential: false, principal: null })).then((who) => {
-      if (res.headersSent) return;
-      const tok = wmAppToken(slug);
-      let ticket = '';
-      if (who.principal) { try { ticket = issueSubmitterTicket(who.principal, slug); } catch { ticket = ''; } }
-      const inject = `<meta name="wm-app-token" content="${tok}">${ticket ? `<meta name="wm-submitter-ticket" content="${ticket}">` : ''}<script>window.WM_APP_TOKEN="${tok}";window.WM_APP_SLUG="${slug}";window.WM_WORKBENCH_ID=${wmWorkbenchIdFor(`/apps/${slug}/`)};${ticket ? `window.WM_SUBMITTER_TICKET="${ticket}";` : ''}</script>`;
-      const out = /<head[^>]*>/i.test(raw) ? raw.replace(/<head([^>]*)>/i, (mm) => mm + inject) : inject + raw;
-      // 带票据的页面是这个人的：不许任何缓存存它，按 Cookie 区分。认不出人时不注入、缓存策略照旧
-      if (ticket) { res.setHeader('Cache-Control', 'private, no-store'); res.vary('Cookie'); }
-      res.type('html').send(loginGate.rewriteAppHtml(req, out)); // 登录门：本台绝对地址补查看凭证（off 时原样）
+    // 8f-2：认得出看页面的是启用的人，就给一张只能在这个台的提交上记下他的票据（只有当前上架的版本出票）。
+    // 出票抛错页面照常、不带票据；别的出错回到原样页面并计数（app-html.ts）
+    void serveAppHtml(req, res, { raw, abs, slug: m[1], current: ver === a.active_version }, {
+      person: async (r) => (await requestPerson(r)).principal,
+      appToken: wmAppToken,
+      workbenchId: (slug) => String(wmWorkbenchIdFor(`/apps/${slug}/`)),
+      issueTicket: issueSubmitterTicket,
+      rewrite: (r, html) => loginGate.rewriteAppHtml(r, html),
+      countFallback: () => countSubmitterTicket('page_fallback'),
     });
     return;
   }
