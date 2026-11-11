@@ -41,7 +41,7 @@ import { identity } from '../identity.ts';
 import { isCreator, STATES, type WorkItemService, type WorkItemState } from '../services/work-item.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import { answerItemAsk, creatorAnswer } from '../attention-answers.ts';
-import { markSeatMessagesRead, replySeatMessage, seatAsksOf, seatMessagesOf, seatProgressOf, SEAT_REPLY_MAX } from '../seat-messages.ts';
+import { markSeatMessagesRead, replySeatMessage, seatAsksOf, seatMessagesOf, seatProgressOf, seatSubitemsOf, SEAT_REPLY_MAX } from '../seat-messages.ts';
 import { principalsAdmin } from './principals.ts';
 import { canOf, creatorOf, turnOf, workItemViewer, writerVerdict } from '../work-item-access.ts';
 
@@ -132,7 +132,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       if (!item) return void res.status(404).json({ error: 'work_item_not_found' });
       // 只增：这个人能做什么（can）、是不是轮到他（turn）、建立人是谁（creator）。判断都在 work-item-access.ts，和各动作接口同一处
       const viewer = await workItemViewer(req, deps);
-      res.json({ item, log: items.log(id), ...seatMessagesOf(item), progress: seatProgressOf(item), asks: seatAsksOf(item), can: canOf(item, viewer), turn: turnOf(item, viewer), creator: creatorOf(item) });
+      res.json({ item, log: items.log(id), ...seatMessagesOf(item), progress: seatProgressOf(item), subitems: seatSubitemsOf(item), asks: seatAsksOf(item), can: canOf(item, viewer), turn: turnOf(item, viewer), creator: creatorOf(item) });
     })().catch(next);
   });
 

@@ -329,6 +329,25 @@ try {
     ok('别的团队「说不干了」（rejected，只记录）→ 承接仍是接手的团队', r.status === 200 && state(M2.ev)?.state === 'accepted' && seatOf(M2.ev) === 'lab/aaaaaaaa', `${seatOf(M2.ev)} ${JSON.stringify(state(M2.ev))}`);
   }
 
+  console.log('二之三之四、拆单（dsh-open-a2a-net#618）：承接与子项');
+  {
+    const seatOf = (ev) => q('SELECT seat FROM work_items WHERE id = ?', `wi_${ev}`)[0]?.seat;
+    const SP = seedEvent();
+    await receipt(SP.task, '接下', { idempotencyKey: SP.task, disposition: 'acknowledged', by: { seat: 'lab/00000000', name: '总工', role: 'router' } }, SP.ctx, { inbound: `ack-${SP.task}` });
+    await receipt(SP.task, '一张子工单在做', { idempotencyKey: SP.task, disposition: 'progress', progress: { n: 1, state: 'working', at: '2026-11-11T08:00:00.000Z' },
+      tickets: [{ id: 's1', title: '子项一', seat: 'lab/a1a1a1a1', state: 'working' }, { id: 's2', title: '子项二', state: 'queued' }] }, SP.ctx, { inbound: `progress-${SP.task}-1` });
+    ok('拆单：只有一张子工单在做 → 承接取它', seatOf(SP.ev) === 'lab/a1a1a1a1', seatOf(SP.ev));
+    await receipt(SP.task, '两张都在做', { idempotencyKey: SP.task, disposition: 'progress', progress: { n: 2, state: 'working', at: '2026-11-11T08:01:00.000Z' },
+      tickets: [{ id: 's1', title: '子项一', seat: 'lab/a1a1a1a1', state: 'working' }, { id: 's2', title: '子项二', seat: 'lab/b2b2b2b2', state: 'working' }] }, SP.ctx, { inbound: `progress-${SP.task}-2` });
+    ok('拆单：两张子工单由不同成员在做 → 主事项承接清空（不显示单个成员）', seatOf(SP.ev) === '', JSON.stringify(seatOf(SP.ev)));
+    await receipt(SP.task, '子项二失败', { idempotencyKey: SP.task, disposition: 'progress', progress: { n: 3, state: 'working', at: '2026-11-11T08:02:00.000Z' },
+      tickets: [{ id: 's1', title: '子项一', seat: 'lab/a1a1a1a1', state: 'ended', outcome: 'completed' }, { id: 's2', title: '子项二', seat: 'lab/b2b2b2b2', state: 'ended', outcome: 'failed' }] }, SP.ctx, { inbound: `progress-${SP.task}-3` });
+    r = await receipt(SP.task, '部分完成：子项一完成，子项二失败', { outcome: 'failed', idempotencyKey: SP.task, disposition: 'result', by: { seat: 'lab/00000000', name: '总工', role: 'router' } }, SP.ctx);
+    const it = (await api('GET', `/api/work-items/wi_${SP.ev}`)).body ?? {};
+    ok('拆单整件 failed（总工汇总、正文部分完成）→ 事项没办成；总工不回填成承接', r.status === 200 && it.item?.state === 'failed' && it.item?.seat === '', JSON.stringify({ st: it.item?.state, seat: it.item?.seat }));
+    ok('……终态后 progress 为空，subitems 照样给出各子项的结局', it.progress === null && JSON.stringify((it.subitems ?? []).map((x) => [x.id, x.title, x.seat, x.state, x.outcome])) === JSON.stringify([['s1', '子项一', 'lab/a1a1a1a1', 'ended', 'completed'], ['s2', '子项二', 'lab/b2b2b2b2', 'ended', 'failed']]), JSON.stringify(it.subitems));
+  }
+
   console.log('二之三之三、回执的产物并进事项的 outputs');
   {
     const outs = (ev) => { const v = JSON.parse(q('SELECT outputs FROM work_items WHERE id = ?', `wi_${ev}`)[0]?.outputs ?? '[]'); return Array.isArray(v) ? v : []; };
