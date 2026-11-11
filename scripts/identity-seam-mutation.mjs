@@ -264,6 +264,10 @@ const MUTANTS = [
     find: '      if (!user) out.unknown.push(id);', replace: '      if (!user) out.gone.push(id);' },
   { id: 'reconcile-error-disables-all', what: '对账时飞书出错就把所有人当离职', file: FEISHU_PLUGIN, suites: [OFFBOARD],
     find: "  if (typeof tenantToken !== 'string' || !tenantToken) return { gone: [], unknown: externalIds };", replace: "  if (typeof tenantToken !== 'string' || !tenantToken) return { gone: externalIds, unknown: [] };" },
+  { id: 'event-status-truthy', what: '「员工信息被修改」的状态字段只看真假（字符串 "true" 也算离职）', file: FEISHU_PLUGIN, suites: [OFFBOARD],
+    find: 'return s?.is_resigned === true || s?.is_frozen === true || s?.is_exited === true;', replace: 'return !!(s?.is_resigned || s?.is_frozen || s?.is_exited);' },
+  { id: 'event-plaintext-accepted', what: '签名对的明文事件（没有加密）也处理', file: FEISHU_PLUGIN, suites: [OFFBOARD],
+    find: "typeof outer?.encrypt === 'string' ? decrypt(encryptKey, outer.encrypt) as Record<string, any> | null : null;", replace: "typeof outer?.encrypt === 'string' ? decrypt(encryptKey, outer.encrypt) as Record<string, any> | null : outer as Record<string, any>;" },
   // —— 夹具：假提供方不该在测试环境之外装得上 ——
   { id: 'fixture-preload-guard-removed', what: '预加载不看环境', file: PRELOAD, suites: [CONTRACT, SMOKE],
     find: "if (process.env.NODE_ENV !== 'test') {", replace: 'if (false) {' },

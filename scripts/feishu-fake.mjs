@@ -15,10 +15,11 @@ export const APP = { id: 'cli_synthetic0000001', secret: 'synthetic-app-secret-d
  * 照飞书事件订阅的规则做一个推送：明文 JSON 用 AES-256-CBC 加密（密钥 sha256(Encrypt Key)，前 16 字节 IV），
  * 再按 sha256(时间戳 + nonce + Encrypt Key + 请求体) 签名。返回 { body, headers }，原样 POST 给市场。
  */
-export function signedEvent(payload, { encryptKey = APP.encryptKey, timestamp = Math.floor(Date.now() / 1000), nonce = randomBytes(8).toString('hex'), tamper = null } = {}) {
+export function signedEvent(payload, { encryptKey = APP.encryptKey, timestamp = Math.floor(Date.now() / 1000), nonce = randomBytes(8).toString('hex'), tamper = null, plain = false } = {}) {
   const iv = randomBytes(16);
   const c = createCipheriv('aes-256-cbc', createHash('sha256').update(encryptKey).digest(), iv);
-  const body = JSON.stringify({ encrypt: Buffer.concat([iv, c.update(JSON.stringify(payload), 'utf8'), c.final()]).toString('base64') });
+  // plain：不加密、明文发（签名照样对）。市场要求配 Encrypt Key，明文事件不处理
+  const body = plain ? JSON.stringify(payload) : JSON.stringify({ encrypt: Buffer.concat([iv, c.update(JSON.stringify(payload), 'utf8'), c.final()]).toString('base64') });
   const signature = createHash('sha256').update(Buffer.concat([Buffer.from(`${timestamp}${nonce}${encryptKey}`, 'utf8'), Buffer.from(body, 'utf8')])).digest('hex');
   const sent = tamper ? tamper(body) : body;
   return { body: sent, headers: { 'content-type': 'application/json', 'x-lark-request-timestamp': String(timestamp), 'x-lark-request-nonce': nonce, 'x-lark-signature': signature } };

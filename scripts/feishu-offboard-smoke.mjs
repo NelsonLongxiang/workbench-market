@@ -156,8 +156,12 @@ try {
     await restore(open, 'user:bob');
     const renamed = await post(open, signedEvent(contactEvent('contact.user.updated_v3', 'bob')));
     const afterRename = await statusOf(open, 'user:bob');
-    check(resigned.status === 200 && afterResigned === 'disabled' && frozen.status === 200 && afterFrozen === 'disabled' && renamed.status === 200 && afterRename === 'active',
-      '员工信息被修改：改成离职、冻结 → 停用；对照：别的修改（状态都正常）不停用', show({ afterResigned, afterFrozen, afterRename }));
+    // 状态字段形状不对（字符串 "true"、数字 1）：不算确切的证据，不停用
+    const loose = await post(open, signedEvent(contactEvent('contact.user.updated_v3', 'bob', { status: { is_resigned: 'true', is_frozen: 1, is_exited: 'yes' } })));
+    const afterLoose = await statusOf(open, 'user:bob');
+    check(resigned.status === 200 && afterResigned === 'disabled' && frozen.status === 200 && afterFrozen === 'disabled' && renamed.status === 200 && afterRename === 'active'
+      && loose.status === 200 && afterLoose === 'active',
+      '员工信息被修改：改成离职、冻结 → 停用；对照：别的修改、状态字段不是布尔 true（字符串 "true"、数字 1）都不停用', show({ afterResigned, afterFrozen, afterRename, afterLoose }));
   }
 
   // ---------- 二、伪造的事件不生效 ----------
@@ -174,13 +178,14 @@ try {
       ['Verification Token 不对', signedEvent(contactEvent('contact.user.deleted_v3', 'carol', { token: 'attacker-token' }))],
       ['App ID 不对', signedEvent(contactEvent('contact.user.deleted_v3', 'carol', { appId: 'cli_attacker' }))],
       ['不是 JSON 的请求体', (() => { const e = signedEvent(ev()); return { ...e, body: 'not json' }; })()],
+      ['签名对的明文事件（没有加密）', signedEvent(ev(), { plain: true })],
     ];
     const results = [];
     for (const [label, e] of cases) results.push([label, (await post(open, e)).status]);
     const still = await statusOf(open, 'user:carol');
-    // 不是 JSON 的请求体在全局 JSON 解析器那里就被拒了（400），到不了路由；其余都是插件验签不过（401）
-    const ok = results.every(([label, s]) => (label.startsWith('不是 JSON') ? s === 400 : s === 401)) && still === 'active';
-    check(ok, `伪造的事件（${cases.length} 种）：都被拒（验签不过 401，请求体不是 JSON 400），carol 照常启用`, show({ results, still }));
+    // 不是 JSON 的请求体在全局 JSON 解析器那里就被拒了（400），到不了路由；明文事件签名对但不是加密的，插件按形状不对回 400；其余都是验签不过（401）
+    const ok = results.every(([label, s]) => (label.startsWith('不是 JSON') || label.includes('明文') ? s === 400 : s === 401)) && still === 'active';
+    check(ok, `伪造的事件（${cases.length} 种）：都被拒（验签不过 401，请求体不是 JSON、明文事件 400），carol 照常启用`, show({ results, still }));
     const real = await post(open, signedEvent(ev()));
     check(real.status === 200 && (await statusOf(open, 'user:carol')) === 'disabled' && ok, '对照：签名、来源都对的同一个事件 → 停用', show({ real: real.status }));
     await restore(open, 'user:carol');
