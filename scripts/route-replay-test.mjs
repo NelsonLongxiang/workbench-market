@@ -135,7 +135,7 @@ export function checkCassette(cassette, known, moduleRouteCount = null, answered
       if (step.request.raw !== undefined && step.request.raw !== true) { problems.push(`${where}：request.raw 只能写 true（路径原样发出去）`); continue; }
       if (step.verify !== undefined && !(step.verify in VERIFIERS)) { problems.push(`${where}：verify 只能是 ${Object.keys(VERIFIERS).join('、')}`); continue; }
       if (step.vary !== undefined && !(step.vary && typeof step.vary === 'object' && !Array.isArray(step.vary) && Object.keys(step.vary).length > 0 && Object.entries(step.vary).every(([k, h]) => (k === '$text' ? h === 'hex64' : h === 'random' || (typeof h === 'number' && h > 0))))) { problems.push(`${where}：vary 要写成 { 字段路径: 'random' 或一个正数 }，文本应答体写 { $text: 'hex64' }`); continue; }
-      if (step.compare !== undefined && step.compare !== 'status' && !(Array.isArray(step.compare) && step.compare.length > 0 && step.compare.every((x) => typeof x === 'string' && x))) { problems.push(`${where}：compare 只能是 'status'，或者一组字段的路径`); continue; }
+      if (step.compare !== undefined && step.compare !== 'status' && step.compare !== 'head' && !(Array.isArray(step.compare) && step.compare.length > 0 && step.compare.every((x) => typeof x === 'string' && x))) { problems.push(`${where}：compare 只能是 'status'、'head'，或者一组字段的路径`); continue; }
       if (step.route === undefined) continue;
       if (!covered.has(step.route)) { problems.push(`${where}：route 不在 routes 里：${step.route}`); continue; }
       if (!CLASSES.includes(step.class)) { problems.push(`${where}：class 只能是 ${CLASSES.join(' / ')}`); continue; }
@@ -348,6 +348,8 @@ export async function loadVerifiers(names) {
 
 export function shapeOf(step, raw) {
   if (step.compare === 'status') return { status: raw.status };
+  // 'head'：状态码、内容类型、响应头照比，响应体不录（打包出来的二进制里带着随时间变的字节，比如 tar 头里的修改时刻）
+  if (step.compare === 'head') { const { body: _body, ...head } = steadyResponse(raw); return head; }
   let verified;
   if (step.verify) {
     const check = loadedVerifiers[step.verify];
@@ -607,6 +609,9 @@ async function selftest() {
   check(compareStep(recorded, answer({ type: 'text/html' })).join().includes('内容类型'), '比较：内容类型变了，报出来');
   check(compareStep({ response: { status: 200, type: 'a', headers: {}, body: { a: 1, b: 2 } } }, { status: 200, type: 'a', headers: {}, body: { b: 2, a: 1 } }).join().includes('顺序'), '比较：字段顺序变了，报出来');
   check(compareStep({ ...recorded, compare: 'status' }, { status: 200, type: 'x', body: 'y' }).length === 0, '比较：只比状态码的请求不看响应头和响应体');
+  const headStep = { compare: 'head' };
+  const headRec = { ...headStep, response: shapeOf(headStep, answer()) };
+  check(!('body' in headRec.response) && compareStep(headRec, shapeOf(headStep, answer({ body: 'tar 头里的时刻变了' }))).length === 0 && compareStep(headRec, shapeOf(headStep, answer({ headers: { ...heads, vary: 'Origin, Cookie' } }))).join().includes('响应头.vary') && compareStep(headRec, shapeOf(headStep, answer({ type: 'text/html' }))).join().includes('内容类型') && compareStep(headRec, shapeOf(headStep, answer({ status: 500 }))).join().includes('200 → 500'), '比较：只比头的请求（head）不录响应体；响应体变了不算差异，响应头、内容类型、状态码变了都算');
   check(compareStep({}, answer()).join().includes('还没录过'), '比较：没录过的请求算差异');
   // verify
   await loadVerifiers(['a2a-card']);
