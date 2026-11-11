@@ -1100,9 +1100,9 @@ app.post('/api/apps/:slug/migrate-layerfs', wrap(async (req, res) => {
     if (v.commit_id) { results.push({ version: v.version, result: 'skip', commit_id: v.commit_id }); prevBytes = v.total_bytes; continue; }
     if (layerfsReservedSlug(a.slug)) { results.push({ version: v.version, result: 'error', reason: 'slug 是系统保留名，不迁入 LayerFS' }); continue; }
     const out = await layerfsPublish(layerfsProjectName(a.slug), files, `[migrate] v${v.version}`);
-    if (!out) { db.prepare("UPDATE app_versions SET shadow_status='failed', shadow_error='LayerFS publish failed; retry migrate-layerfs' WHERE id=? AND commit_id=''").run(v.id); results.push({ version: v.version, result: 'error', reason: 'layerfs 服务不可达（影子失败语义·可重跑）' }); prevBytes = v.total_bytes; continue; }
-    db.prepare("UPDATE app_versions SET commit_id = ?, shadow_status='succeeded', shadow_error='' WHERE id = ?").run(out.commit_id, v.id);
-    db.prepare("UPDATE apps SET layerfs_project = ? WHERE slug = ?").run(a.slug, a.slug);
+    if (!out) { svc<AppService>('app').versionMigrateFailed(v.id); results.push({ version: v.version, result: 'error', reason: 'layerfs 服务不可达（影子失败语义·可重跑）' }); prevBytes = v.total_bytes; continue; }
+    svc<AppService>('app').versionMigrated(out.commit_id, v.id);
+    svc<AppService>('app').setLayerfsProject(a.slug, a.slug);
     // sha256 对账（物化 vs 服务 commit——经服务回读）
     const { base, token } = layerfsServiceBase();
     let shaMatch = false;
