@@ -3691,9 +3691,21 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       const b64 = String(args?.content_base64 ?? '');
       if (!slug || !name || !b64) throw new HttpError(400, 'slug/name/content_base64 必填');
       const a = getApp(slug);
-      const buf = Buffer.from(b64, 'base64');
+      // 完整性：有的 MCP 客户端会把过长的参数截短（常见截在 64KB）。截在 4 的倍数上的 base64 照样能解码，
+      // 不核就会把残缺文件当正常文件存下。所以：base64 严格校验；调用方带了 size / sha256 就逐项对；
+      // 恰好 65536 字符又没带 size / sha256 的，按疑似截断拒收（要么带上 size / sha256，要么改用 REST 原始字节上传）。
+      const compact = b64.replace(/\s+/g, '');
+      if (!/^[A-Za-z0-9+/_-]*={0,2}$/.test(compact) || compact.length % 4 !== 0) throw new HttpError(400, `content_base64 不是完整的 base64（长 ${compact.length} 字符）：可能在传输中被截断，请改用 REST 原始字节上传，或带上 size / sha256 重传`);
+      const wantSize = args?.size === undefined || args?.size === null || args?.size === '' ? null : Number(args.size);
+      const wantSha = args?.sha256 === undefined || args?.sha256 === null || args?.sha256 === '' ? null : String(args.sha256).toLowerCase();
+      if (wantSize !== null && (!Number.isSafeInteger(wantSize) || wantSize <= 0)) throw new HttpError(400, 'size 须为正整数（原始字节数）');
+      if (wantSha !== null && !/^[0-9a-f]{64}$/.test(wantSha)) throw new HttpError(400, 'sha256 须为 64 位十六进制');
+      if (compact.length === 65536 && wantSize === null && wantSha === null) throw new HttpError(400, 'content_base64 恰好 65536 字符，疑似被客户端截在 64KB：请带上 size（原始字节数）或 sha256 重传，大文件改用 REST 原始字节上传');
+      const buf = Buffer.from(compact, 'base64');
       if (!buf.length) throw new HttpError(400, 'content_base64 解码为空');
       if (buf.length > UPLOAD_MAX) throw new HttpError(413, `文件超 100MB 上限（${buf.length}B）`);
+      if (wantSize !== null && buf.length !== wantSize) throw new HttpError(400, `收到 ${buf.length} 字节，声明 ${wantSize} 字节：内容可能在传输中被截断，未保存`);
+      if (wantSha !== null && createHash('sha256').update(buf).digest('hex') !== wantSha) throw new HttpError(400, `收到内容的 sha256 与声明不符（收到 ${buf.length} 字节）：内容可能在传输中被截断或改动，未保存`);
       if (appFilesQuota(a.slug).files_left <= 0) throw new HttpError(413, `该台文件数已达上限（${APP_FILES_MAX}）`); // #193 F8：全量计数；上限与浏览器上传共用
       // 与浏览器上传同一套内容类型检查：扩展名与内容不符、或是可执行文件 → 拒收；相符则存规范 MIME
       const kind = sniff(name, buf.subarray(0, 1024 * 1024), buf.length <= 1024 * 1024, String(args?.mime ?? ''));

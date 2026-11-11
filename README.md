@@ -220,7 +220,7 @@ data/           SQLite 数据文件（git 忽略）
 | 面 | 语义 |
 |---|---|
 | `POST /api/apps/:slug/files` | multipart 上传（`file` 字段·≤100MB）；可带 `note`/`created_by` 表单字段 |
-| `POST /mcp` `app_files_upload` | **MCP 侧上传**：`{slug,name,content_base64,mime?,note?,created_by?}`——同表同链（app_files+落盘） |
+| `POST /mcp` `app_files_upload` | **MCP 侧上传**：`{slug,name,content_base64,size?,sha256?,mime?,note?,created_by?}`——同表同链（app_files+落盘）。有的 MCP 客户端会把过长参数截短（常见截在 64KB），所以 base64 严格校验、带了 `size`/`sha256` 不符即拒收不落库、恰好 65536 字符又没带时按疑似截断拒收；大文件优先用 REST 原始字节上传 |
 | `GET /api/apps/:slug/files` | 列表（倒序游标）：`id/original_name/mime/size/note/created_by/created_at/url`·软删行不返 |
 | `GET /api/apps/:slug/files/:id` | 下载：`Content-Disposition` 白名单 mime inline（png/jpeg/webp/gif/pdf/plain/csv/markdown），其余 attachment·`nosniff` |
 | `PATCH /api/apps/:slug/files/:id` | 更新 `note`（≤500 字） |
