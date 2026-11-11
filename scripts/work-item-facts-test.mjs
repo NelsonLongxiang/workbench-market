@@ -122,6 +122,7 @@ try {
     '两个团队：一个提问、另一个拒接、提问的也拒接 → 没办成': { steps: [['queued', 'team-a'], ['queued', 'team-b'], ['sent', 'team-a'], ['sent', 'team-b'], ['decision:ask', 'team-a'], ['decision:decline', 'team-b'], ['decision:decline', 'team-a', { reason: '做不了' }]], expect: 'failed' },
     '只有提问 → 在问你': { steps: [['queued', 'team-a'], ['sent', 'team-a'], ['decision:ask', 'team-a']], teams: ['team-a'], expect: 'blocked' },
     '全部 dead → 没办成': { steps: [['queued', 'team-a'], ['queued', 'team-b'], ['dead', 'team-a'], ['dead', 'team-b']], expect: 'failed' },
+    '撤回后对方仍接单 → 撤回（接单留一行被拒记录）': { steps: [['queued', 'team-a'], ['cancelled', 'team-a'], ['sent-after-withdraw', 'team-a'], ['decision:accept', 'team-a']], teams: ['team-a'], expect: 'cancelled' },
     '未路由 → 草稿': { steps: [], routed: 'unrouted', expect: 'draft' },
     '提交方未验证，有人伪造接单 → 草稿': { steps: [['queued', 'team-a'], ['sent', 'team-a'], ['released', 'team-a'], ['decision:accept', 'team-a'], ['dead', 'team-a']], teams: ['team-a'], kind: 'unverified', source: 'app-data', expect: 'draft' },
   };
@@ -183,6 +184,16 @@ try {
       for (const [how, id] of Object.entries(copies)) if (show(picture(id)) !== base) wrong.push(`${name}·${how}：和正放不同 ${show(picture(id))} vs ${base}`);
     }
     check(wrong.length === 0, `${Object.keys(SCENARIOS).length} 个场景 × 正放、打乱、重复、漏一次再回填、只跑回填：终态是规格下的那个，事项和事项日志逐行相同`, wrong.slice(0, 4).join('；'));
+    {
+      const eventId = build(SCENARIOS['撤回后对方仍接单 → 撤回（接单留一行被拒记录）']);
+      items.backfill();
+      const log = items.log(itemIdForEvent(eventId)), last = log.at(-1), d = JSON.parse(last.detail);
+      check(items.get(itemIdForEvent(eventId)).state === 'cancelled' && last.fact === 'eval' && last.from_state === 'cancelled' && last.to_state === 'cancelled' && d.rejected === 'terminal' && d.note === '收到，未采信',
+        '终态之后来的接单：状态不动，日志多一行「收到，未采信」带原因 terminal', show(last));
+      const n = log.length;
+      items.backfill();
+      check(items.log(itemIdForEvent(eventId)).length === n, '再回填一遍：被拒的那条按去重跳过，不再多一行');
+    }
     check(lag.length === 0 && laggedCount >= 6, `对照：最后一行会写日志的 ${laggedCount} 个场景里，漏掉那一次确实让事项落后了（回填之前和正放不同）`, show(lag));
     check(Object.values(items.failureCounts()).reduce((a, b) => a + b, 0) >= Object.keys(SCENARIOS).length, '监听器出错按事实种类计数', show(items.failureCounts()));
     check(logged.some((l) => /没推进到事项.*累计 \d+ 次/.test(l)), '计数打进日志：每次出错的那一行带着这种事实的累计次数', show(logged.filter((l) => l.includes('没推进')).slice(0, 2)));

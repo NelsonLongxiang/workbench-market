@@ -122,7 +122,7 @@ export const RECORDS: readonly { from: readonly WorkItemState[]; fact: Fact['kin
 
 export type ApplyResult =
   | { ok: true; state: WorkItemState; from: WorkItemState; duplicate: boolean; recorded?: boolean; late?: boolean }
-  | { ok: false; reason: 'bad_fact' | 'unknown_item' | 'terminal' | 'not_allowed'; state?: WorkItemState };
+  | { ok: false; reason: 'bad_fact' | 'unknown_item' | 'terminal' | 'not_allowed'; state?: WorkItemState; duplicate?: boolean };
 
 export type NewWorkItem = {
   title: string; created_by: string; source_kind: SourceKind; source_ref?: string;
@@ -343,22 +343,25 @@ export class WorkItemService extends Service {
   /** 唯一的改状态入口。 */
   apply(itemId: string, fact: Fact): ApplyResult {
     if (factProblem(fact)) return { ok: false, reason: 'bad_fact' };
-    return inTx(() => this.applyLocked(itemId, normalize(fact)), (out) => out.ok && !out.duplicate);
+    // 被拒的（not_allowed、terminal）也写了一行留痕，要提交；形式不对的、重复的什么都没写
+    return inTx(() => this.applyLocked(itemId, normalize(fact)), (out) => !out.duplicate && (out.ok || out.reason === 'not_allowed' || out.reason === 'terminal'));
   }
 
   private applyLocked(itemId: string, fact: Fact): ApplyResult {
     const item = db.prepare('SELECT state, open_asks FROM work_items WHERE id = ?').get(itemId) as { state: WorkItemState; open_asks: string } | undefined;
     if (!item) return { ok: false, reason: 'unknown_item' };
-    const seen = db.prepare('SELECT from_state, to_state FROM work_item_log WHERE item_id = ? AND fact_source = ? AND fact_id = ?')
-      .get(itemId, fact.source, fact.id) as { from_state: WorkItemState; to_state: WorkItemState } | undefined;
+    const seen = db.prepare("SELECT from_state, to_state, json_extract(detail, '$.rejected') AS rejected FROM work_item_log WHERE item_id = ? AND fact_source = ? AND fact_id = ?")
+      .get(itemId, fact.source, fact.id) as { from_state: WorkItemState; to_state: WorkItemState; rejected: 'not_allowed' | 'terminal' | null } | undefined;
+    // 同一条事实再来：照第一次的结果答（第一次被拒的，还是被拒），不再写
+    if (seen?.rejected) return { ok: false, reason: seen.rejected, state: item.state, duplicate: true };
     if (seen) return { ok: true, state: item.state, from: seen.from_state, duplicate: true };
 
     // 只记录的事实：查第二张表。终态之后只有回执能走到这里。
     const record = RECORDS.find((r) => r.fact === fact.kind && r.from.includes(item.state) && r.when(fact));
     if (record) return this.recordLocked(itemId, item, fact);
-    if (TERMINAL.includes(item.state)) return { ok: false, reason: 'terminal', state: item.state };
+    if (TERMINAL.includes(item.state)) return this.rejectLocked(itemId, item.state, fact, 'terminal');
     const to = nextState(item.state, fact);
-    if (!to) return { ok: false, reason: 'not_allowed', state: item.state };
+    if (!to) return this.rejectLocked(itemId, item.state, fact, 'not_allowed');
 
     const { kind, source, id, actor, ...detail } = fact;
     this.writeLog(itemId, fact, item.state, to, detail);
@@ -372,6 +375,16 @@ export class WorkItemService extends Service {
     return { ok: true, state: to, from: item.state, duplicate: false };
   }
 
+  /**
+   * 被拒的事实也留痕（规格 f8d07a9）：状态不动，记一行 from = to「收到，未采信」，带原因。
+   * 按事实自己的（来源、id）写，所以同一条再来时按去重答第一次的结果，不会每次同步都重试一遍。
+   */
+  private rejectLocked(itemId: string, state: WorkItemState, fact: Fact, reason: 'not_allowed' | 'terminal'): ApplyResult {
+    const { kind, source, id, actor, ...detail } = fact;
+    this.writeLog(itemId, fact, state, state, { ...detail, rejected: reason, note: '收到，未采信' });
+    return { ok: false, reason, state };
+  }
+
   private writeLog(itemId: string, fact: Fact, from: WorkItemState, to: WorkItemState, detail: object): void {
     db.prepare(`INSERT INTO work_item_log (item_id, fact, fact_source, fact_id, from_state, to_state, actor, detail)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(itemId, fact.kind, fact.source, fact.id, from, to, fact.actor ?? '', JSON.stringify(detail));
@@ -382,9 +395,10 @@ export class WorkItemService extends Service {
     const { kind, source, id, actor, ...detail } = fact;
     if (kind === 'answer') {
       const askId = String(fact.ask_id); // RECORDS 那一行已要求它是非空字符串
-      const asked = db.prepare("SELECT 1 FROM work_item_log WHERE item_id = ? AND fact = 'ask' AND fact_id = ?").get(itemId, askId);
-      if (!asked) return { ok: false, reason: 'not_allowed', state: item.state };
-      const first = db.prepare("SELECT from_state FROM work_item_log WHERE item_id = ? AND fact = 'answer' AND json_extract(detail, '$.ask_id') = ? ORDER BY seq LIMIT 1")
+      // 被拒的提问、被拒的答复都留了一行（带 rejected），不算问过、不算答过
+      const asked = db.prepare("SELECT 1 FROM work_item_log WHERE item_id = ? AND fact = 'ask' AND fact_id = ? AND json_extract(detail, '$.rejected') IS NULL").get(itemId, askId);
+      if (!asked) return this.rejectLocked(itemId, item.state, fact, 'not_allowed');
+      const first = db.prepare("SELECT from_state FROM work_item_log WHERE item_id = ? AND fact = 'answer' AND json_extract(detail, '$.ask_id') = ? AND json_extract(detail, '$.rejected') IS NULL ORDER BY seq LIMIT 1")
         .get(itemId, askId) as { from_state: WorkItemState } | undefined;
       // 同一条提问再答一次：返回第一次的结果，不再写
       if (first) return { ok: true, state: item.state, from: first.from_state, duplicate: true, recorded: true };
