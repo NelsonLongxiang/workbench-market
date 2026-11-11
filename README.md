@@ -149,7 +149,7 @@ POST             /api/check-all                 并发检测全部启用项
 GET              /api/summary                   总数/在线/离线/平均延迟/分类聚合
 GET/POST         /api/types                     类型列表/新增（key 唯一）
 PUT/DELETE       /api/types/:id                 web 内置类型禁删禁改语义；被使用禁删(409)
-GET/PUT          /api/settings                  巡检设置（间隔/超时/并发）
+GET/PUT          /api/settings                  设置（巡检间隔/超时/并发、开关、上游、对端）：管理员（同源）读到全部，凭据类的值只说有没有；别人只读到巡检参数和开关
 GET/POST         /api/cockpits                  驾驶舱列表/新增
 GET/PUT/DELETE   /api/cockpits/:id              驾驶舱详情/改名与面板布局/删除（面板引用校验：工作台不存在或重复引用 → 400）
 ANY              /go/:id/*                      统一门户反向代理（剥禁嵌头/Cookie 域改写/WS 升级/凭据注入；id 不存在 → 404）
@@ -329,6 +329,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   request-person.ts  这个请求是哪个人：只经身份服务认请求带的登录凭据（登录提供方的会话或市场会话），主体须是启用的人；认不出就是没有，调用方照常放行（任务中心建录入、发布用）
   roles.ts（角色声明：平台四个内置角色 owner/admin/member/guest，组织角色初始集合 dept-member/dept-lead 或外部声明文件·启动时校验，不合格拒绝启动）
   root-context.ts（全进程唯一的 Cordis 根上下文·不开数据库）
+  settings-view.ts（设置读出去的样子：管理员看全部、凭据类的值只说有没有；别人只看巡检参数和开关；导出用管理员那一级）
   sop-field-channel.ts（字段/上传/人工完成通道候选）
   sop-field-finish.ts（未挂载人工完成路由）
   sop-field-rules.ts（SOP 字段规则：从步骤 HTML 读 required/pattern/长度/类型、条件必填 data-required-if、字段间数值关系 data-check 与文件清单 data-type="file-list"，完成时服务端校验，文件清单另按文件面实际 hash 逐行核）

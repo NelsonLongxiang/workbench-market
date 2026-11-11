@@ -2288,32 +2288,12 @@ registerTypeRoutes(http);
 /** 首次设口令（库里还没有口令）：本机直连（CLI 或本机同源页面），或 Odoo 管理员；改/清口令：带当前口令或 Odoo 管理员 */
 registerAdminTokenRoutes(http, { adminTokenCheck, odooAdminReqs, dbAdminTokenSet, dbAdminTokenOk, hashAdminToken, browserSameSite, devOriginOk });
 
-// 评审 #24：settings 出口把 mcp_upstreams.headers 的值掩成 ****（键名保留）——
-// 内部读取走 mcpUpstreams() 直读 DB，不受影响；导出同样脱敏（与 auth.value 口径一致）。
-// 评审 #27：管理员口令哈希（admin_token_sha256）同表存放，出口一律剔除——远程 GET 无口令可读，
-// 无盐 sha256 + 短口令可离线爆破；口令只经 /api/admin-token 设置与校验，不随设置/导出外流。
-function maskUpstreamsSetting(settings: Record<string, string>): Record<string, string> {
-  const { [ADMIN_TOKEN_KEY]: _adminHash, ...all } = settings;
-  const raw = all.mcp_upstreams;
-  if (!raw) return all;
-  try {
-    const arr = JSON.parse(raw);
-    if (!Array.isArray(arr)) return { ...all, mcp_upstreams: '' };
-    const masked = arr.map((u: any) => ({
-      ...u,
-      headers: u?.headers && typeof u.headers === 'object'
-        ? Object.fromEntries(Object.keys(u.headers).map((k) => [k, '****']))
-        : {},
-    }));
-    return { ...all, mcp_upstreams: JSON.stringify(masked) };
-  } catch {
-    return { ...all, mcp_upstreams: '' };
-  }
-}
+// 设置的出口分两级（settings-view.ts）：管理员看全部、凭据类的值只说有没有；别人只看白名单。导出用管理员那一级。
+// 内部读取走 getSettings()/mcpUpstreams() 直读 DB，不受影响。管理员口令哈希出口一律剔除（评审 #27）。
 
-registerSettingsRoutes(http, { maskUpstreamsSetting, armPatrol });
+registerSettingsRoutes(http, { armPatrol, adminRead: async (req) => { if (!browserMarked(req) && rawLoopback(req)) return true; await markOdooAdmin(req); return adminHeaderOk(req); } }); // 本机命令行也看全部（写设置它本来就能过写请求总门）
 
-registerExportImportRoutes(http, { listWorkbenches, maskForApi, maskUpstreamsSetting, URL_POLICY, admitOrDeny, restSubject, markAdmin: markOdooAdmin, adminGuard });
+registerExportImportRoutes(http, { listWorkbenches, maskForApi, URL_POLICY, admitOrDeny, restSubject, markAdmin: markOdooAdmin, adminGuard });
 
 // ---------- 凭据库（融合 dsh-vault）：读写全部过 vaultGuard ----------
 // 与 adminGuard 同口径，只多认一种浏览器形态：同源 GET 不带 Origin（只有 Sec-Fetch-Site: same-origin），

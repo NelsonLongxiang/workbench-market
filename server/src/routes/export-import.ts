@@ -7,6 +7,7 @@
  * index.ts 里别的路由也在用、还没挪成模块的东西，经第二个参数传进来；处理函数照旧用原来的名字。
  */
 import type express from 'express';
+import { settingsForAdmin } from '../settings-view.ts';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import type { WorkbenchService } from '../services/workbench.ts';
@@ -21,7 +22,6 @@ type WorkbenchView = ReturnType<typeof rowToWorkbench>;
 export interface ExportImportDeps {
   listWorkbenches: () => WorkbenchView[];
   maskForApi: (w: WorkbenchView) => WorkbenchView;
-  maskUpstreamsSetting: (settings: Record<string, string>) => Record<string, string>;
   URL_POLICY: AllowPolicy;
   admitOrDeny: (op: 'register' | 'update' | 'import', url: string) => ReturnType<typeof admitUrl>;
   restSubject: (req: express.Request) => string;
@@ -32,7 +32,7 @@ export interface ExportImportDeps {
 }
 
 export function registerExportImportRoutes(app: HttpService, deps: ExportImportDeps): void {
-  const { listWorkbenches, maskForApi, maskUpstreamsSetting, URL_POLICY, admitOrDeny, restSubject, markAdmin, adminGuard } = deps;
+  const { listWorkbenches, maskForApi, URL_POLICY, admitOrDeny, restSubject, markAdmin, adminGuard } = deps;
   app.get('/api/export', { action: 'market.export', kind: 'read', refine: [{ action: 'market.export-reveal', kind: 'admin', why: '带 reveal=1 取真值要管理员', when: (req) => req.query.reveal === '1' }] }, (req, res, next) => { exportHandler(req, res).catch(next); });
   async function exportHandler(req: express.Request, res: express.Response): Promise<void> {
     // compliance 二期首项：导出默认脱敏（compliance 范围 kb ab3279b84a 的「导出面」——
@@ -51,9 +51,9 @@ export function registerExportImportRoutes(app: HttpService, deps: ExportImportD
       masked: reveal ? 0 : 1,
       workbenches: listWorkbenches().map((w) => (reveal ? w : maskForApi(w))),
       types: svc<WorkbenchService>('workbench').types(),
-      // 评审 #24：上游 MCP 凭据（headers）与 auth.value 同口径——掩码导出不会带真凭据，
-      // 导入侧亦不覆盖 mcp_upstreams（掩码值跳过），凭据需在页面重填。
-      settings: maskUpstreamsSetting(getSettings()),
+      // 评审 #24：上游 MCP 凭据（headers）与 auth.value 同口径——导出不会带真凭据，
+      // 导入侧亦不覆盖 mcp_upstreams（掩码值跳过），凭据需在页面重填。设置里凭据类的值（令牌、密码）同样只说有没有，带 reveal 也一样
+      settings: settingsForAdmin(getSettings()),
     });
   }
 
