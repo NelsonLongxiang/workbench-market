@@ -15,7 +15,7 @@ import { adminActive, apiFetch, subscribeAdminToken } from '../admin-token';
 import { answerChoices, answerRoute, describe, type AttentionItem, type LogRow } from '../attention-view';
 import { getWorkItem, postAskAnswer, postCreatorDecision, postSeatMessageReply, postSeatMessagesRead } from '../api';
 import SectionBoundary from '../components/SectionBoundary';
-import { textOf, who, CAN_NONE, PROGRESS_STATE, TERMINAL, canOf, stateLabel, type Can, askIdOf, creatorLabel, groupRejected, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
+import { askerLabel, textOf, who, CAN_NONE, PROGRESS_STATE, TERMINAL, canOf, stateLabel, type Can, askIdOf, creatorLabel, groupRejected, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
 
 type Item = { id: string; title: string; state: string; created_by: string; creator_principal?: string | null; created_at: string; updated_at: string; source_kind: string; source_ref: string; target_team: string; seat: string; eval: string; eval_reason: string; progress_summary: string; receipt_outcome: string; object: string; phase: string; open_asks: string; outputs: string; evidence: string };
 
@@ -91,7 +91,7 @@ const ASK_ERROR: Record<string, string> = {
   work_items_principal_not_active: '你的账号还没启用，不能答复',
 };
 
-function AskRow({ itemId, ask, onDone }: { itemId: string; ask: SeatAsk; onDone: () => void }) {
+function AskRow({ itemId, ask, seat, onDone }: { itemId: string; ask: SeatAsk; seat: string; onDone: () => void }) {
   const { message } = App.useApp();
   const [choice, setChoice] = useState(initialChoice(ask));
   const [text, setText] = useState('');
@@ -116,7 +116,7 @@ function AskRow({ itemId, ask, onDone }: { itemId: string; ask: SeatAsk; onDone:
         <Typography.Text strong>{textOf(ask.question) || '（没写问题）'}</Typography.Text>
         {ask.status === 'answered' && <Tag color="green">已答复</Tag>}
         {ask.status === 'closed' && <Tag>已合上</Tag>}
-        <Typography.Text type="secondary">{who(ask.asked_by)}</Typography.Text><RelTime value={ask.at} />
+        <Typography.Text type="secondary">{askerLabel(ask.asked_by, seat)}</Typography.Text><RelTime value={ask.at} />
       </Space>
       {ask.status === 'answered' && <Typography.Text>答：{textOf(ask.answer)}<Typography.Text type="secondary">（{who(ask.answered_by)}{ask.answered_at ? ' · ' : ''}</Typography.Text>{ask.answered_at && <RelTime value={ask.answered_at} />}<Typography.Text type="secondary">）</Typography.Text></Typography.Text>}
       {ask.status === 'closed' && <Typography.Text type="secondary">没人答，后来的提问、接单或结果把它合上了。</Typography.Text>}
@@ -269,7 +269,7 @@ export default function WorkItem() {
           </SectionBoundary>
           <SectionBoundary name="席位提问">
           {asks && asks.length > 0 && <Card size="small" title={<Space>席位提问{openAsks > 0 && <Badge count={openAsks} title="在等你答复" />}</Space>} data-testid="seat-asks">
-            <List size="small" dataSource={asks} rowKey={(a) => String(a.id)} renderItem={(a) => <AskRow itemId={id} ask={a} onDone={() => void load()} />} />
+            <List size="small" dataSource={asks} rowKey={(a) => String(a.id)} renderItem={(a) => <AskRow itemId={id} ask={a} seat={who(item.seat)} onDone={() => void load()} />} />
           </Card>}
           </SectionBoundary>
           <SectionBoundary name="等你处理">

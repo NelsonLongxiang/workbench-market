@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 事项详情页的纯函数单测（web/src/work-item-view.ts）：提示条、进展一行字、结果解析与链接、关注条目对到事项。 */
-import { textOf, who, CAN_NONE, canOf, stateLabel, askIdOf, creatorLabel, groupRejected, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint } from '../web/src/work-item-view.ts';
+import { askerLabel, textOf, who, CAN_NONE, canOf, stateLabel, askIdOf, creatorLabel, groupRejected, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint } from '../web/src/work-item-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -46,6 +46,8 @@ ok('时间线：连续两条以上的被拒行收成一组，单独一条不收'
 
 ok('对端给的「谁」：字符串照用，对象取 name、没有取 seat，别的给空串，永远是字符串', who('seat_a') === 'seat_a' && who({ seat: 'dsh/d6f79e90', name: '成员一' }) === '成员一' && who({ seat: 'dsh/d6f79e90' }) === 'dsh/d6f79e90' && who({ role: 'x' }) === '' && who(null) === '' && who(['a']) === '');
 ok('对端给的文字：字符串和数字照用，对象给空串', textOf('a') === 'a' && textOf(3) === '3' && textOf({ a: 1 }) === '' && textOf(undefined) === '');
+
+ok('提问人：来源标记 receiver:<区> 换成承接席位，没有承接就去前缀；别的照用', askerLabel('receiver:dsh', '成员一 · dsh/d6f79e90') === '成员一 · dsh/d6f79e90' && askerLabel('receiver:dsh', '') === 'dsh' && askerLabel('seat:a', 'x') === 'seat:a' && askerLabel({ name: '成员二' }, 'x') === '成员二');
 
 const att = (source, link) => ({ source, source_id: '1', category: 'ask', title: '', waiting_for: '', since: '', answers: [], object: '', phase: '', link });
 const mine = pendingFor([att('seat-asks', '/work-items/wi_a'), att('work-items', '/work-items/wi_b'), att('work-items', '/work-items/wi_a'), att('x', '/other')], 'wi_a');

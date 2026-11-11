@@ -85,6 +85,12 @@ export function who(v: unknown): string {
   }
   return '';
 }
+/** 提问人：服务端给的 asked_by 常是来源标记（receiver:<区>），人看不懂；是这种时换成事项的承接席位，没有承接就去掉前缀 */
+export function askerLabel(askedBy: unknown, seat: string): string {
+  const raw = who(askedBy);
+  if (/^receiver:/.test(raw)) return seat || raw.replace(/^receiver:/, '');
+  return raw;
+}
 /** 对端给的一段文字：字符串、数字照用，别的给空串 */
 export function textOf(v: unknown): string {
   return typeof v === 'string' ? v : typeof v === 'number' ? String(v) : '';
