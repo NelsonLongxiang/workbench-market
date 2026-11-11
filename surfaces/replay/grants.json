@@ -1,0 +1,362 @@
+{
+  "domain": "grants",
+  "what": "角色与授予：/api/roles、/api/grants 的 7 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /api/roles", "GET /api/grants", "GET /api/grants/:id", "POST /api/grants", "POST /api/grants/:id/submit", "POST /api/grants/:id/approve", "POST /api/grants/:id/revoke"],
+  "exempt": [{ "route": "GET /api/roles", "class": "invalid", "why": "这条路由不读任何参数，没有会被拒的输入", "shown_by": "open/roles-cli" }],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "缺省配置：登录门关，没设管理口令，没配外部声明文件（用初始集合）。本机命令行（回环直连、不带浏览器标记和转发头）算管理员，也是属主；带转发头的按远程处理。库里预先放一个人。",
+      "env": {},
+      "seed": [{ "table": "principals", "row": { "id": "user:synthetic-a", "id_key": "user:synthetic-a", "kind": "person" } }],
+      "steps": [
+        {
+          "id": "roles-remote-anon",
+          "route": "GET /api/roles",
+          "class": "unauthorized",
+          "what": "远程、没有口令：列不出角色",
+          "request": { "method": "GET", "path": "/api/roles", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "roles-cli",
+          "route": "GET /api/roles",
+          "class": "normal",
+          "what": "本机命令行：平台四个角色和初始集合两个组织角色",
+          "request": { "method": "GET", "path": "/api/roles" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "895", "etag": "W/\"37f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "source": "initial",
+              "roles": [
+                { "id": "owner", "name": "属主", "includes": [], "permissions": [{ "kinds": ["read", "write", "decide", "admin"] }], "platform": true, "admin_level": true, "decides": true },
+                { "id": "admin", "name": "管理员", "includes": [], "permissions": [{ "kinds": ["read", "write", "admin"] }], "platform": true, "admin_level": true, "decides": false },
+                { "id": "member", "name": "成员", "includes": [], "permissions": [{ "kinds": ["read"] }], "platform": true, "admin_level": false, "decides": false },
+                { "id": "guest", "name": "访客", "includes": [], "permissions": [], "platform": true, "admin_level": false, "decides": false },
+                { "id": "dept-member", "name": "部门成员", "includes": [], "permissions": [{ "kinds": ["read", "write"] }], "platform": false, "admin_level": false, "decides": false },
+                { "id": "dept-lead", "name": "部门负责人", "includes": ["dept-member"], "permissions": [{ "kinds": ["decide"] }], "platform": false, "admin_level": false, "decides": true }
+              ]
+            }
+          }
+        },
+        {
+          "id": "list-remote-anon",
+          "route": "GET /api/grants",
+          "class": "unauthorized",
+          "what": "远程、没有口令：列不出授予",
+          "request": { "method": "GET", "path": "/api/grants", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "list-bad-status",
+          "route": "GET /api/grants",
+          "class": "invalid",
+          "what": "status 不是五种之一",
+          "request": { "method": "GET", "path": "/api/grants?status=approved" },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "73", "etag": "W/\"49-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "status 只能是 draft、pending、active、revoked、expired" }
+          }
+        },
+        {
+          "id": "list-empty",
+          "route": "GET /api/grants",
+          "class": "normal",
+          "what": "还没有授予：空列表",
+          "request": { "method": "GET", "path": "/api/grants" },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "13", "etag": "W/\"d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "grants": [] } }
+        },
+        {
+          "id": "draft-remote-anon",
+          "route": "POST /api/grants",
+          "class": "unauthorized",
+          "what": "远程、没有口令：起草不了",
+          "request": { "method": "POST", "path": "/api/grants", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "principal": "user:synthetic-a", "role": "member", "scope": "*", "reason": "合成" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "draft-cross-site",
+          "route": "POST /api/grants",
+          "class": "unauthorized",
+          "what": "带浏览器标记的本机请求不算命令行",
+          "request": { "method": "POST", "path": "/api/grants", "headers": { "origin": "http://attacker.invalid", "sec-fetch-site": "cross-site" }, "json": { "principal": "user:synthetic-a", "role": "member", "scope": "*", "reason": "合成" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "draft-bad-scope",
+          "route": "POST /api/grants",
+          "class": "invalid",
+          "what": "范围写法不对（中文键）",
+          "request": { "method": "POST", "path": "/api/grants", "json": { "principal": "user:synthetic-a", "role": "member", "scope": "域:甲", "reason": "合成" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "111", "etag": "W/\"6f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "scope_invalid", "message": "范围写法不对：*、domain:、bench:、sop:、tool:、self、object:" }
+          }
+        },
+        {
+          "id": "draft-no-principal",
+          "route": "POST /api/grants",
+          "class": "invalid",
+          "what": "没给主体",
+          "request": { "method": "POST", "path": "/api/grants", "json": { "role": "member", "scope": "*", "reason": "合成" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "63", "etag": "W/\"3f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "principal 要是不超过 160 个字符的字符串" } }
+        },
+        {
+          "id": "draft-unknown-role",
+          "route": "POST /api/grants",
+          "class": "invalid",
+          "what": "角色没有声明",
+          "request": { "method": "POST", "path": "/api/grants", "json": { "principal": "user:synthetic-a", "role": "nope", "scope": "*", "reason": "合成" } },
+          "response": {
+            "status": 422,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "61", "etag": "W/\"3d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "role_unknown", "message": "角色 nope 没有声明" }
+          }
+        },
+        {
+          "id": "draft-missing-principal",
+          "route": "POST /api/grants",
+          "class": "invalid",
+          "what": "主体不存在",
+          "request": { "method": "POST", "path": "/api/grants", "json": { "principal": "user:nobody", "role": "member", "scope": "*", "reason": "合成" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "70", "etag": "W/\"46-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "principal_missing", "message": "主体 user:nobody 不存在" }
+          }
+        },
+        {
+          "id": "draft-no-reason",
+          "route": "POST /api/grants",
+          "class": "invalid",
+          "what": "没写理由",
+          "request": { "method": "POST", "path": "/api/grants", "json": { "principal": "user:synthetic-a", "role": "member", "scope": "*" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "reason_required", "message": "要写理由" } }
+        },
+        {
+          "id": "draft",
+          "route": "POST /api/grants",
+          "class": "normal",
+          "what": "本机命令行起草：给 synthetic-a 成员角色，全部范围",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants", "json": { "principal": "user:synthetic-a", "role": "member", "scope": "*", "reason": "合成：回放" } },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "get-remote-anon",
+          "route": "GET /api/grants/:id",
+          "class": "unauthorized",
+          "what": "远程、没有口令：看不了",
+          "request": { "method": "GET", "path": "/api/grants/1", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "get-bad-id",
+          "route": "GET /api/grants/:id",
+          "class": "invalid",
+          "what": "id 不是数字",
+          "request": { "method": "GET", "path": "/api/grants/abc" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "授予 abc 不存在" } }
+        },
+        {
+          "id": "get-missing",
+          "route": "GET /api/grants/:id",
+          "class": "invalid",
+          "what": "id 不存在",
+          "request": { "method": "GET", "path": "/api/grants/999" },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "授予 999 不存在" } }
+        },
+        {
+          "id": "get",
+          "route": "GET /api/grants/:id",
+          "class": "normal",
+          "what": "看一条：带留痕",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/api/grants/1" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "submit-remote-anon",
+          "route": "POST /api/grants/:id/submit",
+          "class": "unauthorized",
+          "what": "远程、没有口令：提交不了",
+          "request": { "method": "POST", "path": "/api/grants/1/submit", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "submit-missing",
+          "route": "POST /api/grants/:id/submit",
+          "class": "invalid",
+          "what": "id 不存在",
+          "request": { "method": "POST", "path": "/api/grants/999/submit" },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "grant_missing", "message": "授予 999 不存在" }
+          }
+        },
+        {
+          "id": "approve-draft",
+          "route": "POST /api/grants/:id/approve",
+          "class": "invalid",
+          "what": "草稿不能直接放行（409）",
+          "request": { "method": "POST", "path": "/api/grants/1/approve" },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "69", "etag": "W/\"45-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "state", "message": "授予 1 现在是 draft，不能放行" }
+          }
+        },
+        {
+          "id": "submit",
+          "route": "POST /api/grants/:id/submit",
+          "class": "normal",
+          "what": "提交待核",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/1/submit" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "submit-again",
+          "route": "POST /api/grants/:id/submit",
+          "class": "invalid",
+          "what": "待核的再提交（409）",
+          "request": { "method": "POST", "path": "/api/grants/1/submit" },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "71", "etag": "W/\"47-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "state", "message": "授予 1 现在是 pending，不能提交" }
+          }
+        },
+        {
+          "id": "approve-remote-anon",
+          "route": "POST /api/grants/:id/approve",
+          "class": "unauthorized",
+          "what": "远程、没有口令：放行不了",
+          "request": { "method": "POST", "path": "/api/grants/1/approve", "headers": { "x-forwarded-for": "192.0.2.10" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "approve-missing",
+          "route": "POST /api/grants/:id/approve",
+          "class": "invalid",
+          "what": "id 不存在",
+          "request": { "method": "POST", "path": "/api/grants/999/approve" },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "grant_missing", "message": "授予 999 不存在" }
+          }
+        },
+        {
+          "id": "approve",
+          "route": "POST /api/grants/:id/approve",
+          "class": "normal",
+          "what": "本机命令行（属主）放行",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/1/approve" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "revoke-remote-anon",
+          "route": "POST /api/grants/:id/revoke",
+          "class": "unauthorized",
+          "what": "远程、没有口令：撤销不了",
+          "request": { "method": "POST", "path": "/api/grants/1/revoke", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "reason": "合成" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "revoke-no-reason",
+          "route": "POST /api/grants/:id/revoke",
+          "class": "invalid",
+          "what": "撤销没写理由",
+          "request": { "method": "POST", "path": "/api/grants/1/revoke", "json": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "reason_required", "message": "撤销要写理由" } }
+        },
+        {
+          "id": "revoke",
+          "route": "POST /api/grants/:id/revoke",
+          "class": "normal",
+          "what": "撤销生效的授予",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/1/revoke", "json": { "reason": "合成：收回" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "revoke-again",
+          "route": "POST /api/grants/:id/revoke",
+          "class": "invalid",
+          "what": "撤销了再撤（409）",
+          "request": { "method": "POST", "path": "/api/grants/1/revoke", "json": { "reason": "再撤" } },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "71", "etag": "W/\"47-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "state", "message": "授予 1 现在是 revoked，不能撤销" }
+          }
+        },
+        {
+          "id": "list-after",
+          "route": "GET /api/grants",
+          "class": "normal",
+          "what": "列出：一条，已撤销",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/api/grants?principal=user:synthetic-a&status=revoked" },
+          "response": { "status": 200 }
+        }
+      ]
+    }
+  ]
+}

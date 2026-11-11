@@ -13,6 +13,7 @@ app.post('/api/workbenches',(q,r)=>r.status(q.headers.origin?403:400).end());
 app.get('/api/principals',(_q,r)=>r.status(403).end());
 app.get('/api/export',(_q,r)=>r.status(403).end());
 app.post('/api/work-items/:id/decision',(_q,r)=>r.status(401).end());
+app.get('/api/grants',(_q,r)=>r.status(403).end());
 app.get('/login/feishu/callback',(_q,r)=>r.status(400).end());
 app.post('/login/feishu/events',(_q,r)=>r.status(401).end());
 let fallback=0;app.get('/business',(_q,r)=>{fallback++;r.json({ok:true})});

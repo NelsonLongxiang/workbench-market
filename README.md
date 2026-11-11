@@ -59,6 +59,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_ODOO_BROWSER_URL`（只给浏览器用的 Odoo 登录地址·可选·须在可信名单内、只写 origin，非法拒启动；仅对源等于 `WM_ODOO_URL` 的 Odoo 台生效，主机名不符或 https 降级回 503；同域中继开着时中继优先·见 [docs/odoo-browser-origin.md](docs/odoo-browser-origin.md)）
 - `WM_ODOO_LOGIN_PROXY`（`1`=市场同域 Odoo 登录中继·上游固定为 `WM_ODOO_URL`·见 [docs/odoo-login-relay.md](docs/odoo-login-relay.md)）
 - `WM_SESSION_TTL_MIN`（市场会话的绝对期限，分钟·缺省 720＝12 小时·范围 15～10080·不续期·不合法拒绝启动）
+- `WM_ROLES_FILE`（组织角色的外部声明文件·绝对路径·JSON `{"roles":[…]}`·设了就以它为准，不设用仓库里的通用初始集合·平台内置角色不能被覆盖，同名、循环包含、引用不存在的动作、范围写法不对都拒绝启动）
 - `WM_FEISHU_LOGIN`（`on`=打开飞书登录·缺省关）
 - `WM_FEISHU_AUTHORIZE_URL` / `WM_FEISHU_TOKEN_URL` / `WM_FEISHU_USERINFO_URL`（飞书授权页、换令牌、取用户信息的地址·缺省取飞书开放平台文档里的·只收 https）
 - `WM_FEISHU_TENANT_TOKEN_URL` / `WM_FEISHU_CONTACT_USER_URL`（对账用：取 tenant_access_token、按 union_id 查人的地址·缺省同上）
@@ -84,6 +85,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - 一行管主体管理面：远程匿名 GET `/api/principals` 必须被拒（登录门关着 403，开着由登录门先拦 401）；
 - 一行管登录回调：远程匿名拿编出来的 state 打 `/login/feishu/callback` 必须 400（不跳转、不发会话）；
 - 一行管失效通知：远程匿名、不带签名向 `/login/feishu/events` 发事件必须 401；
+- 一行管授予管理面：远程匿名 GET `/api/grants` 必须被拒（登录门关着 403，开着由登录门先拦 401）；
 - 一行管导出真值：远程匿名带 `reveal=1` 导出必须被拒（登录门关着 403，开着由登录门先拦 401）。`WM_LOGIN_GATE=enforce` 时另加四行：远程匿名 GET `/`、`/apps/<台>/` 必须 302 到登录页、`/api/apps` 必须 401（浏览器写那一行改为期望登录门的 401），外加远程无签名 `POST /a2a/direct` 必须 401。强制行通过后才开放业务并启动后台巡检，health 可回读逐行结果。任一强制行失败或超时只关闭本进程监听并非零退出，不杀宿主或父进程；
 
 只有 `NODE_ENV=development/test` 的显式 `MCP_GATEWAY=off` 才把两条 MCP 行变成 warning，生产/未设/空/未知模式配 off 两行均 fail 并拒绝启动；控制面关闭则对应行 skip，不能视为完整认证验证。
@@ -223,6 +225,7 @@ GET              /api/health/ready              就绪：含 LayerFS 探测（�
 - **飞书登录**（`WM_FEISHU_LOGIN=on`）：标准授权码流程，`GET /login/feishu?next=<站内地址>` 发起，回调 `/login/feishu/callback`。回调地址按 `MARKET_PUBLIC_URL` 拼，要和飞书应用里登记的一致。`state` 一次性、绑在发起它的浏览器上、10 分钟有效、按来源限额；`next` 只收站内路径。飞书应用的标识和密钥从凭据库里的一条（`WM_FEISHU_VAULT_ENTRY`）取，要部署方配了服务端主密码（`DSH_VAULT_PASSWORD_FILE`）才能无人值守读；库锁着时飞书登录回 503。认人用 union_id。还没对到主体的飞书身份：不自动建主体，停在「等管理员开通」，列进 `GET /api/principals/pending`，管理员用 `POST /api/principals/bind` 对一次，第一批上线可以用 `POST /api/principals/bind-batch`（请求体 `{"items":[{"provider","external_id","principal","create"}…],"reason"}`，一次最多 500 条，逐条给结果）。待对接清单只放对方的用户标识、显示名、企业邮箱和最近一次来的时间，30 天没再来的清掉；等待页对停用的和没对到主体的一模一样，不透露有没有这个人。打开 `WM_FEISHU_AUTO_BIND_EMAIL` 时，飞书企业邮箱和身份来源的登录名（按规范化之后）恰好对上一个启用的人、而且那个人还没有别的飞书身份，才自动绑，每次自动绑定留一行痕。
 - **离职即时失效**：飞书事件订阅的请求地址填 `<MARKET_PUBLIC_URL>/login/feishu/events`，订阅「员工离职」`contact.user.deleted_v3` 和「员工信息被修改」`contact.user.updated_v3`，并配 Encrypt Key。Encrypt Key、Verification Token 放在凭据库同一条（`WM_FEISHU_VAULT_ENTRY`）的自定义字段 `encrypt_key`、`verification_token` 里。照飞书文档验签（时间戳 5 分钟内、`X-Lark-Signature`）、解密、核对 Token 和 App ID；验不过 401。同一个事件号只处理一次（多实例共用、保留 7 天）；记事件号和停用在同一个事务里，停用出错事件号一起撤回，飞书重推时照常处理。处理出错只回固定的 503（`event_unavailable`），内部原因只进日志。离职、被修改成离职、冻结、退出的人：停用他绑着的主体，每个入口立即不认，会话一并注销；还没对到主体的从待对接清单里删掉。配了租户时别的租户的事件不处理。
 - **每日对账**：每天一次把绑在启用的人身上的飞书身份交给飞书查（`tenant_access_token` 加按 union_id 查人），状态明确说离职、冻结、退出的才停用；飞书出错、查不到的一个也不停用，只计数留痕。管理员可以手动跑一次：`POST /api/principals/reconcile`，请求体 `{"flow":"feishu"}`。**补不上的情形**：飞书那边直接删掉的人，如果「员工离职」事件也丢了，按 union_id 查回来是「不存在」，对账按查不清处理、不停用，每天留痕里的 `unknown` 会一直算上他。`unknown` 不为 0 就要人工复核：留痕的 `unknown_ids` 列出查不清的 union_id（最多 100 个），对着飞书通讯录核对，确认离开了由管理员手动停用（`POST /api/principals/disable`）。
+- **角色与授予**（阶段六 6b，只建结构，不接判定，不改变任何人能做什么）：角色是声明——平台四个内置角色（`owner` 属主＝读写决定管理、`admin` 管理员＝读写管理、`member` 成员＝读、`guest` 访客＝空），组织角色用仓库里的通用初始集合（`dept-member` 部门成员＝读写、`dept-lead` 部门负责人＝部门成员加决定），或者 `WM_ROLES_FILE` 指的外部声明文件。权限按动作或按类别写，范围通常不写、由授予给（`*`、`domain:`、`bench:`、`sop:`、`tool:`、`self`，另预留 `object:` 只存只比相等）。授予是数据：`/api/grants` 起草→提交→放行→撤销，状态只能往前走、每步留痕；不能给自己授予；管理员级的只有属主（本机命令行，或持有生效的 `owner` 授予的人）能放行；不是人的主体要有在职的责任人；决定类权限不给不是人的主体；到期自动失效。
 - 管不到的：按 run 发的读凭据、自产台查看凭证是不记名的，各有各的期限和吊销，不随主体停用失效；已经建立的 WebSocket 连接不会被掐断，新的请求和新的连接立即拒绝。停用是按登录名对的：身份来源那边把登录名改了，就是另一个人。
 - **读面不拦**：远程 agent 用 `GET /api/apps/<slug>/data`、`/files` 直接读提交数据（掩码策略只作用于凭据，不作用于业务数据）。
 
@@ -273,6 +276,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   portal.ts（/go/ 反代·白屏五层+登录态）
   redis.ts（SOP 状态层）
   request-person.ts  这个请求是哪个人：只经身份服务认请求带的登录凭据（登录提供方的会话或市场会话），主体须是启用的人；认不出就是没有，调用方照常放行（任务中心建录入、发布用）
+  roles.ts（角色声明：平台四个内置角色 owner/admin/member/guest，组织角色初始集合 dept-member/dept-lead 或外部声明文件·启动时校验，不合格拒绝启动）
   root-context.ts（全进程唯一的 Cordis 根上下文·不开数据库）
   sop-field-channel.ts（字段/上传/人工完成通道候选）
   sop-field-finish.ts（未挂载人工完成路由）
@@ -304,6 +308,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   attention.ts（「关注」：Cordis 服务 `attention`·各来源注册提供方、可撤销·汇总当前这个人的条目和各类条数）
   binding.ts（A2A 人工绑定）
   change-request.ts（人审变更请求）
+  grant.ts（授予：Cordis 服务 `grants`·草稿→待核→生效→撤销或过期只能往前走·不能给自己授予·管理员级只有属主能放行·决定类只给人·到期自动失效·每步留痕）
   login-session.ts（市场会话与登录 state：Cordis 服务 `loginSessions`·绝对期限·注销与停用即失效·state 一次性并绑浏览器）
   principal.ts（主体与外部身份：Cordis 服务 `principals`·把登录认出的人对到主体·停用与恢复）
   remote-allow.ts（远程写豁免面的快照）
@@ -323,6 +328,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   cookies.ts（Cookie 池 /api/cookies）
   design-tokens.ts（设计 token 固定路径 /design/tokens@<版本>.css）
   export-import.ts（导出与导入 /api/export、/api/import）
+  grants.ts（角色与授予的管理接口 /api/roles、/api/grants：起草、提交、放行、撤销）
   login-events.ts（离职即时失效：/login/<方式>/events 失效通知、每日对账）
   login-flows.ts（登录方式 /login/<方式> 与回调：state、next、对到主体、发市场会话）
   mcp.ts（MCP 网关控制面 /api/mcp：上游、会话、授权、工具目录、调用记录、权限申请的批准与驳回）
