@@ -313,7 +313,29 @@ try {
       const stranger = await peer('stranger');
       await post(rawC, signed({ ...evil, zone: 'stranger', url: stranger.url }, rawC));
       ok('……声称的来源不是投递过的对端 → 不去取它的名片（不做开放的取卡代理）', stranger.cardHits === 0, String(stranger.cardHits));
-      for (const x of [pa, pb, stranger]) x.server.close();
+      // G3：声称的来源是投递过的对端、但签名不成形 → 连预取都不做
+      const pe = await peer('pe');
+      seedEvent({ zone: 'pe', root: pe.url });
+      const rawE = JSON.stringify({ team: 'market/12345678', message: '探', caller_session: 'pe/canvas/ops', context_id: 'wb:task-center:666666', wait: false, task_id: 'a2a-probe-e' });
+      await post(rawE, { ...signed({ ...evil, zone: 'pe', url: pe.url }, rawE), 'X-A2A-Caller-Sig3': 'x' });
+      ok('G3：声称的来源投递过、签名不成形 → 不取卡（格式关在取卡之前）', pe.cardHits === 0, String(pe.cardHits));
+      // G4：名片已在缓存、冷却已过，再比「查不到投递」与「查到投递」——两边都要照验签的样子强制重取一次
+      const pc = await peer('pc'), pd = await peer('pd');
+      seedEvent({ zone: 'pc', root: pc.url });
+      const D = seedEvent({ zone: 'pd', root: pd.url });
+      const rawC0 = JSON.stringify({ team: 'market/12345678', message: '暖', caller_session: 'pc/canvas/ops', context_id: 'wb:task-center:555555', wait: false, task_id: 'a2a-warm-c' });
+      const rawD0 = JSON.stringify({ team: 'market/12345678', message: '暖', caller_session: 'pd/canvas/ops', context_id: 'wb:task-center:555556', wait: false, task_id: 'a2a-warm-d' });
+      await post(rawC0, signed({ ...evil, zone: 'pc', url: pc.url }, rawC0));
+      await post(rawD0, signed({ ...evil, zone: 'pd', url: pd.url }, rawD0));
+      ok('G4 准备：两张名片都进了缓存', pc.cardHits === 1 && pd.cardHits === 1, `${pc.cardHits} ${pd.cardHits}`);
+      await sleep(31_000); // 过取卡冷却（peer-card.ts 30 秒）
+      pc.cardHits = 0; pd.cardHits = 0;
+      const rawG4c = JSON.stringify({ team: 'market/12345678', message: '探', caller_session: 'pc/canvas/ops', context_id: 'wb:task-center:444444', wait: false, task_id: 'a2a-probe-g4c' });
+      const rawG4d = JSON.stringify({ team: 'market/12345678', message: '探', caller_session: 'pd/canvas/ops', context_id: D.ctx, wait: false, task_id: 'a2a-probe-g4d' });
+      await post(rawG4c, signed({ ...evil, zone: 'pc', url: pc.url }, rawG4c));
+      await post(rawG4d, signed({ ...evil, zone: 'pd', url: pd.url }, rawG4d));
+      ok('G4：名片在缓存、冷却已过，签名坏——查不到投递与查到投递都强制重取一次（取卡次数相同）', pc.cardHits === pd.cardHits && pc.cardHits === 1, `查不到=${pc.cardHits} 查到=${pd.cardHits}`);
+      for (const x of [pa, pb, stranger, pe, pc, pd]) x.server.close();
     }
     // 时序（只打印、不断言）：查不到投递 vs 查到了但签名不成形 vs 查到了、成形、来源不对
     const med = (xs) => { const a = [...xs].sort((x, y) => x - y); return a[Math.floor(a.length / 2)]; };

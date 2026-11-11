@@ -48,11 +48,6 @@ function verifies(publicKey: string, canonical: string, sig: string): boolean {
   } catch { return false; }
 }
 
-/**
- * 只看请求本身、不查库也不取卡的那几条：带 Sig3、签名方句柄与来源地址成形、时间戳在窗内、受众是我们、
- * 正文摘要等于实际收到的字节。来信分流先过这一关再按 context 查投递——匿名者拿不出成形的 Sig3，
- * 就碰不到查库这一步，靠响应时间也分不出「这个 context 投给过谁」。之后的 verifyReceiptSigner 会把这些再核一遍。
- */
 /** Sig3 签的那串：标签、签名方、来源、时间、受众、方法、路径、正文摘要 */
 function sig3Canonical(req: Req, raw: Buffer): string {
   let path = '';
@@ -60,6 +55,13 @@ function sig3Canonical(req: Req, raw: Buffer): string {
   return JSON.stringify([ORIGIN_CLAIM_BODY_TAG, header(req, 'x-a2a-caller'), header(req, 'x-a2a-caller-url'), Number(header(req, 'x-a2a-caller-ts')), header(req, 'x-a2a-caller-aud'), String(req.method ?? '').toUpperCase(), path, bodyDigest(raw)]);
 }
 
+/**
+ * 只看请求本身、不查库也不取卡的那几条：带 Sig3、签名方句柄与来源地址成形、时间戳在窗内、受众是我们、
+ * 正文摘要等于实际收到的字节。来信分流先过这一关再按 context 查投递，挡掉不成形的请求、少一次查库。
+ * 它不是身份防线——这些形状谁都造得出来。不让时序泄露「这个 context 投给过谁」的，是后面那条：
+ * 取卡只看请求自己声称的来源、只对投递过的根地址取，而且照验签的样子取（先缓存、验不过强制重取），
+ * 与查不查得到投递无关。之后的 verifyReceiptSigner 会把这些再核一遍。
+ */
 export function sig3Shaped(req: Req, raw: Buffer, audiences: string[], now = Date.now()): boolean {
   const sig3 = header(req, 'x-a2a-caller-sig3');
   const callerUrl = header(req, 'x-a2a-caller-url');
