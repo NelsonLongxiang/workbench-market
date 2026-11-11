@@ -136,7 +136,7 @@ export function checkCassette(cassette, known, moduleRouteCount = null, answered
       if (!method || !path.startsWith('/')) { problems.push(`${where}：request 要有 method 和以 / 开头的 path`); continue; }
       if (step.request.raw !== undefined && step.request.raw !== true) { problems.push(`${where}：request.raw 只能写 true（路径原样发出去）`); continue; }
       if (step.verify !== undefined && !(step.verify in VERIFIERS)) { problems.push(`${where}：verify 只能是 ${Object.keys(VERIFIERS).join('、')}`); continue; }
-      if (step.vary !== undefined && !(step.vary && typeof step.vary === 'object' && !Array.isArray(step.vary) && Object.keys(step.vary).length > 0 && Object.entries(step.vary).every(([k, h]) => (k === '$text' ? h === 'hex64' : k.startsWith('$header:') ? /^\$header:[a-z0-9-]+$/.test(k) && h === 'random' : h === 'random' || (typeof h === 'number' && h > 0))))) { problems.push(`${where}：vary 要写成 { 字段路径: 'random' 或一个正数 }，文本应答体写 { $text: 'hex64' }，响应头写 { '$header:小写头名': 'random' }`); continue; }
+      if (step.vary !== undefined && !(step.vary && typeof step.vary === 'object' && !Array.isArray(step.vary) && Object.keys(step.vary).length > 0 && Object.entries(step.vary).every(([k, h]) => (k === '$text' ? h === 'hex64' : k.startsWith('$header:') ? /^\$header:[a-z0-9-]+$/.test(k) && h === 'random' : k === '$location' ? locationVaryOk(h) : k === '$cookies' ? cookieVaryOk(h) : h === 'random' || (typeof h === 'number' && h > 0))))) { problems.push(`${where}：vary 要写成 { 字段路径: 'random' 或一个正数 }，文本应答体写 { $text: 'hex64' }，响应头写 { '$header:小写头名': 'random' }，跳转地址写 { $location: ['port', 'query:名'] }，cookie 写 { $cookies: { 名字: ['value', 'max-age'] } }`); continue; }
       if (step.compare !== undefined && step.compare !== 'status' && !(Array.isArray(step.compare) && step.compare.length > 0 && step.compare.every((x) => typeof x === 'string' && x))) { problems.push(`${where}：compare 只能是 'status'，或者一组字段的路径`); continue; }
       if (step.route === undefined) continue;
       if (!covered.has(step.route)) { problems.push(`${where}：route 不在 routes 里：${step.route}`); continue; }
@@ -346,11 +346,59 @@ export function differences(before, after, path = '响应体', out = []) {
  *   （每个实例随机的密钥算出来的令牌）换成占位，别的字照常比。
  * 别的字段照常比，响应头也照常比。
  */
+const LOCATION_PARTS_RE = /^(port|query:[a-z_][a-z0-9_]{0,31})$/;
+const locationVaryOk = (h) => Array.isArray(h) && h.length > 0 && h.every((x) => typeof x === 'string' && LOCATION_PARTS_RE.test(x));
+const cookieVaryOk = (h) => !!h && typeof h === 'object' && !Array.isArray(h) && Object.keys(h).length > 0
+  && Object.entries(h).every(([name, parts]) => /^[A-Za-z0-9_-]{1,64}$/.test(name) && Array.isArray(parts) && parts.length > 0 && parts.every((x) => x === 'value' || x === 'max-age'));
+
+/**
+ * 响应头里每次都不一样的那几个字节（跳转地址里的随机端口和随机参数、cookie 的随机值），按请求上的 vary 点名遮：
+ *   $location: ['port', 'query:state']：跳转地址（Location 头，以及「Found. Redirecting to …」那样把地址写进正文的）里，
+ *     回环地址 127.0.0.1 后面的端口（含编码在参数里的 %3A）换成占位；点名的查询参数的值换成只留长度的占位。主机、路径、别的参数照比。
+ *   $cookies: { 名字: ['value', 'max-age'] }：Set-Cookie 里这个名字的 cookie，值换成只留长度的占位（空值不换，清除照样看得出），
+ *     Max-Age 的数字换成占位（有没有 Max-Age 照比）。cookie 的名字、Path、HttpOnly、SameSite、Secure 这些属性照比。
+ * 别的头、别的 cookie 一律原样比。
+ */
+export function applyRedirectCookieVary(raw, vary) {
+  if (!vary || (!vary.$location && !vary.$cookies)) return raw;
+  const headers = { ...(raw.headers ?? {}) };
+  let body = raw.body;
+  if (vary.$location) {
+    const mask = (text) => {
+      let out = String(text);
+      for (const part of vary.$location) {
+        if (part === 'port') out = out.replace(/127\.0\.0\.1(:|%3A)\d{1,5}/gi, (_m, sep) => `127.0.0.1${sep}<端口>`);
+        else {
+          const name = part.slice('query:'.length);
+          out = out.replace(new RegExp(`([?&]${name}=)([^&#\\s"]*)`, 'g'), (_m, head, value) => `${head}<每个实例随机·${value.length}>`);
+        }
+      }
+      return out;
+    };
+    if (typeof headers.location === 'string') headers.location = mask(headers.location);
+    if (typeof body === 'string') body = mask(body);
+  }
+  if (vary.$cookies && headers['set-cookie']) {
+    const list = Array.isArray(headers['set-cookie']) ? headers['set-cookie'] : [headers['set-cookie']];
+    headers['set-cookie'] = list.map((line) => {
+      const m = /^([^=;\s]+)=([^;]*)(.*)$/.exec(String(line));
+      const parts = m ? vary.$cookies[m[1]] : undefined;
+      if (!m || !parts) return line;
+      let value = m[2], rest = m[3];
+      if (parts.includes('value') && value !== '') value = `<每个实例随机·${value.length}>`;
+      if (parts.includes('max-age')) rest = rest.replace(/(;\s*Max-Age=)\d+/i, '$1<数>');
+      return `${m[1]}=${value}${rest}`;
+    });
+  }
+  return { ...raw, headers, body };
+}
+
 export function applyVary(body, vary) {
   if (vary && typeof body === 'string') return vary.$text === 'hex64' ? body.replace(/(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])/g, '<每个实例随机·hex64>') : body;
   if (!vary || body === null || typeof body !== 'object') return body;
   const out = structuredClone(body);
   for (const [path, how] of Object.entries(vary)) {
+    if (path.startsWith('$')) continue; // $location、$cookies 管响应头，见 applyHeaderVary
     const keys = String(path).split('.');
     const last = keys.pop();
     const holder = keys.reduce((v, k) => (v == null ? undefined : v[k]), out);
@@ -405,7 +453,7 @@ export function shapeOf(step, raw) {
     if (!check) throw new Error(`验法 ${step.verify} 没有加载`);
     verified = { [step.verify]: check(raw.body) };
   }
-  if (step.vary) raw = { ...raw, body: applyVary(raw.body, step.vary) };
+  if (step.vary) raw = applyRedirectCookieVary({ ...raw, body: applyVary(raw.body, step.vary) }, step.vary);
   if (verified) return { ...steadyResponse(raw), verified };
   // 应答里没有的字段不记（写进 JSON 也留不住），所以「原来没有、后来有了」和「原来有、后来没了」都看得出来
   if (Array.isArray(step.compare)) return { status: raw.status, picked: Object.fromEntries(step.compare.map((path) => [path, steady(pick(raw.body, path))]).filter(([, value]) => value !== undefined)) };
@@ -713,6 +761,34 @@ async function selftest() {
   const vrec = { ...vstep, response: shapeOf(vstep, { status: 200, type: 'a', headers: {}, body: { signature: 'aaaa', name: 'm' } }) };
   check(compareStep(vrec, shapeOf(vstep, { status: 200, type: 'a', headers: {}, body: { signature: 'bbbb', name: 'm' } })).length === 0 && compareStep(vrec, shapeOf(vstep, { status: 200, type: 'a', headers: {}, body: { signature: 'bbbbb', name: 'm' } })).length === 1 && compareStep(vrec, shapeOf(vstep, { status: 200, type: 'a', headers: {}, body: { name: 'm' } })).length === 1 && compareStep(vrec, shapeOf(vstep, { status: 200, type: 'a', headers: {}, body: { signature: 'bbbb', name: 'n' } })).length === 1, 'vary：随机字段换了值不算差异；长度变了、字段没了、别的字段变了都算');
   check(checkCassette(withSteps([a, b, c, { id: 'v', vary: { x: 'sometimes' }, request: { method: 'GET', path: '/api/x' } }]), known).some((p) => p.includes('vary')) && checkCassette(withSteps([a, b, c, { id: 'v', vary: [], request: { method: 'GET', path: '/api/x' } }]), known).some((p) => p.includes('vary')), 'vary：写得不对，静态检查拦下');
+  // $location、$cookies：只遮点名的那几个字节
+  const loc = 'http://127.0.0.1:61234/authorize?client_id=c1&redirect_uri=http%3A%2F%2F127.0.0.1%3A61200%2Fcb&state=abcdefgh';
+  const lv = { $location: ['port', 'query:state'], $cookies: { st: ['value', 'max-age'], sess: ['value'] } };
+  const hraw = (o = {}) => ({ status: 302, type: 'text/plain', headers: { location: o.location ?? loc, 'set-cookie': o.cookies ?? ['st=AAAA; Max-Age=599; Path=/cb; HttpOnly; SameSite=Lax', 'sess=BBBBBB; Max-Age=43200; Path=/; HttpOnly; SameSite=Lax', 'other=x; Path=/'] }, body: `Found. Redirecting to ${o.location ?? loc}` });
+  const ls = { vary: lv };
+  const hrec = { ...ls, response: shapeOf(ls, hraw()) };
+  check(hrec.response.headers.location === 'http://127.0.0.1:<端口>/authorize?client_id=c1&redirect_uri=http%3A%2F%2F127.0.0.1%3A<端口>%2Fcb&state=<每个实例随机·8>' && hrec.response.body.endsWith('state=<每个实例随机·8>')
+    && hrec.response.headers['set-cookie'][0] === 'st=<每个实例随机·4>; Max-Age=<数>; Path=/cb; HttpOnly; SameSite=Lax' && hrec.response.headers['set-cookie'][1] === 'sess=<每个实例随机·6>; Max-Age=43200; Path=/; HttpOnly; SameSite=Lax' && hrec.response.headers['set-cookie'][2] === 'other=x; Path=/',
+    '$location、$cookies：端口、state、cookie 的值和点名的 Max-Age 换成占位，别的原样');
+  const same = hraw({ location: loc.replace('61234', '5000').replace('61200', '5001').replace('abcdefgh', 'zyxwvuts'), cookies: ['st=CCCC; Max-Age=600; Path=/cb; HttpOnly; SameSite=Lax', 'sess=DDDDDD; Max-Age=43200; Path=/; HttpOnly; SameSite=Lax', 'other=x; Path=/'] });
+  check(compareStep(hrec, shapeOf(ls, same)).length === 0, '$location、$cookies：只是端口、随机值、Max-Age 的数变了：零差异');
+  const redHeaders = {
+    '跳转到别的路径': hraw({ location: loc.replace('/authorize', '/elsewhere') }),
+    '跳转到别的主机': hraw({ location: loc.replace('127.0.0.1:61234', 'evil.invalid') }),
+    '别的参数变了': hraw({ location: loc.replace('client_id=c1', 'client_id=c2') }),
+    '去掉 HttpOnly': hraw({ cookies: ['st=AAAA; Max-Age=599; Path=/cb; SameSite=Lax', 'sess=BBBBBB; Max-Age=43200; Path=/; HttpOnly; SameSite=Lax', 'other=x; Path=/'] }),
+    '去掉 SameSite': hraw({ cookies: ['st=AAAA; Max-Age=599; Path=/cb; HttpOnly; SameSite=Lax', 'sess=BBBBBB; Max-Age=43200; Path=/; HttpOnly', 'other=x; Path=/'] }),
+    '换 cookie 名': hraw({ cookies: ['st2=AAAA; Max-Age=599; Path=/cb; HttpOnly; SameSite=Lax', 'sess=BBBBBB; Max-Age=43200; Path=/; HttpOnly; SameSite=Lax', 'other=x; Path=/'] }),
+    '没有 Max-Age 了': hraw({ cookies: ['st=AAAA; Path=/cb; HttpOnly; SameSite=Lax', 'sess=BBBBBB; Max-Age=43200; Path=/; HttpOnly; SameSite=Lax', 'other=x; Path=/'] }),
+    '没点名的 Max-Age 变了': hraw({ cookies: ['st=AAAA; Max-Age=599; Path=/cb; HttpOnly; SameSite=Lax', 'sess=BBBBBB; Max-Age=60; Path=/; HttpOnly; SameSite=Lax', 'other=x; Path=/'] }),
+    '值的长度变了': hraw({ cookies: ['st=AAAAA; Max-Age=599; Path=/cb; HttpOnly; SameSite=Lax', 'sess=BBBBBB; Max-Age=43200; Path=/; HttpOnly; SameSite=Lax', 'other=x; Path=/'] }),
+  };
+  const silent = Object.entries(redHeaders).filter(([, r]) => compareStep(hrec, shapeOf(ls, r)).length === 0).map(([k]) => k);
+  check(silent.length === 0, `$location、$cookies：跳转落点、别的参数、cookie 名和属性、值的长度变了都报出来（${Object.keys(redHeaders).length} 种）`);
+  check(checkCassette(withSteps([a, b, c, { id: 'v', vary: { $location: ['host'] }, request: { method: 'GET', path: '/api/x' } }]), known).some((p) => p.includes('vary'))
+    && checkCassette(withSteps([a, b, c, { id: 'v', vary: { $cookies: { st: ['httponly'] } }, request: { method: 'GET', path: '/api/x' } }]), known).some((p) => p.includes('vary'))
+    && !checkCassette(withSteps([a, b, c, { id: 'v', vary: lv, request: { method: 'GET', path: '/api/x' } }]), known).some((p) => p.includes('vary')),
+    '$location 只收 port 和 query:<名>，$cookies 只收 value 和 max-age，写别的静态检查就拦');
   // 只比点名的字段
   const wb = { id: 2, name: '台', cookie_set_id: 0, last_status: 'unknown', nested: { at: '2026-01-02 03:04:05' } };
   const picking = { compare: ['cookie_set_id', 'nested.at', 'gone'] };
