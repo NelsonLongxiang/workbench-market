@@ -252,6 +252,8 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   a2a.ts（卡片/绑定/direct 准入）
   a2a/errors.ts（A2A 拒收原因表：错误码 → 中文原因与处理办法·公开计数的桶，对外同答的原因并桶）
   a2a/health.ts（`/api/health` 的 `a2a` 块：开关生效值、名片有效期、幂等窗口、出站积压、拒收计数·只出计数不出团队与地址·读数缓存 5 秒）
+  a2a/peer-card.ts（对端名片：按投递的根地址取名片、上游 verifyCard 验签；投递时记下对端是谁、回执到达时用同一张名片验签名·不跟随重定向、5 秒、64 KiB）
+  a2a/receipt-inbound.ts（席位的 A2A 回执入站：`/a2a/direct` 在签名校验和准入之前的窄分流——正文是回执、任务号是我们发出的、签名方是当初投递到的那台宿主，三条都成立才采信并写事件日志，事项照常推进；否则照原路，应答不变）
   app-data-contract.ts（自产台数据契约：必填/枚举/格式/条件规则（含条件格式）/数组对象逐元素，POST 数据时服务端权威校验）
   app-html.ts（出自产台页面 HTML：注入按台令牌，认得出的人在当前上架版本上再注入提交人票据；出票抛错页面照常不带票据，别的出错回到原样页面并计数）
   attention-answers.ts（「关注」各来源的答法：转给原路由的换算表——路径固定、id 核形状后编码、请求体只取这种答法要的字段；席位提问的答复、事项的验收和退回直接实现）
@@ -313,6 +315,7 @@ server/src/login-providers/  登录提供方插件（身份的具体实现只放
 server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·cookie·setting·mcp（域服务）；其余一个文件一行，按文件名排序：
   a2a-handles.ts（市场 A2A 会话句柄 `market/<node8>` 的唯一性：生成时避开已占用的，存量撞车的不上卡、入站失败关闭）
   a2a-idempotency.ts（`/a2a/direct` 幂等登记：task_id → 指纹 sha256，30 分钟窗口，落库，重启后同一 task_id 仍判 replay / conflict；只存摘要不存原文）
+  a2a-receipts.ts（回执入站的登记：我们发出的任务号 → 事件、投递、对端；采信过的回执按任务号去重；签名只认一次）
   a2a-stats.ts（A2A 出站积压的聚合读数：两张出站表按状态计数、最老待发、最近回执时长）
   attention-sources.ts（「关注」要用、来源里还没有现成函数的只读查询：席位未答的提问）
   attention.ts（「关注」：Cordis 服务 `attention`·各来源注册提供方、可撤销·汇总当前这个人的条目和各类条数）

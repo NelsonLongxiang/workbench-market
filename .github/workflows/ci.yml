@@ -247,6 +247,8 @@ jobs:
           A2A_ORIGIN_SRC: ${{ github.workspace }}/dsh-open-a2a-net/src/origin-claim.ts
           A2A_MEMBER_FP_SRC: ${{ github.workspace }}/dsh-open-a2a-net-provenance/src/canvas-id.ts
         run: node scripts/a2a-member-provenance-test.mjs
+      - name: 席位 A2A 回执进事项（签名方 = 当初投递到的宿主·Sig3 不降级·别人的任务号照原路逐字节相同·别的团队签/没签名/重放/词表外/夹带指令/未采信上限·日志无签名材料）
+        run: node scripts/a2a-receipt-inbound-test.mjs
       - name: 工作台事件层 v1（人提交→事件→团队接单：held/release·自动派发·退避重试/dead·决定端点·unrouted·表单 unverified·只增日志；对端上游裁判按关窗验）
         env:
           A2A_ORIGIN_SRC: ${{ github.workspace }}/dsh-open-a2a-net/src/origin-claim.ts

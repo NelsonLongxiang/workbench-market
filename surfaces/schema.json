@@ -5,6 +5,13 @@
       "fp_sha256 TEXT NOT NULL",
       "created_at INTEGER NOT NULL"
     ],
+    "a2a_inbound_receipts": [
+      "task_id TEXT NOT NULL PK",
+      "class TEXT NOT NULL PK",
+      "disposition TEXT NOT NULL",
+      "outcome TEXT NOT NULL DEFAULT ''",
+      "received_at TEXT NOT NULL DEFAULT datetime('now')"
+    ],
     "a2a_outbox": [
       "id INTEGER PK",
       "run_id INTEGER NOT NULL",
@@ -29,6 +36,15 @@
       "team TEXT NOT NULL DEFAULT ''",
       "receipt_status TEXT NOT NULL DEFAULT ''",
       "callback_url TEXT NOT NULL DEFAULT ''"
+    ],
+    "a2a_sent_tasks": [
+      "task_id TEXT PK",
+      "kind TEXT NOT NULL DEFAULT 'delivery'",
+      "event_id TEXT NOT NULL",
+      "delivery_id INTEGER NOT NULL",
+      "peer_root TEXT NOT NULL DEFAULT ''",
+      "peer_zone TEXT NOT NULL DEFAULT ''",
+      "created_at TEXT NOT NULL DEFAULT datetime('now')"
     ],
     "a2a_sig_seen": [
       "sig_hash TEXT PK",
@@ -653,6 +669,7 @@
     "idx_a2a_outbox_due ON a2a_outbox: CREATE INDEX idx_a2a_outbox_due ON a2a_outbox(status, next_at)",
     "idx_a2a_outbox_run ON a2a_outbox: CREATE UNIQUE INDEX idx_a2a_outbox_run ON a2a_outbox(run_id)",
     "idx_a2a_run_ctx ON a2a_run_ctx: CREATE INDEX idx_a2a_run_ctx ON a2a_run_ctx (context_id)",
+    "idx_a2a_sent_tasks_delivery ON a2a_sent_tasks: CREATE INDEX idx_a2a_sent_tasks_delivery ON a2a_sent_tasks (delivery_id)",
     "idx_a2a_sig_seen_exp ON a2a_sig_seen: CREATE INDEX idx_a2a_sig_seen_exp ON a2a_sig_seen (expires_at)",
     "idx_app_bindings_slug ON app_bindings: CREATE INDEX idx_app_bindings_slug ON app_bindings (app_slug, revoked_at)",
     "idx_app_data_idem ON app_data: CREATE UNIQUE INDEX idx_app_data_idem ON app_data (app_slug, idempotency_key) WHERE idempotency_key <> ''",

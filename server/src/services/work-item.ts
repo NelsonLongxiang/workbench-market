@@ -57,6 +57,8 @@ export type Fact = {
   answer?: string;
   note?: 'unrouted' | 'untrusted' | 'undispatched';
   others_alive?: boolean;
+  /** 阶段七 R3：同一事件里有别的投递还活着或已经接手（回执的拒绝、放弃只在没有时才推终态） */
+  others_engaged?: boolean;
   none_sent?: boolean;
   action?: string;
 };
@@ -64,6 +66,16 @@ export type Fact = {
 type Row = { from: readonly WorkItemState[]; fact: Fact['kind']; when: (f: Fact) => boolean; to: WorkItemState; note: string };
 const is = <K extends keyof Fact>(k: K, v: Fact[K]) => (f: Fact) => f[k] === v;
 const hasReason = (f: Fact) => typeof f.reason === 'string' && f.reason.trim() !== '';
+
+/**
+ * 阶段七 R3：「对方说不干了」的回执结局和它推到的终态。所有这类行都只在 lastTeamStanding 成立时迁移：
+ * 别的团队已接手或还活着时，一个团队的失败、拒绝、放弃不能把事项判死（ready 时也一样：只有接手的那个投递自己说才算）。
+ */
+export const GIVE_UP_OUTCOMES: readonly string[] = ['failed', 'rejected', 'abandoned'];
+const GIVE_UP_TO: Record<string, WorkItemState> = { failed: 'failed', rejected: 'failed', abandoned: 'dropped' };
+const GIVE_UP_NOTE: Record<string, string> = { failed: '没办成', rejected: '对方拒绝', abandoned: '放弃（回执即放弃要的那条回执）' };
+/** 说不干了的这个投递是不是最后一个还在场的：别的投递里没有活着的（held / pending / sent）、也没有已接手的 */
+export const lastTeamStanding = (f: Fact): boolean => f.others_engaged !== true;
 
 /** 迁移表：第三节那张表逐行照抄。表里没有的（状态，事实）组合一律拒绝。 */
 export const TRANSITIONS: readonly Row[] = [
@@ -93,8 +105,11 @@ export const TRANSITIONS: readonly Row[] = [
   // 实现时补定（8b）：排了队、一次都没发出去就撤回，等同于还没转交
   { from: ['delivered'], fact: 'withdraw', when: is('none_sent', true), to: 'cancelled', note: '排队中还没发出就撤回' },
   { from: NON_TERMINAL, fact: 'report', when: is('status', 'failed'), to: 'failed', note: '席位 report：failed' },
-  { from: NON_TERMINAL, fact: 'receipt', when: is('outcome', 'failed'), to: 'failed', note: '终态回执 outcome=failed' },
+  // 对方说不干了（回执 failed / rejected / abandoned）：统一走 lastTeamStanding——别的投递里还有活着的或已接手的，只记录（见 RECORDS）
+  ...GIVE_UP_OUTCOMES.map((o) => ({ from: NON_TERMINAL, fact: 'receipt' as const, when: (f: Fact) => f.outcome === o && lastTeamStanding(f), to: GIVE_UP_TO[o], note: `回执 outcome=${o}：${GIVE_UP_NOTE[o]}（别的投递没有活着或已接手的）` })),
   { from: NON_TERMINAL, fact: 'report', when: (f) => f.status === 'dropped' && typeof f.receipt?.outcome === 'string' && f.receipt.outcome !== '', to: 'dropped', note: '席位 report：dropped（同时有回执）' },
+  // 阶段七 R3：席位的 A2A 回执（superagent 不发 report，只发回执）。没先收到接单回执就直接来结果的，视同接单后完成
+  { from: ['delivered', 'accepted', 'progress', 'waiting', 'blocked'], fact: 'receipt', when: is('outcome', 'completed'), to: 'ready', note: '回执 outcome=completed：做完，等验收' },
 ];
 
 /** 查表：这个状态下这条事实能到哪。查不到返回 null。 */
@@ -116,6 +131,8 @@ export const RECORDS: readonly { from: readonly WorkItemState[]; fact: Fact['kin
   { from: ['accepted', 'progress', 'waiting', 'ready'], fact: 'eval', when: (f) => ['accept', 'stop', 'ignore', 'unavailable'].includes(f.verdict ?? ''), note: '已有团队接手之后，别的团队再来接或拒' },
   { from: ['delivered', 'blocked'], fact: 'eval', when: (f) => ['stop', 'ignore', 'unavailable'].includes(f.verdict ?? '') && f.others_alive === true, note: '一个团队拒接，还有别的投递活着' },
   { from: ['delivered'], fact: 'delivery', when: (f) => f.outcome === 'dead' && f.others_alive === true, note: '一个投递 dead，还有别的投递活着' },
+  // 阶段七 R3：一个团队说不干了（回执 failed / rejected / abandoned），别的投递还活着或已接手——只记录
+  { from: NON_TERMINAL, fact: 'receipt', when: (f) => GIVE_UP_OUTCOMES.includes(f.outcome ?? '') && !lastTeamStanding(f), note: '一个团队回执说不干了（failed / rejected / abandoned），别的投递还活着或已接手' },
   { from: ['accepted', 'progress', 'waiting', 'blocked', 'ready'], fact: 'delivery', when: is('outcome', 'dead'), note: '已有团队接手之后，别的投递 dead' },
   // 8b：未路由、未采信
   { from: NON_TERMINAL, fact: 'note', when: (f) => f.note === 'unrouted' || f.note === 'untrusted' || f.note === 'undispatched', note: '未路由 / 收到但未采信 / 未派发' },
@@ -234,7 +251,11 @@ type DeliveryStatus = 'held' | 'pending' | 'sent' | 'dead' | 'cancelled' | 'acce
 const DELIVERY_AFTER: Record<string, DeliveryStatus> = {
   held: 'held', queued: 'pending', released: 'pending', retry: 'pending', sent: 'sent', 'sent-after-withdraw': 'sent',
   dead: 'dead', cancelled: 'cancelled', 'decision:accept': 'accepted', 'decision:decline': 'declined',
+  // 阶段七 R3：回执表达的投递结局
+  'receipt:acknowledged': 'accepted', 'receipt:completed': 'accepted', 'receipt:rejected': 'declined', 'receipt:failed': 'declined', 'receipt:abandoned': 'declined',
 };
+/** 阶段七 R3：采信的 A2A 回执种类（receipt-inbound.ts 写的事件日志 action） */
+const RECEIPT_OUTCOME_ACTIONS = ['receipt:completed', 'receipt:failed', 'receipt:rejected', 'receipt:abandoned'];
 const ALIVE: readonly DeliveryStatus[] = ['held', 'pending', 'sent'];
 
 /**
@@ -256,16 +277,24 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
   if (row.action === 'held' || row.action === 'queued') fact = { ...base, kind: 'submit', dispatch_open: row.action === 'queued' };
   else if (row.action === 'released') fact = { ...base, kind: 'release' };
   else if (row.action === 'cancelled') fact = { ...base, kind: 'withdraw', none_sent: !rows.slice(0, i + 1).some((r) => r.action === 'sent' || r.action === 'sent-after-withdraw') };
-  else if (row.action === 'dead' || row.action.startsWith('decision:')) {
+  else if (row.action === 'receipt:untrusted' || row.action === 'receipt:unaccepted') fact = { ...base, kind: 'note', note: 'untrusted' };
+  else if (row.action === 'receipt:attention') fact = { ...base, kind: 'ask', question: typeof detail.summary === 'string' ? detail.summary : '' };
+  else if (row.action === 'dead' || row.action.startsWith('decision:') || row.action === 'receipt:acknowledged' || RECEIPT_OUTCOME_ACTIONS.includes(row.action)) {
     const status = new Map<number, DeliveryStatus>();
     for (const r of rows.slice(0, i)) if (r.delivery_id !== null && DELIVERY_AFTER[r.action]) status.set(r.delivery_id, DELIVERY_AFTER[r.action]);
     const others_alive = [...status].some(([d, st]) => d !== row.delivery_id && ALIVE.includes(st));
+    const others_engaged = [...status].some(([d, st]) => d !== row.delivery_id && (ALIVE.includes(st) || st === 'accepted'));
     if (row.action === 'dead') fact = { ...base, kind: 'delivery', outcome: 'dead', others_alive };
     else if (row.action === 'decision:accept') fact = { ...base, kind: 'eval', verdict: 'accept', others_alive };
     else if (row.action === 'decision:decline') {
       const reason = typeof detail.reason === 'string' && detail.reason.trim() !== '' ? detail.reason : '未写理由';
       fact = { ...base, kind: 'eval', verdict: 'stop', reason, others_alive };
     } else if (row.action === 'decision:ask') fact = { ...base, kind: 'ask', question: typeof detail.reason === 'string' ? detail.reason : '' };
+    else if (row.action === 'receipt:acknowledged') fact = { ...base, kind: 'eval', verdict: 'accept', others_alive };
+    else if (RECEIPT_OUTCOME_ACTIONS.includes(row.action)) {
+      const outcome = row.action.slice('receipt:'.length);
+      fact = { ...base, kind: 'receipt', outcome, others_alive, others_engaged, ...(outcome === 'rejected' ? { reason: '对方拒绝' } : {}) };
+    }
   }
   if (fact && event.submitter_kind === 'unverified') return { ...base, kind: 'note', note: 'untrusted' };
   return fact;
@@ -345,11 +374,11 @@ export class WorkItemService extends Service {
       if (!fact) continue;
       // 一个投递在事件层只有一栏决定：再问一次、或作出决定，它先前的提问就不再等答复（事件层也不再算）。
       // 先把这个投递之前的提问都记一行答复合上，再应用这一条。已经合上的，答复按「答过」返回、不再写
-      if ((fact.kind === 'eval' || fact.kind === 'ask') && rows[i].delivery_id !== null) {
-        for (const asked of rows.slice(0, i).filter((r) => r.delivery_id === rows[i].delivery_id && r.action === 'decision:ask')) {
+      if ((fact.kind === 'eval' || fact.kind === 'ask' || (fact.kind === 'receipt' && rows[i].action.startsWith('receipt:'))) && rows[i].delivery_id !== null) {
+        for (const asked of rows.slice(0, i).filter((r) => r.delivery_id === rows[i].delivery_id && (r.action === 'decision:ask' || r.action === 'receipt:attention'))) {
           this.applyLocked(itemId, {
             kind: 'answer', source: EVENT_FACT_SOURCE, id: `${rows[i].id}:closes-ask:${asked.id}`, ask_id: String(asked.id), actor: rows[i].actor,
-            answer: fact.kind === 'ask' ? '（同一个接单节点又问了一次，这条提问换成新的那条）' : '（同一个接单节点随后作出了决定，这条提问不再等答复）',
+            answer: fact.kind === 'ask' ? '（同一个接单节点又问了一次，这条提问换成新的那条）' : fact.kind === 'receipt' ? '（同一个接单节点随后发来了结果回执，这条提问不再等答复）' : '（同一个接单节点随后作出了决定，这条提问不再等答复）',
           });
         }
       }
