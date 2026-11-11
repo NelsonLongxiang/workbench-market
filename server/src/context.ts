@@ -26,6 +26,7 @@ import { ChangeRequestService } from './services/change-request.ts';
 import { TaskCenterService } from './services/task-center.ts';
 import { RemoteAllowService } from './services/remote-allow.ts';
 import { LoginSessionService } from './services/login-session.ts';
+import { GrantService } from './services/grant.ts';
 import { WorkItemService } from './services/work-item.ts';
 import { AttentionService } from './services/attention.ts';
 import { HttpService } from './http.ts';
@@ -59,6 +60,7 @@ await Promise.all([
   WorkbenchVarsService,
   PrincipalService,
   LoginSessionService,
+  GrantService,
   BindingService,
   ChangeRequestService,
   TaskCenterService,

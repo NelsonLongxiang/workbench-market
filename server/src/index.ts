@@ -34,6 +34,7 @@ import { registerSummaryRoutes } from './routes/summary.ts';
 import { registerContentObservationRoutes } from './routes/content-observation.ts';
 import { registerAuthViewerRoutes } from './routes/auth-viewer.ts';
 import { registerPrincipalRoutes } from './routes/principals.ts';
+import { registerGrantRoutes } from './routes/grants.ts';
 import { registerAttentionRoutes } from './routes/attention.ts';
 import { registerWorkItemRoutes } from './routes/work-items.ts';
 import { registerSettingsRoutes } from './routes/settings.ts';
@@ -1999,6 +2000,7 @@ registerAuthViewerRoutes(http, { wrap, odooLoginUrl });
 
 // ---------- 主体管理（列出、停用、恢复）：路由在域模块里 ----------
 registerPrincipalRoutes(http, { markOdooAdmin, adminGuard, adminActor });
+registerGrantRoutes(http, { markOdooAdmin, adminGuard, adminActor }); // 阶段六 6b：角色声明与授予（只建结构，不接判定）
 registerAttentionRoutes(http, { markOdooAdmin, adminGuard, adminHeaderOk, varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
 registerWorkItemRoutes(http, { markOdooAdmin, adminGuard, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8d：事项页的时间线
 

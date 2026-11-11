@@ -638,6 +638,76 @@ CREATE TABLE IF NOT EXISTS principal_pending (
   PRIMARY KEY (provider, external_id)
 );
 `);
+// 阶段六 6b：授予（谁有哪个角色）。角色本身是声明（server/src/roles.ts），这里只放数据。
+//   grants：主体、角色、范围、期限、理由、起草人、放行人、状态。状态只有五种，只能往前走：
+//     draft 草稿 → pending 待核 → active 生效 → revoked 撤销 或 expired 过期；草稿和待核也可以直接撤销（作废、驳回）。
+//     规则写在库里，不靠页面：不能给自己授予（起草人、放行人都不能是被授予的主体）；放行人只在待核→生效那一步写；
+//     生效时没过期；过期只能在到期之后；主体、角色、范围、期限、理由、起草人建好就不能改；不删除。
+//     管理员级的授予只有属主能放行、不是人的主体要有在职的责任人、决定类权限不给不是人的主体：这几条要看角色声明，在服务里判。
+//   grant_events：每一步一行（起草、提交、放行、撤销、过期），只增不改。
+db.exec(`
+CREATE TABLE IF NOT EXISTS grants (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  principal_id TEXT NOT NULL CHECK (principal_id GLOB '?*:?*'),
+  role TEXT NOT NULL CHECK (role GLOB '[a-z]*'),
+  scope TEXT NOT NULL CHECK (scope <> ''),
+  expires_at INTEGER,
+  reason TEXT NOT NULL CHECK (reason <> ''),
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','pending','active','revoked','expired')),
+  created_by TEXT NOT NULL CHECK (created_by <> ''),
+  created_by_principal TEXT,
+  approved_by TEXT,
+  approved_by_principal TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  CHECK (created_by_principal IS NULL OR created_by_principal <> principal_id),
+  CHECK (approved_by_principal IS NULL OR approved_by_principal <> principal_id),
+  CHECK (status NOT IN ('active','expired') OR approved_by IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS idx_grants_principal ON grants (principal_id, status);
+CREATE TRIGGER IF NOT EXISTS grants_start_draft BEFORE INSERT ON grants WHEN NEW.status <> 'draft' OR NEW.approved_by IS NOT NULL OR NEW.approved_by_principal IS NOT NULL
+  BEGIN SELECT RAISE(ABORT, '授予一律从草稿开始'); END;
+CREATE TRIGGER IF NOT EXISTS grants_no_replace BEFORE INSERT ON grants WHEN EXISTS (SELECT 1 FROM grants WHERE id = NEW.id)
+  BEGIN SELECT RAISE(ABORT, '授予不删除，也不能用同一个 id 覆盖'); END;
+CREATE TRIGGER IF NOT EXISTS grants_no_delete BEFORE DELETE ON grants
+  BEGIN SELECT RAISE(ABORT, '授予不删除'); END;
+CREATE TRIGGER IF NOT EXISTS grants_fixed BEFORE UPDATE ON grants
+  WHEN NEW.id IS NOT OLD.id OR NEW.principal_id IS NOT OLD.principal_id OR NEW.role IS NOT OLD.role OR NEW.scope IS NOT OLD.scope
+    OR NEW.expires_at IS NOT OLD.expires_at OR NEW.reason IS NOT OLD.reason OR NEW.created_by IS NOT OLD.created_by
+    OR NEW.created_by_principal IS NOT OLD.created_by_principal OR NEW.created_at IS NOT OLD.created_at
+  BEGIN SELECT RAISE(ABORT, '授予的主体、角色、范围、期限、理由、起草人建好就不能改'); END;
+CREATE TRIGGER IF NOT EXISTS grants_forward_only BEFORE UPDATE OF status ON grants
+  WHEN NOT ((OLD.status = 'draft' AND NEW.status IN ('pending','revoked')) OR (OLD.status = 'pending' AND NEW.status IN ('active','revoked'))
+    OR (OLD.status = 'active' AND NEW.status IN ('revoked','expired')))
+  BEGIN SELECT RAISE(ABORT, '授予的状态只能按 草稿→待核→生效→撤销或过期 往前走'); END;
+CREATE TRIGGER IF NOT EXISTS grants_approver_once BEFORE UPDATE ON grants
+  WHEN (NEW.approved_by IS NOT OLD.approved_by OR NEW.approved_by_principal IS NOT OLD.approved_by_principal) AND NOT (OLD.status = 'pending' AND NEW.status = 'active')
+  BEGIN SELECT RAISE(ABORT, '放行人只在待核→生效那一步写'); END;
+CREATE TRIGGER IF NOT EXISTS grants_activate_unexpired BEFORE UPDATE OF status ON grants
+  WHEN NEW.status = 'active' AND OLD.expires_at IS NOT NULL AND OLD.expires_at <= CAST(unixepoch('subsec') * 1000 AS INTEGER)
+  BEGIN SELECT RAISE(ABORT, '已经过了期限的授予不能生效'); END;
+CREATE TRIGGER IF NOT EXISTS grants_expire_when_due BEFORE UPDATE OF status ON grants
+  WHEN NEW.status = 'expired' AND (OLD.expires_at IS NULL OR OLD.expires_at > CAST(unixepoch('subsec') * 1000 AS INTEGER))
+  BEGIN SELECT RAISE(ABORT, '没到期限的授予不能标成过期'); END;
+CREATE TABLE IF NOT EXISTS grant_events (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  grant_id INTEGER NOT NULL,
+  event TEXT NOT NULL CHECK (event IN ('draft','submit','approve','revoke','expire')),
+  from_status TEXT,
+  to_status TEXT NOT NULL,
+  actor TEXT NOT NULL CHECK (actor <> ''),
+  actor_principal TEXT,
+  reason TEXT NOT NULL DEFAULT '',
+  at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_grant_events_grant ON grant_events (grant_id, seq);
+CREATE TRIGGER IF NOT EXISTS grant_events_no_update BEFORE UPDATE ON grant_events
+  BEGIN SELECT RAISE(ABORT, 'grant_events 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS grant_events_no_delete BEFORE DELETE ON grant_events
+  BEGIN SELECT RAISE(ABORT, 'grant_events 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS grant_events_no_replace BEFORE INSERT ON grant_events WHEN EXISTS (SELECT 1 FROM grant_events WHERE seq = NEW.seq)
+  BEGIN SELECT RAISE(ABORT, 'grant_events 只增不改'); END;
+`);
 // 这两张表只在本分支的早先版本里有过没有规范化列的形状（从没发布过）。碰上就拒绝启动，说清楚怎么办：
 // 带着它跑，新来的人一律认不出（503），不如一开始就停下
 for (const [table, column] of [['principals', 'id_key'], ['principal_identities', 'external_key']]) {
