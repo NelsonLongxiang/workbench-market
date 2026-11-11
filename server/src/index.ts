@@ -1,3 +1,5 @@
+// 对外断开（WM_OUTBOUND=off）的闸必须最先装上：之后引入的模块一开套接字就要经过它
+import { outboundOff, noteBlocked, outboundStatus, verifyOutboundGate } from './outbound-gate.ts';
 import express from 'express';
 import { createStartupSecurityProbe, isStartupProbeRequest, TEST_ENV_WAITS } from './startup-security-self-probe.ts';
 import { createLoginGate, loginGateMode, trustedProxies } from './login-gate.ts';
@@ -402,6 +404,7 @@ function announceAllowDiff(): void {
   console.warn(`[S3 豁免面变更] added=${JSON.stringify(lastAllowDiff.added)} removed=${JSON.stringify(lastAllowDiff.removed)}`);
   // S3 联动（direct-6a39fc57 ③）：变更通知绑定台面——延迟投（等所有 svc 就绪·尽力而为）
   setTimeout(() => {
+    if (outboundOff()) { noteBlocked('allow-notify'); console.warn('[S3-notify] 对外已断开：豁免面变更通知不发'); return; }
     try {
       const nts = db.prepare("SELECT target_slug, agent_node, notify_url FROM bindings WHERE direction IN ('notify','both') AND revoked_at = '' AND notify_url != ''").all() as { target_slug: string; agent_node: string; notify_url: string }[];
       for (const nt of nts) {
@@ -1677,6 +1680,7 @@ async function postReceipt(targetUrl: string, row: { run_id: number; task_id: st
 }
 /** 立即试投一次（finish 触发）；失败留给 worker */
 async function deliverOutboxOnce(runId: number): Promise<void> {
+  if (outboundOff()) { noteBlocked('receipt-outbox'); return; } // 对外断开：不试投、不记失败，留给开关打开以后
   try {
     const row = svc<SopService>('sop').outboxByRun(runId) as { id: number; run_id: number; task_id: string; context_id: string; target_url: string; payload: string; attempts: number; status: string } | undefined;
     if (!row || row.status !== 'pending') return;
@@ -1690,6 +1694,7 @@ async function deliverOutboxOnce(runId: number): Promise<void> {
   }
 }
 async function outboxWorkerTick(): Promise<void> {
+  if (outboundOff()) { noteBlocked('receipt-outbox'); return; } // 对外断开：整轮跳过，在途的保持 pending、attempts 不变
   try {
     const due = svc<SopService>('sop').outboxDue(20) as { id: number; run_id: number; task_id: string; context_id: string; target_url: string; payload: string; attempts: number }[];
     for (const row of due) {
@@ -2332,7 +2337,9 @@ function healthBase(req?: express.Request): Record<string, unknown> {
     const b = svc<WorkItemService>('workItems').backfillStatus();
     backfill = req && adminTokenCheck(req.headers['x-admin-token'] as string | undefined) ? b : { state: b.state };
   } catch { /* 事项服务没装上 */ }
-  return { ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, self_probe: startupSecurity.snapshot(), work_items_backfill: backfill };
+  // 对外断开时健康检查和就绪检查都带上 outbound（匿名只给开关，管理员再给计数）：免得把预发实例当成正常实例
+  const outbound = outboundStatus(Boolean(req && adminTokenCheck(req.headers['x-admin-token'] as string | undefined)));
+  return { ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, ...(outbound ? { outbound } : {}), self_probe: startupSecurity.snapshot(), work_items_backfill: backfill };
 }
 registerHealthRoutes(http, { healthBase, layerfsProbeCached, layerfsReadiness, A2A_DIRECT_SIG, A2A_DIRECT_SIG_BODY });
 loginGate.mount(app); // /login、/api/auth/login|logout|me（解析器之后、SPA 回落之前）
@@ -2882,6 +2889,7 @@ function mcpUpstreams(): McpUpstream[] {
     if (!raw) return [];
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return [];
+    if (outboundOff()) return []; // 对外断开：库里随副本带来的上游一律按关处理
     return arr.filter((u: any) => u && typeof u.prefix === 'string' && MCP_UPSTREAM_PREFIX_RE.test(u.prefix) && u.enabled !== false
       && (u.kind === 'ygl-trees' ? typeof u.ygl_home === 'string' : (u.kind === undefined && typeof u.url === 'string' && /^https?:\/\//.test(u.url))));
   } catch {
@@ -3486,6 +3494,7 @@ async function patrol(): Promise<void> {
 }
 function armPatrol(): void {
   if (timer) clearTimeout(timer);
+  if (outboundOff()) { noteBlocked('health-patrol'); return; } // 对外断开：库里随副本带来的巡检间隔一律按关处理
   const s = Number(getSettings().health_interval_seconds) || 0;
   if (s < 10) return; // 0 或过小视为关闭
   timer = setTimeout(() => { patrol().finally(armPatrol); }, s * 1000);
@@ -3554,7 +3563,7 @@ const goServer = registerSurface(app, 'market', PORT, () => {
 const controlServer = SURFACE_PORTS.control ? registerSurface(app, 'control', SURFACE_PORTS.control) : undefined;
 if (contentCfg && contentRuntime) listenContentSurface(app, contentCfg, contentRuntime, () => startupSecurity.snapshot().passed);
 
-void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE }).then((result) => {
+void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ, sopRunWrite: SOP_RUN_WRITE, outbound: outboundOff() ? verifyOutboundGate : undefined }).then((result) => {
   if (!result.passed) return refuseUnsafeStartup();
   startRedis();
   armPatrol();

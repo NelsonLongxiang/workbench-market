@@ -3,6 +3,7 @@ import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { ProLayout } from '@ant-design/pro-components';
 import { KeyOutlined, AppstoreOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
 import { findNav, NAV_GROUPS } from './nav';
+import { api } from './api';
 import Dashboard from './pages/Dashboard';
 import Market from './pages/Market';
 import Types from './pages/Types';
@@ -18,7 +19,7 @@ import Vault from './pages/Vault';
 import { adminActive, adminTokenPresent, checkAdminToken, getAdminToken, odooAdmin, refreshAdminIdentity, setAdminToken, subscribeAdminToken } from './admin-token';
 import { marketOnly, marketUrl, onSurface, surface } from './surface';
 import { WEB_EXTENSIONS } from './extensions';
-import { Badge, Button as AButton, Input as AInput, Popover, Result, Tag } from 'antd';
+import { Alert, Badge, Button as AButton, Input as AInput, Popover, Result, Tag } from 'antd';
 import Tasks from './pages/Tasks';
 import Reviews from './pages/Reviews';
 import Attention from './pages/Attention';
@@ -98,6 +99,14 @@ function AdminTokenInput() {
   );
 }
 
+/** 预发实例（WM_OUTBOUND=off）：每一页顶上一条醒目的横幅，免得被当成正式环境用 */
+function OutboundBanner() {
+  const [off, setOff] = React.useState(false);
+  React.useEffect(() => { api.getHealth().then((h) => setOff(h.outbound?.mode === 'off')).catch(() => { /* 取不到就不显示 */ }); }, []);
+  if (!off) return null;
+  return <Alert type="error" banner showIcon message="预发实例：对外已断开（WM_OUTBOUND=off）" description="这个实例的所有出站都在发出前被拦下：投递、回执、通知都不会发出，探活和外部登录也不可用。不要把它当成正式环境使用。" />;
+}
+
 export default function App() {
   const location = useLocation();
   const admin = React.useSyncExternalStore(subscribeAdminToken, adminActive);
@@ -111,9 +120,12 @@ export default function App() {
   // 嵌入使用页占满整屏，脱离侧边栏壳
   if (location.pathname.startsWith('/use/')) {
     return (
-      <Routes>
-        <Route path="/use/:id" element={<UseWorkbench />} />
-      </Routes>
+      <>
+        <OutboundBanner />
+        <Routes>
+          <Route path="/use/:id" element={<UseWorkbench />} />
+        </Routes>
+      </>
     );
   }
 
@@ -160,6 +172,7 @@ export default function App() {
       }}
       contentStyle={{ padding: 16, paddingTop: 12 }}
     >
+      <OutboundBanner />
       {/* #279 当前用户：侧栏布局不渲染 headerRender，所以在内容区顶部右侧放一行，所有页面（含扩展页面）都能看到 */}
       <div className="wm-mb-1" style={{ display: 'flex', justifyContent: 'flex-end', minHeight: 24 }}><LoginChip />{surface !== 'control' && <ViewerChip />}</div>
       <Routes>
