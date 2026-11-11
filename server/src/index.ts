@@ -38,6 +38,7 @@ import { registerBindingRoutes } from './routes/bindings.ts';
 import { registerExportImportRoutes } from './routes/export-import.ts';
 import { registerLoginFlowRoutes } from './routes/login-flows.ts';
 import { registerWorkbenchRoutes } from './routes/workbenches.ts';
+import { registerSopPageRoutes } from './routes/sop-page.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import { SkillService } from './services/skill.ts';
@@ -1610,48 +1611,7 @@ app.post('/api/sops/:slug/deprecate', (req, res) => {
 const renderSopRunner = (manifest: Parameters<typeof renderSopRunnerRaw>[0], app: Parameters<typeof renderSopRunnerRaw>[1]) => renderSopRunnerRaw(manifest, app, loadTokensCss()?.css ?? '');
 
 
-// /sop/:slug/ 根 → Runner；/sop/:slug/<path> → 版本目录静态文件（附件）
-app.get(/^\/sop\/[a-z0-9][a-z0-9-]*(\/.*)?$/, (req, res) => {
-  const m = /^\/sop\/([a-z0-9][a-z0-9-]*)\/?(.*)$/.exec(req.path ?? '');
-  if (!m) return res.status(404).json({ error: 'not found' });
-  const rest = m[2] || '';
-  const hit = readActiveManifest(m[1]);
-  if (!hit) return res.status(404).json({ error: `SOP not found: ${m[1]}` });
-  res.setHeader('X-App-Version', `v${hit.app.active_version}`);
-  const runParamRaw = typeof req.query?.run === 'string' && /^\d+$/.test(req.query.run) ? Number(req.query.run) : null;
-  if (rest === '' || rest === '/' || rest === 'index.html') {
-    // issue #11：非 published 不再渲染下发完整 Runner 页面（信息泄漏面）——403 瘦身为一行
-    if (hit.app.status !== 'published') {
-      return res.status(403).type('text').send(`SOP ${m[1]} 状态为 ${hit.app.status}，未上架不可执行\n`);
-    }
-    // #263 页面整链：?run=<id> 精确定位既有执行记录（不新开 run）；归属不匹配时 404，不静默换记录
-    if (runParamRaw !== null) {
-      const runRow = svc<SopService>('sop').runById(runParamRaw) as unknown as { sop_slug?: string } | undefined;
-      if (!runRow || runRow.sop_slug !== m[1]) return res.status(404).json({ error: `run ${runParamRaw} 不属于 SOP ${m[1]}` });
-      (globalThis as any).__wmSopPinRun = runParamRaw;
-      try { return res.status(200).type('html').send(renderSopRunner(hit.manifest, hit.app)); } finally { delete (globalThis as any).__wmSopPinRun; }
-    }
-    return res.status(200).type('html').send(renderSopRunner(hit.manifest, hit.app));
-  }
-  // 附件：从活跃版本目录读（与 serveApp 同款防穿越）
-  const root = join(appsRoot, m[1], `v${hit.app.active_version}`);
-  let rel = posix.normalize(rest);
-  if (rel === '.' || rel.startsWith('/') || rel.startsWith('..')) return res.status(400).json({ error: '路径非法' });
-  const abs = join(root, rel);
-  if (!abs.startsWith(root)) return res.status(400).json({ error: '路径非法' });
-  if (!existsSync(abs)) return res.status(404).json({ error: `file not found: ${rel}` });
-  // #198（裁 A）：自产台入口/子页面注入按台令牌——sandbox 页面凭它调本台 data/files
-  if (/\.html?$/i.test(rel)) {
-    try {
-      const tok = wmAppToken(m[1]);
-      const raw = readFileSync(abs, 'utf8');
-      const inject = `<meta name="wm-app-token" content="${tok}"><script>window.WM_APP_TOKEN="${tok}";window.WM_APP_SLUG="${m[1]}";window.WM_WORKBENCH_ID=${wmWorkbenchIdFor(`/sop/${m[1]}/`)};</script>`;
-      const out = /<head[^>]*>/i.test(raw) ? raw.replace(/<head([^>]*)>/i, (mm) => mm + inject) : inject + raw;
-      return res.type('html').send(out);
-    } catch { /* 读取失败回落原样 */ }
-  }
-  return res.sendFile(abs);
-});
+registerSopPageRoutes(http, { readActiveManifest, renderSopRunner, appsRoot, wmAppToken, wmWorkbenchIdFor });
 
 // ---------- SOP run API：分层治理（Redis 热态 + SQLite 真源）----------
 // core 函数为唯一持久化链：REST 与 MCP（sop_run_* 工具）共用——agent 更新持久化执行数据
