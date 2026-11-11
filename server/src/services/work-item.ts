@@ -366,7 +366,7 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
  * 版本没变时每次启动只做增量：从上次记下的事件日志水位往后核（没装事项服务的进程——比如回滚到旧版本期间——
  * 写进来的事件和事实，靠它补回来）。监听器漏过事实（dirty）也从头全量核。
  */
-export const BACKFILL_VERSION = 5; // 2：阶段七 R2 加了跟进、回复、看过的映射（#546）；3：进展回执的映射（PR-A）；4：回执的 by 记成承接席位；5：承接只取成员、重复事实补写承接（4 已被试联实例用过）
+export const BACKFILL_VERSION = 5; // 2：阶段七 R2 加了跟进、回复、看过的映射（#546）；3：进展回执的映射（PR-A）；4：回执的 by 记成承接席位；5：承接只取成员、重复事实补写承接（4 已被试联实例用过），终态事项承接空着的也补
 /** 后台回填每一片最多占用事件循环的时长（毫秒），之后让出，好让请求得到应答 */
 const BACKFILL_SLICE_MS = 25;
 /** 每次取的行数（一片里可以取好几次） */
@@ -754,9 +754,10 @@ export class WorkItemService extends Service {
     if (seen?.rejected) return { ok: false, reason: seen.rejected, state: item.state, duplicate: true };
     if (seen) {
       // 回填按版本号从头再核时，存量里已经应用过的事实照第一次的结果答；承接席位是后来才从事实里取的，这里补上
-      // （只是显示用的一列，按日志顺序重放，最后一条取得到席位的回执为准；终态之后不改）
-      const seatFilled = typeof fact.seat === 'string' && fact.seat !== '' && !TERMINAL.includes(item.state)
-        && Number(db.prepare('UPDATE work_items SET seat = ? WHERE id = ? AND seat <> ?').run(fact.seat, itemId, fact.seat).changes) === 1;
+      // （只是显示用的一列，按日志顺序重放，最后一条取得到席位的回执为准；终态之后只补空的）
+      // 终态之后不改已有的承接；但承接还空着的（存量里办完才补上这一列的事项），照样补上
+      const seatFilled = typeof fact.seat === 'string' && fact.seat !== ''
+        && Number(db.prepare(`UPDATE work_items SET seat = ? WHERE id = ? AND seat <> ?${TERMINAL.includes(item.state) ? " AND seat = ''" : ''}`).run(fact.seat, itemId, fact.seat).changes) === 1;
       return { ok: true, state: item.state, from: seen.from_state, duplicate: true, ...(seatFilled ? { seatFilled: true } : {}) };
     }
 

@@ -300,6 +300,11 @@ try {
     const S3 = seedEvent();
     await receipt(S3.task, '问', { idempotencyKey: S3.task, disposition: 'attention', question: { id: 'q1', text: '问' }, by: { seat: 'lab/d0d0d0d0', name: '成员丁' } }, S3.ctx, { inbound: `attention-${S3.task}-q1` });
     ok('过渡期：提问的 by（没有 role）写承接', seatOf(S3.ev) === '成员丁 · lab/d0d0d0d0', seatOf(S3.ev));
+    // Z4：没有 role 的进展，tickets 第一项已结束（别人的 seat）、第二项在做 → 承接取第二项
+    const S4 = seedEvent();
+    await receipt(S4.task, '进展', { idempotencyKey: S4.task, disposition: 'progress', progress: { n: 1, state: 'working', at: '2026-11-11T08:00:00.000Z' },
+      tickets: [{ id: 't1', seat: 'lab/11111111', state: 'ended', outcome: 'completed' }, { id: 't2', seat: 'lab/22222222', state: 'working' }] }, S4.ctx, { inbound: `progress-${S4.task}-1` });
+    ok('Z4：进展里 tickets 第一项已结束、第二项在做 → 承接取在做的那一项', seatOf(S4.ev) === 'lab/22222222', seatOf(S4.ev));
     // 一个事件投给两个团队：A 接手（by member A），B 回 rejected（by B）——只记录，承接仍是 A
     const M2 = seedEvent();
     const { taskB } = (() => { const d = db(); try {
