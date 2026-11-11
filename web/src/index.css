@@ -1,5 +1,5 @@
 /* 全站样式：颜色、字号、间距、圆角、阴影只用 tokens.css 的 --wm-* 变量（DESIGN.md，#322 迁移）。
-   写字只用 text / text-secondary / *-text；侧栏与使用页顶栏是仅有的深色区，用 nav-*。 */
+   写字只用 text / text-secondary / *-text；侧栏与使用页顶栏用 nav-*（产品化原型起是浅色：白底细边）。 */
 html,
 body,
 #root {
@@ -150,7 +150,7 @@ body {
 }
 
 
-/* ---------- 嵌入使用页（顶栏是深色区，用 nav-*） ---------- */
+/* ---------- 嵌入使用页（顶栏用 nav-*，和侧栏一致） ---------- */
 .wm-use-wrap {
   display: flex;
   flex-direction: column;
@@ -166,6 +166,7 @@ body {
   height: 52px;
   background: var(--wm-color-nav-bg);
   color: var(--wm-color-nav-text);
+  border-bottom: 1px solid var(--wm-color-border);
   flex: none;
 }
 
@@ -238,6 +239,9 @@ body {
   background: var(--wm-color-surface);
   overflow: auto;
 }
+
+/* 侧栏：白底，右侧一条细边和内容区分开（原型的做法） */
+.ant-pro-sider { border-inline-end: 1px solid var(--wm-color-border); }
 
 /* #316 侧栏分组：antd 把「当前页所在分组」的标题染成 colorPrimary，在 nav-bg 上只有 1.6:1；改用 nav-text-active */
 .ant-pro-sider .ant-menu-submenu-selected > .ant-menu-submenu-title {

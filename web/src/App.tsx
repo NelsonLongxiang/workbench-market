@@ -126,7 +126,7 @@ export default function App() {
     <ProLayout
       headerRender={() => <AdminTokenBadge />}
       title="工作台市场"
-      logo={<AppstoreOutlined style={{ fontSize: 26, color: T.colors.success }} />}
+      logo={<AppstoreOutlined style={{ fontSize: 26, color: T.colors.primary }} />}
       layout="side"
       fixSiderbar
       fixedHeader
@@ -138,10 +138,9 @@ export default function App() {
       // #316 子菜单模式下 ProLayout 只给一级显示图标；二级页面的专属图标在这里自己渲染
       menuItemRender={(item, dom) => (item.path ? <Link to={item.path} className="wm-menu-link">{item.icon}{dom}{item.path === '/' && pending ? <Badge count={pending} size="small" className="wm-ml-auto" data-testid="nav-pending" /> : null}</Link> : dom)}
       menuHeaderRender={() => (
-        // ProLayout 默认把 logo 标题染成 colorPrimary（#1E3A5F  Navy），
-        // 在深色侧栏上几乎不可见；接管渲染：白字 600 + 字距
+        // 品牌行：nav-text-active（深蓝）600 + 字距，和原型的品牌行一致
         <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 4px' }}>
-          <AppstoreOutlined style={{ fontSize: 22, color: T.colors.success }} />
+          <AppstoreOutlined style={{ fontSize: 22, color: T.colors.primary }} />
           <span className="wm-strong" style={{ color: T.colors['nav-text-active'], fontSize: 16, letterSpacing: '0.02em', whiteSpace: 'nowrap' }}>
             工作台市场
           </span>
@@ -153,7 +152,7 @@ export default function App() {
       )}
       token={{
         sider: {
-          // #316：侧栏是唯一的深色区域，取 DESIGN.md 的 nav-* token
+          // 侧栏取 DESIGN.md 的 nav-* token（产品化原型起是浅色：白底、灰字、选中浅底深字）
           colorMenuBackground: T.colors['nav-bg'],
           colorTextMenu: T.colors['nav-text'],
           colorTextMenuSelected: T.colors['nav-text-active'],

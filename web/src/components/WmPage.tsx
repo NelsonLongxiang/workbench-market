@@ -27,7 +27,8 @@ export default function WmPage({ title, detail, trail, className, children, ...r
   return (
     <PageContainer
       title={title ?? nav?.page.name}
-      breadcrumb={{ items }}
+      // 原型：一级页面顶上只有页面名，不放「分组 / 页面」面包屑；进了详情才显示「页面 / 详情」两级
+      breadcrumb={tail.length ? { items: items.slice(1) } : undefined}
       className={['wm-page', className].filter(Boolean).join(' ')}
       {...rest}
     >
