@@ -249,6 +249,26 @@ CREATE TABLE IF NOT EXISTS a2a_idempotency (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_a2a_idempotency_at ON a2a_idempotency (created_at);
+-- 唯一 outbox（阶段七第 3 步）：所有出站一张表、一个 worker。现在是双写期：回执（kind=run-receipt，ref=run_id）照旧写 a2a_outbox，
+-- 同一事务里镜像到这里；切读之前对账必须零差异（scripts/a2a-outbox-reconcile.mjs）。
+CREATE TABLE IF NOT EXISTS a2a_outbox_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL CHECK (kind IN ('event-delivery','run-receipt','notify','manual')),
+  ref TEXT NOT NULL CHECK (ref <> ''),
+  target_url TEXT NOT NULL,
+  team TEXT NOT NULL DEFAULT '',
+  task_id TEXT NOT NULL DEFAULT '',
+  context_id TEXT NOT NULL DEFAULT '',
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sent','dead','cancelled')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  sent_at TEXT NOT NULL DEFAULT '',
+  UNIQUE (kind, ref)
+);
+CREATE INDEX IF NOT EXISTS idx_a2a_outbox_items_due ON a2a_outbox_items (status, next_at);
 CREATE TABLE IF NOT EXISTS mcp_sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL UNIQUE,
@@ -802,6 +822,13 @@ CREATE TRIGGER IF NOT EXISTS principal_pending_appearance AFTER INSERT ON princi
     DELETE FROM principal_pending_seq WHERE id < last_insert_rowid();
   END;
 `);
+// 唯一 outbox 双写期：每次启动把 a2a_outbox 整表同步进 a2a_outbox_items 一次（存量迁入；旧版本进程写的、镜像失败漏掉的也补上）
+db.exec(`INSERT INTO a2a_outbox_items (kind, ref, target_url, task_id, context_id, payload, status, attempts, next_at, last_error, created_at, sent_at)
+  SELECT 'run-receipt', CAST(run_id AS TEXT), target_url, task_id, context_id, payload, status, attempts, next_at, last_error, created_at, sent_at FROM a2a_outbox WHERE status IN ('pending','sent','dead','cancelled')
+  ON CONFLICT (kind, ref) DO UPDATE SET target_url = excluded.target_url, task_id = excluded.task_id, context_id = excluded.context_id, payload = excluded.payload,
+    status = excluded.status, attempts = excluded.attempts, next_at = excluded.next_at, last_error = excluded.last_error, created_at = excluded.created_at, sent_at = excluded.sent_at`);
+// 双写期新表的回执行只从旧表派生：旧表里没有的删掉
+db.exec("DELETE FROM a2a_outbox_items WHERE kind = 'run-receipt' AND ref NOT IN (SELECT CAST(run_id AS TEXT) FROM a2a_outbox)");
 // #337: a durable monotonic generation invalidates stale Redis snapshots, including same-value writes.
 {
   const cols = db.prepare('PRAGMA table_info(sop_runs)').all() as { name: string }[];

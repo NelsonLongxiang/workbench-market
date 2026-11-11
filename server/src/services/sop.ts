@@ -1,6 +1,7 @@
 /** SOP 域（sop_runs ×10 + sop_bindings ×5 + a2a_run_ctx ×3）：SQL 原文自 index.ts 搬入（S1）。 */
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
+import { withReceiptMirror } from './a2a-outbox.ts';
 
 /** #309 public run-list contract: explicit metadata only, never spread stored rows. */
 function runMetadata(row:any) {
@@ -146,8 +147,8 @@ export class SopService extends Service {
       .run(slug, node, mode, remoteApiKey, callbackUrl, createdBy);
   }
   outboxInsert(r: { runId: number; taskId: string; contextId: string; targetUrl: string; payload: string }) {
-    return db.prepare('INSERT OR IGNORE INTO a2a_outbox (run_id, task_id, context_id, target_url, payload) VALUES (?, ?, ?, ?, ?)')
-      .run(r.runId, r.taskId, r.contextId, r.targetUrl, r.payload);
+    return withReceiptMirror(() => db.prepare('INSERT OR IGNORE INTO a2a_outbox (run_id, task_id, context_id, target_url, payload) VALUES (?, ?, ?, ?, ?)')
+      .run(r.runId, r.taskId, r.contextId, r.targetUrl, r.payload), { runId: r.runId });
   }
   outboxByRun(runId: number) {
     return db.prepare('SELECT * FROM a2a_outbox WHERE run_id = ? ORDER BY id DESC').get(runId);
@@ -156,13 +157,13 @@ export class SopService extends Service {
     return db.prepare("SELECT * FROM a2a_outbox WHERE status = 'pending' AND next_at <= datetime('now') ORDER BY id ASC LIMIT ?").all(limit);
   }
   outboxMarkSent(id: number) {
-    return db.prepare("UPDATE a2a_outbox SET status = 'sent', sent_at = datetime('now'), last_error = '' WHERE id = ?").run(id);
+    return withReceiptMirror(() => db.prepare("UPDATE a2a_outbox SET status = 'sent', sent_at = datetime('now'), last_error = '' WHERE id = ?").run(id), { id });
   }
   outboxMarkRetry(id: number, attempts: number, nextAtIso: string, error: string) {
-    return db.prepare("UPDATE a2a_outbox SET attempts = ?, next_at = ?, last_error = ? WHERE id = ?").run(attempts, nextAtIso, error.slice(0, 300), id);
+    return withReceiptMirror(() => db.prepare("UPDATE a2a_outbox SET attempts = ?, next_at = ?, last_error = ? WHERE id = ?").run(attempts, nextAtIso, error.slice(0, 300), id), { id });
   }
   outboxMarkDead(id: number, error: string) {
-    return db.prepare("UPDATE a2a_outbox SET status = 'dead', last_error = ? WHERE id = ?").run(error.slice(0, 300), id);
+    return withReceiptMirror(() => db.prepare("UPDATE a2a_outbox SET status = 'dead', last_error = ? WHERE id = ?").run(error.slice(0, 300), id), { id });
   }
   ctxRunId(contextId: string) {
     return db.prepare('SELECT run_id FROM a2a_run_ctx WHERE context_id = ? ORDER BY id DESC').get(contextId);

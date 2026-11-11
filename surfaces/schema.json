@@ -19,6 +19,22 @@
       "created_at TEXT NOT NULL DEFAULT datetime('now')",
       "sent_at TEXT NOT NULL DEFAULT ''"
     ],
+    "a2a_outbox_items": [
+      "id INTEGER PK",
+      "kind TEXT NOT NULL",
+      "ref TEXT NOT NULL",
+      "target_url TEXT NOT NULL",
+      "team TEXT NOT NULL DEFAULT ''",
+      "task_id TEXT NOT NULL DEFAULT ''",
+      "context_id TEXT NOT NULL DEFAULT ''",
+      "payload TEXT NOT NULL",
+      "status TEXT NOT NULL DEFAULT 'pending'",
+      "attempts INTEGER NOT NULL DEFAULT 0",
+      "next_at TEXT NOT NULL DEFAULT datetime('now')",
+      "last_error TEXT NOT NULL DEFAULT ''",
+      "created_at TEXT NOT NULL DEFAULT datetime('now')",
+      "sent_at TEXT NOT NULL DEFAULT ''"
+    ],
     "a2a_run_ctx": [
       "id INTEGER PK",
       "context_id TEXT NOT NULL",
@@ -619,6 +635,7 @@
   "indexes": [
     "idx_a2a_idempotency_at ON a2a_idempotency: CREATE INDEX idx_a2a_idempotency_at ON a2a_idempotency (created_at)",
     "idx_a2a_outbox_due ON a2a_outbox: CREATE INDEX idx_a2a_outbox_due ON a2a_outbox(status, next_at)",
+    "idx_a2a_outbox_items_due ON a2a_outbox_items: CREATE INDEX idx_a2a_outbox_items_due ON a2a_outbox_items (status, next_at)",
     "idx_a2a_outbox_run ON a2a_outbox: CREATE UNIQUE INDEX idx_a2a_outbox_run ON a2a_outbox(run_id)",
     "idx_a2a_run_ctx ON a2a_run_ctx: CREATE INDEX idx_a2a_run_ctx ON a2a_run_ctx (context_id)",
     "idx_a2a_sig_seen_exp ON a2a_sig_seen: CREATE INDEX idx_a2a_sig_seen_exp ON a2a_sig_seen (expires_at)",
