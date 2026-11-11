@@ -150,13 +150,14 @@ function progressOf(envelope: Record<string, unknown>, n: number): { summary: st
 }
 
 /** 信封里的 by（谁做的）和 artifacts（产物编号）：只记录、只显示，不授予任何东西。坏的值逐个丢 */
-function attributionOf(envelope: Record<string, unknown>): { by?: { seat: string; name?: string; team?: string }; artifacts?: { kind: string; id: string }[] } {
+function attributionOf(envelope: Record<string, unknown>): { by?: { seat: string; name?: string; team?: string; role?: 'router' | 'member' | 'observer' }; artifacts?: { kind: string; id: string }[] } {
   const str = (x: unknown) => (typeof x === 'string' ? cleanSummary(x).slice(0, 200) : '');
-  const out: { by?: { seat: string; name?: string; team?: string }; artifacts?: { kind: string; id: string }[] } = {};
+  const out: { by?: { seat: string; name?: string; team?: string; role?: 'router' | 'member' | 'observer' }; artifacts?: { kind: string; id: string }[] } = {};
   const b = envelope.by;
   if (b && typeof b === 'object' && !Array.isArray(b) && str((b as Record<string, unknown>).seat) !== '') {
     const r = b as Record<string, unknown>;
-    out.by = { seat: str(r.seat), ...(str(r.name) ? { name: str(r.name) } : {}), ...(str(r.team) ? { team: str(r.team) } : {}) };
+    // role（上游只增：router 总工 / member 成员 / observer 观察者），别的值丢掉
+    out.by = { seat: str(r.seat), ...(str(r.name) ? { name: str(r.name) } : {}), ...(str(r.team) ? { team: str(r.team) } : {}), ...(r.role === 'router' || r.role === 'member' || r.role === 'observer' ? { role: r.role } : {}) };
   }
   if (Array.isArray(envelope.artifacts)) {
     const list = envelope.artifacts.filter((a): a is Record<string, unknown> => !!a && typeof a === 'object' && !Array.isArray(a))
