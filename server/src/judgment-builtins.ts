@@ -242,3 +242,14 @@ export function unknownBuiltinActions(known: (action: string) => boolean): strin
  * 进快照（surfaces/actions.json 的 builtins.notSwitched），改它要过评审。现在一条都没有。
  */
 export const NOT_SWITCHED: readonly { action: string; why: string }[] = [];
+
+/**
+ * 有副作用的读（阶段六 6d）：GET、HEAD 上类别是读或管理的动作，处理函数却会写东西或外呼。判定切换时按写的口径在处理之前拒，不走「让旧处理函数照跑」的读路径。
+ * 进快照（surfaces/actions.json 的 builtins.readWithSideEffects），新增的读接口有副作用的要登记在这里。
+ */
+export const READ_WITH_SIDE_EFFECTS: readonly { action: string; why: string }[] = [
+  { action: 'app.page', why: '冷版本经 LayerFS 服务回读文件（外呼）' },
+  { action: 'grant.list', why: '列之前先把到期的授予标成过期（写）' },
+  { action: 'judgment.report', why: '读报告之前先把攒着的比对记录写进比对库' },
+  { action: 'sop-run.files', why: '列文件时给还没算过的文件懒补 sha256 并写回' },
+];

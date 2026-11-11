@@ -5,11 +5,14 @@
  *
  *   一、拒绝启动：域名写法不对、域没有登记的动作、比对没开
  *   二、缺省空：一个域都不切，拒绝的应答还是旧守卫的写法
- *   三、切了 principal、stats 两个域：
+ *   三、切了 principal、stats、grant 三个域：
  *       · 新判定放行的照常（匿名读统计；口令、管理员登录、本机命令行列主体）；
- *       · 新判定拒绝的在处理之前回 403 judgment_denied（远程匿名、普通员工列主体），记进 judgment_enforced，不算不一致；
+ *       · 写：新判定拒绝的在处理之前回 403 judgment_denied（管理员登录、但不是属主，整批撤销迁移授予），记进 judgment_enforced，不算不一致；
+ *       · 管理面的读（GET）走读的路：远程匿名、普通员工列主体，新旧都拒，应答是旧守卫的、和不切时逐字一样；
  *       · 没切的域照旧按旧守卫（匿名读 Cookie 池、远程匿名列授予的拒绝写法不变）；
  *       · 反向比对：给员工一条 admin 授予，新判定放行、旧守卫照旧拒，记成不一致（说明旧守卫还不能拿掉）
+ *   四、读的路（类别 read）：新判定拒，旧处理函数照跑——旧的也拒就原样回旧应答（逐字一样，404 还是 404）；
+ *       旧的要放行就换成拒绝，旧的应答体一个字节都不发（json、流式写、跳转、HEAD 都试）
  *
  *   node scripts/judgment-enforce-test.mjs
  */
@@ -18,6 +21,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from './owned-script-fixture.mjs';
+import { createRequire } from 'node:module';
 import { SESSIONS } from './identity-fake-provider.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -99,7 +103,7 @@ try {
 
   // ---------- 三、切了 principal、stats ----------
   {
-    const srv = await boot('enforce', { WM_JUDGMENT_COMPARE: 'on', WM_JUDGMENT_ENFORCE: 'principal,stats' });
+    const srv = await boot('enforce', { WM_JUDGMENT_COMPARE: 'on', WM_JUDGMENT_ENFORCE: 'principal,stats,grant' });
     const same = { origin: `http://${srv.host}`, 'sec-fetch-site': 'same-origin' };
     for (const s of [SESSIONS.admin, SESSIONS.alpha]) await srv.call('GET', '/api/auth/viewer', { session: s });
     const r = {
@@ -110,16 +114,19 @@ try {
       listAnon: await srv.call('GET', '/api/principals', { headers: REMOTE }),
       listStaff: await srv.call('GET', '/api/principals', { headers: { ...REMOTE, ...same }, session: SESSIONS.alpha }),
       cookiesAnon: await srv.call('GET', '/api/cookies', { headers: REMOTE }),
-      grantsAnon: await srv.call('GET', '/api/grants', { headers: REMOTE }),
+      revokeOdooAdmin: await srv.call('POST', '/api/grants/revoke-migration', { headers: { ...REMOTE, ...same }, session: SESSIONS.admin, body: { reason: '合成：不是属主' } }),
     };
     check(srv.log().includes('"event":"enforce"') && srv.log().includes('"principal"'), '切换的启动日志写明切了哪些域');
     check(r.statsAnon.status === 200 && r.listToken.status === 200 && Array.isArray(r.listToken.json?.principals) && r.listOdooAdmin.status === 200 && r.listCli.status === 200,
       '新判定放行的照常：匿名读统计；口令、管理员登录（迁移出的系统管理员）、本机命令行列主体', show(Object.fromEntries(['statsAnon', 'listToken', 'listOdooAdmin', 'listCli'].map((k) => [k, r[k].status]))));
-    check(r.listAnon.status === 403 && r.listAnon.json?.error === 'judgment_denied' && r.listAnon.json?.action === 'principal.list'
-      && r.listStaff.status === 403 && r.listStaff.json?.error === 'judgment_denied' && !r.listStaff.text.includes('user:'),
-      '新判定拒绝的在处理之前回 403 judgment_denied（远程匿名、普通员工列主体），应答里没有主体内容', show({ anon: r.listAnon.json, staff: r.listStaff.json }));
-    check(r.cookiesAnon.status === 200 && r.grantsAnon.status === 403 && !r.grantsAnon.text.includes('judgment_denied'),
-      '没切的域照旧按旧守卫：匿名读 Cookie 池 200；远程匿名列授予由旧守卫拒，写法不变', show({ cookies: r.cookiesAnon.status, grants: r.grantsAnon.text.slice(0, 120) }));
+    check(r.revokeOdooAdmin.status === 403 && r.revokeOdooAdmin.json?.error === 'judgment_denied' && r.revokeOdooAdmin.json?.action === 'grant.revoke-migration',
+      '写：新判定拒绝的在处理之前回 403 judgment_denied（管理员登录、但不是属主，整批撤销迁移授予）', show(r.revokeOdooAdmin.json));
+    const plain = await boot('plain', { WM_JUDGMENT_COMPARE: 'on' });
+    const plainAnon = await plain.call('GET', '/api/principals', { headers: REMOTE });
+    check(r.listAnon.status === 403 && r.listAnon.text === plainAnon.text && !r.listAnon.text.includes('judgment_denied')
+      && r.listStaff.status === 403 && !r.listStaff.text.includes('judgment_denied') && !r.listStaff.text.includes('user:'),
+      '管理面的读走读的路：远程匿名、普通员工列主体，新旧都拒，回的是旧守卫的应答（和不切时逐字一样），没有主体内容', show({ anon: r.listAnon.text.slice(0, 80), staff: r.listStaff.text.slice(0, 80) }));
+    check(r.cookiesAnon.status === 200, '没切的域照旧按旧守卫：匿名读 Cookie 池 200', show({ cookies: r.cookiesAnon.status }));
 
     // 反向比对：给员工 alpha 一条 admin 授予（本机命令行是属主），新判定放行，旧守卫（要管理口令或管理员登录）照旧拒
     const d = await srv.call('POST', '/api/grants', { body: { principal: 'user:alpha', role: 'admin', scope: '*', reason: '合成：反向比对' } });
@@ -133,10 +140,45 @@ try {
     check(a.json?.grant?.status === 'active' && staffAgain.status === 403 && !staffAgain.text.includes('judgment_denied')
       && mism.some((m) => m.route === 'GET /api/principals' && m.old === 'deny' && m.new === 'allow' && m.actor_kind === 'person'),
       '反向比对：员工有了 admin 授予，新判定放行，旧守卫照旧拒（写法是旧的），记成不一致：旧守卫还不能拿掉', show({ status: staffAgain.status, mism }));
-    check(enforcedRows.some((e) => e.route === 'GET /api/principals' && e.actor_kind === 'anonymous' && e.verdict === 'deny')
-      && enforcedRows.some((e) => e.route === 'GET /api/principals' && e.actor_kind === 'person' && e.verdict === 'deny')
-      && !mism.some((m) => m.actor_kind === 'anonymous'),
-      '开关拒掉的记进 judgment_enforced（路由、身份类别、结论、规则），不当不一致', show(enforcedRows));
+    check(enforcedRows.some((e) => e.route === 'POST /api/grants/revoke-migration' && e.actor_kind === 'person' && e.verdict === 'deny')
+      && !enforcedRows.some((e) => e.route === 'GET /api/principals') && !mism.some((m) => m.actor_kind === 'anonymous'),
+      '开关真的拒掉的（写）记进 judgment_enforced；读的路上新旧都拒的不记（旧的应答原样回），也不当不一致', show(enforcedRows));
+  }
+  // ---------- 四、读的路 ----------
+  {
+    // 拦截函数单独测：一个最小的 Express 应用，每条路由前面都套上「新判定拒」
+    const require = createRequire(join(ROOT, 'server', 'package.json'));
+    const express = require('express');
+    const { denyIfAllowed } = await import(pathToFileURL(join(ROOT, 'server/src/judgment-read-deny.ts')).href);
+    const app = express();
+    const recorded = [];
+    const body = JSON.stringify({ error: 'judgment_denied', action: 'x.read' });
+    app.use((req, res, next) => { denyIfAllowed(res, req.path === '/ok401' ? 401 : 403, body, () => recorded.push(req.path)); next(); });
+    app.get(['/ok', '/ok401'], (_q, r) => r.set('ETag', 'W/"secret"').json({ secret: 'CANARY-READ-SECRET-1' }));
+    app.get('/stream', (_q, r) => { r.status(200); r.setHeader('Content-Type', 'text/plain'); r.write('CANARY-READ-SECRET-2'); r.write('more'); r.end('tail'); });
+    app.get('/redirect', (_q, r) => r.redirect('/elsewhere?CANARY-READ-SECRET-3'));
+    app.get('/denied', (_q, r) => r.status(403).json({ error: 'old_guard_said_no' }));
+    app.get('/hidden', (_q, r) => r.status(404).json({ error: 'not_found' }));
+    app.get('/gone', (_q, r) => r.status(410).json({ error: 'gone' }));
+    const server = await new Promise((ok) => { const s = app.listen(0, '127.0.0.1', () => ok(s)); });
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const get = async (path, method = 'GET') => { const r = await fetch(base + path, { method, redirect: 'manual' }); return { status: r.status, text: await r.text(), etag: r.headers.get('etag'), location: r.headers.get('location'), len: r.headers.get('content-length') }; };
+    const r = { ok: await get('/ok'), ok401: await get('/ok401'), stream: await get('/stream'), redirect: await get('/redirect'), head: await get('/ok', 'HEAD'),
+      denied: await get('/denied'), hidden: await get('/hidden'), gone: await get('/gone') };
+    await new Promise((ok) => server.close(ok));
+    const replaced = ['ok', 'ok401', 'stream', 'redirect'].every((k) => r[k].text === body && !r[k].text.includes('CANARY') && !r[k].etag && !r[k].location && Number(r[k].len) === Buffer.byteLength(body));
+    check(replaced && r.ok.status === 403 && r.ok401.status === 401 && r.stream.status === 403 && r.redirect.status === 403 && r.head.status === 403 && r.head.text === '',
+      '读的路：旧的要放行（json、流式写、跳转、HEAD）都换成拒绝，旧的应答体、ETag、跳转地址一个都不发；没认出人的 401 照路由声明', show(Object.fromEntries(Object.entries(r).map(([k, v]) => [k, [v.status, v.text.slice(0, 40)]]))));
+    check(r.denied.status === 403 && r.denied.text === '{"error":"old_guard_said_no"}' && r.hidden.status === 404 && r.hidden.text === '{"error":"not_found"}' && r.gone.status === 410
+      && show(recorded.sort()) === show(['/ok', '/ok', '/ok401', '/redirect', '/stream']),
+      '读的路：旧的也拒、404 藏起来的、410 的原样放过（逐字一样）；只有真的换掉的才记账', show({ denied: r.denied.text, hidden: r.hidden.text, recorded }));
+    // 接进实例：切了 work-items，远程匿名读事项列表——旧守卫回 401，原样回旧的写法
+    const off = await boot('read-off', { WM_JUDGMENT_COMPARE: 'on' });
+    const on = await boot('read-on', { WM_JUDGMENT_COMPARE: 'on', WM_JUDGMENT_ENFORCE: 'work-items,work-item' });
+    const a = await off.call('GET', '/api/work-items', { headers: REMOTE });
+    const b = await on.call('GET', '/api/work-items', { headers: REMOTE });
+    check(a.status === 401 && b.status === 401 && a.text === b.text && !b.text.includes('judgment_denied'),
+      '切了 work-items：远程匿名读事项列表，新判定拒、旧守卫也拒，应答和不切时逐字一样', show({ off: [a.status, a.text], on: [b.status, b.text] }));
   }
 } catch (e) {
   fail++;
