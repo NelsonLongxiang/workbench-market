@@ -33,18 +33,23 @@ rmSync(DATA, { recursive: true, force: true });
 mkdirSync(DATA, { recursive: true });
 
 // ---------- 两台假对端：lab（我们投递到的）和 evil（别的团队）----------
-async function peer(zone) {
+async function peer(zone, opts = {}) {
   const key = generateKeyPairSync('ed25519').privateKey;
   const p = await port();
   const url = `http://127.0.0.1:${p}`;
-  const server = createServer((req, res) => {
+  const self = { zone, key, url, cardHits: 0 };
+  // cardTeam：名片上写的 team（模拟投递地址上换成了别的节点）；cardFail：取名片一律 500
+  self.server = createServer((req, res) => {
     if (req.url === '/.well-known/agent-card.json') {
+      self.cardHits++;
+      if (opts.cardFail) { res.writeHead(500); return res.end(); }
+      const team = opts.cardTeam ?? zone;
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify(signCard({ capabilities: {}, expiresAt: Date.now() + 3600_000, name: zone, session: zone, team: zone }, key)));
+      res.end(JSON.stringify(signCard({ capabilities: {}, expiresAt: Date.now() + 3600_000, name: team, session: team, team }, key)));
     } else { res.writeHead(404); res.end(); }
   });
-  await new Promise((r) => server.listen(p, '127.0.0.1', r));
-  return { zone, key, url, server };
+  await new Promise((r) => self.server.listen(p, '127.0.0.1', r));
+  return self;
 }
 const lab = await peer('lab');
 const evil = await peer('evil');
@@ -58,7 +63,7 @@ function signed(signer, raw, opts = {}) {
   const caller = opts.caller ?? signer.zone;
   const callerUrl = opts.callerUrl ?? signer.url;
   const ts = opts.ts ?? Date.now();
-  const aud = BASE;
+  const aud = opts.aud ?? BASE;
   const h = { 'X-A2A-Caller': caller, 'X-A2A-Caller-Url': callerUrl, 'X-A2A-Caller-Ts': String(ts), 'X-A2A-Caller-Aud': aud };
   if (opts.sig2 !== false) h['X-A2A-Caller-Sig2'] = sign(signer.key, JSON.stringify(['a2a-origin-claim/2', caller, callerUrl, ts, aud, 'POST', '/a2a/direct']));
   if (opts.sig3 !== false) {
@@ -383,6 +388,65 @@ try {
     const u = seedEvent({ submitter: 'unverified' });
     await receipt(u.task, '完成', { outcome: 'completed', idempotencyKey: u.task, disposition: 'result' });
     ok('提交方未验证的事件 → 回执也只记「收到未采信」，状态不动', lastLog(u.ev)?.action === 'receipt:completed' && itemState(u.ev)?.state === 'draft', JSON.stringify(itemState(u.ev)));
+  }
+
+  console.log('二（续）、判据逐条钉住');
+  {
+    // R13：未采信的回执前后，公开计数完全不变（计数一涨就说明这个任务号是我们发出的）
+    // 未采信的回执照原路走，原路自己的计数（准入、签名拒收）对任何请求都一样涨；要钉的是：
+    // 同样一条请求，任务号是我们发出的 vs 不是我们发出的，公开计数的增量完全相同——匿名者比不出来
+    const k = seedEvent();
+    const countsOf = async () => (await (await fetch(BASE + '/api/health')).json()).a2a?.refused?.counts ?? {};
+    const delta = (a, b) => { const o = {}; for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) { const d = (b[key] ?? 0) - (a[key] ?? 0); if (d) o[key] = d; } return JSON.stringify(o); };
+    const notOurs = 'wbe-00000000000fffff.d999.a1';
+    const variants = [
+      ['别的团队签', { signer: evil }],
+      ['zone 对、钥匙不对', { signer: { ...evil, zone: 'lab', url: lab.url } }],
+      ['没签名', { sig3: false, sig2: false }],
+      ['只带 Sig2', { sig3: false }],
+    ];
+    const diffs = [];
+    for (const [label, opts] of variants) {
+      const b1 = await countsOf();
+      await receipt(k.task, label, { outcome: 'completed', idempotencyKey: k.task, disposition: 'result' }, opts);
+      const ours = delta(b1, await countsOf());
+      const b2 = await countsOf();
+      await receipt(notOurs, label, { outcome: 'completed', idempotencyKey: notOurs, disposition: 'result' }, opts);
+      const theirs = delta(b2, await countsOf());
+      if (ours !== theirs || /receipt:/.test(ours)) diffs.push(`${label}: 我们的 ${ours} / 别人的 ${theirs}`);
+    }
+    ok('R13 未采信的回执：任务号是不是我们发出的，公开计数的增量完全相同（且不出现 receipt: 桶）', diffs.length === 0, diffs.join('；'));
+    ok('……这期间事项没动', itemState(k.ev)?.state === 'delivered');
+    // R15：5 分钟以前签的合法回执
+    const t15 = seedEvent();
+    let rr = await receipt(t15.task, '旧签名', { outcome: 'completed', idempotencyKey: t15.task, disposition: 'result' }, { ts: Date.now() - 6 * 60_000 });
+    ok('R15 6 分钟前签的合法回执 → 不采信（bad-ts），状态不动', !rr.text.includes('"receipt":"recorded"') && JSON.parse(lastLog(t15.ev).detail).reason === 'bad-ts' && itemState(t15.ev)?.state === 'delivered', JSON.stringify(lastLog(t15.ev)));
+    // R16：签给别的主机的合法回执
+    const t16 = seedEvent();
+    rr = await receipt(t16.task, '别的受众', { outcome: 'completed', idempotencyKey: t16.task, disposition: 'result' }, { aud: 'http://other-host.invalid' });
+    ok('R16 签给别的主机的回执转投到市场 → 不采信（wrong-audience）', !rr.text.includes('"receipt":"recorded"') && JSON.parse(lastLog(t16.ev).detail).reason === 'wrong-audience' && itemState(t16.ev)?.state === 'delivered', JSON.stringify(lastLog(t16.ev)));
+    // R6：投递地址上换成了另一个节点（另一把钥匙、名片 team 不同），它冒用原来的 zone 签
+    const swapped = await peer('newnode', { cardTeam: 'newnode' });
+    const t6 = seedEvent({ root: swapped.url, zone: 'lab' });
+    rr = await receipt(t6.task, '换了节点', { outcome: 'completed', idempotencyKey: t6.task, disposition: 'result' }, { signer: { ...swapped, zone: 'lab' } });
+    ok('R6 投递地址上换成别的节点、冒用原 zone 签 → 不采信（wrong-signer）', !rr.text.includes('"receipt":"recorded"') && JSON.parse(lastLog(t6.ev).detail).reason === 'wrong-signer' && itemState(t6.ev)?.state === 'delivered', JSON.stringify(lastLog(t6.ev)));
+    swapped.server.close();
+    // R11：第三行再放一个信封，只认第二行
+    const t11 = seedEvent();
+    const msg11 = `[A2A receipt] task ${t11.task} 接下\n${JSON.stringify({ idempotencyKey: t11.task, disposition: 'acknowledged' })}\n${JSON.stringify({ outcome: 'completed', idempotencyKey: t11.task, disposition: 'result' })}`;
+    const raw11 = bodyOf(t11.task, msg11, `ack-${t11.task}`);
+    rr = await post(raw11, signed(lab, raw11));
+    ok('R11 第三行再放一个 completed 信封 → 只认第二行（已接手，不是等验收）', rr.status === 200 && itemState(t11.ev)?.state === 'accepted' && lastLog(t11.ev)?.action === 'receipt:acknowledged', `${rr.text} ${JSON.stringify(itemState(t11.ev))}`);
+    // R12：摘要截到 500 字
+    const t12 = seedEvent();
+    await receipt(t12.task, '长'.repeat(600), { idempotencyKey: t12.task, disposition: 'attention' });
+    ok('R12 600 字的摘要进日志截到 500 字', JSON.parse(lastLog(t12.ev).detail).summary.length === 500, String(JSON.parse(lastLog(t12.ev).detail).summary.length));
+    // R18：对端名片取不到时，冷却期内重复回执只打一次对端
+    const dark = await peer('dark', { cardFail: true });
+    const t18 = seedEvent({ root: dark.url, zone: 'dark' });
+    for (let i = 0; i < 4; i++) await receipt(t18.task, `第 ${i} 次`, { outcome: 'completed', idempotencyKey: t18.task, disposition: 'result' }, { signer: dark });
+    ok(`R18 名片取不到：冷却期内 4 条回执只取 ${dark.cardHits} 次名片（应为 1）、都不采信（no-card）`, dark.cardHits === 1 && JSON.parse(lastLog(t18.ev).detail).reason === 'no-card' && itemState(t18.ev)?.state === 'delivered', `hits=${dark.cardHits} ${JSON.stringify(lastLog(t18.ev))}`);
+    dark.server.close();
   }
 
   console.log('三、留痕');
