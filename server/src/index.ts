@@ -54,7 +54,7 @@ import { registerSkillRoutes } from './routes/skills.ts';
 import { registerMcpRoutes } from './routes/mcp.ts';
 import { registerRemoteAllowRoutes } from './routes/remote-allow.ts';
 import { registerAppRoutes, registerAppLifecycleRoutes } from './routes/apps.ts';
-import { registerAppDataRoutes } from './routes/app-data.ts';
+import { registerAppDataRoutes, appDataReadMode, type AppDataReadMode } from './routes/app-data.ts';
 import { registerSopRunFileRoutes } from './routes/sop-run-files.ts';
 import { registerSopRunLifecycleRoutes } from './routes/sop-run-lifecycle.ts';
 import { registerMcpRestRoutes } from './routes/mcp-rest.ts';
@@ -106,6 +106,11 @@ if (!LOGIN_GATE_MODE) {
   console.error('[login-gate] 拒绝启动：WM_LOGIN_GATE 只接受 enforce / off / 不设（当前值无法识别，不按关处理）');
   process.exit(1);
 }
+// 读台数据与附件的守卫（WM_APP_DATA_READ=enforce|warn，缺省 enforce）：启动时读一次，不合法拒绝启动
+const APP_DATA_READ: AppDataReadMode = (() => {
+  try { return appDataReadMode(process.env.WM_APP_DATA_READ); } catch (e) { console.error(`[app-data] 拒绝启动：${(e as Error).message}`); process.exit(1); }
+})();
+if (APP_DATA_READ === 'warn') console.warn('[app-data] WM_APP_DATA_READ=warn：没有台令牌、不是管理员的读照旧放行，只计数留痕（上线过渡用，过渡完设回 enforce）');
 // 市场会话的绝对期限（WM_SESSION_TTL_MIN，分钟，缺省 720 = 12 小时，范围 15～10080）：启动时读一次，不合法拒绝启动。不续期
 const SESSION_TTL_MIN = (() => {
   const raw = String(process.env.WM_SESSION_TTL_MIN ?? '').trim();
@@ -1379,7 +1384,13 @@ const upload = multer({
 });
 
 
-registerAppDataRoutes(http, { getApp, submitAppData, pageLimit, pageBeforeId, appFilesQuota, APP_FILES_MAX, upload, fixFileName, appFileStoreCore, adminGuard, bad });
+registerAppDataRoutes(http, { getApp, submitAppData, pageLimit, pageBeforeId, appFilesQuota, APP_FILES_MAX, upload, fixFileName, appFileStoreCore, adminGuard, bad, read: {
+  mode: APP_DATA_READ,
+  appTokenOk: (slug, presented) => { const got = Buffer.from(presented), want = Buffer.from(wmAppToken(slug)); return got.length === want.length && timingSafeEqual(got, want); }, // 按字节比长度：非 ASCII 的令牌不让比较抛错
+  adminOk: async (req) => { await markOdooAdmin(req); return adminHeaderOk(req); },
+  cliOk: (req) => !browserMarked(req) && rawLoopback(req),
+  viewCapOk: (slug, cap) => loginGate.viewCapOk(slug, cap),
+} });
 
 // ---------- SOP 台：状态机（draft → published → deprecated）+ 执行 Runner + 分层持久化 ----------
 function sopTransition(slug: string, from: string[], to: string, label: string): AppRow {
@@ -3033,10 +3044,26 @@ function resolveGrants(raw: unknown[], held: string[], registered: Set<string>):
 // ---------- MCP 权限自助：access_info / access_request（免 grants）+ 管理员审批面 ----------
 // 会话只能看和申请；批准、驳回只走下面的管理员 REST（adminGuard：口令或 Odoo 管理员），会话令牌不是管理身份，自己批不了。
 const MCP_EXEMPT_TOOLS = new Set(MCP_TOOLS.filter((t) => t.exempt).map((t) => t.name));
-/** #452 可按台授权（工具@台）的工具：按 id 参数取工作台的。以后可扩到 app_data_* / app_files_* / app_sync（按 slug）。
+/** #452 可按台授权（工具@台）的工具：按 id 参数取工作台的；读台数据和附件的两个按 slug 取，台 id 是这个自产台在市场里的卡片（/apps/<slug>/）。
+ *  不带 @ 的全局授权照旧是全部台（和 vars 一样）。以后可扩到 app_files_upload / app_sync。
  *  依赖 workbenches.id 为 AUTOINCREMENT、不复用：台删除后旧的 工具@台 要到下次保存才剔除，期间新台拿不到旧 id。
  *  例外：从备份恢复库或 sqlite_sequence 被重置时，要先清理各会话 grants 里的 工具@台。 */
-const MCP_SCOPED_TOOLS: ReadonlySet<string> = new Set(['workbench_vars_get', 'workbench_vars_set']);
+const MCP_SCOPED_TOOLS: ReadonlySet<string> = new Set(['workbench_vars_get', 'workbench_vars_set', 'app_data_list', 'app_files_list']);
+/** 按 slug 限定到台的工具：授权里的台 id 对的是这个自产台的市场卡片 */
+const MCP_APP_SCOPED_TOOLS: ReadonlySet<string> = new Set(['app_data_list', 'app_files_list']);
+/** 一次调用落在哪张台上：按 slug 的取自产台卡片的编号（没登记卡片的台为 null，只有全局授权能读），其余按 id 参数 */
+function mcpScopeTarget(toolName: string, args: any): number | null {
+  if (MCP_APP_SCOPED_TOOLS.has(toolName)) return wmWorkbenchIdFor(`/apps/${String(args?.slug ?? '')}/`);
+  return Number(args?.id);
+}
+/** 会话能不能对这个台用这个工具（MCP 内嵌 REST 的下载不走工具分发，在这里核） */
+function mcpToolAllowsApp(sess: McpSess | null, toolName: string, slug: string): boolean {
+  const scope = mcpToolScope(sess, toolName);
+  if (scope === null) return false;
+  if (scope === 'all') return true;
+  const wid = mcpScopeTarget(toolName, { slug });
+  return wid !== null && scope.has(wid);
+}
 /** 授权串 'tool' 或 'tool@<台 id>'；@ 后不是正整数的整串当工具名（随后按未知工具名 400） */
 function parseGrant(g: string): { tool: string; wid: number | null } {
   const m = /^(.+)@([1-9]\d{0,9})$/.exec(g);
@@ -3179,8 +3206,9 @@ type McpInvokeResult =
 /** tools/call 唯一执行链：授权检查 → 免授权工具 / 上游转发 / 本地工具 → 审计。两个渠道各自把结果映射成自己的应答形状。 */
 async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, channel: McpChannel, origin: string, t0 = Date.now()): Promise<McpInvokeResult> {
   const scope = mcpToolScope(sess, toolName);
-  // 限定到台的授权在分发前按 id 参数核对（与工具自身同样 Number(args.id) 解析），台外按未授权处理并记审计
-  if (scope === null || (scope !== 'all' && !scope.has(Number(args?.id)))) {
+  // 限定到台的授权在分发前核对：按 id 参数（与工具自身同样 Number(args.id) 解析），读台数据和附件的按 slug 找卡片；台外按未授权处理并记审计
+  const target = scope !== null && scope !== 'all' ? mcpScopeTarget(toolName, args) : null;
+  if (scope === null || (scope !== 'all' && (target === null || !scope.has(target)))) {
     mcpAudit(sess, channel, 'tools/call', toolName, false, scope === null ? 'not granted' : 'not granted: workbench scope', Date.now() - t0, args);
     return { kind: 'not_granted' };
   }
@@ -3483,7 +3511,7 @@ async function mcpRestRunReadable(req: express.Request, sess: McpSess | null, ru
   return (await authorizeRunRead({ cap: runReadCapHeader(req), mcpSubject: sess ? `mcp:${sess.name}` : undefined }, runId)).authorized;
 }
 const runIdParam = (v: unknown): number => { if (!/^\d+$/.test(String(v))) throw new HttpError(404, `run not found: ${v}`); return Number(v); };
-registerMcpRestRoutes(http, { wrap, serveMcpOpenApi, mcpGatewaySession, mcpAudit, mcpRegisteredNames, MCP_REST_DENIED_HINT, mcpInvokeTool, mcpPublicOrigin, mcpRestSession, mcpRestRun, bad, getApp, appFilesQuota, APP_FILES_MAX, UPLOAD_MAX, uploadMonthDir, uploadFileName, appFileStoreCore, MCP_REST_BASE, upload, fixFileName, fileSha256, sendStoredFile, restFileItem, mcpRestRunReadable, runIdParam, sopRunRow, runReadCapHeader });
+registerMcpRestRoutes(http, { wrap, serveMcpOpenApi, mcpGatewaySession, mcpAudit, mcpRegisteredNames, MCP_REST_DENIED_HINT, mcpInvokeTool, mcpPublicOrigin, mcpRestSession, mcpToolAllowsApp, mcpRestRun, bad, getApp, appFilesQuota, APP_FILES_MAX, UPLOAD_MAX, uploadMonthDir, uploadFileName, appFileStoreCore, MCP_REST_BASE, upload, fixFileName, fileSha256, sendStoredFile, restFileItem, mcpRestRunReadable, runIdParam, sopRunRow, runReadCapHeader });
 import { installPortal, goPrefix, moduleProxy } from './portal.ts';
 
 loginRelay().useTicketStore(sqliteSsoTicketStore()); // SSO 回调票据落库：重启不丢、同一 DATA_DIR 的实例共享
@@ -3632,7 +3660,7 @@ const goServer = registerSurface(app, 'market', PORT, () => {
 const controlServer = SURFACE_PORTS.control ? registerSurface(app, 'control', SURFACE_PORTS.control) : undefined;
 if (contentCfg && contentRuntime) listenContentSurface(app, contentCfg, contentRuntime, () => startupSecurity.snapshot().passed);
 
-void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode }).then((result) => {
+void startupSecurity.run({ market: goServer, control: controlServer, gatewayOn: MCP_GATEWAY_ON, nodeEnv: process.env.NODE_ENV, loginGate: loginGate.mode, appDataRead: APP_DATA_READ }).then((result) => {
   if (!result.passed) return refuseUnsafeStartup();
   startRedis();
   armPatrol();

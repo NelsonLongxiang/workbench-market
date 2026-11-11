@@ -63,6 +63,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_ODOO_BROWSER_URL`（只给浏览器用的 Odoo 登录地址·可选·须在可信名单内、只写 origin，非法拒启动；仅对源等于 `WM_ODOO_URL` 的 Odoo 台生效，主机名不符或 https 降级回 503；同域中继开着时中继优先·见 [docs/odoo-browser-origin.md](docs/odoo-browser-origin.md)）
 - `WM_ODOO_LOGIN_PROXY`（`1`=市场同域 Odoo 登录中继·上游固定为 `WM_ODOO_URL`·见 [docs/odoo-login-relay.md](docs/odoo-login-relay.md)）
 - `WM_SESSION_TTL_MIN`（市场会话的绝对期限，分钟·缺省 720＝12 小时·范围 15～10080·不续期·不合法拒绝启动）
+- `WM_APP_DATA_READ`（台数据与附件的读守卫·缺省 `enforce`：`GET /api/apps/<台>/data`、`/files`、`/files/<id>` 要本台的台令牌、管理员（同源）或本机命令行，下载另认本台页面的查看凭证，都不满足 403；`warn`＝上线过渡用，照旧放行，只按路由和调用方类别计数留痕（日志 `source: app-data-read`），过渡完设回 `enforce`；其它值拒绝启动）
 - `WM_ROLES_FILE`（组织角色的外部声明文件·绝对路径·JSON `{"roles":[…]}`·设了就以它为准，不设用仓库里的通用初始集合·平台内置角色不能被覆盖，同名、循环包含、引用不存在的动作、范围写法不对都拒绝启动）
 - `WM_FEISHU_LOGIN`（`on`=打开飞书登录·缺省关）
 - `WM_FEISHU_AUTHORIZE_URL` / `WM_FEISHU_TOKEN_URL` / `WM_FEISHU_USERINFO_URL`（飞书授权页、换令牌、取用户信息的地址·缺省取飞书开放平台文档里的·只收 https）
@@ -90,6 +91,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - 一行管登录回调：远程匿名拿编出来的 state 打 `/login/feishu/callback` 必须 400（不跳转、不发会话）；
 - 一行管失效通知：远程匿名、不带签名向 `/login/feishu/events` 发事件必须 401；
 - 一行管授予管理面：远程匿名 GET `/api/grants` 必须被拒（登录门关着 403，开着由登录门先拦 401）；
+- 一行管台数据的读：远程匿名不带台令牌 GET `/api/apps/<台>/data` 必须被拒（登录门关着 403，开着由登录门先拦 401；`WM_APP_DATA_READ=warn` 时这一行不跑）；
 - 一行管导出真值：远程匿名带 `reveal=1` 导出必须被拒（登录门关着 403，开着由登录门先拦 401）。`WM_LOGIN_GATE=enforce` 时另加四行：远程匿名 GET `/`、`/apps/<台>/` 必须 302 到登录页、`/api/apps` 必须 401（浏览器写那一行改为期望登录门的 401），外加远程无签名 `POST /a2a/direct` 必须 401。强制行通过后才开放业务并启动后台巡检，health 可回读逐行结果。任一强制行失败或超时只关闭本进程监听并非零退出，不杀宿主或父进程；
 
 只有 `NODE_ENV=development/test` 的显式 `MCP_GATEWAY=off` 才把两条 MCP 行变成 warning，生产/未设/空/未知模式配 off 两行均 fail 并拒绝启动；控制面关闭则对应行 skip，不能视为完整认证验证。
@@ -246,7 +248,7 @@ GET              /api/health/ready              就绪：含 LayerFS 探测（�
 - **每日对账**：每天一次把绑在启用的人身上的飞书身份交给飞书查（`tenant_access_token` 加按 union_id 查人），状态明确说离职、冻结、退出的才停用；飞书出错、查不到的一个也不停用，只计数留痕。管理员可以手动跑一次：`POST /api/principals/reconcile`，请求体 `{"flow":"feishu"}`。**补不上的情形**：飞书那边直接删掉的人，如果「员工离职」事件也丢了，按 union_id 查回来是「不存在」，对账按查不清处理、不停用，每天留痕里的 `unknown` 会一直算上他。`unknown` 不为 0 就要人工复核：留痕的 `unknown_ids` 列出查不清的 union_id（最多 100 个），对着飞书通讯录核对，确认离开了由管理员手动停用（`POST /api/principals/disable`）。
 - **角色与授予**（阶段六 6b，只建结构，不接判定，不改变任何人能做什么）：角色是声明——平台四个内置角色（`owner` 属主＝读写决定管理、`admin` 管理员＝读写管理、`member` 成员＝读、`guest` 访客＝空），组织角色用仓库里的通用初始集合（`dept-member` 部门成员＝读写、`dept-lead` 部门负责人＝部门成员加决定），或者 `WM_ROLES_FILE` 指的外部声明文件。权限按动作或按类别写，范围通常不写、由授予给（`*`、`domain:`、`bench:`、`sop:`、`tool:`、`self`，另预留 `object:` 只存只比相等）。授予是数据：`/api/grants` 起草→提交→放行→撤销，状态只能往前走、每步留痕；不能给自己授予；管理员级的只有属主（本机命令行，或持有生效的 `owner` 授予的人）能放行；不是人的主体要有在职的责任人；决定类权限不给不是人的主体；到期自动失效。
 - 管不到的：按 run 发的读凭据、自产台查看凭证是不记名的，各有各的期限和吊销，不随主体停用失效；已经建立的 WebSocket 连接不会被掐断，新的请求和新的连接立即拒绝。停用是按登录名对的：身份来源那边把登录名改了，就是另一个人。
-- **读面不拦**：远程 agent 用 `GET /api/apps/<slug>/data`、`/files` 直接读提交数据（掩码策略只作用于凭据，不作用于业务数据）。
+- **读要凭据**：`GET /api/apps/<slug>/data`、`/files`、`/files/<id>` 要本台的台令牌（`X-App-Token`，服务端出台页面时注入）、管理员（口令或管理员登录，同源）或本机命令行；沙箱页的下载链接和图片带不了头，认登录门签给本台页面的查看凭证（`wm_av`）。不满足一律 403，先于查台。远程 agent 读台数据走 MCP（`app_data_list`、`app_files_list`，可按台授权）。设计上，能打开某个台页面的人就能读这个台的数据（台令牌在页面里）；「谁能打开哪个台」和按人读另行设计。
 
 ## 设计 token（给 SOP 执行页与自产台）
 
@@ -516,7 +518,7 @@ UI：`/tasks` 页（源/状态过滤·扩展条目可标「仅查看」）· 总
 | 面 | 写操作 | 读操作 |
 |---|---|---|
 | REST `/api/apps`（发布） | `X-Admin-Token` 必带（远程写另经 T1 豁免面清单） | 开放（GET） |
-| REST `/api/apps/:slug/files` | 上传=管理员口令；列表/下载开放 | 开放 |
+| REST `/api/apps/:slug/data`、`/files` | 提交、上传开放（台的匿名提交面）；删、改备注要管理员 | 本台的台令牌、管理员（同源）或本机命令行；下载另认本台页面的查看凭证（`WM_APP_DATA_READ`） |
 | REST `/api/sop/runs/:id/files`、`…/files/refs` | **run-scoped `X-Run-Upload-Token`**（启动响应/派单回执取）或管理员口令；refs 另逐条核源 run 读凭证 | 开放 |
 | MCP REST `/openapi.json`、`/api/mcp-rest/*` | 与 `/mcp` 同一套：只认 `Authorization: Bearer <会话令牌>`，不走浏览器登录与管理口令 | 同左 |
 | MCP `/mcp` | 无独立口令——网关模式下按会话 `grants` 工具白名单授权（`Authorization: Bearer <token>`）；`access_info` / `access_request` 免授权，缺权限的会话据此看目录、提申请 | 同左 |

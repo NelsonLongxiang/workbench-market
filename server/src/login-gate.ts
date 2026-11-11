@@ -460,7 +460,9 @@ export function createLoginGate(deps: Deps) {
     });
   }
 
-  return { mode: deps.mode, enforced, middleware, mount, identity, upgradeAllowed, rewriteAppHtml };
+  /** 登录门签给某个台页面的查看凭证（wm_av）对不对：台数据的下载守卫也认它（沙箱页的下载链接带不了头） */
+  const viewCapOk = (slug: string, cap: string): boolean => capOk(slug, cap);
+  return { mode: deps.mode, enforced, middleware, mount, identity, upgradeAllowed, rewriteAppHtml, viewCapOk };
 }
 
 function loginPage(next: string, odooHref: string | null, tokensCss: string, mode: LoginGateMode, canOdooLogout: boolean, flows: { name: string; label: string }[] = []): string {

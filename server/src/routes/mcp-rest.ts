@@ -36,6 +36,8 @@ export interface McpRestDeps {
   mcpInvokeTool: (sess: McpSess | null, toolName: string, args: any, channel: McpChannel, origin: string, t0?: number) => Promise<any>;
   mcpPublicOrigin: (req: express.Request) => string;
   mcpRestSession: (req: express.Request, res: express.Response, tool: string, op: string) => McpSess | null | undefined;
+  /** 会话能不能对这个台用这个工具（只授权了 工具@台 的，台外不行） */
+  mcpToolAllowsApp: (sess: McpSess | null, toolName: string, slug: string) => boolean;
   mcpRestRun: (sess: McpSess | null, tool: string, op: string, auditArgs: unknown, fn: () => Promise<void> | void) => Promise<void>;
   bad: (msg: string) => never;
   getApp: (slug: string) => AppRow;
@@ -58,7 +60,7 @@ export interface McpRestDeps {
 }
 
 export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void {
-  const { wrap, serveMcpOpenApi, mcpGatewaySession, mcpAudit, mcpRegisteredNames, MCP_REST_DENIED_HINT, mcpInvokeTool, mcpPublicOrigin, mcpRestSession, mcpRestRun, bad, getApp, appFilesQuota, APP_FILES_MAX, UPLOAD_MAX, uploadMonthDir, uploadFileName, appFileStoreCore, MCP_REST_BASE, upload, fixFileName, fileSha256, sendStoredFile, restFileItem, mcpRestRunReadable, runIdParam, sopRunRow, runReadCapHeader } = deps;
+  const { wrap, serveMcpOpenApi, mcpGatewaySession, mcpAudit, mcpRegisteredNames, MCP_REST_DENIED_HINT, mcpInvokeTool, mcpPublicOrigin, mcpRestSession, mcpToolAllowsApp, mcpRestRun, bad, getApp, appFilesQuota, APP_FILES_MAX, UPLOAD_MAX, uploadMonthDir, uploadFileName, appFileStoreCore, MCP_REST_BASE, upload, fixFileName, fileSha256, sendStoredFile, restFileItem, mcpRestRunReadable, runIdParam, sopRunRow, runReadCapHeader } = deps;
   app.get('/openapi.json', { action: 'mcp-rest.openapi', kind: 'read' }, serveMcpOpenApi);
   app.get('/api/mcp-rest/openapi.json', { action: 'mcp-rest.openapi', kind: 'read' }, serveMcpOpenApi);
   app.post('/api/mcp-rest/tools/:name', { action: 'mcp-rest.tool-call', kind: 'write' }, wrap(async (req, res) => {
@@ -160,6 +162,11 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
   app.get('/api/mcp-rest/apps/:slug/files/:id', { action: 'mcp-rest.file-download', kind: 'read' }, wrap(async (req, res) => {
     const sess = mcpRestSession(req, res, 'app_files_list', 'file_download');
     if (sess === undefined) return;
+    // 只授权了 app_files_list@台 的会话：台外的文件不给（先于查台，台在不在应答一样）
+    if (!mcpToolAllowsApp(sess, 'app_files_list', String(req.params.slug ?? ''))) {
+      mcpAudit(sess, 'rest', 'rest/file_download', 'app_files_list', false, 'not granted: workbench scope', 0, req.params);
+      return res.status(403).json({ error: '会话未获授权：file_download 需要工具 app_files_list 对这个台的授权', required_tool: 'app_files_list', hint: MCP_REST_DENIED_HINT });
+    }
     await mcpRestRun(sess, 'app_files_list', 'file_download', { slug: req.params.slug, id: req.params.id }, async () => {
       const a = getApp(req.params.slug);
       const row = /^\d+$/.test(String(req.params.id)) ? svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug) as any : null;
