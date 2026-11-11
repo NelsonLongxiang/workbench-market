@@ -192,14 +192,14 @@ try {
     // 对抗：形状不对的一律只记录、不采信、不占槽
     const Q2 = seedEvent();
     const bad = [
-      ['问题 id 和任务号里的不一致', qenv('qX'), `attention-${Q2.task}-q2`],
-      ['S11：任务号是 q1、question.id 是 q2', qenv('q2'), `attention-${Q2.task}-q1`],
+      ['问题 id 和任务号里的不一致', qenv('qX', { idempotencyKey: Q2.task }), `attention-${Q2.task}-q2`],
+      ['S11：任务号是 q1、question.id 是 q2', qenv('q2', { idempotencyKey: Q2.task }), `attention-${Q2.task}-q1`],
       ['没有 question', { idempotencyKey: Q2.task, disposition: 'attention' }, `attention-${Q2.task}-q3`],
-      ['question.text 为空', qenv('q4', { question: { id: 'q4', text: '  ' } }), `attention-${Q2.task}-q4`],
-      ['disposition 不是 attention', qenv('q5', { disposition: 'result', outcome: 'completed' }), `attention-${Q2.task}-q5`],
+      ['question.text 为空', qenv('q4', { idempotencyKey: Q2.task, question: { id: 'q4', text: '  ' } }), `attention-${Q2.task}-q4`],
+      ['disposition 不是 attention', qenv('q5', { idempotencyKey: Q2.task, disposition: 'result', outcome: 'completed' }), `attention-${Q2.task}-q5`],
       ['idempotencyKey 是别的任务号', qenv('q6', { idempotencyKey: Q.task }), `attention-${Q2.task}-q6`],
-      ['问题 id 带非法字符', qenv('q 7'), `attention-${Q2.task}-q 7`],
-      ['问题 id 超过 24 个字符', qenv('q'.repeat(25)), `attention-${Q2.task}-${'q'.repeat(25)}`],
+      ['问题 id 带非法字符', qenv('q 7', { idempotencyKey: Q2.task }), `attention-${Q2.task}-q 7`],
+      ['问题 id 超过 24 个字符', qenv('q'.repeat(25), { idempotencyKey: Q2.task }), `attention-${Q2.task}-${'q'.repeat(25)}`],
     ];
     for (const [label, env, inbound] of bad) {
       const rr = await receipt(Q2.task, '问', env, Q2.ctx, { inbound });
@@ -281,7 +281,7 @@ try {
   {
     const elsewhere = await peer('elsewhere');
     lab.got.length = 0;
-    const raw15 = JSON.stringify({ team: 'market/12345678', message: '带了别处回调的跟进', caller_session: 'lab/canvas/ops', context_id: L.ctx, wait: false, task_id: 'a2a-follow0015', callback_url: elsewhere.url, reply_to: elsewhere.url, target_url: elsewhere.url });
+    const raw15 = JSON.stringify({ team: 'market/12345678', message: '带了别处回调的跟进', caller_session: 'lab/canvas/ops', context_id: L.ctx, wait: false, task_id: 'a2a-follow0015', callback: elsewhere.url, callback_url: elsewhere.url, reply_to: elsewhere.url, target_url: elsewhere.url });
     r = await post(raw15, signed(lab, raw15));
     await waitFor(() => lab.got.some((g) => g.body.task_id === 'receipt-a2a-follow0015'));
     const row15 = q("SELECT target_url FROM workbench_event_replies WHERE kind = 'followup-receipt' AND fixed_task = 'receipt-a2a-follow0015'")[0];
