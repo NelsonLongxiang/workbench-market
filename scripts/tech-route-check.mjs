@@ -516,6 +516,16 @@ function diffLists(main, list) {
   const had = new Set((main.waivers || []).map(key));
   const added = (list.waivers || []).map(key).filter((k) => !had.has(k));
   if (added.length) out.push(`新增豁免 ${added.length} 处（${added.slice(0, 3).join('、')}${added.length > 3 ? ' 等' : ''}）`);
+  // 已有豁免按同一个键比各字段：until 变晚、或别的字段变了都点名；until 提前、豁免被删掉不算放宽
+  const oldWaivers = new Map();
+  for (const w of main.waivers || []) if (!oldWaivers.has(key(w))) oldWaivers.set(key(w), w);
+  for (const w of list.waivers || []) {
+    const b = oldWaivers.get(key(w));
+    if (!b) continue;
+    if (String(w.until ?? '') > String(b.until ?? '')) out.push(`豁免延期（${key(w)}：${b.until ?? '无'} → ${w.until}）`);
+    const fields = [...new Set([...Object.keys(b), ...Object.keys(w)])].filter((f) => !['rule', 'item', 'until'].includes(f) && JSON.stringify(b[f]) !== JSON.stringify(w[f]));
+    if (fields.length) out.push(`豁免改了 ${fields.join('、')}（${key(w)}）`);
+  }
   const tests = Object.keys(list.tests || {}).filter((k) => !(k in (main.tests || {})));
   if (tests.length) out.push(`新登记不进 CI 的测试 ${tests.length} 个`);
   return out;
@@ -654,6 +664,16 @@ function selftest() {
   const recounted = diffLists(listOf('count', { 'a.ts': 3 }), listOf('count', { 'a.ts': 2, 'c.ts': 1 }));
   check(recounted.length === 0, `清单变化：计数档按文件重记、总数不变，不点名（得到 ${JSON.stringify(recounted)}）`);
   check(diffLists(listOf('budget', { 'a.ts': 3 }), listOf('budget', { 'a.ts': 2 })).length === 0, '清单变化：预算档只是变小，不点名');
+  // 「清单变化」：已有豁免被改动
+  const wv = (patch = {}) => ({ rule: 'x', item: 'a.ts', reason: '自检', by: '自检', until: '2026-12-01', ...patch });
+  const withW = (...ws) => ({ rules: [], waivers: ws, tests: {} });
+  const later = diffLists(withW(wv()), withW(wv({ until: '2027-06-01' })));
+  check(later.some((x) => x.includes('豁免延期') && x.includes('2026-12-01 → 2027-06-01')), `清单变化：豁免只把 until 往后延，点名（得到 ${JSON.stringify(later)}）`);
+  const earlier = diffLists(withW(wv()), withW(wv({ until: '2026-11-20' })));
+  check(earlier.length === 0, `清单变化：豁免 until 提前，不点名（得到 ${JSON.stringify(earlier)}）`);
+  const reworded = diffLists(withW(wv()), withW(wv({ reason: '换了个理由', by: '别人' })));
+  check(reworded.some((x) => x.includes('reason') && x.includes('by')), `清单变化：豁免的理由、批准人变了，点名（得到 ${JSON.stringify(reworded)}）`);
+  check(diffLists(withW(wv()), withW()).length === 0, '清单变化：豁免被删掉，不点名');
   const good = { rules: RULES.map((r) => ({ id: r.id, tier: 'count', baseline: { total: 0 } })), waivers: [], tests: {} };
   const broken = (patch) => listProblems({ ...good, ...patch }).length > 0;
   check(listProblems(good).length === 0, '清单校验：完整的清单没有问题');
