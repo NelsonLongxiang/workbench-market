@@ -6,7 +6,8 @@
  *
  * 闸放在最底下，不靠一处处改调用方（漏一处就漏一个字节）：
  *   · TCP / TLS：net.Socket.prototype.connect。fetch（undici）、http(s).request、http2、http-proxy-middleware、Redis 客户端、
- *     tls.connect 最后都走到这里。只放行连本进程自己在听的端口（回环地址），其余在连之前就拒绝：不发 SYN、不做 DNS 解析。
+ *     tls.connect 最后都走到这里。只放行连本进程自己在听的回环地址和端口（地址、地址族都要对上，localhost 钉到那个地址上），
+ *     其余在连之前就拒绝：不发 SYN、不做 DNS 解析。
  *     Unix 域套接字（path）一律拒绝。
  *   · DNS：dns.lookup、dns.promises.lookup、各种 resolve*、Resolver 实例。只放行 localhost 和本来就是 IP 的名字（不出网）。
  *   · UDP：dgram 的 send、connect 一律拒绝。
@@ -51,13 +52,30 @@ export class OutboundBlockedError extends Error {
   constructor(what: string) { super(`对外已断开（WM_OUTBOUND=off）：拒绝 ${what}`); }
 }
 
-// ---------- 本进程自己在听的端口 ----------
+// ---------- 本进程自己在听的地址 ----------
 // 记的是服务器本身，连接时再看它此刻的地址：listen 之后 server.listening 立刻为真，listening 事件却要等下一拍，
-// 记端口要等事件的话，紧跟着的第一条自检请求会被误拦
+// 记端口要等事件的话，紧跟着的第一条自检请求会被误拦。
+// 放行比的是实际监听的地址和地址族，不只比端口号。
 const ownServers = new Set<net.Server>();
-const ownPort = (port: number) => [...ownServers].some((s) => { const a = s.address(); return Boolean(a && typeof a === "object" && a.port === port); });
-const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1', 'localhost']);
+const v6OnlyServers = new WeakSet<net.Server>();
 const IPLIKE = (h: string) => net.isIP(h.replace(/^\[|\]$/g, '')) !== 0;
+/** 目标若落在本进程自己监听的地址上，返回实际要连的地址（localhost 钉成那个服务器所在的回环地址）；否则 null */
+function ownTarget(host: string, port: number): string | null {
+  const h = host.replace(/^\[|\]$/g, '').toLowerCase();
+  const v4 = h === '127.0.0.1' || h === '::ffff:127.0.0.1';
+  const v6 = h === '::1';
+  if (!v4 && !v6 && h !== 'localhost') return null;
+  for (const s of ownServers) {
+    const a = s.address();
+    if (!a || typeof a !== 'object' || a.port !== port) continue;
+    const covers4 = a.address === '127.0.0.1' || a.address === '0.0.0.0' || a.address === '::ffff:127.0.0.1' || (a.address === '::' && !v6OnlyServers.has(s));
+    const covers6 = a.address === '::1' || a.address === '::';
+    if (v4 && covers4) return h;
+    if (v6 && covers6) return h;
+    if (h === 'localhost') { if (covers4) return '127.0.0.1'; if (covers6) return '::1'; }
+  }
+  return null;
+}
 
 /** 从 Socket.prototype.connect 的各种参数写法里取出目标 */
 function targetOf(args: unknown[]): { host: string; port: number; path: string } {
@@ -70,8 +88,18 @@ function targetOf(args: unknown[]): { host: string; port: number; path: string }
   if (typeof a === 'string' && !/^\d+$/.test(a)) return { host: '', port: 0, path: a };
   return { host: typeof args[1] === 'string' ? args[1] : 'localhost', port: Number(a ?? 0), path: '' };
 }
-function allowedTcp(host: string, port: number): boolean {
-  return LOOPBACK.has(host.replace(/^\[|\]$/g, '').toLowerCase()) && ownPort(port);
+/** 把参数里的目标主机换成 pin（只在 localhost 时用：解析结果可能落到另一个地址族上别人的端口） */
+function pinHost(args: unknown[], pin: string): unknown[] {
+  const a = args[0];
+  if (Array.isArray(a) && a[0] && typeof a[0] === 'object') {
+    // net.connect 规范化后的数组上带着 Node 内部的符号标记，复制时要一起带上，不然会被当成没规范化过
+    const b: unknown[] = a.slice();
+    for (const sym of Object.getOwnPropertySymbols(a)) (b as unknown as Record<symbol, unknown>)[sym] = (a as unknown as Record<symbol, unknown>)[sym];
+    b[0] = { ...(a[0] as object), host: pin };
+    return [b, ...args.slice(1)];
+  }
+  if (a && typeof a === 'object' && !Array.isArray(a)) return [{ ...(a as object), host: pin }, ...args.slice(1)];
+  return [a, pin, ...args.slice(2).filter((x) => typeof x === 'function')];
 }
 
 if (OFF) {
@@ -79,6 +107,7 @@ if (OFF) {
   const listen = net.Server.prototype.listen;
   net.Server.prototype.listen = function (this: net.Server, ...args: unknown[]) {
     ownServers.add(this);
+    if (args[0] && typeof args[0] === 'object' && (args[0] as { ipv6Only?: unknown }).ipv6Only === true) v6OnlyServers.add(this);
     this.once('close', () => ownServers.delete(this));
     return (listen as (...x: unknown[]) => net.Server).apply(this, args);
   } as typeof listen;
@@ -86,7 +115,8 @@ if (OFF) {
   const connect = net.Socket.prototype.connect;
   net.Socket.prototype.connect = function (this: net.Socket, ...args: unknown[]) {
     const t = targetOf(args);
-    if (t.path === '' && allowedTcp(t.host, t.port)) return (connect as (...x: unknown[]) => net.Socket).apply(this, args);
+    const pin = t.path === '' ? ownTarget(t.host, t.port) : null;
+    if (pin !== null) return (connect as (...x: unknown[]) => net.Socket).apply(this, pin === t.host.replace(/^\[|\]$/g, '').toLowerCase() ? args : pinHost(args, pin));
     const what = t.path !== '' ? `unix:${t.path}` : `${t.host}:${t.port}`;
     noteBlocked(t.path !== '' ? 'unix-socket' : 'tcp', what);
     const err = new OutboundBlockedError(`连接 ${what}`);
