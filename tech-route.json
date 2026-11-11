@@ -10,9 +10,9 @@
       "what": "index.ts 里的路由数",
       "target": 0,
       "baseline": {
-        "total": 111,
+        "total": 109,
         "files": {
-          "server/src/index.ts": 111
+          "server/src/index.ts": 109
         }
       }
     },
@@ -23,12 +23,12 @@
       "what": "services/ 与 db.ts 之外的 SQL 调用点",
       "target": 0,
       "baseline": {
-        "total": 207,
+        "total": 204,
         "files": {
           "server/src/a2a-direct-sig.ts": 3,
           "server/src/a2a.ts": 6,
           "server/src/endpoint-stats.ts": 3,
-          "server/src/index.ts": 75,
+          "server/src/index.ts": 72,
           "server/src/layerfs-shadow.ts": 11,
           "server/src/portal-observation.ts": 3,
           "server/src/sop-read-auth.ts": 6,
