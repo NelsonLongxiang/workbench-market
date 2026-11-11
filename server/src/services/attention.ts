@@ -62,6 +62,9 @@ export type AttentionProvider<R = unknown> = {
 
 export type AnswerOutcome = { status: number; body: unknown; duplicate?: boolean };
 
+/** 答复占位的期限：转给原路由一次用不了这么久；过了还没收尾的就是卡死或被杀了 */
+export const PENDING_TTL_SECONDS = 120;
+
 export type AttentionSourceMeta = { label: string; visible: boolean; count: number; error?: string };
 export type AttentionView = {
   items: AttentionItem[];
@@ -74,6 +77,9 @@ export class AttentionService extends Service {
 
   constructor(ctx: Context) {
     super(ctx, 'attention');
+    // 上次运行时答到一半就退出（占了位、没来得及记结果或删掉）：这些占位不会再有人收尾，启动时清掉，那几条可以再答
+    const stale = db.prepare("DELETE FROM attention_answers WHERE state = 'pending'").run();
+    if (Number(stale.changes) > 0) console.log(`[attention] 启动时清掉 ${stale.changes} 条上次没答完的占位`);
   }
 
   /** 注册一个来源的提供方。同名的来源只能有一个。挂在调用方的作用域上，返回撤销函数。 */
@@ -94,6 +100,18 @@ export class AttentionService extends Service {
     return this.providers.get(source) as AttentionProvider<R> | undefined;
   }
 
+  /** 某个条目答成过的各轮：键是「条目 id」（第 0 轮）或「条目 id#n」。返回最近的一轮和它答成的时间 */
+  latestRound(source: string, base: string): { n: number; at: string } | null {
+    const rows = db.prepare("SELECT source_id, at FROM attention_answers WHERE source = ? AND state = 'done' AND (source_id = ? OR source_id LIKE ? ESCAPE '\\')")
+      .all(source, base, `${base.replace(/[\\%_]/g, '\\$&')}#%`) as { source_id: string; at: string }[];
+    let best: { n: number; at: string } | null = null;
+    for (const r of rows) {
+      const n = r.source_id === base ? 0 : Number(r.source_id.slice(base.length + 1));
+      if (Number.isInteger(n) && (!best || n > best.n)) best = { n, at: r.at };
+    }
+    return best;
+  }
+
   /** 这一条已经答成过（答完它就不在列表里了，重复答时用它认出来） */
   answered(source: string, sourceId: string): boolean {
     return Boolean(db.prepare("SELECT 1 FROM attention_answers WHERE source = ? AND source_id = ? AND state = 'done'").get(source, sourceId));
@@ -106,6 +124,8 @@ export class AttentionService extends Service {
    *   · 否则先占住这一条，再 run；成功（2xx）记下应答，失败删掉占位、原样返回失败（不吞），可以再答。
    */
   async once(source: string, sourceId: string, answer: string, by: string, run: () => Promise<AnswerOutcome>): Promise<AnswerOutcome> {
+    // 占位有期限：超过 PENDING_TTL_SECONDS 还没收尾的（进程在答的途中卡死、或被杀了），当它不存在
+    db.prepare(`DELETE FROM attention_answers WHERE source = ? AND source_id = ? AND state = 'pending' AND at < datetime('now', '-${PENDING_TTL_SECONDS} seconds')`).run(source, sourceId);
     const prior = () => db.prepare('SELECT state, status, body FROM attention_answers WHERE source = ? AND source_id = ?').get(source, sourceId) as { state: string; status: number; body: string } | undefined;
     const seen = (row: { state: string; status: number; body: string }): AnswerOutcome => row.state === 'done'
       ? { status: row.status, body: JSON.parse(row.body || 'null'), duplicate: true }

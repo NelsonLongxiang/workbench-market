@@ -20,7 +20,8 @@ import { identity } from './identity.ts';
 import { forward } from './attention-forward.ts';
 import { answerBody, findBoardWorkbench } from './owner-pending.ts';
 import { principalsAdmin } from './routes/principals.ts';
-import { pendingAskOfDelivery } from './services/attention-sources.ts';
+import { pendingAskOfDelivery, pendingPrincipalSeen } from './services/attention-sources.ts';
+import { listVars, workbenchScope } from './workbench-vars.ts';
 import type { AnswerOutcome, AttentionProvider, AttentionService } from './services/attention.ts';
 import type { HttpService } from './http.ts';
 import type { WorkbenchService } from './services/workbench.ts';
@@ -149,10 +150,38 @@ function applied(id: string, fact: Parameters<WorkItemService['apply']>[1]): Ans
 }
 
 /** 记账的键。席位的提问按「投递:那次提问」记：同一个投递答过一次之后又问了一次，是一条新的待决 */
+/**
+ * 记账的键：分开同一个 id 的每一轮待决。答完之后键要不变（重复答才认得出），再次进入待处理时键要变。
+ *   · 席位的提问：「投递:那次提问」——同一个投递答过之后又问一次，是新的一轮
+ *   · 事项：「事项 id:最近一次进入 ready 或 held 那一行日志的 seq」——退回之后再进 ready 是新的一轮；验收、放行之后 seq 不变
+ *   · 待属主看板：「编号:事项那条常量的 revision」——登记方改了事项（重新提出）是新的一轮
+ *   · 待对接清单：「来源:标识」，第 n 轮记成「…#n」——绑定之后这条外部身份又出现在清单里（比上一轮答成的时间晚），是新的一轮
+ *   · 变更申请、MCP 权限申请：每次申请都是新的一行、新的 id，不会再次进入待处理，键就是 id
+ */
 function keyOf(source: string, sourceId: string): string {
-  if (source !== 'seat-asks' || !/^[1-9]\d{0,15}$/.test(sourceId)) return sourceId;
-  const ask = pendingAskOfDelivery(Number(sourceId));
-  return ask ? `${sourceId}:${ask.ask_log_id}` : sourceId;
+  if (source === 'seat-asks' && /^[1-9]\d{0,15}$/.test(sourceId)) {
+    const ask = pendingAskOfDelivery(Number(sourceId));
+    return ask ? `${sourceId}:${ask.ask_log_id}` : sourceId;
+  }
+  if (source === 'work-items') {
+    const seq = svc<WorkItemService>('workItems').lastEntrySeq(sourceId, ['ready', 'held']);
+    return seq === null ? sourceId : `${sourceId}:${seq}`;
+  }
+  if (source === 'owner-pending' && /^\d{1,4}$/.test(sourceId)) {
+    const list = (svc<WorkbenchService>('workbench').all() as { id: number; url: string }[]).map((w) => ({ id: w.id, url: w.url }));
+    const found = findBoardWorkbench(list, 'http://localhost');
+    if ('error' in found) return sourceId;
+    const v = (listVars(workbenchScope(found.id), `item.${sourceId}`).items as { key: string; revision: number }[]).find((x) => x.key === `item.${sourceId}`);
+    return v ? `${sourceId}:${v.revision}` : sourceId;
+  }
+  if (source === 'principal-pending') {
+    const cut = sourceId.indexOf(':');
+    const last = svc<AttentionService>('attention').latestRound(source, sourceId);
+    const seen = cut > 0 ? pendingPrincipalSeen(sourceId.slice(0, cut), sourceId.slice(cut + 1)) : null;
+    const n = !last ? 0 : seen !== null && seen > last.at ? last.n + 1 : last.n;
+    return n === 0 ? sourceId : `${sourceId}#${n}`;
+  }
+  return sourceId;
 }
 
 /** 这个来源有哪些答法（换算表和直接实现的并起来）：入口拿它核答法 */

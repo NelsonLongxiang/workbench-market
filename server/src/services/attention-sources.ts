@@ -33,3 +33,9 @@ export function pendingAskOfDelivery(deliveryId: number): { event_id: string; as
     FROM workbench_event_deliveries d WHERE d.id = ? AND d.decision = 'ask'`).get(deliveryId) as { event_id: string; ask_log_id: number | null } | undefined;
   return row && row.ask_log_id !== null ? { event_id: row.event_id, ask_log_id: row.ask_log_id } : null;
 }
+
+/** 待对接清单里这条外部身份最近一次出现的时间；不在清单里返回 null（「关注」记账分轮用） */
+export function pendingPrincipalSeen(provider: string, externalId: string): string | null {
+  const row = db.prepare('SELECT last_seen FROM principal_pending WHERE provider = ? AND external_id = ?').get(provider, externalId) as { last_seen: string } | undefined;
+  return row?.last_seen ?? null;
+}

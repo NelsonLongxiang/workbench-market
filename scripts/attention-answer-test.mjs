@@ -72,7 +72,9 @@ db.prepare("INSERT INTO workbench_event_log (event_id, delivery_id, actor, actio
 items.syncEvent(asked);
 out.ask = { event: asked, delivery: d };
 const ready = (n) => { const it = items.create({ title: '待验收 ' + n, created_by: 'user:alpha', source_kind: 'agent' }); for (const [k, x] of [['submit', { dispatch_open: true }], ['eval', { verdict: 'accept' }], ['report', { status: 'progress' }], ['report', { status: 'ready' }]]) items.apply(it.id, { kind: k, source: 'seed', id: it.id + ':' + k + ':' + (x.status ?? ''), ...x }); return it.id; };
-out.ready = { verify: ready(1), ret: ready(2) };
+out.ready = { verify: ready(1), ret: ready(2), again: ready(3) };
+for (const id of ['ext-round', 'ext-crash']) db.prepare("INSERT INTO principal_pending (provider, external_id, display_name) VALUES ('synthetic', ?, ?)").run(id, 'Name ' + id);
+out.cr.ttl = cr('no-such-app-ttl'); out.cr.fresh = cr('no-such-app-fresh'); out.cr.crash = cr('no-such-app-crash');
 console.log('SEEDED ' + JSON.stringify(out));
 `;
 
@@ -107,15 +109,21 @@ try {
   const m = /SEEDED (.*)/.exec(seeded.stdout);
   if (!m) throw new Error(`造数据失败：${seeded.stderr.slice(-800)}`);
   const S = JSON.parse(m[1]);
-  const port = await freePort();
-  child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], { cwd: join(ROOT, 'server'), env: { ...env, PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
-  child.stdout.on('data', (d) => { log += String(d); }); child.stderr.on('data', (d) => { log += String(d); });
-  const base = `http://127.0.0.1:${port}`;
-  for (let i = 0, ok = false; !ok; i++) {
-    if (i > 200 || child.exitCode !== null) throw new Error(`实例没起来：${log.slice(-800)}`);
-    try { ok = (await fetch(`${base}/api/health`)).status === 200; } catch { /* 还没起来 */ }
-    if (!ok) await new Promise((r) => setTimeout(r, 200));
-  }
+  let base = '';
+  const boot = async () => {
+    const port = await freePort();
+    child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], { cwd: join(ROOT, 'server'), env: { ...env, PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.on('data', (d) => { log += String(d); }); child.stderr.on('data', (d) => { log += String(d); });
+    base = `http://127.0.0.1:${port}`;
+    for (let i = 0, ok = false; !ok; i++) {
+      if (i > 200 || child.exitCode !== null) throw new Error(`实例没起来：${log.slice(-800)}`);
+      try { ok = (await fetch(`${base}/api/health`)).status === 200; } catch { /* 还没起来 */ }
+      if (!ok) await new Promise((r) => setTimeout(r, 200));
+    }
+  };
+  /** 被杀：不给它收尾的机会 */
+  const kill = async () => { child.kill('SIGKILL'); await new Promise((r) => (child.exitCode !== null || child.signalCode ? r() : child.once('exit', r))); };
+  await boot();
   const SAME = { 'sec-fetch-site': 'same-origin' };
   const ADMIN = { ...SAME, cookie: `session_id=${SESSIONS.admin}` }; // 会话登录的管理员（odoo:root-admin）：留痕里看得出是谁
   const call = async (method, path, headers, body) => {
@@ -266,6 +274,61 @@ try {
     const last = q("SELECT fact, actor, detail FROM work_item_log WHERE item_id = ? ORDER BY seq DESC LIMIT 1", S.ready.ret)[0];
     check(v.status === 200 && st(S.ready.verify) === 'done' && r0.status === 400 && r.status === 200 && st(S.ready.ret) === 'progress' && last.fact === 'return' && last.actor === 'odoo:root-admin' && JSON.parse(last.detail).reason === '差异没标',
       '事项的验收（ready → done）和退回（要理由，ready → progress；日志记谁、为什么）', show({ v, r0, r, last }));
+  }
+
+  // ---------- 六、同一个 id 再次进入待处理；占位的期限；被杀之后重启 ----------
+  {
+    const rw = () => { const c = new DatabaseSync(join(data, 'workbench-market.db')); c.exec('PRAGMA busy_timeout = 5000'); return c; };
+    const facts = (id, list) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', `
+      const at = (p) => ${JSON.stringify(pathToFileURL(ROOT).href)} + '/' + p;
+      const { root } = await import(at('server/src/root-context.ts'));
+      const { WorkItemService } = await import(at('server/src/services/work-item.ts'));
+      await root.plugin(WorkItemService);
+      for (const f of ${JSON.stringify(list)}) { const r = root.get('workItems').apply(${JSON.stringify(id)}, f); if (!r.ok) { console.log('FAIL ' + JSON.stringify(r)); process.exit(1); } }
+      console.log('DONE');`], { env: { ...env }, encoding: 'utf8' });
+    // 事项：退回 → 席位再报 ready → 「关注」又列出 → 验收，要真的生效
+    const id = S.ready.again;
+    const r1 = await answer('work-items', id, 'return', { reason: '再核一遍' });
+    const f = facts(id, [{ kind: 'report', status: 'ready', source: 'seat', id: 'again-ready-2', actor: 'seat:checker' }]);
+    const listed = (await call('GET', '/api/attention', ADMIN)).body.items.some((x) => x.source === 'work-items' && x.source_id === id && x.category === 'accept');
+    const v = await answer('work-items', id, 'verify');
+    const st = q('SELECT state FROM work_items WHERE id = ?', id)[0].state;
+    check(r1.status === 200 && f.stdout.includes('DONE') && listed && v.status === 200 && v.body.duplicate === false && st === 'done',
+      '事项退回之后再次进入「等验收」：「关注」又列出它，验收真的生效（不是返回上次退回的结果）', show({ r1: r1.body, f: f.stdout + f.stderr.slice(-200), listed, v: v.body, st }));
+    const v2 = await answer('work-items', id, 'verify');
+    check(v2.status === 200 && v2.body.duplicate === true && same(v2.body.result, v.body.result), '这一轮再验收一次：返回这一轮第一次的结果');
+
+    // 待对接：绑定 → 解绑、这个人又来登录（又出现在清单里，比上一轮答成的时间晚）→ 能再对接
+    const b1 = await answer('principal-pending', 'synthetic:ext-round', 'bind', { principal: 'user:round-1', create: true, reason: '第一次' });
+    const c = rw();
+    c.prepare("DELETE FROM principal_identities WHERE provider = 'synthetic' AND external_id = 'ext-round'").run();
+    c.prepare("INSERT INTO principal_pending (provider, external_id, display_name, last_seen) VALUES ('synthetic', 'ext-round', 'again', datetime('now', '+1 minute'))").run();
+    c.close();
+    const b2 = await answer('principal-pending', 'synthetic:ext-round', 'bind', { principal: 'user:round-2', create: true, reason: '第二次' });
+    const bound = q("SELECT principal_id FROM principal_identities WHERE provider = 'synthetic' AND external_id = 'ext-round'")[0]?.principal_id;
+    const b3 = await answer('principal-pending', 'synthetic:ext-round', 'bind', { principal: 'user:round-3', create: true, reason: '第三次' });
+    check(b1.status === 200 && b2.status === 200 && b2.body.duplicate === false && bound === 'user:round-2' && b3.body.duplicate === true && b3.body.result.principal.id === 'user:round-2',
+      '待对接：绑定之后这条外部身份又出现在清单里，是新的一轮，能再对接；这一轮再答返回这一轮的结果', show({ b1: b1.status, b2: b2.body, bound, b3: b3.body }));
+
+    // 占位的期限：过期的占位当它不存在；没过期的照旧告诉对方「正在处理」
+    const c2 = rw();
+    c2.prepare("INSERT INTO attention_answers (source, source_id, answer, state, at) VALUES ('change-requests', ?, 'reject', 'pending', datetime('now', '-10 minutes'))").run(String(S.cr.ttl));
+    c2.prepare("INSERT INTO attention_answers (source, source_id, answer, state) VALUES ('change-requests', ?, 'reject', 'pending')").run(String(S.cr.fresh));
+    c2.close();
+    const t1 = await answer('change-requests', S.cr.ttl, 'reject', { reviewed_by: 'alice' });
+    const t2 = await answer('change-requests', S.cr.fresh, 'reject', { reviewed_by: 'alice' });
+    check(t1.status === 200 && !t1.body.duplicate && t2.status === 409 && t2.body.result.error === 'attention_answer_in_progress', '占位有期限：过了期限的占位不再挡人；没过期的照旧回「正在处理」', show({ t1: t1.status, t2 }));
+
+    // 进程在答的途中被杀：占位留在库里；重启之后清掉，能再答
+    const c3 = rw();
+    c3.prepare("INSERT INTO attention_answers (source, source_id, answer, state) VALUES ('change-requests', ?, 'reject', 'pending')").run(String(S.cr.crash));
+    c3.close();
+    const stuck = await answer('change-requests', S.cr.crash, 'reject', { reviewed_by: 'alice' });
+    await kill();
+    await boot();
+    const after = await answer('change-requests', S.cr.crash, 'reject', { reviewed_by: 'alice' });
+    check(stuck.status === 409 && after.status === 200 && after.body.duplicate === false && q('SELECT status FROM change_requests WHERE id = ?', S.cr.crash)[0].status === 'rejected' && log.includes('启动时清掉'),
+      '占位后进程被杀：重启时清掉残留的占位（日志里留一行），这一条能再答', show({ stuck: stuck.status, after: after.status }));
   }
 } catch (e) {
   fail++;
