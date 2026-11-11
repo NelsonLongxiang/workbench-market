@@ -41,7 +41,9 @@ const watchdog = setTimeout(() => {
 }, 180_000);
 
 function boot(tag, extraEnv) {
-  const port = 20000 + Math.floor(Math.random() * 12000);
+  // 同一轮里各实例的业务面与控制面端口互不重复（以前纯随机，八个实例偶尔撞上同一端口，后起的那个直接退出）
+  let port;
+  do port = 20000 + Math.floor(Math.random() * 12000); while (servers.some((x) => [x.port, x.control].some((q) => q === port || q === port + 1)));
   const data = join(TMP, `data-${tag}`); mkdirSync(data, { recursive: true });
   const env = { ...process.env, NODE_ENV: 'test', MCP_GATEWAY: 'off', PORT: String(port), DATA_DIR: data, ...extraEnv };
   for (const k of ['WM_ODOO_URL', 'WM_EXTENSIONS_DIR', 'WM_ODOO_ORIGINS', 'WM_DEV_ORIGIN', 'WM_CONTROL_PORT']) if (!(k in extraEnv)) delete env[k];
@@ -54,9 +56,10 @@ function boot(tag, extraEnv) {
   const preload = "import net from 'node:net';const listen=net.Server.prototype.listen;net.Server.prototype.listen=function(...args){this.once('listening',()=>{const a=this.address();if(a&&typeof a==='object')process.send?.({kind:'synthetic-owned-listener',port:a.port});});return listen.apply(this,args)};";
   const child = spawn(process.execPath, ['--import', 'data:text/javascript,' + encodeURIComponent(preload), '--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'], env, detached: true }); // 独立进程组，收尾整组停
   let err = ''; child.stderr.on('data', (c) => (err += c));
+  const closed = new Promise((x) => child.once('close', x)); // close 在 stdio 读完之后才触发：退出原因的最后一行在这之前可能还没读到
   const ownedPorts = new Set();
   child.on('message', (m) => { if (m?.kind === 'synthetic-owned-listener' && Number.isInteger(m.port)) ownedPorts.add(m.port); });
-  const s = { port, control: port + 1, child, ownedPorts, err: () => err };
+  const s = { port, control: port + 1, child, ownedPorts, err: () => err, closed };
   servers.push(s);
   return s;
 }
@@ -71,7 +74,7 @@ const http = (port, method, path, headers = {}, body) => new Promise((done, reje
   if (body !== undefined) rq.write(body);
   rq.end();
 });
-const up = async (port) => { const end = Date.now() + 40_000; const owner = servers.find(s => s.port === port || s.control === port); if (!owner) throw Error('unknown_synthetic_port'); while (Date.now() < end) { if (exited(owner)) throw Error('owned_synthetic_server_exited: ' + owner.err().slice(-200)); if (owner.ownedPorts.has(port) && (await http(port, 'GET', '/api/health')).status === 200) return true; await new Promise((x) => setTimeout(x, 100)); } throw Error('owned_synthetic_listener_not_ready'); };
+const up = async (port) => { const end = Date.now() + 40_000; const owner = servers.find(s => s.port === port || s.control === port); if (!owner) throw Error('unknown_synthetic_port'); while (Date.now() < end) { if (exited(owner)) { await Promise.race([owner.closed, new Promise((x) => setTimeout(x, 2000))]); throw Error(`owned_synthetic_server_exited: port=${owner.port}/${owner.control} code=${owner.child.exitCode} signal=${owner.child.signalCode} stderr=${owner.err().slice(-800)}`); } if (owner.ownedPorts.has(port) && (await http(port, 'GET', '/api/health')).status === 200) return true; await new Promise((x) => setTimeout(x, 100)); } throw Error('owned_synthetic_listener_not_ready'); };
 
 const TOK = 'synthetic-vault-admin-token';
 const MASTER = 'synthetic-master-pass-42';
