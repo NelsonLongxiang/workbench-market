@@ -44,6 +44,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_A2A_FOLLOWUP_RATE_10MIN`（席位跟进每个对端 10 分钟内存正文的条数上限·缺省 300·只收 1～100000 的整数，否则拒绝启动；超出的不存正文、只计数，结清回执照回）
 - `A2A_ORIGIN_CLAIM_UNBOUND`（v1 未绑定调用方签名兼容窗：`off`=停发 `X-A2A-Caller-Sig`，缺省继续发；v1 不绑路由，未升级对端上可被剥 Sig2 重放，全舰队升级后应设 `off`）
 - `WM_A2A_MEMBER_PROVENANCE`（缺省 `on`：市场名片声明 `canvasMemberProvenance`——a2a-net 0.8 起，对钉了公钥的画布成员只往声明了它的宿主转发，不声明则席位的回执到不了市场；声明即承诺：名片只列本节点自己服务、互不重复的句柄 `market/<8 hex>`，发给它们的消息只在本节点投递、查无或有歧义一律 404，句柄只由本节点密钥签发；`off`=不声明，名片与之前完全相同；其它值拒绝启动）
+- `WM_A2A_PROGRESS_RECEIPTS`（缺省 `on`：市场名片声明 `progressReceipts`——宿主只给声明了它的调用方发进展回执 `progress-<task>-<n>`；市场收下后只记录、给事项页做「正在处理」提示和子项，不结清原派工、不推事项状态；`off`=不声明，宿主不发进展；其它值拒绝启动）
 - `LAYERFS_SERVICE_URL`/`LAYERFS_SERVICE_TOKEN`（LayerFS·缺一即禁用）
 - `LAYERFS_SERVICE_TOKEN_FILE`（LayerFS 令牌文件·设了就以文件为准，不回落到库里或环境变量里的令牌；内容不足 32 字节拒绝启动）
 - `AI_GATEWAY_API_KEY`（`skill_search` 评估模型令牌·缺=工具报错不降级）

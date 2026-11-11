@@ -39,6 +39,20 @@ export function memberProvenanceMode(env: NodeJS.ProcessEnv = process.env): 'on'
 }
 export function setMemberProvenance(on: boolean): void { memberProvenance = on; }
 
+/**
+ * 名片是否声明 progressReceipts（a2a-net next/0.8 #605 起，宿主只给声明了它的调用方发进展回执 progress-<task>-<n>——
+ * 旧接收方遇到不认识的 disposition 会把原派工当成已结清，所以要先能正确收、再声明）。声明即承诺：
+ * 进展只记录、不结清、不推状态，认不得的 state 只记录（receipt-inbound.ts 的 progress 分支，测试 scripts/a2a-answers-test.mjs）。
+ * 开关 WM_A2A_PROGRESS_RECEIPTS（缺省 on；off 时名片不声明，宿主不发进展），启动时由 index.ts 读一次并设进来。
+ */
+let progressReceipts = true;
+export function progressReceiptsMode(env: NodeJS.ProcessEnv = process.env): 'on' | 'off' | null {
+  const raw = String(env.WM_A2A_PROGRESS_RECEIPTS ?? '');
+  if (raw === '' || raw === 'on') return 'on';
+  return raw === 'off' ? 'off' : null;
+}
+export function setProgressReceipts(on: boolean): void { progressReceipts = on; }
+
 let cachedKey: KeyObject | null = null;
 
 /** 首启生成 Ed25519 并存 DATA_DIR/a2a-key.pem（0600）；之后加载。 */
@@ -136,7 +150,7 @@ export function buildAgentCard(keyPath: string): Record<string, unknown> {
     if (Array.isArray(parsed)) peers = parsed.filter((x) => typeof x === 'string');
   } catch { /* 配置坏值忽略 */ }
   const core = {
-    capabilities: { sop: true, bindings: 'human-only', stage: 'P1-readonly', ...(memberProvenance ? { canvasMemberProvenance: true } : {}) },
+    capabilities: { sop: true, bindings: 'human-only', stage: 'P1-readonly', ...(memberProvenance ? { canvasMemberProvenance: true } : {}), ...(progressReceipts ? { progressReceipts: true } : {}) },
     expiresAt: now + CARD_TTL_MS,
     name: 'workbench-market',
     session: MARKET_TEAM,
