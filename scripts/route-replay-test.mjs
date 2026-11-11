@@ -463,9 +463,14 @@ async function bootOnce(tag, env, clock, fixtures) {
   });
   let stderr = '';
   child.stderr.on('data', (d) => { stderr += String(d); });
+  // 先请它退出；5 秒不退就强杀，并且等到它真的退出，再删目录。删不掉只警告，不改结果
+  const exited = () => child.exitCode !== null || child.signalCode !== null;
+  const waitExit = (ms) => new Promise((r) => { if (exited()) r(); else { const t = setTimeout(r, ms); child.once('exit', () => { clearTimeout(t); r(); }); } });
   const stop = async () => {
-    if (child.exitCode === null && child.signalCode === null) { child.kill('SIGTERM'); await new Promise((r) => { child.once('exit', r); setTimeout(r, 5000); }); }
-    rmSync(root, { recursive: true, force: true });
+    if (!exited()) { child.kill('SIGTERM'); await waitExit(5000); }
+    if (!exited()) { child.kill('SIGKILL'); await waitExit(5000); }
+    try { rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
+    catch (e) { console.warn(`⚠ 临时目录没删干净（不影响结果）：${root}：${e?.code ?? e}`); }
   };
   const base = `http://127.0.0.1:${port}`;
   const deadline = Date.now() + 30000;
