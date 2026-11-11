@@ -7,7 +7,9 @@
  * 不绑定形式（v1，只签 [caller, callerUrl, ts]）不绑路由，这里一律不认。
  * 上游信封不签 body，所以另认一个市场扩展：X-WM-Body-Sha256（原始 body 的 sha256，base64url）+ X-WM-Body-Sig 签
  *   JSON.stringify(['wm-a2a-direct-body/1', caller, callerUrl, ts, audience, METHOD, path, bodySha256])。
- * 带了 body 签名就只验它（篡改 body 必拒）；WM_A2A_DIRECT_SIG_BODY=require 时只认它（缺省 accept：现有 DSH 节点只发 Sig2）。
+ * 带了 body 签名就只验它（require 下篡改 body 必拒；accept 下取卡或验签失败按未签名处理，见 index.ts）；
+ * WM_A2A_DIRECT_SIG_BODY=require 时只认它（缺省 accept：现有 DSH 节点只发 Sig2）。
+ * 对外：取卡或验签这一步的几种失败一律显示成 no-card（shownRefusal）。
  *
  * 公钥来源：只取市场侧人工登记的绑定地址（bindings.notify_url，agent_node = caller_session），
  * 绝不用请求里的 X-A2A-Caller-Url 或任何自带公钥。取卡不跟随重定向、5 秒超时、64 KiB 上限；卡片按官方 verifyCard 验签。
@@ -52,8 +54,8 @@ export function cardCooldownMs(env: NodeJS.ProcessEnv = process.env): number | n
 }
 
 /**
- * 对外显示的拒收原因：取卡这一步的三种失败（没登记取卡地址 / 取不到或验不过卡 / 卡上的身份不是它 / 签名对不上卡）
- * 只在调用方有登记时才可能区分，一律对外显示成 no-card，匿名者分不出某个 caller_session 有没有绑定。内部日志照旧分开记。
+ * 对外显示的拒收原因：取卡这一步的几种失败（没登记取卡地址 / 取不到或验不过卡 / 卡上的身份不是它 / 签名对不上卡）
+ * 一律对外显示成 no-card。内部日志照旧分开记。
  */
 export function shownRefusal(reason: SigRefusal): SigRefusal {
   return reason === 'unregistered' || reason === 'not-derivable' || reason === 'bad-sig' ? 'no-card' : reason;

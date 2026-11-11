@@ -147,11 +147,11 @@ try {
   r = await direct(tampered, bodyHeaders(orig, { signedBody: orig, claimDigest: b64u(Buffer.from(orig)) }));
   ok('篡改 body（摘要头没改）→ 401 bad-body-digest', refused(r, 'bad-body-digest'), show(r));
   r = await direct(tampered, bodyHeaders(orig, { signedBody: orig, claimDigest: b64u(Buffer.from(tampered)) }));
-  ok('篡改 body 且改了摘要头 → 401（内部 bad-sig，对外与取不到卡同答 no-card）', refused(r, 'no-card'), show(r));
+  ok('accept：篡改 body 且改了摘要头（内部 bad-sig）→ 按未签名走准入，与不带签名同', delivered(r), show(r));
   r = await direct(start(OK), routeHeaders({ method: 'PUT' }));
-  ok('签 PUT 发 POST → 401（内部 bad-sig，对外与取不到卡同答 no-card）', refused(r, 'no-card'), show(r));
+  ok('accept：签 PUT 发 POST（内部 bad-sig）→ 按未签名走准入', delivered(r), show(r));
   r = await direct(start(OK), routeHeaders({ url: BASE + '/a2a/log' }));
-  ok('签 /a2a/log 发 /a2a/direct → 401（内部 bad-sig，对外与取不到卡同答 no-card）', refused(r, 'no-card'), show(r));
+  ok('accept：签 /a2a/log 发 /a2a/direct（内部 bad-sig）→ 按未签名走准入', delivered(r), show(r));
   r = await direct(start(OK), routeHeaders({ url: 'http://10.9.9.9:13080/a2a/direct' }));
   ok('签给别的主机 → 401 wrong-audience', refused(r, 'wrong-audience'), show(r));
   r = await direct(start(OK), routeHeaders({ ts: Date.now() - 6 * 60_000 }));
@@ -161,18 +161,18 @@ try {
   r = await direct(start('otherz/aaaa1111'), routeHeaders());
   ok('签名身份 peerz ≠ caller_session 的 zone → 401 identity-mismatch', refused(r, 'identity-mismatch'), show(r));
   r = await direct(start(OK), routeHeaders({ key: otherKey }));
-  ok('别的钥匙签 → 401（内部 bad-sig，对外与取不到卡同答 no-card）', refused(r, 'no-card'), show(r));
+  ok('accept：别的钥匙签（内部 bad-sig）→ 按未签名走准入', delivered(r), show(r));
   r = await direct(start(EVIL), routeHeaders({ caller: 'evilz' }));
-  ok('签名身份对、登记地址上的卡也是它，但钥匙对不上 → 401（内部 bad-sig，对外与取不到卡同答 no-card）', refused(r, 'no-card'), show(r));
+  ok('accept：签名身份对、卡也是它但钥匙对不上（内部 bad-sig）→ 按未签名走准入', delivered(r), show(r));
   r = await direct(start(BADCARD), routeHeaders());
-  ok('登记地址上的卡片签名无效 → 401 no-card', refused(r, 'no-card'), show(r));
+  ok('accept：登记地址上的卡片签名无效（内部 no-card）→ 按未签名走准入', delivered(r), show(r));
   ok('坏卡确实取过一次', hits.bad >= 1);
   const before = hits.redirectTarget;
   r = await direct(start(REDIR), routeHeaders());
-  ok('登记地址 302 → 不跟随 → 401 no-card', refused(r, 'no-card'), show(r));
+  ok('accept：登记地址 302 → 不跟随（内部 no-card）→ 按未签名走准入', delivered(r), show(r));
   ok('取卡不跟随重定向（落地地址零访问）', hits.redirect >= 1 && hits.redirectTarget === before);
   r = await direct(start(OK), { ...routeHeaders(), 'X-A2A-Caller-Url': PEER + '/evil' });
-  ok('改 X-A2A-Caller-Url 指向别的卡 → 401（内部 bad-sig，对外与取不到卡同答 no-card）（只取登记地址，且 url 在签名里）', refused(r, 'no-card'), show(r));
+  ok('accept：改 X-A2A-Caller-Url 指向别的卡（内部 bad-sig；只取登记地址，且 url 在签名里）→ 按未签名走准入', delivered(r), show(r));
   const replayLater = { raw: start(OK) }; replayLater.h = routeHeaders();
   ok('重启前用掉一个签名', delivered(await direct(replayLater.raw, replayLater.h)));
   await halt();
@@ -192,6 +192,27 @@ try {
   ok('require：卡片地址未登记 → 401（对外同 no-card，不泄露绑定）', refused(r, 'no-card'), show(r));
   r = await direct(start(UNBOUND), routeHeaders());
   ok('require：无绑定 → 401', refused(r, 'no-card'), show(r));
+  // 取卡或验签这一步的失败在 require 下一律 401，对外同答 no-card（内部原因照旧分开记）
+  {
+    const o2 = start(OK);
+    const t2 = o2.replace('sig smoke start', 'sig smoke TAMPERED');
+    r = await direct(t2, bodyHeaders(o2, { signedBody: o2, claimDigest: b64u(Buffer.from(t2)) }));
+    ok('require：篡改 body 且改了摘要头 → 401（内部 bad-sig，对外 no-card）', refused(r, 'no-card'), show(r));
+    r = await direct(start(OK), routeHeaders({ method: 'PUT' }));
+    ok('require：签 PUT 发 POST → 401 no-card', refused(r, 'no-card'), show(r));
+    r = await direct(start(OK), routeHeaders({ url: BASE + '/a2a/log' }));
+    ok('require：签 /a2a/log 发 /a2a/direct → 401 no-card', refused(r, 'no-card'), show(r));
+    r = await direct(start(OK), routeHeaders({ key: otherKey }));
+    ok('require：别的钥匙签 → 401 no-card', refused(r, 'no-card'), show(r));
+    r = await direct(start(EVIL), routeHeaders({ caller: 'evilz' }));
+    ok('require：签名身份对、卡也是它但钥匙对不上 → 401 no-card', refused(r, 'no-card'), show(r));
+    r = await direct(start(BADCARD), routeHeaders());
+    ok('require：登记地址上的卡片签名无效 → 401 no-card', refused(r, 'no-card'), show(r));
+    r = await direct(start(REDIR), routeHeaders());
+    ok('require：登记地址 302 → 不跟随 → 401 no-card', refused(r, 'no-card'), show(r));
+    r = await direct(start(OK), { ...routeHeaders(), 'X-A2A-Caller-Url': PEER + '/evil' });
+    ok('require：改 X-A2A-Caller-Url 指向别的卡 → 401 no-card', refused(r, 'no-card'), show(r));
+  }
   await halt();
 
   // ===== body require =====

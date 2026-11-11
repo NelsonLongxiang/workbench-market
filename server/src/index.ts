@@ -155,6 +155,8 @@ if (A2A_CARD_COOLDOWN_MS === null) {
   console.error('[a2a-direct-sig] 拒绝启动：WM_A2A_CARD_COOLDOWN_S 只接受 1～3600 的整数或不设');
   process.exit(1);
 }
+/** 取卡或验签这一步的失败：只有调用方在绑定上登记了取卡地址时才可能区分，对外不能露出来 */
+const FETCH_STEP_REFUSALS: ReadonlySet<string> = new Set(['unregistered', 'no-card', 'not-derivable', 'bad-sig']);
 const directSig = createDirectSigVerifier({ audiences: () => [marketPublicUrl()], bodyMode: A2A_DIRECT_SIG_BODY, refreshCooldownMs: A2A_CARD_COOLDOWN_MS });
 app.use(loginGate.middleware);
 loginRelay().install(app); // narrow same-origin Odoo login, before any body parser
@@ -2515,8 +2517,10 @@ app.post('/a2a/direct', express.json({ limit: '600kb' }), async (req, res) => {
     let reason = '';
     if (presence === 'signed') {
       const v = await directSig.verify(req, (req as unknown as { rawBody?: Buffer }).rawBody ?? Buffer.alloc(0), caller);
-      // accept：调用方没登记取卡地址时验不了，按未签名的老路走（不比无签名更宽）
-      if (!v.ok && !(A2A_DIRECT_SIG === 'accept' && v.reason === 'unregistered')) reason = v.reason;
+      // accept：取卡或验签这一步失败（没登记、取不到卡、卡上身份不对、签名对不上卡）一律按未签名的老路走——
+      // 不比不带签名的请求更宽、也不更严。内部日志照旧记原因
+      if (!v.ok && A2A_DIRECT_SIG === 'accept' && FETCH_STEP_REFUSALS.has(v.reason)) console.warn(JSON.stringify({ source: 'a2a-direct-sig', unverified: v.reason, fallback: 'unsigned' }));
+      else if (!v.ok) reason = v.reason;
     } else if (A2A_DIRECT_SIG === 'require') reason = presence === 'unbound' ? 'unbound-only' : 'absent';
     if (reason !== '') {
       console.warn(JSON.stringify({ source: 'a2a-direct-sig', refused: reason }));

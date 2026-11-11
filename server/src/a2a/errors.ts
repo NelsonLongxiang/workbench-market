@@ -3,8 +3,8 @@
  * 以及给市场自己看的中文原因和处理办法。
  *
  * public 是 /api/health 里公开计数用的桶。对外刻意答成同一种的原因（查无 SOP 与没有绑定都答 404，
- * 没登记取卡地址与取不到卡都答 no-card）在公开计数里也并成同一个桶，否则匿名的人发一条请求、
- * 比一下计数涨了哪一格，就能分出「SOP 存在但没绑定」和「SOP 不存在」。
+ * 没登记取卡地址、取不到卡、卡上身份不对、签名对不上卡都答 no-card）在公开计数里也并成同一个桶，否则匿名的人发一条请求、
+ * 比一下计数涨了哪一格，就能分出「SOP 存在但没绑定」和「SOP 不存在」，或者某个调用方有没有绑定。
  */
 export type A2aErrorKey =
   | 'payload-too-large' | 'missing-fields' | 'unknown-team' | 'anonymous' | 'not-admitted'
@@ -46,9 +46,9 @@ export const A2A_ERRORS: Record<A2aErrorKey, A2aErrorInfo> = {
   'sig:identity-mismatch': { code: -32000, http: 401, public: 'sig:identity-mismatch', reason: '签名身份、名片 team 与 caller_session 的 zone 对不上。', fix: '用和 caller_session 同一个 zone 的密钥签名。' },
   'sig:unregistered': { code: -32000, http: 401, public: 'sig:no-card', reason: '调用方绑定上没登记取卡地址，市场拿不到公钥。对外与「取不到卡」同答，不泄露绑定是否存在。', fix: '请管理员在绑定上登记调用方的名片地址。' },
   'sig:no-card': { code: -32000, http: 401, public: 'sig:no-card', reason: '从登记地址取不到有效名片（超时、重定向、超过 64 KiB、验签不过）。', fix: '检查调用方名片地址可达、不跳转、名片未过期。' },
-  'sig:not-derivable': { code: -32000, http: 401, public: 'sig:not-derivable', reason: '名片里的公钥无法解析。', fix: '重新签发调用方名片。' },
+  'sig:not-derivable': { code: -32000, http: 401, public: 'sig:no-card', reason: '名片里的公钥无法解析。', fix: '重新签发调用方名片。' },
   'sig:bad-body-digest': { code: -32000, http: 401, public: 'sig:bad-body-digest', reason: 'body 摘要和实际收到的内容对不上（内容被改过）。', fix: '对实际发出的原始字节算摘要再签。' },
-  'sig:bad-sig': { code: -32000, http: 401, public: 'sig:bad-sig', reason: '签名验不过（密钥不对或签名面不一致）。', fix: SIG_FIX },
+  'sig:bad-sig': { code: -32000, http: 401, public: 'sig:no-card', reason: '签名验不过（密钥不对或签名面不一致）。', fix: SIG_FIX },
   'sig:replay': { code: -32000, http: 401, public: 'sig:replay', reason: '同一个签名用过一次了。', fix: '每次请求重新签名。' },
 };
 
