@@ -4,10 +4,11 @@
  *  生命周期没挂上时表这一块给空状态，下面的「等你拍板」照常。「安排一件事」等后端，先不放入口；「今天」没有可靠来源的格子不出现。 */
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
-import { Empty, Skeleton, Tag, Typography } from 'antd';
-import { CheckOutlined } from '@ant-design/icons';
+import { Button, Empty, Skeleton, Tag, Typography } from 'antd';
+import { CheckOutlined, PlusOutlined } from '@ant-design/icons';
 import WmPage from '../components/WmPage';
 import DecisionCard from '../components/DecisionCard';
+import ArrangeDrawer from '../components/ArrangeDrawer';
 import { adminActive, subscribeAdminToken } from '../admin-token';
 import { ATTENTION_CHANGED, getAttention, getAuthMe, getLifecycle } from '../api';
 import { answerChoices, groupCards, type AttentionItem } from '../attention-view';
@@ -23,6 +24,7 @@ export default function Home() {
   const [lcState, setLcState] = useState<'loading' | 'ok' | 'none'>('loading');
   const [attention, setAttention] = useState<AttentionItem[]>([]);
   const [focus, setFocus] = useState<Focus>(null);
+  const [arrange, setArrange] = useState(false);
 
   const loadAttention = useCallback(async () => {
     const r = await getAttention();
@@ -64,7 +66,7 @@ export default function Home() {
   const focusRow = focus ? rows.find((r) => r.id === focus.object) : null;
   const focusStage = focus ? cols.find((c) => c.code === focus.stage) : null;
 
-  return <WmPage>
+  return <WmPage extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setArrange(true)} data-testid="arrange-open">安排一件事</Button>}>
     <div className="wm-home">
       <h1 className="wm-home-hi" data-testid="home-greeting">{greeting(new Date().getHours(), name)}</h1>
       <Typography.Paragraph type="secondary" className="wm-home-sum" data-testid="home-summary">
@@ -104,7 +106,7 @@ export default function Home() {
 
       <div className="wm-sec-h">
         <h3>等你拍板</h3><span className="wm-sec-n">{cards.length}</span>
-        {focus && <Typography.Text type="secondary" className="wm-caption">只看 {focusRow?.label ?? focus.object} · {focusStage?.name ?? focus.stage}（<a onClick={() => setFocus(null)}>看全部</a>）</Typography.Text>}
+        {focus && <Typography.Text type="secondary" className="wm-caption">只看 {focusRow?.label ?? focus.object} · {focusStage?.name ?? focus.stage}（<a onClick={() => setFocus(null)}>看全部</a> · <a onClick={() => setArrange(true)}>就这一步安排一件事</a>）</Typography.Text>}
         <Link to="/attention" className="wm-sec-more">全部 →</Link>
       </div>
       {cards.length === 0
@@ -117,5 +119,7 @@ export default function Home() {
           </>}
         </>}
     </div>
+    <ArrangeDrawer open={arrange} onClose={() => setArrange(false)} preset={focus ? { object: focus.object, phase: focus.stage } : undefined}
+      lines={active.map((r) => ({ id: r.id, label: r.label }))} stages={cols.map((c) => ({ code: c.code, name: c.name }))} />
   </WmPage>;
 }
