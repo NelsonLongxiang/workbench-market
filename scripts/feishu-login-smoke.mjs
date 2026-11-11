@@ -232,6 +232,11 @@ try {
     const dropped = await whoami(c);
     sql("INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES ('feishu', ?, ?, 'user:alpha')", PEOPLE.alice.union_id, PEOPLE.alice.union_id);
     const restored = await whoami(c);
+    // 直接在库里改绑（不经接口、不注销会话）：旧会话凭的身份不再绑在原来那个主体上，立即不认，也不会变成新主体
+    sql("UPDATE principal_identities SET principal_id = 'user:beta' WHERE provider = 'feishu' AND external_id = ?", PEOPLE.alice.union_id);
+    const rebound = await whoami(c);
+    sql("UPDATE principal_identities SET principal_id = 'user:alpha' WHERE provider = 'feishu' AND external_id = ?", PEOPLE.alice.union_id);
+    check(restored.status === 200 && rebound.status !== 200 && rebound.sub === null && (await whoami(c)).status === 200, '直接在库里把这条身份改绑到别的主体（会话没被注销）：旧会话立即不认，不会变成新主体；改回来又认', show({ rebound }));
     // 改绑到别的主体：旧会话不能变成新主体
     const c2 = browser(open); await feishuLogin(c2, fake, 'alice');
     const oldToken = c2.jar.get('wm_session');
@@ -434,6 +439,16 @@ try {
     const boundUntrusted = ((await browser(u).req('GET', '/api/principals', { headers: admin })).json?.principals ?? []).find((p) => p.id === 'user:erin')?.identities.some((i) => i.provider === 'untrusted');
     check(st.status === 302 && cb.status === 403 && !ub.jar.has('wm_session') && !boundUntrusted, '核心这一道：登录方式交回的邮箱没确认来自本组织，哪怕打开了自动对上、邮箱对得上，也不绑、不发会话', show({ start: st.status, cb: cb.status, boundUntrusted }));
     await u.stop();
+    // 登录方式两个标记都不给：当外人——只进待对接清单，不发会话，哪怕这条身份被绑过
+    const nf = await boot('noflags-flow', fake, { IDENTITY_FAKE_NOFLAGS_FLOW: '1' });
+    await browser(nf).req('POST', '/api/principals/bind', { headers: admin, body: { provider: 'noflags', external_id: 'someone-0001', principal: 'user:someone', create: true } });
+    const nb = browser(nf);
+    const nst = await nb.req('GET', '/login/noflags?next=/');
+    const nstate = nst.location ? new URL(nst.location).searchParams.get('state') : '';
+    const ncb = await nb.req('GET', `/login/noflags/callback?state=${encodeURIComponent(nstate)}&who=someone-0001`);
+    const nPending = ((await browser(nf).req('GET', '/api/principals/pending', { headers: admin })).json?.pending ?? []).some((p) => p.provider === 'noflags' && p.external_id === 'someone-0001');
+    check(nst.status === 302 && ncb.status === 403 && !nb.jar.has('wm_session') && nPending, '登录方式交回的身份不说是不是外人（两个标记都缺）：按外人处理——身份绑过也拿不到会话，只进待对接清单', show({ start: nst.status, cb: ncb.status, nPending }));
+    await nf.stop();
     // 打开自动对上却没配租户：拒绝启动
     const noTenant = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], { cwd: join(ROOT, 'server'), env: { PATH: process.env.PATH, HOME: join(OUT, 'nt-home'), NODE_ENV: 'test', IDENTITY_SEAM_ROOT: ROOT, DATA_DIR: join(OUT, 'nt-data'), PORT: '0', WM_CONTROL_PORT: '0', MCP_GATEWAY: 'on', WM_FEISHU_LOGIN: 'on', WM_FEISHU_AUTO_BIND_EMAIL: 'on' }, encoding: 'utf8', timeout: 30000 });
     check(noTenant.status !== 0 && /WM_FEISHU_TENANT_KEY/.test(noTenant.stderr), '打开按邮箱自动对上、却没配租户：拒绝启动并说明', `status=${noTenant.status} ${String(noTenant.stderr).trim().split('\n').filter((l) => l.includes('feishu')).slice(0, 1)}`);

@@ -23,9 +23,9 @@ const OUT = join(ROOT, 'tmp', `identity-mutation-${process.pid}`);
 const jobsArg = process.argv.indexOf('--jobs');
 const JOBS = Math.max(1, Number(jobsArg >= 0 ? process.argv[jobsArg + 1] : 3) || 3);
 
-const CONTRACT = 'identity-contract-test.mjs', SMOKE = 'identity-seam-smoke.mjs', SERVICE = 'principal-service-test.mjs', FOLD = 'principal-fold-test.mjs', FEISHU = 'feishu-login-smoke.mjs';
+const CONTRACT = 'identity-contract-test.mjs', SMOKE = 'identity-seam-smoke.mjs', SERVICE = 'principal-service-test.mjs', FOLD = 'principal-fold-test.mjs', FEISHU = 'feishu-login-smoke.mjs', OFFBOARD = 'feishu-offboard-smoke.mjs';
 const IDENTITY = 'server/src/identity.ts';
-const SESSIONS_SVC = 'server/src/services/login-session.ts', FLOWS = 'server/src/routes/login-flows.ts', FEISHU_PLUGIN = 'server/src/login-providers/feishu/index.ts';
+const SESSIONS_SVC = 'server/src/services/login-session.ts', FLOWS = 'server/src/routes/login-flows.ts', EVENTS = 'server/src/routes/login-events.ts', FEISHU_PLUGIN = 'server/src/login-providers/feishu/index.ts';
 const PRINCIPAL = 'server/src/services/principal.ts', ROUTES = 'server/src/routes/principals.ts', DB = 'server/src/db.ts', GATE = 'server/src/login-gate.ts';
 
 const INDEX = 'server/src/index.ts';
@@ -239,6 +239,31 @@ const MUTANTS = [
     find: '    if (who.outsider) {', replace: '    if (false) {' },
   { id: 'tenant-mismatch-not-flagged', what: '插件租户不符也不标外人', file: FEISHU_PLUGIN, suites: [FEISHU],
     find: '    const outsider = Boolean(config.tenant) && data.tenant_key !== config.tenant;', replace: '    const outsider = false;' },
+  // —— 离职即时失效（5c）——
+  { id: 'event-signature-unchecked', what: '事件不验签', file: FEISHU_PLUGIN, suites: [OFFBOARD],
+    find: "  if (!timingSafeEqual(Buffer.from(expected), Buffer.from(sig))) return reject(401, 'event_unauthorized');\n", replace: '' },
+  { id: 'event-timestamp-unchecked', what: '事件不看时间戳新旧（旧请求能重放）', file: FEISHU_PLUGIN, suites: [OFFBOARD],
+    find: "  if (Math.abs(Date.now() / 1000 - Number(ts)) > EVENT_SKEW_S) return reject(401, 'event_unauthorized');\n", replace: '' },
+  { id: 'event-token-unchecked', what: '事件不核对 Verification Token', file: FEISHU_PLUGIN, suites: [OFFBOARD],
+    find: " || h.token !== verificationToken || ", replace: ' || ' },
+  { id: 'event-app-unchecked', what: '事件不核对 App ID', file: FEISHU_PLUGIN, suites: [OFFBOARD],
+    find: " || h.app_id !== cred.id) return reject(401, 'event_unauthorized');", replace: ") return reject(401, 'event_unauthorized');" },
+  { id: 'event-replay-not-deduped', what: '事件不按事件号去重（重放会再处理一次）', file: EVENTS, suites: [OFFBOARD],
+    find: "if (ev.http === 200 && ev.eventId && !sessions().firstSeen(flow, ev.eventId)) {", replace: 'if (false) {' },
+  { id: 'event-updated-any', what: '「员工信息被修改」不看状态一律停用', file: FEISHU_PLUGIN, suites: [OFFBOARD],
+    find: "h.event_type === 'contact.user.updated_v3' && gone(object.status)", replace: "h.event_type === 'contact.user.updated_v3'" },
+  { id: 'offboard-keeps-sessions', what: '离职停用时不注销会话（恢复之后旧会话复活）', file: EVENTS, suites: [OFFBOARD],
+    find: '    sessions().revokeAllFor(id);\n', replace: '' },
+  { id: 'event-other-tenant-processed', what: '配了租户也处理别的租户的事件', file: FEISHU_PLUGIN, suites: [OFFBOARD],
+    find: "  if (config.tenant && h.tenant_key !== config.tenant) return { http: 200, body: {}, eventId, offboard: [] };\n", replace: '' },
+  { id: 'url-verification-token-unchecked', what: 'URL 校验不看 Token', file: FEISHU_PLUGIN, suites: [OFFBOARD],
+    find: "return payload.token === verificationToken && typeof payload.challenge === 'string'", replace: "return typeof payload.challenge === 'string'" },
+  { id: 'event-when-off', what: '没打开飞书登录也收事件（不先看这个登录方式收不收）', file: EVENTS, suites: [OFFBOARD],
+    find: "if (!FLOW_RE.test(flow) || !identity().flowCapabilities(flow).events) return res.status(401).json({ error: 'event_unauthorized' });", replace: "if (!FLOW_RE.test(flow)) return res.status(401).json({ error: 'event_unauthorized' });\n    if (!identity().flowCapabilities(flow).events) return res.status(200).json({});" },
+  { id: 'reconcile-unknown-as-gone', what: '对账把查不清的当成离职', file: FEISHU_PLUGIN, suites: [OFFBOARD],
+    find: '      if (!user) out.unknown.push(id);', replace: '      if (!user) out.gone.push(id);' },
+  { id: 'reconcile-error-disables-all', what: '对账时飞书出错就把所有人当离职', file: FEISHU_PLUGIN, suites: [OFFBOARD],
+    find: "  if (typeof tenantToken !== 'string' || !tenantToken) return { gone: [], unknown: externalIds };", replace: "  if (typeof tenantToken !== 'string' || !tenantToken) return { gone: externalIds, unknown: [] };" },
   // —— 夹具：假提供方不该在测试环境之外装得上 ——
   { id: 'fixture-preload-guard-removed', what: '预加载不看环境', file: PRELOAD, suites: [CONTRACT, SMOKE],
     find: "if (process.env.NODE_ENV !== 'test') {", replace: 'if (false) {' },
@@ -331,7 +356,7 @@ removeTree(OUT);
 try {
   // 绿：没改过的副本，两套都过。先证明「抄一份」这件事本身不会把测试弄红。
   const clean = plant('unchanged', null);
-  for (const script of [CONTRACT, SERVICE, FOLD, SMOKE, FEISHU]) {
+  for (const script of [CONTRACT, SERVICE, FOLD, SMOKE, FEISHU, OFFBOARD]) {
     const r = await runTwice(script, clean);
     note(r.status === 0, `没改过的副本：${script} 通过`, r.status === 0 ? '' : tailOf(r));
   }

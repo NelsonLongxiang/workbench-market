@@ -230,6 +230,24 @@ export const untrustedFlowPlugin = {
   },
 };
 
+/**
+ * 假登录方式 noflags：交回的身份既不说邮箱可不可信，也不说是不是外人（两个标记都缺）。
+ * 核心要朝不放行的方向收：当外人，只进待对接清单，不发会话——哪怕这条身份被绑过。
+ */
+export const noFlagsFlowPlugin = {
+  name: 'login-flow-noflags-fake',
+  inject: ['identity'],
+  apply(ctx) {
+    assertTestEnv();
+    const flow = {
+      name: 'noflags', label: '不给标记的假登录', available: () => true,
+      async begin({ state, callbackUrl }) { return { ok: true, location: `http://127.0.0.1:9/authorize?state=${encodeURIComponent(state)}&redirect_uri=${encodeURIComponent(callbackUrl)}` }; },
+      async complete(query) { return { ok: true, identity: { externalId: String(query.who ?? ''), displayName: null, email: null } }; },
+    };
+    ctx.effect(() => ctx.get('identity').registerFlow(flow), 'identity.registerFlow(noflags)');
+  },
+};
+
 /** 在 treeRoot 这棵目录树的上下文里卸掉自带的提供方。返回这棵树的 { root, identity, loginRelay }。 */
 export async function unloadShipped(treeRoot) {
   assertTestEnv();
