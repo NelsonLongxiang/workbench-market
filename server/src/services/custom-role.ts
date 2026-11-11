@@ -5,7 +5,7 @@
  *   · 每次建、改、放行、删都留一行（custom_role_events）。
  *   · 会带来管理类或决定类权限的建和改要属主放行（和管理员级授予的规则对齐）：
  *     新建的先是 pending，放行前不能授予；已生效的改动先记成 proposed，放行后才换上。
- *   · 从 AI 员工（ai-staff）复制出来的不许带决定类（决定只认人）。授予时「决定类不给非人」照旧核。
+ *   · 从 AI 员工（ai-staff）复制出来的不许带决定类（决定只认人），复制几层都算（沿来源链判）。授予时「决定类不给非人」照旧核。
  *   · 有授予在用（草稿、待核、生效）的不能删；改动返回会影响哪些授予。
  *   · 声明文件里的角色优先：声明文件后来用了同一个 id 或名字的，启动时这个自定义角色不加载（留一行痕）。
  * 时间由代码给（毫秒），SQL 里不取当前时间；留痕的序号在事务里取下一个。
@@ -35,6 +35,16 @@ export class CustomRoleService extends Service {
   get(id: string): CustomRoleView | null {
     const r = db.prepare('SELECT * FROM custom_roles WHERE id = ?').get(id) as CustomRoleRow | undefined;
     return r ? view(r) : null;
+  }
+
+  /** 这个自定义角色是不是（经过几层复制）从 root 来的：沿 based_on 一路往上找。删掉中间一层时，下一层的来源会接到它的来源上（见 delete），链不断 */
+  descendsFrom(id: string, root: string): boolean {
+    const seen = new Set<string>();
+    for (let cur = this.get(id); cur && !seen.has(cur.id); cur = this.get(cur.based_on)) {
+      if (cur.based_on === root) return true;
+      seen.add(cur.id);
+    }
+    return false;
   }
 
   /** 能授予的（生效的）自定义角色，交给角色表 */
@@ -108,6 +118,11 @@ export class CustomRoleService extends Service {
     if (!cur) return false;
     db.exec('BEGIN IMMEDIATE');
     try {
+      // 从它复制出来的角色：来源接到它的来源上，来源链不断（「从 AI 员工复制的不许带决定类」沿链判）
+      const children = db.prepare('SELECT id FROM custom_roles WHERE based_on = ? ORDER BY id').all(id) as { id: string }[];
+      db.prepare('UPDATE custom_roles SET based_on = ? WHERE based_on = ?').run(cur.based_on, id);
+      // 留痕记成一次改动（只改了来源），前后各写明 based_on
+      for (const c of children) this.event(c.id, 'update', actor, { based_on: id }, { based_on: cur.based_on }, now);
       db.prepare('DELETE FROM custom_roles WHERE id = ?').run(id);
       this.event(id, 'delete', actor, { name: cur.name, permissions: cur.permissions }, undefined, now);
       db.exec('COMMIT');

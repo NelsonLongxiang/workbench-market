@@ -202,8 +202,8 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
     const b = (req.body ?? {}) as Record<string, unknown>;
     const next = { name: b.name === undefined ? cur.name : str(b.name, 'name', 64), permissions: (b.permissions ?? cur.permissions) as Permission[] };
     const shape = checkCustom({ id, name: next.name, permissions: next.permissions }, id);
-    // 从 AI 员工复制出来的不许带决定类：决定只认人
-    if (cur.based_on === 'ai-staff' && shape.decides) return res.status(422).json({ error: 'decide_non_person', message: '从 AI 员工复制出来的角色不能带决定类权限（决定只认人）' });
+    // 从 AI 员工复制出来的不许带决定类：决定只认人。复制几层都算（沿来源链往上找）
+    if (customRoles().descendsFrom(id, 'ai-staff') && shape.decides) return res.status(422).json({ error: 'decide_non_person', message: '从 AI 员工复制出来的角色不能带决定类权限（决定只认人）' });
     const propose = (shape.adminLevel || shape.decides) && !actor.owner;
     const role = customRoles().update(id, { name: next.name, permissions: checkShape({ id, ...next }, `自定义角色 ${id}`).permissions }, propose, actor);
     if (!propose) rebuildRoles();

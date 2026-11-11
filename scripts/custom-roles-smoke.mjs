@@ -120,6 +120,20 @@ try {
       && narrow.status === 200 && narrow.json?.affected_grants?.some((x) => x.id === g.json?.grant?.id) && del.status === 409 && del.json?.grants?.length === 1,
       'AI 员工复制出来的加决定类 422；改动的应答列出会影响的授予；有授予在用（草稿也算）的删不掉 409，并列出是哪几条', show({ withDecide: withDecide.status, affected: narrow.json?.affected_grants?.length, del: del.status }));
   }
+  // ---------- 三之二、复制几层都算 AI 员工的副本；删掉中间一层，来源链也不断 ----------
+  {
+    const x1 = await srv.call('POST', '/api/roles/ai-staff/copy', {}, { id: 'ai-x1', name: 'AI 一层' });
+    const x2 = await srv.call('POST', '/api/roles/ai-x1/copy', {}, { id: 'ai-x2', name: 'AI 两层' });
+    const twoLevels = await srv.call('PUT', '/api/roles/ai-x2', {}, { permissions: [{ kinds: ['read', 'decide'] }] });
+    const delMiddle = await srv.call('DELETE', '/api/roles/ai-x1');
+    const afterDelete = await srv.call('PUT', '/api/roles/ai-x2', {}, { permissions: [{ kinds: ['read', 'decide'] }] });
+    const plain = await srv.call('POST', '/api/roles/member/copy', {}, { id: 'not-ai', name: '不是 AI 的副本' });
+    const plainDecide = await srv.call('PUT', '/api/roles/not-ai', {}, { permissions: [{ kinds: ['read', 'decide'] }] });
+    check(x1.status === 201 && x2.status === 201 && twoLevels.status === 422 && twoLevels.json?.error === 'decide_non_person'
+      && delMiddle.status === 200 && afterDelete.status === 422 && plainDecide.status === 200,
+      'AI 员工复制两层（ai-staff → ai-x1 → ai-x2）再加决定类照样 422；删掉中间一层之后还是 422（来源接到上一层）；不是从 AI 员工来的照常',
+      show({ twoLevels: twoLevels.status, delMiddle: delMiddle.status, afterDelete: afterDelete.status, plain: plainDecide.status }));
+  }
   // ---------- 四、留痕、导出 ----------
   {
     const db = new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true });
