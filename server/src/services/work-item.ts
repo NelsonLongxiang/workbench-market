@@ -302,13 +302,13 @@ const ALIVE: readonly DeliveryStatus[] = ['held', 'pending', 'sent'];
  * 所以确认、还没派给成员的进展里的 by 可能是总工。按上游的口径（A2A团队构建优化 2026-11-11）：
  *   · by.role（上游只增字段，dsh-open-a2a-net#611）是 member 或 observer 的，任何一类在做的回执都取；是 router 的一律不取；
  *   · 没有 role 时（过渡期）：只取提问（attention）和做完（completed）结果的 by，确认和进展的 by 不取；
- *   · 进展里 tickets 中还没结束那一项的 seat 一直是成员，可以取；
+ *   · 进展里 tickets 中在做（working / waiting / blocked）那一项的 seat 是成员，可以取；
  *   · 说不干了的结果（failed / rejected / abandoned）不改承接——可能是别的团队，也不再是「在做」。
- * 返回「名字 · 句柄」或句柄；取不到返回 ''。
+ * 只存句柄（<zone>/<id8>）：名字是对端自报的会话标题，只当显示用，留在日志的 detail.by.name 里。取不到返回 ''。
  */
 export function seatOfReceipt(action: string, detail: Record<string, unknown>): string {
   const by = detail.by && typeof detail.by === 'object' ? detail.by as { seat?: unknown; name?: unknown; role?: unknown } : null;
-  const show = (seat: unknown, name: unknown) => typeof seat === 'string' && seat !== '' ? (typeof name === 'string' && name !== '' ? `${name} · ${seat}` : seat).slice(0, 300) : '';
+  const show = (seat: unknown, _name?: unknown) => typeof seat === 'string' && seat !== '' ? seat.slice(0, 200) : '';
   const working = action === 'receipt:acknowledged' || action === 'receipt:attention' || action === 'receipt:progress' || action === 'receipt:completed';
   if (!working || !by && action !== 'receipt:progress') return '';
   if (by?.role === 'router') return action === 'receipt:progress' ? ticketSeat(detail) : '';
@@ -317,8 +317,9 @@ export function seatOfReceipt(action: string, detail: Record<string, unknown>): 
   return action === 'receipt:progress' ? ticketSeat(detail) : '';
 }
 function ticketSeat(detail: Record<string, unknown>): string {
-  const t = Array.isArray(detail.tickets) ? (detail.tickets as { seat?: unknown; state?: unknown }[]).find((x) => x && x.state !== 'ended' && typeof x.seat === 'string' && x.seat !== '') : undefined;
-  return typeof t?.seat === 'string' ? t.seat.slice(0, 300) : '';
+  // 只取在做的子项（working / waiting / blocked）：queued 时还没派给成员，seat 可能是总工；ended 的已经不在做
+  const t = Array.isArray(detail.tickets) ? (detail.tickets as { seat?: unknown; state?: unknown }[]).find((x) => x && ['working', 'waiting', 'blocked'].includes(String(x.state)) && typeof x.seat === 'string' && x.seat !== '') : undefined;
+  return typeof t?.seat === 'string' ? t.seat.slice(0, 200) : '';
 }
 
 export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], i: number): Fact | null {
@@ -366,7 +367,7 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
  * 版本没变时每次启动只做增量：从上次记下的事件日志水位往后核（没装事项服务的进程——比如回滚到旧版本期间——
  * 写进来的事件和事实，靠它补回来）。监听器漏过事实（dirty）也从头全量核。
  */
-export const BACKFILL_VERSION = 5; // 2：阶段七 R2 加了跟进、回复、看过的映射（#546）；3：进展回执的映射（PR-A）；4：回执的 by 记成承接席位；5：承接只取成员、重复事实补写承接（4 已被试联实例用过），终态事项承接空着的也补
+export const BACKFILL_VERSION = 6; // 2：阶段七 R2 加了跟进、回复、看过的映射（#546）；3：进展回执的映射（PR-A）；4：回执的 by 记成承接席位；5：承接只取成员、重复事实补写承接（4 已被试联实例用过），终态事项承接空着的也补；6：承接只存句柄、进展只取在做的子项、回填按顺序最后一条为准
 /** 后台回填每一片最多占用事件循环的时长（毫秒），之后让出，好让请求得到应答 */
 const BACKFILL_SLICE_MS = 25;
 /** 每次取的行数（一片里可以取好几次） */
@@ -754,10 +755,10 @@ export class WorkItemService extends Service {
     if (seen?.rejected) return { ok: false, reason: seen.rejected, state: item.state, duplicate: true };
     if (seen) {
       // 回填按版本号从头再核时，存量里已经应用过的事实照第一次的结果答；承接席位是后来才从事实里取的，这里补上
-      // （只是显示用的一列，按日志顺序重放，最后一条取得到席位的回执为准；终态之后只补空的）
-      // 终态之后不改已有的承接；但承接还空着的（存量里办完才补上这一列的事项），照样补上
+      // （只是显示用的一列）。走到这里的是已经应用过的历史事实——回填按事件日志顺序重放——所以不分终态，最后一条取得到席位的为准，
+      // 不先写先占；终态之后才到的新回执走的是只记录那条路，那里照旧不改承接
       const seatFilled = typeof fact.seat === 'string' && fact.seat !== ''
-        && Number(db.prepare(`UPDATE work_items SET seat = ? WHERE id = ? AND seat <> ?${TERMINAL.includes(item.state) ? " AND seat = ''" : ''}`).run(fact.seat, itemId, fact.seat).changes) === 1;
+        && Number(db.prepare('UPDATE work_items SET seat = ? WHERE id = ? AND seat <> ?').run(fact.seat, itemId, fact.seat).changes) === 1;
       return { ok: true, state: item.state, from: seen.from_state, duplicate: true, ...(seatFilled ? { seatFilled: true } : {}) };
     }
 
