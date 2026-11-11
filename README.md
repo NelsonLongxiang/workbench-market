@@ -389,6 +389,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   design-tokens.ts（设计 token 固定路径 /design/tokens@<版本>.css）
   export-import.ts（导出与导入 /api/export、/api/import）
   grants.ts（角色与授予的管理接口 /api/roles、/api/grants：起草、提交、放行、撤销）
+  health.ts（健康与就绪 /api/health、/api/health/ready：只回缓存的 LayerFS 结果、配了 LayerFS 才探；带 A2A 的开关、计数和时长；公开）
   login-events.ts（离职即时失效：/login/<方式>/events 失效通知、每日对账）
   login-flows.ts（登录方式 /login/<方式> 与回调：state、next、对到主体、发市场会话）
   mcp-protocol.ts（MCP 协议入口 /mcp（无状态 StreamableHTTP）：POST 收 JSON-RPC（initialize、ping、tools/list、tools/call），GET、DELETE 回 405；认证是 MCP 会话令牌）

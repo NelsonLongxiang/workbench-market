@@ -60,6 +60,7 @@ import { registerAppDataRoutes, appDataReadMode, type AppDataReadMode } from './
 import { registerSopRunFileRoutes } from './routes/sop-run-files.ts';
 import { registerSopRunLifecycleRoutes } from './routes/sop-run-lifecycle.ts';
 import { registerMcpRestRoutes } from './routes/mcp-rest.ts';
+import { registerHealthRoutes } from './routes/health.ts';
 import { registerMcpProtocolRoutes } from './routes/mcp-protocol.ts';
 import { registerSopRunControlRoutes } from './routes/sop-run-control.ts';
 import { registerSopRunAccessRoutes } from './routes/sop-run-access.ts';
@@ -2361,21 +2362,7 @@ function healthBase(req?: express.Request): Record<string, unknown> {
   } catch { /* 事项服务没装上 */ }
   return { ok: true, service: 'workbench-market-server', version: '0.1.0', uptime_s: Math.round(process.uptime()), login_gate: loginGate.mode, self_probe: startupSecurity.snapshot(), work_items_backfill: backfill };
 }
-app.get('/api/health', (req, res) => {
-  const result = healthBase(req);
-  const probed = layerfsProbeCached();
-  if (process.env.LAYERFS_SERVICE_URL && probed) result.layerfs = probed.status; // 只回缓存的上次结果，不触发探测
-  result.a2a = a2aHealth({ directSig: A2A_DIRECT_SIG, directSigBody: A2A_DIRECT_SIG_BODY! }); // 阶段七第 5 步：只出开关、计数和时长
-  res.json(result);
-});
-app.get('/api/health/ready', async (req, res) => {
-  const result = healthBase(req);
-  if (process.env.LAYERFS_SERVICE_URL) {
-    result.layerfs = await layerfsReadiness();
-    if (result.layerfs !== 'healthy') { result.ok = false; return res.status(503).json(result); }
-  }
-  res.json(result);
-});
+registerHealthRoutes(http, { healthBase, layerfsProbeCached, layerfsReadiness, A2A_DIRECT_SIG, A2A_DIRECT_SIG_BODY });
 loginGate.mount(app); // /login、/api/auth/login|logout|me（解析器之后、SPA 回落之前）
 registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionTtlMs: SESSION_TTL_MIN * 60_000 });
 registerLoginEventRoutes(http); // /login/<方式>/events：离职、停用的失效通知；每天一次对账 // /login/<方式>、/login/<方式>/callback：飞书等发市场会话的登录
