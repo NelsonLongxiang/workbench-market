@@ -1,0 +1,894 @@
+{
+  "domain": "tasks",
+  "what": "统一待办 GET /api/tasks（只读聚合 ygl-trees、market、A2A 和扩展来源，按查看人授权取）与 ygl 项目读授权的授予、撤销，共 3 条路由。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /api/tasks", "PUT /api/tasks/read-grants", "POST /api/tasks/read-grants/revoke"],
+  "exempt": [{ "route": "GET /api/tasks", "class": "invalid", "why": "不读请求体，也不认查询参数（带了也不改变结果，见 open/forged-headers）", "shown_by": "open/admin" }],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "登录门关；登录提供方换成假的（scripts/identity-fake-provider.mjs）；三个待办来源换成假的（scripts/tasks-fake-preload.mjs：ygl-trees 工作区与命令行调用、A2A 状态端点、三个扩展来源，其中两个降级：一个抛错、一个自报原始错误）。预先写进库三个 run（alpha 被授权读 11，beta 对 12 的授权已过期，13 已结束）和一条待审的变更申请。各来源的耗时只比到量级。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "fixtures": ["identity-fake", "tasks-fake"],
+      "seed": [
+        { "table": "sop_runs", "row": { "id": 11, "sop_slug": "replay-sop", "sop_version": 1, "status": "running", "started_by": "seed", "started_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" } },
+        { "table": "sop_runs", "row": { "id": 12, "sop_slug": "replay-other", "sop_version": 1, "status": "running", "started_by": "seed", "started_at": "2025-01-01 00:00:02", "updated_at": "2025-01-01 00:00:02" } },
+        {
+          "table": "sop_runs",
+          "row": { "id": 13, "sop_slug": "replay-done", "sop_version": 1, "status": "finished", "started_by": "seed", "started_at": "2025-01-01 00:00:03", "updated_at": "2025-01-01 00:00:03", "finished_at": "2025-01-01 00:00:04" }
+        },
+        { "table": "sop_run_read_grants", "row": { "run_id": 11, "subject": "user:alpha", "granted_by": "seed", "expires_at": "2090-01-01 00:00:00", "created_at": "2025-01-01 00:00:05" } },
+        { "table": "sop_run_read_grants", "row": { "run_id": 12, "subject": "user:beta", "granted_by": "seed", "expires_at": "2000-01-01 00:00:00", "created_at": "2025-01-01 00:00:06" } },
+        { "table": "change_requests", "row": { "kind": "app", "slug": "replay-app", "op": "rollback", "target_version": 1, "reason": "replay 回滚", "requested_by": "seed", "created_at": "2025-01-01 00:00:07" } }
+      ],
+      "steps": [
+        {
+          "id": "anonymous",
+          "route": "GET /api/tasks",
+          "class": "unauthorized",
+          "what": "本机匿名：401 tasks_auth_required，带 login_url（没有可信 Odoo 台时是 null）",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks", "headers": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "<每个实例随机·string·2>", "etag": "<每个实例随机·string·34>", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "tasks_auth_required", "login_url": null }
+          }
+        },
+        {
+          "id": "remote-anonymous",
+          "route": "GET /api/tasks",
+          "class": "unauthorized",
+          "what": "远程匿名：401",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "<每个实例随机·string·2>", "etag": "<每个实例随机·string·34>", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "tasks_auth_required", "login_url": null }
+          }
+        },
+        {
+          "id": "cross-site",
+          "route": "GET /api/tasks",
+          "class": "unauthorized",
+          "what": "sec-fetch-site: cross-site：403 tasks_cross_origin_denied（带管理员口令也一样）",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "cross-site" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "<每个实例随机·string·2>", "etag": "<每个实例随机·string·34>", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "tasks_cross_origin_denied" }
+          }
+        },
+        {
+          "id": "foreign-origin",
+          "route": "GET /api/tasks",
+          "class": "unauthorized",
+          "what": "Origin 不是本站：403",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "<每个实例随机·string·2>", "etag": "<每个实例随机·string·34>", "vary": "Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "tasks_cross_origin_denied" }
+          }
+        },
+        {
+          "id": "wrong-token",
+          "route": "GET /api/tasks",
+          "class": "unauthorized",
+          "what": "管理员口令不对：401",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks", "headers": { "x-admin-token": "wrong" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "<每个实例随机·string·2>", "etag": "<每个实例随机·string·34>", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "tasks_auth_required", "login_url": null }
+          }
+        },
+        {
+          "id": "forged-headers",
+          "route": "GET /api/tasks",
+          "class": "unauthorized",
+          "what": "自报身份的头和查询参数造不出身份：401",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks?subject=user:alpha&project=alpha", "headers": { "x-user": "alpha", "x-subject": "user:alpha", "authorization": "Bearer fake" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "<每个实例随机·string·2>", "etag": "<每个实例随机·string·34>", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "tasks_auth_required", "login_url": null }
+          }
+        },
+        {
+          "id": "forged-session",
+          "route": "GET /api/tasks",
+          "class": "unauthorized",
+          "what": "提供方不认的会话：401",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks", "headers": { "cookie": "session_id=fake-forged-session-0001" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "<每个实例随机·string·2>", "etag": "<每个实例随机·string·34>", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "tasks_auth_required", "login_url": null }
+          }
+        },
+        {
+          "id": "portal",
+          "route": "GET /api/tasks",
+          "class": "unauthorized",
+          "what": "非内部账号：403 tasks_internal_user_required",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks", "headers": { "cookie": "session_id=fake-portal-account-0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "<每个实例随机·string·2>", "etag": "<每个实例随机·string·34>", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "tasks_internal_user_required" }
+          }
+        },
+        {
+          "id": "identity-down",
+          "what": "身份来源不可达：503 tasks_identity_unavailable",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks", "headers": { "cookie": "session_id=fake-source-unreachable1" } },
+          "response": {
+            "status": 503,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "<每个实例随机·string·2>", "etag": "<每个实例随机·string·34>", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "tasks_identity_unavailable" }
+          }
+        },
+        {
+          "id": "beta-plain",
+          "route": "GET /api/tasks",
+          "class": "normal",
+          "what": "内部员工 beta 没有任何授权（读授权已过期）：200，三个内置来源都 source_not_authorized，不调 ygl、不调 A2A；扩展来源按查看人取",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks", "headers": { "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "<每个实例随机·string·3>", "etag": "<每个实例随机·string·35>", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "tasks": [{ "id": "replay-ok:1", "source": "replay-ok", "title": "replay 扩展待办", "status": "todo", "due": null, "link": null, "project": null }],
+              "sources": {
+                "ygl-trees": { "ok": false, "count": 0, "latency_ms": 0, "error": "source_not_authorized" },
+                "market": { "ok": false, "count": 0, "latency_ms": 0, "error": "source_not_authorized" },
+                "a2a": { "ok": false, "count": 0, "latency_ms": 0, "error": "source_not_authorized" },
+                "replay-broken": { "ok": false, "count": 0, "latency_ms": 0, "error": "replay-broken_source_unavailable", "label": "replay 坏来源", "color": "default" },
+                "replay-leaky": { "ok": false, "count": 0, "latency_ms": 0, "error": "replay-leaky_source_unavailable", "label": "replay 自报错误的来源", "color": "default" },
+                "replay-ok": { "ok": true, "count": 1, "latency_ms": 0, "label": "replay 扩展来源", "color": "blue" }
+              },
+              "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
+            }
+          }
+        },
+        {
+          "id": "alpha-market",
+          "route": "GET /api/tasks",
+          "class": "normal",
+          "what": "内部员工 alpha：只看到被授权读的那个 run（ygl 没授权）",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks", "headers": { "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "<每个实例随机·string·3>", "etag": "<每个实例随机·string·35>", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "tasks": [
+                { "id": "market:run-11", "source": "market", "title": "SOP replay-sop run#11 进行中（未指派）", "status": "doing", "due": null, "link": "/sop/replay-sop/?run=11", "project": "replay-sop" },
+                { "id": "replay-ok:1", "source": "replay-ok", "title": "replay 扩展待办", "status": "todo", "due": null, "link": null, "project": null }
+              ],
+              "sources": {
+                "ygl-trees": { "ok": false, "count": 0, "latency_ms": 0, "error": "source_not_authorized" },
+                "market": { "ok": true, "count": 1, "latency_ms": 0 },
+                "a2a": { "ok": false, "count": 0, "latency_ms": 0, "error": "source_not_authorized" },
+                "replay-broken": { "ok": false, "count": 0, "latency_ms": 0, "error": "replay-broken_source_unavailable", "label": "replay 坏来源", "color": "default" },
+                "replay-leaky": { "ok": false, "count": 0, "latency_ms": 0, "error": "replay-leaky_source_unavailable", "label": "replay 自报错误的来源", "color": "default" },
+                "replay-ok": { "ok": true, "count": 1, "latency_ms": 0, "label": "replay 扩展来源", "color": "blue" }
+              },
+              "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
+            }
+          }
+        },
+        {
+          "id": "cookie-admin",
+          "route": "GET /api/tasks",
+          "class": "normal",
+          "what": "登录的管理员（cookie，提供方标了管理员）：和管理员口令一样看到全部内置来源；扩展来源按 cookie 认出查看人",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks", "headers": { "cookie": "session_id=fake-internal-admin-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "<每个实例随机·string·4>", "etag": "<每个实例随机·string·35>", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "tasks": [
+                { "id": "ygl-trees:11", "source": "ygl-trees", "title": "replay alpha 待办", "status": "todo", "due": "2030-01-02", "link": null, "project": "alpha" },
+                { "id": "ygl-trees:12", "source": "ygl-trees", "title": "replay alpha 已完成", "status": "done", "due": null, "link": null, "project": "alpha" },
+                { "id": "ygl-trees:21", "source": "ygl-trees", "title": "replay beta 待办", "status": "todo", "due": "2030-01-02", "link": null, "project": "beta" },
+                { "id": "ygl-trees:22", "source": "ygl-trees", "title": "replay beta 已完成", "status": "done", "due": null, "link": null, "project": "beta" },
+                { "id": "market:run-12", "source": "market", "title": "SOP replay-other run#12 进行中（未指派）", "status": "doing", "due": null, "link": "/sop/replay-other/?run=12", "project": "replay-other" },
+                { "id": "market:run-11", "source": "market", "title": "SOP replay-sop run#11 进行中（未指派）", "status": "doing", "due": null, "link": "/sop/replay-sop/?run=11", "project": "replay-sop" },
+                { "id": "change-request:1", "source": "market", "title": "人审·台回滚 replay-app（replay 回滚）", "status": "todo", "due": "", "link": "/reviews?request=1", "project": "review-gate" },
+                { "id": "a2a:replay-a2a-1", "source": "a2a", "title": "replay 在途任务", "status": "doing", "due": null, "link": null, "project": "replay-team" },
+                { "id": "a2a:replay-a2a-0", "source": "a2a", "title": "replay 已归档任务（receipt）", "status": "done", "due": null, "link": null, "project": "replay-team" },
+                { "id": "replay-ok:1", "source": "replay-ok", "title": "replay 扩展待办", "status": "todo", "due": null, "link": null, "project": null }
+              ],
+              "sources": {
+                "ygl-trees": { "ok": true, "count": 2, "latency_ms": 0 },
+                "market": { "ok": true, "count": 3, "latency_ms": 0 },
+                "a2a": { "ok": true, "count": 1, "latency_ms": 0 },
+                "replay-broken": { "ok": false, "count": 0, "latency_ms": 0, "error": "replay-broken_source_unavailable", "label": "replay 坏来源", "color": "default" },
+                "replay-leaky": { "ok": false, "count": 0, "latency_ms": 0, "error": "replay-leaky_source_unavailable", "label": "replay 自报错误的来源", "color": "default" },
+                "replay-ok": { "ok": true, "count": 1, "latency_ms": 0, "label": "replay 扩展来源", "color": "blue" }
+              },
+              "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
+            }
+          }
+        },
+        {
+          "id": "admin",
+          "route": "GET /api/tasks",
+          "class": "normal",
+          "what": "管理员口令：ygl 全部进行中项目、market 全部 run 与待审的变更申请、A2A 在途与归档；扩展来源匿名要求登录，抛错的和自报原始错误的都降级为稳定码（不透传原始错误）",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "<每个实例随机·string·4>", "etag": "<每个实例随机·string·35>", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "tasks": [
+                { "id": "ygl-trees:11", "source": "ygl-trees", "title": "replay alpha 待办", "status": "todo", "due": "2030-01-02", "link": null, "project": "alpha" },
+                { "id": "ygl-trees:12", "source": "ygl-trees", "title": "replay alpha 已完成", "status": "done", "due": null, "link": null, "project": "alpha" },
+                { "id": "ygl-trees:21", "source": "ygl-trees", "title": "replay beta 待办", "status": "todo", "due": "2030-01-02", "link": null, "project": "beta" },
+                { "id": "ygl-trees:22", "source": "ygl-trees", "title": "replay beta 已完成", "status": "done", "due": null, "link": null, "project": "beta" },
+                { "id": "market:run-12", "source": "market", "title": "SOP replay-other run#12 进行中（未指派）", "status": "doing", "due": null, "link": "/sop/replay-other/?run=12", "project": "replay-other" },
+                { "id": "market:run-11", "source": "market", "title": "SOP replay-sop run#11 进行中（未指派）", "status": "doing", "due": null, "link": "/sop/replay-sop/?run=11", "project": "replay-sop" },
+                { "id": "change-request:1", "source": "market", "title": "人审·台回滚 replay-app（replay 回滚）", "status": "todo", "due": "", "link": "/reviews?request=1", "project": "review-gate" },
+                { "id": "a2a:replay-a2a-1", "source": "a2a", "title": "replay 在途任务", "status": "doing", "due": null, "link": null, "project": "replay-team" },
+                { "id": "a2a:replay-a2a-0", "source": "a2a", "title": "replay 已归档任务（receipt）", "status": "done", "due": null, "link": null, "project": "replay-team" }
+              ],
+              "sources": {
+                "ygl-trees": { "ok": true, "count": 2, "latency_ms": 0 },
+                "market": { "ok": true, "count": 3, "latency_ms": 0 },
+                "a2a": { "ok": true, "count": 1, "latency_ms": 0 },
+                "replay-broken": { "ok": false, "count": 0, "latency_ms": 0, "error": "replay-broken_source_unavailable", "label": "replay 坏来源", "color": "default" },
+                "replay-leaky": { "ok": false, "count": 0, "latency_ms": 0, "error": "replay-leaky_source_unavailable", "label": "replay 自报错误的来源", "color": "default" },
+                "replay-ok": { "ok": false, "count": 0, "latency_ms": 0, "auth_required": true, "label": "replay 扩展来源", "color": "blue", "login_url": null }
+              },
+              "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
+            }
+          }
+        },
+        {
+          "id": "admin-portless-origin",
+          "route": "GET /api/tasks",
+          "class": "unauthorized",
+          "what": "Origin 是回环地址但不带端口：不算本站，403（带管理员口令也一样）",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "http://127.0.0.1" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "<每个实例随机·string·2>", "etag": "<每个实例随机·string·34>", "vary": "Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "tasks_cross_origin_denied" }
+          }
+        },
+        {
+          "id": "grant-remote",
+          "route": "PUT /api/tasks/read-grants",
+          "class": "unauthorized",
+          "what": "远程不带口令：401，不写",
+          "request": { "method": "PUT", "path": "/api/tasks/read-grants", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "subject": "user:alpha", "project": "alpha", "expires_at": "2090-01-01 00:00:00" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "grant-local",
+          "route": "PUT /api/tasks/read-grants",
+          "class": "unauthorized",
+          "what": "本机不带口令：按管理守卫的应答，不写",
+          "request": { "method": "PUT", "path": "/api/tasks/read-grants", "headers": {}, "json": { "subject": "user:alpha", "project": "alpha", "expires_at": "2090-01-01 00:00:00" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "grant-alpha",
+          "route": "PUT /api/tasks/read-grants",
+          "class": "unauthorized",
+          "what": "内部员工自己给自己授权：403，不写",
+          "request": { "method": "PUT", "path": "/api/tasks/read-grants", "headers": { "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "subject": "user:alpha", "project": "alpha", "expires_at": "2090-01-01 00:00:00" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "grant-cross",
+          "route": "PUT /api/tasks/read-grants",
+          "class": "unauthorized",
+          "what": "跨站带口令：403，不写",
+          "request": {
+            "method": "PUT",
+            "path": "/api/tasks/read-grants",
+            "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "http://untrusted.invalid" },
+            "json": { "subject": "user:alpha", "project": "alpha", "expires_at": "2090-01-01 00:00:00" }
+          },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "after-denied",
+          "what": "读回：alpha 仍然看不到 ygl",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks", "headers": { "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "<每个实例随机·string·3>", "etag": "<每个实例随机·string·35>", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "tasks": [
+                { "id": "market:run-11", "source": "market", "title": "SOP replay-sop run#11 进行中（未指派）", "status": "doing", "due": null, "link": "/sop/replay-sop/?run=11", "project": "replay-sop" },
+                { "id": "replay-ok:1", "source": "replay-ok", "title": "replay 扩展待办", "status": "todo", "due": null, "link": null, "project": null }
+              ],
+              "sources": {
+                "ygl-trees": { "ok": false, "count": 0, "latency_ms": 0, "error": "source_not_authorized" },
+                "market": { "ok": true, "count": 1, "latency_ms": 0 },
+                "a2a": { "ok": false, "count": 0, "latency_ms": 0, "error": "source_not_authorized" },
+                "replay-broken": { "ok": false, "count": 0, "latency_ms": 0, "error": "replay-broken_source_unavailable", "label": "replay 坏来源", "color": "default" },
+                "replay-leaky": { "ok": false, "count": 0, "latency_ms": 0, "error": "replay-leaky_source_unavailable", "label": "replay 自报错误的来源", "color": "default" },
+                "replay-ok": { "ok": true, "count": 1, "latency_ms": 0, "label": "replay 扩展来源", "color": "blue" }
+              },
+              "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
+            }
+          }
+        },
+        {
+          "id": "grant-star",
+          "route": "PUT /api/tasks/read-grants",
+          "class": "invalid",
+          "what": "项目写 *：400，不写",
+          "request": { "method": "PUT", "path": "/api/tasks/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:alpha", "project": "*", "expires_at": "2090-01-01 00:00:00" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "invalid_task_source_grant" } }
+        },
+        {
+          "id": "grant-mcp-subject",
+          "route": "PUT /api/tasks/read-grants",
+          "class": "invalid",
+          "what": "主体不是 user:：400",
+          "request": { "method": "PUT", "path": "/api/tasks/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "mcp:alpha", "project": "alpha", "expires_at": "2090-01-01 00:00:00" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "invalid_task_source_grant" } }
+        },
+        {
+          "id": "grant-no-expiry",
+          "route": "PUT /api/tasks/read-grants",
+          "class": "invalid",
+          "what": "没有到期时间：400",
+          "request": { "method": "PUT", "path": "/api/tasks/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:alpha", "project": "alpha" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "invalid_task_source_grant" } }
+        },
+        {
+          "id": "grant-past",
+          "route": "PUT /api/tasks/read-grants",
+          "class": "invalid",
+          "what": "到期时间在过去：400",
+          "request": { "method": "PUT", "path": "/api/tasks/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:alpha", "project": "alpha", "expires_at": "2000-01-01 00:00:00" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "invalid_task_source_grant" } }
+        },
+        {
+          "id": "grant-feb30",
+          "route": "PUT /api/tasks/read-grants",
+          "class": "invalid",
+          "what": "日期不存在（2 月 30 日）：400",
+          "request": { "method": "PUT", "path": "/api/tasks/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:alpha", "project": "alpha", "expires_at": "2090-02-30 00:00:00" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "invalid_task_source_grant" } }
+        },
+        {
+          "id": "grant-iso",
+          "route": "PUT /api/tasks/read-grants",
+          "class": "invalid",
+          "what": "到期时间写成 ISO（带 T、Z）：400",
+          "request": { "method": "PUT", "path": "/api/tasks/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:alpha", "project": "alpha", "expires_at": "2090-01-01T00:00:00Z" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "invalid_task_source_grant" } }
+        },
+        {
+          "id": "grant-empty-login",
+          "route": "PUT /api/tasks/read-grants",
+          "class": "invalid",
+          "what": "登录名为空（user:）：400",
+          "request": { "method": "PUT", "path": "/api/tasks/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:", "project": "alpha", "expires_at": "2090-01-01 00:00:00" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "invalid_task_source_grant" } }
+        },
+        {
+          "id": "grant-padded",
+          "route": "PUT /api/tasks/read-grants",
+          "class": "invalid",
+          "what": "登录名前后有空格：400",
+          "request": { "method": "PUT", "path": "/api/tasks/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user: alpha", "project": "alpha", "expires_at": "2090-01-01 00:00:00" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "invalid_task_source_grant" } }
+        },
+        {
+          "id": "grant-control",
+          "route": "PUT /api/tasks/read-grants",
+          "class": "invalid",
+          "what": "项目名里有控制字符：400",
+          "request": { "method": "PUT", "path": "/api/tasks/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:alpha", "project": "al\u0001pha", "expires_at": "2090-01-01 00:00:00" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "invalid_task_source_grant" } }
+        },
+        {
+          "id": "grant-long-project",
+          "route": "PUT /api/tasks/read-grants",
+          "class": "invalid",
+          "what": "项目名 129 个字符：400",
+          "request": {
+            "method": "PUT",
+            "path": "/api/tasks/read-grants",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "subject": "user:alpha", "project": "ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp", "expires_at": "2090-01-01 00:00:00" }
+          },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "invalid_task_source_grant" } }
+        },
+        {
+          "id": "grant-empty-project",
+          "route": "PUT /api/tasks/read-grants",
+          "class": "invalid",
+          "what": "项目名为空串：400",
+          "request": { "method": "PUT", "path": "/api/tasks/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:alpha", "project": "", "expires_at": "2090-01-01 00:00:00" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "invalid_task_source_grant" } }
+        },
+        {
+          "id": "grant-number-project",
+          "route": "PUT /api/tasks/read-grants",
+          "class": "invalid",
+          "what": "项目名是数字：400",
+          "request": { "method": "PUT", "path": "/api/tasks/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:alpha", "project": 0, "expires_at": "2090-01-01 00:00:00" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "invalid_task_source_grant" } }
+        },
+        {
+          "id": "grant-null-body",
+          "route": "PUT /api/tasks/read-grants",
+          "class": "invalid",
+          "what": "请求体是 null：400",
+          "request": { "method": "PUT", "path": "/api/tasks/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": null },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "请求体不是合法 JSON" } }
+        },
+        {
+          "id": "grant-array-body",
+          "route": "PUT /api/tasks/read-grants",
+          "class": "invalid",
+          "what": "请求体是数组：400",
+          "request": { "method": "PUT", "path": "/api/tasks/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": [{ "subject": "user:alpha", "project": "alpha", "expires_at": "2090-01-01 00:00:00" }] },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "invalid_task_source_grant" } }
+        },
+        {
+          "id": "after-invalid",
+          "what": "读回：alpha 仍然看不到 ygl",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks", "headers": { "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "<每个实例随机·string·3>", "etag": "<每个实例随机·string·35>", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "tasks": [
+                { "id": "market:run-11", "source": "market", "title": "SOP replay-sop run#11 进行中（未指派）", "status": "doing", "due": null, "link": "/sop/replay-sop/?run=11", "project": "replay-sop" },
+                { "id": "replay-ok:1", "source": "replay-ok", "title": "replay 扩展待办", "status": "todo", "due": null, "link": null, "project": null }
+              ],
+              "sources": {
+                "ygl-trees": { "ok": false, "count": 0, "latency_ms": 0, "error": "source_not_authorized" },
+                "market": { "ok": true, "count": 1, "latency_ms": 0 },
+                "a2a": { "ok": false, "count": 0, "latency_ms": 0, "error": "source_not_authorized" },
+                "replay-broken": { "ok": false, "count": 0, "latency_ms": 0, "error": "replay-broken_source_unavailable", "label": "replay 坏来源", "color": "default" },
+                "replay-leaky": { "ok": false, "count": 0, "latency_ms": 0, "error": "replay-leaky_source_unavailable", "label": "replay 自报错误的来源", "color": "default" },
+                "replay-ok": { "ok": true, "count": 1, "latency_ms": 0, "label": "replay 扩展来源", "color": "blue" }
+              },
+              "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
+            }
+          }
+        },
+        {
+          "id": "grant",
+          "route": "PUT /api/tasks/read-grants",
+          "class": "normal",
+          "what": "管理员给 alpha 授权读 ygl 项目 alpha：201",
+          "request": { "method": "PUT", "path": "/api/tasks/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:alpha", "project": "alpha", "expires_at": "2090-01-01 00:00:00" } },
+          "response": { "status": 201, "type": "application/json; charset=utf-8", "headers": { "content-length": "11", "etag": "W/\"b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true } }
+        },
+        {
+          "id": "grant-again",
+          "route": "PUT /api/tasks/read-grants",
+          "class": "normal",
+          "what": "同一授权再写一遍：201（多一行，读取按项目去重）",
+          "request": { "method": "PUT", "path": "/api/tasks/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:alpha", "project": "alpha", "expires_at": "2090-01-01 00:00:00" } },
+          "response": { "status": 201, "type": "application/json; charset=utf-8", "headers": { "content-length": "11", "etag": "W/\"b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true } }
+        },
+        {
+          "id": "grant-unknown-project",
+          "route": "PUT /api/tasks/read-grants",
+          "class": "normal",
+          "what": "授权一个工作区项目列表里没有的项目 zeta：201（普通查看人按授权的项目名直接查，不经项目列表）",
+          "request": { "method": "PUT", "path": "/api/tasks/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:alpha", "project": "zeta", "expires_at": "2090-01-01 00:00:00" } },
+          "response": { "status": 201, "type": "application/json; charset=utf-8", "headers": { "content-length": "11", "etag": "W/\"b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true } }
+        },
+        {
+          "id": "alpha-after-grant",
+          "what": "读回：alpha 看到 ygl 项目 alpha、zeta 各两条（count 只算未完成的），beta 的不出现",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks", "headers": { "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "<每个实例随机·string·4>", "etag": "<每个实例随机·string·35>", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "tasks": [
+                { "id": "ygl-trees:11", "source": "ygl-trees", "title": "replay alpha 待办", "status": "todo", "due": "2030-01-02", "link": null, "project": "alpha" },
+                { "id": "ygl-trees:12", "source": "ygl-trees", "title": "replay alpha 已完成", "status": "done", "due": null, "link": null, "project": "alpha" },
+                { "id": "ygl-trees:91", "source": "ygl-trees", "title": "replay zeta 待办", "status": "todo", "due": "2030-01-02", "link": null, "project": "zeta" },
+                { "id": "ygl-trees:92", "source": "ygl-trees", "title": "replay zeta 已完成", "status": "done", "due": null, "link": null, "project": "zeta" },
+                { "id": "market:run-11", "source": "market", "title": "SOP replay-sop run#11 进行中（未指派）", "status": "doing", "due": null, "link": "/sop/replay-sop/?run=11", "project": "replay-sop" },
+                { "id": "replay-ok:1", "source": "replay-ok", "title": "replay 扩展待办", "status": "todo", "due": null, "link": null, "project": null }
+              ],
+              "sources": {
+                "ygl-trees": { "ok": true, "count": 2, "latency_ms": 0 },
+                "market": { "ok": true, "count": 1, "latency_ms": 0 },
+                "a2a": { "ok": false, "count": 0, "latency_ms": 0, "error": "source_not_authorized" },
+                "replay-broken": { "ok": false, "count": 0, "latency_ms": 0, "error": "replay-broken_source_unavailable", "label": "replay 坏来源", "color": "default" },
+                "replay-leaky": { "ok": false, "count": 0, "latency_ms": 0, "error": "replay-leaky_source_unavailable", "label": "replay 自报错误的来源", "color": "default" },
+                "replay-ok": { "ok": true, "count": 1, "latency_ms": 0, "label": "replay 扩展来源", "color": "blue" }
+              },
+              "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
+            }
+          }
+        },
+        {
+          "id": "beta-after-grant",
+          "what": "读回：beta 照旧没有",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks", "headers": { "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "<每个实例随机·string·3>", "etag": "<每个实例随机·string·35>", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "tasks": [{ "id": "replay-ok:1", "source": "replay-ok", "title": "replay 扩展待办", "status": "todo", "due": null, "link": null, "project": null }],
+              "sources": {
+                "ygl-trees": { "ok": false, "count": 0, "latency_ms": 0, "error": "source_not_authorized" },
+                "market": { "ok": false, "count": 0, "latency_ms": 0, "error": "source_not_authorized" },
+                "a2a": { "ok": false, "count": 0, "latency_ms": 0, "error": "source_not_authorized" },
+                "replay-broken": { "ok": false, "count": 0, "latency_ms": 0, "error": "replay-broken_source_unavailable", "label": "replay 坏来源", "color": "default" },
+                "replay-leaky": { "ok": false, "count": 0, "latency_ms": 0, "error": "replay-leaky_source_unavailable", "label": "replay 自报错误的来源", "color": "default" },
+                "replay-ok": { "ok": true, "count": 1, "latency_ms": 0, "label": "replay 扩展来源", "color": "blue" }
+              },
+              "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
+            }
+          }
+        },
+        {
+          "id": "revoke-remote",
+          "route": "POST /api/tasks/read-grants/revoke",
+          "class": "unauthorized",
+          "what": "远程不带口令：401，不撤",
+          "request": { "method": "POST", "path": "/api/tasks/read-grants/revoke", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "subject": "user:alpha", "project": "alpha" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "revoke-local",
+          "route": "POST /api/tasks/read-grants/revoke",
+          "class": "unauthorized",
+          "what": "本机不带口令：按管理守卫的应答，不撤",
+          "request": { "method": "POST", "path": "/api/tasks/read-grants/revoke", "headers": {}, "json": { "subject": "user:alpha", "project": "alpha" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "revoke-alpha",
+          "route": "POST /api/tasks/read-grants/revoke",
+          "class": "unauthorized",
+          "what": "内部员工：403，不撤",
+          "request": { "method": "POST", "path": "/api/tasks/read-grants/revoke", "headers": { "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "subject": "user:alpha", "project": "alpha" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "after-revoke-denied",
+          "what": "读回：alpha 仍然看得到 ygl 项目 alpha",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks", "headers": { "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "<每个实例随机·string·4>", "etag": "<每个实例随机·string·35>", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "tasks": [
+                { "id": "ygl-trees:11", "source": "ygl-trees", "title": "replay alpha 待办", "status": "todo", "due": "2030-01-02", "link": null, "project": "alpha" },
+                { "id": "ygl-trees:12", "source": "ygl-trees", "title": "replay alpha 已完成", "status": "done", "due": null, "link": null, "project": "alpha" },
+                { "id": "ygl-trees:91", "source": "ygl-trees", "title": "replay zeta 待办", "status": "todo", "due": "2030-01-02", "link": null, "project": "zeta" },
+                { "id": "ygl-trees:92", "source": "ygl-trees", "title": "replay zeta 已完成", "status": "done", "due": null, "link": null, "project": "zeta" },
+                { "id": "market:run-11", "source": "market", "title": "SOP replay-sop run#11 进行中（未指派）", "status": "doing", "due": null, "link": "/sop/replay-sop/?run=11", "project": "replay-sop" },
+                { "id": "replay-ok:1", "source": "replay-ok", "title": "replay 扩展待办", "status": "todo", "due": null, "link": null, "project": null }
+              ],
+              "sources": {
+                "ygl-trees": { "ok": true, "count": 2, "latency_ms": 0 },
+                "market": { "ok": true, "count": 1, "latency_ms": 0 },
+                "a2a": { "ok": false, "count": 0, "latency_ms": 0, "error": "source_not_authorized" },
+                "replay-broken": { "ok": false, "count": 0, "latency_ms": 0, "error": "replay-broken_source_unavailable", "label": "replay 坏来源", "color": "default" },
+                "replay-leaky": { "ok": false, "count": 0, "latency_ms": 0, "error": "replay-leaky_source_unavailable", "label": "replay 自报错误的来源", "color": "default" },
+                "replay-ok": { "ok": true, "count": 1, "latency_ms": 0, "label": "replay 扩展来源", "color": "blue" }
+              },
+              "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
+            }
+          }
+        },
+        {
+          "id": "revoke-star",
+          "route": "POST /api/tasks/read-grants/revoke",
+          "class": "invalid",
+          "what": "项目写 *：400",
+          "request": { "method": "POST", "path": "/api/tasks/read-grants/revoke", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:alpha", "project": "*" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "invalid_task_source_grant" } }
+        },
+        {
+          "id": "revoke-bad-subject",
+          "route": "POST /api/tasks/read-grants/revoke",
+          "class": "invalid",
+          "what": "主体不是 user:：400",
+          "request": { "method": "POST", "path": "/api/tasks/read-grants/revoke", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "alpha", "project": "alpha" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "invalid_task_source_grant" } }
+        },
+        {
+          "id": "revoke-no-project",
+          "route": "POST /api/tasks/read-grants/revoke",
+          "class": "invalid",
+          "what": "没有项目：400",
+          "request": { "method": "POST", "path": "/api/tasks/read-grants/revoke", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:alpha" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "invalid_task_source_grant" } }
+        },
+        {
+          "id": "revoke-null",
+          "route": "POST /api/tasks/read-grants/revoke",
+          "class": "invalid",
+          "what": "请求体是 null：400",
+          "request": { "method": "POST", "path": "/api/tasks/read-grants/revoke", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": null },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "请求体不是合法 JSON" } }
+        },
+        {
+          "id": "revoke",
+          "route": "POST /api/tasks/read-grants/revoke",
+          "class": "normal",
+          "what": "撤销 alpha 对 alpha 的授权：revoked 2（两行都撤）",
+          "request": { "method": "POST", "path": "/api/tasks/read-grants/revoke", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:alpha", "project": "alpha" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "23", "etag": "W/\"17-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "revoked": 2 } }
+        },
+        {
+          "id": "revoke-again",
+          "route": "POST /api/tasks/read-grants/revoke",
+          "class": "normal",
+          "what": "再撤一遍：revoked 0",
+          "request": { "method": "POST", "path": "/api/tasks/read-grants/revoke", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:alpha", "project": "alpha" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "23", "etag": "W/\"17-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "revoked": 0 } }
+        },
+        {
+          "id": "revoke-none",
+          "route": "POST /api/tasks/read-grants/revoke",
+          "class": "normal",
+          "what": "撤一个从没授过的：revoked 0",
+          "request": { "method": "POST", "path": "/api/tasks/read-grants/revoke", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:beta", "project": "beta" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "23", "etag": "W/\"17-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "revoked": 0 } }
+        },
+        {
+          "id": "alpha-after-revoke",
+          "what": "读回：alpha 的 alpha 项目没了，zeta 那条授权还在",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks", "headers": { "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "<每个实例随机·string·4>", "etag": "<每个实例随机·string·35>", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "tasks": [
+                { "id": "ygl-trees:91", "source": "ygl-trees", "title": "replay zeta 待办", "status": "todo", "due": "2030-01-02", "link": null, "project": "zeta" },
+                { "id": "ygl-trees:92", "source": "ygl-trees", "title": "replay zeta 已完成", "status": "done", "due": null, "link": null, "project": "zeta" },
+                { "id": "market:run-11", "source": "market", "title": "SOP replay-sop run#11 进行中（未指派）", "status": "doing", "due": null, "link": "/sop/replay-sop/?run=11", "project": "replay-sop" },
+                { "id": "replay-ok:1", "source": "replay-ok", "title": "replay 扩展待办", "status": "todo", "due": null, "link": null, "project": null }
+              ],
+              "sources": {
+                "ygl-trees": { "ok": true, "count": 1, "latency_ms": 0 },
+                "market": { "ok": true, "count": 1, "latency_ms": 0 },
+                "a2a": { "ok": false, "count": 0, "latency_ms": 0, "error": "source_not_authorized" },
+                "replay-broken": { "ok": false, "count": 0, "latency_ms": 0, "error": "replay-broken_source_unavailable", "label": "replay 坏来源", "color": "default" },
+                "replay-leaky": { "ok": false, "count": 0, "latency_ms": 0, "error": "replay-leaky_source_unavailable", "label": "replay 自报错误的来源", "color": "default" },
+                "replay-ok": { "ok": true, "count": 1, "latency_ms": 0, "label": "replay 扩展来源", "color": "blue" }
+              },
+              "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "bare",
+      "what": "登录提供方换成假的；不配 ygl-trees、A2A、扩展。同样的种子。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "fixtures": ["identity-fake"],
+      "seed": [
+        { "table": "sop_runs", "row": { "id": 11, "sop_slug": "replay-sop", "sop_version": 1, "status": "running", "started_by": "seed", "started_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" } },
+        { "table": "sop_runs", "row": { "id": 12, "sop_slug": "replay-other", "sop_version": 1, "status": "running", "started_by": "seed", "started_at": "2025-01-01 00:00:02", "updated_at": "2025-01-01 00:00:02" } },
+        {
+          "table": "sop_runs",
+          "row": { "id": 13, "sop_slug": "replay-done", "sop_version": 1, "status": "finished", "started_by": "seed", "started_at": "2025-01-01 00:00:03", "updated_at": "2025-01-01 00:00:03", "finished_at": "2025-01-01 00:00:04" }
+        },
+        { "table": "sop_run_read_grants", "row": { "run_id": 11, "subject": "user:alpha", "granted_by": "seed", "expires_at": "2090-01-01 00:00:00", "created_at": "2025-01-01 00:00:05" } },
+        { "table": "sop_run_read_grants", "row": { "run_id": 12, "subject": "user:beta", "granted_by": "seed", "expires_at": "2000-01-01 00:00:00", "created_at": "2025-01-01 00:00:06" } },
+        { "table": "change_requests", "row": { "kind": "app", "slug": "replay-app", "op": "rollback", "target_version": 1, "reason": "replay 回滚", "requested_by": "seed", "created_at": "2025-01-01 00:00:07" } }
+      ],
+      "steps": [
+        {
+          "id": "bare-admin",
+          "route": "GET /api/tasks",
+          "class": "normal",
+          "what": "没有配 YGL_HOME、A2A、扩展：管理员看到 ygl ygl_home_required，没有 a2a 这一项，只有内置来源",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "<每个实例随机·string·3>", "etag": "<每个实例随机·string·35>", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "tasks": [
+                { "id": "market:run-12", "source": "market", "title": "SOP replay-other run#12 进行中（未指派）", "status": "doing", "due": null, "link": "/sop/replay-other/?run=12", "project": "replay-other" },
+                { "id": "market:run-11", "source": "market", "title": "SOP replay-sop run#11 进行中（未指派）", "status": "doing", "due": null, "link": "/sop/replay-sop/?run=11", "project": "replay-sop" },
+                { "id": "change-request:1", "source": "market", "title": "人审·台回滚 replay-app（replay 回滚）", "status": "todo", "due": "", "link": "/reviews?request=1", "project": "review-gate" }
+              ],
+              "sources": { "ygl-trees": { "ok": false, "count": 0, "latency_ms": 0, "error": "ygl_home_required" }, "market": { "ok": true, "count": 3, "latency_ms": 0 } },
+              "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
+            }
+          }
+        },
+        {
+          "id": "bare-alpha",
+          "route": "GET /api/tasks",
+          "class": "normal",
+          "what": "同样的配置，alpha：market 照常，ygl 未授权",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks", "headers": { "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "<每个实例随机·string·3>", "etag": "<每个实例随机·string·35>", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "tasks": [{ "id": "market:run-11", "source": "market", "title": "SOP replay-sop run#11 进行中（未指派）", "status": "doing", "due": null, "link": "/sop/replay-sop/?run=11", "project": "replay-sop" }],
+              "sources": { "ygl-trees": { "ok": false, "count": 0, "latency_ms": 0, "error": "source_not_authorized" }, "market": { "ok": true, "count": 1, "latency_ms": 0 } },
+              "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
+            }
+          }
+        },
+        {
+          "id": "bare-grant",
+          "route": "PUT /api/tasks/read-grants",
+          "class": "invalid",
+          "what": "没有 ygl 工作区：授权写不进去，400",
+          "request": { "method": "PUT", "path": "/api/tasks/read-grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "subject": "user:alpha", "project": "alpha", "expires_at": "2090-01-01 00:00:00" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "37", "etag": "W/\"25-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "invalid_task_source_grant" } }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce）；登录提供方和待办来源同 open。同样的种子。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "fixtures": ["identity-fake", "tasks-fake"],
+      "seed": [
+        { "table": "sop_runs", "row": { "id": 11, "sop_slug": "replay-sop", "sop_version": 1, "status": "running", "started_by": "seed", "started_at": "2025-01-01 00:00:01", "updated_at": "2025-01-01 00:00:01" } },
+        { "table": "sop_runs", "row": { "id": 12, "sop_slug": "replay-other", "sop_version": 1, "status": "running", "started_by": "seed", "started_at": "2025-01-01 00:00:02", "updated_at": "2025-01-01 00:00:02" } },
+        {
+          "table": "sop_runs",
+          "row": { "id": 13, "sop_slug": "replay-done", "sop_version": 1, "status": "finished", "started_by": "seed", "started_at": "2025-01-01 00:00:03", "updated_at": "2025-01-01 00:00:03", "finished_at": "2025-01-01 00:00:04" }
+        },
+        { "table": "sop_run_read_grants", "row": { "run_id": 11, "subject": "user:alpha", "granted_by": "seed", "expires_at": "2090-01-01 00:00:00", "created_at": "2025-01-01 00:00:05" } },
+        { "table": "sop_run_read_grants", "row": { "run_id": 12, "subject": "user:beta", "granted_by": "seed", "expires_at": "2000-01-01 00:00:00", "created_at": "2025-01-01 00:00:06" } },
+        { "table": "change_requests", "row": { "kind": "app", "slug": "replay-app", "op": "rollback", "target_version": 1, "reason": "replay 回滚", "requested_by": "seed", "created_at": "2025-01-01 00:00:07" } }
+      ],
+      "steps": [
+        {
+          "id": "gated-anonymous",
+          "route": "GET /api/tasks",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名 401",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "<每个实例随机·string·3>", "etag": "<每个实例随机·string·34>", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-alpha",
+          "route": "GET /api/tasks",
+          "class": "normal",
+          "what": "登录门开着：带会话照常",
+          "vary": { "sources.ygl-trees.latency_ms": 100000, "sources.a2a.latency_ms": 100000, "sources.replay-broken.latency_ms": 100000, "sources.replay-leaky.latency_ms": 100000, "$header:content-length": "random", "$header:etag": "random" },
+          "request": { "method": "GET", "path": "/api/tasks", "headers": { "x-forwarded-for": "198.51.100.7", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "<每个实例随机·string·3>", "etag": "<每个实例随机·string·35>", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "tasks": [
+                { "id": "market:run-11", "source": "market", "title": "SOP replay-sop run#11 进行中（未指派）", "status": "doing", "due": null, "link": "/sop/replay-sop/?run=11", "project": "replay-sop" },
+                { "id": "replay-ok:1", "source": "replay-ok", "title": "replay 扩展待办", "status": "todo", "due": null, "link": null, "project": null }
+              ],
+              "sources": {
+                "ygl-trees": { "ok": false, "count": 0, "latency_ms": 0, "error": "source_not_authorized" },
+                "market": { "ok": true, "count": 1, "latency_ms": 0 },
+                "a2a": { "ok": false, "count": 0, "latency_ms": 0, "error": "source_not_authorized" },
+                "replay-broken": { "ok": false, "count": 0, "latency_ms": 0, "error": "replay-broken_source_unavailable", "label": "replay 坏来源", "color": "default" },
+                "replay-leaky": { "ok": false, "count": 0, "latency_ms": 0, "error": "replay-leaky_source_unavailable", "label": "replay 自报错误的来源", "color": "default" },
+                "replay-ok": { "ok": true, "count": 1, "latency_ms": 0, "label": "replay 扩展来源", "color": "blue" }
+              },
+              "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
+            }
+          }
+        },
+        {
+          "id": "gated-grant-remote",
+          "route": "PUT /api/tasks/read-grants",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名写授权 401",
+          "request": { "method": "PUT", "path": "/api/tasks/read-grants", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "subject": "user:alpha", "project": "alpha", "expires_at": "2090-01-01 00:00:00" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-revoke-remote",
+          "route": "POST /api/tasks/read-grants/revoke",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名撤授权 401",
+          "request": { "method": "POST", "path": "/api/tasks/read-grants/revoke", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "subject": "user:alpha", "project": "alpha" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        }
+      ]
+    }
+  ]
+}

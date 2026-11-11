@@ -57,6 +57,8 @@ const FIXTURES = {
   'github-fake': { preload: join(HERE, 'github-fake-preload.mjs'), env: {} },
   // 本机起一个假 LayerFS（commit 号按内容算，每次一样），台的影子发布、迁移、冷版本重建、删远端指过去（scripts/layerfs-fake-preload.mjs）
   'layerfs-fake': { preload: join(HERE, 'layerfs-fake-preload.mjs'), env: {} },
+  // 统一待办的三个假来源：ygl-trees（截下命令行调用）、A2A 状态端点、两个扩展来源（scripts/tasks-fake-preload.mjs）
+  'tasks-fake': { preload: join(HERE, 'tasks-fake-preload.mjs'), env: {} },
 };
 /** seed_files 的路径：数据目录下的相对路径，每一段小写字母、数字、点、下划线、连字符，不以点开头（所以没有 .. 也没有隐藏文件） */
 const SEED_FILE_PATH = /^[a-z0-9_-][a-z0-9._-]*(?:\/[a-z0-9_-][a-z0-9._-]*)*$/;
@@ -1010,6 +1012,18 @@ process.exit(0);`;
   check(svcA.status === 0 && svcOut === svcB.stdout.trim() && /^\[true,true,"[0-9a-f]{40}",true,true,false,401\]$/.test(svcOut), `夹具：假 GitHub、假 LayerFS 起在回环地址上，main 头的 commit 号和 LayerFS 的 commit 号每次一样，令牌不对 401 ${svcOut || svcA.stderr.trim().split('\n').at(-1)}`);
   const refusedServices = ['github-fake', 'layerfs-fake'].map((name) => spawnSync(process.execPath, ['--import', pathToFileURL(FIXTURES[name].preload).href, '-e', 'console.log(1)'], { env: { PATH: process.env.PATH, NODE_ENV: 'production' }, encoding: 'utf8' }));
   check(refusedServices.every((r) => r.status === 1 && r.stdout === ''), '夹具：假 GitHub、假 LayerFS 不是测试环境就让进程直接退出');
+  // 统一待办的假来源：测试环境里把 ygl-trees、A2A、扩展目录都指到临时的假东西上，ygl 的命令行调用被截下；别的环境直接退出
+  const tasksProbe = `import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
+const e = process.env, entry = e.PNPM_HOME + '/node_modules/ygl-trees/dist/bundle/bin.cjs';
+const projects = await new Promise((ok) => execFile(process.execPath, [entry, 'project', 'list', '--json'], {}, (err, out) => ok(err ? null : JSON.parse(out).map((p) => p.name))));
+const state = await fetch(e.A2A_STATE_URL + '/__dsh_a2a/state', { headers: { 'X-API-Key': e.A2A_API_KEY } }).then((r) => r.json());
+const noKey = (await fetch(e.A2A_STATE_URL + '/__dsh_a2a/state')).status;
+console.log(JSON.stringify([existsSync(e.YGL_HOME + '/ygl-trees.db'), projects, state.tasks.length, state.archived.length, noKey, existsSync(e.WM_EXTENSIONS_DIR + '/replay-ok/server.mjs'), existsSync(e.WM_EXTENSIONS_DIR + '/replay-broken/server.mjs'), existsSync(e.WM_EXTENSIONS_DIR + '/replay-leaky/server.mjs')]));
+process.exit(0);`;
+  const tasksRun = spawnSync(process.execPath, ['--import', pathToFileURL(FIXTURES['tasks-fake'].preload).href, '--input-type=module', '-e', tasksProbe], { env: { PATH: process.env.PATH, NODE_ENV: 'test' }, encoding: 'utf8' });
+  const tasksRefused = spawnSync(process.execPath, ['--import', pathToFileURL(FIXTURES['tasks-fake'].preload).href, '-e', 'console.log(1)'], { env: { PATH: process.env.PATH, NODE_ENV: 'production' }, encoding: 'utf8' });
+  check(tasksRun.status === 0 && tasksRun.stdout.trim() === '[true,["alpha","beta","gamma"],1,1,401,true,true,true]' && tasksRefused.status === 1 && tasksRefused.stdout === '', `夹具：统一待办的假来源在测试环境里起得来（ygl 调用被截下、A2A 键不对 401、三个扩展就位），别的环境直接退出 ${tasksRun.stdout.trim() || tasksRun.stderr.trim().split('\n').at(-1)}`);
   console.log(failed ? `===== 录制回放自检：${failed} 项失败 =====` : '===== 录制回放自检：全过 =====');
   return failed ? 1 : 0;
 }
