@@ -2494,7 +2494,7 @@ app.post('/a2a/direct', express.json({ limit: '600kb' }), async (req, res) => {
   // run 操作桥（P2 note 写入走 sop_runs 的哑数据面：step_key=note-<ts> 追加不覆盖）
   const runOps = {
     start: (slug: string, startedBy: string): { id: number; read_capability: string } => { const r = sopRunStartCore(slug, startedBy); return { id: r.id, read_capability: r.read_capability }; },
-    uploadToken: (id: number): string => String((db.prepare('SELECT upload_token FROM sop_runs WHERE id = ?').get(id) as { upload_token?: string } | undefined)?.upload_token ?? ''), // P0：派单回执带令牌（创建者即得）
+    uploadToken: (id: number): string => String((svc<SopService>('sop').runUploadToken(id) as { upload_token?: string } | undefined)?.upload_token ?? ''), // P0：派单回执带令牌（创建者即得）
     saveNote: (runId: number, text: string): Promise<void> => runCheckpoints.serial(runId, async () => {
       const row = sopRunRow(runId);
       if (row.status !== 'running') throw new HttpError(409, 'run ' + runId + ' 已 ' + row.status + '，不可再写');
