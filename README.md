@@ -176,7 +176,7 @@ POST             /api/vault/generate|strength   生成密码或口令短语 / �
 GET              /api/vault/health|history      安全体检（复用项不回明文）/ 活动记录（新→旧 200 条）
 GET              /api/export                    全量导出（缺省掩码；?reveal=1 取真值要管理员：口令或管理员登录，浏览器来的要同源，否则 403）
 POST             /api/import?mode=merge|replace 导入
-GET              /api/health                    存活：版本与运行时长（不发外部请求；配了 LayerFS 时回缓存的上次就绪结果）
+GET              /api/health                    存活：版本与运行时长（不发外部请求；配了 LayerFS 时回缓存的上次就绪结果；`a2a` 块：入站签名开关的生效值、名片有效期、幂等窗口、出站积压与回执时长、拒收计数——只有计数，查无 SOP 与没有绑定并成 `not-found` 一个桶，计数进程内、重启清零）
 GET              /api/health/ready              就绪：含 LayerFS 探测（结果缓存 10 秒），不健康 503
 ```
 
@@ -247,6 +247,8 @@ GET              /api/health/ready              就绪：含 LayerFS 探测（�
 server/src/      （一个文件一行，按文件名排序；新文件只插一行）
   a2a-direct-sig.ts（/a2a/direct 入站签名校验：只从登记地址取卡·防重放·WM_A2A_DIRECT_SIG）
   a2a.ts（卡片/绑定/direct 准入）
+  a2a/errors.ts（A2A 拒收原因表：错误码 → 中文原因与处理办法·公开计数的桶，对外同答的原因并桶）
+  a2a/health.ts（`/api/health` 的 `a2a` 块：开关生效值、名片有效期、幂等窗口、出站积压、拒收计数·只出计数不出团队与地址·读数缓存 5 秒）
   app-data-contract.ts（自产台数据契约：必填/枚举/格式/条件规则（含条件格式）/数组对象逐元素，POST 数据时服务端权威校验）
   app-html.ts（出自产台页面 HTML：注入按台令牌，认得出的人在当前上架版本上再注入提交人票据；出票抛错页面照常不带票据，别的出错回到原样页面并计数）
   attention-answers.ts（「关注」各来源的答法：转给原路由的换算表——路径固定、id 核形状后编码、请求体只取这种答法要的字段；席位提问的答复、事项的验收和退回直接实现）
@@ -307,6 +309,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
 server/src/login-providers/  登录提供方插件（身份的具体实现只放这里，核心不引用）：index.ts（清单：这个部署装哪些提供方） feishu/index.ts（飞书登录方式：授权码流程，向 `identity` 登记一个登录方式，凭证从凭据库取） odoo/index.ts（Odoo 提供方的插件入口：向 `identity` 登记、提供 `loginRelay`） odoo/odoo-viewer.ts（Odoo 查看人现查） odoo/odoo-session.ts（门户 Odoo 会话可信源判定与剥除、登录回调票据） odoo/odoo-login-proxy.ts（可选同源 Odoo 登录中继 WM_ODOO_LOGIN_PROXY：只放行登录面，不代理 Odoo 应用） odoo/odoo-browser-origin.ts（只给浏览器用的 Odoo 登录地址 WM_ODOO_BROWSER_URL：登录一跳送到可信内网地址，身份与代理目标不变）
 server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·cookie·setting·mcp（域服务）；其余一个文件一行，按文件名排序：
   a2a-idempotency.ts（`/a2a/direct` 幂等登记：task_id → 指纹 sha256，30 分钟窗口，落库，重启后同一 task_id 仍判 replay / conflict；只存摘要不存原文）
+  a2a-stats.ts（A2A 出站积压的聚合读数：两张出站表按状态计数、最老待发、最近回执时长）
   attention-sources.ts（「关注」要用、来源里还没有现成函数的只读查询：席位未答的提问）
   attention.ts（「关注」：Cordis 服务 `attention`·各来源注册提供方、可撤销·汇总当前这个人的条目和各类条数）
   binding.ts（A2A 人工绑定）

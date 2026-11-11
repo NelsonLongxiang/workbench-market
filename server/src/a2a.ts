@@ -16,6 +16,7 @@ import { MAX_ROUTE_BODY_BYTES } from '@nelsonlongxiang/dsh-open-a2a-net/transpor
 import { A2aClient } from '@nelsonlongxiang/dsh-open-a2a-net/a2a-client';
 import { dataDir, db } from './db.ts';
 import { claimA2aTask } from './services/a2a-idempotency.ts';
+import { noteA2aError } from './a2a/errors.ts';
 
 export const MARKET_TEAM = process.env.MARKET_TEAM || 'market';
 export const CARD_TTL_MS = 45 * 3600 * 1000; // 45h ≤ 上游 48h 预算
@@ -163,17 +164,18 @@ export async function a2aDirectHandle(body: any, rawBytes: number, runOps: {
   const caller = typeof body?.caller_session === 'string' ? body.caller_session : '';
   const contextId = typeof body?.context_id === 'string' && body.context_id !== '' ? body.context_id : `ctx-${Math.random().toString(16).slice(2, 10)}`;
   const taskId = typeof body?.task_id === 'string' && body.task_id !== '' ? body.task_id : `direct-${Math.random().toString(16).slice(2, 10)}`;
-  if (rawBytes > A2A_DIRECT_MAX_BYTES) return { httpStatus: 413, body: { error: 'payload exceeds 512 KiB limit', code: -32000, task_id: taskId } };
-  if (team === '' || message === '') return { httpStatus: 200, body: { error: 'team and message are required', code: -32000 } };
+  if (rawBytes > A2A_DIRECT_MAX_BYTES) { noteA2aError('payload-too-large'); return { httpStatus: 413, body: { error: 'payload exceeds 512 KiB limit', code: -32000, task_id: taskId } }; }
+  if (team === '' || message === '') { noteA2aError('missing-fields'); return { httpStatus: 200, body: { error: 'team and message are required', code: -32000 } }; }
 
   // SOP 解析：team = market/<id8> → apps.a2a_node8
   const tm = /^([a-z][a-z0-9-]*)\/([0-9a-f]{8})$/i.exec(team);
-  if (!tm) return { httpStatus: 404, body: { error: 'not found' } };
+  if (!tm) { noteA2aError('unknown-team'); return { httpStatus: 404, body: { error: 'not found' } }; }
   const sop = db.prepare('SELECT slug, status FROM apps WHERE kind = ? AND a2a_node8 = ?').get('sop', tm[2]) as { slug: string; status: string } | undefined;
-  if (!sop) return { httpStatus: 404, body: { error: 'not found' } };
+  if (!sop) { noteA2aError('unknown-team'); return { httpStatus: 404, body: { error: 'not found' } }; }
 
   // 准入（市场侧）：caller 必须精确匹配一条有效绑定（修订 1：DSH 侧 canvas 那半是前置）
   if (caller === '') {
+    noteA2aError('anonymous');
     return { httpStatus: 200, body: { error: 'caller_session is required (anonymous delivery refused)', code: -32000, team, task_status: 'TASK_STATE_FAILED' } };
   }
   // 联合评审① C：统一绑定表——admits 方向行（授 notify 不过此门·方向独立性铁律）
@@ -181,6 +183,7 @@ export async function a2aDirectHandle(body: any, rawBytes: number, runOps: {
   if (!binding) {
     // A10（评审席选项 A，存在性不泄露）：无有效绑定与查无 SOP 同答 404——
     // 200 no-valid-binding 会区分「SOP 存在但未绑定」与「SOP 不存在」
+    noteA2aError('not-admitted');
     return { httpStatus: 404, body: { error: 'not found' } };
   }
 
@@ -188,6 +191,7 @@ export async function a2aDirectHandle(body: any, rawBytes: number, runOps: {
   const verdict = claimA2aTask(taskId, a2aDirectFingerprint(team, caller, message));
   if (verdict !== 'fresh') {
     const replay = verdict === 'replay';
+    noteA2aError(verdict);
     return {
       httpStatus: 409,
       body: { error: replay ? 'duplicate task id within the idempotency window' : 'task id reused with a different payload', code: replay ? -32003 : -32002, task_id: taskId, replay },
@@ -208,9 +212,11 @@ export async function a2aDirectHandle(body: any, rawBytes: number, runOps: {
   if (!parsed) noteText = message; // 自由文本 → start + 备注
 
   if (sop.status !== 'published') {
+    noteA2aError('sop-not-published');
     return { httpStatus: 200, body: { error: `SOP status is ${sop.status}, not published`, code: -32000, team, task_status: 'TASK_STATE_FAILED' } };
   }
   if (binding.mode !== 'run' && action !== 'status') {
+    noteA2aError('read-only-binding');
     return { httpStatus: 200, body: { error: 'binding mode is read — only status queries allowed', code: -32000, team, task_status: 'TASK_STATE_FAILED' } };
   }
 
@@ -226,11 +232,12 @@ export async function a2aDirectHandle(body: any, rawBytes: number, runOps: {
     const bindingCb = runOps.bindingCallback?.(sop.slug, caller) ?? '';
     const selfCb = typeof body?.callback === 'string' ? body.callback.trim() : '';
     let receiptStatus = '';
-    if (selfCb !== '' && selfCb !== bindingCb) receiptStatus = 'rejected:callback-mismatch';
+    if (selfCb !== '' && selfCb !== bindingCb) { receiptStatus = 'rejected:callback-mismatch'; noteA2aError('callback-mismatch'); }
     else if (bindingCb === '') receiptStatus = '';
     runOps.ctxRegisterSource?.({ contextId, runId, taskId, caller, team, receiptStatus });
     if (receiptStatus === '' && bindingCb !== '') runOps.ctxAttachCallback?.(runId, bindingCb);
   } else if (runId === null) {
+    noteA2aError('no-run-for-context');
     return { httpStatus: 200, body: { error: 'no run bound to this context_id (send a start first)', code: -32000, team, task_id: taskId, task_status: 'TASK_STATE_FAILED' } };
   } else if (action === 'note') {
     await runOps.saveNote(runId, noteText || '(empty note)');
@@ -262,6 +269,11 @@ export interface OutboundTarget { baseUrl: string; team: string }
 /** OriginClaim 绑定形式（v2）的域标签——与上游 src/origin-claim.ts ORIGIN_CLAIM_BOUND_TAG 一致，v1 签名永远验不成 v2。 */
 export const ORIGIN_CLAIM_BOUND_TAG = 'a2a-origin-claim/2';
 
+/** v1 不绑定签名是否还发（A2A_ORIGIN_CLAIM_UNBOUND=off 停发）；/api/health 的 a2a 块也读它 */
+export function originClaimV1Enabled(): boolean {
+  return process.env.A2A_ORIGIN_CLAIM_UNBOUND !== 'off';
+}
+
 /**
  * OriginClaim 信封（上游 docs/protocol/delivery-origin-auth.md §2.1）：按真实目标 url/method 签。
  * - 绑定形式（v2）：X-A2A-Caller-Aud = 目标 origin，X-A2A-Caller-Sig2 签
@@ -273,7 +285,7 @@ export function originClaimHeaders(privateKey: KeyObject, zone: string, baseUrl:
   const sign = (text: string): string => edSign(undefined, Buffer.from(text, 'utf8'), privateKey).toString('base64');
   const headers: Record<string, string> = { 'X-A2A-Caller': zone, 'X-A2A-Caller-Url': baseUrl, 'X-A2A-Caller-Ts': String(ts) };
   // v1 只为未升级对端保留；全舰队关窗后设 A2A_ORIGIN_CLAIM_UNBOUND=off 停发（v1 不绑路由，未升级对端上可被剥 Sig2 重放）
-  if (process.env.A2A_ORIGIN_CLAIM_UNBOUND !== 'off') headers['X-A2A-Caller-Sig'] = sign(JSON.stringify([zone, baseUrl, ts]));
+  if (originClaimV1Enabled()) headers['X-A2A-Caller-Sig'] = sign(JSON.stringify([zone, baseUrl, ts]));
   let audience = '';
   let path = '';
   try {
