@@ -74,4 +74,15 @@ export class McpService extends Service {
   grantAuditInsert(sessionId: number, requestId: number | null, action: string, actor: string, before: string, after: string, note: string) {
     return db.prepare('INSERT INTO mcp_grant_audit (session_id, request_id, action, actor, grants_before, grants_after, note) VALUES (?, ?, ?, ?, ?, ?, ?)').run(sessionId, requestId, action, actor, before, after, note);
   }
+
+  // ---- 以下原文自 index.ts 的 /api/mcp/access-requests/:id/approve、reject 搬入：批准、驳回各自的事务语句（两处相同，合成一组） ----
+  accessTxBegin() {
+    db.exec('BEGIN IMMEDIATE');
+  }
+  accessTxCommit() {
+    db.exec('COMMIT');
+  }
+  accessTxRollback() {
+    db.exec('ROLLBACK');
+  }
 }

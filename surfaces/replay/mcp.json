@@ -1,0 +1,1359 @@
+{
+  "domain": "mcp",
+  "what": "MCP 网关的控制面：上游的读和配、会话的建列吊销、会话授权、工具目录、调用记录、权限申请的列表批准驳回，共 11 条路由，都只给管理员。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": [
+    "GET /api/mcp/upstreams",
+    "PUT /api/mcp/upstreams",
+    "POST /api/mcp/sessions",
+    "GET /api/mcp/sessions",
+    "DELETE /api/mcp/sessions/:id",
+    "PUT /api/mcp/sessions/:id/grants",
+    "GET /api/mcp/tools",
+    "GET /api/mcp/calls",
+    "GET /api/mcp/access-requests",
+    "POST /api/mcp/access-requests/:id/approve",
+    "POST /api/mcp/access-requests/:id/reject"
+  ],
+  "exempt": [
+    { "route": "GET /api/mcp/upstreams", "class": "invalid", "why": "上游列表不读请求里的任何东西", "shown_by": "open/upstreams-none" },
+    { "route": "GET /api/mcp/sessions", "class": "invalid", "why": "会话列表不读请求里的任何东西", "shown_by": "open/sessions" },
+    { "route": "GET /api/mcp/tools", "class": "invalid", "why": "工具目录不读请求里的任何东西", "shown_by": "open/tools" },
+    { "route": "GET /api/mcp/calls", "class": "invalid", "why": "调用记录只读 limit，给什么都不拒（不是数取 200，太大封顶 1000）", "shown_by": "open/calls-limit-text" }
+  ],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "登录门关；这些路由只认管理员（本机也要口令），管理口令由环境给合成值。预先写进库：两个会话（一个持有已下线的工具名和一个上游工具名、一个已吊销）、六条权限申请、三条调用记录（经 HTTP 只能从 /mcp 的工具调用产生）。上游配成连不上的本机地址。定了时钟。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "seed": [
+        { "table": "mcp_sessions", "row": { "name": "seed-agent", "token_sha256": "ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb", "grants": "[\"workbench_list\",\"gone_tool\",\"up__x\"]" } },
+        { "table": "mcp_sessions", "row": { "name": "seed-revoked", "token_sha256": "a0fab1377f49a759b57f63318262ebe89fabfc990e8e93ceac2984561482b9d4", "grants": "[]", "revoked_at": "2029-12-31 00:00:00" } },
+        { "table": "mcp_access_requests", "row": { "session_id": 1, "tools": "[\"skill_publish\"]", "reason": "要发布技能" } },
+        { "table": "mcp_access_requests", "row": { "session_id": 1, "tools": "[\"no_such_tool\"]", "reason": "工具已下线" } },
+        { "table": "mcp_access_requests", "row": { "session_id": 2, "tools": "[\"skill_publish\"]", "reason": "会话已吊销" } },
+        { "table": "mcp_access_requests", "row": { "session_id": 1, "tools": "[\"workbench_list\"]", "reason": "早先批过的", "status": "approved", "decided_by": "seed", "decided_at": "2029-12-30 00:00:00" } },
+        { "table": "mcp_access_requests", "row": { "session_id": 1, "tools": "[\"workbench_vars_get@1\"]", "reason": "按台申请" } },
+        { "table": "mcp_access_requests", "row": { "session_id": 1, "tools": "[\"sop_publish\"]", "reason": "要驳回的" } },
+        { "table": "mcp_calls", "row": { "session_name": "seed-agent", "method": "tools/call", "tool": "workbench_list", "ok": 1, "duration_ms": 3 } },
+        { "table": "mcp_calls", "row": { "session_name": "seed-agent", "method": "tools/call", "tool": "skill_publish", "ok": 0, "error": "forbidden", "duration_ms": 1 } },
+        { "table": "mcp_calls", "row": { "session_name": "seed-agent", "method": "tools/list", "ok": 1, "duration_ms": 2 } }
+      ],
+      "steps": [
+        {
+          "id": "upstreams-none",
+          "route": "GET /api/mcp/upstreams",
+          "class": "normal",
+          "what": "上游列表：还没配",
+          "request": { "method": "GET", "path": "/api/mcp/upstreams", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": [] }
+        },
+        {
+          "id": "upstreams-not-array",
+          "route": "PUT /api/mcp/upstreams",
+          "class": "invalid",
+          "what": "配上游：upstreams 不是数组，400",
+          "request": { "method": "PUT", "path": "/api/mcp/upstreams", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "upstreams": {} } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "61", "etag": "W/\"3d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "upstreams 必须是数组（整体替换语义）" } }
+        },
+        {
+          "id": "upstreams-bad-prefix",
+          "route": "PUT /api/mcp/upstreams",
+          "class": "invalid",
+          "what": "配上游：prefix 有大写，400",
+          "request": { "method": "PUT", "path": "/api/mcp/upstreams", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "upstreams": [{ "prefix": "Up", "url": "http://127.0.0.1:9/mcp" }] } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "59", "etag": "W/\"3b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "prefix 规范：[a-z][a-z0-9]{0,15}——\"Up\"" }
+          }
+        },
+        {
+          "id": "upstreams-dup",
+          "route": "PUT /api/mcp/upstreams",
+          "class": "invalid",
+          "what": "配上游：前缀重复，400",
+          "request": {
+            "method": "PUT",
+            "path": "/api/mcp/upstreams",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "upstreams": [{ "prefix": "up", "url": "http://127.0.0.1:9/a" }, { "prefix": "up", "url": "http://127.0.0.1:9/b" }] }
+          },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "上游前缀重复：up" } }
+        },
+        {
+          "id": "upstreams-bad-kind",
+          "route": "PUT /api/mcp/upstreams",
+          "class": "invalid",
+          "what": "配上游：kind 不认识，400",
+          "request": { "method": "PUT", "path": "/api/mcp/upstreams", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "upstreams": [{ "prefix": "up", "kind": "other", "url": "http://127.0.0.1:9/mcp" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "60", "etag": "W/\"3c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "上游 up 的 kind 只能是 ygl-trees 或不写" } }
+        },
+        {
+          "id": "upstreams-ygl-with-url",
+          "route": "PUT /api/mcp/upstreams",
+          "class": "invalid",
+          "what": "配上游：ygl-trees 不收 url，400",
+          "request": { "method": "PUT", "path": "/api/mcp/upstreams", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "upstreams": [{ "prefix": "yg", "kind": "ygl-trees", "url": "http://127.0.0.1:9/x" }] } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "93", "etag": "W/\"5d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "上游 yg（ygl-trees）只接受 prefix、ygl_home、enabled、toolCallTimeoutMs" }
+          }
+        },
+        {
+          "id": "upstreams-ygl-bad-home",
+          "route": "PUT /api/mcp/upstreams",
+          "class": "invalid",
+          "what": "配上游：ygl-trees 的 ygl_home 是相对路径，400",
+          "request": { "method": "PUT", "path": "/api/mcp/upstreams", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "upstreams": [{ "prefix": "yg", "kind": "ygl-trees", "ygl_home": "relative/home" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "上游 yg：ygl_home 必须是绝对路径" } }
+        },
+        {
+          "id": "upstreams-bad-url",
+          "route": "PUT /api/mcp/upstreams",
+          "class": "invalid",
+          "what": "配上游：url 不是 http(s)，400",
+          "request": { "method": "PUT", "path": "/api/mcp/upstreams", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "upstreams": [{ "prefix": "up", "url": "ftp://127.0.0.1/mcp" }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "50", "etag": "W/\"32-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "上游 up 的 url 必须是 http(s)://" } }
+        },
+        {
+          "id": "upstreams-bad-headers",
+          "route": "PUT /api/mcp/upstreams",
+          "class": "invalid",
+          "what": "配上游：headers 的值不是字符串，400",
+          "request": { "method": "PUT", "path": "/api/mcp/upstreams", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "upstreams": [{ "prefix": "up", "url": "http://127.0.0.1:9/mcp", "headers": { "A": 1 } }] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "上游 up 的 headers 必须是字符串映射" } }
+        },
+        {
+          "id": "upstreams-set",
+          "route": "PUT /api/mcp/upstreams",
+          "class": "normal",
+          "what": "配上游：一个连不上的 http 上游（端口 9），toolCallTimeoutMs 不是数取缺省；应答不回 headers",
+          "request": {
+            "method": "PUT",
+            "path": "/api/mcp/upstreams",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "upstreams": [{ "prefix": "up", "url": "http://127.0.0.1:9/mcp", "headers": { "Authorization": "Bearer synthetic-upstream" }, "toolCallTimeoutMs": "x" }] }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "101", "etag": "W/\"65-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "upstreams": [{ "prefix": "up", "kind": "http", "url": "http://127.0.0.1:9/mcp", "enabled": true }] }
+          }
+        },
+        {
+          "id": "upstreams-after",
+          "route": "GET /api/mcp/upstreams",
+          "class": "normal",
+          "what": "上游列表：连不上，reachable=false、带错误；headers 只回名字",
+          "request": { "method": "GET", "path": "/api/mcp/upstreams", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "248", "etag": "W/\"f8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "prefix": "up",
+                "kind": "http",
+                "url": "http://127.0.0.1:9/mcp",
+                "enabled": true,
+                "headers": ["Authorization"],
+                "toolCallTimeoutMs": 15000,
+                "reachable": false,
+                "tools": 0,
+                "last_error": "fetch failed",
+                "last_ok_at": "",
+                "last_checked_at": "YYYY-MM-DDThh:mm:ss.fffZ"
+              }
+            ]
+          }
+        },
+        {
+          "id": "tools",
+          "route": "GET /api/mcp/tools",
+          "class": "normal",
+          "what": "工具目录：本地的全部工具（上游连不上，不报错）；可按台授权的标 scopable，免授权的标 always_allowed",
+          "request": { "method": "GET", "path": "/api/mcp/tools", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "11465", "etag": "W/\"2cc9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "name": "access_info", "description": "查本会话的权限：会话名、已授权工具、完整工具目录（本地 + 上游聚合，每项带 category=read/write/admin 与 granted）、本会话提过的权限申请及状态。任何已认证会话都能调，不受授权限制——调用工具被拒或 tools/list 里找不到想要的工具时先调它。", "category": "read", "always_allowed": true },
+              { "name": "access_request", "description": "申请把目录里的工具授权给本会话（管理员在「MCP 网关」页批准后立即生效，批准是并入现有授权，不会收走已有工具）。tools 必须是 access_info 目录里的工具名；reason 必填（≤500 字），写清要做什么。同一组工具已有待批申请时返回那条，不重复建；每会话每小时最多 10 条。会话不能自己批准。", "category": "write", "always_allowed": true },
+              { "name": "workbench_list", "description": "列出市场中的工作台（可按关键词/类型/状态过滤），返回 id/名称/类型/状态/延迟/地址/分类/启用——找台的入口。", "category": "read" },
+              { "name": "workbench_summary", "description": "市场总览统计：总数/启用/在线/离线/未探测/平均延迟/分类聚合。", "category": "read" },
+              { "name": "workbench_check", "description": "立即健康探测并回写状态：传 id 探测单个台；all=true 并发探测全部启用台。", "category": "write" },
+              { "name": "use_url", "description": "取某工作台的访问入口：portal（/go/<id>/ 同源代理，自动带凭据/剥禁嵌头）与 direct 直连地址。", "category": "read" },
+              { "name": "app_sync", "description": "从 GitHub 仓库 main 分支同步自产台/SOP 台（属主 2026-11-02 来源收敛：自产台只接受仓库 main，不再收直接上传的文件）。先把改动合进该台登记的仓库 main，再调本工具；市场拉 main 头生成新版本并记下 commit。只能重拉已登记来源的台，绑定或改来源须本机 CLI 或管理员走 REST POST /api/apps/<slug>/sync。", "category": "admin" },
+              { "name": "change_request_create", "description": "#94 v3 S1 人审门：创建台或技能的回滚/删除请求（K10——批准前状态不变·批准经 REST 口令面）。", "category": "write" },
+              { "name": "change_requests", "description": "#94 v3 S1：列人审请求（默认 pending）", "category": "read" },
+              { "name": "sop_publish", "description": "SOP 台上架：draft/deprecated → published（首次入册市场；note 记入当前版本 changelog）。", "category": "admin" },
+              { "name": "sop_run_start", "description": "开一次 SOP 执行 run（钉当前版本；仅 published）——agent 更新持久化执行数据的入口，不触发版本发布。", "category": "write" },
+              { "name": "sop_run_step_save", "description": "更新 run 的持久化数据（stepKey→value 任意键值；与人在 Runner 页填数据同一条链：Redis 热写+30s checkpoint 沉淀 SQLite）。", "category": "write" },
+              { "name": "sop_run_get", "description": "读 run 详情（热读优先，miss 回 SQLite 真源）——恢复执行现场。", "category": "read" },
+              { "name": "sop_run_list", "description": "列 SOP 执行记录（可按 slug/status 过滤；按更新时间倒序，limit 缺省 50、最大 200，offset 翻页：回满 limit 条就继续取下一页）。", "category": "read" },
+              { "name": "sop_run_sandbox", "description": "派发 SOP 步骤到 VM sandbox 容器执行（LayerFS）——返回 commit_hash（交付物=LayerFS Commit 引用）+ exit_code/stdout_tail/stderr_tail/duration_ms。bridge 不可达时 retryable。", "category": "write" },
+              { "name": "sop_run_finish", "description": "归档 run（热态全量沉淀 SQLite，Redis 条目平滑淘汰）。", "category": "write" },
+              { "name": "app_data_list", "description": "读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读，与 GET 同权。", "category": "read" },
+              { "name": "app_data_submit", "description": "向自产台写一条表单数据（与台页面 POST /api/apps/<slug>/data 同一条写入链：1MB 上限、按台的 data-contract.json 校验、写入后照常推送事件）。不符合契约时返回 400 与逐条 violations。附件先用 app_files_upload 上传，再把返回的 id 放进 data.file_ids。带 idempotency_key 重试不会重复写：同键同内容返回原记录（duplicate=true），同键不同内容 409。", "category": "write" },
+              { "name": "app_files_list", "description": "读自产台的文件提交列表（倒序游标分页，含下载 url）——任意类型文件（≤100MB/个）。只读，与 GET 同权。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。", "category": "read" },
+              { "name": "app_files_upload", "description": "向自产台上传文件（base64 内容·原始 ≤100MB/个，base64 约 ≤134MB）——agent 侧交付物直接入台文件面（与 REST multipart 同表同链、同一套按内容的类型检查）。返回 id/url/mime/size/sha256/note。建议同时传 size（原始字节数）或 sha256：有的 MCP 客户端会把过长的参数截短（常见截在 64KB），带上它们服务端才能发现并拒收残缺文件；base64 恰好 65536 字符又没带时按疑似截断拒收。上传前可用 app_files_list 的 quota 查剩余文件数与上限。超过几十 KB 的文件优先用 REST 上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>，请求体为原始字节（同一会话令牌，不经 base64；入口见 access_info 的 rest_base 与 openapi_url）。", "category": "write" },
+              { "name": "workbench_vars_get", "description": "读某工作台的看板变量/常量：带 key 取单个（含 revision），不带 key 列全部（可按 prefix 过滤）。各台按 workbench id 隔离，自产台/SOP 台/外部台通用。", "category": "read", "scopable": true },
+              { "name": "workbench_vars_set", "description": "写某工作台的看板变量（JSON 值）。新建可不带 revision（或 revision=0 表示仅在不存在时创建）；改已存在的键必须带当前 revision，不符返回 revision 冲突与当前值。kind=const 写入后不能直接改：谁写的谁维护——新建常量的会话是作者，作者本人带 override=true 与 reason 可修订；别人的常量改不了（作者缺失时由部署机本机命令行兜底）。作者本人修订时带 owner=\"*\" 可把常量设成公共：之后任何 MCP 会话或 Odoo 登录带 override 与 reason 都能修订，台令牌仍不能写。", "category": "write", "scopable": true },
+              { "name": "workbench_register", "description": "登记外部工作台入册（agent 发现内网新服务时自主登记；门户/市场即刻可用）。凭据不接受——需人工经市场页配置（安全边界）。", "category": "admin" },
+              { "name": "workbench_update", "description": "更新工作台配置（name/category/tags/description/enabled/health_path/sort/url）。不接受 auth——凭据变更人工操作；掩码 url 回传视为未变更。", "category": "admin" },
+              { "name": "workbench_unregister", "description": "解除工作台注册（不删服务本体；驾驶舱面板引用联动清理）。", "category": "admin" },
+              { "name": "skills_list", "description": "列出市场技能（可按 layer 1-5 过滤：1业务角色/2开发运维/3工作流/4架构设计/5AI原生运营），返回 slug/name/layer/族/版本数/active_version/current_version——市场技能目录入口。两个版本字段别混：active_version＝市场当前版本（回滚指针，不带版本号的取装/导出/下载/安装计划都取它，未回滚即最新版）；current_version＝本机钉装记录里的版本（未钉装为 null）。", "category": "read" },
+              { "name": "skill_versions", "description": "查某技能版本链（newest-first）：version/changelog/breaking/tree_digest/snapshot_path/reviewed_by——版本不可变审计面；active=true 的是市场当前版本（active_version，回滚指针；回滚只移这个指针，不新增版本）。", "category": "read" },
+              { "name": "skill_file_put", "description": "技能上传第一步：一次上传一个文件（不收压缩包），暂存在市场上，返回 sha256。文本文件 content 直接给；二进制文件（图片/字体/模板）content 给 base64 并带 encoding:\"base64\"。单文件上限 10MB。同内容重复上传幂等并续期，暂存 24 小时后清掉。全部文件传完后调 skill_publish 按 sha256 引用成版。", "category": "admin" },
+              { "name": "skill_publish", "description": "技能上传第二步（发版/更新）：用 skill_file_put 返回的 sha256 列出整棵文件树，一次成版。slug 不存在时建技能并发 v1，已存在时发新版本 N+1（旧版本不变）。有文件没上传或暂存已过期时报 400 并点名路径。SKILL.md 的 name/description/argument-hint 自动同步到技能信息。同一技能已有内容完全相同的版本时报 409。审计人记为本会话。", "category": "admin" },
+              { "name": "skill_download", "description": "获取技能（安装/更新）：签发某版本（缺省市场当前版本 active_version：回滚后即回滚到的版本，未回滚即最新）的技能包下载链接，10 分钟有效、至多下载 5 次，过期或用满重新调用。包是 .tar.gz，顶层目录 package_dir（slug 的 : 换成 .），内含技能文件、清单 .wm-skill.json（逐文件 sha256 与整版 tree_digest）和校验脚本 .wm-skill-verify.mjs。安装步骤（经用户同意后执行）：下载到临时目录，先核对整包 sha256 等于应答的 package_sha256（不等就停，不解压）；解压后核对 .wm-skill-verify.mjs 的 sha256 等于应答的 verify_script_sha256（不等就停，不执行它）；再运行 `node <package_dir>/.wm-skill-verify.mjs --install --expect <应答的 tree_digest>`——包里清单的指纹与 --expect 不符、或文件与清单不一致、有符号链接/硬链接/设备文件、清单路径或目录名不合规，就整包拒绝、什么都不动；一致则把 ~/.workbench-market/skills/<package_dir> 的旧版本移进 ~/.workbench-market/skills/.backups/<package_dir>/（每个技能最多留 3 个），再整体换上新版本。返回里的 install_command 是这套步骤的一行 shell 写法。之后随时运行 verify_command 可列出本地被改动的文件。没设 MARKET_PUBLIC_URL 且请求主机不规范时不签发。", "category": "read" },
+              { "name": "skill_install_plan", "description": "生成安装计划（薄分发：不自动落盘）——返回目标版本 digest（expected sha256 钉装锚）+ 快照路径 + 手工安装指引。", "category": "read" },
+              { "name": "skill_search", "description": "语义搜技能：只描述需求（自然语言），评估模型按 P(true) 打分返回 ≤3 个置信度严格 >0.7 的技能（降序）。只读；不可用时**报错不降级**。", "category": "read" },
+              { "name": "design_standard", "description": "读取工作台 design token 标准与页面模式（只读·唯一事实源 DESIGN.md + design-system/workbench-market/PATTERNS.md）：part=tokens 取结构化 token（颜色/字号/间距/圆角/阴影/动效/组件）；guide 取 DESIGN.md 各节规则；patterns 取菜单与目录、页面骨架、SOP 交付空间、列表、数据看板；all（缺省）全给。section 按标题关键词只取命中章节。返回含 version 与两份源文件 sha256。", "category": "read" }
+            ]
+          }
+        },
+        {
+          "id": "session-bad-name",
+          "route": "POST /api/mcp/sessions",
+          "class": "invalid",
+          "what": "建会话：名字有空格，400",
+          "request": { "method": "POST", "path": "/api/mcp/sessions", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "name": "bad name" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "91", "etag": "W/\"5b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "name 规范：小写字母开头，小写字母/数字/连字符，≤64 字符" } }
+        },
+        {
+          "id": "session-empty-name",
+          "route": "POST /api/mcp/sessions",
+          "class": "invalid",
+          "what": "建会话：没有名字，400",
+          "request": { "method": "POST", "path": "/api/mcp/sessions", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "91", "etag": "W/\"5b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "name 规范：小写字母开头，小写字母/数字/连字符，≤64 字符" } }
+        },
+        {
+          "id": "session-create",
+          "route": "POST /api/mcp/sessions",
+          "class": "normal",
+          "what": "建会话：令牌只出现这一次（每个实例随机，只比长度），授权为空",
+          "vary": { "token": "random" },
+          "request": { "method": "POST", "path": "/api/mcp/sessions", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "name": "replay-a" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "216", "etag": "W/\"d8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 3, "name": "replay-a", "token": "<每个实例随机·string·64>", "grants": [], "note": "token 仅此一次出现——库存 sha256 无取回接口，请立即分发保管" }
+          }
+        },
+        {
+          "id": "session-dup",
+          "route": "POST /api/mcp/sessions",
+          "class": "invalid",
+          "what": "建会话：名字已存在，400",
+          "request": { "method": "POST", "path": "/api/mcp/sessions", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "name": "replay-a" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "40", "etag": "W/\"28-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "会话名已存在: replay-a" } }
+        },
+        {
+          "id": "session-create-upper",
+          "route": "POST /api/mcp/sessions",
+          "class": "normal",
+          "what": "建会话：名字两头空白、大写，转成小写",
+          "vary": { "token": "random" },
+          "request": { "method": "POST", "path": "/api/mcp/sessions", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "name": "  Replay-B  " } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "216", "etag": "W/\"d8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 4, "name": "replay-b", "token": "<每个实例随机·string·64>", "grants": [], "note": "token 仅此一次出现——库存 sha256 无取回接口，请立即分发保管" }
+          }
+        },
+        {
+          "id": "sessions",
+          "route": "GET /api/mcp/sessions",
+          "class": "normal",
+          "what": "会话列表：grants 解析成数组",
+          "request": { "method": "GET", "path": "/api/mcp/sessions", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "494", "etag": "W/\"1ee-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "id": 4, "name": "replay-b", "grants": [], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 3, "name": "replay-a", "grants": [], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 2, "name": "seed-revoked", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 1, "name": "seed-agent", "grants": ["workbench_list", "gone_tool", "up__x"], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+            ]
+          }
+        },
+        {
+          "id": "session-delete-missing",
+          "route": "DELETE /api/mcp/sessions/:id",
+          "class": "invalid",
+          "what": "吊销：没有这个会话，404",
+          "request": { "method": "DELETE", "path": "/api/mcp/sessions/999", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "session not found: 999" } }
+        },
+        {
+          "id": "session-delete-text",
+          "route": "DELETE /api/mcp/sessions/:id",
+          "class": "invalid",
+          "what": "吊销：id 不是数，404",
+          "request": { "method": "DELETE", "path": "/api/mcp/sessions/abc", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "session not found: NaN" } }
+        },
+        {
+          "id": "raw-session-delete-dotdot",
+          "route": "DELETE /api/mcp/sessions/:id",
+          "class": "invalid",
+          "what": "原样发：:id 是 ..，404",
+          "request": { "method": "DELETE", "path": "/api/mcp/sessions/..", "raw": true, "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "session not found: NaN" } }
+        },
+        {
+          "id": "raw-session-delete-long",
+          "route": "DELETE /api/mcp/sessions/:id",
+          "class": "invalid",
+          "what": "原样发：:id 是 4000 个 9，404",
+          "request": {
+            "method": "DELETE",
+            "path": "/api/mcp/sessions/9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+            "raw": true,
+            "headers": { "x-admin-token": "replay-synthetic-admin" }
+          },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "session not found: Infinity" } }
+        },
+        {
+          "id": "session-delete",
+          "route": "DELETE /api/mcp/sessions/:id",
+          "class": "normal",
+          "what": "吊销 replay-b（软吊销，留审计）",
+          "request": { "method": "DELETE", "path": "/api/mcp/sessions/4", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "23", "etag": "W/\"17-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "revoked": 4 } }
+        },
+        {
+          "id": "sessions-after-delete",
+          "route": "GET /api/mcp/sessions",
+          "class": "normal",
+          "what": "吊销之后的列表：replay-b 带 revoked_at",
+          "request": { "method": "GET", "path": "/api/mcp/sessions", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "513", "etag": "W/\"201-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "id": 4, "name": "replay-b", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 3, "name": "replay-a", "grants": [], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 2, "name": "seed-revoked", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 1, "name": "seed-agent", "grants": ["workbench_list", "gone_tool", "up__x"], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+            ]
+          }
+        },
+        {
+          "id": "grants-missing",
+          "route": "PUT /api/mcp/sessions/:id/grants",
+          "class": "invalid",
+          "what": "授权：没有这个会话，404",
+          "request": { "method": "PUT", "path": "/api/mcp/sessions/999/grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "grants": [] } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "session not found: 999" } }
+        },
+        {
+          "id": "grants-not-array",
+          "route": "PUT /api/mcp/sessions/:id/grants",
+          "class": "invalid",
+          "what": "授权：grants 不是数组，400",
+          "request": { "method": "PUT", "path": "/api/mcp/sessions/1/grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "grants": "workbench_list" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "67", "etag": "W/\"43-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "grants 必须是工具名数组（整体替换语义）" } }
+        },
+        {
+          "id": "grants-unknown",
+          "route": "PUT /api/mcp/sessions/:id/grants",
+          "class": "invalid",
+          "what": "授权：新的未知工具名，400",
+          "request": { "method": "PUT", "path": "/api/mcp/sessions/1/grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "grants": ["no_such_tool"] } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "82", "etag": "W/\"52-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "未知工具名: \"no_such_tool\"（合法面见 GET /api/mcp/tools）" }
+          }
+        },
+        {
+          "id": "grants-not-scopable",
+          "route": "PUT /api/mcp/sessions/:id/grants",
+          "class": "invalid",
+          "what": "授权：skill_publish 不支持按台授权，400",
+          "request": { "method": "PUT", "path": "/api/mcp/sessions/1/grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "grants": ["skill_publish@1"] } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "108", "etag": "W/\"6c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "skill_publish 暂不支持按台授权（目前只有 workbench_vars_get / workbench_vars_set）" }
+          }
+        },
+        {
+          "id": "grants-no-workbench",
+          "route": "PUT /api/mcp/sessions/:id/grants",
+          "class": "invalid",
+          "what": "授权：按台授权的台不存在，400",
+          "request": { "method": "PUT", "path": "/api/mcp/sessions/1/grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "grants": ["workbench_vars_get@999"] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "57", "etag": "W/\"39-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "台不存在: 999（workbench_vars_get@999）" } }
+        },
+        {
+          "id": "grants-number",
+          "route": "PUT /api/mcp/sessions/:id/grants",
+          "class": "invalid",
+          "what": "授权：工具名不是字符串，400",
+          "request": { "method": "PUT", "path": "/api/mcp/sessions/1/grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "grants": [5] } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "42", "etag": "W/\"2a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "工具名必须是字符串: 5" } }
+        },
+        {
+          "id": "grants",
+          "route": "PUT /api/mcp/sessions/:id/grants",
+          "class": "normal",
+          "what": "授权：已持有的 gone_tool 已下线（剔除）、up__x 的上游连不上（保留）、按台授权 workbench_vars_get@1、重复的只留一个",
+          "request": { "method": "PUT", "path": "/api/mcp/sessions/1/grants", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "grants": ["workbench_list", "workbench_list", "gone_tool", "up__x", "workbench_vars_get@1"] } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "130", "etag": "W/\"82-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 1, "grants": ["workbench_list", "up__x", "workbench_vars_get@1"], "dropped": ["gone_tool"], "kept_unavailable": ["up__x"] }
+          }
+        },
+        {
+          "id": "sessions-after-grants",
+          "route": "GET /api/mcp/sessions",
+          "class": "normal",
+          "what": "授权之后的会话列表",
+          "request": { "method": "GET", "path": "/api/mcp/sessions", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "524", "etag": "W/\"20c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "id": 4, "name": "replay-b", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 3, "name": "replay-a", "grants": [], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 2, "name": "seed-revoked", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 1, "name": "seed-agent", "grants": ["workbench_list", "up__x", "workbench_vars_get@1"], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+            ]
+          }
+        },
+        {
+          "id": "calls",
+          "route": "GET /api/mcp/calls",
+          "class": "normal",
+          "what": "调用记录：新的在前",
+          "request": { "method": "GET", "path": "/api/mcp/calls", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "526", "etag": "W/\"20e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "id": 3, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/list", "tool": "", "ok": 1, "error": "", "duration_ms": 2, "args_sha256": "", "channel": "mcp" },
+              { "id": 2, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/call", "tool": "skill_publish", "ok": 0, "error": "forbidden", "duration_ms": 1, "args_sha256": "", "channel": "mcp" },
+              { "id": 1, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/call", "tool": "workbench_list", "ok": 1, "error": "", "duration_ms": 3, "args_sha256": "", "channel": "mcp" }
+            ]
+          }
+        },
+        {
+          "id": "calls-limit",
+          "route": "GET /api/mcp/calls",
+          "class": "normal",
+          "what": "调用记录：limit=1",
+          "request": { "method": "GET", "path": "/api/mcp/calls?limit=1", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "164", "etag": "W/\"a4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [{ "id": 3, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/list", "tool": "", "ok": 1, "error": "", "duration_ms": 2, "args_sha256": "", "channel": "mcp" }]
+          }
+        },
+        {
+          "id": "calls-limit-text",
+          "route": "GET /api/mcp/calls",
+          "class": "normal",
+          "what": "调用记录：limit 不是数，取 200",
+          "request": { "method": "GET", "path": "/api/mcp/calls?limit=abc", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "526", "etag": "W/\"20e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "id": 3, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/list", "tool": "", "ok": 1, "error": "", "duration_ms": 2, "args_sha256": "", "channel": "mcp" },
+              { "id": 2, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/call", "tool": "skill_publish", "ok": 0, "error": "forbidden", "duration_ms": 1, "args_sha256": "", "channel": "mcp" },
+              { "id": 1, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/call", "tool": "workbench_list", "ok": 1, "error": "", "duration_ms": 3, "args_sha256": "", "channel": "mcp" }
+            ]
+          }
+        },
+        {
+          "id": "calls-limit-big",
+          "route": "GET /api/mcp/calls",
+          "class": "normal",
+          "what": "调用记录：limit=5000，封顶 1000",
+          "request": { "method": "GET", "path": "/api/mcp/calls?limit=5000", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "526", "etag": "W/\"20e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "id": 3, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/list", "tool": "", "ok": 1, "error": "", "duration_ms": 2, "args_sha256": "", "channel": "mcp" },
+              { "id": 2, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/call", "tool": "skill_publish", "ok": 0, "error": "forbidden", "duration_ms": 1, "args_sha256": "", "channel": "mcp" },
+              { "id": 1, "at": "YYYY-MM-DD hh:mm:ss", "session_name": "seed-agent", "method": "tools/call", "tool": "workbench_list", "ok": 1, "error": "", "duration_ms": 3, "args_sha256": "", "channel": "mcp" }
+            ]
+          }
+        },
+        {
+          "id": "requests",
+          "route": "GET /api/mcp/access-requests",
+          "class": "normal",
+          "what": "权限申请：新的在前，tools 解析成数组，吊销了的会话标 session_revoked",
+          "request": { "method": "GET", "path": "/api/mcp/access-requests", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1538", "etag": "W/\"602-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 6,
+                "session_id": 1,
+                "tools": ["sop_publish"],
+                "reason": "要驳回的",
+                "status": "pending",
+                "decided_by": "",
+                "decided_at": "",
+                "note": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "session_name": "seed-agent",
+                "session_revoked_at": "",
+                "session_revoked": false
+              },
+              {
+                "id": 5,
+                "session_id": 1,
+                "tools": ["workbench_vars_get@1"],
+                "reason": "按台申请",
+                "status": "pending",
+                "decided_by": "",
+                "decided_at": "",
+                "note": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "session_name": "seed-agent",
+                "session_revoked_at": "",
+                "session_revoked": false
+              },
+              {
+                "id": 4,
+                "session_id": 1,
+                "tools": ["workbench_list"],
+                "reason": "早先批过的",
+                "status": "approved",
+                "decided_by": "seed",
+                "decided_at": "YYYY-MM-DD hh:mm:ss",
+                "note": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "session_name": "seed-agent",
+                "session_revoked_at": "",
+                "session_revoked": false
+              },
+              {
+                "id": 3,
+                "session_id": 2,
+                "tools": ["skill_publish"],
+                "reason": "会话已吊销",
+                "status": "pending",
+                "decided_by": "",
+                "decided_at": "",
+                "note": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "session_name": "seed-revoked",
+                "session_revoked_at": "YYYY-MM-DD hh:mm:ss",
+                "session_revoked": true
+              },
+              {
+                "id": 2,
+                "session_id": 1,
+                "tools": ["no_such_tool"],
+                "reason": "工具已下线",
+                "status": "pending",
+                "decided_by": "",
+                "decided_at": "",
+                "note": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "session_name": "seed-agent",
+                "session_revoked_at": "",
+                "session_revoked": false
+              },
+              {
+                "id": 1,
+                "session_id": 1,
+                "tools": ["skill_publish"],
+                "reason": "要发布技能",
+                "status": "pending",
+                "decided_by": "",
+                "decided_at": "",
+                "note": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "session_name": "seed-agent",
+                "session_revoked_at": "",
+                "session_revoked": false
+              }
+            ]
+          }
+        },
+        {
+          "id": "requests-pending",
+          "route": "GET /api/mcp/access-requests",
+          "class": "normal",
+          "what": "权限申请：status=pending",
+          "request": { "method": "GET", "path": "/api/mcp/access-requests?status=pending", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1264", "etag": "W/\"4f0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 6,
+                "session_id": 1,
+                "tools": ["sop_publish"],
+                "reason": "要驳回的",
+                "status": "pending",
+                "decided_by": "",
+                "decided_at": "",
+                "note": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "session_name": "seed-agent",
+                "session_revoked_at": "",
+                "session_revoked": false
+              },
+              {
+                "id": 5,
+                "session_id": 1,
+                "tools": ["workbench_vars_get@1"],
+                "reason": "按台申请",
+                "status": "pending",
+                "decided_by": "",
+                "decided_at": "",
+                "note": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "session_name": "seed-agent",
+                "session_revoked_at": "",
+                "session_revoked": false
+              },
+              {
+                "id": 3,
+                "session_id": 2,
+                "tools": ["skill_publish"],
+                "reason": "会话已吊销",
+                "status": "pending",
+                "decided_by": "",
+                "decided_at": "",
+                "note": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "session_name": "seed-revoked",
+                "session_revoked_at": "YYYY-MM-DD hh:mm:ss",
+                "session_revoked": true
+              },
+              {
+                "id": 2,
+                "session_id": 1,
+                "tools": ["no_such_tool"],
+                "reason": "工具已下线",
+                "status": "pending",
+                "decided_by": "",
+                "decided_at": "",
+                "note": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "session_name": "seed-agent",
+                "session_revoked_at": "",
+                "session_revoked": false
+              },
+              {
+                "id": 1,
+                "session_id": 1,
+                "tools": ["skill_publish"],
+                "reason": "要发布技能",
+                "status": "pending",
+                "decided_by": "",
+                "decided_at": "",
+                "note": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "session_name": "seed-agent",
+                "session_revoked_at": "",
+                "session_revoked": false
+              }
+            ]
+          }
+        },
+        {
+          "id": "requests-bad-status",
+          "route": "GET /api/mcp/access-requests",
+          "class": "invalid",
+          "what": "权限申请：status 不认识，400",
+          "request": { "method": "GET", "path": "/api/mcp/access-requests?status=nope", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "status 只能是 pending / approved / rejected" }
+          }
+        },
+        {
+          "id": "requests-limit",
+          "route": "GET /api/mcp/access-requests",
+          "class": "normal",
+          "what": "权限申请：limit=2",
+          "request": { "method": "GET", "path": "/api/mcp/access-requests?limit=2", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "498", "etag": "W/\"1f2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 6,
+                "session_id": 1,
+                "tools": ["sop_publish"],
+                "reason": "要驳回的",
+                "status": "pending",
+                "decided_by": "",
+                "decided_at": "",
+                "note": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "session_name": "seed-agent",
+                "session_revoked_at": "",
+                "session_revoked": false
+              },
+              {
+                "id": 5,
+                "session_id": 1,
+                "tools": ["workbench_vars_get@1"],
+                "reason": "按台申请",
+                "status": "pending",
+                "decided_by": "",
+                "decided_at": "",
+                "note": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "session_name": "seed-agent",
+                "session_revoked_at": "",
+                "session_revoked": false
+              }
+            ]
+          }
+        },
+        {
+          "id": "approve-missing",
+          "route": "POST /api/mcp/access-requests/:id/approve",
+          "class": "invalid",
+          "what": "批准：没有这条，404",
+          "request": { "method": "POST", "path": "/api/mcp/access-requests/999/approve", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "access request not found: 999" } }
+        },
+        {
+          "id": "approve-text",
+          "route": "POST /api/mcp/access-requests/:id/approve",
+          "class": "invalid",
+          "what": "批准：id 不是数，404",
+          "request": { "method": "POST", "path": "/api/mcp/access-requests/abc/approve", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "access request not found: abc" } }
+        },
+        {
+          "id": "approve-zero",
+          "route": "POST /api/mcp/access-requests/:id/approve",
+          "class": "invalid",
+          "what": "批准：id 是 0，404",
+          "request": { "method": "POST", "path": "/api/mcp/access-requests/0/approve", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "access request not found: 0" } }
+        },
+        {
+          "id": "raw-approve-encoded-slash",
+          "route": "POST /api/mcp/access-requests/:id/approve",
+          "class": "invalid",
+          "what": "原样发：:id 是 1%2f..%2f2，404",
+          "request": { "method": "POST", "path": "/api/mcp/access-requests/1%2f..%2f2/approve", "raw": true, "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "44", "etag": "W/\"2c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "access request not found: 1/../2" } }
+        },
+        {
+          "id": "approve-decided",
+          "route": "POST /api/mcp/access-requests/:id/approve",
+          "class": "invalid",
+          "what": "批准：已经处理过的，409",
+          "request": { "method": "POST", "path": "/api/mcp/access-requests/4/approve", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "59", "etag": "W/\"3b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "申请已处理（approved），不能再批准" } }
+        },
+        {
+          "id": "approve-revoked-session",
+          "route": "POST /api/mcp/access-requests/:id/approve",
+          "class": "invalid",
+          "what": "批准：会话已吊销，409",
+          "request": { "method": "POST", "path": "/api/mcp/access-requests/3/approve", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "57", "etag": "W/\"39-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "会话已吊销，不能批准（可驳回）" } }
+        },
+        {
+          "id": "approve-gone-tool",
+          "route": "POST /api/mcp/access-requests/:id/approve",
+          "class": "invalid",
+          "what": "批准：申请的工具已下线，409",
+          "request": { "method": "POST", "path": "/api/mcp/access-requests/2/approve", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "132", "etag": "W/\"84-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "已不可用（工具已下线，或 工具@台 的台已删除）：no_such_tool（请驳回后让会话重新申请）" }
+          }
+        },
+        {
+          "id": "approve",
+          "route": "POST /api/mcp/access-requests/:id/approve",
+          "class": "normal",
+          "what": "批准：skill_publish 加进会话的授权；note 两头空白去掉",
+          "request": { "method": "POST", "path": "/api/mcp/access-requests/1/approve", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "note": "  同意  " } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "204", "etag": "W/\"cc-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 1, "status": "approved", "session": "seed-agent", "added": ["skill_publish"], "grants": ["workbench_list", "up__x", "workbench_vars_get@1", "skill_publish"], "dropped": [], "kept_unavailable": ["up__x"] }
+          }
+        },
+        {
+          "id": "approve-scoped",
+          "route": "POST /api/mcp/access-requests/:id/approve",
+          "class": "normal",
+          "what": "批准：按台申请的 workbench_vars_get@1",
+          "request": { "method": "POST", "path": "/api/mcp/access-requests/5/approve", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "189", "etag": "W/\"bd-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 5, "status": "approved", "session": "seed-agent", "added": [], "grants": ["workbench_list", "up__x", "workbench_vars_get@1", "skill_publish"], "dropped": [], "kept_unavailable": ["up__x"] }
+          }
+        },
+        {
+          "id": "sessions-after-approve",
+          "route": "GET /api/mcp/sessions",
+          "class": "normal",
+          "what": "批准之后会话的授权",
+          "request": { "method": "GET", "path": "/api/mcp/sessions", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "540", "etag": "W/\"21c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "id": 4, "name": "replay-b", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 3, "name": "replay-a", "grants": [], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 2, "name": "seed-revoked", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 1, "name": "seed-agent", "grants": ["workbench_list", "up__x", "workbench_vars_get@1", "skill_publish"], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+            ]
+          }
+        },
+        {
+          "id": "reject-missing",
+          "route": "POST /api/mcp/access-requests/:id/reject",
+          "class": "invalid",
+          "what": "驳回：没有这条，404",
+          "request": { "method": "POST", "path": "/api/mcp/access-requests/999/reject", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "access request not found: 999" } }
+        },
+        {
+          "id": "reject-decided",
+          "route": "POST /api/mcp/access-requests/:id/reject",
+          "class": "invalid",
+          "what": "驳回：已经批准的，409",
+          "request": { "method": "POST", "path": "/api/mcp/access-requests/1/reject", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "59", "etag": "W/\"3b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "申请已处理（approved），不能再驳回" } }
+        },
+        {
+          "id": "reject",
+          "route": "POST /api/mcp/access-requests/:id/reject",
+          "class": "normal",
+          "what": "驳回：授权不动",
+          "request": { "method": "POST", "path": "/api/mcp/access-requests/6/reject", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "note": "不需要" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "id": 6, "status": "rejected" } }
+        },
+        {
+          "id": "reject-again",
+          "route": "POST /api/mcp/access-requests/:id/reject",
+          "class": "invalid",
+          "what": "驳回：再驳回一次，409",
+          "request": { "method": "POST", "path": "/api/mcp/access-requests/6/reject", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 409, "type": "application/json; charset=utf-8", "headers": { "content-length": "59", "etag": "W/\"3b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "申请已处理（rejected），不能再驳回" } }
+        },
+        {
+          "id": "requests-final",
+          "route": "GET /api/mcp/access-requests",
+          "class": "normal",
+          "what": "最后的权限申请列表：谁批的、谁驳的、备注",
+          "request": { "method": "GET", "path": "/api/mcp/access-requests", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1646", "etag": "W/\"66e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 6,
+                "session_id": 1,
+                "tools": ["sop_publish"],
+                "reason": "要驳回的",
+                "status": "rejected",
+                "decided_by": "admin-token",
+                "decided_at": "YYYY-MM-DD hh:mm:ss",
+                "note": "不需要",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "session_name": "seed-agent",
+                "session_revoked_at": "",
+                "session_revoked": false
+              },
+              {
+                "id": 5,
+                "session_id": 1,
+                "tools": ["workbench_vars_get@1"],
+                "reason": "按台申请",
+                "status": "approved",
+                "decided_by": "admin-token",
+                "decided_at": "YYYY-MM-DD hh:mm:ss",
+                "note": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "session_name": "seed-agent",
+                "session_revoked_at": "",
+                "session_revoked": false
+              },
+              {
+                "id": 4,
+                "session_id": 1,
+                "tools": ["workbench_list"],
+                "reason": "早先批过的",
+                "status": "approved",
+                "decided_by": "seed",
+                "decided_at": "YYYY-MM-DD hh:mm:ss",
+                "note": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "session_name": "seed-agent",
+                "session_revoked_at": "",
+                "session_revoked": false
+              },
+              {
+                "id": 3,
+                "session_id": 2,
+                "tools": ["skill_publish"],
+                "reason": "会话已吊销",
+                "status": "pending",
+                "decided_by": "",
+                "decided_at": "",
+                "note": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "session_name": "seed-revoked",
+                "session_revoked_at": "YYYY-MM-DD hh:mm:ss",
+                "session_revoked": true
+              },
+              {
+                "id": 2,
+                "session_id": 1,
+                "tools": ["no_such_tool"],
+                "reason": "工具已下线",
+                "status": "pending",
+                "decided_by": "",
+                "decided_at": "",
+                "note": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "session_name": "seed-agent",
+                "session_revoked_at": "",
+                "session_revoked": false
+              },
+              {
+                "id": 1,
+                "session_id": 1,
+                "tools": ["skill_publish"],
+                "reason": "要发布技能",
+                "status": "approved",
+                "decided_by": "admin-token",
+                "decided_at": "YYYY-MM-DD hh:mm:ss",
+                "note": "同意",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "session_name": "seed-agent",
+                "session_revoked_at": "",
+                "session_revoked": false
+              }
+            ]
+          }
+        },
+        {
+          "id": "upstreams-no-token",
+          "route": "GET /api/mcp/upstreams",
+          "class": "unauthorized",
+          "what": "本机不带口令：403",
+          "request": { "method": "GET", "path": "/api/mcp/upstreams", "headers": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "upstreams-put-cross",
+          "route": "PUT /api/mcp/upstreams",
+          "class": "unauthorized",
+          "what": "带口令但跨站：403",
+          "request": { "method": "PUT", "path": "/api/mcp/upstreams", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": { "upstreams": [] } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "session-remote-anonymous",
+          "route": "POST /api/mcp/sessions",
+          "class": "unauthorized",
+          "what": "带转发头没有口令：403",
+          "request": { "method": "POST", "path": "/api/mcp/sessions", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "name": "x" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "sessions-wrong-token",
+          "route": "GET /api/mcp/sessions",
+          "class": "unauthorized",
+          "what": "远程、口令不对：403",
+          "request": { "method": "GET", "path": "/api/mcp/sessions", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "nope" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "session-delete-no-token",
+          "route": "DELETE /api/mcp/sessions/:id",
+          "class": "unauthorized",
+          "what": "本机不带口令：403",
+          "request": { "method": "DELETE", "path": "/api/mcp/sessions/1", "headers": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "grants-cross",
+          "route": "PUT /api/mcp/sessions/:id/grants",
+          "class": "unauthorized",
+          "what": "带口令但跨站：403",
+          "request": { "method": "PUT", "path": "/api/mcp/sessions/1/grants", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": { "grants": [] } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "tools-no-token",
+          "route": "GET /api/mcp/tools",
+          "class": "unauthorized",
+          "what": "本机不带口令：403",
+          "request": { "method": "GET", "path": "/api/mcp/tools", "headers": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "calls-no-token",
+          "route": "GET /api/mcp/calls",
+          "class": "unauthorized",
+          "what": "本机不带口令：403",
+          "request": { "method": "GET", "path": "/api/mcp/calls", "headers": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "requests-no-token",
+          "route": "GET /api/mcp/access-requests",
+          "class": "unauthorized",
+          "what": "本机不带口令：403",
+          "request": { "method": "GET", "path": "/api/mcp/access-requests", "headers": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "approve-no-token",
+          "route": "POST /api/mcp/access-requests/:id/approve",
+          "class": "unauthorized",
+          "what": "本机不带口令：403",
+          "request": { "method": "POST", "path": "/api/mcp/access-requests/1/approve", "headers": {}, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "reject-cross",
+          "route": "POST /api/mcp/access-requests/:id/reject",
+          "class": "unauthorized",
+          "what": "带口令但跨站：403",
+          "request": { "method": "POST", "path": "/api/mcp/access-requests/1/reject", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": {} },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "upstreams-put-no-token",
+          "route": "PUT /api/mcp/upstreams",
+          "class": "unauthorized",
+          "what": "本机不带口令：403（路由自己的守卫）",
+          "request": { "method": "PUT", "path": "/api/mcp/upstreams", "headers": {}, "json": { "upstreams": [] } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "session-create-no-token",
+          "route": "POST /api/mcp/sessions",
+          "class": "unauthorized",
+          "what": "本机不带口令：403（路由自己的守卫）",
+          "request": { "method": "POST", "path": "/api/mcp/sessions", "headers": {}, "json": { "name": "x" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "grants-no-token",
+          "route": "PUT /api/mcp/sessions/:id/grants",
+          "class": "unauthorized",
+          "what": "本机不带口令：403（路由自己的守卫）",
+          "request": { "method": "PUT", "path": "/api/mcp/sessions/1/grants", "headers": {}, "json": { "grants": [] } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "reject-no-token",
+          "route": "POST /api/mcp/access-requests/:id/reject",
+          "class": "unauthorized",
+          "what": "本机不带口令：403（路由自己的守卫）",
+          "request": { "method": "POST", "path": "/api/mcp/access-requests/1/reject", "headers": {}, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce），管理口令由环境给（合成值）。预先写进库同样的东西。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "seed": [
+        { "table": "mcp_sessions", "row": { "name": "seed-agent", "token_sha256": "ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb", "grants": "[\"workbench_list\",\"gone_tool\",\"up__x\"]" } },
+        { "table": "mcp_sessions", "row": { "name": "seed-revoked", "token_sha256": "a0fab1377f49a759b57f63318262ebe89fabfc990e8e93ceac2984561482b9d4", "grants": "[]", "revoked_at": "2029-12-31 00:00:00" } },
+        { "table": "mcp_access_requests", "row": { "session_id": 1, "tools": "[\"skill_publish\"]", "reason": "要发布技能" } },
+        { "table": "mcp_access_requests", "row": { "session_id": 1, "tools": "[\"no_such_tool\"]", "reason": "工具已下线" } },
+        { "table": "mcp_access_requests", "row": { "session_id": 2, "tools": "[\"skill_publish\"]", "reason": "会话已吊销" } },
+        { "table": "mcp_access_requests", "row": { "session_id": 1, "tools": "[\"workbench_list\"]", "reason": "早先批过的", "status": "approved", "decided_by": "seed", "decided_at": "2029-12-30 00:00:00" } },
+        { "table": "mcp_access_requests", "row": { "session_id": 1, "tools": "[\"workbench_vars_get@1\"]", "reason": "按台申请" } },
+        { "table": "mcp_access_requests", "row": { "session_id": 1, "tools": "[\"sop_publish\"]", "reason": "要驳回的" } },
+        { "table": "mcp_calls", "row": { "session_name": "seed-agent", "method": "tools/call", "tool": "workbench_list", "ok": 1, "duration_ms": 3 } },
+        { "table": "mcp_calls", "row": { "session_name": "seed-agent", "method": "tools/call", "tool": "skill_publish", "ok": 0, "error": "forbidden", "duration_ms": 1 } },
+        { "table": "mcp_calls", "row": { "session_name": "seed-agent", "method": "tools/list", "ok": 1, "duration_ms": 2 } }
+      ],
+      "steps": [
+        {
+          "id": "gated-upstreams-anonymous",
+          "route": "GET /api/mcp/upstreams",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名",
+          "request": { "method": "GET", "path": "/api/mcp/upstreams", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-upstreams-with-token",
+          "route": "GET /api/mcp/upstreams",
+          "class": "normal",
+          "what": "登录门开着：远程带口令",
+          "request": { "method": "GET", "path": "/api/mcp/upstreams", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": [] }
+        },
+        {
+          "id": "gated-sessions-anonymous",
+          "route": "GET /api/mcp/sessions",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名",
+          "request": { "method": "GET", "path": "/api/mcp/sessions", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-sessions-with-token",
+          "route": "GET /api/mcp/sessions",
+          "class": "normal",
+          "what": "登录门开着：远程带口令",
+          "request": { "method": "GET", "path": "/api/mcp/sessions", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "278", "etag": "W/\"116-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "id": 2, "name": "seed-revoked", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 1, "name": "seed-agent", "grants": ["workbench_list", "gone_tool", "up__x"], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+            ]
+          }
+        },
+        {
+          "id": "gated-tools-anonymous",
+          "route": "GET /api/mcp/tools",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名",
+          "request": { "method": "GET", "path": "/api/mcp/tools", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-calls-anonymous",
+          "route": "GET /api/mcp/calls",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名",
+          "request": { "method": "GET", "path": "/api/mcp/calls", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-requests-anonymous",
+          "route": "GET /api/mcp/access-requests",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名",
+          "request": { "method": "GET", "path": "/api/mcp/access-requests", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-upstreams-put-anonymous",
+          "route": "PUT /api/mcp/upstreams",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名",
+          "request": { "method": "PUT", "path": "/api/mcp/upstreams", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "upstreams": [] } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-session-anonymous",
+          "route": "POST /api/mcp/sessions",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名",
+          "request": { "method": "POST", "path": "/api/mcp/sessions", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "name": "x" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-session-delete-anonymous",
+          "route": "DELETE /api/mcp/sessions/:id",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名",
+          "request": { "method": "DELETE", "path": "/api/mcp/sessions/1", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-grants-anonymous",
+          "route": "PUT /api/mcp/sessions/:id/grants",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名",
+          "request": { "method": "PUT", "path": "/api/mcp/sessions/1/grants", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "grants": [] } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-approve-anonymous",
+          "route": "POST /api/mcp/access-requests/:id/approve",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名",
+          "request": { "method": "POST", "path": "/api/mcp/access-requests/1/approve", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-reject-anonymous",
+          "route": "POST /api/mcp/access-requests/:id/reject",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名",
+          "request": { "method": "POST", "path": "/api/mcp/access-requests/1/reject", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-reject-with-token",
+          "route": "POST /api/mcp/access-requests/:id/reject",
+          "class": "normal",
+          "what": "登录门开着：远程带口令驳回",
+          "request": { "method": "POST", "path": "/api/mcp/access-requests/6/reject", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "38", "etag": "W/\"26-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "id": 6, "status": "rejected" } }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,172 @@
+{
+  "domain": "remote-allow",
+  "what": "远程写豁免面的变更：GET /api/remote-allow/diff 这一条路由，只给管理员。回启动时算的那一份变更（added、removed、current）和库里快照的条数。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /api/remote-allow/diff"],
+  "exempt": [{ "route": "GET /api/remote-allow/diff", "class": "invalid", "why": "不读请求里的任何东西", "shown_by": "open/diff" }],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "登录门关；只认管理员（本机也要口令），管理口令由环境给合成值。启动时库是空的，变更按「第一次」算；实例起好之后再往库里写两份旧快照，只影响条数（变更是启动时算好的）。定了时钟。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "seed": [{ "table": "remote_allow_state", "row": { "snapshot": "[\"POST /api/old-a\"]" } }, { "table": "remote_allow_state", "row": { "snapshot": "[\"POST /api/old-a\",\"POST /api/old-b\"]" } }],
+      "steps": [
+        {
+          "id": "diff",
+          "route": "GET /api/remote-allow/diff",
+          "class": "normal",
+          "what": "本机带口令：启动时的变更（第一次：没有 added、removed），当前的豁免面，快照条数（启动写的一份加库里的两份）",
+          "request": { "method": "GET", "path": "/api/remote-allow/diff", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "481", "etag": "W/\"1e1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "added": [],
+              "removed": [],
+              "current": [
+                "/mcp",
+                "/.well-known/agent-card.json",
+                "/a2a/direct",
+                "/api/auth/login",
+                "/api/auth/logout",
+                "/^\\/api\\/apps\\/[a-z0-9-]{1,64}\\/(data|files)(\\/|$)/",
+                "/^\\/api\\/sop\\/runs(\\/\\d+(\\/(finish|files|files\\/refs))?)?$/",
+                "/^\\/api\\/workbench-events\\/wbe-[0-9a-f]{16}\\/decision$/",
+                "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/decision$/",
+                "/^\\/api\\/mcp-rest\\/(tools\\/[^/]+|apps\\/[a-z0-9-]{1,64}\\/files(\\/[^/]+)?)$/"
+              ],
+              "snapshot_count": 3
+            }
+          }
+        },
+        {
+          "id": "diff-remote-with-token",
+          "route": "GET /api/remote-allow/diff",
+          "class": "normal",
+          "what": "远程带口令",
+          "request": { "method": "GET", "path": "/api/remote-allow/diff", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "481", "etag": "W/\"1e1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "added": [],
+              "removed": [],
+              "current": [
+                "/mcp",
+                "/.well-known/agent-card.json",
+                "/a2a/direct",
+                "/api/auth/login",
+                "/api/auth/logout",
+                "/^\\/api\\/apps\\/[a-z0-9-]{1,64}\\/(data|files)(\\/|$)/",
+                "/^\\/api\\/sop\\/runs(\\/\\d+(\\/(finish|files|files\\/refs))?)?$/",
+                "/^\\/api\\/workbench-events\\/wbe-[0-9a-f]{16}\\/decision$/",
+                "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/decision$/",
+                "/^\\/api\\/mcp-rest\\/(tools\\/[^/]+|apps\\/[a-z0-9-]{1,64}\\/files(\\/[^/]+)?)$/"
+              ],
+              "snapshot_count": 3
+            }
+          }
+        },
+        {
+          "id": "diff-no-token",
+          "route": "GET /api/remote-allow/diff",
+          "class": "unauthorized",
+          "what": "本机不带口令：403",
+          "request": { "method": "GET", "path": "/api/remote-allow/diff" },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "diff-wrong-token",
+          "route": "GET /api/remote-allow/diff",
+          "class": "unauthorized",
+          "what": "远程、口令不对：403",
+          "request": { "method": "GET", "path": "/api/remote-allow/diff", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "nope" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "diff-remote-anonymous",
+          "route": "GET /api/remote-allow/diff",
+          "class": "unauthorized",
+          "what": "带转发头没有口令：403",
+          "request": { "method": "GET", "path": "/api/remote-allow/diff", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "diff-cross",
+          "route": "GET /api/remote-allow/diff",
+          "class": "unauthorized",
+          "what": "带口令、浏览器从别的站点发来的读：管理员守卫连读也拦跨站，403",
+          "request": { "method": "GET", "path": "/api/remote-allow/diff", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce），管理口令由环境给（合成值）。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "steps": [
+        {
+          "id": "gated-anonymous",
+          "route": "GET /api/remote-allow/diff",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名 401",
+          "request": { "method": "GET", "path": "/api/remote-allow/diff", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-with-token",
+          "route": "GET /api/remote-allow/diff",
+          "class": "normal",
+          "what": "登录门开着：远程带口令",
+          "request": { "method": "GET", "path": "/api/remote-allow/diff", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "481", "etag": "W/\"1e1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "added": [],
+              "removed": [],
+              "current": [
+                "/mcp",
+                "/.well-known/agent-card.json",
+                "/a2a/direct",
+                "/api/auth/login",
+                "/api/auth/logout",
+                "/^\\/api\\/apps\\/[a-z0-9-]{1,64}\\/(data|files)(\\/|$)/",
+                "/^\\/api\\/sop\\/runs(\\/\\d+(\\/(finish|files|files\\/refs))?)?$/",
+                "/^\\/api\\/workbench-events\\/wbe-[0-9a-f]{16}\\/decision$/",
+                "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/decision$/",
+                "/^\\/api\\/mcp-rest\\/(tools\\/[^/]+|apps\\/[a-z0-9-]{1,64}\\/files(\\/[^/]+)?)$/"
+              ],
+              "snapshot_count": 1
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
