@@ -344,6 +344,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   sop-page.ts（SOP 执行页 /sop/<slug>/：执行页和附件）
   sop-run-access.ts（SOP run 的私有读授权管理 /api/sop/runs/:id/read-grants、/read-caps：授权、撤销、重签读能力、撤销全部读能力，只给管理员）
   sop-run-control.ts（SOP run 的开建、指派与进行中列表 /api/sop/runs、/assign、/active；开 run 是公开入口，task-center 的录入经身份服务认出提需求的人）
+  sop-run-files.ts（SOP run 的交付文件 /api/sop/runs/:id/files：上传、列表、下载、引用已有文件；上传是公开入口，读要本 run 的读能力或管理员）
   sops.ts（SOP 台 /api/sops：列表、发布、废弃，和定义、治理时间线）
   sso.ts（SSO 回调 /sso/callback）
   stats.ts（端点命中统计 /api/stats）
