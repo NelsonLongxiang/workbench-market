@@ -1104,6 +1104,58 @@
           "what": "带口令但跨站：403",
           "request": { "method": "POST", "path": "/api/mcp/access-requests/1/reject", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": {} },
           "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "upstreams-put-no-token",
+          "route": "PUT /api/mcp/upstreams",
+          "class": "unauthorized",
+          "what": "本机不带口令：403（路由自己的守卫）",
+          "request": { "method": "PUT", "path": "/api/mcp/upstreams", "headers": {}, "json": { "upstreams": [] } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "session-create-no-token",
+          "route": "POST /api/mcp/sessions",
+          "class": "unauthorized",
+          "what": "本机不带口令：403（路由自己的守卫）",
+          "request": { "method": "POST", "path": "/api/mcp/sessions", "headers": {}, "json": { "name": "x" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "grants-no-token",
+          "route": "PUT /api/mcp/sessions/:id/grants",
+          "class": "unauthorized",
+          "what": "本机不带口令：403（路由自己的守卫）",
+          "request": { "method": "PUT", "path": "/api/mcp/sessions/1/grants", "headers": {}, "json": { "grants": [] } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "reject-no-token",
+          "route": "POST /api/mcp/access-requests/:id/reject",
+          "class": "unauthorized",
+          "what": "本机不带口令：403（路由自己的守卫）",
+          "request": { "method": "POST", "path": "/api/mcp/access-requests/1/reject", "headers": {}, "json": {} },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
         }
       ]
     },
