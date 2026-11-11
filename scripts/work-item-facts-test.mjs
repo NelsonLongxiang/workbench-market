@@ -147,7 +147,11 @@ try {
     return {
       state: item.state, eval: item.eval, eval_reason: item.eval_reason, open_asks: JSON.parse(item.open_asks).map((a) => ({ ...a, id: factKey(a.id) })),
       receipt: item.receipt_outcome, created_by: item.created_by, source_kind: item.source_kind,
-      log: items.log(item.id).map((l) => [l.fact, l.fact_source, factKey(l.fact_id), l.from_state, l.to_state, l.actor, l.detail]),
+      log: items.log(item.id).map((l) => {
+        const d = JSON.parse(l.detail);
+        if (typeof d.ask_id === 'string') d.ask_id = factKey(d.ask_id); // 合上提问的答复里带着来源日志的 id，也换成相对位置
+        return [l.fact, l.fact_source, factKey(l.fact_id), l.from_state, l.to_state, l.actor, JSON.stringify(d), l.rejected];
+      }),
     };
   }
   {
@@ -193,6 +197,18 @@ try {
       const n = log.length;
       items.backfill();
       check(items.log(itemIdForEvent(eventId)).length === n, '再回填一遍：被拒的那条按去重跳过，不再多一行');
+    }
+    {
+      // 同一个投递先提问、后接单（或拒接）：这条提问不再等答复，事项上不再挂着（8c 钉的「事件层未答提问 = 事项 open_asks」）
+      for (const [steps, expectState] of [[[['queued', 'team-a'], ['sent', 'team-a'], ['decision:ask', 'team-a'], ['decision:accept', 'team-a']], 'accepted'],
+        [[['queued', 'team-a'], ['sent', 'team-a'], ['decision:ask', 'team-a'], ['decision:decline', 'team-a']], 'failed']]) {
+        const eventId = build({ steps, teams: ['team-a'] });
+        items.backfill();
+        const it = items.get(itemIdForEvent(eventId)), log = items.log(it.id);
+        const closing = log.find((l) => l.fact === 'answer');
+        check(it.state === expectState && JSON.parse(it.open_asks).length === 0 && closing && closing.rejected === '' && closing.actor === 'receiver:team-a',
+          `先问后${expectState === 'accepted' ? '接' : '拒'}：提问合上（记一行答复，答的人是那个接单节点），open_asks 清空，终态 ${expectState}`, show({ state: it.state, asks: it.open_asks, closing }));
+      }
     }
     check(lag.length === 0 && laggedCount >= 6, `对照：最后一行会写日志的 ${laggedCount} 个场景里，漏掉那一次确实让事项落后了（回填之前和正放不同）`, show(lag));
     check(Object.values(items.failureCounts()).reduce((a, b) => a + b, 0) >= Object.keys(SCENARIOS).length, '监听器出错按事实种类计数', show(items.failureCounts()));

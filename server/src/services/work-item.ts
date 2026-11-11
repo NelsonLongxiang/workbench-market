@@ -302,7 +302,13 @@ export class WorkItemService extends Service {
     }
     for (let i = 0; i < rows.length; i++) {
       const fact = factFromEventLog(event, rows, i);
-      if (fact) this.applyLocked(itemId, normalize(fact));
+      if (!fact) continue;
+      // 同一个投递先提问、后作出决定（v1 允许）：这条提问不再等答复。先记一行答复把它合上，再应用决定
+      if (fact.kind === 'eval' && rows[i].delivery_id !== null) {
+        const asked = rows.slice(0, i).filter((r) => r.delivery_id === rows[i].delivery_id && r.action === 'decision:ask').at(-1);
+        if (asked) this.applyLocked(itemId, { kind: 'answer', source: EVENT_FACT_SOURCE, id: `${rows[i].id}:closes-ask`, ask_id: String(asked.id), actor: rows[i].actor, answer: '（同一个接单节点随后作出了决定，这条提问不再等答复）' });
+      }
+      this.applyLocked(itemId, normalize(fact));
     }
   }
 
