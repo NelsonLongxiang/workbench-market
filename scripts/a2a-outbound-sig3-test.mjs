@@ -3,7 +3,8 @@
  * 市场出站补 body 绑定签名（Sig3，上游 a2a-origin-claim/3）：对端宿主间要求 Sig2 与 Sig3 都带。
  * 裁判是上游新版 verifyOriginClaim（钉在含 Sig3 校验的 a2a-net 提交，env A2A_ORIGIN_V3_SRC）。
  *   · a2aSendOutbound（事件投递、答复、管理员手动发送都走它）发出的请求：带 Sig2 + Sig3，上游判 bodyBound
- *   · marketOriginClaim 带 body（回执 outbox 用）：同上
+ *   · marketOriginClaim 带 body：同上
+ *   · 回执 outbox（run 完成后的回执，postReceipt）：worker 真投出去的请求带 Sig2 + Sig3 与摘要头，上游判 bodyBound
  *   · 正文被改 → 上游拒（不降级到 Sig2）；不带 body 的请求（取卡等 GET）只带 Sig2，与之前相同
  */
 import { spawn } from './owned-script-fixture.mjs';
@@ -13,6 +14,7 @@ import { createServer as netServer } from 'node:net';
 import { mkdirSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -81,6 +83,17 @@ try {
   await sleep(100);
   ok('marketOriginClaim 带 body → 上游判 body 绑定', seen[0]?.verdict?.ok === true && seen[0].verdict.bodyBound === true, JSON.stringify(seen[0]?.verdict ?? null).slice(0, 200) + r.stderr.slice(-200));
   ok('正文被改 → 上游拒（不降级到 Sig2）', seen[1]?.verdict?.ok === false, JSON.stringify(seen[1]?.verdict ?? null));
+
+  // 二之二、回执 outbox 那一路（postReceipt）：放一行到期的回执，等 worker 真投出去
+  seen.length = 0;
+  { const d = new DatabaseSync(resolve(DATA, 'workbench-market.db')); d.exec('PRAGMA busy_timeout = 5000');
+    d.prepare("INSERT INTO a2a_outbox (run_id, task_id, context_id, target_url, payload, next_at) VALUES (?, ?, ?, ?, ?, datetime('now', '-1 minute'))")
+      .run(424242, 'direct-0123456789ab', 'wb:sig3:1', RECV, '[A2A receipt] task direct-0123456789ab\n{"outcome":"completed","idempotencyKey":"direct-0123456789ab","disposition":"result"}');
+    d.close(); }
+  { const end = Date.now() + 15000; while (Date.now() < end && !seen.some((x) => x.url === '/a2a/direct')) await sleep(200); }
+  const rc = seen.find((x) => x.url === '/a2a/direct');
+  ok('回执 outbox（postReceipt）：worker 投出的回执带 Sig2、Sig3 与摘要头', !!rc && typeof rc.headers['x-a2a-caller-sig2'] === 'string' && typeof rc.headers['x-a2a-caller-sig3'] === 'string' && typeof rc.headers['x-a2a-body-sha256'] === 'string', JSON.stringify(rc ? Object.keys(rc.headers) : null));
+  ok('……上游新版 verifyOriginClaim 验过，且判为 body 绑定', rc?.verdict?.ok === true && rc.verdict.bodyBound === true && rc.verdict.caller === 'market', JSON.stringify(rc?.verdict ?? null).slice(0, 200));
 
   // 三、不带 body 的请求只带 Sig2（与之前相同）
   r = await child(`const m = await import('./src/a2a.ts'); console.log(JSON.stringify(m.marketOriginClaim(m.a2aKeyPath(), { url: ${JSON.stringify(RECV + '/x')}, method: 'GET' })));`);
