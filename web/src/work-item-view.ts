@@ -96,9 +96,10 @@ export function askAnswerBody(choice: string, text: string): { answer: string } 
   return t ? { text: t } : null;
 }
 
-/** 提问区的初始选择：有缺省选项且确实在选项里就预选它 */
-export function initialChoice(a: Pick<SeatAsk, 'options' | 'default'>): string {
-  return a.default && a.options.includes(a.default) ? a.default : '';
+/** 提问区的初始选择：一律不预选。席位给的缺省项只标「席位建议」，人得自己点过一个选项（或写一句）才能提交，
+ *  免得一下就把没真选的值发出去（协调裁定） */
+export function initialChoice(_a: Pick<SeatAsk, 'options' | 'default'>): string {
+  return '';
 }
 
 /** 时间线里提问、答复那一行对应哪条提问（详情 asks 的 id）：提问行是自己的 fact_id，答复行是 detail.ask_id */

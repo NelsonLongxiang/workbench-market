@@ -125,7 +125,7 @@ function AskRow({ itemId, ask, seat, proxy, onDone }: { itemId: string; ask: Sea
       {ask.status === 'closed' && <Typography.Text type="secondary">没人答，后来的提问、接单或结果把它合上了。</Typography.Text>}
       {ask.status === 'open' && <>
         {ask.options.length > 0 && <Radio.Group value={choice} onChange={(e) => setChoice(String(e.target.value))} optionType="button" buttonStyle="solid" data-testid="seat-ask-options"
-          options={ask.options.map((o) => ({ label: o === ask.default ? `${o}（缺省）` : o, value: o }))} />}
+          options={ask.options.map((o) => ({ label: o === ask.default ? `${o}（席位建议）` : o, value: o }))} />}
         <Input.TextArea aria-label="答复" autoSize={{ minRows: 1, maxRows: 6 }} maxLength={4000} value={text} disabled={!!choice}
           placeholder={ask.options.length ? (choice ? '已选了答法；要自己写，先取消选择' : '或者自己写一句') : '写下你的答复（会发回提问的席位）'} onChange={(e) => setText(e.target.value)} />
         <Space>

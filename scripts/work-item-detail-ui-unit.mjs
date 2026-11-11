@@ -44,7 +44,7 @@ ok('链接：sop-run 拼成本站 /sops/<slug>/runs/<runId>', artifactHref({ kin
 ok('链接：table、file、不认得的 kind、形状不对的 sop-run 都不给链接', [{ kind: 'table', id: 't' }, { kind: 'file', id: 'f' }, { kind: 'x', id: 'y' }, { kind: 'sop-run', id: '../etc/1' }, { kind: 'sop-run', id: 'demo/0' }, { kind: 'sop-run', id: 'https://evil.example/1' }, { kind: 'sop-run', id: 'Demo_Space/3' }].every((a) => artifactHref(a) === null));
 
 ok('答复请求体：选了选项只给 answer，否则给去空白的文本，都没有给 null', JSON.stringify(askAnswerBody('甲', '也写了')) === '{"answer":"甲"}' && JSON.stringify(askAnswerBody('', ' 中文 ')) === '{"text":"中文"}' && askAnswerBody('', '  ') === null);
-ok('初始选择：缺省项在选项里才预选', initialChoice({ options: ['甲', '乙'], default: '乙' }) === '乙' && initialChoice({ options: ['甲'], default: '丙' }) === '' && initialChoice({ options: [] }) === '');
+ok('初始选择：一律不预选，缺省项只作建议', initialChoice({ options: ['甲', '乙'], default: '乙' }) === '' && initialChoice({ options: [] }) === '');
 
 ok('建立人：以 creator_principal 为准，和发布人不同时注明', creatorLabel('human:root-admin', 'user:alpha') === 'alpha · 由 root-admin 发布' && creatorLabel('user:alpha', 'user:alpha') === 'alpha' && creatorLabel('human:alice', null) === 'alice' && creatorLabel('', '') === '—');
 ok('时间线：系统合上旧提问的答复叫「提问作废」，真答复照旧', timelineLabel({ fact: 'answer', fact_id: '9:closes-ask:3', detail: '' }, { answer: '答复' }) === '提问作废' && timelineLabel({ fact: 'answer', fact_id: 'u1', detail: '' }, { answer: '答复' }) === '答复');
