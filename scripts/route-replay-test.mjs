@@ -525,7 +525,15 @@ export async function runSteps(steps, sendRequest, record = false) {
 
 // ---------- 隔离实例 ----------
 
-async function freePort() {
+/** 系统随机给的空闲端口。起实例的 owned-script-fixture 只收 1～65534，探到 65535 就再探（最多 20 次）。 */
+export async function freePort(pick = probeOnce) {
+  for (let i = 0; i < 20; i++) {
+    const port = await pick();
+    if (port >= 1 && port <= 65534) return port;
+  }
+  throw new Error('探了 20 次都没拿到 65534 以内的空闲端口');
+}
+async function probeOnce() {
   const probe = createServer();
   await new Promise((r) => probe.listen(0, '127.0.0.1', r));
   const { port } = probe.address();
@@ -899,6 +907,12 @@ async function selftest() {
   const always = starter(9, true);
   let gaveUp = false; try { await withPortRetry(always, 3, () => {}); } catch { gaveUp = true; }
   check(gaveUp && always.calls() === 3, '起实例：三次都被占，报错，不再试');
+  {
+    const seq = [65535, 65535, 41000]; let calls = 0;
+    const got = await freePort(async () => seq[calls++]);
+    let gaveUp = false; try { await freePort(async () => 65535); } catch { gaveUp = true; }
+    check(got === 41000 && calls === 3 && gaveUp && (await freePort()) <= 65534, '起实例：探到 65535 就再探（起实例的夹具只收 65534 以内），一直探不到就报错');
+  }
   const broken = starter(9, false);
   let failedFast = false; try { await withPortRetry(broken, 3, () => {}); } catch { failedFast = true; }
   check(failedFast && broken.calls() === 1, '起实例：别的原因起不来，不重试，直接报');
