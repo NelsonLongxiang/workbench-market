@@ -8,7 +8,7 @@
  * 旧守卫判不过时会自己回 403，这里给它一个不落地的应答对象，只取「过没过」。
  *
  *   来源              旧接口                                   守卫                          类别
- *   change-requests   GET /api/change-requests?status=pending  adminGuard                    审核
+ *   change-requests   GET /api/change-requests?status=pending  adminGuard（取数用 changeRequest 服务，和旧接口同一个函数）  审核
  *   mcp-access        GET /api/mcp/access-requests?status=pending adminGuard                 授权
  *   seat-asks         GET /api/workbench-events（决定是 ask 的）adminGuard                    提问
  *   tasks             GET /api/tasks（统一待办）                tasksReadAccess(adminHeaderOk) 审核
@@ -24,8 +24,9 @@ import { tasksReadAccess } from './tasks-read-access.ts';
 import { listVars, workbenchScope } from './workbench-vars.ts';
 import { principalsAdmin } from './routes/principals.ts';
 import { buildBoard, findBoardWorkbench, parseConfig, BOARD_PATH, type BoardVar } from './owner-pending.ts';
-import { openSeatAsks, pendingChangeRequests } from './services/attention-sources.ts';
+import { openSeatAsks } from './services/attention-sources.ts';
 import type { AttentionItem, AttentionProvider, AttentionService } from './services/attention.ts';
+import type { ChangeRequestService } from './services/change-request.ts';
 import type { McpService } from './services/mcp.ts';
 import type { SopService } from './services/sop.ts';
 import type { PrincipalService } from './services/principal.ts';
@@ -68,7 +69,8 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
     provide({
       source: 'change-requests', label: '变更申请',
       list: (req) => passes(deps.adminGuard, req)
-        ? pendingChangeRequests().map((r) => item({
+        // 和旧接口 GET /api/change-requests?status=pending 同一个服务函数（阶段三已收进 changeRequest 服务）
+        ? (svc<ChangeRequestService>('changeRequest').listByStatus('pending') as { id: number; kind: string; slug: string; op: string; reason: string; requested_by: string; created_at: string }[]).map((r) => item({
           source: 'change-requests', source_id: String(r.id), category: 'review',
           title: `${r.kind === 'skill' ? '技能' : '台'}${r.op === 'delete' ? '删除' : '回滚'} ${r.slug}${r.reason ? `（${String(r.reason).slice(0, 60)}）` : ''}`,
           waiting_for: r.requested_by, since: r.created_at, answers: ['approve', 'reject'], link: `/reviews?request=${r.id}`,
