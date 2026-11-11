@@ -2104,7 +2104,7 @@ announceAllowDiff();
 app.post('/api/skills/:slug/install', wrap(async (req, res) => {
   if (!adminGuard(req, res)) return;
   const S = svc<SkillService>('skill');
-  const row = S.skillBySlug(String(req.params.slug ?? ''));
+  const row = S.skillBySlug(String(req.params.slug ?? '')) as any;
   if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
   const vs = S.versionsBySkill(row.id) as any[];
   const target = typeof req.body?.version === 'number' ? vs.find((v) => v.version === req.body.version) : SkillService.currentOf(row, vs); // 缺省当前版本（回滚后即回滚到的版本）
@@ -2434,7 +2434,7 @@ app.delete('/api/skills/:slug', wrap(async (req, res) => {
 app.post('/api/skills/:slug/migrate-layerfs', wrap(async (req, res) => {
   if (!adminGuard(req, res)) return;
   const S = svc<SkillService>('skill');
-  const row = S.skillBySlug(String(req.params.slug ?? ''));
+  const row = S.skillBySlug(String(req.params.slug ?? '')) as any;
   if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
   const vs = S.versionsBySkill(row.id) as any[];
   const results: any[] = [];
@@ -2567,7 +2567,7 @@ function ustarTar(files: { path: string; content: string | Buffer }[], opts: { p
 // #94 S3①：导出面（薄分发——快照文件集打包 ustar·台与技能共契约面）
 app.get('/api/skills/:slug/export', (req, res) => {
   const S = svc<SkillService>('skill');
-  const row = S.skillBySlug(String(req.params.slug ?? ''));
+  const row = S.skillBySlug(String(req.params.slug ?? '')) as any;
   if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
   const vs = S.versionsBySkill(row.id) as any[];
   const v = req.query.version !== undefined ? Number(req.query.version) : SkillService.currentOf(row, vs)?.version; // 缺省当前版本
@@ -2588,7 +2588,7 @@ app.get('/api/skills/:slug/export', (req, res) => {
 app.post('/api/skills/:slug/report-digest', (req, res) => {
   if (!adminGuard(req, res)) return;
   const S = svc<SkillService>('skill');
-  const row = S.skillBySlug(String(req.params.slug ?? ''));
+  const row = S.skillBySlug(String(req.params.slug ?? '')) as any;
   if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
   const v = Number(req.body?.version);
   const digest = String(req.body?.digest ?? '');
@@ -2603,7 +2603,7 @@ app.post('/api/skills/:slug/report-digest', (req, res) => {
 
 app.get('/api/skills/:slug/versions', (req, res) => {
   const S = svc<SkillService>('skill');
-  const row = S.skillBySlug(String(req.params.slug ?? ''));
+  const row = S.skillBySlug(String(req.params.slug ?? '')) as any;
   if (!row) throw new HttpError(404, `skill not found: ${req.params.slug}`);
   // #94 S0⑤（K8）：版本列表 snapshot_path 相对化（不暴露 DATA_DIR）；兼容旧库无状态时推导。
   const vsAll = S.versionsBySkill(row.id) as any[];
