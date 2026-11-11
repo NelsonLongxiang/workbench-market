@@ -3224,11 +3224,19 @@ app.put('/api/settings', (req, res) => {
   res.json(maskUpstreamsSetting(getSettings()));
 });
 
-app.get('/api/export', (req, res) => {
+app.get('/api/export', (req, res, next) => { exportHandler(req, res).catch(next); });
+async function exportHandler(req: express.Request, res: express.Response): Promise<void> {
   // compliance 二期首项：导出默认脱敏（compliance 范围 kb ab3279b84a 的「导出面」——
   // 无认证导出曾是最大凭据泄漏向量）。?reveal=1 显式取真值（备份/迁移用途），
   // 导入侧对掩码 url/auth 整批400拒绝（见 import 预检）——失败零写，不跳行报成功。
   const reveal = req.query.reveal === '1';
+  if (reveal) {
+    // 取真值要求管理员（口令或 Odoo 管理员登录，浏览器来的要同源），口径同别的管理读面；
+    // 不满足 403，不悄悄降级成掩码（备份脚本拿到掩码会以为备份成功）
+    await markOdooAdmin(req);
+    if (!adminGuard(req, res)) return;
+    res.set('Cache-Control', 'no-store');
+  }
   res.json({
     format: 'workbench-market/export@1',
     exported_at: new Date().toISOString(),
@@ -3239,7 +3247,7 @@ app.get('/api/export', (req, res) => {
     // 导入侧亦不覆盖 mcp_upstreams（掩码值跳过），凭据需在页面重填。
     settings: maskUpstreamsSetting(getSettings()),
   });
-});
+}
 
 // #258 D：import 整批预检（结构 + 掩码 + 同核准入）全过才进事务；replace 的清库、类型、插入、布局修复同一事务，
 // 任一失败整体回滚零写。不再 skip 坏行/掩码行（掩码导出整批拒 masked_import_value，请用 ?reveal=1 的受控备份）。
