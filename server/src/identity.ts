@@ -30,8 +30,11 @@ import { loginProviders } from './login-providers/index.ts';
  */
 export interface Viewer { login: string; uid: number; sub: string; name: string | null; admin: boolean }
 
-/** 认人的结果。认不出时 http 是该回给调用方的状态：401 没登录或会话失效，403 不是内部账号、主体已停用或对不到主体，502 身份来源不可达，503 没配置身份来源或主体目录不可用 */
-export type ViewerResult = { ok: true; viewer: Viewer; via?: 'session' } | { ok: false; http: number; error: string };
+/**
+ * 认人的结果。认不出时 http 是该回给调用方的状态：401 没登录或会话失效，403 不是内部账号、主体已停用或对不到主体，502 身份来源不可达，503 没配置身份来源或主体目录不可用。
+ * held 为真：提供方认出了人（登录是成功的），卡在主体那一步——停用了，或者还没对到主体。登录门据此给等待页，不让他回登录页反复试；两种不分开说
+ */
+export type ViewerResult = { ok: true; viewer: Viewer; via?: 'session' } | { ok: false; http: number; error: string; held?: true };
 
 /** whoami 的应答（GET /api/auth/viewer 原样用它） */
 export type Whoami = { http: number; body: Record<string, unknown> };
@@ -481,8 +484,8 @@ export class IdentityService extends Service {
           if (personIdOk(principal)) return { ok: true, viewer: { ...viewer, sub: principal } };
         } else if (ok === false) {
           const reason = a.reason;
-          if (reason === 'disabled') return { ok: false, http: 403, error: DISABLED };
-          if (reason === 'unbound') return { ok: false, http: 403, error: UNBOUND };
+          if (reason === 'disabled') return { ok: false, http: 403, error: DISABLED, held: true };
+          if (reason === 'unbound') return { ok: false, http: 403, error: UNBOUND, held: true };
         }
       }
     } catch { /* 读回答的时候抛错：按不可用 */ }

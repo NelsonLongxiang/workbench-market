@@ -20,7 +20,7 @@ import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import { identity, SESSION_COOKIE } from '../identity.ts';
-import { safeNext, clientIp } from '../login-gate.ts';
+import { safeNext, clientIp, holdPage } from '../login-gate.ts';
 import type { LoginSessionService } from '../services/login-session.ts';
 import type { PrincipalService } from '../services/principal.ts';
 
@@ -82,7 +82,7 @@ export function registerLoginFlowRoutes(app: HttpService, deps: LoginFlowRouteDe
       // 不是本组织的人（插件说的，比如飞书租户不符）：只进待对接清单并留痕，不对主体、不自动绑定、不发会话——哪怕他的身份被绑过
       principals().notePending({ provider: flow, externalId: who.externalId, displayName: who.displayName, email: who.email });
       console.log(JSON.stringify({ source: 'login', event: 'outsider', flow, external_id: who.externalId, at: new Date().toISOString() }));
-      return page(res, 403, '等管理员处理', '你的账号现在还不能登录本站，请联系管理员。');
+      return holdPage(res);
     }
     let admitted = principals().admitBound({ provider: flow, externalId: who.externalId });
     // 自动对上只用插件确认过来自本组织的邮箱（emailTrusted），别的组织的人哪怕邮箱相同也不绑
@@ -93,7 +93,7 @@ export function registerLoginFlowRoutes(app: HttpService, deps: LoginFlowRouteDe
     if (!admitted.ok) {
       // 停用的和还没对到主体的，给同一页、同一个状态码：等待页不透露系统里有没有这个人、是不是被停用了
       if (admitted.reason !== 'disabled') principals().notePending({ provider: flow, externalId: who.externalId, displayName: who.displayName, email: who.email });
-      return page(res, 403, '等管理员处理', '你的账号现在还不能登录本站，请联系管理员。');
+      return holdPage(res);
     }
     const session = sessions().createSession(admitted.principal, flow, who.externalId, deps.sessionTtlMs);
     res.cookie(SESSION_COOKIE, session.token, { httpOnly: true, sameSite: 'lax', secure: secure(req), path: '/', maxAge: session.expiresAt - Date.now() });

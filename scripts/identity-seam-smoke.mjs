@@ -425,7 +425,8 @@ async function gatePrincipalChecks(srv, tag, relay) {
     return { api: api.status, error: api.json?.error ?? null, authenticated: me.json?.authenticated ?? null, login: me.json?.login ?? null, page: page.status };
   };
   const inside = (o, login) => o.api === 200 && o.authenticated === true && o.login === login && o.page !== 302 && o.page !== 401;
-  const outside = (o) => o.api === 401 && o.error === 'login_required' && o.authenticated === false && o.login === null && o.page === 302;
+  // 停用的人：接口照旧 401；登录是成功的，所以要页面时给等待页（403），不送回登录页
+  const outside = (o) => o.api === 401 && o.error === 'login_required' && o.authenticated === false && o.login === null && o.page === 403;
   const before = { alpha: await gate(SESSIONS.alpha), beta: await gate(SESSIONS.beta) };
   const controls = inside(before.alpha, 'alpha') && inside(before.beta, 'beta');
   check(controls, `${tag}主体·对照：alpha、beta 都进得来`, show(before));
@@ -435,11 +436,50 @@ async function gatePrincipalChecks(srv, tag, relay) {
   }
   const off = await setStatus(srv, 'disable', 'user:alpha');
   const alpha = await gate(SESSIONS.alpha), beta = await gate(SESSIONS.beta);
-  check(off.status === 200 && outside(alpha) && controls, `${tag}主体·停用 alpha → 立即进不来：接口 401、页面跳去登录、/api/auth/me 说没登录`, show(alpha));
+  check(off.status === 200 && outside(alpha) && controls, `${tag}主体·停用 alpha → 立即进不来：接口 401、页面给等待页（403）、/api/auth/me 说没登录`, show(alpha));
   check(inside(beta, 'beta') && outside(alpha), `${tag}主体·对照：beta 照常进得来`, show(beta));
   const on = await setStatus(srv, 'restore', 'user:alpha');
   const back = await gate(SESSIONS.alpha);
   check(on.status === 200 && show(back) === show(before.alpha) && outside(alpha), `${tag}主体·恢复 alpha → 立即进得来`, show(back));
+  {
+    // 等待页：登录成功（提供方认出了人）、卡在主体那一步。Alpha 和已有的 alpha 等价，对不上主体
+    const html = { accept: 'text/html' };
+    const page = (sid, path = '/') => srv.call('GET', path, sid, undefined, html);
+    const holdText = (t) => /<h1>等管理员处理<\/h1>/.test(t) && /登录成功了/.test(t) && !/重新登录|href="\/login/.test(t);
+    await setStatus(srv, 'disable', 'user:alpha');
+    const disabled = await page(SESSIONS.alpha), unbound = await page(SESSIONS.alphaUpper), disabledApp = await page(SESSIONS.alpha, '/apps/held-probe/');
+    await setStatus(srv, 'restore', 'user:alpha');
+    check(disabled.status === 403 && unbound.status === 403 && disabled.text === unbound.text && holdText(disabled.text) && disabledApp.status === 403 && disabledApp.text === disabled.text,
+      `${tag}等待页·停用的和没对到主体的看到同一张等待页（同一个状态码、逐字节相同），写明登录成功了、等管理员处理，不叫人重新登录、不给回登录页的链接`, show({ disabled: disabled.status, unbound: unbound.status, same: disabled.text === unbound.text }));
+    const none = await page(null), forged = await page(SESSIONS.forged), portal = await page(SESSIONS.portal), down = await page(SESSIONS.unreachable);
+    const toLogin = (r) => r.status === 302 && !/等管理员处理|登录成功/.test(r.text);
+    check(toLogin(none) && toLogin(forged) && toLogin(portal) && toLogin(down),
+      `${tag}等待页·没通过提供方认证的（没带会话、伪造的会话、门户账号、身份来源不可达）照旧跳登录页，拿不到等待页上的任何字`, show({ none: none.status, forged: forged.status, portal: portal.status, down: down.status }));
+    const api = await srv.call('GET', '/api/apps', SESSIONS.alphaUpper), me = await srv.call('GET', '/api/auth/me', SESSIONS.alphaUpper);
+    const pend = await srv.call('GET', '/api/principals/pending', SESSIONS.alphaUpper), write = await srv.call('POST', '/api/types', SESSIONS.alphaUpper, { name: 'held-probe' });
+    const goPage = await page(SESSIONS.alphaUpper, '/go/1/');
+    check(api.status === 401 && me.json?.authenticated === false && pend.status === 401 && write.status === 401 && goPage.status === 403 && holdText(goPage.text) && !/held-probe|"id"/.test(goPage.text),
+      `${tag}等待页·卡住的人在等待页之外照旧被拒：接口 401、/api/auth/me 说没登录、写 401；打开 /go/ 的台也是等待页、不带数据`, show({ api: api.status, me: me.json?.authenticated, pend: pend.status, write: write.status, go: goPage.status }));
+  }
+  {
+    // 待对接清单：不管哪个登录提供方，对不上主体的都进清单；只有最少信息；同一个人反复来只有一条；停用的不进
+    for (let i = 0; i < 3; i++) await srv.call('GET', '/api/apps', SESSIONS.alphaUpper);
+    await setStatus(srv, 'disable', 'user:beta');
+    await srv.call('GET', '/api/apps', SESSIONS.beta);
+    await setStatus(srv, 'restore', 'user:beta');
+    const list = await srv.call('GET', '/api/principals/pending', null, undefined, TOKEN);
+    const items = Array.isArray(list.json) ? list.json : (list.json?.pending ?? list.json?.items ?? []);
+    const mine = items.filter((p) => p.external_id === 'Alpha');
+    const keys = mine[0] ? Object.keys(mine[0]).sort().join(',') : '';
+    const db = new DatabaseSync(join(srv.data, 'workbench-market.db'));
+    let rows = [];
+    try { rows = db.prepare("SELECT provider, external_id, appearance FROM principal_pending WHERE external_id IN ('Alpha', 'beta')").all(); } finally { db.close(); }
+    const att = await srv.call('GET', '/api/attention', null, undefined, TOKEN);
+    const attItems = JSON.stringify(att.json ?? {});
+    check(list.status === 200 && mine.length === 1 && keys === 'display_name,email,external_id,last_seen,provider' && !mine[0].email && rows.length === 1 && rows[0].external_id === 'Alpha' && rows[0].appearance > 0
+      && !items.some((p) => p.external_id === 'beta') && /principal-pending/.test(attItems) && attItems.includes('Alpha'),
+      `${tag}待对接·经现有登录（不是飞书）对不上主体的进清单：反复来只有一条、出现序号定下了、只有标识/显示名/邮箱（空）/最近一次；停用的不进；「关注」的待对接来源看得到`, show({ list: list.status, mine: mine.length, keys, rows, beta: items.some((p) => p.external_id === 'beta') }));
+  }
   {
     // 登录门的缓存：同上，用「提供方只认第一次」的会话
     const sid = onceSession(relay ? 'relay-gate' : 'cached-gate');

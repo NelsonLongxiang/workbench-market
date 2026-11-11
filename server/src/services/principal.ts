@@ -108,8 +108,29 @@ export class PrincipalService extends Service implements PrincipalDirectory {
       .get(provider, externalId) as Bound | undefined;
   }
 
-  /** 把提供方认出的人对到主体。入参形状不对就抛错（身份服务按目录不可用处理，不放行） */
+  /** 待对接清单上一次为某人记账的时间：被拦的人每个请求都会来一次，一分钟内只记一回 */
+  private readonly pendingNoted = new Map<string, number>();
+
+  /**
+   * 把提供方认出的人对到主体。入参形状不对就抛错（身份服务按目录不可用处理，不放行）。
+   * 对不上（unbound）的进待对接清单，不管是哪个登录提供方，管理员才看得到他；停用的不进（那不是待对接）
+   */
   admit(identity: ExternalIdentity): Admission {
+    const out = this.admitOnce(identity);
+    if (out.ok === false && out.reason === 'unbound') this.notePendingSoon(identity.provider, identity.externalId, identity.displayName ?? null);
+    return out;
+  }
+
+  private notePendingSoon(provider: string, externalId: string, displayName: string | null): void {
+    const key = `${provider}\u0000${externalId}`, now = Date.now();
+    const last = this.pendingNoted.get(key);
+    if (last !== undefined && now - last < 60_000) return;
+    if (this.pendingNoted.size > 5000) this.pendingNoted.clear();
+    this.pendingNoted.set(key, now);
+    try { this.notePending({ provider, externalId, displayName, email: null }); } catch { /* 记清单出错不影响认人的结论 */ }
+  }
+
+  private admitOnce(identity: ExternalIdentity): Admission {
     const provider = identity?.provider, externalId = identity?.externalId;
     if (!providerOk(provider) || !externalIdOk(externalId)) throw new Error('外部身份的形状不对');
     // 登录认出来的只能是人；绑在别的类别上的外部身份（席位的凭据、节点的句柄）不能拿来登录
@@ -131,6 +152,7 @@ export class PrincipalService extends Service implements PrincipalDirectory {
       else {
         db.prepare("INSERT INTO principals (id, id_key, kind, display_name) VALUES (?, ?, 'person', ?)").run(id, idKey, text(identity.displayName, 256));
         db.prepare('INSERT INTO principal_identities (provider, external_id, external_key, principal_id) VALUES (?, ?, ?, ?)').run(provider, externalId, externalKey, id);
+        db.prepare('DELETE FROM principal_pending WHERE provider = ? AND external_id = ?').run(provider, externalId); // 撞名解开之后自动接上：清单里不再留他
         out = { ok: true, principal: id };
       }
       db.exec('COMMIT');
