@@ -238,6 +238,21 @@ try {
     }
   }
 
+  console.log('一（续三）、任务号的字面规则（ack-<task> 只配接单回执，receipt-<task> 只配终局回执）');
+  {
+    const x1 = seedEvent();
+    let rr = await receipt(x1.task, '接下', { idempotencyKey: x1.task, disposition: 'acknowledged' }, { inbound: `receipt-${x1.task}` });
+    ok('接单回执骑在 receipt-<task> 上 → 只记录，状态不动', rr.status === 200 && lastLog(x1.ev)?.action === 'receipt:unaccepted' && itemState(x1.ev)?.state === 'delivered', rr.text);
+    const x2 = seedEvent();
+    rr = await receipt(x2.task, '做完', { outcome: 'completed', idempotencyKey: x2.task, disposition: 'result' }, { inbound: `ack-${x2.task}` });
+    ok('结果回执骑在 ack-<task> 上 → 只记录', lastLog(x2.ev)?.action === 'receipt:unaccepted' && itemState(x2.ev)?.state === 'delivered');
+    const x3 = seedEvent();
+    rr = await receipt(x3.task, '做完', { outcome: 'completed', idempotencyKey: x3.task, disposition: 'result' }, { inbound: 'a2a-0123456789abcdef' });
+    ok('回执头是我们的任务号、入站任务号却是别的 → 只记录', lastLog(x3.ev)?.action === 'receipt:unaccepted' && itemState(x3.ev)?.state === 'delivered');
+    rr = await receipt(x3.task, '做完', { outcome: 'completed', idempotencyKey: x3.task, disposition: 'result' });
+    ok('……之后正确的 receipt-<task> 照常采信', rr.status === 200 && itemState(x3.ev)?.state === 'ready', rr.text);
+  }
+
   console.log('一（续二）、不采信的回执不占槽');
   {
     const m = seedEvent();

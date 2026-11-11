@@ -89,6 +89,20 @@ export async function verifyReceiptSigner(req: Req, raw: Buffer, sent: SentTask,
 }
 
 /**
+ * 任务号 → 原始投递（节点侧契约 a2a-net docs/ops/superagent-market-team.md 第 3 节的字面规则）：
+ *   回执头 `[A2A receipt] task <task>` 里的 <task> 是我们发出的任务号；入站 task_id 是 ack-<task>（接单回执，不结清）
+ *   或 receipt-<task>（终局回执：提问或结果）；信封 idempotencyKey 等于 <task>（在调用方核）。
+ *   之后对方加的 attention-<task>-<qid>、progress-<task>-<n> 在这里加一类。
+ * 不是我们发出的任务号返回 null（调用方照原路走）；入站任务号对不上字面规则的，slot 为 other（只记录，不采信）。
+ */
+export function receiptOrigin(headerTask: string, inboundTask: string): { sent: SentTask; slot: 'ack' | 'receipt' | 'other' } | null {
+  const sent = sentTask(headerTask);
+  if (!sent) return null;
+  const slot = inboundTask === `ack-${headerTask}` ? 'ack' : inboundTask === `receipt-${headerTask}` ? 'receipt' : 'other';
+  return { sent, slot };
+}
+
+/**
  * 回执的 JSON 信封（第二行）。自己解析：钉住的上游 0.6.25 的 parseReceipt 不认识 disposition（0.8 才有），会把它丢掉。
  * 只看第二行、最多 4 KiB、必须是对象；其余行一概不看。
  */
@@ -117,8 +131,9 @@ export async function handleInboundReceipt(req: Req, deps: { audiences: () => st
   if (message === '') return null;
   const parsed = parseA2aReceipt(message);
   if (!parsed) return null;
-  const sent = sentTask(parsed.taskId);
-  if (!sent) return null;
+  const origin = receiptOrigin(parsed.taskId, typeof body.task_id === 'string' ? body.task_id : '');
+  if (!origin) return null;
+  const { sent, slot } = origin;
   const now = deps.now?.() ?? Date.now();
   const verdict = await verifyReceiptSigner(req, req.rawBody ?? Buffer.alloc(0), sent, deps.audiences(), now);
   const envelope = envelopeOf(message);
@@ -141,9 +156,10 @@ export async function handleInboundReceipt(req: Req, deps: { audiences: () => st
   let action: string;
   let cls: 'ack' | 'final' = 'final';
   if (key !== parsed.taskId) action = 'receipt:unaccepted';
-  else if (disposition === 'acknowledged') { action = 'receipt:acknowledged'; cls = 'ack'; }
-  else if (disposition === 'attention') action = 'receipt:attention';
-  else if (disposition === 'result' && (RESULT_OUTCOMES as readonly string[]).includes(outcome)) action = `receipt:${outcome}`;
+  // 接单回执只能骑在 ack-<task> 上，终局回执（提问、结果）只能骑在 receipt-<task> 上；对不上的只记录
+  else if (disposition === 'acknowledged' && slot === 'ack') { action = 'receipt:acknowledged'; cls = 'ack'; }
+  else if (disposition === 'attention' && slot === 'receipt') action = 'receipt:attention';
+  else if (disposition === 'result' && slot === 'receipt' && (RESULT_OUTCOMES as readonly string[]).includes(outcome)) action = `receipt:${outcome}`;
   else action = 'receipt:unaccepted';
   const summary = cleanSummary(parsed.summary ?? '');
   const inboundTask = typeof body.task_id === 'string' ? body.task_id.slice(0, 128) : '';
