@@ -212,14 +212,15 @@ export function isCreator(item: Pick<WorkItemRow, 'creator_principal'> | undefin
 }
 
 /**
- * 8e：从事件确定建立人的主体。只认事件层自己写的「recorded」那一行里记下的主体（发布时经身份服务认出来的），
+ * 8e/8f：从事件确定建立人的主体。只认事件层自己写的「recorded」那一行里记下的提需求人（requester：建录入时经身份服务认出来的），
+ * 不认发布人（publisher，只留痕）；8e 那一版记的 principal 是发布人，也不认。
  * 而且事件的提交方是已验证的；别的一律 null。不按提交方自填的名字去猜，也不去对主体表。
  */
 export function creatorPrincipalOf(event: Pick<EventRow, 'submitter_kind'>, recorded: EventLogRow | undefined): string | null {
   if (!recorded || recorded.actor !== 'market' || event.submitter_kind === 'unverified') return null;
   let detail: Record<string, unknown> = {};
   try { detail = JSON.parse(recorded.detail || '{}') as Record<string, unknown>; } catch { return null; }
-  const p = detail?.principal;
+  const p = detail?.requester;
   return typeof p === 'string' && PERSON_PRINCIPAL.test(p) ? p : null;
 }
 

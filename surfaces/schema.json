@@ -401,6 +401,7 @@
       "started_at TEXT NOT NULL DEFAULT datetime('now')",
       "updated_at TEXT NOT NULL DEFAULT datetime('now')",
       "finished_at TEXT NOT NULL DEFAULT ''",
+      "requester_principal TEXT",
       "hot_pending INTEGER NOT NULL DEFAULT 0",
       "upload_token TEXT NOT NULL DEFAULT ''"
     ],
@@ -410,6 +411,13 @@
       "origin TEXT NOT NULL",
       "source TEXT NOT NULL",
       "exp INTEGER NOT NULL"
+    ],
+    "submission_counts": [
+      "day TEXT NOT NULL PK",
+      "channel TEXT NOT NULL PK",
+      "has_credential INTEGER NOT NULL PK",
+      "resolved INTEGER NOT NULL PK",
+      "n INTEGER NOT NULL DEFAULT 0"
     ],
     "task_center_events": [
       "id INTEGER PK",
@@ -651,6 +659,7 @@
     "principal_pending_appearance ON principal_pending: CREATE TRIGGER principal_pending_appearance AFTER INSERT ON principal_pending BEGIN INSERT INTO principal_pending_seq (id) VALUES (NULL); UPDATE principal_pending SET appearance = last_insert_rowid() WHERE provider = NEW.provider AND external_id = NEW.external_id; DELETE FROM principal_pending_seq WHERE id < last_insert_rowid(); END",
     "sop_runs_cache_revision ON sop_runs: CREATE TRIGGER sop_runs_cache_revision AFTER UPDATE OF data, status ON sop_runs BEGIN UPDATE sop_runs SET cache_revision = OLD.cache_revision + 1 WHERE id = NEW.id; END",
     "sop_runs_hot_pending_clear ON sop_runs: CREATE TRIGGER sop_runs_hot_pending_clear AFTER UPDATE OF data ON sop_runs WHEN NEW.hot_pending <> 0 BEGIN UPDATE sop_runs SET hot_pending = 0 WHERE id = NEW.id; END",
+    "sop_runs_requester_once ON sop_runs: CREATE TRIGGER sop_runs_requester_once BEFORE UPDATE OF requester_principal ON sop_runs WHEN OLD.requester_principal IS NOT NULL AND NEW.requester_principal IS NOT OLD.requester_principal BEGIN SELECT RAISE(ABORT, '录入的提需求人一经记下不再改'); END",
     "task_events_no_delete ON task_events: CREATE TRIGGER task_events_no_delete BEFORE DELETE ON task_events BEGIN SELECT RAISE(ABORT,'task events append only'); END",
     "task_events_no_update ON task_events: CREATE TRIGGER task_events_no_update BEFORE UPDATE ON task_events BEGIN SELECT RAISE(ABORT,'task events append only'); END",
     "wbe_events_no_delete ON workbench_events: CREATE TRIGGER wbe_events_no_delete BEFORE DELETE ON workbench_events BEGIN SELECT RAISE(ABORT,'workbench events are never deleted'); END",
