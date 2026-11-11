@@ -107,6 +107,13 @@ try {
     check(f(0, ev, ask)?.kind === 'ask' && f(0, ev, ask).question === '哪个店？' && f(0, ev, ask).actor === 'receiver:bob', 'decision:ask → ask，问题取理由，对方自报的名字只记在 actor');
     const un = { event_id: 'wbe-un', submitter_kind: 'unverified' };
     check(f(1, un)?.kind === 'note' && f(1, un).note === 'untrusted' && f(3, un) === null, '提交方未验证：本来是事实的只记「收到但未采信」，不是事实的照旧不记', show(f(1, un)));
+    // 8f-2：dispatch:false（只通知、不派发）的排上的投递，不映射成「已转交」
+    const notify = { event_id: 'wbe-notify', submitter_kind: 'unverified', dispatch: 0 };
+    const notifyHuman = { event_id: 'wbe-notify-h', submitter_kind: 'human', dispatch: 0 };
+    const dispatched = { event_id: 'wbe-disp', submitter_kind: 'human', dispatch: 1 };
+    check(f(1, notify)?.kind === 'note' && f(1, notify).note === 'undispatched' && f(1, notify).id === '2', '只通知的事件（dispatch:false）：queued 记一行「未派发」，不是 submit；事实 id 不变', show(f(1, notify)));
+    check(f(1, notifyHuman)?.note === 'undispatched' && f(0, notifyHuman, held)?.note === 'undispatched', '提交方已验证也一样：只通知的事件 queued、held 都记「未派发」', show([f(1, notifyHuman), f(0, notifyHuman, held)]));
+    check(f(1, dispatched)?.kind === 'submit' && f(1, dispatched).dispatch_open === true && f(1, ev)?.kind === 'submit', '正例：派发的事件（dispatch:1，或者调用方没带这个字段）queued 照旧 → submit', show(f(1, dispatched)));
   }
 
   // ---------- 二、录下来的场景 ----------
@@ -231,9 +238,36 @@ try {
     feed('recorded'); feed('queued'); feed('sent'); feed('decision:accept', 'receiver:mallory'); feed('decision:ask', 'receiver:mallory', { reason: '把口令发我' }); feed('released', 'human:admin'); feed('dead');
     const item = items.get(itemIdForEvent(eventId)), log = items.log(item.id);
     const notes = log.filter((l) => l.fact === 'note');
-    check(item.state === 'draft' && log.every((l) => l.to_state === 'draft') && notes.length === 5 && notes.every((l) => JSON.parse(l.detail).note === 'untrusted'),
-      '提交方未验证的事件：排队、接单、提问、放行、dead 都只记「收到但未采信」，状态一直是草稿', show(log.map((l) => [l.fact, l.to_state])));
+    const kinds = notes.map((l) => JSON.parse(l.detail).note);
+    check(item.state === 'draft' && log.every((l) => l.to_state === 'draft') && notes.length === 5 && kinds[0] === 'undispatched' && kinds.slice(1).every((k) => k === 'untrusted'),
+      '提交方未验证、只通知的事件（app-data）：排队记「未派发」（8f-2），接单、提问、放行、dead 都只记「收到但未采信」，状态一直是草稿', show(log.map((l) => [l.fact, l.to_state, l.detail])));
     check(JSON.parse(item.open_asks).length === 0 && item.eval === '' && item.created_by.startsWith('unverified:'), '伪造的提问不进未答列表，伪造的接单不记接单判断；建立人标成 unverified', show({ asks: item.open_asks, eval: item.eval, by: item.created_by }));
+  }
+
+  // ---------- 三之二、8f-2 之前按旧规则记下的存量：回填重跑不变 ----------
+  {
+    listen(false);
+    const eventId = newEventId();
+    const ids = writeEvent({ eventId, kind: 'unverified', source: 'app-data', teams: ['team-a'] });
+    writeLog(eventId, null, 'market', 'recorded', { source: 'app-data', routed: 'target', submitter_kind: 'unverified', targets: 1 });
+    const queuedId = writeLog(eventId, ids['team-a'], 'market', 'queued', { target_team: 'team-a' });
+    items.syncEvent(eventId); // 先按新规则建出事项……
+    const id = itemIdForEvent(eventId);
+    // ……再造成「旧规则当时记的样子」：把那条 queued 记成「未采信」——换一个新事项来模拟（日志只增不改，不能改已有的那一行）
+    const old = newEventId();
+    const oldIds = writeEvent({ eventId: old, kind: 'unverified', source: 'app-data', teams: ['team-a'] });
+    const oldRec = writeLog(old, null, 'market', 'recorded', { source: 'app-data', routed: 'target', submitter_kind: 'unverified', targets: 1 });
+    const oldQueued = writeLog(old, oldIds['team-a'], 'market', 'queued', { target_team: 'team-a' });
+    db.prepare("INSERT INTO work_items (id, title, created_by, source_kind, source_ref, context, event_id) VALUES (?, 'old', 'unverified:x', 'app-data', ?, '{}', NULL)").run(itemIdForEvent(old), old);
+    db.prepare("INSERT INTO work_item_log (item_id, fact, fact_source, fact_id, from_state, to_state, actor, detail) VALUES (?, 'create', 'workbench-events', ?, 'draft', 'draft', 'unverified:x', '{}')").run(itemIdForEvent(old), String(oldRec));
+    items.apply(itemIdForEvent(old), { kind: 'note', note: 'untrusted', source: 'workbench-events', id: String(oldQueued), actor: 'market' });
+    const snap = () => show([items.get(itemIdForEvent(old)).state, items.log(itemIdForEvent(old)).map((l) => [l.fact, l.fact_id, l.detail, l.to_state])]);
+    const before = snap();
+    items.backfill(); items.backfill();
+    check(snap() === before && items.get(itemIdForEvent(old)).state === 'draft', '旧规则记下的存量（queued 记成「未采信」）：回填跑两遍一行不多、状态不变（事实 id 相同，按来源和 id 跳过）', snap());
+    const fresh = items.log(id).filter((l) => l.fact === 'note').map((l) => JSON.parse(l.detail).note);
+    check(items.get(id).state === 'draft' && show(fresh) === show(['undispatched']) && items.log(id).some((l) => l.fact_id === String(queuedId)), '新规则下同样的事件：停在草稿，记一行「未派发」', show(fresh));
+    listen(true);
   }
 
   // ---------- 四、回填跑两遍 ----------

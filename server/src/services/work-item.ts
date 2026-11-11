@@ -36,6 +36,7 @@ export type SourceKind = typeof SOURCE_KINDS[number];
  *   return    人退回
  *   answer    人答了席位的提问；ask_id 是那条 ask 事实的 id
  *   note      只记录的备注：note = 'unrouted'（没有目标团队）/ 'untrusted'（提交方未验证，收到但未采信）
+ *             / 'undispatched'（8f-2：事件 dispatch:false，只通知、不派发——没有回写通道，不进「已转交」，停在草稿）
  *
  * 8b 接来源时补的标记：others_alive（同一事件还有别的投递活着）、none_sent（这个事件的投递一次都没发出去）。
  */
@@ -54,7 +55,7 @@ export type Fact = {
   question?: string;
   ask_id?: string;
   answer?: string;
-  note?: 'unrouted' | 'untrusted';
+  note?: 'unrouted' | 'untrusted' | 'undispatched';
   others_alive?: boolean;
   none_sent?: boolean;
   action?: string;
@@ -117,7 +118,7 @@ export const RECORDS: readonly { from: readonly WorkItemState[]; fact: Fact['kin
   { from: ['delivered'], fact: 'delivery', when: (f) => f.outcome === 'dead' && f.others_alive === true, note: '一个投递 dead，还有别的投递活着' },
   { from: ['accepted', 'progress', 'waiting', 'blocked', 'ready'], fact: 'delivery', when: is('outcome', 'dead'), note: '已有团队接手之后，别的投递 dead' },
   // 8b：未路由、未采信
-  { from: NON_TERMINAL, fact: 'note', when: (f) => f.note === 'unrouted' || f.note === 'untrusted', note: '未路由 / 收到但未采信' },
+  { from: NON_TERMINAL, fact: 'note', when: (f) => f.note === 'unrouted' || f.note === 'untrusted' || f.note === 'undispatched', note: '未路由 / 收到但未采信 / 未派发' },
 ];
 
 export type ApplyResult =
@@ -196,6 +197,8 @@ export const itemIdForEvent = (eventId: string) => `wi_${eventId}`;
 export type EventRow = {
   id: number; event_id: string; source: string; workbench: string; item: string; context_id: string;
   submitter_kind: 'human' | 'agent' | 'unverified'; submitter: string; routed: string; created_at: string;
+  /** 1 = 派发，0 = 只通知（app-data）。8f-2 之前的调用方可能没带，按派发算 */
+  dispatch?: number;
 };
 export type EventLogRow = { id: number; delivery_id: number | null; actor: string; action: string; detail: string };
 
@@ -247,6 +250,9 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
   const detail = (() => { try { return JSON.parse(row.detail || '{}') as Record<string, unknown>; } catch { return {}; } })();
   const base = { source: EVENT_FACT_SOURCE, id: String(row.id), actor: row.actor, action: row.action };
   let fact: Fact | null = null;
+  // 8f-2：dispatch:false 的事件（只通知、不派发）没有回写通道，排上的投递不映射成「已转交」：停在草稿，日志记一行「未派发」。
+  // 事实 id 和原来那条 submit 相同：存量里已经应用过的照旧按（来源、id）跳过，回填重跑结果不变
+  if ((row.action === 'held' || row.action === 'queued') && Number(event.dispatch) === 0) return { ...base, kind: 'note', note: 'undispatched' };
   if (row.action === 'held' || row.action === 'queued') fact = { ...base, kind: 'submit', dispatch_open: row.action === 'queued' };
   else if (row.action === 'released') fact = { ...base, kind: 'release' };
   else if (row.action === 'cancelled') fact = { ...base, kind: 'withdraw', none_sent: !rows.slice(0, i + 1).some((r) => r.action === 'sent' || r.action === 'sent-after-withdraw') };
@@ -313,7 +319,7 @@ export class WorkItemService extends Service {
   }
 
   private syncLocked(eventId: string): void {
-    const event = db.prepare('SELECT id, event_id, source, workbench, item, context_id, submitter_kind, submitter, routed, created_at FROM workbench_events WHERE event_id = ?')
+    const event = db.prepare('SELECT id, event_id, source, workbench, item, context_id, submitter_kind, submitter, routed, created_at, dispatch FROM workbench_events WHERE event_id = ?')
       .get(eventId) as EventRow | undefined;
     if (!event) return;
     const rows = db.prepare('SELECT id, delivery_id, actor, action, detail FROM workbench_event_log WHERE event_id = ? ORDER BY id').all(eventId) as EventLogRow[];
