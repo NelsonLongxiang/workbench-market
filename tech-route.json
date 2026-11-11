@@ -10,9 +10,9 @@
       "what": "index.ts 里的路由数",
       "target": 0,
       "baseline": {
-        "total": 25,
+        "total": 14,
         "files": {
-          "server/src/index.ts": 25
+          "server/src/index.ts": 14
         }
       }
     },
@@ -23,9 +23,9 @@
       "what": "没报动作的路由",
       "target": 0,
       "baseline": {
-        "total": 55,
+        "total": 44,
         "files": {
-          "server/src/index.ts": 25,
+          "server/src/index.ts": 14,
           "server/src/login-gate.ts": 4,
           "server/src/vault-api.ts": 17,
           "server/src/workbench-events.ts": 4,
