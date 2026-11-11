@@ -34,7 +34,7 @@ import { registerSummaryRoutes } from './routes/summary.ts';
 import { registerContentObservationRoutes } from './routes/content-observation.ts';
 import { registerAuthViewerRoutes } from './routes/auth-viewer.ts';
 import { registerPrincipalRoutes } from './routes/principals.ts';
-import { registerGrantRoutes } from './routes/grants.ts';
+import { loadRoleDeclarations, registerGrantRoutes } from './routes/grants.ts';
 import { registerAttentionRoutes } from './routes/attention.ts';
 import { registerWorkItemRoutes } from './routes/work-items.ts';
 import { registerSettingsRoutes } from './routes/settings.ts';
@@ -4036,6 +4036,8 @@ app.post('/api/a2a/send', wrap(async (req, res) => {
 
 if (getApp('task-center').status === 'published') syncWorkbenchRegistration(getApp('task-center'));
 const SURFACE_PORTS = surfacePorts();
+// 阶段六 6b：所有路由都注册完之后、开始监听之前读角色声明并校验（动作清单要齐）；不合格抛错，拒绝启动
+loadRoleDeclarations(http);
 const goServer = registerSurface(app, 'market', PORT, () => {
   // #258 breaking：旧开关不再放行任何公网登记，只做兼容检测告警
   if (process.env.ALLOW_PUBLIC_NET === '1') console.warn('[R3] ALLOW_PUBLIC_NET=1: legacy flag no longer grants public registration; use WM_REGISTER_URL_ALLOWLIST exact entries.');

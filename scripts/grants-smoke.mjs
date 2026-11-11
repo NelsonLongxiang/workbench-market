@@ -103,6 +103,10 @@ try {
     { id: 'scoped', name: '只在甲域', permissions: [{ kinds: ['read'], scope: 'domain:a' }] },
     { id: 'obj', name: '观测层对象', permissions: [{ kinds: ['read'], scope: 'object:stage-7f' }] },
     { id: 'cfg', name: '配置员', permissions: [{ kinds: ['admin'] }] },
+    // 按 HTTP 服务登记的动作写的权限：动作清单里要有，类别从清单里取
+    { id: 'viewer', name: '只看台', permissions: [{ actions: ['workbench.list', 'workbench.read', 'attention.read'] }] },
+    { id: 'approver', name: '审批变更', permissions: [{ actions: ['change-request.approve'] }] },
+    { id: 'deactivator', name: '停用主体', permissions: [{ actions: ['principal.disable'] }] },
   ] });
   const srv = await boot('main', { WM_ROLES_FILE: goodRoles });
   const db = srv.db();
@@ -262,6 +266,22 @@ try {
     check([direct, nested, owner].every((r) => r.status === 422 && r.json?.error === 'decide_non_person') && member.status === 201 && person.status === 201,
       '决定类权限不给非人主体：直接带的、经两层 includes 带进来的、owner 都 422；对照：不带决定类的给席位、带决定类的给人都能起草',
       show({ direct: direct.status, nested: nested.status, owner: owner.status, member: member.status, person: person.status }));
+  }
+
+  // ---------- 五之二、按动作写的权限：类别从 HTTP 服务登记的动作清单里取 ----------
+  {
+    const decideToSeat = await draft({ principal: 'seat:bot', role: 'approver' });
+    const readToSeat = await draft({ principal: 'seat:bot', role: 'viewer' });
+    const d = await draft({ principal: 'user:beta', role: 'deactivator' }, { headers: token });
+    await step(d.json?.grant?.id, 'submit', { headers: token });
+    const byToken = await step(d.json?.grant?.id, 'approve', { headers: token });
+    const byCli = await step(d.json?.grant?.id, 'approve');
+    const roles = (await srv.call('GET', '/api/roles', { headers: token })).json?.roles ?? [];
+    const flags = Object.fromEntries(roles.filter((r) => ['viewer', 'approver', 'deactivator'].includes(r.id)).map((r) => [r.id, [r.admin_level, r.decides]]));
+    check(decideToSeat.status === 422 && decideToSeat.json?.error === 'decide_non_person' && readToSeat.status === 201 && byToken.status === 403 && byCli.status === 200
+      && show(flags) === show({ viewer: [false, false], approver: [false, true], deactivator: [true, false] }),
+      '按动作写的权限：带决定类动作（change-request.approve）的不给席位，带管理类动作（principal.disable）的算管理员级、只有属主能放行；对照：只读动作的能给席位',
+      show({ decideToSeat: decideToSeat.status, readToSeat: readToSeat.status, byToken: byToken.status, byCli: byCli.status, flags }));
   }
 
   // ---------- 六、范围 ----------
