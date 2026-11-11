@@ -40,7 +40,7 @@ import type { AppService } from './services/app.ts';
 import type { AppDataService } from './services/app-data.ts';
 import type { CookieService } from './services/cookie.ts';
 import type { CockpitService } from './services/cockpit.ts';
-import type { SettingService } from './services/setting.ts';
+import { ADMIN_TOKEN_KEY, type SettingService } from './services/setting.ts';
 import { recordLayerFsShadowOutcome, recordLayerFsSkillShadowOutcome } from './layerfs-shadow.ts';
 import { db, getSettings, dataDir, rowToWorkbench, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow, type SopRunRow } from './db.ts';
 (globalThis as any).__wmDb = db; // #94 v3 S1：tasks.ts 直读 change_requests 桥
@@ -3181,7 +3181,6 @@ registerAgentCardRoutes(http);
 // 人工绑定 API（读写都要 ADMIN_TOKEN + Origin 空或同源——服务端校验跨源，CORS 白名单管不住执行）
 // 管理员口令存储（主人要求「页面手动设置」）：settings.admin_token_sha256（不可逆），
 // 优先级 env ADMIN_TOKEN > 库内值 > 无（未设一律 403）。DB 仅存 sha256，明文不落库。
-const ADMIN_TOKEN_KEY = 'admin_token_sha256';
 function dbAdminTokenSet(): boolean {
   return !!svc<SettingService>('setting').has(ADMIN_TOKEN_KEY);
 }
