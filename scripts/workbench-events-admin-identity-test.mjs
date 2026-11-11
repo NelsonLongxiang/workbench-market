@@ -34,6 +34,14 @@ const show = (v) => JSON.stringify(v);
 
 /** 进路由前认定会话登录管理员的路由（口令、身份端点、管理读面）。改这张表要在 PR 里说明为什么。 */
 const EXPECTED = [
+  // 对端登记表的管理接口（#553）：会话登录的管理员也算管理员，和绑定同口径——路由自己的管理门照旧，只是先认定会话管理员
+  // （判定并行比对报过：会话管理员读 /api/a2a/peers 旧守卫拒、新判定按授予放行，有意放开，消掉这处不一致）
+  "GET /api/a2a/peers",
+  "POST /api/a2a/peers",
+  "POST /api/a2a/peers/:id/confirm-key",
+  "POST /api/a2a/peers/:id/disable",
+  "POST /api/a2a/peers/:id/enable",
+  "POST /api/a2a/peers/:id/refresh",
   "DELETE /api/admin-token",
   "DELETE /api/bindings/:id",
   "DELETE /api/mcp/sessions/:id",

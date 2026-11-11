@@ -22,7 +22,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1506", "etag": "W/\"5e2-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1577", "etag": "W/\"629-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -59,7 +59,8 @@
                 "tasks": { "label": "任务中心收件（统一待办）", "visible": true, "count": 0 },
                 "owner-pending": { "label": "待属主看板", "visible": true, "count": 0 },
                 "principal-pending": { "label": "待对接清单", "visible": true, "count": 1 },
-                "work-items": { "label": "事项的验收和过目", "visible": true, "count": 0 }
+                "work-items": { "label": "事项的验收和过目", "visible": true, "count": 0 },
+                "a2a-peers": { "label": "对端公钥待确认", "visible": true, "count": 0 }
               },
               "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
             }
@@ -74,7 +75,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1506", "etag": "W/\"5e2-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1577", "etag": "W/\"629-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -111,7 +112,8 @@
                 "tasks": { "label": "任务中心收件（统一待办）", "visible": true, "count": 0 },
                 "owner-pending": { "label": "待属主看板", "visible": true, "count": 0 },
                 "principal-pending": { "label": "待对接清单", "visible": true, "count": 1 },
-                "work-items": { "label": "事项的验收和过目", "visible": true, "count": 0 }
+                "work-items": { "label": "事项的验收和过目", "visible": true, "count": 0 },
+                "a2a-peers": { "label": "对端公钥待确认", "visible": true, "count": 0 }
               },
               "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
             }
@@ -126,7 +128,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "986", "etag": "W/\"3da-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1058", "etag": "W/\"422-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -150,7 +152,8 @@
                 "tasks": { "label": "任务中心收件（统一待办）", "visible": false, "count": 0 },
                 "owner-pending": { "label": "待属主看板", "visible": true, "count": 0 },
                 "principal-pending": { "label": "待对接清单", "visible": true, "count": 1 },
-                "work-items": { "label": "事项的验收和过目", "visible": false, "count": 0 }
+                "work-items": { "label": "事项的验收和过目", "visible": false, "count": 0 },
+                "a2a-peers": { "label": "对端公钥待确认", "visible": false, "count": 0 }
               },
               "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
             }
@@ -165,7 +168,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "675", "etag": "W/\"2a3-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "747", "etag": "W/\"2eb-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [],
               "counts": { "total": 0, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 0 }, "by_source": {} },
@@ -176,7 +179,8 @@
                 "tasks": { "label": "任务中心收件（统一待办）", "visible": false, "count": 0 },
                 "owner-pending": { "label": "待属主看板", "visible": false, "count": 0 },
                 "principal-pending": { "label": "待对接清单", "visible": false, "count": 0 },
-                "work-items": { "label": "事项的验收和过目", "visible": false, "count": 0 }
+                "work-items": { "label": "事项的验收和过目", "visible": false, "count": 0 },
+                "a2a-peers": { "label": "对端公钥待确认", "visible": false, "count": 0 }
               },
               "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
             }
@@ -191,7 +195,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "675", "etag": "W/\"2a3-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "747", "etag": "W/\"2eb-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [],
               "counts": { "total": 0, "by_category": { "ask": 0, "review": 0, "accept": 0, "glance": 0, "grant": 0 }, "by_source": {} },
@@ -202,7 +206,8 @@
                 "tasks": { "label": "任务中心收件（统一待办）", "visible": false, "count": 0 },
                 "owner-pending": { "label": "待属主看板", "visible": false, "count": 0 },
                 "principal-pending": { "label": "待对接清单", "visible": false, "count": 0 },
-                "work-items": { "label": "事项的验收和过目", "visible": false, "count": 0 }
+                "work-items": { "label": "事项的验收和过目", "visible": false, "count": 0 },
+                "a2a-peers": { "label": "对端公钥待确认", "visible": false, "count": 0 }
               },
               "generated_at": "YYYY-MM-DDThh:mm:ss.fffZ"
             }
