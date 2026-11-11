@@ -206,7 +206,7 @@ try {
     const term = reach('done'), dupLog = items.log(term).at(-1);
     const again = items.apply(term, { kind: 'verify', source: dupLog.fact_source, id: dupLog.fact_id });
     check(again.ok && again.duplicate && items.get(term).state === 'done', '终态之后再送一遍进终态的那条事实：按重复返回，不报拒绝', show(again));
-    check(/UNIQUE/i.test(throws(() => db.prepare("INSERT INTO work_item_log (item_id, fact, fact_source, fact_id, from_state, to_state) VALUES (?, 'report', 'test', ?, 'progress', 'progress')").run(id, f.id))), '库这一层也拦着：同一条事实写不进第二行');
+    check(/UNIQUE|只增不改/i.test(throws(() => db.prepare("INSERT INTO work_item_log (item_id, fact, fact_source, fact_id, from_state, to_state) VALUES (?, 'report', 'test', ?, 'progress', 'progress')").run(id, f.id))), '库这一层也拦着：同一条事实写不进第二行');
   }
 
   // ---------- 四·补、答复（只记录）：答一条真问过、还没答过的提问 ----------
@@ -230,6 +230,17 @@ try {
     const t = reach('blocked'), tAsk = fact('ask'); items.apply(t, tAsk); items.apply(t, fact('report·failed'));
     const late = items.apply(t, fact('answer·答一条没问过的提问', { ask_id: tAsk.id }));
     check(late.ok === false && late.reason === 'terminal' && JSON.parse(items.get(t).open_asks).length === 1, '终态之后答提问：拒绝（终态之后只开回执这一个口子）', show(late));
+    const dropped = reach('accepted');
+    items.apply(dropped, fact('report·dropped 带回执', { receipt: { outcome: 'x' } }));
+    const atDrop = items.get(dropped);
+    const lateDone = items.apply(dropped, fact('receipt·done'));
+    const afterLate = items.get(dropped);
+    check(lateDone.ok && lateDone.late && afterLate.receipt_outcome === 'x' && afterLate.receipt_at === atDrop.receipt_at && items.log(dropped).at(-1).fact === 'receipt',
+      '晚到的回执只写日志，不覆盖终态时记下的回执摘要', show({ lateDone, before: atDrop.receipt_outcome, after: afterLate.receipt_outcome }));
+    const failedNoReceipt = reach('delivered');
+    items.apply(failedNoReceipt, fact('delivery·dead'));
+    items.apply(failedNoReceipt, fact('receipt·done'));
+    check(items.get(failedNoReceipt).receipt_outcome === 'done', '对照：终态时还没有回执摘要，晚到的回执填上');
     const ready = reach('ready');
     const failedReceipt = items.apply(ready, fact('receipt·failed'));
     const lateFailed = items.apply(ready, fact('receipt·failed'));
@@ -244,6 +255,10 @@ try {
     check(/只增不改/.test(throws(() => db.prepare("UPDATE work_item_log SET detail = '{}' WHERE item_id = ?").run(id))), '改写日志的任何一列：被库拒绝');
     check(/只增不改/.test(throws(() => db.prepare('DELETE FROM work_item_log WHERE seq = ?').run(rows[0].seq))), '删除日志的一行：被库拒绝');
     check(/只增不改/.test(throws(() => db.exec('DELETE FROM work_item_log'))), '清空日志：被库拒绝');
+    const victim = rows.at(-1);
+    check(/只增不改/.test(throws(() => db.prepare("INSERT OR REPLACE INTO work_item_log (seq, item_id, fact, fact_source, fact_id, from_state, to_state) VALUES (?, ?, 'verify', 'forged', 'z1', 'progress', 'done')").run(victim.seq, id))), '用已有的 seq 做 INSERT OR REPLACE 改写日志：被库拒绝');
+    check(/只增不改/.test(throws(() => db.prepare("INSERT OR REPLACE INTO work_item_log (item_id, fact, fact_source, fact_id, from_state, to_state) VALUES (?, 'verify', ?, ?, 'progress', 'done')").run(id, victim.fact_source, victim.fact_id))), '用已有的（事项、来源、id）做 INSERT OR REPLACE 改写日志：被库拒绝');
+    check(/只增不改/.test(throws(() => db.prepare("REPLACE INTO work_item_log (seq, item_id, fact, fact_source, fact_id, from_state, to_state) VALUES (?, ?, 'verify', 'forged', 'z2', 'progress', 'done')").run(victim.seq, id))), '用 REPLACE 改写日志：被库拒绝');
     check(show(items.log(id)) === show(rows), '被拒之后日志原样');
   }
 
@@ -255,6 +270,9 @@ try {
     check(throws(() => db.prepare("UPDATE work_items SET title = '改个标题' WHERE id = ?").run(id)) === '', '对照：改别的列不受影响');
     check(/draft/.test(throws(() => db.prepare("INSERT INTO work_items (id, title, created_by, source_kind, state) VALUES ('wi_x', 't', 'user:a', 'agent', 'done')").run())), '直接插一条不是 draft 的事项：被库拒绝');
     check(/不删除/.test(throws(() => db.prepare('DELETE FROM work_items WHERE id = ?').run(id))), '删除事项：被库拒绝');
+    check(/不删除/.test(throws(() => db.prepare("INSERT OR REPLACE INTO work_items (id, title, created_by, source_kind) VALUES (?, '重置', 'user:x', 'agent')").run(id))) && items.get(id).state === 'progress', '用已有 id 做 INSERT OR REPLACE 把事项重置成 draft：被库拒绝');
+    const other = fresh();
+    check(/不删除/.test(throws(() => db.prepare('UPDATE OR REPLACE work_items SET id = ? WHERE id = ?').run(id, other.id))) && items.get(id)?.state === 'progress' && items.get(other.id), '改 id 撞上另一个事项（UPDATE OR REPLACE 会顶掉它）：被库拒绝');
     const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(items)).filter((m) => /state/i.test(m) && m !== 'constructor');
     check(methods.length === 0, '服务上没有带 state 字样的方法（唯一的改状态入口是 apply）', show(methods));
   }

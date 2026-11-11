@@ -91,7 +91,8 @@ export function nextState(state: WorkItemState, fact: Fact): WorkItemState | nul
 /**
  * 只记录、不改状态的事实（规格附录 8a 补定）。终态之后只开回执这一个口子，别的事实一律拒绝。
  *   answer：只在非终态、且答的是一条还没答过的提问时接受（同一条提问再答一次，返回第一次的结果）
- *   回执（outcome 不是 failed）：在 ready 和任一终态都接受；终态之后到的在日志里标「晚到」
+ *   回执（outcome 不是 failed）：在 ready 和任一终态都接受；终态之后到的在日志里标「晚到」。
+ *     事项上的回执摘要只在原来为空时填，不被后到的覆盖
  */
 export const RECORDS: readonly { from: readonly WorkItemState[]; fact: Fact['kind']; when: (f: Fact) => boolean; note: string }[] = [
   { from: NON_TERMINAL, fact: 'answer', when: (f) => typeof f.ask_id === 'string' && f.ask_id !== '', note: '人答了席位的提问' },
@@ -230,7 +231,8 @@ export class WorkItemService extends Service {
     }
     const late = TERMINAL.includes(item.state);
     this.writeLog(itemId, fact, item.state, item.state, late ? { ...detail, late: true } : detail);
-    db.prepare("UPDATE work_items SET receipt_outcome = ?, receipt_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(fact.outcome ?? '', itemId);
+    // 摘要只在原来没有回执时填：晚到的回执不覆盖终态时记下的那一份（全量在日志里）
+    db.prepare("UPDATE work_items SET receipt_outcome = ?, receipt_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND receipt_outcome = ''").run(fact.outcome ?? '', itemId);
     return { ok: true, state: item.state, from: item.state, duplicate: false, recorded: true, late };
   }
 }

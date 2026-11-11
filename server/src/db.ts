@@ -642,7 +642,9 @@ for (const [table, column] of [['principals', 'id_key'], ['principal_identities'
 //   work_items：一件要办的事的索引。只存 id 和摘要，原件各回各家（投递在 workbench_event_deliveries，run 在 sop_runs）。
 //     state 只由事项服务按迁移表推进；object、phase 是观测层给的不透明标识，只存、只按它筛。
 //   work_item_log：只增不改。每条事实一行，(item_id, fact_source, fact_id) 唯一——同一条事实送两次只记一次。
-//     改写、删除在库这一层就被触发器拒绝；work_items.state 只能改成日志里最近一行的 to_state。
+//     改写、删除、用 INSERT OR REPLACE 覆盖，在库这一层都被触发器拒绝。
+//   work_items 不删除、不覆盖、不改 id；state 只能改成日志里最近一行的 to_state（拦的是「状态和日志对不上」：
+//     先插一行日志再改状态是能过的，但那一行会永久留在只增不改的日志里）。
 // IF NOT EXISTS 幂等，旧库启动即补表。
 db.exec(`
 CREATE TABLE IF NOT EXISTS work_items (
@@ -692,11 +694,20 @@ CREATE TRIGGER IF NOT EXISTS work_item_log_no_update BEFORE UPDATE ON work_item_
   BEGIN SELECT RAISE(ABORT, 'work_item_log 只增不改'); END;
 CREATE TRIGGER IF NOT EXISTS work_item_log_no_delete BEFORE DELETE ON work_item_log
   BEGIN SELECT RAISE(ABORT, 'work_item_log 只增不改'); END;
+-- INSERT OR REPLACE 删旧行时不触发 DELETE 触发器（除非开了 recursive_triggers），所以键已存在的插入一律拦下
+CREATE TRIGGER IF NOT EXISTS work_item_log_no_replace BEFORE INSERT ON work_item_log
+  WHEN EXISTS (SELECT 1 FROM work_item_log WHERE seq = NEW.seq)
+    OR EXISTS (SELECT 1 FROM work_item_log WHERE item_id = NEW.item_id AND fact_source = NEW.fact_source AND fact_id = NEW.fact_id)
+  BEGIN SELECT RAISE(ABORT, 'work_item_log 只增不改'); END;
 CREATE TRIGGER IF NOT EXISTS work_items_state_follows_log BEFORE UPDATE OF state ON work_items
   WHEN NEW.state IS NOT OLD.state AND NEW.state IS NOT (SELECT to_state FROM work_item_log WHERE item_id = NEW.id ORDER BY seq DESC LIMIT 1)
   BEGIN SELECT RAISE(ABORT, 'work_items.state 只能经事项服务推进'); END;
 CREATE TRIGGER IF NOT EXISTS work_items_no_delete BEFORE DELETE ON work_items
   BEGIN SELECT RAISE(ABORT, '事项不删除'); END;
+CREATE TRIGGER IF NOT EXISTS work_items_no_replace BEFORE INSERT ON work_items WHEN EXISTS (SELECT 1 FROM work_items WHERE id = NEW.id)
+  BEGIN SELECT RAISE(ABORT, '事项不删除，也不能用同一个 id 覆盖'); END;
+CREATE TRIGGER IF NOT EXISTS work_items_no_rekey BEFORE UPDATE OF id ON work_items WHEN NEW.id IS NOT OLD.id
+  BEGIN SELECT RAISE(ABORT, '事项不删除，id 也不能改'); END;
 CREATE TRIGGER IF NOT EXISTS work_items_start_draft BEFORE INSERT ON work_items WHEN NEW.state <> 'draft'
   BEGIN SELECT RAISE(ABORT, '事项一律从 draft 开始'); END;
 `);
