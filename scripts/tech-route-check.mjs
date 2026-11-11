@@ -531,6 +531,18 @@ function table(rows, hasList, loosened) {
   return lines.join('\n');
 }
 
+/**
+ * --tighten 对一项基线的收紧。
+ * 计数档只报告，基线照实际记：收紧后总数不会低于当次量出的数；代码从旧文件挪到新文件时，新文件按实际值记进去。
+ * 预算档、红线档只减不增：已有文件取基线和实际的较小值；新文件和变多的部分是违规（要豁免或先修），不收进基线。
+ */
+function tightenBaseline(old, m, tier) {
+  if (tier === 'count') return m.items ? { total: m.items.length, items: [...m.items] } : m.files ? { total: sum(keep(m.files)), files: keep(m.files) } : { total: m.total };
+  if (m.items) { const items = (old.items || []).filter((it) => m.items.includes(it)); return { total: items.length, items }; }
+  if (m.files) { const files = keep(Object.fromEntries(Object.entries(old.files || {}).map(([f, n]) => [f, Math.min(n, m.files[f] ?? 0)]))); return { total: sum(files), files }; }
+  return { total: Math.min(old.total, m.total) };
+}
+
 function writeList(root, rows, previous, mode) {
   const packages = { root: 'package.json', server: 'server/package.json', web: 'web/package.json' };
   const deps = previous?.deps || Object.fromEntries(Object.entries(packages).map(([k, f]) => {
@@ -542,10 +554,9 @@ function writeList(root, rows, previous, mode) {
     let baseline = old;
     if (m.skipped) { /* 没量到的保留原基线 */ }
     else if (mode === 'init' || !old) baseline = baselineOf(m);
-    else if (m.items) { const items = (old.items || []).filter((it) => m.items.includes(it)); baseline = { total: items.length, items }; }
-    else if (m.files) { const files = keep(Object.fromEntries(Object.entries(old.files || {}).map(([f, n]) => [f, Math.min(n, m.files[f] ?? 0)]))); baseline = { total: sum(files), files }; }
-    else baseline = { total: Math.min(old.total, m.total) };
-    if (old && baseline.total !== old.total) changes.push(`${rule.id} ${old.total} → ${baseline.total}`);
+    else baseline = tightenBaseline(old, m, rule.tier || 'count');
+    const shape = (b) => { const v = b.files || b.items; return v && Object.keys(v).length ? JSON.stringify(v) : ''; };
+    if (old && (baseline.total !== old.total || shape(baseline) !== shape(old))) changes.push(`${rule.id} ${old.total} → ${baseline.total}${baseline.total > old.total ? '（计数档，按实际记）' : baseline.total === old.total ? '（总数不变，按文件重记）' : ''}`);
     return { id: rule.id, tier: rule.tier || 'count', proposed: rule.proposed, what: rule.what, target: rule.target, ...(rule.note ? { note: rule.note } : {}), baseline };
   });
   const list = {
@@ -610,6 +621,15 @@ function selftest() {
   check(!verdict(rule('redline', {}), skipped, compare(rule('redline', {}), skipped)).fail, '量不出来：平时只提示');
   check(verdict(rule('redline', {}), skipped, compare(rule('redline', {}), skipped), true).fail, '量不出来：--strict 下红线档算失败');
   check(!verdict(rule('count', {}), skipped, compare(rule('count', {}), skipped), true).fail, '量不出来：--strict 下计数档仍只提示');
+  // --tighten：旧文件减少、同时有新文件（把代码从 a.ts 挪到 c.ts）
+  const moved = { total: 5, files: { 'a.ts': 3, 'c.ts': 2 } };
+  const countAfter = tightenBaseline({ total: 5, files: { 'a.ts': 5 } }, moved, 'count');
+  check(countAfter.total === 5 && countAfter.files['a.ts'] === 3 && countAfter.files['c.ts'] === 2, `收紧：计数档旧文件减少、同时有新文件，基线按实际记（得到 ${JSON.stringify(countAfter.files)}）`);
+  const grewAfter = tightenBaseline({ total: 3, files: { 'a.ts': 2, 'b.ts': 1 } }, { total: 4, files: { 'a.ts': 1, 'b.ts': 3 } }, 'count');
+  check(grewAfter.total === 4, `收紧：计数档有文件变多，总数不低于实际（得到 ${grewAfter.total}）`);
+  const budgetAfter = tightenBaseline({ total: 5, files: { 'a.ts': 5 } }, moved, 'budget');
+  check(budgetAfter.total === 3 && !('c.ts' in budgetAfter.files), '收紧：预算档的新文件不收进基线（它是违规，要豁免或先修）');
+  check(tightenBaseline({ total: 2, items: ['x', 'y'] }, { total: 2, items: ['y', 'z'] }, 'count').total === 2, '收紧：计数档按条目记时，新条目按实际记');
   const good = { rules: RULES.map((r) => ({ id: r.id, tier: 'count', baseline: { total: 0 } })), waivers: [], tests: {} };
   const broken = (patch) => listProblems({ ...good, ...patch }).length > 0;
   check(listProblems(good).length === 0, '清单校验：完整的清单没有问题');
