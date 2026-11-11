@@ -37,6 +37,7 @@ import { registerAdminTokenRoutes } from './routes/admin-token.ts';
 import { registerBindingRoutes } from './routes/bindings.ts';
 import { registerExportImportRoutes } from './routes/export-import.ts';
 import { registerLoginFlowRoutes } from './routes/login-flows.ts';
+import { registerWorkbenchRoutes } from './routes/workbenches.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import { SkillService } from './services/skill.ts';
@@ -425,17 +426,6 @@ function maskForApi<T extends { url: string; auth: { type: string; value: string
   return { ...w, url: maskSensitiveQuery(w.url), auth: w.auth ? { ...w.auth, value: '****' } : w.auth };
 }
 
-app.get('/api/workbenches', (req, res) => {
-  const { q, category, type, status } = req.query;
-  let list = listWorkbenches();
-  if (q) { const s = String(q).toLowerCase(); list = list.filter((w) => w.name.toLowerCase().includes(s) || w.url.toLowerCase().includes(s) || (w.description || '').toLowerCase().includes(s)); }
-  if (category) list = list.filter((w) => w.category === category);
-  if (type) list = list.filter((w) => w.type === type);
-  if (status) list = list.filter((w) => w.last_status === status);
-  // 列表出队即掩码（q 过滤仍用原值——搜索语义不变，明文不落响应）
-  res.json(list.map(maskForApi));
-});
-
 function validateWorkbenchBody(b: any, partial = false) {
   const out: any = {};
   if (!partial || b.name !== undefined) {
@@ -575,32 +565,6 @@ function workbenchDeleteCore(id: number): { ok: boolean; deleted: number } {
 /** 审计主体：只认已核的管理口令；X-Market-Client 等自报头不算身份 */
 const restSubject = (req: express.Request) => (adminHeaderOk(req) ? 'admin' : 'anonymous');
 
-app.post('/api/workbenches', (req, res) => {
-  const ctx: WriteCtx = { subject: restSubject(req) };
-  const w = workbenchCreateCore(req.body, ctx);
-  if (ctx.auditOk === false) res.setHeader('X-WM-Audit-State', 'degraded');
-  res.status(201).json(w);
-});
-
-app.get('/api/workbenches/:id', (req, res) => {
-  const row = svc<WorkbenchService>('workbench').byId(Number(req.params.id)) as unknown as WorkbenchRow | undefined;
-  if (!row) throw new HttpError(404, `workbench not found: ${req.params.id}`);
-  // 与列表同策略掩码（issue #2/#3：auth.value 同为无认证出口的明文凭据向量）；
-  // 编辑流由 PUT 掩码回传保护兜底（掩码回传=不变更，DB 原值不毁）
-  res.json(maskForApi(rowToWorkbench(row)));
-});
-
-app.put('/api/workbenches/:id', (req, res) => {
-  const ctx: WriteCtx = { subject: restSubject(req) };
-  const w = workbenchUpdateCore(Number(req.params.id), req.body, ctx);
-  if (ctx.auditOk === false) res.setHeader('X-WM-Audit-State', 'degraded');
-  res.json(w);
-});
-
-app.delete('/api/workbenches/:id', (req, res) => {
-  res.json(workbenchDeleteCore(Number(req.params.id)));
-});
-
 // ---------- 健康检查 ----------
 function typeOf(key: string): TypeRow | undefined {
   return svc<WorkbenchService>('workbench').typeByKey(key) as unknown as TypeRow | undefined;
@@ -658,38 +622,12 @@ async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkben
   return rowToWorkbench(row);
 }
 
-app.post('/api/workbenches/:id/check', wrap(async (req, res) => {
-  const row = svc<WorkbenchService>('workbench').byId(Number(req.params.id)) as unknown as WorkbenchRow | undefined;
-  if (!row) throw new HttpError(404, `workbench not found: ${req.params.id}`);
-  res.json(await checkOne(row));
-}));
-
 // 台驱逐冷却（与 a2a-net peer 驱逐冷却同名不同物·命名区分，direct-53caaed3）：
 // 连续 down 的台进入 24h 冷却窗，窗内每窗只探一次（防 flapping）。up 即清零；内存态（重启清零，保守）。
 const EVICT_COOLDOWN_MS = Number(process.env.A2A_EVICT_COOLDOWN_MS) > 0 ? Number(process.env.A2A_EVICT_COOLDOWN_MS) : 24 * 3_600_000; // 测试可加速
 const downSince = new Map<number, number>();
 const lastProbeAt = new Map<number, number>();
-app.post('/api/check-all', wrap(async (_req, res) => {
-  const settings = getSettings();
-  const limit = Math.max(1, Number(settings.health_concurrency) || 8);
-  const rows = svc<WorkbenchService>('workbench').enabled() as unknown as WorkbenchRow[];
-  const results: ReturnType<typeof rowToWorkbench>[] = [];
-  // 台驱逐冷却两入口一致（patrol/check-all 共享）：down 台窗内跳过，每窗一探
-  const queue = [...rows].filter((w) => {
-    if (!downSince.has(w.id)) return true;
-    if (Date.now() - (lastProbeAt.get(w.id) ?? 0) >= EVICT_COOLDOWN_MS) { lastProbeAt.set(w.id, Date.now()); return true; }
-    return false;
-  });
-  const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
-    for (let w = queue.shift(); w; w = queue.shift()) results.push(await checkOne(w));
-  });
-  await Promise.all(workers);
-  for (const r of results) {
-    if (r.last_status === 'down') { if (!downSince.has(r.id)) { downSince.set(r.id, Date.now()); lastProbeAt.set(r.id, Date.now()); } }
-    else { downSince.delete(r.id); lastProbeAt.delete(r.id); }
-  }
-  res.json({ checked: results.length, up: results.filter((r) => r.last_status === 'up').length, down: results.filter((r) => r.last_status === 'down').length });
-}));
+registerWorkbenchRoutes(http, { wrap, listWorkbenches, maskForApi, restSubject, workbenchCreateCore, workbenchUpdateCore, workbenchDeleteCore, checkOne, downSince, lastProbeAt, EVICT_COOLDOWN_MS });
 
 // ---------- 驾驶舱 CRUD（任务驾驶舱：多工作台分屏组合视图） ----------
 registerCockpitRoutes(http);
