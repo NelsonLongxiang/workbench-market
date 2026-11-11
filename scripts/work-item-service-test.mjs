@@ -261,6 +261,9 @@ try {
     // 回填重放时这条只记录的回执原样再来：第一次应用时已经是终态，重放也不改承接（和实时一致）
     const replayLate = items.apply(doneId, { kind: 'receipt', source: 'seat-test', id: 'late-1', outcome: 'completed', seat: 'lab/99999999' });
     check(replayLate.duplicate && items.get(doneId).seat === 'lab/ffffffff', '回填重放终态之后只记录的那条回执：照旧不改承接', show({ replayLate, seat: items.get(doneId).seat }));
+    // 产物也一样：回填再核时已应用过的事实带了 artifacts，要并进 outputs（终态之后也并）
+    items.apply(doneId, { kind: dl.fact, source: dl.fact_source, id: dl.fact_id, artifacts: [{ kind: 'sop-run', id: 'demo/12' }] });
+    check(JSON.stringify(JSON.parse(items.get(doneId).outputs)) === JSON.stringify([{ kind: 'sop-run', id: 'demo/12' }]), '同一条事实再来、带了产物：并进 outputs（终态之后也并），日志不加行', show(items.get(doneId).outputs));
   }
 
   // ---------- 四·补、答复（只记录）：答一条真问过、还没答过的提问 ----------

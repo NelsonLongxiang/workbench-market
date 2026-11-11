@@ -376,6 +376,24 @@ try {
     ok('别的团队「说不干了」（rejected，只记录）→ 承接仍是接手的团队', r.status === 200 && state(M2.ev)?.state === 'accepted' && seatOf(M2.ev) === 'lab/aaaaaaaa', `${seatOf(M2.ev)} ${JSON.stringify(state(M2.ev))}`);
   }
 
+  console.log('二之三之三、回执的产物并进事项的 outputs');
+  {
+    const outs = (ev) => { const v = JSON.parse(q('SELECT outputs FROM work_items WHERE id = ?', `wi_${ev}`)[0]?.outputs ?? '[]'); return Array.isArray(v) ? v : []; };
+    const O = seedEvent();
+    await receipt(O.task, '接下', { idempotencyKey: O.task, disposition: 'acknowledged' }, O.ctx, { inbound: `ack-${O.task}` });
+    await receipt(O.task, '进展', { idempotencyKey: O.task, disposition: 'progress', progress: { n: 1, state: 'working', at: '2026-11-11T08:00:00.000Z' }, artifacts: [{ kind: 'table', id: 'orders' }, { kind: '', id: 'x' }, { kind: 'file', id: '' }] }, O.ctx, { inbound: `progress-${O.task}-1` });
+    ok('进展回执带的产物并进 outputs（坏的逐个丢）', JSON.stringify(outs(O.ev)) === JSON.stringify([{ kind: 'table', id: 'orders' }]), JSON.stringify(outs(O.ev)));
+    const many = [{ kind: 'table', id: 'orders' }, ...Array.from({ length: 20 }, (_, k) => ({ kind: 'file', id: `f${k}` }))];
+    await receipt(O.task, '做完了', { outcome: 'completed', idempotencyKey: O.task, disposition: 'result', artifacts: many }, O.ctx);
+    const o2 = outs(O.ev);
+    ok('结果回执的产物再并进来：按 kind+id 去重、保持先后、最多 16 项', o2.length === 16 && o2[0].kind === 'table' && o2[1].id === 'f0' && o2.filter((x) => x.id === 'orders').length === 1, JSON.stringify(o2));
+    const ia = (await api('GET', `/api/work-items/wi_${O.ev}`)).body?.item;
+    ok('……读接口的 item.outputs 就是这一份', ia && JSON.parse(ia.outputs).length === 16, String(ia?.outputs).slice(0, 80));
+    const U = seedEvent();
+    await receipt(U.task, '做完了', { outcome: 'completed', idempotencyKey: U.task, disposition: 'result', artifacts: [{ kind: 'table', id: 'stolen' }] }, U.ctx, { signer: evil });
+    ok('没采信的回执（别的宿主签的）带的产物不进 outputs', outs(U.ev).length === 0, JSON.stringify(outs(U.ev)));
+  }
+
   console.log('二之四、来信分流先验格式再查库');
   {
     const T = seedEvent();
