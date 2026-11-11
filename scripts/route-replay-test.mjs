@@ -27,6 +27,7 @@
 import { spawn } from './owned-script-fixture.mjs';
 import { createServer } from 'node:http';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -37,6 +38,11 @@ const REPLAY_DIR = join(ROOT, 'surfaces', 'replay');
 const ROUTES_SNAPSHOT = join(ROOT, 'surfaces', 'routes.json');
 const MODULES_DIR = join(ROOT, 'server', 'src', 'routes');
 const CLOCK_PRELOAD = join(HERE, 'replay-clock-preload.mjs');
+/** 场景可以带的测试夹具：名字 → 预加载的文件和要加的环境变量。都只在 NODE_ENV=test 下干活。 */
+const FIXTURES = {
+  // 登录提供方换成假的（scripts/identity-fake-provider.mjs）：认人只看 session_id 的值，不访问任何外部系统
+  'identity-fake': { preload: join(HERE, 'identity-fake-preload.mjs'), env: { IDENTITY_SEAM_ROOT: ROOT } },
+};
 const CLASSES = ['unauthorized', 'invalid', 'normal'];
 const CLASS_NAME = { unauthorized: '未授权', invalid: '参数非法', normal: '正常' };
 // 和 scripts/tech-route-check.mjs 数路由的写法一样，另外多认 all：体检不数它，但它在运行时是一条路由（快照里记成 ALL）
@@ -100,6 +106,7 @@ export function checkCassette(cassette, known, moduleRouteCount = null, answered
   const covered = new Map(routes.map((r) => [r, new Set()]));
   for (const scenario of scenarios) {
     if (!scenario?.name) problems.push('有场景没有 name');
+    if (scenario?.fixtures !== undefined && !(Array.isArray(scenario.fixtures) && scenario.fixtures.every((f) => f in FIXTURES))) problems.push(`${scenario?.name}：fixtures 只能是 ${Object.keys(FIXTURES).join('、')} 里的名字`);
     if (scenario?.clock !== undefined && (typeof scenario.clock !== 'string' || !Number.isFinite(Date.parse(scenario.clock)))) problems.push(`${scenario?.name}：clock 要写成 ISO 时刻（比如 2030-01-01T00:00:00Z）`);
     for (const step of scenario?.steps ?? []) {
       const where = `${scenario.name}/${step?.id ?? '?'}`;
@@ -109,6 +116,7 @@ export function checkCassette(cassette, known, moduleRouteCount = null, answered
       const method = String(step?.request?.method ?? '');
       const path = String(step?.request?.path ?? '');
       if (!method || !path.startsWith('/')) { problems.push(`${where}：request 要有 method 和以 / 开头的 path`); continue; }
+      if (step.verify !== undefined && !(step.verify in VERIFIERS)) { problems.push(`${where}：verify 只能是 ${Object.keys(VERIFIERS).join('、')}`); continue; }
       if (step.vary !== undefined && !(step.vary && typeof step.vary === 'object' && !Array.isArray(step.vary) && Object.keys(step.vary).length > 0 && Object.values(step.vary).every((h) => h === 'random' || (typeof h === 'number' && h > 0)))) { problems.push(`${where}：vary 要写成 { 字段路径: 'random' 或一个正数 }`); continue; }
       if (step.compare !== undefined && step.compare !== 'status' && !(Array.isArray(step.compare) && step.compare.length > 0 && step.compare.every((x) => typeof x === 'string' && x))) { problems.push(`${where}：compare 只能是 'status'，或者一组字段的路径`); continue; }
       if (step.route === undefined) continue;
@@ -267,9 +275,36 @@ export function applyVary(body, vary) {
   return out;
 }
 
+/**
+ * 应答体要验的东西：请求上写 verify，值是下面的名字。验的结果记成 verified，和别的一样录下来比。
+ * vary 把签名换成了只留长度的占位，签名坏了但长度不变时看不出来；这里在换之前先验。
+ *   'a2a-card'：A2A 签名卡片，用卡片里的公钥验签名（和 server 用的是同一个库）。
+ */
+const VERIFIERS = {
+  'a2a-card': async () => {
+    const require = createRequire(join(ROOT, 'server', 'package.json'));
+    const { verifyCard } = await import(pathToFileURL(require.resolve('@nelsonlongxiang/dsh-open-a2a-net/card')).href);
+    return (body) => { try { return verifyCard(body, Date.now()).ok === true; } catch { return false; } };
+  },
+};
+const loadedVerifiers = {};
+export async function loadVerifiers(names) {
+  for (const name of names) {
+    if (!VERIFIERS[name]) throw new Error(`没有叫 ${JSON.stringify(name)} 的验法（有：${Object.keys(VERIFIERS).join('、')}）`);
+    loadedVerifiers[name] ??= await VERIFIERS[name]();
+  }
+}
+
 export function shapeOf(step, raw) {
   if (step.compare === 'status') return { status: raw.status };
+  let verified;
+  if (step.verify) {
+    const check = loadedVerifiers[step.verify];
+    if (!check) throw new Error(`验法 ${step.verify} 没有加载`);
+    verified = { [step.verify]: check(raw.body) };
+  }
   if (step.vary) raw = { ...raw, body: applyVary(raw.body, step.vary) };
+  if (verified) return { ...steadyResponse(raw), verified };
   // 应答里没有的字段不记（写进 JSON 也留不住），所以「原来没有、后来有了」和「原来有、后来没了」都看得出来
   if (Array.isArray(step.compare)) return { status: raw.status, picked: Object.fromEntries(step.compare.map((path) => [path, steady(pick(raw.body, path))]).filter(([, value]) => value !== undefined)) };
   return steadyResponse(raw);
@@ -286,7 +321,9 @@ export function compareStep(step, actual) {
   if (recorded.type !== actual.type) out.push(`内容类型：${JSON.stringify(recorded.type)} → ${JSON.stringify(actual.type)}`);
   if (!recorded.headers) out.push('录制里没有响应头（跑一次 --record）');
   else differences(recorded.headers, actual.headers ?? {}, '响应头', out);
-  return differences(recorded.body, actual.body, '响应体', out);
+  differences(recorded.body, actual.body, '响应体', out);
+  if (recorded.verified || actual.verified) differences(recorded.verified, actual.verified, '验', out);
+  return out;
 }
 
 /**
@@ -342,17 +379,27 @@ export async function withPortRetry(start, attempts = 3, note = (line) => consol
   }
 }
 
-const boot = (tag, env, clock) => withPortRetry(() => bootOnce(tag, env, clock));
+const boot = (tag, env, clock, fixtures) => withPortRetry(() => bootOnce(tag, env, clock, fixtures));
 
 /** 起实例用的 node 参数和多出来的环境变量。场景定了时钟，就把平移时钟的预加载带上。 */
-export function launchPlan(clock) {
-  if (clock === undefined) return { args: ['--disable-warning=ExperimentalWarning', 'src/index.ts'], env: {} };
-  if (typeof clock !== 'string' || !Number.isFinite(Date.parse(clock))) throw new Error(`clock 要写成 ISO 时刻（比如 2030-01-01T00:00:00Z），现在是 ${JSON.stringify(clock)}`);
-  return { args: ['--disable-warning=ExperimentalWarning', '--import', pathToFileURL(CLOCK_PRELOAD).href, 'src/index.ts'], env: { WM_REPLAY_CLOCK: clock } };
+export function launchPlan(clock, fixtures = []) {
+  const imports = [], env = {};
+  for (const name of fixtures) {
+    const f = FIXTURES[name];
+    if (!f) throw new Error(`没有叫 ${JSON.stringify(name)} 的夹具（有：${Object.keys(FIXTURES).join('、')}）`);
+    imports.push('--import', pathToFileURL(f.preload).href);
+    Object.assign(env, f.env);
+  }
+  if (clock !== undefined) {
+    if (typeof clock !== 'string' || !Number.isFinite(Date.parse(clock))) throw new Error(`clock 要写成 ISO 时刻（比如 2030-01-01T00:00:00Z），现在是 ${JSON.stringify(clock)}`);
+    imports.push('--import', pathToFileURL(CLOCK_PRELOAD).href);
+    env.WM_REPLAY_CLOCK = clock;
+  }
+  return { args: ['--disable-warning=ExperimentalWarning', ...imports, 'src/index.ts'], env };
 }
 
-async function bootOnce(tag, env, clock) {
-  const plan = launchPlan(clock);
+async function bootOnce(tag, env, clock, fixtures) {
+  const plan = launchPlan(clock, fixtures);
   const port = await freePort();
   const root = join(ROOT, 'tmp', `route-replay-${process.pid}-${tag}`);
   rmSync(root, { recursive: true, force: true });
@@ -409,8 +456,8 @@ function canonical(cassette) {
     ...cassette,
     scenarios: cassette.scenarios.map((s) => order({
       ...s,
-      steps: s.steps.map((step) => order({ ...step, request: order(step.request, ['method', 'path', 'headers', 'json', 'text']) }, ['id', 'route', 'class', 'what', 'compare', 'vary', 'request', 'save', 'response'])),
-    }, ['name', 'what', 'env', 'clock', 'steps'])),
+      steps: s.steps.map((step) => order({ ...step, request: order(step.request, ['method', 'path', 'headers', 'json', 'text']) }, ['id', 'route', 'class', 'what', 'compare', 'vary', 'verify', 'request', 'save', 'response'])),
+    }, ['name', 'what', 'env', 'clock', 'fixtures', 'steps'])),
   }, ['domain', 'what', 'routes', 'exempt', 'scenarios']);
 }
 
@@ -484,6 +531,20 @@ async function selftest() {
   check(compareStep({ response: { status: 200, type: 'a', headers: {}, body: { a: 1, b: 2 } } }, { status: 200, type: 'a', headers: {}, body: { b: 2, a: 1 } }).join().includes('顺序'), '比较：字段顺序变了，报出来');
   check(compareStep({ ...recorded, compare: 'status' }, { status: 200, type: 'x', body: 'y' }).length === 0, '比较：只比状态码的请求不看响应头和响应体');
   check(compareStep({}, answer()).join().includes('还没录过'), '比较：没录过的请求算差异');
+  // verify
+  await loadVerifiers(['a2a-card']);
+  const { generateKeyPairSync } = await import('node:crypto');
+  const require2 = createRequire(join(ROOT, 'server', 'package.json'));
+  const { signCard } = await import(pathToFileURL(require2.resolve('@nelsonlongxiang/dsh-open-a2a-net/card')).href);
+  const signed = signCard({ capabilities: {}, expiresAt: Date.now() + 3600000, name: 'n', session: 's', team: 't' }, generateKeyPairSync('ed25519').privateKey);
+  const vs = { verify: 'a2a-card', vary: { publicKey: 'random', signature: 'random' } };
+  const good = shapeOf(vs, { status: 200, type: 'a', headers: {}, body: signed });
+  const sig = String(signed.signature); const tampered = sig.slice(0, -2) + (sig.at(-2) === 'A' ? 'B' : 'A') + sig.at(-1);
+  const bad = shapeOf(vs, { status: 200, type: 'a', headers: {}, body: { ...signed, signature: tampered } });
+  const otherField = shapeOf(vs, { status: 200, type: 'a', headers: {}, body: { ...signed, name: 'x' } });
+  check(good.verified['a2a-card'] === true && bad.verified['a2a-card'] === false && otherField.verified['a2a-card'] === false && bad.body.signature === good.body.signature, 'verify：签名对就是 true；换成等长的另一串、或者改了签进去的字段，都是 false（vary 之后看不出来的，这里看得出来）');
+  check(compareStep({ ...vs, response: good }, bad).join().includes('验') && compareStep({ ...vs, response: good }, good).length === 0, 'verify：验的结果变了算差异');
+  check(checkCassette(withSteps([a, b, c, { id: 'v', verify: 'nope', request: { method: 'GET', path: '/api/x' } }]), known).some((p) => p.includes('verify')), 'verify：没有的验法，静态检查拦下');
   // vary
   const card = { publicKey: 'abcd', signature: 'xyz12', expiresAt: 1893456123456, name: 'm', nested: { k: 'q' } };
   const varied = applyVary(card, { publicKey: 'random', signature: 'random', expiresAt: 60000, 'nested.k': 'random', gone: 'random' });
@@ -564,6 +625,9 @@ async function selftest() {
   // 场景定时钟
   const plain = launchPlan(undefined), timed = launchPlan('2030-01-01T00:00:00Z');
   let badClock = false; try { launchPlan('tomorrow'); } catch { badClock = true; }
+  const faked = launchPlan(undefined, ['identity-fake']); const both = launchPlan('2030-01-01T00:00:00Z', ['identity-fake']);
+  let badFixture = false; try { launchPlan(undefined, ['nope']); } catch { badFixture = true; }
+  check(faked.args.filter((x) => x === '--import').length === 1 && faked.env.IDENTITY_SEAM_ROOT === ROOT && both.args.filter((x) => x === '--import').length === 2 && both.args.at(-1) === 'src/index.ts' && badFixture && checkCassette(withSteps([a, b, c], { scenarios: [{ name: 's', fixtures: ['nope'], steps: [a, b, c] }] }), known).some((p) => p.includes('fixtures')), '夹具：场景可以带上假的登录提供方，和定时钟一起用；没有的夹具名起不来，静态检查也拦下');
   check(!plain.args.includes('--import') && Object.keys(plain.env).length === 0 && timed.args.includes('--import') && timed.args.at(-1) === 'src/index.ts' && timed.env.WM_REPLAY_CLOCK === '2030-01-01T00:00:00Z' && badClock, '定时钟：场景没写 clock 就照常起；写了才带上预加载；写得不是时刻直接报错');
   check(checkCassette(withSteps([a, b, c], { scenarios: [{ name: 's', clock: 'tomorrow', steps: [a, b, c] }] }), known).some((p) => p.includes('clock')) && checkCassette(withSteps([a, b, c], { scenarios: [{ name: 's', clock: '2030-01-01T00:00:00Z', steps: [a, b, c] }] }), known).length === 0, '定时钟：请求集里 clock 写得不对，静态检查就拦下');
   const probe = 'const t = Date.now(); console.log(JSON.stringify([new Date(t).toISOString().slice(0, 16), new Date().toISOString().slice(0, 16), Date().slice(0, 21) === new Date(t).toString().slice(0, 21), new Date(0).toISOString(), new Date() instanceof Date, new Date().constructor === Date]))';
@@ -597,6 +661,7 @@ async function main() {
   }
   if (problems.length) { for (const p of problems) console.error(`✗ ${p}`); console.error(`\n请求集不合要求，没有${record ? '录制' : '回放'}。`); return 1; }
 
+  await loadVerifiers([...new Set(cassettes.flatMap(({ cassette }) => cassette.scenarios.flatMap((sc) => sc.steps.map((st) => st.verify).filter(Boolean))))]);
   let total = 0, changed = 0, refused = 0;
   for (const { file, domain, cassette } of cassettes) {
     if (!record) {
@@ -605,7 +670,7 @@ async function main() {
       if (only) for (const line of coverage(cassette)) console.log(`（覆盖，按录下来的应答算）${line}`);
     }
     for (const scenario of cassette.scenarios) {
-      const instance = await boot(`${domain}-${scenario.name}`, scenario.env ?? {}, scenario.clock);
+      const instance = await boot(`${domain}-${scenario.name}`, scenario.env ?? {}, scenario.clock, scenario.fixtures ?? []);
       let results;
       try { results = await runSteps(scenario.steps, (request, vars) => send(instance.base, request, vars), record); }
       catch (err) { throw new Error(`${domain}/${scenario.name}/${err.message}`); }

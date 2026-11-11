@@ -28,6 +28,9 @@ import { registerStatsRoutes } from './routes/stats.ts';
 import { registerDesignTokenRoutes } from './routes/design-tokens.ts';
 import { registerAgentCardRoutes } from './routes/agent-card.ts';
 import { registerSsoRoutes } from './routes/sso.ts';
+import { registerSummaryRoutes } from './routes/summary.ts';
+import { registerContentObservationRoutes } from './routes/content-observation.ts';
+import { registerAuthViewerRoutes } from './routes/auth-viewer.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import { SkillService } from './services/skill.ts';
@@ -2170,11 +2173,7 @@ app.get('/api/sop/runs/active', wrap(async (_req, res) => {
 }));
 
 registerStatsRoutes(http);
-app.get('/api/content/observation', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  res.setHeader('Cache-Control', 'no-store');
-  res.json(portalObserver ? { ...portalObserver.status(), counts: portalObserver.counts() } : { enabled: false, coverageVerified: false });
-});
+registerContentObservationRoutes(http, { adminGuard, portalObserver });
 
 /** #275 过渡登录入口（#221 落地前）：挑一个可信 Odoo 台，走 /go/<id>/ 的 SSO v1 舞步并带 return 落回市场原页面。
  *  先选 origin = WM_ODOO_URL 的台（工作台只认这个 Odoo 的会话；session_id 按主机名跨端口共享，登别的 Odoo 会把它覆盖掉），
@@ -2222,12 +2221,7 @@ app.post('/api/tasks/read-grants/revoke', (req, res) => {
 });
 
 // #275 登录探测：弹窗送 Odoo 登录后，前端轮询这里拿 200 即回原页面（Odoo 19 无法跨源回跳，回程在市场源完成）；顶栏用户 chip 同源
-app.get('/api/auth/viewer', wrap(async (req, res) => {
-  const r = await identity().whoami(String(req.headers.cookie ?? ''));
-  res.setHeader('Cache-Control', 'private, no-store');
-  // #279：未登录时带登录入口（顶栏 chip 复用 #277 弹窗流；中继页只认白名单 return，这里固定 /tasks）
-  res.status(r.http).json(r.http === 401 ? { ...r.body, login_url: odooLoginUrl(req, '/tasks') } : (r.http === 200 || r.http === 403) && process.env.WM_ODOO_LOGIN_PROXY === '1' ? { ...r.body, odoo_logout_supported: true } : r.body);
-}));
+registerAuthViewerRoutes(http, { wrap, odooLoginUrl });
 
 // ---------- 扩展（WM_EXTENSIONS_DIR）：挂在身份/写门之后、SPA 回落之前；加载失败拒绝启动 ----------
 try {
@@ -2957,9 +2951,7 @@ function summaryPayload() {
   };
 }
 
-app.get('/api/summary', (_req, res) => {
-  res.json(summaryPayload());
-});
+registerSummaryRoutes(http, { summaryPayload });
 
 // ---------- 类型管理 ----------
 registerTypeRoutes(http);
