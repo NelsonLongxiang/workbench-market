@@ -733,6 +733,21 @@ CREATE TRIGGER work_item_log_no_update BEFORE UPDATE ON work_item_log
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
 }
+// 阶段八 8d：「关注」的答复记账。每个（来源、来源里的 id）一行：第一次答成功就记下应答，同一条再答返回这一份；
+//   pending 表示正有人在答（并发的第二个人被告知正在处理）；答失败就删掉这一行，可以再答。原件的状态和留痕在来源自己那里。
+db.exec(`
+CREATE TABLE IF NOT EXISTS attention_answers (
+  source TEXT NOT NULL CHECK (source <> ''),
+  source_id TEXT NOT NULL CHECK (source_id <> ''),
+  answer TEXT NOT NULL CHECK (answer <> ''),
+  state TEXT NOT NULL CHECK (state IN ('pending', 'done')),
+  status INTEGER NOT NULL DEFAULT 0,
+  body TEXT NOT NULL DEFAULT '',
+  answered_by TEXT NOT NULL DEFAULT '',
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (source, source_id)
+);
+`);
 // #337: a durable monotonic generation invalidates stale Redis snapshots, including same-value writes.
 {
   const cols = db.prepare('PRAGMA table_info(sop_runs)').all() as { name: string }[];

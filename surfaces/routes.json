@@ -74,6 +74,7 @@
       "POST /api/principals/reconcile  <- <anonymous>",
       "POST /api/principals/unbind  <- <anonymous>",
       "GET /api/attention  <- <anonymous>",
+      "POST /api/attention/answer  <- <anonymous>",
       "GET /api/work-items/:id  <- <anonymous>",
       "POST /api/skills/:slug/install  <- <anonymous>",
       "GET /api/skills/:slug/verify  <- <anonymous>",

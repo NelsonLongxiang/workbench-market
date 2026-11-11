@@ -1,0 +1,196 @@
+/**
+ * 「关注」各来源的答法（阶段八 8d）：提供方的 answer() 和 deny()。规格见产品化文档 02 附录 8d。
+ *
+ * 两种实现：
+ *   · 转给原路由（attention-forward.ts）：变更申请、MCP 权限申请、待属主看板、待对接清单、事项的放行和撤回。
+ *     路径和方法只来自下面的 FORWARD 表，id 先核形状再编码填进去；请求体只由答法换算，表里没有的答法拒绝，
+ *     调用方多带的字段一概不用。检查、状态变化、留痕都是原路由那一套，原路由回什么就交回什么。
+ *     阶段三把这些处理函数抽出来之后，逐个换成直接调用，接口不变。
+ *   · 直接实现：席位提问的答复、事项的验收和退回（以前没有旧入口）。
+ * 统一待办不提供答法。
+ *
+ * 重复答、并发答由「关注」服务的记账（once）给出：同一条再答返回第一次的结果，两个人同时答一个生效、另一个被告知。
+ * 原路由本身不幂等的几个（变更申请批准后再批 400、MCP 申请处理过再批 409、看板答复常量已存在 409、绑定已绑 409）
+ * 都靠这一层先查「答没答过」再转，第二次根本不会转到原路由。
+ */
+import { randomUUID } from 'node:crypto';
+import type express from 'express';
+import { svc } from './context.ts';
+import { identity } from './identity.ts';
+import { forward } from './attention-forward.ts';
+import { answerBody, findBoardWorkbench } from './owner-pending.ts';
+import { principalsAdmin } from './routes/principals.ts';
+import { pendingAskOfDelivery } from './services/attention-sources.ts';
+import type { AnswerOutcome, AttentionProvider, AttentionService } from './services/attention.ts';
+import type { HttpService } from './http.ts';
+import type { WorkbenchService } from './services/workbench.ts';
+import { itemIdForEvent, type WorkItemService } from './services/work-item.ts';
+
+export type AnswerDeps = {
+  adminGuard: (req: express.Request, res: express.Response) => boolean;
+  varsAuthorizeRead: (req: express.Request, res: express.Response, scope: { id: number; cls: 'app' | 'sop' | 'external'; slug: string | null }) => Promise<unknown>;
+};
+type Req = express.Request;
+type Input = Record<string, unknown>;
+type Route = { method: 'POST' | 'PUT'; path: string; body: Record<string, unknown> } | { error: AnswerOutcome };
+
+/** 截下旧守卫判不过时写的状态码和正文：看不到的来源，用它回旧入口无权时那个拒绝 */
+function capturing(): { res: express.Response; out: () => AnswerOutcome } {
+  const box: AnswerOutcome = { status: 200, body: null };
+  const res: Record<string, unknown> = { statusCode: 200, headersSent: false };
+  for (const m of ['status', 'json', 'send', 'set', 'setHeader', 'end', 'vary', 'type']) res[m] = (...a: unknown[]) => {
+    if (m === 'status') { box.status = Number(a[0]); res.statusCode = a[0]; }
+    if (m === 'json' || m === 'send') box.body = a[0];
+    return res;
+  };
+  return { res: res as unknown as express.Response, out: () => box };
+}
+const guardDenial = (guard: (req: Req, res: express.Response) => boolean, req: Req): AnswerOutcome => {
+  const c = capturing();
+  return guard(req, c.res) ? { status: 403, body: { error: 'forbidden' } } : c.out();
+};
+
+const bad = (error: string, status = 400): { error: AnswerOutcome } => ({ error: { status, body: { error } } });
+const text = (v: unknown, max = 2000) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+const NUM = /^[1-9]\d{0,15}$/;
+const bjToday = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+
+/** 谁在答：管理员落到人（口令是 admin-token，会话登录的是 odoo:<登录名>，本机命令行是 cli）；不是管理员的用登录的人 */
+async function actorOf(req: Req): Promise<string> {
+  if (principalsAdmin) { const a = await principalsAdmin(req, capturing().res); if (a) return a; }
+  const cookie = String(req.headers.cookie ?? '');
+  if (cookie) { const who = await identity().resolveViewer(cookie); if (who.ok) return who.viewer.sub; }
+  return 'anonymous';
+}
+
+/**
+ * 转给原路由的表：来源 → 答法 → 换算出（方法、路径、请求体）。路径里的 id 都先核形状、再编码；
+ * 请求体只取这一种答法要的字段。表里没有的答法，入口直接拒。
+ */
+const FORWARD: Record<string, Record<string, (id: string, input: Input) => Route>> = {
+  'change-requests': Object.fromEntries((['approve', 'reject'] as const).map((op) => [op, (id: string, input: Input): Route =>
+    NUM.test(id) ? { method: 'POST', path: `/api/change-requests/${encodeURIComponent(id)}/${op}`, body: { reviewed_by: text(input.reviewed_by, 128) } } : bad('attention_id_invalid')])),
+  'mcp-access': Object.fromEntries((['approve', 'reject'] as const).map((op) => [op, (id: string, input: Input): Route =>
+    NUM.test(id) ? { method: 'POST', path: `/api/mcp/access-requests/${encodeURIComponent(id)}/${op}`, body: { note: text(input.note, 500) } } : bad('attention_id_invalid')])),
+  'owner-pending': {
+    answer: (no, input) => {
+      if (!/^\d{1,4}$/.test(no)) return bad('attention_id_invalid');
+      const list = (svc<WorkbenchService>('workbench').all() as { id: number; url: string }[]).map((w) => ({ id: w.id, url: w.url }));
+      const found = findBoardWorkbench(list, 'http://localhost');
+      if ('error' in found) return bad('owner_board_missing', 404);
+      const summary = text(input.summary);
+      return { method: 'PUT', path: `/api/workbenches/${found.id}/vars/${encodeURIComponent(`answer.${no}`)}`, body: answerBody(summary, bjToday(), null) };
+    },
+  },
+  'principal-pending': {
+    bind: (id, input) => {
+      const cut = id.indexOf(':');
+      if (cut <= 0 || cut === id.length - 1) return bad('attention_id_invalid');
+      return { method: 'POST', path: '/api/principals/bind', body: { provider: id.slice(0, cut), external_id: id.slice(cut + 1), principal: text(input.principal, 160), create: input.create === true, reason: text(input.reason, 500) } };
+    },
+  },
+  'work-items': {
+    release: (id) => {
+      const it = svc<WorkItemService>('workItems').get(id);
+      if (!it) return bad('work_item_not_found', 404);
+      if (!/^wbe-[0-9a-f]{16}$/.test(it.source_ref)) return bad('work_item_not_from_event', 409);
+      return { method: 'POST', path: `/api/workbench-events/${encodeURIComponent(it.source_ref)}/release`, body: {} };
+    },
+    withdraw: (id) => {
+      const it = svc<WorkItemService>('workItems').get(id);
+      if (!it) return bad('work_item_not_found', 404);
+      let task = '';
+      try { task = String((JSON.parse(it.context) as { item?: unknown }).item ?? ''); } catch { /* 没有 */ }
+      const m = /^task:([1-9]\d{0,15})$/.exec(task);
+      if (it.source_kind !== 'task-center' || !m) return bad('work_item_not_from_task_center', 409);
+      return { method: 'POST', path: `/api/task-center/tasks/${encodeURIComponent(m[1])}/withdraw`, body: {} };
+    },
+  },
+};
+
+/** 换算表的一次查表（单测用；入口经 withAnswers 走同一张表）。表里没有的答法返回 null */
+export function forwardRoute(source: string, answer: string, id: string, input: Input): Route | null {
+  const make = FORWARD[source]?.[answer];
+  return make ? make(id, input) : null;
+}
+
+/** 直接实现的答法（以前没有旧入口） */
+const DIRECT: Record<string, Record<string, (req: Req, id: string, input: Input, actor: string) => Promise<AnswerOutcome>>> = {
+  'work-items': {
+    verify: async (_req, id, _input, actor) => applied(id, { kind: 'verify', source: 'attention', id: randomUUID(), actor }),
+    return: async (_req, id, input, actor) => {
+      const reason = text(input.reason, 500);
+      if (!reason) return { status: 400, body: { error: 'reason_required' } };
+      return applied(id, { kind: 'return', source: 'attention', id: randomUUID(), actor, reason });
+    },
+  },
+  'seat-asks': {
+    /**
+     * 答席位的提问：在事项上记答复，合上这条提问。按 06，回答要作为同一事项的后续事件（kind: "answer"）发回原团队；
+     * 但 06 的兼容规则说 v1 接收方不认识它、不发，而市场今天的接单节点都是 v1（还没有 report 端点来协商 v2）。
+     * 所以现在只记不发，应答里写明 sent:false 和原因；有了 v2 之后在这里补发。
+     */
+    answer: async (_req, id, input, actor) => {
+      const answer = text(input.text);
+      if (!answer) return { status: 400, body: { error: 'text_required' } };
+      if (!/^[1-9]\d{0,15}$/.test(id)) return { status: 400, body: { error: 'attention_id_invalid' } };
+      const ask = pendingAskOfDelivery(Number(id));
+      if (!ask) return { status: 409, body: { error: 'seat_ask_not_pending' } };
+      const out = svc<WorkItemService>('workItems').apply(itemIdForEvent(ask.event_id), { kind: 'answer', source: 'attention', id: randomUUID(), actor, ask_id: String(ask.ask_log_id), answer });
+      if (!out.ok) return { status: 409, body: { error: `work_item_${out.reason}`, state: out.state ?? null } };
+      return { status: 200, body: { ok: true, item_id: itemIdForEvent(ask.event_id), state: out.state, sent: false, reason: 'receiver_is_v1', message: '答复记在事项上；对方是 v1 接单节点，按 06 的兼容规则不发回答事件' } };
+    },
+  },
+};
+
+function applied(id: string, fact: Parameters<WorkItemService['apply']>[1]): AnswerOutcome {
+  const out = svc<WorkItemService>('workItems').apply(id, fact);
+  return out.ok ? { status: 200, body: { ok: true, item_id: id, state: out.state } } : { status: 409, body: { error: `work_item_${out.reason}`, state: out.state ?? null } };
+}
+
+/** 记账的键。席位的提问按「投递:那次提问」记：同一个投递答过一次之后又问了一次，是一条新的待决 */
+function keyOf(source: string, sourceId: string): string {
+  if (source !== 'seat-asks' || !/^[1-9]\d{0,15}$/.test(sourceId)) return sourceId;
+  const ask = pendingAskOfDelivery(Number(sourceId));
+  return ask ? `${sourceId}:${ask.ask_log_id}` : sourceId;
+}
+
+/** 这个来源有哪些答法（换算表和直接实现的并起来）：入口拿它核答法 */
+export function answersOf(source: string): string[] {
+  return [...Object.keys(FORWARD[source] ?? {}), ...Object.keys(DIRECT[source] ?? {})];
+}
+
+/** 给一个提供方加上 answer 和 deny。listDeny：这个人在这个来源看不到东西时，旧入口会怎么拒 */
+export function withAnswers(p: AttentionProvider<Req>, deps: AnswerDeps): AttentionProvider<Req> {
+  const forwards = FORWARD[p.source], directs = DIRECT[p.source];
+  if (!forwards && !directs) return p;
+  const attention = () => svc<AttentionService>('attention');
+  return {
+    ...p,
+    deny: (req) => denial(p.source, req, deps),
+    key: (sourceId) => keyOf(p.source, sourceId),
+    answer: async (req, sourceId, answer, input) => {
+      const actor = await actorOf(req);
+      return attention().once(p.source, keyOf(p.source, sourceId), answer, actor, async () => {
+        const direct = directs?.[answer];
+        if (direct) return direct(req, sourceId, input, actor);
+        const make = forwards?.[answer];
+        if (!make) return { status: 400, body: { error: 'attention_answer_not_offered' } };
+        const route = make(sourceId, input);
+        if ('error' in route) return route.error;
+        return forward(svc<HttpService>('http').expressApp(), req, route.method, route.path, route.body);
+      });
+    },
+  };
+}
+
+/** 看不到这个来源时的拒绝：和旧入口无权时一样（同一个守卫写出来的那个） */
+async function denial(source: string, req: Req, deps: AnswerDeps): Promise<AnswerOutcome> {
+  if (source === 'principal-pending' && principalsAdmin) { const c = capturing(); await principalsAdmin(req, c.res); return c.out(); }
+  if (source === 'owner-pending') { const c = capturing(); await deps.varsAuthorizeRead(req, c.res, { id: 0, cls: 'external', slug: null }); return c.out(); }
+  if (source === 'work-items') return { status: 401, body: { error: 'work_items_auth_required' } };
+  // 席位的提问：旧接口 /api/workbench-events 不认会话登录的管理员，列表那边看的是没认定过的请求，拒绝也照它来
+  // （#513 把旧接口补上之后，列表和这里的 Object.create 一起去掉）
+  if (source === 'seat-asks') return guardDenial(deps.adminGuard, Object.create(req) as Req);
+  return guardDenial(deps.adminGuard, req);
+}

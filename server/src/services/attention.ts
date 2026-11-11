@@ -7,8 +7,13 @@
  *     调用方是插件时，插件卸载自动撤销，它的条目就不再出现。
  *   · 一个提供方出错不拖垮别的：那个来源记成不可用，别的照常返回。
  * 阶段六切换之后，提供方不再自己判，改由统一判定决定能不能答（另排）。
+ *
+ * 8d「关注」的答：提供方再给一个 answer(这次请求, 条目 id, 答法, 要填的东西)。答复入口只认来源、确认这一条此刻在这个人的
+ * 列表里（看不到的，用 deny 回旧入口无权时的那个拒绝），然后调 answer。answer 现在多半是「进程内转给原路由」，
+ * 阶段三把处理函数抽出来之后逐个换成直接调用，接口不变。重复答、并发答的语义由这里的记账（once）统一给出。
  */
 import { Service, type Context } from '@deepseek-ai/cordis';
+import { db } from '../db.ts';
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -47,7 +52,15 @@ export type AttentionProvider<R = unknown> = {
   label: string;
   /** req 是这次请求（谁在看）。领域服务不认 HTTP 框架，这里不定它的类型，提供方自己知道 */
   list: (req: R) => Promise<AttentionItem[] | null> | AttentionItem[] | null;
+  /** 答一条。返回来源给的状态码和正文（转给原路由的，就是原路由的应答，原样）。不提供就是这个来源没有答法 */
+  answer?: (req: R, sourceId: string, answer: string, input: Record<string, unknown>) => Promise<AnswerOutcome>;
+  /** 这个人在这个来源看不到任何东西时，旧入口会怎么拒（状态码和正文）。不提供就回 403 */
+  deny?: (req: R) => Promise<AnswerOutcome> | AnswerOutcome;
+  /** 记账用的键：缺省就是条目 id。同一个 id 先后可能是不同的待决（席位在同一个投递上又问了一次）时，键要能分开它们 */
+  key?: (sourceId: string) => string;
 };
+
+export type AnswerOutcome = { status: number; body: unknown; duplicate?: boolean };
 
 export type AttentionSourceMeta = { label: string; visible: boolean; count: number; error?: string };
 export type AttentionView = {
@@ -75,6 +88,40 @@ export class AttentionService extends Service {
 
   sources(): string[] {
     return [...this.providers.keys()];
+  }
+
+  provider<R>(source: string): AttentionProvider<R> | undefined {
+    return this.providers.get(source) as AttentionProvider<R> | undefined;
+  }
+
+  /** 这一条已经答成过（答完它就不在列表里了，重复答时用它认出来） */
+  answered(source: string, sourceId: string): boolean {
+    return Boolean(db.prepare("SELECT 1 FROM attention_answers WHERE source = ? AND source_id = ? AND state = 'done'").get(source, sourceId));
+  }
+
+  /**
+   * 记账着答一次：
+   *   · 已经答成过：返回第一次的应答（duplicate），不再生效；
+   *   · 正有人在答：409，告诉他已在处理（并发的两个人，一个生效、另一个被告知）；
+   *   · 否则先占住这一条，再 run；成功（2xx）记下应答，失败删掉占位、原样返回失败（不吞），可以再答。
+   */
+  async once(source: string, sourceId: string, answer: string, by: string, run: () => Promise<AnswerOutcome>): Promise<AnswerOutcome> {
+    const prior = () => db.prepare('SELECT state, status, body FROM attention_answers WHERE source = ? AND source_id = ?').get(source, sourceId) as { state: string; status: number; body: string } | undefined;
+    const seen = (row: { state: string; status: number; body: string }): AnswerOutcome => row.state === 'done'
+      ? { status: row.status, body: JSON.parse(row.body || 'null'), duplicate: true }
+      : { status: 409, body: { error: 'attention_answer_in_progress', message: '这一条正在被别人处理' } };
+    const before = prior();
+    if (before) return seen(before);
+    const claimed = db.prepare("INSERT OR IGNORE INTO attention_answers (source, source_id, answer, state, answered_by) VALUES (?, ?, ?, 'pending', ?)").run(source, sourceId, answer, by);
+    if (Number(claimed.changes) === 0) return seen(prior()!);
+    let out: AnswerOutcome;
+    try { out = await run(); } catch (e) { db.prepare("DELETE FROM attention_answers WHERE source = ? AND source_id = ? AND state = 'pending'").run(source, sourceId); throw e; }
+    if (out.status >= 200 && out.status < 300) {
+      db.prepare("UPDATE attention_answers SET state = 'done', status = ?, body = ?, at = datetime('now') WHERE source = ? AND source_id = ?").run(out.status, JSON.stringify(out.body ?? null), source, sourceId);
+    } else {
+      db.prepare("DELETE FROM attention_answers WHERE source = ? AND source_id = ? AND state = 'pending'").run(source, sourceId);
+    }
+    return out;
   }
 
   /** 汇总这个人的全部条目和各类条数。按「从什么时候开始等」从早到晚排。 */

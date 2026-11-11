@@ -1,7 +1,7 @@
 {
   "domain": "attention",
-  "what": "「关注」的读（阶段八 8c）：/api/attention 的 1 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
-  "routes": ["GET /api/attention"],
+  "what": "「关注」：/api/attention 的读（8c）和 /api/attention/answer 的答（8d）两条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /api/attention", "POST /api/attention/answer"],
   "exempt": [{ "route": "GET /api/attention", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "admin/junk-query" }],
   "scenarios": [
     {
@@ -230,6 +230,135 @@
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": { "error": "attention_cross_origin_denied" }
+          }
+        },
+        {
+          "id": "answer-wrong-token",
+          "route": "POST /api/attention/answer",
+          "class": "unauthorized",
+          "what": "口令不对：写请求总门先拒（和旧入口一样）",
+          "request": {
+            "method": "POST",
+            "path": "/api/attention/answer",
+            "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "not-the-token" },
+            "json": { "source": "change-requests", "source_id": "1", "answer": "reject", "input": { "reviewed_by": "回放" } }
+          },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "answer-cross-site",
+          "route": "POST /api/attention/answer",
+          "class": "unauthorized",
+          "what": "跨站请求：拒",
+          "request": {
+            "method": "POST",
+            "path": "/api/attention/answer",
+            "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "cross-site" },
+            "json": { "source": "change-requests", "source_id": "1", "answer": "reject", "input": { "reviewed_by": "回放" } }
+          },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "answer-missing",
+          "route": "POST /api/attention/answer",
+          "class": "invalid",
+          "what": "缺 source_id：400",
+          "request": { "method": "POST", "path": "/api/attention/answer", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" }, "json": { "source": "change-requests", "answer": "reject" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "83", "etag": "W/\"53-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "attention_answer_invalid", "message": "要有 source、source_id、answer" }
+          }
+        },
+        {
+          "id": "answer-unknown-source",
+          "route": "POST /api/attention/answer",
+          "class": "invalid",
+          "what": "不认识的来源：404",
+          "request": { "method": "POST", "path": "/api/attention/answer", "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" }, "json": { "source": "no-such", "source_id": "1", "answer": "x" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "attention_source_unknown" }
+          }
+        },
+        {
+          "id": "answer-not-offered",
+          "route": "POST /api/attention/answer",
+          "class": "invalid",
+          "what": "表里没有的答法：400",
+          "request": {
+            "method": "POST",
+            "path": "/api/attention/answer",
+            "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" },
+            "json": { "source": "change-requests", "source_id": "1", "answer": "delete", "input": { "reviewed_by": "回放" } }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "40", "etag": "W/\"28-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "attention_answer_not_offered" }
+          }
+        },
+        {
+          "id": "answer-not-in-list",
+          "route": "POST /api/attention/answer",
+          "class": "invalid",
+          "what": "列表里没有这一条：404，不转给原路由",
+          "request": {
+            "method": "POST",
+            "path": "/api/attention/answer",
+            "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" },
+            "json": { "source": "change-requests", "source_id": "999", "answer": "reject", "input": { "reviewed_by": "回放" } }
+          },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "attention_item_not_found" }
+          }
+        },
+        {
+          "id": "answer-reject",
+          "route": "POST /api/attention/answer",
+          "class": "normal",
+          "what": "管理员拒绝库里那条变更申请：转给 /api/change-requests/1/reject，原路由的应答原样放在 result 里",
+          "request": {
+            "method": "POST",
+            "path": "/api/attention/answer",
+            "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" },
+            "json": { "source": "change-requests", "source_id": "1", "answer": "reject", "input": { "reviewed_by": "回放" } }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "151", "etag": "W/\"97-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "source": "change-requests", "source_id": "1", "answer": "reject", "duplicate": false, "result": { "ok": true, "id": 1, "status": "rejected", "reviewed_by": "回放" } }
+          }
+        },
+        {
+          "id": "answer-again",
+          "route": "POST /api/attention/answer",
+          "class": "normal",
+          "what": "同一条再答：返回第一次的结果，duplicate:true，不再生效",
+          "request": {
+            "method": "POST",
+            "path": "/api/attention/answer",
+            "headers": { "x-admin-token": "replay-synthetic-admin", "sec-fetch-site": "same-origin" },
+            "json": { "source": "change-requests", "source_id": "1", "answer": "reject", "input": { "reviewed_by": "另一个人" } }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "150", "etag": "W/\"96-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "source": "change-requests", "source_id": "1", "answer": "reject", "duplicate": true, "result": { "ok": true, "id": 1, "status": "rejected", "reviewed_by": "回放" } }
           }
         }
       ]
