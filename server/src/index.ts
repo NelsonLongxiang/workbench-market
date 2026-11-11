@@ -89,6 +89,7 @@ import { adminTokenOk, buildAgentCard, a2aKeyPath, sopNode8, a2aDirectHandle, me
 import type { IncomingMessage } from 'node:http';
 import { noteA2aError, type A2aErrorKey } from './a2a/errors.ts';
 import { a2aHealth } from './a2a/health.ts';
+import { handleInboundReceipt } from './a2a/receipt-inbound.ts';
 import { cardCooldownMs, createDirectSigVerifier, directSigBodyMode, directSigMode, shownRefusal, type DirectSigMode, type SigRefusal } from './a2a-direct-sig.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -2463,6 +2464,9 @@ registerBindingRoutes(http, { adminGuard, getApp });
 // ADMIN_TOKEN 未设置时绑定面休眠（主人裁定：内网信任模型）——direct 对无绑定的 SOP 自然全拒。
 app.post('/a2a/direct', express.json({ limit: '600kb' }), async (req, res) => {
   const rawBytes = Number(req.headers['content-length'] ?? 0) || JSON.stringify(req.body ?? {}).length;
+  // 阶段七 R3：A2A 回执的窄分流——正文是回执、任务号是我们发出的、签名方是当初投递到的那台宿主，三条都成立才走这里；否则照原路，应答不变
+  const inboundReceipt = await handleInboundReceipt(req, { audiences: () => [marketPublicUrl()] });
+  if (inboundReceipt) { res.status(inboundReceipt.status).json(inboundReceipt.body); return; }
   // 入站签名（WM_A2A_DIRECT_SIG）：签名身份对上 caller_session 才进下面的绑定准入
   if (A2A_DIRECT_SIG !== 'off') {
     const caller = typeof req.body?.caller_session === 'string' ? req.body.caller_session : '';

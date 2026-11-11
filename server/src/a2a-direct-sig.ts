@@ -80,7 +80,7 @@ export function bodyDigest(raw: Buffer): string {
   return createHash('sha256').update(raw).digest('base64url');
 }
 
-function originOf(url: string): string {
+export function originOf(url: string): string {
   try {
     const u = new URL(url);
     return u.protocol === 'http:' || u.protocol === 'https:' ? u.origin : '';
@@ -88,7 +88,7 @@ function originOf(url: string): string {
 }
 
 /** 本机应答的受众：配置的对外地址 + 请求实际到达的本端地址（同上游 requestAudiences，发送方选不了 socket 本端） */
-function audiencesOf(req: IncomingMessage, configured: string[]): Set<string> {
+export function audiencesOf(req: IncomingMessage, configured: string[]): Set<string> {
   const out = new Set<string>();
   for (const url of configured) { const o = originOf(url); if (o) out.add(o); }
   const socket = req.socket as (TLSSocket & { encrypted?: boolean }) | undefined;

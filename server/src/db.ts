@@ -249,6 +249,27 @@ CREATE TABLE IF NOT EXISTS a2a_idempotency (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_a2a_idempotency_at ON a2a_idempotency (created_at);
+-- 阶段七 R3：我们发出的每个 A2A 任务号 → 它属于哪个事件、哪次投递，以及发出那一刻对端是谁（名片 team 与根地址）。
+-- 回执按任务号找回事项；只认签名方等于这里记下的对端。kind=delivery 是接单投递，answer 是 R2 的答复发送。
+CREATE TABLE IF NOT EXISTS a2a_sent_tasks (
+  task_id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL DEFAULT 'delivery' CHECK (kind IN ('delivery','answer')),
+  event_id TEXT NOT NULL,
+  delivery_id INTEGER NOT NULL,
+  peer_root TEXT NOT NULL DEFAULT '',
+  peer_zone TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_a2a_sent_tasks_delivery ON a2a_sent_tasks (delivery_id);
+-- 收到并采信的回执：同一任务号的接单回执（acknowledged）一条、终局回执（attention / result）一条，按 idempotencyKey 去重
+CREATE TABLE IF NOT EXISTS a2a_inbound_receipts (
+  task_id TEXT NOT NULL,
+  class TEXT NOT NULL CHECK (class IN ('ack','final')),
+  disposition TEXT NOT NULL,
+  outcome TEXT NOT NULL DEFAULT '',
+  received_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (task_id, class)
+);
 CREATE TABLE IF NOT EXISTS mcp_sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL UNIQUE,

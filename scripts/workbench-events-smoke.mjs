@@ -24,6 +24,8 @@ import { mkdirSync, mkdtempSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { generateKeyPairSync } from 'node:crypto';
+import { signCard } from '@nelsonlongxiang/dsh-open-a2a-net/card';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 const originSrc = process.env.A2A_ORIGIN_SRC ?? resolve('..', 'dsh-open-a2a-net', 'src', 'origin-claim.ts');
@@ -44,7 +46,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 登记之后才判能否投递——拒投时回 200 + -32000，同一 task_id 再来就是 409 -32003/-32002。
 function makePeer() {
   const peer = { got: [], verdicts: [], claims: new Map(), failFirst: 0, alwaysFail: false, delayMs: 0 };
+  // 阶段七 R3：市场发出投递前会取对端名片记下对端是谁；假对端照真实宿主提供签名名片（zone = peer）
+  const cardKey = generateKeyPairSync('ed25519').privateKey;
   peer.server = createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/.well-known/agent-card.json') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(signCard({ capabilities: {}, expiresAt: Date.now() + 3600_000, name: 'peer', session: 'peer', team: 'peer' }, cardKey)));
+    }
     let body = '';
     req.on('data', (c) => (body += c));
     req.on('end', async () => {
@@ -309,6 +317,12 @@ try {
     const humans = db.prepare("SELECT COUNT(*) AS n FROM workbench_events WHERE submitter_kind = 'human'").get().n;
     db.close();
     await check(`终态：${humans} 个 human 事件无 pending、无超时 held（${held} 个 held 在 72h 内等确认）`, () => assert.deepEqual(open, []));
+    // 阶段七 R3：每个真正发出去的任务号都记下了对端（名片 team 与根地址），回执只认这台宿主的签名
+    const sentTasks = (() => { const ro = new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true }); try { return ro.prepare('SELECT task_id, peer_zone, peer_root FROM a2a_sent_tasks').all(); } finally { ro.close(); } })();
+    await check(`R3 发出的 ${sentTasks.length} 个任务号都记下了对端 zone 与根地址`, () => {
+      assert.ok(sentTasks.length > 0);
+      for (const t of sentTasks) { assert.equal(t.peer_zone, 'peer'); assert.match(t.peer_root, /^http:\/\/127\.0\.0\.1:\d+$/); }
+    });
     // 判据非空：把一条 held 的投递时刻（created_at，72h 由此起算）挪到 73h 前，判据必须抓到它
     const rw = new DatabaseSync(join(data, 'workbench-market.db')); rw.exec('PRAGMA busy_timeout=5000');
     rw.prepare("UPDATE workbench_event_deliveries SET created_at = datetime('now', '-73 hours') WHERE id = (SELECT MIN(id) FROM workbench_event_deliveries WHERE status = 'held')").run();
