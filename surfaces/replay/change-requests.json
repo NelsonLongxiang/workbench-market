@@ -1,0 +1,1129 @@
+{
+  "domain": "change-requests",
+  "what": "人审变更请求：列表、批准（执行回滚或删除）、拒绝，共 3 条路由。只给管理员。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /api/change-requests", "POST /api/change-requests/:id/approve", "POST /api/change-requests/:id/reject"],
+  "exempt": [{ "route": "GET /api/change-requests", "class": "invalid", "why": "列表只按 status 过滤，给什么都不拒（不认识的状态就是空列表）", "shown_by": "open/list-unknown-status" }],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "登录门关；这几条路由只认管理员（本机也要口令），管理口令由环境给合成值。预先写进库七条请求（经 HTTP 只能从 MCP 的 change_request_create 建，这里直接写）。定了时钟。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "seed": [
+        { "table": "change_requests", "row": { "kind": "app", "slug": "task-center", "op": "rollback", "target_version": 1, "reason": "回放：回到 v1", "source": "mcp", "requested_by": "seed-a" } },
+        { "table": "change_requests", "row": { "kind": "app", "slug": "ghost-app", "op": "delete", "reason": "删不存在的台", "requested_by": "seed-b" } },
+        { "table": "change_requests", "row": { "kind": "skill", "slug": "ghost-skill", "op": "rollback", "target_version": 1, "requested_by": "seed-c" } },
+        { "table": "change_requests", "row": { "kind": "skill", "slug": "ghost-skill", "op": "delete", "requested_by": "seed-d" } },
+        { "table": "change_requests", "row": { "kind": "app", "slug": "task-center", "op": "delete", "reason": "要拒掉的", "requested_by": "seed-e" } },
+        { "table": "change_requests", "row": { "kind": "app", "slug": "x", "op": "delete", "status": "approved", "reviewed_by": "早先的人", "reviewed_at": "2029-12-31 00:00:00" } },
+        { "table": "change_requests", "row": { "kind": "skill", "slug": "y", "op": "rollback", "target_version": 2, "status": "rejected", "reviewed_by": "早先的人" } }
+      ],
+      "steps": [
+        {
+          "id": "list-no-token",
+          "route": "GET /api/change-requests",
+          "class": "unauthorized",
+          "what": "本机不带口令：403（只给管理员）",
+          "request": { "method": "GET", "path": "/api/change-requests" },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "list",
+          "route": "GET /api/change-requests",
+          "class": "normal",
+          "what": "列表：新的在前；payload 一律 {}",
+          "request": { "method": "GET", "path": "/api/change-requests", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1680", "etag": "W/\"690-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 7,
+                "kind": "skill",
+                "slug": "y",
+                "op": "rollback",
+                "target_version": 2,
+                "reason": "",
+                "source": "mcp",
+                "requested_by": "",
+                "status": "rejected",
+                "reviewed_by": "早先的人",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 6,
+                "kind": "app",
+                "slug": "x",
+                "op": "delete",
+                "target_version": null,
+                "reason": "",
+                "source": "mcp",
+                "requested_by": "",
+                "status": "approved",
+                "reviewed_by": "早先的人",
+                "reviewed_at": "YYYY-MM-DD hh:mm:ss",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 5,
+                "kind": "app",
+                "slug": "task-center",
+                "op": "delete",
+                "target_version": null,
+                "reason": "要拒掉的",
+                "source": "mcp",
+                "requested_by": "seed-e",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 4,
+                "kind": "skill",
+                "slug": "ghost-skill",
+                "op": "delete",
+                "target_version": null,
+                "reason": "",
+                "source": "mcp",
+                "requested_by": "seed-d",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 3,
+                "kind": "skill",
+                "slug": "ghost-skill",
+                "op": "rollback",
+                "target_version": 1,
+                "reason": "",
+                "source": "mcp",
+                "requested_by": "seed-c",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 2,
+                "kind": "app",
+                "slug": "ghost-app",
+                "op": "delete",
+                "target_version": null,
+                "reason": "删不存在的台",
+                "source": "mcp",
+                "requested_by": "seed-b",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 1,
+                "kind": "app",
+                "slug": "task-center",
+                "op": "rollback",
+                "target_version": 1,
+                "reason": "回放：回到 v1",
+                "source": "mcp",
+                "requested_by": "seed-a",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              }
+            ]
+          }
+        },
+        {
+          "id": "list-pending",
+          "route": "GET /api/change-requests",
+          "class": "normal",
+          "what": "?status=pending",
+          "request": { "method": "GET", "path": "/api/change-requests?status=pending", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1204", "etag": "W/\"4b4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 5,
+                "kind": "app",
+                "slug": "task-center",
+                "op": "delete",
+                "target_version": null,
+                "reason": "要拒掉的",
+                "source": "mcp",
+                "requested_by": "seed-e",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 4,
+                "kind": "skill",
+                "slug": "ghost-skill",
+                "op": "delete",
+                "target_version": null,
+                "reason": "",
+                "source": "mcp",
+                "requested_by": "seed-d",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 3,
+                "kind": "skill",
+                "slug": "ghost-skill",
+                "op": "rollback",
+                "target_version": 1,
+                "reason": "",
+                "source": "mcp",
+                "requested_by": "seed-c",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 2,
+                "kind": "app",
+                "slug": "ghost-app",
+                "op": "delete",
+                "target_version": null,
+                "reason": "删不存在的台",
+                "source": "mcp",
+                "requested_by": "seed-b",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 1,
+                "kind": "app",
+                "slug": "task-center",
+                "op": "rollback",
+                "target_version": 1,
+                "reason": "回放：回到 v1",
+                "source": "mcp",
+                "requested_by": "seed-a",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              }
+            ]
+          }
+        },
+        {
+          "id": "list-approved",
+          "route": "GET /api/change-requests",
+          "class": "normal",
+          "what": "?status=approved",
+          "request": { "method": "GET", "path": "/api/change-requests?status=approved", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "248", "etag": "W/\"f8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 6,
+                "kind": "app",
+                "slug": "x",
+                "op": "delete",
+                "target_version": null,
+                "reason": "",
+                "source": "mcp",
+                "requested_by": "",
+                "status": "approved",
+                "reviewed_by": "早先的人",
+                "reviewed_at": "YYYY-MM-DD hh:mm:ss",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              }
+            ]
+          }
+        },
+        {
+          "id": "list-unknown-status",
+          "route": "GET /api/change-requests",
+          "class": "normal",
+          "what": "?status=nope：空列表，不拒",
+          "request": { "method": "GET", "path": "/api/change-requests?status=nope", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "2", "etag": "W/\"2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": [] }
+        },
+        {
+          "id": "list-status-empty",
+          "route": "GET /api/change-requests",
+          "class": "normal",
+          "what": "?status= 空串：当没给",
+          "request": { "method": "GET", "path": "/api/change-requests?status=", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1680", "etag": "W/\"690-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 7,
+                "kind": "skill",
+                "slug": "y",
+                "op": "rollback",
+                "target_version": 2,
+                "reason": "",
+                "source": "mcp",
+                "requested_by": "",
+                "status": "rejected",
+                "reviewed_by": "早先的人",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 6,
+                "kind": "app",
+                "slug": "x",
+                "op": "delete",
+                "target_version": null,
+                "reason": "",
+                "source": "mcp",
+                "requested_by": "",
+                "status": "approved",
+                "reviewed_by": "早先的人",
+                "reviewed_at": "YYYY-MM-DD hh:mm:ss",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 5,
+                "kind": "app",
+                "slug": "task-center",
+                "op": "delete",
+                "target_version": null,
+                "reason": "要拒掉的",
+                "source": "mcp",
+                "requested_by": "seed-e",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 4,
+                "kind": "skill",
+                "slug": "ghost-skill",
+                "op": "delete",
+                "target_version": null,
+                "reason": "",
+                "source": "mcp",
+                "requested_by": "seed-d",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 3,
+                "kind": "skill",
+                "slug": "ghost-skill",
+                "op": "rollback",
+                "target_version": 1,
+                "reason": "",
+                "source": "mcp",
+                "requested_by": "seed-c",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 2,
+                "kind": "app",
+                "slug": "ghost-app",
+                "op": "delete",
+                "target_version": null,
+                "reason": "删不存在的台",
+                "source": "mcp",
+                "requested_by": "seed-b",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 1,
+                "kind": "app",
+                "slug": "task-center",
+                "op": "rollback",
+                "target_version": 1,
+                "reason": "回放：回到 v1",
+                "source": "mcp",
+                "requested_by": "seed-a",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              }
+            ]
+          }
+        },
+        {
+          "id": "list-remote-wrong-token",
+          "route": "GET /api/change-requests",
+          "class": "unauthorized",
+          "what": "远程、口令不对",
+          "request": { "method": "GET", "path": "/api/change-requests", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "nope" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "list-remote-with-token",
+          "route": "GET /api/change-requests",
+          "class": "normal",
+          "what": "远程带口令",
+          "request": { "method": "GET", "path": "/api/change-requests?status=rejected", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "230", "etag": "W/\"e6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 7,
+                "kind": "skill",
+                "slug": "y",
+                "op": "rollback",
+                "target_version": 2,
+                "reason": "",
+                "source": "mcp",
+                "requested_by": "",
+                "status": "rejected",
+                "reviewed_by": "早先的人",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              }
+            ]
+          }
+        },
+        {
+          "id": "approve-no-token",
+          "route": "POST /api/change-requests/:id/approve",
+          "class": "unauthorized",
+          "what": "批准：本机不带口令，403",
+          "request": { "method": "POST", "path": "/api/change-requests/1/approve", "headers": {}, "json": { "reviewed_by": "回放审批人" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "approve-cross",
+          "route": "POST /api/change-requests/:id/approve",
+          "class": "unauthorized",
+          "what": "批准：带口令但跨源，403",
+          "request": { "method": "POST", "path": "/api/change-requests/1/approve", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "approve-remote-anonymous",
+          "route": "POST /api/change-requests/:id/approve",
+          "class": "unauthorized",
+          "what": "批准：带转发头没有口令，403",
+          "request": { "method": "POST", "path": "/api/change-requests/1/approve", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "approve-no-reviewer",
+          "route": "POST /api/change-requests/:id/approve",
+          "class": "invalid",
+          "what": "批准：没有 reviewed_by，400",
+          "request": { "method": "POST", "path": "/api/change-requests/1/approve", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "63", "etag": "W/\"3f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "批准必填 reviewed_by（K11——人审语义）" } }
+        },
+        {
+          "id": "approve-blank-reviewer",
+          "route": "POST /api/change-requests/:id/approve",
+          "class": "invalid",
+          "what": "批准：reviewed_by 只有空白，400",
+          "request": { "method": "POST", "path": "/api/change-requests/1/approve", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "   " } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "63", "etag": "W/\"3f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "批准必填 reviewed_by（K11——人审语义）" } }
+        },
+        {
+          "id": "approve-missing",
+          "route": "POST /api/change-requests/:id/approve",
+          "class": "invalid",
+          "what": "批准：没有这条，404",
+          "request": { "method": "POST", "path": "/api/change-requests/999/approve", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "change_request not found: 999" } }
+        },
+        {
+          "id": "raw-approve-dotdot",
+          "route": "POST /api/change-requests/:id/approve",
+          "class": "invalid",
+          "what": "原样发：:id 是 ..",
+          "request": { "method": "POST", "path": "/api/change-requests/../approve", "raw": true, "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "change_request not found: NaN" } }
+        },
+        {
+          "id": "raw-approve-encoded-slash",
+          "route": "POST /api/change-requests/:id/approve",
+          "class": "invalid",
+          "what": "原样发：:id 是 1%2f..%2f2（解码成 1/../2）",
+          "request": { "method": "POST", "path": "/api/change-requests/1%2f..%2f2/approve", "raw": true, "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "change_request not found: NaN" } }
+        },
+        {
+          "id": "raw-reject-backslash",
+          "route": "POST /api/change-requests/:id/reject",
+          "class": "invalid",
+          "what": "原样发：:id 里有反斜杠",
+          "request": { "method": "POST", "path": "/api/change-requests/1\\2/reject", "raw": true, "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "change_request not found: NaN" } }
+        },
+        {
+          "id": "raw-reject-long",
+          "route": "POST /api/change-requests/:id/reject",
+          "class": "invalid",
+          "what": "原样发：:id 是 4000 个 9",
+          "request": {
+            "method": "POST",
+            "path": "/api/change-requests/9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999/reject",
+            "raw": true,
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "reviewed_by": "回放审批人" }
+          },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "46", "etag": "W/\"2e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "change_request not found: Infinity" } }
+        },
+        {
+          "id": "approve-not-number",
+          "route": "POST /api/change-requests/:id/approve",
+          "class": "invalid",
+          "what": "批准：id 不是数，404",
+          "request": { "method": "POST", "path": "/api/change-requests/abc/approve", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "change_request not found: NaN" } }
+        },
+        {
+          "id": "approve-fraction",
+          "route": "POST /api/change-requests/:id/approve",
+          "class": "invalid",
+          "what": "批准：id 是 1.5，404（不截成整数）",
+          "request": { "method": "POST", "path": "/api/change-requests/1.5/approve", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "change_request not found: 1.5" } }
+        },
+        {
+          "id": "approve-already-approved",
+          "route": "POST /api/change-requests/:id/approve",
+          "class": "invalid",
+          "what": "批准：已经批准过的（库里第 6 条），400 不可重复",
+          "request": { "method": "POST", "path": "/api/change-requests/6/approve", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "72", "etag": "W/\"48-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "请求已处理（status=approved）——不可重复批准" } }
+        },
+        {
+          "id": "approve-already-rejected",
+          "route": "POST /api/change-requests/:id/approve",
+          "class": "invalid",
+          "what": "批准：已经拒绝过的（库里第 7 条），400",
+          "request": { "method": "POST", "path": "/api/change-requests/7/approve", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "72", "etag": "W/\"48-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "请求已处理（status=rejected）——不可重复批准" } }
+        },
+        {
+          "id": "approve-app-delete-ghost",
+          "route": "POST /api/change-requests/:id/approve",
+          "class": "invalid",
+          "what": "批准：删一个不存在的台，执行体 404；这一条照旧 pending",
+          "request": { "method": "POST", "path": "/api/change-requests/2/approve", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "app not found: ghost-app" } }
+        },
+        {
+          "id": "approve-skill-rollback-ghost",
+          "route": "POST /api/change-requests/:id/approve",
+          "class": "invalid",
+          "what": "批准：回滚一个不存在的技能，404",
+          "request": { "method": "POST", "path": "/api/change-requests/3/approve", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "40", "etag": "W/\"28-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "skill not found: ghost-skill" } }
+        },
+        {
+          "id": "approve-skill-delete-ghost",
+          "route": "POST /api/change-requests/:id/approve",
+          "class": "invalid",
+          "what": "批准：删一个不存在的技能，404",
+          "request": { "method": "POST", "path": "/api/change-requests/4/approve", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "40", "etag": "W/\"28-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "skill not found: ghost-skill" } }
+        },
+        {
+          "id": "list-after-failed",
+          "route": "GET /api/change-requests",
+          "class": "normal",
+          "what": "执行体失败的几条都还是 pending",
+          "request": { "method": "GET", "path": "/api/change-requests?status=pending", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1204", "etag": "W/\"4b4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 5,
+                "kind": "app",
+                "slug": "task-center",
+                "op": "delete",
+                "target_version": null,
+                "reason": "要拒掉的",
+                "source": "mcp",
+                "requested_by": "seed-e",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 4,
+                "kind": "skill",
+                "slug": "ghost-skill",
+                "op": "delete",
+                "target_version": null,
+                "reason": "",
+                "source": "mcp",
+                "requested_by": "seed-d",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 3,
+                "kind": "skill",
+                "slug": "ghost-skill",
+                "op": "rollback",
+                "target_version": 1,
+                "reason": "",
+                "source": "mcp",
+                "requested_by": "seed-c",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 2,
+                "kind": "app",
+                "slug": "ghost-app",
+                "op": "delete",
+                "target_version": null,
+                "reason": "删不存在的台",
+                "source": "mcp",
+                "requested_by": "seed-b",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 1,
+                "kind": "app",
+                "slug": "task-center",
+                "op": "rollback",
+                "target_version": 1,
+                "reason": "回放：回到 v1",
+                "source": "mcp",
+                "requested_by": "seed-a",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              }
+            ]
+          }
+        },
+        {
+          "id": "publish-v2",
+          "what": "布置现场：给 task-center 补发 v2（借发布的路由，只比状态码）",
+          "compare": "status",
+          "request": {
+            "method": "POST",
+            "path": "/api/apps",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "slug": "task-center", "kind": "sop", "changelog": "回放：v2", "patch": { "set": [{ "path": "docs/v2.txt", "content": "第二版\n" }] } }
+          },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "sops-before-rollback",
+          "what": "回滚之前 task-center 的活跃版本是 2（借 SOP 列表，只比活跃版本）",
+          "compare": ["0.slug", "0.active_version"],
+          "request": { "method": "GET", "path": "/api/sops" },
+          "response": { "status": 200, "picked": { "0.slug": "task-center", "0.active_version": 2 } }
+        },
+        {
+          "id": "approve-app-rollback",
+          "route": "POST /api/change-requests/:id/approve",
+          "class": "normal",
+          "what": "批准：task-center 回滚到 v1，执行之后标 approved",
+          "request": { "method": "POST", "path": "/api/change-requests/1/approve", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "  回放审批人  " } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "96", "etag": "W/\"60-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 1, "status": "approved", "executed": "app/rollback", "reviewed_by": "回放审批人" }
+          }
+        },
+        {
+          "id": "sops-after-rollback",
+          "what": "回滚之后 task-center 的活跃版本是 1（借 SOP 列表，只比活跃版本）",
+          "compare": ["0.slug", "0.active_version"],
+          "request": { "method": "GET", "path": "/api/sops" },
+          "response": { "status": 200, "picked": { "0.slug": "task-center", "0.active_version": 1 } }
+        },
+        {
+          "id": "approve-again",
+          "route": "POST /api/change-requests/:id/approve",
+          "class": "invalid",
+          "what": "同一条再批准：400 不可重复",
+          "request": { "method": "POST", "path": "/api/change-requests/1/approve", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "72", "etag": "W/\"48-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "请求已处理（status=approved）——不可重复批准" } }
+        },
+        {
+          "id": "reject-already-approved",
+          "route": "POST /api/change-requests/:id/reject",
+          "class": "invalid",
+          "what": "拒绝已批准的：400",
+          "request": { "method": "POST", "path": "/api/change-requests/1/reject", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "48", "etag": "W/\"30-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "请求已处理（status=approved）" } }
+        },
+        {
+          "id": "reject-no-token",
+          "route": "POST /api/change-requests/:id/reject",
+          "class": "unauthorized",
+          "what": "拒绝：本机不带口令，403",
+          "request": { "method": "POST", "path": "/api/change-requests/5/reject", "headers": {}, "json": { "reviewed_by": "回放审批人" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "reject-cross",
+          "route": "POST /api/change-requests/:id/reject",
+          "class": "unauthorized",
+          "what": "拒绝：带口令但跨源，403",
+          "request": { "method": "POST", "path": "/api/change-requests/5/reject", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
+        },
+        {
+          "id": "reject-no-reviewer",
+          "route": "POST /api/change-requests/:id/reject",
+          "class": "invalid",
+          "what": "拒绝：没有 reviewed_by，400",
+          "request": { "method": "POST", "path": "/api/change-requests/5/reject", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "45", "etag": "W/\"2d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "拒绝必填 reviewed_by（K11）" } }
+        },
+        {
+          "id": "reject-missing",
+          "route": "POST /api/change-requests/:id/reject",
+          "class": "invalid",
+          "what": "拒绝：没有这条，404",
+          "request": { "method": "POST", "path": "/api/change-requests/999/reject", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "change_request not found: 999" } }
+        },
+        {
+          "id": "reject-not-number",
+          "route": "POST /api/change-requests/:id/reject",
+          "class": "invalid",
+          "what": "拒绝：id 不是数，404",
+          "request": { "method": "POST", "path": "/api/change-requests/abc/reject", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "change_request not found: NaN" } }
+        },
+        {
+          "id": "reject-hex",
+          "route": "POST /api/change-requests/:id/reject",
+          "class": "normal",
+          "what": "拒绝：id 写成 0x5，按数字认",
+          "request": { "method": "POST", "path": "/api/change-requests/0x5/reject", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "审批人乙" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "67", "etag": "W/\"43-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 5, "status": "rejected", "reviewed_by": "审批人乙" }
+          }
+        },
+        {
+          "id": "reject-again",
+          "route": "POST /api/change-requests/:id/reject",
+          "class": "invalid",
+          "what": "同一条再拒绝：400 已处理",
+          "request": { "method": "POST", "path": "/api/change-requests/5/reject", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "48", "etag": "W/\"30-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "请求已处理（status=rejected）" } }
+        },
+        {
+          "id": "approve-after-reject",
+          "route": "POST /api/change-requests/:id/approve",
+          "class": "invalid",
+          "what": "拒绝过的再批准：400",
+          "request": { "method": "POST", "path": "/api/change-requests/5/approve", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "72", "etag": "W/\"48-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "请求已处理（status=rejected）——不可重复批准" } }
+        },
+        {
+          "id": "list-final",
+          "route": "GET /api/change-requests",
+          "class": "normal",
+          "what": "最后的列表：批准、拒绝的人和时间",
+          "request": { "method": "GET", "path": "/api/change-requests", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1747", "etag": "W/\"6d3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 7,
+                "kind": "skill",
+                "slug": "y",
+                "op": "rollback",
+                "target_version": 2,
+                "reason": "",
+                "source": "mcp",
+                "requested_by": "",
+                "status": "rejected",
+                "reviewed_by": "早先的人",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 6,
+                "kind": "app",
+                "slug": "x",
+                "op": "delete",
+                "target_version": null,
+                "reason": "",
+                "source": "mcp",
+                "requested_by": "",
+                "status": "approved",
+                "reviewed_by": "早先的人",
+                "reviewed_at": "YYYY-MM-DD hh:mm:ss",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 5,
+                "kind": "app",
+                "slug": "task-center",
+                "op": "delete",
+                "target_version": null,
+                "reason": "要拒掉的",
+                "source": "mcp",
+                "requested_by": "seed-e",
+                "status": "rejected",
+                "reviewed_by": "审批人乙",
+                "reviewed_at": "YYYY-MM-DD hh:mm:ss",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 4,
+                "kind": "skill",
+                "slug": "ghost-skill",
+                "op": "delete",
+                "target_version": null,
+                "reason": "",
+                "source": "mcp",
+                "requested_by": "seed-d",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 3,
+                "kind": "skill",
+                "slug": "ghost-skill",
+                "op": "rollback",
+                "target_version": 1,
+                "reason": "",
+                "source": "mcp",
+                "requested_by": "seed-c",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 2,
+                "kind": "app",
+                "slug": "ghost-app",
+                "op": "delete",
+                "target_version": null,
+                "reason": "删不存在的台",
+                "source": "mcp",
+                "requested_by": "seed-b",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 1,
+                "kind": "app",
+                "slug": "task-center",
+                "op": "rollback",
+                "target_version": 1,
+                "reason": "回放：回到 v1",
+                "source": "mcp",
+                "requested_by": "seed-a",
+                "status": "approved",
+                "reviewed_by": "回放审批人",
+                "reviewed_at": "YYYY-MM-DD hh:mm:ss",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce），管理口令由环境给（合成值）。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "seed": [
+        { "table": "change_requests", "row": { "kind": "app", "slug": "task-center", "op": "rollback", "target_version": 1, "reason": "回放：回到 v1", "source": "mcp", "requested_by": "seed-a" } },
+        { "table": "change_requests", "row": { "kind": "app", "slug": "ghost-app", "op": "delete", "reason": "删不存在的台", "requested_by": "seed-b" } },
+        { "table": "change_requests", "row": { "kind": "skill", "slug": "ghost-skill", "op": "rollback", "target_version": 1, "requested_by": "seed-c" } },
+        { "table": "change_requests", "row": { "kind": "skill", "slug": "ghost-skill", "op": "delete", "requested_by": "seed-d" } },
+        { "table": "change_requests", "row": { "kind": "app", "slug": "task-center", "op": "delete", "reason": "要拒掉的", "requested_by": "seed-e" } },
+        { "table": "change_requests", "row": { "kind": "app", "slug": "x", "op": "delete", "status": "approved", "reviewed_by": "早先的人", "reviewed_at": "2029-12-31 00:00:00" } },
+        { "table": "change_requests", "row": { "kind": "skill", "slug": "y", "op": "rollback", "target_version": 2, "status": "rejected", "reviewed_by": "早先的人" } }
+      ],
+      "steps": [
+        {
+          "id": "gated-list-anonymous",
+          "route": "GET /api/change-requests",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名",
+          "request": { "method": "GET", "path": "/api/change-requests", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-list-with-token",
+          "route": "GET /api/change-requests",
+          "class": "normal",
+          "what": "登录门开着：远程带口令",
+          "request": { "method": "GET", "path": "/api/change-requests", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "1680", "etag": "W/\"690-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              {
+                "id": 7,
+                "kind": "skill",
+                "slug": "y",
+                "op": "rollback",
+                "target_version": 2,
+                "reason": "",
+                "source": "mcp",
+                "requested_by": "",
+                "status": "rejected",
+                "reviewed_by": "早先的人",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 6,
+                "kind": "app",
+                "slug": "x",
+                "op": "delete",
+                "target_version": null,
+                "reason": "",
+                "source": "mcp",
+                "requested_by": "",
+                "status": "approved",
+                "reviewed_by": "早先的人",
+                "reviewed_at": "YYYY-MM-DD hh:mm:ss",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 5,
+                "kind": "app",
+                "slug": "task-center",
+                "op": "delete",
+                "target_version": null,
+                "reason": "要拒掉的",
+                "source": "mcp",
+                "requested_by": "seed-e",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 4,
+                "kind": "skill",
+                "slug": "ghost-skill",
+                "op": "delete",
+                "target_version": null,
+                "reason": "",
+                "source": "mcp",
+                "requested_by": "seed-d",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 3,
+                "kind": "skill",
+                "slug": "ghost-skill",
+                "op": "rollback",
+                "target_version": 1,
+                "reason": "",
+                "source": "mcp",
+                "requested_by": "seed-c",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 2,
+                "kind": "app",
+                "slug": "ghost-app",
+                "op": "delete",
+                "target_version": null,
+                "reason": "删不存在的台",
+                "source": "mcp",
+                "requested_by": "seed-b",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              },
+              {
+                "id": 1,
+                "kind": "app",
+                "slug": "task-center",
+                "op": "rollback",
+                "target_version": 1,
+                "reason": "回放：回到 v1",
+                "source": "mcp",
+                "requested_by": "seed-a",
+                "status": "pending",
+                "reviewed_by": "",
+                "reviewed_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "payload": {}
+              }
+            ]
+          }
+        },
+        {
+          "id": "gated-approve-anonymous",
+          "route": "POST /api/change-requests/:id/approve",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名批准",
+          "request": { "method": "POST", "path": "/api/change-requests/2/approve", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-reject-anonymous",
+          "route": "POST /api/change-requests/:id/reject",
+          "class": "unauthorized",
+          "what": "登录门开着：远程匿名拒绝",
+          "request": { "method": "POST", "path": "/api/change-requests/2/reject", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "gated-reject-with-token",
+          "route": "POST /api/change-requests/:id/reject",
+          "class": "normal",
+          "what": "登录门开着：远程带口令拒绝",
+          "request": { "method": "POST", "path": "/api/change-requests/2/reject", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "70", "etag": "W/\"46-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 2, "status": "rejected", "reviewed_by": "回放审批人" }
+          }
+        },
+        {
+          "id": "gated-approve-with-token-bad",
+          "route": "POST /api/change-requests/:id/approve",
+          "class": "invalid",
+          "what": "登录门开着：远程带口令批准已拒绝的，400",
+          "request": { "method": "POST", "path": "/api/change-requests/2/approve", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "reviewed_by": "回放审批人" } },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "72", "etag": "W/\"48-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "请求已处理（status=rejected）——不可重复批准" } }
+        }
+      ]
+    }
+  ]
+}

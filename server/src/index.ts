@@ -40,8 +40,11 @@ import { registerLoginFlowRoutes } from './routes/login-flows.ts';
 import { registerWorkbenchRoutes } from './routes/workbenches.ts';
 import { registerSopPageRoutes } from './routes/sop-page.ts';
 import { registerLoginEventRoutes } from './routes/login-events.ts';
+import { registerChangeRequestRoutes } from './routes/change-requests.ts';
+import { registerSopStateRoutes, registerSopSpaceRoutes } from './routes/sops.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
+import type { ChangeRequestService } from './services/change-request.ts';
 import { SkillService } from './services/skill.ts';
 import type { AppService } from './services/app.ts';
 import type { AppDataService } from './services/app-data.ts';
@@ -1166,46 +1169,7 @@ function executeSkillDelete(slug: string): void {
   db.prepare('DELETE FROM skill_versions WHERE skill_id = ?').run(row.id);
   db.prepare('DELETE FROM skills WHERE id = ?').run(row.id);
 }
-app.get('/api/change-requests', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const status = typeof req.query.status === 'string' ? req.query.status : '';
-  const rows = status
-    ? db.prepare('SELECT * FROM change_requests WHERE status = ? ORDER BY id DESC LIMIT 100').all(status)
-    : db.prepare('SELECT * FROM change_requests ORDER BY id DESC LIMIT 100').all();
-  res.json(rows.map((r: any) => ({ ...r, payload: JSON.parse(r.payload || '{}') })));
-});
-app.post('/api/change-requests/:id/approve', wrap(async (req, res) => {
-  if (!adminGuard(req, res)) return; // K11：口令无效→401（adminGuard 已回）
-  const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
-  if (!reviewedBy) bad('批准必填 reviewed_by（K11——人审语义）'); // K11
-  const id = Number(req.params.id);
-  const r = db.prepare('SELECT * FROM change_requests WHERE id = ?').get(id) as any;
-  if (!r) throw new HttpError(404, `change_request not found: ${id}`);
-  if (r.status !== 'pending') bad(`请求已处理（status=${r.status}）——不可重复批准`); // 幂等
-  // 执行体（v3 契约形状：kind×op 四象限·与一步式 REST 同构）
-  if (r.kind === 'app' && r.op === 'rollback') {
-    await activateAppVersion(r.slug, r.target_version);
-  } else if (r.kind === 'app' && r.op === 'delete') {
-    await deleteAppCascade(r.slug);
-  } else if (r.kind === 'skill' && r.op === 'rollback') {
-    await executeSkillRollback(r.slug, Number(r.target_version), reviewedBy);
-  } else if (r.kind === 'skill' && r.op === 'delete') {
-    executeSkillDelete(r.slug);
-  } else { bad(`未知 kind×op: ${r.kind}/${r.op}`); }
-  db.prepare("UPDATE change_requests SET status='approved', reviewed_by=?, reviewed_at=datetime('now') WHERE id=?").run(reviewedBy, id);
-  res.json({ ok: true, id, status: 'approved', executed: `${r.kind}/${r.op}`, reviewed_by: reviewedBy });
-}));
-app.post('/api/change-requests/:id/reject', wrap(async (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const reviewedBy = String(req.body?.reviewed_by ?? '').trim();
-  if (!reviewedBy) bad('拒绝必填 reviewed_by（K11）');
-  const id = Number(req.params.id);
-  const r = db.prepare('SELECT * FROM change_requests WHERE id = ?').get(id) as any;
-  if (!r) throw new HttpError(404, `change_request not found: ${id}`);
-  if (r.status !== 'pending') bad(`请求已处理（status=${r.status}）`);
-  db.prepare("UPDATE change_requests SET status='rejected', reviewed_by=?, reviewed_at=datetime('now') WHERE id=?").run(reviewedBy, id);
-  res.json({ ok: true, id, status: 'rejected', reviewed_by: reviewedBy });
-}));
+registerChangeRequestRoutes(http, { adminGuard, wrap, bad, activateAppVersion, deleteAppCascade, executeSkillRollback, executeSkillDelete });
 
 app.post('/api/apps/:slug/activate', wrap(async (req, res) => {
   if (req.params.slug === 'task-center') {
@@ -1565,11 +1529,6 @@ app.get('/api/apps/:slug/files/:id', (req, res) => {
 });
 
 // ---------- SOP 台：状态机（draft → published → deprecated）+ 执行 Runner + 分层持久化 ----------
-app.get('/api/sops', (_req, res) => {
-  const rows = svc<AppService>('app').sops() as unknown as AppRow[];
-  res.json(rows.map(appDetail));
-});
-
 function sopTransition(slug: string, from: string[], to: string, label: string): AppRow {
   const a = getApp(slug);
   if (a.kind !== 'sop') throw new HttpError(400, `${slug} 不是 SOP 台`);
@@ -1584,29 +1543,7 @@ function sopTransition(slug: string, from: string[], to: string, label: string):
   return updated;
 }
 
-app.post('/api/sops/:slug/publish', (req, res) => {
-  if (req.params.slug === 'task-center') {
-    if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
-    if (!adminGuard(req,res)) return;
-  }
-  const a = sopTransition(req.params.slug, ['draft', 'deprecated'], 'published', '发布');
-  // publish 附带发布说明（可选）记入当前版本 changelog 末尾
-  if (typeof req.body?.note === 'string' && req.body.note.trim()) {
-    svc<AppService>('app').appendChangelog(a.id, a.active_version, `\n[publish] ${req.body.note.trim()}`);
-  }
-  res.json(appDetail(getApp(a.slug)));
-});
-
-app.post('/api/sops/:slug/deprecate', (req, res) => {
-  if (req.params.slug === 'task-center') {
-    if (!sameOriginGuard(req,res)) return res.status(403).json({error:'跨源拒绝'});
-    if (!adminGuard(req,res)) return;
-  }
-  const a = sopTransition(req.params.slug, ['published'], 'deprecated', '废弃');
-  // 废弃不入册删除：历史 run 仍可回放；市场行禁用（enabled=0）
-  svc<WorkbenchService>('workbench').setEnabledByUrl(0, `/sop/${a.slug}/`);
-  res.json(appDetail(getApp(a.slug)));
-});
+registerSopStateRoutes(http, { appDetail, getApp, sameOriginGuard, adminGuard, sopTransition });
 
 // ---------- SOP Runner：GET /sop/:slug/ → 内置执行页（读活跃版本 sop.yaml 服务端渲染）----------
 /** #321：执行页内联 DESIGN.md 生成的 --wm-* 变量，与市场前端同色同字号 */
@@ -3207,32 +3144,7 @@ app.get('/api/remote-allow/diff', (req, res) => {
   res.json({ ...lastAllowDiff, snapshot_count: (db.prepare('SELECT COUNT(*) AS n FROM remote_allow_state').get() as { n: number }).n });
 });
 
-// #19②b 裁 A（direct-2ff2ed21）：治理时间线——版本链+run 历史+验收链三合一面（轻内嵌）
-/** #318 SOP 交付空间「定义」与单次记录的步骤骨架：只回步骤 key / 标题，不回步骤正文 HTML。
- *  可见性同 Runner（issue #11）：published 公开；draft / deprecated 只给管理员。
- *  ?version=N 读该版本（单次记录按 run 的 sop_version 取）；版本目录已冷存时 404，不猜。 */
-app.get('/api/sops/:slug/definition', (req, res) => {
-  const a = getApp(req.params.slug);
-  if (a.kind !== 'sop') throw new HttpError(404, `SOP not found: ${req.params.slug}`);
-  if (a.status !== 'published' && !adminHeaderOk(req)) return res.status(403).set('Cache-Control', 'no-store').json({ error: `SOP ${a.slug} 状态为 ${a.status}，定义仅管理员可见` });
-  const raw = req.query.version;
-  const version = raw === undefined || raw === '' ? a.active_version : Number(raw);
-  if (!Number.isInteger(version) || version < 1) bad('version 必须是正整数');
-  if (!svc<AppService>('app').versionExists(a.id, version)) throw new HttpError(404, `版本不存在: v${version}`);
-  const yamlPath = join(appsRoot, a.slug, `v${version}`, 'sop.yaml');
-  if (!existsSync(yamlPath)) return res.status(404).json({ error: `v${version} 未物化（冷版本），无法读取步骤定义`, code: 'version_not_materialized' });
-  const m = parseSopManifest(readFileSync(yamlPath, 'utf8'));
-  res.json({ slug: a.slug, version, active_version: a.active_version, status: a.status, title: m.title, code: m.code ?? a.code ?? '', description: m.description ?? '', steps: m.steps.map(({ key, title }) => ({ key, title })) });
-});
-
-app.get('/api/sops/:slug/timeline', (req, res) => {
-  const a = getApp(req.params.slug);
-  if (a.kind !== 'sop') throw new HttpError(404, `SOP not found: ${req.params.slug}`);
-  const versions = (db.prepare('SELECT version, changelog, created_by, created_at FROM app_versions WHERE app_id = ? ORDER BY version DESC').all(a.id) as Array<{ version: number; changelog: string; created_by: string; created_at: string }>).map(v => ({ ...v, changelog: (v.changelog || '').slice(0, 200) }));
-  const runs = (svc<SopService>('sop').runsBySlug(a.slug) as unknown as Array<{ id: number; status: string; started_by: string; started_at: string; finished_at: string }>).slice(0, 50).map(r => ({ id: r.id, status: r.status, started_by: r.started_by, started_at: r.started_at, finished_at: r.finished_at }));
-  const receipts = (db.prepare("SELECT r.task_id, r.caller, r.receipt_status, r.run_id FROM a2a_run_ctx r WHERE r.task_id != '' AND r.run_id IN (SELECT id FROM sop_runs WHERE sop_slug = ?)").all(a.slug) as Array<{ task_id: string; caller: string; receipt_status: string; run_id: number }>).map(r => ({ task_id: r.task_id, caller: r.caller, receipt_status: r.receipt_status || 'pending', run_id: r.run_id }));
-  res.json({ slug: a.slug, versions, runs, receipts });
-});
+registerSopSpaceRoutes(http, { getApp, adminHeaderOk, bad, appsRoot, parseSopManifest });
 
 registerBindingRoutes(http, { adminGuard, getApp });
 

@@ -1,4 +1,4 @@
-/** SOP 域（sop_runs ×10 + sop_bindings ×5 + a2a_run_ctx ×2）：SQL 原文自 index.ts 搬入（S1）。 */
+/** SOP 域（sop_runs ×10 + sop_bindings ×5 + a2a_run_ctx ×3）：SQL 原文自 index.ts 搬入（S1）。 */
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
 
@@ -28,6 +28,10 @@ export class SopService extends Service {
   }
   runSaveData(id: number, data: string) {
     return db.prepare("UPDATE sop_runs SET data = ?, updated_at = datetime('now') WHERE id = ?").run(data, id);
+  }
+  /** 治理时间线的 A2A 回执：这个 SOP 的执行记录上、task_id 不空的（原文自 /api/sops/:slug/timeline） */
+  receiptsBySlug(slug: string) {
+    return db.prepare("SELECT r.task_id, r.caller, r.receipt_status, r.run_id FROM a2a_run_ctx r WHERE r.task_id != '' AND r.run_id IN (SELECT id FROM sop_runs WHERE sop_slug = ?)").all(slug);
   }
   runsBySlug(slug: string) {
     return db.prepare('SELECT * FROM sop_runs WHERE sop_slug = ? ORDER BY id DESC').all(slug).map(runMetadata);

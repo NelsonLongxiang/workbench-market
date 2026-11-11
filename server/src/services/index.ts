@@ -17,4 +17,5 @@ export { SandboxService } from './sandbox.ts';
 export { WorkbenchVarsService } from './workbench-vars.ts';
 export { PrincipalService } from './principal.ts';
 export { BindingService } from './binding.ts';
+export { ChangeRequestService } from './change-request.ts';
 export { LoginSessionService } from './login-session.ts';
