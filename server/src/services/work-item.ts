@@ -340,6 +340,21 @@ export class WorkItemService extends Service {
     return db.prepare('SELECT * FROM work_items WHERE id = ?').get(id) as WorkItemRow | undefined;
   }
 
+  /**
+   * 8e：建立人本人能不能对这件事项拍板（验收、退回）。不看状态（状态在应用事实时由迁移表判）。
+   *   · 事项不存在、或建立人不是这个主体（按主体标识比，不按显示名）→ not_found（不说有没有这件事项）
+   *   · 建立人不是人（席位、工作台、系统……）、或事项来自未验证的提交方 → not_eligible：只能由管理员处理
+   */
+  creatorCheck(id: string, principal: string): 'ok' | 'not_found' | 'not_eligible' {
+    const item = this.get(id);
+    if (!item || item.created_by !== principal) return 'not_found';
+    if (!/^user:\S/.test(principal)) return 'not_eligible';
+    let submitterKind = '';
+    try { submitterKind = String((JSON.parse(item.context || '{}') as { submitter_kind?: unknown }).submitter_kind ?? ''); } catch { /* 坏的 context 当没写 */ }
+    if (submitterKind === 'unverified') return 'not_eligible';
+    return 'ok';
+  }
+
   /** 事项最近一次「进入」这几个状态之一的那一行日志的 seq（状态真的变过去的那一行）；没进过返回 null。
    *  「关注」记账用它分开每一轮待决：退回之后再进 ready 是新的一轮 */
   lastEntrySeq(id: string, states: readonly WorkItemState[]): number | null {

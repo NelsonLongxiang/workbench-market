@@ -97,3 +97,9 @@ export async function getWorkItem(id: string): Promise<{ status: number; body: u
   const res = await fetch(`/api/work-items/${encodeURIComponent(id)}`, { headers: token ? { 'X-Admin-Token': token } : {} });
   return { status: res.status, body: await res.json().catch(() => ({})) };
 }
+
+/** 建立人本人验收、退回自己的事项（阶段八 8e）。不走 apiFetch：没登录、被拒由页面自己说，不弹管理员口令 */
+export async function postCreatorDecision(id: string, answer: string, reason: string): Promise<{ status: number; body: { duplicate?: boolean; result?: { error?: string }; error?: string } }> {
+  const res = await fetch(`/api/work-items/${encodeURIComponent(id)}/decision`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answer, reason }) });
+  return { status: res.status, body: await res.json().catch(() => ({})) };
+}
