@@ -152,10 +152,13 @@ export function checkCassette(cassette, known, moduleRouteCount = null, answered
   for (const item of Array.isArray(cassette?.exempt) ? cassette.exempt : []) {
     const label = `豁免 ${item?.route} 的「${CLASS_NAME[item?.class] ?? item?.class}」`;
     if (!covered.has(item?.route)) { problems.push(`${label}：route 不在 routes 里`); continue; }
-    if (item.class !== 'unauthorized' && item.class !== 'invalid') { problems.push(`${label}：只有未授权和参数非法可以豁免`); continue; }
+    if (!CLASSES.includes(item.class)) { problems.push(`${label}：class 只能是 ${CLASSES.join(' / ')}`); continue; }
     if (typeof item.why !== 'string' || !item.why.trim()) { problems.push(`${label}：要写理由（why）`); continue; }
     const shown = seen.get(item.shown_by);
-    if (!shown || shown.route !== item.route || shown.class !== 'normal') { problems.push(`${label}：shown_by 要指给一条打在这条路由上、照常应答的请求（写成 场景名/请求 id）`); continue; }
+    // 豁免未授权、参数非法：指给一条照常应答的请求（证明这条路由确实应答）。
+    // 豁免正常（退役的路由，一律回 4xx）：指给一条打在这条路由上的请求，它不能是正常的（证明确实不照常应答）。
+    const wantNormal = item.class !== 'normal';
+    if (!shown || shown.route !== item.route || (wantNormal ? shown.class !== 'normal' : !CLASSES.includes(shown.class) || shown.class === 'normal')) { problems.push(`${label}：shown_by 要指给一条打在这条路由上的请求（写成 场景名/请求 id）：豁免未授权、参数非法时那条要照常应答；豁免正常时那条不能照常应答`); continue; }
     if (covered.get(item.route).has(item.class)) { problems.push(`${label}：这条路由有这一类的请求，豁免是多余的`); continue; }
     exempted.add(`${item.route}\n${item.class}`);
   }
@@ -544,7 +547,8 @@ async function selftest() {
   check(checkCassette(open, known).length === 0, '豁免：写了理由、指给一条照常应答的请求，这一类可以没有');
   check(checkCassette(withSteps([a, c], { exempt: exempt({ why: ' ' }) }), known).some((p) => p.includes('要写理由')), '豁免：没写理由，不认');
   check(checkCassette(withSteps([a, c], { exempt: exempt({ shown_by: 's/nope' }) }), known).some((p) => p.includes('shown_by')) && checkCassette(withSteps([a, c], { exempt: exempt({ shown_by: 's/a' }) }), known).some((p) => p.includes('shown_by')), '豁免：没指给请求，或者指的那条不是照常应答的，不认');
-  check(checkCassette(withSteps([a, b], { exempt: exempt({ class: 'normal', shown_by: 's/b' }) }), known).some((p) => p.includes('只有未授权和参数非法可以豁免')), '豁免：正常这一类不能豁免');
+  check(checkCassette(withSteps([a, b], { exempt: exempt({ class: 'normal', shown_by: 's/b', why: '退役的路由，一律回 4xx' }) }), known).length === 0 && checkCassette(withSteps([a, b, c], { exempt: exempt({ class: 'normal', shown_by: 's/c', why: 'x' }) }), known).some((p) => p.includes('shown_by') || p.includes('多余')), '豁免：退役的路由可以豁免正常这一类（指给一条不照常应答的请求）；有正常请求的不行');
+  check(checkCassette(withSteps([a, b, c], { exempt: exempt({ class: 'weird' }) }), known).some((p) => p.includes('class 只能是')), '豁免：class 写错，不认');
   check(checkCassette(withSteps([a, b, c], { exempt: exempt() }), known).some((p) => p.includes('多余')), '豁免：这条路由其实有这一类的请求，豁免是多余的，失败');
   check(coverage(open).join() === 'GET /api/x：未授权 1，参数非法 豁免，正常 1' && coverage(full).join() === 'GET /api/x：未授权 1，参数非法 1，正常 1', '覆盖：每条路由三类各几条，豁免的写豁免');
   check(fill({ path: '/api/x/{{id}}', n: [1, '{{id}}'] }, { id: 7 }).path === '/api/x/7' && fill(['{{id}}'], { id: 7 })[0] === '7', '变量：路径和请求体里都能代入');

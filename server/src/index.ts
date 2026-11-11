@@ -34,6 +34,7 @@ import { registerAuthViewerRoutes } from './routes/auth-viewer.ts';
 import { registerPrincipalRoutes } from './routes/principals.ts';
 import { registerSettingsRoutes } from './routes/settings.ts';
 import { registerAdminTokenRoutes } from './routes/admin-token.ts';
+import { registerBindingRoutes } from './routes/bindings.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import { SkillService } from './services/skill.ts';
@@ -42,6 +43,7 @@ import type { AppDataService } from './services/app-data.ts';
 import type { CookieService } from './services/cookie.ts';
 import type { CockpitService } from './services/cockpit.ts';
 import { ADMIN_TOKEN_KEY, type SettingService } from './services/setting.ts';
+import type { BindingService } from './services/binding.ts';
 import { recordLayerFsShadowOutcome, recordLayerFsSkillShadowOutcome } from './layerfs-shadow.ts';
 import { db, getSettings, dataDir, rowToWorkbench, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow, type SopRunRow } from './db.ts';
 (globalThis as any).__wmDb = db; // #94 v3 S1：tasks.ts 直读 change_requests 桥
@@ -3367,9 +3369,6 @@ app.patch('/api/task-center/tasks/:id/agent-dispatch', (req, res) => { // 监督
 
 
 
-function maskKey(v: string): string {
-  return v ? '****' : '';
-}
 
 // ---------- 统一绑定面（联合评审①裁定 C · 2026-10-26）：表层统一+语义分离 ----------
 // 一张 bindings 表：direction(admits=入站准入|notify=出站推送|both=显式双授永非默认)。
@@ -3412,74 +3411,7 @@ app.get('/api/sops/:slug/timeline', (req, res) => {
   res.json({ slug: a.slug, versions, runs, receipts });
 });
 
-app.get('/api/bindings', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const type = req.query.type === 'app' ? 'app' : 'sop';
-  const slug = String(req.query.slug ?? '').trim();
-  if (!slug) bad('slug 必填：/api/bindings?type=(sop|app)&slug=x');
-  const rows = db.prepare("SELECT id, target_type, target_slug, agent_node, direction, mode, notify_url, remote_api_key, revoked_at, created_by, created_at FROM bindings WHERE target_type = ? AND target_slug = ? ORDER BY id DESC").all(type, slug);
-  res.json(rows.map((r: { remote_api_key: string }) => ({ ...r, remote_api_key: maskKey(r.remote_api_key) })));
-});
-
-app.post('/api/bindings', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const b = req.body ?? {};
-  const targetType = b.target_type === 'app' ? 'app' : 'sop';
-  const slug = typeof b.target_slug === 'string' ? b.target_slug.trim() : '';
-  const node = typeof b.agent_node === 'string' ? b.agent_node.trim() : '';
-  // 评审注 A（direction 显式铁律）：缺 direction 一律 400——不许静默默认任何方向
-  const direction = b.direction;
-  if (direction !== 'admits' && direction !== 'notify' && direction !== 'both') bad('direction 必填且只许 admits|notify|both（显式选择·无默认）');
-  if (!slug) bad('target_slug 必填');
-  // 画布队名与上游 canvas-store validName 同规则：trim 后 1–40 字符、不含 /、不能是纯数字（中间可有空格）
-  const canvasName = /^[a-z][a-z0-9-]*\/canvas\/([^/]{1,40})$/i.exec(node)?.[1];
-  if (!(canvasName !== undefined ? canvasName.trim() === canvasName && !/^\d+$/.test(canvasName) : /^[a-z][a-z0-9-]*\/[a-z0-9][a-z0-9_-]{0,63}$/i.test(node))) bad('agent_node 形态：<zone>/<id8> 或画布队 <zone>/canvas/<name>，如 dsh/1a2b3c4d、dsh/canvas/procurement');
-  const a = getApp(slug);
-  if (a.kind !== targetType) bad(`target_type=${targetType} 与台型不符（${slug} 是 ${a.kind}）`);
-  const mode = targetType === 'sop' && b.mode === 'run' ? 'run' : 'read'; // app 行 mode 恒 read（跨型 CHECK）
-  const remoteKey = targetType === 'sop' && typeof b.remote_api_key === 'string' ? b.remote_api_key.trim() : '';
-  const notifyRaw = typeof b.notify_url === 'string' ? b.notify_url.trim().replace(/\/+$/, '') : '';
-  if (notifyRaw !== '' && !/^https?:\/\/[^\s]+$/.test(notifyRaw)) bad('notify_url 必须是 http(s):// 根地址（达对端：回执投递/推送基址，也是入站验签的取卡地址）');
-  // admits+read 不发回执（P3 口径），但 notify_url 照样留：它是 /a2a/direct 入站验签的取卡地址；notify 向必须带 notify_url
-  const notifyUrl = notifyRaw;
-  if ((direction === 'notify' || direction === 'both') && notifyUrl === '') bad('notify 向绑定必须携带 notify_url');
-  if (targetType === 'sop') sopNode8(slug); // 确保节点短 id 已生成（上卡用）
-  // natural key 命中 → upsert（重绑=刷新字段并复活撤销态·绑定管理语义），首绑/重绑皆 201
-  const existing = db.prepare("SELECT id FROM bindings WHERE target_type = ? AND target_slug = ? AND agent_node = ? AND direction = ?").get(targetType, slug, node, direction) as { id: number } | undefined;
-  if (existing) {
-    db.prepare("UPDATE bindings SET mode = ?, notify_url = ?, remote_api_key = ?, revoked_at = '', created_by = 'admin', created_at = datetime('now') WHERE id = ?").run(mode, notifyUrl, remoteKey, existing.id);
-    res.status(201).json({ ok: true, id: existing.id, upserted: true, target_type: targetType, target_slug: slug, agent_node: node, direction, mode, notify_url: notifyUrl, remote_api_key: maskKey(remoteKey) });
-    return;
-  }
-  const r = db.prepare('INSERT INTO bindings (target_type, target_slug, agent_node, direction, mode, notify_url, remote_api_key, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(targetType, slug, node, direction, mode, notifyUrl, remoteKey, 'admin') as unknown as { lastInsertRowid: number | bigint };
-  res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), target_type: targetType, target_slug: slug, agent_node: node, direction, mode, notify_url: notifyUrl, remote_api_key: maskKey(remoteKey) });
-});
-
-app.delete('/api/bindings/:id', (req, res) => {
-  if (!adminGuard(req, res)) return;
-  const id = Number(req.params.id);
-  const hit = db.prepare("SELECT id FROM bindings WHERE id = ? AND revoked_at = ''").get(id) as { id: number } | undefined;
-  if (!hit) throw new HttpError(404, `binding not found: ${id}`);
-  db.prepare("UPDATE bindings SET revoked_at = datetime('now') WHERE id = ?").run(id);
-  res.json({ ok: true, revoked: id });
-});
-
-// 旧面 410 过渡（评审注 B：一版 Location 指新面，下一版 404）——UI/脚本切换缓冲
-app.all('/api/sops/:slug/bindings', (req, res) => {
-  const loc = `/api/bindings?type=sop&slug=${encodeURIComponent(String(req.params.slug ?? ''))}`;
-  res.set('Location', loc).status(410).json({ error: '绑定面已统一：GET/POST /api/bindings（direction 显式必填）', location: loc });
-});
-app.all('/api/sops/:slug/bindings/:id', (req, res) => {
-  res.set('Location', '/api/bindings').status(410).json({ error: '绑定面已统一：DELETE /api/bindings/:id', location: '/api/bindings' });
-});
-app.all('/api/apps/:slug/bindings', (req, res) => {
-  const loc = `/api/bindings?type=app&slug=${encodeURIComponent(String(req.params.slug ?? ''))}`;
-  res.set('Location', loc).status(410).json({ error: '绑定面已统一：GET/POST /api/bindings（direction 显式必填）', location: loc });
-});
-app.all('/api/apps/:slug/bindings/:id', (req, res) => {
-  res.set('Location', '/api/bindings').status(410).json({ error: '绑定面已统一：DELETE /api/bindings/:id', location: '/api/bindings' });
-});
+registerBindingRoutes(http, { adminGuard, getApp });
 
 // （旧双面绑定 CRUD 已删——统一面 /api/bindings 承接，410 过渡件在上）
 
