@@ -511,6 +511,38 @@
           }
         },
         {
+          "id": "create-same-node-other-direction",
+          "route": "POST /api/bindings",
+          "class": "normal",
+          "what": "同台同节点、换一个方向再绑：自然键包括方向，是新的一行，不是重绑",
+          "request": {
+            "method": "POST",
+            "path": "/api/bindings",
+            "headers": { "x-admin-token": "replay-synthetic-admin" },
+            "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "notify", "notify_url": "https://peer.example" }
+          },
+          "save": { "b8": "id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "185", "etag": "W/\"b9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 8, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "notify", "mode": "read", "notify_url": "https://peer.example", "remote_api_key": "" }
+          }
+        },
+        {
+          "id": "create-node-underscore",
+          "route": "POST /api/bindings",
+          "class": "normal",
+          "what": "节点 id 里带下划线：收",
+          "request": { "method": "POST", "path": "/api/bindings", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/ab_cd-12", "direction": "admits" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "165", "etag": "W/\"a5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "id": 9, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/ab_cd-12", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "" }
+          }
+        },
+        {
           "id": "upsert",
           "route": "POST /api/bindings",
           "class": "normal",
@@ -537,8 +569,10 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1673", "etag": "W/\"689-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "2149", "etag": "W/\"865-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
+              { "id": 9, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/ab_cd-12", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 8, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "notify", "mode": "read", "notify_url": "https://peer.example", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
               { "id": 7, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/feed0004", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
               { "id": 6, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/feed0003", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "****", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
               { "id": 5, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/beef0002", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
@@ -558,8 +592,33 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1673", "etag": "W/\"689-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "2149", "etag": "W/\"865-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
+              { "id": 9, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/ab_cd-12", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 8, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "notify", "mode": "read", "notify_url": "https://peer.example", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 7, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/feed0004", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 6, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/feed0003", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "****", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 5, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/beef0002", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 4, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/canvas/procurement team", "direction": "both", "mode": "read", "notify_url": "https://canvas.example", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 3, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/cafe0001", "direction": "notify", "mode": "read", "notify_url": "http://peer.example", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 2, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/abcd1234", "direction": "admits", "mode": "run", "notify_url": "https://peer.example", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 1, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "admits", "mode": "run", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" }
+            ]
+          }
+        },
+        {
+          "id": "list-app-type-upper-after",
+          "route": "GET /api/bindings",
+          "class": "normal",
+          "what": "type=APP 大写：不认，当成 sop",
+          "request": { "method": "GET", "path": "/api/bindings?type=APP&slug=task-center", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2149", "etag": "W/\"865-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": [
+              { "id": 9, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/ab_cd-12", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 8, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "notify", "mode": "read", "notify_url": "https://peer.example", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
               { "id": 7, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/feed0004", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
               { "id": 6, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/feed0003", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "****", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
               { "id": 5, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/beef0002", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
@@ -679,8 +738,10 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1692", "etag": "W/\"69c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "2168", "etag": "W/\"878-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
+              { "id": 9, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/ab_cd-12", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
+              { "id": 8, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/1a2b3c4d", "direction": "notify", "mode": "read", "notify_url": "https://peer.example", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
               { "id": 7, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/feed0004", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
               { "id": 6, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/feed0003", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "****", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
               { "id": 5, "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/beef0002", "direction": "admits", "mode": "read", "notify_url": "", "remote_api_key": "", "revoked_at": "", "created_by": "admin", "created_at": "YYYY-MM-DD hh:mm:ss" },
