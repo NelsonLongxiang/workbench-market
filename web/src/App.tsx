@@ -13,7 +13,6 @@ import Sops from './pages/Sops';
 import SopSpace from './pages/SopSpace';
 import SopRunDetail from './pages/SopRunDetail';
 import McpGateways from './pages/McpGateways';
-import A2aPeers from './pages/A2aPeers';
 import OwnerPending from './pages/OwnerPending';
 import Vault from './pages/Vault';
 import { adminActive, adminTokenPresent, checkAdminToken, getAdminToken, odooAdmin, refreshAdminIdentity, setAdminToken, subscribeAdminToken } from './admin-token';
@@ -178,7 +177,6 @@ export default function App() {
         {WEB_EXTENSIONS.flatMap((e) => (e.routes ?? []).map((r) => <Route key={`${e.name}:${r.path}`} path={r.path} element={r.element} />))}
         <Route path="/owner-pending" element={<OwnerPending />} />
         <Route path="/mcp-gateways" element={<McpGateways />} />
-        <Route path="/a2a-peers" element={<A2aPeers />} />
         <Route path="/vault" element={<Vault />} />
         <Route path="/types" element={<Types />} />
         <Route path="/skills" element={<SkillsPage />} />
