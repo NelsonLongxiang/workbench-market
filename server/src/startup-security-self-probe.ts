@@ -13,10 +13,16 @@ type Options = { market: Server; control?: Server; gatewayOn: boolean; nodeEnv?:
 const REMOTE_ANON = { 'x-forwarded-for': '192.0.2.1', accept: 'text/html' };
 
 const LISTEN_WAIT_MS = 10_000;
+/**
+ * 测试环境（NODE_ENV=test）的等待时长：CI 机器忙的时候，单条自检请求 1.5 秒、等监听 10 秒都可能不够，实例会因为「超时」「面没在听」拒绝启动，
+ * 测试跟着红，和被测的行为无关。只拉长等待，判定一条不改：应答不对照样不过、照样拒绝启动。生产（NODE_ENV 不是 test）不受影响。
+ */
+export const TEST_ENV_WAITS = { timeoutMs: 8000, listenWaitMs: 60_000 } as const;
 
 /** Does not import the application DB or read host/request-provided targets. */
-export function createStartupSecurityProbe({ timeoutMs = 1500, log = (row: unknown) => console.log(JSON.stringify(row)) } = {}) {
-  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 5000) throw Error('Invalid self-probe timeout');
+export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LISTEN_WAIT_MS, log = (row: unknown) => console.log(JSON.stringify(row)) } = {}) {
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > TEST_ENV_WAITS.timeoutMs) throw Error('Invalid self-probe timeout');
+  if (!Number.isInteger(listenWaitMs) || listenWaitMs < 1 || listenWaitMs > TEST_ENV_WAITS.listenWaitMs) throw Error('Invalid self-probe listen wait');
   const marker = randomBytes(32).toString('hex');
   let state: State = { passed: false, failed: [], at: null, rows: [] };
   let running: Promise<State> | undefined;
@@ -48,7 +54,7 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, log = (row: unkno
         resolve(address && typeof address !== 'string' ? { port: address.port, surface: 'market' } : null);
       };
       // 等监听与单次请求超时分开：启动慢（CI 繁忙）时 listening 可能晚于 1.5s 才到，不能当成「面没在听」；始终没听上照旧判失败
-      const timer = setTimeout(finish, Math.max(timeoutMs, LISTEN_WAIT_MS));
+      const timer = setTimeout(finish, Math.max(timeoutMs, listenWaitMs));
       if (server.listening) return finish();
       server.once('listening', finish); server.once('error', finish);
     });

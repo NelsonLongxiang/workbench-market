@@ -27,6 +27,7 @@
 | 认人 | 经身份服务：`server/src/identity.ts` 的 `identity()`、`loginRelay()` | 引用 `server/src/login-providers/` 里面的文件 |
 | 缓存认人的结果 | 用 `identity().cachedResolver()`：缓存的只有登录提供方的回答，主体停没停用每次现查 | 自己把 `resolveViewer()` 的结果存起来（停用和恢复就不是立即生效了） |
 | 测试脚本 | 接进 CI；确实进不了的，在 `tech-route.json` 的 `tests` 里写明理由 | 写了不跑 |
+| 测试里起隔离实例 | `NODE_ENV=test`，起不来时用 `scripts/lib/self-probe-env.mjs` 的 `instanceStartError` 打标、`startWithEnvironmentRetry` 有限次重试环境问题；并行起实例要限并发 | 把自检超时当成被测行为失败；开满核数并行起实例 |
 | 运行时依赖 | 先登记进 `tech-route.json` 的 `deps` | 顺手加 |
 
 存量里有不少不符合上表的地方。那是欠账，只减不增：改到哪个域，顺手把那个域收一点。

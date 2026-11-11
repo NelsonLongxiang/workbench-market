@@ -15,6 +15,7 @@
  *   node scripts/work-item-backfill-test.mjs              测本仓库
  *   node scripts/work-item-backfill-test.mjs --root DIR   测另一棵目录树（拿旧代码跑，看它红）
  */
+import { instanceStartError, startWithEnvironmentRetry } from './lib/self-probe-env.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { cpSync, mkdirSync, rmSync } from 'node:fs';
@@ -56,8 +57,10 @@ function seed(dataDir, n, from = 0) {
   if (!r.stdout.includes('SEEDED')) throw new Error(`造数据失败：${r.stderr.slice(-600)}`);
 }
 
-/** 起服务：返回首个 HTTP 应答的耗时（任何状态码都算能应答） */
-async function start(dataDir) {
+/** 起服务：环境问题（启动自检只因超时、面没在听而拒绝启动）有限次重试，真失败立刻报（见 scripts/lib/self-probe-env.mjs） */
+const start = (dataDir) => startWithEnvironmentRetry(() => startOnce(dataDir), { label: '回填测试的实例' });
+/** 起一次服务：返回首个 HTTP 应答的耗时（任何状态码都算能应答） */
+async function startOnce(dataDir) {
   const port = await freePort(), base = `http://127.0.0.1:${port}`;
   const t0 = Date.now();
   const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], { cwd: join(ROOT, 'server'), env: { ...ENV(dataDir), PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -65,7 +68,7 @@ async function start(dataDir) {
   // firstMs：首个应答（启动门没开时是 503，也算应答）；firstState：第一个带回填状态的应答里的状态
   let firstMs = null, firstState = null;
   for (let i = 0; Date.now() - t0 < 90000; i++) { // 旧代码同步回填时，一万个事件要十几秒才应答；给足时间，让它在断言上红而不是在这里
-    if (child.exitCode !== null) throw new Error(`服务退出了：${log.slice(-600)}`);
+    if (child.exitCode !== null) throw instanceStartError('服务退出了', log);
     try { const r = await fetch(base + '/api/health', { signal: AbortSignal.timeout(2000) }); const j = await r.json().catch(() => ({})); firstMs ??= Date.now() - t0; if (j.work_items_backfill?.state) { firstState = j.work_items_backfill.state; break; } } catch { /* 还没起来 */ }
     await new Promise((r) => setTimeout(r, 25));
   }
