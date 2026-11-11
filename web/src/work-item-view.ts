@@ -75,6 +75,21 @@ export function askIdOf(r: { fact: string; fact_id?: string; detail: string }): 
   try { const a = (JSON.parse(r.detail || '{}') as { ask_id?: unknown }).ask_id; return typeof a === 'string' || typeof a === 'number' ? String(a) : null; } catch { return null; }
 }
 
+/** 对端给的「谁」：可能是字符串，也可能是 { seat, name, team, role } 这样的对象。取名字，没有名字取席位，都没有给空串；永远返回字符串，不把对象交给页面 */
+export function who(v: unknown): string {
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number') return String(v);
+  if (v && typeof v === 'object') {
+    const o = v as Record<string, unknown>;
+    for (const k of ['name', 'seat', 'team', 'id']) if (typeof o[k] === 'string' && (o[k] as string).trim()) return o[k] as string;
+  }
+  return '';
+}
+/** 对端给的一段文字：字符串、数字照用，别的给空串 */
+export function textOf(v: unknown): string {
+  return typeof v === 'string' ? v : typeof v === 'number' ? String(v) : '';
+}
+
 /** 终态：结束了，对话不再收回复 */
 export const TERMINAL = ['done', 'failed', 'dropped', 'cancelled'];
 
@@ -114,8 +129,9 @@ export function groupRejected<T extends { rejected?: string }>(rows: T[]): ({ ki
 /** 进展回执的步骤状态（阶段七 #551） */
 export const PROGRESS_STATE: Record<string, string> = { queued: '排队中', working: '正在处理', waiting: '在等', blocked: '卡住了' };
 
-export type Ticket = { id: string; title: string; seat?: string; state: string; outcome?: string };
-export type SeatProgress = { n: number; state: string; summary: string; at: string; ahead?: number; by?: string; tickets: Ticket[]; received_at: string };
+export type Ticket = { id: string; title: string; seat?: unknown; state: string; outcome?: string };
+/** by 由对端回执来：可能是字符串，也可能是 { seat, name, team?, role? }（#564） */
+export type SeatProgress = { n: number; state: string; summary: string; at: string; ahead?: number; by?: unknown; tickets: Ticket[]; received_at: string };
 
 /** 进展一行字：第几步 · 状态 · 前面还有几个 */
 export function progressLine(p: SeatProgress): string {

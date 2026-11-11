@@ -14,7 +14,8 @@ import RelTime from '../components/RelTime';
 import { adminActive, apiFetch, subscribeAdminToken } from '../admin-token';
 import { answerChoices, answerRoute, describe, type AttentionItem, type LogRow } from '../attention-view';
 import { getWorkItem, postAskAnswer, postCreatorDecision, postSeatMessageReply, postSeatMessagesRead } from '../api';
-import { CAN_NONE, PROGRESS_STATE, TERMINAL, canOf, stateLabel, type Can, askIdOf, creatorLabel, groupRejected, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
+import SectionBoundary from '../components/SectionBoundary';
+import { textOf, who, CAN_NONE, PROGRESS_STATE, TERMINAL, canOf, stateLabel, type Can, askIdOf, creatorLabel, groupRejected, hiddenInTimeline, timelineLabel, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
 
 type Item = { id: string; title: string; state: string; created_by: string; creator_principal?: string | null; created_at: string; updated_at: string; source_kind: string; source_ref: string; target_team: string; seat: string; eval: string; eval_reason: string; progress_summary: string; receipt_outcome: string; object: string; phase: string; open_asks: string; outputs: string; evidence: string };
 
@@ -112,12 +113,12 @@ function AskRow({ itemId, ask, onDone }: { itemId: string; ask: SeatAsk; onDone:
   return <List.Item data-testid="seat-ask" id={`ask-${ask.id}`}>
     <Flex vertical gap="small" className="wm-w-full">
       <Space wrap size={6}>
-        <Typography.Text strong>{ask.question || '（没写问题）'}</Typography.Text>
+        <Typography.Text strong>{textOf(ask.question) || '（没写问题）'}</Typography.Text>
         {ask.status === 'answered' && <Tag color="green">已答复</Tag>}
         {ask.status === 'closed' && <Tag>已合上</Tag>}
-        <Typography.Text type="secondary">{ask.asked_by}</Typography.Text><RelTime value={ask.at} />
+        <Typography.Text type="secondary">{who(ask.asked_by)}</Typography.Text><RelTime value={ask.at} />
       </Space>
-      {ask.status === 'answered' && <Typography.Text>答：{ask.answer}<Typography.Text type="secondary">（{ask.answered_by}{ask.answered_at ? ' · ' : ''}</Typography.Text>{ask.answered_at && <RelTime value={ask.answered_at} />}<Typography.Text type="secondary">）</Typography.Text></Typography.Text>}
+      {ask.status === 'answered' && <Typography.Text>答：{textOf(ask.answer)}<Typography.Text type="secondary">（{who(ask.answered_by)}{ask.answered_at ? ' · ' : ''}</Typography.Text>{ask.answered_at && <RelTime value={ask.answered_at} />}<Typography.Text type="secondary">）</Typography.Text></Typography.Text>}
       {ask.status === 'closed' && <Typography.Text type="secondary">没人答，后来的提问、接单或结果把它合上了。</Typography.Text>}
       {ask.status === 'open' && <>
         {ask.options.length > 0 && <Radio.Group value={choice} onChange={(e) => setChoice(String(e.target.value))} optionType="button" buttonStyle="solid" data-testid="seat-ask-options"
@@ -155,11 +156,11 @@ function SeatMessages({ itemId, messages, closed, onChanged }: { itemId: string;
   if (!messages.length) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="席位还没发来消息" />;
   return <>{closed && <Typography.Text type="secondary" data-testid="seat-messages-closed">事项已经结束，不能再回复。</Typography.Text>}<List itemLayout="vertical" size="small" dataSource={messages} rowKey="id" renderItem={(m) => <List.Item data-testid="seat-message">
     <Space wrap size={4}>
-      <Typography.Text strong>{m.sender || m.peer}</Typography.Text>
+      <Typography.Text strong>{who(m.sender) || who(m.peer)}</Typography.Text>
       <Tag color={MSG_STATUS[m.status].color}>{MSG_STATUS[m.status].label}</Tag>
       <RelTime value={m.at} />
     </Space>
-    <Typography.Paragraph className="wm-m-0 wm-prewrap" ellipsis={{ rows: 6, expandable: 'collapsible', symbol: (open) => (open ? '收起' : '展开全文') }}>{m.text}{m.truncated ? '（已截断）' : ''}</Typography.Paragraph>
+    <Typography.Paragraph className="wm-m-0 wm-prewrap" ellipsis={{ rows: 6, expandable: 'collapsible', symbol: (open) => (open ? '收起' : '展开全文') }}>{textOf(m.text)}{m.truncated ? '（已截断）' : ''}</Typography.Paragraph>
     {!closed && (m.status === 'unread' || m.status === 'read') && <Space.Compact block>
       <Input.TextArea aria-label="回复" autoSize={{ minRows: 1, maxRows: 6 }} maxLength={4000} placeholder="回复这条消息（发回这个团队）" value={drafts[m.id] ?? ''} onChange={(e) => setDrafts((d) => ({ ...d, [m.id]: e.target.value }))} />
       <Button type="primary" loading={busy === m.id} disabled={!(drafts[m.id] ?? '').trim()} onClick={() => void reply(m)}>回复</Button>
@@ -174,7 +175,7 @@ function Artifacts({ list, empty }: { list: Artifact[]; empty: string }) {
     return <List.Item data-testid="artifact">
       <Flex vertical gap={2}>
         <Space size={6}><Tag>{a.kind}</Tag>{href ? <Link to={href}>{a.title || a.id}</Link> : <Typography.Text className={a.title ? undefined : 'wm-mono'}>{a.title || a.id}</Typography.Text>}</Space>
-        {(a.submitted_by || a.at) && <Space size={6}>{a.submitted_by && <Typography.Text type="secondary" className="wm-caption">{a.submitted_by} 交的</Typography.Text>}{a.at && <RelTime value={a.at} />}</Space>}
+        {(a.submitted_by || a.at) && <Space size={6}>{a.submitted_by && <Typography.Text type="secondary" className="wm-caption">{who(a.submitted_by)} 交的</Typography.Text>}{a.at && <RelTime value={a.at} />}</Space>}
       </Flex>
     </List.Item>;
   }} />;
@@ -238,6 +239,7 @@ export default function WorkItem() {
   const can = canOf(pending, (x) => answerChoices(admin, x));
   const hint = item ? stateHint(item.state, item.seat, asks ? openAsks === 0 && asks.length > 0 : lastAskAnswered(data?.log ?? []), can) : null;
   const progress = data?.progress ?? null;
+  const tickets = Array.isArray(progress?.tickets) ? progress.tickets : [];
   // 结果：事项的 outputs 列（现在还没人写）加上日志里回执带来的产物，去重
   const timeline = (data?.log ?? []).filter((r) => !hiddenInTimeline(r));
   // 提问号在 asks 里是数字、在日志的 fact_id / detail.ask_id 里是字符串：统一成字符串再比
@@ -250,11 +252,12 @@ export default function WorkItem() {
     {item && <Row gutter={16}>
       <Col span={16}>
         <Flex vertical gap="middle">
+          <SectionBoundary name="摘要">
           <Card title={<Space>{stateTag(item.state, can)}<span>{item.title}</span></Space>} data-testid="work-item-summary">
             <Flex vertical gap="small">
               {hint && <Alert type={hint.type} showIcon message={hint.text} data-testid="work-item-hint" />}
               <Descriptions column={2} size="small" items={[
-                { key: 'seat', label: '承接', children: item.seat || <Typography.Text type="secondary">还没有席位接手</Typography.Text> },
+                { key: 'seat', label: '承接', children: who(item.seat) || <Typography.Text type="secondary">还没有席位接手</Typography.Text> },
                 { key: 'team', label: '派给', children: item.target_team || '—' },
                 { key: 'by', label: '建立人', children: creatorLabel(item.created_by, item.creator_principal) },
                 { key: 'obj', label: '对象 / 阶段', children: [item.object, item.phase].filter(Boolean).join(' / ') || '—' },
@@ -263,42 +266,58 @@ export default function WorkItem() {
               ]} />
             </Flex>
           </Card>
+          </SectionBoundary>
+          <SectionBoundary name="席位提问">
           {asks && asks.length > 0 && <Card size="small" title={<Space>席位提问{openAsks > 0 && <Badge count={openAsks} title="在等你答复" />}</Space>} data-testid="seat-asks">
             <List size="small" dataSource={asks} rowKey={(a) => String(a.id)} renderItem={(a) => <AskRow itemId={id} ask={a} onDone={() => void load()} />} />
           </Card>}
+          </SectionBoundary>
+          <SectionBoundary name="等你处理">
           {shownPending.length > 0 && <Card size="small" title={<Space>等你处理<Badge count={shownPending.length} /></Space>} data-testid="work-item-pending">
             <Flex vertical gap="middle">{shownPending.map((p) => <PendingAction key={`${p.source}:${p.source_id}`} item={p} admin={admin} onDone={() => void load()} />)}</Flex>
           </Card>}
+          </SectionBoundary>
+          <SectionBoundary name="正在处理">
           {progress && <Card size="small" title="正在处理" data-testid="work-item-progress">
             <Flex vertical gap="small">
-              <Space wrap size={6}><Typography.Text strong>{progressLine(progress)}</Typography.Text>{progress.by && <Typography.Text type="secondary">{progress.by}</Typography.Text>}<RelTime value={progress.at || progress.received_at} /></Space>
-              {progress.summary && <Typography.Paragraph className="wm-m-0">{progress.summary}</Typography.Paragraph>}
-              {progress.tickets.length > 0 && <List size="small" header={<Typography.Text type="secondary">拆出的子项 {progress.tickets.length} 件</Typography.Text>} dataSource={progress.tickets} rowKey="id"
-                renderItem={(t) => <List.Item data-testid="work-item-ticket" extra={<Tag>{PROGRESS_STATE[t.state] ?? t.state}{t.outcome ? ` · ${t.outcome}` : ''}</Tag>}>
-                  <Space size={6}><span>{t.title || t.id}</span>{t.seat && <Typography.Text type="secondary">{t.seat}</Typography.Text>}</Space>
+              <Space wrap size={6}><Typography.Text strong>{progressLine(progress)}</Typography.Text>{who(progress.by) && <Typography.Text type="secondary">{who(progress.by)}</Typography.Text>}<RelTime value={progress.at || progress.received_at} /></Space>
+              {textOf(progress.summary) && <Typography.Paragraph className="wm-m-0">{textOf(progress.summary)}</Typography.Paragraph>}
+              {tickets.length > 0 && <List size="small" header={<Typography.Text type="secondary">拆出的子项 {tickets.length} 件</Typography.Text>} dataSource={tickets} rowKey={(t) => textOf(t.id) || JSON.stringify(t)}
+                renderItem={(t) => <List.Item data-testid="work-item-ticket" extra={<Tag>{PROGRESS_STATE[textOf(t.state)] ?? textOf(t.state)}{textOf(t.outcome) ? ` · ${textOf(t.outcome)}` : ''}</Tag>}>
+                  <Space size={6}><span>{textOf(t.title) || textOf(t.id)}</span>{who(t.seat) && <Typography.Text type="secondary">{who(t.seat)}</Typography.Text>}</Space>
                 </List.Item>} />}
             </Flex>
           </Card>}
+          </SectionBoundary>
+          <SectionBoundary name="对话">
           <Card size="small" data-testid="seat-messages"
             title={<Space>对话{(data?.unread ?? 0) > 0 && <Badge count={data?.unread} title="未读的席位消息" />}</Space>}>
             <SeatMessages itemId={id} messages={data?.messages ?? []} closed={TERMINAL.includes(item.state)} onChanged={() => void load()} />
           </Card>
+          </SectionBoundary>
+          <SectionBoundary name="时间线">
           <Card title="时间线" size="small">
             {timeline.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有记录" /> : <Timeline items={groupRejected(timeline).map((g) => g.kind === 'rejected'
               ? { key: `rej-${g.rows[0].seq}`, color: 'gray', children: <details data-testid="timeline-rejected"><summary><Typography.Text type="secondary">{g.rows.length} 条收到、未采信的记录（{REJECTED[g.rows[0].rejected] ?? g.rows[0].rejected}）</Typography.Text></summary>{g.rows.map((row) => <LogLine key={row.seq} row={row} askIds={askIds} />)}</details> }
               : { key: g.row.seq, color: g.row.rejected ? 'gray' : g.row.from_state !== g.row.to_state ? 'blue' : 'green', children: <LogLine row={g.row} askIds={askIds} /> })} />}
           </Card>
+          </SectionBoundary>
         </Flex>
       </Col>
       <Col span={8}>
         <Flex vertical gap="middle">
+          <SectionBoundary name="结果">
           <Card size="small" title={`结果${outputs.length ? ` ${outputs.length}` : ''}`} data-testid="work-item-outputs">
             <Flex vertical gap="small">
               {item.receipt_outcome && <Space size={6}><Typography.Text type="secondary">回执</Typography.Text><Tag>{item.receipt_outcome}</Tag></Space>}
               <Artifacts list={outputs} empty={item.receipt_outcome ? '没有附产出；回执的内容在对话和时间线里' : '还没有产出'} />
             </Flex>
           </Card>
+          </SectionBoundary>
+          <SectionBoundary name="依据">
           {evidence.length > 0 && <Card size="small" title={`依据 ${evidence.length}`}><Artifacts list={evidence} empty="" /></Card>}
+          </SectionBoundary>
+          <SectionBoundary name="细节">
           <Card size="small" title="细节">
             <Descriptions column={1} size="small" items={[
               { key: 'id', label: '事项号', children: <Typography.Text copyable className="wm-num">{item.id}</Typography.Text> },
@@ -306,6 +325,7 @@ export default function WorkItem() {
               { key: 'created', label: '建立', children: <RelTime value={item.created_at} /> },
             ]} />
           </Card>
+          </SectionBoundary>
         </Flex>
       </Col>
     </Row>}
