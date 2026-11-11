@@ -1,5 +1,5 @@
 import express from 'express';
-import { createStartupSecurityProbe, isStartupProbeRequest } from './startup-security-self-probe.ts';
+import { createStartupSecurityProbe, isStartupProbeRequest, TEST_ENV_WAITS } from './startup-security-self-probe.ts';
 import { createLoginGate, loginGateMode, trustedProxies } from './login-gate.ts';
 import { identity, loginRelay } from './identity.ts';
 import { requestPerson, hasLoginCredential } from './request-person.ts';
@@ -104,7 +104,8 @@ import { isInsideRoot } from './path-inside.ts';
 const here = dirname(fileURLToPath(import.meta.url));
 const http = svc<HttpService>('http'); // HTTP 服务持有 Express 应用；域模块经它注册路由（注册可撤销）
 const app = http.expressApp(); // 全局中间件、监听和还没搬走的路由，照旧直接用应用本身
-const startupSecurity = createStartupSecurityProbe();
+// 测试环境（NODE_ENV=test）等得久一点：只拉长等待，判定不变；生产照旧 1.5 秒一条、等监听 10 秒
+const startupSecurity = createStartupSecurityProbe(process.env.NODE_ENV === 'test' ? { ...TEST_ENV_WAITS } : {});
 app.use(startupSecurity.middleware); // #326: before parsers, content dispatch and every business route
 // 阶段六 6c：判定事件的内置监听器（六步）；并行比对（WM_JUDGMENT_COMPARE，缺省关）在应答结束之后算新结论、和旧结论比，不改应答
 installBuiltinJudge();

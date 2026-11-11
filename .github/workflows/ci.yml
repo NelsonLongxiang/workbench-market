@@ -237,7 +237,7 @@ jobs:
           ( node scripts/identity-contract-test.mjs && node scripts/principal-service-test.mjs && node scripts/principal-fold-test.mjs && node scripts/identity-seam-smoke.mjs && node scripts/feishu-login-smoke.mjs && node scripts/feishu-offboard-smoke.mjs && node scripts/export-reveal-smoke.mjs && node scripts/grants-smoke.mjs && node scripts/judgment-compare-smoke.mjs && node scripts/judgment-compare-zero-test.mjs && node scripts/judgment-compare-sweep-test.mjs ) > identity-suites.log 2>&1 &
           suites=$!
           set +e
-          node scripts/identity-seam-mutation.mjs --jobs "$(nproc)"
+          node scripts/identity-seam-mutation.mjs --jobs 2
           mutation=$?
           wait "$suites"
           rc=$?

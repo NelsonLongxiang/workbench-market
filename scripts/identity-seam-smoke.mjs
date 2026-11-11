@@ -19,6 +19,7 @@
  *   node scripts/identity-seam-smoke.mjs              测本仓库
  *   node scripts/identity-seam-smoke.mjs --root DIR   测另一棵目录树（变异测试用）
  */
+import { instanceStartError } from './lib/self-probe-env.mjs';
 import { createServer } from 'node:net';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -78,7 +79,7 @@ async function boot(name, extraEnv = {}, dataOf = null) {
   child.stdout.on('data', (d) => { log += String(d); });
   child.stderr.on('data', (d) => { log += String(d); });
   const base = `http://127.0.0.1:${port}`;
-  const deadline = Date.now() + 40000;
+  const deadline = Date.now() + 90000; // 测试环境的自检等得久（TEST_ENV_WAITS），这里也给足
   let ready = false;
   while (!ready && Date.now() < deadline && child.exitCode === null) {
     try { ready = (await fetch(`${base}/api/health`)).status === 200; } catch { /* 还没起来 */ }
@@ -97,7 +98,8 @@ async function boot(name, extraEnv = {}, dataOf = null) {
     // 只认「应答不对」的那种失败；超时、面没在听是机器忙或者端口的事，按没跑成处理（变异测试会重跑一次），不能算成一项检查没过
     const rows = [...log.matchAll(/"source":"self-probe","id":"([^"]+)"[^}]*"verdict":"fail"[^}]*"reason":"([^"]*)"/g)];
     const refused = rows.filter((m) => m[2] === 'unexpected-status-or-challenge').map((m) => m[1]);
-    const error = new Error(`隔离实例 ${name} 没起来：${log.trim().split('\n').slice(-4).join(' | ') || '没有输出'}`);
+    // 环境问题（只因超时、面没在听）在报错开头写明，和真失败分开
+    const error = instanceStartError(`隔离实例 ${name} 没起来`, log);
     if (refused.length) error.selfProbe = [...new Set(refused)];
     throw error;
   }

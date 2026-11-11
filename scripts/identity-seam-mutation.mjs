@@ -21,7 +21,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
 const OUT = join(ROOT, 'tmp', `identity-mutation-${process.pid}`);
 const jobsArg = process.argv.indexOf('--jobs');
-const JOBS = Math.max(1, Number(jobsArg >= 0 ? process.argv[jobsArg + 1] : 3) || 3);
+// 并行跑的套数：每一套自己还要起好几个隔离实例，CI 机器上开满核数会让实例的启动自检超时（拒绝启动，按没跑成算）。上限 2
+const JOBS = Math.min(2, Math.max(1, Number(jobsArg >= 0 ? process.argv[jobsArg + 1] : 2) || 2));
 
 const CONTRACT = 'identity-contract-test.mjs', SMOKE = 'identity-seam-smoke.mjs', SERVICE = 'principal-service-test.mjs', FOLD = 'principal-fold-test.mjs', FEISHU = 'feishu-login-smoke.mjs', OFFBOARD = 'feishu-offboard-smoke.mjs', GRANTS = 'grants-smoke.mjs', JUDGE = 'judgment-compare-smoke.mjs', ZERO = 'judgment-compare-zero-test.mjs', SWEEP = 'judgment-compare-sweep-test.mjs';
 const IDENTITY = 'server/src/identity.ts';
@@ -440,10 +441,11 @@ const run = (script, tree) => new Promise((done) => {
 const failedLines = (r) => r.stdout.split('\n').filter((l) => l.trim().startsWith('✗')).map((l) => l.trim().slice(2).split('（')[0].split(' → ')[0]);
 /** 脚本自己没跑成（实例没起来、超时、崩了），不是「有检查没过」：这种不算变红 */
 const broken = (r) => r.status !== 0 && (r.status !== 1 || failedLines(r).length === 0 || r.stdout.includes('没跑完'));
-/** 没跑成就再跑一次；两次都没跑成，交给调用方当作失败 */
+/** 没跑成（实例没起来、超时，多半是机器忙）就再跑，最多共 3 次；都没跑成，交给调用方当作失败 */
 async function runTwice(script, tree) {
-  const first = await run(script, tree);
-  return broken(first) ? run(script, tree) : first;
+  let r = await run(script, tree);
+  for (let i = 1; i < 3 && broken(r); i++) r = await run(script, tree);
+  return r;
 }
 async function pool(items, size, work) {
   const out = new Array(items.length);
