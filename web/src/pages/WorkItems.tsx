@@ -1,15 +1,16 @@
 /** 事项列表：按状态分组（等你拍板 / 在办 / 已结束 / 未派发）或按对象分组。
  *  数据来自 GET /api/work-items：管理员看全部，登录的人只看自己建立的；最近变化的在前，游标翻页。
  *  各组角标用服务端给的按状态计数（覆盖整个可见范围），已取回的行不够时组底注明「已加载 x / 共 n」，页底「加载更多」。 */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
 import { Alert, Badge, Button, Card, Collapse, Empty, Flex, List, Segmented, Space, Tag, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import WmPage from '../components/WmPage';
 import RelTime from '../components/RelTime';
 import { api } from '../api';
+import { adminActive, subscribeAdminToken } from '../admin-token';
 import { STATE } from './WorkItem';
-import { STATE_GROUPS, appendPage, byObject, byState, groupCount, objectName, phaseName, rowLine, rowTime, type Who, type WorkItemListRow } from '../work-items-view';
+import { STATE_GROUPS, appendPage, byObject, byState, groupCount, objectName, phaseName, rowLine, rowTime, viewsFor, type Who, type WorkItemListRow } from '../work-items-view';
 import { actorLabel, seatLabel } from '../people';
 
 /** 「谁」的写法同事项详情（people.ts）：席位「名字（句柄）」，来源标记去前缀 */
@@ -51,6 +52,8 @@ function Rows({ rows, mode, empty, total }: { rows: WorkItemListRow[]; mode: Mod
 }
 
 export default function WorkItems() {
+  // 只用来说明接口现在给的是哪个可见范围（管理员是全部）；视角由服务端按身份给出之后，这一处换成接口的字段
+  const seesAll = useSyncExternalStore(subscribeAdminToken, adminActive);
   const [mode, setMode] = useState<Mode>(savedMode);
   const [rows, setRows] = useState<WorkItemListRow[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
@@ -77,13 +80,17 @@ export default function WorkItems() {
   const grouped = byState(rows);
 
   return <WmPage
-    content="你建立的、经手的事项都在这里。点一行看详情和时间线。"
-    extra={<Space>
-      <Segmented<Mode> value={mode} onChange={changeMode} data-testid="work-items-mode"
-        options={[{ label: '按状态', value: 'state' }, { label: '按对象', value: 'object' }]} />
-      <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void fetchPage(null)}>刷新</Button>
-    </Space>}>
+    extra={<Button icon={<ReloadOutlined />} loading={loading} onClick={() => void fetchPage(null)}>刷新</Button>}>
     <Flex vertical gap="middle">
+      {/* 视角在最上面一排；「按状态 / 按对象」是视角里面的分组 */}
+      <div className="wm-view-row" data-testid="work-items-views">
+        {viewsFor(seesAll, total).map((v) => <span key={v.key} className="wm-view on" data-testid={`work-items-view-${v.key}`}>{v.label}{loaded ? <i>{v.count}</i> : null}</span>)}
+        <span className="wm-view-group">
+          <Typography.Text type="secondary" className="wm-caption">分组</Typography.Text>
+          <Segmented<Mode> size="small" value={mode} onChange={changeMode} data-testid="work-items-mode"
+            options={[{ label: '按状态', value: 'state' }, { label: '按对象', value: 'object' }]} />
+        </span>
+      </div>
       {error && <Alert type="error" showIcon message={error} />}
       {loaded && total === 0 && !error ? <Card><Empty description="还没有事项" /></Card> : null}
       {loaded && total > 0 && mode === 'state' ? STATE_GROUPS.map((g) => {

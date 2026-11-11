@@ -88,3 +88,10 @@ export function appendPage(prev: WorkItemListRow[], next: WorkItemListRow[]): Wo
   const seen = new Set(next.map((r) => r.id));
   return [...prev.filter((r) => !seen.has(r.id)), ...next];
 }
+
+/** 视角（规范 14 第九节）：我安排的 / 我的 AI 员工手上的 / 我团队的 / 全部。哪些可用、各几件以后由服务端按身份给；
+ *  现在的列表接口只有一个可见范围——管理员看全部，别人只看自己建立的——所以只给得出这一个，不放还不能用的视角。 */
+export type View = { key: 'mine' | 'all'; label: string; count: number };
+export function viewsFor(seesAll: boolean, total: number): View[] {
+  return [seesAll ? { key: 'all', label: '全部', count: total } : { key: 'mine', label: '我安排的', count: total }];
+}
