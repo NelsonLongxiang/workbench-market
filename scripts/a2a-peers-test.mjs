@@ -42,8 +42,13 @@ const fp = (key) => 'sha256:' + createHash('sha256').update(Buffer.from(encodePu
 
 /** 一个假对端：出示签名名片；key 可以换；tamper 为真时出示改过一个字的名片；down 为真时 404 */
 async function fakePeer(team) {
-  const state = { key: generateKeyPairSync('ed25519'), tamper: false, down: false, version: '1.0' };
+  const state = { key: generateKeyPairSync('ed25519'), tamper: false, down: false, version: '1.0', posts: 0 };
   const server = createServer((req, res) => {
+    if (req.method === 'POST') { // 市场出站投递：记一次，回一个已投递
+      state.posts++; req.resume();
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ routed: true, delivered: true, task_status: 'TASK_STATE_DELIVERED', task_id: 'peer-1', text: 'ok' }));
+    }
     if (req.method === 'GET' && req.url === '/.well-known/agent-card.json' && !state.down) {
       const card = signCard({ capabilities: { version: state.version, a2a: true }, expiresAt: Date.now() + 3600_000, name: team + '-node', session: team, team }, state.key.privateKey);
       const body = state.tamper ? JSON.stringify({ ...card, team: team + 'x' }) : JSON.stringify(card);
@@ -211,6 +216,53 @@ try {
     check(ref2.body?.peer?.status === 'disabled' && ref2.body.peer.pending_fingerprint === fp(E.state.key), '停用期间公钥又变了：保持停用，新指纹记成待确认', show(ref2.body?.peer));
     const on = await inst.call('POST', '/api/a2a/peers/peer_e00000000000/enable', {});
     check(on.body?.peer?.status === 'key_changed' && on.body.peer.disabled_reason === '', '只有管理员显式重新启用才离开停用（看到过新公钥的回到 key_changed 等确认）', show(on.body?.peer));
+  }
+  // ---------- 出站两条管理面：state 只给管理员，send 只发给已登记且正常的对端 ----------
+  {
+    const anon = {}, cli = { 'user-agent': 'node' };
+    const st = await inst.call('GET', '/api/a2a/state');
+    check(st.status === 200 && typeof st.body?.team === 'string' && ['present', 'missing'].includes(st.body?.key) && st.body?.binding !== undefined, 'state：管理员读得到（团队、密钥在不在、名片概况、绑定数）', show(st));
+    const stAnon = await inst.call('GET', '/api/a2a/state', undefined, anon);
+    const stBad = await inst.call('GET', '/api/a2a/state', undefined, { 'x-admin-token': 'wrong-' + ADMIN_TOKEN });
+    const stCase = await inst.call('GET', '/API/A2A/STATE', undefined, anon);
+    check(stAnon.status === 403 && stBad.status === 403 && stCase.status === 403 && !('team' in (stAnon.body ?? {})) && !('card' in (stCase.body ?? {})), 'state：匿名、错口令、换大小写都 403，不给内容', show({ stAnon, stBad: stBad.status, stCase: stCase.status }));
+    const card = await fetch(inst.base + '/.well-known/agent-card.json');
+    check(card.status === 200, '名片本来就公开：匿名照样取得到', String(card.status));
+
+    const send = (root, headers) => inst.call('POST', '/api/a2a/send', { target_url: root, team: 'syn/0a0b0c0d', message: '合成：出站探测' }, headers);
+    // 正常对端：发得出
+    const okB = B.state.posts;
+    const sb = await send(B.root + '/', undefined);
+    check(sb.status === 200 && sb.body?.ok === true && sb.body.target === B.root && B.state.posts === okB + 1, 'send：已登记的 active 对端发得出（发往登记的根地址）', show(sb));
+    // 没登记的：不发
+    const G = await fakePeer('team-g'); peers.push(G);
+    const sg = await send(G.root, undefined);
+    check(sg.status === 403 && sg.body?.error === 'a2a_send_peer_not_registered' && G.state.posts === 0, 'send：没登记的对端 403，一次都不发', show(sg));
+    // 公钥待确认（A）、停用（C）、待登记（H）：不发
+    const offC = await inst.call('POST', `/api/a2a/peers/${byRoot(await list(), C.root).id}/disable`, { reason: '合成：停用后不许出站' });
+    const H = await fakePeer('team-h'); peers.push(H);
+    const insH = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', `
+      const { db } = await import(${JSON.stringify(at('server/src/db.ts'))});
+      db.prepare("INSERT INTO a2a_peers (id, root_url, status, registered_by, registered_at, updated_at) VALUES ('peer_h00000000000', ?, 'pending_registration', 'system:migration', 'x', 'x')").run(${JSON.stringify(H.root)});
+      console.log('OK');`], { env: ENV(data), encoding: 'utf8' });
+    if (!insH.stdout.includes('OK')) throw new Error('造待登记的 H 失败：' + insH.stderr.slice(-500));
+    const [aPosts, cPosts] = [A.state.posts, C.state.posts];
+    const sa = await send(A.root, undefined), sc = await send(C.root, undefined), sh = await send(H.root, undefined);
+    check(offC.body?.peer?.status === 'disabled' && sa.status === 403 && sa.body?.status === 'key_changed' && sc.status === 403 && sc.body?.status === 'disabled' && sh.status === 403 && sh.body?.status === 'pending_registration',
+      'send：公钥待确认、停用、待登记的对端都 403', show({ sa: sa.body, sc: sc.body, sh: sh.body }));
+    check(A.state.posts === aPosts && C.state.posts === cPosts && H.state.posts === 0, 'send：被拒的对端一次都没收到', show({ a: A.state.posts - aPosts, c: C.state.posts - cPosts, h: H.state.posts }));
+    // 谁能调：匿名、本机 CLI 不带口令、错口令、跨站带口令都不行（以前本机 CLI 免口令就能发给任意地址）
+    const bPosts = B.state.posts;
+    const r1 = await send(B.root, anon), r2 = await send(B.root, cli), r3 = await send(B.root, { 'x-admin-token': 'wrong-' + ADMIN_TOKEN });
+    const r4 = await send(B.root, { 'x-admin-token': ADMIN_TOKEN, origin: 'http://evil.invalid', 'sec-fetch-site': 'cross-site' });
+    check([r1, r2, r3, r4].every((r) => r.status === 403) && B.state.posts === bPosts, 'send：匿名、本机不带口令、错口令、跨站带口令都 403，不发', show([r1, r2, r3, r4].map((r) => r.status)));
+    // 地址花样：查表和发往的是同一个根，拼不出别的去处
+    const tricky = [`${G.root}#@${B.root.slice(7)}`, `${G.root}?x=${B.root}`, `http://user@${G.root.slice(7)}`];
+    const outs = [];
+    for (const t of tricky) outs.push(await send(t, undefined));
+    check(outs.every((r) => r.status === 403) && G.state.posts === 0 && B.state.posts === bPosts, 'send：带片段、查询串、userinfo 的地址按真正的主机查表（没登记就不发）', show(outs.map((r) => r.status)));
+    const badTarget = await send('ftp://x.invalid', undefined);
+    check(badTarget.status === 400, 'send：不是 http(s) 的地址 400', show(badTarget));
   }
   await inst.stop(); inst = null;
 

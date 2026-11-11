@@ -215,7 +215,7 @@ const TEXT_FACTS = [
   ["server/src/index.ts", "hashAdminToken"],
   ["scripts/token-smoke.mjs", "无 admin_token_sha256"],
   ["server/src/a2a.ts", "a2aSendOutbound"],
-  ["server/src/index.ts", "/api/a2a/send"],
+  ["server/src/routes/a2a-outbound.ts", "/api/a2a/send"],
   ["server/src/db.ts", "a2a_outbox"],
   ["scripts/receipt-smoke.mjs", "E1 上游 parseReceipt 可解析"],
   ["server/src/db.ts", "sop_run_files"],
