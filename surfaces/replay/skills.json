@@ -1,6 +1,6 @@
 {
   "domain": "skills",
-  "what": "技能市场：列表、角色包、发布、版本、导出、下载、钉装、校验、撤销、摘要上报、回滚、删除、迁移到 LayerFS，和重建 wm-skills，共 14 条路由。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。导出和下载回的是 tar、tar.gz，tar 头里的修改时刻随时间变，只比头。",
+  "what": "技能市场：列表、角色包、发布、版本、导出、下载、钉装、校验、撤销、摘要上报、回滚、删除、迁移到 LayerFS，和重建 wm-skills，共 14 条路由。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。导出和下载回的是 tar、tar.gz：回放解压、遮掉 tar 头里的修改时刻和校验和之后比整个包和每个条目。",
   "routes": [
     "POST /api/skills/:slug/install",
     "GET /api/skills/:slug/verify",
@@ -372,12 +372,21 @@
           "route": "GET /api/skills/:slug/export",
           "class": "normal",
           "what": "导出：缺省当前版本（v2）；文件名、X-Expected-Digest",
-          "compare": "head",
           "request": { "method": "GET", "path": "/api/skills/demo/export" },
           "response": {
             "status": 200,
             "type": "application/x-tar",
-            "headers": { "content-disposition": "attachment; filename=\"demo-v2.tar\"", "content-length": "4096", "vary": "Origin", "x-expected-digest": "bb1bbdfe0780cf6eb027bc17d6a1a2e40ad7c91320cc401e5a836d609641a7d8", "x-powered-by": "Express" }
+            "headers": { "content-disposition": "attachment; filename=\"demo-v2.tar\"", "content-length": "4096", "vary": "Origin", "x-expected-digest": "bb1bbdfe0780cf6eb027bc17d6a1a2e40ad7c91320cc401e5a836d609641a7d8", "x-powered-by": "Express" },
+            "body": {
+              "archive": "tar",
+              "length": 4096,
+              "normalized_sha256": "07959b2558b484de218fefd151ef5cf0fb607e155c45b33ed30ec54851b59383",
+              "entries": [
+                { "path": "demo/SKILL.md", "size": 17, "type": "0", "sha256": "65578449e36bf0ffe63772ef37c5d57c2b9c79337ae242341edeca418491a193" },
+                { "path": "demo/bin/blob.dat", "size": 4, "type": "0", "sha256": "3d1f57c984978ef98a18378c8166c1cb8ede02c03eeb6aee7e2f121dfeee3e56" },
+                { "path": "demo/scripts/run.sh", "size": 8, "type": "0", "sha256": "ab08508fdf5ca4da5c4995987bc41c56c048aaa5eeb046417ae4049b7d40286e" }
+              ]
+            }
           }
         },
         {
@@ -385,12 +394,20 @@
           "route": "GET /api/skills/:slug/export",
           "class": "normal",
           "what": "导出：?version=1",
-          "compare": "head",
           "request": { "method": "GET", "path": "/api/skills/demo/export?version=1" },
           "response": {
             "status": 200,
             "type": "application/x-tar",
-            "headers": { "content-disposition": "attachment; filename=\"demo-v1.tar\"", "content-length": "3072", "vary": "Origin", "x-expected-digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "x-powered-by": "Express" }
+            "headers": { "content-disposition": "attachment; filename=\"demo-v1.tar\"", "content-length": "3072", "vary": "Origin", "x-expected-digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "x-powered-by": "Express" },
+            "body": {
+              "archive": "tar",
+              "length": 3072,
+              "normalized_sha256": "70cc7f7e90f371c4b4a23a9a7995be070e3b6c9ff2760c24cd3b99a43b17be32",
+              "entries": [
+                { "path": "demo/SKILL.md", "size": 26, "type": "0", "sha256": "fb68d402dd8e538d27fd5cfbbc6f2df584fe52a4d9bdc2fca47aa62623105442" },
+                { "path": "demo/scripts/run.sh", "size": 8, "type": "0", "sha256": "ab08508fdf5ca4da5c4995987bc41c56c048aaa5eeb046417ae4049b7d40286e" }
+              ]
+            }
           }
         },
         {
@@ -398,39 +415,41 @@
           "route": "GET /api/skills/:slug/export",
           "class": "invalid",
           "what": "导出：版本不存在，404",
-          "compare": "head",
           "request": { "method": "GET", "path": "/api/skills/demo/export?version=99" },
-          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" } }
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "version not found: 99" } }
         },
         {
           "id": "export-v-text",
           "route": "GET /api/skills/:slug/export",
           "class": "invalid",
           "what": "导出：?version=abc，404",
-          "compare": "head",
           "request": { "method": "GET", "path": "/api/skills/demo/export?version=abc" },
-          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" } }
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "version not found: NaN" } }
         },
         {
           "id": "export-missing",
           "route": "GET /api/skills/:slug/export",
           "class": "invalid",
           "what": "导出：没有这个技能，404",
-          "compare": "head",
           "request": { "method": "GET", "path": "/api/skills/nope/export" },
-          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" } }
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "skill not found: nope" } }
         },
         {
           "id": "export-colon",
           "route": "GET /api/skills/:slug/export",
           "class": "normal",
           "what": "导出：带冒号的 slug，文件名里冒号换成下划线",
-          "compare": "head",
           "request": { "method": "GET", "path": "/api/skills/ns:tool/export" },
           "response": {
             "status": 200,
             "type": "application/x-tar",
-            "headers": { "content-disposition": "attachment; filename=\"ns_tool-v1.tar\"", "content-length": "2048", "vary": "Origin", "x-expected-digest": "17d1a55621084b7a3d30c538b2cf59483184ab166e6a2f2726f696782fcc4e84", "x-powered-by": "Express" }
+            "headers": { "content-disposition": "attachment; filename=\"ns_tool-v1.tar\"", "content-length": "2048", "vary": "Origin", "x-expected-digest": "17d1a55621084b7a3d30c538b2cf59483184ab166e6a2f2726f696782fcc4e84", "x-powered-by": "Express" },
+            "body": {
+              "archive": "tar",
+              "length": 2048,
+              "normalized_sha256": "173c7750514536d61cea2990cf9bac180a901594840719ccfb6200a85698afca",
+              "entries": [{ "path": "tool/README.md", "size": 7, "type": "0", "sha256": "a4e3ab8f4f4eefdb107e6e788dcf12f96aaac7e9c31cbe39d0bb4eab0d16c269" }]
+            }
           }
         },
         {
@@ -716,14 +735,24 @@
           "id": "dl",
           "route": "GET /api/skills/dl/:ticket",
           "class": "normal",
-          "what": "下载：有效的票，tar.gz；只比头（Content-Disposition、X-Expected-Digest、X-Package-Sha256、no-store、no-referrer）；gzip 的字节随包里的时刻变，Content-Length 和 X-Package-Sha256 只比长度",
-          "compare": "head",
+          "what": "下载：有效的票，tar.gz；包规范化之后比（解压、遮掉 tar 头里的时刻和校验和），响应头照比；gzip 的字节随包里的时刻变，Content-Length 和 X-Package-Sha256 只比长度",
           "vary": { "$header:content-length": "random", "$header:x-package-sha256": "random" },
           "request": { "method": "GET", "path": "/api/skills/dl/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
           "response": {
             "status": 200,
             "type": "application/gzip",
-            "headers": { "cache-control": "no-store", "content-disposition": "attachment; filename=\"demo-v1.tar.gz\"", "content-length": "<每个实例随机·string·4>", "referrer-policy": "no-referrer", "vary": "Origin", "x-expected-digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "x-package-sha256": "<每个实例随机·string·64>", "x-powered-by": "Express" }
+            "headers": { "cache-control": "no-store", "content-disposition": "attachment; filename=\"demo-v1.tar.gz\"", "content-length": "<每个实例随机·string·4>", "referrer-policy": "no-referrer", "vary": "Origin", "x-expected-digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "x-package-sha256": "<每个实例随机·string·64>", "x-powered-by": "Express" },
+            "body": {
+              "archive": "tar.gz",
+              "length": 13312,
+              "normalized_sha256": "813c1665f2d4bae40730f4dce7c9b1c738192594e28c0fe493cbedacbd960fd1",
+              "entries": [
+                { "path": "demo/SKILL.md", "size": 26, "type": "0", "sha256": "fb68d402dd8e538d27fd5cfbbc6f2df584fe52a4d9bdc2fca47aa62623105442" },
+                { "path": "demo/scripts/run.sh", "size": 8, "type": "0", "sha256": "ab08508fdf5ca4da5c4995987bc41c56c048aaa5eeb046417ae4049b7d40286e" },
+                { "path": "demo/.wm-skill.json", "size": 636, "type": "0", "sha256": "fba0765d4e1cc8f59619f1a240f49ecbaae6a6628d19ae64e49fb302d431fabe" },
+                { "path": "demo/.wm-skill-verify.mjs", "size": 8046, "type": "0", "sha256": "1ddcff22feb2d6c3f880c73e20f8e339672b6394227cdf10c8a9cb193680b4c3" }
+              ]
+            }
           }
         },
         {
@@ -731,13 +760,23 @@
           "route": "GET /api/skills/dl/:ticket",
           "class": "normal",
           "what": "同一张票第 2 次",
-          "compare": "head",
           "vary": { "$header:content-length": "random", "$header:x-package-sha256": "random" },
           "request": { "method": "GET", "path": "/api/skills/dl/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
           "response": {
             "status": 200,
             "type": "application/gzip",
-            "headers": { "cache-control": "no-store", "content-disposition": "attachment; filename=\"demo-v1.tar.gz\"", "content-length": "<每个实例随机·string·4>", "referrer-policy": "no-referrer", "vary": "Origin", "x-expected-digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "x-package-sha256": "<每个实例随机·string·64>", "x-powered-by": "Express" }
+            "headers": { "cache-control": "no-store", "content-disposition": "attachment; filename=\"demo-v1.tar.gz\"", "content-length": "<每个实例随机·string·4>", "referrer-policy": "no-referrer", "vary": "Origin", "x-expected-digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "x-package-sha256": "<每个实例随机·string·64>", "x-powered-by": "Express" },
+            "body": {
+              "archive": "tar.gz",
+              "length": 13312,
+              "normalized_sha256": "813c1665f2d4bae40730f4dce7c9b1c738192594e28c0fe493cbedacbd960fd1",
+              "entries": [
+                { "path": "demo/SKILL.md", "size": 26, "type": "0", "sha256": "fb68d402dd8e538d27fd5cfbbc6f2df584fe52a4d9bdc2fca47aa62623105442" },
+                { "path": "demo/scripts/run.sh", "size": 8, "type": "0", "sha256": "ab08508fdf5ca4da5c4995987bc41c56c048aaa5eeb046417ae4049b7d40286e" },
+                { "path": "demo/.wm-skill.json", "size": 636, "type": "0", "sha256": "fba0765d4e1cc8f59619f1a240f49ecbaae6a6628d19ae64e49fb302d431fabe" },
+                { "path": "demo/.wm-skill-verify.mjs", "size": 8046, "type": "0", "sha256": "1ddcff22feb2d6c3f880c73e20f8e339672b6394227cdf10c8a9cb193680b4c3" }
+              ]
+            }
           }
         },
         {
@@ -745,13 +784,23 @@
           "route": "GET /api/skills/dl/:ticket",
           "class": "normal",
           "what": "同一张票第 3 次",
-          "compare": "head",
           "vary": { "$header:content-length": "random", "$header:x-package-sha256": "random" },
           "request": { "method": "GET", "path": "/api/skills/dl/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
           "response": {
             "status": 200,
             "type": "application/gzip",
-            "headers": { "cache-control": "no-store", "content-disposition": "attachment; filename=\"demo-v1.tar.gz\"", "content-length": "<每个实例随机·string·4>", "referrer-policy": "no-referrer", "vary": "Origin", "x-expected-digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "x-package-sha256": "<每个实例随机·string·64>", "x-powered-by": "Express" }
+            "headers": { "cache-control": "no-store", "content-disposition": "attachment; filename=\"demo-v1.tar.gz\"", "content-length": "<每个实例随机·string·4>", "referrer-policy": "no-referrer", "vary": "Origin", "x-expected-digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "x-package-sha256": "<每个实例随机·string·64>", "x-powered-by": "Express" },
+            "body": {
+              "archive": "tar.gz",
+              "length": 13312,
+              "normalized_sha256": "813c1665f2d4bae40730f4dce7c9b1c738192594e28c0fe493cbedacbd960fd1",
+              "entries": [
+                { "path": "demo/SKILL.md", "size": 26, "type": "0", "sha256": "fb68d402dd8e538d27fd5cfbbc6f2df584fe52a4d9bdc2fca47aa62623105442" },
+                { "path": "demo/scripts/run.sh", "size": 8, "type": "0", "sha256": "ab08508fdf5ca4da5c4995987bc41c56c048aaa5eeb046417ae4049b7d40286e" },
+                { "path": "demo/.wm-skill.json", "size": 636, "type": "0", "sha256": "fba0765d4e1cc8f59619f1a240f49ecbaae6a6628d19ae64e49fb302d431fabe" },
+                { "path": "demo/.wm-skill-verify.mjs", "size": 8046, "type": "0", "sha256": "1ddcff22feb2d6c3f880c73e20f8e339672b6394227cdf10c8a9cb193680b4c3" }
+              ]
+            }
           }
         },
         {
@@ -759,13 +808,23 @@
           "route": "GET /api/skills/dl/:ticket",
           "class": "normal",
           "what": "同一张票第 4 次",
-          "compare": "head",
           "vary": { "$header:content-length": "random", "$header:x-package-sha256": "random" },
           "request": { "method": "GET", "path": "/api/skills/dl/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
           "response": {
             "status": 200,
             "type": "application/gzip",
-            "headers": { "cache-control": "no-store", "content-disposition": "attachment; filename=\"demo-v1.tar.gz\"", "content-length": "<每个实例随机·string·4>", "referrer-policy": "no-referrer", "vary": "Origin", "x-expected-digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "x-package-sha256": "<每个实例随机·string·64>", "x-powered-by": "Express" }
+            "headers": { "cache-control": "no-store", "content-disposition": "attachment; filename=\"demo-v1.tar.gz\"", "content-length": "<每个实例随机·string·4>", "referrer-policy": "no-referrer", "vary": "Origin", "x-expected-digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "x-package-sha256": "<每个实例随机·string·64>", "x-powered-by": "Express" },
+            "body": {
+              "archive": "tar.gz",
+              "length": 13312,
+              "normalized_sha256": "813c1665f2d4bae40730f4dce7c9b1c738192594e28c0fe493cbedacbd960fd1",
+              "entries": [
+                { "path": "demo/SKILL.md", "size": 26, "type": "0", "sha256": "fb68d402dd8e538d27fd5cfbbc6f2df584fe52a4d9bdc2fca47aa62623105442" },
+                { "path": "demo/scripts/run.sh", "size": 8, "type": "0", "sha256": "ab08508fdf5ca4da5c4995987bc41c56c048aaa5eeb046417ae4049b7d40286e" },
+                { "path": "demo/.wm-skill.json", "size": 636, "type": "0", "sha256": "fba0765d4e1cc8f59619f1a240f49ecbaae6a6628d19ae64e49fb302d431fabe" },
+                { "path": "demo/.wm-skill-verify.mjs", "size": 8046, "type": "0", "sha256": "1ddcff22feb2d6c3f880c73e20f8e339672b6394227cdf10c8a9cb193680b4c3" }
+              ]
+            }
           }
         },
         {
@@ -773,13 +832,23 @@
           "route": "GET /api/skills/dl/:ticket",
           "class": "normal",
           "what": "同一张票第 5 次（上限）",
-          "compare": "head",
           "vary": { "$header:content-length": "random", "$header:x-package-sha256": "random" },
           "request": { "method": "GET", "path": "/api/skills/dl/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
           "response": {
             "status": 200,
             "type": "application/gzip",
-            "headers": { "cache-control": "no-store", "content-disposition": "attachment; filename=\"demo-v1.tar.gz\"", "content-length": "<每个实例随机·string·4>", "referrer-policy": "no-referrer", "vary": "Origin", "x-expected-digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "x-package-sha256": "<每个实例随机·string·64>", "x-powered-by": "Express" }
+            "headers": { "cache-control": "no-store", "content-disposition": "attachment; filename=\"demo-v1.tar.gz\"", "content-length": "<每个实例随机·string·4>", "referrer-policy": "no-referrer", "vary": "Origin", "x-expected-digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "x-package-sha256": "<每个实例随机·string·64>", "x-powered-by": "Express" },
+            "body": {
+              "archive": "tar.gz",
+              "length": 13312,
+              "normalized_sha256": "813c1665f2d4bae40730f4dce7c9b1c738192594e28c0fe493cbedacbd960fd1",
+              "entries": [
+                { "path": "demo/SKILL.md", "size": 26, "type": "0", "sha256": "fb68d402dd8e538d27fd5cfbbc6f2df584fe52a4d9bdc2fca47aa62623105442" },
+                { "path": "demo/scripts/run.sh", "size": 8, "type": "0", "sha256": "ab08508fdf5ca4da5c4995987bc41c56c048aaa5eeb046417ae4049b7d40286e" },
+                { "path": "demo/.wm-skill.json", "size": 636, "type": "0", "sha256": "fba0765d4e1cc8f59619f1a240f49ecbaae6a6628d19ae64e49fb302d431fabe" },
+                { "path": "demo/.wm-skill-verify.mjs", "size": 8046, "type": "0", "sha256": "1ddcff22feb2d6c3f880c73e20f8e339672b6394227cdf10c8a9cb193680b4c3" }
+              ]
+            }
           }
         },
         {
@@ -915,9 +984,8 @@
           "route": "GET /api/skills/:slug/export",
           "class": "invalid",
           "what": "原样发：:slug 是 %2e%2e，404",
-          "compare": "head",
           "request": { "method": "GET", "path": "/api/skills/%2e%2e/export", "raw": true },
-          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" } }
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "skill not found: .." } }
         },
         {
           "id": "raw-pub-long",
@@ -1031,12 +1099,20 @@
           "route": "GET /api/skills/:slug/export",
           "class": "normal",
           "what": "回滚之后导出缺省是 v1",
-          "compare": "head",
           "request": { "method": "GET", "path": "/api/skills/demo/export" },
           "response": {
             "status": 200,
             "type": "application/x-tar",
-            "headers": { "content-disposition": "attachment; filename=\"demo-v1.tar\"", "content-length": "3072", "vary": "Origin", "x-expected-digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "x-powered-by": "Express" }
+            "headers": { "content-disposition": "attachment; filename=\"demo-v1.tar\"", "content-length": "3072", "vary": "Origin", "x-expected-digest": "21a86e20b837f9e2b09b3d6b395320915cbd25c04f93e09fcfbe3b701b831f35", "x-powered-by": "Express" },
+            "body": {
+              "archive": "tar",
+              "length": 3072,
+              "normalized_sha256": "70cc7f7e90f371c4b4a23a9a7995be070e3b6c9ff2760c24cd3b99a43b17be32",
+              "entries": [
+                { "path": "demo/SKILL.md", "size": 26, "type": "0", "sha256": "fb68d402dd8e538d27fd5cfbbc6f2df584fe52a4d9bdc2fca47aa62623105442" },
+                { "path": "demo/scripts/run.sh", "size": 8, "type": "0", "sha256": "ab08508fdf5ca4da5c4995987bc41c56c048aaa5eeb046417ae4049b7d40286e" }
+              ]
+            }
           }
         },
         {
@@ -1378,9 +1454,13 @@
           "route": "GET /api/skills/:slug/export",
           "class": "unauthorized",
           "what": "登录门开着：远程匿名导出",
-          "compare": "head",
           "request": { "method": "GET", "path": "/api/skills/other/export", "headers": { "x-forwarded-for": "198.51.100.7" } },
-          "response": { "status": 401, "type": "application/json; charset=utf-8", "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" } }
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
         },
         {
           "id": "gated-dl-anonymous",
