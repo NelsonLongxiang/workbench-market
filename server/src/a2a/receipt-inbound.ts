@@ -5,7 +5,7 @@
  *   1. 正文能解析成回执（`[A2A receipt] task <id> …`，上游 parseReceipt）；
  *   2. <id> 是我们发出的任务号（a2a_sent_tasks 里有）；
  *   3. 签名方就是当初投递到的那台宿主：OriginClaim 的 caller 等于发出那一刻记下的名片 team，callerUrl 的源等于投递的根地址，
- *      用那个根地址上的名片验签；带了 Sig3（body 绑定）就必须验 Sig3，不降级到 Sig2；验过的签名只认一次。
+ *      用那个根地址上的名片验签；只认绑定正文的 Sig3（只带 Sig2 或更老形式的不采信）；验过后同一请求里所有形式的签名都记为已用。
  * 任何一条不成立都返回 null，调用方照原路处理，应答与今天逐字节相同。前两条成立、第三条不成立的，在事件日志里记一行
  * 「收到未采信」（每次投递最多 20 行），不改状态。caller_session（对方的 CLI 句柄）不参与比对。
  *
@@ -19,18 +19,17 @@ import { createPublicKey, verify as edVerify } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import { parseA2aReceipt } from '../a2a.ts';
 import { audiencesOf, bodyDigest, originOf, SIG_SKEW_MS } from '../a2a-direct-sig.ts';
-import { claimReceipt, claimSignatureOnce, inReceiptTx, sentTask, untrustedReceiptCount, type SentTask } from '../services/a2a-receipts.ts';
+import { claimReceipt, claimSignatureOnce, inReceiptTx, receiptRecorded, sentTask, untrustedReceiptCount, type SentTask } from '../services/a2a-receipts.ts';
 import { logDeliveryFact } from '../workbench-events.ts';
 import { noteA2aError } from './errors.ts';
 import { peerCard } from './peer-card.ts';
 
-export const ORIGIN_CLAIM_BOUND_TAG = 'a2a-origin-claim/2';
 export const ORIGIN_CLAIM_BODY_TAG = 'a2a-origin-claim/3';
 export const RESULT_OUTCOMES = ['completed', 'failed', 'rejected', 'abandoned'] as const;
 const UNTRUSTED_CAP = 20;
 const CALLER_SHAPE = /^[a-z0-9-]+$/i;
 
-export type ReceiptRefusal = 'no-peer-recorded' | 'absent' | 'bad-shape' | 'bad-ts' | 'wrong-audience' | 'wrong-signer' | 'wrong-origin' | 'body-mismatch' | 'no-card' | 'bad-sig' | 'replay';
+export type ReceiptRefusal = 'no-peer-recorded' | 'absent' | 'not-body-bound' | 'bad-shape' | 'bad-ts' | 'wrong-audience' | 'wrong-signer' | 'wrong-origin' | 'body-mismatch' | 'no-card' | 'bad-sig' | 'replay';
 
 type Req = IncomingMessage & { body?: unknown; originalUrl?: string; rawBody?: Buffer };
 
@@ -47,7 +46,7 @@ function verifies(publicKey: string, canonical: string, sig: string): boolean {
 }
 
 /** 签名方是不是当初投递到的那台宿主 */
-export async function verifyReceiptSigner(req: Req, raw: Buffer, sent: SentTask, audiences: string[], now = Date.now()): Promise<{ ok: true } | { ok: false; reason: ReceiptRefusal }> {
+export async function verifyReceiptSigner(req: Req, raw: Buffer, sent: SentTask, audiences: string[], now = Date.now()): Promise<{ ok: true } | { ok: false; reason: ReceiptRefusal; genuine?: boolean }> {
   if (sent.peer_zone === '' || sent.peer_root === '') return { ok: false, reason: 'no-peer-recorded' };
   const caller = header(req, 'x-a2a-caller');
   const callerUrl = header(req, 'x-a2a-caller-url');
@@ -56,7 +55,8 @@ export async function verifyReceiptSigner(req: Req, raw: Buffer, sent: SentTask,
   const sig2 = header(req, 'x-a2a-caller-sig2');
   const hasSig3 = req.headers['x-a2a-caller-sig3'] !== undefined;
   const sig3 = header(req, 'x-a2a-caller-sig3');
-  if (sig2 === '' && !hasSig3) return { ok: false, reason: 'absent' };
+  // 回执会推进事项状态，只认绑定正文的签名（Sig3）：只带 Sig2 或更老形式的，换个正文就能复用，一律不采信
+  if (!hasSig3) return { ok: false, reason: sig2 === '' && req.headers['x-a2a-caller-sig'] === undefined ? 'absent' : 'not-body-bound' };
   if (!CALLER_SHAPE.test(caller) || callerUrl === '' || !Number.isFinite(ts) || ts <= 0) return { ok: false, reason: 'bad-shape' };
   if (Math.abs(now - ts) > SIG_SKEW_MS) return { ok: false, reason: 'bad-ts' };
   if (!audiencesOf(req, audiences).has(originOf(audience))) return { ok: false, reason: 'wrong-audience' };
@@ -65,18 +65,11 @@ export async function verifyReceiptSigner(req: Req, raw: Buffer, sent: SentTask,
   const method = String(req.method ?? '').toUpperCase();
   let path = '';
   try { path = new URL(String(req.originalUrl ?? req.url ?? ''), 'http://x').pathname; } catch { path = ''; }
-  let canonical: string;
-  let sig: string;
-  if (hasSig3) {
-    // 带了 body 绑定签名就只认它：摘要必须等于实际收到的字节
-    const digest = bodyDigest(raw);
-    if (sig3 === '' || header(req, 'x-a2a-body-sha256') !== digest) return { ok: false, reason: 'body-mismatch' };
-    canonical = JSON.stringify([ORIGIN_CLAIM_BODY_TAG, caller, callerUrl, ts, audience, method, path, digest]);
-    sig = sig3;
-  } else {
-    canonical = JSON.stringify([ORIGIN_CLAIM_BOUND_TAG, caller, callerUrl, ts, audience, method, path]);
-    sig = sig2;
-  }
+  // 摘要必须等于实际收到的字节
+  const digest = bodyDigest(raw);
+  if (sig3 === '' || header(req, 'x-a2a-body-sha256') !== digest) return { ok: false, reason: 'body-mismatch' };
+  const canonical = JSON.stringify([ORIGIN_CLAIM_BODY_TAG, caller, callerUrl, ts, audience, method, path, digest]);
+  const sig = sig3;
   let sawCard = false;
   for (const fresh of [false, true]) {
     const card = await peerCard(sent.peer_root, fresh, now);
@@ -84,7 +77,11 @@ export async function verifyReceiptSigner(req: Req, raw: Buffer, sent: SentTask,
     sawCard = true;
     if (card.team !== sent.peer_zone) return { ok: false, reason: 'wrong-signer' };
     if (verifies(card.publicKey, canonical, sig)) {
-      if (!claimSignatureOnce(sig, ts + SIG_SKEW_MS + 60_000, now)) return { ok: false, reason: 'replay' };
+      // 已用记录落库（a2a_sig_seen），保留到时间窗结束之后（ts + 5 分钟 + 1 分钟余量），重启不丢
+      const keepUntil = ts + SIG_SKEW_MS + 60_000;
+      if (!claimSignatureOnce(sig, keepUntil, now)) return { ok: false, reason: 'replay', genuine: true };
+      // 同一请求里出现的其它形式的签名（Sig2、v1 Sig）一并记为已用：防合法请求先到之后剥掉 Sig3 换正文重放
+      for (const other of [sig2, header(req, 'x-a2a-caller-sig')]) if (other !== '') claimSignatureOnce(other, keepUntil, now);
       return { ok: true };
     }
   }
@@ -126,6 +123,11 @@ export async function handleInboundReceipt(req: Req, deps: { audiences: () => st
   const verdict = await verifyReceiptSigner(req, req.rawBody ?? Buffer.alloc(0), sent, deps.audiences(), now);
   const envelope = envelopeOf(message);
   const disposition = typeof envelope.disposition === 'string' ? envelope.disposition : '';
+  if (!verdict.ok && verdict.reason === 'replay' && verdict.genuine === true && receiptRecorded(sent.task_id, disposition === 'acknowledged' ? 'ack' : 'final')) {
+    // 同一条合法回执原样重发：签名是真的、这条回执已经记过——幂等返回，不重复推进
+    noteA2aError('receipt:replay');
+    return { status: 409, body: { error: 'duplicate receipt for this task', code: -32003, task_id: typeof body.task_id === 'string' ? body.task_id.slice(0, 128) : '', replay: true } };
+  }
   if (!verdict.ok) {
     // 不进公开计数：计数一涨就说明这个任务号是我们发过的
     if (untrustedReceiptCount(sent.delivery_id) < UNTRUSTED_CAP) {

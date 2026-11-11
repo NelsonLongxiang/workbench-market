@@ -4,11 +4,12 @@
  *
  * 一、正例：签名方 = 当初投递到的那台宿主（名片 team + 根地址）。
  *    acknowledged → 已接手；completed → 等验收（没先收到 acknowledged 也行）；attention → 在问你（问题 = 摘要）；
- *    rejected → 没办成（理由「对方拒绝」）；abandoned → 放弃；failed → 没办成。Sig3（body 绑定）和只有 Sig2 都认。
+ *    rejected → 没办成（理由「对方拒绝」）；abandoned → 放弃；failed → 没办成。只认绑定正文的 Sig3。
  * 二、对抗组：
  *    别人的任务号（伪造回执文本）→ 照原路，应答与非回执消息逐字节相同；
  *    我们的任务号、别的团队签 → 照原路 + 记「收到未采信」，状态不动；callerUrl 不是投递地址 → 同上；
- *    没签名 → 同上；带 Sig3 但 body 被改 → 不降级到 Sig2；同一签名原样重放 → 未采信；
+ *    没签名 → 同上；只带 Sig2 → 未采信（签名不绑正文）；带 Sig3 但 body 被改 → 未采信；剥掉 Sig3 换正文重放（两种先后）→ 未采信；
+ *    同一条合法回执原样重发（含重启之后）→ 409 幂等、不重复推进；
  *    同一回执换新签名再发 → 409 -32003，不重复记；outcome 词表外（含 expired）→ 只记录不改状态；
  *    idempotencyKey 不是这个任务号 → 只记录；回执外形夹带指令 → 不开 run；投递没记对端 → 未采信；
  *    「收到未采信」每次投递最多 20 行；提交方未验证的事件 → 只记「收到未采信」。
@@ -75,14 +76,19 @@ async function post(raw, headers) {
 }
 
 // ---------- 市场实例 ----------
-const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server',
-  env: { ...process.env, DATA_DIR: DATA, PORT: String(PM), WM_CONTROL_PORT: '0', NODE_ENV: 'test', MCP_GATEWAY: 'off', ADMIN_TOKEN: 'rcpt-admin', MARKET_PUBLIC_URL: BASE, WM_A2A_DIRECT_SIG: '', WM_LOGIN_GATE: '' },
-  stdio: ['ignore', 'pipe', 'pipe'],
-});
+let child = null;
 let out = '';
-child.stdout.on('data', (d) => { out += d; });
-child.stderr.on('data', (d) => { out += d; });
+function boot() {
+  child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
+    cwd: 'server',
+    env: { ...process.env, DATA_DIR: DATA, PORT: String(PM), WM_CONTROL_PORT: '0', NODE_ENV: 'test', MCP_GATEWAY: 'off', ADMIN_TOKEN: 'rcpt-admin', MARKET_PUBLIC_URL: BASE, WM_A2A_DIRECT_SIG: '', WM_LOGIN_GATE: '' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  child.stdout.on('data', (d) => { out += d; });
+  child.stderr.on('data', (d) => { out += d; });
+}
+async function stop() { if (!child || child.exitCode !== null) return; const done = new Promise((r) => child.once('exit', r)); child.kill(); await done; }
+boot();
 async function ready() { const end = Date.now() + 30000; while (Date.now() < end) { try { if ((await fetch(BASE + '/api/health')).status === 200) return true; } catch {} await new Promise((r) => setTimeout(r, 250)); } return false; }
 
 const db = () => new DatabaseSync(join(DATA, 'workbench-market.db'));
@@ -150,7 +156,7 @@ try {
     ok('failed → 没办成', itemState(f.ev)?.state === 'failed');
     const g = seedEvent();
     r = await receipt(g.task, '已接下', { idempotencyKey: g.task, disposition: 'acknowledged' }, { inbound: `ack-${g.task}`, sig3: false });
-    ok('只有 Sig2（旧版宿主）也认', r.status === 200 && itemState(g.ev)?.state === 'accepted', r.text);
+    ok('只有 Sig2 → 不采信（签名不绑正文），状态不动', r.status !== 200 && itemState(g.ev)?.state === 'delivered' && JSON.parse(lastLog(g.ev).detail).reason === 'not-body-bound', `${r.status} ${JSON.stringify(lastLog(g.ev))}`);
   }
 
   console.log('一（续）、一个事件投给两个团队');
@@ -214,12 +220,43 @@ try {
     ok('第一次 → 已接手', r.status === 200 && itemState(a.ev)?.state === 'accepted', r.text);
     const rows1 = logRows(a.ev).length;
     r = await post(rawR, hR);
-    ok('同一签名原样重放 → 未采信（replay），不重复记采信', r.status !== 200 && JSON.parse(lastLog(a.ev).detail).reason === 'replay' && logRows(a.ev).filter((x) => x.action === 'receipt:acknowledged').length === 1);
+    const j5 = (() => { try { return JSON.parse(r.text); } catch { return {}; } })();
+    ok('同一条合法回执原样重发 → 409 幂等返回，不重复推进、不记未采信', r.status === 409 && j5.code === -32003 && j5.replay === true && logRows(a.ev).length === rows1, r.text);
+    // 5b) 剥离重放（合法的先到）：去掉 Sig3 与 Body-Sha256，留 Sig2 等其余头，正文换成同一宿主另一个任务的 completed 回执
+    {
+      const victim = seedEvent();
+      const legitRaw = bodyOf(a.task, receiptText(a.task, '做完', { outcome: 'completed', idempotencyKey: a.task, disposition: 'result' }));
+      const legitH = signed(lab, legitRaw);
+      r = await post(legitRaw, legitH);
+      ok('合法的终局回执先到 → 采信', r.status === 200 && itemState(a.ev)?.state === 'ready', r.text);
+      const stripped = { ...legitH }; delete stripped['X-A2A-Caller-Sig3']; delete stripped['X-A2A-Body-Sha256'];
+      const forgedRaw = bodyOf(victim.task, receiptText(victim.task, '冒充做完', { outcome: 'completed', idempotencyKey: victim.task, disposition: 'result' }));
+      r = await post(forgedRaw, stripped);
+      ok('剥掉 Sig3 换正文（合法的先到）→ 不采信，被换的事项不动', !r.text.includes('"receipt":"recorded"') && itemState(victim.ev)?.state === 'delivered', `${r.status} ${r.text} ${JSON.stringify(itemState(victim.ev))}`);
+      // 5c) 剥离重放（攻击的先到）：截获的合法请求还没送到，先剥掉 Sig3 换正文发出去
+      const later = seedEvent();
+      const legit2 = bodyOf(later.task, receiptText(later.task, '接下', { idempotencyKey: later.task, disposition: 'acknowledged' }), `ack-${later.task}`);
+      const h2 = signed(lab, legit2);
+      const strip2 = { ...h2 }; delete strip2['X-A2A-Caller-Sig3']; delete strip2['X-A2A-Body-Sha256'];
+      const victim2 = seedEvent();
+      r = await post(bodyOf(victim2.task, receiptText(victim2.task, '冒充', { outcome: 'completed', idempotencyKey: victim2.task, disposition: 'result' })), strip2);
+      ok('剥掉 Sig3 换正文（攻击的先到）→ 不采信', !r.text.includes('"receipt":"recorded"') && itemState(victim2.ev)?.state === 'delivered', r.text);
+      r = await post(legit2, h2);
+      ok('……合法的随后到达 → 照常采信', r.status === 200 && itemState(later.ev)?.state === 'accepted', r.text);
+      // 5d) 重启后重放已用过的签名
+      await stop();
+      boot();
+      if (!(await ready())) throw new Error('重启未就绪');
+      const before = logRows(later.ev).length;
+      r = await post(legit2, h2);
+      ok('重启后原样重放已用过的签名 → 409 幂等，不重复推进', r.status === 409 && logRows(later.ev).length === before && itemState(later.ev)?.state === 'accepted', r.text);
+      r = await post(bodyOf(victim2.task, receiptText(victim2.task, '冒充', { outcome: 'completed', idempotencyKey: victim2.task, disposition: 'result' })), strip2);
+      ok('重启后剥离重放仍不采信', !r.text.includes('"receipt":"recorded"') && itemState(victim2.ev)?.state === 'delivered');
+    }
     // 6) 换新签名再发同一回执 → 409 -32003
     r = await receipt(a.task, '接下', { idempotencyKey: a.task, disposition: 'acknowledged' }, { inbound: `ack-${a.task}` });
     const j6 = JSON.parse(r.text);
     ok('同一回执换新签名再发 → 409 -32003 replay，不重复记', r.status === 409 && j6.code === -32003 && j6.replay === true && logRows(a.ev).filter((x) => x.action === 'receipt:acknowledged').length === 1, r.text);
-    void rows1;
 
     // 7) 词表外
     for (const outcome of ['expired', 'sync_completed', 'unknown', 'bogus']) {
@@ -268,12 +305,12 @@ try {
     ok('事件日志里没有签名、头的名字', !/x-a2a|caller-sig|Sig2|Sig3|[A-Za-z0-9+/]{80,}={0,2}/i.test(details), details.slice(0, 300));
     ok('服务端输出里没有签名值', !/x-a2a-caller-sig|[A-Za-z0-9+/]{86}==/.test(out), out.match(/[A-Za-z0-9+/]{86}==/)?.[0] ?? '');
     const h = await (await fetch(BASE + '/api/health')).json();
-    ok('健康块的拒收计数不出未采信的回执（计数一涨就暴露任务号是我们的）', !('receipt:untrusted' in (h.a2a?.refused?.counts ?? {})) && h.a2a?.refused?.counts?.['receipt:replay'] === 1, JSON.stringify(h.a2a?.refused));
+    ok('健康块的拒收计数不出未采信的回执（计数一涨就暴露任务号是我们的）', !('receipt:untrusted' in (h.a2a?.refused?.counts ?? {})) && (h.a2a?.refused?.counts?.['receipt:replay'] ?? 0) >= 1, JSON.stringify(h.a2a?.refused));
   }
 } catch (e) {
   ok('运行', false, String(e?.stack ?? e));
 } finally {
-  child.kill();
+  await stop();
   lab.server.close();
   evil.server.close();
 }
