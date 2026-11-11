@@ -55,7 +55,7 @@ export type Fact = {
   question?: string;
   ask_id?: string;
   answer?: string;
-  note?: 'unrouted' | 'untrusted' | 'undispatched' | 'followup' | 'followup-reply' | 'progress';
+  note?: 'unrouted' | 'untrusted' | 'undispatched' | 'followup' | 'followup-reply' | 'progress' | 'late-result';
   /** 阶段七 R2：note=followup 时席位发来的跟进原文（前 500 字），只用于显示，不参与任何判断 */
   text?: string;
   others_alive?: boolean;
@@ -146,6 +146,8 @@ export const RECORDS: readonly { from: readonly WorkItemState[]; fact: Fact['kin
   // 阶段七 PR-A：席位的进展回执（progress-<task>-<n>）——不结清、不推状态，只记录；终态之后到的拒（标晚到）
   { from: NON_TERMINAL, fact: 'note', when: (f) => f.note === 'progress', note: '席位的进展（只记录）' },
   { from: [...NON_TERMINAL, ...TERMINAL], fact: 'note', when: (f) => f.note === 'followup' || f.note === 'followup-reply', note: '席位发来的消息、人的回复（只记录）；「看过」只留在事件日志和消息状态里，不进事项时间线' },
+  // 打回重做之后，打回之前派出的任务晚到的结束回执：只记录（旧结果不能把事项提前推回等验收）
+  { from: [...NON_TERMINAL, ...TERMINAL], fact: 'note', when: (f) => f.note === 'late-result', note: '打回之前派出的任务晚到的结束回执（只记录，不推状态）' },
 ];
 
 export type ApplyResult =
@@ -351,6 +353,19 @@ function ticketSeat(detail: Record<string, unknown>): string {
 }
 const seatValue = (seat: string) => (seat === SEAT_NONE ? '' : seat);
 
+/** 这条结束回执是不是「打回之前派出的任务」晚到的：最近一次 return-sent 之后，它的任务号没在 reply-sent 里出现过 */
+function staleAfterReturn(rows: readonly EventLogRow[], i: number, detail: Record<string, unknown>): boolean {
+  let lastReturn = -1;
+  for (let k = i - 1; k >= 0; k--) if (rows[k].action === 'return-sent') { lastReturn = k; break; }
+  if (lastReturn < 0) return false;
+  const task = typeof detail.task === 'string' ? detail.task : '';
+  for (let k = lastReturn + 1; k < i; k++) {
+    if (rows[k].action !== 'reply-sent') continue;
+    try { if ((JSON.parse(rows[k].detail || '{}') as { task?: unknown }).task === task) return false; } catch { /* 坏行跳过 */ }
+  }
+  return true;
+}
+
 export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], i: number): Fact | null {
   const row = rows[i];
   const detail = (() => { try { return JSON.parse(row.detail || '{}') as Record<string, unknown>; } catch { return {}; } })();
@@ -380,6 +395,11 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
       fact = { ...base, kind: 'eval', verdict: 'stop', reason, others_alive };
     } else if (row.action === 'decision:ask') fact = { ...base, kind: 'ask', question: typeof detail.reason === 'string' ? detail.reason : '' };
     else if (row.action === 'receipt:acknowledged') fact = { ...base, kind: 'eval', verdict: 'accept', others_alive };
+    else if (RECEIPT_OUTCOME_ACTIONS.includes(row.action) && staleAfterReturn(rows, i, detail)) {
+      // 打回重做之后（事件日志有 return-sent），只有打回之后发出的任务（reply-sent 记下的任务号）的结束回执才推状态；
+      // 打回之前派出的任务晚到的结束回执只记录——否则旧结果会把事项提前推回等验收
+      fact = { ...base, kind: 'note', note: 'late-result', text: `${row.action.slice('receipt:'.length)}：${typeof detail.summary === 'string' ? detail.summary : ''}`.slice(0, 500) };
+    }
     else if (RECEIPT_OUTCOME_ACTIONS.includes(row.action)) {
       const outcome = row.action.slice('receipt:'.length);
       fact = { ...base, kind: 'receipt', outcome, others_alive, others_engaged, ...(outcome === 'rejected' ? { reason: '对方拒绝' } : {}) };
@@ -398,7 +418,7 @@ export function factFromEventLog(event: EventRow, rows: readonly EventLogRow[], 
  * 版本没变时每次启动只做增量：从上次记下的事件日志水位往后核（没装事项服务的进程——比如回滚到旧版本期间——
  * 写进来的事件和事实，靠它补回来）。监听器漏过事实（dirty）也从头全量核。
  */
-export const BACKFILL_VERSION = 8; // 2：阶段七 R2 加了跟进、回复、看过的映射（#546）；3：进展回执的映射（PR-A）；4：回执的 by 记成承接席位；5：承接只取成员、重复事实补写承接（4 已被试联实例用过），终态事项承接空着的也补；6：承接只存句柄、进展只取在做的子项、回填按顺序最后一条为准；7：回执的 artifacts 并进 outputs；8：拆单后多个成员在做时承接清空
+export const BACKFILL_VERSION = 9; // 2：阶段七 R2 加了跟进、回复、看过的映射（#546）；3：进展回执的映射（PR-A）；4：回执的 by 记成承接席位；5：承接只取成员、重复事实补写承接（4 已被试联实例用过），终态事项承接空着的也补；6：承接只存句柄、进展只取在做的子项、回填按顺序最后一条为准；7：回执的 artifacts 并进 outputs；8：拆单后多个成员在做时承接清空；9：打回之后旧任务晚到的结束回执只记录（试联分支）
 /** 后台回填每一片最多占用事件循环的时长（毫秒），之后让出，好让请求得到应答 */
 const BACKFILL_SLICE_MS = 25;
 /** 每次取的行数（一片里可以取好几次） */
