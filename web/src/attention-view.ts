@@ -37,10 +37,22 @@ export function describe(row: Pick<LogRow, 'detail'>): string {
   return bits.filter((x): x is string => typeof x === 'string' && x !== '').join(' · ');
 }
 
+/** 建立人本人能答的（8e）：「等验收」的事项，验收、退回两种，走 POST /api/work-items/:id/decision */
+export const CREATOR_ANSWERS = ['verify', 'return'];
+
 /**
- * 这个人在「关注」里能不能直接答：答复入口和别的 /api 写一样先过写请求总门，只有管理员过得去。
- * 不是管理员的，不给答法和提交按钮，只留「在原页面处理」（免得点下去被告知「需要管理员」）。
+ * 这个人在「关注」里能直接答哪些：
+ *   · 管理员：条目给的全部答法，走答复入口 /api/attention/answer（它在写请求总门后面，只有管理员过得去）；
+ *   · 不是管理员：只有「等验收」的事项可以答验收、退回（列表里给不是管理员的事项都是他自己建的），走建立人入口；
+ *     别的不给答法和提交按钮，只留「在原页面处理」（免得点下去被告知「需要管理员」）。
  */
-export function answerChoices(admin: boolean, answers: string[]): string[] {
-  return admin ? answers : [];
+export function answerChoices(admin: boolean, item: Pick<AttentionItem, 'source' | 'category' | 'answers'>): string[] {
+  if (admin) return item.answers;
+  if (item.source === 'work-items' && item.category === 'accept') return item.answers.filter((a) => CREATOR_ANSWERS.includes(a));
+  return [];
+}
+
+/** 这一条用哪个入口答：不是管理员时建立人验收、退回走建立人入口，其余走答复入口 */
+export function answerRoute(admin: boolean, item: Pick<AttentionItem, 'source' | 'category'>): 'creator' | 'attention' {
+  return !admin && item.source === 'work-items' && item.category === 'accept' ? 'creator' : 'attention';
 }

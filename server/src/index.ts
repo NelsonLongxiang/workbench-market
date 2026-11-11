@@ -293,6 +293,8 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/sop\/runs(\/\d+(\/(finish|files|files\/refs))?)?$/, // files/refs：引用已有文件，路由内与上传同一道写门，另逐条核源 run 读授权
   // 工作台事件 v1：接单节点回写决定（凭投递里的 reply token 鉴权，不认口令；只此一条子路径）
   /^\/api\/workbench-events\/wbe-[0-9a-f]{16}\/decision$/,
+  // 阶段八 8e：建立人本人验收、退回自己的事项（路由内经身份服务认人、事项服务判是不是建立人；只此一条子路径）
+  /^\/api\/work-items\/wi_[A-Za-z0-9_-]{1,96}\/decision$/,
   // MCP 工具 REST 开放：与 /mcp 同口径，凭会话令牌在路由内鉴权，不认管理口令
   /^\/api\/mcp-rest\/(tools\/[^/]+|apps\/[a-z0-9-]{1,64}\/files(\/[^/]+)?)$/,
 ];

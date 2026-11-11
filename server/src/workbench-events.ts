@@ -124,6 +124,8 @@ interface EventCore {
   formVersion: number | null;
   dataSha256: string;
   dispatch: boolean;
+  /** 8e：提交请求经身份服务认出来的人（主体标识）。只记在事件层自己写的「recorded」那一行里，不进发给接收方的信封 */
+  principal?: string | null;
 }
 
 /** 写事件行 + 每个目标一行投递。调用方负责事务。返回 event_id。 */
@@ -132,7 +134,7 @@ function recordEvent(core: EventCore, targets: Target[], routed: 'target' | 'def
   const createdAt = new Date().toISOString();
   db.prepare('INSERT INTO workbench_events (event_id, source, workbench, item, context_id, submitter_kind, submitter, form_version, data_sha256, dispatch, routed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(eventId, core.source, core.workbench, core.item, core.contextId, core.submitterKind, core.submitter, core.formVersion, core.dataSha256, core.dispatch ? 1 : 0, routed);
-  log(eventId, null, 'market', 'recorded', { source: core.source, routed, submitter_kind: core.submitterKind, targets: targets.length });
+  log(eventId, null, 'market', 'recorded', { source: core.source, routed, submitter_kind: core.submitterKind, targets: targets.length, ...(core.principal ? { principal: core.principal } : {}) });
   const envelope = envelopeOf(eventId, createdAt);
   for (const t of targets) {
     let token = '';
@@ -152,7 +154,7 @@ function recordEvent(core: EventCore, targets: Target[], routed: 'target' | 'def
  * 任务中心人工发布 → human 事件。在 publishTaskIntake 的同一事务里调用（发布与事件同生同灭）。
  * 派发开关（任务级 × 中心级）没全开时投递记为 held：只记录「本来会派给谁」，管理员 release 后才发。
  */
-export function recordTaskCenterEvent(task: { id: number; data: Record<string, unknown>; stepValue: (key: string) => unknown; publishedBy: string; templateVersion: number; materialSha256: string; agentDispatch: boolean; centerOn: boolean }): string {
+export function recordTaskCenterEvent(task: { id: number; data: Record<string, unknown>; stepValue: (key: string) => unknown; publishedBy: string; publisherPrincipal?: string | null; templateVersion: number; materialSha256: string; agentDispatch: boolean; centerOn: boolean }): string {
   const targetSop = resolveTargetSop(task.stepValue('target'));
   let targets = targetSop !== '' ? notifyTargets('sop', targetSop) : [];
   let routed: 'target' | 'default' | 'unrouted' = 'target';
@@ -162,6 +164,7 @@ export function recordTaskCenterEvent(task: { id: number; data: Record<string, u
   const core: EventCore = {
     source: 'task-center', workbench: targetSop !== '' ? targetSop : 'task-center', item: `task:${task.id}`, contextId,
     submitterKind: 'human', submitter: `human:${task.publishedBy}`, formVersion: task.templateVersion, dataSha256: task.materialSha256, dispatch: true,
+    principal: task.publisherPrincipal ?? null,
   };
   const fields: Record<string, unknown> = { id: task.id };
   for (const key of ['title', 'intent', 'references', 'deliverable', 'target', 'due']) fields[key] = task.stepValue(key) ?? '';

@@ -126,11 +126,13 @@ export type ApplyResult =
 
 export type NewWorkItem = {
   title: string; created_by: string; source_kind: SourceKind; source_ref?: string;
+  /** 8e：建立人的主体标识。只有认出了人、来源已验证时才给；不给就是空（没有「建立人」，只有管理员能处理） */
+  creator_principal?: string | null;
   context?: Record<string, unknown>; event_id?: number | null; target_team?: string; seat?: string; object?: string; phase?: string;
 };
 
 export type WorkItemRow = {
-  id: string; title: string; created_at: string; created_by: string; source_kind: SourceKind; source_ref: string; context: string;
+  id: string; title: string; created_at: string; created_by: string; creator_principal: string | null; source_kind: SourceKind; source_ref: string; context: string;
   event_id: number | null; task_ids: string; target_team: string; seat: string; eval: string; eval_reason: string; state: WorkItemState;
   progress_summary: string; progress_at: string; open_asks: string; receipt_outcome: string; receipt_at: string;
   outputs: string; evidence: string; object: string; phase: string; updated_at: string;
@@ -196,6 +198,30 @@ export type EventRow = {
   submitter_kind: 'human' | 'agent' | 'unverified'; submitter: string; routed: string; created_at: string;
 };
 export type EventLogRow = { id: number; delivery_id: number | null; actor: string; action: string; detail: string };
+
+const PERSON_PRINCIPAL = /^user:[^\s]+$/;
+
+/**
+ * 8e：这件事项是不是这个主体建立的。「是不是他的」全部只认这一个函数：建立人的验收入口（creatorCheck）、
+ * 「关注」里事项这个来源、事项页的读，用的都是它。只比主体标识；created_by（显示名）不看。
+ * 建立人主体是空的事项，谁都不是它的建立人。
+ */
+export function isCreator(item: Pick<WorkItemRow, 'creator_principal'> | undefined | null, principal: string): boolean {
+  const owner = item?.creator_principal;
+  return typeof owner === 'string' && PERSON_PRINCIPAL.test(owner) && owner === principal;
+}
+
+/**
+ * 8e：从事件确定建立人的主体。只认事件层自己写的「recorded」那一行里记下的主体（发布时经身份服务认出来的），
+ * 而且事件的提交方是已验证的；别的一律 null。不按提交方自填的名字去猜，也不去对主体表。
+ */
+export function creatorPrincipalOf(event: Pick<EventRow, 'submitter_kind'>, recorded: EventLogRow | undefined): string | null {
+  if (!recorded || recorded.actor !== 'market' || event.submitter_kind === 'unverified') return null;
+  let detail: Record<string, unknown> = {};
+  try { detail = JSON.parse(recorded.detail || '{}') as Record<string, unknown>; } catch { return null; }
+  const p = detail?.principal;
+  return typeof p === 'string' && PERSON_PRINCIPAL.test(p) ? p : null;
+}
 
 type DeliveryStatus = 'held' | 'pending' | 'sent' | 'dead' | 'cancelled' | 'accepted' | 'declined';
 const DELIVERY_AFTER: Record<string, DeliveryStatus> = {
@@ -290,11 +316,15 @@ export class WorkItemService extends Service {
     const recorded = rows.find((r) => r.action === 'recorded');
     if (!recorded) return;
     const itemId = itemIdForEvent(eventId);
-    if (!this.get(itemId)) {
+    const creator = creatorPrincipalOf(event, recorded);
+    const existing = this.get(itemId);
+    // 存量事项：建立人主体还空着、而事件能确定已验证主体的，补上（只补空的；确定不了的照旧空着）。重复跑结果相同
+    if (existing && existing.creator_principal === null && creator !== null) db.prepare('UPDATE work_items SET creator_principal = ? WHERE id = ? AND creator_principal IS NULL').run(creator, itemId);
+    if (!existing) {
       const who = String(event.submitter ?? '').replace(/\s+/g, '_').slice(0, 200);
       const createdBy = event.submitter_kind !== 'unverified' && /^[^:\s]+:\S/.test(who) ? who : `${event.submitter_kind}:${who || 'unknown'}`;
       this.insertItem(itemId, {
-        title: `${event.source} · ${event.workbench} · ${event.item}`.slice(0, 500), created_by: createdBy,
+        title: `${event.source} · ${event.workbench} · ${event.item}`.slice(0, 500), created_by: createdBy, creator_principal: creator,
         source_kind: event.source as SourceKind, source_ref: event.event_id, event_id: event.id,
         context: { workbench: event.workbench, item: event.item, context_id: event.context_id, submitter_kind: event.submitter_kind },
       }, { source: EVENT_FACT_SOURCE, id: String(recorded.id) }, event.created_at);
@@ -322,15 +352,16 @@ export class WorkItemService extends Service {
     if (!text(input?.title, 500)) throw new Error('事项要有标题');
     if (!/^[^:\s]+:\S/.test(String(input.created_by ?? ''))) throw new Error('created_by 要是主体标识（如 user:<名>）');
     if (!SOURCE_KINDS.includes(input.source_kind)) throw new Error('不认识的来源类别');
+    if (input.creator_principal != null && !PERSON_PRINCIPAL.test(String(input.creator_principal))) throw new Error('creator_principal 要是人的主体标识（user:<名>）或者不给');
     const id = `wi_${randomUUID().replace(/-/g, '')}`;
     inTx(() => this.insertItem(id, input, { source: 'market', id }));
     return this.get(id)!;
   }
 
   private insertItem(id: string, input: NewWorkItem, by: { source: string; id: string }, createdAt?: string): void {
-    db.prepare(`INSERT INTO work_items (id, title, created_by, source_kind, source_ref, context, event_id, target_team, seat, object, phase, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))`).run(
-      id, input.title, input.created_by, input.source_kind, input.source_ref ?? '', JSON.stringify(input.context ?? {}),
+    db.prepare(`INSERT INTO work_items (id, title, created_by, creator_principal, source_kind, source_ref, context, event_id, target_team, seat, object, phase, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))`).run(
+      id, input.title, input.created_by, input.creator_principal ?? null, input.source_kind, input.source_ref ?? '', JSON.stringify(input.context ?? {}),
       input.event_id ?? null, input.target_team ?? '', input.seat ?? '', input.object ?? '', input.phase ?? '', createdAt ?? null, createdAt ?? null);
     db.prepare(`INSERT INTO work_item_log (item_id, fact, fact_source, fact_id, from_state, to_state, actor, detail)
       VALUES (?, 'create', ?, ?, 'draft', 'draft', ?, '{}')`).run(id, by.source, by.id, input.created_by);
@@ -338,6 +369,21 @@ export class WorkItemService extends Service {
 
   get(id: string): WorkItemRow | undefined {
     return db.prepare('SELECT * FROM work_items WHERE id = ?').get(id) as WorkItemRow | undefined;
+  }
+
+  /**
+   * 8e：建立人本人能不能对这件事项拍板（验收、退回）。不看状态（状态在应用事实时由迁移表判）。
+   *   · 事项不存在、或这个主体不是它的建立人（isCreator：只比建立人主体，不看显示名；建立人主体空着的事项谁都不是）
+   *     → not_found（不说有没有这件事项）
+   *   · 事项来自未验证的提交方 → not_eligible：只能由管理员处理（建事项时这种不会记建立人主体，这里再挡一道）
+   */
+  creatorCheck(id: string, principal: string): 'ok' | 'not_found' | 'not_eligible' {
+    const item = this.get(id);
+    if (!item || !isCreator(item, principal)) return 'not_found';
+    let submitterKind = '';
+    try { submitterKind = String((JSON.parse(item.context || '{}') as { submitter_kind?: unknown }).submitter_kind ?? ''); } catch { /* 坏的 context 当没写 */ }
+    if (submitterKind === 'unverified') return 'not_eligible';
+    return 'ok';
   }
 
   /** 事项最近一次「进入」这几个状态之一的那一行日志的 seq（状态真的变过去的那一行）；没进过返回 null。

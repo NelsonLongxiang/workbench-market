@@ -180,6 +180,8 @@ jobs:
         run: node scripts/workbench-events-admin-identity-test.mjs
       - name: 「关注」的答（阶段八 8d：每个转发的来源新入口和旧入口状态、留痕、应答逐字段相同·无权的人被拒方式一样·重复答返回第一次的结果·并发答一个生效·转发只走写死的表、身份原样、请求体不透传·席位提问的答复和事项的验收退回）
         run: node scripts/attention-answer-test.mjs
+      - name: 建立人验收自己的事项（阶段八 8e，放宽访问的对抗组：别人的事项、冒用显示名、夹带建立人、停用的建立人、跨站、未登录、不在等验收、送别的事实、来源未验证都拒·退回后再进等验收能再答·管理员照旧·启动自检一行）
+        run: node scripts/work-item-creator-test.mjs
       - name: HTTP 服务单测（经服务注册与直接注册的路由栈逐行相同·注册可撤销·同一路径只撤一条·随插件卸载·撤销时在途请求不受影响）
         run: node scripts/http-service-test.mjs
       - name: 路由录制回放（搬路由之前录下的应答，对同一组请求重放，状态码、响应头、响应体必须零差异；每条路由都有未授权、参数非法、正常三类，按录下来的应答核对；自检先红后绿）

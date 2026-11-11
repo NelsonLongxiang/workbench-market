@@ -63,6 +63,7 @@
       "GET /api/attention  -> attention.read  read",
       "POST /api/attention/answer  -> attention.answer  decide",
       "GET /api/work-items/:id  -> work-item.read  read",
+      "POST /api/work-items/:id/decision  -> work-items.accept  decide",
       "POST /api/skills/:slug/install  -> skill.install  admin",
       "GET /api/skills/:slug/verify  -> skill.verify  read",
       "POST /api/skills/:slug/install/:ledgerId/revoke  -> skill.install-revoke  admin",

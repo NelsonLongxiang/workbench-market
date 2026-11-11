@@ -185,6 +185,24 @@ function keyOf(source: string, sourceId: string): string {
   return sourceId;
 }
 
+/**
+ * 8e：建立人本人验收、退回自己的事项。调用前路由已经认过人（登录、同源、主体是启用的人），这里由事项服务判
+ * 「是不是这件事项的建立人、能不能由建立人答」，再按「这一次进入等验收」记账（和「关注」答复入口同一本账，管理员和建立人
+ * 答的是同一轮，谁先答谁生效，另一个拿到第一次的结果）。只收验收、退回两种。
+ */
+export const CREATOR_ANSWERS = ['verify', 'return'] as const;
+export async function creatorAnswer(id: string, principal: string, answer: string, input: Input): Promise<AnswerOutcome> {
+  if (!(CREATOR_ANSWERS as readonly string[]).includes(answer)) return { status: 400, body: { error: 'creator_answer_not_allowed', allowed: CREATOR_ANSWERS } };
+  const verdict = svc<WorkItemService>('workItems').creatorCheck(id, principal);
+  if (verdict === 'not_found') return { status: 404, body: { error: 'work_item_not_found' } };
+  if (verdict === 'not_eligible') return { status: 403, body: { error: 'work_item_creator_not_eligible', message: '建立人不是人、或来源未验证的事项，只能由管理员处理' } };
+  return svc<AttentionService>('attention').once('work-items', keyOf('work-items', id), answer, principal, async () => {
+    const st = svc<WorkItemService>('workItems').get(id)?.state;
+    if (st !== 'ready') return { status: 409, body: { error: 'work_item_not_ready', state: st ?? null } };
+    return DIRECT['work-items'][answer](undefined as unknown as Req, id, input, principal);
+  });
+}
+
 /** 这个来源有哪些答法（换算表和直接实现的并起来）：入口拿它核答法 */
 export function answersOf(source: string): string[] {
   return [...Object.keys(FORWARD[source] ?? {}), ...Object.keys(DIRECT[source] ?? {})];

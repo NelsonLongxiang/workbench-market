@@ -15,6 +15,7 @@
  *   owner-pending     GET /api/workbenches/:id/vars（看板台）  vars 接口的读门                提问
  *   principal-pending GET /api/principals/pending              主体路由的管理门               授权
  *   work-items        没有旧接口：验收 = ready（建立人、管理员）；过目 = held（管理员）  验收 / 过目
+ *                     建立人只认事项上的建立人主体（isCreator，和建立人验收入口、事项页同一个函数）；建立人主体空着的只有管理员看得到
  */
 import type express from 'express';
 import { svc } from './context.ts';
@@ -32,7 +33,7 @@ import type { McpService } from './services/mcp.ts';
 import type { SopService } from './services/sop.ts';
 import type { PrincipalService } from './services/principal.ts';
 import type { WorkbenchService } from './services/workbench.ts';
-import type { WorkItemService } from './services/work-item.ts';
+import { isCreator, type WorkItemService } from './services/work-item.ts';
 
 export type AttentionDeps = {
   /** index.ts 的管理门（变更申请、MCP 权限申请、工作台事件用的就是它） */
@@ -145,19 +146,18 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
       list: async (req) => {
         const items = svc<WorkItemService>('workItems');
         const admin = passes(deps.adminGuard, req);
-        let mine: (by: string) => boolean = () => false;
+        let mine: (w: { creator_principal: string | null }) => boolean = () => false;
         if (!admin) {
           const cookie = String(req.headers.cookie ?? '');
           if (!cookie) return null;
           const who = await identity().resolveViewer(cookie);
           if (!who.ok) return null;
-          // 建立人：事项上记的是主体标识；8b 从任务中心来的写成 human:<登录名>
-          const ids = new Set([who.viewer.sub, `human:${who.viewer.login}`]);
-          mine = (by) => ids.has(by);
+          const sub = who.viewer.sub;
+          mine = (w) => isCreator(w, sub);
         }
         const out: AttentionItem[] = [];
         for (const w of items.list({ state: 'ready' })) {
-          if (!admin && !mine(w.created_by)) continue;
+          if (!admin && !mine(w)) continue;
           out.push(item({ source: 'work-items', source_id: w.id, category: 'accept', title: w.title, waiting_for: w.target_team || w.seat || w.created_by, since: w.updated_at, answers: ['verify', 'return'], link: `/work-items/${w.id}`, object: w.object, phase: w.phase }));
         }
         if (admin) for (const w of items.list({ state: 'held' })) {

@@ -6,7 +6,8 @@ import { Alert, App, Button, Card, Checkbox, Descriptions, Empty, Input, Segment
 import { LeftOutlined, RightOutlined, ReloadOutlined } from '@ant-design/icons';
 import { adminActive, apiFetch, subscribeAdminToken } from '../admin-token';
 import WmPage from '../components/WmPage';
-import { answerChoices, byWaited, waited, type AttentionItem, type Category } from '../attention-view';
+import { answerChoices, answerRoute, byWaited, waited, type AttentionItem, type Category } from '../attention-view';
+import { postCreatorDecision } from '../api';
 
 type Item = AttentionItem;
 type SourceMeta = { label: string; visible: boolean; count: number; error?: string };
@@ -56,17 +57,26 @@ export default function Attention() {
   const cur = list[at];
   useEffect(() => { setAnswer(''); setInput({}); }, [cur?.source, cur?.source_id]);
 
-  const choices = cur ? answerChoices(admin, cur.answers) : [];
+  const choices = cur ? answerChoices(admin, cur) : [];
   const fields = cur && answer ? FIELDS[cur.source]?.[answer] ?? [] : [];
   const missing = fields.some((f) => f.required && !String(input[f.key] ?? '').trim());
   const submit = async () => {
     if (!cur || !answer) return;
     setBusy(true);
     try {
+      if (answerRoute(admin, cur) === 'creator') {
+        const { status, body } = await postCreatorDecision(cur.source_id, answer, String(input.reason ?? ''));
+        if (status === 401) throw Error('请先登录');
+        if (status < 200 || status >= 300) throw Error(body?.result?.error || body?.error || '处理失败');
+        void message.success(body?.duplicate ? '这一条已经处理过了' : '已处理');
+        await load();
+        return;
+      }
       const r = await apiFetch('/api/attention/answer', { method: 'POST', body: JSON.stringify({ source: cur.source, source_id: cur.source_id, answer, input }) });
-      if (r.status === 404) { setNotLive(true); return; }
       const body = await r.json().catch(() => ({}));
-      if (!r.ok) throw Error(body?.error || '处理失败');
+      // 答复入口自己的 404 带错误码（这一条不在列表里了、来源不认识）；没有错误码的 404 才是入口还没上线
+      if (r.status === 404 && !body?.error) { setNotLive(true); return; }
+      if (!r.ok) throw Error(body?.result?.error || body?.error || '处理失败');
       void message.success(body?.duplicate ? '这一条已经处理过了' : '已处理');
       await load();
     } catch (e) { void message.error(e instanceof Error ? e.message : '处理失败'); }
