@@ -5,7 +5,8 @@ const root=resolve('.'),ts=createRequire(new URL('../web/package.json',import.me
 const ast=ts.createSourceFile('export-import.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
 // 路由搬进了域模块：app.post('/api/import', …) 在注册函数里面，往下找
 let route;(function find(n){if(!route&&ts.isExpressionStatement(n)&&ts.isCallExpression(n.expression)&&n.expression.expression.getText(ast)==='app.post'&&n.expression.arguments[0]?.text==='/api/import')route=n;else ts.forEachChild(n,find)})(ast);assert.ok(route,'actual import route');
-const callback=route.expression.arguments[1].getText(ast);
+// 处理函数是最后一个参数（6a 起路径后面先是动作声明 { action, kind }）
+const callArgs=route.expression.arguments,callback=callArgs[callArgs.length-1].getText(ast);
 let checks=0;const check=(name,fn)=>{fn();checks++;console.log('PASS '+name)};
 function fixture(text=callback){const db=new DatabaseSync(':memory:');db.exec("CREATE TABLE workbenches(id INTEGER PRIMARY KEY,name TEXT,url TEXT);CREATE TABLE types(key TEXT PRIMARY KEY,name TEXT);CREATE TABLE cockpits(id INTEGER PRIMARY KEY,layout_config TEXT);INSERT INTO workbenches VALUES(1,'existing','http://fixture.invalid/old');INSERT INTO types VALUES('web','Web');INSERT INTO cockpits VALUES(1,'[]')");let inject=false;
  class HttpError extends Error{constructor(status,code,extra){super(code);Object.assign(this,{status,code,extra})}}class AdmissionError extends HttpError{}
