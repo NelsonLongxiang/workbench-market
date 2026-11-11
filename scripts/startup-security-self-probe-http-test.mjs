@@ -22,13 +22,14 @@ const preload=String.raw`import net from'node:net';import{registerHooks}from'nod
 const listen=net.Server.prototype.listen;
 net.Server.prototype.listen=function(...a){if(typeof a[0]==='number'){if(typeof a[1]==='string')a[1]='127.0.0.1';else a.splice(1,0,'127.0.0.1')}return listen.apply(this,a)};
 const mutation=process.env.WM_SYNTHETIC_PROBE_MUTATION;
-registerHooks({load(url,ctx,next){const loaded=next(url,ctx);if(!mutation||!url.endsWith(mutation==='handler-error'?'/server/src/routes/workbenches.ts':'/server/src/index.ts'))return loaded;let s=String(loaded.source);
+registerHooks({load(url,ctx,next){const loaded=next(url,ctx);if(!mutation||!url.endsWith(mutation==='handler-error'?'/server/src/routes/workbenches.ts':mutation==='export-reveal'?'/server/src/routes/export-import.ts':'/server/src/index.ts'))return loaded;let s=String(loaded.source);
 const replace=(from,to)=>{if(!s.includes(from))throw Error('mutation anchor missing: '+mutation);s=s.replace(from,to);};
 if(mutation==='login-gate')replace('app.use(loginGate.middleware);','app.use((_q,_s,n)=>n());');
 if(mutation==='login-gate-apps')replace('app.use(loginGate.middleware);',"app.use((q,s,n)=>q.path.startsWith('/apps/')?n():loginGate.middleware(q,s,n));");
 if(mutation==='a2a-direct-unsigned')replace("  if (A2A_DIRECT_SIG !== 'off') {","  if (false) {");
 if(mutation==='mcp-auth')replace('  if (!MCP_GATEWAY_ON) return null;','  if (true || !MCP_GATEWAY_ON) return null;');
 if(mutation==='browser-write')replace("  if (p.startsWith('/api/')) {","  if (false && p.startsWith('/api/')) {");
+if(mutation==='export-reveal')replace("      if (!adminGuard(req, res)) return;\n      res.set('Cache-Control', 'no-store');","      res.set('Cache-Control', 'no-store');");
 if(mutation==='unsigned-login-event')replace('registerLoginEventRoutes(http);',"app.post('/login/:flow/events', (_q, s) => s.status(200).json({}));");
 if(mutation==='forged-login-callback')replace('registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionTtlMs: SESSION_TTL_MIN * 60_000 });',"app.get('/login/:flow/callback', (_q, s) => s.redirect(302, '/tasks'));");
 if(mutation==='principals-admin-read')replace('registerPrincipalRoutes(http, { markOdooAdmin, adminGuard, adminActor });','registerPrincipalRoutes(http, { markOdooAdmin, adminGuard: () => true, adminActor });');
@@ -66,6 +67,7 @@ async function runCase(label,{off=false,control=false,occupied=false,unset=false
    check(label+' log identifies failed self-probe row',so.includes('"source":"self-probe"')&&so.includes('"verdict":"fail"'));
    if(mutation==='login-gate')check(label+' every login-gate row is named failed',['page','app','api'].every(k=>so.includes('"id":"market.login-gate.'+k+'","surface":"market","method":"GET","path":"'+({page:'/',app:'/apps/wm-self-probe/',api:'/api/apps'})[k]+'","verdict":"fail"')));
    if(mutation==='login-gate-apps')check(label+' only the leaking /apps row fails',so.includes('"id":"market.login-gate.app","surface":"market","method":"GET","path":"/apps/wm-self-probe/","verdict":"fail"')&&so.includes('"id":"market.login-gate.page","surface":"market","method":"GET","path":"/","verdict":"pass"'));
+   if(mutation==='export-reveal')check(label+' only the export reveal row fails',so.includes('"id":"market.export.reveal-anonymous"')&&so.split('"verdict":"fail"').length===2);
    if(mutation==='unsigned-login-event')check(label+' only the unsigned login event row fails',so.includes('"id":"market.login-flow.unsigned-event"')&&so.split('"verdict":"fail"').length===2);
    if(mutation==='forged-login-callback')check(label+' only the forged login callback row fails',so.includes('"id":"market.login-flow.forged-callback"')&&so.split('"verdict":"fail"').length===2);
    if(mutation==='principals-admin-read')check(label+' only the principal list row fails',so.includes('"id":"market.principals.admin-read","surface":"market","method":"GET","path":"/api/principals","verdict":"fail"')&&so.split('"verdict":"fail"').length===2);
@@ -113,6 +115,7 @@ await runCase('browser-write-regression',{mutation:'browser-write',expectFailure
 await runCase('principals-admin-read-regression',{mutation:'principals-admin-read',expectFailure:true});
 await runCase('forged-login-callback-regression',{mutation:'forged-login-callback',expectFailure:true});
 await runCase('unsigned-login-event-regression',{mutation:'unsigned-login-event',expectFailure:true});
+await runCase('export-reveal-regression',{mutation:'export-reveal',expectFailure:true});
 await runCase('probe-timeout',{mutation:'mcp-timeout',expectFailure:true});
 await runCase('probe-handler-error',{mutation:'handler-error',expectFailure:true});
 await runCase('login-gate-enforce',{gate:'enforce',control:true});

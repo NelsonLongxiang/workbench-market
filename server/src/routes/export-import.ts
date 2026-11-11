@@ -1,6 +1,7 @@
 /**
  * 导出与导入的路由（/api/export、/api/import），连同只有导入用的 importErr。原样搬自 index.ts，一个字没改，只多了两格缩进。
- * 导出缺省脱敏；导入整批预检全过才进事务（事务语句在 WorkbenchService 里），任一失败整体回滚零写。
+ * 导出缺省脱敏；?reveal=1 取真值要求管理员（口令或管理员登录，浏览器来的要同源），不满足 403，不降级成掩码。
+ * 导入整批预检全过才进事务（事务语句在 WorkbenchService 里），任一失败整体回滚零写。
  *
  * app 是 HTTP 服务，不是 Express 应用本身：注册的写法和 Express 一样，路由挂在调用那一刻的位置，注册可以撤销。
  * index.ts 里别的路由也在用、还没挪成模块的东西，经第二个参数传进来；处理函数照旧用原来的名字。
@@ -16,7 +17,7 @@ import { AdmissionError, auditAllow, checkHealthPath, checkTypeHealthPath, type 
 
 type WorkbenchView = ReturnType<typeof rowToWorkbench>;
 
-/** 从 index.ts 传进来的：台的列表与脱敏、设置出口的脱敏、地址准入（策略与判定）、写请求的主体（别的路由也用）。 */
+/** 从 index.ts 传进来的：台的列表与脱敏、设置出口的脱敏、地址准入（策略与判定）、写请求的主体、管理员门（别的路由也用）。 */
 export interface ExportImportDeps {
   listWorkbenches: () => WorkbenchView[];
   maskForApi: (w: WorkbenchView) => WorkbenchView;
@@ -24,15 +25,26 @@ export interface ExportImportDeps {
   URL_POLICY: AllowPolicy;
   admitOrDeny: (op: 'register' | 'update' | 'import', url: string) => ReturnType<typeof admitUrl>;
   restSubject: (req: express.Request) => string;
+  /** 按需认定管理员登录（GET 不经写门，不会预先认定） */
+  markAdmin: (req: express.Request) => Promise<void>;
+  /** 管理员门：口令或管理员登录，浏览器来的要同源；不通过时已写好 403 并返回 false */
+  adminGuard: (req: express.Request, res: express.Response) => boolean;
 }
 
 export function registerExportImportRoutes(app: HttpService, deps: ExportImportDeps): void {
-  const { listWorkbenches, maskForApi, maskUpstreamsSetting, URL_POLICY, admitOrDeny, restSubject } = deps;
-  app.get('/api/export', (req, res) => {
+  const { listWorkbenches, maskForApi, maskUpstreamsSetting, URL_POLICY, admitOrDeny, restSubject, markAdmin, adminGuard } = deps;
+  app.get('/api/export', (req, res, next) => { exportHandler(req, res).catch(next); });
+  async function exportHandler(req: express.Request, res: express.Response): Promise<void> {
     // compliance 二期首项：导出默认脱敏（compliance 范围 kb ab3279b84a 的「导出面」——
     // 无认证导出曾是最大凭据泄漏向量）。?reveal=1 显式取真值（备份/迁移用途），
     // 导入侧对掩码 url/auth 整批400拒绝（见 import 预检）——失败零写，不跳行报成功。
     const reveal = req.query.reveal === '1';
+    if (reveal) {
+      // 取真值要求管理员，口径同别的管理读面；不满足 403，不悄悄降级成掩码（备份脚本拿到掩码会以为备份成功）
+      await markAdmin(req);
+      if (!adminGuard(req, res)) return;
+      res.set('Cache-Control', 'no-store');
+    }
     res.json({
       format: 'workbench-market/export@1',
       exported_at: new Date().toISOString(),
@@ -43,7 +55,7 @@ export function registerExportImportRoutes(app: HttpService, deps: ExportImportD
       // 导入侧亦不覆盖 mcp_upstreams（掩码值跳过），凭据需在页面重填。
       settings: maskUpstreamsSetting(getSettings()),
     });
-  });
+  }
 
   // #258 D：import 整批预检（结构 + 掩码 + 同核准入）全过才进事务；replace 的清库、类型、插入、布局修复同一事务，
   // 任一失败整体回滚零写。不再 skip 坏行/掩码行（掩码导出整批拒 masked_import_value，请用 ?reveal=1 的受控备份）。

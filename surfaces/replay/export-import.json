@@ -7,7 +7,7 @@
     {
       "name": "open",
       "what": "缺省配置：登录门关，读面开放；本机命令行免口令。定了时钟：导出里有导出时间。",
-      "env": {},
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
       "clock": "2030-01-01T00:00:00Z",
       "steps": [
         {
@@ -176,12 +176,12 @@
           "id": "export-reveal",
           "route": "GET /api/export",
           "class": "normal",
-          "what": "?reveal=1：带真值，masked=0（上游 headers 照样掩码）",
-          "request": { "method": "GET", "path": "/api/export?reveal=1" },
+          "what": "?reveal=1 带管理口令：带真值，masked=0（上游 headers 照样掩码）",
+          "request": { "method": "GET", "path": "/api/export?reveal=1", "headers": { "x-admin-token": "replay-synthetic-admin" } },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "4297", "etag": "W/\"10c9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "4297", "etag": "W/\"10c9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "format": "workbench-market/export@1",
               "exported_at": "YYYY-MM-DDThh:mm:ss.fffZ",
@@ -291,6 +291,53 @@
               "settings": { "health_interval_seconds": "0", "health_timeout_ms": "5000", "health_concurrency": "8", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ", "mcp_upstreams": "[{\"name\":\"up\",\"url\":\"http://127.0.0.1:9/mcp\",\"headers\":{\"Authorization\":\"****\"}}]" }
             }
           }
+        },
+        {
+          "id": "export-reveal-no-token",
+          "route": "GET /api/export",
+          "class": "unauthorized",
+          "what": "?reveal=1 不带口令（本机直连）：403，不降级成掩码",
+          "request": { "method": "GET", "path": "/api/export?reveal=1" },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "export-reveal-remote-anonymous",
+          "route": "GET /api/export",
+          "class": "unauthorized",
+          "what": "?reveal=1 带转发头的匿名读：403",
+          "request": { "method": "GET", "path": "/api/export?reveal=1", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "export-reveal-wrong-token",
+          "route": "GET /api/export",
+          "class": "unauthorized",
+          "what": "?reveal=1 口令不对：403",
+          "request": { "method": "GET", "path": "/api/export?reveal=1", "headers": { "x-admin-token": "nope" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "export-reveal-cross-site",
+          "route": "GET /api/export",
+          "class": "unauthorized",
+          "what": "?reveal=1 口令对，但浏览器从别的站点发来：403",
+          "request": { "method": "GET", "path": "/api/export?reveal=1", "headers": { "x-admin-token": "replay-synthetic-admin", "origin": "https://elsewhere.example", "sec-fetch-site": "cross-site" } },
+          "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "36", "etag": "W/\"24-<指纹>\"", "x-powered-by": "Express" }, "body": { "error": "跨源写操作被拒绝" } }
         },
         {
           "id": "export-reveal-other",
@@ -1061,11 +1108,11 @@
           "route": "GET /api/export",
           "class": "normal",
           "what": "合并之后的导出（真值）",
-          "request": { "method": "GET", "path": "/api/export?reveal=1" },
+          "request": { "method": "GET", "path": "/api/export?reveal=1", "headers": { "x-admin-token": "replay-synthetic-admin" } },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "5282", "etag": "W/\"14a2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "5282", "etag": "W/\"14a2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "format": "workbench-market/export@1",
               "exported_at": "YYYY-MM-DDThh:mm:ss.fffZ",
@@ -1256,11 +1303,11 @@
           "route": "GET /api/export",
           "class": "normal",
           "what": "替换之后的导出（真值）",
-          "request": { "method": "GET", "path": "/api/export?reveal=1" },
+          "request": { "method": "GET", "path": "/api/export?reveal=1", "headers": { "x-admin-token": "replay-synthetic-admin" } },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1538", "etag": "W/\"602-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "1538", "etag": "W/\"602-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "format": "workbench-market/export@1",
               "exported_at": "YYYY-MM-DDThh:mm:ss.fffZ",
@@ -1337,11 +1384,11 @@
           "route": "GET /api/export",
           "class": "normal",
           "what": "body 替换之后：只剩这一个台",
-          "request": { "method": "GET", "path": "/api/export?reveal=1" },
+          "request": { "method": "GET", "path": "/api/export?reveal=1", "headers": { "x-admin-token": "replay-synthetic-admin" } },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "972", "etag": "W/\"3cc-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "972", "etag": "W/\"3cc-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "format": "workbench-market/export@1",
               "exported_at": "YYYY-MM-DDThh:mm:ss.fffZ",
@@ -1437,6 +1484,72 @@
               "format": "workbench-market/export@1",
               "exported_at": "YYYY-MM-DDThh:mm:ss.fffZ",
               "masked": 1,
+              "workbenches": [
+                {
+                  "id": 1,
+                  "name": "任务中心",
+                  "url": "/sop/task-center/",
+                  "type": "market-app",
+                  "icon": "📋",
+                  "description": "人工发布录入任务",
+                  "category": "SOP 台",
+                  "tags": [],
+                  "enabled": true,
+                  "health_path": "/",
+                  "last_status": "unknown",
+                  "last_checked_at": "",
+                  "last_latency_ms": null,
+                  "last_http_code": null,
+                  "last_error": "",
+                  "sort": 0,
+                  "created_at": "YYYY-MM-DD hh:mm:ss",
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "cookie_set_id": 0,
+                  "auth": null
+                }
+              ],
+              "types": [
+                { "id": 1, "key": "web", "name": "通用 Web 工作台", "icon": "🌐", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "任意 HTTP 响应即视为在线", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 2, "key": "openai-api", "name": "OpenAI 兼容 API", "icon": "🤖", "default_port": 8000, "health_method": "GET", "health_path": "/v1/models", "expect_status": null, "description": "兼容 OpenAI 接口的服务（401 也算存活）", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 3, "key": "ollama", "name": "Ollama 服务", "icon": "🦙", "default_port": 11434, "health_method": "GET", "health_path": "/api/tags", "expect_status": 200, "description": "本地模型服务", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 4, "key": "gradio", "name": "Gradio 应用", "icon": "🎨", "default_port": 7860, "health_method": "GET", "health_path": "/config", "expect_status": null, "description": "Gradio WebUI 应用", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 5, "key": "streamlit", "name": "Streamlit 应用", "icon": "📊", "default_port": 8501, "health_method": "GET", "health_path": "/_stcore/health", "expect_status": 200, "description": "Streamlit 数据应用", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 6, "key": "jupyter", "name": "Jupyter 服务", "icon": "📓", "default_port": 8888, "health_method": "GET", "health_path": "/api", "expect_status": null, "description": "Jupyter Notebook / Lab", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 7, "key": "mcp-sse", "name": "MCP SSE 端点", "icon": "🔌", "default_port": 3000, "health_method": "GET", "health_path": "/sse", "expect_status": null, "description": "MCP Server-Sent Events 端点", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 8, "key": "docs", "name": "文档站", "icon": "📚", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "静态文档 / 知识库站点", "created_at": "YYYY-MM-DD hh:mm:ss" },
+                { "id": 9, "key": "market-app", "name": "市场自产台", "icon": "🧩", "default_port": null, "health_method": "GET", "health_path": "/", "expect_status": null, "description": "市场内置静态托管（POST /api/apps 发布），服务存活即在线", "created_at": "YYYY-MM-DD hh:mm:ss" }
+              ],
+              "settings": { "health_interval_seconds": "0", "health_timeout_ms": "5000", "health_concurrency": "8", "patrol_armed_at": "YYYY-MM-DDThh:mm:ss.fffZ" }
+            }
+          }
+        },
+        {
+          "id": "export-reveal-anonymous",
+          "route": "GET /api/export",
+          "class": "unauthorized",
+          "what": "登录门开着，远程匿名 ?reveal=1",
+          "request": { "method": "GET", "path": "/api/export?reveal=1", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "x-powered-by": "Express", "x-wm-login-required": "1" },
+            "body": { "error": "login_required", "message": "需要登录：用 Odoo 内部账号或管理员口令登录", "login_url": "/login" }
+          }
+        },
+        {
+          "id": "export-reveal-with-token",
+          "route": "GET /api/export",
+          "class": "normal",
+          "what": "远程带口令 ?reveal=1：带真值",
+          "request": { "method": "GET", "path": "/api/export?reveal=1", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "2776", "etag": "W/\"ad8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "format": "workbench-market/export@1",
+              "exported_at": "YYYY-MM-DDThh:mm:ss.fffZ",
+              "masked": 0,
               "workbenches": [
                 {
                   "id": 1,

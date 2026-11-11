@@ -2842,7 +2842,7 @@ function maskUpstreamsSetting(settings: Record<string, string>): Record<string, 
 
 registerSettingsRoutes(http, { maskUpstreamsSetting, armPatrol });
 
-registerExportImportRoutes(http, { listWorkbenches, maskForApi, maskUpstreamsSetting, URL_POLICY, admitOrDeny, restSubject });
+registerExportImportRoutes(http, { listWorkbenches, maskForApi, maskUpstreamsSetting, URL_POLICY, admitOrDeny, restSubject, markAdmin: markOdooAdmin, adminGuard });
 
 // ---------- 凭据库（融合 dsh-vault）：读写全部过 vaultGuard ----------
 // 与 adminGuard 同口径，只多认一种浏览器形态：同源 GET 不带 Origin（只有 Sec-Fetch-Site: same-origin），
