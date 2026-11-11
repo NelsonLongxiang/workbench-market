@@ -599,6 +599,7 @@ CREATE INDEX IF NOT EXISTS idx_principal_identities_principal ON principal_ident
 //     一次性：回调核对时原子地取出并删除；有期限；按来源限额（见 services/login-session.ts）。
 //   principal_pending：等管理员对接的清单。只放认人需要的最少信息（对方的用户标识、显示名、企业邮箱）和最近一次来的时间；
 //     保留 30 天，过期清掉（见 services/principal.ts）。
+//   login_events_seen：登录方式推来的事件（比如飞书通讯录变更）处理过的事件号，防重放；多个实例共用，保留 7 天。
 //   market_sessions：登录之后发给浏览器的会话（cookie 里是随机值，库里只存哈希）。绝对期限，不续期；
 //     注销即 revoked_at；主体停用由认人时现查主体状态管住。provider/external_id 记着这次是凭哪条外部身份进来的（留痕用）。
 db.exec(`
@@ -622,6 +623,12 @@ CREATE TABLE IF NOT EXISTS market_sessions (
   revoked_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_market_sessions_principal ON market_sessions (principal_id, expires_at);
+CREATE TABLE IF NOT EXISTS login_events_seen (
+  flow TEXT NOT NULL,
+  event_id TEXT NOT NULL,
+  seen_at INTEGER NOT NULL,
+  PRIMARY KEY (flow, event_id)
+);
 CREATE TABLE IF NOT EXISTS principal_pending (
   provider TEXT NOT NULL,
   external_id TEXT NOT NULL,

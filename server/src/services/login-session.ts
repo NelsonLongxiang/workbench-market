@@ -61,6 +61,14 @@ export class LoginSessionService extends Service {
     return taken ? { next: taken.next } : null;
   }
 
+  // ---------- 登录方式推来的事件：防重放 ----------
+
+  /** 记下一个事件号；第一次见到返回 true，见过返回 false（多个实例共用这张表，同一个事件只处理一次）。顺手清掉 7 天前的 */
+  firstSeen(flow: string, eventId: string, now = Date.now()): boolean {
+    db.prepare('DELETE FROM login_events_seen WHERE seen_at < ?').run(now - 7 * 86_400_000);
+    return db.prepare('INSERT OR IGNORE INTO login_events_seen (flow, event_id, seen_at) VALUES (?, ?, ?)').run(flow, eventId, now).changes === 1;
+  }
+
   // ---------- 市场会话 ----------
 
   /** 发一个会话。principal 必须是启用的人（调用方已经对到主体）；返回放进 cookie 的值和到期时刻 */

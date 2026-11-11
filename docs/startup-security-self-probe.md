@@ -2,7 +2,7 @@
 
 范围：各面监听后，用固定 127.0.0.1 和实际监听端口对本服务做匿名安全断言；自检结束前，入口门闩拒绝外部 HTTP、市场 WS 和内容面 WS，不运行任何业务工具。失败只关闭本次进程创建的服务器并以非零退出，不查杀父进程或宿主。
 
-固定表：market匿名MCP initialize=401且Bearer challenge；tools/list=401；market带本面Origin的POST /api/workbenches、固定空name/url=403；无Origin同一非法写=400（纯校验、零业务写对照）；control实际监听才测GET /api/mcp/sessions=403；market远程匿名浏览器GET /api/principals=403（主体管理面只有管理员能读；登录门enforce时由登录门先拦，期望401）；market远程匿名GET /login/feishu/callback带编出来的state=400（不跳转、不发会话；不论是否配置了登录方式）。控制面关闭或监听失败按既有面语义标skip；只有明确 NODE_ENV=development 或 NODE_ENV=test 时，显式MCP_GATEWAY=off 才把两条MCP行降为warning，其他行仍强制。production、未设、空值或其他运行模式配off时，两条MCP行具名fail（gateway-off-forbidden），启动门闩不开放且本进程非零退出。
+固定表：market匿名MCP initialize=401且Bearer challenge；tools/list=401；market带本面Origin的POST /api/workbenches、固定空name/url=403；无Origin同一非法写=400（纯校验、零业务写对照）；control实际监听才测GET /api/mcp/sessions=403；market远程匿名浏览器GET /api/principals=403（主体管理面只有管理员能读；登录门enforce时由登录门先拦，期望401）；market远程匿名GET /login/feishu/callback带编出来的state=400（不跳转、不发会话；不论是否配置了登录方式）；market远程匿名POST /login/feishu/events不带签名=401（不停用任何人；不论是否配置了登录方式）。控制面关闭或监听失败按既有面语义标skip；只有明确 NODE_ENV=development 或 NODE_ENV=test 时，显式MCP_GATEWAY=off 才把两条MCP行降为warning，其他行仍强制。production、未设、空值或其他运行模式配off时，两条MCP行具名fail（gateway-off-forbidden），启动门闩不开放且本进程非零退出。
 
 门闩只给本轮私有随机标记、真实回环socket、预先登记的本地port/method/固定path组合放行；该标记只穿过门闩，不绕过原鉴权或输入校验、不出现在日志/health。伪造普通self-probe头不享受标记。请求无Cookie、无Bearer、无管理口令，禁redirect跟随，1.5秒超时失败。
 

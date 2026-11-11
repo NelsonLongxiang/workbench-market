@@ -239,6 +239,7 @@ export function createLoginGate(deps: Deps) {
     if (get && (p === '/api/health' || p === '/api/health/ready' || p === '/login' || p === '/api/auth/me' || p === '/.well-known/agent-card.json')) return true;
     if (m === 'POST' && (p === '/api/auth/login' || p === '/api/auth/logout')) return true;
     if (get && /^\/login\/[a-z0-9][a-z0-9-]{0,31}(\/callback)?$/.test(p)) return true; // 登录方式的发起和回调（还没有身份才要登录）；路由里核 state
+    if (m === 'POST' && /^\/login\/[a-z0-9][a-z0-9-]{0,31}\/events$/.test(p)) return true; // 失效通知：路由里由插件验签，验不过 401
     if (m === 'POST' && p === '/a2a/direct') return true; // 路由内验签（a2a-direct-sig.ts），enforce 下无签名 401
     if (m === 'POST' && /^\/api\/workbench-events\/wbe-[0-9a-f]{16}\/decision$/.test(p)) return true; // reply token 认证
     if (get && /^\/design\/tokens@[0-9.]+\.css$/.test(p)) return true;

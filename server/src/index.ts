@@ -39,6 +39,7 @@ import { registerExportImportRoutes } from './routes/export-import.ts';
 import { registerLoginFlowRoutes } from './routes/login-flows.ts';
 import { registerWorkbenchRoutes } from './routes/workbenches.ts';
 import { registerSopPageRoutes } from './routes/sop-page.ts';
+import { registerLoginEventRoutes } from './routes/login-events.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import type { SopService } from './services/sop.ts';
 import { SkillService } from './services/skill.ts';
@@ -262,7 +263,8 @@ app.use((req, res, next) => {
   if ((req.url ?? '').startsWith('/go/')) return next();
   if (req.method === 'PUT' && MCP_REST_RAW_UPLOAD.test(req.path)) return next();
   // /a2a/direct 的 body 签名要原始字节（a2a-direct-sig.ts 的 X-WM-Body-Sha256）
-  const keepRaw = req.method === 'POST' && req.path.toLowerCase() === '/a2a/direct';
+  // 登录方式的失效通知（/login/<方式>/events）同样要原始字节：飞书的签名算在原始请求体上
+  const keepRaw = req.method === 'POST' && (req.path.toLowerCase() === '/a2a/direct' || /^\/login\/[a-z0-9][a-z0-9-]{0,31}\/events$/i.test(req.path));
   return express.json({ limit: bodyLimitFor(req), ...(keepRaw ? { verify: (r: IncomingMessage, _res: unknown, buf: Buffer) => { (r as IncomingMessage & { rawBody?: Buffer }).rawBody = buf; } } : {}) })(req, res, next);
 });
 
@@ -2955,7 +2957,8 @@ app.get('/api/health/ready', async (_req, res) => {
   res.json(result);
 });
 loginGate.mount(app); // /login、/api/auth/login|logout|me（解析器之后、SPA 回落之前）
-registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionTtlMs: SESSION_TTL_MIN * 60_000 }); // /login/<方式>、/login/<方式>/callback：飞书等发市场会话的登录
+registerLoginFlowRoutes(http, { publicUrl: marketPublicUrl, sessionTtlMs: SESSION_TTL_MIN * 60_000 });
+registerLoginEventRoutes(http); // /login/<方式>/events：离职、停用的失效通知；每天一次对账 // /login/<方式>、/login/<方式>/callback：飞书等发市场会话的登录
 
 // ---------- A2A 网络接入（GH #17 P1：签名卡片 + 人工绑定，只读暴露） ----------
 // 卡片：canonical/签名与上游 card.ts（裁判钉 75a3ebd）逐字节一致；sessionTeams 只列

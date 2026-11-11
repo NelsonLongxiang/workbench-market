@@ -281,4 +281,25 @@ export class PrincipalService extends Service implements PrincipalDirectory {
     return db.prepare('SELECT provider, external_id, display_name, email, last_seen FROM principal_pending ORDER BY last_seen DESC, provider, external_id LIMIT 500').all() as never;
   }
 
+
+  /** 某个提供方下、绑在启用的人身上的全部外部身份（对账用） */
+  activeIdentities(provider: string): string[] {
+    if (!providerOk(provider)) return [];
+    return (db.prepare("SELECT i.external_id AS id FROM principal_identities i JOIN principals p ON p.id = i.principal_id WHERE i.provider = ? AND p.status = 'active' AND p.kind = 'person' ORDER BY i.external_id")
+      .all(provider) as { id: string }[]).map((r) => r.id);
+  }
+
+  /**
+   * 离职、被停用：按外部身份停用它绑着的主体。返回停用了哪个主体；这条身份没绑定、或者主体已经停用，返回 null。
+   * 没绑定的也从待对接清单里删掉（人走了，清单里不该再留着他）。
+   */
+  offboard(provider: string, externalId: string, by: string, reason: string): string | null {
+    if (!providerOk(provider) || !externalIdOk(externalId)) return null;
+    db.prepare('DELETE FROM principal_pending WHERE provider = ? AND external_id = ?').run(provider, externalId);
+    const b = this.boundTo(provider, externalId);
+    if (!b) return null;
+    const out = this.setStatus(b.id, 'disabled', by, reason);
+    return out?.changed ? b.id : null;
+  }
+
 }

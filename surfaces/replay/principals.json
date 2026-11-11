@@ -1,7 +1,16 @@
 {
   "domain": "principals",
-  "what": "主体管理：/api/principals 的 7 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
-  "routes": ["GET /api/principals", "POST /api/principals/disable", "POST /api/principals/restore", "POST /api/principals/bind", "POST /api/principals/unbind", "GET /api/principals/pending", "POST /api/principals/bind-batch"],
+  "what": "主体管理：/api/principals 的 8 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": [
+    "GET /api/principals",
+    "POST /api/principals/disable",
+    "POST /api/principals/restore",
+    "POST /api/principals/bind",
+    "POST /api/principals/unbind",
+    "GET /api/principals/pending",
+    "POST /api/principals/bind-batch",
+    "POST /api/principals/reconcile"
+  ],
   "exempt": [
     { "route": "GET /api/principals", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/list-junk-query" },
     { "route": "GET /api/principals/pending", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入", "shown_by": "open/pending" }
@@ -625,6 +634,45 @@
               ]
             }
           }
+        },
+        {
+          "id": "reconcile-remote-anon",
+          "route": "POST /api/principals/reconcile",
+          "class": "unauthorized",
+          "what": "远程、没有口令：不能手动对账",
+          "request": { "method": "POST", "path": "/api/principals/reconcile", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "flow": "feishu" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "reconcile-bad-flow",
+          "route": "POST /api/principals/reconcile",
+          "class": "invalid",
+          "what": "flow 不合格",
+          "request": { "method": "POST", "path": "/api/principals/reconcile", "json": { "flow": "Feishu!" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "47", "etag": "W/\"2f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "flow 必须是登录方式的名字" }
+          }
+        },
+        {
+          "id": "reconcile-not-capable",
+          "route": "POST /api/principals/reconcile",
+          "class": "invalid",
+          "what": "这个登录方式不能对账（飞书没打开）：404",
+          "request": { "method": "POST", "path": "/api/principals/reconcile", "json": { "flow": "feishu" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "这个登录方式不能对账：feishu" }
+          }
         }
       ]
     },
@@ -755,6 +803,27 @@
                 "identities": []
               }
             }
+          }
+        }
+      ]
+    },
+    {
+      "name": "feishu",
+      "what": "飞书登录打开、指向本机的假飞书（夹具 feishu-fake）。库里没有飞书身份，对账查 0 个人。",
+      "env": {},
+      "fixtures": ["feishu-fake"],
+      "steps": [
+        {
+          "id": "reconcile",
+          "route": "POST /api/principals/reconcile",
+          "class": "normal",
+          "what": "手动对账：没有飞书身份，查 0 个",
+          "request": { "method": "POST", "path": "/api/principals/reconcile", "json": { "flow": "feishu" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "49", "etag": "W/\"31-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "checked": 0, "disabled": [], "unknown": 0 }
           }
         }
       ]

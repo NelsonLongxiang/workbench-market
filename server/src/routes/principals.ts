@@ -15,6 +15,7 @@ import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import type { LoginSessionService } from '../services/login-session.ts';
+import { reconcileFlow } from './login-events.ts';
 import { identity } from '../identity.ts';
 import { browserMarked, rawLoopback } from '../surfaces.ts';
 import { HttpError } from '../errors.ts';
@@ -151,6 +152,18 @@ export function registerPrincipalRoutes(app: HttpService, deps: PrincipalRouteDe
       }
     });
     res.json({ ok: true, bound: results.filter((r: { ok: boolean }) => r.ok).length, results });
+  }));
+
+  /** 手动跑一次对账（平时每天一次）：把绑在启用的人身上的某个登录方式的外部身份交给对方去查，离职、被停用的停用 */
+  app.post('/api/principals/reconcile', route(async (req, res) => {
+    res.set('Cache-Control', 'private, no-store');
+    const actor = await admin(req, res);
+    if (!actor) return;
+    const flow = req.body?.flow;
+    if (typeof flow !== 'string' || !/^[a-z0-9][a-z0-9-]{0,31}$/.test(flow)) throw new HttpError(400, 'flow 必须是登录方式的名字');
+    const out = await reconcileFlow(flow, actor);
+    if (!out) throw new HttpError(404, `这个登录方式不能对账：${flow}`);
+    res.json({ ok: true, ...out });
   }));
 
   /** 解绑一条外部身份。不能动自己名下的绑定 */

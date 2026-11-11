@@ -147,6 +147,11 @@
       "installed_by TEXT NOT NULL DEFAULT ''",
       "status TEXT NOT NULL DEFAULT 'installed'"
     ],
+    "login_events_seen": [
+      "flow TEXT NOT NULL PK",
+      "event_id TEXT NOT NULL PK",
+      "seen_at INTEGER NOT NULL"
+    ],
     "login_states": [
       "state_sha256 TEXT PK",
       "flow TEXT NOT NULL",
