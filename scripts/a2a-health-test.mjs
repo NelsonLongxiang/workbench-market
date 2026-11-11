@@ -15,6 +15,7 @@ import { createServer } from 'node:net';
 import { readFileSync, rmSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
+import { generateKeyPairSync, sign as edSign } from 'node:crypto';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -73,7 +74,42 @@ if (errors) {
     const h = health.a2aHealth({ directSig: 'accept', directSigBody: 'accept' }, now);
     const text = JSON.stringify(h);
     ok('健康块不出出站目标地址', !text.includes('t.invalid'), text.slice(0, 200));
+    ok('健康块形状：叶子只许数字、null、固定枚举、ISO 时间', shapeProblems(h).length === 0, shapeProblems(h).join('; '));
+    // H15：dead 行即使带 sent_at 也不进时长样本；H13：偶数个样本取中间两个的平均
+    ins.run(7, 'http://t.invalid/', '{}', 'dead', '2026-11-11 10:00:00', '2026-11-11 10:30:00');
+    ok('dead 行带 sent_at 不进时长样本', stats.receiptOutboxStats(now).recent_delay_s.samples === 3);
+    ins.run(8, 'http://t.invalid/', '{}', 'sent', '2026-11-11 10:00:00', '2026-11-11 10:01:40');
+    const even = stats.receiptOutboxStats(now).recent_delay_s;
+    ok('偶数个样本（2/10/60/100 秒）→ 中位数 35 秒', even.samples === 4 && even.median === 35 && even.max === 100, JSON.stringify(even));
+    // H20：读数缓存 5 秒（a2aHealth 收 now）
+    health.resetA2aHealthCache();
+    const t0 = now + 3_600_000;
+    const first = health.a2aHealth({ directSig: 'accept', directSigBody: 'accept' }, t0).outbox.receipts.counts;
+    ins.run(9, 'http://t.invalid/', '{}', 'pending', '2026-11-11 12:00:00', '');
+    const cached = health.a2aHealth({ directSig: 'accept', directSigBody: 'accept' }, t0 + 4_999).outbox.receipts.counts;
+    const fresh = health.a2aHealth({ directSig: 'accept', directSigBody: 'accept' }, t0 + 5_000).outbox.receipts.counts;
+    ok('5 秒内读缓存（新行不出现），满 5 秒重读', cached.pending === first.pending && fresh.pending === first.pending + 1, JSON.stringify({ first, cached, fresh }));
+    // H16：读数出错不抛（表没了）
+    db.exec('DROP TABLE a2a_outbox');
+    health.resetA2aHealthCache();
+    let threw = '';
+    let broken = null;
+    try { broken = health.a2aHealth({ directSig: 'accept', directSigBody: 'accept' }, t0 + 20_000); } catch (e) { threw = String(e?.message ?? e); }
+    ok('出站表读不了 → 不抛错，计数为 null', threw === '' && broken?.outbox?.receipts?.counts === null, threw || JSON.stringify(broken));
   }
+}
+
+/** H9：a2a 块的叶子只许数字、null、固定枚举、ISO 时间；多出一个地址字段就会被抓到 */
+function shapeProblems(block, path = 'a2a', out = []) {
+  const ENUMS = new Set(['accept', 'require', 'off', 'on', 'sqlite']);
+  if (block === null || typeof block === 'number') return out;
+  if (typeof block === 'string') {
+    if (!(ENUMS.has(block) || (path.endsWith('.since') && !Number.isNaN(Date.parse(block)) && /^\d{4}-\d{2}-\d{2}T/.test(block)))) out.push(`${path}=${JSON.stringify(block)}`);
+    return out;
+  }
+  if (typeof block === 'object' && !Array.isArray(block)) { for (const [k, v] of Object.entries(block)) shapeProblems(v, `${path}.${k}`, out); return out; }
+  out.push(`${path} 类型 ${Array.isArray(block) ? 'array' : typeof block}`);
+  return out;
 }
 
 async function waitReady(url, ms = 20000) {
@@ -167,6 +203,7 @@ try {
   const unknown = await bumps('查无 SOP（合法格式、不存在的节点号）', direct({ team: 'market/deadbeef', message: START, caller_session: CALLER, task_id: 'h-x1' }), { 'not-found': 1 });
   const unbound = await bumps('SOP 存在但调用方没绑定', direct({ team, message: START, caller_session: 'dsh/ffffffff', task_id: 'h-x2' }), { 'not-found': 1 });
   ok('两者对外应答一致', unknown.status === 404 && unbound.status === 404 && JSON.stringify(unknown.body) === JSON.stringify(unbound.body));
+  ok('HTTP 上的健康块形状同样只有数字、null、固定枚举、ISO 时间', shapeProblems(await a2aBlock()).length === 0, shapeProblems(await a2aBlock()).join('; '));
   const text = JSON.stringify(await a2aBlock());
   const leaks = [team, CALLER, RO_CALLER, 'dsh/ffffffff', 'h-1', 'ctx-h', 'health-sop', 'elsewhere.invalid'].filter((s) => text.includes(s));
   ok('健康块里没有团队名、调用方、task_id、context、SOP 名、地址', leaks.length === 0, leaks.join(','));
@@ -180,6 +217,17 @@ try {
   ok('重启后拒收计数清零', Object.keys(b?.refused?.counts ?? { x: 1 }).length === 0);
   const r401 = await bumps('无签名 → 401', direct({ team, message: START, caller_session: CALLER, task_id: 'h-s1' }), { 'sig:absent': 1 });
   ok('应答仍是 401', r401.status === 401);
+  // H7：带签名、但调用方的绑定上没登记取卡地址（unregistered）→ 对外与「取不到卡」同答，公开计数落进 sig:no-card
+  {
+    const key = generateKeyPairSync('ed25519').privateKey;
+    const ts = Date.now();
+    const zone = CALLER.split('/')[0];
+    const callerUrl = 'http://127.0.0.1:9/';
+    const sig2 = edSign(undefined, Buffer.from(JSON.stringify(['a2a-origin-claim/2', zone, callerUrl, ts, BASE, 'POST', '/a2a/direct'])), key).toString('base64');
+    const headers = { 'X-A2A-Caller': zone, 'X-A2A-Caller-Url': callerUrl, 'X-A2A-Caller-Ts': String(ts), 'X-A2A-Caller-Aud': BASE, 'X-A2A-Caller-Sig2': sig2 };
+    const rs = await bumps('签名请求、绑定上没登记取卡地址 → 计进 sig:no-card（与取不到卡并桶）', () => call('POST', '/a2a/direct', { team, message: START, caller_session: CALLER, task_id: 'h-s2' }, headers), { 'sig:no-card': 1 });
+    ok('……对外应答写 no-card，不写 unregistered', rs.status === 401 && /\(no-card\)/.test(rs.body?.error ?? '') && !/unregistered/.test(JSON.stringify(rs.body)), JSON.stringify(rs.body));
+  }
 } catch (e) {
   ok('运行', false, String(e?.stack ?? e));
 } finally {
