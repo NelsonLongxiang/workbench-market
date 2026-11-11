@@ -258,6 +258,9 @@ try {
     // 对照：终态之后才到的新回执（只记录那条路）不改承接
     items.apply(doneId, { kind: 'receipt', source: 'seat-test', id: 'late-1', outcome: 'completed', seat: 'lab/99999999' });
     check(items.get(doneId).seat === 'lab/ffffffff', '对照：终态之后才到的新回执不改承接', show(items.get(doneId).seat));
+    // 回填重放时这条只记录的回执原样再来：第一次应用时已经是终态，重放也不改承接（和实时一致）
+    const replayLate = items.apply(doneId, { kind: 'receipt', source: 'seat-test', id: 'late-1', outcome: 'completed', seat: 'lab/99999999' });
+    check(replayLate.duplicate && items.get(doneId).seat === 'lab/ffffffff', '回填重放终态之后只记录的那条回执：照旧不改承接', show({ replayLate, seat: items.get(doneId).seat }));
   }
 
   // ---------- 四·补、答复（只记录）：答一条真问过、还没答过的提问 ----------

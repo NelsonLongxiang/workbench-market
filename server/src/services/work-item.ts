@@ -756,8 +756,9 @@ export class WorkItemService extends Service {
     if (seen) {
       // 回填按版本号从头再核时，存量里已经应用过的事实照第一次的结果答；承接席位是后来才从事实里取的，这里补上
       // （只是显示用的一列）。走到这里的是已经应用过的历史事实——回填按事件日志顺序重放——所以不分终态，最后一条取得到席位的为准，
-      // 不先写先占；终态之后才到的新回执走的是只记录那条路，那里照旧不改承接
-      const seatFilled = typeof fact.seat === 'string' && fact.seat !== ''
+      // 不先写先占；终态之后才到的新回执走的是只记录那条路，那里照旧不改承接——所以第一次应用时事项已经是终态的（from_state 是终态），
+      // 重放时也不改承接，和实时一致
+      const seatFilled = typeof fact.seat === 'string' && fact.seat !== '' && !TERMINAL.includes(seen.from_state)
         && Number(db.prepare('UPDATE work_items SET seat = ? WHERE id = ? AND seat <> ?').run(fact.seat, itemId, fact.seat).changes) === 1;
       return { ok: true, state: item.state, from: seen.from_state, duplicate: true, ...(seatFilled ? { seatFilled: true } : {}) };
     }
