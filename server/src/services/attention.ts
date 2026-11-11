@@ -100,16 +100,16 @@ export class AttentionService extends Service {
     return this.providers.get(source) as AttentionProvider<R> | undefined;
   }
 
-  /** 某个条目答成过的各轮：键是「条目 id」（第 0 轮）或「条目 id#n」。返回最近的一轮和它答成的时间 */
-  latestRound(source: string, base: string): { n: number; at: string } | null {
-    const rows = db.prepare("SELECT source_id, at FROM attention_answers WHERE source = ? AND state = 'done' AND (source_id = ? OR source_id LIKE ? ESCAPE '\\')")
-      .all(source, base, `${base.replace(/[\\%_]/g, '\\$&')}#%`) as { source_id: string; at: string }[];
-    let best: { n: number; at: string } | null = null;
+  /** 某个条目按「条目 id@序号」分轮记过的账里，序号最大的那一个键（答完、不在清单里之后，重复答靠它认出是哪一轮）；没有返回 null */
+  latestKey(source: string, base: string): string | null {
+    const rows = db.prepare("SELECT source_id FROM attention_answers WHERE source = ? AND source_id LIKE ? ESCAPE '\\'")
+      .all(source, `${base.replace(/[\\%_]/g, '\\$&')}@%`) as { source_id: string }[];
+    let best: { n: number; key: string } | null = null;
     for (const r of rows) {
-      const n = r.source_id === base ? 0 : Number(r.source_id.slice(base.length + 1));
-      if (Number.isInteger(n) && (!best || n > best.n)) best = { n, at: r.at };
+      const n = Number(r.source_id.slice(base.length + 1));
+      if (Number.isInteger(n) && (!best || n > best.n)) best = { n, key: r.source_id };
     }
-    return best;
+    return best?.key ?? null;
   }
 
   /** 这一条已经答成过（答完它就不在列表里了，重复答时用它认出来） */

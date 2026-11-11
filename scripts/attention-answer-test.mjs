@@ -302,13 +302,23 @@ try {
     const b1 = await answer('principal-pending', 'synthetic:ext-round', 'bind', { principal: 'user:round-1', create: true, reason: '第一次' });
     const c = rw();
     c.prepare("DELETE FROM principal_identities WHERE provider = 'synthetic' AND external_id = 'ext-round'").run();
-    c.prepare("INSERT INTO principal_pending (provider, external_id, display_name, last_seen) VALUES ('synthetic', 'ext-round', 'again', datetime('now', '+1 minute'))").run();
+    // 同一秒里又出现（不能靠时间分轮）：清单那一行是新插入的
+    c.prepare("INSERT INTO principal_pending (provider, external_id, display_name) VALUES ('synthetic', 'ext-round', 'again')").run();
     c.close();
     const b2 = await answer('principal-pending', 'synthetic:ext-round', 'bind', { principal: 'user:round-2', create: true, reason: '第二次' });
     const bound = q("SELECT principal_id FROM principal_identities WHERE provider = 'synthetic' AND external_id = 'ext-round'")[0]?.principal_id;
     const b3 = await answer('principal-pending', 'synthetic:ext-round', 'bind', { principal: 'user:round-3', create: true, reason: '第三次' });
     check(b1.status === 200 && b2.status === 200 && b2.body.duplicate === false && bound === 'user:round-2' && b3.body.duplicate === true && b3.body.result.principal.id === 'user:round-2',
-      '待对接：绑定之后这条外部身份又出现在清单里，是新的一轮，能再对接；这一轮再答返回这一轮的结果', show({ b1: b1.status, b2: b2.body, bound, b3: b3.body }));
+      '待对接：绑定之后这条外部身份又出现在清单里（同一秒里也算），是新的一轮，能再对接；这一轮再答返回这一轮的结果', show({ b1: b1.status, b2: b2.body, bound, b3: b3.body }));
+
+    // 出现序号本身：还在清单里时再来登录（主体服务的 upsert）不换号；删掉再插入换一个更大的号，删光之后也不回退
+    const c4 = rw();
+    const up = () => c4.prepare("INSERT INTO principal_pending (provider, external_id, display_name) VALUES ('synthetic', 'ext-seq', 'x') ON CONFLICT(provider, external_id) DO UPDATE SET display_name = excluded.display_name, last_seen = datetime('now')").run();
+    const num = () => c4.prepare("SELECT appearance FROM principal_pending WHERE provider = 'synthetic' AND external_id = 'ext-seq'").get().appearance;
+    up(); const a1 = num(); up(); const a2 = num();
+    c4.prepare('DELETE FROM principal_pending').run(); up(); const a3 = num();
+    c4.close();
+    check(a1 > 0 && a2 === a1 && a3 > a1, '出现序号：还在清单里时再来不换号；删掉（清单删光）再进来换一个更大的号', show({ a1, a2, a3 }));
 
     // 占位的期限：过期的占位当它不存在；没过期的照旧告诉对方「正在处理」
     const c2 = rw();

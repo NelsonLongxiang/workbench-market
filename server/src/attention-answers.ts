@@ -20,7 +20,7 @@ import { identity } from './identity.ts';
 import { forward } from './attention-forward.ts';
 import { answerBody, findBoardWorkbench } from './owner-pending.ts';
 import { principalsAdmin } from './routes/principals.ts';
-import { pendingAskOfDelivery, pendingPrincipalSeen } from './services/attention-sources.ts';
+import { pendingAskOfDelivery, pendingPrincipalAppearance } from './services/attention-sources.ts';
 import { listVars, workbenchScope } from './workbench-vars.ts';
 import type { AnswerOutcome, AttentionProvider, AttentionService } from './services/attention.ts';
 import type { HttpService } from './http.ts';
@@ -155,7 +155,8 @@ function applied(id: string, fact: Parameters<WorkItemService['apply']>[1]): Ans
  *   · 席位的提问：「投递:那次提问」——同一个投递答过之后又问一次，是新的一轮
  *   · 事项：「事项 id:最近一次进入 ready 或 held 那一行日志的 seq」——退回之后再进 ready 是新的一轮；验收、放行之后 seq 不变
  *   · 待属主看板：「编号:事项那条常量的 revision」——登记方改了事项（重新提出）是新的一轮
- *   · 待对接清单：「来源:标识」，第 n 轮记成「…#n」——绑定之后这条外部身份又出现在清单里（比上一轮答成的时间晚），是新的一轮
+ *   · 待对接清单：「来源:标识@出现序号」——绑定之后这条外部身份又出现在清单里，清单那一行是新插入的、序号只增，是新的一轮
+ *     （不靠时间分轮：时间只到秒，同一秒里又出现就分不开）
  *   · 变更申请、MCP 权限申请：每次申请都是新的一行、新的 id，不会再次进入待处理，键就是 id
  */
 function keyOf(source: string, sourceId: string): string {
@@ -175,11 +176,11 @@ function keyOf(source: string, sourceId: string): string {
     return v ? `${sourceId}:${v.revision}` : sourceId;
   }
   if (source === 'principal-pending') {
+    // 在清单里：「来源:标识@这一次出现的序号」；已经不在（答完了）：这条外部身份最近记过的那一轮，重复答才认得出
     const cut = sourceId.indexOf(':');
-    const last = svc<AttentionService>('attention').latestRound(source, sourceId);
-    const seen = cut > 0 ? pendingPrincipalSeen(sourceId.slice(0, cut), sourceId.slice(cut + 1)) : null;
-    const n = !last ? 0 : seen !== null && seen > last.at ? last.n + 1 : last.n;
-    return n === 0 ? sourceId : `${sourceId}#${n}`;
+    const appearance = cut > 0 ? pendingPrincipalAppearance(sourceId.slice(0, cut), sourceId.slice(cut + 1)) : null;
+    if (appearance !== null) return `${sourceId}@${appearance}`;
+    return svc<AttentionService>('attention').latestKey(source, sourceId) ?? sourceId;
   }
   return sourceId;
 }
