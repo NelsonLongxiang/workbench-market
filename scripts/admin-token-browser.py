@@ -16,13 +16,16 @@ def go_frames(page):
     return page.locator(f'iframe[src="/go/{wid}/"]').count()
 
 def open_me(page):
-    # 新外壳（#571）：口令、登录身份都在侧栏底部用户卡的弹出层里
-    if page.locator('.wm-me-pop').count() == 0 or not page.locator('.wm-me-pop').first.is_visible():
-        page.locator('[data-testid=wm-me]').click(); page.locator('.wm-me-pop').first.wait_for()
+    # 新外壳（#571）：口令、登录身份都在侧栏底部用户卡的弹出层里。弹出层可能刚被别处的点击关上，
+    # 所以等它真的可见；没开就点开
+    pop = page.locator('.wm-me-pop:visible')
+    if pop.count() == 0:
+        page.locator('[data-testid=wm-me]').click()
+    page.locator('.wm-me-pop:visible').first.wait_for(state='visible')
 
 def set_token(page):
     open_me(page)
-    page.get_by_role('button', name='口令').click()
+    page.locator('.wm-me-pop:visible').get_by_role('button', name='口令').click()
     page.get_by_placeholder('ADMIN_TOKEN').fill(tok)
     page.get_by_role('button', name=re.compile(r'^保\s*存$')).click()  # antd 两字按钮会插空格
     page.get_by_role('button', name='口令已设').wait_for()
