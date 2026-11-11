@@ -3190,8 +3190,14 @@ app.delete('/api/admin-token', (req, res) => {
 // 内部读取走 mcpUpstreams() 直读 DB，不受影响；导出同样脱敏（与 auth.value 口径一致）。
 // 评审 #27：管理员口令哈希（admin_token_sha256）同表存放，出口一律剔除——远程 GET 无口令可读，
 // 无盐 sha256 + 短口令可离线爆破；口令只经 /api/admin-token 设置与校验，不随设置/导出外流。
+// 凭据类的键（令牌、密码、密钥）的值一律只说有没有；开关类的例外。别人（非管理员）读设置只给巡检参数和开关
+const SETTINGS_PUBLIC_KEYS = ['health_interval_seconds', 'health_timeout_ms', 'health_concurrency', 'dispatch_sorting_enabled', 'run_upload_require_token', 'patrol_armed_at'];
+const SETTINGS_FLAG_KEYS = new Set(['run_upload_require_token']);
+const isSecretSettingKey = (k: string): boolean => !SETTINGS_FLAG_KEYS.has(k) && /(^|_)(token|secret|password|passwd|api_?key)$/i.test(k);
 function maskUpstreamsSetting(settings: Record<string, string>): Record<string, string> {
-  const { [ADMIN_TOKEN_KEY]: _adminHash, ...all } = settings;
+  const { [ADMIN_TOKEN_KEY]: _adminHash, ...rest } = settings;
+  const all: Record<string, string> = {};
+  for (const [k, v] of Object.entries(rest)) all[k] = isSecretSettingKey(k) ? (v ? '****' : '') : v;
   const raw = all.mcp_upstreams;
   if (!raw) return all;
   try {
@@ -3209,7 +3215,16 @@ function maskUpstreamsSetting(settings: Record<string, string>): Record<string, 
   }
 }
 
-app.get('/api/settings', (_req, res) => { res.json(maskUpstreamsSetting(getSettings())); });
+app.get('/api/settings', (req, res, next) => {
+  (async () => {
+    // 管理员（口令或管理员登录，同源）和本机命令行看全部（凭据类的值只说有没有）；别人只看巡检参数和开关
+    const cli = !browserMarked(req) && rawLoopback(req);
+    if (!cli) await markOdooAdmin(req);
+    const all = maskUpstreamsSetting(getSettings());
+    res.set('Cache-Control', 'private, no-store');
+    res.json(cli || adminHeaderOk(req) ? all : Object.fromEntries(SETTINGS_PUBLIC_KEYS.filter((k) => k in all).map((k) => [k, all[k]])));
+  })().catch(next);
+});
 
 app.put('/api/settings', (req, res) => {
   const b = req.body ?? {};
