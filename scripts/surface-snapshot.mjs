@@ -206,12 +206,14 @@ function selftest() {
 
 /** 扩展那一节：按扩展分组 */
 function extensionSection(ext) {
-  const names = [...new Set([...ext.routes.map((r) => r.extension), ...ext.undeclared.map((u) => u.extension)])].sort();
+  const mws = ext.middleware ?? [];
+  const names = [...new Set([...ext.routes.map((r) => r.extension), ...ext.undeclared.map((u) => u.extension), ...mws.map((m) => m.extension)])].sort();
   return {
-    note: '扩展的面（surface-snapshot.mjs --extensions）：routes 是经 ctx.routes.add 报了动作的路由（谁能调 who 是扩展自己声明的，只能从市场已有口径里选）；undeclared 是 register 前后对比路由栈点出来、没报动作的路由和中间件。不进核心快照和体检预算',
+    note: '扩展的面（surface-snapshot.mjs --extensions）：routes 是经 ctx.routes.add 报了动作的路由（谁能调 who 是扩展自己声明的，只能从市场已有口径里选）；middleware 是经 ctx.routes.use 写明用途的中间件；undeclared 是 register 前后对比路由栈点出来、没报的路由、中间件和子路由器。不进核心快照和体检预算',
     extensions: names.map((name) => ({
       name,
       routes: ext.routes.filter((r) => r.extension === name).map(({ extension, ...r }) => r),
+      middleware: mws.filter((m) => m.extension === name).map(({ extension, ...m }) => m),
       undeclared: ext.undeclared.filter((u) => u.extension === name).map(({ extension, ...u }) => u),
     })),
   };

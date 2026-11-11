@@ -3470,8 +3470,8 @@ try { loadRoleDeclarations(http); } catch (e) {
   console.error(`[grants] 拒绝启动：${String((e as Error)?.message ?? e)}`);
   process.exit(1);
 }
-// 扩展名（动作前缀）不能和核心动作的域重名：核心路由有的在扩展之后才注册，全部注册完再核一次
-try { assertExtensionNamespaces(http.actions()); } catch (e) { console.error(`[extensions] 拒绝启动：${(e as Error).message}`); process.exit(1); }
+// 扩展名（动作前缀、路径首段）不能和核心动作的域、核心路径的首段重名：核心路由有的在扩展之后才注册，全部注册完再核一次
+try { assertExtensionNamespaces(http.actions(), http.stackLayers()); } catch (e) { console.error(`[extensions] 拒绝启动：${(e as Error).message}`); process.exit(1); }
 const goServer = registerSurface(app, 'market', PORT, () => {
   // #258 breaking：旧开关不再放行任何公网登记，只做兼容检测告警
   if (process.env.ALLOW_PUBLIC_NET === '1') console.warn('[R3] ALLOW_PUBLIC_NET=1: legacy flag no longer grants public registration; use WM_REGISTER_URL_ALLOWLIST exact entries.');

@@ -32,6 +32,17 @@ export type ExtensionRouteMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
 export interface ExtensionRouteSpec { action: string; kind: ActionKind; who: ExtensionWho; statusNotVerdict?: string }
 export interface ExtensionRouteRecord { extension: string; method: ExtensionRouteMethod; path: string; action: string; kind: ActionKind; who: ExtensionWho; statusNotVerdict?: string }
 export interface ExtensionUndeclared { extension: string; type: 'route' | 'middleware'; method: string; path: string }
+/** 扩展经 routes.use 报了用途的中间件（不是路由，没有动作可报；用途进快照） */
+export interface ExtensionMiddlewareRecord { extension: string; path: string; purpose: string }
+
+/**
+ * 扩展名不能用的名字：它也是扩展路径的首段（/api/<扩展名>/…、/<扩展名>/…），撞上核心的路径就会把核心的路由抢走
+ * （扩展比一部分核心路由先挂）。这里是不在路由栈里、或者挂得比扩展晚的那几类：api 本身、前端页面的首段、
+ * 内容面和资源的首段。核心路由栈里的首段另在全部注册完之后自动收集（assertExtensionNamespaces）。
+ * 前端页面的首段和 web/src/App.tsx 对得上（scripts/extension-routes-smoke.mjs 核对，漂了就红）
+ */
+export const SPA_PAGE_SEGMENTS: readonly string[] = ['attention', 'cockpit', 'market', 'mcp-gateways', 'owner-pending', 'reviews', 'settings', 'skills', 'sops', 'tasks', 'types', 'use', 'vault', 'work-items'];
+const RESERVED_SEGMENTS: ReadonlySet<string> = new Set(['api', 'apps', 'go', 'sop', 'design', 'login', 'mcp', 'assets', 'static', 'openapi.json', '.well-known', '~wm', 'favicon.ico', 'index.html', ...SPA_PAGE_SEGMENTS]);
 /** 扩展路由的模式：warn 点名计数（缺省），enforce 有没报动作的扩展路由就拒绝启动（6d 切换时打开） */
 export type ExtensionRoutesMode = 'warn' | 'enforce';
 export function extensionRoutesMode(raw: string | undefined): ExtensionRoutesMode {
@@ -43,6 +54,13 @@ export function extensionRoutesMode(raw: string | undefined): ExtensionRoutesMod
 
 const extRoutes: ExtensionRouteRecord[] = [];
 const extUndeclared: ExtensionUndeclared[] = [];
+const extMiddleware: ExtensionMiddlewareRecord[] = [];
+/** 扩展加载期间新增的每一层（报了的、没报的都在）：收集核心路径首段时排除它们 */
+const extensionLayers = new Set<unknown>();
+/** 经 routes.use 报了用途的中间件层 */
+const declaredMiddlewareLayers = new Set<unknown>();
+/** 扩展报了用途的中间件 */
+export function extensionMiddleware(): ExtensionMiddlewareRecord[] { return extMiddleware.map((r) => ({ ...r })); }
 /** 扩展经 ctx.routes.add 报的路由和动作（快照 --extensions 和判定读它） */
 export function extensionRoutes(): ExtensionRouteRecord[] { return extRoutes.map((r) => ({ ...r })); }
 /** 扩展没报动作的路由和中间件（register 前后对比路由栈点出来的） */
@@ -78,11 +96,27 @@ function checkExtensionRoute(name: string, method: string, path: unknown, spec: 
  * 启动收尾时核对：扩展名（也就是它的动作前缀）不能和核心动作的域重名，否则扩展的动作会和核心的混在一起。
  * 核心路由有的在扩展之后才注册，所以在全部注册完之后再核一次。不合格抛错（调用方拒绝启动）
  */
-export function assertExtensionNamespaces(coreActions: readonly { action: string }[]): void {
-  const extNames = new Set(extRoutes.map((r) => r.extension));
+export function assertExtensionNamespaces(coreActions: readonly { action: string }[], stackLayers: readonly unknown[] = []): void {
+  const extNames = new Set(loadedNames);
   const core = new Set(coreActions.map((a) => a.action).filter((a) => !extRoutes.some((r) => r.action === a)).map((a) => a.split('.')[0]));
   for (const n of extNames) if (core.has(n)) throw new Error(`扩展名 ${n} 和核心动作的域重名：改扩展目录名（它也是动作前缀）`);
+  const segments = corePathSegments(stackLayers);
+  for (const n of extNames) if (RESERVED_SEGMENTS.has(n) || segments.has(n)) throw new Error(`扩展名 ${n} 和核心的路径首段重名（/${n}/…）：扩展会抢走核心的路由，改扩展目录名`);
 }
+
+/** 核心路由栈里每一层的路径首段：路由取路径字符串，中间件和挂载点取正则开头的那段字面量。扩展加的层不算 */
+function corePathSegments(stackLayers: readonly unknown[]): Set<string> {
+  const out = new Set<string>();
+  for (const layer of stackLayers) {
+    if (extensionLayers.has(layer)) continue;
+    const l = layer as { route?: { path?: unknown }; regexp?: { source?: string } };
+    const paths = l.route ? (Array.isArray(l.route.path) ? l.route.path : [l.route.path]) : [];
+    for (const p of paths) { const m = typeof p === 'string' ? /^\/([^/:*?()]+)/.exec(p) : null; if (m) out.add(m[1].toLowerCase()); }
+    if (!l.route && typeof l.regexp?.source === 'string') { const m = /^\^\\\/([a-z0-9~._-]+)/i.exec(l.regexp.source); if (m) out.add(m[1].replace(/\\/g, '').toLowerCase()); }
+  }
+  return out;
+}
+const loadedNames: string[] = [];
 const SERVER_ENTRIES = ['server.ts', 'server.mjs', 'server.js'];
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -105,7 +139,11 @@ export interface ExtensionContext {
   /** 挂路由用；挂在宿主的身份/写门之后、SPA 回落之前。新写的路由请用 routes.add（报动作）；直接挂的会被点名为「没报动作」 */
   app: Express;
   /** 注册一条报了动作的路由：路径在 /api/<扩展名>/… 或 /<扩展名>/… 下，动作名 <扩展名>.<动词>，who 从市场已有口径里选。返回撤销函数 */
-  routes: { add: (method: ExtensionRouteMethod, path: string, spec: ExtensionRouteSpec, ...handlers: ((req: Request, res: Response, next: NextFunction) => unknown)[]) => () => void };
+  routes: {
+    add: (method: ExtensionRouteMethod, path: string, spec: ExtensionRouteSpec, ...handlers: ((req: Request, res: Response, next: NextFunction) => unknown)[]) => () => void;
+    /** 挂一个中间件（不是路由，没有动作可报）：路径在自己的命名空间下，写明用途（进快照）。不经它挂的中间件、子路由器算没报的 */
+    use: (path: string, spec: { purpose: string }, ...handlers: ((req: Request, res: Response, next: NextFunction) => unknown)[]) => void;
+  };
   /** 包 async 路由：抛错交给宿主统一的错误处理 */
   wrap: (fn: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response, next: NextFunction) => void;
   /** 管理员门（口令或 Odoo 管理员）：未通过时已写好响应并返回 false */
@@ -200,15 +238,33 @@ export async function loadExtensions(dirRaw: string | undefined, host: Extension
           extRoutes.push(record);
           return () => { revoke(); const i = extRoutes.indexOf(record); if (i >= 0) extRoutes.splice(i, 1); };
         },
+        use: (path, spec, ...handlers) => {
+          const where = `扩展 ${name} 的中间件 ${String(path)}`;
+          if (typeof path !== 'string' || !(path === `/api/${name}` || path.startsWith(`/api/${name}/`) || path === `/${name}` || path.startsWith(`/${name}/`))) {
+            throw new Error(`${where}：只能挂在 /api/${name}/… 或 /${name}/… 下`);
+          }
+          if (!spec || typeof spec.purpose !== 'string' || !spec.purpose.trim() || spec.purpose.length > 120) throw new Error(`${where}：要写明用途（purpose，1～120 字）`);
+          if (handlers.length === 0) throw new Error(`${where}：没有处理函数`);
+          const before = new Set(http.stackLayers());
+          (shared.app as unknown as { use: (p: string, ...h: unknown[]) => unknown }).use(path, ...handlers);
+          for (const layer of http.stackLayers()) if (!before.has(layer)) declaredMiddlewareLayers.add(layer);
+          extMiddleware.push({ extension: name, path, purpose: spec.purpose });
+        },
       },
       log: (m) => console.log(`[ext:${name}] ${m}`),
       warn: (m) => console.warn(`[ext:${name}] ${m}`),
     };
+    if (RESERVED_SEGMENTS.has(name)) throw new Error(`扩展名 ${name} 和核心的路径首段重名（/${name}/…）：扩展会抢走核心的路由，改扩展目录名`);
+    const already = corePathSegments(http.stackLayers());
+    if (already.has(name)) throw new Error(`扩展名 ${name} 和核心的路径首段重名（/${name}/…）：扩展会抢走核心的路由，改扩展目录名`);
+    loadedNames.push(name);
     const before = new Set(http.stackLayers());
     try { await (mod.register as (c: ExtensionContext) => unknown)(ctx); } catch (e) { throw new Error(`扩展 ${name} 的 register 失败：${String((e as Error)?.message ?? e).slice(0, 300)}`); }
     // register 前后对比路由栈：新增的层里，没经 routes.add 报动作的逐条点名（经 req.app 等别处拿到的应用挂的也点得出）
     for (const layer of http.stackLayers()) {
-      if (before.has(layer) || http.declaredLayer(layer)) continue;
+      if (before.has(layer)) continue;
+      extensionLayers.add(layer);
+      if (http.declaredLayer(layer) || declaredMiddlewareLayers.has(layer)) continue;
       const l = layer as { route?: { path?: unknown; methods?: Record<string, boolean> }; regexp?: unknown; name?: string };
       const item: ExtensionUndeclared = l.route
         ? { extension: name, type: 'route', method: Object.keys(l.route.methods ?? {}).join(',').toUpperCase() || 'ALL', path: String(l.route.path) }
@@ -218,10 +274,11 @@ export async function loadExtensions(dirRaw: string | undefined, host: Extension
     }
     loaded.push(name);
   }
-  const undeclaredRoutes = extUndeclared.filter((u) => u.type === 'route');
-  if (undeclaredRoutes.length) {
-    console.warn(`[extensions] 扩展路由没报动作：${undeclaredRoutes.length} 条（${[...new Set(undeclaredRoutes.map((u) => u.extension))].join('、')}）；改用 ctx.routes.add 报上动作`);
-    if (host.routesMode === 'enforce') throw new Error(`WM_EXTENSION_ROUTES=enforce：有 ${undeclaredRoutes.length} 条扩展路由没报动作（${undeclaredRoutes.slice(0, 5).map((u) => `${u.extension} ${u.method} ${u.path}`).join('；')}）`);
+  // 没报的路由、没报用途的中间件（含子路由器：它里面的路由看不见，整层算没报）都算：中间件一样能直接应答
+  if (extUndeclared.length) {
+    const routes = extUndeclared.filter((u) => u.type === 'route').length, mws = extUndeclared.length - routes;
+    console.warn(`[extensions] 扩展没报的层：路由 ${routes} 条、中间件或子路由器 ${mws} 个（${[...new Set(extUndeclared.map((u) => u.extension))].join('、')}）；路由改用 ctx.routes.add 报动作，中间件改用 ctx.routes.use 写明用途`);
+    if (host.routesMode === 'enforce') throw new Error(`WM_EXTENSION_ROUTES=enforce：扩展有 ${extUndeclared.length} 处没报（路由 ${routes} 条、中间件或子路由器 ${mws} 个：${extUndeclared.slice(0, 5).map((u) => `${u.extension} ${u.method} ${u.path}`).join('；')}）`);
   }
   return loaded;
 }

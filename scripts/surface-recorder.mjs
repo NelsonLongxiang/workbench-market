@@ -75,7 +75,7 @@ process.on('message', async (msg) => {
   let wmExtensions = { routes: [], undeclared: [] };
   try {
     const ext = await import(pathToFileURL(join(process.cwd(), 'src/extensions.ts')).href);
-    wmExtensions = { routes: ext.extensionRoutes?.() ?? [], undeclared: ext.extensionUndeclared?.() ?? [] };
+    wmExtensions = { routes: ext.extensionRoutes?.() ?? [], undeclared: ext.extensionUndeclared?.() ?? [], middleware: ext.extensionMiddleware?.() ?? [] };
   } catch { /* 没有这个模块的旧代码：留空 */ }
   process.send?.({ wmSurface: apps.map((app) => dump(app._router?.stack)), wmActions: apps.map((app) => actionsOf(app._router?.stack)), wmExtensions });
 });

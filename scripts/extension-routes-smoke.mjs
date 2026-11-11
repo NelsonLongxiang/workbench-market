@@ -38,7 +38,8 @@ function writeExtensions(tag, exts) {
   const dir = join(OUT, tag, 'ext');
   for (const [name, body] of Object.entries(exts)) {
     mkdirSync(join(dir, name), { recursive: true });
-    writeFileSync(join(dir, name, 'server.mjs'), `export function register(ctx) {\n${body}\n}\n`);
+    // 扩展里要 express（做子路由器）时，从实例的工作目录（server/）解析，拿到的是宿主那一份
+    writeFileSync(join(dir, name, 'server.mjs'), `import { createRequire } from 'node:module';\nconst express = createRequire(process.cwd() + '/src/index.ts')('express');\nexport function register(ctx) {\n${body}\n}\n`);
   }
   return dir;
 }
@@ -94,15 +95,25 @@ try {
     const named = (m, p) => lines.some((l) => l.includes('"event":"route-undeclared"') && l.includes('"extension":"acme"') && l.includes(`"method":"${m}"`) && l.includes(`"path":"${p}"`));
     check(items.status === 200 && legacy.status === 200, 'warn：报了动作的扩展路由照常；直接用 ctx.app 挂的照旧能跑', show({ items: items.status, legacy: legacy.status }));
     check(named('GET', '/api/acme/legacy') && named('POST', '/api/acme/legacy2') && lines.some((l) => l.includes('"event":"middleware-added"'))
-      && /扩展路由没报动作：2 条（acme）/.test(srv.log()) && !lines.some((l) => l.includes('/api/acme/items')),
-      '直接挂的（app.get、app.route().post）逐条点名「没报动作」并合计 2 条；中间件另记一类；经 routes.add 的不点名', show(lines.length));
+      && /扩展没报的层：路由 2 条、中间件或子路由器 1 个（acme）/.test(srv.log()) && !lines.some((l) => l.includes('/api/acme/items')),
+      '直接挂的（app.get、app.route().post）逐条点名「没报动作」，中间件另记一类，合计一行；经 routes.add 的不点名', show(lines.length));
     await srv.stop();
   }
   // ---------- 二、enforce：有没报动作的就拒绝启动；全报了的照常 ----------
   {
     const bad = await boot('enforce-bad', writeExtensions('enforce-bad', { acme: GOOD + LEGACY }), { WM_EXTENSION_ROUTES: 'enforce' });
-    check(bad.failed === true && bad.code !== 0 && /WM_EXTENSION_ROUTES=enforce：有 2 条扩展路由没报动作/.test(bad.log) && bad.log.includes('acme GET /api/acme/legacy'),
-      'enforce：有没报动作的扩展路由，拒绝启动并点名', show({ code: bad.code }));
+    check(bad.failed === true && bad.code !== 0 && /WM_EXTENSION_ROUTES=enforce：扩展有 3 处没报（路由 2 条、中间件或子路由器 1 个/.test(bad.log) && bad.log.includes('acme GET /api/acme/legacy'),
+      'enforce：有没报动作的扩展路由、没报用途的中间件，拒绝启动并点名', show({ code: bad.code }));
+    // 旁路挂载：子路由器（里面的路由看不见）、按路径直接应答的裸中间件——enforce 一律拒绝启动
+    const subRouter = await boot('enforce-subrouter', writeExtensions('enforce-subrouter', { acme: GOOD + `\n  const r = express.Router(); r.get('/peek', (_q, s) => s.json({ peek: true })); ctx.app.use('/api/acme/sub', r);` }), { WM_EXTENSION_ROUTES: 'enforce' });
+    const rawMw = await boot('enforce-raw-mw', writeExtensions('enforce-raw-mw', { acme: GOOD + `\n  ctx.app.use('/api/acme/raw', (_q, s) => s.json({ raw: true }));` }), { WM_EXTENSION_ROUTES: 'enforce' });
+    check(subRouter.failed === true && /子路由器 1 个/.test(subRouter.log) && rawMw.failed === true && /子路由器 1 个/.test(rawMw.log),
+      'enforce：旁路挂载——ctx.app.use 挂子路由器、按路径直接应答的裸中间件——都拒绝启动', show({ sub: subRouter.code, raw: rawMw.code }));
+    // 报了用途的中间件照常（enforce 下也能启动）
+    const declaredMw = await boot('enforce-declared-mw', writeExtensions('enforce-declared-mw', { acme: GOOD + `\n  ctx.routes.use('/api/acme', { purpose: '给本扩展的接口加缓存头' }, (_q, s, n) => { s.set('X-Acme', '1'); n(); });` }), { WM_EXTENSION_ROUTES: 'enforce' });
+    const viaMw = declaredMw.failed ? null : await declaredMw.call('GET', '/api/acme/items');
+    check(!declaredMw.failed && viaMw?.status === 200, 'enforce：经 ctx.routes.use 写明用途的中间件照常启动、照常生效', show({ failed: declaredMw.failed }));
+    if (!declaredMw.failed) await declaredMw.stop();
     const good = await boot('enforce-good', writeExtensions('enforce-good', { acme: GOOD }), { WM_EXTENSION_ROUTES: 'enforce' });
     check(!good.failed && (await good.call('GET', '/api/acme/items')).status === 200, 'enforce：全部报了动作的扩展照常启动');
     if (!good.failed) await good.stop();
@@ -132,6 +143,19 @@ try {
     // 扩展名（动作前缀）和核心动作的域重名：核心路由全部注册完之后核出来
     const clash = await boot('clash', writeExtensions('clash', { grant: `ctx.routes.add('get', '/api/grant/x', { action: 'grant.x', kind: 'read', who: 'member' }, (_q, s) => s.end());` }));
     check(clash.failed === true && /扩展名 grant 和核心动作的域重名/.test(clash.log), '扩展名和核心动作的域重名（扩展叫 grant）：拒绝启动');
+    // 扩展名和核心路径的首段重名：api、核心的路径（design、go）、前端页面（tasks）、只在核心路由栈里的首段（a2a：直接挂在 Express 上、没报动作，自动收集）
+    const pathClash = [];
+    for (const n of ['api', 'design', 'go', 'tasks', 'a2a']) {
+      const r = await boot(`path-clash-${n}`, writeExtensions(`path-clash-${n}`, { [n]: `ctx.routes.add('get', '/${n}/x', { action: '${n}.x', kind: 'read', who: 'member' }, (_q, s) => s.json({ ext: true }));` }));
+      pathClash.push({ n, ok: r.failed === true && new RegExp(`扩展名 ${n} 和核心的路径首段重名`).test(r.log) });
+      if (!r.failed) await r.stop();
+    }
+    check(pathClash.every((x) => x.ok), '扩展名和核心路径的首段重名（api、design、go、前端页面 tasks、只在核心路由栈里的 a2a，自动收集）：拒绝启动，不让扩展抢走核心的路由', show(pathClash.filter((x) => !x.ok)));
+    // 前端页面的首段清单和 web/src/App.tsx 对得上
+    const app = readFileSync(join(ROOT, 'web', 'src', 'App.tsx'), 'utf8');
+    const pages = [...new Set([...app.matchAll(/<Route path="\/([a-z0-9-]+)/g)].map((m) => m[1]))].sort();
+    const listed = JSON.parse(/SPA_PAGE_SEGMENTS: readonly string\[\] = (\[[^\]]*\])/.exec(readFileSync(join(ROOT, 'server', 'src', 'extensions.ts'), 'utf8'))?.[1].replace(/'/g, '"') ?? '[]').sort();
+    check(JSON.stringify(pages) === JSON.stringify(listed), '扩展名的保留名单里的前端页面首段和 web/src/App.tsx 一致（页面加了、名单没跟上就红）', show({ pages, listed }));
   }
   // ---------- 四、快照 --extensions：单独一节，不写 surfaces/ ----------
   {
