@@ -85,7 +85,13 @@ export function replySeatMessage(item: { id: string; source_ref?: string | null;
   return { status: 200, body: { ok: true, item_id: item.id, sent: queued, reason: queued ? 'queued' : dispatched ? 'not_queued' : 'event_not_dispatched' } };
 }
 
-export type SeatProgress = { n: number; state: string; summary: string; at: string; ahead?: number; by?: unknown; tickets: unknown[]; received_at: string };
+/**
+ * by：回执信封里的 by 原样（receipt-inbound 洗过）——对象 { seat, name?, team?, role? }，不是字符串；
+ *   seat 是句柄 <zone>/<id8>，name 是对端自报的显示名，role 取 router（总工）/ member（成员）/ observer（观察者），旧节点不带 role。
+ * tickets：[{ id, title, seat?, state, outcome? }]，state 取 queued / working / waiting / blocked / ended。
+ */
+export type SeatBy = { seat: string; name?: string; team?: string; role?: 'router' | 'member' | 'observer' };
+export type SeatProgress = { n: number; state: string; summary: string; at: string; ahead?: number; by?: SeatBy; tickets: { id: string; title: string; seat?: string; state: string; outcome?: string }[]; received_at: string };
 
 /**
  * 阶段七 PR-A：席位最近一步进展（progress-<task>-<n>），给事项页做「正在处理」的轻提示和子项（tickets，以最近一步的全量为准）。
@@ -99,8 +105,8 @@ export function seatProgressOf(item: { id: string; source_ref?: string | null; s
   if (!p || !step || typeof step.n !== 'number' || typeof step.state !== 'string') return null;
   return {
     n: step.n, state: step.state, summary: typeof step.summary === 'string' ? step.summary : '', at: typeof step.at === 'string' ? step.at : '',
-    ...(typeof step.ahead === 'number' ? { ahead: step.ahead } : {}), ...(p.detail.by ? { by: p.detail.by } : {}),
-    tickets: Array.isArray(p.detail.tickets) ? p.detail.tickets : [], received_at: p.at,
+    ...(typeof step.ahead === 'number' ? { ahead: step.ahead } : {}), ...(p.detail.by && typeof p.detail.by === 'object' ? { by: p.detail.by as SeatBy } : {}),
+    tickets: Array.isArray(p.detail.tickets) ? p.detail.tickets as SeatProgress['tickets'] : [], received_at: p.at,
   };
 }
 
