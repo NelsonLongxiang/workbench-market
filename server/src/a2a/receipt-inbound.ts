@@ -140,14 +140,21 @@ function progressOf(envelope: Record<string, unknown>, n: number): { summary: st
   const summary = typeof r.summary === 'string' ? cleanSummary(r.summary) : '';
   const at = typeof r.at === 'string' && !Number.isNaN(Date.parse(r.at)) ? r.at.slice(0, 40) : '';
   const ahead = typeof r.ahead === 'number' && Number.isSafeInteger(r.ahead) && r.ahead >= 0 ? r.ahead : undefined;
-  const str = (x: unknown) => (typeof x === 'string' ? cleanSummary(x).slice(0, 200) : '');
-  const tickets = Array.isArray(envelope.tickets)
-    ? envelope.tickets.filter((t): t is Record<string, unknown> => !!t && typeof t === 'object' && !Array.isArray(t))
-      .map((t) => ({ id: str(t.id), title: str(t.title), seat: str(t.seat), state: str(t.state), outcome: str(t.outcome) }))
-      .filter((t) => t.id !== '' && TICKET_STATES.includes(t.state)).slice(0, 16)
-      .map((t) => ({ id: t.id, title: t.title, ...(t.seat ? { seat: t.seat } : {}), state: t.state, ...(t.outcome ? { outcome: t.outcome } : {}) }))
-    : undefined;
+  const tickets = ticketsOf(envelope);
   return { summary, step: { n, state: r.state, summary, at, ...(ahead !== undefined ? { ahead } : {}) }, ...(tickets ? { tickets } : {}) };
+}
+
+/**
+ * 信封里的 tickets（拆单的子工单，dsh-open-a2a-net#618）：进展和结果回执都可能带——结果回执里是各子项的结局。
+ * 每项 { id, title, seat?, state, outcome? }，state 认 queued / working / waiting / blocked / ended，坏的逐个丢，最多 16 个；没带返回 undefined
+ */
+function ticketsOf(envelope: Record<string, unknown>): { id: string; title: string; seat?: string; state: string; outcome?: string }[] | undefined {
+  if (!Array.isArray(envelope.tickets)) return undefined;
+  const str = (x: unknown) => (typeof x === 'string' ? cleanSummary(x).slice(0, 200) : '');
+  return envelope.tickets.filter((t): t is Record<string, unknown> => !!t && typeof t === 'object' && !Array.isArray(t))
+    .map((t) => ({ id: str(t.id), title: str(t.title), seat: str(t.seat), state: str(t.state), outcome: str(t.outcome) }))
+    .filter((t) => t.id !== '' && TICKET_STATES.includes(t.state)).slice(0, 16)
+    .map((t) => ({ id: t.id, title: t.title, ...(t.seat ? { seat: t.seat } : {}), state: t.state, ...(t.outcome ? { outcome: t.outcome } : {}) }));
 }
 
 /** 信封里的 by（谁做的）和 artifacts（产物编号）：只记录、只显示，不授予任何东西。坏的值逐个丢 */
@@ -263,7 +270,7 @@ export async function handleInboundReceipt(req: Req, deps: { audiences: () => st
     if (cls === 'question' ? !claimQuestion(sent.task_id, stepKey, now) : !claimReceipt(sent.task_id, cls, disposition.slice(0, 32), outcome.slice(0, 32))) return false;
     logDeliveryFact(sent.event_id, sent.delivery_id, `receiver:${sent.peer_zone}`, action, {
       summary, disposition: disposition.slice(0, 32), ...(outcome !== '' ? { outcome: outcome.slice(0, 32) } : {}), task: sent.task_id,
-      ...(question ? { qid, question } : {}), ...(progress ? { progress: progress.step, ...(progress.tickets ? { tickets: progress.tickets } : {}) } : {}), ...attribution,
+      ...(question ? { qid, question } : {}), ...(progress ? { progress: progress.step } : {}), ...(ticketsOf(envelope) ? { tickets: ticketsOf(envelope) } : {}), ...attribution,
     });
     // 答复 / 回复类任务（人发出的消息）：席位的结果回执就是它的回话，正文落成事项对话里的一条未读席位消息。
     // 状态仍按映射表走（上面那一行事件日志）；这里只多存一份正文给人看，不回执（它本身就是回执）

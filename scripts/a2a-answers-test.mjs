@@ -340,12 +340,12 @@ try {
     await receipt(SP.task, '两张都在做', { idempotencyKey: SP.task, disposition: 'progress', progress: { n: 2, state: 'working', at: '2026-11-11T08:01:00.000Z' },
       tickets: [{ id: 's1', title: '子项一', seat: 'lab/a1a1a1a1', state: 'working' }, { id: 's2', title: '子项二', seat: 'lab/b2b2b2b2', state: 'working' }] }, SP.ctx, { inbound: `progress-${SP.task}-2` });
     ok('拆单：两张子工单由不同成员在做 → 主事项承接清空（不显示单个成员）', seatOf(SP.ev) === '', JSON.stringify(seatOf(SP.ev)));
-    await receipt(SP.task, '子项二失败', { idempotencyKey: SP.task, disposition: 'progress', progress: { n: 3, state: 'working', at: '2026-11-11T08:02:00.000Z' },
-      tickets: [{ id: 's1', title: '子项一', seat: 'lab/a1a1a1a1', state: 'ended', outcome: 'completed' }, { id: 's2', title: '子项二', seat: 'lab/b2b2b2b2', state: 'ended', outcome: 'failed' }] }, SP.ctx, { inbound: `progress-${SP.task}-3` });
-    r = await receipt(SP.task, '部分完成：子项一完成，子项二失败', { outcome: 'failed', idempotencyKey: SP.task, disposition: 'result', by: { seat: 'lab/00000000', name: '总工', role: 'router' } }, SP.ctx);
+    // 结果回执带各子项的结局（最后一步进展里子项二还是 working，实际是放弃）
+    r = await receipt(SP.task, '部分完成（有子项未完成）：子项一完成，子项二放弃', { outcome: 'failed', idempotencyKey: SP.task, disposition: 'result', by: { seat: 'lab/00000000', name: '总工', role: 'router' },
+      tickets: [{ id: 's1', title: '子项一', seat: 'lab/a1a1a1a1', state: 'ended', outcome: 'completed' }, { id: 's2', title: '子项二', seat: 'lab/b2b2b2b2', state: 'ended', outcome: 'abandoned' }, { id: '', state: 'ended' }] }, SP.ctx);
     const it = (await api('GET', `/api/work-items/wi_${SP.ev}`)).body ?? {};
     ok('拆单整件 failed（总工汇总、正文部分完成）→ 事项没办成；总工不回填成承接', r.status === 200 && it.item?.state === 'failed' && it.item?.seat === '', JSON.stringify({ st: it.item?.state, seat: it.item?.seat }));
-    ok('……终态后 progress 为空，subitems 照样给出各子项的结局', it.progress === null && JSON.stringify((it.subitems ?? []).map((x) => [x.id, x.title, x.seat, x.state, x.outcome])) === JSON.stringify([['s1', '子项一', 'lab/a1a1a1a1', 'ended', 'completed'], ['s2', '子项二', 'lab/b2b2b2b2', 'ended', 'failed']]), JSON.stringify(it.subitems));
+    ok('……终态后 progress 为空，subitems 以结果回执里的子项为准（各子项结局，坏的丢掉）', it.progress === null && JSON.stringify((it.subitems ?? []).map((x) => [x.id, x.title, x.seat, x.state, x.outcome])) === JSON.stringify([['s1', '子项一', 'lab/a1a1a1a1', 'ended', 'completed'], ['s2', '子项二', 'lab/b2b2b2b2', 'ended', 'abandoned']]), JSON.stringify(it.subitems));
   }
 
   console.log('二之三之三、回执的产物并进事项的 outputs');
