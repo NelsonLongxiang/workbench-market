@@ -223,6 +223,29 @@ export type EventRow = {
 };
 export type EventLogRow = { id: number; delivery_id: number | null; actor: string; action: string; detail: string };
 
+/** 事件的来源坐标（「task-center · task-center · task:1」）：没有更好的标题时的退路，也用来认出「标题还是自动起的」 */
+const coordTitle = (e: Pick<EventRow, 'source' | 'workbench' | 'item'>) => `${e.source} · ${e.workbench} · ${e.item}`.slice(0, 500);
+
+/**
+ * 建事项时从事件推出来的两样：标题、派给。
+ *   标题：任务中心发布的取任务标题（tasks.title，发布时从录入的 title 步骤来）；取不到（不是任务中心、任务没了、标题空）退到来源坐标。
+ *   派给：这个事件每个投递的目标团队（投递行在记事件时就建好，held 的也算；一个事件对一个团队只有一行），按投递顺序用「, 」连起来；
+ *   没有投递（unrouted）是空串。
+ * 只读，两种库都认的写法。tasks 表不在的进程（只装了事项服务的测试）当取不到。
+ */
+function derivedOf(e: Pick<EventRow, 'event_id' | 'source' | 'workbench' | 'item'>): { title: string; target_team: string } {
+  let title = '';
+  const m = e.source === 'task-center' ? /^task:([1-9]\d{0,15})$/.exec(e.item) : null;
+  if (m) {
+    try {
+      const t = db.prepare('SELECT title FROM tasks WHERE id = ?').get(Number(m[1])) as { title: unknown } | undefined;
+      if (typeof t?.title === 'string') title = t.title.replace(/\s+/g, ' ').trim().slice(0, 500);
+    } catch { /* 没有 tasks 表 */ }
+  }
+  const teams = (db.prepare("SELECT target_team FROM workbench_event_deliveries WHERE event_id = ? AND target_team <> '' ORDER BY id").all(e.event_id) as { target_team: string }[]).map((r) => r.target_team);
+  return { title: title || coordTitle(e), target_team: teams.join(', ').slice(0, 500) };
+}
+
 const PERSON_PRINCIPAL = /^user:[^\s]+$/;
 
 /**
@@ -343,6 +366,10 @@ export class WorkItemService extends Service {
       // 后台回填出任何错都不能拖垮服务：记下、停在这里，下次启动接着跑
       const timer = setImmediate(() => {
         if (stopped) return;
+        // 存量事项补标题和派给：出错只记下，不挡回填
+        try { const n = this.fillDerivedAll(); if (n) console.log(`[work-items] 补了 ${n} 件存量事项的标题或派给`); } catch (e) {
+          console.error(`[work-items] 补存量事项的标题、派给没成（不影响服务，下次启动再补）：${(e as Error)?.message ?? e}`);
+        }
         try { this.runBackground(() => stopped); } catch (e) {
           this.progress = { ...this.progress, state: 'failed' };
           console.error(`[work-items] 后台回填没能开始（不影响服务，下次启动再试，或手动 backfill()）：${(e as Error)?.message ?? e}`);
@@ -484,6 +511,32 @@ export class WorkItemService extends Service {
     return { events: ids.length, created: count() - before };
   }
 
+  /**
+   * 补存量事项的标题和派给：标题仍是来源坐标（自动起的）而现在能取到任务标题的，换成任务标题；派给空着而事件有投递的，写上。
+   * 条件更新（WHERE 带上旧值），并发或重复跑结果相同。不写事项日志：这两项是从事件推出来的显示信息，不是事实。
+   */
+  private fillDerived(w: Pick<WorkItemRow, 'id' | 'title' | 'target_team'>, e: Pick<EventRow, 'event_id' | 'source' | 'workbench' | 'item'>): boolean {
+    const coord = coordTitle(e);
+    if (w.title !== coord && w.target_team !== '') return false;
+    const d = derivedOf(e);
+    let changed = false;
+    if (w.title === coord && d.title !== coord) changed = Number(db.prepare('UPDATE work_items SET title = ? WHERE id = ? AND title = ?').run(d.title, w.id, coord).changes) > 0 || changed;
+    if (w.target_team === '' && d.target_team !== '') changed = Number(db.prepare("UPDATE work_items SET target_team = ? WHERE id = ? AND target_team = ''").run(d.target_team, w.id).changes) > 0 || changed;
+    return changed;
+  }
+
+  /**
+   * 启动时补一遍存量（不随回填版本走，也不全量核事件）：只挑派给空着、或任务中心来的事项，逐件按 fillDerived 补。
+   * 补过的不再是候选；任务中心里标题已经换过的，fillDerived 第一行就跳过。返回补了几件。
+   */
+  fillDerivedAll(): number {
+    const rows = db.prepare(`SELECT w.id AS id, w.title AS title, w.target_team AS target_team, e.event_id AS event_id, e.source AS source, e.workbench AS workbench, e.item AS item
+      FROM work_items w JOIN workbench_events e ON e.id = w.event_id WHERE w.target_team = '' OR w.source_kind = 'task-center'`).all() as (Pick<WorkItemRow, 'id' | 'title' | 'target_team'> & Pick<EventRow, 'event_id' | 'source' | 'workbench' | 'item'>)[];
+    let n = 0;
+    for (const r of rows) if (this.fillDerived(r, r)) n++;
+    return n;
+  }
+
   private syncLocked(eventId: string): void {
     const event = db.prepare('SELECT id, event_id, source, workbench, item, context_id, submitter_kind, submitter, routed, created_at, dispatch FROM workbench_events WHERE event_id = ?')
       .get(eventId) as EventRow | undefined;
@@ -496,11 +549,14 @@ export class WorkItemService extends Service {
     const existing = this.get(itemId);
     // 存量事项：建立人主体还空着、而事件能确定已验证主体的，补上（只补空的；确定不了的照旧空着）。重复跑结果相同
     if (existing && existing.creator_principal === null && creator !== null) db.prepare('UPDATE work_items SET creator_principal = ? WHERE id = ? AND creator_principal IS NULL').run(creator, itemId);
+    // 存量事项：标题还是自动起的来源坐标、派给还空着的，按同一个规则补上（只补自动的缺省值，不碰别的）。重复跑结果相同
+    if (existing) this.fillDerived(existing, event);
     if (!existing) {
       const who = String(event.submitter ?? '').replace(/\s+/g, '_').slice(0, 200);
       const createdBy = event.submitter_kind !== 'unverified' && /^[^:\s]+:\S/.test(who) ? who : `${event.submitter_kind}:${who || 'unknown'}`;
+      const derived = derivedOf(event);
       this.insertItem(itemId, {
-        title: `${event.source} · ${event.workbench} · ${event.item}`.slice(0, 500), created_by: createdBy, creator_principal: creator,
+        title: derived.title, target_team: derived.target_team, created_by: createdBy, creator_principal: creator,
         source_kind: event.source as SourceKind, source_ref: event.event_id, event_id: event.id,
         context: { workbench: event.workbench, item: event.item, context_id: event.context_id, submitter_kind: event.submitter_kind, ...(creator && event.submitter_kind === 'unverified' ? { submitter_via: 'ticket' } : {}) },
       }, { source: EVENT_FACT_SOURCE, id: String(recorded.id) }, event.created_at);
