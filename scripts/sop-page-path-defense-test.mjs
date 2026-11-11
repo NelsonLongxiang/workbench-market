@@ -10,8 +10,9 @@
  *   原代码         越界的请求一律 400，不读到根外的文件
  *   只剩第二道     越界到台目录、别的台的请求照样 400
  *   两道都去掉     对照：越界的文件被读到（说明本测试真的能看出两道都没了）
- * 已知缺口（只剩第二道时）：第二道是不带分隔符的前缀比较，root 是 …/v1 时，../v10/x 拼出来的 …/v10/x 也以 root 开头，
- * 同一个台的 v10 目录能被读到。原代码里有第一道挡着，走不到。这一项只记录、不断言；修了第二道（比 root 加分隔符）之后改成断言。
+ * 第二道原来是不带分隔符的前缀比较（root 是 …/v1 时 …/v10/x 也算在根里）；现在收成一处 isInsideRoot（server/src/path-inside.ts），
+ * 只剩第二道时 ../v10/x 也拦得住。三处（/sop/ 附件、/apps/ 静态托管、/go/ 转自产台）都用它，不再各写一份。
+ * 另外直接测 isInsideRoot 本身：v1 对 v10、带不带尾斜杠、根本身、符号链接（按字面，不跟随，和原来一样）、大小写（按字面）。
  *
  *   node scripts/sop-page-path-defense-test.mjs
  */
@@ -31,7 +32,7 @@ let pass = 0, fail = 0;
 const check = (ok, label, detail = '') => { if (ok) pass++; else fail++; console.log(`  ${ok ? '✓' : '✗'} ${label}${ok || !detail ? '' : `（${detail}）`}`); };
 
 const FIRST = "if (rel === '.' || rel.startsWith('/') || rel.startsWith('..')) return res.status(400).json({ error: '路径非法' });";
-const SECOND = "if (!abs.startsWith(root)) return res.status(400).json({ error: '路径非法' });";
+const SECOND = "if (!isInsideRoot(root, abs)) return res.status(400).json({ error: '路径非法' });";
 
 /** 在子进程里加载这一份 sop-page.ts，用假的 HTTP 服务拿到处理函数，逐个请求跑一遍，回状态码和读了哪个文件 */
 const PROBE = (srcDir, appsRoot, dataDir, rests) => `
@@ -91,11 +92,39 @@ try {
   const secondOnly = run(variant('second-only', (s) => s.replace(FIRST, '')));
   for (const rest of ['../secret.txt', 'a/../../secret.txt', '../../other/v1/secret.txt']) check(blocked(secondOnly[rest]), `只剩第二道：${rest} → 照样 400 路径非法`, JSON.stringify(secondOnly[rest]));
   check(secondOnly['ok.txt'].file?.endsWith(join('demo', 'v1', 'ok.txt')), '只剩第二道：版本目录里的附件照常读到');
-  const gap = secondOnly['../v10/secret.txt'];
-  console.log(`  · 已知缺口（只记录、不断言）：只剩第二道时 ../v10/secret.txt → ${outside(gap) ? '读到了 …/v10/secret.txt（前缀比较没带分隔符）' : `${gap.status} ${gap.error ?? ''}`}`);
+  check(blocked(secondOnly['../v10/secret.txt']), '只剩第二道：../v10/secret.txt（同一个台的 v10 目录）→ 照样 400 路径非法', JSON.stringify(secondOnly['../v10/secret.txt']));
 
   const neither = run(variant('neither', (s) => s.replace(FIRST, '').replace(SECOND, '')));
   check(outside(neither['../secret.txt']) && outside(neither['../../other/v1/secret.txt']), '对照：两道都去掉，越界的文件被读到（本测试能看出两道都没了）', JSON.stringify(neither['../secret.txt']));
+
+  // ---------- isInsideRoot 本身 ----------
+  {
+    const { isInsideRoot } = await import(pathToFileURL(join(ROOT, 'server', 'src', 'path-inside.ts')).href);
+    const base = join(OUT, 'apps', 'demo');
+    const v1 = join(base, 'v1');
+    const cases = [
+      [v1, join(base, 'v10', 'x'), false, 'v1 对 v10：…/v10/x 不在 …/v1 里'],
+      [v1, join(v1, 'x'), true, '根下的文件在根里'],
+      [v1 + '/', join(v1, 'x'), true, '根带尾斜杠也一样'],
+      [v1, v1, true, '根本身算在根里'],
+      [v1, v1 + '/', true, '根本身带尾斜杠也算'],
+      [v1, join(v1, 'a', '..', '..', 'v10', 'x'), false, '先规范化再比：…/v1/a/../../v10/x 不在根里'],
+      [v1, join(base, 'v1x'), false, '同前缀的兄弟目录 …/v1x 不在根里'],
+      [v1, base, false, '根的上一级不在根里'],
+      [v1, join(base, 'V1', 'x'), false, '大小写按字面比：…/V1/x 不算在 …/v1 里（和原来的写法一样）'],
+    ];
+    for (const [root, target, want, label] of cases) check(isInsideRoot(root, target) === want, `isInsideRoot：${label}`, JSON.stringify({ root, target }));
+    // 符号链接：只比字面，不跟随（和原来一样）。根里一个指到根外的链接，按字面算在根里
+    const link = join(v1, 'outside-link');
+    try { (await import('node:fs')).symlinkSync(join(base, 'secret.txt'), link); } catch { /* 已有 */ }
+    check(isInsideRoot(v1, link) === true, 'isInsideRoot：符号链接按字面判断、不跟随（和原来的行为一样）');
+  }
+  // ---------- 三处都用这一个函数 ----------
+  {
+    const files = ['server/src/index.ts', 'server/src/portal.ts', 'server/src/routes/sop-page.ts'];
+    const uses = files.map((f) => [f, readFileSync(join(ROOT, f), 'utf8')]);
+    check(uses.every(([, t]) => t.includes('isInsideRoot(root, abs)')) && uses.every(([, t]) => !t.includes('startsWith(root)')), '三处（/apps/ 静态托管、/go/ 转自产台、/sop/ 附件）都用 isInsideRoot，不再各写 startsWith(root)', JSON.stringify(uses.map(([f, t]) => [f, t.includes('isInsideRoot(root, abs)'), t.includes('startsWith(root)')])));
+  }
 } catch (e) {
   fail++;
   console.log(`  ✗ 跑不下去：${e?.stack ?? e}`);

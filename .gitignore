@@ -13,3 +13,6 @@ evidence/*
 !evidence/e2e_test.py
 verify/
 tmp/
+
+# 纵深防御单测在 server/ 下放的代码副本（强杀后可能留下）
+server/.defense-copy-*/
