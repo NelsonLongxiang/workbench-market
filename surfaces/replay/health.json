@@ -1,0 +1,511 @@
+{
+  "domain": "health",
+  "what": "健康与就绪：GET /api/health（只回缓存的 LayerFS 结果，不触发探测）、GET /api/health/ready（配了 LayerFS 就探，不健康 503），共 2 条路由，公开。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "routes": ["GET /api/health", "GET /api/health/ready"],
+  "exempt": [
+    { "route": "GET /api/health", "class": "unauthorized", "why": "健康检查公开（登录门开着也公开，部署探活用）", "shown_by": "gated/gated-health" },
+    { "route": "GET /api/health", "class": "invalid", "why": "不读请求里的任何东西", "shown_by": "open/health" },
+    { "route": "GET /api/health/ready", "class": "unauthorized", "why": "同上，就绪检查公开", "shown_by": "gated/gated-ready" },
+    { "route": "GET /api/health/ready", "class": "invalid", "why": "不读请求里的任何东西", "shown_by": "open/ready" }
+  ],
+  "scenarios": [
+    {
+      "name": "open",
+      "what": "登录门关，不配 LayerFS。运行秒数按 10 万秒取整再比（只比量级）。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "steps": [
+        {
+          "id": "health",
+          "route": "GET /api/health",
+          "class": "normal",
+          "what": "健康：服务名、版本、登录门模式、启动自检快照、A2A 的开关和计数；运行秒数只比到量级",
+          "vary": { "uptime_s": 100000 },
+          "request": { "method": "GET", "path": "/api/health", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2815", "etag": "W/\"aff-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 0,
+              "login_gate": "off",
+              "self_probe": {
+                "passed": true,
+                "failed": [],
+                "at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "rows": [
+                  { "id": "market.mcp.initialize", "surface": "market", "method": "POST", "path": "/mcp", "verdict": "warn", "status": null, "reason": "gateway-explicitly-off" },
+                  { "id": "market.mcp.tools-list", "surface": "market", "method": "POST", "path": "/mcp", "verdict": "warn", "status": null, "reason": "gateway-explicitly-off" },
+                  { "id": "market.browser-workbench-write", "surface": "market", "method": "POST", "path": "/api/workbenches", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.invalid-write-control", "surface": "market", "method": "POST", "path": "/api/workbenches", "verdict": "pass", "status": 400, "reason": null },
+                  { "id": "control.admin-read", "surface": "control", "method": "GET", "path": "/api/mcp/sessions", "verdict": "skip", "status": null, "reason": "control-disabled" },
+                  { "id": "market.principals.admin-read", "surface": "market", "method": "GET", "path": "/api/principals", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.work-items.creator-decision-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/decision", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.work-items.seat-reply-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/messages/1/reply", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.work-items.list-anonymous", "surface": "market", "method": "GET", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.export.reveal-anonymous", "surface": "market", "method": "GET", "path": "/api/export?reveal=1", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null }
+                ]
+              },
+              "work_items_backfill": { "state": "done" },
+              "a2a": {
+                "inbound": { "signature": "accept", "body_signature": "accept" },
+                "outbound": { "origin_claim_v1": "on" },
+                "card": { "ttl_s": 162000 },
+                "idempotency": { "store": "sqlite", "window_s": 1800 },
+                "outbox": { "receipts": { "counts": {}, "oldest_pending_s": null, "recent_delay_s": { "samples": 0, "median": null, "max": null } }, "events": { "counts": {} }, "followup_receipts": { "pending": 0, "max_attempts": 0 } },
+                "refused": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "counts": {} }
+              }
+            }
+          }
+        },
+        {
+          "id": "ready",
+          "route": "GET /api/health/ready",
+          "class": "normal",
+          "what": "就绪：没配 LayerFS，200",
+          "vary": { "uptime_s": 100000 },
+          "request": { "method": "GET", "path": "/api/health/ready", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2390", "etag": "W/\"956-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 0,
+              "login_gate": "off",
+              "self_probe": {
+                "passed": true,
+                "failed": [],
+                "at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "rows": [
+                  { "id": "market.mcp.initialize", "surface": "market", "method": "POST", "path": "/mcp", "verdict": "warn", "status": null, "reason": "gateway-explicitly-off" },
+                  { "id": "market.mcp.tools-list", "surface": "market", "method": "POST", "path": "/mcp", "verdict": "warn", "status": null, "reason": "gateway-explicitly-off" },
+                  { "id": "market.browser-workbench-write", "surface": "market", "method": "POST", "path": "/api/workbenches", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.invalid-write-control", "surface": "market", "method": "POST", "path": "/api/workbenches", "verdict": "pass", "status": 400, "reason": null },
+                  { "id": "control.admin-read", "surface": "control", "method": "GET", "path": "/api/mcp/sessions", "verdict": "skip", "status": null, "reason": "control-disabled" },
+                  { "id": "market.principals.admin-read", "surface": "market", "method": "GET", "path": "/api/principals", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.work-items.creator-decision-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/decision", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.work-items.seat-reply-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/messages/1/reply", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.work-items.list-anonymous", "surface": "market", "method": "GET", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.export.reveal-anonymous", "surface": "market", "method": "GET", "path": "/api/export?reveal=1", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null }
+                ]
+              },
+              "work_items_backfill": { "state": "done" }
+            }
+          }
+        },
+        {
+          "id": "health-remote",
+          "route": "GET /api/health",
+          "class": "normal",
+          "what": "远程匿名也能读",
+          "vary": { "uptime_s": 100000 },
+          "request": { "method": "GET", "path": "/api/health", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2815", "etag": "W/\"aff-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 0,
+              "login_gate": "off",
+              "self_probe": {
+                "passed": true,
+                "failed": [],
+                "at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "rows": [
+                  { "id": "market.mcp.initialize", "surface": "market", "method": "POST", "path": "/mcp", "verdict": "warn", "status": null, "reason": "gateway-explicitly-off" },
+                  { "id": "market.mcp.tools-list", "surface": "market", "method": "POST", "path": "/mcp", "verdict": "warn", "status": null, "reason": "gateway-explicitly-off" },
+                  { "id": "market.browser-workbench-write", "surface": "market", "method": "POST", "path": "/api/workbenches", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.invalid-write-control", "surface": "market", "method": "POST", "path": "/api/workbenches", "verdict": "pass", "status": 400, "reason": null },
+                  { "id": "control.admin-read", "surface": "control", "method": "GET", "path": "/api/mcp/sessions", "verdict": "skip", "status": null, "reason": "control-disabled" },
+                  { "id": "market.principals.admin-read", "surface": "market", "method": "GET", "path": "/api/principals", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.work-items.creator-decision-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/decision", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.work-items.seat-reply-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/messages/1/reply", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.work-items.list-anonymous", "surface": "market", "method": "GET", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.export.reveal-anonymous", "surface": "market", "method": "GET", "path": "/api/export?reveal=1", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null }
+                ]
+              },
+              "work_items_backfill": { "state": "done" },
+              "a2a": {
+                "inbound": { "signature": "accept", "body_signature": "accept" },
+                "outbound": { "origin_claim_v1": "on" },
+                "card": { "ttl_s": 162000 },
+                "idempotency": { "store": "sqlite", "window_s": 1800 },
+                "outbox": { "receipts": { "counts": {}, "oldest_pending_s": null, "recent_delay_s": { "samples": 0, "median": null, "max": null } }, "events": { "counts": {} }, "followup_receipts": { "pending": 0, "max_attempts": 0 } },
+                "refused": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "counts": {} }
+              }
+            }
+          }
+        },
+        {
+          "id": "health-admin",
+          "route": "GET /api/health",
+          "class": "normal",
+          "what": "带管理口令：事项回填给细节（版本、批数、游标、核过的事件数）；匿名只给状态",
+          "vary": { "uptime_s": 100000 },
+          "request": { "method": "GET", "path": "/api/health", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2885", "etag": "W/\"b45-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 0,
+              "login_gate": "off",
+              "self_probe": {
+                "passed": true,
+                "failed": [],
+                "at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "rows": [
+                  { "id": "market.mcp.initialize", "surface": "market", "method": "POST", "path": "/mcp", "verdict": "warn", "status": null, "reason": "gateway-explicitly-off" },
+                  { "id": "market.mcp.tools-list", "surface": "market", "method": "POST", "path": "/mcp", "verdict": "warn", "status": null, "reason": "gateway-explicitly-off" },
+                  { "id": "market.browser-workbench-write", "surface": "market", "method": "POST", "path": "/api/workbenches", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.invalid-write-control", "surface": "market", "method": "POST", "path": "/api/workbenches", "verdict": "pass", "status": 400, "reason": null },
+                  { "id": "control.admin-read", "surface": "control", "method": "GET", "path": "/api/mcp/sessions", "verdict": "skip", "status": null, "reason": "control-disabled" },
+                  { "id": "market.principals.admin-read", "surface": "market", "method": "GET", "path": "/api/principals", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.work-items.creator-decision-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/decision", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.work-items.seat-reply-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/messages/1/reply", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.work-items.list-anonymous", "surface": "market", "method": "GET", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.export.reveal-anonymous", "surface": "market", "method": "GET", "path": "/api/export?reveal=1", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null }
+                ]
+              },
+              "work_items_backfill": { "state": "done", "version": 3, "phase": "full", "cursor": 0, "batches": 1, "events": 0, "from": 0 },
+              "a2a": {
+                "inbound": { "signature": "accept", "body_signature": "accept" },
+                "outbound": { "origin_claim_v1": "on" },
+                "card": { "ttl_s": 162000 },
+                "idempotency": { "store": "sqlite", "window_s": 1800 },
+                "outbox": { "receipts": { "counts": {}, "oldest_pending_s": null, "recent_delay_s": { "samples": 0, "median": null, "max": null } }, "events": { "counts": {} }, "followup_receipts": { "pending": 0, "max_attempts": 0 } },
+                "refused": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "counts": {} }
+              }
+            }
+          }
+        },
+        {
+          "id": "ready-admin",
+          "route": "GET /api/health/ready",
+          "class": "normal",
+          "what": "带管理口令的就绪：同样给回填细节",
+          "vary": { "uptime_s": 100000 },
+          "request": { "method": "GET", "path": "/api/health/ready", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2460", "etag": "W/\"99c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 0,
+              "login_gate": "off",
+              "self_probe": {
+                "passed": true,
+                "failed": [],
+                "at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "rows": [
+                  { "id": "market.mcp.initialize", "surface": "market", "method": "POST", "path": "/mcp", "verdict": "warn", "status": null, "reason": "gateway-explicitly-off" },
+                  { "id": "market.mcp.tools-list", "surface": "market", "method": "POST", "path": "/mcp", "verdict": "warn", "status": null, "reason": "gateway-explicitly-off" },
+                  { "id": "market.browser-workbench-write", "surface": "market", "method": "POST", "path": "/api/workbenches", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.invalid-write-control", "surface": "market", "method": "POST", "path": "/api/workbenches", "verdict": "pass", "status": 400, "reason": null },
+                  { "id": "control.admin-read", "surface": "control", "method": "GET", "path": "/api/mcp/sessions", "verdict": "skip", "status": null, "reason": "control-disabled" },
+                  { "id": "market.principals.admin-read", "surface": "market", "method": "GET", "path": "/api/principals", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.work-items.creator-decision-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/decision", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.work-items.seat-reply-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/messages/1/reply", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.work-items.list-anonymous", "surface": "market", "method": "GET", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.export.reveal-anonymous", "surface": "market", "method": "GET", "path": "/api/export?reveal=1", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null }
+                ]
+              },
+              "work_items_backfill": { "state": "done", "version": 3, "phase": "full", "cursor": 0, "batches": 1, "events": 0, "from": 0 }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "layerfs",
+      "what": "LayerFS 指向假的（scripts/layerfs-fake-preload.mjs，不答健康检查）。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "fixtures": ["layerfs-fake"],
+      "steps": [
+        {
+          "id": "lfs-health-before",
+          "route": "GET /api/health",
+          "class": "normal",
+          "what": "配了 LayerFS、还没探过：不带 layerfs 字段（只回缓存，不触发探测）",
+          "vary": { "uptime_s": 100000 },
+          "request": { "method": "GET", "path": "/api/health", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2815", "etag": "W/\"aff-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 0,
+              "login_gate": "off",
+              "self_probe": {
+                "passed": true,
+                "failed": [],
+                "at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "rows": [
+                  { "id": "market.mcp.initialize", "surface": "market", "method": "POST", "path": "/mcp", "verdict": "warn", "status": null, "reason": "gateway-explicitly-off" },
+                  { "id": "market.mcp.tools-list", "surface": "market", "method": "POST", "path": "/mcp", "verdict": "warn", "status": null, "reason": "gateway-explicitly-off" },
+                  { "id": "market.browser-workbench-write", "surface": "market", "method": "POST", "path": "/api/workbenches", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.invalid-write-control", "surface": "market", "method": "POST", "path": "/api/workbenches", "verdict": "pass", "status": 400, "reason": null },
+                  { "id": "control.admin-read", "surface": "control", "method": "GET", "path": "/api/mcp/sessions", "verdict": "skip", "status": null, "reason": "control-disabled" },
+                  { "id": "market.principals.admin-read", "surface": "market", "method": "GET", "path": "/api/principals", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.work-items.creator-decision-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/decision", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.work-items.seat-reply-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/messages/1/reply", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.work-items.list-anonymous", "surface": "market", "method": "GET", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.export.reveal-anonymous", "surface": "market", "method": "GET", "path": "/api/export?reveal=1", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null }
+                ]
+              },
+              "work_items_backfill": { "state": "done" },
+              "a2a": {
+                "inbound": { "signature": "accept", "body_signature": "accept" },
+                "outbound": { "origin_claim_v1": "on" },
+                "card": { "ttl_s": 162000 },
+                "idempotency": { "store": "sqlite", "window_s": 1800 },
+                "outbox": { "receipts": { "counts": {}, "oldest_pending_s": null, "recent_delay_s": { "samples": 0, "median": null, "max": null } }, "events": { "counts": {} }, "followup_receipts": { "pending": 0, "max_attempts": 0 } },
+                "refused": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "counts": {} }
+              }
+            }
+          }
+        },
+        {
+          "id": "lfs-ready",
+          "what": "就绪：探 LayerFS（假的不答健康检查），不健康就 503（5xx 不标路由，只录下来比）",
+          "vary": { "uptime_s": 100000 },
+          "request": { "method": "GET", "path": "/api/health/ready", "headers": {} },
+          "response": {
+            "status": 503,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2413", "etag": "W/\"96d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": false,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 0,
+              "login_gate": "off",
+              "self_probe": {
+                "passed": true,
+                "failed": [],
+                "at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "rows": [
+                  { "id": "market.mcp.initialize", "surface": "market", "method": "POST", "path": "/mcp", "verdict": "warn", "status": null, "reason": "gateway-explicitly-off" },
+                  { "id": "market.mcp.tools-list", "surface": "market", "method": "POST", "path": "/mcp", "verdict": "warn", "status": null, "reason": "gateway-explicitly-off" },
+                  { "id": "market.browser-workbench-write", "surface": "market", "method": "POST", "path": "/api/workbenches", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.invalid-write-control", "surface": "market", "method": "POST", "path": "/api/workbenches", "verdict": "pass", "status": 400, "reason": null },
+                  { "id": "control.admin-read", "surface": "control", "method": "GET", "path": "/api/mcp/sessions", "verdict": "skip", "status": null, "reason": "control-disabled" },
+                  { "id": "market.principals.admin-read", "surface": "market", "method": "GET", "path": "/api/principals", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.work-items.creator-decision-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/decision", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.work-items.seat-reply-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/messages/1/reply", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.work-items.list-anonymous", "surface": "market", "method": "GET", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.export.reveal-anonymous", "surface": "market", "method": "GET", "path": "/api/export?reveal=1", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null }
+                ]
+              },
+              "work_items_backfill": { "state": "done" },
+              "layerfs": "unhealthy"
+            }
+          }
+        },
+        {
+          "id": "lfs-health-after",
+          "route": "GET /api/health",
+          "class": "normal",
+          "what": "探过之后：health 带上次的 layerfs 结果",
+          "vary": { "uptime_s": 100000 },
+          "request": { "method": "GET", "path": "/api/health", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2837", "etag": "W/\"b15-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 0,
+              "login_gate": "off",
+              "self_probe": {
+                "passed": true,
+                "failed": [],
+                "at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "rows": [
+                  { "id": "market.mcp.initialize", "surface": "market", "method": "POST", "path": "/mcp", "verdict": "warn", "status": null, "reason": "gateway-explicitly-off" },
+                  { "id": "market.mcp.tools-list", "surface": "market", "method": "POST", "path": "/mcp", "verdict": "warn", "status": null, "reason": "gateway-explicitly-off" },
+                  { "id": "market.browser-workbench-write", "surface": "market", "method": "POST", "path": "/api/workbenches", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.invalid-write-control", "surface": "market", "method": "POST", "path": "/api/workbenches", "verdict": "pass", "status": 400, "reason": null },
+                  { "id": "control.admin-read", "surface": "control", "method": "GET", "path": "/api/mcp/sessions", "verdict": "skip", "status": null, "reason": "control-disabled" },
+                  { "id": "market.principals.admin-read", "surface": "market", "method": "GET", "path": "/api/principals", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.work-items.creator-decision-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/decision", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.work-items.seat-reply-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/messages/1/reply", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.work-items.list-anonymous", "surface": "market", "method": "GET", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.export.reveal-anonymous", "surface": "market", "method": "GET", "path": "/api/export?reveal=1", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null }
+                ]
+              },
+              "work_items_backfill": { "state": "done" },
+              "layerfs": "unhealthy",
+              "a2a": {
+                "inbound": { "signature": "accept", "body_signature": "accept" },
+                "outbound": { "origin_claim_v1": "on" },
+                "card": { "ttl_s": 162000 },
+                "idempotency": { "store": "sqlite", "window_s": 1800 },
+                "outbox": { "receipts": { "counts": {}, "oldest_pending_s": null, "recent_delay_s": { "samples": 0, "median": null, "max": null } }, "events": { "counts": {} }, "followup_receipts": { "pending": 0, "max_attempts": 0 } },
+                "refused": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "counts": {} }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "gated",
+      "what": "登录门开着（WM_LOGIN_GATE=enforce）。",
+      "env": { "WM_LOGIN_GATE": "enforce", "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "steps": [
+        {
+          "id": "gated-health",
+          "route": "GET /api/health",
+          "class": "normal",
+          "what": "登录门开着：健康照样公开",
+          "vary": { "uptime_s": 100000 },
+          "request": { "method": "GET", "path": "/api/health", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "3316", "etag": "W/\"cf4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 0,
+              "login_gate": "enforce",
+              "self_probe": {
+                "passed": true,
+                "failed": [],
+                "at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "rows": [
+                  { "id": "market.mcp.initialize", "surface": "market", "method": "POST", "path": "/mcp", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.mcp.tools-list", "surface": "market", "method": "POST", "path": "/mcp", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.browser-workbench-write", "surface": "market", "method": "POST", "path": "/api/workbenches", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.invalid-write-control", "surface": "market", "method": "POST", "path": "/api/workbenches", "verdict": "pass", "status": 400, "reason": null },
+                  { "id": "control.admin-read", "surface": "control", "method": "GET", "path": "/api/mcp/sessions", "verdict": "skip", "status": null, "reason": "control-disabled" },
+                  { "id": "market.principals.admin-read", "surface": "market", "method": "GET", "path": "/api/principals", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.work-items.creator-decision-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/decision", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.work-items.seat-reply-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/messages/1/reply", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.work-items.list-anonymous", "surface": "market", "method": "GET", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.export.reveal-anonymous", "surface": "market", "method": "GET", "path": "/api/export?reveal=1", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null },
+                  { "id": "market.login-gate.page", "surface": "market", "method": "GET", "path": "/", "verdict": "pass", "status": 302, "reason": null },
+                  { "id": "market.login-gate.app", "surface": "market", "method": "GET", "path": "/apps/wm-self-probe/", "verdict": "pass", "status": 302, "reason": null },
+                  { "id": "market.login-gate.api", "surface": "market", "method": "GET", "path": "/api/apps", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.a2a-direct.unsigned", "surface": "market", "method": "POST", "path": "/a2a/direct", "verdict": "pass", "status": 401, "reason": null }
+                ]
+              },
+              "work_items_backfill": { "state": "done" },
+              "a2a": {
+                "inbound": { "signature": "require", "body_signature": "accept" },
+                "outbound": { "origin_claim_v1": "on" },
+                "card": { "ttl_s": 162000 },
+                "idempotency": { "store": "sqlite", "window_s": 1800 },
+                "outbox": { "receipts": { "counts": {}, "oldest_pending_s": null, "recent_delay_s": { "samples": 0, "median": null, "max": null } }, "events": { "counts": {} }, "followup_receipts": { "pending": 0, "max_attempts": 0 } },
+                "refused": { "since": "YYYY-MM-DDThh:mm:ss.fffZ", "counts": { "sig:absent": 1 } }
+              }
+            }
+          }
+        },
+        {
+          "id": "gated-ready",
+          "route": "GET /api/health/ready",
+          "class": "normal",
+          "what": "登录门开着：就绪照样公开",
+          "vary": { "uptime_s": 100000 },
+          "request": { "method": "GET", "path": "/api/health/ready", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "2876", "etag": "W/\"b3c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "ok": true,
+              "service": "workbench-market-server",
+              "version": "0.1.0",
+              "uptime_s": 0,
+              "login_gate": "enforce",
+              "self_probe": {
+                "passed": true,
+                "failed": [],
+                "at": "YYYY-MM-DDThh:mm:ss.fffZ",
+                "rows": [
+                  { "id": "market.mcp.initialize", "surface": "market", "method": "POST", "path": "/mcp", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.mcp.tools-list", "surface": "market", "method": "POST", "path": "/mcp", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.browser-workbench-write", "surface": "market", "method": "POST", "path": "/api/workbenches", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.invalid-write-control", "surface": "market", "method": "POST", "path": "/api/workbenches", "verdict": "pass", "status": 400, "reason": null },
+                  { "id": "control.admin-read", "surface": "control", "method": "GET", "path": "/api/mcp/sessions", "verdict": "skip", "status": null, "reason": "control-disabled" },
+                  { "id": "market.principals.admin-read", "surface": "market", "method": "GET", "path": "/api/principals", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.work-items.creator-decision-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/decision", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.work-items.seat-reply-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/messages/1/reply", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.work-items.list-anonymous", "surface": "market", "method": "GET", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.export.reveal-anonymous", "surface": "market", "method": "GET", "path": "/api/export?reveal=1", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.app-data.anonymous-read", "surface": "market", "method": "GET", "path": "/api/apps/wm-self-probe/data", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.login-flow.unsigned-event", "surface": "market", "method": "POST", "path": "/login/feishu/events", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.login-flow.forged-callback", "surface": "market", "method": "GET", "path": "/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x", "verdict": "pass", "status": 400, "reason": null },
+                  { "id": "market.login-gate.page", "surface": "market", "method": "GET", "path": "/", "verdict": "pass", "status": 302, "reason": null },
+                  { "id": "market.login-gate.app", "surface": "market", "method": "GET", "path": "/apps/wm-self-probe/", "verdict": "pass", "status": 302, "reason": null },
+                  { "id": "market.login-gate.api", "surface": "market", "method": "GET", "path": "/api/apps", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.a2a-direct.unsigned", "surface": "market", "method": "POST", "path": "/a2a/direct", "verdict": "pass", "status": 401, "reason": null }
+                ]
+              },
+              "work_items_backfill": { "state": "done" }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
