@@ -24,6 +24,7 @@ import Reviews from './pages/Reviews';
 import Attention from './pages/Attention';
 import WorkItem from './pages/WorkItem';
 import NotYet, { NOT_YET } from './pages/NotYet';
+import WorkItems from './pages/WorkItems';
 import SkillsPage from './pages/Skills';
 import ViewerChip from './components/ViewerChip';
 import LoginChip from './components/LoginChip';
@@ -120,7 +121,6 @@ export default function App() {
       <Routes>
         <Route path="/" element={<NotYet spec={NOT_YET.home} />} />
         <Route path="/overview" element={<Dashboard />} />
-        <Route path="/work-items" element={<NotYet spec={NOT_YET.items} />} />
         <Route path="/team" element={<NotYet spec={NOT_YET.team} />} />
         <Route path="/access" element={<NotYet spec={NOT_YET.access} />} />
         <Route path="/knowledge" element={<NotYet spec={NOT_YET.knowledge} />} />
@@ -132,6 +132,7 @@ export default function App() {
         <Route path="/sops/:slug/runs/:id" element={<SopRunDetail />} />
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/attention" element={<Attention />} />
+        <Route path="/work-items" element={<WorkItems />} />
         <Route path="/work-items/:id" element={<WorkItem />} />
         <Route path="/reviews" element={<Reviews />} />
         {WEB_EXTENSIONS.flatMap((e) => (e.routes ?? []).map((r) => <Route key={`${e.name}:${r.path}`} path={r.path} element={r.element} />))}

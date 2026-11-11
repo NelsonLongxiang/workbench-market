@@ -1,3 +1,4 @@
+import type { WorkItemListPage } from './work-items-view';
 import type { Cockpit, ExportPayload, PanelConfig, SopApp, SopDefinition, SopRun, SopRunDetail, SopRunFile, Summary, Workbench, WorkbenchDraft, WorkbenchType } from './types';
 import { getAdminToken, loginRequired, redirectToLogin } from './admin-token';
 
@@ -71,6 +72,9 @@ export const api = {
   /** 单 run 附件：服务端判读授权，未授权 403（needAdminToken 标记不代表要口令，调用方按「需读授权」处理） */
   listSopRunFiles: (id: number) => req<{ run_id: number; items: SopRunFile[]; count: number }>(`/api/sop/runs/${id}/files`),
   listActiveSopRuns: () => req<SopRun[]>('/api/sop/runs/active'),
+  /** 事项列表：管理员看全部，登录的人只看自己建立的；cursor 翻页，counts 是整个可见范围按状态的计数 */
+  listWorkItems: (params: Record<string, string> = {}) =>
+    req<WorkItemListPage>(`/api/work-items?${new URLSearchParams(params)}`),
 };
 
 export function typeLabel(types: WorkbenchType[], key: string): WorkbenchType | undefined {
