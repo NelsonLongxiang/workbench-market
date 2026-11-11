@@ -478,7 +478,7 @@ async function gatePrincipalChecks(srv, tag, relay) {
     try { rows = db.prepare("SELECT provider, external_id, appearance FROM principal_pending WHERE external_id IN ('Alpha', 'beta')").all(); } finally { db.close(); }
     const att = await srv.call('GET', '/api/attention', null, undefined, TOKEN);
     const attItems = JSON.stringify(att.json ?? {});
-    check(list.status === 200 && mine.length === 1 && keys === 'display_name,email,external_id,last_seen,provider' && !mine[0].email && rows.length === 1 && rows[0].external_id === 'Alpha' && rows[0].appearance > 0
+    check(list.status === 200 && mine.length === 1 && keys === 'display_name,email,external_id,last_seen,provider,reason' && mine[0].reason === 'unbound' && !mine[0].email && rows.length === 1 && rows[0].external_id === 'Alpha' && rows[0].appearance > 0
       && !items.some((p) => p.external_id === 'beta') && /principal-pending/.test(attItems) && attItems.includes('Alpha'),
       `${tag}待对接·经现有登录（不是飞书）对不上主体的进清单：反复来只有一条、出现序号定下了、只有标识/显示名/邮箱（空）/最近一次；停用的不进；「关注」的待对接来源看得到`, show({ list: list.status, mine: mine.length, keys, rows, beta: items.some((p) => p.external_id === 'beta') }));
   }

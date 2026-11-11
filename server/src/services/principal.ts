@@ -86,6 +86,8 @@ export function comparisonKey(value: string): string {
 
 /** 待对接清单保留几天：过了这么久没再来的清掉 */
 export const PENDING_DAYS = 30;
+/** 待对接的原因：unbound 对不到主体（等价写法撞上了）；bound-to-non-person 这条外部身份绑在非人主体上，要先解绑 */
+export type PendingReason = 'unbound' | 'bound-to-non-person';
 
 /** 列表和详情交出去的列：比较用的规范化值不交出去 */
 const COLUMNS = 'id, kind, display_name, owner, status, status_changed_at, status_changed_by, status_reason, created_at';
@@ -117,17 +119,21 @@ export class PrincipalService extends Service implements PrincipalDirectory {
    */
   admit(identity: ExternalIdentity): Admission {
     const out = this.admitOnce(identity);
-    if (out.ok === false && out.reason === 'unbound') this.notePendingSoon(identity.provider, identity.externalId, identity.displayName ?? null);
+    if (out.ok === false && out.reason === 'unbound') {
+      // 绑在非人主体上的（席位的凭据、节点的句柄）：对接按钮点了也是 409，要先解绑那条外部身份，原因单列
+      const held = this.boundTo(identity.provider, identity.externalId);
+      this.notePendingSoon(identity.provider, identity.externalId, identity.displayName ?? null, held && held.kind !== 'person' ? 'bound-to-non-person' : 'unbound');
+    }
     return out;
   }
 
-  private notePendingSoon(provider: string, externalId: string, displayName: string | null): void {
+  private notePendingSoon(provider: string, externalId: string, displayName: string | null, reason: PendingReason): void {
     const key = `${provider}\u0000${externalId}`, now = Date.now();
     const last = this.pendingNoted.get(key);
     if (last !== undefined && now - last < 60_000) return;
     if (this.pendingNoted.size > 5000) this.pendingNoted.clear();
     this.pendingNoted.set(key, now);
-    try { this.notePending({ provider, externalId, displayName, email: null }); } catch { /* 记清单出错不影响认人的结论 */ }
+    try { this.notePending({ provider, externalId, displayName, email: null, reason }); } catch { /* 记清单出错不影响认人的结论 */ }
   }
 
   private admitOnce(identity: ExternalIdentity): Admission {
@@ -289,18 +295,24 @@ export class PrincipalService extends Service implements PrincipalDirectory {
    * 记一笔「等管理员对接」：登录方式认出了人，却还没对到主体。只记认人需要的最少信息（对方的用户标识、显示名、企业邮箱）
    * 和最近一次来的时间；同一个人再来只更新这几样。保留 PENDING_DAYS 天，过期的随手清掉。
    */
-  notePending(input: { provider: string; externalId: string; displayName: string | null; email: string | null }): void {
+  notePending(input: { provider: string; externalId: string; displayName: string | null; email: string | null; reason?: PendingReason }): void {
     if (!providerOk(input?.provider) || !externalIdOk(input?.externalId)) return;
+    const reason: PendingReason = input.reason === 'bound-to-non-person' ? 'bound-to-non-person' : 'unbound';
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' '); // 和列的写法一样（UTC，到秒）；时间由代码给，不在 SQL 里取
     db.prepare(`DELETE FROM principal_pending WHERE last_seen < datetime('now', '-${PENDING_DAYS} days')`).run();
-    db.prepare(`INSERT INTO principal_pending (provider, external_id, display_name, email) VALUES (?, ?, ?, ?)
-      ON CONFLICT(provider, external_id) DO UPDATE SET display_name = excluded.display_name, email = excluded.email, last_seen = datetime('now')`)
-      .run(input.provider, input.externalId, text(input.displayName, 256), text(input.email, 320));
+    // 再来时只更新这几样；这一次没带显示名、邮箱（比如经现有登录认出来的人没有邮箱）就留着原来的，不拿空值盖掉
+    db.prepare(`INSERT INTO principal_pending (provider, external_id, display_name, email, reason, last_seen) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(provider, external_id) DO UPDATE SET
+        display_name = CASE WHEN excluded.display_name <> '' THEN excluded.display_name ELSE principal_pending.display_name END,
+        email = CASE WHEN excluded.email <> '' THEN excluded.email ELSE principal_pending.email END,
+        reason = excluded.reason, last_seen = excluded.last_seen`)
+      .run(input.provider, input.externalId, text(input.displayName, 256), text(input.email, 320), reason, now);
   }
 
   /** 等管理员对接的清单，最近来过的在前。过期的先清掉，不交出去 */
-  pending(): { provider: string; external_id: string; display_name: string; email: string; last_seen: string }[] {
+  pending(): { provider: string; external_id: string; display_name: string; email: string; reason: PendingReason; last_seen: string }[] {
     db.prepare(`DELETE FROM principal_pending WHERE last_seen < datetime('now', '-${PENDING_DAYS} days')`).run();
-    return db.prepare('SELECT provider, external_id, display_name, email, last_seen FROM principal_pending ORDER BY last_seen DESC, provider, external_id LIMIT 500').all() as never;
+    return db.prepare('SELECT provider, external_id, display_name, email, reason, last_seen FROM principal_pending ORDER BY last_seen DESC, provider, external_id LIMIT 500').all() as never;
   }
 
 
