@@ -12,7 +12,7 @@
  * 采信的回执写一行事件日志，事项服务照 8b 的路径推进（映射在 services/work-item.ts 的 factFromEventLog）：
  *   acknowledged → receipt:acknowledged；attention → receipt:attention（摘要即问题）；
  *   result + outcome ∈ completed / failed / rejected / abandoned → receipt:<outcome>；其余 → receipt:unaccepted（只记录）。
- * 同一任务号的接单回执、终局回执各认一次（idempotencyKey 去重），重复的回 409 -32003 replay。
+ * 同一任务号的接单回执、终局回执各认一次（idempotencyKey 去重），重复的回 409 -32003 replay；不采信的回执不占这两个槽。
  * 日志里只放摘要（≤500 字）、disposition、outcome、任务号；签名、头、令牌一概不进。
  */
 import { createPublicKey, verify as edVerify } from 'node:crypto';
@@ -146,6 +146,17 @@ export async function handleInboundReceipt(req: Req, deps: { audiences: () => st
   else if (disposition === 'result' && (RESULT_OUTCOMES as readonly string[]).includes(outcome)) action = `receipt:${outcome}`;
   else action = 'receipt:unaccepted';
   const summary = cleanSummary(parsed.summary ?? '');
+  const inboundTask = typeof body.task_id === 'string' ? body.task_id.slice(0, 128) : '';
+  if (action === 'receipt:unaccepted') {
+    // 不采信的回执不占接单 / 终局的槽：之后真的回执照常认。只记录（每次投递最多 20 行），不改状态
+    noteA2aError('receipt:unaccepted');
+    if (untrustedReceiptCount(sent.delivery_id, 'receipt:unaccepted') < UNTRUSTED_CAP) {
+      inReceiptTx(() => logDeliveryFact(sent.event_id, sent.delivery_id, `receiver:${sent.peer_zone}`, action, {
+        summary, disposition: disposition.slice(0, 32), ...(outcome !== '' ? { outcome: outcome.slice(0, 32) } : {}), task: sent.task_id,
+      }));
+    }
+    return { status: 200, body: { routed: true, delivered: true, team: typeof body.team === 'string' ? body.team.slice(0, 128) : '', task_id: inboundTask, context_id: typeof body.context_id === 'string' ? body.context_id.slice(0, 256) : '', task_status: 'TASK_STATE_DELIVERED', receipt: 'not-accepted' } };
+  }
   const fresh = inReceiptTx(() => {
     if (!claimReceipt(sent.task_id, cls, disposition.slice(0, 32), outcome.slice(0, 32))) return false;
     logDeliveryFact(sent.event_id, sent.delivery_id, `receiver:${sent.peer_zone}`, action, {
@@ -153,12 +164,10 @@ export async function handleInboundReceipt(req: Req, deps: { audiences: () => st
     });
     return true;
   });
-  const inboundTask = typeof body.task_id === 'string' ? body.task_id.slice(0, 128) : '';
   if (!fresh) {
     noteA2aError('receipt:replay');
     return { status: 409, body: { error: 'duplicate receipt for this task', code: -32003, task_id: inboundTask, replay: true } };
   }
-  if (action === 'receipt:unaccepted') noteA2aError('receipt:unaccepted');
   return {
     status: 200,
     body: { routed: true, delivered: true, team: typeof body.team === 'string' ? body.team.slice(0, 128) : '', task_id: inboundTask, context_id: typeof body.context_id === 'string' ? body.context_id.slice(0, 256) : '', task_status: 'TASK_STATE_DELIVERED', receipt: 'recorded' },

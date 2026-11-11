@@ -37,8 +37,8 @@ export function claimSignatureOnce(sig: string, expiresAt: number, now = Date.no
 }
 
 /** 这次投递已经记了多少行「收到未采信」的回执（防刷：到上限就不再记） */
-export function untrustedReceiptCount(deliveryId: number): number {
-  const row = db.prepare("SELECT COUNT(*) AS n FROM workbench_event_log WHERE delivery_id = ? AND action = 'receipt:untrusted'").get(deliveryId) as { n: number } | undefined;
+export function untrustedReceiptCount(deliveryId: number, action: 'receipt:untrusted' | 'receipt:unaccepted' = 'receipt:untrusted'): number {
+  const row = db.prepare('SELECT COUNT(*) AS n FROM workbench_event_log WHERE delivery_id = ? AND action = ?').get(deliveryId, action) as { n: number } | undefined;
   return Number(row?.n ?? 0);
 }
 

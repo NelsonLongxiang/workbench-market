@@ -181,6 +181,79 @@ try {
     ok('单个投递：等验收后同一投递再来回执被去重（一个任务只有一条终局回执）', itemState(r1.ev)?.state === 'ready');
   }
 
+  console.log('一（表）、A 的状态 × B 回什么（一个事件投给两个团队）');
+  {
+    // A 先回（或不回），把事项带到某个状态；B 再回一条。期望的是 B 那条之后事项的状态
+    const ENV = {
+      acknowledged: (t) => ({ inbound: `ack-${t}`, env: { idempotencyKey: t, disposition: 'acknowledged' } }),
+      attention: (t) => ({ env: { idempotencyKey: t, disposition: 'attention' } }),
+      completed: (t) => ({ env: { outcome: 'completed', idempotencyKey: t, disposition: 'result' } }),
+      failed: (t) => ({ env: { outcome: 'failed', idempotencyKey: t, disposition: 'result' } }),
+      rejected: (t) => ({ env: { outcome: 'rejected', idempotencyKey: t, disposition: 'result' } }),
+      abandoned: (t) => ({ env: { outcome: 'abandoned', idempotencyKey: t, disposition: 'result' } }),
+    };
+    const send = async (task, kind) => { const x = ENV[kind](task); return receipt(task, kind, x.env, x.inbound ? { inbound: x.inbound } : {}); };
+    //            A 之后的状态  B: acknowledged  attention   completed  failed      rejected    abandoned
+    const TABLE = {
+      none:         ['delivered', 'accepted',     'blocked',  'ready',   'delivered', 'delivered', 'delivered'],
+      acknowledged: ['accepted',  'accepted',     'blocked',  'ready',   'accepted',  'accepted',  'accepted'],
+      attention:    ['blocked',   'accepted',     'blocked',  'ready',   'blocked',   'blocked',   'blocked'],
+      completed:    ['ready',     'ready',        'ready',    'ready',   'ready',     'ready',     'ready'],
+    };
+    const B = ['acknowledged', 'attention', 'completed', 'failed', 'rejected', 'abandoned'];
+    const misses = [];
+    let cells = 0;
+    for (const [a, row] of Object.entries(TABLE)) {
+      for (let i = 0; i < B.length; i++) {
+        const m = seedEvent({ teams: 2 });
+        if (a !== 'none') await send(m.tasks[0], a);
+        // 事项要先建出来（第一行回执日志触发）；A 不回时用 B 之前的状态核对
+        const afterA = itemState(m.ev)?.state ?? 'delivered';
+        if (afterA !== row[0]) misses.push(`A=${a} 之后应是 ${row[0]}，实际 ${afterA}`);
+        await send(m.tasks[1], B[i]);
+        const got = itemState(m.ev)?.state;
+        cells++;
+        if (got !== row[i + 1]) misses.push(`A=${a}，B=${B[i]}：应是 ${row[i + 1]}，实际 ${got}`);
+      }
+    }
+    ok(`A 的四种状态 × B 的六种回执，${cells} 格全部符合（说不干了的只在没有别的团队在场时推终态）`, misses.length === 0, misses.join('；'));
+    // 两个都说不干了：后说的那个才推终态
+    for (const [first, second, end] of [['rejected', 'rejected', 'failed'], ['failed', 'abandoned', 'dropped'], ['abandoned', 'failed', 'failed']]) {
+      const m = seedEvent({ teams: 2 });
+      await send(m.tasks[1], first);
+      const mid = itemState(m.ev)?.state;
+      await send(m.tasks[0], second);
+      ok(`B ${first} 之后 A ${second} → ${end}（B 说完时仍已转交）`, mid === 'delivered' && itemState(m.ev)?.state === end, `${mid} → ${itemState(m.ev)?.state}`);
+    }
+    // 单个团队：说不干了直接推终态
+    for (const [kind, end] of [['failed', 'failed'], ['rejected', 'failed'], ['abandoned', 'dropped']]) {
+      for (const pre of ['none', 'acknowledged', 'completed']) {
+        const m = seedEvent();
+        if (pre !== 'none') await send(m.task + (pre === 'completed' ? '' : ''), pre);
+        // 同一任务的终局回执只有一条：已 completed 的单团队再来终局回执会被去重
+        if (pre === 'completed') { await send(m.task, kind); ok(`单团队 completed 之后同一任务再回 ${kind} → 去重，仍等验收`, itemState(m.ev)?.state === 'ready'); continue; }
+        await send(m.task, kind);
+        ok(`单团队 ${pre === 'none' ? '' : '接单后'}回 ${kind} → ${end}`, itemState(m.ev)?.state === end, JSON.stringify(itemState(m.ev)));
+      }
+    }
+  }
+
+  console.log('一（续二）、不采信的回执不占槽');
+  {
+    const m = seedEvent();
+    let r0 = await receipt(m.task, '借号', { outcome: 'completed', idempotencyKey: 'wbe-0000000000000099.d1.a1', disposition: 'result' });
+    ok('借号的终局回执 → 200 not-accepted、只记录', r0.status === 200 && JSON.parse(r0.text).receipt === 'not-accepted' && lastLog(m.ev)?.action === 'receipt:unaccepted', r0.text);
+    r0 = await receipt(m.task, '真做完', { outcome: 'completed', idempotencyKey: m.task, disposition: 'result' });
+    ok('……随后真的 completed → 照常采信，等验收', r0.status === 200 && itemState(m.ev)?.state === 'ready', `${r0.status} ${r0.text}`);
+    const n = seedEvent();
+    await receipt(n.task, '怪结局', { outcome: 'expired', idempotencyKey: n.task, disposition: 'result' });
+    await receipt(n.task, '接下', { idempotencyKey: 'other-task', disposition: 'acknowledged' }, { inbound: `ack-${n.task}` });
+    r0 = await receipt(n.task, '接下', { idempotencyKey: n.task, disposition: 'acknowledged' }, { inbound: `ack-${n.task}` });
+    ok('词表外的终局回执、借号的接单回执都不占槽 → 真的接单回执照常采信', r0.status === 200 && itemState(n.ev)?.state === 'accepted', r0.text);
+    r0 = await receipt(n.task, '做完', { outcome: 'completed', idempotencyKey: n.task, disposition: 'result' });
+    ok('……真的终局回执也照常采信', r0.status === 200 && itemState(n.ev)?.state === 'ready', r0.text);
+  }
+
   console.log('二、对抗组');
   {
     // 1) 别人的任务号：照原路，应答与一条普通消息逐字节相同
