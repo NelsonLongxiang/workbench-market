@@ -10,9 +10,9 @@
       "what": "index.ts 里的路由数",
       "target": 0,
       "baseline": {
-        "total": 50,
+        "total": 42,
         "files": {
-          "server/src/index.ts": 50
+          "server/src/index.ts": 42
         }
       }
     },
@@ -23,9 +23,9 @@
       "what": "没报动作的路由",
       "target": 0,
       "baseline": {
-        "total": 80,
+        "total": 72,
         "files": {
-          "server/src/index.ts": 50,
+          "server/src/index.ts": 42,
           "server/src/login-gate.ts": 4,
           "server/src/vault-api.ts": 17,
           "server/src/workbench-events.ts": 4,
@@ -204,9 +204,8 @@
       "what": "README 没提到的 server 文件",
       "target": 0,
       "baseline": {
-        "total": 15,
+        "total": 14,
         "items": [
-          "server/src/services/app-data.ts",
           "server/src/services/app.ts",
           "server/src/services/cockpit.ts",
           "server/src/services/cookie.ts",
