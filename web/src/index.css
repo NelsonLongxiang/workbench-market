@@ -248,6 +248,8 @@ body {
   align-items: center;
   gap: var(--wm-space-2);
 }
+/* 侧栏菜单项右侧的角标（「全景」上的等你拍板数） */
+.wm-menu-link .wm-ml-auto { margin-left: auto; }
 
 /* ---------- #320 数据看板（PATTERNS.md §6）：12 列栅格，卡片宽度只取 3/4/6/12，间距 spacing.3 ---------- */
 .wm-dash-grid {

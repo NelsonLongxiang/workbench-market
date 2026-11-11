@@ -23,6 +23,8 @@ import Tasks from './pages/Tasks';
 import Reviews from './pages/Reviews';
 import Attention from './pages/Attention';
 import WorkItem from './pages/WorkItem';
+import NotYet, { NOT_YET } from './pages/NotYet';
+import { getAttentionCount } from './api';
 import SkillsPage from './pages/Skills';
 import ViewerChip from './components/ViewerChip';
 import LoginChip from './components/LoginChip';
@@ -102,6 +104,9 @@ export default function App() {
   const location = useLocation();
   const admin = React.useSyncExternalStore(subscribeAdminToken, adminActive);
   React.useEffect(() => { void refreshAdminIdentity(); }, []);
+  // 「全景」上的角标：等你拍板的条数（就是「关注」里给你的条目数）；读不到不显示
+  const [pending, setPending] = React.useState<number | null>(null);
+  React.useEffect(() => { void getAttentionCount().then(setPending); }, [location.pathname, admin]);
   // 管理组默认折叠：初始只展开四个日常分组；当前页在管理组时也展开它
   const [openKeys, setOpenKeys] = React.useState<string[]>(() =>
     findNav(location.pathname)?.group.admin ? [...WORK_GROUPS, ADMIN_GROUP] : WORK_GROUPS);
@@ -131,7 +136,7 @@ export default function App() {
       onOpenChange={(keys) => setOpenKeys((keys || []) as string[])}
       location={{ pathname: location.pathname }}
       // #316 子菜单模式下 ProLayout 只给一级显示图标；二级页面的专属图标在这里自己渲染
-      menuItemRender={(item, dom) => (item.path ? <Link to={item.path} className="wm-menu-link">{item.icon}{dom}</Link> : dom)}
+      menuItemRender={(item, dom) => (item.path ? <Link to={item.path} className="wm-menu-link">{item.icon}{dom}{item.path === '/' && pending ? <Badge count={pending} size="small" className="wm-ml-auto" data-testid="nav-pending" /> : null}</Link> : dom)}
       menuHeaderRender={() => (
         // ProLayout 默认把 logo 标题染成 colorPrimary（#1E3A5F  Navy），
         // 在深色侧栏上几乎不可见；接管渲染：白字 600 + 字距
@@ -163,7 +168,12 @@ export default function App() {
       {/* #279 当前用户：侧栏布局不渲染 headerRender，所以在内容区顶部右侧放一行，所有页面（含扩展页面）都能看到 */}
       <div className="wm-mb-1" style={{ display: 'flex', justifyContent: 'flex-end', minHeight: 24 }}><LoginChip />{surface !== 'control' && <ViewerChip />}</div>
       <Routes>
-        <Route path="/" element={<Dashboard />} />
+        <Route path="/" element={<NotYet spec={NOT_YET.home} />} />
+        <Route path="/overview" element={<Dashboard />} />
+        <Route path="/work-items" element={<NotYet spec={NOT_YET.items} />} />
+        <Route path="/team" element={<NotYet spec={NOT_YET.team} />} />
+        <Route path="/access" element={<NotYet spec={NOT_YET.access} />} />
+        <Route path="/knowledge" element={<NotYet spec={NOT_YET.knowledge} />} />
         <Route path="/cockpit" element={<Cockpit />} />
         <Route path="/cockpit/:id" element={<Cockpit />} />
         <Route path="/market" element={<Market />} />
