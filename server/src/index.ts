@@ -2280,16 +2280,16 @@ app.get('/api/skills/dl/:ticket', (req, res) => {
   res.setHeader('Referrer-Policy', 'no-referrer'); // 票号在路径里：不随 Referer 外带（404 也带）
   const ticket = String(req.params.ticket ?? '');
   const key = /^[0-9a-f]{64}$/.test(ticket) ? skillTicketKey(ticket) : '';
-  const t = key ? db.prepare('SELECT * FROM skill_download_tickets WHERE id = ?').get(key) as any : undefined;
+  const t = key ? svc<SkillService>('skill').ticketByKey(key) as any : undefined;
   if (t && t.expires_at > Date.now() && t.downloads >= SKILL_DL_MAX) {
-    db.prepare('UPDATE skill_download_tickets SET denied = denied + 1 WHERE id = ?').run(key);
+    svc<SkillService>('skill').ticketDenied(key);
     console.warn(`[skill-download] ${t.slug} v${t.version} issued_to=${t.issued_to} 单票已下载 ${t.downloads} 次（上限 ${SKILL_DL_MAX}），拒绝`);
   }
   // 票不存在、已过期、超过次数上限同一应答：不透露票号是否签发过
   if (!t || t.expires_at <= Date.now() || t.downloads >= SKILL_DL_MAX) throw new HttpError(404, `下载链接无效、已过期（10 分钟有效）或已用满 ${SKILL_DL_MAX} 次，请重新调 skill_download`);
   const { row, target, dir } = skillVersionDir(t.slug, t.version);
   const pkg = skillPackage(row, target, dir);
-  db.prepare("UPDATE skill_download_tickets SET downloads = downloads + 1, last_download_at = datetime('now') WHERE id = ?").run(key);
+  svc<SkillService>('skill').ticketDownloaded(key);
   console.log(`[skill-download] ${t.slug} v${t.version} issued_to=${t.issued_to} bytes=${pkg.length}`);
   res.setHeader('Content-Type', 'application/gzip');
   res.setHeader('Content-Disposition', `attachment; filename="${skillPkgDir(row.slug)}-v${target.version}.tar.gz"`);
@@ -2453,7 +2453,7 @@ app.post('/api/skills/:slug/migrate-layerfs', wrap(async (req, res) => {
     const pre = SkillService.filesDigest(files).digest;
     if (pre !== v.tree_digest) { results.push({ version: v.version, result: 'anomaly', reason: '快照读出的摘要与登记不符（留档不迁）' }); continue; }
     const out = await layerfsPublish(LAYERFS_SKILLS_PROJECT, files, `[skill-migrate] ${row.slug} v${v.version}`, `skill/${row.slug}`);
-    if (!out) { db.prepare("UPDATE skill_versions SET shadow_status='failed', shadow_error='LayerFS publish failed; retry migrate-layerfs' WHERE id=? AND commit_id=''").run(v.id); results.push({ version: v.version, result: 'error', reason: 'layerfs 服务不可达（可重跑）' }); continue; }
+    if (!out) { S.versionShadowPublishFailed(v.id); results.push({ version: v.version, result: 'error', reason: 'layerfs 服务不可达（可重跑）' }); continue; }
     // K13 摘要对账：从服务读回这个 commit 的文件集重算，与登记摘要一致才记 commit_id（0 字节文件读回也得是 0 字节、同路径）
     let back = '';
     try {
@@ -2464,11 +2464,11 @@ app.post('/api/skills/:slug/migrate-layerfs', wrap(async (req, res) => {
     } catch { back = ''; }
     if (back !== v.tree_digest) {
       // 这个 commit 已在分支上但不登记（孤立）：记进 shadow_error 便于核对；月度整库重建（rebuildWmSkills）会清掉它
-      db.prepare("UPDATE skill_versions SET shadow_status='failed', shadow_error=? WHERE id=? AND commit_id=''").run(`LayerFS readback digest mismatch; orphan commit ${out.commit_id} (cleared by monthly rebuild); retry migrate-layerfs`, v.id);
+      S.versionShadowFailed(`LayerFS readback digest mismatch; orphan commit ${out.commit_id} (cleared by monthly rebuild); retry migrate-layerfs`, v.id);
       results.push({ version: v.version, result: 'error', reason: back ? '读回摘要与登记不符（不记 commit_id·可重跑）' : '读回失败（不记 commit_id·可重跑）', commit_id_unrecorded: out.commit_id });
       continue;
     }
-    db.prepare("UPDATE skill_versions SET commit_id = ?, shadow_status='succeeded', shadow_error='' WHERE id = ?").run(out.commit_id, v.id);
+    S.versionMigrated(out.commit_id, v.id);
     results.push({ version: v.version, result: 'migrated', commit_id: out.commit_id, digest_match: true, readback_digest_match: true });
   }
   res.json({ slug: row.slug, project: LAYERFS_SKILLS_PROJECT, branch: `skill/${row.slug}`, results });
@@ -2596,8 +2596,7 @@ app.post('/api/skills/:slug/report-digest', (req, res) => {
   const target = (S.versionsBySkill(row.id) as any[]).find((x) => x.version === v);
   if (!target) throw new HttpError(404, `version not found: ${v}`);
   const match = digest === target.tree_digest;
-  db.prepare('INSERT INTO skill_digest_reports (skill_id, version, digest, expected, match_result, reported_by) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(row.id, v, digest, target.tree_digest, match ? 1 : 0, String(req.body?.reported_by ?? '').slice(0, 100));
+  S.digestReportInsert(row.id, v, digest, target.tree_digest, match ? 1 : 0, String(req.body?.reported_by ?? '').slice(0, 100));
   res.json({ ok: true, slug: row.slug, version: v, match, drift: !match, expected: target.tree_digest });
 });
 
