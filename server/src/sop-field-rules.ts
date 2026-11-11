@@ -34,13 +34,18 @@ export interface CheckExpr {
 }
 export interface CheckTerm { sign: number; num?: number; step?: string | null; field?: string }
 
-// —— 下面三个函数会被原样嵌进执行页脚本（sop-runner.ts 用 String(fn)），所以只写浏览器能跑的纯 JS：不加类型标注、不用外部变量 ——
+/** parseCheckExpr 内部的词法单元 */
+type CheckToken = { t: 'num'; v: number } | { t: 'ref'; step: string | null; field: string } | { t: 'cmp'; v: string } | { t: 'sign'; v: number };
+
+// —— 下面三个函数会被原样嵌进执行页脚本（sop-runner.ts 用 String(fn)），所以函数体只写浏览器能跑的写法、不用外部变量。
+//    可以加类型标注：Node 剥类型时把标注换成等长空白，String(fn) 得到的是纯 JS（sop-field-rules-smoke 的 C7、C18 守着）。
+//    不能用要生成代码的 TS 写法（enum、namespace、参数属性），体检的 erasable-syntax 一项会拦。 ——
 
 /** 解析 data-check 表达式；写法不对返回 null（当作没有这条规则，不让 SOP 因笔误整页失效） */
 export function parseCheckExpr(src) {
   var s = String(src == null ? '' : src);
   if (!s.trim() || s.length > 200) return null;
-  var toks = [], i = 0, n = s.length;
+  var toks: CheckToken[] = [], i = 0, n = s.length;
   var isD = function (c) { return c >= '0' && c <= '9'; };
   var isA = function (c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c === '_'; };
   while (i < n) {
@@ -53,7 +58,7 @@ export function parseCheckExpr(src) {
     }
     if (isA(c)) {
       var k = i; while (k < n && (isA(s.charAt(k)) || isD(s.charAt(k)))) k++;
-      var name = s.slice(i, k), step = null;
+      var name = s.slice(i, k), step: string | null = null;
       if (s.charAt(k) === '.' && isA(s.charAt(k + 1))) { step = name; var k2 = k + 1; while (k2 < n && (isA(s.charAt(k2)) || isD(s.charAt(k2)))) k2++; name = s.slice(k + 1, k2); k = k2; }
       toks.push({ t: 'ref', step: step, field: name }); i = k; continue;
     }
@@ -63,7 +68,7 @@ export function parseCheckExpr(src) {
     if (c === '+' || c === '-') { toks.push({ t: 'sign', v: c === '-' ? -1 : 1 }); i++; continue; }
     return null;
   }
-  var sides = [[], []], side = 0, op = '', want = 'term', sign = 1;
+  var sides: CheckTerm[][] = [[], []], side = 0, op = '', want = 'term', sign = 1;
   for (var q = 0; q < toks.length; q++) {
     var tk = toks[q];
     if (want === 'term') {
