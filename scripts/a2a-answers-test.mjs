@@ -284,7 +284,7 @@ try {
     const rosterRaw = (fp, at, doc, task) => JSON.stringify({ team: 'market/12345678', message: `[A2A roster] ${fp} ${at}\n${JSON.stringify(doc)}`, caller_session: 'dsh-host-1a2b', context_id: '', wait: false, task_id: task });
     const at1 = '2026-11-11T09:00:00.000Z';
     const seats = [
-      { seat: 'lab/a1a1a1a1', name: '成员甲', team: 'lab/canvas/team', role: 'member', online: true, active: 9, queued: 2, lastActiveAt: at1 },
+      { seat: 'lab/a1a1a1a1', seatId: 'seat-a1', name: '成员甲', team: 'lab/canvas/team', role: 'member', online: true, active: 9, queued: 2, lastActiveAt: at1 },
       { seat: 'lab/00000000', name: '总工', team: 'lab/canvas/team', role: 'router', online: true, active: 0, queued: 0 },
       { seat: 'lab/b2b2b2b2', name: '成员乙', team: 'lab/canvas/team', role: 'boss', online: false },
       { seat: 'other/c3c3c3c3', name: '别的区的席位', team: 'lab/canvas/team', role: 'member', online: true },
@@ -302,10 +302,32 @@ try {
     const sa = team?.seats?.find((x) => x.seat === 'lab/a1a1a1a1');
     ok('读接口：团队、名字、在岗数；席位的名字、角色（认不出的置空）、在岗', team && team.name === 'team' && team.peer_zone === 'lab' && team.seats_online === 2 && team.seats.length === 3
       && team.seats.find((x) => x.seat === 'lab/b2b2b2b2')?.role === '' && sa?.name === '成员甲' && sa?.role === 'member', JSON.stringify(t1.body));
-    ok('……在办件数从事项现算（不用宿主报的 9）', sa?.active === 1 && sa?.queued === 2, JSON.stringify(sa));
+    ok('……在办件数从事项现算（不用宿主报的 9）；稳定的 seat_id 照收（没带的是空）', sa?.active === 1 && sa?.queued === 2 && sa?.seat_id === 'seat-a1' && team.seats.find((x) => x.seat === 'lab/00000000')?.seat_id === '', JSON.stringify(sa));
     raw = rosterRaw('abcdef01', '2026-11-11T08:00:00.000Z', { host: 'abcdef0123456789', at: '2026-11-11T08:00:00.000Z', seats: [{ seat: 'lab/e5e5e5e5', name: '旧的', team: 'lab/canvas/team', role: 'member', online: true }] }, 'roster-abcdef01-0');
     r = await post(raw, signed(lab, raw));
     ok('更早的名册 → stale，不覆盖', r.text.includes('"roster":"stale"') && !(await api('GET', '/api/a2a/teams')).body?.teams?.some((t) => t.seats.some((x) => x.seat === 'lab/e5e5e5e5')), r.text);
+    // 名册变化：第一次收到 → 团队、席位都记 added；再来一版更新的 → 成员消失、新成员、换总工、新团队、团队消失
+    const changes = () => q('SELECT kind, team, seat, detail FROM a2a_roster_changes WHERE host = ? ORDER BY id', 'abcdef0123456789');
+    ok('名册变化：第一次收到 → team-added 一条、seat-added 三条', JSON.stringify(changes().map((c) => c.kind)) === JSON.stringify(['team-added', 'seat-added', 'seat-added', 'seat-added']), JSON.stringify(changes()));
+    const at2 = '2026-11-11T09:30:00.000Z';
+    raw = rosterRaw('abcdef01', at2, { host: 'abcdef0123456789', at: at2, seats: [
+      { seat: 'lab/a1a1a1a1', name: '成员甲', team: 'lab/canvas/team', role: 'router', online: true },
+      { seat: 'lab/00000000', name: '原总工', team: 'lab/canvas/team', role: 'member', online: true },
+      { seat: 'lab/c5c5c5c5', name: '新来的', team: 'lab/canvas/team', role: 'member', online: true },
+      { seat: 'lab/d6d6d6d6', name: '另一个团队的', team: 'lab/canvas/other', role: 'router', online: true },
+    ] }, 'roster-abcdef01-4');
+    r = await post(raw, signed(lab, raw));
+    const ch2 = changes().slice(4).map((c) => [c.kind, c.team, c.seat]);
+    ok('名册变化：新团队、新成员、成员消失、换总工各记一行', r.text.includes('"roster":"recorded"') && JSON.stringify(ch2) === JSON.stringify([
+      ['team-added', 'lab/canvas/other', ''], ['seat-added', 'lab/canvas/team', 'lab/c5c5c5c5'], ['seat-added', 'lab/canvas/other', 'lab/d6d6d6d6'],
+      ['seat-removed', 'lab/canvas/team', 'lab/b2b2b2b2'], ['router-changed', 'lab/canvas/team', 'lab/a1a1a1a1']]), JSON.stringify(ch2));
+    const rc = changes().find((c) => c.kind === 'router-changed');
+    ok('……换总工的记录写明从谁到谁', JSON.parse(rc?.detail ?? '{}').from === 'lab/00000000' && JSON.parse(rc?.detail ?? '{}').to === 'lab/a1a1a1a1', rc?.detail);
+    const at3 = '2026-11-11T10:00:00.000Z';
+    raw = rosterRaw('abcdef01', at3, { host: 'abcdef0123456789', at: at3, seats: [{ seat: 'lab/d6d6d6d6', name: '另一个团队的', team: 'lab/canvas/other', role: 'router', online: true }] }, 'roster-abcdef01-5');
+    await post(raw, signed(lab, raw));
+    ok('名册变化：整个团队不在了 → 三条 seat-removed、一条 team-removed', JSON.stringify(changes().slice(9).map((c) => c.kind)) === JSON.stringify(['seat-removed', 'seat-removed', 'seat-removed', 'team-removed']), JSON.stringify(changes().slice(9)));
+    ok('席位的键是「节点 + 团队 + 句柄」：表里按这三项一行', q('SELECT COUNT(*) AS c FROM a2a_roster_seats WHERE host = ?', 'abcdef0123456789')[0].c === 1);
     raw = rosterRaw('99999999', at1, { host: 'abcdef0123456789', at: at1, seats }, 'roster-99999999-1');
     r = await post(raw, signed(lab, raw));
     ok('首行指纹和 JSON 的 host 对不上 → 不采信', r.text.includes('"roster":"not-accepted"'), r.text);

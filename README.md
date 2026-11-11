@@ -367,7 +367,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   a2a-idempotency.ts（`/a2a/direct` 幂等登记：task_id → 指纹 sha256，30 分钟窗口，落库，重启后同一 task_id 仍判 replay / conflict；只存摘要不存原文）
   a2a-peers.ts（对端登记表：Cordis 服务 `a2aPeers`·一个节点一行·登记时取名片验签钉住公钥·公钥变了改成 key_changed 等管理员确认、不自动接受·停用是粘住的、只有管理员重新启用能解·canDeliver 供投递查（调用方阶段七接上，接上前对投递、入站没有效果）·按对端算健康·升级回填从现有绑定和投递建对端行）
   a2a-receipts.ts（回执入站的登记：我们发出的任务号 → 事件、投递、对端；采信过的回执按任务号去重；签名只认一次）
-  a2a-roster.ts（团队名册：每台宿主一行全量快照、以新替旧；投递过的宿主区、在办件数从事项现算；只当信息）
+  a2a-roster.ts（团队名册：每台宿主一行、席位按「节点 + 团队 + 句柄」一行，以新替旧；入库时算出变化（新团队、新成员、成员消失、团队消失、换总工）记进 a2a_roster_changes；在办件数从事项现算；只当信息）
   a2a-replies.ts（市场回给团队的消息的发送状态：答复、来信回复、跟进回执；时间由代码生成后写入）
   a2a-stats.ts（A2A 出站积压的聚合读数：两张出站表按状态计数、最老待发、最近回执时长）
   attention-sources.ts（「关注」要用、来源里还没有现成函数的只读查询：席位未答的提问）

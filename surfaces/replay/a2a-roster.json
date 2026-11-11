@@ -9,9 +9,14 @@
       "what": "管理口令由环境给（合成值，只在隔离实例里用）；库里先放一台宿主的名册。",
       "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
       "seed": [
+        { "table": "a2a_rosters", "row": { "host": "abcdef0123456789", "peer_root": "http://peer.synthetic.invalid", "peer_zone": "lab", "reported_at": "2026-11-11T09:00:00.000Z", "received_at": "2026-11-11 09:00:01.000" } },
         {
-          "table": "a2a_rosters",
-          "row": { "host": "abcdef0123456789", "peer_root": "http://peer.synthetic.invalid", "peer_zone": "lab", "reported_at": "2026-11-11T09:00:00.000Z", "received_at": "2026-11-11 09:00:01.000", "seats": "[{\"seat\": \"lab/a1a1a1a1\", \"name\": \"成员甲\", \"team\": \"lab/canvas/team\", \"role\": \"member\", \"online\": true, \"queued\": 0, \"last_active_at\": \"\"}, {\"seat\": \"lab/00000000\", \"name\": \"总工\", \"team\": \"lab/canvas/team\", \"role\": \"router\", \"online\": false, \"queued\": 0, \"last_active_at\": \"\"}]" }
+          "table": "a2a_roster_seats",
+          "row": { "host": "abcdef0123456789", "team": "lab/canvas/team", "seat": "lab/a1a1a1a1", "name": "成员甲", "role": "member", "online": 1, "queued": 0, "last_active_at": "", "first_seen_at": "2026-11-11 09:00:01.000" }
+        },
+        {
+          "table": "a2a_roster_seats",
+          "row": { "host": "abcdef0123456789", "team": "lab/canvas/team", "seat": "lab/00000000", "name": "总工", "role": "router", "online": 0, "queued": 0, "last_active_at": "", "first_seen_at": "2026-11-11 09:00:01.000" }
         }
       ],
       "steps": [
@@ -35,8 +40,8 @@
                   "reported_at": "YYYY-MM-DDThh:mm:ss.fffZ",
                   "received_at": "YYYY-MM-DD hh:mm:ss.fff",
                   "seats": [
-                    { "seat": "lab/a1a1a1a1", "name": "成员甲", "role": "member", "online": true, "active": 0, "queued": 0, "last_active_at": "" },
-                    { "seat": "lab/00000000", "name": "总工", "role": "router", "online": false, "active": 0, "queued": 0, "last_active_at": "" }
+                    { "seat": "lab/00000000", "name": "总工", "role": "router", "online": false, "active": 0, "queued": 0, "last_active_at": "" },
+                    { "seat": "lab/a1a1a1a1", "name": "成员甲", "role": "member", "online": true, "active": 0, "queued": 0, "last_active_at": "" }
                   ],
                   "seats_online": 1
                 }
@@ -64,8 +69,8 @@
                   "reported_at": "YYYY-MM-DDThh:mm:ss.fffZ",
                   "received_at": "YYYY-MM-DD hh:mm:ss.fff",
                   "seats": [
-                    { "seat": "lab/a1a1a1a1", "name": "成员甲", "role": "member", "online": true, "active": 0, "queued": 0, "last_active_at": "" },
-                    { "seat": "lab/00000000", "name": "总工", "role": "router", "online": false, "active": 0, "queued": 0, "last_active_at": "" }
+                    { "seat": "lab/00000000", "name": "总工", "role": "router", "online": false, "active": 0, "queued": 0, "last_active_at": "" },
+                    { "seat": "lab/a1a1a1a1", "name": "成员甲", "role": "member", "online": true, "active": 0, "queued": 0, "last_active_at": "" }
                   ],
                   "seats_online": 1
                 }

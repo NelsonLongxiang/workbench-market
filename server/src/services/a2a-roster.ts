@@ -1,12 +1,20 @@
 /**
  * 阶段七：团队名册（dsh-open-a2a-net#604 P3）的登记与读。SQL 在这里；时间由代码生成后传入。
  * 名册只当信息给人看（团队页、把句柄显示成名字、在岗数），不授予任何东西；在办件数从事项现算，不另存。
+ *
+ * 席位的键是「节点（宿主指纹）+ 团队 + 席位句柄」（14 号文档：团队登记、负责人、分配建在 a2a_roster_seats 上）。
+ * 每台宿主每次报的是全量快照：比已有的新才替换；替换时和上一版比，算出变化记进 a2a_roster_changes：
+ *   team-added / team-removed  团队出现、消失（这台宿主上）
+ *   seat-added / seat-removed  成员出现、消失（某个团队里）
+ *   router-changed             团队的总工（role=router 的席位）换了，detail 里有 from、to
+ * 只留记录；通知和「等你拍板」由上层做。第一次收到某台宿主的名册时，它的团队和席位都记成 added。
  */
 import { db } from '../db.ts';
 import { sqlTime } from './a2a-replies.ts';
 
-export type RosterSeat = { seat: string; name: string; team: string; role: 'router' | 'member' | 'observer' | ''; online: boolean; queued: number; last_active_at: string };
+export type RosterSeat = { seat: string; seat_id: string; name: string; team: string; role: 'router' | 'member' | 'observer' | ''; online: boolean; queued: number; last_active_at: string };
 export type RosterRow = { host: string; peer_root: string; peer_zone: string; reported_at: string; received_at: string; seats: RosterSeat[] };
+export type RosterChange = { id: number; host: string; kind: 'team-added' | 'seat-added' | 'seat-removed' | 'team-removed' | 'router-changed'; team: string; seat: string; detail: string; at: string };
 
 /** 这个根地址是我们投递过的哪个区的宿主（投递时取名片记下的区）；没投递过返回 null */
 export function deliveredPeerZone(root: string): string | null {
@@ -15,17 +23,56 @@ export function deliveredPeerZone(root: string): string | null {
   return row?.peer_zone ?? null;
 }
 
-/** 记下一台宿主的名册：比已有的新才替换（宿主报的时间），返回 'recorded' 或 'stale' */
+type SeatRow = { team: string; seat: string; role: string };
+
+/** 一个团队的总工（role=router 的席位，按句柄排序取第一个；没有返回 ''） */
+const routerOf = (rows: readonly SeatRow[], team: string) => rows.filter((r) => r.team === team && r.role === 'router').map((r) => r.seat).sort()[0] ?? '';
+
+/** 记下一台宿主的名册：比已有的新才替换（宿主报的时间），替换时算出变化；返回 'recorded' 或 'stale' */
 export function recordRoster(r: { host: string; peerRoot: string; peerZone: string; reportedAt: string; seats: RosterSeat[]; now?: number }): 'recorded' | 'stale' {
-  const info = db.prepare(`INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at, seats) VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT(host) DO UPDATE SET peer_root = excluded.peer_root, peer_zone = excluded.peer_zone, reported_at = excluded.reported_at, received_at = excluded.received_at, seats = excluded.seats
-    WHERE excluded.reported_at > a2a_rosters.reported_at`).run(r.host, r.peerRoot, r.peerZone, r.reportedAt, sqlTime(r.now), JSON.stringify(r.seats));
-  return Number(info.changes) === 1 ? 'recorded' : 'stale';
+  const at = sqlTime(r.now);
+  db.exec('SAVEPOINT a2a_roster');
+  try {
+    const prev = db.prepare('SELECT reported_at FROM a2a_rosters WHERE host = ?').get(r.host) as { reported_at: string } | undefined;
+    if (prev && !(r.reportedAt > prev.reported_at)) { db.exec('RELEASE a2a_roster'); return 'stale'; }
+    db.prepare(`INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(host) DO UPDATE SET peer_root = excluded.peer_root, peer_zone = excluded.peer_zone, reported_at = excluded.reported_at, received_at = excluded.received_at`)
+      .run(r.host, r.peerRoot, r.peerZone, r.reportedAt, at);
+    const before = db.prepare('SELECT team, seat, role, first_seen_at FROM a2a_roster_seats WHERE host = ?').all(r.host) as (SeatRow & { first_seen_at: string })[];
+    // 同一个（团队、席位）报了两次：取第一次
+    const seen = new Set<string>();
+    const after = r.seats.filter((s) => { const k = `${s.team}\u0000${s.seat}`; if (seen.has(k)) return false; seen.add(k); return true; });
+    const key = (x: { team: string; seat: string }) => `${x.team}\u0000${x.seat}`;
+    const beforeKeys = new Set(before.map(key)), afterKeys = new Set(after.map(key));
+    const firstSeen = new Map(before.map((b) => [key(b), b.first_seen_at]));
+    const log = db.prepare('INSERT INTO a2a_roster_changes (host, kind, team, seat, detail, at) VALUES (?, ?, ?, ?, ?, ?)');
+    const teamsBefore = new Set(before.map((b) => b.team)), teamsAfter = new Set(after.map((a) => a.team));
+    for (const t of teamsAfter) if (!teamsBefore.has(t)) log.run(r.host, 'team-added', t, '', '{}', at);
+    for (const a of after) if (!beforeKeys.has(key(a))) log.run(r.host, 'seat-added', a.team, a.seat, JSON.stringify({ name: a.name, role: a.role }), at);
+    for (const b of before) if (!afterKeys.has(key(b))) log.run(r.host, 'seat-removed', b.team, b.seat, JSON.stringify({ role: b.role }), at);
+    for (const t of teamsBefore) if (!teamsAfter.has(t)) log.run(r.host, 'team-removed', t, '', '{}', at);
+    for (const t of teamsAfter) {
+      if (!teamsBefore.has(t)) continue;
+      const from = routerOf(before, t), to = routerOf(after, t);
+      if (from !== to) log.run(r.host, 'router-changed', t, to, JSON.stringify({ from, to }), at);
+    }
+    db.prepare('DELETE FROM a2a_roster_seats WHERE host = ?').run(r.host);
+    const ins = db.prepare('INSERT INTO a2a_roster_seats (host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    for (const a of after) ins.run(r.host, a.team, a.seat, a.seat_id, a.name, a.role, a.online ? 1 : 0, a.queued, a.last_active_at, firstSeen.get(key(a)) ?? at);
+    db.exec('RELEASE a2a_roster');
+    return 'recorded';
+  } catch (e) { db.exec('ROLLBACK TO a2a_roster'); db.exec('RELEASE a2a_roster'); throw e; }
 }
 
 export function rosters(): RosterRow[] {
-  return (db.prepare('SELECT host, peer_root, peer_zone, reported_at, received_at, seats FROM a2a_rosters ORDER BY peer_zone, host').all() as (Omit<RosterRow, 'seats'> & { seats: string })[])
-    .map((r) => { let seats: RosterSeat[] = []; try { seats = JSON.parse(r.seats); } catch { seats = []; } return { ...r, seats }; });
+  const hosts = db.prepare('SELECT host, peer_root, peer_zone, reported_at, received_at FROM a2a_rosters ORDER BY peer_zone, host').all() as Omit<RosterRow, 'seats'>[];
+  const seats = db.prepare('SELECT host, team, seat, seat_id, name, role, online, queued, last_active_at FROM a2a_roster_seats ORDER BY host, team, seat').all() as { host: string; team: string; seat: string; seat_id: string; name: string; role: RosterSeat['role']; online: number; queued: number; last_active_at: string }[];
+  return hosts.map((h) => ({ ...h, seats: seats.filter((s) => s.host === h.host).map((s) => ({ seat: s.seat, seat_id: s.seat_id, name: s.name, team: s.team, role: s.role, online: s.online === 1, queued: s.queued, last_active_at: s.last_active_at })) }));
+}
+
+/** 名册的变化记录（最近的在后），after 之后的最多 limit 条 */
+export function rosterChanges(after = 0, limit = 200): RosterChange[] {
+  return db.prepare('SELECT id, host, kind, team, seat, detail, at FROM a2a_roster_changes WHERE id > ? ORDER BY id LIMIT ?').all(after, limit) as RosterChange[];
 }
 
 /** 每个席位手头在办的事项数（事项的承接是它、还没结束的） */

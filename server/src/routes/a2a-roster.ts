@@ -3,7 +3,8 @@
  * 「安排一件事」的团队选项（名字和在岗数）用。
  *
  * 可见：登录的人即可读（管理员也行）；没登录 401。只有名册里的席位信息，不含任何事项内容。跨站、别的站的页面来的请求拒。
- * 返回 { teams: [{ team, name, host, peer_zone, reported_at, received_at, seats_online, seats: [{ seat, name, role, online, active, queued, last_active_at }] }] }：
+ * 返回 { teams: [{ team, name, host, peer_zone, reported_at, received_at, seats_online, seats: [{ seat, seat_id, name, role, online, active, queued, last_active_at }] }] }：
+ *   · seat 是当前句柄（随成员会话变）；seat_id 是宿主给成员位的稳定 id（上游 B1 起有，旧节点是 ''），分配关系以后挂在它上面；
  *   · team 是 <区>/canvas/<名>，name 是名那一段；没写团队的席位归在 team=''、name='' 那一组；
  *   · role 取 router（总工）/ member（成员）/ observer（观察者），宿主没给是 ''；
  *   · active 是这个席位手头在办的事项数——从事项现算（承接是它、还没结束的），不用宿主报的数；queued 是宿主报的排队数，只显示；
@@ -48,7 +49,7 @@ export function registerRosterRoutes(app: HttpService, deps: RosterRouteDeps): v
           const key = `${r.host}\u0000${s.team}`;
           let t = teams.get(key);
           if (!t) { t = { team: s.team, name: s.team.split('/').slice(2).join('/'), host: r.host, peer_zone: r.peer_zone, reported_at: r.reported_at, received_at: r.received_at, seats: [], seats_online: 0 }; teams.set(key, t); }
-          t.seats.push({ seat: s.seat, name: s.name, role: s.role, online: s.online, active: active.get(s.seat) ?? 0, queued: s.queued, last_active_at: s.last_active_at });
+          t.seats.push({ seat: s.seat, seat_id: s.seat_id, name: s.name, role: s.role, online: s.online, active: active.get(s.seat) ?? 0, queued: s.queued, last_active_at: s.last_active_at });
           if (s.online) t.seats_online++;
         }
       }
