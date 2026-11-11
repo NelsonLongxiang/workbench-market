@@ -23,9 +23,9 @@ const OUT = join(ROOT, 'tmp', `identity-mutation-${process.pid}`);
 const jobsArg = process.argv.indexOf('--jobs');
 const JOBS = Math.max(1, Number(jobsArg >= 0 ? process.argv[jobsArg + 1] : 3) || 3);
 
-const CONTRACT = 'identity-contract-test.mjs', SMOKE = 'identity-seam-smoke.mjs', SERVICE = 'principal-service-test.mjs', FOLD = 'principal-fold-test.mjs', FEISHU = 'feishu-login-smoke.mjs', OFFBOARD = 'feishu-offboard-smoke.mjs';
+const CONTRACT = 'identity-contract-test.mjs', SMOKE = 'identity-seam-smoke.mjs', SERVICE = 'principal-service-test.mjs', FOLD = 'principal-fold-test.mjs', FEISHU = 'feishu-login-smoke.mjs', OFFBOARD = 'feishu-offboard-smoke.mjs', GRANTS = 'grants-smoke.mjs';
 const IDENTITY = 'server/src/identity.ts';
-const SESSIONS_SVC = 'server/src/services/login-session.ts', FLOWS = 'server/src/routes/login-flows.ts', EVENTS = 'server/src/routes/login-events.ts', FEISHU_PLUGIN = 'server/src/login-providers/feishu/index.ts';
+const SESSIONS_SVC = 'server/src/services/login-session.ts', FLOWS = 'server/src/routes/login-flows.ts', EVENTS = 'server/src/routes/login-events.ts', GRANT_SVC = 'server/src/services/grant.ts', GRANT_ROUTES = 'server/src/routes/grants.ts', ROLES = 'server/src/roles.ts', FEISHU_PLUGIN = 'server/src/login-providers/feishu/index.ts';
 const PRINCIPAL = 'server/src/services/principal.ts', ROUTES = 'server/src/routes/principals.ts', DB = 'server/src/db.ts', GATE = 'server/src/login-gate.ts';
 
 const INDEX = 'server/src/index.ts';
@@ -274,6 +274,39 @@ const MUTANTS = [
     find: 'return s?.is_resigned === true || s?.is_frozen === true || s?.is_exited === true;', replace: 'return !!(s?.is_resigned || s?.is_frozen || s?.is_exited);' },
   { id: 'event-plaintext-accepted', what: '签名对的明文事件（没有加密）也处理', file: FEISHU_PLUGIN, suites: [OFFBOARD],
     find: "typeof outer?.encrypt === 'string' ? decrypt(encryptKey, outer.encrypt) as Record<string, any> | null : null;", replace: "typeof outer?.encrypt === 'string' ? decrypt(encryptKey, outer.encrypt) as Record<string, any> | null : outer as Record<string, any>;" },
+  // —— 角色声明与授予（6b）——
+  { id: 'grant-self-unchecked', what: '服务不查自授（只剩库里的约束）', file: GRANT_SVC, suites: [GRANTS],
+    find: "    if (actor.principal && actor.principal === g.principal_id) return refuse(403, 'self_grant', '不能给自己授予');\n", replace: '' },
+  { id: 'grant-self-db-check', what: '库里不约束起草人不能是被授予的主体', file: DB, suites: [GRANTS],
+    find: '  CHECK (created_by_principal IS NULL OR created_by_principal <> principal_id),\n', replace: '' },
+  { id: 'grant-owner-unchecked', what: '管理员级的授予谁都能放行', file: GRANT_SVC, suites: [GRANTS],
+    find: " && !actor.owner) return refuse(403, 'owner_required',", replace: " && false) return refuse(403, 'owner_required'," },
+  { id: 'grant-admin-level-by-id-only', what: '管理员级只认 owner、admin 两个 id（带管理类权限的组织角色漏掉）', file: ROLES, suites: [GRANTS],
+    find: "adminLevel: r.id === 'owner' || r.id === 'admin' || kindsIn.has('admin')", replace: "adminLevel: r.id === 'owner' || r.id === 'admin'" },
+  { id: 'grant-owner-any-admin', what: '管理员登录一律当属主', file: GRANT_ROUTES, suites: [GRANTS],
+    find: 'return { by, principal, owner: grants().isOwner(principal) };', replace: 'return { by, principal, owner: !!principal };' },
+  { id: 'grant-cli-not-owner', what: '本机命令行不当属主（管理员级的授予没人能放行）', file: GRANT_ROUTES, suites: [GRANTS],
+    find: "return { by: 'cli', principal: null, owner: true };", replace: "return { by: 'cli', principal: null, owner: false };" },
+  { id: 'grant-owner-ignores-revoke', what: '属主身份不看授予状态（撤销了的 owner 还算）', file: GRANT_SVC, suites: [GRANTS],
+    find: "return !!principal && this.activeFor(principal, now).some((g) => g.role === 'owner');", replace: "return !!principal && !!db.prepare(\"SELECT 1 FROM grants WHERE principal_id = ? AND role = 'owner' AND approved_by IS NOT NULL\").get(principal);" },
+  { id: 'grant-no-responsible-unchecked', what: '非人主体不查在职责任人', file: GRANT_SVC, suites: [GRANTS],
+    find: "      if (!o || o.kind !== 'person' || o.status !== 'active') return refuse(422, 'no_responsible',", replace: "      if (!o) return refuse(422, 'no_responsible'," },
+  { id: 'grant-decide-to-seat', what: '决定类权限也授予给非人主体', file: GRANT_SVC, suites: [GRANTS],
+    find: "      if (role.decides) return refuse(422, 'decide_non_person',", replace: "      if (false) return refuse(422, 'decide_non_person'," },
+  { id: 'grant-includes-not-expanded', what: '判决定类不展开 includes（经包含带进来的漏掉）', file: ROLES, suites: [GRANTS],
+    find: '    for (const inc of r.includes ?? []) out.push(...expand(inc, [...path, id]));\n', replace: '    for (const inc of r.includes ?? []) expand(inc, [...path, id]);\n' },
+  { id: 'grant-scope-unchecked', what: '角色里的范围不和授予的比', file: ROLES, suites: [GRANTS],
+    find: "  return inner === undefined || inner === 'self' || outer === '*' || inner === outer;", replace: '  return true;' },
+  { id: 'grant-forward-only-relaxed', what: '库里允许生效退回待核', file: DB, suites: [GRANTS],
+    find: "OR (OLD.status = 'active' AND NEW.status IN ('revoked','expired')))", replace: "OR (OLD.status = 'active' AND NEW.status IN ('revoked','expired','pending')))" },
+  { id: 'grant-fields-mutable', what: '库里允许改授予的角色和范围', file: DB, suites: [GRANTS],
+    find: 'OR NEW.role IS NOT OLD.role OR NEW.scope IS NOT OLD.scope', replace: 'OR 0' },
+  { id: 'grant-not-expired', what: '到期的不标过期', file: GRANT_SVC, suites: [GRANTS],
+    find: "    for (const { id } of due) if (this.move(id, ['active'], 'expired', 'expire',", replace: "    for (const { id } of due.slice(0, 0)) if (this.move(id, ['active'], 'expired', 'expire'," },
+  { id: 'roles-platform-overridable', what: '外部声明能覆盖平台角色（同名不拒）', file: ROLES, suites: [GRANTS],
+    find: "    if (platformIds.has(r.id) || platformNames.has(r.name)) fail(", replace: "    if (false) fail(" },
+  { id: 'roles-unknown-action-ok', what: '角色引用不存在的动作也放行', file: ROLES, suites: [GRANTS],
+    find: '    for (const p of r.permissions) for (const a of p.actions ?? []) if (!catalog.has(a)) fail(', replace: '    for (const p of r.permissions) for (const a of p.actions ?? []) if (false) fail(' },
   // —— 夹具：假提供方不该在测试环境之外装得上 ——
   { id: 'fixture-preload-guard-removed', what: '预加载不看环境', file: PRELOAD, suites: [CONTRACT, SMOKE],
     find: "if (process.env.NODE_ENV !== 'test') {", replace: 'if (false) {' },
@@ -366,7 +399,7 @@ removeTree(OUT);
 try {
   // 绿：没改过的副本，两套都过。先证明「抄一份」这件事本身不会把测试弄红。
   const clean = plant('unchanged', null);
-  for (const script of [CONTRACT, SERVICE, FOLD, SMOKE, FEISHU, OFFBOARD]) {
+  for (const script of [CONTRACT, SERVICE, FOLD, SMOKE, FEISHU, OFFBOARD, GRANTS]) {
     const r = await runTwice(script, clean);
     note(r.status === 0, `没改过的副本：${script} 通过`, r.status === 0 ? '' : tailOf(r));
   }
