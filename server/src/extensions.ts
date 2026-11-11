@@ -98,10 +98,11 @@ function checkExtensionRoute(name: string, method: string, path: unknown, spec: 
  */
 export function assertExtensionNamespaces(coreActions: readonly { action: string }[], stackLayers: readonly unknown[] = []): void {
   const extNames = new Set(loadedNames);
-  const core = new Set(coreActions.map((a) => a.action).filter((a) => !extRoutes.some((r) => r.action === a)).map((a) => a.split('.')[0]));
-  for (const n of extNames) if (core.has(n)) throw new Error(`扩展名 ${n} 和核心动作的域重名：改扩展目录名（它也是动作前缀）`);
+  // 先核路径首段（抢走核心路由是更直接的后果），再核动作的域：一个名字两样都撞时报路径那一条
   const segments = corePathSegments(stackLayers);
   for (const n of extNames) if (RESERVED_SEGMENTS.has(n) || segments.has(n)) throw new Error(`扩展名 ${n} 和核心的路径首段重名（/${n}/…）：扩展会抢走核心的路由，改扩展目录名`);
+  const core = new Set(coreActions.map((a) => a.action).filter((a) => !extRoutes.some((r) => r.action === a)).map((a) => a.split('.')[0]));
+  for (const n of extNames) if (core.has(n)) throw new Error(`扩展名 ${n} 和核心动作的域重名：改扩展目录名（它也是动作前缀）`);
 }
 
 /** 核心路由栈里每一层的路径首段：路由取路径字符串，中间件和挂载点取正则开头的那段字面量。扩展加的层不算 */
