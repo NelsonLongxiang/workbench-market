@@ -20,6 +20,7 @@
  * 页面只渲染、不自己判：GET /api/teams 顶层带 can（认领、退回、增减负责人、管部门，都是管理面），
  * 每个团队带 can_assign / assign_denied_text（和分配、收回接口用同一处判断 assignRefusal），
  * can_assign 为真的团队带 assignable：可以分给谁（所挂部门的成员和负责人、这个团队的负责人，启用的人）。
+ * 每个团队（含待认领的）带 node_name：节点在对端登记表里的名字，没有为 null。
  *
  * 分配、收回由「这个人是不是这个团队的负责人」判，是按对象的范围（统一判定还不认，L13），路由声明「状态码不代表授权」；
  * 写请求总门对这两条放行（index.ts 的 REMOTE_ALLOW_PREFIX），认人、同源、负责人在这里判。认领、负责人的增减是管理面，照写请求总门和管理员门。
@@ -145,9 +146,11 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
       e.teams.push(t);
       depts.set(t.department.id, e);
     }
+    const nodeNames = new Map<string, string | null>();
+    const nodeName = (host: string) => { if (!nodeNames.has(host)) nodeNames.set(host, teams().nodeName(host)); return nodeNames.get(host) ?? null; };
     const shape = (t: TeamView) => {
       const no = assignRefusal(v, t);
-      return { ...t, name: teamName(t.team), can_assign: !no, assign_denied_text: no?.message ?? null, ...(no ? {} : { assignable: assignableOf(t) }) };
+      return { ...t, name: teamName(t.team), node_name: nodeName(t.host), can_assign: !no, assign_denied_text: no?.message ?? null, ...(no ? {} : { assignable: assignableOf(t) }) };
     };
     const isAdmin = v.kind === 'admin';
     res.json({

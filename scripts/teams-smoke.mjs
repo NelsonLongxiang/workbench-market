@@ -93,6 +93,8 @@ try {
   for (const s of [SESSIONS.admin, SESSIONS.alpha, SESSIONS.beta, SESSIONS.noAdminFlag]) await srv.call('GET', '/api/auth/viewer', { session: s });
   const now = new Date().toISOString();
   db.prepare('INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?)').run(HOST, 'https://node.synthetic.invalid', 'zone1', now, now);
+  // 对端登记表里这个节点的名字（团队页显示「来自 某节点」，不显示节点标识）
+  db.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, status, registered_by, registered_at, updated_at) VALUES ('peer-syn', 'https://node.synthetic.invalid', 'zone1', '合成节点', 'active', 'cli', ?, ?)").run(String(now), String(now));
   const seatIns = db.prepare('INSERT INTO a2a_roster_seats (host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)');
   seatIns.run(HOST, TEAM, ROUTER.seat, ROUTER.seat_id, '合成总工', 'router', now, now);
   seatIns.run(HOST, TEAM, MEMBER.seat, MEMBER.seat_id, '合成成员甲', 'member', now, now);
@@ -109,9 +111,9 @@ try {
   {
     const cli = await srv.call('GET', '/api/teams');
     const staff = await srv.call('GET', '/api/teams', as(SESSIONS.alpha));
-    check(cli.status === 200 && cli.json?.unclaimed?.length === 2 && cli.json.unclaimed.every((t) => t.status === 'unclaimed') && cli.json.departments.length === 0
+    check(cli.status === 200 && cli.json?.unclaimed?.length === 2 && cli.json.unclaimed.every((t) => t.status === 'unclaimed' && t.node_name === '合成节点') && cli.json.departments.length === 0
       && staff.status === 200 && show(staff.json) === '{"can":{"claim":false,"release":false,"manage_leads":false,"manage_departments":false},"departments":[]}',
-      '待认领的团队只有管理员看得到（本机命令行看到两个），员工什么都看不到、连待认领那一栏都没有', show({ cli: cli.json?.unclaimed?.map((t) => t.team), staff: staff.json }));
+      '待认领的团队只有管理员看得到（本机命令行看到两个，带节点在对端登记表里的名字），员工什么都看不到、连待认领那一栏都没有', show({ cli: cli.json?.unclaimed?.map((t) => t.team), staff: staff.json }));
     const denied = {
       staff: await srv.call('POST', '/api/teams/claim', { ...as(SESSIONS.alpha), body: { ...team, department: 'sales' } }),
       anonymous: await srv.call('POST', '/api/teams/claim', { headers: REMOTE, body: { ...team, department: 'sales' } }),

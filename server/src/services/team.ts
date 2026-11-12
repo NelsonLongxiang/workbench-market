@@ -230,6 +230,12 @@ export class TeamService extends Service {
     });
   }
 
+  /** 节点的名字：名册报上来的节点根地址，对到对端登记表里登记的名字；没登记、没名字为 null（页面不显示节点标识） */
+  nodeName(host: string): string | null {
+    const r = db.prepare("SELECT p.name AS name FROM a2a_rosters r JOIN a2a_peers p ON p.root_url = r.peer_root WHERE r.host = ? AND p.name <> ''").get(host) as { name: string } | undefined;
+    return r?.name ?? null;
+  }
+
   /** 那时这个成员归谁（at 毫秒，含起点、不含终点）；没分配为 null */
   ownerAt(k: SeatKey, at: number): string | null {
     const r = (k.seat_id
