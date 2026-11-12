@@ -8,7 +8,7 @@
  */
 import { a2aKeyPath, a2aSendOutbound } from '../a2a.ts';
 import { noteBlocked, outboundOff } from '../outbound-gate.ts';
-import { deliveryStatusOf, dueReplies, inReplyTx, markReply, retryReply, type ReplyRow } from '../services/a2a-replies.ts';
+import { deliveryStatusOf, dueReplies, inReplyTx, markReply, noticeTaskId, retryReply, type ReplyRow } from '../services/a2a-replies.ts';
 import { recordSentTask } from '../services/a2a-receipts.ts';
 import { BACKOFF_MS, MAX_ATTEMPTS, TERMINAL_CODES, backoffScale, logDeliveryFact } from '../workbench-events.ts';
 import { peerCard, peerRoot } from './peer-card.ts';
@@ -56,7 +56,10 @@ export function followupReceiptText(followupTask: string): string {
 async function sendOne(row: ReplyRow, now: () => number): Promise<void> {
   const attempt = row.attempts + 1;
   const isReceipt = row.kind === 'followup-receipt';
-  const taskId = isReceipt ? row.fixed_task : `${row.event_id}.d${row.delivery_id}.q${row.id}.a${attempt}`;
+  let isNotice = false;
+  try { isNotice = !isReceipt && typeof (JSON.parse(row.message) as { notice?: unknown }).notice === 'string'; } catch { /* 坏行下面判 dead */ }
+  // 通知（截止变更）用 .n 任务号：收回执时认得出是通知，只记录、不推状态
+  const taskId = isReceipt ? row.fixed_task : isNotice ? noticeTaskId(row.event_id, row.delivery_id, row.id, attempt) : `${row.event_id}.d${row.delivery_id}.q${row.id}.a${attempt}`;
   let message = '';
   if (isReceipt) message = followupReceiptText(row.qid);
   else {

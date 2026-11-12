@@ -21,7 +21,7 @@ import { parseA2aReceipt, teamRosterDeclared } from '../a2a.ts';
 import { audiencesOf, bodyDigest, originOf, SIG_SKEW_MS } from '../a2a-direct-sig.ts';
 import { claimQuestion, claimReceipt, claimSignatureOnce, inReceiptTx, knownPeerRoot, progressSteps, questionRecorded, receiptRecorded, sentTask, sentTaskForFollowup, untrustedReceiptCount, type SentTask } from '../services/a2a-receipts.ts';
 import { followupOf, followupsOfDelivery, followupsOfPeerSince, recordFollowup } from '../services/a2a-followups.ts';
-import { deliveryTarget, queueReply } from '../services/a2a-replies.ts';
+import { deliveryTarget, isNoticeTask, queueReply } from '../services/a2a-replies.ts';
 import { kickWorkbenchEvents, logDeliveryFact } from '../workbench-events.ts';
 import { noteA2aError } from './errors.ts';
 import { deliveredPeerZone, recordRoster, type RosterSeat } from '../services/a2a-roster.ts';
@@ -279,6 +279,24 @@ export async function handleInboundReceipt(req: Req, deps: { audiences: () => st
   const summary = question ? cleanSummary(question.text) : progress ? progress.summary : cleanSummary(parsed.summary ?? '');
   const attribution = attributionOf(envelope);
   const inboundTask = typeof body.task_id === 'string' ? body.task_id.slice(0, 128) : '';
+  // 通知类任务（截止变更）：节点的回执只说明它收到了。收到、完成、失败、拒绝都只记一行 notice:receipt（「节点已收到截止变更」），
+  // 不进状态映射——不推事项、不改原派工那条投递的结局（notice:receipt 不是 receipt:*，事项服务、投递结局、合上提问都不认它）。
+  // 通知上不收提问和进展（照不采信的记）；同一任务的接单 / 终局各认一次，重复的照常 409
+  if (isNoticeTask(sent.task_id) && action !== 'receipt:unaccepted' && cls !== 'question') {
+    const kept = inReceiptTx(() => {
+      if (!claimReceipt(sent.task_id, cls, disposition.slice(0, 32), outcome.slice(0, 32))) return false;
+      logDeliveryFact(sent.event_id, sent.delivery_id, `receiver:${sent.peer_zone}`, 'notice:receipt', {
+        summary, disposition: disposition.slice(0, 32), ...(outcome !== '' ? { outcome: outcome.slice(0, 32) } : {}), task: sent.task_id,
+      });
+      return true;
+    });
+    if (!kept) {
+      noteA2aError('receipt:replay');
+      return { status: 409, body: { error: 'duplicate receipt for this task', code: -32003, task_id: inboundTask, replay: true } };
+    }
+    return { status: 200, body: { routed: true, delivered: true, team: typeof body.team === 'string' ? body.team.slice(0, 128) : '', task_id: inboundTask, context_id: typeof body.context_id === 'string' ? body.context_id.slice(0, 256) : '', task_status: 'TASK_STATE_DELIVERED', receipt: 'notice-recorded' } };
+  }
+  if (isNoticeTask(sent.task_id)) action = 'receipt:unaccepted';
   if (action === 'receipt:unaccepted') {
     // 不采信的回执不占接单 / 终局的槽：之后真的回执照常认。只记录（每次投递最多 20 行），不改状态
     noteA2aError('receipt:unaccepted');
