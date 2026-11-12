@@ -160,6 +160,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/home-count-browser.mjs
+      - name: 核准类请求的门（替审核页的回归——没有资格不发核准类读写·有资格在卡片上点批准和不给发对请求·统一答复入口和按 answer_via 各一种）
+        env:
+          PYTHON: python
+        run: node scripts/approval-gate-browser.mjs
       - name: 身份服务连不上（#639 的 502 identity_unavailable——整页提示·角标和等你拍板写暂时取不到·不跳登录页·自动重试后提示消失·别的 502 和 401 不算）
         env:
           PYTHON: python

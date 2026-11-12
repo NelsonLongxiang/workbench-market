@@ -616,7 +616,8 @@ with sync_playwright() as p:
             page.wait_for_load_state('networkidle')
             page.wait_for_timeout(2500)
             page.remove_listener('request', _on_req)
-            assert page.locator('.wm-panel').count() == 2, f'重叠驾驶舱应渲染 2 个面板: {page.locator(".wm-panel").count()}'
+            # 统一待办卡随 /tasks 退役（旧页面删除清单第二批）：存着的那块不再画，只剩工作台面板
+            assert page.locator('.wm-panel').count() == 1, f'重叠驾驶舱应渲染 1 个工作台面板（统一待办卡不再画）: {page.locator(".wm-panel").count()}'
             assert not cockpit_writes, f'只读页挂载不应发驾驶舱写请求: {cockpit_writes}'
             assert '布局保存失败' not in page.inner_text('body'), '只读页不应出现保存失败提示'
             assert api(page, 'GET', f"/api/cockpits/{ov['id']}").json()['panels'] == ov_before, '重叠布局数据不应被改'
