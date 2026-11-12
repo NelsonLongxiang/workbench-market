@@ -22,7 +22,9 @@ with sync_playwright() as p:
     ctx = b.new_context(viewport={'width': 1440, 'height': 900})
     ctx.add_cookies([{'name': 'session_id', 'value': cfg['alpha_session'], 'url': M}])
     pg = ctx.new_page(); pg.set_default_timeout(10000)
+    lc_down = lambda r: r.fulfill(status=502, content_type='application/json', body=DOWN)
     ctx.route('**/api/attention', down)
+    ctx.route('**/api/lifecycle/**', lc_down)
     pg.goto(M + '/')
     banner = pg.locator('[data-testid=wm-identity-down]')
     banner.wait_for(state='visible')
@@ -31,22 +33,44 @@ with sync_playwright() as p:
     check('不跳登录页', pg.url.rstrip('/') == M.rstrip('/'), pg.url)
     check('不清登录态：登录 cookie 还在', any(c['name'] == 'session_id' and c['value'] == cfg['alpha_session'] for c in ctx.cookies()))
     badge = pg.locator('[data-testid=nav-pending]')
-    check('侧栏角标写「暂时取不到」，不是数字、也不是没有', badge.count() == 1 and badge.inner_text().strip() == '暂时取不到', badge.count())
+    bb = badge.bounding_box() if badge.count() else None
+    side = pg.locator('[data-testid=wm-side]').bounding_box()
+    check('侧栏角标是中性的「—」，悬停说暂时取不到（不是数字、也不是没有）', badge.count() == 1 and badge.get_attribute('data-state') == 'down' and badge.inner_text().strip() == '—'
+          and '暂时取不到' in (badge.get_attribute('title') or '') and '暂时取不到' in (badge.get_attribute('aria-label') or ''), badge.count())
+    check('角标没顶到侧栏右缘', bb is not None and bb['x'] + bb['width'] <= side['x'] + side['width'] - 8, (bb, side))
     summary = pg.locator('[data-testid=home-summary]').inner_text()
-    check('全景总结句说暂时取不到，不说「没有要你拍板的」', '暂时取不到' in summary and '没有要你' not in summary, summary)
+    check('全景总结句只说暂时取不到（原因由横幅说），不说「没有要你拍板的」', summary.strip() == '等你拍板的事暂时取不到。', summary)
+    pg.wait_for_selector('[data-testid=home-lines-down]')
+    check('全景表也取不到时写暂时取不到，不用「这里会显示…」那个空态', '暂时取不到' in pg.locator('[data-testid=home-lines-down]').inner_text() and pg.get_by_text('这里会显示').count() == 0)
     check('「等你拍板」的数写「暂时取不到」，下面不是空态', pg.locator('[data-testid=home-decide-n]').inner_text().strip() == '暂时取不到'
           and '暂时取不到' in pg.locator('[data-testid=home-decide-down]').inner_text() and pg.get_by_text('眼下没有要你拍板的').count() == 0)
     if len(sys.argv) > 2: pg.screenshot(path=sys.argv[2])  # 本机看样子用，CI 不传
     n0 = len(probes)
-    pg.wait_for_timeout(3500)
-    check(f'页面自己退避重试（3.5 秒里又问了 {len(probes) - n0} 次）', len(probes) > n0, (n0, len(probes)))
+    pg.wait_for_timeout(5000)
+    check(f'页面自己退避重试（5 秒里又问了 {len(probes) - n0} 次）', len(probes) > n0, (n0, len(probes)))
     # 放开：下一次重试问到正常应答，提示自己消失，页面重读
     ctx.unroute('**/api/attention', down)
+    ctx.unroute('**/api/lifecycle/**', lc_down)
     banner.wait_for(state='hidden', timeout=15000)
     pg.wait_for_function("!document.querySelector('[data-testid=home-decide-down]')")
     pg.wait_for_timeout(600)
     check('连上之后提示自己消失，全景重读（不再写暂时取不到）', banner.count() == 0 and '暂时取不到' not in pg.locator('[data-testid=home-summary]').inner_text()
           and (pg.locator('[data-testid=nav-pending]').count() == 0 or pg.locator('[data-testid=nav-pending]').inner_text().strip() != '暂时取不到'))
+    # 全景表取到了（合成夹具：两条在走的线）、只有等你拍板取不到：表照样画，总结句说几条线在走 + 暂时取不到
+    stages = {'types': [{'type': 'demo', 'name': '合成产品', 'panorama_row': True, 'lane': '合成', 'parent_type': None, 'flags': [],
+        'stages': [{'code': f'st_demo_0{i}', 'name': n, 'order': i, 'terminal': False, 'lane': '合成'} for i, n in enumerate(['立项', '打样', '上架'], 1)]}]}
+    objects = {'ok': True, 'items': [{'id': f'demo:line-{k}', 'type': 'demo', 'name': f'合成产品 {k}', 'stage': 'st_demo_02', 'since': '2026-11-01T09:00:00+08:00', 'days': 11, 'lane': '合成', 'parents': [], 'flags': []} for k in 'AB'], 'next_cursor': None}
+    lc_ok = lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps(stages if '/stages' in r.request.url else objects))
+    ctx.route('**/api/lifecycle/**', lc_ok)
+    ctx.route('**/api/attention', down)
+    pg.reload(); pg.wait_for_selector('[data-testid=home-row]'); banner.wait_for(state='visible'); pg.wait_for_selector('[data-testid=home-decide-down]')
+    summary = pg.locator('[data-testid=home-summary]').inner_text().strip()
+    check('全景表取到了、等你拍板取不到：表照样画两条线，总结句说「公司现在有 2 条线在走，等你拍板的事暂时取不到。」', pg.locator('[data-testid=home-row]').count() == 2 and summary == '公司现在有 2 条线在走，等你拍板的事暂时取不到。', summary)
+    if len(sys.argv) > 3: pg.screenshot(path=sys.argv[3])
+    ctx.unroute('**/api/attention', down)
+    ctx.unroute('**/api/lifecycle/**', lc_ok)
+    banner.get_by_role('button', name='现在重试').click()
+    banner.wait_for(state='hidden', timeout=3000)
     # 「现在重试」：不等计时
     ctx.route('**/api/attention', down)
     pg.reload()

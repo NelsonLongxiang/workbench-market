@@ -13,8 +13,9 @@ export function isIdentityUnavailable(status: number, body: unknown): boolean {
   return status === 502 && !!body && typeof body === 'object' && (body as { error?: unknown }).error === IDENTITY_UNAVAILABLE;
 }
 
-/** 第几次重试之前等多久（毫秒）：2、4、8、15 秒，之后每 30 秒一次 */
-const DELAYS = [2000, 4000, 8000, 15000];
+/** 第几次重试之前等多久（毫秒）：4、8、15 秒，之后每 30 秒一次。
+ *  第一次不短于 3 秒：服务端把「来源不可达」的回答留 3 秒，早问只会再拿一次 502 */
+const DELAYS = [4000, 8000, 15000];
 export function retryDelay(attempt: number): number {
   return attempt < DELAYS.length ? DELAYS[Math.max(0, attempt)] : 30000;
 }
@@ -85,13 +86,19 @@ export function createIdentityWatch(deps: {
   };
 }
 
+/** 只读 JSON 应答的体：流式（text/event-stream）、HTML、纯文本都放过 */
+export function isJsonType(ct: string | null): boolean {
+  return !!ct && /^application\/(?:[\w.+-]+\+)?json\b/i.test(ct.trim());
+}
+
 let watch: IdentityWatch | null = null;
 /** 外壳和页面读状态用（useSyncExternalStore）；没装的时候当作连得上 */
 export const identityDown = (): boolean => watch?.down() ?? false;
 export const subscribeIdentity = (fn: () => void): (() => void) => watch?.subscribe(fn) ?? (() => undefined);
 export const retryIdentityNow = (): void => watch?.retryNow();
 
-/** 装在 window.fetch 上（应用启动时调一次）：同源 /api/ 的应答是 502 就看一眼 error，是「连不上」就记下；应答原样交回，不改任何请求的行为。
+/** 装在 window.fetch 上（应用启动时调一次）：同源 /api/ 的应答是 502、而且是 JSON，就在它的副本（response.clone()）上读 error，是「连不上」就记下。
+ *  原应答原样交回、应答体不被消费，不改任何请求的行为；流式应答（text/event-stream）和别的非 JSON 应答直接放过、不读体。
  *  重试问的是 /api/attention——要认人的接口里最常用、登录门关着时也会回这个代号的那一个。onRecover：连上之后让页面重读 */
 export function installIdentityWatch(onRecover: () => void): void {
   if (watch || typeof window === 'undefined') return;
@@ -107,7 +114,7 @@ export function installIdentityWatch(onRecover: () => void): void {
   watch = w;
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const r = await raw(input, init);
-    if (r.status === 502) {
+    if (r.status === 502 && isJsonType(r.headers.get('content-type'))) {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (isApiUrl(url, origin)) void r.clone().json().then((b: unknown) => w.observe(r.status, b), () => undefined);
     }

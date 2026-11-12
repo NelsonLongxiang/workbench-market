@@ -12,7 +12,7 @@ import ArrangeDrawer from '../components/ArrangeDrawer';
 import { adminActive, subscribeAdminToken } from '../admin-token';
 import { ATTENTION_CHANGED, getAttention, getAuthMe, getLifecycle } from '../api';
 import { answerChoices, groupCards, type AttentionItem } from '../attention-view';
-import { buildRows, splitRows, daysLabel, filterAttention, greeting, panoramaType, stageColumns, summaryLine, decideLine, downLine, DECIDE_DOWN, toggleFocus, type Focus, type LcObject, type LcType } from '../home-view';
+import { buildRows, splitRows, daysLabel, filterAttention, greeting, panoramaType, stageColumns, summaryLine, decideLine, downLine, DECIDE_DOWN, LINES_DOWN, toggleFocus, type Focus, type LcObject, type LcType } from '../home-view';
 
 const MAX_PAGES = 10;
 
@@ -21,7 +21,7 @@ export default function Home() {
   const [name, setName] = useState<string | null>(null);
   const [type, setType] = useState<LcType | null>(null);
   const [objects, setObjects] = useState<LcObject[]>([]);
-  const [lcState, setLcState] = useState<'loading' | 'ok' | 'none'>('loading');
+  const [lcState, setLcState] = useState<'loading' | 'ok' | 'none' | 'down'>('loading');
   const [attention, setAttention] = useState<AttentionItem[]>([]);
   /** 身份服务连不上：等你拍板的事取不到，不能当成「没有」 */
   const [attDown, setAttDown] = useState(false);
@@ -44,13 +44,15 @@ export default function Home() {
   useEffect(() => {
     void (async () => {
       const st = await getLifecycle<{ types: LcType[] }>('stages');
+      if (st.identityDown) { setLcState('down'); return; }
       const t = st.body ? panoramaType(st.body.types) : null;
       if (!t) { setLcState('none'); return; }
       const all: LcObject[] = [];
       let cursor: string | null = null;
       for (let i = 0; i < MAX_PAGES; i++) {
         const q: URLSearchParams = new URLSearchParams({ type: t.type, limit: '200', ...(cursor ? { cursor } : {}) });
-        const r: { status: number; body: { items: LcObject[]; next_cursor: string | null } | null } = await getLifecycle<{ items: LcObject[]; next_cursor: string | null }>(`objects?${q}`);
+        const r: { status: number; body: { items: LcObject[]; next_cursor: string | null } | null; identityDown?: boolean } = await getLifecycle<{ items: LcObject[]; next_cursor: string | null }>(`objects?${q}`);
+        if (r.identityDown) { setLcState('down'); return; }
         if (!r.body) break;
         all.push(...r.body.items);
         cursor = r.body.next_cursor;
@@ -79,6 +81,7 @@ export default function Home() {
       </Typography.Paragraph>
 
       {lcState === 'loading' && <Skeleton active paragraph={{ rows: 4 }} />}
+      {lcState === 'down' && <div className="wm-home-box wm-home-down" data-testid="home-lines-down"><DisconnectOutlined /><span>{LINES_DOWN}</span></div>}
       {lcState === 'none' && <div className="wm-home-box"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这里会显示公司正在走的每条线、各走到哪一步。" /></div>}
       {lcState === 'ok' && type && <>
         <div className="wm-grid" data-testid="home-grid" style={{ gridTemplateColumns: `200px repeat(${cols.length}, minmax(96px, 1fr))` }}>

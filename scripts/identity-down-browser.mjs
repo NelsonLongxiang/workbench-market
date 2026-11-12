@@ -30,7 +30,7 @@ try {
   for (;;) { try { if ((await fetch(base + '/api/health')).ok) break; } catch {} if (Date.now() > end) throw new Error('server not ready'); await new Promise((x) => setTimeout(x, 250)); }
   const cfg = join(TMP, 'browser.json');
   writeFileSync(cfg, JSON.stringify({ base, alpha_session: SESSIONS.alpha }));
-  const py = spawn(pythonBin(), ['scripts/identity-down-browser.py', cfg, ...(process.env.WM_SHOT ? [process.env.WM_SHOT] : [])], { stdio: 'inherit' });
+  const py = spawn(pythonBin(), ['scripts/identity-down-browser.py', cfg, ...(process.env.WM_SHOT ? [process.env.WM_SHOT, process.env.WM_SHOT.replace(/\.png$/, '-有数据.png')] : [])], { stdio: 'inherit' });
   code = await new Promise((x, j) => { py.on('error', j); py.on('exit', x); });
 } catch (e) {
   console.error(String(e?.stack ?? e));

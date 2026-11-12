@@ -171,10 +171,12 @@ export function getAuthMe(): Promise<AuthMe | null> {
 }
 
 /** 生命周期只读接口（观测层扩展挂在市场里）：带登录 cookie；扩展没挂上（404）或没配置（503）由页面给空状态，不弹口令 */
-export async function getLifecycle<T>(path: string): Promise<{ status: number; body: T | null }> {
+/** identityDown：身份服务连不上（502 identity_unavailable），页面说「暂时取不到」，不当成没有 */
+export async function getLifecycle<T>(path: string): Promise<{ status: number; body: T | null; identityDown?: boolean }> {
   try {
     const r = await fetch(`/api/lifecycle/${path}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
-    return { status: r.status, body: r.ok ? await r.json() as T : null };
+    const raw: unknown = await r.json().catch(() => null);
+    return { status: r.status, body: r.ok ? raw as T : null, identityDown: isIdentityUnavailable(r.status, raw) };
   } catch { return { status: 0, body: null }; }
 }
 

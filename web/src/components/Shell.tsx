@@ -11,13 +11,13 @@ import { answerChoices, decideCount, type AttentionItem } from '../attention-vie
 import type { Cockpit } from '../types';
 import { IDENTITY_DOWN_TEXT, identityDown, retryIdentityNow, subscribeIdentity } from '../identity-status';
 
-/** 角标：数字；身份服务连不上时写「暂时取不到」（不能写 0 或不显示——那会让人以为没有待办） */
+/** 角标：数字；身份服务连不上时是一个中性灰的「—」，悬停说明暂时取不到（不能写 0 或不显示——那会让人以为没有待办；四个字放不下） */
 export type Pending = number | 'down' | null;
 
 function NavItem({ to, icon, name, on, count }: { to: string; icon: ReactNode; name: string; on: boolean; count?: Pending }) {
   return <Link to={to} className={on ? 'wm-nav-item on' : 'wm-nav-item'} data-testid={`nav-${to}`}>
     <span className="wm-nav-icon">{icon}</span><span>{name}</span>
-    {count === 'down' ? <span className="wm-nav-cnt wm-nav-cnt-off" data-testid="nav-pending" title="身份服务连不上，等你拍板的事暂时取不到">暂时取不到</span>
+    {count === 'down' ? <span className="wm-nav-cnt wm-nav-cnt-off" data-testid="nav-pending" data-state="down" title="等你拍板的事暂时取不到" aria-label="等你拍板的事暂时取不到">—</span>
       : count ? <span className="wm-nav-cnt" data-testid="nav-pending">{count}</span> : null}
   </Link>;
 }
