@@ -90,10 +90,13 @@ export function benchViewUrl(ref: Pick<BenchViewRef, 'bench' | 'view'>, params: 
 }
 
 /** 整份视图没取到时的一句话（单个块的问题由块自己说）。403 一律说看不到：没权限的人打不存在的台也是 403 */
+/** 服务端的数据视图开关关着（404 bench_views_off，#619 缺省关）：这不是出错，面板位上平平地说一句 */
+export const BENCH_VIEWS_OFF = '数据视图未开启';
+export const isBenchViewsOff = (status: number, code?: string): boolean => status === 404 && code === 'bench_views_off';
 export function benchViewError(status: number, code?: string): string {
   if (status === 401) return '请先登录';
   if (status === 403) return '你看不到这个台的数据';
-  if (status === 404 && code === 'bench_views_off') return '数据视图还没开放';
+  if (status === 404 && code === 'bench_views_off') return BENCH_VIEWS_OFF;
   if (status === 404) return '这份视图不在了';
   if (status === 504) return '取数太慢，这次没取到，稍后再试';
   if (status === 503) return '现在取数的人太多，稍后再试';

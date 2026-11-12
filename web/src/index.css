@@ -687,3 +687,9 @@ body { background: var(--wm-color-page); }
 .wm-ck-benches .wm-panel { height: 520px; }
 .wm-ck-benches .wm-panel-head { cursor: default; }
 .wm-ck-pad.wm-w-full { box-sizing: border-box; }
+/* 驾驶舱左栏：全景同一张卡，一张接一张；挂着事项的卡下面一个「看办理过程」，点中的那张描边 */
+.wm-ck-cards { display: flex; flex-direction: column; gap: var(--wm-space-2); padding: var(--wm-space-2); }
+.wm-ck-card { display: flex; flex-direction: column; border-radius: var(--wm-radius-lg); }
+.wm-ck-card.on { outline: 2px solid var(--wm-color-primary); outline-offset: 1px; }
+.wm-ck-card-pick { align-self: flex-end; }
+.wm-ck-process-h { margin-bottom: var(--wm-space-3); }

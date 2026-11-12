@@ -1,11 +1,17 @@
-/** 驾驶舱两侧的块：左边「等你拍板」（「关注」给这个人的条目），右边「事项」（最近变化的事项）。
- *  都读真接口；读不到、没登录、为空各有一句说法。点一条去它该去的页面。 */
+/** 驾驶舱两侧的块：左边「等你拍板」（「关注」给这个人的条目，用全景同一张卡，当场能办），
+ *  右边「办理过程」（左边点了「看办理过程」的那件事项的时间线，和详情页同一个组件）和「事项」（最近变化的事项）。
+ *  都读真接口；读不到、没登录、为空各有一句说法。 */
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
-import { Empty, Skeleton, Tag, Typography } from 'antd';
+import { Button, Empty, Skeleton, Tag, Typography } from 'antd';
 import { adminActive, apiFetch, subscribeAdminToken } from '../../admin-token';
-import { answerChoices, groupCards, waited, type AttentionItem } from '../../attention-view';
-import { stateLabel } from '../../work-item-view';
+import { answerChoices, groupCards, workItemIdOf, type AttentionItem, type LogRow } from '../../attention-view';
+import { ATTENTION_CHANGED, getRosterTeams, getWorkItem } from '../../api';
+import DecisionCard from '../DecisionCard';
+import WorkItemTimeline from '../WorkItemTimeline';
+import { rosterNames, withRoster } from '../../names';
+import { seatLabel, who } from '../../people';
+import { hiddenInTimeline, stateLabel } from '../../work-item-view';
 import RelTime from '../RelTime';
 
 type Load<T> = { state: 'loading' } | { state: 'ok'; rows: T[] } | { state: 'error'; status: number };
@@ -29,22 +35,49 @@ function useList<T>(url: string, pick: (body: unknown) => T[]): Load<T> {
   return s;
 }
 
-const CATEGORY: Record<string, string> = { ask: '在问', accept: '等验收', glance: '等过目', review: '等审核', grant: '待核准' };
-
-/** 等你拍板：只列，不在这里办（办在全景的卡片和事项页）；返回件数给页签用。
- *  列哪些、算几件和全景、侧栏角标同一个口径（groupCards 的「现在能办」那一组），不把要到别处处理的和代办的算进来 */
-export function AttentionPane({ onCount }: { onCount?: (n: number) => void }) {
-  const s = useList<AttentionItem>('/api/attention', (b) => (Array.isArray((b as { items?: unknown }).items) ? (b as { items: AttentionItem[] }).items : []));
+/** 等你拍板：全景同一张卡（当场能办），只列轮到你、能当场办的——件数和侧栏角标、全景同一个算法。
+ *  挂着事项的卡下面多一个「看办理过程」，右栏切到那件事的时间线。
+ *  还没按这个驾驶舱筛：驾驶舱和事项之间没有关联字段，先列该你办的全部 */
+export function AttentionPane({ onCount, onPick, picked }: { onCount?: (n: number) => void; onPick?: (workItemId: string) => void; picked?: string | null }) {
+  const [tick, setTick] = useState(0);
+  useEffect(() => { const on = () => setTick((n) => n + 1); window.addEventListener(ATTENTION_CHANGED, on); return () => window.removeEventListener(ATTENTION_CHANGED, on); }, []);
+  const s = useList<AttentionItem>(`/api/attention?_=${tick}`, (b) => (Array.isArray((b as { items?: unknown }).items) ? (b as { items: AttentionItem[] }).items : []));
   const admin = useSyncExternalStore(subscribeAdminToken, adminActive);
   const rows = s.state === 'ok' ? groupCards(s.rows, (x) => answerChoices(admin, x)).now : [];
   useEffect(() => { if (s.state === 'ok') onCount?.(rows.length); }, [s, rows.length, onCount]);
   if (s.state === 'loading') return <div className="wm-ck-pad"><Skeleton active paragraph={{ rows: 3 }} /></div>;
   if (s.state === 'error') return <div className="wm-ck-pad"><Typography.Text type="secondary">{sayError(s.status, '等你拍板的事')}</Typography.Text></div>;
   if (!rows.length) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有要你拍板的事" />;
-  return <ul className="wm-ck-list" data-testid="ck-attention">{rows.map((a) => <li key={`${a.source}:${a.source_id}`}>
-    {a.link && !a.link.startsWith('/api/') ? <Link to={a.link}>{a.title}</Link> : <span>{a.title}</span>}
-    <Typography.Text type="secondary" className="wm-caption">{[CATEGORY[a.category] ?? '等你处理', a.since && `等了 ${waited(a.since)}`].filter(Boolean).join(' · ')}</Typography.Text>
-  </li>)}</ul>;
+  return <div className="wm-ck-cards" data-testid="ck-attention">{rows.map((a) => {
+    const wid = workItemIdOf(a);
+    return <div key={`${a.source}:${a.source_id}`} className={wid && wid === picked ? 'wm-ck-card on' : 'wm-ck-card'}>
+      <DecisionCard item={a} admin={admin} onDone={() => undefined} />
+      {wid && onPick && <Button type="link" size="small" className="wm-ck-card-pick" onClick={() => onPick(wid)} data-testid="ck-pick">看办理过程 →</Button>}
+    </div>;
+  })}</div>;
+}
+
+type Detail = { item?: { title?: string; seat?: unknown }; log?: LogRow[] };
+/** 办理过程：一件事项的时间线。没选的时候说怎么选 */
+export function ProcessPane({ itemId }: { itemId: string | null }) {
+  const [s, setS] = useState<{ state: 'idle' } | { state: 'loading' } | { state: 'ok'; d: Detail } | { state: 'error'; status: number }>({ state: 'idle' });
+  const [roster, setRoster] = useState<Record<string, string>>({});
+  useEffect(() => { void getRosterTeams().then((t) => setRoster(rosterNames(t))); }, []);
+  useEffect(() => {
+    if (!itemId) { setS({ state: 'idle' }); return; }
+    let live = true;
+    setS({ state: 'loading' });
+    void getWorkItem(itemId).then((r) => { if (live) setS(r.status >= 200 && r.status < 300 ? { state: 'ok', d: r.body as Detail } : { state: 'error', status: r.status }); });
+    return () => { live = false; };
+  }, [itemId]);
+  if (s.state === 'idle') return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="在左边「等你拍板」里点一条的「看办理过程」，这里显示它从头到尾怎么办的" />;
+  if (s.state === 'loading') return <div className="wm-ck-pad"><Skeleton active paragraph={{ rows: 4 }} /></div>;
+  if (s.state === 'error') return <div className="wm-ck-pad"><Typography.Text type="secondary">{s.status === 404 ? '这件事项你看不到，或者已经不在了' : sayError(s.status, '这件事项')}</Typography.Text></div>;
+  const log = (s.d.log ?? []).filter((r) => !hiddenInTimeline(r));
+  return <div className="wm-ck-pad" data-testid="ck-process">
+    <div className="wm-ck-process-h"><Link to={`/work-items/${encodeURIComponent(itemId ?? '')}`}><b>{s.d.item?.title || '（没写标题）'}</b></Link></div>
+    <WorkItemTimeline log={log} nameOf={(x) => seatLabel(withRoster(who(x), roster))} />
+  </div>;
 }
 
 type ItemRow = { id: string; title: string; state: string; updated_at: string };

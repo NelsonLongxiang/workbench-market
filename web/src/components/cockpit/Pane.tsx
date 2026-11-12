@@ -6,8 +6,11 @@ import { activeTab } from '../../cockpit-frame-view';
 
 export type PaneTab = { key: string; label: string; count?: number | null; content: ReactNode };
 
-export default function Pane({ id, tabs, maxed, onToggleMax, className }: { id: string; tabs: PaneTab[]; maxed: boolean; onToggleMax: (id: string) => void; className?: string }) {
-  const [cur, setCur] = useState<string | null>(null);
+/** active / onTab：页面要从外面切页签时传（比如左栏点了一条，右栏切到「办理过程」）；不传就自己记 */
+export default function Pane({ id, tabs, maxed, onToggleMax, className, active, onTab }: { id: string; tabs: PaneTab[]; maxed: boolean; onToggleMax: (id: string) => void; className?: string; active?: string | null; onTab?: (key: string) => void }) {
+  const [own, setOwn] = useState<string | null>(null);
+  const cur = active !== undefined ? active : own;
+  const setCur = (k: string) => { setOwn(k); onTab?.(k); };
   const on = activeTab(tabs, cur);
   const tab = tabs.find((t) => t.key === on);
   return <section className={['wm-ck-pane', maxed ? 'maxed' : '', className].filter(Boolean).join(' ')} data-testid={`ck-pane-${id}`} aria-label={tab?.label}>

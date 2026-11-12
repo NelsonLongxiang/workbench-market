@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** 驾驶舱骨架的纯函数单测（web/src/cockpit-frame-view.ts）：三栏尺寸的范围、拖分隔条的方向、本机存的尺寸读坏了退回缺省、
  *  放大 / 还原、「看的是」的胶囊、页签落点。 */
-import { itemsTabLabel, benchViewError, benchViewRefs, benchViewUrl, isBenchViewPanel, mainTabKeys, refsOfTab, DEFAULT_SIZES, activeTab, clampSizes, ctxChips, dragSizes, parseSizes, toggleMax } from '../web/src/cockpit-frame-view.ts';
+import { itemsTabLabel, isBenchViewsOff, benchViewError, benchViewRefs, benchViewUrl, isBenchViewPanel, mainTabKeys, refsOfTab, DEFAULT_SIZES, activeTab, clampSizes, ctxChips, dragSizes, parseSizes, toggleMax } from '../web/src/cockpit-frame-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -39,7 +39,7 @@ ok('一个页签上的引用按次序排', refsOfTab(refs, 'board').map((r) => r
 ok('中间的页签：配了数据视图才有看板、明细，排在前面；有面板才有工作台', mainTabKeys(refs, 1).join() === 'board,detail,benches' && mainTabKeys(refs, 0).join() === 'board,detail' && mainTabKeys(refs.filter((r) => r.tab === 'detail'), 2).join() === 'detail,benches');
 ok('没配数据视图：只有工作台，看板不出空壳；一个面板都没有也留工作台（放空状态）', mainTabKeys([], 2).join() === 'benches' && mainTabKeys([], 0).join() === 'benches');
 ok('取数地址：台、视图、筛选值（空的不带，名字前加 p.）', benchViewUrl({ bench: 'profit-desk', view: 'kpi' }, { month: '2026-11', shop: '' }) === '/api/bench-views/profit-desk/render?view=kpi&p.month=2026-11');
-ok('整份没取到的说法：403 一律看不到；没开放和视图不在了分开说', benchViewError(403, 'bench_views_forbidden') === '你看不到这个台的数据' && benchViewError(403, 'bench_views_admin_token_denied') === '你看不到这个台的数据' && benchViewError(404, 'bench_views_off') === '数据视图还没开放' && benchViewError(404, 'not_found') === '这份视图不在了' && benchViewError(404, 'bench_not_found') === '这份视图不在了');
+ok('整份没取到的说法：403 一律看不到；没开放和视图不在了分开说', benchViewError(403, 'bench_views_forbidden') === '你看不到这个台的数据' && benchViewError(403, 'bench_views_admin_token_denied') === '你看不到这个台的数据' && benchViewError(404, 'bench_views_off') === '数据视图未开启' && isBenchViewsOff(404, 'bench_views_off') && !isBenchViewsOff(404, 'not_found') && !isBenchViewsOff(403, 'bench_views_off') && benchViewError(404, 'not_found') === '这份视图不在了' && benchViewError(404, 'bench_not_found') === '这份视图不在了');
 ok('整份没取到的说法：没登录、超时、太忙、断网、其他', benchViewError(401) === '请先登录' && benchViewError(504, 'timeout').includes('太慢') && benchViewError(503, 'busy').includes('太多') && benchViewError(0) === '连不上服务器' && benchViewError(500, 'internal').includes('读不到'));
 
 ok('右栏页签照列表接口用的视角写；旧应答没带视角时按看的人拿得到什么写', itemsTabLabel('mine', true) === '我安排的事项' && itemsTabLabel('team', false) === '我团队的事项' && itemsTabLabel('seats', true) === '我的 AI 员工手上的事项' && itemsTabLabel('all', true) === '全部事项'

@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import Pane, { type PaneTab } from './Pane';
 import { dragSizes, parseSizes, toggleMax, type Sizes } from '../../cockpit-frame-view';
 
-type Slot = { id: string; tabs: PaneTab[] } | null | undefined;
+type Slot = { id: string; tabs: PaneTab[]; active?: string | null; onTab?: (key: string) => void } | null | undefined;
 
 export default function CockpitFrame({ storageKey, bar, extra, left, main, bottom, right }: {
   storageKey: string; bar?: ReactNode; extra?: ReactNode; left?: Slot; main: { id: string; tabs: PaneTab[] }; bottom?: Slot; right?: Slot;
@@ -38,7 +38,7 @@ export default function CockpitFrame({ storageKey, bar, extra, left, main, botto
     const up = () => { drag.current = null; try { localStorage.setItem(key, JSON.stringify(latest.current)); } catch { /* 存不了就只在本页有效 */ } window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
   };
-  const pane = (s: { id: string; tabs: PaneTab[] }, cls: string) => <Pane id={s.id} tabs={s.tabs} maxed={max === s.id} onToggleMax={onToggleMax} className={cls} />;
+  const pane = (s: NonNullable<Slot>, cls: string) => <Pane id={s.id} tabs={s.tabs} maxed={max === s.id} onToggleMax={onToggleMax} className={cls} active={s.active} onTab={s.onTab} />;
   const cols = [left ? `${sizes.left}px 8px` : '', 'minmax(0, 1fr)', right ? `8px ${sizes.right}px` : ''].filter(Boolean).join(' ');
   // 列宽、行高随拖动变，只能写在行内（和全景的表一样，是按数据算的尺寸）
   return <div className="wm-ck" data-testid="ck-frame">

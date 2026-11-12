@@ -11,7 +11,8 @@ import { useSyncExternalStore } from 'react';
 import { adminActive, subscribeAdminToken } from '../admin-token';
 import WmPage from '../components/WmPage';
 import CockpitFrame from '../components/cockpit/CockpitFrame';
-import { AttentionPane, ItemsPane } from '../components/cockpit/SidePanes';
+import { AttentionPane, ItemsPane, ProcessPane } from '../components/cockpit/SidePanes';
+import ArrangeDrawer from '../components/ArrangeDrawer';
 import BenchViewPanel from '../components/cockpit/BenchViewPanel';
 import { benchViewRefs, isBenchViewPanel, itemsTabLabel, mainTabKeys, refsOfTab } from '../cockpit-frame-view';
 
@@ -53,6 +54,10 @@ export default function Cockpit() {
   // 驾驶舱改名（监督席 direct-3b98f8c2 用户报障：后端 PUT name 一直在，前端无入口）
   const [attentionCount, setAttentionCount] = useState<number | null>(null);
   const [itemsView, setItemsView] = useState<unknown>(undefined);
+  /** 左栏点了「看办理过程」的那件事项；右栏跟着切到「办理过程」 */
+  const [picked, setPicked] = useState<string | null>(null);
+  const [rightTab, setRightTab] = useState<string | null>(null);
+  const [arrange, setArrange] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const submitRename = async () => {
@@ -274,11 +279,13 @@ export default function Cockpit() {
         </Button>}
     </Flex>
   );
-  const extra = READ_ONLY ? null : (
-    <Popover trigger="click" placement="bottomRight" content={editPanel}>
+  // 顶上右边：「就这个安排一件事」（原型）；管理员另有「编辑」（改名、加面板），不常驻
+  const extra = <>
+    {!READ_ONLY && <Popover trigger="click" placement="bottomRight" content={editPanel}>
       <Button icon={<EditOutlined />} data-testid="ck-edit">编辑</Button>
-    </Popover>
-  );
+    </Popover>}
+    <Button type="primary" icon={<PlusOutlined />} onClick={() => setArrange(true)} data-testid="ck-arrange">就这个安排一件事</Button>
+  </>;
   const refs = benchViewRefs(active.panels);
   const board = (
     <Flex vertical gap={12} className="wm-w-full wm-ck-pad" align="start">
@@ -342,11 +349,15 @@ export default function Cockpit() {
   return (
     <WmPage detail={active.name} wide>
       <CockpitFrame storageKey={String(active.id)} extra={extra}
-        left={{ id: 'attention', tabs: [{ key: 'attention', label: '等你拍板', count: attentionCount, content: <AttentionPane onCount={setAttentionCount} /> }] }}
+        left={{ id: 'attention', tabs: [{ key: 'attention', label: '等你拍板', count: attentionCount, content: <AttentionPane onCount={setAttentionCount} picked={picked} onPick={(id) => { setPicked(id); setRightTab('process'); }} /> }] }}
         main={{ id: 'board', tabs: mainTabKeys(refs, panels.length).map((k) => (k === 'benches'
           ? { key: 'benches', label: '工作台', content: board }
           : { key: k, label: k === 'board' ? '看板' : '明细', content: <>{refsOfTab(refs, k).map((x) => <BenchViewPanel key={x.i} refItem={x} />)}</> })) }}
-        right={{ id: 'items', tabs: [{ key: 'items', label: itemsTabLabel(itemsView, !READ_ONLY), content: <ItemsPane onView={setItemsView} /> }] }} />
+        right={{ id: 'items', active: rightTab, onTab: setRightTab, tabs: [
+          { key: 'process', label: '办理过程', content: <ProcessPane itemId={picked} /> },
+          { key: 'items', label: itemsTabLabel(itemsView, !READ_ONLY), content: <ItemsPane onView={setItemsView} /> },
+        ] }} />
+      <ArrangeDrawer open={arrange} onClose={() => setArrange(false)} />
     </WmPage>
   );
 }
