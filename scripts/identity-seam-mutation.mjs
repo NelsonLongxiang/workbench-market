@@ -77,7 +77,7 @@ const MUTANTS = [
   { id: 'relay-gate-uses-cache', what: '登录门：要求现查时装配方照样给缓存的', file: INDEX, suites: [SMOKE],
     find: 'const who = fresh ? await identity().resolveViewer(cookie) : await loginGateViewer(cookie);', replace: 'const who = await loginGateViewer(cookie);' },
   { id: 'gate-admits-unrecognized', what: '登录门：认不出也放进来', file: INDEX, suites: [SMOKE],
-    find: "    if (!who.ok) return who.held ? { held: true as const } : null;", replace: "    if (!who.ok) return { login: 'guest', admin: false };" },
+    find: "    if (!who.ok) return who.held ? { held: true as const } : sourceDown(who) ? { down: true as const } : null;", replace: "    if (!who.ok) return { login: 'guest', admin: false };" },
   // —— 上线当天「我进不去了」：登录成功、卡在主体那一步的人给等待页，对不上主体的进待对接清单 ——
   { id: 'held-sent-to-login', what: '登录门：登录成功、卡在主体那一步的人照旧跳回登录页', file: GATE, suites: [SMOKE],
     find: "      if (held.has(req) && wantsPage(req) && !p.startsWith('/api/')) return holdPage(res);\n", replace: '' },
