@@ -3,7 +3,7 @@
  *  卡片上只把站内真有的页面做成链接，别的一律不显示，免得点出一个空白页或一段 JSON。 */
 
 /** App.tsx 里路由的首段（「/」本身另算）。加删页面时跟着改，单测会对 */
-export const PAGE_SEGMENTS: readonly string[] = ['access', 'attention', 'cockpit', 'dev', 'knowledge', 'market', 'mcp-gateways', 'overview', 'owner-pending', 'reviews', 'settings', 'skills', 'sops', 'tasks', 'team', 'types', 'use', 'vault', 'work-items'];
+export const PAGE_SEGMENTS: readonly string[] = ['access', 'attention', 'cockpit', 'dev', 'knowledge', 'market', 'mcp-gateways', 'owner-pending', 'reviews', 'settings', 'skills', 'sops', 'tasks', 'team', 'types', 'use', 'vault', 'work-items'];
 
 /** 是站内页面就原样返回，不是就返回 null：要以单个「/」开头、不是 /api/、首段在路由表里（「/」本身也算） */
 export function pageLink(link: unknown): string | null {
