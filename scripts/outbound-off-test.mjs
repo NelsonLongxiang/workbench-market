@@ -190,7 +190,7 @@ ins('a2a_peers', { id: 'peer_0a1b2c3d4e5f', root_url: U, zone: 'syn', name: 'syn
 ins('bindings', { target_type: 'app', target_slug: 'syn-form', agent_node: 'syn2/1a2b3c4d', direction: 'notify', mode: 'read', notify_url: U.replace('127.0.0.1', 'localhost') + '/a2a', created_by: 'mcp:synthetic' });
 // 评估网关要有至少一个候选技能才会去问；MCP 会话给上游工具、沙箱、技能搜的授权
 ins('skills', { slug: 'syn-skill', name: '合成技能', layer: 1, layer_name: 'L1', description: '合成 技能', source: 'seed' });
-ins('mcp_sessions', { name: 'syn-session', token_sha256: ${JSON.stringify(createHash('sha256').update(MCP_TOKEN).digest('hex'))}, grants: JSON.stringify(['sop_run_sandbox', 'skill_search', 'syn__x']) });
+ins('mcp_sessions', { name: 'syn-session', token_sha256: ${JSON.stringify(createHash('sha256').update(MCP_TOKEN).digest('hex'))}, grants: JSON.stringify(['sop_run_sandbox', 'skill_search', 'syn__x', 'workbench_check']) });
 // 飞书登录：应用凭证放进一个合成的凭据库
 const { openVault } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/vault/store.ts')).href)});
 const store = await openVault({ masterPassword: ${JSON.stringify(VAULT_MASTER)}, path: ${JSON.stringify(join(dataDir, 'feishu-vault.json'))} });
@@ -263,6 +263,12 @@ async function instanceLayer(dir, off) {
   hits.mcpList = (await mcp('tools/list', {})).status;
   hits.mcpSandbox = (await mcp('tools/call', { name: 'sop_run_sandbox', arguments: { run_id: 1, script: 'true' } })).status;
   hits.mcpSkillSearch = (await mcp('tools/call', { name: 'skill_search', arguments: { need: '合成 技能' } })).status;
+  // 单个台的检测、MCP 的检测（一个和全部）：断开时和 check-all 一样不探、不改台的状态
+  hits.checkOne = (await I.call('POST', `/api/workbenches/${wid}/check`, undefined, A)).status;
+  const wc = await mcp('tools/call', { name: 'workbench_check', arguments: { id: wid } });
+  const wcAll = await mcp('tools/call', { name: 'workbench_check', arguments: { all: true } });
+  hits.mcpCheck = wc.body?.error ? 'error' : wc.body?.result?.isError ? 'tool-error' : 'ok';
+  hits.mcpCheckAll = wcAll.body?.error ? 'error' : wcAll.body?.result?.isError ? 'tool-error' : 'ok';
   // 飞书登录：发起拿到 state 和浏览器半边，直接带着回调（不去打开授权页：那是测试进程自己连假网络）
   const REMOTE = { 'x-forwarded-for': '192.0.2.20' };
   const start = await fetch(I.base + '/login/feishu?next=/', { redirect: 'manual', headers: REMOTE });
@@ -283,11 +289,12 @@ async function instanceLayer(dir, off) {
   const { DatabaseSync } = await import('node:sqlite');
   const db = new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true });
   const deliveries = db.prepare('SELECT status, attempts FROM workbench_event_deliveries ORDER BY id').all();
+  const wb = { ...db.prepare('SELECT last_status, last_checked_at FROM workbenches WHERE id = ?').get(wid) };
   const outbox = db.prepare('SELECT status, attempts FROM a2a_outbox ORDER BY id').all();
   const replies = db.prepare('SELECT status, attempts FROM workbench_event_replies ORDER BY id').all();
   const peers = db.prepare('SELECT root_url, status, card_error, card_fetched_at FROM a2a_peers ORDER BY root_url').all().map((r) => ({ ...r }));
   db.close();
-  return { boot: true, seen, lines, hits, anon, ready, adm, deliveries, outbox, replies, peers };
+  return { boot: true, seen, lines, hits, anon, ready, adm, deliveries, outbox, replies, peers, wb };
 }
 
 rmSync(OUT, { recursive: true, force: true });
@@ -322,6 +329,8 @@ try {
     check(off.deliveries.length >= 2 && off.deliveries.every((d) => d.status === 'pending' && d.attempts === 0), `投递全部仍是 pending、attempts 都是 0（${off.deliveries.length} 条，含刚提交的）`, show(off.deliveries));
     check(off.outbox.every((o) => o.status === 'pending' && o.attempts === 0), '回执 outbox 仍是 pending、attempts 0', show(off.outbox));
     check(off.hits.peerRegister === 503 && off.hits.peerRegisterReason === 'outbound_off' && off.hits.peerRefresh === 503 && off.hits.peerRefreshReason === 'outbound_off', '对端登记表：管理员登记、刷新都答 503 outbound_off，不去取名片', show(off.hits));
+    check(off.wb.last_status !== 'down' && off.wb.last_checked_at === '' && off.hits.checkOne === 503 && off.hits.mcpCheck !== 'ok' && off.hits.mcpCheckAll !== 'ok',
+      '外部台的状态一直没动：启动后那次巡检、单个检测（503）、MCP 的检测（一个和全部）都不探，不把副本里的台记成离线', show({ wb: off.wb, checkOne: off.hits.checkOne, mcpCheck: off.hits.mcpCheck, mcpCheckAll: off.hits.mcpCheckAll }));
     check(off.peers.length === 1 && off.peers[0].card_error === '' && off.peers[0].card_fetched_at === '', '对端登记表：启动回填不取卡、不建行；已登记的那一行不被改（没写 card_error）', show(off.peers));
     check(off.replies.length === 1 && off.replies.every((o) => o.status === 'pending' && o.attempts === 0), '人的答复发回席位（阶段七 R2）仍是 pending、attempts 0', show(off.replies));
     check(show(off.anon?.outbound) === '{"mode":"off"}' && show(off.ready?.outbound) === '{"mode":"off"}', '健康检查、就绪检查匿名都能看到 outbound: off（不给计数）', show([off.anon?.outbound, off.ready?.outbound]));
@@ -340,6 +349,8 @@ try {
     const unknown = on.lines.filter((l) => !ROUTES.some(([, hit]) => hit(l)));
     if (unknown.length) console.log(`  · 对照里还有认不出是哪一路的连接（不算失败）：${show(unknown)}`);
   }
+  if (on.boot) check(on.wb.last_checked_at !== '' && on.hits.checkOne === 200 && on.hits.mcpCheck === 'ok',
+    '对照（不开开关）：外部台被探过（检测时间写上了），单个检测 200、MCP 检测照常——上面「状态一直没动」有意义', show({ wb: on.wb, checkOne: on.hits.checkOne, mcpCheck: on.hits.mcpCheck }));
   if (on.boot) check(on.seen.tcp > 0 && (on.deliveries.some((d) => d.attempts > 0 || d.status !== 'pending') || on.outbox.some((o) => o.attempts > 0)) && on.replies.some((o) => o.attempts > 0 || o.status !== 'pending') && on.peers.length > 1 && on.anon?.outbound === undefined,
     '对照（不开开关）：假网络收到连接、投递或回执被试过、健康检查里没有 outbound——本测试看得见实例的出站', show({ seen: on.seen, d: on.deliveries, o: on.outbox }));
 

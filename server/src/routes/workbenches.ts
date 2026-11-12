@@ -75,6 +75,8 @@ export function registerWorkbenchRoutes(app: HttpService, deps: WorkbenchDeps): 
   app.post('/api/workbenches/:id/check', { action: 'workbench.check', kind: 'write' }, wrap(async (req, res) => {
     const row = svc<WorkbenchService>('workbench').byId(Number(req.params.id)) as unknown as WorkbenchRow | undefined;
     if (!row) throw new HttpError(404, `workbench not found: ${req.params.id}`);
+    // 对外断开（预发）：和 check-all 一样不探
+    if (outboundOff()) { noteBlocked('health-check'); return void res.status(503).json({ error: '对外已断开（WM_OUTBOUND=off），不做探活' }); }
     res.json(await checkOne(row));
   }));
 
