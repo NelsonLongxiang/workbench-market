@@ -96,6 +96,23 @@ try {
     const badIds = ['1/../../attention/answer', '1?x=1', '0x1', '1 ', '%2e%2e', '-1', ''];
     const through = badIds.filter((id) => { const r = forwardRoute('mcp-access', 'approve', id, {}); return !r || !('error' in r); });
     const ok = forwardRoute('mcp-access', 'reject', '12', { note: ' n ', status: 'approved', path: '/x' });
+    // 台的 MCP 授予申请：条目 id 是「台的标识:申请编号」，两段都先核形状；请求体只有 approve 和 note，不批要有理由
+    const benchBad = ['demo', 'demo:', ':1', 'demo:0', 'demo:1:2', 'Demo:1', '../demo:1', 'demo/..:1', 'demo:1/../../x', 'demo:1?x=1', 'demo:0x1', 'demo: 1', 'a b:1', 'demo:-1', `${'a'.repeat(65)}:1`, 'demo:1#x', 'demo#x:1', 'demo:abc', 'demo:1e3', `demo:${'9'.repeat(10)}`, 'demo:01', 'demo:1:', ':demo:1', 'demo::1', 'demo:1\n', 'demo%2f..:1', 'démo:1'];
+    const benchThrough = benchBad.filter((id) => { const r = forwardRoute('bench-mcp', 'approve', id, {}); return !r || !('error' in r); });
+    const benchOk = forwardRoute('bench-mcp', 'approve', 'sales-1:12', { note: ' 可以 ', approve: false, session: 'x', tools: ['view_put'] });
+    const benchNo = forwardRoute('bench-mcp', 'reject', 'sales-1:12', { reason: ' 不行 ', note: '不取这个' });
+    check(benchThrough.length === 0 && benchOk.path === '/api/bench-views/sales-1/mcp-requests/12' && benchOk.method === 'POST' && show(benchOk.body) === show({ approve: true, note: '可以' })
+      && show(benchNo.body) === show({ approve: false, note: '不行' }) && show(forwardRoute('bench-mcp', 'reject', 'sales-1:12', { note: ' 只写了 note ' }).body) === show({ approve: false, note: '只写了 note' }) && forwardRoute('bench-mcp', 'reject', 'sales-1:12', { note: '  ' }).error?.body?.error === 'reason_required' && forwardRoute('bench-mcp', 'grant', 'sales-1:12', {}) === null,
+      '换算表·台的 MCP 授予申请：坏 id 一律拒；路径固定；请求体只有 approve 和 note（夹带的 approve、session、tools 不进去）；不批没有理由拒；表外的答法没有', show({ benchThrough, benchOk, benchNo }));
+    // 条目自带的答复地址：只收同源的、/api/ 开头的相对路径；每种答法另写的地址同样核
+    const { answerVia } = await import(at('server/src/services/attention.ts'));
+    const throwsOn = (path, answers = { ok: { body: {} } }) => { try { answerVia('POST', path, answers); return false; } catch { return true; } };
+    const viaBad = ['https://elsewhere.example/api/x', '//elsewhere.example/api/x', 'api/x', '/apix', '/api/', '/login/x', '/api/x?y=1', '/api/x#y', '/api/../x', '/api/x/../y', '/api/x//y', '/api/x y', '/api/x\\y', '/API/x'];
+    const viaThrough = viaBad.filter((x) => !throwsOn(x));
+    const viaOk = answerVia('POST', '/api/work-items/wi_1/release', { release: { body: {} }, withdraw: { path: '/api/work-items/wi_1/withdraw', body: {} }, answer: { body: {}, input: { pick: { to: 'answer', required: true, options: ['a', 'b'] } } } });
+    check(viaThrough.length === 0 && throwsOn('/api/x', { a: { path: 'https://elsewhere.example/api/x', body: {} } }) && throwsOn('/api/x', { a: { path: '/api/../x', body: {} } })
+      && viaOk.path === '/api/work-items/wi_1/release' && viaOk.answers.withdraw.path === '/api/work-items/wi_1/withdraw' && viaOk.answers.answer.input.pick.options.join() === 'a,b',
+      '条目自带的答复地址：外部地址、不是 /api/ 开头、带查询串或 ..、双斜杠一律不收（顶层和每种答法另写的都核）；合规的原样带出', show({ viaThrough }));
     const bind = forwardRoute('principal-pending', 'bind', 'synthetic:a/b?c', { principal: 'user:x', create: true, reason: 'r', display_name: 'd', provider: 'evil' });
     check(through.length === 0 && ok.path === '/api/mcp/access-requests/12/reject' && ok.method === 'POST' && show(ok.body) === show({ note: 'n' })
       && bind.path === '/api/principals/bind' && show(Object.keys(bind.body).sort()) === show(['create', 'external_id', 'principal', 'provider', 'reason']) && bind.body.provider === 'synthetic' && bind.body.external_id === 'a/b?c'

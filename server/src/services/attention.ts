@@ -26,6 +26,34 @@ export const CATEGORIES = ['ask', 'review', 'accept', 'glance', 'grant'] as cons
 export type Category = typeof CATEGORIES[number];
 
 /** 每条的统一形状 */
+/**
+ * 条目自带的答复地址（只增）。带了，卡片就照它答；没带，照旧走 POST /api/attention/answer。
+ * 给「答复就是来源自己的一条路由」的来源用：卡片直接调那条路由，应答、报错都是它自己的，不用经答复入口再包一层。
+ *（答复入口对登录的人放开之后（L20），不带 answer_via 的条目不是管理员也答得了；带了的，两条路是同一处判断。）
+ *   method、path：调哪里。path 必须是同源的相对路径、以 /api/ 开头、不带查询串——前端只接受这种，不跟外部地址。
+ *   answers：每种答法（和条目的 answers 一一对应）怎么拼请求体——
+ *     path  可选：这种答法另调一个地址（一张卡上两种答法是两条路由时用）；不写就用顶层的 path。要求和顶层的一样；
+ *     body  固定带的字段；
+ *     input 这种答法让人填的字段：键是填写项的名字，to 是它放进请求体的哪个键，required 为真时必填，max 是字数上限，
+ *           options 给了就是只能从这几个里选一个（下拉或单选），值照样放进 to 指定的键。
+ *           前端的卡片一个答法只画一个填写项（有必填的画必填的那个）；一个答法有两个以上必填项的不会出现在卡片上。
+ *   请求体 = { ...body, [to]: 填的值 }。应答就是那条路由自己的应答（不包 result）：2xx 成功；4xx 的正文有 error，多半还有 message，原样显示。
+ * 地址背后的路由自己认人、自己判权限；这里只是告诉卡片该调哪里，不代表这个人一定答得成。
+ */
+export type AnswerVia = {
+  method: 'POST' | 'PUT';
+  path: string;
+  answers: Record<string, { path?: string; body: Record<string, unknown>; input?: Record<string, { to: string; required?: boolean; max?: number; options?: string[] }> }>;
+};
+const ANSWER_VIA_PATH = /^\/api\/[A-Za-z0-9][A-Za-z0-9._~:@/-]{0,300}$/;
+/** 拼一个 answer_via：地址不合规（不是 /api/ 开头的同源相对路径、带 ..、带查询串）直接抛错，不交给前端 */
+export function answerVia(method: AnswerVia['method'], path: string, answers: AnswerVia['answers']): AnswerVia {
+  for (const p of [path, ...Object.values(answers).map((a) => a.path).filter((x): x is string => x !== undefined)]) {
+    if (typeof p !== 'string' || !ANSWER_VIA_PATH.test(p) || /(^|\/)\.\.?(\/|$)/.test(p) || p.includes('//')) throw new Error(`attention：answer_via 的地址不合规：${String(p).slice(0, 80)}`);
+  }
+  return { method, path, answers };
+}
+
 export type AttentionItem = {
   source: string;
   source_id: string;
@@ -43,6 +71,8 @@ export type AttentionItem = {
   link: string | null;
   /** 审核卡片当场办所需的最少内容（变更申请：要动什么、从第几版到第几版、谁为什么申请、删除连带几个版本几个文件、不可恢复） */
   detail?: Record<string, unknown>;
+  /** 条目自带的答复地址：带了就照它答，见 AnswerVia */
+  answer_via?: AnswerVia;
   /** 统一待办条目是哪一类：task（任务中心任务）、sop-run（SOP 执行）、ygl、a2a、other。前端据此不把它们放进「等你审核」 */
   kind?: string;
   /** 是不是轮到看的这个人（只增）：事项的验收、席位的提问轮到建立人；过目放行轮到有放行权限的人（和事项详情的 turn 同一个函数）。
