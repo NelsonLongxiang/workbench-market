@@ -185,10 +185,24 @@ try {
   check(askD.status === 200 && beforeMove === 'ok' && afterMove === -32601 && r.json?.revoked_mcp_grants === 1 && r.json?.rejected_mcp_requests === 1 && moved.grants === 0 && moved.pending === 0
     && moved.note?.decided_by === 'user:alpha' && /改绑/.test(moved.note?.note ?? '') && moved.audit?.actor === 'user:alpha' && moved.audit.tools === '["dataset_list"]' && /改绑/.test(moved.audit.note),
     '改绑时：原部门批给 MCP 会话的授予全部收回（会话立即调不了）、没定的申请驳回并写明原因，应答里有数，留痕记是谁', { beforeMove, afterMove, resp: r.text.slice(0, 200), moved });
+  // 解绑、从没绑到绑上，同样是台换了主人：各自也要收回授予、驳回申请
+  const askSeat = (tools) => srv.call('POST', '/mcp', { headers: { authorization: `Bearer ${seat.token}` }, body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'access_request', arguments: { tools, reason: '改绑之前提的' } } } });
+  const mcpState = () => ({ grants: db.prepare("SELECT COUNT(*) AS n FROM bench_mcp_grants WHERE bench = 'sales-b'").get().n, pending: db.prepare("SELECT COUNT(*) AS n FROM bench_mcp_requests WHERE bench = 'sales-b' AND status = 'pending'").get().n });
+  const rejectLog = () => db.prepare("SELECT COUNT(*) AS n FROM bench_mcp_audit WHERE bench = 'sales-b' AND action = 'reject' AND actor = 'user:alpha' AND request_id IS NOT NULL").get().n;
+  const p1 = await st(boss, 'PUT', '/sales-b/mcp-grants', grantBody); await askSeat(['view_get@bench:sales-b']);
+  const beforeUnbind = { ...mcpState(), tool: await toolD() };
   r = await srv.call('PUT', '/api/bench-views/sales-b/binding', { ...boss, body: { department: '' } });
   const u1 = await st(other, 'GET', '/sales-b/datasets'), u2 = await st(boss, 'GET', '/sales-b/datasets');
   check(r.status === 200 && u1 === 403 && u2 === 200, '解绑之后：只有管理层进得来', { other: u1, boss: u2 });
+  const afterUnbind = { ...mcpState(), tool: await toolD() };
+  check(p1 === 200 && beforeUnbind.grants === 1 && beforeUnbind.pending === 1 && beforeUnbind.tool === 'ok' && r.json?.revoked_mcp_grants === 1 && r.json?.rejected_mcp_requests === 1 && afterUnbind.grants === 0 && afterUnbind.pending === 0 && afterUnbind.tool === -32601 && rejectLog() === 2,
+    '绑着的台解绑：原来的 MCP 授予没了、没定的申请被驳回（驳回也各留一行痕）', { beforeUnbind, afterUnbind, resp: r.text.slice(0, 160), rejectLog: rejectLog() });
+  const p2 = await st(boss, 'PUT', '/sales-b/mcp-grants', grantBody); await askSeat(['view_versions@bench:sales-b']);
+  const beforeBind = { ...mcpState(), tool: await toolD() };
   r = await srv.call('PUT', '/api/bench-views/sales-b/binding', { ...boss, body: { department: 'sales' } });
+  const afterBind = { ...mcpState(), tool: await toolD() };
+  check(p2 === 200 && beforeBind.grants === 1 && beforeBind.pending === 1 && beforeBind.tool === 'ok' && r.json?.revoked_mcp_grants === 1 && r.json?.rejected_mcp_requests === 1 && afterBind.grants === 0 && afterBind.pending === 0 && afterBind.tool === -32601 && rejectLog() === 3,
+    '没绑的台（管理层批过授予）绑到部门：同样收回、驳回', { beforeBind, afterBind, resp: r.text.slice(0, 160) });
   const again = await srv.call('PUT', '/api/bench-views/sales-b/binding', { ...boss, body: { department: 'sales' } });
   const bad = await st(boss, 'PUT', '/sales-b/binding', {}), bad2 = await st(boss, 'PUT', '/ghost/binding', { department: 'sales' }), bad3 = await st(boss, 'PUT', '/sales-b/binding', { department: 'nope' });
   const audit = db.prepare("SELECT action, before, after, actor FROM bench_bind_audit WHERE slug = 'sales-b' ORDER BY id").all();

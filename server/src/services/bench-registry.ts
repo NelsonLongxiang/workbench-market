@@ -101,7 +101,12 @@ export function bindBench(slug: string, input: unknown, actor: string, at: numbe
       for (const g of held) bySession.set(g.session_id, [...(bySession.get(g.session_id) ?? []), g.tool]);
       for (const [sessionId, tools] of bySession) db.prepare('INSERT INTO bench_mcp_audit (bench, session_id, action, tools, actor, note, at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(slug, sessionId, 'revoke', JSON.stringify(tools), actor, why, at);
       revoked = Number(db.prepare('DELETE FROM bench_mcp_grants WHERE bench = ?').run(slug).changes);
-      rejected = Number(db.prepare("UPDATE bench_mcp_requests SET status = 'rejected', decided_by = ?, decided_at = ?, note = ? WHERE bench = ? AND status = 'pending'").run(actor, at, '台改绑了，请重新申请', slug).changes);
+      // 没定的申请逐条驳回，各留一行痕（和人手驳回的留痕同一个样子）
+      for (const q of db.prepare("SELECT id, session_id, tools FROM bench_mcp_requests WHERE bench = ? AND status = 'pending' ORDER BY id").all(slug) as { id: number; session_id: number; tools: string }[]) {
+        db.prepare("UPDATE bench_mcp_requests SET status = 'rejected', decided_by = ?, decided_at = ?, note = ? WHERE id = ? AND status = 'pending'").run(actor, at, '台改绑了，请重新申请', q.id);
+        db.prepare('INSERT INTO bench_mcp_audit (bench, session_id, action, tools, actor, request_id, note, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(slug, q.session_id, 'reject', q.tools, actor, q.id, why, at);
+        rejected++;
+      }
     }
     db.exec('COMMIT');
     return { bench: { ...cur, ...b }, changed, revoked_mcp_grants: revoked, rejected_mcp_requests: rejected };
