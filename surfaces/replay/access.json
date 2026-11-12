@@ -107,7 +107,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "4393", "etag": "W/\"1129-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "4982", "etag": "W/\"1376-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "red_lines": [
                 { "id": "no-self-grant", "title": "不能给自己授予", "detail": "起草、提交、放行的人都不能是被授予的主体；库里也有约束。", "enforced_in": "server/src/services/grant.ts、server/src/db.ts", "test": "scripts/grants-smoke.mjs" },
@@ -121,6 +121,7 @@
                 { "id": "business-roles-owner-approval", "title": "碰业务的自定义角色要属主放行", "detail": "系统管理员缺省看不到业务数据，也不能自己复制、改出一个带业务权限的角色转给别人：建的先待核、改的先记成提议，属主放行之前不生效。", "enforced_in": "server/src/routes/grants.ts、server/src/roles.ts", "test": "scripts/custom-roles-smoke.mjs" },
                 { "id": "business-grants-business-approval", "title": "带业务写的授予要管理层或属主放行", "detail": "角色带业务域的写、不带业务拍板（部门成员、AI 员工这类），授给人或席位要管理层或属主放行；管理口令、只有系统管理员身份的放行不了，起草的人也不能自己放行。普通员工、访客照旧由系统管理员一步完成。", "enforced_in": "server/src/services/grant.ts、server/src/roles.ts", "test": "scripts/grants-smoke.mjs" },
                 { "id": "business-decide-grants-owner-approval", "title": "带业务拍板的授予只有属主能放行", "detail": "管理层、部门负责人这类带业务拍板的角色，不论范围，授予只有属主能放行：管理层不能自己再造管理层，管理口令也不行。", "enforced_in": "server/src/services/grant.ts、server/src/roles.ts", "test": "scripts/grants-smoke.mjs" },
+                { "id": "relations-need-confirmation", "title": "带来权限的关系要属主或业务侧确认", "detail": "部门负责人、团队负责人只有属主能定；团队认领到部门要管理层或接收部门的负责人确认；成员分配只有团队负责人或管理层做。只有系统管理员身份的人（和管理口令）只能提议，提议期间关系不存在、不带来权限。部门成员表只是组织信息。", "enforced_in": "server/src/services/relation-proposal.ts、server/src/routes/teams.ts、server/src/routes/departments.ts", "test": "scripts/teams-smoke.mjs" },
                 { "id": "system-admin-no-business", "title": "系统管理员缺省看不到业务数据", "detail": "系统管理员只有系统域的读写管，业务域（事项、工作台数据、关注……）要另外授予。", "enforced_in": "server/src/roles.ts", "test": "scripts/role-presets-test.mjs" },
                 { "id": "settings-no-secret-values", "title": "设置的出口不带凭据类的值", "detail": "设置读、导出、改设置的应答里，令牌、密码、密钥只说有没有；启动时自检，漏了拒绝启动。", "enforced_in": "server/src/settings-view.ts、server/src/index.ts", "test": "scripts/settings-read-smoke.mjs" },
                 { "id": "export-reveal-admin-only", "title": "导出真值只给管理员", "detail": "带 reveal 的导出要管理口令或管理员登录（浏览器来的要同源）；不满足 403，不降级成掩码。", "enforced_in": "server/src/routes/export-import.ts", "test": "scripts/export-reveal-smoke.mjs" }
@@ -137,7 +138,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "4393", "etag": "W/\"1129-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "4982", "etag": "W/\"1376-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "red_lines": [
                 { "id": "no-self-grant", "title": "不能给自己授予", "detail": "起草、提交、放行的人都不能是被授予的主体；库里也有约束。", "enforced_in": "server/src/services/grant.ts、server/src/db.ts", "test": "scripts/grants-smoke.mjs" },
@@ -151,6 +152,7 @@
                 { "id": "business-roles-owner-approval", "title": "碰业务的自定义角色要属主放行", "detail": "系统管理员缺省看不到业务数据，也不能自己复制、改出一个带业务权限的角色转给别人：建的先待核、改的先记成提议，属主放行之前不生效。", "enforced_in": "server/src/routes/grants.ts、server/src/roles.ts", "test": "scripts/custom-roles-smoke.mjs" },
                 { "id": "business-grants-business-approval", "title": "带业务写的授予要管理层或属主放行", "detail": "角色带业务域的写、不带业务拍板（部门成员、AI 员工这类），授给人或席位要管理层或属主放行；管理口令、只有系统管理员身份的放行不了，起草的人也不能自己放行。普通员工、访客照旧由系统管理员一步完成。", "enforced_in": "server/src/services/grant.ts、server/src/roles.ts", "test": "scripts/grants-smoke.mjs" },
                 { "id": "business-decide-grants-owner-approval", "title": "带业务拍板的授予只有属主能放行", "detail": "管理层、部门负责人这类带业务拍板的角色，不论范围，授予只有属主能放行：管理层不能自己再造管理层，管理口令也不行。", "enforced_in": "server/src/services/grant.ts、server/src/roles.ts", "test": "scripts/grants-smoke.mjs" },
+                { "id": "relations-need-confirmation", "title": "带来权限的关系要属主或业务侧确认", "detail": "部门负责人、团队负责人只有属主能定；团队认领到部门要管理层或接收部门的负责人确认；成员分配只有团队负责人或管理层做。只有系统管理员身份的人（和管理口令）只能提议，提议期间关系不存在、不带来权限。部门成员表只是组织信息。", "enforced_in": "server/src/services/relation-proposal.ts、server/src/routes/teams.ts、server/src/routes/departments.ts", "test": "scripts/teams-smoke.mjs" },
                 { "id": "system-admin-no-business", "title": "系统管理员缺省看不到业务数据", "detail": "系统管理员只有系统域的读写管，业务域（事项、工作台数据、关注……）要另外授予。", "enforced_in": "server/src/roles.ts", "test": "scripts/role-presets-test.mjs" },
                 { "id": "settings-no-secret-values", "title": "设置的出口不带凭据类的值", "detail": "设置读、导出、改设置的应答里，令牌、密码、密钥只说有没有；启动时自检，漏了拒绝启动。", "enforced_in": "server/src/settings-view.ts、server/src/index.ts", "test": "scripts/settings-read-smoke.mjs" },
                 { "id": "export-reveal-admin-only", "title": "导出真值只给管理员", "detail": "带 reveal 的导出要管理口令或管理员登录（浏览器来的要同源）；不满足 403，不降级成掩码。", "enforced_in": "server/src/routes/export-import.ts", "test": "scripts/export-reveal-smoke.mjs" }

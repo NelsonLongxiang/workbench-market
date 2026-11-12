@@ -10,6 +10,8 @@ export type GrantStatus = 'draft' | 'pending' | 'active' | 'revoked' | 'expired'
 export interface Grant {
   id: number; principal_id: string; role: string; scope: string; expires_at: number | null; reason: string; status: GrantStatus;
   created_by: string; approved_by: string | null; created_at: number; updated_at: number; source?: 'manual' | 'migration';
+  /** 当前看的人能不能放行这一条（服务端算好的，身份线 #618）；不能时的代码和短说法 */
+  can_approve?: boolean; approve_denied?: string | null; approve_denied_text?: string | null;
 }
 export type PrincipalKind = 'person' | 'seat' | 'app' | 'system' | 'node';
 export interface Principal { id: string; kind: PrincipalKind; display_name: string; owner: string; status: 'active' | 'disabled' | string; identities?: { provider: string; external_id: string }[] }
@@ -115,6 +117,14 @@ export function roleName(id: string, roles: Map<string, RoleInfo>): string {
 export function approvalText(id: string, roles: Map<string, RoleInfo>): string | null {
   const t = roles.get(id)?.approval_text;
   return typeof t === 'string' && t.trim() ? t.trim() : null;
+}
+
+/** 「核准」按钮：照服务端给的 can_approve 置灰，旁边写不能的说法。页面不自己判谁放行得了。
+ *  服务端还没给这个字段（不是布尔）就照旧可点，点了被拒再显示应答里的说法 */
+export function approveState(g: Pick<Grant, 'can_approve' | 'approve_denied_text'>): { enabled: boolean; note: string | null } {
+  if (g.can_approve !== false) return { enabled: true, note: null };
+  const t = typeof g.approve_denied_text === 'string' ? g.approve_denied_text.trim() : '';
+  return { enabled: false, note: t || '你现在放行不了这一项' };
 }
 
 /** 待你核准的：先提交的在前 */

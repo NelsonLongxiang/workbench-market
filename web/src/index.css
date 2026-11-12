@@ -482,6 +482,7 @@ body { background: var(--wm-color-page); }
 .wm-acc-cell-mark { margin-left: 6px; font-size: var(--wm-font-size-caption); color: var(--wm-color-warning-text); white-space: nowrap; }
 .wm-acc-ask-approval { margin-top: 4px; font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); }
 .wm-acc-role-approval { font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); }
+.wm-acc-ask-denied { align-self: center; font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); }
 .wm-acc-mine { max-width: 720px; }
 .wm-acc-mine-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--wm-color-border); border-radius: var(--wm-radius-md); background: var(--wm-color-surface); }
 .wm-acc-mine-list li { display: grid; grid-template-columns: minmax(8em, 1fr) minmax(10em, 1.4fr) minmax(8em, 1fr) auto; gap: 12px; align-items: center; padding: 12px 16px; }
@@ -607,6 +608,8 @@ body { background: var(--wm-color-page); }
 .wm-team-dot.on { background: var(--wm-color-success-text); }
 .wm-team-kind { flex: none; margin-left: auto; padding: 0 var(--wm-space-1); font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); background: var(--wm-color-page); border-radius: var(--wm-radius-sm); }
 .wm-team-stale { font-size: var(--wm-font-size-caption); color: var(--wm-color-warning-text); }
+/* 待确认的提议（关系确认制）：认领、负责人还没生效 */
+.wm-team-pending { font-size: var(--wm-font-size-caption); color: var(--wm-color-warning-text); }
 .wm-team-none { font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); margin-left: var(--wm-space-3); }
 .wm-team-unclaimed { margin-top: var(--wm-space-6); }
 .wm-team-sec { display: flex; align-items: baseline; gap: var(--wm-space-2); margin-bottom: var(--wm-space-3); }

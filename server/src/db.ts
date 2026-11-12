@@ -1259,6 +1259,30 @@ CREATE TABLE IF NOT EXISTS setup_wizard_grants (
 );
 CREATE INDEX IF NOT EXISTS idx_setup_wizard_grants_grant ON setup_wizard_grants (grant_id);
 `);
+
+// 关系的提议（规范 14「关系由谁说了算」）：会带来业务权限的关系——部门负责人、团队负责人、团队认领到部门——不是属主（或业务侧）做的，
+//   只记成提议，确认之后才写进 departments.lead_principal / team_leads / teams。提议期间关系不存在，不带来任何权限。
+//   kind：dept-lead（department_id、principal_id）、team-lead（host、team、principal_id）、team-claim（host、team、department_id）。
+//   状态只往前走：pending → approved / rejected。时间由代码给（毫秒）。
+db.exec(`
+CREATE TABLE IF NOT EXISTS relation_proposals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL CHECK (kind IN ('dept-lead', 'team-lead', 'team-claim')),
+  department_id TEXT NOT NULL DEFAULT '',
+  host TEXT NOT NULL DEFAULT '',
+  team TEXT NOT NULL DEFAULT '',
+  principal_id TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  proposed_by TEXT NOT NULL,
+  proposed_by_principal TEXT,
+  proposed_at INTEGER NOT NULL,
+  decided_by TEXT,
+  decided_by_principal TEXT,
+  decided_at INTEGER,
+  reason TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_relation_proposals_status ON relation_proposals (status, id);
+`);
 // 阶段八 8d：待对接清单的「出现序号」。同一条外部身份绑定后又出现在清单里，是新的一轮待决；「关注」的记账按它分轮，
 //   不靠时间（只到秒，同一秒里又出现就分不开）。每次新插入一行（主体服务是 upsert，只在真的新进清单时插入）取一个全局只增的号：
 //   号来自一张 AUTOINCREMENT 表，删掉旧号不会回退。只加这一列和取号，清单本身的写法不变。

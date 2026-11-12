@@ -5,6 +5,8 @@
  *   GET    /api/departments/:id                     一个部门，连同成员（主体、显示名、类型、状态、是不是负责人）
  *   GET    /api/departments/of/:principal           某个主体属于哪些部门（成员的、负责的）
  *   PUT    /api/departments/:id                     建或改：{ name, function_code?, lead? }（function_code、lead 给 null 或空串表示清掉）
+ *                                                   指定新的负责人带拍板（规范 14「关系由谁说了算」）：不是属主时只记成提议（应答带 lead_proposal），
+ *                                                   负责人照旧不变，属主确认之后才换；清掉负责人（收紧）照旧一步完成
  *   DELETE /api/departments/:id                     删（还有没结束的 dept:<标识> 授予时 409）
  *   PUT    /api/departments/:id/members/:principal  加成员（已在里面不重复加）
  *   DELETE /api/departments/:id/members/:principal  移出
@@ -20,6 +22,8 @@ import { HttpError } from '../errors.ts';
 import { identity } from '../identity.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import { DEPARTMENT_ID_RE, type DepartmentRefusal, type DepartmentService } from '../services/department.ts';
+import type { GrantService } from '../services/grant.ts';
+import { CONFIRM_BY, type RelationProposalService } from '../services/relation-proposal.ts';
 
 export type DepartmentRouteDeps = {
   markOdooAdmin: (req: express.Request) => Promise<void>;
@@ -33,6 +37,8 @@ export type DepartmentRouteDeps = {
 
 const departments = () => svc<DepartmentService>('departments');
 const principals = () => svc<PrincipalService>('principals');
+const grants = () => svc<GrantService>('grants');
+const proposals = () => svc<RelationProposalService>('relationProposals');
 const PRINCIPAL_RE = /^[a-z]+:[\x21-\x7e]{1,150}$/;
 
 function deptId(req: express.Request): string {
@@ -111,15 +117,32 @@ export function registerDepartmentRoutes(app: HttpService, deps: DepartmentRoute
     const current = departments().get(id);
     const code = optional(b.function_code, 'function_code', 48);
     const lead = optional(b.lead, 'lead', 160);
+    const curLead = current?.lead?.principal ?? null;
+    // 换成一个新的负责人（带拍板）：不是属主只记成提议，负责人这次保持原样
+    const principal = by === 'cli' ? null : by.startsWith('odoo:') ? principals().principalOf(identity().providerName() ?? '', by.slice(5)) : null;
+    const owner = by === 'cli' || grants().isOwner(principal);
+    const proposeLead = typeof lead === 'string' && lead !== curLead && !owner;
+    if (proposeLead) {
+      if (!PRINCIPAL_RE.test(lead)) throw new HttpError(400, 'lead 写法不对（形如 user:<登录名>）', { code: 'lead_invalid' });
+      const bad = departments().leadCheck(lead);
+      if (bad) return void refused(res, bad);
+    }
+    const now = Date.now();
     // 不写的字段：改的时候保持原样，建的时候为空
     const r = departments().upsert({
       id, name: b.name,
       functionCode: code === undefined ? current?.function_code ?? null : code,
-      lead: lead === undefined ? current?.lead?.principal ?? null : lead,
-    }, by, Date.now());
+      lead: lead === undefined || proposeLead ? curLead : lead,
+    }, by, now);
     if (!r.ok) return void refused(res, r);
     logged(r.created ? 'create' : 'update', { id, function_code: r.department.function_code, lead: r.department.lead?.principal ?? null }, by);
-    res.status(r.created ? 201 : 200).json({ department: r.department });
+    let leadProposal: { id: number; status: 'pending'; principal: string; confirm_by_text: string } | undefined;
+    if (proposeLead) {
+      const pr = proposals().propose({ kind: 'dept-lead', department_id: id, principal_id: lead }, { by, principal, owner }, now);
+      leadProposal = { id: pr.id, status: 'pending', principal: lead, confirm_by_text: CONFIRM_BY['dept-lead'] };
+      logged('lead-propose', { id, lead, proposal: pr.id }, by);
+    }
+    res.status(r.created ? 201 : 200).json({ department: r.department, ...(leadProposal ? { lead_proposal: leadProposal } : {}) });
   }));
 
   app.delete('/api/departments/:id', { action: 'department.delete', kind: 'admin' }, route(async (req, res) => {
