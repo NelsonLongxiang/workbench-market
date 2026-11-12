@@ -67,6 +67,18 @@ async function defaultFetchCard(root: string): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
+/**
+ * 对端名片上（登记表里钉住、验过签的那份）是否声明了某个能力位：capabilities[name] === true。
+ * 没登记、不是 active、名片还没取到或没声明，都是 false——调用方按「对端不支持」处理。不经服务容器，直接读表（发送路径上用）。
+ */
+export function peerDeclares(url: string, name: string): boolean {
+  const root = peerRootOf(url);
+  if (!root) return false;
+  const p = db.prepare('SELECT status, card_capabilities FROM a2a_peers WHERE root_url = ?').get(root) as { status: string; card_capabilities: string } | undefined;
+  if (!p || p.status !== 'active') return false;
+  try { const c = JSON.parse(p.card_capabilities || '{}') as Record<string, unknown>; return c?.[name] === true; } catch { return false; }
+}
+
 export class PeerRegisterError extends Error {
   readonly reason: 'bad_root' | 'card_unreachable' | 'card_invalid';
   constructor(reason: 'bad_root' | 'card_unreachable' | 'card_invalid', message: string) { super(message); this.reason = reason; }
@@ -113,11 +125,7 @@ export class A2aPeerService extends Service {
    * 对端名片上（登记表里钉住、验过签的那份）是否声明了某个能力位：capabilities[name] === true。
    * 没登记、名片还没取到、不是 active、或者没声明，都是 false——调用方按「对端不支持」处理（指名、打回派工行退回旧写法并留痕）。
    */
-  declares(url: string, name: string): boolean {
-    const p = this.byRoot(url);
-    if (!p || p.status !== 'active') return false;
-    try { const c = JSON.parse(p.card_capabilities || '{}') as Record<string, unknown>; return c?.[name] === true; } catch { return false; }
-  }
+  declares(url: string, name: string): boolean { return peerDeclares(url, name); }
 
   canDeliver(url: string): CanDeliver {
     const p = this.byRoot(url);
