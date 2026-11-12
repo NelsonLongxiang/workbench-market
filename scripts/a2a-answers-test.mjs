@@ -16,9 +16,14 @@ import { createServer } from 'node:http';
 import { createServer as netServer } from 'node:net';
 import { createHash, createPublicKey, generateKeyPairSync, sign as edSign } from 'node:crypto';
 import { mkdirSync, rmSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { signCard } from '@nelsonlongxiang/dsh-open-a2a-net/card';
+import { SESSIONS } from './identity-fake-provider.mjs';
+// 答席位提问是替建立人做业务决定（L21）：只认建立人本人或持有管理层授予的人，管理口令不行。
+// 这里起实例时换上假的登录提供方（测试夹具，只在 NODE_ENV=test 下干活），答复用一个持有管理层授予的人（user:no-flag）
+const PRELOAD = pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), 'identity-fake-preload.mjs')).href;
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -65,7 +70,7 @@ const post = async (raw, headers) => { const r = await fetch(BASE + '/a2a/direct
 const receiptRaw = (task, summary, env, ctx, inbound) => JSON.stringify({ team: 'market/12345678', message: `[A2A receipt] task ${task} ${summary}\n${JSON.stringify(env)}`, caller_session: 'superagent-team/a1b2c3d4e5f60718', context_id: ctx, wait: false, task_id: inbound ?? `receipt-${task}` });
 const receipt = (task, summary, env, ctx, opts = {}) => { const raw = receiptRaw(task, summary, env, ctx, opts.inbound); return post(raw, opts.unsigned ? {} : signed(opts.signer ?? lab, raw)); };
 
-const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
+const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], {
   cwd: 'server',
   env: { ...process.env, DATA_DIR: DATA, PORT: String(PM), WM_CONTROL_PORT: '0', NODE_ENV: 'test', MCP_GATEWAY: 'off', ADMIN_TOKEN: 'ans-admin', MARKET_PUBLIC_URL: BASE, WM_A2A_DIRECT_SIG: '', WM_LOGIN_GATE: '', A2A_OUTBOX_BACKOFF_SCALE: '0.0001', WM_A2A_FOLLOWUP_RATE_10MIN: '80' },
   stdio: ['ignore', 'pipe', 'pipe'],
@@ -96,13 +101,26 @@ function seedEvent({ dispatch = 1, zone = 'lab', root = lab.url } = {}) {
 }
 const state = (ev) => q('SELECT state, open_asks FROM work_items WHERE id = ?', `wi_${ev}`)[0] ?? null;
 const noRecProbe = (inbound) => { const d = new DatabaseSync(join(DATA, 'workbench-market.db')); try { d.exec('PRAGMA busy_timeout = 5000'); return d.prepare('SELECT COUNT(*) AS c FROM workbench_event_followups WHERE inbound_task = ?').get(inbound).c === 0; } finally { d.close(); } };
-const seatAsks = async () => ((await api('GET', '/api/attention')).body?.items ?? []).filter((x) => x.source === 'seat-asks');
-const answer = async (deliveryId, text) => { const r = await api('POST', '/api/attention/answer', { source: 'seat-asks', source_id: String(deliveryId), answer: 'answer', input: { text } }); return { status: r.status, body: r.body?.result ?? r.body }; };
+/** 持有管理层授予的人（会话登录）：席位提问由他代办答 */
+const MGMT = { cookie: `session_id=${SESSIONS.noAdminFlag}`, 'sec-fetch-site': 'same-origin' };
+const asMgmt = async (method, path, body) => { const r = await fetch(BASE + path, { method, headers: { ...MGMT, ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined }); let j = null; try { j = await r.json(); } catch {} return { status: r.status, body: j }; };
+/** 本机命令行（不带头）：授予只有它（代属主）放得了 */
+const cli = async (method, path, body) => { const r = await fetch(BASE + path, { method, headers: body ? { 'content-type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined }); let j = null; try { j = await r.json(); } catch {} return { status: r.status, body: j }; };
+const seatAsks = async () => ((await asMgmt('GET', '/api/attention')).body?.items ?? []).filter((x) => x.source === 'seat-asks');
+const answerAsToken = async (deliveryId, text) => { const r = await api('POST', '/api/attention/answer', { source: 'seat-asks', source_id: String(deliveryId), answer: 'answer', input: { text } }); return { status: r.status, body: r.body?.result ?? r.body }; };
+const answer = async (deliveryId, text) => { const r = await asMgmt('POST', '/api/attention/answer', { source: 'seat-asks', source_id: String(deliveryId), answer: 'answer', input: { text } }); return { status: r.status, body: r.body?.result ?? r.body }; };
 async function waitFor(fn, ms = 8000) { const end = Date.now() + ms; while (Date.now() < end) { if (await fn()) return true; await sleep(150); } return false; }
 
 try {
   if (!(await ready())) throw new Error('实例未就绪：' + out.slice(-600));
   for (let i = 0; i < 40; i++) { if (q("SELECT 1 FROM sqlite_master WHERE name = 'workbench_events'").length) break; await sleep(250); }
+  {
+    await asMgmt('GET', '/api/auth/viewer');
+    const g = await cli('POST', '/api/grants', { principal: 'user:no-flag', role: 'management', scope: '*', reason: '合成：管理层（代办答席位提问）' });
+    await cli('POST', `/api/grants/${g.body?.grant?.id}/submit`); await cli('POST', `/api/grants/${g.body?.grant?.id}/approve`);
+    const active = (await cli('GET', '/api/grants?principal=user:no-flag&status=active')).body?.grants ?? [];
+    ok('（准备）user:no-flag 持有管理层授予（答席位提问的代办人）', g.status === 201 && active.some((x) => x.role === 'management'), JSON.stringify({ g: g.status, active: active.map((x) => x.role) }));
+  }
 
   console.log('一、提问进「关注」');
   const a = seedEvent();
@@ -129,6 +147,18 @@ try {
   }
 
   console.log('二、答复发回');
+  {
+    // L21：管理口令只过了管理门，答席位提问是替建立人做决定——列表里不给它答法，答了被拒，不记答复、不发回
+    const tokenRow = ((await api('GET', '/api/attention')).body?.items ?? []).find((x) => x.source === 'seat-asks' && x.source_id === String(a.delivery));
+    const before = q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE delivery_id = ?", a.delivery)[0].c;
+    lab.got.length = 0;
+    const byToken = await answerAsToken(a.delivery, '口令来答');
+    await sleep(600);
+    ok('管理口令答席位提问：看得到这条但不给答法，答了被拒（400 attention_answer_not_offered），不记答复、不发回，提问仍开着',
+      tokenRow && tokenRow.answers.length === 0 && byToken.status === 400 && byToken.body?.error === 'attention_answer_not_offered'
+        && q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE delivery_id = ?", a.delivery)[0].c === before && lab.got.length === 0 && (await seatAsks()).some((x) => x.source_id === String(a.delivery)),
+      JSON.stringify({ tokenRow: tokenRow?.answers, byToken }));
+  }
   r = await answer(a.delivery, '发 apps 仓库');
   ok('答复 → 200，sent=true（已排发送）', r.status === 200 && r.body?.sent === true && r.body?.reason === 'queued', JSON.stringify(r.body));
   ok('……「关注」里这条不再等', !(await seatAsks()).some((x) => x.source_id === String(a.delivery)));
