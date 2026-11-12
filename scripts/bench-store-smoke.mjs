@@ -351,7 +351,7 @@ try {
   const big = await benchStore('big');
   await big.defineDataset({ name: 'wide', columns: [{ name: 'id', type: 'integer' }, { name: 'body', type: 'text' }, { name: 'grp', type: 'integer' }], key: ['id'] }, ctx());
   const mk = (n, off = 0) => Array.from({ length: n }, (_, i) => ({ id: off + i, body: 'x'.repeat(1990) + String(off + i).padStart(10, '0'), grp: (off + i) % 7 }));
-  const N = 20000;
+  const N = 15000; // 每行约 2000 字节，合计约 30 MB：在单个数据集的上限（32 MB）以内
   for (let o = 0; o < N; o += 5000) await big.append('wide', mk(5000, o), ctx());
   const slow = { dataset: 'wide', measures: [{ as: 'n', fn: 'count_distinct', col: 'body' }] };
   const count = async () => (await big.query({ dataset: 'wide', measures: [{ as: 'n', fn: 'count' }] })).rows[0].n;
@@ -476,6 +476,115 @@ try {
   ok('T12 格式不对的消息不理或拒绝，线程不垮，后面的照常', malformed.ok === false && malformed.error.code === 'invalid' && fine.ok === true && Array.isArray(fine.value) && !died, { malformed, fine, died });
   await ask({ id: 4, slug: '', method: '@closeAll', args: [], budgetMs: 0 });
   await tw.terminate();
+
+  // —— L：数据量上限（设计稿第十一节第 2 条）。用小的上限、不经工作线程，直接验逻辑本体 ——
+  console.log('L 数据量上限');
+  const capHost = new BenchHost(join(DATA, 'caps'), benchSqlKit('sqlite'), { datasetBytes: 10_000, storeBytes: 16_000, writeBytes: 4_000 });
+  const cs = await capHost.store('c');
+  const capCols = [{ name: 'id', type: 'integer' }, { name: 'v', type: 'text' }, { name: 'n', type: 'decimal' }];
+  await cs.defineDataset({ name: 'a', columns: capCols, key: ['id'] }, ctx());
+  await cs.defineDataset({ name: 'b', columns: capCols, key: ['id'] }, ctx());
+  const rowsOfSize = (count, chars, off = 0) => Array.from({ length: count }, (_, i) => ({ id: off + i, v: 'x'.repeat(chars), n: 1.5 }));
+  const bytesOf = async (name) => (await cs.datasets()).find((d) => d.name === name).data_bytes;
+  r = await cs.append('a', [{ id: 1, v: '中文', n: null }], ctx());
+  ok('L1 字节按 UTF-8 算：整数 8、中文两个字 6、空 1', r.data_bytes === 15 && await bytesOf('a') === 15, r);
+  r = await cs.upsert('a', [{ id: 1, v: 'ab' }], ctx());
+  ok('L1 按主键更新之后是重新量的，不是往上累加', r.data_bytes === 11, r);
+  await cs.append('a', [{ id: 2, v: 'abcd', n: 2 }], ctx());
+  r = await cs.deleteRows('a', [{ id: 2 }], ctx());
+  ok('L1 删行之后变小', r.data_bytes === 11 && await bytesOf('a') === 11, r);
+  e = await refused(() => cs.append('a', rowsOfSize(5, 1000, 100), ctx()));
+  ok('L2 一次写入超过单次上限：整批拒收', e?.code === 'limit' && /一次写入的上限/.test(e.message) && await bytesOf('a') === 11, e);
+  e = await refused(() => cs.append('a', [{ id: 50, v: '中'.repeat(1500), n: 1 }], ctx()));
+  ok('L2 单次上限按字节算：1500 个中文字是 4500 字节，超了', e?.code === 'limit' && /一次写入的上限/.test(e.message), e);
+  await cs.append('a', rowsOfSize(3, 1000, 100), ctx());
+  await cs.append('a', rowsOfSize(3, 1000, 200), ctx());
+  await cs.append('a', rowsOfSize(3, 1000, 300), ctx());
+  e = await refused(() => cs.append('a', rowsOfSize(1, 1000, 400), ctx()));
+  ok('L3 数据集超过上限：整批拒收，说清是哪一项', e?.code === 'limit' && /单个数据集的上限/.test(e.message) && (await cs.query({ dataset: 'a', measures: [{ as: 'n', fn: 'count' }] })).rows[0].n === 10, e);
+  await cs.replace('b', rowsOfSize(6, 1000), ctx());
+  e = await refused(() => cs.replace('b', rowsOfSize(8, 1000), ctx()));
+  ok('L4 这个台合计超过上限：整批拒收，原来的数据还在', e?.code === 'limit' && /单台的上限/.test(e.message) && (await cs.query({ dataset: 'b', measures: [{ as: 'n', fn: 'count' }] })).rows[0].n === 6, e);
+  e = await refused(() => cs.replace('b', rowsOfSize(11, 1000), ctx()));
+  ok('L4 整份替换可以到数据集的上限，超了照样拒', e?.code === 'limit', e);
+  // 已经超了的（上限后来调小）：还能删、能换成更小的，不会卡死
+  await cs.replace('b', rowsOfSize(2, 1000), ctx());
+  await capHost.closeAll();
+  const tight = new BenchHost(join(DATA, 'caps'), benchSqlKit('sqlite'), { datasetBytes: 3_000, storeBytes: 5_000, writeBytes: 4_000 });
+  const ts = await tight.store('c');
+  e = await refused(() => ts.deleteRows('a', [{ id: 100 }], ctx()));
+  ok('L5 上限调小之后已经超了的数据集：删行不被拦', e === null, e);
+  e = await refused(() => ts.append('a', [{ id: 999, v: 'y', n: 1 }], ctx()));
+  ok('L5 但再往大里写被拦', e?.code === 'limit', e);
+  e = await refused(() => ts.replace('a', rowsOfSize(2, 1000), ctx()));
+  ok('L5 换成更小的一份不被拦', e === null, e);
+  await tight.closeAll();
+  // 结构对不上的库文件（定稿之前旧代码建的）：明确拒绝，不静默照用
+  mkdirSync(join(DATA, 'oldshape'), { recursive: true });
+  const oldDb = new DatabaseSync(join(DATA, 'oldshape', 'o.sqlite'));
+  oldDb.exec("CREATE TABLE bs_meta (k TEXT PRIMARY KEY, v TEXT NOT NULL); INSERT INTO bs_meta VALUES ('schema_version', '1'); CREATE TABLE bs_datasets (name TEXT PRIMARY KEY, title TEXT NOT NULL, version INTEGER NOT NULL, columns TEXT NOT NULL, key_cols TEXT NOT NULL, row_count INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, updated_by TEXT NOT NULL)");
+  oldDb.close();
+  const oldHost = new BenchHost(join(DATA, 'oldshape'), benchSqlKit('sqlite'));
+  e = await refused(() => oldHost.store('o'));
+  ok('L5 结构对不上的旧库文件：写明结构不符、不打开，不是「内部错误」', e?.code === 'unsupported' && /结构.*不符/.test(e.message), e);
+  await oldHost.closeAll();
+
+  // 原始字节：和给数组是同一回事
+  const rawHost = new BenchHost(join(DATA, 'raw'), benchSqlKit('sqlite'), { writeBytes: 2_000 });
+  const rs = await rawHost.store('r');
+  await rs.defineDataset({ name: 'a', columns: capCols, key: ['id'] }, ctx());
+  const rawRows = [{ id: 1, v: '字节', n: 2.5 }, { id: 2, v: 'b', n: null }];
+  r = await rs.append('a', Buffer.from(JSON.stringify(rawRows)), ctx({ idemKey: 'raw-and-parsed-1' }));
+  ok('L6 写入给原始字节：照常写进去', r.inserted === 2 && (await rs.query({ dataset: 'a', sort: [{ col: 'id' }] })).rows[0].v === '字节', r);
+  r = await rs.append('a', rawRows, ctx({ idemKey: 'raw-and-parsed-1' }));
+  ok('L6 同一份内容给数组、带同一个幂等键：认得是同一次', r.duplicate === true, r);
+  e = await refused(() => rs.append('a', Buffer.from('[{"id": 3, "v": "x"'), ctx()));
+  ok('L6 不是合法的 JSON：拒', e?.code === 'invalid' && /JSON/.test(e.message), e);
+  e = await refused(() => rs.append('a', Buffer.from([0x5b, 0x22, 0xff, 0xfe, 0x22, 0x5d]), ctx()));
+  ok('L6 不是合法的 UTF-8：拒', e?.code === 'invalid' && /UTF-8/.test(e.message), e);
+  e = await refused(() => rs.append('a', Buffer.from(' '.repeat(2_001) + '[]'), ctx()));
+  ok('L6 字节数超过单次上限：没解析就拒', e?.code === 'limit', e);
+  e = await refused(() => rs.deleteRows('a', Buffer.from(JSON.stringify([{ id: 2 }])), ctx()));
+  ok('L6 删行的主键也可以给原始字节', e === null && (await rs.query({ dataset: 'a' })).rows.length === 1, e);
+
+  // 整份替换留下的上一代不被后面的删行挤掉
+  await rs.defineDataset({ name: 'gen', columns: [{ name: 'id', type: 'integer' }, { name: 'v', type: 'text' }], key: ['id'] }, ctx());
+  await rs.replace('gen', [{ id: 1, v: 'good' }, { id: 2, v: 'good' }], ctx());
+  const prevGen = (await rs.replace('gen', Array.from({ length: 12 }, (_, i) => ({ id: i, v: 'bad' })), ctx())).snapshot_id;
+  for (let i = 0; i < BENCH_LIMITS.snapshots + 3; i++) await rs.deleteRows('gen', [{ id: i }], ctx());
+  const gens = await rs.snapshots('gen');
+  ok('L7 替换之后真删了很多次：替换前那一份还在，总数没超', gens.some((x) => x.id === prevGen) && gens.length === BENCH_LIMITS.snapshots, gens.map((x) => `${x.id}:${x.reason}`));
+  await rs.restore(prevGen, ctx());
+  ok('L7 退得回替换前的数据', (await rs.query({ dataset: 'gen', sort: [{ col: 'id' }] })).rows.map((x) => `${x.id}${x.v}`).join() === '1good,2good');
+  await rs.replace('gen', [{ id: 7, v: 'third' }], ctx());
+  ok('L7 再整份替换一次：受保护的换成新的上一代，原来那份回到普通的淘汰里', (await rs.snapshots('gen')).filter((x) => x.reason === 'replace').length >= 1 && (await rs.snapshots('gen')).length <= BENCH_LIMITS.snapshots);
+  // 沿用的快照改记成替换留下的
+  await rs.defineDataset({ name: 'gen2', columns: [{ name: 'id', type: 'integer' }, { name: 'v', type: 'text' }], key: ['id'] }, ctx());
+  await rs.replace('gen2', [{ id: 1, v: 'good' }], ctx());
+  const manual = (await rs.snapshot('gen2', ctx())).id;
+  r = await rs.replace('gen2', Array.from({ length: 12 }, (_, i) => ({ id: i, v: 'bad' })), ctx());
+  for (let i = 0; i < BENCH_LIMITS.snapshots + 3; i++) await rs.deleteRows('gen2', [{ id: i }], ctx());
+  ok('L7 替换时沿用了手工留的那份快照：它同样受保护', r.snapshot_id === manual && (await rs.snapshots('gen2')).some((x) => x.id === manual && x.reason === 'replace'), await rs.snapshots('gen2'));
+
+  // 列定义的历史版本有上限
+  for (let i = 0; i < BENCH_LIMITS.datasetVersions + 5; i++) await rs.defineDataset({ name: 'gen2', title: `第 ${i} 次`, columns: [{ name: 'id', type: 'integer' }, { name: 'v', type: 'text' }], key: ['id'] }, ctx());
+  const defVers = await rs.datasetVersions('gen2');
+  ok('L8 列定义的历史只留最近若干版', defVers.length === BENCH_LIMITS.datasetVersions && defVers[0].title === `第 ${BENCH_LIMITS.datasetVersions + 4} 次`, defVers.length);
+  // 加列、删列之后字节数跟着变
+  await rs.replace('gen', [{ id: 1, v: 'abc' }], ctx());
+  r = await rs.defineDataset({ name: 'gen', columns: [{ name: 'id', type: 'integer' }, { name: 'v', type: 'text' }, { name: 'extra', type: 'text' }], key: ['id'] }, ctx());
+  const withExtra = (await rs.datasets()).find((d) => d.name === 'gen').data_bytes;
+  await rs.defineDataset({ name: 'gen', columns: [{ name: 'id', type: 'integer' }, { name: 'extra', type: 'text' }], key: ['id'] }, ctx());
+  ok('L9 加列、删列之后数据量重量过', withExtra === 12 && (await rs.datasets()).find((d) => d.name === 'gen').data_bytes === 9, withExtra);
+  await rawHost.closeAll();
+
+  // 经工作线程、用默认的上限：原始字节过线程、单次写入的上限
+  e = await refused(() => big.append('fresh', Buffer.from(JSON.stringify([{ id: 1, body: '过线程的字节', grp: 1 }])), ctx()));
+  ok('L10 原始字节经工作线程写入', e === null && (await big.query({ dataset: 'fresh', filter: [{ col: 'id', op: '=', value: 1 }] })).rows[0]?.body === '过线程的字节', e);
+  e = await refused(() => big.append('fresh', mk(5000, 100).map((x) => ({ ...x, body: x.body + x.body })), ctx()));
+  ok('L10 默认上限：一次追加 20 MB 被拒（单次 16 MB）', e?.code === 'limit' && /一次写入的上限/.test(e.message), e);
+  e = await refused(() => big.append('wide', mk(1500, N), ctx()));
+  ok('L10 默认上限：数据集写到 33 MB 被拒（单个数据集 32 MB）', e?.code === 'limit' && /单个数据集的上限/.test(e.message) && await count() === N, e);
 
   const flood = await Promise.all(Array.from({ length: BENCH_LIMITS.queue + 50 }, () => refused(() => big.viewVersions())));
   const busy = flood.filter((x) => x?.code === 'busy').length;

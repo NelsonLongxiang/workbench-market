@@ -1322,7 +1322,7 @@ function benchStoreSchema(d: BenchDialect): string[] {
     `CREATE TABLE IF NOT EXISTS bs_meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS bs_datasets (
       name TEXT PRIMARY KEY, title TEXT NOT NULL, version INTEGER NOT NULL, columns TEXT NOT NULL, key_cols TEXT NOT NULL,
-      row_count INTEGER NOT NULL, created_at ${big} NOT NULL, updated_at ${big} NOT NULL, updated_by TEXT NOT NULL)`,
+      row_count INTEGER NOT NULL, data_bytes ${big} NOT NULL, created_at ${big} NOT NULL, updated_at ${big} NOT NULL, updated_by TEXT NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS bs_dataset_versions (
       dataset TEXT NOT NULL, version INTEGER NOT NULL, title TEXT NOT NULL, columns TEXT NOT NULL, key_cols TEXT NOT NULL,
       author TEXT NOT NULL, note TEXT NOT NULL, at ${big} NOT NULL, PRIMARY KEY (dataset, version))`,
@@ -1353,6 +1353,8 @@ export type BenchSqlKit = {
   schemaVersion: number;
   /** 固定的几张表 */
   schema: string[];
+  /** 打开库时逐条试一遍：哪条跑不通，就是库文件的结构和这份代码对不上（比如还没定稿时旧代码建的文件），明确拒绝，不静默照用 */
+  probes: string[];
   /** 数据集的列类型在库里的写法 */
   types: [BenchColumnType, string][];
   /** 数据集的表：一个自增行号加各列。{columns} 是若干个「, 列名 类型」 */
@@ -1376,6 +1378,14 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
     dialect: d,
     schemaVersion: BENCH_STORE_SCHEMA_VERSION,
     schema: benchStoreSchema(d),
+    probes: [
+      'SELECT name, title, version, columns, key_cols, row_count, data_bytes, created_at, updated_at, updated_by FROM bs_datasets WHERE 1 = 0',
+      'SELECT dataset, version, title, columns, key_cols, author, note, at FROM bs_dataset_versions WHERE 1 = 0',
+      'SELECT version, content, sha256, author, note, at FROM bs_view_versions WHERE 1 = 0',
+      'SELECT id, dataset, dataset_version, reason, row_count, content, content_sha256, author, at FROM bs_snapshots WHERE 1 = 0',
+      'SELECT id, dataset, op, idem_key, body_sha256, row_count, actor, at, result FROM bs_writes WHERE 1 = 0',
+      'SELECT id, kind, target, from_version, to_version, actor, note, at FROM bs_changes WHERE 1 = 0',
+    ],
     types: types.map((t) => [t, benchSqlType(d, t)]),
     createTable: `CREATE TABLE {table} (rid ${benchAutoId(d)}{columns})`,
     addColumn: 'ALTER TABLE {table} ADD COLUMN {col} {type}',

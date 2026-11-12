@@ -16,6 +16,11 @@ export const BENCH_LIMITS = {
   datasets: 50, columns: 60, keyColumns: 8, rows: 50_000, rowsPerWrite: 5_000, textChars: 10_000,
   snapshots: 5, viewVersions: 100, viewBytes: 200_000, queryLimit: 5_000, queryDefault: 200,
   noteChars: 200, writeLog: 5_000, changeLog: 2_000, filters: 20, measures: 12, inValues: 200,
+  // 数据量（UTF-8 字节：文本按字节数，数字和布尔算 8，空算 1）：单个数据集、一个台的在用数据合计、一次写入（整份替换可以到数据集的上限）。
+  // 数据集的上限同时保证一份快照序列化得下来、内存撑得住；快照另算，每个数据集最多留 snapshots 份
+  datasetBytes: 32_000_000, storeBytes: 256_000_000, writeBytes: 16_000_000,
+  // 列定义的历史版本每个数据集留最近多少版
+  datasetVersions: 100,
   // 一次查询取回的内容（各格的字符数加起来）的上限：再大就不该一次取
   resultChars: 8_000_000,
   // 时限（毫秒）：读、写各一个；到了时限加宽限还没停下来，才强行终止工作线程
@@ -30,7 +35,7 @@ export const COLUMN_TYPES: readonly BenchColumnType[] = ['text', 'integer', 'dec
 export type ColumnDef = { name: string; type: BenchColumnType; label: string; required: boolean };
 export type DatasetDef = {
   name: string; title: string; version: number; columns: ColumnDef[]; key: string[];
-  row_count: number; created_at: number; updated_at: number; updated_by: string;
+  row_count: number; data_bytes: number; created_at: number; updated_at: number; updated_by: string;
 };
 export type OutColumn = { name: string; type: BenchColumnType; label: string; role: 'dimension' | 'measure' };
 export type QueryPlan = { dataset: string; columns: OutColumn[]; params: string[]; sql: string; args: unknown[]; limit: number };
