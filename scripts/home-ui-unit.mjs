@@ -52,5 +52,6 @@ ok('卡片的谁：receiver:<区> 有承接时显示承接席位「名字（句�
 }
 
 ok('等你拍板：建立人看到的席位提问算能当场办', groupCards([{ source: 'seat-asks', source_id: 'q', category: 'ask', title: '', waiting_for: '', since: '', answers: ['answer'], object: '', phase: '', link: '' }], (x) => answerChoices(false, x)).now.length === 1);
+ok('筛选要同时看线和这一步：同一条线两个阶段各一条，点其中一格只剩那一条', (() => { const two = [att('a', 'st_1'), att('a', 'st_2')]; const r1 = filterAttention(two, { object: 'a', stage: 'st_1' }); const r2 = filterAttention(two, { object: 'a', stage: 'st_2' }); return r1.length === 1 && r1[0].phase === 'st_1' && r2.length === 1 && r2[0].phase === 'st_2' && filterAttention(two, { object: 'b', stage: 'st_1' }).length === 0; })());
 console.log(`\nhome-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);
