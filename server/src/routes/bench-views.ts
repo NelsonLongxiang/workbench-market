@@ -27,6 +27,7 @@ import { judge, type JudgedActor } from '../judgment.ts';
 import { BENCH_LIMITS, BenchError } from '../bench-query.ts';
 import { benchStore, type BenchStore } from '../services/bench-store.ts';
 import { createBench, getBench, listBenches } from '../services/bench-registry.ts';
+import { decideBenchRequest, listBenchMcp, setBenchGrants } from '../services/bench-mcp.ts';
 
 export type BenchViewsConfig = { on: boolean };
 /** 启动时读一次：WM_BENCH_VIEWS（on / off，缺省 off）。不合法拒绝启动 */
@@ -201,6 +202,15 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     const view = str(b.view), block = int(b.block), version = int(b.version);
     if (view === undefined || block === undefined || version === undefined) throw new BenchError('invalid', '要给 view（哪份视图）、block（第几块，从 0 数）、version（页面是第几版的）');
     return s.submitForm({ view, block, version }, b.values, ctxOf(req, actor));
+  }));
+
+  // —— MCP 工具的授予（3b）：按「会话 × 台 × 工具」记，由能改这个台的人批；管理口令在上面已经拒了 ——
+  app.get('/api/bench-views/:bench/mcp-grants', { action: 'bench-store.mcp-list', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.mcp-list', 'read', async (req) => listBenchMcp(req.params.bench)));
+  app.put('/api/bench-views/:bench/mcp-grants', { action: 'bench-store.mcp-grant', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.mcp-grant', 'write', async (req, _res, _s, actor) => setBenchGrants(req.params.bench, req.body, actor, Date.now())));
+  app.post('/api/bench-views/:bench/mcp-requests/:id', { action: 'bench-store.mcp-decide', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.mcp-decide', 'write', async (req, _res, _s, actor) => {
+    const id = /^\d{1,9}$/.test(req.params.id) ? Number(req.params.id) : NaN;
+    if (!Number.isInteger(id) || id < 1) throw new BenchError('not_found', '没有这条申请');
+    return decideBenchRequest(req.params.bench, id, req.body?.approve, actor, req.body?.note, Date.now());
   }));
 
   // —— 留痕 ——

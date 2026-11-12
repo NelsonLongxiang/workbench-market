@@ -1463,6 +1463,45 @@ db.exec(`CREATE TABLE IF NOT EXISTS bench_views (
   created_by TEXT NOT NULL,
   created_at INTEGER NOT NULL
 )`);
+// 数据视图的 MCP 工具授予（docs/data-views.md 第十节 3b）：按「会话 × 台 × 工具」记，不放进会话的 grants——
+// 那一份由系统管理员改写，而台里是业务数据。申请由会话提、台的管理层批；留痕记谁批的、哪个台。
+db.exec(`CREATE TABLE IF NOT EXISTS bench_mcp_grants (
+  session_id INTEGER NOT NULL,
+  bench TEXT NOT NULL,
+  tool TEXT NOT NULL,
+  granted_by TEXT NOT NULL,
+  granted_at INTEGER NOT NULL,
+  request_id INTEGER,
+  PRIMARY KEY (session_id, bench, tool)
+);
+CREATE INDEX IF NOT EXISTS idx_bench_mcp_grants_bench ON bench_mcp_grants (bench, session_id);
+CREATE TABLE IF NOT EXISTS bench_mcp_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER NOT NULL,
+  bench TEXT NOT NULL,
+  tools TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  decided_by TEXT NOT NULL DEFAULT '',
+  decided_at INTEGER,
+  note TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_bench_mcp_requests_bench ON bench_mcp_requests (bench, id);
+CREATE INDEX IF NOT EXISTS idx_bench_mcp_requests_session ON bench_mcp_requests (session_id, created_at);
+CREATE TABLE IF NOT EXISTS bench_mcp_audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  bench TEXT NOT NULL,
+  session_id INTEGER NOT NULL,
+  action TEXT NOT NULL,
+  tools TEXT NOT NULL DEFAULT '[]',
+  actor TEXT NOT NULL,
+  request_id INTEGER,
+  note TEXT NOT NULL DEFAULT '',
+  at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_bench_mcp_audit_bench ON bench_mcp_audit (bench, id);`);
+
 
 // ---------- 台库（数据视图，docs/data-views.md）----------
 // 每个视图台一份自己的库，和上面的主库分开。表结构照约定登记在这里；语句由 services/bench-store.ts 在台自己的库上执行，不在主库上跑。
