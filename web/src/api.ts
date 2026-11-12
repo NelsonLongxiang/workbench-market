@@ -206,6 +206,24 @@ export const getMarketSops = () => marketGet('/api/sops');
 export const getMarketSkills = () => marketGet('/api/skills');
 export const getMarketRunningSops = () => marketGet('/api/sop/runs/active');
 
+/** 「谁能做什么」（照原型重做的 /access）：授予、主体、角色、角色矩阵各读各的，返回状态码让页面给说法；核准、不给（撤销待核的授予）也一样。
+ *  不走 apiFetch（被拒时不弹管理员口令，页面自己说）。带上口令头：管理员用口令时能看全部。断网当状态码 0 */
+async function accessCall(url: string, init?: { method: string; body: unknown }): Promise<{ status: number; body: unknown }> {
+  try {
+    const token = getAdminToken();
+    const headers: Record<string, string> = { ...(token ? { 'X-Admin-Token': token } : {}), ...(init ? { 'Content-Type': 'application/json' } : {}) };
+    const r = await fetch(url, init ? { method: init.method, headers, body: JSON.stringify(init.body ?? {}) } : { headers });
+    if (loginRequired(r)) { redirectToLogin(); return { status: 401, body: null }; }
+    return { status: r.status, body: await r.json().catch(() => null) };
+  } catch { return { status: 0, body: null }; }
+}
+export const getAccessGrants = () => accessCall('/api/grants');
+export const getAccessPrincipals = () => accessCall('/api/principals');
+export const getAccessRoles = () => accessCall('/api/roles');
+export const getAccessMatrix = () => accessCall('/api/roles/matrix');
+export const approveAccessGrant = (id: number) => accessCall(`/api/grants/${id}/approve`, { method: 'POST', body: {} });
+export const declineAccessGrant = (id: number, reason: string) => accessCall(`/api/grants/${id}/revoke`, { method: 'POST', body: { reason } });
+
 /** 「安排一件事」（#577）：可派的团队。404 = 服务端还没有这个接口，页面给「还没上线」 */
 export async function getAssignableTeams(): Promise<{ status: number; teams: { team: string; name: string }[] }> {
   try {

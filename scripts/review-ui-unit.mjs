@@ -42,7 +42,9 @@ const runOk = { sop: 'rack-check', sop_title: '机柜验收', run_id: 12, dispat
 ok('派进来的执行：只认 sop-runs 来源；形状不对按空值收', runDetailOf(runItem(runOk))?.run_id === '12' && runDetailOf({ source: 'tasks', detail: runOk }) === null && runDetailOf(runItem(null)) === null && runDetailOf(runItem({})).ready === false);
 {
   const c = runCard(runDetailOf(runItem(runOk)), (t) => t.replace(/^[^/]+\/canvas\//, ''));
-  ok('卡片：哪条流程、谁派来的、填了几步、交了什么', c.title === '机柜验收 #12' && c.lines.join(' | ') === 'team-a 派来的 | 3 步里填了 2 步 | 交了 4 个附件：a.txt、b.txt、c.txt 等' && c.problems.length === 0, JSON.stringify(c));
+  ok('卡片：哪条流程、谁派来的、填了几步、交了什么', c.title === '机柜验收 #12' && c.lines.join(' | ') === 'team-a 派来的 | 3 步里填了 2 步 | 交了 4 个附件：a.txt、b.txt、c.txt 等', JSON.stringify(c));
+  ok('能验但还有没填的步骤：提醒一句；都填了不提醒', c.problems.length === 1 && c.problems[0] === '还有 1 步没填（不是必填），现在验收通过也可以'
+    && runCard(runDetailOf(runItem({ ...runOk, steps: runOk.steps.map((x) => ({ ...x, filled: true })) }))).problems.length === 0, JSON.stringify(c));
 }
 {
   const c = runCard(runDetailOf(runItem({ ...runOk, ready: false, problems: ['「通电自检」必填', 1, 'b', 'c', 'd', 'e', 'f'], attachments: {}, dispatcher: null })));

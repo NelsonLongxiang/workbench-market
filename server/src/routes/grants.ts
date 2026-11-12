@@ -19,7 +19,7 @@ import { browserMarked, rawLoopback } from '../surfaces.ts';
 import { HttpError } from '../errors.ts';
 import { MCP_TOOLS } from '../mcp-tools.ts';
 import { identity } from '../identity.ts';
-import { BLOCKS, buildRoles, checkShape, MATRIX_KINDS, matrixSummary, orgRolesFromConfig, PLATFORM_ROLES, roleMatrix, type ActionCatalog, type Kind, type Permission, type RoleDecl } from '../roles.ts';
+import { APPROVAL_TEXT, approvalOf, touchesBusiness, BLOCKS, buildRoles, checkShape, MATRIX_KINDS, matrixSummary, orgRolesFromConfig, PLATFORM_ROLES, roleMatrix, type ActionCatalog, type Kind, type Permission, type RoleDecl } from '../roles.ts';
 import type { CustomRoleService } from '../services/custom-role.ts';
 import { unknownBuiltinActions } from '../judgment-builtins.ts';
 import type { PrincipalService } from '../services/principal.ts';
@@ -77,7 +77,7 @@ function rebuildRoles(): void {
 }
 
 /** 校验一个自定义角色（和声明文件同一套）：不合格抛 422。返回它展开之后的样子（管理员级、带不带决定） */
-function checkCustom(candidate: RoleDecl, except?: string): { adminLevel: boolean; decides: boolean } {
+function checkCustom(candidate: RoleDecl, except?: string): { adminLevel: boolean; decides: boolean; business: boolean } {
   const { ids, names } = takenNames(except);
   if (ids.has(candidate.id)) throw new HttpError(409, `角色 id ${candidate.id} 已经有了（内置预设、声明文件或别的自定义角色）`);
   if (names.has(candidate.name)) throw new HttpError(409, `角色名字「${candidate.name}」已经有了（内置预设、声明文件或别的自定义角色）`);
@@ -86,7 +86,7 @@ function checkCustom(candidate: RoleDecl, except?: string): { adminLevel: boolea
     const others = customRoles().activeDecls().filter((r) => r.id !== except && r.id !== candidate.id);
     const views = buildRoles([...declared, ...others, shaped], catalogAtLoad);
     const v = views.get(shaped.id)!;
-    return { adminLevel: v.adminLevel, decides: v.decides };
+    return { adminLevel: v.adminLevel, decides: v.decides, business: touchesBusiness(v.closure) };
   } catch (e) {
     if (e instanceof HttpError) throw e;
     throw new HttpError(422, String((e as Error).message));
@@ -143,7 +143,12 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
     if (!(await actorOf(req, res))) return;
     res.json({
       source: rolesSource,
-      roles: grants().roles().map(({ id, name, includes, permissions, platform, custom, adminLevel, decides }) => ({ id, name, includes: includes ?? [], permissions, platform, custom, admin_level: adminLevel, decides })),
+      // approval：这个角色的授予谁能放行（owner / business / admin），approval_text 是给页面原样显示的说法
+      roles: grants().roles().map((v) => {
+        const { id, name, includes, permissions, platform, custom, adminLevel, decides, businessWrite } = v;
+        const approval = approvalOf(v);
+        return { id, name, includes: includes ?? [], permissions, platform, custom, admin_level: adminLevel, decides, business_write: businessWrite, approval, approval_text: APPROVAL_TEXT[approval] };
+      }),
       // 自定义角色全部（含待属主放行的新角色和改动）
       custom: customRoles().list(),
     });
@@ -184,7 +189,8 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
     const candidate: RoleDecl = { id: str(b.id, 'id', 48), name: str(b.name, 'name', 64), permissions: from.closure.map((p) => ({ ...p })) };
     const shape = checkCustom(candidate);
     // 会带来管理类或决定类权限的：不是属主建的，先待属主放行
-    const pending = (shape.adminLevel || shape.decides) && !actor.owner;
+    // 带来管理类、决定类，或者碰业务的：不是属主建的，先待属主放行
+    const pending = (shape.adminLevel || shape.decides || shape.business) && !actor.owner;
     const role = customRoles().create({ id: candidate.id, name: candidate.name, basedOn: from.id, permissions: candidate.permissions, pending }, actor);
     if (!pending) rebuildRoles();
     logRole('role-copy', role.id, actor, { from: from.id, status: role.status });
@@ -204,7 +210,7 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
     const shape = checkCustom({ id, name: next.name, permissions: next.permissions }, id);
     // 从 AI 员工复制出来的不许带决定类：决定只认人。复制几层都算（沿来源链往上找）
     if (customRoles().descendsFrom(id, 'ai-staff') && shape.decides) return res.status(422).json({ error: 'decide_non_person', message: '从 AI 员工复制出来的角色不能带决定类权限（决定只认人）' });
-    const propose = (shape.adminLevel || shape.decides) && !actor.owner;
+    const propose = (shape.adminLevel || shape.decides || shape.business) && !actor.owner;
     const role = customRoles().update(id, { name: next.name, permissions: checkShape({ id, ...next }, `自定义角色 ${id}`).permissions }, propose, actor);
     if (!propose) rebuildRoles();
     logRole(propose ? 'role-propose' : 'role-update', id, actor);
@@ -248,22 +254,26 @@ export function registerGrantRoutes(app: HttpService, deps: GrantRouteDeps): voi
     res.set('Cache-Control', 'no-store').json({ roles: customRoles().activeDecls() });
   }));
 
+  // 列表和单条都带 can_approve / approve_denied / approve_denied_text：当前看的人能不能放行，和放行接口用同一处判断
   app.get('/api/grants', { action: 'grant.list', kind: 'admin' }, route(async (req, res) => {
-    if (!(await actorOf(req, res))) return;
+    const actor = await actorOf(req, res);
+    if (!actor) return;
     const principal = req.query.principal === undefined ? undefined : str(req.query.principal, 'principal', 160);
     const status = req.query.status === undefined ? undefined : str(req.query.status, 'status', 16);
     if (status !== undefined && !(STATUSES as readonly string[]).includes(status)) throw new HttpError(400, `status 只能是 ${STATUSES.join('、')}`);
     const source = req.query.source === undefined ? undefined : str(req.query.source, 'source', 16);
     if (source !== undefined && source !== 'manual' && source !== 'migration') throw new HttpError(400, 'source 只能是 manual、migration');
     grants().expireDue();
-    res.json({ grants: grants().list({ principal, status: status as GrantStatus | undefined, source: source as 'manual' | 'migration' | undefined }) });
+    const now = Date.now();
+    res.json({ grants: grants().list({ principal, status: status as GrantStatus | undefined, source: source as 'manual' | 'migration' | undefined }).map((g) => ({ ...g, ...grants().approvability(g, actor, now) })) });
   }));
 
   app.get('/api/grants/:id', { action: 'grant.read', kind: 'admin' }, route(async (req, res) => {
-    if (!(await actorOf(req, res))) return;
+    const actor = await actorOf(req, res);
+    if (!actor) return;
     const g = grants().get(idOf(req));
     if (!g) throw new HttpError(404, `授予 ${req.params.id} 不存在`);
-    res.json({ grant: g });
+    res.json({ grant: { ...g, ...grants().approvability(g, actor) } });
   }));
 
   app.post('/api/grants', { action: 'grant.create', kind: 'admin' }, route(async (req, res) => {
