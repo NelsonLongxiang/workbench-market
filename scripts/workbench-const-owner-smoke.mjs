@@ -144,7 +144,7 @@ try {
 console.log('▶ O6 旧库升级回填');
 {
   const OLD = mkdtempSync(resolve('tmp', 'const-owner-old-'));
-  const db = new DatabaseSync(resolve(OLD, 'workbench-market.db'));
+  const db = new DatabaseSync(resolve(OLD, 'workbench-market.db'), { timeout: 5000 });
   // 升级前的表结构（没有 owner 列）
   db.exec(`CREATE TABLE workbench_vars (workbench_id INTEGER NOT NULL, key TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'var' CHECK (kind IN ('var','const')), value TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1, updated_by TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (workbench_id, key));`);
   const ins = db.prepare('INSERT INTO workbench_vars (workbench_id, key, kind, value, updated_by) VALUES (1, ?, ?, ?, ?)');

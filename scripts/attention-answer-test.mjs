@@ -327,7 +327,7 @@ try {
 
   // ---------- 六、同一个 id 再次进入待处理；占位的期限；被杀之后重启 ----------
   {
-    const rw = () => { const c = new DatabaseSync(join(data, 'workbench-market.db')); c.exec('PRAGMA busy_timeout = 5000'); return c; };
+    const rw = () => { const c = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 }); c.exec('PRAGMA busy_timeout = 5000'); return c; };
     const facts = (id, list) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', `
       const at = (p) => ${JSON.stringify(pathToFileURL(ROOT).href)} + '/' + p;
       const { root } = await import(at('server/src/root-context.ts'));

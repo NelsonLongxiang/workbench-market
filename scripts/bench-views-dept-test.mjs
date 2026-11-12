@@ -11,7 +11,8 @@
  *   七、细到团队的台：同部门别的人写不了；团队负责人（有授予的）、有部门拍板授予的人写得了
  *   七之二、席位不按部门认：团队认领到部门之后，这个团队的席位仍调不了这个部门的台，要按台批
  *   八、「等你拍板」：只看得到自己有拍板授予的部门的台上的申请
- *   九、主体停用：进不来
+ *   九、对应市场登记的台：只有管理层设；一个登记的台最多对应一个视图台；清单里带台号，清单照旧按看的人裁剪；登记的台删了按没有对应
+ *   十、主体停用：进不来
  *
  *   node scripts/bench-views-dept-test.mjs              测本仓库
  *   node scripts/bench-views-dept-test.mjs --root DIR   测另一棵目录树（变异测试用）
@@ -274,7 +275,33 @@ try {
   const dOps = await st(lead, 'POST', `/ops-b/mcp-requests/${reqOps}`, { approve: true }), dSales = await st(lead, 'POST', `/sales-b/mcp-requests/${reqSales}`, { approve: true });
   check(dOps === 403 && dSales === 200, '部门负责人批：自己部门的台上的批得了，别的部门的批不了', { ops: dOps, sales: dSales });
 
-  console.log('九、主体停用');
+  console.log('九、对应市场登记的台');
+  const mkWb = async (name, path) => (await srv.call('POST', '/api/workbenches', { ...token, body: { name, url: `http://127.0.0.1:9/${path}`, type: 'web' } })).json?.id;
+  const wbA = await mkWb('合成·登记台甲', 'a'), wbB = await mkWb('合成·登记台乙', 'b');
+  const benchOf = async (opts, slug) => (await srv.call('GET', '/api/bench-views', opts)).json?.benches?.find((b) => b.slug === slug);
+  const beforeLink = await srv.call('GET', '/api/bench-views', boss);
+  check(Number.isInteger(wbA) && Number.isInteger(wbB) && beforeLink.json?.benches?.every((b) => b.workbench_id === null), '（准备）登记两个市场的台；还没对应时，清单里每个台的 workbench_id 都是 null', beforeLink.json?.benches?.map((b) => [b.slug, b.workbench_id]));
+  r = await srv.call('PUT', '/api/bench-views/sales-b/workbench', { ...boss, body: { workbench_id: wbA, note: '合成' } });
+  check(r.status === 200 && r.json?.changed === true && r.json?.bench?.workbench_id === wbA && (await benchOf(boss, 'sales-b'))?.workbench_id === wbA, '管理层把销售台对应到登记台甲：清单里带上台号', r.text.slice(0, 160));
+  const seenByMember = await benchOf(member, 'sales-b');
+  const otherList = await srv.call('GET', '/api/bench-views', other);
+  check(seenByMember?.workbench_id === wbA && !otherList.json?.benches?.some((b) => b.slug === 'sales-b' || b.workbench_id === wbA), '本部门的人在清单里看得到这个对应；别的部门的人清单里没有这个台，也就看不出登记台甲有没有视图', { member: seenByMember?.workbench_id, other: otherList.json?.benches?.map((b) => [b.slug, b.workbench_id]) });
+  const noRight = { lead: await st(lead, 'PUT', '/sales-b/workbench', { workbench_id: null }), member: await st(member, 'PUT', '/sales-b/workbench', { workbench_id: null }), token: (await srv.call('PUT', '/api/bench-views/sales-b/workbench', { ...token, body: { workbench_id: null } })).status, leadCreate: await st(lead, 'POST', '', { slug: 'lead-wb', title: 'x', department: 'sales', workbench_id: wbB }) };
+  check(Object.values(noRight).every((x) => x === 403) && (await benchOf(boss, 'sales-b'))?.workbench_id === wbA && !(await benchOf(boss, 'lead-wb')), '部门负责人、部门成员、管理口令改对应：403；部门负责人登记新台时带台号：403（没登记出来）；对应没变', noRight);
+  const badLink = { taken: await st(boss, 'PUT', '/ops-b/workbench', { workbench_id: wbA }), text: await st(boss, 'PUT', '/ops-b/workbench', { workbench_id: String(wbB) }), zero: await st(boss, 'PUT', '/ops-b/workbench', { workbench_id: 0 }), missing: await st(boss, 'PUT', '/ops-b/workbench', { workbench_id: 999999 }), none: await st(boss, 'PUT', '/ops-b/workbench', {}), extra: await st(boss, 'PUT', '/ops-b/workbench', { workbench_id: wbB, x: 1 }), ghost: await st(boss, 'PUT', '/ghost/workbench', { workbench_id: wbB }) };
+  check(badLink.taken === 409 && badLink.text === 400 && badLink.zero === 400 && badLink.missing === 404 && badLink.none === 400 && badLink.extra === 400 && badLink.ghost === 404 && (await benchOf(boss, 'ops-b'))?.workbench_id === null,
+    '登记台甲已经对应了别的视图台：409；台号写成文字、0、不存在、没给、多给键：拒；没登记的视图台：404；运营台的对应没变', badLink);
+  r = await srv.call('POST', '/api/bench-views', { ...boss, body: { slug: 'wb-born', title: '登记时就对应', workbench_id: wbB } });
+  check(r.status === 201 && r.json?.bench?.workbench_id === wbB && (await benchOf(boss, 'wb-born'))?.workbench_id === wbB, '管理层登记新台时带台号：直接对应上', r.text.slice(0, 160));
+  await srv.call('DELETE', `/api/workbenches/${wbB}`, token);
+  check((await benchOf(boss, 'wb-born'))?.workbench_id === null, '登记台乙删掉之后：这个视图台按没有对应（null）');
+  r = await srv.call('PUT', '/api/bench-views/sales-b/workbench', { ...boss, body: { workbench_id: null } });
+  const againLink = await srv.call('PUT', '/api/bench-views/sales-b/workbench', { ...boss, body: { workbench_id: null } });
+  const trailLink = db.prepare("SELECT before, after, actor FROM bench_bind_audit WHERE slug = 'sales-b' AND action = 'workbench' ORDER BY id").all();
+  check(r.status === 200 && r.json?.bench?.workbench_id === null && againLink.json?.changed === false && trailLink.length === 2 && trailLink[0].after === String(wbA) && trailLink[1].before === String(wbA) && trailLink[1].after === '' && trailLink.every((t) => t.actor === 'user:alpha'),
+    '去掉对应：null；和现在一样的不留痕；对上、去掉各留一行，记的是管理层这个人', { trailLink, again: againLink.json?.changed });
+
+  console.log('十、主体停用');
   await srv.call('POST', '/api/principals/disable', { body: { id: 'user:beta', reason: '合成' } });
   const off1 = await st(member, 'GET', '/sales-b/datasets');
   check(off1 === 401 || off1 === 403, '主体停用之后：进不来', off1);

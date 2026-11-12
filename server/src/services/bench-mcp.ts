@@ -81,6 +81,12 @@ export function benchRequestsOf(sessionId: number, at = Date.now()): BenchReques
   expireBenchRequests(at);
   return (db.prepare('SELECT * FROM bench_mcp_requests WHERE session_id = ? ORDER BY id DESC LIMIT 50').all(sessionId) as Row[]).map(forSession);
 }
+/** 本会话的一条台申请（别的会话的和不存在的都是 null） */
+export function benchRequestOfSession(sessionId: number, id: number, at = Date.now()): BenchRequest | null {
+  expireBenchRequests(at); // 和清单一样先把到期的标成失效，单查和清单说法一致
+  const r = db.prepare('SELECT * FROM bench_mcp_requests WHERE id = ? AND session_id = ?').get(id, sessionId) as Row | undefined;
+  return r ? forSession(r) : null;
+}
 /**
  * 会话申请在一个台上用几个工具。台的标识只核写法，不核存不存在：没有授予的会话看不出台存不存在。
  * 写错了标识的申请不会有人看到，应答里说明这一点。
@@ -93,7 +99,7 @@ export function requestBenchTools(sessionId: number, bench: string, tools: unkno
   if (!why) throw new BenchError('invalid', 'reason 必填：写清要用这些工具做什么');
   if ([...why].length > REASON_MAX) throw new BenchError('invalid', `reason 超过 ${REASON_MAX} 字`);
   const json = JSON.stringify(want);
-  const note = `台的管理层批准之后生效。${Math.round(ttlMs / 3_600_000)} 小时内没人处理，申请会标成「${EXPIRED_NOTE}」；台的标识要是写错了，也是这个结局，请交给派任务的人核对标识`;
+  const note = `台的管理层批准之后生效。${Math.round(ttlMs / 3_600_000)} 小时内没人处理，申请会标成「${EXPIRED_NOTE}」。台的标识只核写法、不核存不存在：写错了不会有人批，也是这个结局`;
   db.exec('BEGIN IMMEDIATE');
   try {
     expireBenchRequests(at);

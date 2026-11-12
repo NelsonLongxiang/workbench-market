@@ -79,7 +79,7 @@ async function boot(name, extraEnv = {}, { expectFail = false } = {}) {
       return { status: res.status, text, json };
     } catch (e) { return { status: 0, text: String(e?.name ?? e), json: null }; }
   };
-  const srv = { name, base, host: new URL(base).host, data, stop, call, log: () => log, db: () => new DatabaseSync(join(data, 'workbench-market.db')) };
+  const srv = { name, base, host: new URL(base).host, data, stop, call, log: () => log, db: () => new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 }) };
   running.push(srv);
   return srv;
 }
@@ -312,7 +312,9 @@ try {
   const e1 = await tool(srv, E.token, 'access_request', { tools: ['dataset_list@bench:other'], reason: '到期前没人批' });
   const e2 = await tool(srv, E.token, 'access_request', { tools: ['dataset_list@bench:ghost-two'], reason: '标识写错了' });
   const e3 = await tool(srv, E.token, 'access_request', { tools: ['view_get@bench:other'], reason: '刚提的' });
-  check(e1.json?.ok && e2.json?.ok && e3.json?.ok && /72 小时内没人处理/.test(e1.json?.note ?? '') && e1.json?.note === e2.json?.note, '提申请时说清期限：72 小时内没人处理就失效；写错标识的应答和写对的一样', e1.json?.note);
+  check(e1.json?.ok && e2.json?.ok && e3.json?.ok && /72 小时内没人处理/.test(e1.json?.note ?? '') && e1.json.note.includes(e1.json.request.ref) && e1.json.note.includes('「other」')
+    && e1.json.note.replace(e1.json.request.ref, '#').replace('「other」', '「@」') === e2.json?.note?.replace(e2.json.request.ref, '#').replace('「ghost-two」', '「@」'),
+    '提申请时说清期限：72 小时内没人处理就失效，并给出申请编号和标识供核对；除了这两处，写错标识的应答和写对的一样', [e1.json?.note, e2.json?.note]);
   check(mine(await attention(mgr)).some((x) => x.source_id === `other:${e1.json.request.id}`), '（对照）到期之前，「关注」里有这一条');
   // 把前两条的提出时间往前拨 73 小时（第三条不动）
   for (const id of [e1.json.request.id, e2.json.request.id]) db.prepare('UPDATE bench_mcp_requests SET created_at = created_at - ? WHERE id = ?').run(73 * 3_600_000, id);
@@ -326,6 +328,11 @@ try {
   const listedE = await srv.call('GET', '/api/bench-views/other/mcp-grants', mgr);
   const trailE = db.prepare("SELECT actor, note FROM bench_mcp_audit WHERE action = 'expire' AND request_id = ?").get(e1.json.request.id);
   check(listedE.json?.requests?.find((x) => x.id === e1.json.request.id)?.status === 'expired' && trailE?.actor === 'system' && trailE?.note === '失效：没有人处理', '台的管理层那边也看到「失效」；留痕记一行，做的人是 system', { listedE: listedE.json?.requests?.find((x) => x.id === e1.json.request.id)?.status, trail: trailE });
+
+  // 单查一条（access_info 带 ref）：先清到期，和清单一样说「失效」。把 e3 拨到过期后直接单查，中间不经过清单
+  db.prepare('UPDATE bench_mcp_requests SET created_at = created_at - ? WHERE id = ?').run(73 * 3_600_000, e3.json.request.id);
+  const oneE = await tool(srv, E.token, 'access_info', { ref: `bench-${e3.json.request.id}` });
+  check(oneE.json?.request?.status === 'expired' && oneE.json?.request?.note === '失效：没有人处理', '单查一条到期没清的申请：同样说「失效：没有人处理」，不说待批', oneE.text?.slice(0, 160) ?? oneE.json);
 
   let n = 0; for (let i = 0; i < 12; i++) { const x = await tool(srv, A.token, 'access_request', { tools: [`dataset_list@bench:cap-${i}`], reason: '刷' }); if (x.json?.ok) n++; }
   check(n < 12 && n >= 4, '申请有每小时的上限', n);
