@@ -371,10 +371,22 @@ try {
       mgBasic: norm(await step(basic, 'approve', MG), basic), mgTop: norm(await step(top, 'approve', MG), top),
       plainBiz: norm(await step(biz2, 'approve', PLAIN), biz2), mgDone: norm(await step(biz, 'approve', MG), biz),
     };
+    // 普通员工对五种 id 放行：不存在、第一档、第三档、授给他自己的、被授人已停用的——应答完全相同（不露角色、档位、主体 id）
+    const pendFor = async (principal, role) => { const d = await draft({ principal, role }, { headers: token }); await step(d.json?.grant?.id, 'submit', { headers: token }); return d.json?.grant?.id; };
+    const selfG = await pendFor('user:alpha', 'dept-member'), offG = await pendFor('user:gamma', 'dept-member');
+    const disabled = await srv.call('POST', '/api/principals/disable', { body: { id: 'user:gamma', reason: '合成：停用被授人' } });
+    const realDisabled = await step(offG, 'approve', {}); // 对照：属主（本机命令行）放行它，确实被「被授人停用」拒
+    const realSelf = (await srv.call('GET', `/api/grants/${selfG}`, {})).json?.grant?.status;
+    hidden.plainBasic = norm(await step(basic, 'approve', PLAIN), basic);
+    hidden.plainTop = norm(await step(top, 'approve', PLAIN), top);
+    hidden.plainSelf = norm(await step(selfG, 'approve', PLAIN), selfG);
+    hidden.plainDisabled = norm(await step(offG, 'approve', PLAIN), offG);
+    await srv.call('POST', '/api/principals/restore', { body: { id: 'user:gamma' } });
+    for (const id of [selfG, offG]) await step(id, 'revoke', {}, { reason: '合成：收回' });
     const leaks = Object.entries(hidden).filter(([k, v]) => show(v) !== show(k.startsWith('plain') ? ghostPlain : ghostMg));
-    check(ghostMg.status === 404 && leaks.length === 0 && !/admin_required|owner_required|business_approval|dept-|member|active|pending/.test(show(hidden)),
-      '登录的人放行读不到的授予（第一档、第三档、普通员工放行第二档、已经生效的）：应答和一条不存在的授予一模一样，不带档位、角色、状态',
-      show({ ghostMg, ghostPlain, leaks }));
+    check(Number.isInteger(selfG) && Number.isInteger(offG) && disabled.status === 200 && realDisabled.status === 422 && realSelf === 'pending' && ghostMg.status === 404 && leaks.length === 0 && !/admin_required|owner_required|business_approval|self_grant|principal_disabled|user:|dept-|member|active|pending/.test(show(hidden)),
+      '登录的人放行读不到的授予（第一档、第三档、普通员工放行第二档、授给自己的、被授人已停用的、已经生效的）：应答和一条不存在的授予一模一样，不带档位、角色、状态',
+      show({ ghostMg, ghostPlain, leaks, selfG, offG, disabled: disabled.status, realDisabled: [realDisabled.status, realDisabled.json?.error], realSelf }));
     check(mg.a.status === 200 && listed.includes(biz) && !listed.includes(basic) && !listed.includes(top) && readBasic.status === 404
       && show(r) === show({ mgBiz: '200:active', mgBasic: '404:grant_missing', mgTop: '404:grant_missing', plainBiz: '404:grant_missing', anonBiz: '401:grants_auth_required', crossBiz: '403:grants_cross_origin_denied', tokenBasic: '200:active' }),
       '放行入口对登录的人放开（L19）：只有管理层、没有管理员身份的人列得到、放行得了带业务写的（200）；普通员工这类第一档、部门负责人这类第三档放行不了；列表里只有自己能放行的，看别的单条 404；普通员工放行不了；远程匿名 401；跨站 403；对照：口令照旧放行第一档',
