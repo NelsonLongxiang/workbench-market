@@ -163,6 +163,23 @@ try {
     }) && brief.id > 0,
       '部门范围的判定：dept:<部门> 的部门成员能读写本部门、不能拍板、别的部门不行；部门负责人能拍板；管理层哪个部门都行；系统管理员没有业务读写；待放行、停用、过期都不行；只在部门成员表里、只被指成部门负责人（没有授予）一样都不行；席位要责任人也有同一项权限、不能拍板；范围写法不对、主体不存在都拒',
       show(got));
+
+    // 拍板只给人：授予服务会拦住「带拍板的角色给席位」，这里直接在库里种一条（草稿 → 待核 → 生效），看判定这一层自己也拒
+    insert('seat:decide-bot', 'seat', 'user:mg');
+    const gid = Number(db.prepare("INSERT INTO grants (principal_id, role, scope, reason, created_by, created_at, updated_at) VALUES ('seat:decide-bot', 'management', 'dept:sales', '合成：绕过授予服务', 'cli', ?, ?)").run(now, now).lastInsertRowid);
+    db.prepare("UPDATE grants SET status = 'pending' WHERE id = ?").run(gid);
+    db.prepare("UPDATE grants SET status = 'active', approved_by = 'cli' WHERE id = ?").run(gid);
+    const seatDec = scopedVerdict({ principal: 'seat:decide-bot', action: 'change-request.approve', kind: 'decide', scope: 'dept:sales', now });
+    const seatWr = scopedVerdict({ principal: 'seat:decide-bot', action: 'sop-run.assign', kind: 'write', scope: 'dept:sales', now });
+    check(seatDec.verdict === 'deny' && seatDec.rule === 'decide-non-person' && seatWr.verdict === 'allow',
+      '部门范围的判定：库里硬种的「管理层给席位」（责任人也有这项权限），拍板照样拒（decide-non-person）；对照：同一条授予的写能过',
+      show({ seatDec, seatWr }));
+    // 范围写法：只收 dept:<部门标识>。持 * 授予的人，别的写法一律拒（scope-unsupported），不能因为 * 授予就放行
+    const odd = ['*', 'dept:', 'DEPT:x', 'dept:X', 'team:x', '', 'dept:sales/x'];
+    const oddGot = odd.map((sc) => { const r = scopedVerdict({ principal: 'user:mg', action: 'sop-run.read', kind: 'read', scope: sc, now }); return `${sc}=${r.verdict}:${r.rule}`; });
+    check(oddGot.every((x) => x.endsWith('=deny:scope-unsupported')) && scopedVerdict({ principal: 'user:mg', action: 'sop-run.read', kind: 'read', scope: 'dept:sales', now }).verdict === 'allow',
+      '部门范围的判定：范围只收 dept:<部门标识>；* 、空、大写、别的前缀、带斜杠的一律拒（scope-unsupported），持 * 授予的管理层也一样；对照：dept:sales 能过',
+      show(oddGot));
   }
 
   // ---------- 四、声明文件和内置预设同名：报错说清怎么改 ----------
