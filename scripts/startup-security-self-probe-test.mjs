@@ -10,7 +10,7 @@ const express=require('express');
 const { createStartupSecurityProbe, isStartupProbeRequest }=await import('../server/src/startup-security-self-probe.ts');
 let checks=0;const check=(name,condition)=>{assert.ok(condition,name);checks++;console.log('PASS '+name);};
 const noAuth='DO_NOT_LOG_SYNTHETIC_CREDENTIAL';
-async function fixture({mcpBroken=false,writeBroken=false,principalsBroken=false,callbackBroken=false,eventBroken=false,exportBroken=false,creatorBroken=false,listBroken=false,arrangeBroken=false,seatReplyBroken=false,grantsBroken=false,attentionBroken=false,appDataBroken=false,runWriteBroken=false,hang=false,off=false,control=false,hold=false,noChallenge=false,successWrite=false,nodeEnv='test'}={}){
+async function fixture({mcpBroken=false,writeBroken=false,principalsBroken=false,callbackBroken=false,eventBroken=false,exportBroken=false,creatorBroken=false,listBroken=false,arrangeBroken=false,seatReplyBroken=false,seatAskBroken=false,grantsBroken=false,attentionBroken=false,appDataBroken=false,runWriteBroken=false,hang=false,off=false,control=false,hold=false,noChallenge=false,successWrite=false,nodeEnv='test'}={}){
  const app=express(),logs=[],db=new DatabaseSync(':memory:');db.exec('CREATE TABLE workbenches(id INTEGER PRIMARY KEY,name TEXT)');let ordinaryHits=0;const requests=[];
  const probe=createStartupSecurityProbe({timeoutMs:hang?50:500,log:row=>logs.push(row)});app.use(probe.middleware);app.use(express.json());let release;const barrier=hold?new Promise(r=>release=r):Promise.resolve();
  const server=createServer(app);await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;
@@ -23,6 +23,7 @@ async function fixture({mcpBroken=false,writeBroken=false,principalsBroken=false
  app.post('/api/work-items',(_req,res)=>arrangeBroken?res.status(201).json({item_id:'wi_x'}):res.status(401).json({error:'work_items_auth_required'}));
  app.post('/api/work-items/:id/decision',(_req,res)=>creatorBroken?res.status(200).json({ok:true}):res.status(401).json({error:'work_items_auth_required'}));
  app.post('/api/work-items/:id/messages/:mid/reply',(_req,res)=>seatReplyBroken?res.status(200).json({ok:true}):res.status(401).json({error:'work_items_auth_required'}));
+ app.post('/api/work-items/:id/asks/:d/answer',(_req,res)=>seatAskBroken?res.status(200).json({ok:true}):res.status(401).json({error:'work_items_auth_required'}));
  app.get('/api/export',(req,res)=>req.query.reveal==='1'&&!exportBroken?res.status(403).json({error:'denied'}):res.json({masked:req.query.reveal==='1'?0:1,workbenches:[]}));
  app.get('/api/grants',(_req,res)=>grantsBroken?res.json({grants:[]}):res.status(403).json({error:'denied'}));
  app.post('/api/attention/answer',(_req,res)=>attentionBroken?res.status(404).json({error:'attention_item_not_found'}):res.status(403).json({error:'denied'}));
@@ -54,6 +55,7 @@ async function fixture({mcpBroken=false,writeBroken=false,principalsBroken=false
  const f4=await fixture({seatReplyBroken:true});try{const r=await f4.start();check('seat message reply entry that lets a remote anonymous browser reply fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.work-items.seat-reply-anonymous');}finally{await f4.close();}
  const fl=await fixture({listBroken:true});try{const r=await fl.start();check('work-item list readable by a remote anonymous browser fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.work-items.list-anonymous');}finally{await fl.close();}
  const f5=await fixture({arrangeBroken:true});try{const r=await f5.start();check('arrange entry that lets a remote anonymous browser create work fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.work-items.arrange-anonymous');}finally{await f5.close();}
+ const f6=await fixture({seatAskBroken:true});try{const r=await f6.start();check('seat ask answer entry that lets a remote anonymous browser answer fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.work-items.seat-ask-answer-anonymous');}finally{await f6.close();}
  const g=await fixture({grantsBroken:true});try{const r=await g.start();check('grant list readable by a remote anonymous browser fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.grants.admin-read');}finally{await g.close();}
  const at=await fixture({attentionBroken:true});try{const r=await at.start();check('attention answer entry that lets a remote anonymous browser past the write gate fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.attention.answer-anonymous');}finally{await at.close();}
  const aw=await fixture({appDataBroken:true});try{const r=await aw.probe.run({market:aw.server,control:aw.controlServer,gatewayOn:true,nodeEnv:'test',appDataRead:'warn'});check('WM_APP_DATA_READ=warn (rollout) skips the app data row instead of refusing startup',r.passed===true&&!r.rows.some(x=>x.id==='market.app-data.anonymous-read'));}finally{await aw.close();}
@@ -114,6 +116,7 @@ for(const nodeEnv of ['development','test']){
  app.post('/api/work-items',(_req,res)=>res.status(401).end());
  app.post('/api/work-items/:id/decision',(_req,res)=>res.status(401).end());
  app.post('/api/work-items/:id/messages/:mid/reply',(_req,res)=>res.status(401).end());
+ app.post('/api/work-items/:id/asks/:d/answer',(_req,res)=>res.status(401).end());
  const server=createServer(app);const running=probe.run({market:server,gatewayOn:true,nodeEnv:'test'});
  await new Promise(r=>setTimeout(r,900));await new Promise(r=>server.listen(0,'127.0.0.1',r));
  try{const r=await running;check('market surface that starts listening after the request timeout still passes',r.passed===true&&r.rows.some(x=>x.surface==='market')&&r.rows.filter(x=>x.surface==='market').every(x=>x.verdict==='pass'));}finally{server.closeAllConnections();await new Promise(r=>server.close(r));}

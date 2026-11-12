@@ -53,7 +53,7 @@ import type { GrantService } from './services/grant.ts';
 import type { RelationProposalService } from './services/relation-proposal.ts';
 import { browserMarked, rawLoopback } from './surfaces.ts';
 import { teamName } from './team-relation.ts';
-import { canSee, creatorOf, isManagement, turnOf, type WorkItemViewer } from './work-item-access.ts';
+import { askAnswerRole, canSee, creatorOf, isActivePerson, isManagement, turnOf, type WorkItemViewer } from './work-item-access.ts';
 
 export type AttentionDeps = {
   /** index.ts 的管理门（变更申请、MCP 权限申请、工作台事件用的就是它） */
@@ -158,17 +158,26 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
     ] : []),
     provide({
       source: 'seat-asks', label: '席位的提问',
-      // 旧接口 /api/workbench-events 在 ADMIN_IDENTITY_PATHS 里，会话登录的管理员在那里也算管理员
+      // 旧接口 /api/workbench-events 在 ADMIN_IDENTITY_PATHS 里，会话登录的管理员在那里也算管理员。
+      // 阶段七：建立人本人只看到自己事项上的提问（判断同 8e：creatorCheck 按主体标识，且事项可由建立人处理；建立人主体为空的只有管理员看得到），
+      // 持有管理层授予的人看得到、答得了全部（代办，askAnswerRole），
+      // 在事项页或 POST /api/work-items/:id/asks/:qid/answer 回答
       list: async (req) => {
-        if (!passes(deps.adminGuard, req)) return null;
-        const viewer = await attentionViewer(req, true);
+        const admin = passes(deps.adminGuard, req);
+        const viewer = await attentionViewer(req, admin);
+        if (!admin && !viewer.principal) return null;
         const items = svc<WorkItemService>('workItems');
-        return openSeatAsks().map((a) => {
+        const answerer = { ...viewer, person: isActivePerson(viewer.principal) };
+        // 列谁：管理门看全部；别人看自己事项上的（建立人），和答得了的（持有管理层授予的人代办，askAnswerRole）
+        const mineOk = (eventId: string) => admin || items.creatorCheck(`wi_${eventId}`, viewer.principal!) === 'ok' || askAnswerRole({ id: `wi_${eventId}` }, answerer) !== null;
+        return openSeatAsks().filter((a) => mineOk(a.event_id)).map((a) => {
           const w = items.get(`wi_${a.event_id}`);
           return item({
             source: 'seat-asks', source_id: String(a.delivery_id), category: 'ask',
             title: `${a.target_team} 问：${a.question || '（没写问题）'}${optionsHint(a.options)}`,
-            waiting_for: a.ask_kind === 'receipt' ? (a.asked_by || a.target_team) : a.asked_by ? `receiver:${a.asked_by}` : a.target_team, since: a.asked_at, answers: ['answer'],
+            waiting_for: a.ask_kind === 'receipt' ? (a.asked_by || a.target_team) : a.asked_by ? `receiver:${a.asked_by}` : a.target_team, since: a.asked_at,
+            // 答法只给答得了的人（askAnswerRole，和事项详情的 can.answer、答复入口同一处）：管理门看得到全部，但只过了管理门、没有管理层授予的不带答法
+            answers: w && askAnswerRole(w, answerer) !== null ? ['answer'] : [],
             link: `/work-items/wi_${a.event_id}`,
             // 提问轮到的是建立人：管理员在这里是代办（除非他就是建立人）
             mine: !!w && turnOf(w, viewer).answer, creator: w ? creatorOf(w) : null, cockpit_id: w?.cockpit_id ?? null,

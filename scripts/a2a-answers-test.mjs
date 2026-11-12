@@ -16,9 +16,14 @@ import { createServer } from 'node:http';
 import { createServer as netServer } from 'node:net';
 import { createHash, createPublicKey, generateKeyPairSync, sign as edSign } from 'node:crypto';
 import { mkdirSync, rmSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { signCard } from '@nelsonlongxiang/dsh-open-a2a-net/card';
+import { SESSIONS } from './identity-fake-provider.mjs';
+// 答席位提问是替建立人做业务决定（L21）：只认建立人本人或持有管理层授予的人，管理口令不行。
+// 这里起实例时换上假的登录提供方（测试夹具，只在 NODE_ENV=test 下干活），答复用一个持有管理层授予的人（user:no-flag）
+const PRELOAD = pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), 'identity-fake-preload.mjs')).href;
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -65,7 +70,7 @@ const post = async (raw, headers) => { const r = await fetch(BASE + '/a2a/direct
 const receiptRaw = (task, summary, env, ctx, inbound) => JSON.stringify({ team: 'market/12345678', message: `[A2A receipt] task ${task} ${summary}\n${JSON.stringify(env)}`, caller_session: 'superagent-team/a1b2c3d4e5f60718', context_id: ctx, wait: false, task_id: inbound ?? `receipt-${task}` });
 const receipt = (task, summary, env, ctx, opts = {}) => { const raw = receiptRaw(task, summary, env, ctx, opts.inbound); return post(raw, opts.unsigned ? {} : signed(opts.signer ?? lab, raw)); };
 
-const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
+const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', PRELOAD, 'src/index.ts'], {
   cwd: 'server',
   env: { ...process.env, DATA_DIR: DATA, PORT: String(PM), WM_CONTROL_PORT: '0', NODE_ENV: 'test', MCP_GATEWAY: 'off', ADMIN_TOKEN: 'ans-admin', MARKET_PUBLIC_URL: BASE, WM_A2A_DIRECT_SIG: '', WM_LOGIN_GATE: '', A2A_OUTBOX_BACKOFF_SCALE: '0.0001', WM_A2A_FOLLOWUP_RATE_10MIN: '80' },
   stdio: ['ignore', 'pipe', 'pipe'],
@@ -96,13 +101,26 @@ function seedEvent({ dispatch = 1, zone = 'lab', root = lab.url } = {}) {
 }
 const state = (ev) => q('SELECT state, open_asks FROM work_items WHERE id = ?', `wi_${ev}`)[0] ?? null;
 const noRecProbe = (inbound) => { const d = new DatabaseSync(join(DATA, 'workbench-market.db'), { timeout: 5000 }); try { d.exec('PRAGMA busy_timeout = 5000'); return d.prepare('SELECT COUNT(*) AS c FROM workbench_event_followups WHERE inbound_task = ?').get(inbound).c === 0; } finally { d.close(); } };
-const seatAsks = async () => ((await api('GET', '/api/attention')).body?.items ?? []).filter((x) => x.source === 'seat-asks');
-const answer = async (deliveryId, text) => { const r = await api('POST', '/api/attention/answer', { source: 'seat-asks', source_id: String(deliveryId), answer: 'answer', input: { text } }); return { status: r.status, body: r.body?.result ?? r.body }; };
+/** 持有管理层授予的人（会话登录）：席位提问由他代办答 */
+const MGMT = { cookie: `session_id=${SESSIONS.noAdminFlag}`, 'sec-fetch-site': 'same-origin' };
+const asMgmt = async (method, path, body) => { const r = await fetch(BASE + path, { method, headers: { ...MGMT, ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined }); let j = null; try { j = await r.json(); } catch {} return { status: r.status, body: j }; };
+/** 本机命令行（不带头）：授予只有它（代属主）放得了 */
+const cli = async (method, path, body) => { const r = await fetch(BASE + path, { method, headers: body ? { 'content-type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined }); let j = null; try { j = await r.json(); } catch {} return { status: r.status, body: j }; };
+const seatAsks = async () => ((await asMgmt('GET', '/api/attention')).body?.items ?? []).filter((x) => x.source === 'seat-asks');
+const answerAsToken = async (deliveryId, text) => { const r = await api('POST', '/api/attention/answer', { source: 'seat-asks', source_id: String(deliveryId), answer: 'answer', input: { text } }); return { status: r.status, body: r.body?.result ?? r.body }; };
+const answer = async (deliveryId, text) => { const r = await asMgmt('POST', '/api/attention/answer', { source: 'seat-asks', source_id: String(deliveryId), answer: 'answer', input: { text } }); return { status: r.status, body: r.body?.result ?? r.body }; };
 async function waitFor(fn, ms = 8000) { const end = Date.now() + ms; while (Date.now() < end) { if (await fn()) return true; await sleep(150); } return false; }
 
 try {
   if (!(await ready())) throw new Error('实例未就绪：' + out.slice(-600));
   for (let i = 0; i < 40; i++) { if (q("SELECT 1 FROM sqlite_master WHERE name = 'workbench_events'").length) break; await sleep(250); }
+  {
+    await asMgmt('GET', '/api/auth/viewer');
+    const g = await cli('POST', '/api/grants', { principal: 'user:no-flag', role: 'management', scope: '*', reason: '合成：管理层（代办答席位提问）' });
+    await cli('POST', `/api/grants/${g.body?.grant?.id}/submit`); await cli('POST', `/api/grants/${g.body?.grant?.id}/approve`);
+    const active = (await cli('GET', '/api/grants?principal=user:no-flag&status=active')).body?.grants ?? [];
+    ok('（准备）user:no-flag 持有管理层授予（答席位提问的代办人）', g.status === 201 && active.some((x) => x.role === 'management'), JSON.stringify({ g: g.status, active: active.map((x) => x.role) }));
+  }
 
   console.log('一、提问进「关注」');
   const a = seedEvent();
@@ -122,8 +140,25 @@ try {
   const mm = asks.filter((x) => x.source_id === String(m.delivery));
   ok('v1 提问之后又来回执提问 → 只列最近那条（回执里的）', mm.length === 1 && mm[0].title.includes('回执里的提问'), JSON.stringify(mm));
   ok('……两边条数仍相等（事项上旧提问已被新提问合上）', asks.length === openAsksTotal(), `${asks.length} vs ${openAsksTotal()}`);
+  {
+    const ia = (await api('GET', `/api/work-items/wi_${m.ev}`)).body?.asks ?? [];
+    ok('事项详情的提问列表：v1 的 decision:ask 和回执里的提问都在、按时间先后、各一条；旧的被新提问合上（closed），新的在等（open）',
+      ia.length === 2 && ia[0].question === 'v1 的提问' && ia[0].status === 'closed' && ia[1].question === '回执里的提问' && ia[1].status === 'open' && ia[1].options.length === 0, JSON.stringify(ia));
+  }
 
   console.log('二、答复发回');
+  {
+    // L21：管理口令只过了管理门，答席位提问是替建立人做决定——列表里不给它答法，答了被拒，不记答复、不发回
+    const tokenRow = ((await api('GET', '/api/attention')).body?.items ?? []).find((x) => x.source === 'seat-asks' && x.source_id === String(a.delivery));
+    const before = q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE delivery_id = ?", a.delivery)[0].c;
+    lab.got.length = 0;
+    const byToken = await answerAsToken(a.delivery, '口令来答');
+    await sleep(600);
+    ok('管理口令答席位提问：看得到这条但不给答法，答了被拒（400 attention_answer_not_offered），不记答复、不发回，提问仍开着',
+      tokenRow && tokenRow.answers.length === 0 && byToken.status === 400 && byToken.body?.error === 'attention_answer_not_offered'
+        && q("SELECT COUNT(*) AS c FROM workbench_event_replies WHERE delivery_id = ?", a.delivery)[0].c === before && lab.got.length === 0 && (await seatAsks()).some((x) => x.source_id === String(a.delivery)),
+      JSON.stringify({ tokenRow: tokenRow?.answers, byToken }));
+  }
   r = await answer(a.delivery, '发 apps 仓库');
   ok('答复 → 200，sent=true（已排发送）', r.status === 200 && r.body?.sent === true && r.body?.reason === 'queued', JSON.stringify(r.body));
   ok('……「关注」里这条不再等', !(await seatAsks()).some((x) => x.source_id === String(a.delivery)));
@@ -369,6 +404,28 @@ try {
     await receipt(M2.task, '接下', { idempotencyKey: M2.task, disposition: 'acknowledged', by: { seat: 'lab/aaaaaaaa', name: 'A 成员', role: 'member' } }, M2.ctx, { inbound: `ack-${M2.task}` });
     r = await receipt(taskB, '不接', { outcome: 'rejected', idempotencyKey: taskB, disposition: 'result', by: { seat: 'lab/bbbbbbbb', name: 'B 成员', role: 'member' } }, M2.ctx, { inbound: `receipt-${taskB}` });
     ok('别的团队「说不干了」（rejected，只记录）→ 承接仍是接手的团队', r.status === 200 && state(M2.ev)?.state === 'accepted' && seatOf(M2.ev) === 'lab/aaaaaaaa', `${seatOf(M2.ev)} ${JSON.stringify(state(M2.ev))}`);
+  }
+
+  console.log('二之三之三、回执的产物并进事项的 outputs');
+  {
+    const outs = (ev) => { const v = JSON.parse(q('SELECT outputs FROM work_items WHERE id = ?', `wi_${ev}`)[0]?.outputs ?? '[]'); return Array.isArray(v) ? v : []; };
+    const O = seedEvent();
+    await receipt(O.task, '接下', { idempotencyKey: O.task, disposition: 'acknowledged' }, O.ctx, { inbound: `ack-${O.task}` });
+    await receipt(O.task, '进展', { idempotencyKey: O.task, disposition: 'progress', progress: { n: 1, state: 'working', at: '2026-11-11T08:00:00.000Z' }, artifacts: [{ kind: 'table', id: 'orders' }, { kind: '', id: 'x' }, { kind: 'file', id: '' }] }, O.ctx, { inbound: `progress-${O.task}-1` });
+    ok('进展回执带的产物并进 outputs（坏的逐个丢）', JSON.stringify(outs(O.ev)) === JSON.stringify([{ kind: 'table', id: 'orders' }]), JSON.stringify(outs(O.ev)));
+    const many = [{ kind: 'table', id: 'orders' }, ...Array.from({ length: 20 }, (_, k) => ({ kind: 'file', id: `f${k}` }))];
+    await receipt(O.task, '做完了', { outcome: 'completed', idempotencyKey: O.task, disposition: 'result', artifacts: many }, O.ctx);
+    const o2 = outs(O.ev);
+    ok('结果回执的产物再并进来：按 kind+id 去重、保持先后、最多 16 项', o2.length === 16 && o2[0].kind === 'table' && o2[1].id === 'f0' && o2.filter((x) => x.id === 'orders').length === 1, JSON.stringify(o2));
+    const ia = (await api('GET', `/api/work-items/wi_${O.ev}`)).body?.item;
+    ok('……读接口的 item.outputs 就是这一份', ia && JSON.parse(ia.outputs).length === 16, String(ia?.outputs).slice(0, 80));
+    const U = seedEvent();
+    await receipt(U.task, '做完了', { outcome: 'completed', idempotencyKey: U.task, disposition: 'result', artifacts: [{ kind: 'table', id: 'stolen' }] }, U.ctx, { signer: evil });
+    ok('没采信的回执（别的宿主签的）带的产物不进 outputs', outs(U.ev).length === 0, JSON.stringify(outs(U.ev)));
+    // A11：签名对、但形状不对、不采信的回执（receipt-<task> 上的 disposition 不认识）带的产物也不进
+    const V = seedEvent();
+    r = await receipt(V.task, '奇怪的回执', { idempotencyKey: V.task, disposition: 'bogus', artifacts: [{ kind: 'table', id: 'not-accepted' }] }, V.ctx);
+    ok('A11：签名对但未采信的回执（receipt:unaccepted）带的产物不进 outputs', r.text.includes('"receipt":"not-accepted"') && outs(V.ev).length === 0, `${r.text.slice(0, 100)} ${JSON.stringify(outs(V.ev))}`);
   }
 
   console.log('二之四、来信分流先验格式再查库');

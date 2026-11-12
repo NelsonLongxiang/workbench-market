@@ -25,7 +25,7 @@ import { changeRequestReview } from './routes/change-requests.ts';
 import { benchMcpDecider } from './routes/bench-views.ts';
 import { sopRunAcceptance } from './routes/sop-run-lifecycle.ts';
 import { HttpError } from './errors.ts';
-import { currentAskOfDelivery, pendingAskOfDelivery, pendingPrincipalAppearance } from './services/attention-sources.ts';
+import { askLogRow, currentAskOfDelivery, pendingAskOfDelivery, pendingPrincipalAppearance } from './services/attention-sources.ts';
 import { askTaskOf, deliveryTarget, eventDispatched, inReplyTx, queueReply } from './services/a2a-replies.ts';
 import { kickWorkbenchEvents, logDeliveryFact } from './workbench-events.ts';
 import { listVars, workbenchScope } from './workbench-vars.ts';
@@ -33,6 +33,7 @@ import type { AnswerOutcome, AttentionProvider, AttentionService } from './servi
 import type { HttpService } from './http.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import { itemIdForEvent, type WorkItemService } from './services/work-item.ts';
+import { askAnswerRole, isActivePerson } from './work-item-access.ts';
 
 export type AnswerDeps = {
   adminGuard: (req: express.Request, res: express.Response) => boolean;
@@ -274,6 +275,35 @@ export async function creatorAnswer(id: string, principal: string, answer: strin
   });
 }
 
+/**
+ * 阶段七：回答一件事项上的一条席位提问（入口 POST /api/work-items/:id/asks/:qid/answer，管理员或建立人本人，认人在路由里）。
+ *   · qid 是提问那一行事件日志的 id（事项详情 asks[].id）；它必须属于这件事项、且是那次投递当前在等的提问；
+ *   · 请求体 { answer?, text? }：带选项的提问，answer 必须是选项之一；text 是自由文本；两者都给时以 answer 为准；
+ *     别的字段一概不看。答复作为同一 context 的新任务发回（v1 接单节点照旧只记不发）；
+ *   · 和「关注」里管理员的答复共用一本账（同一个去重键）：两个人同时答，一个生效、另一个 409（已处理，或正在处理）；本人重复答拿回第一次的结果。
+ */
+export async function answerItemAsk(itemId: string, askLogId: number, actor: string, body: Record<string, unknown>): Promise<AnswerOutcome & { duplicate?: boolean }> {
+  const row = askLogRow(askLogId);
+  if (!row || itemIdForEvent(row.event_id) !== itemId) return { status: 404, body: { error: 'seat_ask_not_found' } };
+  let detail: { question?: { options?: unknown } } = {};
+  try { detail = JSON.parse(row.detail || '{}'); } catch { /* 坏的 detail 当没有选项 */ }
+  const options = Array.isArray(detail.question?.options) ? (detail.question!.options as unknown[]).filter((o): o is string => typeof o === 'string') : [];
+  const picked = typeof body.answer === 'string' ? body.answer.trim() : '';
+  if (picked !== '' && options.length > 0 && !options.includes(picked)) return { status: 400, body: { error: 'answer_not_an_option', options } };
+  const answer = (picked !== '' ? picked : typeof body.text === 'string' ? body.text.trim() : '').slice(0, 4000);
+  if (!answer) return { status: 400, body: { error: 'text_required' } };
+  const attention = svc<AttentionService>('attention');
+  const key = `${row.delivery_id}:${row.id}`;
+  const pending = pendingAskOfDelivery(row.delivery_id);
+  if (!pending || pending.ask_log_id !== row.id) {
+    // 不在等了：按同一本账走（#657 的口径）——本人用同一种答法答成过的拿回第一次的结果，别人答过的 409 已处理；
+    // 谁都没答过（被后来的提问或接单、结果合上了）就是已合上（run 返回 409，账上不留占位）
+    return attention.once('seat-asks', key, 'answer', actor, async () => ({ status: 409, body: { error: 'seat_ask_not_pending' } }));
+  }
+  return attention.once('seat-asks', key, 'answer', actor, async () =>
+    DIRECT['seat-asks'].answer(undefined as unknown as Req, String(row.delivery_id), { text: answer }, actor));
+}
+
 /** 这个来源有哪些答法（换算表和直接实现的并起来）：入口拿它核答法 */
 export function answersOf(source: string): string[] {
   return [...Object.keys(FORWARD[source] ?? {}), ...Object.keys(DIRECT[source] ?? {})];
@@ -296,6 +326,22 @@ export function withAnswers(p: AttentionProvider<Req>, deps: AnswerDeps): Attent
         const who = cookie ? await identity().resolveViewer(cookie) : null;
         if (!who || !who.ok) return { status: 401, body: { error: 'work_items_auth_required' } };
         return creatorAnswer(sourceId, who.viewer.sub, answer, input);
+      }
+      // 席位的提问：答复是替建立人做决定，和事项入口同一处判（askAnswerRole）——建立人本人，或持有管理层授予的人；
+      // 只过了管理门的（管理口令、没有管理层授予的身份来源管理员）不能答。列表里已经不给他们答法，这里再判一次。答的人记登录的主体
+      if (p.source === 'seat-asks') {
+        const cookie = String(req.headers.cookie ?? '');
+        const who = cookie ? await identity().resolveViewer(cookie) : null;
+        const principal = who && who.ok ? who.viewer.sub : null;
+        const forbidden: AnswerOutcome = { status: 403, body: { error: 'seat_ask_answer_forbidden' } };
+        if (!principal) return forbidden;
+        const ask = /^[1-9]\d{0,15}$/.test(sourceId) ? pendingAskOfDelivery(Number(sourceId)) : null;
+        if (ask) {
+          const item = svc<WorkItemService>('workItems').get(itemIdForEvent(ask.event_id));
+          const viewer = { admin: false, principal, person: isActivePerson(principal), actor: principal, management: false };
+          if (!item || askAnswerRole(item, viewer) === null) return forbidden;
+        }
+        return attention().once(p.source, keyOf(p.source, sourceId), answer, principal, async () => directs!.answer(req, sourceId, input, principal));
       }
       const actor = await actorOf(req);
       return attention().once(p.source, keyOf(p.source, sourceId), answer, actor, async () => {
