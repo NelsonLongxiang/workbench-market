@@ -92,7 +92,7 @@
       "POST /api/teams/unassign  -> team.unassign  write  （状态码不代表授权：按团队的负责人判：负责人是按对象的范围，统一判定还不认（L13），由团队这个域自己判）",
       "GET /api/attention  -> attention.read  read",
       "POST /api/attention/answer  -> attention.answer  decide",
-      "GET /api/work-items  -> work-items.list  read  （没认出人回 401）",
+      "GET /api/work-items  -> work-items.list  read  （没认出人回 401）；细分：work-items.view-all  decide（「全部」视角只给管理层（按动作认，不按角色名；类别见 VIEW_ALL_KIND））",
       "GET /api/work-items/teams  -> work-items.teams  read",
       "POST /api/work-items  -> work-items.create  write  （没认出人回 401）",
       "GET /api/work-items/:id  -> work-item.read  read  （没认出人回 401）",
@@ -285,7 +285,8 @@
           "change-request.reject",
           "mcp.access-approve",
           "mcp.access-reject",
-          "workbench-event.release"
+          "workbench-event.release",
+          "work-items.view-all"
         ]
       },
       {

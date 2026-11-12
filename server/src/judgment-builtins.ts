@@ -83,6 +83,8 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       'mcp.access-reject',
       // 放行一次被扣住的投递：协调方定为决定类，管理口令今天能做，照搬登记成代属主行事（L11 #31，并入 L4）
       'workbench-event.release',
+      // 事项的「全部」视角、看任何一件的详情：管理层的拍板类动作；管理口令今天看得到全部，照搬登记成代属主行事
+      'work-items.view-all',
     ],
   },
   {

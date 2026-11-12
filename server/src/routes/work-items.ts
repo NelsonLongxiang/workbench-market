@@ -42,7 +42,7 @@ import type { PrincipalService } from '../services/principal.ts';
 import { creatorAnswer } from '../attention-answers.ts';
 import { markSeatMessagesRead, replySeatMessage, seatMessagesOf, seatProgressOf, SEAT_REPLY_MAX } from '../seat-messages.ts';
 import { principalsAdmin } from './principals.ts';
-import { canOf, creatorOf, turnOf, workItemViewer, writerVerdict } from '../work-item-access.ts';
+import { canOf, canSee, creatorOf, itemRoles, turnOf, VIEW_ALL_ACTION, VIEW_ALL_KIND, VIEWS, viewScopes, workItemViewer, writerVerdict, type ItemRole, type ViewName } from '../work-item-access.ts';
 import { arrangeTask } from '../task-center.ts';
 import { assignableTeams, kickWorkbenchEvents } from '../workbench-events.ts';
 
@@ -69,7 +69,7 @@ const CREATOR_DECIDES = '按事项的建立人判：只有建立人本人能验�
 export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps): void {
   // 列表：GET /api/work-items?state=&object=&phase=&limit=&cursor=。可见范围和详情同一个判断（管理员看全部，别人只看自己是建立人的），
   // 看不到的不出现也不计数。按 updated_at、id 倒序，游标翻页（limit 缺省 100、上限 200）；另带可见范围里按状态的计数
-  app.get('/api/work-items', { action: 'work-items.list', kind: 'read', unauthenticated: 401 }, (req, res, next) => {
+  app.get('/api/work-items', { action: 'work-items.list', kind: 'read', unauthenticated: 401, refine: [{ action: VIEW_ALL_ACTION, kind: VIEW_ALL_KIND, why: '「全部」视角只给管理层（按动作认，不按角色名；类别见 VIEW_ALL_KIND）', when: (req) => req.query.view === 'all' }] }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     res.vary('Cookie'); res.vary('X-Admin-Token');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
@@ -90,19 +90,28 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
         after = { updated_at: c.u, id: c.i };
       } catch { return void res.status(400).json({ error: 'work_items_cursor_invalid' }); }
     }
+    const viewRaw = str('view');
+    if (viewRaw !== undefined && !(VIEWS as readonly string[]).includes(viewRaw)) return void res.status(400).json({ error: 'work_items_view_invalid' });
+    const seat = str('seat');
+    if (seat !== undefined && (seat === '' || seat.length > 200)) return void res.status(400).json({ error: 'work_items_seat_invalid' });
     (async () => {
-      await deps.markOdooAdmin(req);
-      let viewer: string | null = null;
-      if (!deps.adminGuard(req, silentRes())) {
-        const cookie = String(req.headers.cookie ?? '');
-        if (!cookie) return void res.status(401).json({ error: 'work_items_auth_required' });
-        const who = await identity().resolveViewer(cookie);
-        if (!who.ok) return void res.status(401).json({ error: 'work_items_auth_required' });
-        viewer = who.viewer.sub;
-      }
-      const page = svc<WorkItemService>('workItems').page({ viewer, state: state as WorkItemState | undefined, object: str('object'), phase: str('phase'), limit, after });
+      const viewer = await workItemViewer(req, deps);
+      if (!viewer.admin && !viewer.principal) return void res.status(401).json({ error: 'work_items_auth_required' });
+      // 视角（规范 14 第九节第 4 条）：服务端按身份给出哪些视角可用、各几件；不带 view 时落在第一个有内容的（都没有就第一个可用的）
+      const scopes = viewScopes(viewer);
+      const items = svc<WorkItemService>('workItems');
+      const views = Object.fromEntries(VIEWS.map((v) => [v, scopes[v] ? { available: true, count: items.countIn(scopes[v]!) } : { available: false, count: 0 }])) as Record<ViewName, { available: boolean; count: number }>;
+      if (viewRaw !== undefined && !scopes[viewRaw as ViewName]) return void res.status(403).json({ error: 'work_items_view_unavailable', views });
+      const view = (viewRaw as ViewName | undefined) ?? VIEWS.find((v) => views[v].available && views[v].count > 0) ?? VIEWS.find((v) => views[v].available);
+      if (!view) return void res.json({ view: null, views, items: [], counts: Object.fromEntries(STATES.map((st) => [st, 0])), total: 0, next_cursor: null });
+      const page = items.page({ scope: scopes[view]!, state: state as WorkItemState | undefined, object: str('object'), phase: str('phase'), seat, limit, after });
+      // 视角的 SQL 只是加速：筛出来的每一条再按 itemRoles 过一遍，这个视角对应的那种人不成立的不给（列表里有、详情 404 的情况不允许出现）。
+      // SQL 和 itemRoles 同一个口径时这里一条都不会少；计数照 SQL，测试守「列表里每一条详情都是 200」和件数一致
+      const roleOf: Record<ViewName, ItemRole> = { mine: 'creator', seats: 'owner', team: 'lead', all: 'management' };
+      const shown = page.items.filter((w) => itemRoles(w, viewer).includes(roleOf[view]));
       res.json({
-        items: page.items.map((w) => ({
+        view, views,
+        items: shown.map((w) => ({
           id: w.id, title: w.title, state: w.state, object: w.object, phase: w.phase, seat: w.seat,
           last_progress: w.last_log, updated_at: w.updated_at,
         })),
@@ -159,20 +168,13 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
     const id = String(req.params.id ?? '');
     if (!ITEM_ID.test(id)) return void res.status(400).json({ error: 'work_item_id_invalid' });
     (async () => {
-      await deps.markOdooAdmin(req);
       const items = svc<WorkItemService>('workItems');
-      if (!deps.adminGuard(req, silentRes())) {
-        const cookie = String(req.headers.cookie ?? '');
-        if (!cookie) return void res.status(401).json({ error: 'work_items_auth_required' });
-        const who = await identity().resolveViewer(cookie);
-        if (!who.ok) return void res.status(401).json({ error: 'work_items_auth_required' });
-        const item = items.get(id);
-        if (!item || !isCreator(item, who.viewer.sub)) return void res.status(404).json({ error: 'work_item_not_found' });
-      }
-      const item = items.get(id);
-      if (!item) return void res.status(404).json({ error: 'work_item_not_found' });
-      // 只增：这个人能做什么（can）、是不是轮到他（turn）、建立人是谁（creator）。判断都在 work-item-access.ts，和各动作接口同一处
       const viewer = await workItemViewer(req, deps);
+      if (!viewer.admin && !viewer.principal) return void res.status(401).json({ error: 'work_items_auth_required' });
+      // 看得到的：建立人、管理层（itemRoles，规范 14 第九节第 1 条；成员的主人、负责人随关系确认制接上）。别的一律 404，不说有没有这件
+      const item = items.get(id);
+      if (!item || !canSee(item, viewer)) return void res.status(404).json({ error: 'work_item_not_found' });
+      // 只增：这个人能做什么（can）、是不是轮到他（turn）、建立人是谁（creator）。判断都在 work-item-access.ts，和各动作接口同一处
       res.json({ item, log: items.log(id), ...seatMessagesOf(item), progress: seatProgressOf(item), can: canOf(item, viewer), turn: turnOf(item, viewer), creator: creatorOf(item) });
     })().catch(next);
   });
