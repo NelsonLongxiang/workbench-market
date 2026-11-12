@@ -22,8 +22,8 @@ export type DepartmentLead = { principal: string; display_name: string; grant: '
 export type DepartmentView = {
   id: string; name: string; function_code: string | null; lead: DepartmentLead; member_count: number; source: DepartmentSource;
 };
-export type DepartmentMember = { principal: string; display_name: string; kind: string; status: string; is_lead: boolean };
-export type Membership = { id: string; name: string; function_code: string | null; is_lead: boolean; is_member: boolean };
+export type DepartmentMember = { principal: string; display_name: string; kind: string; status: string; is_lead: boolean; lead_pending: boolean };
+export type Membership = { id: string; name: string; function_code: string | null; is_lead: boolean; is_member: boolean; lead_pending: boolean };
 export type DepartmentRefusal = { ok: false; http: 400 | 404 | 409 | 422; code: string; message: string };
 
 export const DEPARTMENT_ID_RE = /^[a-z][a-z0-9-]{0,47}$/;
@@ -59,17 +59,26 @@ export class DepartmentService extends Service {
   members(id: string): DepartmentMember[] {
     const lead = (db.prepare('SELECT lead_principal FROM departments WHERE id = ?').get(id) as { lead_principal: string } | undefined)?.lead_principal ?? '';
     return (db.prepare(`SELECT m.principal_id AS principal, COALESCE(p.display_name, '') AS display_name, COALESCE(p.kind, '') AS kind, COALESCE(p.status, '') AS status
-      FROM department_members m LEFT JOIN principals p ON p.id = m.principal_id WHERE m.department_id = ? ORDER BY m.principal_id`).all(id) as Omit<DepartmentMember, 'is_lead'>[])
-      .map((m) => ({ ...m, is_lead: m.principal === lead }));
+      FROM department_members m LEFT JOIN principals p ON p.id = m.principal_id WHERE m.department_id = ? ORDER BY m.principal_id`).all(id) as Omit<DepartmentMember, 'is_lead' | 'lead_pending'>[])
+      // 负责人要字段写着他、并且持有这个部门的拍板授予；只有字段的报 lead_pending（待属主放行），不算负责人
+      .map((m) => { const field = m.principal === lead; const granted = field && leadGrantActive(m.principal, id); return { ...m, is_lead: granted, lead_pending: field && !granted }; });
   }
 
-  /** 这个主体属于哪些部门（是成员的，和是负责人的；负责人不一定是成员） */
+  /**
+   * 这个主体属于哪些部门（是成员的，和是负责人的；负责人不一定是成员）。团队的可见范围、「同部门看得到名字」都用它。
+   * 负责人要字段写着他、并且持有这个部门的拍板授予；只有字段的（待属主放行）不算负责人：不是成员的那个部门不列出来，
+   * 是成员的照列，标 lead_pending。字段单独不带来任何权力，读也一样
+   */
   of(principal: string): Membership[] {
     const rows = db.prepare(`SELECT d.id, d.name, d.function_code, d.lead_principal,
       (SELECT COUNT(*) FROM department_members m WHERE m.department_id = d.id AND m.principal_id = ?) AS member
       FROM departments d WHERE d.lead_principal = ? OR EXISTS (SELECT 1 FROM department_members m WHERE m.department_id = d.id AND m.principal_id = ?) ORDER BY d.id`)
       .all(principal, principal, principal) as { id: string; name: string; function_code: string; lead_principal: string; member: number }[];
-    return rows.map((r) => ({ id: r.id, name: r.name, function_code: r.function_code || null, is_lead: r.lead_principal === principal, is_member: Number(r.member) > 0 }));
+    return rows.flatMap((r) => {
+      const member = Number(r.member) > 0, field = r.lead_principal === principal, lead = field && leadGrantActive(principal, r.id);
+      if (!member && !lead) return [];
+      return [{ id: r.id, name: r.name, function_code: r.function_code || null, is_lead: lead, is_member: member, lead_pending: field && !lead }];
+    });
   }
 
   /** 建或改一个部门（标识建好不改）。lead 为 null 表示没有负责人；functionCode 为 null 表示不配职能代号 */
