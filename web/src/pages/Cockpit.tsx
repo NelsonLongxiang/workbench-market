@@ -161,7 +161,7 @@ export default function Cockpit() {
   if (!id) {
     return (
       <WmPage
-        subTitle="把常用的 2-4 个工作台拼成一屏分屏视图，按场景切换"
+        subTitle="一屏看住一条线或一个工作台：中间是它的看板和明细，左边是等你拍板的，右边是办理过程"
         extra={!READ_ONLY && <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -216,7 +216,7 @@ export default function Cockpit() {
             ))}
           </Flex>
         ) : (
-          <Empty description={READ_ONLY ? '还没有驾驶舱' : '还没有驾驶舱——新建一个，把工作台拼成一屏'} style={{ marginTop: 48 }}>
+          <Empty description={READ_ONLY ? '还没有驾驶舱' : '还没有驾驶舱。建一个，就能一屏看住一条线或一个工作台的看板、等你拍板的事和办理过程'} style={{ marginTop: 48 }}>
             {!READ_ONLY && <Button
               type="primary"
               onClick={() => api.createCockpit({ name: '我的驾驶舱' }).then((c) => nav(`/cockpit/${c.id}`))}
@@ -309,7 +309,7 @@ export default function Cockpit() {
       {READ_ONLY && <Alert type="info" showIcon className="wm-cockpit-readonly wm-w-full" message="驾驶舱在这里只能查看" description={READ_ONLY_HINT} />}
 
       {panels.length === 0 ? (
-        <Empty description={READ_ONLY ? '空驾驶舱' : '空驾驶舱——从右上角选择工作台加入分屏'} style={{ marginTop: 48 }} />
+        <Empty description={READ_ONLY ? '这个驾驶舱里还没有要看的东西' : '这个驾驶舱里还没有要看的东西——点右上角「编辑」，加一个工作台进来'} style={{ marginTop: 48 }} />
       ) : (
         <Grid
           className="wm-cockpit-grid"
