@@ -11,6 +11,7 @@ import { svc } from '../context.ts';
 import type { AttentionService } from '../services/attention.ts';
 import { installAttentionProviders, type AttentionDeps } from '../attention-providers.ts';
 import { answersOf } from '../attention-answers.ts';
+import { identity, IDENTITY_UNAVAILABLE, sourceDown } from '../identity.ts';
 
 export type AttentionRouteDeps = AttentionDeps & {
   /** 按需认定管理员登录（会话登录的管理员）：汇总之前认定一次，每个来源的守卫看到的是同一个结论，和提供方的先后无关 */
@@ -25,10 +26,16 @@ export function registerAttentionRoutes(app: HttpService, deps: AttentionRouteDe
     res.set('Cache-Control', 'private, no-store');
     res.vary('Cookie'); res.vary('X-Admin-Token');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'attention_cross_origin_denied' });
-    deps.markOdooAdmin(req)
-      .then(() => svc<AttentionService>('attention').collect(req))
-      .then((view) => res.json({ ...view, generated_at: new Date().toISOString() }))
-      .catch(next);
+    (async () => {
+      await deps.markOdooAdmin(req);
+      // 带了 cookie、不是管理员、身份来源不可达：不给一个空列表（看着像「没有要拍板的」），回 502 和固定代号，页面说「登录服务暂时联系不上」
+      const cookie = String(req.headers.cookie ?? '');
+      if (cookie && !deps.adminHeaderOk(req) && sourceDown(await identity().resolveViewer(cookie))) {
+        return void res.status(502).json({ error: IDENTITY_UNAVAILABLE, message: '登录服务暂时联系不上，稍后再试' });
+      }
+      const view = await svc<AttentionService>('attention').collect(req);
+      res.json({ ...view, generated_at: new Date().toISOString() });
+    })().catch(next);
   });
 
   /**

@@ -367,6 +367,15 @@ try {
       leadByMgmt: await approve(pLead, as(SESSIONS.noAdminFlag)), deptByMgmt: await approve(pDept, as(SESSIONS.noAdminFlag)),
     };
     const seen = listMgmt.json?.proposals?.find((p) => p.id === pClaim);
+    // 页面用的只增字段：mine（是不是看的人提的）、显示名（不露代号）
+    const listTok = await srv.call('GET', '/api/relations/proposals', { headers: token });
+    const tokClaim = listTok.json?.proposals?.find((p) => p.id === pClaim), tokDept = listTok.json?.proposals?.find((p) => p.id === pDept);
+    const names = seen && { mine: seen.mine, team: seen.team_name, node: seen.node_name, dept: seen.department_name, by: seen.proposed_by_name };
+    check(show(names) === show({ mine: false, team: 'Other', node: '合成节点', dept: '合成质检部', by: '管理员（口令）' })
+      && tokClaim?.mine === true && tokDept?.mine === true && tokDept.principal_name === 'Synthetic root-admin' && tokDept.department_name === '合成质检部' && tokDept.decided_by_name === null
+      && !show(seen).includes('"proposed_by_name":"admin-token"'),
+      '提议列表给页面的：mine（管理层看口令提的是假，口令看自己提的是真）；团队、节点、部门、被提名的人、提议人都给显示名，口令说「管理员（口令）」；没处理的处理人为 null',
+      show({ names, tokClaim: tokClaim?.mine, tokDept: tokDept && [tokDept.mine, tokDept.principal_name, tokDept.department_name, tokDept.decided_by_name] }));
     const claimByMgmt = await approve(pClaim, as(SESSIONS.noAdminFlag)); // 管理层（不是管理员）：经写请求总门的放行进来
     const leadByOwner = await approve(pLead, {}); // 属主（本机命令行）
     const deptByOwner = await approve(pDept, {});
@@ -382,6 +391,34 @@ try {
       && confirmed.claimed === 'qa' && confirmed.rootTeam?.includes('team-lead') && confirmed.rootQa?.includes('dept-lead'),
       '确认：认领要管理层或接收部门的负责人（管理口令、只有系统管理员身份的登录、不相干的员工 403），负责人只有属主（管理层 403）；管理层在列表和「等你拍板」里看得到、能确认；属主确认之后关系才生效',
       show({ tries: Object.fromEntries(Object.entries(tries).map(([k, r]) => [k, code(r)])), seen: seen && [seen.can_approve, seen.approve_denied_text], claimByMgmt: code(claimByMgmt), leadByOwner: code(leadByOwner), deptByOwner: code(deptByOwner), confirmed }));
+    // 2b) 驳回只归能确认的人，提的人只能撤回自己提的；系统管理员不替业务驳回别人提的（管理口令、管理员登录都一样）
+    {
+      const reject = (id, who) => srv.call('POST', `/api/relations/proposals/${id}/reject`, { ...who, body: { reason: '合成' } });
+      const pLeadRoot = (await srv.call('POST', '/api/teams/leads', { ...asRoot, body: { ...tMain, principal: 'user:beta' } })).json?.proposal?.id; // 管理员登录提的
+      const pDeptTok = (await srv.call('PUT', '/api/departments/qa', { headers: token, body: { name: '合成质检部', lead: 'user:beta' } })).json?.lead_proposal?.id; // 口令提的
+      const pMoveTok = (await srv.call('POST', '/api/teams/claim', { headers: token, body: { ...tOther, department: 'sales' } })).json?.proposal?.id; // 口令提的认领
+      const rootList = (await srv.call('GET', '/api/relations/proposals', asRoot)).json?.proposals ?? [];
+      const rootSees = rootList.filter((p) => p.status === 'pending').map((p) => p.id).sort();
+      const rootLead = rootList.find((p) => p.id === pLeadRoot);
+      const r = {
+        tokRejectsRootLead: await reject(pLeadRoot, { headers: token }), rootRejectsTokDept: await reject(pDeptTok, asRoot), rootRejectsTokMove: await reject(pMoveTok, asRoot),
+        rootWithdrawsOwn: await reject(pLeadRoot, asRoot), ownerRejectsDept: await reject(pDeptTok, {}), mgmtRejectsMove: await reject(pMoveTok, as(SESSIONS.noAdminFlag)),
+      };
+      const codes = Object.fromEntries(Object.entries(r).map(([k, v]) => [k, `${v.status}:${v.json?.error ?? v.json?.proposal?.status}`]));
+      check(show(codes) === show({ tokRejectsRootLead: '403:reject_not_allowed', rootRejectsTokDept: '403:reject_not_allowed', rootRejectsTokMove: '403:reject_not_allowed', rootWithdrawsOwn: '200:rejected', ownerRejectsDept: '200:rejected', mgmtRejectsMove: '200:rejected' })
+        && show(rootSees) === show([pLeadRoot]) && rootLead?.mine === true && rootLead.can_reject === true && rootLead.can_approve === false,
+        '驳回：系统管理员（管理口令、管理员登录）驳回别人提的负责人、认领提议 403；撤回自己提的 200；能确认的人（属主对负责人、管理层对认领）驳回 200；管理员登录的列表里只看到自己提的那条（can_reject 是撤回、can_approve 假） [red-line:relations-need-confirmation]',
+        show({ codes, rootSees, ids: { pLeadRoot, pDeptTok, pMoveTok }, rootLead: rootLead && [rootLead.mine, rootLead.can_reject, rootLead.can_approve] }));
+      // 处理过的也按看的人裁剪：看自己提的、自己处理的；别人提、别人处理的不列（属主全看）
+      const idsOf = async (who) => ((await srv.call('GET', '/api/relations/proposals', who)).json?.proposals ?? []).map((p) => p.id);
+      const mgmtIds = await idsOf(as(SESSIONS.noAdminFlag)), rootIds = await idsOf(asRoot), ownerIds = await idsOf({});
+      const has = (ids, id) => ids.includes(id);
+      check(has(mgmtIds, pMoveTok) && !has(mgmtIds, pDeptTok) && !has(mgmtIds, pLeadRoot)
+        && has(rootIds, pLeadRoot) && !has(rootIds, pDeptTok) && !has(rootIds, pMoveTok)
+        && [pLeadRoot, pDeptTok, pMoveTok].every((id) => has(ownerIds, id)),
+        '处理过的提议也按看的人裁剪：管理层看得到自己驳回的认领，看不到属主驳回的、管理员登录撤回的；管理员登录只看得到自己撤回的那条；属主全看',
+        show({ mgmt: [pMoveTok, pDeptTok, pLeadRoot].map((id) => has(mgmtIds, id)), root: [pLeadRoot, pDeptTok, pMoveTok].map((id) => has(rootIds, id)), owner: [pLeadRoot, pDeptTok, pMoveTok].map((id) => has(ownerIds, id)) }));
+    }
     // 3) 接收部门的负责人（dept:<部门> 有拍板授予）能确认挂到他部门的认领；没有授予的部门负责人（只在部门表里）不能
     const g = await srv.call('POST', '/api/grants', { body: { principal: 'user:beta', role: 'dept-lead', scope: 'dept:ops', reason: '合成：ops 负责人' } });
     await srv.call('POST', `/api/grants/${g.json?.grant?.id}/submit`); await srv.call('POST', `/api/grants/${g.json?.grant?.id}/approve`);

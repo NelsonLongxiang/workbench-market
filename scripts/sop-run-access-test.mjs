@@ -6,6 +6,7 @@ import {createHash} from 'node:crypto';
 import {createSopRunAccess} from '../server/src/sop-run-access.ts';
 import {renderReadonlySopPreview} from '../server/src/sop-readonly-channel.ts';
 import {root} from '../server/src/root-context.ts';
+import {SOURCE_DOWN_TTL_MS} from '../server/src/identity.ts';
 // Stage 5: identity only admits viewers that map to an active principal. This test opens no market DB, so it installs an
 // in-memory principal directory with the same contract (identity.ts PrincipalDirectory); production installs services/principal.ts.
 const disabled=new Set();
@@ -39,6 +40,9 @@ try{
  await check('disabled principal denied before data, restored principal admitted again',async()=>{const cap=await access.open(cookies.alpha,scope);disabled.add('user:alpha');await deny(()=>access.read(cookies.alpha,cap.capability,scope));await deny(()=>access.open(cookies.alpha,scope));disabled.delete('user:alpha');const again=await access.open(cookies.alpha,scope);assert.equal(again.run.authorized,true)});
  await check('explicit revocation epoch invalidates existing capability',async()=>{access.revokeSession(cookies.alpha);await deny(()=>access.read(cookies.alpha,owner.capability,scope))});
  for(const state of ['portal','missing','loggedout','offline'])await check('fresh Odoo '+state+' denied before data',async()=>{mode='alpha';const valid=await access.open(cookies.alpha,scope);mode=state;await deny(()=>access.read(cookies.alpha,valid.capability,scope));mode='alpha';await deny(()=>access.read(cookies.alpha,valid.capability,scope))});
+ // #639: an unreachable identity source is remembered for SOURCE_DOWN_TTL_MS (one wait per request, no hammering). Right after the
+ // outage the same session stays denied without a new upstream call (fail closed); once the window passes it is admitted again.
+ await check('source-down answer remembered briefly: still denied without refetch, admitted after the window',async()=>{mode='alpha';const before=fetches;await deny(()=>access.open(cookies.alpha,scope));assert.equal(fetches,before,'no upstream call inside the window');await new Promise(r=>setTimeout(r,SOURCE_DOWN_TTL_MS+100));const cap=await access.open(cookies.alpha,scope);assert.ok(cap.capability)});
  await check('revocation races fresh identity before issuing capability',async()=>{race=()=>access.revokeSession(cookies.alpha);await deny(()=>access.open(cookies.alpha,scope))});
  await check('hard expiry no sliding renewal',async()=>{const cap=await access.open(cookies.alpha,scope);at+=299999;await access.read(cookies.alpha,cap.capability,scope);at++;await deny(()=>access.read(cookies.alpha,cap.capability,scope))});
  await check('expiry during awaited identity denied',async()=>{const cap=await access.open(cookies.alpha,scope);race=()=>{at+=300000};await deny(()=>access.read(cookies.alpha,cap.capability,scope))});
