@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 /** MCP app_files_upload 完整性冒烟：有的 MCP 客户端会把过长的参数截短（常见截在 64KB），截在 4 的倍数上的 base64 照样能解码。
  *  覆盖：大文件经 /mcp 与 REST 工具完整收下；带 size / sha256 时不符即拒收且不落库；恰好 65536 字符又没带时按疑似截断拒收；
- *  坏 base64（长度不是 4 的倍数、非法字符）拒收；带对的 size / sha256 照常收。自起实例、空数据目录、网关开。 */
+ *  坏 base64（长度不是 4 的倍数、非法字符）拒收；带对的 size / sha256 照常收。
+ *  应答的核对结果（integrity / next）：MCP 与 REST 原始字节、multipart 上传，带对的 sha256 → sha256-verified，带错的 → 400 且库里和盘上都没有，
+ *  不带 → unverified 且 sha256 与内容一致。自起实例、空数据目录、网关开。 */
 import { spawn } from './owned-script-fixture.mjs';
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join, resolve } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
@@ -67,6 +69,43 @@ try {
   const url = Buffer.from([0xfb, 0xff, 0xfe, 0x3e, 0x3f, 0x01]);
   r = await call({ name: 'u.bin', content_base64: url.toString('base64url').padEnd(Math.ceil(url.toString('base64url').length / 4) * 4, '='), size: url.length });
   ok('U9 URL 安全的 base64（- 和 _）照常收', !r.isError && r.payload?.size === url.length, r.text.slice(0, 120));
+
+  // 应答的核对结果：带对的 sha256 → sha256-verified；带错的 → 拒收，库里和盘上都没有；不带 → unverified，sha256 与内容一致
+  const onDisk = () => { const walk = (d) => existsSync(d) ? readdirSync(d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(join(d, e.name)) : [e.name]) : []; return walk(join(data, 'uploads')).length; };
+  const doc = Buffer.from('核对结果 integrity\n'), docSha = createHash('sha256').update(doc).digest('hex'), wrongSha = 'f'.repeat(64);
+  r = await call({ name: 'v1.txt', content_base64: doc.toString('base64'), sha256: docSha });
+  ok('I1 MCP 带对的 sha256：integrity=sha256-verified，next 说不用下载回读', !r.isError && r.payload?.integrity === 'sha256-verified' && /无需下载回读/.test(r.payload?.next ?? ''), r.text.slice(0, 200));
+  r = await call({ name: 'v2.txt', content_base64: doc.toString('base64'), size: doc.length });
+  ok('I2 MCP 只带 size：integrity=size-verified', !r.isError && r.payload?.integrity === 'size-verified' && /不需要下载/.test(r.payload?.next ?? ''), r.text.slice(0, 200));
+  r = await call({ name: 'v3.txt', content_base64: doc.toString('base64') });
+  ok('I3 MCP 都没带：integrity=unverified，sha256 与内容一致，next 说比一下即可', !r.isError && r.payload?.integrity === 'unverified' && r.payload?.sha256 === docSha && /不需要下载/.test(r.payload?.next ?? ''), r.text.slice(0, 200));
+  let rows0 = await count(), disk0 = onDisk();
+  const viaTool = await fetch(B + '/api/mcp-rest/tools/app_files_upload', { method: 'POST', headers: H, body: JSON.stringify({ slug, name: 'v4.txt', content_base64: doc.toString('base64'), sha256: wrongSha }) });
+  ok('I4 MCP 带错的 sha256：400，库里和盘上都没有', viaTool.status === 400 && (await count()) === rows0 && onDisk() === disk0, `${viaTool.status} ${await count()}/${rows0} ${onDisk()}/${disk0}`);
+
+  const put = (name, headers = {}) => fetch(`${B}/api/mcp-rest/apps/${slug}/files/${encodeURIComponent(name)}`, { method: 'PUT', headers: { Authorization: 'Bearer ' + s.token, 'content-type': 'text/plain', ...headers }, body: doc });
+  let pr = await put('r1.txt', { 'X-Content-SHA256': docSha }), pb = await j(pr);
+  ok('I5 REST 原始字节带对的 X-Content-SHA256：201，sha256-verified', pr.status === 201 && pb?.integrity === 'sha256-verified' && pb?.sha256 === docSha && /无需下载回读/.test(pb?.next ?? ''), JSON.stringify(pb));
+  pr = await put('r2.txt'); pb = await j(pr);
+  ok('I6 REST 原始字节不带：201，unverified，sha256 与内容一致', pr.status === 201 && pb?.integrity === 'unverified' && pb?.sha256 === docSha, JSON.stringify(pb));
+  rows0 = await count(); disk0 = onDisk();
+  pr = await put('r3.txt', { 'X-Content-SHA256': wrongSha }); pb = await j(pr);
+  ok('I7 REST 原始字节带错的 X-Content-SHA256：400，库里和盘上都没有', pr.status === 400 && /不符/.test(pb?.error ?? '') && (await count()) === rows0 && onDisk() === disk0, `${pr.status} ${JSON.stringify(pb)} ${onDisk()}/${disk0}`);
+  pr = await put('r4.txt', { 'X-Content-SHA256': 'abc' }); pb = await j(pr);
+  ok('I8 REST 原始字节 X-Content-SHA256 不是 64 位十六进制：400，没落库', pr.status === 400 && (await count()) === rows0 && onDisk() === disk0, `${pr.status} ${JSON.stringify(pb)}`);
+
+  const multi = (name, field, headers = {}) => { const f = new FormData(); f.append('file', new Blob([doc], { type: 'text/plain' }), name); if (field) f.append('sha256', field); return fetch(`${B}/api/mcp-rest/apps/${slug}/files`, { method: 'POST', headers: { Authorization: 'Bearer ' + s.token, ...headers }, body: f }); };
+  pr = await multi('m1.txt', docSha); pb = await j(pr);
+  ok('I9 multipart 表单字段带对的 sha256：201，sha256-verified', pr.status === 201 && pb?.integrity === 'sha256-verified', JSON.stringify(pb));
+  pr = await multi('m2.txt', null, { 'X-Content-SHA256': docSha }); pb = await j(pr);
+  ok('I10 multipart 请求头带对的 sha256：201，sha256-verified', pr.status === 201 && pb?.integrity === 'sha256-verified', JSON.stringify(pb));
+  pr = await multi('m3.txt', null); pb = await j(pr);
+  ok('I11 multipart 不带：201，unverified，sha256 与内容一致', pr.status === 201 && pb?.integrity === 'unverified' && pb?.sha256 === docSha, JSON.stringify(pb));
+  rows0 = await count(); disk0 = onDisk();
+  pr = await multi('m4.txt', wrongSha); pb = await j(pr);
+  ok('I12 multipart 带错的 sha256：400，库里和盘上都没有', pr.status === 400 && (await count()) === rows0 && onDisk() === disk0, `${pr.status} ${JSON.stringify(pb)} ${onDisk()}/${disk0}`);
+  pr = await multi('m5.txt', docSha, { 'X-Content-SHA256': wrongSha }); pb = await j(pr);
+  ok('I13 multipart 请求头和字段不一致：400，库里和盘上都没有', pr.status === 400 && (await count()) === rows0 && onDisk() === disk0, `${pr.status} ${JSON.stringify(pb)}`);
 } finally {
   child.kill();
   await new Promise((r) => setTimeout(r, 300));
