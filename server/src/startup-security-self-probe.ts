@@ -117,7 +117,10 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
         { id: 'market.bench-views.anonymous-write', target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views', body: '{"slug":"wm-self-probe","title":"x"}', headers: REMOTE_ANON, status: 401 },
       ] : []),
       // 授予管理面：远程匿名列不出授予（GET 不经写请求总门，拒的是路由自己的管理门；登录门开着时登录门先拦 401）
-      { id: 'market.grants.admin-read', target: m, surface: 'market', method: 'GET', path: '/api/grants', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 },
+      // L19：授予的读对登录的人放开（只看自己能放行的），远程匿名仍然读不到（没登录 401）
+      { id: 'market.grants.admin-read', target: m, surface: 'market', method: 'GET', path: '/api/grants', headers: REMOTE_ANON, status: 401 },
+      // L19：授予的放行经写请求总门放行、路由内认人，远程匿名来必须 401（能不能放行再由三档规则判）
+      { id: 'market.grants.approve-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/grants/1/approve', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
       // 台数据：远程匿名不带台令牌读不到任何台的数据（守卫先于查台，台不存在也是 403；登录门开着时登录门先拦 401）。
       // WM_APP_DATA_READ=warn 是上线过渡，读照旧放行，这一行不跑
       ...(appDataRead === 'warn' ? [] : [{ id: 'market.app-data.anonymous-read', target: m, surface: 'market' as const, method: 'GET', path: '/api/apps/wm-self-probe/data', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 }]),

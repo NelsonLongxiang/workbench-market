@@ -367,12 +367,7 @@
           "class": "unauthorized",
           "what": "远程、没有口令：列不出授予",
           "request": { "method": "GET", "path": "/api/grants", "headers": { "x-forwarded-for": "192.0.2.10" } },
-          "response": {
-            "status": 403,
-            "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
-          }
+          "response": { "status": 401, "type": "application/json; charset=utf-8", "headers": { "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "grants_auth_required" } }
         },
         {
           "id": "list-bad-status",
@@ -498,12 +493,7 @@
           "class": "unauthorized",
           "what": "远程、没有口令：看不了",
           "request": { "method": "GET", "path": "/api/grants/1", "headers": { "x-forwarded-for": "192.0.2.10" } },
-          "response": {
-            "status": 403,
-            "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
-          }
+          "response": { "status": 401, "type": "application/json; charset=utf-8", "headers": { "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "grants_auth_required" } }
         },
         {
           "id": "get-bad-id",
@@ -630,12 +620,7 @@
           "class": "unauthorized",
           "what": "远程、没有口令：放行不了",
           "request": { "method": "POST", "path": "/api/grants/1/approve", "headers": { "x-forwarded-for": "192.0.2.10" } },
-          "response": {
-            "status": 403,
-            "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "需要有效的 X-Admin-Token 或 Odoo 管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
-          }
+          "response": { "status": 401, "type": "application/json; charset=utf-8", "headers": { "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "grants_auth_required" } }
         },
         {
           "id": "approve-missing",
