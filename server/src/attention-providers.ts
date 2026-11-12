@@ -132,8 +132,17 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
       // 有「拍板」的人（现在是管理层）；系统管理员和管理口令看不到——台里是业务数据
       source: 'bench-mcp', label: '台的 MCP 授予申请',
       list: async (req) => {
-        if (!benchMcpDecider || !(await benchMcpDecider(req, silentRes()))) return null;
-        return pendingBenchRequests().map((r) => item({
+        if (!benchMcpDecider) return null;
+        // 管理层看得到全部；别的人只看得到自己有拍板授予的部门的台上的申请。一条都轮不到、又不是管理层的，整个来源不可见
+        const all = await benchMcpDecider(req, silentRes(), null) !== null;
+        const seen = new Map<string, boolean>();
+        const rows = [];
+        for (const r of pendingBenchRequests()) {
+          if (!all && !seen.has(r.bench)) seen.set(r.bench, await benchMcpDecider(req, silentRes(), r.bench) !== null);
+          if (all || seen.get(r.bench)) rows.push(r);
+        }
+        if (!all && !rows.length) return null;
+        return rows.map((r) => item({
           source: 'bench-mcp', source_id: `${r.bench}:${r.id}`, category: 'grant', kind: 'bench-mcp',
           title: `MCP 会话 ${r.session || '（已删）'} 申请在「${r.bench_title}」上用 ${r.tools.length} 个工具${r.tools.some((t) => t.category === 'write') ? '（含写）' : '（只读）'}`,
           waiting_for: r.session ? `mcp:${r.session}` : '', since: new Date(r.created_at).toISOString(), answers: ['approve', 'reject'], link: '',

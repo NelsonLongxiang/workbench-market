@@ -1465,6 +1465,23 @@ db.exec(`CREATE TABLE IF NOT EXISTS bench_views (
   created_by TEXT NOT NULL,
   created_at INTEGER NOT NULL
 )`);
+// 台绑到哪个部门（必要时细到这个部门下的一个团队）。空串是没绑：只有管理层进得来。
+// 谁能读写一个绑了部门的台，看的是「已放行的、范围是这个部门的授予」（judgment.ts 的 scopedVerdict），不看部门成员表。
+try {
+  const bvCols = db.prepare('PRAGMA table_info(bench_views)').all() as { name: string }[];
+  for (const c of ['department_id', 'team_host', 'team']) if (!bvCols.some((x) => x.name === c)) db.exec(`ALTER TABLE bench_views ADD COLUMN ${c} TEXT NOT NULL DEFAULT ''`);
+} catch (e) { console.error(`[db] bench_views 加绑定列失败：${(e as Error).message}`); throw e; }
+db.exec(`CREATE TABLE IF NOT EXISTS bench_bind_audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  slug TEXT NOT NULL,
+  action TEXT NOT NULL,
+  before TEXT NOT NULL DEFAULT '',
+  after TEXT NOT NULL DEFAULT '',
+  actor TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_bench_bind_audit_slug ON bench_bind_audit (slug, id);`);
 // 数据视图的 MCP 工具授予（docs/data-views.md 第十节 3b）：按「会话 × 台 × 工具」记，不放进会话的 grants——
 // 那一份由系统管理员改写，而台里是业务数据。申请由会话提、台的管理层批；留痕记谁批的、哪个台。
 db.exec(`CREATE TABLE IF NOT EXISTS bench_mcp_grants (
