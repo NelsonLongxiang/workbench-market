@@ -222,7 +222,7 @@ export class RelationProposalService extends Service {
     // 核对（在事务里重读）、落关系、改状态一起：和失效那一轮互斥，不会确认到一半被收掉，也不会落了关系没改状态
     return this.exclusive((): { ok: true; proposal: ProposalRow } | ProposalRefusal => {
       const p = this.get(id);
-      if (!p) return refuse(404, 'proposal_missing', `提议 ${id} 不存在`);
+      if (!p || !this.visibleTo(p, actor, now)) return refuse(404, 'proposal_missing', `提议 ${id} 不存在`);
       const no = this.confirmRefusal(p, actor, now);
       if (no) return no;
       const applied = this.apply(p, actor, now);
@@ -243,6 +243,17 @@ export class RelationProposalService extends Service {
     return refuse(403, 'reject_not_allowed', '只有能确认的人能驳回；提议的人只能撤回自己提的');
   }
 
+  /**
+   * 这个人读不读得到这条提议：列表的裁剪和确认、驳回入口共用这一处。属主全看；待确认的，看自己能确认的和自己提的；
+   * 处理过的，看自己提的、自己处理的；失效的过了 EXPIRED_SHOW_MS 谁都不再列。读不到的，入口一律回和不存在时一样的 404
+   */
+  visibleTo(p: ProposalRow, actor: ProposalActor, now = Date.now()): boolean {
+    if (this.outcomeOf(p) === 'expired' && (p.decided_at ?? 0) < now - EXPIRED_SHOW_MS) return false;
+    if (actor.owner || this.isMine(p, actor)) return true;
+    if (p.status === 'pending') return this.confirmRefusal(p, actor, now) === null;
+    return p.decided_by === actor.by || (!!actor.principal && p.decided_by_principal === actor.principal);
+  }
+
   /** 这条是不是这个人提的 */
   isMine(p: ProposalRow, actor: ProposalActor): boolean {
     return p.proposed_by === actor.by || (!!actor.principal && p.proposed_by_principal === actor.principal);
@@ -250,11 +261,12 @@ export class RelationProposalService extends Service {
 
   reject(id: number, actor: ProposalActor, reason: string, now: number): { ok: true; proposal: ProposalRow } | ProposalRefusal {
     const p = this.get(id);
-    if (!p) return refuse(404, 'proposal_missing', `提议 ${id} 不存在`);
+    if (!p || !this.visibleTo(p, actor, now)) return refuse(404, 'proposal_missing', `提议 ${id} 不存在`);
     const no = this.rejectRefusal(p, actor, now);
     if (no) return no;
-    db.prepare("UPDATE relation_proposals SET status = 'rejected', decided_by = ?, decided_by_principal = ?, decided_at = ?, reason = ? WHERE id = ? AND status = 'pending'")
-      .run(actor.by.slice(0, 256), actor.principal, now, reason.slice(0, 500), id);
+    // 判过之后到写之前，别人可能已经确认或驳回了：没改到就是状态变了，不能回成功、带出别人的结果
+    if (db.prepare("UPDATE relation_proposals SET status = 'rejected', decided_by = ?, decided_by_principal = ?, decided_at = ?, reason = ? WHERE id = ? AND status = 'pending'")
+      .run(actor.by.slice(0, 256), actor.principal, now, reason.slice(0, 500), id).changes !== 1) return refuse(409, 'state', `提议 ${id} 的状态变了`);
     return { ok: true, proposal: this.get(id)! };
   }
 

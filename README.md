@@ -328,13 +328,16 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   seat-messages.ts（事项对话里的席位消息：跟进不进「关注」，在事项页列出、带未读数；看过标已读、回复作为同一 context 的新任务发回）
   attention-answers.ts（「关注」各来源的答法：转给原路由的换算表——路径固定、id 核形状后编码、请求体只取这种答法要的字段；席位提问的答复、事项的验收和退回直接实现）
   attention-forward.ts（进程内把答复转给原路由：全局中间件和原路由的守卫照走，身份头原样、来源地址照抄，应答原样交回）
+  attention-names.ts（「关注」条目的显示名 waiting_for_name、creator_name：在汇总那一层统一补，只给看的人本来就看得到的人的名字——管理员、本人、管理层、同部门的；别的给 null，席位、对端这些非人键给 null，MCP 会话给类型加名字）
   attention-providers.ts（「关注」的七个提供方：各来源用旧接口自己的守卫判可见性，只读地取数；阶段三搬完再挪回各域）
+  bench-mcp-tools.ts（数据视图的 MCP 工具定义：纯数据，十五个工具的名字、说明、类别和参数；都必须限定到台，授予和执行在 services/bench-mcp.ts）
   bench-query.ts（数据视图的查询描述：台的作者和 agent 不写 SQL，只给筛选、分组、聚合、排序、行数上限；这里核对并翻成参数化语句·名字只认白名单且必须已定义·值全走参数·见 docs/data-views.md）
   bench-views.ts（数据视图的视图描述：保存前核对组件类型、键、引用的数据集和列、查询、筛选栏参数；两个版本之间的差异·第一批八种组件）
   content-access.ts（内容票据与准入）
   content-static.ts（无令牌静态资产读取）
   content-surface.ts（内容面终结分发与到期引导）
   context.ts（服务容器）
+  db-busy.ts（库被别的连接锁着写时最多等多久：DB_BUSY_TIMEOUT_MS = 5000。市场主库、判定比对库用它，台库每次读写取它和那一次时限中较小的；部署切换时新旧进程短暂重叠写不直接报 database is locked，超过上限照样报错。多个进程同时写同一个库仍不支持）
   db.ts（schema+迁移）
   design-standard.ts（MCP design_standard 工具的 design token 标准只读读取）
   design-tokens-css.ts（DESIGN.md 生成的 tokens.css 服务端出口）
@@ -406,6 +409,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   a2a-replies.ts（市场回给团队的消息的发送状态：答复、来信回复、跟进回执；时间由代码生成后写入）
   a2a-stats.ts（A2A 出站积压的聚合读数：两张出站表按状态计数、最老待发、最近回执时长）
   attention-sources.ts（「关注」要用、来源里还没有现成函数的只读查询：席位未答的提问）
+  bench-mcp.ts（数据视图的 MCP 工具：授予按「会话 × 台 × 工具」记在自己的表里，不放进会话的 grants·申请由会话提、台的管理层批·读也按台限定·执行时把台库的方法对到工具名上）
   bench-registry.ts（视图台的登记：主库里只记有这个台、叫什么、谁建的·登记过的台才有库，没登记的标识一律当作不存在）
   bench-store.ts（台库对市场进程的接口：读写不在市场进程里跑，这里只排队、转发给工作线程、看时限、线程出事时收拾·读 3 秒写 15 秒，时限加宽限过了还不停才强行终止线程并另起·排队有上限·接口全异步·还没有对外入口，不判权限）
   bench-store-core.ts（台库的逻辑本体，在工作线程里跑：每个视图台一份自己的库，在数据目录 `bench-stores/` 下·数据集与列定义的版本·整份替换、追加、按主键更新和删行（逐行校验、幂等键、上限）·快照与退回·视图描述的版本、生效指针、并发保存不覆盖、回退只移指针·变更与写入记录只存摘要·视图取数（一次取齐各组件的数据）和表单提交·三道数据量上限·时间由调用方给、一个台的读写排成一队·到时限自己停下并回滚·运行时不引用 `db.ts`，建表语句由调用方递进来）
