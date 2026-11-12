@@ -49,6 +49,8 @@ export function scopeLabel(scope: unknown, blocks?: Map<string, string>): string
   if (k > 0 && Object.hasOwn(SCOPE_KIND, s.slice(0, k))) return `${SCOPE_KIND[s.slice(0, k)]} ${s.slice(k + 1)}`;
   return s;
 }
+/** 按范围的授予、矩阵里「范围内」的格子都要带的说明（身份线把对象范围接进判定后去掉） */
+export const SCOPE_PENDING = '尚未生效：按范围的授予要等对象范围接进判定';
 /** 按范围的授予现在还不生效（判定还没接上范围，遗留差异 L13）：范围不是「全部」的生效中授予要标出来 */
 export function scopeNotYetEffective(g: Pick<Grant, 'scope' | 'status'>): boolean {
   return g.status === 'active' && String(g.scope ?? '').trim() !== '*';

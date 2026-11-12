@@ -1,7 +1,7 @@
 """「谁能做什么」（照原型 3fbfd0b 重做的 /access）浏览器回归；由 scripts/sider-menu-browser.mjs 起合成实例后调用，参数为配置 JSON 路径。
 授予和主体两份列表用合成的应答（经 page.route 截下）；角色和矩阵用实例真的。核准、不给两个写请求也截下，核对发了什么。
   · 没有口令：授予读不到，说「只给管理员看」，不弹口令框；
-  · 有口令：两个页签（没有「以某人的身份看」）；待核准卡片、按人排的表（状态最左），范围不是全部的生效中授予标「范围尚未生效」；
+  · 有口令：两个页签（没有「以某人的身份看」）；待核准卡片、按人排的表（状态最左），范围不是全部的生效中授予标「尚未生效」；矩阵里「范围内」的格子同样标；
   · 核准发对了请求；不给要写理由，理由空着确认按钮不能点，写了才发、带着理由；被拒时说服务端给的说法；
   · 角色预设：每个角色一张卡、选中的角色有七块 × 四类的矩阵，格子是「全部 / 范围内 / 部分 / 只限自己 / 不能 / —」之一。"""
 import json, sys, urllib.request
@@ -75,7 +75,7 @@ with sync_playwright() as p:
     heads = [t.strip() for t in pg.locator('.wm-acc-table thead th').all_inner_texts() if t.strip()]
     check('表：状态最左、谁第二', heads[:2] == ['状态', '谁'], heads)
     body = pg.locator('.wm-acc-table tbody').inner_text()
-    check('表：AI 员工按工作台给的权限标「范围尚未生效」，全部范围的不标', body.count('范围尚未生效') == 1 and '工作台 3' in body, body)
+    check('表：AI 员工按工作台给的权限标「尚未生效」，全部范围的不标；表上方一句说明原因', body.count('尚未生效') == 1 and '工作台 3' in body and '要等对象范围接进判定' in pg.locator('.wm-acc-pending-cap').inner_text(), body)
     check('表：负责人——AI 员工写它挂在谁名下', '甲经理' in pg.locator('.wm-acc-table tbody tr', has_text='小算').inner_text())
 
     # 核准：管理员级的被拒，说服务端的说法
@@ -98,6 +98,8 @@ with sync_playwright() as p:
     rows = pg.locator('[data-testid=acc-matrix] tbody tr')
     check('矩阵：七大块一行一块、四类一列一类', rows.count() == len(mx['blocks']) == 7 and pg.locator('[data-testid=acc-matrix] thead th').count() == 1 + len(mx['kinds']))
     pg.locator('[data-testid=acc-role][data-id=dept-lead]').click(); pg.wait_for_timeout(200)
+    tds = [''.join(t.split()) for t in pg.locator('[data-testid=acc-matrix] tbody td:not(:first-child)').all_inner_texts()]
+    check('「范围内」的格子都标尚未生效、别的格子不标', any(tds) and all((t == '范围内尚未生效') == t.startswith('范围内') and (t == '范围内尚未生效' or '尚未生效' not in t) for t in tds), tds)
     cells = set(t.strip() for t in pg.locator('[data-testid=acc-matrix] tbody .wm-acc-cell').all_inner_texts())
     check('选部门负责人：格子都在说法里，有「范围内」', cells <= {'全部', '范围内', '部分', '只限自己', '不能', '—'} and '范围内' in cells, cells)
     want = mx['roles'][[r['id'] for r in mx['roles']].index('dept-lead')]['cells']['work']['read']

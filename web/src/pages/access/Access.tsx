@@ -16,7 +16,7 @@ import { approveAccessGrant, declineAccessGrant, getAccessGrants, getAccessMatri
 import { subscribeAdminToken } from '../../admin-token';
 import {
   ACCESS_TABS, CELL_LEGEND, actionProblem, cellLabel, declineReasonOk, grantActorRaw, grantRows, grantsOf, indexPrincipals, kindLabel, matrixOf,
-  pendingGrants, principalName, responsibleOf, roleName, roleUsage, rolesOf, scopeLabel, scopeNotYetEffective, sourceProblem, statusLabel, tabFromQuery, termLabel,
+  pendingGrants, principalName, responsibleOf, roleName, roleUsage, rolesOf, scopeLabel, scopeNotYetEffective, sourceProblem, statusLabel, tabFromQuery, termLabel, SCOPE_PENDING,
 } from '../../access-view';
 import type { AccessTab, Grant, Principal, RoleInfo, SourceResult, Tone } from '../../access-view';
 
@@ -103,7 +103,7 @@ export default function Access() {
   const columns: ColumnsType<Grant> = [
     { title: '状态', dataIndex: 'status', width: 120, render: (_v, g) => {
       const s = statusLabel(g.status);
-      return <span className="wm-acc-st"><Tag color={TAG[s.tone]}>{s.text}</Tag>{scopeNotYetEffective(g) && <span className="wm-acc-note" title="判定还没接上范围：按范围给的权限现在还不起作用">范围尚未生效</span>}</span>;
+      return <span className="wm-acc-st"><Tag color={TAG[s.tone]}>{s.text}</Tag>{scopeNotYetEffective(g) && <span className="wm-acc-note" title={SCOPE_PENDING}>尚未生效</span>}</span>;
     } },
     { title: '谁', dataIndex: 'principal_id', render: (_v, g) => <span className="wm-acc-who"><b>{principalName(g.principal_id, people)}</b>{kindLabel(people.get(g.principal_id)?.kind) && <span className="wm-acc-kind">{kindLabel(people.get(g.principal_id)?.kind)}</span>}</span> },
     { title: '角色', dataIndex: 'role', render: (_v, g) => roleName(g.role, roles) },
@@ -128,6 +128,7 @@ export default function Access() {
           </>
         )}
         <div className="wm-acc-sec"><h3>给出去的权限</h3><span className="wm-acc-n">{rows.length}</span><span className="wm-acc-cap">谁 · 什么角色 · 什么范围 · 到什么时候 · 谁给的</span></div>
+        {rows.some(scopeNotYetEffective) && <div className="wm-acc-pending-cap">标「尚未生效」的是按范围给的权限：按范围的授予要等对象范围接进判定，现在先按没有算。</div>}
         {sourceProblem('人的名字', src.principals) && <Alert className="wm-acc-alert" type="info" showIcon message="读不到人的名字，先用标识显示。" />}
         {rows.length === 0
           ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有给出去的权限。管理员起草一项授予、提交之后，会出现在这里等核准。" />
@@ -162,14 +163,14 @@ export default function Access() {
               <thead><tr><th>系统里的哪一块</th>{matrix.kinds.map((k) => <th key={k.key}>{k.name}</th>)}</tr></thead>
               <tbody>{matrix.blocks.map((b) => (
                 <tr key={b.key}><td><b>{b.name}</b></td>{matrix.kinds.map((k) => {
-                  const c = cellLabel(selected.cells?.[b.key]?.[k.key]);
-                  return <td key={k.key}><span className={`wm-acc-cell wm-acc-cell-${c.tone}`}>{c.text}</span></td>;
+                  const cell = selected.cells?.[b.key]?.[k.key], c = cellLabel(cell);
+                  return <td key={k.key}><span className={`wm-acc-cell wm-acc-cell-${c.tone}`} title={cell === 'scoped' ? SCOPE_PENDING : undefined}>{c.text}</span>{cell === 'scoped' && <span className="wm-acc-cell-mark" title={SCOPE_PENDING}>尚未生效</span>}</td>;
                 })}</tr>
               ))}</tbody>
             </table>
             <div className="wm-acc-legend">
               {CELL_LEGEND.map((c) => { const l = cellLabel(c); return <span key={c} className={`wm-acc-cell wm-acc-cell-${l.tone}`}>{l.text}</span>; })}
-              <span className="wm-acc-cap">「范围内」由给权限时选的范围决定。按范围给的权限现在尚未生效：判定还没接上范围，先按不能算。</span>
+              <span className="wm-acc-cap">「范围内」由给权限时选的范围决定。按范围给的权限现在尚未生效：要等对象范围接进判定，先按不能算。</span>
             </div>
           </>
         )}
